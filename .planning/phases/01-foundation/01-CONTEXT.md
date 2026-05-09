@@ -91,8 +91,13 @@ Docker Compose 启动所有基础服务（Postgres + pgvector, Redis, FastAPI）
 
 ### D-11: Tool 返回结构
 - Phase 1 的 read tools（get_order, get_refund_case, get_ticket_history）通过 API 端点暴露
+- 每个接口只返回自身实体，不带关联数据（查订单不带退款单/工单，Agent 需要时分别调用）
 - tool call 日志写入 audit_logs（含 trace_id），Phase 3 再建完整 agent_runs/agent_steps
 - 具体返回字段由 Claude's Discretion 决定
+
+### D-14: README 范围
+- Phase 1 写简洁版 README：项目介绍 + 快速开始 + 演示账号 + 当前状态，不超过 100 行
+- 完整版（架构图、API 列表、指标说明、安全声明）留到 Phase 6
 
 ### D-12: 测试门槛
 - Phase 1 完成标准必须通过以下测试：
