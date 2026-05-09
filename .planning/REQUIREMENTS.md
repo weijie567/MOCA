@@ -128,13 +128,71 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (To be filled during roadmap creation) | | |
+| AGNT-01 | 3 | Not started |
+| AGNT-02 | 3 | Not started |
+| AGNT-03 | 3 | Not started |
+| AGNT-04 | 3 | Not started |
+| AGNT-05 | 3 | Not started |
+| AGNT-06 | 3 | Not started |
+| AGNT-07 | 3 | Not started |
+| AGNT-08 | 3 | Not started |
+| RAG-01 | 2 | Not started |
+| RAG-02 | 2 | Not started |
+| RAG-03 | 2 | Not started |
+| RAG-04 | 2 | Not started |
+| RAG-05 | 3 | Not started |
+| RAG-06 | 2 | Not started |
+| TOOL-01 | 1 | Not started |
+| TOOL-02 | 1 | Not started |
+| TOOL-03 | 1 | Not started |
+| TOOL-04 | 3 | Not started |
+| TOOL-05 | 3 | Not started |
+| TOOL-06 | 1 | Not started |
+| TOOL-07 | 1 | Not started |
+| TOOL-08 | 1 | Not started |
+| TOOL-09 | 4 | Not started |
+| SAFE-01 | 4 | Not started |
+| SAFE-02 | 4 | Not started |
+| SAFE-03 | 4 | Not started |
+| SAFE-04 | 4 | Not started |
+| SAFE-05 | 4 | Not started |
+| SAFE-06 | 3 | Not started |
+| SAFE-07 | 3 | Not started |
+| SAFE-08 | 3 | Not started |
+| INFR-01 | 1 | Not started |
+| INFR-02 | 1 | Not started |
+| INFR-03 | 1 | Not started |
+| INFR-04 | 1 | Not started |
+| INFR-05 | 1 | Not started |
+| INFR-06 | 2 | Not started |
+| INFR-07 | 3 | Not started |
+| INFR-08 | 1 | Not started |
+| FRNT-01 | 4 | Not started |
+| FRNT-02 | 4 | Not started |
+| FRNT-03 | 4 | Not started |
+| FRNT-04 | 4 | Not started |
+| DATA-01 | 1 | Not started |
+| DATA-02 | 1 | Not started |
+| DATA-03 | 1 | Not started |
+| DATA-04 | 1 | Not started |
+| DATA-05 | 1 | Not started |
+| DATA-06 | 1 | Not started |
+| DATA-07 | 1 | Not started |
+| DATA-08 | 1 | Not started |
+| EVAL-01 | 2 | Not started |
+| EVAL-02 | 2 | Not started |
+| EVAL-03 | 3 | Not started |
+| EVAL-04 | 3 | Not started |
+| EVAL-05 | 4 | Not started |
+| EVAL-06 | 3 | Not started |
+| EVAL-07 | 3 | Not started |
+| EVAL-08 | 4 | Not started |
 
 **Coverage:**
-- v1 requirements: 54 total
-- Mapped to phases: 0
-- Unmapped: 54 (pending roadmap)
+- v1 requirements: 59 total
+- Mapped to phases: 59
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-09*
-*Last updated: 2026-05-09 after initial definition*
+*Last updated: 2026-05-09 after roadmap creation*
