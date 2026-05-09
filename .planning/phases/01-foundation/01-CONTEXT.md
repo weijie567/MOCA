@@ -91,9 +91,12 @@ Docker Compose 启动所有基础服务（Postgres + pgvector, Redis, FastAPI）
 
 ### D-11: Tool 返回结构
 - Phase 1 的 read tools（get_order, get_refund_case, get_ticket_history）通过 API 端点暴露
-- 每个接口只返回自身实体，不带关联数据（查订单不带退款单/工单，Agent 需要时分别调用）
+- 每个接口只返回自身实体，不嵌入完整关联对象
+- get_order 返回 minimal relation_hints：has_active_refund, latest_refund_case_id, has_open_ticket, latest_ticket_id
+- 不嵌入：完整 refund_case 对象、完整 ticket 对象、message histories、audit logs
+- Agent 需要退款/工单详情时显式调用 get_refund_case 或 get_ticket_history
+- 设计原则：小、可组合、权限友好、适配 Phase 3 Agent 编排
 - tool call 日志写入 audit_logs（含 trace_id），Phase 3 再建完整 agent_runs/agent_steps
-- 具体返回字段由 Claude's Discretion 决定
 
 ### D-14: README 范围
 - Phase 1 写简洁版 README：项目介绍 + 快速开始 + 演示账号 + 当前状态，不超过 100 行
