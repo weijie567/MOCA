@@ -85,7 +85,7 @@
 
 ### Evaluation
 
-- [ ] **EVAL-01**: golden set 至少包含规则问答、退款排障、补偿建议、审批触发、证据不足五类样本（25-40 条）
+- [x] **EVAL-01**: golden set 至少包含规则问答、退款排障、补偿建议、审批触发、证据不足五类样本（25-40 条）
 - [x] **EVAL-02**: 系统评估 RAG Hit@5
 - [ ] **EVAL-03**: 系统评估证据引用准确率
 - [ ] **EVAL-04**: 系统评估工具选择准确率
@@ -190,7 +190,7 @@
 | DATA-06 | 1 | Not started |
 | DATA-07 | 1 | Not started |
 | DATA-08 | 1 | Not started |
-| EVAL-01 | 2 | Not started |
+| EVAL-01 | 2 | Complete |
 | EVAL-02 | 2 | Complete |
 | EVAL-03 | 6 | Not started |
 | EVAL-04 | 6 | Not started |
