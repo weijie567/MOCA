@@ -5,6 +5,8 @@ import os
 
 from openai import AsyncOpenAI
 
+from src.config import settings
+
 
 class EmbeddingService:
     """DashScope text-embedding-v4 wrapper via OpenAI-compatible API."""
@@ -12,17 +14,18 @@ class EmbeddingService:
     def __init__(
         self,
         api_key: str | None = None,
-        base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        model: str = "text-embedding-v4",
-        dimensions: int = 1024,
-        batch_size: int = 10,
+        base_url: str | None = None,
+        model: str | None = None,
+        dimensions: int | None = None,
+        batch_size: int | None = None,
         max_retries: int = 3,
     ):
         self._api_key = api_key
-        self._base_url = base_url
-        self.model = model
-        self.dimensions = dimensions
-        self.batch_size = min(batch_size, 10)
+        self._base_url = base_url or settings.embedding_base_url
+        self.model = model or settings.embedding_model
+        self.dimensions = dimensions if dimensions is not None else settings.embedding_dimensions
+        effective_batch_size = batch_size if batch_size is not None else settings.embedding_batch_size
+        self.batch_size = min(effective_batch_size, 10)
         self.max_retries = max_retries
         self._client: AsyncOpenAI | None = None
 

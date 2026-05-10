@@ -128,3 +128,50 @@ async def test_search_tenant_isolation(client, auth_headers, session: AsyncSessi
     assert payload["success"] is True
     assert payload["data"]["retrieval_status"] == "no_evidence"
     assert payload["data"]["evidence"] == []
+
+
+@pytest.mark.asyncio
+async def test_search_excludes_chunk_with_mismatched_document_tenant(
+    client,
+    auth_headers,
+    session: AsyncSession,
+    seeded_session,
+):
+    """A bad chunk/document tenant mismatch must not leak document metadata."""
+    other_document = PolicyDocument(
+        id=uuid.uuid4(),
+        tenant_id=seeded_session["other_tenant"].id,
+        doc_key="other_refund",
+        doc_type="refund_rule",
+        title="异租户退款规则",
+        effective_date=date(2026, 1, 1),
+        risk_level="high",
+        content="异租户退款规则文档",
+    )
+    session.add(other_document)
+    await session.flush()
+
+    session.add(
+        PolicyChunk(
+            id=uuid.uuid4(),
+            tenant_id=seeded_session["tenant"].id,
+            doc_id=other_document.id,
+            chunk_id="bad_cross_tenant_001",
+            section="错配数据",
+            content="该 chunk 的 tenant 与 document tenant 不一致。",
+            risk_level="high",
+            effective_date=other_document.effective_date,
+            embedding=_unit_vector(0),
+        )
+    )
+    await session.commit()
+
+    with patch("src.api.routers.search.EmbeddingService") as embedding_service:
+        embedding_service.return_value.embed_query = AsyncMock(return_value=_unit_vector(0))
+        response = await _post_search(client, auth_headers, "七天无理由退款怎么处理？")
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["success"] is True
+    assert payload["data"]["retrieval_status"] == "no_evidence"
+    assert payload["data"]["evidence"] == []

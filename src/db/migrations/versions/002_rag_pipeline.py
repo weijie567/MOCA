@@ -18,8 +18,15 @@ depends_on: Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # Add semantic document key column
-    op.add_column("policy_documents", sa.Column("doc_key", sa.String(64), nullable=False, server_default=""))
+    # Add semantic document key column. Existing rows get unique legacy keys
+    # before the tenant-scoped unique constraint is applied.
+    op.add_column("policy_documents", sa.Column("doc_key", sa.String(64), nullable=True))
+    op.execute("""
+        UPDATE policy_documents
+        SET doc_key = 'legacy_' || replace(id::text, '-', '')
+        WHERE doc_key IS NULL
+    """)
+    op.alter_column("policy_documents", "doc_key", nullable=False)
     op.create_unique_constraint("uq_policy_documents_tenant_doc_key", "policy_documents", ["tenant_id", "doc_key"])
 
     # Fix embedding dimension: 1536 -> 1024

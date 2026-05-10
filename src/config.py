@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 60
     enable_demo_auth: bool = True
     database_echo: bool = False
+    embedding_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    embedding_model: str = "text-embedding-v4"
+    embedding_dimensions: int = 1024
+    embedding_batch_size: int = 10
 
 
 @lru_cache

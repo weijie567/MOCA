@@ -347,6 +347,7 @@ async def seed_policy_documents(session, tenants: dict[str, Tenant]) -> dict[str
         document = PolicyDocument(
             id=deterministic_id("policy_document", key),
             tenant_id=tenants["demo"].id,
+            doc_key=key,
             doc_type=doc_type,
             title=title,
             effective_date=today - timedelta(days=index),

@@ -74,7 +74,7 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-        return _error_response(request, 500, INTERNAL_ERROR, "Internal server error", {"reason": str(exc)})
+        return _error_response(request, 500, INTERNAL_ERROR, "Internal server error")
 
     @app.get("/health", response_model=ApiResponse)
     async def health(request: Request, session: AsyncSession = Depends(get_session)) -> ApiResponse:

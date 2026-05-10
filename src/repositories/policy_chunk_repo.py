@@ -42,7 +42,13 @@ class PolicyChunkRepository:
 
         stmt = (
             select(PolicyChunk, similarity_expr.label("score"))
-            .join(PolicyDocument, PolicyChunk.doc_id == PolicyDocument.id)
+            .join(
+                PolicyDocument,
+                and_(
+                    PolicyChunk.doc_id == PolicyDocument.id,
+                    PolicyDocument.tenant_id == tenant_id,
+                ),
+            )
             .options(selectinload(PolicyChunk.document))
             .where(
                 and_(
