@@ -7,6 +7,7 @@ depends_on: ["05"]
 files_modified:
   - scripts/eval_rag_hit_at_5.py
   - eval/golden_rag_queries.jsonl
+  - .planning/phases/02-rag-pipeline/06-CALIBRATION-AUDIT.md
   - tests/test_rag_eval.py
 autonomous: true
 requirements: [EVAL-02]
@@ -14,9 +15,10 @@ gap_closure: true
 must_haves:
   truths:
     - "Live DB-backed RAG Hit@5 is at least 80% while fallback accuracy remains at least 80%."
-    - "Eval diagnostics show ranked top-5 doc_key/chunk_id/section/score evidence for every failed non-fallback case."
+    - "Eval diagnostics show ranked top-5 doc_key/chunk_id/section/score/text-snippet evidence for every failed non-fallback case."
     - "Official Hit@5 scoring still requires an expected_chunk_ids match in top-5; expected_doc_ids are diagnostics only."
     - "Golden expected_chunk_ids are calibrated against current chunk IDs and semantically acceptable policy sections, not loosened to doc-only scoring."
+    - "Every changed golden case has a calibration audit entry tied to live ranked evidence and answer-bearing policy text."
     - "RAG-04 tenant/filter behavior, RAG-06 fallback thresholds, and RAG-07 citation validation are unchanged."
   artifacts:
     - path: "scripts/eval_rag_hit_at_5.py"
@@ -25,6 +27,9 @@ must_haves:
     - path: "eval/golden_rag_queries.jsonl"
       provides: "Calibrated 14-case Phase 2 golden set"
       contains: "expected_chunk_ids"
+    - path: ".planning/phases/02-rag-pipeline/06-CALIBRATION-AUDIT.md"
+      provides: "Per-case rationale for each golden expected_chunk_ids change using live ranked evidence and policy text snippets"
+      contains: "Added chunks"
     - path: "tests/test_rag_eval.py"
       provides: "DashScope-free eval scoring and calibration regression tests"
       contains: "test_score_case"
@@ -37,6 +42,14 @@ must_haves:
       to: "eval/golden_rag_queries.jsonl"
       via: "JSONL cases scored by expected_chunk_ids intersection"
       pattern: "expected_chunk_ids"
+    - from: ".planning/phases/02-rag-pipeline/06-CALIBRATION-AUDIT.md"
+      to: "eval/golden_rag_queries.jsonl"
+      via: "Documents every changed case by query/category and old/add/remove expected_chunk_ids"
+      pattern: "old expected chunks"
+    - from: ".planning/phases/02-rag-pipeline/06-CALIBRATION-AUDIT.md"
+      to: "scripts/eval_rag_hit_at_5.py"
+      via: "Uses Task 1 ranked diagnostics with rank/score/section/text_snippet for each added chunk"
+      pattern: "live rank"
     - from: "tests/test_rag_eval.py"
       to: "scripts/eval_rag_hit_at_5.py"
       via: "imports pure scoring helpers without calling DashScope or PostgreSQL"
@@ -117,14 +130,14 @@ similarity_expr >= min_similarity
   - Non-fallback cases pass only when at least one `expected_chunk_ids` value appears in top-5 retrieved chunk IDs.
   - Non-fallback cases record `expected_doc_id_hit` when top-5 evidence contains any expected doc_key, but this diagnostic never makes the case pass by itself.
   - Fallback cases pass only when `retrieval_status == "no_evidence"`.
-  - Failed case output includes ranked evidence with doc_key, chunk_id, section, score, and retrieval_status.
+  - Failed case output includes ranked evidence with doc_key, chunk_id, section, score, rank, text snippet, and retrieval_status.
   </behavior>
   <action>
   Refactor `scripts/eval_rag_hit_at_5.py` just enough to expose pure helpers while keeping the CLI behavior and non-zero threshold exit unchanged:
-  - Add `_ranked_evidence(result: RetrievalResult) -> list[dict[str, object]]` returning evidence in the retriever's order with keys `rank`, `doc_key`, `chunk_id`, `section`, and `score`.
+  - Add `_ranked_evidence(result: RetrievalResult) -> list[dict[str, object]]` returning evidence in the retriever's order with keys `rank`, `doc_key`, `chunk_id`, `section`, `score`, and `text_snippet`; populate `text_snippet` from `EvidenceItem.text` without truncating below the existing retriever snippet length.
   - Add `_score_case(case: dict[str, Any], result: RetrievalResult) -> dict[str, Any]` that returns at least `hit`, `reason`, `expected_chunks`, `got_chunks`, `expected_doc_id_hit`, `ranked_evidence`, and `retrieval_status`.
   - Replace inline per-case scoring in `main()` with `_score_case()` without changing official pass criteria from D-11e/D-11f.
-  - Extend `_print_report()` so failed cases print ranked evidence and whether expected_doc_ids were present in top-5.
+  - Extend `_print_report()` so failed cases print ranked evidence and whether expected_doc_ids were present in top-5. Each printed ranked evidence row must include `rank`, `doc_key`, `chunk_id`, `section`, `score`, and `text_snippet` so Task 2 can audit semantic acceptability from live evidence, not just chunk IDs.
   - Do not change `DEFAULT_THRESHOLD = 0.80`, `top_k=5`, `sys.exit(1)` on threshold failure, or `Retriever.search(...)` wiring.
   - Create `tests/test_rag_eval.py` with DashScope-free unit tests using `RetrievalResult` and `EvidenceItem` objects directly; do not touch PostgreSQL or environment variables.
   </action>
@@ -133,6 +146,7 @@ similarity_expr >= min_similarity
   - `grep -q "def _ranked_evidence" scripts/eval_rag_hit_at_5.py`
   - `grep -q "expected_doc_id_hit" scripts/eval_rag_hit_at_5.py`
   - `grep -q "ranked_evidence" scripts/eval_rag_hit_at_5.py`
+  - `grep -q "text_snippet" scripts/eval_rag_hit_at_5.py`
   - `grep -q "top_k=5" scripts/eval_rag_hit_at_5.py`
   - `grep -q "DEFAULT_THRESHOLD = 0.80" scripts/eval_rag_hit_at_5.py`
   - `grep -q "sys.exit(1)" scripts/eval_rag_hit_at_5.py`
@@ -149,7 +163,7 @@ similarity_expr >= min_similarity
 
 <task type="auto">
   <name>Task 2: Calibrate expected chunks against current corpus and live top-5 evidence</name>
-  <files>eval/golden_rag_queries.jsonl, tests/test_rag_eval.py</files>
+  <files>eval/golden_rag_queries.jsonl, .planning/phases/02-rag-pipeline/06-CALIBRATION-AUDIT.md, tests/test_rag_eval.py</files>
   <read_first>
   - eval/golden_rag_queries.jsonl
   - data/policies/*.md
@@ -163,7 +177,10 @@ similarity_expr >= min_similarity
   Calibrate `eval/golden_rag_queries.jsonl` for the current heading chunker and live retrieval diagnostics:
   - Generate the current chunk map from `data/policies/*.md` using `src.rag.chunker.chunk_markdown` and the document manifest in `scripts/ingest_policies.py`.
   - For each non-fallback golden case, verify every `expected_chunk_ids` value exists in that generated chunk map and belongs to one of the case's `expected_doc_ids`.
+  - Before modifying `eval/golden_rag_queries.jsonl`, run the live eval diagnostics from Task 1 and count only candidate chunks that are present in the top-5 ranked evidence, belong to one of the case's `expected_doc_ids`, and contain text that directly answers the query. This plan may proceed only if those semantically justified candidates are sufficient to bring non-fallback Hit@5 to at least 80% under unchanged expected-chunk scoring. If not enough candidates exist, stop before modifying the golden set, create `.planning/phases/02-rag-pipeline/06-SUMMARY.md` with a gap note recommending a follow-up retrieval-improvement plan, and do not mark this plan complete.
   - For the failed live categories named in UAT (`boundary`, `faq`, `refund_rule`, `sop`), use the Task 1 diagnostics from a live eval run to decide whether the top-5 contains semantically acceptable evidence from an expected doc but not the originally expected exact chunk. If yes, add the semantically acceptable chunk IDs to `expected_chunk_ids` instead of replacing the whole case with doc-only matching.
+  - Create or update `.planning/phases/02-rag-pipeline/06-CALIBRATION-AUDIT.md`. For every changed golden case, document: query, category, old expected chunks, added chunks, removed chunks if any, live rank, score, section, text snippet, and a concrete rationale explaining why each added chunk answers the query. Rationale must cite the answer-bearing policy text in the snippet; existence and doc ownership alone are insufficient.
+  - Preserve original expected chunks by default. Remove an original expected chunk only if it is invalid/nonexistent in the generated chunk map or clearly not answer-bearing for the query, and record the reason in `06-CALIBRATION-AUDIT.md`.
   - Keep exactly 14 JSONL lines, exactly 2 fallback cases, the existing category distribution, and all `should_fallback` booleans.
   - Do not add reranker, LLM judge, hybrid search, new documents, or broad RAG architecture changes.
   - Extend `tests/test_rag_eval.py` with a JSONL calibration test that loads the golden set, regenerates the chunk map, and asserts each non-fallback expected chunk exists and maps to an expected doc_key.
@@ -175,14 +192,20 @@ similarity_expr >= min_similarity
   - Categories remain `refund_rule=5`, `sop=3`, `faq=2`, `boundary=2`, `fallback=2`.
   - Every non-fallback `expected_chunk_ids` entry exists in the chunk map generated from `data/policies/*.md` by `chunk_markdown`.
   - Every non-fallback expected chunk belongs to one of that case's `expected_doc_ids`.
+  - `.planning/phases/02-rag-pipeline/06-CALIBRATION-AUDIT.md` exists and has one entry for every changed golden case.
+  - Every added expected chunk is present in Task 1 live ranked diagnostics with `live rank`, `score`, `section`, and `text snippet`.
+  - Every added expected chunk has a concrete answer-bearing rationale in `06-CALIBRATION-AUDIT.md`; existence, doc ownership, category match, or doc_id match alone is insufficient.
+  - No original expected chunk is removed unless `06-CALIBRATION-AUDIT.md` records that it is invalid/nonexistent or clearly not answer-bearing.
   - `grep -q "should_fallback" eval/golden_rag_queries.jsonl`
+  - `grep -q "Added chunks" .planning/phases/02-rag-pipeline/06-CALIBRATION-AUDIT.md`
+  - `grep -q "text snippet" .planning/phases/02-rag-pipeline/06-CALIBRATION-AUDIT.md`
   - `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_rag_eval.py -q` passes without `DASHSCOPE_API_KEY`.
   </acceptance_criteria>
   <verify>
     <automated>UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_rag_eval.py -q</automated>
-    <automated>UV_CACHE_DIR=/tmp/uv-cache uv run python -c "import json, collections; rows=[json.loads(l) for l in open('eval/golden_rag_queries.jsonl', encoding='utf-8') if l.strip()]; assert len(rows)==14; assert sum(1 for r in rows if r['should_fallback'])==2; assert collections.Counter(r['category'] for r in rows)=={'refund_rule':5,'sop':3,'faq':2,'boundary':2,'fallback':2}; print('OK')"</automated>
+    <automated>UV_CACHE_DIR=/tmp/uv-cache uv run python -c "import json, collections; rows=[json.loads(l) for l in open('eval/golden_rag_queries.jsonl', encoding='utf-8') if l.strip()]; assert len(rows)==14; assert sum(1 for r in rows if r['should_fallback'])==2; assert collections.Counter(r['category'] for r in rows)==collections.Counter({'refund_rule':5,'sop':3,'faq':2,'boundary':2,'fallback':2}); print('OK')"</automated>
   </verify>
-  <done>The golden set reflects current stable chunk IDs and accepted evidence sections while preserving the Phase 2 eval contract.</done>
+  <done>The golden set reflects current stable chunk IDs and semantically justified answer-bearing evidence sections, and every changed label is auditable against live ranked diagnostics while preserving the Phase 2 eval contract.</done>
 </task>
 
 <task type="auto">
@@ -203,7 +226,8 @@ similarity_expr >= min_similarity
   - Run the full pytest suite.
   - Run the live eval command with the same tenant ID from UAT: `f078f8b4-01cc-5d39-b90c-fd0eea01bad7`.
   - The live eval must report Hit@5 >= 80% and fallback accuracy >= 80%.
-  - If live eval is still below 80%, inspect the Task 1 diagnostics. If failed cases show `expected_doc_id_hit: true`, return to Task 2 and further calibrate only semantically acceptable expected chunks. If failed cases show `expected_doc_id_hit: false`, stop and record the ranked evidence in the summary; do not implement reranking, hybrid search, LLM judging, threshold changes, or retrieval architecture changes in this plan.
+  - If live eval is still below 80%, return to Task 2 only when Task 1 ranked diagnostics contain additional top-5 chunks that are semantically justified and sufficient to reach Hit@5 >= 80% under unchanged expected-chunk scoring. If the remaining failures do not have enough semantically justified calibration candidates, stop and create `.planning/phases/02-rag-pipeline/06-SUMMARY.md` with a gap note recommending a follow-up retrieval-improvement plan; do not mark the plan complete and do not claim EVAL-02 closure.
+  - Do not use `expected_doc_id_hit: true` alone as permission to calibrate. Added chunks must be top-5 ranked evidence with answer-bearing text snippets documented in `06-CALIBRATION-AUDIT.md`.
   - Do not edit `src/rag/retriever.py` or `src/repositories/policy_chunk_repo.py` in this plan unless a deterministic failing test proves a regression of an existing invariant: tenant filtering, doc_type/risk_level filtering, top_k=5 limiting, min_similarity fallback threshold, or citation metadata. If such a regression is proven, make the smallest fix and keep all existing `tests/test_retriever.py` and `tests/test_search_integration.py` expectations passing.
   </action>
   <acceptance_criteria>
@@ -211,6 +235,7 @@ similarity_expr >= min_similarity
   - `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short` passes.
   - Live eval with the UAT tenant exits 0 and prints `Hit@5:` at or above `80.0%`.
   - Live eval prints `Fallback accuracy:` at or above `80.0%`.
+  - `.planning/phases/02-rag-pipeline/06-CALIBRATION-AUDIT.md` links every changed golden case to Task 1 ranked diagnostics and concrete answer-bearing rationale.
   - `grep -q "MIN_SIMILARITY_THRESHOLD = 0.55" src/rag/retriever.py`
   - `grep -q "STRONG_EVIDENCE_THRESHOLD = 0.70" src/rag/retriever.py`
   - `grep -q "PolicyDocument.tenant_id == tenant_id" src/repositories/policy_chunk_repo.py`
@@ -249,6 +274,7 @@ similarity_expr >= min_similarity
 <verification>
 Overall gap closure checks:
 - Deterministic scoring/calibration tests pass without DashScope.
+- Calibration audit exists for every changed golden case and ties each added chunk to live rank, score, section, text snippet, and answer-bearing rationale.
 - Existing retriever and search integration tests pass.
 - Full pytest suite passes.
 - Live DB-backed eval after ingestion exits 0 with Hit@5 >= 80% and fallback accuracy >= 80%.
