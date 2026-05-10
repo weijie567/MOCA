@@ -19,6 +19,25 @@ FALLBACK_MESSAGE = "当前知识库中没有找到足够证据支持这个问题
 
 _ALNUM_PATTERN = re.compile(r"[a-z0-9]+")
 _CJK_PATTERN = re.compile(r"[\u4e00-\u9fff]+")
+_DOMAIN_ANCHORS = {
+    "补偿",
+    "审批",
+    "订单",
+    "客服",
+    "商家",
+    "商品",
+    "售后",
+    "投诉",
+    "物流",
+    "申诉",
+    "质量",
+    "退款",
+    "退货",
+    "运费",
+    "跨境",
+    "证据",
+    "争议",
+}
 
 
 def _query_terms(text: str) -> set[str]:
@@ -60,6 +79,10 @@ def _rerank_candidates(query: str, raw_results: list[tuple[object, float]]) -> l
     return [(chunk, vector_score) for chunk, vector_score, _, _ in scored]
 
 
+def _has_domain_anchor(query: str) -> bool:
+    return any(anchor in query for anchor in _DOMAIN_ANCHORS)
+
+
 class Retriever:
     def __init__(self, chunk_repo: PolicyChunkRepository, embedder: EmbeddingService):
         self.chunk_repo = chunk_repo
@@ -83,11 +106,13 @@ class Retriever:
             doc_type=doc_type,
             risk_level=risk_level,
         )
-        results = [
-            (chunk, score)
-            for chunk, score in _rerank_candidates(query, raw_results)
-            if score >= MIN_SIMILARITY_THRESHOLD
-        ][:top_k]
+        results = []
+        if _has_domain_anchor(query):
+            results = [
+                (chunk, score)
+                for chunk, score in _rerank_candidates(query, raw_results)
+                if score >= MIN_SIMILARITY_THRESHOLD
+            ][:top_k]
 
         evidence = [
             EvidenceItem(

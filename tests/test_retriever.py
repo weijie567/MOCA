@@ -224,3 +224,14 @@ async def test_hybrid_rerank_does_not_return_low_vector_candidate_with_high_over
 
     assert result.retrieval_status == "no_evidence"
     assert result.evidence == []
+
+
+@pytest.mark.asyncio
+async def test_out_of_domain_query_falls_back_even_with_weak_policy_matches():
+    retriever, _, _ = _retriever([(_chunk(section="沟通话术", content="客服应说明证据缺口和申诉入口。"), 0.57)])
+
+    result = await retriever.search("用户问如何更换银行卡绑定手机号？", tenant_id=uuid4(), top_k=5)
+
+    assert result.retrieval_status == "no_evidence"
+    assert result.evidence == []
+    assert result.fallback_message == FALLBACK_MESSAGE

@@ -25,4 +25,36 @@ The official eval remains exact `expected_chunk_ids` Hit@5 plus fallback accurac
 
 ## After Plan 07
 
-Pending Task 4 live re-ingestion and eval.
+Live re-ingestion command:
+
+`set -a; source .env; set +a; UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/ingest_policies.py --tenant-id f078f8b4-01cc-5d39-b90c-fd0eea01bad7`
+
+Result: 15/15 documents succeeded, 90 chunks regenerated with enriched embedding input.
+
+Live eval command:
+
+`set -a; source .env; set +a; UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/eval_rag_hit_at_5.py --tenant-id f078f8b4-01cc-5d39-b90c-fd0eea01bad7`
+
+Result: PASS.
+
+- Hit@5: 83.3%
+- Fallback accuracy: 100.0%
+- Non-fallback hits: 10/12
+- Fallback hits: 2/2
+
+The first post-rerank live eval reached Hit@5 83.3% but regressed fallback accuracy to 0.0% because the query prefix pulled weak policy matches for out-of-domain questions. Plan 07 fixed that regression with a deterministic support-domain anchor guard while preserving `MIN_SIMILARITY_THRESHOLD = 0.55`; support-domain queries still retrieve through `PolicyChunkRepository.search_similar()`, and out-of-domain queries fall back instead of surfacing weak policy evidence.
+
+## After Plan 07 Failed-Case Diagnostics
+
+Diagnostic command:
+
+`set -a; source .env; set +a; UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/eval_rag_hit_at_5.py --tenant-id f078f8b4-01cc-5d39-b90c-fd0eea01bad7 --diagnostic-top-k 20`
+
+Result: PASS with two remaining non-fallback misses that do not block EVAL-02.
+
+| Query | Final top-5 result | Diagnostic top-20 evidence |
+| --- | --- | --- |
+| `质量问题退款需要买家提供什么证据？` | Missed exact labels `quality_issue_policy_001` and `refund_policy_004`; top-5 contains answer-bearing quality evidence including `refund_policy_003`, `merchant_faq_003`, `quality_issue_policy_004`, and `quality_issue_policy_005`. | Expected chunks appear at diagnostic ranks 6 and 7, so bounded reranking improved recall but did not force all semantically related expected labels into top-5. |
+| `商家争议处理的时效是多久？` | Missed exact label `merchant_dispute_faq_002`; top-5 includes dispute/time-limit evidence such as `merchant_dispute_faq_005`, `cross_border_refund_004`, `merchant_faq_005`, and `refund_time_limits_002`. | Expected chunk appears at diagnostic rank 10. |
+
+EVAL-02 is closed by the official exact chunk-ID Hit@5 gate because live Hit@5 is at least 80% and fallback accuracy remains at least 80%. The residual misses are retained as audit evidence rather than hidden by label changes.
