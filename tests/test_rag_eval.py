@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from scripts.eval_rag_hit_at_5 import _ranked_evidence, _score_case
+from scripts.eval_rag_hit_at_5 import _parser, _ranked_evidence, _score_case
 from src.rag.schemas import EvidenceItem, RetrievalResult
 
 
@@ -113,3 +113,12 @@ def test_ranked_evidence_preserves_retriever_order_and_text_snippets():
             "text_snippet": "第一条证据",
         },
     ]
+
+
+def test_eval_parser_keeps_official_top5_and_allows_diagnostic_depth():
+    default_args = _parser().parse_args([])
+    diagnostic_args = _parser().parse_args(["--diagnostic-top-k", "20"])
+
+    assert default_args.threshold == 0.80
+    assert default_args.diagnostic_top_k == 5
+    assert diagnostic_args.diagnostic_top_k == 20
