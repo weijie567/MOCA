@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: unknown
-last_updated: "2026-05-10T09:41:47.879Z"
+status: in_progress
+last_updated: "2026-05-10T10:30:42.701Z"
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 4
+  total_plans: 10
   completed_plans: 5
-  percent: 100
+  percent: 50
 ---
 
 # Project State: MOCA
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-09)
 
 **Core value:** When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution.
-**Current focus:** Phase 02 — RAG Pipeline
+**Current focus:** Phase 02 — rag-pipeline
 
 ## Current Status
 
 - **Active phase:** 2
-- **Phase status:** Phase 1 complete; Phase 2 ready to plan
+- **Phase status:** Executing Phase 2 plans
 - **Blockers:** None
 
 ## Phase History
