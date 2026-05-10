@@ -1,6 +1,8 @@
 ---
 phase: 2
+plan: "04"
 plan_id: "04"
+type: execute
 title: "Retriever + Citation Validator + Search Endpoint"
 wave: 2
 depends_on: ["01", "02", "03"]
@@ -12,6 +14,43 @@ files_modified:
   - tests/test_retriever.py
 autonomous: true
 requirements: [RAG-04, RAG-06, RAG-07, EVAL-02]
+must_haves:
+  truths:
+    - "Retriever implements three-tier confidence scoring: strong >= 0.70, partial from 0.55 to 0.70, and no_evidence below 0.55."
+    - "Retriever evidence uses chunk.document.doc_key, not a UUID foreign key."
+    - "Citation validator uses deterministic field matching with no LLM dependency."
+    - "Search endpoint requires Security(get_current_user, scopes=[\"knowledge:read\"])."
+    - "Search endpoint returns ApiResponse with trace_id rather than a custom wrapper."
+    - "Search endpoint is registered under settings.api_v1_prefix at /search."
+  artifacts:
+    - path: "src/rag/retriever.py"
+      provides: "Retriever and confidence scoring"
+      contains: "STRONG_EVIDENCE_THRESHOLD"
+    - path: "src/rag/citation_validator.py"
+      provides: "Deterministic citation validation"
+      contains: "validate_citations"
+    - path: "src/api/routers/search.py"
+      provides: "Authenticated search API endpoint"
+      contains: "knowledge:read"
+    - path: "src/api/main.py"
+      provides: "Router registration"
+      contains: "search"
+    - path: "tests/test_retriever.py"
+      provides: "Retriever and citation validator tests"
+      contains: "no_evidence"
+  key_links:
+    - from: "src/api/routers/search.py"
+      to: "src/rag/retriever.py"
+      via: "endpoint delegates query handling to Retriever.search"
+      pattern: "Retriever"
+    - from: "src/rag/retriever.py"
+      to: "src/repositories/policy_chunk_repo.py"
+      via: "retriever uses repository vector search"
+      pattern: "search_similar"
+    - from: "src/api/routers/search.py"
+      to: "src/rag/citation_validator.py"
+      via: "endpoint validates returned evidence"
+      pattern: "validate_citations"
 ---
 
 # Plan 04: Retriever + Citation Validator + Search Endpoint

@@ -1,6 +1,8 @@
 ---
 phase: 2
+plan: "05"
 plan_id: "05"
+type: execute
 title: "Golden Set + Eval Script + Integration Test"
 wave: 3
 depends_on: ["03", "04"]
@@ -11,6 +13,37 @@ files_modified:
   - .env.example
 autonomous: true
 requirements: [EVAL-01, EVAL-02]
+must_haves:
+  truths:
+    - "Golden set has 14 queries with the planned category distribution."
+    - "Golden expected_chunk_ids use doc_key-based chunk ID format calibrated after dry-run."
+    - "Eval script has complete database setup rather than placeholder comments."
+    - "Eval script exits non-zero when score is below the 80 percent threshold."
+    - "Integration tests use seeded deterministic vectors rather than hash-based vectors."
+    - "Integration tests use the /api/v1/search/ URL path."
+    - ".env.example documents all required embedding environment variables."
+  artifacts:
+    - path: "eval/golden_rag_queries.jsonl"
+      provides: "RAG golden query set"
+      contains: "should_fallback"
+    - path: "scripts/eval_rag_hit_at_5.py"
+      provides: "Hit@5 evaluation runner"
+      contains: "threshold"
+    - path: "tests/test_search_integration.py"
+      provides: "Search endpoint integration tests"
+      contains: "/api/v1/search/"
+    - path: ".env.example"
+      provides: "Embedding environment variable documentation"
+      contains: "DASHSCOPE_API_KEY"
+  key_links:
+    - from: "scripts/eval_rag_hit_at_5.py"
+      to: "eval/golden_rag_queries.jsonl"
+      via: "evaluation loads golden queries from JSONL"
+      pattern: "golden"
+    - from: "tests/test_search_integration.py"
+      to: "src/api/routers/search.py"
+      via: "integration tests exercise the registered search endpoint"
+      pattern: "/api/v1/search/"
 ---
 
 # Plan 05: Golden Set + Eval Script + Integration Test

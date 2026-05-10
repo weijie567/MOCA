@@ -1,6 +1,8 @@
 ---
 phase: 2
+plan: "01"
 plan_id: "01"
+type: execute
 title: "Schema Migration + Dependencies + Pydantic Schemas"
 wave: 1
 depends_on: []
@@ -12,6 +14,31 @@ files_modified:
   - src/db/migrations/versions/002_rag_pipeline.py
 autonomous: true
 requirements: [RAG-02, RAG-03]
+must_haves:
+  truths:
+    - "Vector dimension is 1024, not 1536."
+    - "PolicyDocument has a doc_key column with tenant-scoped uniqueness."
+    - "PolicyChunk.chunk_id is indexed for citation lookup."
+    - "RAG schemas use doc_key rather than doc_id as the semantic identifier."
+    - "The API contract uses ApiResponse instead of a custom SearchResponse wrapper."
+  artifacts:
+    - path: "src/db/models.py"
+      provides: "RAG policy document and chunk model changes"
+      contains: "Vector(1024)"
+    - path: "src/db/migrations/versions/002_rag_pipeline.py"
+      provides: "Database migration for RAG schema and vector index"
+      contains: "vector_cosine_ops"
+    - path: "src/rag/schemas.py"
+      provides: "Pydantic schemas for retrieval and search"
+      contains: "doc_key"
+    - path: "pyproject.toml"
+      provides: "OpenAI client dependency"
+      contains: "openai>=1.30"
+  key_links:
+    - from: "src/db/models.py"
+      to: "src/db/migrations/versions/002_rag_pipeline.py"
+      via: "matching PolicyDocument and PolicyChunk schema definitions"
+      pattern: "doc_key"
 ---
 
 # Plan 01: Schema Migration + Dependencies + Pydantic Schemas

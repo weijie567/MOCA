@@ -1,6 +1,8 @@
 ---
 phase: 2
+plan: "03"
 plan_id: "03"
+type: execute
 title: "Repositories + Ingestion Service + CLI + Knowledge Documents"
 wave: 2
 depends_on: ["01", "02"]
@@ -26,6 +28,45 @@ files_modified:
   - data/policies/merchant_dispute_faq.md
 autonomous: true
 requirements: [RAG-01, RAG-02, RAG-03, RAG-04, INFR-06]
+must_haves:
+  truths:
+    - "The policy corpus contains exactly the 15 manifest-backed Chinese Markdown documents."
+    - "Repositories follow existing project patterns with AsyncSession constructor injection."
+    - "Vector search joins PolicyDocument for doc_type and risk_level filtering."
+    - "Vector search eager-loads the document relationship."
+    - "Ingestion embeds content outside the database transaction."
+    - "The ingestion CLI supports --dry-run without requiring an API key or database connection."
+    - "The ingestion CLI supports --tenant-id."
+    - "Failure of one document does not prevent other documents from ingesting."
+  artifacts:
+    - path: "src/repositories/policy_document_repo.py"
+      provides: "Policy document persistence"
+      contains: "class PolicyDocumentRepository"
+    - path: "src/repositories/policy_chunk_repo.py"
+      provides: "Policy chunk vector search"
+      contains: "search_similar"
+    - path: "src/rag/ingestion.py"
+      provides: "Policy ingestion orchestration"
+      contains: "class IngestionService"
+    - path: "scripts/ingest_policies.py"
+      provides: "Policy ingestion CLI"
+      contains: "--dry-run"
+    - path: "data/policies/refund_policy.md"
+      provides: "Chinese refund policy corpus entry"
+      contains: "##"
+  key_links:
+    - from: "scripts/ingest_policies.py"
+      to: "src/rag/ingestion.py"
+      via: "CLI delegates document processing to IngestionService"
+      pattern: "IngestionService"
+    - from: "src/rag/ingestion.py"
+      to: "src/rag/chunker.py"
+      via: "ingestion chunks Markdown before persistence"
+      pattern: "chunk_markdown"
+    - from: "src/rag/ingestion.py"
+      to: "src/rag/embedder.py"
+      via: "ingestion embeds chunks before database writes"
+      pattern: "embed_documents"
 ---
 
 # Plan 03: Repositories + Ingestion Service + CLI + Knowledge Documents

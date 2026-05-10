@@ -1,6 +1,8 @@
 ---
 phase: 2
+plan: "02"
 plan_id: "02"
+type: execute
 title: "Markdown Chunker + Embedding Service"
 wave: 1
 depends_on: []
@@ -10,6 +12,28 @@ files_modified:
   - tests/test_chunker.py
 autonomous: true
 requirements: [RAG-01, RAG-02, RAG-03, INFR-06]
+must_haves:
+  truths:
+    - "Chunker splits Markdown by headings with stable deterministic chunk_ids using doc_key."
+    - "Oversized sections get secondary sentence-boundary splits with overlap."
+    - "Embedding service uses lazy client initialization and does not crash without an API key at construction."
+    - "Embedding batch_size is clamped to a maximum of 10."
+    - "Chunk size limits use Chinese character counting rather than token counting."
+  artifacts:
+    - path: "src/rag/chunker.py"
+      provides: "Heading-based Markdown chunking"
+      contains: "def chunk_markdown"
+    - path: "src/rag/embedder.py"
+      provides: "DashScope-compatible embedding service"
+      contains: "class EmbeddingService"
+    - path: "tests/test_chunker.py"
+      provides: "Chunking behavior regression tests"
+      contains: "chunk_markdown"
+  key_links:
+    - from: "src/rag/chunker.py"
+      to: "src/rag/schemas.py"
+      via: "doc_key and chunk_id fields match retrieval schema identifiers"
+      pattern: "doc_key"
 ---
 
 # Plan 02: Markdown Chunker + Embedding Service
