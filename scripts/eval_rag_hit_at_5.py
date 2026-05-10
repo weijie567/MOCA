@@ -53,6 +53,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--golden-set", default=DEFAULT_GOLDEN_SET, help="Path to JSONL golden set")
     parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD, help="Minimum accepted score")
     parser.add_argument("--tenant-id", help="Tenant UUID (default: first active tenant)")
+    parser.add_argument(
+        "--diagnostic-top-k",
+        type=int,
+        default=5,
+        help="Diagnostic-only evidence depth for failed cases; official scoring remains top_k=5",
+    )
     return parser
 
 
@@ -150,6 +156,19 @@ def _print_report(
                     f"score={evidence['score']:.4f} "
                     f"text_snippet={evidence['text_snippet']}"
                 )
+            diagnostic_evidence = failed.get("diagnostic_ranked_evidence", [])
+            if diagnostic_evidence:
+                print("    diagnostic ranked evidence:")
+                for evidence in diagnostic_evidence:
+                    print(
+                        "      "
+                        f"rank={evidence['rank']} "
+                        f"doc_key={evidence['doc_key']} "
+                        f"chunk_id={evidence['chunk_id']} "
+                        f"section={evidence['section']} "
+                        f"score={evidence['score']:.4f} "
+                        f"text_snippet={evidence['text_snippet']}"
+                    )
 
 
 async def main() -> None:
@@ -184,6 +203,14 @@ async def main() -> None:
             result = await retriever.search(query=case["query"], tenant_id=tenant_id, top_k=5)
             scored = _score_case(case, result)
             category = case["category"]
+
+            if args.diagnostic_top_k != 5 and not scored["hit"]:
+                diagnostic_result = await retriever.search(
+                    query=case["query"],
+                    tenant_id=tenant_id,
+                    top_k=args.diagnostic_top_k,
+                )
+                scored["diagnostic_ranked_evidence"] = _ranked_evidence(diagnostic_result)
 
             if case.get("should_fallback"):
                 fallback_total += 1
