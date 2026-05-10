@@ -1,8 +1,8 @@
 ---
 phase: 02-rag-pipeline
 verified: 2026-05-10T14:35:47Z
-status: human_needed
-score: 35/36 must-haves verified
+status: gaps_found
+score: 35/36 must-haves verified; live Hit@5 failed
 overrides_applied: 0
 deferred:
   - truth: "EVAL-01 full golden set size of 25-40 cases"
@@ -24,7 +24,7 @@ human_verification:
 
 **Phase Goal:** Knowledge documents are chunked, embedded, and retrievable via pgvector; search endpoint returns relevant rule chunks with metadata filtering, confidence scoring, and citation validation.
 **Verified:** 2026-05-10T14:35:47Z
-**Status:** human_needed
+**Status:** gaps_found
 **Re-verification:** No - initial verification
 
 ## Goal Achievement
@@ -33,13 +33,21 @@ human_verification:
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | CLI ingestion processes 15-30 Chinese knowledge documents, chunks by heading, generates embeddings, and stores in pgvector with HNSW index | ? NEEDS HUMAN | `scripts/ingest_policies.py --dry-run` processed all 15 manifest docs successfully; `src/rag/ingestion.py:45-94` chunks, embeds, writes chunks, and commits; migration creates `vector(1024)` plus HNSW `vector_cosine_ops` index at `002_rag_pipeline.py:32-43`. Live DB read after seed shows `embedded_chunks: 0`, so real external embedding ingestion remains unverified. |
+| 1 | CLI ingestion processes 15-30 Chinese knowledge documents, chunks by heading, generates embeddings, and stores in pgvector with HNSW index | VERIFIED | `scripts/ingest_policies.py --dry-run` processed all 15 manifest docs successfully. Live DashScope ingestion also processed 15/15 manifest documents and the DB contained 15 Phase 2 documents, 90 chunks, and 90 non-null embeddings. Migration creates `vector(1024)` plus HNSW `vector_cosine_ops` index at `002_rag_pipeline.py:32-43`. |
 | 2 | Chunk metadata and retrieval filters include tenant_id, doc_type, risk_level, citation IDs, title/section/text/effective_date | VERIFIED | `PolicyDocument` and `PolicyChunk` store doc_key/doc_id, chunk_id, title, doc_type, section, content, risk_level, effective_date, tenant_id, and embedding. `PolicyChunkRepository.search_similar` joins `PolicyDocument`, enforces both chunk and document tenant, eager-loads document metadata, and filters doc_type/risk_level at `policy_chunk_repo.py:41-66`. |
 | 3 | Search endpoint returns top-5 relevant chunks; golden set of 10+ queries has measurable Hit@5 | VERIFIED (automated wiring) | `/api/v1/search/` is registered and protected; route delegates to `Retriever.search` at `search.py:19-43`. Golden set has 14 JSONL rows with distribution `refund_rule=5, sop=3, faq=2, boundary=2, fallback=2`; eval script computes Hit@5/fallback accuracy and exits non-zero below threshold at `eval_rag_hit_at_5.py:128-174`. |
 | 4 | Citation validator verifies cited doc/chunk references exist in retrieval results | VERIFIED | `validate_citations` rejects empty citations and chunk IDs missing from retrieval evidence at `citation_validator.py:14-31`; `tests/test_retriever.py` covers valid, invalid, and empty citations. |
 | 5 | No-evidence fallback is returned when confidence threshold is not met | VERIFIED | `Retriever` uses `MIN_SIMILARITY_THRESHOLD = 0.55`, `STRONG_EVIDENCE_THRESHOLD = 0.70`, and returns `no_evidence` with the required fallback message at `retriever.py:10-64`; endpoint integration tests cover no-evidence behavior. |
 
-**Score:** 35/36 combined roadmap and plan must-haves verified. One roadmap must-have needs human/live external verification.
+**Score:** 35/36 combined roadmap and plan must-haves verified. Live verification later confirmed ingestion and endpoint behavior, but RAG Hit@5 failed the 80 percent threshold.
+
+### Live Verification Update
+
+| Check | Result | Evidence |
+|---|---|---|
+| Live policy ingestion | PASS | 15/15 manifest documents succeeded; DB contained 15 Phase 2 documents, 90 Phase 2 chunks, and 90 non-null embeddings. |
+| Live RAG Hit@5 eval | FAIL | Hit@5 was 58.3 percent against an 80 percent threshold; fallback accuracy was 100 percent. |
+| Live search endpoint | PASS | Authenticated search returned `strong_evidence` for refund and filtered SOP queries; unrelated query returned `no_evidence` fallback. |
 
 ### Deferred Items
 
@@ -84,11 +92,11 @@ human_verification:
 | Artifact | Data Variable | Source | Produces Real Data | Status |
 |---|---|---|---|---|
 | `scripts/ingest_policies.py` | `DOCUMENT_MANIFEST` / reports | `data/policies/*.md` via `chunk_markdown` | Yes for dry-run chunks | VERIFIED |
-| `src/rag/ingestion.py` | `embeddings` | `EmbeddingService.embed_documents` | Needs live DashScope key | NEEDS HUMAN |
-| `src/repositories/policy_chunk_repo.py` | `(PolicyChunk, score)` | DB rows with non-null pgvector embeddings | Yes in deterministic tests; current local DB has 0 embedded chunks after seed | NEEDS HUMAN |
+| `src/rag/ingestion.py` | `embeddings` | `EmbeddingService.embed_documents` | Yes, live DashScope ingestion generated embeddings | VERIFIED |
+| `src/repositories/policy_chunk_repo.py` | `(PolicyChunk, score)` | DB rows with non-null pgvector embeddings | Yes, live DB has 90 embedded Phase 2 chunks | VERIFIED |
 | `src/rag/retriever.py` | `evidence` | `PolicyChunkRepository.search_similar` | Yes with seeded vectors; live semantic retrieval needs real ingestion | VERIFIED + HUMAN |
 | `src/api/routers/search.py` | `result.model_dump()` | `Retriever.search` | Yes in integration tests | VERIFIED |
-| `scripts/eval_rag_hit_at_5.py` | `hit_at_5`, `fallback_acc` | Production retriever over DB | Script computes metrics; live score needs ingested embeddings | NEEDS HUMAN |
+| `scripts/eval_rag_hit_at_5.py` | `hit_at_5`, `fallback_acc` | Production retriever over DB | Live score computed: Hit@5 58.3%, fallback accuracy 100.0% | GAP FOUND |
 
 ### Behavioral Spot-Checks
 
@@ -99,21 +107,21 @@ human_verification:
 | Golden set shape | JSONL parse/count command | 14 rows; category distribution 5/3/2/2/2; 2 fallback cases | PASS |
 | Embedder default config and lazy init | `EmbeddingService()` import check | `text-embedding-v4 1024 10`, client not initialized | PASS |
 | Search route registration | FastAPI route inspection | `['/api/v1/search/']` | PASS |
-| Current DB embedded data after seed | Read-only SQLAlchemy count | `{'documents': 15, 'chunks': 30, 'embedded_chunks': 0, 'refund_policy_docs': 0}` | HUMAN NEEDED |
+| Live DB embedded data after ingestion | Read-only SQLAlchemy count | `{'phase2_documents': 15, 'phase2_chunks': 90, 'embedded_chunks': 90}` | PASS |
 
 ### Requirements Coverage
 
 | Requirement | Source Plan | Description | Status | Evidence |
 |---|---|---|---|---|
 | RAG-01 | 02, 03 | Import Chinese policy docs | SATISFIED | 15 Markdown files and manifest; dry-run chunks all successfully. |
-| RAG-02 | 01, 02, 03 | Chunking, embedding, pgvector storage/retrieval | HUMAN NEEDED | Code path exists and deterministic tests pass; live external embedding ingestion not verified. |
+| RAG-02 | 01, 02, 03 | Chunking, embedding, pgvector storage/retrieval | SATISFIED | Code path exists, deterministic tests pass, live DashScope ingestion generated 90 embedded Phase 2 chunks, and live search returned DB-backed evidence. |
 | RAG-03 | 01, 02, 03 | Chunk metadata | SATISFIED | Metadata stored across normalized `PolicyDocument` + `PolicyChunk`; evidence returns citation metadata. |
 | RAG-04 | 03, 04 | Metadata filtering | SATISFIED | Repository filters tenant_id, doc_type, risk_level and tests tenant isolation/mismatched document tenant. |
 | RAG-06 | 04 | No-evidence fallback | SATISFIED | Retriever threshold logic and endpoint tests cover fallback. |
 | RAG-07 | 04 | Citation validator | SATISFIED | Deterministic validator checks cited chunk IDs against retrieval evidence. |
 | INFR-06 | 02, 03 | CLI/background ingestion, no queue | SATISFIED | CLI scripts implement ingestion/eval; no task queue introduced. |
 | EVAL-01 | 05 | Golden set categories | PARTIAL/DEFERRED | Phase 2 has 14 cases across required Phase 2 categories; literal 25-40 expansion is deferred to Phase 6 by roadmap. |
-| EVAL-02 | 04, 05 | RAG Hit@5 evaluation | HUMAN NEEDED | Eval script computes Hit@5 through production retriever and threshold exits; live score requires ingested embeddings. |
+| EVAL-02 | 04, 05 | RAG Hit@5 evaluation | GAP FOUND | Eval script computes Hit@5 through production retriever and threshold exits; live DB-backed score was 58.3 percent, below the 80 percent threshold. |
 
 No orphaned Phase 2 requirement IDs were found: the union of plan frontmatter IDs matches the requested set `EVAL-01, EVAL-02, INFR-06, RAG-01, RAG-02, RAG-03, RAG-04, RAG-06, RAG-07`.
 
