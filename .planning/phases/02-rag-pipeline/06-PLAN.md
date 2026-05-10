@@ -12,6 +12,9 @@ files_modified:
 autonomous: true
 requirements: [EVAL-02]
 gap_closure: true
+status: gaps_found
+superseded_by: "07"
+superseded_reason: "Executed and proved golden-set calibration alone cannot honestly close EVAL-02; Plan 07 addresses the remaining retrieval quality gap."
 must_haves:
   truths:
     - "Live DB-backed RAG Hit@5 is at least 80% while fallback accuracy remains at least 80%."
