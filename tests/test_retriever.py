@@ -7,7 +7,14 @@ from uuid import uuid4
 import pytest
 
 from src.rag.citation_validator import validate_citations
-from src.rag.retriever import FALLBACK_MESSAGE, MIN_SIMILARITY_THRESHOLD, Retriever
+from src.rag.retriever import (
+    CANDIDATE_MULTIPLIER,
+    FALLBACK_MESSAGE,
+    INTERNAL_SEARCH_THRESHOLD,
+    MIN_SIMILARITY_THRESHOLD,
+    QUERY_PREFIX,
+    Retriever,
+)
 from src.rag.schemas import RetrievalResult
 
 
@@ -162,3 +169,58 @@ async def test_tenant_isolation():
     assert allowed_result.retrieval_status == "strong_evidence"
     assert other_result.retrieval_status == "no_evidence"
     assert chunk_repo.search_similar.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_search_uses_query_prefix_and_deeper_candidate_fetch():
+    tenant_id = uuid4()
+    retriever, search_similar, embed_query = _retriever([(_chunk(), 0.8)])
+
+    await retriever.search("仅退款怎么处理？", tenant_id=tenant_id, top_k=5, doc_type="sop", risk_level="high")
+
+    embed_query.assert_awaited_once_with(f"{QUERY_PREFIX}仅退款怎么处理？")
+    search_similar.assert_awaited_once()
+    kwargs = search_similar.await_args.kwargs
+    assert kwargs["tenant_id"] == tenant_id
+    assert kwargs["top_k"] == 5 * CANDIDATE_MULTIPLIER
+    assert kwargs["min_similarity"] == INTERNAL_SEARCH_THRESHOLD
+    assert kwargs["doc_type"] == "sop"
+    assert kwargs["risk_level"] == "high"
+
+
+@pytest.mark.asyncio
+async def test_hybrid_rerank_promotes_lexical_match_from_outside_top5():
+    generic_results = [
+        (_chunk(chunk_id=f"generic_{index}", doc_key="generic", title="通用规则", section="常见问题", content="退款申请处理规则。"), score)
+        for index, score in enumerate([0.66, 0.65, 0.64, 0.63, 0.62], start=1)
+    ]
+    lexical_match = _chunk(
+        chunk_id="compensation_approval_sop_002",
+        doc_key="compensation_approval_sop",
+        title="补偿审批SOP",
+        section="提交材料",
+        content="补偿券审批需要提交订单号、补偿金额、原因说明和客服处理记录。",
+    )
+    retriever, _, _ = _retriever([*generic_results, (lexical_match, 0.60)])
+
+    result = await retriever.search("补偿券审批需要哪些信息？", tenant_id=uuid4(), top_k=5)
+
+    assert "compensation_approval_sop_002" in [item.chunk_id for item in result.evidence]
+    assert result.evidence[0].chunk_id == "compensation_approval_sop_002"
+
+
+@pytest.mark.asyncio
+async def test_hybrid_rerank_does_not_return_low_vector_candidate_with_high_overlap():
+    below_threshold = _chunk(
+        chunk_id="refund_policy_001",
+        doc_key="refund_policy",
+        title="退款规则",
+        section="七天无理由",
+        content="七天无理由退款需要商品不影响二次销售。",
+    )
+    retriever, _, _ = _retriever([(below_threshold, MIN_SIMILARITY_THRESHOLD - 0.10)])
+
+    result = await retriever.search("七天无理由退款商品不影响二次销售", tenant_id=uuid4(), top_k=5)
+
+    assert result.retrieval_status == "no_evidence"
+    assert result.evidence == []
