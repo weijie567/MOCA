@@ -1,0 +1,27 @@
+from functools import lru_cache
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    project_name: str = "MOCA API"
+    project_version: str = "0.1.0"
+    api_v1_prefix: str = "/api/v1"
+    database_url: str = "postgresql+asyncpg://moca:moca_dev@localhost:5432/moca"
+    redis_url: str = "redis://localhost:6379/0"
+    jwt_secret: str = Field(default="dev-secret-change-in-prod-32-bytes-min")
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 60
+    enable_demo_auth: bool = True
+    database_echo: bool = False
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()
