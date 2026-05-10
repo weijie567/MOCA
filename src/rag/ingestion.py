@@ -47,7 +47,12 @@ class IngestionService:
             if not chunks:
                 return IngestionReport(doc_key=doc_key, title=title, status="failed", error="No chunks produced")
 
-            texts = [chunk.content for chunk in chunks]
+            texts = [
+                f"{title}: {chunk.content}"
+                if chunk.section == "intro"
+                else f"{title} / {chunk.section}: {chunk.content}"
+                for chunk in chunks
+            ]
             embeddings = await self.embedder.embed_documents(texts)
             if len(embeddings) != len(chunks):
                 msg = f"Embedding count mismatch: expected {len(chunks)}, got {len(embeddings)}"
