@@ -86,7 +86,7 @@
 ### Evaluation
 
 - [ ] **EVAL-01**: golden set 至少包含规则问答、退款排障、补偿建议、审批触发、证据不足五类样本（25-40 条）（Phase 2 14-case baseline complete; 25-40 final set deferred to Phase 6）
-- [ ] **EVAL-02**: 系统评估 RAG Hit@5（live DB-backed score 58.3%, below 80% threshold）
+- [x] **EVAL-02**: 系统评估 RAG Hit@5（Plan 07 live DB-backed score 83.3%, fallback accuracy 100.0%, threshold met）
 - [ ] **EVAL-03**: 系统评估证据引用准确率
 - [ ] **EVAL-04**: 系统评估工具选择准确率
 - [ ] **EVAL-05**: 系统评估高风险动作拦截率
@@ -191,7 +191,7 @@
 | DATA-07 | 1 | Not started |
 | DATA-08 | 1 | Not started |
 | EVAL-01 | 2 | Deferred to Phase 6 |
-| EVAL-02 | 2 | Gap found |
+| EVAL-02 | 2 | Complete |
 | EVAL-03 | 6 | Not started |
 | EVAL-04 | 6 | Not started |
 | EVAL-05 | 4 | Not started |

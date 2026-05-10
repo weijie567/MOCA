@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: in_progress
-last_updated: "2026-05-10T22:59:01Z"
+status: phase_complete
+last_updated: "2026-05-10T23:43:05.331Z"
 progress:
   total_phases: 6
-  completed_phases: 1
-  total_plans: 11
-  completed_plans: 10
-  percent: 91
+  completed_phases: 2
+  total_plans: 12
+  completed_plans: 12
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -19,13 +19,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-09)
 
 **Core value:** When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution.
-**Current focus:** Phase 02 — RAG retrieval-quality gap planning
+**Current focus:** Phase 02 — rag-pipeline
 
 ## Current Status
 
 - **Active phase:** 2
-- **Phase status:** Plan 06 executed and proved golden-set calibration alone cannot close EVAL-02; follow-up retrieval-improvement planning required
-- **Blockers:** Live RAG Hit@5 remains 58.3 percent versus the required 80 percent threshold; current retrieval has 7/12 non-fallback hits and needs 10/12
+- **Phase status:** Phase 2 complete after Plan 07 closed EVAL-02 with live DB-backed Hit@5 83.3 percent and fallback accuracy 100.0 percent
+- **Blockers:** None
 
 ## Phase History
 
@@ -36,15 +36,15 @@ See: .planning/PROJECT.md (updated 2026-05-09)
   - Human UAT: `01-HUMAN-UAT.md`
   - Security: `01-SECURITY.md` (`threats_open: 0`)
   - Tests: `UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest -q --tb=short` — 12 passed
-- **Phase 2: RAG Pipeline** — Gap closure attempted on 2026-05-11
-  - Plans completed: 5/6
-  - Gap closure plan: `06-PLAN.md` (status: `gaps_found`)
-  - Latest plan summary: `.planning/phases/02-rag-pipeline/06-SUMMARY.md`
-  - Verification: `02-VERIFICATION.md` (`status: gaps_found`; live Hit@5 failed)
+- **Phase 2: RAG Pipeline** — Complete on 2026-05-11
+  - Plans completed: 7/7
+  - Gap closure plan: `07-PLAN.md` (status: `complete`)
+  - Latest plan summary: `.planning/phases/02-rag-pipeline/07-SUMMARY.md`
+  - Verification: `02-VERIFICATION.md` plus `07-RETRIEVAL-AUDIT.md`; live Hit@5 now passes
   - Human UAT: `02-HUMAN-UAT.md` (2 passed, 1 failed)
   - Code review: `02-REVIEW.md`; fixes recorded in `02-REVIEW-FIX.md`
   - Tests: `UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest -q --tb=short` — 43 passed
-  - Live checks: real `DASHSCOPE_API_KEY` ingestion passed, authenticated `/api/v1/search/` passed, DB-backed Hit@5 failed at 58.3%
+  - Live checks: real `DASHSCOPE_API_KEY` ingestion passed; Plan 07 DB-backed Hit@5 passed at 83.3% with fallback accuracy 100.0%
 
 ## Session Notes
 
@@ -56,6 +56,7 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 - 2026-05-10: Ran live DashScope verification. Policy ingestion passed with 15 documents and 90 embedded chunks. Authenticated search passed on sampled refund/filter/fallback cases. RAG Hit@5 failed at 58.3% against the 80% threshold, so Phase 2 needs gap closure.
 - 2026-05-11: Planned Phase 2 gap closure as `06-PLAN.md`. Plan checker passed after revision; execution should run `$gsd-execute-phase 2 --gaps-only`.
 - 2026-05-11: Executed Plan 06. Added eval diagnostics and deterministic scoring tests, but did not alter the golden set because live diagnostics found only one answer-bearing calibration candidate; Hit@5 would improve from 7/12 to at most 8/12, below the required 10/12. Next step is a retrieval-improvement plan, not further golden-set calibration.
+- 2026-05-11: Executed Plan 07. Enriched policy embedding input, added deterministic hybrid reranking and support-domain fallback guard, re-ingested 90 chunks, and closed EVAL-02 with live Hit@5 83.3% and fallback accuracy 100.0%.
 
 ## Decisions
 
@@ -64,5 +65,8 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 - Plan 04: `knowledge:read` is granted to existing role scopes so the protected search endpoint is usable after login.
 - Plan 05: Golden expected_chunk_ids were calibrated against the current zero-based heading chunker output instead of leaving placeholder IDs.
 - Plan 05: The RAG eval script uses SessionLocal and the production Retriever/PolicyChunkRepository path for realistic DB-backed scoring.
+- Plan 07: Evidence scores remain vector similarity scores; hybrid ranking only changes final ordering.
+- Plan 07: Out-of-domain fallback is protected by a deterministic support-domain guard while preserving MIN_SIMILARITY_THRESHOLD = 0.55.
+- Plan 07: EVAL-02 is closed by live exact expected_chunk_ids Hit@5 >= 80%, not by doc-only scoring or label changes.
 
-**Planned Phase:** 02 (rag-pipeline) — 6 plans — 2026-05-10T22:12:49.638Z
+**Planned Phase:** 02 (rag-pipeline) — 7 plans — 2026-05-10T22:12:49.638Z
