@@ -23,7 +23,7 @@
 ### RAG & Knowledge Base
 
 - [x] **RAG-01**: 系统支持导入退款规则、补偿规则、客服 SOP、商家 FAQ 等中文模拟知识文档（15-30 篇）
-- [x] **RAG-02**: 系统支持文档切块、embedding 生成、pgvector 入库和检索
+- [ ] **RAG-02**: 系统支持文档切块、embedding 生成、pgvector 入库和检索（Phase 2 implementation complete; live embedding verification pending）
 - [x] **RAG-03**: 每个知识 chunk 必须包含 doc_id、chunk_id、title、section、text、doc_type、risk_level、effective_date 等元数据
 - [x] **RAG-04**: 检索时支持基于 tenant_id、doc_type、risk_level 的元数据过滤
 - [ ] **RAG-05**: Agent 回答必须包含 evidence 列表，不能只给自然语言结论
@@ -85,8 +85,8 @@
 
 ### Evaluation
 
-- [x] **EVAL-01**: golden set 至少包含规则问答、退款排障、补偿建议、审批触发、证据不足五类样本（25-40 条）
-- [x] **EVAL-02**: 系统评估 RAG Hit@5
+- [ ] **EVAL-01**: golden set 至少包含规则问答、退款排障、补偿建议、审批触发、证据不足五类样本（25-40 条）（Phase 2 14-case baseline complete; 25-40 final set deferred to Phase 6）
+- [ ] **EVAL-02**: 系统评估 RAG Hit@5（script implemented; live DB-backed score pending）
 - [ ] **EVAL-03**: 系统评估证据引用准确率
 - [ ] **EVAL-04**: 系统评估工具选择准确率
 - [ ] **EVAL-05**: 系统评估高风险动作拦截率
@@ -146,7 +146,7 @@
 | AGNT-07 | 5 | Not started |
 | AGNT-08 | 3 | Not started |
 | RAG-01 | 2 | Complete |
-| RAG-02 | 2 | Complete |
+| RAG-02 | 2 | Human verification pending |
 | RAG-03 | 2 | Complete |
 | RAG-04 | 2 | Complete |
 | RAG-05 | 3 | Not started |
@@ -190,8 +190,8 @@
 | DATA-06 | 1 | Not started |
 | DATA-07 | 1 | Not started |
 | DATA-08 | 1 | Not started |
-| EVAL-01 | 2 | Complete |
-| EVAL-02 | 2 | Complete |
+| EVAL-01 | 2 | Deferred to Phase 6 |
+| EVAL-02 | 2 | Human verification pending |
 | EVAL-03 | 6 | Not started |
 | EVAL-04 | 6 | Not started |
 | EVAL-05 | 4 | Not started |

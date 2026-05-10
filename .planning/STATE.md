@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-05-10T14:13:48.089Z"
+last_updated: "2026-05-10T14:37:00.000Z"
 progress:
   total_phases: 6
-  completed_phases: 2
+  completed_phases: 1
   total_plans: 10
   completed_plans: 10
-  percent: 100
+  percent: 17
 ---
 
 # Project State: MOCA
@@ -19,13 +19,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-09)
 
 **Core value:** When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution.
-**Current focus:** Phase 03 — LangGraph Core planning
+**Current focus:** Phase 02 — RAG live verification
 
 ## Current Status
 
-- **Active phase:** 3
-- **Phase status:** Phase 2 plans complete; ready for Phase 2 verification and Phase 3 planning
-- **Blockers:** None
+- **Active phase:** 2
+- **Phase status:** Phase 2 implementation and automated verification complete; live external embedding verification pending
+- **Blockers:** Live DashScope ingestion, RAG Hit@5 eval, and authenticated search endpoint verification
 
 ## Phase History
 
@@ -38,14 +38,20 @@ See: .planning/PROJECT.md (updated 2026-05-09)
   - Tests: `UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest -q --tb=short` — 12 passed
 - **Phase 2: RAG Pipeline** — Plans complete on 2026-05-10
   - Plans completed: 5/5
+  - Verification: `02-VERIFICATION.md` (`status: human_needed`, score 35/36)
+  - Human UAT: `02-HUMAN-UAT.md` (3 live checks pending)
+  - Code review: `02-REVIEW.md`; fixes recorded in `02-REVIEW-FIX.md`
   - Latest plan summary: `.planning/phases/02-rag-pipeline/05-SUMMARY.md`
-  - Tests: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short` — 35 passed
+  - Tests: `UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest -q --tb=short` — 39 passed
+  - Live checks pending: real `DASHSCOPE_API_KEY` ingestion, DB-backed Hit@5 eval, authenticated `/api/v1/search/`
 
 ## Session Notes
 
 - 2026-05-10: Completed Phase 2 Plan 03. Added policy document/chunk repositories, ingestion service, dry-run ingestion CLI, and 15 Chinese policy documents. Verification: `UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest -q --tb=short` — 22 passed.
 - 2026-05-10: Completed Phase 2 Plan 04. Added tenant-scoped retriever confidence scoring, citation validator, authenticated search endpoint, and mocked retrieval tests. Verification: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short` - 31 passed; ruff passed for Plan 04 files.
 - 2026-05-10: Completed Phase 2 Plan 05. Added calibrated RAG golden set, Hit@5 eval script, deterministic search integration tests, and DashScope env docs. Verification: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short` — 35 passed.
+- 2026-05-10: Completed Phase 2 code review fixes. Fixed migration doc_key backfill, demo seed doc_key, tenant-safe vector joins, settings-backed embedding config, and sanitized generic 500 responses. Verification: ruff passed, targeted tests 8 passed, full pytest 39 passed, `alembic upgrade head` passed, `seed_demo.py --reset` passed.
+- 2026-05-10: Phase 2 verifier returned `human_needed`: implementation verified, but live external embedding ingestion, RAG Hit@5, and live search endpoint relevance require human/API-key validation.
 
 ## Decisions
 
