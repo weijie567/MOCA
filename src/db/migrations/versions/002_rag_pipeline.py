@@ -9,7 +9,6 @@ from collections.abc import Sequence
 
 from alembic import op
 import sqlalchemy as sa
-from pgvector.sqlalchemy import Vector
 
 
 revision: str = "002_rag_pipeline"
