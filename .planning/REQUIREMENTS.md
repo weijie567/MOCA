@@ -23,8 +23,8 @@
 ### RAG & Knowledge Base
 
 - [ ] **RAG-01**: 系统支持导入退款规则、补偿规则、客服 SOP、商家 FAQ 等中文模拟知识文档（15-30 篇）
-- [ ] **RAG-02**: 系统支持文档切块、embedding 生成、pgvector 入库和检索
-- [ ] **RAG-03**: 每个知识 chunk 必须包含 doc_id、chunk_id、title、section、text、doc_type、risk_level、effective_date 等元数据
+- [x] **RAG-02**: 系统支持文档切块、embedding 生成、pgvector 入库和检索
+- [x] **RAG-03**: 每个知识 chunk 必须包含 doc_id、chunk_id、title、section、text、doc_type、risk_level、effective_date 等元数据
 - [ ] **RAG-04**: 检索时支持基于 tenant_id、doc_type、risk_level 的元数据过滤
 - [ ] **RAG-05**: Agent 回答必须包含 evidence 列表，不能只给自然语言结论
 - [ ] **RAG-06**: 当检索结果低于置信阈值时，Agent 必须触发 no-evidence fallback，不允许编造规则
@@ -146,8 +146,8 @@
 | AGNT-07 | 5 | Not started |
 | AGNT-08 | 3 | Not started |
 | RAG-01 | 2 | Not started |
-| RAG-02 | 2 | Not started |
-| RAG-03 | 2 | Not started |
+| RAG-02 | 2 | Complete |
+| RAG-03 | 2 | Complete |
 | RAG-04 | 2 | Not started |
 | RAG-05 | 3 | Not started |
 | RAG-06 | 2 | Not started |
