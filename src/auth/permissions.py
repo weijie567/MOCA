@@ -20,6 +20,7 @@ oauth2_scheme = OAuth2PasswordBearer(
         "orders:read": "Read orders",
         "refunds:read": "Read refund cases",
         "tickets:read": "Read ticket histories",
+        "knowledge:read": "Search policy knowledge base",
         "approvals:review": "Review approvals",
         "seed:write": "Run seed operations",
         "admin:debug": "Admin and debug operations",

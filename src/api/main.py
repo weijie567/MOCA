@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.routers import auth, orders, refund_cases, tickets
+from src.api.routers import auth, orders, refund_cases, search, tickets
 from src.api.schemas.common import ApiResponse, ErrorDetail, FORBIDDEN, INTERNAL_ERROR, UNAUTHORIZED, VALIDATION_ERROR
 from src.config import settings
 from src.db.session import get_session
@@ -88,6 +88,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router, prefix=f"{settings.api_v1_prefix}/auth")
     app.include_router(orders.router, prefix=f"{settings.api_v1_prefix}/orders")
     app.include_router(refund_cases.router, prefix=f"{settings.api_v1_prefix}/refund-cases")
+    app.include_router(search.router, prefix=f"{settings.api_v1_prefix}/search")
     app.include_router(tickets.router, prefix=f"{settings.api_v1_prefix}/tickets")
     return app
 

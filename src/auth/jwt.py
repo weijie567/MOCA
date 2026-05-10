@@ -11,10 +11,18 @@ from src.config import settings
 
 
 ROLE_SCOPES: dict[str, list[str]] = {
-    "support": ["orders:read", "refunds:read", "tickets:read"],
-    "manager": ["orders:read", "refunds:read", "tickets:read", "approvals:review"],
-    "merchant": ["orders:read", "refunds:read", "tickets:read"],
-    "admin": ["orders:read", "refunds:read", "tickets:read", "approvals:review", "seed:write", "admin:debug"],
+    "support": ["orders:read", "refunds:read", "tickets:read", "knowledge:read"],
+    "manager": ["orders:read", "refunds:read", "tickets:read", "knowledge:read", "approvals:review"],
+    "merchant": ["orders:read", "refunds:read", "tickets:read", "knowledge:read"],
+    "admin": [
+        "orders:read",
+        "refunds:read",
+        "tickets:read",
+        "knowledge:read",
+        "approvals:review",
+        "seed:write",
+        "admin:debug",
+    ],
 }
 
 
