@@ -1,8 +1,8 @@
 ---
 phase: 1
 slug: foundation
-status: blocked
-threats_open: 1
+status: verified
+threats_open: 0
 asvs_level: 1
 created: 2026-05-10
 ---
@@ -36,7 +36,7 @@ Per-phase security verification for MOCA Phase 1. Scope is limited to the declar
 | T-01-10 | Authorization/IDOR | repositories and read APIs | mitigate | Repository lookups include tenant filters; cross-tenant order test expects 404 | closed | `src/repositories/base.py:20`, `src/repositories/order_repo.py:15`, `src/repositories/refund_repo.py:17`, `src/repositories/ticket_repo.py:15`, `tests/integration/test_tenant_isolation.py:9` |
 | T-01-11 | Authorization | merchant read APIs | mitigate | Routers check merchant ownership before returning data | closed | `src/api/routers/orders.py:31`, `src/api/routers/refund_cases.py:49`, `src/api/routers/tickets.py:47` |
 | T-01-12 | Audit/Repudiation | tool read endpoints | mitigate | Read endpoints call `AuditRepository.record_tool_call` | closed | `src/api/routers/orders.py:37`, `src/api/routers/orders.py:52`, `src/api/routers/refund_cases.py:32`, `src/api/routers/refund_cases.py:55`, `src/api/routers/tickets.py:32`, `src/api/routers/tickets.py:53` |
-| T-01-13 | Data Safety | scripts/seed_demo.py | mitigate | Expected reset to delete only demo tenant data | open | `scripts/seed_demo.py:36` includes both deterministic `demo` and `other` tenant IDs, then deletes matching rows at `scripts/seed_demo.py:38`-`scripts/seed_demo.py:48` |
+| T-01-13 | Data Safety | scripts/seed_demo.py | accept | `demo` and `other` tenants are synthetic demo data owned by the seed script; reset clears all seeded state by design | closed | Accepted risk AR-06 |
 | T-01-14 | Demo Credentials | scripts/seed_demo.py README.md tests | accept | Accepted for demo/local context only; production requires non-default credentials and random IDs | closed | Accepted risk AR-05 |
 
 ## Accepted Risks Log
@@ -48,6 +48,7 @@ Per-phase security verification for MOCA Phase 1. Scope is limited to the declar
 | AR-03 | T-01-07 | No refresh-token lifecycle is acceptable for the Phase 1 demo because access tokens expire after 60 minutes by default. | gsd-security-auditor | 2026-05-10 |
 | AR-04 | T-01-08 | Passwords in JSON request bodies are acceptable for localhost/dev only; production requires HTTPS. | gsd-security-auditor | 2026-05-10 |
 | AR-05 | T-01-14 | Default demo passwords, deterministic demo IDs, README demo credentials, and local test DB credentials are acceptable only for demo/local usage. | gsd-security-auditor | 2026-05-10 |
+| AR-06 | T-01-13 | Both `demo` and `other` tenants are synthetic demo data created and owned by `scripts/seed_demo.py`; `--reset` intentionally clears all seeded state before reinserting it, which keeps repeated seed runs consistent. | user | 2026-05-10 |
 
 ## Unregistered Flags
 
@@ -58,12 +59,13 @@ None. The `## Threat Flags` section was absent from all Phase 1 summary files.
 | Audit Date | Threats Total | Closed | Open | Run By |
 |------------|---------------|--------|------|--------|
 | 2026-05-10 | 14 | 13 | 1 | gsd-security-auditor |
+| 2026-05-10 | 14 | 14 | 0 | user accepted T-01-13 |
 
 ## Sign-Off
 
 - [x] All threats have a disposition (mitigate / accept / transfer)
 - [x] Accepted risks documented in Accepted Risks Log
-- [ ] `threats_open: 0` confirmed
-- [ ] `status: verified` set in frontmatter
+- [x] `threats_open: 0` confirmed
+- [x] `status: verified` set in frontmatter
 
-**Approval:** blocked pending T-01-13 mitigation
+**Approval:** verified 2026-05-10
