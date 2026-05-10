@@ -68,7 +68,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 ## Constraints
 
-- **Timeline**: 4 weeks to MVP (full-time), 4-6 weeks polish after
+- **Timeline**: 4 weeks to MVP core (full-time), 2 weeks polish (frontend + eval) — 6 weeks total
 - **Learning curve**: LangGraph, FastAPI, pgvector are new — architecture must stay simple enough to learn while building
 - **Solo developer**: no team; must avoid over-engineering
 - **Demo-first**: everything must be runnable with `docker compose up` and demonstrable in 10 minutes
@@ -103,4 +103,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-09 after initialization*
+*Last updated: 2026-05-09 after design convergence review*

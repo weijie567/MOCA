@@ -16,7 +16,7 @@ Use LangGraph 0.3.x for agent orchestration (with `langchain-core` primitives, N
 **Differentiators** (make it stand out in interviews):
 - Graph visualization of actual agent execution paths
 - Evaluation framework with automated test scenarios and scoring
-- Structured reasoning trace (chain-of-thought as structured data)
+- Structured execution trace (decision/evidence/action as structured data)
 - Configurable business rules engine (thresholds in config, not code)
 - Streaming responses with progressive disclosure (SSE)
 
@@ -48,11 +48,11 @@ Single-graph, 8-node LangGraph system: router -> retriever -> tool_caller -> rea
 
 ## Build Order Recommendation
 
+> **Note:** This was the original 4-week research recommendation. The converged 6-week timeline is in ROADMAP.md (the current source of truth).
+
 | Phase | Duration | Focus | Verification |
 |-------|----------|-------|--------------|
 | 1. Foundation | Week 1 | Docker Compose, Postgres+pgvector, FastAPI skeleton, DB schema, seed data, JWT auth, async DB pattern | `docker compose up` works; Swagger shows CRUD endpoints |
 | 2. RAG Pipeline | Week 2 | Knowledge base docs (Chinese), LlamaIndex ingestion, pgvector HNSW index, retrieval function, retrieval eval (10 queries) | Search endpoint returns relevant rule chunks |
 | 3. LangGraph Core | Week 3 | AgentState, tool wrappers, all nodes (minus approval), graph compilation, agent endpoint, PostgresSaver, basic audit | Submit question -> get evidence-cited answer with tool traces |
 | 4. Approval + Polish | Week 4 | risk_check node, approval interrupt/resume, executor node, resume API, end-to-end test, audit enrichment | Compensation request pauses -> approve -> executes -> full audit chain |
-
-**Rationale**: Each phase produces a working, testable increment. Foundation must be solid (async patterns, healthchecks) because every subsequent phase builds on it. RAG before graph because retrieval quality must be validated in isolation. Approval last because it depends on the happy path working first, and it's the highest-complexity feature.
