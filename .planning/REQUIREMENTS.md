@@ -27,8 +27,8 @@
 - [x] **RAG-03**: 每个知识 chunk 必须包含 doc_id、chunk_id、title、section、text、doc_type、risk_level、effective_date 等元数据
 - [x] **RAG-04**: 检索时支持基于 tenant_id、doc_type、risk_level 的元数据过滤
 - [ ] **RAG-05**: Agent 回答必须包含 evidence 列表，不能只给自然语言结论
-- [ ] **RAG-06**: 当检索结果低于置信阈值时，Agent 必须触发 no-evidence fallback，不允许编造规则
-- [ ] **RAG-07**: Citation validator 必须二次校验 LLM 输出的 doc_id/chunk_id 确实存在于检索结果中
+- [x] **RAG-06**: 当检索结果低于置信阈值时，Agent 必须触发 no-evidence fallback，不允许编造规则
+- [x] **RAG-07**: Citation validator 必须二次校验 LLM 输出的 doc_id/chunk_id 确实存在于检索结果中
 
 ### Tool Calling
 
@@ -86,7 +86,7 @@
 ### Evaluation
 
 - [ ] **EVAL-01**: golden set 至少包含规则问答、退款排障、补偿建议、审批触发、证据不足五类样本（25-40 条）
-- [ ] **EVAL-02**: 系统评估 RAG Hit@5
+- [x] **EVAL-02**: 系统评估 RAG Hit@5
 - [ ] **EVAL-03**: 系统评估证据引用准确率
 - [ ] **EVAL-04**: 系统评估工具选择准确率
 - [ ] **EVAL-05**: 系统评估高风险动作拦截率
@@ -150,8 +150,8 @@
 | RAG-03 | 2 | Complete |
 | RAG-04 | 2 | Complete |
 | RAG-05 | 3 | Not started |
-| RAG-06 | 2 | Not started |
-| RAG-07 | 2 | Not started |
+| RAG-06 | 2 | Complete |
+| RAG-07 | 2 | Complete |
 | TOOL-01 | 1 | Not started |
 | TOOL-02 | 1 | Not started |
 | TOOL-03 | 1 | Not started |
@@ -191,7 +191,7 @@
 | DATA-07 | 1 | Not started |
 | DATA-08 | 1 | Not started |
 | EVAL-01 | 2 | Not started |
-| EVAL-02 | 2 | Not started |
+| EVAL-02 | 2 | Complete |
 | EVAL-03 | 6 | Not started |
 | EVAL-04 | 6 | Not started |
 | EVAL-05 | 4 | Not started |

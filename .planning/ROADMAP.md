@@ -27,6 +27,7 @@
 
 ## Phase 2: RAG Pipeline
 
+**Status:** In progress - 4/5 plans complete
 **Goal:** Knowledge documents are chunked, embedded, and retrievable via pgvector; search endpoint returns relevant rule chunks with metadata filtering, confidence scoring, and citation validation.
 **Duration:** ~5 days
 **Requirements:** EVAL-01, EVAL-02, INFR-06, RAG-01, RAG-02, RAG-03, RAG-04, RAG-06, RAG-07
