@@ -27,6 +27,7 @@ from src.db.models import Tenant
 from src.db.session import SessionLocal
 from src.rag.embedder import EmbeddingService
 from src.rag.retriever import Retriever
+from src.rag.schemas import RetrievalResult
 from src.repositories.policy_chunk_repo import PolicyChunkRepository
 
 
@@ -67,6 +68,47 @@ def _record_category(per_category: dict[str, dict[str, int]], category: str, hit
         per_category[category]["hit"] += 1
 
 
+def _ranked_evidence(result: RetrievalResult) -> list[dict[str, object]]:
+    return [
+        {
+            "rank": rank,
+            "doc_key": evidence.doc_key,
+            "chunk_id": evidence.chunk_id,
+            "section": evidence.section,
+            "score": evidence.score,
+            "text_snippet": evidence.text,
+        }
+        for rank, evidence in enumerate(result.evidence, start=1)
+    ]
+
+
+def _score_case(case: dict[str, Any], result: RetrievalResult) -> dict[str, Any]:
+    expected_chunks = list(case.get("expected_chunk_ids", []))
+    expected_docs = set(case.get("expected_doc_ids", []))
+    got_chunks = [evidence.chunk_id for evidence in result.evidence]
+    got_docs = {evidence.doc_key for evidence in result.evidence}
+    expected_doc_id_hit = bool(expected_docs & got_docs)
+    ranked_evidence = _ranked_evidence(result)
+
+    if case.get("should_fallback"):
+        hit = result.retrieval_status == "no_evidence"
+        reason = "fallback_no_evidence" if hit else "should_fallback_but_got_results"
+    else:
+        hit = bool(set(expected_chunks) & set(got_chunks))
+        reason = "expected_chunk_in_top5" if hit else "expected_chunk_not_in_top5"
+
+    return {
+        "hit": hit,
+        "reason": reason,
+        "expected_chunks": expected_chunks,
+        "got_chunks": got_chunks,
+        "expected_doc_id_hit": expected_doc_id_hit,
+        "ranked_evidence": ranked_evidence,
+        "retrieval_status": result.retrieval_status,
+        "missing_expected_chunks": sorted(set(expected_chunks) - set(got_chunks)),
+    }
+
+
 def _print_report(
     total_cases: int,
     hit_at_5: float,
@@ -90,11 +132,24 @@ def _print_report(
         print(f"\nFailed cases ({len(failed_cases)}):")
         for failed in failed_cases:
             print(f"  - {failed['query']}... | {failed['reason']}")
-            if "expected" in failed:
-                print(f"    expected: {failed['expected']}")
-                print(f"    got:      {failed['got']}")
+            print(f"    retrieval_status: {failed['retrieval_status']}")
+            print(f"    expected_doc_id_hit: {failed['expected_doc_id_hit']}")
+            if "expected_chunks" in failed:
+                print(f"    expected chunks: {failed['expected_chunks']}")
+                print(f"    got chunks:      {failed['got_chunks']}")
             if "missing_expected_chunks" in failed:
                 print(f"    missing expected chunks: {failed['missing_expected_chunks']}")
+            print("    ranked evidence:")
+            for evidence in failed["ranked_evidence"]:
+                print(
+                    "      "
+                    f"rank={evidence['rank']} "
+                    f"doc_key={evidence['doc_key']} "
+                    f"chunk_id={evidence['chunk_id']} "
+                    f"section={evidence['section']} "
+                    f"score={evidence['score']:.4f} "
+                    f"text_snippet={evidence['text_snippet']}"
+                )
 
 
 async def main() -> None:
@@ -127,41 +182,23 @@ async def main() -> None:
 
         for case in cases:
             result = await retriever.search(query=case["query"], tenant_id=tenant_id, top_k=5)
-            retrieved_ids = {evidence.chunk_id for evidence in result.evidence}
+            scored = _score_case(case, result)
             category = case["category"]
 
             if case.get("should_fallback"):
                 fallback_total += 1
-                hit = result.retrieval_status == "no_evidence"
-                if hit:
+                if scored["hit"]:
                     fallback_correct += 1
                 else:
-                    failed_cases.append(
-                        {
-                            "query": case["query"][:60],
-                            "reason": "should_fallback_but_got_results",
-                            "got_status": result.retrieval_status,
-                            "got_chunks": sorted(retrieved_ids)[:5],
-                        }
-                    )
-                _record_category(per_category, category, hit)
+                    failed_cases.append({"query": case["query"][:60], **scored})
+                _record_category(per_category, category, scored["hit"])
                 continue
 
-            expected = set(case["expected_chunk_ids"])
-            matched = bool(expected & retrieved_ids)
-            if matched:
+            if scored["hit"]:
                 hits += 1
             else:
-                failed_cases.append(
-                    {
-                        "query": case["query"][:60],
-                        "reason": "expected_chunk_not_in_top5",
-                        "expected": sorted(expected),
-                        "got": sorted(retrieved_ids),
-                        "missing_expected_chunks": sorted(expected - retrieved_ids),
-                    }
-                )
-            _record_category(per_category, category, matched)
+                failed_cases.append({"query": case["query"][:60], **scored})
+            _record_category(per_category, category, scored["hit"])
 
     non_fallback = len(cases) - fallback_total
     hit_at_5 = hits / non_fallback if non_fallback else 0.0
