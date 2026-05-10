@@ -22,10 +22,10 @@
 
 ### RAG & Knowledge Base
 
-- [ ] **RAG-01**: 系统支持导入退款规则、补偿规则、客服 SOP、商家 FAQ 等中文模拟知识文档（15-30 篇）
+- [x] **RAG-01**: 系统支持导入退款规则、补偿规则、客服 SOP、商家 FAQ 等中文模拟知识文档（15-30 篇）
 - [x] **RAG-02**: 系统支持文档切块、embedding 生成、pgvector 入库和检索
 - [x] **RAG-03**: 每个知识 chunk 必须包含 doc_id、chunk_id、title、section、text、doc_type、risk_level、effective_date 等元数据
-- [ ] **RAG-04**: 检索时支持基于 tenant_id、doc_type、risk_level 的元数据过滤
+- [x] **RAG-04**: 检索时支持基于 tenant_id、doc_type、risk_level 的元数据过滤
 - [ ] **RAG-05**: Agent 回答必须包含 evidence 列表，不能只给自然语言结论
 - [ ] **RAG-06**: 当检索结果低于置信阈值时，Agent 必须触发 no-evidence fallback，不允许编造规则
 - [ ] **RAG-07**: Citation validator 必须二次校验 LLM 输出的 doc_id/chunk_id 确实存在于检索结果中
@@ -60,7 +60,7 @@
 - [ ] **INFR-03**: JWT + OAuth2 scopes 实现角色权限控制，至少支持商家运营、平台客服、风险审核员、运营主管、系统管理员
 - [ ] **INFR-04**: 系统为每次 Agent 执行生成 run_id、trace_id 和 step_id
 - [ ] **INFR-05**: 系统记录基础可观测性数据，包括 latency_ms、token_usage、cost、error_code、tool_call_status
-- [ ] **INFR-06**: 文档摄取和评估任务通过 CLI 脚本或 FastAPI BackgroundTasks 执行，不引入独立任务队列
+- [x] **INFR-06**: 文档摄取和评估任务通过 CLI 脚本或 FastAPI BackgroundTasks 执行，不引入独立任务队列
 - [ ] **INFR-07**: 评估框架支持 golden set 自动评分，并生成 JSON / Markdown 报告
 - [ ] **INFR-08**: CI 运行 lint + 单元测试；集成测试和评估 smoke test 提供本地运行脚本，不强制 CI 通过
 - [ ] **INFR-09**: LLM/DB/工具调用三层 timeout + graceful degradation；LLM 超时返回 fallback 而非崩溃
@@ -145,10 +145,10 @@
 | AGNT-06 | 3 | Not started |
 | AGNT-07 | 5 | Not started |
 | AGNT-08 | 3 | Not started |
-| RAG-01 | 2 | Not started |
+| RAG-01 | 2 | Complete |
 | RAG-02 | 2 | Complete |
 | RAG-03 | 2 | Complete |
-| RAG-04 | 2 | Not started |
+| RAG-04 | 2 | Complete |
 | RAG-05 | 3 | Not started |
 | RAG-06 | 2 | Not started |
 | RAG-07 | 2 | Not started |
@@ -174,7 +174,7 @@
 | INFR-03 | 1 | Not started |
 | INFR-04 | 1 | Not started |
 | INFR-05 | 1 | Not started |
-| INFR-06 | 2 | Not started |
+| INFR-06 | 2 | Complete |
 | INFR-07 | 6 | Not started |
 | INFR-08 | 6 | Not started |
 | INFR-09 | 3 | Not started |
