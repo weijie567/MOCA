@@ -38,11 +38,11 @@
 - **D-03f:** 不用 text-embedding-v3（除非 v4 不可用），不用本地 BGE
 
 ### D-04: Embedding 工程细节
-- **D-04a:** Ingestion batch size: 16 chunks/request（可配置 `EMBEDDING_BATCH_SIZE`）
+- **D-04a:** Ingestion batch size: 10 chunks/request（DashScope API 硬限制 max 10，可配置 `EMBEDDING_BATCH_SIZE`）
 - **D-04b:** Query-time embedding: 单条
 - **D-04c:** Retry: 最多 3 次 + exponential backoff
 - **D-04d:** 失败不静默跳过，ingestion 明确报告失败的 documents/chunks
-- **D-04e:** 向量存储：`policy_chunks.embedding` (pgvector, 1024 维)
+- **D-04e:** 向量存储：`policy_chunks.embedding` (pgvector, 1024 维)。注意：当前 models.py 中为 Vector(1536)，Phase 2 需通过 migration 修正为 Vector(1024)
 - **D-04f:** 记录 embedding_model 和 embedding_provider 元数据（schema 支持则入表，否则 config/logs）
 - **D-04g:** 不混用不同模型的 embedding，模型变更需重新 embed
 

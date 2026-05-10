@@ -3,11 +3,11 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-05-10T08:30:16.479Z"
+last_updated: "2026-05-10T09:41:47.879Z"
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 5
+  total_plans: 4
   completed_plans: 5
   percent: 100
 ---
@@ -41,4 +41,4 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 
 (None yet)
 
-**Planned Phase:** 1 (Foundation) — 5 plans — 2026-05-09T14:33:43.075Z
+**Planned Phase:** 2 (rag-pipeline) — 5 plans — 2026-05-10T09:41:47.870Z
