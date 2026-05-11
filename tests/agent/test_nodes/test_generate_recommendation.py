@@ -1,0 +1,87 @@
+from __future__ import annotations
+
+import pytest
+
+from tests.agent.conftest import FakeLLM
+
+from src.agent.nodes import generate_recommendation as generate_recommendation_module
+
+
+def _retrieved_evidence():
+    return {
+        "status": "success",
+        "data": {
+            "retrieval_status": "strong_evidence",
+            "best_score": 0.8,
+            "evidence": [
+                {
+                    "doc_key": "policy_refund_timeout",
+                    "chunk_id": "chunk_001",
+                    "title": "退款超时规则",
+                    "section": "第一条",
+                    "score": 0.8,
+                    "text": "退款超时时，客服应核实支付通道和退款状态。",
+                }
+            ],
+        },
+        "error": {},
+    }
+
+
+@pytest.mark.asyncio
+async def test_skips_llm_when_insufficient_evidence(monkeypatch, base_state):
+    class ExplodingLLM:
+        def with_structured_output(self, schema):
+            raise AssertionError("LLM should not be called")
+
+    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: ExplodingLLM())
+    state = {**base_state, "recommendation_draft": {"recommended_action": "insufficient_evidence"}}
+
+    result = await generate_recommendation_module.generate_recommendation(state)
+
+    assert "recommendation_draft" not in result
+    assert result["trace_steps"][-1]["status"] == "skipped"
+
+
+@pytest.mark.asyncio
+async def test_citation_validator_strips_invalid_refs(monkeypatch, base_state):
+    monkeypatch.setattr(
+        generate_recommendation_module,
+        "_get_llm",
+        lambda: FakeLLM(
+            {
+                "recommended_action": "建议退款",
+                "reasoning_summary": "根据规则",
+                "evidence_refs": [
+                    {
+                        "doc_key": "policy_refund_timeout",
+                        "chunk_id": "chunk_001",
+                        "title": "退款超时规则",
+                        "section": "第一条",
+                    },
+                    {
+                        "doc_key": "policy_refund_timeout",
+                        "chunk_id": "missing_chunk",
+                        "title": "退款超时规则",
+                        "section": "第二条",
+                    },
+                ],
+                "confidence": 0.85,
+                "risk_level": "low",
+                "missing_info": [],
+            }
+        ),
+    )
+    state = {**base_state, "retrieved_evidence": _retrieved_evidence()}
+
+    result = await generate_recommendation_module.generate_recommendation(state)
+
+    refs = result["recommendation_draft"]["evidence_refs"]
+    assert refs == [
+        {
+            "doc_key": "policy_refund_timeout",
+            "chunk_id": "chunk_001",
+            "title": "退款超时规则",
+            "section": "第一条",
+        }
+    ]
