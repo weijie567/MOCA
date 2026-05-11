@@ -8,6 +8,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
 from src.agent.prompts import GENERATE_RECOMMENDATION_SYSTEM
+from src.agent.nodes.retrieve_policy_evidence import _merge_evidence_refs
 from src.agent.schemas import RecommendationDraft
 from src.agent.state import AgentState
 from src.config import settings
@@ -30,8 +31,8 @@ def _get_llm() -> ChatOpenAI:
     )
 
 
-def _trace_step(status: str, started_at: str) -> dict[str, Any]:
-    return {
+def _trace_step(status: str, started_at: str, evidence_refs: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    step = {
         "node": "generate_recommendation",
         "status": status,
         "started_at": started_at,
@@ -40,6 +41,9 @@ def _trace_step(status: str, started_at: str) -> dict[str, Any]:
         "prompt_tokens": None,
         "completion_tokens": None,
     }
+    if evidence_refs:
+        step["evidence_refs"] = evidence_refs
+    return step
 
 
 def _retrieval_data(state: AgentState) -> dict[str, Any]:
@@ -78,6 +82,31 @@ def _summarize_evidence(evidence: list[dict[str, Any]]) -> str:
     return json.dumps(items, ensure_ascii=False, sort_keys=True)
 
 
+def _validated_evidence_refs(
+    draft_refs: list[dict[str, Any]],
+    retrieval: RetrievalResult,
+    retrieved_at: str,
+) -> list[dict[str, Any]]:
+    evidence_by_chunk = {item.chunk_id: item for item in retrieval.evidence}
+    refs: list[dict[str, Any]] = []
+    for draft_ref in draft_refs:
+        chunk_id = draft_ref.get("chunk_id")
+        evidence = evidence_by_chunk.get(chunk_id)
+        if evidence is None:
+            continue
+        refs.append(
+            {
+                "doc_key": draft_ref.get("doc_key") or evidence.doc_key,
+                "chunk_id": evidence.chunk_id,
+                "title": draft_ref.get("title") or evidence.title,
+                "section": draft_ref.get("section") or evidence.section,
+                "confidence": evidence.score,
+                "retrieved_at": retrieved_at,
+            }
+        )
+    return refs
+
+
 async def generate_recommendation(state: AgentState) -> dict:
     started_at = _now_iso()
     existing_draft = state.get("recommendation_draft") or {}
@@ -114,11 +143,14 @@ async def generate_recommendation(state: AgentState) -> dict:
                     draft["recommended_action"] = "citation_invalid"
                     draft["missing_info"] = [validation.reason or "Citation validation failed"]
                     draft["confidence"] = 0.0
+            validated_refs = _validated_evidence_refs(draft.get("evidence_refs") or [], retrieval, _now_iso())
+            merged_refs = _merge_evidence_refs(state.get("evidence_refs"), validated_refs)
             outputs = {**(state.get("llm_outputs") or {}), "generate_recommendation": draft}
             return {
                 "recommendation_draft": draft,
                 "llm_outputs": outputs,
-                "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
+                "evidence_refs": merged_refs,
+                "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at, validated_refs)],
             }
         except (ValidationError, ValueError, TimeoutError, Exception) as exc:
             last_error = str(exc)
