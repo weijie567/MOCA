@@ -16,6 +16,7 @@ from src.agent.state import AgentState
 from src.config import settings
 
 RISK_RULES_PATH = Path("rules/risk_rules.yaml")
+FULL_REFUND_TERMS = ("full_refund", "全额退款", "全额退", "整单退款")
 
 
 def _now_iso() -> str:
@@ -91,7 +92,11 @@ def _deterministic_rule_match(draft: dict[str, Any], context: dict[str, Any], ru
         threshold = _rule_threshold(rule, ">")
         if threshold is not None and amount is not None and amount > threshold:
             return rule
-        if "full_refund" in condition and "full_refund" in action and order.get("status") == "delivered":
+        if (
+            "full_refund" in condition
+            and any(term in action for term in FULL_REFUND_TERMS)
+            and order.get("status") == "delivered"
+        ):
             return rule
         if "merchant_risk_level" in condition and merchant_risk_level == "high":
             return rule

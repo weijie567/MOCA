@@ -5,6 +5,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.agent.tools.authz import merchant_can_access
 from src.repositories.order_repo import OrderRepository
 
 
@@ -32,8 +33,7 @@ async def get_order(
     role: str,
     session: AsyncSession,
 ) -> dict:
-    """Fetch order with relation hints. Read-only; tenant scoping is enforced by the repository."""
-    del user_id, role
+    """Fetch order with relation hints. Read-only; tenant and merchant scoping are enforced."""
 
     try:
         tenant_uuid = UUID(tenant_id)
@@ -51,6 +51,20 @@ async def get_order(
             )
 
         order = result["order"]
+        if not await merchant_can_access(
+            session,
+            tenant_id=tenant_uuid,
+            user_id=user_id,
+            role=role,
+            merchant_id=order.merchant_id,
+        ):
+            return _tool_error(
+                "FORBIDDEN",
+                "Merchant access is limited to the merchant's own orders",
+                retryable=False,
+                should_stop=True,
+            )
+
         hints = result["relation_hints"]
         return _tool_success(
             {

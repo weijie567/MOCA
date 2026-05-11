@@ -52,6 +52,17 @@ def _insufficient_evidence_draft(missing_info: list[str] | None = None) -> dict[
     }
 
 
+def _retrieval_error_draft(error: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "recommended_action": "retrieval_error",
+        "reasoning_summary": "Policy retrieval failed due to an infrastructure error.",
+        "evidence_refs": [],
+        "confidence": 0.0,
+        "risk_level": "low",
+        "missing_info": [error.get("message") or "Policy retrieval failed"],
+    }
+
+
 async def retrieve_policy_evidence(state: AgentState, config: RunnableConfig) -> dict:
     started_at = _now_iso()
     configurable = config.get("configurable") or {}
@@ -68,15 +79,19 @@ async def retrieve_policy_evidence(state: AgentState, config: RunnableConfig) ->
     )
 
     data = result.get("data") or {}
-    gate_triggered = (
-        result.get("status") == "error"
-        or data.get("retrieval_status") == "no_evidence"
-        or float(data.get("best_score") or 0.0) < MIN_EVIDENCE_SCORE
-    )
+    retrieval_failed = result.get("status") == "error"
+    gate_triggered = data.get("retrieval_status") == "no_evidence" or float(data.get("best_score") or 0.0) < MIN_EVIDENCE_SCORE
     output: dict[str, Any] = {
         "retrieved_evidence": result,
-        "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
+        "trace_steps": (state.get("trace_steps") or [])
+        + [_trace_step("error" if retrieval_failed else "completed", started_at)],
     }
-    if gate_triggered:
+    if retrieval_failed:
+        error = result.get("error") or {}
+        output["recommendation_draft"] = _retrieval_error_draft(error)
+        output["node_errors"] = (state.get("node_errors") or []) + [
+            {"node": "retrieve_policy_evidence", "error": error, "retry_count": 0}
+        ]
+    elif gate_triggered:
         output["recommendation_draft"] = _insufficient_evidence_draft()
     return output

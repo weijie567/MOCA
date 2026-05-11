@@ -81,7 +81,7 @@ def _summarize_evidence(evidence: list[dict[str, Any]]) -> str:
 async def generate_recommendation(state: AgentState) -> dict:
     started_at = _now_iso()
     existing_draft = state.get("recommendation_draft") or {}
-    if existing_draft.get("recommended_action") == "insufficient_evidence":
+    if existing_draft.get("recommended_action") in {"insufficient_evidence", "retrieval_error"}:
         return {"trace_steps": (state.get("trace_steps") or []) + [_trace_step("skipped", started_at)]}
 
     retrieval = _retrieval_result(state)

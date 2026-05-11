@@ -92,10 +92,15 @@ def build_trace_summary(
     """Build the safe trace summary returned by the API response."""
     trace_steps = final_state.get("trace_steps") or []
     nodes_executed = [str(step.get("node") or "unknown") for step in trace_steps]
-    tools_called = [step["tool_name"] for step in trace_steps if step.get("tool_name")]
+    tools_called: list[str] = []
+    for step in trace_steps:
+        tools_called.extend(str(tool) for tool in (step.get("tools_called") or []))
+        if step.get("tool_name"):
+            tools_called.append(str(step["tool_name"]))
 
     retrieved = final_state.get("retrieved_evidence") or {}
-    evidence_count = len(retrieved.get("evidence") or [])
+    retrieval_data = retrieved.get("data") or retrieved
+    evidence_count = len(retrieval_data.get("evidence") or [])
 
     risk = final_state.get("risk_assessment") or {}
 

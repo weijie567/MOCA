@@ -5,6 +5,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.agent.tools.authz import merchant_can_access, order_merchant_id
 from src.repositories.refund_repo import RefundRepository
 
 
@@ -32,8 +33,7 @@ async def get_refund_case(
     role: str,
     session: AsyncSession,
 ) -> dict:
-    """Fetch a refund case by case number. Read-only; tenant scoping is enforced by the repository."""
-    del user_id, role
+    """Fetch a refund case by case number. Read-only; tenant and merchant scoping are enforced."""
 
     try:
         tenant_uuid = UUID(tenant_id)
@@ -52,6 +52,22 @@ async def get_refund_case(
                 f"Refund case {refund_case_no} not found for this tenant",
                 retryable=False,
             )
+
+        if role == "merchant":
+            merchant_id = await order_merchant_id(session, tenant_id=tenant_uuid, order_id=refund_case.order_id)
+            if merchant_id is None or not await merchant_can_access(
+                session,
+                tenant_id=tenant_uuid,
+                user_id=user_id,
+                role=role,
+                merchant_id=merchant_id,
+            ):
+                return _tool_error(
+                    "FORBIDDEN",
+                    "Merchant access is limited to the merchant's own refund cases",
+                    retryable=False,
+                    should_stop=True,
+                )
 
         return _tool_success(
             {

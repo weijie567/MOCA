@@ -275,4 +275,6 @@ async def test_trace_summary_shape(graph_with_fake_llm):
         "final_status",
     }
     assert all(isinstance(node, str) for node in summary["nodes_executed"])
+    assert summary["tools_called"] == ["search_policy"]
+    assert summary["evidence_count"] == 1
     assert summary["final_status"] in ("completed", "insufficient_evidence", "error")

@@ -46,9 +46,20 @@ def _insufficient_response(draft: dict[str, Any]) -> str:
     return f"{INSUFFICIENT_EVIDENCE_RESPONSE}\n缺少信息：{'、'.join(str(item) for item in missing_info)}"
 
 
+def _retrieval_error_response(draft: dict[str, Any]) -> str:
+    missing_info = draft.get("missing_info") or []
+    suffix = f"原因：{'、'.join(str(item) for item in missing_info)}" if missing_info else ""
+    return f"系统暂时无法检索政策依据，请稍后重试或联系人工客服。{suffix}"
+
+
 async def final_response(state: AgentState) -> dict:
     started_at = _now_iso()
     draft = state.get("recommendation_draft") or {}
+    if draft.get("recommended_action") == "retrieval_error":
+        return {
+            "final_response": _retrieval_error_response(draft),
+            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("error", started_at)],
+        }
     if draft.get("recommended_action") in {"insufficient_evidence", "citation_invalid"}:
         return {
             "final_response": _insufficient_response(draft),

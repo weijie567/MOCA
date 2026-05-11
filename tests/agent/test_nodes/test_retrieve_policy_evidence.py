@@ -83,3 +83,33 @@ async def test_evidence_gate_passes_with_good_evidence(monkeypatch, base_state):
     )
 
     assert "recommendation_draft" not in result
+
+
+@pytest.mark.asyncio
+async def test_search_error_records_node_error_not_insufficient_evidence(monkeypatch, base_state):
+    monkeypatch.setattr(
+        retrieve_policy_evidence_module,
+        "search_policy",
+        AsyncMock(
+            return_value={
+                "status": "error",
+                "data": {},
+                "error": {
+                    "error_code": "DB_TIMEOUT",
+                    "message": "Policy search timeout",
+                    "retryable": True,
+                    "should_stop": False,
+                },
+            }
+        ),
+    )
+
+    result = await retrieve_policy_evidence_module.retrieve_policy_evidence(
+        base_state,
+        {"configurable": {"session": AsyncMock()}},
+    )
+
+    assert result["recommendation_draft"]["recommended_action"] == "retrieval_error"
+    assert result["node_errors"][0]["node"] == "retrieve_policy_evidence"
+    assert result["node_errors"][0]["error"]["error_code"] == "DB_TIMEOUT"
+    assert result["trace_steps"][-1]["status"] == "error"

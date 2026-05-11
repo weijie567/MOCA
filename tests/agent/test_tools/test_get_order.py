@@ -8,12 +8,15 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.db.models import Merchant, Order
 from src.agent.tools.get_order import get_order
 
 
 def _order(order_no: str = "ORD-001"):
     return SimpleNamespace(
+        merchant_id=uuid4(),
         order_no=order_no,
         status="delivered",
         amount=Decimal("199.00"),
@@ -92,3 +95,45 @@ async def test_get_order_no_messages_field(monkeypatch):
 
     assert result["status"] == "success"
     assert "messages" not in result["data"]
+
+
+@pytest.mark.asyncio
+async def test_get_order_forbids_other_same_tenant_merchant(session: AsyncSession, seeded_session):
+    tenant = seeded_session["tenant"]
+    merchant_user = seeded_session["users"]["merchant_wang"]
+    other_merchant = Merchant(
+        id=uuid4(),
+        tenant_id=tenant.id,
+        merchant_name="Same Tenant Other Shop",
+        category="electronics",
+        risk_level="low",
+    )
+    session.add(other_merchant)
+    await session.flush()
+    other_order = Order(
+        id=uuid4(),
+        tenant_id=tenant.id,
+        merchant_id=other_merchant.id,
+        order_no="ORD-SAME-TENANT-OTHER",
+        buyer_name="其他商户用户",
+        item_name="键盘",
+        amount=Decimal("299.00"),
+        currency="CNY",
+        status="delivered",
+        paid_at=datetime.now(UTC),
+        delivered_at=datetime.now(UTC),
+    )
+    session.add(other_order)
+    await session.flush()
+
+    result = await get_order(
+        "ORD-SAME-TENANT-OTHER",
+        str(tenant.id),
+        str(merchant_user.id),
+        "merchant",
+        session,
+    )
+
+    assert result["status"] == "error"
+    assert result["error"]["error_code"] == "FORBIDDEN"
+    assert result["error"]["should_stop"] is True
