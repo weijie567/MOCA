@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import time
 import uuid
+from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.agent.graph import build_graph
+from src.api.routers import agent as agent_router
 from src.api.routers import auth, orders, refund_cases, search, tickets
 from src.api.schemas.common import ApiResponse, ErrorDetail, FORBIDDEN, INTERNAL_ERROR, UNAUTHORIZED, VALIDATION_ERROR
 from src.config import settings
@@ -19,6 +23,15 @@ from src.db.session import get_session
 async def _session_context() -> AsyncIterator[AsyncSession]:
     async for session in get_session():
         yield session
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize the LangGraph checkpointer once at startup."""
+    async with AsyncPostgresSaver.from_conn_string(settings.checkpointer_database_url) as checkpointer:
+        await checkpointer.setup()
+        app.state.agent_graph = build_graph(checkpointer)
+        yield
 
 
 def _error_response(request: Request, status_code: int, code: str, message: str, details: dict | None = None) -> JSONResponse:
@@ -31,7 +44,7 @@ def _error_response(request: Request, status_code: int, code: str, message: str,
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title=settings.project_name, version=settings.project_version)
+    app = FastAPI(title=settings.project_name, version=settings.project_version, lifespan=lifespan)
 
     @app.middleware("http")
     async def trace_middleware(request: Request, call_next):
@@ -90,6 +103,7 @@ def create_app() -> FastAPI:
     app.include_router(refund_cases.router, prefix=f"{settings.api_v1_prefix}/refund-cases")
     app.include_router(search.router, prefix=f"{settings.api_v1_prefix}/search")
     app.include_router(tickets.router, prefix=f"{settings.api_v1_prefix}/tickets")
+    app.include_router(agent_router.router, prefix=f"{settings.api_v1_prefix}/agent")
     return app
 
 
