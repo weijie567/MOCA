@@ -22,6 +22,17 @@ class Settings(BaseSettings):
     embedding_dimensions: int = 1024
     embedding_batch_size: int = 10
 
+    # LLM (GLM-5.1 via DashScope, per D-01)
+    dashscope_api_key: str = Field(default="")
+    llm_model: str = "glm-5.1"
+    llm_temperature: float = 0.0
+    llm_max_tokens: int = 1024
+    llm_timeout_seconds: int = 30
+
+    @property
+    def checkpointer_database_url(self) -> str:
+        return self.database_url.replace("postgresql+asyncpg://", "postgresql://")
+
 
 @lru_cache
 def get_settings() -> Settings:

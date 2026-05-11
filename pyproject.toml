@@ -16,6 +16,11 @@ dependencies = [
   "redis>=5.0",
   "pgvector>=0.3",
   "openai>=1.30",
+  "langgraph>=0.4",
+  "langgraph-checkpoint-postgres>=2.0",
+  "langchain-openai>=0.3",
+  "langchain-core>=0.3",
+  "psycopg[binary,pool]>=3.1",
 ]
 
 [project.optional-dependencies]
