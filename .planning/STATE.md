@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-05-11T08:18:44.861Z"
+last_updated: "2026-05-11T08:30:24.497Z"
 progress:
   total_phases: 6
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 17
-  completed_plans: 16
-  percent: 94
+  completed_plans: 17
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-09)
 
 **Core value:** When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution.
-**Current focus:** Phase 03 — langgraph-core
+**Current focus:** Phase 04 — approval-workflow
 
 ## Current Status
 
-- **Active phase:** 3
-- **Phase status:** Phase 3 Plan 04 complete; `/api/v1/agent/chat`, trace persistence helpers, `agent:chat` scope, and FastAPI LangGraph checkpointer lifespan are ready for the Plan 05 test suite.
+- **Active phase:** 4
+- **Phase status:** Phase 3 complete; FakeLLM agent tests, MemorySaver graph integration tests, live smoke script, and the 15-case Phase 3 golden set are ready for approval workflow work.
 - **Blockers:** None
 
 ## Phase History
@@ -45,6 +45,11 @@ See: .planning/PROJECT.md (updated 2026-05-09)
   - Code review: `02-REVIEW.md`; fixes recorded in `02-REVIEW-FIX.md`
   - Tests: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short` — 50 passed
   - Live checks: real `DASHSCOPE_API_KEY` ingestion passed; Plan 07 DB-backed Hit@5 passed at 83.3% with fallback accuracy 100.0%
+- **Phase 3: LangGraph Core** — Complete on 2026-05-11
+  - Plans completed: 5/5
+  - Latest plan summary: `.planning/phases/03-langgraph-core/03-05-SUMMARY.md`
+  - Tests: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/ -v --tb=short -m "not live"` — 24 passed
+  - Full suite: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short` — 74 passed
 
 ## Session Notes
 
@@ -61,6 +66,7 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 - 2026-05-11: Executed Phase 3 Plan 02. Added AgentState, structured Pydantic output schemas, static English prompts, and four read-only tenant-scoped tool wrappers. Verification: agent imports passed, ruff passed, `get_ticket.py` has no `messages` reference, and `pytest -q --tb=short` passed with 50 tests.
 - 2026-05-11: Executed Phase 3 Plan 03. Added eight async LangGraph nodes, `rules/risk_rules.yaml`, fixed `build_graph()`, no-evidence LLM skip, citation validation, and safe LLM fallbacks. Verification: graph assembly import passed, ruff passed, and `pytest -q --tb=short` passed with 50 tests.
 - 2026-05-11: Executed Phase 3 Plan 04. Added `POST /api/v1/agent/chat`, `agent:chat` OAuth scope, AgentRun/AgentStep trace persistence helpers, scoped checkpointer thread keys, and FastAPI lifespan setup. Verification: integration wiring passed, ruff passed, and `pytest -q --tb=short` passed with 50 tests.
+- 2026-05-11: Executed Phase 3 Plan 05. Added FakeLLM fixtures, agent tool/node tests, MemorySaver graph integration tests, `scripts/smoke_agent_live.py`, and 15 synthetic golden-set cases. Verification: agent tests passed with 24 tests, full pytest passed with 74 tests, golden-set JSON validated, and smoke script syntax parsed.
 
 ## Decisions
 
@@ -84,3 +90,7 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 - Plan 03-04: A narrow OAuth2 model scopes alias preserves compatibility with the plan verification while keeping FastAPI's canonical password-flow scopes intact.
 
 **Planned Phase:** 3 (LangGraph Core) — 5 plans — 2026-05-11T07:14:45.350Z
+
+- Plan 03-05 tests patch node-local _get_llm factories rather than constructing real ChatOpenAI clients, preserving CI isolation from live LLM APIs.
+- Plan 03-05 graph integration tests use MemorySaver and node-imported tool monkeypatches so the compiled graph is exercised without Postgres or external embeddings.
+- Plan 03-05 golden set uses synthetic order numbers and Chinese support queries only; no real PII is included.

@@ -44,6 +44,7 @@
 
 ## Phase 3: LangGraph Core
 
+**Status:** Complete
 **Goal:** Submit a refund question and receive an evidence-cited answer with full execution trace, tool calls, and same-thread memory — the complete read-only happy path without approval interruption.
 **Duration:** ~8 days
 **Requirements:** AGNT-01, AGNT-02, AGNT-03, AGNT-04, AGNT-05, AGNT-06, AGNT-08, INFR-09, RAG-05, SAFE-06, SAFE-08
@@ -55,7 +56,7 @@ Plans:
 - [x] 03-02-PLAN.md — AgentState TypedDict + Pydantic schemas + prompts + 4 tool wrappers
 - [x] 03-03-PLAN.md — 8 LangGraph nodes + graph assembly + risk_rules.yaml
 - [x] 03-04-PLAN.md — Trace persistence + POST /api/v1/agent/chat + FastAPI lifespan
-- [ ] 03-05-PLAN.md — Test suite (per-node + tools + graph integration + failure paths + golden set)
+- [x] 03-05-PLAN.md — Test suite (per-node + tools + graph integration + failure paths + golden set)
 
 ### Success Criteria
 1. Agent accepts a refund question, identifies intent, loads business context via read tools (get_order, get_refund_case, get_ticket), retrieves knowledge base evidence, and returns a structured response with evidence list citing specific doc_id/chunk_id (validated by citation validator)
