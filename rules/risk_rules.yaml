@@ -1,0 +1,31 @@
+# Risk classification rules for assess_risk_and_approval node.
+# Phase 3: labeling only. Phase 4: high_risk triggers interrupt().
+version: "1.0"
+
+high_risk:
+  - id: HR-01
+    description: "Compensation amount exceeds threshold"
+    condition: "compensation_amount > 500"
+    currency: "CNY"
+  - id: HR-02
+    description: "Full refund override on delivered order"
+    condition: "recommended_action contains 'full_refund' and order_status == 'delivered'"
+  - id: HR-03
+    description: "Refund for high-risk merchant"
+    condition: "merchant_risk_level == 'high'"
+
+medium_risk:
+  - id: MR-01
+    description: "Partial refund on disputed amount"
+    condition: "recommended_action contains 'partial_refund'"
+  - id: MR-02
+    description: "Compensation between 100 and 500 CNY"
+    condition: "compensation_amount >= 100 and compensation_amount <= 500"
+  - id: MR-03
+    description: "Refund case older than 30 days"
+    condition: "case_age_days > 30"
+
+low_risk:
+  - id: LR-01
+    description: "Standard refund within normal parameters"
+    condition: "default"
