@@ -10,7 +10,7 @@
 
 ### Agent Core
 
-- [ ] **AGNT-01**: Agent 能识别用户意图，并路由到对应处理流程，包括规则问答、退款排障、补偿建议、审批请求
+- [x] **AGNT-01**: Agent 能识别用户意图，并路由到对应处理流程，包括规则问答、退款排障、补偿建议、审批请求
 - [x] **AGNT-02**: Agent 基于 LangGraph 状态机编排 happy path 流程，包含：接收请求、意图识别、加载业务上下文、检索规则证据、生成处理建议、风险判断、最终响应节点
 - [ ] **AGNT-02a**: Agent 图包含审批中断节点（approval interrupt via `interrupt()`）和执行节点（executor），在高风险动作时中断等待人工决策后恢复执行
 - [x] **AGNT-03**: Agent 能通过结构化工具调用获取订单、退款单、工单数据
@@ -18,7 +18,7 @@
 - [x] **AGNT-05**: Agent 支持同一 thread 内上下文保持（via LangGraph checkpointer），多轮对话中记住 order_id、refund_case_id、ticket_id、已检索证据和上一次处理结论；不支持跨 session 记忆
 - [x] **AGNT-06**: Agent 输出结构化执行轨迹（execution trace），记录经过的图节点、工具调用、证据引用、风险判断和审批状态；不输出模型私有推理链（禁用 chain-of-thought 术语，统一为 decision/evidence/action trace）
 - [ ] **AGNT-07**: Agent 支持 SSE 流式响应，逐步展示当前阶段，例如"读取订单""检索规则""判断风险""等待审批"
-- [ ] **AGNT-08**: Agent 在证据不足时必须拒绝生成确定性结论，并返回"缺少哪些信息 / 建议下一步补充什么"
+- [x] **AGNT-08**: Agent 在证据不足时必须拒绝生成确定性结论，并返回"缺少哪些信息 / 建议下一步补充什么"
 
 ### RAG & Knowledge Base
 
@@ -136,7 +136,7 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AGNT-01 | 3 | Not started |
+| AGNT-01 | 3 | Complete |
 | AGNT-02 | 3 | Complete |
 | AGNT-02a | 4 | Not started |
 | AGNT-03 | 3 | Complete |
@@ -144,7 +144,7 @@
 | AGNT-05 | 3 | Complete |
 | AGNT-06 | 3 | Complete |
 | AGNT-07 | 5 | Not started |
-| AGNT-08 | 3 | Not started |
+| AGNT-08 | 3 | Complete |
 | RAG-01 | 2 | Complete |
 | RAG-02 | 2 | Complete |
 | RAG-03 | 2 | Complete |

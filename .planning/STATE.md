@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-05-11T07:57:43.215Z"
+last_updated: "2026-05-11T08:09:16.753Z"
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 17
-  completed_plans: 14
-  percent: 82
+  completed_plans: 15
+  percent: 88
 ---
 
 # Project State: MOCA
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 ## Current Status
 
 - **Active phase:** 3
-- **Phase status:** Phase 3 Plan 02 complete; agent contracts, structured schemas, static prompts, and tenant-scoped read-only tool wrappers are ready for node implementation.
+- **Phase status:** Phase 3 Plan 03 complete; eight async LangGraph nodes, fixed graph assembly, evidence gating, citation validation, and YAML-backed risk labeling are ready for API/lifespan integration.
 - **Blockers:** None
 
 ## Phase History
@@ -59,6 +59,7 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 - 2026-05-11: Executed Plan 07. Enriched policy embedding input, added deterministic hybrid reranking and support-domain fallback guard, re-ingested 90 chunks, and closed EVAL-02 with live Hit@5 83.3% and fallback accuracy 100.0%.
 - 2026-05-11: Executed Phase 3 Plan 01. Added LangGraph/LangChain/psycopg dependencies, GLM/DashScope settings, derived checkpointer URL, AgentRun/AgentStep models, and migration 003. Verification: config import passed, model import passed, `alembic upgrade head` passed, and `pytest -q --tb=short` passed with 50 tests.
 - 2026-05-11: Executed Phase 3 Plan 02. Added AgentState, structured Pydantic output schemas, static English prompts, and four read-only tenant-scoped tool wrappers. Verification: agent imports passed, ruff passed, `get_ticket.py` has no `messages` reference, and `pytest -q --tb=short` passed with 50 tests.
+- 2026-05-11: Executed Phase 3 Plan 03. Added eight async LangGraph nodes, `rules/risk_rules.yaml`, fixed `build_graph()`, no-evidence LLM skip, citation validation, and safe LLM fallbacks. Verification: graph assembly import passed, ruff passed, and `pytest -q --tb=short` passed with 50 tests.
 
 ## Decisions
 
@@ -74,5 +75,8 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 - Plan 03-01: checkpointer_database_url is a derived Settings property, not an env-loaded pydantic field.
 - Plan 03-02: Tool wrappers validate UUID-shaped tenant/resource IDs before repository access and return VALIDATION_ERROR for malformed IDs.
 - Plan 03-02: Ticket tool output intentionally excludes messages because ticket conversation history can contain PII.
+- Plan 03-03: No-evidence retrieval sets `recommendation_draft.recommended_action` to `insufficient_evidence`, causing recommendation generation to skip the LLM call.
+- Plan 03-03: Risk assessment loads thresholds from `rules/risk_rules.yaml` and applies deterministic high-risk overrides after the LLM result.
+- Plan 03-03: LLM provider failures return structured node errors and safe fallbacks inside nodes rather than relying only on graph-level retries.
 
 **Planned Phase:** 3 (LangGraph Core) — 5 plans — 2026-05-11T07:14:45.350Z
