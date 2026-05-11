@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-05-11T07:49:47.307Z"
+last_updated: "2026-05-11T07:57:43.215Z"
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 17
-  completed_plans: 13
-  percent: 76
+  completed_plans: 14
+  percent: 82
 ---
 
 # Project State: MOCA
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 ## Current Status
 
 - **Active phase:** 3
-- **Phase status:** Phase 2 complete after Plan 07 closed EVAL-02 with live DB-backed Hit@5 83.3 percent and fallback accuracy 100.0 percent; ready to plan Phase 3
+- **Phase status:** Phase 3 Plan 02 complete; agent contracts, structured schemas, static prompts, and tenant-scoped read-only tool wrappers are ready for node implementation.
 - **Blockers:** None
 
 ## Phase History
@@ -58,6 +58,7 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 - 2026-05-11: Executed Plan 06. Added eval diagnostics and deterministic scoring tests, but did not alter the golden set because live diagnostics found only one answer-bearing calibration candidate; Hit@5 would improve from 7/12 to at most 8/12, below the required 10/12. Next step is a retrieval-improvement plan, not further golden-set calibration.
 - 2026-05-11: Executed Plan 07. Enriched policy embedding input, added deterministic hybrid reranking and support-domain fallback guard, re-ingested 90 chunks, and closed EVAL-02 with live Hit@5 83.3% and fallback accuracy 100.0%.
 - 2026-05-11: Executed Phase 3 Plan 01. Added LangGraph/LangChain/psycopg dependencies, GLM/DashScope settings, derived checkpointer URL, AgentRun/AgentStep models, and migration 003. Verification: config import passed, model import passed, `alembic upgrade head` passed, and `pytest -q --tb=short` passed with 50 tests.
+- 2026-05-11: Executed Phase 3 Plan 02. Added AgentState, structured Pydantic output schemas, static English prompts, and four read-only tenant-scoped tool wrappers. Verification: agent imports passed, ruff passed, `get_ticket.py` has no `messages` reference, and `pytest -q --tb=short` passed with 50 tests.
 
 ## Decisions
 
@@ -71,5 +72,7 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 - Plan 07: EVAL-02 is closed by live exact expected_chunk_ids Hit@5 >= 80%, not by doc-only scoring or label changes.
 - Plan 03-01: Migration 003 uses down_revision 002_rag_pipeline to match the repository's actual Alembic chain.
 - Plan 03-01: checkpointer_database_url is a derived Settings property, not an env-loaded pydantic field.
+- Plan 03-02: Tool wrappers validate UUID-shaped tenant/resource IDs before repository access and return VALIDATION_ERROR for malformed IDs.
+- Plan 03-02: Ticket tool output intentionally excludes messages because ticket conversation history can contain PII.
 
 **Planned Phase:** 3 (LangGraph Core) — 5 plans — 2026-05-11T07:14:45.350Z

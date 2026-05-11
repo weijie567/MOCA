@@ -13,8 +13,8 @@
 - [ ] **AGNT-01**: Agent 能识别用户意图，并路由到对应处理流程，包括规则问答、退款排障、补偿建议、审批请求
 - [x] **AGNT-02**: Agent 基于 LangGraph 状态机编排 happy path 流程，包含：接收请求、意图识别、加载业务上下文、检索规则证据、生成处理建议、风险判断、最终响应节点
 - [ ] **AGNT-02a**: Agent 图包含审批中断节点（approval interrupt via `interrupt()`）和执行节点（executor），在高风险动作时中断等待人工决策后恢复执行
-- [ ] **AGNT-03**: Agent 能通过结构化工具调用获取订单、退款单、工单数据
-- [ ] **AGNT-04**: Agent 能检索知识库，并在回答中引用具体 doc_id、chunk_id 和规则段落摘要
+- [x] **AGNT-03**: Agent 能通过结构化工具调用获取订单、退款单、工单数据
+- [x] **AGNT-04**: Agent 能检索知识库，并在回答中引用具体 doc_id、chunk_id 和规则段落摘要
 - [x] **AGNT-05**: Agent 支持同一 thread 内上下文保持（via LangGraph checkpointer），多轮对话中记住 order_id、refund_case_id、ticket_id、已检索证据和上一次处理结论；不支持跨 session 记忆
 - [x] **AGNT-06**: Agent 输出结构化执行轨迹（execution trace），记录经过的图节点、工具调用、证据引用、风险判断和审批状态；不输出模型私有推理链（禁用 chain-of-thought 术语，统一为 decision/evidence/action trace）
 - [ ] **AGNT-07**: Agent 支持 SSE 流式响应，逐步展示当前阶段，例如"读取订单""检索规则""判断风险""等待审批"
@@ -26,7 +26,7 @@
 - [x] **RAG-02**: 系统支持文档切块、embedding 生成、pgvector 入库和检索
 - [x] **RAG-03**: 每个知识 chunk 必须包含 doc_id、chunk_id、title、section、text、doc_type、risk_level、effective_date 等元数据
 - [x] **RAG-04**: 检索时支持基于 tenant_id、doc_type、risk_level 的元数据过滤
-- [ ] **RAG-05**: Agent 回答必须包含 evidence 列表，不能只给自然语言结论
+- [x] **RAG-05**: Agent 回答必须包含 evidence 列表，不能只给自然语言结论
 - [x] **RAG-06**: 当检索结果低于置信阈值时，Agent 必须触发 no-evidence fallback，不允许编造规则
 - [x] **RAG-07**: Citation validator 必须二次校验 LLM 输出的 doc_id/chunk_id 确实存在于检索结果中
 
@@ -51,7 +51,7 @@
 - [ ] **SAFE-05**: 审批驳回后，Agent 必须停止执行高风险动作，并返回驳回原因
 - [x] **SAFE-06**: 每次运行必须产生完整审计日志（via LangGraph callback），可按 run_id 查询和回放
 - [ ] **SAFE-07**: 风险阈值、角色权限和审批规则必须通过配置文件管理（rules/risk_rules.yaml），不硬编码
-- [ ] **SAFE-08**: 所有工具调用必须进行权限校验（repository 层 + tool 层双重检查），防止越权读取或执行
+- [x] **SAFE-08**: 所有工具调用必须进行权限校验（repository 层 + tool 层双重检查），防止越权读取或执行
 
 ### Infrastructure
 
@@ -139,8 +139,8 @@
 | AGNT-01 | 3 | Not started |
 | AGNT-02 | 3 | Complete |
 | AGNT-02a | 4 | Not started |
-| AGNT-03 | 3 | Not started |
-| AGNT-04 | 3 | Not started |
+| AGNT-03 | 3 | Complete |
+| AGNT-04 | 3 | Complete |
 | AGNT-05 | 3 | Complete |
 | AGNT-06 | 3 | Complete |
 | AGNT-07 | 5 | Not started |
@@ -149,7 +149,7 @@
 | RAG-02 | 2 | Complete |
 | RAG-03 | 2 | Complete |
 | RAG-04 | 2 | Complete |
-| RAG-05 | 3 | Not started |
+| RAG-05 | 3 | Complete |
 | RAG-06 | 2 | Complete |
 | RAG-07 | 2 | Complete |
 | TOOL-01 | 1 | Not started |
@@ -168,7 +168,7 @@
 | SAFE-05 | 4 | Not started |
 | SAFE-06 | 3 | Complete |
 | SAFE-07 | 4 | Not started |
-| SAFE-08 | 3 | Not started |
+| SAFE-08 | 3 | Complete |
 | INFR-01 | 1 | Not started |
 | INFR-02 | 1 | Not started |
 | INFR-03 | 1 | Not started |
