@@ -120,7 +120,7 @@ async def generate_recommendation(state: AgentState) -> dict:
                 "llm_outputs": outputs,
                 "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
             }
-        except (ValidationError, ValueError) as exc:
+        except (ValidationError, ValueError, TimeoutError, Exception) as exc:
             last_error = str(exc)
             if attempt == 0:
                 messages.append(
