@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-05-11T05:50:49.225Z"
+last_updated: "2026-05-11T07:14:45.365Z"
 progress:
   total_phases: 6
   completed_phases: 2
-  total_plans: 12
+  total_plans: 17
   completed_plans: 12
-  percent: 100
+  percent: 71
 ---
 
 # Project State: MOCA
@@ -69,4 +69,4 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 - Plan 07: Out-of-domain fallback is protected by a deterministic support-domain guard while preserving MIN_SIMILARITY_THRESHOLD = 0.55.
 - Plan 07: EVAL-02 is closed by live exact expected_chunk_ids Hit@5 >= 80%, not by doc-only scoring or label changes.
 
-**Planned Phase:** 02 (rag-pipeline) — 7 plans — 2026-05-10T22:12:49.638Z
+**Planned Phase:** 3 (LangGraph Core) — 5 plans — 2026-05-11T07:14:45.350Z
