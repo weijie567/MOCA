@@ -66,9 +66,9 @@ async def write_agent_steps(
             status=str(step.get("status") or "completed"),
             input_summary=step.get("input_summary"),
             output_summary=step.get("output_summary"),
-            tool_name=step.get("tool_name"),
+            tool_name=_normalize_tool_name(step),
             tool_input_summary=step.get("tool_input_summary"),
-            tool_output_summary=step.get("tool_output_summary"),
+            tool_output_summary=_normalize_tool_output_summary(step),
             model_name=step.get("model_name"),
             prompt_tokens=step.get("prompt_tokens"),
             completion_tokens=step.get("completion_tokens"),
@@ -82,6 +82,32 @@ async def write_agent_steps(
         steps.append(agent_step)
     await session.flush()
     return steps
+
+
+def _normalize_tools(step: dict[str, Any]) -> list[str]:
+    tools: list[str] = []
+    for tool in step.get("tools_called") or []:
+        tool_name = str(tool)
+        if tool_name not in tools:
+            tools.append(tool_name)
+    if step.get("tool_name"):
+        tool_name = str(step["tool_name"])
+        if tool_name not in tools:
+            tools.append(tool_name)
+    return tools
+
+
+def _normalize_tool_name(step: dict[str, Any]) -> str | None:
+    tools = _normalize_tools(step)
+    return ",".join(tools) if tools else None
+
+
+def _normalize_tool_output_summary(step: dict[str, Any]) -> dict[str, Any] | None:
+    summary = dict(step.get("tool_output_summary") or {})
+    tools = _normalize_tools(step)
+    if tools:
+        summary["tools_called"] = tools
+    return summary or None
 
 
 def build_trace_summary(
