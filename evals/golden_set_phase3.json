@@ -1,0 +1,172 @@
+[
+  {
+    "id": "GS-01",
+    "category": "policy_qa",
+    "query": "平台的退款超时处理规则是什么？",
+    "thread_id": "gs-thread-01",
+    "expected_intent": "policy_qa",
+    "expected_final_status": "completed",
+    "expected_evidence_present": true,
+    "expected_tools_called": [],
+    "notes": "Standard refund timeout policy question; answer must cite policy evidence."
+  },
+  {
+    "id": "GS-02",
+    "category": "policy_qa",
+    "query": "买家签收后几天内可以申请退货退款？",
+    "thread_id": "gs-thread-02",
+    "expected_intent": "policy_qa",
+    "expected_final_status": "completed",
+    "expected_evidence_present": true,
+    "expected_tools_called": [],
+    "notes": "Standard return window rule question; should search policy only."
+  },
+  {
+    "id": "GS-03",
+    "category": "policy_qa",
+    "query": "商家已经发货时，仅退款应该按什么规则处理？",
+    "thread_id": "gs-thread-03",
+    "expected_intent": "policy_qa",
+    "expected_final_status": "completed",
+    "expected_evidence_present": true,
+    "expected_tools_called": [],
+    "notes": "Policy-only answer about shipped order refund handling."
+  },
+  {
+    "id": "GS-04",
+    "category": "refund_troubleshooting",
+    "query": "订单ORD-1001退款为什么还没到账？",
+    "thread_id": "gs-thread-04",
+    "expected_intent": "refund_troubleshooting",
+    "expected_final_status": "completed",
+    "expected_evidence_present": true,
+    "expected_tools_called": ["get_order"],
+    "notes": "Order-specific troubleshooting; must load order context before citing policy."
+  },
+  {
+    "id": "GS-05",
+    "category": "refund_troubleshooting",
+    "query": "帮我查一下订单ORD-1002的退款卡在哪里了",
+    "thread_id": "gs-thread-05",
+    "expected_intent": "refund_troubleshooting",
+    "expected_final_status": "completed",
+    "expected_evidence_present": true,
+    "expected_tools_called": ["get_order"],
+    "notes": "Order lookup with colloquial wording."
+  },
+  {
+    "id": "GS-06",
+    "category": "refund_troubleshooting",
+    "query": "订单ORD-1003已经退货签收，但退款状态还停着，怎么处理？",
+    "thread_id": "gs-thread-06",
+    "expected_intent": "refund_troubleshooting",
+    "expected_final_status": "completed",
+    "expected_evidence_present": true,
+    "expected_tools_called": ["get_order"],
+    "notes": "Order plus post-return refund delay scenario."
+  },
+  {
+    "id": "GS-07",
+    "category": "compensation_suggestion",
+    "query": "订单ORD-2001延误两周，客户要求补偿600元，应该怎么建议？",
+    "thread_id": "gs-thread-07",
+    "expected_intent": "compensation_suggestion",
+    "expected_final_status": "completed",
+    "expected_evidence_present": true,
+    "expected_tools_called": ["get_order"],
+    "expected_risk_level": "high",
+    "notes": "High compensation amount should route to approval-risk handling."
+  },
+  {
+    "id": "GS-08",
+    "category": "compensation_suggestion",
+    "query": "买家因退款延迟要求50元优惠补偿，客服能直接给吗？",
+    "thread_id": "gs-thread-08",
+    "expected_intent": "compensation_suggestion",
+    "expected_final_status": "completed",
+    "expected_evidence_present": true,
+    "expected_tools_called": [],
+    "expected_risk_level": "medium",
+    "notes": "Small compensation question should still produce explicit risk labeling."
+  },
+  {
+    "id": "GS-09",
+    "category": "insufficient_evidence",
+    "query": "如何修改银行卡预留手机号？",
+    "thread_id": "gs-thread-09",
+    "expected_intent": null,
+    "expected_final_status": "insufficient_evidence",
+    "expected_evidence_present": false,
+    "expected_tools_called": [],
+    "expected_recommended_action": "insufficient_evidence",
+    "notes": "Out-of-domain banking settings topic; must refuse definitive policy answer."
+  },
+  {
+    "id": "GS-10",
+    "category": "insufficient_evidence",
+    "query": "仓库空调坏了员工请假怎么算？",
+    "thread_id": "gs-thread-10",
+    "expected_intent": null,
+    "expected_final_status": "insufficient_evidence",
+    "expected_evidence_present": false,
+    "expected_tools_called": [],
+    "expected_recommended_action": "insufficient_evidence",
+    "notes": "Workplace operations topic outside refund KB."
+  },
+  {
+    "id": "GS-11",
+    "category": "insufficient_evidence",
+    "query": "客户想把积分兑换成现金，退款规则里有吗？",
+    "thread_id": "gs-thread-11",
+    "expected_intent": null,
+    "expected_final_status": "insufficient_evidence",
+    "expected_evidence_present": false,
+    "expected_tools_called": [],
+    "expected_recommended_action": "insufficient_evidence",
+    "notes": "Adjacent commerce topic with no refund-policy evidence."
+  },
+  {
+    "id": "GS-12",
+    "category": "cross_turn_isolation",
+    "query": "第一轮查订单ORD-3001退款进度；第二轮同一会话改查ORD-3002，回答只能使用ORD-3002数据。",
+    "thread_id": "gs-thread-12",
+    "expected_intent": "refund_troubleshooting",
+    "expected_final_status": "completed",
+    "expected_evidence_present": true,
+    "expected_tools_called": ["get_order"],
+    "notes": "Two-turn acceptance case; turn 2 must not reuse ORD-3001 business context."
+  },
+  {
+    "id": "GS-13",
+    "category": "cross_turn_isolation",
+    "query": "同一thread先问ORD-4001退货签收，再问ORD-4002补偿建议，第二轮不得引用ORD-4001。",
+    "thread_id": "gs-thread-13",
+    "expected_intent": "compensation_suggestion",
+    "expected_final_status": "completed",
+    "expected_evidence_present": true,
+    "expected_tools_called": ["get_order"],
+    "notes": "Cross-turn memory isolation between different orders and intents."
+  },
+  {
+    "id": "GS-14",
+    "category": "intent_edge_case",
+    "query": "这个退款规则是不是意味着应该赔一点？",
+    "thread_id": "gs-thread-14",
+    "expected_intent": "compensation_suggestion",
+    "expected_final_status": "completed",
+    "expected_evidence_present": true,
+    "expected_tools_called": [],
+    "notes": "Ambiguous policy phrasing that should route to compensation because user asks for compensation."
+  },
+  {
+    "id": "GS-15",
+    "category": "intent_edge_case",
+    "query": "用户说没收到退款，我只是想知道规则，不要查订单。",
+    "thread_id": "gs-thread-15",
+    "expected_intent": "policy_qa",
+    "expected_final_status": "completed",
+    "expected_evidence_present": true,
+    "expected_tools_called": [],
+    "notes": "Mentions refund problem but explicitly asks for rule-only answer."
+  }
+]
