@@ -11,12 +11,12 @@
 ### Agent Core
 
 - [ ] **AGNT-01**: Agent 能识别用户意图，并路由到对应处理流程，包括规则问答、退款排障、补偿建议、审批请求
-- [ ] **AGNT-02**: Agent 基于 LangGraph 状态机编排 happy path 流程，包含：接收请求、意图识别、加载业务上下文、检索规则证据、生成处理建议、风险判断、最终响应节点
+- [x] **AGNT-02**: Agent 基于 LangGraph 状态机编排 happy path 流程，包含：接收请求、意图识别、加载业务上下文、检索规则证据、生成处理建议、风险判断、最终响应节点
 - [ ] **AGNT-02a**: Agent 图包含审批中断节点（approval interrupt via `interrupt()`）和执行节点（executor），在高风险动作时中断等待人工决策后恢复执行
 - [ ] **AGNT-03**: Agent 能通过结构化工具调用获取订单、退款单、工单数据
 - [ ] **AGNT-04**: Agent 能检索知识库，并在回答中引用具体 doc_id、chunk_id 和规则段落摘要
-- [ ] **AGNT-05**: Agent 支持同一 thread 内上下文保持（via LangGraph checkpointer），多轮对话中记住 order_id、refund_case_id、ticket_id、已检索证据和上一次处理结论；不支持跨 session 记忆
-- [ ] **AGNT-06**: Agent 输出结构化执行轨迹（execution trace），记录经过的图节点、工具调用、证据引用、风险判断和审批状态；不输出模型私有推理链（禁用 chain-of-thought 术语，统一为 decision/evidence/action trace）
+- [x] **AGNT-05**: Agent 支持同一 thread 内上下文保持（via LangGraph checkpointer），多轮对话中记住 order_id、refund_case_id、ticket_id、已检索证据和上一次处理结论；不支持跨 session 记忆
+- [x] **AGNT-06**: Agent 输出结构化执行轨迹（execution trace），记录经过的图节点、工具调用、证据引用、风险判断和审批状态；不输出模型私有推理链（禁用 chain-of-thought 术语，统一为 decision/evidence/action trace）
 - [ ] **AGNT-07**: Agent 支持 SSE 流式响应，逐步展示当前阶段，例如"读取订单""检索规则""判断风险""等待审批"
 - [ ] **AGNT-08**: Agent 在证据不足时必须拒绝生成确定性结论，并返回"缺少哪些信息 / 建议下一步补充什么"
 
@@ -49,7 +49,7 @@
 - [ ] **SAFE-03**: 审批人可以批准或驳回审批请求
 - [ ] **SAFE-04**: 审批通过后，Agent 能通过 `Command(resume=...)` 恢复执行
 - [ ] **SAFE-05**: 审批驳回后，Agent 必须停止执行高风险动作，并返回驳回原因
-- [ ] **SAFE-06**: 每次运行必须产生完整审计日志（via LangGraph callback），可按 run_id 查询和回放
+- [x] **SAFE-06**: 每次运行必须产生完整审计日志（via LangGraph callback），可按 run_id 查询和回放
 - [ ] **SAFE-07**: 风险阈值、角色权限和审批规则必须通过配置文件管理（rules/risk_rules.yaml），不硬编码
 - [ ] **SAFE-08**: 所有工具调用必须进行权限校验（repository 层 + tool 层双重检查），防止越权读取或执行
 
@@ -63,7 +63,7 @@
 - [x] **INFR-06**: 文档摄取和评估任务通过 CLI 脚本或 FastAPI BackgroundTasks 执行，不引入独立任务队列
 - [ ] **INFR-07**: 评估框架支持 golden set 自动评分，并生成 JSON / Markdown 报告
 - [ ] **INFR-08**: CI 运行 lint + 单元测试；集成测试和评估 smoke test 提供本地运行脚本，不强制 CI 通过
-- [ ] **INFR-09**: LLM/DB/工具调用三层 timeout + graceful degradation；LLM 超时返回 fallback 而非崩溃
+- [x] **INFR-09**: LLM/DB/工具调用三层 timeout + graceful degradation；LLM 超时返回 fallback 而非崩溃
 
 ### Frontend
 
@@ -137,12 +137,12 @@
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | AGNT-01 | 3 | Not started |
-| AGNT-02 | 3 | Not started |
+| AGNT-02 | 3 | Complete |
 | AGNT-02a | 4 | Not started |
 | AGNT-03 | 3 | Not started |
 | AGNT-04 | 3 | Not started |
-| AGNT-05 | 3 | Not started |
-| AGNT-06 | 3 | Not started |
+| AGNT-05 | 3 | Complete |
+| AGNT-06 | 3 | Complete |
 | AGNT-07 | 5 | Not started |
 | AGNT-08 | 3 | Not started |
 | RAG-01 | 2 | Complete |
@@ -166,7 +166,7 @@
 | SAFE-03 | 4 | Not started |
 | SAFE-04 | 4 | Not started |
 | SAFE-05 | 4 | Not started |
-| SAFE-06 | 3 | Not started |
+| SAFE-06 | 3 | Complete |
 | SAFE-07 | 4 | Not started |
 | SAFE-08 | 3 | Not started |
 | INFR-01 | 1 | Not started |
@@ -177,7 +177,7 @@
 | INFR-06 | 2 | Complete |
 | INFR-07 | 6 | Not started |
 | INFR-08 | 6 | Not started |
-| INFR-09 | 3 | Not started |
+| INFR-09 | 3 | Complete |
 | FRNT-01 | 5 | Not started |
 | FRNT-02 | 5 | Not started |
 | FRNT-03 | 5 | Not started |

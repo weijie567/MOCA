@@ -51,7 +51,7 @@
 **Plans:** 5 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — Dependencies + Config + AgentRun/AgentStep DB models + migration
+- [x] 03-01-PLAN.md — Dependencies + Config + AgentRun/AgentStep DB models + migration
 - [ ] 03-02-PLAN.md — AgentState TypedDict + Pydantic schemas + prompts + 4 tool wrappers
 - [ ] 03-03-PLAN.md — 8 LangGraph nodes + graph assembly + risk_rules.yaml
 - [ ] 03-04-PLAN.md — Trace persistence + POST /api/v1/agent/chat + FastAPI lifespan
