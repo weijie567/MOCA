@@ -197,3 +197,55 @@ class AuditLog(Base):
     idempotency_key: Mapped[str | None] = mapped_column(String(128))
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class AgentRun(TimestampMixin, Base):
+    """One row per graph.ainvoke() call. Records run-level trace. Per D-05b."""
+
+    __tablename__ = "agent_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    thread_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    input_query: Mapped[str] = mapped_column(Text, nullable=False)
+    final_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    # "completed" | "error" | "insufficient_evidence"
+    final_response: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    total_latency_ms: Mapped[int | None] = mapped_column()
+    total_tokens: Mapped[int | None] = mapped_column()
+    total_cost: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    error_summary: Mapped[str | None] = mapped_column(String(500))
+
+    steps: Mapped[list["AgentStep"]] = relationship(back_populates="run", cascade="all, delete-orphan")
+
+
+class AgentStep(TimestampMixin, Base):
+    """One row per graph node traversal. Records node-level trace. Per D-05c."""
+
+    __tablename__ = "agent_steps"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_runs.id"), nullable=False, index=True)
+    node_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    step_index: Mapped[int] = mapped_column(nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    # "completed" | "error" | "skipped"
+    input_summary: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    output_summary: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    tool_name: Mapped[str | None] = mapped_column(String(64))
+    tool_input_summary: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    tool_output_summary: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    model_name: Mapped[str | None] = mapped_column(String(64))
+    prompt_tokens: Mapped[int | None] = mapped_column()
+    completion_tokens: Mapped[int | None] = mapped_column()
+    latency_ms: Mapped[int | None] = mapped_column()
+    evidence_refs: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    # list of {"doc_key": str, "chunk_id": str}
+    error_message: Mapped[str | None] = mapped_column(String(500))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    run: Mapped["AgentRun"] = relationship(back_populates="steps")
