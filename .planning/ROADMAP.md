@@ -49,7 +49,7 @@
 **Duration:** ~8 days
 **Requirements:** AGNT-01, AGNT-02, AGNT-03, AGNT-04, AGNT-05, AGNT-06, AGNT-08, INFR-09, RAG-05, SAFE-06, SAFE-08
 **UI hint:** no
-**Plans:** 5 plans
+**Plans:** 6 plans
 
 Plans:
 - [x] 03-01-PLAN.md — Dependencies + Config + AgentRun/AgentStep DB models + migration
@@ -57,6 +57,7 @@ Plans:
 - [x] 03-03-PLAN.md — 8 LangGraph nodes + graph assembly + risk_rules.yaml
 - [x] 03-04-PLAN.md — Trace persistence + POST /api/v1/agent/chat + FastAPI lifespan
 - [x] 03-05-PLAN.md — Test suite (per-node + tools + graph integration + failure paths + golden set)
+- [x] 03-06-PLAN.md — Gap closure for AgentStep tool/evidence persistence and same-thread evidence memory
 
 ### Success Criteria
 1. Agent accepts a refund question, identifies intent, loads business context via read tools (get_order, get_refund_case, get_ticket), retrieves knowledge base evidence, and returns a structured response with evidence list citing specific doc_id/chunk_id (validated by citation validator)
