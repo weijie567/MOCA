@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: phase_complete
+status: ready_to_plan
 last_updated: "2026-05-10T23:43:05.331Z"
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 12
   completed_plans: 12
-  percent: 100
+  percent: 33
 ---
 
 # Project State: MOCA
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-09)
 
 **Core value:** When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution.
-**Current focus:** Phase 02 — rag-pipeline
+**Current focus:** Phase 03 — langgraph-core
 
 ## Current Status
 
-- **Active phase:** 2
-- **Phase status:** Phase 2 complete after Plan 07 closed EVAL-02 with live DB-backed Hit@5 83.3 percent and fallback accuracy 100.0 percent
+- **Active phase:** 3
+- **Phase status:** Phase 2 complete after Plan 07 closed EVAL-02 with live DB-backed Hit@5 83.3 percent and fallback accuracy 100.0 percent; ready to plan Phase 3
 - **Blockers:** None
 
 ## Phase History
@@ -41,9 +41,9 @@ See: .planning/PROJECT.md (updated 2026-05-09)
   - Gap closure plan: `07-PLAN.md` (status: `complete`)
   - Latest plan summary: `.planning/phases/02-rag-pipeline/07-SUMMARY.md`
   - Verification: `02-VERIFICATION.md` plus `07-RETRIEVAL-AUDIT.md`; live Hit@5 now passes
-  - Human UAT: `02-HUMAN-UAT.md` (2 passed, 1 failed)
+  - Human UAT: `02-HUMAN-UAT.md` (3 passed, 0 failed)
   - Code review: `02-REVIEW.md`; fixes recorded in `02-REVIEW-FIX.md`
-  - Tests: `UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest -q --tb=short` — 43 passed
+  - Tests: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short` — 50 passed
   - Live checks: real `DASHSCOPE_API_KEY` ingestion passed; Plan 07 DB-backed Hit@5 passed at 83.3% with fallback accuracy 100.0%
 
 ## Session Notes
