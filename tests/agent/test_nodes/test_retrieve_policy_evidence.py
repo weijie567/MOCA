@@ -19,6 +19,19 @@ def _policy_result(*, status: str = "strong_evidence", best_score: float = 0.8, 
     }
 
 
+def _evidence():
+    return [
+        {
+            "doc_key": "policy_refund_timeout",
+            "chunk_id": "chunk_001",
+            "title": "退款超时规则",
+            "section": "第一条",
+            "score": 0.82,
+            "text": "规则摘录",
+        }
+    ]
+
+
 @pytest.mark.asyncio
 async def test_evidence_gate_no_evidence(monkeypatch, base_state):
     monkeypatch.setattr(
@@ -32,6 +45,52 @@ async def test_evidence_gate_no_evidence(monkeypatch, base_state):
         {"configurable": {"session": AsyncMock()}},
     )
 
+    assert result["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
+
+
+@pytest.mark.asyncio
+async def test_retrieve_policy_evidence_writes_persistent_evidence_refs(monkeypatch, base_state):
+    monkeypatch.setattr(
+        retrieve_policy_evidence_module,
+        "search_policy",
+        AsyncMock(return_value=_policy_result(best_score=0.82, evidence=_evidence())),
+    )
+
+    result = await retrieve_policy_evidence_module.retrieve_policy_evidence(
+        base_state,
+        {"configurable": {"session": AsyncMock()}},
+    )
+
+    assert result["evidence_refs"][0]["doc_key"] == "policy_refund_timeout"
+    assert result["evidence_refs"][0]["chunk_id"] == "chunk_001"
+    assert result["evidence_refs"][0]["title"] == "退款超时规则"
+    assert result["evidence_refs"][0]["confidence"] == 0.82
+    assert result["evidence_refs"][0]["retrieved_at"]
+    assert result["trace_steps"][-1]["evidence_refs"][0]["doc_key"] == "policy_refund_timeout"
+    assert result["trace_steps"][-1]["evidence_refs"][0]["chunk_id"] == "chunk_001"
+
+
+@pytest.mark.asyncio
+async def test_retrieve_policy_evidence_preserves_previous_refs_on_no_evidence(monkeypatch, base_state):
+    prior_ref = {
+        "doc_key": "prior_doc",
+        "chunk_id": "prior_chunk",
+        "title": "上一轮规则",
+        "confidence": 0.77,
+        "retrieved_at": "2026-05-11T08:00:00+00:00",
+    }
+    monkeypatch.setattr(
+        retrieve_policy_evidence_module,
+        "search_policy",
+        AsyncMock(return_value=_policy_result(status="no_evidence", best_score=0.0, evidence=[])),
+    )
+
+    result = await retrieve_policy_evidence_module.retrieve_policy_evidence(
+        {**base_state, "evidence_refs": [prior_ref]},
+        {"configurable": {"session": AsyncMock()}},
+    )
+
+    assert result["evidence_refs"] == [prior_ref]
     assert result["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
 
 
