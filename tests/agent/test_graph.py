@@ -258,6 +258,27 @@ async def test_cross_turn_context_isolation(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_same_thread_evidence_refs_survive_next_turn(monkeypatch):
+    mocks = _patch_graph_dependencies(monkeypatch, search_result=_policy_result())
+    graph = build_graph(MemorySaver())
+    thread_id = "evidence-memory-thread"
+
+    first_state = await graph.ainvoke(_state("退款超时规则是什么？", thread_id), _config(thread_id))
+
+    assert any(ref["chunk_id"] == "chunk_001" for ref in first_state["evidence_refs"])
+
+    mocks["search_policy"].return_value = _policy_result(status="no_evidence", best_score=0.0, evidence=[])
+    second_state = await graph.ainvoke(_state("这个新问题没有规则依据", thread_id), _config(thread_id))
+
+    assert second_state["retrieved_evidence"]["data"]["evidence"] == []
+    assert any(
+        ref["doc_key"] == "policy_refund_timeout" and ref["chunk_id"] == "chunk_001"
+        for ref in second_state["evidence_refs"]
+    )
+    assert second_state["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
+
+
+@pytest.mark.asyncio
 async def test_trace_summary_shape(graph_with_fake_llm):
     graph, _ = graph_with_fake_llm
     final_state = await graph.ainvoke(_state("退款超时规则是什么？"), _config())
