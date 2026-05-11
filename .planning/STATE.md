@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-05-11T08:09:16.753Z"
+last_updated: "2026-05-11T08:18:44.861Z"
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 17
-  completed_plans: 15
-  percent: 88
+  completed_plans: 16
+  percent: 94
 ---
 
 # Project State: MOCA
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 ## Current Status
 
 - **Active phase:** 3
-- **Phase status:** Phase 3 Plan 03 complete; eight async LangGraph nodes, fixed graph assembly, evidence gating, citation validation, and YAML-backed risk labeling are ready for API/lifespan integration.
+- **Phase status:** Phase 3 Plan 04 complete; `/api/v1/agent/chat`, trace persistence helpers, `agent:chat` scope, and FastAPI LangGraph checkpointer lifespan are ready for the Plan 05 test suite.
 - **Blockers:** None
 
 ## Phase History
@@ -60,6 +60,7 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 - 2026-05-11: Executed Phase 3 Plan 01. Added LangGraph/LangChain/psycopg dependencies, GLM/DashScope settings, derived checkpointer URL, AgentRun/AgentStep models, and migration 003. Verification: config import passed, model import passed, `alembic upgrade head` passed, and `pytest -q --tb=short` passed with 50 tests.
 - 2026-05-11: Executed Phase 3 Plan 02. Added AgentState, structured Pydantic output schemas, static English prompts, and four read-only tenant-scoped tool wrappers. Verification: agent imports passed, ruff passed, `get_ticket.py` has no `messages` reference, and `pytest -q --tb=short` passed with 50 tests.
 - 2026-05-11: Executed Phase 3 Plan 03. Added eight async LangGraph nodes, `rules/risk_rules.yaml`, fixed `build_graph()`, no-evidence LLM skip, citation validation, and safe LLM fallbacks. Verification: graph assembly import passed, ruff passed, and `pytest -q --tb=short` passed with 50 tests.
+- 2026-05-11: Executed Phase 3 Plan 04. Added `POST /api/v1/agent/chat`, `agent:chat` OAuth scope, AgentRun/AgentStep trace persistence helpers, scoped checkpointer thread keys, and FastAPI lifespan setup. Verification: integration wiring passed, ruff passed, and `pytest -q --tb=short` passed with 50 tests.
 
 ## Decisions
 
@@ -78,5 +79,8 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 - Plan 03-03: No-evidence retrieval sets `recommendation_draft.recommended_action` to `insufficient_evidence`, causing recommendation generation to skip the LLM call.
 - Plan 03-03: Risk assessment loads thresholds from `rules/risk_rules.yaml` and applies deterministic high-risk overrides after the LLM result.
 - Plan 03-03: LLM provider failures return structured node errors and safe fallbacks inside nodes rather than relying only on graph-level retries.
+- Plan 03-04: The checkpointer thread key is tenant_id:user_id:thread_id to prevent same thread_id memory sharing across users or tenants.
+- Plan 03-04: Graph invocation failures still attempt to persist an AgentRun error row, but trace persistence failures are rolled back and never exposed to the caller.
+- Plan 03-04: A narrow OAuth2 model scopes alias preserves compatibility with the plan verification while keeping FastAPI's canonical password-flow scopes intact.
 
 **Planned Phase:** 3 (LangGraph Core) — 5 plans — 2026-05-11T07:14:45.350Z
