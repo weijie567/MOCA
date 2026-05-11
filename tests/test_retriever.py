@@ -235,3 +235,18 @@ async def test_out_of_domain_query_falls_back_even_with_weak_policy_matches():
     assert result.retrieval_status == "no_evidence"
     assert result.evidence == []
     assert result.fallback_message == FALLBACK_MESSAGE
+
+
+@pytest.mark.asyncio
+async def test_valid_no_anchor_policy_query_can_return_strong_evidence():
+    chunk = _chunk(
+        section="七天无理由",
+        content="拆封后不影响二次销售时，可以支持七天无理由退货退款。",
+    )
+    retriever, _, _ = _retriever([(chunk, 0.82)])
+
+    result = await retriever.search("已拆封但不影响二次销售怎么办？", tenant_id=uuid4())
+
+    assert result.retrieval_status == "strong_evidence"
+    assert result.evidence
+    assert result.evidence[0].chunk_id == "refund_policy_001"

@@ -1,164 +1,84 @@
 ---
 phase: 02-rag-pipeline
-reviewed: 2026-05-10T14:24:00Z
+reviewed: 2026-05-11T02:59:00Z
 depth: standard
-files_reviewed: 38
+files_reviewed: 6
 files_reviewed_list:
-  - .env.example
-  - data/policies/bulk_order_refund.md
-  - data/policies/compensation_approval_sop.md
-  - data/policies/compensation_rules.md
-  - data/policies/cross_border_refund.md
-  - data/policies/customer_escalation_sop.md
-  - data/policies/digital_goods_refund.md
-  - data/policies/high_value_refund.md
-  - data/policies/merchant_dispute_faq.md
-  - data/policies/merchant_faq.md
-  - data/policies/partial_refund_rules.md
-  - data/policies/quality_issue_policy.md
-  - data/policies/refund_policy.md
-  - data/policies/refund_sop.md
-  - data/policies/refund_time_limits.md
-  - data/policies/return_shipping.md
-  - eval/golden_rag_queries.jsonl
-  - pyproject.toml
-  - scripts/eval_rag_hit_at_5.py
-  - scripts/ingest_policies.py
-  - src/api/main.py
-  - src/api/routers/search.py
-  - src/auth/jwt.py
-  - src/auth/permissions.py
-  - src/db/migrations/versions/002_rag_pipeline.py
-  - src/db/models.py
-  - src/rag/__init__.py
-  - src/rag/chunker.py
-  - src/rag/citation_validator.py
-  - src/rag/embedder.py
   - src/rag/ingestion.py
   - src/rag/retriever.py
-  - src/rag/schemas.py
-  - src/repositories/policy_chunk_repo.py
-  - src/repositories/policy_document_repo.py
-  - tests/test_chunker.py
+  - scripts/eval_rag_hit_at_5.py
+  - tests/test_ingestion.py
   - tests/test_retriever.py
-  - tests/test_search_integration.py
+  - tests/test_rag_eval.py
 findings:
-  critical: 1
-  warning: 4
+  critical: 0
+  warning: 1
   info: 0
-  total: 5
+  total: 1
 status: issues_found
 ---
 
 # Phase 2: Code Review Report
 
-**Reviewed:** 2026-05-10T14:24:00Z
+**Reviewed:** 2026-05-11T02:59:00Z
 **Depth:** standard
-**Files Reviewed:** 38
+**Files Reviewed:** 6
 **Status:** issues_found
 
 ## Summary
 
-Reviewed the Phase 2 RAG pipeline source, API route, auth scope changes, migration, ingestion/eval scripts, tests, config, and knowledge corpus. The main risks are deployment/runtime correctness around the new `doc_key` field and tenant isolation in vector search joins. The policy corpus and golden query IDs are internally consistent with the chunker.
+Reviewed Plan 07 changes for contextual ingestion, hybrid retrieval reranking, fallback behavior, tenant/filter preservation, eval scoring integrity, and focused tests. The eval script keeps official Hit@5 scoring at `top_k=5`, tenant/doc_type/risk_level filters are still passed through the repository boundary, and deterministic tests cover the main reranking and threshold invariants.
 
-`uv.lock` was listed in the workflow input but excluded from review under the lock-file filter.
-
-## Critical Issues
-
-### CR-01: Migration adds the same non-null `doc_key` to every existing document before creating a unique constraint
-
-**File:** `src/db/migrations/versions/002_rag_pipeline.py:22`
-**Issue:** The upgrade adds `policy_documents.doc_key` as `nullable=False` with `server_default=""`, then immediately creates a unique constraint on `(tenant_id, doc_key)`. Any existing tenant with more than one policy document gets `doc_key = ""` for all rows, so the unique constraint creation fails and blocks migration. This is a normal path for databases seeded from Phase 1 policy documents.
-**Fix:**
-```python
-op.add_column("policy_documents", sa.Column("doc_key", sa.String(64), nullable=True))
-op.execute("""
-    UPDATE policy_documents
-    SET doc_key = lower(regexp_replace(title, '[^a-zA-Z0-9]+', '_', 'g')) || '_' || left(id::text, 8)
-    WHERE doc_key IS NULL
-""")
-op.alter_column("policy_documents", "doc_key", nullable=False)
-op.create_unique_constraint(
-    "uq_policy_documents_tenant_doc_key",
-    "policy_documents",
-    ["tenant_id", "doc_key"],
-)
-```
-
-Add a migration regression test or manual verification against a database with multiple existing `policy_documents` for the same tenant.
+One retrieval correctness risk remains: the support-domain guard can suppress valid high-confidence evidence before evidence construction when the query lacks one of the hard-coded anchor words.
 
 ## Warnings
 
-### WR-01: Current demo seed path no longer satisfies the new `PolicyDocument.doc_key` contract
+### WR-01: Domain-anchor guard can hide valid high-confidence retrieval results
 
-**File:** `src/db/models.py:154`
-**Issue:** `PolicyDocument.doc_key` is now non-nullable, but the existing demo seed path still constructs `PolicyDocument` rows without `doc_key`. The new eval script tells users to run `scripts/seed_demo.py` when no tenant exists, so the documented eval setup can fail before RAG ingestion/evaluation starts.
-**Fix:** Update `scripts/seed_demo.py` to pass the stable document key when creating demo documents, and add a smoke test for `scripts/seed_demo.py --reset`.
+**File:** `/Users/ming/projects/MOCA/src/rag/retriever.py:109`
+
+**Issue:** `Retriever.search()` initializes `results = []` and only reranks/returns evidence when `_has_domain_anchor(query)` is true. That means a valid policy question with strong vector evidence can return `no_evidence` solely because the user omitted the current anchor vocabulary. For example, a support query like `已拆封但不影响二次销售怎么办？` can match refund policy content at a high score, but it contains none of the configured anchors such as `退款`, `退货`, `商品`, or `客服`, so lines 109-115 discard all candidates. This regresses retrieval correctness and makes fallback behavior depend on a brittle keyword list rather than the tenant-filtered retrieval evidence.
+
+**Fix:** Do not use the anchor check as an absolute prerequisite for returning evidence. Rerank threshold-qualified candidates first, then use the domain guard only to suppress weak/noisy out-of-domain matches. Add regression tests for both a valid no-anchor support query and an anchored out-of-domain query.
+
 ```python
-document = PolicyDocument(
-    id=deterministic_id("policy_document", key),
-    tenant_id=tenants["demo"].id,
-    doc_key=key,
-    doc_type=doc_type,
-    title=title,
-    ...
-)
+reranked_results = [
+    (chunk, score)
+    for chunk, score in _rerank_candidates(query, raw_results)
+    if score >= MIN_SIMILARITY_THRESHOLD
+]
+
+if _has_domain_anchor(query):
+    results = reranked_results[:top_k]
+else:
+    query_terms = _query_terms(query)
+    results = [
+        (chunk, score)
+        for chunk, score in reranked_results
+        if score >= STRONG_EVIDENCE_THRESHOLD
+        and _overlap_ratio(query_terms, f"{chunk.document.title} {chunk.section} {chunk.content}") > 0
+    ][:top_k]
 ```
 
-### WR-02: Vector search joins documents without enforcing matching document tenant
+Also add focused coverage similar to:
 
-**File:** `src/repositories/policy_chunk_repo.py:45`
-**Issue:** `search_similar` filters `PolicyChunk.tenant_id == tenant_id`, but the joined `PolicyDocument` is only constrained by `doc_id`. If a bad import, future bug, or manual data repair creates a chunk whose `tenant_id` does not match its document's `tenant_id`, the search result can expose another tenant's document metadata and use cross-tenant metadata filters.
-**Fix:** Enforce tenant ownership on both sides of the join.
 ```python
-.join(
-    PolicyDocument,
-    and_(
-        PolicyChunk.doc_id == PolicyDocument.id,
-        PolicyDocument.tenant_id == tenant_id,
-    ),
-)
-.where(
-    and_(
-        PolicyChunk.tenant_id == tenant_id,
-        similarity_expr >= min_similarity,
+@pytest.mark.asyncio
+async def test_valid_no_anchor_policy_query_can_return_strong_evidence():
+    chunk = _chunk(
+        section="七天无理由",
+        content="拆封后不影响二次销售时，可以支持七天无理由退货退款。",
     )
-)
+    retriever, _, _ = _retriever([(chunk, 0.82)])
+
+    result = await retriever.search("已拆封但不影响二次销售怎么办？", tenant_id=uuid4())
+
+    assert result.retrieval_status == "strong_evidence"
+    assert result.evidence
 ```
-
-Add an integration test with a deliberately mismatched chunk/document tenant pair and assert it is not returned.
-
-### WR-03: Embedding environment variables in `.env.example` are ignored by the runtime service
-
-**File:** `src/rag/embedder.py:15`
-**Issue:** `.env.example` exposes `EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS`, and `EMBEDDING_BATCH_SIZE`, but `EmbeddingService()` uses hard-coded defaults unless callers pass constructor arguments manually. Operators can change the advertised env vars and still ingest/search with the old model or dimensions, causing vector dimension mismatches or unexpected retrieval behavior.
-**Fix:** Add these settings to `src/config.py` and make `EmbeddingService` default from settings.
-```python
-from src.config import settings
-
-model: str = settings.embedding_model
-dimensions: int = settings.embedding_dimensions
-batch_size: int = settings.embedding_batch_size
-```
-
-Add a unit test that monkeypatches settings/env and verifies `EmbeddingService()` picks them up.
-
-### WR-04: Generic exception responses expose internal exception text to clients
-
-**File:** `src/api/main.py:77`
-**Issue:** The global exception handler returns `{"reason": str(exc)}` in the public 500 response. RAG failures may include database errors, provider errors, file paths, or configuration details. Authenticated and unauthenticated clients should receive the trace ID, while sensitive internals should be logged server-side only.
-**Fix:**
-```python
-@app.exception_handler(Exception)
-async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    # log exc with trace_id/run_id here
-    return _error_response(request, 500, INTERNAL_ERROR, "Internal server error")
-```
-
-Add an API test that forces an internal exception and asserts the response includes the standard error code and trace ID but not the exception message.
 
 ---
 
-_Reviewed: 2026-05-10T14:24:00Z_
+_Reviewed: 2026-05-11T02:59:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_

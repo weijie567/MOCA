@@ -83,6 +83,11 @@ def _has_domain_anchor(query: str) -> bool:
     return any(anchor in query for anchor in _DOMAIN_ANCHORS)
 
 
+def _has_candidate_overlap(query_terms: set[str], chunk: object) -> bool:
+    candidate_text = f"{chunk.document.title} {chunk.section} {chunk.content}"
+    return _overlap_ratio(query_terms, candidate_text) > 0
+
+
 class Retriever:
     def __init__(self, chunk_repo: PolicyChunkRepository, embedder: EmbeddingService):
         self.chunk_repo = chunk_repo
@@ -106,12 +111,19 @@ class Retriever:
             doc_type=doc_type,
             risk_level=risk_level,
         )
-        results = []
+        reranked_results = [
+            (chunk, score)
+            for chunk, score in _rerank_candidates(query, raw_results)
+            if score >= MIN_SIMILARITY_THRESHOLD
+        ]
         if _has_domain_anchor(query):
+            results = reranked_results[:top_k]
+        else:
+            query_terms = _query_terms(query)
             results = [
                 (chunk, score)
-                for chunk, score in _rerank_candidates(query, raw_results)
-                if score >= MIN_SIMILARITY_THRESHOLD
+                for chunk, score in reranked_results
+                if score >= STRONG_EVIDENCE_THRESHOLD and _has_candidate_overlap(query_terms, chunk)
             ][:top_k]
 
         evidence = [
