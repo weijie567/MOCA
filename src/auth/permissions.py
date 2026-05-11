@@ -21,11 +21,13 @@ oauth2_scheme = OAuth2PasswordBearer(
         "refunds:read": "Read refund cases",
         "tickets:read": "Read ticket histories",
         "knowledge:read": "Search policy knowledge base",
+        "agent:chat": "Submit queries to the refund agent",
         "approvals:review": "Review approvals",
         "seed:write": "Run seed operations",
         "admin:debug": "Admin and debug operations",
     },
 )
+object.__setattr__(oauth2_scheme.model, "scopes", oauth2_scheme.model.flows.password.scopes)
 
 
 async def get_current_user(
