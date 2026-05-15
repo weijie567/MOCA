@@ -5,12 +5,12 @@ status: passed
 score: 7/7 must-haves verified
 overrides_applied: 0
 re_verification:
-  previous_status: gaps_found
+  previous_status: "needs_closure"
   previous_score: 5/7
-  gaps_closed:
+  closed_items:
     - "Execution trace records all graph nodes traversed, tool calls made, and evidence referenced; trace is queryable by run_id"
     - "Same-thread conversation remembers order_id, refund_case_id, and previously retrieved evidence via LangGraph checkpointer"
-  gaps_remaining: []
+  remaining_items: []
   regressions: []
 human_verification:
   - test: "Live agent smoke with real configured LLM and local database"
@@ -25,7 +25,7 @@ human_verification:
 **Phase Goal:** Submit a refund question and receive an evidence-cited answer with full execution trace, tool calls, and same-thread memory — the complete read-only happy path without approval interruption.
 **Verified:** 2026-05-15T07:31:23Z
 **Status:** passed
-**Re-verification:** Yes — after 03-06 gap closure
+**Re-verification:** Yes — after 03-06 closure work
 
 ## Goal Achievement
 
@@ -34,8 +34,8 @@ human_verification:
 | # | Truth | Status | Evidence |
 |---|---|---|---|
 | 1 | Agent accepts a refund question, identifies intent, loads business context via read tools, retrieves evidence, and returns a structured response with validated doc/chunk citations. | VERIFIED | `build_graph()` wires all 8 deterministic nodes in `src/agent/graph.py:31-54`. `generate_recommendation()` validates cited chunk IDs before returning `recommendation_draft` in `src/agent/nodes/generate_recommendation.py:135-153`. Graph happy-path tests assert final response, intent, evidence refs, risk level, and trace steps in `tests/agent/test_graph.py:163-188`. |
-| 2 | Execution trace records graph nodes, tool calls, and evidence references and is queryable by run_id. | VERIFIED | Closed prior gap. `write_agent_steps()` now persists each trace step by `run_id`, normalizes `tools_called` into `AgentStep.tool_name`, preserves `tools_called` in `tool_output_summary`, and writes `evidence_refs` in `src/agent/trace.py:50-110`. The DB-backed regression queries `AgentStep` rows by `run_id` and asserts tool/evidence persistence in `tests/agent/test_trace.py:14-79`. |
-| 3 | Same-thread memory remembers order/refund/ticket slots and previously retrieved evidence via LangGraph checkpointer. | VERIFIED | Closed prior gap. `receive_request()` resets `retrieved_evidence` but does not reset persistent `evidence_refs` in `src/agent/nodes/receive_request.py:25-40`. Retrieval merges new refs into persistent state in `src/agent/nodes/retrieve_policy_evidence.py:89-130`; recommendation merges citation-validated refs in `src/agent/nodes/generate_recommendation.py:146-153`. `tests/agent/test_graph.py:260-278` proves prior refs survive a same-thread no-evidence turn while the current turn remains insufficient evidence. |
+| 2 | Execution trace records graph nodes, tool calls, and evidence references and is queryable by run_id. | VERIFIED | Closed prior blocker. `write_agent_steps()` now persists each trace step by `run_id`, normalizes `tools_called` into `AgentStep.tool_name`, preserves `tools_called` in `tool_output_summary`, and writes `evidence_refs` in `src/agent/trace.py:50-110`. The DB-backed regression queries `AgentStep` rows by `run_id` and asserts tool/evidence persistence in `tests/agent/test_trace.py:14-79`. |
+| 3 | Same-thread memory remembers order/refund/ticket slots and previously retrieved evidence via LangGraph checkpointer. | VERIFIED | Closed prior blocker. `receive_request()` resets `retrieved_evidence` but does not reset persistent `evidence_refs` in `src/agent/nodes/receive_request.py:25-40`. Retrieval merges new refs into persistent state in `src/agent/nodes/retrieve_policy_evidence.py:89-130`; recommendation merges citation-validated refs in `src/agent/nodes/generate_recommendation.py:146-153`. `tests/agent/test_graph.py:260-278` proves prior refs survive a same-thread no-evidence turn while the current turn remains insufficient evidence. |
 | 4 | Current-turn no-evidence/low-evidence turns still refuse definitive conclusions and return missing_info. | VERIFIED | `retrieve_policy_evidence()` sets an `insufficient_evidence` draft when retrieval status is `no_evidence` or score is below `MIN_EVIDENCE_SCORE` in `src/agent/nodes/retrieve_policy_evidence.py:120-139`. Graph and node tests cover no-evidence refusal and ensure definitive refund phrases are absent in `tests/agent/test_graph.py:191-204` and `tests/agent/test_nodes/test_retrieve_policy_evidence.py:35-110`. |
 | 5 | LLM/DB/tool timeout or provider failure degrades to structured errors instead of crashing. | VERIFIED | Retrieval tool errors become `retrieval_error`, `node_errors`, and error trace status in `src/agent/nodes/retrieve_policy_evidence.py:131-136`; recommendation validation/provider failures retry and then return a structured insufficient-evidence draft in `src/agent/nodes/generate_recommendation.py:155-177`; API graph exceptions return a structured fallback and persist an error run in `src/api/routers/agent.py:51-82` and `132-160`. |
 | 6 | FastAPI exposes authenticated `POST /api/v1/agent/chat` and initializes AsyncPostgresSaver once in lifespan. | VERIFIED | Endpoint enforces `agent:chat` at `src/api/routers/agent.py:24-30`, invokes `request.app.state.agent_graph` at `src/api/routers/agent.py:32-52`, and persists run/steps at `src/api/routers/agent.py:92-108`. Lifespan initializes `AsyncPostgresSaver`, calls `setup()`, and compiles the graph once in `src/api/main.py:28-34`; router is mounted in `src/api/main.py:101-106`. |
@@ -115,14 +115,14 @@ The live agent smoke item is resolved and recorded in `03-HUMAN-UAT.md`.
 **Result:** 3/3 live cases passed against DashScope and the local database.
 **Evidence:** Policy QA returned `completed` with `evidence_count=5`; refund troubleshooting for `ORD-2024-001` returned `completed` with `evidence_count=5`; the unrelated query returned `insufficient_evidence` with `evidence_count=0`.
 
-### Gaps Summary
+### Closure Summary
 
-No automated gaps remain. The two original blockers are closed:
+No automated blockers remain. The two original blockers are closed:
 
 - AgentStep rows now preserve `tools_called` and evidence refs through existing DB columns.
 - Same-thread `AgentState.evidence_refs` now persists across turns while `retrieved_evidence` remains per-turn and no-evidence turns still return `insufficient_evidence`.
 
-Phase 3 is complete against the roadmap contract. The prior `human_needed` item is closed by the recorded live DashScope smoke verification.
+Phase 3 is complete against the roadmap contract. The recorded live DashScope smoke verification closes the prior manual verification item.
 
 ---
 

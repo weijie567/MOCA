@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: unknown
-last_updated: "2026-05-11T23:28:08.209Z"
+status: ready_to_plan
+last_updated: "2026-05-15T07:31:23Z"
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 18
   completed_plans: 18
-  percent: 100
+  percent: 50
 ---
 
 # Project State: MOCA
@@ -48,8 +48,10 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 - **Phase 3: LangGraph Core** — Complete on 2026-05-11
   - Plans completed: 6/6
   - Latest plan summary: `.planning/phases/03-langgraph-core/03-06-SUMMARY.md`
-  - Tests: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/ -q --tb=short -m "not live"` — 36 passed
-  - Full suite: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short` — 86 passed
+  - Human UAT: `03-HUMAN-UAT.md` (3 passed, 0 failed)
+  - Code review: `03-REVIEW.md` (clean)
+  - Tests: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short` — 89 passed
+  - Live checks: real `DASHSCOPE_API_KEY` smoke passed for policy QA, refund troubleshooting, and no-evidence fallback
 
 ## Session Notes
 
@@ -68,6 +70,7 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 - 2026-05-11: Executed Phase 3 Plan 04. Added `POST /api/v1/agent/chat`, `agent:chat` OAuth scope, AgentRun/AgentStep trace persistence helpers, scoped checkpointer thread keys, and FastAPI lifespan setup. Verification: integration wiring passed, ruff passed, and `pytest -q --tb=short` passed with 50 tests.
 - 2026-05-11: Executed Phase 3 Plan 05. Added FakeLLM fixtures, agent tool/node tests, MemorySaver graph integration tests, `scripts/smoke_agent_live.py`, and 15 synthetic golden-set cases. Verification: agent tests passed with 24 tests, full pytest passed with 74 tests, golden-set JSON validated, and smoke script syntax parsed.
 - 2026-05-11: Executed Phase 3 Plan 06 gap closure. Persisted tools_called-derived AgentStep tool names, trace evidence refs, and same-thread compact evidence memory. Verification: agent tests passed with 36 tests, full pytest passed with 86 tests, and ruff passed.
+- 2026-05-15: Closed Phase 3 live verification. Hardened DashScope citation prompting, policy-QA risk handling, deterministic citation final responses, and live smoke assertions. Verification: live smoke 3/3 passed, full pytest 89 passed, and ruff passed.
 
 ## Decisions
 
@@ -97,3 +100,5 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 - Plan 03-05 golden set uses synthetic order numbers and Chinese support queries only; no real PII is included.
 - Plan 03-06: Used existing AgentStep columns for tools_called and evidence_refs; no migration was added.
 - Plan 03-06: Retained evidence_refs are persistent memory references only; current-turn no-evidence still produces insufficient_evidence.
+- Phase 03 live smoke uses seeded demo tenant/user/order data and unique scoped checkpointer thread IDs.
+- Phase 03 final responses are deterministic citation templates based on validated recommendation refs, avoiding an extra provider-dependent structured output step.
