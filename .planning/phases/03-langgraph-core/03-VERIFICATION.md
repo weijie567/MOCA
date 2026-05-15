@@ -1,137 +1,128 @@
 ---
 phase: 03-langgraph-core
-verified: 2026-05-11T08:51:40Z
-status: gaps_found
-score: 5/7 must-haves verified
+verified: 2026-05-15T03:21:17Z
+status: human_needed
+score: 7/7 must-haves verified
 overrides_applied: 0
-gaps:
-  - truth: "Execution trace records all graph nodes traversed, tool calls made, and evidence referenced; trace is queryable by run_id"
-    status: partial
-    reason: "AgentRun/AgentStep persistence writes rows, but AgentStep rows do not persist tools_called lists or referenced evidence because write_agent_steps only reads step.tool_name and step.evidence_refs, while node trace steps populate tools_called and never populate evidence_refs."
-    artifacts:
-      - path: "src/agent/trace.py"
-        issue: "write_agent_steps ignores step['tools_called']; evidence_refs remains None for persisted steps."
-      - path: "src/agent/nodes/retrieve_policy_evidence.py"
-        issue: "Trace step records tools_called=['search_policy'] but no evidence_refs."
-      - path: "src/agent/nodes/load_business_context.py"
-        issue: "Trace step records tools_called list, which is visible to build_trace_summary but not persisted to AgentStep.tool_name/tool_input_summary/tool_output_summary."
-    missing:
-      - "Persist tool call names from tools_called into AgentStep rows, or add a JSONB tools_called field and migration."
-      - "Attach referenced evidence refs to trace steps so persisted AgentStep.evidence_refs is queryable by run_id."
-  - truth: "Same-thread conversation remembers order_id, refund_case_id, and previously retrieved evidence via LangGraph checkpointer"
-    status: partial
-    reason: "Same-thread slots are retained through active_slots, but previously retrieved evidence is not copied into persistent AgentState.evidence_refs. retrieved_evidence is explicitly reset by receive_request each turn, and no node updates evidence_refs."
-    artifacts:
-      - path: "src/agent/state.py"
-        issue: "Persistent evidence_refs field is declared."
-      - path: "src/agent/nodes/receive_request.py"
-        issue: "retrieved_evidence is reset each turn, which is correct for ephemeral state."
-      - path: "src/agent/nodes/retrieve_policy_evidence.py"
-        issue: "Retrieved evidence is stored only in retrieved_evidence for the current turn; no persistent evidence_refs update."
-      - path: "src/agent/nodes/generate_recommendation.py"
-        issue: "Validated recommendation evidence_refs are returned in recommendation_draft but not saved to persistent evidence_refs."
-    missing:
-      - "Update persistent evidence_refs after successful retrieval or citation-validated recommendation."
-      - "Add same-thread test proving evidence_refs survives a second turn in the same thread."
+re_verification:
+  previous_status: gaps_found
+  previous_score: 5/7
+  gaps_closed:
+    - "Execution trace records all graph nodes traversed, tool calls made, and evidence referenced; trace is queryable by run_id"
+    - "Same-thread conversation remembers order_id, refund_case_id, and previously retrieved evidence via LangGraph checkpointer"
+  gaps_remaining: []
+  regressions: []
+human_verification:
+  - test: "Live agent smoke with real configured LLM and local database"
+    expected: "A refund/policy question returns an evidence-cited answer, trace_summary includes run_id/nodes/tools/evidence_count, and AgentRun/AgentStep rows are queryable by run_id."
+    why_human: "The automated suite intentionally uses FakeLLM; real external LLM/provider behavior and local operator environment require manual smoke verification."
 ---
 
 # Phase 3: LangGraph Core Verification Report
 
 **Phase Goal:** Submit a refund question and receive an evidence-cited answer with full execution trace, tool calls, and same-thread memory — the complete read-only happy path without approval interruption.
-**Verified:** 2026-05-11T08:51:40Z
-**Status:** gaps_found
-**Re-verification:** No — initial verification
+**Verified:** 2026-05-15T03:21:17Z
+**Status:** human_needed
+**Re-verification:** Yes — after 03-06 gap closure
 
 ## Goal Achievement
 
 ### Observable Truths
 
 | # | Truth | Status | Evidence |
-|---|-------|--------|----------|
-| 1 | Refund question happy path identifies intent, loads read-only business context when slots are present, retrieves policy evidence, validates citations, and returns a structured evidence-cited response. | VERIFIED | `build_graph()` wires the 8-node path in `src/agent/graph.py:31-54`; tools are called from `load_business_context` and `retrieve_policy_evidence`; citation validation runs before recommendation output in `src/agent/nodes/generate_recommendation.py:106-117`. `tests/agent/test_graph.py:163-188` covers policy QA and refund troubleshooting happy paths. |
-| 2 | Execution trace records nodes, tool calls, and evidence references and is queryable by run_id. | FAILED | Nodes are persisted as AgentStep rows via `src/api/routers/agent.py:92-108`, but `write_agent_steps()` only persists `tool_name` and `evidence_refs` fields from trace steps. Nodes use `tools_called` lists and do not populate evidence refs, so DB trace rows lose tool/evidence details. |
-| 3 | Same-thread memory remembers order/refund/ticket slots and previously retrieved evidence via checkpointer. | FAILED | `active_slots` persists and is merged in `extract_slots`, but persistent `evidence_refs` is declared only in `src/agent/state.py:52`; no production code writes it. `retrieved_evidence` is reset in `receive_request` and remains per-turn only. |
-| 4 | Insufficient evidence refuses definitive conclusions and returns missing_info. | VERIFIED | `retrieve_policy_evidence` creates an `insufficient_evidence` draft with `missing_info` on no/low evidence; `final_response` uses the insufficient-evidence fallback. Covered by `tests/agent/test_graph.py:191-205` and `tests/agent/test_nodes/test_retrieve_policy_evidence.py`. |
-| 5 | LLM/DB/tool timeout or provider failure degrades to structured errors instead of crashing. | VERIFIED | LLM nodes catch validation/timeout/provider exceptions; tools wrap DB/search timeouts into `{status,error}`; API graph failure path returns structured fallback and attempts AgentRun persistence. Covered by `tests/agent/test_tools/test_get_order.py:69-77` and retrieval error tests. |
-| 6 | FastAPI exposes authenticated `POST /api/v1/agent/chat` and initializes AsyncPostgresSaver once in lifespan. | VERIFIED | `src/api/routers/agent.py:24-30` enforces `agent:chat`; `src/api/main.py:28-34` initializes `AsyncPostgresSaver`, calls `setup()`, and stores the compiled graph. |
-| 7 | Read-only tool wrappers enforce tenant/user/role authorization and avoid approval interruption in Phase 3. | VERIFIED | Business tools include tenant scoping and merchant access checks in `src/agent/tools/authz.py` and wrapper files; no `interrupt()` usage exists in Phase 3 graph. Review fix commit `1f9aa9b` added regression tests for same-tenant merchant denial. |
+|---|---|---|---|
+| 1 | Agent accepts a refund question, identifies intent, loads business context via read tools, retrieves evidence, and returns a structured response with validated doc/chunk citations. | VERIFIED | `build_graph()` wires all 8 deterministic nodes in `src/agent/graph.py:31-54`. `generate_recommendation()` validates cited chunk IDs before returning `recommendation_draft` in `src/agent/nodes/generate_recommendation.py:135-153`. Graph happy-path tests assert final response, intent, evidence refs, risk level, and trace steps in `tests/agent/test_graph.py:163-188`. |
+| 2 | Execution trace records graph nodes, tool calls, and evidence references and is queryable by run_id. | VERIFIED | Closed prior gap. `write_agent_steps()` now persists each trace step by `run_id`, normalizes `tools_called` into `AgentStep.tool_name`, preserves `tools_called` in `tool_output_summary`, and writes `evidence_refs` in `src/agent/trace.py:50-110`. The DB-backed regression queries `AgentStep` rows by `run_id` and asserts tool/evidence persistence in `tests/agent/test_trace.py:14-79`. |
+| 3 | Same-thread memory remembers order/refund/ticket slots and previously retrieved evidence via LangGraph checkpointer. | VERIFIED | Closed prior gap. `receive_request()` resets `retrieved_evidence` but does not reset persistent `evidence_refs` in `src/agent/nodes/receive_request.py:25-40`. Retrieval merges new refs into persistent state in `src/agent/nodes/retrieve_policy_evidence.py:89-130`; recommendation merges citation-validated refs in `src/agent/nodes/generate_recommendation.py:146-153`. `tests/agent/test_graph.py:260-278` proves prior refs survive a same-thread no-evidence turn while the current turn remains insufficient evidence. |
+| 4 | Current-turn no-evidence/low-evidence turns still refuse definitive conclusions and return missing_info. | VERIFIED | `retrieve_policy_evidence()` sets an `insufficient_evidence` draft when retrieval status is `no_evidence` or score is below `MIN_EVIDENCE_SCORE` in `src/agent/nodes/retrieve_policy_evidence.py:120-139`. Graph and node tests cover no-evidence refusal and ensure definitive refund phrases are absent in `tests/agent/test_graph.py:191-204` and `tests/agent/test_nodes/test_retrieve_policy_evidence.py:35-110`. |
+| 5 | LLM/DB/tool timeout or provider failure degrades to structured errors instead of crashing. | VERIFIED | Retrieval tool errors become `retrieval_error`, `node_errors`, and error trace status in `src/agent/nodes/retrieve_policy_evidence.py:131-136`; recommendation validation/provider failures retry and then return a structured insufficient-evidence draft in `src/agent/nodes/generate_recommendation.py:155-177`; API graph exceptions return a structured fallback and persist an error run in `src/api/routers/agent.py:51-82` and `132-160`. |
+| 6 | FastAPI exposes authenticated `POST /api/v1/agent/chat` and initializes AsyncPostgresSaver once in lifespan. | VERIFIED | Endpoint enforces `agent:chat` at `src/api/routers/agent.py:24-30`, invokes `request.app.state.agent_graph` at `src/api/routers/agent.py:32-52`, and persists run/steps at `src/api/routers/agent.py:92-108`. Lifespan initializes `AsyncPostgresSaver`, calls `setup()`, and compiles the graph once in `src/api/main.py:28-34`; router is mounted in `src/api/main.py:101-106`. |
+| 7 | Phase remains read-only without approval interrupts or write tools. | VERIFIED | `rg` found no LangGraph `interrupt()` usage or write-tool execution in `src/agent`; only trace audit writes are present. Phase 3 tools are read-only `get_order`, `get_refund_case`, `get_ticket`, and `search_policy`, with tenant/merchant checks shown in `src/agent/tools/*.py` and `src/agent/tools/authz.py`. `assess_risk_and_approval()` only marks risk/approval_required and returns state in `src/agent/nodes/assess_risk_and_approval.py:133-188`. |
 
-**Score:** 5/7 truths verified
+**Score:** 7/7 truths verified
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |---|---|---|---|
-| `pyproject.toml`, `src/config.py`, `src/db/models.py`, `003_agent_tables.py` | LangGraph deps, LLM/checkpointer config, AgentRun/AgentStep schema | VERIFIED | `gsd-sdk verify.artifacts` passed for Plan 01; schema drift check valid. Manual check confirmed `AgentStep.run_id -> agent_runs.id`. |
-| `src/agent/state.py`, `schemas.py`, `prompts.py`, `tools/*` | Agent contracts and read-only tools | VERIFIED | Artifacts pass; tool wrappers return `{status,data,error}` and enforce tenant/merchant access. |
-| `src/agent/nodes/*`, `src/agent/graph.py`, `rules/risk_rules.yaml` | 8 async nodes, evidence gate, risk rules, graph assembly | VERIFIED | All 8 graph nodes are wired; evidence gate and citation validator are present; risk rules are YAML-backed. |
-| `src/agent/trace.py`, `src/api/routers/agent.py`, `src/api/schemas/agent.py`, `src/api/main.py` | API, trace persistence, lifespan | PARTIAL | API and lifespan work. Trace persistence exists but does not persist tools_called/evidence_refs details needed by the phase goal. |
-| `tests/agent/**`, `scripts/smoke_agent_live.py`, `evals/golden_set_phase3.json` | CI-safe tests, smoke script, 15-case golden set | VERIFIED | 31 agent tests pass; full suite has 81 passing tests; golden set has 15 cases. |
+| `src/agent/trace.py` | AgentStep persistence maps `tools_called` and `evidence_refs` into existing DB columns | VERIFIED | Artifact check passed. `_normalize_tool_name()` and `_normalize_tool_output_summary()` are wired into `write_agent_steps()` at `src/agent/trace.py:61-76`. |
+| `src/agent/nodes/retrieve_policy_evidence.py` | Retrieved evidence ref extraction, trace attachment, and persistent `evidence_refs` merge | VERIFIED | Artifact check passed. Evidence refs are extracted from real retrieval results and merged into persistent state at `src/agent/nodes/retrieve_policy_evidence.py:69-130`. |
+| `src/agent/nodes/generate_recommendation.py` | Validated recommendation evidence refs in trace and persistent memory | VERIFIED | Artifact check passed. Invalid citations are stripped and only validated refs are merged/traced at `src/agent/nodes/generate_recommendation.py:135-153`. |
+| `tests/agent/test_trace.py` | DB-backed run_id query regression for persisted tool/evidence trace | VERIFIED | Artifact check passed. Test queries `AgentStep` by `run_id` and asserts tool/evidence fields at `tests/agent/test_trace.py:64-79`. |
+| `tests/agent/test_graph.py` | Same-thread evidence memory regression through MemorySaver | VERIFIED | Artifact check passed. Regression proves retained refs plus current-turn no-evidence refusal at `tests/agent/test_graph.py:260-278`. |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |---|---|---|---|---|
-| Agent API | LangGraph graph | `request.app.state.agent_graph.ainvoke()` | VERIFIED | `src/api/routers/agent.py:32-52` |
-| Agent API | Trace persistence | `write_agent_run()` + `write_agent_steps()` | PARTIAL | Rows are written, but persisted step content omits tools_called/evidence_refs. |
-| Graph | Checkpointer | `builder.compile(checkpointer=checkpointer)` | VERIFIED | `src/agent/graph.py:54` |
-| Nodes | Read tools/RAG | Deterministic node calls | VERIFIED | `load_business_context` and `retrieve_policy_evidence` call wrappers directly. |
-| Recommendation | Citation validator | `validate_citations()` | VERIFIED | Invalid cited chunk IDs are stripped before final response. |
+| `retrieve_policy_evidence.py` | `write_agent_steps()` / `agent_steps` | `trace_steps[].tools_called` and `trace_steps[].evidence_refs` | VERIFIED | Retrieval trace step includes `tools_called=["search_policy"]` and refs when present at `src/agent/nodes/retrieve_policy_evidence.py:19-29`; persistence reads both fields at `src/agent/trace.py:69-76`. |
+| `generate_recommendation.py` | `write_agent_steps()` / `agent_steps` | validated recommendation `evidence_refs` on trace step | VERIFIED | Validated refs are attached to recommendation trace steps at `src/agent/nodes/generate_recommendation.py:34-46` and `146-153`. |
+| `src/api/routers/agent.py` | `agent_runs` / `agent_steps` | `write_agent_run()` then `write_agent_steps(session, run_id=run_id, trace_steps=trace_steps)` | VERIFIED | API persistence path is wired at `src/api/routers/agent.py:92-108`. |
+| LangGraph checkpointer | `AgentState.evidence_refs` | persistent field not reset by `receive_request`, merged by retrieval/recommendation nodes | VERIFIED | `evidence_refs` is a persistent AgentState field at `src/agent/state.py:44-53`; `receive_request()` resets only ephemeral fields at `src/agent/nodes/receive_request.py:25-40`; MemorySaver regression passes. |
 
 ### Data-Flow Trace (Level 4)
 
 | Artifact | Data Variable | Source | Produces Real Data | Status |
 |---|---|---|---|---|
-| `src/agent/nodes/retrieve_policy_evidence.py` | `retrieved_evidence` | `search_policy()` -> `Retriever.search()` | Yes | VERIFIED for current-turn evidence. |
-| `src/agent/nodes/generate_recommendation.py` | `recommendation_draft.evidence_refs` | LLM structured output filtered by `validate_citations()` | Yes | VERIFIED for response citations. |
-| `src/agent/state.py` | persistent `evidence_refs` | No writer found | No | HOLLOW — declared memory field is disconnected. |
-| `src/agent/trace.py` | `AgentStep.tool_name`, `AgentStep.evidence_refs` | `trace_steps` | Partial | HOLLOW — source steps contain `tools_called` but persistence ignores it; no source step has evidence refs. |
+| `src/agent/trace.py` | `AgentStep.tool_name`, `AgentStep.tool_output_summary`, `AgentStep.evidence_refs` | `final_state["trace_steps"]` from graph nodes via API persistence | Yes | VERIFIED — DB-backed test persists and queries tool/evidence fields by `run_id`. |
+| `src/agent/nodes/retrieve_policy_evidence.py` | `retrieved_evidence`, `evidence_refs` | `search_policy()` result from `Retriever.search()` wrapper | Yes | VERIFIED — refs are generated only from retrieved evidence items containing `doc_key` and `chunk_id`. |
+| `src/agent/nodes/generate_recommendation.py` | `recommendation_draft.evidence_refs`, persistent `evidence_refs` | LLM structured output filtered through `validate_citations()` against current retrieval result | Yes | VERIFIED — invalid chunk IDs are stripped before state/trace persistence. |
+| `src/agent/nodes/receive_request.py` | `retrieved_evidence` vs `evidence_refs` | Per-turn reset plus checkpointer-retained persistent state | Yes | VERIFIED — current-turn evidence is reset; same-thread refs persist for memory/audit only. |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |---|---|---|---|
-| Agent test suite | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/ -q --tb=short -m "not live"` | 31 passed, 1 LangGraph warning | PASS |
-| Phase lint | `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent scripts/smoke_agent_live.py tests/agent` | All checks passed | PASS |
-| Full test suite | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short` | 81 passed, 1 LangGraph warning | PASS |
-| Schema drift | `gsd-sdk query verify.schema-drift "03"` | `valid: true`, no issues | PASS |
-| Graph/config import | `uv run python` import/build check | checkpointer URL is psycopg style; graph compiles to `CompiledStateGraph` | PASS |
+| 03-06 focused regressions | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_trace.py tests/agent/test_nodes/test_retrieve_policy_evidence.py tests/agent/test_nodes/test_generate_recommendation.py tests/agent/test_graph.py -q --tb=short -m "not live"` | 18 passed, 1 LangGraph warning | PASS |
+| Full test suite | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short` | 86 passed, 1 LangGraph warning | PASS |
+| Schema drift | `gsd-sdk query verify.schema-drift "03" --raw` | `valid: true`, no issues, 6 checked | PASS |
+| Artifact verification | `gsd-sdk query verify.artifacts .planning/phases/03-langgraph-core/03-06-PLAN.md --raw` | 5/5 artifacts passed | PASS |
+| Key-link verification | `gsd-sdk query verify.key-links .planning/phases/03-langgraph-core/03-06-PLAN.md --raw` plus manual check | 3/4 automated links; abstract checkpointer link manually verified by code/test evidence | PASS |
 
 ### Requirements Coverage
 
 | Requirement | Source Plan | Description | Status | Evidence |
 |---|---|---|---|---|
-| AGNT-01 | 03-03, 03-05 | Intent recognition and routing | SATISFIED | `classify_intent` structured schema and graph tests cover policy/refund intents. |
-| AGNT-02 | 03-01, 03-03, 03-04, 03-05 | LangGraph happy path state machine | SATISFIED | 8-node fixed graph exists and tests traverse all 8 nodes. |
-| AGNT-03 | 03-02, 03-05 | Structured tools for order/refund/ticket | SATISFIED | Tool wrappers exist; tests cover order/refund/ticket paths. |
-| AGNT-04 | 03-02, 03-05 | Knowledge retrieval with doc/chunk citation | SATISFIED | `search_policy` wraps Retriever and `generate_recommendation` validates citations. |
-| AGNT-05 | 03-01, 03-03 | Same-thread context memory | PARTIAL | Slots persist; previously retrieved evidence does not persist to `evidence_refs`. |
-| AGNT-06 | 03-01, 03-04, 03-05 | Structured execution trace | PARTIAL | API trace summary is present; DB trace rows omit tool/evidence details. |
-| AGNT-08 | 03-03, 03-05 | Refuse definitive conclusions when evidence is insufficient | SATISFIED | Evidence gate + fallback response tests. |
-| INFR-09 | 03-01, 03-03, 03-04 | Timeout and graceful degradation | SATISFIED | Tool, LLM node, retrieval, and API fallback paths exist and are tested. |
-| RAG-05 | 03-02, 03-05 | Agent answer includes evidence list | SATISFIED | `RecommendationDraft.evidence_refs` and final response citation flow verified. |
-| SAFE-06 | 03-01, 03-04, 03-05 | Complete audit log by run_id | PARTIAL | Run/step tables and writes exist, but tool/evidence details are not complete in persisted rows. |
-| SAFE-08 | 03-02, 03-04, 03-05 | Tool permission checks | SATISFIED | Tenant and merchant checks exist; review-fix tests cover denial paths. |
+| AGNT-01 | 03-03, 03-05 | Intent recognition and routing | SATISFIED | Graph happy-path tests verify policy/refund intents and deterministic node path. |
+| AGNT-02 | 03-01, 03-03, 03-04, 03-05 | LangGraph happy path state machine | SATISFIED | `build_graph()` wires all 8 nodes; graph tests assert all 8 trace steps. |
+| AGNT-03 | 03-02, 03-05 | Structured read tools for order/refund/ticket | SATISFIED | Tool wrappers exist, are read-only, and full suite passes tool contract/auth tests. |
+| AGNT-04 | 03-02, 03-05, 03-06 | Knowledge retrieval with concrete citations | SATISFIED | Retrieval and recommendation nodes produce/validate doc/chunk refs; node regressions pass. |
+| AGNT-05 | 03-01, 03-03, 03-06 | Same-thread context memory including evidence refs | SATISFIED | Same-thread MemorySaver regression proves retained `evidence_refs` across turns. |
+| AGNT-06 | 03-01, 03-04, 03-05, 03-06 | Structured execution trace records nodes/tools/evidence | SATISFIED | `write_agent_steps()` persists nodes, tools, and evidence refs; DB-backed run_id regression passes. |
+| AGNT-08 | 03-03, 03-05 | Refuse definitive conclusions when evidence is insufficient | SATISFIED | No-evidence/low-score paths return `insufficient_evidence`; graph test checks no definitive refund phrases. |
+| INFR-09 | 03-01, 03-03, 03-04 | Timeout and graceful degradation | SATISFIED | Retrieval, recommendation, risk, and API fallback paths produce structured errors/fallbacks. |
+| RAG-05 | 03-02, 03-05, 03-06 | Agent answer includes evidence list | SATISFIED | `RecommendationDraft.evidence_refs` is validated, preserved in current response, and persisted as compact memory refs. |
+| SAFE-06 | 03-01, 03-04, 03-06 | Complete audit log by run_id | SATISFIED | AgentRun/AgentStep schema exists; API writes run/steps; DB-backed test queries by run_id. |
+| SAFE-08 | 03-02, 03-04, 03-05 | Tool permission checks | SATISFIED | Read tools enforce tenant and merchant access; review-fix regressions are included in the 86-test full suite. |
 
-No Phase 3 requirement IDs from ROADMAP/REQUIREMENTS are orphaned; all 11 requested IDs appear in plan frontmatter.
+No Phase 3 requirement IDs are orphaned: the 11 roadmap requirements all appear in Phase 03 plan frontmatter.
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |---|---:|---|---|---|
-| `src/agent/trace.py` | 69, 76 | Persistence reads `tool_name`/`evidence_refs`, but nodes emit `tools_called` and no evidence refs | BLOCKER | Causes trace completeness gap despite passing API summary tests. |
-| `src/agent/state.py` | 52 | Persistent `evidence_refs` field has no writer | BLOCKER | Same-thread evidence memory is declared but disconnected. |
-| `tests/agent/test_graph.py` | 245-257 | Same-thread test checks isolation but not evidence memory retention | WARNING | Passing test does not cover AGNT-05 evidence-memory requirement. |
+| `src/agent/nodes/retrieve_policy_evidence.py` | 71, 93, 123 | Empty-list initialization / no-evidence branch | INFO | Intentional local accumulation and no-evidence behavior; not a stub because real retrieval populates refs and no-evidence is tested. |
+| `src/agent/trace.py` | 57, 88, 121 | Empty-list initialization | INFO | Intentional accumulator setup before iterating trace steps/tools; not user-visible hollow data. |
+| `tests/agent/test_graph.py` | 195, 270, 273 | Empty evidence fixtures/assertions | INFO | Intentional no-evidence regression fixtures proving insufficient-evidence behavior. |
 
 ### Human Verification Required
 
-None for the current automated gate. Live real-LLM smoke testing is available through `scripts/smoke_agent_live.py`, but the phase is already blocked by code-level gaps.
+### 1. Live Agent Smoke
+
+**Test:** Run the live smoke path in a configured local environment with the real LLM provider and database, for example `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/smoke_agent_live.py`.
+**Expected:** A refund/policy question returns an evidence-cited answer, `trace_summary` includes `run_id`, nodes, tools, evidence count, risk level, and final status, and the corresponding `AgentRun`/`AgentStep` rows can be queried by `run_id`.
+**Why human:** CI and automated verification intentionally use FakeLLM. The real external LLM/provider path and local credentials/network environment cannot be fully verified by static grep or the no-live test suite.
 
 ### Gaps Summary
 
-Phase 3 has the core read-only graph, API, tool auth, evidence citation, insufficient-evidence fallback, and green automated tests. It does not yet meet the full phase goal because two goal-critical data flows are hollow: persisted run traces lose tool/evidence details, and same-thread memory does not persist previously retrieved evidence.
+No automated gaps remain. The two original blockers are closed:
+
+- AgentStep rows now preserve `tools_called` and evidence refs through existing DB columns.
+- Same-thread `AgentState.evidence_refs` now persists across turns while `retrieved_evidence` remains per-turn and no-evidence turns still return `insufficient_evidence`.
+
+Phase 3 is code-complete against the roadmap contract. Final status is `human_needed` only because live external LLM smoke verification remains manual by design.
 
 ---
 
-_Verified: 2026-05-11T08:51:40Z_
+_Verified: 2026-05-15T03:21:17Z_
 _Verifier: Claude (gsd-verifier)_
