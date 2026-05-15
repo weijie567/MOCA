@@ -3,28 +3,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from langchain_openai import ChatOpenAI
-from pydantic import ValidationError
-
-from src.agent.prompts import FINAL_RESPONSE_SYSTEM, INSUFFICIENT_EVIDENCE_RESPONSE
-from src.agent.schemas import FinalResponseOutput
+from src.agent.prompts import INSUFFICIENT_EVIDENCE_RESPONSE
 from src.agent.state import AgentState
-from src.config import settings
 
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
-
-
-def _get_llm() -> ChatOpenAI:
-    return ChatOpenAI(
-        model=settings.llm_model,
-        openai_api_key=settings.dashscope_api_key,
-        openai_api_base=settings.embedding_base_url,
-        temperature=settings.llm_temperature,
-        max_tokens=settings.llm_max_tokens,
-        timeout=settings.llm_timeout_seconds,
-    )
 
 
 def _trace_step(status: str, started_at: str) -> dict[str, Any]:
@@ -33,7 +17,7 @@ def _trace_step(status: str, started_at: str) -> dict[str, Any]:
         "status": status,
         "started_at": started_at,
         "completed_at": _now_iso(),
-        "model_name": settings.llm_model,
+        "model_name": "deterministic-template",
         "prompt_tokens": None,
         "completion_tokens": None,
     }
@@ -52,6 +36,32 @@ def _retrieval_error_response(draft: dict[str, Any]) -> str:
     return f"系统暂时无法检索政策依据，请稍后重试或联系人工客服。{suffix}"
 
 
+def _citation_summary(evidence_refs: list[dict[str, Any]]) -> str:
+    if not evidence_refs:
+        return ""
+    citations = []
+    for ref in evidence_refs[:3]:
+        doc_key = ref.get("doc_key") or "unknown_doc"
+        chunk_id = ref.get("chunk_id") or "unknown_chunk"
+        title = ref.get("title") or "政策依据"
+        section = ref.get("section") or "相关章节"
+        citations.append(f"根据 {doc_key} / {chunk_id}，{title} - {section}")
+    return "；".join(citations)
+
+
+def _completed_response(draft: dict[str, Any], risk_assessment: dict[str, Any]) -> str:
+    action = draft.get("recommended_action") or "建议按已检索到的政策依据处理。"
+    reasoning = draft.get("reasoning_summary") or "已根据当前知识库证据生成建议。"
+    citations = _citation_summary(draft.get("evidence_refs") or [])
+    parts = [f"建议：{action}", f"理由：{reasoning}"]
+    if citations:
+        parts.append(f"依据：{citations}。")
+    if risk_assessment.get("approval_required"):
+        risk_reason = risk_assessment.get("risk_reason") or "命中风险规则"
+        parts.append(f"风险提示：{risk_reason}，需要人工审批后执行。")
+    return "\n".join(parts)
+
+
 async def final_response(state: AgentState) -> dict:
     started_at = _now_iso()
     draft = state.get("recommendation_draft") or {}
@@ -65,43 +75,19 @@ async def final_response(state: AgentState) -> dict:
             "final_response": _insufficient_response(draft),
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
         }
-
-    messages: list[dict[str, str]] = [
-        {"role": "system", "content": FINAL_RESPONSE_SYSTEM},
-        {
-            "role": "user",
-            "content": (
-                f"Recommendation draft: {draft}\n"
-                f"Risk assessment: {state.get('risk_assessment') or {}}\n"
-                f"User query: {state.get('user_query') or ''}"
-            ),
-        },
-    ]
-    structured_llm = _get_llm().with_structured_output(FinalResponseOutput)
-    last_error: str | None = None
-
-    for attempt in range(2):
-        try:
-            result = await structured_llm.ainvoke(messages)
-            outputs = {**(state.get("llm_outputs") or {}), "final_response": result.model_dump()}
-            return {
-                "final_response": result.response_text,
-                "llm_outputs": outputs,
-                "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
-            }
-        except (ValidationError, ValueError, TimeoutError, Exception) as exc:
-            last_error = str(exc)
-            if attempt == 0:
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": f"Validation failed: {last_error}. Respond with valid JSON.",
-                    }
-                )
-
+    response_text = _completed_response(draft, state.get("risk_assessment") or {})
     return {
-        "final_response": "系统处理出现问题，请稍后重试或联系人工客服。",
-        "node_errors": (state.get("node_errors") or [])
-        + [{"node": "final_response", "error": last_error, "retry_count": 2}],
-        "trace_steps": (state.get("trace_steps") or []) + [_trace_step("error", started_at)],
+        "final_response": response_text,
+        "llm_outputs": {
+            **(state.get("llm_outputs") or {}),
+            "final_response": {
+                "response_text": response_text,
+                "evidence_citations": [
+                    f"{ref.get('doc_key')} / {ref.get('chunk_id')}" for ref in draft.get("evidence_refs") or []
+                ],
+                "final_status": "completed",
+                "mode": "deterministic-template",
+            },
+        },
+        "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
     }

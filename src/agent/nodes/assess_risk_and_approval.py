@@ -142,6 +142,17 @@ async def assess_risk_and_approval(state: AgentState) -> dict:
             "risk_assessment": assessment,
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
         }
+    if state.get("current_intent") == "policy_qa":
+        low_rule = (rules.get("low_risk") or [{}])[0]
+        return {
+            "risk_assessment": {
+                "risk_level": "low",
+                "risk_reason": low_rule.get("description") or "Policy explanation only; no customer action proposed.",
+                "approval_required": False,
+                "rule_ref": low_rule.get("id"),
+            },
+            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
+        }
 
     messages: list[dict[str, str]] = [
         {"role": "system", "content": ASSESS_RISK_SYSTEM},

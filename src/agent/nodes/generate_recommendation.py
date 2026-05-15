@@ -82,6 +82,20 @@ def _summarize_evidence(evidence: list[dict[str, Any]]) -> str:
     return json.dumps(items, ensure_ascii=False, sort_keys=True)
 
 
+def _allowed_citation_objects(evidence: list[dict[str, Any]]) -> str:
+    refs = []
+    for item in evidence[:5]:
+        refs.append(
+            {
+                "doc_key": item.get("doc_key"),
+                "chunk_id": item.get("chunk_id"),
+                "title": item.get("title"),
+                "section": item.get("section"),
+            }
+        )
+    return json.dumps(refs, ensure_ascii=False, sort_keys=True)
+
+
 def _validated_evidence_refs(
     draft_refs: list[dict[str, Any]],
     retrieval: RetrievalResult,
@@ -114,6 +128,8 @@ async def generate_recommendation(state: AgentState) -> dict:
         return {"trace_steps": (state.get("trace_steps") or []) + [_trace_step("skipped", started_at)]}
 
     retrieval = _retrieval_result(state)
+    evidence_items = [item.model_dump() for item in retrieval.evidence]
+    allowed_citations = _allowed_citation_objects(evidence_items)
     messages: list[dict[str, str]] = [
         {"role": "system", "content": GENERATE_RECOMMENDATION_SYSTEM},
         {
@@ -121,7 +137,10 @@ async def generate_recommendation(state: AgentState) -> dict:
             "content": (
                 f"User query: {state.get('user_query') or ''}\n"
                 f"Business context: {_summarize_business_context(state.get('business_context') or {})}\n"
-                f"Policy evidence: {_summarize_evidence([item.model_dump() for item in retrieval.evidence])}"
+                f"Policy evidence: {_summarize_evidence(evidence_items)}\n"
+                f"Allowed citation objects: {allowed_citations}\n"
+                "For evidence_refs, copy one or more complete objects from Allowed citation objects. "
+                "Do not return strings, doc_key-only values, or chunk_id-only values."
             ),
         },
     ]
@@ -158,7 +177,10 @@ async def generate_recommendation(state: AgentState) -> dict:
                 messages.append(
                     {
                         "role": "user",
-                        "content": f"Validation failed: {last_error}. Respond with valid JSON.",
+                        "content": (
+                            f"Validation failed: {last_error}. Respond with valid JSON. "
+                            f"evidence_refs must be complete objects copied from: {allowed_citations}"
+                        ),
                     }
                 )
 

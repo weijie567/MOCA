@@ -1,10 +1,29 @@
 from __future__ import annotations
 
+from pydantic import BaseModel
 import pytest
 
 from tests.agent.conftest import FakeLLM
 
 from src.agent.nodes import generate_recommendation as generate_recommendation_module
+
+
+class CapturingLLM:
+    def __init__(self, response):
+        self.response = response
+        self.messages = None
+
+    def with_structured_output(self, schema):
+        llm = self
+
+        class _Wrapper:
+            async def ainvoke(self, messages, **kwargs):
+                llm.messages = messages
+                if issubclass(schema, BaseModel):
+                    return schema.model_validate(llm.response)
+                return llm.response
+
+        return _Wrapper()
 
 
 def _retrieved_evidence():
@@ -122,3 +141,33 @@ async def test_generate_recommendation_trace_contains_validated_evidence_refs(mo
     assert result["evidence_refs"][0]["retrieved_at"]
     assert result["trace_steps"][-1]["evidence_refs"][0]["doc_key"] == "policy_refund_timeout"
     assert result["trace_steps"][-1]["evidence_refs"][0]["chunk_id"] == "chunk_001"
+
+
+@pytest.mark.asyncio
+async def test_generate_recommendation_prompt_lists_allowed_citation_objects(monkeypatch, base_state):
+    fake_llm = CapturingLLM(
+        {
+            "recommended_action": "建议退款",
+            "reasoning_summary": "根据规则",
+            "evidence_refs": [
+                {
+                    "doc_key": "policy_refund_timeout",
+                    "chunk_id": "chunk_001",
+                    "title": "退款超时规则",
+                    "section": "第一条",
+                }
+            ],
+            "confidence": 0.85,
+            "risk_level": "low",
+            "missing_info": [],
+        }
+    )
+    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
+    state = {**base_state, "retrieved_evidence": _retrieved_evidence()}
+
+    await generate_recommendation_module.generate_recommendation(state)
+
+    prompt = fake_llm.messages[-1]["content"]
+    assert "Allowed citation objects" in prompt
+    assert '"chunk_id": "chunk_001"' in prompt
+    assert "Do not return strings" in prompt

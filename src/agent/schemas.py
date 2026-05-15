@@ -27,16 +27,22 @@ class SlotExtractionResult(BaseModel):
 
 
 class EvidenceRefSchema(BaseModel):
-    doc_key: str
-    chunk_id: str
-    title: str
-    section: str
+    doc_key: str = Field(description="Exact doc_key copied from one retrieved evidence item.")
+    chunk_id: str = Field(description="Exact chunk_id copied from the same retrieved evidence item.")
+    title: str = Field(description="Exact title copied from the same retrieved evidence item.")
+    section: str = Field(description="Exact section copied from the same retrieved evidence item.")
 
 
 class RecommendationDraft(BaseModel):
     recommended_action: str
     reasoning_summary: str
-    evidence_refs: list[EvidenceRefSchema] = Field(min_length=1)
+    evidence_refs: list[EvidenceRefSchema] = Field(
+        min_length=1,
+        description=(
+            "At least one citation object copied from retrieved evidence. "
+            "Do not return strings, doc_key-only values, or chunk_id-only values."
+        ),
+    )
     confidence: float = Field(ge=0.0, le=1.0)
     risk_level: Literal["low", "medium", "high"]
     missing_info: list[str] = Field(default_factory=list)

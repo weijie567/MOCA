@@ -26,8 +26,8 @@ class Settings(BaseSettings):
     dashscope_api_key: str = Field(default="")
     llm_model: str = "glm-5.1"
     llm_temperature: float = 0.0
-    llm_max_tokens: int = 1024
-    llm_timeout_seconds: int = 30
+    llm_max_tokens: int = 4096
+    llm_timeout_seconds: int = 90
 
     @property
     def checkpointer_database_url(self) -> str:

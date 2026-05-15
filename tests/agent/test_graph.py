@@ -16,7 +16,6 @@ from src.agent.graph import build_graph
 from src.agent.nodes import assess_risk_and_approval as assess_risk_module
 from src.agent.nodes import classify_intent as classify_intent_module
 from src.agent.nodes import extract_slots as extract_slots_module
-from src.agent.nodes import final_response as final_response_module
 from src.agent.nodes import generate_recommendation as generate_recommendation_module
 from src.agent.nodes import load_business_context as load_business_context_module
 from src.agent.nodes import retrieve_policy_evidence as retrieve_policy_evidence_module
@@ -85,14 +84,6 @@ def _risk() -> dict:
     return {"risk_level": "low", "risk_reason": "standard refund", "approval_required": False, "rule_ref": "LR-01"}
 
 
-def _final_response() -> dict:
-    return {
-        "response_text": "根据 policy_refund_timeout / chunk_001，建议退款。",
-        "evidence_citations": ["根据 policy_refund_timeout / chunk_001"],
-        "final_status": "completed",
-    }
-
-
 def _policy_result(*, status: str = "strong_evidence", best_score: float = 0.82, evidence: list[dict] | None = None):
     return {
         "status": "success",
@@ -146,7 +137,6 @@ def _patch_graph_dependencies(
     monkeypatch.setattr(extract_slots_module, "_get_llm", lambda: FakeLLM(_slots(order_id)))
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
     monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: FakeLLM(_risk()))
-    monkeypatch.setattr(final_response_module, "_get_llm", lambda: FakeLLM(_final_response()))
     monkeypatch.setattr(load_business_context_module, "get_order", get_order)
     monkeypatch.setattr(load_business_context_module, "get_refund_case", AsyncMock())
     monkeypatch.setattr(load_business_context_module, "get_ticket", AsyncMock())
