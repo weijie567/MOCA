@@ -1,7 +1,7 @@
 ---
 phase: 03-langgraph-core
-verified: 2026-05-15T03:21:17Z
-status: human_needed
+verified: 2026-05-15T07:31:23Z
+status: passed
 score: 7/7 must-haves verified
 overrides_applied: 0
 re_verification:
@@ -16,13 +16,15 @@ human_verification:
   - test: "Live agent smoke with real configured LLM and local database"
     expected: "A refund/policy question returns an evidence-cited answer, trace_summary includes run_id/nodes/tools/evidence_count, and AgentRun/AgentStep rows are queryable by run_id."
     why_human: "The automated suite intentionally uses FakeLLM; real external LLM/provider behavior and local operator environment require manual smoke verification."
+    result: "passed"
+    evidence: "03-HUMAN-UAT.md records 3/3 live smoke cases passing: policy QA completed with evidence_count=5, refund troubleshooting completed with evidence_count=5, and no-evidence fallback returned insufficient_evidence with evidence_count=0."
 ---
 
 # Phase 3: LangGraph Core Verification Report
 
 **Phase Goal:** Submit a refund question and receive an evidence-cited answer with full execution trace, tool calls, and same-thread memory — the complete read-only happy path without approval interruption.
-**Verified:** 2026-05-15T03:21:17Z
-**Status:** human_needed
+**Verified:** 2026-05-15T07:31:23Z
+**Status:** passed
 **Re-verification:** Yes — after 03-06 gap closure
 
 ## Goal Achievement
@@ -78,6 +80,7 @@ human_verification:
 | Schema drift | `gsd-sdk query verify.schema-drift "03" --raw` | `valid: true`, no issues, 6 checked | PASS |
 | Artifact verification | `gsd-sdk query verify.artifacts .planning/phases/03-langgraph-core/03-06-PLAN.md --raw` | 5/5 artifacts passed | PASS |
 | Key-link verification | `gsd-sdk query verify.key-links .planning/phases/03-langgraph-core/03-06-PLAN.md --raw` plus manual check | 3/4 automated links; abstract checkpointer link manually verified by code/test evidence | PASS |
+| Live DashScope smoke | `set -a; source .env; set +a; LIVE_SMOKE_CASE_TIMEOUT_SECONDS=420 UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/smoke_agent_live.py` | 3/3 passed: policy QA completed with evidence_count=5; refund troubleshooting completed with evidence_count=5; no-evidence fallback returned insufficient_evidence with evidence_count=0 | PASS |
 
 ### Requirements Coverage
 
@@ -105,13 +108,12 @@ No Phase 3 requirement IDs are orphaned: the 11 roadmap requirements all appear 
 | `src/agent/trace.py` | 57, 88, 121 | Empty-list initialization | INFO | Intentional accumulator setup before iterating trace steps/tools; not user-visible hollow data. |
 | `tests/agent/test_graph.py` | 195, 270, 273 | Empty evidence fixtures/assertions | INFO | Intentional no-evidence regression fixtures proving insufficient-evidence behavior. |
 
-### Human Verification Required
+### Human Verification
 
-### 1. Live Agent Smoke
+The live agent smoke item is resolved and recorded in `03-HUMAN-UAT.md`.
 
-**Test:** Run the live smoke path in a configured local environment with the real LLM provider and database, for example `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/smoke_agent_live.py`.
-**Expected:** A refund/policy question returns an evidence-cited answer, `trace_summary` includes `run_id`, nodes, tools, evidence count, risk level, and final status, and the corresponding `AgentRun`/`AgentStep` rows can be queried by `run_id`.
-**Why human:** CI and automated verification intentionally use FakeLLM. The real external LLM/provider path and local credentials/network environment cannot be fully verified by static grep or the no-live test suite.
+**Result:** 3/3 live cases passed against DashScope and the local database.
+**Evidence:** Policy QA returned `completed` with `evidence_count=5`; refund troubleshooting for `ORD-2024-001` returned `completed` with `evidence_count=5`; the unrelated query returned `insufficient_evidence` with `evidence_count=0`.
 
 ### Gaps Summary
 
@@ -120,9 +122,9 @@ No automated gaps remain. The two original blockers are closed:
 - AgentStep rows now preserve `tools_called` and evidence refs through existing DB columns.
 - Same-thread `AgentState.evidence_refs` now persists across turns while `retrieved_evidence` remains per-turn and no-evidence turns still return `insufficient_evidence`.
 
-Phase 3 is code-complete against the roadmap contract. Final status is `human_needed` only because live external LLM smoke verification remains manual by design.
+Phase 3 is complete against the roadmap contract. The prior `human_needed` item is closed by the recorded live DashScope smoke verification.
 
 ---
 
-_Verified: 2026-05-15T03:21:17Z_
+_Verified: 2026-05-15T07:31:23Z_
 _Verifier: Claude (gsd-verifier)_
