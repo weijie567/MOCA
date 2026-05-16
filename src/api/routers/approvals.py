@@ -12,7 +12,7 @@ from src.agent.trace import append_agent_steps, update_agent_run_status
 from src.api.schemas.approvals import ApprovalListResponse, ApprovalResponse, DecideRequest
 from src.api.schemas.common import ApiResponse
 from src.auth.permissions import get_current_user
-from src.db.models import User
+from src.db.models import AgentRun, User
 from src.db.session import get_session
 from src.repositories.approval_repo import ApprovalRepository
 
@@ -51,9 +51,8 @@ async def decide_approval(
         await session.commit()
         raise HTTPException(status_code=409, detail={"code": "EXPIRED", "message": "Approval has expired"})
 
-    was_pending = approval.status == "pending"
     try:
-        updated = await repo.decide(
+        updated, transitioned = await repo.decide(
             approval.id,
             user.tenant_id,
             decision=body.decision,
@@ -63,10 +62,9 @@ async def decide_approval(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail={"code": "CONFLICT", "message": str(exc)}) from exc
 
-    event_type = "approved" if body.decision == "approve" else "rejected"
-    await repo.add_step(approval.id, event_type=event_type, actor_id=user.id)
-
-    if was_pending:
+    if transitioned:
+        event_type = "approved" if body.decision == "approve" else "rejected"
+        await repo.add_step(approval.id, event_type=event_type, actor_id=user.id)
         graph = request.app.state.agent_graph
         checkpoint_tid = f"{approval.tenant_id}:{approval.requested_by}:{approval.thread_id}"
         config = {"configurable": {"thread_id": checkpoint_tid, "session": session}}
@@ -85,13 +83,15 @@ async def decide_approval(
         run_id = str(approval.run_id)
         final_response_text = final_state.get("final_response")
         final_status = "error" if final_state.get("node_errors") else "completed"
+        run = await session.get(AgentRun, approval.run_id)
+        total_latency_ms = (run.total_latency_ms if run and run.total_latency_ms else 0) + resume_latency_ms
         await update_agent_run_status(
             session,
             run_id=run_id,
             final_status=final_status,
             final_response=final_response_text,
             completed_at=datetime.now(UTC),
-            total_latency_ms=resume_latency_ms,
+            total_latency_ms=total_latency_ms,
         )
 
         trace_steps = final_state.get("trace_steps") or []

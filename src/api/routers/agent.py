@@ -173,8 +173,21 @@ async def _handle_interrupt(
     checkpoint_tid = _checkpoint_thread_id(user=user, thread_id=body.thread_id)
     state_snapshot = await graph.aget_state({"configurable": {"thread_id": checkpoint_tid}})
     snapshot_values = getattr(state_snapshot, "values", None) or {}
-    pre_interrupt_steps = snapshot_values.get("trace_steps") or []
+    pre_interrupt_steps = list(snapshot_values.get("trace_steps") or [])
     run_id = str(interrupt_data.get("run_id") or snapshot_values.get("current_run_id") or fallback_run_id)
+    if not any(step.get("node") == "approval_gate" for step in pre_interrupt_steps):
+        pre_interrupt_steps.append(
+            {
+                "node": "approval_gate",
+                "status": "interrupted",
+                "started_at": completed_at.isoformat(),
+                "completed_at": completed_at.isoformat(),
+                "latency_ms": 0,
+                "provider_latency_ms": None,
+                "retry_count": 0,
+                "metrics_json": None,
+            }
+        )
 
     await write_agent_run(
         session,

@@ -81,7 +81,7 @@ class ApprovalRepository:
         decision: str,
         reason: str | None,
         decided_by: UUID,
-    ) -> ApprovalRequest:
+    ) -> tuple[ApprovalRequest, bool]:
         if decision not in {"approve", "reject"}:
             raise ValueError("invalid_decision")
 
@@ -93,11 +93,11 @@ class ApprovalRepository:
             raise ValueError("expired")
         if approval.status == "approved":
             if decision == "approve":
-                return approval
+                return approval, False
             raise ValueError("conflict: already approved")
         if approval.status == "rejected":
             if decision == "reject":
-                return approval
+                return approval, False
             raise ValueError("conflict: already rejected")
 
         approval.status = "approved" if decision == "approve" else "rejected"
@@ -106,7 +106,7 @@ class ApprovalRepository:
         approval.decided_by = decided_by
         approval.decided_at = datetime.now(UTC)
         await self.session.flush()
-        return approval
+        return approval, True
 
     async def mark_expired(self, approval_id: UUID, tenant_id: UUID) -> None:
         approval = await self.get_by_id_for_update(approval_id, tenant_id)

@@ -90,14 +90,23 @@ async def test_approval_decide_idempotency_matrix(
             await repo.decide(approval.id, tenant_id, decision=decision, reason="reviewed", decided_by=reviewer_id)
         return
 
-    decided = await repo.decide(approval.id, tenant_id, decision=decision, reason="reviewed", decided_by=reviewer_id)
+    decided, transitioned = await repo.decide(
+        approval.id,
+        tenant_id,
+        decision=decision,
+        reason="reviewed",
+        decided_by=reviewer_id,
+    )
 
     assert decided.id == approval.id
     assert decided.status == expected_status
     if initial_status == "pending":
+        assert transitioned is True
         assert decided.decision == decision
         assert decided.decided_by == reviewer_id
         assert decided.decided_at is not None
+    else:
+        assert transitioned is False
 
 
 @pytest.mark.asyncio

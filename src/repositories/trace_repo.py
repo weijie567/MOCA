@@ -74,7 +74,7 @@ class TraceRepository:
                     "detail": {
                         "approval_id": str(approval.id),
                         "risk_level": approval.risk_level,
-                        "proposed_action": approval.proposed_action,
+                        "proposed_action": _safe_proposed_action(approval.proposed_action),
                     },
                 }
             )
@@ -109,3 +109,12 @@ class TraceRepository:
 
         timeline.sort(key=lambda item: item["time"])
         return timeline
+
+
+def _safe_proposed_action(action: dict[str, Any] | None) -> dict[str, Any]:
+    action = action or {}
+    return {
+        "action_type": action.get("action_type"),
+        "amount": action.get("amount"),
+        "currency": action.get("currency"),
+    }

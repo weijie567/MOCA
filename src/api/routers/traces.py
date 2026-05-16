@@ -10,7 +10,7 @@ from src.api.schemas.common import ApiResponse
 from src.auth.permissions import get_current_user
 from src.db.models import ApprovalRequest, User
 from src.db.session import get_session
-from src.repositories.trace_repo import TraceRepository
+from src.repositories.trace_repo import TraceRepository, _safe_proposed_action
 
 
 router = APIRouter(tags=["traces"])
@@ -89,7 +89,7 @@ def _to_approval_response(approval: ApprovalRequest) -> ApprovalResponse:
         run_id=str(approval.run_id),
         status=approval.status,
         requested_by=str(approval.requested_by),
-        proposed_action=approval.proposed_action,
+        proposed_action=_safe_proposed_action(approval.proposed_action),
         risk_level=approval.risk_level,
         risk_rule_ref=approval.risk_rule_ref,
         risk_reason=approval.risk_reason,

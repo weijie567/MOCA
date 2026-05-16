@@ -49,7 +49,6 @@ class FakeInterruptGraph:
                 "current_run_id": self.payload["run_id"],
                 "trace_steps": [
                     {"node": "receive_request", "status": "completed"},
-                    {"node": "approval_gate", "status": "interrupted"},
                 ],
             }
         )
@@ -337,6 +336,7 @@ async def test_agent_run_status_updates_to_completed_after_approve(
     assert run is not None
     assert run.final_status == "completed"
     assert run.final_response == "approved final"
+    assert run.total_latency_ms >= 10
 
 
 @pytest.mark.asyncio
@@ -393,6 +393,7 @@ async def test_agent_chat_interrupt_result_creates_approval_and_interrupted_run(
     assert run is not None
     assert run.final_status == "interrupted"
     assert [step.node_name for step in steps] == ["receive_request", "approval_gate"]
+    assert steps[1].status == "interrupted"
 
 
 @pytest.mark.asyncio
