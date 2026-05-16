@@ -260,7 +260,7 @@ class _FakeStructuredLLM:
         if self.schema is SlotExtractionResult:
             return SlotExtractionResult(**self.responses["slots"])
         if self.schema is RecommendationDraft:
-            key = "low_risk" if "政策" in user_content or "规则" in user_content else "high_risk"
+            key = "high_risk" if "600" in user_content else "low_risk"
             return RecommendationDraft(**self.responses["recommendation"][key])
         if self.schema is RiskAssessment:
             key = "low_risk" if "policy_answer" in user_content else "high_risk"
@@ -358,7 +358,7 @@ def mock_graph(monkeypatch, mock_llm_responses):
             "status": "success",
             "data": {
                 "query": kwargs["query"],
-                "retrieval_status": "success",
+                "retrieval_status": "strong_evidence",
                 "best_score": 0.93,
                 "evidence": [
                     {
