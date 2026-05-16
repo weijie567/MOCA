@@ -18,6 +18,13 @@ from src.config import settings
 
 RISK_RULES_PATH = Path("rules/risk_rules.yaml")
 FULL_REFUND_TERMS = ("full_refund", "全额退款", "全额退", "整单退款")
+ACTIONABLE_ACTIONS = {
+    "issue_coupon",
+    "approve_refund",
+    "full_refund",
+    "partial_refund",
+    "compensation",
+}
 
 
 def _now_iso() -> str:
@@ -117,6 +124,24 @@ def _deterministic_rule_match(draft: dict[str, Any], context: dict[str, Any], ru
     return None
 
 
+def _is_actionable_recommendation(action: Any) -> bool:
+    action_text = str(action or "").lower()
+    return any(actionable in action_text for actionable in ACTIONABLE_ACTIONS)
+
+
+def _build_proposed_action(draft: dict[str, Any], context: dict[str, Any]) -> dict[str, str]:
+    refund_case = context.get("refund_case") or {}
+    order = context.get("order") or {}
+    amount = _extract_compensation_amount(draft, context)
+    return {
+        "action_type": str(draft.get("recommended_action") or ""),
+        "target_id": str(refund_case.get("id") or order.get("id") or ""),
+        "amount": str(amount) if amount is not None else "",
+        "currency": "CNY",
+        "reasoning_summary": str(draft.get("reasoning_summary") or ""),
+    }
+
+
 def _fallback_risk(draft: dict[str, Any], context: dict[str, Any], rules: dict[str, Any]) -> dict[str, Any]:
     if draft.get("recommended_action") == "insufficient_evidence":
         return {
@@ -154,6 +179,7 @@ async def assess_risk_and_approval(state: AgentState) -> dict:
         assessment = _fallback_risk(draft, context, rules)
         return {
             "risk_assessment": assessment,
+            "proposed_action": None,
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
         }
     if state.get("current_intent") == "policy_qa":
@@ -165,6 +191,7 @@ async def assess_risk_and_approval(state: AgentState) -> dict:
                 "approval_required": False,
                 "rule_ref": low_rule.get("id"),
             },
+            "proposed_action": None,
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
         }
 
@@ -195,9 +222,15 @@ async def assess_risk_and_approval(state: AgentState) -> dict:
                         "rule_ref": high_rule.get("id"),
                     }
                 )
+            proposed_action = (
+                _build_proposed_action(draft, context)
+                if assessment.get("approval_required") or _is_actionable_recommendation(draft.get("recommended_action"))
+                else None
+            )
             outputs = {**(state.get("llm_outputs") or {}), "assess_risk_and_approval": assessment}
             return {
                 "risk_assessment": assessment,
+                "proposed_action": proposed_action,
                 "llm_outputs": outputs,
                 "trace_steps": (state.get("trace_steps") or [])
                 + [
@@ -221,8 +254,15 @@ async def assess_risk_and_approval(state: AgentState) -> dict:
                     }
                 )
 
+    fallback_assessment = _fallback_risk(draft, context, rules)
+    proposed_action = (
+        _build_proposed_action(draft, context)
+        if fallback_assessment.get("approval_required") or _is_actionable_recommendation(draft.get("recommended_action"))
+        else None
+    )
     return {
-        "risk_assessment": _fallback_risk(draft, context, rules),
+        "risk_assessment": fallback_assessment,
+        "proposed_action": proposed_action,
         "node_errors": (state.get("node_errors") or [])
         + [{"node": "assess_risk_and_approval", "error": last_error, "retry_count": 2}],
         "trace_steps": (state.get("trace_steps") or [])
