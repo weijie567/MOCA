@@ -65,9 +65,33 @@ def _completed_response(draft: dict[str, Any], risk_assessment: dict[str, Any]) 
     return "\n".join(parts)
 
 
+def _approval_outcome_text(
+    approval_result: dict[str, Any] | None,
+    action_result: dict[str, Any] | None,
+) -> str:
+    if approval_result:
+        if approval_result.get("decision") == "approve" and action_result:
+            if action_result.get("status") == "success":
+                draft_id = (action_result.get("data") or {}).get("draft_id", "unknown")
+                return f"审批结果：操作已审批通过，补偿草稿已创建（草稿ID：{draft_id}），等待最终发放。"
+            message = (action_result.get("error") or {}).get("message", "unknown error")
+            return f"审批结果：操作已审批通过，但执行失败：{message}。"
+        if approval_result.get("decision") == "reject":
+            reason = approval_result.get("reason") or "No reason provided"
+            return f"审批结果：操作被审核人拒绝。拒绝原因：{reason}。"
+
+    if not approval_result and action_result and action_result.get("status") == "success":
+        draft_id = (action_result.get("data") or {}).get("draft_id", "unknown")
+        return f"执行结果：该操作在政策范围内，无需审批，补偿草稿已创建（草稿ID：{draft_id}）。"
+
+    return ""
+
+
 async def final_response(state: AgentState) -> dict:
     started_at = _now_iso()
     draft = state.get("recommendation_draft") or {}
+    approval_result = state.get("approval_result")
+    action_result = state.get("action_result")
     if draft.get("recommended_action") == "retrieval_error":
         return {
             "final_response": _retrieval_error_response(draft),
@@ -79,6 +103,9 @@ async def final_response(state: AgentState) -> dict:
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
         }
     response_text = _completed_response(draft, state.get("risk_assessment") or {})
+    approval_context = _approval_outcome_text(approval_result, action_result)
+    if approval_context:
+        response_text = f"{response_text}\n{approval_context}"
     return {
         "final_response": response_text,
         "llm_outputs": {
@@ -90,6 +117,7 @@ async def final_response(state: AgentState) -> dict:
                 ],
                 "final_status": "completed",
                 "mode": "deterministic-template",
+                "approval_context": approval_context or None,
             },
         },
         "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
