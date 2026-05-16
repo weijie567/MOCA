@@ -58,6 +58,9 @@ async def write_agent_steps(
     for idx, step in enumerate(trace_steps):
         started_at = _parse_dt(step.get("started_at"))
         completed_at = _parse_dt(step.get("completed_at"))
+        latency_ms = step.get("latency_ms")
+        if latency_ms is None and started_at and completed_at:
+            latency_ms = int((completed_at - started_at).total_seconds() * 1000)
         agent_step = AgentStep(
             id=uuid.uuid4(),
             run_id=uuid.UUID(run_id),
@@ -72,7 +75,10 @@ async def write_agent_steps(
             model_name=step.get("model_name"),
             prompt_tokens=step.get("prompt_tokens"),
             completion_tokens=step.get("completion_tokens"),
-            latency_ms=step.get("latency_ms"),
+            latency_ms=latency_ms,
+            provider_latency_ms=step.get("provider_latency_ms"),
+            retry_count=step.get("retry_count"),
+            metrics_json=step.get("metrics_json"),
             evidence_refs=step.get("evidence_refs"),
             error_message=step.get("error_message"),
             started_at=started_at or datetime.now(timezone.utc),

@@ -242,6 +242,9 @@ class AgentStep(TimestampMixin, Base):
     prompt_tokens: Mapped[int | None] = mapped_column()
     completion_tokens: Mapped[int | None] = mapped_column()
     latency_ms: Mapped[int | None] = mapped_column()
+    provider_latency_ms: Mapped[int | None] = mapped_column()
+    retry_count: Mapped[int | None] = mapped_column(default=0)
+    metrics_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     evidence_refs: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
     # list of {"doc_key": str, "chunk_id": str}
     error_message: Mapped[str | None] = mapped_column(String(500))
