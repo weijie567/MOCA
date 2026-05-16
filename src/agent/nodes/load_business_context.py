@@ -22,6 +22,9 @@ def _trace_step(status: str, started_at: str, tool_names: list[str]) -> dict[str
         "started_at": started_at,
         "completed_at": _now_iso(),
         "tools_called": tool_names,
+        "provider_latency_ms": None,
+        "retry_count": 0,
+        "metrics_json": None,
     }
 
 

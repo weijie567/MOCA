@@ -23,6 +23,9 @@ def _trace_step(status: str, started_at: str, evidence_refs: list[dict[str, Any]
         "started_at": started_at,
         "completed_at": _now_iso(),
         "tools_called": ["search_policy"],
+        "provider_latency_ms": None,
+        "retry_count": 0,
+        "metrics_json": None,
     }
     if evidence_refs:
         step["evidence_refs"] = evidence_refs

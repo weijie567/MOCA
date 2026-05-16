@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -31,7 +32,14 @@ def _get_llm() -> ChatOpenAI:
     )
 
 
-def _trace_step(status: str, started_at: str, evidence_refs: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def _trace_step(
+    status: str,
+    started_at: str,
+    evidence_refs: list[dict[str, Any]] | None = None,
+    provider_latency_ms: int | None = None,
+    retry_count: int = 0,
+    context_chars: int = 0,
+) -> dict[str, Any]:
     step = {
         "node": "generate_recommendation",
         "status": status,
@@ -40,6 +48,13 @@ def _trace_step(status: str, started_at: str, evidence_refs: list[dict[str, Any]
         "model_name": settings.llm_model,
         "prompt_tokens": None,
         "completion_tokens": None,
+        "provider_latency_ms": provider_latency_ms,
+        "retry_count": retry_count,
+        "metrics_json": {
+            "model": settings.llm_model,
+            "provider": "dashscope",
+            "context_chars": context_chars,
+        },
     }
     if evidence_refs:
         step["evidence_refs"] = evidence_refs
@@ -146,10 +161,16 @@ async def generate_recommendation(state: AgentState) -> dict:
     ]
     structured_llm = _get_llm().with_structured_output(RecommendationDraft)
     last_error: str | None = None
+    provider_latency_ms: int | None = None
+    retry_count = 0
 
+    # retry_count records this node's manual structured-output retry loop, not LangGraph node retries.
     for attempt in range(2):
+        retry_count = attempt
         try:
+            t0 = time.perf_counter()
             result = await structured_llm.ainvoke(messages)
+            provider_latency_ms = round((time.perf_counter() - t0) * 1000)
             draft = result.model_dump()
             cited_chunk_ids = [item["chunk_id"] for item in draft.get("evidence_refs") or []]
             validation = validate_citations(cited_chunk_ids, retrieval)
@@ -169,9 +190,20 @@ async def generate_recommendation(state: AgentState) -> dict:
                 "recommendation_draft": draft,
                 "llm_outputs": outputs,
                 "evidence_refs": merged_refs,
-                "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at, validated_refs)],
+                "trace_steps": (state.get("trace_steps") or [])
+                + [
+                    _trace_step(
+                        "completed",
+                        started_at,
+                        validated_refs,
+                        provider_latency_ms,
+                        retry_count,
+                        len(str(messages)),
+                    )
+                ],
             }
         except (ValidationError, ValueError, TimeoutError, Exception) as exc:
+            provider_latency_ms = round((time.perf_counter() - t0) * 1000)
             last_error = str(exc)
             if attempt == 0:
                 messages.append(
@@ -195,5 +227,14 @@ async def generate_recommendation(state: AgentState) -> dict:
         },
         "node_errors": (state.get("node_errors") or [])
         + [{"node": "generate_recommendation", "error": last_error, "retry_count": 2}],
-        "trace_steps": (state.get("trace_steps") or []) + [_trace_step("error", started_at)],
+        "trace_steps": (state.get("trace_steps") or [])
+        + [
+            _trace_step(
+                "error",
+                started_at,
+                provider_latency_ms=provider_latency_ms,
+                retry_count=retry_count,
+                context_chars=len(str(messages)),
+            )
+        ],
     }

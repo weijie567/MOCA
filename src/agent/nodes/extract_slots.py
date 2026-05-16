@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -27,7 +28,14 @@ def _get_llm() -> ChatOpenAI:
     )
 
 
-def _trace_step(node: str, status: str, started_at: str) -> dict[str, Any]:
+def _trace_step(
+    node: str,
+    status: str,
+    started_at: str,
+    provider_latency_ms: int | None,
+    retry_count: int,
+    context_chars: int,
+) -> dict[str, Any]:
     return {
         "node": node,
         "status": status,
@@ -36,6 +44,13 @@ def _trace_step(node: str, status: str, started_at: str) -> dict[str, Any]:
         "model_name": settings.llm_model,
         "prompt_tokens": None,
         "completion_tokens": None,
+        "provider_latency_ms": provider_latency_ms,
+        "retry_count": retry_count,
+        "metrics_json": {
+            "model": settings.llm_model,
+            "provider": "dashscope",
+            "context_chars": context_chars,
+        },
     }
 
 
@@ -47,10 +62,16 @@ async def extract_slots(state: AgentState) -> dict:
     ]
     structured_llm = _get_llm().with_structured_output(SlotExtractionResult)
     last_error: str | None = None
+    provider_latency_ms: int | None = None
+    retry_count = 0
 
+    # retry_count records this node's manual structured-output retry loop, not LangGraph node retries.
     for attempt in range(2):
+        retry_count = attempt
         try:
+            t0 = time.perf_counter()
             result = await structured_llm.ainvoke(messages)
+            provider_latency_ms = round((time.perf_counter() - t0) * 1000)
             extracted = result.model_dump()
             new_slots = {key: value for key, value in extracted.items() if value is not None}
             merged = {**(state.get("active_slots") or {}), **new_slots}
@@ -59,9 +80,20 @@ async def extract_slots(state: AgentState) -> dict:
                 "extracted_slots": extracted,
                 "active_slots": merged,
                 "llm_outputs": outputs,
-                "trace_steps": (state.get("trace_steps") or []) + [_trace_step("extract_slots", "completed", started_at)],
+                "trace_steps": (state.get("trace_steps") or [])
+                + [
+                    _trace_step(
+                        "extract_slots",
+                        "completed",
+                        started_at,
+                        provider_latency_ms,
+                        retry_count,
+                        len(str(messages)),
+                    )
+                ],
             }
         except (ValidationError, ValueError, TimeoutError, Exception) as exc:
+            provider_latency_ms = round((time.perf_counter() - t0) * 1000)
             last_error = str(exc)
             if attempt == 0:
                 messages.append(
@@ -75,5 +107,15 @@ async def extract_slots(state: AgentState) -> dict:
         "extracted_slots": {},
         "node_errors": (state.get("node_errors") or [])
         + [{"node": "extract_slots", "error": last_error, "retry_count": 2}],
-        "trace_steps": (state.get("trace_steps") or []) + [_trace_step("extract_slots", "error", started_at)],
+        "trace_steps": (state.get("trace_steps") or [])
+        + [
+            _trace_step(
+                "extract_slots",
+                "error",
+                started_at,
+                provider_latency_ms,
+                retry_count,
+                len(str(messages)),
+            )
+        ],
     }

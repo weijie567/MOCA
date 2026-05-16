@@ -20,6 +20,9 @@ def _trace_step(status: str, started_at: str) -> dict[str, Any]:
         "model_name": "deterministic-template",
         "prompt_tokens": None,
         "completion_tokens": None,
+        "provider_latency_ms": None,
+        "retry_count": 0,
+        "metrics_json": None,
     }
 
 

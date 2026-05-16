@@ -19,6 +19,9 @@ async def receive_request(state: AgentState) -> dict:
             "status": "completed",
             "started_at": started_at,
             "completed_at": _now_iso(),
+            "provider_latency_ms": None,
+            "retry_count": 0,
+            "metrics_json": None,
         }
     ]
 
