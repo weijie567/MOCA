@@ -1,0 +1,329 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from uuid import UUID, uuid4
+
+import pytest
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.agent.trace import write_agent_run
+from src.auth.jwt import create_access_token
+from src.db.models import ActionDraft, AgentStep, ApprovalRequest, ApprovalStep, User
+from src.repositories.trace_repo import TraceRepository
+
+
+@pytest.mark.asyncio
+async def test_get_run_trace_returns_full_timeline_with_agent_steps_approvals_and_action_drafts(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+):
+    support = seeded_session["users"]["cs_zhang"]
+    run_id = await _create_trace_run(session, tenant_id=support.tenant_id, user_id=support.id)
+    await _add_full_trace_events(session, run_id=run_id, tenant_id=support.tenant_id, user_id=support.id)
+
+    response = await client.get(
+        f"/api/v1/agent-runs/{run_id}/trace",
+        headers=await _support_headers(client),
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["success"] is True
+    assert payload["data"]["run_id"] == str(run_id)
+    assert [item["type"] for item in payload["data"]["timeline"]] == [
+        "agent_step",
+        "approval_request",
+        "approval_decision",
+        "agent_step",
+        "action_draft",
+    ]
+    assert payload["data"]["steps"][0] == {
+        "node": "receive_request",
+        "status": "completed",
+        "latency_ms": 12,
+        "tool_name": None,
+    }
+    assert payload["data"]["approvals"][0]["risk_rule_ref"] == "HR-01"
+    assert payload["data"]["action_drafts"][0]["action_type"] == "issue_coupon"
+    assert "input_query" not in payload["data"]
+    assert "final_response" not in payload["data"]
+    assert "secret" not in str(payload["data"])
+
+
+@pytest.mark.asyncio
+async def test_get_run_trace_timeline_is_sorted_by_time(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+):
+    support = seeded_session["users"]["cs_zhang"]
+    run_id = await _create_trace_run(session, tenant_id=support.tenant_id, user_id=support.id)
+    await _add_full_trace_events(session, run_id=run_id, tenant_id=support.tenant_id, user_id=support.id)
+
+    response = await client.get(
+        f"/api/v1/agent-runs/{run_id}/trace",
+        headers=await _support_headers(client),
+    )
+    times = [item["time"] for item in response.json()["data"]["timeline"]]
+
+    assert response.status_code == 200
+    assert times == sorted(times)
+
+
+@pytest.mark.asyncio
+async def test_get_run_trace_non_owner_non_supervisor_gets_403(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+):
+    admin = seeded_session["users"]["admin_user"]
+    run_id = await _create_trace_run(session, tenant_id=admin.tenant_id, user_id=admin.id)
+
+    response = await client.get(
+        f"/api/v1/agent-runs/{run_id}/trace",
+        headers=await _support_headers(client),
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "FORBIDDEN"
+
+
+@pytest.mark.asyncio
+async def test_get_run_trace_admin_can_view_any_run_in_same_tenant(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+):
+    support = seeded_session["users"]["cs_zhang"]
+    run_id = await _create_trace_run(session, tenant_id=support.tenant_id, user_id=support.id)
+
+    response = await client.get(
+        f"/api/v1/agent-runs/{run_id}/trace",
+        headers=await _admin_headers(client),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["run_id"] == str(run_id)
+
+
+@pytest.mark.asyncio
+async def test_get_run_trace_cross_tenant_returns_404(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+):
+    support = seeded_session["users"]["cs_zhang"]
+    other_support = seeded_session["users"]["other_support"]
+    run_id = await _create_trace_run(session, tenant_id=support.tenant_id, user_id=support.id)
+
+    response = await client.get(
+        f"/api/v1/agent-runs/{run_id}/trace",
+        headers=_auth_header(other_support, ["agent:chat"]),
+    )
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "NOT_FOUND"
+
+
+def test_build_timeline_merges_all_event_types_correctly():
+    now = datetime.now(UTC)
+    approval_id = uuid4()
+    repo = TraceRepository(SimpleNamespace())
+
+    timeline = repo.build_timeline(
+        steps=[
+            SimpleNamespace(
+                started_at=now + timedelta(seconds=1),
+                node_name="retrieve_policy_evidence",
+                status="completed",
+                tool_name="search_policy",
+                latency_ms=22,
+                provider_latency_ms=18,
+            )
+        ],
+        approvals=[
+            SimpleNamespace(
+                id=approval_id,
+                created_at=now,
+                risk_rule_ref="HR-01",
+                status="pending",
+                risk_level="high",
+                proposed_action={"action_type": "issue_coupon"},
+            )
+        ],
+        approval_steps=[
+            SimpleNamespace(
+                created_at=now + timedelta(seconds=2),
+                event_type="approved",
+                actor_id=uuid4(),
+                metadata_json={"reason": "valid"},
+            )
+        ],
+        drafts=[
+            SimpleNamespace(
+                id=uuid4(),
+                created_at=now + timedelta(seconds=3),
+                action_type="issue_coupon",
+                status="draft_created",
+                idempotency_key="idem-1",
+            )
+        ],
+    )
+
+    assert [item["type"] for item in timeline] == [
+        "approval_request",
+        "agent_step",
+        "approval_decision",
+        "action_draft",
+    ]
+    assert all({"type", "time", "title", "status", "detail"} <= set(item) for item in timeline)
+    assert timeline[1]["detail"]["tool_name"] == "search_policy"
+
+
+@pytest.mark.asyncio
+async def test_get_run_trace_empty_run_returns_only_agent_steps(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+):
+    support = seeded_session["users"]["cs_zhang"]
+    run_id = await _create_trace_run(session, tenant_id=support.tenant_id, user_id=support.id)
+    now = datetime.now(UTC)
+    session.add(
+        AgentStep(
+            run_id=run_id,
+            node_name="final_response",
+            step_index=0,
+            status="completed",
+            started_at=now,
+            completed_at=now + timedelta(milliseconds=7),
+            latency_ms=7,
+        )
+    )
+    await session.commit()
+
+    response = await client.get(
+        f"/api/v1/agent-runs/{run_id}/trace",
+        headers=await _support_headers(client),
+    )
+    payload = response.json()["data"]
+
+    assert response.status_code == 200
+    assert payload["approvals"] == []
+    assert payload["action_drafts"] == []
+    assert [item["type"] for item in payload["timeline"]] == ["agent_step"]
+
+
+async def _create_trace_run(session: AsyncSession, *, tenant_id: UUID, user_id: UUID) -> UUID:
+    run_id = uuid4()
+    now = datetime.now(UTC)
+    await write_agent_run(
+        session,
+        run_id=str(run_id),
+        thread_id=f"trace-api-{run_id}",
+        tenant_id=str(tenant_id),
+        user_id=str(user_id),
+        input_query="secret raw user query",
+        final_status="completed",
+        final_response="secret model output",
+        started_at=now,
+        completed_at=now + timedelta(seconds=5),
+        total_latency_ms=5000,
+    )
+    await session.commit()
+    return run_id
+
+
+async def _add_full_trace_events(session: AsyncSession, *, run_id: UUID, tenant_id: UUID, user_id: UUID) -> None:
+    now = datetime.now(UTC)
+    approval_id = uuid4()
+    approval = ApprovalRequest(
+        id=approval_id,
+        run_id=run_id,
+        tenant_id=tenant_id,
+        status="approved",
+        requested_by=user_id,
+        proposed_action={"action_type": "issue_coupon", "target_id": "RF-TEST-001", "amount": "600"},
+        risk_level="high",
+        risk_rule_ref="HR-01",
+        risk_reason="Compensation exceeds threshold",
+        decision="approve",
+        decided_by=user_id,
+        decided_at=now + timedelta(seconds=2),
+        expires_at=now + timedelta(hours=1),
+        thread_id="trace-thread",
+        created_at=now + timedelta(seconds=1),
+    )
+    session.add_all(
+        [
+            AgentStep(
+                run_id=run_id,
+                node_name="receive_request",
+                step_index=0,
+                status="completed",
+                started_at=now,
+                completed_at=now + timedelta(milliseconds=12),
+                latency_ms=12,
+            ),
+            AgentStep(
+                run_id=run_id,
+                node_name="execute_action",
+                step_index=1,
+                status="completed",
+                tool_name="create_coupon_grant_draft",
+                started_at=now + timedelta(seconds=3),
+                completed_at=now + timedelta(seconds=3, milliseconds=31),
+                latency_ms=31,
+            ),
+            approval,
+        ]
+    )
+    await session.flush()
+    session.add_all(
+        [
+            ApprovalStep(
+                approval_request_id=approval_id,
+                event_type="approved",
+                actor_id=user_id,
+                metadata_json={"reason": "valid"},
+                created_at=now + timedelta(seconds=2),
+            ),
+            ActionDraft(
+                run_id=run_id,
+                approval_request_id=approval_id,
+                tenant_id=tenant_id,
+                idempotency_key=f"{run_id}_{approval_id}_issue_coupon_RF-TEST-001",
+                action_type="issue_coupon",
+                status="draft_created",
+                payload={"secret": "do not expose"},
+                created_by_agent_run=run_id,
+                created_at=now + timedelta(seconds=4),
+            ),
+        ]
+    )
+    await session.commit()
+
+
+async def _admin_headers(client: AsyncClient) -> dict[str, str]:
+    response = await client.post("/api/v1/auth/login", json={"username": "admin_user", "password": "moca2024"})
+    return {"Authorization": f"Bearer {response.json()['data']['access_token']}"}
+
+
+async def _support_headers(client: AsyncClient) -> dict[str, str]:
+    response = await client.post("/api/v1/auth/login", json={"username": "cs_zhang", "password": "moca2024"})
+    return {"Authorization": f"Bearer {response.json()['data']['access_token']}"}
+
+
+def _auth_header(user: User, scopes: list[str]) -> dict[str, str]:
+    token = create_access_token(
+        {
+            "sub": str(user.id),
+            "tenant_id": str(user.tenant_id),
+            "role": user.role,
+            "scopes": scopes,
+        }
+    )
+    return {"Authorization": f"Bearer {token}"}
