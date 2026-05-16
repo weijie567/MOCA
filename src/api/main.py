@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.graph import build_graph
 from src.api.routers import agent as agent_router
-from src.api.routers import approvals, auth, orders, refund_cases, search, tickets
+from src.api.routers import approvals, auth, orders, refund_cases, search, tickets, traces
 from src.api.schemas.common import ApiResponse, ErrorDetail, FORBIDDEN, INTERNAL_ERROR, UNAUTHORIZED, VALIDATION_ERROR
 from src.config import settings
 from src.db.session import get_session
@@ -105,6 +105,7 @@ def create_app() -> FastAPI:
     app.include_router(tickets.router, prefix=f"{settings.api_v1_prefix}/tickets")
     app.include_router(agent_router.router, prefix=f"{settings.api_v1_prefix}/agent")
     app.include_router(approvals.router, prefix=f"{settings.api_v1_prefix}/approvals")
+    app.include_router(traces.router, prefix=f"{settings.api_v1_prefix}/agent-runs")
     return app
 
 

@@ -31,3 +31,16 @@ class ApprovalResponse(BaseModel):
 class ApprovalListResponse(BaseModel):
     approvals: list[ApprovalResponse]
     total: int
+
+
+class TraceResponse(BaseModel):
+    run_id: str
+    thread_id: str
+    final_status: str
+    started_at: datetime
+    completed_at: datetime | None
+    total_latency_ms: int | None
+    steps: list[dict[str, Any]]
+    approvals: list[ApprovalResponse]
+    action_drafts: list[dict[str, Any]]
+    timeline: list[dict[str, Any]]
