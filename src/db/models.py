@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Any
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -220,6 +220,65 @@ class AgentRun(TimestampMixin, Base):
     error_summary: Mapped[str | None] = mapped_column(String(500))
 
     steps: Mapped[list["AgentStep"]] = relationship(back_populates="run", cascade="all, delete-orphan")
+
+
+class ApprovalRequest(TimestampMixin, Base):
+    __tablename__ = "approval_requests"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_runs.id"), nullable=False, index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    requested_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    assigned_to: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
+    proposed_action: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    risk_level: Mapped[str] = mapped_column(String(32), nullable=False)
+    risk_rule_ref: Mapped[str | None] = mapped_column(String(32))
+    risk_reason: Mapped[str | None] = mapped_column(String(500))
+    decision: Mapped[str | None] = mapped_column(String(32))
+    reason: Mapped[str | None] = mapped_column(Text)
+    decided_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    thread_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    # thread_id is persisted so resume can reconstruct checkpoint_thread_id later.
+
+    run: Mapped["AgentRun"] = relationship()
+    steps: Mapped[list["ApprovalStep"]] = relationship(back_populates="approval_request", cascade="all, delete-orphan")
+
+
+Index("ix_approval_requests_tenant_status", ApprovalRequest.tenant_id, ApprovalRequest.status)
+
+
+class ApprovalStep(Base):
+    __tablename__ = "approval_steps"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    approval_request_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("approval_requests.id"), nullable=False, index=True
+    )
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    # "created" | "approved" | "rejected" | "expired" | "resumed"
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    approval_request: Mapped["ApprovalRequest"] = relationship(back_populates="steps")
+
+
+class ActionDraft(TimestampMixin, Base):
+    __tablename__ = "action_drafts"
+    __table_args__ = (UniqueConstraint("idempotency_key", name="uq_action_drafts_idempotency_key"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_runs.id"), nullable=False, index=True)
+    approval_request_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("approval_requests.id"))
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(256), unique=True, nullable=False)
+    action_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft_created")
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_by_agent_run: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
 
 
 class AgentStep(TimestampMixin, Base):
