@@ -35,22 +35,22 @@
 - [ ] **TOOL-01**: 系统提供订单查询工具 get_order
 - [ ] **TOOL-02**: 系统提供退款单查询工具 get_refund_case
 - [ ] **TOOL-03**: 系统提供工单历史查询工具 get_ticket_history
-- [ ] **TOOL-04**: 系统提供补偿券草稿工具 create_coupon_grant_draft
-- [ ] **TOOL-05**: 系统提供审批单创建工具 create_approval_request
+- [x] **TOOL-04**: 系统提供补偿券草稿工具 create_coupon_grant_draft
+- [x] **TOOL-05**: 系统提供审批单创建工具 create_approval_request
 - [ ] **TOOL-06**: 所有工具必须有明确的输入 schema 和输出 schema
 - [ ] **TOOL-07**: 所有工具调用必须记录 tool_call_id、run_id、tenant_id、user_id、latency_ms、status 和 error_code
 - [ ] **TOOL-08**: 所有写操作必须支持 idempotency_key，避免重复执行
-- [ ] **TOOL-09**: 高风险写操作不能由模型直接执行，必须先进入审批流程
+- [x] **TOOL-09**: 高风险写操作不能由模型直接执行，必须先进入审批流程
 
 ### Approval & Safety
 
-- [ ] **SAFE-01**: 系统能自动判定动作风险等级（低/中/高），基于 rules/risk_rules.yaml 配置
+- [x] **SAFE-01**: 系统能自动判定动作风险等级（低/中/高），基于 rules/risk_rules.yaml 配置
 - [x] **SAFE-02**: 高风险动作必须自动触发审批，LangGraph 图执行通过 `interrupt()` 中断并等待人工决策
-- [ ] **SAFE-03**: 审批人可以批准或驳回审批请求
-- [ ] **SAFE-04**: 审批通过后，Agent 能通过 `Command(resume=...)` 恢复执行
-- [ ] **SAFE-05**: 审批驳回后，Agent 必须停止执行高风险动作，并返回驳回原因
+- [x] **SAFE-03**: 审批人可以批准或驳回审批请求
+- [x] **SAFE-04**: 审批通过后，Agent 能通过 `Command(resume=...)` 恢复执行
+- [x] **SAFE-05**: 审批驳回后，Agent 必须停止执行高风险动作，并返回驳回原因
 - [x] **SAFE-06**: 每次运行必须产生完整审计日志（via LangGraph callback），可按 run_id 查询和回放
-- [ ] **SAFE-07**: 风险阈值、角色权限和审批规则必须通过配置文件管理（rules/risk_rules.yaml），不硬编码
+- [x] **SAFE-07**: 风险阈值、角色权限和审批规则必须通过配置文件管理（rules/risk_rules.yaml），不硬编码
 - [x] **SAFE-08**: 所有工具调用必须进行权限校验（repository 层 + tool 层双重检查），防止越权读取或执行
 
 ### Infrastructure
@@ -155,19 +155,19 @@
 | TOOL-01 | 1 | Not started |
 | TOOL-02 | 1 | Not started |
 | TOOL-03 | 1 | Not started |
-| TOOL-04 | 4 | Not started |
-| TOOL-05 | 4 | Not started |
+| TOOL-04 | 4 | Complete |
+| TOOL-05 | 4 | Complete |
 | TOOL-06 | 1 | Not started |
 | TOOL-07 | 1 | Not started |
 | TOOL-08 | 1 | Not started |
-| TOOL-09 | 4 | Not started |
-| SAFE-01 | 4 | Not started |
+| TOOL-09 | 4 | Complete |
+| SAFE-01 | 4 | Complete |
 | SAFE-02 | 4 | Complete |
-| SAFE-03 | 4 | Not started |
-| SAFE-04 | 4 | Not started |
-| SAFE-05 | 4 | Not started |
+| SAFE-03 | 4 | Complete |
+| SAFE-04 | 4 | Complete |
+| SAFE-05 | 4 | Complete |
 | SAFE-06 | 3 | Complete |
-| SAFE-07 | 4 | Not started |
+| SAFE-07 | 4 | Complete |
 | SAFE-08 | 3 | Complete |
 | INFR-01 | 1 | Not started |
 | INFR-02 | 1 | Not started |

@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: unknown
+status: ready_to_plan
 last_updated: "2026-05-16T12:41:23.168Z"
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 24
   completed_plans: 24
-  percent: 100
+  percent: 67
 ---
 
 # Project State: MOCA
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-09)
 
 **Core value:** When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution.
-**Current focus:** Phase 04 — approval-workflow-audit complete; ready for phase verification/UAT or Phase 5 planning
+**Current focus:** Phase 05 — frontend-&-sse planning
 
 ## Current Status
 
-- **Active phase:** 4
-- **Phase status:** Phase 4 complete; Plans 04-01 through 04-06 are complete. Final validation proves approval interrupt/resume, approve/reject handling, low-risk bypass, idempotent action draft creation, and 100% high-risk interception across HR-01, HR-02, and HR-03.
+- **Active phase:** 5
+- **Phase status:** Phase 4 complete and verified. Ready to plan Phase 5 frontend and SSE work.
 - **Blockers:** None
 
 ## Phase History
@@ -53,6 +53,13 @@ See: .planning/PROJECT.md (updated 2026-05-09)
   - Code review: `03-REVIEW.md` (clean)
   - Tests: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short` — 89 passed
   - Live checks: real DashScope/API-backed Swagger UAT passed for policy QA, refund troubleshooting, no-evidence fallback, same-thread evidence gating, and trace persistence
+- **Phase 4: Approval Workflow & Audit** — Complete on 2026-05-17
+  - Plans completed: 6/6
+  - Latest plan summary: `.planning/phases/04-approval-workflow-audit/04-06-SUMMARY.md`
+  - Verification: `04-VERIFICATION.md` (`status: passed`)
+  - Code review: `04-REVIEW.md`; fixes recorded in `04-REVIEW-FIX.md`
+  - Tests: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short` — 164 passed
+  - Validation: approval interrupt/resume, approve/reject handling, low-risk bypass, idempotent action draft creation, trace replay, and 100% high-risk interception across HR-01, HR-02, and HR-03
 
 ## Session Notes
 
