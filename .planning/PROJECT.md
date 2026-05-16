@@ -18,15 +18,15 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - [x] Role-based access control for support/reviewer/manager style API scopes (validated in Phase 1)
 - [x] Demo data seed script populates realistic synthetic Chinese business data (validated in Phase 1)
 - [x] Knowledge base ingestion, pgvector retrieval, top-5 evidence, citation validation, and DB-backed RAG Hit@5 baseline (validated in Phase 2)
+- [x] Agent accepts refund/order questions, retrieves business context and policy evidence, and returns evidence-cited answers (validated in Phase 3)
+- [x] Structured read tools retrieve order, refund, and ticket data for agent reasoning (validated in Phase 3)
+- [x] Agent runs produce trace records for nodes, tool calls, evidence, and same-thread memory (validated in Phase 3)
+- [x] High-risk actions trigger approval workflow interruption instead of direct execution (validated in Phase 4)
+- [x] Approval decisions resume or halt graph execution through LangGraph interrupt/resume (validated in Phase 4)
+- [x] Approval workflow creates auditable action drafts and exposes run-level trace replay (validated in Phase 4)
 
 ### Active
 
-- [ ] Agent can accept a refund/order question and return an evidence-cited answer
-- [ ] Agent retrieves order, refund, and ticket data via structured tool calls
-- [ ] Agent searches knowledge base (refund rules, SOPs) and cites specific documents
-- [ ] High-risk actions (compensation > threshold, refund override) trigger approval workflow
-- [ ] Approval interrupts graph execution; resumes after human decision
-- [ ] All agent runs produce audit logs (input, evidence, tools called, approval chain)
 - [ ] Simple frontend allows submitting questions and viewing agent responses
 
 ### Out of Scope
@@ -70,7 +70,9 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 - Phase 1 Foundation is complete: local infrastructure, schema, seed data, auth/scopes, repository layer, and CRUD/tool-call foundations are in place.
 - Phase 2 RAG Pipeline is complete: 15 Chinese policy documents are chunked and embedded, `/api/v1/search/` returns tenant-filtered evidence with citation metadata, and live DB-backed EVAL-02 passes at Hit@5 83.3% with fallback accuracy 100.0%.
-- Next phase is Phase 3 LangGraph Core: connect read tools, RAG evidence, trace logging, and same-thread memory into the read-only agent happy path.
+- Phase 3 LangGraph Core is complete: read tools, RAG evidence, trace logging, same-thread memory, and the read-only agent happy path are validated.
+- Phase 4 Approval Workflow & Audit is complete: high-risk actions interrupt for approval, approve/reject resumes are validated, action drafts are idempotent, trace replay is queryable by run_id, and high-risk interception is 100%.
+- Next phase is Phase 5 Frontend & SSE: build the demo interface for chat, approval operations, and execution step visibility.
 
 ## Constraints
 
@@ -88,7 +90,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 | pgvector over Milvus/Weaviate | One-command reproducibility; business data + vectors + RLS in same DB | Adopted in Phase 2 |
 | No Celery/queue system | LangGraph's durable execution handles the async flow; separate queue is premature | Adopted for Phase 2 ingestion/eval CLI; revisit only if Phase 3/4 needs background work |
 | Chinese demo data, English README | Targets Chinese internet companies but accessible to global open-source community | — Pending |
-| Approval as graph node, not external middleware | Demonstrates LangGraph's core strength; more impressive in interviews | — Pending |
+| Approval as graph node, not external middleware | Demonstrates LangGraph's core strength; more impressive in interviews | Adopted in Phase 4 |
 | Simple frontend over pure API | 10-minute demo needs visual impact; keeps PM angle visible | — Pending |
 
 ## Evolution
@@ -109,4 +111,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-11 after Phase 2 completion*
+*Last updated: 2026-05-17 after Phase 4 completion*
