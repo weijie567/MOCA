@@ -18,6 +18,11 @@ human_verification:
     why_human: "The automated suite intentionally uses FakeLLM; real external LLM/provider behavior and local operator environment require manual smoke verification."
     result: "passed"
     evidence: "03-HUMAN-UAT.md records 3/3 live smoke cases passing: policy QA completed with evidence_count=5, refund troubleshooting completed with evidence_count=5, and no-evidence fallback returned insufficient_evidence with evidence_count=0."
+  - test: "Conversational Swagger/API UAT after live auth and retrieval fixes"
+    expected: "The HTTP API path supports Swagger authorization, returns evidence-cited answers, preserves no-evidence behavior, gates same-thread stale evidence, and persists trace/evidence rows."
+    why_human: "This validates the browser/Swagger operator path plus real DashScope and local database behavior that CI does not exercise."
+    result: "passed"
+    evidence: "03-UAT.md records 5/5 passed: policy QA completed with evidence_count=5, refund troubleshooting completed with evidence_count=5, no-evidence fallback returned insufficient_evidence with evidence_count=0, same-thread stale evidence was not reused, and agent_runs/agent_steps persisted compact evidence_refs."
 ---
 
 # Phase 3: LangGraph Core Verification Report
@@ -112,8 +117,8 @@ No Phase 3 requirement IDs are orphaned: the 11 roadmap requirements all appear 
 
 The live agent smoke item is resolved and recorded in `03-HUMAN-UAT.md`.
 
-**Result:** 3/3 live cases passed against DashScope and the local database.
-**Evidence:** Policy QA returned `completed` with `evidence_count=5`; refund troubleshooting for `ORD-2024-001` returned `completed` with `evidence_count=5`; the unrelated query returned `insufficient_evidence` with `evidence_count=0`.
+**Result:** Live smoke and conversational UAT both passed against DashScope and the local database.
+**Evidence:** `03-HUMAN-UAT.md` records 3/3 live smoke cases passing. `03-UAT.md` records 5/5 conversational UAT checks passing: policy QA returned `completed` with `evidence_count=5`; refund troubleshooting for `ORD-2024-001` returned `completed` with `evidence_count=5`; the unrelated query returned `insufficient_evidence` with `evidence_count=0`; same-thread stale evidence was not reused; and `agent_runs`/`agent_steps` rows persisted compact evidence refs.
 
 ### Closure Summary
 
