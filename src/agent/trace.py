@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import AgentRun, AgentStep
@@ -56,6 +57,73 @@ async def write_agent_steps(
     """Insert one AgentStep row per trace step and return persisted instances."""
     steps: list[AgentStep] = []
     for idx, step in enumerate(trace_steps):
+        started_at = _parse_dt(step.get("started_at"))
+        completed_at = _parse_dt(step.get("completed_at"))
+        latency_ms = step.get("latency_ms")
+        if latency_ms is None and started_at and completed_at:
+            latency_ms = int((completed_at - started_at).total_seconds() * 1000)
+        agent_step = AgentStep(
+            id=uuid.uuid4(),
+            run_id=uuid.UUID(run_id),
+            node_name=str(step.get("node") or "unknown"),
+            step_index=idx,
+            status=str(step.get("status") or "completed"),
+            input_summary=step.get("input_summary"),
+            output_summary=step.get("output_summary"),
+            tool_name=_normalize_tool_name(step),
+            tool_input_summary=step.get("tool_input_summary"),
+            tool_output_summary=_normalize_tool_output_summary(step),
+            model_name=step.get("model_name"),
+            prompt_tokens=step.get("prompt_tokens"),
+            completion_tokens=step.get("completion_tokens"),
+            latency_ms=latency_ms,
+            provider_latency_ms=step.get("provider_latency_ms"),
+            retry_count=step.get("retry_count"),
+            metrics_json=step.get("metrics_json"),
+            evidence_refs=step.get("evidence_refs"),
+            error_message=step.get("error_message"),
+            started_at=started_at or datetime.now(timezone.utc),
+            completed_at=completed_at,
+        )
+        session.add(agent_step)
+        steps.append(agent_step)
+    await session.flush()
+    return steps
+
+
+async def update_agent_run_status(
+    session: AsyncSession,
+    *,
+    run_id: str,
+    final_status: str,
+    final_response: str | None = None,
+    completed_at: datetime | None = None,
+    total_latency_ms: int | None = None,
+) -> None:
+    """Update an existing agent run after resume."""
+    stmt = select(AgentRun).where(AgentRun.id == uuid.UUID(run_id))
+    run = (await session.execute(stmt)).scalar_one_or_none()
+    if run:
+        run.final_status = final_status
+        if final_response is not None:
+            run.final_response = final_response
+        if completed_at is not None:
+            run.completed_at = completed_at
+        if total_latency_ms is not None:
+            run.total_latency_ms = total_latency_ms
+        await session.flush()
+
+
+async def append_agent_steps(
+    session: AsyncSession,
+    *,
+    run_id: str,
+    trace_steps: list[dict[str, Any]],
+    start_index: int,
+) -> list[AgentStep]:
+    """Append post-resume trace steps without duplicating earlier entries."""
+    steps: list[AgentStep] = []
+    for idx, step in enumerate(trace_steps[start_index:], start=start_index):
         started_at = _parse_dt(step.get("started_at"))
         completed_at = _parse_dt(step.get("completed_at"))
         latency_ms = step.get("latency_ms")
