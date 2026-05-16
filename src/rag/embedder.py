@@ -31,7 +31,7 @@ class EmbeddingService:
 
     def _get_client(self) -> AsyncOpenAI:
         if self._client is None:
-            api_key = self._api_key or os.environ.get("DASHSCOPE_API_KEY")
+            api_key = self._api_key or settings.dashscope_api_key or os.environ.get("DASHSCOPE_API_KEY")
             if not api_key:
                 raise RuntimeError(
                     "DASHSCOPE_API_KEY not set. Provide api_key parameter or set the environment variable."

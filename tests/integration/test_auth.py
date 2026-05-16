@@ -1,5 +1,6 @@
 import pytest
 
+from src.auth.jwt import create_access_token, decode_access_token
 from src.config import settings
 
 
@@ -19,6 +20,19 @@ async def test_login_failure(client):
     assert response.status_code == 401
     assert payload["success"] is False
     assert payload["error"]["code"] == "UNAUTHORIZED"
+
+
+@pytest.mark.asyncio
+async def test_oauth_token_endpoint_supports_swagger_password_flow(client):
+    response = await client.post(
+        "/api/v1/auth/token",
+        data={"username": "cs_zhang", "password": "moca2024", "scope": "agent:chat"},
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["token_type"] == "bearer"
+    assert "agent:chat" in decode_access_token(payload["access_token"])["scopes"]
 
 
 @pytest.mark.asyncio
@@ -46,3 +60,11 @@ async def test_protected_api_without_token_returns_401(client):
     payload = response.json()
     assert response.status_code == 401
     assert payload["error"]["code"] == "UNAUTHORIZED"
+
+
+def test_agent_chat_scope_is_issued_to_agent_roles():
+    for role in ("support", "manager", "merchant", "admin"):
+        token = create_access_token({"sub": "user-id", "tenant_id": "tenant-id", "role": role})
+        payload = decode_access_token(token)
+
+        assert "agent:chat" in payload["scopes"]

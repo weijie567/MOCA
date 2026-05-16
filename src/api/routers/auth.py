@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Security, status
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +21,18 @@ def _success(data: object, request: Request) -> ApiResponse:
     return ApiResponse(success=True, data=data, trace_id=request.state.trace_id)
 
 
+def _token_for_user(user: User) -> TokenResponse:
+    token = create_access_token(
+        {
+            "sub": str(user.id),
+            "username": user.username,
+            "role": user.role,
+            "tenant_id": str(user.tenant_id),
+        }
+    )
+    return TokenResponse(access_token=token)
+
+
 @router.post("/login", response_model=ApiResponse)
 async def login(payload: LoginRequest, request: Request, session: AsyncSession = Depends(get_session)) -> ApiResponse:
     stmt = select(User).where(User.username == payload.username)
@@ -30,15 +43,23 @@ async def login(payload: LoginRequest, request: Request, session: AsyncSession =
             detail={"code": UNAUTHORIZED, "message": "Invalid username or password"},
         )
 
-    token = create_access_token(
-        {
-            "sub": str(user.id),
-            "username": user.username,
-            "role": user.role,
-            "tenant_id": str(user.tenant_id),
-        }
-    )
-    return _success(TokenResponse(access_token=token).model_dump(), request)
+    return _success(_token_for_user(user).model_dump(), request)
+
+
+@router.post("/token", response_model=TokenResponse)
+async def token(
+    form: OAuth2PasswordRequestForm = Depends(),
+    session: AsyncSession = Depends(get_session),
+) -> TokenResponse:
+    stmt = select(User).where(User.username == form.username)
+    user = (await session.execute(stmt)).scalar_one_or_none()
+    if user is None or not verify_password(form.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": UNAUTHORIZED, "message": "Invalid username or password"},
+        )
+
+    return _token_for_user(user)
 
 
 @router.get("/me", response_model=ApiResponse)
@@ -66,12 +87,4 @@ async def demo_token(
             detail=ErrorDetail(code=UNAUTHORIZED, message="User not found").model_dump(),
         )
 
-    token = create_access_token(
-        {
-            "sub": str(user.id),
-            "username": user.username,
-            "role": user.role,
-            "tenant_id": str(user.tenant_id),
-        }
-    )
-    return _success(TokenResponse(access_token=token).model_dump(), request)
+    return _success(_token_for_user(user).model_dump(), request)

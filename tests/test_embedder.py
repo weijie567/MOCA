@@ -16,3 +16,13 @@ def test_embedding_service_defaults_from_settings(monkeypatch):
     assert service.model == "custom-embedding"
     assert service.dimensions == 512
     assert service.batch_size == 10
+
+
+def test_embedding_service_uses_settings_api_key_before_environment(monkeypatch):
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    monkeypatch.setattr(settings, "dashscope_api_key", "settings-key")
+
+    service = EmbeddingService()
+    client = service._get_client()
+
+    assert client.api_key == "settings-key"
