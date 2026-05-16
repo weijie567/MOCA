@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-05-16T03:14:53.552Z"
+last_updated: "2026-05-16T07:36:55.983Z"
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 18
-  completed_plans: 18
-  percent: 100
+  total_plans: 24
+  completed_plans: 19
+  percent: 79
 ---
 
 # Project State: MOCA
@@ -19,7 +19,7 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-09)
 
 **Core value:** When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution.
-**Current focus:** Phase 04 — approval-workflow
+**Current focus:** Phase 04 — approval-workflow-audit
 
 ## Current Status
 
@@ -96,7 +96,7 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 - Plan 03-04: Graph invocation failures still attempt to persist an AgentRun error row, but trace persistence failures are rolled back and never exposed to the caller.
 - Plan 03-04: A narrow OAuth2 model scopes alias preserves compatibility with the plan verification while keeping FastAPI's canonical password-flow scopes intact.
 
-**Planned Phase:** 3 (LangGraph Core) — 5 plans — 2026-05-11T07:14:45.350Z
+**Planned Phase:** 4 (approval-workflow-audit) — 6 plans — 2026-05-16T06:54:59.757Z
 
 - Plan 03-05 tests patch node-local _get_llm factories rather than constructing real ChatOpenAI clients, preserving CI isolation from live LLM APIs.
 - Plan 03-05 graph integration tests use MemorySaver and node-imported tool monkeypatches so the compiled graph is exercised without Postgres or external embeddings.
@@ -105,3 +105,4 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 - Plan 03-06: Retained evidence_refs are persistent memory references only; current-turn no-evidence still produces insufficient_evidence.
 - Phase 03 live smoke uses seeded demo tenant/user/order data and unique scoped checkpointer thread IDs.
 - Phase 03 final responses are deterministic citation templates based on validated recommendation refs, avoiding an extra provider-dependent structured output step.
+- Plan 04-01: Latency metrics store only model, provider, and context_chars; prompt/message text is never persisted in metrics_json.
