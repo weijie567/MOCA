@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-05-16T07:47:32.475Z"
+last_updated: "2026-05-16T07:57:40.746Z"
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 24
-  completed_plans: 20
-  percent: 83
+  completed_plans: 21
+  percent: 88
 ---
 
 # Project State: MOCA
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 ## Current Status
 
 - **Active phase:** 4
-- **Phase status:** Phase 3 complete; verification, security, validation, and UAT are closed. FakeLLM agent tests, MemorySaver graph integration tests, live smoke script, and the 15-case Phase 3 golden set are ready for approval workflow work.
+- **Phase status:** Phase 4 in progress; Plans 04-01 through 04-03 are complete. The approval tables, action draft repository, approval interrupt node, execution node, and conditional approval routing are now in place for API resume wiring.
 - **Blockers:** None
 
 ## Phase History
@@ -57,6 +57,7 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 ## Session Notes
 
 - 2026-05-16: Added Phase 4 planning prerequisite for live agent latency diagnosis. Phase 3 UAT passed functionally, but live Swagger calls took roughly 90-200 seconds; Phase 4 planning must first instrument per-node latency and diagnose slow nodes/retries/provider latency before choosing optimization strategies.
+- 2026-05-16: Executed Phase 4 Plan 03. Added approval_gate interrupt/resume node, execute_action node, create_coupon_grant_draft tool, approval outcome final responses, conditional graph routing, and 19 focused approval workflow tests. Verification: approval tests 14 passed, agent tests 43 passed, ruff passed, and graph compile passed.
 - 2026-05-16: Completed Phase 3 conversational UAT after fixing Swagger OAuth token flow, default `agent:chat` scopes, and settings-backed DashScope embedding credentials. `03-UAT.md` is complete with 5/5 passed: policy QA, refund troubleshooting, no-evidence fallback, same-thread evidence gating, and DB trace/evidence_refs persistence.
 - 2026-05-10: Completed Phase 2 Plan 03. Added policy document/chunk repositories, ingestion service, dry-run ingestion CLI, and 15 Chinese policy documents. Verification: `UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest -q --tb=short` — 22 passed.
 - 2026-05-10: Completed Phase 2 Plan 04. Added tenant-scoped retriever confidence scoring, citation validator, authenticated search endpoint, and mocked retrieval tests. Verification: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short` - 31 passed; ruff passed for Plan 04 files.
@@ -106,3 +107,6 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 - Phase 03 live smoke uses seeded demo tenant/user/order data and unique scoped checkpointer thread IDs.
 - Phase 03 final responses are deterministic citation templates based on validated recommendation refs, avoiding an extra provider-dependent structured output step.
 - Plan 04-01: Latency metrics store only model, provider, and context_chars; prompt/message text is never persisted in metrics_json.
+- Plan 04-03: High-risk routing is enforced immediately after risk assessment; approval_required=True routes only to approval_gate.
+- Plan 04-03: Rejected approvals resume the graph and route directly to final_response; execute_action is not called.
+- Plan 04-03: The final_response node remains deterministic-template based, so approval outcomes are appended to template output instead of added to LLM messages.
