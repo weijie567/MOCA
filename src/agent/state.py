@@ -61,9 +61,12 @@ class AgentState(TypedDict, total=False):
     retrieved_evidence: dict[str, Any] | None
     recommendation_draft: dict[str, Any] | None
     risk_assessment: dict[str, Any] | None
+
+    # Phase 4: approval workflow fields.
     proposed_action: dict[str, Any] | None
     approval_result: dict[str, Any] | None
     action_result: dict[str, Any] | None
+
     final_response: str | None
     tool_results: list[dict[str, Any]] | None
     llm_outputs: dict[str, Any] | None
