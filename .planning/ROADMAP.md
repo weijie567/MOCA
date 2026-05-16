@@ -75,6 +75,17 @@ Plans:
 **Requirements:** AGNT-02a, EVAL-05, EVAL-08, SAFE-01, SAFE-02, SAFE-03, SAFE-04, SAFE-05, SAFE-07, TOOL-04, TOOL-05, TOOL-09
 **UI hint:** no
 
+### Phase 4 Planning Prerequisite: Agent Latency Diagnosis
+
+Before implementing approval workflow changes, create a diagnostic-first performance plan for the live Phase 3 agent path. Phase 3 UAT correctness passed, but live Swagger calls took roughly 90-200 seconds. Treat this as a Phase 4 prerequisite because approval workflow and frontend demo work will amplify perceived latency if the slow nodes are not understood.
+
+Required diagnostic scope:
+- Record real `latency_ms` for each graph node, not just total request latency.
+- Identify whether the slow path is `classify_intent`, `extract_slots`, `retrieve_policy_evidence`, `generate_recommendation`, `assess_risk_and_approval`, `final_response`, provider retry behavior, DashScope latency, Swagger/request waiting, or prompt/context size.
+- Do not start with optimization changes. First produce evidence showing which node(s) dominate latency and whether retries/timeouts are occurring.
+- Evaluate optimization options after diagnosis: smaller model for classify/extract/risk, merging adjacent LLM nodes, skipping downstream LLM work on no-evidence paths, adding streaming or progressive status updates, and setting reasonable timeout/degradation behavior.
+- Preserve Phase 3 correctness gates: evidence-cited answers, no-evidence fallback, same-thread evidence gating, and trace/audit persistence.
+
 ### Success Criteria
 1. Agent automatically classifies action risk level using rules/risk_rules.yaml; high-risk actions (compensation above threshold, refund override) trigger LangGraph `interrupt()` and create an approval_request record
 2. Approval API allows reviewer to approve or reject; approval resumes graph execution via `Command(resume=...)` and completes the action; rejection stops execution and returns reason to user

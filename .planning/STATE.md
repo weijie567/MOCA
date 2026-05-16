@@ -55,6 +55,7 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 
 ## Session Notes
 
+- 2026-05-16: Added Phase 4 planning prerequisite for live agent latency diagnosis. Phase 3 UAT passed functionally, but live Swagger calls took roughly 90-200 seconds; Phase 4 planning must first instrument per-node latency and diagnose slow nodes/retries/provider latency before choosing optimization strategies.
 - 2026-05-10: Completed Phase 2 Plan 03. Added policy document/chunk repositories, ingestion service, dry-run ingestion CLI, and 15 Chinese policy documents. Verification: `UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest -q --tb=short` — 22 passed.
 - 2026-05-10: Completed Phase 2 Plan 04. Added tenant-scoped retriever confidence scoring, citation validator, authenticated search endpoint, and mocked retrieval tests. Verification: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short` - 31 passed; ruff passed for Plan 04 files.
 - 2026-05-10: Completed Phase 2 Plan 05. Added calibrated RAG golden set, Hit@5 eval script, deterministic search integration tests, and DashScope env docs. Verification: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short` — 35 passed.
