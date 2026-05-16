@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: ready_to_plan
-last_updated: "2026-05-16T12:41:23.168Z"
+last_updated: "2026-05-17T01:10:00+08:00"
 progress:
   total_phases: 6
   completed_phases: 4
@@ -16,7 +16,7 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-09)
+See: .planning/PROJECT.md (updated 2026-05-17)
 
 **Core value:** When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution.
 **Current focus:** Phase 05 — frontend-&-sse planning
