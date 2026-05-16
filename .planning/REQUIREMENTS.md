@@ -12,7 +12,7 @@
 
 - [x] **AGNT-01**: Agent 能识别用户意图，并路由到对应处理流程，包括规则问答、退款排障、补偿建议、审批请求
 - [x] **AGNT-02**: Agent 基于 LangGraph 状态机编排 happy path 流程，包含：接收请求、意图识别、加载业务上下文、检索规则证据、生成处理建议、风险判断、最终响应节点
-- [ ] **AGNT-02a**: Agent 图包含审批中断节点（approval interrupt via `interrupt()`）和执行节点（executor），在高风险动作时中断等待人工决策后恢复执行
+- [x] **AGNT-02a**: Agent 图包含审批中断节点（approval interrupt via `interrupt()`）和执行节点（executor），在高风险动作时中断等待人工决策后恢复执行
 - [x] **AGNT-03**: Agent 能通过结构化工具调用获取订单、退款单、工单数据
 - [x] **AGNT-04**: Agent 能检索知识库，并在回答中引用具体 doc_id、chunk_id 和规则段落摘要
 - [x] **AGNT-05**: Agent 支持同一 thread 内上下文保持（via LangGraph checkpointer），多轮对话中记住 order_id、refund_case_id、ticket_id、已检索证据和上一次处理结论；不支持跨 session 记忆
@@ -45,7 +45,7 @@
 ### Approval & Safety
 
 - [ ] **SAFE-01**: 系统能自动判定动作风险等级（低/中/高），基于 rules/risk_rules.yaml 配置
-- [ ] **SAFE-02**: 高风险动作必须自动触发审批，LangGraph 图执行通过 `interrupt()` 中断并等待人工决策
+- [x] **SAFE-02**: 高风险动作必须自动触发审批，LangGraph 图执行通过 `interrupt()` 中断并等待人工决策
 - [ ] **SAFE-03**: 审批人可以批准或驳回审批请求
 - [ ] **SAFE-04**: 审批通过后，Agent 能通过 `Command(resume=...)` 恢复执行
 - [ ] **SAFE-05**: 审批驳回后，Agent 必须停止执行高风险动作，并返回驳回原因
@@ -89,10 +89,10 @@
 - [x] **EVAL-02**: 系统评估 RAG Hit@5（Plan 07 live DB-backed score 83.3%, fallback accuracy 100.0%, threshold met）
 - [ ] **EVAL-03**: 系统评估证据引用准确率
 - [ ] **EVAL-04**: 系统评估工具选择准确率
-- [ ] **EVAL-05**: 系统评估高风险动作拦截率
+- [x] **EVAL-05**: 系统评估高风险动作拦截率
 - [ ] **EVAL-06**: 系统评估任务完成率
 - [ ] **EVAL-07**: 系统评估平均延迟和 token 成本
-- [ ] **EVAL-08**: 高风险动作拦截率必须达到 100%
+- [x] **EVAL-08**: 高风险动作拦截率必须达到 100%
 
 ## v2 Requirements
 
@@ -138,7 +138,7 @@
 |-------------|-------|--------|
 | AGNT-01 | 3 | Complete |
 | AGNT-02 | 3 | Complete |
-| AGNT-02a | 4 | Not started |
+| AGNT-02a | 4 | Complete |
 | AGNT-03 | 3 | Complete |
 | AGNT-04 | 3 | Complete |
 | AGNT-05 | 3 | Complete |
@@ -162,7 +162,7 @@
 | TOOL-08 | 1 | Not started |
 | TOOL-09 | 4 | Not started |
 | SAFE-01 | 4 | Not started |
-| SAFE-02 | 4 | Not started |
+| SAFE-02 | 4 | Complete |
 | SAFE-03 | 4 | Not started |
 | SAFE-04 | 4 | Not started |
 | SAFE-05 | 4 | Not started |
@@ -194,10 +194,10 @@
 | EVAL-02 | 2 | Complete |
 | EVAL-03 | 6 | Not started |
 | EVAL-04 | 6 | Not started |
-| EVAL-05 | 4 | Not started |
+| EVAL-05 | 4 | Complete |
 | EVAL-06 | 6 | Not started |
 | EVAL-07 | 6 | Not started |
-| EVAL-08 | 4 | Not started |
+| EVAL-08 | 4 | Complete |
 
 **Coverage:**
 - v1 requirements: 62 total (AGNT-02a, RAG-07, INFR-09 added)

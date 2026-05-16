@@ -70,11 +70,12 @@ Plans:
 
 ## Phase 4: Approval Workflow & Audit
 
+**Status:** Complete
 **Goal:** High-risk actions trigger approval interruption via `interrupt()`, human decision resumes or halts execution, write tools operational, full audit chain is queryable and replayable.
 **Duration:** ~7 days
 **Requirements:** AGNT-02a, EVAL-05, EVAL-08, SAFE-01, SAFE-02, SAFE-03, SAFE-04, SAFE-05, SAFE-07, TOOL-04, TOOL-05, TOOL-09
 **UI hint:** no
-**Plans:** 5/6 complete
+**Plans:** 6/6 complete
 
 Plans:
 - [x] 04-01-PLAN.md — Latency Instrumentation & Diagnostic Script
@@ -82,7 +83,7 @@ Plans:
 - [x] 04-03-PLAN.md — Approval Gate Node + Execute Action Node + Graph Topology
 - [x] 04-04-PLAN.md — Approval REST API and Resume Integration
 - [x] 04-05-PLAN.md — Audit Trail API + Trace Timeline
-- [ ] 04-06-PLAN.md
+- [x] 04-06-PLAN.md — Integration Tests + High-Risk Interception Validation
 
 ### Phase 4 Planning Prerequisite: Agent Latency Diagnosis
 

@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-05-16T12:19:56.000Z"
+last_updated: "2026-05-16T12:41:23.168Z"
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 24
-  completed_plans: 23
-  percent: 96
+  completed_plans: 24
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-09)
 
 **Core value:** When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution.
-**Current focus:** Phase 04 — approval-workflow-audit
+**Current focus:** Phase 04 — approval-workflow-audit complete; ready for phase verification/UAT or Phase 5 planning
 
 ## Current Status
 
 - **Active phase:** 4
-- **Phase status:** Phase 4 in progress; Plans 04-01 through 04-05 are complete. The approval graph, approval API, action drafts, and trace replay API are now in place for final high-risk interception validation.
+- **Phase status:** Phase 4 complete; Plans 04-01 through 04-06 are complete. Final validation proves approval interrupt/resume, approve/reject handling, low-risk bypass, idempotent action draft creation, and 100% high-risk interception across HR-01, HR-02, and HR-03.
 - **Blockers:** None
 
 ## Phase History
@@ -59,6 +59,7 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 - 2026-05-16: Added Phase 4 planning prerequisite for live agent latency diagnosis. Phase 3 UAT passed functionally, but live Swagger calls took roughly 90-200 seconds; Phase 4 planning must first instrument per-node latency and diagnose slow nodes/retries/provider latency before choosing optimization strategies.
 - 2026-05-16: Executed Phase 4 Plan 03. Added approval_gate interrupt/resume node, execute_action node, create_coupon_grant_draft tool, approval outcome final responses, conditional graph routing, and 19 focused approval workflow tests. Verification: approval tests 14 passed, agent tests 43 passed, ruff passed, and graph compile passed.
 - 2026-05-16: Executed Phase 4 Plan 05. Added TraceRepository, GET /api/v1/agent-runs/{run_id}/trace, sanitized trace response schema, and 7 trace API tests. Verification: trace API tests 7 passed and ruff passed.
+- 2026-05-16: Executed Phase 4 Plan 06. Added MemorySaver-backed approval integration tests and high-risk interception validation. Verification: targeted approval/interception tests 13 passed, full test suite 164 passed, ruff passed, and high-risk interception rate is 3/3.
 - 2026-05-16: Completed Phase 3 conversational UAT after fixing Swagger OAuth token flow, default `agent:chat` scopes, and settings-backed DashScope embedding credentials. `03-UAT.md` is complete with 5/5 passed: policy QA, refund troubleshooting, no-evidence fallback, same-thread evidence gating, and DB trace/evidence_refs persistence.
 - 2026-05-10: Completed Phase 2 Plan 03. Added policy document/chunk repositories, ingestion service, dry-run ingestion CLI, and 15 Chinese policy documents. Verification: `UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest -q --tb=short` — 22 passed.
 - 2026-05-10: Completed Phase 2 Plan 04. Added tenant-scoped retriever confidence scoring, citation validator, authenticated search endpoint, and mocked retrieval tests. Verification: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short` - 31 passed; ruff passed for Plan 04 files.
@@ -114,3 +115,5 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 - Plan 04-05: TraceResponse intentionally excludes AgentRun.input_query and AgentRun.final_response to reduce trace information leakage.
 - Plan 04-05: Trace access is owner-or-supervisor within tenant; cross-tenant lookups return 404 before ownership checks.
 - Plan 04-05: Supervisor trace access includes admin, manager, supervisor, and approval_manager roles to align with the existing approval API role vocabulary.
+- Plan 04-06: Approval integration fixtures use the existing manager approver role because the approval API currently authorizes admin and manager roles.
+- Plan 04-06: Integration tests use real LangGraph MemorySaver interrupt/resume with mocked LLM and policy search boundaries only.
