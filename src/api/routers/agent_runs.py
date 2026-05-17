@@ -17,6 +17,7 @@ from langgraph.errors import GraphInterrupt
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
+from src.agent.nodes.final_response import final_response as build_final_response
 from src.agent.trace import build_trace_summary, write_agent_run, write_agent_steps
 from src.api.schemas.agent_runs import CreateRunRequest, RunStatusResponse
 from src.api.schemas.common import ApiResponse
@@ -226,27 +227,45 @@ async def _event_generator(
             if isinstance(update_mapping.get("trace_steps"), list):
                 trace_steps = update_mapping["trace_steps"]
 
-        final_response = str(final_state.get("final_response") or "处理完成。")
+        if not final_state.get("final_response"):
+            final_state.update(await build_final_response(final_state))
+
+        final_response = final_state.get("final_response")
+        if isinstance(final_state.get("trace_steps"), list):
+            trace_steps = final_state["trace_steps"]
         total_ms = round((time.perf_counter() - t0) * 1000)
         final_status = build_trace_summary(run_id_str, final_state, total_ms).get("final_status", "completed")
+        if not final_response:
+            final_status = "error"
+            final_response = None
         completed_at = datetime.now(timezone.utc)
         await _complete_run(
             session=session,
             run=run,
             final_status=str(final_status),
-            final_response=final_response,
+            final_response=str(final_response) if final_response else None,
             completed_at=completed_at,
             total_latency_ms=total_ms,
             trace_steps=trace_steps,
         )
-        yield _sse_event(
-            event_type="final_response",
-            run_id=run_id_str,
-            step_index=step_index + 1,
-            status="completed",
-            message="已完成",
-            payload={"final_response": final_response},
-        )
+        if final_response:
+            yield _sse_event(
+                event_type="final_response",
+                run_id=run_id_str,
+                step_index=step_index + 1,
+                status="completed",
+                message="已完成",
+                payload={"final_response": str(final_response)},
+            )
+        else:
+            yield _sse_event(
+                event_type="error",
+                run_id=run_id_str,
+                step_index=step_index + 1,
+                status="failed",
+                message="未生成最终回复，请重试",
+                payload={"error_message": "Agent finished without a final response"},
+            )
     except asyncio.CancelledError as exc:
         await _mark_run_error(session=session, run=run, exc=exc, t0=t0)
         raise

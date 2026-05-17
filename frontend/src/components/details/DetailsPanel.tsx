@@ -42,6 +42,7 @@ export function DetailsPanel({
     () => [...steps].reverse().find((step) => step.event_type === 'approval_required'),
     [steps],
   )
+  const detailsRefreshKey = `${status}-${steps.length}`
 
   return (
     <section className="flex min-h-0 flex-col bg-background">
@@ -68,7 +69,7 @@ export function DetailsPanel({
 
         <ScrollArea className="flex-1 p-4">
           <TabsContent value="evidence" activeValue={selectedTab}>
-            <EvidenceTab runId={runId} />
+            <EvidenceTab runId={runId} refreshKey={detailsRefreshKey} />
           </TabsContent>
           <TabsContent value="approval" activeValue={selectedTab}>
             <ApprovalTab
@@ -81,7 +82,7 @@ export function DetailsPanel({
             />
           </TabsContent>
           <TabsContent value="trace" activeValue={selectedTab}>
-            <TraceTab runId={runId} />
+            <TraceTab runId={runId} refreshKey={detailsRefreshKey} />
           </TabsContent>
           <TabsContent value="run" activeValue={selectedTab}>
             <Card>

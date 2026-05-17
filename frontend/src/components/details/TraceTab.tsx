@@ -7,6 +7,7 @@ type TraceStep = Record<string, unknown>
 
 interface TraceTabProps {
   runId: string | null
+  refreshKey?: string
 }
 
 function stringValue(step: TraceStep, key: string, fallback = '-') {
@@ -21,7 +22,7 @@ function statusVariant(status: string) {
   return 'outline'
 }
 
-export function TraceTab({ runId }: TraceTabProps) {
+export function TraceTab({ runId, refreshKey }: TraceTabProps) {
   const [steps, setSteps] = useState<TraceStep[]>([])
   const [error, setError] = useState<string | null>(null)
 
@@ -50,7 +51,7 @@ export function TraceTab({ runId }: TraceTabProps) {
     return () => {
       cancelled = true
     }
-  }, [runId])
+  }, [runId, refreshKey])
 
   if (!runId) {
     return (

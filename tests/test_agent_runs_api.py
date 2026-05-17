@@ -37,6 +37,43 @@ class SlowGraph:
         yield ("receive_request", {"trace_steps": []})
 
 
+class MissingFinalResponseGraph:
+    async def astream(self, input_state, config, stream_mode):
+        yield (
+            "assess_risk_and_approval",
+            {
+                "current_intent": "refund_troubleshooting",
+                "recommendation_draft": {
+                    "recommended_action": "manual_review",
+                    "reasoning_summary": "退款链路需要人工核实。",
+                    "evidence_refs": [
+                        {
+                            "doc_key": "refund_policy",
+                            "chunk_id": "refund_policy_001",
+                            "title": "退款规则",
+                            "section": "超时处理",
+                            "confidence": 0.9,
+                        }
+                    ],
+                    "confidence": 0.8,
+                },
+                "risk_assessment": {
+                    "risk_level": "low",
+                    "risk_reason": "No customer compensation proposed.",
+                    "approval_required": False,
+                },
+                "trace_steps": [
+                    {
+                        "node": "assess_risk_and_approval",
+                        "status": "completed",
+                        "started_at": datetime.now(UTC).isoformat(),
+                        "completed_at": datetime.now(UTC).isoformat(),
+                    }
+                ],
+            },
+        )
+
+
 def _auth_header(user: User, scopes: list[str]) -> dict[str, str]:
     token = create_access_token(
         {
@@ -205,3 +242,33 @@ async def test_event_generator_sends_keepalive_while_graph_node_is_running(
     assert '"event_type": "run_started"' in first_event["data"]
     assert keepalive == {"comment": "keepalive"}
     assert '"event_type": "step_started"' in next_event["data"]
+
+
+@pytest.mark.asyncio
+async def test_event_generator_synthesizes_final_response_when_stream_ends_without_one(
+    session: AsyncSession,
+    seeded_session,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.commit()
+
+    generator = _event_generator(
+        MissingFinalResponseGraph(),
+        {"user_query": run.input_query},
+        {"configurable": {"thread_id": run.thread_id, "session": session}},
+        run=run,
+        session=session,
+        user=user,
+    )
+
+    final_event = None
+    async for event in generator:
+        if "data" in event and '"event_type": "final_response"' in event["data"]:
+            final_event = event
+
+    await session.refresh(run)
+    assert final_event is not None
+    assert run.final_status == "completed"
+    assert run.final_response is not None
+    assert "退款链路需要人工核实" in run.final_response

@@ -20,6 +20,7 @@ interface EvidenceItem {
 
 interface EvidenceTabProps {
   runId: string | null
+  refreshKey?: string
 }
 
 function confidenceLabel(evidence: EvidenceItem) {
@@ -28,7 +29,7 @@ function confidenceLabel(evidence: EvidenceItem) {
   return `${Math.round(value * 100)}%`
 }
 
-export function EvidenceTab({ runId }: EvidenceTabProps) {
+export function EvidenceTab({ runId, refreshKey }: EvidenceTabProps) {
   const [evidence, setEvidence] = useState<EvidenceItem[]>([])
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -59,7 +60,7 @@ export function EvidenceTab({ runId }: EvidenceTabProps) {
     return () => {
       cancelled = true
     }
-  }, [runId])
+  }, [runId, refreshKey])
 
   if (!runId) {
     return (
