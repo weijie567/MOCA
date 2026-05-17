@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import type { DemoRole } from '@/hooks/useAuth'
 import type { SseEvent } from '@/types/events'
 import { ApprovalTab } from './ApprovalTab'
 import { EvidenceTab } from './EvidenceTab'
@@ -13,6 +14,7 @@ type DetailsTab = 'evidence' | 'approval' | 'trace' | 'run'
 interface DetailsPanelProps {
   runId: string | null
   approvalId: string | null
+  role: DemoRole
   status: string
   steps?: SseEvent[]
   approveRun?: () => void | Promise<void>
@@ -30,6 +32,7 @@ function statusVariant(status: string) {
 export function DetailsPanel({
   runId,
   approvalId,
+  role,
   status,
   steps = [],
   approveRun,
@@ -76,6 +79,7 @@ export function DetailsPanel({
               approvalId={approvalId}
               proposedAction={approvalEvent?.payload?.proposed_action ?? null}
               riskLevel={approvalEvent?.payload?.risk_level ?? null}
+              canApprove={role === 'manager' || role === 'admin'}
               status={status}
               onApprove={approveRun}
               onReject={rejectRun}

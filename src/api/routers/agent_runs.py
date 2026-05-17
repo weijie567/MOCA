@@ -186,7 +186,7 @@ async def _event_generator(
                 continue
 
             node_name, update = _normalize_stream_update(stream_item)
-            if _is_interrupt_payload(update):
+            if _is_interrupt_stream_item(node_name, update):
                 async for event in _handle_approval_required(
                     update,
                     run=run,
@@ -557,6 +557,10 @@ def _is_interrupt_payload(value: Any) -> bool:
     return "__interrupt__" in value_mapping
 
 
+def _is_interrupt_stream_item(node_name: str, update: Any) -> bool:
+    return node_name == "__interrupt__" or _is_interrupt_payload(update)
+
+
 def _extract_interrupt_data(exc_or_data: Any) -> dict[str, Any]:
     if isinstance(exc_or_data, dict):
         interrupts = exc_or_data.get("__interrupt__") or []
@@ -565,6 +569,12 @@ def _extract_interrupt_data(exc_or_data: Any) -> dict[str, Any]:
             value = getattr(first, "value", first)
             return value if isinstance(value, dict) else {}
         return exc_or_data
+
+    if isinstance(exc_or_data, (list, tuple)) and exc_or_data:
+        first = exc_or_data[0]
+        value = getattr(first, "value", first)
+        if isinstance(value, dict):
+            return value
 
     args = getattr(exc_or_data, "args", ())
     for arg in args:

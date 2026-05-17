@@ -6,13 +6,14 @@ from uuid import UUID, uuid4
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.trace import write_agent_run
 from src.api.main import app
 from src.api.routers.agent_runs import _event_generator
 from src.auth.jwt import create_access_token
-from src.db.models import AgentRun, User
+from src.db.models import AgentRun, ApprovalRequest, User
 
 
 class NeverCalledGraph:
@@ -71,6 +72,57 @@ class MissingFinalResponseGraph:
                     }
                 ],
             },
+        )
+
+
+class FakeInterrupt:
+    def __init__(self, value: dict):
+        self.value = value
+
+
+class StreamInterruptGraph:
+    async def astream(self, input_state, config, stream_mode):
+        yield (
+            "assess_risk_and_approval",
+            {
+                "risk_assessment": {
+                    "risk_level": "high",
+                    "risk_reason": "Compensation amount exceeds threshold.",
+                    "approval_required": True,
+                    "rule_ref": "RISK-COMP-001",
+                },
+                "proposed_action": {
+                    "action_type": "issue_coupon",
+                    "target_id": "ORD-2024-001",
+                    "amount": 600,
+                },
+                "trace_steps": [
+                    {
+                        "node": "assess_risk_and_approval",
+                        "status": "completed",
+                        "started_at": datetime.now(UTC).isoformat(),
+                        "completed_at": datetime.now(UTC).isoformat(),
+                    }
+                ],
+            },
+        )
+        yield (
+            "__interrupt__",
+            (
+                FakeInterrupt(
+                    {
+                        "proposed_action": {
+                            "action_type": "issue_coupon",
+                            "target_id": "ORD-2024-001",
+                            "amount": 600,
+                        },
+                        "risk_level": "high",
+                        "risk_reason": "Compensation amount exceeds threshold.",
+                        "risk_rule_ref": "RISK-COMP-001",
+                        "expires_at": datetime.now(UTC).isoformat(),
+                    }
+                ),
+            ),
         )
 
 
@@ -272,3 +324,39 @@ async def test_event_generator_synthesizes_final_response_when_stream_ends_witho
     assert run.final_status == "completed"
     assert run.final_response is not None
     assert "退款链路需要人工核实" in run.final_response
+
+
+@pytest.mark.asyncio
+async def test_event_generator_treats_stream_interrupt_node_as_approval_required(
+    session: AsyncSession,
+    seeded_session,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.commit()
+
+    generator = _event_generator(
+        StreamInterruptGraph(),
+        {"user_query": run.input_query},
+        {"configurable": {"thread_id": run.thread_id, "session": session}},
+        run=run,
+        session=session,
+        user=user,
+    )
+
+    approval_event = None
+    async for event in generator:
+        if "data" in event and '"event_type": "approval_required"' in event["data"]:
+            approval_event = event
+
+    await session.refresh(run)
+    approval = (
+        await session.execute(select(ApprovalRequest).where(ApprovalRequest.run_id == run.id))
+    ).scalar_one()
+    assert approval_event is not None
+    assert '"status": "waiting_approval"' in approval_event["data"]
+    assert run.final_status == "interrupted"
+    assert run.final_response is None
+    assert approval.status == "pending"
+    assert approval.risk_level == "high"
+    assert approval.proposed_action["amount"] == 600

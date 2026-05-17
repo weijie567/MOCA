@@ -18,6 +18,7 @@ interface ApprovalTabProps {
   approvalId: string | null
   proposedAction?: Record<string, unknown> | null
   riskLevel?: string | null
+  canApprove: boolean
   status: string
   onApprove?: () => void | Promise<void>
   onReject?: (reason: string) => void | Promise<void>
@@ -40,6 +41,7 @@ export function ApprovalTab({
   approvalId,
   proposedAction,
   riskLevel,
+  canApprove,
   status,
   onApprove,
   onReject,
@@ -51,6 +53,13 @@ export function ApprovalTab({
   const [reason, setReason] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const loadPendingApprovals = useCallback(async () => {
+    if (!canApprove) {
+      setPendingApprovals([])
+      setSelectedApprovalId(null)
+      setLoadError(null)
+      return
+    }
+
     const result = await getPendingApprovals()
     if (!result.success) {
       setLoadError(result.error?.message ?? '待审批列表加载失败')
@@ -65,8 +74,10 @@ export function ApprovalTab({
       const currentRunApproval = result.data.approvals.find((approval) => approval.id === approvalId)
       return currentRunApproval?.id ?? result.data.approvals[0]?.id ?? null
     })
-  }, [approvalId])
+  }, [approvalId, canApprove])
   const activeApproval = useMemo(() => {
+    if (!canApprove) return null
+
     const selectedApproval = pendingApprovals.find((approval) => approval.id === selectedApprovalId)
     const currentRunApproval = pendingApprovals.find((approval) => approval.id === approvalId)
     return (
@@ -91,7 +102,7 @@ export function ApprovalTab({
           }
         : null)
     )
-  }, [approvalId, pendingApprovals, proposedAction, riskLevel, selectedApprovalId, status])
+  }, [approvalId, canApprove, pendingApprovals, proposedAction, riskLevel, selectedApprovalId, status])
   const entries = useMemo(() => actionEntries(activeApproval?.proposed_action), [activeApproval])
   const decisionCopy =
     pendingDecision === 'approve'
@@ -132,13 +143,37 @@ export function ApprovalTab({
 
   return (
     <div className="space-y-4">
+      {!canApprove ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>审批状态</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-body text-muted-foreground">
+              当前角色没有审批权限。需要审批员或管理员查看待审批列表并处理该请求。
+            </p>
+            {approvalId ? (
+              <div className="mt-3 grid grid-cols-[88px_1fr] gap-3 text-label">
+                <span className="text-muted-foreground">approval</span>
+                <span className="min-w-0 break-all">{approvalId}</span>
+                <span className="text-muted-foreground">status</span>
+                <Badge variant={status === 'waiting_approval' ? 'warning' : 'outline'}>{status}</Badge>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle>待审批列表</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-          {loadError ? <div className="rounded-md border border-destructive/40 p-3 text-body">{loadError}</div> : null}
-          {pendingApprovals.length === 0 ? (
+          {!canApprove ? (
+            <p className="text-body text-muted-foreground">切换到审批员或管理员后可查看待审批列表。</p>
+          ) : loadError ? (
+            <div className="rounded-md border border-destructive/40 p-3 text-body">{loadError}</div>
+          ) : pendingApprovals.length === 0 ? (
             <p className="text-body text-muted-foreground">当前没有待处理审批</p>
           ) : (
             pendingApprovals.map((approval) => (
@@ -168,10 +203,14 @@ export function ApprovalTab({
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-3">
           <CardTitle>审批操作</CardTitle>
-          <Badge variant={riskVariant(activeApproval?.risk_level)}>risk_level: {activeApproval?.risk_level ?? 'unknown'}</Badge>
+          <Badge variant={riskVariant(activeApproval?.risk_level)}>
+            risk_level: {canApprove ? activeApproval?.risk_level ?? 'unknown' : 'hidden'}
+          </Badge>
         </CardHeader>
         <CardContent>
-          {entries.length > 0 ? (
+          {!canApprove ? (
+            <p className="text-body text-muted-foreground">审批详情仅对审批员和管理员可见。</p>
+          ) : entries.length > 0 ? (
             <dl className="grid grid-cols-[120px_1fr] gap-x-3 gap-y-2 text-body">
               {entries.map(([key, value]) => (
                 <div key={key} className="contents">
@@ -188,23 +227,25 @@ export function ApprovalTab({
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-2 gap-3">
-        <Button
-          className="min-h-11"
-          disabled={submitting || !activeApproval || activeApproval.status !== 'pending'}
-          onClick={() => setPendingDecision('approve')}
-        >
-          批准
-        </Button>
-        <Button
-          className="min-h-11"
-          variant="destructive"
-          disabled={submitting || !activeApproval || activeApproval.status !== 'pending'}
-          onClick={() => setPendingDecision('reject')}
-        >
-          驳回
-        </Button>
-      </div>
+      {canApprove ? (
+        <div className="grid grid-cols-2 gap-3">
+          <Button
+            className="min-h-11"
+            disabled={submitting || !activeApproval || activeApproval.status !== 'pending'}
+            onClick={() => setPendingDecision('approve')}
+          >
+            批准
+          </Button>
+          <Button
+            className="min-h-11"
+            variant="destructive"
+            disabled={submitting || !activeApproval || activeApproval.status !== 'pending'}
+            onClick={() => setPendingDecision('reject')}
+          >
+            驳回
+          </Button>
+        </div>
+      ) : null}
 
       <Dialog open={pendingDecision !== null} onOpenChange={(open) => !open && setPendingDecision(null)}>
         <DialogContent>

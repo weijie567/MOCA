@@ -60,6 +60,7 @@ function App() {
         <DetailsPanel
           runId={state.runId}
           approvalId={state.approvalId}
+          role={role}
           status={state.status}
           steps={state.steps}
           approveRun={approveRun}
