@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import time
 import uuid
@@ -29,6 +30,7 @@ from src.repositories.trace_repo import TraceRepository
 router = APIRouter(tags=["agent-runs"])
 
 SUPERVISOR_ROLES = {"supervisor", "admin", "approval_manager", "manager"}
+SSE_HEARTBEAT_SECONDS = 15.0
 
 NODE_MESSAGES: dict[str, str] = {
     "receive_request": "正在接收请求",
@@ -177,7 +179,11 @@ async def _event_generator(
     )
 
     try:
-        async for stream_item in graph.astream(input_state, config, stream_mode="updates"):
+        async for stream_item in _stream_graph_updates_with_heartbeats(graph, input_state, config):
+            if stream_item is None:
+                yield {"comment": "keepalive"}
+                continue
+
             node_name, update = _normalize_stream_update(stream_item)
             if _is_interrupt_payload(update):
                 async for event in _handle_approval_required(
@@ -267,6 +273,32 @@ async def _event_generator(
             payload={"error_message": str(exc)},
         )
         await _mark_run_error(session=session, run=run, exc=exc, t0=t0)
+
+
+async def _stream_graph_updates_with_heartbeats(graph: Any, input_state: dict[str, Any], config: dict[str, Any]):
+    stream = graph.astream(input_state, config, stream_mode="updates")
+    iterator = stream.__aiter__()
+    pending: asyncio.Task[Any] | None = None
+    try:
+        while True:
+            pending = asyncio.create_task(anext(iterator))
+            while True:
+                done, _ = await asyncio.wait({pending}, timeout=SSE_HEARTBEAT_SECONDS)
+                if pending in done:
+                    break
+                yield None
+            try:
+                yield pending.result()
+            except StopAsyncIteration:
+                break
+    finally:
+        if pending is not None and not pending.done():
+            pending.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await pending
+        aclose = getattr(iterator, "aclose", None)
+        if callable(aclose):
+            await aclose()
 
 
 async def _handle_approval_required(

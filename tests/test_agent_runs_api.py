@@ -31,6 +31,12 @@ class CancelledGraph:
         yield
 
 
+class SlowGraph:
+    async def astream(self, input_state, config, stream_mode):
+        await asyncio.sleep(0.05)
+        yield ("receive_request", {"trace_steps": []})
+
+
 def _auth_header(user: User, scopes: list[str]) -> dict[str, str]:
     token = create_access_token(
         {
@@ -165,3 +171,37 @@ async def test_event_generator_marks_run_error_when_stream_is_cancelled(
     assert run.final_status == "error"
     assert run.completed_at is not None
     assert run.error_summary == "client disconnected"
+
+
+@pytest.mark.asyncio
+async def test_event_generator_sends_keepalive_while_graph_node_is_running(
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    monkeypatch.setattr("src.api.routers.agent_runs.SSE_HEARTBEAT_SECONDS", 0.01)
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.commit()
+
+    generator = _event_generator(
+        SlowGraph(),
+        {"user_query": run.input_query},
+        {"configurable": {"thread_id": run.thread_id, "session": session}},
+        run=run,
+        session=session,
+        user=user,
+    )
+
+    try:
+        first_event = await anext(generator)
+        keepalive = await anext(generator)
+        next_event = await anext(generator)
+        while "data" not in next_event:
+            next_event = await anext(generator)
+    finally:
+        await generator.aclose()
+
+    assert '"event_type": "run_started"' in first_event["data"]
+    assert keepalive == {"comment": "keepalive"}
+    assert '"event_type": "step_started"' in next_event["data"]
