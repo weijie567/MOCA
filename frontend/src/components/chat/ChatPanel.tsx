@@ -28,7 +28,7 @@ export function ChatPanel({ state, submitQuery, authReady, authError }: ChatPane
   }
 
   return (
-    <section className="flex min-h-0 flex-col border-r border-border bg-background">
+    <section className="flex min-h-0 min-w-0 flex-col border-r border-border bg-background">
       <div className="border-b border-border px-4 py-3">
         <h1 className="text-heading font-semibold">Chat</h1>
         <p className="mt-1 text-label text-muted-foreground">退款咨询与补偿请求入口</p>

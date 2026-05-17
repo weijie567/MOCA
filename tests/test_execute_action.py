@@ -85,6 +85,21 @@ async def test_execute_action_idempotency_key_uses_run_approval_action_and_targe
 
 
 @pytest.mark.asyncio
+async def test_execute_action_prefers_approval_run_id_for_resumed_action(monkeypatch):
+    create_draft = AsyncMock(return_value=_success_result())
+    monkeypatch.setattr(execute_action_module, "create_coupon_grant_draft", create_draft)
+    state = _approved_state()
+    persisted_run_id = str(uuid4())
+    state["approval_result"]["run_id"] = persisted_run_id
+
+    await execute_action_module.execute_action(state, {"configurable": {"session": object()}})
+
+    _, kwargs = create_draft.await_args
+    assert kwargs["run_id"] == persisted_run_id
+    assert kwargs["idempotency_key"].startswith(f"{persisted_run_id}_{state['approval_result']['approval_id']}_")
+
+
+@pytest.mark.asyncio
 async def test_execute_action_canonicalizes_legacy_freeform_action_type(monkeypatch):
     create_draft = AsyncMock(return_value=_success_result())
     monkeypatch.setattr(execute_action_module, "create_coupon_grant_draft", create_draft)

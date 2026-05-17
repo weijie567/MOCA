@@ -42,6 +42,6 @@ async def receive_request(state: AgentState) -> dict:
         "llm_outputs": {},
         "node_errors": [],
         "retry_count": 0,
-        "current_run_id": str(uuid4()),
+        "current_run_id": state.get("current_run_id") or str(uuid4()),
         "trace_steps": trace_steps,
     }

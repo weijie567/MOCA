@@ -122,6 +122,7 @@ async def stream_agent_run_events(
         "tenant_id": str(user.tenant_id),
         "user_id": str(user.id),
         "role": user.role,
+        "current_run_id": str(run.id),
     }
     config = {
         "configurable": {

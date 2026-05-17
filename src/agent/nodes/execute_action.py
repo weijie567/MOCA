@@ -75,18 +75,19 @@ async def execute_action(state: AgentState, config: RunnableConfig) -> dict:
         }
 
     session = config["configurable"]["session"]
+    run_id = approval.get("run_id") or state.get("current_run_id") or ""
     approval_id = approval.get("approval_id") or "no_approval"
     action_type = _canonical_action_type(proposed.get("action_type"))
     proposed = {**proposed, "action_type": action_type}
     idempotency_key = (
-        f"{state.get('current_run_id')}_{approval_id}_"
+        f"{run_id}_{approval_id}_"
         f"{action_type}_{proposed.get('target_id', 'unknown')}"
     )
 
     result = await create_coupon_grant_draft(
         tenant_id=state.get("tenant_id", ""),
         user_id=state.get("user_id", ""),
-        run_id=state.get("current_run_id", ""),
+        run_id=run_id,
         approval_request_id=approval.get("approval_id"),
         idempotency_key=idempotency_key,
         action_type=action_type,

@@ -39,19 +39,19 @@ export function MessageList({ queries, finalResponse, status, error }: MessageLi
       <div className="space-y-4">
         {queries.map((query, index) => (
           <div key={`${query}-${index}`} className="flex justify-end">
-            <div className="max-w-[86%] rounded-md border border-border bg-muted px-3 py-2">
+            <div className="max-w-[86%] overflow-hidden rounded-md border border-border bg-muted px-3 py-2">
               <div className="mb-1 flex items-center justify-end gap-2 text-label text-muted-foreground">
                 <span>用户</span>
                 <UserRound className="h-3.5 w-3.5" aria-hidden="true" />
               </div>
-              <p className="whitespace-pre-wrap text-body">{query}</p>
+              <p className="whitespace-pre-wrap break-words text-body">{query}</p>
             </div>
           </div>
         ))}
 
         {isRunning(status) ? (
           <div className="flex justify-start">
-            <div className="max-w-[86%] rounded-md border border-border bg-card px-3 py-3">
+            <div className="max-w-[86%] overflow-hidden rounded-md border border-border bg-card px-3 py-3">
               <div className="mb-2 flex items-center gap-2 text-label text-muted-foreground">
                 <Bot className="h-3.5 w-3.5" aria-hidden="true" />
                 <span>Agent</span>
@@ -66,12 +66,12 @@ export function MessageList({ queries, finalResponse, status, error }: MessageLi
 
         {finalResponse ? (
           <div className="flex justify-start">
-            <div className="max-w-[86%] rounded-md border border-border bg-card px-3 py-2">
+            <div className="max-w-[86%] overflow-hidden rounded-md border border-border bg-card px-3 py-2">
               <div className="mb-1 flex items-center gap-2 text-label text-muted-foreground">
                 <Bot className="h-3.5 w-3.5" aria-hidden="true" />
                 <span>Agent</span>
               </div>
-              <p className="whitespace-pre-wrap text-body">{finalResponse}</p>
+              <p className="whitespace-pre-wrap break-words text-body">{finalResponse}</p>
             </div>
           </div>
         ) : null}

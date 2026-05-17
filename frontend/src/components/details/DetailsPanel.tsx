@@ -48,7 +48,7 @@ export function DetailsPanel({
   const detailsRefreshKey = `${status}-${steps.length}`
 
   return (
-    <section className="flex min-h-0 flex-col bg-background">
+    <section className="flex min-h-0 min-w-0 flex-col bg-background">
       <div className="border-b border-border px-4 py-3">
         <h2 className="text-heading font-semibold">Details</h2>
         <p className="mt-1 text-label text-muted-foreground">Evidence / Approval / Trace / Run Info</p>

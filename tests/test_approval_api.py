@@ -147,6 +147,7 @@ async def test_decide_approve_returns_success_and_resumes_graph(
     assert len(graph.calls) == 1
     command, config = graph.calls[0]
     assert command.resume["decision"] == "approve"
+    assert command.resume["run_id"] == str(approval.run_id)
     assert config["configurable"]["thread_id"] == f"{approval.tenant_id}:{approval.requested_by}:thread-approve"
 
 

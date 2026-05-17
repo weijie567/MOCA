@@ -49,7 +49,7 @@ function App() {
   return (
     <main className="flex min-h-screen flex-col bg-background text-foreground">
       <TopBar role={role} switchRole={switchRole} />
-      <section className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[30fr_35fr_35fr]">
+      <section className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,30fr)_minmax(0,35fr)_minmax(0,35fr)]">
         <ChatPanel
           state={state}
           submitQuery={submitQuery}

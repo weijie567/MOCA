@@ -69,6 +69,7 @@ async def decide_approval(
         checkpoint_tid = f"{approval.tenant_id}:{approval.requested_by}:{approval.thread_id}"
         config = {"configurable": {"thread_id": checkpoint_tid, "session": session}}
         resume_payload = {
+            "run_id": str(approval.run_id),
             "approval_id": str(approval.id),
             "decision": body.decision,
             "reason": body.reason,

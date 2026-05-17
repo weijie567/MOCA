@@ -10,7 +10,7 @@ interface AgentTimelineProps {
 
 export function AgentTimeline({ steps, status }: AgentTimelineProps) {
   return (
-    <section className="flex min-h-0 flex-col border-r border-border bg-card/40">
+    <section className="flex min-h-0 min-w-0 flex-col border-r border-border bg-card/40">
       <div className="border-b border-border px-4 py-3">
         <h2 className="text-heading font-semibold">Agent Timeline</h2>
         <p className="mt-1 text-label text-muted-foreground">SSE 实时节点执行状态</p>

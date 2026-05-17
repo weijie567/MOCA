@@ -28,3 +28,10 @@ async def test_receive_request_new_run_id_each_call(base_state):
     second = await receive_request(base_state)
 
     assert first["current_run_id"] != second["current_run_id"]
+
+
+@pytest.mark.asyncio
+async def test_receive_request_preserves_api_run_id_when_provided(base_state):
+    result = await receive_request({**base_state, "current_run_id": "api-run-001"})
+
+    assert result["current_run_id"] == "api-run-001"
