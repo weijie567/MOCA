@@ -85,6 +85,23 @@ async def test_execute_action_idempotency_key_uses_run_approval_action_and_targe
 
 
 @pytest.mark.asyncio
+async def test_execute_action_canonicalizes_legacy_freeform_action_type(monkeypatch):
+    create_draft = AsyncMock(return_value=_success_result())
+    monkeypatch.setattr(execute_action_module, "create_coupon_grant_draft", create_draft)
+    state = _approved_state()
+    state["proposed_action"]["action_type"] = (
+        "拒绝600元补偿请求。根据补偿规则，订单实付金额599元对应的最高体验补偿标准为50元。"
+    )
+
+    await execute_action_module.execute_action(state, {"configurable": {"session": object()}})
+
+    _, kwargs = create_draft.await_args
+    assert kwargs["action_type"] == "manual_review"
+    assert "_manual_review_" in kwargs["idempotency_key"]
+    assert len(kwargs["action_type"]) <= 64
+
+
+@pytest.mark.asyncio
 async def test_execute_action_uses_session_from_runnable_config(monkeypatch):
     create_draft = AsyncMock(return_value=_success_result())
     monkeypatch.setattr(execute_action_module, "create_coupon_grant_draft", create_draft)

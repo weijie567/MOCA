@@ -20,4 +20,4 @@ format:
 	uv run ruff format src/ tests/
 
 dev:
-	uv run fastapi dev src/api/main.py
+	uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload

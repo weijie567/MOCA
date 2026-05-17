@@ -28,14 +28,15 @@ async def create_coupon_grant_draft(
 ) -> dict:
     try:
         repo = ActionDraftRepository(session)
-        draft, created = await repo.create_or_get(
-            run_id=UUID(run_id),
-            tenant_id=UUID(tenant_id),
-            approval_request_id=UUID(approval_request_id) if approval_request_id else None,
-            idempotency_key=idempotency_key,
-            action_type=action_type,
-            payload=payload,
-        )
+        async with session.begin_nested():
+            draft, created = await repo.create_or_get(
+                run_id=UUID(run_id),
+                tenant_id=UUID(tenant_id),
+                approval_request_id=UUID(approval_request_id) if approval_request_id else None,
+                idempotency_key=idempotency_key,
+                action_type=action_type,
+                payload=payload,
+            )
         return _tool_success(
             {
                 "draft_id": str(draft.id),

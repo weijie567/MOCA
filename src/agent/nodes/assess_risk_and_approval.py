@@ -24,6 +24,7 @@ ACTIONABLE_ACTIONS = {
     "full_refund",
     "partial_refund",
     "compensation",
+    "manual_review",
 }
 
 
@@ -129,12 +130,32 @@ def _is_actionable_recommendation(action: Any) -> bool:
     return any(actionable in action_text for actionable in ACTIONABLE_ACTIONS)
 
 
+def _canonical_action_type(action: Any) -> str:
+    action_text = str(action or "")
+    lowered = action_text.lower()
+    if lowered in ACTIONABLE_ACTIONS:
+        return lowered
+    if any(term in action_text for term in ("拒绝", "不建议", "无法支持")) or "reject" in lowered:
+        return "manual_review"
+    if any(term in lowered for term in ("coupon", "compensation", "compensate")) or any(
+        term in action_text for term in ("补偿", "券", "赔付")
+    ):
+        return "issue_coupon"
+    if any(term in action_text for term in FULL_REFUND_TERMS):
+        return "full_refund"
+    if "partial_refund" in lowered or "部分退款" in action_text:
+        return "partial_refund"
+    if "refund" in lowered or "退款" in action_text:
+        return "approve_refund"
+    return "manual_review"
+
+
 def _build_proposed_action(draft: dict[str, Any], context: dict[str, Any]) -> dict[str, str]:
     refund_case = context.get("refund_case") or {}
     order = context.get("order") or {}
     amount = _extract_compensation_amount(draft, context)
     return {
-        "action_type": str(draft.get("recommended_action") or ""),
+        "action_type": _canonical_action_type(draft.get("recommended_action")),
         "target_id": str(refund_case.get("id") or order.get("id") or ""),
         "amount": str(amount) if amount is not None else "",
         "currency": "CNY",

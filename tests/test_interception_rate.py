@@ -38,6 +38,7 @@ async def test_hr01_compensation_over_500_requires_approval():
 
     assert result["risk_assessment"]["approval_required"] is True
     assert result["risk_assessment"]["rule_ref"] == "HR-01"
+    assert result["proposed_action"]["action_type"] == "issue_coupon"
     assert route_after_risk(result) == "approval_gate"
 
 
@@ -83,6 +84,20 @@ async def test_insufficient_evidence_does_not_require_approval_or_proposed_actio
     assert result["risk_assessment"]["approval_required"] is False
     assert result["proposed_action"] is None
     assert route_after_risk(result) == "final_response"
+
+
+async def test_live_freeform_rejection_action_type_is_canonical():
+    result = await assess_risk_and_approval(
+        _state(
+            recommended_action="拒绝600元补偿请求。根据补偿规则，订单实付金额599元对应的最高体验补偿标准为50元。",
+            reasoning_summary="用户请求补偿600元 CNY。",
+        )
+    )
+
+    assert result["risk_assessment"]["approval_required"] is True
+    assert result["proposed_action"]["action_type"] == "manual_review"
+    assert len(result["proposed_action"]["action_type"]) <= 64
+    assert route_after_risk(result) == "approval_gate"
 
 
 async def test_route_after_risk_returns_approval_gate_for_all_high_risk_rules():
