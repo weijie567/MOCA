@@ -27,10 +27,12 @@ function App() {
           setAuthReady(true)
           return
         }
+        setAuthReady(false)
         setAuthError(result.error?.message ?? 'Demo token 获取失败，无法执行受保护操作')
       })
       .catch(() => {
         if (!cancelled) {
+          setAuthReady(false)
           setAuthError('Demo token 获取失败，无法执行受保护操作')
         }
       })

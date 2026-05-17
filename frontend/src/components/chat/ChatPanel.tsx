@@ -40,7 +40,10 @@ export function ChatPanel({ state, submitQuery, authReady, authError }: ChatPane
         error={state.error}
       />
       {authError ? (
-        <div className="border-t border-destructive/40 bg-destructive/10 px-4 py-3 text-label text-destructive">
+        <div
+          className="border-t border-destructive/40 bg-destructive/10 px-4 py-3 text-label text-destructive"
+          role="status"
+        >
           {authError}
         </div>
       ) : null}
