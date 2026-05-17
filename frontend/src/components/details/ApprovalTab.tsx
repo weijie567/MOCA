@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -11,7 +11,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
-import { decideApproval } from '@/lib/api'
+import { decideApproval, getPendingApprovals } from '@/lib/api'
+import type { ApprovalRecord } from '@/lib/api'
 
 interface ApprovalTabProps {
   approvalId: string | null
@@ -43,47 +44,131 @@ export function ApprovalTab({
   onApprove,
   onReject,
 }: ApprovalTabProps) {
+  const [pendingApprovals, setPendingApprovals] = useState<ApprovalRecord[]>([])
+  const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [pendingDecision, setPendingDecision] = useState<PendingDecision>(null)
   const [reason, setReason] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const entries = useMemo(() => actionEntries(proposedAction), [proposedAction])
+  const loadPendingApprovals = useCallback(async () => {
+    const result = await getPendingApprovals()
+    if (!result.success) {
+      setLoadError(result.error?.message ?? '待审批列表加载失败')
+      return
+    }
+    setPendingApprovals(result.data.approvals)
+    setLoadError(null)
+    setSelectedApprovalId((current) => {
+      if (current && result.data.approvals.some((approval) => approval.id === current)) {
+        return current
+      }
+      const currentRunApproval = result.data.approvals.find((approval) => approval.id === approvalId)
+      return currentRunApproval?.id ?? result.data.approvals[0]?.id ?? null
+    })
+  }, [approvalId])
+  const activeApproval = useMemo(() => {
+    const selectedApproval = pendingApprovals.find((approval) => approval.id === selectedApprovalId)
+    const currentRunApproval = pendingApprovals.find((approval) => approval.id === approvalId)
+    return (
+      selectedApproval ??
+      currentRunApproval ??
+      (approvalId
+        ? {
+            id: approvalId,
+            run_id: '',
+            status: status === 'waiting_approval' ? 'pending' : status,
+            requested_by: '',
+            proposed_action: proposedAction ?? {},
+            risk_level: riskLevel ?? 'unknown',
+            risk_rule_ref: null,
+            risk_reason: null,
+            decision: null,
+            reason: null,
+            decided_by: null,
+            decided_at: null,
+            expires_at: '',
+            created_at: '',
+          }
+        : null)
+    )
+  }, [approvalId, pendingApprovals, proposedAction, riskLevel, selectedApprovalId, status])
+  const entries = useMemo(() => actionEntries(activeApproval?.proposed_action), [activeApproval])
   const decisionCopy =
     pendingDecision === 'approve'
       ? '确认批准此操作？批准后将立即执行，此操作不可撤销。'
       : '确认驳回此操作？驳回后本次请求将终止，此操作不可撤销。'
 
-  async function confirmDecision() {
-    if (!approvalId || !pendingDecision) return
-    setSubmitting(true)
-    if (pendingDecision === 'approve') {
-      if (onApprove) {
-        await onApprove()
-      } else {
-        await decideApproval(approvalId, 'approve', 'Approved from MOCA demo console')
-      }
-    } else if (onReject) {
-      await onReject(reason)
-    } else {
-      await decideApproval(approvalId, 'reject', reason)
-    }
-    setSubmitting(false)
-    setPendingDecision(null)
-  }
+  useEffect(() => {
+    void Promise.resolve()
+      .then(() => loadPendingApprovals())
+      .catch(() => setLoadError('待审批列表加载失败'))
+  }, [loadPendingApprovals])
 
-  if (!approvalId) {
-    return (
-      <div className="rounded-md border border-dashed border-border p-4 text-body text-muted-foreground">
-        当前没有待处理审批
-      </div>
-    )
+  async function confirmDecision() {
+    if (!activeApproval || !pendingDecision) return
+    setSubmitting(true)
+    try {
+      if (pendingDecision === 'approve') {
+        if (activeApproval.id === approvalId && onApprove) {
+          await onApprove()
+        } else {
+          await decideApproval(activeApproval.id, 'approve', 'Approved from MOCA demo console')
+          await loadPendingApprovals()
+        }
+      } else if (activeApproval.id === approvalId && onReject) {
+        await onReject(reason)
+      } else {
+        await decideApproval(activeApproval.id, 'reject', reason)
+        await loadPendingApprovals()
+      }
+      setPendingDecision(null)
+      setReason('')
+    } catch {
+      setLoadError('审批提交失败')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
     <div className="space-y-4">
       <Card>
+        <CardHeader>
+          <CardTitle>待审批列表</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {loadError ? <div className="rounded-md border border-destructive/40 p-3 text-body">{loadError}</div> : null}
+          {pendingApprovals.length === 0 ? (
+            <p className="text-body text-muted-foreground">当前没有待处理审批</p>
+          ) : (
+            pendingApprovals.map((approval) => (
+              <button
+                key={approval.id}
+                type="button"
+                className={`w-full rounded-md border p-3 text-left text-body transition-colors ${
+                  activeApproval?.id === approval.id ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/40'
+                }`}
+                onClick={() => setSelectedApprovalId(approval.id)}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-semibold">run {approval.run_id.slice(0, 8)}</span>
+                  <Badge variant={riskVariant(approval.risk_level)}>{approval.risk_level}</Badge>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2 text-label text-muted-foreground">
+                  <span>{approval.risk_rule_ref ?? 'rule n/a'}</span>
+                  <span>{new Date(approval.created_at).toLocaleString()}</span>
+                  <span>{approval.id}</span>
+                </div>
+              </button>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-3">
           <CardTitle>审批操作</CardTitle>
-          <Badge variant={riskVariant(riskLevel)}>risk_level: {riskLevel ?? 'unknown'}</Badge>
+          <Badge variant={riskVariant(activeApproval?.risk_level)}>risk_level: {activeApproval?.risk_level ?? 'unknown'}</Badge>
         </CardHeader>
         <CardContent>
           {entries.length > 0 ? (
@@ -104,13 +189,17 @@ export function ApprovalTab({
       </Card>
 
       <div className="grid grid-cols-2 gap-3">
-        <Button className="min-h-11" disabled={submitting || status !== 'waiting_approval'} onClick={() => setPendingDecision('approve')}>
+        <Button
+          className="min-h-11"
+          disabled={submitting || !activeApproval || activeApproval.status !== 'pending'}
+          onClick={() => setPendingDecision('approve')}
+        >
           批准
         </Button>
         <Button
           className="min-h-11"
           variant="destructive"
-          disabled={submitting || status !== 'waiting_approval'}
+          disabled={submitting || !activeApproval || activeApproval.status !== 'pending'}
           onClick={() => setPendingDecision('reject')}
         >
           驳回

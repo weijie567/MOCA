@@ -65,52 +65,70 @@ export function useAgentRun() {
   }, [])
 
   const recoverRunStatus = useCallback(async (runId: string) => {
-    const result = await getRunStatus(runId)
-    if (!result.success) {
+    try {
+      const result = await getRunStatus(runId)
+      if (!result.success) {
+        setState((current) => ({
+          ...current,
+          status: 'failed',
+          error: result.error?.message ?? '无法恢复执行状态',
+        }))
+        return
+      }
+
+      const recoveredStatus = normalizeStatus(result.data.final_status)
+      setState((current) => ({
+        ...current,
+        status: recoveredStatus,
+        finalResponse: result.data.final_response ?? current.finalResponse,
+        error: recoveredStatus === 'failed' ? '执行遇到问题，请重试。如问题持续，请联系管理员' : null,
+      }))
+    } catch {
       setState((current) => ({
         ...current,
         status: 'failed',
-        error: result.error?.message ?? '无法恢复执行状态',
+        error: '连接中断，状态恢复失败',
       }))
-      return
     }
-
-    const recoveredStatus = normalizeStatus(result.data.final_status)
-    setState((current) => ({
-      ...current,
-      status: recoveredStatus,
-      finalResponse: result.data.final_response ?? current.finalResponse,
-      error: recoveredStatus === 'failed' ? '执行遇到问题，请重试。如问题持续，请联系管理员' : null,
-    }))
   }, [])
 
   const startPolling = useCallback(
     (runId: string) => {
       clearPolling()
       pollTimerRef.current = window.setInterval(() => {
-        void getRunStatus(runId).then((result) => {
-          if (!result.success) {
+        void (async () => {
+          try {
+            const result = await getRunStatus(runId)
+            if (!result.success) {
+              setState((current) => ({
+                ...current,
+                status: 'failed',
+                error: result.error?.message ?? '无法获取审批后的执行状态',
+              }))
+              clearPolling()
+              return
+            }
+
+            const nextStatus = normalizeStatus(result.data.final_status)
+            setState((current) => ({
+              ...current,
+              status: nextStatus,
+              finalResponse: result.data.final_response ?? current.finalResponse,
+              error: nextStatus === 'failed' ? '执行遇到问题，请重试。如问题持续，请联系管理员' : null,
+            }))
+
+            if (TERMINAL_STATUSES.has(nextStatus)) {
+              clearPolling()
+            }
+          } catch {
             setState((current) => ({
               ...current,
               status: 'failed',
-              error: result.error?.message ?? '无法获取审批后的执行状态',
+              error: '连接中断，状态恢复失败',
             }))
             clearPolling()
-            return
           }
-
-          const nextStatus = normalizeStatus(result.data.final_status)
-          setState((current) => ({
-            ...current,
-            status: nextStatus,
-            finalResponse: result.data.final_response ?? current.finalResponse,
-            error: nextStatus === 'failed' ? '执行遇到问题，请重试。如问题持续，请联系管理员' : null,
-          }))
-
-          if (TERMINAL_STATUSES.has(nextStatus)) {
-            clearPolling()
-          }
-        })
+        })()
       }, 2000)
     },
     [clearPolling],
@@ -172,45 +190,38 @@ export function useAgentRun() {
         status: 'running',
       })
 
-      const result = await createRun(trimmedQuery, createThreadId())
-      if (!result.success) {
+      try {
+        const result = await createRun(trimmedQuery, createThreadId())
+        if (!result.success) {
+          setState((current) => ({
+            ...current,
+            status: 'failed',
+            error: result.error?.message ?? '执行遇到问题，请重试。如问题持续，请联系管理员',
+          }))
+          return
+        }
+
+        setState((current) => ({
+          ...current,
+          runId: result.data.run_id,
+          status: normalizeStatus(result.data.status),
+        }))
+        attachStream(result.data.run_id)
+      } catch {
         setState((current) => ({
           ...current,
           status: 'failed',
-          error: result.error?.message ?? '执行遇到问题，请重试。如问题持续，请联系管理员',
+          error: '执行遇到问题，请重试。如问题持续，请联系管理员',
         }))
-        return
       }
-
-      setState((current) => ({
-        ...current,
-        runId: result.data.run_id,
-        status: normalizeStatus(result.data.status),
-      }))
-      attachStream(result.data.run_id)
     },
     [attachStream, clearPolling, stopStream],
   )
 
   const approveRun = useCallback(async () => {
     if (!state.approvalId || !state.runId) return
-    const result = await decideApproval(state.approvalId, 'approve', 'Approved from MOCA demo console')
-    if (!result.success) {
-      setState((current) => ({
-        ...current,
-        status: 'failed',
-        error: result.error?.message ?? '审批提交失败',
-      }))
-      return
-    }
-    setState((current) => ({ ...current, status: 'running', error: null }))
-    startPolling(state.runId)
-  }, [startPolling, state.approvalId, state.runId])
-
-  const rejectRun = useCallback(
-    async (reason: string) => {
-      if (!state.approvalId || !state.runId) return
-      const result = await decideApproval(state.approvalId, 'reject', reason)
+    try {
+      const result = await decideApproval(state.approvalId, 'approve', 'Approved from MOCA demo console')
       if (!result.success) {
         setState((current) => ({
           ...current,
@@ -219,8 +230,39 @@ export function useAgentRun() {
         }))
         return
       }
-      setState((current) => ({ ...current, status: 'rejected', error: reason }))
+      setState((current) => ({ ...current, status: 'running', error: null }))
       startPolling(state.runId)
+    } catch {
+      setState((current) => ({
+        ...current,
+        status: 'failed',
+        error: '审批提交失败',
+      }))
+    }
+  }, [startPolling, state.approvalId, state.runId])
+
+  const rejectRun = useCallback(
+    async (reason: string) => {
+      if (!state.approvalId || !state.runId) return
+      try {
+        const result = await decideApproval(state.approvalId, 'reject', reason)
+        if (!result.success) {
+          setState((current) => ({
+            ...current,
+            status: 'failed',
+            error: result.error?.message ?? '审批提交失败',
+          }))
+          return
+        }
+        setState((current) => ({ ...current, status: 'rejected', error: reason }))
+        startPolling(state.runId)
+      } catch {
+        setState((current) => ({
+          ...current,
+          status: 'failed',
+          error: '审批提交失败',
+        }))
+      }
     },
     [startPolling, state.approvalId, state.runId],
   )

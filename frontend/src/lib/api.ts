@@ -2,13 +2,25 @@ const API_BASE = '/api/v1'
 
 let authToken: string | null = null
 
-export interface ApiResult<T> {
-  success: boolean
-  data: T
-  error?: {
-    code: string
-    message: string
-  }
+export type ApiResult<T> =
+  | { success: true; data: T; error?: undefined }
+  | { success: false; data: null; error: { code: string; message: string } }
+
+export interface ApprovalRecord {
+  id: string
+  run_id: string
+  status: string
+  requested_by: string
+  proposed_action: Record<string, unknown>
+  risk_level: string
+  risk_rule_ref: string | null
+  risk_reason: string | null
+  decision: string | null
+  reason: string | null
+  decided_by: string | null
+  decided_at: string | null
+  expires_at: string
+  created_at: string
 }
 
 export function setAuthToken(token: string | null) {
@@ -35,8 +47,40 @@ export async function apiFetch<T = unknown>(
     headers.Authorization = `Bearer ${authToken}`
   }
 
-  const response = await fetch(apiUrl(path), { ...options, headers })
-  return response.json() as Promise<ApiResult<T>>
+  try {
+    const response = await fetch(apiUrl(path), { ...options, headers })
+    const body = await response.json().catch(() => null)
+
+    if (!response.ok) {
+      return {
+        success: false,
+        data: null,
+        error: body?.error ?? {
+          code: `HTTP_${response.status}`,
+          message: response.statusText || 'Request failed',
+        },
+      }
+    }
+
+    if (!body || body.success !== true) {
+      return {
+        success: false,
+        data: null,
+        error: body?.error ?? { code: 'INVALID_RESPONSE', message: 'Invalid API response' },
+      }
+    }
+
+    return body as ApiResult<T>
+  } catch (error) {
+    return {
+      success: false,
+      data: null,
+      error: {
+        code: 'NETWORK_ERROR',
+        message: error instanceof Error ? error.message : 'Network error',
+      },
+    }
+  }
 }
 
 export async function createRun(query: string, threadId: string) {
@@ -73,6 +117,10 @@ export async function decideApproval(
     method: 'POST',
     body: JSON.stringify({ decision, reason }),
   })
+}
+
+export async function getPendingApprovals() {
+  return apiFetch<{ approvals: ApprovalRecord[]; total: number }>('/approvals')
 }
 
 export async function getDemoToken(username: string) {
