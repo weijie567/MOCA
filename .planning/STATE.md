@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: unknown
-last_updated: "2026-05-17T08:06:30.885Z"
+status: human_needed
+last_updated: "2026-05-17T10:59:30.000Z"
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 28
-  completed_plans: 24
-  percent: 86
+  total_plans: 32
+  completed_plans: 32
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -24,8 +24,8 @@ See: .planning/PROJECT.md (updated 2026-05-17)
 ## Current Status
 
 - **Active phase:** 5
-- **Phase status:** Phase 4 complete and verified. Ready to plan Phase 5 frontend and SSE work.
-- **Blockers:** None
+- **Phase status:** Phase 5 gap closure execution complete. Automated verification passed; browser/compose human UAT is pending in `05-HUMAN-UAT.md`.
+- **Blockers:** Human UAT required before marking Phase 5 complete.
 
 ## Phase History
 
@@ -63,6 +63,7 @@ See: .planning/PROJECT.md (updated 2026-05-17)
 
 ## Session Notes
 
+- 2026-05-17: Executed Phase 5 gap closure plans 05-05 through 05-08. Closed duplicate SSE execution with a pending-run claim guard, fixed demo JWT role mapping and compose proxy routing, added pending approvals UI and API failure recovery, cleared frontend lint blockers, and recorded `05-REVIEW-FIX.md`. Verification: `uv run pytest -q --tb=short` 169 passed, `uv run ruff check src tests` passed, `npm run lint` passed, `npm run build` passed, `docker compose config --quiet` passed. `05-VERIFICATION.md` is `human_needed` with 3 browser/compose UAT items pending.
 - 2026-05-16: Added Phase 4 planning prerequisite for live agent latency diagnosis. Phase 3 UAT passed functionally, but live Swagger calls took roughly 90-200 seconds; Phase 4 planning must first instrument per-node latency and diagnose slow nodes/retries/provider latency before choosing optimization strategies.
 - 2026-05-16: Executed Phase 4 Plan 03. Added approval_gate interrupt/resume node, execute_action node, create_coupon_grant_draft tool, approval outcome final responses, conditional graph routing, and 19 focused approval workflow tests. Verification: approval tests 14 passed, agent tests 43 passed, ruff passed, and graph compile passed.
 - 2026-05-16: Executed Phase 4 Plan 05. Added TraceRepository, GET /api/v1/agent-runs/{run_id}/trace, sanitized trace response schema, and 7 trace API tests. Verification: trace API tests 7 passed and ruff passed.
@@ -106,7 +107,7 @@ See: .planning/PROJECT.md (updated 2026-05-17)
 - Plan 03-04: Graph invocation failures still attempt to persist an AgentRun error row, but trace persistence failures are rolled back and never exposed to the caller.
 - Plan 03-04: A narrow OAuth2 model scopes alias preserves compatibility with the plan verification while keeping FastAPI's canonical password-flow scopes intact.
 
-**Planned Phase:** 5 (Frontend & SSE) — 4 plans — 2026-05-17T08:02:07.068Z
+**Planned Phase:** 05 (Frontend & SSE) — 8 plans — 2026-05-17T10:06:40.853Z
 
 - Plan 03-05 tests patch node-local _get_llm factories rather than constructing real ChatOpenAI clients, preserving CI isolation from live LLM APIs.
 - Plan 03-05 graph integration tests use MemorySaver and node-imported tool monkeypatches so the compiled graph is exercised without Postgres or external embeddings.
