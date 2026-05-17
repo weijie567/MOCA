@@ -21,6 +21,7 @@ dependencies = [
   "langchain-openai>=0.3",
   "langchain-core>=0.3",
   "psycopg[binary,pool]>=3.1",
+  "sse-starlette>=1.6",
 ]
 
 [project.optional-dependencies]
