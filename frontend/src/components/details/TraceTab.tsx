@@ -27,20 +27,25 @@ export function TraceTab({ runId }: TraceTabProps) {
 
   useEffect(() => {
     if (!runId) {
-      setSteps([])
       return
     }
 
     let cancelled = false
-    void getRunTrace(runId).then((result) => {
-      if (cancelled) return
-      if (!result.success) {
-        setError(result.error?.message ?? 'Trace 加载失败')
-        return
-      }
-      setSteps((result.data.steps ?? []) as TraceStep[])
-      setError(null)
-    })
+    void getRunTrace(runId)
+      .then((result) => {
+        if (cancelled) return
+        if (!result.success) {
+          setError(result.error?.message ?? 'Trace 加载失败')
+          return
+        }
+        setSteps((result.data.steps ?? []) as TraceStep[])
+        setError(null)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError('Trace 加载失败')
+        }
+      })
 
     return () => {
       cancelled = true

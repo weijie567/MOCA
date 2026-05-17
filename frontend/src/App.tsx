@@ -15,13 +15,17 @@ function App() {
 
   useEffect(() => {
     let cancelled = false
-    setAuthToken(null)
-    setAuthReady(false)
-    setAuthError(null)
 
-    void getDemoToken(username)
+    void Promise.resolve()
+      .then(() => {
+        if (cancelled) return null
+        setAuthToken(null)
+        setAuthReady(false)
+        setAuthError(null)
+        return getDemoToken(username)
+      })
       .then((result) => {
-        if (cancelled) return
+        if (cancelled || !result) return
         if (result.success) {
           setAuthToken(result.data.access_token)
           setAuthReady(true)

@@ -32,20 +32,25 @@ export function EvidenceTab({ runId }: EvidenceTabProps) {
 
   useEffect(() => {
     if (!runId) {
-      setEvidence([])
       return
     }
 
     let cancelled = false
-    void getRunEvidence(runId).then((result) => {
-      if (cancelled) return
-      if (!result.success) {
-        setError(result.error?.message ?? '证据加载失败')
-        return
-      }
-      setEvidence(result.data.evidence as EvidenceItem[])
-      setError(null)
-    })
+    void getRunEvidence(runId)
+      .then((result) => {
+        if (cancelled) return
+        if (!result.success) {
+          setError(result.error?.message ?? '证据加载失败')
+          return
+        }
+        setEvidence(result.data.evidence as EvidenceItem[])
+        setError(null)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError('证据加载失败')
+        }
+      })
 
     return () => {
       cancelled = true
