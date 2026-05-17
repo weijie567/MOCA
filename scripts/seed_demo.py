@@ -10,7 +10,12 @@ from sqlalchemy import delete, select
 
 from src.auth.jwt import hash_password
 from src.db.models import (
+    ActionDraft,
     AuditLog,
+    AgentRun,
+    AgentStep,
+    ApprovalRequest,
+    ApprovalStep,
     Merchant,
     Order,
     PolicyChunk,
@@ -35,6 +40,17 @@ def deterministic_id(entity_type: str, key: str) -> uuid.UUID:
 async def reset_demo_data(session) -> None:
     tenant_ids = [deterministic_id("tenant", "demo"), deterministic_id("tenant", "other")]
     user_ids = list((await session.execute(select(User.id).where(User.tenant_id.in_(tenant_ids)))).scalars().all())
+    run_ids = list((await session.execute(select(AgentRun.id).where(AgentRun.tenant_id.in_(tenant_ids)))).scalars().all())
+    approval_ids = list(
+        (await session.execute(select(ApprovalRequest.id).where(ApprovalRequest.tenant_id.in_(tenant_ids)))).scalars().all()
+    )
+    if approval_ids:
+        await session.execute(delete(ApprovalStep).where(ApprovalStep.approval_request_id.in_(approval_ids)))
+    await session.execute(delete(ActionDraft).where(ActionDraft.tenant_id.in_(tenant_ids)))
+    await session.execute(delete(ApprovalRequest).where(ApprovalRequest.tenant_id.in_(tenant_ids)))
+    if run_ids:
+        await session.execute(delete(AgentStep).where(AgentStep.run_id.in_(run_ids)))
+    await session.execute(delete(AgentRun).where(AgentRun.tenant_id.in_(tenant_ids)))
     await session.execute(delete(AuditLog).where(AuditLog.tenant_id.in_(tenant_ids)))
     await session.execute(delete(PolicyChunk).where(PolicyChunk.tenant_id.in_(tenant_ids)))
     await session.execute(delete(PolicyDocument).where(PolicyDocument.tenant_id.in_(tenant_ids)))
