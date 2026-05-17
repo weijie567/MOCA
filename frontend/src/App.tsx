@@ -1,121 +1,39 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useAuth } from '@/hooks/useAuth'
 
 function App() {
-  const [count, setCount] = useState(0)
-
+  const { role, switchRole } = useAuth()
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
+    <main className="min-h-screen bg-background text-foreground">
+      <header className="flex h-12 items-center justify-between border-b border-border px-4">
+        <div className="text-heading font-semibold">MOCA Agent Console</div>
+        <label className="flex items-center gap-2 text-label text-muted-foreground">
+          Demo Mode
+          <select
+            className="h-8 rounded-md border border-border bg-card px-2 text-body text-foreground"
+            value={role}
+            onChange={(event) => switchRole(event.target.value)}
+          >
+            <option value="support_agent">support_agent</option>
+            <option value="manager">manager</option>
+            <option value="admin">admin</option>
+          </select>
+        </label>
+      </header>
+      <section className="grid min-h-[calc(100vh-3rem)] grid-cols-1 border-border lg:grid-cols-[30fr_35fr_35fr]">
+        <div className="border-b border-border p-4 lg:border-b-0 lg:border-r">
+          <h1 className="text-display font-semibold">Chat</h1>
+          <p className="mt-2 text-body text-muted-foreground">开始一个退款咨询</p>
         </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
+        <div className="border-b border-border p-4 lg:border-b-0 lg:border-r">
+          <h2 className="text-heading font-semibold">Agent Timeline</h2>
+          <p className="mt-2 text-body text-muted-foreground">等待提交问题后开始执行</p>
         </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
+        <div className="p-4">
+          <h2 className="text-heading font-semibold">Details</h2>
+          <p className="mt-2 text-body text-muted-foreground">Evidence, Approval, Trace</p>
         </div>
       </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+    </main>
   )
 }
 
