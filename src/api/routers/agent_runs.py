@@ -10,6 +10,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Security
+from sqlalchemy import select
 from langgraph.errors import GraphInterrupt
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
@@ -108,9 +109,7 @@ async def stream_agent_run_events(
 ) -> EventSourceResponse:
     """Execute a pending run and stream node-level status events."""
     run_uuid = _parse_run_id(run_id)
-    repo = TraceRepository(session)
-    run = await repo.get_run(run_uuid, user.tenant_id)
-    _ensure_can_view_run(run, user=user)
+    run = await _claim_pending_run_for_stream(session, run_uuid, user)
 
     graph = request.app.state.agent_graph
     input_state = {
@@ -167,7 +166,6 @@ async def _event_generator(
     trace_steps: list[dict[str, Any]] = []
     final_state: dict[str, Any] = {}
 
-    await _mark_run_running(session, run)
     yield _sse_event(
         event_type="run_started",
         run_id=run_id_str,
@@ -318,12 +316,31 @@ async def _handle_approval_required(
     )
 
 
-async def _mark_run_running(session: AsyncSession, run: AgentRun) -> None:
+async def _claim_pending_run_for_stream(session: AsyncSession, run_id: UUID, user: User) -> AgentRun:
+    result = await session.execute(
+        select(AgentRun)
+        .where(AgentRun.id == run_id, AgentRun.tenant_id == user.tenant_id)
+        .with_for_update()
+    )
+    run = result.scalar_one_or_none()
+    _ensure_can_view_run(run, user=user)
+    if run.final_status != "pending":
+        await session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "RUN_ALREADY_STARTED",
+                "message": "Run event stream has already been started",
+            },
+        )
+
     try:
         run.final_status = "running"
         await session.commit()
+        return run
     except Exception:
         await session.rollback()
+        raise
 
 
 async def _complete_run(
