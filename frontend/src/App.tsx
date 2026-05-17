@@ -1,13 +1,28 @@
+import { useEffect } from 'react'
 import { AgentTimeline } from '@/components/timeline/AgentTimeline'
 import { ChatPanel } from '@/components/chat/ChatPanel'
 import { DetailsPanel } from '@/components/details/DetailsPanel'
 import { TopBar } from '@/components/layout/TopBar'
 import { useAgentRun } from '@/hooks/useAgentRun'
 import { useAuth } from '@/hooks/useAuth'
+import { getDemoToken, setAuthToken } from '@/lib/api'
 
 function App() {
-  const { role, switchRole } = useAuth()
+  const { role, username, switchRole } = useAuth()
   const { state, submitQuery, approveRun, rejectRun } = useAgentRun()
+
+  useEffect(() => {
+    let cancelled = false
+    void getDemoToken(username).then((result) => {
+      if (!cancelled && result.success) {
+        setAuthToken(result.data.access_token)
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [username])
 
   return (
     <main className="flex min-h-screen flex-col bg-background text-foreground">
