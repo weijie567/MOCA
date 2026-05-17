@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
@@ -240,6 +241,9 @@ async def _event_generator(
             message="已完成",
             payload={"final_response": final_response},
         )
+    except asyncio.CancelledError as exc:
+        await _mark_run_error(session=session, run=run, exc=exc, t0=t0)
+        raise
     except Exception as exc:
         if _is_graph_interrupt(exc):
             async for event in _handle_approval_required(
@@ -366,13 +370,13 @@ async def _complete_run(
         await session.rollback()
 
 
-async def _mark_run_error(*, session: AsyncSession, run: AgentRun, exc: Exception, t0: float) -> None:
+async def _mark_run_error(*, session: AsyncSession, run: AgentRun, exc: BaseException, t0: float) -> None:
     try:
         run.final_status = "error"
         run.final_response = None
         run.completed_at = datetime.now(timezone.utc)
         run.total_latency_ms = round((time.perf_counter() - t0) * 1000)
-        run.error_summary = str(exc)[:500]
+        run.error_summary = (str(exc) or type(exc).__name__)[:500]
         await session.commit()
     except Exception:
         await session.rollback()

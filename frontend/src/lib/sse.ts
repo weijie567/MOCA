@@ -16,6 +16,7 @@ export function connectToRunEvents(runId: string, callbacks: SseCallbacks): Abor
     method: 'GET',
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     signal: controller.signal,
+    openWhenHidden: true,
     onmessage(message) {
       if (!message.data) return
       try {

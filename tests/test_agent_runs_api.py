@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -9,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.trace import write_agent_run
 from src.api.main import app
+from src.api.routers.agent_runs import _event_generator
 from src.auth.jwt import create_access_token
 from src.db.models import AgentRun, User
 
@@ -20,6 +22,12 @@ class NeverCalledGraph:
     async def astream(self, input_state, config, stream_mode):
         self.calls.append((input_state, config))
         raise AssertionError("graph.astream must not be called")
+        yield
+
+
+class CancelledGraph:
+    async def astream(self, input_state, config, stream_mode):
+        raise asyncio.CancelledError("client disconnected")
         yield
 
 
@@ -128,3 +136,32 @@ async def test_events_rejects_cross_tenant_run_before_claim(
     assert graph.calls == []
     await session.refresh(run)
     assert run.final_status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_event_generator_marks_run_error_when_stream_is_cancelled(
+    session: AsyncSession,
+    seeded_session,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.commit()
+
+    generator = _event_generator(
+        CancelledGraph(),
+        {"user_query": run.input_query},
+        {"configurable": {"thread_id": run.thread_id, "session": session}},
+        run=run,
+        session=session,
+        user=user,
+    )
+
+    first_event = await anext(generator)
+    assert '"event_type": "run_started"' in first_event["data"]
+    with pytest.raises(asyncio.CancelledError):
+        await anext(generator)
+
+    await session.refresh(run)
+    assert run.final_status == "error"
+    assert run.completed_at is not None
+    assert run.error_summary == "client disconnected"
