@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-05-17T05:08:45.385Z"
+last_updated: "2026-05-17T08:06:30.885Z"
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 24
+  total_plans: 28
   completed_plans: 24
-  percent: 100
+  percent: 86
 ---
 
 # Project State: MOCA
@@ -19,7 +19,7 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-17)
 
 **Core value:** When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution.
-**Current focus:** Phase 05 — frontend-&-sse planning
+**Current focus:** Phase 05 — frontend-sse
 
 ## Current Status
 
@@ -106,7 +106,7 @@ See: .planning/PROJECT.md (updated 2026-05-17)
 - Plan 03-04: Graph invocation failures still attempt to persist an AgentRun error row, but trace persistence failures are rolled back and never exposed to the caller.
 - Plan 03-04: A narrow OAuth2 model scopes alias preserves compatibility with the plan verification while keeping FastAPI's canonical password-flow scopes intact.
 
-**Planned Phase:** 4 (approval-workflow-audit) — 6 plans — 2026-05-16T06:54:59.757Z
+**Planned Phase:** 5 (Frontend & SSE) — 4 plans — 2026-05-17T08:02:07.068Z
 
 - Plan 03-05 tests patch node-local _get_llm factories rather than constructing real ChatOpenAI clients, preserving CI isolation from live LLM APIs.
 - Plan 03-05 graph integration tests use MemorySaver and node-imported tool monkeypatches so the compiled graph is exercised without Postgres or external embeddings.
