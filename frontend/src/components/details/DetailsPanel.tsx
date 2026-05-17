@@ -1,0 +1,115 @@
+import { useEffect, useMemo, useState } from 'react'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent } from '@/components/ui/card'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import type { SseEvent } from '@/types/events'
+import { ApprovalTab } from './ApprovalTab'
+import { EvidenceTab } from './EvidenceTab'
+import { TraceTab } from './TraceTab'
+
+type DetailsTab = 'evidence' | 'approval' | 'trace' | 'run'
+
+interface DetailsPanelProps {
+  runId: string | null
+  approvalId: string | null
+  status: string
+  steps?: SseEvent[]
+  approveRun?: () => void | Promise<void>
+  rejectRun?: (reason: string) => void | Promise<void>
+}
+
+function statusVariant(status: string) {
+  if (status === 'completed') return 'success'
+  if (status === 'waiting_approval' || status === 'interrupted' || status === 'degraded') return 'warning'
+  if (status === 'failed' || status === 'error' || status === 'rejected') return 'destructive'
+  if (status === 'idle') return 'secondary'
+  return 'default'
+}
+
+export function DetailsPanel({
+  runId,
+  approvalId,
+  status,
+  steps = [],
+  approveRun,
+  rejectRun,
+}: DetailsPanelProps) {
+  const [activeTab, setActiveTab] = useState<DetailsTab>('evidence')
+
+  useEffect(() => {
+    if (status === 'waiting_approval') {
+      setActiveTab('approval')
+    }
+  }, [status])
+
+  const approvalEvent = useMemo(
+    () => [...steps].reverse().find((step) => step.event_type === 'approval_required'),
+    [steps],
+  )
+
+  return (
+    <section className="flex min-h-0 flex-col bg-background">
+      <div className="border-b border-border px-4 py-3">
+        <h2 className="text-heading font-semibold">Details</h2>
+        <p className="mt-1 text-label text-muted-foreground">Evidence / Approval / Trace / Run Info</p>
+      </div>
+
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as DetailsTab)} className="flex min-h-0 flex-1 flex-col">
+        <TabsList>
+          <TabsTrigger value="evidence" activeValue={activeTab} onValueChange={(value) => setActiveTab(value as DetailsTab)}>
+            Evidence
+          </TabsTrigger>
+          <TabsTrigger value="approval" activeValue={activeTab} onValueChange={(value) => setActiveTab(value as DetailsTab)}>
+            Approval
+          </TabsTrigger>
+          <TabsTrigger value="trace" activeValue={activeTab} onValueChange={(value) => setActiveTab(value as DetailsTab)}>
+            Trace
+          </TabsTrigger>
+          <TabsTrigger value="run" activeValue={activeTab} onValueChange={(value) => setActiveTab(value as DetailsTab)}>
+            Run Info
+          </TabsTrigger>
+        </TabsList>
+
+        <ScrollArea className="flex-1 p-4">
+          <TabsContent value="evidence" activeValue={activeTab}>
+            <EvidenceTab runId={runId} />
+          </TabsContent>
+          <TabsContent value="approval" activeValue={activeTab}>
+            <ApprovalTab
+              approvalId={approvalId}
+              proposedAction={approvalEvent?.payload?.proposed_action ?? null}
+              riskLevel={approvalEvent?.payload?.risk_level ?? null}
+              status={status}
+              onApprove={approveRun}
+              onReject={rejectRun}
+            />
+          </TabsContent>
+          <TabsContent value="trace" activeValue={activeTab}>
+            <TraceTab runId={runId} />
+          </TabsContent>
+          <TabsContent value="run" activeValue={activeTab}>
+            <Card>
+              <CardContent className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-label text-muted-foreground">status</span>
+                  <Badge variant={statusVariant(status)}>{status}</Badge>
+                </div>
+                <div className="grid grid-cols-[88px_1fr] gap-3 text-body">
+                  <span className="text-muted-foreground">run_id</span>
+                  <span className="min-w-0 break-all">{runId ?? '-'}</span>
+                  <span className="text-muted-foreground">approval</span>
+                  <span className="min-w-0 break-all">{approvalId ?? '-'}</span>
+                  <span className="text-muted-foreground">events</span>
+                  <span>{steps.length}</span>
+                  <span className="text-muted-foreground">mode</span>
+                  <Badge variant="warning">演示模式</Badge>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </ScrollArea>
+      </Tabs>
+    </section>
+  )
+}
