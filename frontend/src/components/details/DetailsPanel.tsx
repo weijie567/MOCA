@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -36,12 +36,7 @@ export function DetailsPanel({
   rejectRun,
 }: DetailsPanelProps) {
   const [activeTab, setActiveTab] = useState<DetailsTab>('evidence')
-
-  useEffect(() => {
-    if (status === 'waiting_approval') {
-      setActiveTab('approval')
-    }
-  }, [status])
+  const selectedTab = status === 'waiting_approval' ? 'approval' : activeTab
 
   const approvalEvent = useMemo(
     () => [...steps].reverse().find((step) => step.event_type === 'approval_required'),
@@ -55,27 +50,27 @@ export function DetailsPanel({
         <p className="mt-1 text-label text-muted-foreground">Evidence / Approval / Trace / Run Info</p>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as DetailsTab)} className="flex min-h-0 flex-1 flex-col">
+      <Tabs value={selectedTab} onValueChange={(value) => setActiveTab(value as DetailsTab)} className="flex min-h-0 flex-1 flex-col">
         <TabsList>
-          <TabsTrigger value="evidence" activeValue={activeTab} onValueChange={(value) => setActiveTab(value as DetailsTab)}>
+          <TabsTrigger value="evidence" activeValue={selectedTab} onValueChange={(value) => setActiveTab(value as DetailsTab)}>
             Evidence
           </TabsTrigger>
-          <TabsTrigger value="approval" activeValue={activeTab} onValueChange={(value) => setActiveTab(value as DetailsTab)}>
+          <TabsTrigger value="approval" activeValue={selectedTab} onValueChange={(value) => setActiveTab(value as DetailsTab)}>
             Approval
           </TabsTrigger>
-          <TabsTrigger value="trace" activeValue={activeTab} onValueChange={(value) => setActiveTab(value as DetailsTab)}>
+          <TabsTrigger value="trace" activeValue={selectedTab} onValueChange={(value) => setActiveTab(value as DetailsTab)}>
             Trace
           </TabsTrigger>
-          <TabsTrigger value="run" activeValue={activeTab} onValueChange={(value) => setActiveTab(value as DetailsTab)}>
+          <TabsTrigger value="run" activeValue={selectedTab} onValueChange={(value) => setActiveTab(value as DetailsTab)}>
             Run Info
           </TabsTrigger>
         </TabsList>
 
         <ScrollArea className="flex-1 p-4">
-          <TabsContent value="evidence" activeValue={activeTab}>
+          <TabsContent value="evidence" activeValue={selectedTab}>
             <EvidenceTab runId={runId} />
           </TabsContent>
-          <TabsContent value="approval" activeValue={activeTab}>
+          <TabsContent value="approval" activeValue={selectedTab}>
             <ApprovalTab
               approvalId={approvalId}
               proposedAction={approvalEvent?.payload?.proposed_action ?? null}
@@ -85,10 +80,10 @@ export function DetailsPanel({
               onReject={rejectRun}
             />
           </TabsContent>
-          <TabsContent value="trace" activeValue={activeTab}>
+          <TabsContent value="trace" activeValue={selectedTab}>
             <TraceTab runId={runId} />
           </TabsContent>
-          <TabsContent value="run" activeValue={activeTab}>
+          <TabsContent value="run" activeValue={selectedTab}>
             <Card>
               <CardContent className="space-y-3">
                 <div className="flex items-center justify-between gap-3">

@@ -5,15 +5,16 @@ import { Textarea } from '@/components/ui/textarea'
 
 interface ChatInputProps {
   disabled: boolean
+  authReady: boolean
   onSubmit: (query: string) => void | Promise<void>
 }
 
-export function ChatInput({ disabled, onSubmit }: ChatInputProps) {
+export function ChatInput({ disabled, authReady, onSubmit }: ChatInputProps) {
   const [query, setQuery] = useState('')
 
   function submit() {
     const trimmed = query.trim()
-    if (!trimmed || disabled) return
+    if (!trimmed || disabled || !authReady) return
     void onSubmit(trimmed)
     setQuery('')
   }
@@ -28,7 +29,7 @@ export function ChatInput({ disabled, onSubmit }: ChatInputProps) {
     >
       <Textarea
         value={query}
-        disabled={disabled}
+        disabled={disabled || !authReady}
         placeholder="请给 ORD-2024-001 补偿 600 元"
         rows={3}
         className="max-h-40"
@@ -41,7 +42,7 @@ export function ChatInput({ disabled, onSubmit }: ChatInputProps) {
         }}
       />
       <div className="mt-3 flex justify-end">
-        <Button type="submit" disabled={disabled || !query.trim()}>
+        <Button type="submit" disabled={disabled || !authReady || !query.trim()}>
           <SendHorizontal className="mr-2 h-4 w-4" aria-hidden="true" />
           发送问题
         </Button>

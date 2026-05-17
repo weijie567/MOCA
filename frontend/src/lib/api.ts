@@ -19,6 +19,10 @@ export function getAuthToken(): string | null {
   return authToken
 }
 
+export function apiUrl(path: string) {
+  return `${API_BASE}${path}`
+}
+
 export async function apiFetch<T = unknown>(
   path: string,
   options: RequestInit = {},
@@ -31,7 +35,7 @@ export async function apiFetch<T = unknown>(
     headers.Authorization = `Bearer ${authToken}`
   }
 
-  const response = await fetch(`${API_BASE}${path}`, { ...options, headers })
+  const response = await fetch(apiUrl(path), { ...options, headers })
   return response.json() as Promise<ApiResult<T>>
 }
 

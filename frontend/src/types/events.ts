@@ -12,14 +12,11 @@ export type RunStatus =
 
 export type SseEventType =
   | 'run_started'
-  | 'node_started'
-  | 'node_completed'
-  | 'tool_called'
-  | 'evidence_retrieved'
-  | 'approval_required'
+  | 'step_started'
+  | 'step_completed'
   | 'final_response'
-  | 'run_completed'
-  | 'run_failed'
+  | 'approval_required'
+  | 'error'
 
 export interface SseEventPayload {
   evidence_count?: number

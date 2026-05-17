@@ -6,7 +6,9 @@ interface TabsProps extends React.HTMLAttributes<HTMLDivElement> {
   onValueChange: (value: string) => void
 }
 
-export function Tabs({ value: _value, onValueChange: _onValueChange, ...props }: TabsProps) {
+export function Tabs({ value, onValueChange, ...props }: TabsProps) {
+  void value
+  void onValueChange
   return <div {...props} />
 }
 

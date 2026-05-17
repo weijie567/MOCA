@@ -1,5 +1,5 @@
 import { fetchEventSource } from '@microsoft/fetch-event-source'
-import { getAuthToken } from './api'
+import { apiUrl, getAuthToken } from './api'
 import type { SseEvent } from '@/types/events'
 
 export interface SseCallbacks {
@@ -12,7 +12,7 @@ export function connectToRunEvents(runId: string, callbacks: SseCallbacks): Abor
   const controller = new AbortController()
   const token = getAuthToken()
 
-  void fetchEventSource(`/api/v1/agent-runs/${runId}/events`, {
+  void fetchEventSource(apiUrl(`/agent-runs/${runId}/events`), {
     method: 'GET',
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     signal: controller.signal,

@@ -1,12 +1,11 @@
-import { useEffect, useState } from 'react'
-import { setAuthToken } from '@/lib/api'
+import { useState } from 'react'
 
 export type DemoRole = 'support_agent' | 'manager' | 'admin'
 
 const ROLE_USERS: Record<DemoRole, string> = {
-  support_agent: 'demo-agent',
-  manager: 'demo-manager',
-  admin: 'demo-admin',
+  support_agent: 'cs_zhang',
+  manager: 'mgr_li',
+  admin: 'admin_user',
 }
 
 function isDemoRole(value: string): value is DemoRole {
@@ -15,10 +14,6 @@ function isDemoRole(value: string): value is DemoRole {
 
 export function useAuth() {
   const [role, setRole] = useState<DemoRole>('support_agent')
-
-  useEffect(() => {
-    setAuthToken(`demo-token:${ROLE_USERS[role]}`)
-  }, [role])
 
   function switchRole(nextRole: string) {
     if (isDemoRole(nextRole)) {
@@ -29,7 +24,6 @@ export function useAuth() {
   return {
     role,
     username: ROLE_USERS[role],
-    token: `demo-token:${ROLE_USERS[role]}`,
     switchRole,
   }
 }

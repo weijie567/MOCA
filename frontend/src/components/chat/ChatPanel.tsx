@@ -11,13 +11,15 @@ interface ChatPanelState {
 interface ChatPanelProps {
   state: ChatPanelState
   submitQuery: (query: string) => void | Promise<void>
+  authReady: boolean
+  authError: string | null
 }
 
 function inputDisabled(status: string) {
   return status === 'running' || status === 'pending' || status === 'waiting_approval'
 }
 
-export function ChatPanel({ state, submitQuery }: ChatPanelProps) {
+export function ChatPanel({ state, submitQuery, authReady, authError }: ChatPanelProps) {
   const [queries, setQueries] = useState<string[]>([])
 
   async function handleSubmit(query: string) {
@@ -37,7 +39,12 @@ export function ChatPanel({ state, submitQuery }: ChatPanelProps) {
         status={state.status}
         error={state.error}
       />
-      <ChatInput disabled={inputDisabled(state.status)} onSubmit={handleSubmit} />
+      {authError ? (
+        <div className="border-t border-destructive/40 bg-destructive/10 px-4 py-3 text-label text-destructive">
+          {authError}
+        </div>
+      ) : null}
+      <ChatInput disabled={inputDisabled(state.status)} authReady={authReady} onSubmit={handleSubmit} />
     </section>
   )
 }
