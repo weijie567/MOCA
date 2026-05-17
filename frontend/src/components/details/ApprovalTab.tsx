@@ -122,12 +122,14 @@ export function ApprovalTab({
       if (pendingDecision === 'approve') {
         if (activeApproval.id === approvalId && onApprove) {
           await onApprove()
+          await loadPendingApprovals()
         } else {
           await decideApproval(activeApproval.id, 'approve', 'Approved from MOCA demo console')
           await loadPendingApprovals()
         }
       } else if (activeApproval.id === approvalId && onReject) {
         await onReject(reason)
+        await loadPendingApprovals()
       } else {
         await decideApproval(activeApproval.id, 'reject', reason)
         await loadPendingApprovals()

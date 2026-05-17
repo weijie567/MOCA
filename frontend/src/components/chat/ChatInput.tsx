@@ -30,7 +30,7 @@ export function ChatInput({ disabled, authReady, onSubmit }: ChatInputProps) {
       <Textarea
         value={query}
         disabled={disabled || !authReady}
-        placeholder="请给 ORD-2024-001 补偿 600 元"
+        placeholder="输入退款咨询或补偿请求"
         rows={3}
         className="max-h-40"
         onChange={(event) => setQuery(event.target.value)}
