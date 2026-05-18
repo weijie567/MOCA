@@ -1,21 +1,21 @@
 ---
 phase: 05-frontend-sse
-verified: 2026-05-17T10:58:00Z
-status: human_needed
-score: 29/29 automated truths verified
+verified: 2026-05-18T08:03:42Z
+status: passed
+score: 29/29 automated truths verified; 3/3 human UAT passed
 overrides_applied: 0
 human_verification:
-  - "Browser happy path: support agent submits a refund/order question, timeline streams stages, final answer appears, and Evidence/Trace tabs show persisted data."
-  - "Approval flow: support submits a high-risk request, manager/admin sees it in the pending approvals list, approve/reject works on the selected record, and status updates after polling."
-  - "Docker demo stack: docker compose stack serves frontend on port 3000 and frontend /api proxy reaches the API service through VITE_API_URL=http://api:8000."
+  - "PASSED: Browser happy path: support agent submits a refund/order question, timeline streams stages, final answer appears, and Evidence/Trace tabs show persisted data."
+  - "PASSED: Approval flow: support submits a high-risk request, manager/admin sees it in the pending approvals list, approve/reject works on the selected record, and status updates after polling with a terminal timeline state."
+  - "PASSED: Docker demo stack: docker compose stack serves frontend on port 3000 and frontend /api proxy reaches the API service through VITE_API_URL=http://api:8000."
 gaps: []
 ---
 
 # Phase 5: Frontend & SSE Verification Report
 
 **Phase Goal:** Minimal frontend provides a complete demo experience with chat interface, approval operations, and execution step visibility; SSE or polling for progressive updates.
-**Verified:** 2026-05-17T10:58:00Z
-**Status:** human_needed
+**Verified:** 2026-05-18T08:03:42Z
+**Status:** passed
 **Re-verification:** Yes - after gap closure plans 05-05 through 05-08
 
 ## Goal Achievement
@@ -24,8 +24,8 @@ gaps: []
 
 | # | Truth | Status | Evidence |
 |---|---|---|---|
-| 1 | Chat interface submits refund/order questions and displays evidence-cited answers with source attribution | VERIFIED | Demo auth now maps to seeded users and gates submit until a real JWT is installed. `ChatPanel`/`useAgentRun` create runs and stream final responses. Browser UAT remains pending. |
-| 2 | Approval interface shows pending approval requests with approve/reject buttons; actions update in real time | VERIFIED | `ApprovalTab` loads `GET /api/v1/approvals`, renders pending records, tracks `selectedApprovalId`, and decides the selected approval. Browser UAT remains pending. |
+| 1 | Chat interface submits refund/order questions and displays evidence-cited answers with source attribution | VERIFIED | Demo auth now maps to seeded users and gates submit until a real JWT is installed. `ChatPanel`/`useAgentRun` create runs and stream or recover final responses. Browser UAT passed. |
+| 2 | Approval interface shows pending approval requests with approve/reject buttons; actions update in real time | VERIFIED | `ApprovalTab` loads `GET /api/v1/approvals`, renders pending records, tracks `selectedApprovalId`, decides the selected approval, refreshes pending state, and polling shows terminal chat/timeline status. Browser UAT passed. |
 | 3 | Execution step panel shows Agent current stage, tools called, evidence retrieved, and approval status | VERIFIED | Timeline and details tabs render streamed steps, evidence, trace, and approval state. |
 | 4 | SSE or polling endpoint streams progressive status updates | VERIFIED | `/events` streams graph updates and now claims pending runs before streaming, preventing duplicate execution. |
 | 5 | No complex graph node animations; simple status indicators are used | VERIFIED | Timeline uses simple status indicators and no graph animation. |
@@ -47,14 +47,14 @@ gaps: []
 | 21 | Trace tab displays execution steps and error fields | VERIFIED | `TraceTab` calls trace endpoint and renders step/error fields with failure catch path. |
 | 22 | SSE disconnect shows disconnected state and calls recovery API | VERIFIED | `useAgentRun` sets disconnected state, recovers run status, and reports recovery failures visibly. |
 | 23 | docker-compose defines frontend service | VERIFIED | Compose config validates. |
-| 24 | docker-compose up can run complete stack with working frontend-to-api path | AUTOMATED VERIFIED / HUMAN PENDING | `vite.config.ts` consumes `VITE_API_URL`; `docker compose config --quiet` passes. Live stack/browser check remains pending. |
+| 24 | docker-compose up can run complete stack with working frontend-to-api path | VERIFIED | `vite.config.ts` consumes `VITE_API_URL`; compose stack health and browser UAT passed after frontend healthcheck, API env, and Dockerfile rules fixes. |
 | 25 | shadcn/Tailwind dark operational theme foundation exists | VERIFIED | Tailwind config, dark class, UI primitives, and status tokens are present; lint/build pass. |
 | 26 | Run status polling after approval exists | VERIFIED | `startPolling` polls status after approve/reject and handles failures. |
 | 27 | Backend status/evidence/trace links are registered in FastAPI | VERIFIED | Existing route registration remains intact. |
 | 28 | Code review critical correctness finding is resolved or non-blocking | VERIFIED | `05-REVIEW-FIX.md` records fixes for stale review findings. Fresh code review rerun was attempted but blocked by usage limit, which is nonblocking in execute-phase. |
 | 29 | Frontend handles network/non-JSON API failure without stranding state | VERIFIED | `apiFetch` normalizes HTTP, invalid response, and network failures into `ApiResult`; callers surface visible errors. |
 
-**Score:** 29/29 automated truths verified; 3 human UAT items pending.
+**Score:** 29/29 automated truths verified; 3/3 human UAT items passed.
 
 ## Required Artifacts
 
@@ -65,7 +65,7 @@ gaps: []
 | `frontend/src/lib/api.ts` | VERIFIED | Relative API paths, `apiUrl`, normalized `ApiResult`, and pending approvals helper. |
 | `frontend/src/lib/sse.ts` | VERIFIED | Uses shared `apiUrl` and bearer auth. |
 | `frontend/src/hooks/useAuth.ts` | VERIFIED | Seeded demo usernames; no placeholder token installation. |
-| `frontend/src/hooks/useAgentRun.ts` | VERIFIED | Guarded create/recovery/polling/approval flows with visible failure states. |
+| `frontend/src/hooks/useAgentRun.ts` | VERIFIED | Guarded create/recovery/polling/approval flows with visible failure states and recovered terminal timeline events after approval polling. |
 | `frontend/src/components/details/ApprovalTab.tsx` | VERIFIED | Pending approvals list plus selected-record decisions. |
 | `frontend/src/components/details/EvidenceTab.tsx` | VERIFIED | Evidence loader failure catch path. |
 | `frontend/src/components/details/TraceTab.tsx` | VERIFIED | Trace loader failure catch path. |
@@ -87,31 +87,32 @@ gaps: []
 
 | Command | Result |
 |---|---|
-| `uv run pytest tests/test_agent_runs_api.py -q` | PASS - 3 passed, 1 warning |
-| `uv run ruff check src tests` | PASS |
-| `npm run lint` in `frontend/` | PASS |
-| `npm run build` in `frontend/` | PASS |
+| `uv run pytest tests/test_agent_runs_api.py -q` | PASS - focused SSE/agent-run checks passed during gap closure |
+| `uv run ruff check src tests` | PASS - 2026-05-18 final verification |
+| `npm run lint` in `frontend/` | PASS - 2026-05-18 final verification |
+| `npm run build` in `frontend/` | PASS - 2026-05-18 final verification |
 | `docker compose config --quiet` | PASS |
+| `docker compose ps` | PASS - api, frontend, postgres, and redis healthy |
 | `gsd-sdk query verify.schema-drift 05` | PASS - valid, 0 issues |
 | `gsd-sdk query verify.key-links .planning/phases/05-frontend-sse/05-07-PLAN.md` | PASS - 2/2 links verified |
-| `uv run pytest -q --tb=short` | PASS - 169 passed, 1 warning |
+| `uv run pytest -q --tb=short` | PASS - 176 passed, 1 warning |
 
-## Human Verification Required
+## Human Verification
 
 1. **Happy path chat**
-   - Expected: support agent can submit a refund/order question, see streamed timeline stages, final answer, evidence, and trace data.
+   - PASSED: support agent can submit a refund/order question, see streamed timeline stages, final answer, evidence, and trace data.
 
 2. **Approval flow**
-   - Expected: support submits a high-risk request, manager/admin sees the pending approval in the list, approve/reject targets the selected record, and run status updates after polling.
+   - PASSED: support submits a high-risk request, manager/admin sees the pending approval in the list, approve/reject targets the selected record, pending approvals refresh, final response appears, and timeline reaches a terminal state after polling.
 
 3. **Docker demo stack**
-   - Expected: `docker compose up` serves the frontend on `http://localhost:3000`, and frontend `/api` requests route to the API service through the compose network.
+   - PASSED: `docker compose up` serves the frontend on `http://localhost:3000`, and frontend `/api` requests route to the API service through the compose network.
 
 ## Gaps Summary
 
-All previously recorded automated gaps are closed by plans `05-05` through `05-08`. The phase remains `human_needed` until browser and compose UAT are executed.
+All previously recorded automated gaps are closed by plans `05-05` through `05-08`. Browser and compose UAT have passed.
 
 ---
 
-_Verified: 2026-05-17T10:58:00Z_
+_Verified: 2026-05-18T08:03:42Z_
 _Verifier: Codex inline verification after gsd-verifier/code-review subagent usage limits_
