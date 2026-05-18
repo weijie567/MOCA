@@ -1,23 +1,23 @@
 ---
 phase: 05-frontend-sse
-fixed_at: 2026-05-18T08:58:00Z
+fixed_at: 2026-05-18T13:44:31Z
 review_path: .planning/phases/05-frontend-sse/05-REVIEW.md
 iteration: 1
-findings_in_scope: 3
-fixed: 3
+findings_in_scope: 4
+fixed: 4
 skipped: 0
 status: all_fixed
 ---
 
 # Phase 05: Code Review Fix Report
 
-**Fixed at:** 2026-05-18T08:58:00Z
+**Fixed at:** 2026-05-18T13:44:31Z
 **Source review:** .planning/phases/05-frontend-sse/05-REVIEW.md
 **Iteration:** 1
 
 **Summary:**
-- Findings in scope: 3
-- Fixed: 3
+- Findings in scope: 4
+- Fixed: 4
 - Skipped: 0
 
 ## Fixed Issues
@@ -46,8 +46,16 @@ status: all_fixed
 **Applied fix:** `_complete_run()` now re-raises after rollback so the SSE generator reports a persistence failure instead of emitting a successful terminal event; added a regression test for failed step persistence.
 **Verification:** Re-read affected Python sections; parsed both modified files with `uv run python`; ran `uv run pytest tests/test_agent_runs_api.py -q` with 8 passed and 1 warning.
 
+### IN-01: Unused template stylesheet remains in the frontend source
+
+**Status:** fixed
+**Files modified:** `frontend/src/App.css`
+**Commit:** 242b8bd
+**Applied fix:** Deleted the unused Vite/template stylesheet after confirming it was not imported by the frontend entrypoint or console components.
+**Verification:** Searched for `App.css` and template selectors before deletion; ran frontend lint/build after the change.
+
 ---
 
-_Fixed: 2026-05-18T08:58:00Z_
+_Fixed: 2026-05-18T13:44:31Z_
 _Fixer: Claude (gsd-code-fixer)_
 _Iteration: 1_
