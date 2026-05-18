@@ -420,6 +420,7 @@ async def _complete_run(
         await session.commit()
     except Exception:
         await session.rollback()
+        raise
 
 
 async def _mark_run_error(*, session: AsyncSession, run: AgentRun, exc: BaseException, t0: float) -> None:

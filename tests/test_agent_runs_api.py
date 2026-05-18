@@ -327,6 +327,40 @@ async def test_event_generator_synthesizes_final_response_when_stream_ends_witho
 
 
 @pytest.mark.asyncio
+async def test_event_generator_reports_completion_persistence_failure(
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    async def fail_write_agent_steps(*args, **kwargs):
+        raise RuntimeError("step write failed")
+
+    monkeypatch.setattr("src.api.routers.agent_runs.write_agent_steps", fail_write_agent_steps)
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.commit()
+
+    generator = _event_generator(
+        MissingFinalResponseGraph(),
+        {"user_query": run.input_query},
+        {"configurable": {"thread_id": run.thread_id, "session": session}},
+        run=run,
+        session=session,
+        user=user,
+    )
+
+    events = [event async for event in generator]
+
+    await session.refresh(run)
+    assert any("step write failed" in event.get("data", "") for event in events)
+    assert any('"event_type": "error"' in event.get("data", "") for event in events)
+    assert not any('"event_type": "final_response"' in event.get("data", "") for event in events)
+    assert run.final_status == "error"
+    assert run.final_response is None
+    assert run.error_summary == "step write failed"
+
+
+@pytest.mark.asyncio
 async def test_event_generator_treats_stream_interrupt_node_as_approval_required(
     session: AsyncSession,
     seeded_session,
