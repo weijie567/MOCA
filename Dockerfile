@@ -10,6 +10,7 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY src ./src
 COPY scripts ./scripts
+COPY rules ./rules
 COPY alembic.ini ./
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 
