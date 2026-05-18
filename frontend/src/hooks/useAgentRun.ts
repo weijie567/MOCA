@@ -45,6 +45,56 @@ function createThreadId() {
   return `demo-${Date.now()}`
 }
 
+function nextStepIndex(steps: SseEvent[]) {
+  return steps.reduce((max, step) => Math.max(max, step.step_index), 0) + 1
+}
+
+function withRecoveredTerminalStep(
+  steps: SseEvent[],
+  runId: string,
+  status: AgentRunStatus,
+  finalResponse: string | null,
+  errorMessage: string | null,
+) {
+  if (steps.some((step) => step.event_type === 'final_response' || step.event_type === 'error')) {
+    return steps
+  }
+
+  if (status === 'completed' && finalResponse) {
+    return [
+      ...steps,
+      {
+        event_type: 'final_response',
+        run_id: runId,
+        step_index: nextStepIndex(steps),
+        node_name: 'final_response',
+        status: 'completed',
+        message: '已完成',
+        timestamp: new Date().toISOString(),
+        payload: { final_response: finalResponse },
+      } satisfies SseEvent,
+    ]
+  }
+
+  if (status === 'failed' || status === 'error') {
+    return [
+      ...steps,
+      {
+        event_type: 'error',
+        run_id: runId,
+        step_index: nextStepIndex(steps),
+        node_name: 'error',
+        status: 'failed',
+        message: '执行遇到问题，请重试',
+        timestamp: new Date().toISOString(),
+        payload: { error_message: errorMessage ?? '执行遇到问题，请重试。如问题持续，请联系管理员' },
+      } satisfies SseEvent,
+    ]
+  }
+
+  return steps
+}
+
 export function useAgentRun() {
   const [state, setState] = useState<AgentRunState>(INITIAL_STATE)
   const controllerRef = useRef<AbortController | null>(null)
@@ -77,10 +127,18 @@ export function useAgentRun() {
       }
 
       const recoveredStatus = normalizeStatus(result.data.final_status)
+      const finalResponse = result.data.final_response ?? null
       setState((current) => ({
         ...current,
         status: recoveredStatus,
-        finalResponse: result.data.final_response ?? current.finalResponse,
+        steps: withRecoveredTerminalStep(
+          current.steps,
+          runId,
+          recoveredStatus,
+          finalResponse ?? current.finalResponse,
+          null,
+        ),
+        finalResponse: finalResponse ?? current.finalResponse,
         error: recoveredStatus === 'failed' ? '执行遇到问题，请重试。如问题持续，请联系管理员' : null,
       }))
     } catch {
@@ -110,10 +168,18 @@ export function useAgentRun() {
             }
 
             const nextStatus = normalizeStatus(result.data.final_status)
+            const finalResponse = result.data.final_response ?? null
             setState((current) => ({
               ...current,
               status: nextStatus,
-              finalResponse: result.data.final_response ?? current.finalResponse,
+              steps: withRecoveredTerminalStep(
+                current.steps,
+                runId,
+                nextStatus,
+                finalResponse ?? current.finalResponse,
+                null,
+              ),
+              finalResponse: finalResponse ?? current.finalResponse,
               error: nextStatus === 'failed' ? '执行遇到问题，请重试。如问题持续，请联系管理员' : null,
             }))
 
