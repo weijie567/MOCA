@@ -17,7 +17,7 @@ from src.repositories.approval_repo import ApprovalRepository
 
 
 class FakeResumeGraph:
-    def __init__(self, final_response: str = "resumed"):
+    def __init__(self, final_response: str | None = "resumed"):
         self.calls: list[tuple[object, dict]] = []
         self.final_response = final_response
 
@@ -361,6 +361,29 @@ async def test_agent_run_status_updates_to_completed_after_reject(
     assert run is not None
     assert run.final_status == "completed"
     assert run.final_response == "rejected final"
+
+
+@pytest.mark.asyncio
+async def test_agent_run_status_updates_to_error_without_final_response(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    approval = await _create_approval(session, seeded_session)
+    monkeypatch.setattr(app.state, "agent_graph", FakeResumeGraph(None), raising=False)
+
+    response = await client.post(
+        f"/api/v1/approvals/{approval.id}/decide",
+        json={"decision": "approve"},
+        headers=await _admin_headers(client),
+    )
+
+    run = await session.get(AgentRun, approval.run_id)
+    assert response.status_code == 200
+    assert run is not None
+    assert run.final_status == "error"
+    assert run.final_response is None
 
 
 @pytest.mark.asyncio

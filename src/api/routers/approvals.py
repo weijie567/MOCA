@@ -83,7 +83,9 @@ async def decide_approval(
 
         run_id = str(approval.run_id)
         final_response_text = final_state.get("final_response")
-        final_status = "error" if final_state.get("node_errors") else "completed"
+        final_status = "completed"
+        if final_state.get("node_errors") or not final_response_text:
+            final_status = "error"
         run = await session.get(AgentRun, approval.run_id)
         total_latency_ms = (run.total_latency_ms if run and run.total_latency_ms else 0) + resume_latency_ms
         await update_agent_run_status(
