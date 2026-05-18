@@ -2,6 +2,7 @@ export type RunStatus =
   | 'pending'
   | 'running'
   | 'completed'
+  | 'insufficient_evidence'
   | 'waiting_approval'
   | 'interrupted'
   | 'rejected'

@@ -25,6 +25,7 @@ const INITIAL_STATE: AgentRunState = {
 
 const TERMINAL_STATUSES = new Set<AgentRunStatus>([
   'completed',
+  'insufficient_evidence',
   'rejected',
   'degraded',
   'failed',
