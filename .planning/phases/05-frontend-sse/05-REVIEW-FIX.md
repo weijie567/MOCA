@@ -1,32 +1,53 @@
 ---
 phase: 05-frontend-sse
-source_review: 05-REVIEW.md
-status: fixed
-fixed: 2026-05-17
-review_rerun: blocked
-review_rerun_reason: code review subagent hit usage limit during execute-phase gate
+fixed_at: 2026-05-18T08:58:00Z
+review_path: .planning/phases/05-frontend-sse/05-REVIEW.md
+iteration: 1
+findings_in_scope: 3
+fixed: 3
+skipped: 0
+status: all_fixed
 ---
 
-# Phase 5 Code Review Fixes
+# Phase 05: Code Review Fix Report
 
-## Fixed Findings
+**Fixed at:** 2026-05-18T08:58:00Z
+**Source review:** .planning/phases/05-frontend-sse/05-REVIEW.md
+**Iteration:** 1
 
-- **CR-01:** `/api/v1/agent-runs/{run_id}/events` now claims a run with a tenant-scoped row lock before returning `EventSourceResponse`. Non-pending runs return `409 RUN_ALREADY_STARTED`, and the generator no longer performs the first `pending -> running` transition.
-- **WR-01:** Demo roles now map to seeded users `cs_zhang`, `mgr_li`, and `admin_user`. The frontend no longer installs `demo-token:*` placeholder bearer tokens and disables protected chat submit until a real demo JWT is fetched.
-- **WR-02:** Vite proxy routing now uses `process.env.VITE_API_URL || 'http://localhost:8000'`, so the compose frontend container can route `/api` requests to `http://api:8000` while browser code keeps relative `/api/v1` paths.
-- **WR-03:** `apiFetch` now normalizes non-2xx, invalid-envelope, non-JSON, and network failures into `ApiResult` errors. Run creation, status recovery, polling, approvals, evidence, and trace flows expose visible error states.
-- **WR-04:** The approval panel now loads real pending approvals from `GET /api/v1/approvals` and acts on a selected pending approval record. Backend self-approval/role failures are surfaced through normalized API errors.
-- **IN-01:** Frontend lint blockers are fixed: derived approval tab selection, typed UI primitive props, ESM Tailwind plugin import, and React effect lint cleanup.
+**Summary:**
+- Findings in scope: 3
+- Fixed: 3
+- Skipped: 0
 
-## Verification
+## Fixed Issues
 
-- `uv run pytest tests/test_agent_runs_api.py -q` - 3 passed
-- `uv run ruff check src tests` - passed
-- `npm run lint` from `frontend/` - passed
-- `npm run build` from `frontend/` - passed
-- `docker compose config --quiet` - passed
-- `gsd-sdk query verify.key-links .planning/phases/05-frontend-sse/05-07-PLAN.md` - 2/2 links verified
+### WR-01: Frontend polling never terminates for insufficient-evidence runs
 
-## Review Gate Note
+**Status:** fixed: requires human verification
+**Files modified:** `frontend/src/types/events.ts`, `frontend/src/hooks/useAgentRun.ts`
+**Commit:** b95a856
+**Applied fix:** Added `insufficient_evidence` to the frontend run status union and terminal status set so polling stops when recovered run status is insufficient evidence.
+**Verification:** Re-read affected TypeScript sections; ran `npx tsc --noEmit --project tsconfig.json` in `frontend/`.
 
-The execute-phase code review rerun was attempted after fixes, but the `gsd-code-reviewer` subagent failed with an account usage-limit error. Per the execute-phase workflow, code review failures are nonblocking. This artifact records the fixes against the stale `05-REVIEW.md` findings.
+### WR-02: Approval resume can mark a run completed without a final response
+
+**Status:** fixed: requires human verification
+**Files modified:** `src/api/routers/approvals.py`, `tests/test_approval_api.py`
+**Commit:** 3718d05
+**Applied fix:** Approval resume now marks the run as `error` when the resumed graph returns node errors or no `final_response`; added a regression test for a missing final response.
+**Verification:** Re-read affected Python sections; parsed both modified files with `uv run python`; ran `uv run pytest tests/test_approval_api.py -q` with 16 passed and 1 warning.
+
+### WR-03: Run completion persistence failures are swallowed
+
+**Status:** fixed: requires human verification
+**Files modified:** `src/api/routers/agent_runs.py`, `tests/test_agent_runs_api.py`
+**Commit:** e8ea3f9
+**Applied fix:** `_complete_run()` now re-raises after rollback so the SSE generator reports a persistence failure instead of emitting a successful terminal event; added a regression test for failed step persistence.
+**Verification:** Re-read affected Python sections; parsed both modified files with `uv run python`; ran `uv run pytest tests/test_agent_runs_api.py -q` with 8 passed and 1 warning.
+
+---
+
+_Fixed: 2026-05-18T08:58:00Z_
+_Fixer: Claude (gsd-code-fixer)_
+_Iteration: 1_
