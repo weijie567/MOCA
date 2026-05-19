@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: human_needed
-last_updated: "2026-05-17T10:59:30.000Z"
+status: unknown
+last_updated: "2026-05-19T01:51:03.186Z"
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 32
   completed_plans: 32
   percent: 100
@@ -16,16 +16,16 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-17)
+See: .planning/PROJECT.md (updated 2026-05-18)
 
 **Core value:** When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution.
-**Current focus:** Phase 05 — frontend-sse
+**Current focus:** Phase 06 — evaluation-polish
 
 ## Current Status
 
-- **Active phase:** 5
-- **Phase status:** Phase 5 gap closure execution complete. Automated verification passed; browser/compose human UAT is pending in `05-HUMAN-UAT.md`.
-- **Blockers:** Human UAT required before marking Phase 5 complete.
+- **Active phase:** 6
+- **Phase status:** Phase 5 is complete. Phase 6 is ready for planning.
+- **Blockers:** None for Phase 5. Phase 6 planning has not started.
 
 ## Phase History
 
@@ -60,10 +60,20 @@ See: .planning/PROJECT.md (updated 2026-05-17)
   - Code review: `04-REVIEW.md`; fixes recorded in `04-REVIEW-FIX.md`
   - Tests: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short` — 164 passed
   - Validation: approval interrupt/resume, approve/reject handling, low-risk bypass, idempotent action draft creation, trace replay, and 100% high-risk interception across HR-01, HR-02, and HR-03
+- **Phase 5: Frontend & SSE** — Complete on 2026-05-18
+  - Plans completed: 8/8
+  - Latest plan summary: `.planning/phases/05-frontend-sse/05-08-SUMMARY.md`
+  - Verification: `05-VERIFICATION.md` (`status: passed`)
+  - Human UAT: `05-HUMAN-UAT.md` (3 passed, 0 issues)
+  - Code review: `05-REVIEW.md`; fixes recorded in `05-REVIEW-FIX.md`
+  - Security: `05-SECURITY.md` (`status: verified`)
+  - Tests: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short` — 176 passed, 1 warning
+  - Validation: browser happy path chat, cross-role approval flow, Docker demo stack, SSE streaming, pending approval UI, and failure recovery all passed
 
 ## Session Notes
 
-- 2026-05-17: Executed Phase 5 gap closure plans 05-05 through 05-08. Closed duplicate SSE execution with a pending-run claim guard, fixed demo JWT role mapping and compose proxy routing, added pending approvals UI and API failure recovery, cleared frontend lint blockers, and recorded `05-REVIEW-FIX.md`. Verification: `uv run pytest -q --tb=short` 169 passed, `uv run ruff check src tests` passed, `npm run lint` passed, `npm run build` passed, `docker compose config --quiet` passed. `05-VERIFICATION.md` is `human_needed` with 3 browser/compose UAT items pending.
+- 2026-05-18: Completed Phase 5 after browser/compose human UAT passed. `05-VERIFICATION.md` is `passed` with 29/29 automated truths verified and 3/3 human UAT items passed. Final checks: `uv run pytest -q --tb=short` 176 passed, 1 warning; `uv run ruff check src tests` passed; `npm run lint` passed; `npm run build` passed; `docker compose config --quiet` passed.
+- 2026-05-17: Executed Phase 5 gap closure plans 05-05 through 05-08. Closed duplicate SSE execution with a pending-run claim guard, fixed demo JWT role mapping and compose proxy routing, added pending approvals UI and API failure recovery, cleared frontend lint blockers, and recorded `05-REVIEW-FIX.md`.
 - 2026-05-16: Added Phase 4 planning prerequisite for live agent latency diagnosis. Phase 3 UAT passed functionally, but live Swagger calls took roughly 90-200 seconds; Phase 4 planning must first instrument per-node latency and diagnose slow nodes/retries/provider latency before choosing optimization strategies.
 - 2026-05-16: Executed Phase 4 Plan 03. Added approval_gate interrupt/resume node, execute_action node, create_coupon_grant_draft tool, approval outcome final responses, conditional graph routing, and 19 focused approval workflow tests. Verification: approval tests 14 passed, agent tests 43 passed, ruff passed, and graph compile passed.
 - 2026-05-16: Executed Phase 4 Plan 05. Added TraceRepository, GET /api/v1/agent-runs/{run_id}/trace, sanitized trace response schema, and 7 trace API tests. Verification: trace API tests 7 passed and ruff passed.
@@ -107,7 +117,7 @@ See: .planning/PROJECT.md (updated 2026-05-17)
 - Plan 03-04: Graph invocation failures still attempt to persist an AgentRun error row, but trace persistence failures are rolled back and never exposed to the caller.
 - Plan 03-04: A narrow OAuth2 model scopes alias preserves compatibility with the plan verification while keeping FastAPI's canonical password-flow scopes intact.
 
-**Planned Phase:** 05 (Frontend & SSE) — 8 plans — 2026-05-17T10:06:40.853Z
+**Next Phase:** 06 (Evaluation & Polish) — roadmap scope ready; detailed phase plan not created yet.
 
 - Plan 03-05 tests patch node-local _get_llm factories rather than constructing real ChatOpenAI clients, preserving CI isolation from live LLM APIs.
 - Plan 03-05 graph integration tests use MemorySaver and node-imported tool monkeypatches so the compiled graph is exercised without Postgres or external embeddings.
