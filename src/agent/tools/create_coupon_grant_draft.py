@@ -12,7 +12,11 @@ def _tool_success(data: dict) -> dict:
 
 
 def _tool_error(error_code: str, message: str, retryable: bool) -> dict:
-    return {"status": "error", "data": {}, "error": {"error_code": error_code, "message": message, "retryable": retryable}}
+    return {
+        "status": "error",
+        "data": {},
+        "error": {"error_code": error_code, "message": message, "retryable": retryable},
+    }
 
 
 async def create_coupon_grant_draft(

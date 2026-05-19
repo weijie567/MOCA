@@ -41,7 +41,9 @@ def step_to_node(step: AgentStep) -> dict[str, Any]:
 def detect_bottleneck(nodes: list[dict[str, Any]], total_latency_ms: int | None = None) -> dict[str, Any] | None:
     if not nodes:
         return None
-    total = total_latency_ms if total_latency_ms is not None else sum(int(node.get("latency_ms") or 0) for node in nodes)
+    total = (
+        total_latency_ms if total_latency_ms is not None else sum(int(node.get("latency_ms") or 0) for node in nodes)
+    )
     bottleneck = max(nodes, key=lambda node: int(node.get("latency_ms") or 0))
     latency = int(bottleneck.get("latency_ms") or 0)
     pct = round((latency / total * 100), 1) if total else 0.0

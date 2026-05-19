@@ -49,7 +49,9 @@ async def run_all_evals(agent_mode: str = "ci") -> dict[str, Any]:
 def _build_unified_report(rag_eval_summary: dict[str, Any], agent_eval_summary: dict[str, Any]) -> dict[str, Any]:
     rag_metrics = rag_eval_summary["metrics"]
     agent_metrics = agent_eval_summary["metrics"]
-    overall_status = "pass" if rag_eval_summary["status"] == "pass" and agent_eval_summary["status"] == "pass" else "fail"
+    overall_status = (
+        "pass" if rag_eval_summary["status"] == "pass" and agent_eval_summary["status"] == "pass" else "fail"
+    )
     failed_cases = _tag_failed_cases("rag", rag_eval_summary) + _tag_failed_cases("agent", agent_eval_summary)
     warning_cases = _warning_cases(rag_eval_summary, agent_eval_summary)
     total_cases = int(rag_metrics.get("total_cases", 0)) + int(agent_metrics.get("total_cases", 0))
@@ -95,7 +97,9 @@ def _warning_cases(rag_report: dict[str, Any], agent_report: dict[str, Any]) -> 
         if agent_report["status"] == "pass" and value - threshold < 0.05:
             warnings.append({"eval_type": "agent", "metric": metric, "value": value})
     if not Path(BASELINE_PATH).exists():
-        warnings.append({"eval_type": "baseline", "metric": "baseline_comparison", "message": "baseline.json not found"})
+        warnings.append(
+            {"eval_type": "baseline", "metric": "baseline_comparison", "message": "baseline.json not found"}
+        )
     return warnings
 
 
@@ -186,7 +190,9 @@ def render_markdown(report: dict[str, Any]) -> str:
 
     lines.extend(["", "## Threshold Comparison", ""])
     for warning in report.get("warning_cases", []):
-        lines.append(f"- Warning: `{warning['eval_type']}` `{warning.get('metric')}` is close to threshold or missing baseline.")
+        lines.append(
+            f"- Warning: `{warning['eval_type']}` `{warning.get('metric')}` is close to threshold or missing baseline."
+        )
     if not report.get("warning_cases"):
         lines.append("No threshold warnings.")
 

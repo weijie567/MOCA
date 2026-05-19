@@ -122,7 +122,9 @@ async def retrieve_policy_evidence(state: AgentState, config: RunnableConfig) ->
 
     data = result.get("data") or {}
     retrieval_failed = result.get("status") == "error"
-    gate_triggered = data.get("retrieval_status") == "no_evidence" or float(data.get("best_score") or 0.0) < MIN_EVIDENCE_SCORE
+    gate_triggered = (
+        data.get("retrieval_status") == "no_evidence" or float(data.get("best_score") or 0.0) < MIN_EVIDENCE_SCORE
+    )
     new_refs = [] if retrieval_failed or gate_triggered else _evidence_refs_from_result(result, retrieved_at)
     merged_refs = _merge_evidence_refs(state.get("evidence_refs"), new_refs)
     output: dict[str, Any] = {

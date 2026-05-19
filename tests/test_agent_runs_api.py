@@ -384,9 +384,7 @@ async def test_event_generator_treats_stream_interrupt_node_as_approval_required
             approval_event = event
 
     await session.refresh(run)
-    approval = (
-        await session.execute(select(ApprovalRequest).where(ApprovalRequest.run_id == run.id))
-    ).scalar_one()
+    approval = (await session.execute(select(ApprovalRequest).where(ApprovalRequest.run_id == run.id))).scalar_one()
     assert approval_event is not None
     assert '"status": "waiting_approval"' in approval_event["data"]
     assert run.final_status == "interrupted"

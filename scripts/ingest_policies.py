@@ -24,21 +24,105 @@ from src.rag.ingestion import IngestionReport, IngestionService
 
 
 DOCUMENT_MANIFEST = [
-    {"file": "refund_policy.md", "doc_key": "refund_policy", "doc_type": "refund_rule", "risk_level": "high", "title": "退款规则"},
-    {"file": "refund_sop.md", "doc_key": "refund_sop", "doc_type": "sop", "risk_level": "medium", "title": "退款处理SOP"},
-    {"file": "compensation_rules.md", "doc_key": "compensation_rules", "doc_type": "refund_rule", "risk_level": "high", "title": "补偿规则"},
+    {
+        "file": "refund_policy.md",
+        "doc_key": "refund_policy",
+        "doc_type": "refund_rule",
+        "risk_level": "high",
+        "title": "退款规则",
+    },
+    {
+        "file": "refund_sop.md",
+        "doc_key": "refund_sop",
+        "doc_type": "sop",
+        "risk_level": "medium",
+        "title": "退款处理SOP",
+    },
+    {
+        "file": "compensation_rules.md",
+        "doc_key": "compensation_rules",
+        "doc_type": "refund_rule",
+        "risk_level": "high",
+        "title": "补偿规则",
+    },
     {"file": "merchant_faq.md", "doc_key": "merchant_faq", "doc_type": "faq", "risk_level": "low", "title": "商家FAQ"},
-    {"file": "return_shipping.md", "doc_key": "return_shipping", "doc_type": "refund_rule", "risk_level": "medium", "title": "退货物流规则"},
-    {"file": "quality_issue_policy.md", "doc_key": "quality_issue_policy", "doc_type": "refund_rule", "risk_level": "high", "title": "质量问题退款细则"},
-    {"file": "partial_refund_rules.md", "doc_key": "partial_refund_rules", "doc_type": "refund_rule", "risk_level": "medium", "title": "部分退款规则"},
-    {"file": "refund_time_limits.md", "doc_key": "refund_time_limits", "doc_type": "refund_rule", "risk_level": "medium", "title": "退款时效规则"},
-    {"file": "high_value_refund.md", "doc_key": "high_value_refund", "doc_type": "refund_rule", "risk_level": "high", "title": "高价值订单退款规则"},
-    {"file": "cross_border_refund.md", "doc_key": "cross_border_refund", "doc_type": "refund_rule", "risk_level": "medium", "title": "跨境订单退款规则"},
-    {"file": "digital_goods_refund.md", "doc_key": "digital_goods_refund", "doc_type": "refund_rule", "risk_level": "low", "title": "虚拟商品退款规则"},
-    {"file": "bulk_order_refund.md", "doc_key": "bulk_order_refund", "doc_type": "refund_rule", "risk_level": "medium", "title": "批量订单退款规则"},
-    {"file": "customer_escalation_sop.md", "doc_key": "customer_escalation_sop", "doc_type": "sop", "risk_level": "medium", "title": "客户投诉升级SOP"},
-    {"file": "compensation_approval_sop.md", "doc_key": "compensation_approval_sop", "doc_type": "sop", "risk_level": "high", "title": "补偿审批SOP"},
-    {"file": "merchant_dispute_faq.md", "doc_key": "merchant_dispute_faq", "doc_type": "faq", "risk_level": "low", "title": "商家争议FAQ"},
+    {
+        "file": "return_shipping.md",
+        "doc_key": "return_shipping",
+        "doc_type": "refund_rule",
+        "risk_level": "medium",
+        "title": "退货物流规则",
+    },
+    {
+        "file": "quality_issue_policy.md",
+        "doc_key": "quality_issue_policy",
+        "doc_type": "refund_rule",
+        "risk_level": "high",
+        "title": "质量问题退款细则",
+    },
+    {
+        "file": "partial_refund_rules.md",
+        "doc_key": "partial_refund_rules",
+        "doc_type": "refund_rule",
+        "risk_level": "medium",
+        "title": "部分退款规则",
+    },
+    {
+        "file": "refund_time_limits.md",
+        "doc_key": "refund_time_limits",
+        "doc_type": "refund_rule",
+        "risk_level": "medium",
+        "title": "退款时效规则",
+    },
+    {
+        "file": "high_value_refund.md",
+        "doc_key": "high_value_refund",
+        "doc_type": "refund_rule",
+        "risk_level": "high",
+        "title": "高价值订单退款规则",
+    },
+    {
+        "file": "cross_border_refund.md",
+        "doc_key": "cross_border_refund",
+        "doc_type": "refund_rule",
+        "risk_level": "medium",
+        "title": "跨境订单退款规则",
+    },
+    {
+        "file": "digital_goods_refund.md",
+        "doc_key": "digital_goods_refund",
+        "doc_type": "refund_rule",
+        "risk_level": "low",
+        "title": "虚拟商品退款规则",
+    },
+    {
+        "file": "bulk_order_refund.md",
+        "doc_key": "bulk_order_refund",
+        "doc_type": "refund_rule",
+        "risk_level": "medium",
+        "title": "批量订单退款规则",
+    },
+    {
+        "file": "customer_escalation_sop.md",
+        "doc_key": "customer_escalation_sop",
+        "doc_type": "sop",
+        "risk_level": "medium",
+        "title": "客户投诉升级SOP",
+    },
+    {
+        "file": "compensation_approval_sop.md",
+        "doc_key": "compensation_approval_sop",
+        "doc_type": "sop",
+        "risk_level": "high",
+        "title": "补偿审批SOP",
+    },
+    {
+        "file": "merchant_dispute_faq.md",
+        "doc_key": "merchant_dispute_faq",
+        "doc_type": "faq",
+        "risk_level": "low",
+        "title": "商家争议FAQ",
+    },
 ]
 
 
@@ -66,9 +150,13 @@ def _dry_run(dir_path: Path) -> list[IngestionReport]:
             content = (dir_path / doc_meta["file"]).read_text(encoding="utf-8")
             chunks = chunk_markdown(content, doc_key=doc_key)
             if not chunks:
-                reports.append(IngestionReport(doc_key=doc_key, title=title, status="failed", error="No chunks produced"))
+                reports.append(
+                    IngestionReport(doc_key=doc_key, title=title, status="failed", error="No chunks produced")
+                )
             else:
-                reports.append(IngestionReport(doc_key=doc_key, title=title, status="success", chunks_created=len(chunks)))
+                reports.append(
+                    IngestionReport(doc_key=doc_key, title=title, status="success", chunks_created=len(chunks))
+                )
         except Exception as exc:
             reports.append(IngestionReport(doc_key=doc_key, title=title, status="failed", error=str(exc)))
     return reports

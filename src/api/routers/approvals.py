@@ -146,7 +146,9 @@ async def list_pending_approvals(
     repo = ApprovalRepository(session)
     approvals = await repo.get_pending_by_tenant(user.tenant_id)
     payload = ApprovalListResponse(approvals=[_to_response(approval) for approval in approvals], total=len(approvals))
-    return ApiResponse(success=True, data=payload.model_dump(mode="json"), trace_id=getattr(request.state, "trace_id", None))
+    return ApiResponse(
+        success=True, data=payload.model_dump(mode="json"), trace_id=getattr(request.state, "trace_id", None)
+    )
 
 
 def _parse_approval_id(approval_id: str) -> UUID:

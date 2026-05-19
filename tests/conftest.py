@@ -253,7 +253,9 @@ class _FakeStructuredLLM:
         self.responses = responses
 
     async def ainvoke(self, messages):
-        user_content = " ".join(str(message.get("content", "")) for message in messages if message.get("role") == "user")
+        user_content = " ".join(
+            str(message.get("content", "")) for message in messages if message.get("role") == "user"
+        )
         if self.schema is IntentResult:
             key = "policy_qa" if "政策" in user_content or "规则" in user_content else "high_risk"
             return IntentResult(**self.responses["intent"][key])

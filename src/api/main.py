@@ -35,7 +35,9 @@ async def lifespan(app: FastAPI):
         yield
 
 
-def _error_response(request: Request, status_code: int, code: str, message: str, details: dict | None = None) -> JSONResponse:
+def _error_response(
+    request: Request, status_code: int, code: str, message: str, details: dict | None = None
+) -> JSONResponse:
     response = ApiResponse(
         success=False,
         error=ErrorDetail(code=code, message=message, details=details or {}),

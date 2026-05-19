@@ -61,9 +61,7 @@ async def test_agent_steps_persist_tools_called_and_evidence_refs(session: Async
         ],
     )
 
-    result = await session.execute(
-        select(AgentStep).where(AgentStep.run_id == run_id).order_by(AgentStep.step_index)
-    )
+    result = await session.execute(select(AgentStep).where(AgentStep.run_id == run_id).order_by(AgentStep.step_index))
     rows = list(result.scalars())
 
     assert [row.node_name for row in rows] == [

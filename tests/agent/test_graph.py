@@ -66,7 +66,8 @@ def _recommendation(action: str = "建议退款", evidence_refs: list[dict] | No
     return {
         "recommended_action": action,
         "reasoning_summary": "根据规则",
-        "evidence_refs": evidence_refs or [
+        "evidence_refs": evidence_refs
+        or [
             {
                 "doc_key": "policy_refund_timeout",
                 "chunk_id": "chunk_001",
@@ -173,7 +174,9 @@ async def test_happy_path_refund_troubleshooting(monkeypatch):
     final_state = await graph.ainvoke(_state("订单ORD-001退款为什么没到账？"), _config())
 
     assert final_state["current_intent"] == "refund_troubleshooting"
-    assert final_state["business_context"] == {"order": {"order_no": "ORD-001", "status": "delivered", "amount": "199.00"}}
+    assert final_state["business_context"] == {
+        "order": {"order_no": "ORD-001", "status": "delivered", "amount": "199.00"}
+    }
     assert final_state["final_response"]
     mocks["get_order"].assert_awaited_once()
 

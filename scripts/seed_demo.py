@@ -40,9 +40,13 @@ def deterministic_id(entity_type: str, key: str) -> uuid.UUID:
 async def reset_demo_data(session) -> None:
     tenant_ids = [deterministic_id("tenant", "demo"), deterministic_id("tenant", "other")]
     user_ids = list((await session.execute(select(User.id).where(User.tenant_id.in_(tenant_ids)))).scalars().all())
-    run_ids = list((await session.execute(select(AgentRun.id).where(AgentRun.tenant_id.in_(tenant_ids)))).scalars().all())
+    run_ids = list(
+        (await session.execute(select(AgentRun.id).where(AgentRun.tenant_id.in_(tenant_ids)))).scalars().all()
+    )
     approval_ids = list(
-        (await session.execute(select(ApprovalRequest.id).where(ApprovalRequest.tenant_id.in_(tenant_ids)))).scalars().all()
+        (await session.execute(select(ApprovalRequest.id).where(ApprovalRequest.tenant_id.in_(tenant_ids))))
+        .scalars()
+        .all()
     )
     if approval_ids:
         await session.execute(delete(ApprovalStep).where(ApprovalStep.approval_request_id.in_(approval_ids)))
@@ -113,7 +117,9 @@ async def seed_merchants(session, tenants: dict[str, Tenant]) -> dict[str, Merch
     return merchants
 
 
-async def seed_users(session, tenants: dict[str, Tenant], merchants: dict[str, Merchant], roles: dict[str, Role]) -> dict[str, User]:
+async def seed_users(
+    session, tenants: dict[str, Tenant], merchants: dict[str, Merchant], roles: dict[str, Role]
+) -> dict[str, User]:
     specs = [
         ("demo_admin", "demo", "admin_user", "平台管理员", "admin", None),
         ("demo_support_1", "demo", "cs_zhang", "客服张敏", "support", None),
@@ -169,7 +175,17 @@ async def seed_orders(session, tenants: dict[str, Tenant], merchants: dict[str, 
         ("ORD-2024-005", "demo", "xinghe", "陈哲", "高端投影仪套装", Decimal("8999.00"), "delivered", 8, 5),
         ("ORD-2024-006", "demo", "zhiwei", "刘元", "即食鸡胸肉组合装", Decimal("89.00"), "delivered", 12, 8),
     ]
-    for order_no, tenant_key, merchant_key, buyer, item, amount, status, created_days, delivered_days in scenario_orders:
+    for (
+        order_no,
+        tenant_key,
+        merchant_key,
+        buyer,
+        item,
+        amount,
+        status,
+        created_days,
+        delivered_days,
+    ) in scenario_orders:
         created_at = now - timedelta(days=created_days)
         delivered_at = now - timedelta(days=delivered_days) if delivered_days is not None else None
         order = Order(
@@ -307,7 +323,11 @@ async def seed_tickets(session, orders: dict[str, Order], refunds: dict[str, Ref
             summary=summary,
             messages=[
                 {"speaker": "user", "content": summary, "created_at": order.created_at.isoformat()},
-                {"speaker": "agent", "content": "已记录问题，正在核实订单与退款信息。", "created_at": datetime.now(UTC).isoformat()},
+                {
+                    "speaker": "agent",
+                    "content": "已记录问题，正在核实订单与退款信息。",
+                    "created_at": datetime.now(UTC).isoformat(),
+                },
             ],
         )
         await session.merge(ticket)
@@ -327,8 +347,16 @@ async def seed_tickets(session, orders: dict[str, Order], refunds: dict[str, Ref
             status="open" if index % 3 else "closed",
             summary=f"关于 {refund_case.reason_text} 的跟进工单",
             messages=[
-                {"speaker": "user", "content": f"订单 {order.order_no} 希望尽快处理退款。", "created_at": order.created_at.isoformat()},
-                {"speaker": "agent", "content": "已同步到退款队列，等待复核。", "created_at": datetime.now(UTC).isoformat()},
+                {
+                    "speaker": "user",
+                    "content": f"订单 {order.order_no} 希望尽快处理退款。",
+                    "created_at": order.created_at.isoformat(),
+                },
+                {
+                    "speaker": "agent",
+                    "content": "已同步到退款队列，等待复核。",
+                    "created_at": datetime.now(UTC).isoformat(),
+                },
             ],
         )
         await session.merge(ticket)

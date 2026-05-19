@@ -161,7 +161,9 @@ def _expected_response_text(case: dict[str, Any]) -> str:
     return "；".join(required)
 
 
-def _trace_step(node: str, *, tools: list[str] | None = None, evidence: list[dict[str, str]] | None = None) -> dict[str, Any]:
+def _trace_step(
+    node: str, *, tools: list[str] | None = None, evidence: list[dict[str, str]] | None = None
+) -> dict[str, Any]:
     step: dict[str, Any] = {"node": node, "status": "completed"}
     if tools:
         step["tools_called"] = tools
@@ -285,7 +287,14 @@ async def _run_case_live(case: dict[str, Any], timeout: int) -> dict[str, Any]:
     latency_ms = int((time.perf_counter() - started) * 1000)
     summary = build_trace_summary(result["current_run_id"], result, latency_ms)
     assertions = _assert_ci_routing(case, summary)
-    scores = _score_case(case, result, summary, latency_ms=latency_ms, total_tokens=_extract_total_tokens(result), routing_failures=assertions)
+    scores = _score_case(
+        case,
+        result,
+        summary,
+        latency_ms=latency_ms,
+        total_tokens=_extract_total_tokens(result),
+        routing_failures=assertions,
+    )
     return {"case": case, "result": result, "trace_summary": summary, "scores": scores}
 
 
@@ -344,7 +353,8 @@ def _score_case(
         "intent_match": actual_intent == expected_intent,
         "tools_match": expected_tools_called <= actual_tools_called,
         "status_match": summary.get("final_status") == expected_status,
-        "approval_match": bool(risk.get("approval_required", False)) == bool(case.get("expected_approval_required", False)),
+        "approval_match": bool(risk.get("approval_required", False))
+        == bool(case.get("expected_approval_required", False)),
         "evidence_match": True if not expected_doc_keys else bool(expected_doc_keys & evidence_doc_keys),
         "response_contains": all(str(item) in final_response for item in case.get("expected_response_contains") or []),
         "must_not_contain": all(str(item) not in final_response for item in case.get("must_not_contain") or []),

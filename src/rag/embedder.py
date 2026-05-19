@@ -66,5 +66,5 @@ class EmbeddingService:
             except Exception:
                 if attempt == self.max_retries - 1:
                     raise
-                await asyncio.sleep(2 ** attempt)
+                await asyncio.sleep(2**attempt)
         raise RuntimeError("unreachable")

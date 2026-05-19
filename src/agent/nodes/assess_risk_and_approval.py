@@ -103,7 +103,9 @@ def _rule_threshold(rule: dict[str, Any], operator: str) -> Decimal | None:
     return _money_value(match.group(1)) if match else None
 
 
-def _deterministic_rule_match(draft: dict[str, Any], context: dict[str, Any], rules: dict[str, Any]) -> dict[str, Any] | None:
+def _deterministic_rule_match(
+    draft: dict[str, Any], context: dict[str, Any], rules: dict[str, Any]
+) -> dict[str, Any] | None:
     action = str(draft.get("recommended_action") or "")
     amount = _extract_compensation_amount(draft, context)
     order = context.get("order") or {}
@@ -278,7 +280,8 @@ async def assess_risk_and_approval(state: AgentState) -> dict:
     fallback_assessment = _fallback_risk(draft, context, rules)
     proposed_action = (
         _build_proposed_action(draft, context)
-        if fallback_assessment.get("approval_required") or _is_actionable_recommendation(draft.get("recommended_action"))
+        if fallback_assessment.get("approval_required")
+        or _is_actionable_recommendation(draft.get("recommended_action"))
         else None
     )
     return {

@@ -178,7 +178,9 @@ async def test_decide_reject_returns_success_and_resumes_graph(
 
 
 @pytest.mark.asyncio
-async def test_decide_self_approval_returns_403(client: AsyncClient, session: AsyncSession, seeded_session, monkeypatch):
+async def test_decide_self_approval_returns_403(
+    client: AsyncClient, session: AsyncSession, seeded_session, monkeypatch
+):
     admin = seeded_session["users"]["admin_user"]
     approval = await _create_approval(session, seeded_session, requested_by=admin)
     monkeypatch.setattr(app.state, "agent_graph", FakeResumeGraph(), raising=False)
@@ -194,7 +196,9 @@ async def test_decide_self_approval_returns_403(client: AsyncClient, session: As
 
 
 @pytest.mark.asyncio
-async def test_decide_insufficient_role_returns_403(client: AsyncClient, session: AsyncSession, seeded_session, monkeypatch):
+async def test_decide_insufficient_role_returns_403(
+    client: AsyncClient, session: AsyncSession, seeded_session, monkeypatch
+):
     approval = await _create_approval(session, seeded_session)
     support = seeded_session["users"]["cs_zhang"]
     monkeypatch.setattr(app.state, "agent_graph", FakeResumeGraph(), raising=False)
@@ -210,7 +214,9 @@ async def test_decide_insufficient_role_returns_403(client: AsyncClient, session
 
 
 @pytest.mark.asyncio
-async def test_decide_expired_approval_returns_409(client: AsyncClient, session: AsyncSession, seeded_session, monkeypatch):
+async def test_decide_expired_approval_returns_409(
+    client: AsyncClient, session: AsyncSession, seeded_session, monkeypatch
+):
     approval = await _create_approval(session, seeded_session, expires_at=datetime.now(UTC) - timedelta(minutes=1))
     monkeypatch.setattr(app.state, "agent_graph", FakeResumeGraph(), raising=False)
 
@@ -287,7 +293,9 @@ async def test_get_approval_returns_details(client: AsyncClient, session: AsyncS
 
 
 @pytest.mark.asyncio
-async def test_list_pending_approvals_returns_unexpired_pending_only(client: AsyncClient, session: AsyncSession, seeded_session):
+async def test_list_pending_approvals_returns_unexpired_pending_only(
+    client: AsyncClient, session: AsyncSession, seeded_session
+):
     pending = await _create_approval(session, seeded_session)
     expired = await _create_approval(session, seeded_session, expires_at=datetime.now(UTC) - timedelta(minutes=1))
     approved = await _create_approval(session, seeded_session, status="approved")
@@ -438,10 +446,14 @@ async def test_agent_chat_interrupt_exception_creates_approval_step(
     body = response.json()
 
     steps = (
-        await session.execute(
-            select(ApprovalStep).where(ApprovalStep.approval_request_id == UUID(body["data"]["approval_id"]))
+        (
+            await session.execute(
+                select(ApprovalStep).where(ApprovalStep.approval_request_id == UUID(body["data"]["approval_id"]))
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     assert response.status_code == 200
     assert body["data"]["status"] == "interrupted"

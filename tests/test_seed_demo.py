@@ -52,9 +52,7 @@ async def test_reset_demo_data_deletes_agent_and_approval_rows_before_users():
     await reset_demo_data(session)
 
     delete_tables = [
-        statement.table.name
-        for statement in session.statements
-        if getattr(statement, "__visit_name__", "") == "delete"
+        statement.table.name for statement in session.statements if getattr(statement, "__visit_name__", "") == "delete"
     ]
 
     assert delete_tables.index("approval_steps") < delete_tables.index("approval_requests")

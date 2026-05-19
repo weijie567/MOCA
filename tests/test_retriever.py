@@ -191,7 +191,16 @@ async def test_search_uses_query_prefix_and_deeper_candidate_fetch():
 @pytest.mark.asyncio
 async def test_hybrid_rerank_promotes_lexical_match_from_outside_top5():
     generic_results = [
-        (_chunk(chunk_id=f"generic_{index}", doc_key="generic", title="通用规则", section="常见问题", content="退款申请处理规则。"), score)
+        (
+            _chunk(
+                chunk_id=f"generic_{index}",
+                doc_key="generic",
+                title="通用规则",
+                section="常见问题",
+                content="退款申请处理规则。",
+            ),
+            score,
+        )
         for index, score in enumerate([0.66, 0.65, 0.64, 0.63, 0.62], start=1)
     ]
     lexical_match = _chunk(

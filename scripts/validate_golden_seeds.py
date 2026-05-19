@@ -24,8 +24,12 @@ RAG_GOLDEN_PATH = ROOT / "evaluation" / "golden" / "rag_cases.jsonl"
 
 ID_PATTERN = re.compile(r"(?<![A-Za-z0-9_-])(ORD-[A-Z0-9-]+|RFC?-[A-Z0-9-]+|TKT?-[A-Z0-9-]+)(?![A-Za-z0-9_-])")
 ORDER_RANGE_PATTERN = re.compile(r"range\((\d+),\s*(\d+)\).*?order_no = f\"ORD-2024-\{index:03d\}\"", re.DOTALL)
-REFUND_RANGE_PATTERN = re.compile(r"enumerate\(order_numbers, start=(\d+)\).*?case_no = f\"RF-2024-\{index:03d\}\"", re.DOTALL)
-TICKET_RANGE_PATTERN = re.compile(r"enumerate\(refund_items, start=(\d+)\).*?ticket_no = f\"TK-2024-\{index:03d\}\"", re.DOTALL)
+REFUND_RANGE_PATTERN = re.compile(
+    r"enumerate\(order_numbers, start=(\d+)\).*?case_no = f\"RF-2024-\{index:03d\}\"", re.DOTALL
+)
+TICKET_RANGE_PATTERN = re.compile(
+    r"enumerate\(refund_items, start=(\d+)\).*?ticket_no = f\"TK-2024-\{index:03d\}\"", re.DOTALL
+)
 DOC_TUPLE_PATTERN = re.compile(r'\("([a-z0-9_]+)",\s*"[^"]+",\s*"[^"]+",\s*"[^"]+"\)')
 USER_SPEC_PATTERN = re.compile(
     r'\("(?P<key>demo_[^"]+)",\s*"demo",\s*"(?P<username>[^"]+)",\s*"[^"]+",\s*"(?P<role>[^"]+)"',
@@ -62,11 +66,7 @@ def _extract_seed_ids(seed_text: str) -> dict[str, set[str]]:
         for match in USER_SPEC_PATTERN.finditer(seed_text)
         if match.group("role") in {"support", "manager", "admin"}
     }
-    chunk_ids = {
-        chunk_id
-        for case in _read_jsonl(RAG_GOLDEN_PATH)
-        for chunk_id in case.get("expected_chunk_ids", [])
-    }
+    chunk_ids = {chunk_id for case in _read_jsonl(RAG_GOLDEN_PATH) for chunk_id in case.get("expected_chunk_ids", [])}
     return {
         "orders": orders,
         "refunds": refunds,

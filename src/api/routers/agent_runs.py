@@ -374,9 +374,7 @@ async def _handle_approval_required(
 
 async def _claim_pending_run_for_stream(session: AsyncSession, run_id: UUID, user: User) -> AgentRun:
     result = await session.execute(
-        select(AgentRun)
-        .where(AgentRun.id == run_id, AgentRun.tenant_id == user.tenant_id)
-        .with_for_update()
+        select(AgentRun).where(AgentRun.id == run_id, AgentRun.tenant_id == user.tenant_id).with_for_update()
     )
     run = result.scalar_one_or_none()
     _ensure_can_view_run(run, user=user)
