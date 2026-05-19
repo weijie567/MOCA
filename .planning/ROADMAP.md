@@ -107,6 +107,7 @@ Required diagnostic scope:
 
 ## Phase 5: Frontend & SSE
 
+**Status:** Complete on 2026-05-18; see `.planning/phases/05-frontend-sse/05-VERIFICATION.md`.
 **Goal:** Minimal frontend provides a complete demo experience with chat interface, approval operations, and execution step visibility; SSE or polling for progressive updates.
 **Duration:** ~5 days
 **Requirements:** AGNT-07, FRNT-01, FRNT-02, FRNT-03, FRNT-04
@@ -123,21 +124,29 @@ Required diagnostic scope:
 
 ## Phase 6: Evaluation & Polish
 
+**Status:** Planning complete
 **Goal:** Expand evaluation coverage to full golden set, validate all metrics end-to-end, produce interview-ready README and demo materials, establish CI baseline. (Note: Phase 2 establishes RAG eval baseline with Hit@5; Phase 4 validates interception rate. Phase 6 is the final comprehensive validation and reporting pass.)
 **Duration:** ~5 days
 **Requirements:** EVAL-03, EVAL-04, EVAL-06, EVAL-07, INFR-07, INFR-08
 **UI hint:** no
+**Plans:** 4 plans
+
+Plans:
+- [ ] 06-01-PLAN.md — Golden set migration and agent cases expansion (14 RAG + 35 Agent)
+- [ ] 06-02-PLAN.md — Evaluation scripts (eval_rag.py, eval_agent.py, eval_all.py) + Makefile targets
+- [ ] 06-03-PLAN.md — CI workflow + demo shell script + README rewrite
+- [ ] 06-04-PLAN.md — Documentation (demo-walkthrough, evaluation, architecture, security)
 
 ### Success Criteria
 1. Golden set expanded to 25-40 cases covering: rule Q&A, refund troubleshooting, compensation suggestion, approval trigger, no-evidence fallback, permission denied, approval rejected
 2. Automated evaluation script produces scored report: RAG Hit@5, citation accuracy, tool selection accuracy, task completion rate, high-risk interception rate (must be 100%), average latency, token cost
 3. CI runs lint (ruff) + unit tests; integration and eval scripts available locally
 4. README.md complete: one-line intro, architecture diagram, quick start, demo accounts, core flow demo, metrics, security note, roadmap
-5. Demo script documented (docs/demo-script.md): 10-minute walkthrough covering happy path + approval + rejection + no-evidence
+5. Demo script documented (docs/demo-walkthrough.md): 10-minute walkthrough covering happy path + approval + rejection + no-evidence
 
 ---
 
-*Roadmap updated: 2026-05-09*
-*Change: Split original Phase 4 into Phase 4 (Approval), Phase 5 (Frontend), Phase 6 (Eval+Polish) per architecture review recommendation. This gives frontend and evaluation dedicated time instead of competing with approval complexity in the same week.*
+*Roadmap updated: 2026-05-19*
+*Change: Phase 6 planning complete — 4 plans across 3 waves. Wave 1: golden set data. Wave 2: eval scripts. Wave 3: CI + demo + README + docs (plans 03 and 04 parallel).*
 
 *Build order rationale: Foundation must be solid (async patterns, healthchecks, repository layer) because every subsequent phase builds on it. RAG before graph because retrieval quality must be validated in isolation. Graph before approval because the happy path must work first. Frontend after backend is stable. Evaluation last because it validates everything.*
