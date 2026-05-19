@@ -132,7 +132,7 @@ Required diagnostic scope:
 **Plans:** 4 plans
 
 Plans:
-- [ ] 06-01-PLAN.md — Golden set migration and agent cases expansion (14 RAG + 35 Agent)
+- [x] 06-01-PLAN.md — Golden set migration and agent cases expansion (14 RAG + 35 Agent)
 - [ ] 06-02-PLAN.md — Evaluation scripts (eval_rag.py, eval_agent.py, eval_all.py) + Makefile targets
 - [ ] 06-03-PLAN.md — CI workflow + demo shell script + README rewrite
 - [ ] 06-04-PLAN.md — Documentation (demo-walkthrough, evaluation, architecture, security)
