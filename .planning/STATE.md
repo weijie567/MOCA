@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: unknown
-last_updated: "2026-05-19T01:51:03.186Z"
+status: milestone_complete
+last_updated: "2026-05-22T00:00:00.000+08:00"
 progress:
   total_phases: 6
-  completed_phases: 5
-  total_plans: 32
-  completed_plans: 32
+  completed_phases: 6
+  total_plans: 36
+  completed_plans: 36
   percent: 100
 ---
 
@@ -16,16 +16,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-18)
+See: .planning/PROJECT.md (updated 2026-05-22)
 
 **Core value:** When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution.
-**Current focus:** Phase 06 — evaluation-polish
+**Current focus:** v1.0 milestone complete
 
 ## Current Status
 
-- **Active phase:** 6
-- **Phase status:** Phase 5 is complete. Phase 6 is ready for planning.
-- **Blockers:** None for Phase 5. Phase 6 planning has not started.
+- **Active phase:** none
+- **Phase status:** Phase 6 Evaluation & Polish is complete and verified.
+- **Blockers:** None.
+- **Milestone:** v1.0 complete — all 6 roadmap phases executed and verified.
 
 ## Phase History
 
@@ -69,9 +70,17 @@ See: .planning/PROJECT.md (updated 2026-05-18)
   - Security: `05-SECURITY.md` (`status: verified`)
   - Tests: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short` — 176 passed, 1 warning
   - Validation: browser happy path chat, cross-role approval flow, Docker demo stack, SSE streaming, pending approval UI, and failure recovery all passed
+- **Phase 6: Evaluation & Polish** — Complete on 2026-05-22
+  - Plans completed: 4/4
+  - Latest plan summary: `.planning/phases/06-evaluation-polish/06-04-SUMMARY.md`
+  - Verification: `06-VERIFICATION.md` (`status: passed`, 23/23 must-haves)
+  - Code review: `06-REVIEW.md`; fixes recorded in `06-REVIEW-FIX.md`
+  - Tests: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/ -x --ignore=tests/integration -q --tb=short` — 164 passed, 1 warning
+  - Evaluation: deterministic agent eval passed with 35/35 cases and compiled graph contract pass; schema drift check passed
 
 ## Session Notes
 
+- 2026-05-22: Completed Phase 6 Evaluation & Polish. Added final golden sets, RAG/agent/all evaluation scripts, CI workflow, demo script, README rewrite, and docs for demo walkthrough, evaluation, architecture, and security. Code review findings were fixed, verifier passed 23/23 must-haves, deterministic agent eval passed 35/35, schema drift passed, and full non-integration pytest passed with 164 tests.
 - 2026-05-18: Completed Phase 5 after browser/compose human UAT passed. `05-VERIFICATION.md` is `passed` with 29/29 automated truths verified and 3/3 human UAT items passed. Final checks: `uv run pytest -q --tb=short` 176 passed, 1 warning; `uv run ruff check src tests` passed; `npm run lint` passed; `npm run build` passed; `docker compose config --quiet` passed.
 - 2026-05-17: Executed Phase 5 gap closure plans 05-05 through 05-08. Closed duplicate SSE execution with a pending-run claim guard, fixed demo JWT role mapping and compose proxy routing, added pending approvals UI and API failure recovery, cleared frontend lint blockers, and recorded `05-REVIEW-FIX.md`.
 - 2026-05-16: Added Phase 4 planning prerequisite for live agent latency diagnosis. Phase 3 UAT passed functionally, but live Swagger calls took roughly 90-200 seconds; Phase 4 planning must first instrument per-node latency and diagnose slow nodes/retries/provider latency before choosing optimization strategies.
@@ -116,8 +125,6 @@ See: .planning/PROJECT.md (updated 2026-05-18)
 - Plan 03-04: The checkpointer thread key is tenant_id:user_id:thread_id to prevent same thread_id memory sharing across users or tenants.
 - Plan 03-04: Graph invocation failures still attempt to persist an AgentRun error row, but trace persistence failures are rolled back and never exposed to the caller.
 - Plan 03-04: A narrow OAuth2 model scopes alias preserves compatibility with the plan verification while keeping FastAPI's canonical password-flow scopes intact.
-
-**Next Phase:** 06 (Evaluation & Polish) — roadmap scope ready; detailed phase plan not created yet.
 
 - Plan 03-05 tests patch node-local _get_llm factories rather than constructing real ChatOpenAI clients, preserving CI isolation from live LLM APIs.
 - Plan 03-05 graph integration tests use MemorySaver and node-imported tool monkeypatches so the compiled graph is exercised without Postgres or external embeddings.

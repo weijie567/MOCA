@@ -17,7 +17,7 @@
 - [x] **AGNT-04**: Agent 能检索知识库，并在回答中引用具体 doc_id、chunk_id 和规则段落摘要
 - [x] **AGNT-05**: Agent 支持同一 thread 内上下文保持（via LangGraph checkpointer），多轮对话中记住 order_id、refund_case_id、ticket_id、已检索证据和上一次处理结论；不支持跨 session 记忆
 - [x] **AGNT-06**: Agent 输出结构化执行轨迹（execution trace），记录经过的图节点、工具调用、证据引用、风险判断和审批状态；不输出模型私有推理链（禁用 chain-of-thought 术语，统一为 decision/evidence/action trace）
-- [ ] **AGNT-07**: Agent 支持 SSE 流式响应，逐步展示当前阶段，例如"读取订单""检索规则""判断风险""等待审批"
+- [x] **AGNT-07**: Agent 支持 SSE 流式响应，逐步展示当前阶段，例如"读取订单""检索规则""判断风险""等待审批"
 - [x] **AGNT-08**: Agent 在证据不足时必须拒绝生成确定性结论，并返回"缺少哪些信息 / 建议下一步补充什么"
 
 ### RAG & Knowledge Base
@@ -61,16 +61,16 @@
 - [ ] **INFR-04**: 系统为每次 Agent 执行生成 run_id、trace_id 和 step_id
 - [ ] **INFR-05**: 系统记录基础可观测性数据，包括 latency_ms、token_usage、cost、error_code、tool_call_status
 - [x] **INFR-06**: 文档摄取和评估任务通过 CLI 脚本或 FastAPI BackgroundTasks 执行，不引入独立任务队列
-- [ ] **INFR-07**: 评估框架支持 golden set 自动评分，并生成 JSON / Markdown 报告
-- [ ] **INFR-08**: CI 运行 lint + 单元测试；集成测试和评估 smoke test 提供本地运行脚本，不强制 CI 通过
+- [x] **INFR-07**: 评估框架支持 golden set 自动评分，并生成 JSON / Markdown 报告
+- [x] **INFR-08**: CI 运行 lint + 单元测试；集成测试和评估 smoke test 提供本地运行脚本，不强制 CI 通过
 - [x] **INFR-09**: LLM/DB/工具调用三层 timeout + graceful degradation；LLM 超时返回 fallback 而非崩溃
 
 ### Frontend
 
-- [ ] **FRNT-01**: 对话界面支持提交退款 / 订单问题，并展示带证据引用的回答
-- [ ] **FRNT-02**: 审批界面展示待审批列表，支持批准和驳回操作
-- [ ] **FRNT-03**: 执行步骤面板展示 Agent 当前阶段、已调用工具、引用证据和审批状态
-- [ ] **FRNT-04**: 前端不要求实现复杂图节点动画；图节点高亮和边流转作为 v1.1 增强功能
+- [x] **FRNT-01**: 对话界面支持提交退款 / 订单问题，并展示带证据引用的回答
+- [x] **FRNT-02**: 审批界面展示待审批列表，支持批准和驳回操作
+- [x] **FRNT-03**: 执行步骤面板展示 Agent 当前阶段、已调用工具、引用证据和审批状态
+- [x] **FRNT-04**: 前端不要求实现复杂图节点动画；图节点高亮和边流转作为 v1.1 增强功能
 
 ### Data Model
 
@@ -85,13 +85,13 @@
 
 ### Evaluation
 
-- [ ] **EVAL-01**: golden set 至少包含规则问答、退款排障、补偿建议、审批触发、证据不足五类样本（25-40 条）（Phase 2 14-case baseline complete; 25-40 final set deferred to Phase 6）
+- [x] **EVAL-01**: golden set 至少包含规则问答、退款排障、补偿建议、审批触发、证据不足五类样本（Phase 6 final set complete with 14 RAG cases and 35 agent cases）
 - [x] **EVAL-02**: 系统评估 RAG Hit@5（Plan 07 live DB-backed score 83.3%, fallback accuracy 100.0%, threshold met）
-- [ ] **EVAL-03**: 系统评估证据引用准确率
-- [ ] **EVAL-04**: 系统评估工具选择准确率
+- [x] **EVAL-03**: 系统评估证据引用准确率
+- [x] **EVAL-04**: 系统评估工具选择准确率
 - [x] **EVAL-05**: 系统评估高风险动作拦截率
-- [ ] **EVAL-06**: 系统评估任务完成率
-- [ ] **EVAL-07**: 系统评估平均延迟和 token 成本
+- [x] **EVAL-06**: 系统评估任务完成率
+- [x] **EVAL-07**: 系统评估平均延迟和 token 成本
 - [x] **EVAL-08**: 高风险动作拦截率必须达到 100%
 
 ## v2 Requirements
@@ -143,7 +143,7 @@
 | AGNT-04 | 3 | Complete |
 | AGNT-05 | 3 | Complete |
 | AGNT-06 | 3 | Complete |
-| AGNT-07 | 5 | Not started |
+| AGNT-07 | 5 | Complete |
 | AGNT-08 | 3 | Complete |
 | RAG-01 | 2 | Complete |
 | RAG-02 | 2 | Complete |
@@ -175,13 +175,13 @@
 | INFR-04 | 1 | Not started |
 | INFR-05 | 1 | Not started |
 | INFR-06 | 2 | Complete |
-| INFR-07 | 6 | Not started |
-| INFR-08 | 6 | Not started |
+| INFR-07 | 6 | Complete |
+| INFR-08 | 6 | Complete |
 | INFR-09 | 3 | Complete |
-| FRNT-01 | 5 | Not started |
-| FRNT-02 | 5 | Not started |
-| FRNT-03 | 5 | Not started |
-| FRNT-04 | 5 | Not started |
+| FRNT-01 | 5 | Complete |
+| FRNT-02 | 5 | Complete |
+| FRNT-03 | 5 | Complete |
+| FRNT-04 | 5 | Complete |
 | DATA-01 | 1 | Not started |
 | DATA-02 | 1 | Not started |
 | DATA-03 | 1 | Not started |
@@ -190,13 +190,13 @@
 | DATA-06 | 1 | Not started |
 | DATA-07 | 1 | Not started |
 | DATA-08 | 1 | Not started |
-| EVAL-01 | 2 | Deferred to Phase 6 |
+| EVAL-01 | 6 | Complete |
 | EVAL-02 | 2 | Complete |
-| EVAL-03 | 6 | Not started |
-| EVAL-04 | 6 | Not started |
+| EVAL-03 | 6 | Complete |
+| EVAL-04 | 6 | Complete |
 | EVAL-05 | 4 | Complete |
-| EVAL-06 | 6 | Not started |
-| EVAL-07 | 6 | Not started |
+| EVAL-06 | 6 | Complete |
+| EVAL-07 | 6 | Complete |
 | EVAL-08 | 4 | Complete |
 
 **Coverage:**
@@ -214,4 +214,4 @@
 
 ---
 *Requirements defined: 2026-05-09*
-*Last updated: 2026-05-09 after design convergence review — AGNT-02 split, traceability synced to 6-phase, Phase 3 scope reduced, terminology unified*
+*Last updated: 2026-05-22 after Phase 6 completion — EVAL-01/EVAL-03/EVAL-04/EVAL-06/EVAL-07 and INFR-07/INFR-08 marked complete*

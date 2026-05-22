@@ -124,7 +124,7 @@ Required diagnostic scope:
 
 ## Phase 6: Evaluation & Polish
 
-**Status:** Planning complete
+**Status:** Complete — 2026-05-22
 **Goal:** Expand evaluation coverage to full golden set, validate all metrics end-to-end, produce interview-ready README and demo materials, establish CI baseline. (Note: Phase 2 establishes RAG eval baseline with Hit@5; Phase 4 validates interception rate. Phase 6 is the final comprehensive validation and reporting pass.)
 **Duration:** ~5 days
 **Requirements:** EVAL-03, EVAL-04, EVAL-06, EVAL-07, INFR-07, INFR-08
@@ -133,9 +133,9 @@ Required diagnostic scope:
 
 Plans:
 - [x] 06-01-PLAN.md — Golden set migration and agent cases expansion (14 RAG + 35 Agent)
-- [ ] 06-02-PLAN.md — Evaluation scripts (eval_rag.py, eval_agent.py, eval_all.py) + Makefile targets
-- [ ] 06-03-PLAN.md — CI workflow + demo shell script + README rewrite
-- [ ] 06-04-PLAN.md — Documentation (demo-walkthrough, evaluation, architecture, security)
+- [x] 06-02-PLAN.md — Evaluation scripts (eval_rag.py, eval_agent.py, eval_all.py) + Makefile targets
+- [x] 06-03-PLAN.md — CI workflow + demo shell script + README rewrite
+- [x] 06-04-PLAN.md — Documentation (demo-walkthrough, evaluation, architecture, security)
 
 ### Success Criteria
 1. Golden set expanded to 25-40 cases covering: rule Q&A, refund troubleshooting, compensation suggestion, approval trigger, no-evidence fallback, permission denied, approval rejected
@@ -146,7 +146,7 @@ Plans:
 
 ---
 
-*Roadmap updated: 2026-05-19*
-*Change: Phase 6 planning complete — 4 plans across 3 waves. Wave 1: golden set data. Wave 2: eval scripts. Wave 3: CI + demo + README + docs (plans 03 and 04 parallel).*
+*Roadmap updated: 2026-05-22*
+*Change: Phase 6 complete — 4/4 plans executed and verified. Evaluation scripts, CI baseline, demo shell script, README, and documentation polish are complete.*
 
 *Build order rationale: Foundation must be solid (async patterns, healthchecks, repository layer) because every subsequent phase builds on it. RAG before graph because retrieval quality must be validated in isolation. Graph before approval because the happy path must work first. Frontend after backend is stable. Evaluation last because it validates everything.*
