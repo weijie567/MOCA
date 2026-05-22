@@ -29,7 +29,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 ### Active
 
-- [ ] No active v1.0 requirement remains; v1.1 scope should be planned separately.
+- [ ] Define v1.1 requirements through `$gsd-new-milestone`.
 
 ### Out of Scope
 
@@ -76,7 +76,17 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - Phase 4 Approval Workflow & Audit is complete: high-risk actions interrupt for approval, approve/reject resumes are validated, action drafts are idempotent, trace replay is queryable by run_id, and high-risk interception is 100%.
 - Phase 5 Frontend & SSE is complete: the React/Vite demo supports chat submission, progressive SSE timeline updates, evidence/trace inspection, pending approval handling, role switching, and Docker Compose frontend-to-API routing.
 - Phase 6 Evaluation & Polish is complete: the golden set now covers 14 RAG cases and 35 deterministic agent cases, evaluation scripts generate reports, CI runs lint/unit checks, and README/demo/security/evaluation docs are polished for the v1.0 demo.
-- v1.0 milestone execution is complete; next work should start from a new milestone or v1.1 roadmap.
+- v1.0 MVP is shipped and archived on 2026-05-22. Full milestone history lives in `.planning/milestones/v1.0-ROADMAP.md` and `.planning/milestones/v1.0-REQUIREMENTS.md`.
+- Active planning is now between milestones; v1.1 should start from fresh requirements rather than extending the archived v1.0 scope in place.
+
+## Next Milestone Goals
+
+v1.1 is intentionally undefined until `$gsd-new-milestone` gathers the next requirements. Strong candidates to evaluate:
+
+- Production hardening: PostgreSQL RLS, stronger tenant isolation proof, deployment docs, and realistic environment management.
+- Demo depth: frontend execution-path visualization, richer trace replay UI, and polished interview walkthrough assets.
+- Observability: Prometheus/Grafana or LangSmith-style traces, cost dashboard, and latency budget reporting.
+- Scenario expansion: creator appeals and rule consultation as a second business workflow.
 
 ## Constraints
 
@@ -96,6 +106,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 | Chinese demo data, English README | Targets Chinese internet companies but accessible to global open-source community | Adopted in Phase 6 |
 | Approval as graph node, not external middleware | Demonstrates LangGraph's core strength; more impressive in interviews | Adopted in Phase 4 |
 | Simple frontend over pure API | 10-minute demo needs visual impact; keeps PM angle visible | Adopted in Phase 5 |
+| Keep v1.1 scope fresh | v1.0 requirements are complete and archived; continuing in the same requirements file would mix shipped and future obligations | Adopted after v1.0 archive |
 
 ## Evolution
 
@@ -115,4 +126,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-22 after Phase 6 completion*
+*Last updated: 2026-05-22 after v1.0 milestone archive*

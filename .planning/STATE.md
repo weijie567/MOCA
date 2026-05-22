@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: milestone_complete
-last_updated: "2026-05-22T00:00:00.000+08:00"
+status: v1.0 milestone complete
+last_updated: "2026-05-22T09:44:11.657Z"
 progress:
   total_phases: 6
   completed_phases: 6
@@ -19,14 +19,25 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-22)
 
 **Core value:** When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution.
-**Current focus:** v1.0 milestone complete
+**Current focus:** Planning next milestone
 
 ## Current Status
 
 - **Active phase:** none
-- **Phase status:** Phase 6 Evaluation & Polish is complete and verified.
+- **Phase status:** v1.0 is archived; no active phase.
 - **Blockers:** None.
-- **Milestone:** v1.0 complete — all 6 roadmap phases executed and verified.
+- **Milestone:** v1.0 complete and archived — all 6 roadmap phases executed and verified.
+
+## Deferred Items
+
+Items acknowledged at milestone close on 2026-05-22:
+
+| Category | Item | Status |
+|----------|------|--------|
+| UAT audit artifact | Phase 02 `02-HUMAN-UAT.md` | resolved, 0 pending scenarios |
+| UAT audit artifact | Phase 03 `03-HUMAN-UAT.md` | resolved, 0 pending scenarios |
+| UAT audit artifact | Phase 05 `05-HUMAN-UAT.md` | passed, 0 pending scenarios |
+| Verification audit artifact | Phase 01 `01-VERIFICATION.md` | historical `human_needed`; later STATE/PROJECT/ROADMAP evidence marks Phase 1 complete |
 
 ## Phase History
 
