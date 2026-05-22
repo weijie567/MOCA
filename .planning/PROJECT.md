@@ -24,10 +24,12 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - [x] High-risk actions trigger approval workflow interruption instead of direct execution (validated in Phase 4)
 - [x] Approval decisions resume or halt graph execution through LangGraph interrupt/resume (validated in Phase 4)
 - [x] Approval workflow creates auditable action drafts and exposes run-level trace replay (validated in Phase 4)
+- [x] Simple frontend allows submitting questions, viewing streamed agent responses, inspecting evidence/trace details, and handling approvals (validated in Phase 5)
+- [x] Final evaluation and polish expands the golden set, validates end-to-end metrics, and prepares demo/README materials (validated in Phase 6)
 
 ### Active
 
-- [ ] Simple frontend allows submitting questions and viewing agent responses
+- [ ] No active v1.0 requirement remains; v1.1 scope should be planned separately.
 
 ### Out of Scope
 
@@ -56,7 +58,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - Cache: Redis (session cache, rate limiting)
 - Model: OpenAI-compatible API (cloud or local vLLM)
 - RAG: LlamaIndex for offline ingestion; custom retrieval chain online
-- Frontend: Simple React/Next.js interface
+- Frontend: Simple React + Vite interface
 - Infra: Docker Compose for local; no K8s in MVP
 - Observability: Basic OTel tracing (polish phase: Prometheus + Grafana)
 
@@ -72,7 +74,9 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - Phase 2 RAG Pipeline is complete: 15 Chinese policy documents are chunked and embedded, `/api/v1/search/` returns tenant-filtered evidence with citation metadata, and live DB-backed EVAL-02 passes at Hit@5 83.3% with fallback accuracy 100.0%.
 - Phase 3 LangGraph Core is complete: read tools, RAG evidence, trace logging, same-thread memory, and the read-only agent happy path are validated.
 - Phase 4 Approval Workflow & Audit is complete: high-risk actions interrupt for approval, approve/reject resumes are validated, action drafts are idempotent, trace replay is queryable by run_id, and high-risk interception is 100%.
-- Next phase is Phase 5 Frontend & SSE: build the demo interface for chat, approval operations, and execution step visibility.
+- Phase 5 Frontend & SSE is complete: the React/Vite demo supports chat submission, progressive SSE timeline updates, evidence/trace inspection, pending approval handling, role switching, and Docker Compose frontend-to-API routing.
+- Phase 6 Evaluation & Polish is complete: the golden set now covers 14 RAG cases and 35 deterministic agent cases, evaluation scripts generate reports, CI runs lint/unit checks, and README/demo/security/evaluation docs are polished for the v1.0 demo.
+- v1.0 milestone execution is complete; next work should start from a new milestone or v1.1 roadmap.
 
 ## Constraints
 
@@ -86,12 +90,12 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Single graph, multi-node over multi-agent | Simpler to build, debug, and explain; multi-agent adds complexity without MVP value | — Pending |
+| Single graph, multi-node over multi-agent | Simpler to build, debug, and explain; multi-agent adds complexity without MVP value | Adopted through Phase 6 |
 | pgvector over Milvus/Weaviate | One-command reproducibility; business data + vectors + RLS in same DB | Adopted in Phase 2 |
 | No Celery/queue system | LangGraph's durable execution handles the async flow; separate queue is premature | Adopted for Phase 2 ingestion/eval CLI; revisit only if Phase 3/4 needs background work |
-| Chinese demo data, English README | Targets Chinese internet companies but accessible to global open-source community | — Pending |
+| Chinese demo data, English README | Targets Chinese internet companies but accessible to global open-source community | Adopted in Phase 6 |
 | Approval as graph node, not external middleware | Demonstrates LangGraph's core strength; more impressive in interviews | Adopted in Phase 4 |
-| Simple frontend over pure API | 10-minute demo needs visual impact; keeps PM angle visible | — Pending |
+| Simple frontend over pure API | 10-minute demo needs visual impact; keeps PM angle visible | Adopted in Phase 5 |
 
 ## Evolution
 
@@ -111,4 +115,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-17 after Phase 4 completion*
+*Last updated: 2026-05-22 after Phase 6 completion*
