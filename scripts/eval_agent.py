@@ -21,6 +21,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock, patch
 
 from langchain_core.messages import AIMessage
 from langgraph.types import Command
@@ -56,6 +57,13 @@ BASE_GRAPH_NODES = [
     "retrieve_policy_evidence",
     "generate_recommendation",
     "assess_risk_and_approval",
+]
+GRAPH_CONTRACT_CATEGORIES = [
+    "normal_policy_qa",
+    "refund_troubleshooting",
+    "approval_required",
+    "approval_approved",
+    "approval_rejected",
 ]
 
 
@@ -159,6 +167,174 @@ def _expected_response_text(case: dict[str, Any]) -> str:
     if not required:
         required = ["已完成"]
     return "；".join(required)
+
+
+def _ci_input_state(case: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "user_query": case["query"],
+        "thread_id": f"eval-{case['thread_id']}",
+        "tenant_id": str(deterministic_id("tenant", "demo")),
+        "user_id": str(deterministic_id("user", "demo_support_1")),
+        "role": "support_agent",
+    }
+
+
+def _ci_config(case: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "configurable": {
+            "thread_id": f"eval:{case['id']}:{case['thread_id']}",
+            "session": AsyncMock(name=f"ci_session_{case['id']}"),
+        }
+    }
+
+
+def _ci_policy_result(case: dict[str, Any]) -> dict[str, Any]:
+    evidence = [
+        {
+            "doc_key": doc_key,
+            "chunk_id": f"{doc_key}_001",
+            "title": doc_key,
+            "section": "ci",
+            "score": 0.91,
+            "text": _expected_response_text(case),
+        }
+        for doc_key in case.get("expected_evidence_doc_keys", [])
+    ]
+    return {
+        "status": "success",
+        "data": {
+            "retrieval_status": "strong_evidence" if evidence else "no_evidence",
+            "best_score": 0.91 if evidence else 0.0,
+            "evidence": evidence,
+            "fallback_message": None if evidence else "没有找到相关政策证据。",
+        },
+        "error": {},
+    }
+
+
+def _ci_order_result(case: dict[str, Any]) -> dict[str, Any]:
+    order_id = _extract_seed_id(case["query"], "ORD-") or "ORD-2024-001"
+    if "NONEXIST" in order_id or "400" in order_id:
+        return {
+            "status": "error",
+            "data": {},
+            "error": {
+                "error_code": "ORDER_NOT_FOUND",
+                "message": f"订单 {order_id} 未找到",
+                "retryable": False,
+                "should_stop": False,
+            },
+        }
+    return {
+        "status": "success",
+        "data": {
+            "id": str(deterministic_id("order", order_id)),
+            "order_no": order_id,
+            "status": "delivered",
+            "amount": "899.00",
+            "merchant_risk_level": "low",
+        },
+        "error": {},
+    }
+
+
+def _ci_action_result(case: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": "success",
+        "data": {
+            "draft_id": str(deterministic_id("action_draft", case["id"])),
+            "status": "draft",
+        },
+        "error": {},
+    }
+
+
+async def _run_graph_contract_case(case: dict[str, Any]) -> list[str]:
+    from langgraph.checkpoint.memory import MemorySaver
+
+    from src.agent.graph import build_graph
+    from src.agent.nodes import assess_risk_and_approval as assess_risk_module
+    from src.agent.nodes import classify_intent as classify_intent_module
+    from src.agent.nodes import execute_action as execute_action_module
+    from src.agent.nodes import extract_slots as extract_slots_module
+    from src.agent.nodes import generate_recommendation as generate_recommendation_module
+    from src.agent.nodes import load_business_context as load_business_context_module
+    from src.agent.nodes import retrieve_policy_evidence as retrieve_policy_evidence_module
+
+    fake_llms = _ci_fake_llm_responses(case)
+    expected_nodes = _expected_nodes_for_case(case)
+    config = _ci_config(case)
+    failures: list[str] = []
+
+    patches = [
+        patch.object(classify_intent_module, "_get_llm", lambda: fake_llms["classify_intent"]),
+        patch.object(extract_slots_module, "_get_llm", lambda: fake_llms["extract_slots"]),
+        patch.object(generate_recommendation_module, "_get_llm", lambda: fake_llms["generate_recommendation"]),
+        patch.object(assess_risk_module, "_get_llm", lambda: fake_llms["assess_risk"]),
+        patch.object(load_business_context_module, "get_order", AsyncMock(return_value=_ci_order_result(case))),
+        patch.object(
+            load_business_context_module,
+            "get_refund_case",
+            AsyncMock(return_value={"status": "success", "data": {}, "error": {}}),
+        ),
+        patch.object(
+            load_business_context_module,
+            "get_ticket",
+            AsyncMock(return_value={"status": "success", "data": {}, "error": {}}),
+        ),
+        patch.object(retrieve_policy_evidence_module, "search_policy", AsyncMock(return_value=_ci_policy_result(case))),
+        patch.object(
+            execute_action_module, "create_coupon_grant_draft", AsyncMock(return_value=_ci_action_result(case))
+        ),
+    ]
+
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8]:
+        graph = build_graph(MemorySaver())
+        result = await graph.ainvoke(_ci_input_state(case), config)
+
+        if "__interrupt__" in result:
+            snapshot = await graph.aget_state(config)
+            state = dict(snapshot.values or {})
+            interrupted_nodes = [str(step.get("node") or "unknown") for step in state.get("trace_steps") or []]
+            interrupted_nodes.append("approval_gate")
+            if "approval_gate" not in expected_nodes:
+                failures.append(f"{case['id']} unexpectedly interrupted at approval_gate")
+            if case["category"] == "approval_required":
+                result_summary = {"nodes_executed": interrupted_nodes, "approval_interrupt_created": True}
+                return [f"{case['id']}: {failure}" for failure in _assert_ci_routing(case, result_summary)]
+
+            decision = "approve" if case["category"] == "approval_approved" else "reject"
+            result = await graph.ainvoke(
+                Command(
+                    resume={
+                        "decision": decision,
+                        "reason": "CI graph contract",
+                        "run_id": state.get("current_run_id"),
+                        "approval_id": str(deterministic_id("approval", case["id"])),
+                    }
+                ),
+                config,
+            )
+
+        summary = build_trace_summary(result.get("current_run_id", str(deterministic_id("run", case["id"]))), result, 0)
+        summary["approval_interrupt_created"] = "approval_gate" in summary["nodes_executed"]
+        failures.extend(_assert_ci_routing(case, summary))
+        return [f"{case['id']}: {failure}" for failure in failures]
+
+
+async def _run_ci_graph_contracts(cases: list[dict[str, Any]]) -> list[str]:
+    cases_by_category = {case["category"]: case for case in cases}
+    failures: list[str] = []
+    for category in GRAPH_CONTRACT_CATEGORIES:
+        case = cases_by_category.get(category)
+        if not case:
+            failures.append(f"missing representative case for {category}")
+            continue
+        try:
+            failures.extend(await _run_graph_contract_case(case))
+        except Exception as exc:
+            failures.append(f"{case['id']}: graph invocation failed: {type(exc).__name__}: {exc}")
+    return failures
 
 
 def _trace_step(
@@ -397,7 +573,12 @@ def _extract_total_tokens(result: dict[str, Any]) -> int:
     return total
 
 
-def _aggregate(results: list[dict[str, Any]], *, mode: str) -> dict[str, Any]:
+def _aggregate(
+    results: list[dict[str, Any]],
+    *,
+    mode: str,
+    graph_contract_failures: list[str] | None = None,
+) -> dict[str, Any]:
     total_cases = len(results)
     passed_cases = sum(1 for item in results if item["scores"]["passed"])
     evidence_cases = [item for item in results if item["case"].get("expected_evidence_doc_keys")]
@@ -416,7 +597,8 @@ def _aggregate(results: list[dict[str, Any]], *, mode: str) -> dict[str, Any]:
         "average_latency_ms": (sum(latencies) / len(latencies)) if latencies else None,
         "total_tokens": 0 if mode == "ci" else sum(item["scores"]["total_tokens"] for item in results),
     }
-    status = "pass" if _passes_thresholds(metrics) else "fail"
+    graph_contract_failures = graph_contract_failures or []
+    status = "pass" if _passes_thresholds(metrics) and not graph_contract_failures else "fail"
 
     return {
         "eval_type": "agent",
@@ -436,7 +618,32 @@ def _aggregate(results: list[dict[str, Any]], *, mode: str) -> dict[str, Any]:
             }
             for item in results
             if not item["scores"]["passed"]
+        ]
+        + [
+            {
+                "id": "GRAPH-CONTRACT",
+                "category": "ci_graph_contract",
+                "query": "compiled graph deterministic contract checks",
+                "failures": graph_contract_failures,
+            }
+        ]
+        if graph_contract_failures
+        else [
+            {
+                "id": item["case"]["id"],
+                "category": item["case"]["category"],
+                "query": item["case"]["query"],
+                "failures": item["scores"]["failures"],
+            }
+            for item in results
+            if not item["scores"]["passed"]
         ],
+        "graph_contract": {
+            "mode": "compiled_langgraph_with_patched_dependencies" if mode == "ci" else "live_graph",
+            "categories_checked": GRAPH_CONTRACT_CATEGORIES if mode == "ci" else [],
+            "failures": graph_contract_failures,
+            "status": "pass" if not graph_contract_failures else "fail",
+        },
         "case_results": [
             {
                 "id": item["case"]["id"],
@@ -522,7 +729,8 @@ async def run_agent_eval(
             results.append(await _run_case_ci(case))
         else:
             results.append(await _run_case_live(case, timeout))
-    return _aggregate(results, mode=mode)
+    graph_contract_failures = await _run_ci_graph_contracts(cases) if mode == "ci" else []
+    return _aggregate(results, mode=mode, graph_contract_failures=graph_contract_failures)
 
 
 async def main() -> None:

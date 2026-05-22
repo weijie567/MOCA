@@ -33,7 +33,7 @@ graph TB
 | Vector search | PostgreSQL + pgvector | Policy chunk retrieval for RAG evidence |
 | Cache/infrastructure | Redis | Local service dependency and future cache/rate-limit surface |
 | Frontend | React + Vite | Chat, trace, evidence, and approval demo UI |
-| Embeddings | DashScope `text-embedding-v3` | Policy document embeddings for retrieval |
+| Embeddings | DashScope `text-embedding-v4` | 1024-dimensional policy document embeddings for pgvector retrieval |
 | Evaluation | Python scripts + JSONL golden sets | RAG and agent scoring with JSON/Markdown reports |
 
 ## Agent Workflow

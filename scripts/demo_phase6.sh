@@ -45,6 +45,33 @@ print_chat_summary() {
   echo "  final_status: $(echo "$response" | jq -r '.data.trace_summary.final_status // .data.status // "n/a"')"
 }
 
+assert_api_success() {
+  local response="$1"
+  local scenario="$2"
+  local title="$3"
+
+  if ! echo "$response" | jq -e '.success == true' >/dev/null; then
+    echo "FAIL at demo step ${scenario}: ${title}"
+    echo "  API returned success=false or an unexpected response shape"
+    echo "$response" | jq .
+    echo "  Check: docker compose logs api | tail -20"
+    exit 1
+  fi
+}
+
+json_field_required() {
+  local response="$1"
+  local jq_filter="$2"
+  local field_name="$3"
+  local scenario="$4"
+
+  if ! echo "$response" | jq -er "$jq_filter" >/dev/null; then
+    echo "FAIL at demo step ${scenario}: required field '${field_name}' was missing"
+    echo "$response" | jq .
+    exit 1
+  fi
+}
+
 post_chat() {
   local scenario="$1"
   local title="$2"
@@ -61,6 +88,9 @@ post_chat() {
     echo "  Check: docker compose logs api | tail -20"
     exit 1
   fi
+
+  assert_api_success "$response" "$scenario" "$title"
+  json_field_required "$response" '.data.trace_summary.run_id // .data.run_id' "run_id" "$scenario"
 
   echo "Response:"
   print_chat_summary "$response"
@@ -102,16 +132,21 @@ preflight() {
   MANAGER_TOKEN=$(echo "$mgr_response" | jq -r '.access_token')
   echo "  OK: Demo user mgr_li authenticated"
 
+  local preflight_response
   local http_code
-  http_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/api/v1/agent/chat" \
+  preflight_response="$(mktemp)"
+  http_code=$(curl -s -o "$preflight_response" -w "%{http_code}" -X POST "$BASE_URL/api/v1/agent/chat" \
     -H "Authorization: Bearer $AGENT_TOKEN" \
     -H "Content-Type: application/json" \
-    -d '{"query":"ping","thread_id":"preflight"}' 2>/dev/null || echo "000")
-  if ! echo "$http_code" | grep -qE "^(200|422|500)$"; then
-    echo "FAIL: Agent chat endpoint not responding"
+    -d '{"query":"平台的退款超时处理规则是什么？","thread_id":"preflight"}' 2>/dev/null || echo "000")
+  if [[ "$http_code" != "200" ]] || ! jq -e '.success == true' "$preflight_response" >/dev/null 2>&1; then
+    echo "FAIL: Agent chat endpoint returned HTTP $http_code or success=false"
     echo "  Fix: Check API logs with: docker compose logs api"
+    cat "$preflight_response" 2>/dev/null || true
+    rm -f "$preflight_response"
     exit 1
   fi
+  rm -f "$preflight_response"
   echo "  OK: Agent chat endpoint responding"
 
   echo ""
@@ -161,13 +196,9 @@ post_chat "4" "Compensation suggestion high-risk trigger" "客户投诉订单ORD
 CHAT_RESPONSE="$LAST_CHAT_RESPONSE"
 APPROVAL_ID=$(echo "$CHAT_RESPONSE" | jq -r '.data.approval_id // empty')
 LAST_RUN_ID=$(echo "$CHAT_RESPONSE" | jq -r '.data.run_id // .data.trace_summary.run_id // empty')
-if [[ -n "$APPROVAL_ID" ]]; then
-  echo ""
-  echo "Captured approval_id: $APPROVAL_ID"
-else
-  echo ""
-  echo "No approval_id returned; continuing with placeholder for permission scenario."
-fi
+json_field_required "$CHAT_RESPONSE" '.data.approval_id' "approval_id" "4"
+echo ""
+echo "Captured approval_id: $APPROVAL_ID"
 sleep 1
 
 # Scenario 5: Permission denied
@@ -175,13 +206,16 @@ print_header "5" "Permission denied"
 echo "Request: POST /api/v1/approvals/{id}/decide"
 echo "Expected: 403 because cs_zhang cannot approve high-risk actions"
 echo ""
-PERMISSION_APPROVAL_ID="${APPROVAL_ID:-00000000-0000-0000-0000-000000000000}"
-PERMISSION_RESPONSE=$(curl -s -X POST "$BASE_URL/api/v1/approvals/$PERMISSION_APPROVAL_ID/decide" \
+PERMISSION_RESPONSE=$(curl -s -X POST "$BASE_URL/api/v1/approvals/$APPROVAL_ID/decide" \
   -H "Authorization: Bearer $AGENT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"decision":"approve","reason":"测试"}')
 echo "Response:"
 echo "$PERMISSION_RESPONSE" | jq .
+if ! echo "$PERMISSION_RESPONSE" | jq -e '.success == false and (.error.message | test("权限|403|forbidden|Forbidden"; "i"))' >/dev/null; then
+  echo "FAIL at demo step 5: expected permission denial for support agent approval attempt"
+  exit 1
+fi
 sleep 1
 
 # Scenario 6: Approval rejected
@@ -196,8 +230,10 @@ if [[ -n "$APPROVAL_ID" ]]; then
     -d '{"decision":"reject","reason":"补偿金额超出合理范围，建议降至200元"}')
   echo "Response:"
   echo "$REJECT_RESPONSE" | jq .
+  assert_api_success "$REJECT_RESPONSE" "6" "Approval rejected"
 else
-  echo "Skipped: no approval_id was returned by demo step 4."
+  echo "FAIL at demo step 6: no approval_id was returned by demo step 4."
+  exit 1
 fi
 sleep 1
 
@@ -209,6 +245,7 @@ echo ""
 if [[ -n "$LAST_RUN_ID" ]]; then
   TRACE_RESPONSE=$(curl -s "$BASE_URL/api/v1/agent-runs/$LAST_RUN_ID/trace" \
     -H "Authorization: Bearer $AGENT_TOKEN")
+  assert_api_success "$TRACE_RESPONSE" "7" "Trace query"
   echo "Response:"
   echo "$TRACE_RESPONSE" | jq .
   echo ""
