@@ -6,8 +6,8 @@ Deterministic seed facts:
 - Orders: extracted from seed_demo.py scenario_orders plus generated ORD-2024-007..ORD-2024-086.
 - Refund cases: extracted from seed_demo.py scenarios plus generated RF-2024-007..RF-2024-030.
 - Tickets: extracted from seed_demo.py key_cases plus generated TK-2024-007..TK-2024-015.
-- Policy documents: extracted from seed_demo.py seed_policy_documents doc_key tuples.
-- RAG chunks: extracted from evaluation/golden/rag_cases.jsonl expected_chunk_ids.
+- Agent policy evidence docs: extracted from seed_demo.py seed_policy_documents doc_key tuples.
+- RAG policy docs/chunks: generated from data/policies/*.md with src.rag.chunker.chunk_markdown.
 """
 
 from __future__ import annotations
@@ -18,9 +18,13 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 SEED_PATH = ROOT / "scripts" / "seed_demo.py"
 AGENT_GOLDEN_PATH = ROOT / "evaluation" / "golden" / "agent_cases.jsonl"
 RAG_GOLDEN_PATH = ROOT / "evaluation" / "golden" / "rag_cases.jsonl"
+POLICY_DIR = ROOT / "data" / "policies"
 
 ID_PATTERN = re.compile(r"(?<![A-Za-z0-9_-])(ORD-[A-Z0-9-]+|RFC?-[A-Z0-9-]+|TKT?-[A-Z0-9-]+)(?![A-Za-z0-9_-])")
 ORDER_RANGE_PATTERN = re.compile(r"range\((\d+),\s*(\d+)\).*?order_no = f\"ORD-2024-\{index:03d\}\"", re.DOTALL)
@@ -38,6 +42,19 @@ USER_SPEC_PATTERN = re.compile(
 
 def _read_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def _extract_rag_corpus_ids(policy_dir: Path) -> dict[str, set[str]]:
+    from src.rag.chunker import chunk_markdown
+
+    doc_keys: set[str] = set()
+    chunk_ids: set[str] = set()
+    for path in sorted(policy_dir.glob("*.md")):
+        doc_key = path.stem
+        doc_keys.add(doc_key)
+        content = path.read_text(encoding="utf-8")
+        chunk_ids.update(chunk.chunk_id for chunk in chunk_markdown(content, doc_key=doc_key))
+    return {"doc_keys": doc_keys, "chunk_ids": chunk_ids}
 
 
 def _extract_seed_ids(seed_text: str) -> dict[str, set[str]]:
@@ -66,13 +83,11 @@ def _extract_seed_ids(seed_text: str) -> dict[str, set[str]]:
         for match in USER_SPEC_PATTERN.finditer(seed_text)
         if match.group("role") in {"support", "manager", "admin"}
     }
-    chunk_ids = {chunk_id for case in _read_jsonl(RAG_GOLDEN_PATH) for chunk_id in case.get("expected_chunk_ids", [])}
     return {
         "orders": orders,
         "refunds": refunds,
         "tickets": tickets,
         "doc_keys": doc_keys,
-        "chunk_ids": chunk_ids,
         "users": users,
     }
 
@@ -91,8 +106,68 @@ def _error(case_id: str, issue: str, fix: str) -> str:
     return f"{case_id}: {issue}. Fix: {fix}"
 
 
+def _validate_rag_cases(rag_corpus_ids: dict[str, set[str]]) -> list[str]:
+    errors: list[str] = []
+    for expected_index, case in enumerate(_read_jsonl(RAG_GOLDEN_PATH), start=1):
+        case_id = f"RAG-{expected_index:02d}"
+        should_fallback = bool(case.get("should_fallback"))
+        expected_doc_ids = case.get("expected_doc_ids", [])
+        expected_chunk_ids = case.get("expected_chunk_ids", [])
+
+        if should_fallback:
+            if expected_doc_ids or expected_chunk_ids:
+                errors.append(
+                    _error(
+                        case_id,
+                        "fallback case should not declare expected_doc_ids or expected_chunk_ids",
+                        "clear expected_doc_ids and expected_chunk_ids for fallback RAG cases",
+                    )
+                )
+            continue
+
+        if not expected_doc_ids:
+            errors.append(
+                _error(
+                    case_id,
+                    "non-fallback RAG case has no expected_doc_ids",
+                    "add at least one doc_key from data/policies",
+                )
+            )
+        if not expected_chunk_ids:
+            errors.append(
+                _error(
+                    case_id,
+                    "non-fallback RAG case has no expected_chunk_ids",
+                    "add at least one chunk_id produced by chunk_markdown",
+                )
+            )
+
+        for doc_key in expected_doc_ids:
+            if doc_key not in rag_corpus_ids["doc_keys"]:
+                errors.append(
+                    _error(
+                        case_id,
+                        f"references {doc_key} in expected_doc_ids but doc is not in data/policies",
+                        "use a data/policies markdown filename stem or add the missing policy document",
+                    )
+                )
+
+        for chunk_id in expected_chunk_ids:
+            if chunk_id not in rag_corpus_ids["chunk_ids"]:
+                errors.append(
+                    _error(
+                        case_id,
+                        f"references {chunk_id} in expected_chunk_ids but chunk is not produced by chunk_markdown",
+                        "update the chunk_id to match the current data/policies corpus and chunker output",
+                    )
+                )
+
+    return errors
+
+
 def validate() -> list[str]:
     seed_ids = _extract_seed_ids(SEED_PATH.read_text(encoding="utf-8"))
+    rag_corpus_ids = _extract_rag_corpus_ids(POLICY_DIR)
     errors: list[str] = []
     cases = _read_jsonl(AGENT_GOLDEN_PATH)
 
@@ -153,6 +228,7 @@ def validate() -> list[str]:
                     )
                 )
 
+    errors.extend(_validate_rag_cases(rag_corpus_ids))
     return errors
 
 
