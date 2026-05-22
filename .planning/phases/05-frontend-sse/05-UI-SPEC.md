@@ -1,10 +1,11 @@
 ---
 phase: 5
 slug: frontend-sse
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-05-17
+approved: 2026-05-18
 ---
 
 # Phase 5 — UI Design Contract
@@ -232,11 +233,11 @@ Source: CONTEXT.md D-02 lists only shadcn official components.
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
 
-**Approval:** pending
+**Approval:** approved 2026-05-18 after Phase 5 browser and compose UAT passed

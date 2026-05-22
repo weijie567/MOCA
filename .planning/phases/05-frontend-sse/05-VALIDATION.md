@@ -1,10 +1,11 @@
 ---
 phase: 05
 slug: frontend-sse
-status: draft
+status: passed
 nyquist_compliant: true
 wave_0_complete: true
 created: 2026-05-17
+validated: 2026-05-18T13:51:18Z
 ---
 
 # Phase 05 - Validation Strategy
@@ -38,19 +39,19 @@ created: 2026-05-17
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 05-01-01 | 01 | 1 | AGNT-07 | T-05-01 | SSE schemas import and dependency resolves | import/unit | `UV_CACHE_DIR=/tmp/uv-cache uv run python -c "from src.api.schemas.agent_runs import CreateRunRequest, RunStatusResponse, SseEventPayload"` | yes | pending |
-| 05-01-02 | 01 | 1 | AGNT-07 | T-05-01 | Run endpoints preserve tenant-scoped auth and stream events | integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_agent_runs_api.py -q` | no - created by gap closure | pending |
-| 05-02-01 | 02 | 1 | FRNT-01, FRNT-02 | T-05-02 | Frontend client attaches bearer token and builds | build | `cd frontend && npm run build` | yes | pending |
-| 05-03-01 | 03 | 2 | FRNT-01, FRNT-03, FRNT-04 | T-05-03 | Chat, timeline, details panel compile and render contracts exist | build | `cd frontend && npm run build` | yes | pending |
-| 05-04-01 | 04 | 2 | FRNT-03 | T-05-04 | Compose config contains frontend service and valid proxy wiring | config | `docker compose config --quiet` | yes | pending |
-| 05-05-01 | 05 | 3 | AGNT-07 | T-05-05-03 | Non-pending SSE runs return 409 before `graph.astream` | regression | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_agent_runs_api.py -q` | no - create in plan | pending |
-| 05-05-02 | 05 | 3 | AGNT-07 | T-05-05-04 | Cross-tenant run ids cannot be claimed for streaming | regression | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_agent_runs_api.py -q` | no - create in plan | pending |
-| 05-06-01 | 06 | 3 | FRNT-01 | T-05-06-01 / T-05-06-02 | Demo UI installs only real seeded-user JWTs | build/grep | `cd frontend && npm run build` | yes | pending |
-| 05-06-02 | 06 | 3 | AGNT-07, FRNT-03 | T-05-06-03 | Frontend SSE event types match backend emissions | build/grep | `cd frontend && npm run build` | yes | pending |
-| 05-06-03 | 06 | 3 | FRNT-01 | T-05-06-04 | Docker proxy uses `VITE_API_URL` and compose config validates | config | `docker compose config --quiet` | yes | pending |
-| 05-07-01 | 07 | 4 | FRNT-02 | T-05-07-01 / T-05-07-02 | Pending approvals list drives selected approval decisions | build/grep | `cd frontend && npm run build` | yes | pending |
-| 05-07-02 | 07 | 4 | FRNT-01, FRNT-03 | T-05-07-03 | API/SSE failures become visible UI error or recovery states | build/grep | `cd frontend && npm run build` | yes | pending |
-| 05-08-01 | 08 | 3 | FRNT-03 | T-05-08 | Phase 5 frontend lint blockers are resolved | lint/build | `cd frontend && npm run lint && npm run build` | yes | pending |
+| 05-01-01 | 01 | 1 | AGNT-07 | T-05-01 | SSE schemas import and dependency resolves | import/unit | `UV_CACHE_DIR=/tmp/uv-cache uv run python -c "from src.api.schemas.agent_runs import CreateRunRequest, RunStatusResponse, SseEventPayload"` | yes | passed |
+| 05-01-02 | 01 | 1 | AGNT-07 | T-05-01 | Run endpoints preserve tenant-scoped auth and stream events | integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_agent_runs_api.py -q` | yes | passed |
+| 05-02-01 | 02 | 1 | FRNT-01, FRNT-02 | T-05-02 | Frontend client attaches bearer token and builds | build | `cd frontend && npm run build` | yes | passed |
+| 05-03-01 | 03 | 2 | FRNT-01, FRNT-03, FRNT-04 | T-05-03 | Chat, timeline, details panel compile and render contracts exist | build | `cd frontend && npm run build` | yes | passed |
+| 05-04-01 | 04 | 2 | FRNT-03 | T-05-04 | Compose config contains frontend service and valid proxy wiring | config | `docker compose config --quiet` | yes | passed |
+| 05-05-01 | 05 | 3 | AGNT-07 | T-05-05-03 | Non-pending SSE runs return 409 before `graph.astream` | regression | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_agent_runs_api.py -q` | yes | passed |
+| 05-05-02 | 05 | 3 | AGNT-07 | T-05-05-04 | Cross-tenant run ids cannot be claimed for streaming | regression | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_agent_runs_api.py -q` | yes | passed |
+| 05-06-01 | 06 | 3 | FRNT-01 | T-05-06-01 / T-05-06-02 | Demo UI installs only real seeded-user JWTs | build/grep | `cd frontend && npm run build` | yes | passed |
+| 05-06-02 | 06 | 3 | AGNT-07, FRNT-03 | T-05-06-03 | Frontend SSE event types match backend emissions | build/grep | `cd frontend && npm run build` | yes | passed |
+| 05-06-03 | 06 | 3 | FRNT-01 | T-05-06-04 | Docker proxy uses `VITE_API_URL` and compose config validates | config | `docker compose config --quiet` | yes | passed |
+| 05-07-01 | 07 | 4 | FRNT-02 | T-05-07-01 / T-05-07-02 | Pending approvals list drives selected approval decisions | build/grep | `cd frontend && npm run build` | yes | passed |
+| 05-07-02 | 07 | 4 | FRNT-01, FRNT-03 | T-05-07-03 | API/SSE failures become visible UI error or recovery states | build/grep | `cd frontend && npm run build` | yes | passed |
+| 05-08-01 | 08 | 3 | FRNT-03 | T-05-08 | Phase 5 frontend lint blockers are resolved | lint/build | `cd frontend && npm run lint && npm run build` | yes | passed |
 
 ---
 
@@ -86,4 +87,8 @@ Gap-closure Plan 05 creates `tests/test_agent_runs_api.py` before relying on it.
 - [x] Feedback latency target is under 120 seconds for focused checks.
 - [x] `nyquist_compliant: true` set in frontmatter.
 
-**Approval:** pending
+**Approval:** passed 2026-05-18
+
+## Completion Sync 2026-05-18
+
+Phase 5 validation is complete. Final evidence is recorded in `05-VERIFICATION.md` and `05-HUMAN-UAT.md`: 29/29 automated truths verified, 3/3 human UAT items passed, and the final backend suite passed with 176 tests.
