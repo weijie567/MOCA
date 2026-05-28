@@ -9,7 +9,7 @@ import { getDemoToken, setAuthToken } from '@/lib/api'
 
 function App() {
   const { role, username, switchRole } = useAuth()
-  const { state, submitQuery, approveRun, rejectRun } = useAgentRun()
+  const { state, submitQuery, approveRun, rejectRun, newConversation } = useAgentRun()
   const [authReady, setAuthReady] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
 
@@ -54,6 +54,7 @@ function App() {
           <ChatPanel
             state={state}
             submitQuery={submitQuery}
+            newConversation={newConversation}
             authReady={authReady}
             authError={authError}
           />

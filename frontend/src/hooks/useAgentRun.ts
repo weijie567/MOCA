@@ -23,6 +23,8 @@ const INITIAL_STATE: AgentRunState = {
   error: null,
 }
 
+const THREAD_ID_STORAGE_KEY = 'moca.agent.threadId'
+
 const TERMINAL_STATUSES = new Set<AgentRunStatus>([
   'completed',
   'insufficient_evidence',
@@ -44,6 +46,35 @@ function createThreadId() {
     return `demo-${crypto.randomUUID()}`
   }
   return `demo-${Date.now()}`
+}
+
+function readStoredThreadId() {
+  if (typeof window === 'undefined') return null
+
+  try {
+    return window.localStorage.getItem(THREAD_ID_STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
+function storeThreadId(threadId: string) {
+  if (typeof window === 'undefined') return
+
+  try {
+    window.localStorage.setItem(THREAD_ID_STORAGE_KEY, threadId)
+  } catch {
+    // Conversation continuity is best-effort when storage is unavailable.
+  }
+}
+
+function getInitialThreadId() {
+  const storedThreadId = readStoredThreadId()
+  if (storedThreadId) return storedThreadId
+
+  const threadId = createThreadId()
+  storeThreadId(threadId)
+  return threadId
 }
 
 function nextStepIndex(steps: SseEvent[]) {
@@ -98,6 +129,7 @@ function withRecoveredTerminalStep(
 
 export function useAgentRun() {
   const [state, setState] = useState<AgentRunState>(INITIAL_STATE)
+  const [threadId, setThreadId] = useState(() => getInitialThreadId())
   const controllerRef = useRef<AbortController | null>(null)
   const pollTimerRef = useRef<number | null>(null)
   const closeExpectedRef = useRef(false)
@@ -258,7 +290,7 @@ export function useAgentRun() {
       })
 
       try {
-        const result = await createRun(trimmedQuery, createThreadId())
+        const result = await createRun(trimmedQuery, threadId)
         if (!result.success) {
           setState((current) => ({
             ...current,
@@ -282,7 +314,7 @@ export function useAgentRun() {
         }))
       }
     },
-    [attachStream, clearPolling, stopStream],
+    [attachStream, clearPolling, stopStream, threadId],
   )
 
   const approveRun = useCallback(async () => {
@@ -340,6 +372,13 @@ export function useAgentRun() {
     setState(INITIAL_STATE)
   }, [clearPolling, stopStream])
 
+  const newConversation = useCallback(() => {
+    reset()
+    const nextThreadId = createThreadId()
+    storeThreadId(nextThreadId)
+    setThreadId(nextThreadId)
+  }, [reset])
+
   useEffect(() => {
     return () => {
       stopStream()
@@ -353,5 +392,7 @@ export function useAgentRun() {
     approveRun,
     rejectRun,
     reset,
+    newConversation,
+    resetConversation: newConversation,
   }
 }
