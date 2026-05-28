@@ -39,6 +39,68 @@ def _retrieval_error_response(draft: dict[str, Any]) -> str:
     return f"系统暂时无法检索政策依据，请稍后重试或联系人工客服。{suffix}"
 
 
+def _business_context_summary(context: dict[str, Any]) -> str:
+    parts: list[str] = []
+    order = context.get("order") or {}
+    refund_case = context.get("refund_case") or {}
+    ticket = context.get("ticket") or {}
+
+    if order:
+        order_fields = [
+            f"订单号 {order.get('order_no') or '未知'}",
+            f"状态 {order.get('status') or '未知'}",
+        ]
+        if order.get("item_name"):
+            order_fields.append(f"商品 {order['item_name']}")
+        if order.get("amount"):
+            currency = order.get("currency") or ""
+            order_fields.append(f"金额 {order['amount']} {currency}".strip())
+        hints = order.get("relation_hints") or {}
+        hint_parts = []
+        if hints.get("has_active_refund"):
+            hint_parts.append("存在关联退款")
+        if hints.get("has_open_ticket"):
+            hint_parts.append("存在未关闭工单")
+        if hint_parts:
+            order_fields.append("；".join(hint_parts))
+        parts.append(f"已查询到订单信息：{'，'.join(order_fields)}。")
+
+    if refund_case:
+        refund_fields = [
+            f"退款单 {refund_case.get('refund_case_no') or '未知'}",
+            f"状态 {refund_case.get('status') or '未知'}",
+        ]
+        reason = refund_case.get("reason_text") or refund_case.get("reason_code")
+        if reason:
+            refund_fields.append(f"原因 {reason}")
+        if refund_case.get("requested_amount"):
+            refund_fields.append(f"申请金额 {refund_case['requested_amount']}")
+        if refund_case.get("approved_amount"):
+            refund_fields.append(f"已批金额 {refund_case['approved_amount']}")
+        parts.append(f"已查询到退款单信息：{'，'.join(refund_fields)}。")
+
+    if ticket:
+        ticket_fields = [
+            f"工单 {ticket.get('ticket_no') or '未知'}",
+            f"状态 {ticket.get('status') or '未知'}",
+        ]
+        if ticket.get("channel"):
+            ticket_fields.append(f"渠道 {ticket['channel']}")
+        if ticket.get("summary"):
+            ticket_fields.append(f"摘要 {ticket['summary']}")
+        parts.append(f"已查询到工单信息：{'，'.join(ticket_fields)}。")
+
+    return "\n".join(parts)
+
+
+def _insufficient_response_with_context(draft: dict[str, Any], context: dict[str, Any]) -> str:
+    evidence_text = _insufficient_response(draft)
+    fact_summary = _business_context_summary(context)
+    if not fact_summary:
+        return evidence_text
+    return f"{fact_summary}\n关于退款风险：{evidence_text}"
+
+
 def _citation_summary(evidence_refs: list[dict[str, Any]]) -> str:
     if not evidence_refs:
         return ""
@@ -98,8 +160,19 @@ async def final_response(state: AgentState) -> dict:
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("error", started_at)],
         }
     if draft.get("recommended_action") in {"insufficient_evidence", "citation_invalid"}:
+        response_text = _insufficient_response_with_context(draft, state.get("business_context") or {})
         return {
-            "final_response": _insufficient_response(draft),
+            "final_response": response_text,
+            "llm_outputs": {
+                **(state.get("llm_outputs") or {}),
+                "final_response": {
+                    "response_text": response_text,
+                    "evidence_citations": [],
+                    "final_status": "insufficient_evidence",
+                    "mode": "deterministic-template",
+                    "approval_context": None,
+                },
+            },
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
         }
     response_text = _completed_response(draft, state.get("risk_assessment") or {})

@@ -36,13 +36,17 @@ async def load_business_context(state: AgentState, config: RunnableConfig) -> di
     user_id = state["user_id"]
     role = state["role"]
     intent = state.get("current_intent") or "unknown"
-    slots = state.get("active_slots") or {}
+    extracted_slots = state.get("extracted_slots") or {}
+    has_current_identifier = any(extracted_slots.get(key) for key in ("order_id", "refund_case_id", "ticket_id"))
+    slots = extracted_slots if has_current_identifier else state.get("active_slots") or {}
     ctx: dict[str, Any] = {}
     refs: dict[str, Any] = {"loaded_at": _now_iso()}
     results: list[dict[str, Any]] = []
     tools_called: list[str] = []
 
-    if intent in {"refund_troubleshooting", "compensation_suggestion"}:
+    should_load_context = intent in {"refund_troubleshooting", "compensation_suggestion"} or has_current_identifier
+
+    if should_load_context:
         if slots.get("order_id"):
             tools_called.append("get_order")
             result = await get_order(slots["order_id"], tenant_id, user_id, role, session)

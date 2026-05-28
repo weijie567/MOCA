@@ -198,6 +198,26 @@ async def test_insufficient_evidence_path(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_order_fact_query_keeps_business_context_when_policy_evidence_is_missing(monkeypatch):
+    mocks = _patch_graph_dependencies(
+        monkeypatch,
+        intent="unknown",
+        order_id="ORD-001",
+        search_result=_policy_result(status="no_evidence", best_score=0.0, evidence=[]),
+    )
+    graph = build_graph(MemorySaver())
+
+    final_state = await graph.ainvoke(_state("ORD-001 订单是什么？"), _config())
+
+    assert final_state["business_context"]["order"]["order_no"] == "ORD-001"
+    assert final_state["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
+    assert "已查询到订单信息" in final_state["final_response"]
+    assert "ORD-001" in final_state["final_response"]
+    assert "关于退款风险" in final_state["final_response"]
+    mocks["get_order"].assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_order_not_found_path(monkeypatch):
     mocks = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id="ORD-MISSING")
     mocks["get_order"].return_value = {

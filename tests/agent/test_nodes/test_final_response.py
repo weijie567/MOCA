@@ -114,3 +114,40 @@ async def test_final_response_mentions_direct_action_without_approval(base_state
 
     assert "无需审批" in result["final_response"]
     assert "draft-002" in result["final_response"]
+
+
+@pytest.mark.asyncio
+async def test_final_response_preserves_order_facts_when_policy_evidence_is_missing(base_state):
+    state = {
+        **base_state,
+        "business_context": {
+            "order": {
+                "order_no": "ORD-2024-001",
+                "status": "delivered",
+                "item_name": "测试商品",
+                "amount": "199.00",
+                "currency": "CNY",
+                "relation_hints": {
+                    "has_active_refund": True,
+                    "has_open_ticket": False,
+                },
+            }
+        },
+        "recommendation_draft": {
+            "recommended_action": "insufficient_evidence",
+            "reasoning_summary": "No policy evidence.",
+            "evidence_refs": [],
+            "confidence": 0.0,
+            "risk_level": "low",
+            "missing_info": ["No relevant policy found"],
+        },
+    }
+
+    result = await final_response(state)
+
+    assert "已查询到订单信息" in result["final_response"]
+    assert "ORD-2024-001" in result["final_response"]
+    assert "测试商品" in result["final_response"]
+    assert "关于退款风险" in result["final_response"]
+    assert "没有找到足够证据" in result["final_response"]
+    assert result["llm_outputs"]["final_response"]["final_status"] == "insufficient_evidence"
