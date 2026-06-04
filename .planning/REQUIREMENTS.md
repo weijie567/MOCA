@@ -10,12 +10,12 @@ Requirements for the v1.1 Agentic Investigation milestone. Each requirement maps
 ### Tool Registry
 
 - [x] **REG-01**: System has a schema-first tool registry where each tool declares `name`, `description`, `input_schema`, `output_schema`, `risk_level`, `side_effect`, and `allowed_in_investigator`.
-- [ ] **REG-02**: Investigator can only select tools whose registry metadata has `allowed_in_investigator=true` and `risk_level` of `read` or `retrieval`.
-- [ ] **REG-03**: Initial investigator-visible registry includes only `get_order`, `get_refund_case`, `get_ticket`, and `search_policy`.
-- [ ] **REG-04**: Registry metadata explicitly excludes write/action/approval mutation tools from investigator access, including `create_coupon_grant_draft`, `execute_action`, and approval mutation operations.
-- [ ] **REG-05**: Tool registry validation fails fast when a tool's declared schema or safety metadata is missing, inconsistent, or unsafe for investigator use.
+- [x] **REG-02**: Investigator can only select tools whose registry metadata has `allowed_in_investigator=true` and `risk_level` of `read` or `retrieval`.
+- [x] **REG-03**: Initial investigator-visible registry includes only `get_order`, `get_refund_case`, `get_ticket`, and `search_policy`.
+- [x] **REG-04**: Registry metadata explicitly excludes write/action/approval mutation tools from investigator access, including `create_coupon_grant_draft`, `execute_action`, and approval mutation operations.
+- [x] **REG-05**: Tool registry validation fails fast when a tool's declared schema or safety metadata is missing, inconsistent, or unsafe for investigator use.
 - [ ] **REG-06**: Registry tools expose typed input/output adapters around the existing tool functions rather than changing the existing tool function contracts unnecessarily.
-- [ ] **REG-07**: Tool invocation validates requested tool name and input schema before execution, and records a structured `unsafe_tool_request` result instead of executing tools outside the investigator allowlist.
+- [x] **REG-07**: Tool invocation validates requested tool name and input schema before execution, and records a structured `unsafe_tool_request` result instead of executing tools outside the investigator allowlist.
 - [ ] **REG-08**: Tool results passed back into the investigator are summarized or sanitized to avoid prompt/context bloat and sensitive raw payload leakage.
 - [ ] **REG-09**: Tool registry metadata includes enough information for tool-selection prompting, including `when_to_use`, `required_identifiers`, and `result_summary_fields`.
 
@@ -117,12 +117,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | REG-01 | Phase 7 | Complete |
-| REG-02 | Phase 7 | Pending |
-| REG-03 | Phase 7 | Pending |
-| REG-04 | Phase 7 | Pending |
-| REG-05 | Phase 7 | Pending |
+| REG-02 | Phase 7 | Complete |
+| REG-03 | Phase 7 | Complete |
+| REG-04 | Phase 7 | Complete |
+| REG-05 | Phase 7 | Complete |
 | REG-06 | Phase 7 | Pending |
-| REG-07 | Phase 7 | Pending |
+| REG-07 | Phase 7 | Complete |
 | REG-08 | Phase 7 | Pending |
 | REG-09 | Phase 7 | Pending |
 | STATE-01 | Phase 7 | Pending |
