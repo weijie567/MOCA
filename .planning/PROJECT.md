@@ -38,10 +38,11 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - [x] Approval workflow creates auditable action drafts and exposes run-level trace replay (validated in Phase 4)
 - [x] Simple frontend allows submitting questions, viewing streamed agent responses, inspecting evidence/trace details, and handling approvals (validated in Phase 5)
 - [x] Final evaluation and polish expands the golden set, validates end-to-end metrics, and prepares demo/README materials (validated in Phase 6)
+- [x] v1.1 schema-first tool registry and dormant investigation contracts expose only approved read/retrieval tools while preserving existing graph/API compatibility (validated in Phase 7)
 
 ### Active
 
-- [ ] v1.1 introduces a schema-first tool registry and bounded investigator layer inside the existing LangGraph workflow.
+- [ ] v1.1 introduces the bounded investigator layer inside the existing LangGraph workflow.
 - [ ] v1.1 preserves fast path behavior, approval boundaries, trace replay, and API contract from v1.0.
 - [ ] v1.1 validates investigator behavior with golden/eval cases covering trigger accuracy, tool selection, evidence sufficiency, unsafe action prevention, approval preservation, and latency overhead.
 
@@ -91,7 +92,8 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - Phase 5 Frontend & SSE is complete: the React/Vite demo supports chat submission, progressive SSE timeline updates, evidence/trace inspection, pending approval handling, role switching, and Docker Compose frontend-to-API routing.
 - Phase 6 Evaluation & Polish is complete: the golden set now covers 14 RAG cases and 35 deterministic agent cases, evaluation scripts generate reports, CI runs lint/unit checks, and README/demo/security/evaluation docs are polished for the v1.0 demo.
 - v1.0 MVP is shipped and archived on 2026-05-22. Full milestone history lives in `.planning/milestones/v1.0-ROADMAP.md` and `.planning/milestones/v1.0-REQUIREMENTS.md`.
-- Active planning is now between milestones; v1.1 should start from fresh requirements rather than extending the archived v1.0 scope in place.
+- Phase 7 Tool Registry & Investigation Contracts is complete: schema-first registry contracts, typed adapters, strict invocation errors, sanitized prompt-facing results, `InvestigationResult`, and dormant per-turn-reset investigation state are validated.
+- Active planning is now on Phase 8 Deterministic Investigation Routing.
 
 ## Next Milestone Goals
 
@@ -140,4 +142,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-04 after v1.1 milestone start*
+*Last updated: 2026-06-04 after Phase 7 completion*
