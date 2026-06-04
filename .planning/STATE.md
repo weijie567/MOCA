@@ -1,32 +1,39 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: v1.0 milestone complete
-last_updated: "2026-05-22T09:44:11.657Z"
+milestone: v1.1
+milestone_name: Agentic Investigation
+status: Defining requirements
+last_updated: "2026-06-04"
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 36
-  completed_plans: 36
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State: MOCA
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-22)
+See: .planning/PROJECT.md (updated 2026-06-04)
 
 **Core value:** When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution.
-**Current focus:** Planning next milestone
+**Current focus:** v1.1 Agentic Investigation
+
+## Current Position
+
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-06-04 — Milestone v1.1 started
 
 ## Current Status
 
 - **Active phase:** none
-- **Phase status:** v1.0 is archived; no active phase.
+- **Phase status:** v1.1 requirements are being defined.
 - **Blockers:** None.
-- **Milestone:** v1.0 complete and archived — all 6 roadmap phases executed and verified.
+- **Milestone:** v1.1 Agentic Investigation — bounded investigation layer for the existing deterministic LangGraph workflow.
 
 ## Deferred Items
 

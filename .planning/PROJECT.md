@@ -10,6 +10,18 @@ Built as an open-source portfolio project demonstrating enterprise Agent enginee
 
 When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution — never silently executing something irreversible.
 
+## Current Milestone: v1.1 Agentic Investigation
+
+**Goal:** Add a bounded tool-selection / investigation layer inside the existing deterministic LangGraph refund workflow so ambiguous, multi-hop, evidence-insufficient, and compensation-advice cases can be investigated without changing v1.0 fast path, approval boundaries, trace replay, or API contract.
+
+**Target features:**
+- Schema-first tool registry with metadata for `name`, `description`, `input_schema`, `output_schema`, `risk_level`, `side_effect`, and `allowed_in_investigator`.
+- Investigator tool boundary that allows only read-only/retrieval tools: `get_order`, `get_refund_case`, `get_ticket`, and `search_policy`.
+- Bounded investigator subgraph that performs factual investigation and candidate action suggestions, then returns structured investigation output to the existing recommendation/risk/approval/action flow.
+- Fast path preservation so simple explicit-ID requests with sufficient evidence do not enter investigator.
+- Golden/eval coverage for trigger accuracy, tool selection accuracy, evidence sufficiency, unsafe action rate, approval boundary preservation, and latency overhead.
+- Investigator observability in existing trace replay for per-iteration tool selection, sanitized inputs, tool status, result refs/summaries, selection reasons, and stop reasons.
+
 ## Requirements
 
 ### Validated
@@ -29,7 +41,9 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 ### Active
 
-- [ ] Define v1.1 requirements through `$gsd-new-milestone`.
+- [ ] v1.1 introduces a schema-first tool registry and bounded investigator layer inside the existing LangGraph workflow.
+- [ ] v1.1 preserves fast path behavior, approval boundaries, trace replay, and API contract from v1.0.
+- [ ] v1.1 validates investigator behavior with golden/eval cases covering trigger accuracy, tool selection, evidence sufficiency, unsafe action prevention, approval preservation, and latency overhead.
 
 ### Out of Scope
 
@@ -126,4 +140,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-22 after v1.0 milestone archive*
+*Last updated: 2026-06-04 after v1.1 milestone start*
