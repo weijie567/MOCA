@@ -225,9 +225,11 @@ class ToolRegistry:
             raise ValueError("Tool registry definitions must include typed ToolRegistryEntry metadata")
         if not callable(tool.adapter):
             raise ValueError(f"Tool {entry.name!r} must include an async adapter")
-        if not isinstance(entry.input_schema, type) or not issubclass(entry.input_schema, BaseModel):
+        input_schema = getattr(entry, "input_schema", None)
+        output_schema = getattr(entry, "output_schema", None)
+        if not isinstance(input_schema, type) or not issubclass(input_schema, BaseModel):
             raise ValueError(f"Tool {entry.name!r} must declare a Pydantic input_schema")
-        if not isinstance(entry.output_schema, type) or not issubclass(entry.output_schema, BaseModel):
+        if not isinstance(output_schema, type) or not issubclass(output_schema, BaseModel):
             raise ValueError(f"Tool {entry.name!r} must declare a Pydantic output_schema")
         if not entry.description or not entry.when_to_use:
             raise ValueError(f"Tool {entry.name!r} must include prompt selection metadata")
