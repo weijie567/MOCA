@@ -301,6 +301,29 @@ async def test_same_thread_evidence_refs_survive_next_turn(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_same_thread_stale_investigation_state_is_reset_on_next_turn(monkeypatch):
+    _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id="ORD-001")
+    graph = build_graph(MemorySaver())
+    thread_id = "stale-investigation-thread"
+    stale_state = _state("订单ORD-001退款为什么没到账？", thread_id) | {
+        "investigation_result": {"facts": ["stale"]},
+        "investigation_steps": [{"tool": "search_policy"}],
+        "investigation_trigger_reason": "stale_reason",
+        "investigation_path": "investigation",
+    }
+
+    await graph.ainvoke(stale_state, _config(thread_id))
+
+    _patch_graph_dependencies(monkeypatch, intent="policy_qa")
+    final_state = await graph.ainvoke(_state("退款超时规则是什么？", thread_id), _config(thread_id))
+
+    assert final_state["investigation_result"] is None
+    assert final_state["investigation_steps"] is None
+    assert final_state["investigation_trigger_reason"] is None
+    assert final_state["investigation_path"] is None
+
+
+@pytest.mark.asyncio
 async def test_trace_summary_shape(graph_with_fake_llm):
     graph, _ = graph_with_fake_llm
     final_state = await graph.ainvoke(_state("退款超时规则是什么？"), _config())
