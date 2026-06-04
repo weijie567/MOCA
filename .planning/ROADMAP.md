@@ -92,7 +92,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 7. Tool Registry & Investigation Contracts | 2/4 | In progress | - |
+| 7. Tool Registry & Investigation Contracts | 3/4 | In progress | - |
 | 8. Deterministic Investigation Routing | 0/TBD | Not started | - |
 | 9. Bounded Investigator Execution | 0/TBD | Not started | - |
 | 10. Workflow Preservation & Trace Integration | 0/TBD | Not started | - |

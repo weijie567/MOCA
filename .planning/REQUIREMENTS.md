@@ -14,10 +14,10 @@ Requirements for the v1.1 Agentic Investigation milestone. Each requirement maps
 - [x] **REG-03**: Initial investigator-visible registry includes only `get_order`, `get_refund_case`, `get_ticket`, and `search_policy`.
 - [x] **REG-04**: Registry metadata explicitly excludes write/action/approval mutation tools from investigator access, including `create_coupon_grant_draft`, `execute_action`, and approval mutation operations.
 - [x] **REG-05**: Tool registry validation fails fast when a tool's declared schema or safety metadata is missing, inconsistent, or unsafe for investigator use.
-- [ ] **REG-06**: Registry tools expose typed input/output adapters around the existing tool functions rather than changing the existing tool function contracts unnecessarily.
+- [x] **REG-06**: Registry tools expose typed input/output adapters around the existing tool functions rather than changing the existing tool function contracts unnecessarily.
 - [x] **REG-07**: Tool invocation validates requested tool name and input schema before execution, and records a structured `unsafe_tool_request` result instead of executing tools outside the investigator allowlist.
-- [ ] **REG-08**: Tool results passed back into the investigator are summarized or sanitized to avoid prompt/context bloat and sensitive raw payload leakage.
-- [ ] **REG-09**: Tool registry metadata includes enough information for tool-selection prompting, including `when_to_use`, `required_identifiers`, and `result_summary_fields`.
+- [x] **REG-08**: Tool results passed back into the investigator are summarized or sanitized to avoid prompt/context bloat and sensitive raw payload leakage.
+- [x] **REG-09**: Tool registry metadata includes enough information for tool-selection prompting, including `when_to_use`, `required_identifiers`, and `result_summary_fields`.
 
 ### State and Contracts
 
@@ -79,7 +79,7 @@ Requirements for the v1.1 Agentic Investigation milestone. Each requirement maps
 
 ### Tests
 
-- [ ] **TEST-01**: Unit tests cover registry validation, unsafe tool exclusion, schema validation failures, and allowed read-only tool invocation.
+- [x] **TEST-01**: Unit tests cover registry validation, unsafe tool exclusion, schema validation failures, and allowed read-only tool invocation.
 - [ ] **TEST-02**: Routing tests cover fast path skip, low evidence trigger, compensation trigger, ambiguous question trigger, and unsupported/simple cases.
 - [ ] **TEST-03**: Investigator tests cover max iterations, tool error fallback, unsafe tool request rejection, structured `InvestigationResult` output, and no write/action execution.
 - [ ] **TEST-04**: Regression tests prove v1.0 approval, `execute_action`, `final_response`, trace, and API behavior remain backward compatible.
@@ -121,15 +121,15 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REG-03 | Phase 7 | Complete |
 | REG-04 | Phase 7 | Complete |
 | REG-05 | Phase 7 | Complete |
-| REG-06 | Phase 7 | Pending |
+| REG-06 | Phase 7 | Complete |
 | REG-07 | Phase 7 | Complete |
-| REG-08 | Phase 7 | Pending |
-| REG-09 | Phase 7 | Pending |
+| REG-08 | Phase 7 | Complete |
+| REG-09 | Phase 7 | Complete |
 | STATE-01 | Phase 7 | Pending |
 | STATE-02 | Phase 7 | Pending |
 | STATE-03 | Phase 7 | Pending |
 | STATE-04 | Phase 7 | Pending |
-| TEST-01 | Phase 7 | Pending |
+| TEST-01 | Phase 7 | Complete |
 | ROUTE-01 | Phase 8 | Pending |
 | ROUTE-02 | Phase 8 | Pending |
 | ROUTE-03 | Phase 8 | Pending |

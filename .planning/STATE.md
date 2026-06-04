@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agentic Investigation
 status: executing
-stopped_at: Completed 07-02-PLAN.md
-last_updated: "2026-06-04T05:21:03.383Z"
+stopped_at: Completed 07-03-PLAN.md
+last_updated: "2026-06-04T06:05:58.695Z"
 last_activity: 2026-06-04
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 4
-  completed_plans: 2
-  percent: 50
+  completed_plans: 3
+  percent: 75
 ---
 
 # Project State: MOCA
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-06-04)
 ## Current Position
 
 Phase: 07 (tool-registry-contracts) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-06-04
 
-Progress: [█████░░░░░] 50%
+Progress: [████████░░] 75%
 
 ## Performance Metrics
 
@@ -52,6 +52,8 @@ Progress: [█████░░░░░] 50%
 - Last 5 plans: v1.0 archived baseline, 07-01 contracts, 07-02 registry boundary
 - Trend: v1.1 Phase 7 progressing on schedule
 
+| Phase 07 P03 | 7min | 2 tasks | 4 files |
+
 ## Accumulated Context
 
 ### Decisions
@@ -64,6 +66,8 @@ Recent decisions affecting current work:
 - Investigator remains read-only/retrieval-only; approval and execution authority stay downstream.
 - Keep default registry adapters inside `src/agent/tools/registry.py` for Plan 07-02 so existing graph nodes and direct tool functions remain untouched.
 - Use `ToolExecutionResult(status="error")` with `not_found`, `unsafe_tool_request`, `validation_error`, and `tool_error` codes for structured registry rejection results.
+- Keep direct tool function signatures unchanged and make adapters the compatibility layer for registry invocation.
+- Sanitize registry success results to ToolExecutionResult.summary and evidence_refs only; raw payload data remains outside prompt-facing model dumps.
 
 ### Pending Todos
 
@@ -82,8 +86,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-04T05:21:03.372Z
-Stopped at: Completed 07-02-PLAN.md
+Last session: 2026-06-04T06:05:58.688Z
+Stopped at: Completed 07-03-PLAN.md
 Resume file: None
 
 **Planned Phase:** 7 (Tool Registry & Investigation Contracts) — 4 plans — 2026-06-04T04:41:25.649Z
