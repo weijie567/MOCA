@@ -170,7 +170,7 @@ async def test_happy_path_policy_qa(graph_with_fake_llm):
     assert final_state["risk_assessment"]["risk_level"] in ("low", "medium", "high")
     assert len(final_state["trace_steps"]) == 8
     assert final_state["current_run_id"] is not None
-    assert INVESTIGATION_STATE_FIELDS.isdisjoint(final_state)
+    assert all(final_state[field] is None for field in INVESTIGATION_STATE_FIELDS)
     assert not any("investigat" in step.get("node", "") for step in final_state["trace_steps"])
     mocks["search_policy"].assert_awaited_once()
 
