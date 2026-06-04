@@ -1,113 +1,53 @@
 ---
 phase: 07-tool-registry-contracts
-reviewed: 2026-06-04T06:49:52Z
+reviewed: 2026-06-04T10:47:24Z
 depth: standard
-files_reviewed: 10
+files_reviewed: 4
 files_reviewed_list:
-  - src/agent/schemas.py
-  - src/agent/state.py
-  - src/agent/tools/adapters.py
-  - src/agent/tools/contracts.py
   - src/agent/tools/registry.py
-  - tests/agent/test_graph.py
+  - src/agent/nodes/receive_request.py
   - tests/agent/test_tools/test_registry.py
-  - tests/agent/test_tools/test_tool_adapters.py
-  - tests/agent/test_tools/test_tool_contracts.py
-  - tests/test_agent_runs_api.py
+  - tests/agent/test_graph.py
 findings:
   critical: 0
-  warning: 4
+  warning: 0
   info: 0
-  total: 4
-status: issues_found
+  total: 0
+status: clean
 ---
 
 # Phase 07: Code Review Report
 
-**Reviewed:** 2026-06-04T06:49:52Z
+**Reviewed:** 2026-06-04T10:47:24Z
 **Depth:** standard
-**Files Reviewed:** 10
-**Status:** issues_found
+**Files Reviewed:** 4
+**Status:** clean
 
 ## Summary
 
-Reviewed the strict tool contract, registry, adapter, dormant investigation state, and related graph/API tests. The default happy path is covered, but there are several contract-boundary issues where malformed tool metadata or stale dormant state can bypass the intended safety guarantees. No critical security issue was found in the default registered tools.
+Reviewed the Phase 7 07-05 gap-closure changes in the registry, receive-request reset node, and focused registry/graph regressions. No new bugs, security issues, behavioral regressions, or test validity issues were found in the reviewed files.
 
-Verification note: `uv run pytest tests/agent/test_tools/test_registry.py tests/agent/test_tools/test_tool_contracts.py tests/agent/test_tools/test_tool_adapters.py tests/agent/test_graph.py tests/test_agent_runs_api.py -q --tb=short` passed 50 non-DB tests, then the API tests failed under sandboxed local database access. Rerunning `tests/test_agent_runs_api.py` with local DB access reached PostgreSQL but failed because the test schema was not prepared and then collided during create/drop (`relation "tenants" does not exist`, followed by DDL deadlocks/duplicate type errors). I treated that as an environment/setup failure, not a source finding.
+The four warnings from the previous `07-REVIEW.md` are now addressed rather than repeated as active findings:
 
-## Warnings
+- Prior WR-01, malformed adapter output promoted to success: closed by `ToolOutput.status: ToolResultStatus` and the `status="pending"` regression in `tests/agent/test_tools/test_registry.py`.
+- Prior WR-02, output conversion exceptions escaping `invoke`: closed by wrapper-shape validation and conversion containment returning structured `validation_error` results.
+- Prior WR-03, non-investigator side-effect checks missing: closed by explicit `load_business_context` and `retrieve_policy_evidence` side-effect gates plus negative execution tests.
+- Prior WR-04, dormant investigation state not reset: closed by resetting all four dormant fields in `receive_request` and the same-thread checkpoint regression in `tests/agent/test_graph.py`.
 
-### WR-01: Malformed Adapter Output Can Be Silently Promoted To Success
+All reviewed files meet quality standards. No issues found.
 
-**File:** `src/agent/tools/registry.py:34`
-**Issue:** `ToolOutput.status` is typed as plain `str`, and `_to_execution_result` treats every status other than exactly `"error"` as success. A tool returning `"pending"`, `"failed"`, or another malformed status would produce a prompt-facing success result with whatever summary fields happen to be present, which weakens the strict contract guarantee.
-**Fix:** Type the legacy wrapper status with the same result literal and let invalid statuses become structured tool errors.
+## Verification
 
-```python
-from src.agent.tools.contracts import ToolResultStatus
+- `uv run pytest tests/agent/test_tools/test_registry.py tests/agent/test_graph.py -q`: 23 passed, 1 LangGraph deprecation warning.
+- `uv run pytest tests/agent/test_tools/test_tool_contracts.py tests/agent/test_tools/test_registry.py tests/agent/test_tools/test_tool_adapters.py tests/agent/test_graph.py tests/agent/test_nodes/test_retrieve_policy_evidence.py tests/test_agent_runs_api.py -q --tb=short`: 69 passed, 1 LangGraph deprecation warning.
+- `uv run ruff check src/ tests/`: All checks passed.
 
-class ToolOutput(BaseModel):
-    status: ToolResultStatus
-    data: dict[str, Any] = Field(default_factory=dict)
-    error: dict[str, Any] = Field(default_factory=dict)
-```
+## Residual Risk
 
-Also add a regression test that an adapter returning `{"status": "pending", "data": {}, "error": {}}` yields a `validation_error` or `tool_error`, not success.
-
-### WR-02: Output Schema Validation Can Escape `invoke` As An Exception
-
-**File:** `src/agent/tools/registry.py:212`
-**Issue:** `invoke` catches input validation failures and adapter exceptions, but output validation happens after the guarded adapter call. If an adapter returns a malformed result, or if a custom `ToolRegistryEntry.output_schema` is a valid `BaseModel` that does not expose `status/data/error`, `_to_execution_result` can raise `ValidationError` or `AttributeError` instead of returning a structured `ToolExecutionResult`. That is a behavioral regression risk for any future graph caller that relies on registry errors being contained.
-**Fix:** Constrain output schemas to the wrapper shape used by `_to_execution_result`, and catch conversion failures inside `invoke`.
-
-```python
-try:
-    return self._to_execution_result(tool.entry, raw_result)
-except (ValidationError, AttributeError, TypeError) as exc:
-    return self._rejection("validation_error", str(exc))
-```
-
-For stricter metadata, either require `issubclass(output_schema, ToolOutput)` in `_validate_registered_tool`, or replace the current dynamic `output_schema` field with a registry-owned wrapper schema and reserve tool-specific output models for `data`.
-
-### WR-03: Non-Investigator Caller Gates Ignore Side-Effect Metadata
-
-**File:** `src/agent/tools/registry.py:204`
-**Issue:** `load_business_context` and `retrieve_policy_evidence` authorization checks only compare tool name and `risk_level`. A registered allowlisted name with mismatched side-effect metadata, such as `name="get_order", risk_level="read", side_effect="write"`, would be callable by the non-investigator branch even though the registry is meant to enforce safe tool contracts.
-**Fix:** Include side-effect checks in the caller gates and cover the negative cases in registry tests.
-
-```python
-if context.caller == "load_business_context":
-    return (
-        entry.name in _READ_CONTEXT_TOOL_NAMES
-        and entry.risk_level == "read"
-        and entry.side_effect in {"none", "read_only"}
-    )
-if context.caller == "retrieve_policy_evidence":
-    return (
-        entry.name in _RETRIEVAL_CONTEXT_TOOL_NAMES
-        and entry.risk_level == "retrieval"
-        and entry.side_effect == "retrieval"
-    )
-```
-
-### WR-04: Dormant Investigation State Is Marked Ephemeral But Not Reset
-
-**File:** `src/agent/state.py:70`
-**Issue:** The new investigation fields are placed under the `AgentState` ephemeral-context section, but the current reset path only clears the older ephemeral keys. In a checkpointed thread that already contains `investigation_result`, `investigation_steps`, `investigation_trigger_reason`, or `investigation_path`, those dormant values can persist into a later normal graph turn. That violates the phase boundary that current graph/API behavior should not change and risks stale investigation data leaking once the fields are written by a future or manual path.
-**Fix:** Add these keys to the per-turn reset output in `receive_request`, and add a graph test that seeds stale investigation fields and asserts they are absent or `None` after the next turn.
-
-```python
-return {
-    # existing resets...
-    "investigation_result": None,
-    "investigation_steps": None,
-    "investigation_trigger_reason": None,
-    "investigation_path": None,
-}
-```
+The reviewed implementation remains contract-boundary focused. It does not exercise future investigation routing or future write/action tools, which is appropriate for Phase 7 because those paths are still dormant and out of scope. The remaining warning is external dependency churn only: LangGraph reports a pending serializer default change.
 
 ---
 
-_Reviewed: 2026-06-04T06:49:52Z_
+_Reviewed: 2026-06-04T10:47:24Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
