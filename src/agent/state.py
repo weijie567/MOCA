@@ -67,6 +67,12 @@ class AgentState(TypedDict, total=False):
     approval_result: dict[str, Any] | None
     action_result: dict[str, Any] | None
 
+    # Phase 7: dormant investigation contracts for future bounded investigator phases.
+    investigation_result: dict[str, Any] | None
+    investigation_steps: list[dict[str, Any]] | None
+    investigation_trigger_reason: str | None
+    investigation_path: str | None
+
     final_response: str | None
     tool_results: list[dict[str, Any]] | None
     llm_outputs: dict[str, Any] | None

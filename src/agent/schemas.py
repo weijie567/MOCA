@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class IntentResult(BaseModel):
@@ -59,3 +59,22 @@ class FinalResponseOutput(BaseModel):
     response_text: str
     evidence_citations: list[str] = Field(default_factory=list)
     final_status: Literal["completed", "insufficient_evidence", "error"]
+
+
+class InvestigationResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["v1"] = "v1"
+    facts: list[str] = Field(default_factory=list)
+    evidence_refs: list[EvidenceRefSchema] = Field(default_factory=list)
+    missing_info: list[str] = Field(default_factory=list)
+    candidate_action: dict[str, Any] | None = None
+    confidence: float = Field(ge=0.0, le=1.0)
+    stop_reason: Literal[
+        "sufficient_evidence",
+        "insufficient_evidence",
+        "unsafe_tool_request",
+        "tool_error",
+        "iteration_budget_exhausted",
+    ]
+    safety_notes: list[str] = Field(default_factory=list)
