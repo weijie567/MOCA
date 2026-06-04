@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from unittest.mock import AsyncMock
+from uuid import uuid4
 
 import pytest
 from pydantic import BaseModel
@@ -165,3 +166,54 @@ async def test_schema_invalid_invocation_returns_validation_error_without_execut
     assert result.error is not None
     assert result.error.error_code == "validation_error"
     adapter.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_default_registry_uses_public_search_adapter_and_sanitizes_raw_policy_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tool = AsyncMock(
+        return_value={
+            "status": "success",
+            "data": {
+                "retrieval_status": "strong_evidence",
+                "best_score": 0.91,
+                "fallback_message": None,
+                "evidence": [
+                    {
+                        "doc_key": "policy_refund_timeout",
+                        "chunk_id": "chunk-1",
+                        "title": "Refund timeout policy",
+                        "section": "S1",
+                        "score": 0.91,
+                        "text": "Raw evidence text must remain internal.",
+                    }
+                ],
+            },
+            "error": {},
+        }
+    )
+    monkeypatch.setattr("src.agent.tools.adapters.search_policy", tool)
+    context = ToolInvocationContext(
+        tenant_id=str(uuid4()),
+        user_id="user-1",
+        role="support_agent",
+        session=object(),
+        caller="investigator",
+    )
+
+    result = await ToolRegistry().invoke("search_policy", {"query": "refund timeout"}, context)
+
+    assert result.status == "success"
+    assert result.error is None
+    assert result.summary == {
+        "retrieval_status": "strong_evidence",
+        "best_score": 0.91,
+        "fallback_message": None,
+    }
+    assert result.model_dump().keys() == {"status", "error", "evidence_refs", "summary"}
+    assert result.evidence_refs[0].doc_key == "policy_refund_timeout"
+    assert result.evidence_refs[0].chunk_id == "chunk-1"
+    assert "text" not in result.summary
+    assert "Raw evidence text" not in str(result.model_dump())
+    tool.assert_awaited_once()
