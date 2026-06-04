@@ -9,7 +9,7 @@ Requirements for the v1.1 Agentic Investigation milestone. Each requirement maps
 
 ### Tool Registry
 
-- [ ] **REG-01**: System has a schema-first tool registry where each tool declares `name`, `description`, `input_schema`, `output_schema`, `risk_level`, `side_effect`, and `allowed_in_investigator`.
+- [x] **REG-01**: System has a schema-first tool registry where each tool declares `name`, `description`, `input_schema`, `output_schema`, `risk_level`, `side_effect`, and `allowed_in_investigator`.
 - [ ] **REG-02**: Investigator can only select tools whose registry metadata has `allowed_in_investigator=true` and `risk_level` of `read` or `retrieval`.
 - [ ] **REG-03**: Initial investigator-visible registry includes only `get_order`, `get_refund_case`, `get_ticket`, and `search_policy`.
 - [ ] **REG-04**: Registry metadata explicitly excludes write/action/approval mutation tools from investigator access, including `create_coupon_grant_draft`, `execute_action`, and approval mutation operations.
@@ -116,7 +116,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| REG-01 | Phase 7 | Pending |
+| REG-01 | Phase 7 | Complete |
 | REG-02 | Phase 7 | Pending |
 | REG-03 | Phase 7 | Pending |
 | REG-04 | Phase 7 | Pending |
