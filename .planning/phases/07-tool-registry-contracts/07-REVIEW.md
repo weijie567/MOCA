@@ -1,53 +1,79 @@
 ---
 phase: 07-tool-registry-contracts
-reviewed: 2026-06-04T10:47:24Z
+reviewed: 2026-06-04T13:28:42Z
 depth: standard
-files_reviewed: 4
+files_reviewed: 11
 files_reviewed_list:
+  - src/agent/tools/contracts.py
   - src/agent/tools/registry.py
+  - src/agent/tools/adapters.py
+  - src/agent/schemas.py
+  - src/agent/state.py
   - src/agent/nodes/receive_request.py
+  - tests/agent/test_tools/test_tool_contracts.py
   - tests/agent/test_tools/test_registry.py
+  - tests/agent/test_tools/test_tool_adapters.py
   - tests/agent/test_graph.py
+  - tests/test_agent_runs_api.py
 findings:
   critical: 0
-  warning: 0
+  warning: 1
   info: 0
-  total: 0
-status: clean
+  total: 1
+status: issues_found
 ---
 
 # Phase 07: Code Review Report
 
-**Reviewed:** 2026-06-04T10:47:24Z
+**Reviewed:** 2026-06-04T13:28:42Z
 **Depth:** standard
-**Files Reviewed:** 4
-**Status:** clean
+**Files Reviewed:** 11
+**Status:** issues_found
 
 ## Summary
 
-Reviewed the Phase 7 07-05 gap-closure changes in the registry, receive-request reset node, and focused registry/graph regressions. No new bugs, security issues, behavioral regressions, or test validity issues were found in the reviewed files.
+Reviewed the full Phase 7 source/test scope against the locked spec, context, summaries, and verification report. The registry allowlist, structured rejection paths, malformed-output containment, caller-aware side-effect gates, dormant state reset, and API payload regression tests are present. The prior verification gaps are closed and are not repeated here.
 
-The four warnings from the previous `07-REVIEW.md` are now addressed rather than repeated as active findings:
+One contract mismatch remains: sanitized registry evidence refs omit `section`, but the new `InvestigationResult` citation schema requires it. That makes the future investigator unable to construct valid investigation citations from the registry's prompt-facing result alone without reaching back into raw evidence payloads.
 
-- Prior WR-01, malformed adapter output promoted to success: closed by `ToolOutput.status: ToolResultStatus` and the `status="pending"` regression in `tests/agent/test_tools/test_registry.py`.
-- Prior WR-02, output conversion exceptions escaping `invoke`: closed by wrapper-shape validation and conversion containment returning structured `validation_error` results.
-- Prior WR-03, non-investigator side-effect checks missing: closed by explicit `load_business_context` and `retrieve_policy_evidence` side-effect gates plus negative execution tests.
-- Prior WR-04, dormant investigation state not reset: closed by resetting all four dormant fields in `receive_request` and the same-thread checkpoint regression in `tests/agent/test_graph.py`.
+## Warnings
 
-All reviewed files meet quality standards. No issues found.
+### WR-01: Sanitized Registry Evidence Refs Drop Required Citation Section
+
+**File:** `src/agent/tools/registry.py:260`
+**Issue:** `_evidence_refs_from_data(...)` builds prompt-facing `ToolExecutionResult.evidence_refs` with `doc_key`, `chunk_id`, `title`, and `confidence`, but drops the policy evidence `section`. The Phase 7 `InvestigationResult` schema uses `EvidenceRefSchema`, where `section` is required. A future investigator that only sees sanitized registry results cannot produce a valid `InvestigationResult.evidence_refs` citation without using raw retrieved evidence, which undermines the Phase 7 sanitized boundary.
+**Fix:**
+```python
+class ToolEvidenceRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    doc_key: str | None = None
+    chunk_id: str | None = None
+    title: str | None = None
+    section: str | None = None
+    source: str | None = None
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+refs.append(
+    {
+        "doc_key": str(doc_key),
+        "chunk_id": str(chunk_id),
+        "title": item.get("title"),
+        "section": item.get("section"),
+        "confidence": item.get("score"),
+    }
+)
+```
+Add a registry sanitization assertion that `result.evidence_refs[0].section == "S1"` while raw `text` remains absent.
 
 ## Verification
 
-- `uv run pytest tests/agent/test_tools/test_registry.py tests/agent/test_graph.py -q`: 23 passed, 1 LangGraph deprecation warning.
-- `uv run pytest tests/agent/test_tools/test_tool_contracts.py tests/agent/test_tools/test_registry.py tests/agent/test_tools/test_tool_adapters.py tests/agent/test_graph.py tests/agent/test_nodes/test_retrieve_policy_evidence.py tests/test_agent_runs_api.py -q --tb=short`: 69 passed, 1 LangGraph deprecation warning.
-- `uv run ruff check src/ tests/`: All checks passed.
-
-## Residual Risk
-
-The reviewed implementation remains contract-boundary focused. It does not exercise future investigation routing or future write/action tools, which is appropriate for Phase 7 because those paths are still dormant and out of scope. The remaining warning is external dependency churn only: LangGraph reports a pending serializer default change.
+- Sandboxed run: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_tools/test_tool_contracts.py tests/agent/test_tools/test_registry.py tests/agent/test_tools/test_tool_adapters.py tests/agent/test_graph.py tests/test_agent_runs_api.py -q --tb=short` reached 55 passed, then API tests errored on local PostgreSQL socket access with `PermissionError: [Errno 1] Operation not permitted`.
+- Escalated local-DB run of the same listed-file suite: 63 passed, 1 existing LangGraph deprecation warning.
 
 ---
 
-_Reviewed: 2026-06-04T10:47:24Z_
+_Reviewed: 2026-06-04T13:28:42Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
