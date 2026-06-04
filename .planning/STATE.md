@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agentic Investigation
-status: executing
+status: ready_to_plan
 stopped_at: Completed 07-05-PLAN.md
 last_updated: "2026-06-04T10:43:13.502Z"
 last_activity: 2026-06-04 -- Phase 07 execution started
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 5
   completed_plans: 5
-  percent: 100
+  percent: 40
 ---
 
 # Project State: MOCA
@@ -21,22 +21,22 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-04)
 
 **Core value:** When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution.
-**Current focus:** Phase 07 — tool-registry-contracts
+**Current focus:** Phase 08 — investigation-routing
 
 ## Current Position
 
-Phase: 07 (tool-registry-contracts) — EXECUTING
-Plan: 5 of 5
-Status: Executing Phase 07
-Last activity: 2026-06-04 -- Phase 07 execution started
+Phase: 08
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-06-04
 
-Progress: [██████████] 100%
+Progress: [████░░░░░░] 40%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 38
+- Total plans completed: 43
 - Average duration: v1.1 active average 6min/plan
 - Total execution time: v1.1 active 12min
 
@@ -46,6 +46,7 @@ Progress: [██████████] 100%
 |-------|-------|-------|----------|
 | v1.0 archive | 36 | historical | historical |
 | v1.1 active | 2 | 12min | 6min |
+| 07 | 5 | - | - |
 
 **Recent Trend:**
 

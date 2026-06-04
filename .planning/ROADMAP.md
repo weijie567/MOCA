@@ -21,7 +21,7 @@
 
 ### v1.1 Agentic Investigation (Phases 7-11)
 
-- [ ] **Phase 7: Tool Registry & Investigation Contracts** - Establish schema-first tool metadata, validated investigator boundaries, and backward-compatible state contracts.
+- [x] **Phase 7: Tool Registry & Investigation Contracts** - Establish schema-first tool metadata, validated investigator boundaries, and backward-compatible state contracts. Completed 2026-06-04.
 - [ ] **Phase 8: Deterministic Investigation Routing** - Add explicit routing rules that preserve the fast path and enter investigation only for bounded scenarios.
 - [ ] **Phase 9: Bounded Investigator Execution** - Deliver the iterative read-only investigator with structured outputs, stop conditions, and safe fallbacks.
 - [ ] **Phase 10: Workflow Preservation & Trace Integration** - Feed investigation outputs through the existing recommendation, approval, execution, and replay flow without changing public contracts.
@@ -40,7 +40,7 @@
   4. Tool calls requested through the investigator boundary validate name and input shape before execution and return structured safe rejection results for disallowed requests.
   5. Tool invocation returns a sanitized/summarized `ToolExecutionResult` for investigator use while raw tool payloads remain internal or trace-safe referenced.
   6. Downstream graph nodes can read a typed `InvestigationResult` and new investigation state fields without breaking existing thread memory or v1.0 API responses.
-**Plans**: TBD
+**Plans**: 5/5 complete
 
 ### Phase 8: Deterministic Investigation Routing
 **Goal**: The graph deterministically decides when investigation is necessary and keeps explicit-ID, evidence-sufficient cases on the existing fast path.
