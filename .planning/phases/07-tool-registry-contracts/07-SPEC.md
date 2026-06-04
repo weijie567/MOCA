@@ -106,6 +106,10 @@ There is currently no unified schema-first tool registry, no investigator allowl
 - [ ] `AgentState` includes optional dormant `investigation_result`, `investigation_steps`, `investigation_trigger_reason`, and `investigation_path` fields.
 - [ ] Existing graph edges, routing, `generate_recommendation`, investigator execution, API responses, and v1.0 runtime behavior remain unchanged as proven by existing regression tests.
 
+## Deferred Follow-up
+
+- After Phase 9/10 investigator path is stable, migrate deterministic read/retrieval nodes (`load_business_context`, `retrieve_policy_evidence`) to registry runtime to unify tool invocation boundaries. This future work must preserve existing `AgentState` outputs, trace semantics, fallback behavior, tests, and API response compatibility. It must not change deterministic tool-selection logic or make these nodes LLM-driven.
+
 ## Ambiguity Report
 
 | Dimension          | Score | Min  | Status | Notes |
