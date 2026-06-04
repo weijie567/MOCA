@@ -32,6 +32,13 @@ EVIDENCE = [
     }
 ]
 
+INVESTIGATION_STATE_FIELDS = {
+    "investigation_result",
+    "investigation_steps",
+    "investigation_trigger_reason",
+    "investigation_path",
+}
+
 
 def _state(query: str, thread_id: str = "graph-test-thread") -> dict:
     return {
@@ -163,6 +170,8 @@ async def test_happy_path_policy_qa(graph_with_fake_llm):
     assert final_state["risk_assessment"]["risk_level"] in ("low", "medium", "high")
     assert len(final_state["trace_steps"]) == 8
     assert final_state["current_run_id"] is not None
+    assert INVESTIGATION_STATE_FIELDS.isdisjoint(final_state)
+    assert not any("investigat" in step.get("node", "") for step in final_state["trace_steps"])
     mocks["search_policy"].assert_awaited_once()
 
 
@@ -312,3 +321,4 @@ async def test_trace_summary_shape(graph_with_fake_llm):
     assert summary["tools_called"] == ["search_policy"]
     assert summary["evidence_count"] == 1
     assert summary["final_status"] in ("completed", "insufficient_evidence", "error")
+    assert INVESTIGATION_STATE_FIELDS.isdisjoint(summary)

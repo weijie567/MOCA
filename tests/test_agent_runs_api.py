@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -126,6 +127,14 @@ class StreamInterruptGraph:
         )
 
 
+INVESTIGATION_RESPONSE_FIELDS = {
+    "investigation_result",
+    "investigation_steps",
+    "investigation_trigger_reason",
+    "investigation_path",
+}
+
+
 def _auth_header(user: User, scopes: list[str]) -> dict[str, str]:
     token = create_access_token(
         {
@@ -160,6 +169,17 @@ async def _create_run(
         completed_at=None,
         total_latency_ms=None,
     )
+
+
+def _event_data(event: dict) -> dict:
+    return json.loads(event["data"])
+
+
+def _assert_no_investigation_fields(payload: dict) -> None:
+    assert INVESTIGATION_RESPONSE_FIELDS.isdisjoint(payload)
+    serialized = json.dumps(payload, ensure_ascii=False)
+    for field in INVESTIGATION_RESPONSE_FIELDS:
+        assert field not in serialized
 
 
 @pytest.mark.asyncio
@@ -321,6 +341,9 @@ async def test_event_generator_synthesizes_final_response_when_stream_ends_witho
 
     await session.refresh(run)
     assert final_event is not None
+    final_data = _event_data(final_event)
+    assert set(final_data["payload"]) == {"final_response"}
+    _assert_no_investigation_fields(final_data)
     assert run.final_status == "completed"
     assert run.final_response is not None
     assert "退款链路需要人工核实" in run.final_response
@@ -386,6 +409,9 @@ async def test_event_generator_treats_stream_interrupt_node_as_approval_required
     await session.refresh(run)
     approval = (await session.execute(select(ApprovalRequest).where(ApprovalRequest.run_id == run.id))).scalar_one()
     assert approval_event is not None
+    approval_data = _event_data(approval_event)
+    assert set(approval_data["payload"]) == {"approval_id", "proposed_action", "risk_level"}
+    _assert_no_investigation_fields(approval_data)
     assert '"status": "waiting_approval"' in approval_event["data"]
     assert run.final_status == "interrupted"
     assert run.final_response is None
