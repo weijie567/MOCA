@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agentic Investigation
 status: executing
-stopped_at: Completed 07-03-PLAN.md
-last_updated: "2026-06-04T06:05:58.695Z"
-last_activity: 2026-06-04
+stopped_at: Completed 07-05-PLAN.md
+last_updated: "2026-06-04T10:43:13.502Z"
+last_activity: 2026-06-04 -- Phase 07 execution started
 progress:
   total_phases: 5
-  completed_phases: 0
-  total_plans: 4
-  completed_plans: 3
-  percent: 75
+  completed_phases: 1
+  total_plans: 5
+  completed_plans: 5
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-06-04)
 ## Current Position
 
 Phase: 07 (tool-registry-contracts) — EXECUTING
-Plan: 4 of 4
-Status: Ready to execute
-Last activity: 2026-06-04
+Plan: 5 of 5
+Status: Executing Phase 07
+Last activity: 2026-06-04 -- Phase 07 execution started
 
-Progress: [████████░░] 75%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -53,6 +53,7 @@ Progress: [████████░░] 75%
 - Trend: v1.1 Phase 7 progressing on schedule
 
 | Phase 07 P03 | 7min | 2 tasks | 4 files |
+| Phase 07-tool-registry-contracts P05 | 5min | 5 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -68,6 +69,8 @@ Recent decisions affecting current work:
 - Use `ToolExecutionResult(status="error")` with `not_found`, `unsafe_tool_request`, `validation_error`, and `tool_error` codes for structured registry rejection results.
 - Keep direct tool function signatures unchanged and make adapters the compatibility layer for registry invocation.
 - Sanitize registry success results to ToolExecutionResult.summary and evidence_refs only; raw payload data remains outside prompt-facing model dumps.
+- Treat adapter output as untrusted runtime data and convert malformed wrappers to structured validation_error results.
+- Keep dormant investigation fields internal but reset them to None every graph turn to avoid checkpoint leakage.
 
 ### Pending Todos
 
@@ -86,8 +89,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-04T06:05:58.688Z
-Stopped at: Completed 07-03-PLAN.md
+Last session: 2026-06-04T10:43:13.494Z
+Stopped at: Completed 07-05-PLAN.md
 Resume file: None
 
 **Planned Phase:** 7 (Tool Registry & Investigation Contracts) — 4 plans — 2026-06-04T04:41:25.649Z

@@ -21,10 +21,10 @@ Requirements for the v1.1 Agentic Investigation milestone. Each requirement maps
 
 ### State and Contracts
 
-- [ ] **STATE-01**: `AgentState` is extended in a backward-compatible way to include optional `investigation_result`, `investigation_steps`, `investigation_trigger_reason`, and `investigation_path` fields without changing existing API response contracts.
-- [ ] **STATE-02**: `InvestigationResult` schema is versioned or explicitly typed so future tool/result fields can evolve without breaking `generate_recommendation`.
-- [ ] **STATE-03**: `InvestigationResult` distinguishes facts, `evidence_refs`, `missing_info`, `candidate_action`, confidence, `stop_reason`, and `safety_notes` rather than mixing them into free-form text.
-- [ ] **STATE-04**: Existing persistent thread-scoped memory fields such as `active_slots`, `last_intent`, `evidence_refs`, and `last_business_context_refs` continue to work unchanged.
+- [x] **STATE-01**: `AgentState` is extended in a backward-compatible way to include optional `investigation_result`, `investigation_steps`, `investigation_trigger_reason`, and `investigation_path` fields without changing existing API response contracts.
+- [x] **STATE-02**: `InvestigationResult` schema is versioned or explicitly typed so future tool/result fields can evolve without breaking `generate_recommendation`.
+- [x] **STATE-03**: `InvestigationResult` distinguishes facts, `evidence_refs`, `missing_info`, `candidate_action`, confidence, `stop_reason`, and `safety_notes` rather than mixing them into free-form text.
+- [x] **STATE-04**: Existing persistent thread-scoped memory fields such as `active_slots`, `last_intent`, `evidence_refs`, and `last_business_context_refs` continue to work unchanged.
 
 ### Investigation Routing
 
@@ -125,10 +125,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REG-07 | Phase 7 | Complete |
 | REG-08 | Phase 7 | Complete |
 | REG-09 | Phase 7 | Complete |
-| STATE-01 | Phase 7 | Pending |
-| STATE-02 | Phase 7 | Pending |
-| STATE-03 | Phase 7 | Pending |
-| STATE-04 | Phase 7 | Pending |
+| STATE-01 | Phase 7 | Complete |
+| STATE-02 | Phase 7 | Complete |
+| STATE-03 | Phase 7 | Complete |
+| STATE-04 | Phase 7 | Complete |
 | TEST-01 | Phase 7 | Complete |
 | ROUTE-01 | Phase 8 | Pending |
 | ROUTE-02 | Phase 8 | Pending |
