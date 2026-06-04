@@ -6,16 +6,22 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
+from src.agent.tools.adapters import (
+    GetOrderInput,
+    GetRefundCaseInput,
+    GetTicketInput,
+    SearchPolicyInput,
+    get_order_adapter,
+    get_refund_case_adapter,
+    get_ticket_adapter,
+    search_policy_adapter,
+)
 from src.agent.tools.contracts import (
     ToolExecutionError,
     ToolExecutionResult,
     ToolInvocationContext,
     ToolRegistryEntry,
 )
-from src.agent.tools.get_order import get_order
-from src.agent.tools.get_refund_case import get_refund_case
-from src.agent.tools.get_ticket import get_ticket
-from src.agent.tools.search_policy import search_policy
 
 
 INVESTIGATOR_TOOL_NAMES = frozenset({"get_order", "get_refund_case", "get_ticket", "search_policy"})
@@ -23,25 +29,6 @@ _READ_CONTEXT_TOOL_NAMES = frozenset({"get_order", "get_refund_case", "get_ticke
 _RETRIEVAL_CONTEXT_TOOL_NAMES = frozenset({"search_policy"})
 _SAFE_INVESTIGATOR_RISKS = frozenset({"read", "retrieval"})
 _SAFE_INVESTIGATOR_SIDE_EFFECTS = frozenset({"none", "read_only", "retrieval"})
-
-
-class GetOrderInput(BaseModel):
-    order_no: str = Field(min_length=1)
-
-
-class GetRefundCaseInput(BaseModel):
-    refund_case_no: str = Field(min_length=1)
-
-
-class GetTicketInput(BaseModel):
-    ticket_id: str = Field(min_length=1)
-
-
-class SearchPolicyInput(BaseModel):
-    query: str = Field(min_length=1)
-    top_k: int = Field(default=5, ge=1, le=10)
-    doc_type: str | None = None
-    risk_level: str | None = None
 
 
 class ToolOutput(BaseModel):
@@ -57,41 +44,6 @@ ToolAdapter = Callable[[BaseModel, ToolInvocationContext], Awaitable[dict[str, A
 class RegisteredTool:
     entry: ToolRegistryEntry
     adapter: ToolAdapter
-
-
-async def _get_order_adapter(input_data: BaseModel, context: ToolInvocationContext) -> dict[str, Any]:
-    data = GetOrderInput.model_validate(input_data)
-    return await get_order(data.order_no, context.tenant_id, context.user_id, context.role, context.session)
-
-
-async def _get_refund_case_adapter(input_data: BaseModel, context: ToolInvocationContext) -> dict[str, Any]:
-    data = GetRefundCaseInput.model_validate(input_data)
-    return await get_refund_case(
-        data.refund_case_no,
-        context.tenant_id,
-        context.user_id,
-        context.role,
-        context.session,
-    )
-
-
-async def _get_ticket_adapter(input_data: BaseModel, context: ToolInvocationContext) -> dict[str, Any]:
-    data = GetTicketInput.model_validate(input_data)
-    return await get_ticket(data.ticket_id, context.tenant_id, context.user_id, context.role, context.session)
-
-
-async def _search_policy_adapter(input_data: BaseModel, context: ToolInvocationContext) -> dict[str, Any]:
-    data = SearchPolicyInput.model_validate(input_data)
-    return await search_policy(
-        data.query,
-        context.tenant_id,
-        context.user_id,
-        context.role,
-        context.session,
-        top_k=data.top_k,
-        doc_type=data.doc_type,
-        risk_level=data.risk_level,
-    )
 
 
 def _entry(
@@ -132,7 +84,7 @@ def _default_tools() -> list[RegisteredTool]:
                 required_identifiers=["order_no"],
                 result_summary_fields=["order_no", "status", "amount", "currency", "relation_hints"],
             ),
-            adapter=_get_order_adapter,
+            adapter=get_order_adapter,
         ),
         RegisteredTool(
             entry=_entry(
@@ -152,7 +104,7 @@ def _default_tools() -> list[RegisteredTool]:
                     "approved_amount",
                 ],
             ),
-            adapter=_get_refund_case_adapter,
+            adapter=get_refund_case_adapter,
         ),
         RegisteredTool(
             entry=_entry(
@@ -165,7 +117,7 @@ def _default_tools() -> list[RegisteredTool]:
                 required_identifiers=["ticket_id"],
                 result_summary_fields=["ticket_no", "status", "channel", "summary"],
             ),
-            adapter=_get_ticket_adapter,
+            adapter=get_ticket_adapter,
         ),
         RegisteredTool(
             entry=_entry(
@@ -178,7 +130,7 @@ def _default_tools() -> list[RegisteredTool]:
                 required_identifiers=["query"],
                 result_summary_fields=["retrieval_status", "best_score", "fallback_message"],
             ),
-            adapter=_search_policy_adapter,
+            adapter=search_policy_adapter,
         ),
     ]
 
