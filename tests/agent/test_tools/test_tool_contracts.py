@@ -47,6 +47,22 @@ def test_registry_entry_accepts_complete_metadata():
     assert entry.allowed_in_investigator is True
 
 
+def test_registry_entry_accepts_complete_retrieval_metadata():
+    entry = _complete_registry_entry(
+        name="search_policy",
+        description="Retrieve policy evidence for a merchant operations question.",
+        risk_level="retrieval",
+        side_effect="retrieval",
+        required_identifiers=[],
+        result_summary_fields=["retrieval_status", "best_score", "evidence_count"],
+    )
+
+    assert entry.name == "search_policy"
+    assert entry.risk_level == "retrieval"
+    assert entry.side_effect == "retrieval"
+    assert entry.result_summary_fields == ["retrieval_status", "best_score", "evidence_count"]
+
+
 @pytest.mark.parametrize(
     "field",
     [
@@ -130,6 +146,27 @@ def test_tool_execution_result_rejects_invalid_error_code_literal():
         )
 
 
+def test_tool_execution_result_accepts_prompt_declared_summary_container():
+    result = ToolExecutionResult.model_validate(
+        {
+            "status": "success",
+            "error": None,
+            "evidence_refs": [
+                {
+                    "doc_key": "policy_refund_timeout",
+                    "chunk_id": "chunk_001",
+                    "title": "退款超时规则",
+                    "confidence": 0.82,
+                }
+            ],
+            "summary": {"retrieval_status": "strong_evidence", "best_score": 0.82},
+        }
+    )
+
+    assert result.summary == {"retrieval_status": "strong_evidence", "best_score": 0.82}
+    assert result.evidence_refs[0].chunk_id == "chunk_001"
+
+
 def test_tool_execution_result_rejects_unknown_prompt_facing_fields():
     with pytest.raises(ValidationError):
         ToolExecutionResult.model_validate(
@@ -139,5 +176,24 @@ def test_tool_execution_result_rejects_unknown_prompt_facing_fields():
                 "evidence_refs": [],
                 "summary": {"order_no": "ORD-001"},
                 "raw_payload": {"buyer_name": "hidden from prompt"},
+            }
+        )
+
+
+def test_tool_execution_result_rejects_unknown_evidence_ref_fields():
+    with pytest.raises(ValidationError):
+        ToolExecutionResult.model_validate(
+            {
+                "status": "success",
+                "error": None,
+                "evidence_refs": [
+                    {
+                        "doc_key": "policy_refund_timeout",
+                        "chunk_id": "chunk_001",
+                        "title": "退款超时规则",
+                        "text": "raw policy text must stay out of prompt-facing refs",
+                    }
+                ],
+                "summary": {},
             }
         )
