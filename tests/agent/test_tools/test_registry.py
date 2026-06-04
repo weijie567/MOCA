@@ -7,21 +7,11 @@ import pytest
 from pydantic import BaseModel
 
 from src.agent.tools.contracts import ToolInvocationContext, ToolRegistryEntry
-from src.agent.tools.registry import RegisteredTool, ToolRegistry
+from src.agent.tools.registry import RegisteredTool, ToolOutput, ToolRegistry
 
 
 class _Input(BaseModel):
     identifier: str
-
-
-class _Output(BaseModel):
-    identifier: str
-
-
-class _ToolOutput(BaseModel):
-    status: str
-    data: dict = {}
-    error: dict = {}
 
 
 def _entry(
@@ -35,7 +25,7 @@ def _entry(
         name=name,
         description=f"{name} test entry",
         input_schema=_Input,
-        output_schema=_Output,
+        output_schema=ToolOutput,
         risk_level=risk_level,
         side_effect=side_effect,
         allowed_in_investigator=allowed_in_investigator,
@@ -92,7 +82,7 @@ def test_registry_creation_fails_on_missing_schema_metadata() -> None:
     incomplete_entry = ToolRegistryEntry.model_construct(
         name="get_order",
         description="Incomplete metadata",
-        output_schema=_ToolOutput,
+        output_schema=ToolOutput,
         risk_level="read",
         side_effect="read_only",
         allowed_in_investigator=True,
@@ -111,7 +101,7 @@ def test_registry_creation_fails_on_unsafe_investigator_metadata() -> None:
         name="get_order",
         description="Unsafe metadata",
         input_schema=_Input,
-        output_schema=_ToolOutput,
+        output_schema=ToolOutput,
         risk_level="write",
         side_effect="write",
         allowed_in_investigator=True,
@@ -165,6 +155,84 @@ async def test_schema_invalid_invocation_returns_validation_error_without_execut
     assert result.status == "error"
     assert result.error is not None
     assert result.error.error_code == "validation_error"
+    adapter.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_malformed_output_status_returns_validation_error_without_prompt_summary() -> None:
+    adapter = AsyncMock(return_value={"status": "pending", "data": {"identifier": "abc"}, "error": {}})
+    registry = ToolRegistry([RegisteredTool(entry=_entry("get_order"), adapter=adapter)])
+
+    result = await registry.invoke("get_order", {"identifier": "abc"}, _context("investigator"))
+
+    assert result.status == "error"
+    assert result.error is not None
+    assert result.error.error_code == "validation_error"
+    assert "identifier" not in result.summary
+    assert "identifier" not in str(result.model_dump())
+    adapter.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_malformed_output_conversion_returns_structured_error_without_raising() -> None:
+    adapter = AsyncMock(return_value={"data": {"identifier": "abc"}, "error": {}})
+    registry = ToolRegistry([RegisteredTool(entry=_entry("get_order"), adapter=adapter)])
+
+    result = await registry.invoke("get_order", {"identifier": "abc"}, _context("investigator"))
+
+    assert result.status == "error"
+    assert result.error is not None
+    assert result.error.error_code in {"validation_error", "tool_error"}
+    adapter.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_load_business_context_rejects_read_tool_with_write_side_effect() -> None:
+    adapter = AsyncMock(return_value={"status": "success", "data": {"identifier": "abc"}, "error": {}})
+    unsafe_entry = ToolRegistryEntry.model_construct(
+        name="get_order",
+        description="Unsafe deterministic read metadata",
+        input_schema=_Input,
+        output_schema=ToolOutput,
+        risk_level="read",
+        side_effect="write",
+        allowed_in_investigator=False,
+        when_to_use="Use in tests.",
+        required_identifiers=["identifier"],
+        result_summary_fields=["identifier"],
+    )
+    registry = ToolRegistry([RegisteredTool(entry=unsafe_entry, adapter=adapter)])
+
+    result = await registry.invoke("get_order", {"identifier": "abc"}, _context("load_business_context"))
+
+    assert result.status == "error"
+    assert result.error is not None
+    assert result.error.error_code == "unsafe_tool_request"
+    adapter.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_retrieve_policy_evidence_rejects_retrieval_tool_with_read_only_side_effect() -> None:
+    adapter = AsyncMock(return_value={"status": "success", "data": {"identifier": "abc"}, "error": {}})
+    unsafe_entry = ToolRegistryEntry.model_construct(
+        name="search_policy",
+        description="Unsafe retrieval metadata",
+        input_schema=_Input,
+        output_schema=ToolOutput,
+        risk_level="retrieval",
+        side_effect="read_only",
+        allowed_in_investigator=False,
+        when_to_use="Use in tests.",
+        required_identifiers=["identifier"],
+        result_summary_fields=["identifier"],
+    )
+    registry = ToolRegistry([RegisteredTool(entry=unsafe_entry, adapter=adapter)])
+
+    result = await registry.invoke("search_policy", {"identifier": "abc"}, _context("retrieve_policy_evidence"))
+
+    assert result.status == "error"
+    assert result.error is not None
+    assert result.error.error_code == "unsafe_tool_request"
     adapter.assert_not_awaited()
 
 
