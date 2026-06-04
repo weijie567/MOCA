@@ -116,65 +116,65 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| REG-01 | TBD | Pending |
-| REG-02 | TBD | Pending |
-| REG-03 | TBD | Pending |
-| REG-04 | TBD | Pending |
-| REG-05 | TBD | Pending |
-| REG-06 | TBD | Pending |
-| REG-07 | TBD | Pending |
-| REG-08 | TBD | Pending |
-| REG-09 | TBD | Pending |
-| STATE-01 | TBD | Pending |
-| STATE-02 | TBD | Pending |
-| STATE-03 | TBD | Pending |
-| STATE-04 | TBD | Pending |
-| ROUTE-01 | TBD | Pending |
-| ROUTE-02 | TBD | Pending |
-| ROUTE-03 | TBD | Pending |
-| ROUTE-04 | TBD | Pending |
-| ROUTE-05 | TBD | Pending |
-| ROUTE-06 | TBD | Pending |
-| ROUTE-07 | TBD | Pending |
-| ROUTE-08 | TBD | Pending |
-| INV-01 | TBD | Pending |
-| INV-02 | TBD | Pending |
-| INV-03 | TBD | Pending |
-| INV-04 | TBD | Pending |
-| INV-05 | TBD | Pending |
-| INV-06 | TBD | Pending |
-| INV-07 | TBD | Pending |
-| INV-08 | TBD | Pending |
-| INV-09 | TBD | Pending |
-| INV-10 | TBD | Pending |
-| FLOW-01 | TBD | Pending |
-| FLOW-02 | TBD | Pending |
-| FLOW-03 | TBD | Pending |
-| FLOW-04 | TBD | Pending |
-| FLOW-05 | TBD | Pending |
-| FLOW-06 | TBD | Pending |
-| FLOW-07 | TBD | Pending |
-| FLOW-08 | TBD | Pending |
-| TRACE-01 | TBD | Pending |
-| TRACE-02 | TBD | Pending |
-| TRACE-03 | TBD | Pending |
-| EVAL-01 | TBD | Pending |
-| EVAL-02 | TBD | Pending |
-| EVAL-03 | TBD | Pending |
-| EVAL-04 | TBD | Pending |
-| EVAL-05 | TBD | Pending |
-| EVAL-06 | TBD | Pending |
-| EVAL-07 | TBD | Pending |
-| TEST-01 | TBD | Pending |
-| TEST-02 | TBD | Pending |
-| TEST-03 | TBD | Pending |
-| TEST-04 | TBD | Pending |
+| REG-01 | Phase 7 | Pending |
+| REG-02 | Phase 7 | Pending |
+| REG-03 | Phase 7 | Pending |
+| REG-04 | Phase 7 | Pending |
+| REG-05 | Phase 7 | Pending |
+| REG-06 | Phase 7 | Pending |
+| REG-07 | Phase 7 | Pending |
+| REG-08 | Phase 7 | Pending |
+| REG-09 | Phase 7 | Pending |
+| STATE-01 | Phase 7 | Pending |
+| STATE-02 | Phase 7 | Pending |
+| STATE-03 | Phase 7 | Pending |
+| STATE-04 | Phase 7 | Pending |
+| TEST-01 | Phase 7 | Pending |
+| ROUTE-01 | Phase 8 | Pending |
+| ROUTE-02 | Phase 8 | Pending |
+| ROUTE-03 | Phase 8 | Pending |
+| ROUTE-04 | Phase 8 | Pending |
+| ROUTE-05 | Phase 8 | Pending |
+| ROUTE-06 | Phase 8 | Pending |
+| ROUTE-07 | Phase 8 | Pending |
+| ROUTE-08 | Phase 8 | Pending |
+| TEST-02 | Phase 8 | Pending |
+| INV-01 | Phase 9 | Pending |
+| INV-02 | Phase 9 | Pending |
+| INV-03 | Phase 9 | Pending |
+| INV-04 | Phase 9 | Pending |
+| INV-05 | Phase 9 | Pending |
+| INV-06 | Phase 9 | Pending |
+| INV-07 | Phase 9 | Pending |
+| INV-08 | Phase 9 | Pending |
+| INV-09 | Phase 9 | Pending |
+| INV-10 | Phase 9 | Pending |
+| TEST-03 | Phase 9 | Pending |
+| FLOW-01 | Phase 10 | Pending |
+| FLOW-02 | Phase 10 | Pending |
+| FLOW-03 | Phase 10 | Pending |
+| FLOW-04 | Phase 10 | Pending |
+| FLOW-05 | Phase 10 | Pending |
+| FLOW-06 | Phase 10 | Pending |
+| FLOW-07 | Phase 10 | Pending |
+| FLOW-08 | Phase 10 | Pending |
+| TRACE-01 | Phase 10 | Pending |
+| TRACE-02 | Phase 10 | Pending |
+| TRACE-03 | Phase 10 | Pending |
+| TEST-04 | Phase 10 | Pending |
+| EVAL-01 | Phase 11 | Pending |
+| EVAL-02 | Phase 11 | Pending |
+| EVAL-03 | Phase 11 | Pending |
+| EVAL-04 | Phase 11 | Pending |
+| EVAL-05 | Phase 11 | Pending |
+| EVAL-06 | Phase 11 | Pending |
+| EVAL-07 | Phase 11 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 53 total
-- Mapped to phases: 0
-- Unmapped: 53 ⚠️
+- Mapped to phases: 53
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-06-04*
-*Last updated: 2026-06-04 after initial v1.1 definition*
+*Last updated: 2026-06-04 after v1.1 roadmap creation*
