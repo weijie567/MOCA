@@ -262,6 +262,7 @@ def _evidence_refs_from_data(data: dict[str, Any]) -> list[dict[str, Any]]:
                 "doc_key": str(doc_key),
                 "chunk_id": str(chunk_id),
                 "title": item.get("title"),
+                "section": item.get("section"),
                 "confidence": item.get("score"),
             }
         )

@@ -158,6 +158,7 @@ def test_tool_execution_result_accepts_prompt_declared_summary_container():
                     "doc_key": "policy_refund_timeout",
                     "chunk_id": "chunk_001",
                     "title": "退款超时规则",
+                    "section": "S1",
                     "confidence": 0.82,
                 }
             ],
@@ -167,6 +168,7 @@ def test_tool_execution_result_accepts_prompt_declared_summary_container():
 
     assert result.summary == {"retrieval_status": "strong_evidence", "best_score": 0.82}
     assert result.evidence_refs[0].chunk_id == "chunk_001"
+    assert result.evidence_refs[0].section == "S1"
 
 
 def test_tool_execution_result_rejects_unknown_prompt_facing_fields():

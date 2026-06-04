@@ -282,6 +282,8 @@ async def test_default_registry_uses_public_search_adapter_and_sanitizes_raw_pol
     assert result.model_dump().keys() == {"status", "error", "evidence_refs", "summary"}
     assert result.evidence_refs[0].doc_key == "policy_refund_timeout"
     assert result.evidence_refs[0].chunk_id == "chunk-1"
+    assert result.evidence_refs[0].section == "S1"
     assert "text" not in result.summary
+    assert "text" not in result.evidence_refs[0].model_dump(exclude_none=True)
     assert "Raw evidence text" not in str(result.model_dump())
     tool.assert_awaited_once()
