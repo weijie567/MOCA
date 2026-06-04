@@ -1,176 +1,140 @@
 ---
-phase: "07-tool-registry-contracts"
-verified: "2026-06-04T10:15:18Z"
-status: gaps_found
-score: "14/18 must-haves verified"
+phase: 07-tool-registry-contracts
+verified: 2026-06-04T10:51:18Z
+status: passed
+score: 18/18 must-haves verified
 overrides_applied: 0
-gaps:
-  - truth: "Invalid literal values and malformed tool outputs are rejected before runtime or returned as structured safe errors."
-    status: failed
-    reason: "ToolOutput.status is typed as str, and ToolRegistry._to_execution_result treats any non-error status as success. A runtime probe with status='pending' returned a success ToolExecutionResult."
-    artifacts:
-      - path: "src/agent/tools/registry.py"
-        issue: "ToolOutput.status is plain str at line 35; _to_execution_result promotes non-error statuses to success at lines 214-229."
-    missing:
-      - "Type ToolOutput.status with ToolResultStatus or otherwise reject malformed statuses."
-      - "Add a regression test proving status='pending' does not become success."
-  - truth: "ToolRegistry.invoke returns structured rejection results rather than leaking validation/conversion exceptions."
-    status: failed
-    reason: "Input validation and adapter exceptions are caught, but output_schema validation and result conversion happen after the guarded adapter call. A malformed output schema raised a Pydantic ValidationError out of invoke."
-    artifacts:
-      - path: "src/agent/tools/registry.py"
-        issue: "invoke returns _to_execution_result directly at line 172; output validation at line 213 is not caught."
-    missing:
-      - "Catch output conversion failures in invoke and return a validation_error or tool_error ToolExecutionResult."
-      - "Constrain registry output_schema to the wrapper shape expected by _to_execution_result."
-  - truth: "Caller-aware registry policy rejects unsafe metadata before execution for all registry callers."
-    status: failed
-    reason: "The non-investigator caller gates check name and risk_level but ignore side_effect. A model_constructed get_order entry with side_effect='write' executed through load_business_context."
-    artifacts:
-      - path: "src/agent/tools/registry.py"
-        issue: "_caller_can_invoke checks side_effect only for investigator at lines 197-203; load_business_context and retrieve_policy_evidence branches omit side-effect checks at lines 204-207."
-    missing:
-      - "Require read context tools to have side_effect in {'none', 'read_only'}."
-      - "Require retrieval context tools to have side_effect == 'retrieval'."
-      - "Add negative registry tests for non-investigator side-effect mismatches."
-  - truth: "Dormant investigation state remains ephemeral and cannot persist into later normal graph turns."
-    status: failed
-    reason: "AgentState marks investigation fields under the ephemeral context section, but receive_request does not reset them. In LangGraph's merged state model, omitted keys can remain from checkpointed state."
-    artifacts:
-      - path: "src/agent/state.py"
-        issue: "investigation_result, investigation_steps, investigation_trigger_reason, and investigation_path are listed as Phase 7 dormant investigation fields at lines 70-74."
-      - path: "src/agent/nodes/receive_request.py"
-        issue: "receive_request resets older ephemeral fields at lines 28-47 but omits all four investigation fields."
-    missing:
-      - "Reset investigation_result, investigation_steps, investigation_trigger_reason, and investigation_path in receive_request."
-      - "Add a graph regression test that seeds stale investigation fields in a checkpointed thread and verifies the next normal turn clears them."
+re_verification:
+  previous_status: gaps_found
+  previous_score: 14/18
+  gaps_closed:
+    - "Malformed ToolOutput status values such as pending cannot become success."
+    - "ToolRegistry.invoke returns structured safe errors for output conversion/validation failures."
+    - "Caller-aware registry policy rejects non-investigator side-effect mismatches before execution."
+    - "Dormant investigation fields reset per turn in receive_request and cannot persist from checkpointed state into normal graph turns."
+  gaps_remaining: []
+  regressions: []
 ---
 
 # Phase 7: Tool Registry & Investigation Contracts Verification Report
 
 **Phase Goal:** The workflow has a schema-first registry and typed investigation contracts that safely expose only approved read/retrieval tools to the future investigator while preserving existing tool and API compatibility.
-**Verified:** 2026-06-04T10:15:18Z
-**Status:** gaps_found
-**Re-verification:** No - initial verification
+**Verified:** 2026-06-04T10:51:18Z
+**Status:** passed
+**Re-verification:** Yes - after gap closure plan 07-05.
 
 ## Goal Achievement
 
-Phase 7 has the main contract, registry, adapter, state, and test artifacts in place. The default registry path and compatibility tests pass, including the unrestricted target suite: `64 passed, 1 warning`.
-
-However, all four warnings in `07-REVIEW.md` are verification gaps, not advisory follow-up. They affect strict result validation, structured error containment, caller-aware safety checks, and ephemeral state isolation. Those are part of the Phase 7 goal and must-haves.
+Phase 7 now meets the roadmap goal. The registry contracts are schema-first, the default investigator allowlist is exactly the approved read/retrieval tools, runtime invocation returns structured safe results for unsafe or malformed requests, prompt-facing results are sanitized, and dormant investigation state is reset per graph turn while current graph/API behavior remains compatible.
 
 ### Observable Truths
 
 | # | Truth | Status | Evidence |
-|---|-------|--------|----------|
-| 1 | Investigator-visible tools are defined through one validated registry format with schemas, safety metadata, and prompt-facing guidance. | VERIFIED | `ToolRegistryEntry` requires schemas, risk, side_effect, allowlist flag, `when_to_use`, identifiers, and summary fields in `src/agent/tools/contracts.py:25`; default entries include those fields in `src/agent/tools/registry.py:49`. |
-| 2 | Existing approved tools are exposed through adapters without changing direct tool signatures. | VERIFIED | `src/agent/tools/adapters.py:33` delegates to existing tool functions with tenant/user/role/session; adapter tests assert exact forwarding in `tests/agent/test_tools/test_tool_adapters.py:30`. |
-| 3 | Missing-schema or investigator-unsafe tools fail before runtime execution. | VERIFIED | Registry construction validates input/output schemas and investigator allowlist/safety metadata in `src/agent/tools/registry.py:174`; tests cover missing schema and unsafe investigator metadata in `tests/agent/test_tools/test_registry.py:90`. |
-| 4 | Tool name and input shape are validated before execution. | VERIFIED | `invoke` rejects unknown names and invalid input before awaiting adapters in `src/agent/tools/registry.py:154`; tests assert `adapter.assert_not_awaited()` in `tests/agent/test_tools/test_registry.py:127`. |
-| 5 | Disallowed investigator requests return structured safe rejection results. | VERIFIED | Disallowed invocations return `unsafe_tool_request` without execution in `src/agent/tools/registry.py:159`; test coverage at `tests/agent/test_tools/test_registry.py:138`. |
-| 6 | Prompt-facing results exclude raw payloads and expose declared summaries/evidence refs only. | PARTIAL | Happy path sanitization is tested at `tests/agent/test_tools/test_registry.py:171`, but malformed output status can become success and malformed output conversion can raise outside `invoke`. |
-| 7 | Invalid literal values are rejected before runtime. | FAILED | Prompt-facing `ToolExecutionResult` rejects invalid status in tests, but registry wrapper `ToolOutput.status` is plain `str` at `src/agent/tools/registry.py:35`; runtime probe with `status='pending'` returned success. |
-| 8 | Registry invocation returns structured errors rather than graph-level crashes. | FAILED | Output conversion exceptions from `entry.output_schema.model_validate(raw_result)` at `src/agent/tools/registry.py:213` are not caught; runtime probe raised `ValidationError`. |
-| 9 | Caller-aware policy enforces safe metadata for all registry callers. | FAILED | `load_business_context` and `retrieve_policy_evidence` gates ignore `side_effect` at `src/agent/tools/registry.py:204`; runtime probe executed a `side_effect='write'` get_order entry. |
-| 10 | Downstream phases have a typed InvestigationResult contract. | VERIFIED | `InvestigationResult` is strict/versioned in `src/agent/schemas.py:64`; tests cover valid and invalid versions/stop reasons in `tests/agent/test_tools/test_tool_contracts.py:204`. |
-| 11 | AgentState has optional dormant investigation keys. | VERIFIED | Optional fields are present in `src/agent/state.py:70`; tests show they are optional in `tests/agent/test_tools/test_tool_contracts.py:214`. |
-| 12 | Current graph/API outputs remain unchanged in default paths. | VERIFIED | Graph negative assertions are in `tests/agent/test_graph.py:173` and API payload negative assertions are in `tests/test_agent_runs_api.py:178`; target suite passed unrestricted. |
-| 13 | Existing thread memory fields continue to work unchanged. | VERIFIED | Cross-turn evidence and context tests still pass in `tests/agent/test_graph.py:267` and `tests/agent/test_graph.py:283`. |
-| 14 | Dormant investigation fields are ephemeral and reset per turn. | FAILED | `receive_request` resets older ephemeral fields but omits investigation fields in `src/agent/nodes/receive_request.py:28`; stale checkpointed fields can persist. |
-| 15 | REG-08 raw payload leakage prevention is covered by tests. | VERIFIED | Registry sanitization test asserts raw policy `text` is absent from model dumps in `tests/agent/test_tools/test_registry.py:217`. |
-| 16 | REG-09 selection metadata exists for prompt tool selection. | VERIFIED | Default entries include descriptions, `when_to_use`, `required_identifiers`, and `result_summary_fields` in `src/agent/tools/registry.py:77`. |
-| 17 | TEST-01 unit coverage exists for registry validation, unsafe exclusion, schema failures, and allowed invocation. | VERIFIED | Contract, registry, adapter, graph, and API tests passed in the unrestricted target suite. |
-| 18 | Phase 7 remains contract-only with no graph routing/API response expansion. | VERIFIED | `src/agent/graph.py` routing remains unchanged; tests assert no investigation nodes or response fields in `tests/agent/test_graph.py:174` and `tests/test_agent_runs_api.py:345`. |
+|---|---|---|---|
+| 1 | Investigator-visible tools are defined through one validated registry format with schemas, safety metadata, and prompt-facing guidance. | VERIFIED | `ToolRegistryEntry` requires schema, risk, side-effect, allowlist, `when_to_use`, identifiers, and summary fields in `src/agent/tools/contracts.py`; default entries populate them in `src/agent/tools/registry.py`. |
+| 2 | Existing approved tools are exposed through adapters without changing direct tool signatures. | VERIFIED | `src/agent/tools/adapters.py` delegates to existing `get_order`, `get_refund_case`, `get_ticket`, and `search_policy`; adapter tests assert exact forwarding. |
+| 3 | Missing-schema, unsafe, or write-capable investigator exposure fails before runtime execution. | VERIFIED | Registry construction validates Pydantic schemas, allowlist names, safe risk levels, safe side effects, and `ToolOutput` wrapper shape before indexing tools. |
+| 4 | Tool calls through the registry validate name and input shape before execution and return safe structured rejections. | VERIFIED | `ToolRegistry.invoke` returns `not_found`, `unsafe_tool_request`, or `validation_error` without awaiting adapters; tests assert `assert_not_awaited()`. |
+| 5 | Tool invocation returns sanitized `ToolExecutionResult` values while raw tool payloads stay internal. | VERIFIED | `_to_execution_result` builds only `summary` from declared `result_summary_fields` plus `evidence_refs`; raw policy `text` is absent from model dumps in tests. |
+| 6 | Downstream nodes can read typed investigation contracts and new state fields without breaking existing memory/API behavior. | VERIFIED | `InvestigationResult` exists in `src/agent/schemas.py`; optional dormant fields exist in `AgentState`; graph and API regression tests pass. |
+| 7 | Malformed adapter output status values such as `pending` never become prompt-facing success results. | VERIFIED | `ToolOutput.status: ToolResultStatus` rejects invalid statuses; regression test expects `validation_error` and no summary leakage. |
+| 8 | `ToolRegistry.invoke` contains output validation/result conversion failures and returns structured errors. | VERIFIED | `_to_execution_result(...)` is guarded for `ValidationError`, `AttributeError`, and `TypeError`; malformed output regression returns `ToolExecutionResult(status="error")`. |
+| 9 | Caller-aware registry policy rejects non-investigator side-effect mismatches before execution. | VERIFIED | `load_business_context` requires read risk plus `none/read_only`; `retrieve_policy_evidence` requires retrieval risk plus `retrieval`; negative tests assert adapters are not awaited. |
+| 10 | Dormant investigation fields reset at the start of each graph turn. | VERIFIED | `receive_request` resets `investigation_result`, `investigation_steps`, `investigation_trigger_reason`, and `investigation_path` to `None`; checkpoint regression proves stale values are cleared. |
+| 11 | Prompt-facing contracts reject undeclared fields and invalid literals. | VERIFIED | Contract tests cover invalid status/error/caller/safety literals and extra prompt-facing fields. |
+| 12 | The investigator allowlist is exact. | VERIFIED | `ToolRegistry().investigator_tool_names()` is asserted to equal `{get_order, get_refund_case, get_ticket, search_policy}`. |
+| 13 | Unsafe tools and approval/action operations are excluded. | VERIFIED | Tests assert `create_coupon_grant_draft`, `execute_action`, and approval mutation names are disjoint from investigator-visible tools. |
+| 14 | `InvestigationResult` is strict and versioned. | VERIFIED | Tests validate `schema_version="v1"`, typed evidence refs, confidence bounds, stop reasons, and `extra="forbid"`. |
+| 15 | `AgentState` investigation fields are optional and dormant. | VERIFIED | Minimal `AgentState` works without those keys; no graph routing consumes them in Phase 7. |
+| 16 | Existing graph routing remains contract-only with no investigator node. | VERIFIED | `src/agent/graph.py` contains the existing v1.0 nodes and edges only; graph tests assert no investigation node appears. |
+| 17 | Public API/event payloads remain backward-compatible. | VERIFIED | `tests/test_agent_runs_api.py` asserts dormant investigation fields are absent from final response and approval event payloads. |
+| 18 | TEST-01 coverage exists for registry validation, unsafe exclusion, schema failures, allowed invocation, and regressions. | VERIFIED | Focused Phase 7 suite passed: 69 passed, 1 LangGraph deprecation warning. |
 
-**Score:** 14/18 truths verified
+**Score:** 18/18 truths verified
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |---|---|---|---|
-| `src/agent/tools/contracts.py` | Typed registry metadata, invocation context, and prompt-facing result contracts | VERIFIED | Strict Pydantic models and literals exist; prompt-facing models use `extra="forbid"`. |
-| `src/agent/tools/registry.py` | Registry validation, allowlist lookup, caller-aware invocation, structured rejections | PARTIAL | Default path exists, but WR-01, WR-02, and WR-03 show malformed output and some unsafe metadata paths are not safely rejected. |
-| `src/agent/tools/adapters.py` | Typed wrappers for the four approved existing tools | VERIFIED | Adapters validate typed inputs and delegate to existing functions. |
-| `src/agent/schemas.py` | Strict `InvestigationResult` validation | VERIFIED | Versioned schema with typed fields, confidence bounds, stop reasons, and `extra="forbid"`. |
-| `src/agent/state.py` | Dormant optional investigation state keys | PARTIAL | Keys exist, but they are not reset despite being classified as ephemeral. |
-| `tests/agent/test_tools/test_tool_contracts.py` | Contract and state validation tests | VERIFIED | Covers metadata, literals, prompt fields, InvestigationResult, optional AgentState keys. |
-| `tests/agent/test_tools/test_registry.py` | Allowlist, unsafe exclusion, fail-fast, non-execution, sanitization | PARTIAL | Good happy-path and investigator checks, missing review-regression edge cases. |
-| `tests/agent/test_tools/test_tool_adapters.py` | Adapter forwarding tests | VERIFIED | Exact async forwarding assertions exist for all four adapters. |
-| `tests/agent/test_graph.py` | Backward-compatible graph behavior | VERIFIED | Default graph path and memory regressions pass. Missing stale investigation reset regression. |
-| `tests/test_agent_runs_api.py` | Public API response compatibility | VERIFIED | API response payloads assert dormant investigation fields are absent; passed with DB access. |
+| `src/agent/tools/contracts.py` | Typed registry metadata, invocation context, and prompt-facing result contracts | VERIFIED | Strict Pydantic models, literal aliases, and `extra="forbid"` prompt-facing models exist. |
+| `src/agent/tools/registry.py` | Registry validation, allowlist lookup, caller-aware invocation, structured rejections, sanitization | VERIFIED | `ToolRegistry`, `RegisteredTool`, `ToolOutput`, exact allowlist, side-effect gates, and output conversion containment exist. |
+| `src/agent/tools/adapters.py` | Typed wrappers for the four approved tools | VERIFIED | Pydantic input models and async adapter callables delegate to existing tools. |
+| `src/agent/schemas.py` | Strict `InvestigationResult` validation | VERIFIED | Versioned schema with facts, evidence refs, missing info, candidate action, confidence, stop reason, and safety notes. |
+| `src/agent/state.py` | Optional dormant investigation state keys | VERIFIED | Four optional keys exist under Phase 7 dormant investigation contracts. |
+| `src/agent/nodes/receive_request.py` | Per-turn reset for ephemeral and dormant fields | VERIFIED | All four investigation fields reset to `None` with other per-turn fields. |
+| `tests/agent/test_tools/test_tool_contracts.py` | Contract and state validation tests | VERIFIED | Covers metadata completeness, strict literals, prompt-field rejection, `InvestigationResult`, and optional state keys. |
+| `tests/agent/test_tools/test_registry.py` | Allowlist, unsafe exclusion, fail-fast, non-execution, sanitization, 07-05 gap regressions | VERIFIED | Includes malformed status, conversion containment, non-investigator side-effect mismatch, and raw policy text leakage tests. |
+| `tests/agent/test_tools/test_tool_adapters.py` | Adapter forwarding tests | VERIFIED | Mocks assert exact context and identifier forwarding for all four adapters. |
+| `tests/agent/test_graph.py` | Graph compatibility and checkpoint stale-state reset | VERIFIED | Current graph path remains unchanged; stale investigation fields are cleared on next same-thread turn. |
+| `tests/agent/test_nodes/test_retrieve_policy_evidence.py` | Existing retrieval node compatibility | VERIFIED | Included in passing Phase 7 suite. |
+| `tests/test_agent_runs_api.py` | API/event compatibility | VERIFIED | Included in passing Phase 7 suite; dormant fields remain absent from public payloads. |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |---|---|---|---|---|
-| `tests/agent/test_tools/test_tool_contracts.py` | `src/agent/tools/contracts.py` | Pydantic validation assertions | VERIFIED | Tests import and validate `ToolRegistryEntry`, `ToolInvocationContext`, and `ToolExecutionResult`. |
-| `src/agent/tools/registry.py` | `src/agent/tools/contracts.py` | Contract model imports | VERIFIED | Registry imports `ToolExecutionResult`, `ToolInvocationContext`, and `ToolRegistryEntry`. |
-| `tests/agent/test_tools/test_registry.py` | `src/agent/tools/registry.py` | Registry invocation and AsyncMock non-execution assertions | VERIFIED | Tests use `ToolRegistry`, `RegisteredTool`, and `adapter.assert_not_awaited()`. |
-| `src/agent/tools/adapters.py` | Existing tool modules | Delegated async calls | VERIFIED | Adapters import `get_order`, `get_refund_case`, `get_ticket`, and `search_policy`. |
-| `src/agent/tools/registry.py` | `src/agent/tools/adapters.py` | Default registered adapter callables | VERIFIED | Default tools use public adapter models and callables. |
-| `src/agent/state.py` | `src/agent/schemas.py` | Compatible investigation result strategy | PARTIAL | State stores `investigation_result` as `dict[str, Any]`, which is compatible but not type-linked to `InvestigationResult`. Plan allowed a compatible strategy, so not a blocking gap by itself. |
-| `receive_request` | `AgentState` ephemeral investigation fields | Per-turn reset | FAILED | The four new ephemeral fields are not reset. |
+| `src/agent/tools/registry.py` | `src/agent/tools/contracts.py` | Imports `ToolRegistryEntry`, `ToolInvocationContext`, `ToolExecutionResult`, `ToolResultStatus` | WIRED | Registry enforces the shared contracts at construction and invocation. |
+| `src/agent/tools/registry.py` | `src/agent/tools/adapters.py` | Default registry entries use adapter input schemas and callables | WIRED | The default four tools route through public adapter functions. |
+| `tests/agent/test_tools/test_registry.py` | `src/agent/tools/registry.py` | `ToolRegistry.invoke` probes and `AsyncMock` assertions | WIRED | Tests prove rejection before execution and safe conversion after execution. |
+| `tests/agent/test_tools/test_tool_adapters.py` | Existing tool functions | Monkeypatched adapter imports and `assert_awaited_once_with(...)` | WIRED | Existing direct tool signatures are preserved. |
+| `tests/agent/test_tools/test_tool_contracts.py` | `src/agent/tools/contracts.py`, `src/agent/schemas.py`, `src/agent/state.py` | Pydantic validation and TypedDict optional-key checks | WIRED | Contract and state shapes are validated directly. |
+| `tests/agent/test_graph.py` | `src/agent/nodes/receive_request.py` | Same-thread `MemorySaver` checkpoint regression | WIRED | Stale dormant fields reset to `None` on the next normal turn. |
+| `tests/test_agent_runs_api.py` | Public run event payloads | Negative assertions for investigation fields | WIRED | Public response contracts remain unchanged. |
 
 ### Data-Flow Trace (Level 4)
 
 | Artifact | Data Variable | Source | Produces Real Data | Status |
 |---|---|---|---|---|
-| `ToolRegistry.invoke` | `validated_input` | `tool.entry.input_schema.model_validate(input_data)` | Yes | FLOWING |
-| `ToolRegistry.invoke` | `raw_result` | Awaited adapter call | Yes | FLOWING |
-| `ToolRegistry._to_execution_result` | `ToolExecutionResult.summary` | `entry.result_summary_fields` filtering over `output.data` | Partial | HOLLOW_EDGE - malformed statuses and output schema mismatches are not safely contained. |
+| `ToolRegistry.invoke` | `validated_input` | `entry.input_schema.model_validate(input_data)` | Yes | FLOWING |
+| `ToolRegistry.invoke` | `raw_result` | Awaited registered adapter | Yes | FLOWING |
+| `ToolRegistry.invoke` | structured errors | `_rejection(...)` for name, policy, input, adapter, and output failures | Yes | FLOWING |
+| `ToolRegistry._to_execution_result` | `summary` | `entry.result_summary_fields` filtering over validated `ToolOutput.data` | Yes | FLOWING |
 | `ToolRegistry._to_execution_result` | `evidence_refs` | `_evidence_refs_from_data(data)` | Yes | FLOWING |
-| `AgentState` investigation fields | dormant state keys | Future phases/manual state/checkpointer | Partial | HOLLOW_EDGE - fields exist but are not reset in `receive_request`. |
+| `receive_request` | dormant investigation fields | Per-turn reset dict | Yes | FLOWING |
+| Public API events | response payload fields | `agent_runs.py` emits only existing final/approval payload fields | Yes | FLOWING |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |---|---|---|---|
-| Phase 7 target non-DB and API suite | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_tools/test_tool_contracts.py tests/agent/test_tools/test_registry.py tests/agent/test_tools/test_tool_adapters.py tests/agent/test_graph.py tests/agent/test_nodes/test_retrieve_policy_evidence.py tests/test_agent_runs_api.py -q --tb=short` | `64 passed, 1 warning` with local DB access | PASS |
-| Non-API contract/registry/adapter/graph suite in sandbox | `uv run pytest ... -q` | `50 passed, 1 warning` | PASS |
-| Malformed adapter status | Runtime probe invoking registry with adapter `status='pending'` | Returned `{'status': 'success', ...}` | FAIL |
-| Malformed output schema conversion | Runtime probe with output_schema lacking `status/data/error` | Raised Pydantic `ValidationError` out of `invoke` | FAIL |
-| Non-investigator side-effect mismatch | Runtime probe with `caller='load_business_context'`, `side_effect='write'` | Returned success and awaited adapter once | FAIL |
-| API test under sandboxed DB access | Same target suite without elevated local DB access | 56 passed, 8 setup errors from `PermissionError` connecting to local DB | ENVIRONMENT BLOCKED, rerun unrestricted passed |
+| Phase 7 focused contract/registry/adapter/graph/API suite | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_tools/test_tool_contracts.py tests/agent/test_tools/test_registry.py tests/agent/test_tools/test_tool_adapters.py tests/agent/test_graph.py tests/agent/test_nodes/test_retrieve_policy_evidence.py tests/test_agent_runs_api.py -q --tb=short` | 69 passed, 1 LangGraph deprecation warning | PASS |
+| Source and test lint | `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/ tests/` | All checks passed | PASS |
+| Later-phase deferral scan | `gsd-sdk query roadmap.analyze --raw` | Later phases cover routing, investigator execution, integration, and evals; no Phase 7 gaps deferred | PASS |
 
 ### Requirements Coverage
 
 | Requirement | Source Plan | Description | Status | Evidence |
 |---|---|---|---|---|
-| REG-01 | 07-01 | Schema-first tool registry metadata | SATISFIED | `ToolRegistryEntry` required fields and tests for missing metadata. |
-| REG-02 | 07-02 | Investigator selects only allowed read/retrieval tools | SATISFIED | Investigator gate checks allowlist, risk, and side_effect; exact allowlist test passes. |
-| REG-03 | 07-02 | Initial investigator registry includes only four approved tools | SATISFIED | `INVESTIGATOR_TOOL_NAMES` and exact set test. |
-| REG-04 | 07-02 | Write/action/approval mutation tools excluded | SATISFIED | Unsafe names excluded and outside allowlist rejected for investigator. |
-| REG-05 | 07-02 | Registry validation fails fast on missing/inconsistent/unsafe metadata | PARTIAL | Missing schemas and investigator-unsafe metadata fail; output wrapper mismatch and non-investigator side-effect mismatch remain gaps. |
-| REG-06 | 07-03 | Typed input/output adapters around existing tools | SATISFIED | Adapter models and forwarding tests exist. |
-| REG-07 | 07-02 | Invocation validates name/input before execution and records unsafe request | PARTIAL | Name/input/disallowed investigator paths work; output conversion can escape as exception. |
-| REG-08 | 07-03 | Results summarized/sanitized to avoid prompt bloat/raw leakage | PARTIAL | Happy path sanitizes raw data; malformed status can be promoted to success, weakening strict result boundary. |
-| REG-09 | 07-03 | Metadata includes tool-selection prompting information | SATISFIED | Default entries include `when_to_use`, `required_identifiers`, and `result_summary_fields`. |
-| STATE-01 | 07-04 | AgentState extended backward-compatibly with optional investigation fields | PARTIAL | Optional fields exist and API surface remains unchanged, but fields are not reset despite being ephemeral. |
-| STATE-02 | 07-04 | InvestigationResult versioned or explicitly typed | SATISFIED | `schema_version: Literal["v1"]` and strict tests. |
-| STATE-03 | 07-04 | InvestigationResult distinguishes structured fields | SATISFIED | Facts, evidence refs, missing info, candidate action, confidence, stop reason, and safety notes exist. |
-| STATE-04 | 07-04 | Existing persistent thread memory fields continue unchanged | PARTIAL | Existing memory tests pass; stale dormant investigation fields can persist because reset path omits them. |
-| TEST-01 | 07-01, 07-03, 07-04 | Unit tests cover registry validation, unsafe exclusion, schema failures, allowed invocation | PARTIAL | Required positive tests exist and pass; missing edge-case regression tests for all four review warnings. |
+| REG-01 | 07-01, 07-05 | Schema-first registry metadata | SATISFIED | `ToolRegistryEntry` requires all core schema, safety, and prompt-selection metadata; tests cover missing required fields. |
+| REG-02 | 07-02, 07-05 | Investigator can only select allowed read/retrieval tools | SATISFIED | Investigator caller gate checks allowlist, risk, and side-effect metadata. |
+| REG-03 | 07-02, 07-05 | Initial investigator registry includes only four approved tools | SATISFIED | Exact allowlist test passes. |
+| REG-04 | 07-02, 07-05 | Write/action/approval mutation tools excluded | SATISFIED | Unsafe names are excluded; disallowed write/action registry probes reject without execution. |
+| REG-05 | 07-02, 07-05 | Validation fails fast on missing/inconsistent/unsafe metadata | SATISFIED | Registry rejects missing schemas, unsafe investigator metadata, and non-`ToolOutput` output schemas. |
+| REG-06 | 07-03, 07-05 | Typed adapters wrap existing tool functions | SATISFIED | Adapter models and forwarding tests exist for all four tools. |
+| REG-07 | 07-02, 07-05 | Invocation validates name/input and records structured unsafe result | SATISFIED | Unknown, invalid input, disallowed, adapter error, and output validation paths return structured `ToolExecutionResult` errors. |
+| REG-08 | 07-03, 07-05 | Results summarized/sanitized to avoid raw leakage | SATISFIED | `ToolExecutionResult` exposes `summary` and evidence refs only; raw policy `text` is absent in tests. |
+| REG-09 | 07-03, 07-05 | Tool-selection prompting metadata exists | SATISFIED | Default entries include descriptions, `when_to_use`, `required_identifiers`, and `result_summary_fields`. |
+| STATE-01 | 07-04, 07-05 | Optional investigation fields without API contract changes | SATISFIED | `AgentState` includes optional fields; API payload tests assert those fields remain absent. |
+| STATE-02 | 07-04, 07-05 | Versioned/typed `InvestigationResult` | SATISFIED | `schema_version: Literal["v1"]` and strict tests exist. |
+| STATE-03 | 07-04, 07-05 | Structured investigation result fields | SATISFIED | Facts, evidence refs, missing info, candidate action, confidence, stop reason, and safety notes are distinct fields. |
+| STATE-04 | 07-04, 07-05 | Existing persistent thread memory fields continue unchanged | SATISFIED | Cross-turn context and evidence memory tests pass; dormant investigation fields reset per turn. |
+| TEST-01 | 07-03, 07-04, 07-05 | Unit tests cover registry validation, unsafe exclusion, schema failures, allowed invocation | SATISFIED | Focused suite passed with 69 tests; 07-05 added regressions for the four prior gaps. |
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |---|---:|---|---|---|
-| `src/agent/tools/registry.py` | 35 | Loose `status: str` on tool wrapper output | Blocker | Malformed statuses can be interpreted as success. |
-| `src/agent/tools/registry.py` | 172 | Result conversion outside exception guard | Blocker | Malformed output can raise out of `invoke` instead of structured rejection. |
-| `src/agent/tools/registry.py` | 204 | Non-investigator caller gates omit side-effect checks | Blocker | Unsafe metadata can execute for non-investigator registry callers. |
-| `src/agent/nodes/receive_request.py` | 28 | Ephemeral investigation fields omitted from reset dict | Blocker | Stale checkpointed investigation state can persist into later turns. |
+| None | - | - | - | Anti-pattern scan found only benign empty test fixtures and initialized containers; no stubs or placeholders blocking the goal. |
 
 ### Human Verification Required
 
-None. The remaining gaps are code-level contract and state behavior issues that are programmatically reproducible.
+None. Phase 7 is contract/state/test focused, and the relevant behaviors are covered programmatically.
 
 ### Gaps Summary
 
-The phase achieved most of the intended surface area: contracts, registry, adapters, strict investigation schema, optional state keys, and compatibility tests are present and wired. The goal is not fully achieved because the review warnings expose paths where strict validation and safe structured rejection do not hold, plus a state reset omission that contradicts the dormant ephemeral-state boundary.
-
-Fixing the four gaps should make this phase eligible for re-verification without requiring new product scope.
+No remaining gaps. The four previous verification failures are closed by plan 07-05, and the original Phase 7 roadmap success criteria and requirement IDs are satisfied. Later phases still own routing, bounded investigator execution, recommendation/trace integration, and milestone evaluation, but those are explicit future-phase goals rather than Phase 7 gaps.
 
 ---
 
-_Verified: 2026-06-04T10:15:18Z_
+_Verified: 2026-06-04T10:51:18Z_
 _Verifier: Claude (gsd-verifier)_
