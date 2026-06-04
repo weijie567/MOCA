@@ -21,6 +21,7 @@ from src.agent.tools.contracts import (
     ToolExecutionResult,
     ToolInvocationContext,
     ToolRegistryEntry,
+    ToolResultStatus,
 )
 
 
@@ -32,7 +33,7 @@ _SAFE_INVESTIGATOR_SIDE_EFFECTS = frozenset({"none", "read_only", "retrieval"})
 
 
 class ToolOutput(BaseModel):
-    status: str
+    status: ToolResultStatus
     data: dict[str, Any] = Field(default_factory=dict)
     error: dict[str, Any] = Field(default_factory=dict)
 
@@ -169,7 +170,10 @@ class ToolRegistry:
         except Exception as exc:
             return self._rejection("tool_error", str(exc), retryable=True)
 
-        return self._to_execution_result(tool.entry, raw_result)
+        try:
+            return self._to_execution_result(tool.entry, raw_result)
+        except (ValidationError, AttributeError, TypeError) as exc:
+            return self._rejection("validation_error", str(exc))
 
     def _validate_registered_tool(self, tool: RegisteredTool) -> None:
         entry = tool.entry
@@ -183,6 +187,8 @@ class ToolRegistry:
             raise ValueError(f"Tool {entry.name!r} must declare a Pydantic input_schema")
         if not isinstance(output_schema, type) or not issubclass(output_schema, BaseModel):
             raise ValueError(f"Tool {entry.name!r} must declare a Pydantic output_schema")
+        if not issubclass(output_schema, ToolOutput):
+            raise ValueError(f"Tool {entry.name!r} output_schema must inherit ToolOutput")
         if not entry.description or not entry.when_to_use:
             raise ValueError(f"Tool {entry.name!r} must include prompt selection metadata")
         if entry.allowed_in_investigator and entry.name not in INVESTIGATOR_TOOL_NAMES:
@@ -202,9 +208,17 @@ class ToolRegistry:
                 and entry.side_effect in _SAFE_INVESTIGATOR_SIDE_EFFECTS
             )
         if context.caller == "load_business_context":
-            return entry.name in _READ_CONTEXT_TOOL_NAMES and entry.risk_level == "read"
+            return (
+                entry.name in _READ_CONTEXT_TOOL_NAMES
+                and entry.risk_level == "read"
+                and entry.side_effect in {"none", "read_only"}
+            )
         if context.caller == "retrieve_policy_evidence":
-            return entry.name in _RETRIEVAL_CONTEXT_TOOL_NAMES and entry.risk_level == "retrieval"
+            return (
+                entry.name in _RETRIEVAL_CONTEXT_TOOL_NAMES
+                and entry.risk_level == "retrieval"
+                and entry.side_effect == "retrieval"
+            )
         if context.caller == "execute_action":
             return False
         return False
