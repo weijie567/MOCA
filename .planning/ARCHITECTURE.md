@@ -72,7 +72,8 @@ graph TD
     RISK_CHECK -->|within_authority| EXECUTOR
     RISK_CHECK -->|needs_approval| APPROVAL_NODE
 
-    APPROVAL_NODE[Approval Node<br/>interrupt&#40;&#41; — checkpoint to Postgres]
+
+    APPROVAL_NODE["Approval Node<br/>interrupt() - checkpoint to Postgres"]
     APPROVAL_NODE -->|approved| EXECUTOR
     APPROVAL_NODE -->|rejected| RESPONSE
 
