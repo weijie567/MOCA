@@ -1,90 +1,130 @@
 # Testing Patterns
 
-**Analysis Date:** 2026-05-09
+**Analysis Date:** 2026-06-05
 
 ## Test Framework
 
-**Runner:**
-- None configured
+**Backend runner:**
+- pytest
+- pytest-asyncio
+- httpx AsyncClient for API tests
 
-**Assertion Library:**
-- None configured
+**Frontend runner:**
+- Frontend has at least hook-level tests under `frontend/src/hooks/`.
+- Use the frontend package scripts from `frontend/package.json` for exact commands.
 
 **Run Commands:**
 ```bash
-# No test commands exist yet
+uv run pytest -q
+uv run pytest tests/agent/test_tools -q
+uv run pytest tests/agent/test_nodes -q
+uv run pytest tests/integration -q
+uv run ruff check .
+```
+
+Frontend commands should be run from `frontend/`:
+```bash
+npm test
+npm run lint
+npm run build
 ```
 
 ## Test File Organization
 
-**Current state:**
-- No `tests/`, `__tests__/`, `spec/`, or colocated `*.test.*` files detected
+**Backend root tests:**
+- API and domain tests live directly under `tests/`, such as `test_agent_runs_api.py`, `test_approval_api.py`, `test_search_integration.py`, and `test_trace_api.py`.
 
-**Documented future expectations:**
-- `.planning/REQUIREMENTS.md` defines evaluation and testing needs before any test harness exists
-- `.planning/ROADMAP.md` places CI, golden-set evaluation, and smoke testing across Phases 1 through 4
+**Integration tests:**
+- `tests/integration/` covers auth, tenant isolation, health, error format, and business-domain routes.
+
+**Agent tests:**
+- `tests/agent/test_graph.py`
+- `tests/agent/test_trace.py`
+- `tests/agent/test_nodes/`
+- `tests/agent/test_tools/`
+
+**RAG tests:**
+- `tests/test_chunker.py`
+- `tests/test_embedder.py`
+- `tests/test_retriever.py`
+- `tests/test_ingestion.py`
+- `tests/test_rag_eval.py`
+- `tests/test_rag_migration.py`
+
+**Evaluation fixtures:**
+- `evaluation/golden/`
+- `eval/golden_rag_queries.jsonl`
+- `evals/golden_set_phase3.json`
 
 ## Test Structure
 
-**Current state:**
-- No suite structure to analyze
+**Common backend patterns:**
+- Async tests use pytest-asyncio.
+- API tests exercise the FastAPI app with seeded database state.
+- Agent tests use focused state fixtures and fake graph/model behavior where needed.
+- Approval tests verify both API behavior and persisted state transitions.
 
-**Strong signals from planning docs:**
-- Golden-set evaluation is expected for RAG relevance, citation accuracy, risk interception, completion rate, and latency
-- Integration behavior matters more than isolated pure-function coverage for this project
+**Phase 7 specific coverage:**
+- Tool contracts: `tests/agent/test_tools/test_tool_contracts.py`
+- Tool adapters: `tests/agent/test_tools/test_tool_adapters.py`
+- Registry behavior: `tests/agent/test_tools/test_registry.py`
+- Read/retrieval tools: get order, refund case, ticket, and search policy tests
 
 ## Mocking
 
-**Current state:**
-- No mocking framework or fixture strategy exists
-
-**Recommendation baseline:**
-- Mock model providers and external business tools in unit tests
-- Keep at least one realistic synthetic-data integration path for end-to-end validation
+**Observed strategy:**
+- Mock or fake graph/model behavior for API and approval resume tests when live LangGraph execution is not the subject.
+- Keep repository/API integration tests close to real database behavior through fixtures.
+- Avoid live external model calls in default test runs.
 
 ## Fixtures and Factories
 
-**Current state:**
-- No fixture directories or factories detected
-
-**Documented future need:**
-- Realistic Chinese synthetic data is a first-phase deliverable in `.planning/ROADMAP.md`
-- Treat this seed dataset as a reusable testing asset, not just demo content
+**Implemented assets:**
+- `tests/conftest.py` for shared backend app/session/client/seed fixtures
+- `tests/agent/conftest.py` for agent-specific fixtures
+- `scripts/seed_demo.py` for realistic local demo data
+- `data/policies/` for synthetic policy documents
 
 ## Coverage
 
-**Current state:**
-- No coverage tooling or thresholds configured
+**Covered surfaces:**
+- Health and error envelopes
+- Auth and tenant isolation
+- Business read APIs
+- RAG ingestion/search/evaluation basics
+- Agent graph routing and nodes
+- Approval API and integration lifecycle
+- Trace API and latency instrumentation
+- Tool registry contracts, adapters, and authorization constraints
 
-**Documented future expectations:**
-- CI must at least run lint and unit tests
-- Integration tests and evaluation smoke tests are expected locally even if not required in CI
+**Known gaps:**
+- Full live model integration is not part of default automated tests.
+- Frontend coverage is lighter than backend coverage.
+- End-to-end browser-level demo validation is not represented as a standard CI command yet.
+- OTel/Prometheus-style observability is not implemented or tested.
 
 ## Test Types
 
 **Unit Tests:**
-- Not implemented
+- Node behavior, tool registry, tool adapters, chunker/embedder/retriever helpers
 
 **Integration Tests:**
-- Not implemented
-
-**E2E / Demo Validation:**
-- Not implemented
+- API route behavior, auth/tenant isolation, approval lifecycle, RAG search, trace timeline
 
 **Evaluation Tests:**
-- Planned through golden-set scoring requirements, but no harness exists yet
+- RAG and agent golden-set scripts and fixtures exist; exact scoring scripts should be run when changing retrieval, prompts, graph nodes, or tool behavior
+
+**E2E / Demo Validation:**
+- Smoke/demo scripts exist under `scripts/`, including live smoke and Phase 6 demo support
+- Frontend-to-backend browser automation is not yet a standard committed test workflow
 
 ## Immediate Testing Priorities
 
-1. Add a minimal automated test runner in Phase 1 so scaffolding changes are checked from the start.
-2. Create schema and permission tests before LangGraph orchestration, because these contracts will become hard to retrofit.
-3. Treat evaluation code as first-class source in Phase 2 and Phase 3, not as a late polish task.
-
-## Current Risk Summary
-
-- The repository has detailed success criteria but zero executable verification
-- Without early test scaffolding, the project will drift from its unusually strong planning discipline
+1. Keep Phase 7 tool contract tests required for any future tool changes.
+2. Add or standardize frontend test/build commands in top-level documentation.
+3. Add a small end-to-end smoke path that runs seed, API, agent query, approval decision, and trace retrieval.
+4. Keep golden RAG/agent evaluation tied to changes in `src/rag/`, `src/agent/`, `data/policies/`, and evaluation fixtures.
 
 ---
-*Testing analysis: 2026-05-09*
-*Update when the first test command and fixture set are added*
+*Testing analysis: 2026-06-05*
+*Refresh when test commands, fixtures, or coverage surfaces change*

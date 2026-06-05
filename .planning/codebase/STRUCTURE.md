@@ -1,104 +1,119 @@
 # Codebase Structure
 
-**Analysis Date:** 2026-05-09
+**Analysis Date:** 2026-06-05
 
 ## Directory Layout
 
 ```text
 MOCA/
-├── .claude/                 # Local workflow permissions
-├── .git/                    # Git metadata
-├── .planning/               # Project planning artifacts
-│   └── research/            # Research summaries generated from the initial exploration
-├── deep-research-report.md  # Main long-form solution report
-└── .DS_Store                # Unwanted macOS Finder artifact
+├── src/                     # Python backend source
+│   ├── api/                 # FastAPI app, routers, schemas, dependencies
+│   ├── agent/               # LangGraph state, graph, nodes, trace, tool registry
+│   ├── auth/                # JWT and permission helpers
+│   ├── db/                  # SQLAlchemy models, session, Alembic migrations
+│   ├── rag/                 # Chunking, embedding, retrieval, citation validation
+│   └── repositories/        # Database access layer
+├── tests/                   # Backend unit, API, integration, agent, and RAG tests
+├── frontend/                # Vite React TypeScript UI
+├── scripts/                 # Seed, ingest, eval, smoke, and diagnostic scripts
+├── data/policies/           # Synthetic policy knowledge-base documents
+├── evaluation/              # Golden agent/RAG evaluation cases
+├── eval/ and evals/         # Additional evaluation fixtures
+├── rules/                   # Risk and approval rule configuration
+├── docs/                    # Architecture, security, evaluation, and demo docs
+├── .planning/               # GSD planning, phase artifacts, and codebase maps
+├── docker-compose.yml       # Local service orchestration
+├── Dockerfile               # Backend container image
+├── pyproject.toml           # Python project and tool config
+├── uv.lock                  # Python lockfile
+└── README.md                # Project overview and run guidance
 ```
 
 ## Directory Purposes
 
-**`.planning/`:**
-- Purpose: Central source of truth for project framing, requirements, roadmap, and state
-- Contains: `PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md`, and research notes
-- Key files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`
-- Subdirectories: `.planning/research/`
+**`src/api/`:**
+- FastAPI app factory and middleware in `main.py`
+- Versioned routers for auth, orders, refund cases, tickets, search, agent chat, approvals, traces, and agent runs
+- Pydantic response/request schemas under `src/api/schemas/`
 
-**`.planning/research/`:**
-- Purpose: Condensed research outputs that informed project initialization
-- Contains: `ARCHITECTURE.md`, `FEATURES.md`, `PITFALLS.md`, `STACK.md`, `SUMMARY.md`
-- Key files: `.planning/research/SUMMARY.md`
-- Subdirectories: none
+**`src/agent/`:**
+- LangGraph orchestration in `graph.py`
+- Shared state and schemas in `state.py` and `schemas.py`
+- Node implementations under `src/agent/nodes/`
+- Trace persistence helpers in `trace.py`
+- Tool contracts, registry, adapters, and concrete tools under `src/agent/tools/`
 
-**`.claude/`:**
-- Purpose: Local tool permission settings
-- Contains: `settings.local.json`
-- Key files: `.claude/settings.local.json`
-- Subdirectories: none detected
+**`src/db/` and `src/repositories/`:**
+- ORM models for tenants, users, orders, refund cases, tickets, policy docs/chunks, audit logs, agent runs, approvals, action drafts, and agent steps
+- Alembic migrations through `005_approval_tables`
+- Repository classes that keep route and tool logic away from raw SQL
+
+**`src/rag/`:**
+- Policy ingestion, chunking, embedding, retrieval, and citation validation
+- Search route and tool paths reuse this layer
+
+**`frontend/`:**
+- React UI with chat, timeline, details tabs, auth hook, API/SSE helpers, and reusable UI primitives
+
+**`tests/`:**
+- Backend test coverage across API routes, auth/tenant isolation, RAG, graph routing, approval flow, trace API, latency instrumentation, and Phase 7 tool registry contracts
+- Agent-specific tests split under `tests/agent/test_nodes/` and `tests/agent/test_tools/`
 
 ## Key File Locations
 
 **Entry Points:**
-- `deep-research-report.md` - Original concept and architecture source document
-- `.planning/PROJECT.md` - Project definition and core value
-- `.planning/STATE.md` - Active phase tracking
+- Backend API: `src/api/main.py`
+- Agent graph: `src/agent/graph.py`
+- Frontend app: `frontend/src/App.tsx`
+- Frontend bootstrap: `frontend/src/main.tsx`
+- Local seed: `scripts/seed_demo.py`
+- Policy ingest: `scripts/ingest_policies.py`
 
 **Configuration:**
-- `.claude/settings.local.json` - Local workflow permissions
+- Python project: `pyproject.toml`
+- Backend settings: `src/config.py`
+- Environment example: `.env.example`
+- Local services: `docker-compose.yml`
+- Frontend build: `frontend/vite.config.ts`
 
 **Core Logic:**
-- None yet; there is no `src/`, `app/`, `backend/`, `frontend/`, or `services/` directory
+- API routers: `src/api/routers/`
+- Agent nodes: `src/agent/nodes/`
+- Tool registry and contracts: `src/agent/tools/contracts.py`, `src/agent/tools/registry.py`
+- Approval and trace models: `src/db/models.py`
+- RAG retrieval: `src/rag/retriever.py`
 
 **Testing:**
-- None yet; there is no `tests/`, `__tests__/`, or CI workflow directory
-
-**Documentation:**
-- `deep-research-report.md` - Long-form strategy document
-- `.planning/*.md` - Structured planning documents
+- Backend tests: `tests/`
+- Agent node tests: `tests/agent/test_nodes/`
+- Agent tool tests: `tests/agent/test_tools/`
+- Frontend hook test: `frontend/src/hooks/useAgentRun.test.ts`
 
 ## Naming Conventions
 
-**Files:**
-- Uppercase `.md` names inside `.planning/` for canonical planning docs
-- Mixed naming overall: root uses `deep-research-report.md`, while planning docs use uppercase
-- No established convention for future source files yet
+**Python:**
+- Snake_case modules and test files
+- Repository classes named by domain, such as `OrderRepository` and `ApprovalRepository`
+- Pydantic schemas grouped by API or agent domain
 
-**Directories:**
-- Dot-prefixed directories for local metadata and planning state
-- No feature or package directory convention established yet
+**Frontend:**
+- PascalCase React components
+- TypeScript modules grouped by component domain, hooks, API helpers, and event types
 
-**Special Patterns:**
-- Requirement IDs follow `PREFIX-##` format in `.planning/REQUIREMENTS.md`
-- Phase numbers are plain integers in `.planning/ROADMAP.md`
+**Planning:**
+- Canonical `.planning/` docs use uppercase names
+- Phase artifacts use phase-prefixed names such as `07-RESEARCH.md`
 
 ## Where to Add New Code
 
-**Recommended backend/API location:**
-- `apps/api/` or `backend/`
-
-**Recommended frontend location:**
-- `apps/web/` or `frontend/`
-
-**Recommended shared assets:**
-- `packages/shared/` or `shared/` for schemas, DTOs, and common types
-
-**Recommended tests:**
-- `tests/` for integration/e2e
-- colocated unit tests or `apps/api/tests/` and `apps/web/tests/`
-
-**Important note:**
-- Pick the structure before Phase 1 implementation starts; changing directory strategy mid-build will create unnecessary churn
-
-## Special Directories
-
-**`.planning/`:**
-- Purpose: Generated and manually curated project-management artifacts
-- Source: GSD workflows plus manual edits
-- Committed: Yes
-
-**`.git/`:**
-- Purpose: Repository metadata
-- Source: Git
-- Committed: Not as project content
+- New API endpoint: `src/api/routers/` plus schema in `src/api/schemas/`
+- New DB access behavior: `src/repositories/` plus model/migration if schema changes
+- New agent node: `src/agent/nodes/` and graph wiring in `src/agent/graph.py`
+- New tool: `src/agent/tools/` plus registry metadata and contract tests
+- New RAG behavior: `src/rag/` plus search/RAG tests
+- New UI view: `frontend/src/components/` or `frontend/src/hooks/`
+- New evaluation: `evaluation/`, `eval/`, `evals/`, or `scripts/eval_*.py` depending on scope
 
 ---
-*Structure analysis: 2026-05-09*
-*Update once real source, infra, and test directories are introduced*
+*Structure analysis: 2026-06-05*
+*Refresh when directories, entry points, or ownership boundaries change*

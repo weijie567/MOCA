@@ -1,101 +1,132 @@
 # Architecture
 
-**Analysis Date:** 2026-05-09
+**Analysis Date:** 2026-06-05
 
 ## Pattern Overview
 
-**Overall:** Planning-first repository with product-definition artifacts and no implementation layer yet
+**Overall:** Full-stack merchant operations agent prototype with a Python FastAPI backend, LangGraph agent workflow, Postgres-backed persistence, RAG policy retrieval, human approval interrupts, and a React frontend.
 
 **Key Characteristics:**
-- Research report translated into structured project planning files
-- Requirements are decomposed into phases before code exists
-- Intended architecture is documented, but repository structure does not yet enforce it
+- API-first backend with explicit schemas and trace IDs
+- Domain repositories isolate database access from routes and tools
+- LangGraph nodes implement a single refund/merchant-ops workflow
+- RAG evidence and citation validation are first-class safety inputs
+- High-risk actions move through approval requests and graph resume
+- Tool registry now has typed metadata, caller authorization, side-effect/risk constraints, and contract tests
 
 ## Layers
 
-**Research Layer:**
-- Purpose: Capture the broader solution space and recommended technical direction
-- Contains: `deep-research-report.md`
-- Depends on: External research performed before repository work
-- Used by: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`
+**Frontend Layer:**
+- Purpose: Operator-facing chat, timeline, evidence, and trace display
+- Contains: `frontend/src/App.tsx`, `frontend/src/components/`, `frontend/src/hooks/`, `frontend/src/lib/`
+- Depends on: Backend REST and SSE endpoints
 
-**Planning Layer:**
-- Purpose: Convert research into scoped requirements, phase sequencing, and current project state
-- Contains: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`
-- Depends on: Research conclusions and GSD templates
-- Used by: Future implementation planning and review workflows
+**API Layer:**
+- Purpose: HTTP contract, auth dependencies, error shape, trace middleware, and route composition
+- Contains: `src/api/main.py`, `src/api/routers/`, `src/api/schemas/`, `src/api/deps.py`
+- Depends on: Repositories, auth helpers, agent graph, RAG services
 
-**Future Implementation Layer:**
-- Purpose: Will eventually hold API, agent orchestration, retrieval pipeline, data model, and frontend code
-- Contains: Nothing yet
-- Depends on: Finalized scaffold and package/runtime decisions
-- Used by: Not started
+**Agent Layer:**
+- Purpose: Orchestrate merchant support reasoning, evidence retrieval, risk assessment, approval interrupt, action execution, and final response
+- Contains: `src/agent/graph.py`, `src/agent/state.py`, `src/agent/nodes/`, `src/agent/tools/`, `src/agent/trace.py`
+- Depends on: LangGraph, repositories, RAG, tool registry, approval persistence
+
+**RAG Layer:**
+- Purpose: Ingest policy documents, chunk knowledge, embed/search evidence, validate citations
+- Contains: `src/rag/`, `data/policies/`, `scripts/ingest_policies.py`, evaluation fixtures
+- Depends on: Policy document/chunk repositories and vector storage
+
+**Persistence Layer:**
+- Purpose: Tenant-scoped business data, audit logs, policy documents/chunks, agent runs/steps, approval requests/steps, and action drafts
+- Contains: `src/db/models.py`, `src/db/session.py`, `src/db/migrations/`, `src/repositories/`
+- Depends on: PostgreSQL, pgvector, SQLAlchemy, Alembic
+
+**Planning and Verification Layer:**
+- Purpose: Requirements, phase plans, review/security/UAT artifacts, architecture docs, and evaluation criteria
+- Contains: `.planning/`, `docs/`, `evaluation/`, `eval/`, `evals/`
 
 ## Data Flow
 
-**Current Planning Flow:**
+**Authenticated API Flow:**
+1. Client sends request with bearer token.
+2. `src/api/main.py` assigns `trace_id` and routes request.
+3. Route dependency resolves current user and scopes.
+4. Router calls repository, RAG service, or agent graph.
+5. Response returns standard `ApiResponse` shape with trace context.
 
-1. Business idea is explored in `deep-research-report.md`
-2. Core product framing is condensed into `.planning/PROJECT.md`
-3. Detailed requirements are enumerated in `.planning/REQUIREMENTS.md`
-4. Build order is scheduled in `.planning/ROADMAP.md`
-5. Active focus is tracked in `.planning/STATE.md`
+**Agent Chat Flow:**
+1. Agent run is created through `/api/v1/agent` or `/api/v1/agent-runs`.
+2. LangGraph starts with request state and tenant/user context.
+3. Nodes classify intent, load business context, retrieve policy evidence, generate recommendation, assess risk, and decide approval.
+4. Low-risk read paths produce a final response directly.
+5. High-risk actions create approval state and interrupt through LangGraph.
+6. Approval decision resumes the graph and records approval/action/trace events.
 
-**State Management:**
-- File-based only
-- No runtime state, persistence layer, or application memory exists yet
+**Tool Flow:**
+1. Tool registry receives typed input, caller context, and tool metadata.
+2. Registry validates schema, caller permissions, allowed caller class, side-effect category, and risk metadata.
+3. Adapter calls repository/RAG behavior.
+4. Tool output is normalized into evidence refs, data, errors, and execution metadata.
+
+**RAG Flow:**
+1. Policy markdown files are ingested and chunked.
+2. Chunks are stored with metadata and embeddings.
+3. Search retrieves evidence by query and tenant/policy metadata.
+4. Citation validator checks that generated references map to available evidence.
 
 ## Key Abstractions
 
-**Requirement IDs:**
-- Purpose: Provide traceable units such as `AGNT-01`, `RAG-04`, and `SAFE-08`
-- Examples: `.planning/REQUIREMENTS.md`
-- Pattern: Domain prefix + numeric identifier
-
-**Phase:**
-- Purpose: Bundle deliverables and success criteria into an incremental build sequence
-- Examples: Phase 1 through Phase 4 in `.planning/ROADMAP.md`
-- Pattern: Sequential milestone planning rather than code modules
-
-**Core Value:**
-- Purpose: Anchor future implementation and prioritization decisions
-- Examples: Repeated verbatim across `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/STATE.md`
-- Pattern: Single governing product invariant
+- `AgentState` - Shared graph state passed through LangGraph nodes
+- `AgentRun` / `AgentStep` - Run-level and node-level execution trace persistence
+- `ApprovalRequest` / `ApprovalStep` - Human review lifecycle for high-risk actions
+- `ActionDraft` - Idempotent proposed/executed action record
+- `ToolRegistryEntry` - Typed registry metadata for tool risk, side effects, caller permissions, schemas, and visibility
+- `ToolInvocationContext` - Caller/tenant/run context for tool execution authorization
+- `EvidenceItem` / retrieval schemas - RAG grounding contract
+- `ApiResponse` - Standard response envelope
 
 ## Entry Points
 
-**Research Entry:**
-- Location: `deep-research-report.md`
-- Triggers: Initial domain and architecture synthesis
-- Responsibilities: Establish scenario, stack, and business rationale
-
-**Planning Entry:**
-- Location: `.planning/PROJECT.md`
-- Triggers: GSD project initialization
-- Responsibilities: Define what this repository is meant to become
-
-**Workflow Entry:**
-- Location: GSD commands such as `gsd-sdk query init.map-codebase`
-- Triggers: Local project-management workflows
-- Responsibilities: Maintain planning metadata and supporting artifacts
+- API app: `src/api/main.py`
+- Graph builder: `src/agent/graph.py`
+- Approval decision route: `src/api/routers/approvals.py`
+- Agent streaming/runs routes: `src/api/routers/agent.py`, `src/api/routers/agent_runs.py`
+- Search route: `src/api/routers/search.py`
+- Frontend app: `frontend/src/App.tsx`
+- Seed script: `scripts/seed_demo.py`
+- Eval scripts: `scripts/eval_*.py`
 
 ## Error Handling
 
-**Strategy:** Not applicable at runtime; the repository currently manages planning drift rather than executable failures
+**Current strategy:**
+- API middleware attaches trace IDs and returns standardized error payloads.
+- Routers raise FastAPI HTTP errors for auth, tenant, not-found, and conflict cases.
+- Tool registry converts validation and execution failures into structured tool errors.
+- Agent nodes record trace steps and preserve evidence/approval context.
 
-**Current risk pattern:**
-- Errors will manifest as document inconsistency, scope creep, or architecture drift once implementation starts
+**Important behavior:**
+- Tenant isolation is enforced in routes/repositories and covered by integration tests.
+- Approval decisions reject self-approval, expired approvals, duplicate decisions, and invalid reviewer permissions.
+- RAG failures should degrade toward no-evidence/fallback behavior rather than unsafe execution.
 
 ## Cross-Cutting Concerns
 
 **Traceability:**
-- Strong on paper through requirement IDs and roadmap coverage
-- Still unproven because no code or tests map back to these requirements yet
+- `trace_id`, `run_id`, node trace steps, approval events, and action drafts are persisted and exposed through trace APIs.
 
-**Consistency:**
-- The same product intent is repeated across multiple planning files
-- This helps clarity now, but will become a maintenance burden if not consolidated once code begins
+**Safety:**
+- High-risk recommendations require approval.
+- Tool metadata distinguishes read/retrieval/write/approval side effects.
+- Investigator-visible tools are constrained to non-mutating behavior.
+
+**Tenant Boundaries:**
+- Tenant IDs are present across business and agent records.
+- API tests cover cross-tenant not-found/forbidden behavior.
+
+**Evaluation:**
+- Golden RAG and agent cases exist under `evaluation/`, `eval/`, and `evals/`.
+- Scripts support evaluation and smoke validation.
 
 ---
-*Architecture analysis: 2026-05-09*
-*Update when implementation directories and execution paths exist*
+*Architecture analysis: 2026-06-05*
+*Refresh when graph nodes, tool contracts, persistence schema, or API ownership boundaries change*

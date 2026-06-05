@@ -1,75 +1,114 @@
 # External Integrations
 
-**Analysis Date:** 2026-05-09
+**Analysis Date:** 2026-06-05
 
 ## APIs & External Services
 
-**Currently implemented:**
-- None in repository code; there are no API clients, SDK wrappers, or service configuration files yet
+**Implemented internal APIs:**
+- Auth: `src/api/routers/auth.py`
+- Orders: `src/api/routers/orders.py`
+- Refund cases: `src/api/routers/refund_cases.py`
+- Tickets: `src/api/routers/tickets.py`
+- Search: `src/api/routers/search.py`
+- Agent chat/runs: `src/api/routers/agent.py`, `src/api/routers/agent_runs.py`
+- Approvals: `src/api/routers/approvals.py`
+- Trace timeline: `src/api/routers/traces.py`
 
-**Planned in documents only:**
-- OpenAI-compatible model API for agent inference, referenced in `.planning/PROJECT.md`
-- Business-domain tools for orders, refunds, tickets, coupons, and approvals, referenced in `.planning/REQUIREMENTS.md`
+**Model integration surface:**
+- OpenAI-compatible dependencies are installed through `openai`, `langchain-openai`, and `langchain-core`.
+- Current architecture supports cloud or compatible local model endpoints through settings and LangChain/OpenAI-compatible interfaces.
+
+**Business tool integration surface:**
+- Tool registry and adapters live under `src/agent/tools/`.
+- Implemented read/retrieval tools include order lookup, refund-case lookup, ticket lookup, and policy search.
+- Write/approval-related behavior includes coupon/action draft creation after approval.
 
 ## Data Storage
 
-**Currently implemented:**
-- No database schema, migration directory, seed scripts, or ORM configuration detected
+**Implemented:**
+- PostgreSQL through SQLAlchemy async ORM
+- pgvector support for policy chunk embeddings
+- Alembic migrations:
+  - `001_initial_schema.py`
+  - `002_rag_pipeline.py`
+  - `003_agent_tables.py`
+  - `004_latency_metrics.py`
+  - `005_approval_tables.py`
+- Repository layer under `src/repositories/`
 
-**Planned in documents only:**
-- PostgreSQL + pgvector as the primary store for business data and embeddings
-- Redis for cache, session support, and rate limiting
+**Persisted domains:**
+- Tenants, roles, users, merchants
+- Orders, refund cases, tickets
+- Policy documents and policy chunks
+- Audit logs
+- Agent runs and agent steps
+- Approval requests and approval steps
+- Action drafts
+
+**Local service orchestration:**
+- `docker-compose.yml` starts local Postgres, Redis, and API dependencies.
 
 ## Authentication & Identity
 
-**Currently implemented:**
-- No auth middleware, token handling, or RBAC code present
+**Implemented:**
+- JWT helpers in `src/auth/jwt.py`
+- Permission/scope checks in `src/auth/permissions.py`
+- FastAPI dependencies in `src/api/deps.py`
+- Auth schemas in `src/api/schemas/auth.py`
 
-**Planned in documents only:**
-- JWT + OAuth2 scopes for role-aware API access
-- Roles including merchant operator, support agent, reviewer, manager, and admin are specified in `.planning/REQUIREMENTS.md`
+**Covered roles/scopes:**
+- Merchant/support/manager/admin style roles with scopes for business read access, agent chat, and approval review.
+- Tests cover auth, tenant isolation, and approval reviewer constraints.
 
 ## Monitoring & Observability
 
-**Currently implemented:**
-- None beyond Git history and local GSD metadata
+**Implemented:**
+- Request trace ID middleware in `src/api/main.py`
+- Agent run and step persistence in `src/agent/trace.py`
+- Trace timeline repository in `src/repositories/trace_repo.py`
+- Trace API coverage in `tests/test_trace_api.py`
+- Latency instrumentation coverage in `tests/test_latency_instrumentation.py`
 
-**Planned in documents only:**
-- OTel tracing in MVP/polish phases
-- Prometheus and Grafana in later hardening work
+**Not yet implemented as external integrations:**
+- OpenTelemetry exporter
+- Prometheus/Grafana deployment
+- Centralized log collector
 
 ## CI/CD & Deployment
 
-**Currently implemented:**
-- No CI workflows, deployment manifests, or container build files detected
+**Implemented local deployment assets:**
+- `Dockerfile`
+- `docker-compose.yml`
+- `docker-entrypoint.sh`
+- `Makefile`
 
-**Planned in documents only:**
-- `docker compose up` as the main local demo path
-- Kubernetes explicitly deferred from MVP in `.planning/PROJECT.md`
+**Repository CI:**
+- `.github/` exists, but current map does not treat CI as a fully verified deployment system.
+- Backend and frontend commands should be kept explicit in README/Makefile and rerun after each major phase.
 
 ## Environment Configuration
 
-**Current state:**
-- No `.env.example` or secrets contract exists
-- No documented local bootstrap command in the repository root
+**Implemented:**
+- `.env.example` defines application configuration contract.
+- `.env` exists locally and should not be treated as a committed source of truth.
+- `src/config.py` centralizes backend environment parsing.
 
-**Recommendation baseline for first implementation phase:**
-- Define `.env.example` before adding code so service boundaries and secrets are explicit
-- Separate local synthetic-data credentials from future production-style settings
+**Expected handling:**
+- Keep secrets out of tracked docs and test fixtures.
+- Document new environment keys in `.env.example` before code starts depending on them.
 
 ## Webhooks & Callbacks
 
-**Currently implemented:**
-- None
-
-**Planned in documents only:**
-- Approval resume flow and simulated notifications are mentioned, but no transport or retry strategy is defined yet
+**Current state:**
+- Approval resume is implemented through API decision endpoints and LangGraph resume semantics, not external webhook delivery.
+- No external webhook receiver/retry queue is implemented yet.
 
 ## Integration Risk Summary
 
-- The repository currently documents many future integrations, but none are constrained by schemas or adapters yet
-- The first implementation phase should freeze tool input/output contracts early; otherwise LangGraph, API, and frontend work will drift independently
+- External model/provider configuration exists as an integration surface, but production-grade provider failover, cost controls, and rate limiting remain future hardening work.
+- Approval and tool execution have local persistence and tests; external notification/webhook delivery remains out of scope.
+- Observability is strong at application trace level, but not yet connected to OTel/Prometheus/Grafana.
 
 ---
-*Integration audit: 2026-05-09*
-*Update when the first external client, schema, or service manifest is added*
+*Integration audit: 2026-06-05*
+*Refresh when external providers, service manifests, migrations, or auth contracts change*
