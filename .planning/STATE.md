@@ -4,8 +4,8 @@ milestone: v1.1
 milestone_name: Agentic Investigation
 status: ready_to_plan
 stopped_at: Completed 07-05-PLAN.md
-last_updated: "2026-06-04T10:43:13.502Z"
-last_activity: 2026-06-04 -- Phase 07 execution started
+last_updated: "2026-06-06"
+last_activity: 2026-06-06 -- AAM-P1 contract baseline complete; AAM-P2/P3 ready to plan
 progress:
   total_phases: 5
   completed_phases: 2
@@ -55,6 +55,24 @@ Progress: [████░░░░░░] 40%
 
 | Phase 07 P03 | 7min | 2 tasks | 4 files |
 | Phase 07-tool-registry-contracts P05 | 5min | 5 tasks | 5 files |
+
+## AAM Workstream (parallel)
+
+The Agent Architecture Migration (AAM-P1..AAM-P11) is a separate workstream
+tracked alongside the historical MOCA roadmap phases. It does not renumber or
+replace MOCA Phase 07-11. Source: `docs/agent-architecture-phase-decomposition.md`.
+
+| AAM Phase | Name | Status |
+|-----------|------|--------|
+| AAM-P1 | Contract baseline | COMPLETE (docs-only; verdict PARTIAL, MISSING=0; Claude review PASS) |
+| AAM-P2 | Knowledge facade | Ready to plan (unblocked by AAM-P1) |
+| AAM-P3 | Business tool facade | Ready to plan (unblocked by AAM-P1; parallel to AAM-P2) |
+
+**AAM-P1 completion (2026-06-06):** Committed in `5e47e01`. Artifacts in
+`.planning/phases/AAM-P1-contract-baseline/`. Status counts COVERED=7,
+PARTIAL=26, DEFERRED_WITH_OWNER=34, MISSING=0. Because MISSING=0, AAM-P2 and
+AAM-P3 may proceed to planning; each must preserve its named contract,
+read-switch, test, and eval owner gates.
 
 ## Accumulated Context
 
