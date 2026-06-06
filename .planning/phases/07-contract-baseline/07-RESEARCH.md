@@ -93,7 +93,7 @@ Planning implication:
 
 Evidence:
 
-- `docs/agent-architecture-spec.md` Section 19 is a migration-route design section, not runtime evidence.
+- `docs/migration-plan.md` Section 19 is a migration-route design section, not runtime evidence.
 - Phase 7 exists before Phase 8/Phase 9 so downstream phases do not plan on an incorrect or self-inconsistent route.
 - The user explicitly requires that unreasonable Section 19 items can be marked `PARTIAL` or `MISSING`, and that inconsistencies must be raised rather than silently normalized.
 
@@ -101,7 +101,7 @@ Planning implication:
 
 - Phase 7 should include `## Spec Consistency Findings` / `## Planning Deviations` as a first-class output.
 - For each inconsistency, record original Section 19 requirement, conflicting evidence, recommended handling, readiness impact, owner, and status.
-- If no inconsistency is found, write `None found after checking docs/agent-architecture-spec.md, docs/agent-architecture-phase-decomposition.md, current source evidence, and Phase 7 artifacts`.
+- If no inconsistency is found, write `None found after checking docs/agent-architecture-spec.md redirect index, docs/agent-architecture-phase-decomposition.md, current source evidence, and Phase 7 artifacts`.
 - Do not force `COVERED` for target contracts that are unsupported, unreasonable, or inconsistent.
 
 ## Recommended Artifact Shape
@@ -199,7 +199,7 @@ Phase 7 has no runtime security effect because it is docs-only. Its safety value
 ## Open Questions / Risks
 
 - The standard GSD roadmap tooling does not understand `Phase 7`; this plan handles it via a dedicated directory. Future phases may need the same convention unless roadmap tooling is extended.
-- `docs/agent-architecture-spec.md` is large; Phase 7 execution must be careful to extract contract rows, not copy the whole spec blindly.
+- `docs/agent-architecture-spec.md` is now a redirect index; Phase 7 execution must extract contract rows from the mapped split documents, not copy them blindly.
 - If the baseline artifact marks too many target rows as `COVERED` without current evidence, later execution may assume contracts already exist. The plan should bias unknown implementation state toward `PARTIAL` or `DEFERRED_WITH_OWNER`, not `COVERED`.
 
 ## RESEARCH COMPLETE

@@ -60,7 +60,7 @@ Phase 7 must not change source code, schemas, migrations, tests, API contracts, 
 Downstream agents MUST read these before planning or implementing Phase 7.
 
 ### Agent Architecture Migration milestone Source
-- `docs/agent-architecture-spec.md` - target architecture, current-vs-target facts, contract schemas, lifecycle/state/router/tool/approval/action/replay requirements, traceability requirements.
+- `docs/agent-architecture-spec.md` redirect index - target architecture, current-vs-target facts, contract schemas, lifecycle/state/router/tool/approval/action/replay requirements, traceability requirements.
 - `docs/agent-architecture-phase-decomposition.md` - phase sequence, readiness rules, global coverage matrix, follow-up register, next planning order.
 - `docs/agent-architecture-spec-review.md` - review findings that motivate contract-table completeness and migration/readiness discipline.
 

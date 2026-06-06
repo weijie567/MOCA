@@ -14,12 +14,12 @@ The revised Phase 7 plan is acceptable for docs-only execution.
 | Dimension | Result | Evidence |
 | --- | --- | --- |
 | Phase identity | PASS | Plan uses `Phase 7` and states it is not a renumbering of historical MOCA Phase 1. |
-| Spec Section 19 traceability | PASS | Plan includes `<traceability>` with `Spec sections covered`, `Spec consistency findings`, `Schema/migration owner`, `Service/API owner`, `State/router impact`, `Required tests`, `Acceptance criteria`, and `Rollback/non-goals/deferred items`. |
+| `docs/migration-plan.md` Section 19 traceability | PASS | Plan includes `<traceability>` with `Spec sections covered`, `Spec consistency findings`, `Schema/migration owner`, `Service/API owner`, `State/router impact`, `Required tests`, `Acceptance criteria`, and `Rollback/non-goals/deferred items`. |
 | Section 19 consistency rule | PASS | Plan requires Phase 7 to audit Section 19 rather than prove it correct by default; conflicts must be raised or explicitly reported as not found. |
 | Required Phase 7 outputs | PASS | Plan requires contract inventory, current-vs-target evidence checklist, initial coverage matrix, spec consistency findings, identifier semantics, Boris/GSD phase notes, follow-up register disposition, review checklist, and readiness verdict. |
 | Phase 7 Section 19 outputs | PASS | Plan explicitly adds `## Identifier Semantics` and `## Boris/GSD Phase Notes` to the execution artifact requirements. |
 | Graph path/resume semantics | PASS | Plan requires `Graph path endpoints and resume semantics`, including current `final_response -> END`, current approval resume routing, and target gaps owned by Phase 13/Phase 15. |
-| Follow-up register | PASS | Plan includes all six follow-up items from `docs/agent-architecture-phase-decomposition.md` Section 6. |
+| Follow-up register | PASS | Verification dynamically extracts and checks all follow-up item names from `docs/agent-architecture-phase-decomposition.md` Section 6; the current register contains all eight. |
 | Status vocabulary | PASS | Plan requires `COVERED`, `PARTIAL`, `DEFERRED_WITH_OWNER`, or `MISSING`, and blocks `N/A` in `Status` cells. |
 | Anti-forced-COVERED rule | PASS | Plan says unsupported, unreasonable, or inconsistent target contracts must use `PARTIAL`, `MISSING`, or `DEFERRED_WITH_OWNER`, not forced `COVERED`. |
 | Readiness verdict vocabulary | PASS | Plan requires spec verdict values `PASS`, `PARTIAL`, or `BLOCKED`, plus a separate downstream planning status. |
