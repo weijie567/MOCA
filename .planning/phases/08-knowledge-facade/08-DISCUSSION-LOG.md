@@ -34,7 +34,7 @@ Do not use as input to planning/research/execution agents; decisions are in CONT
 
 | Option | Description | Selected |
 |---|---|---|
-| New KnowledgeContext | Use `tenant_id`, `user_id`, `role`, `run_id`, and `effective_at`. | ✓ |
+| New KnowledgeContext | Projection of canonical `TrustedContext` (`docs/contract-spec.md` §8.0): `tenant_id`, `user_id`, `role`, `merchant_scope`, `run_id`, `trace_id`, `locale` + run-derived `effective_at`. | ✓ |
 | Phase 9 ToolCallContext | Depend on unimplemented tool_context.v2. | |
 | No context object | Pass individual values or use adapter-local defaults. | |
 
@@ -196,7 +196,7 @@ Do not use as input to planning/research/execution agents; decisions are in CONT
 
 **User's choice:** Add no persistence or schema change; use git revert or LegacyRagKnowledgeAdapter rollback.
 
-**Notes:** This deviates from spec §19's `可回滚 node 到旧 search_policy` runtime rollback implication. Record the deviation in Spec Consistency Findings and synchronize the Phase 7 baseline and spec at wrap-up.
+**Notes:** This is now synchronized with the current architecture baseline: Phase 8 introduces no persistence/schema change and uses git revert or LegacyRagKnowledgeAdapter rollback; no runtime node-level read-switch back to old `search_policy` is required for the service-only refactor.
 
 ## Claude's Discretion
 

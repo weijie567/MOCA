@@ -9,8 +9,10 @@
 
 Phase 9 routes read business tools through a `BusinessToolService` facade using the trusted
 `ToolCallContext` (`tool_context.v2`) and typed `ToolResult` (`tool_result.v2`) contracts from
-`docs/agent-architecture-spec.md`. Read tools must go through the facade; nodes must stop calling
-repo/tool internals directly. Write/action execution stays outside this facade.
+`docs/contract-spec.md` Section 12. Read tools must go through the facade; nodes must stop calling
+repo/tool internals directly. Write/action execution stays outside this facade. Business tool results
+carry provenance via `source_system`, `data_freshness_at`, and `business_fact_refs`; they do not reuse
+the policy EvidenceRefV1, so Phase 9 has no schema dependency on Phase 8.
 
 Requirements: TOOL-01, TOOL-02, TOOL-03.
 </domain>
@@ -27,10 +29,14 @@ bounded read-only investigator, not for the Phase 9 facade. Phase 9 must treat i
 - **Files:** `src/agent/tools/registry.py`, `src/agent/tools/contracts.py`,
   `tests/agent/test_tools/test_registry.py`, `tests/agent/test_tools/test_tool_contracts.py`,
   and the adapter layer they import (`src/agent/tools/adapters.py`).
-- **Reuse:** the **adapter layer** (`get_order_adapter`, `get_refund_case_adapter`,
-  `get_ticket_adapter`, `search_policy_adapter`) and tenant-scoped fetch logic; the
-  **evidence-ref extraction** (`_evidence_refs_from_data`) and summary-field projection that
-  avoids exposing raw upstream payloads. These align with Phase 9 success criteria.
+- **Reuse:** the **business-tool adapter layer** (`get_order_adapter`, `get_refund_case_adapter`,
+  `get_ticket_adapter`) and tenant-scoped fetch logic; the summary-field projection that avoids
+  exposing raw upstream payloads. Business tool results use `business_fact_refs` for provenance and
+  must not emit policy `EvidenceRefV1`.
+- **Do NOT own policy knowledge:** `search_policy_adapter` and policy EvidenceRef extraction
+  (`_evidence_refs_from_data` for policy chunks) belong to the Phase 8 KnowledgeService, not the
+  BusinessToolService. Phase 9 does not re-own Knowledge/RAG retrieval or policy evidence production
+  and emits business-fact provenance through `business_fact_refs` only.
 - **Replace:** `ToolInvocationContext` (5 fields) must be replaced by the spec `ToolCallContext`
   (`tool_context.v2`, ~18 fields incl. permissions, merchant_scope, thread_id/run_id/trace_id,
   tool_call_id, deadline_at, idempotency_key, policy_snapshot_ref). The 2-state
@@ -41,8 +47,9 @@ bounded read-only investigator, not for the Phase 9 facade. Phase 9 must treat i
   semantics. The new architecture has no bounded-investigator caller; do not carry that concept
   into the facade.
 - **Do NOT** assume the existing registry already satisfies any Phase 9 contract. The spec
-  (Section ~90) records it as current evidence with the explicit gap: "main graph nodes still
-  call concrete tool functions directly, not through BusinessToolService."
+  (`docs/contract-spec.md` §8 producer annotation (top of §8) and the Phase 7 baseline current-evidence row) records it
+  as current evidence with the explicit gap: "main graph nodes still call concrete tool functions
+  directly, not through BusinessToolService."
 
 **Why this is locked here:** to claim the orphaned prior-line code (no roadmap phase currently
 owns it) and to stop the planner from either re-building the adapters from scratch or being
@@ -53,6 +60,7 @@ misled by the obsolete investigator whitelist / 2-state result semantics.
 - Whether any facade persistence/audit table is introduced (if yes, Phase 9 owns its
   migration/read-switch/rollback per decomposition schema-ownership rules; if no, record `N/A`).
 - Per-tool timeout/partial-success handling and fallback-vs-clarification routing.
+- Phase 9 planning gate: `BusinessFactRefV1` schema must be imported from contract-spec and implemented before Phase 9 execution; adapters must populate tenant_id/source_system/resource_type/resource_id/retrieved_at and data_freshness_at where available.
 </decisions>
 
 <canonical_refs>
@@ -60,9 +68,11 @@ misled by the obsolete investigator whitelist / 2-state result semantics.
 
 Downstream agents MUST read these before planning or implementing.
 
-- `docs/agent-architecture-spec.md` — `ToolCallContext`/`ToolRequest`/`ToolResult` v2 definitions
-  (~line 1323), `BusinessToolService.fetch_context` (~line 584), current-evidence note (~line 90),
-  Phase 9 row in the phase table (~line 2733), `business_context_fetch` node contract (~line 828).
+- `docs/contract-spec.md` Section 12.5 — `ToolCallContext`/`ToolRequest`/`ToolResult` v2 definitions;
+  Section 8.4 — `BusinessToolService.fetch_context` signature; `docs/contract-spec.md` §8 producer annotation (top of §8) and the Phase 7 baseline current-evidence row — current-evidence
+  gap ("main graph nodes still call concrete tool functions directly"); Section 9.4 `business_context_fetch`
+  node contract; Section 8.0 — canonical `TrustedContext` that `ToolCallContext` projects; `docs/migration-plan.md`
+  Section 19 Phase 9 row. (Use section numbers, not line numbers; the spec was split into four files.)
 - `docs/agent-architecture-phase-decomposition.md` — Phase 9 boundary, dependency (Phase 7),
   schema-ownership rule for any introduced facade persistence.
 - `.planning/phases/07-contract-baseline/07-CONTRACT-BASELINE.md` — coverage matrix and follow-up
