@@ -24,6 +24,6 @@
 - `.planning/milestones/v1.0-ROADMAP.md`
 - `.planning/milestones/v1.0-REQUIREMENTS.md`
 
-**What's next:** Start v1.1 with `$gsd-new-milestone` so future requirements are defined separately from the shipped v1.0 scope.
+**What's next:** v1.1 Agent Architecture Migration is registered in `.planning/ROADMAP.md` as Phases 7-17.
 
 ---

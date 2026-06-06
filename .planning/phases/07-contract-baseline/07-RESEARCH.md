@@ -1,39 +1,39 @@
-# AAM-P1: Contract Baseline - Research
+# Phase 7: Contract Baseline - Research
 
 **Date:** 2026-06-06
-**Phase:** AAM-P1 Contract baseline
+**Phase:** Phase 7 Contract baseline
 **Mode:** Planning research only; no source implementation
 
 ## Research Question
 
-What does AAM-P1 need to produce so later Agent Architecture Migration phases can implement contracts safely without confusing target architecture with current MOCA implementation?
+What does Phase 7 need to produce so later Agent Architecture Migration phases can implement contracts safely without confusing target architecture with current MOCA implementation?
 
 ## Findings
 
-### 1. AAM-P1 is an AAM workstream phase, not a MOCA roadmap phase
+### 1. Phase 7 is an Agent Architecture Migration milestone phase, not a MOCA roadmap phase
 
 Evidence:
 
-- `docs/agent-architecture-phase-decomposition.md` states that AAM phases must be referenced as `AAM-P1` through `AAM-P11` and must not be referred to as bare `Phase 1`, `Phase 2`, etc.
+- `docs/agent-architecture-phase-decomposition.md` states that phases must be referenced as `Phase 7` through `Phase 17` and must not be referred to as bare `Phase 1`, `Phase 2`, etc.
 - The current `.planning/ROADMAP.md` historical phases are v1.0 phases 1-6 and v1.1 phases 7-11.
-- `gsd-sdk query init.plan-phase "AAM-P1 ..."` returned `phase_found=false`, so the default roadmap lookup cannot manage AAM-P1 as a normal roadmap phase.
+- Phase 7 was originally produced before the Agent Architecture Migration sequence was registered. It is now migrated into the standard `.planning/phases/07-contract-baseline/` identity and recognized by the roadmap.
 
 Planning implication:
 
-- AAM-P1 artifacts should live in a dedicated AAM directory such as `.planning/phases/AAM-P1-contract-baseline/`.
-- Final status and next-step commands must use `AAM-P1`, not `1`.
+- Phase 7 artifacts should live in a dedicated standard phase directory such as `.planning/phases/07-contract-baseline/`.
+- Final status and next-step commands must use `Phase 7`, not `1`.
 
-### 2. AAM-P1 acceptance gate is artifact completeness, not runtime behavior
+### 2. Phase 7 acceptance gate is artifact completeness, not runtime behavior
 
 Evidence:
 
-- `docs/agent-architecture-phase-decomposition.md` lists AAM-P1 primary acceptance gate as: `Contract inventory, current-vs-target checklist, initial coverage matrix, review checklist`.
+- `docs/agent-architecture-phase-decomposition.md` lists Phase 7 primary acceptance gate as: `Contract inventory, current-vs-target checklist, initial coverage matrix, review checklist`.
 - The user request adds a required readiness verdict.
-- `docs/agent-architecture-phase-decomposition.md` says AAM-P1 is `Spec-to-plan inventory and evidence baseline`.
+- `docs/agent-architecture-phase-decomposition.md` says Phase 7 is `Spec-to-plan inventory and evidence baseline`.
 
 Planning implication:
 
-- AAM-P1 should produce one baseline document containing all required sections, or clearly named companion docs.
+- Phase 7 should produce one baseline document containing all required sections, or clearly named companion docs.
 - It should not implement KnowledgeService, BusinessToolService, new schemas, migrations, or tests.
 
 ### 3. Status discipline is a blocking readiness rule
@@ -47,10 +47,10 @@ Evidence:
 
 Planning implication:
 
-- AAM-P1 plan must include grep-verifiable checks for forbidden `N/A` in `Status` cells and allowed vocabulary.
+- Phase 7 plan must include grep-verifiable checks for forbidden `N/A` in `Status` cells and allowed vocabulary.
 - The output must include a readiness verdict that blocks later phases if any relevant item remains `MISSING`.
 
-### 4. Current source already implements some v1.1 contract pieces, but not the full AAM target contracts
+### 4. Current source already implements some v1.1 contract pieces, but not the full Phase 7-17 target contracts
 
 Confirmed current evidence:
 
@@ -75,18 +75,18 @@ Target contracts not proven implemented by current source evidence:
 
 Planning implication:
 
-- AAM-P1 must create a current-vs-target evidence checklist that prevents downstream agents from treating target spec text as implemented fact.
+- Phase 7 must create a current-vs-target evidence checklist that prevents downstream agents from treating target spec text as implemented fact.
 
-### 5. Baseline document should become the shared source for AAM-P2/P3 planning
+### 5. Baseline document should become the shared source for Phase 8/Phase 9 planning
 
 Evidence:
 
-- `docs/agent-architecture-phase-decomposition.md` next order says write AAM-P1 plan, use AAM-P1 outputs to produce contract inventory and initial coverage verification, then plan AAM-P2 and AAM-P3.
-- AAM-P2 and AAM-P3 can run in parallel only after AAM-P1.
+- `docs/agent-architecture-phase-decomposition.md` next order says write Phase 7 plan, use Phase 7 outputs to produce contract inventory and initial coverage verification, then plan Phase 8 and Phase 9.
+- Phase 8 and Phase 9 can run in parallel only after Phase 7.
 
 Planning implication:
 
-- The AAM-P1 execution artifact should include phase-owner mappings clear enough for AAM-P2/P3 to consume independently.
+- The Phase 7 execution artifact should include phase-owner mappings clear enough for Phase 8/Phase 9 to consume independently.
 - It should include follow-up register dispositions and baseline status rows for all major spec areas.
 
 ### 6. Section 19 must be audited, not blindly proven
@@ -94,21 +94,21 @@ Planning implication:
 Evidence:
 
 - `docs/agent-architecture-spec.md` Section 19 is a migration-route design section, not runtime evidence.
-- AAM-P1 exists before AAM-P2/AAM-P3 so downstream phases do not plan on an incorrect or self-inconsistent route.
+- Phase 7 exists before Phase 8/Phase 9 so downstream phases do not plan on an incorrect or self-inconsistent route.
 - The user explicitly requires that unreasonable Section 19 items can be marked `PARTIAL` or `MISSING`, and that inconsistencies must be raised rather than silently normalized.
 
 Planning implication:
 
-- AAM-P1 should include `## Spec Consistency Findings` / `## Planning Deviations` as a first-class output.
+- Phase 7 should include `## Spec Consistency Findings` / `## Planning Deviations` as a first-class output.
 - For each inconsistency, record original Section 19 requirement, conflicting evidence, recommended handling, readiness impact, owner, and status.
-- If no inconsistency is found, write `None found after checking docs/agent-architecture-spec.md, docs/agent-architecture-phase-decomposition.md, current source evidence, and AAM-P1 artifacts`.
+- If no inconsistency is found, write `None found after checking docs/agent-architecture-spec.md, docs/agent-architecture-phase-decomposition.md, current source evidence, and Phase 7 artifacts`.
 - Do not force `COVERED` for target contracts that are unsupported, unreasonable, or inconsistent.
 
 ## Recommended Artifact Shape
 
 A single execution artifact is sufficient and reduces drift:
 
-- `.planning/phases/AAM-P1-contract-baseline/AAM-P1-CONTRACT-BASELINE.md`
+- `.planning/phases/07-contract-baseline/07-CONTRACT-BASELINE.md`
 
 Required sections:
 
@@ -149,14 +149,14 @@ Required sections:
    - Status.
 
 5. `## Identifier Semantics`
-   - AAM/workstream identifiers and runtime identifiers.
+   - phase and milestone identifiers and runtime identifiers.
    - Current evidence.
    - Target meaning.
    - Owner phase.
    - Status.
 
 6. `## Boris/GSD Phase Notes`
-   - GSD controls AAM phase workflow.
+   - GSD controls phase workflow.
    - Boris-style review is used only for quality/scope checks.
 
 7. `## Phase Planning Follow-up Register Disposition`
@@ -171,15 +171,15 @@ Required sections:
 
 9. `## Readiness Verdict`
    - Spec verdict: `PASS`, `PARTIAL`, or `BLOCKED`.
-   - Downstream planning status: `READY_FOR_AAM-P2_P3_PLANNING`, `PARTIAL_WITH_DEFERRED_OWNER_GATES`, or `BLOCKED_MISSING_BASELINE`.
+   - Downstream planning status: `READY_FOR_Phase 8_P3_PLANNING`, `PARTIAL_WITH_DEFERRED_OWNER_GATES`, or `BLOCKED_MISSING_BASELINE`.
    - Count of `COVERED`, `PARTIAL`, `DEFERRED_WITH_OWNER`, `MISSING` rows.
-   - Explicit rule: any `MISSING` in relevant AAM-P1 outputs blocks downstream planning.
+   - Explicit rule: any `MISSING` in relevant Phase 7 outputs blocks downstream planning.
 
 ## Validation Strategy
 
-AAM-P1 validation can be deterministic and docs-focused:
+Phase 7 validation can be deterministic and docs-focused:
 
-- Check required section headings exist in `AAM-P1-CONTRACT-BASELINE.md`.
+- Check required section headings exist in `07-CONTRACT-BASELINE.md`.
 - Check no `src/` files are modified.
 - Check status vocabulary uses only allowed terms in baseline status fields.
 - Check no `N/A` appears in `Status` table cells.
@@ -189,7 +189,7 @@ AAM-P1 validation can be deterministic and docs-focused:
 
 ## Security / Safety Notes
 
-AAM-P1 has no runtime security effect because it is docs-only. Its safety value is preventing unsafe downstream migration by requiring:
+Phase 7 has no runtime security effect because it is docs-only. Its safety value is preventing unsafe downstream migration by requiring:
 
 - Trusted context boundaries to be inventoried before implementation.
 - Tool/action separation to be documented before write/external actions are introduced.
@@ -198,8 +198,8 @@ AAM-P1 has no runtime security effect because it is docs-only. Its safety value 
 
 ## Open Questions / Risks
 
-- The standard GSD roadmap tooling does not understand `AAM-P1`; this plan handles it via a dedicated directory. Future AAM phases may need the same convention unless roadmap tooling is extended.
-- `docs/agent-architecture-spec.md` is large; AAM-P1 execution must be careful to extract contract rows, not copy the whole spec blindly.
+- The standard GSD roadmap tooling does not understand `Phase 7`; this plan handles it via a dedicated directory. Future phases may need the same convention unless roadmap tooling is extended.
+- `docs/agent-architecture-spec.md` is large; Phase 7 execution must be careful to extract contract rows, not copy the whole spec blindly.
 - If the baseline artifact marks too many target rows as `COVERED` without current evidence, later execution may assume contracts already exist. The plan should bias unknown implementation state toward `PARTIAL` or `DEFERRED_WITH_OWNER`, not `COVERED`.
 
 ## RESEARCH COMPLETE

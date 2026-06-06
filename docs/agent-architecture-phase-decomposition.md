@@ -2,17 +2,17 @@
 
 Source spec: `docs/agent-architecture-spec.md`
 
-This document is the formal phase decomposition seed for the Agent Architecture Migration workstream. It does not renumber, replace, or override historical MOCA roadmap/demo phases. All phases in this document must be referenced as `AAM-P1` through `AAM-P11` in GSD planning, execution, review reports, and commit messages. Do not refer to these phases by bare `Phase 1`, `Phase 2`, etc.
+This document is the formal phase decomposition seed for the v1.1 Agent Architecture Migration milestone. Historical v1.0 remains archived as Phases 1-6. All phases in this document use the standard GSD roadmap identities `Phase 7` through `Phase 17`; there is no separate prefixed phase namespace.
 
-This document is not an implementation plan for an individual phase. Each AAM phase still requires its own implementation plan using the traceability requirements in spec Section 19.
+This document is not an implementation plan for an individual phase. Each phase still requires its own implementation plan using the traceability requirements in spec Section 19.
 
 ## 1. Readiness Rules
 
 Every phase plan must start from coverage extraction against `docs/agent-architecture-spec.md`, then produce a phase-specific coverage matrix, then run coverage verification before execution.
 
-Section 19 of `docs/agent-architecture-spec.md` is the default planning source of truth, not an unquestionable proof of correctness. Every AAM phase plan must check consistency between Section 19, this phase decomposition, current source evidence, and already generated planning artifacts. Any inconsistency must be raised explicitly in a `Spec Consistency Findings` / `Planning Deviations` section with original requirement, conflicting evidence, recommended handling, readiness impact, and owner.
+Section 19 of `docs/agent-architecture-spec.md` is the default planning source of truth, not an unquestionable proof of correctness. Every phase plan must check consistency between Section 19, this phase decomposition, current source evidence, and already generated planning artifacts. Any inconsistency must be raised explicitly in a `Spec Consistency Findings` / `Planning Deviations` section with original requirement, conflicting evidence, recommended handling, readiness impact, and owner.
 
-AAM-P1 treats inconsistency discovery as a primary output: its value is to prevent AAM-P2/AAM-P3 from planning on top of an incorrect or self-inconsistent migration route, not to prove Section 19 is all correct.
+Phase 7 treats inconsistency discovery as a primary output: its value is to prevent Phase 8/Phase 9 from planning on top of an incorrect or self-inconsistent migration route, not to prove Section 19 is all correct.
 
 A phase plan is not executable if any relevant spec area is `MISSING`.
 
@@ -26,44 +26,44 @@ Coverage `Status` must use only `COVERED`, `PARTIAL`, `DEFERRED_WITH_OWNER`, or 
 
 | Phase | Name | Capability boundary | Depends on | MVP gate? | Primary acceptance gate |
 | --- | --- | --- | --- | --- | --- |
-| AAM-P1 | Contract baseline | Spec-to-plan inventory and evidence baseline | none | yes | Contract inventory, current-vs-target checklist, initial coverage matrix, review checklist |
-| AAM-P2 | Knowledge facade | Knowledge/RAG service boundary and EvidenceRefV1/citation contract | AAM-P1 | yes | Agent reads policy evidence through KnowledgeService facade with strong/partial/no-evidence contract tests |
-| AAM-P3 | Business tool facade | Read business tool service boundary and ToolCallContext/ToolResultV2 | AAM-P1 | yes | Read tools go through BusinessToolService with permission/scope/error status contract tests |
-| AAM-P4 | State lifecycle + routing migration | AgentState lifecycle, trusted context, deterministic routers, slot resolution seam | AAM-P2-3 | yes | State reset/property tests and router totality/determinism pass |
-| AAM-P5 | Intent / clarification | Intent precedence, required-slot policy, ordinary clarification path | AAM-P4 | yes | Intent golden set, confidence/slot clarification tests, ordinary chat cannot create trusted approval decision |
-| AAM-P6 | Session memory | PostgreSQL-backed same-thread session memory and active slot continuity; excludes long-term/case memory, memory_identity.v1, tombstones, embeddings, async extraction, review workflow, and authoritative Redis memory | AAM-P4-5 | yes | Session memory CAS, same-thread continuity, cross-thread/user/tenant isolation, stale slot exclusion, explicit slot override, read-switch/fallback telemetry, and memory-is-not-policy-evidence negative tests |
-| AAM-P7 | Approval state machine | Versioned approval request/level/assignment/decision/events and ActionSafetySnapshot owner | AAM-P5 | yes | Single-level approval runtime passes transition/revision/snapshot/hash/needs_info tests; multi-level-compatible schema/contract planning is verified; active SLA scanner remains deferred to the AAM-P7 SLA scanner follow-up gate |
-| AAM-P8 | Demo action executor boundary | Durable draft-only demo action path and action draft snapshot binding | AAM-P7 | yes | Demo creates draft/draft_outcome only, no external side effect, no action_executions row |
-| AAM-P9 | Replay event contract | ReplayEventV3, finalizer, sequence allocator, redaction/retention | AAM-P4, AAM-P6, AAM-P7, AAM-P8 | yes | `/replay` returns V3 lifecycle timeline for normal/interrupted/resumed/responded/rejected/expired/error/cancelled paths |
-| AAM-P10 | Long-term/case memory | Deferred long-term and case memory service, memory_identity.v1, tombstone enforcement | AAM-P6, AAM-P9 | no | Memory identity/tombstone/review workflow contract tests pass without changing session memory fallback |
-| AAM-P11 | External action execution | External adapters, action_executions, outbox, reconciliation, compensation | AAM-P8, AAM-P9 | no | Outbox claim-before-dispatch, unknown/reconciling, compensation authorization, duplicate execution/key guards pass |
+| Phase 7 | Contract baseline | Spec-to-plan inventory and evidence baseline | none | yes | Contract inventory, current-vs-target checklist, initial coverage matrix, review checklist |
+| Phase 8 | Knowledge facade | Knowledge/RAG service boundary and EvidenceRefV1/citation contract | Phase 7 | yes | Agent reads policy evidence through KnowledgeService facade with strong/partial/no-evidence contract tests |
+| Phase 9 | Business tool facade | Read business tool service boundary and ToolCallContext/ToolResultV2 | Phase 7 | yes | Read tools go through BusinessToolService with permission/scope/error status contract tests |
+| Phase 10 | State lifecycle + routing migration | AgentState lifecycle, trusted context, deterministic routers, slot resolution seam | Phase 8 and Phase 9 | yes | State reset/property tests and router totality/determinism pass |
+| Phase 11 | Intent / clarification | Intent precedence, required-slot policy, ordinary clarification path | Phase 10 | yes | Intent golden set, confidence/slot clarification tests, ordinary chat cannot create trusted approval decision |
+| Phase 12 | Session memory | PostgreSQL-backed same-thread session memory and active slot continuity; excludes long-term/case memory, memory_identity.v1, tombstones, embeddings, async extraction, review workflow, and authoritative Redis memory | Phase 10 and Phase 11 | yes | Session memory CAS, same-thread continuity, cross-thread/user/tenant isolation, stale slot exclusion, explicit slot override, read-switch/fallback telemetry, and memory-is-not-policy-evidence negative tests |
+| Phase 13 | Approval state machine | Versioned approval request/level/assignment/decision/events and ActionSafetySnapshot owner | Phase 11 | yes | Single-level approval runtime passes transition/revision/snapshot/hash/needs_info tests; multi-level-compatible schema/contract planning is verified; active SLA scanner remains deferred to the Phase 13 SLA scanner follow-up gate |
+| Phase 14 | Demo action executor boundary | Durable draft-only demo action path and action draft snapshot binding | Phase 13 | yes | Demo creates draft/draft_outcome only, no external side effect, no action_executions row |
+| Phase 15 | Replay event contract | ReplayEventV3, finalizer, sequence allocator, redaction/retention | Phase 10, Phase 12, Phase 13, Phase 14 | yes | `/replay` returns V3 lifecycle timeline for normal/interrupted/resumed/responded/rejected/expired/error/cancelled paths |
+| Phase 16 | Long-term/case memory | Deferred long-term and case memory service, memory_identity.v1, tombstone enforcement | Phase 12, Phase 15 | no | Memory identity/tombstone/review workflow contract tests pass without changing session memory fallback |
+| Phase 17 | External action execution | External adapters, action_executions, outbox, reconciliation, compensation | Phase 14, Phase 15 | no | Outbox claim-before-dispatch, unknown/reconciling, compensation authorization, duplicate execution/key guards pass |
 
 ## 3. Dependency Notes
 
-- AAM-P2 and AAM-P3 may run in parallel after AAM-P1.
-- AAM-P4 must wait for AAM-P2 and AAM-P3 because routing/state migration depends on stable service boundaries.
-- AAM-P5 must wait for AAM-P4 because intent precedence and clarification rely on deterministic routing and slot resolution.
-- AAM-P6 must wait for AAM-P4/AAM-P5 so session memory can inherit slots only after intent/slot contracts are stable. AAM-P6 uses PostgreSQL as the authoritative session memory store and must not introduce Redis as authoritative session memory.
-- AAM-P6 explicitly excludes long-term memory, case memory, `memory_identity.v1`, tombstones, embeddings, asynchronous memory extraction, and review workflow; those remain owned by AAM-P10.
-- AAM-P7 must wait for AAM-P5 because approval planning depends on validated intent/action/risk semantics.
-- AAM-P8 must wait for AAM-P7 because demo action drafts must bind exact approval payload and safety snapshot hashes.
-- AAM-P9 must wait for AAM-P4, AAM-P6, AAM-P7, and AAM-P8 because ReplayEventV3 must cover routing, memory write failure, approval, and action draft lifecycle.
-- AAM-P10 is deferred beyond MVP and must not block AAM-P6 session memory fallback.
-- AAM-P11 is deferred beyond MVP and must not weaken AAM-P8 demo draft safety.
+- Phase 8 and Phase 9 may run in parallel after Phase 7.
+- Phase 10 must wait for Phase 8 and Phase 9 because routing/state migration depends on stable service boundaries.
+- Phase 11 must wait for Phase 10 because intent precedence and clarification rely on deterministic routing and slot resolution.
+- Phase 12 must wait for Phase 10/Phase 11 so session memory can inherit slots only after intent/slot contracts are stable. Phase 12 uses PostgreSQL as the authoritative session memory store and must not introduce Redis as authoritative session memory.
+- Phase 12 explicitly excludes long-term memory, case memory, `memory_identity.v1`, tombstones, embeddings, asynchronous memory extraction, and review workflow; those remain owned by Phase 16.
+- Phase 13 must wait for Phase 11 because approval planning depends on validated intent/action/risk semantics.
+- Phase 14 must wait for Phase 13 because demo action drafts must bind exact approval payload and safety snapshot hashes.
+- Phase 15 must wait for Phase 10, Phase 12, Phase 13, and Phase 14 because ReplayEventV3 must cover routing, memory write failure, approval, and action draft lifecycle.
+- Phase 16 is deferred beyond MVP and must not block Phase 12 session memory fallback.
+- Phase 17 is deferred beyond MVP and must not weaken Phase 14 demo draft safety.
 
 ## 4. Schema / Migration Ownership
 
 | Schema area | Owner phase | Notes |
 | --- | --- | --- |
-| Knowledge facade persistence, if introduced | AAM-P2 | If AAM-P2 adds any persisted Knowledge facade schema, cache, audit, or adapter mapping table, AAM-P2 owns its migration/backfill/read-switch; otherwise write `N/A` with reason in the AAM-P2 plan |
-| BusinessTool facade audit persistence, if introduced | AAM-P3 | If AAM-P3 adds tool audit, adapter result cache, or facade mapping tables, AAM-P3 owns its migration/backfill/read-switch; otherwise write `N/A` with reason in the AAM-P3 plan |
-| `session_memories`, version CAS | AAM-P6 | Must support same-thread continuity, cross-thread/user/tenant isolation, stale slot exclusion, explicit slot override, typed `session_slots.v1`, read-switch/fallback telemetry, and memory-is-not-policy-evidence negative tests. PostgreSQL is authoritative; Redis is not used for AAM-P6 session memory. |
-| Approval request/level/assignment/decision/event versioning | AAM-P7 | Request/level/assignment CAS and mismatch transaction tests are required |
-| `action_safety_snapshots` | AAM-P7 | Unique canonical snapshot/hash target; AAM-P8 references and validates it, AAM-P9 may add replay FK/backfill |
-| `action_drafts` version/retention/snapshot binding fields | AAM-P8 | Demo path must not create `action_executions` |
-| `agent_trace_events`, operation correlation, sequence/backfill/retention indexes | AAM-P9 | Approval/action replay FKs remain nullable until backfill verification |
-| Long-term/case memory tables, `memory_tombstones`, memory identity/review indexes | AAM-P10 | Deferred beyond MVP; must not become policy evidence source |
-| `action_executions`, `action_outbox_events`, `action_reconciliation_jobs`, `action_compensation_records` | AAM-P11 | External-only; outbox claim/lock indexes and retention indexes required |
+| Knowledge facade persistence, if introduced | Phase 8 | If Phase 8 adds any persisted Knowledge facade schema, cache, audit, or adapter mapping table, Phase 8 owns its migration/backfill/read-switch; otherwise write `N/A` with reason in the Phase 8 plan |
+| BusinessTool facade audit persistence, if introduced | Phase 9 | If Phase 9 adds tool audit, adapter result cache, or facade mapping tables, Phase 9 owns its migration/backfill/read-switch; otherwise write `N/A` with reason in the Phase 9 plan |
+| `session_memories`, version CAS | Phase 12 | Must support same-thread continuity, cross-thread/user/tenant isolation, stale slot exclusion, explicit slot override, typed `session_slots.v1`, read-switch/fallback telemetry, and memory-is-not-policy-evidence negative tests. PostgreSQL is authoritative; Redis is not used for Phase 12 session memory. |
+| Approval request/level/assignment/decision/event versioning | Phase 13 | Request/level/assignment CAS and mismatch transaction tests are required |
+| `action_safety_snapshots` | Phase 13 | Unique canonical snapshot/hash target; Phase 14 references and validates it, Phase 15 may add replay FK/backfill |
+| `action_drafts` version/retention/snapshot binding fields | Phase 14 | Demo path must not create `action_executions` |
+| `agent_trace_events`, operation correlation, sequence/backfill/retention indexes | Phase 15 | Approval/action replay FKs remain nullable until backfill verification |
+| Long-term/case memory tables, `memory_tombstones`, memory identity/review indexes | Phase 16 | Deferred beyond MVP; must not become policy evidence source |
+| `action_executions`, `action_outbox_events`, `action_reconciliation_jobs`, `action_compensation_records` | Phase 17 | External-only; outbox claim/lock indexes and retention indexes required |
 
 All cross-phase FKs use nullable column -> deterministic backfill -> deferred nullable FK. Historical rows that cannot be resolved remain null and must be recorded in a migration report.
 
@@ -71,24 +71,24 @@ All cross-phase FKs use nullable column -> deterministic backfill -> deferred nu
 
 | Spec area | Covered by phase | Required tests | Migration owner | Gap / owner gate | Read-switch / rollback owner | Eval gate | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| AgentState lifecycle | AAM-P4 | State reset/property tests; trusted field merge tests | N/A | none | Router/state rollback owner in AAM-P4 | Non-blocking unless state changes alter eval routes | COVERED |
-| Router totality | AAM-P4 | Totality, determinism, invalid-state fallback tests | N/A | none | Router rollback owner in AAM-P4 | Intent route eval depends on this | COVERED |
-| Intent/slot/ordinary clarification | AAM-P5, with AAM-P6 session continuity | Intent golden set; required-slot accuracy; clarification precision | N/A | Session continuity deferred to AAM-P6 with gate | Prompt/classifier rollback owner in AAM-P5 | Blocking for high-risk intent classes once AAM-P5 exits | COVERED |
-| Approval needs_info resume | AAM-P7 | Wrong clarification id, wrong tenant/thread, stale version, payload/evidence changed, timeout/cancelled, old revision cannot execute | AAM-P7 approval schemas | none | Approval state rollback owner in AAM-P7 | Blocking for approval lifecycle golden flows | COVERED |
-| EvidenceRefV1/citation/canonical hash | AAM-P2, AAM-P7 snapshot/hash | Retrieval/citation contract tests; canonical hash golden sample; score/rank projection tests | AAM-P7 for snapshot; AAM-P2 for knowledge facade schemas if persisted | none | Knowledge read-switch owner in AAM-P2; snapshot rollback owner in AAM-P7 | RAG groundedness/citation eval blocking for policy/action gates | COVERED |
-| ToolCallContext/ToolResultV2 | AAM-P3 | Permission/scope, not_found, timeout, partial_success, invalid_response, raw payload forbidden | N/A unless tool audit tables added | none | BusinessToolService adapter rollback owner in AAM-P3 | Tool selection eval non-blocking unless route safety affected | COVERED |
-| Session memory CAS | AAM-P6 | Same-thread continuity, cross-thread/user/tenant isolation, stale slot exclusion, explicit slot override, typed `session_slots.v1`, CAS conflict deterministic merge, session memory unavailable fallback, and memory-is-not-policy-evidence negative tests | AAM-P6 | Redis is excluded from authoritative session memory; long-term/case/identity/tombstone/embeddings/async extraction/review workflow deferred to AAM-P10 | Session memory read-switch/fallback owner in AAM-P6; rollback disables session memory reads/writes and falls back to checkpointer-only behavior with telemetry | AAM-P6 slot/session-memory route safety; memory write quality non-blocking unless slot inheritance changes route safety | COVERED |
-| Long-term/case memory + memory_identity.v1 + tombstone | AAM-P10 | Identity normalization, source_ref normalization, tombstone no-rewrite, review workflow, retrieval predicate tests | AAM-P10 | Deferred beyond MVP; must not block session memory | AAM-P10 owner; rollback by memory type | Blocking only for AAM-P10 exit | DEFERRED_WITH_OWNER |
-| Approval assignment/SLA/revision invalidation | AAM-P7 | Single-level assignment/version CAS, self approval, edit/respond invalidation, expired no resume; multi-level-compatible schema/contract tests; active SLA scanner follow-up gate | AAM-P7 | Multi-level runtime aggregation is not required for MVP AAM-P7; active SLA scanner deferred to AAM-P7 SLA scanner follow-up slice with replay-visible reminder/escalation/expire events as gate | AAM-P7 owner | Blocking for AAM-P7 approval readiness except deferred scanner automation gate | PARTIAL |
-| `action_safety_snapshots` owner | AAM-P7 | Snapshot JSON/hash contract, unique tenant/hash, payload/snapshot mismatch invalidation | AAM-P7 | none | AAM-P7 owner; AAM-P8 only references/validates | Blocking for AAM-P7/8 safety gates | COVERED |
-| Demo action boundary | AAM-P8 | Demo no side effect, no execution row, draft_outcome only, final response wording, hash mismatch forbidden | AAM-P8 action_draft fields | none | Demo draft rollback owner in AAM-P8 | Action safety eval blocks AAM-P8 exit | COVERED |
-| External action/outbox/reconciliation/compensation | AAM-P11 | Claim-before-dispatch, duplicate active execution/key, unknown/reconciling, no-new-key retry, compensation authorization | AAM-P11 | Deferred beyond MVP with AAM-P11 owner | AAM-P11 owner; rollback per adapter | Blocking only for AAM-P11 exit | DEFERRED_WITH_OWNER |
-| ReplayEventV3/finalizer/redaction/retention | AAM-P9 | V3 shape, sequence allocator, lifecycle completeness for normal/interrupted/resumed/responded/rejected/expired/error/cancelled, redaction, retention, access control | AAM-P9 | none | `/trace` compatibility fallback owner in AAM-P9 | Replay completeness eval blocks AAM-P9 exit | COVERED |
-| Cross-table enforcement matrix | AAM-P7, AAM-P8, AAM-P11 | Relevant relationship rows and mismatch transaction tests copied into each AAM phase plan | AAM-P7, AAM-P8, AAM-P11 | Global owner exists, but each AAM phase plan must copy exact relevant Section 18.2 rows and mismatch tests; missing row mapping blocks that AAM phase | Relevant owner AAM phase | Blocking for affected schema AAM phase exit | PARTIAL |
+| AgentState lifecycle | Phase 10 | State reset/property tests; trusted field merge tests | N/A | none | Router/state rollback owner in Phase 10 | Non-blocking unless state changes alter eval routes | COVERED |
+| Router totality | Phase 10 | Totality, determinism, invalid-state fallback tests | N/A | none | Router rollback owner in Phase 10 | Intent route eval depends on this | COVERED |
+| Intent/slot/ordinary clarification | Phase 11, with Phase 12 session continuity | Intent golden set; required-slot accuracy; clarification precision | N/A | Session continuity deferred to Phase 12 with gate | Prompt/classifier rollback owner in Phase 11 | Blocking for high-risk intent classes once Phase 11 exits | COVERED |
+| Approval needs_info resume | Phase 13 | Wrong clarification id, wrong tenant/thread, stale version, payload/evidence changed, timeout/cancelled, old revision cannot execute | Phase 13 approval schemas | none | Approval state rollback owner in Phase 13 | Blocking for approval lifecycle golden flows | COVERED |
+| EvidenceRefV1/citation/canonical hash | Phase 8, Phase 13 snapshot/hash | Retrieval/citation contract tests; canonical hash golden sample; score/rank projection tests | Phase 13 for snapshot; Phase 8 for knowledge facade schemas if persisted | none | Knowledge read-switch owner in Phase 8; snapshot rollback owner in Phase 13 | RAG groundedness/citation eval blocking for policy/action gates | COVERED |
+| ToolCallContext/ToolResultV2 | Phase 9 | Permission/scope, not_found, timeout, partial_success, invalid_response, raw payload forbidden | N/A unless tool audit tables added | none | BusinessToolService adapter rollback owner in Phase 9 | Tool selection eval non-blocking unless route safety affected | COVERED |
+| Session memory CAS | Phase 12 | Same-thread continuity, cross-thread/user/tenant isolation, stale slot exclusion, explicit slot override, typed `session_slots.v1`, CAS conflict deterministic merge, session memory unavailable fallback, and memory-is-not-policy-evidence negative tests | Phase 12 | Redis is excluded from authoritative session memory; long-term/case/identity/tombstone/embeddings/async extraction/review workflow deferred to Phase 16 | Session memory read-switch/fallback owner in Phase 12; rollback disables session memory reads/writes and falls back to checkpointer-only behavior with telemetry | Phase 12 slot/session-memory route safety; memory write quality non-blocking unless slot inheritance changes route safety | COVERED |
+| Long-term/case memory + memory_identity.v1 + tombstone | Phase 16 | Identity normalization, source_ref normalization, tombstone no-rewrite, review workflow, retrieval predicate tests | Phase 16 | Deferred beyond MVP; must not block session memory | Phase 16 owner; rollback by memory type | Blocking only for Phase 16 exit | DEFERRED_WITH_OWNER |
+| Approval assignment/SLA/revision invalidation | Phase 13 | Single-level assignment/version CAS, self approval, edit/respond invalidation, expired no resume; multi-level-compatible schema/contract tests; active SLA scanner follow-up gate | Phase 13 | Multi-level runtime aggregation is not required for MVP Phase 13; active SLA scanner deferred to Phase 13 SLA scanner follow-up slice with replay-visible reminder/escalation/expire events as gate | Phase 13 owner | Blocking for Phase 13 approval readiness except deferred scanner automation gate | PARTIAL |
+| `action_safety_snapshots` owner | Phase 13 | Snapshot JSON/hash contract, unique tenant/hash, payload/snapshot mismatch invalidation | Phase 13 | none | Phase 13 owner; Phase 14 only references/validates | Blocking for Phase 13/Phase 14 safety gates | COVERED |
+| Demo action boundary | Phase 14 | Demo no side effect, no execution row, draft_outcome only, final response wording, hash mismatch forbidden | Phase 14 action_draft fields | none | Demo draft rollback owner in Phase 14 | Action safety eval blocks Phase 14 exit | COVERED |
+| External action/outbox/reconciliation/compensation | Phase 17 | Claim-before-dispatch, duplicate active execution/key, unknown/reconciling, no-new-key retry, compensation authorization | Phase 17 | Deferred beyond MVP with Phase 17 owner | Phase 17 owner; rollback per adapter | Blocking only for Phase 17 exit | DEFERRED_WITH_OWNER |
+| ReplayEventV3/finalizer/redaction/retention | Phase 15 | V3 shape, sequence allocator, lifecycle completeness for normal/interrupted/resumed/responded/rejected/expired/error/cancelled, redaction, retention, access control | Phase 15 | none | `/trace` compatibility fallback owner in Phase 15 | Replay completeness eval blocks Phase 15 exit | COVERED |
+| Cross-table enforcement matrix | Phase 13, Phase 14, Phase 17 | Relevant relationship rows and mismatch transaction tests copied into each phase plan | Phase 13, Phase 14, Phase 17 | Global owner exists, but each phase plan must copy exact relevant Section 18.2 rows and mismatch tests; missing row mapping blocks that phase | Relevant owner phase | Blocking for affected schema phase exit | PARTIAL |
 | Migration rollout protocol | All schema phases | Backfill report, row-count/hash equality, tenant/run ownership, read-switch/fallback telemetry, negative mismatch tests | Relevant schema owner | none | Relevant schema owner | Non-blocking unless contract/eval gate says blocking | COVERED |
 | Contract tests | Every phase | Phase-specific contract matrix rows | Relevant owner | none | N/A | As defined per phase | COVERED |
-| Integration golden flows | AAM-P5, AAM-P7, AAM-P8, AAM-P9, AAM-P11 | Policy QA, refund troubleshooting, approval edit/respond/reject, demo action, external unknown, replay timelines | Relevant owner | Some external flows deferred to AAM-P11 | Relevant owner | Blocking for owning AAM phase | COVERED |
-| Eval gates | AAM-P2, AAM-P5, AAM-P6, AAM-P7, AAM-P8, AAM-P9, AAM-P10, AAM-P11 as applicable | AAM-P2 RAG groundedness/citation; AAM-P5 risk-weighted intent and clarification; AAM-P6 slot/session-memory route safety; AAM-P7 approval policy accuracy; AAM-P8 action safety; AAM-P9 replay completeness; AAM-P10 memory write quality; AAM-P11 external action safety | N/A | Each AAM phase plan must mark blocking/non_blocking, dataset owner/version/hash, and failure impact; until then this row remains PARTIAL | N/A | Explicit per AAM phase before execution | PARTIAL |
+| Integration golden flows | Phase 11, Phase 13, Phase 14, Phase 15, Phase 17 | Policy QA, refund troubleshooting, approval edit/respond/reject, demo action, external unknown, replay timelines | Relevant owner | Some external flows deferred to Phase 17 | Relevant owner | Blocking for owning phase | COVERED |
+| Eval gates | Phase 8, Phase 11, Phase 12, Phase 13, Phase 14, Phase 15, Phase 16, Phase 17 as applicable | Phase 8 RAG groundedness/citation; Phase 11 risk-weighted intent and clarification; Phase 12 slot/session-memory route safety; Phase 13 approval policy accuracy; Phase 14 action safety; Phase 15 replay completeness; Phase 16 memory write quality; Phase 17 external action safety | N/A | Each phase plan must mark blocking/non_blocking, dataset owner/version/hash, and failure impact; until then this row remains PARTIAL | N/A | Explicit per phase before execution | PARTIAL |
 | Explicit non-goals | Every phase | Review checklist and coverage verification | N/A | none | N/A | N/A | COVERED |
 | Phase planning follow-up register | Every phase | Each phase plan outputs disposition for applicable follow-up items; missing disposition becomes MISSING | N/A | Register exists globally; each phase plan must mark every applicable item as covered, deferred with owner, or not applicable in owner/impact fields while Status remains one of the four allowed statuses | N/A | N/A | PARTIAL |
 
@@ -98,19 +98,19 @@ These items must remain visible during phase decomposition. They are not optiona
 
 | Follow-up item | Required handling during phase decomposition | Owner / gate |
 | --- | --- | --- |
-| AAM-P1 baseline artifact names | AAM-P1 plan must expand `Contract baseline` into contract inventory, current-vs-target evidence checklist, initial coverage matrix, and review checklist. | AAM-P1 acceptance gate |
+| Phase 7 baseline artifact names | Phase 7 plan must expand `Contract baseline` into contract inventory, current-vs-target evidence checklist, initial coverage matrix, and review checklist. | Phase 7 acceptance gate |
 | Read-switch owner/config visibility | Any schema/service migration phase must name read-switch owner, config/feature flag, fallback telemetry, and rollback behavior; write `N/A` with reason when absent. | Relevant schema owner phase |
-| Redis memory boundary | AAM-P6 and any later memory-related phase must record that PostgreSQL is the authoritative memory store. Redis may only be used for non-authoritative short TTL lock, rate limit, debounce, SSE buffer, worker hint, or temporary cache; keys must be scoped, TTL mandatory, Postgres fallback required, Redis loss must not affect correctness, and Postgres CAS remains the session memory correctness boundary. | AAM-P6/AAM-P10 acceptance gates as applicable |
-| AAM-P7 internal slices | AAM-P7 plan must split approval schema/CAS, snapshot builder/hash golden tests, `needs_info` resume, and SLA/assignment semantics. | AAM-P7 acceptance gate |
-| Cross-table enforcement row mapping | AAM-P7/8/11 plans must copy relevant rows from the spec Section 18.2 cross-table enforcement matrix and list required mismatch tests. | AAM-P7/8/11 acceptance gates |
+| Redis memory boundary | Phase 12 and any later memory-related phase must record that PostgreSQL is the authoritative memory store. Redis may only be used for non-authoritative short TTL lock, rate limit, debounce, SSE buffer, worker hint, or temporary cache; keys must be scoped, TTL mandatory, Postgres fallback required, Redis loss must not affect correctness, and Postgres CAS remains the session memory correctness boundary. | Phase 12/Phase 16 acceptance gates as applicable |
+| Phase 13 internal slices | Phase 13 plan must split approval schema/CAS, snapshot builder/hash golden tests, `needs_info` resume, and SLA/assignment semantics. | Phase 13 acceptance gate |
+| Cross-table enforcement row mapping | Phase 13/Phase 14/Phase 17 plans must copy relevant rows from the spec Section 18.2 cross-table enforcement matrix and list required mismatch tests. | Phase 13/Phase 14/Phase 17 acceptance gates |
 | PARTIAL/deferred status discipline | Every `PARTIAL` / `DEFERRED_WITH_OWNER` row must name owner phase, non-blocking rationale, blocking dependency, and acceptance gate. Otherwise it becomes `MISSING`. | Each phase readiness verdict |
 | Eval gate blocking status | Every relevant eval gate must name blocking/non_blocking status, dataset owner/version/hash, and phase exit impact. | Relevant phase exit criteria |
 
 ## 7. Next Planning Order
 
-1. Write AAM-P1 implementation plan.
-2. Use AAM-P1 to produce the contract inventory and initial coverage verification artifact.
-3. Plan AAM-P2 and AAM-P3, which may execute in parallel after AAM-P1 exits.
-4. Plan AAM-P4 only after AAM-P2/AAM-P3 service boundary outputs are accepted.
-5. Continue sequentially through MVP AAM-P5 through AAM-P9.
-6. Keep AAM-P10 and AAM-P11 as deferred owner phases unless a later milestone explicitly pulls them forward.
+1. Write Phase 7 implementation plan.
+2. Use Phase 7 to produce the contract inventory and initial coverage verification artifact.
+3. Plan Phase 8 and Phase 9, which may execute in parallel after Phase 7 exits.
+4. Plan Phase 10 only after Phase 8/Phase 9 service boundary outputs are accepted.
+5. Continue sequentially through MVP Phase 11 through Phase 15.
+6. Keep Phase 16 and Phase 17 as deferred owner phases unless a later milestone explicitly pulls them forward.

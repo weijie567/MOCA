@@ -1,180 +1,68 @@
-# Requirements: MOCA v1.1 Agentic Investigation
+# Requirements: MOCA v1.1 Agent Architecture Migration
 
-**Defined:** 2026-06-04
-**Core Value:** When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution — never silently executing something irreversible.
+**Defined:** 2026-06-06
+**Source:** `docs/agent-architecture-spec.md` and `docs/agent-architecture-phase-decomposition.md`
 
-## v1.1 Requirements
+## Contract Requirements
 
-Requirements for the v1.1 Agentic Investigation milestone. Each requirement maps to exactly one roadmap phase.
+- [x] **BASE-01**: Produce a contract inventory and current-vs-target evidence checklist.
+- [x] **BASE-02**: Produce an initial coverage matrix using only the allowed readiness statuses.
+- [x] **BASE-03**: Persist follow-up items with owner phases and acceptance gates.
+- [x] **BASE-04**: Confirm Phase 8 and Phase 9 may proceed with no `MISSING` baseline rows.
+- [ ] **KNOW-01**: Knowledge reads use KnowledgeService with strong/partial/no-evidence semantics.
+- [ ] **KNOW-02**: EvidenceRefV1, claim-support citation, canonical projection, effective-time, and tenant-over-global contracts are enforced.
+- [ ] **KNOW-03**: Knowledge migration/read-switch, if introduced, has owner, telemetry, fallback, and rollback.
+- [ ] **TOOL-01**: Read business tools use BusinessToolService and trusted ToolCallContext.
+- [ ] **TOOL-02**: ToolResultV2 covers permission/scope/status/timeout/partial/invalid-response behavior without raw invalid payload exposure.
+- [ ] **TOOL-03**: Write/action tools remain outside the read-tool facade.
+- [ ] **STATE-01**: AgentState lifecycle enforces trusted writers, reset, merge, persistence, and cross-scope isolation.
+- [ ] **STATE-02**: Trusted identity/approval/action fields cannot be overwritten by user or LLM output.
+- [ ] **ROUTE-01**: Routers are deterministic, total, side-effect free, and return only valid node keys.
+- [ ] **ROUTE-02**: Invalid or unsafe state routes to explicit safe fallback.
+- [ ] **INTENT-01**: Intent precedence and requested-operation safety routing are deterministic and tested.
+- [ ] **INTENT-02**: RequiredSlotExpression and slot completeness rules are enforced.
+- [ ] **CLARIFY-01**: Ordinary clarification and trusted approval needs_info resume remain separate contracts.
+- [ ] **SESSION-01**: PostgreSQL session memory uses version CAS and deterministic merge.
+- [ ] **SESSION-02**: Slot inheritance enforces scope, freshness, compatibility, and explicit override.
+- [ ] **SESSION-03**: Session memory is not policy evidence and supports observable fallback/read-switch rollback.
+- [ ] **APPROVAL-01**: Approval transitions, request/level/assignment CAS, and revision invalidation are enforced.
+- [ ] **APPROVAL-02**: Approval needs_info resume validates clarification identity, scope, versions, changed facts, and old-revision prohibition.
+- [ ] **APPROVAL-03**: Single-level runtime is complete and multi-level-compatible contracts are verified; active SLA scanner remains an owned gate.
+- [ ] **SNAPSHOT-01**: ActionSafetySnapshot and CanonicalHashProfile bind approval, draft, and execution to exact payload/evidence/config hashes.
+- [ ] **DEMO-01**: Demo mode creates durable draft and draft_outcome only, with no execution row or external side effect.
+- [ ] **DEMO-02**: Demo wording and hash/revision guards cannot claim or authorize real execution.
+- [ ] **REPLAY-01**: ReplayEventV3 and lifecycle finalizer cover all required completed/interrupted/terminal paths.
+- [ ] **REPLAY-02**: Shared per-run sequence allocator and operation pairing/retry contracts are enforced.
+- [ ] **REPLAY-03**: Replay redaction, retention, access control, read-switch, fallback, and rollback are defined.
+- [ ] **MEMORY-01**: Long-term/case memory uses memory_identity.v1, review workflow, and distinct retrieval predicates.
+- [ ] **MEMORY-02**: Tombstones prevent retrieval and asynchronous rewrite of deleted memory.
+- [ ] **EXTERNAL-01**: External dispatch occurs only after transactional draft claim, execution creation, and committed outbox claim.
+- [ ] **EXTERNAL-02**: Unknown/reconciling paths prevent unsafe retry with a new external idempotency key.
+- [ ] **EXTERNAL-03**: Reconciliation, compensation, and duplicate execution/key guards are enforced.
 
-### Tool Registry
+## Planning Requirements
 
-- [x] **REG-01**: System has a schema-first tool registry where each tool declares `name`, `description`, `input_schema`, `output_schema`, `risk_level`, `side_effect`, and `allowed_in_investigator`.
-- [x] **REG-02**: Investigator can only select tools whose registry metadata has `allowed_in_investigator=true` and `risk_level` of `read` or `retrieval`.
-- [x] **REG-03**: Initial investigator-visible registry includes only `get_order`, `get_refund_case`, `get_ticket`, and `search_policy`.
-- [x] **REG-04**: Registry metadata explicitly excludes write/action/approval mutation tools from investigator access, including `create_coupon_grant_draft`, `execute_action`, and approval mutation operations.
-- [x] **REG-05**: Tool registry validation fails fast when a tool's declared schema or safety metadata is missing, inconsistent, or unsafe for investigator use.
-- [x] **REG-06**: Registry tools expose typed input/output adapters around the existing tool functions rather than changing the existing tool function contracts unnecessarily.
-- [x] **REG-07**: Tool invocation validates requested tool name and input schema before execution, and records a structured `unsafe_tool_request` result instead of executing tools outside the investigator allowlist.
-- [x] **REG-08**: Tool results passed back into the investigator are summarized or sanitized to avoid prompt/context bloat and sensitive raw payload leakage.
-- [x] **REG-09**: Tool registry metadata includes enough information for tool-selection prompting, including `when_to_use`, `required_identifiers`, and `result_summary_fields`.
-
-### State and Contracts
-
-- [x] **STATE-01**: `AgentState` is extended in a backward-compatible way to include optional `investigation_result`, `investigation_steps`, `investigation_trigger_reason`, and `investigation_path` fields without changing existing API response contracts.
-- [x] **STATE-02**: `InvestigationResult` schema is versioned or explicitly typed so future tool/result fields can evolve without breaking `generate_recommendation`.
-- [x] **STATE-03**: `InvestigationResult` distinguishes facts, `evidence_refs`, `missing_info`, `candidate_action`, confidence, `stop_reason`, and `safety_notes` rather than mixing them into free-form text.
-- [x] **STATE-04**: Existing persistent thread-scoped memory fields such as `active_slots`, `last_intent`, `evidence_refs`, and `last_business_context_refs` continue to work unchanged.
-
-### Investigation Routing
-
-- [ ] **ROUTE-01**: Graph preserves the explicit-ID fast path through `load_business_context` for simple requests with sufficient evidence.
-- [ ] **ROUTE-02**: Graph evaluates whether to enter investigation after `retrieve_policy_evidence` using explicit trigger reasons.
-- [ ] **ROUTE-03**: Investigator is entered only for ambiguity, multi-hop dependency, insufficient evidence, or compensation-advice scenarios.
-- [ ] **ROUTE-04**: Fast path remains the default; clear explicit-ID cases with sufficient business context and policy evidence do not enter investigator.
-- [ ] **ROUTE-05**: Investigation routing is deterministic or rule-scored, not LLM-decided, for v1.1; the router produces explicit `trigger_reason` values.
-- [ ] **ROUTE-06**: Router trigger reasons are enumerated and testable, including `low_evidence_score`, `no_evidence`, `ambiguous_intent`, `compensation_advice`, `missing_required_context`, and `multi_hop_question`.
-- [ ] **ROUTE-07**: Router avoids entering investigator for unsupported intents or simple policy QA when baseline retrieval is sufficient.
-- [ ] **ROUTE-08**: Router preserves existing `insufficient_evidence` fallback behavior when investigation is not applicable or budget is exhausted.
-
-### Bounded Investigator
-
-- [ ] **INV-01**: Investigator performs bounded factual investigation using only registry-approved read-only/retrieval tools.
-- [ ] **INV-02**: Investigator has explicit stop conditions, including maximum iterations and stop reasons for sufficient evidence, insufficient evidence, unsafe tool request, or iteration budget exhausted.
-- [ ] **INV-03**: Investigator outputs a structured `InvestigationResult` containing gathered facts, evidence references, tool calls, confidence/evidence sufficiency, candidate actions, and stop reason.
-- [ ] **INV-04**: Investigator does not produce the final user-facing response.
-- [ ] **INV-05**: Investigator does not perform final risk assessment, approval decisions, approval mutations, action draft creation, or action execution.
-- [ ] **INV-06**: Investigator handles tool errors and missing evidence with structured fallback results instead of graph-level crashes.
-- [ ] **INV-07**: Investigator has a fixed maximum iteration count configured in code/settings and covered by tests.
-- [ ] **INV-08**: Investigator can request only one tool call per iteration for v1.1 unless explicitly expanded later.
-- [ ] **INV-09**: Investigator does not directly mutate `active_slots`, `approval_result`, `proposed_action`, `action_result`, or `final_response` except through approved structured outputs consumed by downstream nodes.
-- [ ] **INV-10**: Candidate actions produced by investigator are advisory only and must be revalidated by `generate_recommendation` and `assess_risk_and_approval`.
-
-### Workflow and Recommendation Preservation
-
-- [ ] **FLOW-01**: Existing `generate_recommendation` remains responsible for producing the final `RecommendationDraft`, using `InvestigationResult` when present.
-- [ ] **FLOW-02**: Existing risk and approval flow remains authoritative: `assess_risk_and_approval` determines approval requirements and `approval_gate` enforces human interruption.
-- [ ] **FLOW-03**: Existing `execute_action` remains the only place where action execution or action draft creation can occur after approval rules are satisfied.
-- [ ] **FLOW-04**: Existing API request/response contract remains backward compatible for v1.0 clients.
-- [ ] **FLOW-05**: Existing v1.0 deterministic behavior remains covered by regression tests/evals.
-- [ ] **FLOW-06**: `generate_recommendation` prompt/input is updated to consume `InvestigationResult` when present while preserving citation validation and existing fallback behavior.
-- [ ] **FLOW-07**: If `InvestigationResult` has insufficient evidence, tool errors, unsafe tool requests, or exhausted iteration budget, `generate_recommendation` produces a safe missing-info or insufficient-evidence recommendation rather than fabricating support.
-- [ ] **FLOW-08**: Existing `final_response` templating remains the user-facing response owner and is not bypassed by investigator output.
-
-### Observability and Trace
-
-- [ ] **TRACE-01**: Each investigator tool selection records iteration, tool name, sanitized input, tool status, result summary or reference, selection reason, and stop reason.
-- [ ] **TRACE-02**: Investigator trace events are available through the existing trace replay capability without exposing sensitive raw tool payloads.
-- [ ] **TRACE-03**: Trace output distinguishes fast path, investigation path, fallback path, approval path, and action execution path.
-
-### Evaluation
-
-- [ ] **EVAL-01**: Golden/eval cases compare v1.0 deterministic workflow and v1.1 investigator path across ambiguous, multi-hop, insufficient-evidence, and compensation-advice scenarios.
-- [ ] **EVAL-02**: Evaluation reports investigator trigger accuracy.
-- [ ] **EVAL-03**: Evaluation reports tool selection accuracy.
-- [ ] **EVAL-04**: Evaluation reports evidence sufficiency.
-- [ ] **EVAL-05**: Evaluation reports unsafe action rate and verifies it remains zero for investigator calls.
-- [ ] **EVAL-06**: Evaluation verifies approval boundary preservation for risky compensation/action scenarios.
-- [ ] **EVAL-07**: Evaluation reports latency overhead introduced by investigation.
-
-### Tests
-
-- [x] **TEST-01**: Unit tests cover registry validation, unsafe tool exclusion, schema validation failures, and allowed read-only tool invocation.
-- [ ] **TEST-02**: Routing tests cover fast path skip, low evidence trigger, compensation trigger, ambiguous question trigger, and unsupported/simple cases.
-- [ ] **TEST-03**: Investigator tests cover max iterations, tool error fallback, unsafe tool request rejection, structured `InvestigationResult` output, and no write/action execution.
-- [ ] **TEST-04**: Regression tests prove v1.0 approval, `execute_action`, `final_response`, trace, and API behavior remain backward compatible.
-
-## Future Requirements
-
-Deferred to future milestones. Tracked but not in current roadmap.
-
-### Investigator Expansion
-
-- **FUT-01**: Investigator can support multiple tool calls per iteration when requirements justify the added complexity.
-- **FUT-02**: Tool registry can include additional read-only business systems beyond order, refund, ticket, and policy search.
-- **FUT-03**: Investigator can support richer scenario expansion beyond refund disputes after v1.1 boundaries are validated.
-
-## Out of Scope
-
-Explicitly excluded. Documented to prevent scope creep.
-
-| Feature | Reason |
-|---------|--------|
-| Full-chain ReAct replacing the deterministic workflow | v1.1 is a bounded investigation layer inside the existing workflow, not a rewrite. |
-| Multi-agent rewrite | Adds orchestration complexity and would obscure the v1.0 deterministic approval design. |
-| New write/action tools for investigator | Investigator must stay read-only/retrieval-only to preserve safety boundaries. |
-| Investigator access to `create_coupon_grant_draft` | Action draft creation belongs only in the existing approval/action flow. |
-| Approval API redesign | Existing approval semantics are validated and must remain stable. |
-| API contract redesign | v1.0 clients and demo flows must remain backward compatible. |
-| Replacing existing risk rules or approval semantics | Risk and approval remain authoritative downstream of investigation. |
-| Production deployment or Kubernetes work | Not part of the investigation capability. |
-| Real payment/refund execution | MOCA remains a simulated open-source demo with synthetic data. |
+- Every phase plan must include spec coverage, schema/migration owner, service/API owner, state/router impact, required tests, acceptance criteria, rollback/non-goals/deferred items, and a coverage matrix.
+- A phase plan with any relevant `MISSING` row is blocked from execution.
+- Every `PARTIAL` or `DEFERRED_WITH_OWNER` row must name owner, non-blocking rationale, dependency, and acceptance gate.
+- Every schema/service migration phase must instantiate the migration rollout protocol and name read-switch/fallback/rollback ownership.
+- Every relevant eval gate must name blocking status, dataset owner/version/hash, and failure impact.
 
 ## Traceability
 
-Which phases cover which requirements. Updated during roadmap creation.
-
-| Requirement | Phase | Status |
-|-------------|-------|--------|
-| REG-01 | Phase 7 | Complete |
-| REG-02 | Phase 7 | Complete |
-| REG-03 | Phase 7 | Complete |
-| REG-04 | Phase 7 | Complete |
-| REG-05 | Phase 7 | Complete |
-| REG-06 | Phase 7 | Complete |
-| REG-07 | Phase 7 | Complete |
-| REG-08 | Phase 7 | Complete |
-| REG-09 | Phase 7 | Complete |
-| STATE-01 | Phase 7 | Complete |
-| STATE-02 | Phase 7 | Complete |
-| STATE-03 | Phase 7 | Complete |
-| STATE-04 | Phase 7 | Complete |
-| TEST-01 | Phase 7 | Complete |
-| ROUTE-01 | Phase 8 | Pending |
-| ROUTE-02 | Phase 8 | Pending |
-| ROUTE-03 | Phase 8 | Pending |
-| ROUTE-04 | Phase 8 | Pending |
-| ROUTE-05 | Phase 8 | Pending |
-| ROUTE-06 | Phase 8 | Pending |
-| ROUTE-07 | Phase 8 | Pending |
-| ROUTE-08 | Phase 8 | Pending |
-| TEST-02 | Phase 8 | Pending |
-| INV-01 | Phase 9 | Pending |
-| INV-02 | Phase 9 | Pending |
-| INV-03 | Phase 9 | Pending |
-| INV-04 | Phase 9 | Pending |
-| INV-05 | Phase 9 | Pending |
-| INV-06 | Phase 9 | Pending |
-| INV-07 | Phase 9 | Pending |
-| INV-08 | Phase 9 | Pending |
-| INV-09 | Phase 9 | Pending |
-| INV-10 | Phase 9 | Pending |
-| TEST-03 | Phase 9 | Pending |
-| FLOW-01 | Phase 10 | Pending |
-| FLOW-02 | Phase 10 | Pending |
-| FLOW-03 | Phase 10 | Pending |
-| FLOW-04 | Phase 10 | Pending |
-| FLOW-05 | Phase 10 | Pending |
-| FLOW-06 | Phase 10 | Pending |
-| FLOW-07 | Phase 10 | Pending |
-| FLOW-08 | Phase 10 | Pending |
-| TRACE-01 | Phase 10 | Pending |
-| TRACE-02 | Phase 10 | Pending |
-| TRACE-03 | Phase 10 | Pending |
-| TEST-04 | Phase 10 | Pending |
-| EVAL-01 | Phase 11 | Pending |
-| EVAL-02 | Phase 11 | Pending |
-| EVAL-03 | Phase 11 | Pending |
-| EVAL-04 | Phase 11 | Pending |
-| EVAL-05 | Phase 11 | Pending |
-| EVAL-06 | Phase 11 | Pending |
-| EVAL-07 | Phase 11 | Pending |
-
-**Coverage:**
-- v1.1 requirements: 53 total
-- Mapped to phases: 53
-- Unmapped: 0
+| Requirement group | Phase | Status |
+| --- | --- | --- |
+| BASE-01..04 | Phase 7 | Complete |
+| KNOW-01..03 | Phase 8 | Pending |
+| TOOL-01..03 | Phase 9 | Pending |
+| STATE-01..02, ROUTE-01..02 | Phase 10 | Pending |
+| INTENT-01..02, CLARIFY-01 | Phase 11 | Pending |
+| SESSION-01..03 | Phase 12 | Pending |
+| APPROVAL-01..03, SNAPSHOT-01 | Phase 13 | Pending |
+| DEMO-01..02 | Phase 14 | Pending |
+| REPLAY-01..03 | Phase 15 | Pending |
+| MEMORY-01..02 | Phase 16 | Deferred beyond MVP gate |
+| EXTERNAL-01..03 | Phase 17 | Deferred beyond MVP gate |
 
 ---
-*Requirements defined: 2026-06-04*
-*Last updated: 2026-06-04 after v1.1 roadmap creation*
+*Updated: 2026-06-06 after replacing the prior v1.1 planning scope.*

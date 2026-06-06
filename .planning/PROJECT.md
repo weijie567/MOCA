@@ -10,17 +10,17 @@ Built as an open-source portfolio project demonstrating enterprise Agent enginee
 
 When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution — never silently executing something irreversible.
 
-## Current Milestone: v1.1 Agentic Investigation
+## Current Milestone: v1.1 Agent Architecture Migration
 
-**Goal:** Add a bounded tool-selection / investigation layer inside the existing deterministic LangGraph refund workflow so ambiguous, multi-hop, evidence-insufficient, and compensation-advice cases can be investigated without changing v1.0 fast path, approval boundaries, trace replay, or API contract.
+**Goal:** Migrate the existing deterministic agent toward explicit, testable contracts for knowledge, business tools, state/routing, intent/clarification, memory, approvals, actions, replay, schema rollout, and evaluation without weakening the shipped v1.0 safety boundary.
 
 **Target features:**
-- Schema-first tool registry with metadata for `name`, `description`, `input_schema`, `output_schema`, `risk_level`, `side_effect`, and `allowed_in_investigator`.
-- Investigator tool boundary that allows only read-only/retrieval tools: `get_order`, `get_refund_case`, `get_ticket`, and `search_policy`.
-- Bounded investigator subgraph that performs factual investigation and candidate action suggestions, then returns structured investigation output to the existing recommendation/risk/approval/action flow.
-- Fast path preservation so simple explicit-ID requests with sufficient evidence do not enter investigator.
-- Golden/eval coverage for trigger accuracy, tool selection accuracy, evidence sufficiency, unsafe action rate, approval boundary preservation, and latency overhead.
-- Investigator observability in existing trace replay for per-iteration tool selection, sanitized inputs, tool status, result refs/summaries, selection reasons, and stop reasons.
+- KnowledgeService and BusinessToolService facades with canonical evidence/tool contracts.
+- Enforced AgentState lifecycle, trusted fields, router totality, and safe invalid-state fallback.
+- Versioned approval lifecycle and immutable ActionSafetySnapshot binding.
+- Strict demo draft boundary followed by separately owned future external execution.
+- PostgreSQL session memory CAS, with long-term/case memory independently deferred.
+- ReplayEventV3, lifecycle finalizer, redaction/retention, migration rollout, contract tests, golden flows, and blocking eval gates.
 
 ## Requirements
 
@@ -38,13 +38,13 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - [x] Approval workflow creates auditable action drafts and exposes run-level trace replay (validated in Phase 4)
 - [x] Simple frontend allows submitting questions, viewing streamed agent responses, inspecting evidence/trace details, and handling approvals (validated in Phase 5)
 - [x] Final evaluation and polish expands the golden set, validates end-to-end metrics, and prepares demo/README materials (validated in Phase 6)
-- [x] v1.1 schema-first tool registry and dormant investigation contracts expose only approved read/retrieval tools while preserving existing graph/API compatibility (validated in Phase 7)
+- [x] v1.1 contract baseline inventories current evidence, target contracts, phase owners, follow-up gates, and downstream readiness (validated in Phase 7)
 
 ### Active
 
-- [ ] v1.1 introduces the bounded investigator layer inside the existing LangGraph workflow.
-- [ ] v1.1 preserves fast path behavior, approval boundaries, trace replay, and API contract from v1.0.
-- [ ] v1.1 validates investigator behavior with golden/eval cases covering trigger accuracy, tool selection, evidence sufficiency, unsafe action prevention, approval preservation, and latency overhead.
+- [ ] v1.1 introduces explicit KnowledgeService and BusinessToolService boundaries.
+- [ ] v1.1 enforces state/router, approval/snapshot, demo action, session-memory, and replay contracts.
+- [ ] v1.1 validates each owned contract with migration verification, forbidden-behavior tests, golden flows, and explicit eval gates.
 
 ### Out of Scope
 
@@ -92,17 +92,12 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - Phase 5 Frontend & SSE is complete: the React/Vite demo supports chat submission, progressive SSE timeline updates, evidence/trace inspection, pending approval handling, role switching, and Docker Compose frontend-to-API routing.
 - Phase 6 Evaluation & Polish is complete: the golden set now covers 14 RAG cases and 35 deterministic agent cases, evaluation scripts generate reports, CI runs lint/unit checks, and README/demo/security/evaluation docs are polished for the v1.0 demo.
 - v1.0 MVP is shipped and archived on 2026-05-22. Full milestone history lives in `.planning/milestones/v1.0-ROADMAP.md` and `.planning/milestones/v1.0-REQUIREMENTS.md`.
-- Phase 7 Tool Registry & Investigation Contracts is complete: schema-first registry contracts, typed adapters, strict invocation errors, sanitized prompt-facing results, `InvestigationResult`, and dormant per-turn-reset investigation state are validated.
-- Active planning is now on Phase 8 Deterministic Investigation Routing.
+- Phase 7 Contract Baseline is complete: the contract inventory, current-vs-target evidence checklist, initial coverage matrix, follow-up register disposition, and readiness verdict are persisted.
+- Active planning is now on Phase 8 Knowledge Facade; Phase 9 Business Tool Facade may be planned in parallel.
 
 ## Next Milestone Goals
 
-v1.1 is intentionally undefined until `$gsd-new-milestone` gathers the next requirements. Strong candidates to evaluate:
-
-- Production hardening: PostgreSQL RLS, stronger tenant isolation proof, deployment docs, and realistic environment management.
-- Demo depth: frontend execution-path visualization, richer trace replay UI, and polished interview walkthrough assets.
-- Observability: Prometheus/Grafana or LangSmith-style traces, cost dashboard, and latency budget reporting.
-- Scenario expansion: creator appeals and rule consultation as a second business workflow.
+Define the milestone after v1.1 only after Phases 7-15 complete and the deferred owner phases 16-17 are explicitly accepted, rescheduled, or carried forward.
 
 ## Constraints
 
@@ -123,6 +118,7 @@ v1.1 is intentionally undefined until `$gsd-new-milestone` gathers the next requ
 | Approval as graph node, not external middleware | Demonstrates LangGraph's core strength; more impressive in interviews | Adopted in Phase 4 |
 | Simple frontend over pure API | 10-minute demo needs visual impact; keeps PM angle visible | Adopted in Phase 5 |
 | Keep v1.1 scope fresh | v1.0 requirements are complete and archived; continuing in the same requirements file would mix shipped and future obligations | Adopted after v1.0 archive |
+| Replace the previous v1.1 investigation roadmap with Agent Architecture Migration | The architecture spec now defines the authoritative capability sequence and standard Phase 7-17 identities are required for SDK planning | Adopted 2026-06-06 |
 
 ## Evolution
 

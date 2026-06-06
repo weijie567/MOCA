@@ -112,11 +112,11 @@ MOCA 的目标架构是：面向商家运营与售后协同的企业级 Agent �
 
 | Capability | Current evidence | Current limitation | Target contract | Migration phase |
 | --- | --- | --- | --- | --- |
-| AgentState lifecycle | `src/agent/state.py` 定义字段约定；`receive_request` 主动 reset 部分 ephemeral 字段。 | 当前不是 schema-level enforcement；writer、scope、reset/merge 规则未被统一验证。 | 第 10.1 节 lifecycle matrix；trusted fields 不可被 LLM 覆盖；router/state property tests。 | AAM-P4 |
-| Slot routing | 当前 graph 有 intent、slot extraction 和跨 turn active slots。 | session memory load/slot merge 尚未形成统一目标顺序；`A or B` required slot 无结构化表达。 | `intent -> session_memory_load -> slot_extraction -> resolve_slots -> route_after_slots`；`RequiredSlotExpression`。 | AAM-P4, AAM-P6 |
-| Approval | 已有 interrupt/resume、approve/reject、审批持久化。 | 无 request/level/assignment version CAS、multi-level 聚合和 exact revision execution guard。 | 第 15 节 versioned approval state machine 和 optimistic locking。 | AAM-P7 |
-| Action | 已有 durable `ActionDraft` 和 idempotency key。 | demo/external outcome contract 未完全分离；无 external executor/reconciliation。 | demo 只写 draft + `draft_outcome`；external 原子校验后执行。 | AAM-P8, AAM-P11 |
-| Replay | 已有 AgentRun/AgentStep 和组合 timeline。 | 事件枚举和 lifecycle coverage 不完整；不是统一 V3 event store。 | ReplayEventV3、稳定 sequence、完整 lifecycle enum 和 retention。 | AAM-P9 |
+| AgentState lifecycle | `src/agent/state.py` 定义字段约定；`receive_request` 主动 reset 部分 ephemeral 字段。 | 当前不是 schema-level enforcement；writer、scope、reset/merge 规则未被统一验证。 | 第 10.1 节 lifecycle matrix；trusted fields 不可被 LLM 覆盖；router/state property tests。 | Phase 10 |
+| Slot routing | 当前 graph 有 intent、slot extraction 和跨 turn active slots。 | session memory load/slot merge 尚未形成统一目标顺序；`A or B` required slot 无结构化表达。 | `intent -> session_memory_load -> slot_extraction -> resolve_slots -> route_after_slots`；`RequiredSlotExpression`。 | Phase 10, Phase 12 |
+| Approval | 已有 interrupt/resume、approve/reject、审批持久化。 | 无 request/level/assignment version CAS、multi-level 聚合和 exact revision execution guard。 | 第 15 节 versioned approval state machine 和 optimistic locking。 | Phase 13 |
+| Action | 已有 durable `ActionDraft` 和 idempotency key。 | demo/external outcome contract 未完全分离；无 external executor/reconciliation。 | demo 只写 draft + `draft_outcome`；external 原子校验后执行。 | Phase 14, Phase 17 |
+| Replay | 已有 AgentRun/AgentStep 和组合 timeline。 | 事件枚举和 lifecycle coverage 不完整；不是统一 V3 event store。 | ReplayEventV3、稳定 sequence、完整 lifecycle enum 和 retention。 | Phase 15 |
 
 ---
 
@@ -132,7 +132,7 @@ MOCA 的目标架构是：面向商家运营与售后协同的企业级 Agent �
 | `agent-inbox-langgraph-example` | `src/agent/graph.py`、`state.py`、README | Python 最小示例：构造 HumanInterruptConfig，`interrupt([request])[0]`，按 response type 写回 state。 | Python 端 accept/edit/respond/ignore 的最小实现方式。 | 示例是 joke，不含权限、审批、SLA、action risk。 | 补充纳入 | 作为 MOCA interrupt payload schema 的 Python 参考。 |
 | `Human-in-the-Loop-Workflow-LangGraph` | `src/graph.py`、`state.py`、`nodes/human_review_node.py`、`nodes/content_generation_node.py`、`prompts.py`、`tools.py` | 搜索 -> 内容生成 -> human review -> approve/reject；review node 可接受编辑字符串并自动 approve；`publish_post` tool 内在发布前再次 interrupt 确认。 | two-stage interrupt：草稿 review 和执行前 confirm；Command(goto=...) 路由；编辑后继续 approve。 | 新闻/Bluesky 发布业务不适合；tool 内直接 publish 外部服务不适合当前 MOCA；OpenAI/Tavily 栈不迁移。 | 部分纳入 | 借鉴二阶段审批/确认控制流，未来用于真实高风险动作。 |
 | `full-stack-fastapi-template` | `backend/app/main.py`、`api/main.py`、`api/deps.py`、`core/config.py`、`core/db.py`、`models.py`、`tests/conftest.py`、Dockerfile、pyproject | FastAPI 工程模板：settings、CORS、router aggregation、JWT dependencies、DB session deps、Alembic、Docker、tests fixture、lint/type config。 | API deps/settings/tests/Docker/CI 组织可参考；安全依赖注入清晰。 | 使用 SQLModel，同 MOCA 当前 SQLAlchemy 不一致；业务是 users/items，不指导 Agent 架构。 | 部分纳入 | 只借鉴工程组织和测试结构，不换 ORM/模型。 |
-| `fastapi-observability` | `fastapi_app/main.py`、`utils.py`、`docker-compose.yaml`、`etc/prometheus/prometheus.yml`、`etc/grafana/datasource.yml`、`etc/tempo/tempo.yml` | FastAPI metrics middleware；OpenTelemetry FastAPI instrumentation；OTLP -> Tempo；Prometheus scrape `/metrics`；Grafana datasource 关联 Prometheus/Tempo/Loki；日志带 trace_id/span_id。 | MOCA 应对 API、graph node、tool call、RAG、LLM、approval、action 建 spans/metrics/log correlation；metrics exemplar 关联 trace。 | 不直接搬多 app compose、Loki docker logging driver；不把部署栈作为 AAM-P1。 | 纳入 | 先定义观测 contract，后续逐步接 OTel/Grafana。 |
+| `fastapi-observability` | `fastapi_app/main.py`、`utils.py`、`docker-compose.yaml`、`etc/prometheus/prometheus.yml`、`etc/grafana/datasource.yml`、`etc/tempo/tempo.yml` | FastAPI metrics middleware；OpenTelemetry FastAPI instrumentation；OTLP -> Tempo；Prometheus scrape `/metrics`；Grafana datasource 关联 Prometheus/Tempo/Loki；日志带 trace_id/span_id。 | MOCA 应对 API、graph node、tool call、RAG、LLM、approval、action 建 spans/metrics/log correlation；metrics exemplar 关联 trace。 | 不直接搬多 app compose、Loki docker logging driver；不把部署栈作为 Phase 7。 | 纳入 | 先定义观测 contract，后续逐步接 OTel/Grafana。 |
 
 ---
 
@@ -1209,7 +1209,7 @@ Calibration acceptance gate：
 | same dataset/version | required-slot expression exact match | `>= 0.95` | `0` for missing action target groups | 不达标时 deterministic slot policy 覆盖模型输出 | M6 release blocked |
 | same dataset/version | safe-route recall for action/approval/appeal | `>= 0.99` | `<= 0.01` | action path 强制 risk/approval；禁止 confidence-only auto route | M6 release blocked |
 
-M6 是启用 safety-sensitive confidence-assisted routing 的 **release milestone**，不是 `AAM-P6` migration phase；如果项目 roadmap 使用不同 milestone 名称，release checklist 必须显式映射到该 gate。M6 的 `<= 0.01` false-negative gate 不得用小样本点估计宣称通过。High-risk/action validation set 必须至少包含 200 个独立、去重样例，并覆盖 critical write、approval decision、appeal/unban、complaint escalation classes；200 是覆盖下限，不自动证明 1% gate。
+M6 是启用 safety-sensitive confidence-assisted routing 的 **release milestone**，不是 `Phase 12` migration phase；如果项目 roadmap 使用不同 milestone 名称，release checklist 必须显式映射到该 gate。M6 的 `<= 0.01` false-negative gate 不得用小样本点估计宣称通过。High-risk/action validation set 必须至少包含 200 个独立、去重样例，并覆盖 critical write、approval decision、appeal/unban、complaint escalation classes；200 是覆盖下限，不自动证明 1% gate。
 
 Wilson gate 固定使用 **one-sided 95% Wilson upper confidence bound for false-negative rate**，`z = 1.6448536269514722`，不使用 continuity correction。对每个 critical class 单独计算：`phat = false_negatives / n`；`denominator = 1 + z^2 / n`；`center = phat + z^2 / (2n)`；`margin = z * sqrt((phat * (1 - phat) / n) + (z^2 / (4n^2)))`；`upper = (center + margin) / denominator`。critical write、approval decision、appeal/unban、complaint escalation 必须逐 class 计算；每个 class 都必须 zero false negatives 且 `wilson_upper_95_one_sided <= 0.01`。Pooled metric 可以报告但不能替代 per-class gate；任一 class 样本不足时结论必须是 `statistical_gate_not_demonstrated` 并阻断 M6。
 
@@ -1398,8 +1398,8 @@ Memory layers are retained, but their implementation boundaries are different:
 
 - Working memory remains AgentState/checkpoint state and is not a separate MemoryService persistence layer.
 - Session memory is deterministic same-thread context continuity for active slots, unresolved questions, and lightweight conversation summary.
-- Long-term memory is reviewed durable scoped fact/preference memory, deferred to AAM-P10.
-- Case memory is reviewed precedent retrieval for analyst/recommendation context only, deferred to AAM-P10.
+- Long-term memory is reviewed durable scoped fact/preference memory, deferred to Phase 16.
+- Case memory is reviewed precedent retrieval for analyst/recommendation context only, deferred to Phase 16.
 - Policy evidence is not memory; only KnowledgeService may produce policy `EvidenceRefV1`.
 
 ### 13.1 Working memory
@@ -1408,13 +1408,13 @@ Memory layers are retained, but their implementation boundaries are different:
 
 内容：active slots、business context、evidence refs、risk、approval、action result、trace steps。
 
-Working memory is a per-run working copy. After AAM-P6, `session_memories` is the authoritative source for cross-turn session continuity; `AgentState.active_slots` is derived from current-turn explicit slots plus allowed session memory inheritance. The LangGraph checkpointer may persist working state, but it must not be treated as the authoritative session memory store.
+Working memory is a per-run working copy. After Phase 12, `session_memories` is the authoritative source for cross-turn session continuity; `AgentState.active_slots` is derived from current-turn explicit slots plus allowed session memory inheritance. The LangGraph checkpointer may persist working state, but it must not be treated as the authoritative session memory store.
 
 ### 13.2 Session memory
 
-同一 tenant + user + thread 内保留短期上下文，用于回答“继续刚才那个退款单”“这个订单呢”等 same-thread continuity。AAM-P6 session memory scope is intentionally narrow: slot continuity with safety constraints, unresolved questions, and lightweight session summary.
+同一 tenant + user + thread 内保留短期上下文，用于回答“继续刚才那个退款单”“这个订单呢”等 same-thread continuity。Phase 12 session memory scope is intentionally narrow: slot continuity with safety constraints, unresolved questions, and lightweight session summary.
 
-AAM-P6 session memory MUST NOT implement long-term memory, case memory, memory embeddings, `memory_identity.v1`, tombstones, asynchronous memory extraction, or review workflow. Those belong to AAM-P10.
+Phase 12 session memory MUST NOT implement long-term memory, case memory, memory embeddings, `memory_identity.v1`, tombstones, asynchronous memory extraction, or review workflow. Those belong to Phase 16.
 
 同一 thread/session 内保留：
 
@@ -1468,7 +1468,7 @@ The `summary` column has session-summary semantics only. It may describe convers
 - `expires_at`
 - `review_status`
 
-Long-term memory stores durable, reviewed, scoped facts that may improve future assistance but cannot authorize policy, risk, approval, or action decisions. It must not store policy rules, single-order facts, single-refund outcomes, unreviewed model guesses, sensitive PII, or approval/action state. Initial AAM-P10 write paths should prefer explicit user preference, admin label, human-review approval, or deterministic tool facts marked durable; automatic extraction from model guesses is not allowed.
+Long-term memory stores durable, reviewed, scoped facts that may improve future assistance but cannot authorize policy, risk, approval, or action decisions. It must not store policy rules, single-order facts, single-refund outcomes, unreviewed model guesses, sensitive PII, or approval/action state. Initial Phase 16 write paths should prefer explicit user preference, admin label, human-review approval, or deterministic tool facts marked durable; automatic extraction from model guesses is not allowed.
 
 ### 13.4 Case memory
 
@@ -1550,7 +1550,7 @@ Authoritative memory storage uses PostgreSQL:
 
 Redis MUST NOT be used for authoritative session memory, long-term memory, case memory, tombstones, policy evidence, approval/action state, or replay events. Redis MAY be introduced later only for non-authoritative short TTL locks, rate limits, debounce, SSE buffers, worker hints, or temporary caches.
 
-AAM-P6 does not use Redis. If a later phase adds Redis to a memory path, it must satisfy all of these conditions:
+Phase 12 does not use Redis. If a later phase adds Redis to a memory path, it must satisfy all of these conditions:
 
 - PostgreSQL remains the source of truth.
 - Redis keys are scoped by tenant/user/thread or a stricter authorized scope.
@@ -1559,7 +1559,7 @@ AAM-P6 does not use Redis. If a later phase adds Redis to a memory path, it must
 - Redis loss does not affect correctness, auditability, approval/action safety, or replay.
 - PostgreSQL CAS remains the correctness boundary for session memory writes.
 
-向量存储优先复用 Postgres + pgvector，避免引入 Pinecone。Memory embeddings are optional and deferred to AAM-P10 for long-term/case memory; AAM-P6 session memory has no embedding requirement.
+向量存储优先复用 Postgres + pgvector，避免引入 Pinecone。Memory embeddings are optional and deferred to Phase 16 for long-term/case memory; Phase 12 session memory has no embedding requirement.
 
 ### 13.7 Retrieval policy
 
@@ -1703,7 +1703,7 @@ Approval accept 仅授权审批记录绑定的精确 `action_payload_hash`。任
 
 #### ActionSafetySnapshot contract
 
-审批、action draft 和 external execution 必须绑定同一份不可变 `ActionSafetySnapshot`。这是目标 contract；AAM-P7 owns `action_safety_snapshots` schema、canonical snapshot/hash contract、approval-side immutable JSON/hash 过渡字段和 contract tests；AAM-P8 只能在 action draft 中增加引用/冗余 hash fields 并验证与 AAM-P7 snapshot 匹配；AAM-P9 只负责 replay FK/backfill。每个字段和失效规则必须可由 contract tests 验证。
+审批、action draft 和 external execution 必须绑定同一份不可变 `ActionSafetySnapshot`。这是目标 contract；Phase 13 owns `action_safety_snapshots` schema、canonical snapshot/hash contract、approval-side immutable JSON/hash 过渡字段和 contract tests；Phase 14 只能在 action draft 中增加引用/冗余 hash fields 并验证与 Phase 13 snapshot 匹配；Phase 15 只负责 replay FK/backfill。每个字段和失效规则必须可由 contract tests 验证。
 
 ```json
 {
@@ -2361,7 +2361,7 @@ Memory constraints / indexes：
 
 #### Action safety snapshot persistence
 
-`action_safety_snapshots` 是唯一规范化目标 snapshot 表；不新建独立 target evidence/policy snapshot tables。AAM-P7 owns this schema and the canonical snapshot/hash contract. AAM-P7 可先在 `approval_requests` 增加 `safety_snapshot_json jsonb` 与 `safety_snapshot_hash varchar` 并创建规范化表；AAM-P8 只能在 `action_drafts` 增加引用/冗余 hash fields 并验证与 AAM-P7 snapshot 匹配；AAM-P9 只负责 replay FK/backfill。跨 phase 引用保持 nullable，待数据 backfill 后再添加 deferred nullable FK。
+`action_safety_snapshots` 是唯一规范化目标 snapshot 表；不新建独立 target evidence/policy snapshot tables。Phase 13 owns this schema and the canonical snapshot/hash contract. Phase 13 可先在 `approval_requests` 增加 `safety_snapshot_json jsonb` 与 `safety_snapshot_hash varchar` 并创建规范化表；Phase 14 只能在 `action_drafts` 增加引用/冗余 hash fields 并验证与 Phase 13 snapshot 匹配；Phase 15 只负责 replay FK/backfill。跨 phase 引用保持 nullable，待数据 backfill 后再添加 deferred nullable FK。
 
 ```text
 action_safety_snapshots
@@ -2380,7 +2380,7 @@ action_safety_snapshots
 
 最低约束是 unique `(tenant_id, immutable_hash)`、snapshot JSON 满足第 15.3 节 contract、approval/action 同时校验 exact payload hash + snapshot hash。即使尚未规范化为独立表，这些 contract tests 也不能延后。`action_safety_snapshots.action_payload_hash` 仅在 no-action/read-only snapshot 中允许为空；任何 approval/action-bound snapshot 必须 non-null，并且必须匹配对应 approval/action record。
 
-迁移时新 snapshot columns / refs 可先 nullable 以完成 backfill；AAM-P7/AAM-P8 exit 后新建 active approval/action revision 必须 non-null，历史无法回填的记录不得授权 action execution。独立 snapshot FK 只在规范化表存在且 backfill 可验证后 deferred 添加。
+迁移时新 snapshot columns / refs 可先 nullable 以完成 backfill；Phase 13/Phase 14 exit 后新建 active approval/action revision 必须 non-null，历史无法回填的记录不得授权 action execution。独立 snapshot FK 只在规范化表存在且 backfill 可验证后 deferred 添加。
 
 ### 18.2 Approval
 
@@ -2492,7 +2492,7 @@ Approval constraints / indexes：
 - check decision type in `accept, approve, edit, reject, respond, ignore, expire`.
 - `action_payload_hash`, `policy_version`, `revision`, and `safety_snapshot_hash` are immutable after creation；legacy `evidence_snapshot_ref` alias 若存在也不可原地修改；snapshot/payload 变化创建新 revision，并将旧 approval 标为 `superseded`。
 - decision transition 必须在事务内 CAS request/level/assignment `version`；CAS miss 返回 conflict，不写孤立 decision/event。
-- `approval_events.replay_event_id` 是 nullable FK to `agent_trace_events(id)`；若 AAM-P7 创建 approval schema 时 trace table 尚不存在，则先保留 nullable column，AAM-P9 backfill 可解析引用后再添加 deferred nullable FK，无法解析的历史行保持 null。
+- `approval_events.replay_event_id` 是 nullable FK to `agent_trace_events(id)`；若 Phase 13 创建 approval schema 时 trace table 尚不存在，则先保留 nullable column，Phase 15 backfill 可解析引用后再添加 deferred nullable FK，无法解析的历史行保持 null。
 
 Cross-table consistency：
 
@@ -2569,7 +2569,7 @@ action_executions
 - retention_until timestamptz null
 - deleted_at timestamptz null
 
-action_outbox_events  # AAM-P11 external-only; AAM-P8 demo must not write rows
+action_outbox_events  # Phase 17 external-only; Phase 14 demo must not write rows
 - id uuid primary key
 - tenant_id uuid not null references tenants(id)
 - run_id uuid not null references agent_runs(id)
@@ -2592,7 +2592,7 @@ action_outbox_events  # AAM-P11 external-only; AAM-P8 demo must not write rows
 - retention_until timestamptz null
 - deleted_at timestamptz null
 
-action_reconciliation_jobs  # AAM-P11 external-only
+action_reconciliation_jobs  # Phase 17 external-only
 - id uuid primary key
 - tenant_id uuid not null references tenants(id)
 - draft_id uuid not null references action_drafts(id)
@@ -2614,7 +2614,7 @@ action_reconciliation_jobs  # AAM-P11 external-only
 - retention_until timestamptz null
 - deleted_at timestamptz null
 
-action_compensation_records  # AAM-P11 external-only
+action_compensation_records  # Phase 17 external-only
 - id uuid primary key
 - tenant_id uuid not null references tenants(id)
 - draft_id uuid not null references action_drafts(id)
@@ -2653,13 +2653,13 @@ Action constraints / indexes：
 - `unknown` / `reconciling` executions 只能 reconciliation/status check，默认不得用新 external idempotency key 再 dispatch；只有人工确认并审计 previous dispatch never happened 后，才可创建新 attempt/key。
 - demo mode must not create `action_executions`, must not produce external side effects, and must not write `executed` status.
 - action draft/execution 在审计保留期内只允许 archive/soft-delete；retention job 必须保留 id/hash/status 审计索引。
-- AAM-P11 external dispatch 前必须先持久化 `action_outbox_events` row；adapter dispatch 只能消费已 claim 的 outbox event。`unknown` / `reconciling` 只能创建/推进 reconciliation job 或 status check，默认不得用新 external idempotency key retry；compensation 只能在 reconciliation 或人工确认后创建 compensation record。
-- AAM-P11 external 状态机：
+- Phase 17 external dispatch 前必须先持久化 `action_outbox_events` row；adapter dispatch 只能消费已 claim 的 outbox event。`unknown` / `reconciling` 只能创建/推进 reconciliation job 或 status check，默认不得用新 external idempotency key retry；compensation 只能在 reconciliation 或人工确认后创建 compensation record。
+- Phase 17 external 状态机：
   - `action_outbox_events.status`: `pending -> claimed -> dispatched -> acknowledged | unknown | failed | cancelled`。Active statuses 为 `pending, claimed, dispatched, unknown`；terminal statuses 为 `acknowledged, failed, cancelled`。Worker 只能通过 CAS claim `pending` 且 `locked_until is null or locked_until < now()` 的 row，写入 `claim_token`, `claimed_by`, `claimed_at`, `locked_until` 后才可 dispatch；lease 过期可被重新 claim，但必须复用同一 `external_idempotency_key`。
   - `action_reconciliation_jobs.status`: `pending -> claimed -> checking -> resolved | unresolved | failed | cancelled`。Active statuses 为 `pending, claimed, checking, unresolved`；terminal statuses 为 `resolved, failed, cancelled`。`unresolved` 只能再次排队 status check，不得生成新 external idempotency key。
   - `action_compensation_records.status`: `planned -> approved -> claimed -> executed | failed | cancelled`。Compensation 不得在 reconciliation 前自动执行；除非人工确认并写 audit event，否则只能停留在 `planned` 或 `approved`。
   - Required indexes/constraints：partial unique active outbox per `execution_id`，partial unique active reconciliation per `execution_id`，partial unique active compensation per `(execution_id, compensation_type)`，以及 `(status, locked_until, next_attempt_at)` claim lease indexes。
-- AAM-P11 migrations own all three external-only tables and their tenant/idempotency/status indexes；outbox claim、execution creation、draft CAS 必须有 transaction tests，reconciliation/compensation records 必须保持 payload/snapshot hash binding。
+- Phase 17 migrations own all three external-only tables and their tenant/idempotency/status indexes；outbox claim、execution creation、draft CAS 必须有 transaction tests，reconciliation/compensation records 必须保持 payload/snapshot hash binding。
 
 ### 18.4 Observability
 
@@ -2714,49 +2714,49 @@ Required constraints / indexes：
 
 过渡策略：
 
-- AAM-P9 前可以继续由 `TraceRepository.build_timeline` 从 `AgentStep`、`ApprovalRequest`、`ApprovalStep`、`ActionDraft` 组合 timeline。
-- AAM-P9 退出时，`ReplayService` 应优先读取 `agent_trace_events`；旧表只作为 migration/backfill source。
+- Phase 15 前可以继续由 `TraceRepository.build_timeline` 从 `AgentStep`、`ApprovalRequest`、`ApprovalStep`、`ActionDraft` 组合 timeline。
+- Phase 15 退出时，`ReplayService` 应优先读取 `agent_trace_events`；旧表只作为 migration/backfill source。
 - Backfill 必须生成稳定 sequence、可验证的 operation pairing，并记录 `schema_version` 与 `redaction_policy_version`。无法可靠配对的历史事件必须分配独立 `operation_id` 并在 redacted metadata 标记 `pairing_status=unresolved`，不得伪造 completed pair。
 
 ---
 
 ## 19. 迁移路线
 
-迁移路线拆成 11 个 Agent Architecture Migration workstream phases，统一使用 `AAM-P1` 到 `AAM-P11` 作为 phase ID。这些 ID 只属于本 agent architecture migration workstream，不重编号、不替换、不覆盖历史 MOCA roadmap/demo phases。GSD planning、execution、review 和 commit/report 引用本路线时必须使用 `AAM-Px`，不能只写裸 `Phase x`。
+迁移路线拆成 11 个 v1.1 主路线 phases，统一使用 `Phase 7` 到 `Phase 17` 作为标准 GSD phase ID。历史 v1.0 保持为已归档的 Phase 1-6；本路线从 Phase 7 连续扩展，不使用独立的前缀 phase namespace。
 
-每个 AAM phase 必须有依赖、输出、测试、退出条件和回滚点；MVP 不依赖 long-term memory、多级 SLA 或真实外部执行。
+每个 phase 必须有依赖、输出、测试、退出条件和回滚点；MVP 不依赖 long-term memory、多级 SLA 或真实外部执行。
 
 | Phase | Name | Dependencies | Outputs | Required tests | Exit criteria | Rollback point / non-goals |
 | --- | --- | --- | --- | --- | --- | --- |
-| AAM-P1 | Contract baseline | none | spec contract tables；current-vs-target evidence；identifier semantics；Boris/GSD phase notes | docs lint/manual review；review checklist | 每条“当前已实现”有代码依据和限制说明；graph path 终点/resume 语义明确 | docs-only；不改 `src/`；不宣称目标已实现 |
-| AAM-P2 | Knowledge facade | AAM-P1 | `src/knowledge/service.py`、schemas；`KnowledgeSearchRequest/Result`；Evidence/Citation contracts | strong/partial/no evidence；tenant-over-global；effective-time；claim support validation | `policy_evidence_retrieve` 通过 facade 读 evidence；旧 `src/rag` 保持 adapter | 可回滚 node 到旧 `search_policy`；不换 pgvector/embedding 栈 |
-| AAM-P3 | Business tool facade | AAM-P1 | `src/business_tools/service.py`、contracts、demo adapters；ToolCallContext/ToolResult v2 | permission/scope；not_found；timeout；partial_success；invalid_response | read tools 统一走 BusinessToolService；node 不直接访问 repo/tool internals | 可回滚单个 node 调用；不实现写动作 |
-| AAM-P4 | State lifecycle + routing migration | AAM-P2-3 | AgentState lifecycle enforcement；router totality；security context injection；slot resolution helper；empty session adapter routing seam | state reset/property tests；router totality/determinism；cross-thread/tenant isolation；empty adapter contract | routing seam 可在 slot completeness 前调用 empty session adapter；state reset 明确；routers side-effect free | 可回滚具体 router；不验收真实 session memory continuity；不引入自由 ReAct |
-| AAM-P5 | Intent / clarification | AAM-P4 | intent precedence table；confidence calibration hooks；clarification_request_id；prompt/schema split | intent golden set；risk-weighted confusion matrix；missing slot clarification | M5/M6 conflicts 有确定 primary intent；low confidence 进入 safe route | 可回滚 classifier prompt；不让 intent node 决定审批/动作 |
-| AAM-P6 | Session memory | AAM-P4-5 | `src/memory` session memory；active slot TTL/freshness；memory write decision v2 for session | same-thread continuity；cross-thread isolation；stale slot exclusion；PII blocked | session slots 可安全补齐 required slots；memory 不作为政策依据 | 可关闭 session memory fallback empty；不实现 long-term/case write path as required MVP |
-| AAM-P7 | Approval state machine | AAM-P5 | approval policy/SLA schema；request/level/assignment/decision/events；revision + exact payload/snapshot hash binding；immutable snapshot JSON/hash 过渡字段 | single-level transition table；edit/payload/evidence/config revision invalidates old approval；snapshot hash mismatch supersedes approval；expired no resume；self approval block；multi-level-compatible schema/contract planning | accept/edit/respond/reject/ignore/expired 语义唯一；single-level runtime 可执行；multi-level request/level/assignment contract 可验证但不要求 MVP runtime 聚合；approved action 绑定 exact payload hash + snapshot hash | 可回滚到 single-level approval；主动 SLA scanner 延后到 AAM-P7 SLA scanner follow-up slice，owner=AAM-P7，gate=scanner 可产生 reminder/escalation/expire events 并进入 replay 后才允许开启主动 SLA automation；snapshot 独立表/FK 可 nullable + backfill 后 deferred 添加 |
-| AAM-P8 | Demo action executor boundary | AAM-P7 | `src/actions/executor.py`；ActionDraftService/prepare；`DraftOutcome` / `draft_outcome` demo status；idempotency hash；action safety snapshot binding | not approved block；demo no side effect；payload/snapshot hash conflict；snapshot revision invalidation；unknown external contract unit tests | demo mode 只创建 durable draft 和 `draft_outcome`，并绑定 exact payload/snapshot hash；不创建 `ActionExecutionResult`、不写 `action_result`、不创建 `action_executions` row；final response 不说真实执行完成 | 可回滚到 existing draft path；external adapter、external outbox 和 dispatch 均非 AAM-P8 MVP demo goal；跨 phase FK nullable/backfill/deferred |
-| AAM-P9 | Replay event contract | AAM-P4, AAM-P6, AAM-P7, AAM-P8 | `src/observability/tracing.py`、`metrics.py`、`replay.py`；ReplayEventV3；operation_id/parent/attempt correlation；`agent_trace_events` migration/backfill；`/replay` API | V3 shape；timeline order；started/terminal operation pairing；retry parent/attempt；backfill stable sequence + unresolved pairing metadata；terminal status completeness；memory write failure；redaction；metrics labels；access control | `/trace` 兼容；`/replay` 返回 V3；normal/interrupted/resumed/responded/rejected/expired/error/cancelled 均可回放；新事件 operation pairing 可验证 | 可回滚到旧 `/trace` timeline；不接完整 Grafana/Loki/Tempo stack；approval/action replay FK 保持 nullable，backfill 后再 deferred 添加 |
-| AAM-P10 | Long-term/case memory | AAM-P6, AAM-P9 | long-term/case memory service；review workflow；memory canonical identity；tombstone enforcement；case outcome/source-run idempotency | memory precision/PII/deletion；canonical content/source hash；tombstone no-rewrite；review workflow；case candidate dedupe | 后续 milestone，独立验收；不阻塞 MVP；memory 不作为政策依据 | 可按 memory type 独立回滚；不得影响 session memory fallback |
-| AAM-P11 | External action execution | AAM-P8, AAM-P9 | external action adapters；`action_executions` write path；`action_outbox_events`、`action_reconciliation_jobs`、`action_compensation_records` migrations；external dispatch transaction boundary | external timeout unknown/reconciling；outbox claim-before-dispatch；reconciliation no-new-key retry guard；compensation authorization/state；duplicate active execution/key | 后续 milestone，独立验收；external adapter 只能消费 claimed outbox event；生产外部动作需单独安全评审 | 可按 adapter 独立回滚；demo draft path 保持可用 |
+| Phase 7 | Contract baseline | none | spec contract tables；current-vs-target evidence；identifier semantics；Boris/GSD phase notes | docs lint/manual review；review checklist | 每条“当前已实现”有代码依据和限制说明；graph path 终点/resume 语义明确 | docs-only；不改 `src/`；不宣称目标已实现 |
+| Phase 8 | Knowledge facade | Phase 7 | `src/knowledge/service.py`、schemas；`KnowledgeSearchRequest/Result`；Evidence/Citation contracts | strong/partial/no evidence；tenant-over-global；effective-time；claim support validation | `policy_evidence_retrieve` 通过 facade 读 evidence；旧 `src/rag` 保持 adapter | 可回滚 node 到旧 `search_policy`；不换 pgvector/embedding 栈 |
+| Phase 9 | Business tool facade | Phase 7 | `src/business_tools/service.py`、contracts、demo adapters；ToolCallContext/ToolResult v2 | permission/scope；not_found；timeout；partial_success；invalid_response | read tools 统一走 BusinessToolService；node 不直接访问 repo/tool internals | 可回滚单个 node 调用；不实现写动作 |
+| Phase 10 | State lifecycle + routing migration | Phase 8 and Phase 9 | AgentState lifecycle enforcement；router totality；security context injection；slot resolution helper；empty session adapter routing seam | state reset/property tests；router totality/determinism；cross-thread/tenant isolation；empty adapter contract | routing seam 可在 slot completeness 前调用 empty session adapter；state reset 明确；routers side-effect free | 可回滚具体 router；不验收真实 session memory continuity；不引入自由 ReAct |
+| Phase 11 | Intent / clarification | Phase 10 | intent precedence table；confidence calibration hooks；clarification_request_id；prompt/schema split | intent golden set；risk-weighted confusion matrix；missing slot clarification | M5/M6 conflicts 有确定 primary intent；low confidence 进入 safe route | 可回滚 classifier prompt；不让 intent node 决定审批/动作 |
+| Phase 12 | Session memory | Phase 10 and Phase 11 | `src/memory` session memory；active slot TTL/freshness；memory write decision v2 for session | same-thread continuity；cross-thread isolation；stale slot exclusion；PII blocked | session slots 可安全补齐 required slots；memory 不作为政策依据 | 可关闭 session memory fallback empty；不实现 long-term/case write path as required MVP |
+| Phase 13 | Approval state machine | Phase 11 | approval policy/SLA schema；request/level/assignment/decision/events；revision + exact payload/snapshot hash binding；immutable snapshot JSON/hash 过渡字段 | single-level transition table；edit/payload/evidence/config revision invalidates old approval；snapshot hash mismatch supersedes approval；expired no resume；self approval block；multi-level-compatible schema/contract planning | accept/edit/respond/reject/ignore/expired 语义唯一；single-level runtime 可执行；multi-level request/level/assignment contract 可验证但不要求 MVP runtime 聚合；approved action 绑定 exact payload hash + snapshot hash | 可回滚到 single-level approval；主动 SLA scanner 延后到 Phase 13 SLA scanner follow-up slice，owner=Phase 13，gate=scanner 可产生 reminder/escalation/expire events 并进入 replay 后才允许开启主动 SLA automation；snapshot 独立表/FK 可 nullable + backfill 后 deferred 添加 |
+| Phase 14 | Demo action executor boundary | Phase 13 | `src/actions/executor.py`；ActionDraftService/prepare；`DraftOutcome` / `draft_outcome` demo status；idempotency hash；action safety snapshot binding | not approved block；demo no side effect；payload/snapshot hash conflict；snapshot revision invalidation；unknown external contract unit tests | demo mode 只创建 durable draft 和 `draft_outcome`，并绑定 exact payload/snapshot hash；不创建 `ActionExecutionResult`、不写 `action_result`、不创建 `action_executions` row；final response 不说真实执行完成 | 可回滚到 existing draft path；external adapter、external outbox 和 dispatch 均非 Phase 14 MVP demo goal；跨 phase FK nullable/backfill/deferred |
+| Phase 15 | Replay event contract | Phase 10, Phase 12, Phase 13, Phase 14 | `src/observability/tracing.py`、`metrics.py`、`replay.py`；ReplayEventV3；operation_id/parent/attempt correlation；`agent_trace_events` migration/backfill；`/replay` API | V3 shape；timeline order；started/terminal operation pairing；retry parent/attempt；backfill stable sequence + unresolved pairing metadata；terminal status completeness；memory write failure；redaction；metrics labels；access control | `/trace` 兼容；`/replay` 返回 V3；normal/interrupted/resumed/responded/rejected/expired/error/cancelled 均可回放；新事件 operation pairing 可验证 | 可回滚到旧 `/trace` timeline；不接完整 Grafana/Loki/Tempo stack；approval/action replay FK 保持 nullable，backfill 后再 deferred 添加 |
+| Phase 16 | Long-term/case memory | Phase 12, Phase 15 | long-term/case memory service；review workflow；memory canonical identity；tombstone enforcement；case outcome/source-run idempotency | memory precision/PII/deletion；canonical content/source hash；tombstone no-rewrite；review workflow；case candidate dedupe | 后续 milestone，独立验收；不阻塞 MVP；memory 不作为政策依据 | 可按 memory type 独立回滚；不得影响 session memory fallback |
+| Phase 17 | External action execution | Phase 14, Phase 15 | external action adapters；`action_executions` write path；`action_outbox_events`、`action_reconciliation_jobs`、`action_compensation_records` migrations；external dispatch transaction boundary | external timeout unknown/reconciling；outbox claim-before-dispatch；reconciliation no-new-key retry guard；compensation authorization/state；duplicate active execution/key | 后续 milestone，独立验收；external adapter 只能消费 claimed outbox event；生产外部动作需单独安全评审 | 可按 adapter 独立回滚；demo draft path 保持可用 |
 
 Phase sequencing rules：
 
-- AAM-P2 和 AAM-P3 可并行，但 AAM-P4 必须等两者的 service boundary 明确。
-- AAM-P5 依赖 AAM-P4 的 deterministic routing，否则 intent precedence 无法落地。
-- AAM-P7/AAM-P8 必须先于 AAM-P9，否则 replay 无法完整覆盖 approval/action lifecycle。
-- AAM-P9 依赖 AAM-P6，因为 ReplayEventV3 的 MVP lifecycle 包含 `memory_write_failed`。
-- AAM-P10 和 AAM-P11 不属于 MVP completion gate；两者互不依赖，除非具体 adapter 明确需要 case-memory outcome.
+- Phase 8 和 Phase 9 可并行，但 Phase 10 必须等两者的 service boundary 明确。
+- Phase 11 依赖 Phase 10 的 deterministic routing，否则 intent precedence 无法落地。
+- Phase 13/Phase 14 必须先于 Phase 15，否则 replay 无法完整覆盖 approval/action lifecycle。
+- Phase 15 依赖 Phase 12，因为 ReplayEventV3 的 MVP lifecycle 包含 `memory_write_failed`。
+- Phase 16 和 Phase 17 不属于 MVP completion gate；两者互不依赖，除非具体 adapter 明确需要 case-memory outcome.
 
 Schema migration ownership：
 
-- AAM-P6：session memory tables/migrations，包括 `session_memories.version` CAS。
-- AAM-P7：approval request/level/assignment/decision/event versioning、`action_safety_snapshots` schema、snapshot JSON/hash 过渡字段、约束和 backfill。
-- AAM-P8：`action_drafts` version/retention/snapshot binding fields；demo path 不创建或写入 `action_executions` row。
-- AAM-P9：`agent_trace_events` operation correlation migration/backfill、nullable/deferred FK 和 retention indexes。
-- AAM-P10：long-term/case memory tables、`memory_tombstones`、memory canonical identity indexes、review workflow indexes。
-- AAM-P11：`action_executions` external write path、`action_outbox_events`、`action_reconciliation_jobs`、`action_compensation_records` migrations；external dispatch claim/lock indexes；outbox/reconciliation/compensation retention indexes。
-- 跨 AAM phase FK 统一采用 nullable column -> deterministic backfill -> deferred nullable FK 策略；无法解析的历史引用保持 null 并记录 migration report，避免 AAM-P7/AAM-P8/AAM-P9 循环依赖。
+- Phase 12：session memory tables/migrations，包括 `session_memories.version` CAS。
+- Phase 13：approval request/level/assignment/decision/event versioning、`action_safety_snapshots` schema、snapshot JSON/hash 过渡字段、约束和 backfill。
+- Phase 14：`action_drafts` version/retention/snapshot binding fields；demo path 不创建或写入 `action_executions` row。
+- Phase 15：`agent_trace_events` operation correlation migration/backfill、nullable/deferred FK 和 retention indexes。
+- Phase 16：long-term/case memory tables、`memory_tombstones`、memory canonical identity indexes、review workflow indexes。
+- Phase 17：`action_executions` external write path、`action_outbox_events`、`action_reconciliation_jobs`、`action_compensation_records` migrations；external dispatch claim/lock indexes；outbox/reconciliation/compensation retention indexes。
+- 跨 phase FK 统一采用 nullable column -> deterministic backfill -> deferred nullable FK 策略；无法解析的历史引用保持 null 并记录 migration report，避免 Phase 13/Phase 14/Phase 15 循环依赖。
 
 Migration rollout protocol：
 
@@ -2772,7 +2772,7 @@ Phase planning traceability requirements：
 
 后续任何 phase planning 都必须先从本 spec 做 coverage extraction，再写 phase plan，最后做 coverage verification。不得只按功能直觉拆分。
 
-本 Section 19 是默认 planning source of truth，但不是免审真理。AAM phase planning 必须把 spec、phase decomposition、当前源码事实和已生成 planning artifacts 做一致性检查；如果发现 Section 19 的 owner、phase boundary、exit criteria、migration/read-switch、eval gate 或命名与其他依据不一致，必须在 phase plan 或 baseline artifact 中显式记录为 `Spec Consistency Findings` / `Planning Deviations`，说明原要求、冲突证据、建议处理、readiness impact 和 owner。不得为了通过检查把不合理或未证实的 target contract 强行标为 `COVERED`；找不到依据写 `MISSING`，只能部分确认写 `PARTIAL`，明确属于后续 owner 写 `DEFERRED_WITH_OWNER`。
+本 Section 19 是默认 planning source of truth，但不是免审真理。phase planning 必须把 spec、phase decomposition、当前源码事实和已生成 planning artifacts 做一致性检查；如果发现 Section 19 的 owner、phase boundary、exit criteria、migration/read-switch、eval gate 或命名与其他依据不一致，必须在 phase plan 或 baseline artifact 中显式记录为 `Spec Consistency Findings` / `Planning Deviations`，说明原要求、冲突证据、建议处理、readiness impact 和 owner。不得为了通过检查把不合理或未证实的 target contract 强行标为 `COVERED`；找不到依据写 `MISSING`，只能部分确认写 `PARTIAL`，明确属于后续 owner 写 `DEFERRED_WITH_OWNER`。
 
 每个 phase plan 必须包含：
 
@@ -2807,10 +2807,10 @@ Phase decomposition follow-up register：
 
 | Follow-up item | Required handling during phase decomposition | Owner / gate |
 | --- | --- | --- |
-| AAM-P1 baseline artifact names | AAM-P1 plan 必须把 `Contract baseline` 输出细化为 contract inventory、current-vs-target evidence checklist、initial coverage matrix 和 review checklist；不能只写流程性 notes。 | AAM-P1 acceptance gate |
+| Phase 7 baseline artifact names | Phase 7 plan 必须把 `Contract baseline` 输出细化为 contract inventory、current-vs-target evidence checklist、initial coverage matrix 和 review checklist；不能只写流程性 notes。 | Phase 7 acceptance gate |
 | Read-switch owner/config visibility | 任何 schema/service migration phase 必须列出 read-switch owner、config/feature flag、fallback telemetry 和 rollback behavior；无 read-switch 时写 `N/A` 和原因。 | Relevant schema owner phase |
-| AAM-P7 internal slices | AAM-P7 plan 必须拆出 approval schema/CAS、snapshot builder/hash golden tests、`needs_info` resume、SLA/assignment semantics 等 internal slices，避免把 approval state machine 和 snapshot work 混成单一任务。 | AAM-P7 acceptance gate |
-| Cross-table enforcement row mapping | 涉及 approval/action/external tables 的 AAM phase plan 必须复制第 18.2 节 relevant relationship rows 和 mismatch tests；不能只引用 “cross-table enforcement matrix” 标题。 | AAM-P7/AAM-P8/AAM-P11 acceptance gates |
+| Phase 13 internal slices | Phase 13 plan 必须拆出 approval schema/CAS、snapshot builder/hash golden tests、`needs_info` resume、SLA/assignment semantics 等 internal slices，避免把 approval state machine 和 snapshot work 混成单一任务。 | Phase 13 acceptance gate |
+| Cross-table enforcement row mapping | 涉及 approval/action/external tables 的 phase plan 必须复制第 18.2 节 relevant relationship rows 和 mismatch tests；不能只引用 “cross-table enforcement matrix” 标题。 | Phase 13/Phase 14/Phase 17 acceptance gates |
 | PARTIAL/deferred status discipline | 所有 `PARTIAL` / `DEFERRED_WITH_OWNER` rows 必须写 owner phase、why non-blocking、blocking dependency 和 acceptance gate；否则视为 `MISSING`。 | Each phase readiness verdict |
 | Eval gate blocking status | 每个 relevant eval gate 必须标明 blocking/non_blocking、dataset owner/version/hash 和未通过时是否阻断 phase exit。 | Relevant phase exit criteria |
 
