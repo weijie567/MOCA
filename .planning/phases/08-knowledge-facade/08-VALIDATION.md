@@ -54,12 +54,15 @@ created: 2026-06-07
 | 08-04-01 | 04 | 3 | KNOW-02 | — | AgentState.EvidenceRef carries canonical EvidenceRefV1 fields | unit | `uv run python -c "from src.agent.state import EvidenceRef; assert 'evidence_id' in EvidenceRef.__annotations__"` | ✅ | ⬜ pending |
 | 08-04-02 | 04 | 3 | KNOW-01,KNOW-03 | T-safety-routing/T-merge-key/T-efftime | facade switch; merge by evidence_id; no_evidence/error routing preserved | node | `uv run pytest tests/agent/test_nodes/test_retrieve_policy_evidence.py -q` | ✅ | ⬜ pending |
 | 08-04-03 | 04 | 3 | KNOW-02 | — | structured claims + evidence_id membership; all-invalid → citation_invalid | node | `uv run pytest tests/agent/test_nodes/test_generate_recommendation.py -q` | ✅ | ⬜ pending |
-| 08-04-04 | 04 | 3 | KNOW-02 | T-finalresp-keyerror | final_response renders EvidenceRefV1 refs without KeyError | node | `uv run pytest tests/agent/test_nodes/test_final_response.py -q` | ✅ | ⬜ pending |
-| 08-04-05 | 04 | 3 | KNOW-01,KNOW-02 | — | node tests: strong/no_evidence/error; evidence_id merge; membership pass/fail | node | `uv run pytest tests/agent/test_nodes/test_retrieve_policy_evidence.py tests/agent/test_nodes/test_generate_recommendation.py -q` | ✅ | ⬜ pending |
+| 08-04-04 | 04 | 3 | KNOW-03 | T-safety-suppress | assess_risk suppresses proposed_action for citation_invalid/retrieval_error/insufficient_evidence | node | `uv run pytest tests/agent/test_nodes/test_assess_risk_and_approval.py -q` | ✅ | ⬜ pending |
+| 08-04-05 | 04 | 3 | KNOW-02 | T-finalresp-keyerror | final_response renders EvidenceRefV1 refs without KeyError | node | `uv run pytest tests/agent/test_nodes/test_final_response.py -q` | ✅ | ⬜ pending |
+| 08-04-06 | 04 | 3 | KNOW-01,KNOW-02 | — | node tests: strong/no_evidence/error; evidence_id merge; membership pass/fail; safety suppression | node | `uv run pytest tests/agent/test_nodes/test_retrieve_policy_evidence.py tests/agent/test_nodes/test_generate_recommendation.py tests/agent/test_nodes/test_assess_risk_and_approval.py -q` | ✅ | ⬜ pending |
 | 08-05-01 | 05 | 4 | KNOW-02 | T-dataset-drift | pinned dataset citation_membership.v1 with required cases | dataset | `uv run python -c "import json,pathlib; d=json.loads(pathlib.Path('tests/knowledge/datasets/citation_membership_v1.json').read_text()); assert d['version']=='citation_membership.v1'"` | ✅ | ⬜ pending |
 | 08-05-02 | 05 | 4 | KNOW-02 | T-non-blocking/T-dataset-drift | BLOCKING membership eval; dataset hash pinned | eval (BLOCKING) | `uv run pytest tests/knowledge/test_citation_membership_eval.py -q` | ✅ | ⬜ pending |
 | 08-05-03 | 05 | 4 | KNOW-01,KNOW-03 | T-safety-routing | e2e facade path: EvidenceRefV1 in state; no action on no_evidence/invalid | integration | `uv run pytest tests/knowledge/test_facade_integration.py -q` | ✅ | ⬜ pending |
 | 08-05-04 | 05 | 4 | KNOW-01,KNOW-02,KNOW-03 | — | 08-EVAL-GATE.md records blocking/owner/version/hash + deferred owners | doc | manual review of `08-EVAL-GATE.md` | ✅ | ⬜ pending |
+| 08-06-01 | 06 | 4 | KNOW-02 | T-evidence-undercount | trace.py evidence_count reads v2 evidence_refs | unit | `uv run pytest tests/agent/test_trace.py -q` | ✅ | ⬜ pending |
+| 08-06-02 | 06 | 4 | KNOW-02 | T-evidence-undercount/T-dedupe-collapse | agent_runs evidence_count from evidence_refs; dedupe by evidence_id | api | `uv run pytest tests/test_agent_runs_api.py -q` | ✅ | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
