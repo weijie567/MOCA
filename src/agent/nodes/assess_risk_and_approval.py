@@ -26,6 +26,7 @@ ACTIONABLE_ACTIONS = {
     "compensation",
     "manual_review",
 }
+NO_ACTION_RECOMMENDATIONS = {"insufficient_evidence", "citation_invalid", "retrieval_error"}
 
 
 def _now_iso() -> str:
@@ -198,7 +199,7 @@ async def assess_risk_and_approval(state: AgentState) -> dict:
     draft = state.get("recommendation_draft") or {}
     context = state.get("business_context") or {}
 
-    if draft.get("recommended_action") == "insufficient_evidence":
+    if draft.get("recommended_action") in NO_ACTION_RECOMMENDATIONS:
         assessment = _fallback_risk(draft, context, rules)
         return {
             "risk_assessment": assessment,
@@ -247,7 +248,11 @@ async def assess_risk_and_approval(state: AgentState) -> dict:
                 )
             proposed_action = (
                 _build_proposed_action(draft, context)
-                if assessment.get("approval_required") or _is_actionable_recommendation(draft.get("recommended_action"))
+                if draft.get("recommended_action") not in NO_ACTION_RECOMMENDATIONS
+                and (
+                    assessment.get("approval_required")
+                    or _is_actionable_recommendation(draft.get("recommended_action"))
+                )
                 else None
             )
             outputs = {**(state.get("llm_outputs") or {}), "assess_risk_and_approval": assessment}
@@ -280,8 +285,11 @@ async def assess_risk_and_approval(state: AgentState) -> dict:
     fallback_assessment = _fallback_risk(draft, context, rules)
     proposed_action = (
         _build_proposed_action(draft, context)
-        if fallback_assessment.get("approval_required")
-        or _is_actionable_recommendation(draft.get("recommended_action"))
+        if draft.get("recommended_action") not in NO_ACTION_RECOMMENDATIONS
+        and (
+            fallback_assessment.get("approval_required")
+            or _is_actionable_recommendation(draft.get("recommended_action"))
+        )
         else None
     )
     return {
