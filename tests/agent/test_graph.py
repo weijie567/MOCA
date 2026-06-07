@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from copy import deepcopy
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -19,17 +18,22 @@ from src.agent.nodes import extract_slots as extract_slots_module
 from src.agent.nodes import generate_recommendation as generate_recommendation_module
 from src.agent.nodes import load_business_context as load_business_context_module
 from src.agent.nodes import retrieve_policy_evidence as retrieve_policy_evidence_module
+from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
+from src.knowledge.schemas import EvidenceRefV1, KnowledgeSearchResult
 
 
 EVIDENCE = [
-    {
-        "doc_key": "policy_refund_timeout",
-        "chunk_id": "chunk_001",
-        "title": "退款超时规则",
-        "section": "第一条",
-        "score": 0.82,
-        "text": "退款超时时，客服应核实支付通道和退款状态。",
-    }
+    EvidenceRefV1.build(
+        tenant_id="tenant",
+        doc_key="policy_refund_timeout",
+        chunk_id="chunk_001",
+        policy_version="v1",
+        text="退款超时时，客服应核实支付通道和退款状态。",
+        retrieved_at="2026-06-07T02:30:00+00:00",
+        retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+        score=0.82,
+        rank=1,
+    )
 ]
 
 INVESTIGATION_STATE_FIELDS = {
@@ -92,17 +96,20 @@ def _risk() -> dict:
     return {"risk_level": "low", "risk_reason": "standard refund", "approval_required": False, "rule_ref": "LR-01"}
 
 
-def _policy_result(*, status: str = "strong_evidence", best_score: float = 0.82, evidence: list[dict] | None = None):
-    return {
-        "status": "success",
-        "data": {
-            "retrieval_status": status,
-            "best_score": best_score,
-            "evidence": deepcopy(EVIDENCE if evidence is None else evidence),
-            "fallback_message": None if evidence else "没有找到相关政策证据。",
-        },
-        "error": {},
-    }
+def _policy_result(
+    *,
+    status: str = "strong_evidence",
+    best_score: float = 0.82,
+    evidence: list[EvidenceRefV1] | None = None,
+) -> KnowledgeSearchResult:
+    return KnowledgeSearchResult(
+        status=status,
+        retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+        rerank_config_version=RERANK_CONFIG_VERSION,
+        best_score=best_score,
+        threshold=0.55,
+        evidence_refs=EVIDENCE if evidence is None else evidence,
+    )
 
 
 class SequencedFakeLLM:
@@ -129,7 +136,7 @@ def _patch_graph_dependencies(
     *,
     intent: str = "policy_qa",
     order_id: str | None = None,
-    search_result: dict | None = None,
+    search_result: KnowledgeSearchResult | None = None,
     classify_llm=None,
 ):
     get_order = AsyncMock(
@@ -139,7 +146,7 @@ def _patch_graph_dependencies(
             "error": {},
         }
     )
-    search_policy = AsyncMock(return_value=search_result or _policy_result())
+    knowledge_search = AsyncMock(return_value=search_result or _policy_result())
 
     monkeypatch.setattr(classify_intent_module, "_get_llm", lambda: classify_llm or FakeLLM(_intent(intent)))
     monkeypatch.setattr(extract_slots_module, "_get_llm", lambda: FakeLLM(_slots(order_id)))
@@ -148,8 +155,8 @@ def _patch_graph_dependencies(
     monkeypatch.setattr(load_business_context_module, "get_order", get_order)
     monkeypatch.setattr(load_business_context_module, "get_refund_case", AsyncMock())
     monkeypatch.setattr(load_business_context_module, "get_ticket", AsyncMock())
-    monkeypatch.setattr(retrieve_policy_evidence_module, "search_policy", search_policy)
-    return {"get_order": get_order, "search_policy": search_policy}
+    monkeypatch.setattr(retrieve_policy_evidence_module.PolicyKnowledgeService, "search", knowledge_search)
+    return {"get_order": get_order, "knowledge_search": knowledge_search}
 
 
 @pytest.fixture
@@ -172,7 +179,7 @@ async def test_happy_path_policy_qa(graph_with_fake_llm):
     assert final_state["current_run_id"] is not None
     assert all(final_state[field] is None for field in INVESTIGATION_STATE_FIELDS)
     assert not any("investigat" in step.get("node", "") for step in final_state["trace_steps"])
-    mocks["search_policy"].assert_awaited_once()
+    mocks["knowledge_search"].assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -289,10 +296,10 @@ async def test_same_thread_evidence_refs_survive_next_turn(monkeypatch):
 
     assert any(ref["chunk_id"] == "chunk_001" for ref in first_state["evidence_refs"])
 
-    mocks["search_policy"].return_value = _policy_result(status="no_evidence", best_score=0.0, evidence=[])
+    mocks["knowledge_search"].return_value = _policy_result(status="no_evidence", best_score=0.0, evidence=[])
     second_state = await graph.ainvoke(_state("这个新问题没有规则依据", thread_id), _config(thread_id))
 
-    assert second_state["retrieved_evidence"]["data"]["evidence"] == []
+    assert second_state["retrieved_evidence"]["evidence_refs"] == []
     assert any(
         ref["doc_key"] == "policy_refund_timeout" and ref["chunk_id"] == "chunk_001"
         for ref in second_state["evidence_refs"]
@@ -341,7 +348,7 @@ async def test_trace_summary_shape(graph_with_fake_llm):
         "final_status",
     }
     assert all(isinstance(node, str) for node in summary["nodes_executed"])
-    assert summary["tools_called"] == ["search_policy"]
+    assert summary["tools_called"] == ["knowledge_service.search"]
     assert summary["evidence_count"] == 1
     assert summary["final_status"] in ("completed", "insufficient_evidence", "error")
     assert INVESTIGATION_STATE_FIELDS.isdisjoint(summary)
