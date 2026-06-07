@@ -89,6 +89,7 @@ class LegacyRagKnowledgeAdapter:
             min_similarity=INTERNAL_SEARCH_THRESHOLD,
             doc_type=doc_type,
             risk_level=risk_level,
+            effective_date=effective_date,
         )
 
         # Effective-time filtering precedes reranking and final top-k truncation.

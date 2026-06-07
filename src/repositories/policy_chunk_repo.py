@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from uuid import UUID
 
 from sqlalchemy import and_, delete, select
@@ -33,6 +34,7 @@ class PolicyChunkRepository:
         min_similarity: float = 0.55,
         doc_type: str | None = None,
         risk_level: str | None = None,
+        effective_date: date | None = None,
     ) -> list[tuple[PolicyChunk, float]]:
         """
         Vector similarity search with metadata filters.
@@ -64,6 +66,8 @@ class PolicyChunkRepository:
             stmt = stmt.where(PolicyDocument.doc_type == doc_type)
         if risk_level:
             stmt = stmt.where(PolicyChunk.risk_level == risk_level)
+        if effective_date is not None:
+            stmt = stmt.where(PolicyChunk.effective_date <= effective_date)
 
         result = await self.session.execute(stmt)
         return [(row[0], row[1]) for row in result.all()]

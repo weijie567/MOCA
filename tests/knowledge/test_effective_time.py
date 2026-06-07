@@ -64,3 +64,17 @@ async def test_same_effective_at_produces_identical_evidence_refs():
 
     assert first == second
     assert first[1][0].retrieved_at == context.effective_at
+
+
+@pytest.mark.asyncio
+async def test_effective_date_passed_to_repository():
+    """Adapter must pass effective_date to search_similar()."""
+    repo = SimpleNamespace(search_similar=AsyncMock(return_value=[]))
+    embedder = SimpleNamespace(embed_query=AsyncMock(return_value=[0.1, 0.2]))
+    adapter = LegacyRagKnowledgeAdapter(chunk_repo=repo, embedder=embedder)
+
+    await adapter.retrieve(query="退款规则", context=_context(), max_results=5)
+
+    call_kwargs = repo.search_similar.call_args[1]
+    assert "effective_date" in call_kwargs
+    assert call_kwargs["effective_date"] == date(2026, 6, 5)  # from _context().effective_at
