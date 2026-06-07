@@ -7,6 +7,58 @@ from tests.agent.conftest import FakeLLM
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "recommended_action",
+    ["insufficient_evidence", "citation_invalid", "retrieval_error"],
+)
+async def test_no_action_recommendations_never_propose_action(monkeypatch, base_state, recommended_action):
+    class ExplodingLLM:
+        def with_structured_output(self, schema):
+            raise AssertionError("no-action recommendation should not call the LLM")
+
+    monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: ExplodingLLM())
+    state = {
+        **base_state,
+        "recommendation_draft": {
+            "recommended_action": recommended_action,
+            "reasoning_summary": "No deterministic action is safe.",
+        },
+    }
+
+    result = await assess_risk_module.assess_risk_and_approval(state)
+
+    assert result["proposed_action"] is None
+
+
+@pytest.mark.asyncio
+async def test_actionable_recommendation_still_proposes_action(monkeypatch, base_state):
+    monkeypatch.setattr(
+        assess_risk_module,
+        "_get_llm",
+        lambda: FakeLLM(
+            {
+                "risk_level": "low",
+                "risk_reason": "standard compensation",
+                "approval_required": False,
+                "rule_ref": "LR-01",
+            }
+        ),
+    )
+    state = {
+        **base_state,
+        "recommendation_draft": {
+            "recommended_action": "issue_coupon",
+            "reasoning_summary": "Issue a small service recovery coupon.",
+        },
+        "business_context": {"order": {"id": "order-1", "status": "paid"}},
+    }
+
+    result = await assess_risk_module.assess_risk_and_approval(state)
+
+    assert result["proposed_action"]["action_type"] == "issue_coupon"
+
+
+@pytest.mark.asyncio
 async def test_chinese_full_refund_delivered_order_matches_high_risk(monkeypatch, base_state):
     monkeypatch.setattr(
         assess_risk_module,
