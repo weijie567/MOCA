@@ -47,5 +47,6 @@ async def receive_request(state: AgentState) -> dict:
         "node_errors": [],
         "retry_count": 0,
         "current_run_id": state.get("current_run_id") or str(uuid4()),
+        "run_started_at": started_at,
         "trace_steps": trace_steps,
     }

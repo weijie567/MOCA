@@ -23,12 +23,19 @@ class LastRecommendationSummary(TypedDict, total=False):
     created_at: str
 
 
+# Canonical EvidenceRefV1 projection owned by src/knowledge/schemas.py, consumed by Phases 13/15.
 class EvidenceRef(TypedDict, total=False):
+    schema_version: str
+    tenant_id: str
+    evidence_id: str
     doc_key: str
     chunk_id: str
-    title: str
-    confidence: float
+    policy_version: str
+    text_hash: str
     retrieved_at: str
+    retrieval_config_version: str
+    score: float
+    rank: int
 
 
 class LastBusinessContextRefs(TypedDict, total=False):
@@ -79,4 +86,5 @@ class AgentState(TypedDict, total=False):
     node_errors: list[dict[str, Any]] | None
     retry_count: int | None
     current_run_id: str | None
+    run_started_at: str | None
     trace_steps: list[dict[str, Any]] | None
