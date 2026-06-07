@@ -59,9 +59,14 @@ class IngestionService:
                 return IngestionReport(doc_key=doc_key, title=title, status="failed", error=msg)
 
             effective_date = doc_meta.get("effective_date", date.today())
-            existing_doc = await self.doc_repo.get_by_doc_key(doc_key, self.tenant_id)
+            # Lock the existing row through the final commit so concurrent
+            # re-imports cannot write the same next content version.
+            existing_doc = await self.doc_repo.get_by_doc_key_for_update(doc_key, self.tenant_id)
             if existing_doc:
                 doc = existing_doc
+                content_changed = doc.content != content
+                if content_changed:
+                    doc.version = (doc.version or 1) + 1
                 doc.title = title
                 doc.doc_type = doc_meta["doc_type"]
                 doc.risk_level = doc_meta["risk_level"]

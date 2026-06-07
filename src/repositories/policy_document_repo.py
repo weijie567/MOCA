@@ -20,6 +20,19 @@ class PolicyDocumentRepository:
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_by_doc_key_for_update(self, doc_key: str, tenant_id: UUID) -> PolicyDocument | None:
+        """Fetch and lock a document so concurrent content-version bumps serialize."""
+        stmt = (
+            select(PolicyDocument)
+            .where(
+                PolicyDocument.tenant_id == tenant_id,
+                PolicyDocument.doc_key == doc_key,
+            )
+            .with_for_update()
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def upsert(self, doc: PolicyDocument) -> PolicyDocument:
         """Merge (insert or update) a policy document."""
         merged = await self.session.merge(doc)
