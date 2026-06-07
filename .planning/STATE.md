@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
-status: planning
-stopped_at: Phase 8 context gathered
-last_updated: "2026-06-07T02:06:28.395Z"
-last_activity: 2026-06-06
+status: executing
+stopped_at: Completed 08-01-PLAN.md
+last_updated: "2026-06-07T02:18:36.862Z"
+last_activity: 2026-06-07
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 7
-  completed_plans: 1
-  percent: 14
+  completed_plans: 2
+  percent: 29
 ---
 
 # Project State: MOCA
@@ -21,16 +21,16 @@ progress:
 See: `.planning/PROJECT.md`
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 8 - Knowledge Facade. Phase 9 - Business Tool Facade may be planned in parallel.
+**Current focus:** Phase 8 - Knowledge Facade
 
 ## Current Position
 
 Phase: 08
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-06-06
+Plan: 2 of 6
+Status: Ready to execute
+Last activity: 2026-06-07
 
-Progress: [█░░░░░░░░░] 9%
+Progress: [███░░░░░░░] 29%
 
 ## Completed Baseline
 
@@ -50,6 +50,8 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Source code, tests, and git history from the previous planning line were not rolled back.
 - Phase 8 and Phase 9 may plan and execute in parallel after Phase 7.
 - Phase 16 and Phase 17 remain named owner phases but do not block the MVP completion gate.
+- Policy evidence identity uses `v{PolicyDocument.version}`; effective dates do not determine evidence identity.
+- Policy re-import uses a row lock so concurrent changed-content imports serialize version bumps.
 
 ## Blockers / Concerns
 
@@ -58,10 +60,16 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 13 must keep the active SLA scanner as an explicit owned follow-up gate.
 - Phase 16/17 deferral must not weaken Phase 12 session-memory fallback or Phase 14 demo action safety.
 
+## Performance Metrics
+
+| Phase | Plan | Duration | Tasks | Files |
+| --- | --- | --- | --- | --- |
+| 08 | 01 | 5 min | 4 | 10 |
+
 ## Session Continuity
 
-Last session: --stopped-at
-Stopped at: Phase 8 context gathered
-Resume file: --resume-file
+Last session: 2026-06-07T02:18:36.862Z
+Stopped at: Completed 08-01-PLAN.md
+Resume file: None
 
 **Planned Phase:** 8 (Knowledge Facade) — 6 plans — 2026-06-07T02:06:28.378Z

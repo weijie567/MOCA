@@ -53,7 +53,7 @@
   1. Knowledge reads use the facade while the existing RAG path remains an adapter/fallback.
   2. Strong/partial/no-evidence and claim-support contracts pass.
   3. Any persistence or read-switch has an owned migration, telemetry, and rollback.
-**Plans**: TBD
+**Plans**: 1/6 complete
 
 ### Phase 9: Business Tool Facade
 **Goal**: Route read business tools through BusinessToolService using trusted ToolCallContext and typed ToolResultV2.
@@ -150,7 +150,7 @@
 | Phase | Plans Complete | Status | Completed |
 | --- | --- | --- | --- |
 | 7. Contract Baseline | 1/1 | Complete | 2026-06-06 |
-| 8. Knowledge Facade | 0/TBD | Ready to plan | - |
+| 8. Knowledge Facade | 1/6 | In Progress | - |
 | 9. Business Tool Facade | 0/TBD | Ready to plan | - |
 | 10. State Lifecycle + Routing Migration | 0/TBD | Blocked by 8/9 | - |
 | 11. Intent / Clarification | 0/TBD | Pending | - |

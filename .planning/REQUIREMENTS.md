@@ -10,7 +10,7 @@
 - [x] **BASE-03**: Persist follow-up items with owner phases and acceptance gates.
 - [x] **BASE-04**: Confirm Phase 8 and Phase 9 may proceed with no `MISSING` baseline rows.
 - [ ] **KNOW-01**: Knowledge reads use KnowledgeService with strong/partial/no-evidence semantics.
-- [ ] **KNOW-02**: EvidenceRefV1, claim-support citation, canonical projection, effective-time, and tenant-over-global contracts are enforced.
+- [x] **KNOW-02**: EvidenceRefV1, claim-support citation, canonical projection, effective-time, and tenant-over-global contracts are enforced.
 - [ ] **KNOW-03**: Knowledge migration/read-switch, if introduced, has owner, telemetry, fallback, and rollback.
 - [ ] **TOOL-01**: Read business tools use BusinessToolService and trusted ToolCallContext.
 - [ ] **TOOL-02**: ToolResultV2 covers permission/scope/status/timeout/partial/invalid-response behavior without raw invalid payload exposure.
