@@ -9,9 +9,9 @@
 - [x] **BASE-02**: Produce an initial coverage matrix using only the allowed readiness statuses.
 - [x] **BASE-03**: Persist follow-up items with owner phases and acceptance gates.
 - [x] **BASE-04**: Confirm Phase 8 and Phase 9 may proceed with no `MISSING` baseline rows.
-- [ ] **KNOW-01**: Knowledge reads use KnowledgeService with strong/partial/no-evidence semantics.
+- [x] **KNOW-01**: Knowledge reads use KnowledgeService with strong/partial/no-evidence semantics.
 - [x] **KNOW-02**: EvidenceRefV1, claim-support citation, canonical projection, effective-time, and tenant-over-global contracts are enforced.
-- [ ] **KNOW-03**: Knowledge migration/read-switch, if introduced, has owner, telemetry, fallback, and rollback.
+- [x] **KNOW-03**: Knowledge migration/read-switch, if introduced, has owner, telemetry, fallback, and rollback.
 - [ ] **TOOL-01**: Read business tools use BusinessToolService and trusted ToolCallContext.
 - [ ] **TOOL-02**: ToolResultV2 covers permission/scope/status/timeout/partial/invalid-response behavior without raw invalid payload exposure.
 - [ ] **TOOL-03**: Write/action tools remain outside the read-tool facade.
@@ -53,7 +53,7 @@
 | Requirement group | Phase | Status |
 | --- | --- | --- |
 | BASE-01..04 | Phase 7 | Complete |
-| KNOW-01..03 | Phase 8 | Pending |
+| KNOW-01..03 | Phase 8 | Complete |
 | TOOL-01..03 | Phase 9 | Pending |
 | STATE-01..02, ROUTE-01..02 | Phase 10 | Pending |
 | INTENT-01..02, CLARIFY-01 | Phase 11 | Pending |

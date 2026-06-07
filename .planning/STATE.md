@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
 status: executing
-stopped_at: Completed 08-01-PLAN.md
-last_updated: "2026-06-07T02:18:36.862Z"
+stopped_at: Completed 08-04-PLAN.md
+last_updated: "2026-06-07T04:43:13.224Z"
 last_activity: 2026-06-07
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 7
-  completed_plans: 2
-  percent: 29
+  completed_plans: 5
+  percent: 71
 ---
 
 # Project State: MOCA
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md`
 ## Current Position
 
 Phase: 08
-Plan: 2 of 6
+Plan: 5 of 6
 Status: Ready to execute
 Last activity: 2026-06-07
 
-Progress: [███░░░░░░░] 29%
+Progress: [███████░░░] 71%
 
 ## Completed Baseline
 
@@ -52,6 +52,8 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 16 and Phase 17 remain named owner phases but do not block the MVP completion gate.
 - Policy evidence identity uses `v{PolicyDocument.version}`; effective dates do not determine evidence identity.
 - Policy re-import uses a row lock so concurrent changed-content imports serialize version bumps.
+- Runtime policy retrieval uses `PolicyKnowledgeService`; the legacy `search_policy` path remains unchanged for rollback.
+- Recommendation citations are validated by full `evidence_id`, and all no-action drafts are suppressed before proposed-action creation.
 
 ## Blockers / Concerns
 
@@ -65,11 +67,12 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | Phase | Plan | Duration | Tasks | Files |
 | --- | --- | --- | --- | --- |
 | 08 | 01 | 5 min | 4 | 10 |
+| 08 | 04 | 2h 13m | 6 | 11 |
 
 ## Session Continuity
 
-Last session: 2026-06-07T02:18:36.862Z
-Stopped at: Completed 08-01-PLAN.md
+Last session: 2026-06-07T04:43:13.224Z
+Stopped at: Completed 08-04-PLAN.md
 Resume file: None
 
 **Planned Phase:** 8 (Knowledge Facade) — 6 plans — 2026-06-07T02:06:28.378Z
