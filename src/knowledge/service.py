@@ -52,6 +52,16 @@ class PolicyKnowledgeService:
                 retryable=False,
             )
 
+        if status == "partial_evidence" and not request.allow_partial_evidence:
+            return KnowledgeSearchResult(
+                status="no_evidence",
+                retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+                rerank_config_version=RERANK_CONFIG_VERSION,
+                best_score=best_score,
+                threshold=MIN_SIMILARITY_THRESHOLD,
+                evidence_refs=[],
+            )
+
         if status == "error":
             return self._error_result("DB_TIMEOUT", "Policy search timeout", retryable=True)
         return KnowledgeSearchResult(

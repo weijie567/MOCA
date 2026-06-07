@@ -26,13 +26,18 @@ def _context(tenant_id: str | None = None) -> KnowledgeContext:
     )
 
 
-def _request(tenant_id: str, max_results: int = 5) -> KnowledgeSearchRequest:
+def _request(
+    tenant_id: str,
+    max_results: int = 5,
+    allow_partial_evidence: bool = True,
+) -> KnowledgeSearchRequest:
     return KnowledgeSearchRequest(
         query="退款规则是什么？",
         filters=KnowledgeSearchFilters(tenant_id=tenant_id),
         retrieval_config_version="caller-value-is-not-trusted",
         rerank_config_version="caller-value-is-not-trusted",
         max_results=max_results,
+        allow_partial_evidence=allow_partial_evidence,
     )
 
 
@@ -112,3 +117,26 @@ async def test_retrieval_timeout_maps_to_error_status():
         "retryable": True,
     }
     assert result.evidence_refs == []
+
+
+@pytest.mark.asyncio
+async def test_partial_evidence_suppressed_when_disallowed():
+    context = _context()
+    request = _request(context.tenant_id, allow_partial_evidence=False)
+
+    result = await _service([(_chunk(), 0.62)]).search(request, context)
+
+    assert result.status == "no_evidence"
+    assert result.evidence_refs == []
+    assert result.best_score == 0.62
+
+
+@pytest.mark.asyncio
+async def test_partial_evidence_preserved_when_allowed():
+    context = _context()
+    request = _request(context.tenant_id, allow_partial_evidence=True)
+
+    result = await _service([(_chunk(), 0.62)]).search(request, context)
+
+    assert result.status == "partial_evidence"
+    assert len(result.evidence_refs) == 1
