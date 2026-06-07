@@ -471,9 +471,11 @@ def _extract_step_payload(node_name: str, update: Any) -> dict[str, Any]:
 
     if node_name == "retrieve_policy_evidence":
         retrieved = _as_mapping(update_mapping.get("retrieved_evidence"))
-        retrieval_data = _as_mapping(retrieved.get("data") or retrieved)
-        evidence = retrieval_data.get("evidence") or []
-        payload["evidence_count"] = len(evidence) if isinstance(evidence, list) else 0
+        refs = retrieved.get("evidence_refs")
+        if refs is None:
+            legacy = _as_mapping(retrieved.get("data") or retrieved)
+            refs = legacy.get("evidence")
+        payload["evidence_count"] = len(refs) if isinstance(refs, list) else 0
 
     if node_name == "assess_risk_and_approval":
         risk = _as_mapping(update_mapping.get("risk_assessment"))
@@ -504,7 +506,11 @@ def _dedupe_evidence_refs(ref_groups: Any) -> list[dict[str, Any]]:
         for ref in refs:
             if not isinstance(ref, dict):
                 continue
-            key = str(ref.get("chunk_id") or json.dumps(ref, sort_keys=True, default=str))
+            key = str(
+                ref.get("evidence_id")
+                or ref.get("chunk_id")
+                or json.dumps(ref, sort_keys=True, default=str)
+            )
             if key in seen:
                 continue
             seen.add(key)

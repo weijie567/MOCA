@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.trace import write_agent_run
 from src.api.main import app
-from src.api.routers.agent_runs import _event_generator
+from src.api.routers.agent_runs import _dedupe_evidence_refs, _event_generator, _extract_step_payload
 from src.auth.jwt import create_access_token
 from src.db.models import AgentRun, ApprovalRequest, User
 
@@ -180,6 +180,45 @@ def _assert_no_investigation_fields(payload: dict) -> None:
     serialized = json.dumps(payload, ensure_ascii=False)
     for field in INVESTIGATION_RESPONSE_FIELDS:
         assert field not in serialized
+
+
+def test_extract_step_payload_counts_v2_evidence_refs():
+    payload = _extract_step_payload(
+        "retrieve_policy_evidence",
+        {
+            "retrieved_evidence": {
+                "schema_version": "knowledge_search_result.v2",
+                "evidence_refs": [
+                    {"evidence_id": "refund_policy/refund_policy_001@v1"},
+                    {"evidence_id": "refund_policy/refund_policy_001@v2"},
+                ],
+            }
+        },
+    )
+
+    assert payload["evidence_count"] == 2
+
+
+def test_dedupe_evidence_refs_preserves_policy_versions():
+    refs = _dedupe_evidence_refs(
+        [
+            [
+                {
+                    "evidence_id": "refund_policy/refund_policy_001@v1",
+                    "chunk_id": "refund_policy_001",
+                },
+                {
+                    "evidence_id": "refund_policy/refund_policy_001@v2",
+                    "chunk_id": "refund_policy_001",
+                },
+            ]
+        ]
+    )
+
+    assert [ref["evidence_id"] for ref in refs] == [
+        "refund_policy/refund_policy_001@v1",
+        "refund_policy/refund_policy_001@v2",
+    ]
 
 
 @pytest.mark.asyncio
