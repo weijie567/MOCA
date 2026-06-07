@@ -1,0 +1,69 @@
+{
+  "version": "citation_membership.v1",
+  "description": "Phase 8 citation membership gate dataset. Membership = cited evidence_id present in evidence_refs. NOT semantic support.",
+  "cases": [
+    {
+      "id": "valid_membership",
+      "evidence_ids": [
+        "policy_refund_timeout/chunk_001@v3",
+        "policy_refund_timeout/chunk_002@v3"
+      ],
+      "claims": [
+        {
+          "claim_id": "c1",
+          "claim_text": "Refund timeout handling follows the cited policy.",
+          "cited_evidence_ids": [
+            "policy_refund_timeout/chunk_001@v3"
+          ]
+        }
+      ],
+      "expected_is_valid": true
+    },
+    {
+      "id": "missing_evidence_id",
+      "evidence_ids": [
+        "policy_refund_timeout/chunk_001@v3"
+      ],
+      "claims": [
+        {
+          "claim_id": "c1",
+          "claim_text": "A missing evidence identity cannot validate.",
+          "cited_evidence_ids": [
+            "policy_refund_timeout/chunk_999@v3"
+          ]
+        }
+      ],
+      "expected_is_valid": false
+    },
+    {
+      "id": "empty_citation",
+      "evidence_ids": [
+        "policy_refund_timeout/chunk_001@v3"
+      ],
+      "claims": [
+        {
+          "claim_id": "c1",
+          "claim_text": "A material claim without a citation cannot validate.",
+          "cited_evidence_ids": []
+        }
+      ],
+      "expected_is_valid": false
+    },
+    {
+      "id": "same_chunk_id_diff_evidence_id",
+      "evidence_ids": [
+        "policy_a/chunk_001@v3"
+      ],
+      "claims": [
+        {
+          "claim_id": "c1",
+          "claim_text": "A matching chunk_id from another policy is not the same evidence.",
+          "cited_evidence_ids": [
+            "policy_b/chunk_001@v3"
+          ]
+        }
+      ],
+      "expected_is_valid": false
+    }
+  ]
+}
