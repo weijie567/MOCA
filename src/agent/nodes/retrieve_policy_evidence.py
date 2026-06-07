@@ -7,7 +7,10 @@ from langchain_core.runnables import RunnableConfig
 
 from src.agent.prompts import INSUFFICIENT_EVIDENCE_RESPONSE
 from src.agent.state import AgentState
-from src.agent.tools.search_policy import search_policy
+from src.knowledge.adapters import LegacyRagKnowledgeAdapter
+from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
+from src.knowledge.schemas import KnowledgeContext, KnowledgeSearchFilters, KnowledgeSearchRequest
+from src.knowledge.service import PolicyKnowledgeService
 
 MIN_EVIDENCE_SCORE = 0.55
 
@@ -22,7 +25,7 @@ def _trace_step(status: str, started_at: str, evidence_refs: list[dict[str, Any]
         "status": status,
         "started_at": started_at,
         "completed_at": _now_iso(),
-        "tools_called": ["search_policy"],
+        "tools_called": ["knowledge_service.search"],
         "provider_latency_ms": None,
         "retry_count": 0,
         "metrics_json": None,
@@ -69,34 +72,14 @@ def _retrieval_error_draft(error: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _evidence_refs_from_result(result: dict[str, Any], retrieved_at: str) -> list[dict[str, Any]]:
-    data = result.get("data") or {}
-    refs: list[dict[str, Any]] = []
-    for item in data.get("evidence") or []:
-        doc_key = item.get("doc_key")
-        chunk_id = item.get("chunk_id")
-        if not doc_key or not chunk_id:
-            continue
-        refs.append(
-            {
-                "doc_key": str(doc_key),
-                "chunk_id": str(chunk_id),
-                "title": item.get("title"),
-                "confidence": item.get("score"),
-                "retrieved_at": retrieved_at,
-            }
-        )
-    return refs
-
-
 def _merge_evidence_refs(
     existing: list[dict[str, Any]] | None,
     new: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
     merged: list[dict[str, Any]] = []
-    seen: set[tuple[str | None, str | None]] = set()
+    seen: set[str | None] = set()
     for ref in [*(existing or []), *(new or [])]:
-        key = (ref.get("doc_key"), ref.get("chunk_id"))
+        key = ref.get("evidence_id")
         if key in seen:
             continue
         seen.add(key)
@@ -106,35 +89,54 @@ def _merge_evidence_refs(
 
 async def retrieve_policy_evidence(state: AgentState, config: RunnableConfig) -> dict:
     started_at = _now_iso()
-    retrieved_at = _now_iso()
+    effective_at = state.get("run_started_at") or _now_iso()
     configurable = config.get("configurable") or {}
     session = configurable["session"]
-    result = await search_policy(
-        query=_build_search_query(state),
+    active_slots = state.get("active_slots") or {}
+    merchant_scope = configurable.get("merchant_scope")
+    if not isinstance(merchant_scope, list):
+        merchant_scope = None
+
+    # Spec Consistency Finding: dedicated trace_id and merchant_scope plumbing is owned by Phase 10.
+    context = KnowledgeContext(
         tenant_id=state["tenant_id"],
         user_id=state["user_id"],
         role=state["role"],
-        session=session,
-        top_k=5,
-        doc_type=None,
-        risk_level=None,
+        merchant_scope=merchant_scope,
+        run_id=state.get("current_run_id") or "",
+        trace_id=state.get("current_run_id") or "",
+        locale=None,
+        effective_at=effective_at,
     )
+    request = KnowledgeSearchRequest(
+        query=_build_search_query(state),
+        primary_intent=state.get("current_intent"),
+        filters=KnowledgeSearchFilters(
+            tenant_id=state["tenant_id"],
+            merchant_id=active_slots.get("merchant_id"),
+            effective_at=effective_at,
+            locale=None,
+        ),
+        retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+        rerank_config_version=RERANK_CONFIG_VERSION,
+        max_results=5,
+        allow_partial_evidence=True,
+    )
+    service = PolicyKnowledgeService(LegacyRagKnowledgeAdapter(session))
+    result = await service.search(request, context)
 
-    data = result.get("data") or {}
-    retrieval_failed = result.get("status") == "error"
-    gate_triggered = (
-        data.get("retrieval_status") == "no_evidence" or float(data.get("best_score") or 0.0) < MIN_EVIDENCE_SCORE
-    )
-    new_refs = [] if retrieval_failed or gate_triggered else _evidence_refs_from_result(result, retrieved_at)
+    retrieval_failed = result.status == "error"
+    gate_triggered = result.status == "no_evidence" or result.best_score < MIN_EVIDENCE_SCORE
+    new_refs = [] if retrieval_failed or gate_triggered else [ref.model_dump() for ref in result.evidence_refs]
     merged_refs = _merge_evidence_refs(state.get("evidence_refs"), new_refs)
     output: dict[str, Any] = {
-        "retrieved_evidence": result,
+        "retrieved_evidence": result.model_dump(),
         "trace_steps": (state.get("trace_steps") or [])
         + [_trace_step("error" if retrieval_failed else "completed", started_at, new_refs)],
         "evidence_refs": merged_refs,
     }
     if retrieval_failed:
-        error = result.get("error") or {}
+        error = result.error or {}
         output["recommendation_draft"] = _retrieval_error_draft(error)
         output["node_errors"] = (state.get("node_errors") or []) + [
             {"node": "retrieve_policy_evidence", "error": error, "retry_count": 0}
