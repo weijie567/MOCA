@@ -13,8 +13,8 @@ from src.agent.nodes.retrieve_policy_evidence import _merge_evidence_refs
 from src.agent.schemas import RecommendationDraft
 from src.agent.state import AgentState
 from src.config import settings
-from src.rag.citation_validator import validate_citations
-from src.rag.schemas import RetrievalResult
+from src.knowledge.citation import validate_membership
+from src.knowledge.schemas import EvidenceRefV1
 
 
 def _now_iso() -> str:
@@ -66,17 +66,6 @@ def _retrieval_data(state: AgentState) -> dict[str, Any]:
     return retrieved.get("data") or retrieved
 
 
-def _retrieval_result(state: AgentState) -> RetrievalResult:
-    data = _retrieval_data(state)
-    return RetrievalResult(
-        query=state.get("user_query") or "",
-        retrieval_status=data.get("retrieval_status") or "no_evidence",
-        evidence=data.get("evidence") or [],
-        best_score=float(data.get("best_score") or 0.0),
-        fallback_message=data.get("fallback_message"),
-    )
-
-
 def _summarize_business_context(context: dict[str, Any]) -> str:
     return json.dumps(context, ensure_ascii=False, sort_keys=True)[:2000]
 
@@ -88,10 +77,9 @@ def _summarize_evidence(evidence: list[dict[str, Any]]) -> str:
             {
                 "doc_key": item.get("doc_key"),
                 "chunk_id": item.get("chunk_id"),
-                "title": item.get("title"),
-                "section": item.get("section"),
+                "evidence_id": item.get("evidence_id"),
+                "policy_version": item.get("policy_version"),
                 "score": item.get("score"),
-                "text": (item.get("text") or "")[:1600],
             }
         )
     return json.dumps(items, ensure_ascii=False, sort_keys=True)
@@ -104,36 +92,19 @@ def _allowed_citation_objects(evidence: list[dict[str, Any]]) -> str:
             {
                 "doc_key": item.get("doc_key"),
                 "chunk_id": item.get("chunk_id"),
-                "title": item.get("title"),
-                "section": item.get("section"),
+                "evidence_id": item.get("evidence_id"),
+                "title": item.get("title") or "",
+                "section": item.get("section") or "",
             }
         )
     return json.dumps(refs, ensure_ascii=False, sort_keys=True)
 
 
 def _validated_evidence_refs(
-    draft_refs: list[dict[str, Any]],
-    retrieval: RetrievalResult,
-    retrieved_at: str,
+    cited_evidence_ids: list[str],
+    evidence_by_id: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    evidence_by_chunk = {item.chunk_id: item for item in retrieval.evidence}
-    refs: list[dict[str, Any]] = []
-    for draft_ref in draft_refs:
-        chunk_id = draft_ref.get("chunk_id")
-        evidence = evidence_by_chunk.get(chunk_id)
-        if evidence is None:
-            continue
-        refs.append(
-            {
-                "doc_key": draft_ref.get("doc_key") or evidence.doc_key,
-                "chunk_id": evidence.chunk_id,
-                "title": draft_ref.get("title") or evidence.title,
-                "section": draft_ref.get("section") or evidence.section,
-                "confidence": evidence.score,
-                "retrieved_at": retrieved_at,
-            }
-        )
-    return refs
+    return [evidence_by_id[evidence_id] for evidence_id in cited_evidence_ids if evidence_id in evidence_by_id]
 
 
 async def generate_recommendation(state: AgentState) -> dict:
@@ -142,8 +113,12 @@ async def generate_recommendation(state: AgentState) -> dict:
     if existing_draft.get("recommended_action") in {"insufficient_evidence", "retrieval_error"}:
         return {"trace_steps": (state.get("trace_steps") or []) + [_trace_step("skipped", started_at)]}
 
-    retrieval = _retrieval_result(state)
-    evidence_items = [item.model_dump() for item in retrieval.evidence]
+    evidence_items = list(_retrieval_data(state).get("evidence_refs") or [])
+    evidence_models = [EvidenceRefV1(**item) for item in evidence_items]
+    evidence_by_id = {item["evidence_id"]: item for item in evidence_items}
+    evidence_id_by_citation = {
+        (item.get("doc_key"), item.get("chunk_id")): item["evidence_id"] for item in evidence_items
+    }
     allowed_citations = _allowed_citation_objects(evidence_items)
     messages: list[dict[str, str]] = [
         {"role": "system", "content": GENERATE_RECOMMENDATION_SYSTEM},
@@ -155,6 +130,7 @@ async def generate_recommendation(state: AgentState) -> dict:
                 f"Policy evidence: {_summarize_evidence(evidence_items)}\n"
                 f"Allowed citation objects: {allowed_citations}\n"
                 "For evidence_refs, copy one or more complete objects from Allowed citation objects. "
+                "For each material claim, rely only on the evidence_id in those objects. "
                 "Do not return strings, doc_key-only values, or chunk_id-only values."
             ),
         },
@@ -172,18 +148,40 @@ async def generate_recommendation(state: AgentState) -> dict:
             result = await structured_llm.ainvoke(messages)
             provider_latency_ms = round((time.perf_counter() - t0) * 1000)
             draft = result.model_dump()
-            cited_chunk_ids = [item["chunk_id"] for item in draft.get("evidence_refs") or []]
-            validation = validate_citations(cited_chunk_ids, retrieval)
+            # RecommendationDraft stays stable; deterministically project its citations into one material claim.
+            cited_evidence_ids = [
+                evidence_id_by_citation.get(
+                    (item.get("doc_key"), item.get("chunk_id")),
+                    f"unresolved:{item.get('doc_key')}:{item.get('chunk_id')}",
+                )
+                for item in draft.get("evidence_refs") or []
+            ]
+            claims = [
+                {
+                    "claim_id": "rec-1",
+                    "claim_text": draft["reasoning_summary"],
+                    "cited_evidence_ids": cited_evidence_ids,
+                }
+            ]
+            validation = validate_membership(claims, evidence_models)
             if not validation.is_valid:
-                invalid = set(validation.invalid_citations)
+                invalid = {
+                    evidence_id
+                    for claim_result in validation.claim_results
+                    for evidence_id in claim_result.missing_evidence_ids
+                }
                 draft["evidence_refs"] = [
-                    item for item in draft.get("evidence_refs") or [] if item.get("chunk_id") not in invalid
+                    item
+                    for item, evidence_id in zip(draft.get("evidence_refs") or [], cited_evidence_ids, strict=True)
+                    if evidence_id not in invalid
                 ]
+                cited_evidence_ids = [evidence_id for evidence_id in cited_evidence_ids if evidence_id not in invalid]
                 if not draft["evidence_refs"]:
                     draft["recommended_action"] = "citation_invalid"
-                    draft["missing_info"] = [validation.reason or "Citation validation failed"]
+                    draft["missing_info"] = ["Citation membership validation failed"]
                     draft["confidence"] = 0.0
-            validated_refs = _validated_evidence_refs(draft.get("evidence_refs") or [], retrieval, _now_iso())
+            draft["citation_validation"] = validation.model_dump()
+            validated_refs = _validated_evidence_refs(cited_evidence_ids, evidence_by_id)
             merged_refs = _merge_evidence_refs(state.get("evidence_refs"), validated_refs)
             outputs = {**(state.get("llm_outputs") or {}), "generate_recommendation": draft}
             return {
