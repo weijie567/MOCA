@@ -108,9 +108,11 @@ def _citation_summary(evidence_refs: list[dict[str, Any]]) -> str:
     for ref in evidence_refs[:3]:
         doc_key = ref.get("doc_key") or "unknown_doc"
         chunk_id = ref.get("chunk_id") or "unknown_chunk"
-        title = ref.get("title") or "政策依据"
-        section = ref.get("section") or "相关章节"
-        citations.append(f"根据 {doc_key} / {chunk_id}，{title} - {section}")
+        citation = f"根据 {doc_key} / {chunk_id}"
+        display_parts = [part for part in (ref.get("title"), ref.get("section")) if part]
+        if display_parts:
+            citation = f"{citation}，{' - '.join(str(part) for part in display_parts)}"
+        citations.append(citation)
     return "；".join(citations)
 
 
