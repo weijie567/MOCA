@@ -199,8 +199,12 @@ def build_trace_summary(
             tools_called.append(str(step["tool_name"]))
 
     retrieved = final_state.get("retrieved_evidence") or {}
-    retrieval_data = retrieved.get("data") or retrieved
-    evidence_count = len(retrieval_data.get("evidence") or [])
+    # v2 knowledge_search_result uses evidence_refs; fall back to legacy data.evidence for old traces.
+    refs = retrieved.get("evidence_refs")
+    if refs is None:
+        legacy = retrieved.get("data") or retrieved
+        refs = legacy.get("evidence")
+    evidence_count = len(refs or [])
 
     risk = final_state.get("risk_assessment") or {}
 

@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.agent.trace import write_agent_run, write_agent_steps
+from src.agent.trace import build_trace_summary, write_agent_run, write_agent_steps
 from src.db.models import AgentStep
 
 
@@ -75,3 +75,22 @@ async def test_agent_steps_persist_tools_called_and_evidence_refs(session: Async
     assert rows[1].evidence_refs[0]["doc_key"] == "policy_refund_timeout"
     assert rows[1].evidence_refs[0]["chunk_id"] == "chunk_001"
     assert rows[2].tool_name == "get_ticket"
+
+
+def test_trace_summary_counts_v2_evidence_refs():
+    summary = build_trace_summary(
+        "run-001",
+        {
+            "retrieved_evidence": {
+                "schema_version": "knowledge_search_result.v2",
+                "evidence_refs": [
+                    {"evidence_id": "policy/chunk@v1"},
+                    {"evidence_id": "policy/chunk@v2"},
+                ],
+            },
+            "final_response": "done",
+        },
+        10,
+    )
+
+    assert summary["evidence_count"] == 2
