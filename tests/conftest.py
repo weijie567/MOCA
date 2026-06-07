@@ -20,6 +20,8 @@ from src.api.main import app
 from src.auth.jwt import hash_password
 from src.db.models import Base, Merchant, Order, RefundCase, Tenant, Ticket, User
 from src.db.session import get_session
+from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
+from src.knowledge.schemas import EvidenceRefV1, KnowledgeSearchResult
 
 
 TEST_DATABASE_URL = "postgresql+asyncpg://moca:moca_dev@localhost:5432/moca_test"
@@ -355,28 +357,30 @@ def mock_graph(monkeypatch, mock_llm_responses):
     monkeypatch.setattr(recommendation_node, "_get_llm", lambda: fake_llm)
     monkeypatch.setattr(assess_node, "_get_llm", lambda: fake_llm)
 
-    async def fake_search_policy(**kwargs):
-        return {
-            "status": "success",
-            "data": {
-                "query": kwargs["query"],
-                "retrieval_status": "strong_evidence",
-                "best_score": 0.93,
-                "evidence": [
-                    {
-                        "doc_key": "refund_policy",
-                        "chunk_id": "refund_policy#001",
-                        "title": "售后补偿政策",
-                        "section": "高风险补偿",
-                        "text": "补偿超过500元需人工审批。",
-                        "score": 0.93,
-                    }
-                ],
-            },
-            "error": {},
-        }
+    async def fake_knowledge_search(self, request, context):
+        del self, request
+        return KnowledgeSearchResult(
+            status="strong_evidence",
+            retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+            rerank_config_version=RERANK_CONFIG_VERSION,
+            best_score=0.93,
+            threshold=0.55,
+            evidence_refs=[
+                EvidenceRefV1.build(
+                    tenant_id=context.tenant_id,
+                    doc_key="refund_policy",
+                    chunk_id="refund_policy#001",
+                    policy_version="v1",
+                    text="补偿超过500元需人工审批。",
+                    retrieved_at=context.effective_at,
+                    retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+                    score=0.93,
+                    rank=1,
+                )
+            ],
+        )
 
-    monkeypatch.setattr(retrieve_node, "search_policy", fake_search_policy)
+    monkeypatch.setattr(retrieve_node.PolicyKnowledgeService, "search", fake_knowledge_search)
     return build_graph(MemorySaver())
 
 
