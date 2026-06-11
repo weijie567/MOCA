@@ -318,23 +318,28 @@ def test_route_after_risk_returns_final_response_for_policy_qa_no_action():
 | A5 | Pre-Phase-10 checkpoint threads do not need a data migration (total=False tolerates added fields) | Runtime State Inventory | Medium — if old threads must resume cleanly after field renames, additional guarding needed. |
 | A6 | `clarification_gate` may be a minimal stub in Phase 10 (Phase 11 owns clarification logic) | Pitfall 3 | Medium — affects whether route_after_intent/slots fallback targets are real nodes. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Is Phase 9 a hard prerequisite, or does Phase 10 absorb a BusinessToolService seam?**
    - What we know: Phase 9 has only CONTEXT.md, no code. ROADMAP says Phase 10 "Blocked by 8/9". CONTEXT.md assumes the facade exists.
    - What's unclear: Whether the planner sequences Phase 9 first or builds an interim.
    - Recommendation: Resolve before task planning. Cleanest is Phase 9 lands first; otherwise `investigate` calls existing raw read tools as interim and the facade is a flagged follow-up (P10-DEV style deviation).
+   - **RESOLVED:** User decision this session — Phase 9 lands first (exec order 9 -> 10); Plan 04 uses the interim raw-tool seam with `blocked_by_phase_9: true`. See P10-DEV-02.
 
 2. **What is the exact node-set boundary for Phase 10 vs Phases 11-15?**
    - What we know: The 16-node target spans multiple phases (clarification=11, session_memory=12, approval=13, action=14, trace_close/replay=15).
    - What's unclear: Which target nodes Phase 10 must register (even as stubs) so its routers are total.
    - Recommendation: Phase 10 registers `investigate` + the routers it owns; fallback targets that belong to later phases get minimal safe stubs or route to existing `final_response`.
+   - **RESOLVED:** Plan 05 registers `investigate` + the routers it owns; later-phase fallback targets get minimal safe stubs (`clarification_gate`) or route to the existing `final_response`.
 
 3. **Full 8-tool allowlist vs available subset?** (see A3) — needs an explicit decision.
+   - **RESOLVED:** Plan 04 registers the full 8-tool §12.4 allowlist; only 4 are available now, the other 4 are registered-but-unavailable (Phase 9 / Phase 16).
 
 4. **Field rename scope** (`current_intent→primary_intent`, live node renames) — in or out of Phase 10? (see A4)
+   - **RESOLVED:** Deferred to Phase 11 (CONTEXT). Phase 10 adds `primary_intent`/`requested_operation`; routers read both defensively; no atomic rename in Phase 10.
 
 5. **max_iterations default/ceiling values** — D-12 defers exact numbers to planning/eval. Planner must pick values for tests (D-12 mentions discussion-only 3/5).
+   - **RESOLVED:** Plan 04 sets default 3 / ceiling 5 (non-normative per D-12).
 
 ## Environment Availability
 
