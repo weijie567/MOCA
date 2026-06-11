@@ -51,6 +51,8 @@ MOCA 采用 Claude 与 Codex 的「双 AI 交叉评审」模式：**Claude 是 p
 
 **边界模糊时默认交 Codex** —— 一次大改的执行成本通常低于 Claude 反复试错读文件的成本。
 
+**本判定线 override GSD `plan-phase` workflow step 12 的「spawn gsd-planner」**：plan 修订（或任何代码改动）的执行命中大改线时交 Codex，不走 gsd-planner（gsd-planner 仍是 Claude token，结构性/多文件改动正是该交 Codex 的）。判定线一旦判 Codex 即绑定，Claude 不得自行论证改判；想偏离须先问用户。
+
 ### 设计依据（为什么这样分工）
 
 - GSD 工具 + Codex 双审是经过验证的互补：实测中 `gsd-plan-checker` 给 0 blocker，Codex 补抓到 5 个真 blocker（含会破坏后续 replay 身份契约的 bug）。
