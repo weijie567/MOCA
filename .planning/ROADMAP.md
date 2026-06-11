@@ -66,14 +66,19 @@
 **Plans**: TBD
 
 ### Phase 10: State Lifecycle + Routing Migration
-**Goal**: Enforce AgentState reset/merge/trusted-writer rules and deterministic router totality.
-**Depends on**: Phase 8, Phase 9
+**Goal**: Enforce AgentState reset/merge/trusted-writer rules, deterministic router totality, and the investigation segment agentic merge (single `investigate` bounded-loop node + `route_after_investigate`). Scope expansion P10-DEV-01: the investigate merge is added by the §9 promotion (commit ad17301) beyond the original state+router goal text.
+**Depends on**: Phase 8, Phase 9 (Phase 9 BusinessToolService is the bounded loop's read-tool dependency; Phase 10 is planned now as a loop-ready design input — see Plan 04 "Phase 9 loop-facing contract requirements". P10-DEV-02 reverses Phase 9 CONTEXT's "no bounded caller" lock.)
 **Requirements**: STATE-01, STATE-02, ROUTE-01, ROUTE-02
 **Success Criteria**:
   1. State lifecycle/property tests and trusted-field merge tests pass.
   2. Every router is deterministic, side-effect free, total for valid state, and safe for invalid state.
   3. Empty session-memory adapter routing exists without claiming session continuity.
-**Plans**: TBD
+**Plans**: 5 plans
+  - [ ] 10-01-PLAN.md — AgentState §10.1 lifecycle fields + per-turn reset + STATE-01/02 tests (Wave 1)
+  - [ ] 10-02-PLAN.md — Minimal event envelope + per-run sequence allocator + base table (§17.2, Wave 1)
+  - [ ] 10-03-PLAN.md — route_after_investigate pure router + totality/fallback tests (Wave 2)
+  - [ ] 10-04-PLAN.md — investigate bounded-loop node + D-03..D-08 guardrail tests (Wave 2, blocked_by_phase_9)
+  - [ ] 10-05-PLAN.md — Graph wiring: register investigate, route_after_investigate, fallback stubs, SC-3 (Wave 3)
 
 ### Phase 11: Intent / Clarification
 **Goal**: Implement deterministic intent precedence, required-slot expressions, confidence safety gates, and ordinary clarification.
@@ -152,7 +157,7 @@
 | 7. Contract Baseline | 1/1 | Complete | 2026-06-06 |
 | 8. Knowledge Facade | 4/6 | In Progress | - |
 | 9. Business Tool Facade | 0/TBD | Ready to plan | - |
-| 10. State Lifecycle + Routing Migration | 0/TBD | Blocked by 8/9 | - |
+| 10. State Lifecycle + Routing Migration | 0/5 | Planned (Plan 04 blocked_by Phase 9) | - |
 | 11. Intent / Clarification | 0/TBD | Pending | - |
 | 12. Session Memory | 0/TBD | Pending | - |
 | 13. Approval State Machine | 0/TBD | Pending | - |
