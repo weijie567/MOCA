@@ -4,14 +4,14 @@ milestone: v1.1
 milestone_name: Agent Architecture Migration
 status: executing
 stopped_at: Phase 10 context gathered
-last_updated: "2026-06-11T09:15:21.041Z"
+last_updated: "2026-06-11T12:15:19.058Z"
 last_activity: 2026-06-07 -- Phase 08 execution started
 progress:
   total_phases: 11
-  completed_phases: 2
-  total_plans: 8
+  completed_phases: 1
+  total_plans: 15
   completed_plans: 8
-  percent: 100
+  percent: 53
 ---
 
 # Project State: MOCA
@@ -75,4 +75,4 @@ Last session: --stopped-at
 Stopped at: Phase 10 context gathered
 Resume file: --resume-file
 
-**Planned Phase:** 08 (knowledge-facade) — 7 plans — 2026-06-07T11:12:35.865Z
+**Planned Phase:** 10 (state-lifecycle-routing-migration) — 5 plans — 2026-06-11T12:15:19.034Z
