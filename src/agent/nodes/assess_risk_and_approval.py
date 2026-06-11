@@ -271,7 +271,7 @@ async def assess_risk_and_approval(state: AgentState) -> dict:
                     )
                 ],
             }
-        except (ValidationError, ValueError, TimeoutError, Exception) as exc:
+        except (ValidationError, ValueError, TimeoutError) as exc:
             provider_latency_ms = round((time.perf_counter() - t0) * 1000)
             last_error = str(exc)
             if attempt == 0:

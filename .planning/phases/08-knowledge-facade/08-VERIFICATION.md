@@ -1,8 +1,8 @@
 ---
 phase: 08-knowledge-facade
-verified: 2026-06-07T16:05:00Z
-status: gaps_found
-score: 5/6 must-haves verified
+verified: 2026-06-11T19:00:00Z
+status: complete
+score: 5/6 must-haves verified (1 explicitly deferred)
 overrides_applied: 0
 gaps:
   - truth: "Tenant-over-global policy precedence is enforced"
@@ -20,9 +20,9 @@ gaps:
 # Phase 8: Knowledge Facade Verification Report
 
 **Phase Goal:** Route policy evidence retrieval through KnowledgeService with canonical EvidenceRefV1, citation validation, effective-time, and tenant-over-global behavior.
-**Verified:** 2026-06-07T16:05:00Z
-**Status:** gaps_found (1 deferred item)
-**Re-verification:** Yes — after 08-07 gap closure
+**Verified:** 2026-06-11T19:00:00Z
+**Status:** complete (1 explicitly deferred item: tenant-over-global, CONTEXT D-D1)
+**Re-verification:** Yes — after 08-07 + 08-08 + 08-09 gap closure (two independent Codex acceptance passes)
 
 ## Goal Achievement
 
@@ -56,13 +56,31 @@ gaps:
 | Effective-time after LIMIT | FAILED | VERIFIED | `policy_chunk_repo.py` — SQL WHERE before ORDER BY/LIMIT |
 | Tenant-over-global unimplemented | FAILED | DEFERRED | No code change; CONTEXT.md D-D1 defers |
 
+### Gap Closure Summary (08-08 + 08-09)
+
+A fresh code review (08-REVIEW.md, post-08-07) plus Claude adjudication and Codex cross-verification surfaced three more findings; 08-08 fixed two and re-introduced one blocker that 08-09 closed.
+
+| Finding | Origin | Status | Fix |
+|---------|--------|--------|-----|
+| WR-01 recommendation node receives no policy text (regression vs pre-Phase-8) | review + git `b9050db1~1` | VERIFIED | 08-09: `generate_recommendation` re-fetches chunk content in-node, hash-verified, fail-closed; text never enters AgentState |
+| WR-02 mixed-citation audit inconsistency (`completed` while `is_valid=False`) | review + trace.py | VERIFIED | 08-08: re-run `validate_membership` on surviving refs so audit matches `recommended_action` |
+| IN-01 over-broad `except (..., Exception)` swallows programming errors | review | VERIFIED | 08-08: narrowed to `(ValidationError, ValueError, TimeoutError)` at both named sites |
+| **BLOCKER**: 08-08 transient `AgentState.retrieved_evidence_payloads` leaks policy text into Postgres checkpoint | Codex acceptance pass #1 | RESOLVED | 08-09: transient state channel fully reverted; in-node re-fetch keeps text in node-local scope + prompt only |
+
+**08-09 red-line design:** `AsyncPostgresSaver` (graph.py:97) serializes the entire AgentState per super-step, so any state field carrying text would persist. 08-09 removes the channel entirely — `generate_recommendation` re-reads content via `PolicyChunkRepository.get_contents_by_evidence_keys(tenant_id, keys)` (single batched query, tenant + (doc_key, chunk_id) scoped), verifies `evidence_text_hash(content) == ref.text_hash` (drift guard), and fails closed on missing/duplicate/cross-tenant/hash-mismatch. Policy text lives only in node-local variables and the LLM prompt string; it is never written to any returned state field.
+
+**Two independent Codex acceptance passes:** pass #1 → INCOMPLETE (checkpoint blocker); pass #2 (after 08-09) → COMPLETE. Full suite: 292 passed, 0 failed.
+
+Non-blocking follow-ups (not Phase 8 exit blockers):
+- `generate_recommendation.py:155` emits an `AsyncMock ... never awaited` RuntimeWarning under `test_graph.py` — a test-mock artifact (graph tests use `MagicMock`, not `AsyncMock`, for the session, exercising the fail-closed degrade path), not a product defect. Test-hygiene cleanup.
+
 ### Requirements Coverage
 
 | Requirement | Source Plans | Status | Evidence |
 |---|---|---|---|
-| KNOW-01 | 08-02, 08-04, 08-05, 08-07 | SATISFIED | Facade, statuses, and `allow_partial_evidence` enforcement pass. |
-| KNOW-02 | 08-01 through 08-07 | PARTIAL | EvidenceRefV1/citation/projection/effective-time pass. Tenant-over-global deferred (CONTEXT D-D1). |
-| KNOW-03 | 08-04, 08-05 | SATISFIED | No persistence/read-switch; direct cutover has retained-adapter and git-revert rollback. |
+| KNOW-01 | 08-02, 08-04, 08-05, 08-07, 08-08 | SATISFIED | Facade, statuses, `allow_partial_evidence` enforcement, and policy-grounded recommendation (in-node text) pass. |
+| KNOW-02 | 08-01 through 08-09 | PARTIAL | EvidenceRefV1/citation/projection/effective-time/citation-audit pass. Tenant-over-global deferred (CONTEXT D-D1). |
+| KNOW-03 | 08-04, 08-05, 08-09 | SATISFIED | No persistence/read-switch; policy text stays out of checkpoint via in-node re-fetch; git-revert/adapter rollback. |
 
 ### Disposition: Tenant-over-global
 
@@ -72,6 +90,6 @@ Resolution: Phase 8 exit scope covers tenant-scoped behavior only. Tenant-over-g
 
 ---
 
-_Verified: 2026-06-07T16:05:00Z_
-_Verifier: Claude (inline — gsd-verifier subagent unavailable)_
-_Re-verification after 08-07 gap closure_
+_Verified: 2026-06-11T19:00:00Z_
+_Verifier: Claude (adjudicator) + Codex (two independent acceptance passes)_
+_Re-verification after 08-07 + 08-08 + 08-09 gap closure — PHASE COMPLETE_

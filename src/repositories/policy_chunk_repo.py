@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections import Counter
 from datetime import date
 from uuid import UUID
 
-from sqlalchemy import and_, delete, select
+from sqlalchemy import and_, delete, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -25,6 +26,36 @@ class PolicyChunkRepository:
     async def bulk_insert(self, chunks: list[PolicyChunk]) -> None:
         self.session.add_all(chunks)
         await self.session.flush()
+
+    async def get_contents_by_evidence_keys(
+        self,
+        tenant_id: UUID,
+        keys: list[tuple[str, str]],
+    ) -> dict[tuple[str, str], str]:
+        if not keys:
+            return {}
+
+        stmt = (
+            select(PolicyDocument.doc_key, PolicyChunk.chunk_id, PolicyChunk.content)
+            .join(
+                PolicyDocument,
+                and_(
+                    PolicyChunk.doc_id == PolicyDocument.id,
+                    PolicyDocument.tenant_id == tenant_id,
+                ),
+            )
+            .where(
+                PolicyChunk.tenant_id == tenant_id,
+                tuple_(PolicyDocument.doc_key, PolicyChunk.chunk_id).in_(keys),
+            )
+        )
+        rows = (await self.session.execute(stmt)).all()
+        counts = Counter((row[0], row[1]) for row in rows)
+        return {
+            (doc_key, chunk_id): content
+            for doc_key, chunk_id, content in rows
+            if counts[(doc_key, chunk_id)] == 1
+        }
 
     async def search_similar(
         self,

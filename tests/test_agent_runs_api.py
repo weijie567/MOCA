@@ -219,6 +219,7 @@ def test_dedupe_evidence_refs_preserves_policy_versions():
         "refund_policy/refund_policy_001@v1",
         "refund_policy/refund_policy_001@v2",
     ]
+    assert all("text" not in ref for ref in refs)
 
 
 @pytest.mark.asyncio

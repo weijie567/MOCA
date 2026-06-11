@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
+from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
@@ -14,7 +17,16 @@ from src.agent.schemas import RecommendationDraft
 from src.agent.state import AgentState
 from src.config import settings
 from src.knowledge.citation import validate_membership
+from src.knowledge.config import (
+    MAX_EVIDENCE_TEXT_CHARS,
+    MAX_PROMPT_EVIDENCE_ITEMS,
+    MAX_PROMPT_EVIDENCE_TOTAL_CHARS,
+)
 from src.knowledge.schemas import EvidenceRefV1
+from src.knowledge.text_hash import evidence_text_hash
+from src.repositories.policy_chunk_repo import PolicyChunkRepository
+
+logger = logging.getLogger(__name__)
 
 
 def _now_iso() -> str:
@@ -70,9 +82,16 @@ def _summarize_business_context(context: dict[str, Any]) -> str:
     return json.dumps(context, ensure_ascii=False, sort_keys=True)[:2000]
 
 
-def _summarize_evidence(evidence: list[dict[str, Any]]) -> str:
+def _summarize_evidence(
+    evidence: list[dict[str, Any]],
+    text_by_evidence_id: dict[str, str],
+) -> str:
     items = []
-    for item in evidence[:5]:
+    remaining_chars = MAX_PROMPT_EVIDENCE_TOTAL_CHARS
+    for item in evidence[:MAX_PROMPT_EVIDENCE_ITEMS]:
+        text = text_by_evidence_id.get(item.get("evidence_id") or "", "")
+        bounded_text = text[: min(MAX_EVIDENCE_TEXT_CHARS, remaining_chars)]
+        remaining_chars -= len(bounded_text)
         items.append(
             {
                 "doc_key": item.get("doc_key"),
@@ -80,21 +99,24 @@ def _summarize_evidence(evidence: list[dict[str, Any]]) -> str:
                 "evidence_id": item.get("evidence_id"),
                 "policy_version": item.get("policy_version"),
                 "score": item.get("score"),
+                "text": bounded_text,
             }
         )
     return json.dumps(items, ensure_ascii=False, sort_keys=True)
 
 
-def _allowed_citation_objects(evidence: list[dict[str, Any]]) -> str:
+def _allowed_citation_objects(
+    evidence: list[dict[str, Any]],
+) -> str:
     refs = []
-    for item in evidence[:5]:
+    for item in evidence[:MAX_PROMPT_EVIDENCE_ITEMS]:
         refs.append(
             {
                 "doc_key": item.get("doc_key"),
                 "chunk_id": item.get("chunk_id"),
                 "evidence_id": item.get("evidence_id"),
-                "title": item.get("title") or "",
-                "section": item.get("section") or "",
+                "title": "",
+                "section": "",
             }
         )
     return json.dumps(refs, ensure_ascii=False, sort_keys=True)
@@ -107,13 +129,41 @@ def _validated_evidence_refs(
     return [evidence_by_id[evidence_id] for evidence_id in cited_evidence_ids if evidence_id in evidence_by_id]
 
 
-async def generate_recommendation(state: AgentState) -> dict:
+async def generate_recommendation(state: AgentState, config: RunnableConfig = None) -> dict:
     started_at = _now_iso()
     existing_draft = state.get("recommendation_draft") or {}
     if existing_draft.get("recommended_action") in {"insufficient_evidence", "retrieval_error"}:
         return {"trace_steps": (state.get("trace_steps") or []) + [_trace_step("skipped", started_at)]}
 
     evidence_items = list(_retrieval_data(state).get("evidence_refs") or [])
+    text_by_evidence_id: dict[str, str] = {}
+    session = ((config or {}).get("configurable") or {}).get("session")
+    if session is None:
+        logger.warning("Policy evidence content re-fetch skipped because no session is available")
+    else:
+        key_counts: dict[tuple[str, str], int] = {}
+        for item in evidence_items:
+            key = (item.get("doc_key") or "", item.get("chunk_id") or "")
+            key_counts[key] = key_counts.get(key, 0) + 1
+        keys = [key for key, count in key_counts.items() if count == 1 and all(key)]
+        try:
+            contents = await PolicyChunkRepository(session).get_contents_by_evidence_keys(
+                UUID(state["tenant_id"]),
+                keys,
+            )
+        except Exception:
+            logger.warning("Policy evidence content re-fetch failed; continuing without grounded text")
+        else:
+            for item in evidence_items:
+                key = (item.get("doc_key") or "", item.get("chunk_id") or "")
+                content = contents.get(key)
+                if (
+                    key_counts.get(key) == 1
+                    and item.get("tenant_id") == state.get("tenant_id")
+                    and content is not None
+                    and evidence_text_hash(content) == item.get("text_hash")
+                ):
+                    text_by_evidence_id[item["evidence_id"]] = content
     evidence_models = [EvidenceRefV1(**item) for item in evidence_items]
     evidence_by_id = {item["evidence_id"]: item for item in evidence_items}
     evidence_id_by_citation = {
@@ -127,7 +177,7 @@ async def generate_recommendation(state: AgentState) -> dict:
             "content": (
                 f"User query: {state.get('user_query') or ''}\n"
                 f"Business context: {_summarize_business_context(state.get('business_context') or {})}\n"
-                f"Policy evidence: {_summarize_evidence(evidence_items)}\n"
+                f"Policy evidence: {_summarize_evidence(evidence_items, text_by_evidence_id)}\n"
                 f"Allowed citation objects: {allowed_citations}\n"
                 "For evidence_refs, copy one or more complete objects from Allowed citation objects. "
                 "For each material claim, rely only on the evidence_id in those objects. "
@@ -180,6 +230,17 @@ async def generate_recommendation(state: AgentState) -> dict:
                     draft["recommended_action"] = "citation_invalid"
                     draft["missing_info"] = ["Citation membership validation failed"]
                     draft["confidence"] = 0.0
+                else:
+                    validation = validate_membership(
+                        [
+                            {
+                                "claim_id": "rec-1",
+                                "claim_text": draft["reasoning_summary"],
+                                "cited_evidence_ids": cited_evidence_ids,
+                            }
+                        ],
+                        evidence_models,
+                    )
             draft["citation_validation"] = validation.model_dump()
             validated_refs = _validated_evidence_refs(cited_evidence_ids, evidence_by_id)
             merged_refs = _merge_evidence_refs(state.get("evidence_refs"), validated_refs)
@@ -200,7 +261,7 @@ async def generate_recommendation(state: AgentState) -> dict:
                     )
                 ],
             }
-        except (ValidationError, ValueError, TimeoutError, Exception) as exc:
+        except (ValidationError, ValueError, TimeoutError) as exc:
             provider_latency_ms = round((time.perf_counter() - t0) * 1000)
             last_error = str(exc)
             if attempt == 0:

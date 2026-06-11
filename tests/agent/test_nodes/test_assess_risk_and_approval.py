@@ -6,6 +6,20 @@ from src.agent.nodes import assess_risk_and_approval as assess_risk_module
 from tests.agent.conftest import FakeLLM
 
 
+class RaisingLLM:
+    def __init__(self, error: Exception):
+        self.error = error
+
+    def with_structured_output(self, schema):
+        error = self.error
+
+        class _Wrapper:
+            async def ainvoke(self, messages, **kwargs):
+                raise error
+
+        return _Wrapper()
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "recommended_action",
@@ -117,3 +131,37 @@ async def test_policy_qa_does_not_treat_rule_threshold_as_compensation_amount(mo
 
     assert result["risk_assessment"]["risk_level"] == "low"
     assert result["risk_assessment"]["approval_required"] is False
+
+
+@pytest.mark.asyncio
+async def test_programming_error_propagates(monkeypatch, base_state):
+    monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: RaisingLLM(KeyError("bug")))
+    state = {
+        **base_state,
+        "recommendation_draft": {
+            "recommended_action": "issue_coupon",
+            "reasoning_summary": "Issue a small service recovery coupon.",
+        },
+        "business_context": {},
+    }
+
+    with pytest.raises(KeyError, match="bug"):
+        await assess_risk_module.assess_risk_and_approval(state)
+
+
+@pytest.mark.asyncio
+async def test_expected_error_retries_then_falls_back(monkeypatch, base_state):
+    monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: RaisingLLM(ValueError("invalid")))
+    state = {
+        **base_state,
+        "recommendation_draft": {
+            "recommended_action": "issue_coupon",
+            "reasoning_summary": "Issue a small service recovery coupon.",
+        },
+        "business_context": {},
+    }
+
+    result = await assess_risk_module.assess_risk_and_approval(state)
+
+    assert result["risk_assessment"]["risk_level"] == "low"
+    assert result["node_errors"][0]["retry_count"] == 2
