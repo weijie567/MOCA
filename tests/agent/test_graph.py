@@ -20,7 +20,7 @@ from src.agent.nodes import load_business_context as load_business_context_modul
 from src.agent.nodes import retrieve_policy_evidence as retrieve_policy_evidence_module
 from src.business_tools.schemas import BusinessContextV1, ToolResultV2
 from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
-from src.knowledge.schemas import EvidenceRefV1, KnowledgeSearchResult
+from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext, KnowledgeSearchResult
 
 
 EVIDENCE = [
@@ -372,3 +372,40 @@ async def test_trace_summary_shape(graph_with_fake_llm):
     assert summary["evidence_count"] == 1
     assert summary["final_status"] in ("completed", "insufficient_evidence", "error")
     assert INVESTIGATION_STATE_FIELDS.isdisjoint(summary)
+
+
+@pytest.mark.asyncio
+async def test_structured_merchant_scope_reaches_knowledge_context(monkeypatch):
+    """Graph invocation with structured merchant_ids propagates to KnowledgeContext unchanged."""
+    mocks = _patch_graph_dependencies(monkeypatch, intent="policy_qa")
+    graph = build_graph(MemorySaver())
+
+    config = {
+        "configurable": {
+            "thread_id": "merchant-scope-graph",
+            "session": AsyncMock(),
+            "permissions": ["tool:get_order", "tool:get_refund_case", "tool:get_ticket"],
+            "merchant_scope": {"merchant_ids": ["merchant-graph"]},
+            "trace_id": "graph-trace",
+        }
+    }
+
+    final_state = await graph.ainvoke(_state("退款超时规则是什么？"), config)
+
+    assert final_state["final_response"]
+    knowledge_search = mocks["knowledge_search"]
+    knowledge_search.assert_awaited_once()
+    _, context_arg = knowledge_search.await_args.args
+    assert isinstance(context_arg, KnowledgeContext)
+    assert context_arg.merchant_scope == ["merchant-graph"]
+
+
+@pytest.mark.asyncio
+async def test_policy_retrieval_uses_policy_knowledge_service(graph_with_fake_llm):
+    """Graph path continues using PolicyKnowledgeService for retrieval, not BusinessToolService."""
+    graph, mocks = graph_with_fake_llm
+
+    final_state = await graph.ainvoke(_state("退款超时规则是什么？"), _config())
+
+    assert final_state["final_response"]
+    mocks["knowledge_search"].assert_awaited_once()
