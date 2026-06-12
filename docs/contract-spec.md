@@ -1050,6 +1050,7 @@ Registry rules：
 - `caller_allowlist` 必须使用合并后的单一节点名 `investigate`；不得声明旧节点名 `load_business_context` 或 `retrieve_policy_evidence`。
 - `kind=read|retrieval` 的 descriptor 才可出现在 `investigate` allowlist，且 `side_effect` 必须为 `none|read_only|retrieval` 之一（非写副作用）；`kind=write` 不得通过 `BusinessToolService.invoke_tool` 或 `investigate` loop 执行。
 - `event_family` 必须与 §12.4 事件族规则一致；同一 operation 只发 descriptor 指定的一族事件。
+- registry 是 read/retrieval/write 全量工具的声明与校验单一入口，但「可被 LLM 在 `investigate` loop 内调用」仅限上一条的 read/retrieval 子集；write 工具仅做声明（permission/schema 统一管理），执行走 §13/§16 risk_gate → approval → `ActionExecutor` 确定性安全链，不经 `invoke_tool`。注意当前 `ToolDescriptor.event_family` 枚举只有 `tool_call_* | rag_retrieval_*`，未覆盖 write/action 事件；write 工具的执行事件走 §17 `action_*` 事件族，Phase 9 若把 write descriptor 纳入 registry，需在实现时为其 event_family 选定 §17 action 事件族或扩展该枚举（spec 当前欠明确，留 Phase 9 决策）。
 - 产生 `BusinessFactRefV1` 的工具，其非空 `resource_type` 必须与返回 ref 的 `resource_type` 及 §12.5 枚举一致；不产生 business fact ref 的工具使用 `null`。
 
 `investigate` allowlist 的 descriptor 概要如下；各工具的 `input_schema` / `output_schema` 在 Phase 9 实现时按 registry 落地：
