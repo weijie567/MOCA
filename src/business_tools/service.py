@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 from typing import Any, Literal
+from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.business_tools.adapters import get_order_adapter, get_refund_case_adapter, get_ticket_adapter
 from src.business_tools.registry import RegisteredTool, ToolRegistry
-from src.business_tools.schemas import ToolCallContext, ToolError, ToolResultV2
+from src.business_tools.schemas import BusinessContextV1, BusinessFactRefV1, ToolCallContext, ToolError, ToolResultV2
+
+
+_CONTEXT_READS = {
+    "order_id": ("get_order", "order", "order_no"),
+    "refund_case_id": ("get_refund_case", "refund_case", "refund_case_no"),
+    "ticket_id": ("get_ticket", "ticket", "ticket_id"),
+}
 
 
 def _merchant_scope_allows(
@@ -100,6 +108,80 @@ class BusinessToolService:
             if result.status == "success" or result.retryable is not True:
                 return result
         return result
+
+    async def fetch_context(self, slots: dict[str, Any], intent: str, ctx: ToolCallContext) -> BusinessContextV1:
+        """Conditionally aggregate requested business reads into one typed context."""
+
+        del intent  # Slot presence is the normative conditional read set.
+        facts: dict[str, Any] = {}
+        fact_refs: list[BusinessFactRefV1] = []
+        fact_ref_keys: set[str] = set()
+        tool_results: list[ToolResultV2] = []
+        missing_required_facts: list[str] = []
+        errors: list[ToolError] = []
+        freshness_values = []
+
+        try:
+            for slot_name, (tool_name, resource_name, argument_name) in _CONTEXT_READS.items():
+                identifier = slots.get(slot_name)
+                if not identifier:
+                    continue
+
+                tool_ctx = ctx.model_copy(update={"tool_call_id": str(uuid4()), "attempt": 1})
+                result = await self.invoke_tool(tool_name, {argument_name: identifier}, tool_ctx)
+                tool_results.append(result)
+
+                if result.status == "success" and result.data is not None:
+                    facts[resource_name] = result.data
+                    for fact_ref in result.business_fact_refs:
+                        key = fact_ref.model_dump_json()
+                        if key not in fact_ref_keys:
+                            fact_ref_keys.add(key)
+                            fact_refs.append(fact_ref)
+                    if result.data_freshness_at is not None:
+                        freshness_values.append(result.data_freshness_at)
+                else:
+                    missing_required_facts.append(resource_name)
+                    if result.error is not None:
+                        errors.append(result.error)
+        except Exception:
+            errors.append(
+                ToolError(
+                    code="BUSINESS_CONTEXT_AGGREGATION_ERROR",
+                    safe_message="Business context aggregation failed",
+                    retryable=False,
+                    source="adapter",
+                )
+            )
+            requested_resources = [
+                resource_name
+                for slot_name, (_, resource_name, _) in _CONTEXT_READS.items()
+                if slots.get(slot_name)
+            ]
+            missing_required_facts.extend(
+                resource_name
+                for resource_name in requested_resources
+                if resource_name not in facts and resource_name not in missing_required_facts
+            )
+            status = "error"
+        else:
+            if facts and not missing_required_facts:
+                status = "complete"
+            elif facts:
+                status = "partial"
+            else:
+                status = "insufficient"
+
+        return BusinessContextV1(
+            tenant_id=ctx.tenant_id,
+            status=status,
+            facts=facts,
+            business_fact_refs=fact_refs,
+            tool_results=tool_results,
+            missing_required_facts=missing_required_facts,
+            errors=errors,
+            data_freshness_at=max(freshness_values) if freshness_values else None,
+        )
 
     @staticmethod
     def _local_error(
