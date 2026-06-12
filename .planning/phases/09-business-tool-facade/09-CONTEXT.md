@@ -43,9 +43,14 @@ bounded read-only investigator, not for the Phase 9 facade. Phase 9 must treat i
   `ToolExecutionResult` (success/error) must be replaced by the 9+ state `ToolResult`
   (`tool_result.v2`: success/partial_success/not_found/permission_denied/timeout/unavailable/
   conflict/invalid_request/invalid_response).
-- **Drop:** the `investigator` / `allowed_in_investigator` / `INVESTIGATOR_TOOL_NAMES` whitelist
-  semantics. The new architecture has no bounded-investigator caller; do not carry that concept
-  into the facade.
+- **Drop:** the old registry's `investigator` / `allowed_in_investigator` /
+  `INVESTIGATOR_TOOL_NAMES` whitelist code semantics from the replaced v1.1 planning line.
+  Phase 10's `investigate` is a bounded read-only tool loop and bounded caller of
+  `BusinessToolService` (P10-DEV-02); the facade must be loop-ready but does not implement loop
+  control. `max_iterations`, tool selection, termination judgement, and result consumption/routing
+  belong to Phase 10's loop/router; the facade owns the per-call boundary. P10-DEV-02 reverses only
+  the "no bounded caller" stance: the old whitelist implementation must still be dropped, and the
+  locked service-layer reuse decision above remains unaffected.
 - **Do NOT** assume the existing registry already satisfies any Phase 9 contract. The spec
   (`docs/contract-spec.md` §8 producer annotation (top of §8) and the Phase 7 baseline current-evidence row) records it
   as current evidence with the explicit gap: "main graph nodes still call concrete tool functions
@@ -59,7 +64,9 @@ misled by the obsolete investigator whitelist / 2-state result semantics.
 - Exact `BusinessToolService` module location (spec suggests `src/business_tools/service.py`).
 - Whether any facade persistence/audit table is introduced (if yes, Phase 9 owns its
   migration/read-switch/rollback per decomposition schema-ownership rules; if no, record `N/A`).
-- Per-tool timeout/partial-success handling and fallback-vs-clarification routing.
+- Per-tool timeout/partial-success handling at the facade per-call boundary. Fallback-vs-clarification
+  routing belongs to Phase 10's `route_after_investigate`; routing/consumption is not a Phase 9
+  facade open question.
 - Phase 9 planning gate: `BusinessFactRefV1` schema must be imported from contract-spec and implemented before Phase 9 execution; adapters must populate tenant_id/source_system/resource_type/resource_id/retrieved_at and data_freshness_at where available.
 </decisions>
 
@@ -77,6 +84,9 @@ Downstream agents MUST read these before planning or implementing.
   schema-ownership rule for any introduced facade persistence.
 - `.planning/phases/07-contract-baseline/07-CONTRACT-BASELINE.md` — coverage matrix and follow-up
   register entries that name Phase 9 as owner.
+- `.planning/phases/10-state-lifecycle-routing-migration/10-04-PLAN.md`
+  `<phase_9_loop_facing_contract>` — required loop-facing design input (anti-rework payload) for
+  building Phase 9 `BusinessToolService` loop-ready.
 - `src/agent/tools/registry.py`, `src/agent/tools/contracts.py`, `src/agent/tools/adapters.py` —
   existing prior-line tool code (see locked decision above).
 - `src/agent/nodes/load_business_context.py` — current direct-call node Phase 9 must migrate.
