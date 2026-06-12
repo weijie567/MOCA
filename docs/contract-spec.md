@@ -140,7 +140,7 @@ Snapshot/hash 使用同一 canonical `EvidenceRefV1` schema，但使用其明确
 
 Knowledge rules：
 
-- Tenant-scoped policy wins over global/default policy when both apply; global policy is fallback only.
+- Tenant-scoped policy wins over global/default policy when both apply; global policy is fallback only. 当前 MVP 只实现 tenant-scoped policy 检索与评估；global/default policy fallback 与 tenant-over-global 优先级合并属于目标态，由 post-Phase 17 `Policy Scope` phase 落地，本条 normative 描述目标语义。
 - `effective_at` must be explicit and defaults to run start time, not wall-clock query time inside the adapter.
 - Partial evidence may support explanatory recommendations, but cannot authorize write actions unless risk/action policy explicitly allows partial evidence.
 - `no_evidence` for policy-required actions routes to insufficient evidence or manual review, not action draft.
@@ -381,7 +381,7 @@ V3 contract pass 将 16 个目标节点定义为“概念节点”。MVP 实现�
 | `long_term_memory_retrieve` | tenant/user/merchant scope, intent | `long_term_memory` | MemoryService search | none | unavailable -> continue without long-term memory | fixed -> `investigate` |
 | `investigate` | resolved slots, query, intent, tenant/trusted tool context | `business_context`, `policy_evidence` / `retrieved_evidence`, `case_memory`, `tool_results`, `last_business_context_refs`, `retrieval_status`, `best_score`, `termination_reason` | BusinessToolService read tools + KnowledgeService / RAG + MemoryService case search + LLM 决策 next tool；bounded tool loop with `max_iterations` | read-only DB/API/vector/memory calls（无写） | not_found/permission/timeout -> fallback/clarification；no evidence -> insufficient evidence response | `route_after_investigate` |
 | `recommendation_generation` | business context, policy evidence, memory context | `recommendation`, `proposed_action`, `missing_info` | LLM structured output + citation validation | none | validation/citation failure -> insufficient evidence/manual review | `route_after_recommendation` |
-| `risk_gate` | proposed_action, evidence refs, business context | `risk_assessment`, `approval_plan` | RiskPolicy + ApprovalPolicy | none | policy evaluation failure -> manual review / approval required | `route_after_risk` |
+| `risk_gate` | proposed_action, evidence refs, business context | `risk_assessment`, `approval_plan`, `safety_snapshot_ref`, `safety_snapshot_hash` | RiskPolicy + ApprovalPolicy | none | policy evaluation failure -> manual review / approval required；snapshot 构建失败（evidence 缺失 / hash 无法计算 / policy/risk/retrieval config version 缺失）-> manual review | `route_after_risk` |
 | `approval_gate` | approval_plan, exact action payload, `ActionSafetySnapshot` | `approval_result`, approval revision refs | ApprovalService + LangGraph interrupt | creates approval records; interrupts graph | expired/rejected/cancelled -> final response；respond -> interrupted lifecycle finalizer | `route_after_approval` |
 | `action_draft` | approved or auto-allowed proposed action, matching `ActionSafetySnapshot` | `action_draft`; demo mode also writes `draft_outcome={status:not_executed_demo, external_side_effect:false}` | ActionDraftService / ActionExecutor.prepare | writes durable draft; never writes external execution record | conflict/invalid hash -> final error/manual review | `route_after_action_draft` |
 | `action_execution` | action_draft, execution_mode=external, adapter allowlist | `action_result`, compensation metadata | ActionExecutor.execute | external write side effect only in external mode | unknown/timeout -> reconciling/manual review | fixed -> `final_response` |
@@ -631,7 +631,7 @@ AgentState 字段必须按生命周期分层。身份和权限上下文来自 AP
 | `approval_plan` | dict or null | risk_gate / ApprovalService plan | `route_after_risk`, approval_gate | replace by validated revision | approval tables |
 | `approval_result` | dict or null | trusted ApprovalService resume adapter | `route_after_approval`, action guard, response | preserve only on same interrupted run; replace by revision | approval tables / checkpoint |
 | `approval_revision_refs` | list of trusted revision refs | ApprovalService | `route_after_approval`, action guard, replay | append revision; never inherit to unrelated run | approval tables / checkpoint |
-| `safety_snapshot_ref`, `safety_snapshot_hash` | string or null | snapshot builder / ApprovalService | risk, approval, draft, execution guard | immutable per revision; replace only with new validated revision | snapshot/approval/action tables |
+| `safety_snapshot_ref`, `safety_snapshot_hash` | string or null | risk_gate (snapshot builder) / ApprovalService | risk, approval, draft, execution guard | immutable per revision; replace only with new validated revision | snapshot/approval/action tables |
 | `action_draft`, `draft_outcome`, `action_result`, `compensation_metadata` | dict or null | ActionDraftService / ActionExecutor | `route_after_action_draft`, response, replay | reset each new run; replace by idempotent service result | action tables / AgentRun |
 | `execution_mode` | `demo \| external` or null | trusted config / ActionDraftService | `route_after_action_draft`, executor | new run trusted replace only | AgentRun / action draft |
 | `final_response` | dict or null | final_response | API, memory_write, trace_close | reset each turn; replace | AgentRun final response |
@@ -845,6 +845,42 @@ Gate status precedence 固定且逐 class 应用：1) coverage manifest missing/
 ```
 
 约束：intent node 不生成最终答案，不决定审批，不执行工具，也不写最终 `extracted_slots` / `active_slots`。`candidate_slots` 只作为后续 `slot_extraction` 的 hint，不参与 completeness，不能覆盖 slot node 输出。`risk_signals` 不由 intent node 写，由 deterministic risk helpers / recommendation 产出。
+
+### 11.7 Intent consistency manifest
+
+必须维护一份 machine-readable intent consistency manifest，逐项列出 §11.1 taxonomy 的每个 ordinary-chat intent。该 manifest 只声明并校验跨表覆盖完整性；它不是运行时 `IntentRegistry`，intent 各维度仍分别以对应 taxonomy、precedence、required-slot、routing/evidence 和 golden-set contract 为 source of truth。
+
+Consistency check 的 normative 规则如下。每个 taxonomy intent 必须在以下每个来源都有对应条目，缺少任一条目即 consistency check fail，并由 CI/contract test 阻断：
+
+1. §11.2 precedence 表有该 intent 的 primary intent 行。
+2. §11.3 required-slot 表有该 intent 的 required-slot expression。
+3. §9.3 intent-level routing 表和 evidence sufficiency decision table 都有该 intent 的路由/证据行。
+4. §11.4 intent golden set 有该 intent 的正样例和负样例。
+
+Manifest 使用 immutable dataset version/hash，并为每个 intent 声明来源覆盖标记。以下是通过 consistency check 后的 JSON 示例骨架；CI/contract test 必须从对应 source of truth 验证每个标记，不得只信任 manifest 中声明的 `true`：
+
+```json
+{
+  "manifest_version": "intent-consistency.v1",
+  "dataset_version": "intent-golden.v1",
+  "dataset_hash": "sha256:...",
+  "intents": [
+    {"intent":"policy_qa","in_precedence":true,"in_required_slots":true,"in_routing":true,"in_evidence_table":true,"in_golden_set":true},
+    {"intent":"order_status_inquiry","in_precedence":true,"in_required_slots":true,"in_routing":true,"in_evidence_table":true,"in_golden_set":true},
+    {"intent":"refund_troubleshooting","in_precedence":true,"in_required_slots":true,"in_routing":true,"in_evidence_table":true,"in_golden_set":true},
+    {"intent":"compensation_suggestion","in_precedence":true,"in_required_slots":true,"in_routing":true,"in_evidence_table":true,"in_golden_set":true},
+    {"intent":"ticket_reply_draft","in_precedence":true,"in_required_slots":true,"in_routing":true,"in_evidence_table":true,"in_golden_set":true},
+    {"intent":"appeal_or_unban","in_precedence":true,"in_required_slots":true,"in_routing":true,"in_evidence_table":true,"in_golden_set":true},
+    {"intent":"complaint_escalation","in_precedence":true,"in_required_slots":true,"in_routing":true,"in_evidence_table":true,"in_golden_set":true},
+    {"intent":"action_request","in_precedence":true,"in_required_slots":true,"in_routing":true,"in_evidence_table":true,"in_golden_set":true},
+    {"intent":"small_talk","in_precedence":true,"in_required_slots":true,"in_routing":true,"in_evidence_table":true,"in_golden_set":true},
+    {"intent":"unsupported","in_precedence":true,"in_required_slots":true,"in_routing":true,"in_evidence_table":true,"in_golden_set":true}
+  ],
+  "coverage_status": "complete"
+}
+```
+
+新增 intent 时必须先同步更新该 manifest 和所有被校验来源，并通过 consistency check 后才能合并。可产生动作的 intent 还必须补齐 §15/§16 的 risk、approval 与 action policy 绑定。
 
 ---
 
@@ -1337,6 +1373,8 @@ Approval accept 仅授权审批记录绑定的精确 `action_payload_hash`。任
 #### ActionSafetySnapshot contract
 
 审批、action draft 和 external execution 必须绑定同一份不可变 `ActionSafetySnapshot`。这是目标 contract；Phase 13 owns `action_safety_snapshots` schema、canonical snapshot/hash contract、approval-side immutable JSON/hash 过渡字段和 contract tests；Phase 14 只能在 action draft 中增加引用/冗余 hash fields 并验证与 Phase 13 snapshot 匹配；Phase 15 只负责 replay FK/backfill。每个字段和失效规则必须可由 contract tests 验证。
+
+运行时由 `risk_gate` 在评估 risk/approval policy 后、进入 `approval_gate` 或 `action_draft` 之前构建 snapshot，并写入 `safety_snapshot_ref` / `safety_snapshot_hash`；因此 auto-allowed 的 `risk_gate -> action_draft` 路径也必须已有可校验 snapshot。下游 `approval_gate`、`action_draft` 和 `action_execution` 只校验、不重新生产 snapshot；仅 ApprovalService 在 edit/needs_info 产生新 revision 时重建 snapshot。
 
 ```json
 {
