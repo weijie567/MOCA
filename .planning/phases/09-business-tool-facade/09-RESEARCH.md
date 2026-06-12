@@ -79,10 +79,24 @@ Graph wiring (confirmed `src/agent/graph.py:62,73,74`):
 These are normative. Copy field-for-field; do not widen identity/scope fields (they are §8.0 TrustedContext projections).
 
 ### 3.1 `ToolCallContext` (`tool_context.v2`, §12.5 lines 938-956)
-18 fields. Identity/scope projection (`tenant_id, user_id, role, permissions, merchant_scope, session_id, thread_id, run_id, trace_id`) + tool-call-local (`request_id, tool_call_id, caller_node, deadline_at, attempt=1, max_attempts=1, idempotency_key, policy_snapshot_ref`). All system-injected; never LLM/user-generated.
+18 fields. **Copy the EXACT types and defaults from §12.5 (do not borrow Phase 8's `KnowledgeContext` shape).** Normative field types:
+- `schema_version: Literal["tool_context.v2"] = "tool_context.v2"`
+- `tenant_id: str`, `user_id: str`, `role: str` (required)
+- `permissions: list[str]` (required)
+- `merchant_scope: dict[str, Any]` — **REQUIRED `dict`, NOT `list[str] | None`.** §8.0 freezes it as structured `MerchantScopeV1` (`merchant_ids`/`categories`/`risk_levels`/`match_rule`). Phase 9 carries it as `dict[str, Any]` per §12.5 (the canonical `MerchantScopeV1` class is SCF-1 deferred to Phase 10, but the dict MUST preserve the categories/risk_levels dimensions so unknown-category scope checks are expressible).
+- `session_id: str | None = None` (**optional, nullable** — §8.0 line 21)
+- `thread_id: str`, `run_id: str`, `trace_id: str` (required)
+- `request_id: str`, `tool_call_id: str`, `caller_node: str` (required)
+- `deadline_at: datetime | None = None`
+- `attempt: int = 1`
+- `max_attempts: int = 1`
+- `idempotency_key: str | None = None`
+- `policy_snapshot_ref: str | None = None`
+
+All system-injected; never LLM/user-generated. **Preserve every `= None` / `= False` default exactly — do not make spec-optional fields required-at-construction.**
 
 ### 3.2 `ToolResultV2` (`tool_result.v2`, §12.5 lines 965-989)
-10 statuses: `success | partial_success | not_found | permission_denied | timeout | unavailable | conflict | invalid_request | invalid_response | error`. Fields: `data: dict|None, summary: str, source_system: str, data_freshness_at: datetime|None, policy_evidence_refs: list[EvidenceRefV1]=[] (business tools leave empty), business_fact_refs: list[BusinessFactRefV1]=[], error: ToolError|None, retryable: bool, retry_after_ms: int|None, latency_ms: int, audit_ref: str|None`.
+10 statuses: `success | partial_success | not_found | permission_denied | timeout | unavailable | conflict | invalid_request | invalid_response | error`. Fields (preserve §12.5 defaults EXACTLY): `data: dict|None, summary: str, source_system: str, data_freshness_at: datetime|None, policy_evidence_refs: list[EvidenceRefV1] = [] (business tools leave empty), business_fact_refs: list[BusinessFactRefV1] = [], error: ToolError | None = None, retryable: bool = False, retry_after_ms: int | None = None, latency_ms: int (REQUIRED, no default), audit_ref: str | None = None`.
 
 ### 3.3 `ToolError` (§12.5 991-995)
 `code: str, safe_message: str, retryable: bool, source: Literal["caller","tool","adapter","upstream","policy"]`.
