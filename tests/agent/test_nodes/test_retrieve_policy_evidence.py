@@ -6,7 +6,7 @@ import pytest
 
 from src.agent.nodes import retrieve_policy_evidence as retrieve_policy_evidence_module
 from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
-from src.knowledge.schemas import EvidenceRefV1, KnowledgeSearchResult
+from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext, KnowledgeSearchResult
 
 
 def _evidence(*, policy_version: str = "v1", chunk_id: str = "chunk_001") -> EvidenceRefV1:
@@ -130,3 +130,117 @@ async def test_search_error_records_node_error_not_insufficient_evidence(monkeyp
     assert result["recommendation_draft"]["recommended_action"] == "retrieval_error"
     assert result["node_errors"][0]["error"]["error_code"] == "DB_TIMEOUT"
     assert result["trace_steps"][-1]["status"] == "error"
+
+
+# --- Merchant scope projection tests (09-07) ---
+
+
+@pytest.mark.asyncio
+async def test_structured_merchant_ids_projected_to_knowledge_context(monkeypatch, base_state):
+    """Structured dict with merchant_ids must reach KnowledgeContext.merchant_scope unchanged."""
+    search = _mock_search(monkeypatch, _result(status="no_evidence", best_score=0.0))
+
+    await retrieve_policy_evidence_module.retrieve_policy_evidence(
+        base_state,
+        {"configurable": {
+            "session": AsyncMock(),
+            "merchant_scope": {"merchant_ids": ["merchant-1"]},
+        }},
+    )
+
+    _, context = search.await_args.args
+    assert isinstance(context, KnowledgeContext)
+    assert context.merchant_scope == ["merchant-1"]
+
+
+@pytest.mark.asyncio
+async def test_legacy_list_merchant_scope_preserved(monkeypatch, base_state):
+    """Legacy list merchant_scope passes through unchanged."""
+    search = _mock_search(monkeypatch, _result(status="no_evidence", best_score=0.0))
+
+    await retrieve_policy_evidence_module.retrieve_policy_evidence(
+        base_state,
+        {"configurable": {
+            "session": AsyncMock(),
+            "merchant_scope": ["merchant-legacy"],
+        }},
+    )
+
+    _, context = search.await_args.args
+    assert context.merchant_scope == ["merchant-legacy"]
+
+
+@pytest.mark.asyncio
+async def test_missing_merchant_scope_fails_closed_to_empty_list(monkeypatch, base_state):
+    """Missing merchant_scope becomes empty list, not unrestricted None."""
+    search = _mock_search(monkeypatch, _result(status="no_evidence", best_score=0.0))
+
+    await retrieve_policy_evidence_module.retrieve_policy_evidence(
+        base_state,
+        {"configurable": {"session": AsyncMock()}},
+    )
+
+    _, context = search.await_args.args
+    assert context.merchant_scope == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_scope", [
+    None,
+    "not-a-list-or-dict",
+    42,
+    {"merchant_ids": None},
+    {"merchant_ids": "not-a-list"},
+    {"merchant_ids": []},
+    {"merchant_ids": [123, True]},
+    {"categories": ["electronics"]},
+    {},
+])
+async def test_malformed_merchant_scope_fails_closed(monkeypatch, base_state, bad_scope):
+    """Malformed or non-string structured merchant IDs become [], never None."""
+    search = _mock_search(monkeypatch, _result(status="no_evidence", best_score=0.0))
+
+    await retrieve_policy_evidence_module.retrieve_policy_evidence(
+        base_state,
+        {"configurable": {
+            "session": AsyncMock(),
+            "merchant_scope": bad_scope,
+        }},
+    )
+
+    _, context = search.await_args.args
+    assert context.merchant_scope == [], f"Expected fail-closed [] for {bad_scope!r}, got {context.merchant_scope!r}"
+
+
+@pytest.mark.asyncio
+async def test_other_structured_dimensions_not_misinterpreted_as_merchant_ids(monkeypatch, base_state):
+    """Dict with categories/risk_levels but no merchant_ids must not infer merchant IDs."""
+    search = _mock_search(monkeypatch, _result(status="no_evidence", best_score=0.0))
+
+    await retrieve_policy_evidence_module.retrieve_policy_evidence(
+        base_state,
+        {"configurable": {
+            "session": AsyncMock(),
+            "merchant_scope": {"categories": ["electronics"], "risk_levels": ["high"]},
+        }},
+    )
+
+    _, context = search.await_args.args
+    assert context.merchant_scope == []
+
+
+@pytest.mark.asyncio
+async def test_structured_merchant_ids_multiple_values(monkeypatch, base_state):
+    """Multiple merchant IDs in structured scope are all preserved."""
+    search = _mock_search(monkeypatch, _result(status="no_evidence", best_score=0.0))
+
+    await retrieve_policy_evidence_module.retrieve_policy_evidence(
+        base_state,
+        {"configurable": {
+            "session": AsyncMock(),
+            "merchant_scope": {"merchant_ids": ["merchant-a", "merchant-b", "merchant-c"]},
+        }},
+    )
+
+    _, context = search.await_args.args
+    assert context.merchant_scope == ["merchant-a", "merchant-b", "merchant-c"]
