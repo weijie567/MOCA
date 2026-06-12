@@ -115,7 +115,7 @@ Turn 2：
   "expected_resolution": {
     "active_slots.order_id": {"value": "ORD-1001", "source": "current_turn"}
   },
-  "expected_route": "business_context_fetch",
+  "expected_route": "investigate",
   "forbidden": ["reuse unrelated thread slots", "skip business context", "reuse stale approval"]
 }
 ```
@@ -261,8 +261,7 @@ Expired：
     "intent_classification",
     "session_memory_load",
     "slot_extraction",
-    "business_context_fetch",
-    "policy_evidence_retrieve",
+    "investigate",
     "recommendation_generation",
     "risk_gate",
     "approval_gate",

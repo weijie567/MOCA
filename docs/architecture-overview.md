@@ -124,6 +124,7 @@ MOCA 的目标架构是：面向商家运营与售后协同的企业级 Agent �
 | Approval | 已有 interrupt/resume、approve/reject、审批持久化。 | 无 request/level/assignment version CAS、multi-level 聚合和 exact revision execution guard。 | 第 15 节 versioned approval state machine 和 optimistic locking。 | Phase 13 |
 | Action | 已有 durable `ActionDraft` 和 idempotency key。 | demo/external outcome contract 未完全分离；无 external executor/reconciliation。 | demo 只写 draft + `draft_outcome`；external 原子校验后执行。 | Phase 14, Phase 17 |
 | Replay | 已有 AgentRun/AgentStep 和组合 timeline。 | 事件枚举和 lifecycle coverage 不完整；不是统一 V3 event store。 | ReplayEventV3、稳定 sequence、完整 lifecycle enum 和 retention。 | Phase 15 |
+| 调查段节点图（investigation segment） | §7.3 旧图把只读取证拆成 business_context_fetch / policy_evidence_retrieve / case_memory_retrieve 三个独立节点 + route_after_business_context / route_after_policy_evidence。 | 三节点固定串联在 router 层无法表达跨数据源动态调查（如先查物流再决定是否查政策）。 | 合并为单一 investigate bounded-loop 节点（§9.1 第 8 节点）+ 单一 route_after_investigate（§9.5）；内部 bounded tool loop 受 max_iterations 等三护栏约束。 | Phase 10 |
 
 ---
 
@@ -232,7 +233,9 @@ graph TB
 
 ### 7.2 V2 细粒度流程路由图
 
-这张图表达目标 graph 的流程分支、intent routing、gate 和 service 调用关系。它不是严格的 `StateGraph.add_node(...)` 节点图，因为里面混合了节点、条件 router、path label 和 service 调用说明。当前 `src/agent/graph.py` 仍是较线性的 10 节点主链。V2 设计的目标是：先按 intent 做粗路由，再按是否需要业务事实、政策证据、记忆、审批和动作执行决定是否进入对应节点。
+这张图表达目标 graph 的流程分支、intent routing、gate 和 service 调用关系。它不是严格的 `StateGraph.add_node(...)` 节点图，因为里面混合了节点、条件 router、path label、service 调用说明，以及 `investigate` 节点内部的 bounded loop 展开。当前 `src/agent/graph.py` 仍是较线性的 10 节点主链。V2 设计的目标是：先按 intent 做粗路由，需要只读调查时统一进入 `investigate` bounded tool loop，按调查计划条件性拉取业务事实、政策证据和案例记忆；所有调查结果再交给单一 deterministic `route_after_investigate`。
+
+图中 `investigate` 子图是 registered node 内部行为，不是额外 LangGraph nodes 或 routers：LLM 只在 read-only allowlist 内决定下一次 BusinessToolService / KnowledgeService / MemoryService 调用；每次调用累积 state 和 trace；达到 `max_iterations`、已取得足够上下文或无法继续时退出 loop，再统一交给 `route_after_investigate`。
 
 第 7 节图仅是 illustrative view。第 9.4 节 node contract table 和第 9.5 节 router contract table 是 normative source；图中不得引入与其冲突的 edge。
 
@@ -268,14 +271,7 @@ graph TD
     Unsupported --> Final
 
     IntentRoute -->|policy_qa| PolicyPath[policy_qa_path]
-    PolicyPath --> PolicyRetrieve[policy_evidence_retrieve\nKnowledgeService.search]
-    PolicyRetrieve --> EvidenceGate{strong or partial evidence?}
-    EvidenceGate -->|no| NoEvidence[insufficient_evidence_response]
-    NoEvidence --> Final
-    EvidenceGate -->|yes| PolicyAnswer[recommendation_generation\nanswer grounded by citations]
-    PolicyAnswer --> OptionalRisk{proposed action exists?}
-    OptionalRisk -->|no| Final
-    OptionalRisk -->|yes| RiskGate[risk_gate\nRiskPolicy + ApprovalPolicy]
+    PolicyPath --> InvestigateEnter
 
     IntentRoute -->|order_status_inquiry| OrderPath[order_status_path]
     OrderPath --> SessionLoad[session_memory_load\nactive slots + summary]
@@ -283,31 +279,42 @@ graph TD
     SlotExtract --> ResolveSlots[resolve_slots\ndeterministic helper]
     ResolveSlots --> SlotRoute{route_after_slots}
     SlotRoute -->|missing required group| Clarify
-    SlotRoute -->|complete| BizFetch[business_context_fetch\nBusinessToolService read tools]
-    BizFetch --> ContextGate{context sufficient?}
-    ContextGate -->|no| Clarify
-    ContextGate -->|yes| OrderResponse[business_fact_response]
-    OrderResponse --> Final
+    SlotRoute -->|complete| InvestigateEnter
 
     IntentRoute -->|refund_troubleshooting| RefundPath[refund_troubleshooting_path]
     IntentRoute -->|compensation_suggestion| RefundPath
     IntentRoute -->|ticket_reply_draft| RefundPath
     RefundPath --> SessionLoad
-    BizFetch --> NeedPolicy{needs policy evidence?}
-    NeedPolicy -->|no| ContextOnlyReco[recommendation_generation\nfrom business facts only]
-    NeedPolicy -->|yes| PolicyRetrieve
-    PolicyAnswer --> CaseRetrieve[case_memory_retrieve\nprecedent only]
-    CaseRetrieve --> Reco[recommendation_generation\nfacts + evidence + memory]
-    ContextOnlyReco --> RiskGate
-    Reco --> RiskGate
 
     IntentRoute -->|action_request| ActionPath[action_request_path]
     ActionPath --> SessionLoad
-    ContextGate --> ActionEvidence[policy_evidence_retrieve\nrequired for action]
-    ActionEvidence --> ActionEvidenceGate{evidence sufficient?}
-    ActionEvidenceGate -->|no| NoEvidence
-    ActionEvidenceGate -->|yes| ActionReco[recommendation_generation\nproposed_action candidate]
-    ActionReco --> RiskGate
+
+    subgraph InvestigateNode["investigate registered node: bounded read-only tool loop"]
+        InvestigateEnter([enter investigate]) --> InvestigatePlan[LLM selects next read step\nwithin read-only allowlist]
+        InvestigatePlan --> ReadStep{next investigation step?}
+        ReadStep -->|business context| BizRead[BusinessToolService read tools]
+        ReadStep -->|policy evidence| PolicyRead[KnowledgeService / RAG search]
+        ReadStep -->|case memory| CaseRead[MemoryService case search]
+        BizRead --> Accumulate[accumulate state + trace event\nbusiness_context / policy_evidence / case_memory / tool_results]
+        PolicyRead --> Accumulate
+        CaseRead --> Accumulate
+        Accumulate --> ContinueLoop{continue loop?}
+        ContinueLoop -->|yes: max_iterations not reached\nand context still needed| InvestigatePlan
+        ContinueLoop -->|enough context / no evidence / error| InvestigateExit([exit investigate\ntermination_reason=null])
+        ContinueLoop -->|max_iterations reached| InvestigateMaxIter([exit investigate\ntermination_reason=max_iterations_reached])
+    end
+
+    InvestigateExit --> InvestigateRoute{route_after_investigate}
+    InvestigateMaxIter --> InvestigateRoute
+    InvestigateRoute -->|missing required facts| Clarify
+    InvestigateRoute -->|permission denied| Final
+    InvestigateRoute -->|fact-only: business_fact_response| Final
+    InvestigateRoute -->|no / insufficient evidence: insufficient_evidence_response| Final
+    InvestigateRoute -->|sufficient investigation context| Reco[recommendation_generation\nfacts + evidence + memory]
+
+    Reco --> OptionalRisk{proposed action exists?}
+    OptionalRisk -->|no| Final
+    OptionalRisk -->|yes| RiskGate[risk_gate\nRiskPolicy + ApprovalPolicy]
 
     RiskGate --> RiskRoute{approval/action route}
     RiskRoute -->|no proposed action| Final
@@ -335,9 +342,9 @@ graph TD
 
 ### 7.3 V2 严格 LangGraph 节点图
 
-这张图只展示建议在目标实现中通过 `StateGraph.add_node(...)` 注册的 LangGraph 节点。菱形 router 不是节点，而是 `add_conditional_edges(...)` 使用的路由函数。KnowledgeService、BusinessToolService、MemoryService、ApprovalPolicy、ActionExecutor、Observability 也不是 LangGraph 节点，而是节点内部调用的分层 service。
+这张图只展示建议在目标实现中通过 `StateGraph.add_node(...)` 注册的 LangGraph 节点。菱形 router 不是节点，而是 `add_conditional_edges(...)` 使用的路由函数。KnowledgeService、BusinessToolService、MemoryService、ApprovalPolicy、ActionExecutor、Observability 也不是 LangGraph 节点，而是节点内部调用的分层 service。`investigate` 内部的 bounded tool loop 已在上一节 illustrative 图展开；本节 node-only 图保持单一 `investigate` 节点，不把 loop step 画成注册节点。
 
-目标 V2 建议注册 **18 个 LangGraph 节点**：
+目标 V2 建议注册 **16 个 LangGraph 节点**：
 
 1. `receive_request`
 2. `normalize_input`
@@ -346,21 +353,19 @@ graph TD
 5. `slot_extraction`
 6. `session_memory_load`
 7. `long_term_memory_retrieve`
-8. `business_context_fetch`
-9. `policy_evidence_retrieve`
-10. `case_memory_retrieve`
-11. `recommendation_generation`
-12. `risk_gate`
-13. `approval_gate`
-14. `action_draft`
-15. `action_execution`
-16. `final_response`
-17. `memory_write`
-18. `trace_close`
+8. `investigate`（合并 business_context / policy_evidence / case_memory 三个概念子能力）
+9. `recommendation_generation`
+10. `risk_gate`
+11. `approval_gate`
+12. `action_draft`
+13. `action_execution`
+14. `final_response`
+15. `memory_write`
+16. `trace_close`
 
 这份 node list 是概念能力清单，不表示执行顺序；实际顺序由 intent-specific path 和 deterministic routers 决定。
 
-`security_context` 不建议作为独立 LangGraph 节点注册。它应由 API/auth dependency 和 graph input/config 注入，作为 `ToolCallContext`、`AgentState` 和 checkpoint thread scope 的一部分。如果后续要把 tenant/role/scope 校验放入 graph，也可以新增 `security_context` 节点，但那会把目标节点数从 18 增加到 19。
+`security_context` 不建议作为独立 LangGraph 节点注册。它应由 API/auth dependency 和 graph input/config 注入，作为 `ToolCallContext`、`AgentState` 和 checkpoint thread scope 的一部分。如果后续要把 tenant/role/scope 校验放入 graph，也可以新增 `security_context` 节点，但那会把目标节点数从 16 增加到 17。
 
 ```mermaid
 graph TD
@@ -371,57 +376,51 @@ graph TD
     N3 --> R1{route_after_intent}
     R1 -->|low confidence / missing required intent| N4[clarification_gate]
     R1 -->|needs slots| N6[session_memory_load]
-    R1 -->|policy_qa without slots| N9[policy_evidence_retrieve]
-    R1 -->|small_talk / unsupported| N16[final_response]
+    R1 -->|policy_qa without slots| N8[investigate]
+    R1 -->|small_talk / unsupported| N14[final_response]
 
-    N4 --> N16
+    N4 --> N14
 
     N6 --> N5[slot_extraction]
 
     N5 --> R2{route_after_slots}
     R2 -->|missing after session merge| N4
     R2 -->|slots ok + needs long-term memory| N7[long_term_memory_retrieve]
-    R2 -->|slots ok + skip long-term memory| N8[business_context_fetch]
+    R2 -->|slots ok + skip long-term memory| N8
 
     N7 --> N8
 
-    N8 --> R4{route_after_business_context}
-    R4 -->|context insufficient| N4
-    R4 -->|business fact answer only| N16
-    R4 -->|needs policy evidence| N9[policy_evidence_retrieve]
-    R4 -->|can recommend without policy| N11[recommendation_generation]
+    N8 --> R3{route_after_investigate}
+    R3 -->|missing required facts| N4
+    R3 -->|permission denied| N14
+    R3 -->|fact-only: business_fact_response| N14
+    R3 -->|no / insufficient evidence: insufficient_evidence_response| N14
+    R3 -->|sufficient investigation context| N9[recommendation_generation]
 
-    N9 --> R5{route_after_policy_evidence}
-    R5 -->|no evidence| N16
-    R5 -->|needs case memory| N10[case_memory_retrieve]
-    R5 -->|skip case memory| N11
+    N9 --> R4{route_after_recommendation}
+    R4 -->|no proposed action| N14
+    R4 -->|proposed action or risk signal| N10[risk_gate]
 
-    N10 --> N11
+    N10 --> R5{route_after_risk}
+    R5 -->|blocked / no action| N14
+    R5 -->|approval required| N11[approval_gate]
+    R5 -->|auto allowed| N12[action_draft]
 
-    N11 --> R6{route_after_recommendation}
-    R6 -->|no proposed action| N16
-    R6 -->|proposed action or risk signal| N12[risk_gate]
+    N11 --> R6{route_after_approval}
+    R6 -->|accept / approve + request approved| N12
+    R6 -->|accept / approve + next level pending| N11
+    R6 -->|edit| N10
+    R6 -->|respond / request info| N16
+    R6 -->|reject / ignore / expired| N14
 
-    N12 --> R7{route_after_risk}
-    R7 -->|blocked / no action| N16
-    R7 -->|approval required| N13[approval_gate]
-    R7 -->|auto allowed| N14[action_draft]
+    N12 --> R7{route_after_action_draft}
+    R7 -->|demo| N14
+    R7 -->|external| N13[action_execution]
+    N13 --> N14
 
-    N13 --> R8{route_after_approval}
-    R8 -->|accept / approve + request approved| N14
-    R8 -->|accept / approve + next level pending| N13
-    R8 -->|edit| N12
-    R8 -->|respond / request info| N18
-    R8 -->|reject / ignore / expired| N16
-
-    N14 --> R9{route_after_action_draft}
-    R9 -->|demo| N16
-    R9 -->|external| N15[action_execution]
-    N15 --> N16
-
-    N16 --> N17[memory_write]
-    N17 --> N18[trace_close]
-    N18 --> END([END])
+    N14 --> N15[memory_write]
+    N15 --> N16[trace_close]
+    N16 --> END([END])
 ```
 
 #### 节点与 service 边界
@@ -435,9 +434,7 @@ graph TD
 | `slot_extraction` | 提取订单、退款、工单、金额、商家等 slots | LLM structured output / SlotPrompt |
 | `session_memory_load` | 读取同 thread active slots、summary、unresolved questions | MemoryService session read |
 | `long_term_memory_retrieve` | 读取稳定偏好或商家长期模式 | MemoryService long-term search |
-| `business_context_fetch` | 拉取订单/退款/工单/物流/商家风险事实 | BusinessToolService read tools |
-| `policy_evidence_retrieve` | 检索政策/SOP 证据并做 no-evidence gate | KnowledgeService / RAG / citation validator |
-| `case_memory_retrieve` | 检索历史类似 case，作为 precedent | MemoryService case search |
+| `investigate` | 按 intent 与调查计划，在 bounded tool loop 内只读拉取 business context / policy evidence / case memory | BusinessToolService read tools + KnowledgeService/RAG + MemoryService case search（bounded loop, max_iterations） |
 | `recommendation_generation` | 生成处理建议和 proposed_action candidate | LLM structured output / RecommendationPrompt |
 | `risk_gate` | 评估风险、审批需求、动作是否可自动草稿 | RiskPolicy + ApprovalPolicy |
 | `approval_gate` | 创建 interrupt，等待 accept/edit/respond/reject/ignore | ApprovalService / LangGraph interrupt |
@@ -453,8 +450,7 @@ Canonical router 函数包括：
 
 - `route_after_intent`
 - `route_after_slots`
-- `route_after_business_context`
-- `route_after_policy_evidence`
+- `route_after_investigate`
 - `route_after_recommendation`
 - `route_after_risk`
 - `route_after_approval`

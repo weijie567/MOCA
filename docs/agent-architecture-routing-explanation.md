@@ -34,7 +34,7 @@
 
 它只包含真正的 LangGraph 节点。
 
-目标版建议注册 **18 个 LangGraph 节点**：
+旧图曾拆成 18 个节点；现行目标版严格收敛为 **16 个 canonical LangGraph nodes**：
 
 ```text
 1. receive_request
@@ -44,17 +44,15 @@
 5. slot_extraction
 6. session_memory_load
 7. long_term_memory_retrieve
-8. business_context_fetch
-9. policy_evidence_retrieve
-10. case_memory_retrieve
-11. recommendation_generation
-12. risk_gate
-13. approval_gate
-14. action_draft
-15. action_execution
-16. final_response
-17. memory_write
-18. trace_close
+8. investigate
+9. recommendation_generation
+10. risk_gate
+11. approval_gate
+12. action_draft
+13. action_execution
+14. final_response
+15. memory_write
+16. trace_close
 ```
 
 这些才是未来可以写成：
@@ -83,8 +81,7 @@ receive_request
 normalize_input
 intent_classification
 slot_extraction
-business_context_fetch
-policy_evidence_retrieve
+investigate
 recommendation_generation
 risk_gate
 approval_gate
@@ -110,14 +107,14 @@ final_response
 ```text
 route_after_intent
 route_after_slots
-route_after_business_context
-route_after_policy_evidence
+route_after_investigate
 route_after_recommendation
 route_after_risk
 route_after_approval
+route_after_action_draft
 ```
 
-这些不算 LangGraph 节点。
+这 **7 个 canonical routers** 不算 LangGraph 节点。
 
 它们只是 conditional edge 里的函数，比如：
 
@@ -130,15 +127,15 @@ def route_after_intent(state: AgentState) -> str:
         return "clarification_gate"
 
     if intent == "policy_qa":
-        return "policy_evidence_retrieve"
+        return "investigate"
 
     if intent == "order_status_inquiry":
-        return "slot_extraction"
+        return "session_memory_load"
 
     if intent in {"small_talk", "unsupported"}:
         return "final_response"
 
-    return "slot_extraction"
+    return "session_memory_load"
 ```
 
 router 只负责：
@@ -174,17 +171,10 @@ ObservabilityService
 例如：
 
 ```text
-policy_evidence_retrieve 节点
-  -> 调用 KnowledgeService.search()
-      -> 内部做 RAG、pgvector、citation validation
-```
-
-再比如：
-
-```text
-business_context_fetch 节点
-  -> 调用 BusinessToolService.fetch_context()
-      -> 内部调用 get_order / get_refund_case / get_ticket
+investigate 节点
+  -> 在 read-only allowlist 内按需调用 BusinessToolService read
+  -> 按需调用 KnowledgeService RAG
+  -> 按需调用 MemoryService case search
 ```
 
 这样做的目的：
@@ -221,9 +211,8 @@ common entry
 
 ```text
 slot_extraction
--> business_context_fetch
--> policy_evidence_retrieve
--> case_memory_retrieve
+-> investigate
+-> route_after_investigate
 -> recommendation_generation
 -> risk_gate
 ```
@@ -443,8 +432,7 @@ receive_request
 
 ```text
 slot_extraction
-business_context_fetch
-policy_evidence_retrieve
+investigate
 risk_gate
 approval_gate
 action_draft
@@ -570,7 +558,8 @@ policy_qa
 receive_request
 -> normalize_input
 -> intent_classification
--> policy_evidence_retrieve
+-> investigate
+-> route_after_investigate
 -> recommendation_generation
 -> final_response
 -> memory_write
@@ -581,9 +570,9 @@ receive_request
 
 因为用户问的是规则，不是具体订单。
 
-为什么可以跳过 `business_context_fetch`？
+为什么可以不查业务事实？
 
-因为不需要查某个订单状态。
+因为不需要查某个订单状态。`policy_qa` 仍进入 `investigate`，但其内部 bounded tool loop 可以只调用 KnowledgeService RAG，不要求先调用 BusinessToolService。
 
 为什么可以跳过 `risk_gate`？
 
@@ -610,7 +599,7 @@ approval_gate / action_draft
 
 ## 10. policy_qa 路径里的 evidence gate
 
-`policy_evidence_retrieve` 之后会判断有没有足够证据。
+`investigate` 完成后统一交给 `route_after_investigate`，由它判断有没有足够证据以及下一步目标。
 
 ### 10.1 有证据
 
@@ -634,7 +623,8 @@ approval_gate / action_draft
 路线：
 
 ```text
-policy_evidence_retrieve
+investigate
+-> route_after_investigate
 -> recommendation_generation
 -> final_response
 ```
@@ -660,7 +650,8 @@ policy_evidence_retrieve
 路线：
 
 ```text
-policy_evidence_retrieve
+investigate
+-> route_after_investigate
 -> final_response
 ```
 
@@ -698,9 +689,11 @@ order_status_inquiry
 receive_request
 -> normalize_input
 -> intent_classification
--> slot_extraction
 -> session_memory_load
--> business_context_fetch
+-> slot_extraction
+-> route_after_slots
+-> investigate
+-> route_after_investigate
 -> final_response
 -> memory_write
 -> trace_close
@@ -720,11 +713,11 @@ receive_request
 }
 ```
 
-### 11.2 为什么需要 `business_context_fetch`？
+### 11.2 为什么需要 `investigate`？
 
 因为订单状态来自业务系统，不应该由 LLM 猜。
 
-`business_context_fetch` 会调用 BusinessToolService，再由它调用 read tools：
+`investigate` 会调用 BusinessToolService，再由它调用 read tools：
 
 ```text
 get_order
@@ -760,8 +753,9 @@ ORD-1001 已签收还能退款吗？
 那就不是纯订单状态查询了，需要：
 
 ```text
-business_context_fetch
--> policy_evidence_retrieve
+investigate（内部按需读取订单事实和政策证据）
+-> route_after_investigate
+-> recommendation_generation
 ```
 
 ### 11.4 为什么可以跳过 risk？
@@ -813,11 +807,11 @@ ORD-1001 退款为什么没到账？
 receive_request
 -> normalize_input
 -> intent_classification
--> slot_extraction
 -> session_memory_load
--> business_context_fetch
--> policy_evidence_retrieve
--> case_memory_retrieve
+-> slot_extraction
+-> route_after_slots
+-> investigate
+-> route_after_investigate
 -> recommendation_generation
 -> risk_gate 或 final_response
 -> final_response
@@ -830,8 +824,8 @@ receive_request
 例如：
 
 - 如果 slots 缺失，提前去 `clarification_gate`。
-- 如果业务上下文不足，提前澄清或转人工。
-- 如果政策证据不足，提前 insufficient evidence。
+- 如果 `investigate` 后业务上下文仍不足，`route_after_investigate` 去澄清或安全回复。
+- 如果政策证据不足，`route_after_investigate` 提前进入 insufficient evidence response。
 - 如果 recommendation 没有 proposed action，可以不进 `risk_gate`。
 - 如果有 proposed action，必须进 `risk_gate`。
 
@@ -849,10 +843,11 @@ ORD-1001 退款为什么没到账？
 receive_request
 -> normalize_input
 -> intent_classification
--> slot_extraction
 -> session_memory_load
--> business_context_fetch
--> policy_evidence_retrieve
+-> slot_extraction
+-> route_after_slots
+-> investigate
+-> route_after_investigate
 -> recommendation_generation
 -> final_response
 -> memory_write
@@ -916,11 +911,11 @@ receive_request
 
 ```text
 intent_classification
--> slot_extraction
 -> session_memory_load
--> business_context_fetch
--> policy_evidence_retrieve
--> case_memory_retrieve
+-> slot_extraction
+-> route_after_slots
+-> investigate
+-> route_after_investigate
 -> recommendation_generation
 -> risk_gate
 ```
@@ -993,9 +988,11 @@ risk_gate
 
 ```text
 intent_classification
+-> session_memory_load
 -> slot_extraction
--> business_context_fetch
--> policy_evidence_retrieve
+-> route_after_slots
+-> investigate
+-> route_after_investigate
 -> recommendation_generation
 -> final_response
 ```
@@ -1087,8 +1084,18 @@ slot_extraction
 如果 slots 齐了：
 
 ```text
-slot_extraction
--> session_memory_load
+session_memory_load
+-> slot_extraction
+-> route_after_slots
+-> investigate
+
+或：
+
+session_memory_load
+-> slot_extraction
+-> route_after_slots
+-> long_term_memory_retrieve
+-> investigate
 ```
 
 ---
@@ -1160,194 +1167,63 @@ long_term_memory_retrieve
 
 如果只是简单订单状态查询，可以跳过 long-term memory。
 
-所以图里有 router：
-
-```text
-route_after_session_memory
-  -> needs long-term memory
-  -> skip long-term memory
-```
+是否需要 long-term memory 由 `route_after_slots` 根据 intent 和已解析 slots 决定；canonical router 中没有额外的 session-memory router。
 
 ---
 
-## 15. business context 部分
+## 15. investigate 部分
 
-### 15.1 `business_context_fetch`
+现行目标图对外只有一个 registered `investigate` node。它合并 business context、policy evidence、case memory 三类概念子能力；这些能力是 node-internal 的只读 service calls，不是额外 LangGraph nodes，也不各自拥有 canonical router。
 
-这个节点调用 BusinessToolService。
+### 15.1 输入与只读调查能力
 
-它可能调用：
+`investigate` 接收已解析 slots、query、intent 和 tenant / trusted tool context。LLM 只能在只读 allowlist 内决定下一次调用：
 
-- `get_order`
-- `get_refund_case`
-- `get_ticket`
-- `get_logistics`
-- `get_merchant_risk`
+- BusinessToolService read：`get_order`、`get_refund_case`、`get_ticket`、`get_logistics`、`get_merchant_risk`；
+- KnowledgeService RAG：搜索当前 policy / SOP evidence；
+- MemoryService case search：搜索历史类似案例。
 
-但注意：
+三类来源按 intent 和已累积结果条件性调用。例如，纯 `policy_qa` 可以只查政策证据；订单状态查询可以只查业务事实；退款诊断则可能综合三类来源。case memory 只能作为 precedent，不能替代 current policy evidence。
 
-> 这些工具是 service 层 read tools，不是 LangGraph 节点。
+### 15.2 bounded tool loop
 
-节点是：
+`investigate` 内部允许 bounded tool loop：
 
-```text
-business_context_fetch
-```
+1. LLM 根据当前累积 state，在 read-only allowlist 内选择下一次调查调用或决定停止。
+2. 每次 BusinessToolService read、KnowledgeService RAG 或 MemoryService case search 都必须写独立 trace。
+3. loop 受硬性 `max_iterations` 约束；达到上限时停止，并写 `termination_reason=max_iterations_reached`。
+4. loop 不允许 write/action，不产生对外路由决策，也不能绕过 `risk_gate`、`approval_gate` 或 action 路径。
+5. loop 退出后，`investigate` 只把累积 state 统一交给 `route_after_investigate`。
 
-工具是节点内部调用的能力。
+`retrieval_status` 只表达政策证据强度，例如 `strong_evidence`、`partial_evidence`、`no_evidence`、`error`；`termination_reason` 单独表达 bounded loop 为什么终止，两者不能混写。
 
-### 15.2 `route_after_business_context`
+### 15.3 `route_after_investigate`
 
-它判断业务事实是否足够。
+`route_after_investigate` 是 deterministic、side-effect-free 的 canonical router。它联合判断业务事实、missing required facts、tool errors、`retrieval_status`、`termination_reason`、`best_score` 和 intent，优先级如下：
 
-#### 情况 A：业务事实不足
+1. permission denied 只阻断依赖被拒资源的回答；如无法安全回答则进入 `final_response`，但不得丢弃 loop 中已合法取得的其他事实。
+2. 调查后仍缺 required facts 时，进入 `clarification_gate`。
+3. fact-only intent 且所需事实已取得时，进入 `final_response`。
+4. retrieval error、`no_evidence` 或证据不足时，进入 `final_response` 的 insufficient-evidence 路径。
+5. 其余已有足够调查上下文的请求，进入 `recommendation_generation`。
 
-例如订单号不存在：
+达到 `max_iterations` 只写独立 `termination_reason`，不会自动覆盖真实的 `retrieval_status`；router 仍基于累积事实和证据做上述确定性判断。
 
-```text
-business_context_fetch
--> clarification_gate 或 final_response
-```
-
-回复：
-
-```text
-没有找到该订单，请确认订单号是否正确。
-```
-
-#### 情况 B：只是查状态
-
-例如：
+因此它的目标严格只能是：
 
 ```text
-ORD-1001 什么状态？
+final_response
+clarification_gate
+recommendation_generation
 ```
 
-拿到订单状态后可以直接：
-
-```text
-business_context_fetch
--> final_response
-```
-
-不需要 RAG。
-
-#### 情况 C：需要政策依据
-
-例如：
-
-```text
-这个订单现在能退款吗？
-```
-
-拿到订单事实后还要查规则：
-
-```text
-business_context_fetch
--> policy_evidence_retrieve
-```
+例如订单号不存在时，可进入澄清或安全回复；纯订单状态查询拿到事实后直接回复；需要规则与建议的请求则进入 recommendation。无论哪一种，graph 上都不会把内部调查能力展开成额外 node 或 router。
 
 ---
 
-## 16. policy evidence 部分
+## 16. recommendation 部分
 
-### 16.1 `policy_evidence_retrieve`
-
-这个节点调用 KnowledgeService。
-
-内部做：
-
-- query build；
-- embedding；
-- pgvector search；
-- hybrid rerank；
-- evidence threshold；
-- no-evidence fallback；
-- citation candidate return。
-
-输出类似：
-
-```json
-{
-  "retrieval_status": "strong_evidence",
-  "best_score": 0.82,
-  "evidence": [
-    {
-      "doc_key": "policy_refund_timeout",
-      "chunk_id": "chunk_001",
-      "title": "退款超时规则",
-      "section": "第一条",
-      "score": 0.82
-    }
-  ]
-}
-```
-
-### 16.2 `route_after_policy_evidence`
-
-它判断：
-
-```text
-有没有足够证据？
-```
-
-#### no evidence
-
-```text
-policy_evidence_retrieve
--> final_response
-```
-
-回复：
-
-```text
-当前知识库中没有找到足够证据支持这个判断，建议转人工处理或补充规则文档。
-```
-
-这很重要。
-
-MOCA 不应该在无政策依据时编造规则。
-
-#### 有证据
-
-继续：
-
-```text
-policy_evidence_retrieve
--> case_memory_retrieve 或 recommendation_generation
-```
-
----
-
-## 17. case memory 部分
-
-### 17.1 `case_memory_retrieve`
-
-这个节点查历史类似案例。
-
-但是它的地位很重要：
-
-> case memory 只能作为 precedent，不能作为 policy。
-
-也就是说：
-
-- 政策依据必须来自 `policy_evidence_retrieve`；
-- 历史案例只能辅助推荐；
-- 不能说“以前这么处理过，所以现在一定这么处理”。
-
-例子：
-
-```text
-历史上类似“物流签收但买家否认”的 case，多数转人工核验签收凭证。
-```
-
-它可以帮助 recommendation 更贴近运营经验。
-
----
-
-## 18. recommendation 部分
-
-### 18.1 `recommendation_generation`
+### 16.1 `recommendation_generation`
 
 这个节点综合：
 
@@ -1392,7 +1268,7 @@ policy_evidence_retrieve
 }
 ```
 
-### 18.2 `route_after_recommendation`
+### 16.2 `route_after_recommendation`
 
 它判断：
 
@@ -1420,9 +1296,9 @@ recommendation_generation
 
 ---
 
-## 19. risk 部分
+## 17. risk 部分
 
-### 19.1 `risk_gate`
+### 17.1 `risk_gate`
 
 这是企业级售后 Agent 的关键节点。
 
@@ -1460,7 +1336,7 @@ recommendation_generation
 }
 ```
 
-### 19.2 `route_after_risk`
+### 17.2 `route_after_risk`
 
 它有三类路线。
 
@@ -1508,9 +1384,9 @@ risk_gate
 
 ---
 
-## 20. approval 部分
+## 18. approval 部分
 
-### 20.1 `approval_gate`
+### 18.1 `approval_gate`
 
 这个节点负责 LangGraph interrupt。
 
@@ -1575,7 +1451,7 @@ risk_gate
 }
 ```
 
-### 20.2 `route_after_approval`
+### 18.2 `route_after_approval`
 
 它处理人工结果。
 
@@ -1613,7 +1489,7 @@ edit
 
 ```text
 approval_gate
--> clarification_gate
+-> trace_close（lifecycle finalizer）
 ```
 
 审批人说：
@@ -1622,7 +1498,7 @@ approval_gate
 请补充签收凭证
 ```
 
-系统要回到澄清/补充信息路径。
+这不是普通澄清。ApprovalService 写入 `needs_info`、`clarification_request_id` 和可展示的 clarification message 后，原 run 由 lifecycle finalizer 保持 `interrupted`，**不进入** `clarification_gate -> final_response -> memory_write` 这条 completed 路径。后续用户补充信息时，必须创建或恢复一个可校验的新 revision，并重新跑 slot / business / evidence / risk 检查，不能直接执行旧审批。
 
 #### reject / ignore / expired
 
@@ -1635,9 +1511,9 @@ approval_gate
 
 ---
 
-## 21. action 部分
+## 19. action 部分
 
-### 21.1 `action_draft`
+### 19.1 `action_draft`
 
 这个节点创建 durable draft。
 
@@ -1667,7 +1543,11 @@ ActionExecutor.create_draft()
 }
 ```
 
-### 21.2 `action_execution`
+### 19.2 `route_after_action_draft`
+
+`route_after_action_draft` 根据 execution mode 和 draft 状态决定下一步。允许执行且需要实际执行时进入 `action_execution`；demo 或只创建草稿的路径进入 `final_response`。它只做确定性路由，不执行动作。
+
+### 19.3 `action_execution`
 
 这个节点执行动作。
 
@@ -1695,7 +1575,7 @@ ActionExecutor.execute()
 
 ---
 
-## 22. final / memory / trace 收尾
+## 20. final / memory / trace 收尾
 
 所有路径最终都会汇合到：
 
@@ -1705,7 +1585,7 @@ final_response
 -> trace_close
 ```
 
-### 22.1 `final_response`
+### 20.1 `final_response`
 
 负责生成最终对用户可见的回复。
 
@@ -1741,7 +1621,7 @@ final_response
 当前知识库没有找到足够证据支持该判断，建议转人工。
 ```
 
-### 22.2 `memory_write`
+### 20.2 `memory_write`
 
 它不是把所有聊天都写长期记忆。
 
@@ -1765,7 +1645,7 @@ final_response
 
 长期记忆写入要谨慎。
 
-### 22.3 `trace_close`
+### 20.3 `trace_close`
 
 最后补全：
 
@@ -1783,9 +1663,9 @@ final_response
 
 ---
 
-## 23. 几个完整路线例子
+## 21. 几个完整路线例子
 
-### 23.1 简单政策问答
+### 21.1 简单政策问答
 
 用户：
 
@@ -1799,7 +1679,8 @@ final_response
 receive_request
 -> normalize_input
 -> intent_classification
--> policy_evidence_retrieve
+-> investigate
+-> route_after_investigate
 -> recommendation_generation
 -> final_response
 -> memory_write
@@ -1810,7 +1691,6 @@ receive_request
 
 ```text
 slot_extraction
-business_context_fetch
 risk_gate
 approval_gate
 action_draft
@@ -1819,7 +1699,7 @@ action_execution
 
 因为没有具体订单，也没有动作请求。
 
-### 23.2 查订单状态
+### 21.2 查订单状态
 
 用户：
 
@@ -1833,9 +1713,11 @@ ORD-1001 现在是什么状态？
 receive_request
 -> normalize_input
 -> intent_classification
--> slot_extraction
 -> session_memory_load
--> business_context_fetch
+-> slot_extraction
+-> route_after_slots
+-> investigate
+-> route_after_investigate
 -> final_response
 -> memory_write
 -> trace_close
@@ -1843,7 +1725,7 @@ receive_request
 
 不会走 RAG，因为只是业务事实查询。
 
-### 23.3 退款诊断
+### 21.3 退款诊断
 
 用户：
 
@@ -1857,11 +1739,11 @@ ORD-1001 退款为什么没到账？
 receive_request
 -> normalize_input
 -> intent_classification
--> slot_extraction
 -> session_memory_load
--> business_context_fetch
--> policy_evidence_retrieve
--> case_memory_retrieve
+-> slot_extraction
+-> route_after_slots
+-> investigate
+-> route_after_investigate
 -> recommendation_generation
 -> final_response
 -> memory_write
@@ -1878,7 +1760,7 @@ receive_request
 
 可能也不需要 action。
 
-### 23.4 低风险补偿
+### 21.4 低风险补偿
 
 用户：
 
@@ -1892,10 +1774,11 @@ receive_request
 receive_request
 -> normalize_input
 -> intent_classification
--> slot_extraction
 -> session_memory_load
--> business_context_fetch
--> policy_evidence_retrieve
+-> slot_extraction
+-> route_after_slots
+-> investigate
+-> route_after_investigate
 -> recommendation_generation
 -> risk_gate
 -> action_draft
@@ -1909,7 +1792,7 @@ receive_request
 
 但如果规则判断 20 元低风险，可以不进 approval gate。
 
-### 23.5 高风险补偿
+### 21.5 高风险补偿
 
 用户：
 
@@ -1923,10 +1806,11 @@ receive_request
 receive_request
 -> normalize_input
 -> intent_classification
--> slot_extraction
 -> session_memory_load
--> business_context_fetch
--> policy_evidence_retrieve
+-> slot_extraction
+-> route_after_slots
+-> investigate
+-> route_after_investigate
 -> recommendation_generation
 -> risk_gate
 -> approval_gate
@@ -1964,11 +1848,11 @@ approval_gate
 
 ---
 
-## 24. 为什么要设计成这样？
+## 22. 为什么要设计成这样？
 
 因为目标不是“线性 LangGraph demo”，而是企业级售后 Agent 原型。
 
-### 24.1 避免所有请求都跑完整链路
+### 22.1 避免所有请求都跑完整链路
 
 简单问题不需要 RAG、risk、approval。
 
@@ -1979,7 +1863,7 @@ approval_gate
 - 不必要的错误路径；
 - 过度审批。
 
-### 24.2 高风险动作必须被拦住
+### 22.2 高风险动作必须被拦住
 
 只要有 proposed action：
 
@@ -1997,7 +1881,7 @@ risk_gate
 
 这保证安全。
 
-### 24.3 分层边界更清楚
+### 22.3 分层边界更清楚
 
 LangGraph 节点只负责 orchestration：
 
@@ -2021,7 +1905,7 @@ ObservabilityService
 
 这符合目标分层架构。
 
-### 24.4 更容易评估
+### 22.4 更容易评估
 
 每个节点都有明确输入输出。
 
@@ -2038,9 +1922,9 @@ ObservabilityService
 
 ---
 
-## 25. 最容易混淆的点
+## 23. 最容易混淆的点
 
-### 25.1 `route_after_xxx` 不是节点
+### 23.1 `route_after_xxx` 不是节点
 
 它只是决定下一步。
 
@@ -2063,14 +1947,14 @@ def route_after_risk(state):
     return "final_response"
 ```
 
-### 25.2 Service 不是 LangGraph 节点
+### 23.2 Service 不是 LangGraph 节点
 
 比如 `KnowledgeService` 不应该是一个 graph node。
 
 Graph node 是：
 
 ```text
-policy_evidence_retrieve
+investigate
 ```
 
 它内部调用：
@@ -2079,7 +1963,7 @@ policy_evidence_retrieve
 knowledge_service.search(...)
 ```
 
-### 25.3 `risk_gate` 不是所有请求都必须走
+### 23.3 `risk_gate` 不是所有请求都必须走
 
 必须走 risk gate 的情况：
 
@@ -2094,7 +1978,7 @@ knowledge_service.search(...)
 - 纯政策 QA 且无动作；
 - 纯订单状态查询。
 
-### 25.4 `case_memory` 不能替代 policy evidence
+### 23.4 `case_memory` 不能替代 policy evidence
 
 即使历史案例说“以前发了券”，也不能直接作为现在发券依据。
 
@@ -2106,7 +1990,7 @@ business facts + current policy evidence + risk policy
 
 ---
 
-## 26. 一句话总结
+## 24. 一句话总结
 
 这张 node-only 路由图想表达的是：
 
