@@ -63,7 +63,7 @@
   1. Read tools use the facade without exposing raw invalid upstream payloads.
   2. Permission, scope, status, timeout, partial-success, and invalid-response contracts pass.
   3. Write/action execution remains outside this facade.
-**Plans**: 2/5 complete
+**Plans**: 4/5 complete
 
 ### Phase 10: State Lifecycle + Routing Migration
 **Goal**: Enforce AgentState reset/merge/trusted-writer rules, deterministic router totality, and the investigation segment agentic merge (single `investigate` bounded-loop node + `route_after_investigate`). Scope expansion P10-DEV-01: the investigate merge is added by the §9 promotion (commit ad17301) beyond the original state+router goal text.
@@ -156,7 +156,7 @@
 | --- | --- | --- | --- |
 | 7. Contract Baseline | 1/1 | Complete | 2026-06-06 |
 | 8. Knowledge Facade | 4/6 | In Progress | - |
-| 9. Business Tool Facade | 3/5 | In Progress | - |
+| 9. Business Tool Facade | 4/5 | In Progress | - |
 | 10. State Lifecycle + Routing Migration | 0/5 | Planned (Plan 04 blocked_by Phase 9) | - |
 | 11. Intent / Clarification | 0/TBD | Pending | - |
 | 12. Session Memory | 0/TBD | Pending | - |
@@ -167,4 +167,4 @@
 | 17. External Action Execution | 0/TBD | Deferred beyond MVP gate | - |
 
 ---
-*Updated: 2026-06-06. v1.1 is registered as the Agent Architecture Migration roadmap. Source code, tests, and git history were not rolled back.*
+*Updated: 2026-06-12 after completing Phase 9 Plan 04.*

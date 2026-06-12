@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
 status: executing
-stopped_at: Completed 09-03-PLAN.md
-last_updated: "2026-06-12T14:38:39.010Z"
+stopped_at: Completed 09-04-PLAN.md
+last_updated: "2026-06-12T14:48:35.362Z"
 last_activity: 2026-06-12
 progress:
   total_phases: 11
   completed_phases: 2
   total_plans: 20
-  completed_plans: 13
-  percent: 65
+  completed_plans: 14
+  percent: 70
 ---
 
 # Project State: MOCA
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md`
 ## Current Position
 
 Phase: 09 (business-tool-facade) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-06-12
 
-Progress: [███████░░░] 65%
+Progress: [███████░░░] 70%
 
 ## Completed Baseline
 
@@ -56,6 +56,7 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Recommendation citations are validated by full `evidence_id`, and all no-action drafts are suppressed before proposed-action creation.
 - Write descriptors remain declared but are hard-blocked before adapter access; action event families remain deferred to Phase 17.
 - AsyncSession is passed explicitly to registry adapters and never added to ToolCallContext.
+- BusinessToolService is the live registry-to-adapter composition root; callers inject only AsyncSession.
 
 ## Blockers / Concerns
 
@@ -73,11 +74,12 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | 09 | 01 | 4 min | 2 | 4 |
 | 09 | 02 | 7 min | 3 | 2 |
 | 09 | 03 | 4 min | 2 | 2 |
+| 09 | 04 | 5 min | 3 | 2 |
 
 ## Session Continuity
 
-Last session: 2026-06-12T14:38:39.003Z
-Stopped at: Completed 09-03-PLAN.md
+Last session: 2026-06-12T14:48:35.362Z
+Stopped at: Completed 09-04-PLAN.md
 Resume file: None
 
 **Planned Phase:** 9 (business-tool-facade) — 5 plans — 2026-06-12T12:46:53.235Z
