@@ -54,7 +54,7 @@
 | --- | --- | --- |
 | BASE-01..04 | Phase 7 | Complete |
 | KNOW-01..03 | Phase 8 | Complete |
-| TOOL-01..03 | Phase 9 | In Progress (TOOL-01, TOOL-02, TOOL-03 complete) |
+| TOOL-01..03 | Phase 9 | Complete |
 | STATE-01..02, ROUTE-01..02 | Phase 10 | Pending |
 | INTENT-01..02, CLARIFY-01 | Phase 11 | Pending |
 | SESSION-01..03 | Phase 12 | Pending |
@@ -65,4 +65,4 @@
 | EXTERNAL-01..03 | Phase 17 | Deferred beyond MVP gate |
 
 ---
-*Updated: 2026-06-12 after completing Phase 9 Plan 04.*
+*Updated: 2026-06-12 after completing Phase 9 Plan 05.*
