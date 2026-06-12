@@ -1,8 +1,14 @@
+"""Legacy policy-search adapter contracts.
+
+Business reads use ``src.business_tools.schemas``. These types remain only for
+the unmigrated policy-search compatibility path and its raw adapter tests.
+"""
+
 from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 
 ToolRiskLevel = Literal["read", "retrieval", "write", "approval"]
@@ -31,20 +37,9 @@ class ToolRegistryEntry(BaseModel):
     output_schema: type[BaseModel]
     risk_level: ToolRiskLevel
     side_effect: ToolSideEffect
-    allowed_in_investigator: bool
     when_to_use: str = Field(min_length=1)
     required_identifiers: list[str]
     result_summary_fields: list[str]
-
-    @model_validator(mode="after")
-    def validate_investigator_safety(self) -> ToolRegistryEntry:
-        if not self.allowed_in_investigator:
-            return self
-        if self.risk_level not in {"read", "retrieval"}:
-            raise ValueError("investigator tools must use read or retrieval risk levels")
-        if self.side_effect not in {"none", "read_only", "retrieval"}:
-            raise ValueError("investigator tools must not declare write or approval side effects")
-        return self
 
 
 class ToolEvidenceRef(BaseModel):
