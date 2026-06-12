@@ -348,6 +348,23 @@ graph LR
 - `approval_gate -> final_response`：reject/cancelled/expired。
 - `action_draft -> action_execution`：仅 external mode 且 adapter 允许执行时进入；demo mode 创建 durable draft 后直接进入 final_response。
 
+#### Evidence sufficiency decision table
+
+下表是 `route_after_investigate` 的 normative evidence sufficiency 默认决策。These are conservative defaults; thresholds to be calibrated by eval, see §11.4。`Min evidence strength` 使用 §9.4 的 `strong_evidence` / `partial_evidence` 语义，`best_score threshold` 对应 state `best_score`；`n/a` 表示该 intent 不要求 policy evidence。
+
+| Intent | Requested operation | Required facts | Min evidence strength | best_score threshold | Route on insufficient |
+| --- | --- | --- | --- | --- | --- |
+| `policy_qa` | `advise` | policy evidence | `partial_evidence` | `0.5` | `insufficient_evidence_response` |
+| `order_status_inquiry` | `read_status` | business fact | (no policy required) | `n/a` | `clarification_gate` |
+| `refund_troubleshooting` | `advise` | business fact + policy evidence | `partial_evidence` | `0.5` | `insufficient_evidence_response` |
+| `compensation_suggestion` | `advise` / `draft_action` | business fact + policy evidence | `strong_evidence` | `0.7` | `insufficient_evidence_response` |
+| `ticket_reply_draft` | `draft_reply` | business fact + policy evidence | `partial_evidence` | `0.5` | `insufficient_evidence_response` |
+| `appeal_or_unban` | `advise` / `draft_action` / `execute_action` | business/merchant risk + policy evidence | `strong_evidence` | `0.7` | `insufficient_evidence_response` |
+| `complaint_escalation` | `escalate` / `draft_reply` | business/ticket + escalation policy | `partial_evidence` | `0.5` | `insufficient_evidence_response` |
+| `action_request` | `draft_action` / `execute_action` | business fact + required policy evidence | `strong_evidence` | `0.7` | 拒绝进入 action path，落 `insufficient_evidence_response` |
+
+Permission dependency mapping 是 `investigate` 与 `route_after_investigate` 之间的 required state contract：`investigate` 必须为每个 business fact 和 policy claim 标注其依赖的 typed resource ref；`route_after_investigate` 遇到 permission denied 时，必须依据该依赖标注只阻断依赖被拒资源的回答内容，并保留同一 loop 内已合法取得且不依赖被拒资源的其他事实。缺失、无效或无法验证的依赖标注必须按依赖被拒资源处理；被拒资源及其派生内容不得出现在回复、不得经推断泄露。
+
 
 ### 9.4 Node contract table
 
@@ -362,7 +379,7 @@ V3 contract pass 将 16 个目标节点定义为“概念节点”。MVP 实现�
 | `session_memory_load` | tenant/user/thread, current intent | `session_memory`, inheritable `active_slots` | MemoryService session read | none | unavailable -> continue with empty session memory | fixed -> `slot_extraction` |
 | `slot_extraction` | `normalized_query`, `session_memory`, `required_slots` | `extracted_slots`, resolved `active_slots` | LLM structured output + `resolve_slots` helper | none | validation failure -> empty current slots, route may clarify | `route_after_slots` |
 | `long_term_memory_retrieve` | tenant/user/merchant scope, intent | `long_term_memory` | MemoryService search | none | unavailable -> continue without long-term memory | fixed -> `investigate` |
-| `investigate` | resolved slots, query, intent, tenant/trusted tool context | `business_context`, `policy_evidence` / `retrieved_evidence`, `case_memory`, `tool_results`, `last_business_context_refs`, `termination_reason` | BusinessToolService read tools + KnowledgeService / RAG + MemoryService case search + LLM 决策 next tool；bounded tool loop with `max_iterations` | read-only DB/API/vector/memory calls（无写） | not_found/permission/timeout -> fallback/clarification；no evidence -> insufficient evidence response | `route_after_investigate` |
+| `investigate` | resolved slots, query, intent, tenant/trusted tool context | `business_context`, `policy_evidence` / `retrieved_evidence`, `case_memory`, `tool_results`, `last_business_context_refs`, `retrieval_status`, `best_score`, `termination_reason` | BusinessToolService read tools + KnowledgeService / RAG + MemoryService case search + LLM 决策 next tool；bounded tool loop with `max_iterations` | read-only DB/API/vector/memory calls（无写） | not_found/permission/timeout -> fallback/clarification；no evidence -> insufficient evidence response | `route_after_investigate` |
 | `recommendation_generation` | business context, policy evidence, memory context | `recommendation`, `proposed_action`, `missing_info` | LLM structured output + citation validation | none | validation/citation failure -> insufficient evidence/manual review | `route_after_recommendation` |
 | `risk_gate` | proposed_action, evidence refs, business context | `risk_assessment`, `approval_plan` | RiskPolicy + ApprovalPolicy | none | policy evaluation failure -> manual review / approval required | `route_after_risk` |
 | `approval_gate` | approval_plan, exact action payload, `ActionSafetySnapshot` | `approval_result`, approval revision refs | ApprovalService + LangGraph interrupt | creates approval records; interrupts graph | expired/rejected/cancelled -> final response；respond -> interrupted lifecycle finalizer | `route_after_approval` |
@@ -816,7 +833,6 @@ Gate status precedence 固定且逐 class 应用：1) coverage manifest missing/
     "merchant_id": null,
     "amount": null
   },
-  "risk_signals": ["refund_related"],
   "routing_hints": {
     "needs_business_context": true,
     "needs_policy_retrieval": true,
@@ -828,7 +844,7 @@ Gate status precedence 固定且逐 class 应用：1) coverage manifest missing/
 }
 ```
 
-约束：intent node 不生成最终答案，不决定审批，不执行工具，也不写最终 `extracted_slots` / `active_slots`。`candidate_slots` 只作为后续 `slot_extraction` 的 hint，不参与 completeness，不能覆盖 slot node 输出。
+约束：intent node 不生成最终答案，不决定审批，不执行工具，也不写最终 `extracted_slots` / `active_slots`。`candidate_slots` 只作为后续 `slot_extraction` 的 hint，不参与 completeness，不能覆盖 slot node 输出。`risk_signals` 不由 intent node 写，由 deterministic risk helpers / recommendation 产出。
 
 ---
 
@@ -1209,7 +1225,7 @@ Phase 12 does not use Redis. If a later phase adds Redis to a memory path, it mu
 
 ### 14.3 Slot prompt
 
-只提取显式出现的 order/refund/ticket/merchant/customer/amount/issue_type，不补猜。
+只提取显式出现的 order/refund/ticket/merchant/customer/amount/issue_type/action_type，不补猜。
 
 ### 14.4 Recommendation prompt
 
@@ -2402,9 +2418,9 @@ Required constraints / indexes：
 
 过渡策略：
 
-- Phase 10 引入 minimal-envelope base event table（`agent_trace_events` 的初始列子集：`schema_version`、`tenant_id`、`thread_id`、`trace_id`、`event_id`、`run_id`、`sequence`、`operation_id`、`event_type`、`occurred_at`、`redacted_payload_json`）和 per-run sequence allocator，并由 Phase 10-14 emitter 写入；不要求一开始就具备完整 V3 列。
+- Phase 10 引入 minimal-envelope base event table（`agent_trace_events` 的初始列子集：`schema_version`、`tenant_id`、`thread_id`、`trace_id`、`event_id`、`run_id`、`sequence`、`operation_id`、`event_type`、`occurred_at`、`actor_type`、`actor_id`、`resource_refs_json`、`redaction_policy_version`、`redacted_payload_json`）和 per-run sequence allocator，并由 Phase 10-14 emitter 写入；Phase 10 从首次 emit 即带齐 required `actor`、`resource_refs`、`redaction_policy_version`，不要求一开始就具备完整 V3 列。
 - Phase 15 前可以继续由 `TraceRepository.build_timeline` 从 `AgentStep`、`ApprovalRequest`、`ApprovalStep`、`ActionDraft` 组合 timeline 作为补充来源，但 Phase 10 起的新事件应优先走 base event table。
-- Phase 15 退出时，`ReplayService` 应优先读取扩展后的 `agent_trace_events`（在 Phase 10 base table 上新增 `parent_operation_id`/`attempt`/`actor_*`/`resource refs`/`error_json`/retention 列与完整 V3 enum）；旧组合表只作为 migration/backfill source。
+- Phase 15 退出时，`ReplayService` 应优先读取扩展后的 `agent_trace_events`（在已带齐 `actor`、`resource_refs`、`redaction_policy_version` 的 Phase 10 base table 上新增 `parent_operation_id`/`attempt`/`error_json`/retention 列与完整 V3 enum）；旧组合表只作为 migration/backfill source。
 - Backfill 必须生成稳定 sequence、可验证的 operation pairing，并记录 `schema_version` 与 `redaction_policy_version`。无法可靠配对的历史事件必须分配独立 `operation_id` 并在 redacted metadata 标记 `pairing_status=unresolved`，不得伪造 completed pair。
 
 ---
