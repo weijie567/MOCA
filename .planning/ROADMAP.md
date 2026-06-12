@@ -63,7 +63,7 @@
   1. Read tools use the facade without exposing raw invalid upstream payloads.
   2. Permission, scope, status, timeout, partial-success, and invalid-response contracts pass.
   3. Write/action execution remains outside this facade.
-**Plans**: 5/5 complete
+**Plans**: 5/8 complete
 
 ### Phase 10: State Lifecycle + Routing Migration
 **Goal**: Enforce AgentState reset/merge/trusted-writer rules, deterministic router totality, and the investigation segment agentic merge (single `investigate` bounded-loop node + `route_after_investigate`). Scope expansion P10-DEV-01: the investigate merge is added by the §9 promotion (commit ad17301) beyond the original state+router goal text.
