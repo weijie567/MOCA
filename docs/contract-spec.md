@@ -152,13 +152,16 @@ Knowledge rules：
 
 BusinessToolService facade signature:
 
-- `BusinessToolService.fetch_context(slots, intent, ToolCallContext) -> BusinessContext`。
+- `BusinessToolService.fetch_context(slots, intent, ToolCallContext) -> BusinessContextV1`。
+- `BusinessToolService.invoke_tool(name: str, args: dict, ctx: ToolCallContext) -> ToolResultV2`。
 - 读工具：order/refund/ticket/logistics/merchant risk。
 - 当前 adapter：本地 demo DB。
 - 未来 adapter：真实订单、工单、退款、物流、商家系统。
 
 边界：
 
+- `invoke_tool` 是 normative 单工具 dispatch 接口。它必须委托 §12.6 `ToolRegistry` 按 `name` 查 descriptor，先校验 `ctx.caller_node` allowlist、required permission 和 input schema，再执行 adapter，并将 adapter 实现结果适配为 `ToolResultV2`。
+- `fetch_context` 保留用于非-loop 的一次性聚合场景；`investigate` bounded loop 必须通过 `invoke_tool` 逐个调用只读工具，并遵守 §9.4 loop 契约。
 - 只读工具可以自动调用。
 - 写工具不能由 business tool read node 执行。
 - tenant/user/role/idempotency/trace context 必须由系统注入，不由模型生成。
@@ -172,7 +175,7 @@ class BusinessContextV1(BaseModel):
     status: Literal["complete", "partial", "insufficient", "error"]
     facts: dict[str, Any]
     business_fact_refs: list[BusinessFactRefV1]
-    tool_results: list[ToolResult]
+    tool_results: list[ToolResultV2]
     missing_required_facts: list[str]
     errors: list[ToolError]
     data_freshness_at: datetime | None = None
@@ -182,7 +185,7 @@ class BusinessContextV1(BaseModel):
 
 `route_after_investigate` 必须联合判定 `BusinessContextV1.status`、`missing_required_facts`、tool errors、`retrieval_status`、`termination_reason`、`best_score` 和 intent。Business status 只表达业务事实调查结果；`retrieval_status` 只表达政策证据强度；tool errors 和 `termination_reason` 分别表达调用错误与 bounded-loop 终止原因，不得互相覆盖或混写。
 
-完整的 `ToolCallContext` / `ToolRequest` / `ToolResult` / `ToolError` 类型见本文件 §12.5 Tool contract。
+完整的 `ToolCallContext` / `ToolRequest` / `ToolResultV2` / `ToolError` 类型见本文件 §12.5 Tool contract。
 
 ## 9. LangGraph workflow 设计
 
@@ -371,12 +374,14 @@ V3 contract pass 将 16 个目标节点定义为“概念节点”。MVP 实现�
 
 `investigate` bounded-loop 契约：
 
-1. `investigate` 必须配置并执行硬性 `max_iterations`；达到上限后必须终止 loop，lifecycle status 仍为 `completed`，但必须在 state / `redacted_payload` 写独立 `termination_reason=max_iterations_reached`。`retrieval_status` 仍只表达 `strong_evidence | partial_evidence | no_evidence | error`，并按真实累积证据计算，不因截断强标 insufficient。
-2. loop 内仅允许调用 §12.4 为 `investigate` 定义的只读 allowlist；每次 tool / RAG call 必须按 §17.2 发出独立 trace 事件。
-3. loop 不得触发任何写动作，不得调用 write tool，不得绕过 `risk_gate`、`approval_gate`、`action_draft` 或 `action_execution`。Write tool 不由 LLM 直接调用；需要 approval 时不可绕过人审，但低风险且 action policy 允许时，仍可由 deterministic `risk_gate -> action_draft` 走 auto-allowed 路径。
-4. `investigate` 对外仅提交累积 state 和终止状态给 `route_after_investigate`；它不得产生对外路由决策，且不得改变 router 的 deterministic、side-effect-free 契约。
-5. `evidence_refs` 仍由 `recommendation_generation` / citation validator 写入；`investigate` 不得写 `evidence_refs`，避免未经 citation validation 的引用进入 `risk_gate` / snapshot builder。
-6. `business_context` / `policy_evidence` / `case_memory` 是 `investigate` 的产出，按 intent 与调查计划条件性获取；`policy_qa` 等 policy-only 入口不要求先有 business context。
+1. planner 每轮必须产生结构化单步输出，且只能是 `{next_tool, args, reason}` 或 `{stop, stop_reason}`。`next_tool` 每轮只能选择 §12.4 / §12.6 为 `investigate` 声明的 allowlist 内一个工具，不得输出批量计划；选定后通过 `BusinessToolService.invoke_tool` 执行单次调用。
+2. 合法 `stop_reason` / state `termination_reason` 只有 `enough_evidence | no_more_useful_tools | max_iterations_reached | unrecoverable_error`。planner 主动停止或资源上限/不可恢复错误强制停止时，必须把对应值写入 state 的 `termination_reason`。
+3. loop 必须同时执行三重资源上限：全局 `max_iterations`、复用 §12.5 `ToolCallContext.deadline_at` 的总 deadline、复用 §12.5 `ToolCallContext.attempt` 的每工具 retry 上限；任一命中即终止 loop。达到 `max_iterations` 时 lifecycle status 仍为 `completed`，但必须在 state / `redacted_payload` 写独立 `termination_reason=max_iterations_reached`。`retrieval_status` 仍只表达 `strong_evidence | partial_evidence | no_evidence | error`，并按真实累积证据计算，不因截断强标 insufficient。
+4. loop 内仅允许调用 §12.4 为 `investigate` 定义的只读 allowlist；每次 tool / RAG call 必须按 §17.2 发出独立 trace 事件。
+5. loop 不得触发任何写动作，不得调用 write tool，不得绕过 `risk_gate`、`approval_gate`、`action_draft` 或 `action_execution`。Write tool 不由 LLM 直接调用；需要 approval 时不可绕过人审，但低风险且 action policy 允许时，仍可由 deterministic `risk_gate -> action_draft` 走 auto-allowed 路径。
+6. `investigate` 对外仅提交累积 state 和终止状态给 `route_after_investigate`；它不得产生对外路由决策，且不得改变 router 的 deterministic、side-effect-free 契约。
+7. `evidence_refs` 仍由 `recommendation_generation` / citation validator 写入；`investigate` 不得写 `evidence_refs`，避免未经 citation validation 的引用进入 `risk_gate` / snapshot builder。
+8. `business_context` / `policy_evidence` / `case_memory` 是 `investigate` 的产出，按 intent 与调查计划条件性获取；`policy_qa` 等 policy-only 入口不要求先有 business context。
 
 ### 9.5 Router contract table
 
@@ -505,6 +510,7 @@ class AgentState(TypedDict, total=False):
     retrieved_evidence: list[EvidenceRefV1]
     evidence_refs: list[EvidenceRefV1]
     retrieval_status: str | None
+    termination_reason: Literal["enough_evidence", "no_more_useful_tools", "max_iterations_reached", "unrecoverable_error"] | None
     best_score: float | None
     case_memory: list[dict[str, Any]]
 
@@ -600,7 +606,7 @@ AgentState 字段必须按生命周期分层。身份和权限上下文来自 AP
 | `retrieved_evidence` | `list[EvidenceRefV1]` | KnowledgeService adapter | recommendation, risk, snapshot builder | reset each turn; canonical sort/replace; may retain score outside hash | AgentStep / eval |
 | `evidence_refs` | `list[EvidenceRefV1]` | recommendation_generation / citation validator | final_response, memory_write, replay, snapshot builder | merge/dedupe by `evidence_id`; score removed by hash projection | AgentStep evidence refs / checkpoint |
 | `retrieval_status` | enum or null | investigate | `route_after_investigate` | reset each turn; replace；只表达 `strong_evidence | partial_evidence | no_evidence | error`，与 `termination_reason` 分离 | AgentStep / replay |
-| `termination_reason` | null or `max_iterations_reached` | investigate | `route_after_investigate` | reset each turn; replace；撞 `max_iterations` 时写 `max_iterations_reached` | AgentStep / replay |
+| `termination_reason` | null or `enough_evidence \| no_more_useful_tools \| max_iterations_reached \| unrecoverable_error` | investigate | `route_after_investigate` | reset each turn; replace；撞 `max_iterations` 时写 `max_iterations_reached` | AgentStep / replay |
 | `best_score` | float or null | investigate | `route_after_investigate`, eval | reset each turn; replace; never snapshot-hashed | AgentStep / eval |
 | `recommendation`, `proposed_action` | dict or null | recommendation_generation | `route_after_recommendation`, risk_gate, approval/action path, response | reset each turn; validated replace | AgentStep / approval/action |
 | `risk_assessment` | dict or null | risk_gate / RiskPolicy | `route_after_risk`, approval_gate, response | reset unless same validated revision; replace | risk audit / approval |
@@ -900,7 +906,7 @@ class ToolRequest(BaseModel):
     argument_hash: str
     redaction_policy_version: str
 
-class ToolResult(BaseModel):
+class ToolResultV2(BaseModel):
     schema_version: Literal["tool_result.v2"] = "tool_result.v2"
     status: Literal[
         "success",
@@ -943,7 +949,7 @@ class BusinessFactRefV1(BaseModel):
     retrieved_at: datetime
 ```
 
-`ToolResultV2` in narrative refers to the `ToolResult` model whose `schema_version` is `tool_result.v2`.
+`ToolResultV2` 是 `schema_version=tool_result.v2` 的 normative 对外 result 契约。文档层不定义其它对外 result 类型；代码中的 `ToolExecutionResult` 或其它 adapter-local result type 仅是实现细节，必须在离开 adapter / registry 前适配并校验为 `ToolResultV2`。
 
 Contract rules：
 
@@ -960,6 +966,35 @@ Contract rules：
 - Raw upstream payloads are not exposed to graph nodes; graph nodes consume typed `data`, safe `summary`, refs, freshness, and status.
 - Write/action tools are not called through this read-tool contract; they go through `ActionExecutor` after approval/action policy checks.
 - `policy_evidence_refs` 只能承载 KnowledgeService 产出的 policy `EvidenceRefV1`；business read tools 必须留空。业务事实出处使用 typed `BusinessFactRefV1` 的 `business_fact_refs`，不得把订单/退款/工单事实伪造成带 `policy_version`/`chunk_id`/`retrieval_config_version` 的 `EvidenceRefV1`。
+
+### 12.6 Tool registry contract
+
+`ToolRegistry` 是工具声明、dispatch 与契约校验的 normative 单一入口。每个工具必须以一个 `ToolDescriptor` 单点声明；§12.1 / §12.2 工具列表、§12.4 node-level allowlist 和 §12.5 `BusinessFactRefV1.resource_type` 枚举必须由 registry 派生或对 registry 做一致性校验，新增工具不得通过分别手改多张清单形成漂移。
+
+```python
+class ToolDescriptor(BaseModel):
+    name: str
+    kind: Literal["read", "retrieval", "write"]
+    input_schema: dict[str, Any]
+    output_schema: dict[str, Any]  # schema for ToolResultV2.data; envelope is always ToolResultV2
+    risk_level: Literal["read", "retrieval", "write"]
+    side_effect: Literal["none", "read_only", "retrieval", "write"]
+    required_permission: str  # namespaced token, for example "tool:get_order"
+    caller_allowlist: list[str]
+    event_family: Literal["tool_call_*", "rag_retrieval_*"]
+    resource_type: str | None
+
+class ToolRegistry(Protocol):
+    def invoke(self, name: str, input_data: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2: ...
+```
+
+Registry rules：
+
+- `ToolRegistry.invoke` 必须先解析 descriptor，再校验 `ctx.caller_node`、`required_permission` 和 `input_schema`，全部通过后才可执行 adapter；adapter 输出必须按 descriptor `output_schema` 校验，并封装或适配为 `ToolResultV2`。
+- `caller_allowlist` 必须使用合并后的单一节点名 `investigate`；不得声明旧节点名 `load_business_context` 或 `retrieve_policy_evidence`。
+- `kind=read|retrieval` 的 descriptor 才可出现在 `investigate` allowlist，且 `side_effect` 必须为 `none|read_only|retrieval` 之一（非写副作用）；`kind=write` 不得通过 `BusinessToolService.invoke_tool` 或 `investigate` loop 执行。
+- `event_family` 必须与 §12.4 事件族规则一致；同一 operation 只发 descriptor 指定的一族事件。
+- 产生 `BusinessFactRefV1` 的工具，其非空 `resource_type` 必须与返回 ref 的 `resource_type` 及 §12.5 枚举一致；不产生 business fact ref 的工具使用 `null`。
 
 ---
 
