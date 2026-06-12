@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
-status: verifying
-stopped_at: Completed 09-05-PLAN.md
-last_updated: "2026-06-12T20:54:12.845Z"
+status: gaps_found
+stopped_at: Phase 09 verification gaps found
+last_updated: "2026-06-12T21:01:31Z"
 last_activity: 2026-06-12
 progress:
   total_phases: 11
-  completed_phases: 3
+  completed_phases: 2
   total_plans: 20
   completed_plans: 15
   percent: 75
@@ -25,9 +25,9 @@ See: `.planning/PROJECT.md`
 
 ## Current Position
 
-Phase: 09 (business-tool-facade) — COMPLETE
+Phase: 09 (business-tool-facade) — GAPS FOUND
 Plan: 5 of 5
-Status: Phase complete — ready for verification
+Status: Verification found 3 blocking gaps; ready for gap-closure planning
 Last activity: 2026-06-12
 
 Progress: [████████░░] 75%

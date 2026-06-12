@@ -23,7 +23,7 @@
 
 - [x] **Phase 7: Contract Baseline** - Contract inventory, current-vs-target evidence, coverage matrix, follow-up disposition, and readiness verdict. Completed 2026-06-06.
 - [ ] **Phase 8: Knowledge Facade** - KnowledgeService boundary and canonical EvidenceRefV1/citation contract.
-- [x] **Phase 9: Business Tool Facade** - BusinessToolService boundary and ToolCallContext/ToolResultV2 contract. Completed 2026-06-12.
+- [ ] **Phase 9: Business Tool Facade** - BusinessToolService boundary and ToolCallContext/ToolResultV2 contract. Execution complete; verification gaps found 2026-06-12.
 - [ ] **Phase 10: State Lifecycle + Routing Migration** - AgentState lifecycle/trusted fields and deterministic total routers.
 - [ ] **Phase 11: Intent / Clarification** - Intent precedence, required-slot policy, confidence gates, and ordinary clarification.
 - [ ] **Phase 12: Session Memory** - PostgreSQL-backed session memory CAS and safe slot continuity.
