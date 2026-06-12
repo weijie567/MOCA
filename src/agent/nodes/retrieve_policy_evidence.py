@@ -87,17 +87,46 @@ def _merge_evidence_refs(
     return merged
 
 
+def _knowledge_merchant_scope(value: object) -> list[str]:
+    """Project trusted merchant scope into a validated string list for KnowledgeContext.
+
+    Handles three input shapes from the router:
+    - Structured dict: ``{"merchant_ids": ["m1", "m2"], ...}`` — extract only ``merchant_ids``.
+    - Legacy list: ``["m1", "m2"]`` — validate directly.
+    - Anything else (None, wrong type, missing keys): fail closed with ``[]``.
+
+    Every ID must be a non-empty string. Non-string or empty entries cause the
+    entire projection to fail closed.  Returns a copied list so the caller
+    cannot mutate the original.
+    """
+    raw_ids: object = None
+    if isinstance(value, dict):
+        raw_ids = value.get("merchant_ids")
+    elif isinstance(value, list):
+        raw_ids = value
+
+    if not isinstance(raw_ids, list) or len(raw_ids) == 0:
+        return []
+
+    validated: list[str] = []
+    for item in raw_ids:
+        if not isinstance(item, str) or not item:
+            return []
+        validated.append(item)
+    return list(validated)
+
+
 async def retrieve_policy_evidence(state: AgentState, config: RunnableConfig) -> dict:
     started_at = _now_iso()
     effective_at = state.get("run_started_at") or _now_iso()
     configurable = config.get("configurable") or {}
     session = configurable["session"]
     active_slots = state.get("active_slots") or {}
-    merchant_scope = configurable.get("merchant_scope")
-    if not isinstance(merchant_scope, list):
-        merchant_scope = None
+    merchant_scope = _knowledge_merchant_scope(configurable.get("merchant_scope"))
 
-    # Spec Consistency Finding: dedicated trace_id and merchant_scope plumbing is owned by Phase 10.
+    # Spec Consistency Finding: structured merchant_scope.merchant_ids is projected
+    # into KnowledgeContext via _knowledge_merchant_scope.  Dedicated trace_id and
+    # broader MerchantScopeV1 plumbing remain owned by Phase 10.
     context = KnowledgeContext(
         tenant_id=state["tenant_id"],
         user_id=state["user_id"],
