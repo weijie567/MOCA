@@ -21,6 +21,7 @@ from src.agent.nodes.final_response import final_response as build_final_respons
 from src.agent.trace import build_trace_summary, write_agent_run, write_agent_steps
 from src.api.schemas.agent_runs import CreateRunRequest, RunStatusResponse
 from src.api.schemas.common import ApiResponse
+from src.auth.jwt import ROLE_SCOPES
 from src.auth.permissions import get_current_user
 from src.db.models import AgentRun, User
 from src.db.session import get_session
@@ -32,6 +33,12 @@ router = APIRouter(tags=["agent-runs"])
 
 SUPERVISOR_ROLES = {"supervisor", "admin", "approval_manager", "manager"}
 SSE_HEARTBEAT_SECONDS = 15.0
+SCOPE_TO_TOOL_PERMISSION = {
+    "orders:read": "tool:get_order",
+    "refunds:read": "tool:get_refund_case",
+    "tickets:read": "tool:get_ticket",
+    "knowledge:read": "tool:search_policy",
+}
 
 NODE_MESSAGES: dict[str, str] = {
     "receive_request": "正在接收请求",
@@ -45,6 +52,23 @@ NODE_MESSAGES: dict[str, str] = {
     "execute_action": "正在执行操作",
     "final_response": "已完成",
 }
+
+
+def _trusted_tool_config(user: User, trace_id: str | None) -> dict[str, Any]:
+    trusted_scopes = ROLE_SCOPES.get(user.role, [])
+    permissions = [
+        tool_permission
+        for scope, tool_permission in SCOPE_TO_TOOL_PERMISSION.items()
+        if scope in trusted_scopes
+    ]
+    merchant_scope = (
+        {"merchant_ids": [str(user.merchant_id)]} if user.role == "merchant" else {"merchant_ids": ["*"]}
+    )
+    return {
+        "permissions": permissions,
+        "merchant_scope": merchant_scope,
+        "trace_id": trace_id or "",
+    }
 
 
 @router.post("", response_model=ApiResponse)
@@ -128,6 +152,7 @@ async def stream_agent_run_events(
         "configurable": {
             "thread_id": _checkpoint_thread_id(user=user, thread_id=run.thread_id),
             "session": session,
+            **_trusted_tool_config(user, getattr(request.state, "trace_id", None)),
         }
     }
 
