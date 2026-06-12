@@ -14,7 +14,7 @@
 - [x] **KNOW-03**: Knowledge migration/read-switch, if introduced, has owner, telemetry, fallback, and rollback.
 - [x] **TOOL-01**: Read business tools use BusinessToolService and trusted ToolCallContext.
 - [x] **TOOL-02**: ToolResultV2 covers permission/scope/status/timeout/partial/invalid-response behavior without raw invalid payload exposure.
-- [ ] **TOOL-03**: Write/action tools remain outside the read-tool facade.
+- [x] **TOOL-03**: Write/action tools remain outside the read-tool facade.
 - [ ] **STATE-01**: AgentState lifecycle enforces trusted writers, reset, merge, persistence, and cross-scope isolation.
 - [ ] **STATE-02**: Trusted identity/approval/action fields cannot be overwritten by user or LLM output.
 - [ ] **ROUTE-01**: Routers are deterministic, total, side-effect free, and return only valid node keys.
@@ -54,7 +54,7 @@
 | --- | --- | --- |
 | BASE-01..04 | Phase 7 | Complete |
 | KNOW-01..03 | Phase 8 | Complete |
-| TOOL-01..03 | Phase 9 | In Progress (TOOL-01, TOOL-02 complete) |
+| TOOL-01..03 | Phase 9 | In Progress (TOOL-01, TOOL-02, TOOL-03 complete) |
 | STATE-01..02, ROUTE-01..02 | Phase 10 | Pending |
 | INTENT-01..02, CLARIFY-01 | Phase 11 | Pending |
 | SESSION-01..03 | Phase 12 | Pending |
@@ -65,4 +65,4 @@
 | EXTERNAL-01..03 | Phase 17 | Deferred beyond MVP gate |
 
 ---
-*Updated: 2026-06-12 after completing Phase 9 Plan 01.*
+*Updated: 2026-06-12 after completing Phase 9 Plan 02.*
