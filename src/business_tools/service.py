@@ -95,6 +95,14 @@ class BusinessToolService:
                 code="MERCHANT_SCOPE_DENIED",
             )
 
+        descriptor = next((item for item in self.registry.descriptors() if item.name == name), None)
+        if descriptor is not None and descriptor.required_permission not in ctx.permissions:
+            return self._local_error(
+                "permission_denied",
+                "Required tool permission is missing",
+                code="PERMISSION_REQUIRED",
+            )
+
         if ctx.attempt > ctx.max_attempts:
             return self._local_error(
                 "error",
