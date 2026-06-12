@@ -18,6 +18,7 @@ from src.agent.nodes import extract_slots as extract_slots_module
 from src.agent.nodes import generate_recommendation as generate_recommendation_module
 from src.agent.nodes import load_business_context as load_business_context_module
 from src.agent.nodes import retrieve_policy_evidence as retrieve_policy_evidence_module
+from src.business_tools.schemas import BusinessContextV1, ToolResultV2
 from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1, KnowledgeSearchResult
 
@@ -55,7 +56,15 @@ def _state(query: str, thread_id: str = "graph-test-thread") -> dict:
 
 
 def _config(thread_id: str = "graph-test-thread") -> dict:
-    return {"configurable": {"thread_id": thread_id, "session": AsyncMock()}}
+    return {
+        "configurable": {
+            "thread_id": thread_id,
+            "session": AsyncMock(),
+            "permissions": ["tool:get_order", "tool:get_refund_case", "tool:get_ticket"],
+            "merchant_scope": {"merchant_ids": ["*"]},
+            "trace_id": "graph-trace",
+        }
+    }
 
 
 def _intent(intent: str) -> dict:
@@ -139,24 +148,35 @@ def _patch_graph_dependencies(
     search_result: KnowledgeSearchResult | None = None,
     classify_llm=None,
 ):
-    get_order = AsyncMock(
-        return_value={
-            "status": "success",
-            "data": {"order_no": order_id or "ORD-001", "status": "delivered", "amount": "199.00"},
-            "error": {},
-        }
+    tool_result = ToolResultV2(
+        status="success",
+        data={"order_no": order_id or "ORD-001", "status": "delivered", "amount": "199.00"},
+        summary="order result",
+        source_system="test",
+        data_freshness_at=None,
+        latency_ms=1,
+        audit_ref=None,
     )
+    business_context = BusinessContextV1(
+        tenant_id="tenant",
+        status="complete",
+        facts={"order": tool_result.data} if order_id else {},
+        business_fact_refs=[],
+        tool_results=[tool_result] if order_id else [],
+        missing_required_facts=[],
+        errors=[],
+        data_freshness_at=None,
+    )
+    fetch_context = AsyncMock(return_value=business_context)
     knowledge_search = AsyncMock(return_value=search_result or _policy_result())
 
     monkeypatch.setattr(classify_intent_module, "_get_llm", lambda: classify_llm or FakeLLM(_intent(intent)))
     monkeypatch.setattr(extract_slots_module, "_get_llm", lambda: FakeLLM(_slots(order_id)))
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
     monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: FakeLLM(_risk()))
-    monkeypatch.setattr(load_business_context_module, "get_order", get_order)
-    monkeypatch.setattr(load_business_context_module, "get_refund_case", AsyncMock())
-    monkeypatch.setattr(load_business_context_module, "get_ticket", AsyncMock())
+    monkeypatch.setattr(load_business_context_module.BusinessToolService, "fetch_context", fetch_context)
     monkeypatch.setattr(retrieve_policy_evidence_module.PolicyKnowledgeService, "search", knowledge_search)
-    return {"get_order": get_order, "knowledge_search": knowledge_search}
+    return {"fetch_context": fetch_context, "knowledge_search": knowledge_search}
 
 
 @pytest.fixture
@@ -194,7 +214,7 @@ async def test_happy_path_refund_troubleshooting(monkeypatch):
         "order": {"order_no": "ORD-001", "status": "delivered", "amount": "199.00"}
     }
     assert final_state["final_response"]
-    mocks["get_order"].assert_awaited_once()
+    mocks["fetch_context"].assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -230,22 +250,22 @@ async def test_order_fact_query_keeps_business_context_when_policy_evidence_is_m
     assert "已查询到订单信息" in final_state["final_response"]
     assert "ORD-001" in final_state["final_response"]
     assert "关于退款风险" in final_state["final_response"]
-    mocks["get_order"].assert_awaited_once()
+    mocks["fetch_context"].assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_order_not_found_path(monkeypatch):
     mocks = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id="ORD-MISSING")
-    mocks["get_order"].return_value = {
-        "status": "error",
-        "data": {},
-        "error": {
-            "error_code": "ORDER_NOT_FOUND",
-            "message": "not found",
-            "retryable": False,
-            "should_stop": False,
-        },
-    }
+    mocks["fetch_context"].return_value = BusinessContextV1(
+        tenant_id="tenant",
+        status="insufficient",
+        facts={},
+        business_fact_refs=[],
+        tool_results=[],
+        missing_required_facts=["order"],
+        errors=[],
+        data_freshness_at=None,
+    )
     graph = build_graph(MemorySaver())
 
     final_state = await graph.ainvoke(_state("订单ORD-MISSING退款为什么没到账？"), _config())
