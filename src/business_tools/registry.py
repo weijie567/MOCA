@@ -16,6 +16,10 @@ from src.business_tools.schemas import ToolCallContext, ToolError, ToolResultV2
 ToolAdapter = Callable[[BaseModel, ToolCallContext, AsyncSession], Awaitable[ToolResultV2]]
 
 
+class _SchemaInput(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
 class ToolDescriptor(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -265,7 +269,7 @@ class ToolRegistry:
             input_model_type = _INPUT_MODELS.get(descriptor.name)
             if input_model_type is None:
                 _validate_json_value(input_data, descriptor.input_schema)
-                input_model = BaseModel.model_construct()
+                input_model = _SchemaInput.model_validate(input_data)
             else:
                 input_model = input_model_type.model_validate(input_data)
         except (ValidationError, ValueError, TypeError):
