@@ -156,7 +156,7 @@
 | --- | --- | --- | --- |
 | 7. Contract Baseline | 1/1 | Complete | 2026-06-06 |
 | 8. Knowledge Facade | 4/6 | In Progress | - |
-| 9. Business Tool Facade | 2/5 | In Progress | - |
+| 9. Business Tool Facade | 3/5 | In Progress | - |
 | 10. State Lifecycle + Routing Migration | 0/5 | Planned (Plan 04 blocked_by Phase 9) | - |
 | 11. Intent / Clarification | 0/TBD | Pending | - |
 | 12. Session Memory | 0/TBD | Pending | - |

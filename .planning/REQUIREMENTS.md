@@ -65,4 +65,4 @@
 | EXTERNAL-01..03 | Phase 17 | Deferred beyond MVP gate |
 
 ---
-*Updated: 2026-06-12 after completing Phase 9 Plan 02.*
+*Updated: 2026-06-12 after completing Phase 9 Plan 03.*
