@@ -120,19 +120,19 @@ route_after_action_draft
 
 ```python
 def route_after_intent(state: AgentState) -> str:
-    intent = state.get("intent")
+    primary_intent = state.get("primary_intent")
     confidence = state.get("intent_confidence")
 
     if confidence < 0.65:
         return "clarification_gate"
 
-    if intent == "policy_qa":
+    if primary_intent == "policy_qa":
         return "investigate"
 
-    if intent == "order_status_inquiry":
+    if primary_intent == "order_status_inquiry":
         return "session_memory_load"
 
-    if intent in {"small_talk", "unsupported"}:
+    if primary_intent in {"small_talk", "unsupported"}:
         return "final_response"
 
     return "session_memory_load"
@@ -1549,23 +1549,20 @@ ActionExecutor.create_draft()
 
 ### 19.3 `action_execution`
 
-这个节点执行动作。
+这个节点仅在 external mode 且 adapter 允许时执行真实动作。
 
-但当前 MOCA 仍应该是 demo adapter：
+当前 MOCA demo mode 不进入 `action_execution`。demo 路径只在 `action_draft` 创建 durable draft，并写入：
 
 ```text
-execution_mode = demo
+draft_outcome = {
+  status: not_executed_demo,
+  external_side_effect: false
+}
 ```
 
-也就是：
+demo mode 不写 `action_result` 或真实 execution result，不创建 `action_executions` row，不调外部系统；`action_draft` 完成后直接进入 `final_response`。
 
-- 创建草稿；
-- 写 execution result；
-- 不真实发券；
-- 不真实退款；
-- 不调公司外部系统。
-
-未来如果接真实系统，才变成：
+仅当 execution mode 为 external 且 adapter 允许时，才进入 `action_execution`：
 
 ```text
 ActionExecutor.execute()
@@ -1782,7 +1779,6 @@ receive_request
 -> recommendation_generation
 -> risk_gate
 -> action_draft
--> action_execution
 -> final_response
 -> memory_write
 -> trace_close
@@ -1791,6 +1787,8 @@ receive_request
 这里走 risk gate，因为有动作。
 
 但如果规则判断 20 元低风险，可以不进 approval gate。
+
+以上是 MOCA demo 主线路径；external mode 下才在 `action_draft` 后追加 `action_execution`。
 
 ### 21.5 高风险补偿
 
@@ -1823,11 +1821,12 @@ receive_request
 ```text
 approval_gate
 -> action_draft
--> action_execution
 -> final_response
 -> memory_write
 -> trace_close
 ```
+
+以上是 MOCA demo 主线路径；external mode 下才在 `action_draft` 后追加 `action_execution`。
 
 如果 manager edit，把 600 改成 100：
 

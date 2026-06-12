@@ -462,7 +462,7 @@ Canonical router 函数包括：
 
 - V1 分层能力图用于说明模块边界。
 - V2 节点路由图用于说明一个 Agent run 如何按 intent 和风险条件流转。
-- 第 7 节图是 illustrative；第 9.5/9.6 节 contract table 是 normative source，任何实现和 review 冲突均以第 9 节为准。
+- 第 7 节图是 illustrative；第 9.4/9.5 节 contract table 是 normative source，任何实现和 review 冲突均以第 9 节为准。
 - 所有 Mermaid 图均为 illustrative；第 9-18 节 contract tables 是 normative source。
 - V2 是目标设计，不要求一次性实现全部节点。
 - 若需要回退第二版，只删除 `7.2 V2 细粒度流程路由图`、`7.3 V2 严格 LangGraph 节点图`、`7.4 V2 读法和可回退边界`，以及第 9 节中的 V2 routing 表，不影响 V1 spec 主体。
