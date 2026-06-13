@@ -157,6 +157,7 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
         "retrieved_evidence": {
             "status": context["retrieval_status"],
             "best_score": context["best_score"],
+            "evidence_refs": context["policy_refs"],
             "policy_refs": context["policy_refs"],
         },
         "retrieval_status": context["retrieval_status"],
