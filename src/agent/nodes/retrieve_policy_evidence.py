@@ -9,23 +9,30 @@ from src.agent.prompts import INSUFFICIENT_EVIDENCE_RESPONSE
 from src.agent.state import AgentState
 from src.knowledge.adapters import LegacyRagKnowledgeAdapter
 from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
-from src.knowledge.schemas import KnowledgeContext, KnowledgeSearchFilters, KnowledgeSearchRequest
+from src.knowledge.schemas import KnowledgeContext, KnowledgeSearchFilters, KnowledgeSearchRequest, KnowledgeSearchResult
 from src.knowledge.service import PolicyKnowledgeService
 
 MIN_EVIDENCE_SCORE = 0.55
+POLICY_SEARCH_PERMISSION = "tool:search_policy"
 
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def _trace_step(status: str, started_at: str, evidence_refs: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def _trace_step(
+    status: str,
+    started_at: str,
+    evidence_refs: list[dict[str, Any]] | None = None,
+    *,
+    tool_called: bool = True,
+) -> dict[str, Any]:
     step = {
         "node": "retrieve_policy_evidence",
         "status": status,
         "started_at": started_at,
         "completed_at": _now_iso(),
-        "tools_called": ["knowledge_service.search"],
+        "tools_called": ["knowledge_service.search"] if tool_called else [],
         "provider_latency_ms": None,
         "retry_count": 0,
         "metrics_json": None,
@@ -69,6 +76,30 @@ def _retrieval_error_draft(error: dict[str, Any]) -> dict[str, Any]:
         "confidence": 0.0,
         "risk_level": "low",
         "missing_info": [error.get("message") or "Policy retrieval failed"],
+    }
+
+
+def _permission_denied_output(state: AgentState, started_at: str) -> dict[str, Any]:
+    error = {
+        "error_code": "PERMISSION_DENIED",
+        "message": "Policy retrieval permission denied.",
+        "retryable": False,
+    }
+    result = KnowledgeSearchResult(
+        status="error",
+        retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+        rerank_config_version=RERANK_CONFIG_VERSION,
+        best_score=0.0,
+        threshold=MIN_EVIDENCE_SCORE,
+        error=error,
+    )
+    return {
+        "retrieved_evidence": result.model_dump(),
+        "trace_steps": (state.get("trace_steps") or []) + [_trace_step("error", started_at, tool_called=False)],
+        "evidence_refs": [],
+        "recommendation_draft": _retrieval_error_draft(error),
+        "node_errors": (state.get("node_errors") or [])
+        + [{"node": "retrieve_policy_evidence", "error": error, "retry_count": 0}],
     }
 
 
@@ -120,6 +151,10 @@ async def retrieve_policy_evidence(state: AgentState, config: RunnableConfig) ->
     started_at = _now_iso()
     effective_at = state.get("run_started_at") or _now_iso()
     configurable = config.get("configurable") or {}
+    permissions = configurable.get("permissions")
+    if not isinstance(permissions, (list, tuple, set, frozenset)) or POLICY_SEARCH_PERMISSION not in permissions:
+        return _permission_denied_output(state, started_at)
+
     session = configurable["session"]
     active_slots = state.get("active_slots") or {}
     merchant_scope = _knowledge_merchant_scope(configurable.get("merchant_scope"))
