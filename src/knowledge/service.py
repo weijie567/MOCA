@@ -32,11 +32,10 @@ class PolicyKnowledgeService:
         # unauthorized request into an unfiltered tenant search.
         merchant_id = request.filters.merchant_id
         merchant_scope = context.merchant_scope
-        if merchant_scope == []:
+        if not merchant_scope:
             return self._no_evidence_result()
         if (
             merchant_id is not None
-            and merchant_scope is not None
             and "*" not in merchant_scope
             and merchant_id not in merchant_scope
         ):

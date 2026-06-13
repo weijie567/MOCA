@@ -36,10 +36,11 @@ def _service() -> tuple[PolicyKnowledgeService, AsyncMock]:
 
 
 @pytest.mark.asyncio
-async def test_empty_merchant_scope_returns_no_evidence_without_adapter_call():
+@pytest.mark.parametrize("merchant_scope", [None, []])
+async def test_missing_or_empty_merchant_scope_returns_no_evidence_without_adapter_call(merchant_scope):
     service, retrieve = _service()
 
-    result = await service.search(_request(), _context([]))
+    result = await service.search(_request(), _context(merchant_scope))
 
     assert result.status == "no_evidence"
     assert result.evidence_refs == []
@@ -63,10 +64,9 @@ async def test_unauthorized_explicit_merchant_filter_returns_no_evidence_without
     [
         (["*"], "merchant-any"),
         (["merchant-allowed"], "merchant-allowed"),
-        (None, "merchant-legacy"),
     ],
 )
-async def test_authorized_and_legacy_merchant_scope_call_adapter(merchant_scope, merchant_id):
+async def test_authorized_merchant_scope_calls_adapter(merchant_scope, merchant_id):
     service, retrieve = _service()
 
     result = await service.search(_request(merchant_id), _context(merchant_scope))

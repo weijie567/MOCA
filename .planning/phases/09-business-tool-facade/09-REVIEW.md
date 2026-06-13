@@ -27,7 +27,7 @@ findings:
   warning: 1
   info: 0
   total: 2
-status: issues_found
+status: issues_fixed
 ---
 
 # Phase 09: Code Review Report
@@ -82,3 +82,41 @@ Add a graph/router integration test asserting that a merchant user's ID reaches 
 _Reviewed: 2026-06-12T20:58:17Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
+
+## Independent Re-Review: Plans 09-06 Through 09-09
+
+**Reviewed:** 2026-06-13
+**Status:** issues_fixed
+
+The re-review did not rely on plan summaries. It traced verified JWT scopes from
+authentication through both graph entry points, checked policy permission and
+merchant-scope enforcement before adapter execution, and verified the Phase 8/9
+policy-retrieval ownership boundary.
+
+### Finding Fixed: Missing merchant scope still failed open
+
+`PolicyKnowledgeService.search` treated `merchant_scope=None` as unrestricted,
+despite the normative contract requiring missing scope to deny-all and reserving
+unrestricted access for explicit `"*"`. The service now returns `no_evidence`
+without adapter execution for both `None` and `[]`.
+
+### Test Gap Fixed: Legacy chat restricted-token projection
+
+The SSE path had a restricted-token API regression, but legacy `/agent/chat`
+only had compatibility coverage using a normally privileged token. A new API
+regression now proves an `agent:chat`-only token reaches the legacy graph with
+`permissions=[]`.
+
+### Plan Assessment
+
+- 09-06 correctly preserves verified token scopes and intersects them with the current DB role.
+- 09-07 correctly projects structured merchant IDs and fails closed on malformed projection.
+- 09-08 correctly preserves Phase 8 policy-retrieval ownership; some assertions are structurally brittle but do not hide a production defect.
+- 09-09 correctly added live permission and explicit scope enforcement, but its deliberate `None` compatibility exception was a remaining Phase 9 contract gap and is now removed.
+
+### Verification
+
+- Phase 9 regression: 152 passed, 11 warnings.
+- Approval integration: 5 passed, 1 warning.
+- Full non-integration regression: 348 passed, 11 warnings.
+- Changed-scope Ruff: passed.

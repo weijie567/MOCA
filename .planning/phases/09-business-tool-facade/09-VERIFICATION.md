@@ -9,7 +9,7 @@ re_verification:
   previous_score: 10/10
   gaps_closed:
     - "Restricted JWT permissions are enforced before live policy retrieval."
-    - "Empty and unauthorized merchant scope denies before policy adapter execution."
+    - "Missing, empty, and unauthorized merchant scope denies before policy adapter execution."
     - "Merchant users without merchant_id receive explicit deny-all scope."
     - "Both /agent-runs/{run_id}/events and legacy /agent/chat inject trusted tool config."
   gaps_remaining: []
@@ -39,10 +39,10 @@ human_verification: []
 | 7 | Missing `tool:search_policy` denies before policy service execution. | VERIFIED | `retrieve_policy_evidence.py` returns `PERMISSION_DENIED`; tests assert `PolicyKnowledgeService.search` is not awaited. |
 | 8 | Structured trusted merchant scope reaches KnowledgeContext without widening. | VERIFIED | Projection and graph-path regressions pass. |
 | 9 | Missing or malformed structured merchant scope becomes explicit deny-all. | VERIFIED | `_knowledge_merchant_scope` returns `[]` for invalid inputs. |
-| 10 | Empty merchant scope denies before policy adapter execution. | VERIFIED | `PolicyKnowledgeService.search` returns `no_evidence`; tests assert adapter non-invocation. |
+| 10 | Missing or empty merchant scope denies before policy adapter execution. | VERIFIED | `PolicyKnowledgeService.search` returns `no_evidence`; tests assert adapter non-invocation for both `None` and `[]`. |
 | 11 | Unauthorized explicit merchant filters deny before policy adapter execution. | VERIFIED | Service tests assert `no_evidence` and adapter non-invocation. |
 | 12 | Merchant users without merchant identity receive deny-all scope, never `"None"`. | VERIFIED | Router projects `{"merchant_ids": []}`; regression passes. |
-| 13 | Both live API entry points inject trusted permissions and merchant scope. | VERIFIED | SSE regression passes; legacy `/agent/chat` approval integration passes after shared trusted-config projection. |
+| 13 | Both live API entry points inject trusted permissions and merchant scope. | VERIFIED | Restricted-token regressions capture empty tool permissions from both SSE and legacy `/agent/chat` graph configs. |
 | 14 | Policy retrieval remains Phase 8-owned while Phase 9 retrieval descriptors remain declaration-only. | VERIFIED | `retrieve_policy_evidence` calls `PolicyKnowledgeService`; ownership regression passes. |
 
 **Score:** 14/14 truths verified
@@ -63,10 +63,10 @@ human_verification: []
 | `src/api/routers/agent_runs.py` | VERIFIED | Intersects scopes and projects safe merchant scope for SSE runs. |
 | `src/api/routers/agent.py` | VERIFIED | Projects the same trusted config into legacy `/agent/chat`. |
 | `src/agent/nodes/retrieve_policy_evidence.py` | VERIFIED | Enforces `tool:search_policy` before service execution. |
-| `src/knowledge/service.py` | VERIFIED | Enforces empty/unauthorized merchant-scope denial before adapter execution. |
+| `src/knowledge/service.py` | VERIFIED | Enforces missing/empty/unauthorized merchant-scope denial before adapter execution. |
 | `src/business_tools/registry.py` | VERIFIED | Enforces ordered business-tool gates and write blocking. |
 | `src/business_tools/service.py` | VERIFIED | Provides live business-read facade, retry, and aggregation. |
-| `tests/test_agent_runs_api.py` | VERIFIED | Covers live SSE restricted-token projection and missing merchant identity. |
+| `tests/test_agent_runs_api.py` | VERIFIED | Covers restricted-token projection through both live API paths and missing merchant identity. |
 | `tests/knowledge/test_service.py` | VERIFIED | Covers adapter non-invocation for denied merchant scope. |
 | `tests/agent/test_nodes/test_retrieve_policy_evidence.py` | VERIFIED | Covers permission denial and service non-invocation. |
 | `tests/test_approval_integration.py` | VERIFIED | Covers legacy `/agent/chat` trusted-config compatibility. |
@@ -76,11 +76,11 @@ human_verification: []
 
 | Gate | Result | Status |
 |---|---|---|
-| Phase 9 exact regression | 132 passed, 11 warnings | PASS |
+| Phase 9 exact regression | 152 passed, 11 warnings | PASS |
 | Approval integration | 5 passed, 1 warning | PASS |
-| Full non-integration regression | 347 passed, 11 warnings | PASS |
+| Full non-integration regression | 348 passed, 11 warnings | PASS |
 | Changed-file Ruff | All checks passed | PASS |
-| Independent code review | No findings | PASS |
+| Independent code review | 1 contract gap and 1 test gap found and fixed | PASS |
 
 The 11 warnings are existing LangGraph deprecation and `AsyncMock` warnings outside the Phase 9 authorization changes.
 
@@ -94,7 +94,7 @@ The 11 warnings are existing LangGraph deprecation and `AsyncMock` warnings outs
 
 ### Gaps Summary
 
-No gaps remain. Plans 09-06 and 09-07 fixed trusted-context projection, Plan 09-08 dispositioned the ownership boundary, and Plan 09-09 completed the missing execution-boundary enforcement. Independent full-regression review also found and fixed the legacy `/agent/chat` trusted-config omission before final acceptance.
+No gaps remain. Plans 09-06 and 09-07 fixed trusted-context projection, Plan 09-08 dispositioned the ownership boundary, and Plan 09-09 completed most missing execution-boundary enforcement. Independent re-review then fixed the legacy `/agent/chat` trusted-config omission and the remaining `merchant_scope=None` fail-open behavior before final acceptance.
 
 ---
 

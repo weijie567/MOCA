@@ -36,6 +36,14 @@ class CaptureConfigGraph:
         yield ("final_response", {"final_response": "done", "trace_steps": []})
 
 
+class CaptureInvokeConfigGraph:
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, dict]] = []
+
+    async def ainvoke(self, input_state, config):
+        self.calls.append((input_state, config))
+        return {"final_response": "done", "trace_steps": []}
+
 
 class CancelledGraph:
     async def astream(self, input_state, config, stream_mode):
@@ -499,6 +507,28 @@ async def test_agent_chat_only_token_streams_with_no_tool_permissions(
 
     response = await client.get(
         f"/api/v1/agent-runs/{run.id}/events",
+        headers=_auth_header(user, ["agent:chat"]),
+    )
+
+    assert response.status_code == 200
+    assert len(graph.calls) == 1
+    _, config = graph.calls[0]
+    assert config["configurable"]["permissions"] == []
+
+
+@pytest.mark.asyncio
+async def test_agent_chat_only_token_invokes_legacy_chat_with_no_tool_permissions(
+    client: AsyncClient,
+    seeded_session,
+    monkeypatch,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    graph = CaptureInvokeConfigGraph()
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+
+    response = await client.post(
+        "/api/v1/agent/chat",
+        json={"query": "退款政策是什么？", "thread_id": f"restricted-chat-{uuid4()}"},
         headers=_auth_header(user, ["agent:chat"]),
     )
 
