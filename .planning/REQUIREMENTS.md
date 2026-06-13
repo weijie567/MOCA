@@ -15,8 +15,8 @@
 - [x] **TOOL-01**: Read business tools use BusinessToolService and trusted ToolCallContext.
 - [x] **TOOL-02**: ToolResultV2 covers permission/scope/status/timeout/partial/invalid-response behavior without raw invalid payload exposure.
 - [x] **TOOL-03**: Write/action tools remain outside the read-tool facade.
-- [ ] **STATE-01**: AgentState lifecycle enforces trusted writers, reset, merge, persistence, and cross-scope isolation.
-- [ ] **STATE-02**: Trusted identity/approval/action fields cannot be overwritten by user or LLM output.
+- [x] **STATE-01**: AgentState lifecycle enforces trusted writers, reset, merge, persistence, and cross-scope isolation.
+- [x] **STATE-02**: Trusted identity/approval/action fields cannot be overwritten by user or LLM output.
 - [ ] **ROUTE-01**: Routers are deterministic, total, side-effect free, and return only valid node keys.
 - [ ] **ROUTE-02**: Invalid or unsafe state routes to explicit safe fallback.
 - [ ] **INTENT-01**: Intent precedence and requested-operation safety routing are deterministic and tested.
