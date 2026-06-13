@@ -23,7 +23,7 @@
 
 - [x] **Phase 7: Contract Baseline** - Contract inventory, current-vs-target evidence, coverage matrix, follow-up disposition, and readiness verdict. Completed 2026-06-06.
 - [ ] **Phase 8: Knowledge Facade** - KnowledgeService boundary and canonical EvidenceRefV1/citation contract.
-- [ ] **Phase 9: Business Tool Facade** - BusinessToolService boundary and ToolCallContext/ToolResultV2 contract. Execution complete; verification gaps found 2026-06-12.
+- [x] **Phase 9: Business Tool Facade** - BusinessToolService boundary and ToolCallContext/ToolResultV2 contract. ✓ Verified 2026-06-13 — 8/8 plans complete, 10/10 must-haves verified.
 - [ ] **Phase 10: State Lifecycle + Routing Migration** - AgentState lifecycle/trusted fields and deterministic total routers.
 - [ ] **Phase 11: Intent / Clarification** - Intent precedence, required-slot policy, confidence gates, and ordinary clarification.
 - [ ] **Phase 12: Session Memory** - PostgreSQL-backed session memory CAS and safe slot continuity.
@@ -63,7 +63,7 @@
   1. Read tools use the facade without exposing raw invalid upstream payloads.
   2. Permission, scope, status, timeout, partial-success, and invalid-response contracts pass.
   3. Write/action execution remains outside this facade.
-**Plans**: 5/8 complete
+**Plans**: 8/8 complete
 
 ### Phase 10: State Lifecycle + Routing Migration
 **Goal**: Enforce AgentState reset/merge/trusted-writer rules, deterministic router totality, and the investigation segment agentic merge (single `investigate` bounded-loop node + `route_after_investigate`). Scope expansion P10-DEV-01: the investigate merge is added by the §9 promotion (commit ad17301) beyond the original state+router goal text.
@@ -167,4 +167,4 @@
 | 17. External Action Execution | 0/TBD | Deferred beyond MVP gate | - |
 
 ---
-*Updated: 2026-06-12 after completing Phase 9 Plan 05.*
+*Updated: 2026-06-13 — Phase 9 complete (8/8 plans, 10/10 must-haves verified).* /
