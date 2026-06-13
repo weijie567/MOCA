@@ -69,6 +69,18 @@ class AgentState(TypedDict, total=False):
     recommendation_draft: dict[str, Any] | None
     risk_assessment: dict[str, Any] | None
 
+    # Phase 10: §10.1 canonical ephemeral fields reset each turn by receive_request.
+    primary_intent: str | None
+    requested_operation: str | None
+    retrieval_status: str | None
+    best_score: float | None
+    termination_reason: str | None
+    policy_evidence: list[dict[str, Any]] | None
+    case_memory: list[dict[str, Any]] | None
+    claim_dependency_map: list[dict[str, Any]] | None
+    session_memory: dict[str, Any] | None
+    long_term_memory: list[dict[str, Any]] | None
+
     # Phase 4: approval workflow fields.
     proposed_action: dict[str, Any] | None
     approval_result: dict[str, Any] | None
