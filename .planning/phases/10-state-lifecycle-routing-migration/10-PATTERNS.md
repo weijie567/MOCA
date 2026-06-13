@@ -79,7 +79,7 @@ if slots.get("order_id"):
         ctx["order"] = result["data"]
         refs["order_id"] = slots["order_id"]
 ```
-The loop replaces the fixed chain with LLM tool selection from the §12.4 allowlist (D-04). Keep the allowlist as a hard constant in the node; reject any tool not in it (D-04/D-06 — never a write tool). Available read tools today: `get_order`, `get_refund_case`, `get_ticket`, `search_policy` (`src/agent/tools/`). The other 4 allowlist tools do not exist — register-but-unavailable, do not build them (RESEARCH Pitfall 2).
+The loop replaces the fixed chain with bounded tool selection from the §12.4 allowlist (D-04). Keep the allowlist as a hard manager-visible contract; reject any tool not in it (D-04/D-06 — never a write tool). `investigate` must call one node-facing `UnifiedToolManager.invoke(...)` path. Business fact tools are delegated by the manager to `BusinessToolService.invoke_tool(...)`; policy evidence is delegated by a knowledge executor to `PolicyKnowledgeService.search`; future memory tools remain declared-but-unavailable. Tools without repo backing should surface as unavailable through the same manager contract — do not build them in Phase 10.
 
 **RAG retrieval + status mapping** (`retrieve_policy_evidence.py:125-130`):
 ```python
@@ -239,11 +239,12 @@ Analog for `test_investigate.py` (D-03/D-04/D-06/D-08): async node test with a f
 | `case_memory` retrieval (`search_case_memory`) | service | request-response | No `MemoryService` and no `search_case_memory` tool exist (RESEARCH Env Availability). CD-01 keeps long-term memory separate; case memory is Phase 16 territory — empty/seam only in Phase 10. |
 | `tests/agent/test_events.py` (sequence/concurrency) | test | — | No existing test exercises a monotonic per-run sequence allocator. `tests/agent/test_trace.py` is the nearest structural analog for DB-backed trace assertions, but the concurrency/monotonic-after-resume property is net-new (10c). Use spec §17.2 as the contract. |
 | `get_logistics` / `get_merchant_risk` / `search_sop` tools | tool | request-response | Do not exist and Phase 10 should NOT build them (RESEARCH Pitfall 2 / A3). Register in the §12.4 allowlist contract as unavailable; analog for *shape* if ever built is `get_order.py`. |
-| `BusinessToolService` facade | service | request-response | Phase 9 not implemented (RESEARCH Open Question 1). Interim: `investigate` calls existing raw read tools (`get_order`/`get_refund_case`/`get_ticket`) and flags the facade as a P10-DEV follow-up — do NOT import `from src.business_tools...`. |
+| `UnifiedToolManager` | manager/service adapter | request-response | Plan 04 creates the node-facing unified dispatch layer. `investigate` calls this only; manager executors delegate business reads to `BusinessToolService`, policy retrieval to `PolicyKnowledgeService`, and future memory tools to unavailable/future executors. |
+| `BusinessToolService` facade | service | request-response | Phase 9 implemented. It is the business executor dependency behind `UnifiedToolManager`; `investigate` must not import/call it directly and must not bypass it with raw `get_order`/`get_refund_case`/`get_ticket` calls. |
 
 ## Metadata
 
 **Analog search scope:** `src/agent/` (graph, state, nodes, tools, trace), `src/db/` (models, migrations/versions), `src/knowledge/service.py`, `tests/` (test_graph_routing, agent/test_nodes, agent/test_trace, conftest)
 **Files scanned:** ~14 source/test files read in full or targeted; directory inventories of nodes/tools/migrations/tests
 **Pattern extraction date:** 2026-06-11
-**Caveat:** This is a migration phase — "new" files largely relocate/merge existing code, so analogs are unusually exact. The behavioral contract is `docs/contract-spec.md` (not the analogs); analogs supply the house coding style only. Field-rename scope (`current_intent→primary_intent`) and the Phase-9 dependency are unresolved Open Questions the planner must close before these patterns are actioned.
+**Caveat:** This is a migration phase — "new" files largely relocate/merge existing code, so analogs are unusually exact. The behavioral contract is `docs/contract-spec.md` (not the analogs); analogs supply the house coding style only. Field-rename scope (`current_intent→primary_intent`) remains a planning question; the Phase-9 facade dependency is resolved and should be consumed behind the Plan-04 UnifiedToolManager business executor, not directly from `investigate`.

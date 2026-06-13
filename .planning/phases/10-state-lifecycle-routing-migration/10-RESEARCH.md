@@ -53,10 +53,10 @@ Phase 10 is a **migration phase**, not greenfield. The live graph in `src/agent/
 The three things this phase delivers (per CONTEXT.md): (1) AgentState lifecycle enforcement per §10.1, (2) deterministic router totality per §9.5, and (3) the investigate agentic merge collapsing `load_business_context` + `retrieve_policy_evidence` + (a not-yet-existing case-memory node) into one bounded-loop `investigate` node with a single `route_after_investigate`.
 
 **Two dependency facts the planner must confront before sequencing anything:**
-1. **Phase 9 (BusinessToolService) is NOT implemented.** Only `.planning/phases/09-business-tool-facade/09-CONTEXT.md` exists — no plans, no `src/business_tools/`, no `BusinessToolService` class `[VERIFIED: ls + rg]`. CONTEXT.md repeatedly says "the loop CALLS Phase 9 BusinessToolService (service layer does not rework)" — but there is nothing to call. ROADMAP marks Phase 10 "Blocked by 8/9" and Phase 9 "0/TBD, Ready to plan".
+1. **Phase 9 (BusinessToolService) is implemented.** `src/business_tools/service.py` provides `BusinessToolService.invoke_tool(...)` and `fetch_context(...)`; Phase 10 must consume this facade as the business executor behind a unified tool manager, rather than letting `investigate` branch directly to multiple services.
 2. **Phase 8 is "In Progress" (4/6 plans on the ROADMAP table; STATE.md shows gap-closure executed).** `PolicyKnowledgeService` exists and is callable from `retrieve_policy_evidence.py` `[VERIFIED: src/knowledge/service.py:21]`.
 
-**Primary recommendation:** Before writing task plans, the planner must resolve the Phase 9 dependency (either Phase 9 lands first, or Phase 10 absorbs a minimal BusinessToolService seam) and decide the migration scope boundary. The safest decomposition follows migration-plan.md's already-defined **10a/10b/10c internal slices**: 10a = trusted-context + state lifecycle reset/property tests; 10b = routing + slot seam totality/determinism + empty-adapter; 10c = minimal event emitter/allocator/base table. The investigate merge spans 10b (routing) and 10c (per-call events).
+**Primary recommendation:** Phase 9 has landed, so Phase 10 should add a `UnifiedToolManager` node-facing dispatch layer whose executors delegate to BusinessToolService, KnowledgeService, and future MemoryService. The safest decomposition follows migration-plan.md's already-defined **10a/10b/10c internal slices**: 10a = trusted-context + state lifecycle reset/property tests; 10b = routing + slot seam totality/determinism + empty-adapter; 10c = minimal event emitter/allocator/base table. The investigate merge spans 10b (routing) and 10c (per-call events), and the unified tool manager prevents the loop from growing ad hoc per-service branches.
 
 ## Architectural Responsibility Map
 
@@ -65,8 +65,8 @@ The three things this phase delivers (per CONTEXT.md): (1) AgentState lifecycle 
 | AgentState reset/merge rules | Agent orchestration (state.py + receive_request) | — | State contract is graph-internal; lifecycle owned by the node that resets (`receive_request`) and the TypedDict shape (`state.py`). |
 | Trusted-field write protection | API/auth boundary + Agent orchestration | — | Identity/scope injected by trusted config (`config["configurable"]`); LLM-facing nodes must not overwrite. §8.0 TrustedContext is the trust root. |
 | Router determinism/totality | Agent orchestration (graph.py routers) | — | Routers are pure functions over state; no I/O, no service calls. |
-| investigate bounded loop | Agent orchestration (new investigate node) | Service layer (KnowledgeService/BusinessToolService/MemoryService) | The loop is node-internal control flow; it CALLS service tiers but owns the iteration/termination logic itself. |
-| Read tool execution | Service layer (BusinessToolService — NOT YET BUILT) + KnowledgeService | DB/repo tier | Per §8.4/§12.4, read tools go through facades; nodes don't touch repos directly. |
+| investigate bounded loop | Agent orchestration (new investigate node) | UnifiedToolManager + service executors | The loop owns iteration/termination/planner control flow and CALLS one manager; manager executors call BusinessToolService / KnowledgeService / future MemoryService. |
+| Read/retrieval tool execution | UnifiedToolManager executor layer | Service + DB/repo tier | Per §8.4/§12.4, business reads go through the Phase 9 facade and policy/RAG goes through KnowledgeService, but the node-facing dispatch path is one manager. Nodes don't touch repos or service-specific tool functions directly. |
 | Minimal event emit + sequence allocator | Persistence/observability tier (new) | Agent orchestration (emit call sites) | §17.2 assigns Phase 10 ownership of envelope, base table, allocator, append API. |
 | permission-denied scoping | Agent orchestration (route_after_investigate + investigate) | Service layer (tool returns permission error) | Tool reports the denial; router/node decides fine-grained blocking (D-08). |
 
@@ -200,12 +200,12 @@ The existing routers are already pure and side-effect free. ROUTE-01/02 work is:
 
 | Problem | Don't Build | Use Instead | Why |
 |---------|-------------|-------------|-----|
-| Read-tool execution + tenant/permission scoping | Custom per-tool DB access inside investigate | Phase 9 `BusinessToolService` facade (§8.4) — **must exist first** | The facade owns permission/scope/not_found/timeout/partial-success/invalid-response contracts. Re-implementing in the loop duplicates and diverges. **BLOCKER: facade not built.** |
-| Policy/SOP retrieval | New retrieval path | Existing `PolicyKnowledgeService.search` (src/knowledge/service.py:21) | Already returns status/best_score/evidence_refs per §8.3 `[VERIFIED]`. |
+| Read-tool execution + tenant/permission scoping | Custom per-tool DB access or per-service branching inside investigate | UnifiedToolManager -> BusinessToolService executor (§8.4) — implemented dependency | BusinessToolService owns business permission/scope/not_found/timeout/partial-success/invalid-response contracts, while the manager owns node-facing descriptor/allowlist/schema dispatch. Re-implementing raw business-tool access in the loop duplicates and diverges. |
+| Policy/SOP retrieval | Direct `PolicyKnowledgeService.search` from investigate | UnifiedToolManager -> KnowledgeToolExecutor -> existing `PolicyKnowledgeService.search` | KnowledgeService already returns status/best_score/evidence_refs per §8.3 `[VERIFIED]`; it should be hidden behind the same node-facing manager as business tools. |
 | Per-run monotonic sequence | Ad-hoc counter in state | Phase-10-owned sequence allocator (§17.2, must be concurrency-safe + monotonic) | Spec requires "strictly monotonic per run_id, continues after resume". migration-plan 10c calls for "allocator concurrency/monotonic sequence tests". |
 | Property/totality test fuzzing | Manual enumerated cases only | hypothesis (if added) | Stronger totality evidence; spec explicitly says "property tests". |
 
-**Key insight:** The largest hand-roll risk is the `investigate` loop re-implementing business-tool access that Phase 9's facade is supposed to own. The planner must NOT let Phase 10 grow a parallel tool-access layer.
+**Key insight:** The largest hand-roll risk is the `investigate` loop growing node-local tool dispatch branches. The planner must NOT let Phase 10 call BusinessToolService for some tools, PolicyKnowledgeService for others, and future MemoryService through a third branch. Add one unified manager with executor adapters.
 
 ## Runtime State Inventory
 
@@ -226,15 +226,15 @@ This is a refactor/rename + state-contract migration. Grep finds files; it does 
 
 ## Common Pitfalls
 
-### Pitfall 1: Treating CONTEXT.md's "Phase 9 BusinessToolService" as existing
-**What goes wrong:** Plans reference `BusinessToolService.fetch_context(...)` as a callable dependency; it does not exist (`rg` finds zero matches in `src/`).
+### Pitfall 1: Treating pre-Phase-9 BusinessToolService assumptions as current
+**What changed:** Phase 9 now provides `BusinessToolService.fetch_context(...)` and `invoke_tool(...)` in `src/business_tools/service.py`; the earlier no-facade assumption is stale.
 **Why it happens:** CONTEXT.md and the spec §8.4 describe the *target* facade; ROADMAP shows Phase 9 at "0/TBD". The CONTEXT was written assuming Phase 9 would land first.
-**How to avoid:** Resolve the dependency explicitly in the plan: either (a) sequence Phase 9 before Phase 10 execution, or (b) have `investigate` call the existing raw read tools (`get_order`/`get_refund_case`/`get_ticket`, already used by `load_business_context.py`) as an interim, and flag the facade as a follow-up. **Do not silently assume the facade.**
-**Warning signs:** A task action that imports `from src.business_tools...`.
+**How to avoid:** Phase 10 should explicitly consume the Phase 9 facade through `UnifiedToolManager`'s business executor, and consume policy/RAG through the manager's knowledge executor. Do not silently fall back to raw read tools or direct per-service branches in the node.
+**Warning signs:** A task action inside `investigate` that imports/calls `BusinessToolService`, `PolicyKnowledgeService`, raw `src.agent.tools.get_order`, `get_refund_case`, `get_ticket`, or `search_policy` instead of `UnifiedToolManager`.
 
 ### Pitfall 2: Missing investigate allowlist tools
-**What goes wrong:** Spec §12.4 allowlist for `investigate` includes `get_logistics`, `get_merchant_risk`, `search_sop`, `search_case_memory` — **none of these exist** `[VERIFIED: rg found zero]`. Only `get_order`, `get_refund_case`, `get_ticket`, `search_policy` exist (`src/agent/tools/`).
-**How to avoid:** The plan must decide whether Phase 10's allowlist is the full 8-tool union (requiring 4 new tools + a MemoryService for case memory) or the currently-available subset. The full union pulls in case-memory (Phase 16 territory) and merchant-risk/logistics tools that have no repo backing. Recommend: implement the loop against available tools, register the allowlist as the contract, and gate unavailable tools as "registered-but-unavailable" rather than building 4 new data sources in Phase 10.
+**What goes wrong:** Spec §12.4 allowlist for `investigate` includes `get_logistics`, `get_merchant_risk`, `search_sop`, `search_case_memory`. Phase 9's registry declares these names, but they have no Phase-10-backed business adapter / RAG service / memory service implementation to execute as live data-source work.
+**How to avoid:** Keep the full 8-tool allowlist as the contract, but do not build new data sources in Phase 10. Business tools with missing adapters should surface as unavailable through the facade/registry contract; `search_sop` and `search_case_memory` remain loop-level unavailable/future-service cases (case memory is Phase 16 territory).
 **Warning signs:** Task creating `get_logistics.py` etc. — that is data-source work likely out of Phase 10 scope.
 
 ### Pitfall 3: The live graph is not the spec graph
@@ -323,8 +323,8 @@ def test_route_after_risk_returns_final_response_for_policy_qa_no_action():
 1. **Is Phase 9 a hard prerequisite, or does Phase 10 absorb a BusinessToolService seam?**
    - What we know: Phase 9 has only CONTEXT.md, no code. ROADMAP says Phase 10 "Blocked by 8/9". CONTEXT.md assumes the facade exists.
    - What's unclear: Whether the planner sequences Phase 9 first or builds an interim.
-   - Recommendation: Resolve before task planning. Cleanest is Phase 9 lands first; otherwise `investigate` calls existing raw read tools as interim and the facade is a flagged follow-up (P10-DEV style deviation).
-   - **RESOLVED:** User decision this session — Phase 9 lands first (exec order 9 -> 10); Plan 04 uses the interim raw-tool seam with `blocked_by_phase_9: true`. See P10-DEV-02.
+   - Recommendation: Resolve before task planning.
+   - **RESOLVED:** Phase 9 landed first. Plan 04 consumes `BusinessToolService` through a UnifiedToolManager business executor; no raw-tool interim seam or `blocked_by_phase_9` remains.
 
 2. **What is the exact node-set boundary for Phase 10 vs Phases 11-15?**
    - What we know: The 16-node target spans multiple phases (clarification=11, session_memory=12, approval=13, action=14, trace_close/replay=15).
@@ -348,14 +348,15 @@ def test_route_after_risk_returns_final_response_for_policy_qa_no_action():
 | PostgreSQL (test DB) | conftest fixtures, checkpointer, new event table | Assumed (conftest builds test DB) `[VERIFIED: tests/conftest.py:30]` | — | none |
 | langgraph | graph assembly | ✓ | >=0.4 | — |
 | PolicyKnowledgeService | investigate policy retrieval | ✓ | — | — |
-| BusinessToolService | investigate business-fact retrieval | ✗ | — | Call existing raw read tools (get_order/get_refund_case/get_ticket) as interim |
+| UnifiedToolManager | investigate node-facing tool dispatch | planned in Plan 04 | `src/agent/tools/unified.py` | Single descriptor/allowlist/permission/schema/executor dispatch layer for business, policy, and future memory tools |
+| BusinessToolService | business executor dependency | ✓ | `src/business_tools/service.py` | Used behind UnifiedToolManager; do not call raw read tools or BusinessToolService directly from investigate |
 | get_logistics / get_merchant_risk / search_sop / search_case_memory tools | full §12.4 investigate allowlist | ✗ | — | Register in allowlist contract but mark unavailable; do not build new data sources in Phase 10 |
 | MemoryService (case_memory) | search_case_memory + case_memory state field | ✗ | — | CD-01 keeps long_term_memory separate; case memory is Phase 16 territory — empty/seam only |
 | hypothesis | property/totality tests | ✗ | — | Hand-rolled parametrized table tests |
 
-**Missing dependencies with no fallback:** none hard-blocking, but BusinessToolService absence is the key sequencing decision.
+**Missing dependencies with no fallback:** none hard-blocking; Phase 9 BusinessToolService is implemented.
 
-**Missing dependencies with fallback:** BusinessToolService (raw tools interim), the 4 allowlist tools (register-but-unavailable), MemoryService/case_memory (empty seam), hypothesis (table tests).
+**Missing dependencies with fallback:** the non-backed allowlist operations (`get_logistics`, `get_merchant_risk`, `search_sop`, `search_case_memory`) remain unavailable/future-service cases; MemoryService/case_memory uses an empty seam; hypothesis falls back to table tests.
 
 ## Validation Architecture
 
@@ -444,7 +445,7 @@ security_enforcement is not set to false in config — treat as enabled. This ph
 **Confidence breakdown:**
 - Standard stack: HIGH — verified against pyproject.toml and existing imports.
 - Architecture/contracts: HIGH — read canonical spec sections directly; live code cross-checked.
-- Dependency status (Phase 9 unbuilt): HIGH — `rg`/`ls` confirmed absence of BusinessToolService and 4 allowlist tools.
+- Dependency status: HIGH — `src/business_tools/service.py` provides BusinessToolService; registry declares the full allowlist, with non-backed operations returning unavailable or deferred to future owning services.
 - Scope boundary (which nodes/renames Phase 10 owns): MEDIUM — spec spans multiple phases; needs planner confirmation (Open Questions 2-4).
 - Pitfalls: HIGH — each grounded in a verified file/line discrepancy.
 

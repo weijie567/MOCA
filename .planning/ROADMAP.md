@@ -77,7 +77,7 @@
   - [ ] 10-01-PLAN.md — AgentState §10.1 lifecycle fields + per-turn reset + STATE-01/02 tests (Wave 1)
   - [ ] 10-02-PLAN.md — Minimal event envelope + per-run sequence allocator + base table (§17.2, Wave 1)
   - [ ] 10-03-PLAN.md — route_after_investigate pure router + totality/fallback tests (Wave 2)
-  - [ ] 10-04-PLAN.md — investigate bounded-loop node + D-03..D-08 guardrail tests (Wave 2, blocked_by_phase_9)
+  - [ ] 10-04-PLAN.md — investigate bounded-loop node + D-03..D-08 guardrail tests (Wave 2, Phase 9 facade available)
   - [ ] 10-05-PLAN.md — Graph wiring: register investigate, route_after_investigate, fallback stubs, SC-3 (Wave 3)
 
 ### Phase 11: Intent / Clarification
@@ -157,7 +157,7 @@
 | 7. Contract Baseline | 1/1 | Complete | 2026-06-06 |
 | 8. Knowledge Facade | 4/6 | In Progress | - |
 | 9. Business Tool Facade | 9/9 | Complete | 2026-06-13 |
-| 10. State Lifecycle + Routing Migration | 0/5 | Planned (Plan 04 blocked_by Phase 9) | - |
+| 10. State Lifecycle + Routing Migration | 0/5 | Planned (Phase 9 facade available) | - |
 | 11. Intent / Clarification | 0/TBD | Pending | - |
 | 12. Session Memory | 0/TBD | Pending | - |
 | 13. Approval State Machine | 0/TBD | Pending | - |

@@ -77,7 +77,7 @@ These NEW test files are created by their owning plan's task (not a separate Wav
 
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
-| End-to-end investigate loop against real BusinessToolService facade + full 8-tool allowlist | ROUTE-02 / TOOL-01 | BusinessToolService (Phase 9) not yet implemented; only the 4 available read tools + interim seam are exercisable now | After Phase 9 lands: swap interim `_run_read_tool` for `BusinessToolService.fetch_context`, then run `pytest tests/agent/test_nodes/test_investigate.py -q` plus an integration run exercising logistics/merchant_risk |
+| End-to-end investigate loop against UnifiedToolManager + full 8-tool allowlist | ROUTE-02 / TOOL-01 | Manager-backed loop includes unavailable-tool, permission/status, business-executor, knowledge-executor, and future-memory unavailable cases that need targeted seeded/fake manager coverage beyond unit router checks | Run `pytest tests/agent/test_tools/test_unified_tool_manager.py tests/agent/test_nodes/test_investigate.py -q` plus an integration run exercising logistics/merchant_risk unavailable outcomes through the manager |
 
 All other phase behaviors have automated verification.
 

@@ -81,7 +81,7 @@ Phase 10 delivers three things together:
 - `src/agent/nodes/load_business_context.py`, `retrieve_policy_evidence.py` — current separate investigation nodes; these collapse into the new `investigate` node logic.
 - `src/agent/graph.py` — central routing wiring; where route_after_business_context/route_after_policy_evidence get replaced by route_after_investigate.
 - `src/agent/state.py` — AgentState definition; where termination_reason (D-11) and lifecycle/trusted-writer rules land.
-- Phase 9 `BusinessToolService` + Phase 8 `KnowledgeService` service layers — the loop CALLS these; service layer does not rework (only node wiring / who-calls-how-many-times changes).
+- Phase 10 `UnifiedToolManager` — the loop CALLS this single node-facing dispatch path. Manager executors call Phase 9 `BusinessToolService` and Phase 8 `KnowledgeService`; service layers do not rework (only node wiring / who-calls-how-many-times changes).
 
 ### Established Patterns
 - LangGraph `StateGraph.add_node` / `add_conditional_edges` — registered nodes + deterministic routers.
