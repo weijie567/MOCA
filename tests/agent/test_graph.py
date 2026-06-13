@@ -60,7 +60,7 @@ def _config(thread_id: str = "graph-test-thread") -> dict:
         "configurable": {
             "thread_id": thread_id,
             "session": AsyncMock(),
-            "permissions": ["tool:get_order", "tool:get_refund_case", "tool:get_ticket"],
+            "permissions": ["tool:get_order", "tool:get_refund_case", "tool:get_ticket", "tool:search_policy"],
             "merchant_scope": {"merchant_ids": ["*"]},
             "trace_id": "graph-trace",
         }
@@ -384,7 +384,7 @@ async def test_structured_merchant_scope_reaches_knowledge_context(monkeypatch):
         "configurable": {
             "thread_id": "merchant-scope-graph",
             "session": AsyncMock(),
-            "permissions": ["tool:get_order", "tool:get_refund_case", "tool:get_ticket"],
+            "permissions": ["tool:get_order", "tool:get_refund_case", "tool:get_ticket", "tool:search_policy"],
             "merchant_scope": {"merchant_ids": ["merchant-graph"]},
             "trace_id": "graph-trace",
         }

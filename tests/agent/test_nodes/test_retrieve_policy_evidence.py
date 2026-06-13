@@ -47,13 +47,41 @@ def _mock_search(monkeypatch, result: KnowledgeSearchResult) -> AsyncMock:
     return search
 
 
+def _config(*, permissions: list[str] | None = None, merchant_scope: object = None) -> dict:
+    configurable = {
+        "session": AsyncMock(),
+        "permissions": ["tool:search_policy"] if permissions is None else permissions,
+    }
+    if merchant_scope is not None:
+        configurable["merchant_scope"] = merchant_scope
+    return {"configurable": configurable}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("permissions", [None, [], ["tool:get_order"]])
+async def test_retrieve_policy_evidence_denies_without_search_permission(monkeypatch, base_state, permissions):
+    search = _mock_search(monkeypatch, _result())
+    config = {"configurable": {"session": AsyncMock()}}
+    if permissions is not None:
+        config["configurable"]["permissions"] = permissions
+
+    result = await retrieve_policy_evidence_module.retrieve_policy_evidence(base_state, config)
+
+    search.assert_not_awaited()
+    assert result["retrieved_evidence"]["status"] == "error"
+    assert result["retrieved_evidence"]["error"]["error_code"] == "PERMISSION_DENIED"
+    assert result["evidence_refs"] == []
+    assert result["node_errors"][-1]["error"]["error_code"] == "PERMISSION_DENIED"
+    assert result["trace_steps"][-1]["status"] == "error"
+
+
 @pytest.mark.asyncio
 async def test_evidence_gate_no_evidence(monkeypatch, base_state):
     _mock_search(monkeypatch, _result(status="no_evidence", best_score=0.0))
 
     result = await retrieve_policy_evidence_module.retrieve_policy_evidence(
         base_state,
-        {"configurable": {"session": AsyncMock()}},
+        _config(),
     )
 
     assert result["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
@@ -68,7 +96,7 @@ async def test_retrieve_policy_evidence_writes_facade_payload_and_canonical_refs
 
     result = await retrieve_policy_evidence_module.retrieve_policy_evidence(
         {**base_state, "run_started_at": run_started_at, "current_run_id": "run-1"},
-        {"configurable": {"session": AsyncMock()}},
+        _config(),
     )
 
     assert result["retrieved_evidence"]["schema_version"] == "knowledge_search_result.v2"
@@ -87,7 +115,7 @@ async def test_retrieve_policy_evidence_preserves_previous_refs_on_low_score(mon
 
     result = await retrieve_policy_evidence_module.retrieve_policy_evidence(
         {**base_state, "evidence_refs": [prior_ref]},
-        {"configurable": {"session": AsyncMock()}},
+        _config(),
     )
 
     assert result["evidence_refs"] == [prior_ref]
@@ -102,7 +130,7 @@ async def test_merge_keeps_same_chunk_from_distinct_policy_versions(monkeypatch,
 
     result = await retrieve_policy_evidence_module.retrieve_policy_evidence(
         {**base_state, "evidence_refs": [prior_ref]},
-        {"configurable": {"session": AsyncMock()}},
+        _config(),
     )
 
     assert [ref["evidence_id"] for ref in result["evidence_refs"]] == [
@@ -124,7 +152,7 @@ async def test_search_error_records_node_error_not_insufficient_evidence(monkeyp
 
     result = await retrieve_policy_evidence_module.retrieve_policy_evidence(
         base_state,
-        {"configurable": {"session": AsyncMock()}},
+        _config(),
     )
 
     assert result["recommendation_draft"]["recommended_action"] == "retrieval_error"
@@ -142,10 +170,7 @@ async def test_structured_merchant_ids_projected_to_knowledge_context(monkeypatc
 
     await retrieve_policy_evidence_module.retrieve_policy_evidence(
         base_state,
-        {"configurable": {
-            "session": AsyncMock(),
-            "merchant_scope": {"merchant_ids": ["merchant-1"]},
-        }},
+        _config(merchant_scope={"merchant_ids": ["merchant-1"]}),
     )
 
     _, context = search.await_args.args
@@ -160,10 +185,7 @@ async def test_legacy_list_merchant_scope_preserved(monkeypatch, base_state):
 
     await retrieve_policy_evidence_module.retrieve_policy_evidence(
         base_state,
-        {"configurable": {
-            "session": AsyncMock(),
-            "merchant_scope": ["merchant-legacy"],
-        }},
+        _config(merchant_scope=["merchant-legacy"]),
     )
 
     _, context = search.await_args.args
@@ -177,7 +199,7 @@ async def test_missing_merchant_scope_fails_closed_to_empty_list(monkeypatch, ba
 
     await retrieve_policy_evidence_module.retrieve_policy_evidence(
         base_state,
-        {"configurable": {"session": AsyncMock()}},
+        _config(),
     )
 
     _, context = search.await_args.args
@@ -202,10 +224,7 @@ async def test_malformed_merchant_scope_fails_closed(monkeypatch, base_state, ba
 
     await retrieve_policy_evidence_module.retrieve_policy_evidence(
         base_state,
-        {"configurable": {
-            "session": AsyncMock(),
-            "merchant_scope": bad_scope,
-        }},
+        _config(merchant_scope=bad_scope),
     )
 
     _, context = search.await_args.args
@@ -219,10 +238,7 @@ async def test_other_structured_dimensions_not_misinterpreted_as_merchant_ids(mo
 
     await retrieve_policy_evidence_module.retrieve_policy_evidence(
         base_state,
-        {"configurable": {
-            "session": AsyncMock(),
-            "merchant_scope": {"categories": ["electronics"], "risk_levels": ["high"]},
-        }},
+        _config(merchant_scope={"categories": ["electronics"], "risk_levels": ["high"]}),
     )
 
     _, context = search.await_args.args
@@ -236,10 +252,7 @@ async def test_structured_merchant_ids_multiple_values(monkeypatch, base_state):
 
     await retrieve_policy_evidence_module.retrieve_policy_evidence(
         base_state,
-        {"configurable": {
-            "session": AsyncMock(),
-            "merchant_scope": {"merchant_ids": ["merchant-a", "merchant-b", "merchant-c"]},
-        }},
+        _config(merchant_scope={"merchant_ids": ["merchant-a", "merchant-b", "merchant-c"]}),
     )
 
     _, context = search.await_args.args

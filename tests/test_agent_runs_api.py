@@ -27,6 +27,15 @@ class NeverCalledGraph:
         yield
 
 
+class CaptureConfigGraph:
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, dict]] = []
+
+    async def astream(self, input_state, config, stream_mode):
+        self.calls.append((input_state, config))
+        yield ("final_response", {"final_response": "done", "trace_steps": []})
+
+
 
 class CancelledGraph:
     async def astream(self, input_state, config, stream_mode):
@@ -473,6 +482,30 @@ def test_agent_chat_only_support_token_receives_no_tool_permissions():
     # should yield no tool permissions since agent:chat has no tool mapping
     config = _trusted_tool_config(user, token_scopes=["agent:chat"], trace_id="test-trace")
     assert config["permissions"] == []
+
+
+@pytest.mark.asyncio
+async def test_agent_chat_only_token_streams_with_no_tool_permissions(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id)
+    await session.commit()
+    graph = CaptureConfigGraph()
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+
+    response = await client.get(
+        f"/api/v1/agent-runs/{run.id}/events",
+        headers=_auth_header(user, ["agent:chat"]),
+    )
+
+    assert response.status_code == 200
+    assert len(graph.calls) == 1
+    _, config = graph.calls[0]
+    assert config["configurable"]["permissions"] == []
 
 
 def test_support_token_with_orders_read_gets_only_get_order():
