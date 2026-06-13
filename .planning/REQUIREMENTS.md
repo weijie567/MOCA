@@ -17,8 +17,8 @@
 - [x] **TOOL-03**: Write/action tools remain outside the read-tool facade.
 - [x] **STATE-01**: AgentState lifecycle enforces trusted writers, reset, merge, persistence, and cross-scope isolation.
 - [x] **STATE-02**: Trusted identity/approval/action fields cannot be overwritten by user or LLM output.
-- [ ] **ROUTE-01**: Routers are deterministic, total, side-effect free, and return only valid node keys.
-- [ ] **ROUTE-02**: Invalid or unsafe state routes to explicit safe fallback.
+- [x] **ROUTE-01**: Routers are deterministic, total, side-effect free, and return only valid node keys.
+- [x] **ROUTE-02**: Invalid or unsafe state routes to explicit safe fallback.
 - [ ] **INTENT-01**: Intent precedence and requested-operation safety routing are deterministic and tested.
 - [ ] **INTENT-02**: RequiredSlotExpression and slot completeness rules are enforced.
 - [ ] **CLARIFY-01**: Ordinary clarification and trusted approval needs_info resume remain separate contracts.
@@ -55,7 +55,7 @@
 | BASE-01..04 | Phase 7 | Complete |
 | KNOW-01..03 | Phase 8 | Complete |
 | TOOL-01..03 | Phase 9 | Complete |
-| STATE-01..02, ROUTE-01..02 | Phase 10 | Pending |
+| STATE-01..02, ROUTE-01..02 | Phase 10 | Complete |
 | INTENT-01..02, CLARIFY-01 | Phase 11 | Pending |
 | SESSION-01..03 | Phase 12 | Pending |
 | APPROVAL-01..03, SNAPSHOT-01 | Phase 13 | Pending |
@@ -65,4 +65,4 @@
 | EXTERNAL-01..03 | Phase 17 | Deferred beyond MVP gate |
 
 ---
-*Updated: 2026-06-13 after Phase 9 Plan 09-09 re-verification passed.*
+*Updated: 2026-06-14 after Phase 10 Plan 10-05 verification passed.*

@@ -24,7 +24,7 @@
 - [x] **Phase 7: Contract Baseline** - Contract inventory, current-vs-target evidence, coverage matrix, follow-up disposition, and readiness verdict. Completed 2026-06-06.
 - [ ] **Phase 8: Knowledge Facade** - KnowledgeService boundary and canonical EvidenceRefV1/citation contract.
 - [x] **Phase 9: Business Tool Facade** - BusinessToolService boundary and ToolCallContext/ToolResultV2 contract. ✓ Verified 2026-06-13 — 9/9 plans complete, 14/14 must-haves verified.
-- [ ] **Phase 10: State Lifecycle + Routing Migration** - AgentState lifecycle/trusted fields and deterministic total routers.
+- [x] **Phase 10: State Lifecycle + Routing Migration** - AgentState lifecycle/trusted fields, deterministic total routers, empty session-memory adapter, and bounded investigate graph wiring. Completed 2026-06-14.
 - [ ] **Phase 11: Intent / Clarification** - Intent precedence, required-slot policy, confidence gates, and ordinary clarification.
 - [ ] **Phase 12: Session Memory** - PostgreSQL-backed session memory CAS and safe slot continuity.
 - [ ] **Phase 13: Approval State Machine** - Versioned approval lifecycle and ActionSafetySnapshot ownership.
@@ -73,12 +73,12 @@
   1. State lifecycle/property tests and trusted-field merge tests pass.
   2. Every router is deterministic, side-effect free, total for valid state, and safe for invalid state.
   3. Empty session-memory adapter routing exists without claiming session continuity.
-**Plans**: 5 plans
-  - [ ] 10-01-PLAN.md — AgentState §10.1 lifecycle fields + per-turn reset + STATE-01/02 tests (Wave 1)
-  - [ ] 10-02-PLAN.md — Minimal event envelope + per-run sequence allocator + base table (§17.2, Wave 1)
-  - [ ] 10-03-PLAN.md — route_after_investigate pure router + totality/fallback tests (Wave 2)
-  - [ ] 10-04-PLAN.md — investigate bounded-loop node + D-03..D-08 guardrail tests (Wave 2, Phase 9 facade available)
-  - [ ] 10-05-PLAN.md — Graph wiring: register investigate, route_after_investigate, fallback stubs, SC-3 (Wave 3)
+**Plans**: 5/5 complete
+  - [x] 10-01-PLAN.md — AgentState §10.1 lifecycle fields + per-turn reset + STATE-01/02 tests (Wave 1)
+  - [x] 10-02-PLAN.md — Minimal event envelope + per-run sequence allocator + base table (§17.2, Wave 1)
+  - [x] 10-03-PLAN.md — route_after_investigate pure router + totality/fallback tests (Wave 2)
+  - [x] 10-04-PLAN.md — investigate bounded-loop node + D-03..D-08 guardrail tests (Wave 2, Phase 9 facade available)
+  - [x] 10-05-PLAN.md — Graph wiring: register investigate, route_after_investigate, fallback stubs, SC-3 (Wave 3)
 
 ### Phase 11: Intent / Clarification
 **Goal**: Implement deterministic intent precedence, required-slot expressions, confidence safety gates, and ordinary clarification.
@@ -157,7 +157,7 @@
 | 7. Contract Baseline | 1/1 | Complete | 2026-06-06 |
 | 8. Knowledge Facade | 4/6 | In Progress | - |
 | 9. Business Tool Facade | 9/9 | Complete | 2026-06-13 |
-| 10. State Lifecycle + Routing Migration | 0/5 | Planned (Phase 9 facade available) | - |
+| 10. State Lifecycle + Routing Migration | 5/5 | Complete | 2026-06-14 |
 | 11. Intent / Clarification | 0/TBD | Pending | - |
 | 12. Session Memory | 0/TBD | Pending | - |
 | 13. Approval State Machine | 0/TBD | Pending | - |
@@ -167,4 +167,4 @@
 | 17. External Action Execution | 0/TBD | Deferred beyond MVP gate | - |
 
 ---
-*Updated: 2026-06-13 — Phase 9 complete (9/9 plans, 14/14 must-haves verified).*
+*Updated: 2026-06-14 — Phase 10 complete (5/5 plans, graph wiring and routing migration verified).*

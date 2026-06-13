@@ -16,12 +16,15 @@ from sqlalchemy.pool import NullPool
 from src.agent.graph import build_graph
 from src.agent.schemas import IntentResult, RecommendationDraft, RiskAssessment, SlotExtractionResult
 from src.agent.state import AgentState
+from src.agent.tools.unified import UnifiedToolManager
 from src.api.main import app
 from src.auth.jwt import hash_password
+from src.business_tools.registry import ToolRegistry
+from src.business_tools.schemas import BusinessFactRefV1, ToolCallContext, ToolResultV2
 from src.db.models import Base, Merchant, Order, RefundCase, Tenant, Ticket, User
 from src.db.session import get_session
-from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
-from src.knowledge.schemas import EvidenceRefV1, KnowledgeSearchResult
+from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
+from src.knowledge.schemas import EvidenceRefV1
 
 
 TEST_DATABASE_URL = "postgresql+asyncpg://moca:moca_dev@localhost:5432/moca_test"
@@ -350,38 +353,135 @@ def mock_graph(monkeypatch, mock_llm_responses):
     import src.agent.nodes.classify_intent as classify_node
     import src.agent.nodes.extract_slots as extract_node
     import src.agent.nodes.generate_recommendation as recommendation_node
-    import src.agent.nodes.retrieve_policy_evidence as retrieve_node
+    import src.agent.nodes.investigate as investigate_node
 
     monkeypatch.setattr(classify_node, "_get_llm", lambda: fake_llm)
     monkeypatch.setattr(extract_node, "_get_llm", lambda: fake_llm)
     monkeypatch.setattr(recommendation_node, "_get_llm", lambda: fake_llm)
     monkeypatch.setattr(assess_node, "_get_llm", lambda: fake_llm)
 
-    async def fake_knowledge_search(self, request, context):
-        del self, request
-        return KnowledgeSearchResult(
-            status="strong_evidence",
-            retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
-            rerank_config_version=RERANK_CONFIG_VERSION,
-            best_score=0.93,
-            threshold=0.55,
-            evidence_refs=[
-                EvidenceRefV1.build(
-                    tenant_id=context.tenant_id,
-                    doc_key="refund_policy",
-                    chunk_id="refund_policy#001",
-                    policy_version="v1",
-                    text="补偿超过500元需人工审批。",
-                    retrieved_at=context.effective_at,
-                    retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
-                    score=0.93,
-                    rank=1,
-                )
-            ],
+    monkeypatch.setattr(
+        investigate_node.UnifiedToolManager,
+        "with_defaults",
+        lambda session: _ApprovalGraphToolManager(),
+    )
+    return build_graph(MemorySaver())
+
+
+class _ApprovalGraphToolManager(UnifiedToolManager):
+    def __init__(self):
+        super().__init__(descriptors=ToolRegistry().descriptors())
+
+    def descriptors(self, caller_node: str = "investigate"):
+        return [
+            descriptor
+            for descriptor in self._descriptors.values()
+            if caller_node in descriptor.caller_allowlist
+            and descriptor.kind != "write"
+            and descriptor.name in {"get_order", "search_policy"}
+        ]
+
+    def event_family(self, name: str) -> str:
+        family = self._descriptors[name].event_family
+        return "rag_retrieval" if family == "rag_retrieval_*" else "tool_call"
+
+    async def invoke(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
+        if name == "get_order":
+            return self._order_result(args.get("order_no") or "ORD-TEST-001", ctx)
+        if name == "get_refund_case":
+            return self._refund_case_result(args.get("refund_case_no") or "RF-TEST-001", ctx)
+        if name == "get_ticket":
+            return self._ticket_result(args.get("ticket_id") or "TK-TEST-001", ctx)
+        if name == "search_policy":
+            return self._policy_result(ctx)
+        raise AssertionError(f"Unexpected approval graph tool call: {name}")
+
+    def _order_result(self, order_no: str, ctx: ToolCallContext) -> ToolResultV2:
+        return ToolResultV2(
+            status="success",
+            data={"order_no": order_no, "status": "delivered", "amount": "199.00"},
+            summary="order result",
+            source_system="business_tool_service",
+            data_freshness_at=None,
+            policy_evidence_refs=[],
+            business_fact_refs=[self._fact_ref(ctx.tenant_id, "order", order_no)],
+            error=None,
+            retryable=False,
+            retry_after_ms=None,
+            latency_ms=1,
+            audit_ref=None,
         )
 
-    monkeypatch.setattr(retrieve_node.PolicyKnowledgeService, "search", fake_knowledge_search)
-    return build_graph(MemorySaver())
+    def _refund_case_result(self, refund_case_no: str, ctx: ToolCallContext) -> ToolResultV2:
+        return ToolResultV2(
+            status="success",
+            data={"refund_case_no": refund_case_no, "status": "reviewing", "requested_amount": "199.00"},
+            summary="refund case result",
+            source_system="business_tool_service",
+            data_freshness_at=None,
+            policy_evidence_refs=[],
+            business_fact_refs=[self._fact_ref(ctx.tenant_id, "refund_case", refund_case_no)],
+            error=None,
+            retryable=False,
+            retry_after_ms=None,
+            latency_ms=1,
+            audit_ref=None,
+        )
+
+    def _ticket_result(self, ticket_id: str, ctx: ToolCallContext) -> ToolResultV2:
+        return ToolResultV2(
+            status="success",
+            data={"ticket_no": ticket_id, "status": "open", "summary": "用户咨询退款进度"},
+            summary="ticket result",
+            source_system="business_tool_service",
+            data_freshness_at=None,
+            policy_evidence_refs=[],
+            business_fact_refs=[self._fact_ref(ctx.tenant_id, "ticket", ticket_id)],
+            error=None,
+            retryable=False,
+            retry_after_ms=None,
+            latency_ms=1,
+            audit_ref=None,
+        )
+
+    def _policy_result(self, ctx: ToolCallContext) -> ToolResultV2:
+        evidence = EvidenceRefV1.build(
+            tenant_id=ctx.tenant_id,
+            doc_key="refund_policy",
+            chunk_id="refund_policy#001",
+            policy_version="v1",
+            text="补偿超过500元需人工审批。",
+            retrieved_at=datetime.now(UTC).isoformat(),
+            retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+            score=0.93,
+            rank=1,
+        )
+        return ToolResultV2(
+            status="success",
+            data={"retrieval_status": "strong_evidence", "best_score": 0.93, "threshold": 0.55},
+            summary="policy found",
+            source_system="policy_knowledge_service",
+            data_freshness_at=None,
+            policy_evidence_refs=[evidence],
+            business_fact_refs=[],
+            error=None,
+            retryable=False,
+            retry_after_ms=None,
+            latency_ms=1,
+            audit_ref=None,
+        )
+
+    @staticmethod
+    def _fact_ref(tenant_id: str, resource_type: str, resource_id: str) -> BusinessFactRefV1:
+        return BusinessFactRefV1(
+            tenant_id=tenant_id,
+            source_system="moca",
+            resource_type=resource_type,
+            resource_id=resource_id,
+            resource_version=None,
+            data_freshness_at=None,
+            retrieved_at=datetime.now(UTC),
+        )
 
 
 @pytest.fixture

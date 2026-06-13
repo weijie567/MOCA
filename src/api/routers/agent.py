@@ -44,6 +44,7 @@ async def chat(
         "tenant_id": str(user.tenant_id),
         "user_id": str(user.id),
         "role": user.role,
+        "current_run_id": run_id,
     }
     config = {
         "configurable": {
@@ -58,6 +59,19 @@ async def chat(
     }
 
     try:
+        await write_agent_run(
+            session,
+            run_id=run_id,
+            thread_id=body.thread_id,
+            tenant_id=str(user.tenant_id),
+            user_id=str(user.id),
+            input_query=body.query,
+            final_status="running",
+            final_response=None,
+            started_at=started_at,
+            completed_at=None,
+            total_latency_ms=0,
+        )
         final_state = await graph.ainvoke(input_state, config)
     except Exception as exc:
         if _is_graph_interrupt(exc):

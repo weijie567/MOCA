@@ -23,27 +23,42 @@ async def write_agent_run(
     final_status: str,
     final_response: str | None,
     started_at: datetime,
-    completed_at: datetime,
-    total_latency_ms: int,
+    completed_at: datetime | None,
+    total_latency_ms: int | None,
     total_tokens: int | None = None,
     error_summary: str | None = None,
 ) -> AgentRun:
-    """Insert one AgentRun row and return the persisted instance."""
-    run = AgentRun(
-        id=uuid.UUID(run_id),
-        thread_id=thread_id,
-        tenant_id=uuid.UUID(tenant_id),
-        user_id=uuid.UUID(user_id),
-        input_query=input_query,
-        final_status=final_status,
-        final_response=final_response,
-        started_at=started_at,
-        completed_at=completed_at,
-        total_latency_ms=total_latency_ms,
-        total_tokens=total_tokens,
-        error_summary=error_summary,
-    )
-    session.add(run)
+    """Insert or update one AgentRun row and return the persisted instance."""
+    run_uuid = uuid.UUID(run_id)
+    run = await session.get(AgentRun, run_uuid)
+    if run is None:
+        run = AgentRun(
+            id=run_uuid,
+            thread_id=thread_id,
+            tenant_id=uuid.UUID(tenant_id),
+            user_id=uuid.UUID(user_id),
+            input_query=input_query,
+            final_status=final_status,
+            final_response=final_response,
+            started_at=started_at,
+            completed_at=completed_at,
+            total_latency_ms=total_latency_ms,
+            total_tokens=total_tokens,
+            error_summary=error_summary,
+        )
+        session.add(run)
+    else:
+        run.thread_id = thread_id
+        run.tenant_id = uuid.UUID(tenant_id)
+        run.user_id = uuid.UUID(user_id)
+        run.input_query = input_query
+        run.final_status = final_status
+        run.final_response = final_response
+        run.started_at = started_at
+        run.completed_at = completed_at
+        run.total_latency_ms = total_latency_ms
+        run.total_tokens = total_tokens
+        run.error_summary = error_summary
     await session.flush()
     return run
 

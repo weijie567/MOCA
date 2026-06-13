@@ -20,6 +20,8 @@ def test_embedding_service_defaults_from_settings(monkeypatch):
 
 def test_embedding_service_uses_settings_api_key_before_environment(monkeypatch):
     monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    for key in ("ALL_PROXY", "HTTPS_PROXY", "HTTP_PROXY", "all_proxy", "https_proxy", "http_proxy"):
+        monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr(settings, "dashscope_api_key", "settings-key")
 
     service = EmbeddingService()
