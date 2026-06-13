@@ -135,7 +135,7 @@ TDD tasks were committed as RED then GREEN:
 
 ---
 
-**Total deviations:** 4 auto-fixed (1 bug, 3 blocking issues).  
+**Total deviations:** 4 auto-fixed (1 bug, 3 blocking issues).
 **Impact on plan:** All fixes were required to enforce and verify the planned fail-closed behavior; no architectural scope change.
 
 ## Issues Encountered
