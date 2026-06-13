@@ -72,7 +72,7 @@ class TestPolicyRetrievalOwnership:
         ):
             await retrieve_policy_evidence_module.retrieve_policy_evidence(
                 _base_state(),
-                {"configurable": {"session": AsyncMock()}},
+                {"configurable": {"session": AsyncMock(), "permissions": ["tool:search_policy"]}},
             )
 
         mock_search.assert_awaited_once()
