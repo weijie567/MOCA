@@ -520,6 +520,20 @@ def test_support_token_with_orders_read_gets_only_get_order():
     assert config["permissions"] == ["tool:get_order"]
 
 
+def test_merchant_with_merchant_id_none_gets_empty_merchant_ids():
+    """A merchant with merchant_id=None receives explicit deny-all scope."""
+    from unittest.mock import MagicMock
+    from src.api.routers.agent_runs import _trusted_tool_config
+
+    user = MagicMock()
+    user.role = "merchant"
+    user.merchant_id = None
+
+    config = _trusted_tool_config(user, token_scopes=["agent:chat"], trace_id="test-trace")
+
+    assert config["merchant_scope"]["merchant_ids"] == []
+
+
 def test_role_scopes_alone_widen_permissions():
     """Without token scope intersection, a support user would get all role permissions."""
     from unittest.mock import MagicMock
