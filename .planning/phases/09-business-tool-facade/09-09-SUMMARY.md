@@ -28,10 +28,12 @@ key-files:
     - src/agent/nodes/retrieve_policy_evidence.py
     - src/knowledge/service.py
     - src/api/routers/agent_runs.py
+    - src/api/routers/agent.py
     - tests/agent/test_nodes/test_retrieve_policy_evidence.py
     - tests/agent/test_graph.py
     - tests/test_agent_runs_api.py
     - tests/knowledge/test_tenant_scope.py
+    - tests/knowledge/test_facade_integration.py
     - tests/agent/test_policy_retrieval_ownership.py
 
 key-decisions:
@@ -59,7 +61,7 @@ completed: 2026-06-13
 - **Started:** 2026-06-13T01:40:52Z
 - **Completed:** 2026-06-13T01:52:09Z
 - **Tasks:** 2
-- **Files modified:** 9
+- **Files modified:** 11
 
 ## Accomplishments
 
@@ -67,6 +69,7 @@ completed: 2026-06-13
 - Added service-level deny-all handling for empty merchant scope and unauthorized explicit merchant filters before `LegacyRagKnowledgeAdapter.retrieve`.
 - Added a live `/api/v1/agent-runs/{run_id}/events` regression proving an `agent:chat`-only JWT reaches the graph with no tool permissions.
 - Fixed merchant users with `merchant_id=None` to project `{"merchant_ids": []}`.
+- Fixed legacy `/api/v1/agent/chat` to inject the same trusted permission and merchant-scope projection as the SSE path.
 - Passed the exact full Phase 9 regression: `132 passed`.
 
 ## Task Commits
@@ -78,13 +81,17 @@ TDD tasks were committed as RED then GREEN:
 3. **Task 2 RED: Merchant scope and missing identity regressions** - `08a0007` (test)
 4. **Task 2 GREEN: Pre-adapter merchant scope denial** - `7bdfdc4` (feat)
 5. **Full-regression fixture correction** - `7f826fd` (test)
+6. **Facade integration fixture correction** - `6758d39` (test)
+7. **Legacy chat trusted-config correction** - `06ed388` (fix)
 
 ## Files Created/Modified
 
 - `src/agent/nodes/retrieve_policy_evidence.py` - Enforces `tool:search_policy` before constructing or invoking the policy service.
 - `src/knowledge/service.py` - Returns typed `no_evidence` before adapter execution for deny-all or unauthorized merchant scope.
 - `src/api/routers/agent_runs.py` - Projects missing merchant identity to explicit deny-all scope.
+- `src/api/routers/agent.py` - Projects trusted permissions and merchant scope into the legacy chat graph path.
 - `tests/knowledge/test_service.py` - Covers deny-all, unauthorized, wildcard, matching, and legacy merchant scope behavior.
+- `tests/knowledge/test_facade_integration.py` - Grants explicit trusted retrieval permission on successful facade integration paths.
 - `tests/test_agent_runs_api.py` - Covers live SSE restricted-token config and missing merchant identity.
 - `tests/agent/test_nodes/test_retrieve_policy_evidence.py` - Covers permission denial and service non-invocation.
 - `tests/agent/test_graph.py` - Grants explicit retrieval permission on successful graph paths.
@@ -133,9 +140,25 @@ TDD tasks were committed as RED then GREEN:
 - **Verification:** Ownership suite passed, `18 passed`; full Phase 9 regression passed, `132 passed`.
 - **Committed in:** `7f826fd`
 
+**5. [Rule 1 - Bug] Projected trusted config into legacy chat path**
+- **Found during:** Independent full non-integration regression
+- **Issue:** `/api/v1/agent/chat` did not inject trusted permissions or merchant scope, so the new retrieval execution gate correctly denied the old path and broke approval flows.
+- **Fix:** Reused the router trusted-config projection for the legacy chat graph invocation.
+- **Files modified:** `src/api/routers/agent.py`
+- **Verification:** Approval integration passed, `5 passed`; full non-integration regression passed, `347 passed`.
+- **Committed in:** `06ed388`
+
+**6. [Rule 3 - Blocking] Authorized the successful facade integration fixture**
+- **Found during:** Independent full non-integration regression
+- **Issue:** The facade integration fixture expected successful retrieval but omitted the newly required trusted permission and merchant scope.
+- **Fix:** Added explicit `tool:search_policy` permission and wildcard merchant scope to the successful integration path.
+- **Files modified:** `tests/knowledge/test_facade_integration.py`
+- **Verification:** Focused facade integration passed, `5 passed`; full non-integration regression passed, `347 passed`.
+- **Committed in:** `6758d39`
+
 ---
 
-**Total deviations:** 4 auto-fixed (1 bug, 3 blocking issues).
+**Total deviations:** 6 auto-fixed (2 bugs, 4 blocking issues).
 **Impact on plan:** All fixes were required to enforce and verify the planned fail-closed behavior; no architectural scope change.
 
 ## Issues Encountered
@@ -153,6 +176,8 @@ None. Empty permission, evidence, and merchant-scope values are intentional deny
 - Directly affected tenant-scope suite: `7 passed`
 - Policy ownership suite: `18 passed`
 - Exact full Phase 9 regression: `132 passed, 11 warnings`
+- Approval integration: `5 passed, 1 warning`
+- Full non-integration regression: `347 passed, 11 warnings`
 - All task acceptance-criteria grep checks passed.
 
 ## Self-Check: PASSED

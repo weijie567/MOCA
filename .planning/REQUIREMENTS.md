@@ -12,8 +12,8 @@
 - [x] **KNOW-01**: Knowledge reads use KnowledgeService with strong/partial/no-evidence semantics.
 - [x] **KNOW-02**: EvidenceRefV1, claim-support citation, canonical projection, effective-time, and tenant-over-global contracts are enforced.
 - [x] **KNOW-03**: Knowledge migration/read-switch, if introduced, has owner, telemetry, fallback, and rollback.
-- [ ] **TOOL-01**: Read business tools use BusinessToolService and trusted ToolCallContext.
-- [ ] **TOOL-02**: ToolResultV2 covers permission/scope/status/timeout/partial/invalid-response behavior without raw invalid payload exposure.
+- [x] **TOOL-01**: Read business tools use BusinessToolService and trusted ToolCallContext.
+- [x] **TOOL-02**: ToolResultV2 covers permission/scope/status/timeout/partial/invalid-response behavior without raw invalid payload exposure.
 - [x] **TOOL-03**: Write/action tools remain outside the read-tool facade.
 - [ ] **STATE-01**: AgentState lifecycle enforces trusted writers, reset, merge, persistence, and cross-scope isolation.
 - [ ] **STATE-02**: Trusted identity/approval/action fields cannot be overwritten by user or LLM output.
@@ -54,7 +54,7 @@
 | --- | --- | --- |
 | BASE-01..04 | Phase 7 | Complete |
 | KNOW-01..03 | Phase 8 | Complete |
-| TOOL-01..03 | Phase 9 | Gaps found (TOOL-03 complete) |
+| TOOL-01..03 | Phase 9 | Complete |
 | STATE-01..02, ROUTE-01..02 | Phase 10 | Pending |
 | INTENT-01..02, CLARIFY-01 | Phase 11 | Pending |
 | SESSION-01..03 | Phase 12 | Pending |
@@ -65,4 +65,4 @@
 | EXTERNAL-01..03 | Phase 17 | Deferred beyond MVP gate |
 
 ---
-*Updated: 2026-06-12 after Phase 9 verification found gaps.*
+*Updated: 2026-06-13 after Phase 9 Plan 09-09 re-verification passed.*

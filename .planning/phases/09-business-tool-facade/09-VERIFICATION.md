@@ -1,30 +1,28 @@
 ---
 phase: 09-business-tool-facade
-verified: 2026-06-13T12:00:00Z
+verified: 2026-06-13T06:31:40Z
 status: passed
-score: 10/10 must-haves verified
+score: 14/14 must-haves verified
 overrides_applied: 0
 re_verification:
-  previous_status: gaps_found
-  previous_score: 8/10
+  previous_status: passed_incorrectly
+  previous_score: 10/10
   gaps_closed:
-    - "Trusted caller context preserves verified caller permissions without widening."
-    - "Strict merchant-scope enforcement survives trusted config projection across live retrieval paths."
+    - "Restricted JWT permissions are enforced before live policy retrieval."
+    - "Empty and unauthorized merchant scope denies before policy adapter execution."
+    - "Merchant users without merchant_id receive explicit deny-all scope."
+    - "Both /agent-runs/{run_id}/events and legacy /agent/chat inject trusted tool config."
   gaps_remaining: []
   regressions: []
-deferred:
-  - truth: "All business and retrieval tools run through one registry/service contract."
-    addressed_in: "Phase 9 (09-08 ownership boundary disposition)"
-    evidence: "09-08 plan and 09-OWNERSHIP-BOUNDARY.md explicitly disposes this as a scope conflict, not an implementation gap. The authoritative Phase 9 goal is 'Route read business tools through BusinessToolService' -- policy retrieval remains Phase 8 PolicyKnowledgeService's responsibility. Retrieval descriptors are declaration-only (adapter=None) in the Phase 9 registry."
 human_verification: []
 ---
 
 # Phase 9: Business Tool Facade Verification Report
 
 **Phase Goal:** Route read business tools through BusinessToolService using trusted ToolCallContext and typed ToolResultV2.
-**Verified:** 2026-06-13T12:00:00Z
+**Verified:** 2026-06-13T06:31:40Z
 **Status:** passed
-**Re-verification:** Yes -- after gap closure plans 09-06, 09-07, and 09-08 executed
+**Re-verification:** Yes, after gap closure plans 09-06 through 09-09 and independent full-regression review
 
 ## Goal Achievement
 
@@ -32,104 +30,73 @@ human_verification: []
 
 | # | Truth | Status | Evidence |
 |---|---|---|---|
-| 1 | Read tools use the facade without exposing raw invalid upstream payloads. | VERIFIED | `load_business_context.py:77-78` constructs `BusinessToolService.with_default_registry` and awaits `fetch_context`; adapters construct fresh data-free safe errors via `registry.py:317-338`. |
-| 2 | Permission, scope, status, timeout, partial-success, and invalid-response contracts pass. | VERIFIED | `permissions.py:74` preserves `frozenset(token_scopes)` on `request.state.verified_token_scopes`; `agent_runs.py:60` computes `set(token_scopes) & set(ROLE_SCOPES.get(user.role, []))`; `retrieve_policy_evidence.py:90-116` `_knowledge_merchant_scope()` returns `[]` for invalid scope, never `None`; 122 tests pass. |
-| 3 | Write/action execution remains outside this facade. | VERIFIED | `registry.py:244-250` blocks `kind="write"` descriptors before adapter execution; `test_policy_retrieval_ownership.py` asserts write descriptor blocked. |
-| 4 | Verified JWT scopes survive authentication and remain available only in trusted request context. | VERIFIED | `permissions.py:74` assigns `frozenset(token_scopes)` to `request.state.verified_token_scopes` after all auth checks pass; `test_auth.py:74-101` proves `agent:chat`-only token preserves exactly `{"agent:chat"}`. |
-| 5 | Tool permissions are derived from the intersection of verified token scopes and the current database role allowlist. | VERIFIED | `agent_runs.py:60` computes `trusted_scopes = set(token_scopes) & set(ROLE_SCOPES.get(user.role, []))`; `test_agent_runs_api.py:465-487` proves `agent:chat`-only support token gets `permissions=[]` and `agent:chat+orders:read` gets exactly `["tool:get_order"]`. |
-| 6 | A support-role token containing only agent:chat receives no business or retrieval tool permissions. | VERIFIED | `test_agent_runs_api.py:465-475` asserts `config["permissions"] == []` for `agent:chat`-only support token. |
-| 7 | Structured trusted merchant_scope is projected compatibly into KnowledgeContext without being dropped or widened. | VERIFIED | `retrieve_policy_evidence.py:90-116` `_knowledge_merchant_scope()` extracts `merchant_ids` from structured dict; `test_retrieve_policy_evidence.py:139-184` proves structured dict reaches `KnowledgeContext.merchant_scope` unchanged; 9 malformed variants fail closed with `[]`. |
-| 8 | Malformed or missing structured merchant scope fails closed instead of becoming unrestricted None. | VERIFIED | `retrieve_policy_evidence.py:108-109` returns `[]` for non-list or empty `raw_ids`; `test_retrieve_policy_evidence.py:192-212` covers `None`, non-list, empty, non-string variants. No `merchant_scope = None` pattern exists in source. |
-| 9 | Phase 9 verification evaluates business reads through BusinessToolService and does not require policy knowledge execution through that facade. | VERIFIED | `test_policy_retrieval_ownership.py:55-101` proves `retrieve_policy_evidence` calls `PolicyKnowledgeService.search` (not `BusinessToolService`); retrieval descriptors are declaration-only (`adapter=None`). |
-| 10 | Policy retrieval remains executable through Phase 8 PolicyKnowledgeService while Phase 9 retrieval descriptors remain declaration-only. | VERIFIED | `retrieve_policy_evidence.py:154` creates `PolicyKnowledgeService(LegacyRagKnowledgeAdapter(session))`; `registry.py:155-178` declares `search_policy/search_sop/search_case_memory` as `kind="retrieval"` with no adapter; `test_policy_retrieval_ownership.py:161-170` asserts `search_policy` returns `status="unavailable"` through registry. |
+| 1 | Read business tools execute through BusinessToolService without exposing raw invalid upstream payloads. | VERIFIED | `load_business_context.py` calls `BusinessToolService.fetch_context`; adapter and registry no-leak regressions pass. |
+| 2 | Permission, scope, status, timeout, partial-success, and invalid-response contracts pass. | VERIFIED | Full Phase 9 regression passes with 132 tests. |
+| 3 | Write/action execution remains outside the read facade. | VERIFIED | Registry blocks write descriptors before adapter execution; ownership regression passes. |
+| 4 | Verified JWT scopes survive authentication only in trusted request context. | VERIFIED | `permissions.py` stores immutable `request.state.verified_token_scopes`; auth tests pass. |
+| 5 | Tool permissions equal the verified-token/current-role scope intersection. | VERIFIED | `_trusted_tool_config` intersects token scopes with `ROLE_SCOPES` before mapping permissions. |
+| 6 | An `agent:chat`-only support token receives no business or retrieval permissions. | VERIFIED | Live SSE endpoint regression captures `configurable.permissions == []`. |
+| 7 | Missing `tool:search_policy` denies before policy service execution. | VERIFIED | `retrieve_policy_evidence.py` returns `PERMISSION_DENIED`; tests assert `PolicyKnowledgeService.search` is not awaited. |
+| 8 | Structured trusted merchant scope reaches KnowledgeContext without widening. | VERIFIED | Projection and graph-path regressions pass. |
+| 9 | Missing or malformed structured merchant scope becomes explicit deny-all. | VERIFIED | `_knowledge_merchant_scope` returns `[]` for invalid inputs. |
+| 10 | Empty merchant scope denies before policy adapter execution. | VERIFIED | `PolicyKnowledgeService.search` returns `no_evidence`; tests assert adapter non-invocation. |
+| 11 | Unauthorized explicit merchant filters deny before policy adapter execution. | VERIFIED | Service tests assert `no_evidence` and adapter non-invocation. |
+| 12 | Merchant users without merchant identity receive deny-all scope, never `"None"`. | VERIFIED | Router projects `{"merchant_ids": []}`; regression passes. |
+| 13 | Both live API entry points inject trusted permissions and merchant scope. | VERIFIED | SSE regression passes; legacy `/agent/chat` approval integration passes after shared trusted-config projection. |
+| 14 | Policy retrieval remains Phase 8-owned while Phase 9 retrieval descriptors remain declaration-only. | VERIFIED | `retrieve_policy_evidence` calls `PolicyKnowledgeService`; ownership regression passes. |
 
-**Score:** 10/10 truths verified
-
-### Deferred Items
-
-Items not yet met but explicitly addressed by the Phase 9 ownership boundary disposition.
-
-| # | Item | Addressed In | Evidence |
-|---|------|-------------|----------|
-| 1 | Retrieval single-facade claim | Phase 9 (09-08 disposition) | 09-OWNERSHIP-BOUNDARY.md disposes as scope conflict. Policy retrieval is Phase 8's domain. |
+**Score:** 14/14 truths verified
 
 ### Roadmap Success Criteria
 
 | # | Success Criterion | Status | Evidence |
 |---|---|---|---|
-| 1 | Read tools use the facade without exposing raw invalid upstream payloads. | VERIFIED | `load_business_context.py:77-78` uses `BusinessToolService.with_default_registry`; adapters construct fresh safe errors; sentinel no-leak tests pass. |
-| 2 | Permission, scope, status, timeout, partial-success, and invalid-response contracts pass. | VERIFIED | Token/role intersection in `agent_runs.py:60`; merchant scope fail-closed in `retrieve_policy_evidence.py:90-116`; `ToolResultV2` covers all 10 statuses; 122 tests pass. |
-| 3 | Write/action execution remains outside this facade. | VERIFIED | `registry.py:244-250` blocks write descriptors; `test_policy_retrieval_ownership.py` asserts write descriptor blocked. |
+| 1 | Read tools use the facade without exposing raw invalid upstream payloads. | VERIFIED | Business facade and no-leak suites pass. |
+| 2 | Permission, scope, status, timeout, partial-success, and invalid-response contracts pass. | VERIFIED | Execution-boundary permission and merchant-scope denial are now enforced and tested. |
+| 3 | Write/action execution remains outside this facade. | VERIFIED | Write-block and ownership tests pass. |
 
 ### Required Artifacts
 
-| Artifact | Expected | Status | Details |
-|---|---|---|---|
-| `src/auth/permissions.py` | Verified JWT scopes preservation in request.state | VERIFIED | `frozenset(token_scopes)` assigned to `request.state.verified_token_scopes` at line 74 after all auth checks pass. |
-| `src/api/routers/agent_runs.py` | Token/role scope intersection before tool-permission mapping | VERIFIED | `_trusted_tool_config` at line 58-65 computes `set(token_scopes) & set(ROLE_SCOPES.get(user.role, []))` and maps through `SCOPE_TO_TOOL_PERMISSION`. |
-| `src/agent/nodes/retrieve_policy_evidence.py` | Compatible structured merchant-scope projection | VERIFIED | `_knowledge_merchant_scope()` at line 90-116 extracts `merchant_ids` from structured dict or validates legacy list; returns `[]` for invalid input. |
-| `src/business_tools/registry.py` | Single descriptor and gate pipeline | VERIFIED | Write-blocking at line 244-250; retrieval descriptors declared as `kind="retrieval"` with `adapter=None`; gate ordering at line 227-315. |
-| `src/business_tools/service.py` | Facade dispatch, scope checks, retries, aggregation | VERIFIED | `BusinessToolService.with_default_registry` used by `load_business_context.py`; wired to registry/adapters. |
-| `src/agent/nodes/load_business_context.py` | Live business read-switch | VERIFIED | Uses `BusinessToolService.with_default_registry` at line 77; no direct tool imports remain. |
-| `tests/integration/test_auth.py` | Scope preservation and rejection safety tests | VERIFIED | `test_verified_token_scopes_preserved_on_request_state` at line 74; insufficient-scope rejection at line 106. |
-| `tests/test_agent_runs_api.py` | No-widening and positive intersection tests | VERIFIED | `agent:chat`-only gets `permissions=[]` at line 465; `agent:chat+orders:read` gets `["tool:get_order"]` at line 479. |
-| `tests/agent/test_nodes/test_retrieve_policy_evidence.py` | Focused scope preservation and fail-closed regressions | VERIFIED | 13 tests covering structured dict, legacy list, missing, and 9 malformed scope variants. |
-| `tests/agent/test_policy_retrieval_ownership.py` | Executable ownership regression guard | VERIFIED | 18 tests proving PolicyKnowledgeService ownership and declaration-only retrieval descriptors. |
-| `tests/agent/test_graph.py` | Graph-path assertion for structured scope propagation | VERIFIED | `test_structured_merchant_scope_reaches_knowledge_context` at line 378 asserts `KnowledgeContext.merchant_scope == ["merchant-graph"]`. |
-| `.planning/phases/09-business-tool-facade/09-OWNERSHIP-BOUNDARY.md` | Durable re-verification contract | VERIFIED | 7564 bytes; contains authoritative boundary, Phase 8 ownership, and disposition of expanded verifier claim. |
+| Artifact | Status | Details |
+|---|---|---|
+| `src/auth/permissions.py` | VERIFIED | Preserves verified token scopes in trusted request state. |
+| `src/api/routers/agent_runs.py` | VERIFIED | Intersects scopes and projects safe merchant scope for SSE runs. |
+| `src/api/routers/agent.py` | VERIFIED | Projects the same trusted config into legacy `/agent/chat`. |
+| `src/agent/nodes/retrieve_policy_evidence.py` | VERIFIED | Enforces `tool:search_policy` before service execution. |
+| `src/knowledge/service.py` | VERIFIED | Enforces empty/unauthorized merchant-scope denial before adapter execution. |
+| `src/business_tools/registry.py` | VERIFIED | Enforces ordered business-tool gates and write blocking. |
+| `src/business_tools/service.py` | VERIFIED | Provides live business-read facade, retry, and aggregation. |
+| `tests/test_agent_runs_api.py` | VERIFIED | Covers live SSE restricted-token projection and missing merchant identity. |
+| `tests/knowledge/test_service.py` | VERIFIED | Covers adapter non-invocation for denied merchant scope. |
+| `tests/agent/test_nodes/test_retrieve_policy_evidence.py` | VERIFIED | Covers permission denial and service non-invocation. |
+| `tests/test_approval_integration.py` | VERIFIED | Covers legacy `/agent/chat` trusted-config compatibility. |
+| `tests/agent/test_policy_retrieval_ownership.py` | VERIFIED | Protects Phase 8/9 ownership boundary. |
 
-### Key Link Verification
+### Behavioral Verification
 
-| From | To | Via | Status | Details |
-|---|---|---|---|---|
-| `permissions.py` | `agent_runs.py` | `request.state.verified_token_scopes` | WIRED | `permissions.py:74` assigns; `agent_runs.py:154` reads via `getattr(request.state, "verified_token_scopes", None)`. |
-| `agent_runs.py` | `SCOPE_TO_TOOL_PERMISSION` | Token/role intersection mapping | WIRED | `agent_runs.py:60-65` computes intersection and maps through `SCOPE_TO_TOOL_PERMISSION`. |
-| `retrieve_policy_evidence.py` | `PolicyKnowledgeService` | `service.search(request, context)` | WIRED | `retrieve_policy_evidence.py:154-155` creates service and awaits search. |
-| `configurable.merchant_scope` | `KnowledgeContext.merchant_scope` | `_knowledge_merchant_scope()` | WIRED | `retrieve_policy_evidence.py:125` calls helper; line 134 passes result to `KnowledgeContext`. |
-| `load_business_context.py` | `BusinessToolService` | `service.fetch_context` | WIRED | `load_business_context.py:77-78` constructs and awaits facade. |
-| `registry.py` | `adapters.py` | default order/refund/ticket adapters | WIRED | Three executable business reads have real adapters; retrieval descriptors have `adapter=None`. |
+| Gate | Result | Status |
+|---|---|---|
+| Phase 9 exact regression | 132 passed, 11 warnings | PASS |
+| Approval integration | 5 passed, 1 warning | PASS |
+| Full non-integration regression | 347 passed, 11 warnings | PASS |
+| Changed-file Ruff | All checks passed | PASS |
+| Independent code review | No findings | PASS |
 
-### Data-Flow Trace (Level 4)
-
-| Artifact | Data Variable | Source | Produces Real Data | Status |
-|---|---|---|---|---|
-| `agent_runs.py` `_trusted_tool_config` | `permissions` | `set(token_scopes) & set(ROLE_SCOPES[user.role])` | Yes -- real JWT scopes from authentication | FLOWING |
-| `retrieve_policy_evidence.py` | `merchant_scope` | `_knowledge_merchant_scope(configurable.get("merchant_scope"))` | Yes -- structured dict from router injection | FLOWING |
-| `load_business_context.py` | `business_context` | `BusinessToolService.fetch_context` | Yes -- real order/refund/ticket data via adapters | FLOWING |
-
-### Behavioral Spot-Checks
-
-| Behavior | Command | Result | Status |
-|---|---|---|---|
-| Full Phase 9 regression suite | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business_tools/ tests/agent/test_nodes/test_load_business_context.py tests/agent/test_nodes/test_retrieve_policy_evidence.py tests/agent/test_policy_retrieval_ownership.py tests/agent/test_graph.py tests/test_agent_runs_api.py tests/integration/test_auth.py -q --tb=short` | 122 passed, 11 warnings | PASS |
-| No `merchant_scope = None` in retrieval | `grep -n 'merchant_scope = None' src/agent/nodes/retrieve_policy_evidence.py` | No matches | PASS |
-| No direct `ROLE_SCOPES` assignment in router | `grep -n 'trusted_scopes = ROLE_SCOPES' src/api/routers/agent_runs.py` | No matches | PASS |
-| Verified token scopes wired across auth/router | `grep -n 'verified_token_scopes' src/auth/permissions.py src/api/routers/agent_runs.py` | 3 matches (1 in permissions, 2 in router) | PASS |
-| No anti-patterns in key files | `grep -rn 'TODO\|FIXME\|PLACEHOLDER' src/auth/permissions.py src/api/routers/agent_runs.py src/agent/nodes/retrieve_policy_evidence.py` | No matches | PASS |
+The 11 warnings are existing LangGraph deprecation and `AsyncMock` warnings outside the Phase 9 authorization changes.
 
 ### Requirements Coverage
 
-| Requirement | Source Plan | Description | Status | Evidence |
-|---|---|---|---|---|
-| TOOL-01 | 09-06, 09-08 | Read business tools use BusinessToolService and trusted ToolCallContext. | SATISFIED | `load_business_context.py` uses `BusinessToolService.with_default_registry`; `ToolCallContext` is the typed contract; `permissions.py` preserves verified scopes. |
-| TOOL-02 | 09-06, 09-07 | ToolResultV2 covers permission/scope/status/timeout/partial/invalid-response behavior without raw invalid payload exposure. | SATISFIED | Token/role intersection in `agent_runs.py`; merchant scope fail-closed in `retrieve_policy_evidence.py`; `ToolResultV2` covers 10 statuses; safe error construction in `registry.py:317-338`. |
-| TOOL-03 | Existing 09-02/09-05; ownership regression 09-08 | Write/action tools remain outside the read-tool facade. | SATISFIED | `registry.py:244-250` blocks write descriptors; `test_policy_retrieval_ownership.py` asserts write descriptor blocked. |
-
-### Anti-Patterns Found
-
-| File | Line | Pattern | Severity | Impact |
-|---|---|---|---|---|
-| (none) | - | - | - | No anti-patterns found in key files. |
-
-### Human Verification Required
-
-No human verification items identified. All checks are programmatically verified.
+| Requirement | Status | Evidence |
+|---|---|---|
+| TOOL-01 | SATISFIED | Business reads use BusinessToolService; trusted config is projected through both live API paths. |
+| TOOL-02 | SATISFIED | Typed outcomes and execution-boundary permission/scope enforcement pass. |
+| TOOL-03 | SATISFIED | Write/action tools remain outside the read facade. |
 
 ### Gaps Summary
 
-No gaps found. All 10 observable truths verified. All roadmap success criteria satisfied. All requirements (TOOL-01, TOOL-02, TOOL-03) satisfied. The two authorization defects identified in the previous verification (verified-token scope widening and merchant-scope dropping) have been closed by gap-closure plans 09-06 and 09-07. The ownership boundary scope conflict has been dispositioned by plan 09-08 as a scope conflict, not an implementation gap. Full Phase 9 regression suite passes with 122 tests.
+No gaps remain. Plans 09-06 and 09-07 fixed trusted-context projection, Plan 09-08 dispositioned the ownership boundary, and Plan 09-09 completed the missing execution-boundary enforcement. Independent full-regression review also found and fixed the legacy `/agent/chat` trusted-config omission before final acceptance.
 
 ---
 
-*Verified: 2026-06-13T12:00:00Z*
-*Verifier: Claude (gsd-verifier)*
+*Verified: 2026-06-13T06:31:40Z*
+*Verifier: Codex independent re-verification*
