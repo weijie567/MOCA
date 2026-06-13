@@ -27,6 +27,7 @@ class NeverCalledGraph:
         yield
 
 
+
 class CancelledGraph:
     async def astream(self, input_state, config, stream_mode):
         raise asyncio.CancelledError("client disconnected")
@@ -458,3 +459,52 @@ async def test_event_generator_treats_stream_interrupt_node_as_approval_required
     assert approval.status == "pending"
     assert approval.risk_level == "high"
     assert approval.proposed_action["amount"] == 600
+
+
+def test_agent_chat_only_support_token_receives_no_tool_permissions():
+    """A support-role token with only agent:chat gets permissions=[] in trusted config."""
+    from unittest.mock import MagicMock
+    from src.api.routers.agent_runs import _trusted_tool_config
+
+    user = MagicMock()
+    user.role = "support"
+
+    # The intersection of token_scopes={"agent:chat"} and ROLE_SCOPES["support"]
+    # should yield no tool permissions since agent:chat has no tool mapping
+    config = _trusted_tool_config(user, token_scopes=["agent:chat"], trace_id="test-trace")
+    assert config["permissions"] == []
+
+
+def test_support_token_with_orders_read_gets_only_get_order():
+    """A support token with agent:chat+orders:read gets exactly ['tool:get_order']."""
+    from unittest.mock import MagicMock
+    from src.api.routers.agent_runs import _trusted_tool_config
+
+    user = MagicMock()
+    user.role = "support"
+
+    config = _trusted_tool_config(user, token_scopes=["agent:chat", "orders:read"], trace_id="test-trace")
+    assert config["permissions"] == ["tool:get_order"]
+
+
+def test_role_scopes_alone_widen_permissions():
+    """Without token scope intersection, a support user would get all role permissions."""
+    from unittest.mock import MagicMock
+    from src.api.routers.agent_runs import _trusted_tool_config
+
+    user = MagicMock()
+    user.role = "support"
+    user.merchant_id = "test-merchant"
+
+    # Full role scopes should give all mapped permissions
+    config = _trusted_tool_config(
+        user,
+        token_scopes=["orders:read", "refunds:read", "tickets:read", "knowledge:read", "agent:chat"],
+        trace_id="test-trace",
+    )
+    assert set(config["permissions"]) == {
+        "tool:get_order",
+        "tool:get_refund_case",
+        "tool:get_ticket",
+        "tool:search_policy",
+    }

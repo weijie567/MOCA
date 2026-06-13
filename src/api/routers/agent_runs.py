@@ -7,6 +7,7 @@ import contextlib
 import json
 import time
 import uuid
+from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
@@ -54,8 +55,9 @@ NODE_MESSAGES: dict[str, str] = {
 }
 
 
-def _trusted_tool_config(user: User, trace_id: str | None) -> dict[str, Any]:
-    trusted_scopes = ROLE_SCOPES.get(user.role, [])
+def _trusted_tool_config(user: User, token_scopes: Iterable[str], trace_id: str | None) -> dict[str, Any]:
+    # Intersect verified token scopes with current DB role scopes
+    trusted_scopes = set(token_scopes) & set(ROLE_SCOPES.get(user.role, []))
     permissions = [
         tool_permission
         for scope, tool_permission in SCOPE_TO_TOOL_PERMISSION.items()
@@ -148,11 +150,13 @@ async def stream_agent_run_events(
         "role": user.role,
         "current_run_id": str(run.id),
     }
+    # Read verified token scopes from trusted request context; fail closed if absent
+    verified_token_scopes: Iterable[str] = getattr(request.state, "verified_token_scopes", None) or []
     config = {
         "configurable": {
             "thread_id": _checkpoint_thread_id(user=user, thread_id=run.thread_id),
             "session": session,
-            **_trusted_tool_config(user, getattr(request.state, "trace_id", None)),
+            **_trusted_tool_config(user, verified_token_scopes, getattr(request.state, "trace_id", None)),
         }
     }
 
