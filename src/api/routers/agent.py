@@ -13,6 +13,7 @@ from langgraph.errors import GraphInterrupt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.trace import build_trace_summary, write_agent_run, write_agent_steps
+from src.api.routers.agent_runs import _trusted_tool_config
 from src.api.schemas.agent import ChatRequest, ChatResponse, TraceSummary
 from src.api.schemas.common import ApiResponse, ErrorDetail, INTERNAL_ERROR
 from src.auth.permissions import get_current_user
@@ -48,6 +49,11 @@ async def chat(
         "configurable": {
             "thread_id": _checkpoint_thread_id(user=user, thread_id=body.thread_id),
             "session": session,
+            **_trusted_tool_config(
+                user,
+                getattr(request.state, "verified_token_scopes", None) or [],
+                getattr(request.state, "trace_id", None),
+            ),
         }
     }
 
