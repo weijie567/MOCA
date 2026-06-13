@@ -7,6 +7,7 @@ import pytest
 
 from src.agent.nodes.load_business_context import load_business_context
 from src.api.routers.agent_runs import _trusted_tool_config
+from src.auth.jwt import ROLE_SCOPES
 from src.business_tools.schemas import BusinessContextV1, ToolError, ToolResultV2
 from src.business_tools.service import BusinessToolService
 from src.db.models import User
@@ -134,7 +135,9 @@ def test_router_projects_merchant_scope_and_tool_permissions() -> None:
         is_active=True,
     )
 
-    config = _trusted_tool_config(user, "trace-merchant")
+    # Full role scopes as token scopes (intersection = full role set)
+    role_scopes = ROLE_SCOPES.get(user.role, [])
+    config = _trusted_tool_config(user, role_scopes, "trace-merchant")
 
     assert config["merchant_scope"]["merchant_ids"] == [str(merchant_id)]
     assert "tool:get_order" in config["permissions"]
@@ -153,7 +156,9 @@ def test_router_maps_support_scopes_to_tool_permissions() -> None:
         is_active=True,
     )
 
-    config = _trusted_tool_config(user, "trace-support")
+    # Full role scopes as token scopes (intersection = full role set)
+    role_scopes = ROLE_SCOPES.get(user.role, [])
+    config = _trusted_tool_config(user, role_scopes, "trace-support")
 
     assert config["merchant_scope"]["merchant_ids"] == ["*"]
     assert config["permissions"]

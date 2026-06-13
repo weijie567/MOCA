@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable
 
-from fastapi import Depends, HTTPException, Security, status
+from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import OAuth2PasswordBearer, SecurityScopes
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +31,7 @@ object.__setattr__(oauth2_scheme.model, "scopes", oauth2_scheme.model.flows.pass
 
 
 async def get_current_user(
+    request: Request,
     security_scopes: SecurityScopes,
     token: str = Depends(oauth2_scheme),
     session: AsyncSession = Depends(get_session),
@@ -56,13 +57,22 @@ async def get_current_user(
     if user is None or not user.is_active:
         raise credentials_error
 
-    token_scopes = set(payload.get("scopes", []))
+    # Validate scopes claim is a collection of strings before preservation
+    raw_scopes = payload.get("scopes", [])
+    if not isinstance(raw_scopes, list) or not all(isinstance(s, str) for s in raw_scopes):
+        raise credentials_error
+
+    token_scopes = set(raw_scopes)
     missing_scopes = [scope for scope in security_scopes.scopes if scope not in token_scopes]
     if missing_scopes:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"code": FORBIDDEN, "message": "Insufficient scopes", "details": {"missing_scopes": missing_scopes}},
         )
+
+    # Preserve verified token scopes in trusted request context (immutable)
+    request.state.verified_token_scopes = frozenset(token_scopes)
+
     return user
 
 
