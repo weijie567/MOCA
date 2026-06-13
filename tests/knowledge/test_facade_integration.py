@@ -97,7 +97,13 @@ async def _run_path(
     state = _base_state()
     retrieval_output = await retrieval_module.retrieve_policy_evidence(
         state,
-        {"configurable": {"session": AsyncMock()}},
+        {
+            "configurable": {
+                "session": AsyncMock(),
+                "permissions": ["tool:search_policy"],
+                "merchant_scope": {"merchant_ids": ["*"]},
+            }
+        },
     )
     state.update(retrieval_output)
     recommendation_output = await recommendation_module.generate_recommendation(state)
