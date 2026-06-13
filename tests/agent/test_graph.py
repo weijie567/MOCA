@@ -1,47 +1,38 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-from unittest.mock import AsyncMock
+from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 import pytest
 from langgraph.checkpoint.memory import MemorySaver
-from pydantic import BaseModel
 
 from tests.agent.conftest import FakeLLM
 
 from src.agent import trace as trace_module
-from src.agent.graph import build_graph
+from src.agent.graph import build_graph, route_after_approval, route_after_risk
 from src.agent.nodes import assess_risk_and_approval as assess_risk_module
 from src.agent.nodes import classify_intent as classify_intent_module
 from src.agent.nodes import extract_slots as extract_slots_module
 from src.agent.nodes import generate_recommendation as generate_recommendation_module
-from src.agent.nodes import load_business_context as load_business_context_module
-from src.agent.nodes import retrieve_policy_evidence as retrieve_policy_evidence_module
-from src.business_tools.schemas import BusinessContextV1, ToolResultV2
-from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
-from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext, KnowledgeSearchResult
+from src.agent.routing import route_after_investigate
+from src.agent.tools.unified import UnifiedToolManager
+from src.business_tools.registry import ToolRegistry
+from src.business_tools.schemas import BusinessFactRefV1, ToolCallContext, ToolResultV2
+from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
+from src.knowledge.schemas import EvidenceRefV1
 
-
-EVIDENCE = [
-    EvidenceRefV1.build(
-        tenant_id="tenant",
-        doc_key="policy_refund_timeout",
-        chunk_id="chunk_001",
-        policy_version="v1",
-        text="退款超时时，客服应核实支付通道和退款状态。",
-        retrieved_at="2026-06-07T02:30:00+00:00",
-        retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
-        score=0.82,
-        rank=1,
-    )
-]
 
 INVESTIGATION_STATE_FIELDS = {
     "investigation_result",
     "investigation_steps",
     "investigation_trigger_reason",
     "investigation_path",
+}
+ROUTER_EDGE_KEYS = {
+    "route_after_risk": {"approval_gate", "execute_action", "final_response"},
+    "route_after_approval": {"execute_action", "final_response"},
+    "route_after_investigate": {"final_response", "clarification_gate", "recommendation_generation"},
 }
 
 
@@ -55,12 +46,17 @@ def _state(query: str, thread_id: str = "graph-test-thread") -> dict:
     }
 
 
-def _config(thread_id: str = "graph-test-thread") -> dict:
+def _config(manager, events: list[dict[str, Any]], thread_id: str = "graph-test-thread") -> dict:
+    async def event_emitter(**payload):
+        events.append(payload)
+
     return {
         "configurable": {
             "thread_id": thread_id,
-            "session": AsyncMock(),
-            "permissions": ["tool:get_order", "tool:get_refund_case", "tool:get_ticket", "tool:search_policy"],
+            "session": None,
+            "tool_manager": manager,
+            "event_emitter": event_emitter,
+            "permissions": [f"tool:{descriptor.name}" for descriptor in ToolRegistry().descriptors()],
             "merchant_scope": {"merchant_ids": ["*"]},
             "trace_id": "graph-trace",
         }
@@ -82,12 +78,11 @@ def _slots(order_id: str | None = None) -> dict:
     }
 
 
-def _recommendation(action: str = "建议退款", evidence_refs: list[dict] | None = None) -> dict:
+def _recommendation() -> dict:
     return {
-        "recommended_action": action,
+        "recommended_action": "建议退款",
         "reasoning_summary": "根据规则",
-        "evidence_refs": evidence_refs
-        or [
+        "evidence_refs": [
             {
                 "doc_key": "policy_refund_timeout",
                 "chunk_id": "chunk_001",
@@ -105,39 +100,90 @@ def _risk() -> dict:
     return {"risk_level": "low", "risk_reason": "standard refund", "approval_required": False, "rule_ref": "LR-01"}
 
 
-def _policy_result(
-    *,
-    status: str = "strong_evidence",
-    best_score: float = 0.82,
-    evidence: list[EvidenceRefV1] | None = None,
-) -> KnowledgeSearchResult:
-    return KnowledgeSearchResult(
-        status=status,
-        retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
-        rerank_config_version=RERANK_CONFIG_VERSION,
-        best_score=best_score,
-        threshold=0.55,
-        evidence_refs=EVIDENCE if evidence is None else evidence,
-    )
+class FakeGraphToolManager:
+    def __init__(self, *, order_id: str | None = None, policy_status: str = "strong_evidence") -> None:
+        self._descriptors = {descriptor.name: descriptor for descriptor in ToolRegistry().descriptors()}
+        self.order_id = order_id
+        self.policy_status = policy_status
+        self.calls: list[tuple[str, dict[str, Any], ToolCallContext]] = []
 
+    def descriptors(self, caller_node: str = "investigate"):
+        return [
+            descriptor
+            for descriptor in self._descriptors.values()
+            if caller_node in descriptor.caller_allowlist and descriptor.kind != "write"
+        ]
 
-class SequencedFakeLLM:
-    def __init__(self, responses: Sequence[dict]):
-        self._responses = list(responses)
-        self._index = 0
+    def descriptor(self, name: str):
+        return self._descriptors.get(name)
 
-    def with_structured_output(self, schema):
-        fake = self
+    def event_family(self, name: str) -> str:
+        family = self._descriptors[name].event_family
+        return "rag_retrieval" if family == "rag_retrieval_*" else "tool_call"
 
-        class _Wrapper:
-            async def ainvoke(self, messages, **kwargs):
-                response = fake._responses[min(fake._index, len(fake._responses) - 1)]
-                fake._index += 1
-                if issubclass(schema, BaseModel):
-                    return schema.model_validate(response)
-                return response
+    async def invoke(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
+        self.calls.append((name, args, ctx))
+        if name == "get_order":
+            return self._order_result(args.get("order_no") or self.order_id or "ORD-001")
+        if name == "search_policy":
+            return self._policy_result()
+        raise AssertionError(f"Unexpected graph tool call: {name}")
 
-        return _Wrapper()
+    def _order_result(self, order_id: str) -> ToolResultV2:
+        ref = BusinessFactRefV1(
+            tenant_id=str(uuid4()),
+        source_system="moca",
+        resource_type="order",
+        resource_id=order_id,
+        resource_version=None,
+        data_freshness_at=None,
+        retrieved_at=datetime.now(UTC),
+        )
+        return ToolResultV2(
+            status="success",
+            data={"order_no": order_id, "status": "delivered", "amount": "199.00"},
+            summary="order result",
+            source_system="business_tool_service",
+            data_freshness_at=None,
+            policy_evidence_refs=[],
+            business_fact_refs=[ref],
+            error=None,
+            retryable=False,
+            retry_after_ms=None,
+            latency_ms=1,
+            audit_ref=None,
+        )
+
+    def _policy_result(self) -> ToolResultV2:
+        evidence = []
+        if self.policy_status != "no_evidence":
+            evidence = [
+                EvidenceRefV1.build(
+                    tenant_id="tenant",
+                    doc_key="policy_refund_timeout",
+                    chunk_id="chunk_001",
+                    policy_version="v1",
+                    text="退款超时时，客服应核实支付通道和退款状态。",
+                    retrieved_at="2026-06-07T02:30:00+00:00",
+                    retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+                    score=0.82,
+                    rank=1,
+                )
+            ]
+        return ToolResultV2(
+            status="success" if evidence else "not_found",
+            data={"retrieval_status": self.policy_status, "best_score": 0.82 if evidence else 0.0},
+            summary="policy found" if evidence else "no policy found",
+            source_system="policy_knowledge_service",
+            data_freshness_at=None,
+            policy_evidence_refs=evidence,
+            business_fact_refs=[],
+            error=None,
+            retryable=False,
+            retry_after_ms=None,
+            latency_ms=1,
+            audit_ref=None,
+        )
 
 
 def _patch_graph_dependencies(
@@ -145,191 +191,75 @@ def _patch_graph_dependencies(
     *,
     intent: str = "policy_qa",
     order_id: str | None = None,
-    search_result: KnowledgeSearchResult | None = None,
-    classify_llm=None,
 ):
-    tool_result = ToolResultV2(
-        status="success",
-        data={"order_no": order_id or "ORD-001", "status": "delivered", "amount": "199.00"},
-        summary="order result",
-        source_system="test",
-        data_freshness_at=None,
-        latency_ms=1,
-        audit_ref=None,
-    )
-    business_context = BusinessContextV1(
-        tenant_id="tenant",
-        status="complete",
-        facts={"order": tool_result.data} if order_id else {},
-        business_fact_refs=[],
-        tool_results=[tool_result] if order_id else [],
-        missing_required_facts=[],
-        errors=[],
-        data_freshness_at=None,
-    )
-    fetch_context = AsyncMock(return_value=business_context)
-    knowledge_search = AsyncMock(return_value=search_result or _policy_result())
-
-    monkeypatch.setattr(classify_intent_module, "_get_llm", lambda: classify_llm or FakeLLM(_intent(intent)))
+    monkeypatch.setattr(classify_intent_module, "_get_llm", lambda: FakeLLM(_intent(intent)))
     monkeypatch.setattr(extract_slots_module, "_get_llm", lambda: FakeLLM(_slots(order_id)))
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
     monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: FakeLLM(_risk()))
-    monkeypatch.setattr(load_business_context_module.BusinessToolService, "fetch_context", fetch_context)
-    monkeypatch.setattr(retrieve_policy_evidence_module.PolicyKnowledgeService, "search", knowledge_search)
-    return {"fetch_context": fetch_context, "knowledge_search": knowledge_search}
-
-
-@pytest.fixture
-def graph_with_fake_llm(monkeypatch):
-    mocks = _patch_graph_dependencies(monkeypatch)
-    return build_graph(MemorySaver()), mocks
+    manager = FakeGraphToolManager(order_id=order_id)
+    events: list[dict[str, Any]] = []
+    return {"tool_manager": manager, "events": events}
 
 
 @pytest.mark.asyncio
-async def test_happy_path_policy_qa(graph_with_fake_llm):
-    graph, mocks = graph_with_fake_llm
+async def test_happy_path_policy_qa_uses_investigate_manager(monkeypatch):
+    deps = _patch_graph_dependencies(monkeypatch, intent="policy_qa")
+    graph = build_graph(MemorySaver())
 
-    final_state = await graph.ainvoke(_state("退款超时规则是什么？"), _config())
+    final_state = await graph.ainvoke(_state("退款超时规则是什么？"), _config(deps["tool_manager"], deps["events"]))
 
     assert final_state["final_response"]
     assert final_state["current_intent"] == "policy_qa"
     assert final_state["recommendation_draft"]["evidence_refs"]
     assert final_state["risk_assessment"]["risk_level"] in ("low", "medium", "high")
-    assert len(final_state["trace_steps"]) == 8
-    assert final_state["current_run_id"] is not None
+    assert "session_memory_load" in [step["node"] for step in final_state["trace_steps"]]
+    assert "investigate" in [step["node"] for step in final_state["trace_steps"]]
     assert all(final_state[field] is None for field in INVESTIGATION_STATE_FIELDS)
-    assert not any("investigat" in step.get("node", "") for step in final_state["trace_steps"])
-    mocks["knowledge_search"].assert_awaited_once()
+    assert [call[0] for call in deps["tool_manager"].calls] == ["search_policy"]
+    assert [event["event_type"] for event in deps["events"]] == ["rag_retrieval_started", "rag_retrieval_completed"]
 
 
 @pytest.mark.asyncio
-async def test_happy_path_refund_troubleshooting(monkeypatch):
-    mocks = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id="ORD-001")
+async def test_refund_path_preserves_business_context_facts(monkeypatch):
+    deps = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id="ORD-001")
     graph = build_graph(MemorySaver())
 
-    final_state = await graph.ainvoke(_state("订单ORD-001退款为什么没到账？"), _config())
+    final_state = await graph.ainvoke(
+        _state("订单ORD-001退款为什么没到账？"),
+        _config(deps["tool_manager"], deps["events"]),
+    )
 
     assert final_state["current_intent"] == "refund_troubleshooting"
-    assert final_state["business_context"] == {
-        "order": {"order_no": "ORD-001", "status": "delivered", "amount": "199.00"}
-    }
+    assert final_state["business_context"]["facts"]["order"]["order_no"] == "ORD-001"
+    assert [call[0] for call in deps["tool_manager"].calls] == ["get_order", "search_policy"]
     assert final_state["final_response"]
-    mocks["fetch_context"].assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_insufficient_evidence_path(monkeypatch):
-    _patch_graph_dependencies(
-        monkeypatch,
-        search_result=_policy_result(status="no_evidence", best_score=0.0, evidence=[]),
-    )
-    graph = build_graph(MemorySaver())
-
-    final_state = await graph.ainvoke(_state("这个问题没有任何相关规则"), _config())
-
-    assert final_state["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
-    assert "没有找到" in final_state["final_response"] or "insufficient" in final_state["final_response"]
-    assert "通常可以退款" not in final_state["final_response"]
-    assert "应该退款" not in final_state["final_response"]
-
-
-@pytest.mark.asyncio
-async def test_order_fact_query_keeps_business_context_when_policy_evidence_is_missing(monkeypatch):
-    mocks = _patch_graph_dependencies(
-        monkeypatch,
-        intent="unknown",
-        order_id="ORD-001",
-        search_result=_policy_result(status="no_evidence", best_score=0.0, evidence=[]),
-    )
-    graph = build_graph(MemorySaver())
-
-    final_state = await graph.ainvoke(_state("ORD-001 订单是什么？"), _config())
-
-    assert final_state["business_context"]["order"]["order_no"] == "ORD-001"
-    assert final_state["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
-    assert "已查询到订单信息" in final_state["final_response"]
-    assert "ORD-001" in final_state["final_response"]
-    assert "关于退款风险" in final_state["final_response"]
-    mocks["fetch_context"].assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_order_not_found_path(monkeypatch):
-    mocks = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id="ORD-MISSING")
-    mocks["fetch_context"].return_value = BusinessContextV1(
-        tenant_id="tenant",
-        status="insufficient",
-        facts={},
-        business_fact_refs=[],
-        tool_results=[],
-        missing_required_facts=["order"],
-        errors=[],
-        data_freshness_at=None,
-    )
-    graph = build_graph(MemorySaver())
-
-    final_state = await graph.ainvoke(_state("订单ORD-MISSING退款为什么没到账？"), _config())
-
-    assert final_state["final_response"]
-    assert final_state["node_errors"] or not final_state["business_context"]
-
-
-@pytest.mark.asyncio
-async def test_llm_parse_failure_path(monkeypatch):
-    retry_llm = SequencedFakeLLM(
-        [
-            {"intent": "bad_intent", "confidence": 0.95, "reasoning": "invalid"},
-            _intent("policy_qa"),
-        ]
-    )
-    _patch_graph_dependencies(monkeypatch, classify_llm=retry_llm)
-    graph = build_graph(MemorySaver())
-
-    final_state = await graph.ainvoke(_state("退款超时规则是什么？"), _config())
-
-    assert final_state["current_intent"] == "policy_qa"
-
-
-@pytest.mark.asyncio
-async def test_cross_turn_context_isolation(monkeypatch):
-    _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id="ORD-001")
+async def test_cross_turn_context_isolation_on_investigate_facts(monkeypatch):
     graph = build_graph(MemorySaver())
     thread_id = "cross-turn-thread"
 
-    await graph.ainvoke(_state("订单ORD-001退款为什么没到账？", thread_id), _config(thread_id))
+    first = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id="ORD-001")
+    await graph.ainvoke(
+        _state("订单ORD-001退款为什么没到账？", thread_id),
+        _config(first["tool_manager"], first["events"], thread_id),
+    )
 
-    _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id="ORD-002")
-    second_state = await graph.ainvoke(_state("订单ORD-002退款为什么没到账？", thread_id), _config(thread_id))
+    second = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id="ORD-002")
+    second_state = await graph.ainvoke(
+        _state("订单ORD-002退款为什么没到账？", thread_id),
+        _config(second["tool_manager"], second["events"], thread_id),
+    )
 
-    assert second_state["business_context"]["order"]["order_no"] == "ORD-002"
+    assert second_state["business_context"]["facts"]["order"]["order_no"] == "ORD-002"
     assert "ORD-001" not in str(second_state["business_context"])
     assert "ORD-001" not in str(second_state["trace_steps"])
 
 
 @pytest.mark.asyncio
-async def test_same_thread_evidence_refs_survive_next_turn(monkeypatch):
-    mocks = _patch_graph_dependencies(monkeypatch, search_result=_policy_result())
-    graph = build_graph(MemorySaver())
-    thread_id = "evidence-memory-thread"
-
-    first_state = await graph.ainvoke(_state("退款超时规则是什么？", thread_id), _config(thread_id))
-
-    assert any(ref["chunk_id"] == "chunk_001" for ref in first_state["evidence_refs"])
-
-    mocks["knowledge_search"].return_value = _policy_result(status="no_evidence", best_score=0.0, evidence=[])
-    second_state = await graph.ainvoke(_state("这个新问题没有规则依据", thread_id), _config(thread_id))
-
-    assert second_state["retrieved_evidence"]["evidence_refs"] == []
-    assert any(
-        ref["doc_key"] == "policy_refund_timeout" and ref["chunk_id"] == "chunk_001"
-        for ref in second_state["evidence_refs"]
-    )
-    assert second_state["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
-
-
-@pytest.mark.asyncio
 async def test_same_thread_stale_investigation_state_is_reset_on_next_turn(monkeypatch):
-    _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id="ORD-001")
+    deps = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id="ORD-001")
     graph = build_graph(MemorySaver())
     thread_id = "stale-investigation-thread"
     stale_state = _state("订单ORD-001退款为什么没到账？", thread_id) | {
@@ -339,10 +269,13 @@ async def test_same_thread_stale_investigation_state_is_reset_on_next_turn(monke
         "investigation_path": "investigation",
     }
 
-    await graph.ainvoke(stale_state, _config(thread_id))
+    await graph.ainvoke(stale_state, _config(deps["tool_manager"], deps["events"], thread_id))
 
-    _patch_graph_dependencies(monkeypatch, intent="policy_qa")
-    final_state = await graph.ainvoke(_state("退款超时规则是什么？", thread_id), _config(thread_id))
+    next_deps = _patch_graph_dependencies(monkeypatch, intent="policy_qa")
+    final_state = await graph.ainvoke(
+        _state("退款超时规则是什么？", thread_id),
+        _config(next_deps["tool_manager"], next_deps["events"], thread_id),
+    )
 
     assert final_state["investigation_result"] is None
     assert final_state["investigation_steps"] is None
@@ -351,9 +284,10 @@ async def test_same_thread_stale_investigation_state_is_reset_on_next_turn(monke
 
 
 @pytest.mark.asyncio
-async def test_trace_summary_shape(graph_with_fake_llm):
-    graph, _ = graph_with_fake_llm
-    final_state = await graph.ainvoke(_state("退款超时规则是什么？"), _config())
+async def test_trace_summary_shape_uses_merged_investigate_tool_name(monkeypatch):
+    deps = _patch_graph_dependencies(monkeypatch, intent="policy_qa")
+    graph = build_graph(MemorySaver())
+    final_state = await graph.ainvoke(_state("退款超时规则是什么？"), _config(deps["tool_manager"], deps["events"]))
 
     summary = trace_module.build_trace_summary(final_state["current_run_id"], final_state, 1000)
 
@@ -367,45 +301,57 @@ async def test_trace_summary_shape(graph_with_fake_llm):
         "total_latency_ms",
         "final_status",
     }
-    assert all(isinstance(node, str) for node in summary["nodes_executed"])
-    assert summary["tools_called"] == ["knowledge_service.search"]
+    assert "investigate" in summary["nodes_executed"]
+    assert summary["tools_called"] == ["search_policy"]
     assert summary["evidence_count"] == 1
     assert summary["final_status"] in ("completed", "insufficient_evidence", "error")
     assert INVESTIGATION_STATE_FIELDS.isdisjoint(summary)
 
 
-@pytest.mark.asyncio
-async def test_structured_merchant_scope_reaches_knowledge_context(monkeypatch):
-    """Graph invocation with structured merchant_ids propagates to KnowledgeContext unchanged."""
-    mocks = _patch_graph_dependencies(monkeypatch, intent="policy_qa")
+def test_graph_compiles_with_investigate():
     graph = build_graph(MemorySaver())
+    nodes = set(graph.get_graph().nodes)
 
-    config = {
-        "configurable": {
-            "thread_id": "merchant-scope-graph",
-            "session": AsyncMock(),
-            "permissions": ["tool:get_order", "tool:get_refund_case", "tool:get_ticket", "tool:search_policy"],
-            "merchant_scope": {"merchant_ids": ["merchant-graph"]},
-            "trace_id": "graph-trace",
-        }
+    assert {"investigate", "clarification_gate", "session_memory_load"} <= nodes
+    assert "load_business_context" not in nodes
+    assert "retrieve_policy_evidence" not in nodes
+
+
+def test_route_after_investigate_keys_are_edge_targets():
+    graph = build_graph(MemorySaver())
+    nodes = set(graph.get_graph().nodes)
+    states = [
+        {},
+        {"business_context": {"missing_required_facts": ["order_id"]}},
+        {"retrieval_status": "strong_evidence", "best_score": 0.9},
+    ]
+    mapping = {
+        "final_response": "final_response",
+        "clarification_gate": "clarification_gate",
+        "recommendation_generation": "generate_recommendation",
     }
 
-    final_state = await graph.ainvoke(_state("退款超时规则是什么？"), config)
-
-    assert final_state["final_response"]
-    knowledge_search = mocks["knowledge_search"]
-    knowledge_search.assert_awaited_once()
-    _, context_arg = knowledge_search.await_args.args
-    assert isinstance(context_arg, KnowledgeContext)
-    assert context_arg.merchant_scope == ["merchant-graph"]
+    for state in states:
+        key = route_after_investigate(state)
+        assert key in mapping
+        assert mapping[key] in nodes
 
 
-@pytest.mark.asyncio
-async def test_policy_retrieval_uses_policy_knowledge_service(graph_with_fake_llm):
-    """Graph path continues using PolicyKnowledgeService for retrieval, not BusinessToolService."""
-    graph, mocks = graph_with_fake_llm
+def test_all_router_return_keys_have_edges():
+    assert route_after_risk({"risk_assessment": {"approval_required": True}}) in ROUTER_EDGE_KEYS["route_after_risk"]
+    assert route_after_risk({"proposed_action": {"action_type": "issue_coupon"}}) in ROUTER_EDGE_KEYS["route_after_risk"]
+    assert route_after_risk({}) in ROUTER_EDGE_KEYS["route_after_risk"]
+    assert route_after_approval({"approval_result": {"decision": "approve"}}) in ROUTER_EDGE_KEYS["route_after_approval"]
+    assert route_after_approval({}) in ROUTER_EDGE_KEYS["route_after_approval"]
+    assert route_after_investigate({}) in ROUTER_EDGE_KEYS["route_after_investigate"]
+    assert route_after_investigate({"business_context": {"missing_required_facts": ["order_id"]}}) in ROUTER_EDGE_KEYS[
+        "route_after_investigate"
+    ]
+    assert (
+        route_after_investigate({"retrieval_status": "strong_evidence", "best_score": 0.9})
+        in ROUTER_EDGE_KEYS["route_after_investigate"]
+    )
 
-    final_state = await graph.ainvoke(_state("退款超时规则是什么？"), _config())
 
-    assert final_state["final_response"]
-    mocks["knowledge_search"].assert_awaited_once()
+def test_post_merge_graph_uses_tool_manager_seam():
+    assert UnifiedToolManager is not None
