@@ -73,7 +73,7 @@ async def test_adapter_uses_context_tenant_scope_only():
 
 
 @pytest.mark.asyncio
-async def test_merchant_filter_is_authorized_but_not_applied_to_policy_query():
+async def test_merchant_filter_is_authorized_before_policy_query():
     adapter = SimpleNamespace(retrieve=AsyncMock(return_value=("no_evidence", [], 0.0)))
     service = PolicyKnowledgeService(adapter)
     tenant_id = str(uuid4())
@@ -83,7 +83,9 @@ async def test_merchant_filter_is_authorized_but_not_applied_to_policy_query():
     unauthorized = await service.search(_request("untrusted-tenant", "merchant-denied"), context)
     authorized = await service.search(_request("untrusted-tenant", "merchant-allowed"), context)
 
-    assert baseline == unauthorized == authorized
-    assert adapter.retrieve.await_count == 3
+    assert baseline == authorized
+    assert unauthorized.status == "no_evidence"
+    assert unauthorized.evidence_refs == []
+    assert adapter.retrieve.await_count == 2
     assert all(call.kwargs["context"] is context for call in adapter.retrieve.await_args_list)
     assert all("merchant_id" not in call.kwargs for call in adapter.retrieve.await_args_list)

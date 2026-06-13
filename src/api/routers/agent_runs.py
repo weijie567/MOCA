@@ -63,9 +63,10 @@ def _trusted_tool_config(user: User, token_scopes: Iterable[str], trace_id: str 
         for scope, tool_permission in SCOPE_TO_TOOL_PERMISSION.items()
         if scope in trusted_scopes
     ]
-    merchant_scope = (
-        {"merchant_ids": [str(user.merchant_id)]} if user.role == "merchant" else {"merchant_ids": ["*"]}
-    )
+    if user.role == "merchant":
+        merchant_scope = {"merchant_ids": [str(user.merchant_id)] if user.merchant_id is not None else []}
+    else:
+        merchant_scope = {"merchant_ids": ["*"]}
     return {
         "permissions": permissions,
         "merchant_scope": merchant_scope,

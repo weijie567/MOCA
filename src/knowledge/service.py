@@ -28,12 +28,19 @@ class PolicyKnowledgeService:
         context: KnowledgeContext,
     ) -> KnowledgeSearchResult:
         # Merchant filters are authorization inputs only until policy rows gain
-        # merchant scope. Unauthorized IDs are dropped and none are sent to the DB.
+        # merchant scope. Deny before adapter execution rather than widening an
+        # unauthorized request into an unfiltered tenant search.
         merchant_id = request.filters.merchant_id
         merchant_scope = context.merchant_scope
-        if merchant_id is not None and merchant_scope is not None and merchant_id not in merchant_scope:
-            merchant_id = None
-        del merchant_id
+        if merchant_scope == []:
+            return self._no_evidence_result()
+        if (
+            merchant_id is not None
+            and merchant_scope is not None
+            and "*" not in merchant_scope
+            and merchant_id not in merchant_scope
+        ):
+            return self._no_evidence_result()
 
         doc_type = request.filters.policy_types[0] if request.filters.policy_types else None
         try:
@@ -71,6 +78,17 @@ class PolicyKnowledgeService:
             best_score=best_score,
             threshold=MIN_SIMILARITY_THRESHOLD,
             evidence_refs=evidence_refs,
+        )
+
+    @staticmethod
+    def _no_evidence_result() -> KnowledgeSearchResult:
+        return KnowledgeSearchResult(
+            status="no_evidence",
+            retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+            rerank_config_version=RERANK_CONFIG_VERSION,
+            best_score=0.0,
+            threshold=MIN_SIMILARITY_THRESHOLD,
+            evidence_refs=[],
         )
 
     @staticmethod
