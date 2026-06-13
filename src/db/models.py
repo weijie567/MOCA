@@ -238,6 +238,7 @@ class AgentRun(TimestampMixin, Base):
     error_summary: Mapped[str | None] = mapped_column(String(500))
 
     steps: Mapped[list["AgentStep"]] = relationship(back_populates="run", cascade="all, delete-orphan")
+    trace_events: Mapped[list["AgentTraceEvent"]] = relationship(back_populates="run", cascade="all, delete-orphan")
 
 
 class ApprovalRequest(TimestampMixin, Base):
@@ -337,3 +338,31 @@ class AgentStep(TimestampMixin, Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     run: Mapped["AgentRun"] = relationship(back_populates="steps")
+
+
+class AgentTraceEvent(TimestampMixin, Base):
+    """Phase 10 minimal event envelope (schema_version=minimal_event_envelope.v1)."""
+
+    __tablename__ = "agent_trace_events"
+    __table_args__ = (UniqueConstraint("run_id", "sequence", name="uq_agent_trace_events_run_seq"),)
+
+    event_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agent_runs.id"), nullable=False, index=True
+    )
+    sequence: Mapped[int] = mapped_column(nullable=False)
+    operation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    thread_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    trace_id: Mapped[str | None] = mapped_column(String(128))
+    event_type: Mapped[str] = mapped_column(String(48), nullable=False)
+    schema_version: Mapped[str] = mapped_column(
+        String(48), nullable=False, default="minimal_event_envelope.v1"
+    )
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    actor: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    resource_refs: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    redaction_policy_version: Mapped[str] = mapped_column(String(48), nullable=False)
+    redacted_payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+
+    run: Mapped["AgentRun"] = relationship(back_populates="trace_events")
