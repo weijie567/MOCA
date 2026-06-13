@@ -68,3 +68,66 @@ def test_agent_chat_scope_is_issued_to_agent_roles():
         payload = decode_access_token(token)
 
         assert "agent:chat" in payload["scopes"]
+
+
+@pytest.mark.asyncio
+async def test_verified_token_scopes_preserved_on_request_state(client, session, seeded_session):
+    """A valid token's verified scopes are preserved on request.state.verified_token_scopes."""
+    from unittest.mock import MagicMock
+    from fastapi import Request
+    from fastapi.security import SecurityScopes
+    from src.auth.permissions import get_current_user
+    from src.auth.jwt import create_access_token
+
+    user = seeded_session["users"]["cs_zhang"]
+    # Token with only agent:chat scope
+    token = create_access_token(
+        {"sub": str(user.id), "tenant_id": str(user.tenant_id), "role": "support", "scopes": ["agent:chat"]}
+    )
+
+    mock_request = MagicMock(spec=Request)
+    mock_request.state = MagicMock()
+
+    result = await get_current_user(
+        security_scopes=SecurityScopes(scopes=["agent:chat"]),
+        token=token,
+        session=session,
+        request=mock_request,
+    )
+
+    assert result is not None
+    # Verified token scopes must be preserved on request.state
+    assert hasattr(mock_request.state, "verified_token_scopes")
+    assert mock_request.state.verified_token_scopes == frozenset({"agent:chat"})
+
+
+@pytest.mark.asyncio
+async def test_rejected_token_does_not_populate_verified_scopes(client, session, seeded_session):
+    """A token with insufficient scopes raises 403 without populating verified_token_scopes."""
+    from types import SimpleNamespace
+    from fastapi import Request, HTTPException
+    from fastapi.security import SecurityScopes
+    from unittest.mock import MagicMock
+    from src.auth.permissions import get_current_user
+    from src.auth.jwt import create_access_token
+
+    user = seeded_session["users"]["cs_zhang"]
+    # Token with only agent:chat, but endpoint requires orders:read
+    token = create_access_token(
+        {"sub": str(user.id), "tenant_id": str(user.tenant_id), "role": "support", "scopes": ["agent:chat"]}
+    )
+
+    mock_request = MagicMock(spec=Request)
+    mock_request.state = SimpleNamespace()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_current_user(
+            security_scopes=SecurityScopes(scopes=["orders:read"]),
+            token=token,
+            session=session,
+            request=mock_request,
+        )
+
+    assert exc_info.value.status_code == 403
+    # verified_token_scopes must NOT be set on rejected tokens
+    assert not hasattr(mock_request.state, "verified_token_scopes")
