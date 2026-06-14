@@ -43,13 +43,13 @@
 - **Key dependencies**: `sqlalchemy[asyncio]` >= 2.0.30, `asyncpg`, `pgvector`, `alembic` (migrations)
 - **Confidence**: High
 
-### Redis (Cache + Session + Rate Limiting)
+### Redis (Non-Authoritative Cache + Rate Limiting)
 - **Library**: Redis 7.x (server), `redis` Python package >= 5.0 (async support built-in)
-- **Why**: Caching LLM responses, session state, rate limiting API calls, and potentially as a message broker for background tasks. Fast, simple, well-understood.
+- **Why**: Caching repeated lookups, rate limiting API calls, short-TTL runtime hints, and potentially as a message broker for background tasks. Fast, simple, well-understood. Redis must not be the authoritative store for session memory, workflow checkpoint source-of-truth state, approval/action state, or replay/audit events.
 - **Configuration notes**:
   - Use `redis.asyncio` client (built into `redis` >= 5.0, no separate `aioredis` needed)
-  - Cache strategy: cache embedding lookups and repeated LLM calls with TTL
-  - Use Redis for LangGraph checkpoint store in dev (faster iteration than Postgres)
+  - Cache strategy: cache embedding lookups, repeated LLM calls, and optional session hot views with TTL
+  - Use PostgreSQL for LangGraph checkpoint source-of-truth state; Redis may only cache active-run hot state that can fall back to PostgreSQL
   - Docker image: `redis:7-alpine`
   - Consider `redis-om` only if you need secondary indexing on cached objects (probably overkill here)
 - **Key dependencies**: `redis` >= 5.0

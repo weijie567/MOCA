@@ -41,9 +41,9 @@ Features that must exist or the project looks like a demo/toy.
 
 ### Conversation Memory (Within Session)
 - **What**: Agent maintains context within a conversation session. User can ask follow-up questions ("what about the other order?") without re-stating everything.
-- **Why table stakes**: Without session memory, every interaction is isolated and the UX feels broken. LangGraph's built-in memory makes this straightforward.
-- **Complexity**: Low
-- **Dependencies**: LangGraph checkpointer (already needed for approval workflow); session ID management in API layer.
+- **Why table stakes**: Without session memory, every interaction is isolated and the UX feels broken. LangGraph checkpointing helps resume runs, but same-thread conversation continuity should be an explicit session-memory contract.
+- **Complexity**: Medium
+- **Dependencies**: PostgreSQL-authoritative `session_memories` with CAS; LangGraph checkpointer for workflow recovery; session ID management in API layer; optional Redis hot cache only as a non-authoritative TTL layer.
 
 ### Basic Role-Based Access Control
 - **What**: Different roles (merchant, support_agent, reviewer, manager) see different data and can perform different actions. Merchants can't approve their own refunds. Only managers can override thresholds.
@@ -159,8 +159,14 @@ Layer 1 — Core Agent (minimal viable agent):
 ├── LangGraph graph definition (single node: LLM + tools)
 ├── Tool implementations (get_order, get_refund, get_ticket)
 ├── Basic conversation endpoint (POST /chat)
-└── Session memory via LangGraph checkpointer
+└── Workflow checkpoint via LangGraph checkpointer
     └── Depends on: Layer 0
+
+Layer 1b — Session Memory:
+├── PostgreSQL `session_memories` table with version CAS
+├── Same-thread active slot continuity
+├── Optional Redis hot cache with TTL and PostgreSQL fallback
+└── Depends on: Layer 1
 
 Layer 2 — Knowledge & Citations:
 ├── Knowledge base ingestion (rules/SOPs → pgvector)
@@ -199,7 +205,7 @@ Layer 6 — Evaluation & Polish:
 
 ### Key Dependency Insights
 
-1. **Approval workflow depends on checkpointer** — the same persistence mechanism that enables conversation memory also enables interrupt/resume. Build memory first, approval second.
+1. **Approval workflow depends on checkpointer** — checkpointing enables interrupt/resume and workflow recovery. Session memory should not rely on checkpoint blobs as its authoritative store; build it as a separate PostgreSQL/CAS service.
 
 2. **Citations depend on retrieval quality** — invest in chunking strategy and metadata before building the citation UI. Bad retrieval makes citations useless.
 

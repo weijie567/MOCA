@@ -6,7 +6,7 @@ MOCA is a single-graph, multi-node AI agent system for e-commerce merchant opera
 
 The core data flow is: **FastAPI receives request -> LangGraph orchestrates the agent graph -> graph nodes call tools and RAG -> approval node interrupts if needed -> results written to audit log -> response returned**.
 
-Key architectural principle: keep the number of moving parts minimal for a solo developer learning these tools. One Postgres database handles business data, vector search (pgvector), state checkpointing, and audit logs. Redis handles session cache and rate limiting. LangGraph handles all orchestration including the approval interrupt/resume pattern.
+Key architectural principle: keep the number of moving parts minimal for a solo developer learning these tools. One Postgres database handles business data, vector search (pgvector), state checkpointing, authoritative session memory, and audit logs. Redis handles non-authoritative hot cache and rate limiting. LangGraph handles all orchestration including the approval interrupt/resume pattern.
 
 ```
 ┌─────────────┐     ┌──────────────────┐     ┌─────────────────────────────┐

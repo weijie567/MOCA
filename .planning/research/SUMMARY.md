@@ -22,7 +22,7 @@ Use LangGraph 0.3.x for agent orchestration (with `langchain-core` primitives, N
 
 ## Architecture Blueprint
 
-Single-graph, 8-node LangGraph system: router -> retriever -> tool_caller -> reasoner -> risk_check -> approval (interrupt) -> executor -> response. FastAPI is a thin API gateway handling auth and routing to the graph. One Postgres instance serves four roles: business data, vector embeddings (pgvector HNSW), state checkpointing (PostgresSaver), and audit logs. Redis handles embedding cache and rate limiting. Tools are thin wrappers that never raise exceptions — they return structured error objects. Audit logging is implemented as LangGraph callbacks, not inline. The approval node uses `interrupt()` to pause execution; resume happens via API endpoint calling `Command(resume=...)`. Auth is layered: JWT at API level, permission checks inside tools.
+Single-graph, 8-node LangGraph system: router -> retriever -> tool_caller -> reasoner -> risk_check -> approval (interrupt) -> executor -> response. FastAPI is a thin API gateway handling auth and routing to the graph. One Postgres instance serves business data, vector embeddings (pgvector HNSW), state checkpointing (PostgresSaver), authoritative session memory, and audit logs. Redis handles non-authoritative hot cache and rate limiting. Tools are thin wrappers that never raise exceptions — they return structured error objects. Audit logging is implemented as LangGraph callbacks, not inline. The approval node uses `interrupt()` to pause execution; resume happens via API endpoint calling `Command(resume=...)`. Auth is layered: JWT at API level, permission checks inside tools.
 
 **Build order**: Foundation (Docker + DB + API + seed) -> RAG pipeline (ingest + retrieve + eval) -> LangGraph core (graph + tools + endpoint) -> Approval workflow + polish.
 
@@ -36,7 +36,7 @@ Single-graph, 8-node LangGraph system: router -> retriever -> tool_caller -> rea
 
 ## Key Insights
 
-1. **The checkpointer serves double duty** — the same persistence mechanism that enables conversation memory also enables the approval interrupt/resume. Build memory first, approval second; they share infrastructure.
+1. **Checkpoint and session memory are separate contracts** — the checkpointer enables approval interrupt/resume and workflow recovery; same-thread conversation memory should be an explicit PostgreSQL/CAS service, with Redis only as an optional non-authoritative hot cache.
 
 2. **LlamaIndex is ingestion-only** — use it offline for chunking and embedding, but at query time use raw pgvector SQL via SQLAlchemy. This cuts latency and reduces hot-path dependencies.
 

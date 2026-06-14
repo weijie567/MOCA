@@ -9,7 +9,7 @@
 |----------|-----------|-----------|
 | Frontend | Minimal shell in Phase 5 (chat + approval + step panel) | Demo needs visual impact, but backend must work first |
 | SSE | Phase 5; Phase 3 uses synchronous response | Avoid premature complexity while learning LangGraph |
-| Session memory | Same-thread context via LangGraph checkpointer; no cross-session | Checkpointer gives this for free; cross-session is v2 |
+| Session memory | Same-thread context via PostgreSQL-authoritative `session_memories` with CAS; optional Redis hot cache only | Checkpointer resumes graph execution, but session memory is the conversation-continuity contract; cross-session long-term/case memory is Phase 16 |
 | Directory | `src/` | Single convention, no ambiguity |
 | Approval mechanism | `interrupt()` only | Newer API, cleaner than `interrupt_before` |
 | Multi-tenant | `tenant_id` in all tables; app-layer filtering in MVP | Fields ready for RLS upgrade; README states this explicitly |
