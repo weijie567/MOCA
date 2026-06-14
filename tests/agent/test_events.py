@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.agent.events import allocate_sequence, classify_event_family, emit_event
+from src.agent.events import EVENT_RETENTION_CLASSIFICATION, MINIMAL_EVENT_TYPES, allocate_sequence, classify_event_family, emit_event
 from src.agent.trace import write_agent_run
 from src.db.models import AgentTraceEvent
 
@@ -127,6 +127,13 @@ def test_classification_by_nature():
         classify_event_family("issue_coupon")
 
 
+def test_memory_write_event_types_and_retention_are_registered():
+    assert {"memory_write_started", "memory_write_completed", "memory_write_failed"} <= MINIMAL_EVENT_TYPES
+    assert EVENT_RETENTION_CLASSIFICATION["memory_write_started"] == "minimal_event"
+    assert EVENT_RETENTION_CLASSIFICATION["memory_write_completed"] == "minimal_event"
+    assert EVENT_RETENTION_CLASSIFICATION["memory_write_failed"] == "minimal_event"
+
+
 @pytest.mark.asyncio
 async def test_single_operation_one_family(session: AsyncSession):
     run_id, tenant_id = await _create_run(session)
@@ -199,4 +206,13 @@ async def test_redaction_guard(session: AsyncSession):
             run_id=run_id,
             tenant_id=tenant_id,
             redacted_payload={"events": [{"arguments": {"order_no": "ORD-001"}}]},
+        )
+
+    with pytest.raises(ValueError):
+        await _emit(
+            session,
+            run_id=run_id,
+            tenant_id=tenant_id,
+            event_type="memory_write_failed",
+            redacted_payload={"summary": {"raw": "slot payload"}},
         )

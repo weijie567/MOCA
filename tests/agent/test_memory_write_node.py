@@ -1,0 +1,151 @@
+from __future__ import annotations
+
+import asyncio
+import time
+from uuid import uuid4
+
+import pytest
+
+from src.agent.nodes import memory_write as memory_write_module
+from src.agent.nodes.memory_write import memory_write
+from src.memory.schemas import SessionMemoryWriteResult
+
+
+def _state(**updates: object) -> dict:
+    values: dict[str, object] = {
+        "tenant_id": str(uuid4()),
+        "user_id": str(uuid4()),
+        "thread_id": "thread-memory-write",
+        "current_run_id": str(uuid4()),
+        "final_response": "最终回复已经生成。",
+        "primary_intent": "refund_troubleshooting",
+        "extracted_slots": {"order_id": "ORD-1001", "refund_case_id": None},
+        "active_slots": {"order_id": "ORD-1001", "refund_case_id": "RF-INHERITED"},
+        "active_slot_metadata": {
+            "order_id": {"source": "current_turn", "explicit_current_turn": True},
+            "refund_case_id": {"source": "trusted_session_memory", "explicit_current_turn": False},
+        },
+        "session_memory": {"version": 3},
+        "clarification_request": {"questions": ["请补充退款通道状态。"]},
+        "last_business_context_refs": {"business_fact_refs": [{"resource_type": "order", "resource_id": "ORD-1001"}]},
+        "trace_steps": [],
+        "node_errors": [],
+    }
+    values.update(updates)
+    return values
+
+
+async def test_memory_write_node_skips_when_final_response_missing():
+    result = await memory_write(_state(final_response=None), {"configurable": {"session": object()}})
+
+    assert result["memory_write_result"]["status"] == "skipped"
+    assert result["memory_write_result"]["reason_code"] == "not_completed_path"
+    assert result["trace_steps"][-1]["node"] == "memory_write"
+
+
+async def test_memory_write_node_writes_explicit_slots_and_unresolved_questions(monkeypatch):
+    candidates = []
+
+    class FakeMemoryService:
+        def __init__(self, repository, *, enabled: bool = True) -> None:
+            pass
+
+        async def write_session_memory(self, candidate):
+            candidates.append(candidate)
+            return SessionMemoryWriteResult(
+                status="written",
+                version=4,
+                decision="write",
+                reason_code="eligible",
+                pii_classification="none",
+            )
+
+    monkeypatch.setattr(memory_write_module, "MemoryService", FakeMemoryService)
+
+    result = await memory_write(_state(), {"configurable": {"session": object()}})
+
+    assert result["memory_write_result"]["status"] == "written"
+    assert len(candidates) == 1
+    candidate = candidates[0]
+    assert set(candidate.explicit_slots) == {"order_id"}
+    assert candidate.explicit_slots["order_id"].value == "ORD-1001"
+    assert "refund_case_id" not in candidate.explicit_slots
+    assert candidate.unresolved_questions == ["请补充退款通道状态。"]
+    assert candidate.last_intent == "refund_troubleshooting"
+    assert candidate.session_summary
+    assert candidate.last_business_context_refs == {
+        "business_fact_refs": [{"resource_type": "order", "resource_id": "ORD-1001"}]
+    }
+    assert candidate.expected_version == 3
+
+
+async def test_memory_write_failure_preserves_final_response(monkeypatch):
+    class FailingMemoryService:
+        def __init__(self, repository, *, enabled: bool = True) -> None:
+            pass
+
+        async def write_session_memory(self, candidate):
+            raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(memory_write_module, "MemoryService", FailingMemoryService)
+    state = _state(final_response="不可变最终回复")
+
+    result = await memory_write(state, {"configurable": {"session": object()}})
+
+    assert result["final_response"] == "不可变最终回复"
+    assert result["memory_write_result"]["status"] == "error"
+    assert result["node_errors"][-1]["error_code"] == "SESSION_MEMORY_WRITE_FAILED"
+
+
+async def test_memory_write_timeout_preserves_final_response(monkeypatch):
+    monkeypatch.setattr(memory_write_module.settings, "session_memory_write_timeout_seconds", 0.01)
+
+    class SlowMemoryService:
+        def __init__(self, repository, *, enabled: bool = True) -> None:
+            pass
+
+        async def write_session_memory(self, candidate):
+            await asyncio.sleep(0.1)
+            raise AssertionError("timeout should cancel before completion")
+
+    monkeypatch.setattr(memory_write_module, "MemoryService", SlowMemoryService)
+    started = time.perf_counter()
+
+    result = await memory_write(_state(final_response="及时返回"), {"configurable": {"session": object()}})
+
+    assert time.perf_counter() - started < 0.08
+    assert result["final_response"] == "及时返回"
+    assert result["memory_write_result"]["status"] == "skipped"
+    assert result["memory_write_result"]["reason_code"] == "write_timeout"
+
+
+async def test_memory_write_prohibited_pii_skips_without_persisting(monkeypatch):
+    called = False
+
+    class FakeMemoryService:
+        def __init__(self, repository, *, enabled: bool = True) -> None:
+            pass
+
+        async def write_session_memory(self, candidate):
+            nonlocal called
+            called = True
+            return SessionMemoryWriteResult(
+                status="written",
+                version=4,
+                decision="write",
+                reason_code="eligible",
+                pii_classification="none",
+            )
+
+    monkeypatch.setattr(memory_write_module, "MemoryService", FakeMemoryService)
+
+    result = await memory_write(
+        _state(extracted_slots={"order_id": "身份证 110101199001011234"}),
+        {"configurable": {"session": object()}},
+    )
+
+    assert called is False
+    assert result["memory_write_result"]["status"] == "skipped"
+    assert result["memory_write_result"]["decision"] == "skip"
+    assert result["memory_write_result"]["pii_classification"] == "prohibited"
+    assert result["memory_write_result"]["reason_code"] == "pii_blocked"

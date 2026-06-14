@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -536,6 +537,107 @@ async def test_agent_chat_only_token_invokes_legacy_chat_with_no_tool_permission
     assert len(graph.calls) == 1
     _, config = graph.calls[0]
     assert config["configurable"]["permissions"] == []
+
+
+@pytest.mark.asyncio
+async def test_chat_memory_write_background_returns_final_response_before_slow_hook(
+    client: AsyncClient,
+    seeded_session,
+    monkeypatch,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    graph = CaptureInvokeConfigGraph()
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+    started = asyncio.Event()
+    finished = asyncio.Event()
+    captured: dict[str, object] = {}
+
+    def fake_schedule_memory_write(final_state, *, session_factory, trace_id=None):
+        captured["session_factory"] = session_factory
+
+        async def slow_hook():
+            started.set()
+            await asyncio.sleep(0.2)
+            finished.set()
+
+        return asyncio.create_task(slow_hook())
+
+    monkeypatch.setattr("src.api.routers.agent._schedule_memory_write_after_response", fake_schedule_memory_write)
+    t0 = time.perf_counter()
+
+    response = await client.post(
+        "/api/v1/agent/chat",
+        json={"query": "退款政策是什么？", "thread_id": f"memory-write-chat-{uuid4()}"},
+        headers=_auth_header(user, ["agent:chat"]),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["response"] == "done"
+    assert time.perf_counter() - t0 < 0.15
+    assert captured["session_factory"] is not None
+    assert started.is_set()
+    assert not finished.is_set()
+
+
+@pytest.mark.asyncio
+async def test_sse_final_response_before_memory_write_schedule(session: AsyncSession, seeded_session, monkeypatch):
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.commit()
+    scheduled: list[dict] = []
+
+    def fake_schedule_memory_write(final_state, *, session_factory, trace_id=None):
+        scheduled.append(final_state)
+
+    monkeypatch.setattr("src.api.routers.agent_runs._schedule_memory_write_after_response", fake_schedule_memory_write)
+    generator = _event_generator(
+        CaptureConfigGraph(),
+        {"user_query": run.input_query},
+        {"configurable": {"thread_id": run.thread_id, "session": session}},
+        run=run,
+        session=session,
+        user=user,
+    )
+
+    final_event = None
+    try:
+        async for event in generator:
+            if "data" in event and '"event_type": "final_response"' in event["data"]:
+                final_event = event
+                assert scheduled == []
+                break
+        assert final_event is not None
+        with pytest.raises(StopAsyncIteration):
+            await anext(generator)
+        assert scheduled
+    finally:
+        await generator.aclose()
+
+
+@pytest.mark.asyncio
+async def test_sse_interrupted_path_skips_memory_write(session: AsyncSession, seeded_session, monkeypatch):
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.commit()
+    scheduled: list[dict] = []
+
+    def fake_schedule_memory_write(final_state, *, session_factory, trace_id=None):
+        scheduled.append(final_state)
+
+    monkeypatch.setattr("src.api.routers.agent_runs._schedule_memory_write_after_response", fake_schedule_memory_write)
+    generator = _event_generator(
+        StreamInterruptGraph(),
+        {"user_query": run.input_query},
+        {"configurable": {"thread_id": run.thread_id, "session": session}},
+        run=run,
+        session=session,
+        user=user,
+    )
+
+    events = [event async for event in generator]
+
+    assert any("approval_required" in event.get("data", "") for event in events)
+    assert scheduled == []
 
 
 def test_support_token_with_orders_read_gets_only_get_order():
