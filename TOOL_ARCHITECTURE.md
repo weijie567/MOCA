@@ -265,7 +265,9 @@ src/business/
 
 src/knowledge/
   service.py
-  adapters.py
+  retrieval.py
+  schemas.py
+  citation.py
 
 src/memory/
   service.py

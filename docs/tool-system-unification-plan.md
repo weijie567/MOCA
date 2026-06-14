@@ -84,7 +84,6 @@ src/knowledge/
   schemas.py
   service.py
   retrieval.py
-  repository_adapter.py
   citation.py
   text_hash.py
   config.py
@@ -203,7 +202,6 @@ Do not keep in business service:
 Current:
 
 - `src/knowledge/service.py`
-- `src/knowledge/adapters.py`
 - `src/knowledge/schemas.py`
 - `src/knowledge/retrieval.py`
 - `src/agent/nodes/retrieve_policy_evidence.py`
@@ -226,11 +224,8 @@ Concrete changes:
   - public `PolicyRetrievalEngine`
   - owns thresholds, query prefix, rerank, domain anchors, overlap logic
   - returns typed retrieval records / evidence candidates
-- Replace `LegacyRagKnowledgeAdapter` with a clearly named adapter or remove it:
-  - preferred: `PolicyKnowledgeService` depends directly on `PolicyRetrievalEngine`
-  - acceptable transitional name: `PolicySearchRepositoryAdapter`
+- Remove `LegacyRagKnowledgeAdapter`; `PolicyKnowledgeService` depends on the retrieval protocol implemented by `PolicyRetrievalEngine`.
 - Remove `src/agent/tools/search_policy.py`.
-- Remove `legacy_search_policy` export from `src/knowledge/adapters.py`.
 - Delete the legacy RAG retriever facade after tests migrate to `PolicyRetrievalEngine`.
 - Convert `retrieve_policy_evidence`:
   - short-term: thin wrapper node that builds `ToolCallContext` and calls manager
@@ -463,7 +458,7 @@ Operations:
 - Add `src/knowledge/retrieval.py` with `PolicyRetrievalEngine`.
 - Keep retrieval constants/helpers in public knowledge-owned functions/classes.
 - Update `PolicyKnowledgeService` to depend on a retrieval protocol implemented by `PolicyRetrievalEngine`.
-- Remove `LegacyRagKnowledgeAdapter` or rename it if still needed.
+- Remove `LegacyRagKnowledgeAdapter`.
 - Delete `src/agent/tools/search_policy.py`.
 - Delete policy pieces from `src/agent/tools/adapters.py`.
 - Convert `retrieve_policy_evidence.py`:
@@ -483,7 +478,7 @@ Acceptance:
 Current migration note:
 
 - `src.agent.nodes.retrieve_policy_evidence` is now a compatibility wrapper over `UnifiedToolManager`.
-- `src.knowledge.adapters.LegacyRagKnowledgeAdapter` remains only as a compatibility alias to `PolicyRetrievalEngine`.
+- `src.knowledge.adapters.LegacyRagKnowledgeAdapter` has been deleted; `PolicyRetrievalEngine` is the public retrieval implementation.
 - `src.agent.tools.search_policy`, `src.agent.tools.adapters`, and `src.agent.tools.registry` have been deleted.
 - `src.api.routers.search` now uses `PolicyRetrievalEngine.retrieve_hits(...)` directly while preserving the legacy `RetrievalResult` HTTP contract.
 - `src.rag.retriever` compatibility facade has been deleted; retrieval/rerank orchestration is owned by `src.knowledge.retrieval`.
