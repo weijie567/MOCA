@@ -52,7 +52,7 @@ Copied from `.planning/phases/11-intent-clarification/11-CONTEXT.md` discretion 
 Copied from `.planning/phases/11-intent-clarification/11-CONTEXT.md` deferred section. [VERIFIED: .planning/phases/11-intent-clarification/11-CONTEXT.md]
 
 - Trusted approval lifecycle, approval `respond` / `needs_info` resume, approval version CAS, and old-revision invalidation remain Phase 13.
-- PostgreSQL-backed session memory CAS and safe slot inheritance remain Phase 12. Phase 11 may define deterministic slot expression evaluation but should not claim real continuity.
+- PostgreSQL-authoritative session memory CAS and safe slot inheritance remain Phase 12. Redis, if introduced, is only a non-authoritative hot cache. Phase 11 may define deterministic slot expression evaluation but should not claim real continuity.
 - ActionSafetySnapshot, durable action draft binding, demo action executor boundary, and external execution remain later phases.
 - Free tool loop for write/actions remains explicitly out of scope.
 </user_constraints>
