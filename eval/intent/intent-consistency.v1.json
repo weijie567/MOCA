@@ -1,0 +1,100 @@
+{
+  "manifest_version": "intent-consistency.v1",
+  "dataset_version": "intent-golden.v1",
+  "dataset_hash": "sha256:aff310d639794e804f76970fdfe7664cdf2e5752cf6cbf978351884e0ccdfe41",
+  "coverage_status": "complete",
+  "future_intent_admission_fields": [
+    "risk_level",
+    "response_mode",
+    "tool_allowlist",
+    "bounded_loop_allowed",
+    "max_iterations",
+    "routing_precedence",
+    "audit_replay_requirements"
+  ],
+  "deferred_boundaries": {
+    "multi-step read-only QA expansion": "Deferred. Future expansion must re-apply GAD-01 guardrails plus GAD-02 admission fields before promotion."
+  },
+  "entries": [
+    {
+      "intent": "policy_qa",
+      "in_precedence": true,
+      "in_required_slots": true,
+      "in_routing": true,
+      "in_evidence_table": true,
+      "in_golden_set": true
+    },
+    {
+      "intent": "order_status_inquiry",
+      "in_precedence": true,
+      "in_required_slots": true,
+      "in_routing": true,
+      "in_evidence_table": true,
+      "in_golden_set": true
+    },
+    {
+      "intent": "refund_troubleshooting",
+      "in_precedence": true,
+      "in_required_slots": true,
+      "in_routing": true,
+      "in_evidence_table": true,
+      "in_golden_set": true
+    },
+    {
+      "intent": "compensation_suggestion",
+      "in_precedence": true,
+      "in_required_slots": true,
+      "in_routing": true,
+      "in_evidence_table": true,
+      "in_golden_set": true
+    },
+    {
+      "intent": "ticket_reply_draft",
+      "in_precedence": true,
+      "in_required_slots": true,
+      "in_routing": true,
+      "in_evidence_table": true,
+      "in_golden_set": true
+    },
+    {
+      "intent": "appeal_or_unban",
+      "in_precedence": true,
+      "in_required_slots": true,
+      "in_routing": true,
+      "in_evidence_table": true,
+      "in_golden_set": true
+    },
+    {
+      "intent": "complaint_escalation",
+      "in_precedence": true,
+      "in_required_slots": true,
+      "in_routing": true,
+      "in_evidence_table": true,
+      "in_golden_set": true
+    },
+    {
+      "intent": "action_request",
+      "in_precedence": true,
+      "in_required_slots": true,
+      "in_routing": true,
+      "in_evidence_table": true,
+      "in_golden_set": true
+    },
+    {
+      "intent": "small_talk",
+      "in_precedence": true,
+      "in_required_slots": true,
+      "in_routing": true,
+      "in_evidence_table": false,
+      "in_golden_set": true
+    },
+    {
+      "intent": "unsupported",
+      "in_precedence": true,
+      "in_required_slots": true,
+      "in_routing": true,
+      "in_evidence_table": false,
+      "in_golden_set": true
+    }
+  ]
+}

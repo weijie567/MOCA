@@ -60,6 +60,14 @@ async def extract_slots(state: AgentState) -> dict:
         {"role": "system", "content": EXTRACT_SLOTS_SYSTEM},
         {"role": "user", "content": state.get("normalized_query") or state.get("user_query") or ""},
     ]
+    candidate_slots = state.get("candidate_slots")
+    if isinstance(candidate_slots, dict) and candidate_slots:
+        messages.append(
+            {
+                "role": "user",
+                "content": f"Candidate slot hints from classifier: {candidate_slots}. Validate against the user text; do not copy hints blindly.",
+            }
+        )
     structured_llm = _get_llm().with_structured_output(SlotExtractionResult)
     last_error: str | None = None
     provider_latency_ms: int | None = None

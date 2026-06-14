@@ -88,12 +88,12 @@
   1. Intent and required-slot golden tests pass.
   2. Low-confidence/high-risk routes use safe clarification or risk paths.
   3. Ordinary chat cannot create trusted approval decisions or resume commands.
-**Plans**: 5 plans
-  - [ ] 11-01-PLAN.md — IntentResultV3 schema, prompt contract, and explicit AgentState adapter (Wave 1)
-  - [ ] 11-02-PLAN.md — Deterministic pre-router, precedence helpers, and confidence safety defaults (Wave 2)
-  - [ ] 11-03-PLAN.md — RequiredSlotExpression completeness, route_after_intent/route_after_slots, and graph wiring (Wave 3)
-  - [ ] 11-04-PLAN.md — Ordinary clarification gate and approval lifecycle separation (Wave 4)
-  - [ ] 11-05-PLAN.md — Intent consistency manifest, golden dataset, Wilson gates, and phase validation (Wave 5)
+**Plans**: 5/5 complete
+  - [x] 11-01-PLAN.md — IntentResultV3 schema, prompt contract, and explicit AgentState adapter (Wave 1)
+  - [x] 11-02-PLAN.md — Deterministic pre-router, precedence helpers, and confidence safety defaults (Wave 2)
+  - [x] 11-03-PLAN.md — RequiredSlotExpression completeness, route_after_intent/route_after_slots, and graph wiring (Wave 3)
+  - [x] 11-04-PLAN.md — Ordinary clarification gate and approval lifecycle separation (Wave 4)
+  - [x] 11-05-PLAN.md — Intent consistency manifest, golden dataset, Wilson gates, and phase validation (Wave 5)
 
 ### Phase 12: Session Memory
 **Goal**: Implement PostgreSQL-backed same-thread session memory with CAS and safe slot inheritance.
@@ -163,7 +163,7 @@
 | 8. Knowledge Facade | 9/9 | Complete | 2026-06-11 |
 | 9. Business Tool Facade | 9/9 | Complete | 2026-06-13 |
 | 10. State Lifecycle + Routing Migration | 5/5 | Complete | 2026-06-14 |
-| 11. Intent / Clarification | 0/TBD | Pending | - |
+| 11. Intent / Clarification | 5/5 | Complete | 2026-06-14 |
 | 12. Session Memory | 0/TBD | Pending | - |
 | 13. Approval State Machine | 0/TBD | Pending | - |
 | 14. Demo Action Executor Boundary | 0/TBD | Pending | - |
@@ -172,4 +172,4 @@
 | 17. External Action Execution | 0/TBD | Deferred beyond MVP gate | - |
 
 ---
-*Updated: 2026-06-14 — Phase 10 complete (5/5 plans, graph wiring and routing migration verified).*
+*Updated: 2026-06-14 — Phase 11 complete (5/5 plans, intent/slot/clarification validation verified).*

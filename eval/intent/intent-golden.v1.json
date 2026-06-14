@@ -1,0 +1,770 @@
+{
+  "schema_version": "intent_golden_dataset.v1",
+  "dataset_version": "intent-golden.v1",
+  "owner": "Phase 11 Intent / Clarification",
+  "gate_scope": "phase_11_contract",
+  "blocking": "phase_exit",
+  "failure_impact": "block_phase_11_verification",
+  "cases": [
+    {
+      "id": "policy_qa-pos-1",
+      "kind": "positive",
+      "input": "7天后还能退款吗？",
+      "expected": {
+        "primary_intent": "policy_qa",
+        "requested_operation": "advise"
+      }
+    },
+    {
+      "id": "policy_qa-pos-2",
+      "kind": "positive",
+      "input": "退款超时规则是什么？",
+      "expected": {
+        "primary_intent": "policy_qa",
+        "requested_operation": "advise"
+      }
+    },
+    {
+      "id": "policy_qa-pos-3",
+      "kind": "positive",
+      "input": "商家拒绝退款有什么政策？",
+      "expected": {
+        "primary_intent": "policy_qa",
+        "requested_operation": "advise"
+      }
+    },
+    {
+      "id": "policy_qa-pos-4",
+      "kind": "positive",
+      "input": "补偿券使用规则是什么？",
+      "expected": {
+        "primary_intent": "policy_qa",
+        "requested_operation": "advise"
+      }
+    },
+    {
+      "id": "policy_qa-pos-5",
+      "kind": "positive",
+      "input": "平台售后规则怎么判断？",
+      "expected": {
+        "primary_intent": "policy_qa",
+        "requested_operation": "advise"
+      }
+    },
+    {
+      "id": "policy_qa-neg-1",
+      "kind": "hard-negative",
+      "input": "approve APR-1",
+      "negative_for": "policy_qa",
+      "expected": {
+        "not_primary_intent": "policy_qa"
+      }
+    },
+    {
+      "id": "policy_qa-neg-2",
+      "kind": "hard-negative",
+      "input": "通过订单号 ORD-1 查询退款状态",
+      "negative_for": "policy_qa",
+      "expected": {
+        "not_primary_intent": "policy_qa"
+      }
+    },
+    {
+      "id": "policy_qa-neg-3",
+      "kind": "hard-negative",
+      "input": "accept language preference",
+      "negative_for": "policy_qa",
+      "expected": {
+        "not_primary_intent": "policy_qa"
+      }
+    },
+    {
+      "id": "order_status_inquiry-pos-1",
+      "kind": "positive",
+      "input": "查询订单ORD-1001状态",
+      "expected": {
+        "primary_intent": "order_status_inquiry",
+        "requested_operation": "read_status"
+      }
+    },
+    {
+      "id": "order_status_inquiry-pos-2",
+      "kind": "positive",
+      "input": "退款单RF-1001现在到哪了",
+      "expected": {
+        "primary_intent": "order_status_inquiry",
+        "requested_operation": "read_status"
+      }
+    },
+    {
+      "id": "order_status_inquiry-pos-3",
+      "kind": "positive",
+      "input": "工单TKT-1001处理状态",
+      "expected": {
+        "primary_intent": "order_status_inquiry",
+        "requested_operation": "read_status"
+      }
+    },
+    {
+      "id": "order_status_inquiry-pos-4",
+      "kind": "positive",
+      "input": "ORD-1002是否发货",
+      "expected": {
+        "primary_intent": "order_status_inquiry",
+        "requested_operation": "read_status"
+      }
+    },
+    {
+      "id": "order_status_inquiry-pos-5",
+      "kind": "positive",
+      "input": "RF-1002退款到账了吗",
+      "expected": {
+        "primary_intent": "order_status_inquiry",
+        "requested_operation": "read_status"
+      }
+    },
+    {
+      "id": "order_status_inquiry-neg-1",
+      "kind": "hard-negative",
+      "input": "approve APR-1",
+      "negative_for": "order_status_inquiry",
+      "expected": {
+        "not_primary_intent": "order_status_inquiry"
+      }
+    },
+    {
+      "id": "order_status_inquiry-neg-2",
+      "kind": "hard-negative",
+      "input": "通过订单号 ORD-1 查询退款状态",
+      "negative_for": "order_status_inquiry",
+      "expected": {
+        "not_primary_intent": "order_status_inquiry"
+      }
+    },
+    {
+      "id": "order_status_inquiry-neg-3",
+      "kind": "hard-negative",
+      "input": "accept language preference",
+      "negative_for": "order_status_inquiry",
+      "expected": {
+        "not_primary_intent": "order_status_inquiry"
+      }
+    },
+    {
+      "id": "refund_troubleshooting-pos-1",
+      "kind": "positive",
+      "input": "订单ORD-2001退款为什么没到账",
+      "expected": {
+        "primary_intent": "refund_troubleshooting",
+        "requested_operation": "read_status"
+      }
+    },
+    {
+      "id": "refund_troubleshooting-pos-2",
+      "kind": "positive",
+      "input": "RF-2001退款失败原因",
+      "expected": {
+        "primary_intent": "refund_troubleshooting",
+        "requested_operation": "read_status"
+      }
+    },
+    {
+      "id": "refund_troubleshooting-pos-3",
+      "kind": "positive",
+      "input": "ORD-2002退款卡住了",
+      "expected": {
+        "primary_intent": "refund_troubleshooting",
+        "requested_operation": "read_status"
+      }
+    },
+    {
+      "id": "refund_troubleshooting-pos-4",
+      "kind": "positive",
+      "input": "退款单RF-2002异常怎么查",
+      "expected": {
+        "primary_intent": "refund_troubleshooting",
+        "requested_operation": "read_status"
+      }
+    },
+    {
+      "id": "refund_troubleshooting-pos-5",
+      "kind": "positive",
+      "input": "订单ORD-2003退款延迟原因",
+      "expected": {
+        "primary_intent": "refund_troubleshooting",
+        "requested_operation": "read_status"
+      }
+    },
+    {
+      "id": "refund_troubleshooting-neg-1",
+      "kind": "hard-negative",
+      "input": "approve APR-1",
+      "negative_for": "refund_troubleshooting",
+      "expected": {
+        "not_primary_intent": "refund_troubleshooting"
+      }
+    },
+    {
+      "id": "refund_troubleshooting-neg-2",
+      "kind": "hard-negative",
+      "input": "通过订单号 ORD-1 查询退款状态",
+      "negative_for": "refund_troubleshooting",
+      "expected": {
+        "not_primary_intent": "refund_troubleshooting"
+      }
+    },
+    {
+      "id": "refund_troubleshooting-neg-3",
+      "kind": "hard-negative",
+      "input": "accept language preference",
+      "negative_for": "refund_troubleshooting",
+      "expected": {
+        "not_primary_intent": "refund_troubleshooting"
+      }
+    },
+    {
+      "id": "compensation_suggestion-pos-1",
+      "kind": "positive",
+      "input": "订单ORD-3001该给多少补偿券",
+      "expected": {
+        "primary_intent": "compensation_suggestion",
+        "requested_operation": "draft_action"
+      }
+    },
+    {
+      "id": "compensation_suggestion-pos-2",
+      "kind": "positive",
+      "input": "RF-3001可以建议补偿吗",
+      "expected": {
+        "primary_intent": "compensation_suggestion",
+        "requested_operation": "draft_action"
+      }
+    },
+    {
+      "id": "compensation_suggestion-pos-3",
+      "kind": "positive",
+      "input": "客户投诉，给什么安抚方案",
+      "expected": {
+        "primary_intent": "compensation_suggestion",
+        "requested_operation": "draft_action"
+      }
+    },
+    {
+      "id": "compensation_suggestion-pos-4",
+      "kind": "positive",
+      "input": "TKT-3001补偿话术和金额",
+      "expected": {
+        "primary_intent": "compensation_suggestion",
+        "requested_operation": "draft_action"
+      }
+    },
+    {
+      "id": "compensation_suggestion-pos-5",
+      "kind": "positive",
+      "input": "这个退款问题建议发券吗",
+      "expected": {
+        "primary_intent": "compensation_suggestion",
+        "requested_operation": "draft_action"
+      }
+    },
+    {
+      "id": "compensation_suggestion-neg-1",
+      "kind": "hard-negative",
+      "input": "approve APR-1",
+      "negative_for": "compensation_suggestion",
+      "expected": {
+        "not_primary_intent": "compensation_suggestion"
+      }
+    },
+    {
+      "id": "compensation_suggestion-neg-2",
+      "kind": "hard-negative",
+      "input": "通过订单号 ORD-1 查询退款状态",
+      "negative_for": "compensation_suggestion",
+      "expected": {
+        "not_primary_intent": "compensation_suggestion"
+      }
+    },
+    {
+      "id": "compensation_suggestion-neg-3",
+      "kind": "hard-negative",
+      "input": "accept language preference",
+      "negative_for": "compensation_suggestion",
+      "expected": {
+        "not_primary_intent": "compensation_suggestion"
+      }
+    },
+    {
+      "id": "ticket_reply_draft-pos-1",
+      "kind": "positive",
+      "input": "给工单TKT-4001写回复",
+      "expected": {
+        "primary_intent": "ticket_reply_draft",
+        "requested_operation": "draft_reply"
+      }
+    },
+    {
+      "id": "ticket_reply_draft-pos-2",
+      "kind": "positive",
+      "input": "帮我草拟客户退款回复",
+      "expected": {
+        "primary_intent": "ticket_reply_draft",
+        "requested_operation": "draft_reply"
+      }
+    },
+    {
+      "id": "ticket_reply_draft-pos-3",
+      "kind": "positive",
+      "input": "TKT-4002需要一段安抚话术",
+      "expected": {
+        "primary_intent": "ticket_reply_draft",
+        "requested_operation": "draft_reply"
+      }
+    },
+    {
+      "id": "ticket_reply_draft-pos-4",
+      "kind": "positive",
+      "input": "写一段解释退款延迟的话",
+      "expected": {
+        "primary_intent": "ticket_reply_draft",
+        "requested_operation": "draft_reply"
+      }
+    },
+    {
+      "id": "ticket_reply_draft-pos-5",
+      "kind": "positive",
+      "input": "生成投诉工单回复",
+      "expected": {
+        "primary_intent": "ticket_reply_draft",
+        "requested_operation": "draft_reply"
+      }
+    },
+    {
+      "id": "ticket_reply_draft-neg-1",
+      "kind": "hard-negative",
+      "input": "approve APR-1",
+      "negative_for": "ticket_reply_draft",
+      "expected": {
+        "not_primary_intent": "ticket_reply_draft"
+      }
+    },
+    {
+      "id": "ticket_reply_draft-neg-2",
+      "kind": "hard-negative",
+      "input": "通过订单号 ORD-1 查询退款状态",
+      "negative_for": "ticket_reply_draft",
+      "expected": {
+        "not_primary_intent": "ticket_reply_draft"
+      }
+    },
+    {
+      "id": "ticket_reply_draft-neg-3",
+      "kind": "hard-negative",
+      "input": "accept language preference",
+      "negative_for": "ticket_reply_draft",
+      "expected": {
+        "not_primary_intent": "ticket_reply_draft"
+      }
+    },
+    {
+      "id": "appeal_or_unban-pos-1",
+      "kind": "positive",
+      "input": "商家M-5001申诉解封怎么处理",
+      "expected": {
+        "primary_intent": "appeal_or_unban",
+        "requested_operation": "escalate"
+      }
+    },
+    {
+      "id": "appeal_or_unban-pos-2",
+      "kind": "positive",
+      "input": "订单ORD-5001处罚申诉",
+      "expected": {
+        "primary_intent": "appeal_or_unban",
+        "requested_operation": "escalate"
+      }
+    },
+    {
+      "id": "appeal_or_unban-pos-3",
+      "kind": "positive",
+      "input": "客户账号解封申诉流程",
+      "expected": {
+        "primary_intent": "appeal_or_unban",
+        "requested_operation": "escalate"
+      }
+    },
+    {
+      "id": "appeal_or_unban-pos-4",
+      "kind": "positive",
+      "input": "商家申诉需要哪些材料",
+      "expected": {
+        "primary_intent": "appeal_or_unban",
+        "requested_operation": "escalate"
+      }
+    },
+    {
+      "id": "appeal_or_unban-pos-5",
+      "kind": "positive",
+      "input": "帮助判断申诉是否支持",
+      "expected": {
+        "primary_intent": "appeal_or_unban",
+        "requested_operation": "escalate"
+      }
+    },
+    {
+      "id": "appeal_or_unban-neg-1",
+      "kind": "hard-negative",
+      "input": "approve APR-1",
+      "negative_for": "appeal_or_unban",
+      "expected": {
+        "not_primary_intent": "appeal_or_unban"
+      }
+    },
+    {
+      "id": "appeal_or_unban-neg-2",
+      "kind": "hard-negative",
+      "input": "通过订单号 ORD-1 查询退款状态",
+      "negative_for": "appeal_or_unban",
+      "expected": {
+        "not_primary_intent": "appeal_or_unban"
+      }
+    },
+    {
+      "id": "appeal_or_unban-neg-3",
+      "kind": "hard-negative",
+      "input": "accept language preference",
+      "negative_for": "appeal_or_unban",
+      "expected": {
+        "not_primary_intent": "appeal_or_unban"
+      }
+    },
+    {
+      "id": "complaint_escalation-pos-1",
+      "kind": "positive",
+      "input": "客户投诉很严重需要升级",
+      "expected": {
+        "primary_intent": "complaint_escalation",
+        "requested_operation": "escalate"
+      }
+    },
+    {
+      "id": "complaint_escalation-pos-2",
+      "kind": "positive",
+      "input": "TKT-6001要不要转主管",
+      "expected": {
+        "primary_intent": "complaint_escalation",
+        "requested_operation": "escalate"
+      }
+    },
+    {
+      "id": "complaint_escalation-pos-3",
+      "kind": "positive",
+      "input": "订单ORD-6001投诉升级处理",
+      "expected": {
+        "primary_intent": "complaint_escalation",
+        "requested_operation": "escalate"
+      }
+    },
+    {
+      "id": "complaint_escalation-pos-4",
+      "kind": "positive",
+      "input": "客户扬言投诉监管怎么处理",
+      "expected": {
+        "primary_intent": "complaint_escalation",
+        "requested_operation": "escalate"
+      }
+    },
+    {
+      "id": "complaint_escalation-pos-5",
+      "kind": "positive",
+      "input": "帮我判断是否升级客诉",
+      "expected": {
+        "primary_intent": "complaint_escalation",
+        "requested_operation": "escalate"
+      }
+    },
+    {
+      "id": "complaint_escalation-neg-1",
+      "kind": "hard-negative",
+      "input": "approve APR-1",
+      "negative_for": "complaint_escalation",
+      "expected": {
+        "not_primary_intent": "complaint_escalation"
+      }
+    },
+    {
+      "id": "complaint_escalation-neg-2",
+      "kind": "hard-negative",
+      "input": "通过订单号 ORD-1 查询退款状态",
+      "negative_for": "complaint_escalation",
+      "expected": {
+        "not_primary_intent": "complaint_escalation"
+      }
+    },
+    {
+      "id": "complaint_escalation-neg-3",
+      "kind": "hard-negative",
+      "input": "accept language preference",
+      "negative_for": "complaint_escalation",
+      "expected": {
+        "not_primary_intent": "complaint_escalation"
+      }
+    },
+    {
+      "id": "action_request-pos-1",
+      "kind": "positive",
+      "input": "对ORD-7001执行退款动作",
+      "expected": {
+        "primary_intent": "action_request",
+        "requested_operation": "execute_action"
+      }
+    },
+    {
+      "id": "action_request-pos-2",
+      "kind": "positive",
+      "input": "给RF-7001直接退款",
+      "expected": {
+        "primary_intent": "action_request",
+        "requested_operation": "execute_action"
+      }
+    },
+    {
+      "id": "action_request-pos-3",
+      "kind": "positive",
+      "input": "创建补偿动作草稿",
+      "expected": {
+        "primary_intent": "action_request",
+        "requested_operation": "execute_action"
+      }
+    },
+    {
+      "id": "action_request-pos-4",
+      "kind": "positive",
+      "input": "执行发券操作",
+      "expected": {
+        "primary_intent": "action_request",
+        "requested_operation": "execute_action"
+      }
+    },
+    {
+      "id": "action_request-pos-5",
+      "kind": "positive",
+      "input": "对订单ORD-7002做退款覆盖",
+      "expected": {
+        "primary_intent": "action_request",
+        "requested_operation": "execute_action"
+      }
+    },
+    {
+      "id": "action_request-neg-1",
+      "kind": "hard-negative",
+      "input": "approve APR-1",
+      "negative_for": "action_request",
+      "expected": {
+        "not_primary_intent": "action_request"
+      }
+    },
+    {
+      "id": "action_request-neg-2",
+      "kind": "hard-negative",
+      "input": "通过订单号 ORD-1 查询退款状态",
+      "negative_for": "action_request",
+      "expected": {
+        "not_primary_intent": "action_request"
+      }
+    },
+    {
+      "id": "action_request-neg-3",
+      "kind": "hard-negative",
+      "input": "accept language preference",
+      "negative_for": "action_request",
+      "expected": {
+        "not_primary_intent": "action_request"
+      }
+    },
+    {
+      "id": "small_talk-pos-1",
+      "kind": "positive",
+      "input": "你好",
+      "expected": {
+        "primary_intent": "small_talk",
+        "requested_operation": "advise"
+      }
+    },
+    {
+      "id": "small_talk-pos-2",
+      "kind": "positive",
+      "input": "谢谢你",
+      "expected": {
+        "primary_intent": "small_talk",
+        "requested_operation": "advise"
+      }
+    },
+    {
+      "id": "small_talk-pos-3",
+      "kind": "positive",
+      "input": "早上好",
+      "expected": {
+        "primary_intent": "small_talk",
+        "requested_operation": "advise"
+      }
+    },
+    {
+      "id": "small_talk-pos-4",
+      "kind": "positive",
+      "input": "你是谁",
+      "expected": {
+        "primary_intent": "small_talk",
+        "requested_operation": "advise"
+      }
+    },
+    {
+      "id": "small_talk-pos-5",
+      "kind": "positive",
+      "input": "辛苦了",
+      "expected": {
+        "primary_intent": "small_talk",
+        "requested_operation": "advise"
+      }
+    },
+    {
+      "id": "small_talk-neg-1",
+      "kind": "hard-negative",
+      "input": "approve APR-1",
+      "negative_for": "small_talk",
+      "expected": {
+        "not_primary_intent": "small_talk"
+      }
+    },
+    {
+      "id": "small_talk-neg-2",
+      "kind": "hard-negative",
+      "input": "通过订单号 ORD-1 查询退款状态",
+      "negative_for": "small_talk",
+      "expected": {
+        "not_primary_intent": "small_talk"
+      }
+    },
+    {
+      "id": "small_talk-neg-3",
+      "kind": "hard-negative",
+      "input": "accept language preference",
+      "negative_for": "small_talk",
+      "expected": {
+        "not_primary_intent": "small_talk"
+      }
+    },
+    {
+      "id": "unsupported-pos-1",
+      "kind": "positive",
+      "input": "帮我写一首诗",
+      "expected": {
+        "primary_intent": "unsupported",
+        "requested_operation": "advise"
+      }
+    },
+    {
+      "id": "unsupported-pos-2",
+      "kind": "positive",
+      "input": "今天上海天气如何",
+      "expected": {
+        "primary_intent": "unsupported",
+        "requested_operation": "advise"
+      }
+    },
+    {
+      "id": "unsupported-pos-3",
+      "kind": "positive",
+      "input": "生成一段SQL教程",
+      "expected": {
+        "primary_intent": "unsupported",
+        "requested_operation": "advise"
+      }
+    },
+    {
+      "id": "unsupported-pos-4",
+      "kind": "positive",
+      "input": "买哪只股票",
+      "expected": {
+        "primary_intent": "unsupported",
+        "requested_operation": "advise"
+      }
+    },
+    {
+      "id": "unsupported-pos-5",
+      "kind": "positive",
+      "input": "讲个历史故事",
+      "expected": {
+        "primary_intent": "unsupported",
+        "requested_operation": "advise"
+      }
+    },
+    {
+      "id": "unsupported-neg-1",
+      "kind": "hard-negative",
+      "input": "approve APR-1",
+      "negative_for": "unsupported",
+      "expected": {
+        "not_primary_intent": "unsupported"
+      }
+    },
+    {
+      "id": "unsupported-neg-2",
+      "kind": "hard-negative",
+      "input": "通过订单号 ORD-1 查询退款状态",
+      "negative_for": "unsupported",
+      "expected": {
+        "not_primary_intent": "unsupported"
+      }
+    },
+    {
+      "id": "unsupported-neg-3",
+      "kind": "hard-negative",
+      "input": "accept language preference",
+      "negative_for": "unsupported",
+      "expected": {
+        "not_primary_intent": "unsupported"
+      }
+    },
+    {
+      "id": "approval-chat-boundary",
+      "kind": "positive",
+      "input": "approve APR-1",
+      "expected": {
+        "pre_route_disposition": "approval_chat_not_trusted",
+        "route": "clarification_gate",
+        "forbidden": [
+          "approval_result",
+          "resume",
+          "trusted_approval_result"
+        ]
+      }
+    },
+    {
+      "id": "critical-write-boundary",
+      "kind": "positive",
+      "input": "请对ORD-7001直接退款",
+      "expected": {
+        "pre_route_disposition": "safety_sensitive",
+        "requested_operation": "execute_action"
+      }
+    },
+    {
+      "id": "missing-slot-clarification",
+      "kind": "positive",
+      "input": "退款为什么没到账",
+      "expected": {
+        "primary_intent": "refund_troubleshooting",
+        "missing_required_slots": [
+          {
+            "any_of": [
+              "order_id",
+              "refund_case_id"
+            ]
+          }
+        ],
+        "route": "clarification_gate"
+      }
+    }
+  ]
+}

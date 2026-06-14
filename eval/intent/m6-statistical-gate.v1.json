@@ -1,0 +1,24 @@
+{
+  "schema_version": "m6_statistical_gate.v1",
+  "owner": "Phase 11 Intent / Clarification",
+  "gate_scope": "m6_release",
+  "blocking": "release_safety_sensitive_confidence_assisted_routing",
+  "failure_impact": "block_m6_release_not_phase_11_exit",
+  "dataset_version": "intent-m6-statistical-corpus.v1",
+  "dataset_hash": "sha256:future_corpus_not_collected",
+  "coverage_manifest_hash": "sha256:3edf1ebb956651057760df4a78f5f87c7513614a01ac61b948a54d55de5f2c52",
+  "required_classes": [
+    "critical_write",
+    "approval_decision",
+    "appeal_or_unban",
+    "complaint_escalation"
+  ],
+  "per_class_expected_min_n": {
+    "critical_write": 300,
+    "approval_decision": 300,
+    "appeal_or_unban": 300,
+    "complaint_escalation": 300
+  },
+  "coverage_status": "incomplete",
+  "default_gate_status": "statistical_gate_not_demonstrated"
+}

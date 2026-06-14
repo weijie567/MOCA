@@ -63,6 +63,11 @@ class AgentState(TypedDict, total=False):
     user_query: str | None
     normalized_query: str | None
     current_intent: str | None
+    intent_confidence: float | None
+    secondary_intents: list[str]
+    required_slots: dict[str, Any]
+    candidate_slots: dict[str, Any]
+    routing_hints: dict[str, Any]
     extracted_slots: dict[str, Any] | None
     business_context: dict[str, Any] | None
     retrieved_evidence: dict[str, Any] | None

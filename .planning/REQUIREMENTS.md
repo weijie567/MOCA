@@ -19,9 +19,9 @@
 - [x] **STATE-02**: Trusted identity/approval/action fields cannot be overwritten by user or LLM output.
 - [x] **ROUTE-01**: Routers are deterministic, total, side-effect free, and return only valid node keys.
 - [x] **ROUTE-02**: Invalid or unsafe state routes to explicit safe fallback.
-- [ ] **INTENT-01**: Intent precedence and requested-operation safety routing are deterministic and tested.
-- [ ] **INTENT-02**: RequiredSlotExpression and slot completeness rules are enforced.
-- [ ] **CLARIFY-01**: Ordinary clarification and trusted approval needs_info resume remain separate contracts.
+- [x] **INTENT-01**: Intent precedence and requested-operation safety routing are deterministic and tested.
+- [x] **INTENT-02**: RequiredSlotExpression and slot completeness rules are enforced.
+- [x] **CLARIFY-01**: Ordinary clarification and trusted approval needs_info resume remain separate contracts.
 - [ ] **SESSION-01**: PostgreSQL session memory uses version CAS and deterministic merge.
 - [ ] **SESSION-02**: Slot inheritance enforces scope, freshness, compatibility, and explicit override.
 - [ ] **SESSION-03**: Session memory is not policy evidence and supports observable fallback/read-switch rollback.
@@ -56,7 +56,7 @@
 | KNOW-01..03 | Phase 8 | Complete |
 | TOOL-01..03 | Phase 9 | Complete |
 | STATE-01..02, ROUTE-01..02 | Phase 10 | Complete |
-| INTENT-01..02, CLARIFY-01 | Phase 11 | Pending |
+| INTENT-01..02, CLARIFY-01 | Phase 11 | Complete |
 | SESSION-01..03 | Phase 12 | Pending |
 | APPROVAL-01..03, SNAPSHOT-01 | Phase 13 | Pending |
 | DEMO-01..02 | Phase 14 | Pending |
@@ -65,4 +65,4 @@
 | EXTERNAL-01..03 | Phase 17 | Deferred beyond MVP gate |
 
 ---
-*Updated: 2026-06-14 after Phase 10 Plan 10-05 verification passed.*
+*Updated: 2026-06-14 after Phase 11 execution validation passed.*

@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from src.agent.graph import build_graph
-from src.agent.schemas import IntentResult, RecommendationDraft, RiskAssessment, SlotExtractionResult
+from src.agent.schemas import IntentResultV3, RecommendationDraft, RiskAssessment, SlotExtractionResult
 from src.agent.state import AgentState
 from src.agent.tools.unified import UnifiedToolManager
 from src.api.main import app
@@ -261,9 +261,9 @@ class _FakeStructuredLLM:
         user_content = " ".join(
             str(message.get("content", "")) for message in messages if message.get("role") == "user"
         )
-        if self.schema is IntentResult:
+        if self.schema is IntentResultV3:
             key = "policy_qa" if "政策" in user_content or "规则" in user_content else "high_risk"
-            return IntentResult(**self.responses["intent"][key])
+            return IntentResultV3(**self.responses["intent"][key])
         if self.schema is SlotExtractionResult:
             return SlotExtractionResult(**self.responses["slots"])
         if self.schema is RecommendationDraft:
@@ -294,14 +294,36 @@ def mock_llm_responses() -> dict[str, dict[str, Any]]:
     return {
         "intent": {
             "high_risk": {
-                "intent": "refund_troubleshooting",
+                "schema_version": "intent_result.v3",
+                "primary_intent": "compensation_suggestion",
+                "requested_operation": "draft_action",
                 "confidence": 0.98,
-                "reasoning": "User asks for compensation on a refund case.",
+                "calibrated_confidence": 0.95,
+                "secondary_intents": [],
+                "required_slots": {
+                    "all_of": ["action_type"],
+                    "any_of": [["order_id", "refund_case_id", "ticket_id"]],
+                    "optional": ["amount"],
+                },
+                "candidate_slots": {"order_id": "ORD-TEST-001", "action_type": "issue_coupon"},
+                "routing_hints": {},
+                "classifier_version": "intent_classifier.v2",
+                "calibration_version": "calibration.unverified",
+                "reason_codes": ["test_high_risk"],
             },
             "policy_qa": {
-                "intent": "policy_qa",
+                "schema_version": "intent_result.v3",
+                "primary_intent": "policy_qa",
+                "requested_operation": "advise",
                 "confidence": 0.97,
-                "reasoning": "User asks for policy explanation only.",
+                "calibrated_confidence": 0.94,
+                "secondary_intents": [],
+                "required_slots": {"all_of": [], "any_of": [], "optional": []},
+                "candidate_slots": {},
+                "routing_hints": {},
+                "classifier_version": "intent_classifier.v2",
+                "calibration_version": "calibration.unverified",
+                "reason_codes": ["test_policy"],
             },
         },
         "slots": {
@@ -309,6 +331,7 @@ def mock_llm_responses() -> dict[str, dict[str, Any]]:
             "refund_case_id": "RF-TEST-001",
             "ticket_id": "TK-TEST-001",
             "issue_type": "compensation",
+            "action_type": "issue_coupon",
         },
         "recommendation": {
             "high_risk": {

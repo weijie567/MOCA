@@ -15,7 +15,7 @@ from src.agent.nodes import assess_risk_and_approval as assess_risk_module
 from src.agent.nodes import classify_intent as classify_intent_module
 from src.agent.nodes import extract_slots as extract_slots_module
 from src.agent.nodes import generate_recommendation as generate_recommendation_module
-from src.agent.routing import route_after_investigate
+from src.agent.routing import route_after_intent, route_after_investigate, route_after_slots
 from src.agent.tools.unified import UnifiedToolManager
 from src.business_tools.registry import ToolRegistry
 from src.business_tools.schemas import BusinessFactRefV1, ToolCallContext, ToolResultV2
@@ -30,6 +30,8 @@ INVESTIGATION_STATE_FIELDS = {
     "investigation_path",
 }
 ROUTER_EDGE_KEYS = {
+    "route_after_intent": {"clarification_gate", "final_response", "investigate", "session_memory_load"},
+    "route_after_slots": {"clarification_gate", "investigate", "long_term_memory_retrieve"},
     "route_after_risk": {"approval_gate", "execute_action", "final_response"},
     "route_after_approval": {"execute_action", "final_response"},
     "route_after_investigate": {"final_response", "clarification_gate", "recommendation_generation"},
@@ -64,7 +66,24 @@ def _config(manager, events: list[dict[str, Any]], thread_id: str = "graph-test-
 
 
 def _intent(intent: str) -> dict:
-    return {"intent": intent, "confidence": 0.95, "reasoning": "test"}
+    requested_operation = "advise" if intent == "policy_qa" else "read_status"
+    required_slots = {"all_of": [], "any_of": [], "optional": []}
+    if intent == "refund_troubleshooting":
+        required_slots = {"all_of": [], "any_of": [["order_id", "refund_case_id"]], "optional": []}
+    return {
+        "schema_version": "intent_result.v3",
+        "primary_intent": intent,
+        "requested_operation": requested_operation,
+        "confidence": 0.95,
+        "calibrated_confidence": 0.92,
+        "secondary_intents": [],
+        "required_slots": required_slots,
+        "candidate_slots": {},
+        "routing_hints": {},
+        "classifier_version": "intent_classifier.v2",
+        "calibration_version": "calibration.unverified",
+        "reason_codes": ["test"],
+    }
 
 
 def _slots(order_id: str | None = None) -> dict:
@@ -75,6 +94,7 @@ def _slots(order_id: str | None = None) -> dict:
         "merchant_id": None,
         "customer_id": None,
         "issue_type": "超时未退款" if order_id else None,
+        "action_type": None,
     }
 
 
@@ -213,7 +233,7 @@ async def test_happy_path_policy_qa_uses_investigate_manager(monkeypatch):
     assert final_state["current_intent"] == "policy_qa"
     assert final_state["recommendation_draft"]["evidence_refs"]
     assert final_state["risk_assessment"]["risk_level"] in ("low", "medium", "high")
-    assert "session_memory_load" in [step["node"] for step in final_state["trace_steps"]]
+    assert "session_memory_load" not in [step["node"] for step in final_state["trace_steps"]]
     assert "investigate" in [step["node"] for step in final_state["trace_steps"]]
     assert all(final_state[field] is None for field in INVESTIGATION_STATE_FIELDS)
     assert [call[0] for call in deps["tool_manager"].calls] == ["search_policy"]
@@ -246,11 +266,11 @@ async def test_refund_path_without_case_identifier_routes_to_clarification(monke
         _config(deps["tool_manager"], deps["events"]),
     )
 
-    assert [call[0] for call in deps["tool_manager"].calls] == ["search_policy"]
-    assert final_state["business_context"]["missing_required_facts"] == ["case_identifier"]
-    assert final_state["clarification_request"]["missing"] == ["case_identifier"]
+    assert deps["tool_manager"].calls == []
+    assert final_state["clarification_request"]["reason"] == "missing_required_slots"
+    assert "investigate" in final_state["clarification_request"]["blocked_nodes"]
     assert final_state["recommendation_draft"] is None
-    assert final_state["final_response"] == "Could you provide a bit more information so I can help?"
+    assert final_state["final_response"] == "请提供订单号或退款单号。"
     assert final_state["llm_outputs"]["final_response"]["final_status"] == "insufficient_evidence"
 
 
@@ -347,7 +367,7 @@ def test_graph_compiles_with_investigate():
     graph = build_graph(MemorySaver())
     nodes = set(graph.get_graph().nodes)
 
-    assert {"investigate", "clarification_gate", "session_memory_load"} <= nodes
+    assert {"investigate", "clarification_gate", "session_memory_load", "long_term_memory_retrieve"} <= nodes
     assert "load_business_context" not in nodes
     assert "retrieve_policy_evidence" not in nodes
 
@@ -373,6 +393,12 @@ def test_route_after_investigate_keys_are_edge_targets():
 
 
 def test_all_router_return_keys_have_edges():
+    assert route_after_intent({"primary_intent": "policy_qa", "requested_operation": "advise", "intent_confidence": 0.9}) in ROUTER_EDGE_KEYS[
+        "route_after_intent"
+    ]
+    assert route_after_slots({"primary_intent": "policy_qa", "required_slots": {"all_of": [], "any_of": [], "optional": []}}) in ROUTER_EDGE_KEYS[
+        "route_after_slots"
+    ]
     assert route_after_risk({"risk_assessment": {"approval_required": True}}) in ROUTER_EDGE_KEYS["route_after_risk"]
     assert route_after_risk({"proposed_action": {"action_type": "issue_coupon"}}) in ROUTER_EDGE_KEYS["route_after_risk"]
     assert route_after_risk({}) in ROUTER_EDGE_KEYS["route_after_risk"]
@@ -390,3 +416,37 @@ def test_all_router_return_keys_have_edges():
 
 def test_post_merge_graph_uses_tool_manager_seam():
     assert UnifiedToolManager is not None
+
+
+@pytest.mark.asyncio
+async def test_approval_chat_routes_to_clarification_without_tools(monkeypatch):
+    deps = _patch_graph_dependencies(monkeypatch, intent="policy_qa")
+    graph = build_graph(MemorySaver())
+
+    final_state = await graph.ainvoke(_state("approve APR-1"), _config(deps["tool_manager"], deps["events"]))
+
+    assert deps["tool_manager"].calls == []
+    assert final_state["clarification_request"]["reason"] == "approval_chat_not_trusted"
+    assert "审批操作需要通过审批入口处理" in final_state["final_response"]
+
+
+@pytest.mark.asyncio
+async def test_long_term_memory_empty_adapter_seam(monkeypatch):
+    payload = _intent("refund_troubleshooting")
+    payload["routing_hints"] = {"needs_long_term_memory": True}
+    monkeypatch.setattr(classify_intent_module, "_get_llm", lambda: FakeLLM(payload))
+    monkeypatch.setattr(extract_slots_module, "_get_llm", lambda: FakeLLM(_slots("ORD-001")))
+    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
+    monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: FakeLLM(_risk()))
+    manager = FakeGraphToolManager(order_id="ORD-001")
+    events: list[dict[str, Any]] = []
+    graph = build_graph(MemorySaver())
+
+    final_state = await graph.ainvoke(
+        _state("订单ORD-001退款为什么没到账？"),
+        _config(manager, events),
+    )
+
+    assert final_state["long_term_memory"] == []
+    assert final_state["case_memory"] == []
+    assert final_state["llm_outputs"]["long_term_memory_retrieve"]["source"] == "empty_adapter"

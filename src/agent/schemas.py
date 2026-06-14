@@ -17,6 +17,77 @@ class IntentResult(BaseModel):
     reasoning: str
 
 
+IntentLiteral = Literal[
+    "policy_qa",
+    "order_status_inquiry",
+    "refund_troubleshooting",
+    "compensation_suggestion",
+    "ticket_reply_draft",
+    "appeal_or_unban",
+    "complaint_escalation",
+    "action_request",
+    "small_talk",
+    "unsupported",
+]
+
+RequestedOperationLiteral = Literal[
+    "read_status",
+    "advise",
+    "draft_reply",
+    "draft_action",
+    "execute_action",
+    "escalate",
+]
+
+
+class RequiredSlotExpression(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    all_of: list[str] = Field(default_factory=list)
+    any_of: list[list[str]] = Field(default_factory=list)
+    optional: list[str] = Field(default_factory=list)
+
+
+class ClarificationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Literal[
+        "missing_required_slots",
+        "low_confidence",
+        "unsupported_or_ambiguous",
+        "multi_target_request",
+        "approval_chat_not_trusted",
+    ]
+    clarification_request_id: str
+    questions: list[str]
+    blocked_nodes: list[str]
+    resume_policy: Literal["same_thread_only"] = "same_thread_only"
+
+
+class IntentResultV3(BaseModel):
+    """Strict ordinary-chat intent output.
+
+    `primary_intent` captures the domain semantics while `requested_operation`
+    captures the requested read/write/escalation mode. This keeps action-like
+    wording from overwriting the most specific domain intent.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["intent_result.v3"] = "intent_result.v3"
+    primary_intent: IntentLiteral
+    requested_operation: RequestedOperationLiteral
+    confidence: float = Field(ge=0.0, le=1.0)
+    calibrated_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    secondary_intents: list[IntentLiteral] = Field(default_factory=list)
+    required_slots: RequiredSlotExpression = Field(default_factory=RequiredSlotExpression)
+    candidate_slots: dict[str, Any] = Field(default_factory=dict)
+    routing_hints: dict[str, Any] = Field(default_factory=dict)
+    classifier_version: str = "intent_classifier.v2"
+    calibration_version: str = "calibration.unverified"
+    reason_codes: list[str] = Field(default_factory=list)
+
+
 class SlotExtractionResult(BaseModel):
     order_id: str | None = None
     refund_case_id: str | None = None
@@ -24,6 +95,7 @@ class SlotExtractionResult(BaseModel):
     merchant_id: str | None = None
     customer_id: str | None = None
     issue_type: str | None = None
+    action_type: str | None = None
 
 
 class EvidenceRefSchema(BaseModel):

@@ -10,6 +10,12 @@ async def test_receive_request_resets_ephemeral(base_state):
     state = {
         **base_state,
         "current_intent": "old_intent",
+        "intent_confidence": 0.99,
+        "secondary_intents": ["policy_qa"],
+        "required_slots": {"all_of": ["order_id"], "any_of": [], "optional": []},
+        "candidate_slots": {"order_id": "ORD-OLD"},
+        "routing_hints": {"pre_route_disposition": "old"},
+        "clarification_request": {"reason": "old"},
         "business_context": {"old": "data"},
         "trace_steps": [{"node": "old_node"}],
     }
@@ -17,6 +23,12 @@ async def test_receive_request_resets_ephemeral(base_state):
     result = await receive_request(state)
 
     assert result["current_intent"] is None
+    assert result["intent_confidence"] is None
+    assert result["secondary_intents"] == []
+    assert result["required_slots"] == {"all_of": [], "any_of": [], "optional": []}
+    assert result["candidate_slots"] == {}
+    assert result["routing_hints"] == {}
+    assert result["clarification_request"] is None
     assert result["business_context"] is None
     assert [step["node"] for step in result["trace_steps"]] == ["receive_request"]
     assert result["current_run_id"] is not None

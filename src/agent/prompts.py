@@ -1,26 +1,37 @@
-CLASSIFY_INTENT_SYSTEM = """You classify merchant operations and support questions into exactly one intent.
+CLASSIFY_INTENT_SYSTEM = """You classify merchant operations and support questions into the strict IntentResultV3 JSON schema.
 
 Allowed intents:
 - policy_qa: the user asks about platform refund, return, compensation, or support rules.
+- order_status_inquiry: the user asks for order, refund, or ticket status facts.
 - refund_troubleshooting: the user asks why a specific order or refund case is stuck, failed, delayed, or abnormal.
 - compensation_suggestion: the user asks what compensation, coupon, refund override, or appeasement action should be proposed.
-- approval_request: the user asks to approve, reject, escalate, or review a risky action.
-- unknown: the question is outside refund/order/support policy operations or lacks enough context.
+- ticket_reply_draft: the user asks for a customer-facing reply draft.
+- appeal_or_unban: the user asks about appeal, unban, or reinstatement handling.
+- complaint_escalation: the user asks about complaint escalation.
+- action_request: the user asks for an ordinary action draft or execution analysis.
+- small_talk: social chit-chat with no business request.
+- unsupported: outside supported refund/order/support policy operations or lacks enough context.
 
-Respond only as JSON with fields: intent, confidence, reasoning.
+Requested operation must be one of: read_status, advise, draft_reply, draft_action, execute_action, escalate.
+Approval decisions are forbidden in ordinary chat. Never output approval_decision or any trusted approval lifecycle state.
+
+Respond only as JSON with fields:
+schema_version, primary_intent, requested_operation, confidence, calibrated_confidence,
+secondary_intents, required_slots, candidate_slots, routing_hints, classifier_version,
+calibration_version, reason_codes.
 
 Examples:
 User: "超过7天还能自动退款吗？"
-JSON: {"intent":"policy_qa","confidence":0.94,"reasoning":"The user asks about a refund rule."}
+JSON: {"schema_version":"intent_result.v3","primary_intent":"policy_qa","requested_operation":"advise","confidence":0.94,"calibrated_confidence":0.94,"secondary_intents":[],"required_slots":{"all_of":[],"any_of":[],"optional":[]},"candidate_slots":{},"routing_hints":{},"classifier_version":"intent_classifier.v2","calibration_version":"calibration.unverified","reason_codes":["policy_rule_question"]}
 
 User: "订单ORD-1001退款一直没到账，帮我看下卡在哪里。"
-JSON: {"intent":"refund_troubleshooting","confidence":0.96,"reasoning":"The user asks to diagnose a specific order refund issue."}
+JSON: {"schema_version":"intent_result.v3","primary_intent":"refund_troubleshooting","requested_operation":"read_status","confidence":0.96,"calibrated_confidence":0.96,"secondary_intents":[],"required_slots":{"all_of":[],"any_of":[["order_id","refund_case_id"]],"optional":[]},"candidate_slots":{"order_id":"ORD-1001"},"routing_hints":{},"classifier_version":"intent_classifier.v2","calibration_version":"calibration.unverified","reason_codes":["refund_keywords"]}
 
 User: "这个客户投诉很严重，可以给多少补偿券比较合适？"
-JSON: {"intent":"compensation_suggestion","confidence":0.91,"reasoning":"The user asks for a compensation recommendation."}
+JSON: {"schema_version":"intent_result.v3","primary_intent":"compensation_suggestion","requested_operation":"draft_action","confidence":0.91,"calibrated_confidence":0.91,"secondary_intents":["complaint_escalation"],"required_slots":{"all_of":["action_type"],"any_of":[["order_id","refund_case_id","ticket_id"]],"optional":["amount"]},"candidate_slots":{},"routing_hints":{},"classifier_version":"intent_classifier.v2","calibration_version":"calibration.unverified","reason_codes":["compensation_request"]}
 
-User: "请审批这笔高金额退款覆盖操作。"
-JSON: {"intent":"approval_request","confidence":0.93,"reasoning":"The user asks for approval of a risky refund action."}
+User: "请审批 APR-1001。"
+JSON: {"schema_version":"intent_result.v3","primary_intent":"unsupported","requested_operation":"advise","confidence":0.60,"calibrated_confidence":0.60,"secondary_intents":[],"required_slots":{"all_of":[],"any_of":[],"optional":[]},"candidate_slots":{},"routing_hints":{"clarification_reason":"approval_chat_not_trusted"},"classifier_version":"intent_classifier.v2","calibration_version":"calibration.unverified","reason_codes":["approval_chat_not_trusted"]}
 """
 
 
@@ -33,6 +44,7 @@ Fields to extract:
 - merchant_id
 - customer_id
 - issue_type
+- action_type
 
 Return JSON only. Use null for every missing field. Do not invent identifiers. Preserve the exact identifier text found in the user message.
 """

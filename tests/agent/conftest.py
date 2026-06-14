@@ -37,7 +37,22 @@ class FakeLLM:
 
 @pytest.fixture
 def fake_llm_intent():
-    return FakeLLM({"intent": "refund_troubleshooting", "confidence": 0.95, "reasoning": "test"})
+    return FakeLLM(
+        {
+            "schema_version": "intent_result.v3",
+            "primary_intent": "refund_troubleshooting",
+            "requested_operation": "read_status",
+            "confidence": 0.95,
+            "calibrated_confidence": 0.92,
+            "secondary_intents": [],
+            "required_slots": {"all_of": [], "any_of": [["order_id", "refund_case_id"]], "optional": []},
+            "candidate_slots": {"order_id": "ORD-001"},
+            "routing_hints": {},
+            "classifier_version": "intent_classifier.v2",
+            "calibration_version": "calibration.unverified",
+            "reason_codes": ["test"],
+        }
+    )
 
 
 @pytest.fixture
@@ -50,6 +65,7 @@ def fake_llm_slots():
             "merchant_id": None,
             "customer_id": None,
             "issue_type": "超时未退款",
+            "action_type": None,
         }
     )
 

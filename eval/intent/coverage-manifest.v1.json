@@ -1,0 +1,12 @@
+{
+  "schema_version": "coverage_manifest.v1",
+  "dataset_version": "intent-golden.v1",
+  "dataset_hash": "sha256:aff310d639794e804f76970fdfe7664cdf2e5752cf6cbf978351884e0ccdfe41",
+  "owner": "Phase 11 Intent / Clarification",
+  "gate_scope": "phase_11_contract",
+  "blocking": "phase_exit",
+  "failure_impact": "block_phase_11_verification",
+  "dedupe_key": "stable_case_id",
+  "coverage_status": "complete",
+  "m6_statistical_gate_path": "eval/intent/m6-statistical-gate.v1.json"
+}

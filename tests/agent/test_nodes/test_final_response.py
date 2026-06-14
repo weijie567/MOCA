@@ -168,3 +168,26 @@ async def test_final_response_preserves_clarification_response(base_state):
 
     assert result["final_response"] == "Could you provide a bit more information so I can help?"
     assert result["llm_outputs"]["final_response"]["final_status"] == "insufficient_evidence"
+
+
+@pytest.mark.asyncio
+async def test_final_response_builds_safe_clarification_from_request(base_state):
+    result = await final_response(
+        {
+            **base_state,
+            "clarification_request": {
+                "reason": "missing_required_slots",
+                "questions": ["请提供订单号或退款单号。"],
+                "blocked_nodes": ["investigate", "action_draft"],
+                "resume_policy": "same_thread_only",
+            },
+            "approval_result": {"decision": "approve"},
+            "action_result": {"status": "error", "error": {"message": "permission_denied"}},
+            "node_errors": [{"error": "FORBIDDEN stack trace"}],
+        }
+    )
+
+    assert result["final_response"] == "请提供订单号或退款单号。"
+    assert "permission_denied" not in result["final_response"]
+    assert "FORBIDDEN" not in result["final_response"]
+    assert "审批结果" not in result["final_response"]

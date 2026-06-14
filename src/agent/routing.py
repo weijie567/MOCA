@@ -2,6 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.agent.intent_policy import (
+    DIRECT_RESPONSE_INTENTS,
+    INTENT_ROUTE_POLICY,
+    REQUIRED_SLOT_POLICY,
+    PreRouteDecision,
+    confidence_requires_clarification,
+)
+from src.agent.schemas import RequiredSlotExpression
 from src.agent.state import AgentState
 
 
@@ -9,6 +17,110 @@ MIN_EVIDENCE_SCORE = 0.55
 _FACT_ONLY_INTENTS = {"order_status_inquiry"}
 _PERMISSION_CODES = {"FORBIDDEN", "permission_denied"}
 _INVESTIGATE_ROUTES = {"final_response", "clarification_gate", "recommendation_generation"}
+INTENT_ROUTES = {"clarification_gate", "final_response", "investigate", "session_memory_load"}
+SLOT_ROUTES = {"clarification_gate", "investigate", "long_term_memory_retrieve"}
+
+
+def route_after_intent(state: AgentState) -> str:
+    try:
+        route = _route_after_intent(state)
+    except Exception:
+        return "clarification_gate"
+    return route if route in INTENT_ROUTES else "clarification_gate"
+
+
+def route_after_slots(state: AgentState) -> str:
+    try:
+        route = _route_after_slots(state)
+    except Exception:
+        return "clarification_gate"
+    return route if route in SLOT_ROUTES else "clarification_gate"
+
+
+def missing_required_slots(
+    required_slots: dict[str, Any] | RequiredSlotExpression | None,
+    resolved_slots: dict[str, Any] | None,
+) -> list[dict[str, list[str]]]:
+    expression = _required_expression(required_slots)
+    slots = {key: value for key, value in (resolved_slots or {}).items() if value not in (None, "")}
+    missing: list[dict[str, list[str]]] = []
+    for slot in expression.all_of:
+        if slot not in slots:
+            missing.append({"all_of": [slot]})
+    for group in expression.any_of:
+        if group and not any(slot in slots for slot in group):
+            missing.append({"any_of": list(group)})
+    return missing
+
+
+def resolve_slots_for_completeness(state: AgentState) -> dict[str, Any]:
+    extracted = state.get("extracted_slots")
+    resolved = {key: value for key, value in (extracted or {}).items() if value not in (None, "")}
+    session_memory = state.get("session_memory")
+    if not isinstance(session_memory, dict) or session_memory.get("continuity_claimed") is not True:
+        return resolved
+    active_slots = session_memory.get("active_slots")
+    slot_metadata = session_memory.get("slot_metadata")
+    if not isinstance(active_slots, dict) or not isinstance(slot_metadata, dict):
+        return resolved
+    for slot, value in active_slots.items():
+        if slot in resolved or value in (None, ""):
+            continue
+        metadata = slot_metadata.get(slot)
+        if _trusted_session_slot(metadata, state):
+            resolved[slot] = value
+    return resolved
+
+
+def _route_after_intent(state: AgentState) -> str:
+    intent = _intent(state)
+    requested_operation = state.get("requested_operation") or "advise"
+    routing_hints = state.get("routing_hints") if isinstance(state.get("routing_hints"), dict) else {}
+    if requested_operation == "approval_decision":
+        return "clarification_gate"
+    if routing_hints.get("pre_route_disposition") == "approval_chat_not_trusted":
+        return "clarification_gate"
+    if routing_hints.get("clarification_reason") == "approval_chat_not_trusted":
+        return "clarification_gate"
+    pre_route = PreRouteDecision(
+        disposition=routing_hints.get("pre_route_disposition", "none")
+        if routing_hints.get("pre_route_disposition") in {"none", "approval_chat_not_trusted", "safety_sensitive", "multi_target_request"}
+        else "none",
+        requested_operation=requested_operation if requested_operation in {"read_status", "advise", "draft_reply", "draft_action", "execute_action", "escalate"} else None,
+        reason_codes=[],
+        requires_clarification=bool(routing_hints.get("requires_clarification")),
+    )
+    if confidence_requires_clarification(intent, requested_operation, state.get("intent_confidence"), pre_route):
+        return "clarification_gate"
+    if intent in DIRECT_RESPONSE_INTENTS:
+        return "final_response"
+    if intent not in INTENT_ROUTE_POLICY:
+        return "clarification_gate"
+    policy = REQUIRED_SLOT_POLICY.get(intent)
+    if policy is not None and not policy.all_of and not policy.any_of:
+        return "investigate"
+    return "session_memory_load"
+
+
+def _route_after_slots(state: AgentState) -> str:
+    intent = _intent(state)
+    policy = REQUIRED_SLOT_POLICY.get(intent)
+    if policy is None:
+        return "clarification_gate"
+    state_required = state.get("required_slots")
+    if state_required not in (None, {}):
+        try:
+            if _required_expression(state_required).model_dump() != policy.model_dump():
+                return "clarification_gate"
+        except Exception:
+            return "clarification_gate"
+    missing = missing_required_slots(policy, resolve_slots_for_completeness(state))
+    if missing:
+        return "clarification_gate"
+    routing_hints = state.get("routing_hints") if isinstance(state.get("routing_hints"), dict) else {}
+    if routing_hints.get("needs_long_term_memory") is True:
+        return "long_term_memory_retrieve"
+    return "investigate"
 
 
 def route_after_investigate(state: AgentState) -> str:
@@ -65,6 +177,33 @@ def _route_after_investigate(state: AgentState) -> str:
 def _intent(state: AgentState) -> str:
     value = state.get("primary_intent") or state.get("current_intent")
     return value if isinstance(value, str) else "unknown"
+
+
+def _required_expression(value: dict[str, Any] | RequiredSlotExpression | None) -> RequiredSlotExpression:
+    if isinstance(value, RequiredSlotExpression):
+        return value
+    if isinstance(value, dict):
+        return RequiredSlotExpression.model_validate(value)
+    return RequiredSlotExpression()
+
+
+def _trusted_session_slot(metadata: Any, state: AgentState) -> bool:
+    if not isinstance(metadata, dict):
+        return False
+    if metadata.get("source") != "trusted_session_memory":
+        return False
+    for key in ("tenant_id", "user_id", "thread_id"):
+        if metadata.get(key) != state.get(key):
+            return False
+    if metadata.get("fresh") is not True and metadata.get("age_seconds", 10**9) > metadata.get("max_age_seconds", 0):
+        return False
+    compatible = metadata.get("intent_compatible")
+    compatible_intents = metadata.get("compatible_intents")
+    if compatible is True:
+        return True
+    if isinstance(compatible_intents, list) and _intent(state) in compatible_intents:
+        return True
+    return False
 
 
 def _facts_from_business_context(business_context: dict[str, Any]) -> dict[str, Any]:

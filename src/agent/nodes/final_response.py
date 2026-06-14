@@ -158,7 +158,9 @@ async def final_response(state: AgentState) -> dict:
     action_result = state.get("action_result")
     clarification_request = state.get("clarification_request")
     if isinstance(clarification_request, dict):
-        response_text = state.get("final_response") or "Could you provide a bit more information so I can help?"
+        questions = clarification_request.get("questions")
+        fallback = questions[0] if isinstance(questions, list) and questions else "请补充必要信息后我再继续处理。"
+        response_text = state.get("final_response") or fallback
         return {
             "final_response": response_text,
             "llm_outputs": {
