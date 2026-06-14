@@ -54,6 +54,9 @@ async def memory_write(state: AgentState, config: RunnableConfig) -> dict:
         )
         return result
     except TimeoutError:
+        rollback = getattr(session, "rollback", None)
+        if callable(rollback):
+            await rollback()
         return _skipped(state, started_at, "write_timeout", final_response=final_response)
     except Exception:
         await _emit_memory_event(state, configurable, session, "memory_write_failed", {"status": "error"})

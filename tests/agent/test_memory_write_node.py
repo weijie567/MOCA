@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import time
-from uuid import uuid4
+from datetime import UTC, datetime
+from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.nodes import memory_write as memory_write_module
 from src.agent.nodes.memory_write import memory_write
+from src.agent.trace import write_agent_run
+from src.db.models import AgentTraceEvent
 from src.memory.schemas import SessionMemoryWriteResult
 
 
@@ -117,6 +122,60 @@ async def test_memory_write_timeout_preserves_final_response(monkeypatch):
     assert result["final_response"] == "及时返回"
     assert result["memory_write_result"]["status"] == "skipped"
     assert result["memory_write_result"]["reason_code"] == "write_timeout"
+
+
+async def test_memory_write_timeout_rolls_back_started_event_before_scheduler_commit(
+    session: AsyncSession,
+    seeded_session: dict,
+    monkeypatch,
+):
+    monkeypatch.setattr(memory_write_module.settings, "session_memory_write_timeout_seconds", 0.01)
+    user = seeded_session["users"]["cs_zhang"]
+    run_id = str(uuid4())
+    thread_id = "thread-memory-write-timeout-rollback"
+    await write_agent_run(
+        session,
+        run_id=run_id,
+        thread_id=thread_id,
+        tenant_id=str(user.tenant_id),
+        user_id=str(user.id),
+        input_query="remember order",
+        final_status="completed",
+        final_response="done",
+        started_at=datetime.now(UTC),
+        completed_at=datetime.now(UTC),
+        total_latency_ms=1,
+    )
+    await session.commit()
+
+    class SlowMemoryService:
+        def __init__(self, repository, *, enabled: bool = True) -> None:
+            pass
+
+        async def write_session_memory(self, candidate):
+            await asyncio.sleep(0.1)
+            raise AssertionError("timeout should cancel before completion")
+
+    monkeypatch.setattr(memory_write_module, "MemoryService", SlowMemoryService)
+
+    result = await memory_write(
+        _state(
+            tenant_id=str(user.tenant_id),
+            user_id=str(user.id),
+            thread_id=thread_id,
+            current_run_id=run_id,
+            final_response="及时返回",
+        ),
+        {"configurable": {"session": session, "trace_id": "timeout-rollback-test"}},
+    )
+    await session.commit()
+    rows = (
+        await session.execute(select(AgentTraceEvent).where(AgentTraceEvent.run_id == UUID(run_id)))
+    ).scalars().all()
+
+    assert result["memory_write_result"]["status"] == "skipped"
+    assert result["memory_write_result"]["reason_code"] == "write_timeout"
+    assert rows == []
 
 
 async def test_memory_write_prohibited_pii_skips_without_persisting(monkeypatch):
