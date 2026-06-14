@@ -105,6 +105,8 @@ def test_trusted_session_memory_rejects_wrong_tenant_user_thread_expired_and_inc
         {"thread_id": "wrong-thread"},
         {"fresh": False, "expires_at": (datetime.now(UTC) - timedelta(minutes=1)).isoformat()},
         {"compatible_intents": ["order_status_inquiry"], "intent_compatible": False},
+        {"expires_at": "not-a-date"},
+        {"compatible_intents": [], "intent_compatible": False},
     ]
 
     for metadata_update in cases:
