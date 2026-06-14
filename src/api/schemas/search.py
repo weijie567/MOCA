@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pydantic import BaseModel, Field
 
 
@@ -16,12 +18,6 @@ class RetrievalResult(BaseModel):
     evidence: list[EvidenceItem]
     best_score: float
     fallback_message: str | None = None
-
-
-class CitationValidation(BaseModel):
-    is_valid: bool
-    invalid_citations: list[str] = Field(default_factory=list)
-    reason: str | None = None
 
 
 class SearchRequest(BaseModel):

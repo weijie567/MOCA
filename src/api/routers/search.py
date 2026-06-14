@@ -6,13 +6,13 @@ from fastapi import APIRouter, Depends, Request, Security
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.schemas.common import ApiResponse
+from src.api.schemas.search import EvidenceItem, RetrievalResult, SearchRequest
 from src.auth.permissions import get_current_user
 from src.db.models import User
 from src.db.session import get_session
 from src.knowledge.retrieval import POLICY_NO_EVIDENCE_MESSAGE, PolicyRetrievalEngine
 from src.knowledge.schemas import KnowledgeContext
 from src.rag.embedder import EmbeddingService
-from src.rag.schemas import EvidenceItem, RetrievalResult, SearchRequest
 
 
 router = APIRouter(tags=["search"])

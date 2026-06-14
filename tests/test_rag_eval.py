@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from scripts.eval_rag_hit_at_5 import _parser, _ranked_evidence, _score_case
-from src.rag.schemas import EvidenceItem, RetrievalResult
+from src.api.schemas.search import EvidenceItem, RetrievalResult
 
 
 def _result(

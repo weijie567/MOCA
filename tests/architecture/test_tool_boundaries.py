@@ -73,6 +73,23 @@ def test_no_code_imports_legacy_rag_retriever_facade() -> None:
     assert violations == []
 
 
+def test_no_code_imports_legacy_rag_contract_modules() -> None:
+    assert not (ROOT / "src" / "rag" / "schemas.py").exists()
+    assert not (ROOT / "src" / "rag" / "citation_validator.py").exists()
+
+    violations: list[tuple[str, str]] = []
+    forbidden = {"src.rag.schemas", "src.rag.citation_validator"}
+    for base in (ROOT / "src", ROOT / "tests", ROOT / "scripts"):
+        for path in sorted(base.glob("**/*.py")):
+            if path == Path(__file__):
+                continue
+            for module in _imports(path):
+                if module in forbidden:
+                    violations.append((str(path.relative_to(ROOT)), module))
+
+    assert violations == []
+
+
 def test_no_code_imports_legacy_knowledge_adapters_package() -> None:
     violations: list[tuple[str, str]] = []
     for base in (ROOT / "src", ROOT / "tests", ROOT / "scripts"):

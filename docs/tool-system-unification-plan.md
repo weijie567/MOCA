@@ -474,8 +474,9 @@ Current migration note:
 - `src.agent.nodes.retrieve_policy_evidence` has been deleted.
 - `src.knowledge.adapters.LegacyRagKnowledgeAdapter` has been deleted; `PolicyRetrievalEngine` is the public retrieval implementation.
 - `src.agent.tools.search_policy`, `src.agent.tools.adapters`, and `src.agent.tools.registry` have been deleted.
-- `src.api.routers.search` now uses `PolicyRetrievalEngine.retrieve_hits(...)` directly while preserving the legacy `RetrievalResult` HTTP contract.
+- `src.api.routers.search` now uses `PolicyRetrievalEngine.retrieve_hits(...)` directly while preserving the legacy `RetrievalResult` HTTP contract in `src/api/schemas/search.py`.
 - `src.rag.retriever` compatibility facade has been deleted; retrieval/rerank orchestration is owned by `src.knowledge.retrieval`.
+- `src.rag.schemas` and `src.rag.citation_validator` have been deleted; API-facing search DTOs live in `src/api/schemas/search.py`, and citation validation lives in `src/knowledge/citation.py`.
 
 ### Phase 5: Clarify Memory Integration
 
@@ -635,7 +636,7 @@ Specific regression targets:
 
 Recommended answers:
 
-- `src.business_tools`, `src.rag.retriever`, `src.agent.nodes.load_business_context`, and `src.agent.nodes.retrieve_policy_evidence` have been deleted; remaining cleanup should focus on the `long_term_memory_retrieve` empty adapter, `ToolResultV2` alias, and `src/rag` schema/citation naming debt.
+- `src.business_tools`, `src.rag.retriever`, `src.rag.schemas`, `src.rag.citation_validator`, `src.agent.nodes.load_business_context`, and `src.agent.nodes.retrieve_policy_evidence` have been deleted; remaining cleanup should focus on the `long_term_memory_retrieve` empty adapter and `ToolResultV2` alias.
 - Keep `src/rag` for low-level embed/chunk/ingest only; move policy retrieval orchestration to `src/knowledge/retrieval.py`.
 - Keep `memory_write` deterministic for now; only `search_case_memory` is planner-visible memory tool.
 - Rename to `ToolResult`, keep `ToolResultV2 = ToolResult` alias for one phase.

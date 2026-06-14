@@ -16,8 +16,6 @@ from src.knowledge.retrieval import (
 )
 from src.knowledge.config import MIN_SIMILARITY_THRESHOLD
 from src.knowledge.schemas import KnowledgeContext
-from src.rag.citation_validator import validate_citations
-from src.rag.schemas import RetrievalResult
 
 
 def _chunk(
@@ -69,26 +67,6 @@ async def _retrieve_hits(
         max_results=max_results,
         doc_type=doc_type,
         risk_level=risk_level,
-    )
-
-
-def _retrieval_result(chunk_ids: list[str]) -> RetrievalResult:
-    evidence = [
-        {
-            "doc_key": "refund_policy",
-            "chunk_id": chunk_id,
-            "title": "退款规则",
-            "section": "仅退款",
-            "score": 0.8,
-            "text": "规则摘录",
-        }
-        for chunk_id in chunk_ids
-    ]
-    return RetrievalResult(
-        query="如何处理仅退款？",
-        retrieval_status="strong_evidence",
-        evidence=evidence,
-        best_score=0.8 if evidence else 0.0,
     )
 
 
@@ -150,36 +128,6 @@ async def test_evidence_item_has_doc_key():
     assert item.section == "仅退款"
     assert item.score == 0.8
     assert item.text == content
-
-
-def test_citation_valid():
-    result = _retrieval_result(["refund_policy_001", "refund_sop_002"])
-
-    validation = validate_citations(["refund_policy_001", "refund_sop_002"], result)
-
-    assert validation.is_valid is True
-    assert validation.invalid_citations == []
-    assert validation.reason is None
-
-
-def test_citation_invalid_missing():
-    result = _retrieval_result(["refund_policy_001"])
-
-    validation = validate_citations(["refund_policy_001", "missing_chunk"], result)
-
-    assert validation.is_valid is False
-    assert validation.invalid_citations == ["missing_chunk"]
-    assert "not in retrieval results" in validation.reason
-
-
-def test_citation_empty():
-    result = _retrieval_result(["refund_policy_001"])
-
-    validation = validate_citations([], result)
-
-    assert validation.is_valid is False
-    assert validation.invalid_citations == []
-    assert "must include citations" in validation.reason
 
 
 @pytest.mark.asyncio

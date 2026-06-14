@@ -26,10 +26,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import Tenant
 from src.db.session import SessionLocal
+from src.api.schemas.search import EvidenceItem, RetrievalResult
 from src.knowledge.retrieval import POLICY_NO_EVIDENCE_MESSAGE, PolicyRetrievalEngine
 from src.knowledge.schemas import KnowledgeContext
 from src.rag.embedder import EmbeddingService
-from src.rag.schemas import EvidenceItem, RetrievalResult
 from src.repositories.policy_chunk_repo import PolicyChunkRepository
 
 
