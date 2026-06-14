@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
-status: executing
-stopped_at: Completed 12-05-PLAN.md
-last_updated: "2026-06-14T10:15:21Z"
-last_activity: 2026-06-14 — Phase 12 Plan 05 complete
+status: planning
+stopped_at: Phase 12 verified complete
+last_updated: "2026-06-14T10:23:46Z"
+last_activity: 2026-06-14 — Phase 12 verified complete
 progress:
   total_phases: 11
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 34
   completed_plans: 34
-  percent: 97
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -21,17 +21,17 @@ progress:
 See: `.planning/PROJECT.md`
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 12 — session-memory
+**Current focus:** Phase 13 — approval-state-machine
 
 ## Current Position
 
-Phase: 12 (session-memory) — EXECUTING
-Plan: 5 of 5
-Plans: 5/5 complete
-Status: Ready for Phase 12 verification
-Last activity: 2026-06-14 — Phase 12 Plan 05 complete
+Phase: 13 (approval-state-machine) — READY TO PLAN
+Plan: TBD
+Plans: 0/TBD
+Status: Phase 12 complete; ready to plan Phase 13
+Last activity: 2026-06-14 — Phase 12 verified complete
 
-Progress: [█████████░] 97%
+Progress: [██████████] 100%
 
 ## Completed Baseline
 
@@ -60,6 +60,7 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - BusinessToolService is the live registry-to-adapter composition root; callers inject only AsyncSession.
 - Trusted tool permissions and merchant scope are derived in the agent-runs router and passed only through configurable run config.
 - The prior-line registry remains only as an isolated policy-search compatibility path; live business reads use the Phase 9 facade.
+- Phase 12 completed with PostgreSQL-authoritative session memory, same-thread slot continuity, CAS safety, no policy-evidence/action authority escalation, and Redis explicitly skipped for Phase 12.
 
 ## Blockers / Concerns
 
@@ -97,10 +98,10 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 
 ## Session Continuity
 
-Last session: 2026-06-14T10:15:21Z
-Stopped at: Completed 12-05-PLAN.md
+Last session: 2026-06-14T10:23:46Z
+Stopped at: Phase 12 verified complete
 Resume file: None
 
-**Next:** Run Phase 12 verification
+**Next:** Plan Phase 13
 
-**Completed Plan:** 12-05 (Redis Evaluation) — 2026-06-14
+**Completed Phase:** Phase 12 (Session Memory) — 2026-06-14

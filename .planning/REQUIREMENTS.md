@@ -22,9 +22,9 @@
 - [x] **INTENT-01**: Intent precedence and requested-operation safety routing are deterministic and tested.
 - [x] **INTENT-02**: RequiredSlotExpression and slot completeness rules are enforced.
 - [x] **CLARIFY-01**: Ordinary clarification and trusted approval needs_info resume remain separate contracts.
-- [ ] **SESSION-01**: PostgreSQL session memory uses version CAS and deterministic merge.
-- [ ] **SESSION-02**: Slot inheritance enforces scope, freshness, compatibility, and explicit override.
-- [ ] **SESSION-03**: Session memory is not policy evidence and supports observable fallback/read-switch rollback; Redis, if used, is non-authoritative and falls back to PostgreSQL.
+- [x] **SESSION-01**: PostgreSQL session memory uses version CAS and deterministic merge.
+- [x] **SESSION-02**: Slot inheritance enforces scope, freshness, compatibility, and explicit override.
+- [x] **SESSION-03**: Session memory is not policy evidence and supports observable fallback/read-switch rollback; Redis, if used, is non-authoritative and falls back to PostgreSQL.
 - [ ] **APPROVAL-01**: Approval transitions, request/level/assignment CAS, and revision invalidation are enforced.
 - [ ] **APPROVAL-02**: Approval needs_info resume validates clarification identity, scope, versions, changed facts, and old-revision prohibition.
 - [ ] **APPROVAL-03**: Single-level runtime is complete and multi-level-compatible contracts are verified; active SLA scanner remains an owned gate.
@@ -57,7 +57,7 @@
 | TOOL-01..03 | Phase 9 | Complete |
 | STATE-01..02, ROUTE-01..02 | Phase 10 | Complete |
 | INTENT-01..02, CLARIFY-01 | Phase 11 | Complete |
-| SESSION-01..03 | Phase 12 | Pending |
+| SESSION-01..03 | Phase 12 | Complete |
 | APPROVAL-01..03, SNAPSHOT-01 | Phase 13 | Pending |
 | DEMO-01..02 | Phase 14 | Pending |
 | REPLAY-01..03 | Phase 15 | Pending |
@@ -65,4 +65,4 @@
 | EXTERNAL-01..03 | Phase 17 | Deferred beyond MVP gate |
 
 ---
-*Updated: 2026-06-14 after Phase 11 execution validation passed.*
+*Updated: 2026-06-14 after Phase 12 execution validation passed.*

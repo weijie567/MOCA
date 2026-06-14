@@ -26,7 +26,7 @@
 - [x] **Phase 9: Business Tool Facade** - BusinessToolService boundary and ToolCallContext/ToolResultV2 contract. ✓ Verified 2026-06-13 — 9/9 plans complete, 14/14 must-haves verified.
 - [x] **Phase 10: State Lifecycle + Routing Migration** - AgentState lifecycle/trusted fields, deterministic total routers, empty session-memory adapter, and bounded investigate graph wiring. Completed 2026-06-14.
 - [ ] **Phase 11: Intent / Clarification** - Intent precedence, required-slot policy, confidence gates, and ordinary clarification.
-- [ ] **Phase 12: Session Memory** - PostgreSQL-authoritative session memory CAS, optional Redis hot cache, and safe slot continuity.
+- [x] **Phase 12: Session Memory** - PostgreSQL-authoritative session memory CAS, optional Redis hot cache, and safe slot continuity. ✓ Verified 2026-06-14 — 5/5 plans complete, 10/10 must-haves verified.
 - [ ] **Phase 13: Approval State Machine** - Versioned approval lifecycle and ActionSafetySnapshot ownership.
 - [ ] **Phase 14: Demo Action Executor Boundary** - Durable draft-only demo behavior and snapshot/hash binding.
 - [ ] **Phase 15: Replay Event Contract** - ReplayEventV3, lifecycle finalizer, sequence allocation, redaction, retention, and replay read-switch.
@@ -164,7 +164,7 @@
 | 9. Business Tool Facade | 9/9 | Complete | 2026-06-13 |
 | 10. State Lifecycle + Routing Migration | 5/5 | Complete | 2026-06-14 |
 | 11. Intent / Clarification | 5/5 | Complete | 2026-06-14 |
-| 12. Session Memory | 5/5 | In Progress | - |
+| 12. Session Memory | 5/5 | Complete | 2026-06-14 |
 | 13. Approval State Machine | 0/TBD | Pending | - |
 | 14. Demo Action Executor Boundary | 0/TBD | Pending | - |
 | 15. Replay Event Contract | 0/TBD | Pending | - |
@@ -172,4 +172,4 @@
 | 17. External Action Execution | 0/TBD | Deferred beyond MVP gate | - |
 
 ---
-*Updated: 2026-06-14 — Phase 11 complete (5/5 plans, intent/slot/clarification validation verified).*
+*Updated: 2026-06-14 — Phase 12 complete (5/5 plans, session-memory validation verified).*
