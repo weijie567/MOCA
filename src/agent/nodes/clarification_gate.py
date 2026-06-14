@@ -15,7 +15,13 @@ async def clarification_gate(state: AgentState, config: RunnableConfig) -> dict:
     """Minimal safe clarification fallback. Phase 11 owns full logic."""
     del config
     started_at = _now_iso()
-    missing = state.get("missing_info") or state.get("required_slots") or []
+    business_context = state.get("business_context") if isinstance(state.get("business_context"), dict) else {}
+    missing = _string_list(
+        state.get("missing_info")
+        or state.get("required_slots")
+        or business_context.get("missing_required_facts")
+        or []
+    )
     step = {
         "node": "clarification_gate",
         "status": "completed",
@@ -30,3 +36,9 @@ async def clarification_gate(state: AgentState, config: RunnableConfig) -> dict:
         "final_response": "Could you provide a bit more information so I can help?",
         "trace_steps": (state.get("trace_steps") or []) + [step],
     }
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]

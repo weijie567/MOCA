@@ -67,6 +67,7 @@ class AgentState(TypedDict, total=False):
     business_context: dict[str, Any] | None
     retrieved_evidence: dict[str, Any] | None
     recommendation_draft: dict[str, Any] | None
+    clarification_request: dict[str, Any] | None
     risk_assessment: dict[str, Any] | None
 
     # Phase 10: §10.1 canonical ephemeral fields reset each turn by receive_request.

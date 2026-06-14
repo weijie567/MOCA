@@ -200,6 +200,31 @@ async def test_every_execution_uses_unified_tool_manager():
 
 
 @pytest.mark.asyncio
+async def test_action_intent_without_case_identifier_marks_missing_fact():
+    events: list[dict[str, Any]] = []
+    manager = FakeManager({"search_policy": _policy_success()})
+    state = _state([{"next_tool": "search_policy", "args": {"query": "refund"}, "reason": "policy"}])
+    state["current_intent"] = "refund_troubleshooting"
+
+    result = await investigate(state, _config(manager, events))
+
+    assert result["business_context"]["missing_required_facts"] == ["case_identifier"]
+
+
+@pytest.mark.asyncio
+async def test_requested_case_identifier_without_fact_marks_specific_missing_resource():
+    events: list[dict[str, Any]] = []
+    manager = FakeManager({"get_order": _error("not_found", code="NOT_FOUND", message="not found")})
+    state = _state([{"next_tool": "get_order", "args": {"order_no": "ORD-MISSING"}, "reason": "fact"}])
+    state["current_intent"] = "refund_troubleshooting"
+    state["extracted_slots"] = {"order_id": "ORD-MISSING"}
+
+    result = await investigate(state, _config(manager, events))
+
+    assert result["business_context"]["missing_required_facts"] == ["order"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("tool_name", ["get_logistics", "search_sop", "search_case_memory"])
 async def test_unavailable_tools_recorded_through_manager_path(tool_name):
     events: list[dict[str, Any]] = []

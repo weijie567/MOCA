@@ -236,6 +236,22 @@ async def test_refund_path_preserves_business_context_facts(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_refund_path_without_case_identifier_routes_to_clarification(monkeypatch):
+    deps = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id=None)
+    graph = build_graph(MemorySaver())
+
+    final_state = await graph.ainvoke(
+        _state("退款为什么没到账？"),
+        _config(deps["tool_manager"], deps["events"]),
+    )
+
+    assert [call[0] for call in deps["tool_manager"].calls] == ["search_policy"]
+    assert final_state["business_context"]["missing_required_facts"] == ["case_identifier"]
+    assert final_state["clarification_request"]["missing"] == ["case_identifier"]
+    assert final_state["recommendation_draft"] is None
+
+
+@pytest.mark.asyncio
 async def test_cross_turn_context_isolation_on_investigate_facts(monkeypatch):
     graph = build_graph(MemorySaver())
     thread_id = "cross-turn-thread"

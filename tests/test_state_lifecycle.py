@@ -32,6 +32,7 @@ EPHEMERAL_FIELDS = [
     "session_memory",
     "long_term_memory",
     "recommendation_draft",
+    "clarification_request",
     "risk_assessment",
     "proposed_action",
     "approval_result",

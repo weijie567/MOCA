@@ -17,6 +17,12 @@ GLOBAL_MAX_ITERATIONS_CEILING = 5
 MIN_EVIDENCE_SCORE = 0.55
 ALLOWLIST = TOOL_CALL_TOOLS | RAG_RETRIEVAL_TOOLS
 TERMINAL_STATUSES = {"success", "partial_success", "not_found", "permission_denied", "unavailable", "error"}
+_ACTION_ORIENTED_INTENTS = {"refund_troubleshooting", "compensation_suggestion"}
+_CASE_SLOT_RESOURCES = {
+    "order_id": "order",
+    "refund_case_id": "refund_case",
+    "ticket_id": "ticket",
+}
 
 
 def plan_next_step(
@@ -135,7 +141,7 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
         "facts": context["facts"],
         "business_fact_refs": context["business_fact_refs"],
         "tool_results": context["tool_results"],
-        "missing_required_facts": [],
+        "missing_required_facts": _missing_required_facts(state, context["facts"]),
         "errors": context["errors"],
         "status": _business_status(context),
     }
@@ -318,6 +324,28 @@ def _business_status(context: dict[str, Any]) -> str:
     if context["errors"]:
         return "error"
     return "insufficient"
+
+
+def _missing_required_facts(state: AgentState, facts: dict[str, Any]) -> list[str]:
+    slots = _case_slots(state)
+    missing = [
+        resource_name
+        for slot_name, resource_name in _CASE_SLOT_RESOURCES.items()
+        if slots.get(slot_name) and resource_name not in facts
+    ]
+    intent = state.get("primary_intent") or state.get("current_intent")
+    if intent in _ACTION_ORIENTED_INTENTS and not facts and not any(slots.values()):
+        missing.append("case_identifier")
+    return list(dict.fromkeys(missing))
+
+
+def _case_slots(state: AgentState) -> dict[str, Any]:
+    extracted = state.get("extracted_slots") if isinstance(state.get("extracted_slots"), dict) else {}
+    active = state.get("active_slots") if isinstance(state.get("active_slots"), dict) else {}
+    return {
+        slot_name: extracted.get(slot_name) or active.get(slot_name)
+        for slot_name in _CASE_SLOT_RESOURCES
+    }
 
 
 def _bounded_iterations(value: Any) -> int:

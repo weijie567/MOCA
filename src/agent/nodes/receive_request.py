@@ -33,6 +33,7 @@ async def receive_request(state: AgentState) -> dict:
         "business_context": None,
         "retrieved_evidence": None,
         "recommendation_draft": None,
+        "clarification_request": None,
         "risk_assessment": None,
         "primary_intent": None,
         "requested_operation": None,
