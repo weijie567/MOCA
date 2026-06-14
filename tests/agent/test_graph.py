@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -21,6 +21,7 @@ from src.business_tools.registry import ToolRegistry
 from src.business_tools.schemas import BusinessFactRefV1, ToolCallContext, ToolResultV2
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1
+from src.memory.schemas import SessionMemoryView
 
 
 INVESTIGATION_STATE_FIELDS = {
@@ -48,14 +49,14 @@ def _state(query: str, thread_id: str = "graph-test-thread") -> dict:
     }
 
 
-def _config(manager, events: list[dict[str, Any]], thread_id: str = "graph-test-thread") -> dict:
+def _config(manager, events: list[dict[str, Any]], thread_id: str = "graph-test-thread", session: Any = None) -> dict:
     async def event_emitter(**payload):
         events.append(payload)
 
     return {
         "configurable": {
             "thread_id": thread_id,
-            "session": None,
+            "session": session,
             "tool_manager": manager,
             "event_emitter": event_emitter,
             "permissions": [f"tool:{descriptor.name}" for descriptor in ToolRegistry().descriptors()],
@@ -222,6 +223,41 @@ def _patch_graph_dependencies(
     return {"tool_manager": manager, "events": events}
 
 
+def _session_memory_service(
+    *,
+    order_id: str = "ORD-SESSION-001",
+    wrong_thread: bool = False,
+    stale: bool = False,
+):
+    class FakeMemoryService:
+        def __init__(self, repository, *, enabled: bool = True) -> None:
+            pass
+
+        async def load_session_memory(self, tenant_id, user_id, thread_id, current_intent):
+            metadata = {
+                "source": "trusted_session_memory",
+                "tenant_id": tenant_id,
+                "user_id": user_id,
+                "thread_id": "wrong-thread" if wrong_thread else thread_id,
+                "fresh": not stale,
+                "expires_at": (
+                    datetime.now(UTC) - timedelta(minutes=1)
+                    if stale
+                    else datetime.now(UTC) + timedelta(minutes=5)
+                ).isoformat(),
+                "compatible_intents": [current_intent],
+            }
+            return SessionMemoryView(
+                source="postgres_session_memory",
+                continuity_claimed=True,
+                active_slots={"order_id": order_id},
+                slot_metadata={"order_id": metadata},
+                version=2,
+            )
+
+    return FakeMemoryService
+
+
 @pytest.mark.asyncio
 async def test_happy_path_policy_qa_uses_investigate_manager(monkeypatch):
     deps = _patch_graph_dependencies(monkeypatch, intent="policy_qa")
@@ -272,6 +308,50 @@ async def test_refund_path_without_case_identifier_routes_to_clarification(monke
     assert final_state["recommendation_draft"] is None
     assert final_state["final_response"] == "请提供订单号或退款单号。"
     assert final_state["llm_outputs"]["final_response"]["final_status"] == "insufficient_evidence"
+
+
+@pytest.mark.asyncio
+async def test_same_thread_session_memory_active_slots_feed_investigate(monkeypatch):
+    deps = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id=None)
+    from src.agent.nodes import session_memory_load as session_memory_load_module
+
+    monkeypatch.setattr(session_memory_load_module, "MemoryService", _session_memory_service())
+    graph = build_graph(MemorySaver())
+
+    final_state = await graph.ainvoke(
+        _state("那这个退款呢？"),
+        _config(deps["tool_manager"], deps["events"], session=object()),
+    )
+
+    assert final_state["active_slots"]["order_id"] == "ORD-SESSION-001"
+    assert final_state["active_slot_metadata"]["order_id"]["source"] == "trusted_session_memory"
+    assert final_state["active_slot_metadata"]["order_id"]["explicit_current_turn"] is False
+    assert final_state["extracted_slots"]["order_id"] is None
+    assert final_state["business_context"]["facts"]["order"]["order_no"] == "ORD-SESSION-001"
+    assert [call[0] for call in deps["tool_manager"].calls] == ["get_order", "search_policy"]
+    assert deps["tool_manager"].calls[0][1]["order_no"] == "ORD-SESSION-001"
+    assert final_state["final_response"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("memory_kwargs", [{"wrong_thread": True}, {"stale": True}])
+async def test_wrong_thread_or_stale_session_memory_routes_to_clarification(monkeypatch, memory_kwargs):
+    deps = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id=None)
+    from src.agent.nodes import session_memory_load as session_memory_load_module
+
+    monkeypatch.setattr(session_memory_load_module, "MemoryService", _session_memory_service(**memory_kwargs))
+    graph = build_graph(MemorySaver())
+
+    final_state = await graph.ainvoke(
+        _state("那这个退款呢？"),
+        _config(deps["tool_manager"], deps["events"], session=object()),
+    )
+
+    assert deps["tool_manager"].calls == []
+    assert final_state["clarification_request"]["reason"] == "missing_required_slots"
+    assert final_state["active_slots"] == {}
+    assert final_state["extracted_slots"]["order_id"] is None
+    assert final_state["final_response"] == "请提供订单号或退款单号。"
 
 
 @pytest.mark.asyncio
