@@ -151,7 +151,7 @@ src/
 | Business Tools | `src/agent/tools/get_order.py`, `get_ticket.py`, `get_refund_case.py`, repos | 当前更像本地 DB 工具，不是清晰 Business Tools service | 增加 `src/business_tools/service.py` 和 demo adapters，声明本地 DB 是 demo adapter |
 | Approval / HITL | `approval_gate`, `approvals router`, `ApprovalRequest`, `ApprovalStep` | 已有 interrupt/resume、approve/reject；审批计划、多级审批、SLA 策略仍可增强 | 增加 `rules/approval_policies.yaml`, `src/approvals/policy.py`, `src/approvals/sla.py` |
 | Actions | `execute_action`, `create_coupon_grant_draft`, `ActionDraft` | 当前执行动作主要创建草稿，无真实执行和补偿 contract | 增加 `src/actions/executor.py`，即使 demo 仍只创建 draft，也返回 execution/compensation metadata |
-| Memory | 当前已有 graph state/checkpoint/thread state 方向 | 需要更清晰区分 working/session/long-term/case memory | 增加 `src/memory/`，先做 session summary + active slots，再扩 long-term/case memory |
+| Memory | 当前已有 graph state/checkpoint/thread state 方向 | 需要更清晰区分 working memory、workflow checkpoint、session memory、long-term profile memory、case memory、audit/replay log | 增加 `src/memory/`，先做 PostgreSQL-authoritative session summary + active slots；Redis 仅可作为非权威 hot cache；再扩 long-term/case memory |
 | Intent | 当前已有 classify/extract nodes | 需要明确 intent taxonomy、confidence threshold、低置信度澄清路径 | 拆出 `src/agent/prompts/intent.py` 和 typed output schema |
 | Prompt | 当前可有 prompts 文件 | 容易混成一个大 prompt 或散落节点 | 建议按节点拆 prompt：global_policy, intent, slots, recommendation, final_response；memory write 放 `src/memory/prompts.py` |
 | Observability / Replay | `AgentRun`, `AgentStep`, traces API | 已有 trace 表；还可增强 timeline replay、OTel spans、metrics | 增加 `src/observability/replay.py`；后续参考 FastAPI observability 接 OTel/Grafana |
@@ -292,14 +292,16 @@ class ProposedAction:
 
 ## 8. 记忆设计
 
-记忆不能只有一个 vector store。推荐四层：
+记忆不能只有一个 vector store。目标设计按语义分层：
 
 | 记忆层 | 生命周期 | 内容 | 存储 | 是否给模型 |
 | --- | --- | --- | --- | --- |
-| Working Memory / Graph State | 单次 run / checkpoint thread | 当前状态、中间结果、审批状态、工具结果 | LangGraph checkpoint + AgentRun/AgentStep | 是 |
-| Session Memory / Conversation Memory | 同一会话/线程 | active slots、last intent、case summary、unresolved questions | Postgres + 可选 Redis hot cache | 是 |
-| Long-term Memory | 跨会话 | 用户偏好、商家长期模式、稳定事实 | Postgres + pgvector，可带 TTL/review | 选择性给 |
+| Working Memory / Graph State | 单次 run | 当前状态、中间结果、审批状态、工具结果 | LangGraph `AgentState` + checkpoint snapshot | 是 |
+| Workflow Checkpoint | run 恢复 | 当前节点、interrupt、幂等状态、副作用边界 | PostgreSQL checkpointer；Redis 仅可做 active-run hot cache | 否 |
+| Session Memory / Conversation Memory | 同一 tenant/user/thread | active slots、last intent、session summary、unresolved questions | PostgreSQL `session_memories` + CAS；可选 Redis hot cache | 是 |
+| Long-term Profile Memory | 跨会话 | 用户偏好、商家长期模式、稳定事实 | Postgres + pgvector，可带 TTL/review | 选择性给 |
 | Case Memory / Episodic Memory | 历史案例 | 相似 case、处理结果、审批结果、outcome | Postgres metadata + pgvector summary | 作为参考，不作为政策依据 |
+| Audit / Replay Log | 长期审计 | 输入、证据、工具调用、审批链、模型版本 | PostgreSQL append-only events/tables | 不作为 memory 注入 |
 
 ### 8.1 Working Memory
 
@@ -330,7 +332,7 @@ class AgentState(TypedDict):
 
 ### 8.2 Session Memory
 
-用于同一会话内多轮上下文：
+用于同一 tenant/user/thread 内多轮上下文：
 
 ```json
 {
@@ -339,7 +341,7 @@ class AgentState(TypedDict):
     "ticket_no": "TKT7788"
   },
   "last_intent": "refund_troubleshooting",
-  "last_case_summary": "用户正在处理 ORD123 未收到货退款争议，物流显示已签收但买家否认签收。",
+  "session_summary": "用户正在处理 ORD123 未收到货退款争议，物流显示已签收但买家否认签收。",
   "unresolved_questions": ["需要确认是否有签收凭证"]
 }
 ```
@@ -351,7 +353,7 @@ class AgentState(TypedDict):
 - 跨会话仍然有用。
 - 来自工具结果、明确用户陈述或人工标注。
 - 非敏感或已脱敏。
-- scope 明确：tenant/user/merchant/case/global。
+- scope 明确：tenant/user/merchant/thread/case；不使用 global scope。
 - 有 source_refs、confidence、expires_at/review 机制。
 - 不把历史经验当政策规则。
 

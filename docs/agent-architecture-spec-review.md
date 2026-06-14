@@ -1,5 +1,7 @@
 # Review: docs/agent-architecture-spec.md
 
+> Historical review note: this file records findings from an earlier architecture-spec review. It is not the current source of truth. The memory/checkpoint/session concerns called out below are resolved in `docs/contract-spec.md` Section 13 and `docs/agent-architecture-phase-decomposition.md` Phase 12, where workflow checkpoint, session memory, Redis hot cache, and long-term/case memory now have separate ownership.
+
 ## Executive Summary
 
 - **总体判断：暂时不能直接作为后续编码实现的主要依据。**

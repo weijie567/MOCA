@@ -57,3 +57,13 @@ MOCA 采用 Claude 与 Codex 的「双 AI 交叉评审」模式：**Claude 是 p
 
 - GSD 工具 + Codex 双审是经过验证的互补：实测中 `gsd-plan-checker` 给 0 blocker，Codex 补抓到 5 个真 blocker（含会破坏后续 replay 身份契约的 bug）。
 - 分流判定线的目标是性价比与速度的平衡：真正费 token 的不是「改几行」，而是「为改对而反复读文件」，所以把需要回读源码或结构性的改动整体交给 Codex 更划算。
+
+## spec 与 phase 实现的关系
+
+- `docs/contract-spec.md` 是 MOCA 唯一 normative 契约源，但它只定**契约语义**，不定实现细节与范围；具体落地由各 phase 决定，不把 spec 奉为金科玉律。
+- spec 描述的是「目标契约」，不是「已实现事实」。不要把目标态 normative 描述当成已经实现，也不要反向把实现妥协误当成 spec 漏洞反复返工。
+- phase 实现与 spec 不一致时**禁止静默偏离**，必须留痕，二选一：
+  - 判定是 spec 错 → 回 spec 修，走双 AI 复审流程；
+  - 判定是实现妥协（MVP 只实现一部分）→ 在 spec 就地加 MVP scope / 目标态注解，并在 `.planning/` 留决策记录。
+- defer 项必须给目标 phase 命名（如 post-Phase 17），不写模糊「以后」。
+- 阶段 B 轻量收尾复核时，差异记录是该复核的必备输入。
