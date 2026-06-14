@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import re
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import date, datetime
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +24,7 @@ CANDIDATE_MULTIPLIER = 4
 TITLE_SECTION_BOOST = 0.12
 CONTENT_OVERLAP_BOOST = 0.08
 RETRIEVAL_TIMEOUT_SECONDS = 15.0
+POLICY_NO_EVIDENCE_MESSAGE = "当前知识库中没有找到足够证据支持这个问题，建议转人工或补充规则文档。"
 
 _ALNUM_PATTERN = re.compile(r"[a-z0-9]+")
 _CJK_PATTERN = re.compile(r"[\u4e00-\u9fff]+")
@@ -95,6 +97,18 @@ def has_candidate_overlap(query_terms_value: set[str], chunk: object) -> bool:
     return overlap_ratio(query_terms_value, candidate_text) > 0
 
 
+@dataclass(frozen=True)
+class PolicyRetrievalHit:
+    doc_key: str
+    chunk_id: str
+    title: str
+    section: str
+    policy_version: str
+    text: str
+    score: float
+    rank: int
+
+
 class PolicyRetrievalEngine:
     """Public policy retrieval engine owned by the knowledge domain."""
 
@@ -121,9 +135,41 @@ class PolicyRetrievalEngine:
         doc_type: str | None = None,
         risk_level: str | None = None,
     ) -> tuple[str, list[EvidenceRefV1], float]:
+        status, hits, best_score = await self.retrieve_hits(
+            query=query,
+            context=context,
+            max_results=max_results,
+            doc_type=doc_type,
+            risk_level=risk_level,
+        )
+        evidence_refs = [
+            EvidenceRefV1.build(
+                tenant_id=context.tenant_id,
+                doc_key=hit.doc_key,
+                chunk_id=hit.chunk_id,
+                policy_version=hit.policy_version,
+                text=hit.text,
+                retrieved_at=context.effective_at,
+                retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+                score=hit.score,
+                rank=hit.rank,
+            )
+            for hit in hits
+        ]
+        return status, evidence_refs, best_score
+
+    async def retrieve_hits(
+        self,
+        *,
+        query: str,
+        context: KnowledgeContext,
+        max_results: int,
+        doc_type: str | None = None,
+        risk_level: str | None = None,
+    ) -> tuple[str, list[PolicyRetrievalHit], float]:
         try:
             return await asyncio.wait_for(
-                self._retrieve(
+                self._retrieve_hits(
                     query=query,
                     context=context,
                     max_results=max_results,
@@ -135,7 +181,15 @@ class PolicyRetrievalEngine:
         except asyncio.TimeoutError:
             return "error", [], 0.0
 
-    async def _retrieve(
+    async def get_contents_by_evidence_keys(
+        self,
+        *,
+        tenant_id: UUID,
+        keys: list[tuple[str, str]],
+    ) -> dict[tuple[str, str], str]:
+        return await self.chunk_repo.get_contents_by_evidence_keys(tenant_id, keys)
+
+    async def _retrieve_hits(
         self,
         *,
         query: str,
@@ -143,14 +197,15 @@ class PolicyRetrievalEngine:
         max_results: int,
         doc_type: str | None,
         risk_level: str | None,
-    ) -> tuple[str, list[EvidenceRefV1], float]:
-        effective_at = datetime.fromisoformat(context.effective_at.replace("Z", "+00:00"))
+    ) -> tuple[str, list[PolicyRetrievalHit], float]:
+        effective_at = _parse_effective_at(context.effective_at)
         effective_date = effective_at.date()
+        limit = max(max_results, 1)
         query_embedding = await self.embedder.embed_query(f"{QUERY_PREFIX}{query}")
         raw_results = await self.chunk_repo.search_similar(
             query_embedding=query_embedding,
             tenant_id=UUID(context.tenant_id),
-            top_k=max(max_results * CANDIDATE_MULTIPLIER, max_results),
+            top_k=max(limit * CANDIDATE_MULTIPLIER, limit),
             min_similarity=INTERNAL_SEARCH_THRESHOLD,
             doc_type=doc_type,
             risk_level=risk_level,
@@ -158,7 +213,9 @@ class PolicyRetrievalEngine:
         )
 
         effective_results = [
-            (chunk, score) for chunk, score in raw_results if chunk.effective_date <= effective_date
+            (chunk, score)
+            for chunk, score in raw_results
+            if _chunk_effective_date(chunk) is None or _chunk_effective_date(chunk) <= effective_date
         ]
         reranked_results = [
             (chunk, score)
@@ -166,34 +223,44 @@ class PolicyRetrievalEngine:
             if score >= MIN_SIMILARITY_THRESHOLD
         ]
         if has_domain_anchor(query):
-            results = reranked_results[:max_results]
+            results = reranked_results[:limit]
         else:
             terms = query_terms(query)
             results = [
                 (chunk, score)
                 for chunk, score in reranked_results
                 if score >= STRONG_EVIDENCE_THRESHOLD and has_candidate_overlap(terms, chunk)
-            ][:max_results]
+            ][:limit]
 
-        evidence_refs = [
-            EvidenceRefV1.build(
-                tenant_id=context.tenant_id,
-                doc_key=chunk.document.doc_key,
+        hits = [
+            PolicyRetrievalHit(
+                doc_key=str(chunk.document.doc_key),
                 chunk_id=chunk.chunk_id,
-                policy_version=f"v{chunk.document.version}",
+                title=str(chunk.document.title),
+                section=str(chunk.section),
+                policy_version=f"v{getattr(chunk.document, 'version', 1)}",
                 text=chunk.content,
-                retrieved_at=context.effective_at,
-                retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
                 score=score,
                 rank=rank,
             )
             for rank, (chunk, score) in enumerate(results, start=1)
         ]
-        best_score = max((ref.score or 0.0 for ref in evidence_refs), default=0.0)
-        if not evidence_refs or best_score < MIN_SIMILARITY_THRESHOLD:
+        best_score = max((hit.score for hit in hits), default=0.0)
+        if not hits or best_score < MIN_SIMILARITY_THRESHOLD:
             status = "no_evidence"
         elif best_score >= STRONG_EVIDENCE_THRESHOLD:
             status = "strong_evidence"
         else:
             status = "partial_evidence"
-        return status, evidence_refs, best_score
+        return status, hits, best_score
+
+
+def _parse_effective_at(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _chunk_effective_date(chunk: object) -> date | None:
+    value = getattr(chunk, "effective_date", None)
+    if isinstance(value, date):
+        return value
+    return None

@@ -5,24 +5,6 @@ from pydantic import ValidationError
 
 from src.agent.schemas import InvestigationResult
 from src.agent.state import AgentState
-from src.agent.tools.contracts import ToolInvocationContext, ToolRegistryEntry
-
-
-def test_legacy_contracts_are_limited_to_policy_compatibility_metadata() -> None:
-    assert "allowed_in_investigator" not in ToolRegistryEntry.model_fields
-    assert "permissions" not in ToolInvocationContext.model_fields
-    assert "merchant_scope" not in ToolInvocationContext.model_fields
-
-
-def test_legacy_context_rejects_unknown_callers() -> None:
-    with pytest.raises(ValidationError):
-        ToolInvocationContext(
-            tenant_id="tenant-09",
-            user_id="user-09",
-            role="support",
-            session=object(),
-            caller="unbounded_agent",
-        )
 
 
 def test_investigation_result_accepts_versioned_prompt_contract():

@@ -50,7 +50,7 @@ class UnifiedToolManager:
             executors={
                 "business": BusinessToolExecutor(session),
                 "knowledge": KnowledgeToolExecutor(session),
-                "memory": MemoryToolExecutor(),
+                "memory": MemoryToolExecutor(session),
                 "action": ActionToolExecutor(session),
             }
         )

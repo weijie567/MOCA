@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from uuid import uuid4
 
 import pytest
 
-from src.knowledge.schemas import KnowledgeContext, KnowledgeSearchFilters, KnowledgeSearchRequest
+from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
+from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext, KnowledgeSearchFilters, KnowledgeSearchRequest
 from src.knowledge.service import PolicyKnowledgeService
 
 
@@ -73,3 +75,72 @@ async def test_authorized_merchant_scope_calls_adapter(merchant_scope, merchant_
 
     assert result.status == "no_evidence"
     retrieve.assert_awaited_once()
+
+
+def _evidence(*, tenant_id: str, chunk_id: str = "chunk-1", text: str = "退款规则正文") -> EvidenceRefV1:
+    return EvidenceRefV1.build(
+        tenant_id=tenant_id,
+        doc_key="refund-policy",
+        chunk_id=chunk_id,
+        policy_version="v1",
+        text=text,
+        retrieved_at="2026-06-13T00:00:00Z",
+        retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+        score=0.8,
+        rank=1,
+    )
+
+
+@pytest.mark.asyncio
+async def test_verified_evidence_contents_rechecks_hash_and_tenant():
+    tenant_id = str(uuid4())
+    valid = _evidence(tenant_id=tenant_id, text="真实政策正文")
+    wrong_hash = _evidence(tenant_id=tenant_id, chunk_id="chunk-2", text="旧正文")
+    wrong_tenant = _evidence(tenant_id=str(uuid4()), chunk_id="chunk-3", text="跨租户正文")
+    get_contents = AsyncMock(
+        return_value={
+            (valid.doc_key, valid.chunk_id): "真实政策正文",
+            (wrong_hash.doc_key, wrong_hash.chunk_id): "被修改的正文",
+            (wrong_tenant.doc_key, wrong_tenant.chunk_id): "跨租户正文",
+        }
+    )
+    service = PolicyKnowledgeService(SimpleNamespace(get_contents_by_evidence_keys=get_contents))
+
+    result = await service.get_verified_evidence_contents(
+        tenant_id=tenant_id,
+        evidence_refs=[valid, wrong_hash, wrong_tenant],
+    )
+
+    assert result == {valid.evidence_id: "真实政策正文"}
+
+
+@pytest.mark.asyncio
+async def test_verified_evidence_contents_skips_duplicate_keys():
+    tenant_id = str(uuid4())
+    first = _evidence(tenant_id=tenant_id, chunk_id="same", text="正文一")
+    second = _evidence(tenant_id=tenant_id, chunk_id="same", text="正文二")
+    get_contents = AsyncMock(return_value={(first.doc_key, first.chunk_id): "正文一"})
+    service = PolicyKnowledgeService(SimpleNamespace(get_contents_by_evidence_keys=get_contents))
+
+    result = await service.get_verified_evidence_contents(
+        tenant_id=tenant_id,
+        evidence_refs=[first, second],
+    )
+
+    assert result == {}
+    get_contents.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_verified_evidence_contents_returns_empty_on_adapter_error():
+    tenant_id = str(uuid4())
+    evidence = _evidence(tenant_id=tenant_id)
+    get_contents = AsyncMock(side_effect=RuntimeError("raw db error"))
+    service = PolicyKnowledgeService(SimpleNamespace(get_contents_by_evidence_keys=get_contents))
+
+    result = await service.get_verified_evidence_contents(
+        tenant_id=tenant_id,
+        evidence_refs=[evidence],
+    )
+
+    assert result == {}

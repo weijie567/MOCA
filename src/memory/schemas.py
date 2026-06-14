@@ -75,10 +75,25 @@ class SessionMemoryWriteResult(BaseModel):
     fallback_reason: str | None = None
 
 
+class CaseMemorySearchItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    memory_id: str
+    thread_id: str
+    version: int
+    score: float = Field(ge=0.0)
+    active_slots: dict[str, str] = Field(default_factory=dict)
+    session_summary: str | None = None
+    unresolved_questions: list[Any] = Field(default_factory=list)
+    last_intent: str | None = None
+    last_business_context_refs: dict[str, Any] = Field(default_factory=dict)
+    updated_at: datetime | None = None
+
+
 class CaseMemorySearchResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: Literal["success", "unavailable"]
-    items: list[dict[str, Any]] = Field(default_factory=list)
+    items: list[CaseMemorySearchItem] = Field(default_factory=list)
     summary: str
     error_code: str | None = None

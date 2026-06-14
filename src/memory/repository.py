@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 import uuid
 
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import Text, and_, cast, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import SessionMemory
@@ -64,6 +64,49 @@ class SessionMemoryRepository:
         await self.session.flush()
         return memory
 
+    async def search_active(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        query: str,
+        limit: int = 5,
+    ) -> list[SessionMemory]:
+        filters = [
+            SessionMemory.tenant_id == tenant_id,
+            SessionMemory.user_id == user_id,
+            SessionMemory.deleted_at.is_(None),
+            or_(SessionMemory.expires_at.is_(None), SessionMemory.expires_at > func.now()),
+        ]
+
+        terms = _search_terms(query)
+        if terms:
+            searchable_fields = [
+                SessionMemory.session_summary,
+                SessionMemory.last_intent,
+                cast(SessionMemory.active_slots_json, Text),
+                cast(SessionMemory.unresolved_questions_json, Text),
+                cast(SessionMemory.last_business_context_refs_json, Text),
+            ]
+            filters.append(
+                or_(
+                    *[
+                        field.ilike(f"%{_escape_like(term)}%", escape="\\")
+                        for term in terms[:8]
+                        for field in searchable_fields
+                    ]
+                )
+            )
+
+        result = await self.session.execute(
+            select(SessionMemory)
+            .where(and_(*filters))
+            .order_by(SessionMemory.updated_at.desc(), SessionMemory.created_at.desc())
+            .limit(max(limit, 1))
+            .execution_options(populate_existing=True)
+        )
+        return list(result.scalars().all())
+
     async def cas_update(self, memory_id: uuid.UUID, expected_version: int, values: dict[str, Any]) -> bool:
         update_values = dict(values)
         update_values["version"] = SessionMemory.version + 1
@@ -87,3 +130,21 @@ class SessionMemoryRepository:
             .values(deleted_at=datetime.now(UTC), updated_at=func.now())
         )
         await self.session.flush()
+
+
+def _search_terms(query: str) -> list[str]:
+    normalized = query.strip().lower()
+    if not normalized:
+        return []
+    terms = [term for term in normalized.split() if term]
+    if len(normalized) <= 64:
+        terms.append(normalized)
+    deduped: list[str] = []
+    for term in terms:
+        if term not in deduped:
+            deduped.append(term)
+    return deduped
+
+
+def _escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")

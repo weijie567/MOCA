@@ -10,8 +10,8 @@
 - `src/business_tools/registry.py` 暂时是 catalog 兼容层，但命名仍像 business-only registry。
 - `ToolCallContext` / `ToolResultV2` 放在 `src/business_tools/schemas.py`，导致通用工具契约依赖 business 包。
 - Knowledge/RAG 同时存在 `investigate -> UnifiedToolManager` 和 `retrieve_policy_evidence -> PolicyKnowledgeService` 两条 graph-facing 路径。
-- Memory 中 session memory 已有真实 service/repository，但 `search_case_memory` 只是 catalog 声明；long-term/case memory 目前是 empty adapter。
-- 旧 `src/agent/tools/registry.py`、`src/agent/tools/adapters.py`、`src/agent/tools/search_policy.py` 仍然保留 compatibility path。
+- Memory 中 session memory 已有真实 service/repository，`search_case_memory` 已通过 `MemoryToolExecutor -> CaseMemorySearchService -> SessionMemoryRepository` 检索历史 session memory。
+- 旧 `src/agent/tools/*` compatibility path 已删除；生产和测试代码应使用 `src.tools` 与 domain packages。
 
 最终目标：
 
@@ -207,9 +207,9 @@ Current:
 - `src/knowledge/adapters.py`
 - `src/knowledge/schemas.py`
 - `src/rag/retriever.py`
-- `src/agent/tools/search_policy.py`
 - `src/agent/nodes/retrieve_policy_evidence.py`
-- `src/tools` path does not exist yet; `KnowledgeToolExecutor` currently lives inside `src/agent/tools/unified.py`
+- `src/tools/executors/knowledge.py`
+- `src/api/routers/search.py` direct `PolicyRetrievalEngine` HTTP path
 
 Target:
 
@@ -276,7 +276,8 @@ Current:
 - `src/agent/nodes/long_term_memory_retrieve.py`
   - empty adapter, sets `long_term_memory=[]`, `case_memory=[]`
 - `search_case_memory`
-  - descriptor exists, `MemoryToolExecutor` returns unavailable
+  - descriptor exists, `MemoryToolExecutor` calls `CaseMemorySearchService`
+  - uses existing `session_memories` storage with tenant/user scope, deleted/expired filtering, and safe projection
 
 Recommended target:
 
@@ -300,8 +301,8 @@ Keep two separate memory concepts:
      - `MemoryToolExecutor`
    - domain owner:
      - future `CaseMemorySearchService` or `MemorySearchService`
-   - current implementation:
-     - return `unavailable` or use `long_term_memory_retrieve` empty adapter until real storage exists
+  - current implementation:
+    - searches existing session memory records for relevant prior case context
 
 Recommended cleanup:
 
@@ -309,8 +310,7 @@ Recommended cleanup:
 - Keep `memory_write.py` direct to `MemoryService` for now because it is deterministic post-response persistence with PII policy and timeout behavior.
 - Do not expose `write_session_memory` to planner.
 - Add a node-only catalog entry later only if another graph node needs manager-enforced idempotency/permission for memory writes.
-- Replace `long_term_memory_retrieve.py` with manager-backed `search_case_memory` only after a real case-memory retrieval service exists.
-- Until then, leave `search_case_memory` as declared unavailable and keep `long_term_memory_retrieve.py` as explicit empty adapter.
+- Replace `long_term_memory_retrieve.py` with manager-backed `search_case_memory` in a later graph simplification phase if the empty adapter is no longer useful.
 
 This keeps memory clear:
 
@@ -358,12 +358,13 @@ Catalog stance:
 
 - Phase 1 已开始落地：新增 `src/tools/contracts.py`、`src/tools/catalog.py`、`src/tools/manager.py`、`src/tools/validation.py`，旧 `business_tools.schemas` / `business_tools.registry` 改为兼容导出。
 - Phase 2 已开始落地：新增 `src/tools/executors/{business,knowledge,memory,action}.py`，生产节点开始从 `src.tools` 导入 manager/contracts。
-- Phase 3 已开始落地：新增 `src/business/{service,adapters,schemas}.py` 和 `src/integrations/demo_business/*`，`BusinessToolExecutor` / `load_business_context` 已改用 `src.business`，旧 `business_tools` 和 `agent.tools.get_*` 降为兼容 wrapper。
-- Phase 4 已开始落地：新增 `src/knowledge/retrieval.py`，`KnowledgeToolExecutor` 默认使用 `PolicyRetrievalEngine -> PolicyKnowledgeService`，`retrieve_policy_evidence` 改为 `UnifiedToolManager.invoke("search_policy")` wrapper，旧 `LegacyRagKnowledgeAdapter` 降为兼容 alias。
-- Phase 5 已开始落地：新增 `src/memory/search.py` 和 `CaseMemorySearchResult`，`MemoryToolExecutor` 调 `CaseMemorySearchService`，当前仍返回 unavailable placeholder。
-- Phase 6 已开始落地：新增 `src/actions/{service,drafts,schemas}.py`，`ActionToolExecutor` 直连 `ActionService`，旧 `src.agent.tools.create_coupon_grant_draft` 降为兼容 wrapper。
+- Phase 3 已落地：新增 `src/business/{service,adapters,schemas}.py` 和 `src/integrations/demo_business/*`，`BusinessToolExecutor` / `load_business_context` 已改用 `src.business`，旧 `business_tools` 保留兼容导出，`src.agent.tools.get_*` wrapper 已删除。
+- Phase 4 已落地：新增 `src/knowledge/retrieval.py`，`KnowledgeToolExecutor` 默认使用 `PolicyRetrievalEngine -> PolicyKnowledgeService`，`retrieve_policy_evidence` 改为 `UnifiedToolManager.invoke("search_policy")` wrapper，API search endpoint 已直接切到 `PolicyRetrievalEngine` 并保持 HTTP response contract。
+- Phase 5 已落地：新增真实 `src/memory/search.py` 和 `CaseMemorySearchResult` / `CaseMemorySearchItem`，`MemoryToolExecutor` 调 `CaseMemorySearchService` 检索 `session_memories`。
+- Phase 6 已落地：新增 `src/actions/{service,drafts,schemas}.py`，`ActionToolExecutor` 直连 `ActionService`，旧 `src.agent.tools.create_coupon_grant_draft` wrapper 已删除。
 - Phase 8 已开始落地：新增 `tests/architecture/test_tool_boundaries.py`，先锁住 graph node 不再 import legacy agent tools/raw integrations、manager 不直接 import domain service、domain package 不反向 import graph/manager。
-- 尚未执行：legacy `src/agent/tools/*` 删除、API search endpoint 是否也切到 knowledge retrieval engine、真实 `search_case_memory` storage/retrieval、recommendation citation content fetch 的 repository 边界清理。
+- Phase 7 已落地：legacy `src/agent/tools/*` 和旧 API 测试已删除，`rg "src.agent.tools" src tests` 不应出现生产/测试依赖。
+- Citation content re-fetch 已收进 `PolicyKnowledgeService.get_verified_evidence_contents(...)`；`generate_recommendation` 不再直接 import `PolicyChunkRepository`。
 
 ### Phase 1: Extract Neutral Tool Package
 
@@ -456,7 +457,7 @@ Current migration note:
 - `src/business/service.py`, `src/business/adapters.py`, and `src/business/schemas.py` are the production business package.
 - `src/integrations/demo_business/{orders,refunds,tickets,authz}.py` owns demo DB reads and merchant ownership checks.
 - `src/business_tools/{service,adapters,schemas}.py` remain compatibility exports.
-- `src/agent/tools/{get_order,get_refund_case,get_ticket,authz}.py` remain compatibility wrappers and should be deleted in Phase 7.
+- `src/agent/tools/{get_order,get_refund_case,get_ticket,authz}.py` compatibility wrappers have been deleted.
 
 ### Phase 4: Rebuild Knowledge/RAG Around One Public Retrieval Engine
 
@@ -488,8 +489,9 @@ Current migration note:
 
 - `src.agent.nodes.retrieve_policy_evidence` is now a compatibility wrapper over `UnifiedToolManager`.
 - `src.knowledge.adapters.LegacyRagKnowledgeAdapter` remains only as a compatibility alias to `PolicyRetrievalEngine`.
-- `src.agent.tools.search_policy`, `src.agent.tools.adapters`, and `src.agent.tools.registry` still exist for old compatibility tests and should be deleted in Phase 7.
-- `src.api.routers.search` still uses `src.rag.retriever.Retriever`; decide separately whether API search should return the legacy `RetrievalResult` contract or move behind `PolicyRetrievalEngine`.
+- `src.agent.tools.search_policy`, `src.agent.tools.adapters`, and `src.agent.tools.registry` have been deleted.
+- `src.api.routers.search` now uses `PolicyRetrievalEngine.retrieve_hits(...)` directly while preserving the legacy `RetrievalResult` HTTP contract.
+- `src.rag.retriever.Retriever` remains only as a compatibility facade over `PolicyRetrievalEngine`, not as a second retrieval implementation.
 
 ### Phase 5: Clarify Memory Integration
 
@@ -515,8 +517,8 @@ Acceptance:
 Current migration note:
 
 - `src/memory/search.py` now provides `CaseMemorySearchService`.
-- `MemoryToolExecutor` calls `CaseMemorySearchService.search(...)`.
-- Current service implementation returns typed unavailable placeholder; no session memory write path was changed.
+- `MemoryToolExecutor` calls `CaseMemorySearchService.search(...)` with a `SessionMemoryRepository` built from the manager session.
+- `CaseMemorySearchService` searches existing `session_memories` by tenant/user scope and projects bounded, structured case memory items. No session memory write path was changed.
 
 ### Phase 6: Move Actions Into Domain Package
 
@@ -543,7 +545,7 @@ Current migration note:
 - `src/actions/service.py` owns UUID validation, idempotency conflict mapping, safe action errors, and draft transaction handling.
 - `src/actions/drafts.py` wraps `ActionDraftRepository`.
 - `src/tools/executors/action.py` calls `ActionService` directly.
-- `src/agent/tools/create_coupon_grant_draft.py` remains as a compatibility wrapper and should be deleted in Phase 7.
+- `src/agent/tools/create_coupon_grant_draft.py` compatibility wrapper has been deleted.
 
 ### Phase 7: Delete Legacy Agent Tools
 
@@ -593,7 +595,7 @@ Current migration note:
   - graph nodes do not import `src.agent.tools` or `src.integrations`
   - `src.tools.manager` does not directly import domain services
   - domain packages do not import graph nodes or `src.tools.manager`
-- Repository imports from `generate_recommendation` are not blocked yet because citation text re-fetch still uses `PolicyChunkRepository` directly; move that behind a knowledge service before tightening the repository rule.
+- `generate_recommendation` citation text re-fetch now goes through `PolicyKnowledgeService`; repository imports from graph nodes can be tightened in a later static boundary pass.
 
 ## Suggested Execution Order
 

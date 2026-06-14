@@ -57,18 +57,22 @@ def _retrieval_state(*, evidence: list[EvidenceRefV1] | None = None) -> dict:
     }
 
 
-def _with_repo(monkeypatch, contents):
+def _with_knowledge_service(monkeypatch, contents):
     calls = []
 
-    class FakeRepo:
-        def __init__(self, session):
-            assert session is not None
+    class FakeKnowledgeService:
+        def __init__(self, retriever):
+            assert retriever is not None
 
-        async def get_contents_by_evidence_keys(self, tenant_id, keys):
-            calls.append((tenant_id, keys))
-            return contents
+        async def get_verified_evidence_contents(self, *, tenant_id, evidence_refs):
+            calls.append((tenant_id, [(ref.doc_key, ref.chunk_id) for ref in evidence_refs]))
+            return {
+                ref.evidence_id: contents[(ref.doc_key, ref.chunk_id)]
+                for ref in evidence_refs
+                if (ref.doc_key, ref.chunk_id) in contents
+            }
 
-    monkeypatch.setattr(generate_recommendation_module, "PolicyChunkRepository", FakeRepo)
+    monkeypatch.setattr(generate_recommendation_module, "PolicyKnowledgeService", FakeKnowledgeService)
     return calls
 
 
@@ -162,7 +166,7 @@ async def test_prompt_includes_bounded_policy_text(monkeypatch, base_state):
     evidence = _evidence(tenant_id=base_state["tenant_id"], text=full_text)
     fake_llm = CapturingLLM(_draft())
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
-    calls = _with_repo(monkeypatch, {(evidence.doc_key, evidence.chunk_id): full_text})
+    calls = _with_knowledge_service(monkeypatch, {(evidence.doc_key, evidence.chunk_id): full_text})
 
     await generate_recommendation_module.generate_recommendation(
         {**base_state, **_retrieval_state(evidence=[evidence])},
@@ -182,7 +186,7 @@ async def test_hash_mismatch_content_is_not_grounded(monkeypatch, base_state):
     evidence = _evidence(tenant_id=base_state["tenant_id"], text=distinctive_rule)
     fake_llm = CapturingLLM(_draft())
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
-    _with_repo(monkeypatch, {(evidence.doc_key, evidence.chunk_id): distinctive_rule + " changed"})
+    _with_knowledge_service(monkeypatch, {})
 
     await generate_recommendation_module.generate_recommendation(
         {**base_state, **_retrieval_state(evidence=[evidence])},
@@ -198,7 +202,7 @@ async def test_policy_text_never_persisted(monkeypatch, base_state):
     evidence = _evidence(tenant_id=base_state["tenant_id"], text=policy_text)
     retrieval_state = _retrieval_state(evidence=[evidence])
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_draft()))
-    _with_repo(monkeypatch, {(evidence.doc_key, evidence.chunk_id): policy_text})
+    _with_knowledge_service(monkeypatch, {(evidence.doc_key, evidence.chunk_id): policy_text})
 
     result = await generate_recommendation_module.generate_recommendation(
         {**base_state, **retrieval_state},
@@ -217,7 +221,7 @@ async def test_text_hash_uses_full_content_not_truncated(monkeypatch, base_state
     evidence = _evidence(tenant_id=base_state["tenant_id"], text=full_text)
     fake_llm = CapturingLLM(_draft())
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
-    _with_repo(monkeypatch, {(evidence.doc_key, evidence.chunk_id): full_text})
+    _with_knowledge_service(monkeypatch, {(evidence.doc_key, evidence.chunk_id): full_text})
 
     result = await generate_recommendation_module.generate_recommendation(
         {**base_state, **_retrieval_state(evidence=[evidence])},
@@ -251,7 +255,7 @@ async def test_cross_tenant_ref_is_not_grounded(monkeypatch, base_state):
     evidence = _evidence(text=policy_text)
     fake_llm = CapturingLLM(_draft())
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
-    _with_repo(monkeypatch, {(evidence.doc_key, evidence.chunk_id): policy_text})
+    _with_knowledge_service(monkeypatch, {})
 
     await generate_recommendation_module.generate_recommendation(
         {**base_state, **_retrieval_state(evidence=[evidence])},
@@ -259,6 +263,10 @@ async def test_cross_tenant_ref_is_not_grounded(monkeypatch, base_state):
     )
 
     assert policy_text not in fake_llm.messages[-1]["content"]
+
+
+def test_generate_recommendation_does_not_import_policy_chunk_repository():
+    assert not hasattr(generate_recommendation_module, "PolicyChunkRepository")
 
 
 @pytest.mark.asyncio

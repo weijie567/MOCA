@@ -245,8 +245,8 @@ async def test_search_policy_projects_merchant_scope_for_knowledge_service(merch
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("tool_name", ["search_sop", "search_case_memory"])
-async def test_declared_future_tools_return_unavailable(tool_name):
+async def test_declared_future_search_sop_returns_unavailable():
+    tool_name = "search_sop"
     manager = UnifiedToolManager(executors=[KnowledgeToolExecutor(session=None, service=object()), MemoryToolExecutor()])
 
     result = await manager.invoke(tool_name, {"query": "refund"}, _ctx(tool=tool_name))
@@ -263,10 +263,9 @@ async def test_search_case_memory_dispatches_to_memory_search_service():
         async def search(self, *, query, context):
             self.calls.append((query, context))
             return CaseMemorySearchResult(
-                status="unavailable",
+                status="success",
                 items=[],
-                summary="Case memory search is not available",
-                error_code="TOOL_UNAVAILABLE",
+                summary="No relevant case memory found",
             )
 
     service = FakeMemorySearchService()
@@ -274,7 +273,8 @@ async def test_search_case_memory_dispatches_to_memory_search_service():
 
     result = await manager.invoke("search_case_memory", {"query": "similar refund case"}, _ctx(tool="search_case_memory"))
 
-    assert result.status == "unavailable"
+    assert result.status == "success"
+    assert result.data == {"items": []}
     assert service.calls[0][0] == "similar refund case"
 
 

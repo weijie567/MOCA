@@ -16,7 +16,6 @@ from sqlalchemy.pool import NullPool
 from src.agent.graph import build_graph
 from src.agent.schemas import IntentResultV3, RecommendationDraft, RiskAssessment, SlotExtractionResult
 from src.agent.state import AgentState
-from src.agent.tools.unified import UnifiedToolManager
 from src.api.main import app
 from src.auth.jwt import hash_password
 from src.business_tools.registry import ToolRegistry
@@ -25,6 +24,7 @@ from src.db.models import Base, Merchant, Order, RefundCase, Tenant, Ticket, Use
 from src.db.session import get_session
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1
+from src.tools.manager import UnifiedToolManager
 
 
 TEST_DATABASE_URL = "postgresql+asyncpg://moca:moca_dev@localhost:5432/moca_test"

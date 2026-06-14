@@ -16,12 +16,12 @@ from src.agent.nodes import classify_intent as classify_intent_module
 from src.agent.nodes import extract_slots as extract_slots_module
 from src.agent.nodes import generate_recommendation as generate_recommendation_module
 from src.agent.routing import route_after_intent, route_after_investigate, route_after_slots
-from src.agent.tools.unified import UnifiedToolManager
 from src.business_tools.registry import ToolRegistry
 from src.business_tools.schemas import BusinessFactRefV1, ToolCallContext, ToolResultV2
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1
 from src.memory.schemas import SessionMemoryView
+from src.tools.manager import UnifiedToolManager
 
 
 INVESTIGATION_STATE_FIELDS = {

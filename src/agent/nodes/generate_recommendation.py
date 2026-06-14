@@ -5,7 +5,6 @@ import logging
 import time
 from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID
 
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
@@ -22,9 +21,9 @@ from src.knowledge.config import (
     MAX_PROMPT_EVIDENCE_ITEMS,
     MAX_PROMPT_EVIDENCE_TOTAL_CHARS,
 )
+from src.knowledge.retrieval import PolicyRetrievalEngine
 from src.knowledge.schemas import EvidenceRefV1
-from src.knowledge.text_hash import evidence_text_hash
-from src.repositories.policy_chunk_repo import PolicyChunkRepository
+from src.knowledge.service import PolicyKnowledgeService
 
 logger = logging.getLogger(__name__)
 
@@ -136,35 +135,21 @@ async def generate_recommendation(state: AgentState, config: RunnableConfig = No
         return {"trace_steps": (state.get("trace_steps") or []) + [_trace_step("skipped", started_at)]}
 
     evidence_items = list(_retrieval_data(state).get("evidence_refs") or [])
+    evidence_models = [EvidenceRefV1(**item) for item in evidence_items]
     text_by_evidence_id: dict[str, str] = {}
     session = ((config or {}).get("configurable") or {}).get("session")
     if session is None:
         logger.warning("Policy evidence content re-fetch skipped because no session is available")
     else:
-        key_counts: dict[tuple[str, str], int] = {}
-        for item in evidence_items:
-            key = (item.get("doc_key") or "", item.get("chunk_id") or "")
-            key_counts[key] = key_counts.get(key, 0) + 1
-        keys = [key for key, count in key_counts.items() if count == 1 and all(key)]
         try:
-            contents = await PolicyChunkRepository(session).get_contents_by_evidence_keys(
-                UUID(state["tenant_id"]),
-                keys,
+            text_by_evidence_id = await PolicyKnowledgeService(
+                PolicyRetrievalEngine(session)
+            ).get_verified_evidence_contents(
+                tenant_id=state["tenant_id"],
+                evidence_refs=evidence_models,
             )
         except Exception:
             logger.warning("Policy evidence content re-fetch failed; continuing without grounded text")
-        else:
-            for item in evidence_items:
-                key = (item.get("doc_key") or "", item.get("chunk_id") or "")
-                content = contents.get(key)
-                if (
-                    key_counts.get(key) == 1
-                    and item.get("tenant_id") == state.get("tenant_id")
-                    and content is not None
-                    and evidence_text_hash(content) == item.get("text_hash")
-                ):
-                    text_by_evidence_id[item["evidence_id"]] = content
-    evidence_models = [EvidenceRefV1(**item) for item in evidence_items]
     evidence_by_id = {item["evidence_id"]: item for item in evidence_items}
     evidence_id_by_citation = {
         (item.get("doc_key"), item.get("chunk_id")): item["evidence_id"] for item in evidence_items
