@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from src.agent.nodes import retrieve_policy_evidence as retrieve_policy_evidence_module
-from src.business_tools.registry import ToolRegistry
+from src.tools.catalog import ToolCatalog
 from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import KnowledgeSearchResult
 from src.tools.contracts import ToolCallContext, ToolResultV2
@@ -152,14 +152,14 @@ class TestPolicyRetrievalOwnership:
 
 class TestRetrievalDescriptorsDeclarationOnly:
     """search_policy, search_sop, search_case_memory descriptors exist in the
-    tool catalog as declaration/validation catalog entries. ToolRegistry is
+    tool catalog as declaration/validation catalog entries. ToolCatalog is
     declaration-only; UnifiedToolManager owns graph-facing execution."""
 
     @pytest.fixture()
-    def registry(self) -> ToolRegistry:
-        return ToolRegistry()
+    def registry(self) -> ToolCatalog:
+        return ToolCatalog()
 
-    def _descriptor_map(self, registry: ToolRegistry) -> dict:
+    def _descriptor_map(self, registry: ToolCatalog) -> dict:
         return {d.name: d for d in registry.descriptors()}
 
     def test_search_policy_descriptor_exists(self, registry):
@@ -203,10 +203,8 @@ class TestRetrievalDescriptorsDeclarationOnly:
 
     @pytest.mark.asyncio
     async def test_search_policy_returns_unavailable_through_registry(self, registry):
-        """Invoking search_policy through ToolRegistry returns unavailable
+        """Invoking search_policy through ToolCatalog returns unavailable
         because the registry is declaration-only."""
-        from src.business_tools.schemas import ToolCallContext
-
         ctx = ToolCallContext(
             tenant_id="t-1",
             user_id="u-1",
@@ -229,8 +227,6 @@ class TestRetrievalDescriptorsDeclarationOnly:
 
     @pytest.mark.asyncio
     async def test_search_sop_returns_unavailable_through_registry(self, registry):
-        from src.business_tools.schemas import ToolCallContext
-
         ctx = ToolCallContext(
             tenant_id="t-1",
             user_id="u-1",
@@ -249,8 +245,6 @@ class TestRetrievalDescriptorsDeclarationOnly:
 
     @pytest.mark.asyncio
     async def test_search_case_memory_returns_unavailable_through_registry(self, registry):
-        from src.business_tools.schemas import ToolCallContext
-
         ctx = ToolCallContext(
             tenant_id="t-1",
             user_id="u-1",
@@ -275,13 +269,13 @@ class TestRetrievalDescriptorsDeclarationOnly:
 class TestBusinessReadDescriptorsDeclared:
     """The executable business-read descriptors (get_order, get_refund_case,
     get_ticket) remain declared in the catalog. Their adapters live in
-    BusinessToolService, not ToolRegistry."""
+    BusinessToolService, not ToolCatalog."""
 
     @pytest.fixture()
-    def registry(self) -> ToolRegistry:
-        return ToolRegistry()
+    def registry(self) -> ToolCatalog:
+        return ToolCatalog()
 
-    def _descriptor_map(self, registry: ToolRegistry) -> dict:
+    def _descriptor_map(self, registry: ToolCatalog) -> dict:
         return {d.name: d for d in registry.descriptors()}
 
     def test_get_order_descriptor_exists(self, registry):
@@ -315,8 +309,8 @@ class TestWriteDescriptorDeclaredOnly:
     """Write tools are declared in the registry but cannot execute there."""
 
     @pytest.fixture()
-    def registry(self) -> ToolRegistry:
-        return ToolRegistry()
+    def registry(self) -> ToolCatalog:
+        return ToolCatalog()
 
     def test_create_coupon_grant_draft_descriptor_exists(self, registry):
         descriptors = {d.name: d for d in registry.descriptors()}
@@ -325,9 +319,7 @@ class TestWriteDescriptorDeclaredOnly:
 
     @pytest.mark.asyncio
     async def test_write_tool_unavailable_through_declaration_catalog(self, registry):
-        """Write tool invocation fails closed in ToolRegistry."""
-        from src.business_tools.schemas import ToolCallContext
-
+        """Write tool invocation fails closed in ToolCatalog."""
         ctx = ToolCallContext(
             tenant_id="t-1",
             user_id="u-1",

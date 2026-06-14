@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from src.business_tools.schemas import (
+from src.tools.contracts import (
     BusinessFactRefV1,
     ToolCallContext,
     ToolResultV2,

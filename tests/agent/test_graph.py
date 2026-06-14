@@ -16,11 +16,11 @@ from src.agent.nodes import classify_intent as classify_intent_module
 from src.agent.nodes import extract_slots as extract_slots_module
 from src.agent.nodes import generate_recommendation as generate_recommendation_module
 from src.agent.routing import route_after_intent, route_after_investigate, route_after_slots
-from src.business_tools.registry import ToolRegistry
-from src.business_tools.schemas import BusinessFactRefV1, ToolCallContext, ToolResultV2
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1
 from src.memory.schemas import SessionMemoryView
+from src.tools.catalog import ToolCatalog
+from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolResultV2
 from src.tools.manager import UnifiedToolManager
 
 
@@ -59,7 +59,7 @@ def _config(manager, events: list[dict[str, Any]], thread_id: str = "graph-test-
             "session": session,
             "tool_manager": manager,
             "event_emitter": event_emitter,
-            "permissions": [f"tool:{descriptor.name}" for descriptor in ToolRegistry().descriptors()],
+            "permissions": [f"tool:{descriptor.name}" for descriptor in ToolCatalog().descriptors()],
             "merchant_scope": {"merchant_ids": ["*"]},
             "trace_id": "graph-trace",
         }
@@ -123,7 +123,7 @@ def _risk() -> dict:
 
 class FakeGraphToolManager:
     def __init__(self, *, order_id: str | None = None, policy_status: str = "strong_evidence") -> None:
-        self._descriptors = {descriptor.name: descriptor for descriptor in ToolRegistry().descriptors()}
+        self._descriptors = {descriptor.name: descriptor for descriptor in ToolCatalog().descriptors()}
         self.order_id = order_id
         self.policy_status = policy_status
         self.calls: list[tuple[str, dict[str, Any], ToolCallContext]] = []

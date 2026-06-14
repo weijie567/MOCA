@@ -4,8 +4,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.business_tools.registry import RegisteredTool, ToolDescriptor, ToolRegistry, _validate_json_value
-from src.business_tools.schemas import ToolCallContext
+from src.tools.catalog import RegisteredTool, ToolCatalog, ToolDescriptor
+from src.tools.contracts import ToolCallContext
+from src.tools.validation import _validate_json_value
 
 
 def _context() -> ToolCallContext:
@@ -25,11 +26,11 @@ def _context() -> ToolCallContext:
 
 
 def _descriptor(name: str) -> ToolDescriptor:
-    return next(descriptor for descriptor in ToolRegistry().descriptors() if descriptor.name == name)
+    return next(descriptor for descriptor in ToolCatalog().descriptors() if descriptor.name == name)
 
 
 def test_descriptor_table_is_single_source_for_investigate_names_and_resource_types() -> None:
-    descriptors = ToolRegistry().descriptors()
+    descriptors = ToolCatalog().descriptors()
     investigate_names = {descriptor.name for descriptor in descriptors if "investigate" in descriptor.caller_allowlist}
 
     assert investigate_names == {
@@ -53,16 +54,16 @@ def test_descriptor_table_is_single_source_for_investigate_names_and_resource_ty
 
 
 def test_default_catalog_does_not_register_executable_adapters() -> None:
-    registry = ToolRegistry()
+    catalog = ToolCatalog()
 
-    assert all(tool.adapter is None for tool in registry._tools.values())
+    assert all(tool.adapter is None for tool in catalog._tools.values())
 
 
 def test_duplicate_descriptor_name_is_rejected() -> None:
     descriptor = _descriptor("get_order")
 
     with pytest.raises(ValueError, match="Duplicate tool registry entry"):
-        ToolRegistry([RegisteredTool(descriptor=descriptor), RegisteredTool(descriptor=descriptor)])
+        ToolCatalog([RegisteredTool(descriptor=descriptor), RegisteredTool(descriptor=descriptor)])
 
 
 def test_action_descriptor_is_node_only_and_requires_idempotency() -> None:
@@ -94,9 +95,9 @@ def test_json_schema_helper_rejects_invalid_input(value: object, schema: dict) -
 @pytest.mark.asyncio
 async def test_declaration_only_invoke_fails_closed_without_adapter_execution() -> None:
     adapter = AsyncMock()
-    registry = ToolRegistry([RegisteredTool(descriptor=_descriptor("get_order"), adapter=adapter)])
+    catalog = ToolCatalog([RegisteredTool(descriptor=_descriptor("get_order"), adapter=adapter)])
 
-    result = await registry.invoke("get_order", {"order_no": "ORD-1"}, _context(), AsyncMock())
+    result = await catalog.invoke("get_order", {"order_no": "ORD-1"}, _context(), AsyncMock())
 
     assert result.status == "unavailable"
     assert result.error is not None
@@ -106,7 +107,7 @@ async def test_declaration_only_invoke_fails_closed_without_adapter_execution() 
 
 @pytest.mark.asyncio
 async def test_unknown_tool_returns_not_found_with_integer_latency() -> None:
-    result = await ToolRegistry([]).invoke("unknown", {}, _context(), AsyncMock())
+    result = await ToolCatalog([]).invoke("unknown", {}, _context(), AsyncMock())
 
     assert result.status == "not_found"
     assert result.data is None

@@ -286,6 +286,3 @@ class ToolCatalog:
             latency_ms=0,
             audit_ref=None,
         )
-
-
-ToolRegistry = ToolCatalog

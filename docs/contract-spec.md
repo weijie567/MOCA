@@ -160,7 +160,7 @@ BusinessToolService facade signature:
 
 边界：
 
-- `invoke_tool` 是 normative 单工具 dispatch 接口。它必须委托 §12.6 `ToolRegistry` 按 `name` 查 descriptor，先校验 `ctx.caller_node` allowlist、required permission 和 input schema，再执行 adapter，并将 adapter 实现结果适配为 `ToolResultV2`。
+- `invoke_tool` 是 business domain read dispatch 接口。Agent-facing descriptor lookup、`ctx.caller_node` allowlist、required permission、input schema、side-effect 和 output schema 校验由 §12.6 `UnifiedToolManager` / `ToolCatalog` 统一负责；`BusinessToolService` 只保留 merchant scope/ownership、retry、business fact projection、fetch_context aggregation 和 adapter 调用。
 - `fetch_context` 保留用于非-loop 的一次性聚合场景；`investigate` bounded loop 必须通过 `invoke_tool` 逐个调用只读工具，并遵守 §9.4 loop 契约。
 - 只读工具可以自动调用。
 - 写工具不能由 business tool read node 执行。
@@ -1023,9 +1023,9 @@ Contract rules：
 - Write/action tools are not called through this read-tool contract; they go through `ActionExecutor` after approval/action policy checks.
 - `policy_evidence_refs` 只能承载 KnowledgeService 产出的 policy `EvidenceRefV1`；business read tools 必须留空。业务事实出处使用 typed `BusinessFactRefV1` 的 `business_fact_refs`，不得把订单/退款/工单事实伪造成带 `policy_version`/`chunk_id`/`retrieval_config_version` 的 `EvidenceRefV1`。
 
-### 12.6 Tool registry contract
+### 12.6 Unified tool catalog and manager contract
 
-`ToolRegistry` 是工具声明、dispatch 与契约校验的 normative 单一入口。每个工具必须以一个 `ToolDescriptor` 单点声明；§12.1 / §12.2 工具列表、§12.4 node-level allowlist 和 §12.5 `BusinessFactRefV1.resource_type` 枚举必须由 registry 派生或对 registry 做一致性校验，新增工具不得通过分别手改多张清单形成漂移。
+`ToolCatalog` 是工具声明的 normative 单一来源，`UnifiedToolManager` 是 graph-facing dispatch 与契约校验入口。每个工具必须以一个 `ToolDescriptor` 单点声明；§12.1 / §12.2 工具列表、§12.4 node-level allowlist 和 §12.5 `BusinessFactRefV1.resource_type` 枚举必须由 catalog 派生或对 catalog 做一致性校验，新增工具不得通过分别手改多张清单形成漂移。
 
 ```python
 class ToolDescriptor(BaseModel):
@@ -1040,17 +1040,21 @@ class ToolDescriptor(BaseModel):
     event_family: Literal["tool_call_*", "rag_retrieval_*"]
     resource_type: str | None
 
-class ToolRegistry(Protocol):
+class ToolCatalog(Protocol):
+    def descriptor(self, name: str) -> ToolDescriptor | None: ...
+    def descriptors(self) -> list[ToolDescriptor]: ...
+
+class UnifiedToolManager(Protocol):
     def invoke(self, name: str, input_data: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2: ...
 ```
 
-Registry rules：
+Catalog / manager rules：
 
-- `ToolRegistry.invoke` 必须先解析 descriptor，再校验 `ctx.caller_node`、`required_permission` 和 `input_schema`，全部通过后才可执行 adapter；adapter 输出必须按 descriptor `output_schema` 校验，并封装或适配为 `ToolResultV2`。
+- `UnifiedToolManager.invoke` 必须先从 `ToolCatalog` 解析 descriptor，再校验 `ctx.caller_node`、`required_permission`、`input_schema`、`side_effect`、`exposure` 和 action safety fields，全部通过后才可调 domain executor；executor 输出必须按 descriptor `output_schema` 校验，并封装或适配为 `ToolResultV2`。
 - `caller_allowlist` 必须使用合并后的单一节点名 `investigate`；不得声明旧节点名 `load_business_context` 或 `retrieve_policy_evidence`。
 - `kind=read|retrieval` 的 descriptor 才可出现在 `investigate` allowlist，且 `side_effect` 必须为 `none|read_only|retrieval` 之一（非写副作用）；`kind=write` 不得通过 `BusinessToolService.invoke_tool` 或 `investigate` loop 执行。
 - `event_family` 必须与 §12.4 事件族规则一致；同一 operation 只发 descriptor 指定的一族事件。
-- registry 是 read/retrieval/write 全量工具的声明与校验单一入口，但「可被 LLM 在 `investigate` loop 内调用」仅限上一条的 read/retrieval 子集；write 工具仅做声明（permission/schema 统一管理），执行走 §13/§16 risk_gate → approval → `ActionExecutor` 确定性安全链，不经 `invoke_tool`。注意当前 `ToolDescriptor.event_family` 枚举只有 `tool_call_* | rag_retrieval_*`，未覆盖 write/action 事件；write 工具的执行事件走 §17 `action_*` 事件族，Phase 9 若把 write descriptor 纳入 registry，需在实现时为其 event_family 选定 §17 action 事件族或扩展该枚举（spec 当前欠明确，留 Phase 9 决策）。
+- catalog 是 read/retrieval/write 全量工具的声明来源，但「可被 LLM 在 `investigate` loop 内调用」仅限上一条的 read/retrieval 子集；write 工具在 catalog 中声明为 node-only，执行走 §13/§16 risk_gate → approval → `execute_action` → `UnifiedToolManager.invoke` → action executor 确定性安全链。write 工具的执行事件走 §17 `action_*` 事件族。
 - 产生 `BusinessFactRefV1` 的工具，其非空 `resource_type` 必须与返回 ref 的 `resource_type` 及 §12.5 枚举一致；不产生 business fact ref 的工具使用 `null`。
 
 `investigate` allowlist 的 descriptor 概要如下；各工具的 `input_schema` / `output_schema` 在 Phase 9 实现时按 registry 落地：

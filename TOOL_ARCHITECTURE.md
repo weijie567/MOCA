@@ -258,9 +258,10 @@ src/tools/
     memory.py
     action.py
 
-src/business_tools/
+src/business/
   service.py
   adapters.py
+  schemas.py
 
 src/knowledge/
   service.py
@@ -309,14 +310,14 @@ Domain service 不 import graph node。Raw adapter 不 import manager。Domain s
 ### Phase 3: 删除重复 registry
 
 - 下线 `src/agent/tools/contracts.py` 和 `src/agent/tools/registry.py`。
-- 移除 `BusinessToolService` 内部 agent-facing `ToolRegistry` 职责。
+- 移除 `BusinessToolService` 内部 agent-facing catalog/manager 职责。
 - policy search 兼容测试迁移到 unified manager 路径。
 - graph-facing 调用不再使用旧 `ToolInvocationContext` / `ToolExecutionResult`。
 
 当前落地状态：
 
-- `src/business_tools/registry.py` 暂时承担 ToolCatalog 兼容角色，只保存 descriptor 和 schema helper。
-- `ToolRegistry.invoke(...)` 仅作为 fail-closed 兼容 shim 保留，不装载 adapter、不执行 caller allowlist、permission、input/output schema 或 side-effect 校验。
+- `src/tools/catalog.py` 是唯一 agent-facing descriptor/catalog 来源。
+- `src.business_tools` 兼容包已删除；新代码必须使用 `src.business`、`src.tools.catalog` 和 `src.tools.contracts`。
 - `BusinessToolService` 使用普通 business read adapter map；它不查 descriptor、不检查 caller allowlist、不检查 tool permission、不校验 catalog input/output schema。
 - `UnifiedToolManager` 是 agent-facing descriptor lookup、caller allowlist、permission、input schema、output schema 和 side-effect 校验入口。
 

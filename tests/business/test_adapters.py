@@ -12,7 +12,7 @@ from src.business.adapters import (
     get_refund_case_adapter,
     get_ticket_adapter,
 )
-from src.business_tools.schemas import ToolCallContext
+from src.tools.contracts import ToolCallContext
 
 
 def _context() -> ToolCallContext:

@@ -7,9 +7,9 @@ from uuid import uuid4
 import pytest
 
 from src.agent.nodes.investigate import investigate
-from src.business_tools.registry import ToolRegistry
-from src.business_tools.schemas import BusinessFactRefV1, ToolCallContext, ToolError, ToolResultV2
 from src.knowledge.schemas import EvidenceRefV1
+from src.tools.catalog import ToolCatalog
+from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolError, ToolResultV2
 
 
 def _state(plan: list[dict[str, Any]]) -> dict[str, Any]:
@@ -31,7 +31,7 @@ def _config(manager, events: list[dict[str, Any]], **overrides):
     configurable = {
         "tool_manager": manager,
         "event_emitter": event_emitter,
-        "permissions": [f"tool:{descriptor.name}" for descriptor in ToolRegistry().descriptors()],
+        "permissions": [f"tool:{descriptor.name}" for descriptor in ToolCatalog().descriptors()],
         "merchant_scope": {"merchant_ids": ["*"]},
         "trace_id": "trace-1",
         "max_iterations": 3,
@@ -43,7 +43,7 @@ def _config(manager, events: list[dict[str, Any]], **overrides):
 
 class FakeManager:
     def __init__(self, results: dict[str, ToolResultV2]) -> None:
-        self._descriptors = {descriptor.name: descriptor for descriptor in ToolRegistry().descriptors()}
+        self._descriptors = {descriptor.name: descriptor for descriptor in ToolCatalog().descriptors()}
         self.results = results
         self.calls: list[tuple[str, dict[str, Any], ToolCallContext]] = []
 

@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.business_tools.schemas import ToolCallContext, ToolError, ToolResultV2
 from src.business.service import BusinessToolService, _merchant_scope_allows
+from src.tools.contracts import ToolCallContext, ToolError, ToolResultV2
 
 
 def _context(**updates: object) -> ToolCallContext:

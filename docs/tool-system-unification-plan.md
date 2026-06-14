@@ -4,12 +4,12 @@
 
 ## 目标判断
 
-当前代码已经朝统一工具系统收敛，但仍处于中间态：
+当前代码已经朝统一工具系统收敛，主要兼容债务已清理：
 
-- `src/agent/tools/unified.py` 已承担主要 manager 职责，但还和 executor、action adapter、catalog lookup 混在一个文件里。
-- `src/business_tools/registry.py` 暂时是 catalog 兼容层，但命名仍像 business-only registry。
-- `ToolCallContext` / `ToolResultV2` 放在 `src/business_tools/schemas.py`，导致通用工具契约依赖 business 包。
-- Knowledge/RAG 同时存在 `investigate -> UnifiedToolManager` 和 `retrieve_policy_evidence -> PolicyKnowledgeService` 两条 graph-facing 路径。
+- `src/tools/{catalog,contracts,manager,executors}` 是统一工具层。
+- `src.business_tools` compatibility package 已删除；business domain code lives under `src/business`。
+- `ToolCallContext` / `ToolResultV2` / `BusinessFactRefV1` 由 `src.tools.contracts` 提供。
+- Knowledge/RAG 的 agent-facing path 走 `UnifiedToolManager -> KnowledgeToolExecutor -> PolicyKnowledgeService -> PolicyRetrievalEngine`；API search 也直接复用 `PolicyRetrievalEngine`。
 - Memory 中 session memory 已有真实 service/repository，`search_case_memory` 已通过 `MemoryToolExecutor -> CaseMemorySearchService -> SessionMemoryRepository` 检索历史 session memory。
 - 旧 `src/agent/tools/*` compatibility path 已删除；生产和测试代码应使用 `src.tools` 与 domain packages。
 
@@ -113,7 +113,7 @@ Notes:
 
 - `src/rag/embedder.py`, `src/rag/chunker.py`, and ingestion code can remain low-level infrastructure if they are shared.
 - The retrieval/rerank algorithm for policy evidence should move behind a public `src/knowledge/retrieval.py` API. Knowledge code should not import private helpers from `src/rag/retriever.py`.
-- If `src/business_tools` cannot be renamed in one step, keep compatibility import modules temporarily, but new code should target `src/business`.
+- `src/business_tools` compatibility package has been deleted; new code should target `src/business`, `src/tools.catalog`, and `src/tools.contracts`.
 
 ## Current Code Mapping
 
@@ -121,12 +121,11 @@ Notes:
 
 Current:
 
-- `src/agent/tools/unified.py`
-- `src/business_tools/registry.py`
-- `src/business_tools/schemas.py`
-- `src/agent/tools/contracts.py`
-- `src/agent/tools/registry.py`
-- `src/agent/tools/adapters.py`
+- `src/tools/contracts.py`
+- `src/tools/catalog.py`
+- `src/tools/manager.py`
+- `src/tools/validation.py`
+- `src/tools/executors/*.py`
 
 Target:
 
@@ -162,12 +161,12 @@ Delete after migration:
 
 Current:
 
-- `src/business_tools/service.py`
-- `src/business_tools/adapters.py`
-- `src/business_tools/schemas.py`
-- `src/agent/tools/get_order.py`
-- `src/agent/tools/get_refund_case.py`
-- `src/agent/tools/get_ticket.py`
+- `src/business/service.py`
+- `src/business/adapters.py`
+- `src/business/schemas.py`
+- `src/integrations/demo_business/orders.py`
+- `src/integrations/demo_business/refunds.py`
+- `src/integrations/demo_business/tickets.py`
 
 Target:
 
@@ -356,9 +355,9 @@ Catalog stance:
 
 当前执行状态：
 
-- Phase 1 已开始落地：新增 `src/tools/contracts.py`、`src/tools/catalog.py`、`src/tools/manager.py`、`src/tools/validation.py`，旧 `business_tools.schemas` / `business_tools.registry` 改为兼容导出。
+- Phase 1 已落地：新增 `src/tools/contracts.py`、`src/tools/catalog.py`、`src/tools/manager.py`、`src/tools/validation.py`，`business_tools` 兼容导出已删除。
 - Phase 2 已开始落地：新增 `src/tools/executors/{business,knowledge,memory,action}.py`，生产节点开始从 `src.tools` 导入 manager/contracts。
-- Phase 3 已落地：新增 `src/business/{service,adapters,schemas}.py` 和 `src/integrations/demo_business/*`，`BusinessToolExecutor` / `load_business_context` 已改用 `src.business`，旧 `business_tools` 保留兼容导出，`src.agent.tools.get_*` wrapper 已删除。
+- Phase 3 已落地：新增 `src/business/{service,adapters,schemas}.py` 和 `src/integrations/demo_business/*`，`BusinessToolExecutor` / `load_business_context` 已改用 `src.business`，旧 `business_tools` 兼容包与 `src.agent.tools.get_*` wrapper 已删除。
 - Phase 4 已落地：新增 `src/knowledge/retrieval.py`，`KnowledgeToolExecutor` 默认使用 `PolicyRetrievalEngine -> PolicyKnowledgeService`，`retrieve_policy_evidence` 改为 `UnifiedToolManager.invoke("search_policy")` wrapper，API search endpoint 已直接切到 `PolicyRetrievalEngine` 并保持 HTTP response contract。
 - Phase 5 已落地：新增真实 `src/memory/search.py` 和 `CaseMemorySearchResult` / `CaseMemorySearchItem`，`MemoryToolExecutor` 调 `CaseMemorySearchService` 检索 `session_memories`。
 - Phase 6 已落地：新增 `src/actions/{service,drafts,schemas}.py`，`ActionToolExecutor` 直连 `ActionService`，旧 `src.agent.tools.create_coupon_grant_draft` wrapper 已删除。
@@ -373,17 +372,15 @@ Goal: move generic contracts and manager out of `agent` and `business_tools`.
 Operations:
 
 - Add `src/tools/contracts.py`.
-- Move/copy from `src/business_tools/schemas.py`:
+- Move/copy from the old business-tool schema module:
   - `ToolCallContext`
   - `ToolRequest`
   - `ToolError`
   - `ToolResultV2` renamed to `ToolResult`
   - `BusinessFactRefV1` can stay if used by business, or move to `src/tools/contracts.py` if `ToolResult` embeds it.
-- Add compatibility aliases:
-  - `src/business_tools/schemas.py` re-exports from `src/tools/contracts.py` temporarily.
+- Compatibility aliases have been deleted; import tool contracts from `src.tools.contracts`.
 - Add `src/tools/catalog.py`.
-- Move `ToolDescriptor`, descriptor construction, and schema helper out of `src/business_tools/registry.py`.
-- Keep `src/business_tools/registry.py` as compatibility import only, then delete in a later phase.
+- Move `ToolDescriptor`, descriptor construction, and schema helper into `src/tools/catalog.py` and `src/tools/validation.py`.
 - Add `src/tools/manager.py`.
 - Move `UnifiedToolManager` out of `src/agent/tools/unified.py`.
 
@@ -395,8 +392,8 @@ Tests:
 
 Acceptance:
 
-- No code outside `src/tools` imports `ToolDescriptor` from `src/business_tools.registry`.
-- No code outside compatibility modules imports `ToolCallContext` from `src.business_tools.schemas`.
+- No code imports `src.business_tools`.
+- No code outside `src/tools` owns agent-facing descriptor/schema validation.
 
 ### Phase 2: Split Executors
 
@@ -437,8 +434,8 @@ Operations:
 
 - Create `src/business/` package.
 - Move:
-  - `src/business_tools/service.py` -> `src/business/service.py`
-  - `src/business_tools/adapters.py` -> `src/business/adapters.py`
+  - old business tool service -> `src/business/service.py`
+  - old business tool adapters -> `src/business/adapters.py`
   - business-specific schemas if any -> `src/business/schemas.py`
 - Move raw DB reads:
   - `src/agent/tools/get_order.py` -> `src/integrations/demo_business/orders.py`
@@ -456,7 +453,7 @@ Current migration note:
 
 - `src/business/service.py`, `src/business/adapters.py`, and `src/business/schemas.py` are the production business package.
 - `src/integrations/demo_business/{orders,refunds,tickets,authz}.py` owns demo DB reads and merchant ownership checks.
-- `src/business_tools/{service,adapters,schemas}.py` remain compatibility exports.
+- `src/business_tools/*` compatibility exports have been deleted.
 - `src/agent/tools/{get_order,get_refund_case,get_ticket,authz}.py` compatibility wrappers have been deleted.
 
 ### Phase 4: Rebuild Knowledge/RAG Around One Public Retrieval Engine
@@ -619,7 +616,7 @@ Run after each phase:
 
 ```bash
 uv run ruff check src tests
-uv run pytest tests/tools tests/business_tools tests/knowledge tests/memory tests/agent/test_nodes tests/test_execute_action.py -q --tb=short
+uv run pytest tests/tools tests/business tests/knowledge tests/memory tests/agent/test_nodes tests/test_execute_action.py -q --tb=short
 ```
 
 Run integration tests when touching repositories, DB models, or memory persistence:
@@ -645,7 +642,7 @@ Specific regression targets:
 
 ## Open Decisions For Review
 
-1. Rename `src/business_tools` to `src/business` now, or keep compatibility package for one milestone?
+1. Remove remaining compatibility facades such as `src.rag.retriever`, or keep them for one more milestone?
 2. Remove `retrieve_policy_evidence` node entirely, or temporarily convert it to a manager wrapper?
 3. Keep `src/rag` as low-level embedding/chunking package, or merge all policy retrieval code under `src/knowledge`?
 4. Should `memory_write` become node-only tool-managed capability, or remain deterministic node calling `MemoryService` directly?
@@ -653,7 +650,7 @@ Specific regression targets:
 
 Recommended answers:
 
-- Rename to `src/business` with compatibility re-exports.
+- `src.business_tools` has been deleted; remaining cleanup should focus on RAG compatibility and old empty memory nodes.
 - Remove `retrieve_policy_evidence` if graph already routes policy retrieval through `investigate`; otherwise wrapper for one migration phase.
 - Keep `src/rag` for low-level embed/chunk/ingest only; move policy retrieval orchestration to `src/knowledge/retrieval.py`.
 - Keep `memory_write` deterministic for now; only `search_case_memory` is planner-visible memory tool.

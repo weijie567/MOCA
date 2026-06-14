@@ -18,12 +18,12 @@ from src.agent.schemas import IntentResultV3, RecommendationDraft, RiskAssessmen
 from src.agent.state import AgentState
 from src.api.main import app
 from src.auth.jwt import hash_password
-from src.business_tools.registry import ToolRegistry
-from src.business_tools.schemas import BusinessFactRefV1, ToolCallContext, ToolResultV2
 from src.db.models import Base, Merchant, Order, RefundCase, Tenant, Ticket, User
 from src.db.session import get_session
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1
+from src.tools.catalog import ToolCatalog
+from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolResultV2
 from src.tools.manager import UnifiedToolManager
 
 
@@ -393,7 +393,7 @@ def mock_graph(monkeypatch, mock_llm_responses):
 
 class _ApprovalGraphToolManager(UnifiedToolManager):
     def __init__(self):
-        super().__init__(descriptors=ToolRegistry().descriptors())
+        super().__init__(descriptors=ToolCatalog().descriptors())
 
     def descriptors(self, caller_node: str = "investigate"):
         return [

@@ -49,7 +49,7 @@ MOCA 应该被设计为一个基于 LangGraph 的受控状态机 Agent：
 但内部按模块边界组织：
 
 agent -> knowledge
-agent -> business_tools
+agent -> business
 agent -> memory
 agent -> approvals
 agent -> actions
@@ -89,11 +89,10 @@ src/
 │   ├── schemas.py
 │   └── evidence.py
 │
-├── business_tools/
+├── business/
 │   ├── service.py
-│   ├── contracts.py
-│   ├── registry.py
-│   └── demo_adapters.py
+│   ├── schemas.py
+│   └── adapters.py
 │
 ├── memory/
 │   ├── service.py
@@ -131,7 +130,7 @@ src/
 | API / Frontend Layer | `src/api/`, `frontend/` | REST/SSE、auth、审批 UI、trace UI、chat UI |
 | LangGraph Orchestration | `src/agent/` | graph、state、nodes、routing、LLM prompt 调用，不碰底层存储细节 |
 | Knowledge / RAG | `src/knowledge/`, `src/rag/` | policy search、evidence、embedding、rerank、citation validation |
-| Business Tools | `src/business_tools/` | 订单、工单、退款、券、物流等业务能力 contract + demo adapters |
+| Business Tools | `src/business/` | 订单、工单、退款、券、物流等业务能力 contract + demo adapters |
 | Memory | `src/memory/` | session memory、long-term memory、case memory、memory read/write policy |
 | Approvals | `src/approvals/` | approval policy、approval plan、SLA、升级、审批状态流转 |
 | Actions | `src/actions/` | action draft、executor、idempotency、compensation/rollback metadata |
@@ -148,7 +147,7 @@ src/
 | --- | --- | --- | --- |
 | LangGraph 编排 | `src/agent/graph.py`, `src/agent/nodes/*`, `src/agent/state.py` | 主流程已存在，节点包括 receive/classify/extract/load/retrieve/recommend/risk/approval/execute/final | 保留现有 graph，不推翻；逐步让 node 变薄，只调用 service contract |
 | Knowledge / RAG | `src/rag/*`, `src/agent/tools/search_policy.py`, policy repos | RAG 已有，但 search_policy 仍在 agent tools 下，边界像 Agent 内部工具 | 增加 `src/knowledge/service.py` facade，让 retrieve node 调 KnowledgeService |
-| Business Tools | `src/agent/tools/get_order.py`, `get_ticket.py`, `get_refund_case.py`, repos | 当前更像本地 DB 工具，不是清晰 Business Tools service | 增加 `src/business_tools/service.py` 和 demo adapters，声明本地 DB 是 demo adapter |
+| Business Tools | `src/agent/tools/get_order.py`, `get_ticket.py`, `get_refund_case.py`, repos | 当前更像本地 DB 工具，不是清晰 Business Tools service | 增加 `src/business/service.py` 和 demo adapters，声明本地 DB 是 demo adapter |
 | Approval / HITL | `approval_gate`, `approvals router`, `ApprovalRequest`, `ApprovalStep` | 已有 interrupt/resume、approve/reject；审批计划、多级审批、SLA 策略仍可增强 | 增加 `rules/approval_policies.yaml`, `src/approvals/policy.py`, `src/approvals/sla.py` |
 | Actions | `execute_action`, `create_coupon_grant_draft`, `ActionDraft` | 当前执行动作主要创建草稿，无真实执行和补偿 contract | 增加 `src/actions/executor.py`，即使 demo 仍只创建 draft，也返回 execution/compensation metadata |
 | Memory | 当前已有 graph state/checkpoint/thread state 方向 | 需要更清晰区分 working memory、workflow checkpoint、session memory、long-term profile memory、case memory、audit/replay log | 增加 `src/memory/`，先做 PostgreSQL-authoritative session summary + active slots；Redis 仅可作为非权威 hot cache；再扩 long-term/case memory |
@@ -872,7 +871,7 @@ git clone https://github.com/lhh737/LangChain-ReAct-Agent.git
 
 1. 文档更新：README / `docs/architecture.md` 先改成目标分层架构。
 2. Knowledge facade：新增 `src/knowledge/service.py`，让 policy retrieval node 调它。
-3. Business Tools facade：新增 `src/business_tools/service.py`，让 business context node 调它。
+3. Business Tools facade：新增 `src/business/service.py`，让 business context node 调它。
 4. Memory module：新增 `src/memory/`，先做 session memory + active slots + summary。
 5. Intent prompt/schema：明确 intent taxonomy、confidence threshold、clarification path。
 6. Approval policy/SLA：新增 `rules/approval_policies.yaml`, `src/approvals/policy.py`, `src/approvals/sla.py`。
