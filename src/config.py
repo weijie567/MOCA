@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     session_memory_enabled: bool = True
     session_memory_ttl_seconds: int = 1800
     session_memory_summary_max_chars: int = 500
+    session_memory_write_timeout_seconds: float = 0.5
 
     @property
     def checkpointer_database_url(self) -> str:

@@ -8,7 +8,13 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.agent.events import EVENT_RETENTION_CLASSIFICATION, MINIMAL_EVENT_TYPES, allocate_sequence, classify_event_family, emit_event
+from src.agent.events import (
+    EVENT_RETENTION_CLASSIFICATION,
+    MINIMAL_EVENT_TYPES,
+    allocate_sequence,
+    classify_event_family,
+    emit_event,
+)
 from src.agent.trace import write_agent_run
 from src.db.models import AgentTraceEvent
 

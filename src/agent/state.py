@@ -86,6 +86,8 @@ class AgentState(TypedDict, total=False):
     case_memory: list[dict[str, Any]] | None
     claim_dependency_map: list[dict[str, Any]] | None
     session_memory: dict[str, Any] | None
+    memory_write_candidates: list[dict[str, Any]] | None
+    memory_write_result: dict[str, Any] | None
     long_term_memory: list[dict[str, Any]] | None
 
     # Phase 4: approval workflow fields.

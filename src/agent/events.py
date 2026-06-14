@@ -28,7 +28,11 @@ MINIMAL_EVENT_TYPES = {
     "llm_call_started",
     "llm_call_completed",
     "llm_call_failed",
+    "memory_write_started",
+    "memory_write_completed",
+    "memory_write_failed",
 }
+EVENT_RETENTION_CLASSIFICATION = {event_type: "minimal_event" for event_type in MINIMAL_EVENT_TYPES}
 SCHEMA_VERSION = "minimal_event_envelope.v1"
 FORBIDDEN_REDACTED_PAYLOAD_KEYS = {"data", "raw", "arguments", "prompt"}
 
