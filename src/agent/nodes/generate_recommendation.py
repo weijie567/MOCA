@@ -11,7 +11,6 @@ from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
 from src.agent.prompts import GENERATE_RECOMMENDATION_SYSTEM
-from src.agent.nodes.retrieve_policy_evidence import _merge_evidence_refs
 from src.agent.schemas import RecommendationDraft
 from src.agent.state import AgentState
 from src.config import settings
@@ -126,6 +125,21 @@ def _validated_evidence_refs(
     evidence_by_id: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     return [evidence_by_id[evidence_id] for evidence_id in cited_evidence_ids if evidence_id in evidence_by_id]
+
+
+def _merge_evidence_refs(
+    existing: list[dict[str, Any]] | None,
+    new: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[str | None] = set()
+    for ref in [*(existing or []), *(new or [])]:
+        key = ref.get("evidence_id")
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(ref)
+    return merged
 
 
 async def generate_recommendation(state: AgentState, config: RunnableConfig = None) -> dict:

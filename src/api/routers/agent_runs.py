@@ -47,7 +47,7 @@ NODE_MESSAGES: dict[str, str] = {
     "classify_intent": "正在识别意图",
     "extract_slots": "正在提取关键信息",
     "load_business_context": "正在读取订单信息",
-    "retrieve_policy_evidence": "正在检索退款规则",
+    "investigate": "正在调查订单和规则",
     "generate_recommendation": "正在生成处理建议",
     "assess_risk_and_approval": "正在评估风险",
     "approval_gate": "需要审批，等待人工决策",
@@ -505,7 +505,7 @@ def _extract_step_payload(node_name: str, update: Any) -> dict[str, Any]:
     update_mapping = _as_mapping(update)
     payload: dict[str, Any] = {}
 
-    if node_name == "retrieve_policy_evidence":
+    if node_name == "investigate":
         retrieved = _as_mapping(update_mapping.get("retrieved_evidence"))
         refs = retrieved.get("evidence_refs")
         if refs is None:

@@ -21,7 +21,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 from langchain_core.messages import AIMessage
 from langgraph.types import Command
@@ -49,21 +49,10 @@ SAFETY_CRITICAL_CATEGORIES = {
     "approval_approved",
     "approval_rejected",
 }
-BASE_GRAPH_NODES = [
-    "receive_request",
-    "classify_intent",
-    "extract_slots",
-    "load_business_context",
-    "retrieve_policy_evidence",
-    "generate_recommendation",
-    "assess_risk_and_approval",
-]
 GRAPH_CONTRACT_CATEGORIES = [
     "normal_policy_qa",
     "refund_troubleshooting",
-    "approval_required",
-    "approval_approved",
-    "approval_rejected",
+    "compensation_suggestion",
 ]
 
 
@@ -112,8 +101,24 @@ def _ci_fake_llm_responses(case: dict[str, Any]) -> dict[str, FakeLLM]:
     approval_required = bool(case.get("expected_approval_required"))
     risk_level = "high" if approval_required else "low"
     proposed_action = "issue_coupon" if "compensation" in expected_intent or approval_required else "answer_only"
+    requested_operation = "draft_action" if proposed_action != "answer_only" else "advise"
     return {
-        "classify_intent": FakeLLM({"intent": expected_intent, "confidence": 0.95, "reasoning": "ci deterministic"}),
+        "classify_intent": FakeLLM(
+            {
+                "schema_version": "intent_result.v3",
+                "primary_intent": expected_intent,
+                "requested_operation": requested_operation,
+                "confidence": 0.95,
+                "calibrated_confidence": 0.95,
+                "secondary_intents": [],
+                "required_slots": {"all_of": [], "any_of": [], "optional": []},
+                "candidate_slots": {},
+                "routing_hints": {},
+                "classifier_version": "ci",
+                "calibration_version": "ci",
+                "reason_codes": ["ci_deterministic"],
+            }
+        ),
         "extract_slots": FakeLLM(
             {
                 "order_id": _extract_seed_id(case["query"], "ORD-"),
@@ -122,6 +127,7 @@ def _ci_fake_llm_responses(case: dict[str, Any]) -> dict[str, FakeLLM]:
                 "merchant_id": None,
                 "customer_id": None,
                 "issue_type": case["category"],
+                "action_type": proposed_action if proposed_action != "answer_only" else None,
             }
         ),
         "generate_recommendation": FakeLLM(
@@ -156,6 +162,11 @@ def _ci_fake_llm_responses(case: dict[str, Any]) -> dict[str, FakeLLM]:
 
 
 def _extract_seed_id(text: str, prefix: str) -> str | None:
+    import re
+
+    match = re.search(rf"{re.escape(prefix)}[A-Za-z0-9-]+", text)
+    if match:
+        return match.group(0).rstrip(".,;:!?，。；：！？")
     for token in text.replace("，", " ").replace("。", " ").replace("？", " ").split():
         if token.startswith(prefix):
             return token.rstrip(".,;:!?")
@@ -183,7 +194,7 @@ def _ci_config(case: dict[str, Any]) -> dict[str, Any]:
     return {
         "configurable": {
             "thread_id": f"eval:{case['id']}:{case['thread_id']}",
-            "session": AsyncMock(name=f"ci_session_{case['id']}"),
+            "session": None,
         }
     }
 
@@ -249,21 +260,174 @@ def _ci_action_result(case: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _ci_tool_permissions() -> list[str]:
+    from src.tools.catalog import ToolCatalog
+
+    return [f"tool:{descriptor.name}" for descriptor in ToolCatalog().descriptors()]
+
+
+def _ci_policy_tool_result(case: dict[str, Any]):
+    from src.knowledge.schemas import EvidenceRefV1
+    from src.tools.contracts import ToolResultV2
+
+    evidence_refs = [
+        EvidenceRefV1.build(
+            tenant_id=str(deterministic_id("tenant", "demo")),
+            doc_key=doc_key,
+            chunk_id=f"{doc_key}_001",
+            policy_version="ci",
+            text=_expected_response_text(case),
+            retrieved_at=datetime.now(UTC).isoformat(),
+            retrieval_config_version="ci",
+            score=0.91,
+            rank=rank,
+        )
+        for rank, doc_key in enumerate(case.get("expected_evidence_doc_keys", []), start=1)
+    ]
+    status = "strong_evidence" if evidence_refs else "no_evidence"
+    return ToolResultV2(
+        status="success" if evidence_refs else "not_found",
+        data={"retrieval_status": status, "best_score": 0.91 if evidence_refs else 0.0, "threshold": 0.55},
+        summary=f"CI policy search returned {status}",
+        source_system="policy_knowledge_service",
+        data_freshness_at=None,
+        policy_evidence_refs=evidence_refs,
+        business_fact_refs=[],
+        error=None,
+        retryable=False,
+        retry_after_ms=None,
+        latency_ms=1,
+        audit_ref=None,
+    )
+
+
+def _ci_business_tool_result(case: dict[str, Any], name: str):
+    from src.tools.contracts import BusinessFactRefV1, ToolResultV2
+
+    resource_type_by_tool = {
+        "get_order": "order",
+        "get_refund_case": "refund_case",
+        "get_ticket": "ticket",
+    }
+    resource_type = resource_type_by_tool.get(name, "order")
+    resource_id = (
+        _extract_seed_id(case["query"], "ORD-")
+        or _extract_seed_id(case["query"], "RF-")
+        or _extract_seed_id(case["query"], "TK-")
+        or "CI-001"
+    )
+    ref = BusinessFactRefV1(
+        tenant_id=str(deterministic_id("tenant", "demo")),
+        source_system="ci",
+        resource_type=resource_type,
+        resource_id=resource_id,
+        resource_version=None,
+        data_freshness_at=datetime.now(UTC),
+        retrieved_at=datetime.now(UTC),
+    )
+    return ToolResultV2(
+        status="success",
+        data={"id": resource_id, "status": "delivered"},
+        summary=f"CI {resource_type} loaded",
+        source_system="business_tool_service",
+        data_freshness_at=datetime.now(UTC),
+        policy_evidence_refs=[],
+        business_fact_refs=[ref],
+        error=None,
+        retryable=False,
+        retry_after_ms=None,
+        latency_ms=1,
+        audit_ref=None,
+    )
+
+
+def _ci_action_tool_result(case: dict[str, Any]):
+    from src.tools.contracts import ToolResultV2
+
+    return ToolResultV2(
+        status="success",
+        data=_ci_action_result(case)["data"],
+        summary="CI action draft created",
+        source_system="action_service",
+        data_freshness_at=None,
+        policy_evidence_refs=[],
+        business_fact_refs=[],
+        error=None,
+        retryable=False,
+        retry_after_ms=None,
+        latency_ms=1,
+        audit_ref=None,
+    )
+
+
+class CiToolManager:
+    def __init__(self, case: dict[str, Any]) -> None:
+        from src.tools.catalog import ToolCatalog
+
+        self.case = case
+        self._descriptors = {descriptor.name: descriptor for descriptor in ToolCatalog().descriptors()}
+
+    def descriptors(self, caller_node: str = "investigate"):
+        return [
+            descriptor
+            for descriptor in self._descriptors.values()
+            if caller_node in descriptor.caller_allowlist and descriptor.kind != "write"
+        ]
+
+    def descriptor(self, name: str):
+        return self._descriptors.get(name)
+
+    def event_family(self, name: str) -> str:
+        family = self._descriptors[name].event_family
+        return "rag_retrieval" if family == "rag_retrieval_*" else "tool_call"
+
+    async def invoke(self, name: str, args: dict[str, Any], ctx):
+        if name == "search_policy":
+            return _ci_policy_tool_result(self.case)
+        if name in {"get_order", "get_refund_case", "get_ticket"}:
+            return _ci_business_tool_result(self.case, name)
+        if name == "create_coupon_grant_draft":
+            return _ci_action_tool_result(self.case)
+
+        from src.tools.contracts import ToolError, ToolResultV2
+
+        return ToolResultV2(
+            status="unavailable",
+            data=None,
+            summary=f"CI tool unavailable: {name}",
+            source_system="ci_tool_manager",
+            data_freshness_at=None,
+            policy_evidence_refs=[],
+            business_fact_refs=[],
+            error=ToolError(code="TOOL_UNAVAILABLE", safe_message="CI tool unavailable", retryable=False, source="tool"),
+            retryable=False,
+            retry_after_ms=None,
+            latency_ms=0,
+            audit_ref=None,
+        )
+
+
 async def _run_graph_contract_case(case: dict[str, Any]) -> list[str]:
     from langgraph.checkpoint.memory import MemorySaver
 
     from src.agent.graph import build_graph
     from src.agent.nodes import assess_risk_and_approval as assess_risk_module
     from src.agent.nodes import classify_intent as classify_intent_module
-    from src.agent.nodes import execute_action as execute_action_module
     from src.agent.nodes import extract_slots as extract_slots_module
     from src.agent.nodes import generate_recommendation as generate_recommendation_module
-    from src.agent.nodes import load_business_context as load_business_context_module
-    from src.agent.nodes import retrieve_policy_evidence as retrieve_policy_evidence_module
 
     fake_llms = _ci_fake_llm_responses(case)
     expected_nodes = _expected_nodes_for_case(case)
     config = _ci_config(case)
+    config["configurable"]["permissions"] = _ci_tool_permissions()
+    config["configurable"]["merchant_scope"] = {"merchant_ids": ["*"]}
+    config["configurable"]["tool_manager"] = CiToolManager(case)
+    config["configurable"]["action_tool_manager"] = CiToolManager(case)
+
+    async def event_emitter(**payload):
+        return None
+
+    config["configurable"]["event_emitter"] = event_emitter
     failures: list[str] = []
 
     patches = [
@@ -271,24 +435,9 @@ async def _run_graph_contract_case(case: dict[str, Any]) -> list[str]:
         patch.object(extract_slots_module, "_get_llm", lambda: fake_llms["extract_slots"]),
         patch.object(generate_recommendation_module, "_get_llm", lambda: fake_llms["generate_recommendation"]),
         patch.object(assess_risk_module, "_get_llm", lambda: fake_llms["assess_risk"]),
-        patch.object(load_business_context_module, "get_order", AsyncMock(return_value=_ci_order_result(case))),
-        patch.object(
-            load_business_context_module,
-            "get_refund_case",
-            AsyncMock(return_value={"status": "success", "data": {}, "error": {}}),
-        ),
-        patch.object(
-            load_business_context_module,
-            "get_ticket",
-            AsyncMock(return_value={"status": "success", "data": {}, "error": {}}),
-        ),
-        patch.object(retrieve_policy_evidence_module, "search_policy", AsyncMock(return_value=_ci_policy_result(case))),
-        patch.object(
-            execute_action_module, "create_coupon_grant_draft", AsyncMock(return_value=_ci_action_result(case))
-        ),
     ]
 
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8]:
+    with patches[0], patches[1], patches[2], patches[3]:
         graph = build_graph(MemorySaver())
         result = await graph.ainvoke(_ci_input_state(case), config)
 
@@ -323,7 +472,9 @@ async def _run_graph_contract_case(case: dict[str, Any]) -> list[str]:
 
 
 async def _run_ci_graph_contracts(cases: list[dict[str, Any]]) -> list[str]:
-    cases_by_category = {case["category"]: case for case in cases}
+    cases_by_category: dict[str, dict[str, Any]] = {}
+    for case in cases:
+        cases_by_category.setdefault(case["category"], case)
     failures: list[str] = []
     for category in GRAPH_CONTRACT_CATEGORIES:
         case = cases_by_category.get(category)
@@ -352,17 +503,23 @@ def _expected_nodes_for_case(case: dict[str, Any]) -> list[str]:
     category = case["category"]
     if category == "permission_denied":
         return []
+    nodes = ["receive_request", "classify_intent"]
+    if case.get("expected_intent") != "policy_qa":
+        nodes.extend(["session_memory_load", "extract_slots"])
+    nodes.extend(["investigate", "generate_recommendation", "assess_risk_and_approval"])
     if category in {"low_confidence_no_evidence", "missing_context", "tool_failure_or_not_found"}:
-        return [*BASE_GRAPH_NODES, "final_response"]
-    if category == "approval_required":
-        return [*BASE_GRAPH_NODES, "approval_gate"]
+        return [*nodes, "final_response"]
     if category == "approval_approved":
         _resume_command = Command(resume={"decision": "approve", "reason": "CI test"})
-        return [*BASE_GRAPH_NODES, "approval_gate", "execute_action", "final_response"]
+        return [*nodes, "approval_gate", "execute_action", "final_response"]
     if category == "approval_rejected":
         _resume_command = Command(resume={"decision": "reject", "reason": "CI test"})
-        return [*BASE_GRAPH_NODES, "approval_gate", "final_response"]
-    return [*BASE_GRAPH_NODES, "final_response"]
+        return [*nodes, "approval_gate", "final_response"]
+    if case.get("expected_approval_required"):
+        return [*nodes, "approval_gate"]
+    if category == "approval_required":
+        return [*nodes, "approval_gate"]
+    return [*nodes, "final_response"]
 
 
 def _build_ci_state(case: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -374,13 +531,12 @@ def _build_ci_state(case: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any
     nodes = _expected_nodes_for_case(case)
     trace_steps = [_trace_step(node) for node in nodes]
 
-    if "load_business_context" in nodes and expected_tools_called:
-        load_idx = nodes.index("load_business_context")
+    if "investigate" in nodes and expected_tools_called:
+        load_idx = nodes.index("investigate")
         non_write_tools = [tool for tool in expected_tools_called if tool != "create_coupon_grant_draft"]
-        trace_steps[load_idx] = _trace_step("load_business_context", tools=non_write_tools)
-    if "retrieve_policy_evidence" in nodes:
-        evidence_idx = nodes.index("retrieve_policy_evidence")
-        trace_steps[evidence_idx] = _trace_step("retrieve_policy_evidence", tools=["search_policy"], evidence=evidence)
+        if evidence and "search_policy" not in non_write_tools:
+            non_write_tools.append("search_policy")
+        trace_steps[load_idx] = _trace_step("investigate", tools=non_write_tools, evidence=evidence)
     if "execute_action" in nodes and "create_coupon_grant_draft" in expected_tools_called:
         action_idx = nodes.index("execute_action")
         trace_steps[action_idx] = _trace_step("execute_action", tools=["create_coupon_grant_draft"])

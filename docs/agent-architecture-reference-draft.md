@@ -174,11 +174,7 @@ session_memory_load
   ↓
 long_term_memory_retrieve
   ↓
-business_context_fetch
-  ↓
-policy_evidence_retrieve
-  ↓
-case_memory_retrieve
+investigate
   ↓
 case_analysis / recommendation_generation
   ↓
@@ -202,8 +198,7 @@ Input -> Intent -> Memory -> Tools -> RAG -> Analysis -> Risk -> Approval/Action
 设计原则：
 
 - `intent_classification` 只分类和提取 routing hints，不生成最终答案，不决定审批。
-- `business_context_fetch` 只调用 Business Tools read tools。
-- `policy_evidence_retrieve` 只调用 Knowledge Service。
+- `investigate` 在 bounded loop 内只调用统一 manager 暴露的只读 business / knowledge / memory capability。
 - `recommendation_generation` 生成建议和 `proposed_action`，但不执行动作。
 - `risk_gate` 使用规则/策略引擎判断风险与审批需求，不能只靠 LLM prompt。
 - `approval_gate` 使用 LangGraph interrupt/resume，支持 accept/reject/edit/respond 方向。
@@ -234,9 +229,8 @@ Input -> Intent -> Memory -> Tools -> RAG -> Analysis -> Risk -> Approval/Action
 
 | Graph node | 允许调用 |
 | --- | --- |
-| `context_fetch_node` | `get_order`, `get_ticket`, `get_refund_case`, `get_logistics` |
-| `policy_retrieval_node` | `search_policy`, `search_sop` |
-| `memory_retrieval_node` | `memory_service.load_context`, `case_memory.search` |
+| `investigate` | `get_order`, `get_ticket`, `get_refund_case`, `get_logistics`, `search_policy`, `search_sop`, `search_case_memory` |
+| `memory_load_node` | `memory_service.load_context` |
 | `recommendation_node` | 通常不直接调用工具，只使用已有 context/evidence/memory |
 | `risk_gate_node` | `risk_policy.evaluate`, `approval_policy.plan` |
 | `action_execution_node` | `action_executor.execute`，且只接受已审批或低风险允许动作 |
@@ -744,7 +738,7 @@ GET /api/v1/agent-runs/{run_id}/replay
   "run_id": "...",
   "timeline": [
     {"node": "receive_request", "input": "...", "output": "..."},
-    {"node": "retrieve_policy_evidence", "tool": "policy_search", "evidence_refs": []},
+    {"node": "investigate", "tool": "search_policy", "evidence_refs": []},
     {"node": "approval_gate", "status": "interrupted", "approval_id": "..."}
   ]
 }

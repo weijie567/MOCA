@@ -5,10 +5,11 @@ from unittest.mock import AsyncMock
 import pytest
 
 from src.agent.nodes import generate_recommendation as recommendation_module
-from src.agent.nodes import retrieve_policy_evidence as retrieval_module
+from src.agent.nodes.investigate import investigate
 from src.agent.nodes.final_response import final_response
 from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1, KnowledgeSearchResult
+from src.tools.catalog import ToolCatalog
 from src.tools.contracts import ToolCallContext, ToolResultV2
 from tests.agent.conftest import FakeLLM
 
@@ -62,8 +63,23 @@ def _search_result(
 
 class FakePolicyManager:
     def __init__(self, search_result: KnowledgeSearchResult) -> None:
+        self._descriptors = {descriptor.name: descriptor for descriptor in ToolCatalog().descriptors()}
         self.search_result = search_result
         self.calls: list[tuple[str, dict, ToolCallContext]] = []
+
+    def descriptors(self, caller_node: str = "investigate"):
+        return [
+            descriptor
+            for descriptor in self._descriptors.values()
+            if caller_node in descriptor.caller_allowlist and descriptor.kind != "write"
+        ]
+
+    def descriptor(self, name: str):
+        return self._descriptors.get(name)
+
+    def event_family(self, name: str) -> str:
+        family = self._descriptors[name].event_family
+        return "rag_retrieval" if family == "rag_retrieval_*" else "tool_call"
 
     async def invoke(self, name: str, args: dict, ctx: ToolCallContext) -> ToolResultV2:
         self.calls.append((name, args, ctx))
@@ -122,7 +138,15 @@ async def _run_path(
         monkeypatch.setattr(recommendation_module, "_get_llm", lambda: FakeLLM(recommendation))
 
     state = _base_state()
-    retrieval_output = await retrieval_module.retrieve_policy_evidence(
+    state["_investigate_plan"] = [
+        {"next_tool": "search_policy", "args": {"query": state["user_query"]}, "reason": "policy"}
+    ]
+    events: list[dict] = []
+
+    async def event_emitter(**payload):
+        events.append(payload)
+
+    investigate_output = await investigate(
         state,
         {
             "configurable": {
@@ -130,10 +154,11 @@ async def _run_path(
                 "permissions": ["tool:search_policy"],
                 "merchant_scope": {"merchant_ids": ["*"]},
                 "tool_manager": FakePolicyManager(search_result),
+                "event_emitter": event_emitter,
             }
         },
     )
-    state.update(retrieval_output)
+    state.update(investigate_output)
     recommendation_output = await recommendation_module.generate_recommendation(state)
     state.update(recommendation_output)
     response_output = await final_response(state)

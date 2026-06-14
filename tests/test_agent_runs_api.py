@@ -203,7 +203,7 @@ def _assert_no_investigation_fields(payload: dict) -> None:
 
 def test_extract_step_payload_counts_v2_evidence_refs():
     payload = _extract_step_payload(
-        "retrieve_policy_evidence",
+        "investigate",
         {
             "retrieved_evidence": {
                 "schema_version": "knowledge_search_result.v2",

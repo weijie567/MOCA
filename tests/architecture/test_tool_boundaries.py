@@ -18,6 +18,18 @@ def _imports(path: Path) -> list[str]:
     return imports
 
 
+def _import_targets(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text())
+    imports: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imports.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imports.append(node.module)
+            imports.extend(f"{node.module}.{alias.name}" for alias in node.names)
+    return imports
+
+
 def test_graph_nodes_do_not_import_legacy_agent_tools_or_raw_integrations() -> None:
     violations: list[tuple[str, str]] = []
     for path in sorted((ROOT / "src" / "agent" / "nodes").glob("*.py")):
@@ -67,6 +79,21 @@ def test_no_code_imports_legacy_knowledge_adapters_package() -> None:
         for path in sorted(base.glob("**/*.py")):
             for module in _imports(path):
                 if module == "src.knowledge.adapters":
+                    violations.append((str(path.relative_to(ROOT)), module))
+
+    assert violations == []
+
+
+def test_legacy_retrieve_policy_evidence_node_is_deleted() -> None:
+    assert not (ROOT / "src" / "agent" / "nodes" / "retrieve_policy_evidence.py").exists()
+
+    violations: list[tuple[str, str]] = []
+    for base in (ROOT / "src", ROOT / "tests", ROOT / "scripts"):
+        for path in sorted(base.glob("**/*.py")):
+            if path == Path(__file__):
+                continue
+            for module in _import_targets(path):
+                if module == "src.agent.nodes.retrieve_policy_evidence":
                     violations.append((str(path.relative_to(ROOT)), module))
 
     assert violations == []

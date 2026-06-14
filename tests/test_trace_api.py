@@ -137,7 +137,7 @@ def test_build_timeline_merges_all_event_types_correctly():
         steps=[
             SimpleNamespace(
                 started_at=now + timedelta(seconds=1),
-                node_name="retrieve_policy_evidence",
+                node_name="investigate",
                 status="completed",
                 tool_name="search_policy",
                 latency_ms=22,

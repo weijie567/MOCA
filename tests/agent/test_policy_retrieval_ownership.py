@@ -15,10 +15,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.agent.nodes import retrieve_policy_evidence as retrieve_policy_evidence_module
-from src.tools.catalog import ToolCatalog
+from src.agent.nodes import investigate as investigate_module
 from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import KnowledgeSearchResult
+from src.tools.catalog import ToolCatalog
 from src.tools.contracts import ToolCallContext, ToolResultV2
 
 
@@ -53,16 +53,31 @@ def _base_state() -> dict:
 # ---------------------------------------------------------------------------
 
 class TestPolicyRetrievalOwnership:
-    """Policy retrieval graph nodes must execute through UnifiedToolManager,
+    """Policy retrieval graph paths must execute through UnifiedToolManager,
     not through BusinessToolService or raw knowledge services."""
 
     @pytest.mark.asyncio
-    async def test_retrieve_policy_evidence_calls_unified_tool_manager(self):
-        """The compatibility retrieval node invokes search_policy through manager."""
+    async def test_investigate_calls_search_policy_through_unified_tool_manager(self):
+        """The active investigate node invokes search_policy through manager."""
 
         class FakeManager:
             def __init__(self) -> None:
+                self._descriptors = {descriptor.name: descriptor for descriptor in ToolCatalog().descriptors()}
                 self.calls: list[tuple[str, dict, ToolCallContext]] = []
+
+            def descriptors(self, caller_node: str = "investigate"):
+                return [
+                    descriptor
+                    for descriptor in self._descriptors.values()
+                    if caller_node in descriptor.caller_allowlist and descriptor.kind != "write"
+                ]
+
+            def descriptor(self, name: str):
+                return self._descriptors.get(name)
+
+            def event_family(self, name: str) -> str:
+                family = self._descriptors[name].event_family
+                return "rag_retrieval" if family == "rag_retrieval_*" else "tool_call"
 
             async def invoke(self, name: str, args: dict, ctx: ToolCallContext) -> ToolResultV2:
                 self.calls.append((name, args, ctx))
@@ -86,11 +101,16 @@ class TestPolicyRetrievalOwnership:
                 )
 
         manager = FakeManager()
-        await retrieve_policy_evidence_module.retrieve_policy_evidence(
-            _base_state(),
+        await investigate_module.investigate(
+            {
+                **_base_state(),
+                "current_run_id": "run-1",
+                "_investigate_plan": [
+                    {"next_tool": "search_policy", "args": {"query": "退款规则"}, "reason": "policy"}
+                ],
+            },
             {
                 "configurable": {
-                    "session": AsyncMock(),
                     "permissions": ["tool:search_policy"],
                     "tool_manager": manager,
                 }
@@ -100,7 +120,7 @@ class TestPolicyRetrievalOwnership:
         assert len(manager.calls) == 1
         name, args, context = manager.calls[0]
         assert name == "search_policy"
-        assert args["query"]
+        assert args == {"query": "退款规则"}
         assert context.caller_node == "investigate"
         assert context.permissions == ["tool:search_policy"]
 
@@ -133,15 +153,15 @@ class TestPolicyRetrievalOwnership:
         assert request.schema_version == "knowledge_search_request.v2"
         assert knowledge_context.merchant_scope == ["*"]
 
-    def test_policy_retrieval_node_imports_only_manager_boundary(self):
-        """The node imports manager/contracts, not domain service facades."""
-        module_source = retrieve_policy_evidence_module
+    def test_investigate_imports_only_manager_boundary(self):
+        """The active graph node imports manager/contracts, not domain service facades."""
+        module_source = investigate_module
         assert hasattr(module_source, "UnifiedToolManager")
         assert not hasattr(module_source, "PolicyKnowledgeService"), (
-            "retrieve_policy_evidence must not import PolicyKnowledgeService directly"
+            "investigate must not import PolicyKnowledgeService directly"
         )
         assert not hasattr(module_source, "BusinessToolService"), (
-            "retrieve_policy_evidence must NOT import BusinessToolService; "
+            "investigate must NOT import BusinessToolService; "
             "policy retrieval belongs behind UnifiedToolManager"
         )
 

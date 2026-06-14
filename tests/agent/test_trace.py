@@ -48,7 +48,7 @@ async def test_agent_steps_persist_tools_called_and_evidence_refs(session: Async
                 "tools_called": ["get_order", "get_refund_case"],
             },
             {
-                "node": "retrieve_policy_evidence",
+                "node": "investigate",
                 "status": "completed",
                 "tools_called": ["search_policy"],
                 "evidence_refs": [evidence_ref],
@@ -66,7 +66,7 @@ async def test_agent_steps_persist_tools_called_and_evidence_refs(session: Async
 
     assert [row.node_name for row in rows] == [
         "load_business_context",
-        "retrieve_policy_evidence",
+        "investigate",
         "legacy_tool_step",
     ]
     assert rows[0].tool_name == "get_order,get_refund_case"

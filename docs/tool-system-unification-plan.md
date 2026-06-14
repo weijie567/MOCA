@@ -204,7 +204,6 @@ Current:
 - `src/knowledge/service.py`
 - `src/knowledge/schemas.py`
 - `src/knowledge/retrieval.py`
-- `src/agent/nodes/retrieve_policy_evidence.py`
 - `src/tools/executors/knowledge.py`
 - `src/api/routers/search.py` direct `PolicyRetrievalEngine` HTTP path
 
@@ -227,9 +226,7 @@ Concrete changes:
 - Remove `LegacyRagKnowledgeAdapter`; `PolicyKnowledgeService` depends on the retrieval protocol implemented by `PolicyRetrievalEngine`.
 - Remove `src/agent/tools/search_policy.py`.
 - Delete the legacy RAG retriever facade after tests migrate to `PolicyRetrievalEngine`.
-- Convert `retrieve_policy_evidence`:
-  - short-term: thin wrapper node that builds `ToolCallContext` and calls manager
-  - preferred final: remove graph node if `investigate` fully owns policy retrieval
+- Delete the `retrieve_policy_evidence` compatibility node once `investigate` owns policy retrieval.
 
 Catalog stance:
 
@@ -239,7 +236,6 @@ Catalog stance:
   - `side_effect`: retrieval
   - `exposure`: planner_visible
   - `caller_allowlist`: `["investigate"]`
-  - optionally temporary `["investigate", "retrieve_policy_evidence"]` during migration only
 - `search_sop`
   - keep declared
   - executor returns `unavailable` until SOP corpus/retriever exists
@@ -351,7 +347,7 @@ Catalog stance:
 - Phase 1 已落地：新增 `src/tools/contracts.py`、`src/tools/catalog.py`、`src/tools/manager.py`、`src/tools/validation.py`，`business_tools` 兼容导出已删除。
 - Phase 2 已开始落地：新增 `src/tools/executors/{business,knowledge,memory,action}.py`，生产节点开始从 `src.tools` 导入 manager/contracts。
 - Phase 3 已落地：新增 `src/business/{service,adapters,schemas}.py` 和 `src/integrations/demo_business/*`，`BusinessToolExecutor` / `load_business_context` 已改用 `src.business`，旧 `business_tools` 兼容包与 `src.agent.tools.get_*` wrapper 已删除。
-- Phase 4 已落地：新增 `src/knowledge/retrieval.py`，`KnowledgeToolExecutor` 默认使用 `PolicyRetrievalEngine -> PolicyKnowledgeService`，`retrieve_policy_evidence` 改为 `UnifiedToolManager.invoke("search_policy")` wrapper，API search endpoint 已直接切到 `PolicyRetrievalEngine` 并保持 HTTP response contract。
+- Phase 4 已落地：新增 `src/knowledge/retrieval.py`，`KnowledgeToolExecutor` 默认使用 `PolicyRetrievalEngine -> PolicyKnowledgeService`，`investigate` 通过 `UnifiedToolManager.invoke("search_policy")` 执行政策检索，`retrieve_policy_evidence` 兼容 wrapper 已删除，API search endpoint 已直接切到 `PolicyRetrievalEngine` 并保持 HTTP response contract。
 - Phase 5 已落地：新增真实 `src/memory/search.py` 和 `CaseMemorySearchResult` / `CaseMemorySearchItem`，`MemoryToolExecutor` 调 `CaseMemorySearchService` 检索 `session_memories`。
 - Phase 6 已落地：新增 `src/actions/{service,drafts,schemas}.py`，`ActionToolExecutor` 直连 `ActionService`，旧 `src.agent.tools.create_coupon_grant_draft` wrapper 已删除。
 - Phase 8 已开始落地：新增 `tests/architecture/test_tool_boundaries.py`，先锁住 graph node 不再 import legacy agent tools/raw integrations、manager 不直接 import domain service、domain package 不反向 import graph/manager。
@@ -461,11 +457,9 @@ Operations:
 - Remove `LegacyRagKnowledgeAdapter`.
 - Delete `src/agent/tools/search_policy.py`.
 - Delete policy pieces from `src/agent/tools/adapters.py`.
-- Convert `retrieve_policy_evidence.py`:
-  - Option A: remove from graph if `investigate` replaces it fully.
-  - Option B: temporary wrapper that calls `UnifiedToolManager.invoke("search_policy", ...)`.
+- Delete `retrieve_policy_evidence.py`; `investigate` is the graph-facing policy retrieval path.
 - Update ownership tests to assert manager path:
-  - graph node calls manager
+  - `investigate` calls manager
   - `KnowledgeToolExecutor` calls `PolicyKnowledgeService`
   - no graph node imports `PolicyKnowledgeService` directly
 
@@ -477,7 +471,7 @@ Acceptance:
 
 Current migration note:
 
-- `src.agent.nodes.retrieve_policy_evidence` is now a compatibility wrapper over `UnifiedToolManager`.
+- `src.agent.nodes.retrieve_policy_evidence` has been deleted.
 - `src.knowledge.adapters.LegacyRagKnowledgeAdapter` has been deleted; `PolicyRetrievalEngine` is the public retrieval implementation.
 - `src.agent.tools.search_policy`, `src.agent.tools.adapters`, and `src.agent.tools.registry` have been deleted.
 - `src.api.routers.search` now uses `PolicyRetrievalEngine.retrieve_hits(...)` directly while preserving the legacy `RetrievalResult` HTTP contract.
@@ -635,15 +629,13 @@ Specific regression targets:
 
 ## Open Decisions For Review
 
-1. Remove `retrieve_policy_evidence` node entirely, or temporarily keep it as a manager wrapper?
-2. Keep `src/rag` as low-level embedding/chunking package, or merge all policy retrieval code under `src/knowledge`?
-3. Should `memory_write` become node-only tool-managed capability, or remain deterministic node calling `MemoryService` directly?
-4. Should `ToolResultV2` be renamed to `ToolResult` immediately, or kept as alias until API/tests migrate?
+1. Keep `src/rag` as low-level embedding/chunking package, or merge all policy retrieval code under `src/knowledge`?
+2. Should `memory_write` become node-only tool-managed capability, or remain deterministic node calling `MemoryService` directly?
+3. Should `ToolResultV2` be renamed to `ToolResult` immediately, or kept as alias until API/tests migrate?
 
 Recommended answers:
 
-- `src.business_tools` and `src.rag.retriever` have been deleted; remaining cleanup should focus on old empty memory nodes and naming aliases.
-- Remove `retrieve_policy_evidence` if graph already routes policy retrieval through `investigate`; otherwise wrapper for one migration phase.
+- `src.business_tools`, `src.rag.retriever`, and `src.agent.nodes.retrieve_policy_evidence` have been deleted; remaining cleanup should focus on old empty memory nodes and naming aliases.
 - Keep `src/rag` for low-level embed/chunk/ingest only; move policy retrieval orchestration to `src/knowledge/retrieval.py`.
 - Keep `memory_write` deterministic for now; only `search_case_memory` is planner-visible memory tool.
 - Rename to `ToolResult`, keep `ToolResultV2 = ToolResult` alias for one phase.
