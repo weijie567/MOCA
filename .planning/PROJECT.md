@@ -41,10 +41,11 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - [x] v1.1 contract baseline inventories current evidence, target contracts, phase owners, follow-up gates, and downstream readiness (validated in Phase 7)
 - [x] v1.1 KnowledgeService and BusinessToolService boundaries are explicit and verified (validated in Phases 8-9)
 - [x] v1.1 state/router and intent/clarification contracts are deterministic and tested (validated in Phases 10-11)
+- [x] v1.1 PostgreSQL-authoritative session memory uses CAS, safe same-thread slot continuity, evidence/action authority separation, and explicit Redis deferral (validated in Phase 12)
 
 ### Active
 
-- [ ] v1.1 enforces approval/snapshot, demo action, session-memory, and replay contracts.
+- [ ] v1.1 enforces approval/snapshot, demo action, and replay contracts.
 - [ ] v1.1 validates each owned contract with migration verification, forbidden-behavior tests, golden flows, and explicit eval gates.
 
 ### Out of Scope
@@ -98,7 +99,8 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - Phase 9 Business Tool Facade is complete: read business tools route through BusinessToolService with trusted ToolCallContext and typed ToolResultV2.
 - Phase 10 State Lifecycle + Routing Migration is complete: AgentState lifecycle, trusted-field reset/merge behavior, deterministic routers, empty session-memory adapter, and bounded investigate graph wiring are verified.
 - Phase 11 Intent / Clarification is complete: strict intent schema, deterministic pre-router/slot routing, ordinary clarification, and hash-owned golden/manifest gates are verified.
-- Active planning is now on Phase 12 Session Memory.
+- Phase 12 Session Memory is complete: PostgreSQL-authoritative session memory, CAS merge/conflict behavior, same-thread slot continuity, evidence/action authority separation, post-response bounded writes, and Redis skip decision are verified.
+- Active planning is now on Phase 13 Approval State Machine.
 
 ## Next Milestone Goals
 
@@ -143,4 +145,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-14 after Phase 11 execution and verification*
+*Last updated: 2026-06-14 after Phase 12 execution and verification*
