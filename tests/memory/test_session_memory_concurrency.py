@@ -86,6 +86,119 @@ async def _write_with_new_session(session_factory, candidate: SessionMemoryWrite
 
 
 @pytest.mark.asyncio
+async def test_concurrent_first_writes_to_empty_scope_merge_without_lost_updates(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    thread_id = "thread-concurrent-empty-scope"
+    first_run = await _insert_run(session, seeded_session, thread_id)
+    second_run = await _insert_run(session, seeded_session, thread_id)
+    await session.commit()
+    session_factory = async_sessionmaker(session.bind, expire_on_commit=False, class_=AsyncSession)
+
+    first = _candidate(
+        seeded_session,
+        thread_id=thread_id,
+        run_id=first_run,
+        expected_version=1,
+        slots={"order_id": _slot("ORD-FIRST", run_id=first_run)},
+        session_summary="first empty-scope summary",
+        unresolved_questions=["first empty-scope question"],
+        last_intent="refund_troubleshooting",
+        last_business_context_refs={"order": "ORD-FIRST"},
+    )
+    second = _candidate(
+        seeded_session,
+        thread_id=thread_id,
+        run_id=second_run,
+        expected_version=1,
+        slots={"refund_case_id": _slot("RF-SECOND", run_id=second_run)},
+        session_summary="second empty-scope summary",
+        unresolved_questions=["second empty-scope question"],
+        last_intent="refund_troubleshooting",
+        last_business_context_refs={"refund_case": "RF-SECOND"},
+    )
+
+    results = await asyncio.gather(
+        _write_with_new_session(session_factory, first),
+        _write_with_new_session(session_factory, second),
+    )
+
+    view = await MemoryService(SessionMemoryRepository(session)).load_session_memory(
+        seeded_session["tenant"].id,
+        seeded_session["users"]["cs_zhang"].id,
+        thread_id,
+        current_intent="refund_troubleshooting",
+    )
+    assert {result.status for result in results} <= {"written", "merged_after_conflict"}
+    assert view.active_slots["order_id"] == "ORD-FIRST"
+    assert view.active_slots["refund_case_id"] == "RF-SECOND"
+    assert "first empty-scope question" in view.unresolved_questions
+    assert "second empty-scope question" in view.unresolved_questions
+    assert view.last_business_context_refs == {"order": "ORD-FIRST", "refund_case": "RF-SECOND"}
+
+
+@pytest.mark.asyncio
+async def test_concurrent_replacement_of_expired_scope_merges_without_lost_updates(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    thread_id = "thread-concurrent-expired-scope"
+    first_run = await _insert_run(session, seeded_session, thread_id)
+    second_run = await _insert_run(session, seeded_session, thread_id)
+    repository = SessionMemoryRepository(session)
+    await repository.insert_active(
+        tenant_id=seeded_session["tenant"].id,
+        user_id=seeded_session["users"]["cs_zhang"].id,
+        thread_id=thread_id,
+        active_slots_json=_envelope({"order_id": _slot("ORD-EXPIRED")}),
+        session_summary="expired summary",
+        expires_at=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    await session.commit()
+    session_factory = async_sessionmaker(session.bind, expire_on_commit=False, class_=AsyncSession)
+
+    first = _candidate(
+        seeded_session,
+        thread_id=thread_id,
+        run_id=first_run,
+        expected_version=1,
+        slots={"order_id": _slot("ORD-FRESH", run_id=first_run)},
+        session_summary="fresh order summary",
+        unresolved_questions=[],
+        last_intent="refund_troubleshooting",
+        last_business_context_refs={"order": "ORD-FRESH"},
+    )
+    second = _candidate(
+        seeded_session,
+        thread_id=thread_id,
+        run_id=second_run,
+        expected_version=1,
+        slots={"refund_case_id": _slot("RF-FRESH", run_id=second_run)},
+        session_summary="fresh refund summary",
+        unresolved_questions=[],
+        last_intent="refund_troubleshooting",
+        last_business_context_refs={"refund_case": "RF-FRESH"},
+    )
+
+    results = await asyncio.gather(
+        _write_with_new_session(session_factory, first),
+        _write_with_new_session(session_factory, second),
+    )
+
+    view = await MemoryService(SessionMemoryRepository(session)).load_session_memory(
+        seeded_session["tenant"].id,
+        seeded_session["users"]["cs_zhang"].id,
+        thread_id,
+        current_intent="refund_troubleshooting",
+    )
+    assert {result.status for result in results} <= {"written", "merged_after_conflict"}
+    assert view.active_slots["order_id"] == "ORD-FRESH"
+    assert view.active_slots["refund_case_id"] == "RF-FRESH"
+    assert view.last_business_context_refs == {"order": "ORD-FRESH", "refund_case": "RF-FRESH"}
+
+
+@pytest.mark.asyncio
 async def test_concurrent_non_conflicting_writes_merge_without_lost_updates(
     session: AsyncSession,
     seeded_session: dict,

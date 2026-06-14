@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
 
 from src.db.models import SessionMemory
 from src.memory.repository import SessionMemoryRepository
@@ -111,11 +112,9 @@ class MemoryService:
             )
             if existing is not None and _is_expired(existing.expires_at, now):
                 await self.repository.soft_delete(existing.id)
-                inserted = await self._insert(candidate)
-                return _write_result(candidate, status="written", version=inserted.version)
+                return await self._insert_with_race_merge(candidate, now=now, status="written")
             if existing is None:
-                inserted = await self._insert(candidate)
-                return _write_result(candidate, status="written", version=inserted.version)
+                return await self._insert_with_race_merge(candidate, now=now, status="written")
 
             expected_version = candidate.expected_version or existing.version
             merge = _merge_memory(existing, candidate, now=now, cas_retry=False)
@@ -138,12 +137,10 @@ class MemoryService:
                 include_expired=True,
             )
             if latest is None:
-                inserted = await self._insert(candidate)
-                return _write_result(candidate, status="merged_after_conflict", version=inserted.version)
+                return await self._insert_with_race_merge(candidate, now=now, status="merged_after_conflict")
             if _is_expired(latest.expires_at, now):
                 await self.repository.soft_delete(latest.id)
-                inserted = await self._insert(candidate)
-                return _write_result(candidate, status="merged_after_conflict", version=inserted.version)
+                return await self._insert_with_race_merge(candidate, now=now, status="merged_after_conflict")
 
             retry_merge = _merge_memory(latest, candidate, now=now, cas_retry=True)
             if retry_merge.conflict_reason is not None:
@@ -180,6 +177,60 @@ class MemoryService:
             last_intent=candidate.last_intent,
             last_business_context_refs_json=dict(candidate.last_business_context_refs),
             last_run_id=candidate.run_id,
+        )
+
+    async def _insert_with_race_merge(
+        self,
+        candidate: SessionMemoryWriteCandidate,
+        *,
+        now: datetime,
+        status: str,
+    ) -> SessionMemoryWriteResult:
+        try:
+            inserted = await self._insert(candidate)
+            return _write_result(candidate, status=status, version=inserted.version)
+        except IntegrityError:
+            await self.repository.session.rollback()
+            return await self._merge_after_insert_race(candidate, now=now)
+
+    async def _merge_after_insert_race(
+        self,
+        candidate: SessionMemoryWriteCandidate,
+        *,
+        now: datetime,
+    ) -> SessionMemoryWriteResult:
+        latest = await self.repository.get_active(
+            candidate.tenant_id,
+            candidate.user_id,
+            candidate.thread_id,
+            include_expired=True,
+        )
+        if latest is None:
+            inserted = await self._insert(candidate)
+            return _write_result(candidate, status="merged_after_conflict", version=inserted.version)
+        if _is_expired(latest.expires_at, now):
+            await self.repository.soft_delete(latest.id)
+            inserted = await self._insert(candidate)
+            return _write_result(candidate, status="merged_after_conflict", version=inserted.version)
+
+        merge = _merge_memory(latest, candidate, now=now, cas_retry=True)
+        if merge.conflict_reason is not None:
+            return _write_result(
+                candidate,
+                status="conflict",
+                reason_code=merge.conflict_reason,
+                conflict_reason=merge.conflict_reason,
+                version=latest.version,
+            )
+        updated = await self.repository.cas_update(latest.id, latest.version, merge.values)
+        if updated:
+            return _write_result(candidate, status="merged_after_conflict", version=latest.version + 1)
+        return _write_result(
+            candidate,
+            status="conflict",
+            reason_code="cas_retry_missed",
+            conflict_reason="cas_retry_missed",
+            version=latest.version,
         )
 
 
