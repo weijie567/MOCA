@@ -103,7 +103,7 @@
   1. Same-thread continuity and cross-thread/user/tenant isolation pass.
   2. CAS conflicts use deterministic merge or return conflict, never silent last-write-wins.
   3. Session memory is not policy evidence and can be disabled with observable fallback; Redis loss/cache miss falls back to PostgreSQL if Redis is introduced.
-**Plans**: 2/5 complete
+**Plans**: 3/5 complete
 
 ### Phase 13: Approval State Machine
 **Goal**: Implement versioned approval requests/levels/assignments/decisions/events and the canonical ActionSafetySnapshot.
