@@ -286,6 +286,42 @@ async def test_service_write_after_expired_active_row_reuses_or_replaces_scope(
 
 
 @pytest.mark.asyncio
+async def test_service_initial_slot_insert_expires_row_level_continuity(
+    session: AsyncSession, seeded_session: dict
+) -> None:
+    now = datetime.now(UTC)
+    thread_id = "thread-service-initial-row-expiry"
+    repository = SessionMemoryRepository(session)
+    service = MemoryService(repository)
+
+    result = await service.write_session_memory(
+        _candidate(
+            seeded_session,
+            thread_id=thread_id,
+            run_id=await _insert_run(session, seeded_session, thread_id),
+            slots={"order_id": _slot("ORD-TTL", expires_at=now + timedelta(seconds=1))},
+            session_summary="summary generated from ORD-TTL",
+            unresolved_questions=["question generated from ORD-TTL"],
+            last_intent="refund_troubleshooting",
+            last_business_context_refs={"order": "ORD-TTL"},
+        ),
+        now=now,
+    )
+    view = await service.load_session_memory(
+        seeded_session["tenant"].id,
+        seeded_session["users"]["cs_zhang"].id,
+        thread_id,
+        current_intent="refund_troubleshooting",
+        now=now + timedelta(seconds=2),
+    )
+
+    assert result.status == "written"
+    assert view.source == "expired"
+    assert view.continuity_claimed is False
+    assert view.active_slots == {}
+
+
+@pytest.mark.asyncio
 async def test_service_fallback_result_is_typed(session: AsyncSession, seeded_session: dict) -> None:
     repository = SessionMemoryRepository(session)
     service = MemoryService(repository)

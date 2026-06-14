@@ -165,7 +165,7 @@ class MemoryService:
             await self.repository.session.rollback()
             return _write_result(candidate, status="fallback", reason_code="unavailable", fallback_reason="unavailable")
 
-    async def _insert(self, candidate: SessionMemoryWriteCandidate) -> SessionMemory:
+    async def _insert(self, candidate: SessionMemoryWriteCandidate, *, now: datetime) -> SessionMemory:
         envelope = SessionSlotsEnvelopeV1(slots=candidate.explicit_slots)
         return await self.repository.insert_active(
             tenant_id=candidate.tenant_id,
@@ -177,6 +177,7 @@ class MemoryService:
             last_intent=candidate.last_intent,
             last_business_context_refs_json=dict(candidate.last_business_context_refs),
             last_run_id=candidate.run_id,
+            expires_at=_max_expiry(candidate.explicit_slots, now),
         )
 
     async def _insert_with_race_merge(
@@ -187,7 +188,7 @@ class MemoryService:
         status: str,
     ) -> SessionMemoryWriteResult:
         try:
-            inserted = await self._insert(candidate)
+            inserted = await self._insert(candidate, now=now)
             return _write_result(candidate, status=status, version=inserted.version)
         except IntegrityError:
             await self.repository.session.rollback()
@@ -206,11 +207,11 @@ class MemoryService:
             include_expired=True,
         )
         if latest is None:
-            inserted = await self._insert(candidate)
+            inserted = await self._insert(candidate, now=now)
             return _write_result(candidate, status="merged_after_conflict", version=inserted.version)
         if _is_expired(latest.expires_at, now):
             await self.repository.soft_delete(latest.id)
-            inserted = await self._insert(candidate)
+            inserted = await self._insert(candidate, now=now)
             return _write_result(candidate, status="merged_after_conflict", version=inserted.version)
 
         merge = _merge_memory(latest, candidate, now=now, cas_retry=True)
@@ -252,7 +253,9 @@ def _merge_memory(
     except ValidationError:
         existing_envelope = SessionSlotsEnvelopeV1()
 
-    merged_slots = dict(existing_envelope.slots)
+    merged_slots = {
+        slot_name: slot for slot_name, slot in existing_envelope.slots.items() if not _is_expired(slot.expires_at, now)
+    }
     for slot_name, candidate_slot in candidate.explicit_slots.items():
         existing_slot = merged_slots.get(slot_name)
         if (
