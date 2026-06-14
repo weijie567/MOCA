@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.0
     llm_max_tokens: int = 4096
     llm_timeout_seconds: int = 90
+    session_memory_enabled: bool = True
+    session_memory_ttl_seconds: int = 1800
+    session_memory_summary_max_chars: int = 500
 
     @property
     def checkpointer_database_url(self) -> str:
