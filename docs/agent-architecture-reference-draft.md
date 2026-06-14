@@ -145,12 +145,12 @@ src/
 
 | 目标模块 | 当前 MOCA 相关结构 | 当前问题/差距 | 建议方向 |
 | --- | --- | --- | --- |
-| LangGraph 编排 | `src/agent/graph.py`, `src/agent/nodes/*`, `src/agent/state.py` | 主流程已存在，节点包括 receive/classify/extract/load/retrieve/recommend/risk/approval/execute/final | 保留现有 graph，不推翻；逐步让 node 变薄，只调用 service contract |
+| LangGraph 编排 | `src/agent/graph.py`, `src/agent/nodes/*`, `src/agent/state.py` | 主流程已存在，read/retrieval 已合并到 `investigate` bounded loop，写动作仍在 deterministic executor 节点 | 保留现有 graph；继续让 node 变薄，只调用 manager/service contract |
 | Knowledge / RAG | `src/knowledge/retrieval.py`, `src/knowledge/service.py`, `src/rag/embedder.py`, `src/rag/ingestion.py`, policy repos | Retrieval orchestration 已归 Knowledge；`src/rag` 保留底层 embed/chunk/ingest infra | 保持 Agent 节点只通过 manager/service contract 获取 evidence |
-| Business Tools | `src/agent/tools/get_order.py`, `get_ticket.py`, `get_refund_case.py`, repos | 当前更像本地 DB 工具，不是清晰 Business Tools service | 增加 `src/business/service.py` 和 demo adapters，声明本地 DB 是 demo adapter |
+| Business Tools | `src/business/service.py`, `src/business/adapters.py`, `src/integrations/demo_business/*`, repos | 业务读 facade 已独立；当前 adapter 仍是本地 demo DB | 保持 `BusinessToolService` 只承载 business scope、retry、fact projection 和 adapter 调用；agent-facing 校验归 `UnifiedToolManager` |
 | Approval / HITL | `approval_gate`, `approvals router`, `ApprovalRequest`, `ApprovalStep` | 已有 interrupt/resume、approve/reject；审批计划、多级审批、SLA 策略仍可增强 | 增加 `rules/approval_policies.yaml`, `src/approvals/policy.py`, `src/approvals/sla.py` |
-| Actions | `execute_action`, `create_coupon_grant_draft`, `ActionDraft` | 当前执行动作主要创建草稿，无真实执行和补偿 contract | 增加 `src/actions/executor.py`，即使 demo 仍只创建 draft，也返回 execution/compensation metadata |
-| Memory | 当前已有 graph state/checkpoint/thread state 方向 | 需要更清晰区分 working memory、workflow checkpoint、session memory、long-term profile memory、case memory、audit/replay log | 增加 `src/memory/`，先做 PostgreSQL-authoritative session summary + active slots；Redis 仅可作为非权威 hot cache；再扩 long-term/case memory |
+| Actions | `execute_action`, `src/tools/executors/action.py`, `src/actions/service.py`, `ActionDraft` | 当前执行动作主要创建草稿，无真实执行和补偿 contract | 后续增加 external execution / compensation metadata；demo 仍只创建 draft |
+| Memory | `src/memory/service.py`, `repository.py`, `schemas.py`, `search.py`, `session_memory_load`, `memory_write` | PostgreSQL-authoritative session memory 已落地；`long_term_memory_retrieve` 仍是 empty adapter；长期 profile memory、reviewed case memory 独立表、Redis hot cache 仍未实现 | 保持 working memory、workflow checkpoint、session memory、long-term profile memory、case memory、audit/replay 分层；Redis 仅可作为非权威 hot cache；再扩 long-term/case memory |
 | Intent | 当前已有 classify/extract nodes | 需要明确 intent taxonomy、confidence threshold、低置信度澄清路径 | 拆出 `src/agent/prompts/intent.py` 和 typed output schema |
 | Prompt | 当前可有 prompts 文件 | 容易混成一个大 prompt 或散落节点 | 建议按节点拆 prompt：global_policy, intent, slots, recommendation, final_response；memory write 放 `src/memory/prompts.py` |
 | Observability / Replay | `AgentRun`, `AgentStep`, traces API | 已有 trace 表；还可增强 timeline replay、OTel spans、metrics | 增加 `src/observability/replay.py`；后续参考 FastAPI observability 接 OTel/Grafana |

@@ -43,14 +43,9 @@ async def test_agent_steps_persist_tools_called_and_evidence_refs(session: Async
         run_id=run_id,
         trace_steps=[
             {
-                "node": "load_business_context",
-                "status": "completed",
-                "tools_called": ["get_order", "get_refund_case"],
-            },
-            {
                 "node": "investigate",
                 "status": "completed",
-                "tools_called": ["search_policy"],
+                "tools_called": ["get_order", "get_refund_case", "search_policy"],
                 "evidence_refs": [evidence_ref],
             },
             {
@@ -65,16 +60,14 @@ async def test_agent_steps_persist_tools_called_and_evidence_refs(session: Async
     rows = list(result.scalars())
 
     assert [row.node_name for row in rows] == [
-        "load_business_context",
         "investigate",
         "legacy_tool_step",
     ]
-    assert rows[0].tool_name == "get_order,get_refund_case"
-    assert rows[0].tool_output_summary["tools_called"] == ["get_order", "get_refund_case"]
-    assert rows[1].tool_name == "search_policy"
-    assert rows[1].evidence_refs[0]["doc_key"] == "policy_refund_timeout"
-    assert rows[1].evidence_refs[0]["chunk_id"] == "chunk_001"
-    assert rows[2].tool_name == "get_ticket"
+    assert rows[0].tool_name == "get_order,get_refund_case,search_policy"
+    assert rows[0].tool_output_summary["tools_called"] == ["get_order", "get_refund_case", "search_policy"]
+    assert rows[0].evidence_refs[0]["doc_key"] == "policy_refund_timeout"
+    assert rows[0].evidence_refs[0]["chunk_id"] == "chunk_001"
+    assert rows[1].tool_name == "get_ticket"
 
 
 def test_trace_summary_counts_v2_evidence_refs():

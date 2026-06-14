@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.agent.trace import write_agent_run
 from src.api.main import app
 from src.api.routers.agent_runs import _dedupe_evidence_refs, _event_generator, _extract_step_payload
-from src.auth.jwt import create_access_token
+from src.auth.jwt import ROLE_SCOPES, create_access_token
 from src.db.models import AgentRun, ApprovalRequest, User
 
 
@@ -664,6 +664,22 @@ def test_merchant_with_merchant_id_none_gets_empty_merchant_ids():
     config = _trusted_tool_config(user, token_scopes=["agent:chat"], trace_id="test-trace")
 
     assert config["merchant_scope"]["merchant_ids"] == []
+
+
+def test_merchant_role_scopes_project_merchant_scope_and_tool_permissions():
+    from unittest.mock import MagicMock
+    from src.api.routers.agent_runs import _trusted_tool_config
+
+    merchant_id = uuid4()
+    user = MagicMock()
+    user.role = "merchant"
+    user.merchant_id = merchant_id
+
+    config = _trusted_tool_config(user, token_scopes=ROLE_SCOPES["merchant"], trace_id="trace-merchant")
+
+    assert config["merchant_scope"]["merchant_ids"] == [str(merchant_id)]
+    assert "tool:get_order" in config["permissions"]
+    assert config["trace_id"] == "trace-merchant"
 
 
 def test_role_scopes_alone_widen_permissions():

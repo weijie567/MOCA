@@ -312,8 +312,8 @@ case memory search = planner-visible retrieval capability
 Current:
 
 - `src/agent/nodes/execute_action.py`
-- `src/agent/tools/create_coupon_grant_draft.py`
-- `ActionToolExecutor` inside `src/agent/tools/unified.py`
+- `src/actions/service.py`
+- `src/tools/executors/action.py`
 - `src/repositories/action_draft_repo.py`
 
 Target:
@@ -346,12 +346,12 @@ Catalog stance:
 
 - Phase 1 已落地：新增 `src/tools/contracts.py`、`src/tools/catalog.py`、`src/tools/manager.py`、`src/tools/validation.py`，`business_tools` 兼容导出已删除。
 - Phase 2 已开始落地：新增 `src/tools/executors/{business,knowledge,memory,action}.py`，生产节点开始从 `src.tools` 导入 manager/contracts。
-- Phase 3 已落地：新增 `src/business/{service,adapters,schemas}.py` 和 `src/integrations/demo_business/*`，`BusinessToolExecutor` / `load_business_context` 已改用 `src.business`，旧 `business_tools` 兼容包与 `src.agent.tools.get_*` wrapper 已删除。
+- Phase 3 已落地：新增 `src/business/{service,adapters,schemas}.py` 和 `src/integrations/demo_business/*`，business read 已由 `investigate -> UnifiedToolManager -> BusinessToolExecutor` 承担，旧 `load_business_context` 节点、`business_tools` 兼容包与 `src.agent.tools.get_*` wrapper 已删除。
 - Phase 4 已落地：新增 `src/knowledge/retrieval.py`，`KnowledgeToolExecutor` 默认使用 `PolicyRetrievalEngine -> PolicyKnowledgeService`，`investigate` 通过 `UnifiedToolManager.invoke("search_policy")` 执行政策检索，`retrieve_policy_evidence` 兼容 wrapper 已删除，API search endpoint 已直接切到 `PolicyRetrievalEngine` 并保持 HTTP response contract。
 - Phase 5 已落地：新增真实 `src/memory/search.py` 和 `CaseMemorySearchResult` / `CaseMemorySearchItem`，`MemoryToolExecutor` 调 `CaseMemorySearchService` 检索 `session_memories`。
 - Phase 6 已落地：新增 `src/actions/{service,drafts,schemas}.py`，`ActionToolExecutor` 直连 `ActionService`，旧 `src.agent.tools.create_coupon_grant_draft` wrapper 已删除。
-- Phase 8 已开始落地：新增 `tests/architecture/test_tool_boundaries.py`，先锁住 graph node 不再 import legacy agent tools/raw integrations、manager 不直接 import domain service、domain package 不反向 import graph/manager。
 - Phase 7 已落地：legacy `src/agent/tools/*` 和旧 API 测试已删除，`rg "src.agent.tools" src tests` 不应出现生产/测试依赖。
+- Phase 8 已开始落地：新增 `tests/architecture/test_tool_boundaries.py`，先锁住 graph node 不再 import legacy agent tools/raw integrations、manager 不直接 import domain service、domain package 不反向 import graph/manager。
 - Citation content re-fetch 已收进 `PolicyKnowledgeService.get_verified_evidence_contents(...)`；`generate_recommendation` 不再直接 import `PolicyChunkRepository`。
 
 ### Phase 1: Extract Neutral Tool Package
@@ -549,7 +549,7 @@ Delete:
 
 Acceptance:
 
-- `rg "src.agent.tools" src tests` shows only compatibility tests or no results.
+- `rg "src.agent.tools" src tests scripts frontend` shows no production/test dependency.
 - Graph-facing capability tests use `src.tools`.
 
 ### Phase 8: Static Boundary Tests
@@ -624,7 +624,7 @@ Specific regression targets:
 - Knowledge/RAG errors return safe `ToolResult`.
 - Session memory load respects tenant/user/thread/freshness/intent compatibility.
 - Memory write preserves TTL, CAS merge, PII skip, timeout fallback.
-- `search_case_memory` remains read-only and unavailable until implemented.
+- `search_case_memory` remains read-only and returns safe unavailable/error results when repository access is unavailable.
 - Action draft requires node-only caller and idempotency key.
 
 ## Open Decisions For Review
@@ -635,7 +635,7 @@ Specific regression targets:
 
 Recommended answers:
 
-- `src.business_tools`, `src.rag.retriever`, and `src.agent.nodes.retrieve_policy_evidence` have been deleted; remaining cleanup should focus on old empty memory nodes and naming aliases.
+- `src.business_tools`, `src.rag.retriever`, `src.agent.nodes.load_business_context`, and `src.agent.nodes.retrieve_policy_evidence` have been deleted; remaining cleanup should focus on the `long_term_memory_retrieve` empty adapter, `ToolResultV2` alias, and `src/rag` schema/citation naming debt.
 - Keep `src/rag` for low-level embed/chunk/ingest only; move policy retrieval orchestration to `src/knowledge/retrieval.py`.
 - Keep `memory_write` deterministic for now; only `search_case_memory` is planner-visible memory tool.
 - Rename to `ToolResult`, keep `ToolResultV2 = ToolResult` alias for one phase.

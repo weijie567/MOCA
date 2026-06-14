@@ -99,6 +99,21 @@ def test_legacy_retrieve_policy_evidence_node_is_deleted() -> None:
     assert violations == []
 
 
+def test_legacy_load_business_context_node_is_deleted() -> None:
+    assert not (ROOT / "src" / "agent" / "nodes" / "load_business_context.py").exists()
+
+    violations: list[tuple[str, str]] = []
+    for base in (ROOT / "src", ROOT / "tests", ROOT / "scripts"):
+        for path in sorted(base.glob("**/*.py")):
+            if path == Path(__file__):
+                continue
+            for module in _import_targets(path):
+                if module == "src.agent.nodes.load_business_context":
+                    violations.append((str(path.relative_to(ROOT)), module))
+
+    assert violations == []
+
+
 def test_unified_manager_does_not_import_domain_services_directly() -> None:
     imports = _imports(ROOT / "src" / "tools" / "manager.py")
     forbidden_prefixes = (

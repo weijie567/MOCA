@@ -5,10 +5,8 @@ import { cn } from '@/lib/utils'
 const NODE_MESSAGES: Record<string, string> = {
   receive_request: '正在接收请求',
   classify_intent: '正在识别意图',
-  extract_slots: '正在读取订单信息',
-  load_business_context: '正在读取订单信息',
-  retrieve_policy_evidence: '正在检索退款规则',
-  retrieve_policy: '正在检索退款规则',
+  extract_slots: '正在提取关键信息',
+  investigate: '正在调查订单和规则',
   generate_recommendation: '正在生成处理建议',
   assess_risk_and_approval: '正在判断风险等级',
   approval_gate: '需要审批，等待人工决策',

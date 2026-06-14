@@ -46,7 +46,6 @@ NODE_MESSAGES: dict[str, str] = {
     "receive_request": "正在接收请求",
     "classify_intent": "正在识别意图",
     "extract_slots": "正在提取关键信息",
-    "load_business_context": "正在读取订单信息",
     "investigate": "正在调查订单和规则",
     "generate_recommendation": "正在生成处理建议",
     "assess_risk_and_approval": "正在评估风险",

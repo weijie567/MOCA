@@ -61,11 +61,11 @@ MOCA 的目标架构是：面向商家运营与售后协同的企业级 Agent �
 | 设计主题 | 当前 MOCA 依据 | 参考仓库依据 | 是否采用 | 采用方式 | 不采用内容 |
 | --- | --- | --- | --- | --- | --- |
 | LangGraph workflow | `src/agent/graph.py` 已有主 workflow：`receive_request`、`classify_intent`、`session_memory_load`、`extract_slots`、`long_term_memory_retrieve`、`investigate`、`generate_recommendation`、`assess_risk_and_approval`、`clarification_gate`、`approval_gate`、`execute_action`、`final_response`。 | `memory-agent/src/memory_agent/graph.py` 展示 tool call 条件分支；`agents-from-scratch-ts/src/email_assistant.ts` 展示 triage -> subgraph；`Human-in-the-Loop-Workflow-LangGraph/src/graph.py` 展示 Command 路由。 | 采用 | 保留 deterministic LangGraph shell；只读调查统一由 `investigate` bounded loop 承担，后续再补 memory_write/trace_close。 | 不采用完全自由循环 agent，也不把参考仓库 email/news workflow 搬入 MOCA。 |
-| Intent classification | `src/agent/schemas.py` 当前 intent 只有 `policy_qa`、`refund_troubleshooting`、`compensation_suggestion`、`approval_request`、`unknown`；`src/agent/nodes/classify_intent.py` 用 structured output。 | `agents-from-scratch-ts/src/email_assistant.ts` triage 把 email 分成 ignore/respond/notify，用于路由。 | 部分采用 | 扩展 MOCA intent taxonomy，并引入 confidence threshold、clarification path、routing hints。 | 不采用 email 领域的 ignore/respond/notify 作为业务 intent。 |
+| Intent classification | `src/agent/schemas.py` 已定义 `IntentResultV3`、ordinary intent taxonomy、requested operation、confidence、routing hints；`src/agent/nodes/classify_intent.py` 用 structured output。 | `agents-from-scratch-ts/src/email_assistant.ts` triage 把 email 分成 ignore/respond/notify，用于路由。 | 部分采用 | 继续校准 intent precedence、confidence threshold 和 clarification path。 | 不采用 email 领域的 ignore/respond/notify 作为业务 intent。 |
 | Tool calling | `src/agent/nodes/investigate.py` 通过 `UnifiedToolManager` 调用 business read、policy retrieval、case memory search；`ToolCatalog` 是 descriptor/permission/schema/caller allowlist 的单一入口。 | `memory-agent/src/memory_agent/tools.py` 使用 InjectedToolArg；`agents-from-scratch-ts/src/tools/base.ts` 有中央 tool registry；`agent-inbox` 和 HITL examples 在工具执行前中断。 | 采用 | 采用 graph-controlled bounded tool loop + manager-level allowlist + service facade。 | 不采用模型自由选择任意工具并直接写业务系统。 |
-| Memory read/write | 当前 `AgentState` 有 checkpointer thread、`active_slots`、`last_intent`、`evidence_refs`、`last_business_context_refs`；`session_memory_load` / `long_term_memory_retrieve` 是 empty adapter。 | `memory-agent/src/memory_agent/graph.py` 读取最近 memory 注入 prompt；`langgraph-memory/memory_service/graph.py` 有 delayed extraction、patch/insert 双路径、schema fan-out；`agents-from-scratch-ts/src/email_assistant_hitl_memory.ts` 根据 HITL feedback 更新 memory。 | 采用 | 区分 working memory、workflow checkpoint、session memory、long-term profile memory、case memory、audit/replay；先实现 Postgres-authoritative session memory，Redis 只可作为可选热缓存。 | 不采用自由 ReAct 写长期记忆；不采用 Pinecone/Fireworks 默认栈；不把历史 case 当政策；不让 Redis 成为权威记忆或 checkpoint。 |
+| Memory read/write | `session_memory_load` 已通过 `src/memory/service.py` + `SessionMemoryRepository` 读取 PostgreSQL-authoritative session memory；`memory_write` 写 session memory；`search_case_memory` 通过 `MemoryToolExecutor` 检索历史 session memory；`long_term_memory_retrieve` 仍是 empty adapter。 | `memory-agent/src/memory_agent/graph.py` 读取最近 memory 注入 prompt；`langgraph-memory/memory_service/graph.py` 有 delayed extraction、patch/insert 双路径、schema fan-out；`agents-from-scratch-ts/src/email_assistant_hitl_memory.ts` 根据 HITL feedback 更新 memory。 | 采用 | 区分 working memory、workflow checkpoint、session memory、long-term profile memory、case memory、audit/replay；已先实现 Postgres-authoritative session memory，Redis 只可作为可选热缓存。 | 不采用自由 ReAct 写长期记忆；不采用 Pinecone/Fireworks 默认栈；不把历史 case 当政策；不让 Redis 成为权威记忆或 checkpoint。 |
 | Human-in-the-loop approval | `src/agent/nodes/approval_gate.py` 已有 LangGraph `interrupt`；`src/api/routers/approvals.py` 支持 approve/reject resume；`ApprovalRequest`、`ApprovalStep` 已持久化。 | `agent-inbox/README.md` 定义 HumanInterrupt/HumanResponse schema，支持 accept/edit/respond/ignore；`agent-inbox-langgraph-example/src/agent/graph.py` 有 Python 最小示例；`Human-in-the-Loop-Workflow-LangGraph/src/nodes/human_review_node.py` 支持编辑内容后 approve。 | 采用 | 把 MOCA 审批从 approve/reject 扩展到 accept/edit/reject/respond/ignore，并支持多级审批和 SLA。 | 不采用通用 inbox UI 的全部部署假设；不采用布鲁斯天空发布业务。 |
-| Action execution | `src/agent/nodes/execute_action.py` 当前创建 durable action draft；`src/agent/tools/create_coupon_grant_draft.py` 写 `ActionDraft`，有 idempotency key；README 明确无真实支付/退款/券执行。 | `Human-in-the-Loop-Workflow-LangGraph/src/tools.py` 在 publish 前再次 interrupt；`agent-inbox` 支持 edit/accept action args。 | 采用 | 目标为 ActionExecutor facade，demo adapter 仍创建 draft，但 contract 包含 execution result、idempotency、rollback/compensation metadata。 | 不采用在 tool 内直接发布/执行外部动作；真实动作前双确认只作为未来高风险场景。 |
+| Action execution | `src/agent/nodes/execute_action.py` 通过 `UnifiedToolManager` 调用 node-only `create_coupon_grant_draft`；`src/actions/service.py` / `drafts.py` 创建 durable `ActionDraft`，有 idempotency key；README 明确无真实支付/退款/券执行。 | `Human-in-the-Loop-Workflow-LangGraph/src/tools.py` 在 publish 前再次 interrupt；`agent-inbox` 支持 edit/accept action args。 | 采用 | demo action 仍只创建 draft；后续真实外部动作需补 execution/compensation metadata。 | 不采用在 tool 内直接发布/执行外部动作；真实动作前双确认只作为未来高风险场景。 |
 | RAG / Knowledge | `src/knowledge/retrieval.py` 使用 DashScope embedding、pgvector、hybrid rerank、threshold/no-evidence；`src/rag` 保留 embed/chunk/ingest 等底层 infra 和 legacy citation helper。 | `docs/agent-architecture-reference-draft.md` 要求 Knowledge / RAG 是独立能力层。 | 采用 | KnowledgeService facade 管理 evidence contract；Agent 节点不直接接触 embedding/repo/pgvector。 | 不采用把 RAG 当 Agent 内部普通 tool 的长期形态。 |
 | Observability / Replay | `src/agent/trace.py`、`src/repositories/trace_repo.py`、`src/api/routers/traces.py` 已有 AgentRun/AgentStep、approval/action timeline；`src/api/main.py` 有 request trace_id。 | `fastapi-observability/fastapi_app/main.py`、`utils.py`、`docker-compose.yaml` 展示 FastAPI metrics、OTLP、Tempo、Loki、Prometheus、Grafana 和日志 trace 关联。 | 采用 | 先做 in-process spans/metrics/log correlation，再考虑完整 Grafana stack。 | 不直接搬三 app compose 和 Loki logging driver 到 MOCA。 |
 | Prompt organization | 当前 `src/agent/prompts.py` 单文件存 intent、slots、recommendation、risk、final prompts。 | `agents-from-scratch-ts/src/prompts.ts` 按 triage/agent/HITL/memory prompt 拆分；参考草稿要求按节点拆。 | 采用 | 拆成 `src/agent/prompts/intent.py`、`slots.py`、`recommendation.py`、`final_response.py`，memory prompt 放 `src/memory/prompts.py`。 | 不采用超长单 system prompt；不让 prompt 替代 policy/approval/tool 控制。 |
@@ -80,11 +80,11 @@ MOCA 的目标架构是：面向商家运营与售后协同的企业级 Agent �
 当前 MOCA 已实现以下能力：
 
 - FastAPI API 层：`src/api/routers/agent.py` 提供同步 chat；`src/api/routers/agent_runs.py` 提供 run 创建、SSE streaming 和 evidence 查询；`src/api/routers/approvals.py` 提供审批决策；`src/api/routers/traces.py` 提供 run trace。
-- LangGraph workflow：`src/agent/graph.py` 定义 10 个节点和两个条件路由函数。
+- LangGraph workflow：`src/agent/graph.py` 定义 deterministic shell；只读调查统一在 `investigate` bounded loop 内执行，路由函数包括 `route_after_intent`、`route_after_slots`、`route_after_investigate`。
 - AgentState：`src/agent/state.py` 区分 persistent memory 与 ephemeral context，包含 thread/user/tenant/role、active slots、last intent、evidence refs、business context、risk、approval、action、trace 等字段。
 - Intent / slots / recommendation / risk structured output：`src/agent/schemas.py` 和 `src/agent/nodes/*.py` 使用 Pydantic schema 约束 LLM 输出。
 - RAG / Knowledge：`src/knowledge/retrieval.py` 使用 DashScope embedding、pgvector 检索、hybrid rerank、threshold gate；`src/rag` 保留 embed/chunk/ingest 等底层 infra 和 legacy citation helper。
-- Business read tools：`get_order`、`get_refund_case`、`get_ticket` 读取 tenant-scoped 本地 demo DB，并对 merchant role 做访问控制。
+- Business read tools：`src/business/service.py` 通过 `src/business/adapters.py` 调用 demo business integrations；`get_order`、`get_refund_case`、`get_ticket` 读取 tenant-scoped 本地 demo DB，并保留 merchant ownership 防护。
 - Approval interrupt/resume：`approval_gate` 使用 LangGraph `interrupt`；审批 API 用 `Command(resume=...)` 恢复 graph。
 - Action draft：`execute_action` 创建 action draft，`ActionDraftRepository.create_or_get` 用 idempotency key 防重复。
 - Trace / replay：`AgentRun`、`AgentStep`、`ApprovalRequest`、`ApprovalStep`、`ActionDraft` 持久化；`TraceRepository.build_timeline` 组合 agent step、approval、action draft timeline。
@@ -94,20 +94,18 @@ MOCA 的目标架构是：面向商家运营与售后协同的企业级 Agent �
 
 当前 MOCA 部分实现但边界仍不完整：
 
-- Tool contract：`src/agent/tools/contracts.py` 和 `registry.py` 已有 typed registry、risk metadata、caller allowlist，但主 graph nodes 仍直接调用具体 tool 函数，没有统一走 BusinessToolService / KnowledgeService。
-- Memory：`AgentState` 与 PostgreSQL checkpointer 已支持 run/checkpoint 级持久化；`session_memory_load` 和 `long_term_memory_retrieve` 当前是 empty adapter，不声明 continuity。尚未有独立 `src/memory` service、PostgreSQL `session_memories`、Redis hot cache、长期记忆、case memory、memory write policy。
+- Tool contract：`src/tools/{contracts,catalog,manager,validation}.py` 是当前 agent-facing 工具契约和统一分发层；`investigate` 与 `execute_action` 已通过 manager 调用 read/retrieval/action capability。
+- Memory：`src/memory/service.py`、`repository.py`、`schemas.py` 已实现 PostgreSQL-authoritative session memory load/write；`src/memory/search.py` 已实现基于历史 session memory 的 case memory search service。`long_term_memory_retrieve` 仍是 empty adapter；Redis hot cache、长期 profile memory、reviewed case memory 独立表仍未实现。
 - Approval：已有 approve/reject、过期处理、自审批限制、resume、审批 step 记录；尚未有 policy-driven multi-level approval、SLA escalation、accept/edit/respond/ignore。
 - Observability：已有 DB trace 和 API request trace_id；尚未有 OpenTelemetry spans、Prometheus metrics、LLM token/cost 完整记录、RAG/tool/action 细粒度 metrics。
-- Actions：已有 action draft 和幂等；尚未有 ActionExecutor contract、demo adapter/external adapter 分离、compensation/rollback metadata。
+- Actions：已有 `src/actions/service.py`、`src/actions/drafts.py`、`ActionToolExecutor` 和 node-only action descriptor；尚未有真实 external adapter、compensation/rollback metadata。
 - Prompt：已有 `src/agent/prompts.py` 单文件；尚未按节点和能力层拆分。
 
 ### 4.3 未实现
 
 当前仓库中没有找到以下已实现依据：
 
-- 独立 KnowledgeService facade。
-- 独立 BusinessToolService facade。
-- 独立 MemoryService、Long-term Memory、Case Memory。
+- Long-term profile memory。
 - 多级审批 policy 和 SLA escalation engine。
 - accept/edit/respond/ignore 审批响应模型。
 - 真实外部 action executor。
@@ -404,19 +402,19 @@ Canonical router 函数包括：
 
 ### 8.4 Business Tools
 
-当前依据：`get_order.py`、`get_refund_case.py`、`get_ticket.py`、`authz.py`、`registry.py`。
+当前依据：`src/business/service.py`、`src/business/adapters.py`、`src/business/schemas.py`、`src/integrations/demo_business/*`、`src/tools/executors/business.py`。
 
 目标职责（叙述性）：
 
-- BusinessToolService 统一读工具：order/refund/ticket/logistics/merchant risk；当前 adapter 为本地 demo DB，未来替换为真实系统。
-- 只读工具可以自动调用；写工具不能由 business tool read node 执行。
+- BusinessToolService 只保留 business scope、merchant ownership、retry、fact projection / `fetch_context` 聚合和 adapter 调用。
+- agent-facing descriptor、caller allowlist、permission、input/output schema 由 `ToolCatalog` / `UnifiedToolManager` 统一负责。
 - tenant/user/role/idempotency/trace context 必须由系统注入，不由模型生成。
 
 > Normative 接口契约（`BusinessToolService.fetch_context` 签名、`ToolCallContext` / `ToolResultV2`）见 `docs/contract-spec.md` §8.4 与 §12.5。本小节仅为叙述性概览。
 
 ### 8.5 Memory
 
-当前依据：`AgentState`、PostgreSQL checkpointer、empty memory adapters；参考 `memory-agent`、`langgraph-memory`。
+当前依据：`AgentState`、PostgreSQL checkpointer、`src/memory/service.py`、`src/memory/repository.py`、`src/memory/search.py`、`session_memory_load`、`memory_write`、`long_term_memory_retrieve` empty adapter；参考 `memory-agent`、`langgraph-memory`。
 
 目标职责：
 
@@ -433,7 +431,7 @@ Canonical router 函数包括：
 - Session memory 只负责同 thread 连续性，不等于 workflow checkpoint；workflow checkpoint 只负责 run 恢复，不等于下一轮对话记忆。
 - Long-term memory 不应每轮写入。
 - Case memory 只能作为 precedent，不能覆盖当前 policy evidence。
-- 当前实现状态：`src/agent/graph.py` 已用 `AsyncPostgresSaver` 编译 graph；`session_memory_load` 和 `long_term_memory_retrieve` 仍是 empty adapter，不声明 continuity。独立 `src/memory` service、`session_memories` 表、Redis hot cache、long-term/case memory 均尚未实现。
+- 当前实现状态：`src/agent/graph.py` 已用 `AsyncPostgresSaver` 编译 graph；`session_memory_load` 通过 `MemoryService` 读取 `session_memories`，`memory_write` 写入同一权威表，`search_case_memory` 可从历史 session memory 检索 precedent；`long_term_memory_retrieve` 仍是 empty adapter；Redis hot cache、长期 profile memory、reviewed case memory 独立表均尚未实现。
 
 ### 8.6 Approvals / SLA / Policy
 
@@ -448,7 +446,7 @@ Canonical router 函数包括：
 
 ### 8.7 Actions / Executor / Compensation
 
-当前依据：`execute_action.py`、`create_coupon_grant_draft.py`、`ActionDraftRepository`、`ActionDraft`。
+当前依据：`src/agent/nodes/execute_action.py`、`src/tools/executors/action.py`、`src/actions/service.py`、`src/actions/drafts.py`、`ActionDraftRepository`、`ActionDraft`。
 
 目标职责：
 
