@@ -17,6 +17,7 @@ from src.memory.schemas import (
 
 
 _SUMMARY_CAP = 2000
+_SUMMARY_TRUNCATION_MARKER = "\n\n[summary_truncated]"
 BLOCKED_PII_CLASSIFICATIONS = {"sensitive", "prohibited"}
 
 
@@ -128,7 +129,12 @@ class MemoryService:
                 )
             updated = await self.repository.cas_update(existing.id, expected_version, merge.values)
             if updated:
-                return _write_result(candidate, status="written", version=expected_version + 1)
+                return _write_result(
+                    candidate,
+                    status="written",
+                    reason_code=merge.reason_code,
+                    version=expected_version + 1,
+                )
 
             latest = await self.repository.get_active(
                 candidate.tenant_id,
@@ -153,7 +159,12 @@ class MemoryService:
                 )
             retry_updated = await self.repository.cas_update(latest.id, latest.version, retry_merge.values)
             if retry_updated:
-                return _write_result(candidate, status="merged_after_conflict", version=latest.version + 1)
+                return _write_result(
+                    candidate,
+                    status="merged_after_conflict",
+                    reason_code=retry_merge.reason_code,
+                    version=latest.version + 1,
+                )
             return _write_result(
                 candidate,
                 status="conflict",
@@ -225,7 +236,12 @@ class MemoryService:
             )
         updated = await self.repository.cas_update(latest.id, latest.version, merge.values)
         if updated:
-            return _write_result(candidate, status="merged_after_conflict", version=latest.version + 1)
+            return _write_result(
+                candidate,
+                status="merged_after_conflict",
+                reason_code=merge.reason_code,
+                version=latest.version + 1,
+            )
         return _write_result(
             candidate,
             status="conflict",
@@ -236,9 +252,15 @@ class MemoryService:
 
 
 class _MergeResult:
-    def __init__(self, values: dict[str, Any], conflict_reason: str | None = None) -> None:
+    def __init__(
+        self,
+        values: dict[str, Any],
+        conflict_reason: str | None = None,
+        reason_code: str | None = None,
+    ) -> None:
         self.values = values
         self.conflict_reason = conflict_reason
+        self.reason_code = reason_code
 
 
 def _merge_memory(
@@ -274,19 +296,26 @@ def _merge_memory(
             return _MergeResult({}, "business_context_ref_conflict")
         merged_refs[key] = value
 
+    session_summary, summary_reason = _merge_summary(memory.session_summary, candidate.session_summary)
+    last_intent, last_intent_conflict = _merge_last_intent(
+        memory.last_intent, candidate.last_intent, cas_retry=cas_retry
+    )
+    if last_intent_conflict is not None:
+        return _MergeResult({}, last_intent_conflict)
+
     values = {
         "active_slots_json": SessionSlotsEnvelopeV1(slots=merged_slots).model_dump(mode="json"),
-        "session_summary": _merge_summary(memory.session_summary, candidate.session_summary),
+        "session_summary": session_summary,
         "unresolved_questions_json": _merge_unresolved(
             memory.unresolved_questions_json or [],
             candidate.unresolved_questions,
         ),
-        "last_intent": _merge_last_intent(memory.last_intent, candidate.last_intent, cas_retry=cas_retry),
+        "last_intent": last_intent,
         "last_business_context_refs_json": merged_refs,
         "last_run_id": candidate.run_id,
         "expires_at": _max_expiry(merged_slots, now),
     }
-    return _MergeResult(values)
+    return _MergeResult(values, reason_code=summary_reason)
 
 
 def _fallback_view(reason: str) -> SessionMemoryView:
@@ -320,15 +349,15 @@ def _write_result(
     )
 
 
-def _merge_summary(existing: str | None, candidate: str | None) -> str | None:
+def _merge_summary(existing: str | None, candidate: str | None) -> tuple[str | None, str | None]:
     if not existing:
-        return candidate
+        return _bounded_summary(candidate), "summary_truncated" if candidate and len(candidate) > _SUMMARY_CAP else None
     if not candidate or candidate == existing:
-        return existing
+        return existing, None
     combined = f"{existing}\n\n{candidate}"
     if len(combined) <= _SUMMARY_CAP:
-        return combined
-    return existing
+        return combined, None
+    return _bounded_summary_with_candidate(existing, candidate), "summary_truncated"
 
 
 def _merge_unresolved(existing: list[Any], candidate: list[Any]) -> list[Any]:
@@ -343,10 +372,32 @@ def _merge_unresolved(existing: list[Any], candidate: list[Any]) -> list[Any]:
     return merged
 
 
-def _merge_last_intent(existing: str | None, candidate: str | None, *, cas_retry: bool) -> str | None:
+def _merge_last_intent(existing: str | None, candidate: str | None, *, cas_retry: bool) -> tuple[str | None, str | None]:
     if cas_retry and existing and candidate and existing != candidate:
-        return existing
-    return candidate or existing
+        return None, "last_intent_conflict"
+    return candidate or existing, None
+
+
+def _bounded_summary(value: str | None) -> str | None:
+    if value is None or len(value) <= _SUMMARY_CAP:
+        return value
+    budget = _SUMMARY_CAP - len(_SUMMARY_TRUNCATION_MARKER)
+    return f"{value[:budget].rstrip()}{_SUMMARY_TRUNCATION_MARKER}"
+
+
+def _bounded_summary_with_candidate(existing: str, candidate: str) -> str:
+    candidate_budget = min(len(candidate), max(200, _SUMMARY_CAP // 4))
+    separator = "\n\n"
+    existing_budget = _SUMMARY_CAP - len(_SUMMARY_TRUNCATION_MARKER) - len(separator) - candidate_budget
+    if existing_budget < 0:
+        candidate_budget = _SUMMARY_CAP - len(_SUMMARY_TRUNCATION_MARKER)
+        return f"{candidate[:candidate_budget].rstrip()}{_SUMMARY_TRUNCATION_MARKER}"
+    return (
+        f"{existing[:existing_budget].rstrip()}"
+        f"{separator}"
+        f"{candidate[:candidate_budget].rstrip()}"
+        f"{_SUMMARY_TRUNCATION_MARKER}"
+    )
 
 
 def _max_expiry(slots: dict[str, Any], now: datetime) -> datetime | None:

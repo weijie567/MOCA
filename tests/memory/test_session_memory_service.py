@@ -154,7 +154,7 @@ async def test_service_merge_preserves_non_slot_fields_on_safe_cas_retry(
             slots={"refund_case_id": _slot("RF-1")},
             session_summary="candidate summary",
             unresolved_questions=["candidate question"],
-            last_intent="merchant_refund_policy",
+            last_intent="refund_troubleshooting",
             last_business_context_refs={"refund_case": "RF-1"},
         )
     )
@@ -174,6 +174,83 @@ async def test_service_merge_preserves_non_slot_fields_on_safe_cas_retry(
     assert "candidate question" in view.unresolved_questions
     assert view.last_intent == "refund_troubleshooting"
     assert view.last_business_context_refs == {"order": "ORD-OLD", "ticket": "TK-1", "refund_case": "RF-1"}
+
+
+@pytest.mark.asyncio
+async def test_service_summary_cap_truncation_is_observable(session: AsyncSession, seeded_session: dict) -> None:
+    thread_id = "thread-service-summary-truncated"
+    repository = SessionMemoryRepository(session)
+    existing = await repository.insert_active(
+        tenant_id=seeded_session["tenant"].id,
+        user_id=seeded_session["users"]["cs_zhang"].id,
+        thread_id=thread_id,
+        active_slots_json={"schema_version": "session_slots.v1", "slots": {}},
+        session_summary="existing " + ("x" * 1980),
+        last_intent="refund_troubleshooting",
+    )
+    service = MemoryService(repository)
+
+    result = await service.write_session_memory(
+        _candidate(
+            seeded_session,
+            thread_id=thread_id,
+            run_id=await _insert_run(session, seeded_session, thread_id),
+            expected_version=existing.version,
+            slots={},
+            session_summary="candidate " + ("y" * 120),
+            last_intent="refund_troubleshooting",
+        )
+    )
+    view = await service.load_session_memory(
+        seeded_session["tenant"].id,
+        seeded_session["users"]["cs_zhang"].id,
+        thread_id,
+        current_intent="refund_troubleshooting",
+    )
+
+    assert result.status == "written"
+    assert result.reason_code == "summary_truncated"
+    assert view.session_summary is not None
+    assert len(view.session_summary) <= 2000
+    assert "[summary_truncated]" in view.session_summary
+    assert "candidate" in view.session_summary
+
+
+@pytest.mark.asyncio
+async def test_service_last_intent_cas_conflict_returns_reason_code(
+    session: AsyncSession, seeded_session: dict
+) -> None:
+    thread_id = "thread-service-last-intent-conflict"
+    repository = SessionMemoryRepository(session)
+    existing = await repository.insert_active(
+        tenant_id=seeded_session["tenant"].id,
+        user_id=seeded_session["users"]["cs_zhang"].id,
+        thread_id=thread_id,
+        active_slots_json={"schema_version": "session_slots.v1", "slots": {}},
+        last_intent="order_status_inquiry",
+    )
+    stale_version = existing.version
+    await repository.cas_update(
+        existing.id,
+        expected_version=stale_version,
+        values={"last_intent": "refund_troubleshooting"},
+    )
+    service = MemoryService(repository)
+
+    result = await service.write_session_memory(
+        _candidate(
+            seeded_session,
+            thread_id=thread_id,
+            run_id=await _insert_run(session, seeded_session, thread_id),
+            expected_version=stale_version,
+            slots={},
+            last_intent="merchant_refund_policy",
+        )
+    )
+
+    assert result.status == "conflict"
+    assert result.reason_code == "last_intent_conflict"
+    assert result.conflict_reason == "last_intent_conflict"
 
 
 @pytest.mark.asyncio
