@@ -191,12 +191,13 @@ def _patch_graph_dependencies(
     *,
     intent: str = "policy_qa",
     order_id: str | None = None,
+    policy_status: str = "strong_evidence",
 ):
     monkeypatch.setattr(classify_intent_module, "_get_llm", lambda: FakeLLM(_intent(intent)))
     monkeypatch.setattr(extract_slots_module, "_get_llm", lambda: FakeLLM(_slots(order_id)))
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
     monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: FakeLLM(_risk()))
-    manager = FakeGraphToolManager(order_id=order_id)
+    manager = FakeGraphToolManager(order_id=order_id, policy_status=policy_status)
     events: list[dict[str, Any]] = []
     return {"tool_manager": manager, "events": events}
 
@@ -249,6 +250,24 @@ async def test_refund_path_without_case_identifier_routes_to_clarification(monke
     assert final_state["business_context"]["missing_required_facts"] == ["case_identifier"]
     assert final_state["clarification_request"]["missing"] == ["case_identifier"]
     assert final_state["recommendation_draft"] is None
+    assert final_state["final_response"] == "Could you provide a bit more information so I can help?"
+    assert final_state["llm_outputs"]["final_response"]["final_status"] == "insufficient_evidence"
+
+
+@pytest.mark.asyncio
+async def test_policy_qa_no_evidence_returns_insufficient_response(monkeypatch):
+    deps = _patch_graph_dependencies(monkeypatch, intent="policy_qa", policy_status="no_evidence")
+    graph = build_graph(MemorySaver())
+
+    final_state = await graph.ainvoke(
+        _state("退款超时规则是什么？"),
+        _config(deps["tool_manager"], deps["events"]),
+    )
+
+    assert [call[0] for call in deps["tool_manager"].calls] == ["search_policy"]
+    assert final_state["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
+    assert "没有找到足够证据" in final_state["final_response"]
+    assert final_state["llm_outputs"]["final_response"]["final_status"] == "insufficient_evidence"
 
 
 @pytest.mark.asyncio

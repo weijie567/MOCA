@@ -151,3 +151,20 @@ async def test_final_response_preserves_order_facts_when_policy_evidence_is_miss
     assert "关于退款风险" in result["final_response"]
     assert "没有找到足够证据" in result["final_response"]
     assert result["llm_outputs"]["final_response"]["final_status"] == "insufficient_evidence"
+
+
+@pytest.mark.asyncio
+async def test_final_response_preserves_clarification_response(base_state):
+    result = await final_response(
+        {
+            **base_state,
+            "clarification_request": {
+                "reason": "missing_required_information",
+                "missing": ["case_identifier"],
+            },
+            "final_response": "Could you provide a bit more information so I can help?",
+        }
+    )
+
+    assert result["final_response"] == "Could you provide a bit more information so I can help?"
+    assert result["llm_outputs"]["final_response"]["final_status"] == "insufficient_evidence"

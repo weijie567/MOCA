@@ -7,6 +7,7 @@ from uuid import uuid4
 from langchain_core.runnables import RunnableConfig
 
 from src.agent.events import RAG_RETRIEVAL_TOOLS, TOOL_CALL_TOOLS, emit_event
+from src.agent.prompts import INSUFFICIENT_EVIDENCE_RESPONSE
 from src.agent.state import AgentState
 from src.agent.tools.unified import UnifiedToolManager
 from src.business_tools.schemas import ToolCallContext, ToolResultV2
@@ -172,6 +173,7 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
         "claim_dependency_map": context["claim_dependency_map"],
         "tool_results": context["tool_results"],
         "last_business_context_refs": {"business_fact_refs": context["business_fact_refs"], "loaded_at": _now_iso()},
+        "recommendation_draft": _terminal_recommendation_draft(context),
         "termination_reason": termination_reason,
         "trace_steps": trace_steps,
     }
@@ -337,6 +339,48 @@ def _missing_required_facts(state: AgentState, facts: dict[str, Any]) -> list[st
     if intent in _ACTION_ORIENTED_INTENTS and not facts and not any(slots.values()):
         missing.append("case_identifier")
     return list(dict.fromkeys(missing))
+
+
+def _terminal_recommendation_draft(context: dict[str, Any]) -> dict[str, Any] | None:
+    retrieval_status = context["retrieval_status"]
+    best_score = context["best_score"]
+    if retrieval_status == "error":
+        return _retrieval_error_draft(context["errors"])
+    if retrieval_status in {"no_evidence", None}:
+        return _insufficient_evidence_draft()
+    if isinstance(best_score, (int, float)) and best_score < MIN_EVIDENCE_SCORE:
+        return _insufficient_evidence_draft(["Policy evidence score below threshold"])
+    return None
+
+
+def _insufficient_evidence_draft(missing_info: list[str] | None = None) -> dict[str, Any]:
+    return {
+        "recommended_action": "insufficient_evidence",
+        "reasoning_summary": INSUFFICIENT_EVIDENCE_RESPONSE,
+        "evidence_refs": [],
+        "confidence": 0.0,
+        "risk_level": "low",
+        "missing_info": missing_info or ["No relevant policy found"],
+    }
+
+
+def _retrieval_error_draft(errors: list[dict[str, Any]]) -> dict[str, Any]:
+    message = "Policy retrieval failed"
+    for error in errors:
+        if not isinstance(error, dict):
+            continue
+        safe_message = error.get("safe_message") or error.get("message")
+        if isinstance(safe_message, str) and safe_message:
+            message = safe_message
+            break
+    return {
+        "recommended_action": "retrieval_error",
+        "reasoning_summary": "Policy retrieval failed due to an infrastructure error.",
+        "evidence_refs": [],
+        "confidence": 0.0,
+        "risk_level": "low",
+        "missing_info": [message],
+    }
 
 
 def _case_slots(state: AgentState) -> dict[str, Any]:

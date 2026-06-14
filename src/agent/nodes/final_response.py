@@ -156,6 +156,23 @@ async def final_response(state: AgentState) -> dict:
     draft = state.get("recommendation_draft") or {}
     approval_result = state.get("approval_result")
     action_result = state.get("action_result")
+    clarification_request = state.get("clarification_request")
+    if isinstance(clarification_request, dict):
+        response_text = state.get("final_response") or "Could you provide a bit more information so I can help?"
+        return {
+            "final_response": response_text,
+            "llm_outputs": {
+                **(state.get("llm_outputs") or {}),
+                "final_response": {
+                    "response_text": response_text,
+                    "evidence_citations": [],
+                    "final_status": "insufficient_evidence",
+                    "mode": "deterministic-template",
+                    "approval_context": None,
+                },
+            },
+            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
+        }
     if draft.get("recommended_action") == "retrieval_error":
         return {
             "final_response": _retrieval_error_response(draft),

@@ -120,6 +120,40 @@ def _policy_success(status: str = "strong_evidence", score: float = 0.91) -> Too
     )
 
 
+def _policy_not_found() -> ToolResultV2:
+    return ToolResultV2(
+        status="not_found",
+        data={"retrieval_status": "no_evidence", "best_score": 0.0},
+        summary="no policy found",
+        source_system="policy_knowledge_service",
+        data_freshness_at=None,
+        policy_evidence_refs=[],
+        business_fact_refs=[],
+        error=None,
+        retryable=False,
+        retry_after_ms=None,
+        latency_ms=3,
+        audit_ref=None,
+    )
+
+
+def _policy_retrieval_error() -> ToolResultV2:
+    return ToolResultV2(
+        status="error",
+        data={"retrieval_status": "error", "best_score": 0.0},
+        summary="policy search failed",
+        source_system="policy_knowledge_service",
+        data_freshness_at=None,
+        policy_evidence_refs=[],
+        business_fact_refs=[],
+        error=ToolError(code="KNOWLEDGE_SEARCH_ERROR", safe_message="Policy search failed", retryable=False, source="upstream"),
+        retryable=False,
+        retry_after_ms=None,
+        latency_ms=3,
+        audit_ref=None,
+    )
+
+
 def _error(status: str, code: str = "TOOL_UNAVAILABLE", message: str = "unavailable") -> ToolResultV2:
     return ToolResultV2(
         status=status,
@@ -323,6 +357,32 @@ async def test_policy_retrieval_semantics_survive_tool_result_flattening():
     assert result["best_score"] == 0.61
     assert result["policy_evidence"]
     assert result["tool_results"][0]["policy_evidence_refs"]
+
+
+@pytest.mark.asyncio
+async def test_no_evidence_result_sets_insufficient_recommendation_draft():
+    events: list[dict[str, Any]] = []
+    manager = FakeManager({"search_policy": _policy_not_found()})
+    plan = [{"next_tool": "search_policy", "args": {"query": "refund"}, "reason": "policy"}]
+
+    result = await investigate(_state(plan), _config(manager, events))
+
+    assert result["retrieval_status"] == "no_evidence"
+    assert result["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
+    assert result["recommendation_draft"]["evidence_refs"] == []
+
+
+@pytest.mark.asyncio
+async def test_retrieval_error_result_sets_error_recommendation_draft():
+    events: list[dict[str, Any]] = []
+    manager = FakeManager({"search_policy": _policy_retrieval_error()})
+    plan = [{"next_tool": "search_policy", "args": {"query": "refund"}, "reason": "policy"}]
+
+    result = await investigate(_state(plan), _config(manager, events))
+
+    assert result["retrieval_status"] == "error"
+    assert result["recommendation_draft"]["recommended_action"] == "retrieval_error"
+    assert result["recommendation_draft"]["missing_info"] == ["Policy search failed"]
 
 
 @pytest.mark.asyncio
