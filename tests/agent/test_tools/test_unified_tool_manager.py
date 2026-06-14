@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
 
 from src.agent.events import classify_event_family
 from src.agent.tools.unified import (
+    ActionToolExecutor,
     BusinessToolExecutor,
     KnowledgeToolExecutor,
     MemoryToolExecutor,
@@ -31,7 +33,13 @@ INVESTIGATE_TOOLS = {
 }
 
 
-def _ctx(*, tool: str = "get_order", permissions: list[str] | None = None) -> ToolCallContext:
+def _ctx(
+    *,
+    tool: str = "get_order",
+    permissions: list[str] | None = None,
+    caller_node: str = "investigate",
+    idempotency_key: str | None = None,
+) -> ToolCallContext:
     return ToolCallContext(
         tenant_id=str(uuid4()),
         user_id=str(uuid4()),
@@ -44,11 +52,11 @@ def _ctx(*, tool: str = "get_order", permissions: list[str] | None = None) -> To
         trace_id="trace-1",
         request_id=str(uuid4()),
         tool_call_id=str(uuid4()),
-        caller_node="investigate",
+        caller_node=caller_node,
         deadline_at=datetime.now(UTC),
         attempt=1,
         max_attempts=1,
-        idempotency_key=None,
+        idempotency_key=idempotency_key,
         policy_snapshot_ref=None,
     )
 
@@ -114,7 +122,7 @@ def test_descriptor_event_family_agrees_with_classifier():
 
 
 @pytest.mark.asyncio
-async def test_invoke_get_order_delegates_to_business_tool_service(monkeypatch, session):
+async def test_invoke_get_order_delegates_to_business_tool_service(monkeypatch):
     called = {}
 
     async def fake_invoke(self, name, args, ctx):
@@ -123,7 +131,7 @@ async def test_invoke_get_order_delegates_to_business_tool_service(monkeypatch, 
         return _success_result("business_tool_service")
 
     monkeypatch.setattr("src.business_tools.service.BusinessToolService.invoke_tool", fake_invoke)
-    manager = UnifiedToolManager(executors=[BusinessToolExecutor(session)])
+    manager = UnifiedToolManager(executors=[BusinessToolExecutor(session=object())])
 
     result = await manager.invoke("get_order", {"order_no": "ORD-TEST-001"}, _ctx(tool="get_order"))
 
@@ -232,17 +240,84 @@ async def test_write_tool_blocked_before_executor_dispatch():
 
 
 @pytest.mark.asyncio
+async def test_action_tool_requires_idempotency_key():
+    executor = _FakeExecutor("create_coupon_grant_draft", _success_result())
+    manager = UnifiedToolManager(executors=[executor])
+
+    result = await manager.invoke(
+        "create_coupon_grant_draft",
+        {"action_type": "issue_coupon", "payload": {"target_id": "refund-1"}},
+        _ctx(
+            tool="create_coupon_grant_draft",
+            caller_node="execute_action",
+            permissions=["tool:create_coupon_grant_draft"],
+        ),
+    )
+
+    assert result.status == "invalid_request"
+    assert result.error is not None
+    assert result.error.code == "IDEMPOTENCY_KEY_REQUIRED"
+    assert executor.calls == []
+
+
+@pytest.mark.asyncio
+async def test_execute_action_caller_can_dispatch_action_tool(monkeypatch):
+    draft_id = str(uuid4())
+    import src.agent.tools.unified as unified_module
+
+    create_draft = AsyncMock(
+        return_value={
+            "status": "success",
+            "data": {
+                "draft_id": draft_id,
+                "idempotency_key": "idem-1",
+                "status": "draft_created",
+                "created": True,
+                "idempotent_reused": False,
+            },
+            "error": {},
+        }
+    )
+    monkeypatch.setattr(unified_module, "create_coupon_grant_draft", create_draft)
+    manager = UnifiedToolManager(executors=[ActionToolExecutor(session=object())])
+
+    result = await manager.invoke(
+        "create_coupon_grant_draft",
+        {"approval_request_id": str(uuid4()), "action_type": "issue_coupon", "payload": {"target_id": "refund-1"}},
+        _ctx(
+            tool="create_coupon_grant_draft",
+            caller_node="execute_action",
+            permissions=["tool:create_coupon_grant_draft"],
+            idempotency_key="idem-1",
+        ),
+    )
+
+    assert result.status == "success"
+    assert result.data is not None
+    assert result.data["draft_id"] == draft_id
+    create_draft.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_missing_permission_returns_permission_denied():
-    result = await UnifiedToolManager().invoke("get_order", {"order_no": "ORD-TEST-001"}, _ctx(permissions=[]))
+    executor = _FakeExecutor("get_order", _success_result())
+    result = await UnifiedToolManager(executors=[executor]).invoke(
+        "get_order",
+        {"order_no": "ORD-TEST-001"},
+        _ctx(permissions=[]),
+    )
 
     assert result.status == "permission_denied"
+    assert executor.calls == []
 
 
 @pytest.mark.asyncio
 async def test_invalid_input_returns_invalid_request():
-    result = await UnifiedToolManager().invoke("get_order", {}, _ctx(tool="get_order"))
+    executor = _FakeExecutor("get_order", _success_result())
+    result = await UnifiedToolManager(executors=[executor]).invoke("get_order", {}, _ctx(tool="get_order"))
 
     assert result.status == "invalid_request"
+    assert executor.calls == []
 
 
 @pytest.mark.asyncio
@@ -252,6 +327,32 @@ async def test_malformed_executor_return_becomes_invalid_response():
     result = await manager.invoke("get_order", {"order_no": "ORD-TEST-001"}, _ctx(tool="get_order"))
 
     assert result.status == "invalid_response"
+
+
+@pytest.mark.asyncio
+async def test_output_schema_failure_returns_invalid_response_without_raw_data():
+    raw_sentinel = "RAW-MANAGER-SENTINEL"
+    descriptor = next(item for item in ToolRegistry().descriptors() if item.name == "get_order").model_copy(
+        update={
+            "output_schema": {
+                "type": "object",
+                "properties": {"order_no": {"type": "string"}},
+                "required": ["order_no"],
+                "additionalProperties": False,
+            }
+        }
+    )
+    executor = _FakeExecutor("get_order", _success_result())
+    executor._tools = {"get_order": descriptor}
+    executor.result = _success_result()
+    executor.result.data = {"unexpected": raw_sentinel}
+    manager = UnifiedToolManager(descriptors=[descriptor], executors=[executor])
+
+    result = await manager.invoke("get_order", {"order_no": "ORD-TEST-001"}, _ctx(tool="get_order"))
+
+    assert result.status == "invalid_response"
+    assert result.data is None
+    assert raw_sentinel not in str(result.model_dump())
 
 
 @pytest.mark.asyncio

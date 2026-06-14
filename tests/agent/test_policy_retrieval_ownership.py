@@ -108,8 +108,8 @@ class TestPolicyRetrievalOwnership:
 
 class TestRetrievalDescriptorsDeclarationOnly:
     """search_policy, search_sop, search_case_memory descriptors exist in the
-    Phase 9 registry as declaration/validation catalog entries. Their adapters
-    are None -- they are NOT executable through BusinessToolService."""
+    tool catalog as declaration/validation catalog entries. ToolRegistry is
+    declaration-only; UnifiedToolManager owns graph-facing execution."""
 
     @pytest.fixture()
     def registry(self) -> ToolRegistry:
@@ -159,8 +159,8 @@ class TestRetrievalDescriptorsDeclarationOnly:
 
     @pytest.mark.asyncio
     async def test_search_policy_returns_unavailable_through_registry(self, registry):
-        """Invoking search_policy through the registry returns 'unavailable'
-        because its adapter is None (declaration-only)."""
+        """Invoking search_policy through ToolRegistry returns unavailable
+        because the registry is declaration-only."""
         from src.business_tools.schemas import ToolCallContext
 
         ctx = ToolCallContext(
@@ -181,7 +181,7 @@ class TestRetrievalDescriptorsDeclarationOnly:
             f"search_policy should be unavailable (adapter=None), got {result.status}"
         )
         assert result.error is not None
-        assert result.error.code == "TOOL_UNAVAILABLE"
+        assert result.error.code == "TOOL_REGISTRY_DECLARATION_ONLY"
 
     @pytest.mark.asyncio
     async def test_search_sop_returns_unavailable_through_registry(self, registry):
@@ -228,11 +228,10 @@ class TestRetrievalDescriptorsDeclarationOnly:
 # Business-read descriptors retain adapters
 # ---------------------------------------------------------------------------
 
-class TestBusinessReadDescriptorsExecutable:
+class TestBusinessReadDescriptorsDeclared:
     """The executable business-read descriptors (get_order, get_refund_case,
-    get_ticket) must retain adapters in the default registry composition.
-    This is the positive side of the ownership boundary: business reads
-    ARE executable through BusinessToolService."""
+    get_ticket) remain declared in the catalog. Their adapters live in
+    BusinessToolService, not ToolRegistry."""
 
     @pytest.fixture()
     def registry(self) -> ToolRegistry:
@@ -256,22 +255,20 @@ class TestBusinessReadDescriptorsExecutable:
         assert "get_ticket" in descriptors
         assert descriptors["get_ticket"].kind == "read"
 
-    def test_business_read_adapters_are_registered(self, registry):
-        """Business-read tools must have non-None adapters (they are executable)."""
+    def test_business_read_adapters_are_not_registered_in_catalog(self, registry):
+        """Business-read adapters must not live in the declaration catalog."""
         for name in ("get_order", "get_refund_case", "get_ticket"):
             tool = registry._tools.get(name)
             assert tool is not None, f"{name} must be registered"
-            assert tool.adapter is not None, (
-                f"{name} must have an adapter; it is an executable business-read tool"
-            )
+            assert tool.adapter is None
 
 
 # ---------------------------------------------------------------------------
 # Write descriptor blocked
 # ---------------------------------------------------------------------------
 
-class TestWriteDescriptorBlocked:
-    """Write tools are declared in the registry but cannot execute."""
+class TestWriteDescriptorDeclaredOnly:
+    """Write tools are declared in the registry but cannot execute there."""
 
     @pytest.fixture()
     def registry(self) -> ToolRegistry:
@@ -283,8 +280,8 @@ class TestWriteDescriptorBlocked:
         assert descriptors["create_coupon_grant_draft"].kind == "write"
 
     @pytest.mark.asyncio
-    async def test_write_tool_blocked_before_adapter(self, registry):
-        """Write tool invocation is rejected before adapter execution."""
+    async def test_write_tool_unavailable_through_declaration_catalog(self, registry):
+        """Write tool invocation fails closed in ToolRegistry."""
         from src.business_tools.schemas import ToolCallContext
 
         ctx = ToolCallContext(
@@ -306,9 +303,9 @@ class TestWriteDescriptorBlocked:
             ctx,
             AsyncMock(),
         )
-        assert result.status == "permission_denied"
+        assert result.status == "unavailable"
         assert result.error is not None
-        assert result.error.code == "WRITE_TOOL_BLOCKED"
+        assert result.error.code == "TOOL_REGISTRY_DECLARATION_ONLY"
 
 
 # ---------------------------------------------------------------------------

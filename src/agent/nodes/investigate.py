@@ -390,9 +390,10 @@ def _retrieval_error_draft(errors: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _case_slots(state: AgentState) -> dict[str, Any]:
-    resolved = state.get("active_slots") if isinstance(state.get("active_slots"), dict) else {}
+    extracted = state.get("extracted_slots") if isinstance(state.get("extracted_slots"), dict) else {}
+    active = state.get("active_slots") if isinstance(state.get("active_slots"), dict) else {}
     return {
-        slot_name: resolved.get(slot_name)
+        slot_name: extracted.get(slot_name) or active.get(slot_name)
         for slot_name in _CASE_SLOT_RESOURCES
     }
 

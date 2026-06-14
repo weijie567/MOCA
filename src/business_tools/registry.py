@@ -1,23 +1,14 @@
-"""Declarative business-tool registry and dispatch boundary."""
+"""Declarative tool catalog."""
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationError
-from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel, ConfigDict
 
-from src.agent.tools.adapters import GetOrderInput, GetRefundCaseInput, GetTicketInput
-from src.business_tools.schemas import ToolCallContext, ToolError, ToolResultV2
-
-
-ToolAdapter = Callable[[BaseModel, ToolCallContext, AsyncSession], Awaitable[ToolResultV2]]
-
-
-class _SchemaInput(BaseModel):
-    model_config = ConfigDict(extra="allow")
+from src.business_tools.schemas import ToolError, ToolResultV2
 
 
 class ToolDescriptor(BaseModel):
@@ -31,26 +22,38 @@ class ToolDescriptor(BaseModel):
     side_effect: Literal["none", "read_only", "retrieval", "write"]
     required_permission: str
     caller_allowlist: list[str]
-    event_family: Literal["tool_call_*", "rag_retrieval_*"] | None
+    event_family: Literal["tool_call_*", "rag_retrieval_*", "action"] | None
     resource_type: str | None
+    executor: Literal["business", "knowledge", "memory", "action"] | None = None
+    exposure: Literal["planner_visible", "node_only", "internal"] = "planner_visible"
+    requires_approval: bool = False
+    requires_safety_snapshot: bool = False
+    requires_idempotency_key: bool = False
 
 
 @dataclass(frozen=True)
 class RegisteredTool:
     descriptor: ToolDescriptor
-    adapter: ToolAdapter | None = None
+    adapter: Any | None = None
 
 
 _GENERIC_OBJECT_SCHEMA: dict[str, Any] = {"type": "object"}
-_INPUT_MODELS: dict[str, type[BaseModel]] = {
-    "get_order": GetOrderInput,
-    "get_refund_case": GetRefundCaseInput,
-    "get_ticket": GetTicketInput,
-}
 _IDENTIFIER_SCHEMAS: dict[str, dict[str, Any]] = {
-    "get_order": GetOrderInput.model_json_schema(),
-    "get_refund_case": GetRefundCaseInput.model_json_schema(),
-    "get_ticket": GetTicketInput.model_json_schema(),
+    "get_order": {
+        "type": "object",
+        "properties": {"order_no": {"type": "string", "minLength": 1}},
+        "required": ["order_no"],
+    },
+    "get_refund_case": {
+        "type": "object",
+        "properties": {"refund_case_no": {"type": "string", "minLength": 1}},
+        "required": ["refund_case_no"],
+    },
+    "get_ticket": {
+        "type": "object",
+        "properties": {"ticket_id": {"type": "string", "minLength": 1}},
+        "required": ["ticket_id"],
+    },
     "get_logistics": {
         "type": "object",
         "properties": {"tracking_no": {"type": "string", "minLength": 1}},
@@ -79,10 +82,11 @@ _IDENTIFIER_SCHEMAS: dict[str, dict[str, Any]] = {
     "create_coupon_grant_draft": {
         "type": "object",
         "properties": {
-            "merchant_id": {"type": "string", "minLength": 1},
-            "amount": {"type": "number", "exclusiveMinimum": 0},
+            "approval_request_id": {"type": "string", "minLength": 1},
+            "action_type": {"type": "string", "minLength": 1},
+            "payload": {"type": "object"},
         },
-        "required": ["merchant_id", "amount"],
+        "required": ["action_type", "payload"],
     },
 }
 
@@ -93,8 +97,13 @@ def _descriptor(
     kind: Literal["read", "retrieval", "write"],
     side_effect: Literal["read_only", "retrieval", "write"],
     caller_allowlist: list[str],
-    event_family: Literal["tool_call_*", "rag_retrieval_*"] | None,
+    event_family: Literal["tool_call_*", "rag_retrieval_*", "action"] | None,
     resource_type: str | None,
+    executor: Literal["business", "knowledge", "memory", "action"] | None = None,
+    exposure: Literal["planner_visible", "node_only", "internal"] = "planner_visible",
+    requires_approval: bool = False,
+    requires_safety_snapshot: bool = False,
+    requires_idempotency_key: bool = False,
 ) -> ToolDescriptor:
     return ToolDescriptor(
         name=name,
@@ -107,6 +116,11 @@ def _descriptor(
         caller_allowlist=caller_allowlist,
         event_family=event_family,
         resource_type=resource_type,
+        executor=executor,
+        exposure=exposure,
+        requires_approval=requires_approval,
+        requires_safety_snapshot=requires_safety_snapshot,
+        requires_idempotency_key=requires_idempotency_key,
     )
 
 
@@ -119,6 +133,7 @@ def _default_descriptors() -> list[ToolDescriptor]:
             caller_allowlist=["investigate"],
             event_family="tool_call_*",
             resource_type="order",
+            executor="business",
         ),
         _descriptor(
             "get_refund_case",
@@ -127,6 +142,7 @@ def _default_descriptors() -> list[ToolDescriptor]:
             caller_allowlist=["investigate"],
             event_family="tool_call_*",
             resource_type="refund_case",
+            executor="business",
         ),
         _descriptor(
             "get_ticket",
@@ -135,6 +151,7 @@ def _default_descriptors() -> list[ToolDescriptor]:
             caller_allowlist=["investigate"],
             event_family="tool_call_*",
             resource_type="ticket",
+            executor="business",
         ),
         _descriptor(
             "get_logistics",
@@ -143,6 +160,7 @@ def _default_descriptors() -> list[ToolDescriptor]:
             caller_allowlist=["investigate"],
             event_family="tool_call_*",
             resource_type="logistics",
+            executor="business",
         ),
         _descriptor(
             "get_merchant_risk",
@@ -151,6 +169,7 @@ def _default_descriptors() -> list[ToolDescriptor]:
             caller_allowlist=["investigate"],
             event_family="tool_call_*",
             resource_type="merchant_risk",
+            executor="business",
         ),
         _descriptor(
             "search_policy",
@@ -159,6 +178,7 @@ def _default_descriptors() -> list[ToolDescriptor]:
             caller_allowlist=["investigate"],
             event_family="rag_retrieval_*",
             resource_type=None,
+            executor="knowledge",
         ),
         _descriptor(
             "search_sop",
@@ -167,6 +187,7 @@ def _default_descriptors() -> list[ToolDescriptor]:
             caller_allowlist=["investigate"],
             event_family="rag_retrieval_*",
             resource_type=None,
+            executor="knowledge",
         ),
         _descriptor(
             "search_case_memory",
@@ -175,41 +196,26 @@ def _default_descriptors() -> list[ToolDescriptor]:
             caller_allowlist=["investigate"],
             event_family="rag_retrieval_*",
             resource_type=None,
+            executor="memory",
         ),
         _descriptor(
             "create_coupon_grant_draft",
             kind="write",
             side_effect="write",
-            caller_allowlist=[],
-            # SCF-3: action_* deferred to Phase 17.
-            event_family=None,
+            caller_allowlist=["execute_action"],
+            event_family="action",
             resource_type=None,
+            executor="action",
+            exposure="node_only",
+            requires_idempotency_key=True,
         ),
     ]
-
-
-def _default_adapters() -> dict[str, ToolAdapter]:
-    """Load Phase 9 executable adapters when Plan 09-03 is present."""
-
-    try:
-        from src.business_tools.adapters import get_order_adapter, get_refund_case_adapter, get_ticket_adapter
-    except ImportError:
-        return {}
-    return {
-        "get_order": get_order_adapter,
-        "get_refund_case": get_refund_case_adapter,
-        "get_ticket": get_ticket_adapter,
-    }
 
 
 class ToolRegistry:
     def __init__(self, tools: Iterable[RegisteredTool] | None = None) -> None:
         if tools is None:
-            adapters = _default_adapters()
-            registered_tools = [
-                RegisteredTool(descriptor=descriptor, adapter=adapters.get(descriptor.name))
-                for descriptor in _default_descriptors()
-            ]
+            registered_tools = [RegisteredTool(descriptor=descriptor) for descriptor in _default_descriptors()]
         else:
             registered_tools = list(tools)
 
@@ -223,14 +229,21 @@ class ToolRegistry:
     def descriptors(self) -> list[ToolDescriptor]:
         return [tool.descriptor for tool in self._tools.values()]
 
-    # SCF-8: session is the explicit non-context DB runtime dependency; logical gate order is unchanged.
     async def invoke(
         self,
         name: str,
         input_data: dict[str, Any],
-        ctx: ToolCallContext,
-        session: AsyncSession,
+        ctx: Any,
+        session: Any,
     ) -> ToolResultV2:
+        """Compatibility shim: the catalog no longer executes tools.
+
+        Agent-facing validation and execution live in UnifiedToolManager. This
+        method remains temporarily so old callers fail closed instead of
+        reintroducing a second permission/schema/adapter dispatch path.
+        """
+
+        del input_data, ctx, session
         tool = self._tools.get(name)
         if tool is None:
             return self._result(
@@ -239,88 +252,20 @@ class ToolRegistry:
                 code="TOOL_NOT_FOUND",
                 source="caller",
             )
-
-        descriptor = tool.descriptor
-        if descriptor.kind == "write":
-            return self._result(
-                "permission_denied",
-                "Write tools cannot execute through BusinessToolService",
-                code="WRITE_TOOL_BLOCKED",
-                source="caller",
-            )
-
-        if ctx.caller_node not in descriptor.caller_allowlist:
-            return self._result(
-                "permission_denied",
-                "Caller is not allowed to invoke this tool",
-                code="CALLER_NOT_ALLOWED",
-                source="caller",
-            )
-
-        if descriptor.required_permission not in ctx.permissions:
-            return self._result(
-                "permission_denied",
-                "Required tool permission is missing",
-                code="PERMISSION_REQUIRED",
-                source="caller",
-            )
-
-        try:
-            input_model_type = _INPUT_MODELS.get(descriptor.name)
-            if input_model_type is None:
-                _validate_json_value(input_data, descriptor.input_schema)
-                input_model = _SchemaInput.model_validate(input_data)
-            else:
-                input_model = input_model_type.model_validate(input_data)
-        except (ValidationError, ValueError, TypeError):
-            return self._result(
-                "invalid_request",
-                "Tool input failed validation",
-                code="INVALID_TOOL_INPUT",
-                source="caller",
-            )
-
-        adapter = tool.adapter
-        if adapter is None:
-            return self._result(
-                "unavailable",
-                "Tool is declared but unavailable",
-                code="TOOL_UNAVAILABLE",
-                source="tool",
-            )
-
-        try:
-            result = await adapter(input_model, ctx, session)
-        except Exception:
-            return self._result(
-                "error",
-                "Tool adapter failed",
-                code="ADAPTER_ERROR",
-                source="adapter",
-            )
-
-        try:
-            if not isinstance(result, ToolResultV2):
-                raise TypeError("Adapter did not return ToolResultV2")
-            if result.data is not None:
-                _validate_json_value(result.data, descriptor.output_schema)
-        except (ValueError, TypeError):
-            return self._result(
-                "invalid_response",
-                "Tool adapter returned an invalid response",
-                code="INVALID_ADAPTER_RESPONSE",
-                source="adapter",
-            )
-
-        return result
+        return self._result(
+            "unavailable",
+            "ToolRegistry is declaration-only; use UnifiedToolManager",
+            code="TOOL_REGISTRY_DECLARATION_ONLY",
+            source="tool",
+        )
 
     @staticmethod
     def _result(
-        status: Literal["not_found", "permission_denied", "unavailable", "invalid_request", "invalid_response", "error"],
+        status: Literal["not_found", "unavailable"],
         summary: str,
         *,
         code: str,
-        source: Literal["caller", "tool", "adapter"],
+        source: Literal["caller", "tool"],
     ) -> ToolResultV2:
         return ToolResultV2(
             status=status,

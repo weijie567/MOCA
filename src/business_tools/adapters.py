@@ -8,10 +8,9 @@ from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.agent.tools.adapters import GetOrderInput, GetRefundCaseInput, GetTicketInput
 from src.agent.tools.get_order import get_order
 from src.agent.tools.get_refund_case import get_refund_case
 from src.agent.tools.get_ticket import get_ticket
@@ -20,6 +19,18 @@ from src.business_tools.schemas import BusinessFactRefV1, ToolCallContext, ToolE
 
 class _StrictProjection(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class GetOrderInput(BaseModel):
+    order_no: str = Field(min_length=1)
+
+
+class GetRefundCaseInput(BaseModel):
+    refund_case_no: str = Field(min_length=1)
+
+
+class GetTicketInput(BaseModel):
+    ticket_id: str = Field(min_length=1)
 
 
 class _OrderRelationHints(_StrictProjection):

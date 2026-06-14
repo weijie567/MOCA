@@ -6,9 +6,11 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 
 from src.agent.state import AgentState
-from src.agent.tools.create_coupon_grant_draft import create_coupon_grant_draft
+from src.agent.tools.unified import ActionToolExecutor, UnifiedToolManager
+from src.business_tools.schemas import ToolCallContext, ToolResultV2
 
 FULL_REFUND_TERMS = ("full_refund", "全额退款", "全额退", "整单退款")
+ACTION_TOOL_NAME = "create_coupon_grant_draft"
 ACTIONABLE_ACTIONS = {
     "issue_coupon",
     "approve_refund",
@@ -53,6 +55,21 @@ def _canonical_action_type(action: Any) -> str:
     return "manual_review"
 
 
+def _action_result_from_tool_result(result: ToolResultV2) -> dict[str, Any]:
+    if result.status == "success":
+        return {"status": "success", "data": result.data or {}, "error": {}}
+    error = result.error
+    return {
+        "status": "error",
+        "data": {},
+        "error": {
+            "error_code": error.code if error is not None else result.status.upper(),
+            "message": error.safe_message if error is not None else result.summary,
+            "retryable": result.retryable,
+        },
+    }
+
+
 async def execute_action(state: AgentState, config: RunnableConfig) -> dict:
     """Execute an approved action by creating a durable draft."""
     started_at = _now_iso()
@@ -74,27 +91,51 @@ async def execute_action(state: AgentState, config: RunnableConfig) -> dict:
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("error", started_at)],
         }
 
-    session = config["configurable"]["session"]
+    configurable = config.get("configurable") or {}
+    session = configurable["session"]
     run_id = approval.get("run_id") or state.get("current_run_id") or ""
     approval_id = approval.get("approval_id") or "no_approval"
     action_type = _canonical_action_type(proposed.get("action_type"))
     proposed = {**proposed, "action_type": action_type}
     idempotency_key = f"{run_id}_{approval_id}_{action_type}_{proposed.get('target_id', 'unknown')}"
+    permissions = list(configurable.get("permissions") or [])
+    # The deterministic execute_action node owns this node-only capability after
+    # risk/approval routing. User-scoped read permissions remain injected by API config.
+    if f"tool:{ACTION_TOOL_NAME}" not in permissions:
+        permissions.append(f"tool:{ACTION_TOOL_NAME}")
 
-    result = await create_coupon_grant_draft(
+    tool_ctx = ToolCallContext(
         tenant_id=state.get("tenant_id", ""),
         user_id=state.get("user_id", ""),
+        role=state.get("role") or "",
+        permissions=permissions,
+        merchant_scope=configurable.get("merchant_scope") or {},
+        session_id=configurable.get("session_id"),
+        thread_id=state.get("thread_id") or "",
         run_id=run_id,
-        approval_request_id=approval.get("approval_id"),
+        trace_id=configurable.get("trace_id") or state.get("current_run_id") or "",
+        request_id=configurable.get("request_id") or run_id,
+        tool_call_id=f"{run_id}:{ACTION_TOOL_NAME}",
+        caller_node="execute_action",
+        deadline_at=configurable.get("deadline_at"),
+        attempt=1,
+        max_attempts=1,
         idempotency_key=idempotency_key,
-        action_type=action_type,
-        payload=proposed,
-        session=session,
+        approval_ref=approval.get("approval_id"),
+        safety_snapshot_ref=(risk.get("safety_snapshot_ref") or risk.get("snapshot_ref")),
+        policy_snapshot_ref=None,
     )
+    args = {"action_type": action_type, "payload": proposed}
+    if approval.get("approval_id"):
+        args["approval_request_id"] = approval["approval_id"]
+
+    manager = configurable.get("action_tool_manager") or UnifiedToolManager(executors=[ActionToolExecutor(session)])
+    tool_result = await manager.invoke(ACTION_TOOL_NAME, args, tool_ctx)
+    result = _action_result_from_tool_result(tool_result)
 
     status = "completed" if result.get("status") == "success" else "error"
     return {
         "action_result": result,
         "trace_steps": (state.get("trace_steps") or [])
-        + [_trace_step(status, started_at, "create_coupon_grant_draft")],
+        + [_trace_step(status, started_at, ACTION_TOOL_NAME)],
     }

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from time import perf_counter
 from typing import Any, Protocol, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.events import classify_event_family
+from src.agent.tools.create_coupon_grant_draft import create_coupon_grant_draft
 from src.business_tools.registry import ToolDescriptor, ToolRegistry, _validate_json_value
 from src.business_tools.schemas import ToolCallContext, ToolError, ToolResultV2
 from src.business_tools.service import BusinessToolService
@@ -27,6 +29,7 @@ INVESTIGATE_TOOL_NAMES = {
 BUSINESS_TOOL_NAMES = {"get_order", "get_refund_case", "get_ticket", "get_logistics", "get_merchant_risk"}
 KNOWLEDGE_TOOL_NAMES = {"search_policy", "search_sop"}
 MEMORY_TOOL_NAMES = {"search_case_memory"}
+ACTION_TOOL_NAMES = {"create_coupon_grant_draft"}
 
 
 class ToolExecutor(Protocol):
@@ -172,6 +175,45 @@ class MemoryToolExecutor:
         )
 
 
+class ActionToolExecutor:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+        self._descriptors = {
+            descriptor.name: descriptor
+            for descriptor in ToolRegistry().descriptors()
+            if descriptor.name in ACTION_TOOL_NAMES
+        }
+
+    def get_tools(self) -> dict[str, ToolDescriptor]:
+        return dict(self._descriptors)
+
+    def has_tool(self, name: str) -> bool:
+        return name == "create_coupon_grant_draft"
+
+    async def execute(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
+        if name != "create_coupon_grant_draft":
+            return _result(
+                "unavailable",
+                "Tool is declared but unavailable",
+                code="TOOL_UNAVAILABLE",
+                source="tool",
+                source_system="action_tool_executor",
+            )
+
+        started_at = perf_counter()
+        raw_result = await create_coupon_grant_draft(
+            tenant_id=ctx.tenant_id,
+            user_id=ctx.user_id,
+            run_id=ctx.run_id,
+            approval_request_id=args.get("approval_request_id"),
+            idempotency_key=ctx.idempotency_key or "",
+            action_type=str(args["action_type"]),
+            payload=dict(args["payload"]),
+            session=self.session,
+        )
+        return _action_result(raw_result, started_at)
+
+
 class UnifiedToolManager:
     def __init__(
         self,
@@ -190,17 +232,21 @@ class UnifiedToolManager:
                 BusinessToolExecutor(session),
                 KnowledgeToolExecutor(session),
                 MemoryToolExecutor(),
+                ActionToolExecutor(session),
             ]
         )
 
     def descriptors(self, caller_node: str = "investigate") -> list[ToolDescriptor]:
-        return [
-            descriptor
-            for descriptor in self._descriptors.values()
-            if caller_node in descriptor.caller_allowlist
-            and descriptor.name in INVESTIGATE_TOOL_NAMES
-            and descriptor.kind != "write"
-        ]
+        if caller_node == "investigate":
+            return [
+                descriptor
+                for descriptor in self._descriptors.values()
+                if caller_node in descriptor.caller_allowlist
+                and descriptor.name in INVESTIGATE_TOOL_NAMES
+                and descriptor.kind != "write"
+                and descriptor.exposure == "planner_visible"
+            ]
+        return [descriptor for descriptor in self._descriptors.values() if caller_node in descriptor.caller_allowlist]
 
     def descriptor(self, name: str) -> ToolDescriptor | None:
         return self._descriptors.get(name)
@@ -211,8 +257,8 @@ class UnifiedToolManager:
             return _result("not_found", "Requested tool is not registered", code="TOOL_NOT_FOUND", source="caller")
         if ctx.caller_node not in descriptor.caller_allowlist:
             return _result("permission_denied", "Caller is not allowed to invoke this tool", code="CALLER_NOT_ALLOWED")
-        if descriptor.kind == "write" or descriptor.side_effect not in {"read_only", "retrieval"}:
-            return _result("permission_denied", "Write tools cannot execute from investigate", code="WRITE_TOOL_BLOCKED")
+        if not _side_effect_allowed(ctx.caller_node, descriptor):
+            return _result("permission_denied", "Caller is not allowed to execute this tool side effect", code="SIDE_EFFECT_BLOCKED")
         if descriptor.required_permission not in ctx.permissions:
             return _result("permission_denied", "Required tool permission is missing", code="PERMISSION_REQUIRED")
 
@@ -220,6 +266,12 @@ class UnifiedToolManager:
             _validate_json_value(args, descriptor.input_schema)
         except (TypeError, ValueError):
             return _result("invalid_request", "Tool input failed validation", code="INVALID_TOOL_INPUT")
+        if descriptor.requires_approval and ctx.approval_ref is None:
+            return _result("permission_denied", "Required approval context is missing", code="APPROVAL_REQUIRED")
+        if descriptor.requires_safety_snapshot and ctx.safety_snapshot_ref is None:
+            return _result("permission_denied", "Required safety snapshot is missing", code="SAFETY_SNAPSHOT_REQUIRED")
+        if descriptor.requires_idempotency_key and not ctx.idempotency_key:
+            return _result("invalid_request", "Required idempotency key is missing", code="IDEMPOTENCY_KEY_REQUIRED")
 
         executor = self._executor_for(name)
         if executor is None or not executor.has_tool(name):
@@ -231,6 +283,11 @@ class UnifiedToolManager:
             return _result("error", "Tool executor failed", code="EXECUTOR_ERROR", source="adapter")
         if not isinstance(result, ToolResultV2):
             return _result("invalid_response", "Tool executor returned an invalid response", code="INVALID_EXECUTOR_RESPONSE", source="adapter")
+        try:
+            if result.data is not None:
+                _validate_json_value(result.data, descriptor.output_schema)
+        except (TypeError, ValueError):
+            return _result("invalid_response", "Tool executor returned an invalid response", code="INVALID_EXECUTOR_RESPONSE", source="adapter")
         return result
 
     def event_family(self, name: str) -> str:
@@ -239,6 +296,8 @@ class UnifiedToolManager:
             return "tool_call"
         if descriptor and descriptor.event_family == "rag_retrieval_*":
             return "rag_retrieval"
+        if descriptor and descriptor.event_family == "action":
+            return "action"
         return classify_event_family(name)
 
     def _executor_for(self, name: str) -> ToolExecutor | None:
@@ -255,6 +314,64 @@ def _knowledge_merchant_scope(value: object) -> list[str]:
     if not all(isinstance(item, str) and item for item in raw_ids):
         return []
     return list(raw_ids)
+
+
+def _side_effect_allowed(caller_node: str, descriptor: ToolDescriptor) -> bool:
+    if caller_node == "investigate":
+        return descriptor.kind != "write" and descriptor.side_effect in {"read_only", "retrieval"}
+    if caller_node == "execute_action":
+        return descriptor.kind == "write" and descriptor.side_effect == "write"
+    return descriptor.side_effect in {"none", "read_only", "retrieval"}
+
+
+def _action_result(raw_result: dict[str, Any], started_at: float) -> ToolResultV2:
+    latency_ms = max(0, int((perf_counter() - started_at) * 1000))
+    if not isinstance(raw_result, dict):
+        return _result(
+            "invalid_response",
+            "Action executor returned an invalid response",
+            code="INVALID_ACTION_RESPONSE",
+            source="adapter",
+            source_system="action_tool_executor",
+        )
+    if raw_result.get("status") == "success" and isinstance(raw_result.get("data"), dict):
+        return ToolResultV2(
+            status="success",
+            data=dict(raw_result["data"]),
+            summary="Action draft created",
+            source_system="action_executor",
+            data_freshness_at=None,
+            policy_evidence_refs=[],
+            business_fact_refs=[],
+            error=None,
+            retryable=False,
+            retry_after_ms=None,
+            latency_ms=latency_ms,
+            audit_ref=None,
+        )
+
+    error = raw_result.get("error") if isinstance(raw_result.get("error"), dict) else {}
+    retryable = bool(error.get("retryable", False))
+    safe_message = "Action draft creation failed"
+    return ToolResultV2(
+        status="error",
+        data=None,
+        summary=safe_message,
+        source_system="action_executor",
+        data_freshness_at=None,
+        policy_evidence_refs=[],
+        business_fact_refs=[],
+        error=ToolError(
+            code=str(error.get("error_code") or "ACTION_DRAFT_FAILED"),
+            safe_message=safe_message,
+            retryable=retryable,
+            source="adapter",
+        ),
+        retryable=retryable,
+        retry_after_ms=None,
+        latency_ms=latency_ms,
+        audit_ref=None,
+    )
 
 
 def _result(

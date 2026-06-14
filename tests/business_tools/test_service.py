@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.business_tools.registry import ToolRegistry
 from src.business_tools.schemas import ToolCallContext, ToolError, ToolResultV2
 from src.business_tools.service import BusinessToolService, _merchant_scope_allows
 
@@ -51,38 +50,37 @@ def _result(
     )
 
 
-def _mock_registry(*results: ToolResultV2) -> Mock:
-    registry = Mock(spec=ToolRegistry)
-    registry.descriptors.return_value = ToolRegistry().descriptors()
-    registry.invoke = AsyncMock(side_effect=list(results))
-    return registry
-
-
 @pytest.mark.asyncio
 async def test_retry_cap_reuses_stable_tool_call_id_and_session() -> None:
-    registry = _mock_registry(
-        _result("timeout", data=None, retryable=True, code="DB_TIMEOUT"),
-        _result(),
+    adapter = AsyncMock(
+        side_effect=[
+            _result("timeout", data=None, retryable=True, code="DB_TIMEOUT"),
+            _result(),
+        ]
     )
     session = AsyncMock(spec=AsyncSession)
     ctx = _context(max_attempts=2)
 
-    result = await BusinessToolService(registry, session).invoke_tool("get_order", {"order_no": "ORD-09"}, ctx)
+    result = await BusinessToolService(session, adapters={"get_order": adapter}).invoke_tool(
+        "get_order",
+        {"order_no": "ORD-09"},
+        ctx,
+    )
 
     assert result.status == "success"
-    assert registry.invoke.call_count == 2
-    attempts = [call.args[2].attempt for call in registry.invoke.await_args_list]
-    tool_call_ids = [call.args[2].tool_call_id for call in registry.invoke.await_args_list]
+    assert adapter.call_count == 2
+    attempts = [call.args[1].attempt for call in adapter.await_args_list]
+    tool_call_ids = [call.args[1].tool_call_id for call in adapter.await_args_list]
     assert attempts == [1, 2]
     assert tool_call_ids == [ctx.tool_call_id, ctx.tool_call_id]
-    assert all(call.args[3] is session for call in registry.invoke.await_args_list)
+    assert all(call.args[2] is session for call in adapter.await_args_list)
 
 
 @pytest.mark.asyncio
-async def test_attempt_exhausted_does_not_invoke_registry() -> None:
-    registry = _mock_registry()
+async def test_attempt_exhausted_does_not_invoke_adapter() -> None:
+    adapter = AsyncMock(return_value=_result())
 
-    result = await BusinessToolService(registry, AsyncMock()).invoke_tool(
+    result = await BusinessToolService(AsyncMock(), adapters={"get_order": adapter}).invoke_tool(
         "get_order",
         {"order_no": "ORD-09"},
         _context(attempt=3, max_attempts=2),
@@ -90,14 +88,14 @@ async def test_attempt_exhausted_does_not_invoke_registry() -> None:
 
     assert result.error is not None
     assert result.error.code == "MAX_ATTEMPTS_EXHAUSTED"
-    registry.invoke.assert_not_awaited()
+    adapter.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_empty_merchant_scope_denied_before_registry() -> None:
-    registry = _mock_registry()
+async def test_empty_merchant_scope_denied_before_adapter() -> None:
+    adapter = AsyncMock(return_value=_result())
 
-    result = await BusinessToolService(registry, AsyncMock()).invoke_tool(
+    result = await BusinessToolService(AsyncMock(), adapters={"get_order": adapter}).invoke_tool(
         "get_order",
         {"order_no": "ORD-09"},
         _context(merchant_scope={}),
@@ -106,23 +104,21 @@ async def test_empty_merchant_scope_denied_before_registry() -> None:
     assert result.status == "permission_denied"
     assert result.error is not None
     assert result.error.code == "EMPTY_MERCHANT_SCOPE"
-    registry.invoke.assert_not_awaited()
+    adapter.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_missing_required_permission_denied_before_registry() -> None:
-    registry = _mock_registry()
+async def test_service_does_not_repeat_permission_check() -> None:
+    adapter = AsyncMock(return_value=_result())
 
-    result = await BusinessToolService(registry, AsyncMock()).invoke_tool(
+    result = await BusinessToolService(AsyncMock(), adapters={"get_order": adapter}).invoke_tool(
         "get_order",
         {"order_no": "ORD-09"},
         _context(permissions=[]),
     )
 
-    assert result.status == "permission_denied"
-    assert result.error is not None
-    assert result.error.code == "PERMISSION_REQUIRED"
-    registry.invoke.assert_not_awaited()
+    assert result.status == "success"
+    adapter.assert_awaited_once()
 
 
 def test_unknown_category_scope_denied() -> None:
@@ -138,22 +134,29 @@ def test_merchant_scope_no_widening_denied() -> None:
 
 @pytest.mark.asyncio
 async def test_real_read_input_does_not_fabricate_merchant_id_or_category() -> None:
-    registry = _mock_registry(_result())
+    adapter = AsyncMock(return_value=_result())
 
-    await BusinessToolService(registry, AsyncMock()).invoke_tool("get_order", {"order_no": "ORD-09"}, _context())
+    await BusinessToolService(AsyncMock(), adapters={"get_order": adapter}).invoke_tool(
+        "get_order",
+        {"order_no": "ORD-09"},
+        _context(),
+    )
 
-    dispatched_args = registry.invoke.await_args.args[1]
-    assert dispatched_args == {"order_no": "ORD-09"}
-    assert "merchant_id" not in dispatched_args
-    assert "category" not in dispatched_args
+    dispatched_input = adapter.await_args.args[0]
+    assert dispatched_input.model_dump() == {"order_no": "ORD-09"}
+    assert not hasattr(dispatched_input, "merchant_id")
+    assert not hasattr(dispatched_input, "category")
     # Resource ownership for these reads remains enforced by raw merchant_can_access.
 
 
 @pytest.mark.asyncio
 async def test_fetch_context_mixed_results_is_partial_and_lists_missing_fact() -> None:
-    registry = _mock_registry(_result(data={"order_no": "ORD-09"}), _result("not_found", data=None, code="NOT_FOUND"))
+    adapters = {
+        "get_order": AsyncMock(return_value=_result(data={"order_no": "ORD-09"})),
+        "get_ticket": AsyncMock(return_value=_result("not_found", data=None, code="NOT_FOUND")),
+    }
 
-    context = await BusinessToolService(registry, AsyncMock()).fetch_context(
+    context = await BusinessToolService(AsyncMock(), adapters=adapters).fetch_context(
         {"order_id": "ORD-09", "ticket_id": "T-09"},
         "refund_troubleshooting",
         _context(),
@@ -167,24 +170,29 @@ async def test_fetch_context_mixed_results_is_partial_and_lists_missing_fact() -
 
 @pytest.mark.asyncio
 async def test_fetch_context_all_success_is_complete() -> None:
-    registry = _mock_registry(_result(data={"order_no": "ORD-09"}), _result(data={"ticket_no": "T-09"}))
+    adapters = {
+        "get_order": AsyncMock(return_value=_result(data={"order_no": "ORD-09"})),
+        "get_refund_case": AsyncMock(return_value=_result(data={"refund_case_no": "RF-09"})),
+        "get_ticket": AsyncMock(return_value=_result(data={"ticket_no": "T-09"})),
+    }
 
-    context = await BusinessToolService(registry, AsyncMock()).fetch_context(
-        {"order_id": "ORD-09", "ticket_id": "T-09"},
+    context = await BusinessToolService(AsyncMock(), adapters=adapters).fetch_context(
+        {"order_id": "ORD-09", "refund_case_id": "RF-09", "ticket_id": "T-09"},
         "refund_troubleshooting",
         _context(),
     )
 
     assert context.status == "complete"
-    assert set(context.facts) == {"order", "ticket"}
+    assert set(context.facts) == {"order", "refund_case", "ticket"}
     assert context.missing_required_facts == []
+    assert all(adapter.await_count == 1 for adapter in adapters.values())
 
 
 @pytest.mark.asyncio
 async def test_fetch_context_no_success_is_insufficient() -> None:
-    registry = _mock_registry(_result("not_found", data=None, code="NOT_FOUND"))
+    adapters = {"get_refund_case": AsyncMock(return_value=_result("not_found", data=None, code="NOT_FOUND"))}
 
-    context = await BusinessToolService(registry, AsyncMock()).fetch_context(
+    context = await BusinessToolService(AsyncMock(), adapters=adapters).fetch_context(
         {"refund_case_id": "RF-09"},
         "refund_troubleshooting",
         _context(),
@@ -197,16 +205,37 @@ async def test_fetch_context_no_success_is_insufficient() -> None:
 
 @pytest.mark.asyncio
 async def test_fetch_context_uses_distinct_tool_call_id_per_logical_read() -> None:
-    registry = _mock_registry(_result(), _result(), _result())
+    adapters = {
+        "get_order": AsyncMock(return_value=_result()),
+        "get_refund_case": AsyncMock(return_value=_result()),
+        "get_ticket": AsyncMock(return_value=_result()),
+    }
 
-    await BusinessToolService(registry, AsyncMock()).fetch_context(
+    await BusinessToolService(AsyncMock(), adapters=adapters).fetch_context(
         {"order_id": "ORD-09", "refund_case_id": "RF-09", "ticket_id": "T-09"},
         "refund_troubleshooting",
         _context(),
     )
 
-    tool_call_ids = [call.args[2].tool_call_id for call in registry.invoke.await_args_list]
+    tool_call_ids = [call.args[1].tool_call_id for adapter in adapters.values() for call in adapter.await_args_list]
     assert len(set(tool_call_ids)) == 3
+
+
+@pytest.mark.asyncio
+async def test_adapter_exception_returns_safe_tool_result() -> None:
+    adapter = AsyncMock(side_effect=RuntimeError("RAW-SERVICE-SECRET"))
+
+    result = await BusinessToolService(AsyncMock(), adapters={"get_order": adapter}).invoke_tool(
+        "get_order",
+        {"order_no": "ORD-09"},
+        _context(),
+    )
+
+    assert result.status == "error"
+    assert result.data is None
+    assert result.error is not None
+    assert result.error.code == "ADAPTER_ERROR"
+    assert "RAW-SERVICE-SECRET" not in str(result.model_dump())
 
 
 @pytest.mark.asyncio

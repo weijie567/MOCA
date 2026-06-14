@@ -50,5 +50,5 @@ async def create_coupon_grant_draft(
                 "idempotent_reused": not created,
             }
         )
-    except Exception as exc:
-        return _tool_error("DRAFT_CREATION_FAILED", str(exc), retryable=True)
+    except Exception:
+        return _tool_error("DRAFT_CREATION_FAILED", "Action draft creation failed", retryable=True)

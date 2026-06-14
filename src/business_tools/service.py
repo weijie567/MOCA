@@ -2,20 +2,40 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Literal
 from uuid import uuid4
 
+from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.business_tools.adapters import get_order_adapter, get_refund_case_adapter, get_ticket_adapter
-from src.business_tools.registry import RegisteredTool, ToolRegistry
+from src.business_tools.adapters import (
+    GetOrderInput,
+    GetRefundCaseInput,
+    GetTicketInput,
+    get_order_adapter,
+    get_refund_case_adapter,
+    get_ticket_adapter,
+)
 from src.business_tools.schemas import BusinessContextV1, BusinessFactRefV1, ToolCallContext, ToolError, ToolResultV2
 
+
+BusinessToolAdapter = Callable[[BaseModel, ToolCallContext, AsyncSession], Awaitable[ToolResultV2]]
 
 _CONTEXT_READS = {
     "order_id": ("get_order", "order", "order_no"),
     "refund_case_id": ("get_refund_case", "refund_case", "refund_case_no"),
     "ticket_id": ("get_ticket", "ticket", "ticket_id"),
+}
+_INPUT_MODELS: dict[str, type[BaseModel]] = {
+    "get_order": GetOrderInput,
+    "get_refund_case": GetRefundCaseInput,
+    "get_ticket": GetTicketInput,
+}
+_DEFAULT_ADAPTERS: dict[str, BusinessToolAdapter] = {
+    "get_order": get_order_adapter,
+    "get_refund_case": get_refund_case_adapter,
+    "get_ticket": get_ticket_adapter,
 }
 
 
@@ -51,25 +71,19 @@ def _merchant_scope_allows(
 
 
 class BusinessToolService:
-    def __init__(self, registry: ToolRegistry, session: AsyncSession) -> None:
-        self.registry = registry
+    def __init__(self, session: AsyncSession, adapters: Mapping[str, BusinessToolAdapter] | None = None) -> None:
         self.session = session
+        self.adapters = dict(_DEFAULT_ADAPTERS if adapters is None else adapters)
 
     @classmethod
     def with_default_registry(cls, session: AsyncSession) -> BusinessToolService:
-        """Compose the live read registry from canonical descriptors and adapters."""
+        """Compatibility constructor for the default business read adapters."""
 
-        descriptors = {descriptor.name: descriptor for descriptor in ToolRegistry().descriptors()}
-        adapters = {
-            "get_order": get_order_adapter,
-            "get_refund_case": get_refund_case_adapter,
-            "get_ticket": get_ticket_adapter,
-        }
-        tools = [
-            RegisteredTool(descriptor=descriptor, adapter=adapters.get(name))
-            for name, descriptor in descriptors.items()
-        ]
-        return cls(ToolRegistry(tools), session)
+        return cls(session)
+
+    @classmethod
+    def with_default_adapters(cls, session: AsyncSession) -> BusinessToolService:
+        return cls(session)
 
     async def invoke_tool(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
         """Invoke one logical tool call, retrying only explicitly retryable results."""
@@ -95,14 +109,6 @@ class BusinessToolService:
                 code="MERCHANT_SCOPE_DENIED",
             )
 
-        descriptor = next((item for item in self.registry.descriptors() if item.name == name), None)
-        if descriptor is not None and descriptor.required_permission not in ctx.permissions:
-            return self._local_error(
-                "permission_denied",
-                "Required tool permission is missing",
-                code="PERMISSION_REQUIRED",
-            )
-
         if ctx.attempt > ctx.max_attempts:
             return self._local_error(
                 "error",
@@ -112,9 +118,47 @@ class BusinessToolService:
 
         for attempt in range(ctx.attempt, ctx.max_attempts + 1):
             attempt_ctx = ctx.model_copy(update={"attempt": attempt})
-            result = await self.registry.invoke(name, args, attempt_ctx, self.session)
+            result = await self._invoke_adapter(name, args, attempt_ctx)
             if result.status == "success" or result.retryable is not True:
                 return result
+        return result
+
+    async def _invoke_adapter(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
+        input_model_type = _INPUT_MODELS.get(name)
+        adapter = self.adapters.get(name)
+        if input_model_type is None or adapter is None:
+            return self._local_error(
+                "unavailable",
+                "Business tool is unavailable",
+                code="TOOL_UNAVAILABLE",
+                source="tool",
+            )
+
+        try:
+            input_model = input_model_type.model_validate(args)
+        except ValidationError:
+            return self._local_error(
+                "invalid_request",
+                "Business read request is invalid",
+                code="INVALID_BUSINESS_REQUEST",
+            )
+
+        try:
+            result = await adapter(input_model, ctx, self.session)
+        except Exception:
+            return self._local_error(
+                "error",
+                "Business read failed",
+                code="ADAPTER_ERROR",
+                source="adapter",
+            )
+        if not isinstance(result, ToolResultV2):
+            return self._local_error(
+                "invalid_response",
+                "Business read returned an invalid response",
+                code="INVALID_ADAPTER_RESPONSE",
+                source="adapter",
+            )
         return result
 
     async def fetch_context(self, slots: dict[str, Any], intent: str, ctx: ToolCallContext) -> BusinessContextV1:
@@ -193,10 +237,11 @@ class BusinessToolService:
 
     @staticmethod
     def _local_error(
-        status: Literal["permission_denied", "error"],
+        status: Literal["permission_denied", "error", "unavailable", "invalid_request", "invalid_response"],
         summary: str,
         *,
         code: str,
+        source: Literal["caller", "tool", "adapter"] = "caller",
     ) -> ToolResultV2:
         return ToolResultV2(
             status=status,
@@ -206,7 +251,7 @@ class BusinessToolService:
             data_freshness_at=None,
             policy_evidence_refs=[],
             business_fact_refs=[],
-            error=ToolError(code=code, safe_message=summary, retryable=False, source="caller"),
+            error=ToolError(code=code, safe_message=summary, retryable=False, source=source),
             retryable=False,
             retry_after_ms=None,
             latency_ms=0,

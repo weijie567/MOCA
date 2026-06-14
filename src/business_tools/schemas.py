@@ -35,6 +35,8 @@ class ToolCallContext(BaseModel):
     attempt: int = 1
     max_attempts: int = 1
     idempotency_key: str | None = None
+    approval_ref: str | None = None
+    safety_snapshot_ref: str | None = None
     policy_snapshot_ref: str | None = None
 
 
