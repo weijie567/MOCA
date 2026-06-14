@@ -16,6 +16,7 @@ import argparse
 import asyncio
 import json
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -25,9 +26,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import Tenant
 from src.db.session import SessionLocal
+from src.knowledge.retrieval import POLICY_NO_EVIDENCE_MESSAGE, PolicyRetrievalEngine
+from src.knowledge.schemas import KnowledgeContext
 from src.rag.embedder import EmbeddingService
-from src.rag.retriever import Retriever
-from src.rag.schemas import RetrievalResult
+from src.rag.schemas import EvidenceItem, RetrievalResult
 from src.repositories.policy_chunk_repo import PolicyChunkRepository
 
 
@@ -115,6 +117,46 @@ def _score_case(case: dict[str, Any], result: RetrievalResult) -> dict[str, Any]
     }
 
 
+async def _search_policy(
+    *,
+    engine: PolicyRetrievalEngine,
+    query: str,
+    tenant_id: UUID,
+    top_k: int,
+) -> RetrievalResult:
+    status, hits, best_score = await engine.retrieve_hits(
+        query=query,
+        context=KnowledgeContext(
+            tenant_id=str(tenant_id),
+            user_id="rag-eval",
+            role="evaluator",
+            merchant_scope=["*"],
+            run_id="rag-eval",
+            trace_id="rag-eval",
+            effective_at=datetime.now(UTC).isoformat(),
+        ),
+        max_results=top_k,
+    )
+    retrieval_status = status if status != "error" else "no_evidence"
+    return RetrievalResult(
+        query=query,
+        retrieval_status=retrieval_status,
+        evidence=[
+            EvidenceItem(
+                doc_key=hit.doc_key,
+                chunk_id=hit.chunk_id,
+                title=hit.title,
+                section=hit.section,
+                score=hit.score,
+                text=hit.text[:300],
+            )
+            for hit in hits
+        ],
+        best_score=best_score,
+        fallback_message=POLICY_NO_EVIDENCE_MESSAGE if retrieval_status == "no_evidence" else None,
+    )
+
+
 def _print_report(
     total_cases: int,
     hit_at_5: float,
@@ -188,7 +230,7 @@ async def main() -> None:
         except ValueError:
             parser.error("--tenant-id must be a valid UUID")
 
-        retriever = Retriever(
+        engine = PolicyRetrievalEngine(
             chunk_repo=PolicyChunkRepository(session),
             embedder=EmbeddingService(),
         )
@@ -200,12 +242,13 @@ async def main() -> None:
         per_category: dict[str, dict[str, int]] = {}
 
         for case in cases:
-            result = await retriever.search(query=case["query"], tenant_id=tenant_id, top_k=5)
+            result = await _search_policy(engine=engine, query=case["query"], tenant_id=tenant_id, top_k=5)
             scored = _score_case(case, result)
             category = case["category"]
 
             if args.diagnostic_top_k != 5 and not scored["hit"]:
-                diagnostic_result = await retriever.search(
+                diagnostic_result = await _search_policy(
+                    engine=engine,
                     query=case["query"],
                     tenant_id=tenant_id,
                     top_k=args.diagnostic_top_k,

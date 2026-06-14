@@ -112,7 +112,7 @@ src/integrations/
 Notes:
 
 - `src/rag/embedder.py`, `src/rag/chunker.py`, and ingestion code can remain low-level infrastructure if they are shared.
-- The retrieval/rerank algorithm for policy evidence should move behind a public `src/knowledge/retrieval.py` API. Knowledge code should not import private helpers from `src/rag/retriever.py`.
+- The retrieval/rerank algorithm for policy evidence lives behind the public `src/knowledge/retrieval.py` API. `src/rag` remains low-level infrastructure.
 - `src/business_tools` compatibility package has been deleted; new code should target `src/business`, `src/tools.catalog`, and `src/tools.contracts`.
 
 ## Current Code Mapping
@@ -205,7 +205,7 @@ Current:
 - `src/knowledge/service.py`
 - `src/knowledge/adapters.py`
 - `src/knowledge/schemas.py`
-- `src/rag/retriever.py`
+- `src/knowledge/retrieval.py`
 - `src/agent/nodes/retrieve_policy_evidence.py`
 - `src/tools/executors/knowledge.py`
 - `src/api/routers/search.py` direct `PolicyRetrievalEngine` HTTP path
@@ -231,9 +231,7 @@ Concrete changes:
   - acceptable transitional name: `PolicySearchRepositoryAdapter`
 - Remove `src/agent/tools/search_policy.py`.
 - Remove `legacy_search_policy` export from `src/knowledge/adapters.py`.
-- Convert or delete `src/rag/retriever.py`:
-  - if kept, it must expose public functions/classes only
-  - no domain code should import underscore-private helpers
+- Delete the legacy RAG retriever facade after tests migrate to `PolicyRetrievalEngine`.
 - Convert `retrieve_policy_evidence`:
   - short-term: thin wrapper node that builds `ToolCallContext` and calls manager
   - preferred final: remove graph node if `investigate` fully owns policy retrieval
@@ -463,7 +461,7 @@ Goal: eliminate duplicated policy search paths and private helper coupling.
 Operations:
 
 - Add `src/knowledge/retrieval.py` with `PolicyRetrievalEngine`.
-- Move retrieval constants/helpers from `src/rag/retriever.py` into public knowledge-owned functions/classes.
+- Keep retrieval constants/helpers in public knowledge-owned functions/classes.
 - Update `PolicyKnowledgeService` to depend on a retrieval protocol implemented by `PolicyRetrievalEngine`.
 - Remove `LegacyRagKnowledgeAdapter` or rename it if still needed.
 - Delete `src/agent/tools/search_policy.py`.
@@ -480,7 +478,7 @@ Acceptance:
 
 - Exactly one production path for `search_policy`.
 - No graph-facing production import of `src.agent.tools.search_policy`.
-- No knowledge service import of underscore-private `src.rag.retriever` helpers.
+- No knowledge service import of legacy RAG retriever helpers.
 
 Current migration note:
 
@@ -488,7 +486,7 @@ Current migration note:
 - `src.knowledge.adapters.LegacyRagKnowledgeAdapter` remains only as a compatibility alias to `PolicyRetrievalEngine`.
 - `src.agent.tools.search_policy`, `src.agent.tools.adapters`, and `src.agent.tools.registry` have been deleted.
 - `src.api.routers.search` now uses `PolicyRetrievalEngine.retrieve_hits(...)` directly while preserving the legacy `RetrievalResult` HTTP contract.
-- `src.rag.retriever.Retriever` remains only as a compatibility facade over `PolicyRetrievalEngine`, not as a second retrieval implementation.
+- `src.rag.retriever` compatibility facade has been deleted; retrieval/rerank orchestration is owned by `src.knowledge.retrieval`.
 
 ### Phase 5: Clarify Memory Integration
 
@@ -642,15 +640,14 @@ Specific regression targets:
 
 ## Open Decisions For Review
 
-1. Remove remaining compatibility facades such as `src.rag.retriever`, or keep them for one more milestone?
-2. Remove `retrieve_policy_evidence` node entirely, or temporarily convert it to a manager wrapper?
-3. Keep `src/rag` as low-level embedding/chunking package, or merge all policy retrieval code under `src/knowledge`?
-4. Should `memory_write` become node-only tool-managed capability, or remain deterministic node calling `MemoryService` directly?
-5. Should `ToolResultV2` be renamed to `ToolResult` immediately, or kept as alias until API/tests migrate?
+1. Remove `retrieve_policy_evidence` node entirely, or temporarily keep it as a manager wrapper?
+2. Keep `src/rag` as low-level embedding/chunking package, or merge all policy retrieval code under `src/knowledge`?
+3. Should `memory_write` become node-only tool-managed capability, or remain deterministic node calling `MemoryService` directly?
+4. Should `ToolResultV2` be renamed to `ToolResult` immediately, or kept as alias until API/tests migrate?
 
 Recommended answers:
 
-- `src.business_tools` has been deleted; remaining cleanup should focus on RAG compatibility and old empty memory nodes.
+- `src.business_tools` and `src.rag.retriever` have been deleted; remaining cleanup should focus on old empty memory nodes and naming aliases.
 - Remove `retrieve_policy_evidence` if graph already routes policy retrieval through `investigate`; otherwise wrapper for one migration phase.
 - Keep `src/rag` for low-level embed/chunk/ingest only; move policy retrieval orchestration to `src/knowledge/retrieval.py`.
 - Keep `memory_write` deterministic for now; only `search_case_memory` is planner-visible memory tool.

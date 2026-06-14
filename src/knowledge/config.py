@@ -4,7 +4,7 @@ from __future__ import annotations
 RETRIEVAL_CONFIG_VERSION = "retrieval.v3"
 RERANK_CONFIG_VERSION = "rerank.v2"
 
-# Thresholds mirror src/rag/retriever.py STRONG/MIN so facade status matches legacy behavior.
+# Thresholds used by the knowledge-owned retrieval engine.
 STRONG_EVIDENCE_THRESHOLD = 0.70
 MIN_SIMILARITY_THRESHOLD = 0.55
 

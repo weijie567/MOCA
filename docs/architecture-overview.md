@@ -66,10 +66,10 @@ MOCA 的目标架构是：面向商家运营与售后协同的企业级 Agent �
 | Memory read/write | 当前 `AgentState` 有 checkpointer thread、`active_slots`、`last_intent`、`evidence_refs`、`last_business_context_refs`；`session_memory_load` / `long_term_memory_retrieve` 是 empty adapter。 | `memory-agent/src/memory_agent/graph.py` 读取最近 memory 注入 prompt；`langgraph-memory/memory_service/graph.py` 有 delayed extraction、patch/insert 双路径、schema fan-out；`agents-from-scratch-ts/src/email_assistant_hitl_memory.ts` 根据 HITL feedback 更新 memory。 | 采用 | 区分 working memory、workflow checkpoint、session memory、long-term profile memory、case memory、audit/replay；先实现 Postgres-authoritative session memory，Redis 只可作为可选热缓存。 | 不采用自由 ReAct 写长期记忆；不采用 Pinecone/Fireworks 默认栈；不把历史 case 当政策；不让 Redis 成为权威记忆或 checkpoint。 |
 | Human-in-the-loop approval | `src/agent/nodes/approval_gate.py` 已有 LangGraph `interrupt`；`src/api/routers/approvals.py` 支持 approve/reject resume；`ApprovalRequest`、`ApprovalStep` 已持久化。 | `agent-inbox/README.md` 定义 HumanInterrupt/HumanResponse schema，支持 accept/edit/respond/ignore；`agent-inbox-langgraph-example/src/agent/graph.py` 有 Python 最小示例；`Human-in-the-Loop-Workflow-LangGraph/src/nodes/human_review_node.py` 支持编辑内容后 approve。 | 采用 | 把 MOCA 审批从 approve/reject 扩展到 accept/edit/reject/respond/ignore，并支持多级审批和 SLA。 | 不采用通用 inbox UI 的全部部署假设；不采用布鲁斯天空发布业务。 |
 | Action execution | `src/agent/nodes/execute_action.py` 当前创建 durable action draft；`src/agent/tools/create_coupon_grant_draft.py` 写 `ActionDraft`，有 idempotency key；README 明确无真实支付/退款/券执行。 | `Human-in-the-Loop-Workflow-LangGraph/src/tools.py` 在 publish 前再次 interrupt；`agent-inbox` 支持 edit/accept action args。 | 采用 | 目标为 ActionExecutor facade，demo adapter 仍创建 draft，但 contract 包含 execution result、idempotency、rollback/compensation metadata。 | 不采用在 tool 内直接发布/执行外部动作；真实动作前双确认只作为未来高风险场景。 |
-| RAG / Knowledge | `src/rag/retriever.py` 使用 DashScope embedding、pgvector、hybrid rerank、threshold/no-evidence；`src/rag/citation_validator.py` 做 deterministic citation validation；`search_policy` 仍位于 `src/agent/tools`。 | `docs/agent-architecture-reference-draft.md` 要求 Knowledge / RAG 是独立能力层。 | 采用 | 增加 KnowledgeService facade，Agent 节点只看 evidence contract，不直接接触 embedding/repo/pgvector。 | 不采用把 RAG 当 Agent 内部普通 tool 的长期形态。 |
+| RAG / Knowledge | `src/knowledge/retrieval.py` 使用 DashScope embedding、pgvector、hybrid rerank、threshold/no-evidence；`src/rag` 保留 embed/chunk/ingest 等底层 infra 和 legacy citation helper。 | `docs/agent-architecture-reference-draft.md` 要求 Knowledge / RAG 是独立能力层。 | 采用 | KnowledgeService facade 管理 evidence contract；Agent 节点不直接接触 embedding/repo/pgvector。 | 不采用把 RAG 当 Agent 内部普通 tool 的长期形态。 |
 | Observability / Replay | `src/agent/trace.py`、`src/repositories/trace_repo.py`、`src/api/routers/traces.py` 已有 AgentRun/AgentStep、approval/action timeline；`src/api/main.py` 有 request trace_id。 | `fastapi-observability/fastapi_app/main.py`、`utils.py`、`docker-compose.yaml` 展示 FastAPI metrics、OTLP、Tempo、Loki、Prometheus、Grafana 和日志 trace 关联。 | 采用 | 先做 in-process spans/metrics/log correlation，再考虑完整 Grafana stack。 | 不直接搬三 app compose 和 Loki logging driver 到 MOCA。 |
 | Prompt organization | 当前 `src/agent/prompts.py` 单文件存 intent、slots、recommendation、risk、final prompts。 | `agents-from-scratch-ts/src/prompts.ts` 按 triage/agent/HITL/memory prompt 拆分；参考草稿要求按节点拆。 | 采用 | 拆成 `src/agent/prompts/intent.py`、`slots.py`、`recommendation.py`、`final_response.py`，memory prompt 放 `src/memory/prompts.py`。 | 不采用超长单 system prompt；不让 prompt 替代 policy/approval/tool 控制。 |
-| Service boundary | 当前 repo 有 `src/repositories`、`src/rag`、`src/agent/tools`，但 graph nodes 仍直接依赖 tools/repositories 间接实现。 | `full-stack-fastapi-template/backend/app/api/deps.py`、`core/config.py`、`tests/conftest.py` 展示工程组织、依赖注入、settings、tests；参考草稿强调 in-process service modules。 | 采用 | 在单 app 内新增 service facade：knowledge、business、memory、approvals、actions、observability。 | 不换 SQLAlchemy 为 SQLModel；不照搬模板业务模型或用户 CRUD。 |
+| Service boundary | 当前 repo 有 `src/tools`、`src/business`、`src/knowledge`、`src/memory`、`src/actions` 等 service/domain boundary。 | `full-stack-fastapi-template/backend/app/api/deps.py`、`core/config.py`、`tests/conftest.py` 展示工程组织、依赖注入、settings、tests；参考草稿强调 in-process service modules。 | 采用 | 在单 app 内通过 service facade 组织：knowledge、business、memory、approvals、actions、observability。 | 不换 SQLAlchemy 为 SQLModel；不照搬模板业务模型或用户 CRUD。 |
 
 ---
 
@@ -83,7 +83,7 @@ MOCA 的目标架构是：面向商家运营与售后协同的企业级 Agent �
 - LangGraph workflow：`src/agent/graph.py` 定义 10 个节点和两个条件路由函数。
 - AgentState：`src/agent/state.py` 区分 persistent memory 与 ephemeral context，包含 thread/user/tenant/role、active slots、last intent、evidence refs、business context、risk、approval、action、trace 等字段。
 - Intent / slots / recommendation / risk structured output：`src/agent/schemas.py` 和 `src/agent/nodes/*.py` 使用 Pydantic schema 约束 LLM 输出。
-- RAG：`src/rag/retriever.py` 使用 DashScope embedding、pgvector 检索、hybrid rerank、threshold gate；`src/rag/citation_validator.py` 做 citation deterministic validation。
+- RAG / Knowledge：`src/knowledge/retrieval.py` 使用 DashScope embedding、pgvector 检索、hybrid rerank、threshold gate；`src/rag` 保留 embed/chunk/ingest 等底层 infra 和 legacy citation helper。
 - Business read tools：`get_order`、`get_refund_case`、`get_ticket` 读取 tenant-scoped 本地 demo DB，并对 merchant role 做访问控制。
 - Approval interrupt/resume：`approval_gate` 使用 LangGraph `interrupt`；审批 API 用 `Command(resume=...)` 恢复 graph。
 - Action draft：`execute_action` 创建 action draft，`ActionDraftRepository.create_or_get` 用 idempotency key 防重复。
@@ -209,7 +209,7 @@ graph TB
     Graph --> Obs[Observability + Replay]
 
     Biz --> DemoAdapters[Demo DB Adapters]
-    Knowledge --> RAG[RAG Retriever + Citation Validator]
+    Knowledge --> RAG[Embedding / Chunking / Citation Helpers]
     Memory --> MemoryStores[Session / Long-term / Case Memory]
     Policy --> ApprovalStore[Approval Requests / Steps]
     Actions --> ActionStore[Action Drafts / Execution Results]
@@ -392,7 +392,7 @@ Canonical router 函数包括：
 
 ### 8.3 Knowledge / RAG
 
-当前依据：`src/rag/retriever.py`、`schemas.py`、`citation_validator.py`、`ingestion.py`、`search_policy.py`。
+当前依据：`src/knowledge/retrieval.py`、`src/knowledge/service.py`、`src/knowledge/schemas.py`、`src/rag/embedder.py`、`src/rag/ingestion.py`、`src/rag/citation_validator.py`。
 
 目标职责（叙述性）：
 

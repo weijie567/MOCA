@@ -50,6 +50,17 @@ def test_no_code_imports_legacy_business_tools_package() -> None:
     assert violations == []
 
 
+def test_no_code_imports_legacy_rag_retriever_facade() -> None:
+    violations: list[tuple[str, str]] = []
+    for base in (ROOT / "src", ROOT / "tests", ROOT / "scripts"):
+        for path in sorted(base.glob("**/*.py")):
+            for module in _imports(path):
+                if module == "src.rag.retriever":
+                    violations.append((str(path.relative_to(ROOT)), module))
+
+    assert violations == []
+
+
 def test_unified_manager_does_not_import_domain_services_directly() -> None:
     imports = _imports(ROOT / "src" / "tools" / "manager.py")
     forbidden_prefixes = (

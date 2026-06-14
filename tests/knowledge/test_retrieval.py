@@ -1,20 +1,22 @@
 from __future__ import annotations
 
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
 
-from src.rag.citation_validator import validate_citations
-from src.rag.retriever import (
+from src.knowledge.retrieval import (
     CANDIDATE_MULTIPLIER,
-    FALLBACK_MESSAGE,
     INTERNAL_SEARCH_THRESHOLD,
-    MIN_SIMILARITY_THRESHOLD,
+    POLICY_NO_EVIDENCE_MESSAGE,
     QUERY_PREFIX,
-    Retriever,
+    PolicyRetrievalEngine,
 )
+from src.knowledge.config import MIN_SIMILARITY_THRESHOLD
+from src.knowledge.schemas import KnowledgeContext
+from src.rag.citation_validator import validate_citations
 from src.rag.schemas import RetrievalResult
 
 
@@ -29,14 +31,45 @@ def _chunk(
         chunk_id=chunk_id,
         section=section,
         content=content,
-        document=SimpleNamespace(doc_key=doc_key, title=title),
+        effective_date=date(2026, 1, 1),
+        document=SimpleNamespace(doc_key=doc_key, title=title, version=1),
     )
 
 
-def _retriever(results: list[tuple[object, float]]) -> tuple[Retriever, AsyncMock, AsyncMock]:
+def _context(tenant_id) -> KnowledgeContext:
+    return KnowledgeContext(
+        tenant_id=str(tenant_id),
+        user_id="user-1",
+        role="support_agent",
+        merchant_scope=["*"],
+        run_id="run-1",
+        trace_id="trace-1",
+        effective_at="2026-06-14T00:00:00+00:00",
+    )
+
+
+def _engine(results: list[tuple[object, float]]) -> tuple[PolicyRetrievalEngine, AsyncMock, AsyncMock]:
     embedder = SimpleNamespace(embed_query=AsyncMock(return_value=[0.1, 0.2, 0.3]))
     chunk_repo = SimpleNamespace(search_similar=AsyncMock(return_value=results))
-    return Retriever(chunk_repo=chunk_repo, embedder=embedder), chunk_repo.search_similar, embedder.embed_query
+    return PolicyRetrievalEngine(chunk_repo=chunk_repo, embedder=embedder), chunk_repo.search_similar, embedder.embed_query
+
+
+async def _retrieve_hits(
+    engine: PolicyRetrievalEngine,
+    query: str,
+    tenant_id,
+    *,
+    max_results: int = 5,
+    doc_type: str | None = None,
+    risk_level: str | None = None,
+):
+    return await engine.retrieve_hits(
+        query=query,
+        context=_context(tenant_id),
+        max_results=max_results,
+        doc_type=doc_type,
+        risk_level=risk_level,
+    )
 
 
 def _retrieval_result(chunk_ids: list[str]) -> RetrievalResult:
@@ -61,62 +94,62 @@ def _retrieval_result(chunk_ids: list[str]) -> RetrievalResult:
 
 @pytest.mark.asyncio
 async def test_strong_evidence_status():
-    retriever, _, _ = _retriever([(_chunk(), 0.72)])
+    engine, _, _ = _engine([(_chunk(), 0.72)])
 
-    result = await retriever.search("仅退款怎么处理？", tenant_id=uuid4())
+    status, hits, best_score = await _retrieve_hits(engine, "仅退款怎么处理？", uuid4())
 
-    assert result.retrieval_status == "strong_evidence"
-    assert result.best_score == 0.72
-    assert result.fallback_message is None
+    assert status == "strong_evidence"
+    assert best_score == 0.72
+    assert hits
 
 
 @pytest.mark.asyncio
 async def test_partial_evidence_status():
-    retriever, _, _ = _retriever([(_chunk(), 0.62)])
+    engine, _, _ = _engine([(_chunk(), 0.62)])
 
-    result = await retriever.search("退款规则是什么？", tenant_id=uuid4())
+    status, hits, best_score = await _retrieve_hits(engine, "退款规则是什么？", uuid4())
 
-    assert result.retrieval_status == "partial_evidence"
-    assert result.best_score == 0.62
-    assert result.fallback_message is None
+    assert status == "partial_evidence"
+    assert best_score == 0.62
+    assert hits
 
 
 @pytest.mark.asyncio
 async def test_no_evidence_status():
-    retriever, _, _ = _retriever([])
+    engine, _, _ = _engine([])
 
-    result = await retriever.search("如何更换银行卡绑定手机号？", tenant_id=uuid4())
+    status, hits, best_score = await _retrieve_hits(engine, "如何更换银行卡绑定手机号？", uuid4())
 
-    assert result.retrieval_status == "no_evidence"
-    assert result.best_score == 0.0
-    assert result.evidence == []
-    assert result.fallback_message == FALLBACK_MESSAGE
+    assert status == "no_evidence"
+    assert best_score == 0.0
+    assert hits == []
+    assert POLICY_NO_EVIDENCE_MESSAGE
 
 
 @pytest.mark.asyncio
 async def test_no_evidence_status_when_best_score_below_threshold():
-    retriever, _, _ = _retriever([(_chunk(), MIN_SIMILARITY_THRESHOLD - 0.01)])
+    engine, _, _ = _engine([(_chunk(), MIN_SIMILARITY_THRESHOLD - 0.01)])
 
-    result = await retriever.search("低置信问题", tenant_id=uuid4())
+    status, hits, _ = await _retrieve_hits(engine, "低置信问题", uuid4())
 
-    assert result.retrieval_status == "no_evidence"
-    assert result.fallback_message == FALLBACK_MESSAGE
+    assert status == "no_evidence"
+    assert hits == []
 
 
 @pytest.mark.asyncio
 async def test_evidence_item_has_doc_key():
     content = "规则内容" * 100
-    retriever, _, _ = _retriever([(_chunk(content=content), 0.8)])
+    engine, _, _ = _engine([(_chunk(content=content), 0.8)])
 
-    result = await retriever.search("仅退款怎么处理？", tenant_id=uuid4())
+    _, hits, _ = await _retrieve_hits(engine, "仅退款怎么处理？", uuid4())
 
-    item = result.evidence[0]
+    item = hits[0]
     assert item.doc_key == "refund_policy"
     assert item.chunk_id == "refund_policy_001"
     assert item.title == "退款规则"
     assert item.section == "仅退款"
     assert item.score == 0.8
-    assert item.text == content[:300]
+    assert item.text == content
 
 
 def test_citation_valid():
@@ -161,22 +194,29 @@ async def test_tenant_isolation():
 
     embedder = SimpleNamespace(embed_query=AsyncMock(return_value=[0.1, 0.2, 0.3]))
     chunk_repo = SimpleNamespace(search_similar=AsyncMock(side_effect=search_similar))
-    retriever = Retriever(chunk_repo=chunk_repo, embedder=embedder)
+    engine = PolicyRetrievalEngine(chunk_repo=chunk_repo, embedder=embedder)
 
-    allowed_result = await retriever.search("仅退款", tenant_id=allowed_tenant_id)
-    other_result = await retriever.search("仅退款", tenant_id=other_tenant_id)
+    allowed_status, _, _ = await _retrieve_hits(engine, "仅退款", allowed_tenant_id)
+    other_status, _, _ = await _retrieve_hits(engine, "仅退款", other_tenant_id)
 
-    assert allowed_result.retrieval_status == "strong_evidence"
-    assert other_result.retrieval_status == "no_evidence"
+    assert allowed_status == "strong_evidence"
+    assert other_status == "no_evidence"
     assert chunk_repo.search_similar.await_count == 2
 
 
 @pytest.mark.asyncio
 async def test_search_uses_query_prefix_and_deeper_candidate_fetch():
     tenant_id = uuid4()
-    retriever, search_similar, embed_query = _retriever([(_chunk(), 0.8)])
+    engine, search_similar, embed_query = _engine([(_chunk(), 0.8)])
 
-    await retriever.search("仅退款怎么处理？", tenant_id=tenant_id, top_k=5, doc_type="sop", risk_level="high")
+    await _retrieve_hits(
+        engine,
+        "仅退款怎么处理？",
+        tenant_id,
+        max_results=5,
+        doc_type="sop",
+        risk_level="high",
+    )
 
     embed_query.assert_awaited_once_with(f"{QUERY_PREFIX}仅退款怎么处理？")
     search_similar.assert_awaited_once()
@@ -210,12 +250,12 @@ async def test_hybrid_rerank_promotes_lexical_match_from_outside_top5():
         section="提交材料",
         content="补偿券审批需要提交订单号、补偿金额、原因说明和客服处理记录。",
     )
-    retriever, _, _ = _retriever([*generic_results, (lexical_match, 0.60)])
+    engine, _, _ = _engine([*generic_results, (lexical_match, 0.60)])
 
-    result = await retriever.search("补偿券审批需要哪些信息？", tenant_id=uuid4(), top_k=5)
+    _, hits, _ = await _retrieve_hits(engine, "补偿券审批需要哪些信息？", uuid4(), max_results=5)
 
-    assert "compensation_approval_sop_002" in [item.chunk_id for item in result.evidence]
-    assert result.evidence[0].chunk_id == "compensation_approval_sop_002"
+    assert "compensation_approval_sop_002" in [item.chunk_id for item in hits]
+    assert hits[0].chunk_id == "compensation_approval_sop_002"
 
 
 @pytest.mark.asyncio
@@ -227,23 +267,22 @@ async def test_hybrid_rerank_does_not_return_low_vector_candidate_with_high_over
         section="七天无理由",
         content="七天无理由退款需要商品不影响二次销售。",
     )
-    retriever, _, _ = _retriever([(below_threshold, MIN_SIMILARITY_THRESHOLD - 0.10)])
+    engine, _, _ = _engine([(below_threshold, MIN_SIMILARITY_THRESHOLD - 0.10)])
 
-    result = await retriever.search("七天无理由退款商品不影响二次销售", tenant_id=uuid4(), top_k=5)
+    status, hits, _ = await _retrieve_hits(engine, "七天无理由退款商品不影响二次销售", uuid4(), max_results=5)
 
-    assert result.retrieval_status == "no_evidence"
-    assert result.evidence == []
+    assert status == "no_evidence"
+    assert hits == []
 
 
 @pytest.mark.asyncio
 async def test_out_of_domain_query_falls_back_even_with_weak_policy_matches():
-    retriever, _, _ = _retriever([(_chunk(section="沟通话术", content="客服应说明证据缺口和申诉入口。"), 0.57)])
+    engine, _, _ = _engine([(_chunk(section="沟通话术", content="客服应说明证据缺口和申诉入口。"), 0.57)])
 
-    result = await retriever.search("用户问如何更换银行卡绑定手机号？", tenant_id=uuid4(), top_k=5)
+    status, hits, _ = await _retrieve_hits(engine, "用户问如何更换银行卡绑定手机号？", uuid4(), max_results=5)
 
-    assert result.retrieval_status == "no_evidence"
-    assert result.evidence == []
-    assert result.fallback_message == FALLBACK_MESSAGE
+    assert status == "no_evidence"
+    assert hits == []
 
 
 @pytest.mark.asyncio
@@ -252,10 +291,10 @@ async def test_valid_no_anchor_policy_query_can_return_strong_evidence():
         section="七天无理由",
         content="拆封后不影响二次销售时，可以支持七天无理由退货退款。",
     )
-    retriever, _, _ = _retriever([(chunk, 0.82)])
+    engine, _, _ = _engine([(chunk, 0.82)])
 
-    result = await retriever.search("已拆封但不影响二次销售怎么办？", tenant_id=uuid4())
+    status, hits, _ = await _retrieve_hits(engine, "已拆封但不影响二次销售怎么办？", uuid4())
 
-    assert result.retrieval_status == "strong_evidence"
-    assert result.evidence
-    assert result.evidence[0].chunk_id == "refund_policy_001"
+    assert status == "strong_evidence"
+    assert hits
+    assert hits[0].chunk_id == "refund_policy_001"

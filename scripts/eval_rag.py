@@ -26,9 +26,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import Tenant
 from src.db.session import SessionLocal
+from src.knowledge.retrieval import POLICY_NO_EVIDENCE_MESSAGE, PolicyRetrievalEngine
+from src.knowledge.schemas import KnowledgeContext
 from src.rag.embedder import EmbeddingService
-from src.rag.retriever import Retriever
-from src.rag.schemas import RetrievalResult
+from src.rag.schemas import EvidenceItem, RetrievalResult
 from src.repositories.policy_chunk_repo import PolicyChunkRepository
 
 
@@ -115,6 +116,46 @@ def _score_case(case: dict[str, Any], result: RetrievalResult) -> dict[str, Any]
         "retrieval_status": result.retrieval_status,
         "missing_expected_chunks": sorted(set(expected_chunks) - set(got_chunks)),
     }
+
+
+async def _search_policy(
+    *,
+    engine: PolicyRetrievalEngine,
+    query: str,
+    tenant_id: UUID,
+    top_k: int,
+) -> RetrievalResult:
+    status, hits, best_score = await engine.retrieve_hits(
+        query=query,
+        context=KnowledgeContext(
+            tenant_id=str(tenant_id),
+            user_id="rag-eval",
+            role="evaluator",
+            merchant_scope=["*"],
+            run_id="rag-eval",
+            trace_id="rag-eval",
+            effective_at=datetime.now(UTC).isoformat(),
+        ),
+        max_results=top_k,
+    )
+    retrieval_status = status if status != "error" else "no_evidence"
+    return RetrievalResult(
+        query=query,
+        retrieval_status=retrieval_status,
+        evidence=[
+            EvidenceItem(
+                doc_key=hit.doc_key,
+                chunk_id=hit.chunk_id,
+                title=hit.title,
+                section=hit.section,
+                score=hit.score,
+                text=hit.text[:300],
+            )
+            for hit in hits
+        ],
+        best_score=best_score,
+        fallback_message=POLICY_NO_EVIDENCE_MESSAGE if retrieval_status == "no_evidence" else None,
+    )
 
 
 def _finalize_category_rates(per_category: dict[str, dict[str, int]]) -> dict[str, dict[str, float | int]]:
@@ -223,7 +264,7 @@ async def run_rag_eval(
 
     async with SessionLocal() as session:
         tenant_uuid = await resolve_tenant_id(session, tenant_id)
-        retriever = Retriever(
+        engine = PolicyRetrievalEngine(
             chunk_repo=PolicyChunkRepository(session),
             embedder=EmbeddingService(),
         )
@@ -235,12 +276,13 @@ async def run_rag_eval(
         per_category: dict[str, dict[str, int]] = {}
 
         for case in cases:
-            result = await retriever.search(query=case["query"], tenant_id=tenant_uuid, top_k=5)
+            result = await _search_policy(engine=engine, query=case["query"], tenant_id=tenant_uuid, top_k=5)
             scored = _score_case(case, result)
             category = case["category"]
 
             if diagnostic_top_k != 5 and not scored["hit"]:
-                diagnostic_result = await retriever.search(
+                diagnostic_result = await _search_policy(
+                    engine=engine,
                     query=case["query"],
                     tenant_id=tenant_uuid,
                     top_k=diagnostic_top_k,

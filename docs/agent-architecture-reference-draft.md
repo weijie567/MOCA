@@ -146,7 +146,7 @@ src/
 | 目标模块 | 当前 MOCA 相关结构 | 当前问题/差距 | 建议方向 |
 | --- | --- | --- | --- |
 | LangGraph 编排 | `src/agent/graph.py`, `src/agent/nodes/*`, `src/agent/state.py` | 主流程已存在，节点包括 receive/classify/extract/load/retrieve/recommend/risk/approval/execute/final | 保留现有 graph，不推翻；逐步让 node 变薄，只调用 service contract |
-| Knowledge / RAG | `src/rag/*`, `src/agent/tools/search_policy.py`, policy repos | RAG 已有，但 search_policy 仍在 agent tools 下，边界像 Agent 内部工具 | 增加 `src/knowledge/service.py` facade，让 retrieve node 调 KnowledgeService |
+| Knowledge / RAG | `src/knowledge/retrieval.py`, `src/knowledge/service.py`, `src/rag/embedder.py`, `src/rag/ingestion.py`, policy repos | Retrieval orchestration 已归 Knowledge；`src/rag` 保留底层 embed/chunk/ingest infra | 保持 Agent 节点只通过 manager/service contract 获取 evidence |
 | Business Tools | `src/agent/tools/get_order.py`, `get_ticket.py`, `get_refund_case.py`, repos | 当前更像本地 DB 工具，不是清晰 Business Tools service | 增加 `src/business/service.py` 和 demo adapters，声明本地 DB 是 demo adapter |
 | Approval / HITL | `approval_gate`, `approvals router`, `ApprovalRequest`, `ApprovalStep` | 已有 interrupt/resume、approve/reject；审批计划、多级审批、SLA 策略仍可增强 | 增加 `rules/approval_policies.yaml`, `src/approvals/policy.py`, `src/approvals/sla.py` |
 | Actions | `execute_action`, `create_coupon_grant_draft`, `ActionDraft` | 当前执行动作主要创建草稿，无真实执行和补偿 contract | 增加 `src/actions/executor.py`，即使 demo 仍只创建 draft，也返回 execution/compensation metadata |
