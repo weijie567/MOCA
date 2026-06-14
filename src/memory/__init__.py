@@ -8,8 +8,10 @@ from src.memory.schemas import (
     SessionSlotV1,
     SessionSlotsEnvelopeV1,
 )
+from src.memory.service import MemoryService
 
 __all__ = [
+    "MemoryService",
     "SessionMemoryRepository",
     "SessionMemoryView",
     "SessionMemoryWriteCandidate",

@@ -31,7 +31,7 @@ class SessionMemoryRepository:
         if not include_expired:
             filters.append(or_(SessionMemory.expires_at.is_(None), SessionMemory.expires_at > func.now()))
 
-        result = await self.session.execute(select(SessionMemory).where(and_(*filters)))
+        result = await self.session.execute(select(SessionMemory).where(and_(*filters)).execution_options(populate_existing=True))
         return result.scalar_one_or_none()
 
     async def insert_active(

@@ -6,6 +6,7 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.db.models import AgentRun
 from src.memory.repository import SessionMemoryRepository
 from src.memory.schemas import SessionMemoryWriteCandidate, SessionSlotV1
 from src.memory.service import MemoryService
@@ -34,6 +35,23 @@ def _envelope(value: str, *, run_id: str | None = None, expires_at: datetime | N
         "schema_version": "session_slots.v1",
         "slots": {"order_id": _slot(value, run_id=run_id, expires_at=expires_at).model_dump(mode="json")},
     }
+
+
+async def _insert_run(session: AsyncSession, seeded_session: dict, thread_id: str) -> uuid.UUID:
+    run_id = uuid.uuid4()
+    session.add(
+        AgentRun(
+            id=run_id,
+            tenant_id=seeded_session["tenant"].id,
+            user_id=seeded_session["users"]["cs_zhang"].id,
+            thread_id=thread_id,
+            input_query="test",
+            final_status="completed",
+            started_at=datetime.now(UTC),
+        )
+    )
+    await session.flush()
+    return run_id
 
 
 def _candidate(
@@ -83,6 +101,7 @@ async def test_service_merge_current_explicit_overrides_existing(session: AsyncS
         _candidate(
             seeded_session,
             thread_id="thread-service-explicit",
+            run_id=await _insert_run(session, seeded_session, "thread-service-explicit"),
             expected_version=existing.version,
             slots={"order_id": _slot("ORD-NEW")},
         )
@@ -130,6 +149,7 @@ async def test_service_merge_preserves_non_slot_fields_on_safe_cas_retry(
         _candidate(
             seeded_session,
             thread_id="thread-service-safe-cas",
+            run_id=await _insert_run(session, seeded_session, "thread-service-safe-cas"),
             expected_version=1,
             slots={"refund_case_id": _slot("RF-1")},
             session_summary="candidate summary",
@@ -172,6 +192,7 @@ async def test_service_cas_miss_reloads_and_merges_or_conflicts(session: AsyncSe
         _candidate(
             seeded_session,
             thread_id="thread-service-cas-conflict",
+            run_id=await _insert_run(session, seeded_session, "thread-service-cas-conflict"),
             expected_version=1,
             slots={"order_id": _slot("ORD-CANDIDATE", run_id="candidate-run")},
         )
@@ -201,6 +222,7 @@ async def test_service_write_after_expired_active_row_reuses_or_replaces_scope(
         _candidate(
             seeded_session,
             thread_id="thread-service-expired-write",
+            run_id=await _insert_run(session, seeded_session, "thread-service-expired-write"),
             slots={"order_id": _slot("ORD-FRESH")},
         )
     )
@@ -263,6 +285,7 @@ async def test_write_decision_subset_is_observable(session: AsyncSession, seeded
         _candidate(
             seeded_session,
             thread_id="thread-service-pii",
+            run_id=await _insert_run(session, seeded_session, "thread-service-pii"),
             slots={"order_id": _slot("ORD-SENSITIVE")},
             pii_classification="prohibited",
             decision="skip",
