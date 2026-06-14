@@ -419,7 +419,7 @@ Source: normative M6 gate formula. [VERIFIED: docs/contract-spec.md §11.4]
 |----------|-------|
 | Framework | pytest 9.0.3 with pytest-asyncio 1.3.0 [VERIFIED: uv.lock; VERIFIED: importlib.metadata] |
 | Config file | `pyproject.toml` with `asyncio_mode = "auto"` [VERIFIED: pyproject.toml] |
-| Quick run command | `uv run pytest tests/agent/test_nodes/test_classify_intent.py tests/test_graph_routing.py tests/agent/test_graph.py -q` [VERIFIED: existing test files] |
+| Quick run command | `uv run pytest tests/agent/test_intent_adapter.py tests/agent/test_intent_routing.py tests/agent/test_required_slots.py tests/agent/test_clarification_gate.py tests/agent/test_intent_manifest.py tests/agent/test_nodes/test_classify_intent.py tests/agent/test_graph.py -q` [VERIFIED: final Phase 11 validation strategy] |
 | Full suite command | `uv run pytest -q` [VERIFIED: Phase 10 summary reports full suite passed at 443 tests] |
 | Lint command | `uv run ruff check src/agent tests/agent tests/test_graph_routing.py` [VERIFIED: pyproject.toml; VERIFIED: ruff version] |
 
@@ -436,7 +436,7 @@ Source: normative M6 gate formula. [VERIFIED: docs/contract-spec.md §11.4]
 
 ### Sampling Rate
 - **Per task commit:** run the focused test file for the changed seam plus `uv run ruff check <changed files>`. [VERIFIED: existing Phase 10 testing pattern]
-- **Per wave merge:** run `uv run pytest tests/agent/test_nodes/test_classify_intent.py tests/test_graph_routing.py tests/agent/test_graph.py -q`. [VERIFIED: existing files]
+- **Per wave merge:** run `uv run pytest tests/agent/test_nodes/test_classify_intent.py tests/agent/test_graph.py tests/agent/test_intent_adapter.py tests/agent/test_intent_routing.py tests/agent/test_required_slots.py tests/agent/test_clarification_gate.py tests/agent/test_intent_manifest.py -q`. [VERIFIED: final Phase 11 validation strategy]
 - **Phase gate:** run `uv run pytest -q` plus the new manifest/eval test command. [VERIFIED: .planning/config.json `nyquist_validation=true`; VERIFIED: docs/eval-test-plan.md]
 
 ### Wave 0 Gaps
@@ -445,7 +445,7 @@ Source: normative M6 gate formula. [VERIFIED: docs/contract-spec.md §11.4]
 - [ ] `tests/agent/test_required_slots.py` covers `all_of`, `any_of`, `optional`, current explicit slot precedence, empty Phase-10 session adapter, and candidate-slot non-completeness. [VERIFIED: docs/contract-spec.md §10/§11.3]
 - [ ] `tests/agent/test_clarification_gate.py` covers minimal ordinary questions, `clarification_request_id`, blocked nodes, no permission/tool error leakage, and no approval lifecycle writes. [VERIFIED: docs/contract-spec.md §11.5; VERIFIED: src/agent/nodes/clarification_gate.py]
 - [ ] `tests/agent/test_intent_manifest.py` covers source-of-truth coverage, stale dataset/hash metadata, `small_talk`/`unsupported` evidence exemptions, and Wilson status precedence. [VERIFIED: docs/contract-spec.md §11.4/§11.7]
-- [ ] `eval/intent/intent-golden.v1.json`, `coverage-manifest.v1.json`, and `intent-consistency.v1.json` need owner/version/hash fields. [VERIFIED: docs/contract-spec.md §11.4/§11.7]
+- [ ] `eval/intent/intent-golden.v1.json`, `coverage-manifest.v1.json`, `m6-statistical-gate.v1.json`, and `intent-consistency.v1.json` need owner/version/hash fields, with Phase 11 contract and M6 release gates kept separate. [VERIFIED: docs/contract-spec.md §11.4/§11.7]
 
 ## Security Domain
 
