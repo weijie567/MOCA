@@ -88,7 +88,12 @@
   1. Intent and required-slot golden tests pass.
   2. Low-confidence/high-risk routes use safe clarification or risk paths.
   3. Ordinary chat cannot create trusted approval decisions or resume commands.
-**Plans**: TBD
+**Plans**: 5 plans
+  - [ ] 11-01-PLAN.md — IntentResultV3 schema, prompt contract, and explicit AgentState adapter (Wave 1)
+  - [ ] 11-02-PLAN.md — Deterministic pre-router, precedence helpers, and confidence safety defaults (Wave 2)
+  - [ ] 11-03-PLAN.md — RequiredSlotExpression completeness, route_after_intent/route_after_slots, and graph wiring (Wave 3)
+  - [ ] 11-04-PLAN.md — Ordinary clarification gate and approval lifecycle separation (Wave 4)
+  - [ ] 11-05-PLAN.md — Intent consistency manifest, golden dataset, Wilson gates, and phase validation (Wave 5)
 
 ### Phase 12: Session Memory
 **Goal**: Implement PostgreSQL-backed same-thread session memory with CAS and safe slot inheritance.
