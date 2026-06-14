@@ -22,7 +22,7 @@
 ### v1.1 Agent Architecture Migration (Phases 7-17)
 
 - [x] **Phase 7: Contract Baseline** - Contract inventory, current-vs-target evidence, coverage matrix, follow-up disposition, and readiness verdict. Completed 2026-06-06.
-- [ ] **Phase 8: Knowledge Facade** - KnowledgeService boundary and canonical EvidenceRefV1/citation contract.
+- [x] **Phase 8: Knowledge Facade** - KnowledgeService boundary and canonical EvidenceRefV1/citation contract. Completed 2026-06-11.
 - [x] **Phase 9: Business Tool Facade** - BusinessToolService boundary and ToolCallContext/ToolResultV2 contract. ✓ Verified 2026-06-13 — 9/9 plans complete, 14/14 must-haves verified.
 - [x] **Phase 10: State Lifecycle + Routing Migration** - AgentState lifecycle/trusted fields, deterministic total routers, empty session-memory adapter, and bounded investigate graph wiring. Completed 2026-06-14.
 - [ ] **Phase 11: Intent / Clarification** - Intent precedence, required-slot policy, confidence gates, and ordinary clarification.
@@ -53,7 +53,7 @@
   1. Knowledge reads use the facade while the existing RAG path remains an adapter/fallback.
   2. Strong/partial/no-evidence and claim-support contracts pass.
   3. Any persistence or read-switch has an owned migration, telemetry, and rollback.
-**Plans**: 7/7 complete
+**Plans**: 9/9 complete
 
 ### Phase 9: Business Tool Facade
 **Goal**: Route read business tools through BusinessToolService using trusted ToolCallContext and typed ToolResultV2.
@@ -160,7 +160,7 @@
 | Phase | Plans Complete | Status | Completed |
 | --- | --- | --- | --- |
 | 7. Contract Baseline | 1/1 | Complete | 2026-06-06 |
-| 8. Knowledge Facade | 4/6 | In Progress | - |
+| 8. Knowledge Facade | 9/9 | Complete | 2026-06-11 |
 | 9. Business Tool Facade | 9/9 | Complete | 2026-06-13 |
 | 10. State Lifecycle + Routing Migration | 5/5 | Complete | 2026-06-14 |
 | 11. Intent / Clarification | 0/TBD | Pending | - |

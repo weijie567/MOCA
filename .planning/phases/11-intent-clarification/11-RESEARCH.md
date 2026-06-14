@@ -263,13 +263,14 @@ builder.add_conditional_edges(
 builder.add_conditional_edges(
     "extract_slots",
     route_after_slots,
-    {
-        "clarification_gate": "clarification_gate",
-        "investigate": "investigate",
-        "long_term_memory_retrieve": "investigate",  # until the empty seam is registered
-    },
-)
-```
+	    {
+	        "clarification_gate": "clarification_gate",
+	        "investigate": "investigate",
+	        "long_term_memory_retrieve": "long_term_memory_retrieve",
+	    },
+	)
+	builder.add_edge("long_term_memory_retrieve", "investigate")
+	```
 Source: current graph assembly and LangGraph Graph API. [VERIFIED: src/agent/graph.py; CITED: https://docs.langchain.com/oss/python/langgraph/graph-api]
 
 ### Anti-Patterns to Avoid
@@ -393,8 +394,8 @@ Source: normative M6 gate formula. [VERIFIED: docs/contract-spec.md §11.4]
    - Resolution: place Phase 11 intent eval artifacts under `eval/intent/` and make all manifest/golden tests reference that path explicitly. [RESOLVED: 11-05-PLAN.md]
 
 3. **Should `long_term_memory_retrieve` be registered now or route key mapped to `investigate` until Phase 16?** [VERIFIED: docs/contract-spec.md §9.5; VERIFIED: src/agent/graph.py]
-   - What we know: route table allows `long_term_memory_retrieve`, but Phase 16 owns real long-term/case memory and current graph does not register that node. [VERIFIED: docs/agent-architecture-phase-decomposition.md; VERIFIED: src/agent/graph.py]
-   - Resolution: keep `long_term_memory_retrieve` as the canonical route key in router tests, but map that key to `investigate` in graph wiring until Phase 16 owns the real long-term/case memory seam. A registered seam may be added later only through its owner phase. [RESOLVED: 11-03-PLAN.md]
+   - What we know: route table allows `long_term_memory_retrieve`, Phase 16 owns real long-term/case memory, and the Phase 7/10/11 follow-up register requires an empty-adapter memory read seam before Phase 16. [VERIFIED: docs/agent-architecture-phase-decomposition.md; VERIFIED: .planning/phases/07-contract-baseline/07-CONTRACT-BASELINE.md]
+   - Resolution: keep `long_term_memory_retrieve` as the canonical route key, register an empty `long_term_memory_retrieve` adapter in Phase 11, and route that node to `investigate`. The adapter writes empty `long_term_memory` / `case_memory` and makes no real retrieval or continuity claim; Phase 16 owns real long-term/case memory behavior. [RESOLVED: 11-03-PLAN.md]
 
 ## Environment Availability
 
@@ -419,7 +420,7 @@ Source: normative M6 gate formula. [VERIFIED: docs/contract-spec.md §11.4]
 |----------|-------|
 | Framework | pytest 9.0.3 with pytest-asyncio 1.3.0 [VERIFIED: uv.lock; VERIFIED: importlib.metadata] |
 | Config file | `pyproject.toml` with `asyncio_mode = "auto"` [VERIFIED: pyproject.toml] |
-| Quick run command | `uv run pytest tests/agent/test_intent_adapter.py tests/agent/test_intent_routing.py tests/agent/test_required_slots.py tests/agent/test_clarification_gate.py tests/agent/test_intent_manifest.py tests/agent/test_nodes/test_classify_intent.py tests/agent/test_graph.py -q` [VERIFIED: final Phase 11 validation strategy] |
+| Quick run command | `uv run pytest tests/agent/test_intent_adapter.py tests/agent/test_intent_routing.py tests/agent/test_required_slots.py tests/agent/test_clarification_gate.py tests/agent/test_intent_manifest.py tests/agent/test_intent_golden_contract.py tests/agent/test_nodes/test_classify_intent.py tests/agent/test_nodes/test_receive_request.py tests/agent/test_graph.py -q` [VERIFIED: final Phase 11 validation strategy] |
 | Full suite command | `uv run pytest -q` [VERIFIED: Phase 10 summary reports full suite passed at 443 tests] |
 | Lint command | `uv run ruff check src/agent tests/agent tests/test_graph_routing.py` [VERIFIED: pyproject.toml; VERIFIED: ruff version] |
 

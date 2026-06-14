@@ -93,7 +93,10 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - Phase 6 Evaluation & Polish is complete: the golden set now covers 14 RAG cases and 35 deterministic agent cases, evaluation scripts generate reports, CI runs lint/unit checks, and README/demo/security/evaluation docs are polished for the v1.0 demo.
 - v1.0 MVP is shipped and archived on 2026-05-22. Full milestone history lives in `.planning/milestones/v1.0-ROADMAP.md` and `.planning/milestones/v1.0-REQUIREMENTS.md`.
 - Phase 7 Contract Baseline is complete: the contract inventory, current-vs-target evidence checklist, initial coverage matrix, follow-up register disposition, and readiness verdict are persisted.
-- Active planning is now on Phase 8 Knowledge Facade; Phase 9 Business Tool Facade may be planned in parallel.
+- Phase 8 Knowledge Facade is complete: policy evidence retrieval uses the KnowledgeService facade with canonical EvidenceRefV1/citation contracts and verified checkpoint red-line behavior.
+- Phase 9 Business Tool Facade is complete: read business tools route through BusinessToolService with trusted ToolCallContext and typed ToolResultV2.
+- Phase 10 State Lifecycle + Routing Migration is complete: AgentState lifecycle, trusted-field reset/merge behavior, deterministic routers, empty session-memory adapter, and bounded investigate graph wiring are verified.
+- Active planning is now on Phase 11 Intent / Clarification.
 
 ## Next Milestone Goals
 
@@ -138,4 +141,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-04 after Phase 7 completion*
+*Last updated: 2026-06-14 after Phase 11 planning readiness review*
