@@ -15,9 +15,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request, Security
 from sqlalchemy import select
 from langgraph.errors import GraphInterrupt
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sse_starlette.sse import EventSourceResponse
 
+from src.agent.nodes.memory_write import memory_write
 from src.agent.nodes.final_response import final_response as build_final_response
 from src.agent.trace import build_trace_summary, write_agent_run, write_agent_steps
 from src.api.schemas.agent_runs import CreateRunRequest, RunStatusResponse
@@ -287,6 +288,11 @@ async def _event_generator(
                 status="completed",
                 message="已完成",
                 payload={"final_response": str(final_response)},
+            )
+            _schedule_memory_write_after_response(
+                {**input_state, **final_state, "final_response": str(final_response)},
+                session_factory=_session_factory_from_session(session),
+                trace_id=config.get("configurable", {}).get("trace_id"),
             )
         else:
             yield _sse_event(
@@ -640,6 +646,35 @@ def _parse_expires_at(value: Any) -> datetime:
 def _count_tokens(trace_steps: list[dict[str, Any]]) -> int | None:
     total = sum((step.get("prompt_tokens") or 0) + (step.get("completion_tokens") or 0) for step in trace_steps)
     return total or None
+
+
+def _session_factory_from_session(session: AsyncSession):
+    bind = session.bind
+    return async_sessionmaker(bind, expire_on_commit=False, class_=AsyncSession)
+
+
+def _schedule_memory_write_after_response(final_state: dict[str, Any], *, session_factory, trace_id: str | None = None):
+    state_snapshot = dict(final_state)
+
+    async def run_memory_write() -> None:
+        async with session_factory() as memory_session:
+            try:
+                await memory_write(
+                    state_snapshot,
+                    {"configurable": {"session": memory_session, "trace_id": trace_id or ""}},
+                )
+                await memory_session.commit()
+            except Exception:
+                await memory_session.rollback()
+
+    task = asyncio.create_task(run_memory_write())
+    task.add_done_callback(_consume_background_task_exception)
+    return task
+
+
+def _consume_background_task_exception(task: asyncio.Task) -> None:
+    with contextlib.suppress(asyncio.CancelledError, Exception):
+        task.result()
 
 
 def _as_mapping(value: Any) -> dict[str, Any]:

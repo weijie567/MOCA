@@ -13,7 +13,11 @@ from langgraph.errors import GraphInterrupt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.trace import build_trace_summary, write_agent_run, write_agent_steps
-from src.api.routers.agent_runs import _trusted_tool_config
+from src.api.routers.agent_runs import (
+    _schedule_memory_write_after_response,
+    _session_factory_from_session,
+    _trusted_tool_config,
+)
 from src.api.schemas.agent import ChatRequest, ChatResponse, TraceSummary
 from src.api.schemas.common import ApiResponse, ErrorDetail, INTERNAL_ERROR
 from src.auth.permissions import get_current_user
@@ -156,12 +160,18 @@ async def chat(
         await session.rollback()
 
     trace_summary = build_trace_summary(run_id, final_state, total_ms)
+    response_data = ChatResponse(
+        response=final_response_text,
+        trace_summary=TraceSummary(**trace_summary),
+    ).model_dump()
+    _schedule_memory_write_after_response(
+        {**input_state, **final_state, "current_run_id": str(run_id), "final_response": final_response_text},
+        session_factory=_session_factory_from_session(session),
+        trace_id=request.state.trace_id,
+    )
     return ApiResponse(
         success=True,
-        data=ChatResponse(
-            response=final_response_text,
-            trace_summary=TraceSummary(**trace_summary),
-        ).model_dump(),
+        data=response_data,
         trace_id=request.state.trace_id,
     )
 
