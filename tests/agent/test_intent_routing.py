@@ -12,7 +12,9 @@ from src.agent.intent_policy import (
     resolve_intent_precedence,
 )
 from src.agent.nodes import classify_intent as classify_intent_module
+from src.agent.nodes.classify_intent import intent_result_to_state
 from src.agent.routing import INTENT_ROUTES, SLOT_ROUTES, route_after_intent, route_after_slots
+from src.agent.schemas import IntentResultV3
 
 
 def test_policy_taxonomy_has_no_generic_or_approval_decision_intents():
@@ -79,6 +81,34 @@ async def test_classifier_pre_route_wiring_for_approval_chat(monkeypatch, base_s
     assert update["requested_operation"] == "advise"
     assert "approval_result" not in update
     assert route_after_intent(update) == "clarification_gate"
+
+
+@pytest.mark.parametrize("llm_intent", ["policy_qa", "refund_troubleshooting"])
+def test_safety_sensitive_pre_route_forces_action_request_policy(llm_intent):
+    result = IntentResultV3.model_validate(
+        {
+            "schema_version": "intent_result.v3",
+            "primary_intent": llm_intent,
+            "requested_operation": "advise",
+            "confidence": 0.97,
+            "calibrated_confidence": 0.94,
+            "secondary_intents": [],
+            "required_slots": {"all_of": [], "any_of": [], "optional": []},
+            "candidate_slots": {"order_id": "ORD-7001"},
+            "routing_hints": {},
+            "classifier_version": "intent_classifier.v2",
+            "calibration_version": "calibration.unverified",
+            "reason_codes": ["llm_misclassified_write"],
+        }
+    )
+    pre_route = detect_pre_route("请对ORD-7001直接退款")
+
+    update = intent_result_to_state(result, pre_route=pre_route, user_query="请对ORD-7001直接退款")
+
+    assert update["primary_intent"] == "action_request"
+    assert update["requested_operation"] == "execute_action"
+    assert update["required_slots"]["all_of"] == ["action_type"]
+    assert route_after_slots({**update, "extracted_slots": {"order_id": "ORD-7001"}}) == "clarification_gate"
 
 
 @pytest.mark.parametrize(

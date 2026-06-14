@@ -92,8 +92,7 @@ _APPROVAL_ID_RE = re.compile(r"\b(?:APR|APPROVAL|审批)[-_]?\d+\b", re.IGNORECA
 def detect_pre_route(query: str) -> PreRouteDecision:
     text = query or ""
     lowered = text.lower()
-    approval_command = any(token in lowered for token in ("approve", "reject", "approval", "apr-"))
-    approval_command = approval_command or any(token in text for token in ("审批", "拒绝"))
+    approval_command = any(token in lowered for token in ("approval", "apr-")) or "审批" in text
     broad_approval = any(token in lowered for token in ("accept", "reject")) or any(token in text for token in ("通过", "拒绝"))
     approval_context = bool(_APPROVAL_ID_RE.search(text)) or "approval" in lowered or "审批" in text
     if approval_command or (broad_approval and approval_context):
@@ -113,8 +112,9 @@ def detect_pre_route(query: str) -> PreRouteDecision:
             requires_clarification=True,
         )
 
-    action_terms = ("execute", "refund now", "override", "直接退款", "执行", "发券", "补偿券", "赔付")
-    if any(token in lowered for token in action_terms) or any(token in text for token in action_terms):
+    english_action_terms = ("execute", "refund now", "override")
+    chinese_action_terms = ("直接退款", "执行", "发券", "创建")
+    if any(token in lowered for token in english_action_terms) or any(token in text for token in chinese_action_terms):
         return PreRouteDecision(
             disposition="safety_sensitive",
             requested_operation="execute_action",
@@ -159,6 +159,12 @@ def resolve_intent_precedence(
             requested_operation = "draft_reply"
 
     valid_candidates = [candidate for candidate in candidates if candidate in ORDINARY_INTENTS]
+    if (
+        primary_intent == "policy_qa"
+        and requested_operation == "advise"
+        and (any(token in lowered for token in ("policy", "rule")) or any(token in text for token in ("政策", "规则")))
+    ):
+        return "policy_qa", "advise", []
     for intent in PRECEDENCE_INTENTS:
         if intent in valid_candidates:
             reason_codes = [] if intent == primary_intent else ["intent_precedence_applied"]

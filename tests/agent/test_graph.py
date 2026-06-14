@@ -291,6 +291,20 @@ async def test_policy_qa_no_evidence_returns_insufficient_response(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_policy_qa_direct_investigate_ignores_stale_active_slots(monkeypatch):
+    deps = _patch_graph_dependencies(monkeypatch, intent="policy_qa")
+    graph = build_graph(MemorySaver())
+
+    final_state = await graph.ainvoke(
+        _state("退款超时规则是什么？") | {"active_slots": {"order_id": "ORD-STALE"}},
+        _config(deps["tool_manager"], deps["events"]),
+    )
+
+    assert [call[0] for call in deps["tool_manager"].calls] == ["search_policy"]
+    assert "ORD-STALE" not in str(final_state["business_context"])
+
+
+@pytest.mark.asyncio
 async def test_cross_turn_context_isolation_on_investigate_facts(monkeypatch):
     graph = build_graph(MemorySaver())
     thread_id = "cross-turn-thread"

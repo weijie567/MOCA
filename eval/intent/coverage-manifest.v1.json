@@ -1,7 +1,7 @@
 {
   "schema_version": "coverage_manifest.v1",
   "dataset_version": "intent-golden.v1",
-  "dataset_hash": "sha256:aff310d639794e804f76970fdfe7664cdf2e5752cf6cbf978351884e0ccdfe41",
+  "dataset_hash": "sha256:41ed5a46892eb29400d7de8522d84c028cd76551a4b70926cf4536cbaf33815c",
   "owner": "Phase 11 Intent / Clarification",
   "gate_scope": "phase_11_contract",
   "blocking": "phase_exit",

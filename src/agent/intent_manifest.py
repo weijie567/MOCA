@@ -203,6 +203,9 @@ def validate_intent_manifest(
 
     if m6_gate_path is not None:
         m6 = load_json_model(m6_gate_path, M6StatisticalGate)
+        expected_coverage_hash = compute_dataset_hash(coverage_path)
+        if m6.coverage_manifest_hash != expected_coverage_hash:
+            errors.append("stale coverage_manifest_hash in M6 gate")
         if m6.gate_scope != "m6_release":
             errors.append("M6 gate scope is not release-only")
         if m6.default_gate_status != "statistical_gate_not_demonstrated":

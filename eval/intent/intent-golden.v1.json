@@ -54,28 +54,34 @@
     {
       "id": "policy_qa-neg-1",
       "kind": "hard-negative",
-      "input": "approve APR-1",
+      "input": "查询订单ORD-9001现在状态",
       "negative_for": "policy_qa",
       "expected": {
-        "not_primary_intent": "policy_qa"
+        "not_primary_intent": "policy_qa",
+        "classifier_primary_intent": "order_status_inquiry",
+        "requested_operation": "read_status"
       }
     },
     {
       "id": "policy_qa-neg-2",
       "kind": "hard-negative",
-      "input": "通过订单号 ORD-1 查询退款状态",
+      "input": "给订单ORD-9001建议补偿方案",
       "negative_for": "policy_qa",
       "expected": {
-        "not_primary_intent": "policy_qa"
+        "not_primary_intent": "policy_qa",
+        "classifier_primary_intent": "compensation_suggestion",
+        "requested_operation": "draft_action"
       }
     },
     {
       "id": "policy_qa-neg-3",
       "kind": "hard-negative",
-      "input": "accept language preference",
+      "input": "你好，辛苦了",
       "negative_for": "policy_qa",
       "expected": {
-        "not_primary_intent": "policy_qa"
+        "not_primary_intent": "policy_qa",
+        "classifier_primary_intent": "small_talk",
+        "requested_operation": "advise"
       }
     },
     {
@@ -126,28 +132,34 @@
     {
       "id": "order_status_inquiry-neg-1",
       "kind": "hard-negative",
-      "input": "approve APR-1",
+      "input": "7天无理由退款规则是什么",
       "negative_for": "order_status_inquiry",
       "expected": {
-        "not_primary_intent": "order_status_inquiry"
+        "not_primary_intent": "order_status_inquiry",
+        "classifier_primary_intent": "policy_qa",
+        "requested_operation": "advise"
       }
     },
     {
       "id": "order_status_inquiry-neg-2",
       "kind": "hard-negative",
-      "input": "通过订单号 ORD-1 查询退款状态",
+      "input": "给ORD-9002建议补偿券",
       "negative_for": "order_status_inquiry",
       "expected": {
-        "not_primary_intent": "order_status_inquiry"
+        "not_primary_intent": "order_status_inquiry",
+        "classifier_primary_intent": "compensation_suggestion",
+        "requested_operation": "draft_action"
       }
     },
     {
       "id": "order_status_inquiry-neg-3",
       "kind": "hard-negative",
-      "input": "accept language preference",
+      "input": "早上好",
       "negative_for": "order_status_inquiry",
       "expected": {
-        "not_primary_intent": "order_status_inquiry"
+        "not_primary_intent": "order_status_inquiry",
+        "classifier_primary_intent": "small_talk",
+        "requested_operation": "advise"
       }
     },
     {
@@ -198,28 +210,34 @@
     {
       "id": "refund_troubleshooting-neg-1",
       "kind": "hard-negative",
-      "input": "approve APR-1",
+      "input": "退款超时政策是什么",
       "negative_for": "refund_troubleshooting",
       "expected": {
-        "not_primary_intent": "refund_troubleshooting"
+        "not_primary_intent": "refund_troubleshooting",
+        "classifier_primary_intent": "policy_qa",
+        "requested_operation": "advise"
       }
     },
     {
       "id": "refund_troubleshooting-neg-2",
       "kind": "hard-negative",
-      "input": "通过订单号 ORD-1 查询退款状态",
+      "input": "帮我写TKT-9003客户回复",
       "negative_for": "refund_troubleshooting",
       "expected": {
-        "not_primary_intent": "refund_troubleshooting"
+        "not_primary_intent": "refund_troubleshooting",
+        "classifier_primary_intent": "ticket_reply_draft",
+        "requested_operation": "draft_reply"
       }
     },
     {
       "id": "refund_troubleshooting-neg-3",
       "kind": "hard-negative",
-      "input": "accept language preference",
+      "input": "谢谢你",
       "negative_for": "refund_troubleshooting",
       "expected": {
-        "not_primary_intent": "refund_troubleshooting"
+        "not_primary_intent": "refund_troubleshooting",
+        "classifier_primary_intent": "small_talk",
+        "requested_operation": "advise"
       }
     },
     {
@@ -243,7 +261,7 @@
     {
       "id": "compensation_suggestion-pos-3",
       "kind": "positive",
-      "input": "客户投诉，给什么安抚方案",
+      "input": "客户不满意，给什么安抚方案",
       "expected": {
         "primary_intent": "compensation_suggestion",
         "requested_operation": "draft_action"
@@ -261,7 +279,7 @@
     {
       "id": "compensation_suggestion-pos-5",
       "kind": "positive",
-      "input": "这个退款问题建议发券吗",
+      "input": "这个退款问题是否建议给补偿方案",
       "expected": {
         "primary_intent": "compensation_suggestion",
         "requested_operation": "draft_action"
@@ -270,28 +288,34 @@
     {
       "id": "compensation_suggestion-neg-1",
       "kind": "hard-negative",
-      "input": "approve APR-1",
+      "input": "查询ORD-9004发货状态",
       "negative_for": "compensation_suggestion",
       "expected": {
-        "not_primary_intent": "compensation_suggestion"
+        "not_primary_intent": "compensation_suggestion",
+        "classifier_primary_intent": "order_status_inquiry",
+        "requested_operation": "read_status"
       }
     },
     {
       "id": "compensation_suggestion-neg-2",
       "kind": "hard-negative",
-      "input": "通过订单号 ORD-1 查询退款状态",
+      "input": "补偿券规则是什么",
       "negative_for": "compensation_suggestion",
       "expected": {
-        "not_primary_intent": "compensation_suggestion"
+        "not_primary_intent": "compensation_suggestion",
+        "classifier_primary_intent": "policy_qa",
+        "requested_operation": "advise"
       }
     },
     {
       "id": "compensation_suggestion-neg-3",
       "kind": "hard-negative",
-      "input": "accept language preference",
+      "input": "给TKT-9004写回复",
       "negative_for": "compensation_suggestion",
       "expected": {
-        "not_primary_intent": "compensation_suggestion"
+        "not_primary_intent": "compensation_suggestion",
+        "classifier_primary_intent": "ticket_reply_draft",
+        "requested_operation": "draft_reply"
       }
     },
     {
@@ -333,7 +357,7 @@
     {
       "id": "ticket_reply_draft-pos-5",
       "kind": "positive",
-      "input": "生成投诉工单回复",
+      "input": "生成售后工单回复",
       "expected": {
         "primary_intent": "ticket_reply_draft",
         "requested_operation": "draft_reply"
@@ -342,28 +366,34 @@
     {
       "id": "ticket_reply_draft-neg-1",
       "kind": "hard-negative",
-      "input": "approve APR-1",
+      "input": "查询ORD-9005退款状态",
       "negative_for": "ticket_reply_draft",
       "expected": {
-        "not_primary_intent": "ticket_reply_draft"
+        "not_primary_intent": "ticket_reply_draft",
+        "classifier_primary_intent": "order_status_inquiry",
+        "requested_operation": "read_status"
       }
     },
     {
       "id": "ticket_reply_draft-neg-2",
       "kind": "hard-negative",
-      "input": "通过订单号 ORD-1 查询退款状态",
+      "input": "退款政策怎么判断",
       "negative_for": "ticket_reply_draft",
       "expected": {
-        "not_primary_intent": "ticket_reply_draft"
+        "not_primary_intent": "ticket_reply_draft",
+        "classifier_primary_intent": "policy_qa",
+        "requested_operation": "advise"
       }
     },
     {
       "id": "ticket_reply_draft-neg-3",
       "kind": "hard-negative",
-      "input": "accept language preference",
+      "input": "给ORD-9005建议补偿金额",
       "negative_for": "ticket_reply_draft",
       "expected": {
-        "not_primary_intent": "ticket_reply_draft"
+        "not_primary_intent": "ticket_reply_draft",
+        "classifier_primary_intent": "compensation_suggestion",
+        "requested_operation": "draft_action"
       }
     },
     {
@@ -414,28 +444,34 @@
     {
       "id": "appeal_or_unban-neg-1",
       "kind": "hard-negative",
-      "input": "approve APR-1",
+      "input": "查询ORD-9006订单状态",
       "negative_for": "appeal_or_unban",
       "expected": {
-        "not_primary_intent": "appeal_or_unban"
+        "not_primary_intent": "appeal_or_unban",
+        "classifier_primary_intent": "order_status_inquiry",
+        "requested_operation": "read_status"
       }
     },
     {
       "id": "appeal_or_unban-neg-2",
       "kind": "hard-negative",
-      "input": "通过订单号 ORD-1 查询退款状态",
+      "input": "退款规则是什么",
       "negative_for": "appeal_or_unban",
       "expected": {
-        "not_primary_intent": "appeal_or_unban"
+        "not_primary_intent": "appeal_or_unban",
+        "classifier_primary_intent": "policy_qa",
+        "requested_operation": "advise"
       }
     },
     {
       "id": "appeal_or_unban-neg-3",
       "kind": "hard-negative",
-      "input": "accept language preference",
+      "input": "客户投诉需要升级主管",
       "negative_for": "appeal_or_unban",
       "expected": {
-        "not_primary_intent": "appeal_or_unban"
+        "not_primary_intent": "appeal_or_unban",
+        "classifier_primary_intent": "complaint_escalation",
+        "requested_operation": "escalate"
       }
     },
     {
@@ -486,28 +522,34 @@
     {
       "id": "complaint_escalation-neg-1",
       "kind": "hard-negative",
-      "input": "approve APR-1",
+      "input": "查询ORD-9007订单状态",
       "negative_for": "complaint_escalation",
       "expected": {
-        "not_primary_intent": "complaint_escalation"
+        "not_primary_intent": "complaint_escalation",
+        "classifier_primary_intent": "order_status_inquiry",
+        "requested_operation": "read_status"
       }
     },
     {
       "id": "complaint_escalation-neg-2",
       "kind": "hard-negative",
-      "input": "通过订单号 ORD-1 查询退款状态",
+      "input": "商家M-9007申诉解封",
       "negative_for": "complaint_escalation",
       "expected": {
-        "not_primary_intent": "complaint_escalation"
+        "not_primary_intent": "complaint_escalation",
+        "classifier_primary_intent": "appeal_or_unban",
+        "requested_operation": "escalate"
       }
     },
     {
       "id": "complaint_escalation-neg-3",
       "kind": "hard-negative",
-      "input": "accept language preference",
+      "input": "售后规则是什么",
       "negative_for": "complaint_escalation",
       "expected": {
-        "not_primary_intent": "complaint_escalation"
+        "not_primary_intent": "complaint_escalation",
+        "classifier_primary_intent": "policy_qa",
+        "requested_operation": "advise"
       }
     },
     {
@@ -558,28 +600,34 @@
     {
       "id": "action_request-neg-1",
       "kind": "hard-negative",
-      "input": "approve APR-1",
+      "input": "退款政策是什么",
       "negative_for": "action_request",
       "expected": {
-        "not_primary_intent": "action_request"
+        "not_primary_intent": "action_request",
+        "classifier_primary_intent": "policy_qa",
+        "requested_operation": "advise"
       }
     },
     {
       "id": "action_request-neg-2",
       "kind": "hard-negative",
-      "input": "通过订单号 ORD-1 查询退款状态",
+      "input": "查询ORD-9008退款状态",
       "negative_for": "action_request",
       "expected": {
-        "not_primary_intent": "action_request"
+        "not_primary_intent": "action_request",
+        "classifier_primary_intent": "order_status_inquiry",
+        "requested_operation": "read_status"
       }
     },
     {
       "id": "action_request-neg-3",
       "kind": "hard-negative",
-      "input": "accept language preference",
+      "input": "给TKT-9008写回复",
       "negative_for": "action_request",
       "expected": {
-        "not_primary_intent": "action_request"
+        "not_primary_intent": "action_request",
+        "classifier_primary_intent": "ticket_reply_draft",
+        "requested_operation": "draft_reply"
       }
     },
     {
@@ -630,28 +678,34 @@
     {
       "id": "small_talk-neg-1",
       "kind": "hard-negative",
-      "input": "approve APR-1",
+      "input": "退款政策是什么",
       "negative_for": "small_talk",
       "expected": {
-        "not_primary_intent": "small_talk"
+        "not_primary_intent": "small_talk",
+        "classifier_primary_intent": "policy_qa",
+        "requested_operation": "advise"
       }
     },
     {
       "id": "small_talk-neg-2",
       "kind": "hard-negative",
-      "input": "通过订单号 ORD-1 查询退款状态",
+      "input": "查询ORD-9009状态",
       "negative_for": "small_talk",
       "expected": {
-        "not_primary_intent": "small_talk"
+        "not_primary_intent": "small_talk",
+        "classifier_primary_intent": "order_status_inquiry",
+        "requested_operation": "read_status"
       }
     },
     {
       "id": "small_talk-neg-3",
       "kind": "hard-negative",
-      "input": "accept language preference",
+      "input": "给ORD-9009建议补偿",
       "negative_for": "small_talk",
       "expected": {
-        "not_primary_intent": "small_talk"
+        "not_primary_intent": "small_talk",
+        "classifier_primary_intent": "compensation_suggestion",
+        "requested_operation": "draft_action"
       }
     },
     {
@@ -702,28 +756,34 @@
     {
       "id": "unsupported-neg-1",
       "kind": "hard-negative",
-      "input": "approve APR-1",
+      "input": "退款政策是什么",
       "negative_for": "unsupported",
       "expected": {
-        "not_primary_intent": "unsupported"
+        "not_primary_intent": "unsupported",
+        "classifier_primary_intent": "policy_qa",
+        "requested_operation": "advise"
       }
     },
     {
       "id": "unsupported-neg-2",
       "kind": "hard-negative",
-      "input": "通过订单号 ORD-1 查询退款状态",
+      "input": "查询ORD-9010状态",
       "negative_for": "unsupported",
       "expected": {
-        "not_primary_intent": "unsupported"
+        "not_primary_intent": "unsupported",
+        "classifier_primary_intent": "order_status_inquiry",
+        "requested_operation": "read_status"
       }
     },
     {
       "id": "unsupported-neg-3",
       "kind": "hard-negative",
-      "input": "accept language preference",
+      "input": "你好",
       "negative_for": "unsupported",
       "expected": {
-        "not_primary_intent": "unsupported"
+        "not_primary_intent": "unsupported",
+        "classifier_primary_intent": "small_talk",
+        "requested_operation": "advise"
       }
     },
     {
@@ -737,7 +797,9 @@
           "approval_result",
           "resume",
           "trusted_approval_result"
-        ]
+        ],
+        "primary_intent": "unsupported",
+        "requested_operation": "advise"
       }
     },
     {
@@ -746,7 +808,20 @@
       "input": "请对ORD-7001直接退款",
       "expected": {
         "pre_route_disposition": "safety_sensitive",
-        "requested_operation": "execute_action"
+        "requested_operation": "execute_action",
+        "primary_intent": "action_request",
+        "required_slots": {
+          "all_of": [
+            "action_type"
+          ],
+          "any_of": [
+            [
+              "order_id",
+              "refund_case_id"
+            ]
+          ],
+          "optional": []
+        }
       }
     },
     {

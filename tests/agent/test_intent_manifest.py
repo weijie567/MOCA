@@ -61,6 +61,17 @@ def test_stale_dataset_hash_fails(tmp_path):
     assert any("stale dataset_hash" in error for error in errors)
 
 
+def test_stale_m6_coverage_manifest_hash_fails(tmp_path):
+    stale = json.loads(M6.read_text())
+    stale["coverage_manifest_hash"] = "sha256:stale"
+    stale_path = tmp_path / "m6.json"
+    stale_path.write_text(json.dumps(stale))
+
+    errors = validate_intent_manifest(GOLDEN, COVERAGE, CONSISTENCY, stale_path)
+
+    assert "stale coverage_manifest_hash in M6 gate" in errors
+
+
 def test_dataset_hash_matches_manifest():
     coverage = json.loads(COVERAGE.read_text())
     consistency = json.loads(CONSISTENCY.read_text())

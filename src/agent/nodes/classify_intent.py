@@ -90,6 +90,9 @@ def intent_result_to_state(
     )
     if pre_route and pre_route.requested_operation:
         requested_operation = pre_route.requested_operation
+    if pre_route and pre_route.disposition == "safety_sensitive" and pre_route.requested_operation == "execute_action":
+        primary_intent = "action_request"
+        requested_operation = pre_route.requested_operation or "execute_action"
     if pre_route and pre_route.disposition == "approval_chat_not_trusted":
         primary_intent = "unsupported"
         requested_operation = "advise"

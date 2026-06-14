@@ -41,7 +41,7 @@ def plan_next_step(
 
     attempted = accumulated_context.get("attempted") or set()
     unusable = accumulated_context.get("unusable") or set()
-    slots = state.get("extracted_slots") or state.get("active_slots") or {}
+    slots = _case_slots(state)
     candidates = [
         ("get_order", {"order_no": slots.get("order_id")}),
         ("get_refund_case", {"refund_case_no": slots.get("refund_case_id")}),
@@ -391,9 +391,8 @@ def _retrieval_error_draft(errors: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _case_slots(state: AgentState) -> dict[str, Any]:
     extracted = state.get("extracted_slots") if isinstance(state.get("extracted_slots"), dict) else {}
-    active = state.get("active_slots") if isinstance(state.get("active_slots"), dict) else {}
     return {
-        slot_name: extracted.get(slot_name) or active.get(slot_name)
+        slot_name: extracted.get(slot_name)
         for slot_name in _CASE_SLOT_RESOURCES
     }
 

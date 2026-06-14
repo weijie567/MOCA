@@ -6,7 +6,7 @@
   "failure_impact": "block_m6_release_not_phase_11_exit",
   "dataset_version": "intent-m6-statistical-corpus.v1",
   "dataset_hash": "sha256:future_corpus_not_collected",
-  "coverage_manifest_hash": "sha256:3edf1ebb956651057760df4a78f5f87c7513614a01ac61b948a54d55de5f2c52",
+  "coverage_manifest_hash": "sha256:8290bb999bd9a5788b59f2f0f7342db3e28d846a2edc648f7d9d3eb40b2d02a8",
   "required_classes": [
     "critical_write",
     "approval_decision",
