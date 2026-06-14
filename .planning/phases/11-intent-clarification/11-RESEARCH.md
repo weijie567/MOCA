@@ -382,22 +382,19 @@ Source: normative M6 gate formula. [VERIFIED: docs/contract-spec.md §11.4]
 |---|-------|---------|---------------|
 | A1 | No project-specific OS-registered state exists outside the repository. | Runtime State Inventory | Low/medium: if launchd/systemd/pm2 state embeds old prompt/schema names, planner may omit an operational update. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should the transitional adapter keep writing `current_intent` during Phase 11?** [VERIFIED: src/agent/trace.py; VERIFIED: tests/agent/test_graph.py]
    - What we know: live code and tests still read `current_intent`, while the contract wants `primary_intent`. [VERIFIED: src/agent/nodes/classify_intent.py; VERIFIED: docs/contract-spec.md §10.4]
-   - What's unclear: whether planner wants an atomic reader migration or a compatibility window. [ASSUMED]
-   - Recommendation: keep read fallback and add tests proving canonical fields are written; optionally keep `current_intent` as transitional compatibility until all readers are updated. [VERIFIED: .planning/phases/10-state-lifecycle-routing-migration/10-01-PLAN.md]
+   - Resolution: keep transitional `current_intent` and `last_intent` compatibility writes during Phase 11 while canonical `primary_intent` / `requested_operation` fields are added and tested. This follows the existing Phase 10 compatibility pattern and avoids an atomic reader migration in the same phase. [RESOLVED: 11-01-PLAN.md]
 
 2. **Where should eval artifacts live?** [VERIFIED: repository currently has `eval/`, `evals/`, and `evaluation/` directories]
    - What we know: the repo already has multiple evaluation directories. [VERIFIED: `ls`]
-   - What's unclear: preferred consolidation path. [ASSUMED]
-   - Recommendation: choose one Phase 11-owned path, preferably `eval/intent/`, and make tests reference it explicitly. [RECOMMENDED: codebase convention needs planner decision]
+   - Resolution: place Phase 11 intent eval artifacts under `eval/intent/` and make all manifest/golden tests reference that path explicitly. [RESOLVED: 11-05-PLAN.md]
 
 3. **Should `long_term_memory_retrieve` be registered now or route key mapped to `investigate` until Phase 16?** [VERIFIED: docs/contract-spec.md §9.5; VERIFIED: src/agent/graph.py]
    - What we know: route table allows `long_term_memory_retrieve`, but Phase 16 owns real long-term/case memory and current graph does not register that node. [VERIFIED: docs/agent-architecture-phase-decomposition.md; VERIFIED: src/agent/graph.py]
-   - What's unclear: whether Phase 11 should add an empty registered seam or map route to `investigate`. [ASSUMED]
-   - Recommendation: keep this out of critical Phase 11 path unless a router test requires the canonical key; document any mapping as a deviation/compatibility decision. [VERIFIED: .planning/phases/11-intent-clarification/11-CONTEXT.md CD discretion]
+   - Resolution: keep `long_term_memory_retrieve` as the canonical route key in router tests, but map that key to `investigate` in graph wiring until Phase 16 owns the real long-term/case memory seam. A registered seam may be added later only through its owner phase. [RESOLVED: 11-03-PLAN.md]
 
 ## Environment Availability
 

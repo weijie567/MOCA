@@ -39,11 +39,11 @@ created: 2026-06-14
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
 | 11-01-01 | 01 | 1 | INTENT-01 | T-11-01 | Classifier output maps through an explicit adapter and cannot whole-object merge trusted fields. | unit | `uv run pytest tests/agent/test_intent_adapter.py tests/agent/test_nodes/test_classify_intent.py -q` | no W0 | pending |
-| 11-02-01 | 02 | 1 | INTENT-01, CLARIFY-01 | T-11-01 | Approval-looking ordinary chat routes to a safe clarification/unsupported path and never creates `approval_result` or resume commands. | unit/golden | `uv run pytest tests/agent/test_intent_routing.py -q` | no W0 | pending |
-| 11-03-01 | 03 | 2 | INTENT-02 | T-11-02 | Required-slot completeness uses explicit/extracted slots only; `candidate_slots` cannot satisfy required slots. | unit | `uv run pytest tests/agent/test_required_slots.py -q` | no W0 | pending |
-| 11-03-02 | 03 | 2 | INTENT-01, INTENT-02 | T-11-02 | Graph uses deterministic `route_after_intent` and `route_after_slots` conditional edges. | integration | `uv run pytest tests/agent/test_graph.py tests/agent/test_intent_routing.py -q` | partial | pending |
-| 11-04-01 | 04 | 3 | CLARIFY-01 | T-11-03 | Ordinary clarification writes `clarification_request` and safe response fields only. | unit | `uv run pytest tests/agent/test_clarification_gate.py -q` | no W0 | pending |
-| 11-05-01 | 05 | 4 | INTENT-01, INTENT-02, CLARIFY-01 | T-11-04 | Intent manifest and golden dataset metadata are machine-checkable, hash-owned, and fail stale or incomplete coverage. | contract/eval | `uv run pytest tests/agent/test_intent_manifest.py -q` | no W0 | pending |
+| 11-02-01 | 02 | 2 | INTENT-01, CLARIFY-01 | T-11-01 | Approval-looking ordinary chat routes to a safe clarification/unsupported path and never creates `approval_result` or resume commands. | unit/golden | `uv run pytest tests/agent/test_intent_routing.py tests/agent/test_nodes/test_classify_intent.py -q` | no W0 | pending |
+| 11-03-01 | 03 | 3 | INTENT-02 | T-11-02 | Required-slot completeness uses explicit/extracted slots only; `candidate_slots` cannot satisfy required slots. | unit | `uv run pytest tests/agent/test_required_slots.py -q` | no W0 | pending |
+| 11-03-02 | 03 | 3 | INTENT-01, INTENT-02 | T-11-02 | Graph uses deterministic `route_after_intent` and `route_after_slots` conditional edges. | integration | `uv run pytest tests/agent/test_graph.py tests/agent/test_intent_routing.py -q` | partial | pending |
+| 11-04-01 | 04 | 4 | CLARIFY-01 | T-11-03 | Ordinary clarification writes `clarification_request` and safe response fields only. | unit | `uv run pytest tests/agent/test_clarification_gate.py -q` | no W0 | pending |
+| 11-05-01 | 05 | 5 | INTENT-01, INTENT-02, CLARIFY-01 | T-11-04 | Intent manifest and golden dataset metadata are machine-checkable, hash-owned, and fail stale or incomplete coverage. | contract/eval | `uv run pytest tests/agent/test_intent_manifest.py -q` | no W0 | pending |
 
 ---
 
