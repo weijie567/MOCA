@@ -4,8 +4,6 @@ import asyncio
 import time
 from uuid import uuid4
 
-import pytest
-
 from src.agent.nodes import memory_write as memory_write_module
 from src.agent.nodes.memory_write import memory_write
 from src.memory.schemas import SessionMemoryWriteResult
