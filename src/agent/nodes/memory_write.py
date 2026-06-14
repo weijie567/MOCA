@@ -15,7 +15,6 @@ from src.memory.schemas import SessionMemoryWriteCandidate, SessionMemoryWriteRe
 from src.memory.service import MemoryService
 
 
-_FORBIDDEN_AUTHORITY_TERMS = {"policy", "risk", "approval", "authorization", "EvidenceRefV1", "raw", "prompt"}
 _PROHIBITED_PII_MARKERS = {"身份证", "手机号", "password", "secret"}
 
 
