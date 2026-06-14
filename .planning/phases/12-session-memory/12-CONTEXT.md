@@ -7,7 +7,7 @@
 <domain>
 ## Phase Boundary
 
-Phase 12 implements PostgreSQL-backed same-thread session memory for safe short-term continuity. It owns the `session_memories` persistence contract, version CAS, deterministic merge behavior, same-thread/user/tenant isolation, safe active slot inheritance, read-switch/fallback telemetry, and negative tests proving session memory is not policy evidence.
+Phase 12 implements PostgreSQL-authoritative same-thread session memory for safe short-term continuity. It owns the `session_memories` persistence contract, version CAS, deterministic merge behavior, same-thread/user/tenant isolation, safe active slot inheritance, read-switch/fallback telemetry, and negative tests proving session memory is not policy evidence. Redis may be used only as a non-authoritative hot cache with TTL and PostgreSQL fallback; it must not enter the memory correctness path.
 
 This phase is intentionally narrow. It must not implement long-term memory, case memory, `memory_identity.v1`, tombstones, embeddings, asynchronous memory extraction, review workflow, trusted approval lifecycle, action safety snapshots, action execution, or external side effects. Those remain owned by later phases.
 
@@ -17,7 +17,7 @@ This phase is intentionally narrow. It must not implement long-term memory, case
 ## Implementation Decisions
 
 ### Persistence Boundary and Schema
-- **D-01:** PostgreSQL is the authoritative store for Phase 12 session memory. Redis must not be used as authoritative session memory; if introduced at all, Redis may only be a non-authoritative short-TTL helper with Postgres fallback and no correctness dependency.
+- **D-01:** PostgreSQL is the authoritative store for Phase 12 session memory. Redis may be introduced only as a non-authoritative short-TTL hot cache with tenant/user/thread-scoped keys, PostgreSQL fallback, and no correctness dependency. Redis must not be the only copy of inherited slots, unresolved questions, summaries, approval waits, side-effect boundaries, or replay/audit facts.
 - **D-02:** Add a `session_memories` table with unique active scope `(tenant_id, user_id, thread_id)` and `version int not null default 1`. The table must carry the spec-owned fields: `schema_version`, `active_slots_json`, `session_summary`, `unresolved_questions_json`, `last_intent`, `last_business_context_refs_json`, `last_run_id`, `expires_at`, timestamps, and `deleted_at`.
 - **D-03:** `active_slots_json` must use the typed `session_slots.v1` envelope. Every inheritable slot must preserve value plus metadata such as source, source run, updated/expires timestamps, compatible intents, and enough identity metadata to prove tenant/user/thread scope.
 - **D-04:** Session summary is lightweight continuity only. It may describe current troubleshooting context or missing information, but must not store policy conclusions, risk decisions, approval decisions, action authorization, durable preferences, or case precedent.
@@ -59,14 +59,14 @@ This phase is intentionally narrow. It must not implement long-term memory, case
 **Downstream agents MUST read these before planning or implementing.**
 
 ### Normative Memory and State Contracts
-- `docs/contract-spec.md` Section 13.1-13.2 - Working memory vs session memory boundary, `session_slots.v1`, deterministic inheritance rules, CAS miss behavior, and session-summary restrictions.
+- `docs/contract-spec.md` Section 13.1-13.2 - Working memory vs workflow checkpoint vs session memory boundary, `session_slots.v1`, deterministic inheritance rules, CAS miss behavior, and session-summary restrictions.
 - `docs/contract-spec.md` Section 18.1 - `session_memories` table shape, active unique scope, version CAS, deterministic merge precedence, and memory schema/index constraints.
 - `docs/contract-spec.md` Sections 9.3-9.5 - Graph node/router order including `session_memory_load`, `slot_extraction`, `route_after_slots`, and the memory-is-not-evidence boundary.
 - `docs/contract-spec.md` Section 10.1 - AgentState lifecycle fields for `active_slots`, `session_memory`, `last_business_context_refs`, memory write candidates/results, and reset/merge rules.
-- `docs/contract-spec.md` Section 12.8 - Redis boundary: Redis cannot be authoritative memory and Postgres CAS remains the correctness boundary.
+- `docs/contract-spec.md` Section 13.6 - Redis boundary: Redis can be an optional non-authoritative hot layer only; PostgreSQL and CAS remain the correctness boundary.
 
 ### Phase and Migration Inputs
-- `docs/agent-architecture-phase-decomposition.md` - Phase 12 boundary, dependencies on Phases 10/11, schema ownership, acceptance gates, Redis exclusion, and Phase 16 deferrals.
+- `docs/agent-architecture-phase-decomposition.md` - Phase 12 boundary, dependencies on Phases 10/11, schema ownership, acceptance gates, Redis non-authoritative hot-cache boundary, and Phase 16 deferrals.
 - `docs/migration-plan.md` - Phase 12 migration row and rollback statement: disable session memory and fall back to empty memory behavior.
 - `docs/eval-test-plan.md` - Session-memory path expectations in golden flows and required memory-related eval coverage.
 - `.planning/REQUIREMENTS.md` - SESSION-01, SESSION-02, SESSION-03 and planning requirements for coverage matrix, migration ownership, rollback, and eval gates.
