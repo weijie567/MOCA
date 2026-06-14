@@ -40,6 +40,7 @@ async def test_repository_enforces_one_active_scope(session: AsyncSession, seede
         thread_id="thread-repo-active",
         active_slots_json=_slots("ORD-1001"),
     )
+    first_id = first.id
     await session.commit()
 
     with pytest.raises(IntegrityError):
@@ -52,7 +53,7 @@ async def test_repository_enforces_one_active_scope(session: AsyncSession, seede
     assert unique_index_name == "uq_session_memories_active_scope"
     await session.rollback()
 
-    await repository.soft_delete(first.id)
+    await repository.soft_delete(first_id)
     replacement = await repository.insert_active(
         tenant_id=tenant_id,
         user_id=user_id,
@@ -60,7 +61,7 @@ async def test_repository_enforces_one_active_scope(session: AsyncSession, seede
         active_slots_json=_slots("ORD-1003"),
     )
 
-    assert replacement.id != first.id
+    assert replacement.id != first_id
     assert replacement.deleted_at is None
 
 
