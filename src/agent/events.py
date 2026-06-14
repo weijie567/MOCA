@@ -115,9 +115,18 @@ async def emit_event(
 
 
 def _guard_redacted_payload(redacted_payload: dict[str, Any]) -> None:
-    for key in FORBIDDEN_REDACTED_PAYLOAD_KEYS:
-        if key in redacted_payload:
-            raise ValueError(f"redacted_payload must not carry {key}")
+    def walk(value: Any, path: str) -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if key in FORBIDDEN_REDACTED_PAYLOAD_KEYS:
+                    raise ValueError(f"{path} must not carry {key}")
+                walk(child, f"{path}.{key}")
+            return
+        if isinstance(value, list):
+            for index, child in enumerate(value):
+                walk(child, f"{path}[{index}]")
+
+    walk(redacted_payload, "redacted_payload")
 
 
 def _as_uuid(value: uuid.UUID | str) -> uuid.UUID:

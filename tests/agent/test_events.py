@@ -184,3 +184,19 @@ async def test_redaction_guard(session: AsyncSession):
             tenant_id=tenant_id,
             redacted_payload={"data": {"raw": "tool output"}},
         )
+
+    with pytest.raises(ValueError):
+        await _emit(
+            session,
+            run_id=run_id,
+            tenant_id=tenant_id,
+            redacted_payload={"summary": {"prompt": "hidden prompt"}},
+        )
+
+    with pytest.raises(ValueError):
+        await _emit(
+            session,
+            run_id=run_id,
+            tenant_id=tenant_id,
+            redacted_payload={"events": [{"arguments": {"order_no": "ORD-001"}}]},
+        )
