@@ -2,18 +2,19 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 from langchain_core.runnables import RunnableConfig
 
 from src.agent.prompts import INSUFFICIENT_EVIDENCE_RESPONSE
 from src.agent.state import AgentState
-from src.knowledge.adapters import LegacyRagKnowledgeAdapter
 from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
-from src.knowledge.schemas import KnowledgeContext, KnowledgeSearchFilters, KnowledgeSearchRequest, KnowledgeSearchResult
-from src.knowledge.service import PolicyKnowledgeService
+from src.knowledge.schemas import KnowledgeSearchResult
+from src.tools.contracts import ToolCallContext, ToolResultV2
+from src.tools.manager import UnifiedToolManager
 
 MIN_EVIDENCE_SCORE = 0.55
-POLICY_SEARCH_PERMISSION = "tool:search_policy"
+POLICY_SEARCH_TOOL = "search_policy"
 
 
 def _now_iso() -> str:
@@ -32,7 +33,7 @@ def _trace_step(
         "status": status,
         "started_at": started_at,
         "completed_at": _now_iso(),
-        "tools_called": ["knowledge_service.search"] if tool_called else [],
+        "tools_called": [POLICY_SEARCH_TOOL] if tool_called else [],
         "provider_latency_ms": None,
         "retry_count": 0,
         "metrics_json": None,
@@ -79,30 +80,6 @@ def _retrieval_error_draft(error: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _permission_denied_output(state: AgentState, started_at: str) -> dict[str, Any]:
-    error = {
-        "error_code": "PERMISSION_DENIED",
-        "message": "Policy retrieval permission denied.",
-        "retryable": False,
-    }
-    result = KnowledgeSearchResult(
-        status="error",
-        retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
-        rerank_config_version=RERANK_CONFIG_VERSION,
-        best_score=0.0,
-        threshold=MIN_EVIDENCE_SCORE,
-        error=error,
-    )
-    return {
-        "retrieved_evidence": result.model_dump(),
-        "trace_steps": (state.get("trace_steps") or []) + [_trace_step("error", started_at, tool_called=False)],
-        "evidence_refs": [],
-        "recommendation_draft": _retrieval_error_draft(error),
-        "node_errors": (state.get("node_errors") or [])
-        + [{"node": "retrieve_policy_evidence", "error": error, "retry_count": 0}],
-    }
-
-
 def _merge_evidence_refs(
     existing: list[dict[str, Any]] | None,
     new: list[dict[str, Any]] | None,
@@ -118,76 +95,91 @@ def _merge_evidence_refs(
     return merged
 
 
-def _knowledge_merchant_scope(value: object) -> list[str]:
-    """Project trusted merchant scope into a validated string list for KnowledgeContext.
+def _build_tool_context(state: AgentState, configurable: dict[str, Any], effective_at: str) -> ToolCallContext:
+    run_id = state.get("current_run_id") or str(uuid4())
+    merchant_scope = configurable.get("merchant_scope")
+    if not isinstance(merchant_scope, (dict, list)):
+        merchant_scope = {}
+    return ToolCallContext(
+        tenant_id=state["tenant_id"],
+        user_id=state["user_id"],
+        role=state["role"],
+        permissions=list(configurable.get("permissions") or []),
+        merchant_scope=merchant_scope,
+        session_id=configurable.get("session_id"),
+        thread_id=state["thread_id"],
+        run_id=run_id,
+        trace_id=configurable.get("trace_id") or run_id,
+        request_id=configurable.get("request_id") or str(uuid4()),
+        tool_call_id=str(uuid4()),
+        caller_node="investigate",
+        deadline_at=configurable.get("deadline_at"),
+        effective_at=effective_at,
+        attempt=1,
+        max_attempts=1,
+        idempotency_key=None,
+        policy_snapshot_ref=None,
+    )
 
-    Handles three input shapes from the router:
-    - Structured dict: ``{"merchant_ids": ["m1", "m2"], ...}`` — extract only ``merchant_ids``.
-    - Legacy list: ``["m1", "m2"]`` — validate directly.
-    - Anything else (None, wrong type, missing keys): fail closed with ``[]``.
 
-    Every ID must be a non-empty string. Non-string or empty entries cause the
-    entire projection to fail closed.  Returns a copied list so the caller
-    cannot mutate the original.
-    """
-    raw_ids: object = None
-    if isinstance(value, dict):
-        raw_ids = value.get("merchant_ids")
-    elif isinstance(value, list):
-        raw_ids = value
+def _build_tool_args(state: AgentState) -> dict[str, Any]:
+    active_slots = state.get("active_slots") or {}
+    args: dict[str, Any] = {
+        "query": _build_search_query(state),
+        "max_results": 5,
+        "allow_partial_evidence": True,
+    }
+    if state.get("current_intent"):
+        args["primary_intent"] = state["current_intent"]
+    if active_slots.get("merchant_id"):
+        args["merchant_id"] = active_slots["merchant_id"]
+    return args
 
-    if not isinstance(raw_ids, list) or len(raw_ids) == 0:
-        return []
 
-    validated: list[str] = []
-    for item in raw_ids:
-        if not isinstance(item, str) or not item:
-            return []
-        validated.append(item)
-    return list(validated)
+def _knowledge_result_from_tool_result(result: ToolResultV2) -> KnowledgeSearchResult:
+    data = result.data or {}
+    error = None
+    status = data.get("retrieval_status")
+    if result.error is not None:
+        error = {
+            "error_code": result.error.code,
+            "message": result.error.safe_message,
+            "retryable": result.error.retryable,
+        }
+        status = "error"
+    if status not in {"strong_evidence", "partial_evidence", "no_evidence", "error"}:
+        error = error or {
+            "error_code": result.status.upper(),
+            "message": result.summary,
+            "retryable": result.retryable,
+        }
+        status = "error"
+    best_score = data.get("best_score")
+    threshold = data.get("threshold")
+    return KnowledgeSearchResult(
+        status=status,
+        retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+        rerank_config_version=RERANK_CONFIG_VERSION,
+        best_score=float(best_score) if isinstance(best_score, (int, float)) else 0.0,
+        threshold=float(threshold) if isinstance(threshold, (int, float)) else MIN_EVIDENCE_SCORE,
+        evidence_refs=[] if error else result.policy_evidence_refs,
+        summary=data.get("summary") if isinstance(data.get("summary"), str) else None,
+        error=error,
+    )
 
 
 async def retrieve_policy_evidence(state: AgentState, config: RunnableConfig) -> dict:
     started_at = _now_iso()
     effective_at = state.get("run_started_at") or _now_iso()
     configurable = config.get("configurable") or {}
-    permissions = configurable.get("permissions")
-    if not isinstance(permissions, (list, tuple, set, frozenset)) or POLICY_SEARCH_PERMISSION not in permissions:
-        return _permission_denied_output(state, started_at)
-
-    session = configurable["session"]
-    active_slots = state.get("active_slots") or {}
-    merchant_scope = _knowledge_merchant_scope(configurable.get("merchant_scope"))
-
-    # Spec Consistency Finding: structured merchant_scope.merchant_ids is projected
-    # into KnowledgeContext via _knowledge_merchant_scope.  Dedicated trace_id and
-    # broader MerchantScopeV1 plumbing remain owned by Phase 10.
-    context = KnowledgeContext(
-        tenant_id=state["tenant_id"],
-        user_id=state["user_id"],
-        role=state["role"],
-        merchant_scope=merchant_scope,
-        run_id=state.get("current_run_id") or "",
-        trace_id=state.get("current_run_id") or "",
-        locale=None,
-        effective_at=effective_at,
+    session = configurable.get("session")
+    manager = configurable.get("tool_manager") or UnifiedToolManager.with_defaults(session)
+    tool_result = await manager.invoke(
+        POLICY_SEARCH_TOOL,
+        _build_tool_args(state),
+        _build_tool_context(state, configurable, effective_at),
     )
-    request = KnowledgeSearchRequest(
-        query=_build_search_query(state),
-        primary_intent=state.get("current_intent"),
-        filters=KnowledgeSearchFilters(
-            tenant_id=state["tenant_id"],
-            merchant_id=active_slots.get("merchant_id"),
-            effective_at=effective_at,
-            locale=None,
-        ),
-        retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
-        rerank_config_version=RERANK_CONFIG_VERSION,
-        max_results=5,
-        allow_partial_evidence=True,
-    )
-    service = PolicyKnowledgeService(LegacyRagKnowledgeAdapter(session))
-    result = await service.search(request, context)
+    result = _knowledge_result_from_tool_result(tool_result)
 
     retrieval_failed = result.status == "error"
     gate_triggered = result.status == "no_evidence" or result.best_score < MIN_EVIDENCE_SCORE

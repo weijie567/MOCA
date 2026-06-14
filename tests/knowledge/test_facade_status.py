@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import pytest
 
-from src.knowledge.adapters import LegacyRagKnowledgeAdapter
+from src.knowledge.retrieval import PolicyRetrievalEngine
 from src.knowledge.schemas import KnowledgeContext, KnowledgeSearchFilters, KnowledgeSearchRequest
 from src.knowledge.service import PolicyKnowledgeService
 from src.knowledge.text_hash import evidence_text_hash
@@ -55,7 +55,7 @@ def _service(results: list[tuple[object, float]]) -> PolicyKnowledgeService:
     repo = SimpleNamespace(search_similar=AsyncMock(return_value=results))
     embedder = SimpleNamespace(embed_query=AsyncMock(return_value=[0.1, 0.2]))
     return PolicyKnowledgeService(
-        LegacyRagKnowledgeAdapter(chunk_repo=repo, embedder=embedder)
+        PolicyRetrievalEngine(chunk_repo=repo, embedder=embedder)
     )
 
 

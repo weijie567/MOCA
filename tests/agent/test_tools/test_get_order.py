@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import Merchant, Order
-from src.agent.tools.get_order import get_order
+from src.integrations.demo_business.orders import get_order
 
 
 def _order(order_no: str = "ORD-001"):
@@ -30,7 +30,7 @@ def _order(order_no: str = "ORD-001"):
 
 def _patch_repo(monkeypatch: pytest.MonkeyPatch, result=None, side_effect=None):
     repo = SimpleNamespace(get_with_hints=AsyncMock(return_value=result, side_effect=side_effect))
-    monkeypatch.setattr("src.agent.tools.get_order.OrderRepository", lambda session: repo)
+    monkeypatch.setattr("src.integrations.demo_business.orders.OrderRepository", lambda session: repo)
     return repo
 
 

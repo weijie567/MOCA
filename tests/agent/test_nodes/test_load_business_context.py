@@ -9,7 +9,7 @@ from src.agent.nodes.load_business_context import load_business_context
 from src.api.routers.agent_runs import _trusted_tool_config
 from src.auth.jwt import ROLE_SCOPES
 from src.business_tools.schemas import BusinessContextV1, ToolError, ToolResultV2
-from src.business_tools.service import BusinessToolService
+from src.business.service import BusinessToolService
 from src.db.models import User
 
 

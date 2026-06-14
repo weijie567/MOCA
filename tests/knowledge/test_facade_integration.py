@@ -9,6 +9,7 @@ from src.agent.nodes import retrieve_policy_evidence as retrieval_module
 from src.agent.nodes.final_response import final_response
 from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1, KnowledgeSearchResult
+from src.tools.contracts import ToolCallContext, ToolResultV2
 from tests.agent.conftest import FakeLLM
 
 
@@ -59,6 +60,34 @@ def _search_result(
     )
 
 
+class FakePolicyManager:
+    def __init__(self, search_result: KnowledgeSearchResult) -> None:
+        self.search_result = search_result
+        self.calls: list[tuple[str, dict, ToolCallContext]] = []
+
+    async def invoke(self, name: str, args: dict, ctx: ToolCallContext) -> ToolResultV2:
+        self.calls.append((name, args, ctx))
+        return ToolResultV2(
+            status="not_found" if self.search_result.status == "no_evidence" else "success",
+            data={
+                "retrieval_status": self.search_result.status,
+                "best_score": self.search_result.best_score,
+                "threshold": self.search_result.threshold,
+                "summary": self.search_result.summary,
+            },
+            summary=self.search_result.summary or f"Policy search returned {self.search_result.status}",
+            source_system="policy_knowledge_service",
+            data_freshness_at=None,
+            policy_evidence_refs=self.search_result.evidence_refs,
+            business_fact_refs=[],
+            error=None,
+            retryable=False,
+            retry_after_ms=None,
+            latency_ms=1,
+            audit_ref=None,
+        )
+
+
 def _recommendation(*, chunk_id: str = "chunk_001", reasoning: str = "根据规则应处理退款。") -> dict:
     return {
         "recommended_action": "建议退款",
@@ -83,8 +112,6 @@ async def _run_path(
     search_result: KnowledgeSearchResult,
     recommendation: dict | None,
 ) -> dict:
-    search = AsyncMock(return_value=search_result)
-    monkeypatch.setattr(retrieval_module.PolicyKnowledgeService, "search", search)
     if recommendation is None:
         monkeypatch.setattr(
             recommendation_module,
@@ -102,6 +129,7 @@ async def _run_path(
                 "session": AsyncMock(),
                 "permissions": ["tool:search_policy"],
                 "merchant_scope": {"merchant_ids": ["*"]},
+                "tool_manager": FakePolicyManager(search_result),
             }
         },
     )

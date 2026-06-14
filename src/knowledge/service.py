@@ -8,19 +8,31 @@ scope, with schema-and-query tenant-over-global tests as the acceptance gate.
 from __future__ import annotations
 
 import asyncio
+from typing import Protocol
 
-from src.knowledge.adapters import LegacyRagKnowledgeAdapter
 from src.knowledge.config import (
     MIN_SIMILARITY_THRESHOLD,
     RERANK_CONFIG_VERSION,
     RETRIEVAL_CONFIG_VERSION,
 )
-from src.knowledge.schemas import KnowledgeContext, KnowledgeSearchRequest, KnowledgeSearchResult
+from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext, KnowledgeSearchRequest, KnowledgeSearchResult
+
+
+class PolicyRetriever(Protocol):
+    async def retrieve(
+        self,
+        *,
+        query: str,
+        context: KnowledgeContext,
+        max_results: int,
+        doc_type: str | None = None,
+        risk_level: str | None = None,
+    ) -> tuple[str, list[EvidenceRefV1], float]: ...
 
 
 class PolicyKnowledgeService:
-    def __init__(self, adapter: LegacyRagKnowledgeAdapter):
-        self.adapter = adapter
+    def __init__(self, retriever: PolicyRetriever):
+        self.retriever = retriever
 
     async def search(
         self,
@@ -43,7 +55,7 @@ class PolicyKnowledgeService:
 
         doc_type = request.filters.policy_types[0] if request.filters.policy_types else None
         try:
-            status, evidence_refs, best_score = await self.adapter.retrieve(
+            status, evidence_refs, best_score = await self.retriever.retrieve(
                 query=request.query,
                 context=context,
                 max_results=request.max_results,

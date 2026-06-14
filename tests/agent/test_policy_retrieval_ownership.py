@@ -11,7 +11,7 @@ the durable re-verification contract.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -19,6 +19,7 @@ from src.agent.nodes import retrieve_policy_evidence as retrieve_policy_evidence
 from src.business_tools.registry import ToolRegistry
 from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import KnowledgeSearchResult
+from src.tools.contracts import ToolCallContext, ToolResultV2
 
 
 # ---------------------------------------------------------------------------
@@ -52,53 +53,96 @@ def _base_state() -> dict:
 # ---------------------------------------------------------------------------
 
 class TestPolicyRetrievalOwnership:
-    """Policy retrieval must execute through PolicyKnowledgeService.search,
-    NOT through BusinessToolService or the business-tool registry."""
+    """Policy retrieval graph nodes must execute through UnifiedToolManager,
+    not through BusinessToolService or raw knowledge services."""
 
     @pytest.mark.asyncio
-    async def test_retrieve_policy_evidence_calls_policy_knowledge_service_search(self, monkeypatch):
-        """Live policy retrieval invokes PolicyKnowledgeService.search.
+    async def test_retrieve_policy_evidence_calls_unified_tool_manager(self):
+        """The compatibility retrieval node invokes search_policy through manager."""
 
-        If someone removes the PolicyKnowledgeService dependency from
-        retrieve_policy_evidence or re-wires it to BusinessToolService,
-        this test fails.
-        """
+        class FakeManager:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, dict, ToolCallContext]] = []
+
+            async def invoke(self, name: str, args: dict, ctx: ToolCallContext) -> ToolResultV2:
+                self.calls.append((name, args, ctx))
+                return ToolResultV2(
+                    status="success",
+                    data={
+                        "retrieval_status": "strong_evidence",
+                        "best_score": 0.85,
+                        "threshold": 0.55,
+                    },
+                    summary="policy found",
+                    source_system="policy_knowledge_service",
+                    data_freshness_at=None,
+                    policy_evidence_refs=[],
+                    business_fact_refs=[],
+                    error=None,
+                    retryable=False,
+                    retry_after_ms=None,
+                    latency_ms=1,
+                    audit_ref=None,
+                )
+
+        manager = FakeManager()
+        await retrieve_policy_evidence_module.retrieve_policy_evidence(
+            _base_state(),
+            {
+                "configurable": {
+                    "session": AsyncMock(),
+                    "permissions": ["tool:search_policy"],
+                    "tool_manager": manager,
+                }
+            },
+        )
+
+        assert len(manager.calls) == 1
+        name, args, context = manager.calls[0]
+        assert name == "search_policy"
+        assert args["query"]
+        assert context.caller_node == "investigate"
+        assert context.permissions == ["tool:search_policy"]
+
+    @pytest.mark.asyncio
+    async def test_policy_executor_calls_policy_knowledge_service_search(self):
+        """KnowledgeToolExecutor is the only tool-facing service caller."""
+        from src.tools.executors.knowledge import KnowledgeToolExecutor
+
         mock_search = AsyncMock(return_value=_ok_search_result())
+        executor = KnowledgeToolExecutor(session=None, service=type("Svc", (), {"search": mock_search})())
+        context = ToolCallContext(
+            tenant_id="t-1",
+            user_id="u-1",
+            role="support_agent",
+            permissions=["tool:search_policy"],
+            merchant_scope={"merchant_ids": ["*"]},
+            thread_id="thread-1",
+            run_id="run-1",
+            trace_id="trace-1",
+            request_id="req-1",
+            tool_call_id="tc-1",
+            caller_node="investigate",
+            effective_at="2026-06-07T00:00:00+00:00",
+        )
 
-        with patch.object(
-            retrieve_policy_evidence_module.PolicyKnowledgeService,
-            "search",
-            mock_search,
-        ):
-            await retrieve_policy_evidence_module.retrieve_policy_evidence(
-                _base_state(),
-                {"configurable": {"session": AsyncMock(), "permissions": ["tool:search_policy"]}},
-            )
+        await executor.execute("search_policy", {"query": "退款规则"}, context)
 
         mock_search.assert_awaited_once()
-        # Verify the search was called with KnowledgeSearchRequest + KnowledgeContext
-        args = mock_search.await_args.args
-        assert len(args) == 2, "Expected (request, context) positional args"
-        request, context = args
+        request, knowledge_context = mock_search.await_args.args
         assert request.schema_version == "knowledge_search_request.v2"
-        assert isinstance(context, retrieve_policy_evidence_module.KnowledgeContext)
+        assert knowledge_context.merchant_scope == ["*"]
 
-    @pytest.mark.asyncio
-    async def test_policy_retrieval_does_not_import_business_tool_service(self):
-        """retrieve_policy_evidence must NOT import or use BusinessToolService.
-
-        The module's import table is the ownership contract: it imports
-        PolicyKnowledgeService, not BusinessToolService.
-        """
+    def test_policy_retrieval_node_imports_only_manager_boundary(self):
+        """The node imports manager/contracts, not domain service facades."""
         module_source = retrieve_policy_evidence_module
-        # The module must have PolicyKnowledgeService imported
-        assert hasattr(module_source, "PolicyKnowledgeService"), (
-            "retrieve_policy_evidence must import PolicyKnowledgeService"
+        assert hasattr(module_source, "UnifiedToolManager")
+        assert not hasattr(module_source, "PolicyKnowledgeService"), (
+            "retrieve_policy_evidence must not import PolicyKnowledgeService directly"
         )
-        # The module must NOT have BusinessToolService imported
         assert not hasattr(module_source, "BusinessToolService"), (
             "retrieve_policy_evidence must NOT import BusinessToolService; "
-            "policy retrieval belongs to Phase 8 PolicyKnowledgeService"
+            "policy retrieval belongs behind UnifiedToolManager"
         )
 
 
@@ -318,10 +362,10 @@ class TestOwnershipContractEncoding:
     def test_no_business_tool_service_policy_search_in_this_module(self):
         """This test module never asserts that policy retrieval goes through
         BusinessToolService. The ownership contract is: policy retrieval
-        executes through PolicyKnowledgeService, not the business facade."""
+        enters through UnifiedToolManager, not the business facade."""
         import inspect
         source = inspect.getsource(TestPolicyRetrievalOwnership)
         # This is a meta-assertion: the ownership tests above verify
-        # PolicyKnowledgeService.search is called, NOT BusinessToolService
-        assert "PolicyKnowledgeService" in source
+        # UnifiedToolManager boundary is enforced before KnowledgeToolExecutor.
+        assert "UnifiedToolManager" in source
         assert "BusinessToolService" not in source or "NOT" in source

@@ -9,7 +9,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.agent.tools.get_ticket import get_ticket
+from src.integrations.demo_business.tickets import get_ticket
 from src.db.models import Merchant, Order, Ticket
 
 
@@ -26,7 +26,7 @@ def _ticket(ticket_no: str = "TK-001"):
 
 def _patch_repo(monkeypatch: pytest.MonkeyPatch, *, by_id=None, by_no=None):
     repo = SimpleNamespace(get_by_id=AsyncMock(return_value=by_id), get_by_ticket_no=AsyncMock(return_value=by_no))
-    monkeypatch.setattr("src.agent.tools.get_ticket.TicketRepository", lambda session: repo)
+    monkeypatch.setattr("src.integrations.demo_business.tickets.TicketRepository", lambda session: repo)
     return repo
 
 

@@ -9,12 +9,12 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import Merchant, Order, RefundCase
-from src.agent.tools.get_refund_case import get_refund_case
+from src.integrations.demo_business.refunds import get_refund_case
 
 
 def _patch_repo(monkeypatch: pytest.MonkeyPatch, result=None):
     repo = SimpleNamespace(get_by_case_no=AsyncMock(return_value=result))
-    monkeypatch.setattr("src.agent.tools.get_refund_case.RefundRepository", lambda session: repo)
+    monkeypatch.setattr("src.integrations.demo_business.refunds.RefundRepository", lambda session: repo)
     return repo
 
 

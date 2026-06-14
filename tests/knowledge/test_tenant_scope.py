@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from src.knowledge.adapters import LegacyRagKnowledgeAdapter
+from src.knowledge.retrieval import PolicyRetrievalEngine
 from src.knowledge.schemas import KnowledgeContext, KnowledgeSearchFilters, KnowledgeSearchRequest
 from src.knowledge.service import PolicyKnowledgeService
 
@@ -53,7 +53,7 @@ async def test_adapter_uses_context_tenant_scope_only():
 
     repo = SimpleNamespace(search_similar=AsyncMock(side_effect=search_similar))
     embedder = SimpleNamespace(embed_query=AsyncMock(return_value=[0.1, 0.2]))
-    adapter = LegacyRagKnowledgeAdapter(chunk_repo=repo, embedder=embedder)
+    adapter = PolicyRetrievalEngine(chunk_repo=repo, embedder=embedder)
 
     allowed = await adapter.retrieve(
         query="退款规则",

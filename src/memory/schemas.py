@@ -73,3 +73,12 @@ class SessionMemoryWriteResult(BaseModel):
     pii_classification: Literal["none", "low", "sensitive", "prohibited"] = "none"
     conflict_reason: str | None = None
     fallback_reason: str | None = None
+
+
+class CaseMemorySearchResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["success", "unavailable"]
+    items: list[dict[str, Any]] = Field(default_factory=list)
+    summary: str
+    error_code: str | None = None

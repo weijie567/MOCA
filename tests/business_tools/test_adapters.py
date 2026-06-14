@@ -4,8 +4,14 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.agent.tools.adapters import GetOrderInput, GetRefundCaseInput, GetTicketInput
-from src.business_tools.adapters import get_order_adapter, get_refund_case_adapter, get_ticket_adapter
+from src.business.adapters import (
+    GetOrderInput,
+    GetRefundCaseInput,
+    GetTicketInput,
+    get_order_adapter,
+    get_refund_case_adapter,
+    get_ticket_adapter,
+)
 from src.business_tools.schemas import ToolCallContext
 
 
@@ -71,7 +77,7 @@ async def test_raw_error_code_maps_deterministically(
             "error": {"error_code": error_code, "message": "unsafe raw message", "retryable": retryable},
         }
     )
-    monkeypatch.setattr("src.business_tools.adapters.get_order", raw_tool)
+    monkeypatch.setattr("src.business.adapters.get_order", raw_tool)
 
     result = await get_order_adapter(GetOrderInput(order_no="ORD-09"), _context(), AsyncMock())
 
@@ -92,7 +98,7 @@ async def test_invalid_response_discards_raw_upstream_payload(monkeypatch: pytes
             "error": {},
         }
     )
-    monkeypatch.setattr("src.business_tools.adapters.get_order", raw_tool)
+    monkeypatch.setattr("src.business.adapters.get_order", raw_tool)
 
     result = await get_order_adapter(GetOrderInput(order_no="ORD-09"), _context(), AsyncMock())
 
@@ -105,7 +111,7 @@ async def test_invalid_response_discards_raw_upstream_payload(monkeypatch: pytes
 @pytest.mark.asyncio
 async def test_order_success_projects_data_and_business_provenance(monkeypatch: pytest.MonkeyPatch) -> None:
     raw_tool = AsyncMock(return_value={"status": "success", "data": _order_data(), "error": {}})
-    monkeypatch.setattr("src.business_tools.adapters.get_order", raw_tool)
+    monkeypatch.setattr("src.business.adapters.get_order", raw_tool)
     ctx = _context()
     session = AsyncMock()
 
@@ -138,7 +144,7 @@ async def test_refund_success_uses_refund_business_provenance(monkeypatch: pytes
             "error": {},
         }
     )
-    monkeypatch.setattr("src.business_tools.adapters.get_refund_case", raw_tool)
+    monkeypatch.setattr("src.business.adapters.get_refund_case", raw_tool)
 
     result = await get_refund_case_adapter(GetRefundCaseInput(refund_case_no="RF-09"), _context(), AsyncMock())
 
@@ -158,7 +164,7 @@ async def test_ticket_success_uses_ticket_business_provenance(monkeypatch: pytes
             "error": {},
         }
     )
-    monkeypatch.setattr("src.business_tools.adapters.get_ticket", raw_tool)
+    monkeypatch.setattr("src.business.adapters.get_ticket", raw_tool)
 
     result = await get_ticket_adapter(GetTicketInput(ticket_id="T-09"), _context(), AsyncMock())
 

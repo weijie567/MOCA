@@ -7,8 +7,8 @@ from uuid import uuid4
 from langchain_core.runnables import RunnableConfig
 
 from src.agent.state import AgentState
-from src.business_tools.schemas import ToolCallContext
-from src.business_tools.service import BusinessToolService
+from src.tools.contracts import ToolCallContext
+from src.business.service import BusinessToolService
 
 
 def _now_iso() -> str:

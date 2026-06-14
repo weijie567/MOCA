@@ -43,7 +43,7 @@ def _success_result() -> dict:
 @pytest.mark.asyncio
 async def test_execute_action_with_approval_creates_draft(monkeypatch):
     create_draft = AsyncMock(return_value=_success_result())
-    monkeypatch.setattr("src.agent.tools.unified.create_coupon_grant_draft", create_draft)
+    monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
     session = object()
     state = _approved_state()
 
@@ -57,7 +57,7 @@ async def test_execute_action_with_approval_creates_draft(monkeypatch):
 @pytest.mark.asyncio
 async def test_execute_action_blocks_when_required_approval_not_approved(monkeypatch):
     create_draft = AsyncMock()
-    monkeypatch.setattr("src.agent.tools.unified.create_coupon_grant_draft", create_draft)
+    monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
     state = _approved_state()
     state["approval_result"] = {"approval_id": str(uuid4()), "decision": "reject"}
 
@@ -71,7 +71,7 @@ async def test_execute_action_blocks_when_required_approval_not_approved(monkeyp
 @pytest.mark.asyncio
 async def test_execute_action_idempotency_key_uses_run_approval_action_and_target(monkeypatch):
     create_draft = AsyncMock(return_value=_success_result())
-    monkeypatch.setattr("src.agent.tools.unified.create_coupon_grant_draft", create_draft)
+    monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
     state = _approved_state()
 
     await execute_action_module.execute_action(state, {"configurable": {"session": object()}})
@@ -87,7 +87,7 @@ async def test_execute_action_idempotency_key_uses_run_approval_action_and_targe
 @pytest.mark.asyncio
 async def test_execute_action_prefers_approval_run_id_for_resumed_action(monkeypatch):
     create_draft = AsyncMock(return_value=_success_result())
-    monkeypatch.setattr("src.agent.tools.unified.create_coupon_grant_draft", create_draft)
+    monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
     state = _approved_state()
     persisted_run_id = str(uuid4())
     state["approval_result"]["run_id"] = persisted_run_id
@@ -102,7 +102,7 @@ async def test_execute_action_prefers_approval_run_id_for_resumed_action(monkeyp
 @pytest.mark.asyncio
 async def test_execute_action_canonicalizes_legacy_freeform_action_type(monkeypatch):
     create_draft = AsyncMock(return_value=_success_result())
-    monkeypatch.setattr("src.agent.tools.unified.create_coupon_grant_draft", create_draft)
+    monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
     state = _approved_state()
     state["proposed_action"]["action_type"] = (
         "拒绝600元补偿请求。根据补偿规则，订单实付金额599元对应的最高体验补偿标准为50元。"
@@ -119,19 +119,25 @@ async def test_execute_action_canonicalizes_legacy_freeform_action_type(monkeypa
 @pytest.mark.asyncio
 async def test_execute_action_uses_session_from_runnable_config(monkeypatch):
     create_draft = AsyncMock(return_value=_success_result())
-    monkeypatch.setattr("src.agent.tools.unified.create_coupon_grant_draft", create_draft)
+    monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
+    sessions = []
+
+    def init_service(self, session):
+        del self
+        sessions.append(session)
+
+    monkeypatch.setattr("src.tools.executors.action.ActionService.__init__", init_service)
     session = object()
 
     await execute_action_module.execute_action(_approved_state(), {"configurable": {"session": session}})
 
-    _, kwargs = create_draft.await_args
-    assert kwargs["session"] is session
+    assert sessions == [session]
 
 
 @pytest.mark.asyncio
 async def test_execute_action_without_required_approval_succeeds(monkeypatch):
     create_draft = AsyncMock(return_value=_success_result())
-    monkeypatch.setattr("src.agent.tools.unified.create_coupon_grant_draft", create_draft)
+    monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
     state = _approved_state()
     state["risk_assessment"] = {"approval_required": False}
     state["approval_result"] = None

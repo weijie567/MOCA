@@ -8,17 +8,18 @@ from uuid import uuid4
 import pytest
 
 from src.agent.events import classify_event_family
-from src.agent.tools.unified import (
+from src.tools.executors import (
     ActionToolExecutor,
     BusinessToolExecutor,
     KnowledgeToolExecutor,
     MemoryToolExecutor,
-    UnifiedToolManager,
 )
-from src.business_tools.registry import ToolRegistry
-from src.business_tools.schemas import ToolCallContext, ToolResultV2
+from src.tools.catalog import ToolCatalog
+from src.tools.contracts import ToolCallContext, ToolResultV2
+from src.tools.manager import UnifiedToolManager
 from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1, KnowledgeSearchResult
+from src.memory.schemas import CaseMemorySearchResult
 
 
 INVESTIGATE_TOOLS = {
@@ -39,13 +40,14 @@ def _ctx(
     permissions: list[str] | None = None,
     caller_node: str = "investigate",
     idempotency_key: str | None = None,
+    merchant_scope: Any | None = None,
 ) -> ToolCallContext:
     return ToolCallContext(
         tenant_id=str(uuid4()),
         user_id=str(uuid4()),
         role="support",
         permissions=[f"tool:{name}" for name in INVESTIGATE_TOOLS] if permissions is None else permissions,
-        merchant_scope={"merchant_ids": ["*"]},
+        merchant_scope={"merchant_ids": ["*"]} if merchant_scope is None else merchant_scope,
         session_id=None,
         thread_id="thread-1",
         run_id=str(uuid4()),
@@ -54,6 +56,7 @@ def _ctx(
         tool_call_id=str(uuid4()),
         caller_node=caller_node,
         deadline_at=datetime.now(UTC),
+        effective_at=datetime.now(UTC).isoformat(),
         attempt=1,
         max_attempts=1,
         idempotency_key=idempotency_key,
@@ -63,7 +66,7 @@ def _ctx(
 
 class _FakeExecutor:
     def __init__(self, name: str, result: Any) -> None:
-        descriptor = next(item for item in ToolRegistry().descriptors() if item.name == name)
+        descriptor = next(item for item in ToolCatalog().descriptors() if item.name == name)
         self._tools = {name: descriptor}
         self.result = result
         self.calls: list[tuple[str, dict[str, Any], ToolCallContext]] = []
@@ -107,7 +110,7 @@ def test_descriptor_discovery_returns_investigate_allowlist_only():
 
 
 def test_descriptor_discovery_uses_business_registry_catalog():
-    catalog = {descriptor.name: descriptor.model_dump() for descriptor in ToolRegistry().descriptors()}
+    catalog = {descriptor.name: descriptor.model_dump() for descriptor in ToolCatalog().descriptors()}
     manager = UnifiedToolManager()
 
     for descriptor in manager.descriptors("investigate"):
@@ -130,7 +133,7 @@ async def test_invoke_get_order_delegates_to_business_tool_service(monkeypatch):
         called["value"] = (name, args, ctx.caller_node)
         return _success_result("business_tool_service")
 
-    monkeypatch.setattr("src.business_tools.service.BusinessToolService.invoke_tool", fake_invoke)
+    monkeypatch.setattr("src.business.service.BusinessToolService.invoke_tool", fake_invoke)
     manager = UnifiedToolManager(executors=[BusinessToolExecutor(session=object())])
 
     result = await manager.invoke("get_order", {"order_no": "ORD-TEST-001"}, _ctx(tool="get_order"))
@@ -206,6 +209,42 @@ async def test_search_policy_uses_unified_dispatch():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("merchant_scope", "expected_scope"),
+    [
+        ({"merchant_ids": ["merchant-1"]}, ["merchant-1"]),
+        (["merchant-legacy"], ["merchant-legacy"]),
+        ({"categories": ["electronics"]}, []),
+        ({"merchant_ids": [123]}, []),
+        ({}, []),
+    ],
+)
+async def test_search_policy_projects_merchant_scope_for_knowledge_service(merchant_scope, expected_scope):
+    class FakePolicyService:
+        async def search(self, request, context):
+            del request
+            assert context.merchant_scope == expected_scope
+            return KnowledgeSearchResult(
+                status="no_evidence",
+                retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+                rerank_config_version=RERANK_CONFIG_VERSION,
+                best_score=0.0,
+                threshold=0.55,
+                evidence_refs=[],
+            )
+
+    manager = UnifiedToolManager(executors=[KnowledgeToolExecutor(session=None, service=FakePolicyService())])
+
+    result = await manager.invoke(
+        "search_policy",
+        {"query": "refund policy"},
+        _ctx(tool="search_policy", merchant_scope=merchant_scope),
+    )
+
+    assert result.status == "not_found"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("tool_name", ["search_sop", "search_case_memory"])
 async def test_declared_future_tools_return_unavailable(tool_name):
     manager = UnifiedToolManager(executors=[KnowledgeToolExecutor(session=None, service=object()), MemoryToolExecutor()])
@@ -213,6 +252,30 @@ async def test_declared_future_tools_return_unavailable(tool_name):
     result = await manager.invoke(tool_name, {"query": "refund"}, _ctx(tool=tool_name))
 
     assert result.status == "unavailable"
+
+
+@pytest.mark.asyncio
+async def test_search_case_memory_dispatches_to_memory_search_service():
+    class FakeMemorySearchService:
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def search(self, *, query, context):
+            self.calls.append((query, context))
+            return CaseMemorySearchResult(
+                status="unavailable",
+                items=[],
+                summary="Case memory search is not available",
+                error_code="TOOL_UNAVAILABLE",
+            )
+
+    service = FakeMemorySearchService()
+    manager = UnifiedToolManager(executors=[MemoryToolExecutor(service=service)])
+
+    result = await manager.invoke("search_case_memory", {"query": "similar refund case"}, _ctx(tool="search_case_memory"))
+
+    assert result.status == "unavailable"
+    assert service.calls[0][0] == "similar refund case"
 
 
 @pytest.mark.asyncio
@@ -263,7 +326,6 @@ async def test_action_tool_requires_idempotency_key():
 @pytest.mark.asyncio
 async def test_execute_action_caller_can_dispatch_action_tool(monkeypatch):
     draft_id = str(uuid4())
-    import src.agent.tools.unified as unified_module
 
     create_draft = AsyncMock(
         return_value={
@@ -278,7 +340,7 @@ async def test_execute_action_caller_can_dispatch_action_tool(monkeypatch):
             "error": {},
         }
     )
-    monkeypatch.setattr(unified_module, "create_coupon_grant_draft", create_draft)
+    monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
     manager = UnifiedToolManager(executors=[ActionToolExecutor(session=object())])
 
     result = await manager.invoke(
@@ -332,7 +394,7 @@ async def test_malformed_executor_return_becomes_invalid_response():
 @pytest.mark.asyncio
 async def test_output_schema_failure_returns_invalid_response_without_raw_data():
     raw_sentinel = "RAW-MANAGER-SENTINEL"
-    descriptor = next(item for item in ToolRegistry().descriptors() if item.name == "get_order").model_copy(
+    descriptor = next(item for item in ToolCatalog().descriptors() if item.name == "get_order").model_copy(
         update={
             "output_schema": {
                 "type": "object",

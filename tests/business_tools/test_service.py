@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.business_tools.schemas import ToolCallContext, ToolError, ToolResultV2
-from src.business_tools.service import BusinessToolService, _merchant_scope_allows
+from src.business.service import BusinessToolService, _merchant_scope_allows
 
 
 def _context(**updates: object) -> ToolCallContext:
@@ -264,7 +264,7 @@ async def test_with_default_registry_invokes_real_adapter_with_mocked_raw_get_or
             "error": {},
         }
     )
-    monkeypatch.setattr("src.business_tools.adapters.get_order", raw_get_order)
+    monkeypatch.setattr("src.business.adapters.get_order", raw_get_order)
     session = AsyncMock(spec=AsyncSession)
 
     result = await BusinessToolService.with_default_registry(session).invoke_tool(

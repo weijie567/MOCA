@@ -9,8 +9,8 @@ from langchain_core.runnables import RunnableConfig
 from src.agent.events import RAG_RETRIEVAL_TOOLS, TOOL_CALL_TOOLS, emit_event
 from src.agent.prompts import INSUFFICIENT_EVIDENCE_RESPONSE
 from src.agent.state import AgentState
-from src.agent.tools.unified import UnifiedToolManager
-from src.business_tools.schemas import ToolCallContext, ToolResultV2
+from src.tools.contracts import ToolCallContext, ToolResultV2
+from src.tools.manager import UnifiedToolManager
 
 
 DEFAULT_MAX_ITERATIONS = 3
@@ -222,6 +222,7 @@ def _build_tool_context(
         tool_call_id=str(operation_id),
         caller_node="investigate",
         deadline_at=deadline_at,
+        effective_at=state.get("run_started_at") or _now_iso(),
         attempt=1,
         max_attempts=max_attempts,
         idempotency_key=f"{state.get('current_run_id') or 'run'}:{tool_name}:{operation_id}",

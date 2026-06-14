@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 
-from src.knowledge.adapters import LegacyRagKnowledgeAdapter
+from src.knowledge.retrieval import PolicyRetrievalEngine
 from src.knowledge.schemas import KnowledgeContext
 
 
@@ -32,10 +32,10 @@ def _context() -> KnowledgeContext:
     )
 
 
-def _adapter(results: list[tuple[object, float]]) -> LegacyRagKnowledgeAdapter:
+def _adapter(results: list[tuple[object, float]]) -> PolicyRetrievalEngine:
     repo = SimpleNamespace(search_similar=AsyncMock(return_value=results))
     embedder = SimpleNamespace(embed_query=AsyncMock(return_value=[0.1, 0.2]))
-    return LegacyRagKnowledgeAdapter(chunk_repo=repo, embedder=embedder)
+    return PolicyRetrievalEngine(chunk_repo=repo, embedder=embedder)
 
 
 @pytest.mark.asyncio
@@ -71,7 +71,7 @@ async def test_effective_date_passed_to_repository():
     """Adapter must pass effective_date to search_similar()."""
     repo = SimpleNamespace(search_similar=AsyncMock(return_value=[]))
     embedder = SimpleNamespace(embed_query=AsyncMock(return_value=[0.1, 0.2]))
-    adapter = LegacyRagKnowledgeAdapter(chunk_repo=repo, embedder=embedder)
+    adapter = PolicyRetrievalEngine(chunk_repo=repo, embedder=embedder)
 
     await adapter.retrieve(query="退款规则", context=_context(), max_results=5)
 
