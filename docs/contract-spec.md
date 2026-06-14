@@ -1073,23 +1073,30 @@ Registry rules：
 > Producer phase + schema_version annotation: Phase 8 — existing `evidence_ref.v1` is producer-owned by KnowledgeService; Memory is not a producer.
 
 
-Memory architecture decision：MOCA memory is contextual assistance, not authority. Policy evidence, approval authorization, action safety snapshots, and replay truth must come from their own authoritative services, not memory. Memory cannot produce `EvidenceRefV1`, cannot authorize actions, cannot satisfy approval evidence requirements, and cannot replace current business facts or persisted audit/replay records.
+Memory architecture decision：MOCA memory is contextual assistance, not authority. Policy evidence, approval authorization, action safety snapshots, and replay truth must come from their own authoritative services, not memory. Memory cannot produce `EvidenceRefV1`, cannot authorize actions, cannot satisfy approval evidence requirements, and cannot replace current business facts or persisted audit/replay records. Persistence duration alone does not make something long-term memory; long-term memory requires reviewed durable semantics, scope, source, confidence, lifecycle, and retrieval predicates.
 
-Memory layers are retained, but their implementation boundaries are different:
+Memory is layered by semantics, not by storage engine:
 
-- Working memory remains AgentState/checkpoint state and is not a separate MemoryService persistence layer.
-- Session memory is deterministic same-thread context continuity for active slots, unresolved questions, and lightweight conversation summary.
-- Long-term memory is reviewed durable scoped fact/preference memory, deferred to Phase 16.
-- Case memory is reviewed precedent retrieval for analyst/recommendation context only, deferred to Phase 16.
-- Policy evidence is not memory; only KnowledgeService may produce policy `EvidenceRefV1`.
+| Layer | Purpose | Typical contents | Storage boundary |
+| --- | --- | --- | --- |
+| Working memory | Current run's working copy | current input, temporary plan, tool results, candidate answer, per-node state | LangGraph `AgentState` and checkpoint snapshot; not a separate MemoryService store |
+| Workflow checkpoint | Resume a graph execution after crash/interrupt/approval wait | current node, pending interrupt, idempotency state, side-effect boundary snapshot | PostgreSQL checkpointer/source of truth; Redis may only cache active-run hot state |
+| Session memory | Same-thread continuity across turns | active slots, last intent, lightweight summary, unresolved questions | PostgreSQL `session_memories` with CAS; optional Redis hot cache with TTL and Postgres fallback |
+| Long-term profile memory | Reviewed durable scoped facts/preferences/patterns | user/merchant preferences, stable merchant patterns, durable constraints | PostgreSQL structured rows, optional pgvector retrieval; deferred to Phase 16 |
+| Case memory | Reviewed precedent retrieval | similar historical cases, resolution, approval outcome, final outcome | PostgreSQL + optional pgvector; deferred to Phase 16 |
+| Audit/replay log | Explain what happened and why | inputs, evidence refs, tool calls, approvals, model/config versions, memory write events | PostgreSQL append-only events/tables; not memory and not replaceable by Redis |
 
-### 13.1 Working memory
+Policy evidence is not memory; only KnowledgeService may produce policy `EvidenceRefV1`.
 
-当前 run/checkpoint state。当前 MOCA 已有。
+### 13.1 Working memory and workflow checkpoint
+
+Working memory is the current run's working copy. 当前 MOCA 已有。
 
 内容：active slots、business context、evidence refs、risk、approval、action result、trace steps。
 
-Working memory is a per-run working copy. After Phase 12, `session_memories` is the authoritative source for cross-turn session continuity; `AgentState.active_slots` is derived from current-turn explicit slots plus allowed session memory inheritance. The LangGraph checkpointer may persist working state, but it must not be treated as the authoritative session memory store.
+After Phase 12, `session_memories` is the authoritative source for cross-turn session continuity; `AgentState.active_slots` is derived from current-turn explicit slots plus allowed session memory inheritance. The LangGraph checkpointer may persist working state, but it must not be treated as the authoritative session memory store.
+
+Workflow checkpoint is a durable execution-recovery contract, not conversation memory. It answers "where does this graph resume?" rather than "what should the next turn remember?" Approval waits, retry/idempotency state, and side-effect boundaries must have a PostgreSQL-backed source of truth. Redis may cache active-run checkpoint fragments only when losing them merely causes a retry from the last durable checkpoint; Redis must not be the only copy of approval waits, irreversible side-effect boundaries, or replay/audit facts.
 
 ### 13.2 Session memory
 
@@ -1219,7 +1226,7 @@ Case memory 在目标模型中保持 append-only + `review_status`，不复用 l
 
 ### 13.6 Storage model
 
-PostgreSQL is the authoritative memory store. Redis may be used only for non-authoritative runtime coordination.
+PostgreSQL is the authoritative store for durable memory, workflow checkpoint source-of-truth state, and audit/replay records. Redis may be used only as a non-authoritative hot layer or runtime coordination layer.
 
 Authoritative memory storage uses PostgreSQL:
 
@@ -1229,9 +1236,9 @@ Authoritative memory storage uses PostgreSQL:
 - `memory_tombstones`
 - `memory_write_events`
 
-Redis MUST NOT be used for authoritative session memory, long-term memory, case memory, tombstones, policy evidence, approval/action state, or replay events. Redis MAY be introduced later only for non-authoritative short TTL locks, rate limits, debounce, SSE buffers, worker hints, or temporary caches.
+Redis MUST NOT be used for authoritative session memory, long-term memory, case memory, tombstones, policy evidence, approval/action state, workflow checkpoint source-of-truth state, or replay events. Redis MAY be introduced for non-authoritative active-session hot cache, active-run hot checkpoint cache, short TTL locks, rate limits, debounce, SSE buffers, worker hints, or temporary caches.
 
-Phase 12 does not use Redis. If a later phase adds Redis to a memory path, it must satisfy all of these conditions:
+Phase 12 does not require Redis. If Phase 12 or a later phase adds Redis to a session-memory or checkpoint path, it must satisfy all of these conditions:
 
 - PostgreSQL remains the source of truth.
 - Redis keys are scoped by tenant/user/thread or a stricter authorized scope.
@@ -1239,6 +1246,7 @@ Phase 12 does not use Redis. If a later phase adds Redis to a memory path, it mu
 - Cache miss or Redis unavailability falls back to PostgreSQL.
 - Redis loss does not affect correctness, auditability, approval/action safety, or replay.
 - PostgreSQL CAS remains the correctness boundary for session memory writes.
+- Redis values must remain derived views, for example `session:{tenant_id}:{user_id}:{thread_id}` or `active_run:{run_id}`, and must not contain facts that are unavailable in PostgreSQL or reconstructable from durable events/checkpoints.
 
 向量存储优先复用 Postgres + pgvector，避免引入 Pinecone。Memory embeddings are optional and deferred to Phase 16 for long-term/case memory; Phase 12 session memory has no embedding requirement.
 
@@ -2104,6 +2112,7 @@ memory_write_events
 Memory constraints / indexes：
 
 - `session_memories`: unique `(tenant_id, user_id, thread_id)` where `deleted_at is null`; add `version int not null default 1` and update with lock/CAS on `(id, version)` so concurrent runs cannot silently lose `active_slots_json`, `session_summary`, `unresolved_questions_json`, `last_intent`, or `last_business_context_refs_json`. Merge precedence is current-turn explicit slots > compatible non-expired existing session slots > no inherited value; CAS miss reloads and retries deterministic merge or returns conflict, never last-write-wins. `active_slots_json` must use `session_slots.v1`; inherited slots must retain source/freshness metadata and cannot be treated as current-turn explicit input. `session_summary` must not store policy conclusions, risk decisions, approval decisions, action authorization, durable preferences, or case precedent.
+- Optional Redis hot cache for session memory or active-run checkpoint state has no schema ownership. It must be treated as a derived view of PostgreSQL-backed state, carry a mandatory TTL, fall back to PostgreSQL on miss/error, and never be the only copy of approval waits, side-effect boundaries, audit/replay facts, or CAS-controlled session-memory writes.
 - `long_term_memories`: unique `(tenant_id, scope_type, scope_id, content_hash)` where `deleted_at is null and is_current = true`；不得使用 `supersedes is null` 作为 active predicate。
 - `case_memories`: index `(tenant_id, merchant_id, case_type, created_at)`；case memory 目标采用 append-only + `review_status` 过滤，不复用 long-term memory 的 same-content active unique version model。
 - `memory_tombstones`: partial unique/index active tombstone `(tenant_id, memory_type, scope_type, scope_id, content_hash)` where `content_hash is not null and deleted_at is null`；另建 `(tenant_id, memory_type, scope_type, scope_id)` active lookup index。`source_ref_json` 的 target identity/tenant matching 不能靠 JSONB FK，必须由 MemoryService transaction validation 保证。

@@ -26,7 +26,7 @@
 - [x] **Phase 9: Business Tool Facade** - BusinessToolService boundary and ToolCallContext/ToolResultV2 contract. ✓ Verified 2026-06-13 — 9/9 plans complete, 14/14 must-haves verified.
 - [x] **Phase 10: State Lifecycle + Routing Migration** - AgentState lifecycle/trusted fields, deterministic total routers, empty session-memory adapter, and bounded investigate graph wiring. Completed 2026-06-14.
 - [ ] **Phase 11: Intent / Clarification** - Intent precedence, required-slot policy, confidence gates, and ordinary clarification.
-- [ ] **Phase 12: Session Memory** - PostgreSQL-backed session memory CAS and safe slot continuity.
+- [ ] **Phase 12: Session Memory** - PostgreSQL-authoritative session memory CAS, optional Redis hot cache, and safe slot continuity.
 - [ ] **Phase 13: Approval State Machine** - Versioned approval lifecycle and ActionSafetySnapshot ownership.
 - [ ] **Phase 14: Demo Action Executor Boundary** - Durable draft-only demo behavior and snapshot/hash binding.
 - [ ] **Phase 15: Replay Event Contract** - ReplayEventV3, lifecycle finalizer, sequence allocation, redaction, retention, and replay read-switch.
@@ -96,13 +96,13 @@
   - [x] 11-05-PLAN.md — Intent consistency manifest, golden dataset, Wilson gates, and phase validation (Wave 5)
 
 ### Phase 12: Session Memory
-**Goal**: Implement PostgreSQL-backed same-thread session memory with CAS and safe slot inheritance.
+**Goal**: Implement PostgreSQL-authoritative same-thread session memory with CAS and safe slot inheritance. Redis, if introduced, is only a non-authoritative TTL hot cache with PostgreSQL fallback.
 **Depends on**: Phase 10, Phase 11
 **Requirements**: SESSION-01, SESSION-02, SESSION-03
 **Success Criteria**:
   1. Same-thread continuity and cross-thread/user/tenant isolation pass.
   2. CAS conflicts use deterministic merge or return conflict, never silent last-write-wins.
-  3. Session memory is not policy evidence and can be disabled with observable fallback.
+  3. Session memory is not policy evidence and can be disabled with observable fallback; Redis loss/cache miss falls back to PostgreSQL if Redis is introduced.
 **Plans**: TBD
 
 ### Phase 13: Approval State Machine

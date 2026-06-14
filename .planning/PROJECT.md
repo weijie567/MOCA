@@ -19,7 +19,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - Enforced AgentState lifecycle, trusted fields, router totality, and safe invalid-state fallback.
 - Versioned approval lifecycle and immutable ActionSafetySnapshot binding.
 - Strict demo draft boundary followed by separately owned future external execution.
-- PostgreSQL session memory CAS, with long-term/case memory independently deferred.
+- PostgreSQL-authoritative session memory CAS, with optional Redis hot cache and long-term/case memory independently deferred.
 - ReplayEventV3, lifecycle finalizer, redaction/retention, migration rollout, contract tests, golden flows, and blocking eval gates.
 
 ## Requirements
@@ -71,7 +71,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - Orchestration: LangGraph (state machine, interrupt/resume, memory)
 - API layer: FastAPI (OAuth2 scopes, dependency injection, OpenAPI docs)
 - Database: PostgreSQL + pgvector (business data + vector search + RLS in one system)
-- Cache: Redis (session cache, rate limiting)
+- Cache: Redis (optional non-authoritative session hot cache, rate limiting)
 - Model: OpenAI-compatible API (cloud or local vLLM)
 - RAG: LlamaIndex for offline ingestion; custom retrieval chain online
 - Frontend: Simple React + Vite interface

@@ -63,7 +63,7 @@ MOCA 的目标架构是：面向商家运营与售后协同的企业级 Agent �
 | LangGraph workflow | `src/agent/graph.py` 已有 10 节点 workflow：`receive_request`、`classify_intent`、`extract_slots`、`load_business_context`、`retrieve_policy_evidence`、`generate_recommendation`、`assess_risk_and_approval`、`approval_gate`、`execute_action`、`final_response`。 | `memory-agent/src/memory_agent/graph.py` 展示 tool call 条件分支；`agents-from-scratch-ts/src/email_assistant.ts` 展示 triage -> subgraph；`Human-in-the-Loop-Workflow-LangGraph/src/graph.py` 展示 Command 路由。 | 采用 | 保留 MOCA 主 workflow，增加目标节点：memory load/retrieve/write、clarification、action draft/executor、trace close。 | 不采用完全自由循环 agent，也不把参考仓库 email/news workflow 搬入 MOCA。 |
 | Intent classification | `src/agent/schemas.py` 当前 intent 只有 `policy_qa`、`refund_troubleshooting`、`compensation_suggestion`、`approval_request`、`unknown`；`src/agent/nodes/classify_intent.py` 用 structured output。 | `agents-from-scratch-ts/src/email_assistant.ts` triage 把 email 分成 ignore/respond/notify，用于路由。 | 部分采用 | 扩展 MOCA intent taxonomy，并引入 confidence threshold、clarification path、routing hints。 | 不采用 email 领域的 ignore/respond/notify 作为业务 intent。 |
 | Tool calling | `src/agent/nodes/load_business_context.py` 直接调用 read tools；`src/agent/nodes/retrieve_policy_evidence.py` 直接调用 `search_policy`；`src/agent/tools/registry.py` 已有 typed registry 和 caller allowlist，但主流程未完全通过 registry/service。 | `memory-agent/src/memory_agent/tools.py` 使用 InjectedToolArg；`agents-from-scratch-ts/src/tools/base.ts` 有中央 tool registry；`agent-inbox` 和 HITL examples 在工具执行前中断。 | 采用 | 采用 graph-controlled tool calling + node-level allowlist + service facade。 | 不采用模型自由选择任意工具并直接写业务系统。 |
-| Memory read/write | 当前 `AgentState` 有 checkpointer thread、`active_slots`、`last_intent`、`evidence_refs`、`last_business_context_refs`，README 明确 cross-session long-term memory out of scope。 | `memory-agent/src/memory_agent/graph.py` 读取最近 memory 注入 prompt；`langgraph-memory/memory_service/graph.py` 有 delayed extraction、patch/insert 双路径、schema fan-out；`agents-from-scratch-ts/src/email_assistant_hitl_memory.ts` 根据 HITL feedback 更新 memory。 | 采用 | 区分 working/session/long-term/case memory；先实现 session memory，长期和 case memory 作为独立服务目标。 | 不采用自由 ReAct 写长期记忆；不采用 Pinecone/Fireworks 默认栈；不把历史 case 当政策。 |
+| Memory read/write | 当前 `AgentState` 有 checkpointer thread、`active_slots`、`last_intent`、`evidence_refs`、`last_business_context_refs`；`session_memory_load` / `long_term_memory_retrieve` 是 empty adapter。 | `memory-agent/src/memory_agent/graph.py` 读取最近 memory 注入 prompt；`langgraph-memory/memory_service/graph.py` 有 delayed extraction、patch/insert 双路径、schema fan-out；`agents-from-scratch-ts/src/email_assistant_hitl_memory.ts` 根据 HITL feedback 更新 memory。 | 采用 | 区分 working memory、workflow checkpoint、session memory、long-term profile memory、case memory、audit/replay；先实现 Postgres-authoritative session memory，Redis 只可作为可选热缓存。 | 不采用自由 ReAct 写长期记忆；不采用 Pinecone/Fireworks 默认栈；不把历史 case 当政策；不让 Redis 成为权威记忆或 checkpoint。 |
 | Human-in-the-loop approval | `src/agent/nodes/approval_gate.py` 已有 LangGraph `interrupt`；`src/api/routers/approvals.py` 支持 approve/reject resume；`ApprovalRequest`、`ApprovalStep` 已持久化。 | `agent-inbox/README.md` 定义 HumanInterrupt/HumanResponse schema，支持 accept/edit/respond/ignore；`agent-inbox-langgraph-example/src/agent/graph.py` 有 Python 最小示例；`Human-in-the-Loop-Workflow-LangGraph/src/nodes/human_review_node.py` 支持编辑内容后 approve。 | 采用 | 把 MOCA 审批从 approve/reject 扩展到 accept/edit/reject/respond/ignore，并支持多级审批和 SLA。 | 不采用通用 inbox UI 的全部部署假设；不采用布鲁斯天空发布业务。 |
 | Action execution | `src/agent/nodes/execute_action.py` 当前创建 durable action draft；`src/agent/tools/create_coupon_grant_draft.py` 写 `ActionDraft`，有 idempotency key；README 明确无真实支付/退款/券执行。 | `Human-in-the-Loop-Workflow-LangGraph/src/tools.py` 在 publish 前再次 interrupt；`agent-inbox` 支持 edit/accept action args。 | 采用 | 目标为 ActionExecutor facade，demo adapter 仍创建 draft，但 contract 包含 execution result、idempotency、rollback/compensation metadata。 | 不采用在 tool 内直接发布/执行外部动作；真实动作前双确认只作为未来高风险场景。 |
 | RAG / Knowledge | `src/rag/retriever.py` 使用 DashScope embedding、pgvector、hybrid rerank、threshold/no-evidence；`src/rag/citation_validator.py` 做 deterministic citation validation；`search_policy` 仍位于 `src/agent/tools`。 | `docs/agent-architecture-reference-draft.md` 要求 Knowledge / RAG 是独立能力层。 | 采用 | 增加 KnowledgeService facade，Agent 节点只看 evidence contract，不直接接触 embedding/repo/pgvector。 | 不采用把 RAG 当 Agent 内部普通 tool 的长期形态。 |
@@ -95,7 +95,7 @@ MOCA 的目标架构是：面向商家运营与售后协同的企业级 Agent �
 当前 MOCA 部分实现但边界仍不完整：
 
 - Tool contract：`src/agent/tools/contracts.py` 和 `registry.py` 已有 typed registry、risk metadata、caller allowlist，但主 graph nodes 仍直接调用具体 tool 函数，没有统一走 BusinessToolService / KnowledgeService。
-- Memory：`AgentState` 和 checkpointer 已支持同 thread 的 active slots、last intent、evidence refs；README 明确 cross-session long-term memory out of scope。尚未有独立 `src/memory` service、长期记忆、case memory、memory write policy。
+- Memory：`AgentState` 与 PostgreSQL checkpointer 已支持 run/checkpoint 级持久化；`session_memory_load` 和 `long_term_memory_retrieve` 当前是 empty adapter，不声明 continuity。尚未有独立 `src/memory` service、PostgreSQL `session_memories`、Redis hot cache、长期记忆、case memory、memory write policy。
 - Approval：已有 approve/reject、过期处理、自审批限制、resume、审批 step 记录；尚未有 policy-driven multi-level approval、SLA escalation、accept/edit/respond/ignore。
 - Observability：已有 DB trace 和 API request trace_id；尚未有 OpenTelemetry spans、Prometheus metrics、LLM token/cost 完整记录、RAG/tool/action 细粒度 metrics。
 - Actions：已有 action draft 和幂等；尚未有 ActionExecutor contract、demo adapter/external adapter 分离、compensation/rollback metadata。
@@ -154,7 +154,7 @@ MOCA 目标架构：一个 FastAPI app 内的分层 Agent 系统。
 - LangGraph Agent Orchestration：只做状态流转、节点编排、条件路由、interrupt/resume。
 - Knowledge / RAG：负责政策知识、检索、证据、citation validation。
 - Business Tools：负责订单、退款、工单、物流、商家风险等业务事实读取，当前通过本地 demo DB adapter。
-- Memory：负责 working/session/long-term/case memory 的读写策略和存储。
+- Memory：负责 session/long-term/case memory 的读写策略和存储；working memory 与 workflow checkpoint 属于 graph/runtime recovery 边界，audit/replay 属于 observability 边界。
 - Approvals / SLA / Policy：负责风险规则、审批策略、多级审批、SLA、升级。
 - Actions / Executor / Compensation：负责 action draft、demo adapter、idempotency、execution result、compensation metadata。
 - Observability / Replay：负责 spans、metrics、logs、AgentRun/AgentStep、timeline replay。
@@ -416,20 +416,24 @@ Canonical router 函数包括：
 
 ### 8.5 Memory
 
-当前依据：`AgentState` thread memory；参考 `memory-agent`、`langgraph-memory`。
+当前依据：`AgentState`、PostgreSQL checkpointer、empty memory adapters；参考 `memory-agent`、`langgraph-memory`。
 
 目标职责：
 
-- Working memory：当前 run/checkpoint state。
-- Session memory：同一 thread 的 active slots、last intent、case summary、unresolved questions。
-- Long-term memory：跨会话稳定偏好/商家模式，带 scope/source/confidence/TTL/review。
-- Case memory：历史类似 case、处理结果、审批结果、outcome。
+- Working memory：当前 run 的工作副本，包含当前输入、临时计划、工具结果、候选答案和节点状态；由 `AgentState`/checkpoint 承载，不是独立 MemoryService 存储。
+- Workflow checkpoint：图执行恢复层，回答“当前 run 从哪里恢复”，包含当前节点、interrupt/approval wait、幂等状态和副作用边界快照；Postgres 是事实源，Redis 只能作为 active-run 热缓存。
+- Session memory：同一 tenant/user/thread 的连续对话，包含 active slots、last intent、轻量 summary、unresolved questions；Postgres `session_memories` + CAS 是事实源，Redis 可选做带 TTL 的 hot cache。
+- Long-term profile memory：跨会话稳定偏好/商家模式，带 scope/source/confidence/TTL/review；Phase 16。
+- Case memory：历史类似 case、处理结果、审批结果、outcome；只能作为 precedent；Phase 16。
+- Audit / replay log：输入、证据、工具调用、审批链、模型版本和 memory write events 的 append-only 解释层；不是 memory，不可由 Redis 替代。
 
 边界：
 
 - Memory 是辅助上下文，不是政策依据。
+- Session memory 只负责同 thread 连续性，不等于 workflow checkpoint；workflow checkpoint 只负责 run 恢复，不等于下一轮对话记忆。
 - Long-term memory 不应每轮写入。
 - Case memory 只能作为 precedent，不能覆盖当前 policy evidence。
+- 当前实现状态：`src/agent/graph.py` 已用 `AsyncPostgresSaver` 编译 graph；`session_memory_load` 和 `long_term_memory_retrieve` 仍是 empty adapter，不声明 continuity。独立 `src/memory` service、`session_memories` 表、Redis hot cache、long-term/case memory 均尚未实现。
 
 ### 8.6 Approvals / SLA / Policy
 

@@ -24,7 +24,7 @@
 - [x] **CLARIFY-01**: Ordinary clarification and trusted approval needs_info resume remain separate contracts.
 - [ ] **SESSION-01**: PostgreSQL session memory uses version CAS and deterministic merge.
 - [ ] **SESSION-02**: Slot inheritance enforces scope, freshness, compatibility, and explicit override.
-- [ ] **SESSION-03**: Session memory is not policy evidence and supports observable fallback/read-switch rollback.
+- [ ] **SESSION-03**: Session memory is not policy evidence and supports observable fallback/read-switch rollback; Redis, if used, is non-authoritative and falls back to PostgreSQL.
 - [ ] **APPROVAL-01**: Approval transitions, request/level/assignment CAS, and revision invalidation are enforced.
 - [ ] **APPROVAL-02**: Approval needs_info resume validates clarification identity, scope, versions, changed facts, and old-revision prohibition.
 - [ ] **APPROVAL-03**: Single-level runtime is complete and multi-level-compatible contracts are verified; active SLA scanner remains an owned gate.

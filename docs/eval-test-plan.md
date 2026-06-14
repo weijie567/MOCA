@@ -15,7 +15,8 @@ NOTE: This file carries the contract test matrix, eval plan, and golden cases. T
 | Confidence calibration | eval threshold tests | 低置信澄清、高风险 intent 更高阈值、risk-weighted confusion matrix。 | 未校准 confidence 直接授权动作。 |
 | Tool contract | adapter contract tests | success/partial/not_found/permission_denied/timeout/unavailable/conflict/invalid_response。 | raw upstream payload 进入 graph；缺 `tool_call_id`/scope 仍执行。 |
 | Knowledge contract | retrieval contract tests | strong/partial/no evidence、effective time filtering、deterministic tenant-scoped behavior、citation membership validation；global-policy / tenant-over-global deferred to later policy-scope phase。 | no evidence 或 failed citation membership 仍生成确定动作建议；把 membership 当作 semantic support。 |
-| Memory contract | lifecycle tests | write/skip/review/delete/supersede；PII blocked；long-term/case predicates 分离；tombstone match 阻止异步重写并 emit event；scope isolation；supersede transaction rollback。 | case memory 使用 `is_current`；deleted/tombstoned/prohibited/superseded/non-current long-term memory 被检索；异步候选重建 tombstoned memory；模型直接写库。 |
+| Session memory contract | lifecycle + routing safety tests | same-thread continuity；PostgreSQL CAS deterministic merge；scope/freshness/intent compatibility；explicit current-turn override；unresolved question carryover；optional Redis hot-cache miss/unavailable fallback；disable/read-switch fallback telemetry；PII blocked。 | session memory 被当作政策证据；stale/wrong-thread/wrong-user/wrong-tenant slots 通过 slot gate；Redis-only correctness；silent last-write-wins；模型直接写 session memory。 |
+| Long-term/case memory contract | lifecycle tests | write/skip/review/delete/supersede；PII blocked；long-term/case predicates 分离；tombstone match 阻止异步重写并 emit event；scope isolation；supersede transaction rollback。 | case memory 使用 `is_current`；deleted/tombstoned/prohibited/superseded/non-current long-term memory 被检索；异步候选重建 tombstoned memory；模型直接写库。 |
 | Approval contract | transition table tests | accept/edit/respond/reject/ignore/expire/payload_changed；multi-level any_one/all；next-level pending 不进入 draft；canonical hash golden sample；payload/snapshot hash mismatch；cross-table mismatch transaction rollback。 | `next_level_pending -> action_draft`；expired/superseded approval 可执行；edit 沿用旧 payload hash；并发双执行；ordinary chat 伪造 approval decision。 |
 | Action contract | safety/idempotency tests | demo draft only；external execution allowlist；unknown/reconciling；outbox claim-before-dispatch；reconciliation no-new-key retry guard；compensation metadata。 | demo mode 产生 external side effect；未审批高风险动作执行；timeout 被当作成功；未持久化 outbox 就 dispatch。 |
 | Replay contract | completeness/order/redaction tests | normal/interrupted/resumed/rejected/responded/expired/error/cancelled；shared per-run sequence allocator concurrent writers；started/terminal pair 共享 operation_id；retry parent/attempt；V3 shape。 | 空 timeline；sequence 重复/倒退/事后重排；不同 writer 绕过 allocator；prompt/raw tool/ticket PII/action raw payload 泄漏。 |
@@ -48,6 +49,7 @@ NOTE: This file carries the contract test matrix, eval plan, and golden cases. T
 - RAG semantic groundedness/support：引用证据是否支持 material claims；作为独立 deferred eval 或 reviewed rule-based mapping，不得由 citation membership 代替。
 - Approval policy accuracy：高风险是否拦截，低风险是否不过度拦截。
 - Action safety：未审批高风险动作执行率必须为 0。
+- Session memory route safety：同 thread 补槽成功率、跨 scope 泄漏率、stale/incompatible slot 拒绝率、cache-miss fallback 成功率。
 - Memory write quality：长期记忆写入 precision、PII leakage、过期记忆过滤。
 - Replay completeness：每个 run 是否覆盖 node/tool/RAG/approval/action events。
 

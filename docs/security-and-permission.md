@@ -84,13 +84,13 @@ The trace response is intentionally summarized. It exposes operational review da
 
 Repository and API queries filter by `tenant_id`. A token includes tenant context, and protected endpoints load records within the current user's tenant.
 
-Memory is scoped by checkpoint thread key:
+Workflow checkpoints are scoped by checkpoint thread key:
 
 ```text
 tenant_id:user_id:thread_id
 ```
 
-This prevents two tenants, or two users in the same tenant, from sharing LangGraph memory just because they chose the same client thread ID.
+This prevents two tenants, or two users in the same tenant, from sharing LangGraph checkpoint state just because they chose the same client thread ID. Target session memory uses the same tenant/user/thread isolation concept, but its authoritative store is the PostgreSQL `session_memories` contract with CAS; Redis, if introduced, is only a non-authoritative TTL hot cache.
 
 Cross-tenant trace lookups return 404 when the run does not exist in the caller's tenant. Existing in-tenant runs still require owner or supervisor access; otherwise the API returns 403.
 

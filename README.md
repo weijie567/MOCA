@@ -12,6 +12,7 @@ MOCA is a Merchant Operations Copilot Agent for refund, dispute, and compensatio
 - Deterministic risk assessment from `rules/risk_rules.yaml`, including high-risk compensation thresholds.
 - Human-in-the-loop approval for high-risk actions using LangGraph interrupt/resume.
 - Full execution trace and audit trail across graph nodes, tool calls, evidence refs, approvals, and action drafts.
+- Layered memory design: working state and workflow checkpoints are separate from same-thread session memory, long-term profile memory, case memory, and audit/replay logs.
 - SSE streaming for progressive frontend status updates during agent execution.
 - Role-based access control with JWT auth and OAuth2 scopes.
 - Golden-set evaluation scripts for RAG quality, agent routing, safety-critical approval paths, and report generation.
@@ -42,10 +43,14 @@ graph TB
 ```mermaid
 graph LR
     A[receive_request] --> B[classify_intent]
-    B --> C[extract_slots]
-    C --> D[load_business_context]
-    D --> E[retrieve_policy_evidence]
-    E --> F[generate_recommendation]
+    B -->|needs slots| C[session_memory_load]
+    B -->|policy / fact path| E[investigate]
+    C --> D[extract_slots]
+    D -->|slots ok| E
+    D -->|needs long-term hints| L[long_term_memory_retrieve]
+    L --> E
+    E -->|sufficient context| F[generate_recommendation]
+    E -->|missing / insufficient| H[final_response]
     F --> G[assess_risk_and_approval]
     G -->|low risk| H[final_response]
     G -->|high risk| I[approval_gate]
@@ -155,5 +160,5 @@ Implementation details worth scanning:
 - The demo runs as a single-tenant environment, although the data model and repositories are tenant-scoped.
 - Demo data and user queries are Chinese; repository documentation is English.
 - Streaming uses Server-Sent Events rather than WebSockets.
-- Memory is scoped to the same thread and user; cross-session long-term memory is out of scope.
+- Current memory implementation has PostgreSQL-backed LangGraph checkpointing plus empty session/long-term memory adapters. Target session memory is PostgreSQL-authoritative same-thread continuity with optional Redis hot cache; cross-session long-term and case memory remain out of scope for the current phase.
 - CI runs lint and unit tests only; DB-backed integration tests and live LLM evaluation remain local commands.
