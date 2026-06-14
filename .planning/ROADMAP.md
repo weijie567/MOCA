@@ -103,7 +103,7 @@
   1. Same-thread continuity and cross-thread/user/tenant isolation pass.
   2. CAS conflicts use deterministic merge or return conflict, never silent last-write-wins.
   3. Session memory is not policy evidence and can be disabled with observable fallback; Redis loss/cache miss falls back to PostgreSQL if Redis is introduced.
-**Plans**: TBD
+**Plans**: 1/5 complete
 
 ### Phase 13: Approval State Machine
 **Goal**: Implement versioned approval requests/levels/assignments/decisions/events and the canonical ActionSafetySnapshot.
@@ -164,7 +164,7 @@
 | 9. Business Tool Facade | 9/9 | Complete | 2026-06-13 |
 | 10. State Lifecycle + Routing Migration | 5/5 | Complete | 2026-06-14 |
 | 11. Intent / Clarification | 5/5 | Complete | 2026-06-14 |
-| 12. Session Memory | 0/TBD | Pending | - |
+| 12. Session Memory | 1/5 | In Progress | - |
 | 13. Approval State Machine | 0/TBD | Pending | - |
 | 14. Demo Action Executor Boundary | 0/TBD | Pending | - |
 | 15. Replay Event Contract | 0/TBD | Pending | - |
