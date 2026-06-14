@@ -53,6 +53,29 @@ Hard safety boundary: ordinary chat cannot create `approval_result`, cannot issu
   - Reference excluded: email prompts, free tool loop, memory-updated triage preferences.
   - Safety constraint: ordinary chat cannot create `approval_result`, resume commands, or trusted approval decisions.
 
+### Targeted Amendment: State Mapping
+- **D-17:** Phase 11 must implement the `IntentResultV3 -> AgentState` mapping from `docs/contract-spec.md` §10.4 through an explicit adapter. It must not whole-object merge classifier output into `AgentState`.
+- **D-18:** `confidence` writes only to `intent_confidence`. `calibrated_confidence` writes only to intent eval metadata under `llm_outputs`, together with `classifier_version` and `calibration_version`; it must not overwrite `intent_confidence`.
+- **D-19:** `secondary_intents`, `required_slots`, `routing_hints`, and `candidate_slots` are schema-validated replace writes. `candidate_slots` remain slot-extraction hints only and must not satisfy completeness or overwrite `extracted_slots` / `active_slots`.
+- **D-20:** The intent node must not write final answers, `extracted_slots`, `active_slots`, `risk_signals`, `approval_result`, trusted approval versions, resume commands, or tool/action outputs.
+
+### Targeted Amendment: Eval Gates
+- **D-21:** `intent-golden.v1` is not optional polish. Phase 11 planning must include dataset version/hash ownership and explicit blocking/non-blocking gate semantics for intent, slot, clarification, and safety-route tests.
+- **D-22:** M6 is a release gate for enabling safety-sensitive confidence-assisted routing, not a Phase 12 migration phase. Phase 11 must preserve the mapping from its artifacts to the M6 release checklist.
+- **D-23:** Critical classes `critical_write`, `approval_decision`, `appeal_or_unban`, and `complaint_escalation` require per-class coverage. Each class must meet the coverage manifest minimum before it can pass; pooled metrics cannot substitute for per-class gates.
+- **D-24:** Wilson gate output must use the spec-defined one-sided 95% Wilson false-negative upper bound and fixed gate status precedence: coverage missing/incomplete/invalid, below per-class minimum, false negatives present, Wilson upper exceeded, then passed. Insufficient sample size must produce `statistical_gate_not_demonstrated`, not pass.
+
+### Targeted Amendment: Intent Consistency Manifest
+- **D-25:** Phase 11 must maintain a machine-readable intent consistency manifest, but it is not a runtime `IntentRegistry` and must not become the source of truth for runtime routing.
+- **D-26:** The manifest checker must verify every ordinary-chat taxonomy intent against the source-of-truth tables: §11.2 precedence, §11.3 required slots, §9.3 intent-level routing, evidence sufficiency coverage where applicable, and `intent-golden.v1` positive/negative examples.
+- **D-27:** `small_talk` and `unsupported` may set `in_evidence_table=false` only when tests also prove they are exempt because they route directly via the intent-level routing table and do not enter `route_after_investigate`.
+- **D-28:** CI/contract tests must fail on missing manifest coverage, stale dataset/hash metadata, or manifest claims that are not backed by the corresponding source-of-truth tables.
+
+### Targeted Amendment: Deferred Register Carry-Forward
+- **D-29:** GAD-02 is a Phase 11 planning input: future new intents are allowed only through an explicit admission rule covering `risk_level`, `response_mode`, `tool_allowlist`, `bounded_loop_allowed`, `max_iterations`, `routing_precedence`, and audit/replay requirements. No new intent may inherit those fields by default or be batch-enabled.
+- **D-30:** GAD-03 is a Phase 11 planning input: current MVP should confirm existing coverage for `policy_qa`, order/business fact QA, and `advise` / support advice terminal paths. Phase 11 must not add a new generic QA intent or change response mode just to represent these already-covered read-only endpoints.
+- **D-31:** Any future multi-step read-only QA expansion remains a separate deferred option and must re-apply GAD-01 guardrails plus GAD-02 admission rules before it is promoted into spec or implementation.
+
 ### the agent's Discretion
 - Exact module names for helper schemas, registry files, manifest location, and test fixture organization may follow existing codebase conventions, as long as source-of-truth boundaries and safety tests remain explicit.
 - Exact confidence thresholds may start from `docs/contract-spec.md` defaults; tuning is allowed only through golden/eval evidence and must not authorize action routing by confidence alone.
@@ -68,8 +91,11 @@ Hard safety boundary: ordinary chat cannot create `approval_result`, cannot issu
 - `docs/contract-spec.md` §9.4 — Node contract table for `intent_classification`, `clarification_gate`, `slot_extraction`, `approval_gate`, and `final_response`.
 - `docs/contract-spec.md` §9.5 — Router contract table, especially `route_after_intent`, `route_after_slots`, and untrusted ordinary-chat approval decision behavior.
 - `docs/contract-spec.md` §9.6 — Trusted approval API / inbox command entry and why ordinary chat cannot create approval decisions.
-- `docs/contract-spec.md` §10.1 and §10.4 — AgentState lifecycle and `IntentResultV3 -> AgentState` mapping.
-- `docs/contract-spec.md` §11.1-§11.7 — Taxonomy, precedence, required-slot policy, confidence gates, clarification path, structured output schema, and intent consistency manifest.
+- `docs/contract-spec.md` §10.1 and §10.4 — AgentState lifecycle and `IntentResultV3 -> AgentState` mapping; explicit adapter required, no whole-object merge, calibrated confidence stays in eval metadata.
+- `docs/contract-spec.md` §11.1-§11.3 — Taxonomy, precedence, multi-intent policy, and required-slot table.
+- `docs/contract-spec.md` §11.4 — Confidence thresholds, calibration plan, M6 release gate, per-class coverage, and one-sided Wilson false-negative gate semantics.
+- `docs/contract-spec.md` §11.5-§11.6 — Ordinary clarification output shape and structured `IntentResultV3` output schema.
+- `docs/contract-spec.md` §11.7 — Intent consistency manifest semantics, source-of-truth verification, evidence-table exemptions, and CI failure rules.
 
 ### Phase and Evaluation Inputs
 - `docs/agent-architecture-phase-decomposition.md` — Phase 11 ownership and acceptance gate: intent golden set, confidence/slot clarification tests, and ordinary chat cannot create trusted approval decision.
@@ -117,6 +143,9 @@ Hard safety boundary: ordinary chat cannot create `approval_result`, cannot issu
 
 - Build `intent-golden.v1` and an intent consistency manifest in Phase 11, not as a later polish item.
 - Cover taxonomy, precedence conflicts, required-slot expressions, low-confidence clarification, safe-route cases, and ordinary-chat approval boundary cases in golden tests.
+- `11-01` should include the explicit `IntentResultV3 -> AgentState` adapter contract and tests proving no whole-object merge, no calibrated-confidence overwrite, and no candidate-slot completeness shortcut.
+- `11-05` should include both the manifest checker and eval artifact requirements: dataset version/hash, coverage manifest hash, per-class sample counts, Wilson gate fields, and `statistical_gate_not_demonstrated` output when coverage is insufficient.
+- `11-05` should treat GAD-02/GAD-03 as carry-forward checks: future intent admission fields are documented/test-covered, and existing read-only QA terminal paths are confirmed without adding a generic QA intent.
 - The plan should include a lightweight gap check after planning: `$gsd-list-phase-assumptions 11` or stricter `$gsd-review 11`.
 - Planner should avoid turning reference repos into implementation sources. They provide structural constraints only.
 </specifics>
