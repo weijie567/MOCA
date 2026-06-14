@@ -241,6 +241,41 @@ class AgentRun(TimestampMixin, Base):
     trace_events: Mapped[list["AgentTraceEvent"]] = relationship(back_populates="run", cascade="all, delete-orphan")
 
 
+class SessionMemory(TimestampMixin, Base):
+    __tablename__ = "session_memories"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    thread_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    schema_version: Mapped[str] = mapped_column(String(48), nullable=False, default="session_memory.v2")
+    active_slots_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    session_summary: Mapped[str | None] = mapped_column(Text)
+    unresolved_questions_json: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    last_intent: Mapped[str | None] = mapped_column(String(64))
+    last_business_context_refs_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    last_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agent_runs.id"), nullable=True, index=True
+    )
+    version: Mapped[int] = mapped_column(default=1, nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+Index(
+    "uq_session_memories_active_scope",
+    SessionMemory.tenant_id,
+    SessionMemory.user_id,
+    SessionMemory.thread_id,
+    unique=True,
+    postgresql_where=SessionMemory.deleted_at.is_(None),
+)
+Index("ix_session_memories_scope", SessionMemory.tenant_id, SessionMemory.user_id, SessionMemory.thread_id)
+Index("ix_session_memories_expires_at", SessionMemory.expires_at)
+
+
 class ApprovalRequest(TimestampMixin, Base):
     __tablename__ = "approval_requests"
 
