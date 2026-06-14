@@ -295,7 +295,7 @@ def _merge_last_intent(existing: str | None, candidate: str | None, *, cas_retry
 def _max_expiry(slots: dict[str, Any], now: datetime) -> datetime | None:
     expiries = [slot.expires_at for slot in slots.values() if slot.expires_at is not None]
     if not expiries:
-        return now
+        return None
     return max(expiries)
 
 

@@ -177,6 +177,54 @@ async def test_service_merge_preserves_non_slot_fields_on_safe_cas_retry(
 
 
 @pytest.mark.asyncio
+async def test_service_merge_without_slots_does_not_expire_context_only_memory(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    now = datetime.now(UTC)
+    repository = SessionMemoryRepository(session)
+    existing = await repository.insert_active(
+        tenant_id=seeded_session["tenant"].id,
+        user_id=seeded_session["users"]["cs_zhang"].id,
+        thread_id="thread-service-context-only",
+        active_slots_json={"schema_version": "session_slots.v1", "slots": {}},
+        session_summary="existing context",
+        unresolved_questions_json=["existing question"],
+        last_intent="refund_troubleshooting",
+    )
+    service = MemoryService(repository)
+
+    result = await service.write_session_memory(
+        _candidate(
+            seeded_session,
+            thread_id="thread-service-context-only",
+            run_id=await _insert_run(session, seeded_session, "thread-service-context-only"),
+            expected_version=existing.version,
+            slots={},
+            session_summary="new context",
+            unresolved_questions=["new question"],
+            last_intent="refund_troubleshooting",
+        ),
+        now=now,
+    )
+    view = await service.load_session_memory(
+        seeded_session["tenant"].id,
+        seeded_session["users"]["cs_zhang"].id,
+        "thread-service-context-only",
+        current_intent="refund_troubleshooting",
+        now=now + timedelta(seconds=1),
+    )
+
+    assert result.status == "written"
+    assert view.continuity_claimed is True
+    assert view.active_slots == {}
+    assert "existing context" in (view.session_summary or "")
+    assert "new context" in (view.session_summary or "")
+    assert "existing question" in view.unresolved_questions
+    assert "new question" in view.unresolved_questions
+
+
+@pytest.mark.asyncio
 async def test_service_cas_miss_reloads_and_merges_or_conflicts(session: AsyncSession, seeded_session: dict) -> None:
     repository = SessionMemoryRepository(session)
     existing = await repository.insert_active(
