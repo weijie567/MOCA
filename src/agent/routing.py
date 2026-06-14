@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from src.agent.intent_policy import (
@@ -54,22 +55,37 @@ def missing_required_slots(
 
 
 def resolve_slots_for_completeness(state: AgentState) -> dict[str, Any]:
+    resolved, _metadata = resolve_slots_with_metadata(state)
+    return resolved
+
+
+def resolve_slots_with_metadata(state: AgentState) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
     extracted = state.get("extracted_slots")
     resolved = {key: value for key, value in (extracted or {}).items() if value not in (None, "")}
+    resolved_metadata = {
+        key: {"source": "current_turn", "explicit_current_turn": True}
+        for key, value in (extracted or {}).items()
+        if value not in (None, "")
+    }
     session_memory = state.get("session_memory")
     if not isinstance(session_memory, dict) or session_memory.get("continuity_claimed") is not True:
-        return resolved
+        return resolved, resolved_metadata
     active_slots = session_memory.get("active_slots")
     slot_metadata = session_memory.get("slot_metadata")
     if not isinstance(active_slots, dict) or not isinstance(slot_metadata, dict):
-        return resolved
+        return resolved, resolved_metadata
     for slot, value in active_slots.items():
         if slot in resolved or value in (None, ""):
             continue
         metadata = slot_metadata.get(slot)
         if _trusted_session_slot(metadata, state):
             resolved[slot] = value
-    return resolved
+            resolved_metadata[slot] = {
+                **metadata,
+                "source": "trusted_session_memory",
+                "explicit_current_turn": False,
+            }
+    return resolved, resolved_metadata
 
 
 def _route_after_intent(state: AgentState) -> str:
@@ -193,9 +209,19 @@ def _trusted_session_slot(metadata: Any, state: AgentState) -> bool:
     if metadata.get("source") != "trusted_session_memory":
         return False
     for key in ("tenant_id", "user_id", "thread_id"):
-        if metadata.get(key) != state.get(key):
+        if str(metadata.get(key)) != str(state.get(key)):
             return False
-    if metadata.get("fresh") is not True and metadata.get("age_seconds", 10**9) > metadata.get("max_age_seconds", 0):
+    expires_at = metadata.get("expires_at")
+    if isinstance(expires_at, str):
+        try:
+            parsed = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        if parsed <= datetime.now(UTC):
+            return False
+    elif metadata.get("fresh") is not True:
         return False
     compatible = metadata.get("intent_compatible")
     compatible_intents = metadata.get("compatible_intents")

@@ -8,6 +8,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
 from src.agent.prompts import EXTRACT_SLOTS_SYSTEM
+from src.agent.routing import resolve_slots_with_metadata
 from src.agent.schemas import SlotExtractionResult
 from src.agent.state import AgentState
 from src.config import settings
@@ -81,12 +82,12 @@ async def extract_slots(state: AgentState) -> dict:
             result = await structured_llm.ainvoke(messages)
             provider_latency_ms = round((time.perf_counter() - t0) * 1000)
             extracted = result.model_dump()
-            new_slots = {key: value for key, value in extracted.items() if value is not None}
-            merged = {**(state.get("active_slots") or {}), **new_slots}
+            active_slots, active_slot_metadata = resolve_slots_with_metadata({**state, "extracted_slots": extracted})
             outputs = {**(state.get("llm_outputs") or {}), "extract_slots": extracted}
             return {
                 "extracted_slots": extracted,
-                "active_slots": merged,
+                "active_slots": active_slots,
+                "active_slot_metadata": active_slot_metadata,
                 "llm_outputs": outputs,
                 "trace_steps": (state.get("trace_steps") or [])
                 + [

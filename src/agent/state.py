@@ -54,6 +54,7 @@ class AgentState(TypedDict, total=False):
     user_id: str
     role: str
     active_slots: ActiveSlots
+    active_slot_metadata: dict[str, Any] | None
     last_intent: str | None
     last_recommendation_summary: LastRecommendationSummary | None
     evidence_refs: list[EvidenceRef]
