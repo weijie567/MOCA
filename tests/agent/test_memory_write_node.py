@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.agent.nodes import memory_write as memory_write_module
 from src.agent.nodes.memory_write import memory_write
 from src.agent.trace import write_agent_run
-from src.db.models import AgentTraceEvent
+from src.db.models import AgentTraceEvent, SessionMemory
 from src.memory.schemas import SessionMemoryWriteResult
 
 
@@ -176,6 +176,58 @@ async def test_memory_write_timeout_rolls_back_started_event_before_scheduler_co
     assert result["memory_write_result"]["status"] == "skipped"
     assert result["memory_write_result"]["reason_code"] == "write_timeout"
     assert rows == []
+
+
+async def test_memory_write_initial_insert_uses_configured_slot_ttl_for_row_expiry(
+    session: AsyncSession,
+    seeded_session: dict,
+    monkeypatch,
+):
+    monkeypatch.setattr(memory_write_module.settings, "session_memory_ttl_seconds", 5)
+    user = seeded_session["users"]["cs_zhang"]
+    run_id = str(uuid4())
+    thread_id = "thread-memory-write-configured-ttl"
+    await write_agent_run(
+        session,
+        run_id=run_id,
+        thread_id=thread_id,
+        tenant_id=str(user.tenant_id),
+        user_id=str(user.id),
+        input_query="remember order",
+        final_status="completed",
+        final_response="done",
+        started_at=datetime.now(UTC),
+        completed_at=datetime.now(UTC),
+        total_latency_ms=1,
+    )
+    await session.commit()
+    before_write = datetime.now(UTC)
+
+    result = await memory_write(
+        _state(
+            tenant_id=str(user.tenant_id),
+            user_id=str(user.id),
+            thread_id=thread_id,
+            current_run_id=run_id,
+            extracted_slots={"order_id": "ORD-TTL-NODE"},
+        ),
+        {"configurable": {"session": session, "trace_id": "ttl-row-test"}},
+    )
+    await session.commit()
+    row = (
+        await session.execute(
+            select(SessionMemory).where(
+                SessionMemory.tenant_id == user.tenant_id,
+                SessionMemory.user_id == user.id,
+                SessionMemory.thread_id == thread_id,
+                SessionMemory.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one()
+    assert result["memory_write_result"]["status"] == "written"
+    assert row.expires_at is not None
+    expires_at = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=UTC)
+    assert before_write < expires_at <= before_write + timedelta(seconds=6)
 
 
 async def test_memory_write_prohibited_pii_skips_without_persisting(monkeypatch):
