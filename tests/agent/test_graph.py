@@ -328,6 +328,7 @@ async def test_same_thread_session_memory_active_slots_feed_investigate(monkeypa
     assert final_state["active_slot_metadata"]["order_id"]["explicit_current_turn"] is False
     assert final_state["extracted_slots"]["order_id"] is None
     assert final_state["business_context"]["facts"]["order"]["order_no"] == "ORD-SESSION-001"
+    assert "session_memory_load" in [step["node"] for step in final_state["trace_steps"]]
     assert [call[0] for call in deps["tool_manager"].calls] == ["get_order", "search_policy"]
     assert deps["tool_manager"].calls[0][1]["order_no"] == "ORD-SESSION-001"
     assert final_state["final_response"]
