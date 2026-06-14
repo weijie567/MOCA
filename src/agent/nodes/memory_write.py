@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -12,10 +13,19 @@ from src.agent.state import AgentState
 from src.config import settings
 from src.memory.repository import SessionMemoryRepository
 from src.memory.schemas import SessionMemoryWriteCandidate, SessionMemoryWriteResult, SessionSlotV1
-from src.memory.service import MemoryService
+from src.memory.service import BLOCKED_PII_CLASSIFICATIONS, MemoryService
 
 
 _PROHIBITED_PII_MARKERS = {"身份证", "手机号", "password", "secret"}
+_SENSITIVE_PII_PATTERNS = (
+    re.compile(r"(?<!\d)(?:\+?86[-\s]?)?1[3-9]\d{9}(?!\d)"),
+    re.compile(r"(?<!\d)\d{17}[\dXx](?!\w)"),
+    re.compile(
+        r"\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|credential|passwd|pwd)\b\s*[:=]\s*\S+",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bbearer\s+[A-Za-z0-9._~+/=-]{12,}", re.IGNORECASE),
+)
 
 
 def _now_iso() -> str:
@@ -106,7 +116,7 @@ def _build_candidate(state: AgentState) -> SessionMemoryWriteCandidate:
     intent = state.get("primary_intent") or state.get("current_intent")
     explicit_slots = _explicit_slots(state, run_id, intent, now)
     pii_classification = _classify_pii(state, explicit_slots)
-    decision = "skip" if pii_classification == "prohibited" else "write"
+    decision = "skip" if pii_classification in BLOCKED_PII_CLASSIFICATIONS else "write"
     reason_code = "pii_blocked" if decision == "skip" else "eligible"
     session_memory = state.get("session_memory") if isinstance(state.get("session_memory"), dict) else {}
     expected_version = session_memory.get("version") if isinstance(session_memory.get("version"), int) else None
@@ -182,6 +192,8 @@ def _classify_pii(state: AgentState, explicit_slots: dict[str, SessionSlotV1]) -
     text = " ".join(values).lower()
     if any(marker.lower() in text for marker in _PROHIBITED_PII_MARKERS):
         return "prohibited"
+    if any(pattern.search(text) for pattern in _SENSITIVE_PII_PATTERNS):
+        return "sensitive"
     return "none"
 
 

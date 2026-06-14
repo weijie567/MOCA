@@ -352,3 +352,35 @@ async def test_write_decision_subset_is_observable(session: AsyncSession, seeded
     assert result.reason_code == "pii_blocked"
     assert result.status == "skipped"
     assert view.continuity_claimed is False
+
+
+@pytest.mark.asyncio
+async def test_service_blocks_sensitive_pii_even_when_candidate_requests_write(
+    session: AsyncSession, seeded_session: dict
+) -> None:
+    repository = SessionMemoryRepository(session)
+    service = MemoryService(repository)
+
+    result = await service.write_session_memory(
+        _candidate(
+            seeded_session,
+            thread_id="thread-service-sensitive-pii",
+            run_id=await _insert_run(session, seeded_session, "thread-service-sensitive-pii"),
+            slots={"order_id": _slot("13800138000")},
+            pii_classification="sensitive",
+            decision="write",
+            reason_code="eligible",
+        )
+    )
+    view = await service.load_session_memory(
+        seeded_session["tenant"].id,
+        seeded_session["users"]["cs_zhang"].id,
+        "thread-service-sensitive-pii",
+        current_intent="refund_troubleshooting",
+    )
+
+    assert result.status == "skipped"
+    assert result.decision == "skip"
+    assert result.reason_code == "pii_blocked"
+    assert result.pii_classification == "sensitive"
+    assert view.continuity_claimed is False

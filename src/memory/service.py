@@ -16,6 +16,7 @@ from src.memory.schemas import (
 
 
 _SUMMARY_CAP = 2000
+BLOCKED_PII_CLASSIFICATIONS = {"sensitive", "prohibited"}
 
 
 class MemoryService:
@@ -94,8 +95,10 @@ class MemoryService:
     ) -> SessionMemoryWriteResult:
         if not self.enabled:
             return _write_result(candidate, status="disabled", reason_code="disabled", fallback_reason="disabled")
-        if candidate.decision == "skip" or candidate.pii_classification == "prohibited":
-            reason_code = "pii_blocked" if candidate.pii_classification == "prohibited" else candidate.reason_code
+        if candidate.decision == "skip" or candidate.pii_classification in BLOCKED_PII_CLASSIFICATIONS:
+            reason_code = (
+                "pii_blocked" if candidate.pii_classification in BLOCKED_PII_CLASSIFICATIONS else candidate.reason_code
+            )
             return _write_result(candidate, status="skipped", decision="skip", reason_code=reason_code)
 
         now = _aware(now)

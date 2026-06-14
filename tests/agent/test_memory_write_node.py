@@ -4,6 +4,8 @@ import asyncio
 import time
 from uuid import uuid4
 
+import pytest
+
 from src.agent.nodes import memory_write as memory_write_module
 from src.agent.nodes.memory_write import memory_write
 from src.memory.schemas import SessionMemoryWriteResult
@@ -146,4 +148,37 @@ async def test_memory_write_prohibited_pii_skips_without_persisting(monkeypatch)
     assert result["memory_write_result"]["status"] == "skipped"
     assert result["memory_write_result"]["decision"] == "skip"
     assert result["memory_write_result"]["pii_classification"] == "prohibited"
+    assert result["memory_write_result"]["reason_code"] == "pii_blocked"
+
+
+@pytest.mark.parametrize("raw_identifier", ["13800138000", "110101199001011234", "api_key=sk_test_1234567890"])
+async def test_memory_write_raw_sensitive_pii_skips_without_persisting(monkeypatch, raw_identifier: str):
+    called = False
+
+    class FakeMemoryService:
+        def __init__(self, repository, *, enabled: bool = True) -> None:
+            pass
+
+        async def write_session_memory(self, candidate):
+            nonlocal called
+            called = True
+            return SessionMemoryWriteResult(
+                status="written",
+                version=4,
+                decision="write",
+                reason_code="eligible",
+                pii_classification="none",
+            )
+
+    monkeypatch.setattr(memory_write_module, "MemoryService", FakeMemoryService)
+
+    result = await memory_write(
+        _state(extracted_slots={"order_id": raw_identifier}),
+        {"configurable": {"session": object()}},
+    )
+
+    assert called is False
+    assert result["memory_write_result"]["status"] == "skipped"
+    assert result["memory_write_result"]["decision"] == "skip"
+    assert result["memory_write_result"]["pii_classification"] == "sensitive"
     assert result["memory_write_result"]["reason_code"] == "pii_blocked"
