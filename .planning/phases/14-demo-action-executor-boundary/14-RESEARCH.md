@@ -11,11 +11,12 @@
 ## Implementation Decisions
 
 ### Draft Schema and Migration
-- **D-01:** Implement the full target `action_draft.v2` schema for new Phase 14 drafts. This includes self-describing draft fields such as `schema_version`, `action_payload_hash`, `safety_snapshot_ref`, `safety_snapshot_hash`, `draft_outcome`, version/lifecycle/retention fields, and existing approval linkage where applicable.
+- **D-01:** Implement the Phase 14 `action_draft.v2` persistence shape for new Phase 14 drafts. This includes self-describing draft fields such as `schema_version`, `action_payload_hash`, `safety_snapshot_ref`, `safety_snapshot_hash`, `draft_outcome`, version/lifecycle/retention fields, and existing approval linkage where applicable.
 - **D-02:** Treat Phase 14 schema work as draft-row persistence and replay readiness, not a reimplementation of Phase 13 validation. Current `ActionService` already requires binding fields and validates them against `ActionSafetySnapshot`; Phase 14 persists those validated fields on the draft row.
 - **D-03:** Persist `draft_outcome.v1` on `action_drafts`. Demo outcome must carry `status=not_executed_demo` and `external_side_effect=false`.
 - **D-04:** Do not backfill legacy draft rows into complete `action_draft.v2`. New columns may be nullable for old rows; contract tests should assert v2 completeness only for drafts created after Phase 14. Old pre-v2 rows are not an authorization surface.
 - **D-05:** Do not create `action_executions`, outbox, reconciliation, or compensation tables in Phase 14. Add negative tests proving demo mode writes no execution rows or external-only records.
+- **D-28:** Keep the spec/phase boundary explicit in implementation and coverage artifacts. `docs/contract-spec.md` remains the normative contract source; Phase 14 implementation extensions such as `target_id`, `approval_revision_ref`, `execution_mode`, `draft_version`, `lifecycle_status`, `retention_policy`, and persisted `draft_outcome` must be documented as implementation fields unless a separate spec revision updates the contract.
 
 ### Compatibility Output and Wording
 - **D-06:** Prefer `draft_outcome.v1` as the graph/API success signal for draft creation. Any retained `action_result` field is deprecated compatibility output only and must not use `status=success` to imply external execution.
@@ -49,6 +50,7 @@
 
 ### the agent's Discretion
 - Exact column names may follow `docs/contract-spec.md` target names and existing SQLAlchemy conventions.
+- If existing storage uses `payload`/`payload_json` for the contract `proposed_action` body, the executor must document that mapping in `14-COVERAGE.md` instead of treating the naming difference as either a contract change or an omitted field.
 - Exact compatibility shim shape is planner discretion, but only if it satisfies D-19 and D-22.
 - Exact test file split may follow current tests under `tests/test_execute_action.py`, `tests/agent/test_tools/`, `tests/test_trace_api.py`, and approval integration tests.
 
