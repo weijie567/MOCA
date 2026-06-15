@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     session_memory_ttl_seconds: int = 1800
     session_memory_summary_max_chars: int = 500
     session_memory_write_timeout_seconds: float = 0.5
+    # Phase 15 owns enabling the active SLA scanner after replay/allocator gates pass.
+    approval_sla_scanner_enabled: bool = Field(
+        default=False,
+        description="Backed by APPROVAL_SLA_SCANNER_ENABLED; false by default for Phase 13.",
+    )
 
     @property
     def checkpointer_database_url(self) -> str:
