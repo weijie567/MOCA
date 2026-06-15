@@ -40,19 +40,44 @@ def route_after_risk(state: AgentState) -> str:
     """Route based on risk assessment and proposed action."""
     risk = state.get("risk_assessment") or {}
     proposed = state.get("proposed_action")
+    if not proposed:
+        return "final_response"
+    if not _snapshot_binding_ready(state):
+        return "final_response"
+    if state.get("safety_snapshot_verified") is not True:
+        return "final_response"
     if risk.get("approval_required"):
         return "approval_gate"
-    if proposed:
-        return "execute_action"
-    return "final_response"
+    return "execute_action"
 
 
 def route_after_approval(state: AgentState) -> str:
-    """Route after approval decision. Both approve and reject resume the graph."""
+    """Route after a trusted ApprovalService resume result."""
     result = state.get("approval_result") or {}
-    if result.get("decision") == "approve":
+    if result.get("schema_version") != "approval_result.v1":
+        return "final_response"
+    decision_type = result.get("decision_type")
+    status = result.get("status")
+    if decision_type in {"accept", "approve"} and status == "approved" and _approval_hashes_match(state, result):
         return "execute_action"
+    if decision_type in {"accept", "approve"} and status == "pending":
+        return "approval_gate"
     return "final_response"
+
+
+def _snapshot_binding_ready(state: AgentState) -> bool:
+    return all(
+        bool(state.get(field))
+        for field in ("action_payload_hash", "safety_snapshot_ref", "safety_snapshot_hash")
+    )
+
+
+def _approval_hashes_match(state: AgentState, result: dict) -> bool:
+    return (
+        result.get("action_payload_hash") == state.get("action_payload_hash")
+        and result.get("safety_snapshot_ref") == state.get("safety_snapshot_ref")
+        and result.get("safety_snapshot_hash") == state.get("safety_snapshot_hash")
+    )
 
 
 def build_graph(checkpointer: AsyncPostgresSaver):
@@ -119,6 +144,7 @@ def build_graph(checkpointer: AsyncPostgresSaver):
         "approval_gate",
         route_after_approval,
         {
+            "approval_gate": "approval_gate",
             "execute_action": "execute_action",
             "final_response": "final_response",
         },

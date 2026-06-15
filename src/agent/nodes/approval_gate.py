@@ -29,6 +29,7 @@ async def approval_gate(state: AgentState) -> dict:
     risk = state.get("risk_assessment") or {}
     proposed = state.get("proposed_action") or {}
 
+    # interrupt_payload proposed_action is display-only; ApprovalService owns persistence.
     interrupt_payload = {
         "run_id": state.get("current_run_id"),
         "tenant_id": state.get("tenant_id"),
@@ -37,10 +38,25 @@ async def approval_gate(state: AgentState) -> dict:
         "risk_level": risk.get("risk_level"),
         "risk_reason": risk.get("risk_reason"),
         "risk_rule_ref": risk.get("rule_ref"),
+        "approval_revision_refs": state.get("approval_revision_refs") or [],
+        "action_payload_hash": state.get("action_payload_hash"),
+        "safety_snapshot_ref": state.get("safety_snapshot_ref"),
+        "safety_snapshot_hash": state.get("safety_snapshot_hash"),
+        "policy_config_version": state.get("policy_config_version"),
+        "risk_config_version": state.get("risk_config_version"),
+        "retrieval_config_version": state.get("retrieval_config_version"),
+        "evidence_refs": state.get("evidence_refs") or [],
+        "allowed_decision_types": ["accept", "approve", "reject", "ignore"],
         "expires_at": (datetime.now(UTC) + timedelta(hours=APPROVAL_TIMEOUT_HOURS)).isoformat(),
     }
 
     decision = interrupt(interrupt_payload)
+    if not isinstance(decision, dict) or decision.get("schema_version") != "approval_result.v1":
+        return {
+            "approval_result": None,
+            "final_response": "审批结果无效，已停止执行高风险操作。",
+            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("error", started_at)],
+        }
 
     return {
         "approval_result": decision,

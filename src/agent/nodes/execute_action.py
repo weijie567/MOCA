@@ -77,8 +77,13 @@ async def execute_action(state: AgentState, config: RunnableConfig) -> dict:
     proposed = state.get("proposed_action") or {}
     approval = state.get("approval_result") or {}
     risk = state.get("risk_assessment") or {}
+    approval_accepted = (
+        approval.get("schema_version") == "approval_result.v1"
+        and approval.get("decision_type") in {"accept", "approve"}
+        and approval.get("status") == "approved"
+    )
 
-    if risk.get("approval_required") and approval.get("decision") != "approve":
+    if risk.get("approval_required") and not approval_accepted:
         return {
             "action_result": {
                 "status": "error",
@@ -123,7 +128,10 @@ async def execute_action(state: AgentState, config: RunnableConfig) -> dict:
         max_attempts=1,
         idempotency_key=idempotency_key,
         approval_ref=approval.get("approval_id"),
-        safety_snapshot_ref=(risk.get("safety_snapshot_ref") or risk.get("snapshot_ref")),
+        safety_snapshot_ref=state.get("safety_snapshot_ref")
+        or approval.get("safety_snapshot_ref")
+        or risk.get("safety_snapshot_ref")
+        or risk.get("snapshot_ref"),
         policy_snapshot_ref=None,
     )
     args = {"action_type": action_type, "payload": proposed}

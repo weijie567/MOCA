@@ -134,14 +134,17 @@ def _approval_outcome_text(
     action_result: dict[str, Any] | None,
 ) -> str:
     if approval_result:
-        if approval_result.get("decision") == "approve" and action_result:
+        decision_type = approval_result.get("decision_type") or approval_result.get("decision")
+        if decision_type in {"accept", "approve"} and action_result:
             if action_result.get("status") == "success":
                 draft_id = (action_result.get("data") or {}).get("draft_id", "unknown")
                 return f"审批结果：操作已审批通过，补偿草稿已创建（草稿ID：{draft_id}），等待最终发放。"
             message = (action_result.get("error") or {}).get("message", "unknown error")
             return f"审批结果：操作已审批通过，但执行失败：{message}。"
-        if approval_result.get("decision") == "reject":
+        if decision_type in {"reject", "ignore"}:
             reason = approval_result.get("reason") or "No reason provided"
+            if decision_type == "ignore":
+                return f"审批结果：操作被取消。原因：{reason}。"
             return f"审批结果：操作被审核人拒绝。拒绝原因：{reason}。"
 
     if not approval_result and action_result and action_result.get("status") == "success":

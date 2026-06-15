@@ -93,6 +93,15 @@ class AgentState(TypedDict, total=False):
     # Phase 4: approval workflow fields.
     proposed_action: dict[str, Any] | None
     approval_result: dict[str, Any] | None
+    approval_revision_refs: list[dict[str, Any]] | None
+    action_payload_hash: str | None
+    safety_snapshot_ref: str | None
+    safety_snapshot_hash: str | None
+    safety_snapshot_verified: bool | None
+    policy_config_version: str | None
+    risk_config_version: str | None
+    retrieval_config_version: str | None
+    auto_allowed: bool | None
     action_result: dict[str, Any] | None
 
     # Phase 7: dormant investigation contracts for future bounded investigator phases.
