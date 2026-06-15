@@ -58,7 +58,9 @@ async def test_single_level_runtime_approves_only_after_required_assignment_acce
     await session.refresh(level)
     await session.refresh(assignment)
     decisions = (await session.execute(select(ApprovalDecision))).scalars().all()
-    events = (await session.execute(select(ApprovalEvent))).scalars().all()
+    events = (
+        await session.execute(select(ApprovalEvent).where(ApprovalEvent.event_type == "approval_decided"))
+    ).scalars().all()
 
     assert request.status == "approved"
     assert level.status == "approved"

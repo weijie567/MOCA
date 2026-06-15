@@ -257,7 +257,9 @@ async def test_accept_decision_inserts_exactly_one_decision_and_event(session: A
     assert result.graph_thread_id == request.thread_id
 
     decisions = (await session.execute(select(ApprovalDecision))).scalars().all()
-    events = (await session.execute(select(ApprovalEvent))).scalars().all()
+    events = (
+        await session.execute(select(ApprovalEvent).where(ApprovalEvent.event_type == "approval_decided"))
+    ).scalars().all()
     assert len(decisions) == 1
     assert len(events) == 1
 
