@@ -283,6 +283,29 @@ async def test_list_pending_requests_excludes_expired_and_terminal_approvals(
             decision_type="approve",
         )
     )
+    legacy_run_id = await _create_run(
+        session,
+        tenant_id=seeded_session["tenant"].id,
+        user_id=seeded_session["users"]["cs_zhang"].id,
+        thread_id="approval-pending-legacy",
+    )
+    legacy = ApprovalRequest(
+        tenant_id=seeded_session["tenant"].id,
+        run_id=legacy_run_id,
+        thread_id="approval-pending-legacy",
+        schema_version="approval_request.v1",
+        status="pending",
+        revision=1,
+        version=1,
+        legacy_non_executable=True,
+        requested_by=seeded_session["users"]["cs_zhang"].id,
+        proposed_action=future.proposed_action,
+        risk_level="high",
+        risk_rule_ref="legacy:manual-review",
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    session.add(legacy)
+    await session.flush()
 
     pending = await ApprovalService(session).list_pending_requests(seeded_session["tenant"].id)
     pending_ids = {row.id for row in pending}
@@ -290,6 +313,7 @@ async def test_list_pending_requests_excludes_expired_and_terminal_approvals(
     assert future.id in pending_ids
     assert expired.id not in pending_ids
     assert approved.id not in pending_ids
+    assert legacy.id not in pending_ids
 
 
 @pytest.mark.asyncio

@@ -31,11 +31,7 @@ async def decide_approval(
     session: AsyncSession = Depends(get_session),
     user: User = Security(get_current_user, scopes=["approvals:review"]),
 ) -> ApiResponse:
-    if user.role not in APPROVAL_ROLES:
-        raise HTTPException(
-            status_code=403,
-            detail={"code": "FORBIDDEN", "message": "Insufficient role for approval"},
-        )
+    _assert_approval_reviewer(user)
 
     approval_uuid = _parse_approval_id(approval_id)
     service = ApprovalService(session)
@@ -99,11 +95,7 @@ async def attach_approval_info(
     session: AsyncSession = Depends(get_session),
     user: User = Security(get_current_user, scopes=["approvals:review"]),
 ) -> ApiResponse:
-    if user.role not in APPROVAL_ROLES:
-        raise HTTPException(
-            status_code=403,
-            detail={"code": "FORBIDDEN", "message": "Insufficient role for approval"},
-        )
+    _assert_approval_reviewer(user)
 
     approval_uuid = _parse_approval_id(approval_id)
     command = ApprovalInfoCommand(
@@ -144,6 +136,7 @@ async def get_approval(
     session: AsyncSession = Depends(get_session),
     user: User = Security(get_current_user, scopes=["approvals:review"]),
 ) -> ApiResponse:
+    _assert_approval_reviewer(user)
     approval = await ApprovalService(session).get_request(_parse_approval_id(approval_id), user.tenant_id)
     if not approval:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Approval not found"})
@@ -160,6 +153,7 @@ async def list_pending_approvals(
     session: AsyncSession = Depends(get_session),
     user: User = Security(get_current_user, scopes=["approvals:review"]),
 ) -> ApiResponse:
+    _assert_approval_reviewer(user)
     approvals = await ApprovalService(session).list_pending_requests(user.tenant_id)
     payload = ApprovalListResponse(approvals=[_to_response(approval) for approval in approvals], total=len(approvals))
     return ApiResponse(
@@ -206,6 +200,14 @@ async def _resume_graph_after_decision(*, request: Request, session: AsyncSessio
 
 def _should_resume_graph(result) -> bool:
     return bool(result.resume_payload) and result.decision_type in {"accept", "approve", "reject", "ignore"}
+
+
+def _assert_approval_reviewer(user: User) -> None:
+    if user.role not in APPROVAL_ROLES:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "FORBIDDEN", "message": "Insufficient role for approval"},
+        )
 
 
 def _approval_http_error(exc: ApprovalTransitionError) -> HTTPException:

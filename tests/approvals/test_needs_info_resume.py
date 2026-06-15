@@ -254,6 +254,39 @@ async def test_attach_info_changed_payload_supersedes_old_revision(session: Asyn
 
 
 @pytest.mark.asyncio
+async def test_attach_info_malformed_changed_payload_fails_closed_without_orphans(
+    session: AsyncSession,
+    seeded_session,
+):
+    request, level, assignment = await _approval_bundle(session, seeded_session)
+    actor_id = seeded_session["users"]["approval_manager"].id
+    await _respond(session, request, level, assignment, actor_id=actor_id)
+    malformed_action = {**_changed_action(request), "amount": 88.0}
+    before_decisions = await session.scalar(select(func.count()).select_from(ApprovalDecision))
+    before_events = await session.scalar(select(func.count()).select_from(ApprovalEvent))
+
+    with pytest.raises(ApprovalTransitionError) as exc:
+        await ApprovalService(session).attach_info(
+            _info_command(
+                request,
+                actor_id=actor_id,
+                info_payload={"response_text": "confirmed", "proposed_action": malformed_action},
+            )
+        )
+
+    await session.refresh(request)
+    await session.refresh(level)
+    await session.refresh(assignment)
+    assert exc.value.code == "approval_not_executable"
+    assert request.status == "needs_info"
+    assert level.status == "pending"
+    assert assignment.status == "pending"
+    assert await session.scalar(select(func.count()).select_from(ApprovalDecision)) == before_decisions
+    assert await session.scalar(select(func.count()).select_from(ApprovalEvent)) == before_events
+    assert await _active_revision_count(session, request) == 1
+
+
+@pytest.mark.asyncio
 async def test_attach_info_changed_payload_emits_replay_linked_requested_event(
     session: AsyncSession,
     seeded_session,

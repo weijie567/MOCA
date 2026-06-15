@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,6 +32,7 @@ from src.approvals.snapshot_service import (
     ActionSafetySnapshotPersistenceError,
     persist_action_safety_snapshot,
 )
+from src.common.canonical_hash import CanonicalHashError
 from src.db.models import ApprovalAssignment, ApprovalLevel, ApprovalRequest
 from src.knowledge.schemas import EvidenceRefV1, canonical_evidence_projection
 
@@ -137,6 +139,8 @@ class ApprovalService:
             select(ApprovalRequest)
             .where(
                 ApprovalRequest.tenant_id == tenant_id,
+                ApprovalRequest.schema_version == "approval_request.v2",
+                ApprovalRequest.legacy_non_executable.is_(False),
                 ApprovalRequest.status == "pending",
                 ApprovalRequest.expires_at > datetime.now(UTC),
             )
@@ -223,6 +227,8 @@ class ApprovalService:
             raise ApprovalTransitionError("approval_conflict") from exc
         except ApprovalPolicyError as exc:
             raise ApprovalTransitionError(exc.code, str(exc)) from exc
+        except (ActionSafetySnapshotPersistenceError, CanonicalHashError, ValidationError) as exc:
+            raise ApprovalTransitionError("approval_not_executable", str(exc)) from exc
 
     async def attach_info(self, command: ApprovalInfoCommand) -> ApprovalInfoResult:
         try:
@@ -272,6 +278,8 @@ class ApprovalService:
             raise ApprovalTransitionError("approval_conflict") from exc
         except ApprovalPolicyError as exc:
             raise ApprovalTransitionError(exc.code, str(exc)) from exc
+        except (ActionSafetySnapshotPersistenceError, CanonicalHashError, ValidationError) as exc:
+            raise ApprovalTransitionError("approval_not_executable", str(exc)) from exc
 
     async def expire_due_request(
         self,

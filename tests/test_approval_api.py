@@ -509,12 +509,53 @@ async def test_get_approval_returns_v2_details(client: AsyncClient, session: Asy
 
 
 @pytest.mark.asyncio
+async def test_get_approval_rejects_over_scoped_non_reviewer_token(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+):
+    bundle = await _create_approval(session, seeded_session)
+    support = seeded_session["users"]["cs_zhang"]
+
+    response = await client.get(
+        f"/api/v1/approvals/{bundle.approval.id}",
+        headers=_auth_header(support, ["approvals:review"]),
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "FORBIDDEN"
+
+
+@pytest.mark.asyncio
 async def test_list_pending_approvals_returns_unexpired_pending_only(
     client: AsyncClient, session: AsyncSession, seeded_session
 ):
     pending = await _create_approval(session, seeded_session)
     expired = await _create_approval(session, seeded_session, expires_at=datetime.now(UTC) - timedelta(minutes=1))
     approved = await _create_approval(session, seeded_session, status="approved")
+    legacy_run_id = await _create_run(
+        session,
+        tenant_id=seeded_session["tenant"].id,
+        user_id=seeded_session["users"]["cs_zhang"].id,
+        thread_id="approval-legacy-pending",
+    )
+    legacy = ApprovalRequest(
+        tenant_id=seeded_session["tenant"].id,
+        run_id=legacy_run_id,
+        thread_id="approval-legacy-pending",
+        schema_version="approval_request.v1",
+        status="pending",
+        revision=1,
+        version=1,
+        legacy_non_executable=True,
+        requested_by=seeded_session["users"]["cs_zhang"].id,
+        proposed_action=pending.approval.proposed_action,
+        risk_level="high",
+        risk_rule_ref="legacy:manual-review",
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    session.add(legacy)
+    await session.commit()
 
     response = await client.get("/api/v1/approvals", headers=await _manager_headers(client))
     payload = response.json()
@@ -524,6 +565,20 @@ async def test_list_pending_approvals_returns_unexpired_pending_only(
     assert str(pending.approval.id) in ids
     assert str(expired.approval.id) not in ids
     assert str(approved.approval.id) not in ids
+    assert str(legacy.id) not in ids
+
+
+@pytest.mark.asyncio
+async def test_list_pending_approvals_rejects_over_scoped_non_reviewer_token(
+    client: AsyncClient,
+    seeded_session,
+):
+    support = seeded_session["users"]["cs_zhang"]
+
+    response = await client.get("/api/v1/approvals", headers=_auth_header(support, ["approvals:review"]))
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "FORBIDDEN"
 
 
 @pytest.mark.asyncio

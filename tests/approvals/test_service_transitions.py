@@ -456,6 +456,32 @@ async def test_wrong_level_request_binding_rolls_back_without_orphans(session: A
     )
 
 
+@pytest.mark.asyncio
+async def test_malformed_edit_action_returns_transition_error_without_orphans(
+    session: AsyncSession,
+    seeded_session,
+):
+    request, level, assignment = await _approval_bundle(session, seeded_session)
+    actor_id = seeded_session["users"]["approval_manager"].id
+    malformed_action = {
+        **request.proposed_action,
+        "amount": 88.0,
+    }
+
+    await _assert_transition_error(
+        session,
+        _decision_command(
+            request,
+            level,
+            assignment,
+            actor_id=actor_id,
+            decision_type="edit",
+            edited_action=malformed_action,
+        ),
+        code="approval_not_executable",
+    )
+
+
 def test_create_request_rejects_missing_risk_context_before_persistence(seeded_session):
     tenant_id = seeded_session["tenant"].id
     requested_by = seeded_session["users"]["cs_zhang"].id
