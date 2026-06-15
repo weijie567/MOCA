@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
+from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError
 from sqlalchemy import Index, UniqueConstraint
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.schema import ColumnCollectionConstraint
 
+from src.actions.drafts import ActionDraftStore
 from src.actions.schemas import ActionDraftV2Data, DraftOutcomeV1
+from src.agent.trace import write_agent_run
 
 
 MIGRATION_PATH = Path("src/db/migrations/versions/009_action_draft_v2.py")
@@ -53,6 +58,67 @@ def _draft_payload() -> dict[str, object]:
         "execution_mode": "demo",
         "draft_outcome": DraftOutcomeV1().model_dump(mode="json"),
     }
+
+
+async def _create_run(session: AsyncSession, *, tenant_id: UUID, user_id: UUID | None = None) -> UUID:
+    run_id = uuid4()
+    now = datetime.now(UTC)
+    await write_agent_run(
+        session,
+        run_id=str(run_id),
+        thread_id=f"action-draft-v2-{run_id}",
+        tenant_id=str(tenant_id),
+        user_id=str(user_id or uuid4()),
+        input_query="action draft v2 contract",
+        final_status="completed",
+        final_response="ok",
+        started_at=now,
+        completed_at=now,
+        total_latency_ms=1,
+    )
+    return run_id
+
+
+def _draft_outcome(*, tenant_id: UUID, run_id: UUID, draft_id: str | None = None) -> dict[str, object]:
+    return DraftOutcomeV1(
+        tenant_id=str(tenant_id),
+        run_id=str(run_id),
+        draft_id=draft_id,
+        created_at="2026-06-16T00:00:00.000Z",
+    ).model_dump(mode="json")
+
+
+async def _create_store_draft(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID | None = None,
+    run_id: UUID | None = None,
+    idempotency_key: str = "tenant:run:auto_allowed:issue_coupon:RF-1001:sha256-a",
+    target_id: str = "RF-1001",
+    action_payload_hash: str = "sha256:" + "a" * 64,
+    safety_snapshot_ref: str = "action_safety_snapshot/snap-1",
+    safety_snapshot_hash: str = "sha256:" + "b" * 64,
+):
+    tenant_uuid = tenant_id or uuid4()
+    run_uuid = run_id or await _create_run(session, tenant_id=tenant_uuid)
+    return await ActionDraftStore(session).create_or_get(
+        run_id=run_uuid,
+        tenant_id=tenant_uuid,
+        approval_request_id=None,
+        idempotency_key=idempotency_key,
+        action_type="issue_coupon",
+        target_id=target_id,
+        approval_revision_ref="auto_allowed",
+        action_payload_hash=action_payload_hash,
+        safety_snapshot_ref=safety_snapshot_ref,
+        safety_snapshot_hash=safety_snapshot_hash,
+        payload={"target_id": target_id, "amount": "25.00", "currency": "CNY"},
+        draft_outcome=_draft_outcome(tenant_id=tenant_uuid, run_id=run_uuid),
+        execution_mode="demo",
+        draft_version=1,
+        lifecycle_status="active",
+        retention_policy="phase14_demo_draft",
+    )
 
 
 def _table(name: str):
@@ -160,3 +226,50 @@ def test_migration_009_does_not_create_phase17_external_execution_surfaces():
 
     for forbidden in PHASE17_EXTERNAL_SURFACES:
         assert forbidden not in source
+
+
+@pytest.mark.asyncio
+async def test_action_draft_store_persists_v2_binding_and_outcome_fields(session: AsyncSession):
+    tenant_id = uuid4()
+    run_id = await _create_run(session, tenant_id=tenant_id)
+
+    draft, created = await _create_store_draft(session, tenant_id=tenant_id, run_id=run_id)
+
+    assert created is True
+    assert draft.schema_version == "action_draft.v2"
+    assert draft.target_id == "RF-1001"
+    assert draft.action_payload_hash == "sha256:" + "a" * 64
+    assert draft.safety_snapshot_ref == "action_safety_snapshot/snap-1"
+    assert draft.safety_snapshot_hash == "sha256:" + "b" * 64
+    assert draft.approval_revision_ref == "auto_allowed"
+    assert draft.execution_mode == "demo"
+    assert draft.draft_outcome["status"] == "not_executed_demo"
+    assert draft.draft_outcome["external_side_effect"] is False
+
+
+@pytest.mark.asyncio
+async def test_action_draft_store_exact_key_reuse_returns_existing_draft(session: AsyncSession):
+    tenant_id = uuid4()
+    run_id = await _create_run(session, tenant_id=tenant_id)
+
+    draft, created = await _create_store_draft(session, tenant_id=tenant_id, run_id=run_id)
+    reused, reused_created = await _create_store_draft(session, tenant_id=tenant_id, run_id=run_id)
+
+    assert created is True
+    assert reused_created is False
+    assert reused.id == draft.id
+
+
+@pytest.mark.asyncio
+async def test_action_draft_store_key_hit_with_mismatched_snapshot_hash_conflicts(session: AsyncSession):
+    tenant_id = uuid4()
+    run_id = await _create_run(session, tenant_id=tenant_id)
+    await _create_store_draft(session, tenant_id=tenant_id, run_id=run_id)
+
+    with pytest.raises(ValueError, match="idempotency_binding_conflict"):
+        await _create_store_draft(
+            session,
+            tenant_id=tenant_id,
+            run_id=run_id,
+            safety_snapshot_hash="sha256:" + "c" * 64,
+        )
