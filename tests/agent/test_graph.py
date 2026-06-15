@@ -34,7 +34,7 @@ ROUTER_EDGE_KEYS = {
     "route_after_intent": {"clarification_gate", "final_response", "investigate", "session_memory_load"},
     "route_after_slots": {"clarification_gate", "investigate", "long_term_memory_retrieve"},
     "route_after_risk": {"approval_gate", "execute_action", "final_response"},
-    "route_after_approval": {"execute_action", "final_response"},
+    "route_after_approval": {"assess_risk_and_approval", "execute_action", "final_response"},
     "route_after_investigate": {"final_response", "clarification_gate", "recommendation_generation"},
 }
 

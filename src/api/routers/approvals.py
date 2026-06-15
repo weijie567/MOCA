@@ -76,7 +76,7 @@ async def decide_approval(
     except ApprovalTransitionError as exc:
         raise _approval_http_error(exc) from exc
 
-    if result.resume_payload:
+    if _should_resume_graph(result):
         await _resume_graph_after_decision(
             request=request,
             session=session,
@@ -86,7 +86,7 @@ async def decide_approval(
     await session.commit()
     return ApiResponse(
         success=True,
-        data=_to_response(approval).model_dump(mode="json"),
+        data=_to_response(approval, result=result).model_dump(mode="json"),
         trace_id=getattr(request.state, "trace_id", None),
     )
 
@@ -158,6 +158,10 @@ async def _resume_graph_after_decision(*, request: Request, session: AsyncSessio
         )
 
 
+def _should_resume_graph(result) -> bool:
+    return bool(result.resume_payload) and result.decision_type in {"accept", "approve", "reject", "ignore"}
+
+
 def _approval_http_error(exc: ApprovalTransitionError) -> HTTPException:
     if exc.code == "approval_not_found":
         return HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Approval not found"})
@@ -177,7 +181,7 @@ def _parse_approval_id(approval_id: str) -> UUID:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Approval not found"}) from exc
 
 
-def _to_response(approval) -> ApprovalResponse:
+def _to_response(approval, *, result=None) -> ApprovalResponse:
     return ApprovalResponse(
         id=str(approval.id),
         run_id=str(approval.run_id),
@@ -187,6 +191,10 @@ def _to_response(approval) -> ApprovalResponse:
         action_payload_hash=approval.action_payload_hash,
         safety_snapshot_ref=approval.safety_snapshot_ref,
         safety_snapshot_hash=approval.safety_snapshot_hash,
+        clarification_request_id=approval.clarification_request_id,
+        superseded_by_request_id=str(approval.superseded_by_request_id) if approval.superseded_by_request_id else None,
+        new_action_payload_hash=getattr(result, "new_action_payload_hash", None) if result else None,
+        resume_route=(result.resume_payload or {}).get("resume_route") if result and result.resume_payload else None,
         requested_by=str(approval.requested_by),
         proposed_action=approval.proposed_action,
         risk_level=approval.risk_level,

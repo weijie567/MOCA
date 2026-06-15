@@ -58,6 +58,13 @@ def route_after_approval(state: AgentState) -> str:
         return "final_response"
     decision_type = result.get("decision_type")
     status = result.get("status")
+    if (
+        decision_type == "edit"
+        and status == "superseded"
+        and result.get("resume_route") == "assess_risk_and_approval"
+        and result.get("new_action_payload_hash")
+    ):
+        return "assess_risk_and_approval"
     if decision_type in {"accept", "approve"} and status == "approved" and _approval_hashes_match(state, result):
         return "execute_action"
     if decision_type in {"accept", "approve"} and status == "pending":
@@ -135,6 +142,7 @@ def build_graph(checkpointer: AsyncPostgresSaver):
         "assess_risk_and_approval",
         route_after_risk,
         {
+            "assess_risk_and_approval": "assess_risk_and_approval",
             "approval_gate": "approval_gate",
             "execute_action": "execute_action",
             "final_response": "final_response",

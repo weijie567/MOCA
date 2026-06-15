@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic_core import PydanticCustomError
 
 
 class DecideRequest(BaseModel):
@@ -20,6 +21,20 @@ class DecideRequest(BaseModel):
     edited_action: dict[str, Any] | None = None
     response_text: str | None = None
 
+    @model_validator(mode="after")
+    def _validate_decision_payload(self) -> DecideRequest:
+        if self.decision_type == "respond" and not self.response_text:
+            raise PydanticCustomError(
+                "response_text_required",
+                "response_text is required for respond decisions",
+            )
+        if self.decision_type == "edit" and not self.edited_action:
+            raise PydanticCustomError(
+                "edited_action_required",
+                "edited_action is required for edit decisions",
+            )
+        return self
+
 
 class ApprovalResponse(BaseModel):
     id: str
@@ -30,6 +45,10 @@ class ApprovalResponse(BaseModel):
     action_payload_hash: str | None
     safety_snapshot_ref: str | None
     safety_snapshot_hash: str | None
+    clarification_request_id: str | None = None
+    superseded_by_request_id: str | None = None
+    new_action_payload_hash: str | None = None
+    resume_route: str | None = None
     requested_by: str
     proposed_action: dict[str, Any]
     risk_level: str

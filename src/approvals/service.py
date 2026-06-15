@@ -152,9 +152,6 @@ class ApprovalService:
         return ApprovalDecisionContext(request=request, level=level, assignment=assignment)
 
     async def decide(self, command: ApprovalDecisionCommand) -> ApprovalDecisionResult:
-        if command.decision_type == "edit":
-            raise ApprovalTransitionError("not_implemented_for_plan_05")
-
         try:
             async with self.session.begin_nested():
                 request = await self.repository.lock_request(command.approval_id, command.tenant_id)
@@ -199,6 +196,8 @@ class ApprovalService:
 
                 if command.decision_type in {"accept", "approve"}:
                     return await self._approve(command, request, level, assignment)
+                if command.decision_type == "edit":
+                    return await self._edit(command, request, level, assignment)
                 if command.decision_type == "respond":
                     return await self._respond(command, request, level, assignment)
                 if command.decision_type == "reject":
@@ -409,6 +408,109 @@ class ApprovalService:
             reason=command.reason,
             clarification_request_id=clarification_request_id,
             include_resume_payload=False,
+        )
+
+    async def _edit(
+        self,
+        command: ApprovalDecisionCommand,
+        request: ApprovalRequest,
+        level: ApprovalLevel,
+        assignment: ApprovalAssignment,
+    ) -> ApprovalDecisionResult:
+        snapshot_row = await self.repository.get_snapshot_by_ref_or_hash(
+            tenant_id=request.tenant_id,
+            safety_snapshot_ref=request.safety_snapshot_ref,
+            safety_snapshot_hash=request.safety_snapshot_hash,
+        )
+        if snapshot_row is None:
+            raise ApprovalTransitionError("approval_not_executable")
+
+        proposed_action, evidence_refs = self._replacement_action_and_evidence(
+            request,
+            {"edited_action": command.edited_action},
+        )
+        snapshot = await persist_action_safety_snapshot(
+            self.session,
+            tenant_id=request.tenant_id,
+            run_id=request.run_id,
+            proposed_action=proposed_action,
+            action_payload_hash=None,
+            policy_config_version=snapshot_row.policy_config_version,
+            risk_config_version=snapshot_row.risk_config_version,
+            retrieval_config_version=snapshot_row.retrieval_config_version,
+            evidence_refs=evidence_refs,
+            created_at=self._fixed_millisecond_now(),
+            created_by=command.actor_id,
+            repository=self.repository,
+        )
+        decision = await self.repository.insert_decision(
+            request=request,
+            level=level,
+            assignment=assignment,
+            actor_id=command.actor_id,
+            decision_type=command.decision_type,
+            reason=command.reason,
+            edited_action=command.edited_action,
+        )
+        await self.repository.increment_assignment_version(assignment, status="skipped")
+        await self.repository.increment_level_version(level, status="skipped")
+        await self.repository.increment_request_version(request, status="superseded")
+        new_request, _new_level, _new_assignment, _event = await self.repository.create_request_with_single_level(
+            tenant_id=request.tenant_id,
+            run_id=request.run_id,
+            thread_id=request.thread_id,
+            requested_by=request.requested_by,
+            proposed_action=proposed_action,
+            approval_policy_id=request.approval_policy_id or "manual-review",
+            policy_version=request.policy_version or "policy.v1",
+            risk_level=request.risk_level,
+            risk_rule_ref=request.risk_rule_ref,
+            action_payload_hash=snapshot.action_payload_hash,
+            safety_snapshot_ref=snapshot.safety_snapshot_ref,
+            safety_snapshot_hash=snapshot.safety_snapshot_hash,
+            expires_at=request.expires_at,
+            required_role=level.required_role,
+            assigned_role=assignment.assigned_role,
+            level_mode=level.mode,
+            sla_due_at=level.sla_due_at or request.expires_at,
+            risk_reason=request.risk_reason,
+        )
+        request.superseded_by_request_id = new_request.id
+        await self.session.flush()
+        event = await self.repository.insert_approval_event(
+            request=request,
+            event_type="approval_edited",
+            decision=decision,
+            actor_id=command.actor_id,
+            level=level,
+            assignment=assignment,
+            metadata={
+                "decision_type": command.decision_type,
+                "resume_route": "assess_risk_and_approval",
+                "superseded_by_request_id": str(new_request.id),
+            },
+            resource_refs={
+                "old_action_payload_hash": request.action_payload_hash,
+                "old_safety_snapshot_ref": request.safety_snapshot_ref,
+                "old_safety_snapshot_hash": request.safety_snapshot_hash,
+                "new_action_payload_hash": new_request.action_payload_hash,
+                "new_safety_snapshot_ref": new_request.safety_snapshot_ref,
+                "new_safety_snapshot_hash": new_request.safety_snapshot_hash,
+            },
+        )
+        return self._result(
+            request=request,
+            level=level,
+            assignment=assignment,
+            actor_id=command.actor_id,
+            decision_id=decision.id,
+            event_id=event.id,
+            decision_type=command.decision_type,
+            reason=command.reason,
+            superseded_by_request_id=new_request.id,
+            new_action_payload_hash=new_request.action_payload_hash,
+            edited_action=command.edited_action,
+            resume_route="assess_risk_and_approval",
         )
 
     async def _terminal_decision(
