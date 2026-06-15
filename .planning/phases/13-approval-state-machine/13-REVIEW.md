@@ -1,6 +1,6 @@
 ---
 phase: 13-approval-state-machine
-reviewed: 2026-06-15T11:58:50Z
+reviewed: 2026-06-15T13:29:12Z
 depth: deep
 files_reviewed: 46
 files_reviewed_list:
@@ -52,112 +52,81 @@ files_reviewed_list:
   - tests/test_graph_routing.py
 findings:
   critical: 0
-  warning: 5
+  warning: 3
   info: 0
-  total: 5
+  total: 3
 status: issues_found
 ---
 
 # Phase 13: Code Review Report
 
-**Reviewed:** 2026-06-15T11:58:50Z
+**Reviewed:** 2026-06-15T13:29:12Z
 **Depth:** deep
 **Files Reviewed:** 46
 **Status:** issues_found
 
 ## Summary
 
-Deep review covered the Phase 13 approval state machine, graph/API resume paths, snapshot/hash binding, migrations, and approval tests. The core hash and service-transition contracts are well covered, but I found five warning-level issues around graph edge coverage, fail-closed user messaging, API decision exposure, SLA child-state consistency, and trace-event parity for needs-info supersedes.
+Deep refresh review covered the approval state machine, graph/API resume paths, migration/model contracts, snapshot/hash binding, event emission, and regression tests. The five prior warnings were verified fixed: edit routing is registered in the compiled graph, snapshot failure messaging is preserved, edit/respond are advertised in wait payloads, enabled SLA expiry updates request/level/assignment together, and needs-info supersede now emits a replay-linked replacement `approval_requested` event.
+
+Verification run: `uv run pytest tests/approvals tests/architecture/test_approval_boundaries.py tests/test_approval_api.py tests/test_approval_integration.py tests/test_approval_models.py tests/test_approval_gate.py tests/test_execute_action.py tests/test_graph_routing.py tests/agent/test_events.py -q --tb=short` passed with 208 tests and one upstream LangGraph deprecation warning.
 
 ## Warnings
 
-### WR-01: Edit Resume Route Has No Compiled Graph Edge
+### WR-01: Malformed Edit Or Info Payloads Can Escape As 500s
 
-**File:** `src/agent/graph.py:164`
-**Issue:** `route_after_approval()` can return `"assess_risk_and_approval"` for trusted edit/supersede results, and `ApprovalService._edit()` builds such a resume payload. The compiled conditional edge map for `approval_gate` only includes `approval_gate`, `execute_action`, and `final_response`, so an edit resume routed through the graph can fail instead of re-assessing the edited action. Tests cover the route function but not the compiled edge map.
+**File:** `src/approvals/service.py:213`
+**Issue:** Public `edit` and changed-material `/info` payloads are accepted as generic dictionaries, then `_edit()` and `_supersede_from_info()` pass them into canonical hashing/snapshot persistence at `src/approvals/service.py:448` and `src/approvals/service.py:635`. `decide()` and `attach_info()` only translate `ApprovalRepositoryConflict` and `ApprovalPolicyError`, so `CanonicalHashError`, `ActionSafetySnapshotPersistenceError`, or Pydantic `ValidationError` from malformed edited actions/evidence can bypass `_approval_http_error()` and surface as a server error instead of a controlled conflict/validation response.
 **Fix:**
 ```python
-    builder.add_conditional_edges(
-        "approval_gate",
-        route_after_approval,
-        {
-            "approval_gate": "approval_gate",
-            "assess_risk_and_approval": "assess_risk_and_approval",
-            "execute_action": "execute_action",
-            "final_response": "final_response",
-        },
+from pydantic import ValidationError
+from src.common.canonical_hash import CanonicalHashError
+
+# In decide() and attach_info(), after the existing domain-policy catches:
+except (ActionSafetySnapshotPersistenceError, CanonicalHashError, ValidationError) as exc:
+    raise ApprovalTransitionError("approval_not_executable", str(exc)) from exc
+```
+Add API/service tests for malformed `edited_action` and changed-material `info_payload` that assert a 409/422-style controlled response and no orphan decision/event rows.
+
+### WR-02: Pending Queue Includes Legacy Non-Executable Rows
+
+**File:** `src/approvals/service.py:135`
+**Issue:** `list_pending_requests()` filters only by tenant, `status == "pending"`, and `expires_at`. Migration 008 explicitly preserves legacy rows as `legacy_non_executable=True` / `schema_version='approval_request.v1'`, and those rows can remain pending and unexpired. The pending review queue can therefore show approvals that the state machine will fail closed on decision, producing confusing and non-actionable approval items.
+**Fix:**
+```python
+stmt = (
+    select(ApprovalRequest)
+    .where(
+        ApprovalRequest.tenant_id == tenant_id,
+        ApprovalRequest.schema_version == "approval_request.v2",
+        ApprovalRequest.legacy_non_executable.is_(False),
+        ApprovalRequest.status == "pending",
+        ApprovalRequest.expires_at > datetime.now(UTC),
     )
+    .order_by(ApprovalRequest.created_at.desc())
+)
 ```
+Add a regression test with a pending legacy row and assert `list_pending_requests()` and `GET /api/v1/approvals` exclude it.
 
-### WR-02: Snapshot Failure Response Is Overwritten
+### WR-03: Approval Read Endpoints Skip Current-Role Enforcement
 
-**File:** `src/agent/nodes/final_response.py:202`
-**Issue:** `assess_risk_and_approval` returns a fail-closed `final_response` when action safety snapshot persistence or verification fails, but `final_response()` ignores existing `state["final_response"]` except for clarification flows. The user can receive a normal recommendation instead of the intended "manual review/no executable draft" message.
+**File:** `src/api/routers/approvals.py:145`
+**Issue:** `decide_approval()` and `attach_approval_info()` enforce `APPROVAL_ROLES`, but `get_approval()` and `list_pending_approvals()` rely only on the token's `approvals:review` scope. Because `get_current_user()` validates scopes from the token and does not re-intersect them with the user's current DB role, a user whose role was downgraded while holding an unexpired approval-review token can still read approval details and the pending queue.
 **Fix:**
 ```python
-    blocked_response = state.get("final_response")
-    if blocked_response and state.get("safety_snapshot_verified") is False:
-        return {
-            "final_response": blocked_response,
-            "llm_outputs": {
-                **(state.get("llm_outputs") or {}),
-                "final_response": {
-                    "response_text": blocked_response,
-                    "evidence_citations": [],
-                    "final_status": "error",
-                    "mode": "deterministic-template",
-                    "approval_context": None,
-                },
-            },
-            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("error", started_at)],
-        }
-```
-
-### WR-03: Wait Payload Hides Supported Edit/Respond Decisions
-
-**File:** `src/api/routers/agent_runs.py:47`
-**Issue:** `DecideRequest` and `ApprovalService` support `edit` and `respond`, and tests cover both, but the wait payload and `approval_gate` interrupt payload advertise only `accept`, `approve`, `reject`, and `ignore`. Clients following `allowed_decision_types` cannot discover Phase 13 edit/respond workflows even though the API accepts them.
-**Fix:**
-```python
-APPROVAL_ALLOWED_DECISION_TYPES = ["accept", "approve", "edit", "respond", "reject", "ignore"]
-```
-Share this constant with `approval_gate` or deliberately remove `edit`/`respond` from the public request schema until they are meant to be client-visible.
-
-### WR-04: Enabled SLA Expiry Leaves Level And Assignment Pending
-
-**File:** `src/approvals/service.py:288`
-**Issue:** `expire_due_request()` marks only the `ApprovalRequest` as `expired`. The current `ApprovalLevel` and `ApprovalAssignment` remain `pending`, which leaves the state machine internally inconsistent when `APPROVAL_SLA_SCANNER_ENABLED=true` and can pollute pending assignment views/history.
-**Fix:**
-```python
-            if assignment is not None:
-                await self.repository.increment_assignment_version(assignment, status="expired")
-            if level is not None:
-                await self.repository.increment_level_version(level, status="expired")
-            await self.repository.increment_request_version(request, status="expired")
-```
-Add an enabled-scanner test that asserts request, level, and assignment all move to `expired`.
-
-### WR-05: Needs-Info Supersede Creates An Unlinked New Approval Event
-
-**File:** `src/approvals/service.py:653`
-**Issue:** `_supersede_from_info()` creates a replacement approval request through `create_request_with_single_level()`, which inserts an `approval_requested` row, but unlike `_edit()` it never calls `emit_approval_requested(existing_event=_event)`. The new active approval therefore has an `ApprovalEvent` with no `replay_event_id` and no minimal `approval_requested` trace event, breaking trace/replay parity for changed-material `attach_info` paths.
-**Fix:**
-```python
-        new_request, new_level, new_assignment, _event = await self.repository.create_request_with_single_level(...)
-        await emit_approval_requested(
-            self.session,
-            request=new_request,
-            level=new_level,
-            assignment=new_assignment,
-            actor_id=request.requested_by,
-            existing_event=_event,
-            metadata={"superseded_from_request_id": str(request.id)},
+def _assert_approval_reviewer(user: User) -> None:
+    if user.role not in APPROVAL_ROLES:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "FORBIDDEN", "message": "Insufficient role for approval"},
         )
+
+# Call this in get_approval() and list_pending_approvals() before reading rows.
 ```
-Add a needs-info supersede test that reloads the replacement `approval_requested` event and asserts `replay_event_id` points to an `AgentTraceEvent`.
+Add API tests that authenticate a non-approval role with an over-scoped or stale `approvals:review` token and assert both read endpoints return 403.
 
 ---
 
-_Reviewed: 2026-06-15T11:58:50Z_
+_Reviewed: 2026-06-15T13:29:12Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
