@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +15,8 @@ from src.approvals.repository import ApprovalRepository, ApprovalRepositoryConfl
 from src.approvals.schemas import (
     ApprovalDecisionCommand,
     ApprovalDecisionResult,
+    ApprovalInfoCommand,
+    ApprovalInfoResult,
     ApprovalRequestCreateCommand,
     ApprovalRequestCreateResult,
     TrustedApprovalResultV1,
@@ -24,6 +26,7 @@ from src.approvals.snapshot_service import (
     persist_action_safety_snapshot,
 )
 from src.db.models import ApprovalAssignment, ApprovalLevel, ApprovalRequest
+from src.knowledge.schemas import EvidenceRefV1, canonical_evidence_projection
 
 
 class ApprovalTransitionError(ValueError):
@@ -149,7 +152,7 @@ class ApprovalService:
         return ApprovalDecisionContext(request=request, level=level, assignment=assignment)
 
     async def decide(self, command: ApprovalDecisionCommand) -> ApprovalDecisionResult:
-        if command.decision_type in {"edit", "respond"}:
+        if command.decision_type == "edit":
             raise ApprovalTransitionError("not_implemented_for_plan_05")
 
         try:
@@ -196,11 +199,62 @@ class ApprovalService:
 
                 if command.decision_type in {"accept", "approve"}:
                     return await self._approve(command, request, level, assignment)
+                if command.decision_type == "respond":
+                    return await self._respond(command, request, level, assignment)
                 if command.decision_type == "reject":
                     return await self._terminal_decision(command, request, level, assignment, status="rejected")
                 if command.decision_type == "ignore":
                     return await self._terminal_decision(command, request, level, assignment, status="cancelled")
                 raise ApprovalTransitionError("approval_invalid_decision")
+        except ApprovalRepositoryConflict as exc:
+            raise ApprovalTransitionError("approval_conflict") from exc
+        except ApprovalPolicyError as exc:
+            raise ApprovalTransitionError(exc.code, str(exc)) from exc
+
+    async def attach_info(self, command: ApprovalInfoCommand) -> ApprovalInfoResult:
+        try:
+            async with self.session.begin_nested():
+                request = await self.repository.lock_request(command.approval_id, command.tenant_id)
+                if request is None:
+                    raise ApprovalTransitionError("approval_not_found")
+
+                self._assert_executable_request(request)
+                self._assert_needs_info_request(request, command)
+                await self._assert_snapshot_binding(request)
+                self.repository.assert_request_versions(
+                    request,
+                    expected_request_version=command.expected_request_version,
+                    expected_revision=command.expected_revision,
+                )
+
+                level = await self.repository.lock_current_level(request.id)
+                if level is None:
+                    raise ApprovalTransitionError("approval_conflict")
+                self.repository.assert_level_version(
+                    level,
+                    expected_level_version=command.expected_level_version,
+                )
+
+                assignment = await self.repository.lock_assignment_by_level(level.id)
+                if assignment is None:
+                    raise ApprovalTransitionError("approval_conflict")
+                self.repository.assert_assignment_version(
+                    assignment,
+                    expected_assignment_version=command.expected_assignment_version,
+                )
+                self._assert_assignment_can_transition(assignment)
+                self.policy.assert_not_self_approval(
+                    requested_by=request.requested_by,
+                    actor_id=command.actor_id,
+                )
+                self.policy.assert_actor_can_review(
+                    actor_role=command.actor_role,
+                    assigned_role=assignment.assigned_role,
+                )
+
+                if self._info_changes_revision_material(command.info_payload):
+                    return await self._supersede_from_info(command, request, level, assignment)
+                return await self._revalidate_same_revision(command, request, level, assignment)
         except ApprovalRepositoryConflict as exc:
             raise ApprovalTransitionError("approval_conflict") from exc
         except ApprovalPolicyError as exc:
@@ -306,6 +360,57 @@ class ApprovalService:
             reason=command.reason,
         )
 
+    async def _respond(
+        self,
+        command: ApprovalDecisionCommand,
+        request: ApprovalRequest,
+        level: ApprovalLevel,
+        assignment: ApprovalAssignment,
+    ) -> ApprovalDecisionResult:
+        clarification_request_id = request.clarification_request_id or f"approval-clarify:{uuid4()}"
+        decision = await self.repository.insert_decision(
+            request=request,
+            level=level,
+            assignment=assignment,
+            actor_id=command.actor_id,
+            decision_type=command.decision_type,
+            reason=command.reason,
+            response_text=command.response_text,
+        )
+        request.clarification_request_id = clarification_request_id
+        await self.repository.increment_assignment_version(assignment)
+        await self.repository.increment_level_version(level)
+        await self.repository.increment_request_version(request, status="needs_info")
+        event = await self.repository.insert_approval_event(
+            request=request,
+            event_type="approval_needs_info",
+            decision=decision,
+            actor_id=command.actor_id,
+            level=level,
+            assignment=assignment,
+            metadata={
+                "decision_type": command.decision_type,
+                "clarification_request_id": clarification_request_id,
+            },
+            resource_refs={
+                "action_payload_hash": request.action_payload_hash,
+                "safety_snapshot_ref": request.safety_snapshot_ref,
+                "safety_snapshot_hash": request.safety_snapshot_hash,
+            },
+        )
+        return self._result(
+            request=request,
+            level=level,
+            assignment=assignment,
+            actor_id=command.actor_id,
+            decision_id=decision.id,
+            event_id=event.id,
+            decision_type=command.decision_type,
+            reason=command.reason,
+            clarification_request_id=clarification_request_id,
+            include_resume_payload=False,
+        )
+
     async def _terminal_decision(
         self,
         command: ApprovalDecisionCommand,
@@ -354,6 +459,128 @@ class ApprovalService:
             reason=command.reason,
         )
 
+    async def _revalidate_same_revision(
+        self,
+        command: ApprovalInfoCommand,
+        request: ApprovalRequest,
+        level: ApprovalLevel,
+        assignment: ApprovalAssignment,
+    ) -> ApprovalInfoResult:
+        await self.repository.increment_assignment_version(assignment)
+        await self.repository.increment_level_version(level)
+        await self.repository.increment_request_version(request, status="pending")
+        await self.repository.insert_approval_event(
+            request=request,
+            event_type="approval_info_attached",
+            actor_id=command.actor_id,
+            level=level,
+            assignment=assignment,
+            metadata={
+                "clarification_request_id": command.clarification_request_id,
+                "changed_revision_material": False,
+            },
+            resource_refs={
+                "action_payload_hash": request.action_payload_hash,
+                "safety_snapshot_ref": request.safety_snapshot_ref,
+                "safety_snapshot_hash": request.safety_snapshot_hash,
+            },
+        )
+        return self._info_result(
+            request=request,
+            level=level,
+            assignment=assignment,
+            clarification_request_id=command.clarification_request_id,
+        )
+
+    async def _supersede_from_info(
+        self,
+        command: ApprovalInfoCommand,
+        request: ApprovalRequest,
+        level: ApprovalLevel,
+        assignment: ApprovalAssignment,
+    ) -> ApprovalInfoResult:
+        snapshot_row = await self.repository.get_snapshot_by_ref_or_hash(
+            tenant_id=request.tenant_id,
+            safety_snapshot_ref=request.safety_snapshot_ref,
+            safety_snapshot_hash=request.safety_snapshot_hash,
+        )
+        if snapshot_row is None:
+            raise ApprovalTransitionError("approval_not_executable")
+
+        proposed_action, evidence_refs = self._replacement_action_and_evidence(request, command.info_payload)
+        snapshot = await persist_action_safety_snapshot(
+            self.session,
+            tenant_id=request.tenant_id,
+            run_id=request.run_id,
+            proposed_action=proposed_action,
+            action_payload_hash=command.info_payload.get("action_payload_hash"),
+            policy_config_version=str(
+                command.info_payload.get("policy_config_version") or snapshot_row.policy_config_version
+            ),
+            risk_config_version=str(command.info_payload.get("risk_config_version") or snapshot_row.risk_config_version),
+            retrieval_config_version=str(
+                command.info_payload.get("retrieval_config_version") or snapshot_row.retrieval_config_version
+            ),
+            evidence_refs=evidence_refs,
+            created_at=self._fixed_millisecond_now(),
+            created_by=command.actor_id,
+            repository=self.repository,
+        )
+
+        await self.repository.increment_assignment_version(assignment, status="skipped")
+        await self.repository.increment_level_version(level, status="skipped")
+        await self.repository.increment_request_version(request, status="superseded")
+        new_request, new_level, new_assignment, _event = await self.repository.create_request_with_single_level(
+            tenant_id=request.tenant_id,
+            run_id=request.run_id,
+            thread_id=request.thread_id,
+            requested_by=request.requested_by,
+            proposed_action=proposed_action,
+            approval_policy_id=request.approval_policy_id or "manual-review",
+            policy_version=request.policy_version or "policy.v1",
+            risk_level=request.risk_level,
+            risk_rule_ref=request.risk_rule_ref,
+            action_payload_hash=snapshot.action_payload_hash,
+            safety_snapshot_ref=snapshot.safety_snapshot_ref,
+            safety_snapshot_hash=snapshot.safety_snapshot_hash,
+            expires_at=request.expires_at,
+            required_role=level.required_role,
+            assigned_role=assignment.assigned_role,
+            level_mode=level.mode,
+            sla_due_at=level.sla_due_at or request.expires_at,
+            risk_reason=request.risk_reason,
+        )
+        request.superseded_by_request_id = new_request.id
+        await self.session.flush()
+        await self.repository.insert_approval_event(
+            request=request,
+            event_type="approval_info_attached",
+            actor_id=command.actor_id,
+            level=level,
+            assignment=assignment,
+            metadata={
+                "clarification_request_id": command.clarification_request_id,
+                "changed_revision_material": True,
+                "superseded_by_request_id": str(new_request.id),
+            },
+            resource_refs={
+                "old_action_payload_hash": request.action_payload_hash,
+                "old_safety_snapshot_hash": request.safety_snapshot_hash,
+                "new_action_payload_hash": new_request.action_payload_hash,
+                "new_safety_snapshot_ref": new_request.safety_snapshot_ref,
+                "new_safety_snapshot_hash": new_request.safety_snapshot_hash,
+            },
+        )
+        return self._info_result(
+            request=new_request,
+            level=new_level,
+            assignment=new_assignment,
+            clarification_request_id=command.clarification_request_id,
+            superseded_request_id=request.id,
+            superseded_by_request_id=new_request.id,
+            new_action_payload_hash=new_request.action_payload_hash,
+        )
+
     def _result(
         self,
         *,
@@ -365,6 +592,12 @@ class ApprovalService:
         event_id: UUID,
         decision_type: str,
         reason: str | None = None,
+        clarification_request_id: str | None = None,
+        superseded_by_request_id: UUID | None = None,
+        new_action_payload_hash: str | None = None,
+        edited_action: dict[str, Any] | None = None,
+        resume_route: str | None = None,
+        include_resume_payload: bool = True,
     ) -> ApprovalDecisionResult:
         decided_at = datetime.now(UTC)
         request.decision = decision_type
@@ -386,6 +619,11 @@ class ApprovalService:
             decided_by=actor_id,
             decided_at=decided_at,
             reason=reason,
+            clarification_request_id=clarification_request_id,
+            superseded_by_request_id=superseded_by_request_id,
+            new_action_payload_hash=new_action_payload_hash,
+            edited_action=edited_action,
+            resume_route=resume_route,
         ).model_dump(mode="json")
         if trusted["schema_version"] != "approval_result.v1":
             raise ApprovalTransitionError("approval_invalid_result")
@@ -407,8 +645,45 @@ class ApprovalService:
             decision_id=decision_id,
             event_id=event_id,
             reason=reason,
-            resume_payload=trusted,
-            graph_thread_id=f"{request.tenant_id}:{request.requested_by}:{request.thread_id}",
+            clarification_request_id=clarification_request_id,
+            superseded_by_request_id=superseded_by_request_id,
+            new_action_payload_hash=new_action_payload_hash,
+            edited_action=edited_action,
+            resume_payload=trusted if include_resume_payload else None,
+            graph_thread_id=self._graph_thread_id(request),
+        )
+
+    def _info_result(
+        self,
+        *,
+        request: ApprovalRequest,
+        level: ApprovalLevel,
+        assignment: ApprovalAssignment,
+        clarification_request_id: str,
+        superseded_request_id: UUID | None = None,
+        superseded_by_request_id: UUID | None = None,
+        new_action_payload_hash: str | None = None,
+    ) -> ApprovalInfoResult:
+        return ApprovalInfoResult(
+            approval_id=request.id,
+            tenant_id=request.tenant_id,
+            run_id=request.run_id,
+            status=request.status,
+            revision=request.revision,
+            request_version=request.version,
+            level_id=level.id,
+            level_version=level.version,
+            assignment_id=assignment.id,
+            assignment_version=assignment.version,
+            action_payload_hash=request.action_payload_hash,
+            safety_snapshot_ref=request.safety_snapshot_ref,
+            safety_snapshot_hash=request.safety_snapshot_hash,
+            clarification_request_id=clarification_request_id,
+            superseded_request_id=superseded_request_id,
+            superseded_by_request_id=superseded_by_request_id,
+            new_action_payload_hash=new_action_payload_hash,
+            resume_payload=None,
+            graph_thread_id=self._graph_thread_id(request),
         )
 
     @staticmethod
@@ -469,6 +744,65 @@ class ApprovalService:
             raise ApprovalTransitionError("approval_conflict")
 
     @staticmethod
+    def _assert_needs_info_request(request: ApprovalRequest, command: ApprovalInfoCommand) -> None:
+        if request.status != "needs_info":
+            raise ApprovalTransitionError("approval_conflict")
+        if request.thread_id != command.thread_id:
+            raise ApprovalTransitionError("approval_conflict")
+        if request.clarification_request_id != command.clarification_request_id:
+            raise ApprovalTransitionError("approval_conflict")
+        if request.expires_at <= datetime.now(UTC):
+            raise ApprovalTransitionError("approval_conflict")
+
+    @staticmethod
     def _assert_assignment_can_transition(assignment: ApprovalAssignment) -> None:
         if assignment.status != "pending":
             raise ApprovalTransitionError("approval_conflict")
+
+    @staticmethod
+    def _info_changes_revision_material(info_payload: dict[str, Any]) -> bool:
+        revision_material_keys = {
+            "proposed_action",
+            "edited_action",
+            "evidence_refs",
+            "policy_config_version",
+            "risk_config_version",
+            "retrieval_config_version",
+            "action_payload_hash",
+            "safety_snapshot_hash",
+        }
+        return any(key in info_payload for key in revision_material_keys)
+
+    def _replacement_action_and_evidence(
+        self,
+        request: ApprovalRequest,
+        info_payload: dict[str, Any],
+    ) -> tuple[dict[str, Any], list[EvidenceRefV1]]:
+        proposed_action = dict(info_payload.get("proposed_action") or info_payload.get("edited_action") or request.proposed_action)
+        evidence_payload = info_payload.get("evidence_refs")
+        if evidence_payload is not None:
+            evidence_refs = self._parse_evidence_refs(evidence_payload)
+            proposed_action["evidence_refs"] = canonical_evidence_projection(evidence_refs)
+            return proposed_action, evidence_refs
+        evidence_refs = self._parse_evidence_refs(proposed_action.get("evidence_refs") or [])
+        proposed_action["evidence_refs"] = canonical_evidence_projection(evidence_refs)
+        return proposed_action, evidence_refs
+
+    @staticmethod
+    def _parse_evidence_refs(raw_refs: Any) -> list[EvidenceRefV1]:
+        if not isinstance(raw_refs, list) or not raw_refs:
+            raise ApprovalTransitionError("approval_not_executable")
+        refs: list[EvidenceRefV1] = []
+        for raw in raw_refs:
+            item = raw.model_dump(mode="json") if hasattr(raw, "model_dump") else raw
+            refs.append(EvidenceRefV1.model_validate(item))
+        return refs
+
+    @staticmethod
+    def _graph_thread_id(request: ApprovalRequest) -> str:
+        return f"{request.tenant_id}:{request.requested_by}:{request.thread_id}"
+
+    @staticmethod
+    def _fixed_millisecond_now() -> datetime:
+        now = datetime.now(UTC)
+        return now.replace(microsecond=(now.microsecond // 1000) * 1000)

@@ -105,6 +105,24 @@ class ApprovalDecisionCommand(BaseModel):
         return self
 
 
+class ApprovalInfoCommand(BaseModel):
+    """Trusted server-side attachment of user/agent info to a needs_info approval."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    approval_id: UUID
+    clarification_request_id: str = Field(min_length=1)
+    tenant_id: UUID
+    actor_id: UUID
+    actor_role: str = Field(min_length=1)
+    thread_id: str = Field(min_length=1)
+    expected_request_version: int = Field(ge=1)
+    expected_level_version: int = Field(ge=1)
+    expected_assignment_version: int = Field(ge=1)
+    expected_revision: int = Field(ge=1)
+    info_payload: dict[str, Any] = Field(min_length=1)
+
+
 class TrustedApprovalResultV1(BaseModel):
     """Trusted graph resume payload produced only by ApprovalService."""
 
@@ -126,6 +144,11 @@ class TrustedApprovalResultV1(BaseModel):
     decided_by: UUID
     decided_at: datetime
     reason: str | None = None
+    clarification_request_id: str | None = None
+    superseded_by_request_id: UUID | None = None
+    new_action_payload_hash: str | None = None
+    edited_action: dict[str, Any] | None = None
+    resume_route: str | None = None
 
 
 class ApprovalDecisionResult(BaseModel):
@@ -150,5 +173,35 @@ class ApprovalDecisionResult(BaseModel):
     decision_id: UUID
     event_id: UUID
     reason: str | None = None
+    clarification_request_id: str | None = None
+    superseded_by_request_id: UUID | None = None
+    new_action_payload_hash: str | None = None
+    edited_action: dict[str, Any] | None = None
+    resume_payload: dict[str, Any] | None = None
+    graph_thread_id: str
+
+
+class ApprovalInfoResult(BaseModel):
+    """Result of attaching info to a needs_info approval revision."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    approval_id: UUID
+    tenant_id: UUID
+    run_id: UUID
+    status: ApprovalRequestStatus
+    revision: int = Field(ge=1)
+    request_version: int = Field(ge=1)
+    level_id: UUID
+    level_version: int = Field(ge=1)
+    assignment_id: UUID
+    assignment_version: int = Field(ge=1)
+    action_payload_hash: str
+    safety_snapshot_ref: str
+    safety_snapshot_hash: str
+    clarification_request_id: str
+    superseded_request_id: UUID | None = None
+    superseded_by_request_id: UUID | None = None
+    new_action_payload_hash: str | None = None
     resume_payload: dict[str, Any] | None = None
     graph_thread_id: str

@@ -68,6 +68,19 @@ class ApprovalRepository:
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def lock_assignment_by_level(self, level_id: UUID) -> ApprovalAssignment | None:
+        stmt = (
+            select(ApprovalAssignment)
+            .where(
+                ApprovalAssignment.approval_level_id == level_id,
+                ApprovalAssignment.status == "pending",
+                ApprovalAssignment.deleted_at.is_(None),
+            )
+            .order_by(ApprovalAssignment.created_at.asc())
+            .with_for_update()
+        )
+        return (await self.session.execute(stmt)).scalars().first()
+
     async def create_snapshot_row(
         self,
         snapshot: ActionSafetySnapshotContract,
