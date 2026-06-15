@@ -420,17 +420,15 @@ All claims in this research were verified against local source, project planning
 |---|-------|---------|---------------|
 | - | None | - | - |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Legacy checkpoint policy**
    - What we know: live `moca` checkpoints contain `execute_action` branch/task metadata. [VERIFIED: docker PostgreSQL checkpoint queries]
-   - What's unclear: whether local/demo interrupted runs must remain resumable across the Phase 14 rename. [VERIFIED: .planning/phases/14-demo-action-executor-boundary/14-CONTEXT.md]
-   - Recommendation: plan a small named `execute_action` compatibility shim only if resume compatibility is required; otherwise document that pre-Phase 14 local checkpoints should be cleared or treated as legacy. [VERIFIED: docs/phase-13-17-architecture-plan.md]
+   - Resolution: retain `src/agent/nodes/execute_action.py` only as a Phase 14 action-draft-boundary-owned delegating shim. It must have no independent write/tool/persistence code, must forbid new imports/references outside explicit legacy tests, and must be removed/replaced by Phase 15 Replay Event Contract before Phase 15 verification, target no later than 2026-07-16 unless Phase 15 is replanned. [VERIFIED: docs/phase-13-17-architecture-plan.md; .planning/phases/14-demo-action-executor-boundary/14-CONTEXT.md]
 
 2. **Compatibility `action_result` removal gate**
    - What we know: Phase 14 allows retained `action_result` only as draft-only compatibility output with owner/tests/removal gate. [VERIFIED: .planning/phases/14-demo-action-executor-boundary/14-CONTEXT.md]
-   - What's unclear: whether planner should remove `action_result` immediately or keep a compatibility field until Phase 15 replay/UI cleanup. [VERIFIED: .planning/phases/14-demo-action-executor-boundary/14-CONTEXT.md]
-   - Recommendation: prefer `draft_outcome` for all new code and keep any `action_result` only if existing graph/test surfaces require it; mark owner and deletion gate in PLAN.md. [VERIFIED: docs/contract-spec.md Section 16.3]
+   - Resolution: retain `action_result` only as action-draft-boundary-owned deprecated compatibility output while graph/API/final consumers move to `draft_outcome`. It must never use `status="success"` to claim external execution. Phase 14 plans add tests forbidding new dependencies on `action_result.status == "success"` and name replacement/removal by Phase 15 Replay Event Contract before Phase 15 verification, target no later than 2026-07-16 unless Phase 15 is replanned. [VERIFIED: docs/contract-spec.md Section 16.3; docs/phase-13-17-architecture-plan.md; .planning/phases/14-demo-action-executor-boundary/14-CONTEXT.md]
 
 ## Environment Availability
 

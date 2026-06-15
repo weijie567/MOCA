@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
 status: ready_to_execute
-stopped_at: Phase 14 planned
-last_updated: "2026-06-15T18:03:37Z"
-last_activity: 2026-06-16 -- Phase 14 planned with 4 executable plans
+stopped_at: Phase 14 revised
+last_updated: "2026-06-15T18:12:18Z"
+last_activity: 2026-06-16 -- Phase 14 revised with 6 executable plans
 progress:
   total_phases: 11
   completed_phases: 7
-  total_plans: 46
+  total_plans: 48
   completed_plans: 42
-  percent: 91
+  percent: 88
 ---
 
 # Project State: MOCA
@@ -27,11 +27,11 @@ See: `.planning/PROJECT.md`
 
 Phase: 14
 Plan: Not started
-Plans: 4 planned
+Plans: 6 planned
 Status: Ready to execute
-Last activity: 2026-06-16 -- Phase 14 planned with 4 executable plans
+Last activity: 2026-06-16 -- Phase 14 revised with 6 executable plans
 
-Progress: [█████████░] 91%
+Progress: [█████████░] 88%
 
 ## Completed Baseline
 
@@ -127,12 +127,12 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 
 ## Session Continuity
 
-Last session: Phase 14 planned
-Stopped at: Phase 14 planned
+Last session: Phase 14 revised
+Stopped at: Phase 14 revised
 Resume file: --resume-file
 
 **Next:** Execute Phase 14 demo-action-executor-boundary
 
 **Completed Phase:** Phase 13 (Approval State Machine) — 2026-06-15
 
-**Planned Phase:** 14 (demo-action-executor-boundary) — 4 plans — 2026-06-15T18:03:15.765Z
+**Planned Phase:** 14 (demo-action-executor-boundary) — 6 plans — 2026-06-15T18:12:18Z
