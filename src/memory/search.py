@@ -8,11 +8,18 @@ from pydantic import ValidationError
 
 from src.db.models import SessionMemory
 from src.memory.repository import SessionMemoryRepository
-from src.memory.schemas import CaseMemorySearchItem, CaseMemorySearchResult, SessionSlotsEnvelopeV1
+from src.memory.schemas import SessionPrecedentSearchItem, SessionPrecedentSearchResult, SessionSlotsEnvelopeV1
 from src.tools.contracts import ToolCallContext
 
 
-class CaseMemorySearchService:
+class SessionPrecedentSearchService:
+    """Search reviewed-looking precedents derived from same-user session memory.
+
+    This is not the target reviewed case-memory store. It is a transitional
+    read-only projection over ``session_memories`` for the planner-facing
+    ``search_case_memory`` capability.
+    """
+
     def __init__(self, repository: SessionMemoryRepository | None = None, *, enabled: bool = True) -> None:
         self.repository = repository
         self.enabled = enabled
@@ -23,14 +30,14 @@ class CaseMemorySearchService:
         query: str,
         context: ToolCallContext,
         limit: int = 5,
-    ) -> CaseMemorySearchResult:
+    ) -> SessionPrecedentSearchResult:
         if not self.enabled or self.repository is None:
-            return _unavailable("TOOL_UNAVAILABLE", "Case memory search is not available")
+            return _unavailable("TOOL_UNAVAILABLE", "Session precedent search is not available")
         try:
             tenant_id = UUID(context.tenant_id)
             user_id = UUID(context.user_id)
         except ValueError:
-            return _unavailable("INVALID_CONTEXT", "Case memory search context is invalid")
+            return _unavailable("INVALID_CONTEXT", "Session precedent search context is invalid")
 
         try:
             memories = await self.repository.search_active(
@@ -40,22 +47,26 @@ class CaseMemorySearchService:
                 limit=limit,
             )
         except Exception:
-            return _unavailable("SEARCH_ERROR", "Case memory search failed")
+            return _unavailable("SEARCH_ERROR", "Session precedent search failed")
 
         terms = _query_terms(query)
         items = [_project_memory(memory, terms) for memory in memories]
-        return CaseMemorySearchResult(
+        return SessionPrecedentSearchResult(
             status="success",
             items=items,
-            summary=f"Found {len(items)} relevant case memory item(s)" if items else "No relevant case memory found",
+            summary=(
+                f"Found {len(items)} session-derived precedent item(s)"
+                if items
+                else "No session-derived precedent found"
+            ),
         )
 
 
-def _unavailable(error_code: str, summary: str) -> CaseMemorySearchResult:
-    return CaseMemorySearchResult(status="unavailable", items=[], summary=summary, error_code=error_code)
+def _unavailable(error_code: str, summary: str) -> SessionPrecedentSearchResult:
+    return SessionPrecedentSearchResult(status="unavailable", items=[], summary=summary, error_code=error_code)
 
 
-def _project_memory(memory: SessionMemory, terms: set[str]) -> CaseMemorySearchItem:
+def _project_memory(memory: SessionMemory, terms: set[str]) -> SessionPrecedentSearchItem:
     active_slots = _active_slots(memory)
     unresolved_questions = list(memory.unresolved_questions_json or [])[:5]
     business_refs = dict(memory.last_business_context_refs_json or {})
@@ -75,7 +86,7 @@ def _project_memory(memory: SessionMemory, terms: set[str]) -> CaseMemorySearchI
     if score == 0.0 and not terms:
         score = 1.0
 
-    return CaseMemorySearchItem(
+    return SessionPrecedentSearchItem(
         memory_id=str(memory.id),
         thread_id=memory.thread_id,
         version=memory.version,

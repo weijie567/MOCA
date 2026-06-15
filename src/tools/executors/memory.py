@@ -5,8 +5,8 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.memory.repository import SessionMemoryRepository
-from src.memory.search import CaseMemorySearchService
-from src.memory.schemas import CaseMemorySearchResult
+from src.memory.search import SessionPrecedentSearchService
+from src.memory.schemas import SessionPrecedentSearchResult
 from src.tools.contracts import ToolCallContext, ToolResultV2
 from src.tools.manager_results import result
 
@@ -17,14 +17,14 @@ class MemoryToolExecutor:
     def __init__(
         self,
         session: AsyncSession | None = None,
-        service: CaseMemorySearchService | None = None,
+        service: SessionPrecedentSearchService | None = None,
     ) -> None:
         if service is not None:
             self.service = service
         elif session is not None:
-            self.service = CaseMemorySearchService(SessionMemoryRepository(session))
+            self.service = SessionPrecedentSearchService(SessionMemoryRepository(session))
         else:
-            self.service = CaseMemorySearchService()
+            self.service = SessionPrecedentSearchService()
 
     def has_tool(self, name: str) -> bool:
         return name == "search_case_memory"
@@ -42,13 +42,13 @@ class MemoryToolExecutor:
         return _memory_result(search_result)
 
 
-def _memory_result(search_result: CaseMemorySearchResult) -> ToolResultV2:
+def _memory_result(search_result: SessionPrecedentSearchResult) -> ToolResultV2:
     if search_result.status == "success":
         return ToolResultV2(
             status="success",
             data={"items": [item.model_dump(mode="json") for item in search_result.items]},
             summary=search_result.summary,
-            source_system="case_memory_search_service",
+            source_system="session_precedent_search_service",
             data_freshness_at=None,
             policy_evidence_refs=[],
             business_fact_refs=[],
@@ -63,5 +63,5 @@ def _memory_result(search_result: CaseMemorySearchResult) -> ToolResultV2:
         search_result.summary,
         code=search_result.error_code or "TOOL_UNAVAILABLE",
         source="tool",
-        source_system="case_memory_search_service",
+        source_system="session_precedent_search_service",
     )

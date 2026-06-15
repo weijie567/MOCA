@@ -152,3 +152,19 @@ def test_domain_packages_do_not_import_graph_nodes_or_tool_manager() -> None:
                     violations.append((str(path.relative_to(ROOT)), module))
 
     assert violations == []
+
+
+def test_memory_domain_does_not_own_runtime_checkpoint_or_observability() -> None:
+    violations: list[tuple[str, str]] = []
+    forbidden_prefixes = (
+        "langgraph.checkpoint",
+        "src.agent.graph",
+        "src.agent.trace",
+        "src.repositories.trace_repo",
+    )
+    for path in sorted((ROOT / "src" / "memory").glob("**/*.py")):
+        for module in _imports(path):
+            if module.startswith(forbidden_prefixes):
+                violations.append((str(path.relative_to(ROOT)), module))
+
+    assert violations == []

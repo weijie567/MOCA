@@ -48,7 +48,7 @@ class LastBusinessContextRefs(TypedDict, total=False):
 class AgentState(TypedDict, total=False):
     """LangGraph state contract split into persistent and ephemeral fields."""
 
-    # Persistent memory: survives across turns via the checkpointer.
+    # Durable graph/checkpoint context: survives across turns via the checkpointer.
     thread_id: str
     tenant_id: str
     user_id: str

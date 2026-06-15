@@ -69,7 +69,7 @@ Domain service 负责领域语义：
 
 - `BusinessReadService`：业务读、merchant scope、business fact projection。
 - `PolicyKnowledgeService`：政策检索、证据质量、evidence contract。
-- `MemoryService`：session memory、long-term memory、case memory。
+- `MemoryService`：语义记忆 domain，当前实现 session memory；未来承载 long-term profile memory、reviewed case memory 和 memory-specific policy。
 - `ActionExecutor`：动作草稿、外部动作执行、幂等和补偿语义。
 
 ### Domain Executor
@@ -78,7 +78,7 @@ Domain executor 是统一工具契约到 domain service 的薄适配层：
 
 - `BusinessToolExecutor -> BusinessReadService`
 - `KnowledgeToolExecutor -> PolicyKnowledgeService`
-- `MemoryToolExecutor -> MemoryService`
+- `MemoryToolExecutor -> SessionPrecedentSearchService` for current `search_case_memory`; future reviewed case/long-term retrieval remains under the memory domain.
 - `ActionToolExecutor -> ActionExecutor`
 
 Executor 不应该承载复杂业务逻辑。它只做 context/args 映射、调用 domain service、把结果转成统一 `ToolResult`。
@@ -331,7 +331,7 @@ Domain service 不 import graph node。Raw adapter 不 import manager。Domain s
 
 ### Phase 5: 补齐 Memory tools
 
-- 通过 `MemoryToolExecutor` 实现 `search_case_memory`。
+- 通过 `MemoryToolExecutor -> SessionPrecedentSearchService` 实现当前 `search_case_memory` 过渡检索。
 - memory write 只允许 dedicated memory write node 调用。
 - `investigate` 继续只允许 memory read。
 

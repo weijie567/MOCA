@@ -11,7 +11,7 @@ def _now_iso() -> str:
 
 
 async def receive_request(state: AgentState) -> dict:
-    """Reset per-turn state so checkpointer memory cannot leak stale context."""
+    """Reset per-turn state so checkpointed graph context cannot leak stale context."""
     started_at = _now_iso()
     trace_steps = [
         {

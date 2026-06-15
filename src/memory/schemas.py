@@ -75,7 +75,7 @@ class SessionMemoryWriteResult(BaseModel):
     fallback_reason: str | None = None
 
 
-class CaseMemorySearchItem(BaseModel):
+class SessionPrecedentSearchItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     memory_id: str
@@ -90,10 +90,10 @@ class CaseMemorySearchItem(BaseModel):
     updated_at: datetime | None = None
 
 
-class CaseMemorySearchResult(BaseModel):
+class SessionPrecedentSearchResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: Literal["success", "unavailable"]
-    items: list[CaseMemorySearchItem] = Field(default_factory=list)
+    items: list[SessionPrecedentSearchItem] = Field(default_factory=list)
     summary: str
     error_code: str | None = None

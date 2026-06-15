@@ -19,7 +19,7 @@ from src.tools.contracts import ToolCallContext, ToolResultV2
 from src.tools.manager import UnifiedToolManager
 from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1, KnowledgeSearchResult
-from src.memory.schemas import CaseMemorySearchResult
+from src.memory.schemas import SessionPrecedentSearchResult
 
 
 INVESTIGATE_TOOLS = {
@@ -262,10 +262,10 @@ async def test_search_case_memory_dispatches_to_memory_search_service():
 
         async def search(self, *, query, context):
             self.calls.append((query, context))
-            return CaseMemorySearchResult(
+            return SessionPrecedentSearchResult(
                 status="success",
                 items=[],
-                summary="No relevant case memory found",
+                summary="No session-derived precedent found",
             )
 
     service = FakeMemorySearchService()

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.memory.repository import SessionMemoryRepository
 from src.memory.schemas import SessionSlotV1
-from src.memory.search import CaseMemorySearchService
+from src.memory.search import SessionPrecedentSearchService
 from src.tools.contracts import ToolCallContext
 from src.tools.executors.memory import MemoryToolExecutor
 
@@ -42,7 +42,7 @@ def _ctx(*, tenant_id: str, user_id: str) -> ToolCallContext:
 
 
 @pytest.mark.asyncio
-async def test_case_memory_search_reads_session_memory_storage(
+async def test_session_precedent_search_reads_session_memory_storage(
     session: AsyncSession,
     seeded_session: dict,
 ) -> None:
@@ -67,7 +67,7 @@ async def test_case_memory_search_reads_session_memory_storage(
         session_summary="退款超时但属于其他用户",
     )
 
-    result = await CaseMemorySearchService(repository).search(
+    result = await SessionPrecedentSearchService(repository).search(
         query="退款超时",
         context=_ctx(tenant_id=str(tenant_id), user_id=str(user_id)),
     )
@@ -78,6 +78,7 @@ async def test_case_memory_search_reads_session_memory_storage(
     assert item.thread_id == "thread-prior-hit"
     assert item.active_slots["order_id"] == "ORD-777"
     assert item.last_business_context_refs["order_no"] == "ORD-777"
+    assert "session-derived precedent" in result.summary
 
 
 @pytest.mark.asyncio

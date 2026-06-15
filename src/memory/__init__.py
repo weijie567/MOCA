@@ -2,24 +2,24 @@
 
 from src.memory.repository import SessionMemoryRepository
 from src.memory.schemas import (
-    CaseMemorySearchItem,
-    CaseMemorySearchResult,
     SessionMemoryView,
     SessionMemoryWriteCandidate,
     SessionMemoryWriteResult,
+    SessionPrecedentSearchItem,
+    SessionPrecedentSearchResult,
     SessionSlotV1,
     SessionSlotsEnvelopeV1,
 )
 from src.memory.service import MemoryService
 
 __all__ = [
-    "CaseMemorySearchItem",
-    "CaseMemorySearchResult",
     "MemoryService",
     "SessionMemoryRepository",
     "SessionMemoryView",
     "SessionMemoryWriteCandidate",
     "SessionMemoryWriteResult",
+    "SessionPrecedentSearchItem",
+    "SessionPrecedentSearchResult",
     "SessionSlotV1",
     "SessionSlotsEnvelopeV1",
 ]

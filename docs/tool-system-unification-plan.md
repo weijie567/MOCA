@@ -10,7 +10,7 @@
 - `src.business_tools` compatibility package 已删除；business domain code lives under `src/business`。
 - `ToolCallContext` / `ToolResultV2` / `BusinessFactRefV1` 由 `src.tools.contracts` 提供。
 - Knowledge/RAG 的 agent-facing path 走 `UnifiedToolManager -> KnowledgeToolExecutor -> PolicyKnowledgeService -> PolicyRetrievalEngine`；API search 也直接复用 `PolicyRetrievalEngine`。
-- Memory 中 session memory 已有真实 service/repository，`search_case_memory` 已通过 `MemoryToolExecutor -> CaseMemorySearchService -> SessionMemoryRepository` 检索历史 session memory。
+- Memory 中 session memory 已有真实 service/repository，`search_case_memory` 已通过 `MemoryToolExecutor -> SessionPrecedentSearchService -> SessionMemoryRepository` 检索 session-derived precedent。
 - 旧 `src/agent/tools/*` compatibility path 已删除；生产和测试代码应使用 `src.tools` 与 domain packages。
 
 最终目标：
@@ -264,8 +264,9 @@ Current:
 - `src/agent/nodes/long_term_memory_retrieve.py`
   - empty adapter, sets `long_term_memory=[]`, `case_memory=[]`
 - `search_case_memory`
-  - descriptor exists, `MemoryToolExecutor` calls `CaseMemorySearchService`
+  - descriptor exists, `MemoryToolExecutor` calls `SessionPrecedentSearchService`
   - uses existing `session_memories` storage with tenant/user scope, deleted/expired filtering, and safe projection
+  - transitional session-derived precedent implementation; not reviewed case memory
 
 Recommended target:
 
@@ -288,9 +289,9 @@ Keep two separate memory concepts:
    - executor:
      - `MemoryToolExecutor`
    - domain owner:
-     - future `CaseMemorySearchService` or `MemorySearchService`
+     - future reviewed `CaseMemoryService` or `MemorySearchService`
   - current implementation:
-    - searches existing session memory records for relevant prior case context
+    - `SessionPrecedentSearchService` searches existing session memory records for relevant prior context
 
 Recommended cleanup:
 
@@ -304,7 +305,8 @@ This keeps memory clear:
 
 ```text
 session memory = deterministic continuity state
-case memory search = planner-visible retrieval capability
+session-derived precedent search = current planner-visible retrieval implementation behind `search_case_memory`
+reviewed case memory search = future planner-visible retrieval implementation
 ```
 
 ### Actions
@@ -348,7 +350,7 @@ Catalog stance:
 - Phase 2 已开始落地：新增 `src/tools/executors/{business,knowledge,memory,action}.py`，生产节点开始从 `src.tools` 导入 manager/contracts。
 - Phase 3 已落地：新增 `src/business/{service,adapters,schemas}.py` 和 `src/integrations/demo_business/*`，business read 已由 `investigate -> UnifiedToolManager -> BusinessToolExecutor` 承担，旧 `load_business_context` 节点、`business_tools` 兼容包与 `src.agent.tools.get_*` wrapper 已删除。
 - Phase 4 已落地：新增 `src/knowledge/retrieval.py`，`KnowledgeToolExecutor` 默认使用 `PolicyRetrievalEngine -> PolicyKnowledgeService`，`investigate` 通过 `UnifiedToolManager.invoke("search_policy")` 执行政策检索，`retrieve_policy_evidence` 兼容 wrapper 已删除，API search endpoint 已直接切到 `PolicyRetrievalEngine` 并保持 HTTP response contract。
-- Phase 5 已落地：新增真实 `src/memory/search.py` 和 `CaseMemorySearchResult` / `CaseMemorySearchItem`，`MemoryToolExecutor` 调 `CaseMemorySearchService` 检索 `session_memories`。
+- Phase 5 已落地：新增真实 `src/memory/search.py` 和 `SessionPrecedentSearchResult` / `SessionPrecedentSearchItem`，`MemoryToolExecutor` 调 `SessionPrecedentSearchService` 检索 `session_memories`。
 - Phase 6 已落地：新增 `src/actions/{service,drafts,schemas}.py`，`ActionToolExecutor` 直连 `ActionService`，旧 `src.agent.tools.create_coupon_grant_draft` wrapper 已删除。
 - Phase 7 已落地：legacy `src/agent/tools/*` 和旧 API 测试已删除，`rg "src.agent.tools" src tests` 不应出现生产/测试依赖。
 - Phase 8 已开始落地：新增 `tests/architecture/test_tool_boundaries.py`，先锁住 graph node 不再 import legacy agent tools/raw integrations、manager 不直接 import domain service、domain package 不反向 import graph/manager。
@@ -487,10 +489,10 @@ Operations:
 - Leave `MemoryService`, `SessionMemoryRepository`, and session memory schemas in `src/memory`.
 - Keep `session_memory_load.py` as deterministic node, direct service call.
 - Keep `memory_write.py` as deterministic post-response persistence node, direct service call.
-- Add `src/memory/search.py` with placeholder `CaseMemorySearchService` interface:
-  - initially returns unavailable/empty in a typed way
-  - later can use embeddings or session history store
-- Update `MemoryToolExecutor` to call `CaseMemorySearchService` for `search_case_memory`.
+- Add `src/memory/search.py` with transitional `SessionPrecedentSearchService` interface:
+  - returns unavailable/error in a typed way when repository access is unavailable
+  - uses session history store until reviewed case memory exists
+- Update `MemoryToolExecutor` to call `SessionPrecedentSearchService` for `search_case_memory`.
 - Keep `long_term_memory_retrieve.py` as empty adapter until replaced by real case-memory search.
 
 Acceptance:
@@ -501,9 +503,9 @@ Acceptance:
 
 Current migration note:
 
-- `src/memory/search.py` now provides `CaseMemorySearchService`.
-- `MemoryToolExecutor` calls `CaseMemorySearchService.search(...)` with a `SessionMemoryRepository` built from the manager session.
-- `CaseMemorySearchService` searches existing `session_memories` by tenant/user scope and projects bounded, structured case memory items. No session memory write path was changed.
+- `src/memory/search.py` now provides `SessionPrecedentSearchService`.
+- `MemoryToolExecutor` calls `SessionPrecedentSearchService.search(...)` with a `SessionMemoryRepository` built from the manager session.
+- `SessionPrecedentSearchService` searches existing `session_memories` by tenant/user scope and projects bounded, structured session-derived precedent items. It is not reviewed case memory. No session memory write path was changed.
 
 ### Phase 6: Move Actions Into Domain Package
 

@@ -13,7 +13,7 @@
 - LangGraph 只做 Agent 编排和状态流转。
 - Knowledge / RAG 是独立能力层，而不是 LangGraph 内部细节。
 - Business Tools 是独立能力层，当前可用本地 demo DB 模拟外部系统。
-- Memory 是独立能力层，区分 working memory、session memory、long-term memory、case memory。
+- Memory 是语义记忆能力层，只承载 session memory、long-term profile memory、case memory 和 memory-specific policy；working memory 属于 LangGraph state，workflow checkpoint 属于 runtime recovery，audit/replay 属于 observability。
 - Approval / SLA / Policy 是独立能力层，不靠 prompt 单独控制高风险动作。
 - Action Execution 是独立能力层，即使当前不接真实公司 API，也要按可替换 adapter、幂等、补偿/回滚方向设计。
 - Observability / Replay 是独立能力层，用于 trace、metrics、audit、timeline replay。
@@ -131,7 +131,7 @@ src/
 | LangGraph Orchestration | `src/agent/` | graph、state、nodes、routing、LLM prompt 调用，不碰底层存储细节 |
 | Knowledge / RAG | `src/knowledge/`, `src/rag/` | policy search、evidence、embedding、rerank、citation validation |
 | Business Tools | `src/business/` | 订单、工单、退款、券、物流等业务能力 contract + demo adapters |
-| Memory | `src/memory/` | session memory、long-term memory、case memory、memory read/write policy |
+| Memory | `src/memory/` | 语义记忆 domain：session memory、long-term profile memory、reviewed case memory、memory read/write policy、PII、identity、tombstone、review rules |
 | Approvals | `src/approvals/` | approval policy、approval plan、SLA、升级、审批状态流转 |
 | Actions | `src/actions/` | action draft、executor、idempotency、compensation/rollback metadata |
 | Observability | `src/observability/` | traces、metrics、logs、run replay、timeline |
@@ -150,7 +150,7 @@ src/
 | Business Tools | `src/business/service.py`, `src/business/adapters.py`, `src/integrations/demo_business/*`, repos | 业务读 facade 已独立；当前 adapter 仍是本地 demo DB | 保持 `BusinessToolService` 只承载 business scope、retry、fact projection 和 adapter 调用；agent-facing 校验归 `UnifiedToolManager` |
 | Approval / HITL | `approval_gate`, `approvals router`, `ApprovalRequest`, `ApprovalStep` | 已有 interrupt/resume、approve/reject；审批计划、多级审批、SLA 策略仍可增强 | 增加 `rules/approval_policies.yaml`, `src/approvals/policy.py`, `src/approvals/sla.py` |
 | Actions | `execute_action`, `src/tools/executors/action.py`, `src/actions/service.py`, `ActionDraft` | 当前执行动作主要创建草稿，无真实执行和补偿 contract | 后续增加 external execution / compensation metadata；demo 仍只创建 draft |
-| Memory | `src/memory/service.py`, `repository.py`, `schemas.py`, `search.py`, `session_memory_load`, `memory_write` | PostgreSQL-authoritative session memory 已落地；`long_term_memory_retrieve` 仍是 empty adapter；长期 profile memory、reviewed case memory 独立表、Redis hot cache 仍未实现 | 保持 working memory、workflow checkpoint、session memory、long-term profile memory、case memory、audit/replay 分层；Redis 仅可作为非权威 hot cache；再扩 long-term/case memory |
+| Memory | `src/memory/service.py`, `repository.py`, `schemas.py`, `search.py`, `session_memory_load`, `memory_write` | PostgreSQL-authoritative session memory 已落地；`search_case_memory` 当前只检索 session-derived precedent；`long_term_memory_retrieve` 仍是 empty adapter；长期 profile memory、reviewed case memory 独立表、Redis hot cache 仍未实现 | 保持 working memory、workflow checkpoint、session memory、long-term profile memory、case memory、audit/replay 分层；`src/memory` 只承载语义记忆 domain；Redis 仅可作为非权威 hot cache；再扩 long-term/case memory |
 | Intent | 当前已有 classify/extract nodes | 需要明确 intent taxonomy、confidence threshold、低置信度澄清路径 | 拆出 `src/agent/prompts/intent.py` 和 typed output schema |
 | Prompt | 当前可有 prompts 文件 | 容易混成一个大 prompt 或散落节点 | 建议按节点拆 prompt：global_policy, intent, slots, recommendation, final_response；memory write 放 `src/memory/prompts.py` |
 | Observability / Replay | `AgentRun`, `AgentStep`, traces API | 已有 trace 表；还可增强 timeline replay、OTel spans、metrics | 增加 `src/observability/replay.py`；后续参考 FastAPI observability 接 OTel/Grafana |
