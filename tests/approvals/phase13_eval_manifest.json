@@ -1,0 +1,20 @@
+{
+  "manifest_version": "phase13_eval_manifest.v1",
+  "dataset_version": "approval-contract-phase13.v1",
+  "dataset_hash": "sha256:89251f64d1ffde20061b7406e684ee1c3bc56cedc882bc6c15a11799819600ae",
+  "owner_phase": "Phase 13",
+  "blocking_status": "blocking_for_phase_exit",
+  "failure_impact": "phase_13_not_ready_for_execution",
+  "requirements": [
+    "APPROVAL-01",
+    "APPROVAL-02",
+    "APPROVAL-03",
+    "SNAPSHOT-01"
+  ],
+  "test_commands": [
+    "uv run alembic upgrade head",
+    "uv run pytest tests/approvals tests/architecture/test_approval_boundaries.py tests/test_approval_api.py tests/test_approval_integration.py tests/test_approval_models.py tests/test_approval_gate.py tests/test_execute_action.py tests/test_graph_routing.py tests/agent/test_events.py -q --tb=short",
+    "uv run pytest -q --tb=short",
+    "uv run ruff check src tests"
+  ]
+}
