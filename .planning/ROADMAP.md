@@ -136,7 +136,12 @@ Plans:
   1. Demo mode creates only action draft and draft_outcome.
   2. Demo mode creates no action execution row or external side effect.
   3. Hash/revision mismatches are rejected and final response wording never claims real execution.
-**Plans**: TBD
+**Plans**: 4 plans
+Plans:
+  - [ ] 14-01-PLAN.md — action_draft.v2 schema, draft_outcome contract, and blocking Alembic upgrade (Wave 1)
+  - [ ] 14-02-PLAN.md — ActionService-owned idempotency, exact binding reuse, and draft outcome persistence (Wave 2)
+  - [ ] 14-03-PLAN.md — canonical action_draft graph node, tool allowlist, and execute_action shim quarantine (Wave 3)
+  - [ ] 14-04-PLAN.md — approval/final/trace integration, negative boundary tests, and coverage artifact (Wave 4)
 
 ### Phase 15: Replay Event Contract
 **Goal**: Implement ReplayEventV3, run lifecycle finalizer, shared sequence allocator, redaction/retention, and replay read-switch.
@@ -182,10 +187,10 @@ Plans:
 | 11. Intent / Clarification | 5/5 | Complete | 2026-06-14 |
 | 12. Session Memory | 5/5 | Complete | 2026-06-14 |
 | 13. Approval State Machine | 8/8 | Complete    | 2026-06-15 |
-| 14. Demo Action Executor Boundary | 0/TBD | Pending | - |
+| 14. Demo Action Executor Boundary | 0/4 | Planned | - |
 | 15. Replay Event Contract | 0/TBD | Pending | - |
 | 16. Long-term / Case Memory | 0/TBD | Deferred beyond MVP gate | - |
 | 17. External Action Execution | 0/TBD | Deferred beyond MVP gate | - |
 
 ---
-*Updated: 2026-06-15 — Phase 13 verified complete; Phase 14 ready to plan.*
+*Updated: 2026-06-16 — Phase 14 planned with 4 executable plans.*
