@@ -102,6 +102,9 @@ class AgentState(TypedDict, total=False):
     risk_config_version: str | None
     retrieval_config_version: str | None
     auto_allowed: bool | None
+    action_draft: dict[str, Any] | None
+    draft_outcome: dict[str, Any] | None
+    execution_mode: str | None
     action_result: dict[str, Any] | None
 
     # Phase 7: dormant investigation contracts for future bounded investigator phases.

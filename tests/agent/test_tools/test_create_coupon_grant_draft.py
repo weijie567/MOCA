@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.actions.service import create_coupon_grant_draft
 from src.agent.trace import write_agent_run
 from src.approvals.service import ApprovalService
-from src.db.models import ApprovalAssignment, ApprovalLevel, ApprovalRequest
+from src.db.models import ActionDraft, ApprovalAssignment, ApprovalLevel, ApprovalRequest
 from tests.approvals.test_service_transitions import _create_command, _decision_command
 
 
@@ -106,7 +106,7 @@ async def test_create_coupon_grant_draft_invalid_uuid_is_non_retryable(session: 
 
 
 @pytest.mark.asyncio
-async def test_create_coupon_grant_draft_cross_tenant_idempotency_conflict_is_non_retryable(
+async def test_create_coupon_grant_draft_cross_tenant_caller_key_is_ignored(
     session: AsyncSession,
     seeded_session: dict,
 ) -> None:
@@ -135,7 +135,7 @@ async def test_create_coupon_grant_draft_cross_tenant_idempotency_conflict_is_no
         safety_snapshot_ref=request.safety_snapshot_ref,
         safety_snapshot_hash=request.safety_snapshot_hash,
     )
-    conflicted = await create_coupon_grant_draft(
+    other_created = await create_coupon_grant_draft(
         tenant_id=str(other_tenant_id),
         user_id=str(other_user_id),
         run_id=str(other_request.run_id),
@@ -148,11 +148,16 @@ async def test_create_coupon_grant_draft_cross_tenant_idempotency_conflict_is_no
         safety_snapshot_ref=other_request.safety_snapshot_ref,
         safety_snapshot_hash=other_request.safety_snapshot_hash,
     )
+    draft = await session.get(ActionDraft, UUID(created["data"]["draft_id"]))
+    other_draft = await session.get(ActionDraft, UUID(other_created["data"]["draft_id"]))
 
     assert created["status"] == "success"
-    assert conflicted["status"] == "error"
-    assert conflicted["error"]["error_code"] == "IDEMPOTENCY_CONFLICT"
-    assert conflicted["error"]["retryable"] is False
+    assert other_created["status"] == "success"
+    assert draft is not None
+    assert other_draft is not None
+    assert draft.idempotency_key != other_draft.idempotency_key
+    assert "shared-draft-key" not in draft.idempotency_key
+    assert "shared-draft-key" not in other_draft.idempotency_key
 
 
 @pytest.mark.asyncio
@@ -175,6 +180,9 @@ async def test_create_coupon_grant_draft_requires_approved_request_binding(
     )
 
     assert result["status"] == "success"
+    assert result["data"]["draft_outcome"]["status"] == "not_executed_demo"
+    assert result["data"]["draft_outcome"]["external_side_effect"] is False
+    assert result["data"]["action_result"]["status"] != "success"
 
 
 @pytest.mark.asyncio
@@ -225,3 +233,98 @@ async def test_create_coupon_grant_draft_rejects_wrong_hash_binding(
     assert result["status"] == "error"
     assert result["error"]["error_code"] == "ACTION_BINDING_MISMATCH"
     assert result["error"]["retryable"] is False
+
+
+@pytest.mark.asyncio
+async def test_create_coupon_grant_draft_requires_target_id(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    request, _level, _assignment = await _approval_context(session, seeded_session)
+    user_id = seeded_session["users"]["cs_zhang"].id
+
+    result = await create_coupon_grant_draft(
+        tenant_id=str(request.tenant_id),
+        user_id=str(user_id),
+        run_id=str(request.run_id),
+        approval_request_id=None,
+        idempotency_key="unsafe-caller-key",
+        action_type="issue_coupon",
+        payload={"amount": "25.00"},
+        session=session,
+        action_payload_hash=request.action_payload_hash,
+        safety_snapshot_ref=request.safety_snapshot_ref,
+        safety_snapshot_hash=request.safety_snapshot_hash,
+    )
+
+    assert result["status"] == "error"
+    assert result["error"]["error_code"] == "TARGET_ID_REQUIRED"
+    assert result["error"]["retryable"] is False
+
+
+@pytest.mark.asyncio
+async def test_create_coupon_grant_draft_auto_allowed_key_is_service_owned(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    request, _level, _assignment = await _approval_context(session, seeded_session)
+    user_id = seeded_session["users"]["cs_zhang"].id
+
+    result = await create_coupon_grant_draft(
+        tenant_id=str(request.tenant_id),
+        user_id=str(user_id),
+        run_id=str(request.run_id),
+        approval_request_id=None,
+        idempotency_key="unsafe-caller-key",
+        action_type="issue_coupon",
+        payload={"target_id": "RF-1001"},
+        session=session,
+        action_payload_hash=request.action_payload_hash,
+        safety_snapshot_ref=request.safety_snapshot_ref,
+        safety_snapshot_hash=request.safety_snapshot_hash,
+    )
+    draft = await session.get(ActionDraft, UUID(result["data"]["draft_id"]))
+
+    assert result["status"] == "success"
+    assert draft is not None
+    assert draft.draft_outcome["status"] == "not_executed_demo"
+    assert draft.draft_outcome["external_side_effect"] is False
+    assert result["data"]["action_draft"]["target_id"] == "RF-1001"
+    assert result["data"]["draft_outcome"]["draft_id"] == str(draft.id)
+    assert result["data"]["action_result"]["status"] == "draft_created"
+    assert draft.idempotency_key == (
+        f"{request.tenant_id}:{request.run_id}:auto_allowed:issue_coupon:RF-1001:{request.action_payload_hash}"
+    )
+    assert "unsafe-caller-key" not in draft.idempotency_key
+
+
+@pytest.mark.asyncio
+async def test_create_coupon_grant_draft_approved_key_uses_trusted_revision(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    request, _level, _assignment = await _approval_context(session, seeded_session, status="approved")
+    user_id = seeded_session["users"]["cs_zhang"].id
+
+    result = await create_coupon_grant_draft(
+        tenant_id=str(request.tenant_id),
+        user_id=str(user_id),
+        run_id=str(request.run_id),
+        idempotency_key="unsafe-caller-key",
+        action_type="issue_coupon",
+        payload={"target_id": "RF-1001"},
+        session=session,
+        **_binding_kwargs(request),
+    )
+    draft = await session.get(ActionDraft, UUID(result["data"]["draft_id"]))
+
+    assert result["status"] == "success"
+    assert draft is not None
+    assert draft.approval_revision_ref == f"approval_request/{request.id}@rev{request.revision}"
+    assert result["data"]["action_draft"]["approval_revision_ref"] == draft.approval_revision_ref
+    assert result["data"]["draft_outcome"]["status"] == "not_executed_demo"
+    assert draft.idempotency_key == (
+        f"{request.tenant_id}:{request.run_id}:approval_revision_{request.revision}:"
+        f"issue_coupon:RF-1001:{request.action_payload_hash}"
+    )
+    assert "unsafe-caller-key" not in draft.idempotency_key

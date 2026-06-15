@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -7,9 +9,20 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.actions.drafts import ActionDraftStore
+from src.actions.schemas import DraftOutcomeV1
 from src.db.models import ActionSafetySnapshot, ApprovalRequest
 
-_IDEMPOTENCY_CONFLICT = "idempotency_key_conflict"
+_IDEMPOTENCY_CONFLICTS = {"idempotency_key_conflict", "idempotency_binding_conflict"}
+_ACTION_RESULT_COMPAT_GATE = (
+    "Phase 14 deprecated compatibility output; replace/remove at Phase 15 Replay Event Contract "
+    "before Phase 15 verification, target no later than 2026-07-16 unless Phase 15 is replanned."
+)
+
+
+@dataclass(frozen=True)
+class _ValidatedActionBinding:
+    revision_marker: str
+    approval_revision_ref: str | None
 
 
 def _tool_success(data: dict[str, Any]) -> dict[str, Any]:
@@ -56,9 +69,13 @@ class ActionService:
         if not action_payload_hash or not safety_snapshot_ref or not safety_snapshot_hash:
             return _tool_error("ACTION_BINDING_REQUIRED", "Action draft requires exact safety binding", retryable=False)
 
+        target_id = _target_id(payload)
+        if target_id is None:
+            return _tool_error("TARGET_ID_REQUIRED", "Action draft target_id is required", retryable=False)
+
         try:
             async with self.session.begin_nested():
-                binding_error = await self._validate_action_binding(
+                binding = await self._validate_action_binding(
                     tenant_id=tenant_uuid,
                     run_id=run_uuid,
                     approval_request_id=approval_uuid,
@@ -66,16 +83,40 @@ class ActionService:
                     safety_snapshot_ref=safety_snapshot_ref,
                     safety_snapshot_hash=safety_snapshot_hash,
                 )
-                if binding_error is not None:
-                    return binding_error
+                if isinstance(binding, dict):
+                    return binding
+                idempotency_key = _build_idempotency_key(
+                    tenant_id=tenant_uuid,
+                    run_id=run_uuid,
+                    revision_marker=binding.revision_marker,
+                    action_type=action_type,
+                    target_id=target_id,
+                    action_payload_hash=action_payload_hash,
+                )
                 draft, created = await self.draft_store.create_or_get(
                     run_id=run_uuid,
                     tenant_id=tenant_uuid,
                     approval_request_id=approval_uuid,
                     idempotency_key=idempotency_key,
                     action_type=action_type,
+                    target_id=target_id,
+                    approval_revision_ref=binding.approval_revision_ref,
+                    action_payload_hash=action_payload_hash,
+                    safety_snapshot_ref=safety_snapshot_ref,
+                    safety_snapshot_hash=safety_snapshot_hash,
                     payload=payload,
+                    draft_outcome=_draft_outcome(
+                        tenant_id=tenant_uuid,
+                        run_id=run_uuid,
+                        draft_id=None,
+                    ),
+                    execution_mode="demo",
+                    draft_version=1,
+                    lifecycle_status="active",
+                    retention_policy="phase14_demo_draft",
                 )
+                draft_outcome = _draft_outcome_from_draft(draft)
+                draft.draft_outcome = draft_outcome
             return _tool_success(
                 {
                     "draft_id": str(draft.id),
@@ -83,13 +124,17 @@ class ActionService:
                     "status": draft.status,
                     "created": created,
                     "idempotent_reused": not created,
+                    "action_draft": _action_draft_data(draft),
+                    "draft_outcome": draft_outcome,
+                    "execution_mode": draft.execution_mode,
+                    "action_result": _compat_action_result(draft, draft_outcome),
                 }
             )
         except ValueError as exc:
-            if str(exc) == _IDEMPOTENCY_CONFLICT:
+            if str(exc) in _IDEMPOTENCY_CONFLICTS:
                 return _tool_error(
                     "IDEMPOTENCY_CONFLICT",
-                    "Action draft idempotency key conflicts with another tenant",
+                    "Action draft idempotency binding conflicts with an existing draft",
                     retryable=False,
                 )
             return _tool_error("INVALID_REQUEST", "Action draft request is invalid", retryable=False)
@@ -105,7 +150,7 @@ class ActionService:
         action_payload_hash: str,
         safety_snapshot_ref: str,
         safety_snapshot_hash: str,
-    ) -> dict[str, Any] | None:
+    ) -> _ValidatedActionBinding | dict[str, Any]:
         snapshot = (
             await self.session.execute(
                 select(ActionSafetySnapshot).where(
@@ -122,7 +167,7 @@ class ActionService:
             return _tool_error("ACTION_BINDING_MISMATCH", "Action safety snapshot binding is invalid", retryable=False)
 
         if approval_request_id is None:
-            return None
+            return _ValidatedActionBinding(revision_marker="auto_allowed", approval_revision_ref="auto_allowed")
 
         approval = (
             await self.session.execute(
@@ -144,7 +189,86 @@ class ActionService:
             or approval.safety_snapshot_hash != safety_snapshot_hash
         ):
             return _tool_error("APPROVAL_BINDING_MISMATCH", "Approved request binding is invalid", retryable=False)
+        return _ValidatedActionBinding(
+            revision_marker=f"approval_revision_{approval.revision}",
+            approval_revision_ref=f"approval_request/{approval.id}@rev{approval.revision}",
+        )
+
+
+def _target_id(payload: dict[str, Any]) -> str | None:
+    raw_target = payload.get("target_id")
+    if raw_target is None:
         return None
+    target = str(raw_target).strip()
+    return target or None
+
+
+def _now_iso() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _build_idempotency_key(
+    *,
+    tenant_id: UUID,
+    run_id: UUID,
+    revision_marker: str,
+    action_type: str,
+    target_id: str,
+    action_payload_hash: str,
+) -> str:
+    idempotency_key = f"{tenant_id}:{run_id}:{revision_marker}:{action_type}:{target_id}:{action_payload_hash}"
+    return idempotency_key
+
+
+def _draft_outcome(*, tenant_id: UUID, run_id: UUID, draft_id: UUID | None) -> dict[str, Any]:
+    return DraftOutcomeV1(
+        tenant_id=str(tenant_id),
+        run_id=str(run_id),
+        draft_id=str(draft_id) if draft_id is not None else None,
+        created_at=_now_iso(),
+    ).model_dump(mode="json")
+
+
+def _draft_outcome_from_draft(draft) -> dict[str, Any]:
+    outcome = dict(draft.draft_outcome or {})
+    if not outcome:
+        outcome = _draft_outcome(tenant_id=draft.tenant_id, run_id=draft.run_id, draft_id=draft.id)
+    else:
+        outcome["draft_id"] = str(draft.id)
+    return DraftOutcomeV1.model_validate(outcome).model_dump(mode="json")
+
+
+def _action_draft_data(draft) -> dict[str, Any]:
+    return {
+        "schema_version": draft.schema_version,
+        "tenant_id": str(draft.tenant_id),
+        "run_id": str(draft.run_id),
+        "draft_id": str(draft.id),
+        "idempotency_key": draft.idempotency_key,
+        "action_type": draft.action_type,
+        "target_id": draft.target_id,
+        "approval_revision_ref": draft.approval_revision_ref,
+        "action_payload_hash": draft.action_payload_hash,
+        "safety_snapshot_ref": draft.safety_snapshot_ref,
+        "safety_snapshot_hash": draft.safety_snapshot_hash,
+        "status": draft.status,
+        "execution_mode": draft.execution_mode,
+        "draft_version": draft.draft_version,
+        "lifecycle_status": draft.lifecycle_status,
+        "retention_policy": draft.retention_policy,
+    }
+
+
+def _compat_action_result(draft, draft_outcome: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": "draft_created",
+        "data": {
+            "draft_id": str(draft.id),
+            "draft_outcome": draft_outcome,
+        },
+        "error": {},
+        "compatibility": _ACTION_RESULT_COMPAT_GATE,
+    }
 
 
 async def create_coupon_grant_draft(

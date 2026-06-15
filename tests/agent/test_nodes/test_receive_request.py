@@ -17,6 +17,10 @@ async def test_receive_request_resets_ephemeral(base_state):
         "routing_hints": {"pre_route_disposition": "old"},
         "clarification_request": {"reason": "old"},
         "business_context": {"old": "data"},
+        "action_draft": {"draft_id": "old-draft"},
+        "draft_outcome": {"status": "not_executed_demo"},
+        "execution_mode": "demo",
+        "action_result": {"status": "draft_created"},
         "trace_steps": [{"node": "old_node"}],
     }
 
@@ -30,6 +34,10 @@ async def test_receive_request_resets_ephemeral(base_state):
     assert result["routing_hints"] == {}
     assert result["clarification_request"] is None
     assert result["business_context"] is None
+    assert result["action_draft"] is None
+    assert result["draft_outcome"] is None
+    assert result["execution_mode"] is None
+    assert result["action_result"] is None
     assert [step["node"] for step in result["trace_steps"]] == ["receive_request"]
     assert result["current_run_id"] is not None
 
