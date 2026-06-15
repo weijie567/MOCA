@@ -578,7 +578,9 @@ class ApprovalStep(Base):
 
 class ActionDraft(TimestampMixin, Base):
     __tablename__ = "action_drafts"
-    __table_args__ = (UniqueConstraint("idempotency_key", name="uq_action_drafts_idempotency_key"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_action_drafts_tenant_idempotency_key"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     run_id: Mapped[uuid.UUID] = mapped_column(
@@ -588,10 +590,21 @@ class ActionDraft(TimestampMixin, Base):
         UUID(as_uuid=True), ForeignKey("approval_requests.id")
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
-    idempotency_key: Mapped[str] = mapped_column(String(256), unique=True, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    schema_version: Mapped[str | None] = mapped_column(String(48), default="action_draft.v2")
+    target_id: Mapped[str | None] = mapped_column(String(128))
+    approval_revision_ref: Mapped[str | None] = mapped_column(String(128))
+    action_payload_hash: Mapped[str | None] = mapped_column(String(128))
+    safety_snapshot_ref: Mapped[str | None] = mapped_column(String(128))
+    safety_snapshot_hash: Mapped[str | None] = mapped_column(String(128))
     action_type: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft_created")
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    draft_outcome: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    execution_mode: Mapped[str | None] = mapped_column(String(32), default="demo")
+    draft_version: Mapped[int | None] = mapped_column(default=1)
+    lifecycle_status: Mapped[str | None] = mapped_column(String(32), default="active")
+    retention_policy: Mapped[str | None] = mapped_column(String(64), default="phase14_demo_draft")
     created_by_agent_run: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
 
 

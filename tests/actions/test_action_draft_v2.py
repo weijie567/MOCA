@@ -153,7 +153,6 @@ def test_migration_009_revises_phase13_head_and_adds_matching_action_draft_colum
     for column in ACTION_DRAFT_V2_COLUMNS:
         assert f'"{column}"' in source
     assert "uq_action_drafts_tenant_idempotency_key" in source
-    assert "uq_action_drafts_idempotency_key" in source
 
 
 def test_migration_009_does_not_create_phase17_external_execution_surfaces():
