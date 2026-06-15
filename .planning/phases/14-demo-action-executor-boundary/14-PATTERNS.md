@@ -44,11 +44,13 @@
 
 **Analog:** `src/db/models.py`
 
-**Current ActionDraft pattern** (`src/db/models.py` lines 579-596):
+**Target ActionDraft uniqueness adjustment** (current `src/db/models.py` keeps the old global key; Phase 14 must replace it with this contract shape):
 ```python
 class ActionDraft(TimestampMixin, Base):
     __tablename__ = "action_drafts"
-    __table_args__ = (UniqueConstraint("idempotency_key", name="uq_action_drafts_idempotency_key"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_action_drafts_tenant_idempotency_key"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     run_id: Mapped[uuid.UUID] = mapped_column(
@@ -58,7 +60,7 @@ class ActionDraft(TimestampMixin, Base):
         UUID(as_uuid=True), ForeignKey("approval_requests.id")
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
-    idempotency_key: Mapped[str] = mapped_column(String(256), unique=True, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(256), nullable=False)
     action_type: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft_created")
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
@@ -103,7 +105,7 @@ class AgentTraceEvent(TimestampMixin, Base):
     event_type: Mapped[str] = mapped_column(String(48), nullable=False)
 ```
 
-**Apply:** Add nullable-for-legacy `action_draft.v2` columns to `ActionDraft`: `schema_version`, `action_payload_hash`, `safety_snapshot_ref`, `safety_snapshot_hash`, `draft_outcome`, lifecycle/version/retention fields, and any chosen `target_id`/revision marker fields. Keep global `uq_action_drafts_idempotency_key`.
+**Apply:** Add nullable-for-legacy `action_draft.v2` columns to `ActionDraft`: `schema_version`, `action_payload_hash`, `safety_snapshot_ref`, `safety_snapshot_hash`, `draft_outcome`, lifecycle/version/retention fields, and any chosen `target_id`/revision marker fields. Replace the existing global idempotency uniqueness with the normative `UniqueConstraint("tenant_id", "idempotency_key", name="uq_action_drafts_tenant_idempotency_key")` from `docs/contract-spec.md` Section 18.3.
 
 ---
 
@@ -151,7 +153,7 @@ def upgrade() -> None:
         op.add_column("approval_requests", column)
 ```
 
-**Create existing action_drafts table analog** (`005_approval_tables.py` lines 65-85):
+**Create existing action_drafts table analog with Phase 14 target uniqueness** (`005_approval_tables.py` lines 65-85 are the base shape; use the tenant-scoped unique constraint below):
 ```python
 op.create_table(
     "action_drafts",
@@ -164,7 +166,7 @@ op.create_table(
     sa.Column("status", sa.String(length=32), nullable=False),
     sa.Column("payload", postgresql.JSONB, nullable=False),
     sa.Column("created_by_agent_run", postgresql.UUID(as_uuid=True)),
-    sa.UniqueConstraint("idempotency_key", name="uq_action_drafts_idempotency_key"),
+    sa.UniqueConstraint("tenant_id", "idempotency_key", name="uq_action_drafts_tenant_idempotency_key"),
 )
 op.create_index("ix_action_drafts_run_id", "action_drafts", ["run_id"])
 op.create_index("ix_action_drafts_tenant_id", "action_drafts", ["tenant_id"])

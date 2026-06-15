@@ -47,7 +47,7 @@
 
 **User's choice:** Server constructs trusted key, different payload hash creates a different draft, exact key reuse requires binding consistency, and auto-allowed drafts use an explicit `auto_allowed` marker.
 
-**Notes:** User withdrew an earlier suggestion to replace the global unique constraint. Because the key includes tenant id, the existing global unique key can remain. Key hit already implies tenant/run/revision/action/target/payload hash; the important extra reuse check is safety snapshot hash consistency. Missing `target_id` must fail instead of falling back to `"unknown"`.
+**Notes:** Superseded by post-plan review on 2026-06-16. The final Phase 14 plan must follow `docs/contract-spec.md` Section 18.3 and use `unique (tenant_id, idempotency_key)`, not a global unique `idempotency_key`. Key hit still requires exact binding checks, including safety snapshot hash consistency. Missing `target_id` must fail instead of falling back to `"unknown"`.
 
 ---
 

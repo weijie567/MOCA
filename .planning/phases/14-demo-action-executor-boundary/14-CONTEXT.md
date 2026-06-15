@@ -39,7 +39,7 @@ External execution, outbox, reconciliation, compensation, and real side effects 
 - **D-14:** Same target/action with a different `action_payload_hash` represents a distinct draft intent or revision and should create a distinct draft key.
 - **D-15:** Exact key reuse returns the existing draft only when binding remains exact. Because the key embeds tenant, run, revision/auto marker, action type, target id, and payload hash, the additional required reuse check is `safety_snapshot_hash` consistency. A key hit with mismatched snapshot hash must return an idempotency conflict.
 - **D-16:** Use explicit `auto_allowed` as the no-approval revision marker for low-risk auto-allowed drafts. Do not collapse auto-allowed drafts into the current `no_approval` marker.
-- **D-17:** Keep the global unique `idempotency_key` constraint if the key embeds tenant id. With this key shape, global uniqueness is equivalent to tenant-isolated key uniqueness. The existing tenant comparison may remain as defense-in-depth but is no longer the primary isolation mechanism.
+- **D-17:** Use the canonical contract constraint `unique (tenant_id, idempotency_key)` for action drafts. Even though the Phase 14 service-built key embeds `tenant_id`, the database uniqueness model must follow `docs/contract-spec.md` Section 18.3 so tenant isolation, draft reuse semantics, and future Phase 17 external idempotency remain aligned with the normative contract.
 
 ### Graph and Naming Boundary
 - **D-18:** Rename the registered graph node from `execute_action` to `action_draft` in Phase 14. Update graph registration, conditional edges, imports, trace/node-name contracts, and route naming to align with the canonical node.
