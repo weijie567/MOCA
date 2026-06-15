@@ -140,6 +140,14 @@ def test_memory_write_event_types_and_retention_are_registered():
     assert EVENT_RETENTION_CLASSIFICATION["memory_write_failed"] == "minimal_event"
 
 
+def test_approval_event_types_and_retention_are_registered():
+    assert {"approval_requested", "approval_decided", "approval_expired", "approval_resumed"} <= MINIMAL_EVENT_TYPES
+    assert EVENT_RETENTION_CLASSIFICATION["approval_requested"] == "minimal_event"
+    assert EVENT_RETENTION_CLASSIFICATION["approval_decided"] == "minimal_event"
+    assert EVENT_RETENTION_CLASSIFICATION["approval_expired"] == "minimal_event"
+    assert EVENT_RETENTION_CLASSIFICATION["approval_resumed"] == "minimal_event"
+
+
 @pytest.mark.asyncio
 async def test_single_operation_one_family(session: AsyncSession):
     run_id, tenant_id = await _create_run(session)
@@ -222,3 +230,23 @@ async def test_redaction_guard(session: AsyncSession):
             event_type="memory_write_failed",
             redacted_payload={"summary": {"raw": "slot payload"}},
         )
+
+    for key in (
+        "raw_prompt",
+        "raw_args",
+        "raw_payload",
+        "raw_tool_output",
+        "secret",
+        "secrets",
+        "credential",
+        "credentials",
+        "pii",
+    ):
+        with pytest.raises(ValueError):
+            await _emit(
+                session,
+                run_id=run_id,
+                tenant_id=tenant_id,
+                event_type="approval_decided",
+                redacted_payload={"summary": {key: "unsafe"}},
+            )
