@@ -60,11 +60,11 @@
 | STATE-01..02, ROUTE-01..02 | Phase 10 | Complete |
 | INTENT-01..02, CLARIFY-01 | Phase 11 | Complete |
 | SESSION-01..03 | Phase 12 | Complete |
-| APPROVAL-01..03, SNAPSHOT-01 | Phase 13 | Verification blocked by full pytest gate |
+| APPROVAL-01..03, SNAPSHOT-01 | Phase 13 | Complete |
 | DEMO-01..02 | Phase 14 | Pending |
 | REPLAY-01..03 | Phase 15 | Pending |
 | MEMORY-01..02 | Phase 16 | Deferred beyond MVP gate |
 | EXTERNAL-01..03 | Phase 17 | Deferred beyond MVP gate |
 
 ---
-*Updated: 2026-06-15 after Phase 13-17 architecture alignment was promoted to a planning requirement.*
+*Updated: 2026-06-15 after Phase 13 verification completed and Phase 14 became ready to plan.*

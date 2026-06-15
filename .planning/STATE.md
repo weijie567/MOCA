@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
-status: verifying
-stopped_at: Completed Phase 13 plans; full pytest blocker resolved
-last_updated: "2026-06-15T11:49:59Z"
-last_activity: 2026-06-15 -- Phase 13 full pytest gate passed
+status: ready_to_plan
+stopped_at: Phase 13 verified complete; Phase 14 ready to plan
+last_updated: "2026-06-15T12:24:32Z"
+last_activity: 2026-06-15 -- Phase 13 verified complete
 progress:
   total_phases: 11
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 42
   completed_plans: 42
-  percent: 100
+  percent: 64
 ---
 
 # Project State: MOCA
@@ -21,17 +21,17 @@ progress:
 See: `.planning/PROJECT.md`
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 13 — approval-state-machine
+**Current focus:** Phase 14 — demo-action-executor-boundary
 
 ## Current Position
 
-Phase: 13 (approval-state-machine) — VERIFYING
-Plan: 8 of 8
-Plans: 8/8
-Status: Phase 13 plans complete; ready for phase-level verification
-Last activity: 2026-06-15 -- Phase 13 full pytest gate passed
+Phase: 14
+Plan: Not started
+Plans: Not planned
+Status: Ready to plan
+Last activity: 2026-06-15 -- Phase 13 verified complete
 
-Progress: [██████████] 100%
+Progress: [██████░░░░] 64%
 
 ## Completed Baseline
 
@@ -80,7 +80,7 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Deleted src/repositories/approval_repo.py instead of leaving a compatibility shim because source callers had already moved to src.approvals and the remaining legacy references were obsolete tests.
 - Direct action-node execution now requires approval_result.v1 revision/version fields plus exact action_payload_hash, safety_snapshot_ref, and safety_snapshot_hash matches, mirroring graph routing.
 - Legacy approval model tests now assert ApprovalService semantics, including terminal conflicts and legacy_v1 fail-closed behavior, rather than v1 repository idempotency.
-- Phase 13 full pytest gate blocker was resolved; coverage now records P13-BLOCK-FULL-PYTEST as RESOLVED with `uv run pytest -q --tb=short` passing.
+- Phase 13 full pytest gate blocker was resolved; coverage records P13-BLOCK-FULL-PYTEST as RESOLVED, and phase verification passed 12/12 must-haves after `uv run pytest -q --tb=short` and `uv run ruff check src tests` passed.
 - Phase 13 approval-contract eval manifest uses a real dataset hash computed from the frozen approval-focused test corpus instead of the placeholder hash.
 
 ## Blockers / Concerns
@@ -128,11 +128,11 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 ## Session Continuity
 
 Last session: 2026-06-15T11:49:59Z
-Stopped at: Completed Phase 13 plans; full pytest blocker resolved
+Stopped at: Phase 13 verified complete; Phase 14 ready to plan
 Resume file: None
 
-**Next:** Run Phase 13 phase-level verification gates
+**Next:** Plan Phase 14 demo-action-executor-boundary
 
-**Completed Phase:** Phase 12 (Session Memory) — 2026-06-14
+**Completed Phase:** Phase 13 (Approval State Machine) — 2026-06-15
 
-**Planned Phase:** 13 (Approval State Machine) — 8 plans — 2026-06-15T04:59:44.942Z
+**Planned Phase:** 14 (Demo Action Executor Boundary) — not planned
