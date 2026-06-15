@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Any
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Numeric, String, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -276,15 +276,66 @@ Index("ix_session_memories_scope", SessionMemory.tenant_id, SessionMemory.user_i
 Index("ix_session_memories_expires_at", SessionMemory.expires_at)
 
 
+class ActionSafetySnapshot(Base):
+    __tablename__ = "action_safety_snapshots"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "immutable_hash", name="uq_action_safety_snapshots_tenant_hash"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    schema_version: Mapped[str] = mapped_column(String(48), nullable=False, default="action_safety_snapshot.v1")
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_runs.id"), nullable=False)
+    snapshot_ref: Mapped[str] = mapped_column(String(128), nullable=False)
+    snapshot_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    immutable_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    action_payload_hash: Mapped[str | None] = mapped_column(String(128))
+    policy_config_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    risk_config_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    retrieval_config_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retention_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    run: Mapped["AgentRun"] = relationship()
+
+
+Index("ix_action_safety_snapshots_tenant_id", ActionSafetySnapshot.tenant_id)
+Index("ix_action_safety_snapshots_run_id", ActionSafetySnapshot.run_id)
+Index("ix_action_safety_snapshots_tenant_hash", ActionSafetySnapshot.tenant_id, ActionSafetySnapshot.immutable_hash)
+
+
 class ApprovalRequest(TimestampMixin, Base):
     __tablename__ = "approval_requests"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "run_id", "revision", name="uq_approval_requests_tenant_run_revision"),
+        CheckConstraint(
+            "status IN ('pending', 'needs_info', 'approved', 'rejected', 'cancelled', 'expired', 'superseded')",
+            name="ck_approval_requests_status",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     run_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("agent_runs.id"), nullable=False, index=True
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    schema_version: Mapped[str | None] = mapped_column(String(48), default="approval_request.v2")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    approval_policy_id: Mapped[str | None] = mapped_column(String(64))
+    policy_version: Mapped[str | None] = mapped_column(String(64))
+    revision: Mapped[int | None] = mapped_column()
+    version: Mapped[int | None] = mapped_column(default=1)
+    action_payload_hash: Mapped[str | None] = mapped_column(String(128))
+    safety_snapshot_ref: Mapped[str | None] = mapped_column(String(128))
+    safety_snapshot_hash: Mapped[str | None] = mapped_column(String(128))
+    legacy_non_executable: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    superseded_by_request_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("approval_requests.id")
+    )
+    clarification_request_id: Mapped[str | None] = mapped_column(String(128))
     requested_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     assigned_to: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     proposed_action: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
@@ -301,9 +352,212 @@ class ApprovalRequest(TimestampMixin, Base):
 
     run: Mapped["AgentRun"] = relationship()
     steps: Mapped[list["ApprovalStep"]] = relationship(back_populates="approval_request", cascade="all, delete-orphan")
+    levels: Mapped[list["ApprovalLevel"]] = relationship(
+        back_populates="approval_request", cascade="all, delete-orphan"
+    )
+    decisions: Mapped[list["ApprovalDecision"]] = relationship(
+        back_populates="approval_request",
+        cascade="all, delete-orphan",
+        foreign_keys="ApprovalDecision.approval_request_id",
+    )
+    events: Mapped[list["ApprovalEvent"]] = relationship(
+        back_populates="approval_request", cascade="all, delete-orphan"
+    )
 
 
 Index("ix_approval_requests_tenant_status", ApprovalRequest.tenant_id, ApprovalRequest.status)
+Index("ix_approval_requests_tenant_action_hash", ApprovalRequest.tenant_id, ApprovalRequest.action_payload_hash)
+Index(
+    "uq_approval_requests_active_revision",
+    ApprovalRequest.tenant_id,
+    ApprovalRequest.run_id,
+    unique=True,
+    postgresql_where=text("legacy_non_executable IS FALSE AND status IN ('pending', 'needs_info')"),
+)
+
+
+class ApprovalLevel(TimestampMixin, Base):
+    __tablename__ = "approval_levels"
+    __table_args__ = (
+        UniqueConstraint("approval_request_id", "level_number", name="uq_approval_levels_request_level"),
+        CheckConstraint(
+            "status IN ('pending', 'approved', 'rejected', 'cancelled', 'expired', 'skipped')",
+            name="ck_approval_levels_status",
+        ),
+        CheckConstraint("mode IN ('any_one', 'all')", name="ck_approval_levels_mode"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    approval_request_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("approval_requests.id"), nullable=False, index=True
+    )
+    schema_version: Mapped[str] = mapped_column(String(48), nullable=False, default="approval_level.v2")
+    level_number: Mapped[int] = mapped_column(nullable=False)
+    version: Mapped[int] = mapped_column(default=1, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    required_role: Mapped[str] = mapped_column(String(64), nullable=False)
+    mode: Mapped[str] = mapped_column(String(32), nullable=False, default="any_one")
+    sla_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    escalated_to_level: Mapped[int | None] = mapped_column()
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retention_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    approval_request: Mapped["ApprovalRequest"] = relationship(back_populates="levels")
+    assignments: Mapped[list["ApprovalAssignment"]] = relationship(
+        back_populates="approval_level", cascade="all, delete-orphan"
+    )
+    decisions: Mapped[list["ApprovalDecision"]] = relationship(
+        back_populates="approval_level", cascade="all, delete-orphan"
+    )
+
+
+Index("ix_approval_levels_request", ApprovalLevel.approval_request_id)
+Index("ix_approval_levels_status", ApprovalLevel.status)
+
+
+class ApprovalAssignment(TimestampMixin, Base):
+    __tablename__ = "approval_assignments"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'approved', 'rejected', 'cancelled', 'expired', 'skipped')",
+            name="ck_approval_assignments_status",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    approval_level_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("approval_levels.id"), nullable=False, index=True
+    )
+    schema_version: Mapped[str] = mapped_column(String(48), nullable=False, default="approval_assignment.v2")
+    assigned_role: Mapped[str] = mapped_column(String(64), nullable=False)
+    assigned_to_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    version: Mapped[int] = mapped_column(default=1, nullable=False)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retention_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    approval_level: Mapped["ApprovalLevel"] = relationship(back_populates="assignments")
+    decisions: Mapped[list["ApprovalDecision"]] = relationship(
+        back_populates="approval_assignment", cascade="all, delete-orphan"
+    )
+
+
+Index("ix_approval_assignments_level", ApprovalAssignment.approval_level_id)
+Index("ix_approval_assignments_status", ApprovalAssignment.status)
+
+
+class ApprovalDecision(Base):
+    __tablename__ = "approval_decisions"
+    __table_args__ = (
+        CheckConstraint(
+            "decision_type IN ('accept', 'approve', 'edit', 'reject', 'respond', 'ignore', 'expire')",
+            name="ck_approval_decisions_type",
+        ),
+        CheckConstraint("level_mode IN ('any_one', 'all')", name="ck_approval_decisions_level_mode"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    approval_request_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("approval_requests.id"), nullable=False
+    )
+    approval_level_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("approval_levels.id"), nullable=False
+    )
+    approval_assignment_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("approval_assignments.id"), nullable=False
+    )
+    schema_version: Mapped[str] = mapped_column(String(48), nullable=False, default="approval_decision.v2")
+    version: Mapped[int] = mapped_column(default=1, nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_runs.id"), nullable=False)
+    thread_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    request_revision: Mapped[int] = mapped_column(nullable=False)
+    request_version: Mapped[int] = mapped_column(nullable=False)
+    level_version: Mapped[int] = mapped_column(nullable=False)
+    level_mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    assignment_version: Mapped[int] = mapped_column(nullable=False)
+    decision_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text)
+    response_text: Mapped[str | None] = mapped_column(Text)
+    edited_action_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    actor_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retention_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    approval_request: Mapped["ApprovalRequest"] = relationship(
+        back_populates="decisions",
+        foreign_keys=[approval_request_id],
+    )
+    approval_level: Mapped["ApprovalLevel"] = relationship(back_populates="decisions")
+    approval_assignment: Mapped["ApprovalAssignment"] = relationship(back_populates="decisions")
+    events: Mapped[list["ApprovalEvent"]] = relationship(back_populates="approval_decision")
+
+
+Index("ix_approval_decisions_request", ApprovalDecision.approval_request_id)
+Index("ix_approval_decisions_level", ApprovalDecision.approval_level_id)
+Index("ix_approval_decisions_assignment", ApprovalDecision.approval_assignment_id)
+Index("ix_approval_decisions_tenant_run", ApprovalDecision.tenant_id, ApprovalDecision.run_id)
+Index(
+    "uq_approval_decisions_active_assignment",
+    ApprovalDecision.approval_assignment_id,
+    unique=True,
+    postgresql_where=text("deleted_at IS NULL AND archived_at IS NULL AND decision_type IN ('accept', 'approve')"),
+)
+Index(
+    "uq_approval_decisions_winning_accept_level",
+    ApprovalDecision.approval_level_id,
+    unique=True,
+    postgresql_where=text(
+        "deleted_at IS NULL AND level_mode = 'any_one' AND decision_type IN ('accept', 'approve')"
+    ),
+)
+
+
+class ApprovalEvent(Base):
+    __tablename__ = "approval_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    approval_request_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("approval_requests.id"), nullable=False
+    )
+    approval_decision_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("approval_decisions.id")
+    )
+    replay_event_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agent_trace_events.event_id")
+    )
+    schema_version: Mapped[str] = mapped_column(String(48), nullable=False, default="approval_event.v2")
+    version: Mapped[int] = mapped_column(default=1, nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_runs.id"), nullable=False)
+    thread_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    request_revision: Mapped[int] = mapped_column(nullable=False)
+    request_version: Mapped[int] = mapped_column(nullable=False)
+    level_version: Mapped[int | None] = mapped_column()
+    assignment_version: Mapped[int | None] = mapped_column()
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
+    event_type: Mapped[str] = mapped_column(String(48), nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    resource_refs_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    redacted_payload_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retention_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    approval_request: Mapped["ApprovalRequest"] = relationship(back_populates="events")
+    approval_decision: Mapped["ApprovalDecision | None"] = relationship(back_populates="events")
+
+
+Index("ix_approval_events_request", ApprovalEvent.approval_request_id)
+Index("ix_approval_events_decision", ApprovalEvent.approval_decision_id)
+Index("ix_approval_events_replay_event", ApprovalEvent.replay_event_id)
+Index("ix_approval_events_tenant_run", ApprovalEvent.tenant_id, ApprovalEvent.run_id)
+Index("ix_approval_events_event_type", ApprovalEvent.event_type)
 
 
 class ApprovalStep(Base):
