@@ -5,8 +5,15 @@ import pytest
 from tests.agent.conftest import FakeLLM
 
 from src.agent.intent_policy import (
+    DIRECT_RESPONSE_INTENTS,
+    EVIDENCE_REQUIRED_INTENTS,
+    HIGH_RISK_INTENTS,
+    INTENT_DEFINITIONS,
+    INTENT_ROUTE_POLICY,
     ORDINARY_INTENTS,
+    PRECEDENCE_INTENTS,
     REQUESTED_OPERATIONS,
+    REQUIRED_SLOT_POLICY,
     confidence_requires_clarification,
     detect_pre_route,
     resolve_intent_precedence,
@@ -22,6 +29,34 @@ def test_policy_taxonomy_has_no_generic_or_approval_decision_intents():
     assert "support_qa" not in ORDINARY_INTENTS
     assert "approval_request" not in ORDINARY_INTENTS
     assert "approval_decision" not in REQUESTED_OPERATIONS
+
+
+def test_intent_policy_views_are_derived_from_definitions():
+    assert all(name == definition.name for name, definition in INTENT_DEFINITIONS.items())
+    assert len({definition.precedence for definition in INTENT_DEFINITIONS.values()}) == len(INTENT_DEFINITIONS)
+    assert all(
+        not definition.direct_response or definition.initial_route == "final_response"
+        for definition in INTENT_DEFINITIONS.values()
+    )
+    assert ORDINARY_INTENTS == tuple(INTENT_DEFINITIONS)
+    assert REQUIRED_SLOT_POLICY == {
+        name: definition.required_slots for name, definition in INTENT_DEFINITIONS.items()
+    }
+    assert INTENT_ROUTE_POLICY == {
+        name: definition.initial_route for name, definition in INTENT_DEFINITIONS.items()
+    }
+    assert PRECEDENCE_INTENTS == tuple(
+        name for name, _definition in sorted(INTENT_DEFINITIONS.items(), key=lambda item: item[1].precedence)
+    )
+    assert DIRECT_RESPONSE_INTENTS == {
+        name for name, definition in INTENT_DEFINITIONS.items() if definition.direct_response
+    }
+    assert EVIDENCE_REQUIRED_INTENTS == {
+        name for name, definition in INTENT_DEFINITIONS.items() if definition.evidence_required
+    }
+    assert HIGH_RISK_INTENTS == {
+        name for name, definition in INTENT_DEFINITIONS.items() if definition.high_risk
+    }
 
 
 def test_detect_pre_route_approval_chat_and_hard_negatives():

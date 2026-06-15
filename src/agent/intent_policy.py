@@ -1,25 +1,27 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from src.agent.schemas import RequiredSlotExpression, RequestedOperationLiteral
+from src.agent.schemas import IntentLiteral, RequiredSlotExpression, RequestedOperationLiteral
 
 
-ORDINARY_INTENTS: tuple[str, ...] = (
-    "policy_qa",
-    "order_status_inquiry",
-    "refund_troubleshooting",
-    "compensation_suggestion",
-    "ticket_reply_draft",
-    "appeal_or_unban",
-    "complaint_escalation",
-    "action_request",
-    "small_talk",
-    "unsupported",
-)
+IntentRouteLiteral = Literal["investigate", "session_memory_load", "final_response"]
+
+
+@dataclass(frozen=True)
+class IntentDefinition:
+    name: IntentLiteral
+    required_slots: RequiredSlotExpression
+    initial_route: IntentRouteLiteral
+    precedence: int
+    direct_response: bool = False
+    evidence_required: bool = True
+    high_risk: bool = False
+    critical_route_class: bool = False
 
 REQUESTED_OPERATIONS: tuple[str, ...] = (
     "read_status",
@@ -30,51 +32,100 @@ REQUESTED_OPERATIONS: tuple[str, ...] = (
     "escalate",
 )
 
-REQUIRED_SLOT_POLICY: dict[str, RequiredSlotExpression] = {
-    "policy_qa": RequiredSlotExpression(),
-    "order_status_inquiry": RequiredSlotExpression(any_of=[["order_id", "refund_case_id", "ticket_id"]]),
-    "refund_troubleshooting": RequiredSlotExpression(any_of=[["order_id", "refund_case_id"]]),
-    "compensation_suggestion": RequiredSlotExpression(
-        all_of=["action_type"], any_of=[["order_id", "refund_case_id", "ticket_id"]], optional=["amount"]
+INTENT_DEFINITIONS: dict[str, IntentDefinition] = {
+    "policy_qa": IntentDefinition(
+        name="policy_qa",
+        required_slots=RequiredSlotExpression(),
+        initial_route="investigate",
+        precedence=7,
     ),
-    "ticket_reply_draft": RequiredSlotExpression(all_of=["ticket_id"]),
-    "appeal_or_unban": RequiredSlotExpression(any_of=[["ticket_id", "order_id", "merchant_id"]]),
-    "complaint_escalation": RequiredSlotExpression(any_of=[["ticket_id", "order_id", "merchant_id"]]),
-    "action_request": RequiredSlotExpression(all_of=["action_type"], any_of=[["order_id", "refund_case_id"]]),
-    "small_talk": RequiredSlotExpression(),
-    "unsupported": RequiredSlotExpression(),
+    "order_status_inquiry": IntentDefinition(
+        name="order_status_inquiry",
+        required_slots=RequiredSlotExpression(any_of=[["order_id", "refund_case_id", "ticket_id"]]),
+        initial_route="session_memory_load",
+        precedence=6,
+    ),
+    "refund_troubleshooting": IntentDefinition(
+        name="refund_troubleshooting",
+        required_slots=RequiredSlotExpression(any_of=[["order_id", "refund_case_id"]]),
+        initial_route="session_memory_load",
+        precedence=5,
+    ),
+    "compensation_suggestion": IntentDefinition(
+        name="compensation_suggestion",
+        required_slots=RequiredSlotExpression(
+            all_of=["action_type"],
+            any_of=[["order_id", "refund_case_id", "ticket_id"]],
+            optional=["amount"],
+        ),
+        initial_route="session_memory_load",
+        precedence=3,
+    ),
+    "ticket_reply_draft": IntentDefinition(
+        name="ticket_reply_draft",
+        required_slots=RequiredSlotExpression(all_of=["ticket_id"]),
+        initial_route="session_memory_load",
+        precedence=4,
+    ),
+    "appeal_or_unban": IntentDefinition(
+        name="appeal_or_unban",
+        required_slots=RequiredSlotExpression(any_of=[["ticket_id", "order_id", "merchant_id"]]),
+        initial_route="session_memory_load",
+        precedence=1,
+        high_risk=True,
+        critical_route_class=True,
+    ),
+    "complaint_escalation": IntentDefinition(
+        name="complaint_escalation",
+        required_slots=RequiredSlotExpression(any_of=[["ticket_id", "order_id", "merchant_id"]]),
+        initial_route="session_memory_load",
+        precedence=2,
+        high_risk=True,
+        critical_route_class=True,
+    ),
+    "action_request": IntentDefinition(
+        name="action_request",
+        required_slots=RequiredSlotExpression(all_of=["action_type"], any_of=[["order_id", "refund_case_id"]]),
+        initial_route="session_memory_load",
+        precedence=8,
+        high_risk=True,
+    ),
+    "small_talk": IntentDefinition(
+        name="small_talk",
+        required_slots=RequiredSlotExpression(),
+        initial_route="final_response",
+        precedence=9,
+        direct_response=True,
+        evidence_required=False,
+    ),
+    "unsupported": IntentDefinition(
+        name="unsupported",
+        required_slots=RequiredSlotExpression(),
+        initial_route="final_response",
+        precedence=10,
+        direct_response=True,
+        evidence_required=False,
+    ),
 }
 
-PRECEDENCE_INTENTS: tuple[str, ...] = (
-    "appeal_or_unban",
-    "complaint_escalation",
-    "compensation_suggestion",
-    "ticket_reply_draft",
-    "refund_troubleshooting",
-    "order_status_inquiry",
-    "policy_qa",
-    "action_request",
-    "small_talk",
-    "unsupported",
+ORDINARY_INTENTS: tuple[str, ...] = tuple(INTENT_DEFINITIONS)
+REQUIRED_SLOT_POLICY: dict[str, RequiredSlotExpression] = {
+    name: definition.required_slots for name, definition in INTENT_DEFINITIONS.items()
+}
+PRECEDENCE_INTENTS: tuple[str, ...] = tuple(
+    name for name, _definition in sorted(INTENT_DEFINITIONS.items(), key=lambda item: item[1].precedence)
 )
-
-INTENT_ROUTE_POLICY: dict[str, str] = {
-    "policy_qa": "investigate",
-    "order_status_inquiry": "session_memory_load",
-    "refund_troubleshooting": "session_memory_load",
-    "compensation_suggestion": "session_memory_load",
-    "ticket_reply_draft": "session_memory_load",
-    "appeal_or_unban": "session_memory_load",
-    "complaint_escalation": "session_memory_load",
-    "action_request": "session_memory_load",
-    "small_talk": "final_response",
-    "unsupported": "final_response",
+INTENT_ROUTE_POLICY: dict[str, IntentRouteLiteral] = {
+    name: definition.initial_route for name, definition in INTENT_DEFINITIONS.items()
 }
-
-DIRECT_RESPONSE_INTENTS = {"small_talk", "unsupported"}
-EVIDENCE_REQUIRED_INTENTS = set(ORDINARY_INTENTS) - DIRECT_RESPONSE_INTENTS
-HIGH_RISK_INTENTS = {"appeal_or_unban", "complaint_escalation", "action_request"}
-CRITICAL_ROUTE_CLASSES = {"critical_write", "approval_decision", "appeal_or_unban", "complaint_escalation"}
+DIRECT_RESPONSE_INTENTS = {name for name, definition in INTENT_DEFINITIONS.items() if definition.direct_response}
+EVIDENCE_REQUIRED_INTENTS = {name for name, definition in INTENT_DEFINITIONS.items() if definition.evidence_required}
+HIGH_RISK_INTENTS = {name for name, definition in INTENT_DEFINITIONS.items() if definition.high_risk}
+CRITICAL_ROUTE_CLASSES = {
+    "critical_write",
+    "approval_decision",
+    *(name for name, definition in INTENT_DEFINITIONS.items() if definition.critical_route_class),
+}
 
 
 class PreRouteDecision(BaseModel):

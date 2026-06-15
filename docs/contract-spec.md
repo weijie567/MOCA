@@ -851,7 +851,9 @@ Gate status precedence 固定且逐 class 应用：1) coverage manifest missing/
 
 ### 11.7 Intent consistency manifest
 
-必须维护一份 machine-readable intent consistency manifest，逐项列出 §11.1 taxonomy 的每个 ordinary-chat intent。该 manifest 只声明并校验跨表覆盖完整性；它不是运行时 `IntentRegistry`，intent 各维度仍分别以对应 taxonomy、precedence、required-slot、routing/evidence 和 golden-set contract 为 source of truth。
+运行时代码必须维护一份 machine-readable `INTENT_DEFINITIONS` catalog，逐项声明 §11.1 taxonomy 的每个 ordinary-chat intent，以及对应 required slots、initial route、precedence、direct-response、evidence-required、high-risk 和 critical-route-class 标记。`ORDINARY_INTENTS`、`REQUIRED_SLOT_POLICY`、`INTENT_ROUTE_POLICY`、`PRECEDENCE_INTENTS`、direct/evidence/risk sets 必须从该 catalog 派生，避免新增 intent 时出现多处 source of truth。
+
+仍需维护一份 machine-readable intent consistency manifest，用于校验 eval/golden coverage 和文档覆盖完整性。该 manifest 只声明并校验跨表覆盖完整性；它不是运行时 registry，运行时 intent policy 以 `INTENT_DEFINITIONS` 为 source of truth，golden-set contract 以 immutable eval artifact/hash 为 source of truth。
 
 Consistency check 的 normative 规则如下。每个 taxonomy intent 必须按以下覆盖规则具有对应条目，缺少任一 required 条目即 consistency check fail，并由 CI/contract test 阻断：
 
@@ -860,7 +862,7 @@ Consistency check 的 normative 规则如下。每个 taxonomy intent 必须按�
 3. §9.3 intent-level routing 表必须有所有 taxonomy intent 的路由行。Evidence sufficiency decision table 仅要求经 `investigate` 路由的 intent 有证据行；`small_talk` / `unsupported` 等直达 `final_response`、不进入 `route_after_investigate` 的 intent 豁免，其 `in_evidence_table` 必须为 `false`，并由 intent-level routing 表行兜底覆盖。
 4. §11.4 intent golden set 有该 intent 的正样例和负样例。
 
-Manifest 使用 immutable dataset version/hash，并为每个 intent 声明来源覆盖标记。以下是通过 consistency check 后的 JSON 示例骨架；CI/contract test 必须从对应 source of truth 验证每个标记，不得只信任 manifest 中声明的 `true`。校验 `in_evidence_table` 时，对豁免 intent 断言“不在 evidence sufficiency decision table 且在 intent-level routing 表”，对非豁免 intent 断言“在 evidence sufficiency decision table”：
+Manifest 使用 immutable dataset version/hash，并为每个 intent 声明来源覆盖标记。以下是通过 consistency check 后的 JSON 示例骨架；CI/contract test 必须从 `INTENT_DEFINITIONS` 和 eval artifacts 验证每个标记，不得只信任 manifest 中声明的 `true`。校验 `in_evidence_table` 时，对豁免 intent 断言“不在 evidence sufficiency decision table 且在 intent-level routing 表”，对非豁免 intent 断言“在 evidence sufficiency decision table”：
 
 ```json
 {
