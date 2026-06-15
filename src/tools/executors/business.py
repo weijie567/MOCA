@@ -15,7 +15,7 @@ class BusinessToolExecutor:
         self.service = service or BusinessToolService.with_default_registry(session)
 
     def has_tool(self, name: str) -> bool:
-        return name in {"get_order", "get_refund_case", "get_ticket"}
+        return self.service.has_tool(name)
 
     async def execute(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
         return await self.service.invoke_tool(name, args, ctx)

@@ -40,6 +40,7 @@ Graph node
 - 统一 catalog 不等于统一暴露给模型：`ToolCatalog` 保存全量 descriptor，`UnifiedToolManager.descriptors(caller)` 只派生 caller-specific capability view。
 - `UnifiedToolManager -> ToolCatalog -> domain executor -> domain service -> adapter/repository` 是目标链路；executor 保持薄，manager 不懂业务，service 不懂 agent caller。
 - `BusinessToolService` 不再承担 descriptor lookup、caller allowlist、`tool:*` permission、input/output schema 等 agent-facing 校验；这些统一放在 `UnifiedToolManager` / `ToolCatalog`。
+- `BUSINESS_READ_TOOLS` 只作为 business domain 内部 implementation map，统一维护 input model、adapter、slot/resource/argument 映射；它不是旧 `ToolRegistry`，也不是 agent-facing capability catalog。
 - catalog descriptor 必须表达可见性和安全边界：`exposure`、`caller_allowlist`、`required_permission`、`side_effect`、`requires_approval`、`requires_safety_snapshot`、`requires_idempotency_key`。
 - planner-visible、node-only、internal capability 可以同处一个 catalog，但 planner view 只能看到 planner-visible read/retrieval tools；`create_coupon_grant_draft` 这类 action 只能走 node-only caller。
 - 迁移顺序先保证 `execute_action` 通过 manager 调 action，再逐步禁止 graph node 直连 raw adapter；否则静态边界测试会先卡住现有代码。

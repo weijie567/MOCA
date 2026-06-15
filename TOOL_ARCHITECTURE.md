@@ -320,7 +320,7 @@ Domain service 不 import graph node。Raw adapter 不 import manager。Domain s
 
 - `src/tools/catalog.py` 是唯一 agent-facing descriptor/catalog 来源。
 - `src.business_tools` 兼容包已删除；新代码必须使用 `src.business`、`src.tools.catalog` 和 `src.tools.contracts`。
-- `BusinessToolService` 使用普通 business read adapter map；它不查 descriptor、不检查 caller allowlist、不检查 tool permission、不校验 catalog input/output schema。
+- `BusinessToolService` 使用 `BUSINESS_READ_TOOLS` 作为 business domain 内部 implementation map；它只维护 input model、adapter、slot/resource/argument 映射，不查 descriptor、不检查 caller allowlist、不检查 tool permission、不校验 catalog input/output schema。
 - `UnifiedToolManager` 是 agent-facing descriptor lookup、caller allowlist、permission、input schema、output schema 和 side-effect 校验入口。
 
 ### Phase 4: 重命名 raw tools

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass, replace
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -23,20 +24,38 @@ from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolError, T
 
 BusinessToolAdapter = Callable[[BaseModel, ToolCallContext, AsyncSession], Awaitable[ToolResultV2]]
 
-_CONTEXT_READS = {
-    "order_id": ("get_order", "order", "order_no"),
-    "refund_case_id": ("get_refund_case", "refund_case", "refund_case_no"),
-    "ticket_id": ("get_ticket", "ticket", "ticket_id"),
-}
-_INPUT_MODELS: dict[str, type[BaseModel]] = {
-    "get_order": GetOrderInput,
-    "get_refund_case": GetRefundCaseInput,
-    "get_ticket": GetTicketInput,
-}
-_DEFAULT_ADAPTERS: dict[str, BusinessToolAdapter] = {
-    "get_order": get_order_adapter,
-    "get_refund_case": get_refund_case_adapter,
-    "get_ticket": get_ticket_adapter,
+
+@dataclass(frozen=True)
+class BusinessReadToolDefinition:
+    input_model: type[BaseModel]
+    adapter: BusinessToolAdapter
+    slot_name: str | None = None
+    resource_name: str | None = None
+    argument_name: str | None = None
+
+
+BUSINESS_READ_TOOLS: dict[str, BusinessReadToolDefinition] = {
+    "get_order": BusinessReadToolDefinition(
+        input_model=GetOrderInput,
+        adapter=get_order_adapter,
+        slot_name="order_id",
+        resource_name="order",
+        argument_name="order_no",
+    ),
+    "get_refund_case": BusinessReadToolDefinition(
+        input_model=GetRefundCaseInput,
+        adapter=get_refund_case_adapter,
+        slot_name="refund_case_id",
+        resource_name="refund_case",
+        argument_name="refund_case_no",
+    ),
+    "get_ticket": BusinessReadToolDefinition(
+        input_model=GetTicketInput,
+        adapter=get_ticket_adapter,
+        slot_name="ticket_id",
+        resource_name="ticket",
+        argument_name="ticket_id",
+    ),
 }
 
 
@@ -72,9 +91,19 @@ def _merchant_scope_allows(
 
 
 class BusinessToolService:
-    def __init__(self, session: AsyncSession, adapters: Mapping[str, BusinessToolAdapter] | None = None) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        adapters: Mapping[str, BusinessToolAdapter] | None = None,
+        tools: Mapping[str, BusinessReadToolDefinition] | None = None,
+    ) -> None:
         self.session = session
-        self.adapters = dict(_DEFAULT_ADAPTERS if adapters is None else adapters)
+        self.tools = dict(BUSINESS_READ_TOOLS if tools is None else tools)
+        if adapters is not None:
+            for name, adapter in adapters.items():
+                definition = self.tools.get(name)
+                if definition is not None:
+                    self.tools[name] = replace(definition, adapter=adapter)
 
     @classmethod
     def with_default_registry(cls, session: AsyncSession) -> BusinessToolService:
@@ -85,6 +114,9 @@ class BusinessToolService:
     @classmethod
     def with_default_adapters(cls, session: AsyncSession) -> BusinessToolService:
         return cls(session)
+
+    def has_tool(self, name: str) -> bool:
+        return name in self.tools
 
     async def invoke_tool(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
         """Invoke one logical tool call, retrying only explicitly retryable results."""
@@ -125,9 +157,8 @@ class BusinessToolService:
         return result
 
     async def _invoke_adapter(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
-        input_model_type = _INPUT_MODELS.get(name)
-        adapter = self.adapters.get(name)
-        if input_model_type is None or adapter is None:
+        definition = self.tools.get(name)
+        if definition is None:
             return self._local_error(
                 "unavailable",
                 "Business tool is unavailable",
@@ -136,7 +167,7 @@ class BusinessToolService:
             )
 
         try:
-            input_model = input_model_type.model_validate(args)
+            input_model = definition.input_model.model_validate(args)
         except ValidationError:
             return self._local_error(
                 "invalid_request",
@@ -145,7 +176,7 @@ class BusinessToolService:
             )
 
         try:
-            result = await adapter(input_model, ctx, self.session)
+            result = await definition.adapter(input_model, ctx, self.session)
         except Exception:
             return self._local_error(
                 "error",
@@ -175,7 +206,12 @@ class BusinessToolService:
         freshness_values = []
 
         try:
-            for slot_name, (tool_name, resource_name, argument_name) in _CONTEXT_READS.items():
+            for tool_name, definition in self.tools.items():
+                slot_name = definition.slot_name
+                resource_name = definition.resource_name
+                argument_name = definition.argument_name
+                if slot_name is None or resource_name is None or argument_name is None:
+                    continue
                 identifier = slots.get(slot_name)
                 if not identifier:
                     continue
@@ -207,9 +243,11 @@ class BusinessToolService:
                 )
             )
             requested_resources = [
-                resource_name
-                for slot_name, (_, resource_name, _) in _CONTEXT_READS.items()
-                if slots.get(slot_name)
+                definition.resource_name
+                for definition in self.tools.values()
+                if definition.slot_name is not None
+                and definition.resource_name is not None
+                and slots.get(definition.slot_name)
             ]
             missing_required_facts.extend(
                 resource_name

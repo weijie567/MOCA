@@ -3,10 +3,12 @@ from __future__ import annotations
 from unittest.mock import AsyncMock
 
 import pytest
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.business.service import BusinessToolService, _merchant_scope_allows
+from src.business.service import BUSINESS_READ_TOOLS, BusinessReadToolDefinition, BusinessToolService, _merchant_scope_allows
 from src.tools.contracts import ToolCallContext, ToolError, ToolResultV2
+from src.tools.executors.business import BusinessToolExecutor
 
 
 def _context(**updates: object) -> ToolCallContext:
@@ -130,6 +132,43 @@ def test_unknown_category_scope_denied() -> None:
 
 def test_merchant_scope_no_widening_denied() -> None:
     assert not _merchant_scope_allows({"merchant_ids": ["merchant-1"]}, merchant_id="merchant-2")
+
+
+def test_business_read_tool_definitions_drive_executor_support() -> None:
+    service = BusinessToolService(AsyncMock())
+    executor = BusinessToolExecutor(AsyncMock(), service=service)
+
+    assert {name for name in BUSINESS_READ_TOOLS if executor.has_tool(name)} == set(BUSINESS_READ_TOOLS)
+
+
+@pytest.mark.asyncio
+async def test_custom_business_read_definition_drives_invoke_and_fetch_context() -> None:
+    class DemoInput(BaseModel):
+        demo_no: str
+
+    adapter = AsyncMock(return_value=_result(data={"demo_no": "DEMO-09"}))
+    service = BusinessToolService(
+        AsyncMock(),
+        tools={
+            "get_demo": BusinessReadToolDefinition(
+                input_model=DemoInput,
+                adapter=adapter,
+                slot_name="demo_id",
+                resource_name="demo",
+                argument_name="demo_no",
+            )
+        },
+    )
+
+    assert service.has_tool("get_demo")
+    assert BusinessToolExecutor(AsyncMock(), service=service).has_tool("get_demo")
+
+    result = await service.invoke_tool("get_demo", {"demo_no": "DEMO-09"}, _context())
+    context = await service.fetch_context({"demo_id": "DEMO-09"}, "refund_troubleshooting", _context())
+
+    assert result.status == "success"
+    assert context.facts == {"demo": {"demo_no": "DEMO-09"}}
+    assert adapter.await_count == 2
 
 
 @pytest.mark.asyncio

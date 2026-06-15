@@ -407,6 +407,7 @@ Canonical router 函数包括：
 目标职责（叙述性）：
 
 - BusinessToolService 只保留 business scope、merchant ownership、retry、fact projection / `fetch_context` 聚合和 adapter 调用。
+- `BUSINESS_READ_TOOLS` 是 business domain 内部 implementation map，统一维护 input model、adapter、slot/resource/argument 映射；它不是 agent-facing registry。
 - agent-facing descriptor、caller allowlist、permission、input/output schema 由 `ToolCatalog` / `UnifiedToolManager` 统一负责。
 - tenant/user/role/idempotency/trace context 必须由系统注入，不由模型生成。
 
