@@ -14,8 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.agent.trace import write_agent_run
 from src.api.main import app
 from src.api.routers.agent_runs import _dedupe_evidence_refs, _event_generator, _extract_step_payload
+from src.approvals.schemas import PROPOSED_ACTION_SCHEMA_VERSION
+from src.approvals.snapshot_service import compute_action_payload_hash, persist_action_safety_snapshot
 from src.auth.jwt import ROLE_SCOPES, create_access_token
 from src.db.models import AgentRun, ApprovalRequest, User
+from src.knowledge.schemas import EvidenceRefV1
 
 
 class NeverCalledGraph:
@@ -102,6 +105,44 @@ class FakeInterrupt:
 
 class StreamInterruptGraph:
     async def astream(self, input_state, config, stream_mode):
+        evidence_ref = EvidenceRefV1.build(
+            tenant_id=input_state["tenant_id"],
+            doc_key="refund_policy",
+            chunk_id="refund_policy_001",
+            policy_version="v1",
+            text="Compensation above 500 CNY requires approval.",
+            retrieved_at=_fixed_ms_iso_z(),
+            retrieval_config_version="retrieval.v1",
+            rank=1,
+        )
+        proposed_action = {
+            "schema_version": PROPOSED_ACTION_SCHEMA_VERSION,
+            "tenant_id": input_state["tenant_id"],
+            "run_id": input_state["current_run_id"],
+            "action_id": f"act:{input_state['current_run_id']}:issue_coupon:ORD-2024-001",
+            "action_type": "issue_coupon",
+            "target_type": "order",
+            "target_id": "ORD-2024-001",
+            "amount": "600.00",
+            "currency": "CNY",
+            "args": {"risk_level": "high", "rule_ref": "RISK-COMP-001"},
+            "reason": "Compensation amount exceeds threshold.",
+            "evidence_refs": [evidence_ref.model_dump(mode="json", exclude_none=True)],
+        }
+        action_payload_hash = compute_action_payload_hash(proposed_action)
+        snapshot = await persist_action_safety_snapshot(
+            config["configurable"]["session"],
+            tenant_id=UUID(input_state["tenant_id"]),
+            run_id=UUID(input_state["current_run_id"]),
+            proposed_action=proposed_action,
+            action_payload_hash=action_payload_hash,
+            policy_config_version="approval-policy.v1",
+            risk_config_version="risk-rules.v1",
+            retrieval_config_version=evidence_ref.retrieval_config_version,
+            evidence_refs=[evidence_ref],
+            created_at=_fixed_ms_now(),
+            created_by=UUID(input_state["user_id"]),
+        )
         yield (
             "assess_risk_and_approval",
             {
@@ -111,11 +152,15 @@ class StreamInterruptGraph:
                     "approval_required": True,
                     "rule_ref": "RISK-COMP-001",
                 },
-                "proposed_action": {
-                    "action_type": "issue_coupon",
-                    "target_id": "ORD-2024-001",
-                    "amount": 600,
-                },
+                "proposed_action": proposed_action,
+                "action_payload_hash": snapshot.action_payload_hash,
+                "safety_snapshot_ref": snapshot.safety_snapshot_ref,
+                "safety_snapshot_hash": snapshot.safety_snapshot_hash,
+                "safety_snapshot_verified": True,
+                "policy_config_version": "approval-policy.v1",
+                "risk_config_version": "risk-rules.v1",
+                "retrieval_config_version": evidence_ref.retrieval_config_version,
+                "evidence_refs": [evidence_ref.model_dump(mode="json", exclude_none=True)],
                 "trace_steps": [
                     {
                         "node": "assess_risk_and_approval",
@@ -131,11 +176,14 @@ class StreamInterruptGraph:
             (
                 FakeInterrupt(
                     {
-                        "proposed_action": {
-                            "action_type": "issue_coupon",
-                            "target_id": "ORD-2024-001",
-                            "amount": 600,
-                        },
+                        "proposed_action": proposed_action,
+                        "action_payload_hash": snapshot.action_payload_hash,
+                        "safety_snapshot_ref": snapshot.safety_snapshot_ref,
+                        "safety_snapshot_hash": snapshot.safety_snapshot_hash,
+                        "policy_config_version": "approval-policy.v1",
+                        "risk_config_version": "risk-rules.v1",
+                        "retrieval_config_version": evidence_ref.retrieval_config_version,
+                        "evidence_refs": [evidence_ref.model_dump(mode="json", exclude_none=True)],
                         "risk_level": "high",
                         "risk_reason": "Compensation amount exceeds threshold.",
                         "risk_rule_ref": "RISK-COMP-001",
@@ -144,6 +192,16 @@ class StreamInterruptGraph:
                 ),
             ),
         )
+
+
+def _fixed_ms_now() -> datetime:
+    now = datetime.now(UTC)
+    return now.replace(microsecond=(now.microsecond // 1000) * 1000)
+
+
+def _fixed_ms_iso_z() -> str:
+    now = _fixed_ms_now()
+    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
 
 
 INVESTIGATION_RESPONSE_FIELDS = {
@@ -164,6 +222,17 @@ def _auth_header(user: User, scopes: list[str]) -> dict[str, str]:
         }
     )
     return {"Authorization": f"Bearer {token}"}
+
+
+def _stream_input(run: AgentRun, user: User) -> dict[str, str]:
+    return {
+        "user_query": run.input_query,
+        "thread_id": run.thread_id,
+        "tenant_id": str(user.tenant_id),
+        "user_id": str(user.id),
+        "role": user.role,
+        "current_run_id": str(run.id),
+    }
 
 
 async def _create_run(
@@ -453,7 +522,7 @@ async def test_event_generator_treats_stream_interrupt_node_as_approval_required
 
     generator = _event_generator(
         StreamInterruptGraph(),
-        {"user_query": run.input_query},
+        _stream_input(run, user),
         {"configurable": {"thread_id": run.thread_id, "session": session}},
         run=run,
         session=session,
@@ -469,14 +538,25 @@ async def test_event_generator_treats_stream_interrupt_node_as_approval_required
     approval = (await session.execute(select(ApprovalRequest).where(ApprovalRequest.run_id == run.id))).scalar_one()
     assert approval_event is not None
     approval_data = _event_data(approval_event)
-    assert set(approval_data["payload"]) == {"approval_id", "proposed_action", "risk_level"}
+    assert {"approval_id", "proposed_action", "risk_level"}.issubset(approval_data["payload"])
+    assert {
+        "approval_revision_refs",
+        "expected_request_version",
+        "expected_level_version",
+        "expected_assignment_version",
+        "expected_revision",
+        "action_payload_hash",
+        "safety_snapshot_ref",
+        "safety_snapshot_hash",
+        "allowed_decision_types",
+    }.issubset(approval_data["payload"])
     _assert_no_investigation_fields(approval_data)
     assert '"status": "waiting_approval"' in approval_event["data"]
     assert run.final_status == "interrupted"
     assert run.final_response is None
     assert approval.status == "pending"
     assert approval.risk_level == "high"
-    assert approval.proposed_action["amount"] == 600
+    assert approval.proposed_action["amount"] == "600.00"
 
 
 def test_agent_chat_only_support_token_receives_no_tool_permissions():
@@ -627,7 +707,7 @@ async def test_sse_interrupted_path_skips_memory_write(session: AsyncSession, se
     monkeypatch.setattr("src.api.routers.agent_runs._schedule_memory_write_after_response", fake_schedule_memory_write)
     generator = _event_generator(
         StreamInterruptGraph(),
-        {"user_query": run.input_query},
+        _stream_input(run, user),
         {"configurable": {"thread_id": run.thread_id, "session": session}},
         run=run,
         session=session,

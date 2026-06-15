@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
 status: verifying
-stopped_at: Completed 13-08-PLAN.md with full pytest blocker
-last_updated: "2026-06-15T10:02:37.922Z"
-last_activity: 2026-06-15
+stopped_at: Completed Phase 13 plans; full pytest blocker resolved
+last_updated: "2026-06-15T11:49:59Z"
+last_activity: 2026-06-15 -- Phase 13 full pytest gate passed
 progress:
   total_phases: 11
   completed_phases: 6
@@ -28,8 +28,8 @@ See: `.planning/PROJECT.md`
 Phase: 13 (approval-state-machine) — VERIFYING
 Plan: 8 of 8
 Plans: 8/8
-Status: Plan 13-08 complete; Phase 13 blocked by full pytest gate
-Last activity: 2026-06-15
+Status: Phase 13 plans complete; ready for phase-level verification
+Last activity: 2026-06-15 -- Phase 13 full pytest gate passed
 
 Progress: [██████████] 100%
 
@@ -80,7 +80,7 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Deleted src/repositories/approval_repo.py instead of leaving a compatibility shim because source callers had already moved to src.approvals and the remaining legacy references were obsolete tests.
 - Direct action-node execution now requires approval_result.v1 revision/version fields plus exact action_payload_hash, safety_snapshot_ref, and safety_snapshot_hash matches, mirroring graph routing.
 - Legacy approval model tests now assert ApprovalService semantics, including terminal conflicts and legacy_v1 fail-closed behavior, rather than v1 repository idempotency.
-- Phase 13 final readiness is blocked until the full pytest gate failure recorded in 13-COVERAGE.md is resolved.
+- Phase 13 full pytest gate blocker was resolved; coverage now records P13-BLOCK-FULL-PYTEST as RESOLVED with `uv run pytest -q --tb=short` passing.
 - Phase 13 approval-contract eval manifest uses a real dataset hash computed from the frozen approval-focused test corpus instead of the placeholder hash.
 
 ## Blockers / Concerns
@@ -89,7 +89,6 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Relevant `MISSING` rows block execution.
 - Phase 13 must keep the active SLA scanner as an explicit owned follow-up gate.
 - Phase 16/17 deferral must not weaken Phase 12 session-memory fallback or Phase 14 demo action safety.
-- Phase 13 full pytest gate failed: `uv run pytest -q --tb=short` reported 13 failed, 731 passed; see `13-COVERAGE.md` P13-BLOCK-FULL-PYTEST.
 
 ## Performance Metrics
 
@@ -120,6 +119,7 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | 13 | 01 | 9 min | 4 | 7 |
 | 13 | 02 | 1h 15m | 4 | 5 |
 | 13 | 03 | 15 min | 4 | 8 |
+| 13 | 04 | 34 min | 4 | 17 |
 | 13 | 05 | 16 min | 3 | 10 |
 | 13 | 06 | 15 min | 3 | 10 |
 | 13 | 07 | 10 min | 3 | 7 |
@@ -127,11 +127,11 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 
 ## Session Continuity
 
-Last session: 2026-06-15T10:02:37.667Z
-Stopped at: Completed 13-08-PLAN.md with full pytest blocker
+Last session: 2026-06-15T11:49:59Z
+Stopped at: Completed Phase 13 plans; full pytest blocker resolved
 Resume file: None
 
-**Next:** Resolve Phase 13 P13-BLOCK-FULL-PYTEST before Phase 14 execution
+**Next:** Run Phase 13 phase-level verification gates
 
 **Completed Phase:** Phase 12 (Session Memory) — 2026-06-14
 

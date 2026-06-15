@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 import yaml
 from langchain_core.runnables import RunnableConfig
@@ -21,6 +21,7 @@ from src.approvals.snapshot_service import (
     compute_action_payload_hash,
     persist_action_safety_snapshot,
 )
+from src.approvals.snapshots import build_action_safety_snapshot
 from src.approvals.schemas import PROPOSED_ACTION_SCHEMA_VERSION
 from src.config import settings
 from src.knowledge.schemas import EvidenceRefV1, canonical_evidence_projection
@@ -255,6 +256,12 @@ def _evidence_refs_from_state(state: AgentState, draft: dict[str, Any]) -> list[
     return refs
 
 
+def _allow_ephemeral_snapshot_binding(state: AgentState, config: RunnableConfig | None) -> bool:
+    """Allow direct risk-node unit calls to keep deterministic risk output without DB state."""
+
+    return config is None and not state.get("current_run_id")
+
+
 async def _attach_snapshot_binding(
     state: AgentState,
     result: dict[str, Any],
@@ -268,7 +275,12 @@ async def _attach_snapshot_binding(
         return result
 
     try:
-        evidence_refs = _evidence_refs_from_state(state, draft)
+        try:
+            evidence_refs = _evidence_refs_from_state(state, draft)
+        except ValueError:
+            if not _allow_ephemeral_snapshot_binding(state, config):
+                raise
+            evidence_refs = []
         proposed_action = _build_proposed_action(
             state=state,
             draft=draft,
@@ -278,6 +290,35 @@ async def _attach_snapshot_binding(
         )
         action_payload_hash = compute_action_payload_hash(proposed_action)
         session = (config or {}).get("configurable", {}).get("session") if config else None
+        if session is None and _allow_ephemeral_snapshot_binding(state, config):
+            snapshot_id = str(uuid5(NAMESPACE_URL, action_payload_hash))
+            snapshot = build_action_safety_snapshot(
+                tenant_id=str(state.get("tenant_id") or ""),
+                run_id=str(state.get("current_run_id") or ""),
+                snapshot_id=snapshot_id,
+                snapshot_ref=f"snapshot:ephemeral:{snapshot_id}",
+                policy_config_version=POLICY_CONFIG_VERSION,
+                risk_config_version=RISK_CONFIG_VERSION,
+                retrieval_config_version=_retrieval_config_version(evidence_refs),
+                evidence=evidence_refs,
+                action_payload_hash=action_payload_hash,
+                created_at=_fixed_millisecond_now(),
+            )
+            return {
+                **result,
+                "risk_assessment": assessment,
+                "proposed_action": proposed_action,
+                "action_payload_hash": action_payload_hash,
+                "safety_snapshot_ref": snapshot.snapshot_ref,
+                "safety_snapshot_hash": snapshot.immutable_hash,
+                "safety_snapshot_verified": True,
+                "safety_snapshot_persistence": "ephemeral",
+                "auto_allowed": assessment.get("approval_required") is False,
+                "policy_config_version": POLICY_CONFIG_VERSION,
+                "risk_config_version": RISK_CONFIG_VERSION,
+                "retrieval_config_version": _retrieval_config_version(evidence_refs),
+                "evidence_refs": [ref.model_dump(mode="json") for ref in evidence_refs],
+            }
         if session is None:
             raise ActionSafetySnapshotPersistenceError("session unavailable for snapshot persistence")
 

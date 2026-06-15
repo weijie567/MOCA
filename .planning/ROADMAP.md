@@ -27,7 +27,7 @@
 - [x] **Phase 10: State Lifecycle + Routing Migration** - AgentState lifecycle/trusted fields, deterministic total routers, empty session-memory adapter, and bounded investigate graph wiring. Completed 2026-06-14.
 - [x] **Phase 11: Intent / Clarification** - Intent precedence, required-slot policy, confidence gates, and ordinary clarification. Completed 2026-06-14.
 - [x] **Phase 12: Session Memory** - PostgreSQL-authoritative session memory CAS, optional Redis hot cache, and safe slot continuity. ✓ Verified 2026-06-14 — 5/5 plans complete, 10/10 must-haves verified.
-- [ ] **Phase 13: Approval State Machine** - Versioned approval lifecycle and ActionSafetySnapshot ownership. Plans executed; verification blocked by full pytest gate.
+- [ ] **Phase 13: Approval State Machine** - Versioned approval lifecycle and ActionSafetySnapshot ownership. Plans executed; full-suite verification passed; phase-level verification pending.
 - [ ] **Phase 14: Demo Action Executor Boundary** - Durable draft-only demo behavior and snapshot/hash binding.
 - [ ] **Phase 15: Replay Event Contract** - ReplayEventV3, lifecycle finalizer, sequence allocation, redaction, retention, and replay read-switch.
 - [ ] **Phase 16: Long-term / Case Memory** - memory_identity.v1, tombstones, review workflow, and long-term/case memory. Deferred beyond the MVP completion gate.
@@ -116,7 +116,7 @@
   1. Single-level runtime transition, CAS, revision invalidation, and needs_info resume tests pass.
   2. Action payload and safety snapshot hashes bind approval to the exact revision.
   3. Multi-level-compatible schema/contracts are verified; active SLA scanner remains an owned follow-up gate.
-**Plans**: 8/8 executed; verification blocked by `13-COVERAGE.md` P13-BLOCK-FULL-PYTEST
+**Plans**: 8/8 executed; full-suite verification passed; phase-level verification pending
 Plans:
   - [x] 13-01-PLAN.md — CanonicalHashProfile v1 and ActionSafetySnapshot golden contracts (Wave 1)
   - [x] 13-02-PLAN.md — Approval/snapshot ORM, Alembic migration, legacy non-executable report (Wave 2)
@@ -188,4 +188,4 @@ Plans:
 | 17. External Action Execution | 0/TBD | Deferred beyond MVP gate | - |
 
 ---
-*Updated: 2026-06-15 — Phase 13 Plan 08 executed; Phase 13 verification blocked by full pytest gate.*
+*Updated: 2026-06-15 — Phase 13 Plan 08 executed; full-suite verification passed; phase-level verification pending.*

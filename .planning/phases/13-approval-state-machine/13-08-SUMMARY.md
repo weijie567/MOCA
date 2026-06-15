@@ -29,7 +29,7 @@ key-files:
 
 key-decisions:
   - "Computed a real approval-contract-phase13.v1 dataset hash from the frozen Phase 13 approval contract test corpus instead of using the placeholder hash."
-  - "Recorded Phase 13 as not ready for execution because the focused gate passed but the full pytest gate failed."
+  - "Retained the initial full pytest failure as resolved audit history after the exact full-suite command passed."
 
 patterns-established:
   - "P13-SCF reconciliation rows use Source requirement, Conflicting evidence, Type, Recommended handling, Readiness impact, Owner, Status, and Acceptance gate columns."
@@ -79,13 +79,13 @@ completed: 2026-06-15
 
 - `uv run alembic upgrade head` - **PASS**.
 - `uv run pytest tests/approvals tests/architecture/test_approval_boundaries.py tests/test_approval_api.py tests/test_approval_integration.py tests/test_approval_models.py tests/test_approval_gate.py tests/test_execute_action.py tests/test_graph_routing.py tests/agent/test_events.py -q --tb=short` - **PASS**: 201 passed, 1 existing LangGraph warning.
-- `uv run pytest -q --tb=short` - **FAIL**: 13 failed, 731 passed, 1 existing LangGraph warning.
+- `uv run pytest -q --tb=short` - **PASS** after blocker fix: 744 passed, 1 existing LangGraph warning.
 - `uv run ruff check src tests` - **PASS**.
 
 ## Decisions Made
 
 - Used a real dataset hash computed from the Phase 13 approval-focused test corpus instead of `sha256:placeholder_until_cases_frozen`.
-- Kept the full-suite failure as a documented Phase 13 exit blocker because the plan requires recording failures rather than claiming readiness.
+- Retained the full-suite failure as resolved audit history after the Phase 13 blocker fix passed the exact full-suite command.
 
 ## Deviations from Plan
 
@@ -93,7 +93,7 @@ None - plan executed exactly as written.
 
 ## Issues Encountered
 
-- Full pytest failed in risk assessment, SSE interruption, interception-rate, and trace API tests. `13-COVERAGE.md` records the exact command, failing tests, owner, and `phase_13_not_ready_for_execution` impact.
+- Full pytest initially failed in risk assessment, SSE interruption, interception-rate, and trace API tests. The follow-up fix restored direct risk-node compatibility output without weakening durable graph snapshot checks, updated SSE fake interrupt fixtures to the Phase 13 wait-payload contract, and filled trace approval response fields.
 
 ## Known Stubs
 
@@ -109,13 +109,13 @@ None - no external service configuration required.
 
 ## Next Phase Readiness
 
-Phase 13 is not ready for Phase 14 execution until the full-suite blocker in `13-COVERAGE.md` is resolved. The coverage matrix itself has no relevant MISSING rows, and the eval manifest is owned, versioned, hash-pinned, and blocking for phase exit.
+Phase 13 coverage artifacts are ready for phase-level verification. The coverage matrix has no relevant MISSING rows or open blocking follow-ups, and the eval manifest is owned, versioned, hash-pinned, and blocking for phase exit.
 
 ## Self-Check: PASSED
 
 - Verified created files exist: `.planning/phases/13-approval-state-machine/13-COVERAGE.md`, `tests/approvals/phase13_eval_manifest.json`, and this summary.
 - Verified task commits exist: `34b9f93` and `01d1f3e`.
-- Verified `13-COVERAGE.md` records `P13-BLOCK-FULL-PYTEST` and `phase_13_not_ready_for_execution`.
+- Verified `13-COVERAGE.md` records `P13-BLOCK-FULL-PYTEST` as RESOLVED after `uv run pytest -q --tb=short` passed.
 
 ---
 *Phase: 13-approval-state-machine*
