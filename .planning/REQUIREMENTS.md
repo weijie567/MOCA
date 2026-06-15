@@ -60,7 +60,7 @@
 | STATE-01..02, ROUTE-01..02 | Phase 10 | Complete |
 | INTENT-01..02, CLARIFY-01 | Phase 11 | Complete |
 | SESSION-01..03 | Phase 12 | Complete |
-| APPROVAL-01..03, SNAPSHOT-01 | Phase 13 | Pending |
+| APPROVAL-01..03, SNAPSHOT-01 | Phase 13 | Verification blocked by full pytest gate |
 | DEMO-01..02 | Phase 14 | Pending |
 | REPLAY-01..03 | Phase 15 | Pending |
 | MEMORY-01..02 | Phase 16 | Deferred beyond MVP gate |
