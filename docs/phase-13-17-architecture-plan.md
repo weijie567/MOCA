@@ -147,7 +147,10 @@ closures.
 ### Deletion / Quarantine
 
 - Do not create `action_executions` in demo mode.
-- Do not use `action_result.status=success` to mean external success.
+- Do not use `action_result.status=success` or any compatibility action result
+  field to mean external success. If a graph-facing compatibility field remains,
+  it must be draft-only, owned by the action draft boundary, forbidden for new
+  callers, covered by wording tests, and have a named deletion/replacement gate.
 - Do not let final response say an external business action was executed.
 - Do not let action draft service recompute or mutate `ActionSafetySnapshot`.
   It validates Phase 13 snapshot/hash only.
@@ -160,6 +163,8 @@ closures.
   conflict; it must not silently reuse the old draft.
 - Missing or mismatched approval hash/snapshot hash fails.
 - Final response says draft created, not coupon issued or refund executed.
+- Any retained `action_result` compatibility output says draft/not-executed demo,
+  never external success, and has owner/deletion coverage in the Phase 14 plan.
 - Graph node still reaches action through `UnifiedToolManager`, not raw action
   adapter.
 

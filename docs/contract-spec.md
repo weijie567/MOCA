@@ -589,7 +589,7 @@ AgentState 字段必须按生命周期分层。身份和权限上下文来自 AP
 | Memory context | `session_memory`, `long_term_memory`, `case_memory` | turn read context | MemoryService | memory load/retrieve nodes | reset loaded context each turn | replace loaded context; memory store owns persistence | memory tables |
 | Recommendation | `recommendation`, `proposed_action`, `missing_info` | turn | recommendation node | recommendation_generation | reset each turn | replace | AgentStep / approval snapshot |
 | Risk / approval | `risk_assessment`, `risk_signals`, `approval_plan`, `approval_result`, `approval_revision_refs`, `safety_snapshot_ref`, `safety_snapshot_hash` | run/revision | RiskPolicy / ApprovalService | risk_gate / approval_gate | reset each new turn unless resuming same interrupted run | replace by revision; stale revision invalid | approval/snapshot tables |
-| Action | `action_draft`, `draft_outcome`, `action_result`, `compensation_metadata`, `execution_mode` | run/revision | Action service + trusted config | action_draft / action_execution | reset each new run; never inherited across unrelated turns | demo writes `draft_outcome` only；external execution writes `action_result`；idempotency handles duplicates | action tables |
+| Action | `action_draft`, `draft_outcome`, `action_result`, `compensation_metadata`, `execution_mode` | run/revision | Action service + trusted config | action_draft / action_execution | reset each new run; never inherited across unrelated turns | demo canonical output is `draft_outcome`; any temporary `action_result` compatibility output must be draft-only/not-executed and cannot mean external success；external execution writes `action_result`；idempotency handles duplicates | action tables |
 | Response | `final_response`, `clarification_request` | turn/run | final/clarification nodes | final_response / clarification_gate | reset each turn | replace | AgentRun final response |
 | Memory write | `memory_write_candidates`, `memory_write_result` | run | memory_write node / MemoryService | memory_write | reset each new run | candidates replace; result replace | memory write events |
 | Observability | `tool_results`, `llm_outputs`, `node_errors`, `trace_steps`, `run_status` | run | nodes/services | all nodes via trace helper / RunLifecycleService | reset at run start; interrupted run persists snapshot | append-only with sequence numbers；run status uses CAS | AgentStep / trace events / AgentRun |
@@ -1606,7 +1606,7 @@ Demo 模式的终点是 durable action draft，不执行外部副作用。`actio
 
 ### 16.3 Demo adapter
 
-当前 demo adapter 继续写 `ActionDraft`。`action_draft` 节点同时写 `draft_outcome`，但不创建 `action_executions` 记录，不写 `executed`，也不写 `action_result`：
+当前 demo adapter 继续写 `ActionDraft`。`action_draft` 节点同时写 canonical `draft_outcome`，但不创建 `action_executions` 记录，不写 `executed`，也不写 external `action_result`：
 
 ```json
 {
@@ -1618,6 +1618,12 @@ Demo 模式的终点是 durable action draft，不执行外部副作用。`actio
 ```
 
 Demo final response 应说“草稿已创建”，不能说“已发券/已退款/已关闭工单”。
+
+若 Phase 14 为了迁移现有 graph/final_response contract 临时保留名为 `action_result`
+的输出字段，该字段只能是 action draft compatibility output：owner 必须是
+ActionDraftService/`execute_action` adapter，禁止新调用方依赖它，contract tests 必须证明
+它表示 `not_executed_demo` / draft-created 而非 external success，并且 Phase 14 plan 必须写明
+删除或完全替换为 `draft_outcome.v1` 的 gate。
 
 ### 16.4 Idempotency
 
@@ -1846,7 +1852,7 @@ Bounded-loop replay 规则：
 - 每个 run 至少包含 `run_status_changed: running` 和一个 current lifecycle status event；normal/error/cancelled/expired paths 必须有 terminal status，等待审批或 `needs_info` 的 run 必须以 current `interrupted` status 收束本次 replay。
 - 每个实际执行的 graph node 必须产生 `node_completed` 或 `node_failed`。
 - 每个 tool/RAG/LLM 调用必须产生对应事件；跳过的 node 不需要伪造 tool event，但 node event 的 payload 应说明 skip reason。
-- approval 生命周期必须覆盖 requested、decided、expired、resumed；edit/respond 会产生新的 approval/action revision，并通过 refs 关联旧 revision。
+- approval 生命周期必须覆盖 requested、decided、expired、resumed；`approval_decided` 的 redacted payload / resource refs 必须区分 `accept|approve|edit|respond|reject|ignore`，并在 `edit/respond` 或 hash/config 变化时携带 old/new approval/action revision refs；edit/respond 会产生新的 approval/action revision，并通过 refs 关联旧 revision。
 - demo mode action 只产生 `action_draft_created`，不产生 `action_execution_*`；external mode 才产生 execution 事件。
 - cancelled/error/expired/interrupted run 必须保留 partial timeline，不能只写 terminal status。
 - Tool、RAG、LLM 和 memory write 调用统一使用 `*_started` 后接且仅接一个 `*_completed` 或 `*_failed` terminal event；禁止使用单一 `rag_retrieval` / `llm_call` 事件。Memory write failure 不阻断已生成的用户响应。
@@ -1855,7 +1861,7 @@ Bounded-loop replay 规则：
 
 #### Per-run sequence allocator contract
 
-每个 run 必须有唯一 sequence allocator；counter 可保存在 `AgentRun.next_event_sequence` 或 dedicated `run_event_sequences` table。Append event 必须在同一数据库事务内 lock/CAS counter、分配 next sequence、再插入事件。`unique(run_id, sequence)` 冲突必须 retry allocation；不得手工补洞、复用 sequence 或事后重排。Graph node、approval API、SLA finalizer、action worker 和 replay/backfill writer 都必须调用同一 allocator contract。Contract tests 必须并发启动这些 writer，验证 sequence 唯一且严格递增、冲突重试有效、resume 后继续分配。
+每个 run 必须有唯一 sequence allocator；counter 可保存在 `AgentRun.next_event_sequence` 或 dedicated `run_event_sequences` table。Append event 必须在同一数据库事务内 lock/CAS counter、分配 next sequence、再插入事件。`unique(run_id, sequence)` 冲突必须 retry allocation；不得手工补洞、复用 sequence 或事后重排。Graph node、approval API、Phase 14 demo action draft writer、Phase 15 replay/backfill writer、SLA finalizer when enabled，以及 Phase 17 external action worker 都必须调用同一 allocator contract。Phase 15 contract tests must cover the writers available by Phase 15 (graph, approval/API, demo action draft, replay/backfill), add the SLA writer only if the Phase 15 enablement gate passes, and record the external action worker concurrency case as `DEFERRED_WITH_OWNER: Phase 17`; Phase 17 must add that worker to the same allocator concurrency suite before external dispatch can exit.
 
 脱敏要求：
 
@@ -2485,7 +2491,7 @@ Required constraints / indexes：
 - check `schema_version in ('minimal_event_envelope.v1','replay_event.v3')`；Phase 10-14 base table 写前者，Phase 15 migration enrich 后两值并存并按后续迁移策略收敛。
 - check `event_type` belongs to V3 enum。
 - FK refs must be nullable because early node/tool events may not have approval/action resources.
-- 所有 event writer 使用第 17.2 节 per-run sequence allocator；可在 `agent_runs.next_event_sequence` 或 dedicated counter table 上 lock/CAS。并发 allocation、unique conflict retry、approval/SLA/action worker 与 graph 共用 allocator 必须有 transaction tests。
+- 所有 event writer 使用第 17.2 节 per-run sequence allocator；可在 `agent_runs.next_event_sequence` 或 dedicated counter table 上 lock/CAS。并发 allocation、unique conflict retry、approval/demo action draft/replay backfill writer 与 graph 共用 allocator 必须有 transaction tests；SLA writer 仅在 Phase 15 enablement gate 通过时加入同一套测试，否则必须验证 disabled-by-default；Phase 17 external action worker 加入同一 allocator transaction suite 后才允许 external dispatch 退出。
 
 过渡策略：
 
