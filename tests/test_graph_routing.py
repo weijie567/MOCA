@@ -159,6 +159,23 @@ def test_route_after_approval_fails_closed_on_hash_mismatch():
     assert route_after_approval(state) == "final_response"
 
 
+@pytest.mark.parametrize(
+    "missing_field",
+    ["revision", "request_version", "level_version", "assignment_version"],
+)
+def test_route_after_approval_fails_closed_when_revision_binding_missing(missing_field):
+    approval_result = _approved_result()
+    approval_result.pop(missing_field)
+    state = {
+        "approval_result": approval_result,
+        "action_payload_hash": ACTION_HASH,
+        "safety_snapshot_ref": "snapshot:test",
+        "safety_snapshot_hash": SNAPSHOT_HASH,
+    }
+
+    assert route_after_approval(state) == "final_response"
+
+
 @pytest.mark.asyncio
 async def test_auto_allowed_path_persists_durable_snapshot_row_before_action_draft_route(
     session: AsyncSession,

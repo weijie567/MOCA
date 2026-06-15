@@ -34,6 +34,17 @@ from src.agent.state import AgentState
 
 # 1 retry = 2 total attempts per D-10a.
 _llm_retry = RetryPolicy(max_attempts=2)
+APPROVAL_RESULT_REQUIRED_FIELDS = (
+    "approval_id",
+    "run_id",
+    "revision",
+    "request_version",
+    "level_version",
+    "assignment_version",
+    "action_payload_hash",
+    "safety_snapshot_ref",
+    "safety_snapshot_hash",
+)
 
 
 def route_after_risk(state: AgentState) -> str:
@@ -80,6 +91,8 @@ def _snapshot_binding_ready(state: AgentState) -> bool:
 
 
 def _approval_hashes_match(state: AgentState, result: dict) -> bool:
+    if any(not result.get(field) for field in APPROVAL_RESULT_REQUIRED_FIELDS):
+        return False
     return (
         result.get("action_payload_hash") == state.get("action_payload_hash")
         and result.get("safety_snapshot_ref") == state.get("safety_snapshot_ref")

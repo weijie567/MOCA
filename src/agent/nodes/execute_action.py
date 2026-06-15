@@ -20,6 +20,17 @@ ACTIONABLE_ACTIONS = {
     "compensation",
     "manual_review",
 }
+REQUIRED_APPROVAL_RESULT_FIELDS = (
+    "approval_id",
+    "run_id",
+    "revision",
+    "request_version",
+    "level_version",
+    "assignment_version",
+    "action_payload_hash",
+    "safety_snapshot_ref",
+    "safety_snapshot_hash",
+)
 
 
 def _now_iso() -> str:
@@ -71,17 +82,29 @@ def _action_result_from_tool_result(result: ToolResultV2) -> dict[str, Any]:
     }
 
 
+def _approval_result_is_action_authorizing(state: AgentState, approval: dict[str, Any]) -> bool:
+    if (
+        approval.get("schema_version") != "approval_result.v1"
+        or approval.get("decision_type") not in {"accept", "approve"}
+        or approval.get("status") != "approved"
+    ):
+        return False
+    if any(not approval.get(field) for field in REQUIRED_APPROVAL_RESULT_FIELDS):
+        return False
+    return (
+        approval.get("action_payload_hash") == state.get("action_payload_hash")
+        and approval.get("safety_snapshot_ref") == state.get("safety_snapshot_ref")
+        and approval.get("safety_snapshot_hash") == state.get("safety_snapshot_hash")
+    )
+
+
 async def execute_action(state: AgentState, config: RunnableConfig) -> dict:
     """Execute an approved action by creating a durable draft."""
     started_at = _now_iso()
     proposed = state.get("proposed_action") or {}
     approval = state.get("approval_result") or {}
     risk = state.get("risk_assessment") or {}
-    approval_accepted = (
-        approval.get("schema_version") == "approval_result.v1"
-        and approval.get("decision_type") in {"accept", "approve"}
-        and approval.get("status") == "approved"
-    )
+    approval_accepted = _approval_result_is_action_authorizing(state, approval)
 
     if risk.get("approval_required") and not approval_accepted:
         return {

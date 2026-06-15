@@ -8,13 +8,42 @@ import pytest
 from src.agent.nodes import execute_action as execute_action_module
 
 
+ACTION_HASH = "sha256:" + "1" * 64
+SNAPSHOT_HASH = "sha256:" + "2" * 64
+
+
+def _approval_result(**overrides) -> dict:
+    payload = {
+        "schema_version": "approval_result.v1",
+        "approval_id": str(uuid4()),
+        "tenant_id": str(uuid4()),
+        "run_id": str(uuid4()),
+        "decision_type": "approve",
+        "status": "approved",
+        "revision": 1,
+        "request_version": 2,
+        "level_version": 2,
+        "assignment_version": 2,
+        "action_payload_hash": ACTION_HASH,
+        "safety_snapshot_ref": "snapshot:test",
+        "safety_snapshot_hash": SNAPSHOT_HASH,
+        "decided_by": str(uuid4()),
+        "decided_at": "2026-06-15T00:00:00.000Z",
+    }
+    payload.update(overrides)
+    return payload
+
+
 def _approved_state() -> dict:
     return {
         "tenant_id": str(uuid4()),
         "user_id": str(uuid4()),
         "current_run_id": str(uuid4()),
         "risk_assessment": {"approval_required": True},
-        "approval_result": {"approval_id": str(uuid4()), "decision": "approve"},
+        "approval_result": _approval_result(),
+        "action_payload_hash": ACTION_HASH,
+        "safety_snapshot_ref": "snapshot:test",
+        "safety_snapshot_hash": SNAPSHOT_HASH,
         "proposed_action": {
             "action_type": "issue_coupon",
             "target_id": "refund-001",
@@ -41,7 +70,7 @@ def _success_result() -> dict:
 
 
 @pytest.mark.asyncio
-async def test_execute_action_with_approval_creates_draft(monkeypatch):
+async def test_execute_action_with_service_approval_result_creates_draft(monkeypatch):
     create_draft = AsyncMock(return_value=_success_result())
     monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
     session = object()
@@ -59,7 +88,51 @@ async def test_execute_action_blocks_when_required_approval_not_approved(monkeyp
     create_draft = AsyncMock()
     monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
     state = _approved_state()
-    state["approval_result"] = {"approval_id": str(uuid4()), "decision": "reject"}
+    state["approval_result"] = _approval_result(decision_type="reject", status="rejected")
+
+    result = await execute_action_module.execute_action(state, {"configurable": {"session": object()}})
+
+    assert result["action_result"]["status"] == "error"
+    assert result["action_result"]["error"]["error_code"] == "NOT_APPROVED"
+    create_draft.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "missing_field",
+    [
+        "revision",
+        "request_version",
+        "level_version",
+        "assignment_version",
+        "action_payload_hash",
+        "safety_snapshot_ref",
+        "safety_snapshot_hash",
+    ],
+)
+async def test_execute_action_blocks_when_approval_result_binding_field_missing(monkeypatch, missing_field: str):
+    create_draft = AsyncMock()
+    monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
+    state = _approved_state()
+    state["approval_result"].pop(missing_field)
+
+    result = await execute_action_module.execute_action(state, {"configurable": {"session": object()}})
+
+    assert result["action_result"]["status"] == "error"
+    assert result["action_result"]["error"]["error_code"] == "NOT_APPROVED"
+    create_draft.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "field",
+    ["action_payload_hash", "safety_snapshot_ref", "safety_snapshot_hash"],
+)
+async def test_execute_action_blocks_when_approval_result_binding_mismatches_state(monkeypatch, field: str):
+    create_draft = AsyncMock()
+    monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
+    state = _approved_state()
+    state["approval_result"][field] = f"mismatch:{field}"
 
     result = await execute_action_module.execute_action(state, {"configurable": {"session": object()}})
 
@@ -78,7 +151,7 @@ async def test_execute_action_idempotency_key_uses_run_approval_action_and_targe
 
     _, kwargs = create_draft.await_args
     expected_key = (
-        f"{state['current_run_id']}_{state['approval_result']['approval_id']}_"
+        f"{state['approval_result']['run_id']}_{state['approval_result']['approval_id']}_"
         f"{state['proposed_action']['action_type']}_{state['proposed_action']['target_id']}"
     )
     assert kwargs["idempotency_key"] == expected_key
