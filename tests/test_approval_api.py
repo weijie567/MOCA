@@ -14,7 +14,7 @@ from src.api.main import app
 from src.auth.jwt import create_access_token
 from src.approvals.schemas import ApprovalDecisionCommand
 from src.approvals.service import ApprovalService
-from src.db.models import AgentRun, ApprovalAssignment, ApprovalLevel, ApprovalRequest, User
+from src.db.models import AgentRun, ApprovalAssignment, ApprovalEvent, ApprovalLevel, ApprovalRequest, User
 from tests.approvals.test_service_transitions import _create_command
 
 
@@ -211,6 +211,7 @@ async def test_decide_commits_approval_decision_before_graph_resume(
     bundle = await _create_approval(session, seeded_session, thread_id="thread-commit-before-resume")
     graph = FakeResumeGraph("approved response")
     headers = await _manager_headers(client)
+    decision_body = _decision_body(bundle, "approve")
     original_commit = session.commit
     commit_count = 0
     graph_commit_counts: list[int] = []
@@ -230,13 +231,86 @@ async def test_decide_commits_approval_decision_before_graph_resume(
 
     response = await client.post(
         f"/api/v1/approvals/{bundle.approval.id}/decide",
-        json=_decision_body(bundle, "approve"),
+        json=decision_body,
         headers=headers,
     )
 
     assert response.status_code == 200
-    assert graph_commit_counts == [1]
-    assert commit_count == 2
+    assert graph_commit_counts == [2]
+    assert commit_count == 3
+
+
+@pytest.mark.asyncio
+async def test_decide_records_recoverable_resume_failure_and_retries_terminal_approval(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(session, seeded_session, thread_id="thread-resume-retry")
+    graph = FakeResumeGraph("approved response")
+    headers = await _manager_headers(client)
+    decision_body = _decision_body(bundle, "approve")
+    original_commit = session.commit
+    commit_count = 0
+
+    async def fail_final_resume_commit():
+        nonlocal commit_count
+        commit_count += 1
+        if commit_count == 3:
+            raise RuntimeError("simulated final commit failure")
+        await original_commit()
+
+    monkeypatch.setattr(session, "commit", fail_final_resume_commit)
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+
+    first_response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=decision_body,
+        headers=headers,
+    )
+    await session.refresh(bundle.approval)
+    run = await session.get(AgentRun, bundle.approval.run_id)
+    resume_events = (
+        await session.execute(
+            select(ApprovalEvent).where(
+                ApprovalEvent.approval_request_id == bundle.approval.id,
+                ApprovalEvent.event_type == "approval_resumed",
+            )
+        )
+    ).scalars().all()
+    resume_statuses = {event.metadata_json["resume_status"] for event in resume_events}
+
+    assert first_response.status_code == 500
+    assert first_response.json()["error"]["code"] == "APPROVAL_RESUME_FAILED"
+    assert bundle.approval.status == "approved"
+    assert run is not None
+    assert run.final_status == "interrupted"
+    assert {"attempted", "failed"} <= resume_statuses
+    assert "completed" not in resume_statuses
+
+    monkeypatch.setattr(session, "commit", original_commit)
+    retry_response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=decision_body,
+        headers=headers,
+    )
+    await session.refresh(run)
+    completed_events = (
+        await session.execute(
+            select(ApprovalEvent).where(
+                ApprovalEvent.approval_request_id == bundle.approval.id,
+                ApprovalEvent.event_type == "approval_resumed",
+            )
+        )
+    ).scalars().all()
+    completed_statuses = [event.metadata_json["resume_status"] for event in completed_events]
+
+    assert retry_response.status_code == 200
+    assert retry_response.json()["data"]["status"] == "approved"
+    assert run.final_status == "completed"
+    assert completed_statuses.count("completed") == 1
+    assert len(graph.calls) == 2
 
 
 @pytest.mark.asyncio

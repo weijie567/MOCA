@@ -6,21 +6,41 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Security
 from langgraph.types import Command
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.agent.nodes.execute_action import execute_action
 from src.agent.trace import append_agent_steps, update_agent_run_status
 from src.api.schemas.approvals import ApprovalInfoRequest, ApprovalListResponse, ApprovalResponse, DecideRequest
 from src.api.schemas.common import ApiResponse
-from src.approvals.schemas import ApprovalDecisionCommand, ApprovalInfoCommand
+from src.approvals.events import emit_approval_resumed
+from src.approvals.schemas import (
+    ApprovalDecisionCommand,
+    ApprovalDecisionResult,
+    ApprovalInfoCommand,
+    TrustedApprovalResultV1,
+)
 from src.approvals.service import ApprovalService, ApprovalTransitionError
 from src.auth.permissions import get_current_user
-from src.db.models import AgentRun, User
+from src.db.models import (
+    ActionDraft,
+    AgentRun,
+    ApprovalAssignment,
+    ApprovalDecision,
+    ApprovalEvent,
+    ApprovalLevel,
+    ApprovalRequest,
+    User,
+)
 from src.db.session import get_session
 
 
 router = APIRouter(tags=["approvals"])
 
 APPROVAL_ROLES = {"admin", "manager"}
+RESUMABLE_DECISIONS = {"accept", "approve", "reject", "ignore"}
+RESUME_TERMINAL_STATUSES = {"approved", "rejected", "cancelled"}
+RESUME_INCOMPLETE_STATUSES = {"attempted", "failed"}
 
 
 @router.post("/{approval_id}/decide", response_model=ApiResponse)
@@ -35,6 +55,35 @@ async def decide_approval(
 
     approval_uuid = _parse_approval_id(approval_id)
     service = ApprovalService(session)
+    try:
+        retry_result = await _recoverable_resume_retry_result(
+            session=session,
+            service=service,
+            approval_id=approval_uuid,
+            tenant_id=user.tenant_id,
+            body=body,
+        )
+    except ApprovalTransitionError as exc:
+        raise _approval_http_error(exc) from exc
+    if retry_result is not None:
+        approval = await session.get(ApprovalRequest, retry_result.approval_id)
+        if approval is None:
+            raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Approval not found"})
+        if approval.requested_by == user.id:
+            raise HTTPException(status_code=403, detail={"code": "SELF_APPROVAL", "message": "Cannot approve own request"})
+        await _run_resume_lifecycle(
+            request=request,
+            session=session,
+            result=retry_result,
+            actor_id=user.id,
+        )
+        await session.refresh(approval)
+        return ApiResponse(
+            success=True,
+            data=_to_response(approval, result=retry_result).model_dump(mode="json"),
+            trace_id=getattr(request.state, "trace_id", None),
+        )
+
     try:
         context = await service.get_decision_context(approval_uuid, user.tenant_id)
     except ApprovalTransitionError as exc:
@@ -74,12 +123,14 @@ async def decide_approval(
 
     if _should_resume_graph(result):
         await session.commit()
-        await _resume_graph_after_decision(
+        await _run_resume_lifecycle(
             request=request,
             session=session,
             result=result,
+            actor_id=user.id,
         )
-    await session.commit()
+    else:
+        await session.commit()
     return ApiResponse(
         success=True,
         data=_to_response(approval, result=result).model_dump(mode="json"),
@@ -162,12 +213,59 @@ async def list_pending_approvals(
     )
 
 
-async def _resume_graph_after_decision(*, request: Request, session: AsyncSession, result) -> None:
+async def _run_resume_lifecycle(*, request: Request, session: AsyncSession, result: ApprovalDecisionResult, actor_id: UUID) -> None:
+    try:
+        await _record_resume_event(
+            session=session,
+            result=result,
+            actor_id=actor_id,
+            resume_status="attempted",
+        )
+        await session.commit()
+
+        await _resume_graph_after_decision(
+            request=request,
+            session=session,
+            result=result,
+        )
+        await _record_resume_event(
+            session=session,
+            result=result,
+            actor_id=actor_id,
+            resume_status="completed",
+        )
+        await session.commit()
+    except Exception as exc:
+        await session.rollback()
+        await _record_resume_event(
+            session=session,
+            result=result,
+            actor_id=actor_id,
+            resume_status="failed",
+            error=exc,
+        )
+        await session.commit()
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "APPROVAL_RESUME_FAILED",
+                "message": "Approval decision was saved, but graph resume did not complete. Retry the decision to reconcile.",
+            },
+        ) from exc
+
+
+async def _resume_graph_after_decision(*, request: Request, session: AsyncSession, result: ApprovalDecisionResult) -> None:
     graph = request.app.state.agent_graph
     config = {"configurable": {"thread_id": result.graph_thread_id, "session": session}}
     t0 = time.perf_counter()
     final_state = await graph.ainvoke(Command(resume=result.resume_payload), config)
     resume_latency_ms = round((time.perf_counter() - t0) * 1000)
+    final_state = await _reconcile_approved_action_draft(
+        session=session,
+        result=result,
+        final_state=final_state,
+        config=config,
+    )
 
     run_id = str(result.run_id)
     final_response_text = final_state.get("final_response")
@@ -199,8 +297,248 @@ async def _resume_graph_after_decision(*, request: Request, session: AsyncSessio
         )
 
 
+async def _record_resume_event(
+    *,
+    session: AsyncSession,
+    result: ApprovalDecisionResult,
+    actor_id: UUID,
+    resume_status: str,
+    error: Exception | None = None,
+) -> ApprovalEvent:
+    approval = await session.get(ApprovalRequest, result.approval_id)
+    if approval is None:
+        raise ApprovalTransitionError("approval_not_found")
+    metadata = {
+        "resume_status": resume_status,
+        "decision_type": result.decision_type,
+        "resume_payload_schema": (result.resume_payload or {}).get("schema_version"),
+    }
+    if error is not None:
+        metadata["error_type"] = type(error).__name__
+    return await emit_approval_resumed(
+        session,
+        request=approval,
+        actor_id=actor_id,
+        metadata=metadata,
+        resource_refs={
+            "resume_key": _resume_key(result.approval_id, result.revision),
+            "approval_revision": result.revision,
+            "approval_request_version": result.request_version,
+            "approval_decision_ref": f"approval_decision:{result.decision_id}",
+        },
+        redacted_payload={
+            "resume_status": resume_status,
+            "decision_type": result.decision_type,
+        },
+    )
+
+
+async def _recoverable_resume_retry_result(
+    *,
+    session: AsyncSession,
+    service: ApprovalService,
+    approval_id: UUID,
+    tenant_id: UUID,
+    body: DecideRequest,
+) -> ApprovalDecisionResult | None:
+    approval = await service.get_request(approval_id, tenant_id)
+    if approval is None or approval.status not in RESUME_TERMINAL_STATUSES:
+        return None
+    if body.decision_type not in RESUMABLE_DECISIONS:
+        return None
+
+    latest_resume_status = await _latest_resume_status(session, approval)
+    if latest_resume_status not in RESUME_INCOMPLETE_STATUSES:
+        return None
+
+    run = await session.get(AgentRun, approval.run_id)
+    if run is not None and run.final_status not in {"interrupted", "running", "pending"}:
+        return None
+
+    if (
+        approval.decision != body.decision_type
+        or approval.revision != body.expected_revision
+        or approval.action_payload_hash != body.action_payload_hash
+        or approval.safety_snapshot_hash != body.safety_snapshot_hash
+    ):
+        raise ApprovalTransitionError("approval_conflict")
+
+    return await _terminal_decision_result_for_retry(session, approval, body)
+
+
+async def _latest_resume_status(session: AsyncSession, approval: ApprovalRequest) -> str | None:
+    resume_key = _resume_key(approval.id, int(approval.revision or 0))
+    stmt = (
+        select(ApprovalEvent)
+        .where(
+            ApprovalEvent.approval_request_id == approval.id,
+            ApprovalEvent.event_type == "approval_resumed",
+        )
+        .order_by(ApprovalEvent.created_at.desc())
+    )
+    events = (await session.execute(stmt)).scalars().all()
+    for event in events:
+        if (event.resource_refs_json or {}).get("resume_key") != resume_key:
+            continue
+        status = (event.metadata_json or {}).get("resume_status")
+        if status in {*RESUME_INCOMPLETE_STATUSES, "completed"}:
+            return str(status)
+    return None
+
+
+async def _terminal_decision_result_for_retry(
+    session: AsyncSession,
+    approval: ApprovalRequest,
+    body: DecideRequest,
+) -> ApprovalDecisionResult:
+    decision = (
+        await session.execute(
+            select(ApprovalDecision)
+            .where(
+                ApprovalDecision.approval_request_id == approval.id,
+                ApprovalDecision.deleted_at.is_(None),
+            )
+            .order_by(ApprovalDecision.created_at.desc())
+        )
+    ).scalars().first()
+    level = (
+        await session.execute(
+            select(ApprovalLevel)
+            .where(
+                ApprovalLevel.approval_request_id == approval.id,
+                ApprovalLevel.deleted_at.is_(None),
+            )
+            .order_by(ApprovalLevel.level_number.desc())
+        )
+    ).scalars().first()
+    assignment = None
+    if level is not None:
+        assignment = (
+            await session.execute(
+                select(ApprovalAssignment)
+                .where(
+                    ApprovalAssignment.approval_level_id == level.id,
+                    ApprovalAssignment.deleted_at.is_(None),
+                )
+                .order_by(ApprovalAssignment.created_at.desc())
+            )
+        ).scalars().first()
+    event = None
+    if decision is not None:
+        event = (
+            await session.execute(
+                select(ApprovalEvent)
+                .where(
+                    ApprovalEvent.approval_decision_id == decision.id,
+                    ApprovalEvent.event_type == "approval_decided",
+                )
+                .order_by(ApprovalEvent.created_at.desc())
+            )
+        ).scalars().first()
+    if decision is None or level is None or assignment is None or event is None:
+        raise ApprovalTransitionError("approval_conflict")
+    if (
+        body.expected_request_version not in {decision.request_version, approval.version}
+        or body.expected_level_version not in {decision.level_version, level.version}
+        or body.expected_assignment_version not in {decision.assignment_version, assignment.version}
+    ):
+        raise ApprovalTransitionError("approval_conflict")
+
+    decided_at = approval.decided_at or decision.created_at
+    trusted = TrustedApprovalResultV1(
+        approval_id=approval.id,
+        tenant_id=approval.tenant_id,
+        run_id=approval.run_id,
+        status=approval.status,
+        decision_type=decision.decision_type,
+        revision=approval.revision,
+        request_version=approval.version,
+        level_version=level.version,
+        assignment_version=assignment.version,
+        action_payload_hash=approval.action_payload_hash,
+        safety_snapshot_ref=approval.safety_snapshot_ref,
+        safety_snapshot_hash=approval.safety_snapshot_hash,
+        decided_by=decision.actor_id,
+        decided_at=decided_at,
+        reason=approval.reason,
+    ).model_dump(mode="json")
+    return ApprovalDecisionResult(
+        approval_id=approval.id,
+        tenant_id=approval.tenant_id,
+        run_id=approval.run_id,
+        status=approval.status,
+        decision_type=decision.decision_type,
+        revision=approval.revision,
+        request_version=approval.version,
+        level_version=level.version,
+        assignment_version=assignment.version,
+        action_payload_hash=approval.action_payload_hash,
+        safety_snapshot_ref=approval.safety_snapshot_ref,
+        safety_snapshot_hash=approval.safety_snapshot_hash,
+        decided_by=decision.actor_id,
+        decided_at=decided_at,
+        decision_id=decision.id,
+        event_id=event.id,
+        reason=approval.reason,
+        resume_payload=trusted,
+        graph_thread_id=f"{approval.tenant_id}:{approval.requested_by}:{approval.thread_id}",
+    )
+
+
+async def _reconcile_approved_action_draft(
+    *,
+    session: AsyncSession,
+    result: ApprovalDecisionResult,
+    final_state: dict,
+    config: dict,
+) -> dict:
+    if result.decision_type not in {"accept", "approve"} or result.status != "approved":
+        return final_state
+    existing = (
+        await session.execute(
+            select(ActionDraft.id).where(
+                ActionDraft.run_id == result.run_id,
+                ActionDraft.approval_request_id == result.approval_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return final_state
+
+    approval = await session.get(ApprovalRequest, result.approval_id)
+    if approval is None:
+        return final_state
+
+    state = {
+        **final_state,
+        "tenant_id": str(result.tenant_id),
+        "user_id": str(approval.requested_by),
+        "role": final_state.get("role") or "support",
+        "thread_id": approval.thread_id,
+        "current_run_id": str(result.run_id),
+        "proposed_action": final_state.get("proposed_action") or approval.proposed_action,
+        "approval_result": result.resume_payload,
+        "action_payload_hash": result.action_payload_hash,
+        "safety_snapshot_ref": result.safety_snapshot_ref,
+        "safety_snapshot_hash": result.safety_snapshot_hash,
+        "safety_snapshot_verified": True,
+        "risk_assessment": final_state.get("risk_assessment") or {"approval_required": True},
+    }
+    update = await execute_action(state, config)
+    reconciled = {**final_state, **update}
+    if update.get("action_result", {}).get("status") != "success":
+        reconciled["node_errors"] = (final_state.get("node_errors") or []) + [
+            {"node": "execute_action", "error": "action_draft_reconcile_failed"}
+        ]
+    return reconciled
+
+
 def _should_resume_graph(result) -> bool:
     return bool(result.resume_payload) and result.decision_type in {"accept", "approve", "reject", "ignore"}
+
+
+def _resume_key(approval_id: UUID, revision: int) -> str:
+    return f"{approval_id}:r{revision}"
 
 
 def _assert_approval_reviewer(user: User) -> None:

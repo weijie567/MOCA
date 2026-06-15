@@ -189,9 +189,9 @@ async def emit_approval_resumed(
     resource_refs: Mapping[str, Any] | None = None,
     redacted_payload: Mapping[str, Any] | None = None,
 ) -> ApprovalEvent:
-    """Register the Phase 13 resume event shape; Phase 15 owns active lifecycle wiring."""
+    """Register a redacted graph resume lifecycle event."""
     safe_metadata = {
-        "resume_owner": "Phase 15 replay lifecycle",
+        "resume_owner": "approval resume lifecycle",
         **dict(metadata or {}),
     }
     safe_payload = {
