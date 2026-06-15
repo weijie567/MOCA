@@ -24,6 +24,7 @@ External execution, outbox, reconciliation, compensation, and real side effects 
 - **D-03:** Persist `draft_outcome.v1` on `action_drafts`. Demo outcome must carry `status=not_executed_demo` and `external_side_effect=false`.
 - **D-04:** Do not backfill legacy draft rows into complete `action_draft.v2`. New columns may be nullable for old rows; contract tests should assert v2 completeness only for drafts created after Phase 14. Old pre-v2 rows are not an authorization surface.
 - **D-05:** Do not create `action_executions`, outbox, reconciliation, or compensation tables in Phase 14. Add negative tests proving demo mode writes no execution rows or external-only records.
+- **D-28:** Keep the spec/phase boundary explicit in implementation and coverage artifacts. `docs/contract-spec.md` remains the normative contract source; Phase 14 implementation extensions such as `target_id`, `approval_revision_ref`, `execution_mode`, `draft_version`, `lifecycle_status`, `retention_policy`, and persisted `draft_outcome` must be documented as implementation fields unless a separate spec revision updates the contract.
 
 ### Compatibility Output and Wording
 - **D-06:** Prefer `draft_outcome.v1` as the graph/API success signal for draft creation. Any retained `action_result` field is deprecated compatibility output only and must not use `status=success` to imply external execution.
@@ -57,6 +58,7 @@ External execution, outbox, reconciliation, compensation, and real side effects 
 
 ### the agent's Discretion
 - Exact column names may follow `docs/contract-spec.md` target names and existing SQLAlchemy conventions.
+- If existing storage uses `payload`/`payload_json` for the contract `proposed_action` body, the executor must document that mapping in `14-COVERAGE.md` instead of treating the naming difference as either a contract change or an omitted field.
 - Exact compatibility shim shape is planner discretion, but only if it satisfies D-19 and D-22.
 - Exact test file split may follow current tests under `tests/test_execute_action.py`, `tests/agent/test_tools/`, `tests/test_trace_api.py`, and approval integration tests.
 
