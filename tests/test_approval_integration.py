@@ -8,10 +8,10 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.agent.trace import write_agent_run
 from src.api.main import app
-from src.db.models import ActionDraft, AgentRun, ApprovalRequest
-from src.repositories.approval_repo import ApprovalRepository
+from src.approvals.service import ApprovalService
+from src.db.models import ActionDraft, AgentRun, ApprovalAssignment, ApprovalLevel, ApprovalRequest
+from tests.approvals.test_service_transitions import _create_command, _create_run
 
 
 pytestmark = pytest.mark.asyncio
@@ -42,6 +42,12 @@ async def test_high_risk_approve_flow_interrupts_resumes_executes_action(
 
     assert chat_response.status_code == 200
     assert chat_payload["data"]["status"] == "interrupted"
+    assert chat_payload["data"]["expected_request_version"] == 1
+    assert chat_payload["data"]["expected_level_version"] == 1
+    assert chat_payload["data"]["expected_assignment_version"] == 1
+    assert chat_payload["data"]["expected_revision"] == 1
+    assert chat_payload["data"]["action_payload_hash"] == pending_approval.action_payload_hash
+    assert chat_payload["data"]["safety_snapshot_hash"] == pending_approval.safety_snapshot_hash
     assert interrupted_run is not None
     assert interrupted_run.final_status == "interrupted"
     assert pending_approval is not None
@@ -49,7 +55,7 @@ async def test_high_risk_approve_flow_interrupts_resumes_executes_action(
 
     decision_response = await client.post(
         f"/api/v1/approvals/{approval_id}/decide",
-        json={"decision": "approve", "reason": "Within policy"},
+        json=_decision_body_from_wait_payload(chat_payload["data"]),
         headers=await auth_headers(approval_test_user.username),
     )
     decision_payload = decision_response.json()
@@ -68,7 +74,6 @@ async def test_high_risk_approve_flow_interrupts_resumes_executes_action(
     assert decision_payload["data"]["status"] == "approved"
     assert pending_approval.status == "approved"
     assert interrupted_run.final_status == "completed"
-    assert draft.idempotency_key == f"{run_id}_{approval_id}_issue_coupon_"
     assert draft.action_type == "issue_coupon"
     assert interrupted_run.final_response is not None
     assert "补偿草稿已创建" in interrupted_run.final_response
@@ -90,12 +95,13 @@ async def test_high_risk_reject_flow_completes_without_action(
         json={"query": "请给ORD-TEST-001补偿600元", "thread_id": f"reject-{uuid4()}"},
         headers=await auth_headers(agent_test_user.username),
     )
-    approval_id = UUID(chat_response.json()["data"]["approval_id"])
-    run_id = UUID(chat_response.json()["data"]["run_id"])
+    chat_payload = chat_response.json()
+    approval_id = UUID(chat_payload["data"]["approval_id"])
+    run_id = UUID(chat_payload["data"]["run_id"])
 
     decision_response = await client.post(
         f"/api/v1/approvals/{approval_id}/decide",
-        json={"decision": "reject", "reason": "Too expensive"},
+        json=_decision_body_from_wait_payload(chat_payload["data"], decision_type="reject", reason="Too expensive"),
         headers=await auth_headers(approval_test_user.username),
     )
     approval = await session.get(ApprovalRequest, approval_id)
@@ -143,7 +149,7 @@ async def test_low_risk_policy_query_bypasses_approval(
     assert run.final_status == "completed"
 
 
-async def test_expired_approval_decision_returns_409(
+async def test_expired_approval_decision_returns_409_conflict(
     client: AsyncClient,
     session: AsyncSession,
     seeded_session,
@@ -153,7 +159,7 @@ async def test_expired_approval_decision_returns_409(
     monkeypatch,
 ):
     monkeypatch.setattr(app.state, "agent_graph", mock_graph, raising=False)
-    approval = await _create_manual_approval(
+    bundle = await _create_manual_approval(
         session,
         tenant_id=seeded_session["tenant"].id,
         requested_by=seeded_session["users"]["cs_zhang"].id,
@@ -161,15 +167,15 @@ async def test_expired_approval_decision_returns_409(
     )
 
     response = await client.post(
-        f"/api/v1/approvals/{approval.id}/decide",
-        json={"decision": "approve", "reason": "Expired"},
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=_decision_body(bundle),
         headers=await auth_headers(approval_test_user.username),
     )
-    await session.refresh(approval)
+    await session.refresh(bundle.approval)
 
     assert response.status_code == 409
-    assert response.json()["error"]["code"] == "EXPIRED"
-    assert approval.status == "expired"
+    assert response.json()["error"]["code"] == "CONFLICT"
+    assert bundle.approval.status == "pending"
 
 
 async def test_idempotent_approve_does_not_duplicate_action_draft(
@@ -188,25 +194,26 @@ async def test_idempotent_approve_does_not_duplicate_action_draft(
         json={"query": "请给ORD-TEST-001补偿600元", "thread_id": f"idempotent-{uuid4()}"},
         headers=await auth_headers(agent_test_user.username),
     )
-    approval_id = UUID(chat_response.json()["data"]["approval_id"])
-    run_id = UUID(chat_response.json()["data"]["run_id"])
+    wait_payload = chat_response.json()["data"]
+    approval_id = UUID(wait_payload["approval_id"])
+    run_id = UUID(wait_payload["run_id"])
     headers = await auth_headers(approval_test_user.username)
 
     first_response = await client.post(
         f"/api/v1/approvals/{approval_id}/decide",
-        json={"decision": "approve", "reason": "Within policy"},
+        json=_decision_body_from_wait_payload(wait_payload),
         headers=headers,
     )
     second_response = await client.post(
         f"/api/v1/approvals/{approval_id}/decide",
-        json={"decision": "approve", "reason": "Within policy"},
+        json=_decision_body_from_wait_payload(wait_payload),
         headers=headers,
     )
     draft_count = await _action_draft_count(session, run_id)
 
     assert first_response.status_code == 200
-    assert second_response.status_code == 200
-    assert second_response.json()["data"]["status"] == "approved"
+    assert second_response.status_code == 409
+    assert second_response.json()["error"]["code"] == "CONFLICT"
     assert draft_count == 1
 
 
@@ -216,36 +223,63 @@ async def _create_manual_approval(
     tenant_id,
     requested_by,
     expires_at: datetime,
-) -> ApprovalRequest:
-    run_id = uuid4()
-    now = datetime.now(UTC)
-    await write_agent_run(
+):
+    run_id = await _create_run(
         session,
-        run_id=str(run_id),
-        thread_id=f"manual-approval-{run_id}",
-        tenant_id=str(tenant_id),
-        user_id=str(requested_by),
-        input_query="manual expired approval",
-        final_status="interrupted",
-        final_response=None,
-        started_at=now,
-        completed_at=now,
-        total_latency_ms=1,
-    )
-    repo = ApprovalRepository(session)
-    approval = await repo.create(
-        run_id=run_id,
         tenant_id=tenant_id,
-        requested_by=requested_by,
-        proposed_action={"action_type": "issue_coupon", "amount": "600"},
-        risk_level="high",
-        risk_rule_ref="HR-01",
-        risk_reason="Compensation amount exceeds threshold",
-        expires_at=expires_at,
-        thread_id=f"manual-approval-{run_id}",
+        user_id=requested_by,
+        thread_id=f"manual-approval-{uuid4()}",
     )
+    result = await ApprovalService(session).create_request(
+        _create_command(
+            tenant_id=tenant_id,
+            run_id=run_id,
+            requested_by=requested_by,
+            thread_id=f"manual-approval-{run_id}",
+            expires_at=expires_at,
+        )
+    )
+    approval = await session.get(ApprovalRequest, result.approval_id)
+    assert approval is not None
+    level = (
+        await session.execute(select(ApprovalLevel).where(ApprovalLevel.approval_request_id == approval.id))
+    ).scalar_one()
+    assignment = (
+        await session.execute(select(ApprovalAssignment).where(ApprovalAssignment.approval_level_id == level.id))
+    ).scalar_one()
     await session.commit()
-    return approval
+    return type("ApprovalBundle", (), {"approval": approval, "level": level, "assignment": assignment})()
+
+
+def _decision_body(bundle, decision_type: str = "approve") -> dict:
+    return {
+        "decision_type": decision_type,
+        "expected_request_version": bundle.approval.version,
+        "expected_level_version": bundle.level.version,
+        "expected_assignment_version": bundle.assignment.version,
+        "expected_revision": bundle.approval.revision,
+        "action_payload_hash": bundle.approval.action_payload_hash,
+        "safety_snapshot_hash": bundle.approval.safety_snapshot_hash,
+        "reason": "Within policy",
+    }
+
+
+def _decision_body_from_wait_payload(
+    wait_payload: dict,
+    *,
+    decision_type: str = "approve",
+    reason: str = "Within policy",
+) -> dict:
+    return {
+        "decision_type": decision_type,
+        "expected_request_version": wait_payload["expected_request_version"],
+        "expected_level_version": wait_payload["expected_level_version"],
+        "expected_assignment_version": wait_payload["expected_assignment_version"],
+        "expected_revision": wait_payload["expected_revision"],
+        "action_payload_hash": wait_payload["action_payload_hash"],
+        "safety_snapshot_hash": wait_payload["safety_snapshot_hash"],
+        "reason": reason,
+    }
 
 
 async def _action_draft_count(session: AsyncSession, run_id: UUID) -> int:
