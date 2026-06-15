@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
 status: executing
-stopped_at: Phase 14 revised
-last_updated: "2026-06-15T22:43:21.547Z"
-last_activity: 2026-06-16 -- Phase 14 Wave 1 complete; 14-02 ready
+stopped_at: Completed 14-02-PLAN.md
+last_updated: "2026-06-15T23:11:50.000Z"
+last_activity: 2026-06-16 -- Phase 14 Plan 02 complete; 14-03 ready
 progress:
   total_phases: 11
   completed_phases: 7
   total_plans: 48
-  completed_plans: 43
-  percent: 90
+  completed_plans: 44
+  percent: 92
 ---
 
 # Project State: MOCA
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md`
 ## Current Position
 
 Phase: 14 (demo-action-executor-boundary) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Plans: 6 planned
-Status: Wave 1 complete; ready for 14-02
-Last activity: 2026-06-16 -- Phase 14 Wave 1 complete; 14-02 ready
+Status: Plan 14-02 complete; ready for 14-03
+Last activity: 2026-06-16 -- Phase 14 Plan 02 complete; 14-03 ready
 
-Progress: [█████████░] 90%
+Progress: [█████████░] 92%
 
 ## Completed Baseline
 
@@ -83,6 +83,9 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 13 full pytest gate blocker was resolved; coverage records P13-BLOCK-FULL-PYTEST as RESOLVED, and phase verification passed 12/12 must-haves after `uv run pytest -q --tb=short` and `uv run ruff check src tests` passed.
 - Phase 13 approval-contract eval manifest uses a real dataset hash computed from the frozen approval-focused test corpus instead of the placeholder hash.
 - Phase 14 action drafts use tenant-scoped unique `(tenant_id, idempotency_key)` and persist v2 draft binding/outcome columns; contract `proposed_action` remains stored in the existing `ActionDraft.payload` JSONB column.
+- Phase 14 ActionService owns final action draft idempotency key construction; caller-provided keys are ignored for persisted draft identity.
+- Auto-allowed drafts use the exact `auto_allowed` key marker, while approval-backed drafts use `approval_revision_{revision}` and persist `approval_request/{id}@rev{revision}`.
+- `AgentState.action_draft`, `AgentState.draft_outcome`, and `AgentState.execution_mode` are reset by `receive_request` at each turn so checkpointed draft state cannot leak.
 
 ## Blockers / Concerns
 
@@ -126,14 +129,15 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | 13 | 07 | 10 min | 3 | 7 |
 | 13 | 08 | 15 min | 2 | 3 |
 | 14 | 01 | 5 min | 3 | 5 |
+| 14 | 02 | 29 min | 3 | 8 |
 
 ## Session Continuity
 
-Last session: Phase 14 Wave 1 complete
-Stopped at: Completed 14-01-PLAN.md
+Last session: Phase 14 Plan 02 complete
+Stopped at: Completed 14-02-PLAN.md
 Resume file: None
 
-**Next:** Execute Phase 14 Wave 2 with 14-02-PLAN.md
+**Next:** Execute Phase 14 Wave 3 with 14-03-PLAN.md
 
 **Completed Phase:** Phase 13 (Approval State Machine) — 2026-06-15
 

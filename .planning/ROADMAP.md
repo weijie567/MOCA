@@ -136,10 +136,10 @@ Plans:
   1. Demo mode creates only action draft and draft_outcome.
   2. Demo mode creates no action execution row or external side effect.
   3. Hash/revision mismatches are rejected and final response wording never claims real execution.
-**Plans**: 6 plans
+**Plans**: 2/6 complete
 Plans:
   - [x] 14-01-PLAN.md — action_draft.v2 schema, draft_outcome contract, and blocking Alembic upgrade (Wave 1)
-  - [ ] 14-02-PLAN.md — ActionService-owned idempotency, exact binding reuse, draft outcome persistence, and state reset (Wave 2)
+  - [x] 14-02-PLAN.md — ActionService-owned idempotency, exact binding reuse, draft outcome persistence, and state reset (Wave 2)
   - [ ] 14-03-PLAN.md — canonical action_draft graph node, tool allowlist, and execute_action shim quarantine (Wave 3)
   - [ ] 14-04-PLAN.md — approval resume and final/API draft_outcome wording migration (Wave 4)
   - [ ] 14-05-PLAN.md — safe action_draft_created event and /trace draft_outcome projection (Wave 4)
