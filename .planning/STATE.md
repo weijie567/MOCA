@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
 status: executing
-stopped_at: Phase 13 planned; ready to execute
-last_updated: "2026-06-15T05:54:52.384Z"
-last_activity: 2026-06-15 -- Phase 13 execution started
+stopped_at: Completed 13-01-PLAN.md
+last_updated: "2026-06-15T06:09:04.552Z"
+last_activity: 2026-06-15 -- Phase 13 Plan 01 completed
 progress:
   total_phases: 11
   completed_phases: 6
   total_plans: 42
-  completed_plans: 34
-  percent: 81
+  completed_plans: 35
+  percent: 83
 ---
 
 # Project State: MOCA
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md`
 ## Current Position
 
 Phase: 13 (approval-state-machine) — EXECUTING
-Plan: 1 of 8
-Plans: 0/8
-Status: Executing Phase 13
-Last activity: 2026-06-15 -- Phase 13 execution started
+Plan: 2 of 8
+Plans: 1/8
+Status: Ready to execute Phase 13 Plan 02
+Last activity: 2026-06-15 -- Phase 13 Plan 01 completed
 
-Progress: [████████--] 81%
+Progress: [████████░░] 83%
 
 ## Completed Baseline
 
@@ -61,6 +61,9 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Trusted tool permissions and merchant scope are derived in the agent-runs router and passed only through configurable run config.
 - The prior-line registry remains only as an isolated policy-search compatibility path; live business reads use the Phase 9 facade.
 - Phase 12 completed with PostgreSQL-authoritative session memory, same-thread slot continuity, CAS safety, no policy-evidence/action authority escalation, and Redis explicitly skipped for Phase 12.
+- CanonicalHashProfile v1 lives in src/common/canonical_hash.py and is shared by approval, action, and replay consumers.
+- The Phase 13-local action_safety_snapshot.v1 golden digest is frozen with exact canonical JSON and hash input bytes.
+- ActionSafetySnapshot imports EvidenceRefV1 and canonical_evidence_projection instead of defining a reduced evidence schema.
 
 ## Blockers / Concerns
 
@@ -95,12 +98,13 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | 12 | 03 | 26 min | 4 | 10 |
 | 12 | 04 | 17 min | 5 | 6 |
 | 12 | 05 | 3 min | 2 | 1 |
+| 13 | 01 | 9 min | 4 | 7 |
 
 ## Session Continuity
 
-Last session: 2026-06-15T04:59:44.960Z
-Stopped at: Phase 13 planned; ready to execute
-Resume file: .planning/phases/13-approval-state-machine/13-01-PLAN.md
+Last session: 2026-06-15T06:09:04.552Z
+Stopped at: Completed 13-01-PLAN.md
+Resume file: None
 
 **Next:** Execute Phase 13
 

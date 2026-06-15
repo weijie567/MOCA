@@ -28,7 +28,7 @@
 - [ ] **APPROVAL-01**: Approval transitions, request/level/assignment CAS, and revision invalidation are enforced.
 - [ ] **APPROVAL-02**: Approval needs_info resume validates clarification identity, scope, versions, changed facts, and old-revision prohibition.
 - [ ] **APPROVAL-03**: Single-level runtime is complete and multi-level-compatible contracts are verified; active SLA scanner remains an owned gate.
-- [ ] **SNAPSHOT-01**: ActionSafetySnapshot and CanonicalHashProfile bind approval, draft, and execution to exact payload/evidence/config hashes.
+- [x] **SNAPSHOT-01**: ActionSafetySnapshot and CanonicalHashProfile bind approval, draft, and execution to exact payload/evidence/config hashes.
 - [ ] **DEMO-01**: Demo mode creates durable draft and draft_outcome only, with no execution row or external side effect.
 - [ ] **DEMO-02**: Demo wording and hash/revision guards cannot claim or authorize real execution.
 - [ ] **REPLAY-01**: ReplayEventV3 and lifecycle finalizer cover all required completed/interrupted/terminal paths.

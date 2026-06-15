@@ -9,9 +9,14 @@ MOCA/
 ├── src/                     # Python backend source
 │   ├── api/                 # FastAPI app, routers, schemas, dependencies
 │   ├── agent/               # LangGraph state, graph, nodes, trace, tool registry
+│   ├── approvals/           # Approval-domain schemas, snapshots, services, and state machine logic
 │   ├── auth/                # JWT and permission helpers
+│   ├── common/              # Domain-independent canonical helpers shared across phases
 │   ├── db/                  # SQLAlchemy models, session, Alembic migrations
+│   ├── knowledge/           # Canonical policy evidence contracts and KnowledgeService facade
+│   ├── memory/              # Session memory schemas, repository, and service
 │   ├── rag/                 # Chunking, embedding, retrieval, citation validation
+│   ├── tools/               # Business tool contracts, descriptors, manager, and adapters
 │   └── repositories/        # Database access layer
 ├── tests/                   # Backend unit, API, integration, agent, and RAG tests
 ├── frontend/                # Vite React TypeScript UI
@@ -42,6 +47,15 @@ MOCA/
 - Node implementations under `src/agent/nodes/`
 - Trace persistence helpers in `trace.py`
 - Tool contracts, registry, adapters, and concrete tools under `src/agent/tools/`
+
+**`src/common/` and `src/approvals/`:**
+- `src/common/canonical_hash.py` owns CanonicalHashProfile v1 and shared canonical JSON/hash input bytes
+- `src/approvals/snapshots.py` owns ActionSafetySnapshot v1 projection and immutable hash computation
+- `src/approvals/schemas.py` centralizes approval-domain schema version literals
+
+**`src/knowledge/`, `src/business/`, `src/memory/`, and `src/tools/`:**
+- Phase 8-12 domain facades and contracts for policy evidence, business reads, session memory, and tool invocation
+- `src/knowledge/schemas.py` owns EvidenceRefV1 and canonical evidence projection reused by approval snapshots
 
 **`src/db/` and `src/repositories/`:**
 - ORM models for tenants, users, orders, refund cases, tickets, policy docs/chunks, audit logs, agent runs, approvals, action drafts, and agent steps
@@ -80,6 +94,9 @@ MOCA/
 - API routers: `src/api/routers/`
 - Agent nodes: `src/agent/nodes/`
 - Tool registry and contracts: `src/agent/tools/contracts.py`, `src/agent/tools/registry.py`
+- Canonical hash: `src/common/canonical_hash.py`
+- Approval snapshots: `src/approvals/snapshots.py`
+- Evidence contracts: `src/knowledge/schemas.py`
 - Approval and trace models: `src/db/models.py`
 - RAG retrieval: `src/rag/retriever.py`
 
@@ -108,6 +125,8 @@ MOCA/
 
 - New API endpoint: `src/api/routers/` plus schema in `src/api/schemas/`
 - New DB access behavior: `src/repositories/` plus model/migration if schema changes
+- New approval/snapshot behavior: `src/approvals/`
+- New shared canonical/hash helper: `src/common/`
 - New agent node: `src/agent/nodes/` and graph wiring in `src/agent/graph.py`
 - New tool: `src/agent/tools/` plus registry metadata and contract tests
 - New RAG behavior: `src/rag/` plus search/RAG tests

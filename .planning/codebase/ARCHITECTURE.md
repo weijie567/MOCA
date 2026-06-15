@@ -68,6 +68,12 @@
 3. Adapter calls repository/RAG behavior.
 4. Tool output is normalized into evidence refs, data, errors, and execution metadata.
 
+**Approval Snapshot Hash Flow:**
+1. Proposed action material is canonicalized with `CanonicalHashProfile v1` from `src/common/canonical_hash.py`.
+2. `src/approvals/snapshots.py` builds `ActionSafetySnapshot` from refs, hashes, policy/risk/retrieval versions, and canonical `EvidenceRefV1` values.
+3. Snapshot hash projection strips evidence `score`, retains `rank`, applies rank-aware evidence sorting, and computes `immutable_hash`.
+4. Later approval/action/replay consumers validate exact action payload and safety snapshot hashes rather than defining local serializers.
+
 **RAG Flow:**
 1. Policy markdown files are ingested and chunked.
 2. Chunks are stored with metadata and embeddings.
@@ -82,6 +88,8 @@
 - `ActionDraft` - Idempotent proposed/executed action record
 - `ToolRegistryEntry` - Typed registry metadata for tool risk, side effects, caller permissions, schemas, and visibility
 - `ToolInvocationContext` - Caller/tenant/run context for tool execution authorization
+- `CanonicalHashProfile v1` - Shared canonical JSON and hash input byte contract for approval/action/replay hashes
+- `ActionSafetySnapshot` - Immutable approval/action safety snapshot over proposed action hash, evidence refs, and config versions
 - `EvidenceItem` / retrieval schemas - RAG grounding contract
 - `ApiResponse` - Standard response envelope
 
@@ -92,6 +100,8 @@
 - Approval decision route: `src/api/routers/approvals.py`
 - Agent streaming/runs routes: `src/api/routers/agent.py`, `src/api/routers/agent_runs.py`
 - Search route: `src/api/routers/search.py`
+- Canonical hash helper: `src/common/canonical_hash.py`
+- Approval snapshot helper: `src/approvals/snapshots.py`
 - Frontend app: `frontend/src/App.tsx`
 - Seed script: `scripts/seed_demo.py`
 - Eval scripts: `scripts/eval_*.py`
