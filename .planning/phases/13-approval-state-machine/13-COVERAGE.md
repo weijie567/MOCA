@@ -1,6 +1,6 @@
 # Phase 13 Approval State Machine Coverage
 
-**Status:** Final verification pending Task 2  
+**Status:** Blocked by full-suite verification failure  
 **Eval manifest:** `tests/approvals/phase13_eval_manifest.json`  
 **Eval dataset:** `approval-contract-phase13.v1`  
 **Eval dataset hash:** `sha256:89251f64d1ffde20061b7406e684ee1c3bc56cedc882bc6c15a11799819600ae`  
@@ -8,6 +8,8 @@
 **Eval failure impact:** `phase_13_not_ready_for_execution`
 
 No relevant MISSING rows remain in this Phase 13 coverage record. Any deferred capability below is recorded as `DEFERRED_WITH_OWNER` with owner, non-blocking rationale, dependency, and acceptance gate.
+
+**Readiness verdict:** `phase_13_not_ready_for_execution` until the full-suite blocker in the Blocking Follow-Ups section is resolved.
 
 ## Requirement Coverage
 
@@ -81,13 +83,15 @@ The deferred cross-table rows have owner phases, dependency chains, and acceptan
 
 | Command | Status | Last observed | Notes |
 | --- | --- | --- | --- |
-| `uv run alembic upgrade head` | NOT_RUN | Task 2 pending | Final gate command. |
-| `uv run pytest tests/approvals tests/architecture/test_approval_boundaries.py tests/test_approval_api.py tests/test_approval_integration.py tests/test_approval_models.py tests/test_approval_gate.py tests/test_execute_action.py tests/test_graph_routing.py tests/agent/test_events.py -q --tb=short` | NOT_RUN | Task 2 pending | Final focused Phase 13 suite. |
-| `uv run pytest -q --tb=short` | NOT_RUN | Task 2 pending | Full test suite gate. |
-| `uv run ruff check src tests` | NOT_RUN | Task 2 pending | Lint gate. |
+| `uv run alembic upgrade head` | PASS | 2026-06-15 | Alembic reported PostgreSQL context and transactional DDL; no migration failure. |
+| `uv run pytest tests/approvals tests/architecture/test_approval_boundaries.py tests/test_approval_api.py tests/test_approval_integration.py tests/test_approval_models.py tests/test_approval_gate.py tests/test_execute_action.py tests/test_graph_routing.py tests/agent/test_events.py -q --tb=short` | PASS | 2026-06-15 | 201 passed, 1 existing LangGraph pending-deprecation warning. |
+| `uv run pytest -q --tb=short` | FAIL | 2026-06-15 | 13 failed, 731 passed, 1 existing LangGraph pending-deprecation warning. |
+| `uv run ruff check src tests` | PASS | 2026-06-15 | All checks passed. |
 
 ## Blocking Follow-Ups
 
+Blocking follow-up row present because the full-suite verification command failed.
+
 | ID | Owner | Command | Impact | Status |
 | --- | --- | --- | --- | --- |
-| P13-BLOCK-VERIFY | Phase 13 | `uv run alembic upgrade head` plus focused/full pytest and ruff final gate commands listed above | `phase_13_not_ready_for_execution` until Task 2 records PASS or exact FAIL blockers. | OPEN |
+| P13-BLOCK-FULL-PYTEST | Phase 13 | `uv run pytest -q --tb=short` | `phase_13_not_ready_for_execution`; Phase 13 cannot claim final readiness while full-suite failures remain. Failing tests: `tests/agent/test_nodes/test_assess_risk_and_approval.py::test_actionable_recommendation_still_proposes_action`, `tests/agent/test_nodes/test_assess_risk_and_approval.py::test_chinese_full_refund_delivered_order_matches_high_risk`, `tests/agent/test_nodes/test_assess_risk_and_approval.py::test_expected_error_retries_then_falls_back`, `tests/test_agent_runs_api.py::test_event_generator_treats_stream_interrupt_node_as_approval_required`, `tests/test_agent_runs_api.py::test_sse_interrupted_path_skips_memory_write`, `tests/test_interception_rate.py::test_hr01_compensation_over_500_requires_approval`, `tests/test_interception_rate.py::test_hr02_full_refund_on_delivered_order_requires_approval`, `tests/test_interception_rate.py::test_hr03_high_risk_merchant_requires_approval`, `tests/test_interception_rate.py::test_live_freeform_rejection_action_type_is_canonical`, `tests/test_interception_rate.py::test_route_after_risk_returns_approval_gate_for_all_high_risk_rules`, `tests/test_interception_rate.py::test_interception_rate_100_percent`, `tests/test_trace_api.py::test_get_run_trace_returns_full_timeline_with_agent_steps_approvals_and_action_drafts`, `tests/test_trace_api.py::test_get_run_trace_timeline_is_sorted_by_time`. | OPEN |
