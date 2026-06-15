@@ -61,11 +61,12 @@ def test_decisions_and_events_carry_redundant_request_bindings():
         "request_revision",
         "request_version",
         "level_version",
+        "level_mode",
         "assignment_version",
     }
 
     assert redundant_fields.issubset(_columns("approval_decisions"))
-    assert redundant_fields.issubset(_columns("approval_events"))
+    assert (redundant_fields - {"level_mode"}).issubset(_columns("approval_events"))
 
 
 def test_any_one_winning_accept_and_active_assignment_uniques_are_partial_indexes():
@@ -86,5 +87,6 @@ def test_any_one_winning_accept_and_active_assignment_uniques_are_partial_indexe
     assert "deleted_at IS NULL" in active_where
     assert "archived_at IS NULL" in active_where
     assert "decision_type" in active_where
+    assert "level_mode = 'any_one'" in winning_where
     assert "accept" in winning_where
     assert "deleted_at IS NULL" in winning_where
