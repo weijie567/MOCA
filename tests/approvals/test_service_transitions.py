@@ -254,7 +254,11 @@ async def test_accept_decision_inserts_exactly_one_decision_and_event(session: A
     assert result.safety_snapshot_hash == request.safety_snapshot_hash
     assert result.resume_payload is not None
     assert result.resume_payload["schema_version"] == "approval_result.v1"
-    assert result.graph_thread_id == request.thread_id
+    assert result.resume_payload["tenant_id"] == str(request.tenant_id)
+    assert result.resume_payload["run_id"] == str(request.run_id)
+    assert result.resume_payload["safety_snapshot_ref"] == request.safety_snapshot_ref
+    assert result.resume_payload["decided_by"] == str(actor_id)
+    assert result.graph_thread_id == f"{request.tenant_id}:{request.requested_by}:{request.thread_id}"
 
     decisions = (await session.execute(select(ApprovalDecision))).scalars().all()
     events = (

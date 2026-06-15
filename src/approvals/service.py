@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.approvals.policy import ApprovalPolicy, ApprovalPolicyError
@@ -30,6 +32,13 @@ class ApprovalTransitionError(ValueError):
     def __init__(self, code: str, message: str | None = None) -> None:
         super().__init__(message or code)
         self.code = code
+
+
+@dataclass(frozen=True)
+class ApprovalDecisionContext:
+    request: ApprovalRequest
+    level: ApprovalLevel
+    assignment: ApprovalAssignment
 
 
 class ApprovalService:
@@ -103,6 +112,46 @@ class ApprovalService:
                 )
         except ActionSafetySnapshotPersistenceError as exc:
             raise ApprovalTransitionError("approval_not_executable", str(exc)) from exc
+
+    async def get_request(self, approval_id: UUID, tenant_id: UUID) -> ApprovalRequest | None:
+        stmt = select(ApprovalRequest).where(
+            ApprovalRequest.id == approval_id,
+            ApprovalRequest.tenant_id == tenant_id,
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def list_pending_requests(self, tenant_id: UUID) -> list[ApprovalRequest]:
+        stmt = (
+            select(ApprovalRequest)
+            .where(
+                ApprovalRequest.tenant_id == tenant_id,
+                ApprovalRequest.status == "pending",
+                ApprovalRequest.expires_at > datetime.now(UTC),
+            )
+            .order_by(ApprovalRequest.created_at.desc())
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def get_decision_context(self, approval_id: UUID, tenant_id: UUID) -> ApprovalDecisionContext | None:
+        request = await self.get_request(approval_id, tenant_id)
+        if request is None:
+            return None
+        level = await self.repository.lock_current_level(request.id)
+        if level is None:
+            raise ApprovalTransitionError("approval_conflict")
+        assignment_stmt = (
+            select(ApprovalAssignment)
+            .where(
+                ApprovalAssignment.approval_level_id == level.id,
+                ApprovalAssignment.status == "pending",
+                ApprovalAssignment.deleted_at.is_(None),
+            )
+            .order_by(ApprovalAssignment.created_at.asc())
+        )
+        assignment = (await self.session.execute(assignment_stmt)).scalars().first()
+        if assignment is None:
+            raise ApprovalTransitionError("approval_conflict")
+        return ApprovalDecisionContext(request=request, level=level, assignment=assignment)
 
     async def decide(self, command: ApprovalDecisionCommand) -> ApprovalDecisionResult:
         if command.decision_type in {"edit", "respond"}:
@@ -214,27 +263,14 @@ class ApprovalService:
                 "safety_snapshot_hash": request.safety_snapshot_hash,
             },
         )
-        trusted = TrustedApprovalResultV1(
-            approval_id=request.id,
-            status="approved",
-            decision_type=command.decision_type,
-            revision=request.revision,
-            request_version=request.version,
-            level_version=level.version,
-            assignment_version=assignment.version,
-            action_payload_hash=request.action_payload_hash,
-            safety_snapshot_hash=request.safety_snapshot_hash,
-        ).model_dump(mode="json")
-        if trusted["schema_version"] != "approval_result.v1":
-            raise ApprovalTransitionError("approval_invalid_result")
         return self._result(
             request=request,
             level=level,
             assignment=assignment,
+            actor_id=command.actor_id,
             decision_id=decision.id,
             event_id=event.id,
             decision_type=command.decision_type,
-            resume_payload=trusted,
         )
 
     async def _terminal_decision(
@@ -278,10 +314,10 @@ class ApprovalService:
             request=request,
             level=level,
             assignment=assignment,
+            actor_id=command.actor_id,
             decision_id=decision.id,
             event_id=event.id,
             decision_type=command.decision_type,
-            resume_payload=None,
         )
 
     def _result(
@@ -290,13 +326,19 @@ class ApprovalService:
         request: ApprovalRequest,
         level: ApprovalLevel,
         assignment: ApprovalAssignment,
+        actor_id: UUID,
         decision_id: UUID,
         event_id: UUID,
         decision_type: str,
-        resume_payload: dict[str, Any] | None,
     ) -> ApprovalDecisionResult:
-        return ApprovalDecisionResult(
+        decided_at = datetime.now(UTC)
+        request.decision = decision_type
+        request.decided_by = actor_id
+        request.decided_at = decided_at
+        trusted = TrustedApprovalResultV1(
             approval_id=request.id,
+            tenant_id=request.tenant_id,
+            run_id=request.run_id,
             status=request.status,
             decision_type=decision_type,
             revision=request.revision,
@@ -304,11 +346,32 @@ class ApprovalService:
             level_version=level.version,
             assignment_version=assignment.version,
             action_payload_hash=request.action_payload_hash,
+            safety_snapshot_ref=request.safety_snapshot_ref,
             safety_snapshot_hash=request.safety_snapshot_hash,
+            decided_by=actor_id,
+            decided_at=decided_at,
+        ).model_dump(mode="json")
+        if trusted["schema_version"] != "approval_result.v1":
+            raise ApprovalTransitionError("approval_invalid_result")
+        return ApprovalDecisionResult(
+            approval_id=request.id,
+            tenant_id=request.tenant_id,
+            run_id=request.run_id,
+            status=request.status,
+            decision_type=decision_type,
+            revision=request.revision,
+            request_version=request.version,
+            level_version=level.version,
+            assignment_version=assignment.version,
+            action_payload_hash=request.action_payload_hash,
+            safety_snapshot_ref=request.safety_snapshot_ref,
+            safety_snapshot_hash=request.safety_snapshot_hash,
+            decided_by=actor_id,
+            decided_at=decided_at,
             decision_id=decision_id,
             event_id=event_id,
-            resume_payload=resume_payload,
-            graph_thread_id=request.thread_id,
+            resume_payload=trusted,
+            graph_thread_id=f"{request.tenant_id}:{request.requested_by}:{request.thread_id}",
         )
 
     @staticmethod

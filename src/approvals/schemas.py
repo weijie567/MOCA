@@ -109,6 +109,8 @@ class TrustedApprovalResultV1(BaseModel):
 
     schema_version: Literal["approval_result.v1"] = APPROVAL_RESULT_SCHEMA_VERSION
     approval_id: UUID
+    tenant_id: UUID
+    run_id: UUID
     status: ApprovalRequestStatus
     decision_type: ApprovalDecisionType
     revision: int = Field(ge=1)
@@ -116,7 +118,10 @@ class TrustedApprovalResultV1(BaseModel):
     level_version: int = Field(ge=1)
     assignment_version: int = Field(ge=1)
     action_payload_hash: str
+    safety_snapshot_ref: str
     safety_snapshot_hash: str
+    decided_by: UUID
+    decided_at: datetime
 
 
 class ApprovalDecisionResult(BaseModel):
@@ -125,6 +130,8 @@ class ApprovalDecisionResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     approval_id: UUID
+    tenant_id: UUID
+    run_id: UUID
     status: ApprovalRequestStatus
     decision_type: ApprovalDecisionType
     revision: int = Field(ge=1)
@@ -132,7 +139,10 @@ class ApprovalDecisionResult(BaseModel):
     level_version: int = Field(ge=1)
     assignment_version: int = Field(ge=1)
     action_payload_hash: str
+    safety_snapshot_ref: str
     safety_snapshot_hash: str
+    decided_by: UUID
+    decided_at: datetime
     decision_id: UUID
     event_id: UUID
     resume_payload: dict[str, Any] | None = None

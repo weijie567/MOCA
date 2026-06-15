@@ -1,20 +1,35 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class DecideRequest(BaseModel):
-    decision: str = Field(..., pattern="^(approve|reject)$")
+    model_config = ConfigDict(extra="forbid")
+
+    decision_type: Literal["accept", "approve", "edit", "respond", "reject", "ignore"]
+    expected_request_version: int = Field(ge=1)
+    expected_level_version: int = Field(ge=1)
+    expected_assignment_version: int = Field(ge=1)
+    expected_revision: int = Field(ge=1)
+    action_payload_hash: str = Field(min_length=1)
+    safety_snapshot_hash: str = Field(min_length=1)
     reason: str | None = None
+    edited_action: dict[str, Any] | None = None
+    response_text: str | None = None
 
 
 class ApprovalResponse(BaseModel):
     id: str
     run_id: str
     status: str
+    revision: int | None
+    request_version: int | None
+    action_payload_hash: str | None
+    safety_snapshot_ref: str | None
+    safety_snapshot_hash: str | None
     requested_by: str
     proposed_action: dict[str, Any]
     risk_level: str

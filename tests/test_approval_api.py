@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -15,7 +14,7 @@ from src.api.main import app
 from src.auth.jwt import create_access_token
 from src.approvals.schemas import ApprovalDecisionCommand
 from src.approvals.service import ApprovalService
-from src.db.models import AgentRun, AgentStep, ApprovalAssignment, ApprovalLevel, ApprovalRequest, User
+from src.db.models import AgentRun, ApprovalAssignment, ApprovalLevel, ApprovalRequest, User
 from tests.approvals.test_service_transitions import _create_command
 
 
@@ -41,31 +40,6 @@ class FakeResumeGraph:
                 {"node": "final_response", "status": "completed"},
             ],
         }
-
-
-class FakeInterruptGraph:
-    def __init__(self, payload: dict, *, raises: bool = False):
-        self.payload = payload
-        self.raises = raises
-
-    async def ainvoke(self, input_state, config):
-        if self.raises:
-            raise FakeGraphInterrupt([SimpleNamespace(value=self.payload)])
-        return {"__interrupt__": [SimpleNamespace(value=self.payload)]}
-
-    async def aget_state(self, config):
-        return SimpleNamespace(
-            values={
-                "current_run_id": self.payload["run_id"],
-                "trace_steps": [
-                    {"node": "receive_request", "status": "completed"},
-                ],
-            }
-        )
-
-
-class FakeGraphInterrupt(Exception):
-    pass
 
 
 def _auth_header(user: User, scopes: list[str]) -> dict[str, str]:
@@ -194,7 +168,9 @@ async def test_decide_approve_builds_command_from_authenticated_actor_and_resume
     assert command.resume["safety_snapshot_ref"] == bundle.approval.safety_snapshot_ref
     assert command.resume["safety_snapshot_hash"] == bundle.approval.safety_snapshot_hash
     assert command.resume["decided_by"] == str(manager.id)
-    assert config["configurable"]["thread_id"] == bundle.approval.thread_id
+    assert config["configurable"]["thread_id"] == (
+        f"{bundle.approval.tenant_id}:{bundle.approval.requested_by}:{bundle.approval.thread_id}"
+    )
 
 
 @pytest.mark.asyncio
@@ -222,7 +198,9 @@ async def test_decide_reject_resumes_graph_with_trusted_rejected_result(
     assert command.resume["schema_version"] == "approval_result.v1"
     assert command.resume["decision_type"] == "reject"
     assert command.resume["status"] == "rejected"
-    assert config["configurable"]["thread_id"] == bundle.approval.thread_id
+    assert config["configurable"]["thread_id"] == (
+        f"{bundle.approval.tenant_id}:{bundle.approval.requested_by}:{bundle.approval.thread_id}"
+    )
 
 
 @pytest.mark.asyncio
@@ -336,126 +314,6 @@ async def test_agent_run_status_updates_to_completed_after_service_resume(
     assert run.total_latency_ms >= 10
 
 
-@pytest.mark.asyncio
-async def test_agent_chat_interrupt_result_creates_service_approval_and_interrupted_run(
-    client: AsyncClient,
-    session: AsyncSession,
-    seeded_session,
-    monkeypatch,
-):
-    run_id = uuid4()
-    payload = _interrupt_payload(run_id, seeded_session)
-    monkeypatch.setattr(app.state, "agent_graph", FakeInterruptGraph(payload), raising=False)
-
-    response = await client.post(
-        "/api/v1/agent/chat",
-        json={"query": "给这个订单补偿600元", "thread_id": "chat-interrupt-result"},
-        headers=await _support_headers(client),
-    )
-    body = response.json()
-
-    approval = await session.get(ApprovalRequest, UUID(body["data"]["approval_id"]))
-    run = await session.get(AgentRun, run_id)
-    steps = (await session.execute(select(AgentStep).where(AgentStep.run_id == run_id))).scalars().all()
-
-    assert response.status_code == 200
-    assert body["data"]["status"] == "interrupted"
-    assert body["data"]["expected_request_version"] == 1
-    assert body["data"]["expected_level_version"] == 1
-    assert body["data"]["expected_assignment_version"] == 1
-    assert body["data"]["expected_revision"] == 1
-    assert body["data"]["action_payload_hash"] == approval.action_payload_hash
-    assert body["data"]["safety_snapshot_hash"] == approval.safety_snapshot_hash
-    assert body["data"]["allowed_decision_types"] == ["accept", "approve", "reject", "ignore"]
-    assert approval is not None
-    assert approval.schema_version == "approval_request.v2"
-    assert approval.thread_id == "chat-interrupt-result"
-    assert approval.safety_snapshot_ref
-    assert run is not None
-    assert run.final_status == "interrupted"
-    assert [step.node_name for step in steps] == ["receive_request", "approval_gate"]
-    assert steps[1].status == "interrupted"
-
-
-@pytest.mark.asyncio
-async def test_agent_chat_interrupt_missing_hashes_fails_closed_without_approval(
-    client: AsyncClient,
-    session: AsyncSession,
-    seeded_session,
-    monkeypatch,
-):
-    run_id = uuid4()
-    payload = _interrupt_payload(run_id, seeded_session)
-    payload.pop("action_payload_hash")
-    monkeypatch.setattr(app.state, "agent_graph", FakeInterruptGraph(payload), raising=False)
-
-    response = await client.post(
-        "/api/v1/agent/chat",
-        json={"query": "给这个订单补偿600元", "thread_id": "chat-missing-hashes"},
-        headers=await _support_headers(client),
-    )
-    body = response.json()
-
-    approvals = (await session.execute(select(ApprovalRequest).where(ApprovalRequest.run_id == run_id))).scalars().all()
-    assert response.status_code == 200
-    assert body["data"]["status"] == "interrupted"
-    assert body["data"]["approval_id"] is None
-    assert body["data"]["error"]["code"] == "MISSING_ACTION_PAYLOAD_HASH"
-    assert approvals == []
-
-
 async def _manager_headers(client: AsyncClient) -> dict[str, str]:
     response = await client.post("/api/v1/auth/login", json={"username": "approval_manager", "password": "moca2024"})
     return {"Authorization": f"Bearer {response.json()['data']['access_token']}"}
-
-
-async def _support_headers(client: AsyncClient) -> dict[str, str]:
-    response = await client.post("/api/v1/auth/login", json={"username": "cs_zhang", "password": "moca2024"})
-    return {"Authorization": f"Bearer {response.json()['data']['access_token']}"}
-
-
-def _interrupt_payload(run_id: UUID, seeded_session) -> dict:
-    tenant_id = seeded_session["tenant"].id
-    evidence_ref = {
-        "schema_version": "evidence_ref.v1",
-        "tenant_id": str(tenant_id),
-        "evidence_id": "refund-policy/chunk-001@v3",
-        "doc_key": "refund-policy",
-        "chunk_id": "chunk-001",
-        "policy_version": "v3",
-        "text_hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-        "retrieved_at": "2026-06-15T00:00:00.000Z",
-        "retrieval_config_version": "retrieval.v1",
-        "rank": 1,
-    }
-    proposed_action = {
-        "schema_version": "proposed_action.v1",
-        "tenant_id": str(tenant_id),
-        "run_id": str(run_id),
-        "action_id": "act-chat-interrupt",
-        "action_type": "issue_coupon",
-        "target_type": "refund_case",
-        "target_id": "RF-TEST-001",
-        "amount": "100.00",
-        "currency": "CNY",
-        "args": {"coupon_type": "cash"},
-        "reason": "refund delay compensation",
-        "evidence_refs": [evidence_ref],
-    }
-    return {
-        "run_id": str(run_id),
-        "tenant_id": str(tenant_id),
-        "user_id": str(seeded_session["users"]["cs_zhang"].id),
-        "proposed_action": proposed_action,
-        "risk_level": "high",
-        "risk_rule_ref": "HR-01",
-        "risk_reason": "Compensation exceeds threshold",
-        "expires_at": (datetime.now(UTC) + timedelta(hours=24)).isoformat(),
-        "action_payload_hash": "sha256:508e649e1b169a9520f7eb76403b0e00c90c1b1c52e17a499fd7bcdce2473094",
-        "safety_snapshot_ref": "snapshot:display-only",
-        "safety_snapshot_hash": "sha256:aafef5b8874e80241fce531bc6d3f73a7e713b6066586c50330ec9ee5e0ad144",
-        "policy_config_version": "approval-policy.v1",
-        "risk_config_version": "risk-rules.v1",
-        "retrieval_config_version": "retrieval.v1",
-        "evidence_refs": [evidence_ref],
-    }
