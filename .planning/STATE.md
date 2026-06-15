@@ -4,14 +4,14 @@ milestone: v1.1
 milestone_name: Agent Architecture Migration
 status: planning
 stopped_at: Phase 13 context gathered
-last_updated: "2026-06-15T03:06:24Z"
+last_updated: "2026-06-15T04:59:44.960Z"
 last_activity: 2026-06-14 — Phase 12 verified complete
 progress:
   total_phases: 11
   completed_phases: 6
-  total_plans: 34
+  total_plans: 42
   completed_plans: 34
-  percent: 55
+  percent: 81
 ---
 
 # Project State: MOCA
@@ -105,3 +105,5 @@ Resume file: .planning/phases/13-approval-state-machine/13-CONTEXT.md
 **Next:** Plan Phase 13
 
 **Completed Phase:** Phase 12 (Session Memory) — 2026-06-14
+
+**Planned Phase:** 13 (Approval State Machine) — 8 plans — 2026-06-15T04:59:44.942Z
