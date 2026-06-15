@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
 status: executing
-stopped_at: Completed 13-01-PLAN.md
-last_updated: "2026-06-15T06:09:04.552Z"
-last_activity: 2026-06-15 -- Phase 13 Plan 01 completed
+stopped_at: Completed 13-02-PLAN.md
+last_updated: "2026-06-15T07:31:21.022Z"
+last_activity: 2026-06-15 -- Phase 13 Plan 02 completed
 progress:
   total_phases: 11
   completed_phases: 6
   total_plans: 42
-  completed_plans: 35
-  percent: 83
+  completed_plans: 36
+  percent: 86
 ---
 
 # Project State: MOCA
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md`
 ## Current Position
 
 Phase: 13 (approval-state-machine) — EXECUTING
-Plan: 2 of 8
-Plans: 1/8
-Status: Ready to execute Phase 13 Plan 02
-Last activity: 2026-06-15 -- Phase 13 Plan 01 completed
+Plan: 3 of 8
+Plans: 2/8
+Status: Ready to execute Phase 13 Plan 03
+Last activity: 2026-06-15 -- Phase 13 Plan 02 completed
 
-Progress: [████████░░] 83%
+Progress: [█████████░] 86%
 
 ## Completed Baseline
 
@@ -64,6 +64,9 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - CanonicalHashProfile v1 lives in src/common/canonical_hash.py and is shared by approval, action, and replay consumers.
 - The Phase 13-local action_safety_snapshot.v1 golden digest is frozen with exact canonical JSON and hash input bytes.
 - ActionSafetySnapshot imports EvidenceRefV1 and canonical_evidence_projection instead of defining a reduced evidence schema.
+- The active approval-request revision partial unique excludes legacy_non_executable rows so quarantined history cannot block a new executable v2 revision.
+- Legacy v1 approval rows are backfilled with row_number() per (tenant_id, run_id) and marked legacy_non_executable before revision uniqueness is enforced.
+- approval_decisions carries redundant level_mode so the winning-accept partial unique applies only to any_one levels and does not break all-mode assignments.
 
 ## Blockers / Concerns
 
@@ -99,14 +102,15 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | 12 | 04 | 17 min | 5 | 6 |
 | 12 | 05 | 3 min | 2 | 1 |
 | 13 | 01 | 9 min | 4 | 7 |
+| 13 | 02 | 1h 15m | 4 | 5 |
 
 ## Session Continuity
 
-Last session: 2026-06-15T06:09:04.552Z
-Stopped at: Completed 13-01-PLAN.md
+Last session: 2026-06-15T07:31:14.459Z
+Stopped at: Completed 13-02-PLAN.md
 Resume file: None
 
-**Next:** Execute Phase 13
+**Next:** Execute Phase 13 Plan 03
 
 **Completed Phase:** Phase 12 (Session Memory) — 2026-06-14
 

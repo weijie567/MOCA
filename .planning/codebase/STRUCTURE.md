@@ -59,7 +59,7 @@ MOCA/
 
 **`src/db/` and `src/repositories/`:**
 - ORM models for tenants, users, orders, refund cases, tickets, policy docs/chunks, audit logs, agent runs, approvals, action drafts, and agent steps
-- Alembic migrations through `005_approval_tables`
+- Alembic migrations through `008_approval_state_machine`
 - Repository classes that keep route and tool logic away from raw SQL
 
 **`src/rag/`:**

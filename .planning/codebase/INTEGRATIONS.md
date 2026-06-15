@@ -34,6 +34,9 @@
   - `003_agent_tables.py`
   - `004_latency_metrics.py`
   - `005_approval_tables.py`
+  - `006_agent_trace_events.py`
+  - `007_session_memories.py`
+  - `008_approval_state_machine.py`
 - Repository layer under `src/repositories/`
 
 **Persisted domains:**
@@ -42,7 +45,7 @@
 - Policy documents and policy chunks
 - Audit logs
 - Agent runs and agent steps
-- Approval requests and approval steps
+- Approval requests, approval steps, approval levels, assignments, decisions, events, action safety snapshots, and action drafts
 - Action drafts
 
 **Local service orchestration:**
