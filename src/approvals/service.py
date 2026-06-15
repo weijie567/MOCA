@@ -293,6 +293,7 @@ class ApprovalService:
             request = await self.repository.lock_request(approval_id, tenant_id)
             if request is None or request.status != "pending" or request.expires_at > current_time:
                 return None
+            self._assert_executable_request(request)
             level = await self.repository.lock_current_level(request.id)
             assignment = await self.repository.lock_assignment_by_level(level.id) if level else None
             if assignment is not None:
@@ -742,57 +743,61 @@ class ApprovalService:
     ) -> ApprovalDecisionResult:
         decided_at = datetime.now(UTC)
         request.decision = decision_type
+        request.reason = reason
         request.decided_by = actor_id
         request.decided_at = decided_at
-        trusted = TrustedApprovalResultV1(
-            approval_id=request.id,
-            tenant_id=request.tenant_id,
-            run_id=request.run_id,
-            status=request.status,
-            decision_type=decision_type,
-            revision=request.revision,
-            request_version=request.version,
-            level_version=level.version,
-            assignment_version=assignment.version,
-            action_payload_hash=request.action_payload_hash,
-            safety_snapshot_ref=request.safety_snapshot_ref,
-            safety_snapshot_hash=request.safety_snapshot_hash,
-            decided_by=actor_id,
-            decided_at=decided_at,
-            reason=reason,
-            clarification_request_id=clarification_request_id,
-            superseded_by_request_id=superseded_by_request_id,
-            new_action_payload_hash=new_action_payload_hash,
-            edited_action=edited_action,
-            resume_route=resume_route,
-        ).model_dump(mode="json")
-        if trusted["schema_version"] != "approval_result.v1":
-            raise ApprovalTransitionError("approval_invalid_result")
-        return ApprovalDecisionResult(
-            approval_id=request.id,
-            tenant_id=request.tenant_id,
-            run_id=request.run_id,
-            status=request.status,
-            decision_type=decision_type,
-            revision=request.revision,
-            request_version=request.version,
-            level_version=level.version,
-            assignment_version=assignment.version,
-            action_payload_hash=request.action_payload_hash,
-            safety_snapshot_ref=request.safety_snapshot_ref,
-            safety_snapshot_hash=request.safety_snapshot_hash,
-            decided_by=actor_id,
-            decided_at=decided_at,
-            decision_id=decision_id,
-            event_id=event_id,
-            reason=reason,
-            clarification_request_id=clarification_request_id,
-            superseded_by_request_id=superseded_by_request_id,
-            new_action_payload_hash=new_action_payload_hash,
-            edited_action=edited_action,
-            resume_payload=trusted if include_resume_payload else None,
-            graph_thread_id=self._graph_thread_id(request),
-        )
+        try:
+            trusted = TrustedApprovalResultV1(
+                approval_id=request.id,
+                tenant_id=request.tenant_id,
+                run_id=request.run_id,
+                status=request.status,
+                decision_type=decision_type,
+                revision=request.revision,
+                request_version=request.version,
+                level_version=level.version,
+                assignment_version=assignment.version,
+                action_payload_hash=request.action_payload_hash,
+                safety_snapshot_ref=request.safety_snapshot_ref,
+                safety_snapshot_hash=request.safety_snapshot_hash,
+                decided_by=actor_id,
+                decided_at=decided_at,
+                reason=reason,
+                clarification_request_id=clarification_request_id,
+                superseded_by_request_id=superseded_by_request_id,
+                new_action_payload_hash=new_action_payload_hash,
+                edited_action=edited_action,
+                resume_route=resume_route,
+            ).model_dump(mode="json")
+            if trusted["schema_version"] != "approval_result.v1":
+                raise ApprovalTransitionError("approval_invalid_result")
+            return ApprovalDecisionResult(
+                approval_id=request.id,
+                tenant_id=request.tenant_id,
+                run_id=request.run_id,
+                status=request.status,
+                decision_type=decision_type,
+                revision=request.revision,
+                request_version=request.version,
+                level_version=level.version,
+                assignment_version=assignment.version,
+                action_payload_hash=request.action_payload_hash,
+                safety_snapshot_ref=request.safety_snapshot_ref,
+                safety_snapshot_hash=request.safety_snapshot_hash,
+                decided_by=actor_id,
+                decided_at=decided_at,
+                decision_id=decision_id,
+                event_id=event_id,
+                reason=reason,
+                clarification_request_id=clarification_request_id,
+                superseded_by_request_id=superseded_by_request_id,
+                new_action_payload_hash=new_action_payload_hash,
+                edited_action=edited_action,
+                resume_payload=trusted if include_resume_payload else None,
+                graph_thread_id=self._graph_thread_id(request),
+            )
+        except ValidationError as exc:
+            raise ApprovalTransitionError("approval_invalid_result", str(exc)) from exc
 
     def _info_result(
         self,
@@ -805,27 +810,30 @@ class ApprovalService:
         superseded_by_request_id: UUID | None = None,
         new_action_payload_hash: str | None = None,
     ) -> ApprovalInfoResult:
-        return ApprovalInfoResult(
-            approval_id=request.id,
-            tenant_id=request.tenant_id,
-            run_id=request.run_id,
-            status=request.status,
-            revision=request.revision,
-            request_version=request.version,
-            level_id=level.id,
-            level_version=level.version,
-            assignment_id=assignment.id,
-            assignment_version=assignment.version,
-            action_payload_hash=request.action_payload_hash,
-            safety_snapshot_ref=request.safety_snapshot_ref,
-            safety_snapshot_hash=request.safety_snapshot_hash,
-            clarification_request_id=clarification_request_id,
-            superseded_request_id=superseded_request_id,
-            superseded_by_request_id=superseded_by_request_id,
-            new_action_payload_hash=new_action_payload_hash,
-            resume_payload=None,
-            graph_thread_id=self._graph_thread_id(request),
-        )
+        try:
+            return ApprovalInfoResult(
+                approval_id=request.id,
+                tenant_id=request.tenant_id,
+                run_id=request.run_id,
+                status=request.status,
+                revision=request.revision,
+                request_version=request.version,
+                level_id=level.id,
+                level_version=level.version,
+                assignment_id=assignment.id,
+                assignment_version=assignment.version,
+                action_payload_hash=request.action_payload_hash,
+                safety_snapshot_ref=request.safety_snapshot_ref,
+                safety_snapshot_hash=request.safety_snapshot_hash,
+                clarification_request_id=clarification_request_id,
+                superseded_request_id=superseded_request_id,
+                superseded_by_request_id=superseded_by_request_id,
+                new_action_payload_hash=new_action_payload_hash,
+                resume_payload=None,
+                graph_thread_id=self._graph_thread_id(request),
+            )
+        except ValidationError as exc:
+            raise ApprovalTransitionError("approval_invalid_result", str(exc)) from exc
 
     @staticmethod
     def _assert_create_context(command: ApprovalRequestCreateCommand) -> None:

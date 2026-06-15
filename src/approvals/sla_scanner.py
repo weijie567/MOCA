@@ -49,6 +49,8 @@ class ApprovalSlaScanner:
             await self.session.execute(
                 select(ApprovalRequest)
                 .where(
+                    ApprovalRequest.schema_version == "approval_request.v2",
+                    ApprovalRequest.legacy_non_executable.is_(False),
                     ApprovalRequest.status == "pending",
                     ApprovalRequest.expires_at <= current_time,
                 )

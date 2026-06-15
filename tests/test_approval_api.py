@@ -202,6 +202,44 @@ async def test_decide_approve_builds_command_from_authenticated_actor_and_resume
 
 
 @pytest.mark.asyncio
+async def test_decide_commits_approval_decision_before_graph_resume(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(session, seeded_session, thread_id="thread-commit-before-resume")
+    graph = FakeResumeGraph("approved response")
+    headers = await _manager_headers(client)
+    original_commit = session.commit
+    commit_count = 0
+    graph_commit_counts: list[int] = []
+
+    async def spy_commit():
+        nonlocal commit_count
+        commit_count += 1
+        await original_commit()
+
+    async def spy_ainvoke(command, config):
+        graph_commit_counts.append(commit_count)
+        return await FakeResumeGraph.ainvoke(graph, command, config)
+
+    monkeypatch.setattr(session, "commit", spy_commit)
+    monkeypatch.setattr(graph, "ainvoke", spy_ainvoke)
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+
+    response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=_decision_body(bundle, "approve"),
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert graph_commit_counts == [1]
+    assert commit_count == 2
+
+
+@pytest.mark.asyncio
 async def test_decide_respond_requires_response_text_validation(
     client: AsyncClient,
     session: AsyncSession,
@@ -429,6 +467,7 @@ async def test_decide_reject_resumes_graph_with_trusted_rejected_result(
 
     assert response.status_code == 200
     assert payload["data"]["status"] == "rejected"
+    assert payload["data"]["reason"] == "not enough evidence"
     assert len(graph.calls) == 1
     command, config = graph.calls[0]
     assert command.resume["schema_version"] == "approval_result.v1"

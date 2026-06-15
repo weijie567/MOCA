@@ -6,7 +6,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -480,6 +480,40 @@ async def test_malformed_edit_action_returns_transition_error_without_orphans(
         ),
         code="approval_not_executable",
     )
+
+
+@pytest.mark.asyncio
+async def test_result_projection_validation_error_is_not_reported_as_non_executable(
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    request, level, assignment = await _approval_bundle(session, seeded_session)
+    actor_id = seeded_session["users"]["approval_manager"].id
+
+    class BrokenProjection(BaseModel):
+        value: int
+
+    with pytest.raises(ValidationError) as validation_exc:
+        BrokenProjection(value="not-an-int")
+
+    class BrokenTrustedApprovalResultV1:
+        def __init__(self, **_kwargs: Any) -> None:
+            raise validation_exc.value
+
+    monkeypatch.setattr("src.approvals.service.TrustedApprovalResultV1", BrokenTrustedApprovalResultV1)
+    before = await _counts(session)
+
+    with pytest.raises(ApprovalTransitionError) as exc:
+        await ApprovalService(session).decide(
+            _decision_command(request, level, assignment, actor_id=actor_id)
+        )
+
+    await session.refresh(request)
+    assert exc.value.code == "approval_invalid_result"
+    assert request.status == "pending"
+    assert request.reason is None
+    await _assert_no_orphan_decision_or_event_rows(session, before)
 
 
 def test_create_request_rejects_missing_risk_context_before_persistence(seeded_session):

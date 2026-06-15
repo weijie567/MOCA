@@ -8,10 +8,11 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.approvals.service import ApprovalService, ApprovalTransitionError
 from src.approvals.sla_scanner import ApprovalSlaScanner, build_sla_event_shape
 from src.config import Settings
-from src.db.models import AgentTraceEvent, ApprovalEvent
-from tests.approvals.test_service_transitions import _approval_bundle
+from src.db.models import AgentTraceEvent, ApprovalEvent, ApprovalRequest
+from tests.approvals.test_service_transitions import _approval_bundle, _create_run
 
 
 FORBIDDEN_SLA_PAYLOAD_KEYS = {
@@ -117,6 +118,61 @@ async def test_enabled_scanner_expires_request_level_assignment_and_writes_repla
     assert event.resource_refs_json["assignment_version"] == 2
     assert trace_event is not None
     assert trace_event.event_type == "approval_expired"
+
+
+@pytest.mark.asyncio
+async def test_enabled_scanner_skips_legacy_non_executable_requests(
+    session: AsyncSession,
+    seeded_session,
+):
+    now = datetime.now(UTC)
+    tenant_id = seeded_session["tenant"].id
+    requested_by = seeded_session["users"]["cs_zhang"].id
+    run_id = await _create_run(
+        session,
+        tenant_id=tenant_id,
+        user_id=requested_by,
+        thread_id="legacy-sla-thread",
+    )
+    legacy = ApprovalRequest(
+        tenant_id=tenant_id,
+        run_id=run_id,
+        thread_id="legacy-sla-thread",
+        schema_version="approval_request.v1",
+        status="pending",
+        revision=1,
+        version=1,
+        legacy_non_executable=True,
+        requested_by=requested_by,
+        proposed_action={"legacy": True},
+        risk_level="high",
+        risk_rule_ref="legacy",
+        risk_reason="legacy row",
+        expires_at=now - timedelta(minutes=1),
+    )
+    session.add(legacy)
+    await session.flush()
+
+    result = await ApprovalSlaScanner(session=session, enabled=True).scan(now=now)
+    await session.refresh(legacy)
+    expired_events = (
+        await session.execute(
+            select(ApprovalEvent).where(
+                ApprovalEvent.approval_request_id == legacy.id,
+                ApprovalEvent.event_type == "approval_expired",
+            )
+        )
+    ).scalars().all()
+
+    assert result.status == "completed"
+    assert result.expired_count == 0
+    assert result.event_count == 0
+    assert legacy.status == "pending"
+    assert expired_events == []
+
+    with pytest.raises(ApprovalTransitionError) as exc:
+        await ApprovalService(session).expire_due_request(legacy.id, legacy.tenant_id, now=now)
+    assert exc.value.code == "approval_not_executable"
 
 
 @pytest.mark.asyncio

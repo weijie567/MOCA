@@ -73,12 +73,12 @@ async def decide_approval(
         raise _approval_http_error(exc) from exc
 
     if _should_resume_graph(result):
+        await session.commit()
         await _resume_graph_after_decision(
             request=request,
             session=session,
             result=result,
         )
-
     await session.commit()
     return ApiResponse(
         success=True,
@@ -112,12 +112,13 @@ async def attach_approval_info(
         info_payload=body.info_payload,
     )
 
+    service = ApprovalService(session)
     try:
-        result = await ApprovalService(session).attach_info(command)
+        result = await service.attach_info(command)
     except ApprovalTransitionError as exc:
         raise _approval_http_error(exc) from exc
 
-    approval = await ApprovalService(session).get_request(result.approval_id, user.tenant_id)
+    approval = await service.get_request(result.approval_id, user.tenant_id)
     if approval is None:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Approval not found"})
 
