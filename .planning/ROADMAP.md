@@ -116,11 +116,11 @@
   1. Single-level runtime transition, CAS, revision invalidation, and needs_info resume tests pass.
   2. Action payload and safety snapshot hashes bind approval to the exact revision.
   3. Multi-level-compatible schema/contracts are verified; active SLA scanner remains an owned follow-up gate.
-**Plans**: 2/8 complete
+**Plans**: 3/8 complete
 Plans:
   - [x] 13-01-PLAN.md — CanonicalHashProfile v1 and ActionSafetySnapshot golden contracts (Wave 1)
   - [x] 13-02-PLAN.md — Approval/snapshot ORM, Alembic migration, legacy non-executable report (Wave 2)
-  - [ ] 13-03-PLAN.md — ApprovalService policy/repository/CAS transitions and exact hash binding (Wave 3)
+  - [x] 13-03-PLAN.md — ApprovalService policy/repository/CAS transitions and exact hash binding (Wave 3)
   - [ ] 13-04-PLAN.md — Approval API, chat/SSE, and graph cutover to trusted service commands (Wave 4)
   - [ ] 13-05-PLAN.md — needs_info, edit, and attach_info revision revalidation (Wave 5)
   - [ ] 13-06-PLAN.md — Approval events and feature-disabled SLA scanner (Wave 6)
@@ -181,7 +181,7 @@ Plans:
 | 10. State Lifecycle + Routing Migration | 5/5 | Complete | 2026-06-14 |
 | 11. Intent / Clarification | 5/5 | Complete | 2026-06-14 |
 | 12. Session Memory | 5/5 | Complete | 2026-06-14 |
-| 13. Approval State Machine | 2/8 | In Progress | - |
+| 13. Approval State Machine | 3/8 | In Progress | - |
 | 14. Demo Action Executor Boundary | 0/TBD | Pending | - |
 | 15. Replay Event Contract | 0/TBD | Pending | - |
 | 16. Long-term / Case Memory | 0/TBD | Deferred beyond MVP gate | - |
