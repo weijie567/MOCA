@@ -40,6 +40,7 @@ def _ctx(
     permissions: list[str] | None = None,
     caller_node: str = "investigate",
     idempotency_key: str | None = None,
+    safety_snapshot_ref: str | None = None,
     merchant_scope: Any | None = None,
 ) -> ToolCallContext:
     return ToolCallContext(
@@ -60,6 +61,7 @@ def _ctx(
         attempt=1,
         max_attempts=1,
         idempotency_key=idempotency_key,
+        safety_snapshot_ref=safety_snapshot_ref,
         policy_snapshot_ref=None,
     )
 
@@ -309,11 +311,18 @@ async def test_action_tool_requires_idempotency_key():
 
     result = await manager.invoke(
         "create_coupon_grant_draft",
-        {"action_type": "issue_coupon", "payload": {"target_id": "refund-1"}},
+        {
+            "action_type": "issue_coupon",
+            "payload": {"target_id": "refund-1"},
+            "action_payload_hash": "sha256:" + "1" * 64,
+            "safety_snapshot_ref": "snapshot:test",
+            "safety_snapshot_hash": "sha256:" + "2" * 64,
+        },
         _ctx(
             tool="create_coupon_grant_draft",
             caller_node="execute_action",
             permissions=["tool:create_coupon_grant_draft"],
+            safety_snapshot_ref="snapshot:test",
         ),
     )
 
@@ -345,10 +354,18 @@ async def test_execute_action_caller_can_dispatch_action_tool(monkeypatch):
 
     result = await manager.invoke(
         "create_coupon_grant_draft",
-        {"approval_request_id": str(uuid4()), "action_type": "issue_coupon", "payload": {"target_id": "refund-1"}},
+        {
+            "approval_request_id": str(uuid4()),
+            "action_type": "issue_coupon",
+            "payload": {"target_id": "refund-1"},
+            "action_payload_hash": "sha256:" + "1" * 64,
+            "safety_snapshot_ref": "snapshot:test",
+            "safety_snapshot_hash": "sha256:" + "2" * 64,
+        },
         _ctx(
             tool="create_coupon_grant_draft",
             caller_node="execute_action",
+            safety_snapshot_ref="snapshot:test",
             permissions=["tool:create_coupon_grant_draft"],
             idempotency_key="idem-1",
         ),

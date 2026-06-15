@@ -263,4 +263,3 @@ async def test_redaction_rejects_raw_prompt_args_payload_tool_output_secrets_cre
             resource_refs={"request_ref": f"approval_request:{request.id}"},
             redacted_payload={"summary": {forbidden_key: "must not persist"}},
         )
-

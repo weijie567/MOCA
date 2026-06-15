@@ -38,6 +38,9 @@ class ActionToolExecutor:
             idempotency_key=ctx.idempotency_key or "",
             action_type=str(args["action_type"]),
             payload=dict(args["payload"]),
+            action_payload_hash=str(args.get("action_payload_hash") or ""),
+            safety_snapshot_ref=str(args.get("safety_snapshot_ref") or ""),
+            safety_snapshot_hash=str(args.get("safety_snapshot_hash") or ""),
         )
         return _action_result(raw_result, started_at)
 

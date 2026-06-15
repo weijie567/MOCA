@@ -35,12 +35,14 @@ def _approval_result(**overrides) -> dict:
 
 
 def _approved_state() -> dict:
+    tenant_id = str(uuid4())
+    run_id = str(uuid4())
     return {
-        "tenant_id": str(uuid4()),
+        "tenant_id": tenant_id,
         "user_id": str(uuid4()),
-        "current_run_id": str(uuid4()),
+        "current_run_id": run_id,
         "risk_assessment": {"approval_required": True},
-        "approval_result": _approval_result(),
+        "approval_result": _approval_result(tenant_id=tenant_id, run_id=run_id),
         "action_payload_hash": ACTION_HASH,
         "safety_snapshot_ref": "snapshot:test",
         "safety_snapshot_hash": SNAPSHOT_HASH,
@@ -164,12 +166,27 @@ async def test_execute_action_prefers_approval_run_id_for_resumed_action(monkeyp
     state = _approved_state()
     persisted_run_id = str(uuid4())
     state["approval_result"]["run_id"] = persisted_run_id
+    state["current_run_id"] = persisted_run_id
 
     await execute_action_module.execute_action(state, {"configurable": {"session": object()}})
 
     _, kwargs = create_draft.await_args
     assert kwargs["run_id"] == persisted_run_id
     assert kwargs["idempotency_key"].startswith(f"{persisted_run_id}_{state['approval_result']['approval_id']}_")
+
+
+@pytest.mark.asyncio
+async def test_execute_action_blocks_when_approval_result_run_mismatches_state(monkeypatch):
+    create_draft = AsyncMock()
+    monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
+    state = _approved_state()
+    state["approval_result"]["run_id"] = str(uuid4())
+
+    result = await execute_action_module.execute_action(state, {"configurable": {"session": object()}})
+
+    assert result["action_result"]["status"] == "error"
+    assert result["action_result"]["error"]["error_code"] == "NOT_APPROVED"
+    create_draft.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -3,9 +3,11 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.actions.drafts import ActionDraftStore
+from src.db.models import ActionSafetySnapshot, ApprovalRequest
 
 _IDEMPOTENCY_CONFLICT = "idempotency_key_conflict"
 
@@ -39,6 +41,9 @@ class ActionService:
         idempotency_key: str,
         action_type: str,
         payload: dict[str, Any],
+        action_payload_hash: str | None = None,
+        safety_snapshot_ref: str | None = None,
+        safety_snapshot_hash: str | None = None,
     ) -> dict[str, Any]:
         del user_id
         try:
@@ -48,8 +53,21 @@ class ActionService:
         except (AttributeError, TypeError, ValueError):
             return _tool_error("INVALID_REQUEST", "Action draft request is invalid", retryable=False)
 
+        if not action_payload_hash or not safety_snapshot_ref or not safety_snapshot_hash:
+            return _tool_error("ACTION_BINDING_REQUIRED", "Action draft requires exact safety binding", retryable=False)
+
         try:
             async with self.session.begin_nested():
+                binding_error = await self._validate_action_binding(
+                    tenant_id=tenant_uuid,
+                    run_id=run_uuid,
+                    approval_request_id=approval_uuid,
+                    action_payload_hash=action_payload_hash,
+                    safety_snapshot_ref=safety_snapshot_ref,
+                    safety_snapshot_hash=safety_snapshot_hash,
+                )
+                if binding_error is not None:
+                    return binding_error
                 draft, created = await self.draft_store.create_or_get(
                     run_id=run_uuid,
                     tenant_id=tenant_uuid,
@@ -78,6 +96,56 @@ class ActionService:
         except Exception:
             return _tool_error("DRAFT_CREATION_FAILED", "Action draft creation failed", retryable=True)
 
+    async def _validate_action_binding(
+        self,
+        *,
+        tenant_id: UUID,
+        run_id: UUID,
+        approval_request_id: UUID | None,
+        action_payload_hash: str,
+        safety_snapshot_ref: str,
+        safety_snapshot_hash: str,
+    ) -> dict[str, Any] | None:
+        snapshot = (
+            await self.session.execute(
+                select(ActionSafetySnapshot).where(
+                    ActionSafetySnapshot.tenant_id == tenant_id,
+                    ActionSafetySnapshot.run_id == run_id,
+                    ActionSafetySnapshot.snapshot_ref == safety_snapshot_ref,
+                    ActionSafetySnapshot.immutable_hash == safety_snapshot_hash,
+                    ActionSafetySnapshot.action_payload_hash == action_payload_hash,
+                    ActionSafetySnapshot.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if snapshot is None:
+            return _tool_error("ACTION_BINDING_MISMATCH", "Action safety snapshot binding is invalid", retryable=False)
+
+        if approval_request_id is None:
+            return None
+
+        approval = (
+            await self.session.execute(
+                select(ApprovalRequest).where(
+                    ApprovalRequest.id == approval_request_id,
+                    ApprovalRequest.tenant_id == tenant_id,
+                    ApprovalRequest.run_id == run_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if approval is None:
+            return _tool_error("APPROVAL_NOT_FOUND", "Approved request was not found", retryable=False)
+        if (
+            approval.legacy_non_executable
+            or approval.schema_version != "approval_request.v2"
+            or approval.status != "approved"
+            or approval.action_payload_hash != action_payload_hash
+            or approval.safety_snapshot_ref != safety_snapshot_ref
+            or approval.safety_snapshot_hash != safety_snapshot_hash
+        ):
+            return _tool_error("APPROVAL_BINDING_MISMATCH", "Approved request binding is invalid", retryable=False)
+        return None
+
 
 async def create_coupon_grant_draft(
     *,
@@ -89,6 +157,9 @@ async def create_coupon_grant_draft(
     action_type: str,
     payload: dict[str, Any],
     session: AsyncSession,
+    action_payload_hash: str | None = None,
+    safety_snapshot_ref: str | None = None,
+    safety_snapshot_hash: str | None = None,
 ) -> dict[str, Any]:
     """Compatibility function for old call sites."""
 
@@ -100,4 +171,7 @@ async def create_coupon_grant_draft(
         idempotency_key=idempotency_key,
         action_type=action_type,
         payload=payload,
+        action_payload_hash=action_payload_hash,
+        safety_snapshot_ref=safety_snapshot_ref,
+        safety_snapshot_hash=safety_snapshot_hash,
     )

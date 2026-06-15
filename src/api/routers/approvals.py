@@ -9,9 +9,9 @@ from langgraph.types import Command
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.trace import append_agent_steps, update_agent_run_status
-from src.api.schemas.approvals import ApprovalListResponse, ApprovalResponse, DecideRequest
+from src.api.schemas.approvals import ApprovalInfoRequest, ApprovalListResponse, ApprovalResponse, DecideRequest
 from src.api.schemas.common import ApiResponse
-from src.approvals.schemas import ApprovalDecisionCommand
+from src.approvals.schemas import ApprovalDecisionCommand, ApprovalInfoCommand
 from src.approvals.service import ApprovalService, ApprovalTransitionError
 from src.auth.permissions import get_current_user
 from src.db.models import AgentRun, User
@@ -82,6 +82,52 @@ async def decide_approval(
             session=session,
             result=result,
         )
+
+    await session.commit()
+    return ApiResponse(
+        success=True,
+        data=_to_response(approval, result=result).model_dump(mode="json"),
+        trace_id=getattr(request.state, "trace_id", None),
+    )
+
+
+@router.post("/{approval_id}/info", response_model=ApiResponse)
+async def attach_approval_info(
+    approval_id: str,
+    body: ApprovalInfoRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    user: User = Security(get_current_user, scopes=["approvals:review"]),
+) -> ApiResponse:
+    if user.role not in APPROVAL_ROLES:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "FORBIDDEN", "message": "Insufficient role for approval"},
+        )
+
+    approval_uuid = _parse_approval_id(approval_id)
+    command = ApprovalInfoCommand(
+        approval_id=approval_uuid,
+        clarification_request_id=body.clarification_request_id,
+        tenant_id=user.tenant_id,
+        actor_id=user.id,
+        actor_role=user.role,
+        thread_id=body.thread_id,
+        expected_request_version=body.expected_request_version,
+        expected_level_version=body.expected_level_version,
+        expected_assignment_version=body.expected_assignment_version,
+        expected_revision=body.expected_revision,
+        info_payload=body.info_payload,
+    )
+
+    try:
+        result = await ApprovalService(session).attach_info(command)
+    except ApprovalTransitionError as exc:
+        raise _approval_http_error(exc) from exc
+
+    approval = await ApprovalService(session).get_request(result.approval_id, user.tenant_id)
+    if approval is None:
+        raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Approval not found"})
 
     await session.commit()
     return ApiResponse(
@@ -185,6 +231,7 @@ def _to_response(approval, *, result=None) -> ApprovalResponse:
     return ApprovalResponse(
         id=str(approval.id),
         run_id=str(approval.run_id),
+        thread_id=approval.thread_id,
         status=approval.status,
         revision=approval.revision,
         request_version=approval.version,
@@ -192,7 +239,11 @@ def _to_response(approval, *, result=None) -> ApprovalResponse:
         safety_snapshot_ref=approval.safety_snapshot_ref,
         safety_snapshot_hash=approval.safety_snapshot_hash,
         clarification_request_id=approval.clarification_request_id,
-        superseded_by_request_id=str(approval.superseded_by_request_id) if approval.superseded_by_request_id else None,
+        superseded_by_request_id=(
+            str(getattr(result, "superseded_by_request_id", None) or approval.superseded_by_request_id)
+            if getattr(result, "superseded_by_request_id", None) or approval.superseded_by_request_id
+            else None
+        ),
         new_action_payload_hash=getattr(result, "new_action_payload_hash", None) if result else None,
         resume_route=(result.resume_payload or {}).get("resume_route") if result and result.resume_payload else None,
         requested_by=str(approval.requested_by),

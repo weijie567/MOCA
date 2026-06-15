@@ -467,6 +467,7 @@ async def _create_approval_wait_payload_from_interrupt(
         "message": "High-risk action requires approval",
         "approval_id": str(result.approval_id),
         "run_id": str(run_id),
+        "thread_id": thread_id,
         "proposed_action": interrupt_data.get("proposed_action"),
         "risk_level": interrupt_data.get("risk_level"),
         "risk_reason": interrupt_data.get("risk_reason"),

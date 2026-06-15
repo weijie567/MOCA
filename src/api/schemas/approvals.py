@@ -36,9 +36,22 @@ class DecideRequest(BaseModel):
         return self
 
 
+class ApprovalInfoRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    clarification_request_id: str = Field(min_length=1)
+    thread_id: str = Field(min_length=1)
+    expected_request_version: int = Field(ge=1)
+    expected_level_version: int = Field(ge=1)
+    expected_assignment_version: int = Field(ge=1)
+    expected_revision: int = Field(ge=1)
+    info_payload: dict[str, Any] = Field(min_length=1)
+
+
 class ApprovalResponse(BaseModel):
     id: str
     run_id: str
+    thread_id: str
     status: str
     revision: int | None
     request_version: int | None

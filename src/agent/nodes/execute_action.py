@@ -4,8 +4,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
+from pydantic import ValidationError
 
 from src.agent.state import AgentState
+from src.approvals.schemas import TrustedApprovalResultV1
 from src.tools.contracts import ToolCallContext, ToolResultV2
 from src.tools.executors.action import ActionToolExecutor
 from src.tools.manager import UnifiedToolManager
@@ -22,6 +24,7 @@ ACTIONABLE_ACTIONS = {
 }
 REQUIRED_APPROVAL_RESULT_FIELDS = (
     "approval_id",
+    "tenant_id",
     "run_id",
     "revision",
     "request_version",
@@ -83,19 +86,30 @@ def _action_result_from_tool_result(result: ToolResultV2) -> dict[str, Any]:
 
 
 def _approval_result_is_action_authorizing(state: AgentState, approval: dict[str, Any]) -> bool:
-    if (
-        approval.get("schema_version") != "approval_result.v1"
-        or approval.get("decision_type") not in {"accept", "approve"}
-        or approval.get("status") != "approved"
-    ):
+    trusted = _trusted_approval_result(state, approval)
+    if trusted is None:
         return False
+    return trusted.decision_type in {"accept", "approve"} and trusted.status == "approved"
+
+
+def _trusted_approval_result(state: AgentState, approval: dict[str, Any]) -> TrustedApprovalResultV1 | None:
     if any(not approval.get(field) for field in REQUIRED_APPROVAL_RESULT_FIELDS):
-        return False
-    return (
-        approval.get("action_payload_hash") == state.get("action_payload_hash")
-        and approval.get("safety_snapshot_ref") == state.get("safety_snapshot_ref")
-        and approval.get("safety_snapshot_hash") == state.get("safety_snapshot_hash")
-    )
+        return None
+    try:
+        trusted = TrustedApprovalResultV1.model_validate(approval)
+    except ValidationError:
+        return None
+    if str(trusted.tenant_id) != str(state.get("tenant_id") or ""):
+        return None
+    if str(trusted.run_id) != str(state.get("current_run_id") or ""):
+        return None
+    if (
+        trusted.action_payload_hash != state.get("action_payload_hash")
+        or trusted.safety_snapshot_ref != state.get("safety_snapshot_ref")
+        or trusted.safety_snapshot_hash != state.get("safety_snapshot_hash")
+    ):
+        return None
+    return trusted
 
 
 async def execute_action(state: AgentState, config: RunnableConfig) -> dict:
@@ -157,7 +171,21 @@ async def execute_action(state: AgentState, config: RunnableConfig) -> dict:
         or risk.get("snapshot_ref"),
         policy_snapshot_ref=None,
     )
-    args = {"action_type": action_type, "payload": proposed}
+    action_payload_hash = state.get("action_payload_hash") or approval.get("action_payload_hash")
+    safety_snapshot_ref = (
+        state.get("safety_snapshot_ref")
+        or approval.get("safety_snapshot_ref")
+        or risk.get("safety_snapshot_ref")
+        or risk.get("snapshot_ref")
+    )
+    safety_snapshot_hash = state.get("safety_snapshot_hash") or approval.get("safety_snapshot_hash")
+    args = {
+        "action_type": action_type,
+        "payload": proposed,
+        "action_payload_hash": action_payload_hash,
+        "safety_snapshot_ref": safety_snapshot_ref,
+        "safety_snapshot_hash": safety_snapshot_hash,
+    }
     if approval.get("approval_id"):
         args["approval_request_id"] = approval["approval_id"]
 

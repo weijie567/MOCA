@@ -87,6 +87,7 @@ def _to_approval_response(approval: ApprovalRequest) -> ApprovalResponse:
     return ApprovalResponse(
         id=str(approval.id),
         run_id=str(approval.run_id),
+        thread_id=approval.thread_id,
         status=approval.status,
         revision=approval.revision,
         request_version=approval.version,

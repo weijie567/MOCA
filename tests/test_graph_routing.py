@@ -65,6 +65,24 @@ def _risk_route_state(**overrides) -> dict:
     return state
 
 
+def _approval_route_state(**overrides) -> dict:
+    tenant_id = str(uuid4())
+    run_id = str(uuid4())
+    state = {
+        "tenant_id": tenant_id,
+        "current_run_id": run_id,
+        "approval_result": _approved_result(tenant_id=tenant_id, run_id=run_id),
+        "action_payload_hash": ACTION_HASH,
+        "safety_snapshot_ref": "snapshot:test",
+        "safety_snapshot_hash": SNAPSHOT_HASH,
+    }
+    approval_overrides = overrides.pop("approval_overrides", None)
+    if approval_overrides:
+        state["approval_result"].update(approval_overrides)
+    state.update(overrides)
+    return state
+
+
 def test_route_after_risk_returns_final_response_for_policy_qa_no_action():
     state = {
         "current_intent": "policy_qa",
@@ -104,12 +122,7 @@ def test_route_after_risk_fails_closed_when_auto_allowed_snapshot_row_not_verifi
 
 
 def test_route_after_approval_returns_execute_action_on_trusted_approval_result_v1():
-    state = {
-        "approval_result": _approved_result(),
-        "action_payload_hash": ACTION_HASH,
-        "safety_snapshot_ref": "snapshot:test",
-        "safety_snapshot_hash": SNAPSHOT_HASH,
-    }
+    state = _approval_route_state()
 
     assert route_after_approval(state) == "execute_action"
 
@@ -127,36 +140,36 @@ def test_route_after_approval_returns_final_response_on_untrusted_ordinary_paylo
     ],
 )
 def test_route_after_approval_sends_terminal_or_needs_info_results_to_safe_path(decision_type, status):
-    state = {"approval_result": _approved_result(decision_type=decision_type, status=status)}
+    state = _approval_route_state(approval_overrides={"decision_type": decision_type, "status": status})
 
     assert route_after_approval(state) == "final_response"
 
 
 def test_route_after_approval_sends_edit_to_risk_reroute_not_action_draft():
-    state = {
-        "approval_result": _approved_result(
-            decision_type="edit",
-            status="superseded",
-            new_action_payload_hash="sha256:" + "3" * 64,
-            resume_route="assess_risk_and_approval",
-        ),
-        "action_payload_hash": ACTION_HASH,
-        "safety_snapshot_ref": "snapshot:test",
-        "safety_snapshot_hash": SNAPSHOT_HASH,
-    }
+    state = _approval_route_state(
+        approval_overrides={
+            "decision_type": "edit",
+            "status": "superseded",
+            "new_action_payload_hash": "sha256:" + "3" * 64,
+            "resume_route": "assess_risk_and_approval",
+        }
+    )
 
     assert route_after_approval(state) == "assess_risk_and_approval"
 
 
 def test_route_after_approval_fails_closed_on_hash_mismatch():
-    state = {
-        "approval_result": _approved_result(action_payload_hash="sha256:" + "9" * 64),
-        "action_payload_hash": ACTION_HASH,
-        "safety_snapshot_ref": "snapshot:test",
-        "safety_snapshot_hash": SNAPSHOT_HASH,
-    }
+    state = _approval_route_state(approval_overrides={"action_payload_hash": "sha256:" + "9" * 64})
 
     assert route_after_approval(state) == "final_response"
+
+
+def test_route_after_approval_fails_closed_when_tenant_or_run_mismatches_state():
+    assert (
+        route_after_approval(_approval_route_state(approval_overrides={"tenant_id": str(uuid4())}))
+        == "final_response"
+    )
+    assert route_after_approval(_approval_route_state(approval_overrides={"run_id": str(uuid4())})) == "final_response"
 
 
 @pytest.mark.parametrize(
@@ -164,14 +177,9 @@ def test_route_after_approval_fails_closed_on_hash_mismatch():
     ["revision", "request_version", "level_version", "assignment_version"],
 )
 def test_route_after_approval_fails_closed_when_revision_binding_missing(missing_field):
-    approval_result = _approved_result()
+    state = _approval_route_state()
+    approval_result = state["approval_result"]
     approval_result.pop(missing_field)
-    state = {
-        "approval_result": approval_result,
-        "action_payload_hash": ACTION_HASH,
-        "safety_snapshot_ref": "snapshot:test",
-        "safety_snapshot_hash": SNAPSHOT_HASH,
-    }
 
     assert route_after_approval(state) == "final_response"
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import RetryPolicy
+from pydantic import ValidationError
 
 from src.agent.nodes.assess_risk_and_approval import assess_risk_and_approval
 from src.agent.nodes.approval_gate import approval_gate
@@ -31,11 +32,13 @@ from src.agent.nodes.receive_request import receive_request
 from src.agent.nodes.session_memory_load import session_memory_load
 from src.agent.routing import route_after_intent, route_after_investigate, route_after_slots
 from src.agent.state import AgentState
+from src.approvals.schemas import TrustedApprovalResultV1
 
 # 1 retry = 2 total attempts per D-10a.
 _llm_retry = RetryPolicy(max_attempts=2)
 APPROVAL_RESULT_REQUIRED_FIELDS = (
     "approval_id",
+    "tenant_id",
     "run_id",
     "revision",
     "request_version",
@@ -64,19 +67,19 @@ def route_after_risk(state: AgentState) -> str:
 
 def route_after_approval(state: AgentState) -> str:
     """Route after a trusted ApprovalService resume result."""
-    result = state.get("approval_result") or {}
-    if result.get("schema_version") != "approval_result.v1":
+    result = _trusted_approval_result(state)
+    if result is None:
         return "final_response"
-    decision_type = result.get("decision_type")
-    status = result.get("status")
+    decision_type = result.decision_type
+    status = result.status
     if (
         decision_type == "edit"
         and status == "superseded"
-        and result.get("resume_route") == "assess_risk_and_approval"
-        and result.get("new_action_payload_hash")
+        and result.resume_route == "assess_risk_and_approval"
+        and result.new_action_payload_hash
     ):
         return "assess_risk_and_approval"
-    if decision_type in {"accept", "approve"} and status == "approved" and _approval_hashes_match(state, result):
+    if decision_type in {"accept", "approve"} and status == "approved":
         return "execute_action"
     if decision_type in {"accept", "approve"} and status == "pending":
         return "approval_gate"
@@ -90,14 +93,25 @@ def _snapshot_binding_ready(state: AgentState) -> bool:
     )
 
 
-def _approval_hashes_match(state: AgentState, result: dict) -> bool:
+def _trusted_approval_result(state: AgentState) -> TrustedApprovalResultV1 | None:
+    result = state.get("approval_result") or {}
     if any(not result.get(field) for field in APPROVAL_RESULT_REQUIRED_FIELDS):
-        return False
-    return (
-        result.get("action_payload_hash") == state.get("action_payload_hash")
-        and result.get("safety_snapshot_ref") == state.get("safety_snapshot_ref")
-        and result.get("safety_snapshot_hash") == state.get("safety_snapshot_hash")
-    )
+        return None
+    try:
+        trusted = TrustedApprovalResultV1.model_validate(result)
+    except ValidationError:
+        return None
+    if str(trusted.tenant_id) != str(state.get("tenant_id") or ""):
+        return None
+    if str(trusted.run_id) != str(state.get("current_run_id") or ""):
+        return None
+    if (
+        trusted.action_payload_hash != state.get("action_payload_hash")
+        or trusted.safety_snapshot_ref != state.get("safety_snapshot_ref")
+        or trusted.safety_snapshot_hash != state.get("safety_snapshot_hash")
+    ):
+        return None
+    return trusted
 
 
 def build_graph(checkpointer: AsyncPostgresSaver):

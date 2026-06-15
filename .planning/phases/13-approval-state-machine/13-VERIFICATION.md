@@ -85,9 +85,9 @@ deferred:
 
 # Phase 13: Approval State Machine Verification Report
 
-**Phase Goal:** Implement versioned approval requests/levels/assignments/decisions/events and the canonical ActionSafetySnapshot.  
-**Verified:** 2026-06-15T12:24:32Z  
-**Status:** passed  
+**Phase Goal:** Implement versioned approval requests/levels/assignments/decisions/events and the canonical ActionSafetySnapshot.
+**Verified:** 2026-06-15T12:24:32Z
+**Status:** passed
 **Re-verification:** No - initial verification
 
 ## Goal Achievement
@@ -194,5 +194,5 @@ No gaps found. Deferred items are explicitly owned by later roadmap phases and d
 
 ---
 
-_Verified: 2026-06-15T12:24:32Z_  
+_Verified: 2026-06-15T12:24:32Z_
 _Verifier: Codex (gsd-verifier)_

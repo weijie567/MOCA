@@ -91,8 +91,11 @@ _IDENTIFIER_SCHEMAS: dict[str, dict[str, Any]] = {
             "approval_request_id": {"type": "string", "minLength": 1},
             "action_type": {"type": "string", "minLength": 1},
             "payload": {"type": "object"},
+            "action_payload_hash": {"type": "string", "minLength": 1},
+            "safety_snapshot_ref": {"type": "string", "minLength": 1},
+            "safety_snapshot_hash": {"type": "string", "minLength": 1},
         },
-        "required": ["action_type", "payload"],
+        "required": ["action_type", "payload", "action_payload_hash", "safety_snapshot_ref", "safety_snapshot_hash"],
     },
 }
 
@@ -213,6 +216,7 @@ def _default_descriptors() -> list[ToolDescriptor]:
             resource_type=None,
             executor="action",
             exposure="node_only",
+            requires_safety_snapshot=True,
             requires_idempotency_key=True,
         ),
     ]

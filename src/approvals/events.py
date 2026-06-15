@@ -360,4 +360,3 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, list):
         return [_json_safe(child) for child in value]
     return value
-

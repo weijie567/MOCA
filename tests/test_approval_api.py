@@ -124,6 +124,20 @@ def _decision_body(bundle: ApprovalBundle, decision_type: str = "approve", **ove
     return body
 
 
+def _info_body(bundle: ApprovalBundle, **overrides) -> dict:
+    body = {
+        "clarification_request_id": bundle.approval.clarification_request_id,
+        "thread_id": bundle.approval.thread_id,
+        "expected_request_version": bundle.approval.version,
+        "expected_level_version": bundle.level.version,
+        "expected_assignment_version": bundle.assignment.version,
+        "expected_revision": bundle.approval.revision,
+        "info_payload": {"response_text": "Customer confirmed the coupon details."},
+    }
+    body.update(overrides)
+    return body
+
+
 def _edited_action(bundle: ApprovalBundle) -> dict:
     return {
         **bundle.approval.proposed_action,
@@ -235,6 +249,118 @@ async def test_decide_respond_sets_needs_info_without_graph_resume(
     run = await session.get(AgentRun, bundle.approval.run_id)
     assert run is not None
     assert run.final_status == "interrupted"
+
+
+@pytest.mark.asyncio
+async def test_attach_info_same_revision_reopens_pending_request(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(session, seeded_session, thread_id="thread-info-same-revision")
+    graph = FakeResumeGraph("should not run")
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+    respond = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=_decision_body(bundle, "respond", response_text="Please confirm the coupon details."),
+        headers=await _manager_headers(client),
+    )
+    assert respond.status_code == 200
+    await session.refresh(bundle.approval)
+    await session.refresh(bundle.level)
+    await session.refresh(bundle.assignment)
+
+    response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/info",
+        json=_info_body(bundle),
+        headers=await _manager_headers(client),
+    )
+    payload = response.json()
+    await session.refresh(bundle.approval)
+    await session.refresh(bundle.level)
+    await session.refresh(bundle.assignment)
+
+    assert response.status_code == 200
+    assert payload["data"]["status"] == "pending"
+    assert payload["data"]["id"] == str(bundle.approval.id)
+    assert payload["data"]["request_version"] == 3
+    assert bundle.approval.status == "pending"
+    assert bundle.level.version == 3
+    assert bundle.assignment.version == 3
+    assert len(graph.calls) == 0
+
+
+@pytest.mark.asyncio
+async def test_attach_info_changed_payload_supersedes_old_request(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(session, seeded_session, thread_id="thread-info-supersede")
+    monkeypatch.setattr(app.state, "agent_graph", FakeResumeGraph("should not run"), raising=False)
+    respond = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=_decision_body(bundle, "respond", response_text="Please confirm the coupon amount."),
+        headers=await _manager_headers(client),
+    )
+    assert respond.status_code == 200
+    await session.refresh(bundle.approval)
+    await session.refresh(bundle.level)
+    await session.refresh(bundle.assignment)
+    old_hash = bundle.approval.action_payload_hash
+
+    response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/info",
+        json=_info_body(
+            bundle,
+            info_payload={"response_text": "confirmed", "proposed_action": _edited_action(bundle)},
+        ),
+        headers=await _manager_headers(client),
+    )
+    payload = response.json()
+    await session.refresh(bundle.approval)
+    new_approval = await session.get(ApprovalRequest, UUID(payload["data"]["id"]))
+
+    assert response.status_code == 200
+    assert payload["data"]["status"] == "pending"
+    assert payload["data"]["id"] != str(bundle.approval.id)
+    assert payload["data"]["new_action_payload_hash"]
+    assert payload["data"]["new_action_payload_hash"] != old_hash
+    assert bundle.approval.status == "superseded"
+    assert bundle.approval.superseded_by_request_id == new_approval.id
+    assert new_approval is not None
+    assert new_approval.status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_attach_info_wrong_thread_returns_conflict(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(session, seeded_session, thread_id="thread-info-conflict")
+    monkeypatch.setattr(app.state, "agent_graph", FakeResumeGraph(), raising=False)
+    respond = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=_decision_body(bundle, "respond", response_text="Please confirm details."),
+        headers=await _manager_headers(client),
+    )
+    assert respond.status_code == 200
+    await session.refresh(bundle.approval)
+    await session.refresh(bundle.level)
+    await session.refresh(bundle.assignment)
+
+    response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/info",
+        json=_info_body(bundle, thread_id="wrong-thread"),
+        headers=await _manager_headers(client),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "CONFLICT"
 
 
 @pytest.mark.asyncio

@@ -1,10 +1,10 @@
 # Phase 13 Approval State Machine Coverage
 
-**Status:** Full-suite verification passed; ready for phase-level verification  
-**Eval manifest:** `tests/approvals/phase13_eval_manifest.json`  
-**Eval dataset:** `approval-contract-phase13.v1`  
-**Eval dataset hash:** `sha256:89251f64d1ffde20061b7406e684ee1c3bc56cedc882bc6c15a11799819600ae`  
-**Eval blocking status:** `blocking_for_phase_exit`  
+**Status:** Full-suite verification passed; ready for phase-level verification
+**Eval manifest:** `tests/approvals/phase13_eval_manifest.json`
+**Eval dataset:** `approval-contract-phase13.v1`
+**Eval dataset hash:** `sha256:89251f64d1ffde20061b7406e684ee1c3bc56cedc882bc6c15a11799819600ae`
+**Eval blocking status:** `blocking_for_phase_exit`
 **Eval failure impact:** `phase_13_not_ready_for_execution`
 
 No relevant MISSING rows remain in this Phase 13 coverage record. Any deferred capability below is recorded as `DEFERRED_WITH_OWNER` with owner, non-blocking rationale, dependency, and acceptance gate.
