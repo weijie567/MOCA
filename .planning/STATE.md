@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
 status: executing
-stopped_at: Completed 13-06-PLAN.md
-last_updated: "2026-06-15T09:28:15.486Z"
+stopped_at: Completed 13-07-PLAN.md
+last_updated: "2026-06-15T09:42:52.935Z"
 last_activity: 2026-06-15
 progress:
   total_phases: 11
   completed_phases: 6
   total_plans: 42
-  completed_plans: 40
-  percent: 95
+  completed_plans: 41
+  percent: 98
 ---
 
 # Project State: MOCA
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md`
 ## Current Position
 
 Phase: 13 (approval-state-machine) — EXECUTING
-Plan: 7 of 8
-Plans: 6/8
-Status: Ready to execute Phase 13 Plan 07
+Plan: 8 of 8
+Plans: 7/8
+Status: Ready to execute Phase 13 Plan 08
 Last activity: 2026-06-15
 
-Progress: [██████████] 95%
+Progress: [██████████] 98%
 
 ## Completed Baseline
 
@@ -77,6 +77,9 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Approval_requested, approval_decided, approval_expired, and approval_resumed are registered as minimal_event rows before Phase 15 replay enrichment.
 - Edit and respond decisions now emit approval_decided with old_revision_ref and new_revision_ref; approval_resumed is registered as a helper but graph lifecycle wiring remains Phase 15-owned.
 - ApprovalSlaScanner defaults to disabled via APPROVAL_SLA_SCANNER_ENABLED=false; Phase 15 owns enabling active scanning after replay and allocator gates pass.
+- Deleted src/repositories/approval_repo.py instead of leaving a compatibility shim because source callers had already moved to src.approvals and the remaining legacy references were obsolete tests.
+- Direct action-node execution now requires approval_result.v1 revision/version fields plus exact action_payload_hash, safety_snapshot_ref, and safety_snapshot_hash matches, mirroring graph routing.
+- Legacy approval model tests now assert ApprovalService semantics, including terminal conflicts and legacy_v1 fail-closed behavior, rather than v1 repository idempotency.
 
 ## Blockers / Concerns
 
@@ -116,14 +119,15 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | 13 | 03 | 15 min | 4 | 8 |
 | 13 | 05 | 16 min | 3 | 10 |
 | 13 | 06 | 15 min | 3 | 10 |
+| 13 | 07 | 10 min | 3 | 7 |
 
 ## Session Continuity
 
-Last session: 2026-06-15T09:28:15.479Z
-Stopped at: Completed 13-06-PLAN.md
+Last session: 2026-06-15T09:42:52.923Z
+Stopped at: Completed 13-07-PLAN.md
 Resume file: None
 
-**Next:** Execute Phase 13 Plan 07
+**Next:** Execute Phase 13 Plan 08
 
 **Completed Phase:** Phase 12 (Session Memory) — 2026-06-14
 
