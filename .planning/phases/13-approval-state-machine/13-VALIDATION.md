@@ -22,7 +22,7 @@ created: 2026-06-15
 | **Quick run command** | `uv run pytest tests/approvals tests/architecture/test_approval_boundaries.py -q --tb=short` |
 | **Full suite command** | `uv run pytest -q --tb=short` |
 | **Migration command** | `uv run alembic upgrade head` |
-| **Estimated runtime** | Focused suite: TBD after Wave 0; full suite: project-dependent |
+| **Estimated runtime** | Focused suite measured during execution; full suite project-dependent |
 
 ---
 
@@ -39,17 +39,17 @@ created: 2026-06-15
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 13-W0-01 | TBD | 0 | SNAPSHOT-01 | T13-02 / T13-05 | Canonical `proposed_action.v1` bytes are stable; unknown fields, float money, datetime precision, key order, and absent/null differences fail closed. | golden unit | `uv run pytest tests/approvals/test_canonical_hash.py -q --tb=short` | no | pending |
-| 13-W0-02 | TBD | 0 | SNAPSHOT-01 | T13-02 / T13-05 | `ActionSafetySnapshot` strips `EvidenceRefV1.score`, retains `rank`, sorts evidence canonically, and produces stable snapshot hash bytes. | golden unit | `uv run pytest tests/approvals/test_snapshots.py -q --tb=short` | no | pending |
-| 13-W0-03 | TBD | 0 | APPROVAL-01 | T13-02 / T13-06 / T13-07 | Stale request, level, assignment, revision, wrong tenant, self-approval, and wrong binding all fail closed without orphan decision/event rows. | DB integration | `uv run pytest tests/approvals/test_service_transitions.py -q --tb=short` | no | pending |
-| 13-W0-04 | TBD | 0 | APPROVAL-01 | T13-07 | Single-level runtime uses request/level/assignment/decision tables and approves only when required levels complete. | DB/API integration | `uv run pytest tests/approvals/test_single_level_runtime.py -q --tb=short` | no | pending |
-| 13-W0-05 | TBD | 0 | APPROVAL-02 | T13-01 / T13-03 | `respond` enters `needs_info`, binds clarification identity/scope/version, keeps the run interrupted, and cannot resume old revision into action. | service/API integration | `uv run pytest tests/approvals/test_needs_info_resume.py -q --tb=short` | no | pending |
-| 13-W0-06 | TBD | 0 | APPROVAL-03 | T13-07 | Multi-level-compatible schema covers `any_one` and `all` modes while runtime stays single-level. | contract integration | `uv run pytest tests/approvals/test_multi_level_contract.py -q --tb=short` | no | pending |
-| 13-W0-07 | TBD | 0 | APPROVAL-03 | T13-09 | SLA scanner is disabled by default at Phase 13 exit and has event-shape tests without active scheduling side effects. | unit/integration | `uv run pytest tests/approvals/test_sla_scanner.py -q --tb=short` | no | pending |
-| 13-W0-08 | TBD | 0 | SNAPSHOT-01 | T13-02 | Changed payload, snapshot hash, evidence hash/ref/rank, policy/risk/retrieval config version, or missing snapshot rejects approval/action authorization. | service integration | `uv run pytest tests/approvals/test_hash_binding.py -q --tb=short` | no | pending |
-| 13-W0-09 | TBD | 0 | APPROVAL-01, APPROVAL-02, APPROVAL-03, SNAPSHOT-01 | T13-04 / T13-05 | Approval events register on the minimal envelope and never include raw prompt, args, payload, tool output, secrets, or PII-heavy fields. | event integration | `uv run pytest tests/approvals/test_events.py tests/agent/test_events.py -q --tb=short` | partial | pending |
-| 13-W0-10 | TBD | 0 | APPROVAL-01, SNAPSHOT-01 | T13-08 | Migration report, legacy non-executable rows, indexes, constraints, and live DB current/head sanity are verified. | migration integration | `uv run pytest tests/approvals/test_migration_contract.py -q --tb=short` | no | pending |
-| 13-W0-11 | TBD | 0 | ALL | T13-01 / T13-10 | API routers and agent run routers do not import legacy approval transition paths or perform direct approval mutations. | static architecture | `uv run pytest tests/architecture/test_approval_boundaries.py -q --tb=short` | no | pending |
+| 13-W0-01 | 13-01 | 0 | SNAPSHOT-01 | T13-02 / T13-05 | Canonical `proposed_action.v1` bytes are stable; unknown fields, float money, datetime precision, key order, and absent/null differences fail closed. | golden unit | `uv run pytest tests/approvals/test_canonical_hash.py -q --tb=short` | no | pending |
+| 13-W0-02 | 13-01 | 0 | SNAPSHOT-01 | T13-02 / T13-05 | `ActionSafetySnapshot` strips `EvidenceRefV1.score`, retains `rank`, sorts evidence canonically, and produces stable snapshot hash bytes. | golden unit | `uv run pytest tests/approvals/test_snapshots.py -q --tb=short` | no | pending |
+| 13-W0-03 | 13-03 | 0 | APPROVAL-01 | T13-02 / T13-06 / T13-07 | Stale request, level, assignment, revision, wrong tenant, self-approval, and wrong binding all fail closed without orphan decision/event rows. | DB integration | `uv run pytest tests/approvals/test_service_transitions.py -q --tb=short` | no | pending |
+| 13-W0-04 | 13-03 / 13-04 | 0 | APPROVAL-01 | T13-07 | Single-level runtime uses request/level/assignment/decision tables and approves only when required levels complete. | DB/API integration | `uv run pytest tests/approvals/test_single_level_runtime.py -q --tb=short` | no | pending |
+| 13-W0-05 | 13-05 | 0 | APPROVAL-02 | T13-01 / T13-03 | `respond` enters `needs_info`, binds clarification identity/scope/version, keeps the run interrupted, and cannot resume old revision into action. | service/API integration | `uv run pytest tests/approvals/test_needs_info_resume.py -q --tb=short` | no | pending |
+| 13-W0-06 | 13-02 / 13-03 | 0 | APPROVAL-03 | T13-07 | Multi-level-compatible schema covers `any_one` and `all` modes while runtime stays single-level. | contract integration | `uv run pytest tests/approvals/test_multi_level_contract.py -q --tb=short` | no | pending |
+| 13-W0-07 | 13-06 | 0 | APPROVAL-03 | T13-09 | SLA scanner is disabled by default at Phase 13 exit and has event-shape tests without active scheduling side effects. | unit/integration | `uv run pytest tests/approvals/test_sla_scanner.py -q --tb=short` | no | pending |
+| 13-W0-08 | 13-03 | 0 | SNAPSHOT-01 | T13-02 | Changed payload, snapshot hash, evidence hash/ref/rank, policy/risk/retrieval config version, or missing snapshot rejects approval/action authorization. | service integration | `uv run pytest tests/approvals/test_hash_binding.py -q --tb=short` | no | pending |
+| 13-W0-09 | 13-06 | 0 | APPROVAL-01, APPROVAL-02, APPROVAL-03, SNAPSHOT-01 | T13-04 / T13-05 | Approval events register on the minimal envelope and never include raw prompt, args, payload, tool output, secrets, or PII-heavy fields. | event integration | `uv run pytest tests/approvals/test_events.py tests/agent/test_events.py -q --tb=short` | partial | pending |
+| 13-W0-10 | 13-02 | 0 | APPROVAL-01, SNAPSHOT-01 | T13-08 | Migration report, legacy non-executable rows, indexes, constraints, and live DB current/head sanity are verified. | migration integration | `uv run pytest tests/approvals/test_migration_contract.py -q --tb=short` | no | pending |
+| 13-W0-11 | 13-07 | 0 | ALL | T13-01 / T13-10 | API routers and agent run routers do not import legacy approval transition paths or perform direct approval mutations. | static architecture | `uv run pytest tests/architecture/test_approval_boundaries.py -q --tb=short` | no | pending |
 
 ---
 

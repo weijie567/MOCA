@@ -482,22 +482,22 @@ The planner should require mismatch tests for every ownership/hashing assertion 
 
 All claims in this research were verified from project files, command output, or cited primary docs/web sources; no `[ASSUMED]` claims are intentionally relied on. [VERIFIED: research source list]
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should the old `src/repositories/approval_repo.py` be physically deleted or kept as an import shim during the first Phase 13 commit?**
    - What we know: Deletion is preferred, but a temporary shim is allowed if owned by `src/approvals`, forbidden for new imports, tested, and removed in Phase 13 unless an explicit exception is recorded. [VERIFIED: `.planning/phases/13-approval-state-machine/13-CONTEXT.md` D-05, D-31, Claude's Discretion]
    - What's unclear: Final plan task granularity may decide whether deletion occurs in the schema/service slice or router cutover slice. [VERIFIED: `.planning/phases/13-approval-state-machine/13-CONTEXT.md` Claude's Discretion]
-   - Recommendation: Plan default deletion after service cutover; if a shim remains, add a compatibility disposition table row naming owner, forbidden references, tests, and same-phase deletion gate. [VERIFIED: `.planning/phases/13-approval-state-machine/13-CONTEXT.md` D-31]
+   - Final disposition: Plan default deletion/quarantine after service and router cutover. If the file remains, it is a display-only compatibility shim with no public `decide` or `mark_expired`, forbidden new references, and a Phase 13 boundary test. [RESOLVED by `13-07-PLAN.md`]
 
 2. **What feature flag/config name should control the disabled SLA scanner?**
    - What we know: Scanner must be implemented feature-disabled in Phase 13 and enabled only after Phase 15 replay gate. [CITED: `docs/agent-architecture-phase-decomposition.md` Section 3 and Section 6]
    - What's unclear: No existing config key controls approval SLA scanning. [VERIFIED: `src/config.py`]
-   - Recommendation: Planner should add an explicit disabled-by-default config field and tests for disabled no-op/event-shape behavior; exact name is a planning detail. [VERIFIED: `src/config.py`; CITED: `docs/agent-architecture-phase-decomposition.md` Section 6]
+   - Final disposition: Use `approval_sla_scanner_enabled: bool = False` in `src/config.py`, backed by `.env.example` entry `APPROVAL_SLA_SCANNER_ENABLED=false`. The scanner must no-op while disabled and Phase 15 owns the enablement gate. [RESOLVED by `13-06-PLAN.md`]
 
 3. **How much migration backfill exists outside the local dev DB?**
    - What we know: Local dev DB has zero approval/action rows, but other environments may have historical v1 approval rows. [VERIFIED: `docker compose exec postgres psql ...`]
    - What's unclear: Production/staging row counts are not available in this workspace. [VERIFIED: local environment only]
-   - Recommendation: Plan migration report fields and `non_executable_legacy` handling even though local dev counts are zero. [CITED: `docs/migration-plan.md` Section 19; VERIFIED: `.planning/phases/13-approval-state-machine/13-CONTEXT.md` D-46]
+   - Final disposition: Phase 13 records local counts when available and otherwise writes `local_count_not_available`; all historical v1 rows without hashes are marked `legacy_non_executable` and cannot authorize action until revalidated into v2. [RESOLVED by `13-02-PLAN.md`]
 
 ## Environment Availability
 
