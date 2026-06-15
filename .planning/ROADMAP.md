@@ -25,7 +25,7 @@
 - [x] **Phase 8: Knowledge Facade** - KnowledgeService boundary and canonical EvidenceRefV1/citation contract. Completed 2026-06-11.
 - [x] **Phase 9: Business Tool Facade** - BusinessToolService boundary and ToolCallContext/ToolResultV2 contract. ✓ Verified 2026-06-13 — 9/9 plans complete, 14/14 must-haves verified.
 - [x] **Phase 10: State Lifecycle + Routing Migration** - AgentState lifecycle/trusted fields, deterministic total routers, empty session-memory adapter, and bounded investigate graph wiring. Completed 2026-06-14.
-- [ ] **Phase 11: Intent / Clarification** - Intent precedence, required-slot policy, confidence gates, and ordinary clarification.
+- [x] **Phase 11: Intent / Clarification** - Intent precedence, required-slot policy, confidence gates, and ordinary clarification. Completed 2026-06-14.
 - [x] **Phase 12: Session Memory** - PostgreSQL-authoritative session memory CAS, optional Redis hot cache, and safe slot continuity. ✓ Verified 2026-06-14 — 5/5 plans complete, 10/10 must-haves verified.
 - [ ] **Phase 13: Approval State Machine** - Versioned approval lifecycle and ActionSafetySnapshot ownership.
 - [ ] **Phase 14: Demo Action Executor Boundary** - Durable draft-only demo behavior and snapshot/hash binding.
@@ -172,4 +172,4 @@
 | 17. External Action Execution | 0/TBD | Deferred beyond MVP gate | - |
 
 ---
-*Updated: 2026-06-14 — Phase 12 complete (5/5 plans, session-memory validation verified).*
+*Updated: 2026-06-15 — Planning metadata aligned after Phase 12 completion; Phase 13 remains ready to plan.*

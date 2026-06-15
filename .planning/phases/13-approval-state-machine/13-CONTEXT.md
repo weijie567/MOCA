@@ -88,6 +88,10 @@ Out of scope:
 - **D-42:** `edit` tests must prove old revision becomes `superseded`, the edited action gets a new payload hash, risk/snapshot validation reruns, and the old revision cannot execute.
 - **D-43:** Event/redaction tests must prove approval event additions are registered in the minimal envelope and that snapshot/replay/approval event payloads contain no raw prompt, raw args, raw payload, raw tool output, or PII-heavy fields.
 - **D-44:** Boundary tests must prove routers do not perform approval transitions directly and graph nodes do not import raw external/action/business adapters for approval decisions.
+- **D-45:** `approval_decided` event tests must prove the minimal event payload/resource refs distinguish `accept|approve|edit|respond|reject|ignore`, carry old/new revision refs for `edit/respond` or hash/config changes, and never require Phase 15 to fabricate decision semantics during replay backfill.
+- **D-46:** The Phase 13 plan must instantiate the migration rollout protocol: nullable expand/backfill where needed, migration report fields, v1 legacy approval rows marked non-executable unless revalidated into v2, read-switch owner/config/fallback telemetry, rollback behavior, and cleanup/deletion gates for compatibility paths.
+- **D-47:** The Phase 13 plan must copy the relevant `docs/contract-spec.md` Section 18.2 cross-table enforcement row for `decision -> assignment -> level -> request` and list all required mismatch transaction tests; omitting the row blocks execution readiness.
+- **D-48:** The active SLA scanner remains Phase 13-owned but feature-disabled at Phase 13 exit. Phase 15 owns the enablement gate after replay coverage exists; if Phase 15 does not pass that gate, it must explicitly keep the scanner disabled with rollback/telemetry noted.
 
 ### the agent's Discretion
 - Exact file names inside `src/approvals/` may follow local conventions if ownership stays clear.
@@ -165,6 +169,7 @@ Out of scope:
 - Treat `ActionSafetySnapshot` as a safety contract, not a cache. It should be small, immutable, hashable, and free of raw payloads.
 - Treat `approval_result.v1` as a trusted server object. Ordinary chat, LLM output, and client-provided JSON cannot manufacture it.
 - The Phase 13 plan should likely slice work in this order: canonical hash golden tests, snapshot golden tests, schema/migrations, ApprovalService transaction boundary, API/graph integration, event emission, quarantine/static tests, old test rewrite.
+- Phase 13 PLAN.md must include a `Spec consistency findings` section, a migration/read-switch/rollback section, a compatibility-layer disposition table, and a coverage row for each applicable follow-up item. Compatibility rows must name owner, forbidden new references, tests, and deletion phase/gate.
 
 </specifics>
 
