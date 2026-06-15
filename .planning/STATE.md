@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
 status: executing
-stopped_at: Completed 13-04-PLAN.md
-last_updated: "2026-06-15T08:47:58Z"
-last_activity: 2026-06-15 -- Phase 13 Plan 04 completed
+stopped_at: Completed 13-05-PLAN.md
+last_updated: "2026-06-15T09:08:45.800Z"
+last_activity: 2026-06-15 -- Phase 13 Plan 05 completed
 progress:
   total_phases: 11
   completed_phases: 6
   total_plans: 42
-  completed_plans: 38
-  percent: 90
+  completed_plans: 39
+  percent: 93
 ---
 
 # Project State: MOCA
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md`
 ## Current Position
 
 Phase: 13 (approval-state-machine) — EXECUTING
-Plan: 5 of 8
-Plans: 4/8
-Status: Ready to execute Phase 13 Plan 05
-Last activity: 2026-06-15 -- Phase 13 Plan 04 completed
+Plan: 6 of 8
+Plans: 5/8
+Status: Ready to execute Phase 13 Plan 06
+Last activity: 2026-06-15 -- Phase 13 Plan 05 completed
 
-Progress: [█████████░] 90%
+Progress: [█████████░] 93%
 
 ## Completed Baseline
 
@@ -70,6 +70,10 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - ApprovalDecisionCommand carries run_id, thread_id, level_id, and assignment_id in addition to expected versions so the service can validate the full decision binding.
 - ApprovalService calls src/approvals/snapshot_service.py for snapshot persistence and does not expose it as an auto-allow transition method.
 - Approval decision rows record pre-transition authorization versions; ApprovalDecisionResult and approval_result.v1 return post-transition versions.
+- Approval respond writes needs_info and clarification_request_id but intentionally returns resume_payload=None so the old interrupted run cannot enter action_draft.
+- Approval attach_info updates the same revision only for non-material info with bumped versions; changed payload/evidence/config supersedes the old revision and creates a pending replacement.
+- Approval edit persists edited_action_json and exposes a risk-reroute approval_result payload, while the API endpoint does not treat edit as an action-authorizing graph resume.
+- route_after_approval lives in src/agent/graph.py in this codebase, so the Plan 13-05 routing change was applied there instead of src/agent/routing.py.
 
 ## Blockers / Concerns
 
@@ -107,14 +111,15 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | 13 | 01 | 9 min | 4 | 7 |
 | 13 | 02 | 1h 15m | 4 | 5 |
 | 13 | 03 | 15 min | 4 | 8 |
+| 13 | 05 | 16 min | 3 | 10 |
 
 ## Session Continuity
 
-Last session: 2026-06-15T07:52:15.923Z
-Stopped at: Completed 13-03-PLAN.md
+Last session: 2026-06-15T09:08:45.800Z
+Stopped at: Completed 13-05-PLAN.md
 Resume file: None
 
-**Next:** Execute Phase 13 Plan 04
+**Next:** Execute Phase 13 Plan 06
 
 **Completed Phase:** Phase 12 (Session Memory) — 2026-06-14
 
