@@ -31,10 +31,28 @@ MINIMAL_EVENT_TYPES = {
     "memory_write_started",
     "memory_write_completed",
     "memory_write_failed",
+    "approval_requested",
+    "approval_decided",
+    "approval_expired",
+    "approval_resumed",
 }
 EVENT_RETENTION_CLASSIFICATION = {event_type: "minimal_event" for event_type in MINIMAL_EVENT_TYPES}
 SCHEMA_VERSION = "minimal_event_envelope.v1"
-FORBIDDEN_REDACTED_PAYLOAD_KEYS = {"data", "raw", "arguments", "prompt"}
+FORBIDDEN_REDACTED_PAYLOAD_KEYS = {
+    "data",
+    "raw",
+    "arguments",
+    "prompt",
+    "raw_prompt",
+    "raw_args",
+    "raw_payload",
+    "raw_tool_output",
+    "secret",
+    "secrets",
+    "credential",
+    "credentials",
+    "pii",
+}
 
 
 def classify_event_family(tool_name: str) -> str:
@@ -122,7 +140,7 @@ def _guard_redacted_payload(redacted_payload: dict[str, Any]) -> None:
     def walk(value: Any, path: str) -> None:
         if isinstance(value, dict):
             for key, child in value.items():
-                if key in FORBIDDEN_REDACTED_PAYLOAD_KEYS:
+                if key.lower() in FORBIDDEN_REDACTED_PAYLOAD_KEYS:
                     raise ValueError(f"{path} must not carry {key}")
                 walk(child, f"{path}.{key}")
             return

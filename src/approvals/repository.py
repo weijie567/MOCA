@@ -309,6 +309,24 @@ class ApprovalRepository:
         resource_refs: dict[str, Any] | None = None,
         redacted_payload: dict[str, Any] | None = None,
     ) -> ApprovalEvent:
+        safe_resource_refs = {
+            "request_ref": f"approval_request:{request.id}:r{request.revision}",
+            "revision_ref": f"approval_revision:{request.id}:r{request.revision}:v{request.version}",
+            "request_version": request.version,
+            "action_payload_hash": request.action_payload_hash,
+            "safety_snapshot_ref": request.safety_snapshot_ref,
+            "safety_snapshot_hash": request.safety_snapshot_hash,
+            **(resource_refs or {}),
+        }
+        if level is not None:
+            safe_resource_refs["level_ref"] = f"approval_level:{level.id}:v{level.version}"
+            safe_resource_refs["level_version"] = level.version
+        if assignment is not None:
+            safe_resource_refs["assignment_ref"] = f"approval_assignment:{assignment.id}:v{assignment.version}"
+            safe_resource_refs["assignment_version"] = assignment.version
+        if decision is not None:
+            safe_resource_refs["decision_ref"] = f"approval_decision:{decision.id}"
+
         event = ApprovalEvent(
             approval_request_id=request.id,
             approval_decision_id=decision.id if decision else None,
@@ -322,8 +340,8 @@ class ApprovalRepository:
             actor_id=actor_id,
             event_type=event_type,
             metadata_json=metadata or {},
-            resource_refs_json=resource_refs or {},
-            redacted_payload_json=redacted_payload or {},
+            resource_refs_json=safe_resource_refs,
+            redacted_payload_json={"event_type": event_type, "status": request.status, **(redacted_payload or {})},
         )
         self.session.add(event)
         await self.session.flush()

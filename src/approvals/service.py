@@ -10,6 +10,12 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.approvals.events import (
+    approval_revision_ref,
+    emit_approval_decided,
+    emit_approval_expired,
+    emit_approval_requested,
+)
 from src.approvals.policy import ApprovalPolicy, ApprovalPolicyError
 from src.approvals.repository import ApprovalRepository, ApprovalRepositoryConflict
 from src.approvals.schemas import (
@@ -75,7 +81,7 @@ class ApprovalService:
                     required_role=command.required_role,
                     mode=command.level_mode,
                 )
-                request, level, assignment, _event = await self.repository.create_request_with_single_level(
+                request, level, assignment, event = await self.repository.create_request_with_single_level(
                     tenant_id=command.tenant_id,
                     run_id=command.run_id,
                     thread_id=command.thread_id,
@@ -94,6 +100,14 @@ class ApprovalService:
                     level_mode=assignment_plan.mode,
                     sla_due_at=assignment_plan.sla_due_at,
                     risk_reason=command.risk_reason,
+                )
+                await emit_approval_requested(
+                    self.session,
+                    request=request,
+                    level=level,
+                    assignment=assignment,
+                    actor_id=command.requested_by,
+                    existing_event=event,
                 )
                 return ApprovalRequestCreateResult(
                     approval_id=request.id,
@@ -271,10 +285,14 @@ class ApprovalService:
             request = await self.repository.lock_request(approval_id, tenant_id)
             if request is None or request.status != "pending" or request.expires_at > current_time:
                 return None
+            level = await self.repository.lock_current_level(request.id)
+            assignment = await self.repository.lock_assignment_by_level(level.id) if level else None
             await self.repository.increment_request_version(request, status="expired")
-            await self.repository.insert_approval_event(
+            await emit_approval_expired(
+                self.session,
                 request=request,
-                event_type="approval_expired",
+                level=level,
+                assignment=assignment,
                 metadata={"reason": "sla_due"},
             )
             return request
@@ -334,19 +352,14 @@ class ApprovalService:
         await self.repository.increment_assignment_version(assignment, status="approved")
         await self.repository.increment_level_version(level, status="approved")
         await self.repository.increment_request_version(request, status="approved")
-        event = await self.repository.insert_approval_event(
+        event = await emit_approval_decided(
+            self.session,
             request=request,
-            event_type="approval_decided",
-            decision=decision,
-            actor_id=command.actor_id,
             level=level,
             assignment=assignment,
-            metadata={"decision_type": command.decision_type},
-            resource_refs={
-                "action_payload_hash": request.action_payload_hash,
-                "safety_snapshot_ref": request.safety_snapshot_ref,
-                "safety_snapshot_hash": request.safety_snapshot_hash,
-            },
+            decision=decision,
+            actor_id=command.actor_id,
+            decision_type=command.decision_type,
         )
         return self._result(
             request=request,
@@ -367,6 +380,7 @@ class ApprovalService:
         assignment: ApprovalAssignment,
     ) -> ApprovalDecisionResult:
         clarification_request_id = request.clarification_request_id or f"approval-clarify:{uuid4()}"
+        old_revision_ref = approval_revision_ref(request)
         decision = await self.repository.insert_decision(
             request=request,
             level=level,
@@ -380,21 +394,18 @@ class ApprovalService:
         await self.repository.increment_assignment_version(assignment)
         await self.repository.increment_level_version(level)
         await self.repository.increment_request_version(request, status="needs_info")
-        event = await self.repository.insert_approval_event(
+        event = await emit_approval_decided(
+            self.session,
             request=request,
-            event_type="approval_needs_info",
-            decision=decision,
-            actor_id=command.actor_id,
             level=level,
             assignment=assignment,
+            decision=decision,
+            actor_id=command.actor_id,
+            decision_type=command.decision_type,
+            old_revision_ref=old_revision_ref,
+            new_revision_ref=approval_revision_ref(request),
             metadata={
-                "decision_type": command.decision_type,
                 "clarification_request_id": clarification_request_id,
-            },
-            resource_refs={
-                "action_payload_hash": request.action_payload_hash,
-                "safety_snapshot_ref": request.safety_snapshot_ref,
-                "safety_snapshot_hash": request.safety_snapshot_hash,
             },
         )
         return self._result(
@@ -417,6 +428,7 @@ class ApprovalService:
         level: ApprovalLevel,
         assignment: ApprovalAssignment,
     ) -> ApprovalDecisionResult:
+        old_revision_ref = approval_revision_ref(request)
         snapshot_row = await self.repository.get_snapshot_by_ref_or_hash(
             tenant_id=request.tenant_id,
             safety_snapshot_ref=request.safety_snapshot_ref,
@@ -477,15 +489,17 @@ class ApprovalService:
         )
         request.superseded_by_request_id = new_request.id
         await self.session.flush()
-        event = await self.repository.insert_approval_event(
+        event = await emit_approval_decided(
+            self.session,
             request=request,
-            event_type="approval_edited",
-            decision=decision,
-            actor_id=command.actor_id,
             level=level,
             assignment=assignment,
+            decision=decision,
+            actor_id=command.actor_id,
+            decision_type=command.decision_type,
+            old_revision_ref=old_revision_ref,
+            new_revision_ref=approval_revision_ref(new_request),
             metadata={
-                "decision_type": command.decision_type,
                 "resume_route": "assess_risk_and_approval",
                 "superseded_by_request_id": str(new_request.id),
             },
@@ -497,6 +511,15 @@ class ApprovalService:
                 "new_safety_snapshot_ref": new_request.safety_snapshot_ref,
                 "new_safety_snapshot_hash": new_request.safety_snapshot_hash,
             },
+        )
+        await emit_approval_requested(
+            self.session,
+            request=new_request,
+            level=_new_level,
+            assignment=_new_assignment,
+            actor_id=request.requested_by,
+            existing_event=_event,
+            metadata={"superseded_from_request_id": str(request.id)},
         )
         return self._result(
             request=request,
@@ -536,19 +559,14 @@ class ApprovalService:
         await self.repository.increment_assignment_version(assignment, status=assignment_status)
         await self.repository.increment_level_version(level, status=assignment_status)
         await self.repository.increment_request_version(request, status=status)
-        event = await self.repository.insert_approval_event(
+        event = await emit_approval_decided(
+            self.session,
             request=request,
-            event_type="approval_decided",
-            decision=decision,
-            actor_id=command.actor_id,
             level=level,
             assignment=assignment,
-            metadata={"decision_type": command.decision_type},
-            resource_refs={
-                "action_payload_hash": request.action_payload_hash,
-                "safety_snapshot_ref": request.safety_snapshot_ref,
-                "safety_snapshot_hash": request.safety_snapshot_hash,
-            },
+            decision=decision,
+            actor_id=command.actor_id,
+            decision_type=command.decision_type,
         )
         return self._result(
             request=request,
