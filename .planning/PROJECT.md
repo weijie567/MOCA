@@ -126,6 +126,7 @@ Define the milestone after v1.1 only after Phases 7-15 complete and the deferred
 | Simple frontend over pure API | 10-minute demo needs visual impact; keeps PM angle visible | Adopted in Phase 5 |
 | Keep v1.1 scope fresh | v1.0 requirements are complete and archived; continuing in the same requirements file would mix shipped and future obligations | Adopted after v1.0 archive |
 | Replace the previous v1.1 investigation roadmap with Agent Architecture Migration | The architecture spec now defines the authoritative capability sequence and standard Phase 7-17 identities are required for SDK planning | Adopted 2026-06-06 |
+| Phase 13-17 architecture-first planning standard | Approval, action, replay, memory, and external execution are tightly coupled; plans must read `docs/phase-13-17-architecture-plan.md`, define owners/contracts first, and delete or quarantine old paths instead of preserving minimum-diff compatibility | Adopted 2026-06-15 |
 
 ## Evolution
 
@@ -145,4 +146,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-14 after Phase 12 execution and verification*
+*Last updated: 2026-06-15 after Phase 13-17 architecture-first planning standard was adopted*

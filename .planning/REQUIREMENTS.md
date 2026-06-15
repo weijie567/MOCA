@@ -43,6 +43,8 @@
 ## Planning Requirements
 
 - Every phase plan must include spec coverage, schema/migration owner, service/API owner, state/router impact, required tests, acceptance criteria, rollback/non-goals/deferred items, and a coverage matrix.
+- Phase 13-17 plans must read `docs/phase-13-17-architecture-plan.md` before planning and include an Architecture Alignment section that applies its operating rule: define owner/contract first, move or rewrite code to match the owner, delete or quarantine old paths, and add boundary tests before expanding behavior.
+- Phase 13-17 plans must not default to minimum diff. Compatibility layers are allowed only when the plan names an owner, forbids new references, adds tests protecting the canonical path, and names the removal phase.
 - A phase plan with any relevant `MISSING` row is blocked from execution.
 - Every `PARTIAL` or `DEFERRED_WITH_OWNER` row must name owner, non-blocking rationale, dependency, and acceptance gate.
 - Every schema/service migration phase must instantiate the migration rollout protocol and name read-switch/fallback/rollback ownership.
@@ -65,4 +67,4 @@
 | EXTERNAL-01..03 | Phase 17 | Deferred beyond MVP gate |
 
 ---
-*Updated: 2026-06-14 after Phase 12 execution validation passed.*
+*Updated: 2026-06-15 after Phase 13-17 architecture alignment was promoted to a planning requirement.*

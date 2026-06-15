@@ -33,6 +33,8 @@
 - [ ] **Phase 16: Long-term / Case Memory** - memory_identity.v1, tombstones, review workflow, and long-term/case memory. Deferred beyond the MVP completion gate.
 - [ ] **Phase 17: External Action Execution** - External execution, outbox, reconciliation, and compensation. Deferred beyond the MVP completion gate.
 
+**Phase 13-17 planning standard:** Every Phase 13-17 plan must read `docs/phase-13-17-architecture-plan.md` before task decomposition and include an Architecture Alignment section. The section must identify the canonical owner package, schema owner, old-path quarantine/deletion strategy, forbidden new imports/references, boundary tests, and the exact Phase 13/14/15/16/17 non-overlap. The goal is stable owner/contract architecture first, not minimum-diff compatibility.
+
 ## Phase Details
 
 ### Phase 7: Contract Baseline
@@ -108,6 +110,7 @@
 ### Phase 13: Approval State Machine
 **Goal**: Implement versioned approval requests/levels/assignments/decisions/events and the canonical ActionSafetySnapshot.
 **Depends on**: Phase 11
+**Mandatory architecture input**: `docs/phase-13-17-architecture-plan.md`
 **Requirements**: APPROVAL-01, APPROVAL-02, APPROVAL-03, SNAPSHOT-01
 **Success Criteria**:
   1. Single-level runtime transition, CAS, revision invalidation, and needs_info resume tests pass.
@@ -118,6 +121,7 @@
 ### Phase 14: Demo Action Executor Boundary
 **Goal**: Enforce the durable draft-only demo boundary with exact approval/snapshot binding.
 **Depends on**: Phase 13
+**Mandatory architecture input**: `docs/phase-13-17-architecture-plan.md`
 **Requirements**: DEMO-01, DEMO-02
 **Success Criteria**:
   1. Demo mode creates only action draft and draft_outcome.
@@ -128,6 +132,7 @@
 ### Phase 15: Replay Event Contract
 **Goal**: Implement ReplayEventV3, run lifecycle finalizer, shared sequence allocator, redaction/retention, and replay read-switch.
 **Depends on**: Phase 10, Phase 12, Phase 13, Phase 14
+**Mandatory architecture input**: `docs/phase-13-17-architecture-plan.md`
 **Requirements**: REPLAY-01, REPLAY-02, REPLAY-03
 **Success Criteria**:
   1. Normal/interrupted/resumed/responded/rejected/expired/error/cancelled timelines are complete.
@@ -138,6 +143,7 @@
 ### Phase 16: Long-term / Case Memory
 **Goal**: Implement reviewed long-term/case memory with canonical identity and tombstone enforcement.
 **Depends on**: Phase 12, Phase 15
+**Mandatory architecture input**: `docs/phase-13-17-architecture-plan.md`
 **Requirements**: MEMORY-01, MEMORY-02
 **Success Criteria**:
   1. memory_identity.v1 and tombstone no-rewrite tests pass.
@@ -148,6 +154,7 @@
 ### Phase 17: External Action Execution
 **Goal**: Implement external action execution with transactional claim/outbox, reconciliation, and compensation.
 **Depends on**: Phase 14, Phase 15
+**Mandatory architecture input**: `docs/phase-13-17-architecture-plan.md`
 **Requirements**: EXTERNAL-01, EXTERNAL-02, EXTERNAL-03
 **Success Criteria**:
   1. Adapter dispatch occurs only after committed outbox claim.
@@ -172,4 +179,4 @@
 | 17. External Action Execution | 0/TBD | Deferred beyond MVP gate | - |
 
 ---
-*Updated: 2026-06-15 — Planning metadata aligned after Phase 12 completion; Phase 13 remains ready to plan.*
+*Updated: 2026-06-15 — Phase 13-17 architecture alignment promoted to mandatory planning input.*
