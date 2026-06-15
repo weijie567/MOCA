@@ -550,6 +550,14 @@ async def test_event_generator_treats_stream_interrupt_node_as_approval_required
         "safety_snapshot_hash",
         "allowed_decision_types",
     }.issubset(approval_data["payload"])
+    assert approval_data["payload"]["allowed_decision_types"] == [
+        "accept",
+        "approve",
+        "edit",
+        "respond",
+        "reject",
+        "ignore",
+    ]
     _assert_no_investigation_fields(approval_data)
     assert '"status": "waiting_approval"' in approval_event["data"]
     assert run.final_status == "interrupted"

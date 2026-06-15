@@ -467,6 +467,13 @@ def test_graph_compiles_with_investigate():
     assert "retrieve_policy_evidence" not in nodes
 
 
+def test_approval_gate_edit_branch_is_registered_in_compiled_graph():
+    graph = build_graph(MemorySaver()).get_graph()
+    conditional_edges = {(edge.source, edge.target) for edge in graph.edges if edge.conditional}
+
+    assert ("approval_gate", "assess_risk_and_approval") in conditional_edges
+
+
 def test_route_after_investigate_keys_are_edge_targets():
     graph = build_graph(MemorySaver())
     nodes = set(graph.get_graph().nodes)

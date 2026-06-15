@@ -44,7 +44,7 @@ SCOPE_TO_TOOL_PERMISSION = {
     "tickets:read": "tool:get_ticket",
     "knowledge:read": "tool:search_policy",
 }
-APPROVAL_ALLOWED_DECISION_TYPES = ["accept", "approve", "reject", "ignore"]
+APPROVAL_ALLOWED_DECISION_TYPES = ["accept", "approve", "edit", "respond", "reject", "ignore"]
 APPROVAL_NOT_EXECUTABLE = "APPROVAL_NOT_EXECUTABLE"
 
 NODE_MESSAGES: dict[str, str] = {

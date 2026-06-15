@@ -81,7 +81,14 @@ async def test_approval_gate_interrupt_payload_contains_display_refs_and_version
     assert captured_payload["action_payload_hash"] == "sha256:" + "1" * 64
     assert captured_payload["safety_snapshot_ref"] == "snapshot:test"
     assert captured_payload["safety_snapshot_hash"] == "sha256:" + "2" * 64
-    assert captured_payload["allowed_decision_types"] == ["accept", "approve", "reject", "ignore"]
+    assert captured_payload["allowed_decision_types"] == [
+        "accept",
+        "approve",
+        "edit",
+        "respond",
+        "reject",
+        "ignore",
+    ]
     assert captured_payload["expires_at"]
 
 

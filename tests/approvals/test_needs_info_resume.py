@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.approvals.schemas import ApprovalDecisionCommand, ApprovalInfoCommand
 from src.approvals.service import ApprovalService, ApprovalTransitionError
-from src.db.models import ActionSafetySnapshot, ApprovalDecision, ApprovalRequest
+from src.db.models import ActionSafetySnapshot, AgentTraceEvent, ApprovalDecision, ApprovalEvent, ApprovalRequest
 from tests.approvals.test_service_transitions import (
     _approval_bundle,
     _decision_command,
@@ -251,6 +251,45 @@ async def test_attach_info_changed_payload_supersedes_old_revision(session: Asyn
     assert old_action_payload_hash != new_action_payload_hash
     assert result.resume_payload is None
     await _assert_old_revision_cannot_execute(session, old_decision_command)
+
+
+@pytest.mark.asyncio
+async def test_attach_info_changed_payload_emits_replay_linked_requested_event(
+    session: AsyncSession,
+    seeded_session,
+):
+    request, level, assignment = await _approval_bundle(session, seeded_session)
+    actor_id = seeded_session["users"]["approval_manager"].id
+    await _respond(session, request, level, assignment, actor_id=actor_id)
+
+    result = await ApprovalService(session).attach_info(
+        _info_command(
+            request,
+            actor_id=actor_id,
+            info_payload={"response_text": "confirmed", "proposed_action": _changed_action(request)},
+        )
+    )
+    new_request = await session.get(ApprovalRequest, result.approval_id)
+    assert new_request is not None
+
+    event = (
+        await session.execute(
+            select(ApprovalEvent).where(
+                ApprovalEvent.approval_request_id == new_request.id,
+                ApprovalEvent.event_type == "approval_requested",
+            )
+        )
+    ).scalar_one()
+    trace_event = await session.get(AgentTraceEvent, event.replay_event_id)
+
+    assert event.replay_event_id is not None
+    assert event.metadata_json["superseded_from_request_id"] == str(request.id)
+    assert event.resource_refs_json["request_ref"] == f"approval_request:{new_request.id}:r{new_request.revision}"
+    assert event.resource_refs_json["action_payload_hash"] == new_request.action_payload_hash
+    assert trace_event is not None
+    assert trace_event.event_type == "approval_requested"
+    assert trace_event.resource_refs == event.resource_refs_json
+    assert trace_event.redacted_payload == event.redacted_payload_json
 
 
 @pytest.mark.asyncio

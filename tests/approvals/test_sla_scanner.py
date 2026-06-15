@@ -73,6 +73,53 @@ async def test_disabled_scanner_noop_returns_disabled_result_and_writes_no_rows(
 
 
 @pytest.mark.asyncio
+async def test_enabled_scanner_expires_request_level_assignment_and_writes_replay_event(
+    session: AsyncSession,
+    seeded_session,
+):
+    now = datetime.now(UTC)
+    request, level, assignment = await _approval_bundle(
+        session,
+        seeded_session,
+        expires_at=now - timedelta(minutes=1),
+    )
+
+    result = await ApprovalSlaScanner(session=session, enabled=True).scan(now=now)
+    await session.refresh(request)
+    await session.refresh(level)
+    await session.refresh(assignment)
+
+    assert result.status == "completed"
+    assert result.expired_count == 1
+    assert result.event_count == 1
+    assert request.status == "expired"
+    assert level.status == "expired"
+    assert assignment.status == "expired"
+    assert request.version == 2
+    assert level.version == 2
+    assert assignment.version == 2
+
+    event = (
+        await session.execute(
+            select(ApprovalEvent).where(
+                ApprovalEvent.approval_request_id == request.id,
+                ApprovalEvent.event_type == "approval_expired",
+            )
+        )
+    ).scalar_one()
+    trace_event = await session.get(AgentTraceEvent, event.replay_event_id)
+
+    assert event.request_version == 2
+    assert event.level_version == 2
+    assert event.assignment_version == 2
+    assert event.resource_refs_json["request_version"] == 2
+    assert event.resource_refs_json["level_version"] == 2
+    assert event.resource_refs_json["assignment_version"] == 2
+    assert trace_event is not None
+    assert trace_event.event_type == "approval_expired"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "event_type",
     ["approval_sla_reminder", "approval_sla_escalation", "approval_expired"],
@@ -108,4 +155,3 @@ async def test_sla_event_shape_helpers_use_safe_refs_only(
 
 def test_approval_sla_scanner_env_var_name_is_documented_for_phase_13():
     assert "APPROVAL_SLA_SCANNER_ENABLED" == "APPROVAL_SLA_SCANNER_ENABLED"
-

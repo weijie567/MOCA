@@ -51,7 +51,6 @@ class ApprovalSlaScanner:
                 .where(
                     ApprovalRequest.status == "pending",
                     ApprovalRequest.expires_at <= current_time,
-                    ApprovalRequest.deleted_at.is_(None),
                 )
                 .order_by(ApprovalRequest.expires_at.asc())
             )
@@ -118,4 +117,3 @@ def build_sla_event_shape(
         "resource_refs": resource_refs,
         "redacted_payload": redacted_payload,
     }
-

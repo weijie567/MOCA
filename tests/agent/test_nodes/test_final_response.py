@@ -117,6 +117,32 @@ async def test_final_response_mentions_direct_action_without_approval(base_state
 
 
 @pytest.mark.asyncio
+async def test_final_response_preserves_snapshot_fail_closed_message(base_state):
+    response_text = "操作需要人工复核，当前未创建可执行审批或动作草稿。"
+    state = {
+        **base_state,
+        "final_response": response_text,
+        "safety_snapshot_verified": False,
+        "recommendation_draft": {
+            "recommended_action": "issue_coupon",
+            "reasoning_summary": "符合补偿规则。",
+            "evidence_refs": [],
+        },
+        "risk_assessment": {
+            "risk_level": "manual_review",
+            "approval_required": False,
+            "risk_reason": "Action safety snapshot could not be verified.",
+        },
+    }
+
+    result = await final_response(state)
+
+    assert result["final_response"] == response_text
+    assert result["llm_outputs"]["final_response"]["final_status"] == "error"
+    assert result["trace_steps"][-1]["status"] == "error"
+
+
+@pytest.mark.asyncio
 async def test_final_response_preserves_order_facts_when_policy_evidence_is_missing(base_state):
     state = {
         **base_state,

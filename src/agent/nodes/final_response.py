@@ -160,6 +160,22 @@ async def final_response(state: AgentState) -> dict:
     approval_result = state.get("approval_result")
     action_result = state.get("action_result")
     clarification_request = state.get("clarification_request")
+    blocked_response = state.get("final_response")
+    if blocked_response and state.get("safety_snapshot_verified") is False:
+        return {
+            "final_response": blocked_response,
+            "llm_outputs": {
+                **(state.get("llm_outputs") or {}),
+                "final_response": {
+                    "response_text": blocked_response,
+                    "evidence_citations": [],
+                    "final_status": "error",
+                    "mode": "deterministic-template",
+                    "approval_context": None,
+                },
+            },
+            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("error", started_at)],
+        }
     if isinstance(clarification_request, dict):
         questions = clarification_request.get("questions")
         fallback = questions[0] if isinstance(questions, list) and questions else "请补充必要信息后我再继续处理。"

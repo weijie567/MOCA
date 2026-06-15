@@ -46,7 +46,7 @@ async def approval_gate(state: AgentState) -> dict:
         "risk_config_version": state.get("risk_config_version"),
         "retrieval_config_version": state.get("retrieval_config_version"),
         "evidence_refs": state.get("evidence_refs") or [],
-        "allowed_decision_types": ["accept", "approve", "reject", "ignore"],
+        "allowed_decision_types": ["accept", "approve", "edit", "respond", "reject", "ignore"],
         "expires_at": (datetime.now(UTC) + timedelta(hours=APPROVAL_TIMEOUT_HOURS)).isoformat(),
     }
 

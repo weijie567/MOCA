@@ -166,6 +166,7 @@ def build_graph(checkpointer: AsyncPostgresSaver):
         route_after_approval,
         {
             "approval_gate": "approval_gate",
+            "assess_risk_and_approval": "assess_risk_and_approval",
             "execute_action": "execute_action",
             "final_response": "final_response",
         },

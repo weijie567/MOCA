@@ -287,6 +287,10 @@ class ApprovalService:
                 return None
             level = await self.repository.lock_current_level(request.id)
             assignment = await self.repository.lock_assignment_by_level(level.id) if level else None
+            if assignment is not None:
+                await self.repository.increment_assignment_version(assignment, status="expired")
+            if level is not None:
+                await self.repository.increment_level_version(level, status="expired")
             await self.repository.increment_request_version(request, status="expired")
             await emit_approval_expired(
                 self.session,
@@ -672,6 +676,15 @@ class ApprovalService:
         )
         request.superseded_by_request_id = new_request.id
         await self.session.flush()
+        await emit_approval_requested(
+            self.session,
+            request=new_request,
+            level=new_level,
+            assignment=new_assignment,
+            actor_id=request.requested_by,
+            existing_event=_event,
+            metadata={"superseded_from_request_id": str(request.id)},
+        )
         await self.repository.insert_approval_event(
             request=request,
             event_type="approval_info_attached",
