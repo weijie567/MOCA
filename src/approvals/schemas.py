@@ -37,10 +37,13 @@ class ApprovalRequestCreateCommand(BaseModel):
     requested_by: UUID
     proposed_action: dict[str, Any]
     action_payload_hash: str | None = None
+    safety_snapshot_ref: str | None = None
+    safety_snapshot_hash: str | None = None
     approval_policy_id: str = Field(min_length=1)
     policy_version: str = Field(min_length=1)
     risk_level: str = Field(min_length=1)
     risk_rule_ref: str | None = None
+    risk_reason: str | None = None
     policy_config_version: str = Field(min_length=1)
     risk_config_version: str = Field(min_length=1)
     retrieval_config_version: str = Field(min_length=1)
@@ -122,6 +125,7 @@ class TrustedApprovalResultV1(BaseModel):
     safety_snapshot_hash: str
     decided_by: UUID
     decided_at: datetime
+    reason: str | None = None
 
 
 class ApprovalDecisionResult(BaseModel):
@@ -145,5 +149,6 @@ class ApprovalDecisionResult(BaseModel):
     decided_at: datetime
     decision_id: UUID
     event_id: UUID
+    reason: str | None = None
     resume_payload: dict[str, Any] | None = None
     graph_thread_id: str

@@ -41,6 +41,13 @@ class ApprovalDecisionContext:
     assignment: ApprovalAssignment
 
 
+@dataclass(frozen=True)
+class _SnapshotBinding:
+    action_payload_hash: str
+    safety_snapshot_ref: str
+    safety_snapshot_hash: str
+
+
 class ApprovalService:
     """State machine owner for executable v2 approval requests."""
 
@@ -59,20 +66,7 @@ class ApprovalService:
         self._assert_create_context(command)
         try:
             async with self.session.begin_nested():
-                snapshot = await persist_action_safety_snapshot(
-                    self.session,
-                    tenant_id=command.tenant_id,
-                    run_id=command.run_id,
-                    proposed_action=command.proposed_action,
-                    action_payload_hash=command.action_payload_hash,
-                    policy_config_version=command.policy_config_version,
-                    risk_config_version=command.risk_config_version,
-                    retrieval_config_version=command.retrieval_config_version,
-                    evidence_refs=command.evidence_refs,
-                    created_at=command.created_at,
-                    created_by=command.requested_by,
-                    repository=self.repository,
-                )
+                snapshot = await self._load_or_persist_snapshot(command)
                 assignment_plan = self.policy.default_single_level_assignment(
                     now=command.created_at,
                     required_role=command.required_role,
@@ -96,6 +90,7 @@ class ApprovalService:
                     assigned_role=assignment_plan.assigned_role,
                     level_mode=assignment_plan.mode,
                     sla_due_at=assignment_plan.sla_due_at,
+                    risk_reason=command.risk_reason,
                 )
                 return ApprovalRequestCreateResult(
                     approval_id=request.id,
@@ -231,6 +226,43 @@ class ApprovalService:
             )
             return request
 
+    async def _load_or_persist_snapshot(self, command: ApprovalRequestCreateCommand) -> _SnapshotBinding:
+        if command.safety_snapshot_ref and command.safety_snapshot_hash:
+            if not command.action_payload_hash:
+                raise ApprovalTransitionError("approval_not_executable")
+            snapshot = await self.repository.get_snapshot_by_ref_or_hash(
+                tenant_id=command.tenant_id,
+                safety_snapshot_ref=command.safety_snapshot_ref,
+                safety_snapshot_hash=command.safety_snapshot_hash,
+            )
+            if snapshot is None or snapshot.action_payload_hash != command.action_payload_hash:
+                raise ApprovalTransitionError("approval_not_executable")
+            return _SnapshotBinding(
+                action_payload_hash=snapshot.action_payload_hash,
+                safety_snapshot_ref=snapshot.snapshot_ref,
+                safety_snapshot_hash=snapshot.immutable_hash,
+            )
+
+        snapshot = await persist_action_safety_snapshot(
+            self.session,
+            tenant_id=command.tenant_id,
+            run_id=command.run_id,
+            proposed_action=command.proposed_action,
+            action_payload_hash=command.action_payload_hash,
+            policy_config_version=command.policy_config_version,
+            risk_config_version=command.risk_config_version,
+            retrieval_config_version=command.retrieval_config_version,
+            evidence_refs=command.evidence_refs,
+            created_at=command.created_at,
+            created_by=command.requested_by,
+            repository=self.repository,
+        )
+        return _SnapshotBinding(
+            action_payload_hash=snapshot.action_payload_hash,
+            safety_snapshot_ref=snapshot.safety_snapshot_ref,
+            safety_snapshot_hash=snapshot.safety_snapshot_hash,
+        )
+
     async def _approve(
         self,
         command: ApprovalDecisionCommand,
@@ -271,6 +303,7 @@ class ApprovalService:
             decision_id=decision.id,
             event_id=event.id,
             decision_type=command.decision_type,
+            reason=command.reason,
         )
 
     async def _terminal_decision(
@@ -318,6 +351,7 @@ class ApprovalService:
             decision_id=decision.id,
             event_id=event.id,
             decision_type=command.decision_type,
+            reason=command.reason,
         )
 
     def _result(
@@ -330,6 +364,7 @@ class ApprovalService:
         decision_id: UUID,
         event_id: UUID,
         decision_type: str,
+        reason: str | None = None,
     ) -> ApprovalDecisionResult:
         decided_at = datetime.now(UTC)
         request.decision = decision_type
@@ -350,6 +385,7 @@ class ApprovalService:
             safety_snapshot_hash=request.safety_snapshot_hash,
             decided_by=actor_id,
             decided_at=decided_at,
+            reason=reason,
         ).model_dump(mode="json")
         if trusted["schema_version"] != "approval_result.v1":
             raise ApprovalTransitionError("approval_invalid_result")
@@ -370,6 +406,7 @@ class ApprovalService:
             decided_at=decided_at,
             decision_id=decision_id,
             event_id=event_id,
+            reason=reason,
             resume_payload=trusted,
             graph_thread_id=f"{request.tenant_id}:{request.requested_by}:{request.thread_id}",
         )

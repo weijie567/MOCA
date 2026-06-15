@@ -14,6 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.trace import build_trace_summary, write_agent_run, write_agent_steps
 from src.api.routers.agent_runs import (
+    APPROVAL_NOT_EXECUTABLE,
+    ApprovalInterruptValidationError,
+    _create_approval_wait_payload_from_interrupt,
     _schedule_memory_write_after_response,
     _session_factory_from_session,
     _trusted_tool_config,
@@ -23,7 +26,6 @@ from src.api.schemas.common import ApiResponse, ErrorDetail, INTERNAL_ERROR
 from src.auth.permissions import get_current_user
 from src.db.models import User
 from src.db.session import get_session
-from src.repositories.approval_repo import ApprovalRepository
 
 
 router = APIRouter(tags=["agent"])
@@ -236,33 +238,37 @@ async def _handle_interrupt(
     if pre_interrupt_steps:
         await write_agent_steps(session, run_id=run_id, trace_steps=pre_interrupt_steps)
 
-    approval_repo = ApprovalRepository(session)
-    expires_at = _parse_expires_at(interrupt_data.get("expires_at"))
-    approval = await approval_repo.create(
-        run_id=UUID(run_id),
-        tenant_id=user.tenant_id,
-        requested_by=user.id,
-        proposed_action=interrupt_data.get("proposed_action") or {},
-        risk_level=interrupt_data.get("risk_level") or "high",
-        risk_rule_ref=interrupt_data.get("risk_rule_ref"),
-        risk_reason=interrupt_data.get("risk_reason"),
-        expires_at=expires_at,
-        thread_id=body.thread_id,
-    )
-    await approval_repo.add_step(approval.id, event_type="created", actor_id=user.id)
-    await session.commit()
+    # ApprovalService request creation is centralized in the shared interrupt helper.
+    try:
+        wait_payload = await _create_approval_wait_payload_from_interrupt(
+            session=session,
+            user=user,
+            run_id=UUID(run_id),
+            thread_id=body.thread_id,
+            interrupt_data=interrupt_data,
+        )
+    except ApprovalInterruptValidationError as exc:
+        await session.commit()
+        message = "Approval request is missing executable snapshot bindings"
+        return ApiResponse(
+            success=False,
+            data={
+                "status": "interrupted",
+                "run_id": run_id,
+                "missing_fields": exc.missing_fields,
+            },
+            error=ErrorDetail(
+                code=APPROVAL_NOT_EXECUTABLE,
+                message=message,
+                details={"missing_fields": exc.missing_fields},
+            ),
+            trace_id=getattr(request.state, "trace_id", None),
+        )
 
+    await session.commit()
     return ApiResponse(
         success=True,
-        data={
-            "status": "interrupted",
-            "message": "High-risk action requires approval",
-            "approval_id": str(approval.id),
-            "run_id": run_id,
-            "proposed_action": interrupt_data.get("proposed_action"),
-            "risk_level": interrupt_data.get("risk_level"),
-            "expires_at": expires_at.isoformat(),
-        },
+        data=wait_payload,
         trace_id=getattr(request.state, "trace_id", None),
     )
 

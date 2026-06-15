@@ -12,9 +12,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
+from langgraph.errors import GraphInterrupt
+from pydantic import ValidationError
 from fastapi import APIRouter, Depends, HTTPException, Request, Security
 from sqlalchemy import select
-from langgraph.errors import GraphInterrupt
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sse_starlette.sse import EventSourceResponse
 
@@ -23,12 +24,14 @@ from src.agent.nodes.final_response import final_response as build_final_respons
 from src.agent.trace import build_trace_summary, write_agent_run, write_agent_steps
 from src.api.schemas.agent_runs import CreateRunRequest, RunStatusResponse
 from src.api.schemas.common import ApiResponse
+from src.approvals.schemas import ApprovalRequestCreateCommand
+from src.approvals.service import ApprovalService, ApprovalTransitionError
 from src.auth.jwt import ROLE_SCOPES
 from src.auth.permissions import get_current_user
 from src.db.models import AgentRun, User
 from src.db.session import get_session
-from src.repositories.approval_repo import ApprovalRepository
 from src.repositories.trace_repo import TraceRepository
+from src.knowledge.schemas import EvidenceRefV1
 
 
 router = APIRouter(tags=["agent-runs"])
@@ -41,6 +44,8 @@ SCOPE_TO_TOOL_PERMISSION = {
     "tickets:read": "tool:get_ticket",
     "knowledge:read": "tool:search_policy",
 }
+APPROVAL_ALLOWED_DECISION_TYPES = ["accept", "approve", "reject", "ignore"]
+APPROVAL_NOT_EXECUTABLE = "APPROVAL_NOT_EXECUTABLE"
 
 NODE_MESSAGES: dict[str, str] = {
     "receive_request": "正在接收请求",
@@ -369,20 +374,37 @@ async def _handle_approval_required(
     completed_at = datetime.now(timezone.utc)
     interrupt_data = _extract_interrupt_data(exc_or_data)
     persisted_steps = _with_approval_gate_step(trace_steps, completed_at)
-    approval_repo = ApprovalRepository(session)
-    expires_at = _parse_expires_at(interrupt_data.get("expires_at"))
-    approval = await approval_repo.create(
-        run_id=run.id,
-        tenant_id=user.tenant_id,
-        requested_by=user.id,
-        proposed_action=interrupt_data.get("proposed_action") or {},
-        risk_level=interrupt_data.get("risk_level") or "high",
-        risk_rule_ref=interrupt_data.get("risk_rule_ref"),
-        risk_reason=interrupt_data.get("risk_reason"),
-        expires_at=expires_at,
-        thread_id=run.thread_id,
-    )
-    await approval_repo.add_step(approval.id, event_type="created", actor_id=user.id)
+    try:
+        wait_payload = await _create_approval_wait_payload_from_interrupt(
+            session=session,
+            user=user,
+            run_id=run.id,
+            thread_id=run.thread_id,
+            interrupt_data=interrupt_data,
+        )
+    except ApprovalInterruptValidationError as exc:
+        await _complete_run(
+            session=session,
+            run=run,
+            final_status="error",
+            final_response=None,
+            completed_at=completed_at,
+            total_latency_ms=round((time.perf_counter() - t0) * 1000),
+            trace_steps=persisted_steps,
+        )
+        yield _sse_event(
+            event_type="error",
+            run_id=str(run.id),
+            step_index=step_index,
+            node_name="approval_gate",
+            status="failed",
+            message="Approval request is missing executable snapshot bindings",
+            payload={
+                "error_code": APPROVAL_NOT_EXECUTABLE,
+                "missing_fields": exc.missing_fields,
+            },
+        )
+        return
     await _complete_run(
         session=session,
         run=run,
@@ -399,12 +421,117 @@ async def _handle_approval_required(
         node_name="approval_gate",
         status="waiting_approval",
         message="需要审批，等待人工决策",
-        payload={
-            "approval_id": str(approval.id),
-            "proposed_action": interrupt_data.get("proposed_action"),
-            "risk_level": interrupt_data.get("risk_level"),
-        },
+        payload=wait_payload,
     )
+
+
+class ApprovalInterruptValidationError(ValueError):
+    """Raised when an interrupt payload cannot create an executable approval request."""
+
+    def __init__(self, missing_fields: list[str]) -> None:
+        super().__init__(", ".join(missing_fields))
+        self.missing_fields = missing_fields
+
+
+async def _create_approval_wait_payload_from_interrupt(
+    *,
+    session: AsyncSession,
+    user: User,
+    run_id: UUID,
+    thread_id: str,
+    interrupt_data: dict[str, Any],
+) -> dict[str, Any]:
+    command = _approval_create_command_from_interrupt(
+        user=user,
+        run_id=run_id,
+        thread_id=thread_id,
+        interrupt_data=interrupt_data,
+    )
+    try:
+        result = await ApprovalService(session).create_request(command)
+    except ApprovalTransitionError as exc:
+        raise ApprovalInterruptValidationError([exc.code]) from exc
+
+    revision_ref = {
+        "approval_id": str(result.approval_id),
+        "revision": result.revision,
+        "request_version": result.request_version,
+        "level_id": str(result.level_id),
+        "level_version": result.level_version,
+        "assignment_id": str(result.assignment_id),
+        "assignment_version": result.assignment_version,
+    }
+    expires_at = _parse_expires_at(interrupt_data.get("expires_at"))
+    return {
+        "status": "interrupted",
+        "message": "High-risk action requires approval",
+        "approval_id": str(result.approval_id),
+        "run_id": str(run_id),
+        "proposed_action": interrupt_data.get("proposed_action"),
+        "risk_level": interrupt_data.get("risk_level"),
+        "risk_reason": interrupt_data.get("risk_reason"),
+        "risk_rule_ref": interrupt_data.get("risk_rule_ref"),
+        "expires_at": expires_at.isoformat(),
+        "approval_revision_refs": [revision_ref],
+        "expected_request_version": result.request_version,
+        "expected_level_version": result.level_version,
+        "expected_assignment_version": result.assignment_version,
+        "expected_revision": result.revision,
+        "action_payload_hash": result.action_payload_hash,
+        "safety_snapshot_ref": result.safety_snapshot_ref,
+        "safety_snapshot_hash": result.safety_snapshot_hash,
+        "allowed_decision_types": APPROVAL_ALLOWED_DECISION_TYPES,
+    }
+
+
+def _approval_create_command_from_interrupt(
+    *,
+    user: User,
+    run_id: UUID,
+    thread_id: str,
+    interrupt_data: dict[str, Any],
+) -> ApprovalRequestCreateCommand:
+    required_fields = [
+        "proposed_action",
+        "action_payload_hash",
+        "safety_snapshot_ref",
+        "safety_snapshot_hash",
+        "policy_config_version",
+        "risk_config_version",
+        "retrieval_config_version",
+        "evidence_refs",
+    ]
+    missing = [field for field in required_fields if not interrupt_data.get(field)]
+    if missing:
+        raise ApprovalInterruptValidationError(missing)
+
+    try:
+        evidence_refs = [EvidenceRefV1.model_validate(ref) for ref in interrupt_data["evidence_refs"]]
+        return ApprovalRequestCreateCommand.model_validate(
+            {
+                "tenant_id": user.tenant_id,
+                "run_id": run_id,
+                "thread_id": thread_id,
+                "requested_by": user.id,
+                "proposed_action": interrupt_data["proposed_action"],
+                "action_payload_hash": interrupt_data["action_payload_hash"],
+                "safety_snapshot_ref": interrupt_data["safety_snapshot_ref"],
+                "safety_snapshot_hash": interrupt_data["safety_snapshot_hash"],
+                "approval_policy_id": interrupt_data.get("approval_policy_id") or "manual-review",
+                "policy_version": interrupt_data.get("policy_version") or "policy.v1",
+                "risk_level": interrupt_data.get("risk_level") or "high",
+                "risk_rule_ref": interrupt_data.get("risk_rule_ref"),
+                "risk_reason": interrupt_data.get("risk_reason"),
+                "policy_config_version": interrupt_data["policy_config_version"],
+                "risk_config_version": interrupt_data["risk_config_version"],
+                "retrieval_config_version": interrupt_data["retrieval_config_version"],
+                "evidence_refs": evidence_refs,
+                "created_at": _fixed_millisecond_now(),
+                "expires_at": _parse_expires_at(interrupt_data.get("expires_at")),
+            }
+        )
+    except (TypeError, ValueError, ValidationError) as exc:
+        raise ApprovalInterruptValidationError(["approval_request_payload"]) from exc
 
 
 async def _claim_pending_run_for_stream(session: AsyncSession, run_id: UUID, user: User) -> AgentRun:
@@ -627,6 +754,11 @@ def _extract_interrupt_data(exc_or_data: Any) -> dict[str, Any]:
             if isinstance(value, dict):
                 return value
     return {}
+
+
+def _fixed_millisecond_now() -> datetime:
+    now = datetime.now(timezone.utc)
+    return now.replace(microsecond=(now.microsecond // 1000) * 1000)
 
 
 def _parse_expires_at(value: Any) -> datetime:
