@@ -4,14 +4,14 @@ milestone: v1.1
 milestone_name: Agent Architecture Migration
 status: executing
 stopped_at: Phase 14 revised
-last_updated: "2026-06-15T18:39:27.376Z"
-last_activity: 2026-06-16 -- Phase 14 revised with 6 executable plans
+last_updated: "2026-06-15T22:43:21.547Z"
+last_activity: 2026-06-16 -- Phase 14 Wave 1 complete; 14-02 ready
 progress:
   total_phases: 11
   completed_phases: 7
   total_plans: 48
-  completed_plans: 42
-  percent: 88
+  completed_plans: 43
+  percent: 90
 ---
 
 # Project State: MOCA
@@ -25,13 +25,13 @@ See: `.planning/PROJECT.md`
 
 ## Current Position
 
-Phase: 14
-Plan: Not started
+Phase: 14 (demo-action-executor-boundary) — EXECUTING
+Plan: 2 of 6
 Plans: 6 planned
-Status: Ready to execute
-Last activity: 2026-06-16 -- Phase 14 revised with 6 executable plans
+Status: Wave 1 complete; ready for 14-02
+Last activity: 2026-06-16 -- Phase 14 Wave 1 complete; 14-02 ready
 
-Progress: [█████████░] 88%
+Progress: [█████████░] 90%
 
 ## Completed Baseline
 
@@ -82,6 +82,7 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Legacy approval model tests now assert ApprovalService semantics, including terminal conflicts and legacy_v1 fail-closed behavior, rather than v1 repository idempotency.
 - Phase 13 full pytest gate blocker was resolved; coverage records P13-BLOCK-FULL-PYTEST as RESOLVED, and phase verification passed 12/12 must-haves after `uv run pytest -q --tb=short` and `uv run ruff check src tests` passed.
 - Phase 13 approval-contract eval manifest uses a real dataset hash computed from the frozen approval-focused test corpus instead of the placeholder hash.
+- Phase 14 action drafts use tenant-scoped unique `(tenant_id, idempotency_key)` and persist v2 draft binding/outcome columns; contract `proposed_action` remains stored in the existing `ActionDraft.payload` JSONB column.
 
 ## Blockers / Concerns
 
@@ -124,14 +125,15 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | 13 | 06 | 15 min | 3 | 10 |
 | 13 | 07 | 10 min | 3 | 7 |
 | 13 | 08 | 15 min | 2 | 3 |
+| 14 | 01 | 5 min | 3 | 5 |
 
 ## Session Continuity
 
-Last session: Phase 14 revised
-Stopped at: Phase 14 revised
-Resume file: --resume-file
+Last session: Phase 14 Wave 1 complete
+Stopped at: Completed 14-01-PLAN.md
+Resume file: None
 
-**Next:** Execute Phase 14 demo-action-executor-boundary
+**Next:** Execute Phase 14 Wave 2 with 14-02-PLAN.md
 
 **Completed Phase:** Phase 13 (Approval State Machine) — 2026-06-15
 
