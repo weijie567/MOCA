@@ -118,7 +118,7 @@ MOCA 的目标架构是：面向商家运营与售后协同的企业级 Agent �
 | Capability | Current evidence | Current limitation | Target contract | Migration phase |
 | --- | --- | --- | --- | --- |
 | AgentState lifecycle | `src/agent/state.py` 定义字段约定；`receive_request` 主动 reset 部分 ephemeral 字段。 | 当前不是 schema-level enforcement；writer、scope、reset/merge 规则未被统一验证。 | 第 10.1 节 lifecycle matrix；trusted fields 不可被 LLM 覆盖；router/state property tests。 | Phase 10 |
-| Slot routing | 当前 graph 有 intent、slot extraction 和跨 turn active slots。 | session memory load/slot merge 尚未形成统一目标顺序；`A or B` required slot 无结构化表达。 | `intent -> session_memory_load -> slot_extraction -> resolve_slots -> route_after_slots`；`RequiredSlotExpression`。 | Phase 10, Phase 12 |
+| Slot routing | 当前 graph 已有 `classify_intent -> session_memory_load -> extract_slots -> route_after_slots`，并使用 `RequiredSlotExpression` 表达 all-of / any-of slots。 | long-term memory 仍是 empty adapter；slot freshness / inheritance eval 仍需随真实案例校准。 | `classify_intent -> session_memory_load -> extract_slots -> resolve_slots -> route_after_slots`；session slots 必须满足 scope、freshness 和 intent compatibility。 | Phase 10, Phase 12 |
 | Approval | 已有 interrupt/resume、approve/reject、审批持久化。 | 无 request/level/assignment version CAS、multi-level 聚合和 exact revision execution guard。 | 第 15 节 versioned approval state machine 和 optimistic locking。 | Phase 13 |
 | Action | 已有 durable `ActionDraft` 和 idempotency key。 | demo/external outcome contract 未完全分离；无 external executor/reconciliation。 | demo 只写 draft + `draft_outcome`；external 原子校验后执行。 | Phase 14, Phase 17 |
 | Replay | 已有 AgentRun/AgentStep 和组合 timeline。 | 事件枚举和 lifecycle coverage 不完整；不是统一 V3 event store。 | ReplayEventV3、稳定 sequence、完整 lifecycle enum 和 retention。 | Phase 15 |
@@ -221,51 +221,145 @@ graph TB
     TraceStore --> Persistence
 ```
 
-### 7.2 受控 ReAct 工作流图
+### 7.2 当前实现图
 
-这张图表达目标 graph 的核心控制模型：外层是 deterministic LangGraph shell，只有 `investigate` registered node 内部允许 LLM 做 bounded read-only tool loop。LLM 在该 loop 内只能从 allowlist 选择下一次只读调查调用；写动作、风险判断、审批、动作草稿和真实执行都在 loop 外，由 deterministic router 和 service contract 控制。
-
-当前 `src/agent/graph.py` 仍是较线性的 10 节点主链。目标迁移不是追求更多节点，而是把“可自由推理的调查”和“必须代码控制的动作路径”分开：
-
-- ReAct 只存在于 `investigate` 内部。
-- `investigate` 只允许 BusinessToolService / KnowledgeService / memory read service 的只读调用。
-- `investigate` 不产生外部路由决策；它只写累积调查 state 和 `termination_reason`。
-- 所有外部路由均由 deterministic router 完成。
-- `risk_gate -> approval_gate -> action_draft -> action_execution` 永远不在 ReAct loop 内。
-- `long_term_memory_retrieve` 是可选 read seam；只有 intent/routing hints 需要稳定偏好、商家长期模式或历史上下文时才进入，不能成为所有 slot-complete 路径的默认必经节点。
-
-第 7 节图仅是 illustrative view。第 9.4 节 node contract table 和第 9.5 节 router contract table 是 normative source；图中不得引入与其冲突的 edge。
-
-图中的 `security_context` 是 trusted context injection / API-auth boundary，不建议注册为 LangGraph node；`resolve_slots` 是 deterministic helper；多个 `final_response` 入边表示同一个 registered node 的不同 response mode。
+这张图按当前 `src/agent/graph.py` 的 registered nodes 和 conditional edges 表达真实运行链路。它不是完整目标架构；`normalize_input`、`memory_write`、`trace_close`、独立 `action_draft` / `action_execution` 还没有作为 registered graph node 出现在主链中。
 
 ```mermaid
 graph TD
     START([START]) --> Receive[receive_request]
-    Receive --> Normalize[normalize_input]
-    Normalize --> Intent[intent_classification]
+    Receive --> Intent[classify_intent]
 
     Intent --> IntentRoute{route_after_intent}
-    IntentRoute -->|low confidence| Clarify[clarification_gate]
+    IntentRoute -->|clarify| Clarify[clarification_gate]
+    IntentRoute -->|direct response| Final[final_response]
+    IntentRoute -->|policy/read path| Investigate[investigate]
+    IntentRoute -->|needs slots| SessionLoad[session_memory_load]
+
+    SessionLoad --> SlotExtract[extract_slots]
+    SlotExtract --> SlotRoute{route_after_slots}
+    SlotRoute -->|missing| Clarify
+    SlotRoute -->|slots ok| Investigate
+    SlotRoute -->|needs long-term memory| LongMem[long_term_memory_retrieve]
+    LongMem --> Investigate
+
+    Investigate --> InvestigateRoute{route_after_investigate}
+    InvestigateRoute -->|missing facts| Clarify
+    InvestigateRoute -->|final/insufficient| Final
+    InvestigateRoute -->|sufficient context| Reco[generate_recommendation]
+
+    Clarify --> Final
+    Reco --> Risk[assess_risk_and_approval]
+    Risk --> RiskRoute{route_after_risk}
+    RiskRoute -->|approval required| Approval[approval_gate]
+    RiskRoute -->|draft action| Execute[execute_action]
+    RiskRoute -->|no action| Final
+
+    Approval --> ApprovalRoute{route_after_approval}
+    ApprovalRoute -->|approved| Execute
+    ApprovalRoute -->|rejected / not approved| Final
+    Execute --> Final
+    Final --> END([END])
+```
+
+当前实现的关键约束：
+
+- `investigate` 通过 `UnifiedToolManager.descriptors("investigate")` 获取 planner-visible read/retrieval capability view，并通过 `UnifiedToolManager.invoke(...)` 调用工具。
+- `execute_action` 通过 node-only `create_coupon_grant_draft` capability 创建 durable action draft；当前 demo path 不执行真实外部退款、发券或封禁动作。
+- `long_term_memory_retrieve` 是 empty adapter；`search_case_memory` 当前是 session-derived precedent 过渡实现，不等于 reviewed case memory。
+- `memory_write` 不是当前主 graph 的 registered node；session memory write 属于 response 后续/运行时边界。
+
+当前工具调用边界如下。`UnifiedToolManager` 不是 LangGraph registered node，但它必须在架构图中显式出现，因为它是 agent-facing descriptor、caller allowlist、permission、schema 和 side-effect 检查入口。
+
+```mermaid
+graph LR
+    Investigate[investigate node] --> PlannerView[UnifiedToolManager\nplanner-visible view]
+    PlannerView --> BusinessExec[BusinessToolExecutor]
+    PlannerView --> KnowledgeExec[KnowledgeToolExecutor]
+    PlannerView --> MemoryExec[MemoryToolExecutor]
+    BusinessExec --> BusinessSvc[BusinessToolService]
+    KnowledgeExec --> KnowledgeSvc[PolicyKnowledgeService]
+    MemoryExec --> MemorySvc[SessionPrecedentSearchService]
+
+    Execute[execute_action node] --> NodeOnly[UnifiedToolManager\nnode-only view]
+    NodeOnly --> ActionExec[ActionToolExecutor]
+    ActionExec --> ActionSvc[ActionDraftService]
+```
+
+#### 当前 registered node 边界
+
+| 当前 LangGraph 节点 | 节点职责 | 调用的 service / contract |
+| --- | --- | --- |
+| `receive_request` | 初始化 run、thread、ephemeral state、trace step | Run context / trace helper |
+| `classify_intent` | 输出 primary_intent、requested_operation、confidence、routing hints | LLM structured output / IntentPrompt + `INTENT_DEFINITIONS` policy |
+| `session_memory_load` | 读取同 thread active slots、summary、unresolved questions | MemoryService session read |
+| `extract_slots` | 提取订单、退款、工单、金额、商家等 slots | LLM structured output / SlotPrompt |
+| `long_term_memory_retrieve` | 预留读取稳定偏好或商家长期模式 | Empty adapter until long-term memory lands |
+| `investigate` | 在 bounded loop 内通过统一工具层只读拉取 business context / policy evidence / session-derived precedent | `UnifiedToolManager` planner-visible view -> business / knowledge / memory executors |
+| `generate_recommendation` | 生成处理建议和 proposed_action candidate | LLM structured output / RecommendationPrompt + KnowledgeService citation verification |
+| `assess_risk_and_approval` | 评估风险、审批需求、动作是否可自动草稿 | RiskPolicy / ApprovalPolicy semantics |
+| `clarification_gate` | 生成澄清问题或缺失信息说明 | Clarification policy / Final response template |
+| `approval_gate` | 创建 interrupt，等待 approve/reject resume | ApprovalService / LangGraph interrupt |
+| `execute_action` | 在审批/风险路由后创建 durable action draft | `UnifiedToolManager` node-only view -> ActionToolExecutor |
+| `final_response` | 生成面向用户的最终回复 | Deterministic template or FinalResponsePrompt |
+
+当前 router 函数包括：
+
+- `route_after_intent`
+- `route_after_slots`
+- `route_after_investigate`
+- `route_after_risk`
+- `route_after_approval`
+
+这些函数只读取 `AgentState` 并返回下一个 node key，不应调用 LLM、tools、repositories 或外部 API。
+
+### 7.3 目标受控工作流图
+
+这张图表达目标 graph 的核心控制模型：外层是 deterministic LangGraph shell，只有 `investigate` registered node 内部允许 bounded read-only tool loop。LLM 在该 loop 内只能从 `UnifiedToolManager` 的 planner-visible capability view 选择下一次只读调查调用；写动作、风险判断、审批、动作草稿和未来真实外部执行都在 loop 外，由 deterministic router 和 service contract 控制。
+
+目标迁移不是追求更多节点，而是把“可自由推理的调查”和“必须代码控制的动作路径”分开：
+
+- ReAct 只存在于 `investigate` 内部。
+- `investigate` 只允许通过 `UnifiedToolManager` 调用 planner-visible read/retrieval tools。
+- `UnifiedToolManager` 是 agent-facing descriptor、caller allowlist、permission、schema、side-effect 检查入口。
+- `investigate` 不产生外部路由决策；它只写累积调查 state 和 `termination_reason`。
+- 所有外部路由均由 deterministic router 完成。
+- `assess_risk_and_approval -> approval_gate -> execute_action/create_draft` 永远不在 ReAct loop 内。
+- 真实外部 `action_execution` 是 future branch；demo/current path 只创建 action draft。
+- `long_term_memory_retrieve` 是可选 read seam；只有 intent/routing hints 需要稳定偏好、商家长期模式或历史上下文时才进入，不能成为所有 slot-complete 路径的默认必经节点。
+- `memory_write` 和 `trace_close` 可以是 post-response/runtime concern，不必强制成为主 graph registered nodes。
+
+第 7 节图仅是 illustrative view。第 9.4 节 node contract table 和第 9.5 节 router contract table 是 normative source；图中不得引入与其冲突的 edge。
+
+图中的 `security_context` 是 trusted context injection / API-auth boundary，不建议注册为 LangGraph node；`normalize_input` 可作为 `receive_request` 内 helper，除非后续需要独立 trace/eval；`resolve_slots` 是 deterministic helper；多个 `final_response` 入边表示同一个 registered node 的不同 response mode。
+
+```mermaid
+graph TD
+    START([START]) --> Receive[receive_request]
+    Receive --> Intent[classify_intent]
+
+    Intent --> IntentRoute{route_after_intent}
+    IntentRoute -->|low confidence / untrusted approval chat| Clarify[clarification_gate]
     IntentRoute -->|small_talk / unsupported| Final[final_response]
     IntentRoute -->|policy-only| Investigate
     IntentRoute -->|needs slots| SessionLoad[session_memory_load]
 
-    SessionLoad --> SlotExtract[slot_extraction]
+    SessionLoad --> SlotExtract[extract_slots]
     SlotExtract --> SlotRoute{route_after_slots}
     SlotRoute -->|missing after merge| Clarify
     SlotRoute -->|slots ok + needs long-term memory| LongMem[long_term_memory_retrieve]
     SlotRoute -->|slots ok + skip long-term memory| Investigate
     LongMem --> Investigate
 
-    subgraph ControlledReAct["investigate registered node: controlled ReAct read loop"]
-        Investigate[enter investigate] --> Plan[LLM planner\nsingle next read step]
-        Plan --> ToolChoice{allowlisted read?}
-        ToolChoice -->|business fact| BizRead[BusinessToolService.invoke_tool]
-        ToolChoice -->|policy evidence| KnowledgeRead[KnowledgeService.search]
-        ToolChoice -->|case memory| CaseRead[SessionPrecedentSearchService]
-        BizRead --> Accumulate[accumulate state + trace event]
-        KnowledgeRead --> Accumulate
-        CaseRead --> Accumulate
+    subgraph ControlledReadLoop["investigate registered node: controlled read loop"]
+        Investigate[enter investigate] --> Plan[bounded planner\nsingle next read step]
+        Plan --> Manager[UnifiedToolManager\nplanner-visible view + invoke checks]
+        Manager -->|business executor| BizExec[BusinessToolExecutor\nBusinessToolService]
+        Manager -->|knowledge executor| KnowledgeExec[KnowledgeToolExecutor\nPolicyKnowledgeService]
+        Manager -->|memory executor| MemoryExec[MemoryToolExecutor\nSessionPrecedentSearchService]
+        BizExec --> Accumulate[accumulate state + trace event]
+        KnowledgeExec --> Accumulate
+        MemoryExec --> Accumulate
         Accumulate --> Continue{continue?}
         Continue -->|yes + within max_iterations/deadline| Plan
         Continue -->|stop / enough / no useful tools / error| InvestigateDone[exit investigate\nwrite termination_reason]
@@ -274,78 +368,45 @@ graph TD
     InvestigateDone --> InvestigateRoute{route_after_investigate}
     InvestigateRoute -->|missing facts| Clarify
     InvestigateRoute -->|permission denied / fact-only / insufficient evidence| Final
-    InvestigateRoute -->|sufficient context| Reco[recommendation_generation]
+    InvestigateRoute -->|sufficient context| Reco[generate_recommendation]
 
-    Reco --> RecoRoute{route_after_recommendation}
-    RecoRoute -->|no action| Final
-    RecoRoute -->|proposed action or risk signal| Risk[risk_gate]
-
+    Reco --> Risk[assess_risk_and_approval]
     Risk --> RiskRoute{route_after_risk}
     RiskRoute -->|blocked / no action| Final
     RiskRoute -->|approval required| Approval[approval_gate]
-    RiskRoute -->|auto allowed| Draft[action_draft]
+    RiskRoute -->|draft allowed| Draft[execute_action\ncreate action draft]
 
     Approval --> ApprovalRoute{route_after_approval}
     ApprovalRoute -->|approved| Draft
-    ApprovalRoute -->|edit| Risk
-    ApprovalRoute -->|next level pending| Approval
-    ApprovalRoute -->|respond / needs info| TraceClose[trace_close]
     ApprovalRoute -->|reject / ignore / expired| Final
-
-    Draft --> DraftRoute{route_after_action_draft}
-    DraftRoute -->|demo| Final
-    DraftRoute -->|external| Execute[action_execution]
-    Execute --> Final
+    Draft --> Final
+    Draft -. future external adapter .-> ExternalExecute[action_execution]
+    ExternalExecute --> Final
     Clarify --> Final
-    Final --> MemoryWrite[memory_write]
-    MemoryWrite --> TraceClose
+    Final -. optional post-response .-> MemoryWrite[memory_write]
+    Final -. runtime close .-> TraceClose[trace_close]
     TraceClose --> END([END])
+    MemoryWrite --> TraceClose
+    Final --> END
 ```
 
-#### 节点与 service 边界
+目标-only / optional concepts：
 
-| LangGraph 节点 | 节点职责 | 调用的 service / contract |
-| --- | --- | --- |
-| `receive_request` | 初始化 run、thread、ephemeral state、trace step | Run context / trace helper |
-| `normalize_input` | 清洗 query、语言/渠道标准化 | 无或 InputNormalizer |
-| `intent_classification` | 输出 primary_intent、requested_operation、confidence、routing hints | LLM structured output / IntentPrompt + `INTENT_DEFINITIONS` policy |
-| `clarification_gate` | 生成澄清问题或缺失信息说明 | Clarification policy / Final response template |
-| `slot_extraction` | 提取订单、退款、工单、金额、商家等 slots | LLM structured output / SlotPrompt |
-| `session_memory_load` | 读取同 thread active slots、summary、unresolved questions | MemoryService session read |
-| `long_term_memory_retrieve` | 读取稳定偏好或商家长期模式 | MemoryService long-term search |
-| `investigate` | 按 intent 与调查计划，在 bounded tool loop 内只读拉取 business context / policy evidence / case memory | BusinessToolService read tools + KnowledgeService/RAG + session-derived precedent search（bounded loop, max_iterations） |
-| `recommendation_generation` | 生成处理建议和 proposed_action candidate | LLM structured output / RecommendationPrompt |
-| `risk_gate` | 评估风险、审批需求、动作是否可自动草稿 | RiskPolicy + ApprovalPolicy |
-| `approval_gate` | 创建 interrupt，等待 accept/edit/respond/reject/ignore | ApprovalService / LangGraph interrupt |
-| `action_draft` | 持久化动作草稿；demo mode 同时写非执行 outcome | ActionExecutor.create_draft |
-| `action_execution` | 仅 external adapter 执行 | ActionExecutor.execute |
-| `final_response` | 生成面向用户的最终回复 | Deterministic template or FinalResponsePrompt |
-| `memory_write` | 写 session memory，生成 long-term/case candidates | MemoryService write policy |
-| `trace_close` | 关闭 run，补全 timeline、metrics、audit | Observability / Replay service |
+- `normalize_input`：可以保持为 `receive_request` 内 helper；只有需要独立 trace/eval 时才注册成节点。
+- `route_after_recommendation`：可在 recommendation/risk path 变复杂后拆出；当前由 `generate_recommendation -> assess_risk_and_approval` 直接承接。
+- `action_draft` / `action_execution`：当前 demo path 折叠在 `execute_action` 创建 draft；真实外部执行前再拆 explicit draft/execution branch。
+- `memory_write`：可以作为 post-response async side effect，不应阻塞用户最终回复。
+- `trace_close`：更像 API/runtime/observability 收尾，不一定属于 LangGraph 主链。
 
-#### Router 函数不计入节点数
-
-Canonical router 函数包括：
-
-- `route_after_intent`
-- `route_after_slots`
-- `route_after_investigate`
-- `route_after_recommendation`
-- `route_after_risk`
-- `route_after_approval`
-- `route_after_action_draft`
-
-这些函数只读取 `AgentState` 并返回下一个 node key，不应调用 LLM、tools、repositories 或外部 API。
-
-### 7.3 读法和可回退边界
+### 7.4 读法和可回退边界
 
 - 能力边界图用于说明模块边界。
-- 受控 ReAct 工作流图用于说明一个 Agent run 如何按 intent、只读调查、风险和审批条件流转。
+- 当前实现图用于说明 `src/agent/graph.py` 已注册的真实节点和 edge。
+- 目标受控工作流图用于说明一个 Agent run 如何按 intent、只读调查、风险和审批条件流转。
 - 第 7 节图是 illustrative；第 9.4/9.5 节 contract table 是 normative source，任何实现和 review 冲突均以第 9 节为准。
 - 所有 Mermaid 图均为 illustrative；第 9-18 节 contract tables 是 normative source。
 - 目标设计不要求一次性实现全部节点；节点数不是验收标准，节点输入/输出、状态写入、side effect 和路由确定性才是验收标准。
-- 本次图表精简是文档层变更，不改变 `docs/contract-spec.md` 的 normative contract，也不要求修改 `src/agent/graph.py`。
-- 若需要回退本次精简，只恢复本文件第 7 节到上一个 git 版本；不需要改动代码、数据库迁移或 contract-spec。若只想保留旧三图作为参考，可从 git diff 中恢复原 `7.2 V2 细粒度流程路由图` 与 `7.3 V2 严格 LangGraph 节点图` 到附录。
+- 文档中的 target-only 节点不表示当前已经实现；当前实现以 `src/agent/graph.py` 和本节 7.2 为准。
 
 ---
 

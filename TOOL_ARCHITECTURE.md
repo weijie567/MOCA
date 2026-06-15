@@ -1,24 +1,25 @@
 # Tool Architecture
 
-本文定义 MOCA 的目标工具架构。目标是简洁、统一、边界清楚：一个
-agent-facing 调用入口，一个全量工具目录，一套上下文和结果契约，同时严格区分
-只读、检索、记忆和动作写入。
+本文定义 MOCA 的目标工具架构。目标是简洁、统一、边界清楚：agent-facing
+tool 调用通过一个入口，一个全量工具目录，一套上下文和结果契约，同时严格区分
+只读、检索、记忆读取和动作写入。
 
 ## 设计目标
 
-- 所有 graph-facing capability 只通过一个入口调用。
+- 所有 agent-facing / tool-selectable capability 只通过一个入口调用。
 - 工具权限、输入输出 schema、caller allowlist、exposure、副作用、事件族和审计要求在一个目录中声明。
 - Catalog 是全量声明源，但 manager 必须按 caller 派生 capability view；统一 catalog 不等于统一暴露给模型。
 - Graph node 保持轻量：node 决定何时需要能力；工具层决定是否允许调用以及如何执行。
 - 统一管理不等于放开写操作。写工具必须继续受 risk、approval、snapshot、idempotency 约束。
-- 原始工具函数降级为内部 adapter，不再作为 graph-facing tool 暴露。
+- 原始工具函数降级为内部 adapter，不再作为 agent-facing tool 暴露。
+- Post-response/runtime hooks（例如当前 session `memory_write` 和 future `trace_close`）可以直接调用 domain service；只要它们不是 planner/tool-selectable capability，就不必为了形式统一强制经过 manager。
 
 ## 核心模型
 
-目标调用链如下：
+agent-facing tool 调用链如下：
 
 ```text
-Graph node
+Graph node / tool caller
   -> UnifiedToolManager.invoke(tool_name, args, context)
     -> ToolCatalog 查 descriptor
     -> caller / permission / schema / side_effect / approval 校验
@@ -27,28 +28,33 @@ Graph node
         -> raw adapter / repository / external API
 ```
 
-`UnifiedToolManager` 是 graph-facing 的唯一工具分发层。任何 graph node 可调用的能力都必须：
+`UnifiedToolManager` 是 agent-facing tool 的唯一分发层。任何 graph node 要暴露为
+tool capability 的能力都必须：
 
 1. 在 `ToolCatalog` 中声明；
 2. 通过 `UnifiedToolManager.invoke(...)` 执行；
 3. 返回统一 `ToolResult` envelope。
 
-Domain service 继续负责领域逻辑。manager 不应该知道如何查订单、如何做 RAG、如何写记忆、如何创建动作草稿；manager 只负责通用契约和安全边界，然后委托给对应 executor。
+Domain service 继续负责领域逻辑。manager 不应该知道如何查订单、如何做 RAG、如何写记忆、如何创建动作草稿；manager 只负责 agent-facing tool 的通用契约和安全边界，然后委托给对应 executor。
+
+Deterministic runtime hook 不是 tool capability。它可以在 graph/runtime 固定路径中直接调用
+domain service，但必须保留自己的安全、PII、timeout、event 和 safe-error 契约，并且不得
+直接 import raw adapter。
 
 Manager 对 catalog 生成不同 view：
 
 ```text
-planner-visible view   -> investigate 可选择：read / retrieval / memory read
-node-only action view  -> execute_action 可调用：action draft / action execute
-node-only memory view  -> memory_write 可调用：memory write
-internal view          -> service / adapter 内部实现，不给 graph 或 planner
+planner-visible view        -> investigate 可选择：read / retrieval / memory read
+node-only action view       -> execute_action 可调用：action draft / action execute
+future node-only memory view -> 如果 memory write 暴露为工具能力，memory_write 才通过该 view 调用
+internal view               -> service / adapter 内部实现，不给 graph 或 planner
 ```
 
 ## 概念边界
 
 ### Tool
 
-Tool 是 graph-facing capability，必须在 catalog 中声明。示例：
+Tool 是 agent-facing / tool-selectable capability，必须在 catalog 中声明。示例：
 
 - `get_order`
 - `get_refund_case`
@@ -85,7 +91,7 @@ Executor 不应该承载复杂业务逻辑。它只做 context/args 映射、调
 
 ## Tool Catalog
 
-Catalog 是 graph-facing capability 的唯一声明源。每个工具 descriptor 至少包含：
+Catalog 是 agent-facing / tool-selectable capability 的唯一声明源。每个工具 descriptor 至少包含：
 
 ```python
 class ToolDescriptor(BaseModel):
@@ -114,11 +120,11 @@ class ToolDescriptor(BaseModel):
 
 规则：
 
-- 所有 graph-facing capability 都必须有 descriptor。
+- 所有 agent-facing / tool-selectable capability 都必须有 descriptor。
 - graph node 只能调用 `caller_allowlist` 中包含自己的工具。
 - planner 只能看到 `exposure="planner_visible"` 且 caller 为 `investigate` 的只读/检索/记忆读工具。
 - `execute_action` 只能看到 `exposure="node_only"` 且 caller 为 `execute_action` 的 action 工具。
-- `memory_write` 只能看到 `exposure="node_only"` 且 caller 为 `memory_write` 的 memory write 工具。
+- 如果 memory write 被建模为 tool capability，`memory_write` 只能看到 `exposure="node_only"` 且 caller 为 `memory_write` 的 memory write 工具；当前 session memory write 可以作为 post-response runtime hook 直接调用 `MemoryService`。
 - action 工具可以在同一个 catalog 中声明，但不能从 `investigate` 执行。
 - `external_write` 必须要求 approval、safety snapshot 和 idempotency context。
 - 未实现但已规划的工具可以先声明；执行时返回安全的 `unavailable`。
@@ -144,7 +150,7 @@ class ToolCallContext(BaseModel):
 
 ## Unified Result
 
-所有工具返回统一结果 envelope：
+所有 manager-managed 工具返回统一结果 envelope：
 
 ```python
 class ToolResult(BaseModel):
@@ -174,7 +180,7 @@ class ToolResult(BaseModel):
     audit_ref: str | None = None
 ```
 
-当前代码中的 `ToolResultV2` 可以演进成这个形态。关键原则是：graph node 不关心后端是业务数据库、RAG、记忆服务还是动作执行器，统一消费同一个结果 envelope。
+当前代码中的 `ToolResultV2` 可以演进成这个形态。关键原则是：调用 manager 的 graph node 不关心后端是业务数据库、RAG、记忆服务还是动作执行器，统一消费同一个结果 envelope。
 
 ## Manager 执行策略
 
@@ -231,9 +237,13 @@ Manager 是唯一执行 agent-facing 校验的位置。Domain service 不重复�
 
 模型不能直接选择 action execution tool。是否进入 action path 由 graph 的 deterministic routing 决定。
 
-### Memory Write Node
+### Memory Write Runtime Boundary
 
-允许：
+当前 session `memory_write` 是 deterministic post-response/runtime hook，不是 planner 可选工具。
+它可以直接调用 `MemoryService`，因为它的输入来自已完成 run state 和 deterministic memory
+write policy，而不是模型自由选择的 tool args。
+
+如果未来将 memory write 暴露为 manager-managed tool capability，则允许：
 
 - `memory_write`
 
@@ -242,6 +252,13 @@ Manager 是唯一执行 agent-facing 校验的位置。Domain service 不重复�
 - final response 或 outcome state；
 - deterministic memory write policy；
 - 对模型生成内容做结构化校验后才能写入。
+
+无论是否经过 manager，memory write 都必须满足：
+
+- 不进入 `investigate` planner-visible view。
+- 不阻塞最终用户回复。
+- 不把 raw exception、raw state、prompt 或未脱敏 payload 写入用户可见状态或 trace event。
+- 保留 PII/tombstone/review/identity 等 memory-specific rules。
 
 ## 推荐目录结构
 
@@ -289,10 +306,11 @@ src/integrations/
 依赖方向必须保持：
 
 ```text
-graph nodes -> src/tools -> domain services -> integrations/repositories
+agent-facing tools: graph nodes -> src/tools -> domain services -> integrations/repositories
+runtime hooks: graph/runtime -> domain services -> repositories
 ```
 
-Domain service 不 import graph node。Raw adapter 不 import manager。Domain service 不再定义第二套 agent-facing tool registry。
+Domain service 不 import graph node。Raw adapter 不 import manager。Domain service 不再定义第二套 agent-facing tool registry。Deterministic runtime hook 可以调用 domain service，但不能直接调用 raw adapter。
 
 ## 迁移计划
 
@@ -314,7 +332,7 @@ Domain service 不 import graph node。Raw adapter 不 import manager。Domain s
 - 下线 `src/agent/tools/contracts.py` 和 `src/agent/tools/registry.py`。
 - 移除 `BusinessToolService` 内部 agent-facing catalog/manager 职责。
 - policy search 兼容测试迁移到 unified manager 路径。
-- graph-facing 调用不再使用旧 `ToolInvocationContext` / `ToolExecutionResult`。
+- agent-facing tool 调用不再使用旧 `ToolInvocationContext` / `ToolExecutionResult`。
 
 当前落地状态：
 
@@ -332,21 +350,21 @@ Domain service 不 import graph node。Raw adapter 不 import manager。Domain s
 ### Phase 5: 补齐 Memory tools
 
 - 通过 `MemoryToolExecutor -> SessionPrecedentSearchService` 实现当前 `search_case_memory` 过渡检索。
-- memory write 只允许 dedicated memory write node 调用。
+- 当前 session `memory_write` 可以保持 post-response runtime hook 直接调用 `MemoryService`；只有当 memory write 被暴露成 manager-managed capability 时，才新增 node-only memory tool descriptor。
 - `investigate` 继续只允许 memory read。
 
 ### Phase 6: 禁止 graph 直连 raw adapter
 
 - 增加测试或静态检查，禁止 graph node import raw adapter。
-- graph node 只允许 import `UnifiedToolManager`、统一 contracts 和 typed state helpers。
+- 执行 agent-facing capability 的 graph node 只允许 import `UnifiedToolManager`、统一 contracts 和 typed state helpers；deterministic runtime hook 可以 import domain service，但禁止直连 raw adapter。
 
 ## 最终目标
 
 最终架构应该能用这几句话解释清楚：
 
 ```text
-所有 graph-facing capability 只声明一次。
-所有 graph-facing tool call 都经过 UnifiedToolManager。
+所有 agent-facing / tool-selectable capability 只声明一次。
+所有 agent-facing tool call 都经过 UnifiedToolManager。
 planner-visible、node-only、internal 三类 view 从同一个 catalog 派生。
 read / retrieval / memory / action 共享同一套 context 和 result contract。
 副作用由 caller allowlist、approval context 和 idempotency 共同约束。
