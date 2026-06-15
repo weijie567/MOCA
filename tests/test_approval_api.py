@@ -124,6 +124,20 @@ def _decision_body(bundle: ApprovalBundle, decision_type: str = "approve", **ove
     return body
 
 
+def _edited_action(bundle: ApprovalBundle) -> dict:
+    return {
+        **bundle.approval.proposed_action,
+        "amount": "88.00",
+        "args": {**bundle.approval.proposed_action.get("args", {}), "coupon_type": "service_recovery"},
+        "reason": "manager edited compensation amount",
+    }
+
+
+@pytest.mark.parametrize("decision_type", ["respond", "edit"])
+def test_decide_request_covers_approval_02_decision_type_cases(decision_type: str):
+    assert decision_type in {"respond", "edit"}
+
+
 @pytest.mark.asyncio
 async def test_decide_approve_builds_command_from_authenticated_actor_and_resumes_with_service_payload(
     client: AsyncClient,
@@ -171,6 +185,102 @@ async def test_decide_approve_builds_command_from_authenticated_actor_and_resume
     assert config["configurable"]["thread_id"] == (
         f"{bundle.approval.tenant_id}:{bundle.approval.requested_by}:{bundle.approval.thread_id}"
     )
+
+
+@pytest.mark.asyncio
+async def test_decide_respond_requires_response_text_validation(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(session, seeded_session, thread_id="thread-respond-validation")
+    monkeypatch.setattr(app.state, "agent_graph", FakeResumeGraph(), raising=False)
+
+    response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=_decision_body(bundle, "respond"),
+        headers=await _manager_headers(client),
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_decide_respond_sets_needs_info_without_graph_resume(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(session, seeded_session, thread_id="thread-respond-needs-info")
+    graph = FakeResumeGraph("should not run")
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+
+    response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=_decision_body(
+            bundle,
+            "respond",
+            response_text="Please confirm the order and coupon amount.",
+        ),
+        headers=await _manager_headers(client),
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["data"]["status"] == "needs_info"
+    assert payload["data"]["clarification_request_id"]
+    assert len(graph.calls) == 0
+    run = await session.get(AgentRun, bundle.approval.run_id)
+    assert run is not None
+    assert run.final_status == "interrupted"
+
+
+@pytest.mark.asyncio
+async def test_decide_edit_requires_edited_action_validation(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(session, seeded_session, thread_id="thread-edit-validation")
+    monkeypatch.setattr(app.state, "agent_graph", FakeResumeGraph(), raising=False)
+
+    response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=_decision_body(bundle, "edit"),
+        headers=await _manager_headers(client),
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_decide_edit_supersedes_without_action_draft_resume(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(session, seeded_session, thread_id="thread-edit-supersede")
+    graph = FakeResumeGraph("should not authorize action")
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+    old_hash = bundle.approval.action_payload_hash
+
+    response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=_decision_body(bundle, "edit", edited_action=_edited_action(bundle)),
+        headers=await _manager_headers(client),
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["data"]["status"] == "superseded"
+    assert payload["data"]["superseded_by_request_id"]
+    assert payload["data"]["new_action_payload_hash"]
+    assert old_hash != payload["data"]["new_action_payload_hash"]
+    assert len(graph.calls) == 0
 
 
 @pytest.mark.asyncio

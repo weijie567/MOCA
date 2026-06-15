@@ -133,6 +133,22 @@ def test_route_after_approval_sends_terminal_or_needs_info_results_to_safe_path(
     assert route_after_approval(state) == "final_response"
 
 
+def test_route_after_approval_sends_edit_to_risk_reroute_not_action_draft():
+    state = {
+        "approval_result": _approved_result(
+            decision_type="edit",
+            status="superseded",
+            new_action_payload_hash="sha256:" + "3" * 64,
+            resume_route="assess_risk_and_approval",
+        ),
+        "action_payload_hash": ACTION_HASH,
+        "safety_snapshot_ref": "snapshot:test",
+        "safety_snapshot_hash": SNAPSHOT_HASH,
+    }
+
+    assert route_after_approval(state) == "assess_risk_and_approval"
+
+
 def test_route_after_approval_fails_closed_on_hash_mismatch():
     state = {
         "approval_result": _approved_result(action_payload_hash="sha256:" + "9" * 64),
