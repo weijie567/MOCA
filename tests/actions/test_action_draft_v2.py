@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -7,7 +8,7 @@ from uuid import UUID, uuid4
 import pytest
 from pydantic import ValidationError
 from sqlalchemy import Index, UniqueConstraint
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.schema import ColumnCollectionConstraint
 
 from src.actions.drafts import ActionDraftStore
@@ -266,6 +267,31 @@ async def test_action_draft_store_exact_key_reuse_returns_existing_draft(session
     assert created is True
     assert reused_created is False
     assert reused.id == draft.id
+
+
+@pytest.mark.asyncio
+async def test_action_draft_store_concurrent_exact_key_reuse_returns_existing_draft(test_engine):
+    session_factory = async_sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession)
+    tenant_id = uuid4()
+    async with session_factory() as setup_session:
+        run_id = await _create_run(setup_session, tenant_id=tenant_id)
+        await setup_session.commit()
+
+    async def create_draft() -> tuple[UUID, bool]:
+        async with session_factory() as worker_session:
+            draft, created = await _create_store_draft(
+                worker_session,
+                tenant_id=tenant_id,
+                run_id=run_id,
+                idempotency_key="concurrent-draft-key",
+            )
+            await worker_session.commit()
+            return draft.id, created
+
+    results = await asyncio.gather(create_draft(), create_draft())
+
+    assert {draft_id for draft_id, _created in results} == {results[0][0]}
+    assert sorted(created for _draft_id, created in results) == [False, True]
 
 
 @pytest.mark.asyncio
