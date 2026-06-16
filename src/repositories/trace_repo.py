@@ -140,4 +140,4 @@ def _safe_draft_outcome(draft: ActionDraft) -> dict[str, Any]:
     try:
         return DraftOutcomeV1.model_validate(projected).model_dump(mode="json")
     except ValidationError:
-        return DraftOutcomeV1().model_dump(mode="json")
+        return {"status": "invalid_draft_outcome", "external_side_effect": False}

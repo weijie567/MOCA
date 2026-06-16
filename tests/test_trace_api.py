@@ -263,6 +263,30 @@ def test_trace_action_draft_projection_allowlists_draft_outcome_keys():
     assert "do not expose" not in str(timeline[0])
 
 
+def test_trace_action_draft_projection_marks_invalid_draft_outcome():
+    draft = SimpleNamespace(
+        id=uuid4(),
+        created_at=datetime.now(UTC),
+        action_type="issue_coupon",
+        status="draft_created",
+        idempotency_key="idem",
+        draft_outcome={
+            "schema_version": "draft_outcome.v1",
+            "status": "executed",
+            "external_side_effect": True,
+            "raw_payload": {"target_id": "RF-SECRET"},
+        },
+        payload={"target_id": "RF-SECRET"},
+    )
+    repo = TraceRepository(SimpleNamespace())
+
+    timeline = repo.build_timeline(steps=[], approvals=[], approval_steps=[], drafts=[draft])
+    outcome = timeline[0]["detail"]["draft_outcome"]
+
+    assert outcome == {"status": "invalid_draft_outcome", "external_side_effect": False}
+    assert outcome["status"] != "not_executed_demo"
+
+
 @pytest.mark.asyncio
 async def test_get_run_trace_empty_run_returns_only_agent_steps(
     client: AsyncClient,
