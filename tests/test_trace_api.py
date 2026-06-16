@@ -48,6 +48,13 @@ async def test_get_run_trace_returns_full_timeline_with_agent_steps_approvals_an
     }
     assert payload["data"]["approvals"][0]["risk_rule_ref"] == "HR-01"
     assert payload["data"]["action_drafts"][0]["action_type"] == "issue_coupon"
+    assert payload["data"]["action_drafts"][0]["draft_outcome"]["status"] == "not_executed_demo"
+    assert payload["data"]["action_drafts"][0]["draft_outcome"]["external_side_effect"] is False
+    assert "payload" not in payload["data"]["action_drafts"][0]
+    action_draft_item = next(item for item in payload["data"]["timeline"] if item["type"] == "action_draft")
+    assert action_draft_item["detail"]["draft_outcome"]["status"] == "not_executed_demo"
+    assert action_draft_item["detail"]["draft_outcome"]["external_side_effect"] is False
+    assert "payload" not in action_draft_item["detail"]
     assert "input_query" not in payload["data"]
     assert "final_response" not in payload["data"]
     assert "secret" not in str(payload["data"])
@@ -131,6 +138,7 @@ async def test_get_run_trace_cross_tenant_returns_404(
 def test_build_timeline_merges_all_event_types_correctly():
     now = datetime.now(UTC)
     approval_id = uuid4()
+    draft_outcome = _draft_outcome(draft_id=uuid4(), run_id=uuid4(), tenant_id=uuid4())
     repo = TraceRepository(SimpleNamespace())
 
     timeline = repo.build_timeline(
@@ -169,6 +177,8 @@ def test_build_timeline_merges_all_event_types_correctly():
                 action_type="issue_coupon",
                 status="draft_created",
                 idempotency_key="idem-1",
+                draft_outcome=draft_outcome,
+                payload={"secret": "do not expose"},
             )
         ],
     )
@@ -181,6 +191,8 @@ def test_build_timeline_merges_all_event_types_correctly():
     ]
     assert all({"type", "time", "title", "status", "detail"} <= set(item) for item in timeline)
     assert timeline[1]["detail"]["tool_name"] == "search_policy"
+    assert timeline[3]["detail"]["draft_outcome"] == draft_outcome
+    assert "payload" not in timeline[3]["detail"]
 
 
 @pytest.mark.asyncio
@@ -240,6 +252,7 @@ async def _create_trace_run(session: AsyncSession, *, tenant_id: UUID, user_id: 
 async def _add_full_trace_events(session: AsyncSession, *, run_id: UUID, tenant_id: UUID, user_id: UUID) -> None:
     now = datetime.now(UTC)
     approval_id = uuid4()
+    draft_id = uuid4()
     approval = ApprovalRequest(
         id=approval_id,
         run_id=run_id,
@@ -298,6 +311,7 @@ async def _add_full_trace_events(session: AsyncSession, *, run_id: UUID, tenant_
                 created_at=now + timedelta(seconds=2),
             ),
             ActionDraft(
+                id=draft_id,
                 run_id=run_id,
                 approval_request_id=approval_id,
                 tenant_id=tenant_id,
@@ -305,12 +319,25 @@ async def _add_full_trace_events(session: AsyncSession, *, run_id: UUID, tenant_
                 action_type="issue_coupon",
                 status="draft_created",
                 payload={"secret": "do not expose"},
+                draft_outcome=_draft_outcome(draft_id=draft_id, run_id=run_id, tenant_id=tenant_id),
                 created_by_agent_run=run_id,
                 created_at=now + timedelta(seconds=4),
             ),
         ]
     )
     await session.commit()
+
+
+def _draft_outcome(*, draft_id: UUID, run_id: UUID, tenant_id: UUID) -> dict[str, str | bool]:
+    return {
+        "schema_version": "draft_outcome.v1",
+        "status": "not_executed_demo",
+        "tenant_id": str(tenant_id),
+        "run_id": str(run_id),
+        "draft_id": str(draft_id),
+        "external_side_effect": False,
+        "created_at": datetime.now(UTC).isoformat(),
+    }
 
 
 async def _admin_headers(client: AsyncClient) -> dict[str, str]:
