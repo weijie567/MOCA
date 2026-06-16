@@ -1,6 +1,6 @@
 ---
 phase: 14-demo-action-executor-boundary
-reviewed: 2026-06-16T07:30:22Z
+reviewed: 2026-06-16T08:07:49Z
 depth: deep
 files_reviewed: 33
 files_reviewed_list:
@@ -39,71 +39,47 @@ files_reviewed_list:
   - tests/tools/test_catalog.py
 findings:
   critical: 0
-  warning: 3
+  warning: 0
   info: 0
-  total: 3
-status: issues_found
-cross_review:
-  codex: completed
-  critical: 0
-  new_findings: 0
+  total: 0
+status: clean
 ---
 
 # Phase 14: Code Review Report
 
-**Reviewed:** 2026-06-16T07:30:22Z
+**Reviewed:** 2026-06-16T08:07:49Z
 **Depth:** deep
 **Files Reviewed:** 33
-**Status:** issues_found
+**Status:** clean
 
 ## Summary
 
-Reviewed the Phase 14 action draft boundary implementation across action service, graph routing, approval resume reconciliation, trace projections, tool catalog/manager, persistence models/migration, and the related test suite. GSD deep review plus Codex cross-review found no critical issues and confirmed three warning-level correctness/security boundary gaps.
+Reviewed the Phase 14 action draft boundary at deep depth across action draft schemas/service/repository, graph routing, action-draft node execution, approval resume reconciliation, trace projection, tool catalog/manager gating, persistence/migration changes, and the related test suite.
 
-## Warnings
+All reviewed files meet quality standards. No correctness, security, or maintainability issues were found in the current Phase 14 scope.
 
-### WR-01: Per-turn reset leaves stale action safety bindings in checkpoint state
+## Round 2 Fix Confirmation
 
-**File:** `src/agent/nodes/receive_request.py:57`
+Confirmed the latest Round 2 fixes are present and covered:
 
-**Issue:** `receive_request` resets `proposed_action`, `approval_result`, `action_draft`, `draft_outcome`, `execution_mode`, and `action_result`, but it does not reset the Phase 14 binding fields `approval_revision_refs`, `action_payload_hash`, `safety_snapshot_ref`, `safety_snapshot_hash`, `safety_snapshot_verified`, `policy_config_version`, `risk_config_version`, `retrieval_config_version`, or `auto_allowed`. Those fields are produced by `assess_risk_and_approval` when an action recommendation is evaluated and then consumed by `route_after_risk`, `route_after_approval`, and `action_draft`. Because LangGraph checkpoint state persists across turns, a later turn that returns early from `assess_risk_and_approval` with no action, such as `policy_qa` or `insufficient_evidence`, will not overwrite these fields. The stale binding values can then survive in final state, traces, or any later routing/debug logic that inspects the full checkpoint state, weakening the intended per-turn isolation for action approval bindings.
+- Stale Phase 14 binding state is cleared at turn start in `src/agent/nodes/receive_request.py`, including approval revision refs, action/snapshot hashes, snapshot verification, config versions, and `auto_allowed`.
+- Missing or invalid successful tool `draft_outcome` fails closed in `src/agent/nodes/action_draft.py` with `INVALID_DRAFT_OUTCOME`, no `action_draft`/`draft_outcome` state update, and an error trace status.
+- Invalid persisted `draft_outcome` trace projection in `src/repositories/trace_repo.py` now preserves audit signal via `{"status": "invalid_draft_outcome", "external_side_effect": False}` instead of masking it as `not_executed_demo`.
 
-**Fix:** Extend `receive_request` to clear all action/approval binding fields in the same reset block, and add a regression test that seeds stale bindings and verifies they are removed.
+Phase 15 replay/read-switch work and Phase 17 external execution/outbox/reconciliation/compensation remain explicitly deferred and were not treated as Phase 14 findings.
 
-```python
-"approval_revision_refs": None,
-"action_payload_hash": None,
-"safety_snapshot_ref": None,
-"safety_snapshot_hash": None,
-"safety_snapshot_verified": None,
-"policy_config_version": None,
-"risk_config_version": None,
-"retrieval_config_version": None,
-"auto_allowed": None,
+## Verification
+
+Focused Round 2 regression suite:
+
+```bash
+uv run pytest tests/agent/test_nodes/test_receive_request.py tests/test_execute_action.py tests/test_trace_api.py -q
 ```
 
-### WR-02: Successful draft tool results can synthesize a demo success outcome when the contract payload is missing
-
-**File:** `src/agent/nodes/action_draft.py:116`
-
-**Issue:** `_draft_update_from_tool_result` treats any `ToolResultV2` with `status == "success"` as a successful draft update path. If `result.data` lacks a dict `draft_outcome`, the node synthesizes a fallback `not_executed_demo` outcome with `external_side_effect=False`. If a malformed non-empty `draft_outcome` is present, the code still writes it into state instead of failing closed. That means a successful tool status can mask a malformed Phase 14 payload and produce final/trace state that looks like a valid demo draft outcome.
-
-**Fix:** Validate the success payload against the expected action draft and `DraftOutcomeV1` contract before updating state. Missing, empty, or invalid `draft_outcome` should become an error result and error trace status rather than a synthesized success outcome. Add regression coverage for missing and malformed `draft_outcome` on a success tool result.
-
-### WR-03: Trace projection masks invalid persisted draft outcomes as safe demo defaults
-
-**File:** `src/repositories/trace_repo.py:140`
-
-**Issue:** `_safe_draft_outcome` projects persisted `draft.draft_outcome` fields and validates them with `DraftOutcomeV1`. On validation failure it returns `DraftOutcomeV1().model_dump(mode="json")`, whose defaults represent a `not_executed_demo` outcome with `external_side_effect=False`. As a result, corrupted or invalid persisted data can be exposed through trace APIs as a clean no-side-effect demo outcome, reducing audit fidelity.
-
-**Fix:** Do not replace invalid persisted data with a successful default. Return an explicit invalid/error projection, omit the outcome with an error marker, or otherwise expose that the stored outcome failed validation. Add trace API regression coverage for invalid persisted `draft_outcome`.
-
-## Cross-Review
-
-Codex independently reviewed the same Phase 14 scope and confirmed all three warnings. It found no critical issues and no additional high-confidence findings.
+Result: `36 passed, 1 warning in 12.04s`. The warning is the existing `LangChainPendingDeprecationWarning` from LangGraph checkpoint serde.
 
 ---
 
-_Reviewed: 2026-06-16T07:30:22Z_
-_Reviewer: Claude (gsd-code-reviewer) + Codex cross-review_
+_Reviewed: 2026-06-16T08:07:49Z_
+_Reviewer: Codex (gsd-code-reviewer)_
 _Depth: deep_
