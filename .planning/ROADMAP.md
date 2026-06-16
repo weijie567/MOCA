@@ -158,9 +158,9 @@ Plans:
 **Plans**:
   - [x] 15-01-PLAN.md — ReplayEventV3 schema, baseline replay enum, ORM/migration expansion, and blocking Alembic gate (Wave 1)
   - [x] 15-02-PLAN.md — ReplayService append/projection boundary, redaction/retention validation, compatibility wrapper, and pre-lifecycle allocator coverage (Wave 2)
-  - [ ] 15-03-PLAN.md — operation pairing, retry, and unresolved legacy projection rules (Wave 3)
-  - [ ] 15-04-PLAN.md — RunLifecycleService, real run-status persistence/API seams, lifecycle allocator coverage, and disabled SLA scanner gate (Wave 4)
-  - [ ] 15-05-PLAN.md — `/replay` event-store-first API, access control, read-switch, and `/trace` rollback fallback (Wave 5)
+  - [x] 15-03-PLAN.md — operation pairing, retry, and unresolved legacy projection rules (Wave 3)
+  - [x] 15-04-PLAN.md — RunLifecycleService, real run-status persistence/API seams, lifecycle allocator coverage, and disabled SLA scanner gate (Wave 4)
+  - [x] 15-05-PLAN.md — `/replay` event-store-first API, access control, read-switch, and `/trace` rollback fallback (Wave 5)
   - [ ] 15-06-PLAN.md — replay-facing demo draft cleanup, redaction/retention safety, coverage artifact, and final verification gate (Wave 6)
 
 ### Phase 16: Long-term / Case Memory
@@ -197,9 +197,9 @@ Plans:
 | 12. Session Memory | 5/5 | Complete | 2026-06-14 |
 | 13. Approval State Machine | 8/8 | Complete    | 2026-06-15 |
 | 14. Demo Action Executor Boundary | 7/7 | Complete    | 2026-06-16 |
-| 15. Replay Event Contract | 3/6 | In Progress | - |
+| 15. Replay Event Contract | 5/6 | In Progress | - |
 | 16. Long-term / Case Memory | 0/TBD | Deferred beyond MVP gate | - |
 | 17. External Action Execution | 0/TBD | Deferred beyond MVP gate | - |
 
 ---
-*Updated: 2026-06-16 — Phase 15 Plan 15-03 complete; 3 plans remain.*
+*Updated: 2026-06-16 — Phase 15 Plan 15-05 complete; 1 plan remains.*
