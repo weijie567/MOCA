@@ -196,12 +196,13 @@ def test_build_timeline_merges_all_event_types_correctly():
 
 
 def test_trace_action_draft_projection_excludes_raw_payload_even_when_present():
+    idempotency_key = "tenant:run:approval_revision_1:issue_coupon:RF-SECRET:sha256-" + "a" * 64
     draft = SimpleNamespace(
         id=uuid4(),
         created_at=datetime.now(UTC),
         action_type="issue_coupon",
         status="draft_created",
-        idempotency_key="idem-raw-payload",
+        idempotency_key=idempotency_key,
         draft_outcome=_draft_outcome(draft_id=uuid4(), run_id=uuid4(), tenant_id=uuid4()),
         payload={
             "target_id": "RF-SECRET",
@@ -213,6 +214,8 @@ def test_trace_action_draft_projection_excludes_raw_payload_even_when_present():
 
     timeline = repo.build_timeline(steps=[], approvals=[], approval_steps=[], drafts=[draft])
 
+    assert "idempotency_key" not in timeline[0]["detail"]
+    assert idempotency_key not in str(timeline[0])
     assert "payload" not in timeline[0]["detail"]
     assert "raw_payload" not in str(timeline[0])
     assert "RF-SECRET" not in str(timeline[0])

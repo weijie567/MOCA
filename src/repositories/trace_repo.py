@@ -102,7 +102,6 @@ class TraceRepository:
                     "status": draft.status,
                     "detail": {
                         "draft_id": str(draft.id),
-                        "idempotency_key": draft.idempotency_key,
                         "draft_outcome": _safe_draft_outcome(draft),
                     },
                 }
