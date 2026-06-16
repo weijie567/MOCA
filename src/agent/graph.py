@@ -62,7 +62,8 @@ def route_after_risk(state: AgentState) -> str:
         return "final_response"
     if risk.get("approval_required"):
         return "approval_gate"
-    return "action_draft"
+    # Phase 14 has no durable auto-allowed binding, so no-approval actions fail closed.
+    return "final_response"
 
 
 def route_after_approval(state: AgentState) -> str:
@@ -171,7 +172,6 @@ def build_graph(checkpointer: AsyncPostgresSaver):
         {
             "assess_risk_and_approval": "assess_risk_and_approval",
             "approval_gate": "approval_gate",
-            "action_draft": "action_draft",
             "final_response": "final_response",
         },
     )

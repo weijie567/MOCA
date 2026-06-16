@@ -185,6 +185,19 @@ async def action_draft(state: AgentState, config: RunnableConfig) -> dict:
             },
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("error", started_at)],
         }
+    if not approval_accepted:
+        return {
+            "action_result": {
+                "status": "error",
+                "data": {},
+                "error": {
+                    "error_code": "AUTO_ALLOWED_BINDING_REQUIRED",
+                    "message": "No-approval action draft requires a durable auto-allowed binding",
+                    "retryable": False,
+                },
+            },
+            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("error", started_at)],
+        }
 
     configurable = config.get("configurable") or {}
     session = configurable["session"]

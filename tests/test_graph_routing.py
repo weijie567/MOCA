@@ -97,10 +97,10 @@ def test_route_after_risk_returns_approval_gate_when_required_snapshot_refs_are_
     assert route_after_risk(_risk_route_state()) == "approval_gate"
 
 
-def test_route_after_risk_returns_action_draft_for_auto_allowed_snapshot_verified_action():
+def test_route_after_risk_returns_final_response_for_auto_allowed_snapshot_verified_action():
     state = _risk_route_state(risk_assessment={"approval_required": False, "risk_level": "low"})
 
-    assert route_after_risk(state) == "action_draft"
+    assert route_after_risk(state) == "final_response"
 
 
 @pytest.mark.parametrize("missing_field", ["action_payload_hash", "safety_snapshot_ref", "safety_snapshot_hash"])
@@ -202,7 +202,7 @@ def test_route_after_approval_fails_closed_when_revision_binding_missing(missing
 
 
 @pytest.mark.asyncio
-async def test_auto_allowed_path_persists_durable_snapshot_row_before_action_draft_route(
+async def test_auto_allowed_path_persists_durable_snapshot_row_before_final_response_route(
     session: AsyncSession,
     seeded_session,
     monkeypatch,
@@ -254,7 +254,7 @@ async def test_auto_allowed_path_persists_durable_snapshot_row_before_action_dra
     assert result["safety_snapshot_ref"] == snapshot.snapshot_ref
     assert result["safety_snapshot_hash"] == snapshot.immutable_hash
     assert result["safety_snapshot_verified"] is True
-    assert route_after_risk(result) == "action_draft"
+    assert route_after_risk(result) == "final_response"
 
 
 @pytest.mark.asyncio

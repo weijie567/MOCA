@@ -312,8 +312,8 @@ async def test_execute_action_uses_session_from_runnable_config(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_execute_action_without_required_approval_succeeds(monkeypatch):
-    create_draft = AsyncMock(return_value=_success_result())
+async def test_execute_action_without_required_approval_fails_closed(monkeypatch):
+    create_draft = AsyncMock()
     monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
     state = _approved_state()
     state["risk_assessment"] = {"approval_required": False}
@@ -321,10 +321,10 @@ async def test_execute_action_without_required_approval_succeeds(monkeypatch):
 
     result = await action_draft_module.action_draft(state, _trusted_config())
 
-    assert result["draft_outcome"]["status"] == "not_executed_demo"
-    assert result["action_result"]["status"] != "success"
-    _, kwargs = create_draft.await_args
-    assert kwargs["approval_request_id"] is None
+    assert result["action_result"]["status"] == "error"
+    assert result["action_result"]["error"]["error_code"] == "AUTO_ALLOWED_BINDING_REQUIRED"
+    assert "draft_outcome" not in result
+    create_draft.assert_not_awaited()
 
 
 @pytest.mark.asyncio
