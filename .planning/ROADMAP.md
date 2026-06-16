@@ -28,7 +28,7 @@
 - [x] **Phase 11: Intent / Clarification** - Intent precedence, required-slot policy, confidence gates, and ordinary clarification. Completed 2026-06-14.
 - [x] **Phase 12: Session Memory** - PostgreSQL-authoritative session memory CAS, optional Redis hot cache, and safe slot continuity. ✓ Verified 2026-06-14 — 5/5 plans complete, 10/10 must-haves verified.
 - [x] **Phase 13: Approval State Machine** - Versioned approval lifecycle and ActionSafetySnapshot ownership. ✓ Verified 2026-06-15 — 8/8 plans complete, 12/12 must-haves verified.
-- [ ] **Phase 14: Demo Action Executor Boundary** - Durable draft-only demo behavior and snapshot/hash binding. Gap-closure plan ready 2026-06-16 — 6/7 plans complete; 14-07 pending execution.
+- [ ] **Phase 14: Demo Action Executor Boundary** - Durable draft-only demo behavior and snapshot/hash binding. Gap-closure plan executed 2026-06-16 — 7/7 plans complete; phase verification pending.
 - [ ] **Phase 15: Replay Event Contract** - ReplayEventV3, lifecycle finalizer, sequence allocation, redaction, retention, and replay read-switch.
 - [ ] **Phase 16: Long-term / Case Memory** - memory_identity.v1, tombstones, review workflow, and long-term/case memory. Deferred beyond the MVP completion gate.
 - [ ] **Phase 17: External Action Execution** - External execution, outbox, reconciliation, and compensation. Deferred beyond the MVP completion gate.
@@ -136,7 +136,7 @@ Plans:
   1. Demo mode creates only action draft and draft_outcome.
   2. Demo mode creates no action execution row or external side effect.
   3. Hash/revision mismatches are rejected and final response wording never claims real execution.
-**Plans**: 6/7 complete; verification gaps found 2026-06-16 with 7/10 must-haves verified. Gap closure plan 14-07 is verified and ready to execute for exact payload/hash binding, no-approval authorization, and write-tool permission enforcement.
+**Plans**: 7/7 complete; verification gaps found 2026-06-16 with 7/10 must-haves verified. Gap closure plan 14-07 executed for exact payload/hash binding, no-approval authorization, and write-tool permission enforcement; phase verification pending.
 Plans:
   - [x] 14-01-PLAN.md — action_draft.v2 schema, draft_outcome contract, and blocking Alembic upgrade (Wave 1)
   - [x] 14-02-PLAN.md — ActionService-owned idempotency, exact binding reuse, draft outcome persistence, and state reset (Wave 2)
@@ -144,7 +144,7 @@ Plans:
   - [x] 14-04-PLAN.md — approval resume and final/API draft_outcome wording migration (Wave 4)
   - [x] 14-05-PLAN.md — safe action_draft_created event and /trace draft_outcome projection (Wave 4)
   - [x] 14-06-PLAN.md — negative boundary coverage and final source audit gate (Wave 5)
-  - [ ] 14-07-PLAN.md — verified gap closure for payload/hash binding, omitted-approval fail-closed authorization, and write-tool permission enforcement (Wave 6)
+  - [x] 14-07-PLAN.md — verified gap closure for payload/hash binding, omitted-approval fail-closed authorization, and write-tool permission enforcement (Wave 6)
 
 ### Phase 15: Replay Event Contract
 **Goal**: Implement ReplayEventV3, run lifecycle finalizer, shared sequence allocator, redaction/retention, and replay read-switch.
@@ -190,10 +190,10 @@ Plans:
 | 11. Intent / Clarification | 5/5 | Complete | 2026-06-14 |
 | 12. Session Memory | 5/5 | Complete | 2026-06-14 |
 | 13. Approval State Machine | 8/8 | Complete    | 2026-06-15 |
-| 14. Demo Action Executor Boundary | 6/7 | Gap Plan Ready | - |
+| 14. Demo Action Executor Boundary | 7/7 | Verification Pending | - |
 | 15. Replay Event Contract | 0/TBD | Pending | - |
 | 16. Long-term / Case Memory | 0/TBD | Deferred beyond MVP gate | - |
 | 17. External Action Execution | 0/TBD | Deferred beyond MVP gate | - |
 
 ---
-*Updated: 2026-06-16 — Phase 14 gap-closure plan 14-07 verified and ready to execute.*
+*Updated: 2026-06-16 — Phase 14 gap-closure plan 14-07 executed; phase verification pending.*
