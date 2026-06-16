@@ -148,6 +148,7 @@ class ActionService:
                         action_type=action_type,
                         action_payload_hash=action_payload_hash,
                         safety_snapshot_hash=safety_snapshot_hash,
+                        draft_outcome=draft_outcome,
                     )
             return _tool_success(
                 {
@@ -241,6 +242,7 @@ class ActionService:
         action_type: str,
         action_payload_hash: str,
         safety_snapshot_hash: str,
+        draft_outcome: dict[str, Any],
     ) -> None:
         await emit_event(
             self.session,
@@ -260,6 +262,7 @@ class ActionService:
                 "action_type": action_type,
                 "execution_mode": "demo",
                 "external_side_effect": False,
+                "draft_outcome": DraftOutcomeV1.model_validate(draft_outcome).model_dump(mode="json"),
             },
         )
 

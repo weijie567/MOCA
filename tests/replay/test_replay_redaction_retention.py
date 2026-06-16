@@ -91,3 +91,51 @@ async def test_replay_service_rejects_unsafe_payload_before_persistence(session:
                 redacted_payload={"summary": {key: "unsafe"}},
                 schema_version="replay_event.v3",
             )
+
+
+@pytest.mark.asyncio
+async def test_action_draft_projection_is_demo_only_and_omits_raw_payload(session: AsyncSession):
+    run_id, tenant_id = await _create_run(session)
+    service = ReplayService(session)
+    draft_id = uuid.uuid4()
+
+    projected = await service.append_event(
+        run_id=run_id,
+        tenant_id=tenant_id,
+        thread_id="thread-redaction-retention",
+        event_type="action_draft_created",
+        actor={"type": "agent", "id": "moca"},
+        resource_refs={
+            "draft_id": str(draft_id),
+            "target_id": "RF-APPROVAL-1",
+            "action_payload_hash": "sha256:" + "1" * 64,
+            "safety_snapshot_hash": "sha256:" + "2" * 64,
+        },
+        redacted_payload={
+            "action_type": "issue_coupon",
+            "execution_mode": "demo",
+            "external_side_effect": False,
+            "draft_outcome": {
+                "schema_version": "draft_outcome.v1",
+                "status": "not_executed_demo",
+                "external_side_effect": False,
+                "tenant_id": str(tenant_id),
+                "run_id": str(run_id),
+                "draft_id": str(draft_id),
+                "created_at": datetime.now(UTC).isoformat(),
+            },
+        },
+        schema_version="replay_event.v3",
+    )
+    projected_json = str(projected)
+
+    assert projected["event_type"] == "action_draft_created"
+    assert projected["redacted_payload"]["execution_mode"] == "demo"
+    assert projected["redacted_payload"]["external_side_effect"] is False
+    assert projected["redacted_payload"]["draft_outcome"]["status"] == "not_executed_demo"
+    assert "raw_payload" not in projected_json
+    assert "proposed_action" not in projected_json
+    assert "external_dispatched" not in projected_json
+    assert "action_execution_started" not in projected_json
+    assert "action_execution_completed" not in projected_json
+    assert "action_execution_failed" not in projected_json

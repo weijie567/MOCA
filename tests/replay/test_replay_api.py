@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.trace import write_agent_run
 from src.auth.jwt import create_access_token
-from src.db.models import AgentRun, AgentStep, AgentTraceEvent, User
+from src.db.models import ActionDraft, AgentRun, AgentStep, AgentTraceEvent, User
 
 
 @pytest.mark.asyncio
@@ -124,6 +124,38 @@ async def test_trace_remains_legacy_rollback_fallback(
     assert payload["data"]["timeline"][0]["detail"]["node_name"] == "receive_request"
 
 
+@pytest.mark.asyncio
+async def test_get_run_replay_action_draft_omits_raw_action_payload(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+):
+    support = seeded_session["users"]["cs_zhang"]
+    run_id = await _create_replay_run(session, tenant_id=support.tenant_id, user_id=support.id)
+    await _add_action_draft_replay_row(session, run_id=run_id, tenant_id=support.tenant_id)
+
+    response = await client.get(
+        f"/api/v1/agent-runs/{run_id}/replay",
+        headers=await _support_headers(client),
+    )
+    payload = response.json()
+    response_text = response.text
+
+    assert response.status_code == 200
+    event = payload["data"]["timeline"][0]
+    assert event["event_type"] == "action_draft_created"
+    assert event["redacted_payload"]["execution_mode"] == "demo"
+    assert event["redacted_payload"]["external_side_effect"] is False
+    assert event["redacted_payload"]["draft_outcome"]["status"] == "not_executed_demo"
+    assert "raw_payload" not in response_text
+    assert "secret-coupon-code" not in response_text
+    assert "proposed_action" not in response_text
+    assert "external_dispatched" not in response_text
+    assert "action_execution_started" not in response_text
+    assert "action_execution_completed" not in response_text
+    assert "action_execution_failed" not in response_text
+
+
 async def _create_replay_run(session: AsyncSession, *, tenant_id: UUID, user_id: UUID) -> UUID:
     run_id = uuid4()
     now = datetime.now(UTC)
@@ -178,6 +210,64 @@ async def _add_replay_rows_out_of_order(session: AsyncSession, *, run_id: UUID, 
                 redacted_payload={"status": "pending"},
             ),
         ]
+    )
+    await session.flush()
+
+
+async def _add_action_draft_replay_row(session: AsyncSession, *, run_id: UUID, tenant_id: UUID) -> None:
+    now = datetime.now(UTC)
+    draft_id = uuid4()
+    draft_outcome = {
+        "schema_version": "draft_outcome.v1",
+        "status": "not_executed_demo",
+        "external_side_effect": False,
+        "tenant_id": str(tenant_id),
+        "run_id": str(run_id),
+        "draft_id": str(draft_id),
+        "created_at": now.isoformat(),
+    }
+    session.add(
+        ActionDraft(
+            id=draft_id,
+            run_id=run_id,
+            tenant_id=tenant_id,
+            idempotency_key=f"{run_id}:safe-replay-draft",
+            action_type="issue_coupon",
+            status="draft_created",
+            payload={"raw_payload": "secret-coupon-code"},
+            draft_outcome=draft_outcome,
+            execution_mode="demo",
+            created_by_agent_run=run_id,
+            created_at=now,
+        )
+    )
+    await session.flush()
+    session.add(
+        AgentTraceEvent(
+            event_id=uuid4(),
+            run_id=run_id,
+            sequence=1,
+            tenant_id=tenant_id,
+            thread_id=f"replay-api-{run_id}",
+            event_type="action_draft_created",
+            schema_version="replay_event.v3",
+            occurred_at=now,
+            actor={"type": "agent", "id": "moca"},
+            resource_refs={
+                "draft_id": str(draft_id),
+                "target_id": "RF-APPROVAL-1",
+                "action_payload_hash": "sha256:" + "1" * 64,
+                "safety_snapshot_hash": "sha256:" + "2" * 64,
+            },
+            draft_id=draft_id,
+            redaction_policy_version="redaction.v1",
+            redacted_payload={
+                "action_type": "issue_coupon",
+                "execution_mode": "demo",
+                "external_side_effect": False,
+                "draft_outcome": draft_outcome,
+            },
+        )
     )
     await session.flush()
 
