@@ -20,9 +20,9 @@ from pydantic import ValidationError
 
 from src.agent.nodes.assess_risk_and_approval import assess_risk_and_approval
 from src.agent.nodes.approval_gate import approval_gate
+from src.agent.nodes.action_draft import action_draft
 from src.agent.nodes.classify_intent import classify_intent
 from src.agent.nodes.clarification_gate import clarification_gate
-from src.agent.nodes.execute_action import execute_action
 from src.agent.nodes.extract_slots import extract_slots
 from src.agent.nodes.final_response import final_response
 from src.agent.nodes.generate_recommendation import generate_recommendation
@@ -62,7 +62,7 @@ def route_after_risk(state: AgentState) -> str:
         return "final_response"
     if risk.get("approval_required"):
         return "approval_gate"
-    return "execute_action"
+    return "action_draft"
 
 
 def route_after_approval(state: AgentState) -> str:
@@ -80,7 +80,7 @@ def route_after_approval(state: AgentState) -> str:
     ):
         return "assess_risk_and_approval"
     if decision_type in {"accept", "approve"} and status == "approved":
-        return "execute_action"
+        return "action_draft"
     if decision_type in {"accept", "approve"} and status == "pending":
         return "approval_gate"
     return "final_response"
@@ -128,7 +128,7 @@ def build_graph(checkpointer: AsyncPostgresSaver):
     builder.add_node("assess_risk_and_approval", assess_risk_and_approval, retry_policy=_llm_retry)
     builder.add_node("clarification_gate", clarification_gate)
     builder.add_node("approval_gate", approval_gate)
-    builder.add_node("execute_action", execute_action)
+    builder.add_node("action_draft", action_draft)
     builder.add_node("final_response", final_response, retry_policy=_llm_retry)
 
     builder.add_edge(START, "receive_request")
@@ -171,7 +171,7 @@ def build_graph(checkpointer: AsyncPostgresSaver):
         {
             "assess_risk_and_approval": "assess_risk_and_approval",
             "approval_gate": "approval_gate",
-            "execute_action": "execute_action",
+            "action_draft": "action_draft",
             "final_response": "final_response",
         },
     )
@@ -181,11 +181,11 @@ def build_graph(checkpointer: AsyncPostgresSaver):
         {
             "approval_gate": "approval_gate",
             "assess_risk_and_approval": "assess_risk_and_approval",
-            "execute_action": "execute_action",
+            "action_draft": "action_draft",
             "final_response": "final_response",
         },
     )
-    builder.add_edge("execute_action", "final_response")
+    builder.add_edge("action_draft", "final_response")
     builder.add_edge("final_response", END)
 
     return builder.compile(checkpointer=checkpointer)

@@ -9,7 +9,7 @@ from langgraph.types import Command
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.agent.nodes.execute_action import execute_action
+from src.agent.nodes.action_draft import action_draft
 from src.agent.trace import append_agent_steps, update_agent_run_status
 from src.api.schemas.approvals import ApprovalInfoRequest, ApprovalListResponse, ApprovalResponse, DecideRequest
 from src.api.schemas.common import ApiResponse
@@ -524,7 +524,7 @@ async def _reconcile_approved_action_draft(
         "safety_snapshot_verified": True,
         "risk_assessment": final_state.get("risk_assessment") or {"approval_required": True},
     }
-    update = await execute_action(state, config)
+    update = await action_draft(state, config)
     reconciled = {**final_state, **update}
     if update.get("action_result", {}).get("status") != "success":
         reconciled["node_errors"] = (final_state.get("node_errors") or []) + [
