@@ -43,6 +43,34 @@ async def test_receive_request_resets_ephemeral(base_state):
 
 
 @pytest.mark.asyncio
+async def test_receive_request_clears_phase14_action_bindings(base_state):
+    state = {
+        **base_state,
+        "approval_revision_refs": [{"approval_id": "old-approval", "revision": 1}],
+        "action_payload_hash": "sha256:old",
+        "safety_snapshot_ref": "snapshot:old",
+        "safety_snapshot_hash": "sha256:snapshot",
+        "safety_snapshot_verified": True,
+        "policy_config_version": "policy-old",
+        "risk_config_version": "risk-old",
+        "retrieval_config_version": "retrieval-old",
+        "auto_allowed": True,
+    }
+
+    result = await receive_request(state)
+
+    assert result["approval_revision_refs"] is None
+    assert result["action_payload_hash"] is None
+    assert result["safety_snapshot_ref"] is None
+    assert result["safety_snapshot_hash"] is None
+    assert result["safety_snapshot_verified"] is None
+    assert result["policy_config_version"] is None
+    assert result["risk_config_version"] is None
+    assert result["retrieval_config_version"] is None
+    assert result["auto_allowed"] is None
+
+
+@pytest.mark.asyncio
 async def test_receive_request_new_run_id_each_call(base_state):
     first = await receive_request(base_state)
     second = await receive_request(base_state)
