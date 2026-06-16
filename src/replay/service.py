@@ -10,6 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import AgentTraceEvent
+from src.replay.pairing import OperationPairingStatus, validate_operation_pairing
 from src.replay.schemas import ReplayEventV3
 from src.replay.validators import guard_redacted_payload, retention_for_event_type, validate_event_type
 
@@ -80,6 +81,21 @@ class ReplayService:
             safe_payload.setdefault("retention_class", retention_class)
 
         run_uuid = _as_uuid(run_id)
+        existing_events = await self._events_for_run(run_uuid)
+        pairing_status: OperationPairingStatus | None = None
+        if schema_version == "replay_event.v3":
+            pairing_result = validate_operation_pairing(
+                existing_events,
+                {
+                    "event_type": event_type,
+                    "operation_id": operation_id,
+                    "parent_operation_id": parent_operation_id,
+                    "attempt": attempt,
+                    "redacted_payload": safe_payload,
+                },
+            )
+            pairing_status = pairing_result.pairing_status
+
         sequence = await self.allocate_sequence(run_uuid)
         event_id = uuid.uuid5(uuid.NAMESPACE_URL, f"{run_uuid}:{sequence}")
         row = AgentTraceEvent(
@@ -114,7 +130,15 @@ class ReplayService:
         await self.session.flush()
         if schema_version == "minimal_event_envelope.v1":
             return self.project_minimal_event(row)
-        return self.project_event(row)
+        return self.project_event(row, pairing_status=pairing_status)
+
+    async def _events_for_run(self, run_id: uuid.UUID) -> list[AgentTraceEvent]:
+        result = await self.session.execute(
+            sa.select(AgentTraceEvent)
+            .where(AgentTraceEvent.run_id == run_id)
+            .order_by(AgentTraceEvent.sequence)
+        )
+        return list(result.scalars().all())
 
     def project_minimal_event(self, event: AgentTraceEvent) -> dict[str, Any]:
         """Project stored rows into the Phase 10-14 minimal envelope shape."""
@@ -135,7 +159,12 @@ class ReplayService:
             "redacted_payload": event.redacted_payload,
         }
 
-    def project_event(self, event: AgentTraceEvent) -> dict[str, Any]:
+    def project_event(
+        self,
+        event: AgentTraceEvent,
+        *,
+        pairing_status: OperationPairingStatus | None = None,
+    ) -> dict[str, Any]:
         """Project stored minimal or V3 rows into the strict ReplayEventV3 shape."""
         retention_class = retention_for_event_type(event.event_type)
         payload = dict(event.redacted_payload or {})
@@ -161,7 +190,7 @@ class ReplayService:
             "redaction_policy_version": event.redaction_policy_version,
             "provenance": {
                 "source_schema_version": source_schema_version,
-                "pairing_status": "unresolved" if source_schema_version != "minimal_event_envelope.v1" else "unresolved",
+                "pairing_status": _projected_pairing_status(source_schema_version, pairing_status),
             },
             "retention": {
                 "archived_at": event.archived_at,
@@ -179,3 +208,14 @@ def _as_uuid(value: uuid.UUID | str) -> uuid.UUID:
     if isinstance(value, uuid.UUID):
         return value
     return uuid.UUID(str(value))
+
+
+def _projected_pairing_status(
+    source_schema_version: str,
+    pairing_status: OperationPairingStatus | None,
+) -> str:
+    if source_schema_version == "minimal_event_envelope.v1":
+        return OperationPairingStatus.UNRESOLVED.value
+    if pairing_status is None:
+        return OperationPairingStatus.UNRESOLVED.value
+    return pairing_status.value

@@ -197,7 +197,7 @@ async def test_replay_service_appends_v3_event_with_retention_metadata(session: 
     assert event["retention"]["retention_class"] == retention_for_event_type("approval_requested")
     assert event["provenance"] == {
         "source_schema_version": "replay_event.v3",
-        "pairing_status": "unresolved",
+        "pairing_status": "not_applicable",
     }
 
     row = (

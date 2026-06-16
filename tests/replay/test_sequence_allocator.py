@@ -86,6 +86,8 @@ async def test_concurrent_append_calls_do_not_duplicate_sequence(test_engine):
                 actor={"type": "agent", "id": f"writer-{index}"},
                 resource_refs={"tool": "get_order"},
                 redacted_payload={"status": "started", "writer_index": index},
+                operation_id=uuid.uuid4(),
+                attempt=1,
                 schema_version="replay_event.v3",
             )
             await worker_session.commit()
