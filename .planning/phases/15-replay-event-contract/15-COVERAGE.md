@@ -1,7 +1,7 @@
 # Phase 15 Replay Event Contract Coverage
 
 **Phase:** 15-replay-event-contract  
-**Plan status:** 15-06 Task 2 coverage baseline created; final gate statuses updated by 15-06 Task 3.  
+**Plan status:** Final Phase 15 verification gate passed in 15-06 Task 3.  
 **Status vocabulary:** `COVERED`, `PARTIAL`, `DEFERRED_WITH_OWNER`, `PASS`, `FAIL`, `NOT_RUN`.
 
 ## Requirement Coverage
@@ -61,16 +61,17 @@
 | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay/test_replay_api.py tests/replay/test_replay_service.py tests/test_trace_api.py -q --tb=short` | PASS | 15-05 summary. |
 | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay/test_replay_redaction_retention.py tests/replay/test_replay_api.py tests/agent/test_tools/test_create_coupon_grant_draft.py -q --tb=short` | PASS | 15-06 Task 1. |
 | `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/actions/service.py src/repositories/trace_repo.py tests/replay tests/agent/test_tools/test_create_coupon_grant_draft.py` | PASS | 15-06 Task 1. |
+| `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay tests/agent/test_events.py tests/test_trace_api.py -q --tb=short` | PASS | 15-06 Task 3 exact focused replay/event/trace verification; 70 passed, 1 warning in 38.18s. |
 
 ### Final Phase 15 Gate Commands
 
 | Command | Status | Result detail |
 | --- | --- | --- |
-| `UV_CACHE_DIR=/tmp/uv-cache uv run alembic upgrade head` | NOT_RUN | Pending 15-06 Task 3 final gate. |
-| `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay tests/agent/test_events.py tests/test_trace_api.py tests/approvals/test_events.py tests/approvals/test_needs_info_resume.py tests/approvals/test_sla_scanner.py tests/agent/test_tools/test_create_coupon_grant_draft.py -q --tb=short` | NOT_RUN | Pending 15-06 Task 3 final gate. |
-| `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short` | NOT_RUN | Pending 15-06 Task 3 final gate. |
-| `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src tests` | NOT_RUN | Pending 15-06 Task 3 final gate. |
+| `UV_CACHE_DIR=/tmp/uv-cache uv run alembic upgrade head` | PASS | Exit 0; Alembic used `PostgresqlImpl` and transactional DDL with database already at head. |
+| `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay tests/agent/test_events.py tests/test_trace_api.py tests/approvals/test_events.py tests/approvals/test_needs_info_resume.py tests/approvals/test_sla_scanner.py tests/agent/test_tools/test_create_coupon_grant_draft.py -q --tb=short` | PASS | 133 passed, 1 warning in 141.09s. |
+| `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short` | PASS | 873 passed, 1 warning in 393.51s. |
+| `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src tests` | PASS | All checks passed. |
 
 ## Readiness Rule
 
-Phase 15 is not ready until every final gate command above is updated to `PASS`, or any `FAIL`/`NOT_RUN` row is paired with a `Blocking follow-up` row naming the owner and exact command.
+Phase 15 final verification is ready: every final gate command above is `PASS`.
