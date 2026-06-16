@@ -41,6 +41,7 @@ APPROVAL_ROLES = {"admin", "manager"}
 RESUMABLE_DECISIONS = {"accept", "approve", "reject", "ignore"}
 RESUME_TERMINAL_STATUSES = {"approved", "rejected", "cancelled"}
 RESUME_INCOMPLETE_STATUSES = {"attempted", "failed"}
+ACTION_DRAFT_PERMISSION = "tool:create_coupon_grant_draft"
 
 
 @router.post("/{approval_id}/decide", response_model=ApiResponse)
@@ -256,7 +257,7 @@ async def _run_resume_lifecycle(*, request: Request, session: AsyncSession, resu
 
 async def _resume_graph_after_decision(*, request: Request, session: AsyncSession, result: ApprovalDecisionResult) -> None:
     graph = request.app.state.agent_graph
-    config = {"configurable": {"thread_id": result.graph_thread_id, "session": session}}
+    config = _resume_graph_config(request=request, session=session, result=result)
     t0 = time.perf_counter()
     final_state = await graph.ainvoke(Command(resume=result.resume_payload), config)
     resume_latency_ms = round((time.perf_counter() - t0) * 1000)
@@ -531,6 +532,21 @@ async def _reconcile_approved_action_draft(
             {"node": "action_draft", "error": "action_draft_reconcile_failed"}
         ]
     return reconciled
+
+
+def _resume_graph_config(*, request: Request, session: AsyncSession, result: ApprovalDecisionResult) -> dict:
+    permissions: list[str] = []
+    if result.decision_type in {"accept", "approve"} and result.status == "approved":
+        permissions.append(ACTION_DRAFT_PERMISSION)
+    return {
+        "configurable": {
+            "thread_id": result.graph_thread_id,
+            "session": session,
+            "permissions": permissions,
+            "merchant_scope": {"merchant_ids": ["*"]},
+            "trace_id": getattr(request.state, "trace_id", "") or "",
+        }
+    }
 
 
 def _is_successful_demo_draft_outcome(draft_outcome: object) -> bool:
