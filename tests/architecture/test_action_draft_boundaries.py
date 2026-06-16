@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 NODE_PATH = ROOT / "src" / "agent" / "nodes" / "action_draft.py"
 SHIM_PATH = ROOT / "src" / "agent" / "nodes" / "execute_action.py"
 CATALOG_PATH = ROOT / "src" / "tools" / "catalog.py"
+GRAPH_PATH = ROOT / "src" / "agent" / "graph.py"
 MANAGER_PATH = ROOT / "src" / "tools" / "manager.py"
 
 
@@ -26,6 +27,18 @@ def _function_names(path: Path) -> set[str]:
         for node in ast.walk(tree)
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
     }
+
+
+def _import_targets(path: Path) -> list[str]:
+    tree = ast.parse(_source(path))
+    imports: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imports.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imports.append(node.module)
+            imports.extend(f"{node.module}.{alias.name}" for alias in node.names)
+    return imports
 
 
 def test_action_draft_node_is_canonical_entrypoint() -> None:
@@ -75,3 +88,33 @@ def test_create_coupon_grant_draft_is_node_only_for_action_draft() -> None:
     assert _side_effect_allowed("execute_action", descriptor) is False
     assert "caller_allowlist=[\"action_draft\"]" in _source(CATALOG_PATH)
     assert 'caller_node == "action_draft"' in _source(MANAGER_PATH)
+
+
+def test_graph_registers_canonical_action_draft_node_only() -> None:
+    source = _source(GRAPH_PATH)
+
+    assert "from src.agent.nodes.action_draft import action_draft" in source
+    assert "from src.agent.nodes.execute_action import execute_action" not in source
+    assert 'add_node("action_draft", action_draft)' in source
+    assert 'add_node("execute_action"' not in source
+    assert '"action_draft": "action_draft"' in source
+    assert '"execute_action": "execute_action"' not in source
+    assert 'add_edge("action_draft", "final_response")' in source
+
+
+def test_source_does_not_import_execute_action_shim_outside_shim() -> None:
+    violations: list[tuple[str, str]] = []
+    for path in sorted((ROOT / "src").glob("**/*.py")):
+        if path == SHIM_PATH:
+            continue
+        for module in _import_targets(path):
+            if module in {"src.agent.nodes.execute_action", "src.agent.nodes.execute_action.execute_action"}:
+                violations.append((str(path.relative_to(ROOT)), module))
+
+    assert violations == []
+
+
+def test_graph_does_not_depend_on_action_result_success_sentinel() -> None:
+    source = _source(GRAPH_PATH)
+
+    assert re.search(r"action_result.*status.*success|status.*success.*action_result", source) is None

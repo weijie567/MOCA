@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.agent.graph import route_after_approval, route_after_risk
 from src.agent.nodes import assess_risk_and_approval as risk_module
 from src.agent.routing import route_after_investigate
-from src.agent.schemas import RiskAssessment
+from src.agent.schemas import IntentResultV3, RiskAssessment
 from src.db.models import ActionSafetySnapshot
 from tests.approvals.test_service_transitions import _create_run, _evidence_ref
 
@@ -97,11 +97,10 @@ def test_route_after_risk_returns_approval_gate_when_required_snapshot_refs_are_
     assert route_after_risk(_risk_route_state()) == "approval_gate"
 
 
-def test_route_after_risk_returns_execute_action_for_auto_allowed_snapshot_verified_action():
-    # Current graph node name is execute_action; this is the target action_draft path.
+def test_route_after_risk_returns_action_draft_for_auto_allowed_snapshot_verified_action():
     state = _risk_route_state(risk_assessment={"approval_required": False, "risk_level": "low"})
 
-    assert route_after_risk(state) == "execute_action"
+    assert route_after_risk(state) == "action_draft"
 
 
 @pytest.mark.parametrize("missing_field", ["action_payload_hash", "safety_snapshot_ref", "safety_snapshot_hash"])
@@ -121,10 +120,28 @@ def test_route_after_risk_fails_closed_when_auto_allowed_snapshot_row_not_verifi
     assert route_after_risk(state) == "final_response"
 
 
-def test_route_after_approval_returns_execute_action_on_trusted_approval_result_v1():
+def test_route_after_approval_returns_action_draft_on_trusted_approval_result_v1():
     state = _approval_route_state()
 
-    assert route_after_approval(state) == "execute_action"
+    assert route_after_approval(state) == "action_draft"
+
+
+def test_requested_operation_execute_action_remains_intent_taxonomy_value():
+    parsed = IntentResultV3(
+        primary_intent="compensation_suggestion",
+        requested_operation="execute_action",
+        confidence=0.92,
+        calibrated_confidence=0.9,
+        secondary_intents=[],
+        required_slots={"all_of": [], "any_of": [], "optional": []},
+        candidate_slots={},
+        routing_hints={},
+        classifier_version="test",
+        calibration_version="test",
+        reason_codes=["write_requested"],
+    )
+
+    assert parsed.requested_operation == "execute_action"
 
 
 def test_route_after_approval_returns_final_response_on_untrusted_ordinary_payload():
@@ -237,7 +254,7 @@ async def test_auto_allowed_path_persists_durable_snapshot_row_before_action_dra
     assert result["safety_snapshot_ref"] == snapshot.snapshot_ref
     assert result["safety_snapshot_hash"] == snapshot.immutable_hash
     assert result["safety_snapshot_verified"] is True
-    assert route_after_risk(result) == "execute_action"
+    assert route_after_risk(result) == "action_draft"
 
 
 @pytest.mark.asyncio

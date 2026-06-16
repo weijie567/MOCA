@@ -33,8 +33,8 @@ INVESTIGATION_STATE_FIELDS = {
 ROUTER_EDGE_KEYS = {
     "route_after_intent": {"clarification_gate", "final_response", "investigate", "session_memory_load"},
     "route_after_slots": {"clarification_gate", "investigate", "long_term_memory_retrieve"},
-    "route_after_risk": {"approval_gate", "execute_action", "final_response"},
-    "route_after_approval": {"assess_risk_and_approval", "execute_action", "final_response"},
+    "route_after_risk": {"approval_gate", "action_draft", "final_response"},
+    "route_after_approval": {"assess_risk_and_approval", "action_draft", "final_response"},
     "route_after_investigate": {"final_response", "clarification_gate", "recommendation_generation"},
 }
 
@@ -463,6 +463,8 @@ def test_graph_compiles_with_investigate():
     nodes = set(graph.get_graph().nodes)
 
     assert {"investigate", "clarification_gate", "session_memory_load", "long_term_memory_retrieve"} <= nodes
+    assert "action_draft" in nodes
+    assert "execute_action" not in nodes
     assert "load_business_context" not in nodes
     assert "retrieve_policy_evidence" not in nodes
 
@@ -472,6 +474,7 @@ def test_approval_gate_edit_branch_is_registered_in_compiled_graph():
     conditional_edges = {(edge.source, edge.target) for edge in graph.edges if edge.conditional}
 
     assert ("approval_gate", "assess_risk_and_approval") in conditional_edges
+    assert ("approval_gate", "action_draft") in conditional_edges
 
 
 def test_route_after_investigate_keys_are_edge_targets():
@@ -514,6 +517,13 @@ def test_all_router_return_keys_have_edges():
         route_after_investigate({"retrieval_status": "strong_evidence", "best_score": 0.9})
         in ROUTER_EDGE_KEYS["route_after_investigate"]
     )
+
+
+def test_requested_operation_execute_action_remains_intent_taxonomy_value():
+    payload = _intent("compensation_suggestion")
+    payload["requested_operation"] = "execute_action"
+
+    assert payload["requested_operation"] == "execute_action"
 
 
 def test_post_merge_graph_uses_tool_manager_seam():
