@@ -211,7 +211,7 @@ def _default_descriptors() -> list[ToolDescriptor]:
             "create_coupon_grant_draft",
             kind="write",
             side_effect="write",
-            caller_allowlist=["execute_action"],
+            caller_allowlist=["action_draft"],
             event_family="action",
             resource_type=None,
             executor="action",

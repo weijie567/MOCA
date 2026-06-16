@@ -43,6 +43,7 @@ def test_execute_action_is_phase14_compatibility_shim_only() -> None:
     source = _source(SHIM_PATH)
 
     assert "Phase 14 compatibility shim" in source
+    assert "Owner: Phase 14 action-draft-boundary" in source
     assert "Phase 15 Replay Event Contract" in source
     assert "2026-07-16" in source
     assert "execute_action" in _function_names(SHIM_PATH)

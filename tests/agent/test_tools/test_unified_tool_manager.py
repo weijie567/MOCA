@@ -320,7 +320,7 @@ async def test_action_tool_requires_idempotency_key():
         },
         _ctx(
             tool="create_coupon_grant_draft",
-            caller_node="execute_action",
+            caller_node="action_draft",
             permissions=["tool:create_coupon_grant_draft"],
             safety_snapshot_ref="snapshot:test",
         ),
@@ -333,7 +333,7 @@ async def test_action_tool_requires_idempotency_key():
 
 
 @pytest.mark.asyncio
-async def test_execute_action_caller_can_dispatch_action_tool(monkeypatch):
+async def test_action_draft_caller_can_dispatch_action_tool(monkeypatch):
     draft_id = str(uuid4())
 
     create_draft = AsyncMock(
@@ -364,7 +364,7 @@ async def test_execute_action_caller_can_dispatch_action_tool(monkeypatch):
         },
         _ctx(
             tool="create_coupon_grant_draft",
-            caller_node="execute_action",
+            caller_node="action_draft",
             safety_snapshot_ref="snapshot:test",
             permissions=["tool:create_coupon_grant_draft"],
             idempotency_key="idem-1",

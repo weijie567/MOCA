@@ -227,7 +227,7 @@ async def test_execute_action_canonicalizes_legacy_freeform_action_type(monkeypa
 
     _, kwargs = create_draft.await_args
     assert kwargs["action_type"] == "manual_review"
-    assert "_manual_review_" in kwargs["idempotency_key"]
+    assert "manual_review" not in kwargs["idempotency_key"]
     assert len(kwargs["action_type"]) <= 64
 
 

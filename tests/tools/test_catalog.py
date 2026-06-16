@@ -71,7 +71,7 @@ def test_action_descriptor_is_node_only_and_requires_idempotency() -> None:
 
     assert descriptor.kind == "write"
     assert descriptor.exposure == "node_only"
-    assert descriptor.caller_allowlist == ["execute_action"]
+    assert descriptor.caller_allowlist == ["action_draft"]
     assert descriptor.requires_idempotency_key is True
 
 
