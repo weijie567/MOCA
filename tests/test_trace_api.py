@@ -195,6 +195,31 @@ def test_build_timeline_merges_all_event_types_correctly():
     assert "payload" not in timeline[3]["detail"]
 
 
+def test_trace_action_draft_projection_excludes_raw_payload_even_when_present():
+    draft = SimpleNamespace(
+        id=uuid4(),
+        created_at=datetime.now(UTC),
+        action_type="issue_coupon",
+        status="draft_created",
+        idempotency_key="idem-raw-payload",
+        draft_outcome=_draft_outcome(draft_id=uuid4(), run_id=uuid4(), tenant_id=uuid4()),
+        payload={
+            "target_id": "RF-SECRET",
+            "raw_payload": {"customer_phone": "13900000000"},
+            "secret": "do not expose",
+        },
+    )
+    repo = TraceRepository(SimpleNamespace())
+
+    timeline = repo.build_timeline(steps=[], approvals=[], approval_steps=[], drafts=[draft])
+
+    assert "payload" not in timeline[0]["detail"]
+    assert "raw_payload" not in str(timeline[0])
+    assert "RF-SECRET" not in str(timeline[0])
+    assert "13900000000" not in str(timeline[0])
+    assert "do not expose" not in str(timeline[0])
+
+
 @pytest.mark.asyncio
 async def test_get_run_trace_empty_run_returns_only_agent_steps(
     client: AsyncClient,

@@ -6,16 +6,16 @@ from src.agent.nodes.final_response import final_response
 
 
 FORBIDDEN_DEMO_SUCCESS_PHRASES = (
-    "waiting for " "final issuance",
-    "issued " "coupon",
-    "refund" "ed",
-    "closed " "ticket",
-    "external " "success",
-    "等待最终" "发放",
-    "已" "发放",
-    "已" "退款",
-    "已关闭" "工单",
-    "执行" "成功",
+    "waiting for final issuance",
+    "issued coupon",
+    "refunded",
+    "closed ticket",
+    "external success",
+    "等待最终发放",
+    "已发放",
+    "已退款",
+    "已关闭工单",
+    "执行成功",
 )
 
 
@@ -196,6 +196,43 @@ async def test_final_response_rejects_side_effecting_draft_outcome_as_success(ba
 
     assert "draft-side-effect" not in result["final_response"]
     assert "草稿已创建" not in result["final_response"]
+
+
+@pytest.mark.asyncio
+async def test_final_response_demo_draft_paths_have_no_external_success_wording(base_state):
+    states = [
+        {
+            **base_state,
+            "recommendation_draft": {
+                "recommended_action": "issue_coupon",
+                "reasoning_summary": "符合补偿规则。",
+                "evidence_refs": [],
+            },
+            "risk_assessment": {"approval_required": True},
+            "approval_result": {"decision": "approve"},
+            "action_draft": {"draft_id": "draft-approved", "status": "draft_created"},
+            "draft_outcome": _draft_outcome("draft-approved"),
+            "action_result": {"status": "draft_created", "data": {"draft_id": "draft-approved"}, "error": {}},
+        },
+        {
+            **base_state,
+            "recommendation_draft": {
+                "recommended_action": "issue_coupon",
+                "reasoning_summary": "符合补偿规则。",
+                "evidence_refs": [],
+            },
+            "risk_assessment": {"approval_required": False},
+            "approval_result": None,
+            "action_draft": {"draft_id": "draft-auto", "status": "draft_created"},
+            "draft_outcome": _draft_outcome("draft-auto"),
+            "action_result": {"status": "draft_created", "data": {"draft_id": "draft-auto"}, "error": {}},
+        },
+    ]
+
+    for state in states:
+        result = await final_response(state)
+
+        assert not any(phrase in result["final_response"] for phrase in FORBIDDEN_DEMO_SUCCESS_PHRASES)
 
 
 @pytest.mark.asyncio

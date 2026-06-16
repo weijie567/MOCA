@@ -154,6 +154,17 @@ def test_action_draft_created_event_type_and_retention_are_registered():
     assert not any(event_type.startswith("action_execution_") for event_type in MINIMAL_EVENT_TYPES)
 
 
+def test_no_action_execution_event_family_is_registered():
+    forbidden = {
+        "action_execution_started",
+        "action_execution_completed",
+        "action_execution_failed",
+    }
+
+    assert forbidden.isdisjoint(MINIMAL_EVENT_TYPES)
+    assert forbidden.isdisjoint(EVENT_RETENTION_CLASSIFICATION)
+
+
 @pytest.mark.asyncio
 async def test_single_operation_one_family(session: AsyncSession):
     run_id, tenant_id = await _create_run(session)
@@ -271,3 +282,17 @@ async def test_action_draft_created_rejects_raw_payload_like_event_data(session:
                 event_type="action_draft_created",
                 redacted_payload={"summary": {key: {"target_id": "RF-1001"}}},
             )
+
+
+@pytest.mark.asyncio
+async def test_action_execution_events_cannot_be_emitted_in_phase14_demo(session: AsyncSession):
+    run_id, tenant_id = await _create_run(session)
+
+    with pytest.raises(ValueError, match="action_execution_completed"):
+        await _emit(
+            session,
+            run_id=run_id,
+            tenant_id=tenant_id,
+            event_type="action_execution_completed",
+            redacted_payload={"status": "completed"},
+        )

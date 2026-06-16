@@ -32,8 +32,8 @@ ACTION_DRAFT_V2_COLUMNS = {
 PHASE17_EXTERNAL_SURFACES = (
     "action_executions",
     "action_outbox_events",
-    "reconciliation",
-    "compensation",
+    "action_reconciliation_jobs",
+    "action_compensation_records",
 )
 
 
@@ -209,6 +209,14 @@ def test_action_drafts_orm_uses_tenant_scoped_idempotency_uniqueness():
     assert _item_columns(items["uq_action_drafts_tenant_idempotency_key"]) == {"tenant_id", "idempotency_key"}
     assert "uq_action_drafts_idempotency_key" not in items
     assert not _table("action_drafts").c["idempotency_key"].unique
+
+
+def test_sqlalchemy_metadata_declares_no_phase17_external_execution_tables():
+    from src.db.models import Base
+
+    table_names = set(Base.metadata.tables)
+
+    assert table_names.isdisjoint(PHASE17_EXTERNAL_SURFACES)
 
 
 def test_migration_009_revises_phase13_head_and_adds_matching_action_draft_columns():

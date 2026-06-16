@@ -14,6 +14,22 @@ SHIM_PATH = ROOT / "src" / "agent" / "nodes" / "execute_action.py"
 CATALOG_PATH = ROOT / "src" / "tools" / "catalog.py"
 GRAPH_PATH = ROOT / "src" / "agent" / "graph.py"
 MANAGER_PATH = ROOT / "src" / "tools" / "manager.py"
+SOURCE_ROOTS = (
+    ROOT / "src" / "actions",
+    ROOT / "src" / "agent",
+    ROOT / "src" / "api",
+    ROOT / "src" / "repositories",
+    ROOT / "src" / "tools",
+)
+ACTION_RESULT_SUCCESS_PATTERN = re.compile(r"action_result.*status.*success|status.*success.*action_result")
+FORBIDDEN_EXTERNAL_IMPORT_PARTS = (
+    "external_adapter",
+    "external_adapters",
+    "action_outbox",
+    "outbox_worker",
+    "reconciliation",
+    "compensation",
+)
 
 
 def _source(path: Path) -> str:
@@ -117,4 +133,33 @@ def test_source_does_not_import_execute_action_shim_outside_shim() -> None:
 def test_graph_does_not_depend_on_action_result_success_sentinel() -> None:
     source = _source(GRAPH_PATH)
 
-    assert re.search(r"action_result.*status.*success|status.*success.*action_result", source) is None
+    assert ACTION_RESULT_SUCCESS_PATTERN.search(source) is None
+
+
+def test_demo_action_sources_do_not_import_external_execution_paths() -> None:
+    violations: list[tuple[str, str]] = []
+    for root in SOURCE_ROOTS:
+        for path in sorted(root.glob("**/*.py")):
+            for module in _import_targets(path):
+                normalized = module.lower()
+                if any(part in normalized for part in FORBIDDEN_EXTERNAL_IMPORT_PARTS):
+                    violations.append((str(path.relative_to(ROOT)), module))
+
+    assert violations == []
+
+
+def test_source_does_not_depend_on_action_result_success_sentinel() -> None:
+    allowed = {
+        "src/agent/nodes/action_draft.py",  # compatibility output construction only; guarded above.
+    }
+    violations: list[tuple[str, int, str]] = []
+    for root in SOURCE_ROOTS:
+        for path in sorted(root.glob("**/*.py")):
+            relative = str(path.relative_to(ROOT))
+            if relative in allowed:
+                continue
+            for line_no, line in enumerate(_source(path).splitlines(), start=1):
+                if ACTION_RESULT_SUCCESS_PATTERN.search(line):
+                    violations.append((relative, line_no, line.strip()))
+
+    assert violations == []
