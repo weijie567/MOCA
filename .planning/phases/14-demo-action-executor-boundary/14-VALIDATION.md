@@ -68,6 +68,20 @@ Result: `191 passed, 1 warning in 102.11s`.
 
 Initial sandboxed execution failed with PostgreSQL socket `PermissionError: [Errno 1] Operation not permitted`; the same command passed with approved local database access.
 
+## Round 2 Validation Refresh 2026-06-16
+
+Re-ran the Phase 14 focused validation set after the Round 2 code-review fixes and clean re-review.
+
+Command:
+
+```bash
+uv run pytest tests/test_execute_action.py tests/test_approval_integration.py tests/test_approval_api.py tests/test_trace_api.py tests/agent/test_graph.py tests/test_graph_routing.py tests/agent/test_nodes/test_final_response.py tests/agent/test_tools/test_create_coupon_grant_draft.py tests/architecture/test_action_draft_boundaries.py tests/actions/test_action_draft_v2.py tests/agent/test_events.py tests/agent/test_nodes/test_receive_request.py -q --tb=short
+```
+
+Result: `197 passed, 1 warning in 105.39s`.
+
+Warning remains the existing LangGraph `allowed_objects` pending deprecation notice; no Phase 14 test failed.
+
 ## Validation Sign-Off
 
 - [x] All plans include automated pytest verification for their modified surfaces.
