@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
 status: executing
-stopped_at: Completed 14-03-PLAN.md
-last_updated: "2026-06-16T01:06:07.488Z"
-last_activity: 2026-06-16 -- Phase 14 Plan 03 complete; Wave 4 ready
+stopped_at: Completed 14-05-PLAN.md
+last_updated: "2026-06-16T02:15:31Z"
+last_activity: 2026-06-16 -- Phase 14 Wave 4 complete; Wave 5 ready
 progress:
   total_phases: 11
   completed_phases: 7
   total_plans: 48
-  completed_plans: 45
-  percent: 94
+  completed_plans: 47
+  percent: 98
 ---
 
 # Project State: MOCA
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md`
 ## Current Position
 
 Phase: 14 (demo-action-executor-boundary) — EXECUTING
-Plan: 4 of 6
+Plan: 6 of 6
 Plans: 6 planned
-Status: Plan 14-03 complete; ready for Wave 4 (14-04 and 14-05)
-Last activity: 2026-06-16 -- Phase 14 Plan 03 complete; Wave 4 ready
+Status: Plan 14-05 complete; ready for Wave 5 (14-06)
+Last activity: 2026-06-16 -- Phase 14 Wave 4 complete; Wave 5 ready
 
-Progress: [█████████░] 94%
+Progress: [██████████] 98%
 
 ## Completed Baseline
 
@@ -88,6 +88,9 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - `AgentState.action_draft`, `AgentState.draft_outcome`, and `AgentState.execution_mode` are reset by `receive_request` at each turn so checkpointed draft state cannot leak.
 - The canonical graph node and caller_node value is `action_draft`; `execute_action` remains only an intent-layer requested_operation value or compatibility shim name.
 - Approval reconciliation imports `action_draft` directly so production source no longer depends on the `execute_action` shim; Phase 14 Plan 04 still owns draft_outcome-based reconciliation wording.
+- Approval resume and final-response wording now use `draft_outcome.status == "not_executed_demo"` plus `external_side_effect is False` as the demo success signal instead of `action_result.status == "success"`.
+- `action_draft_created` is a minimal trace event with safe refs only, and `/trace` projects `draft_outcome` without exposing raw `ActionDraft.payload`.
+- Phase 14 Wave 4 post-merge validation passed `uv run pytest -q --tb=short` with 806 tests after stale approval model idempotency tests were updated to the v2 tenant-scoped draft contract.
 
 ## Blockers / Concerns
 
@@ -133,14 +136,16 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | 14 | 01 | 5 min | 3 | 5 |
 | 14 | 02 | 29 min | 3 | 8 |
 | 14 | 03 | 1h 2m | 2 | 12 |
+| 14 | 04 | 31 min | 2 | 5 |
+| 14 | 05 | 25 min | 2 | 8 |
 
 ## Session Continuity
 
-Last session: Phase 14 Plan 03 complete
-Stopped at: Completed 14-03-PLAN.md
+Last session: Phase 14 Wave 4 complete
+Stopped at: Completed 14-05-PLAN.md
 Resume file: None
 
-**Next:** Execute Phase 14 Wave 4 with 14-04-PLAN.md and 14-05-PLAN.md
+**Next:** Execute Phase 14 Wave 5 with 14-06-PLAN.md
 
 **Completed Phase:** Phase 13 (Approval State Machine) — 2026-06-15
 
