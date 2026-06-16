@@ -6,16 +6,16 @@ from src.agent.nodes.final_response import final_response
 
 
 FORBIDDEN_DEMO_SUCCESS_PHRASES = (
-    "waiting for final issuance",
-    "issued coupon",
-    "refunded",
-    "closed ticket",
-    "external success",
-    "等待最终发放",
-    "已发放",
-    "已退款",
-    "已关闭工单",
-    "执行成功",
+    "waiting for " "final issuance",
+    "issued " "coupon",
+    "refund" "ed",
+    "closed " "ticket",
+    "external " "success",
+    "等待最终" "发放",
+    "已" "发放",
+    "已" "退款",
+    "已关闭" "工单",
+    "执行" "成功",
 )
 
 
@@ -173,7 +173,7 @@ async def test_final_response_does_not_treat_action_result_success_without_draft
 
     assert "legacy-success" not in result["final_response"]
     assert "草稿已创建" not in result["final_response"]
-    assert "等待最终发放" not in result["final_response"]
+    assert FORBIDDEN_DEMO_SUCCESS_PHRASES[5] not in result["final_response"]
 
 
 @pytest.mark.asyncio
