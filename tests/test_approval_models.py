@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select
@@ -16,6 +16,47 @@ from tests.approvals.test_service_transitions import (
     _create_run,
     _decision_command,
 )
+
+
+async def _create_action_draft(
+    store: ActionDraftRepository,
+    *,
+    run_id: UUID,
+    tenant_id: UUID,
+    idempotency_key: str,
+    action_type: str = "refund_override",
+    target_id: str = "refund-100",
+    action_payload_hash: str = "sha256:" + "a" * 64,
+    safety_snapshot_ref: str = "action_safety_snapshot/test-snapshot",
+    safety_snapshot_hash: str = "sha256:" + "b" * 64,
+    payload: dict[str, object] | None = None,
+):
+    return await store.create_or_get(
+        run_id=run_id,
+        tenant_id=tenant_id,
+        approval_request_id=None,
+        idempotency_key=idempotency_key,
+        action_type=action_type,
+        target_id=target_id,
+        approval_revision_ref="auto_allowed",
+        action_payload_hash=action_payload_hash,
+        safety_snapshot_ref=safety_snapshot_ref,
+        safety_snapshot_hash=safety_snapshot_hash,
+        payload=payload or {"amount": 100},
+        draft_outcome={
+            "schema_version": "draft_outcome.v1",
+            "status": "not_executed_demo",
+            "external_side_effect": False,
+            "tenant_id": str(tenant_id),
+            "run_id": str(run_id),
+            "draft_id": None,
+            "created_at": "2026-06-16T00:00:00.000Z",
+        },
+        execution_mode="demo",
+        draft_version=1,
+        lifecycle_status="active",
+        retention_policy="phase14_demo_draft",
+    )
 
 
 @pytest.mark.asyncio
@@ -173,20 +214,18 @@ async def test_action_draft_create_or_get_is_idempotent(session: AsyncSession, s
     run_id = await _create_run(session, tenant_id=tenant_id, user_id=user_id)
     store = ActionDraftRepository(session)
 
-    created_draft, created = await store.create_or_get(
+    created_draft, created = await _create_action_draft(
+        store,
         run_id=run_id,
         tenant_id=tenant_id,
-        approval_request_id=None,
         idempotency_key="refund-override-1",
-        action_type="refund_override",
         payload={"amount": 100},
     )
-    existing_draft, reused = await store.create_or_get(
+    existing_draft, reused = await _create_action_draft(
+        store,
         run_id=run_id,
         tenant_id=tenant_id,
-        approval_request_id=None,
         idempotency_key="refund-override-1",
-        action_type="refund_override",
         payload={"amount": 200},
     )
 
@@ -197,7 +236,7 @@ async def test_action_draft_create_or_get_is_idempotent(session: AsyncSession, s
 
 
 @pytest.mark.asyncio
-async def test_action_draft_rejects_cross_tenant_idempotency_reuse(session: AsyncSession, seeded_session):
+async def test_action_draft_idempotency_key_is_tenant_scoped(session: AsyncSession, seeded_session):
     tenant_id = seeded_session["tenant"].id
     other_tenant_id = seeded_session["other_tenant"].id
     user_id = seeded_session["users"]["cs_zhang"].id
@@ -206,24 +245,25 @@ async def test_action_draft_rejects_cross_tenant_idempotency_reuse(session: Asyn
     other_run_id = await _create_run(session, tenant_id=other_tenant_id, user_id=other_user_id)
     store = ActionDraftRepository(session)
 
-    await store.create_or_get(
+    draft, created = await _create_action_draft(
+        store,
         run_id=run_id,
         tenant_id=tenant_id,
-        approval_request_id=None,
         idempotency_key="shared-key",
-        action_type="refund_override",
+        payload={"amount": 100},
+    )
+    other_draft, other_created = await _create_action_draft(
+        store,
+        run_id=other_run_id,
+        tenant_id=other_tenant_id,
+        idempotency_key="shared-key",
         payload={"amount": 100},
     )
 
-    with pytest.raises(ValueError, match="idempotency_key_conflict"):
-        await store.create_or_get(
-            run_id=other_run_id,
-            tenant_id=other_tenant_id,
-            approval_request_id=None,
-            idempotency_key="shared-key",
-            action_type="refund_override",
-            payload={"amount": 100},
-        )
+    assert created is True
+    assert other_created is True
+    assert other_draft.id != draft.id
+    assert other_draft.tenant_id == other_tenant_id
 
 
 @pytest.mark.asyncio
