@@ -9,9 +9,9 @@ import uuid
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import AgentTraceEvent
+from src.db.models import AgentRun, AgentTraceEvent
 from src.replay.pairing import OperationPairingStatus, validate_operation_pairing
-from src.replay.schemas import ReplayEventV3
+from src.replay.schemas import ReplayEventV3, ReplayResponseV3
 from src.replay.validators import guard_redacted_payload, retention_for_event_type, validate_event_type
 
 
@@ -132,6 +132,25 @@ class ReplayService:
             return self.project_minimal_event(row)
         return self.project_event(row, pairing_status=pairing_status)
 
+    async def get_replay(self, run_id: uuid.UUID | str) -> dict[str, Any]:
+        """Return a ReplayResponseV3 from event-store rows ordered by sequence."""
+        run_uuid = _as_uuid(run_id)
+        run_result = await self.session.execute(sa.select(AgentRun).where(AgentRun.id == run_uuid))
+        run = run_result.scalar_one_or_none()
+        if run is None:
+            raise LookupError(f"AgentRun {run_uuid} not found")
+
+        events = await self._events_for_run(run_uuid)
+        response = ReplayResponseV3(
+            run_id=run.id,
+            thread_id=run.thread_id,
+            final_status=run.final_status,
+            started_at=run.started_at,
+            completed_at=run.completed_at,
+            timeline=[self.project_event(event, include_retention_class=False) for event in events],
+        )
+        return response.model_dump(mode="python")
+
     async def _events_for_run(self, run_id: uuid.UUID) -> list[AgentTraceEvent]:
         result = await self.session.execute(
             sa.select(AgentTraceEvent)
@@ -164,6 +183,7 @@ class ReplayService:
         event: AgentTraceEvent,
         *,
         pairing_status: OperationPairingStatus | None = None,
+        include_retention_class: bool = True,
     ) -> dict[str, Any]:
         """Project stored minimal or V3 rows into the strict ReplayEventV3 shape."""
         retention_class = retention_for_event_type(event.event_type)
@@ -200,7 +220,8 @@ class ReplayService:
             "error": event.error_json,
         }
         event_dict = ReplayEventV3(**projection).model_dump(mode="python")
-        event_dict["retention"]["retention_class"] = retention_class
+        if include_retention_class:
+            event_dict["retention"]["retention_class"] = retention_class
         return event_dict
 
 
