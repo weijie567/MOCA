@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
 status: executing
-stopped_at: Completed 14-06-PLAN.md
-last_updated: "2026-06-16T02:42:28.997Z"
-last_activity: 2026-06-16 -- Phase 14 complete; ready for Phase 15 planning
+stopped_at: Verification gaps found after 14-06-PLAN.md
+last_updated: "2026-06-16T03:08:00Z"
+last_activity: 2026-06-16 -- Phase 14 verification found 3 gaps; gap closure required
 progress:
   total_phases: 11
-  completed_phases: 8
+  completed_phases: 7
   total_plans: 48
   completed_plans: 48
-  percent: 100
+  percent: 98
 ---
 
 # Project State: MOCA
@@ -21,17 +21,17 @@ progress:
 See: `.planning/PROJECT.md`
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 15 — replay-event-contract
+**Current focus:** Phase 14 — demo-action-executor-boundary gap closure
 
 ## Current Position
 
-Phase: 14 (demo-action-executor-boundary) — COMPLETE
+Phase: 14 (demo-action-executor-boundary) — GAPS FOUND
 Plan: 6 of 6
 Plans: 6 planned
-Status: Phase 14 complete; ready for Phase 15 planning
-Last activity: 2026-06-16 -- Phase 14 complete; ready for Phase 15 planning
+Status: Phase 14 verification found 3 gaps; gap closure required
+Last activity: 2026-06-16 -- Phase 14 verification found 3 gaps; gap closure required
 
-Progress: [██████████] 100%
+Progress: [██████████] 98%
 
 ## Completed Baseline
 
