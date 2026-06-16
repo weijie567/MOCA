@@ -112,7 +112,28 @@ class ReplayService:
         )
         self.session.add(row)
         await self.session.flush()
+        if schema_version == "minimal_event_envelope.v1":
+            return self.project_minimal_event(row)
         return self.project_event(row)
+
+    def project_minimal_event(self, event: AgentTraceEvent) -> dict[str, Any]:
+        """Project stored rows into the Phase 10-14 minimal envelope shape."""
+        return {
+            "schema_version": event.schema_version,
+            "event_id": event.event_id,
+            "sequence": event.sequence,
+            "operation_id": event.operation_id,
+            "run_id": event.run_id,
+            "tenant_id": event.tenant_id,
+            "thread_id": event.thread_id,
+            "trace_id": event.trace_id,
+            "event_type": event.event_type,
+            "occurred_at": event.occurred_at,
+            "actor": event.actor,
+            "resource_refs": event.resource_refs,
+            "redaction_policy_version": event.redaction_policy_version,
+            "redacted_payload": event.redacted_payload,
+        }
 
     def project_event(self, event: AgentTraceEvent) -> dict[str, Any]:
         """Project stored minimal or V3 rows into the strict ReplayEventV3 shape."""
