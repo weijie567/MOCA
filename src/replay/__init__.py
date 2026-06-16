@@ -6,6 +6,7 @@ from src.replay.pairing import OperationPairingStatus
 from src.replay.pairing import STARTED_SUFFIXES
 from src.replay.pairing import TERMINAL_SUFFIXES
 from src.replay.pairing import validate_operation_pairing
+from src.replay.lifecycle import RunLifecycleService
 from src.replay.schemas import ReplayError
 from src.replay.schemas import ReplayEventProvenance
 from src.replay.schemas import ReplayEventV3
@@ -32,6 +33,7 @@ __all__ = [
     "ReplayResponseV3",
     "ReplayRetention",
     "ReplayService",
+    "RunLifecycleService",
     "STARTED_SUFFIXES",
     "TERMINAL_SUFFIXES",
     "guard_redacted_payload",
