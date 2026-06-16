@@ -44,10 +44,10 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - [x] v1.1 PostgreSQL-authoritative session memory uses CAS, safe same-thread slot continuity, evidence/action authority separation, and explicit Redis deferral (validated in Phase 12)
 - [x] v1.1 approval lifecycle and ActionSafetySnapshot binding are versioned, immutable, and verified (validated in Phase 13)
 - [x] v1.1 demo action boundary creates durable drafts only, binds exact payload/hash/snapshot data, and fails closed without trusted approval permission (validated in Phase 14)
+- [x] v1.1 replay contract stores and reads ReplayEventV3 facts with lifecycle finalization, shared sequence allocation, operation pairing, redaction/retention, `/replay` read-switch, and `/trace` fallback (validated in Phase 15)
 
 ### Active
 
-- [ ] v1.1 enforces the replay contract.
 - [ ] v1.1 validates each owned contract with migration verification, forbidden-behavior tests, golden flows, and explicit eval gates.
 
 ### Out of Scope
@@ -104,11 +104,12 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - Phase 12 Session Memory is complete: PostgreSQL-authoritative session memory, CAS merge/conflict behavior, same-thread slot continuity, evidence/action authority separation, post-response bounded writes, and Redis skip decision are verified.
 - Phase 13 Approval State Machine is complete: versioned lifecycle, immutable ActionSafetySnapshot binding, trusted API/graph transitions, approval events, SLA scanning, and legacy quarantine are verified.
 - Phase 14 Demo Action Executor Boundary is complete: durable draft-only behavior, exact payload/hash/snapshot binding, no-approval fail-closed behavior, trusted write-tool permission ownership, and draft-only final/API wording are verified.
-- Active planning is now on Phase 15 Replay Event Contract.
+- Phase 15 Replay Event Contract is complete: ReplayEventV3 storage/projection, lifecycle finalization, shared sequence allocation, operation pairing, replay redaction/retention, `/replay` read-switch, `/trace` rollback fallback, and owner-named Phase 17 deferrals are verified.
+- Active planning is now ready for Phase 16 Long-term / Case Memory.
 
 ## Next Milestone Goals
 
-Define the milestone after v1.1 only after Phases 7-15 complete and the deferred owner phases 16-17 are explicitly accepted, rescheduled, or carried forward.
+Define the milestone after v1.1 only after the deferred owner phases 16-17 are explicitly accepted, rescheduled, or carried forward.
 
 ## Constraints
 
@@ -150,4 +151,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-16 after Phase 14 verified complete and Phase 15 became the active planning focus*
+*Last updated: 2026-06-16 after Phase 15 verified complete and Phase 16 became ready to plan*

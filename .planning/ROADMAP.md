@@ -197,7 +197,7 @@ Plans:
 | 12. Session Memory | 5/5 | Complete | 2026-06-14 |
 | 13. Approval State Machine | 8/8 | Complete    | 2026-06-15 |
 | 14. Demo Action Executor Boundary | 7/7 | Complete    | 2026-06-16 |
-| 15. Replay Event Contract | 6/6 | Ready for Verification | 2026-06-16 |
+| 15. Replay Event Contract | 6/6 | Complete    | 2026-06-16 |
 | 16. Long-term / Case Memory | 0/TBD | Deferred beyond MVP gate | - |
 | 17. External Action Execution | 0/TBD | Deferred beyond MVP gate | - |
 

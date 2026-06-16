@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
-status: verifying
+status: ready_to_plan
 stopped_at: Completed 15-06-PLAN.md
 last_updated: "2026-06-16T16:14:30.097Z"
 last_activity: 2026-06-16
 progress:
   total_phases: 11
-  completed_phases: 9
+  completed_phases: 10
   total_plans: 55
   completed_plans: 55
-  percent: 100
+  percent: 91
 ---
 
 # Project State: MOCA
@@ -25,10 +25,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-16)
 
 ## Current Position
 
-Phase: 15 (replay-event-contract) — VERIFYING
-Plan: 6 of 6
+Phase: 16
+Plan: Not started
 Plans: 6 planned
-Status: Phase complete — ready for verification
+Status: Ready to plan
 Last activity: 2026-06-16
 
 Progress: [██████████] 100%
