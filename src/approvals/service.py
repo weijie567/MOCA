@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.agent.trace import update_agent_run_status
 from src.approvals.events import (
     approval_revision_ref,
     emit_approval_decided,
@@ -420,6 +421,14 @@ class ApprovalService:
             metadata={
                 "clarification_request_id": clarification_request_id,
             },
+        )
+        await update_agent_run_status(
+            self.session,
+            run_id=str(request.run_id),
+            final_status="interrupted",
+            reason_code="needs_info_response",
+            clarification_ref=clarification_request_id,
+            emit_if_unchanged=True,
         )
         return self._result(
             request=request,

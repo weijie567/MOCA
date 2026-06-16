@@ -96,7 +96,7 @@ async def test_concurrent_append_calls_do_not_duplicate_sequence(test_engine):
 
     sequences = await asyncio.gather(*(append_from_writer(index) for index in range(5)))
 
-    assert sorted(sequences) == [1, 2, 3, 4, 5]
+    assert sorted(sequences) == [2, 3, 4, 5, 6]
     assert len(sequences) == len(set(sequences)), "duplicate sequence values are forbidden"
 
 
@@ -176,18 +176,19 @@ async def test_sequence_allocator_covers_pre_lifecycle_writer_surfaces(session: 
         )
     ).all()
 
-    assert [graph_writer["sequence"], memory_write_writer["sequence"]] == [1, 2]
+    assert [graph_writer["sequence"], memory_write_writer["sequence"]] == [2, 3]
     assert [
         approval_writer["sequence"],
         action_draft_writer["sequence"],
         replay_backfill_writer["sequence"],
         lifecycle_writer["sequence"],
     ] == [
-        3,
         4,
         5,
         6,
+        7,
     ]
-    assert [sequence for sequence, _event_type in rows] == [1, 2, 3, 4, 5, 6]
-    assert len({sequence for sequence, _event_type in rows}) == 6
+    assert [sequence for sequence, _event_type in rows] == [1, 2, 3, 4, 5, 6, 7]
+    assert [event_type for _sequence, event_type in rows][0] == "run_status_changed"
+    assert len({sequence for sequence, _event_type in rows}) == 7
     assert "pg_advisory_xact_lock" in inspect.getsource(ReplayService.allocate_sequence)

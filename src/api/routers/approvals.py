@@ -282,6 +282,9 @@ async def _resume_graph_after_decision(*, request: Request, session: AsyncSessio
         final_response=final_response_text,
         completed_at=datetime.now(UTC),
         total_latency_ms=total_latency_ms,
+        trace_id=getattr(request.state, "trace_id", None),
+        reason_code="approval_resume_completed" if final_status == "completed" else "approval_resume_error",
+        error_code="approval_resume_error" if final_status == "error" else None,
     )
 
     trace_steps = final_state.get("trace_steps") or []

@@ -77,6 +77,7 @@ async def chat(
             started_at=started_at,
             completed_at=None,
             total_latency_ms=0,
+            trace_id=getattr(request.state, "trace_id", None),
         )
         final_state = await graph.ainvoke(input_state, config)
     except Exception as exc:
@@ -113,6 +114,7 @@ async def chat(
             completed_at=completed_at,
             total_latency_ms=total_ms,
             final_response=fallback_response,
+            trace_id=getattr(request.state, "trace_id", None),
         )
         return ApiResponse(
             success=False,
@@ -155,6 +157,7 @@ async def chat(
             completed_at=completed_at,
             total_latency_ms=total_ms,
             total_tokens=total_tokens,
+            trace_id=getattr(request.state, "trace_id", None),
         )
         await write_agent_steps(session, run_id=run_id, trace_steps=trace_steps)
         await session.commit()
@@ -231,10 +234,11 @@ async def _handle_interrupt(
         final_status="interrupted",
         final_response=None,
         started_at=started_at,
-        completed_at=completed_at,
-        total_latency_ms=total_ms,
-        total_tokens=_count_tokens(pre_interrupt_steps),
-    )
+            completed_at=completed_at,
+            total_latency_ms=total_ms,
+            total_tokens=_count_tokens(pre_interrupt_steps),
+            trace_id=getattr(request.state, "trace_id", None),
+        )
     if pre_interrupt_steps:
         await write_agent_steps(session, run_id=run_id, trace_steps=pre_interrupt_steps)
 
@@ -322,6 +326,7 @@ async def _persist_error_run(
     completed_at: datetime,
     total_latency_ms: int,
     final_response: str,
+    trace_id: str | None = None,
 ) -> None:
     try:
         await write_agent_run(
@@ -337,6 +342,7 @@ async def _persist_error_run(
             completed_at=completed_at,
             total_latency_ms=total_latency_ms,
             error_summary="graph invocation failed",
+            trace_id=trace_id,
         )
         await session.commit()
     except Exception:

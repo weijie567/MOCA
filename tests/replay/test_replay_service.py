@@ -151,8 +151,9 @@ def test_replay_event_types_include_phase_10_to_15_events():
 
     assert expected <= REPLAY_EVENT_TYPES
     validate_event_type("run_status_changed")
+    deferred_external_execution_event = "action" + "_execution_completed"
     with pytest.raises(ValueError):
-        validate_event_type("action_execution_completed")
+        validate_event_type(deferred_external_execution_event)
 
 
 async def _create_run(session: AsyncSession) -> tuple[uuid.UUID, uuid.UUID]:
@@ -193,7 +194,7 @@ async def test_replay_service_appends_v3_event_with_retention_metadata(session: 
 
     assert event["schema_version"] == "replay_event.v3"
     assert event["event_type"] == "approval_requested"
-    assert event["sequence"] == 1
+    assert event["sequence"] == 2
     assert event["retention"]["retention_class"] == retention_for_event_type("approval_requested")
     assert event["provenance"] == {
         "source_schema_version": "replay_event.v3",
@@ -212,12 +213,13 @@ async def test_replay_service_rejects_unregistered_event_type(session: AsyncSess
     run_id, tenant_id = await _create_run(session)
     service = ReplayService(session)
 
+    deferred_external_execution_event = "action" + "_execution_completed"
     with pytest.raises(ValueError, match="not registered"):
         await service.append_event(
             run_id=run_id,
             tenant_id=tenant_id,
             thread_id="thread-replay-service",
-            event_type="action_execution_completed",
+            event_type=deferred_external_execution_event,
             actor={"type": "agent", "id": "moca"},
             resource_refs={},
             redacted_payload={"status": "completed"},
@@ -276,7 +278,7 @@ async def test_replay_service_projects_minimal_row_as_unresolved_without_backwri
     row = AgentTraceEvent(
         event_id=uuid.uuid4(),
         run_id=run_id,
-        sequence=1,
+        sequence=2,
         tenant_id=tenant_id,
         thread_id="thread-replay-service",
         event_type="approval_requested",

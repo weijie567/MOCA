@@ -15,13 +15,14 @@ from uuid import UUID
 from langgraph.errors import GraphInterrupt
 from pydantic import ValidationError
 from fastapi import APIRouter, Depends, HTTPException, Request, Security
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sse_starlette.sse import EventSourceResponse
 
 from src.agent.nodes.memory_write import memory_write
 from src.agent.nodes.final_response import final_response as build_final_response
-from src.agent.trace import build_trace_summary, write_agent_run, write_agent_steps
+from src.agent.trace import build_trace_summary, update_agent_run_status, write_agent_run, write_agent_steps
 from src.api.schemas.agent_runs import CreateRunRequest, RunStatusResponse
 from src.api.schemas.common import ApiResponse
 from src.approvals.schemas import ApprovalRequestCreateCommand
@@ -100,6 +101,7 @@ async def create_agent_run(
         started_at=datetime.now(timezone.utc),
         completed_at=None,
         total_latency_ms=None,
+        trace_id=getattr(request.state, "trace_id", None),
     )
     await session.commit()
     return ApiResponse(
@@ -552,7 +554,12 @@ async def _claim_pending_run_for_stream(session: AsyncSession, run_id: UUID, use
         )
 
     try:
-        run.final_status = "running"
+        await update_agent_run_status(
+            session,
+            run_id=str(run.id),
+            final_status="running",
+            trace_id=None,
+        )
         await session.commit()
         return run
     except Exception:
@@ -571,10 +578,15 @@ async def _complete_run(
     trace_steps: list[dict[str, Any]],
 ) -> None:
     try:
-        run.final_status = final_status
-        run.final_response = final_response
-        run.completed_at = completed_at
-        run.total_latency_ms = total_latency_ms
+        await update_agent_run_status(
+            session,
+            run_id=str(run.id),
+            final_status=final_status,
+            final_response=final_response,
+            completed_at=completed_at,
+            total_latency_ms=total_latency_ms,
+            reason_code=_reason_code_for_final_status(final_status),
+        )
         run.total_tokens = _count_tokens(trace_steps)
         if trace_steps:
             await write_agent_steps(session, run_id=str(run.id), trace_steps=trace_steps)
@@ -586,11 +598,22 @@ async def _complete_run(
 
 async def _mark_run_error(*, session: AsyncSession, run: AgentRun, exc: BaseException, t0: float) -> None:
     try:
-        run.final_status = "error"
-        run.final_response = None
-        run.completed_at = datetime.now(timezone.utc)
-        run.total_latency_ms = round((time.perf_counter() - t0) * 1000)
-        run.error_summary = (str(exc) or type(exc).__name__)[:500]
+        identity = sa_inspect(run).identity
+        run_id = identity[0] if identity else run.id
+        error_summary = (str(exc) or type(exc).__name__)[:500]
+        await update_agent_run_status(
+            session,
+            run_id=str(run_id),
+            final_status="error",
+            final_response=None,
+            completed_at=datetime.now(timezone.utc),
+            total_latency_ms=round((time.perf_counter() - t0) * 1000),
+            reason_code="run_error",
+            error_code=type(exc).__name__,
+        )
+        fresh_run = await session.get(AgentRun, run_id)
+        if fresh_run is not None:
+            fresh_run.error_summary = error_summary
         await session.commit()
     except Exception:
         await session.rollback()
@@ -617,6 +640,16 @@ def _sse_event(
         "payload": payload,
     }
     return {"data": json.dumps(data, ensure_ascii=False)}
+
+
+def _reason_code_for_final_status(final_status: str) -> str:
+    if final_status == "interrupted":
+        return "approval_required"
+    if final_status == "error":
+        return "run_error"
+    if final_status == "cancelled":
+        return "run_cancelled"
+    return "run_completed"
 
 
 def _normalize_stream_update(stream_item: Any) -> tuple[str, Any]:

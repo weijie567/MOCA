@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import AgentRun, AgentStep
+from src.replay.lifecycle import RunLifecycleService
 
 
 async def write_agent_run(
@@ -27,10 +28,14 @@ async def write_agent_run(
     total_latency_ms: int | None,
     total_tokens: int | None = None,
     error_summary: str | None = None,
+    trace_id: str | None = None,
 ) -> AgentRun:
     """Insert or update one AgentRun row and return the persisted instance."""
     run_uuid = uuid.UUID(run_id)
     run = await session.get(AgentRun, run_uuid)
+    previous_status = run.final_status if run is not None else None
+    should_emit_running = run is None and final_status == "running"
+    should_emit_status_change = run is not None and previous_status != final_status
     if run is None:
         run = AgentRun(
             id=run_uuid,
@@ -60,6 +65,16 @@ async def write_agent_run(
         run.total_tokens = total_tokens
         run.error_summary = error_summary
     await session.flush()
+    if should_emit_running or should_emit_status_change:
+        await _append_lifecycle_status(
+            session,
+            run=run,
+            status=final_status,
+            previous_status=previous_status or "pending",
+            trace_id=trace_id,
+            reason_code=_reason_code_for_status(final_status),
+            error_code=_error_code(error_summary),
+        )
     return run
 
 
@@ -114,11 +129,17 @@ async def update_agent_run_status(
     final_response: str | None = None,
     completed_at: datetime | None = None,
     total_latency_ms: int | None = None,
+    trace_id: str | None = None,
+    reason_code: str | None = None,
+    clarification_ref: str | None = None,
+    error_code: str | None = None,
+    emit_if_unchanged: bool = False,
 ) -> None:
     """Update an existing agent run after resume."""
     stmt = select(AgentRun).where(AgentRun.id == uuid.UUID(run_id))
     run = (await session.execute(stmt)).scalar_one_or_none()
     if run:
+        previous_status = run.final_status
         run.final_status = final_status
         if final_response is not None:
             run.final_response = final_response
@@ -127,6 +148,17 @@ async def update_agent_run_status(
         if total_latency_ms is not None:
             run.total_latency_ms = total_latency_ms
         await session.flush()
+        if emit_if_unchanged or previous_status != final_status:
+            await _append_lifecycle_status(
+                session,
+                run=run,
+                status=final_status,
+                previous_status=previous_status,
+                trace_id=trace_id,
+                reason_code=reason_code or _reason_code_for_status(final_status),
+                clarification_ref=clarification_ref,
+                error_code=error_code,
+            )
 
 
 async def append_agent_steps(
@@ -257,3 +289,69 @@ def _parse_dt(value: str | None) -> datetime | None:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed
+
+
+async def _append_lifecycle_status(
+    session: AsyncSession,
+    *,
+    run: AgentRun,
+    status: str,
+    previous_status: str | None,
+    trace_id: str | None,
+    reason_code: str,
+    clarification_ref: str | None = None,
+    error_code: str | None = None,
+) -> None:
+    lifecycle = RunLifecycleService(session)
+    common = {
+        "run_id": run.id,
+        "tenant_id": run.tenant_id,
+        "thread_id": run.thread_id,
+        "previous_status": previous_status,
+        "reason_code": reason_code,
+        "trace_id": trace_id,
+    }
+    if status == "running":
+        await lifecycle.mark_running(**common)
+    elif status == "interrupted":
+        await lifecycle.mark_interrupted(**common, clarification_ref=clarification_ref)
+    elif status == "resumed":
+        await lifecycle.mark_resumed(**common)
+    elif status in {"completed", "insufficient_evidence"}:
+        await lifecycle.mark_completed(**common)
+    elif status == "rejected":
+        await lifecycle.mark_rejected(**common)
+    elif status == "expired":
+        await lifecycle.mark_expired(**common)
+    elif status == "error":
+        await lifecycle.mark_error(**common, error_code=error_code or "run_error")
+    elif status == "cancelled":
+        await lifecycle.mark_cancelled(**common)
+
+
+def _reason_code_for_status(status: str) -> str:
+    if status == "running":
+        return "run_started"
+    if status == "interrupted":
+        return "approval_required"
+    if status == "resumed":
+        return "approval_resumed"
+    if status == "completed":
+        return "run_completed"
+    if status == "insufficient_evidence":
+        return "insufficient_evidence"
+    if status == "rejected":
+        return "approval_rejected"
+    if status == "expired":
+        return "approval_expired"
+    if status == "cancelled":
+        return "run_cancelled"
+    if status == "error":
+        return "run_error"
+    return "status_changed"
+
+
+def _error_code(error_summary: str | None) -> str | None:
+    if not error_summary:
+        return None
+    return str(error_summary).split(":", 1)[0][:64] or "run_error"
