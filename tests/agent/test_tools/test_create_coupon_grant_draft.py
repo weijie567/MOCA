@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.actions.service import create_coupon_grant_draft
+from src.actions.schemas import ActionDraftV2Data
+from src.actions.service import _build_idempotency_key, create_coupon_grant_draft
 from src.agent.trace import write_agent_run
 from src.approvals.service import ApprovalService
 from src.db.models import ActionDraft, AgentTraceEvent, ApprovalAssignment, ApprovalLevel, ApprovalRequest
@@ -86,6 +88,19 @@ def _binding_kwargs(request: ApprovalRequest, **overrides):
     return payload
 
 
+def _draft_payload(request: ApprovalRequest, **overrides: Any) -> dict[str, Any]:
+    payload = dict(request.proposed_action)
+    payload.update(overrides)
+    return payload
+
+
+async def _assert_no_drafts_for_run(session: AsyncSession, run_id: UUID) -> None:
+    rows = (
+        await session.execute(select(ActionDraft).where(ActionDraft.run_id == run_id))
+    ).scalars().all()
+    assert rows == []
+
+
 def _tool_context(request: ApprovalRequest, *, user_id: str) -> ToolCallContext:
     return ToolCallContext(
         tenant_id=str(request.tenant_id),
@@ -155,7 +170,7 @@ async def test_create_coupon_grant_draft_cross_tenant_caller_key_is_ignored(
         approval_request_id=None,
         idempotency_key="shared-draft-key",
         action_type="issue_coupon",
-        payload={"target_id": "refund-1"},
+        payload=_draft_payload(request),
         session=session,
         action_payload_hash=request.action_payload_hash,
         safety_snapshot_ref=request.safety_snapshot_ref,
@@ -168,7 +183,7 @@ async def test_create_coupon_grant_draft_cross_tenant_caller_key_is_ignored(
         approval_request_id=None,
         idempotency_key="shared-draft-key",
         action_type="issue_coupon",
-        payload={"target_id": "refund-2"},
+        payload=_draft_payload(other_request),
         session=session,
         action_payload_hash=other_request.action_payload_hash,
         safety_snapshot_ref=other_request.safety_snapshot_ref,
@@ -200,7 +215,7 @@ async def test_create_coupon_grant_draft_requires_approved_request_binding(
         run_id=str(request.run_id),
         idempotency_key="approved-draft-key",
         action_type="issue_coupon",
-        payload={"target_id": "refund-1"},
+        payload=_draft_payload(request),
         session=session,
         **_binding_kwargs(request),
     )
@@ -227,7 +242,7 @@ async def test_create_coupon_grant_draft_rejects_unapproved_request_status(
         run_id=str(request.run_id),
         idempotency_key=f"{status}-draft-key",
         action_type="issue_coupon",
-        payload={"target_id": "refund-1"},
+        payload=_draft_payload(request),
         session=session,
         **_binding_kwargs(request),
     )
@@ -251,7 +266,7 @@ async def test_create_coupon_grant_draft_rejects_wrong_hash_binding(
         run_id=str(request.run_id),
         idempotency_key="wrong-hash-draft-key",
         action_type="issue_coupon",
-        payload={"target_id": "refund-1"},
+        payload=_draft_payload(request),
         session=session,
         **_binding_kwargs(request, action_payload_hash="sha256:" + "9" * 64),
     )
@@ -303,7 +318,7 @@ async def test_create_coupon_grant_draft_auto_allowed_key_is_service_owned(
         approval_request_id=None,
         idempotency_key="unsafe-caller-key",
         action_type="issue_coupon",
-        payload={"target_id": "RF-1001"},
+        payload=_draft_payload(request),
         session=session,
         action_payload_hash=request.action_payload_hash,
         safety_snapshot_ref=request.safety_snapshot_ref,
@@ -315,11 +330,12 @@ async def test_create_coupon_grant_draft_auto_allowed_key_is_service_owned(
     assert draft is not None
     assert draft.draft_outcome["status"] == "not_executed_demo"
     assert draft.draft_outcome["external_side_effect"] is False
-    assert result["data"]["action_draft"]["target_id"] == "RF-1001"
+    assert result["data"]["action_draft"]["target_id"] == "RF-APPROVAL-1"
     assert result["data"]["draft_outcome"]["draft_id"] == str(draft.id)
     assert result["data"]["action_result"]["status"] == "draft_created"
     assert draft.idempotency_key == (
-        f"{request.tenant_id}:{request.run_id}:auto_allowed:issue_coupon:RF-1001:{request.action_payload_hash}"
+        f"{request.tenant_id}:{request.run_id}:auto_allowed:issue_coupon:RF-APPROVAL-1:"
+        f"{request.action_payload_hash}"
     )
     assert "unsafe-caller-key" not in draft.idempotency_key
 
@@ -338,7 +354,7 @@ async def test_create_coupon_grant_draft_approved_key_uses_trusted_revision(
         run_id=str(request.run_id),
         idempotency_key="unsafe-caller-key",
         action_type="issue_coupon",
-        payload={"target_id": "RF-1001"},
+        payload=_draft_payload(request),
         session=session,
         **_binding_kwargs(request),
     )
@@ -351,9 +367,126 @@ async def test_create_coupon_grant_draft_approved_key_uses_trusted_revision(
     assert result["data"]["draft_outcome"]["status"] == "not_executed_demo"
     assert draft.idempotency_key == (
         f"{request.tenant_id}:{request.run_id}:approval_revision_{request.revision}:"
-        f"issue_coupon:RF-1001:{request.action_payload_hash}"
+        f"issue_coupon:RF-APPROVAL-1:{request.action_payload_hash}"
     )
     assert "unsafe-caller-key" not in draft.idempotency_key
+
+
+@pytest.mark.asyncio
+async def test_create_coupon_grant_draft_rejects_payload_hash_mismatch_without_draft(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    request, _level, _assignment = await _approval_context(session, seeded_session, status="approved")
+    user_id = seeded_session["users"]["cs_zhang"].id
+
+    result = await create_coupon_grant_draft(
+        tenant_id=str(request.tenant_id),
+        user_id=str(user_id),
+        run_id=str(request.run_id),
+        idempotency_key="tampered-payload-key",
+        action_type="issue_coupon",
+        payload=_draft_payload(request, target_id="RF-TAMPERED"),
+        session=session,
+        **_binding_kwargs(request),
+    )
+
+    assert result["status"] == "error"
+    assert result["error"]["error_code"] == "ACTION_BINDING_MISMATCH"
+    assert result["error"]["retryable"] is False
+    await _assert_no_drafts_for_run(session, request.run_id)
+
+
+@pytest.mark.asyncio
+async def test_create_coupon_grant_draft_rejects_action_type_mismatch_without_draft(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    request, _level, _assignment = await _approval_context(session, seeded_session, status="approved")
+    user_id = seeded_session["users"]["cs_zhang"].id
+
+    result = await create_coupon_grant_draft(
+        tenant_id=str(request.tenant_id),
+        user_id=str(user_id),
+        run_id=str(request.run_id),
+        idempotency_key="wrong-action-type-key",
+        action_type="manual_review",
+        payload=_draft_payload(request),
+        session=session,
+        **_binding_kwargs(request),
+    )
+
+    assert result["status"] == "error"
+    assert result["error"]["error_code"] == "ACTION_BINDING_MISMATCH"
+    assert result["error"]["retryable"] is False
+    await _assert_no_drafts_for_run(session, request.run_id)
+
+
+@pytest.mark.asyncio
+async def test_create_coupon_grant_draft_returns_complete_action_draft_v2_projection(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    request, _level, _assignment = await _approval_context(session, seeded_session, status="approved")
+    user_id = seeded_session["users"]["cs_zhang"].id
+    payload = _draft_payload(request)
+
+    result = await create_coupon_grant_draft(
+        tenant_id=str(request.tenant_id),
+        user_id=str(user_id),
+        run_id=str(request.run_id),
+        idempotency_key="complete-v2-key",
+        action_type="issue_coupon",
+        payload=payload,
+        session=session,
+        **_binding_kwargs(request),
+    )
+
+    assert result["status"] == "success"
+    action_draft = ActionDraftV2Data.model_validate(result["data"]["action_draft"])
+    assert action_draft.proposed_action == payload
+    assert action_draft.approval_ref == str(request.id)
+    assert action_draft.draft_outcome.status == "not_executed_demo"
+    assert action_draft.created_at is not None
+
+
+def test_build_idempotency_key_preserves_raw_shape_until_256_chars_and_bounds_long_keys() -> None:
+    tenant_id = uuid4()
+    run_id = uuid4()
+    action_payload_hash = "sha256:" + "1" * 64
+
+    raw_key = _build_idempotency_key(
+        tenant_id=tenant_id,
+        run_id=run_id,
+        revision_marker="approval_revision_1",
+        action_type="issue_coupon",
+        target_id="RF-APPROVAL-1",
+        action_payload_hash=action_payload_hash,
+    )
+    assert raw_key == f"{tenant_id}:{run_id}:approval_revision_1:issue_coupon:RF-APPROVAL-1:{action_payload_hash}"
+    assert len(raw_key) <= 256
+
+    long_target = "R" * 400
+    bounded_key = _build_idempotency_key(
+        tenant_id=tenant_id,
+        run_id=run_id,
+        revision_marker="approval_revision_1",
+        action_type="issue_coupon",
+        target_id=long_target,
+        action_payload_hash=action_payload_hash,
+    )
+    repeated_key = _build_idempotency_key(
+        tenant_id=tenant_id,
+        run_id=run_id,
+        revision_marker="approval_revision_1",
+        action_type="issue_coupon",
+        target_id=long_target,
+        action_payload_hash=action_payload_hash,
+    )
+    assert len(bounded_key) <= 256
+    assert "key_sha256:" in bounded_key
+    assert bounded_key == repeated_key
+    assert long_target not in bounded_key
 
 
 @pytest.mark.asyncio
@@ -370,7 +503,7 @@ async def test_action_executor_emits_safe_action_draft_created_event(
         {
             "approval_request_id": str(request.id),
             "action_type": "issue_coupon",
-            "payload": {"target_id": "RF-1001", "amount": "25.00"},
+            "payload": _draft_payload(request),
             "action_payload_hash": request.action_payload_hash,
             "safety_snapshot_ref": request.safety_snapshot_ref,
             "safety_snapshot_hash": request.safety_snapshot_hash,
@@ -399,7 +532,7 @@ async def test_action_executor_emits_safe_action_draft_created_event(
         "safety_snapshot_hash",
     }
     assert event.resource_refs["draft_id"] == result.data["draft_id"]
-    assert event.resource_refs["target_id"] == "RF-1001"
+    assert event.resource_refs["target_id"] == "RF-APPROVAL-1"
     assert event.resource_refs["action_payload_hash"] == request.action_payload_hash
     assert event.resource_refs["safety_snapshot_hash"] == request.safety_snapshot_hash
     assert event.redacted_payload == {
