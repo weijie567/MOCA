@@ -1,6 +1,6 @@
 ---
 phase: 14-demo-action-executor-boundary
-reviewed: 2026-06-16T06:32:20Z
+reviewed: 2026-06-16T07:30:22Z
 depth: deep
 files_reviewed: 33
 files_reviewed_list:
@@ -39,135 +39,71 @@ files_reviewed_list:
   - tests/tools/test_catalog.py
 findings:
   critical: 0
-  warning: 4
+  warning: 3
   info: 0
-  total: 4
+  total: 3
 status: issues_found
+cross_review:
+  codex: completed
+  critical: 0
+  new_findings: 0
 ---
 
 # Phase 14: Code Review Report
 
-**Reviewed:** 2026-06-16T06:32:20Z
+**Reviewed:** 2026-06-16T07:30:22Z
 **Depth:** deep
 **Files Reviewed:** 33
 **Status:** issues_found
 
 ## Summary
 
-Reviewed the full Phase 14 changed source and test scope, including the action draft service/store, graph routing, approval resume path, trace projection, tool catalog/manager, migration/model changes, and all listed tests. Phase 15 replay/read-switch work and Phase 17 external execution/outbox/reconciliation/compensation were treated as deferred.
-
-The core approved-action draft boundary is mostly well covered: payload hashes are recomputed, approved bindings are checked, graph write tools are node-only, demo outcomes do not claim external execution, and no Phase 17 execution tables/events were introduced. The remaining issues are cross-file consistency and trace redaction gaps.
+Reviewed the Phase 14 action draft boundary implementation across action service, graph routing, approval resume reconciliation, trace projections, tool catalog/manager, persistence models/migration, and the related test suite. GSD deep review plus Codex cross-review found no critical issues and confirmed three warning-level correctness/security boundary gaps.
 
 ## Warnings
 
-### WR-01: Trace Timeline Exposes Draft Idempotency Keys
+### WR-01: Per-turn reset leaves stale action safety bindings in checkpoint state
 
-**File:** `src/repositories/trace_repo.py:103-106`
+**File:** `src/agent/nodes/receive_request.py:57`
 
-**Issue:** The trace timeline includes `detail.idempotency_key` for action draft entries. Phase 14 service-built keys embed trusted binding material, including tenant/run/revision, action type, target id, and action payload hash (`src/actions/service.py:296`). That bypasses the narrower trace projection and can leak identifiers even though tests assert raw payload fields are hidden. The existing redaction test uses an opaque `idem-raw-payload` key, so it does not catch production-shaped keys that contain target ids.
+**Issue:** `receive_request` resets `proposed_action`, `approval_result`, `action_draft`, `draft_outcome`, `execution_mode`, and `action_result`, but it does not reset the Phase 14 binding fields `approval_revision_refs`, `action_payload_hash`, `safety_snapshot_ref`, `safety_snapshot_hash`, `safety_snapshot_verified`, `policy_config_version`, `risk_config_version`, `retrieval_config_version`, or `auto_allowed`. Those fields are produced by `assess_risk_and_approval` when an action recommendation is evaluated and then consumed by `route_after_risk`, `route_after_approval`, and `action_draft`. Because LangGraph checkpoint state persists across turns, a later turn that returns early from `assess_risk_and_approval` with no action, such as `policy_qa` or `insufficient_evidence`, will not overwrite these fields. The stale binding values can then survive in final state, traces, or any later routing/debug logic that inspects the full checkpoint state, weakening the intended per-turn isolation for action approval bindings.
 
-**Fix:**
-Remove `idempotency_key` from trace API/timeline output, or replace it with an opaque server-side diagnostic reference that cannot reveal target/action binding material. Add a regression where the draft idempotency key contains `RF-SECRET` and assert neither the key nor that target appears in the trace payload.
-
-```python
-# src/repositories/trace_repo.py
-"detail": {
-    "draft_id": str(draft.id),
-    "draft_outcome": _safe_draft_outcome(draft),
-},
-```
-
-### WR-02: `_safe_draft_outcome` Returns Arbitrary JSONB
-
-**File:** `src/repositories/trace_repo.py:124-125`
-
-**Issue:** `_safe_draft_outcome` is named as a safe projection, but it returns `dict(draft.draft_outcome or {})` verbatim. Service-created outcomes are validated, but the database column is JSONB and the repository/API layer should not rely on every historical or manually inserted row preserving that invariant. A malformed row with `raw_payload`, `secret`, or customer data in `draft_outcome` would be returned by `/trace`.
-
-**Fix:**
-Project only the `draft_outcome.v1` allowlisted fields, preferably by validating with `DraftOutcomeV1` and falling back to a minimal safe object for invalid legacy rows. Add a trace test with extra unexpected keys in `draft_outcome` and assert they are absent.
+**Fix:** Extend `receive_request` to clear all action/approval binding fields in the same reset block, and add a regression test that seeds stale bindings and verifies they are removed.
 
 ```python
-_DRAFT_OUTCOME_KEYS = {
-    "schema_version",
-    "status",
-    "external_side_effect",
-    "tenant_id",
-    "run_id",
-    "draft_id",
-    "created_at",
-}
-
-def _safe_draft_outcome(draft: ActionDraft) -> dict[str, Any]:
-    outcome = draft.draft_outcome if isinstance(draft.draft_outcome, dict) else {}
-    return {key: outcome[key] for key in _DRAFT_OUTCOME_KEYS if key in outcome}
+"approval_revision_refs": None,
+"action_payload_hash": None,
+"safety_snapshot_ref": None,
+"safety_snapshot_hash": None,
+"safety_snapshot_verified": None,
+"policy_config_version": None,
+"risk_config_version": None,
+"retrieval_config_version": None,
+"auto_allowed": None,
 ```
 
-### WR-03: Auto-Allowed Routing Depends On A Draft Path The Service Rejects
+### WR-02: Successful draft tool results can synthesize a demo success outcome when the contract payload is missing
 
-**File:** `src/agent/graph.py:63-65`
+**File:** `src/agent/nodes/action_draft.py:116`
 
-**Issue:** `route_after_risk` routes any proposed action with `approval_required == False` and verified snapshot binding to `action_draft`. Current Phase 14 service code intentionally rejects every no-approval draft with `AUTO_ALLOWED_BINDING_REQUIRED` (`src/actions/service.py:201-205`) because durable auto-allowed evidence is not implemented yet. That means the graph enters a write node for a path the service is designed to fail, and `final_response` does not surface the no-approval draft failure because it only renders no-approval success when `draft_outcome` is successful (`src/agent/nodes/final_response.py:177-180`). The tests currently encode the inconsistent route at `tests/test_graph_routing.py:100-103` and mock no-approval success at `tests/test_execute_action.py:314-327`.
+**Issue:** `_draft_update_from_tool_result` treats any `ToolResultV2` with `status == "success"` as a successful draft update path. If `result.data` lacks a dict `draft_outcome`, the node synthesizes a fallback `not_executed_demo` outcome with `external_side_effect=False`. If a malformed non-empty `draft_outcome` is present, the code still writes it into state instead of failing closed. That means a successful tool status can mask a malformed Phase 14 payload and produce final/trace state that looks like a valid demo draft outcome.
 
-**Fix:**
-Until durable auto-allowed evidence exists, fail closed before entering `action_draft` for no-approval actions. Update the route tests to expect `final_response` for current Phase 14 auto-allowed candidates, or implement and validate the durable auto-allowed binding model before routing them to the draft node.
+**Fix:** Validate the success payload against the expected action draft and `DraftOutcomeV1` contract before updating state. Missing, empty, or invalid `draft_outcome` should become an error result and error trace status rather than a synthesized success outcome. Add regression coverage for missing and malformed `draft_outcome` on a success tool result.
 
-```python
-def route_after_risk(state: AgentState) -> str:
-    risk = state.get("risk_assessment") or {}
-    proposed = state.get("proposed_action")
-    if not proposed or not _snapshot_binding_ready(state):
-        return "final_response"
-    if state.get("safety_snapshot_verified") is not True:
-        return "final_response"
-    if risk.get("approval_required"):
-        return "approval_gate"
-    # Phase 14 has no durable auto_allowed binding yet.
-    return "final_response"
-```
+### WR-03: Trace projection masks invalid persisted draft outcomes as safe demo defaults
 
-### WR-04: `create_or_get` Is Not Idempotent Under Concurrent Inserts
+**File:** `src/repositories/trace_repo.py:140`
 
-**File:** `src/repositories/action_draft_repo.py:36-77`
+**Issue:** `_safe_draft_outcome` projects persisted `draft.draft_outcome` fields and validates them with `DraftOutcomeV1`. On validation failure it returns `DraftOutcomeV1().model_dump(mode="json")`, whose defaults represent a `not_executed_demo` outcome with `external_side_effect=False`. As a result, corrupted or invalid persisted data can be exposed through trace APIs as a clean no-side-effect demo outcome, reducing audit fidelity.
 
-**Issue:** `ActionDraftRepository.create_or_get` first selects by `(tenant_id, idempotency_key)` and then inserts if no row is found. Two concurrent retries with the same trusted idempotency key can both miss the select; one insert wins and the other hits the unique constraint. That exception is swallowed by the service as `DRAFT_CREATION_FAILED` (`src/actions/service.py:173-174`) instead of returning the existing draft with `idempotent_reused=True`. This weakens the Phase 14 idempotency contract exactly where approval resume/retry behavior needs it most.
+**Fix:** Do not replace invalid persisted data with a successful default. Return an explicit invalid/error projection, omit the outcome with an error marker, or otherwise expose that the stored outcome failed validation. Add trace API regression coverage for invalid persisted `draft_outcome`.
 
-**Fix:**
-Use a database-level upsert or catch the unique-conflict path and re-select the row before returning. The upsert is preferable because it keeps the transaction usable and makes the idempotent path deterministic.
+## Cross-Review
 
-```python
-# Sketch: use PostgreSQL insert-on-conflict, then select the row.
-from sqlalchemy.dialects.postgresql import insert
-
-stmt = (
-    insert(ActionDraft)
-    .values(...)
-    .on_conflict_do_nothing(
-        constraint="uq_action_drafts_tenant_idempotency_key",
-    )
-    .returning(ActionDraft.id)
-)
-inserted_id = (await self.session.execute(stmt)).scalar_one_or_none()
-draft = await self._get_by_tenant_key(tenant_id, idempotency_key)
-if draft is None:
-    raise ValueError("idempotency_key_conflict")
-if not _same_binding(draft, ...):
-    raise ValueError("idempotency_binding_conflict")
-return draft, inserted_id is not None
-```
-
-## Deep Review Notes
-
-- No new `action_execution_*` events, external execution tables, outbox/reconciliation/compensation paths, or ReplayEventV3/read-switch code were introduced in the reviewed scope.
-- Approved action draft creation is guarded through `UnifiedToolManager`, `ActionToolExecutor`, and `ActionService`; missing write permission blocks executor dispatch.
-- Approval resume grants `tool:create_coupon_grant_draft` only for approved `accept`/`approve` decisions.
-- The `execute_action` source file is a compatibility shim only; the compiled graph registers `action_draft`.
-
-## Verification
-
-No automated tests were run during this review pass. Findings are from full-file reading and cross-file static analysis of the requested deep review scope.
+Codex independently reviewed the same Phase 14 scope and confirmed all three warnings. It found no critical issues and no additional high-confidence findings.
 
 ---
 
-_Reviewed: 2026-06-16T06:32:20Z_
-_Reviewer: Claude (gsd-code-reviewer)_
+_Reviewed: 2026-06-16T07:30:22Z_
+_Reviewer: Claude (gsd-code-reviewer) + Codex cross-review_
 _Depth: deep_
