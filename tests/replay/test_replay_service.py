@@ -5,14 +5,19 @@ import uuid
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.agent.trace import write_agent_run
+from src.db.models import AgentTraceEvent
 from src.replay.schemas import (
     ReplayEventProvenance,
     ReplayEventV3,
     ReplayResponseV3,
     ReplayRetention,
 )
-from src.replay.validators import REPLAY_EVENT_TYPES, validate_event_type
+from src.replay.service import ReplayService
+from src.replay.validators import REPLAY_EVENT_TYPES, retention_for_event_type, validate_event_type
 
 
 def _base_event_payload() -> dict:
@@ -147,3 +152,73 @@ def test_replay_event_types_include_phase_10_to_15_events():
     validate_event_type("run_status_changed")
     with pytest.raises(ValueError):
         validate_event_type("action_execution_completed")
+
+
+async def _create_run(session: AsyncSession) -> tuple[uuid.UUID, uuid.UUID]:
+    run_id = uuid.uuid4()
+    tenant_id = uuid.uuid4()
+    now = datetime.now(UTC)
+    await write_agent_run(
+        session,
+        run_id=str(run_id),
+        thread_id="thread-replay-service",
+        tenant_id=str(tenant_id),
+        user_id=str(uuid.uuid4()),
+        input_query="订单退款为什么超时？",
+        final_status="running",
+        final_response=None,
+        started_at=now,
+        completed_at=None,
+        total_latency_ms=None,
+    )
+    return run_id, tenant_id
+
+
+@pytest.mark.asyncio
+async def test_replay_service_appends_v3_event_with_retention_metadata(session: AsyncSession):
+    run_id, tenant_id = await _create_run(session)
+    service = ReplayService(session)
+
+    event = await service.append_event(
+        run_id=run_id,
+        tenant_id=tenant_id,
+        thread_id="thread-replay-service",
+        event_type="approval_requested",
+        actor={"type": "approver", "id": "approval-service"},
+        resource_refs={"approval_id": str(uuid.uuid4())},
+        redacted_payload={"status": "pending", "risk_level": "high"},
+        schema_version="replay_event.v3",
+    )
+
+    assert event["schema_version"] == "replay_event.v3"
+    assert event["event_type"] == "approval_requested"
+    assert event["sequence"] == 1
+    assert event["retention"]["retention_class"] == retention_for_event_type("approval_requested")
+    assert event["provenance"] == {
+        "source_schema_version": "replay_event.v3",
+        "pairing_status": "unresolved",
+    }
+
+    row = (
+        await session.execute(select(AgentTraceEvent).where(AgentTraceEvent.event_id == event["event_id"]))
+    ).scalar_one()
+    assert row.schema_version == "replay_event.v3"
+    assert row.redacted_payload["retention_class"] == retention_for_event_type("approval_requested")
+
+
+@pytest.mark.asyncio
+async def test_replay_service_rejects_unregistered_event_type(session: AsyncSession):
+    run_id, tenant_id = await _create_run(session)
+    service = ReplayService(session)
+
+    with pytest.raises(ValueError, match="not registered"):
+        await service.append_event(
+            run_id=run_id,
+            tenant_id=tenant_id,
+            thread_id="thread-replay-service",
+            event_type="action_execution_completed",
+            actor={"type": "agent", "id": "moca"},
+            resource_refs={},
+            redacted_payload={"status": "completed"},
+            schema_version="replay_event.v3",
+        )
