@@ -62,6 +62,7 @@
 | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay/test_replay_redaction_retention.py tests/replay/test_replay_api.py tests/agent/test_tools/test_create_coupon_grant_draft.py -q --tb=short` | PASS | 15-06 Task 1. |
 | `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/actions/service.py src/repositories/trace_repo.py tests/replay tests/agent/test_tools/test_create_coupon_grant_draft.py` | PASS | 15-06 Task 1. |
 | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay tests/agent/test_events.py tests/test_trace_api.py -q --tb=short` | PASS | 15-06 Task 3 exact focused replay/event/trace verification; 70 passed, 1 warning in 38.18s. |
+| `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay/test_replay_service.py tests/replay/test_sequence_allocator.py tests/replay/test_operation_pairing.py tests/replay/test_replay_api.py -q --tb=short` | PASS | Post-review pairing fix `c091515`; 30 passed, 1 warning in 18.88s. |
 
 ### Final Phase 15 Gate Commands
 
@@ -69,8 +70,8 @@
 | --- | --- | --- |
 | `UV_CACHE_DIR=/tmp/uv-cache uv run alembic upgrade head` | PASS | Exit 0; Alembic used `PostgresqlImpl` and transactional DDL with database already at head. |
 | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay tests/agent/test_events.py tests/test_trace_api.py tests/approvals/test_events.py tests/approvals/test_needs_info_resume.py tests/approvals/test_sla_scanner.py tests/agent/test_tools/test_create_coupon_grant_draft.py -q --tb=short` | PASS | 133 passed, 1 warning in 141.09s. |
-| `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short` | PASS | 873 passed, 1 warning in 393.51s. |
-| `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src tests` | PASS | All checks passed. |
+| `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q --tb=short` | PASS | Re-run after code review fix `c091515`; 875 passed, 1 warning in 425.11s. |
+| `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src tests` | PASS | Re-run after code review fix `c091515`; all checks passed. |
 
 ## Readiness Rule
 
