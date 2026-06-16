@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 
+from src.agent.nodes import action_draft as action_draft_module
 from src.agent.nodes import execute_action as execute_action_module
 
 
@@ -58,30 +59,55 @@ def _approved_state() -> dict:
 
 
 def _success_result() -> dict:
+    draft_id = str(uuid4())
     return {
         "status": "success",
         "data": {
-            "draft_id": str(uuid4()),
+            "draft_id": draft_id,
             "idempotency_key": "idem",
             "status": "draft_created",
             "created": True,
             "idempotent_reused": False,
+            "action_draft": {
+                "schema_version": "action_draft.v2",
+                "draft_id": draft_id,
+                "action_type": "issue_coupon",
+                "target_id": "refund-001",
+                "status": "draft_created",
+            },
+            "draft_outcome": {
+                "schema_version": "draft_outcome.v1",
+                "draft_id": draft_id,
+                "status": "not_executed_demo",
+                "external_side_effect": False,
+            },
+            "execution_mode": "demo",
+            "action_result": {
+                "status": "draft_created",
+                "data": {"draft_id": draft_id},
+                "error": {},
+            },
         },
         "error": {},
     }
 
 
 @pytest.mark.asyncio
-async def test_execute_action_with_service_approval_result_creates_draft(monkeypatch):
+async def test_action_draft_with_service_approval_result_creates_draft(monkeypatch):
     create_draft = AsyncMock(return_value=_success_result())
     monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
     session = object()
     state = _approved_state()
 
-    result = await execute_action_module.execute_action(state, {"configurable": {"session": session}})
+    result = await action_draft_module.action_draft(state, {"configurable": {"session": session}})
 
-    assert result["action_result"]["status"] == "success"
+    assert result["action_draft"]["schema_version"] == "action_draft.v2"
+    assert result["draft_outcome"]["status"] == "not_executed_demo"
+    assert result["draft_outcome"]["external_side_effect"] is False
+    assert result["execution_mode"] == "demo"
+    assert result["action_result"]["status"] != "success"
     assert result["trace_steps"][-1]["tool_name"] == "create_coupon_grant_draft"
+    assert result["trace_steps"][-1]["node"] == "action_draft"
     create_draft.assert_awaited_once()
 
 
@@ -92,7 +118,7 @@ async def test_execute_action_blocks_when_required_approval_not_approved(monkeyp
     state = _approved_state()
     state["approval_result"] = _approval_result(decision_type="reject", status="rejected")
 
-    result = await execute_action_module.execute_action(state, {"configurable": {"session": object()}})
+    result = await action_draft_module.action_draft(state, {"configurable": {"session": object()}})
 
     assert result["action_result"]["status"] == "error"
     assert result["action_result"]["error"]["error_code"] == "NOT_APPROVED"
@@ -118,7 +144,7 @@ async def test_execute_action_blocks_when_approval_result_binding_field_missing(
     state = _approved_state()
     state["approval_result"].pop(missing_field)
 
-    result = await execute_action_module.execute_action(state, {"configurable": {"session": object()}})
+    result = await action_draft_module.action_draft(state, {"configurable": {"session": object()}})
 
     assert result["action_result"]["status"] == "error"
     assert result["action_result"]["error"]["error_code"] == "NOT_APPROVED"
@@ -136,7 +162,7 @@ async def test_execute_action_blocks_when_approval_result_binding_mismatches_sta
     state = _approved_state()
     state["approval_result"][field] = f"mismatch:{field}"
 
-    result = await execute_action_module.execute_action(state, {"configurable": {"session": object()}})
+    result = await action_draft_module.action_draft(state, {"configurable": {"session": object()}})
 
     assert result["action_result"]["status"] == "error"
     assert result["action_result"]["error"]["error_code"] == "NOT_APPROVED"
@@ -144,19 +170,18 @@ async def test_execute_action_blocks_when_approval_result_binding_mismatches_sta
 
 
 @pytest.mark.asyncio
-async def test_execute_action_idempotency_key_uses_run_approval_action_and_target(monkeypatch):
+async def test_action_draft_does_not_build_final_service_idempotency_key(monkeypatch):
     create_draft = AsyncMock(return_value=_success_result())
     monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
     state = _approved_state()
 
-    await execute_action_module.execute_action(state, {"configurable": {"session": object()}})
+    await action_draft_module.action_draft(state, {"configurable": {"session": object()}})
 
     _, kwargs = create_draft.await_args
-    expected_key = (
-        f"{state['approval_result']['run_id']}_{state['approval_result']['approval_id']}_"
-        f"{state['proposed_action']['action_type']}_{state['proposed_action']['target_id']}"
-    )
-    assert kwargs["idempotency_key"] == expected_key
+    idempotency_key = kwargs["idempotency_key"]
+    assert state["proposed_action"]["target_id"] not in idempotency_key
+    assert state["action_payload_hash"] not in idempotency_key
+    assert ":" not in idempotency_key
 
 
 @pytest.mark.asyncio
@@ -168,11 +193,11 @@ async def test_execute_action_prefers_approval_run_id_for_resumed_action(monkeyp
     state["approval_result"]["run_id"] = persisted_run_id
     state["current_run_id"] = persisted_run_id
 
-    await execute_action_module.execute_action(state, {"configurable": {"session": object()}})
+    await action_draft_module.action_draft(state, {"configurable": {"session": object()}})
 
     _, kwargs = create_draft.await_args
     assert kwargs["run_id"] == persisted_run_id
-    assert kwargs["idempotency_key"].startswith(f"{persisted_run_id}_{state['approval_result']['approval_id']}_")
+    assert kwargs["idempotency_key"].startswith(f"action_draft_{persisted_run_id}")
 
 
 @pytest.mark.asyncio
@@ -182,7 +207,7 @@ async def test_execute_action_blocks_when_approval_result_run_mismatches_state(m
     state = _approved_state()
     state["approval_result"]["run_id"] = str(uuid4())
 
-    result = await execute_action_module.execute_action(state, {"configurable": {"session": object()}})
+    result = await action_draft_module.action_draft(state, {"configurable": {"session": object()}})
 
     assert result["action_result"]["status"] == "error"
     assert result["action_result"]["error"]["error_code"] == "NOT_APPROVED"
@@ -198,7 +223,7 @@ async def test_execute_action_canonicalizes_legacy_freeform_action_type(monkeypa
         "拒绝600元补偿请求。根据补偿规则，订单实付金额599元对应的最高体验补偿标准为50元。"
     )
 
-    await execute_action_module.execute_action(state, {"configurable": {"session": object()}})
+    await action_draft_module.action_draft(state, {"configurable": {"session": object()}})
 
     _, kwargs = create_draft.await_args
     assert kwargs["action_type"] == "manual_review"
@@ -219,7 +244,7 @@ async def test_execute_action_uses_session_from_runnable_config(monkeypatch):
     monkeypatch.setattr("src.tools.executors.action.ActionService.__init__", init_service)
     session = object()
 
-    await execute_action_module.execute_action(_approved_state(), {"configurable": {"session": session}})
+    await action_draft_module.action_draft(_approved_state(), {"configurable": {"session": session}})
 
     assert sessions == [session]
 
@@ -232,8 +257,23 @@ async def test_execute_action_without_required_approval_succeeds(monkeypatch):
     state["risk_assessment"] = {"approval_required": False}
     state["approval_result"] = None
 
-    result = await execute_action_module.execute_action(state, {"configurable": {"session": object()}})
+    result = await action_draft_module.action_draft(state, {"configurable": {"session": object()}})
 
-    assert result["action_result"]["status"] == "success"
+    assert result["draft_outcome"]["status"] == "not_executed_demo"
+    assert result["action_result"]["status"] != "success"
     _, kwargs = create_draft.await_args
-    assert "_no_approval_" in kwargs["idempotency_key"]
+    assert kwargs["approval_request_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_execute_action_shim_delegates_to_action_draft(monkeypatch):
+    expected = {"draft_outcome": {"status": "not_executed_demo"}}
+    delegate = AsyncMock(return_value=expected)
+    monkeypatch.setattr(execute_action_module, "action_draft", delegate)
+    state = _approved_state()
+    config = {"configurable": {"session": object()}}
+
+    result = await execute_action_module.execute_action(state, config)
+
+    assert result == expected
+    delegate.assert_awaited_once_with(state, config)
