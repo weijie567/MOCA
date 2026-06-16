@@ -29,7 +29,7 @@
 - [x] **Phase 12: Session Memory** - PostgreSQL-authoritative session memory CAS, optional Redis hot cache, and safe slot continuity. ✓ Verified 2026-06-14 — 5/5 plans complete, 10/10 must-haves verified.
 - [x] **Phase 13: Approval State Machine** - Versioned approval lifecycle and ActionSafetySnapshot ownership. ✓ Verified 2026-06-15 — 8/8 plans complete, 12/12 must-haves verified.
 - [x] **Phase 14: Demo Action Executor Boundary** - Durable draft-only demo behavior and snapshot/hash binding. ✓ Verified 2026-06-16 — 7/7 plans complete, 10/10 must-haves verified.
-- [ ] **Phase 15: Replay Event Contract** - ReplayEventV3, lifecycle finalizer, sequence allocation, redaction, retention, and replay read-switch. 3/6 plans complete.
+- [x] **Phase 15: Replay Event Contract** - ReplayEventV3, lifecycle finalizer, sequence allocation, redaction, retention, and replay read-switch. Final gates passed 2026-06-16; ready for GSD verification.
 - [ ] **Phase 16: Long-term / Case Memory** - memory_identity.v1, tombstones, review workflow, and long-term/case memory. Deferred beyond the MVP completion gate.
 - [ ] **Phase 17: External Action Execution** - External execution, outbox, reconciliation, and compensation. Deferred beyond the MVP completion gate.
 
@@ -161,7 +161,7 @@ Plans:
   - [x] 15-03-PLAN.md — operation pairing, retry, and unresolved legacy projection rules (Wave 3)
   - [x] 15-04-PLAN.md — RunLifecycleService, real run-status persistence/API seams, lifecycle allocator coverage, and disabled SLA scanner gate (Wave 4)
   - [x] 15-05-PLAN.md — `/replay` event-store-first API, access control, read-switch, and `/trace` rollback fallback (Wave 5)
-  - [ ] 15-06-PLAN.md — replay-facing demo draft cleanup, redaction/retention safety, coverage artifact, and final verification gate (Wave 6)
+  - [x] 15-06-PLAN.md — replay-facing demo draft cleanup, redaction/retention safety, coverage artifact, and final verification gate (Wave 6)
 
 ### Phase 16: Long-term / Case Memory
 **Goal**: Implement reviewed long-term/case memory with canonical identity and tombstone enforcement.
@@ -197,7 +197,7 @@ Plans:
 | 12. Session Memory | 5/5 | Complete | 2026-06-14 |
 | 13. Approval State Machine | 8/8 | Complete    | 2026-06-15 |
 | 14. Demo Action Executor Boundary | 7/7 | Complete    | 2026-06-16 |
-| 15. Replay Event Contract | 5/6 | In Progress | - |
+| 15. Replay Event Contract | 6/6 | Ready for Verification | 2026-06-16 |
 | 16. Long-term / Case Memory | 0/TBD | Deferred beyond MVP gate | - |
 | 17. External Action Execution | 0/TBD | Deferred beyond MVP gate | - |
 

@@ -63,7 +63,7 @@
 | APPROVAL-01..03, SNAPSHOT-01 | Phase 13 | Complete |
 | DEMO-01 | Phase 14 | Complete |
 | DEMO-02 | Phase 14 | Complete |
-| REPLAY-01..03 | Phase 15 | In Progress - 15-02 replay service boundary complete |
+| REPLAY-01..03 | Phase 15 | Complete - 15-06 final verification gates passed |
 | MEMORY-01..02 | Phase 16 | Deferred beyond MVP gate |
 | EXTERNAL-01..03 | Phase 17 | Deferred beyond MVP gate |
 

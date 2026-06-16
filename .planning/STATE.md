@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
-status: executing
-stopped_at: Completed 15-05-PLAN.md
-last_updated: "2026-06-16T15:32:47.365Z"
+status: verifying
+stopped_at: Completed 15-06-PLAN.md
+last_updated: "2026-06-16T16:14:30.097Z"
 last_activity: 2026-06-16
 progress:
   total_phases: 11
-  completed_phases: 8
+  completed_phases: 9
   total_plans: 55
-  completed_plans: 54
-  percent: 98
+  completed_plans: 55
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -25,13 +25,13 @@ See: `.planning/PROJECT.md` (updated 2026-06-16)
 
 ## Current Position
 
-Phase: 15 (replay-event-contract) — EXECUTING
+Phase: 15 (replay-event-contract) — VERIFYING
 Plan: 6 of 6
 Plans: 6 planned
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-16
 
-Progress: [██████████] 98%
+Progress: [██████████] 100%
 
 ## Completed Baseline
 
@@ -106,6 +106,9 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - /replay uses ReplayService.get_replay and reads agent_trace_events ordered by sequence instead of legacy TraceRepository.build_timeline.
 - /trace remains the legacy rollback/debug fallback and continues using TraceRepository.build_timeline.
 - ReplayResponseV3 timeline entries are strict ReplayEventV3 items, so retention_class remains append/projection metadata outside the response contract.
+- Phase 15 Plan 06: action_draft_created remains draft-only and projects DraftOutcomeV1 in redacted replay payloads.
+- Phase 15 Plan 06: external execution/outbox/reconciliation/compensation and action_execution_* remain Phase 17-owned deferrals.
+- Phase 15 Plan 06: /trace remains rollback fallback through TraceRepository.build_timeline while /replay stays event-store-first.
 
 ## Blockers / Concerns
 
@@ -160,12 +163,13 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | Phase 15 P03 | 17 min | 2 tasks | 6 files |
 | Phase 15 P04 | 22 min | 3 tasks | 12 files |
 | Phase 15 P05 | 11 min | 2 tasks | 4 files |
+| Phase 15 P06 | 36 min | 3 tasks | 6 files |
 
 ## Session Continuity
 
-Last session: 2026-06-16T15:32:47.351Z
-Stopped at: Completed 15-05-PLAN.md
+Last session: 2026-06-16T16:14:30.089Z
+Stopped at: Completed 15-06-PLAN.md
 Resume file: None
-Next: Execute Phase 15 Replay Event Contract
+Next: Verify Phase 15 Replay Event Contract
 
 **Planned Phase:** 15 (Replay Event Contract) — 6 plans — 2026-06-16T13:17:00.124Z
