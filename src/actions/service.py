@@ -199,7 +199,10 @@ class ActionService:
             return _tool_error("ACTION_BINDING_MISMATCH", "Action safety snapshot binding is invalid", retryable=False)
 
         if approval_request_id is None:
-            return _ValidatedActionBinding(revision_marker="auto_allowed", approval_revision_ref="auto_allowed")
+            return _tool_error("AUTO_ALLOWED_BINDING_REQUIRED",
+                "No-approval action draft requires a durable auto-allowed binding",
+                retryable=False,
+            )
 
         approval = (
             await self.session.execute(
