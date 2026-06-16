@@ -215,14 +215,13 @@ async def test_get_replay_reads_event_store_rows_in_sequence_order(session: Asyn
                 sequence=2,
                 tenant_id=tenant_id,
                 thread_id=thread_id,
-                event_type="node_completed",
+                event_type="approval_requested",
                 schema_version="replay_event.v3",
                 occurred_at=now,
-                actor={"type": "agent", "id": "moca"},
-                resource_refs={"node": "final_response"},
+                actor={"type": "approver", "id": "approval-service"},
+                resource_refs={"approval_id": str(uuid.uuid4())},
                 redaction_policy_version="redaction.v1",
-                redacted_payload={"status": "completed"},
-                node_name="final_response",
+                redacted_payload={"status": "pending"},
             ),
             AgentTraceEvent(
                 event_id=uuid.uuid4(),
@@ -282,6 +281,45 @@ async def test_get_replay_projects_minimal_rows_with_source_provenance(session: 
     assert replay["timeline"][0]["provenance"] == {
         "source_schema_version": "minimal_event_envelope.v1",
         "pairing_status": "unresolved",
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_replay_projects_persisted_operation_pair_as_paired(session: AsyncSession):
+    run_id, tenant_id = await _create_run(session)
+    service = ReplayService(session)
+    operation_id = uuid.uuid4()
+
+    await service.append_event(
+        run_id=run_id,
+        tenant_id=tenant_id,
+        thread_id="thread-replay-service",
+        event_type="tool_call_started",
+        actor={"type": "agent", "id": "moca"},
+        resource_refs={"tool": "get_order"},
+        redacted_payload={"status": "started"},
+        operation_id=operation_id,
+        attempt=1,
+    )
+    await service.append_event(
+        run_id=run_id,
+        tenant_id=tenant_id,
+        thread_id="thread-replay-service",
+        event_type="tool_call_completed",
+        actor={"type": "agent", "id": "moca"},
+        resource_refs={"tool": "get_order"},
+        redacted_payload={"status": "completed"},
+        operation_id=operation_id,
+        attempt=1,
+    )
+
+    replay = await service.get_replay(run_id)
+
+    terminal = replay["timeline"][-1]
+    assert terminal["event_type"] == "tool_call_completed"
+    assert terminal["provenance"] == {
+        "source_schema_version": "replay_event.v3",
+        "pairing_status": "paired",
     }
 
 

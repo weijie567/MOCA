@@ -24,10 +24,16 @@ class ReplayService:
     async def allocate_sequence(self, run_id: uuid.UUID | str) -> int:
         """Allocate the next strictly monotonic event sequence for a run."""
         run_uuid = _as_uuid(run_id)
+        await self._lock_run(run_uuid)
+        return await self._next_sequence_for_run(run_uuid)
+
+    async def _lock_run(self, run_id: uuid.UUID) -> None:
         await self.session.execute(
             sa.text("SELECT pg_advisory_xact_lock(hashtext(:run_id_text))"),
-            {"run_id_text": str(run_uuid)},
+            {"run_id_text": str(run_id)},
         )
+
+    async def _next_sequence_for_run(self, run_id: uuid.UUID) -> int:
         result = await self.session.execute(
             sa.text(
                 """
@@ -36,7 +42,7 @@ class ReplayService:
                 WHERE run_id = :run_id
                 """
             ),
-            {"run_id": run_uuid},
+            {"run_id": run_id},
         )
         return int(result.scalar_one())
 
@@ -81,6 +87,7 @@ class ReplayService:
             safe_payload.setdefault("retention_class", retention_class)
 
         run_uuid = _as_uuid(run_id)
+        await self._lock_run(run_uuid)
         existing_events = await self._events_for_run(run_uuid)
         pairing_status: OperationPairingStatus | None = None
         if schema_version == "replay_event.v3":
@@ -96,7 +103,7 @@ class ReplayService:
             )
             pairing_status = pairing_result.pairing_status
 
-        sequence = await self.allocate_sequence(run_uuid)
+        sequence = await self._next_sequence_for_run(run_uuid)
         event_id = uuid.uuid5(uuid.NAMESPACE_URL, f"{run_uuid}:{sequence}")
         row = AgentTraceEvent(
             event_id=event_id,
@@ -141,13 +148,23 @@ class ReplayService:
             raise LookupError(f"AgentRun {run_uuid} not found")
 
         events = await self._events_for_run(run_uuid)
+        timeline: list[dict[str, Any]] = []
+        prior_events: list[AgentTraceEvent] = []
+        for event in events:
+            pairing_status: OperationPairingStatus | None = None
+            if event.schema_version == "replay_event.v3":
+                pairing_status = validate_operation_pairing(prior_events, event).pairing_status
+            timeline.append(
+                self.project_event(event, pairing_status=pairing_status, include_retention_class=False)
+            )
+            prior_events.append(event)
         response = ReplayResponseV3(
             run_id=run.id,
             thread_id=run.thread_id,
             final_status=run.final_status,
             started_at=run.started_at,
             completed_at=run.completed_at,
-            timeline=[self.project_event(event, include_retention_class=False) for event in events],
+            timeline=timeline,
         )
         return response.model_dump(mode="python")
 

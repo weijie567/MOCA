@@ -13,6 +13,7 @@ from src.agent.events import emit_event
 from src.agent.trace import write_agent_run
 from src.db.models import AgentTraceEvent
 from src.replay.lifecycle import RunLifecycleService
+from src.replay.pairing import OperationPairingError
 from src.replay.service import ReplayService
 
 
@@ -98,6 +99,63 @@ async def test_concurrent_append_calls_do_not_duplicate_sequence(test_engine):
 
     assert sorted(sequences) == [2, 3, 4, 5, 6]
     assert len(sequences) == len(set(sequences)), "duplicate sequence values are forbidden"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_terminal_events_do_not_duplicate_operation_pair(test_engine):
+    session_factory = async_sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession)
+    operation_id = uuid.uuid4()
+    async with session_factory() as setup_session:
+        run_id, tenant_id = await _create_run(setup_session)
+        await ReplayService(setup_session).append_event(
+            run_id=run_id,
+            tenant_id=tenant_id,
+            thread_id="sequence-allocator-thread",
+            event_type="tool_call_started",
+            actor={"type": "agent", "id": "writer-start"},
+            resource_refs={"tool": "get_order"},
+            redacted_payload={"status": "started"},
+            operation_id=operation_id,
+            attempt=1,
+            schema_version="replay_event.v3",
+        )
+        await setup_session.commit()
+
+    async def append_terminal(index: int) -> str:
+        async with session_factory() as worker_session:
+            try:
+                await ReplayService(worker_session).append_event(
+                    run_id=run_id,
+                    tenant_id=tenant_id,
+                    thread_id="sequence-allocator-thread",
+                    event_type="tool_call_completed",
+                    actor={"type": "agent", "id": f"writer-terminal-{index}"},
+                    resource_refs={"tool": "get_order"},
+                    redacted_payload={"status": "completed", "writer_index": index},
+                    operation_id=operation_id,
+                    attempt=1,
+                    schema_version="replay_event.v3",
+                )
+                await worker_session.commit()
+                return "committed"
+            except OperationPairingError:
+                await worker_session.rollback()
+                return "rejected"
+
+    results = await asyncio.gather(*(append_terminal(index) for index in range(2)))
+
+    assert sorted(results) == ["committed", "rejected"]
+    async with session_factory() as verify_session:
+        rows = (
+            await verify_session.execute(
+                select(AgentTraceEvent.event_type)
+                .where(AgentTraceEvent.run_id == run_id)
+                .where(AgentTraceEvent.operation_id == operation_id)
+                .order_by(AgentTraceEvent.sequence)
+            )
+        ).scalars().all()
+
+    assert list(rows) == ["tool_call_started", "tool_call_completed"]
 
 
 @pytest.mark.asyncio
@@ -191,4 +249,5 @@ async def test_sequence_allocator_covers_pre_lifecycle_writer_surfaces(session: 
     assert [sequence for sequence, _event_type in rows] == [1, 2, 3, 4, 5, 6, 7]
     assert [event_type for _sequence, event_type in rows][0] == "run_status_changed"
     assert len({sequence for sequence, _event_type in rows}) == 7
-    assert "pg_advisory_xact_lock" in inspect.getsource(ReplayService.allocate_sequence)
+    assert "_lock_run" in inspect.getsource(ReplayService.allocate_sequence)
+    assert "pg_advisory_xact_lock" in inspect.getsource(ReplayService._lock_run)
