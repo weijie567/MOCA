@@ -526,11 +526,19 @@ async def _reconcile_approved_action_draft(
     }
     update = await action_draft(state, config)
     reconciled = {**final_state, **update}
-    if update.get("action_result", {}).get("status") != "success":
+    if not _is_successful_demo_draft_outcome(update.get("draft_outcome")):
         reconciled["node_errors"] = (final_state.get("node_errors") or []) + [
-            {"node": "execute_action", "error": "action_draft_reconcile_failed"}
+            {"node": "action_draft", "error": "action_draft_reconcile_failed"}
         ]
     return reconciled
+
+
+def _is_successful_demo_draft_outcome(draft_outcome: object) -> bool:
+    return (
+        isinstance(draft_outcome, dict)
+        and draft_outcome.get("status") == "not_executed_demo"
+        and draft_outcome.get("external_side_effect") is False
+    )
 
 
 def _should_resume_graph(result) -> bool:
