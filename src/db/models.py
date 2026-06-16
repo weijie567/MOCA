@@ -643,10 +643,28 @@ class AgentStep(TimestampMixin, Base):
 
 
 class AgentTraceEvent(TimestampMixin, Base):
-    """Phase 10 minimal event envelope (schema_version=minimal_event_envelope.v1)."""
+    """Phase 10 minimal envelope expanded for Phase 15 ReplayEventV3 storage."""
 
     __tablename__ = "agent_trace_events"
-    __table_args__ = (UniqueConstraint("run_id", "sequence", name="uq_agent_trace_events_run_seq"),)
+    __table_args__ = (
+        UniqueConstraint("run_id", "sequence", name="uq_agent_trace_events_run_seq"),
+        CheckConstraint(
+            "schema_version IN ('minimal_event_envelope.v1', 'replay_event.v3')",
+            name="ck_agent_trace_events_schema_version",
+        ),
+        CheckConstraint(
+            "event_type IN ("
+            "'action_draft_created', 'approval_decided', 'approval_expired', 'approval_requested', "
+            "'approval_resumed', 'llm_call_completed', 'llm_call_failed', 'llm_call_started', "
+            "'memory_write_completed', 'memory_write_failed', 'memory_write_started', 'node_completed', "
+            "'node_failed', 'node_started', 'rag_retrieval_completed', 'rag_retrieval_failed', "
+            "'rag_retrieval_started', 'run_status_changed', 'tool_call_completed', 'tool_call_failed', "
+            "'tool_call_started')",
+            name="ck_agent_trace_events_event_type",
+        ),
+        CheckConstraint("sequence > 0", name="ck_agent_trace_events_sequence_positive"),
+        CheckConstraint("attempt IS NULL OR attempt > 0", name="ck_agent_trace_events_attempt_positive"),
+    )
 
     event_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     run_id: Mapped[uuid.UUID] = mapped_column(
@@ -654,6 +672,15 @@ class AgentTraceEvent(TimestampMixin, Base):
     )
     sequence: Mapped[int] = mapped_column(nullable=False)
     operation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    parent_operation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    attempt: Mapped[int | None] = mapped_column()
+    version: Mapped[int | None] = mapped_column(default=1)
+    node_name: Mapped[str | None] = mapped_column(String(64))
+    approval_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("approval_requests.id"))
+    draft_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("action_drafts.id"))
+    tool_call_id: Mapped[str | None] = mapped_column(String(128))
+    evidence_refs_json: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    error_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     thread_id: Mapped[str] = mapped_column(String(128), nullable=False)
     trace_id: Mapped[str | None] = mapped_column(String(128))
@@ -666,5 +693,19 @@ class AgentTraceEvent(TimestampMixin, Base):
     resource_refs: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     redaction_policy_version: Mapped[str] = mapped_column(String(48), nullable=False)
     redacted_payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retention_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     run: Mapped["AgentRun"] = relationship(back_populates="trace_events")
+
+
+Index("ix_agent_trace_events_tenant_run_sequence", AgentTraceEvent.tenant_id, AgentTraceEvent.run_id, AgentTraceEvent.sequence)
+Index(
+    "ix_agent_trace_events_tenant_run_operation",
+    AgentTraceEvent.tenant_id,
+    AgentTraceEvent.run_id,
+    AgentTraceEvent.operation_id,
+)
+Index("ix_agent_trace_events_tenant_occurred_at", AgentTraceEvent.tenant_id, AgentTraceEvent.occurred_at)
+Index("ix_agent_trace_events_event_type_occurred_at", AgentTraceEvent.event_type, AgentTraceEvent.occurred_at)
