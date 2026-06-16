@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
 status: executing
-stopped_at: Completed 14-05-PLAN.md
-last_updated: "2026-06-16T02:15:31Z"
-last_activity: 2026-06-16 -- Phase 14 Wave 4 complete; Wave 5 ready
+stopped_at: Completed 14-06-PLAN.md
+last_updated: "2026-06-16T02:42:28.997Z"
+last_activity: 2026-06-16 -- Phase 14 complete; ready for Phase 15 planning
 progress:
   total_phases: 11
-  completed_phases: 7
+  completed_phases: 8
   total_plans: 48
-  completed_plans: 47
-  percent: 98
+  completed_plans: 48
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -21,17 +21,17 @@ progress:
 See: `.planning/PROJECT.md`
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 14 — demo-action-executor-boundary
+**Current focus:** Phase 15 — replay-event-contract
 
 ## Current Position
 
-Phase: 14 (demo-action-executor-boundary) — EXECUTING
+Phase: 14 (demo-action-executor-boundary) — COMPLETE
 Plan: 6 of 6
 Plans: 6 planned
-Status: Plan 14-05 complete; ready for Wave 5 (14-06)
-Last activity: 2026-06-16 -- Phase 14 Wave 4 complete; Wave 5 ready
+Status: Phase 14 complete; ready for Phase 15 planning
+Last activity: 2026-06-16 -- Phase 14 complete; ready for Phase 15 planning
 
-Progress: [██████████] 98%
+Progress: [██████████] 100%
 
 ## Completed Baseline
 
@@ -91,6 +91,8 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Approval resume and final-response wording now use `draft_outcome.status == "not_executed_demo"` plus `external_side_effect is False` as the demo success signal instead of `action_result.status == "success"`.
 - `action_draft_created` is a minimal trace event with safe refs only, and `/trace` projects `draft_outcome` without exposing raw `ActionDraft.payload`.
 - Phase 14 Wave 4 post-merge validation passed `uv run pytest -q --tb=short` with 806 tests after stale approval model idempotency tests were updated to the v2 tenant-scoped draft contract.
+- Phase 14 final coverage treats ReplayEventV3/lifecycle/read-switch work as Phase 15-owned and external execution/outbox/reconciliation/compensation as Phase 17-owned.
+- execute_action and action_result compatibility remain temporary surfaces with Phase 15 Replay Event Contract removal/replacement gates targeting 2026-07-16 unless Phase 15 is replanned.
 
 ## Blockers / Concerns
 
@@ -138,15 +140,11 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | 14 | 03 | 1h 2m | 2 | 12 |
 | 14 | 04 | 31 min | 2 | 5 |
 | 14 | 05 | 25 min | 2 | 8 |
+| 14 | 06 | 16 min | 2 | 7 |
 
 ## Session Continuity
 
-Last session: Phase 14 Wave 4 complete
-Stopped at: Completed 14-05-PLAN.md
+Last session: Phase 14 complete
+Stopped at: Completed 14-06-PLAN.md
 Resume file: None
-
-**Next:** Execute Phase 14 Wave 5 with 14-06-PLAN.md
-
-**Completed Phase:** Phase 13 (Approval State Machine) — 2026-06-15
-
-**Planned Phase:** 14 (Demo Action Executor Boundary) — 6 plans — 2026-06-15T18:39:27.350Z
+Next: Plan Phase 15 Replay Event Contract

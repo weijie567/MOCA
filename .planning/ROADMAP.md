@@ -28,7 +28,7 @@
 - [x] **Phase 11: Intent / Clarification** - Intent precedence, required-slot policy, confidence gates, and ordinary clarification. Completed 2026-06-14.
 - [x] **Phase 12: Session Memory** - PostgreSQL-authoritative session memory CAS, optional Redis hot cache, and safe slot continuity. ✓ Verified 2026-06-14 — 5/5 plans complete, 10/10 must-haves verified.
 - [x] **Phase 13: Approval State Machine** - Versioned approval lifecycle and ActionSafetySnapshot ownership. ✓ Verified 2026-06-15 — 8/8 plans complete, 12/12 must-haves verified.
-- [ ] **Phase 14: Demo Action Executor Boundary** - Durable draft-only demo behavior and snapshot/hash binding.
+- [x] **Phase 14: Demo Action Executor Boundary** - Durable draft-only demo behavior and snapshot/hash binding. ✓ Verified 2026-06-16 — 6/6 plans complete, final gates passed.
 - [ ] **Phase 15: Replay Event Contract** - ReplayEventV3, lifecycle finalizer, sequence allocation, redaction, retention, and replay read-switch.
 - [ ] **Phase 16: Long-term / Case Memory** - memory_identity.v1, tombstones, review workflow, and long-term/case memory. Deferred beyond the MVP completion gate.
 - [ ] **Phase 17: External Action Execution** - External execution, outbox, reconciliation, and compensation. Deferred beyond the MVP completion gate.
@@ -136,14 +136,14 @@ Plans:
   1. Demo mode creates only action draft and draft_outcome.
   2. Demo mode creates no action execution row or external side effect.
   3. Hash/revision mismatches are rejected and final response wording never claims real execution.
-**Plans**: 5/6 complete
+**Plans**: 6/6 complete; verified 2026-06-16 with final negative boundary coverage and source audit.
 Plans:
   - [x] 14-01-PLAN.md — action_draft.v2 schema, draft_outcome contract, and blocking Alembic upgrade (Wave 1)
   - [x] 14-02-PLAN.md — ActionService-owned idempotency, exact binding reuse, draft outcome persistence, and state reset (Wave 2)
   - [x] 14-03-PLAN.md — canonical action_draft graph node, tool allowlist, and execute_action shim quarantine (Wave 3)
   - [x] 14-04-PLAN.md — approval resume and final/API draft_outcome wording migration (Wave 4)
   - [x] 14-05-PLAN.md — safe action_draft_created event and /trace draft_outcome projection (Wave 4)
-  - [ ] 14-06-PLAN.md — negative boundary coverage and final source audit gate (Wave 5)
+  - [x] 14-06-PLAN.md — negative boundary coverage and final source audit gate (Wave 5)
 
 ### Phase 15: Replay Event Contract
 **Goal**: Implement ReplayEventV3, run lifecycle finalizer, shared sequence allocator, redaction/retention, and replay read-switch.
@@ -189,10 +189,10 @@ Plans:
 | 11. Intent / Clarification | 5/5 | Complete | 2026-06-14 |
 | 12. Session Memory | 5/5 | Complete | 2026-06-14 |
 | 13. Approval State Machine | 8/8 | Complete    | 2026-06-15 |
-| 14. Demo Action Executor Boundary | 5/6 | In Progress | - |
+| 14. Demo Action Executor Boundary | 6/6 | Complete | 2026-06-16 |
 | 15. Replay Event Contract | 0/TBD | Pending | - |
 | 16. Long-term / Case Memory | 0/TBD | Deferred beyond MVP gate | - |
 | 17. External Action Execution | 0/TBD | Deferred beyond MVP gate | - |
 
 ---
-*Updated: 2026-06-16 — Phase 14 Wave 4 complete; 5/6 plans complete.*
+*Updated: 2026-06-16 — Phase 14 complete; 6/6 plans complete.*

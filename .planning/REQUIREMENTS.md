@@ -61,10 +61,10 @@
 | INTENT-01..02, CLARIFY-01 | Phase 11 | Complete |
 | SESSION-01..03 | Phase 12 | Complete |
 | APPROVAL-01..03, SNAPSHOT-01 | Phase 13 | Complete |
-| DEMO-01..02 | Phase 14 | In Progress |
+| DEMO-01..02 | Phase 14 | Complete |
 | REPLAY-01..03 | Phase 15 | Pending |
 | MEMORY-01..02 | Phase 16 | Deferred beyond MVP gate |
 | EXTERNAL-01..03 | Phase 17 | Deferred beyond MVP gate |
 
 ---
-*Updated: 2026-06-16 after Phase 14 Wave 3 completed; phase verification remains pending until all Phase 14 plans complete.*
+*Updated: 2026-06-16 after Phase 14 completed with final negative boundary coverage and source audit.*
