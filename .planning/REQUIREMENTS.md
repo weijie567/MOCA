@@ -63,9 +63,9 @@
 | APPROVAL-01..03, SNAPSHOT-01 | Phase 13 | Complete |
 | DEMO-01 | Phase 14 | Complete |
 | DEMO-02 | Phase 14 | Complete |
-| REPLAY-01..03 | Phase 15 | In Progress - 15-01 foundation complete |
+| REPLAY-01..03 | Phase 15 | In Progress - 15-02 replay service boundary complete |
 | MEMORY-01..02 | Phase 16 | Deferred beyond MVP gate |
 | EXTERNAL-01..03 | Phase 17 | Deferred beyond MVP gate |
 
 ---
-*Updated: 2026-06-16 after Phase 14 verification passed with DEMO-01 and DEMO-02 satisfied.*
+*Updated: 2026-06-16 after Phase 15 Plan 15-02 completed replay service boundary work.*

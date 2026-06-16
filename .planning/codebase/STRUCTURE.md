@@ -16,7 +16,7 @@ MOCA/
 │   ├── knowledge/           # Canonical policy evidence contracts and KnowledgeService facade
 │   ├── memory/              # Session memory schemas, repository, and service
 │   ├── rag/                 # Chunking, embedding, retrieval, citation validation
-│   ├── replay/              # ReplayEventV3 schemas and event registry validation
+│   ├── replay/              # ReplayEventV3 schemas, validators, and replay event service boundary
 │   ├── tools/               # Business tool contracts, descriptors, manager, and adapters
 │   └── repositories/        # Database access layer
 ├── tests/                   # Backend unit, API, integration, agent, and RAG tests
@@ -59,8 +59,8 @@ MOCA/
 - `src/knowledge/schemas.py` owns EvidenceRefV1 and canonical evidence projection reused by approval snapshots
 
 **`src/replay/`:**
-- Phase 15 replay contract owner for strict ReplayEventV3/ReplayResponseV3 schemas and replay event registry validation
-- Service, lifecycle, operation-pairing, redaction/retention, and `/replay` API behavior are planned in later Phase 15 slices
+- Phase 15 replay contract owner for strict ReplayEventV3/ReplayResponseV3 schemas, replay event registry validation, redaction/retention rules, and the ReplayService append/projection/allocation boundary
+- Lifecycle, operation-pairing, and `/replay` API behavior are planned in later Phase 15 slices
 
 **`src/db/` and `src/repositories/`:**
 - ORM models for tenants, users, orders, refund cases, tickets, policy docs/chunks, audit logs, agent runs, approvals, action drafts, and agent steps
@@ -101,7 +101,7 @@ MOCA/
 - Tool registry and contracts: `src/agent/tools/contracts.py`, `src/agent/tools/registry.py`
 - Canonical hash: `src/common/canonical_hash.py`
 - Approval snapshots: `src/approvals/snapshots.py`
-- Replay schemas: `src/replay/schemas.py`
+- Replay schemas/service: `src/replay/schemas.py`, `src/replay/service.py`
 - Evidence contracts: `src/knowledge/schemas.py`
 - Approval and trace models: `src/db/models.py`
 - RAG retrieval: `src/rag/retriever.py`
