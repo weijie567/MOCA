@@ -41,6 +41,8 @@ class ActionToolExecutor:
             action_payload_hash=str(args.get("action_payload_hash") or ""),
             safety_snapshot_ref=str(args.get("safety_snapshot_ref") or ""),
             safety_snapshot_hash=str(args.get("safety_snapshot_hash") or ""),
+            thread_id=ctx.thread_id,
+            trace_id=ctx.trace_id,
         )
         return _action_result(raw_result, started_at)
 

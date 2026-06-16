@@ -103,6 +103,7 @@ class TraceRepository:
                     "detail": {
                         "draft_id": str(draft.id),
                         "idempotency_key": draft.idempotency_key,
+                        "draft_outcome": _safe_draft_outcome(draft),
                     },
                 }
             )
@@ -118,3 +119,7 @@ def _safe_proposed_action(action: dict[str, Any] | None) -> dict[str, Any]:
         "amount": action.get("amount"),
         "currency": action.get("currency"),
     }
+
+
+def _safe_draft_outcome(draft: ActionDraft) -> dict[str, Any]:
+    return dict(draft.draft_outcome or {})

@@ -148,6 +148,12 @@ def test_approval_event_types_and_retention_are_registered():
     assert EVENT_RETENTION_CLASSIFICATION["approval_resumed"] == "minimal_event"
 
 
+def test_action_draft_created_event_type_and_retention_are_registered():
+    assert "action_draft_created" in MINIMAL_EVENT_TYPES
+    assert EVENT_RETENTION_CLASSIFICATION["action_draft_created"] == "minimal_event"
+    assert not any(event_type.startswith("action_execution_") for event_type in MINIMAL_EVENT_TYPES)
+
+
 @pytest.mark.asyncio
 async def test_single_operation_one_family(session: AsyncSession):
     run_id, tenant_id = await _create_run(session)
@@ -249,4 +255,19 @@ async def test_redaction_guard(session: AsyncSession):
                 tenant_id=tenant_id,
                 event_type="approval_decided",
                 redacted_payload={"summary": {key: "unsafe"}},
+            )
+
+
+@pytest.mark.asyncio
+async def test_action_draft_created_rejects_raw_payload_like_event_data(session: AsyncSession):
+    run_id, tenant_id = await _create_run(session)
+
+    for key in ("raw_payload", "raw_args", "arguments"):
+        with pytest.raises(ValueError, match=key):
+            await _emit(
+                session,
+                run_id=run_id,
+                tenant_id=tenant_id,
+                event_type="action_draft_created",
+                redacted_payload={"summary": {key: {"target_id": "RF-1001"}}},
             )

@@ -10,7 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.actions.service import create_coupon_grant_draft
 from src.agent.trace import write_agent_run
 from src.approvals.service import ApprovalService
-from src.db.models import ActionDraft, ApprovalAssignment, ApprovalLevel, ApprovalRequest
+from src.db.models import ActionDraft, AgentTraceEvent, ApprovalAssignment, ApprovalLevel, ApprovalRequest
+from src.tools.contracts import ToolCallContext
+from src.tools.executors.action import ActionToolExecutor
 from tests.approvals.test_service_transitions import _create_command, _decision_command
 
 
@@ -82,6 +84,30 @@ def _binding_kwargs(request: ApprovalRequest, **overrides):
     }
     payload.update(overrides)
     return payload
+
+
+def _tool_context(request: ApprovalRequest, *, user_id: str) -> ToolCallContext:
+    return ToolCallContext(
+        tenant_id=str(request.tenant_id),
+        user_id=user_id,
+        role="support",
+        permissions=["tool:create_coupon_grant_draft"],
+        merchant_scope={"merchant_ids": ["*"]},
+        session_id=None,
+        thread_id=f"draft-thread-{request.id}",
+        run_id=str(request.run_id),
+        trace_id=f"trace-{request.id}",
+        request_id=f"request-{request.id}",
+        tool_call_id=f"{request.run_id}:action_draft:create_coupon_grant_draft",
+        caller_node="action_draft",
+        deadline_at=datetime.now(UTC),
+        attempt=1,
+        max_attempts=1,
+        idempotency_key="unsafe-caller-key",
+        approval_ref=str(request.id),
+        safety_snapshot_ref=request.safety_snapshot_ref,
+        policy_snapshot_ref=None,
+    )
 
 
 @pytest.mark.asyncio
@@ -328,3 +354,60 @@ async def test_create_coupon_grant_draft_approved_key_uses_trusted_revision(
         f"issue_coupon:RF-1001:{request.action_payload_hash}"
     )
     assert "unsafe-caller-key" not in draft.idempotency_key
+
+
+@pytest.mark.asyncio
+async def test_action_executor_emits_safe_action_draft_created_event(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    request, _level, _assignment = await _approval_context(session, seeded_session, status="approved")
+    user_id = str(seeded_session["users"]["cs_zhang"].id)
+    ctx = _tool_context(request, user_id=user_id)
+
+    result = await ActionToolExecutor(session).execute(
+        "create_coupon_grant_draft",
+        {
+            "approval_request_id": str(request.id),
+            "action_type": "issue_coupon",
+            "payload": {"target_id": "RF-1001", "amount": "25.00"},
+            "action_payload_hash": request.action_payload_hash,
+            "safety_snapshot_ref": request.safety_snapshot_ref,
+            "safety_snapshot_hash": request.safety_snapshot_hash,
+        },
+        ctx,
+    )
+
+    rows = (
+        await session.execute(
+            select(AgentTraceEvent).where(
+                AgentTraceEvent.run_id == request.run_id,
+                AgentTraceEvent.event_type == "action_draft_created",
+            )
+        )
+    ).scalars().all()
+
+    assert result.status == "success"
+    assert len(rows) == 1
+    event = rows[0]
+    assert event.thread_id == ctx.thread_id
+    assert event.trace_id == ctx.trace_id
+    assert set(event.resource_refs) == {
+        "draft_id",
+        "target_id",
+        "action_payload_hash",
+        "safety_snapshot_hash",
+    }
+    assert event.resource_refs["draft_id"] == result.data["draft_id"]
+    assert event.resource_refs["target_id"] == "RF-1001"
+    assert event.resource_refs["action_payload_hash"] == request.action_payload_hash
+    assert event.resource_refs["safety_snapshot_hash"] == request.safety_snapshot_hash
+    assert event.redacted_payload == {
+        "action_type": "issue_coupon",
+        "execution_mode": "demo",
+        "external_side_effect": False,
+    }
+    assert not any(row.event_type.startswith("action_execution_") for row in rows)
+    assert "payload" not in event.resource_refs
+    assert "payload" not in event.redacted_payload
+    assert "arguments" not in event.redacted_payload
