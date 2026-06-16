@@ -3,10 +3,24 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.actions.schemas import DraftOutcomeV1
 from src.db.models import ActionDraft, AgentRun, AgentStep, ApprovalRequest, ApprovalStep
+
+_DRAFT_OUTCOME_KEYS = frozenset(
+    {
+        "schema_version",
+        "status",
+        "external_side_effect",
+        "tenant_id",
+        "run_id",
+        "draft_id",
+        "created_at",
+    }
+)
 
 
 class TraceRepository:
@@ -121,4 +135,9 @@ def _safe_proposed_action(action: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def _safe_draft_outcome(draft: ActionDraft) -> dict[str, Any]:
-    return dict(draft.draft_outcome or {})
+    outcome = draft.draft_outcome if isinstance(draft.draft_outcome, dict) else {}
+    projected = {key: outcome[key] for key in _DRAFT_OUTCOME_KEYS if key in outcome}
+    try:
+        return DraftOutcomeV1.model_validate(projected).model_dump(mode="json")
+    except ValidationError:
+        return DraftOutcomeV1().model_dump(mode="json")

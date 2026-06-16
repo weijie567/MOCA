@@ -223,6 +223,46 @@ def test_trace_action_draft_projection_excludes_raw_payload_even_when_present():
     assert "do not expose" not in str(timeline[0])
 
 
+def test_trace_action_draft_projection_allowlists_draft_outcome_keys():
+    draft_id = uuid4()
+    run_id = uuid4()
+    tenant_id = uuid4()
+    draft = SimpleNamespace(
+        id=draft_id,
+        created_at=datetime.now(UTC),
+        action_type="issue_coupon",
+        status="draft_created",
+        idempotency_key="idem",
+        draft_outcome={
+            **_draft_outcome(draft_id=draft_id, run_id=run_id, tenant_id=tenant_id),
+            "raw_payload": {"target_id": "RF-SECRET"},
+            "secret": "do not expose",
+            "customer_phone": "13900000000",
+        },
+        payload={"target_id": "RF-SECRET"},
+    )
+    repo = TraceRepository(SimpleNamespace())
+
+    timeline = repo.build_timeline(steps=[], approvals=[], approval_steps=[], drafts=[draft])
+    outcome = timeline[0]["detail"]["draft_outcome"]
+
+    assert outcome["status"] == "not_executed_demo"
+    assert outcome["external_side_effect"] is False
+    assert set(outcome) == {
+        "schema_version",
+        "status",
+        "external_side_effect",
+        "tenant_id",
+        "run_id",
+        "draft_id",
+        "created_at",
+    }
+    assert "raw_payload" not in str(timeline[0])
+    assert "RF-SECRET" not in str(timeline[0])
+    assert "13900000000" not in str(timeline[0])
+    assert "do not expose" not in str(timeline[0])
+
+
 @pytest.mark.asyncio
 async def test_get_run_trace_empty_run_returns_only_agent_steps(
     client: AsyncClient,
