@@ -193,8 +193,6 @@ async def action_draft(state: AgentState, config: RunnableConfig) -> dict:
     action_type = _canonical_action_type(proposed.get("action_type"))
     proposed = {**proposed, "action_type": action_type}
     permissions = list(configurable.get("permissions") or [])
-    if f"tool:{ACTION_TOOL_NAME}" not in permissions:
-        permissions.append(f"tool:{ACTION_TOOL_NAME}")
 
     tool_ctx = ToolCallContext(
         tenant_id=state.get("tenant_id", ""),
