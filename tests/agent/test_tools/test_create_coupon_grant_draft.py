@@ -14,6 +14,7 @@ from src.agent.trace import write_agent_run
 from src.approvals.snapshot_service import persist_action_safety_snapshot
 from src.approvals.service import ApprovalService
 from src.db.models import ActionDraft, AgentTraceEvent, ApprovalAssignment, ApprovalLevel, ApprovalRequest
+from src.replay.service import ReplayService
 from src.tools.contracts import ToolCallContext
 from src.tools.executors.action import ActionToolExecutor
 from tests.approvals.test_service_transitions import _create_command, _decision_command
@@ -609,8 +610,33 @@ async def test_action_executor_emits_safe_action_draft_created_event(
         "action_type": "issue_coupon",
         "execution_mode": "demo",
         "external_side_effect": False,
+        "draft_outcome": {
+            "schema_version": "draft_outcome.v1",
+            "status": "not_executed_demo",
+            "external_side_effect": False,
+            "tenant_id": str(request.tenant_id),
+            "run_id": str(request.run_id),
+            "draft_id": result.data["draft_id"],
+            "created_at": event.redacted_payload["draft_outcome"]["created_at"],
+        },
     }
     assert not any(row.event_type.startswith("action_execution_") for row in rows)
+    projected = ReplayService(session).project_event(event)
+    assert projected["event_type"] == "action_draft_created"
+    assert projected["redacted_payload"]["execution_mode"] == "demo"
+    assert projected["redacted_payload"]["external_side_effect"] is False
+    assert projected["redacted_payload"]["draft_outcome"]["status"] == "not_executed_demo"
+    assert projected["redacted_payload"]["draft_outcome"]["external_side_effect"] is False
+    projected_json = str(projected)
+    forbidden_markers = [
+        "action_execution_started",
+        "action_execution_completed",
+        "action_execution_failed",
+        "external_dispatched",
+        "raw_payload",
+        "proposed_action",
+    ]
+    assert all(marker not in projected_json for marker in forbidden_markers)
     assert "payload" not in event.resource_refs
     assert "payload" not in event.redacted_payload
     assert "arguments" not in event.redacted_payload
