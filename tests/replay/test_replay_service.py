@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.trace import write_agent_run
-from src.db.models import AgentTraceEvent
+from src.db.models import AgentRun, AgentTraceEvent
 from src.replay.pairing import OperationPairingError
 from src.replay.schemas import (
     ReplayEventProvenance,
@@ -174,6 +174,115 @@ async def _create_run(session: AsyncSession) -> tuple[uuid.UUID, uuid.UUID]:
         total_latency_ms=None,
     )
     return run_id, tenant_id
+
+
+async def _create_manual_run(
+    session: AsyncSession,
+    *,
+    final_status: str = "completed",
+) -> tuple[uuid.UUID, uuid.UUID, str]:
+    run_id = uuid.uuid4()
+    tenant_id = uuid.uuid4()
+    thread_id = f"thread-replay-read-{run_id}"
+    now = datetime.now(UTC)
+    session.add(
+        AgentRun(
+            id=run_id,
+            thread_id=thread_id,
+            tenant_id=tenant_id,
+            user_id=uuid.uuid4(),
+            input_query="redacted replay read fixture",
+            final_status=final_status,
+            final_response=None,
+            started_at=now,
+            completed_at=now,
+            total_latency_ms=10,
+        )
+    )
+    await session.flush()
+    return run_id, tenant_id, thread_id
+
+
+@pytest.mark.asyncio
+async def test_get_replay_reads_event_store_rows_in_sequence_order(session: AsyncSession):
+    run_id, tenant_id, thread_id = await _create_manual_run(session)
+    now = datetime.now(UTC)
+    session.add_all(
+        [
+            AgentTraceEvent(
+                event_id=uuid.uuid4(),
+                run_id=run_id,
+                sequence=2,
+                tenant_id=tenant_id,
+                thread_id=thread_id,
+                event_type="node_completed",
+                schema_version="replay_event.v3",
+                occurred_at=now,
+                actor={"type": "agent", "id": "moca"},
+                resource_refs={"node": "final_response"},
+                redaction_policy_version="redaction.v1",
+                redacted_payload={"status": "completed"},
+                node_name="final_response",
+            ),
+            AgentTraceEvent(
+                event_id=uuid.uuid4(),
+                run_id=run_id,
+                sequence=1,
+                tenant_id=tenant_id,
+                thread_id=thread_id,
+                event_type="run_status_changed",
+                schema_version="replay_event.v3",
+                occurred_at=now,
+                actor={"type": "system", "id": "run_lifecycle"},
+                resource_refs={"run_id": str(run_id)},
+                redaction_policy_version="redaction.v1",
+                redacted_payload={"from_status": "pending", "to_status": "running"},
+            ),
+        ]
+    )
+    await session.flush()
+
+    replay = await ReplayService(session).get_replay(run_id)
+
+    validated = ReplayResponseV3(**replay).model_dump(mode="json")
+    assert validated["schema_version"] == "replay_response.v3"
+    assert validated["run_id"] == str(run_id)
+    assert validated["thread_id"] == thread_id
+    assert validated["final_status"] == "completed"
+    assert [event["sequence"] for event in validated["timeline"]] == [1, 2]
+    assert {event["schema_version"] for event in validated["timeline"]} == {"replay_event.v3"}
+
+
+@pytest.mark.asyncio
+async def test_get_replay_projects_minimal_rows_with_source_provenance(session: AsyncSession):
+    run_id, tenant_id, thread_id = await _create_manual_run(session, final_status="interrupted")
+    session.add(
+        AgentTraceEvent(
+            event_id=uuid.uuid4(),
+            run_id=run_id,
+            sequence=1,
+            tenant_id=tenant_id,
+            thread_id=thread_id,
+            event_type="approval_requested",
+            schema_version="minimal_event_envelope.v1",
+            occurred_at=datetime.now(UTC),
+            actor={"type": "approver", "id": "approval-service"},
+            resource_refs={"approval_id": str(uuid.uuid4())},
+            redaction_policy_version="redaction.v1",
+            redacted_payload={"status": "pending"},
+        )
+    )
+    await session.flush()
+
+    replay = await ReplayService(session).get_replay(run_id)
+
+    assert replay["schema_version"] == "replay_response.v3"
+    assert replay["final_status"] == "interrupted"
+    assert replay["timeline"][0]["schema_version"] == "replay_event.v3"
+    assert replay["timeline"][0]["provenance"] == {
+        "source_schema_version": "minimal_event_envelope.v1",
+        "pairing_status": "unresolved",
+    }
 
 
 @pytest.mark.asyncio
