@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.actions.drafts import ActionDraftStore
 from src.actions.schemas import DraftOutcomeV1
-from src.db.models import ActionSafetySnapshot, ApprovalRequest
+from src.agent.events import emit_event
+from src.db.models import ActionSafetySnapshot, AgentRun, ApprovalRequest
 
 _IDEMPOTENCY_CONFLICTS = {"idempotency_key_conflict", "idempotency_binding_conflict"}
 _ACTION_RESULT_COMPAT_GATE = (
@@ -57,6 +58,8 @@ class ActionService:
         action_payload_hash: str | None = None,
         safety_snapshot_ref: str | None = None,
         safety_snapshot_hash: str | None = None,
+        thread_id: str | None = None,
+        trace_id: str | None = None,
     ) -> dict[str, Any]:
         del user_id
         try:
@@ -117,6 +120,18 @@ class ActionService:
                 )
                 draft_outcome = _draft_outcome_from_draft(draft)
                 draft.draft_outcome = draft_outcome
+                if created:
+                    await self._emit_action_draft_created(
+                        run_id=run_uuid,
+                        tenant_id=tenant_uuid,
+                        thread_id=thread_id,
+                        trace_id=trace_id,
+                        draft_id=draft.id,
+                        target_id=target_id,
+                        action_type=action_type,
+                        action_payload_hash=action_payload_hash,
+                        safety_snapshot_hash=safety_snapshot_hash,
+                    )
             return _tool_success(
                 {
                     "draft_id": str(draft.id),
@@ -194,6 +209,40 @@ class ActionService:
             approval_revision_ref=f"approval_request/{approval.id}@rev{approval.revision}",
         )
 
+    async def _emit_action_draft_created(
+        self,
+        *,
+        run_id: UUID,
+        tenant_id: UUID,
+        thread_id: str | None,
+        trace_id: str | None,
+        draft_id: UUID,
+        target_id: str,
+        action_type: str,
+        action_payload_hash: str,
+        safety_snapshot_hash: str,
+    ) -> None:
+        await emit_event(
+            self.session,
+            run_id=run_id,
+            tenant_id=tenant_id,
+            thread_id=thread_id or await _run_thread_id(self.session, run_id) or str(run_id),
+            trace_id=trace_id,
+            event_type="action_draft_created",
+            actor={"type": "agent", "id": "moca"},
+            resource_refs={
+                "draft_id": str(draft_id),
+                "target_id": target_id,
+                "action_payload_hash": action_payload_hash,
+                "safety_snapshot_hash": safety_snapshot_hash,
+            },
+            redacted_payload={
+                "action_type": action_type,
+                "execution_mode": "demo",
+                "external_side_effect": False,
+            },
+        )
+
 
 def _target_id(payload: dict[str, Any]) -> str | None:
     raw_target = payload.get("target_id")
@@ -201,6 +250,14 @@ def _target_id(payload: dict[str, Any]) -> str | None:
         return None
     target = str(raw_target).strip()
     return target or None
+
+
+async def _run_thread_id(session: AsyncSession, run_id: UUID) -> str | None:
+    return (
+        await session.execute(
+            select(AgentRun.thread_id).where(AgentRun.id == run_id)
+        )
+    ).scalar_one_or_none()
 
 
 def _now_iso() -> str:
@@ -284,6 +341,8 @@ async def create_coupon_grant_draft(
     action_payload_hash: str | None = None,
     safety_snapshot_ref: str | None = None,
     safety_snapshot_hash: str | None = None,
+    thread_id: str | None = None,
+    trace_id: str | None = None,
 ) -> dict[str, Any]:
     """Compatibility function for old call sites."""
 
@@ -298,4 +357,6 @@ async def create_coupon_grant_draft(
         action_payload_hash=action_payload_hash,
         safety_snapshot_ref=safety_snapshot_ref,
         safety_snapshot_hash=safety_snapshot_hash,
+        thread_id=thread_id,
+        trace_id=trace_id,
     )

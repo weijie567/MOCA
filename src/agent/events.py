@@ -35,6 +35,7 @@ MINIMAL_EVENT_TYPES = {
     "approval_decided",
     "approval_expired",
     "approval_resumed",
+    "action_draft_created",
 }
 EVENT_RETENTION_CLASSIFICATION = {event_type: "minimal_event" for event_type in MINIMAL_EVENT_TYPES}
 SCHEMA_VERSION = "minimal_event_envelope.v1"
