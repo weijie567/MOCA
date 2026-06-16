@@ -15,6 +15,7 @@ from src.agent.events import (
     classify_event_family,
     emit_event,
 )
+import src.agent.events as events_module
 from src.agent.trace import write_agent_run
 from src.db.models import AgentTraceEvent
 
@@ -71,6 +72,59 @@ async def test_sequence_monotonic(session: AsyncSession):
     second = await _emit(session, run_id=run_id, tenant_id=tenant_id)
 
     assert [first["sequence"], second["sequence"]] == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_emit_event_delegates_to_replay_service(monkeypatch):
+    calls = []
+
+    class SpyReplayService:
+        def __init__(self, session):
+            self.session = session
+
+        async def append_event(self, **kwargs):
+            calls.append(kwargs)
+            return {
+                "schema_version": "minimal_event_envelope.v1",
+                "event_id": uuid.uuid4(),
+                "sequence": 7,
+                "operation_id": kwargs.get("operation_id"),
+                "run_id": uuid.UUID(str(kwargs["run_id"])),
+                "tenant_id": uuid.UUID(str(kwargs["tenant_id"])),
+                "thread_id": kwargs["thread_id"],
+                "trace_id": kwargs.get("trace_id"),
+                "event_type": kwargs["event_type"],
+                "occurred_at": datetime.now(UTC),
+                "actor": kwargs["actor"],
+                "resource_refs": kwargs["resource_refs"],
+                "redaction_policy_version": kwargs["redaction_policy_version"],
+                "redacted_payload": {
+                    **kwargs["redacted_payload"],
+                    "iteration": kwargs["iteration"],
+                },
+            }
+
+    monkeypatch.setattr(events_module, "ReplayService", SpyReplayService)
+
+    run_id = uuid.uuid4()
+    tenant_id = uuid.uuid4()
+    emitted = await emit_event(
+        object(),
+        run_id=run_id,
+        tenant_id=tenant_id,
+        thread_id="event-test-thread",
+        event_type="tool_call_started",
+        actor={"type": "agent", "id": "moca"},
+        resource_refs={"tool": "get_order"},
+        redacted_payload={"status": "started"},
+        operation_id=uuid.uuid4(),
+        iteration=3,
+    )
+
+    assert calls[0]["schema_version"] == "minimal_event_envelope.v1"
+    assert emitted["schema_version"] == "minimal_event_envelope.v1"
+    assert emitted["sequence"] == 7
+    assert emitted["redacted_payload"]["iteration"] == 3
 
 
 @pytest.mark.asyncio
