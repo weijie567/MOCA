@@ -75,6 +75,8 @@ async def test_high_risk_approve_flow_interrupts_resumes_executes_action(
     assert pending_approval.status == "approved"
     assert interrupted_run.final_status == "completed"
     assert draft.action_type == "issue_coupon"
+    assert draft.draft_outcome["status"] == "not_executed_demo"
+    assert draft.draft_outcome["external_side_effect"] is False
     assert interrupted_run.final_response is not None
     assert "补偿草稿已创建" in interrupted_run.final_response
 

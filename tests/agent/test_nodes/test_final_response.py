@@ -5,6 +5,40 @@ import pytest
 from src.agent.nodes.final_response import final_response
 
 
+FORBIDDEN_DEMO_SUCCESS_PHRASES = (
+    "waiting for " "final issuance",
+    "issued " "coupon",
+    "refund" "ed",
+    "closed " "ticket",
+    "external " "success",
+    "等待最终" "发放",
+    "已" "发放",
+    "已" "退款",
+    "已关闭" "工单",
+    "执行" "成功",
+)
+
+
+def _draft_outcome(draft_id: str, *, external_side_effect: bool = False) -> dict:
+    return {
+        "schema_version": "draft_outcome.v1",
+        "draft_id": draft_id,
+        "status": "not_executed_demo",
+        "external_side_effect": external_side_effect,
+    }
+
+
+def _assert_draft_created_not_executed(text: str, draft_id: str) -> None:
+    assert draft_id in text
+    assert "草稿" in text
+    assert "未执行" in text
+    assert "优惠券" in text
+    assert "退款" in text
+    assert "工单" in text
+    assert "外部动作" in text
+    assert not any(phrase in text for phrase in FORBIDDEN_DEMO_SUCCESS_PHRASES)
+
+
 @pytest.mark.asyncio
 async def test_final_response_uses_deterministic_citation_template(base_state):
     state = {
@@ -47,13 +81,16 @@ async def test_final_response_mentions_approved_action_draft(base_state):
         },
         "risk_assessment": {"approval_required": True, "risk_reason": "Compensation amount exceeds threshold"},
         "approval_result": {"decision": "approve"},
-        "action_result": {"status": "success", "data": {"draft_id": "draft-001"}, "error": {}},
+        "action_draft": {"draft_id": "draft-001", "status": "draft_created"},
+        "draft_outcome": _draft_outcome("draft-001"),
+        "action_result": {"status": "draft_created", "data": {"draft_id": "draft-001"}, "error": {}},
     }
 
     result = await final_response(state)
 
     assert "审批结果" in result["final_response"]
-    assert "draft-001" in result["final_response"]
+    _assert_draft_created_not_executed(result["final_response"], "draft-001")
+    assert result["llm_outputs"]["final_response"]["approval_context"] is not None
 
 
 @pytest.mark.asyncio
@@ -92,7 +129,7 @@ async def test_final_response_mentions_action_failure_after_approval(base_state)
 
     result = await final_response(state)
 
-    assert "执行失败" in result["final_response"]
+    assert "草稿创建失败" in result["final_response"]
     assert "draft write failed" in result["final_response"]
 
 
@@ -107,13 +144,58 @@ async def test_final_response_mentions_direct_action_without_approval(base_state
         },
         "risk_assessment": {"approval_required": False},
         "approval_result": None,
-        "action_result": {"status": "success", "data": {"draft_id": "draft-002"}, "error": {}},
+        "action_draft": {"draft_id": "draft-002", "status": "draft_created"},
+        "draft_outcome": _draft_outcome("draft-002"),
+        "action_result": {"status": "draft_created", "data": {"draft_id": "draft-002"}, "error": {}},
     }
 
     result = await final_response(state)
 
     assert "无需审批" in result["final_response"]
-    assert "draft-002" in result["final_response"]
+    _assert_draft_created_not_executed(result["final_response"], "draft-002")
+
+
+@pytest.mark.asyncio
+async def test_final_response_does_not_treat_action_result_success_without_draft_outcome_as_success(base_state):
+    state = {
+        **base_state,
+        "recommendation_draft": {
+            "recommended_action": "issue_coupon",
+            "reasoning_summary": "符合补偿规则。",
+            "evidence_refs": [],
+        },
+        "risk_assessment": {"approval_required": True, "risk_reason": "Compensation amount exceeds threshold"},
+        "approval_result": {"decision": "approve"},
+        "action_result": {"status": "success", "data": {"draft_id": "legacy-success"}, "error": {}},
+    }
+
+    result = await final_response(state)
+
+    assert "legacy-success" not in result["final_response"]
+    assert "草稿已创建" not in result["final_response"]
+    assert FORBIDDEN_DEMO_SUCCESS_PHRASES[5] not in result["final_response"]
+
+
+@pytest.mark.asyncio
+async def test_final_response_rejects_side_effecting_draft_outcome_as_success(base_state):
+    state = {
+        **base_state,
+        "recommendation_draft": {
+            "recommended_action": "issue_coupon",
+            "reasoning_summary": "符合补偿规则。",
+            "evidence_refs": [],
+        },
+        "risk_assessment": {"approval_required": False},
+        "approval_result": None,
+        "action_draft": {"draft_id": "draft-side-effect", "status": "draft_created"},
+        "draft_outcome": _draft_outcome("draft-side-effect", external_side_effect=True),
+        "action_result": {"status": "success", "data": {"draft_id": "draft-side-effect"}, "error": {}},
+    }
+
+    result = await final_response(state)
+
+    assert "draft-side-effect" not in result["final_response"]
+    assert "草稿已创建" not in result["final_response"]
 
 
 @pytest.mark.asyncio

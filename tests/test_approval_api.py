@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
@@ -11,8 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.trace import write_agent_run
 from src.api.main import app
+from src.api.routers import approvals as approvals_router
 from src.auth.jwt import create_access_token
-from src.approvals.schemas import ApprovalDecisionCommand
+from src.approvals.schemas import ApprovalDecisionCommand, ApprovalDecisionResult
 from src.approvals.service import ApprovalService
 from src.db.models import AgentRun, ApprovalAssignment, ApprovalEvent, ApprovalLevel, ApprovalRequest, User
 from tests.approvals.test_service_transitions import _create_command
@@ -136,6 +138,48 @@ def _info_body(bundle: ApprovalBundle, **overrides) -> dict:
     }
     body.update(overrides)
     return body
+
+
+def _approved_decision_result(bundle: ApprovalBundle, actor_id: UUID) -> ApprovalDecisionResult:
+    decided_at = datetime.now(UTC)
+    resume_payload = {
+        "schema_version": "approval_result.v1",
+        "approval_id": str(bundle.approval.id),
+        "tenant_id": str(bundle.approval.tenant_id),
+        "run_id": str(bundle.approval.run_id),
+        "status": "approved",
+        "decision_type": "approve",
+        "revision": bundle.approval.revision,
+        "request_version": bundle.approval.version,
+        "level_version": bundle.level.version,
+        "assignment_version": bundle.assignment.version,
+        "action_payload_hash": bundle.approval.action_payload_hash,
+        "safety_snapshot_ref": bundle.approval.safety_snapshot_ref,
+        "safety_snapshot_hash": bundle.approval.safety_snapshot_hash,
+        "decided_by": str(actor_id),
+        "decided_at": decided_at.isoformat(),
+    }
+    return ApprovalDecisionResult(
+        approval_id=bundle.approval.id,
+        tenant_id=bundle.approval.tenant_id,
+        run_id=bundle.approval.run_id,
+        status="approved",
+        decision_type="approve",
+        revision=bundle.approval.revision,
+        request_version=bundle.approval.version,
+        level_version=bundle.level.version,
+        assignment_version=bundle.assignment.version,
+        action_payload_hash=bundle.approval.action_payload_hash,
+        safety_snapshot_ref=bundle.approval.safety_snapshot_ref,
+        safety_snapshot_hash=bundle.approval.safety_snapshot_hash,
+        decided_by=actor_id,
+        decided_at=decided_at,
+        decision_id=uuid4(),
+        event_id=uuid4(),
+        reason="valid",
+        resume_payload=resume_payload,
+        graph_thread_id=f"{bundle.approval.tenant_id}:{bundle.approval.requested_by}:{bundle.approval.thread_id}",
+    )
 
 
 def _edited_action(bundle: ApprovalBundle) -> dict:
@@ -311,6 +355,110 @@ async def test_decide_records_recoverable_resume_failure_and_retries_terminal_ap
     assert run.final_status == "completed"
     assert completed_statuses.count("completed") == 1
     assert len(graph.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_approval_resume_reconciliation_accepts_not_executed_demo_draft_outcome(
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(session, seeded_session, thread_id="thread-reconcile-draft-outcome")
+    manager = seeded_session["users"]["approval_manager"]
+    result = _approved_decision_result(bundle, manager.id)
+
+    async def fake_action_draft(state, config):
+        assert state["approval_result"] == result.resume_payload
+        assert config["configurable"]["session"] is session
+        return {
+            "action_draft": {"draft_id": "draft-api-001", "status": "draft_created"},
+            "draft_outcome": {
+                "schema_version": "draft_outcome.v1",
+                "draft_id": "draft-api-001",
+                "status": "not_executed_demo",
+                "external_side_effect": False,
+            },
+            "action_result": {"status": "error", "data": {}, "error": {"message": "legacy field ignored"}},
+        }
+
+    monkeypatch.setattr(approvals_router, "action_draft", fake_action_draft)
+
+    reconciled = await approvals_router._reconcile_approved_action_draft(
+        session=session,
+        result=result,
+        final_state={"final_response": "approved"},
+        config={"configurable": {"session": session}},
+    )
+
+    assert reconciled["draft_outcome"]["status"] == "not_executed_demo"
+    assert reconciled["draft_outcome"]["external_side_effect"] is False
+    assert reconciled.get("node_errors") is None
+
+
+@pytest.mark.asyncio
+async def test_approval_resume_reconciliation_records_error_when_draft_outcome_missing(
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(session, seeded_session, thread_id="thread-reconcile-missing-outcome")
+    result = _approved_decision_result(bundle, seeded_session["users"]["approval_manager"].id)
+
+    async def fake_action_draft(_state, _config):
+        return {"action_result": {"status": "draft_created", "data": {"draft_id": "draft-api-002"}, "error": {}}}
+
+    monkeypatch.setattr(approvals_router, "action_draft", fake_action_draft)
+
+    reconciled = await approvals_router._reconcile_approved_action_draft(
+        session=session,
+        result=result,
+        final_state={"final_response": "approved"},
+        config={"configurable": {"session": session}},
+    )
+
+    assert {"node": "action_draft", "error": "action_draft_reconcile_failed"} in reconciled["node_errors"]
+
+
+@pytest.mark.asyncio
+async def test_approval_resume_reconciliation_records_error_for_side_effecting_draft_outcome(
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(session, seeded_session, thread_id="thread-reconcile-side-effect")
+    result = _approved_decision_result(bundle, seeded_session["users"]["approval_manager"].id)
+
+    async def fake_action_draft(_state, _config):
+        return {
+            "draft_outcome": {
+                "schema_version": "draft_outcome.v1",
+                "draft_id": "draft-api-003",
+                "status": "not_executed_demo",
+                "external_side_effect": True,
+            },
+            "action_result": {"status": "success", "data": {"draft_id": "draft-api-003"}, "error": {}},
+        }
+
+    monkeypatch.setattr(approvals_router, "action_draft", fake_action_draft)
+
+    reconciled = await approvals_router._reconcile_approved_action_draft(
+        session=session,
+        result=result,
+        final_state={"final_response": "approved"},
+        config={"configurable": {"session": session}},
+    )
+
+    assert {"node": "action_draft", "error": "action_draft_reconcile_failed"} in reconciled["node_errors"]
+
+
+def test_approval_resume_reconciliation_uses_draft_outcome_not_action_result_success() -> None:
+    source = Path("src/api/routers/approvals.py").read_text(encoding="utf-8")
+
+    assert "action_draft(" in source
+    assert "execute_action(" not in source
+    assert "not_executed_demo" in source
+    assert "external_side_effect" in source
+    assert "action_result\", {}).get(\"status\") != \"success\"" not in source
 
 
 @pytest.mark.asyncio

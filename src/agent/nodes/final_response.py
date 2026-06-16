@@ -6,6 +6,8 @@ from typing import Any
 from src.agent.prompts import INSUFFICIENT_EVIDENCE_RESPONSE
 from src.agent.state import AgentState
 
+DEMO_NOT_EXECUTED_TEXT = "演示模式未执行优惠券发放、退款、工单关闭或任何外部动作"
+
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
@@ -125,31 +127,56 @@ def _completed_response(draft: dict[str, Any], risk_assessment: dict[str, Any]) 
         parts.append(f"依据：{citations}。")
     if risk_assessment.get("approval_required"):
         risk_reason = risk_assessment.get("risk_reason") or "命中风险规则"
-        parts.append(f"风险提示：{risk_reason}，需要人工审批后执行。")
+        parts.append(f"风险提示：{risk_reason}，需要人工审批后才能创建动作草稿。")
     return "\n".join(parts)
+
+
+def _is_successful_demo_draft_outcome(draft_outcome: object) -> bool:
+    return (
+        isinstance(draft_outcome, dict)
+        and draft_outcome.get("status") == "not_executed_demo"
+        and draft_outcome.get("external_side_effect") is False
+    )
+
+
+def _draft_id(action_draft: object, draft_outcome: object) -> str:
+    if isinstance(draft_outcome, dict) and draft_outcome.get("draft_id"):
+        return str(draft_outcome["draft_id"])
+    if isinstance(action_draft, dict):
+        draft_id = action_draft.get("draft_id") or action_draft.get("id")
+        if draft_id:
+            return str(draft_id)
+    return "unknown"
+
+
+def _draft_created_text(prefix: str, draft_id: str) -> str:
+    return f"{prefix}：补偿草稿已创建（草稿ID：{draft_id}），{DEMO_NOT_EXECUTED_TEXT}。"
 
 
 def _approval_outcome_text(
     approval_result: dict[str, Any] | None,
     action_result: dict[str, Any] | None,
+    action_draft: dict[str, Any] | None,
+    draft_outcome: dict[str, Any] | None,
 ) -> str:
     if approval_result:
         decision_type = approval_result.get("decision_type") or approval_result.get("decision")
-        if decision_type in {"accept", "approve"} and action_result:
-            if action_result.get("status") == "success":
-                draft_id = (action_result.get("data") or {}).get("draft_id", "unknown")
-                return f"审批结果：操作已审批通过，补偿草稿已创建（草稿ID：{draft_id}），等待最终发放。"
-            message = (action_result.get("error") or {}).get("message", "unknown error")
-            return f"审批结果：操作已审批通过，但执行失败：{message}。"
+        if decision_type in {"accept", "approve"}:
+            if _is_successful_demo_draft_outcome(draft_outcome):
+                return _draft_created_text("审批结果：操作已审批通过", _draft_id(action_draft, draft_outcome))
+            if action_result:
+                message = (action_result.get("error") or {}).get("message", "unknown error")
+                return f"审批结果：操作已审批通过，但草稿创建失败：{message}。"
+            return ""
         if decision_type in {"reject", "ignore"}:
             reason = approval_result.get("reason") or "No reason provided"
             if decision_type == "ignore":
                 return f"审批结果：操作被取消。原因：{reason}。"
             return f"审批结果：操作被审核人拒绝。拒绝原因：{reason}。"
 
-    if not approval_result and action_result and action_result.get("status") == "success":
-        draft_id = (action_result.get("data") or {}).get("draft_id", "unknown")
-        return f"执行结果：该操作在政策范围内，无需审批，补偿草稿已创建（草稿ID：{draft_id}）。"
+    if not approval_result and _is_successful_demo_draft_outcome(draft_outcome):
+        draft_id = _draft_id(action_draft, draft_outcome)
+        return _draft_created_text("草稿结果：该操作在政策范围内，无需审批", draft_id)
 
     return ""
 
@@ -159,6 +186,8 @@ async def final_response(state: AgentState) -> dict:
     draft = state.get("recommendation_draft") or {}
     approval_result = state.get("approval_result")
     action_result = state.get("action_result")
+    action_draft = state.get("action_draft")
+    draft_outcome = state.get("draft_outcome")
     clarification_request = state.get("clarification_request")
     blocked_response = state.get("final_response")
     if blocked_response and state.get("safety_snapshot_verified") is False:
@@ -216,7 +245,7 @@ async def final_response(state: AgentState) -> dict:
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
         }
     response_text = _completed_response(draft, state.get("risk_assessment") or {})
-    approval_context = _approval_outcome_text(approval_result, action_result)
+    approval_context = _approval_outcome_text(approval_result, action_result, action_draft, draft_outcome)
     if approval_context:
         response_text = f"{response_text}\n{approval_context}"
     return {
