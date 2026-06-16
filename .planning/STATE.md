@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
 status: executing
-stopped_at: Completed 15-03-PLAN.md
-last_updated: "2026-06-16T14:42:14.042Z"
+stopped_at: Completed 15-04-PLAN.md
+last_updated: "2026-06-16T15:14:26.571Z"
 last_activity: 2026-06-16
 progress:
   total_phases: 11
   completed_phases: 8
   total_plans: 55
-  completed_plans: 52
-  percent: 95
+  completed_plans: 53
+  percent: 96
 ---
 
 # Project State: MOCA
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md` (updated 2026-06-16)
 ## Current Position
 
 Phase: 15 (replay-event-contract) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Plans: 6 planned
 Status: Ready to execute
 Last activity: 2026-06-16
 
-Progress: [██████████] 95%
+Progress: [██████████] 96%
 
 ## Completed Baseline
 
@@ -100,6 +100,9 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Minimal and context-less historical rows remain pairing_status=unresolved; no projection path rewrites stored rows.
 - Non-operation V3 lifecycle/audit events project pairing_status=not_applicable instead of being mislabeled unresolved.
 - V3 operation writes now fail closed when operation_id or positive attempt is missing.
+- RunLifecycleService owns run_status_changed replay event appends; AgentRun remains the durable run-status source of truth.
+- Approval respond/needs-info appends interrupted with reason_code=needs_info_response and never emits completed.
+- ApprovalSlaScanner remains disabled by default; active enablement stays deferred to post-Phase 15 SLA Scanner Enablement.
 
 ## Blockers / Concerns
 
@@ -152,11 +155,12 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | 15 | 01 | 12 min | 3 | 7 |
 | 15 | 02 | 17 min | 2 | 8 |
 | Phase 15 P03 | 17 min | 2 tasks | 6 files |
+| Phase 15 P04 | 22 min | 3 tasks | 12 files |
 
 ## Session Continuity
 
-Last session: 2026-06-16T14:42:14.035Z
-Stopped at: Completed 15-03-PLAN.md
+Last session: 2026-06-16T15:14:26.563Z
+Stopped at: Completed 15-04-PLAN.md
 Resume file: None
 Next: Execute Phase 15 Replay Event Contract
 
