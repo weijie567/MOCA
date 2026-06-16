@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.trace import write_agent_run
 from src.db.models import AgentTraceEvent
+from src.replay.pairing import OperationPairingError
 from src.replay.schemas import (
     ReplayEventProvenance,
     ReplayEventV3,
@@ -222,3 +223,78 @@ async def test_replay_service_rejects_unregistered_event_type(session: AsyncSess
             redacted_payload={"status": "completed"},
             schema_version="replay_event.v3",
         )
+
+
+@pytest.mark.asyncio
+async def test_replay_service_validates_pairing_before_append(session: AsyncSession):
+    run_id, tenant_id = await _create_run(session)
+    service = ReplayService(session)
+    operation_id = uuid.uuid4()
+
+    await service.append_event(
+        run_id=run_id,
+        tenant_id=tenant_id,
+        thread_id="thread-replay-service",
+        event_type="tool_call_started",
+        actor={"type": "agent", "id": "moca"},
+        resource_refs={"tool": "get_order"},
+        redacted_payload={"status": "started"},
+        operation_id=operation_id,
+        attempt=1,
+    )
+    completed = await service.append_event(
+        run_id=run_id,
+        tenant_id=tenant_id,
+        thread_id="thread-replay-service",
+        event_type="tool_call_completed",
+        actor={"type": "agent", "id": "moca"},
+        resource_refs={"tool": "get_order"},
+        redacted_payload={"status": "completed"},
+        operation_id=operation_id,
+        attempt=1,
+    )
+
+    assert completed["provenance"]["pairing_status"] == "paired"
+
+    with pytest.raises(OperationPairingError, match="duplicate terminal"):
+        await service.append_event(
+            run_id=run_id,
+            tenant_id=tenant_id,
+            thread_id="thread-replay-service",
+            event_type="tool_call_failed",
+            actor={"type": "agent", "id": "moca"},
+            resource_refs={"tool": "get_order"},
+            redacted_payload={"status": "failed"},
+            operation_id=operation_id,
+            attempt=1,
+        )
+
+
+@pytest.mark.asyncio
+async def test_replay_service_projects_minimal_row_as_unresolved_without_backwrite(session: AsyncSession):
+    run_id, tenant_id = await _create_run(session)
+    row = AgentTraceEvent(
+        event_id=uuid.uuid4(),
+        run_id=run_id,
+        sequence=1,
+        tenant_id=tenant_id,
+        thread_id="thread-replay-service",
+        event_type="approval_requested",
+        schema_version="minimal_event_envelope.v1",
+        occurred_at=datetime.now(UTC),
+        actor={"type": "approver", "id": "approval-service"},
+        resource_refs={"approval_id": str(uuid.uuid4())},
+        redaction_policy_version="redaction.v1",
+        redacted_payload={"status": "pending"},
+    )
+    session.add(row)
+    await session.flush()
+
+    projected = ReplayService(session).project_event(row)
+
+    assert projected["schema_version"] == "replay_event.v3"
+    assert projected["provenance"] == {
+        "source_schema_version": "minimal_event_envelope.v1",
+        "pairing_status": "unresolved",
+    }
+    assert row.schema_version == "minimal_event_envelope.v1"
