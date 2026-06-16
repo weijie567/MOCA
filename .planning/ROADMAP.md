@@ -136,11 +136,11 @@ Plans:
   1. Demo mode creates only action draft and draft_outcome.
   2. Demo mode creates no action execution row or external side effect.
   3. Hash/revision mismatches are rejected and final response wording never claims real execution.
-**Plans**: 2/6 complete
+**Plans**: 3/6 complete
 Plans:
   - [x] 14-01-PLAN.md — action_draft.v2 schema, draft_outcome contract, and blocking Alembic upgrade (Wave 1)
   - [x] 14-02-PLAN.md — ActionService-owned idempotency, exact binding reuse, draft outcome persistence, and state reset (Wave 2)
-  - [ ] 14-03-PLAN.md — canonical action_draft graph node, tool allowlist, and execute_action shim quarantine (Wave 3)
+  - [x] 14-03-PLAN.md — canonical action_draft graph node, tool allowlist, and execute_action shim quarantine (Wave 3)
   - [ ] 14-04-PLAN.md — approval resume and final/API draft_outcome wording migration (Wave 4)
   - [ ] 14-05-PLAN.md — safe action_draft_created event and /trace draft_outcome projection (Wave 4)
   - [ ] 14-06-PLAN.md — negative boundary coverage and final source audit gate (Wave 5)
@@ -189,7 +189,7 @@ Plans:
 | 11. Intent / Clarification | 5/5 | Complete | 2026-06-14 |
 | 12. Session Memory | 5/5 | Complete | 2026-06-14 |
 | 13. Approval State Machine | 8/8 | Complete    | 2026-06-15 |
-| 14. Demo Action Executor Boundary | 0/6 | Planned | - |
+| 14. Demo Action Executor Boundary | 3/6 | In Progress | - |
 | 15. Replay Event Contract | 0/TBD | Pending | - |
 | 16. Long-term / Case Memory | 0/TBD | Deferred beyond MVP gate | - |
 | 17. External Action Execution | 0/TBD | Deferred beyond MVP gate | - |

@@ -29,8 +29,8 @@
 - [x] **APPROVAL-02**: Approval needs_info resume validates clarification identity, scope, versions, changed facts, and old-revision prohibition.
 - [x] **APPROVAL-03**: Single-level runtime is complete and multi-level-compatible contracts are verified; active SLA scanner remains an owned gate.
 - [x] **SNAPSHOT-01**: ActionSafetySnapshot and CanonicalHashProfile bind approval, draft, and execution to exact payload/evidence/config hashes.
-- [ ] **DEMO-01**: Demo mode creates durable draft and draft_outcome only, with no execution row or external side effect.
-- [ ] **DEMO-02**: Demo wording and hash/revision guards cannot claim or authorize real execution.
+- [x] **DEMO-01**: Demo mode creates durable draft and draft_outcome only, with no execution row or external side effect.
+- [x] **DEMO-02**: Demo wording and hash/revision guards cannot claim or authorize real execution.
 - [ ] **REPLAY-01**: ReplayEventV3 and lifecycle finalizer cover all required completed/interrupted/terminal paths.
 - [ ] **REPLAY-02**: Shared per-run sequence allocator and operation pairing/retry contracts are enforced.
 - [ ] **REPLAY-03**: Replay redaction, retention, access control, read-switch, fallback, and rollback are defined.
@@ -61,10 +61,10 @@
 | INTENT-01..02, CLARIFY-01 | Phase 11 | Complete |
 | SESSION-01..03 | Phase 12 | Complete |
 | APPROVAL-01..03, SNAPSHOT-01 | Phase 13 | Complete |
-| DEMO-01..02 | Phase 14 | Pending |
+| DEMO-01..02 | Phase 14 | In Progress |
 | REPLAY-01..03 | Phase 15 | Pending |
 | MEMORY-01..02 | Phase 16 | Deferred beyond MVP gate |
 | EXTERNAL-01..03 | Phase 17 | Deferred beyond MVP gate |
 
 ---
-*Updated: 2026-06-15 after Phase 13 verification completed and Phase 14 became ready to plan.*
+*Updated: 2026-06-16 after Phase 14 Wave 3 completed; phase verification remains pending until all Phase 14 plans complete.*
