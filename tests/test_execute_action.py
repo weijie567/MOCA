@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -7,10 +8,13 @@ import pytest
 
 from src.agent.nodes import action_draft as action_draft_module
 from src.agent.nodes import execute_action as execute_action_module
+from src.tools.contracts import ToolCallContext, ToolResultV2
+from src.tools.manager import UnifiedToolManager
 
 
 ACTION_HASH = "sha256:" + "1" * 64
 SNAPSHOT_HASH = "sha256:" + "2" * 64
+ACTION_PERMISSION = "tool:create_coupon_grant_draft"
 
 
 def _approval_result(**overrides) -> dict:
@@ -92,14 +96,47 @@ def _success_result() -> dict:
     }
 
 
+def _trusted_config(**overrides: Any) -> dict:
+    configurable = {"session": object(), "permissions": [ACTION_PERMISSION]}
+    configurable.update(overrides)
+    return {"configurable": configurable}
+
+
+class _RecordingActionExecutor:
+    executor_name = "action"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def has_tool(self, name: str) -> bool:
+        return name == "create_coupon_grant_draft"
+
+    async def execute(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
+        del name, args, ctx
+        self.calls += 1
+        return ToolResultV2(
+            status="success",
+            data=_success_result()["data"],
+            summary="created draft",
+            source_system="fake_action_executor",
+            data_freshness_at=None,
+            policy_evidence_refs=[],
+            business_fact_refs=[],
+            error=None,
+            retryable=False,
+            retry_after_ms=None,
+            latency_ms=0,
+            audit_ref=None,
+        )
+
+
 @pytest.mark.asyncio
 async def test_action_draft_with_service_approval_result_creates_draft(monkeypatch):
     create_draft = AsyncMock(return_value=_success_result())
     monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
-    session = object()
     state = _approved_state()
 
-    result = await action_draft_module.action_draft(state, {"configurable": {"session": session}})
+    result = await action_draft_module.action_draft(state, _trusted_config())
 
     assert result["action_draft"]["schema_version"] == "action_draft.v2"
     assert result["draft_outcome"]["status"] == "not_executed_demo"
@@ -109,6 +146,31 @@ async def test_action_draft_with_service_approval_result_creates_draft(monkeypat
     assert result["trace_steps"][-1]["tool_name"] == "create_coupon_grant_draft"
     assert result["trace_steps"][-1]["node"] == "action_draft"
     create_draft.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_action_draft_without_write_tool_permission_returns_permission_required_without_draft():
+    fake_action_executor = _RecordingActionExecutor()
+    manager = UnifiedToolManager(executors=[fake_action_executor])
+    state = _approved_state()
+
+    result = await action_draft_module.action_draft(
+        state,
+        {
+            "configurable": {
+                "session": object(),
+                "permissions": [],
+                "action_tool_manager": manager,
+            }
+        },
+    )
+
+    assert result["action_result"]["status"] == "error"
+    assert result["action_result"]["error"]["error_code"] == "PERMISSION_REQUIRED"
+    assert "action_draft" not in result
+    assert "draft_outcome" not in result
+    assert result["trace_steps"][-1]["status"] == "error"
+    assert fake_action_executor.calls == 0
 
 
 @pytest.mark.asyncio
@@ -175,7 +237,7 @@ async def test_action_draft_does_not_build_final_service_idempotency_key(monkeyp
     monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
     state = _approved_state()
 
-    await action_draft_module.action_draft(state, {"configurable": {"session": object()}})
+    await action_draft_module.action_draft(state, _trusted_config())
 
     _, kwargs = create_draft.await_args
     idempotency_key = kwargs["idempotency_key"]
@@ -193,7 +255,7 @@ async def test_execute_action_prefers_approval_run_id_for_resumed_action(monkeyp
     state["approval_result"]["run_id"] = persisted_run_id
     state["current_run_id"] = persisted_run_id
 
-    await action_draft_module.action_draft(state, {"configurable": {"session": object()}})
+    await action_draft_module.action_draft(state, _trusted_config())
 
     _, kwargs = create_draft.await_args
     assert kwargs["run_id"] == persisted_run_id
@@ -223,7 +285,7 @@ async def test_execute_action_canonicalizes_legacy_freeform_action_type(monkeypa
         "拒绝600元补偿请求。根据补偿规则，订单实付金额599元对应的最高体验补偿标准为50元。"
     )
 
-    await action_draft_module.action_draft(state, {"configurable": {"session": object()}})
+    await action_draft_module.action_draft(state, _trusted_config())
 
     _, kwargs = create_draft.await_args
     assert kwargs["action_type"] == "manual_review"
@@ -244,7 +306,7 @@ async def test_execute_action_uses_session_from_runnable_config(monkeypatch):
     monkeypatch.setattr("src.tools.executors.action.ActionService.__init__", init_service)
     session = object()
 
-    await action_draft_module.action_draft(_approved_state(), {"configurable": {"session": session}})
+    await action_draft_module.action_draft(_approved_state(), _trusted_config(session=session))
 
     assert sessions == [session]
 
@@ -257,7 +319,7 @@ async def test_execute_action_without_required_approval_succeeds(monkeypatch):
     state["risk_assessment"] = {"approval_required": False}
     state["approval_result"] = None
 
-    result = await action_draft_module.action_draft(state, {"configurable": {"session": object()}})
+    result = await action_draft_module.action_draft(state, _trusted_config())
 
     assert result["draft_outcome"]["status"] == "not_executed_demo"
     assert result["action_result"]["status"] != "success"
@@ -271,7 +333,7 @@ async def test_execute_action_shim_delegates_to_action_draft(monkeypatch):
     delegate = AsyncMock(return_value=expected)
     monkeypatch.setattr(execute_action_module, "action_draft", delegate)
     state = _approved_state()
-    config = {"configurable": {"session": object()}}
+    config = _trusted_config()
 
     result = await execute_action_module.execute_action(state, config)
 
