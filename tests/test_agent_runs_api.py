@@ -17,7 +17,7 @@ from src.api.routers.agent_runs import _dedupe_evidence_refs, _event_generator, 
 from src.approvals.schemas import PROPOSED_ACTION_SCHEMA_VERSION
 from src.approvals.snapshot_service import compute_action_payload_hash, persist_action_safety_snapshot
 from src.auth.jwt import ROLE_SCOPES, create_access_token
-from src.db.models import AgentRun, ApprovalRequest, User
+from src.db.models import AgentRun, AgentTraceEvent, ApprovalRequest, User
 from src.knowledge.schemas import EvidenceRefV1
 
 
@@ -405,9 +405,18 @@ async def test_event_generator_marks_run_error_when_stream_is_cancelled(
         await anext(generator)
 
     await session.refresh(run)
+    lifecycle_rows = (
+        await session.execute(
+            select(AgentTraceEvent)
+            .where(AgentTraceEvent.run_id == run.id, AgentTraceEvent.event_type == "run_status_changed")
+            .order_by(AgentTraceEvent.sequence)
+        )
+    ).scalars().all()
     assert run.final_status == "error"
     assert run.completed_at is not None
     assert run.error_summary == "client disconnected"
+    assert [row.redacted_payload["status"] for row in lifecycle_rows] == ["running", "error"]
+    assert all(row.redacted_payload["status"] != "completed" for row in lifecycle_rows)
 
 
 @pytest.mark.asyncio
@@ -468,6 +477,13 @@ async def test_event_generator_synthesizes_final_response_when_stream_ends_witho
             final_event = event
 
     await session.refresh(run)
+    lifecycle_rows = (
+        await session.execute(
+            select(AgentTraceEvent)
+            .where(AgentTraceEvent.run_id == run.id, AgentTraceEvent.event_type == "run_status_changed")
+            .order_by(AgentTraceEvent.sequence)
+        )
+    ).scalars().all()
     assert final_event is not None
     final_data = _event_data(final_event)
     assert set(final_data["payload"]) == {"final_response"}
@@ -475,6 +491,7 @@ async def test_event_generator_synthesizes_final_response_when_stream_ends_witho
     assert run.final_status == "completed"
     assert run.final_response is not None
     assert "退款链路需要人工核实" in run.final_response
+    assert [row.redacted_payload["status"] for row in lifecycle_rows] == ["running", "completed"]
 
 
 @pytest.mark.asyncio
@@ -536,6 +553,13 @@ async def test_event_generator_treats_stream_interrupt_node_as_approval_required
 
     await session.refresh(run)
     approval = (await session.execute(select(ApprovalRequest).where(ApprovalRequest.run_id == run.id))).scalar_one()
+    lifecycle_rows = (
+        await session.execute(
+            select(AgentTraceEvent)
+            .where(AgentTraceEvent.run_id == run.id, AgentTraceEvent.event_type == "run_status_changed")
+            .order_by(AgentTraceEvent.sequence)
+        )
+    ).scalars().all()
     assert approval_event is not None
     approval_data = _event_data(approval_event)
     assert {"approval_id", "proposed_action", "risk_level"}.issubset(approval_data["payload"])
@@ -565,6 +589,7 @@ async def test_event_generator_treats_stream_interrupt_node_as_approval_required
     assert approval.status == "pending"
     assert approval.risk_level == "high"
     assert approval.proposed_action["amount"] == "600.00"
+    assert [row.redacted_payload["status"] for row in lifecycle_rows] == ["running", "interrupted"]
 
 
 def test_agent_chat_only_support_token_receives_no_tool_permissions():

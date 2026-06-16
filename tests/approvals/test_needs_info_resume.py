@@ -150,9 +150,23 @@ async def test_respond_writes_needs_info_and_no_resume_payload(session: AsyncSes
     assert request.clarification_request_id
 
     decision = (await session.execute(select(ApprovalDecision))).scalar_one()
+    lifecycle_events = (
+        await session.execute(
+            select(AgentTraceEvent)
+            .where(
+                AgentTraceEvent.run_id == request.run_id,
+                AgentTraceEvent.event_type == "run_status_changed",
+            )
+            .order_by(AgentTraceEvent.sequence)
+        )
+    ).scalars().all()
     assert decision.decision_type == "respond"
     assert decision.response_text == "Please confirm the refund case and coupon amount."
     assert decision.reason == "reviewed"
+    assert [event.redacted_payload["status"] for event in lifecycle_events] == ["interrupted"]
+    assert lifecycle_events[0].redacted_payload["reason_code"] == "needs_info_response"
+    assert lifecycle_events[0].redacted_payload["clarification_ref"] == request.clarification_request_id
+    assert all(event.redacted_payload["status"] != "completed" for event in lifecycle_events)
 
 
 @pytest.mark.asyncio

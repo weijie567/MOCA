@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from src.agent.events import emit_event
 from src.agent.trace import write_agent_run
 from src.db.models import AgentTraceEvent
+from src.replay.lifecycle import RunLifecycleService
 from src.replay.service import ReplayService
 
 
@@ -155,8 +156,17 @@ async def test_sequence_allocator_covers_pre_lifecycle_writer_surfaces(session: 
         resource_refs={},
         redacted_payload={"from_status": "running", "to_status": "interrupted"},
     )
+    # lifecycle/finalizer writer: RunLifecycleService
+    lifecycle_writer = await RunLifecycleService(session).mark_interrupted(
+        run_id=run_id,
+        tenant_id=tenant_id,
+        thread_id="sequence-allocator-thread",
+        previous_status="running",
+        reason_code="approval_required",
+    )
 
-    # Lifecycle/finalizer writer coverage DEFERRED_TO_PLAN: 15-04.
+    # graph writer, memory_write writer, approval writer, action draft writer,
+    # replay backfill writer, lifecycle writer all share the same allocator.
     # External worker allocator coverage DEFERRED_WITH_OWNER: Phase 17.
     rows = (
         await session.execute(
@@ -167,11 +177,17 @@ async def test_sequence_allocator_covers_pre_lifecycle_writer_surfaces(session: 
     ).all()
 
     assert [graph_writer["sequence"], memory_write_writer["sequence"]] == [1, 2]
-    assert [approval_writer["sequence"], action_draft_writer["sequence"], replay_backfill_writer["sequence"]] == [
+    assert [
+        approval_writer["sequence"],
+        action_draft_writer["sequence"],
+        replay_backfill_writer["sequence"],
+        lifecycle_writer["sequence"],
+    ] == [
         3,
         4,
         5,
+        6,
     ]
-    assert [sequence for sequence, _event_type in rows] == [1, 2, 3, 4, 5]
-    assert len({sequence for sequence, _event_type in rows}) == 5
+    assert [sequence for sequence, _event_type in rows] == [1, 2, 3, 4, 5, 6]
+    assert len({sequence for sequence, _event_type in rows}) == 6
     assert "pg_advisory_xact_lock" in inspect.getsource(ReplayService.allocate_sequence)

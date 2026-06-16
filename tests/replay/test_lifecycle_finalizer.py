@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.agent.trace import update_agent_run_status, write_agent_run
 from src.db.models import AgentRun, AgentTraceEvent
 from src.replay.lifecycle import RunLifecycleService
 
@@ -196,3 +197,70 @@ async def test_rejected_expired_error_cancelled_lifecycles_append_safe_terminal_
     assert required["reason_code"] == reason_code
     if status == "error":
         assert required["error_code"] == "GRAPH_ERROR"
+
+
+@pytest.mark.asyncio
+async def test_write_agent_run_routes_running_and_completed_statuses_through_lifecycle_service(
+    session: AsyncSession,
+):
+    run_id = uuid.uuid4()
+    tenant_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    started_at = datetime.now(UTC)
+
+    await write_agent_run(
+        session,
+        run_id=str(run_id),
+        thread_id="trace-helper-thread",
+        tenant_id=str(tenant_id),
+        user_id=str(user_id),
+        input_query="trace helper lifecycle",
+        final_status="running",
+        final_response=None,
+        started_at=started_at,
+        completed_at=None,
+        total_latency_ms=0,
+    )
+    await write_agent_run(
+        session,
+        run_id=str(run_id),
+        thread_id="trace-helper-thread",
+        tenant_id=str(tenant_id),
+        user_id=str(user_id),
+        input_query="trace helper lifecycle",
+        final_status="completed",
+        final_response="done",
+        started_at=started_at,
+        completed_at=datetime.now(UTC),
+        total_latency_ms=10,
+    )
+
+    rows = await _lifecycle_rows(session, run_id)
+    assert [row.redacted_payload["status"] for row in rows] == ["running", "completed"]
+    assert rows[0].redacted_payload["reason_code"] == "run_started"
+    assert rows[1].redacted_payload["previous_status"] == "running"
+
+
+@pytest.mark.asyncio
+async def test_update_agent_run_status_routes_resume_completion_through_lifecycle_service(
+    session: AsyncSession,
+):
+    _run, run_id, tenant_id, _user_id = await _create_run(session, final_status="interrupted")
+
+    await update_agent_run_status(
+        session,
+        run_id=str(run_id),
+        final_status="completed",
+        final_response="approved",
+        completed_at=datetime.now(UTC),
+        total_latency_ms=42,
+    )
+
+    rows = await _lifecycle_rows(session, run_id)
+    assert [row.redacted_payload["status"] for row in rows] == ["completed"]
+    assert _required_lifecycle_payload(rows[0].redacted_payload) == {
+        "status": "completed",
+        "previous_status": "interrupted",
+        "reason_code": "run_completed",
+    }
+    assert rows[0].resource_refs == {"run_id": str(run_id)}
