@@ -11,6 +11,7 @@ from src.auth.permissions import get_current_user
 from src.db.models import ApprovalRequest, User
 from src.db.session import get_session
 from src.repositories.trace_repo import TraceRepository, _safe_draft_outcome, _safe_proposed_action
+from src.replay.service import ReplayService
 
 
 router = APIRouter(tags=["traces"])
@@ -73,6 +74,31 @@ async def get_run_trace(
     return ApiResponse(
         success=True,
         data=trace_data.model_dump(mode="json"),
+        trace_id=getattr(request.state, "trace_id", None),
+    )
+
+
+@router.get("/{run_id}/replay", response_model=ApiResponse)
+async def get_run_replay(
+    run_id: str,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    user: User = Security(get_current_user, scopes=["agent:chat"]),
+) -> ApiResponse:
+    run_uuid = _parse_run_id(run_id)
+    repo = TraceRepository(session)
+    run = await repo.get_run(run_uuid, user.tenant_id)
+
+    if not run:
+        raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Run not found"})
+
+    if run.user_id != user.id and user.role not in SUPERVISOR_ROLES:
+        raise HTTPException(status_code=403, detail={"code": "FORBIDDEN", "message": "Cannot view this run"})
+
+    replay_response = await ReplayService(session).get_replay(run_uuid)
+    return ApiResponse(
+        success=True,
+        data=replay_response,
         trace_id=getattr(request.state, "trace_id", None),
     )
 
