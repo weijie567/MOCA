@@ -42,10 +42,12 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - [x] v1.1 KnowledgeService and BusinessToolService boundaries are explicit and verified (validated in Phases 8-9)
 - [x] v1.1 state/router and intent/clarification contracts are deterministic and tested (validated in Phases 10-11)
 - [x] v1.1 PostgreSQL-authoritative session memory uses CAS, safe same-thread slot continuity, evidence/action authority separation, and explicit Redis deferral (validated in Phase 12)
+- [x] v1.1 approval lifecycle and ActionSafetySnapshot binding are versioned, immutable, and verified (validated in Phase 13)
+- [x] v1.1 demo action boundary creates durable drafts only, binds exact payload/hash/snapshot data, and fails closed without trusted approval permission (validated in Phase 14)
 
 ### Active
 
-- [ ] v1.1 enforces approval/snapshot, demo action, and replay contracts.
+- [ ] v1.1 enforces the replay contract.
 - [ ] v1.1 validates each owned contract with migration verification, forbidden-behavior tests, golden flows, and explicit eval gates.
 
 ### Out of Scope
@@ -100,7 +102,9 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - Phase 10 State Lifecycle + Routing Migration is complete: AgentState lifecycle, trusted-field reset/merge behavior, deterministic routers, empty session-memory adapter, and bounded investigate graph wiring are verified.
 - Phase 11 Intent / Clarification is complete: strict intent schema, deterministic pre-router/slot routing, ordinary clarification, and hash-owned golden/manifest gates are verified.
 - Phase 12 Session Memory is complete: PostgreSQL-authoritative session memory, CAS merge/conflict behavior, same-thread slot continuity, evidence/action authority separation, post-response bounded writes, and Redis skip decision are verified.
-- Active planning is now on Phase 13 Approval State Machine.
+- Phase 13 Approval State Machine is complete: versioned lifecycle, immutable ActionSafetySnapshot binding, trusted API/graph transitions, approval events, SLA scanning, and legacy quarantine are verified.
+- Phase 14 Demo Action Executor Boundary is complete: durable draft-only behavior, exact payload/hash/snapshot binding, no-approval fail-closed behavior, trusted write-tool permission ownership, and draft-only final/API wording are verified.
+- Active planning is now on Phase 15 Replay Event Contract.
 
 ## Next Milestone Goals
 
@@ -146,4 +150,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-15 after Phase 13-17 architecture-first planning standard was adopted*
+*Last updated: 2026-06-16 after Phase 14 verified complete and Phase 15 became the active planning focus*

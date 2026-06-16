@@ -30,7 +30,7 @@
 - [x] **APPROVAL-03**: Single-level runtime is complete and multi-level-compatible contracts are verified; active SLA scanner remains an owned gate.
 - [x] **SNAPSHOT-01**: ActionSafetySnapshot and CanonicalHashProfile bind approval, draft, and execution to exact payload/evidence/config hashes.
 - [x] **DEMO-01**: Demo mode creates durable draft and draft_outcome only, with no execution row or external side effect.
-- [ ] **DEMO-02**: Demo wording and hash/revision guards cannot claim or authorize real execution.
+- [x] **DEMO-02**: Demo wording and hash/revision guards cannot claim or authorize real execution.
 - [ ] **REPLAY-01**: ReplayEventV3 and lifecycle finalizer cover all required completed/interrupted/terminal paths.
 - [ ] **REPLAY-02**: Shared per-run sequence allocator and operation pairing/retry contracts are enforced.
 - [ ] **REPLAY-03**: Replay redaction, retention, access control, read-switch, fallback, and rollback are defined.
@@ -62,10 +62,10 @@
 | SESSION-01..03 | Phase 12 | Complete |
 | APPROVAL-01..03, SNAPSHOT-01 | Phase 13 | Complete |
 | DEMO-01 | Phase 14 | Complete |
-| DEMO-02 | Phase 14 | Gaps Found |
+| DEMO-02 | Phase 14 | Complete |
 | REPLAY-01..03 | Phase 15 | Pending |
 | MEMORY-01..02 | Phase 16 | Deferred beyond MVP gate |
 | EXTERNAL-01..03 | Phase 17 | Deferred beyond MVP gate |
 
 ---
-*Updated: 2026-06-16 after Phase 14 verification found gap-closure work for DEMO-02.*
+*Updated: 2026-06-16 after Phase 14 verification passed with DEMO-01 and DEMO-02 satisfied.*
