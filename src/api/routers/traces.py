@@ -10,7 +10,7 @@ from src.api.schemas.common import ApiResponse
 from src.auth.permissions import get_current_user
 from src.db.models import ApprovalRequest, User
 from src.db.session import get_session
-from src.repositories.trace_repo import TraceRepository, _safe_proposed_action
+from src.repositories.trace_repo import TraceRepository, _safe_draft_outcome, _safe_proposed_action
 
 
 router = APIRouter(tags=["traces"])
@@ -63,6 +63,7 @@ async def get_run_trace(
                 "id": str(draft.id),
                 "action_type": draft.action_type,
                 "status": draft.status,
+                "draft_outcome": _safe_draft_outcome(draft),
             }
             for draft in drafts
         ],
