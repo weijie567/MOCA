@@ -41,6 +41,11 @@
 - Contains: `src/db/models.py`, `src/db/session.py`, `src/db/migrations/`, `src/repositories/`
 - Depends on: PostgreSQL, pgvector, SQLAlchemy, Alembic
 
+**Replay / Observability Layer:**
+- Purpose: Own replay contract schemas, consolidated event registry validation, and V3 event-store expansion over `agent_trace_events`
+- Contains: `src/replay/`, `src/db/migrations/versions/010_replay_event_v3.py`, `AgentTraceEvent`
+- Depends on: Phase 10 minimal event envelope and Phase 13/14 approval/action event additions
+
 **Planning and Verification Layer:**
 - Purpose: Requirements, phase plans, review/security/UAT artifacts, architecture docs, and evaluation criteria
 - Contains: `.planning/`, `docs/`, `evaluation/`, `eval/`, `evals/`
@@ -90,6 +95,7 @@
 - `ToolInvocationContext` - Caller/tenant/run context for tool execution authorization
 - `CanonicalHashProfile v1` - Shared canonical JSON and hash input byte contract for approval/action/replay hashes
 - `ActionSafetySnapshot` - Immutable approval/action safety snapshot over proposed action hash, evidence refs, and config versions
+- `ReplayEventV3` / `ReplayResponseV3` - Strict Phase 15 replay audit contract over event-store rows
 - `EvidenceItem` / retrieval schemas - RAG grounding contract
 - `ApiResponse` - Standard response envelope
 

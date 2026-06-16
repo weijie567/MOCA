@@ -16,6 +16,7 @@ MOCA/
 │   ├── knowledge/           # Canonical policy evidence contracts and KnowledgeService facade
 │   ├── memory/              # Session memory schemas, repository, and service
 │   ├── rag/                 # Chunking, embedding, retrieval, citation validation
+│   ├── replay/              # ReplayEventV3 schemas and event registry validation
 │   ├── tools/               # Business tool contracts, descriptors, manager, and adapters
 │   └── repositories/        # Database access layer
 ├── tests/                   # Backend unit, API, integration, agent, and RAG tests
@@ -57,9 +58,13 @@ MOCA/
 - Phase 8-12 domain facades and contracts for policy evidence, business reads, session memory, and tool invocation
 - `src/knowledge/schemas.py` owns EvidenceRefV1 and canonical evidence projection reused by approval snapshots
 
+**`src/replay/`:**
+- Phase 15 replay contract owner for strict ReplayEventV3/ReplayResponseV3 schemas and replay event registry validation
+- Service, lifecycle, operation-pairing, redaction/retention, and `/replay` API behavior are planned in later Phase 15 slices
+
 **`src/db/` and `src/repositories/`:**
 - ORM models for tenants, users, orders, refund cases, tickets, policy docs/chunks, audit logs, agent runs, approvals, action drafts, and agent steps
-- Alembic migrations through `008_approval_state_machine`
+- Alembic migrations through `010_replay_event_v3`
 - Repository classes that keep route and tool logic away from raw SQL
 
 **`src/rag/`:**
@@ -96,6 +101,7 @@ MOCA/
 - Tool registry and contracts: `src/agent/tools/contracts.py`, `src/agent/tools/registry.py`
 - Canonical hash: `src/common/canonical_hash.py`
 - Approval snapshots: `src/approvals/snapshots.py`
+- Replay schemas: `src/replay/schemas.py`
 - Evidence contracts: `src/knowledge/schemas.py`
 - Approval and trace models: `src/db/models.py`
 - RAG retrieval: `src/rag/retriever.py`
@@ -126,6 +132,7 @@ MOCA/
 - New API endpoint: `src/api/routers/` plus schema in `src/api/schemas/`
 - New DB access behavior: `src/repositories/` plus model/migration if schema changes
 - New approval/snapshot behavior: `src/approvals/`
+- New replay contract/service behavior: `src/replay/`
 - New shared canonical/hash helper: `src/common/`
 - New agent node: `src/agent/nodes/` and graph wiring in `src/agent/graph.py`
 - New tool: `src/agent/tools/` plus registry metadata and contract tests

@@ -31,9 +31,9 @@
 - [x] **SNAPSHOT-01**: ActionSafetySnapshot and CanonicalHashProfile bind approval, draft, and execution to exact payload/evidence/config hashes.
 - [x] **DEMO-01**: Demo mode creates durable draft and draft_outcome only, with no execution row or external side effect.
 - [x] **DEMO-02**: Demo wording and hash/revision guards cannot claim or authorize real execution.
-- [ ] **REPLAY-01**: ReplayEventV3 and lifecycle finalizer cover all required completed/interrupted/terminal paths.
-- [ ] **REPLAY-02**: Shared per-run sequence allocator and operation pairing/retry contracts are enforced.
-- [ ] **REPLAY-03**: Replay redaction, retention, access control, read-switch, fallback, and rollback are defined.
+- [x] **REPLAY-01**: ReplayEventV3 and lifecycle finalizer cover all required completed/interrupted/terminal paths.
+- [x] **REPLAY-02**: Shared per-run sequence allocator and operation pairing/retry contracts are enforced.
+- [x] **REPLAY-03**: Replay redaction, retention, access control, read-switch, fallback, and rollback are defined.
 - [ ] **MEMORY-01**: Long-term/case memory uses memory_identity.v1, review workflow, and distinct retrieval predicates.
 - [ ] **MEMORY-02**: Tombstones prevent retrieval and asynchronous rewrite of deleted memory.
 - [ ] **EXTERNAL-01**: External dispatch occurs only after transactional draft claim, execution creation, and committed outbox claim.
@@ -63,7 +63,7 @@
 | APPROVAL-01..03, SNAPSHOT-01 | Phase 13 | Complete |
 | DEMO-01 | Phase 14 | Complete |
 | DEMO-02 | Phase 14 | Complete |
-| REPLAY-01..03 | Phase 15 | Pending |
+| REPLAY-01..03 | Phase 15 | In Progress - 15-01 foundation complete |
 | MEMORY-01..02 | Phase 16 | Deferred beyond MVP gate |
 | EXTERNAL-01..03 | Phase 17 | Deferred beyond MVP gate |
 

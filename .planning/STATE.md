@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
 status: executing
-stopped_at: Phase 15 planned
-last_updated: "2026-06-16T13:41:09.668Z"
-last_activity: 2026-06-16 -- Phase 15 execution started
+stopped_at: Completed 15-01-PLAN.md
+last_updated: "2026-06-16T13:57:51.151Z"
+last_activity: 2026-06-16
 progress:
   total_phases: 11
   completed_phases: 8
   total_plans: 55
-  completed_plans: 49
-  percent: 89
+  completed_plans: 50
+  percent: 91
 ---
 
 # Project State: MOCA
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md` (updated 2026-06-16)
 ## Current Position
 
 Phase: 15 (replay-event-contract) — EXECUTING
-Plan: 1 of 6
+Plan: 2 of 6
 Plans: 6 planned
-Status: Executing Phase 15
-Last activity: 2026-06-16 -- Phase 15 execution started
+Status: Ready to execute
+Last activity: 2026-06-16
 
-Progress: [####################] 100%
+Progress: [█████████░] 91%
 
 ## Completed Baseline
 
@@ -93,6 +93,8 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 14 Wave 4 post-merge validation passed `uv run pytest -q --tb=short` with 806 tests after stale approval model idempotency tests were updated to the v2 tenant-scoped draft contract.
 - Phase 14 final coverage treats ReplayEventV3/lifecycle/read-switch work as Phase 15-owned and external execution/outbox/reconciliation/compensation as Phase 17-owned.
 - execute_action and action_result compatibility remain temporary surfaces with Phase 15 Replay Event Contract removal/replacement gates targeting 2026-07-16 unless Phase 15 is replanned.
+- Phase 15 Plan 01 keeps existing actor/resource_refs/redacted_payload storage names and projects ReplayEventV3 through the replay schema layer.
+- Phase 15 Plan 01 deferred execution_id because Phase 17 action_executions storage does not exist yet.
 
 ## Blockers / Concerns
 
@@ -142,12 +144,13 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | 14 | 05 | 25 min | 2 | 8 |
 | 14 | 06 | 16 min | 2 | 7 |
 | Phase 14 P07 | 24 min | 3 tasks | 5 files |
+| 15 | 01 | 12 min | 3 | 7 |
 
 ## Session Continuity
 
-Last session: 2026-06-16T10:02:25Z
-Stopped at: Phase 15 planned
-Resume file: .planning/phases/15-replay-event-contract/15-CONTEXT.md
+Last session: 2026-06-16T13:57:51Z
+Stopped at: Completed 15-01-PLAN.md
+Resume file: None
 Next: Execute Phase 15 Replay Event Contract
 
 **Planned Phase:** 15 (Replay Event Contract) — 6 plans — 2026-06-16T13:17:00.124Z
