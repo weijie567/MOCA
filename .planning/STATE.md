@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
-status: ready_to_plan
-stopped_at: Phase 14 UAT complete; Phase 15 ready to plan
-last_updated: "2026-06-16T09:12:31Z"
-last_activity: 2026-06-16 -- Phase 14 UAT completed with 7/7 passed and no issues; Phase 15 ready to plan
+status: planning
+stopped_at: Phase 15 context gathered
+last_updated: "2026-06-16T10:02:25.098Z"
+last_activity: 2026-06-16 -- Phase 15 context gathered; ready to plan
 progress:
   total_phases: 11
   completed_phases: 8
@@ -145,9 +145,9 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 
 ## Session Continuity
 
-Last session: 2026-06-16T09:12:31Z
-Stopped at: Phase 14 UAT complete, ready to plan Phase 15
-Resume file: None
+Last session: 2026-06-16T10:02:25Z
+Stopped at: Phase 15 context gathered
+Resume file: .planning/phases/15-replay-event-contract/15-CONTEXT.md
 Next: Plan Phase 15 Replay Event Contract
 
 **Planned Phase:** 15 (Replay Event Contract) — plans not started — 2026-06-16T09:12:31Z
