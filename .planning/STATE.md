@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
 status: executing
-stopped_at: Completed 15-02-PLAN.md
-last_updated: "2026-06-16T14:16:26.688Z"
+stopped_at: Completed 15-03-PLAN.md
+last_updated: "2026-06-16T14:42:14.042Z"
 last_activity: 2026-06-16
 progress:
   total_phases: 11
   completed_phases: 8
   total_plans: 55
-  completed_plans: 51
-  percent: 93
+  completed_plans: 52
+  percent: 95
 ---
 
 # Project State: MOCA
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md` (updated 2026-06-16)
 ## Current Position
 
 Phase: 15 (replay-event-contract) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Plans: 6 planned
 Status: Ready to execute
 Last activity: 2026-06-16
 
-Progress: [█████████░] 93%
+Progress: [██████████] 95%
 
 ## Completed Baseline
 
@@ -97,6 +97,9 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 15 Plan 01 deferred execution_id because Phase 17 action_executions storage does not exist yet.
 - Phase 15 Plan 02 routes legacy minimal event emission through ReplayService while preserving minimal_event_envelope.v1 compatibility.
 - Phase 15 Plan 02 keeps advisory-lock plus max(sequence)+1 as the shared allocator and explicitly defers lifecycle/finalizer coverage to 15-04 and external worker coverage to Phase 17.
+- Minimal and context-less historical rows remain pairing_status=unresolved; no projection path rewrites stored rows.
+- Non-operation V3 lifecycle/audit events project pairing_status=not_applicable instead of being mislabeled unresolved.
+- V3 operation writes now fail closed when operation_id or positive attempt is missing.
 
 ## Blockers / Concerns
 
@@ -148,11 +151,12 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | Phase 14 P07 | 24 min | 3 tasks | 5 files |
 | 15 | 01 | 12 min | 3 | 7 |
 | 15 | 02 | 17 min | 2 | 8 |
+| Phase 15 P03 | 17 min | 2 tasks | 6 files |
 
 ## Session Continuity
 
-Last session: 2026-06-16T14:16:26Z
-Stopped at: Completed 15-02-PLAN.md
+Last session: 2026-06-16T14:42:14.035Z
+Stopped at: Completed 15-03-PLAN.md
 Resume file: None
 Next: Execute Phase 15 Replay Event Contract
 
