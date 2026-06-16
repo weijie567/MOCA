@@ -145,7 +145,45 @@ async def test_action_draft_with_service_approval_result_creates_draft(monkeypat
     assert result["action_result"]["status"] != "success"
     assert result["trace_steps"][-1]["tool_name"] == "create_coupon_grant_draft"
     assert result["trace_steps"][-1]["node"] == "action_draft"
+    assert result["trace_steps"][-1]["status"] == "completed"
     create_draft.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_action_draft_tool_success_missing_draft_outcome_fails_closed(monkeypatch):
+    payload = _success_result()
+    payload["data"].pop("draft_outcome")
+    create_draft = AsyncMock(return_value=payload)
+    monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
+
+    result = await action_draft_module.action_draft(_approved_state(), _trusted_config())
+
+    assert result["action_result"]["status"] == "error"
+    assert result["action_result"]["error"]["error_code"] == "INVALID_DRAFT_OUTCOME"
+    assert "action_draft" not in result
+    assert "draft_outcome" not in result
+    assert result["trace_steps"][-1]["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_action_draft_tool_success_invalid_draft_outcome_fails_closed(monkeypatch):
+    payload = _success_result()
+    payload["data"]["draft_outcome"] = {
+        "schema_version": "draft_outcome.v1",
+        "draft_id": payload["data"]["draft_id"],
+        "status": "executed",
+        "external_side_effect": False,
+    }
+    create_draft = AsyncMock(return_value=payload)
+    monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
+
+    result = await action_draft_module.action_draft(_approved_state(), _trusted_config())
+
+    assert result["action_result"]["status"] == "error"
+    assert result["action_result"]["error"]["error_code"] == "INVALID_DRAFT_OUTCOME"
+    assert "action_draft" not in result
+    assert "draft_outcome" not in result
+    assert result["trace_steps"][-1]["status"] == "error"
 
 
 @pytest.mark.asyncio

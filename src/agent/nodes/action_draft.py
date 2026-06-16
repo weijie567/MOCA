@@ -6,9 +6,10 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
+from src.actions.schemas import DraftOutcomeV1
 from src.agent.state import AgentState
 from src.approvals.schemas import TrustedApprovalResultV1
-from src.tools.contracts import ToolCallContext, ToolResultV2
+from src.tools.contracts import ToolCallContext, ToolError, ToolResultV2
 from src.tools.executors.action import ActionToolExecutor
 from src.tools.manager import UnifiedToolManager
 
@@ -107,25 +108,42 @@ def _action_error_result(result: ToolResultV2) -> dict[str, Any]:
     }
 
 
+def _invalid_draft_outcome_result(result: ToolResultV2) -> ToolResultV2:
+    summary = "Action executor returned an invalid draft_outcome"
+    return ToolResultV2(
+        status="invalid_response",
+        data=None,
+        summary=summary,
+        source_system=result.source_system,
+        data_freshness_at=result.data_freshness_at,
+        policy_evidence_refs=list(result.policy_evidence_refs),
+        business_fact_refs=list(result.business_fact_refs),
+        error=ToolError(code="INVALID_DRAFT_OUTCOME", safe_message=summary, retryable=False, source="adapter"),
+        retryable=False,
+        retry_after_ms=None,
+        latency_ms=result.latency_ms,
+        audit_ref=result.audit_ref,
+    )
+
+
 def _draft_update_from_tool_result(result: ToolResultV2) -> tuple[dict[str, Any], str]:
     if result.status != "success":
         return {"action_result": _action_error_result(result)}, "error"
 
     data = dict(result.data or {})
     action_draft_data = data.get("action_draft") if isinstance(data.get("action_draft"), dict) else None
-    draft_outcome = data.get("draft_outcome") if isinstance(data.get("draft_outcome"), dict) else {}
+    raw_draft_outcome = data.get("draft_outcome")
+    if not isinstance(raw_draft_outcome, dict) or not raw_draft_outcome:
+        return {"action_result": _action_error_result(_invalid_draft_outcome_result(result))}, "error"
+    try:
+        draft_outcome = DraftOutcomeV1.model_validate(raw_draft_outcome).model_dump(mode="json")
+    except ValidationError:
+        return {"action_result": _action_error_result(_invalid_draft_outcome_result(result))}, "error"
     if not action_draft_data:
         action_draft_data = {
             "draft_id": data.get("draft_id"),
             "idempotency_key": data.get("idempotency_key"),
             "status": data.get("status"),
-        }
-    if not draft_outcome:
-        draft_outcome = {
-            "schema_version": "draft_outcome.v1",
-            "draft_id": data.get("draft_id"),
-            "status": "not_executed_demo",
-            "external_side_effect": False,
         }
     update = {
         "action_draft": action_draft_data,
