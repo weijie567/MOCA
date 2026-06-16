@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+import hashlib
 from typing import Any
 from uuid import UUID
 
@@ -9,8 +10,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.actions.drafts import ActionDraftStore
-from src.actions.schemas import DraftOutcomeV1
+from src.actions.schemas import ActionDraftV2Data, DraftOutcomeV1
 from src.agent.events import emit_event
+from src.approvals.snapshot_service import compute_action_payload_hash
+from src.common.canonical_hash import CanonicalHashError
 from src.db.models import ActionSafetySnapshot, AgentRun, ApprovalRequest
 
 _IDEMPOTENCY_CONFLICTS = {"idempotency_key_conflict", "idempotency_binding_conflict"}
@@ -75,6 +78,20 @@ class ActionService:
         target_id = _target_id(payload)
         if target_id is None:
             return _tool_error("TARGET_ID_REQUIRED", "Action draft target_id is required", retryable=False)
+        try:
+            computed_payload_hash = compute_action_payload_hash(payload)
+        except (CanonicalHashError, TypeError, ValueError):
+            return _tool_error(
+                "ACTION_BINDING_MISMATCH",
+                "Action draft payload does not match approved safety binding",
+                retryable=False,
+            )
+        if computed_payload_hash != action_payload_hash or str(payload.get("action_type") or "") != action_type:
+            return _tool_error(
+                "ACTION_BINDING_MISMATCH",
+                "Action draft payload does not match approved safety binding",
+                retryable=False,
+            )
 
         try:
             async with self.session.begin_nested():
@@ -273,8 +290,11 @@ def _build_idempotency_key(
     target_id: str,
     action_payload_hash: str,
 ) -> str:
-    idempotency_key = f"{tenant_id}:{run_id}:{revision_marker}:{action_type}:{target_id}:{action_payload_hash}"
-    return idempotency_key
+    raw_key = f"{tenant_id}:{run_id}:{revision_marker}:{action_type}:{target_id}:{action_payload_hash}"
+    if len(raw_key) <= 256:
+        return raw_key
+    digest = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+    return f"{tenant_id}:{run_id}:{revision_marker}:key_sha256:{digest}"
 
 
 def _draft_outcome(*, tenant_id: UUID, run_id: UUID, draft_id: UUID | None) -> dict[str, Any]:
@@ -296,24 +316,28 @@ def _draft_outcome_from_draft(draft) -> dict[str, Any]:
 
 
 def _action_draft_data(draft) -> dict[str, Any]:
-    return {
+    data = {
         "schema_version": draft.schema_version,
         "tenant_id": str(draft.tenant_id),
         "run_id": str(draft.run_id),
         "draft_id": str(draft.id),
-        "idempotency_key": draft.idempotency_key,
-        "action_type": draft.action_type,
-        "target_id": draft.target_id,
+        "proposed_action": draft.payload,
         "approval_revision_ref": draft.approval_revision_ref,
+        "approval_ref": str(draft.approval_request_id) if draft.approval_request_id else None,
         "action_payload_hash": draft.action_payload_hash,
         "safety_snapshot_ref": draft.safety_snapshot_ref,
         "safety_snapshot_hash": draft.safety_snapshot_hash,
+        "target_id": draft.target_id,
+        "idempotency_key": draft.idempotency_key,
         "status": draft.status,
         "execution_mode": draft.execution_mode,
         "draft_version": draft.draft_version,
         "lifecycle_status": draft.lifecycle_status,
         "retention_policy": draft.retention_policy,
+        "draft_outcome": _draft_outcome_from_draft(draft),
+        "created_at": draft.created_at.isoformat() if draft.created_at else None,
     }
+    return ActionDraftV2Data.model_validate(data).model_dump(mode="json")
 
 
 def _compat_action_result(draft, draft_outcome: dict[str, Any]) -> dict[str, Any]:
