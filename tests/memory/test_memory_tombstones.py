@@ -8,9 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.db.models import AgentRun, LongTermMemory, MemoryTombstone, MemoryWriteEvent
+from src.memory.case_memory import CASE_MEMORY_TYPE, CaseMemoryRepository, CaseMemoryService
 from src.memory.repository import LONG_TERM_MEMORY_TYPE, LongTermMemoryRepository
 from src.memory.long_term import LongTermMemoryService
-from src.memory.schemas import LongTermMemoryWriteCandidate
+from src.memory.schemas import CaseMemoryWriteCandidate, LongTermMemoryWriteCandidate
 
 
 async def _insert_run(session: AsyncSession, seeded_session: dict, thread_id: str = "memory-tombstones") -> uuid.UUID:
@@ -71,6 +72,57 @@ def _candidate(
             business_object_id=str(merchant.id),
         ),
         confidence=0.91,
+        pii_classification="none",
+    )
+
+
+def _case_source_ref(
+    *,
+    source_type: str,
+    run_id: uuid.UUID,
+    case_id: str,
+    event_id: str = "evt-case-memory-source-1",
+) -> dict[str, str]:
+    return {
+        "source_type": source_type,
+        "run_id": str(run_id),
+        "event_id": event_id,
+        "business_object_type": "refund_case",
+        "business_object_id": case_id,
+    }
+
+
+def _case_candidate(
+    seeded_session: dict,
+    *,
+    run_id: uuid.UUID,
+    summary: str = "Reviewed refund dispute precedent for damaged item evidence.",
+    source_type: str = "human_reviewed",
+    source_ref: dict[str, str] | None = None,
+) -> CaseMemoryWriteCandidate:
+    refund_case = seeded_session["refund_case"]
+    return CaseMemoryWriteCandidate(
+        tenant_id=refund_case.tenant_id,
+        run_id=run_id,
+        scope_type="case",
+        scope_id=str(refund_case.id),
+        case_type="refund_dispute",
+        summary=summary,
+        excerpt="Use only as reviewed precedent context for similar refund disputes.",
+        applicability="Applies to damaged item disputes after source review.",
+        outcome="Refund approved after support verification.",
+        caveats="Not policy evidence and not action authority.",
+        source_type=source_type,
+        source_ref=source_ref
+        or _case_source_ref(
+            source_type=source_type,
+            run_id=run_id,
+            case_id=str(refund_case.id),
+        ),
+        policy_family="refund",
+        policy_version="v1",
+        policy_refs=[{"doc_key": "refund_policy", "chunk_id": "chunk-1", "policy_version": "v1"}],
+        embedding=[1.0, *([0.0] * 1023)],
         pii_classification="none",
     )
 
@@ -373,3 +425,72 @@ async def test_delayed_rewrite_separate_session_blocks_by_source_identity(
     assert retrieved == []
     assert events[-1].decision == "skip"
     assert events[-1].reason_code == "tombstone_match"
+
+
+@pytest.mark.asyncio
+async def test_case_memory_tombstone_blocks_rewrite_by_content_hash_and_source_identity(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session, thread_id="case-memory-tombstone")
+    repository = CaseMemoryRepository(session)
+    service = CaseMemoryService(repository)
+    original = _case_candidate(seeded_session, run_id=run_id)
+    write_result = await service.submit_case_memory_candidate(original)
+    await service.forget_case_memory(
+        tenant_id=original.tenant_id,
+        case_memory_id=write_result.memory_id,
+        run_id=run_id,
+        reason_code="case_forget",
+    )
+
+    content_rewrite = await service.submit_case_memory_candidate(
+        _case_candidate(
+            seeded_session,
+            run_id=run_id,
+            summary=original.summary,
+            source_ref=_case_source_ref(
+                source_type="human_reviewed",
+                run_id=run_id,
+                case_id=str(seeded_session["refund_case"].id),
+                event_id="evt-case-memory-different-source",
+            ),
+        )
+    )
+    source_ref = _case_source_ref(
+        source_type="deterministic_tool_result",
+        run_id=run_id,
+        case_id=str(seeded_session["refund_case"].id),
+        event_id="evt-case-memory-source-only",
+    )
+    await repository.create_tombstone(
+        tenant_id=original.tenant_id,
+        memory_type=CASE_MEMORY_TYPE,
+        scope_type=original.scope_type,
+        scope_id=original.scope_id,
+        content_hash=None,
+        source_ref_json=source_ref,
+        reason_code="source_forget",
+        created_by_run_id=run_id,
+    )
+    source_rewrite = await service.submit_case_memory_candidate(
+        _case_candidate(
+            seeded_session,
+            run_id=run_id,
+            summary="Different reviewed summary from a deleted source identity.",
+            source_type="deterministic_tool_result",
+            source_ref=source_ref,
+        )
+    )
+    events = await _events(session, run_id)
+
+    assert content_rewrite.status == "skipped"
+    assert content_rewrite.memory_id is None
+    assert content_rewrite.reason_code == "tombstone_match"
+    assert source_rewrite.status == "skipped"
+    assert source_rewrite.memory_id is None
+    assert source_rewrite.reason_code == "tombstone_match"
+    assert [event.memory_type for event in events if event.reason_code == "tombstone_match"] == [
+        CASE_MEMORY_TYPE,
+        CASE_MEMORY_TYPE,
+    ]
