@@ -66,6 +66,10 @@ class ContextAssembler:
         if business_ids:
             blocks.append(PromptBlock("business_ids", ", ".join(business_ids), priority=90, protected=True))
 
+        policy_block = project_policy_refs_for_prompt(verified_policy_snippets)
+        if policy_block:
+            blocks.append(PromptBlock("policy_refs", policy_block, priority=85, protected=True))
+
         working_state_block = project_working_state_for_prompt(working_state)
         if working_state_block:
             blocks.append(PromptBlock("working_state", working_state_block, priority=75))
@@ -77,17 +81,13 @@ class ContextAssembler:
         if thread_rolling_summary:
             blocks.append(PromptBlock("thread_rolling_summary", thread_rolling_summary, priority=70))
 
-        recent_block = _project_recent_messages(recent_messages)
-        if recent_block:
-            blocks.append(PromptBlock("recent_messages", recent_block, priority=60))
-
         tool_block = _project_tool_summaries(tool_result_summaries)
         if tool_block:
             blocks.append(PromptBlock("tool_summaries", tool_block, priority=58))
 
-        policy_block = project_policy_refs_for_prompt(verified_policy_snippets)
-        if policy_block:
-            blocks.append(PromptBlock("policy_refs", policy_block, priority=85, protected=True))
+        hint_block = _project_node_hints(node_hints)
+        if hint_block:
+            blocks.append(PromptBlock("node_hints", hint_block, priority=65))
 
         profile_memory_block = project_profile_memory_for_prompt(profile_memory_snippets)
         case_memory_block = project_case_memory_for_prompt(case_memory_snippets)
@@ -97,9 +97,9 @@ class ContextAssembler:
         if case_memory_block:
             blocks.append(PromptBlock("case_memory", case_memory_block, priority=54))
 
-        hint_block = _project_node_hints(node_hints)
-        if hint_block:
-            blocks.append(PromptBlock("node_hints", hint_block, priority=65))
+        recent_block = _project_recent_messages(recent_messages)
+        if recent_block:
+            blocks.append(PromptBlock("recent_messages", recent_block, priority=60))
 
         blocks.append(PromptBlock("current_user_message", current_user_message, priority=100, protected=True))
         return self.budget_policy.apply(blocks)

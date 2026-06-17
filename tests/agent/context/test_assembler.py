@@ -5,7 +5,9 @@ from src.agent.context import (
     PromptAssembly,
     TokenBudgetPolicy,
     project_business_context_for_prompt,
+    project_case_memory_for_prompt,
     project_policy_refs_for_prompt,
+    project_profile_memory_for_prompt,
     project_tool_result_summary,
     project_working_state_for_prompt,
 )
@@ -243,6 +245,7 @@ def test_context_assembler_injects_bounded_memory_blocks():
                 "text": "Current policy evidence remains the authority.",
             }
         ],
+        recent_messages=[{"role": "assistant", "content": "Recent safe exchange."}],
         profile_memory_snippets=profile_memory,
         case_memory_snippets=case_memory,
     )
@@ -255,6 +258,10 @@ def test_context_assembler_injects_bounded_memory_blocks():
 
     assert "profile_memory" in block_names
     assert "case_memory" in block_names
+    assert block_names.index("policy_refs") < block_names.index("profile_memory")
+    assert block_names.index("profile_memory") < block_names.index("case_memory")
+    assert block_names.index("case_memory") < block_names.index("recent_messages")
+    assert block_names.index("recent_messages") < block_names.index("current_user_message")
     assert "profile-1" in prompt
     assert "profile-3" in prompt
     assert "profile-4" not in prompt
@@ -339,6 +346,8 @@ def test_memory_blocks_cannot_evict_protected_policy_or_user_blocks():
 def test_context_exports_prompt_projectors():
     assert PromptAssembly
     assert callable(project_business_context_for_prompt)
+    assert callable(project_case_memory_for_prompt)
     assert callable(project_policy_refs_for_prompt)
+    assert callable(project_profile_memory_for_prompt)
     assert callable(project_tool_result_summary)
     assert callable(project_working_state_for_prompt)
