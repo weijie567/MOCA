@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
 status: executing
-stopped_at: Completed 15.1-05-PLAN.md
-last_updated: "2026-06-17T07:38:19.282Z"
+stopped_at: Completed 15.1-06-PLAN.md; awaiting verifier for Phase 15.1 completion
+last_updated: "2026-06-17T08:03:54.505Z"
 last_activity: 2026-06-17
 progress:
   total_phases: 12
   completed_phases: 9
   total_plans: 61
-  completed_plans: 60
-  percent: 98
+  completed_plans: 61
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -28,10 +28,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-16)
 Phase: 15.1 (memory-foundation-v2) — EXECUTING
 Plan: 6 of 6
 Plans: 6 planned
-Status: Ready to execute
+Status: Awaiting verifier
 Last activity: 2026-06-17
 
-Progress: [██████████] 98%
+Progress: [██████████] 100%
 
 ## Completed Baseline
 
@@ -127,6 +127,9 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 15.1 Plan 05: token budgeting protects system prompt, current user message, safety constraints, business IDs, and policy refs before lower-priority context.
 - Phase 15.1 Plan 05: ContextAssembler owns prompt block assembly and token budgeting without repository imports or raw prompt persistence.
 - Phase 15.1 Plan 05: slot extraction uses PromptAssembly for current user text plus bounded candidate-slot hints, without synthetic thread/tool context injection.
+- Phase 15.1 Plan 05: recommendation and risk nodes load prior-turn prompt context only when RunnableConfig provides session and run context.
+- Phase 15.1 Plan 06 aligns conversation/tool/replay/audit refs using safe IDs and keeps ReplayService raw-key guards unchanged.
+- Phase 15.1 final defers Phase 16 long-term memory write gate, memory tombstones, user-manageable memory, case memory vector search, and case precedent retrieval; Phase 17 owns external action execution storage, outbox/execution reconciliation, and compensation workflow.
 
 ## Accumulated Context
 
@@ -194,12 +197,13 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | Phase 15.1 P03 | inline | 3 tasks | 4 files |
 | Phase 15.1 P04 | 21 min | 4 tasks | 7 files |
 | Phase 15.1 P05 | 12 min | 3 tasks | 12 files |
+| Phase 15.1 P06 | 20 min | 3 tasks | 6 files |
 
 ## Session Continuity
 
-Last session: 2026-06-17T07:38:19.005Z
-Stopped at: Completed 15.1-05-PLAN.md
+Last session: 2026-06-17T08:03:41.302Z
+Stopped at: Completed 15.1-06-PLAN.md; awaiting verifier for Phase 15.1 completion
 Resume file: None
-Next: Execute 15.1-06-PLAN.md
+Next: Verify Phase 15.1 Memory Foundation V2
 
 **Planned Phase:** 15.1 (Memory Foundation V2) — 6 plans — 2026-06-17T04:22:43.755Z
