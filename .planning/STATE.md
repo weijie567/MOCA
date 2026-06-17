@@ -4,12 +4,12 @@ milestone: v1.2
 milestone_name: Long-term / Case Memory
 status: ready_to_plan
 stopped_at: Phase 16 context gathered
-last_updated: "2026-06-17T12:45:17.242Z"
+last_updated: "2026-06-17T13:54:28.741Z"
 last_activity: 2026-06-17
 progress:
   total_phases: 1
   completed_phases: 0
-  total_plans: 0
+  total_plans: 9
   completed_plans: 0
   percent: 0
 ---
@@ -225,3 +225,5 @@ Next: Run `$gsd-plan-phase 16`.
 
 **Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17
 **Active Milestone:** v1.2 Long-term / Case Memory — defined 2026-06-17
+
+**Planned Phase:** 16 (Long-term / Case Memory) — 9 plans — 2026-06-17T13:54:28.723Z
