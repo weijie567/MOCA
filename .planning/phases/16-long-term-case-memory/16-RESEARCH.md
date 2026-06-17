@@ -56,9 +56,10 @@ Add memory-specific identity helpers under `src/memory/identity.py` or equivalen
 - `scope_id`: string
 - `content_hash`: canonical content hash for normalized memory content
 - `source_identity_hash`: canonical hash over allowed source refs only
+- `candidate_hash`: stable write-event/candidate envelope hash over tenant, memory type, scope, `content_hash`, and nullable `source_identity_hash`
 - allowed source refs: `source_type`, `run_id`, `event_id`, `conversation_message_id`, `tool_result_id`, `agent_run_id`, `business_object_type`, `business_object_id`, `policy_version`, `outcome_id`
 
-Do not allow arbitrary JSON keys to participate in source identity. Tombstone fallback must compare canonical identity first, then normalized source identity, never semantic similarity.
+Do not allow arbitrary JSON keys to participate in source identity. Do not include raw payload, raw tool output, policy text, approval/action authority bodies, or replay/debug blobs in `candidate_hash`. Tombstone fallback must compare canonical identity first, then normalized source identity, never semantic similarity.
 
 ### 2. Schema And Migration
 

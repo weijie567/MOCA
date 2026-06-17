@@ -64,7 +64,7 @@ Memory remains contextual assistance only. It must not become policy evidence, a
 - **D-28:** During transition, legacy search may remain debug/fallback only. It should be renamed or clearly marked legacy in tool registry and documentation. Later v2 cleanup may delete it after validation.
 - **D-29:** Tombstone no-rewrite uses two exact identity layers. First match canonical identity `(tenant_id, memory_type, scope_type, scope_id, content_hash)`. If content hash is missing or a candidate is reconstructed, match normalized source identity.
 - **D-30:** Source identity fallback uses the authoritative `MemorySourceRefV1` typed key set: `source_type`, `run_id`, `event_id`, `conversation_message_id`, `tool_result_id`, `agent_run_id`, `business_object_type`, `business_object_id`, `policy_version`, and `outcome_id`. Unknown arbitrary JSON keys must be rejected before identity hashing and must not participate in identity matching.
-- **D-31:** If canonical or source identity matches an active tombstone, the candidate write must be skipped or write-blocked in the same transaction and emit `memory_write_event(reason_code='tombstone_match')`.
+- **D-31:** Candidate writes compute `candidate_hash` through `memory_identity.v1` from tenant, memory type, scope, `content_hash`, and nullable `source_identity_hash`. If canonical or source identity matches an active tombstone, the candidate write must be skipped or write-blocked in the same transaction and emit `memory_write_event(reason_code='tombstone_match')`.
 - **D-32:** Tombstone matching must not use semantic similarity. Similarity-based deletion is too broad and is not auditable enough for no-rewrite semantics.
 
 ### the agent's Discretion

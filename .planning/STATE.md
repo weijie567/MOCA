@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Long-term / Case Memory
-status: ready_to_plan
-stopped_at: Phase 16 context gathered
-last_updated: "2026-06-17T13:54:28.741Z"
+status: ready_to_execute
+stopped_at: Phase 16 planned
+last_updated: "2026-06-17T14:55:52Z"
 last_activity: 2026-06-17
 progress:
   total_phases: 1
@@ -26,12 +26,23 @@ See: `.planning/PROJECT.md` (updated 2026-06-17)
 ## Current Position
 
 Phase: 16 - Long-term / Case Memory
-Plan: none
-Plans: none yet
-Status: ready_to_plan
+Plan: 16-01 through 16-09
+Plans: 9 plan files in `.planning/phases/16-long-term-case-memory/`
+Status: ready_to_execute
 Last activity: 2026-06-17
 
 Progress: [░░░░░░░░░░] 0%
+
+Planned files:
+- `16-01-memory-identity-PLAN.md`
+- `16-02-schema-migration-PLAN.md`
+- `16-03-long-term-memory-service-PLAN.md`
+- `16-04-semantic-episode-PLAN.md`
+- `16-05-tombstone-supersede-PLAN.md`
+- `16-06-reviewed-case-memory-PLAN.md`
+- `16-07-context-assembler-memory-PLAN.md`
+- `16-08-memory-retrieval-integration-PLAN.md`
+- `16-09-legacy-search-eval-closure-PLAN.md`
 
 ## Completed Baseline
 
@@ -219,11 +230,11 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 ## Session Continuity
 
 Last session: 2026-06-17T12:43:32.972Z
-Stopped at: Phase 16 context gathered
-Resume file: .planning/phases/16-long-term-case-memory/16-CONTEXT.md
-Next: Run `$gsd-plan-phase 16`.
+Stopped at: Phase 16 planned
+Resume file: .planning/phases/16-long-term-case-memory/
+Next: Run `$gsd-execute-phase 16`.
 
 **Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17
 **Active Milestone:** v1.2 Long-term / Case Memory — defined 2026-06-17
 
-**Planned Phase:** 16 (Long-term / Case Memory) — 9 plans — 2026-06-17T13:54:28.723Z
+**Planned Phase:** 16 (Long-term / Case Memory) — 9 plans — ready to execute — 2026-06-17T14:55:52Z

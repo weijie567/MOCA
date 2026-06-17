@@ -102,7 +102,8 @@ Implement case memory schemas and service boundary:
 Use structured `policy_family` and `policy_version` fields from `case_memories` for compatibility filtering; do not rely on unindexed arbitrary JSON keys for this filter.
 
 Implement explicit case review/write methods:
-- `submit_case_memory_candidate(...)` stores or records a candidate with `review_status="needs_review"` unless the source is explicitly human-reviewed/deterministic and permitted to auto-approve; for `needs_review` candidates it emits `memory_write_events(memory_type="case_memory", decision="needs_review", reason_code=..., source_ref_json=...)`.
+- `submit_case_memory_candidate(...)` stores or records a candidate with `review_status="needs_review"` unless the source is explicitly human-reviewed/deterministic and permitted to auto-approve; for `needs_review` candidates it emits `memory_write_events(memory_type="case_memory", decision="needs_review", candidate_hash=..., reason_code=..., source_ref_json=...)`.
+- All case memory write-event paths generate `candidate_hash` only through `canonical_memory_candidate_hash(...)` from Plan 16-01 using tenant, memory type, scope, `content_hash`, and nullable `source_identity_hash`; do not hash raw payloads directly in the case service.
 - `approve_case_memory(...)` moves an existing `needs_review` row to `approved`, records reviewer metadata or `review_reason`, and emits a `memory_write_events` row with `decision="approve"`.
 - `reject_case_memory(...)` moves an existing `needs_review` row to `rejected`, records reviewer metadata or `review_reason`, emits `decision="reject"`, and guarantees rejected rows are not retrieved.
 - write/skip/delete/tombstone paths for case memory emit `memory_write_events(memory_type="case_memory", decision=..., reason_code=...)` just like long-term memory.
@@ -124,6 +125,7 @@ It must not expose raw business payloads, raw tool output, full policy text, app
 - Source contains `submit_case_memory_candidate`.
 - Source contains `approve_case_memory`.
 - Source contains `reject_case_memory`.
+- Source contains `canonical_memory_candidate_hash`.
 - Source contains `class CaseMemorySearchItem`.
 - Source contains `excerpt`.
 - Source contains `applicability`.
@@ -191,7 +193,7 @@ uv run pytest tests/memory/test_case_memory_retrieval.py -q
 </read_first>
 <action>
 Extend tombstone/no-rewrite checks to case memory writes:
-- case write path computes/stores `content_hash` and checks active tombstones by canonical content identity or allowed source identity in the same transaction.
+- case write path computes/stores `content_hash` and `candidate_hash` through Plan 16-01 identity helpers, then checks active tombstones by canonical content identity or allowed source identity in the same transaction.
 - blocked case write emits `memory_write_events(memory_type="case_memory", reason_code="tombstone_match")`.
 - case retrieval excludes tombstoned rows immediately.
 </action>

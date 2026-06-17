@@ -1,7 +1,7 @@
 ---
 phase: 16
 slug: long-term-case-memory
-status: draft
+status: planned
 nyquist_compliant: true
 wave_0_complete: false
 created: 2026-06-17
@@ -32,7 +32,7 @@ created: 2026-06-17
 
 | Requirement | Required Automated Coverage | Command |
 |-------------|-----------------------------|---------|
-| MEMID-01 | `memory_identity.v1` golden normalization/hash tests, allowed source refs, unknown source refs rejected | `pytest tests/memory/test_memory_identity.py -q` |
+| MEMID-01 | `memory_identity.v1` golden normalization/hash tests, `content_hash`, `candidate_hash`, allowed source refs, unknown source refs rejected | `pytest tests/memory/test_memory_identity.py -q` |
 | MEMSCHEMA-01 | Migration/model tests for `long_term_memories`, `case_memories`, `memory_tombstones`, `memory_write_events`, constraints, indexes, downgrade | `uv run pytest tests/memory/test_memory_schema.py tests/conversation/test_models.py -q` |
 | LONGMEM-01 | Long-term write source policy tests: deterministic/explicit sources allowed, LLM inference `needs_review`, prohibited PII skipped | `pytest tests/memory/test_long_term_memory_service.py -q` |
 | LONGMEM-02 | Retrieval predicate tests for tenant/scope, approved/current status, freshness/expiry, deleted/tombstoned/prohibited exclusion | `pytest tests/memory/test_long_term_memory_repository.py -q` |
@@ -61,7 +61,7 @@ Existing infrastructure covers pytest itself; no framework install task is expec
 
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
-| DB-backed pgvector recall sanity, if CI lacks PostgreSQL/pgvector | CASEMEM-02 / CASEMEM-03 | Local DB integration may not run in pure CI | Seed reviewed case memories locally, run the implementation's DB-backed retrieval command, and record top-k filtered output summary in phase SUMMARY.md |
+| DB-backed pgvector recall sanity, if CI lacks PostgreSQL/pgvector | CASEMEM-02 / CASEMEM-03 | Local DB integration may not run in pure CI | Seed reviewed case memories locally, run the implementation's DB-backed retrieval command, and record top-k filtered output summary in `.planning/phases/16-long-term-case-memory/16-SUMMARY.md` |
 
 All authority-boundary, tombstone, prompt-safety, identity, and legacy-search gates must have automated tests.
 
@@ -69,8 +69,8 @@ All authority-boundary, tombstone, prompt-safety, identity, and legacy-search ga
 
 - [x] All requirements have an automated verification target or explicit DB-backed fallback.
 - [x] Sampling continuity: no three consecutive tasks may omit automated verify.
-- [x] Wave 0 covers new missing test scaffolds.
+- [x] Wave 0 requirements list all new missing test scaffolds; execution remains open (`wave_0_complete: false`) until implementation creates them.
 - [x] No watch-mode flags.
 - [x] `nyquist_compliant: true` set in frontmatter.
 
-**Approval:** pending
+**Approval:** plan-ready; execution pending
