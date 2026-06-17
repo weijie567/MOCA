@@ -18,8 +18,10 @@ import pytest
 from src.agent.nodes import investigate as investigate_module
 from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import KnowledgeSearchResult
+from src.memory.schemas import CaseMemorySearchItem, CaseMemorySearchResult
 from src.tools.catalog import ToolCatalog
 from src.tools.contracts import ToolCallContext, ToolResultV2
+from src.tools.executors.memory import MemoryToolExecutor
 
 
 # ---------------------------------------------------------------------------
@@ -164,6 +166,57 @@ class TestPolicyRetrievalOwnership:
             "investigate must NOT import BusinessToolService; "
             "policy retrieval belongs behind UnifiedToolManager"
         )
+
+    @pytest.mark.asyncio
+    async def test_reviewed_case_memory_tool_result_is_not_policy_evidence(self):
+        """Reviewed case memory remains contextual precedent, not EvidenceRefV1."""
+
+        class FakeReviewedCaseMemoryService:
+            def __init__(self) -> None:
+                self.requests = []
+
+            async def retrieve_reviewed(self, request):
+                self.requests.append(request)
+                return CaseMemorySearchResult(
+                    status="success",
+                    items=[
+                        CaseMemorySearchItem(
+                            case_memory_id="case-memory-1",
+                            excerpt="Reviewed precedent: verify payment-channel facts before recommendation.",
+                            applicability="Similar refund timeout dispute.",
+                            outcome="Context only; policy evidence still required.",
+                            score=0.91,
+                            policy_refs=[{"doc_key": "refund_policy", "chunk_id": "chunk-1"}],
+                            source_refs=[{"business_object_id": "CASE-1"}],
+                        )
+                    ],
+                )
+
+        service = FakeReviewedCaseMemoryService()
+        executor = MemoryToolExecutor(service=service)
+        ctx = ToolCallContext(
+            tenant_id="11111111-1111-1111-1111-111111111111",
+            user_id="22222222-2222-2222-2222-222222222222",
+            role="support_agent",
+            permissions=["tool:search_case_memory"],
+            merchant_scope={"merchant_ids": ["*"]},
+            thread_id="thread-1",
+            run_id="33333333-3333-3333-3333-333333333333",
+            trace_id="trace-1",
+            request_id="req-1",
+            tool_call_id="tc-1",
+            caller_node="investigate",
+        )
+
+        result = await executor.execute("search_case_memory", {"query": "refund timeout"}, ctx)
+
+        assert result.status == "success"
+        assert result.policy_evidence_refs == []
+        assert result.business_fact_refs == []
+        assert result.data is not None
+        assert result.data["items"][0]["case_memory_id"] == "case-memory-1"
+        assert "reviewed case memory" in result.summary
+        assert service.requests[0].tenant_id.hex == "11111111111111111111111111111111"
 
 
 # ---------------------------------------------------------------------------

@@ -75,6 +75,14 @@ def test_action_descriptor_is_node_only_and_requires_idempotency() -> None:
     assert descriptor.requires_idempotency_key is True
 
 
+def test_search_case_memory_descriptor_names_reviewed_case_memory_store() -> None:
+    descriptor = _descriptor("search_case_memory")
+
+    assert "reviewed case memory" in descriptor.description
+    assert "reviewed case store" in descriptor.description
+    assert "session-derived" not in descriptor.description.lower()
+
+
 def test_json_schema_helper_accepts_valid_input() -> None:
     _validate_json_value({"order_no": "ORD-1"}, _descriptor("get_order").input_schema)
 
