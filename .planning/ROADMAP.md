@@ -41,9 +41,9 @@
 
 ### Phase 16: Long-term / Case Memory
 
-**Status:** In Progress — 7/9 plans complete
+**Status:** In Progress — 8/9 plans complete
 
-**Plans:** 7 summaries / 9 plan files in `.planning/phases/16-long-term-case-memory/` (`16-01` through `16-07` complete; `16-08` through `16-09` pending)
+**Plans:** 8/9 plans executed
 
 **Goal:** Implement reviewed long-term profile memory and reviewed case memory retrieval on top of the v1.1 conversation/context foundation, while preserving the boundaries that memory is contextual assistance only.
 
