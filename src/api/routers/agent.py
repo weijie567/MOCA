@@ -28,6 +28,7 @@ from src.conversation.repository import ConversationRepository
 from src.conversation.service import ConversationService
 from src.db.models import User
 from src.db.session import get_session
+from src.memory.thread_summary import ThreadRollingSummaryService
 
 
 router = APIRouter(tags=["agent"])
@@ -67,6 +68,8 @@ async def chat(
     }
 
     try:
+        conversation_repository = ConversationRepository(session)
+        conversation_service = ConversationService(conversation_repository)
         await write_agent_run(
             session,
             run_id=run_id,
@@ -171,7 +174,7 @@ async def chat(
             trace_id=getattr(request.state, "trace_id", None),
         )
         await write_agent_steps(session, run_id=run_id, trace_steps=trace_steps)
-        await ConversationService(ConversationRepository(session)).append_assistant_message(
+        await conversation_service.append_assistant_message(
             tenant_id=user.tenant_id,
             user_id=user.id,
             thread_id=body.thread_id,
@@ -179,6 +182,12 @@ async def chat(
             content=final_response_text,
             trace_id=getattr(request.state, "trace_id", None),
             metadata_json={"status": final_status},
+        )
+        await ThreadRollingSummaryService(conversation_repository).persist_thread_summary(
+            tenant_id=user.tenant_id,
+            user_id=user.id,
+            thread_id=body.thread_id,
+            run_id=UUID(str(run_id)),
         )
         await session.commit()
     except Exception:

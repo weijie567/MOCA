@@ -106,6 +106,28 @@ class ConversationRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def list_recent_messages(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        thread_id: str,
+        limit: int,
+    ) -> list[ConversationMessage]:
+        stmt = (
+            select(ConversationMessage)
+            .where(
+                and_(
+                    ConversationMessage.tenant_id == tenant_id,
+                    ConversationMessage.thread_id == thread_id,
+                    ConversationMessage.deleted_at.is_(None),
+                )
+            )
+            .order_by(ConversationMessage.message_index.desc())
+            .limit(max(limit, 1))
+        )
+        result = await self.session.execute(stmt)
+        return list(reversed(result.scalars().all()))
+
     async def get_message(self, *, tenant_id: uuid.UUID, thread_id: str, message_id: uuid.UUID) -> ConversationMessage | None:
         result = await self.session.execute(
             select(ConversationMessage).where(
@@ -116,6 +138,27 @@ class ConversationRepository:
             )
         )
         return result.scalar_one_or_none()
+
+    async def list_messages_by_ids(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        thread_id: str,
+        message_ids: list[uuid.UUID],
+    ) -> list[ConversationMessage]:
+        if not message_ids:
+            return []
+        result = await self.session.execute(
+            select(ConversationMessage)
+            .where(
+                ConversationMessage.tenant_id == tenant_id,
+                ConversationMessage.thread_id == thread_id,
+                ConversationMessage.id.in_(message_ids),
+                ConversationMessage.deleted_at.is_(None),
+            )
+            .order_by(ConversationMessage.message_index)
+        )
+        return list(result.scalars().all())
 
     async def list_messages_after(
         self,
@@ -161,6 +204,26 @@ class ConversationRepository:
         )
         return result.scalar_one_or_none()
 
+    async def list_thread_summaries(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        thread_id: str,
+        limit: int = 10,
+    ) -> list[ConversationSummary]:
+        result = await self.session.execute(
+            select(ConversationSummary)
+            .where(
+                ConversationSummary.tenant_id == tenant_id,
+                ConversationSummary.thread_id == thread_id,
+                ConversationSummary.summary_type == "thread_rolling",
+                ConversationSummary.deleted_at.is_(None),
+            )
+            .order_by(ConversationSummary.created_at.desc(), ConversationSummary.id.desc())
+            .limit(max(limit, 1))
+        )
+        return list(result.scalars().all())
+
     async def list_tool_results_after_summary(
         self,
         *,
@@ -186,6 +249,26 @@ class ConversationRepository:
             select(ToolResultRecord).where(and_(*filters)).order_by(ToolResultRecord.created_at, ToolResultRecord.id)
         )
         return list(result.scalars().all())
+
+    async def list_recent_tool_prompt_summaries(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        thread_id: str,
+        limit: int,
+    ) -> list[ToolResultRecord]:
+        result = await self.session.execute(
+            select(ToolResultRecord)
+            .where(
+                ToolResultRecord.tenant_id == tenant_id,
+                ToolResultRecord.thread_id == thread_id,
+                ToolResultRecord.prompt_summary.is_not(None),
+                ToolResultRecord.deleted_at.is_(None),
+            )
+            .order_by(ToolResultRecord.created_at.desc(), ToolResultRecord.id.desc())
+            .limit(max(limit, 1))
+        )
+        return list(reversed(result.scalars().all()))
 
     async def insert_thread_summary(
         self,

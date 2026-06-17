@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 from hashlib import sha256
 from typing import Any
@@ -11,7 +12,17 @@ from src.conversation.schemas import (
     ConversationMessageCreate,
     guard_forbidden_message_keys,
 )
+from src.db.models import ConversationMessage, ConversationSummary, ToolResultRecord
 from src.tools.contracts import ToolResultPromptSummary, ToolResultV2
+
+
+@dataclass(frozen=True)
+class PromptContextWindow:
+    thread_id: str
+    run_id: uuid.UUID
+    latest_thread_summary: ConversationSummary | None
+    recent_messages: list[ConversationMessage]
+    tool_prompt_summaries: list[ToolResultRecord]
 
 
 class ConversationService:
@@ -201,6 +212,46 @@ class ConversationService:
             audit_ref=result.audit_ref,
         )
 
+    async def load_prompt_context(
+        self,
+        *,
+        tenant_id: uuid.UUID | str,
+        thread_id: str,
+        run_id: uuid.UUID | str,
+        max_recent_messages: int = 8,
+    ) -> PromptContextWindow:
+        """Return latest committed prior-turn thread_rolling summary plus recent conversation_messages.
+
+        The current turn stays visible through recent conversation_messages and tool prompt_summary rows,
+        not by treating a same-run summary as already committed prior context.
+        """
+        if self.repository is None:
+            raise RuntimeError("ConversationRepository is required for prompt context reads")
+        tenant_uuid = _coerce_uuid(tenant_id)
+        run_uuid = _coerce_uuid(run_id)
+        recent_messages = await self.repository.list_recent_messages(
+            tenant_id=tenant_uuid,
+            thread_id=thread_id,
+            limit=max_recent_messages,
+        )
+        tool_prompt_summaries = await self.repository.list_recent_tool_prompt_summaries(
+            tenant_id=tenant_uuid,
+            thread_id=thread_id,
+            limit=max_recent_messages,
+        )
+        latest_prior_summary = await self._latest_prior_thread_summary(
+            tenant_id=tenant_uuid,
+            thread_id=thread_id,
+            current_run_id=run_uuid,
+        )
+        return PromptContextWindow(
+            thread_id=thread_id,
+            run_id=run_uuid,
+            latest_thread_summary=latest_prior_summary,
+            recent_messages=recent_messages,
+            tool_prompt_summaries=tool_prompt_summaries,
+        )
+
     async def _append_message(
         self,
         *,
@@ -243,6 +294,26 @@ class ConversationService:
             message_index=row.message_index,
             role=row.role,
         )
+
+    async def _latest_prior_thread_summary(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        thread_id: str,
+        current_run_id: uuid.UUID,
+    ) -> ConversationSummary | None:
+        assert self.repository is not None
+        summaries = await self.repository.list_thread_summaries(tenant_id=tenant_id, thread_id=thread_id, limit=10)
+        for summary in summaries:
+            source_message_ids = [_coerce_uuid(message_id) for message_id in summary.source_message_ids_json]
+            source_messages = await self.repository.list_messages_by_ids(
+                tenant_id=tenant_id,
+                thread_id=thread_id,
+                message_ids=source_message_ids,
+            )
+            if all(message.run_id != current_run_id for message in source_messages):
+                return summary
+        return None
 
 
 def _stable_hash(value: Any) -> str:

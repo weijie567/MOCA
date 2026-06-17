@@ -112,3 +112,275 @@ def test_reserved_case_id_does_not_create_case_memory_retrieval() -> None:
     assert "embedding" not in migration_source
     assert "vector" not in migration_source
     assert "search_case_memory" not in conversation_sources
+
+
+@pytest.mark.asyncio
+async def test_load_prompt_context_first_turn_with_zero_summaries(
+    session: AsyncSession, seeded_session: dict
+) -> None:
+    from src.conversation.repository import ConversationRepository
+    from src.conversation.service import ConversationService
+
+    repository = ConversationRepository(session)
+    service = ConversationService(repository)
+    tenant_id = seeded_session["tenant"].id
+    user_id = seeded_session["users"]["cs_zhang"].id
+    thread_id = "thread-first-turn-zero-summaries"
+    run_id = await _insert_run(session, seeded_session, thread_id)
+    await service.append_user_message(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=run_id,
+        content="first-turn zero summaries: 查询 ORD-FIRST-001。",
+    )
+
+    context = await service.load_prompt_context(
+        tenant_id=tenant_id,
+        thread_id=thread_id,
+        run_id=run_id,
+        max_recent_messages=4,
+    )
+
+    assert context.latest_thread_summary is None
+    assert [message.content for message in context.recent_messages] == [
+        "first-turn zero summaries: 查询 ORD-FIRST-001。"
+    ]
+    assert context.tool_prompt_summaries == []
+
+
+@pytest.mark.asyncio
+async def test_completed_chat_path_writes_thread_summary_after_user_tool_assistant_records(
+    session: AsyncSession, seeded_session: dict
+) -> None:
+    from sqlalchemy import select
+
+    from src.conversation.repository import ConversationRepository
+    from src.conversation.service import ConversationService
+    from src.db.models import ConversationSummary
+    from src.memory.thread_summary import ThreadRollingSummaryService
+    from src.tools.contracts import BusinessFactRefV1, ToolResultV2
+
+    repository = ConversationRepository(session)
+    service = ConversationService(repository)
+    tenant_id = seeded_session["tenant"].id
+    user_id = seeded_session["users"]["cs_zhang"].id
+    thread_id = "thread-completed-chat-summary"
+    run_id = await _insert_run(session, seeded_session, thread_id)
+    operation_id = uuid.uuid4()
+    await service.append_user_message(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=run_id,
+        content="请查询 ORD-COMPLETE-001。",
+    )
+    tool_call = await service.append_tool_call(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=run_id,
+        trace_id="trace-completed-chat-summary",
+        tool_call_id=str(operation_id),
+        tool_name="get_order",
+        caller_node="investigate",
+        operation_id=operation_id,
+        attempt=1,
+        arguments={"order_no": "ORD-COMPLETE-001"},
+        argument_summary_json={"order_no": "ORD-COMPLETE-001"},
+        redaction_policy_version="conversation_redaction.v1",
+    )
+    business_ref = BusinessFactRefV1(
+        tenant_id=str(tenant_id),
+        source_system="business_tool_service",
+        resource_type="order",
+        resource_id="ORD-COMPLETE-001",
+        resource_version=None,
+        data_freshness_at=datetime.now(UTC),
+        retrieved_at=datetime.now(UTC),
+    )
+    prompt_summary = await service.append_tool_result(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=run_id,
+        trace_id="trace-completed-chat-summary",
+        operation_id=operation_id,
+        tool_call_id=str(operation_id),
+        tool_call_record_id=tool_call.id,
+        tool_result_id="tool-result-completed-chat",
+        tool_name="get_order",
+        result=ToolResultV2(
+            status="success",
+            data={"order_id": "ORD-COMPLETE-001"},
+            summary="Safe completed chat tool summary for ORD-COMPLETE-001.",
+            source_system="business_tool_service",
+            data_freshness_at=datetime.now(UTC),
+            policy_evidence_refs=[],
+            business_fact_refs=[business_ref],
+            error=None,
+            retryable=False,
+            retry_after_ms=None,
+            latency_ms=9,
+            audit_ref="audit/tool-result/ORD-COMPLETE-001",
+        ),
+    )
+    tool_message = await service.append_tool_summary_message(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=run_id,
+        content=prompt_summary.prompt_summary,
+    )
+    assistant_message = await service.append_assistant_message(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=run_id,
+        content="ORD-COMPLETE-001 已查询完成。",
+    )
+
+    summary = await ThreadRollingSummaryService(repository).persist_thread_summary(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=run_id,
+    )
+    stored_summary = (
+        await session.execute(
+            select(ConversationSummary).where(
+                ConversationSummary.id == summary.id,
+                ConversationSummary.summary_type == "thread_rolling",
+            )
+        )
+    ).scalar_one()
+
+    assert stored_summary.source_start_message_id is not None
+    assert stored_summary.source_end_message_id == assistant_message.message_id
+    assert str(tool_message.message_id) in stored_summary.source_message_ids_json
+    assert stored_summary.source_tool_result_ids_json
+    assert "Safe completed chat tool summary" in (stored_summary.summary_text or "")
+    assert "ORD-COMPLETE-001" in (stored_summary.summary_text or "")
+
+
+@pytest.mark.asyncio
+async def test_load_prompt_context_returns_latest_committed_prior_turn_and_bounded_recent_messages(
+    session: AsyncSession, seeded_session: dict
+) -> None:
+    from src.conversation.repository import ConversationRepository
+    from src.conversation.service import ConversationService
+    from src.memory.thread_summary import ThreadRollingSummaryService
+    from src.tools.contracts import BusinessFactRefV1, ToolResultV2
+
+    repository = ConversationRepository(session)
+    service = ConversationService(repository)
+    summary_service = ThreadRollingSummaryService(repository)
+    tenant_id = seeded_session["tenant"].id
+    user_id = seeded_session["users"]["cs_zhang"].id
+    thread_id = "thread-prior-turn-context-window"
+    prior_run_id = await _insert_run(session, seeded_session, thread_id)
+    await service.append_user_message(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=prior_run_id,
+        content="prior-turn: 查询 ORD-PRIOR-001。",
+    )
+    await service.append_assistant_message(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=prior_run_id,
+        content="prior-turn: ORD-PRIOR-001 已完成。",
+    )
+    prior_summary = await summary_service.persist_thread_summary(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=prior_run_id,
+    )
+
+    current_run_id = await _insert_run(session, seeded_session, thread_id)
+    operation_id = uuid.uuid4()
+    await service.append_user_message(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=current_run_id,
+        content="current-turn recent conversation_messages: 第一条。",
+    )
+    await service.append_user_message(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=current_run_id,
+        content="current-turn recent conversation_messages: 第二条。",
+    )
+    tool_call = await service.append_tool_call(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=current_run_id,
+        trace_id="trace-prior-turn-context-window",
+        tool_call_id=str(operation_id),
+        tool_name="get_order",
+        caller_node="investigate",
+        operation_id=operation_id,
+        attempt=1,
+        arguments={"order_no": "ORD-CURRENT-001"},
+        argument_summary_json={"order_no": "ORD-CURRENT-001"},
+        redaction_policy_version="conversation_redaction.v1",
+    )
+    business_ref = BusinessFactRefV1(
+        tenant_id=str(tenant_id),
+        source_system="business_tool_service",
+        resource_type="order",
+        resource_id="ORD-CURRENT-001",
+        resource_version=None,
+        data_freshness_at=datetime.now(UTC),
+        retrieved_at=datetime.now(UTC),
+    )
+    await service.append_tool_result(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=current_run_id,
+        trace_id="trace-prior-turn-context-window",
+        operation_id=operation_id,
+        tool_call_id=str(operation_id),
+        tool_call_record_id=tool_call.id,
+        tool_result_id="tool-result-current-context",
+        tool_name="get_order",
+        result=ToolResultV2(
+            status="success",
+            data={"order_id": "ORD-CURRENT-001"},
+            summary="Current turn safe tool prompt_summary for ORD-CURRENT-001.",
+            source_system="business_tool_service",
+            data_freshness_at=datetime.now(UTC),
+            policy_evidence_refs=[],
+            business_fact_refs=[business_ref],
+            error=None,
+            retryable=False,
+            retry_after_ms=None,
+            latency_ms=7,
+            audit_ref="audit/tool-result/ORD-CURRENT-001",
+        ),
+    )
+
+    context = await service.load_prompt_context(
+        tenant_id=tenant_id,
+        thread_id=thread_id,
+        run_id=current_run_id,
+        max_recent_messages=2,
+    )
+
+    assert context.latest_thread_summary is not None
+    assert context.latest_thread_summary.id == prior_summary.id
+    assert "ORD-PRIOR-001" in (context.latest_thread_summary.summary_text or "")
+    assert [message.content for message in context.recent_messages] == [
+        "current-turn recent conversation_messages: 第一条。",
+        "current-turn recent conversation_messages: 第二条。",
+    ]
+    assert len(context.recent_messages) == 2
+    assert len(context.tool_prompt_summaries) == 1
+    assert "ORD-CURRENT-001" in (context.tool_prompt_summaries[0].prompt_summary or "")
