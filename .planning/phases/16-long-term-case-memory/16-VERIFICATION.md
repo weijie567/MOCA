@@ -1,10 +1,14 @@
 ---
 phase: 16-long-term-case-memory
-verified: 2026-06-17T18:37:27Z
+verified: 2026-06-17T23:57:14Z
 status: passed
 score: 14/14 requirements verified
 overrides_applied: 0
-review_fix_commit: 506c50d
+review_fix_commit: f365f00
+review_fix_history:
+  - 506c50d
+  - 2312abe
+  - f365f00
 human_verification: []
 ---
 
@@ -12,7 +16,7 @@ human_verification: []
 
 **Phase Goal:** Implement reviewed long-term profile memory and reviewed case memory retrieval on top of the v1.1 conversation/context foundation, while preserving the boundaries that memory is contextual assistance only.
 
-**Verdict:** PASS. The current codebase implements reviewed long-term memory, reviewed case memory retrieval, tombstones, prompt-safe context assembly, and the memory authority boundary. No gaps or human verification needs were found.
+**Verdict:** PASS. The current codebase implements reviewed long-term memory, reviewed case memory retrieval, tombstones, prompt-safe context assembly, and the memory authority boundary. Follow-up lifecycle review fixes through commit `f365f00` are verified by focused, expanded, lint, and full-suite runs. No gaps or human verification needs were found.
 
 ## Requirement Checklist
 
@@ -20,9 +24,9 @@ human_verification: []
 | --- | --- | --- |
 | MEMID-01 | VERIFIED | `src/memory/identity.py` defines `memory_identity.v1`, canonical content/source/candidate hashes, source-ref allowlist, and durable source discriminators. `tests/memory/test_memory_identity.py` covers stability and unknown-key rejection. |
 | MEMSCHEMA-01 | VERIFIED | `src/db/models.py` and migration `013_long_term_case_memory.py` define `long_term_memories`, `case_memories`, `memory_tombstones`, and `memory_write_events` with lifecycle constraints, rollback, tombstone indexes, and matching HNSW case-memory metadata. Schema drift check returned `valid: true`. |
-| LONGMEM-01 | VERIFIED | `LongTermMemoryService.write_memory()` allows deterministic/explicit reviewed sources, sends model/semantic candidates to `needs_review`, and skips prohibited PII. Semantic episode candidates remain `needs_review`. |
+| LONGMEM-01 | VERIFIED | `LongTermMemoryService.write_memory()` allows deterministic/explicit reviewed sources, sends model/semantic candidates to non-current `needs_review`, and skips prohibited PII. Semantic episode candidates remain review-gated and non-retrievable. |
 | LONGMEM-02 | VERIFIED | `LongTermMemoryRepository.retrieve_profile_memory()` filters tenant/scope, published statuses, current rows, expiry, deletion, prohibited PII, and active tombstones. |
-| LONGMEM-03 | VERIFIED | `supersede_memory()` checks tombstones and prohibited PII before mutation, then supersedes the previous row and inserts one current replacement. Regression tests cover prohibited PII and duplicate active identity behavior. |
+| LONGMEM-03 | VERIFIED | `supersede_memory()` now requires a current, published, undeleted, unexpired previous row; checks tombstones, prohibited PII, and expired replacements before mutation; keeps review-required replacements non-current until approval; and inserts exactly one current replacement after approval or auto-approved replacement. |
 | CASEMEM-01 | VERIFIED | `CaseMemoryService` stores reviewed precedent fields, outcome metadata, policy/source refs, review lifecycle, and write events. `tests/memory/test_case_memory_retrieval.py` covers reviewed storage and approval/rejection. |
 | CASEMEM-02 | VERIFIED | `CaseMemoryRepository.search_reviewed()` uses separate case memory tables and filters reviewed rows only; boundary tests prove case memory is not session memory, policy evidence, or current business facts. |
 | CASEMEM-03 | VERIFIED | Planner-visible `search_case_memory` dispatches through `CaseMemoryService.retrieve_reviewed`; legacy session search is `LegacySessionPrecedentSearchService` and debug/legacy-only. |
@@ -39,7 +43,7 @@ All seven ROADMAP success criteria are satisfied: identity golden tests exist; r
 
 ## Code Review Fix Verification
 
-Review findings in `16-REVIEW.md` were checked against current code and tests, not just `16-REVIEW-FIX.md`:
+Review findings in `16-REVIEW.md`, the follow-up deep review, and the Codex lifecycle review were checked against current code and tests, not just `16-REVIEW-FIX.md`:
 
 | Finding | Verification |
 | --- | --- |
@@ -49,6 +53,10 @@ Review findings in `16-REVIEW.md` were checked against current code and tests, n
 | WR-03 ORM vector index drift | `src/db/models.py` declares `ix_case_memories_embedding_hnsw` with `postgresql_using="hnsw"`, matching migration 013. |
 | WR-04 dropped case snippets | `investigate()` accumulates `search_case_memory` result items into `state["case_memory"]` through prompt-safe projection only. |
 | WR-05 ignored query | `MemoryToolExecutor` preserves non-empty query text in `CaseMemorySearchRequest`; repository applies text filtering when no embedding is provided. |
+| Follow-up long-term supersede lifecycle | `supersede_memory()` leaves review-required replacements non-current until approval, requires the previous row to remain current/published/unexpired, rejects expired replacements, and preserves the previous visible row when replacement publication is not valid. |
+| Follow-up review lifecycle | `approve_memory()` / `reject_memory()` require active `needs_review` rows; approval rejects expired pending rows and prevents duplicate published active rows for the same content identity. |
+| Follow-up pending publication | Ordinary review-required long-term candidates no longer occupy the current published slot, so later explicit/deterministic same-content writes can publish normally. |
+| Follow-up expired tombstone identity | Long-term and case tombstone creation retires expired tombstones for the same content/source identity before active lookup and insert, aligning active-query behavior with partial unique indexes. |
 
 ## Automated Verification
 
@@ -59,7 +67,10 @@ Review findings in `16-REVIEW.md` were checked against current code and tests, n
 | `uv run pytest tests/memory/test_phase16_requirement_coverage.py -q` | Local verifier run: 2 passed, 1 warning, 0.06s. |
 | `uv run ruff check src/ tests/` | Local verifier run: passed. |
 | `gsd-sdk query verify.schema-drift 16` | Local verifier run: `valid: true`, `issues: []`, `checked: 9`. |
-| `uv run pytest -q` | Orchestrator post-fix run: 980 passed, 6 warnings, 506.49s. Not re-run in this verifier pass. |
+| `uv run pytest tests/memory/test_long_term_memory_service.py tests/memory/test_memory_tombstones.py tests/memory/test_case_memory_retrieval.py -q` | Lifecycle follow-up run after `f365f00`: 31 passed, 1 warning, 66.96s. |
+| `uv run ruff check src/memory tests/memory` | Lifecycle follow-up run after `f365f00`: passed. |
+| `uv run pytest tests/memory tests/agent/test_memory_evidence_boundary.py tests/agent/test_policy_retrieval_ownership.py tests/agent/test_nodes/test_investigate.py tests/agent/test_tools/test_unified_tool_manager.py -q` | Lifecycle follow-up run after `f365f00`: 152 passed, 1 warning, 133.42s. |
+| `uv run pytest -q` | Final post-lifecycle-fix run after `f365f00`: 988 passed, 6 warnings, 564.26s. |
 
 ## Anti-Patterns And Data Flow
 
@@ -76,5 +87,5 @@ None. Phase 16 has no visual or external-service behavior requiring manual verif
 
 ---
 
-_Verified: 2026-06-17T18:37:27Z_
-_Verifier: Claude (gsd-verifier)_
+_Verified: 2026-06-17T23:57:14Z_
+_Verifier: Codex lifecycle follow-up, building on Claude (gsd-verifier)_

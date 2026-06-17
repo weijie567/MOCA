@@ -2,8 +2,12 @@
 phase: 16-long-term-case-memory
 source_review: .planning/phases/16-long-term-case-memory/16-REVIEW.md
 status: resolved
-fixed: 2026-06-17T21:32:28Z
-fix_commit: 2312abe
+fixed: 2026-06-17T23:57:14Z
+fix_commit: f365f00
+fix_history:
+  - 506c50d
+  - 2312abe
+  - f365f00
 ---
 
 # Phase 16 Code Review Fixes

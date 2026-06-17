@@ -37,6 +37,10 @@ Phase 16 implemented reviewed long-term profile memory and reviewed case memory 
 - Post-review lint: `uv run ruff check src/ tests/` - passed.
 - Post-review schema drift: `gsd-sdk query verify.schema-drift 16` - passed, `valid: true`, `issues: []`.
 - Post-review full suite: `uv run pytest -q` - passed, 980 tests, 6 warnings, 506.49s.
+- Lifecycle follow-up regression suite: `uv run pytest tests/memory/test_long_term_memory_service.py tests/memory/test_memory_tombstones.py tests/memory/test_case_memory_retrieval.py -q` - passed, 31 tests, 1 warning.
+- Lifecycle follow-up expanded memory/agent suite: `uv run pytest tests/memory tests/agent/test_memory_evidence_boundary.py tests/agent/test_policy_retrieval_ownership.py tests/agent/test_nodes/test_investigate.py tests/agent/test_tools/test_unified_tool_manager.py -q` - passed, 152 tests, 1 warning.
+- Lifecycle follow-up lint: `uv run ruff check src/memory tests/memory` - passed.
+- Lifecycle follow-up full suite: `uv run pytest -q` - passed, 988 tests, 6 warnings, 564.26s.
 
 ## Full-Suite Deviation And Fix
 
@@ -59,6 +63,15 @@ Phase-level code review found 1 critical issue and 5 warnings in `.planning/phas
 - `search_case_memory` now preserves the required query argument and applies content-text filtering when no embedding is available.
 
 The resolution is recorded in `.planning/phases/16-long-term-case-memory/16-REVIEW-FIX.md`.
+
+Follow-up lifecycle review passes on 2026-06-18 found additional warning-class edge cases in long-term memory publication, supersede anchors, expired approvals, and expired tombstone identities. Commits `2312abe` and `f365f00` resolved those issues:
+
+- Review-required supersede replacements now stay non-current until approval; approving them atomically supersedes the previous current row.
+- Long-term review actions now require active `needs_review` rows and reject expired pending approval rows.
+- Ordinary `needs_review` long-term candidates no longer occupy the current published slot or block later explicit/deterministic same-content writes.
+- `supersede_memory()` now requires the previous row to be current, published, undeleted, and unexpired.
+- Expired auto-approved replacement candidates are skipped without mutating the previous memory.
+- Long-term and case tombstone creation now retires expired tombstones for the same content/source identity before creating a fresh tombstone.
 
 ## Coverage
 
