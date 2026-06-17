@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
 status: executing
-stopped_at: Completed 15.1-02-PLAN.md
-last_updated: "2026-06-17T05:21:22.154Z"
+stopped_at: Completed 15.1-03-PLAN.md
+last_updated: "2026-06-17T06:52:48.000Z"
 last_activity: 2026-06-17
 progress:
   total_phases: 12
   completed_phases: 9
   total_plans: 61
-  completed_plans: 57
-  percent: 93
+  completed_plans: 58
+  percent: 95
 ---
 
 # Project State: MOCA
@@ -26,7 +26,7 @@ See: `.planning/PROJECT.md` (updated 2026-06-16)
 ## Current Position
 
 Phase: 15.1 (memory-foundation-v2) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Plans: 6 planned
 Status: Ready to execute
 Last activity: 2026-06-17
@@ -117,6 +117,9 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 15.1 Plan 02 wires tool call/result persistence in investigate because ToolManager.invoke() does not own database session access.
 - Phase 15.1 Plan 02 stores tool argument summaries plus SHA-256 argument hashes, not raw argument bodies.
 - Phase 15.1 Plan 02 keeps raw result storage as nullable ref/hash only and introduces no blob table or object-storage surface.
+- Phase 15.1 Plan 03 keeps AgentState as runtime/checkpoint state and introduces WorkingStateV1 only as a prompt-safe projection.
+- WorkingStateV1 may expose compact refs/summaries, but excludes raw business context, policy text, ToolResultV2 data, trace/debug blobs, LLM outputs, approval authority bodies, action payloads, safety snapshots, and hashes.
+- `project_working_state()` is the current single projector from AgentState into WorkingStateV1; ContextAssembler wiring remains Plan 05-owned.
 
 ## Accumulated Context
 
@@ -181,12 +184,13 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | Phase 15 P06 | 36 min | 3 tasks | 6 files |
 | 15.1 | 01 | 17 min | 4 | 11 |
 | Phase 15.1 P02 | 11 min | 3 tasks | 6 files |
+| Phase 15.1 P03 | inline | 3 tasks | 4 files |
 
 ## Session Continuity
 
-Last session: 2026-06-17T05:21:22.139Z
-Stopped at: Completed 15.1-02-PLAN.md
+Last session: 2026-06-17T06:52:48.000Z
+Stopped at: Completed 15.1-03-PLAN.md
 Resume file: None
-Next: Execute 15.1-03-PLAN.md
+Next: Execute 15.1-04-PLAN.md
 
 **Planned Phase:** 15.1 (Memory Foundation V2) — 6 plans — 2026-06-17T04:22:43.755Z
