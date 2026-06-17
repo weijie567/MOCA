@@ -128,11 +128,19 @@ class LongTermMemoryService:
                 event_id=event.id,
             )
 
+        await self.repository.retire_expired_current_by_content_hash(
+            tenant_id=candidate.tenant_id,
+            scope_type=candidate.scope_type,
+            scope_id=candidate.scope_id,
+            content_hash=identity["content_hash"],
+            now=now,
+        )
         existing = await self.repository.get_active_by_content_hash(
             tenant_id=candidate.tenant_id,
             scope_type=candidate.scope_type,
             scope_id=candidate.scope_id,
             content_hash=identity["content_hash"],
+            now=now,
         )
         if existing is not None:
             event = await self.repository.emit_write_event(
@@ -207,6 +215,7 @@ class LongTermMemoryService:
             memory_id=memory_id,
             review_status="approved",
             is_current=True,
+            expected_review_status="needs_review",
         )
         if memory is None:
             raise ValueError("long-term memory not found")
@@ -235,6 +244,7 @@ class LongTermMemoryService:
             memory_id=memory_id,
             review_status="rejected",
             is_current=False,
+            expected_review_status="needs_review",
         )
         if memory is None:
             raise ValueError("long-term memory not found")
@@ -397,10 +407,12 @@ class LongTermMemoryService:
                 event_id=event.id,
             )
 
-        previous.is_current = False
-        previous.review_status = "superseded"
-        previous.superseded_at = now
         review_status = _review_status_for_source(replacement_candidate.source_type)
+        replacement_is_current = review_status == "auto_approved"
+        if replacement_is_current:
+            previous.is_current = False
+            previous.review_status = "superseded"
+            previous.superseded_at = now
         replacement = await self.repository.insert_memory(
             replacement_candidate,
             content_hash=identity["content_hash"],
@@ -410,15 +422,17 @@ class LongTermMemoryService:
             now=now,
             supersedes=previous.id,
             version=previous.version + 1,
-            is_current=True,
+            is_current=replacement_is_current,
         )
-        previous.superseded_by = replacement.id
+        if replacement_is_current:
+            previous.superseded_by = replacement.id
+        decision = "supersede" if replacement_is_current else "needs_review"
         event = await self.repository.emit_write_event(
             tenant_id=replacement_candidate.tenant_id,
             run_id=run_id,
             memory_type=LONG_TERM_MEMORY_TYPE,
             memory_id=replacement.id,
-            decision="supersede",
+            decision=decision,
             reason_code=reason_code,
             pii_classification=replacement_candidate.pii_classification,
             candidate_hash=identity["candidate_hash"],
@@ -428,7 +442,7 @@ class LongTermMemoryService:
             status="written" if review_status == "auto_approved" else "needs_review",
             memory_id=replacement.id,
             review_status=review_status,
-            decision="supersede",
+            decision=decision,
             reason_code=reason_code,
             pii_classification=replacement_candidate.pii_classification,
             candidate_hash=identity["candidate_hash"],

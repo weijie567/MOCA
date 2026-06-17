@@ -189,7 +189,9 @@ class LongTermMemoryRepository:
         scope_type: str,
         scope_id: str,
         content_hash: str,
+        now: datetime | None = None,
     ) -> LongTermMemory | None:
+        now = _aware(now)
         result = await self.session.execute(
             select(LongTermMemory)
             .where(
@@ -199,12 +201,39 @@ class LongTermMemoryRepository:
                 LongTermMemory.content_hash == content_hash,
                 LongTermMemory.deleted_at.is_(None),
                 LongTermMemory.is_current.is_(True),
+                or_(LongTermMemory.expires_at.is_(None), LongTermMemory.expires_at > now),
             )
             .order_by(LongTermMemory.updated_at.desc(), LongTermMemory.created_at.desc())
             .limit(1)
             .execution_options(populate_existing=True)
         )
         return result.scalar_one_or_none()
+
+    async def retire_expired_current_by_content_hash(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        scope_type: str,
+        scope_id: str,
+        content_hash: str,
+        now: datetime | None = None,
+    ) -> None:
+        now = _aware(now)
+        await self.session.execute(
+            update(LongTermMemory)
+            .where(
+                LongTermMemory.tenant_id == tenant_id,
+                LongTermMemory.scope_type == scope_type,
+                LongTermMemory.scope_id == scope_id,
+                LongTermMemory.content_hash == content_hash,
+                LongTermMemory.deleted_at.is_(None),
+                LongTermMemory.is_current.is_(True),
+                LongTermMemory.expires_at.is_not(None),
+                LongTermMemory.expires_at <= now,
+            )
+            .values(is_current=False, updated_at=func.now())
+        )
+        await self.session.flush()
 
     async def emit_write_event(
         self,
@@ -363,10 +392,29 @@ class LongTermMemoryRepository:
         memory_id: uuid.UUID,
         review_status: str,
         is_current: bool | None = None,
+        expected_review_status: str | None = None,
+        now: datetime | None = None,
     ) -> LongTermMemory | None:
         memory = await self.get_memory(tenant_id=tenant_id, memory_id=memory_id)
         if memory is None:
             return None
+        if expected_review_status is not None and memory.review_status != expected_review_status:
+            raise ValueError(f"long-term memory review requires {expected_review_status} status")
+        if memory.deleted_at is not None or memory.review_status in {"deleted", "tombstoned", "superseded"}:
+            raise ValueError("long-term memory review requires an active needs_review row")
+        if review_status == "approved" and memory.supersedes is not None:
+            previous = await self.get_memory(tenant_id=tenant_id, memory_id=memory.supersedes)
+            if (
+                previous is None
+                or previous.deleted_at is not None
+                or previous.is_current is not True
+                or previous.review_status not in PUBLISHED_LONG_TERM_REVIEW_STATUSES
+            ):
+                raise ValueError("superseded long-term memory is not current")
+            previous.is_current = False
+            previous.review_status = "superseded"
+            previous.superseded_at = _aware(now)
+            previous.superseded_by = memory.id
         memory.review_status = review_status
         if is_current is not None:
             memory.is_current = is_current
