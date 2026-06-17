@@ -224,3 +224,56 @@ async def test_review_and_delete_paths_are_evented(session: AsyncSession, seeded
     assert approved_event.candidate_hash == first_result.candidate_hash
     assert rejected_event.candidate_hash == second_result.candidate_hash
     assert deleted_event.candidate_hash == first_result.candidate_hash
+
+
+@pytest.mark.asyncio
+async def test_supersede_memory_updates_chain_and_emits_event(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session)
+    service = LongTermMemoryService(LongTermMemoryRepository(session))
+    first_result = await service.write_memory(_candidate(seeded_session, run_id=run_id))
+
+    replacement_run_id = await _insert_run(session, seeded_session, thread_id="long-term-memory-supersede")
+    replacement = _candidate(
+        seeded_session,
+        run_id=replacement_run_id,
+        content="Merchant prefers concise refund summaries and escalation notes.",
+    )
+
+    result = await service.supersede_memory(
+        tenant_id=seeded_session["tenant"].id,
+        memory_id=first_result.memory_id,
+        replacement_candidate=replacement,
+        run_id=replacement_run_id,
+        reason_code="correction",
+    )
+
+    previous = await session.get(LongTermMemory, first_result.memory_id)
+    replacement_row = await session.get(LongTermMemory, result.memory_id)
+    current_rows = (
+        await session.execute(
+            select(LongTermMemory).where(
+                LongTermMemory.tenant_id == replacement.tenant_id,
+                LongTermMemory.scope_type == replacement.scope_type,
+                LongTermMemory.scope_id == replacement.scope_id,
+                LongTermMemory.is_current.is_(True),
+                LongTermMemory.deleted_at.is_(None),
+            )
+        )
+    ).scalars().all()
+    events = await _events(session, replacement_run_id)
+
+    assert previous is not None
+    assert replacement_row is not None
+    assert previous.review_status == "superseded"
+    assert previous.is_current is False
+    assert previous.superseded_by == replacement_row.id
+    assert replacement_row.supersedes == previous.id
+    assert replacement_row.is_current is True
+    assert [row.id for row in current_rows] == [replacement_row.id]
+    assert result.status == "written"
+    assert result.decision == "supersede"
+    assert events[-1].decision == "supersede"
+    assert events[-1].reason_code == "correction"
