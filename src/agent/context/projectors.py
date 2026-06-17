@@ -62,7 +62,34 @@ _REF_SAFE_KEYS = (
 )
 _POLICY_SAFE_KEYS = ("evidence_id", "doc_key", "chunk_id", "policy_version", "title", "section")
 _TOOL_REF_KEYS = ("resource_type", "resource_id", "source_system", "evidence_id", "doc_key", "chunk_id")
+_MEMORY_SOURCE_REF_KEYS = (
+    "source_type",
+    "business_object_type",
+    "business_object_id",
+    "run_id",
+    "event_id",
+    "conversation_message_id",
+    "tool_result_id",
+    "agent_run_id",
+    "policy_version",
+    "outcome_id",
+)
+_CASE_MEMORY_POLICY_REF_KEYS = ("doc_key", "chunk_id", "policy_version", "policy_family", "title", "section")
 _MAX_LINE_CHARS = 500
+_MEMORY_ITEM_LIMIT = 3
+_PROFILE_MEMORY_MAX_CHARS = 600
+_CASE_MEMORY_MAX_CHARS = 1000
+_SHA256_RE = re.compile(r"sha256:[0-9a-fA-F]{16,}")
+_FORBIDDEN_PROMPT_VALUE_MARKERS = (
+    "EvidenceRefV1",
+    "SHOULD_NOT_APPEAR",
+    "approval_authority_body",
+    "action_authority_body",
+    "raw_payload",
+    "raw_tool_output",
+    "debug_blob",
+    "replay_debug_blob",
+)
 
 
 def project_working_state_for_prompt(working_state: WorkingStateV1, *, max_chars: int = 1600) -> str:
@@ -150,6 +177,68 @@ def project_policy_refs_for_prompt(snippets: Sequence[Any] | None, *, max_chars:
     return _bounded("\n".join(lines), max_chars)
 
 
+def project_profile_memory_for_prompt(snippets: Sequence[Any] | None, *, max_chars: int = _PROFILE_MEMORY_MAX_CHARS) -> str:
+    lines: list[str] = []
+    for item in _sequence(snippets)[:_MEMORY_ITEM_LIMIT]:
+        mapping = _prompt_mapping(item)
+        memory_id = _safe_prompt_scalar(mapping.get("memory_id") or mapping.get("id"))
+        memory_kind = _safe_prompt_scalar(mapping.get("memory_kind") or mapping.get("kind"))
+        content = _safe_prompt_scalar(mapping.get("content") or mapping.get("summary"))
+        if not content:
+            continue
+
+        parts: list[str] = []
+        if memory_id:
+            parts.append(f"memory_id={_bounded(memory_id, 80)}")
+        if memory_kind:
+            parts.append(f"kind={_bounded(memory_kind, 40)}")
+        parts.append(f"content={_bounded(content, 115)}")
+        source_refs = _format_memory_ref_list(
+            mapping.get("source_refs") or mapping.get("source_ref"),
+            keys=_MEMORY_SOURCE_REF_KEYS,
+            max_chars=80,
+        )
+        if source_refs:
+            parts.append(f"source_refs={source_refs}")
+        lines.append("- " + "; ".join(parts))
+    return _bounded("\n".join(lines), max_chars)
+
+
+def project_case_memory_for_prompt(snippets: Sequence[Any] | None, *, max_chars: int = _CASE_MEMORY_MAX_CHARS) -> str:
+    lines: list[str] = []
+    for item in _sequence(snippets)[:_MEMORY_ITEM_LIMIT]:
+        mapping = _prompt_mapping(item)
+        case_memory_id = _safe_prompt_scalar(mapping.get("case_memory_id") or mapping.get("memory_id") or mapping.get("id"))
+        excerpt = _safe_prompt_scalar(mapping.get("excerpt") or mapping.get("summary"))
+        if not case_memory_id or not excerpt:
+            continue
+
+        parts = [
+            f"case_memory_id={_bounded(case_memory_id, 80)}",
+            f"excerpt={_bounded(excerpt, 70)}",
+        ]
+        for key, limit in (("applicability", 25), ("outcome", 25), ("caveats", 25)):
+            value = _safe_prompt_scalar(mapping.get(key))
+            if value:
+                parts.append(f"{key}={_bounded(value, limit)}")
+        source_refs = _format_memory_ref_list(
+            mapping.get("source_refs") or mapping.get("source_ref"),
+            keys=_MEMORY_SOURCE_REF_KEYS,
+            max_chars=120,
+        )
+        if source_refs:
+            parts.append(f"source_refs={source_refs}")
+        policy_refs = _format_memory_ref_list(
+            mapping.get("policy_refs"),
+            keys=_CASE_MEMORY_POLICY_REF_KEYS,
+            max_chars=80,
+        )
+        if policy_refs:
+            parts.append(f"policy_refs={policy_refs}")
+        lines.append("- " + "; ".join(parts))
+    return _bounded("\n".join(lines), max_chars)
+
+
 def project_recent_message_for_prompt(message: Mapping[str, Any], *, max_chars: int = 500) -> str:
     role = _safe_scalar(message.get("role")) or "message"
     content = _safe_scalar(message.get("content")) or ""
@@ -215,6 +304,26 @@ def _format_ref_list(values: Sequence[Any] | None, keys: Sequence[str] = _REF_SA
     return " | ".join(items)
 
 
+def _format_memory_ref_list(value: Any, *, keys: Sequence[str], max_chars: int) -> str:
+    items: list[str] = []
+    for item in _memory_ref_items(value):
+        formatted = _format_safe_ref_mapping(_prompt_mapping(item), keys)
+        if formatted:
+            items.append(formatted)
+    return _bounded(" | ".join(items), max_chars)
+
+
+def _format_safe_ref_mapping(mapping: Mapping[str, Any], keys: Sequence[str]) -> str:
+    parts: list[str] = []
+    for key in keys:
+        if key not in mapping or _is_unsafe_key(key):
+            continue
+        value = _safe_prompt_scalar(mapping.get(key))
+        if value:
+            parts.append(f"{key}={_bounded(value, 60)}")
+    return ", ".join(parts)
+
+
 def _format_mapping(mapping: Mapping[str, Any], keys: Sequence[str]) -> str:
     parts: list[str] = []
     for key in keys:
@@ -244,6 +353,19 @@ def _safe_scalar(value: Any) -> str:
     return ""
 
 
+def _safe_prompt_scalar(value: Any) -> str:
+    text = _safe_scalar(value)
+    if not text:
+        return ""
+    if _SHA256_RE.search(text):
+        return ""
+    lowered = text.lower()
+    for marker in _FORBIDDEN_PROMPT_VALUE_MARKERS:
+        if marker.lower() in lowered:
+            return ""
+    return text
+
+
 def _format_sequence(values: Sequence[Any] | None) -> str:
     items = [_safe_scalar(value) for value in _sequence(values)]
     return "; ".join(item for item in items if item)
@@ -251,6 +373,18 @@ def _format_sequence(values: Sequence[Any] | None) -> str:
 
 def _mapping(value: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
+
+
+def _prompt_mapping(value: Any) -> Mapping[str, Any]:
+    if hasattr(value, "model_dump"):
+        return _mapping(value.model_dump(mode="json"))
+    return _mapping(value)
+
+
+def _memory_ref_items(value: Any) -> list[Any]:
+    if isinstance(value, Mapping) or hasattr(value, "model_dump"):
+        return [value]
+    return _sequence(value)
 
 
 def _mapping_sequence(value: Any) -> list[Mapping[str, Any]]:

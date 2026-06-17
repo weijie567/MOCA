@@ -10,6 +10,8 @@ BlockName = Literal[
     "safety_constraints",
     "business_ids",
     "policy_refs",
+    "profile_memory",
+    "case_memory",
     "working_state",
     "business_context",
     "thread_rolling_summary",

@@ -7,7 +7,9 @@ from src.agent.context.budget import PromptAssembly, PromptBlock, TokenBudgetPol
 from src.agent.context.projectors import (
     extract_business_ids_from_prompt_parts,
     project_business_context_for_prompt,
+    project_case_memory_for_prompt,
     project_policy_refs_for_prompt,
+    project_profile_memory_for_prompt,
     project_recent_message_for_prompt,
     project_tool_result_summary,
     project_working_state_for_prompt,
@@ -35,6 +37,8 @@ class ContextAssembler:
         thread_rolling_summary: str | None = None,
         recent_messages: Sequence[Mapping[str, Any]] | None = None,
         verified_policy_snippets: Sequence[Any] | None = None,
+        profile_memory_snippets: Sequence[Any] | None = None,
+        case_memory_snippets: Sequence[Any] | None = None,
         tool_result_summaries: Sequence[Any] | None = None,
         business_context: Mapping[str, Any] | None = None,
         node_hints: str | Sequence[str] | None = None,
@@ -85,6 +89,14 @@ class ContextAssembler:
         if policy_block:
             blocks.append(PromptBlock("policy_refs", policy_block, priority=85, protected=True))
 
+        profile_memory_block = project_profile_memory_for_prompt(profile_memory_snippets)
+        case_memory_block = project_case_memory_for_prompt(case_memory_snippets)
+        profile_memory_block, case_memory_block = _cap_memory_blocks(profile_memory_block, case_memory_block)
+        if profile_memory_block:
+            blocks.append(PromptBlock("profile_memory", profile_memory_block, priority=55))
+        if case_memory_block:
+            blocks.append(PromptBlock("case_memory", case_memory_block, priority=54))
+
         hint_block = _project_node_hints(node_hints)
         if hint_block:
             blocks.append(PromptBlock("node_hints", hint_block, priority=65))
@@ -109,3 +121,21 @@ def _project_node_hints(hints: str | Sequence[str] | None) -> str:
     if isinstance(hints, str):
         return hints.strip()
     return "\n".join(str(item).strip() for item in hints if str(item).strip())
+
+
+def _cap_memory_blocks(profile_memory: str, case_memory: str, *, max_chars: int = 1600) -> tuple[str, str]:
+    separator_chars = 1 if profile_memory and case_memory else 0
+    if len(profile_memory) + len(case_memory) + separator_chars <= max_chars:
+        return profile_memory, case_memory
+
+    profile_cap = min(len(profile_memory), max_chars // 2)
+    profile_memory = _bounded(profile_memory, profile_cap)
+    remaining = max(0, max_chars - len(profile_memory) - (1 if profile_memory and case_memory else 0))
+    return profile_memory, _bounded(case_memory, remaining)
+
+
+def _bounded(value: str, max_chars: int) -> str:
+    if len(value) <= max_chars:
+        return value
+    marker = " [truncated]"
+    return value[: max(0, max_chars - len(marker))] + marker
