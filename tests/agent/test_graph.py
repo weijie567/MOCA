@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
@@ -15,6 +17,7 @@ from src.agent.nodes import assess_risk_and_approval as assess_risk_module
 from src.agent.nodes import classify_intent as classify_intent_module
 from src.agent.nodes import extract_slots as extract_slots_module
 from src.agent.nodes import generate_recommendation as generate_recommendation_module
+from src.agent.nodes import long_term_memory_retrieve as memory_retrieve_module
 from src.agent.routing import route_after_intent, route_after_investigate, route_after_slots
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1
@@ -256,6 +259,38 @@ def _session_memory_service(
             )
 
     return FakeMemoryService
+
+
+def _patch_reviewed_memory_services(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    profile_items: list[dict[str, Any]] | None = None,
+    case_items: list[dict[str, Any]] | None = None,
+    fail: bool = False,
+) -> None:
+    class FakeLongTermMemoryService:
+        def __init__(self, repository) -> None:
+            pass
+
+        async def retrieve_profile_memory(self, **kwargs):
+            if fail:
+                raise RuntimeError("reviewed long-term memory unavailable")
+            return profile_items or []
+
+    class FakeCaseMemoryService:
+        def __init__(self, repository) -> None:
+            pass
+
+        async def retrieve_reviewed(self, request):
+            if fail:
+                raise RuntimeError("reviewed case memory unavailable")
+            items = case_items or []
+            return SimpleNamespace(status="success" if items else "empty", items=items)
+
+    monkeypatch.setattr(memory_retrieve_module, "LongTermMemoryRepository", lambda session: object(), raising=False)
+    monkeypatch.setattr(memory_retrieve_module, "CaseMemoryRepository", lambda session: object(), raising=False)
+    monkeypatch.setattr(memory_retrieve_module, "LongTermMemoryService", FakeLongTermMemoryService, raising=False)
+    monkeypatch.setattr(memory_retrieve_module, "CaseMemoryService", FakeCaseMemoryService, raising=False)
 
 
 @pytest.mark.asyncio
@@ -543,22 +578,112 @@ async def test_approval_chat_routes_to_clarification_without_tools(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_long_term_memory_empty_adapter_seam(monkeypatch):
+async def test_long_term_memory_reviewed_retrieval_safe_empty_when_no_reviewed_rows(monkeypatch):
     payload = _intent("refund_troubleshooting")
     payload["routing_hints"] = {"needs_long_term_memory": True}
     monkeypatch.setattr(classify_intent_module, "_get_llm", lambda: FakeLLM(payload))
     monkeypatch.setattr(extract_slots_module, "_get_llm", lambda: FakeLLM(_slots("ORD-001")))
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
     monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: FakeLLM(_risk()))
+    _patch_reviewed_memory_services(monkeypatch, profile_items=[], case_items=[])
     manager = FakeGraphToolManager(order_id="ORD-001")
     events: list[dict[str, Any]] = []
     graph = build_graph(MemorySaver())
 
     final_state = await graph.ainvoke(
         _state("订单ORD-001退款为什么没到账？"),
-        _config(manager, events),
+        _config(manager, events, session=object()),
     )
 
     assert final_state["long_term_memory"] == []
     assert final_state["case_memory"] == []
-    assert final_state["llm_outputs"]["long_term_memory_retrieve"]["source"] == "empty_adapter"
+    assert final_state["llm_outputs"]["long_term_memory_retrieve"]["source"] == "no_reviewed_memory"
+    assert final_state["llm_outputs"]["long_term_memory_retrieve"]["continuity_claimed"] is False
+
+
+@pytest.mark.asyncio
+async def test_long_term_memory_reviewed_retrieval_safe_empty_when_unavailable(monkeypatch):
+    payload = _intent("refund_troubleshooting")
+    payload["routing_hints"] = {"needs_long_term_memory": True}
+    monkeypatch.setattr(classify_intent_module, "_get_llm", lambda: FakeLLM(payload))
+    monkeypatch.setattr(extract_slots_module, "_get_llm", lambda: FakeLLM(_slots("ORD-001")))
+    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
+    monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: FakeLLM(_risk()))
+    _patch_reviewed_memory_services(monkeypatch, fail=True)
+    manager = FakeGraphToolManager(order_id="ORD-001")
+    events: list[dict[str, Any]] = []
+    graph = build_graph(MemorySaver())
+
+    final_state = await graph.ainvoke(
+        _state("订单ORD-001退款为什么没到账？"),
+        _config(manager, events, session=object()),
+    )
+
+    assert final_state["long_term_memory"] == []
+    assert final_state["case_memory"] == []
+    assert final_state["llm_outputs"]["long_term_memory_retrieve"]["source"] == "reviewed_memory_unavailable"
+    assert final_state["llm_outputs"]["long_term_memory_retrieve"]["continuity_claimed"] is False
+
+
+@pytest.mark.asyncio
+async def test_long_term_memory_reviewed_snippets_flow_into_graph_state(monkeypatch):
+    payload = _intent("refund_troubleshooting")
+    payload["routing_hints"] = {"needs_long_term_memory": True}
+    monkeypatch.setattr(classify_intent_module, "_get_llm", lambda: FakeLLM(payload))
+    monkeypatch.setattr(extract_slots_module, "_get_llm", lambda: FakeLLM(_slots("ORD-001")))
+    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
+    monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: FakeLLM(_risk()))
+    _patch_reviewed_memory_services(
+        monkeypatch,
+        profile_items=[
+            {
+                "memory_id": "profile-memory-1",
+                "memory_kind": "preference",
+                "content": "商家偏好先核实支付通道再给补偿建议。",
+                "source_ref": {"conversation_id": "conv-1"},
+                "EvidenceRefV1": {"evidence_id": "must-not-leak"},
+                "approval_authority_body": {"approved": True},
+                "raw_tool_payload": {"secret": "must-not-leak"},
+            }
+        ],
+        case_items=[
+            {
+                "case_memory_id": "case-memory-1",
+                "excerpt": "相似退款延迟案例先核实支付通道。",
+                "applicability": "同类退款延迟",
+                "outcome": "建议解释并跟进",
+                "source_refs": [{"business_object_id": "refund-case-1"}],
+                "policy_refs": [{"doc_key": "policy_refund_timeout", "chunk_id": "chunk_001"}],
+                "action_authority_body": {"action": "issue_coupon"},
+                "replay_debug_blob": {"raw": "must-not-leak"},
+            }
+        ],
+    )
+    manager = FakeGraphToolManager(order_id="ORD-001")
+    events: list[dict[str, Any]] = []
+    graph = build_graph(MemorySaver())
+
+    final_state = await graph.ainvoke(
+        _state("订单ORD-001退款为什么没到账？"),
+        _config(manager, events, session=object()),
+    )
+
+    assert final_state["long_term_memory"][0]["memory_id"] == "profile-memory-1"
+    assert final_state["long_term_memory"][0]["content"] == "商家偏好先核实支付通道再给补偿建议。"
+    assert final_state["case_memory"][0]["case_memory_id"] == "case-memory-1"
+    assert final_state["case_memory"][0]["excerpt"] == "相似退款延迟案例先核实支付通道。"
+    assert final_state["llm_outputs"]["long_term_memory_retrieve"]["source"] == "reviewed_memory"
+    assert final_state["llm_outputs"]["long_term_memory_retrieve"]["continuity_claimed"] is True
+    state_json = json.dumps(
+        {"long_term_memory": final_state["long_term_memory"], "case_memory": final_state["case_memory"]},
+        ensure_ascii=False,
+    )
+    forbidden_terms = [
+        "EvidenceRefV1",
+        "approval_authority_body",
+        "action_authority_body",
+        "raw_tool_payload",
+        "replay_debug_blob",
+        "must-not-leak",
+    ]
+    assert all(term not in state_json for term in forbidden_terms)
