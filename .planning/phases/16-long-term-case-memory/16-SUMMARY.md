@@ -32,6 +32,11 @@ Phase 16 implemented reviewed long-term profile memory and reviewed case memory 
 - Focused Phase 16 suite: `uv run pytest tests/memory tests/agent/context tests/agent/test_memory_evidence_boundary.py tests/tools/test_catalog.py tests/agent/test_policy_retrieval_ownership.py tests/memory/test_phase16_requirement_coverage.py -q` - passed, 114 tests, 1 warning.
 - Legacy search transition command: `uv run pytest tests/tools/test_catalog.py tests/agent/test_policy_retrieval_ownership.py tests/agent/test_tools/test_unified_tool_manager.py tests/memory/test_session_precedent_search.py -q` - passed, 55 tests, 1 warning.
 - Full suite: `uv run pytest -q` - passed, 974 tests, 6 warnings, 511.65s.
+- Post-review focused regression suite: `uv run pytest tests/memory/test_memory_identity.py tests/memory/test_long_term_memory_service.py tests/memory/test_memory_schema.py tests/memory/test_case_memory_retrieval.py tests/agent/test_tools/test_unified_tool_manager.py::test_search_case_memory_dispatches_to_reviewed_case_memory_service tests/agent/test_nodes/test_investigate.py::test_search_case_memory_tool_result_accumulates_contextual_case_memory -q` - passed, 33 tests, 1 warning.
+- Post-review expanded memory/tool suite: `uv run pytest tests/memory tests/agent/test_nodes/test_investigate.py tests/agent/test_tools/test_unified_tool_manager.py tests/agent/test_policy_retrieval_ownership.py tests/agent/test_memory_evidence_boundary.py -q` - passed, 144 tests, 1 warning.
+- Post-review lint: `uv run ruff check src/ tests/` - passed.
+- Post-review schema drift: `gsd-sdk query verify.schema-drift 16` - passed, `valid: true`, `issues: []`.
+- Post-review full suite: `uv run pytest -q` - passed, 980 tests, 6 warnings, 506.49s.
 
 ## Full-Suite Deviation And Fix
 
@@ -42,6 +47,19 @@ The first full-suite run during Plan 16-09 failed with 2 failures:
 
 Both failures were stale cross-phase guard assumptions after v1.1 archive and intentional Phase 16 schema implementation. Commit `419b935` updated the tests to read the archived Phase 13 artifact and to preserve Phase 15.1/Phase 17 boundaries without contradicting Phase 16 tables. The full suite then passed.
 
+## Code Review Fixes
+
+Phase-level code review found 1 critical issue and 5 warnings in `.planning/phases/16-long-term-case-memory/16-REVIEW.md`. Commit `506c50d` resolved the findings:
+
+- `supersede_memory()` now blocks prohibited PII before mutating the existing memory chain.
+- Source identity hashes now require a durable discriminator beyond `source_type` or run metadata.
+- Duplicate active long-term writes now return a skipped existing-memory result and event instead of the normal duplicate path hitting the active unique index.
+- ORM metadata now matches the HNSW case-memory embedding index from migration 013.
+- Planner-visible `search_case_memory` now accumulates prompt-safe case-memory snippets in investigate state.
+- `search_case_memory` now preserves the required query argument and applies content-text filtering when no embedding is available.
+
+The resolution is recorded in `.planning/phases/16-long-term-case-memory/16-REVIEW-FIX.md`.
+
 ## Coverage
 
 Requirement coverage is recorded in `.planning/phases/16-long-term-case-memory/16-COVERAGE.md`. The manifest lists all 14 Phase 16 requirement IDs and is guarded by `tests/memory/test_phase16_requirement_coverage.py`.
@@ -51,4 +69,3 @@ The DB-backed pgvector recall fallback from `16-VALIDATION.md` was not needed be
 ## Known Stubs
 
 None recorded for Phase 16 closure. Safe empty/unavailable fallback paths remain intentional fail-closed behavior and do not claim continuity.
-

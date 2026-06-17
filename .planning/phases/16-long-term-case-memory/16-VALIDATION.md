@@ -73,4 +73,4 @@ All authority-boundary, tombstone, prompt-safety, identity, and legacy-search ga
 - [x] No watch-mode flags.
 - [x] `nyquist_compliant: true` set in frontmatter.
 
-**Approval:** executed; Phase 16 closure gates passed on 2026-06-18.
+**Approval:** executed; Phase 16 closure gates passed on 2026-06-18. Post-review fixes passed focused regression, expanded memory/tool, lint, schema-drift, and full-suite verification; latest full suite: `uv run pytest -q` - 980 passed, 6 warnings, 506.49s.
