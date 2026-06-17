@@ -78,6 +78,9 @@ async def test_explicit_user_remember_request_auto_approves(session: AsyncSessio
     assert events[-1].decision == "write"
     assert events[-1].memory_type == "long_term_fact"
     assert events[-1].memory_id == row.id
+    assert events[-1].tenant_id == row.tenant_id
+    assert events[-1].run_id == run_id
+    assert events[-1].source_ref_json["source_type"] == "explicit_user_preference"
     assert events[-1].candidate_hash == result.candidate_hash
 
 
@@ -162,3 +165,62 @@ async def test_prohibited_pii_candidate_is_skipped_and_evented(session: AsyncSes
     assert events[-1].pii_classification == "prohibited"
     assert events[-1].candidate_hash == result.candidate_hash
 
+
+@pytest.mark.asyncio
+async def test_review_and_delete_paths_are_evented(session: AsyncSession, seeded_session: dict) -> None:
+    run_id = await _insert_run(session, seeded_session)
+    service = LongTermMemoryService(LongTermMemoryRepository(session))
+    first_result = await service.write_memory(
+        _candidate(
+            seeded_session,
+            run_id=run_id,
+            content="Model candidate waiting for approval.",
+            source_type="llm_candidate",
+        )
+    )
+    second_result = await service.write_memory(
+        _candidate(
+            seeded_session,
+            run_id=run_id,
+            content="Model candidate waiting for rejection.",
+            source_type="summary_candidate",
+        )
+    )
+
+    approved_event = await service.approve_memory(
+        tenant_id=seeded_session["tenant"].id,
+        memory_id=first_result.memory_id,
+        run_id=run_id,
+    )
+    rejected_event = await service.reject_memory(
+        tenant_id=seeded_session["tenant"].id,
+        memory_id=second_result.memory_id,
+        run_id=run_id,
+    )
+    deleted_event = await service.delete_memory(
+        tenant_id=seeded_session["tenant"].id,
+        memory_id=first_result.memory_id,
+        run_id=run_id,
+    )
+
+    first_row = await session.get(LongTermMemory, first_result.memory_id)
+    second_row = await session.get(LongTermMemory, second_result.memory_id)
+    assert first_row is not None
+    assert second_row is not None
+    assert first_row.review_status == "deleted"
+    assert first_row.deleted_at is not None
+    assert first_row.is_current is False
+    assert second_row.review_status == "rejected"
+    assert second_row.is_current is False
+    assert approved_event.decision == "write"
+    assert approved_event.reason_code == "approved"
+    assert approved_event.memory_type == "long_term_fact"
+    assert rejected_event.decision == "skip"
+    assert rejected_event.reason_code == "rejected"
+    assert rejected_event.memory_type == "long_term_fact"
+    assert deleted_event.decision == "delete"
+    assert deleted_event.reason_code == "deleted"
+    assert deleted_event.memory_type == "long_term_fact"
+    assert approved_event.candidate_hash == first_result.candidate_hash
+    assert rejected_event.candidate_hash == second_result.candidate_hash
+    assert deleted_event.candidate_hash == first_result.candidate_hash

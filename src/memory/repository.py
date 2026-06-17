@@ -204,6 +204,41 @@ class LongTermMemoryRepository:
         await self.session.flush()
         return event
 
+    async def get_memory(self, *, tenant_id: uuid.UUID, memory_id: uuid.UUID) -> LongTermMemory | None:
+        result = await self.session.execute(
+            select(LongTermMemory)
+            .where(LongTermMemory.tenant_id == tenant_id, LongTermMemory.id == memory_id)
+            .execution_options(populate_existing=True)
+        )
+        return result.scalar_one_or_none()
+
+    async def update_review_status(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        memory_id: uuid.UUID,
+        review_status: str,
+        is_current: bool | None = None,
+    ) -> LongTermMemory | None:
+        memory = await self.get_memory(tenant_id=tenant_id, memory_id=memory_id)
+        if memory is None:
+            return None
+        memory.review_status = review_status
+        if is_current is not None:
+            memory.is_current = is_current
+        await self.session.flush()
+        return memory
+
+    async def mark_deleted(self, *, tenant_id: uuid.UUID, memory_id: uuid.UUID, now: datetime | None = None) -> LongTermMemory | None:
+        memory = await self.get_memory(tenant_id=tenant_id, memory_id=memory_id)
+        if memory is None:
+            return None
+        memory.review_status = "deleted"
+        memory.is_current = False
+        memory.deleted_at = _aware(now)
+        await self.session.flush()
+        return memory
+
     async def retrieve_profile_memory(
         self,
         *,
