@@ -49,6 +49,55 @@
 
 ---
 
+## Milestone: v1.1 — Agent Architecture Migration
+
+**Shipped:** 2026-06-17
+**Phases:** 11 | **Plans:** 62 | **Task markers:** 362
+
+### What Was Built
+
+- Explicit KnowledgeService and BusinessToolService facades with canonical evidence/tool contracts.
+- Deterministic AgentState lifecycle, trusted fields, routing totality, intent/clarification gates, and safe fallback behavior.
+- PostgreSQL-authoritative session memory with CAS and safe same-thread continuity.
+- Versioned approval lifecycle, immutable ActionSafetySnapshot binding, draft-only demo action boundary, and ReplayEventV3 event-store replay.
+- Memory Foundation V2: conversation log, layered tool call/result storage, WorkingStateV1, thread summaries, ContextAssembler, token budgeting, and replay/audit/conversation ID alignment.
+- Final readiness closure: formal Phase 7/10 verification and owner disposition for tenant-over-global target policy scope.
+
+### What Worked
+
+- Architecture-first planning kept approval, action, replay, memory, and external execution ownership clear.
+- Cross-AI/code-review loops caught real risks, including migration rollback and concurrent first-message thread creation.
+- Formal readiness audit before Phase 16 prevented ownerless `KNOW-02` and missing verification artifacts from leaking into long-term memory work.
+- Focused regression suites stayed fast enough to run during closure while still covering state/routing, knowledge, replay, and memory boundaries.
+
+### What Was Inefficient
+
+- Some early phases completed before the later formal verification convention existed, requiring Phase 15.2 to backfill evidence artifacts.
+- `roadmap.analyze` did not fully account for decimal Phase 15.2, so readiness required manual cross-checks.
+- Historical Nyquist validation files remained uneven; the milestone passed after formal verification closure, but validation hygiene should be refreshed earlier next time.
+
+### Patterns Established
+
+- Treat `DEFERRED_WITH_OWNER` as acceptable only with owner, rationale, dependency, and acceptance gate.
+- Do not implement target-state scope merely to satisfy an audit when schema/runtime semantics show it belongs to a later phase.
+- Keep phase closure commits separate from next-phase planning so archive boundaries stay reviewable.
+- Use focused milestone smoke suites plus integration checker output as readiness evidence, then record exact commands in archive artifacts.
+
+### Key Lessons
+
+1. Milestone readiness audits should run before entering large new domains like long-term memory.
+2. Verification artifacts are not bookkeeping; missing artifacts create real ambiguity even when code probably works.
+3. Ownerless deferrals are blockers. Named target-state deferrals are acceptable when backed by rationale and acceptance gates.
+4. Decimal insertion phases are useful for closure work, but tooling may need manual verification around them.
+
+### Cost Observations
+
+- Model mix: quality profile across planning, execution, review, and audit.
+- Sessions: multi-session milestone execution from 2026-05-28 to 2026-06-17.
+- Notable: The highest leverage came from short closure phases and targeted smoke suites rather than expanding implementation scope.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -56,15 +105,18 @@
 | Milestone | Sessions | Phases | Key Change |
 |-----------|----------|--------|------------|
 | v1.0 | multi-session | 6 | Established phase-by-phase planning, execution, code review, verification, and final archive workflow |
+| v1.1 | multi-session | 11 | Established architecture-first contracts, formal readiness audit, and owner-named deferrals before long-term memory |
 
 ### Cumulative Quality
 
 | Milestone | Tests | Coverage | Zero-Dep Additions |
 |-----------|-------|----------|-------------------|
 | v1.0 | 164 non-integration tests in final CI-equivalent gate | Phase 6 verifier passed 23/23 must-haves | Deterministic FakeLLM and JSONL golden-set gates avoid provider dependency in CI |
+| v1.1 | 181-test readiness suite plus prior 175-test integration checker suite | Milestone audit passed 32/32 current-scope requirements | Focused smoke suites and formal verification artifacts avoid provider dependency in archive readiness |
 
 ### Top Lessons (Verified Across Milestones)
 
 1. Agent systems need separate gates for deterministic contracts, DB-backed integration, and live provider behavior.
 2. Human-in-the-loop approval is easiest to reason about when it is a persisted graph state transition, not a side-channel.
 3. Demo readiness depends on docs, scripts, and seed data staying synchronized with actual API response shapes.
+4. Architecture migrations need explicit owner boundaries and named deferrals before new memory or execution domains begin.

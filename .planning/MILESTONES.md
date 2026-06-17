@@ -1,5 +1,40 @@
 # Milestones
 
+## v1.1 Agent Architecture Migration (Shipped: 2026-06-17)
+
+**Delivered:** A contract-hardened agent architecture with explicit service facades, deterministic state/routing, approval/action safety contracts, replay events, and pre-Phase 16 memory foundation.
+
+**Phases completed:** 7-15.2 (11 phases, 62 plans, 362 task markers)
+
+**Key accomplishments:**
+- Established a contract baseline with owner phases, acceptance gates, and no unresolved baseline `MISSING` rows.
+- Migrated policy and business reads behind KnowledgeService and BusinessToolService facades with canonical evidence/tool contracts.
+- Hardened AgentState lifecycle, deterministic routers, intent/clarification boundaries, and PostgreSQL-authoritative session memory.
+- Rebuilt approval, demo action, and replay surfaces around versioned state transitions, immutable safety snapshots, draft-only demo behavior, ReplayEventV3, and redaction/retention checks.
+- Added Memory Foundation V2: user-scoped conversation log, layered tool call/result storage, prompt-safe WorkingStateV1, thread summaries, ContextAssembler, token budgeting, and replay/audit/conversation ID alignment.
+- Closed readiness gaps with Phase 15.2 formal verification for Phases 7 and 10 plus `KNOW-02` owner disposition.
+
+**Stats:**
+- 11 completed phases, 62 plans
+- 500 commits since v1.0 archive
+- 675 files changed, 95,913 insertions, 30,352 deletions since v1.0 archive baseline
+- Shipped over 21 calendar days (2026-05-28 to 2026-06-17)
+- Milestone audit passed: 32/32 current-scope requirements satisfied, 0 orphaned, 0 ownerless partials
+
+**Known deferred items at close:**
+- Phase 16 Long-term / Case Memory remains deferred beyond the v1.1 gate.
+- Phase 17 External Action Execution remains deferred beyond the v1.1 gate.
+- Tenant-over-global global/default policy fallback is target-state `DEFERRED_WITH_OWNER` to post-Phase 17 `Policy Scope`.
+
+**Archived:**
+- `.planning/milestones/v1.1-ROADMAP.md`
+- `.planning/milestones/v1.1-REQUIREMENTS.md`
+- `.planning/milestones/v1.1-MILESTONE-AUDIT.md`
+
+**What's next:** Start the next milestone with fresh requirements; likely first candidate is Phase 16 Long-term / Case Memory.
+
+---
+
 ## v1.0 MVP (Shipped: 2026-05-22)
 
 **Delivered:** A complete merchant operations agent demo for refund disputes, rule Q&A, compensation decisions, approval workflows, evidence-backed responses, frontend review, and evaluation reporting.

@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
-status: ready_to_complete_milestone
-stopped_at: Phase 15.2 readiness closure verified and completed; ready to complete/archive v1.1 before Phase 16
-last_updated: "2026-06-17T09:53:13Z"
+status: milestone_complete
+stopped_at: v1.1 archived; ready to define next milestone
+last_updated: "2026-06-17T10:20:00Z"
 last_activity: 2026-06-17
 progress:
-  total_phases: 13
+  total_phases: 11
   completed_phases: 11
   total_plans: 62
   completed_plans: 62
-  percent: 85
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -21,17 +21,17 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-16)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Complete/archive v1.1 after Phase 15.2 readiness closure; then plan Phase 16 long-term / case memory.
+**Current focus:** Define the next milestone with fresh requirements.
 
 ## Current Position
 
-Phase: 15.2
-Plan: 15.2-01 completed
-Plans: 1/1 complete
-Status: Ready to complete milestone
+Phase: none
+Plan: none
+Plans: none
+Status: v1.1 archived; ready for `$gsd-new-milestone`
 Last activity: 2026-06-17
 
-Progress: [████████░░] 83%
+Progress: [██████████] 100%
 
 ## Completed Baseline
 
@@ -133,6 +133,7 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 15.1 Plan 06 aligns conversation/tool/replay/audit refs using safe IDs and keeps ReplayService raw-key guards unchanged.
 - Phase 15.1 final defers Phase 16 long-term memory write gate, memory tombstones, user-manageable memory, case memory vector search, and case precedent retrieval; Phase 17 owns external action execution storage, outbox/execution reconciliation, and compensation workflow.
 - Phase 15.2 final readiness closure passed a focused suite with 181 tests and leaves Phase 16/17 runtime scope untouched.
+- v1.1 archived on 2026-06-17. `.planning/REQUIREMENTS.md` is removed after archive so the next milestone starts with fresh requirements.
 
 ## Accumulated Context
 
@@ -206,8 +207,8 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 ## Session Continuity
 
 Last session: 2026-06-17T08:03:41.302Z
-Stopped at: Phase 15.1 verified and completed; ready to plan Phase 16
+Stopped at: v1.1 archived after Phase 15.2 readiness closure
 Resume file: None
-Next: Complete/archive v1.1, then plan Phase 16 Long-term / Case Memory.
+Next: Run `$gsd-new-milestone`; likely candidate is Phase 16 Long-term / Case Memory.
 
-**Planned Phase:** 15.1 (Memory Foundation V2) — 6 plans — 2026-06-17T04:22:43.755Z
+**Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17

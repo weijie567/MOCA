@@ -10,7 +10,20 @@ Built as an open-source portfolio project demonstrating enterprise Agent enginee
 
 When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution — never silently executing something irreversible.
 
-## Current Milestone: v1.1 Agent Architecture Migration
+## Shipped Milestones
+
+- **v1.0 MVP** — shipped 2026-05-22.
+- **v1.1 Agent Architecture Migration** — shipped 2026-06-17.
+
+Full archive records live in `.planning/milestones/`.
+
+## Current State
+
+v1.1 is archived. There is no active milestone until `$gsd-new-milestone` defines fresh requirements.
+
+The next likely direction is Phase 16 Long-term / Case Memory, but it must be scoped through a new milestone requirements pass rather than inheriting the deleted v1.1 requirements file.
+
+## Last Shipped Milestone: v1.1 Agent Architecture Migration
 
 **Goal:** Migrate the existing deterministic agent toward explicit, testable contracts for knowledge, business tools, state/routing, intent/clarification, memory, approvals, actions, replay, schema rollout, and evaluation without weakening the shipped v1.0 safety boundary.
 
@@ -48,7 +61,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 ### Active
 
-- [ ] v1.1 is ready to archive after Phase 15.2 readiness closure; next milestone action is completing v1.1 before Phase 16 planning.
+- [ ] Define the next milestone with fresh requirements before planning Phase 16 or any new scope.
 
 ### Out of Scope
 
@@ -106,12 +119,13 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - Phase 14 Demo Action Executor Boundary is complete: durable draft-only behavior, exact payload/hash/snapshot binding, no-approval fail-closed behavior, trusted write-tool permission ownership, and draft-only final/API wording are verified.
 - Phase 15 Replay Event Contract is complete: ReplayEventV3 storage/projection, lifecycle finalization, shared sequence allocation, operation pairing, replay redaction/retention, `/replay` read-switch, `/trace` rollback fallback, and owner-named Phase 17 deferrals are verified.
 - Phase 15.1 Memory Foundation V2 is complete: user-scoped conversation log, layered tool call/result storage, prompt-safe WorkingStateV1, source-range thread summaries, ContextAssembler/token budgeting, and replay/audit/conversation ID alignment are verified without implementing Phase 16/17 scope.
-- Phase 15.2 v1.1 Readiness Closure is complete: formal Phase 7/10 verification exists, `KNOW-02` tenant-over-global target semantics have a post-Phase 17 `Policy Scope` owner, and the milestone readiness audit now passes.
-- Active planning is now ready to complete/archive v1.1; Phase 16 Long-term / Case Memory should start after that archive boundary.
+- Phase 15.2 v1.1 Readiness Closure is complete: formal Phase 7/10 verification exists, `KNOW-02` tenant-over-global target semantics have a post-Phase 17 `Policy Scope` owner, and the milestone readiness audit passes.
+- v1.1 is shipped and archived on 2026-06-17. Full milestone history lives in `.planning/milestones/v1.1-ROADMAP.md`, `.planning/milestones/v1.1-REQUIREMENTS.md`, and `.planning/milestones/v1.1-MILESTONE-AUDIT.md`.
+- Active planning is paused until the next milestone is created. Phase 16 Long-term / Case Memory is the likely next candidate, but it needs fresh requirements.
 
 ## Next Milestone Goals
 
-Define the milestone after v1.1 only after the deferred owner phases 16-17 are explicitly accepted, rescheduled, or carried forward.
+Run `$gsd-new-milestone` to decide whether the next milestone should carry forward Phase 16 Long-term / Case Memory, Phase 17 External Action Execution, post-Phase 17 Policy Scope, or a smaller portfolio polish slice.
 
 ## Constraints
 
@@ -134,6 +148,7 @@ Define the milestone after v1.1 only after the deferred owner phases 16-17 are e
 | Keep v1.1 scope fresh | v1.0 requirements are complete and archived; continuing in the same requirements file would mix shipped and future obligations | Adopted after v1.0 archive |
 | Replace the previous v1.1 investigation roadmap with Agent Architecture Migration | The architecture spec now defines the authoritative capability sequence and standard Phase 7-17 identities are required for SDK planning | Adopted 2026-06-06 |
 | Phase 13-17 architecture-first planning standard | Approval, action, replay, memory, and external execution are tightly coupled; plans must read `docs/phase-13-17-architecture-plan.md`, define owners/contracts first, and delete or quarantine old paths instead of preserving minimum-diff compatibility | Adopted 2026-06-15 |
+| Archive v1.1 before Phase 16 | Readiness closure showed v1.1 could be archived cleanly before entering long-term memory, avoiding carry-over evidence debt | Adopted 2026-06-17 |
 
 ## Evolution
 
@@ -153,4 +168,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-17 after Phase 15.2 readiness closure passed and v1.1 became ready to complete/archive*
+*Last updated: 2026-06-17 after v1.1 milestone archive*
