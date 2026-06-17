@@ -24,6 +24,19 @@ REVIEW_STATUSES = {
     "deleted",
 }
 PII_CLASSIFICATIONS = {"none", "low", "sensitive", "prohibited"}
+REQUIRED_MIGRATION_INDEXES = {
+    "uq_long_term_memories_active_identity",
+    "ix_long_term_memories_active_retrieval",
+    "ix_long_term_memories_source_identity",
+    "ix_case_memories_metadata_filters",
+    "ix_case_memories_active_content_identity",
+    "ix_case_memories_source_identity",
+    "ix_case_memories_embedding_hnsw",
+    "ix_memory_tombstones_active_content_identity",
+    "ix_memory_tombstones_active_source_identity",
+    "ix_memory_tombstones_active_scope",
+    "ix_memory_write_events_tenant_run",
+}
 
 
 def _migration_source() -> str:
@@ -41,7 +54,11 @@ def _check_constraint_text() -> str:
     for table_name in PHASE16_TABLES:
         table = Base.metadata.tables.get(table_name)
         assert table is not None
-        parts.extend(str(constraint.sqltext) for constraint in table.constraints if isinstance(constraint, CheckConstraint))
+        parts.extend(
+            str(constraint.sqltext)
+            for constraint in table.constraints
+            if isinstance(constraint, CheckConstraint)
+        )
     return "\n".join(parts)
 
 
@@ -83,13 +100,35 @@ def test_memory_lifecycle_check_constraints_exist() -> None:
 def test_memory_tombstone_active_identity_index_exists() -> None:
     tombstone_table = Base.metadata.tables["memory_tombstones"]
     expected_columns = {"tenant_id", "memory_type", "scope_type", "scope_id", "content_hash"}
-    assert any(expected_columns.issubset({column.name for column in index.columns}) for index in tombstone_table.indexes)
+    assert any(
+        expected_columns.issubset({column.name for column in index.columns})
+        for index in tombstone_table.indexes
+    )
 
     source = _migration_source()
     active_index_start = source.index("ix_memory_tombstones_active_content_identity")
     active_index_source = source[active_index_start : source.index(")", active_index_start)]
     for column_name in expected_columns:
         assert f'"{column_name}"' in active_index_source
+
+
+def test_phase16_memory_migration_preflight_objects_are_declared() -> None:
+    source = _migration_source()
+
+    assert "def upgrade() -> None:" in source
+    assert "def downgrade() -> None:" in source
+    assert "session_memories" not in source
+    for table_name in PHASE16_TABLES:
+        assert f'op.create_table("{table_name}"' in source
+    for index_name in REQUIRED_MIGRATION_INDEXES:
+        assert index_name in source
+    for constraint_name in (
+        "ck_long_term_memories_review_status",
+        "ck_case_memories_review_status",
+        "ck_memory_tombstones_memory_type",
+        "ck_memory_write_events_decision",
+    ):
+        assert constraint_name in source
 
 
 def test_phase16_memory_migration_downgrade_drops_tables_in_reverse_dependency_order() -> None:
