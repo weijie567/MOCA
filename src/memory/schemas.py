@@ -142,6 +142,30 @@ LongTermSourceType = Literal[
     "cross_case_pattern_candidate",
     "behavior_inference",
 ]
+CaseMemoryScopeType = Literal["tenant", "merchant", "user", "thread", "case"]
+CaseMemoryPiiClassification = Literal["none", "low", "sensitive", "prohibited"]
+CaseMemoryReviewStatus = Literal[
+    "auto_approved",
+    "needs_review",
+    "approved",
+    "rejected",
+    "superseded",
+    "tombstoned",
+    "deleted",
+]
+CaseMemoryWriteDecision = Literal["write", "skip", "needs_review", "delete", "supersede", "tombstone", "write_blocked"]
+CaseMemorySourceType = Literal[
+    "explicit_admin_preference",
+    "human_reviewed",
+    "deterministic_tool_result",
+    "confirmed_business_outcome",
+    "approved_approval_state",
+    "llm_candidate",
+    "semantic_episode_candidate",
+    "summary_candidate",
+    "cross_case_pattern_candidate",
+    "behavior_inference",
+]
 
 
 class LongTermMemoryWriteCandidate(BaseModel):
@@ -190,6 +214,90 @@ class LongTermMemoryView(BaseModel):
     version: int
     valid_from: datetime | None = None
     expires_at: datetime | None = None
+
+
+class CaseMemoryWriteCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: uuid.UUID
+    run_id: uuid.UUID
+    scope_type: CaseMemoryScopeType
+    scope_id: str = Field(min_length=1, max_length=128)
+    case_type: str = Field(min_length=1, max_length=64)
+    summary: str = Field(min_length=1, max_length=4000)
+    excerpt: str = Field(min_length=1, max_length=1500)
+    applicability: str | None = Field(default=None, max_length=1500)
+    outcome: str | None = Field(default=None, max_length=1500)
+    caveats: str | None = Field(default=None, max_length=1500)
+    source_type: CaseMemorySourceType
+    source_ref: MemorySourceRefV1 | None = None
+    policy_family: str | None = Field(default=None, max_length=80)
+    policy_version: str | None = Field(default=None, max_length=80)
+    policy_refs: list[dict[str, Any]] = Field(default_factory=list)
+    embedding: list[float] | None = None
+    pii_classification: CaseMemoryPiiClassification = "none"
+    expires_at: datetime | None = None
+
+
+class CaseMemoryReviewDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: uuid.UUID
+    run_id: uuid.UUID
+    case_memory_id: uuid.UUID
+    reviewer_user_id: uuid.UUID | None = None
+    reason_code: str = Field(min_length=1, max_length=64)
+    review_reason: str | None = Field(default=None, max_length=1500)
+
+
+class CaseMemoryWriteResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["written", "needs_review", "skipped", "error"]
+    memory_id: uuid.UUID | None = None
+    review_status: CaseMemoryReviewStatus | None = None
+    decision: CaseMemoryWriteDecision
+    reason_code: str
+    pii_classification: CaseMemoryPiiClassification = "none"
+    candidate_hash: str = Field(pattern=_SHA256_PATTERN)
+    content_hash: str = Field(pattern=_SHA256_PATTERN)
+    source_identity_hash: str | None = Field(default=None, pattern=_SHA256_PATTERN)
+    event_id: uuid.UUID | None = None
+
+
+class CaseMemorySearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: uuid.UUID
+    scope_type: CaseMemoryScopeType | None = None
+    scope_id: str | None = Field(default=None, max_length=128)
+    scopes: list[tuple[CaseMemoryScopeType, str]] | None = None
+    case_type: str | None = Field(default=None, max_length=64)
+    policy_family: str | None = Field(default=None, max_length=80)
+    policy_version: str | None = Field(default=None, max_length=80)
+    query_embedding: list[float] | None = None
+    now: datetime | None = None
+    limit: int = Field(default=5, ge=1, le=50)
+
+
+class CaseMemorySearchItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    case_memory_id: str
+    excerpt: str
+    applicability: str | None = None
+    outcome: str | None = None
+    caveats: str | None = None
+    score: float
+    policy_refs: list[dict[str, Any]] = Field(default_factory=list)
+    source_refs: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class CaseMemorySearchResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["success", "empty"]
+    items: list[CaseMemorySearchItem] = Field(default_factory=list)
 
 
 class SessionPrecedentSearchItem(BaseModel):
