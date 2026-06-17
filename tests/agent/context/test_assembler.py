@@ -16,7 +16,9 @@ SHOULD_NOT_APPEAR_RAW_TOOL_DATA = "SHOULD_NOT_APPEAR_RAW_TOOL_DATA"
 SHOULD_NOT_APPEAR_FULL_POLICY_TEXT = "SHOULD_NOT_APPEAR_FULL_POLICY_TEXT"
 SHOULD_NOT_APPEAR_APPROVAL_BODY = "SHOULD_NOT_APPEAR_APPROVAL_BODY"
 SHOULD_NOT_APPEAR_ACTION_AUTHORITY_BODY = "SHOULD_NOT_APPEAR_ACTION_AUTHORITY_BODY"
+SHOULD_NOT_APPEAR_REPLAY_DEBUG_BLOB = "SHOULD_NOT_APPEAR_REPLAY_DEBUG_BLOB"
 SHOULD_NOT_APPEAR_NESTED_REPR = "{'nested': ['RAW']}"
+SHOULD_NOT_APPEAR_HASH = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 
 def _prompt_text(assembly) -> str:
@@ -177,6 +179,161 @@ def test_context_assembler_does_not_stringify_unprojected_dicts():
     assert "safe recent message" in prompt
     assert SHOULD_NOT_APPEAR_NESTED_REPR not in prompt
     assert "RAW" not in prompt
+
+
+def test_context_assembler_injects_bounded_memory_blocks():
+    profile_memory = [
+        {
+            "memory_id": f"profile-{index}",
+            "memory_kind": "preference",
+            "content": f"Merchant prefers concise refund guidance #{index}." + (" x" * 260),
+            "source_ref": {
+                "source_type": "human_reviewed",
+                "conversation_message_id": f"msg-{index}",
+                "content_hash": SHOULD_NOT_APPEAR_HASH,
+                "raw_payload": SHOULD_NOT_APPEAR_RAW_TOOL_DATA,
+            },
+            "debug_blob": SHOULD_NOT_APPEAR_REPLAY_DEBUG_BLOB,
+            "approval_authority_body": SHOULD_NOT_APPEAR_APPROVAL_BODY,
+        }
+        for index in range(1, 5)
+    ]
+    case_memory = [
+        {
+            "case_memory_id": f"case-memory-{index}",
+            "excerpt": f"Reviewed precedent #{index}: expedited refund only after verified logistics evidence."
+            + (" y" * 240),
+            "applicability": "Applies to damaged-item refund disputes with reviewed evidence.",
+            "outcome": "Support resolved the dispute without direct action execution.",
+            "caveats": "Precedent only; not policy evidence or action authority.",
+            "source_refs": [
+                {
+                    "source_type": "human_reviewed",
+                    "business_object_type": "refund_case",
+                    "business_object_id": f"RF-{index}",
+                    "event_id": f"evt-{index}",
+                    "payload_hash": SHOULD_NOT_APPEAR_HASH,
+                    "raw_tool_output": SHOULD_NOT_APPEAR_RAW_TOOL_DATA,
+                }
+            ],
+            "policy_refs": [
+                {
+                    "doc_key": "refund_policy",
+                    "chunk_id": f"chunk-{index}",
+                    "policy_version": "v1",
+                    "evidence_id": "EvidenceRefV1",
+                    "full_policy_text": SHOULD_NOT_APPEAR_FULL_POLICY_TEXT,
+                }
+            ],
+            "raw_payload": SHOULD_NOT_APPEAR_RAW_TOOL_DATA,
+            "action_authority_body": SHOULD_NOT_APPEAR_ACTION_AUTHORITY_BODY,
+        }
+        for index in range(1, 5)
+    ]
+
+    assembly = ContextAssembler(TokenBudgetPolicy(max_chars=5000)).assemble(
+        system_prompt="System prompt",
+        current_user_message="Current user asks about ORD-1001.",
+        working_state=_working_state(),
+        verified_policy_snippets=[
+            {
+                "evidence_id": "policy-refund:v1:chunk-1",
+                "doc_key": "refund_policy",
+                "section": "refund timeout",
+                "text": "Current policy evidence remains the authority.",
+            }
+        ],
+        profile_memory_snippets=profile_memory,
+        case_memory_snippets=case_memory,
+    )
+
+    block_names = [block.name for block in assembly.blocks]
+    prompt = _prompt_text(assembly)
+    memory_text = "\n".join(
+        block.content for block in assembly.blocks if block.name in {"profile_memory", "case_memory"}
+    )
+
+    assert "profile_memory" in block_names
+    assert "case_memory" in block_names
+    assert "profile-1" in prompt
+    assert "profile-3" in prompt
+    assert "profile-4" not in prompt
+    assert "case-memory-1" in prompt
+    assert "case-memory-3" in prompt
+    assert "case-memory-4" not in prompt
+    assert "source_refs=" in prompt
+    assert "policy_refs=" in prompt
+    assert "business_object_id=RF-1" in prompt
+    assert "doc_key=refund_policy" in prompt
+    assert "chunk_id=chunk-1" in prompt
+    assert len(memory_text) <= 1600
+
+    assert "EvidenceRefV1" not in prompt
+    assert SHOULD_NOT_APPEAR_RAW_TOOL_DATA not in prompt
+    assert SHOULD_NOT_APPEAR_FULL_POLICY_TEXT not in prompt
+    assert SHOULD_NOT_APPEAR_APPROVAL_BODY not in prompt
+    assert SHOULD_NOT_APPEAR_ACTION_AUTHORITY_BODY not in prompt
+    assert SHOULD_NOT_APPEAR_REPLAY_DEBUG_BLOB not in prompt
+    assert "sha256:" not in prompt
+    assert SHOULD_NOT_APPEAR_NESTED_REPR not in prompt
+
+
+def test_memory_blocks_cannot_evict_protected_policy_or_user_blocks():
+    oversized_memory = [
+        {
+            "memory_id": f"profile-{index}",
+            "memory_kind": "constraint",
+            "content": "Oversized memory must never displace protected prompt authority. " * 50,
+        }
+        for index in range(3)
+    ]
+    oversized_cases = [
+        {
+            "case_memory_id": f"case-memory-{index}",
+            "excerpt": "Oversized precedent context must be lower authority than policy/user blocks. " * 50,
+            "source_refs": [{"source_type": "human_reviewed", "business_object_id": f"RF-{index}"}],
+            "policy_refs": [{"doc_key": "refund_policy", "chunk_id": f"chunk-{index}", "policy_version": "v1"}],
+        }
+        for index in range(3)
+    ]
+
+    assembly = ContextAssembler(TokenBudgetPolicy(max_chars=900)).assemble(
+        system_prompt="Protected system prompt",
+        current_user_message="Protected current user question for ORD-1001.",
+        working_state=_working_state(),
+        business_context={"order": {"order_id": "ORD-1001", "status": "delivered"}},
+        verified_policy_snippets=[
+            {
+                "evidence_id": "policy-refund:v1:chunk-1",
+                "doc_key": "refund_policy",
+                "section": "refund timeout",
+                "text": "Protected current policy evidence.",
+            }
+        ],
+        profile_memory_snippets=oversized_memory,
+        case_memory_snippets=oversized_cases,
+    )
+
+    blocks_by_name = {block.name: block for block in assembly.blocks}
+    prompt = _prompt_text(assembly)
+
+    for protected_name in (
+        "system_prompt",
+        "safety_constraints",
+        "business_ids",
+        "policy_refs",
+        "current_user_message",
+    ):
+        assert protected_name in blocks_by_name
+        assert blocks_by_name[protected_name].protected
+
+    for block in assembly.blocks:
+        if block.name in {"profile_memory", "case_memory"}:
+            assert not block.protected
+
+    assert "Protected system prompt" in prompt
+    assert "policy-refund:v1:chunk-1" in prompt
+    assert "Protected current user question for ORD-1001." in prompt
 
 
 def test_context_exports_prompt_projectors():
