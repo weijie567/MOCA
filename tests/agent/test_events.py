@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.agent.events import (
     EVENT_RETENTION_CLASSIFICATION,
     MINIMAL_EVENT_TYPES,
+    RAG_RETRIEVAL_TOOLS,
     allocate_sequence,
     classify_event_family,
     emit_event,
@@ -185,6 +186,12 @@ def test_classification_by_nature():
     assert classify_event_family("search_case_memory") == "rag_retrieval"
     with pytest.raises(ValueError):
         classify_event_family("issue_coupon")
+
+
+def test_case_memory_keeps_single_retrieval_tool_name():
+    assert "search_case_memory" in RAG_RETRIEVAL_TOOLS
+    assert "search_reviewed_case_memory" not in RAG_RETRIEVAL_TOOLS
+    assert classify_event_family("search_case_memory") == "rag_retrieval"
 
 
 def test_memory_write_event_types_and_retention_are_registered():
