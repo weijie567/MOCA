@@ -8,8 +8,9 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import LongTermMemory, MemoryTombstone
-from src.memory.identity import canonical_memory_content_hash
+from src.memory.identity import canonical_memory_content_hash, canonical_source_identity_hash
 from src.memory.repository import LongTermMemoryRepository
+from src.memory.schemas import LongTermMemoryView
 
 
 def _memory(
@@ -23,6 +24,7 @@ def _memory(
     deleted_at: datetime | None = None,
     expires_at: datetime | None = None,
     pii_classification: str = "none",
+    source_identity_hash: str | None = None,
 ) -> LongTermMemory:
     return LongTermMemory(
         id=uuid.uuid4(),
@@ -34,7 +36,7 @@ def _memory(
         content_hash=canonical_memory_content_hash(memory_type="long_term_fact", content=content),
         source_type="human_reviewed",
         source_ref_json={"source_type": "human_reviewed"},
-        source_identity_hash=None,
+        source_identity_hash=source_identity_hash,
         confidence=Decimal("0.9000"),
         pii_classification=pii_classification,
         review_status=review_status,
@@ -131,6 +133,14 @@ async def test_retrieve_profile_memory_excludes_unpublished_states(
         scope_id=scope_id,
         content="Tombstoned memory must not surface.",
     )
+    source_identity_hash = canonical_source_identity_hash({"source_type": "conversation_message", "event_id": "event-1"})
+    source_tombstoned = _memory(
+        tenant_id=tenant_id,
+        scope_type=scope_type,
+        scope_id=scope_id,
+        content="Source-tombstoned memory must not surface.",
+        source_identity_hash=source_identity_hash,
+    )
     session.add_all(
         [
             visible_auto,
@@ -144,6 +154,7 @@ async def test_retrieve_profile_memory_excludes_unpublished_states(
             cross_tenant,
             out_of_scope,
             tombstoned,
+            source_tombstoned,
         ]
     )
     await session.flush()
@@ -157,6 +168,18 @@ async def test_retrieve_profile_memory_excludes_unpublished_states(
             source_ref_json={"source_type": "explicit_user_preference"},
             source_identity_hash=None,
             reason_code="user_deleted",
+        )
+    )
+    session.add(
+        MemoryTombstone(
+            tenant_id=tenant_id,
+            memory_type="long_term_fact",
+            scope_type=scope_type,
+            scope_id=scope_id,
+            content_hash=None,
+            source_ref_json={"source_type": "conversation_message", "event_id": "event-1"},
+            source_identity_hash=source_identity_hash,
+            reason_code="source_deleted",
         )
     )
     await session.flush()
@@ -174,3 +197,31 @@ async def test_retrieve_profile_memory_excludes_unpublished_states(
     assert all(row.tenant_id == str(tenant_id) for row in rows)
     assert all(row.scope_type == scope_type and row.scope_id == scope_id for row in rows)
 
+
+@pytest.mark.asyncio
+async def test_retrieve_profile_memory_returns_bounded_views(session: AsyncSession, seeded_session: dict) -> None:
+    tenant_id = seeded_session["tenant"].id
+    scope_type = "merchant"
+    scope_id = str(seeded_session["merchant"].id)
+    session.add(
+        _memory(
+            tenant_id=tenant_id,
+            scope_type=scope_type,
+            scope_id=scope_id,
+            content="x" * 1200,
+            review_status="approved",
+        )
+    )
+    await session.flush()
+
+    rows = await LongTermMemoryRepository(session).retrieve_profile_memory(
+        tenant_id=tenant_id,
+        scope_type=scope_type,
+        scope_id=scope_id,
+    )
+
+    assert len(rows) == 1
+    assert isinstance(rows[0], LongTermMemoryView)
+    assert not isinstance(rows[0], LongTermMemory)
+    assert len(rows[0].content) <= 1000
+    assert "[memory_truncated]" in rows[0].content
