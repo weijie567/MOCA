@@ -56,7 +56,7 @@ MOCA/
 - `src/approvals/schemas.py` centralizes approval-domain schema version literals
 
 **`src/knowledge/`, `src/business/`, `src/memory/`, and `src/tools/`:**
-- Phase 8-12 domain facades and contracts for policy evidence, business reads, session memory, and tool invocation
+- Phase 8-16 domain facades and contracts for policy evidence, business reads, session memory, reviewed long-term/case memory schema, and tool invocation
 - `src/knowledge/schemas.py` owns EvidenceRefV1 and canonical evidence projection reused by approval snapshots
 
 **`src/conversation/`:**
@@ -69,8 +69,8 @@ MOCA/
 - Lifecycle, operation-pairing, and `/replay` API behavior are planned in later Phase 15 slices
 
 **`src/db/` and `src/repositories/`:**
-- ORM models for tenants, users, orders, refund cases, tickets, policy docs/chunks, audit logs, agent runs, approvals, action drafts, and agent steps
-- Alembic migrations through `010_replay_event_v3`
+- ORM models for tenants, users, orders, refund cases, tickets, policy docs/chunks, audit logs, agent runs, approvals, action drafts, agent steps, replay/conversation records, and reviewed memory tables
+- Alembic migrations through `013_long_term_case_memory`
 - Repository classes that keep route and tool logic away from raw SQL
 
 **`src/rag/`:**

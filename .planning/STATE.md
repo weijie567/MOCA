@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Long-term / Case Memory
 status: executing
-stopped_at: Completed 16-01-memory-identity-PLAN.md
-last_updated: "2026-06-17T15:25:50.274Z"
-last_activity: 2026-06-17 -- Plan 16-01 complete; ready for Plan 16-02
+stopped_at: Completed 16-02-schema-migration-PLAN.md
+last_updated: "2026-06-17T15:42:07.040Z"
+last_activity: 2026-06-17
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 9
-  completed_plans: 1
-  percent: 11
+  completed_plans: 2
+  percent: 22
 ---
 
 # Project State: MOCA
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md` (updated 2026-06-17)
 ## Current Position
 
 Phase: 16 (long-term-case-memory) — EXECUTING
-Plan: 2 of 9
+Plan: 3 of 9
 Plans: 9 plan files in `.planning/phases/16-long-term-case-memory/`
 Status: Ready to execute
-Last activity: 2026-06-17 -- Plan 16-01 complete; ready for Plan 16-02
+Last activity: 2026-06-17
 
-Progress: [█░░░░░░░░░] 11%
+Progress: [██░░░░░░░░] 22%
 
 Planned files:
 
@@ -153,6 +153,8 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 16 Plan 01 keeps `memory_identity.v1` helpers in `src/memory/identity.py` because normalization and source-ref allowlists are memory-domain rules.
 - Phase 16 Plan 01 adds `MemorySourceRefV1` now so downstream tombstone/source fallback code uses the same authoritative typed key set.
 - Phase 16 Plan 01 candidate hashes accept only stable envelope fields and reuse `content_hash` / `source_identity_hash`, excluding raw payloads and authority-bearing bodies.
+- Phase 16 Plan 02 uses separate durable long-term/case/tombstone/write-event memory tables instead of overloading session_memories.
+- Phase 16 Plan 02 uses PostgreSQL/pgvector Vector(1024) plus HNSW index for reviewed case memory embeddings.
 
 ## Accumulated Context
 
@@ -231,13 +233,14 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | Phase 15.1 P05 | 12 min | 3 tasks | 12 files |
 | Phase 15.1 P06 | 20 min | 3 tasks | 6 files |
 | 16 | 01 | 6 min | 3 | 3 |
+| 16 | 02 | 10 min | 4 | 3 |
 
 ## Session Continuity
 
-Last session: 2026-06-17T15:25:50Z
-Stopped at: Completed 16-01-memory-identity-PLAN.md
+Last session: 2026-06-17T15:42:07Z
+Stopped at: Completed 16-02-schema-migration-PLAN.md
 Resume file: None
-Next: Continue with `.planning/phases/16-long-term-case-memory/16-02-schema-migration-PLAN.md`.
+Next: Continue with `.planning/phases/16-long-term-case-memory/16-03-long-term-memory-service-PLAN.md`.
 
 **Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17
 **Active Milestone:** v1.2 Long-term / Case Memory — defined 2026-06-17

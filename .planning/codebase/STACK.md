@@ -40,7 +40,7 @@
 - Alembic - Database migration management
 - LangGraph - Agent orchestration, checkpointing, interrupt/resume approval flow
 - langgraph-checkpoint-postgres - Postgres-backed graph checkpoint persistence
-- pgvector - Vector storage support for policy chunks
+- pgvector - Vector storage support for policy chunks and reviewed case memory embeddings
 - OpenAI / LangChain OpenAI packages - Model-compatible integration surface
 - Redis - Local service dependency for cache/rate-limit style infrastructure
 - React + Vite - Frontend UI
@@ -91,7 +91,7 @@
 - Node.js/npm for frontend work
 
 **Local Services:**
-- PostgreSQL with pgvector
+- PostgreSQL with pgvector for policy retrieval and reviewed case memory embeddings
 - Redis
 
 **Production Posture:**

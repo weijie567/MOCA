@@ -41,9 +41,9 @@
 
 ### Phase 16: Long-term / Case Memory
 
-**Status:** In Progress — 1/9 plans complete
+**Status:** In Progress — 2/9 plans complete
 
-**Plans:** 1 summary / 9 plan files in `.planning/phases/16-long-term-case-memory/` (`16-01` complete; `16-02` through `16-09` pending)
+**Plans:** 2 summaries / 9 plan files in `.planning/phases/16-long-term-case-memory/` (`16-01` and `16-02` complete; `16-03` through `16-09` pending)
 
 **Goal:** Implement reviewed long-term profile memory and reviewed case memory retrieval on top of the v1.1 conversation/context foundation, while preserving the boundaries that memory is contextual assistance only.
 
@@ -76,11 +76,11 @@
 
 ## Current Status
 
-v1.2 Phase 16 is in progress. Plan `16-01-memory-identity` is complete; 8 Phase 16 plans remain.
+v1.2 Phase 16 is in progress. Plans `16-01-memory-identity` and `16-02-schema-migration` are complete; 7 Phase 16 plans remain.
 
 ## Next Step
 
-Continue with `.planning/phases/16-long-term-case-memory/16-02-schema-migration-PLAN.md`.
+Continue with `.planning/phases/16-long-term-case-memory/16-03-long-term-memory-service-PLAN.md`.
 
 ---
-*Updated: 2026-06-17 - Phase 16 Plan 01 complete.*
+*Updated: 2026-06-17 - Phase 16 Plan 02 complete.*
