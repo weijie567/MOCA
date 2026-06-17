@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Long-term / Case Memory
 status: executing
-stopped_at: Completed 16-08-memory-retrieval-integration-PLAN.md
-last_updated: "2026-06-17T17:22:52.449Z"
-last_activity: 2026-06-17
+stopped_at: Completed 16-09-legacy-search-eval-closure-PLAN.md
+last_updated: "2026-06-17T18:02:00Z"
+last_activity: 2026-06-18 -- Phase 16 execution complete; verification pending
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 9
-  completed_plans: 8
-  percent: 89
+  completed_plans: 9
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md` (updated 2026-06-17)
 ## Current Position
 
 Phase: 16 (long-term-case-memory) — EXECUTING
-Plan: 9 of 9
+Plan: verification pending
 Plans: 9 plan files in `.planning/phases/16-long-term-case-memory/`
-Status: Ready to execute
-Last activity: 2026-06-17
+Status: Phase execution complete; verification pending
+Last activity: 2026-06-18 -- Phase 16 execution complete; verification pending
 
-Progress: [█████████░] 89%
+Progress: [██████████] 100%
 
 Planned files:
 
@@ -175,6 +175,9 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - [Phase 16]: Reviewed memory retrieval fails closed: unavailable services, missing dependencies, or empty reviewed rows never claim continuity. — Plan 16-08 threat model requires safe empty behavior without false continuity.
 - [Phase 16]: Graph state receives only prompt-safe allowlisted memory snippets, not raw ORM rows or authority-bearing payloads. — Reviewed memory must remain contextual assistance only and cannot become evidence or action authority.
 - [Phase 16]: Prompt nodes pass reviewed memory through ContextAssembler while preserving policy evidence, tool summaries, and business context as separate authority sources. — This keeps memory context below the existing evidence/business/action safety boundaries.
+- Phase 16 Plan 09 routes planner-visible `search_case_memory` to reviewed case memory and keeps session-derived precedent search legacy/debug-only.
+- Phase 16 Plan 09 updated stale cross-phase guards after v1.1 archive and intentional Phase 16 schema creation; full suite passed with 974 tests.
+- Phase 16 coverage manifest lists all 14 v1.2 requirement IDs and is guarded by `tests/memory/test_phase16_requirement_coverage.py`.
 
 ## Accumulated Context
 
@@ -258,15 +261,16 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | Phase 16 P04 | 6 min | 2 tasks | 2 files |
 | Phase 16 P05 | 14 min | 4 tasks | 5 files |
 | 16 | 06 | 12 min | 4 | 4 |
-| 16 | 07 | 6 min | 3 | 5 |
-| Phase 16 P08 | 10 min | 3 tasks | 8 files |
+| 16 | 07 | 6 min | 3 | 4 |
+| 16 | 08 | 10 min | 3 | 8 |
+| 16 | 09 | 24 min | 4 | 14 |
 
 ## Session Continuity
 
-Last session: 2026-06-17T17:22:52.444Z
-Stopped at: Completed 16-08-memory-retrieval-integration-PLAN.md
+Last session: 2026-06-17T18:02:00Z
+Stopped at: Completed 16-09-legacy-search-eval-closure-PLAN.md
 Resume file: None
-Next: Continue with `.planning/phases/16-long-term-case-memory/16-09-legacy-search-eval-closure-PLAN.md`.
+Next: Run Phase 16 phase-level verification gates.
 
 **Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17
 **Active Milestone:** v1.2 Long-term / Case Memory — defined 2026-06-17
