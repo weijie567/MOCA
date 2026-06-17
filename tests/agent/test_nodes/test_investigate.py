@@ -438,6 +438,7 @@ async def test_investigate_state_tool_results_are_prompt_safe_refs(session: Asyn
     assert "raw_payload" not in projection
     assert "13800000000" not in str(projection)
     assert "SHOULD_NOT_APPEAR" not in str(projection)
+    assert "raw_payload" not in str(result["business_context"])
 
 
 @pytest.mark.asyncio

@@ -9,7 +9,9 @@ from langchain_core.runnables import RunnableConfig
 from src.agent.events import RAG_RETRIEVAL_TOOLS, TOOL_CALL_TOOLS, emit_event
 from src.agent.prompts import INSUFFICIENT_EVIDENCE_RESPONSE
 from src.agent.state import AgentState
-from src.tools.contracts import ToolCallContext, ToolResultV2
+from src.conversation.repository import ConversationRepository
+from src.conversation.service import ConversationService
+from src.tools.contracts import ToolCallContext, ToolResultPromptSummary, ToolResultV2
 from src.tools.manager import UnifiedToolManager
 
 
@@ -111,10 +113,28 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
         family = manager.event_family(tool_name)
         operation_id = uuid4()
         await _emit_tool_event(configurable, session, state, descriptor, family, operation_id, iteration, "started")
-        tool_ctx = _build_tool_context(state, configurable, tool_name, operation_id, max_attempts, deadline_at)
+        tool_ctx = _build_tool_context(
+            state,
+            configurable,
+            tool_name,
+            operation_id,
+            iteration,
+            max_attempts,
+            deadline_at,
+        )
+        tool_call_record = await _append_tool_call_record(
+            configurable,
+            session,
+            tool_name,
+            args,
+            tool_ctx,
+            operation_id,
+        )
         result = await manager.invoke(tool_name, args, tool_ctx)
         calls_executed += 1
-        terminal = "completed" if result.status in {"success", "partial_success", "not_found", "unavailable"} else "failed"
+        terminal = (
+            "completed" if result.status in {"success", "partial_success", "not_found", "unavailable"} else "failed"
+        )
         await _emit_tool_event(
             configurable,
             session,
@@ -126,7 +146,16 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
             terminal,
             result=result,
         )
-        _accumulate_tool_result(context, descriptor, tool_name, result)
+        projection = await _append_tool_result_record(
+            configurable,
+            session,
+            tool_name,
+            tool_ctx,
+            operation_id,
+            result,
+            tool_call_record,
+        )
+        _accumulate_tool_result(context, descriptor, tool_name, result, projection)
         if result.status == "unavailable":
             context["unusable"].add(tool_name)
         if result.status not in TERMINAL_STATUSES:
@@ -205,6 +234,7 @@ def _build_tool_context(
     configurable: dict[str, Any],
     tool_name: str,
     operation_id: Any,
+    attempt: int,
     max_attempts: int,
     deadline_at: Any,
 ) -> ToolCallContext:
@@ -223,11 +253,146 @@ def _build_tool_context(
         caller_node="investigate",
         deadline_at=deadline_at,
         effective_at=state.get("run_started_at") or _now_iso(),
-        attempt=1,
+        attempt=attempt,
         max_attempts=max_attempts,
         idempotency_key=f"{state.get('current_run_id') or 'run'}:{tool_name}:{operation_id}",
         policy_snapshot_ref=None,
     )
+
+
+async def _append_tool_call_record(
+    configurable: dict[str, Any],
+    session: Any,
+    tool_name: str,
+    args: dict[str, Any],
+    tool_ctx: ToolCallContext,
+    operation_id: Any,
+) -> Any | None:
+    if session is None:
+        return None
+    service = _conversation_service(configurable, session)
+    return await service.append_tool_call(
+        tenant_id=tool_ctx.tenant_id,
+        user_id=tool_ctx.user_id,
+        thread_id=tool_ctx.thread_id,
+        run_id=tool_ctx.run_id,
+        trace_id=tool_ctx.trace_id,
+        tool_call_id=tool_ctx.tool_call_id,
+        tool_name=tool_name,
+        caller_node=tool_ctx.caller_node,
+        operation_id=operation_id,
+        attempt=tool_ctx.attempt,
+        arguments=args,
+        argument_summary_json=_argument_summary(tool_name, args),
+        redaction_policy_version="conversation_redaction.v1",
+    )
+
+
+async def _append_tool_result_record(
+    configurable: dict[str, Any],
+    session: Any,
+    tool_name: str,
+    tool_ctx: ToolCallContext,
+    operation_id: Any,
+    result: ToolResultV2,
+    tool_call_record: Any | None,
+) -> ToolResultPromptSummary:
+    tool_result_id = str(uuid4())
+    if session is None:
+        return _project_tool_result(
+            tool_call_id=tool_ctx.tool_call_id,
+            tool_result_id=tool_result_id,
+            tool_name=tool_name,
+            result=result,
+            raw_result_ref=None,
+        )
+    service = _conversation_service(configurable, session)
+    return await service.append_tool_result(
+        tenant_id=tool_ctx.tenant_id,
+        user_id=tool_ctx.user_id,
+        thread_id=tool_ctx.thread_id,
+        run_id=tool_ctx.run_id,
+        trace_id=tool_ctx.trace_id,
+        operation_id=operation_id,
+        tool_call_id=tool_ctx.tool_call_id,
+        tool_call_record_id=getattr(tool_call_record, "id", None),
+        tool_result_id=tool_result_id,
+        tool_name=tool_name,
+        result=result,
+        raw_result_ref=None,
+        raw_result_hash=None,
+    )
+
+
+def _conversation_service(configurable: dict[str, Any], session: Any) -> ConversationService:
+    service = configurable.get("conversation_service")
+    if isinstance(service, ConversationService):
+        return service
+    return ConversationService(ConversationRepository(session))
+
+
+def _argument_summary(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": "tool_argument_summary.v1",
+        "tool_name": tool_name,
+        "argument_keys": sorted(str(key) for key in args),
+        "argument_count": len(args),
+    }
+
+
+def _project_tool_result(
+    *,
+    tool_call_id: str,
+    tool_result_id: str,
+    tool_name: str,
+    result: ToolResultV2,
+    raw_result_ref: str | None,
+) -> ToolResultPromptSummary:
+    business_fact_refs = [ref.model_dump(mode="json") for ref in result.business_fact_refs]
+    policy_evidence_refs = [ref.model_dump(mode="json") for ref in result.policy_evidence_refs]
+    prompt_summary = _safe_prompt_summary(
+        tool_name=tool_name,
+        status=result.status,
+        summary=result.summary,
+        source_system=result.source_system,
+        business_fact_refs=business_fact_refs,
+        policy_evidence_refs=policy_evidence_refs,
+    )
+    return ToolResultPromptSummary(
+        tool_call_id=tool_call_id,
+        tool_result_id=tool_result_id,
+        tool_name=tool_name,
+        status=result.status,
+        summary=result.summary,
+        prompt_summary=prompt_summary,
+        business_fact_refs=business_fact_refs,
+        policy_evidence_refs=policy_evidence_refs,
+        raw_result_ref=raw_result_ref,
+        audit_ref=result.audit_ref,
+    )
+
+
+def _safe_prompt_summary(
+    *,
+    tool_name: str,
+    status: str,
+    summary: str,
+    source_system: str,
+    business_fact_refs: list[dict[str, Any]],
+    policy_evidence_refs: list[dict[str, Any]],
+) -> str:
+    business_refs = [
+        f"{ref.get('resource_type')}:{ref.get('resource_id')}"
+        for ref in business_fact_refs
+        if ref.get("resource_type") and ref.get("resource_id")
+    ]
+    evidence_refs = [str(ref.get("evidence_id")) for ref in policy_evidence_refs if ref.get("evidence_id")]
+    parts = [f"{tool_name} {status} from {source_system}", " ".join(summary.split())[:240]]
+    if business_refs:
+        parts.append(f"business refs: {', '.join(business_refs[:5])}")
+    if evidence_refs:
+        parts.append(f"policy refs: {', '.join(evidence_refs[:5])}")
+    return " | ".join(parts)
 
 
 async def _emit_tool_event(
@@ -252,7 +417,9 @@ async def _emit_tool_event(
     if result is not None and result.status in {"error", "invalid_request", "invalid_response"}:
         redacted_payload["termination_reason"] = "unrecoverable_error"
     if event_emitter is not None:
-        await event_emitter(event_type=event_type, operation_id=operation_id, iteration=iteration, payload=redacted_payload)
+        await event_emitter(
+            event_type=event_type, operation_id=operation_id, iteration=iteration, payload=redacted_payload
+        )
         return
     if session is None:
         return
@@ -271,20 +438,24 @@ async def _emit_tool_event(
     )
 
 
-def _accumulate_tool_result(context: dict[str, Any], descriptor: Any, tool_name: str, result: ToolResultV2) -> None:
-    context["tool_results"].append({"tool_name": tool_name, **result.model_dump(mode="json")})
+def _accumulate_tool_result(
+    context: dict[str, Any],
+    descriptor: Any,
+    tool_name: str,
+    result: ToolResultV2,
+    projection: ToolResultPromptSummary,
+) -> None:
+    context["tool_results"].append(projection.model_dump(mode="json"))
     if result.status == "success":
         if result.business_fact_refs:
             for ref in result.business_fact_refs:
                 ref_data = ref.model_dump(mode="json")
                 context["business_fact_refs"].append(ref_data)
-                context["facts"][ref.resource_type] = result.data or {}
+                context["facts"][ref.resource_type] = _without_raw_payload(result.data or {})
                 context["claim_dependency_map"].append(
                     {
                         "claim_id": f"business:{ref.resource_type}:{ref.resource_id}",
-                        "depends_on_refs": [
-                            {"resource_type": ref.resource_type, "resource_id": ref.resource_id}
-                        ],
+                        "depends_on_refs": [{"resource_type": ref.resource_type, "resource_id": ref.resource_id}],
                     }
                 )
         if result.policy_evidence_refs:
@@ -305,8 +476,10 @@ def _accumulate_tool_result(context: dict[str, Any], descriptor: Any, tool_name:
             context["best_score"] = float(best_score)
     if result.status != "success":
         resource_type = descriptor.resource_type if descriptor is not None and descriptor.resource_type else tool_name
-        error = result.error.model_dump(mode="json") if result.error is not None else _safe_error(
-            result.status.upper(), result.summary, resource_type
+        error = (
+            result.error.model_dump(mode="json")
+            if result.error is not None
+            else _safe_error(result.status.upper(), result.summary, resource_type)
         )
         error["resource"] = resource_type
         context["errors"].append(error)
@@ -393,10 +566,7 @@ def _retrieval_error_draft(errors: list[dict[str, Any]]) -> dict[str, Any]:
 def _case_slots(state: AgentState) -> dict[str, Any]:
     extracted = state.get("extracted_slots") if isinstance(state.get("extracted_slots"), dict) else {}
     active = state.get("active_slots") if isinstance(state.get("active_slots"), dict) else {}
-    return {
-        slot_name: extracted.get(slot_name) or active.get(slot_name)
-        for slot_name in _CASE_SLOT_RESOURCES
-    }
+    return {slot_name: extracted.get(slot_name) or active.get(slot_name) for slot_name in _CASE_SLOT_RESOURCES}
 
 
 def _bounded_iterations(value: Any) -> int:
@@ -423,6 +593,15 @@ def _attempt_key(tool_name: str, args: dict[str, Any]) -> tuple[str, tuple[tuple
 
 def _safe_error(code: str, safe_message: str, source: str) -> dict[str, Any]:
     return {"code": code, "safe_message": safe_message, "retryable": False, "source": source}
+
+
+def _without_raw_payload(value: Any) -> Any:
+    forbidden = {"raw", "raw_args", "raw_payload", "raw_tool_output"}
+    if isinstance(value, dict):
+        return {key: _without_raw_payload(child) for key, child in value.items() if str(key).lower() not in forbidden}
+    if isinstance(value, list):
+        return [_without_raw_payload(item) for item in value]
+    return value
 
 
 def _now_iso() -> str:
