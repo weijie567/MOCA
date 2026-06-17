@@ -84,7 +84,7 @@ async def chat(
             total_latency_ms=0,
             trace_id=getattr(request.state, "trace_id", None),
         )
-        await ConversationService(ConversationRepository(session)).append_user_message(
+        user_message = await conversation_service.append_user_message(
             tenant_id=user.tenant_id,
             user_id=user.id,
             thread_id=body.thread_id,
@@ -93,6 +93,8 @@ async def chat(
             trace_id=getattr(request.state, "trace_id", None),
             prompt_template_version="chat.request.v1",
         )
+        config["configurable"]["conversation_message_id"] = str(user_message.message_id)
+        config["configurable"]["conversation_thread_id"] = str(user_message.conversation_thread_id)
         final_state = await graph.ainvoke(input_state, config)
     except Exception as exc:
         if _is_graph_interrupt(exc):

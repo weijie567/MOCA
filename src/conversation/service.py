@@ -122,6 +122,7 @@ class ConversationService:
         arguments: dict[str, Any],
         argument_summary_json: dict[str, Any],
         redaction_policy_version: str,
+        conversation_message_id: uuid.UUID | str | None = None,
     ):
         if self.repository is None:
             raise RuntimeError("ConversationRepository is required for append operations")
@@ -140,6 +141,7 @@ class ConversationService:
             argument_summary_json=argument_summary_json,
             argument_hash=argument_hash,
             redaction_policy_version=redaction_policy_version,
+            conversation_message_id=_coerce_optional_uuid(conversation_message_id),
         )
 
     async def append_tool_result(
@@ -153,6 +155,7 @@ class ConversationService:
         operation_id: uuid.UUID | str | None,
         tool_call_id: str,
         tool_call_record_id: uuid.UUID | str | None,
+        conversation_message_id: uuid.UUID | str | None = None,
         tool_result_id: str | None = None,
         tool_name: str,
         result: ToolResultV2,
@@ -184,6 +187,7 @@ class ConversationService:
             operation_id=_coerce_optional_uuid(operation_id),
             tool_call_id=tool_call_id,
             tool_call_record_id=_coerce_optional_uuid(tool_call_record_id),
+            conversation_message_id=_coerce_optional_uuid(conversation_message_id),
             tool_result_id=stored_tool_result_id,
             status=result.status,
             source_system=result.source_system,

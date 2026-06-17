@@ -285,6 +285,7 @@ async def _append_tool_call_record(
         arguments=args,
         argument_summary_json=_argument_summary(tool_name, args),
         redaction_policy_version="conversation_redaction.v1",
+        conversation_message_id=configurable.get("conversation_message_id"),
     )
 
 
@@ -321,6 +322,7 @@ async def _append_tool_result_record(
         result=result,
         raw_result_ref=None,
         raw_result_hash=None,
+        conversation_message_id=configurable.get("conversation_message_id"),
     )
 
 
