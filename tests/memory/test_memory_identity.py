@@ -191,6 +191,18 @@ def test_source_identity_hash_accepts_only_memory_source_ref_keys() -> None:
     assert SOURCE_REF_KEYS == set(_source_ref())
 
 
+def test_source_identity_hash_requires_durable_discriminator() -> None:
+    assert canonical_source_identity_hash({"source_type": "deterministic_tool_result"}) is None
+    assert canonical_source_identity_hash(
+        {"source_type": "deterministic_tool_result", "run_id": "run-1"}
+    ) is None
+    assert SHA256_RE.fullmatch(
+        canonical_source_identity_hash(
+            {"source_type": "deterministic_tool_result", "event_id": "event-1"}
+        )
+    )
+
+
 def test_source_identity_rejects_unknown_keys() -> None:
     with pytest.raises(MemoryIdentityError, match="unknown"):
         canonical_source_identity_hash({"random_json_key": "x"})

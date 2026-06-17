@@ -112,6 +112,14 @@ def test_memory_tombstone_active_identity_index_exists() -> None:
         assert f'"{column_name}"' in active_index_source
 
 
+def test_case_memory_embedding_index_matches_hnsw_migration() -> None:
+    case_table = Base.metadata.tables["case_memories"]
+    index_names = {index.name for index in case_table.indexes}
+
+    assert "ix_case_memories_embedding_hnsw" in index_names
+    assert "ix_case_memories_embedding_vector" not in index_names
+
+
 def test_phase16_memory_migration_preflight_objects_are_declared() -> None:
     source = _migration_source()
 

@@ -85,6 +85,41 @@ async def test_explicit_user_remember_request_auto_approves(session: AsyncSessio
 
 
 @pytest.mark.asyncio
+async def test_duplicate_active_long_term_write_returns_skipped_existing_memory(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session)
+    service = LongTermMemoryService(LongTermMemoryRepository(session))
+    candidate = _candidate(seeded_session, run_id=run_id)
+
+    first = await service.write_memory(candidate)
+    duplicate = await service.write_memory(candidate)
+    rows = (
+        await session.execute(
+            select(LongTermMemory).where(
+                LongTermMemory.tenant_id == candidate.tenant_id,
+                LongTermMemory.scope_type == candidate.scope_type,
+                LongTermMemory.scope_id == candidate.scope_id,
+                LongTermMemory.content_hash == first.content_hash,
+                LongTermMemory.deleted_at.is_(None),
+                LongTermMemory.is_current.is_(True),
+            )
+        )
+    ).scalars().all()
+    events = await _events(session, run_id)
+
+    assert duplicate.status == "skipped"
+    assert duplicate.memory_id == first.memory_id
+    assert duplicate.review_status == "auto_approved"
+    assert duplicate.reason_code == "duplicate_active_identity"
+    assert [row.id for row in rows] == [first.memory_id]
+    assert events[-1].decision == "skip"
+    assert events[-1].reason_code == "duplicate_active_identity"
+    assert events[-1].memory_id == first.memory_id
+
+
+@pytest.mark.asyncio
 async def test_deterministic_durable_source_auto_approves(session: AsyncSession, seeded_session: dict) -> None:
     run_id = await _insert_run(session, seeded_session)
     service = LongTermMemoryService(LongTermMemoryRepository(session))
@@ -277,3 +312,51 @@ async def test_supersede_memory_updates_chain_and_emits_event(
     assert result.decision == "supersede"
     assert events[-1].decision == "supersede"
     assert events[-1].reason_code == "correction"
+
+
+@pytest.mark.asyncio
+async def test_supersede_memory_skips_prohibited_pii_replacement(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session)
+    service = LongTermMemoryService(LongTermMemoryRepository(session))
+    first_result = await service.write_memory(_candidate(seeded_session, run_id=run_id))
+    replacement_run_id = await _insert_run(session, seeded_session, thread_id="long-term-memory-pii-supersede")
+    replacement = _candidate(
+        seeded_session,
+        run_id=replacement_run_id,
+        content="Customer phone number is 13800138000.",
+        pii_classification="prohibited",
+    )
+
+    result = await service.supersede_memory(
+        tenant_id=seeded_session["tenant"].id,
+        memory_id=first_result.memory_id,
+        replacement_candidate=replacement,
+        run_id=replacement_run_id,
+        reason_code="correction",
+    )
+    previous = await session.get(LongTermMemory, first_result.memory_id)
+    rows = (
+        await session.execute(
+            select(LongTermMemory).where(
+                LongTermMemory.tenant_id == replacement.tenant_id,
+                LongTermMemory.scope_type == replacement.scope_type,
+                LongTermMemory.scope_id == replacement.scope_id,
+                LongTermMemory.deleted_at.is_(None),
+            )
+        )
+    ).scalars().all()
+    events = await _events(session, replacement_run_id)
+
+    assert result.status == "skipped"
+    assert result.reason_code == "pii_blocked"
+    assert result.memory_id is None
+    assert previous is not None
+    assert previous.review_status == "auto_approved"
+    assert previous.is_current is True
+    assert previous.superseded_by is None
+    assert [row.id for row in rows] == [first_result.memory_id]
+    assert events[-1].decision == "skip"
+    assert events[-1].reason_code == "pii_blocked"

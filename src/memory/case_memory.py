@@ -319,6 +319,9 @@ class CaseMemoryRepository:
             )
         else:
             score_expr = literal(1.0)
+            query_filter = _query_text_filter(request.query)
+            if query_filter is not None:
+                filters.append(query_filter)
             stmt = (
                 select(CaseMemory, score_expr.label("score"))
                 .where(*filters)
@@ -722,9 +725,68 @@ def _light_rerank(
         if memory.updated_at is not None:
             age_seconds = max((_aware(request.now) - _aware(memory.updated_at)).total_seconds(), 0.0)
             recency = max(0.0, 0.01 - min(age_seconds / 86_400_000, 0.01))
-        scored.append((memory, semantic_similarity + policy_match + recency, index))
+        text_match = _text_match_score(memory, request.query)
+        scored.append((memory, semantic_similarity + policy_match + recency + text_match, index))
     scored.sort(key=lambda item: (-item[1], item[2]))
     return [(memory, score) for memory, score, _ in scored]
+
+
+def _query_text_filter(query: str | None):
+    terms = _search_terms(query)
+    if not terms:
+        return None
+    fields = (
+        CaseMemory.summary,
+        CaseMemory.excerpt,
+        CaseMemory.applicability,
+        CaseMemory.outcome,
+        CaseMemory.caveats,
+    )
+    return or_(
+        *[
+            field.ilike(f"%{_escape_like(term)}%", escape="\\")
+            for term in terms
+            for field in fields
+        ]
+    )
+
+
+def _text_match_score(memory: CaseMemory, query: str | None) -> float:
+    terms = _search_terms(query)
+    if not terms:
+        return 0.0
+    searchable = " ".join(
+        str(value or "")
+        for value in (
+            memory.summary,
+            memory.excerpt,
+            memory.applicability,
+            memory.outcome,
+            memory.caveats,
+        )
+    ).lower()
+    matches = sum(1 for term in terms if term in searchable)
+    return min(0.08, matches * 0.02)
+
+
+def _search_terms(query: str | None) -> list[str]:
+    if query is None:
+        return []
+    normalized = query.strip().lower()
+    if not normalized:
+        return []
+    terms = [term for term in normalized.split() if term]
+    if len(normalized) <= 64:
+        terms.append(normalized)
+    deduped: list[str] = []
+    for term in terms:
+        if term not in deduped:
+            deduped.append(term)
+    return deduped
+
+
+def _escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _to_search_item(memory: CaseMemory, score: float) -> CaseMemorySearchItem:

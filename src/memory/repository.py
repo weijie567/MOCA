@@ -182,6 +182,30 @@ class LongTermMemoryRepository:
         await self.session.flush()
         return memory
 
+    async def get_active_by_content_hash(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        scope_type: str,
+        scope_id: str,
+        content_hash: str,
+    ) -> LongTermMemory | None:
+        result = await self.session.execute(
+            select(LongTermMemory)
+            .where(
+                LongTermMemory.tenant_id == tenant_id,
+                LongTermMemory.scope_type == scope_type,
+                LongTermMemory.scope_id == scope_id,
+                LongTermMemory.content_hash == content_hash,
+                LongTermMemory.deleted_at.is_(None),
+                LongTermMemory.is_current.is_(True),
+            )
+            .order_by(LongTermMemory.updated_at.desc(), LongTermMemory.created_at.desc())
+            .limit(1)
+            .execution_options(populate_existing=True)
+        )
+        return result.scalar_one_or_none()
+
     async def emit_write_event(
         self,
         *,

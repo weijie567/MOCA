@@ -185,6 +185,36 @@ def _policy_not_found() -> ToolResultV2:
     )
 
 
+def _case_memory_success() -> ToolResultV2:
+    return ToolResultV2(
+        status="success",
+        data={
+            "items": [
+                {
+                    "case_memory_id": "case-memory-1",
+                    "excerpt": "Reviewed refund timeout precedent.",
+                    "applicability": "Similar delayed refund case.",
+                    "outcome": "Context only.",
+                    "score": 0.92,
+                    "policy_refs": [{"doc_key": "refund_policy", "chunk_id": "chunk-1"}],
+                    "source_refs": [{"business_object_id": "refund-case-1"}],
+                    "raw_tool_payload": {"secret": "must-not-leak"},
+                }
+            ]
+        },
+        summary="case memory found",
+        source_system="case_memory_service",
+        data_freshness_at=None,
+        policy_evidence_refs=[],
+        business_fact_refs=[],
+        error=None,
+        retryable=False,
+        retry_after_ms=None,
+        latency_ms=3,
+        audit_ref=None,
+    )
+
+
 def _policy_retrieval_error() -> ToolResultV2:
     return ToolResultV2(
         status="error",
@@ -407,6 +437,22 @@ async def test_policy_retrieval_semantics_survive_tool_result_flattening():
     assert result["best_score"] == 0.61
     assert result["policy_evidence"]
     assert result["tool_results"][0]["policy_evidence_refs"]
+
+
+@pytest.mark.asyncio
+async def test_search_case_memory_tool_result_accumulates_contextual_case_memory():
+    events: list[dict[str, Any]] = []
+    manager = FakeManager({"search_case_memory": _case_memory_success()})
+    plan = [{"next_tool": "search_case_memory", "args": {"query": "refund timeout"}, "reason": "precedent"}]
+
+    result = await investigate(_state(plan), _config(manager, events))
+
+    assert result["case_memory"][0]["case_memory_id"] == "case-memory-1"
+    assert result["case_memory"][0]["excerpt"] == "Reviewed refund timeout precedent."
+    assert result["case_memory"][0]["policy_refs"] == [{"doc_key": "refund_policy", "chunk_id": "chunk-1"}]
+    assert result["policy_evidence"] == []
+    assert "raw_tool_payload" not in str(result["case_memory"])
+    assert "must-not-leak" not in str(result["case_memory"])
 
 
 @pytest.mark.asyncio

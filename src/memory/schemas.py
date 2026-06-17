@@ -275,6 +275,7 @@ class CaseMemorySearchRequest(BaseModel):
     case_type: str | None = Field(default=None, max_length=64)
     policy_family: str | None = Field(default=None, max_length=80)
     policy_version: str | None = Field(default=None, max_length=80)
+    query: str | None = Field(default=None, min_length=1, max_length=500)
     query_embedding: list[float] | None = None
     now: datetime | None = None
     limit: int = Field(default=5, ge=1, le=50)

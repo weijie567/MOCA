@@ -422,10 +422,11 @@ Index(
     postgresql_where=text("source_identity_hash IS NOT NULL AND deleted_at IS NULL"),
 )
 Index(
-    "ix_case_memories_embedding_vector",
+    "ix_case_memories_embedding_hnsw",
     CaseMemory.embedding,
-    postgresql_using="ivfflat",
+    postgresql_using="hnsw",
     postgresql_ops={"embedding": "vector_cosine_ops"},
+    postgresql_with={"m": 16, "ef_construction": 128},
 )
 
 

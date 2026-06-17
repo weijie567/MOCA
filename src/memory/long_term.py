@@ -128,6 +128,37 @@ class LongTermMemoryService:
                 event_id=event.id,
             )
 
+        existing = await self.repository.get_active_by_content_hash(
+            tenant_id=candidate.tenant_id,
+            scope_type=candidate.scope_type,
+            scope_id=candidate.scope_id,
+            content_hash=identity["content_hash"],
+        )
+        if existing is not None:
+            event = await self.repository.emit_write_event(
+                tenant_id=candidate.tenant_id,
+                run_id=candidate.run_id,
+                memory_type=LONG_TERM_MEMORY_TYPE,
+                memory_id=existing.id,
+                decision="skip",
+                reason_code="duplicate_active_identity",
+                pii_classification=candidate.pii_classification,
+                candidate_hash=identity["candidate_hash"],
+                source_ref_json=identity["source_ref_json"],
+            )
+            return LongTermMemoryWriteResult(
+                status="skipped",
+                memory_id=existing.id,
+                review_status=existing.review_status,
+                decision="skip",
+                reason_code="duplicate_active_identity",
+                pii_classification=candidate.pii_classification,
+                candidate_hash=identity["candidate_hash"],
+                content_hash=identity["content_hash"],
+                source_identity_hash=identity["source_identity_hash"],
+                event_id=event.id,
+            )
+
         review_status = _review_status_for_source(candidate.source_type)
         decision = "write" if review_status == "auto_approved" else "needs_review"
         reason_code = "auto_approved_source" if review_status == "auto_approved" else "requires_review"
@@ -334,6 +365,31 @@ class LongTermMemoryService:
                 review_status=None,
                 decision="skip",
                 reason_code="tombstone_match",
+                pii_classification=replacement_candidate.pii_classification,
+                candidate_hash=identity["candidate_hash"],
+                content_hash=identity["content_hash"],
+                source_identity_hash=identity["source_identity_hash"],
+                event_id=event.id,
+            )
+
+        if replacement_candidate.pii_classification == "prohibited":
+            event = await self.repository.emit_write_event(
+                tenant_id=replacement_candidate.tenant_id,
+                run_id=run_id,
+                memory_type=LONG_TERM_MEMORY_TYPE,
+                memory_id=None,
+                decision="skip",
+                reason_code="pii_blocked",
+                pii_classification=replacement_candidate.pii_classification,
+                candidate_hash=identity["candidate_hash"],
+                source_ref_json=identity["source_ref_json"],
+            )
+            return LongTermMemoryWriteResult(
+                status="skipped",
+                memory_id=None,
+                review_status=None,
+                decision="skip",
+                reason_code="pii_blocked",
                 pii_classification=replacement_candidate.pii_classification,
                 candidate_hash=identity["candidate_hash"],
                 content_hash=identity["content_hash"],

@@ -76,6 +76,7 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
         "policy_refs": [],
         "errors": [],
         "tool_results": [],
+        "case_memory": list(state.get("case_memory") or []),
         "claim_dependency_map": [],
         "retrieval_status": state.get("retrieval_status"),
         "best_score": state.get("best_score"),
@@ -198,7 +199,7 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
         },
         "retrieval_status": context["retrieval_status"],
         "best_score": context["best_score"],
-        "case_memory": state.get("case_memory") or [],
+        "case_memory": context["case_memory"],
         "claim_dependency_map": context["claim_dependency_map"],
         "tool_results": context["tool_results"],
         "last_business_context_refs": {"business_fact_refs": context["business_fact_refs"], "loaded_at": _now_iso()},
@@ -458,6 +459,8 @@ def _accumulate_tool_result(
 ) -> None:
     context["tool_results"].append(projection.model_dump(mode="json"))
     if result.status == "success":
+        if tool_name == "search_case_memory":
+            context.setdefault("case_memory", []).extend(_case_memory_items(result.data))
         if result.business_fact_refs:
             for ref in result.business_fact_refs:
                 ref_data = ref.model_dump(mode="json")
@@ -607,12 +610,57 @@ def _safe_error(code: str, safe_message: str, source: str) -> dict[str, Any]:
 
 
 def _without_raw_payload(value: Any) -> Any:
-    forbidden = {"raw", "raw_args", "raw_payload", "raw_tool_output"}
+    forbidden = {
+        "raw",
+        "raw_args",
+        "raw_payload",
+        "raw_tool_output",
+        "raw_tool_payload",
+        "replay_blob",
+        "replay_debug_blob",
+        "debug_blob",
+        "approval_authority_body",
+        "action_authority_body",
+    }
     if isinstance(value, dict):
         return {key: _without_raw_payload(child) for key, child in value.items() if str(key).lower() not in forbidden}
     if isinstance(value, list):
         return [_without_raw_payload(item) for item in value]
     return value
+
+
+def _case_memory_items(data: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(data, dict) or not isinstance(data.get("items"), list):
+        return []
+    items: list[dict[str, Any]] = []
+    for item in data["items"]:
+        if not isinstance(item, dict):
+            continue
+        case_memory_id = _safe_case_text(item.get("case_memory_id") or item.get("memory_id") or item.get("id"))
+        excerpt = _safe_case_text(item.get("excerpt"))
+        if not case_memory_id or not excerpt:
+            continue
+        projected: dict[str, Any] = {"case_memory_id": case_memory_id, "excerpt": excerpt}
+        for key in ("applicability", "outcome", "caveats"):
+            value = _safe_case_text(item.get(key))
+            if value:
+                projected[key] = value
+        score = item.get("score")
+        if isinstance(score, (int, float)):
+            projected["score"] = float(score)
+        for key in ("policy_refs", "source_refs"):
+            refs = item.get(key)
+            if isinstance(refs, list):
+                projected[key] = _without_raw_payload(refs)
+        items.append(projected)
+    return items
+
+
+def _safe_case_text(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = " ".join(value.split())
+    return normalized[:1500] or None
 
 
 def _now_iso() -> str:

@@ -60,7 +60,9 @@ class MemoryToolExecutor:
 
 
 def _case_memory_request(*, query: str, context: ToolCallContext) -> CaseMemorySearchRequest | None:
-    del query
+    query_text = query.strip()
+    if not query_text:
+        return None
     try:
         tenant_id = UUID(context.tenant_id)
     except ValueError:
@@ -73,6 +75,7 @@ def _case_memory_request(*, query: str, context: ToolCallContext) -> CaseMemoryS
     return CaseMemorySearchRequest(
         tenant_id=tenant_id,
         scopes=scopes,
+        query=query_text,
         limit=5,
     )
 

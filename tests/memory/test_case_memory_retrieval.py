@@ -348,6 +348,42 @@ async def test_case_memory_retrieval_applies_metadata_filters_before_results(
 
 
 @pytest.mark.asyncio
+async def test_case_memory_text_query_filters_without_embedding(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    tenant_id = seeded_session["tenant"].id
+    scope_id = str(seeded_session["refund_case"].id)
+    matching = _case_row(
+        seeded_session,
+        summary="Refund timeout precedent for payment-channel verification.",
+        excerpt="When a refund timeout mentions a payment channel, verify gateway state before advice.",
+    )
+    unrelated = _case_row(
+        seeded_session,
+        summary="Damaged item precedent after warehouse inspection.",
+        excerpt="Warehouse inspection confirmed damage before refund handling.",
+    )
+    session.add_all([matching, unrelated])
+    await session.flush()
+
+    result = await CaseMemoryRepository(session).search_reviewed(
+        CaseMemorySearchRequest(
+            tenant_id=tenant_id,
+            scope_type="case",
+            scope_id=scope_id,
+            case_type="refund_dispute",
+            policy_family="refund",
+            policy_version="v1",
+            query="payment-channel timeout",
+            limit=10,
+        )
+    )
+
+    assert [item.case_memory_id for item in result.items] == [str(matching.id)]
+
+
+@pytest.mark.asyncio
 async def test_case_memory_is_separate_from_session_memory(session: AsyncSession, seeded_session: dict) -> None:
     tenant_id = seeded_session["tenant"].id
     user_id = seeded_session["users"]["cs_zhang"].id

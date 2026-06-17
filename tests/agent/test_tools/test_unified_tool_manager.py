@@ -285,6 +285,7 @@ async def test_search_case_memory_dispatches_to_reviewed_case_memory_service():
     assert result.source_system == "case_memory_service"
     assert result.data["items"][0]["case_memory_id"] == "case-memory-1"
     assert result.policy_evidence_refs == []
+    assert service.calls[0].query == "similar refund case"
     assert service.calls[0].limit == 5
 
 

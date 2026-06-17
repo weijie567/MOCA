@@ -45,6 +45,16 @@ _CANONICAL_IDENTITY_FIELDS = {
 }
 _SOURCE_IDENTITY_FIELDS = {"schema_version", *ALLOWED_SOURCE_REF_KEYS}
 _SOURCE_IDENTITY_NULLABLE_FIELDS = ALLOWED_SOURCE_REF_KEYS - {"source_type"}
+_SOURCE_IDENTITY_DISCRIMINATORS = frozenset(
+    {
+        "event_id",
+        "conversation_message_id",
+        "tool_result_id",
+        "agent_run_id",
+        "business_object_id",
+        "outcome_id",
+    }
+)
 _CANDIDATE_HASH_FIELDS = {
     "schema_version",
     "tenant_id",
@@ -123,6 +133,8 @@ def canonical_source_identity_hash(source_ref: Mapping[str, Any]) -> str | None:
     source_type = source_ref.get("source_type")
     if not isinstance(source_type, str) or not source_type.strip():
         raise MemoryIdentityError("source_type is required for source identity")
+    if not any(_has_source_discriminator(source_ref.get(key)) for key in _SOURCE_IDENTITY_DISCRIMINATORS):
+        return None
 
     complete_source_ref = {
         key: _normalize_optional_source_value(source_ref.get(key), field_name=key)
@@ -206,6 +218,10 @@ def _optional_sha256_hash(value: str | None, *, field_name: str) -> str | None:
     if value is None:
         return None
     return _require_sha256_hash(value, field_name=field_name)
+
+
+def _has_source_discriminator(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
 
 
 def _normalize_optional_source_value(value: Any, *, field_name: str) -> str | None:
