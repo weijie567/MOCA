@@ -1,9 +1,9 @@
 ---
 phase: 16
 slug: long-term-case-memory
-status: planned
+status: complete
 nyquist_compliant: true
-wave_0_complete: false
+wave_0_complete: true
 created: 2026-06-17
 ---
 
@@ -49,11 +49,11 @@ created: 2026-06-17
 
 ## Wave 0 Requirements
 
-- [ ] `tests/memory/test_memory_identity.py` — golden identity fixtures for MEMID-01.
-- [ ] `tests/memory/test_memory_schema.py` — migration/model contract checks for MEMSCHEMA-01, including `case_memories.content_hash`.
-- [ ] `tests/memory/test_memory_tombstones.py` — tombstone no-rewrite and transaction fixtures.
-- [ ] `tests/memory/test_case_memory_retrieval.py` — reviewed case retrieval separation fixtures.
-- [ ] `tests/memory/test_phase16_requirement_coverage.py` — verifies `.planning/phases/16-long-term-case-memory/16-COVERAGE.md` lists all Phase 16 requirement IDs before `$gsd-verify-work`.
+- [x] `tests/memory/test_memory_identity.py` — golden identity fixtures for MEMID-01.
+- [x] `tests/memory/test_memory_schema.py` — migration/model contract checks for MEMSCHEMA-01, including `case_memories.content_hash`.
+- [x] `tests/memory/test_memory_tombstones.py` — tombstone no-rewrite and transaction fixtures.
+- [x] `tests/memory/test_case_memory_retrieval.py` — reviewed case retrieval separation fixtures.
+- [x] `tests/memory/test_phase16_requirement_coverage.py` — verifies `.planning/phases/16-long-term-case-memory/16-COVERAGE.md` lists all Phase 16 requirement IDs before `$gsd-verify-work`.
 
 Existing infrastructure covers pytest itself; no framework install task is expected.
 
@@ -69,8 +69,8 @@ All authority-boundary, tombstone, prompt-safety, identity, and legacy-search ga
 
 - [x] All requirements have an automated verification target or explicit DB-backed fallback.
 - [x] Sampling continuity: no three consecutive tasks may omit automated verify.
-- [x] Wave 0 requirements list all new missing test scaffolds; execution remains open (`wave_0_complete: false`) until implementation creates them.
+- [x] Wave 0 requirements list all new missing test scaffolds; execution is closed (`wave_0_complete: true`) after implementation created them.
 - [x] No watch-mode flags.
 - [x] `nyquist_compliant: true` set in frontmatter.
 
-**Approval:** plan-ready; execution pending
+**Approval:** executed; Phase 16 closure gates passed on 2026-06-18.
