@@ -12,11 +12,11 @@ from src.memory.schemas import SessionPrecedentSearchItem, SessionPrecedentSearc
 from src.tools.contracts import ToolCallContext
 
 
-class SessionPrecedentSearchService:
-    """Search reviewed-looking precedents derived from same-user session memory.
+class LegacySessionPrecedentSearchService:
+    """Search legacy precedents derived from same-user session memory.
 
-    This is not the target reviewed case-memory store. It is a transitional
-    read-only projection over ``session_memories`` for the planner-facing
+    This is not the reviewed case-memory store. It is a debug-only read-only
+    projection over ``session_memories`` and must not back the planner-facing
     ``search_case_memory`` capability.
     """
 
@@ -32,12 +32,12 @@ class SessionPrecedentSearchService:
         limit: int = 5,
     ) -> SessionPrecedentSearchResult:
         if not self.enabled or self.repository is None:
-            return _unavailable("TOOL_UNAVAILABLE", "Session precedent search is not available")
+            return _unavailable("TOOL_UNAVAILABLE", "Legacy session-derived precedent search is not available")
         try:
             tenant_id = UUID(context.tenant_id)
             user_id = UUID(context.user_id)
         except ValueError:
-            return _unavailable("INVALID_CONTEXT", "Session precedent search context is invalid")
+            return _unavailable("INVALID_CONTEXT", "Legacy session-derived precedent search context is invalid")
 
         try:
             memories = await self.repository.search_active(
@@ -47,7 +47,7 @@ class SessionPrecedentSearchService:
                 limit=limit,
             )
         except Exception:
-            return _unavailable("SEARCH_ERROR", "Session precedent search failed")
+            return _unavailable("SEARCH_ERROR", "Legacy session-derived precedent search failed")
 
         terms = _query_terms(query)
         items = [_project_memory(memory, terms) for memory in memories]
@@ -55,9 +55,9 @@ class SessionPrecedentSearchService:
             status="success",
             items=items,
             summary=(
-                f"Found {len(items)} session-derived precedent item(s)"
+                f"Found {len(items)} legacy session-derived precedent item(s)"
                 if items
-                else "No session-derived precedent found"
+                else "No legacy session-derived precedent found"
             ),
         )
 

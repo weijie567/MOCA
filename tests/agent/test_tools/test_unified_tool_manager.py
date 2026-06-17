@@ -19,7 +19,7 @@ from src.tools.contracts import ToolCallContext, ToolResultV2
 from src.tools.manager import UnifiedToolManager
 from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1, KnowledgeSearchResult
-from src.memory.schemas import SessionPrecedentSearchResult
+from src.memory.schemas import CaseMemorySearchItem, CaseMemorySearchResult
 
 
 INVESTIGATE_TOOLS = {
@@ -257,17 +257,23 @@ async def test_declared_future_search_sop_returns_unavailable():
 
 
 @pytest.mark.asyncio
-async def test_search_case_memory_dispatches_to_memory_search_service():
+async def test_search_case_memory_dispatches_to_reviewed_case_memory_service():
     class FakeMemorySearchService:
         def __init__(self) -> None:
             self.calls = []
 
-        async def search(self, *, query, context):
-            self.calls.append((query, context))
-            return SessionPrecedentSearchResult(
+        async def retrieve_reviewed(self, request):
+            self.calls.append(request)
+            return CaseMemorySearchResult(
                 status="success",
-                items=[],
-                summary="No session-derived precedent found",
+                items=[
+                    CaseMemorySearchItem(
+                        case_memory_id="case-memory-1",
+                        excerpt="Reviewed refund precedent.",
+                        outcome="Context only.",
+                        score=1.0,
+                    )
+                ],
             )
 
     service = FakeMemorySearchService()
@@ -276,8 +282,10 @@ async def test_search_case_memory_dispatches_to_memory_search_service():
     result = await manager.invoke("search_case_memory", {"query": "similar refund case"}, _ctx(tool="search_case_memory"))
 
     assert result.status == "success"
-    assert result.data == {"items": []}
-    assert service.calls[0][0] == "similar refund case"
+    assert result.source_system == "case_memory_service"
+    assert result.data["items"][0]["case_memory_id"] == "case-memory-1"
+    assert result.policy_evidence_refs == []
+    assert service.calls[0].limit == 5
 
 
 @pytest.mark.asyncio
