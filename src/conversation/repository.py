@@ -9,7 +9,13 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.conversation.schemas import ConversationMessageCreate
-from src.db.models import ConversationMessage, ConversationThread, ToolCallRecord, ToolResultRecord
+from src.db.models import (
+    ConversationMessage,
+    ConversationSummary,
+    ConversationThread,
+    ToolCallRecord,
+    ToolResultRecord,
+)
 
 
 class ConversationRepository:
@@ -99,6 +105,125 @@ class ConversationRepository:
             stmt = stmt.limit(max(limit, 1))
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def get_message(self, *, tenant_id: uuid.UUID, thread_id: str, message_id: uuid.UUID) -> ConversationMessage | None:
+        result = await self.session.execute(
+            select(ConversationMessage).where(
+                ConversationMessage.tenant_id == tenant_id,
+                ConversationMessage.thread_id == thread_id,
+                ConversationMessage.id == message_id,
+                ConversationMessage.deleted_at.is_(None),
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_messages_after(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        thread_id: str,
+        since_message_id: uuid.UUID | None = None,
+    ) -> list[ConversationMessage]:
+        filters = [
+            ConversationMessage.tenant_id == tenant_id,
+            ConversationMessage.thread_id == thread_id,
+            ConversationMessage.deleted_at.is_(None),
+        ]
+        if since_message_id is not None:
+            since_message = await self.get_message(
+                tenant_id=tenant_id,
+                thread_id=thread_id,
+                message_id=since_message_id,
+            )
+            if since_message is not None:
+                filters.append(ConversationMessage.message_index > since_message.message_index)
+        result = await self.session.execute(
+            select(ConversationMessage).where(and_(*filters)).order_by(ConversationMessage.message_index)
+        )
+        return list(result.scalars().all())
+
+    async def get_latest_thread_summary(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        thread_id: str,
+    ) -> ConversationSummary | None:
+        result = await self.session.execute(
+            select(ConversationSummary)
+            .where(
+                ConversationSummary.tenant_id == tenant_id,
+                ConversationSummary.thread_id == thread_id,
+                ConversationSummary.summary_type == "thread_rolling",
+                ConversationSummary.deleted_at.is_(None),
+            )
+            .order_by(ConversationSummary.created_at.desc(), ConversationSummary.id.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def list_tool_results_after_summary(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        thread_id: str,
+        previous_summary: ConversationSummary | None = None,
+    ) -> list[ToolResultRecord]:
+        filters = [
+            ToolResultRecord.tenant_id == tenant_id,
+            ToolResultRecord.thread_id == thread_id,
+            ToolResultRecord.deleted_at.is_(None),
+        ]
+        if previous_summary is not None:
+            filters.append(ToolResultRecord.created_at > previous_summary.created_at)
+            previous_ids = {
+                uuid.UUID(value)
+                for value in (previous_summary.source_tool_result_ids_json or [])
+                if _is_uuid(value)
+            }
+            if previous_ids:
+                filters.append(ToolResultRecord.id.not_in(previous_ids))
+        result = await self.session.execute(
+            select(ToolResultRecord).where(and_(*filters)).order_by(ToolResultRecord.created_at, ToolResultRecord.id)
+        )
+        return list(result.scalars().all())
+
+    async def insert_thread_summary(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        thread_id: str,
+        source_start_message_id: uuid.UUID,
+        source_end_message_id: uuid.UUID,
+        source_message_ids_json: list[str],
+        source_tool_result_ids_json: list[str],
+        summary_text: str,
+        summary_json: dict[str, Any],
+        summary_model: str,
+        summary_prompt_version: str,
+        summary_hash: str,
+    ) -> ConversationSummary:
+        thread = await self.get_or_create_thread(tenant_id=tenant_id, user_id=user_id, thread_id=thread_id)
+        row = ConversationSummary(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            thread_id=thread_id,
+            conversation_thread_id=thread.id,
+            case_id=thread.case_id,
+            summary_type="thread_rolling",
+            source_start_message_id=source_start_message_id,
+            source_end_message_id=source_end_message_id,
+            source_message_ids_json=list(source_message_ids_json),
+            source_tool_result_ids_json=list(source_tool_result_ids_json),
+            summary_text=summary_text,
+            summary_json=dict(summary_json),
+            summary_model=summary_model,
+            summary_prompt_version=summary_prompt_version,
+            summary_hash=summary_hash,
+        )
+        self.session.add(row)
+        await self.session.flush()
+        return row
 
     async def append_tool_call(
         self,
@@ -214,3 +339,11 @@ class ConversationRepository:
 
 def _content_hash(content: str) -> str:
     return f"sha256:{sha256(content.encode('utf-8')).hexdigest()}"
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+    except (TypeError, ValueError):
+        return False
+    return True
