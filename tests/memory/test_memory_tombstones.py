@@ -1,0 +1,305 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime
+import uuid
+
+import pytest
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.db.models import AgentRun, LongTermMemory, MemoryTombstone, MemoryWriteEvent
+from src.memory.repository import LONG_TERM_MEMORY_TYPE, LongTermMemoryRepository
+from src.memory.long_term import LongTermMemoryService
+from src.memory.schemas import LongTermMemoryWriteCandidate
+
+
+async def _insert_run(session: AsyncSession, seeded_session: dict, thread_id: str = "memory-tombstones") -> uuid.UUID:
+    run_id = uuid.uuid4()
+    user = seeded_session["users"]["cs_zhang"]
+    session.add(
+        AgentRun(
+            id=run_id,
+            tenant_id=user.tenant_id,
+            user_id=user.id,
+            thread_id=thread_id,
+            input_query="remember or forget profile memory",
+            final_status="completed",
+            started_at=datetime.now(UTC),
+        )
+    )
+    await session.flush()
+    return run_id
+
+
+def _source_ref(
+    *,
+    source_type: str,
+    run_id: uuid.UUID,
+    business_object_id: str,
+    event_id: str = "evt-memory-source-1",
+) -> dict[str, str]:
+    return {
+        "source_type": source_type,
+        "run_id": str(run_id),
+        "event_id": event_id,
+        "business_object_type": "merchant",
+        "business_object_id": business_object_id,
+    }
+
+
+def _candidate(
+    seeded_session: dict,
+    *,
+    run_id: uuid.UUID,
+    content: str = "Merchant prefers concise refund summaries.",
+    source_type: str = "explicit_user_preference",
+    source_ref: dict[str, str] | None = None,
+) -> LongTermMemoryWriteCandidate:
+    merchant = seeded_session["merchant"]
+    return LongTermMemoryWriteCandidate(
+        tenant_id=merchant.tenant_id,
+        run_id=run_id,
+        scope_type="merchant",
+        scope_id=str(merchant.id),
+        memory_kind="preference",
+        content=content,
+        source_type=source_type,
+        source_ref=source_ref
+        or _source_ref(
+            source_type=source_type,
+            run_id=run_id,
+            business_object_id=str(merchant.id),
+        ),
+        confidence=0.91,
+        pii_classification="none",
+    )
+
+
+async def _events(session: AsyncSession, run_id: uuid.UUID) -> list[MemoryWriteEvent]:
+    result = await session.execute(
+        select(MemoryWriteEvent).where(MemoryWriteEvent.run_id == run_id).order_by(MemoryWriteEvent.created_at)
+    )
+    return list(result.scalars().all())
+
+
+async def _current_rows(session: AsyncSession, candidate: LongTermMemoryWriteCandidate) -> list[LongTermMemory]:
+    result = await session.execute(
+        select(LongTermMemory)
+        .where(
+            LongTermMemory.tenant_id == candidate.tenant_id,
+            LongTermMemory.scope_type == candidate.scope_type,
+            LongTermMemory.scope_id == candidate.scope_id,
+            LongTermMemory.is_current.is_(True),
+            LongTermMemory.deleted_at.is_(None),
+        )
+        .order_by(LongTermMemory.created_at)
+    )
+    return list(result.scalars().all())
+
+
+@pytest.mark.asyncio
+async def test_forget_long_term_memory_creates_tombstone_and_excludes_retrieval_immediately(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session)
+    service = LongTermMemoryService(LongTermMemoryRepository(session))
+    candidate = _candidate(seeded_session, run_id=run_id)
+    write_result = await service.write_memory(candidate)
+
+    before = await service.repository.retrieve_profile_memory(
+        tenant_id=candidate.tenant_id,
+        scope_type=candidate.scope_type,
+        scope_id=candidate.scope_id,
+    )
+    forget_event = await service.forget_long_term_memory(
+        tenant_id=candidate.tenant_id,
+        memory_id=write_result.memory_id,
+        run_id=run_id,
+        reason_code="user_forget",
+    )
+
+    tombstones = (
+        await session.execute(
+            select(MemoryTombstone).where(
+                MemoryTombstone.tenant_id == candidate.tenant_id,
+                MemoryTombstone.memory_type == LONG_TERM_MEMORY_TYPE,
+                MemoryTombstone.scope_type == candidate.scope_type,
+                MemoryTombstone.scope_id == candidate.scope_id,
+                MemoryTombstone.deleted_at.is_(None),
+            )
+        )
+    ).scalars().all()
+    after = await service.repository.retrieve_profile_memory(
+        tenant_id=candidate.tenant_id,
+        scope_type=candidate.scope_type,
+        scope_id=candidate.scope_id,
+    )
+
+    assert [row.content for row in before] == [candidate.content]
+    assert len(tombstones) == 1
+    assert tombstones[0].content_hash == write_result.content_hash
+    assert tombstones[0].source_identity_hash == write_result.source_identity_hash
+    assert after == []
+    assert forget_event.decision == "tombstone"
+    assert forget_event.reason_code == "user_forget"
+
+
+@pytest.mark.asyncio
+async def test_tombstone_blocks_same_transaction_rewrite_by_content_hash(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session)
+    service = LongTermMemoryService(LongTermMemoryRepository(session))
+    original = _candidate(seeded_session, run_id=run_id)
+    write_result = await service.write_memory(original)
+    await service.forget_long_term_memory(
+        tenant_id=original.tenant_id,
+        memory_id=write_result.memory_id,
+        run_id=run_id,
+        reason_code="user_forget",
+    )
+
+    rewrite_run_id = await _insert_run(session, seeded_session, thread_id="same-transaction-rewrite")
+    rewrite = _candidate(
+        seeded_session,
+        run_id=rewrite_run_id,
+        content=original.content,
+        source_ref=_source_ref(
+            source_type="explicit_user_preference",
+            run_id=rewrite_run_id,
+            business_object_id=str(seeded_session["merchant"].id),
+            event_id="evt-different-source",
+        ),
+    )
+    result = await service.write_memory(rewrite)
+    events = await _events(session, rewrite_run_id)
+
+    assert result.status == "skipped"
+    assert result.memory_id is None
+    assert result.reason_code == "tombstone_match"
+    assert events[-1].decision == "skip"
+    assert events[-1].reason_code == "tombstone_match"
+    assert await service.repository.retrieve_profile_memory(
+        tenant_id=rewrite.tenant_id,
+        scope_type=rewrite.scope_type,
+        scope_id=rewrite.scope_id,
+    ) == []
+
+
+@pytest.mark.asyncio
+async def test_tombstone_blocks_rewrite_by_source_identity_fallback(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session)
+    repository = LongTermMemoryRepository(session)
+    service = LongTermMemoryService(repository)
+    source_ref = _source_ref(
+        source_type="deterministic_tool_result",
+        run_id=run_id,
+        business_object_id=str(seeded_session["merchant"].id),
+    )
+    await repository.create_tombstone(
+        tenant_id=seeded_session["tenant"].id,
+        memory_type=LONG_TERM_MEMORY_TYPE,
+        scope_type="merchant",
+        scope_id=str(seeded_session["merchant"].id),
+        content_hash=None,
+        source_ref_json=source_ref,
+        reason_code="source_forget",
+        created_by_run_id=run_id,
+    )
+
+    candidate = _candidate(
+        seeded_session,
+        run_id=run_id,
+        content="Source generated an updated profile sentence with different text.",
+        source_type="deterministic_tool_result",
+        source_ref=source_ref,
+    )
+    result = await service.write_memory(candidate)
+    events = await _events(session, run_id)
+
+    assert result.status == "skipped"
+    assert result.memory_id is None
+    assert result.reason_code == "tombstone_match"
+    assert result.source_identity_hash is not None
+    assert events[-1].reason_code == "tombstone_match"
+
+
+@pytest.mark.asyncio
+async def test_tombstone_does_not_use_semantic_similarity(session: AsyncSession, seeded_session: dict) -> None:
+    run_id = await _insert_run(session, seeded_session)
+    service = LongTermMemoryService(LongTermMemoryRepository(session))
+    original = _candidate(seeded_session, run_id=run_id)
+    write_result = await service.write_memory(original)
+    await service.forget_long_term_memory(
+        tenant_id=original.tenant_id,
+        memory_id=write_result.memory_id,
+        run_id=run_id,
+        reason_code="user_forget",
+    )
+
+    similar_run_id = await _insert_run(session, seeded_session, thread_id="similar-content")
+    similar = _candidate(
+        seeded_session,
+        run_id=similar_run_id,
+        content="Merchant prefers concise refund summaries with a short bullet list.",
+        source_ref=_source_ref(
+            source_type="explicit_user_preference",
+            run_id=similar_run_id,
+            business_object_id=str(seeded_session["merchant"].id),
+            event_id="evt-similar-but-not-identical",
+        ),
+    )
+    result = await service.write_memory(similar)
+    rows = await service.repository.retrieve_profile_memory(
+        tenant_id=similar.tenant_id,
+        scope_type=similar.scope_type,
+        scope_id=similar.scope_id,
+    )
+
+    assert result.status == "written"
+    assert result.reason_code != "tombstone_match"
+    assert [row.content for row in rows] == [similar.content]
+
+
+@pytest.mark.asyncio
+async def test_supersede_leaves_exactly_one_current_memory(session: AsyncSession, seeded_session: dict) -> None:
+    run_id = await _insert_run(session, seeded_session)
+    service = LongTermMemoryService(LongTermMemoryRepository(session))
+    original = _candidate(seeded_session, run_id=run_id)
+    first_result = await service.write_memory(original)
+
+    replacement_run_id = await _insert_run(session, seeded_session, thread_id="supersede")
+    replacement = _candidate(
+        seeded_session,
+        run_id=replacement_run_id,
+        content="Merchant prefers concise refund summaries and manager escalation notes.",
+    )
+    supersede_result = await service.supersede_memory(
+        tenant_id=original.tenant_id,
+        memory_id=first_result.memory_id,
+        replacement_candidate=replacement,
+        run_id=replacement_run_id,
+        reason_code="correction",
+    )
+
+    previous = await session.get(LongTermMemory, first_result.memory_id)
+    replacement_row = await session.get(LongTermMemory, supersede_result.memory_id)
+    current_rows = await _current_rows(session, replacement)
+    events = await _events(session, replacement_run_id)
+
+    assert previous is not None
+    assert replacement_row is not None
+    assert previous.is_current is False
+    assert previous.review_status == "superseded"
+    assert previous.superseded_by == replacement_row.id
+    assert previous.superseded_at is not None
+    assert replacement_row.is_current is True
+    assert replacement_row.supersedes == previous.id
+    assert [row.id for row in current_rows] == [replacement_row.id]
+    assert supersede_result.decision == "supersede"
+    assert events[-1].decision == "supersede"
