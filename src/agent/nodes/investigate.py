@@ -268,7 +268,7 @@ async def _append_tool_call_record(
     tool_ctx: ToolCallContext,
     operation_id: Any,
 ) -> Any | None:
-    if session is None:
+    if not _can_persist_conversation_tool_records(configurable, session):
         return None
     service = _conversation_service(configurable, session)
     return await service.append_tool_call(
@@ -299,7 +299,7 @@ async def _append_tool_result_record(
     tool_call_record: Any | None,
 ) -> ToolResultPromptSummary:
     tool_result_id = str(uuid4())
-    if session is None:
+    if not _can_persist_conversation_tool_records(configurable, session):
         return _project_tool_result(
             tool_call_id=tool_ctx.tool_call_id,
             tool_result_id=tool_result_id,
@@ -323,6 +323,15 @@ async def _append_tool_result_record(
         raw_result_ref=None,
         raw_result_hash=None,
         conversation_message_id=configurable.get("conversation_message_id"),
+    )
+
+
+def _can_persist_conversation_tool_records(configurable: dict[str, Any], session: Any) -> bool:
+    return (
+        session is not None
+        and hasattr(session, "execute")
+        and hasattr(session, "flush")
+        and configurable.get("conversation_message_id") is not None
     )
 
 
