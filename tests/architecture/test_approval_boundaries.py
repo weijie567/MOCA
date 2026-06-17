@@ -3,6 +3,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from src.agent.working_state import project_working_state
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -91,3 +93,46 @@ def test_approval_service_is_canonical_transition_owner() -> None:
     ]
 
     assert "ApprovalService" in classes
+
+
+def test_working_state_excludes_approval_authority_bodies() -> None:
+    working_state = project_working_state(
+        {
+            "thread_id": "thread-approval-boundary",
+            "current_run_id": "run-approval-boundary",
+            "approval_result": {
+                "approval_request_body": "APPROVAL_REQUEST_BODY_SHOULD_NOT_APPEAR",
+                "approval_decision_body": "APPROVAL_DECISION_BODY_SHOULD_NOT_APPEAR",
+                "snapshot_json": {"secret": "SNAPSHOT_JSON_SHOULD_NOT_APPEAR"},
+                "safety_snapshot_hash": "HASH_SHOULD_NOT_APPEAR",
+            },
+            "pending_confirmation": {
+                "confirmation_id": "confirm-001",
+                "question": "Approve safe summary?",
+                "status": "pending",
+                "approval_request_body": "PENDING_APPROVAL_BODY_SHOULD_NOT_APPEAR",
+            },
+        }
+    )
+
+    dumped = working_state.model_dump(mode="json")
+    serialized = working_state.model_dump_json()
+
+    assert dumped["pending_confirmation"] == {
+        "confirmation_id": "confirm-001",
+        "question": "Approve safe summary?",
+        "status": "pending",
+    }
+    for forbidden in (
+        "approval_result",
+        "approval_request_body",
+        "approval_decision_body",
+        "APPROVAL_REQUEST_BODY_SHOULD_NOT_APPEAR",
+        "APPROVAL_DECISION_BODY_SHOULD_NOT_APPEAR",
+        "snapshot_json",
+        "SNAPSHOT_JSON_SHOULD_NOT_APPEAR",
+        "safety_snapshot_hash",
+        "HASH_SHOULD_NOT_APPEAR",
+        "PENDING_APPROVAL_BODY_SHOULD_NOT_APPEAR",
+    ):
+        assert forbidden not in serialized

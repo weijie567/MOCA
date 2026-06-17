@@ -4,6 +4,7 @@ import ast
 import re
 from pathlib import Path
 
+from src.agent.working_state import project_working_state
 from src.tools.catalog import ToolCatalog
 from src.tools.manager import _side_effect_allowed
 
@@ -163,3 +164,53 @@ def test_source_does_not_depend_on_action_result_success_sentinel() -> None:
                     violations.append((relative, line_no, line.strip()))
 
     assert violations == []
+
+
+def test_working_state_exposes_only_safe_action_draft_artifact() -> None:
+    working_state = project_working_state(
+        {
+            "thread_id": "thread-action-boundary",
+            "current_run_id": "run-action-boundary",
+            "action_draft": {
+                "draft_id": "draft-001",
+                "action_type": "coupon_grant",
+                "status": "draft_created",
+                "summary": "Created a demo coupon draft.",
+                "payload": {"amount": 50, "secret": "ACTION_PAYLOAD_SHOULD_NOT_APPEAR"},
+                "proposed_action": {"body": "PROPOSED_ACTION_SHOULD_NOT_APPEAR"},
+                "snapshot_json": {"secret": "SNAPSHOT_JSON_SHOULD_NOT_APPEAR"},
+                "edited_action_json": {"secret": "EDITED_ACTION_SHOULD_NOT_APPEAR"},
+                "safety_snapshot_hash": "SAFETY_HASH_SHOULD_NOT_APPEAR",
+            },
+            "draft_outcome": {
+                "status": "not_executed_demo",
+                "payload": {"secret": "DRAFT_OUTCOME_SHOULD_NOT_APPEAR"},
+            },
+        }
+    )
+
+    dumped = working_state.model_dump(mode="json")
+    serialized = working_state.model_dump_json()
+
+    assert dumped["draft_artifact"] == {
+        "draft_id": "draft-001",
+        "action_type": "coupon_grant",
+        "status": "draft_created",
+        "summary": "Created a demo coupon draft.",
+    }
+    for forbidden in (
+        "action_draft",
+        "payload",
+        "ACTION_PAYLOAD_SHOULD_NOT_APPEAR",
+        "proposed_action",
+        "PROPOSED_ACTION_SHOULD_NOT_APPEAR",
+        "snapshot_json",
+        "SNAPSHOT_JSON_SHOULD_NOT_APPEAR",
+        "edited_action_json",
+        "EDITED_ACTION_SHOULD_NOT_APPEAR",
+        "safety_snapshot_hash",
+        "SAFETY_HASH_SHOULD_NOT_APPEAR",
+        "draft_outcome",
+        "DRAFT_OUTCOME_SHOULD_NOT_APPEAR",
+    ):
+        assert forbidden not in serialized
