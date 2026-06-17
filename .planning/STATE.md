@@ -147,6 +147,10 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 15.2 inserted after Phase 15.1: v1.1 Readiness Closure (URGENT). It closes formal verification and owner-disposition gaps from the milestone audit before Phase 16 planning.
 - v1.2 starts after v1.1 archive with fresh requirements in `.planning/REQUIREMENTS.md` and a one-phase roadmap for Phase 16 Long-term / Case Memory.
 
+### Pending Todos
+
+- [ ] Constrain AgentState memory expansion - `.planning/todos/pending/2026-06-17-constrain-agentstate-memory-expansion.md`
+
 ## Blockers / Concerns
 
 - Every phase plan must preserve coverage-matrix and follow-up-register visibility.
