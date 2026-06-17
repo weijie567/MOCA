@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
-status: ready_to_plan
-stopped_at: Phase 15.1 verified and completed; ready to plan Phase 16
-last_updated: "2026-06-17T08:52:14Z"
+status: ready_to_complete_milestone
+stopped_at: Phase 15.2 readiness closure verified and completed; ready to complete/archive v1.1 before Phase 16
+last_updated: "2026-06-17T09:53:13Z"
 last_activity: 2026-06-17
 progress:
-  total_phases: 12
-  completed_phases: 10
-  total_plans: 61
-  completed_plans: 61
-  percent: 83
+  total_phases: 13
+  completed_phases: 11
+  total_plans: 62
+  completed_plans: 62
+  percent: 85
 ---
 
 # Project State: MOCA
@@ -21,14 +21,14 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-16)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 16 — long-term / case memory
+**Current focus:** Complete/archive v1.1 after Phase 15.2 readiness closure; then plan Phase 16 long-term / case memory.
 
 ## Current Position
 
-Phase: 16
-Plan: Not started
-Plans: TBD
-Status: Ready to plan
+Phase: 15.2
+Plan: 15.2-01 completed
+Plans: 1/1 complete
+Status: Ready to complete milestone
 Last activity: 2026-06-17
 
 Progress: [████████░░] 83%
@@ -50,8 +50,10 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 7-17 are standard SDK phase identities; no separate prefixed phase namespace remains.
 - Source code, tests, and git history from the previous planning line were not rolled back.
 - Phase 8 and Phase 9 may plan and execute in parallel after Phase 7.
-- Phase 16 and Phase 17 remain named owner phases but do not block the MVP completion gate.
+- Phase 16 and Phase 17 remain named owner phases but do not block the v1.1 MVP readiness gate.
 - Phase 15.1 Memory Foundation V2 is inserted before Phase 16 to solve conversation log, working memory, short-term summaries, ContextAssembler, tool result layering, token budgeting, and trace/audit/conversation ID alignment without implementing long-term memory or case memory retrieval.
+- Phase 15.2 v1.1 Readiness Closure is inserted after Phase 15.1 and before Phase 16 to close milestone audit evidence gaps without expanding runtime scope.
+- Phase 15.2 adds formal Phase 7 and Phase 10 verification artifacts and records tenant-over-global global/default fallback as target-state `DEFERRED_WITH_OWNER` to post-Phase 17 `Policy Scope`.
 - Phase 15.1 Plan 01 stores conversation facts in dedicated conversation/tool/summary tables while business tables, policy KB, approval/action tables, and replay remain authoritative for their own domains.
 - ConversationService rejects raw prompt/tool payload, private reasoning, and approval/action authority keys before append.
 - Phase 15.1 Plan 01 reserves nullable case_id only; long-term memory, case retrieval, tombstones, embeddings, and vector retrieval remain Phase 16-owned.
@@ -130,12 +132,14 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 15.1 Plan 05: recommendation and risk nodes load prior-turn prompt context only when RunnableConfig provides session and run context.
 - Phase 15.1 Plan 06 aligns conversation/tool/replay/audit refs using safe IDs and keeps ReplayService raw-key guards unchanged.
 - Phase 15.1 final defers Phase 16 long-term memory write gate, memory tombstones, user-manageable memory, case memory vector search, and case precedent retrieval; Phase 17 owns external action execution storage, outbox/execution reconciliation, and compensation workflow.
+- Phase 15.2 final readiness closure passed a focused suite with 181 tests and leaves Phase 16/17 runtime scope untouched.
 
 ## Accumulated Context
 
 ### Roadmap Evolution
 
 - Phase 15.1 inserted after Phase 15: Memory Foundation V2 (URGENT). It is a pre-Phase 16 foundation phase for conversation log, WorkingStateV1, short-term thread summaries, ContextAssembler, tool result storage, token budgeting, and trace/audit/conversation ID alignment. It explicitly does not implement Phase 16 long-term memory, tombstones, user-manageable memory, case memory vector search, or case precedent retrieval.
+- Phase 15.2 inserted after Phase 15.1: v1.1 Readiness Closure (URGENT). It closes formal verification and owner-disposition gaps from the milestone audit before Phase 16 planning.
 
 ## Blockers / Concerns
 
@@ -204,6 +208,6 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 Last session: 2026-06-17T08:03:41.302Z
 Stopped at: Phase 15.1 verified and completed; ready to plan Phase 16
 Resume file: None
-Next: Plan Phase 16 Long-term / Case Memory, unless MVP gates keep it deferred
+Next: Complete/archive v1.1, then plan Phase 16 Long-term / Case Memory.
 
 **Planned Phase:** 15.1 (Memory Foundation V2) — 6 plans — 2026-06-17T04:22:43.755Z

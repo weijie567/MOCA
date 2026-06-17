@@ -10,7 +10,7 @@
 - [x] **BASE-03**: Persist follow-up items with owner phases and acceptance gates.
 - [x] **BASE-04**: Confirm Phase 8 and Phase 9 may proceed with no `MISSING` baseline rows.
 - [x] **KNOW-01**: Knowledge reads use KnowledgeService with strong/partial/no-evidence semantics.
-- [x] **KNOW-02**: EvidenceRefV1, claim-support citation, canonical projection, effective-time, and tenant-over-global contracts are enforced.
+- [x] **KNOW-02**: EvidenceRefV1, claim-support citation, canonical projection, and effective-time contracts are enforced for current tenant-scoped policy retrieval; tenant-over-global global/default fallback is target-state `DEFERRED_WITH_OWNER` to post-Phase 17 `Policy Scope`.
 - [x] **KNOW-03**: Knowledge migration/read-switch, if introduced, has owner, telemetry, fallback, and rollback.
 - [x] **TOOL-01**: Read business tools use BusinessToolService and trusted ToolCallContext.
 - [x] **TOOL-02**: ToolResultV2 covers permission/scope/status/timeout/partial/invalid-response behavior without raw invalid payload exposure.
@@ -53,14 +53,20 @@
 - Every schema/service migration phase must instantiate the migration rollout protocol and name read-switch/fallback/rollback ownership.
 - Every relevant eval gate must name blocking status, dataset owner/version/hash, and failure impact.
 
+## Deferred Target Owners
+
+| Target contract | Owner | Non-blocking rationale | Dependency | Acceptance gate |
+| --- | --- | --- | --- | --- |
+| Tenant-over-global global/default policy fallback from `KNOW-02` | post-Phase 17 `Policy Scope` | Current v1.1 MVP implements tenant-scoped policy retrieval, EvidenceRefV1, citation membership, canonical projection, and effective-time behavior. Global/default fallback requires schema and query semantics not present in the tenant-only policy tables. | Explicit global/default policy scope schema plus retrieval merge semantics. | Schema/query migration tests prove tenant policy wins over global/default fallback when both match, fallback applies only when tenant policy is absent, and evidence identity, citation validation, content lookup, and rollback behavior remain safe. |
+
 ## Traceability
 
 | Requirement group | Phase | Status |
 | --- | --- | --- |
-| BASE-01..04 | Phase 7 | Complete |
-| KNOW-01..03 | Phase 8 | Complete |
+| BASE-01..04 | Phase 7; Phase 15.2 formal verification closure | Complete - 07-VERIFICATION.md added |
+| KNOW-01..03 | Phase 8; Phase 15.2 `KNOW-02` owner disposition | Complete for current v1.1 scope - tenant-over-global target owned by post-Phase 17 `Policy Scope` |
 | TOOL-01..03 | Phase 9 | Complete |
-| STATE-01..02, ROUTE-01..02 | Phase 10 | Complete |
+| STATE-01..02, ROUTE-01..02 | Phase 10; Phase 15.2 formal verification closure | Complete - 10-VERIFICATION.md added |
 | INTENT-01..02, CLARIFY-01 | Phase 11 | Complete |
 | SESSION-01..03 | Phase 12 | Complete |
 | APPROVAL-01..03, SNAPSHOT-01 | Phase 13 | Complete |
@@ -68,8 +74,9 @@
 | DEMO-02 | Phase 14 | Complete |
 | REPLAY-01..03 | Phase 15 | Complete - 15-06 final verification gates passed |
 | MEMORY-FOUNDATION-01..03 | Phase 15.1 | Complete - 15.1 verification passed |
+| v1.1 readiness evidence closure | Phase 15.2 | Complete - formal verification and audit closure passed |
 | MEMORY-01..02 | Phase 16 | Deferred beyond MVP gate |
 | EXTERNAL-01..03 | Phase 17 | Deferred beyond MVP gate |
 
 ---
-*Updated: 2026-06-17 after Phase 15.1 verification.*
+*Updated: 2026-06-17 after Phase 15.2 readiness closure.*

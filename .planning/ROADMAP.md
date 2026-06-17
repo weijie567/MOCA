@@ -31,10 +31,11 @@
 - [x] **Phase 14: Demo Action Executor Boundary** - Durable draft-only demo behavior and snapshot/hash binding. ✓ Verified 2026-06-16 — 7/7 plans complete, 10/10 must-haves verified.
 - [x] **Phase 15: Replay Event Contract** - ReplayEventV3, lifecycle finalizer, sequence allocation, redaction, retention, and replay read-switch. Final gates passed 2026-06-16; ready for GSD verification.
 - [x] **Phase 15.1: Memory Foundation V2 (INSERTED)** - Conversation log, tool call/result storage, WorkingStateV1, thread summaries, ContextAssembler, token budget, and trace/audit ID alignment before Phase 16. (completed 2026-06-17)
+- [x] **Phase 15.2: v1.1 Readiness Closure (INSERTED)** - Formal Phase 7/10 verification, KNOW-02 owner disposition, and refreshed milestone audit before Phase 16. Completed 2026-06-17.
 - [ ] **Phase 16: Long-term / Case Memory** - memory_identity.v1, tombstones, review workflow, and long-term/case memory. Deferred beyond the MVP completion gate.
 - [ ] **Phase 17: External Action Execution** - External execution, outbox, reconciliation, and compensation. Deferred beyond the MVP completion gate.
 
-**Phase 13-17 planning standard:** Every Phase 13-17 plan, including inserted Phase 15.1, must read `docs/phase-13-17-architecture-plan.md` before task decomposition and include an Architecture Alignment section. The section must identify the canonical owner package, schema owner, old-path quarantine/deletion strategy, forbidden new imports/references, boundary tests, and the exact Phase 13/14/15/15.1/16/17 non-overlap. The goal is stable owner/contract architecture first, not minimum-diff compatibility.
+**Phase 13-17 planning standard:** Every Phase 13-17 plan, including inserted Phase 15.1 and 15.2, must read `docs/phase-13-17-architecture-plan.md` before task decomposition when runtime architecture is in scope and include an Architecture Alignment section. The section must identify the canonical owner package, schema owner, old-path quarantine/deletion strategy, forbidden new imports/references, boundary tests, and the exact Phase 13/14/15/15.1/15.2/16/17 non-overlap. The goal is stable owner/contract architecture first, not minimum-diff compatibility.
 
 ## Phase Details
 
@@ -184,9 +185,24 @@ Plans:
 - [x] 15.1-05-PLAN.md — ContextAssembler, token budgeting, prompt projectors, and live prompt-node wiring (Wave 5) — completed 2026-06-17
 - [x] 15.1-06-PLAN.md — replay/audit/conversation ID alignment, boundary regressions, and final phase verification (Wave 6) — completed 2026-06-17
 
+### Phase 15.2: v1.1 Readiness Closure (INSERTED)
+
+**Goal:** Close v1.1 readiness audit gaps before Phase 16 by adding formal Phase 7/10 verification, resolving the `KNOW-02` ownerless target-state deferral, and refreshing milestone audit evidence.
+**Depends on:** Phase 7, Phase 8, Phase 10, Phase 15.1
+**Non-goals:** No runtime tenant-over-global implementation, no global/default policy schema, no long-term/case memory, and no external execution/outbox/reconciliation/compensation.
+**Requirements**: BASE-01, BASE-02, BASE-03, BASE-04, KNOW-02, STATE-01, STATE-02, ROUTE-01, ROUTE-02
+**Success Criteria**:
+  1. `07-VERIFICATION.md` and `10-VERIFICATION.md` exist and map all affected requirements to evidence.
+  2. Tenant-over-global target semantics are recorded as `DEFERRED_WITH_OWNER` to post-Phase 17 `Policy Scope`, with dependency and acceptance gate.
+  3. The milestone audit has no orphaned current-scope requirements and Phase 16 remains gated behind v1.1 closure.
+**Plans**: 1/1 complete
+
+Plans:
+- [x] 15.2-01-PLAN.md — formal verification closure, KNOW-02 owner disposition, focused readiness suite, and refreshed audit (Wave 1) — completed 2026-06-17
+
 ### Phase 16: Long-term / Case Memory
 **Goal**: Implement reviewed long-term/case memory with canonical identity and tombstone enforcement.
-**Depends on**: Phase 12, Phase 15, Phase 15.1
+**Depends on**: Phase 12, Phase 15, Phase 15.1, Phase 15.2
 **Mandatory architecture input**: `docs/phase-13-17-architecture-plan.md`
 **Requirements**: MEMORY-01, MEMORY-02
 **Success Criteria**:
@@ -220,8 +236,9 @@ Plans:
 | 14. Demo Action Executor Boundary | 7/7 | Complete    | 2026-06-16 |
 | 15. Replay Event Contract | 6/6 | Complete    | 2026-06-16 |
 | 15.1 Memory Foundation V2 | 6/6 | Complete    | 2026-06-17 |
+| 15.2 v1.1 Readiness Closure | 1/1 | Complete    | 2026-06-17 |
 | 16. Long-term / Case Memory | 0/TBD | Deferred beyond MVP gate | - |
 | 17. External Action Execution | 0/TBD | Deferred beyond MVP gate | - |
 
 ---
-*Updated: 2026-06-17 — Phase 15.1 Memory Foundation V2 verified and complete; Phase 16 ready to plan when resumed.*
+*Updated: 2026-06-17 — Phase 15.2 v1.1 Readiness Closure verified and complete; complete/archive v1.1 before planning Phase 16.*

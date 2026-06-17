@@ -48,7 +48,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 ### Active
 
-- [ ] v1.1 validates each owned contract with migration verification, forbidden-behavior tests, golden flows, and explicit eval gates.
+- [ ] v1.1 is ready to archive after Phase 15.2 readiness closure; next milestone action is completing v1.1 before Phase 16 planning.
 
 ### Out of Scope
 
@@ -106,7 +106,8 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - Phase 14 Demo Action Executor Boundary is complete: durable draft-only behavior, exact payload/hash/snapshot binding, no-approval fail-closed behavior, trusted write-tool permission ownership, and draft-only final/API wording are verified.
 - Phase 15 Replay Event Contract is complete: ReplayEventV3 storage/projection, lifecycle finalization, shared sequence allocation, operation pairing, replay redaction/retention, `/replay` read-switch, `/trace` rollback fallback, and owner-named Phase 17 deferrals are verified.
 - Phase 15.1 Memory Foundation V2 is complete: user-scoped conversation log, layered tool call/result storage, prompt-safe WorkingStateV1, source-range thread summaries, ContextAssembler/token budgeting, and replay/audit/conversation ID alignment are verified without implementing Phase 16/17 scope.
-- Active planning is now ready for Phase 16 Long-term / Case Memory.
+- Phase 15.2 v1.1 Readiness Closure is complete: formal Phase 7/10 verification exists, `KNOW-02` tenant-over-global target semantics have a post-Phase 17 `Policy Scope` owner, and the milestone readiness audit now passes.
+- Active planning is now ready to complete/archive v1.1; Phase 16 Long-term / Case Memory should start after that archive boundary.
 
 ## Next Milestone Goals
 
@@ -152,4 +153,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-17 after Phase 15.1 verified complete and Phase 16 remained ready to plan*
+*Last updated: 2026-06-17 after Phase 15.2 readiness closure passed and v1.1 became ready to complete/archive*

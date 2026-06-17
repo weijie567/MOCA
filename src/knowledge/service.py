@@ -1,8 +1,9 @@
 """Policy knowledge facade.
 
-Tenant-over-global precedence is DEFERRED_WITH_OWNER to a later policy-scope
-phase. It depends on a schema and query migration that introduces global policy
-scope, with schema-and-query tenant-over-global tests as the acceptance gate.
+Tenant-over-global precedence is DEFERRED_WITH_OWNER to post-Phase 17
+Policy Scope. It depends on a schema and query migration that introduces
+global/default policy scope, with schema-and-query tenant-over-global tests as
+the acceptance gate.
 """
 
 from __future__ import annotations

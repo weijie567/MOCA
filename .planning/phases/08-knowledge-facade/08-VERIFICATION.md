@@ -2,26 +2,29 @@
 phase: 08-knowledge-facade
 verified: 2026-06-11T19:00:00Z
 status: complete
-score: 5/6 must-haves verified (1 explicitly deferred)
+score: 5 current-scope truths verified; 1 target-state deferral with owner
 overrides_applied: 0
+readiness_closure: 15.2-v1-1-readiness-closure
 gaps:
   - truth: "Tenant-over-global policy precedence is enforced"
-    status: deferred
-    reason: "CONTEXT.md D-D1 explicitly defers tenant-over-global to a later policy-scope phase. REQUIREMENTS.md KNOW-02 mentions it but the CONTEXT deferral takes precedence for Phase 8 exit scope. No roadmap phase currently owns this; it should be assigned when a policy-scope phase is planned."
+    status: deferred_with_owner
+    owner: "post-Phase 17 Policy Scope"
+    reason: "CONTEXT.md D-D1 and contract-spec.md defer global/default policy fallback and tenant-over-global precedence to a later policy-scope phase. Current v1.1 MVP scope is tenant-scoped policy retrieval plus EvidenceRefV1/citation/projection/effective-time behavior."
+    dependency: "Global/default policy scope schema and query migration."
+    acceptance_gate: "Schema-and-query tests prove tenant policy wins over global/default fallback when both apply, global/default fallback is used only when tenant policy is absent, and evidence/citation/rollback behavior remains safe."
     artifacts:
       - path: "src/knowledge/service.py"
         issue: "Docstring records a deferral rather than implemented tenant-over-global precedence."
       - path: "src/repositories/policy_chunk_repo.py"
         issue: "Query requires PolicyDocument.tenant_id == tenant_id and has no global/default fallback path."
-    missing:
-      - "Assign a concrete roadmap phase to own tenant-over-global with schema-and-query acceptance gate."
+    missing: []
 ---
 
 # Phase 8: Knowledge Facade Verification Report
 
 **Phase Goal:** Route policy evidence retrieval through KnowledgeService with canonical EvidenceRefV1, citation validation, effective-time, and tenant-over-global behavior.
 **Verified:** 2026-06-11T19:00:00Z
-**Status:** complete (1 explicitly deferred item: tenant-over-global, CONTEXT D-D1)
+**Status:** complete for current v1.1 scope (1 target-state item deferred with owner: tenant-over-global, post-Phase 17 `Policy Scope`)
 **Re-verification:** Yes — after 08-07 + 08-08 + 08-09 gap closure (two independent Codex acceptance passes)
 
 ## Goal Achievement
@@ -34,10 +37,10 @@ gaps:
 | 2 | Canonical EvidenceRefV1, projection, version pin, evidence-ID membership, state, and reporting contracts are wired end to end | VERIFIED | `schemas.py`, `text_hash.py`, `citation.py`, ingestion version bump, node/state merge by `evidence_id`, and v2 reporting consumers pass. |
 | 3 | Strong/partial/no-evidence behavior honors the public request contract | VERIFIED | `service.py:55` — `allow_partial_evidence=False` now returns `no_evidence` with empty refs. `test_partial_evidence_suppressed_when_disallowed` passes. |
 | 4 | Effective-time filtering reliably returns valid in-effect evidence | VERIFIED | `policy_chunk_repo.py:69-70` — `effective_date` SQL WHERE applied before ORDER BY/LIMIT. `adapters.py:92` passes `effective_date` to repo. `test_effective_date_passed_to_repository` passes. |
-| 5 | Tenant-over-global precedence is enforced | DEFERRED | Only tenant-scoped retrieval exists. CONTEXT.md D-D1 explicitly defers to a later policy-scope phase. No roadmap phase currently owns this. |
+| 5 | Tenant-over-global target precedence has an owner and acceptance gate | DEFERRED_WITH_OWNER | Only tenant-scoped retrieval exists in current MVP. `docs/contract-spec.md` and `docs/migration-plan.md` assign global/default fallback and tenant-over-global merge semantics to post-Phase 17 `Policy Scope`; Phase 15.2 recorded the owner, dependency, and schema/query acceptance gate. |
 | 6 | Migration/cutover is safely reversible without an unowned persistence/read-switch | VERIFIED | Service-only direct cutover; no new persistence/read-switch; retained adapter and git-revert rollback are documented. |
 
-**Score:** 5/6 truths verified (1 deferred with explicit disposition)
+**Score:** 5 current-scope truths verified; 1 target-state truth deferred with owner.
 
 ### Behavioral Spot-Checks
 
@@ -54,7 +57,7 @@ gaps:
 |-----|----------------|-------------|-----|
 | `allow_partial_evidence=False` ignored | FAILED | VERIFIED | `service.py` — flag checked before building result |
 | Effective-time after LIMIT | FAILED | VERIFIED | `policy_chunk_repo.py` — SQL WHERE before ORDER BY/LIMIT |
-| Tenant-over-global unimplemented | FAILED | DEFERRED | No code change; CONTEXT.md D-D1 defers |
+| Tenant-over-global unimplemented | FAILED | DEFERRED_WITH_OWNER | No runtime change; Phase 15.2 assigns post-Phase 17 `Policy Scope` as owner with schema/query acceptance gate. |
 
 ### Gap Closure Summary (08-08 + 08-09)
 
@@ -79,14 +82,16 @@ Non-blocking follow-ups (not Phase 8 exit blockers):
 | Requirement | Source Plans | Status | Evidence |
 |---|---|---|---|
 | KNOW-01 | 08-02, 08-04, 08-05, 08-07, 08-08 | SATISFIED | Facade, statuses, `allow_partial_evidence` enforcement, and policy-grounded recommendation (in-node text) pass. |
-| KNOW-02 | 08-01 through 08-09 | PARTIAL | EvidenceRefV1/citation/projection/effective-time/citation-audit pass. Tenant-over-global deferred (CONTEXT D-D1). |
+| KNOW-02 | 08-01 through 08-09; 15.2 disposition closure | SATISFIED_FOR_CURRENT_SCOPE | EvidenceRefV1/citation/projection/effective-time/citation-audit pass. Tenant-over-global global/default fallback is target-state `DEFERRED_WITH_OWNER` to post-Phase 17 `Policy Scope`, with schema/query migration acceptance gate. |
 | KNOW-03 | 08-04, 08-05, 08-09 | SATISFIED | No persistence/read-switch; policy text stays out of checkpoint via in-node re-fetch; git-revert/adapter rollback. |
 
 ### Disposition: Tenant-over-global
 
 CONTEXT.md D-D1: "Global-policy / tenant-over-global behavior is non-MVP and DEFERRED_WITH_OWNER to a later policy-scope phase with a schema-and-query acceptance gate; it is not a Phase 8 blocking exit."
 
-Resolution: Phase 8 exit scope covers tenant-scoped behavior only. Tenant-over-global requires a future phase with schema migration. No roadmap phase currently owns this — it should be assigned when a policy-scope phase is planned.
+Resolution: Phase 8 exit scope covers tenant-scoped behavior only. Tenant-over-global requires a future schema/query migration. Phase 15.2 assigns the owner as post-Phase 17 `Policy Scope`.
+
+Acceptance gate for post-Phase 17 `Policy Scope`: introduce explicit global/default policy scope schema, preserve tenant isolation, prove tenant policy wins over global/default fallback when both match, prove fallback only applies when tenant policy is absent, and cover evidence identity, citation validation, content lookup, and rollback behavior.
 
 ---
 
