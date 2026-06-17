@@ -53,7 +53,7 @@
 
 **Reviewed Memory Layer:**
 - Purpose: Own reviewed long-term/case memory contracts, canonical identity, retrieval predicates, tombstones, no-rewrite checks, supersede chains, and memory write observability without becoming policy/action/replay authority
-- Contains: `src/memory/identity.py`, `src/memory/long_term.py`, `src/memory/repository.py`, `src/memory/tombstones.py`, `LongTermMemory`, `CaseMemory`, `MemoryTombstone`, and `MemoryWriteEvent`
+- Contains: `src/memory/identity.py`, `src/memory/long_term.py`, `src/memory/case_memory.py`, `src/memory/repository.py`, `src/memory/tombstones.py`, `LongTermMemory`, `CaseMemory`, `MemoryTombstone`, and `MemoryWriteEvent`
 - Depends on: SQLAlchemy session, Phase 16 memory schema, canonical hashing, and explicit review/source policy boundaries
 
 **Planning and Verification Layer:**
@@ -108,6 +108,7 @@
 - `ToolResultPromptSummary` - Prompt-safe tool result projection with refs/status/summary and no raw tool payload data
 - `ConversationService` - Conversation log and tool call/result persistence boundary for Phase 15.1 memory foundation
 - `LongTermMemoryService` - Reviewed long-term memory write/review/delete/forget/supersede boundary with tombstone no-rewrite checks
+- `CaseMemoryService` - Reviewed case precedent candidate/review/delete/tombstone/retrieval boundary with metadata-first pgvector search
 - `MemoryTombstone` / `MemoryWriteEvent` - Phase 16 deletion/no-rewrite and memory lifecycle observability records
 - `CanonicalHashProfile v1` - Shared canonical JSON and hash input byte contract for approval/action/replay hashes
 - `ActionSafetySnapshot` - Immutable approval/action safety snapshot over proposed action hash, evidence refs, and config versions

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Long-term / Case Memory
 status: executing
-stopped_at: Completed 16-05-tombstone-supersede-PLAN.md
-last_updated: "2026-06-17T16:31:39.292Z"
+stopped_at: Completed 16-06-reviewed-case-memory-PLAN.md
+last_updated: "2026-06-17T16:50:58.917Z"
 last_activity: 2026-06-17
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 9
-  completed_plans: 5
-  percent: 56
+  completed_plans: 6
+  percent: 67
 ---
 
 # Project State: MOCA
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md` (updated 2026-06-17)
 ## Current Position
 
 Phase: 16 (long-term-case-memory) — EXECUTING
-Plan: 6 of 9
+Plan: 7 of 9
 Plans: 9 plan files in `.planning/phases/16-long-term-case-memory/`
 Status: Ready to execute
 Last activity: 2026-06-17
 
-Progress: [██████░░░░] 56%
+Progress: [███████░░░] 67%
 
 Planned files:
 
@@ -166,6 +166,9 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Forget/delete create active tombstone identities while keeping existing delete event semantics for delete_memory.
 - Tombstone matching uses canonical content_hash first, then allowed source_identity_hash fallback, with no semantic similarity path.
 - Supersede marks the previous row superseded/non-current, inserts a current replacement, links supersedes/superseded_by, and emits decision=supersede.
+- Case review approve/reject events use the existing memory_write_events decision enum: decision=write/reason_code=approved and decision=skip/reason_code=rejected.
+- Reviewed case memory returns fixed prompt-safe precedent fields only and does not import or emit policy evidence contracts from src/memory.
+- Case retrieval applies tenant/scope/status/deletion/expiry/PII/case-type/policy/tombstone filters before pgvector scoring.
 
 ## Accumulated Context
 
@@ -248,13 +251,14 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | 16 | 03 | 10 min | 4 | 5 |
 | Phase 16 P04 | 6 min | 2 tasks | 2 files |
 | Phase 16 P05 | 14 min | 4 tasks | 5 files |
+| 16 | 06 | 12 min | 4 | 4 |
 
 ## Session Continuity
 
-Last session: 2026-06-17T16:31:39.027Z
-Stopped at: Completed 16-05-tombstone-supersede-PLAN.md
+Last session: 2026-06-17T16:50:58.917Z
+Stopped at: Completed 16-06-reviewed-case-memory-PLAN.md
 Resume file: None
-Next: Continue with `.planning/phases/16-long-term-case-memory/16-06-reviewed-case-memory-PLAN.md`.
+Next: Continue with `.planning/phases/16-long-term-case-memory/16-07-context-assembler-memory-PLAN.md`.
 
 **Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17
 **Active Milestone:** v1.2 Long-term / Case Memory — defined 2026-06-17

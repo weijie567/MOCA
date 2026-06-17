@@ -21,9 +21,9 @@ Committed scope for the active v1.2 milestone. All requirements map to Phase 16.
 
 ### Case Memory
 
-- [ ] **CASEMEM-01**: Reviewed case memory stores precedent summaries with stable case/source identity, outcome metadata, review status, and safe references back to authoritative records.
-- [ ] **CASEMEM-02**: Case memory retrieval is distinct from long-term profile memory, session memory, policy evidence, and current business facts; it is surfaced only as reviewed precedent context.
-- [ ] **CASEMEM-03**: The transitional `search_case_memory` surface no longer claims reviewed case memory unless backed by the new case memory store; old session-derived search is renamed, quarantined, or explicitly unavailable.
+- [x] **CASEMEM-01**: Reviewed case memory stores precedent summaries with stable case/source identity, outcome metadata, review status, and safe references back to authoritative records.
+- [x] **CASEMEM-02**: Case memory retrieval is distinct from long-term profile memory, session memory, policy evidence, and current business facts; it is surfaced only as reviewed precedent context.
+- [x] **CASEMEM-03**: The transitional `search_case_memory` surface no longer claims reviewed case memory unless backed by the new case memory store; old session-derived search is renamed, quarantined, or explicitly unavailable.
 
 ### Tombstone & Deletion
 
@@ -83,9 +83,9 @@ Tracked but not in the active v1.2 roadmap.
 | LONGMEM-01 | Phase 16 | Complete |
 | LONGMEM-02 | Phase 16 | Complete |
 | LONGMEM-03 | Phase 16 | Complete |
-| CASEMEM-01 | Phase 16 | Pending |
-| CASEMEM-02 | Phase 16 | Pending |
-| CASEMEM-03 | Phase 16 | Pending |
+| CASEMEM-01 | Phase 16 | Complete |
+| CASEMEM-02 | Phase 16 | Complete |
+| CASEMEM-03 | Phase 16 | Complete |
 | TOMBSTONE-01 | Phase 16 | Complete |
 | TOMBSTONE-02 | Phase 16 | Complete |
 | MEMCTX-01 | Phase 16 | Pending |
@@ -100,4 +100,4 @@ Tracked but not in the active v1.2 roadmap.
 
 ---
 *Requirements defined: 2026-06-17*
-*Last updated: 2026-06-17 after Phase 16 Plan 05 tombstone/supersede*
+*Last updated: 2026-06-17 after Phase 16 Plan 06 reviewed case memory*
