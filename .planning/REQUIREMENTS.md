@@ -32,8 +32,8 @@ Committed scope for the active v1.2 milestone. All requirements map to Phase 16.
 
 ### Prompt Context & Authority Boundary
 
-- [ ] **MEMCTX-01**: `ContextAssembler` injects bounded long-term and case memory snippets with refs/summaries only, excluding raw memory records, raw tool payloads, policy full text, approval/action authority bodies, replay/debug blobs, and implicit dict/list stringification.
-- [ ] **MEMCTX-02**: Memory cannot produce `EvidenceRefV1`, authorize actions, satisfy approval evidence, replace current business facts, alter replay/audit truth, or bypass approval/action safety contracts; tests enforce these negative boundaries.
+- [x] **MEMCTX-01**: `ContextAssembler` injects bounded long-term and case memory snippets with refs/summaries only, excluding raw memory records, raw tool payloads, policy full text, approval/action authority bodies, replay/debug blobs, and implicit dict/list stringification.
+- [x] **MEMCTX-02**: Memory cannot produce `EvidenceRefV1`, authorize actions, satisfy approval evidence, replace current business facts, alter replay/audit truth, or bypass approval/action safety contracts; tests enforce these negative boundaries.
 
 ### Review & Observability
 
@@ -88,8 +88,8 @@ Tracked but not in the active v1.2 roadmap.
 | CASEMEM-03 | Phase 16 | Complete |
 | TOMBSTONE-01 | Phase 16 | Complete |
 | TOMBSTONE-02 | Phase 16 | Complete |
-| MEMCTX-01 | Phase 16 | Pending |
-| MEMCTX-02 | Phase 16 | Pending |
+| MEMCTX-01 | Phase 16 | Complete |
+| MEMCTX-02 | Phase 16 | Complete |
 | MEMREVIEW-01 | Phase 16 | Complete |
 | MEMEVAL-01 | Phase 16 | Complete |
 
@@ -100,4 +100,4 @@ Tracked but not in the active v1.2 roadmap.
 
 ---
 *Requirements defined: 2026-06-17*
-*Last updated: 2026-06-17 after Phase 16 Plan 06 reviewed case memory*
+*Last updated: 2026-06-18 after Phase 16 Plan 07 ContextAssembler memory blocks*

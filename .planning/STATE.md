@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Long-term / Case Memory
 status: executing
-stopped_at: Completed 16-06-reviewed-case-memory-PLAN.md
-last_updated: "2026-06-17T16:50:58.917Z"
+stopped_at: Completed 16-07-context-assembler-memory-PLAN.md
+last_updated: "2026-06-17T17:05:31.257Z"
 last_activity: 2026-06-17
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 9
-  completed_plans: 6
-  percent: 67
+  completed_plans: 7
+  percent: 78
 ---
 
 # Project State: MOCA
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md` (updated 2026-06-17)
 ## Current Position
 
 Phase: 16 (long-term-case-memory) — EXECUTING
-Plan: 7 of 9
+Plan: 8 of 9
 Plans: 9 plan files in `.planning/phases/16-long-term-case-memory/`
 Status: Ready to execute
 Last activity: 2026-06-17
 
-Progress: [███████░░░] 67%
+Progress: [████████░░] 78%
 
 Planned files:
 
@@ -169,6 +169,9 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Case review approve/reject events use the existing memory_write_events decision enum: decision=write/reason_code=approved and decision=skip/reason_code=rejected.
 - Reviewed case memory returns fixed prompt-safe precedent fields only and does not import or emit policy evidence contracts from src/memory.
 - Case retrieval applies tenant/scope/status/deletion/expiry/PII/case-type/policy/tombstone filters before pgvector scoring.
+- Memory prompt blocks remain non-protected; profile_memory and case_memory are added to BlockName but not PROTECTED_BLOCK_NAMES.
+- ContextAssembler caps combined profile/case memory prompt text at 1600 chars before adding prompt blocks.
+- Case memory prompt refs prioritize compact source and policy identifiers, including business_object_id, while excluding EvidenceRefV1, hashes, raw payloads, and authority bodies.
 
 ## Accumulated Context
 
@@ -252,13 +255,14 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | Phase 16 P04 | 6 min | 2 tasks | 2 files |
 | Phase 16 P05 | 14 min | 4 tasks | 5 files |
 | 16 | 06 | 12 min | 4 | 4 |
+| 16 | 07 | 6 min | 3 | 5 |
 
 ## Session Continuity
 
-Last session: 2026-06-17T16:50:58.917Z
-Stopped at: Completed 16-06-reviewed-case-memory-PLAN.md
+Last session: 2026-06-17T17:05:31.257Z
+Stopped at: Completed 16-07-context-assembler-memory-PLAN.md
 Resume file: None
-Next: Continue with `.planning/phases/16-long-term-case-memory/16-07-context-assembler-memory-PLAN.md`.
+Next: Continue with `.planning/phases/16-long-term-case-memory/16-08-memory-retrieval-integration-PLAN.md`.
 
 **Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17
 **Active Milestone:** v1.2 Long-term / Case Memory — defined 2026-06-17
