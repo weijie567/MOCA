@@ -306,6 +306,8 @@ async def _assemble_recommendation_prompt(
         thread_rolling_summary=prompt_context["thread_rolling_summary"],
         recent_messages=prompt_context["recent_messages"],
         verified_policy_snippets=policy_snippets,
+        profile_memory_snippets=state.get("long_term_memory") or [],
+        case_memory_snippets=state.get("case_memory") or [],
         tool_result_summaries=[
             *prompt_context["tool_result_summaries"],
             *(state.get("tool_results") or []),
