@@ -4,6 +4,7 @@ import inspect
 import re
 
 import pytest
+from pydantic import ValidationError
 
 from src.memory.identity import (
     MemoryIdentityError,
@@ -13,6 +14,7 @@ from src.memory.identity import (
     canonical_source_identity_hash,
     normalize_memory_content,
 )
+from src.memory.schemas import MemoryCandidateIdentityV1, MemoryIdentityV1, MemorySourceRefV1
 
 
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -192,3 +194,68 @@ def test_source_identity_hash_accepts_only_memory_source_ref_keys() -> None:
 def test_source_identity_rejects_unknown_keys() -> None:
     with pytest.raises(MemoryIdentityError, match="unknown"):
         canonical_source_identity_hash({"random_json_key": "x"})
+
+
+def test_memory_identity_schemas_are_prompt_safe() -> None:
+    content_hash = canonical_memory_content_hash(
+        memory_type="long_term_fact",
+        content="Refund policy preference",
+    )
+    source_identity_hash = canonical_source_identity_hash(_source_ref())
+    candidate_hash = canonical_memory_candidate_hash(
+        tenant_id="tenant-1",
+        memory_type="long_term_fact",
+        scope_type="merchant",
+        scope_id="merchant-1",
+        content_hash=content_hash,
+        source_identity_hash=source_identity_hash,
+    )
+
+    assert set(MemorySourceRefV1.model_fields) == SOURCE_REF_KEYS
+    assert set(MemorySourceRefV1.model_fields).isdisjoint(RAW_AUTHORITY_FIELDS)
+    assert set(MemoryIdentityV1.model_fields).isdisjoint(RAW_AUTHORITY_FIELDS)
+    assert set(MemoryCandidateIdentityV1.model_fields).isdisjoint(RAW_AUTHORITY_FIELDS)
+    assert "candidate_hash" in MemoryCandidateIdentityV1.model_fields
+
+    source_ref = MemorySourceRefV1(source_type="conversation_message", run_id="run-1")
+    identity = MemoryIdentityV1(
+        tenant_id="tenant-1",
+        memory_type="long_term_fact",
+        scope_type="merchant",
+        scope_id="merchant-1",
+        content_hash=content_hash,
+        source_identity_hash=source_identity_hash,
+    )
+    candidate_identity = MemoryCandidateIdentityV1(
+        tenant_id="tenant-1",
+        memory_type="long_term_fact",
+        scope_type="merchant",
+        scope_id="merchant-1",
+        content_hash=content_hash,
+        source_identity_hash=source_identity_hash,
+        candidate_hash=candidate_hash,
+    )
+
+    assert source_ref.model_dump(exclude_none=True) == {
+        "source_type": "conversation_message",
+        "run_id": "run-1",
+    }
+    assert identity.content_hash == content_hash
+    assert candidate_identity.candidate_hash == candidate_hash
+
+    with pytest.raises(ValidationError):
+        MemorySourceRefV1.model_validate({"source_type": "conversation_message", "raw_payload": {}})
+
+    with pytest.raises(ValidationError):
+        MemoryCandidateIdentityV1.model_validate(
+            {
+                "tenant_id": "tenant-1",
+                "memory_type": "long_term_fact",
+                "scope_type": "merchant",
+                "scope_id": "merchant-1",
+                "content_hash": content_hash,
+                "source_identity_hash": source_identity_hash,
+                "candidate_hash": candidate_hash,
+                "approval_authority_body": {},
+            }
+        )

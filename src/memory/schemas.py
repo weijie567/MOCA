@@ -7,6 +7,47 @@ import uuid
 from pydantic import BaseModel, ConfigDict, Field
 
 
+_SHA256_PATTERN = r"^sha256:[0-9a-f]{64}$"
+
+
+class MemorySourceRefV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_type: str
+    run_id: str | None = None
+    event_id: str | None = None
+    conversation_message_id: str | None = None
+    tool_result_id: str | None = None
+    agent_run_id: str | None = None
+    business_object_type: str | None = None
+    business_object_id: str | None = None
+    policy_version: str | None = None
+    outcome_id: str | None = None
+
+
+class MemoryIdentityV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: str
+    memory_type: str
+    scope_type: str
+    scope_id: str
+    content_hash: str = Field(pattern=_SHA256_PATTERN)
+    source_identity_hash: str | None = Field(default=None, pattern=_SHA256_PATTERN)
+
+
+class MemoryCandidateIdentityV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: str
+    memory_type: str
+    scope_type: str
+    scope_id: str
+    content_hash: str = Field(pattern=_SHA256_PATTERN)
+    source_identity_hash: str | None = Field(default=None, pattern=_SHA256_PATTERN)
+    candidate_hash: str = Field(pattern=_SHA256_PATTERN)
+
+
 class SessionSlotV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
