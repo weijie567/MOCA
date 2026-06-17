@@ -137,14 +137,14 @@ def project_tool_result_summary(value: ToolResultPromptSummary | WorkingToolResu
     return _bounded("; ".join(lines), max_chars)
 
 
-def project_policy_refs_for_prompt(snippets: Sequence[Any] | None, *, max_chars: int = 1600) -> str:
+def project_policy_refs_for_prompt(snippets: Sequence[Any] | None, *, max_chars: int = 6000) -> str:
     lines: list[str] = []
     for item in _sequence(snippets):
         mapping = _mapping(item.model_dump(mode="json") if hasattr(item, "model_dump") else item)
         fields = _format_mapping(mapping, _POLICY_SAFE_KEYS)
         text = _safe_scalar(mapping.get("text") or mapping.get("excerpt") or mapping.get("snippet"))
         if text:
-            fields = f"{fields}; excerpt={_bounded(text, 700)}" if fields else f"excerpt={_bounded(text, 700)}"
+            fields = f"{fields}; excerpt={_bounded(text, 1800)}" if fields else f"excerpt={_bounded(text, 1800)}"
         if fields:
             lines.append(fields)
     return _bounded("\n".join(lines), max_chars)

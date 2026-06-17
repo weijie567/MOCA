@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+from uuid import uuid4
+
 import pytest
 from pydantic import BaseModel
 
+from src.agent.context import PromptAssembly
 from src.agent.nodes import generate_recommendation as generate_recommendation_module
 from src.knowledge.config import MAX_EVIDENCE_TEXT_CHARS, RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1
@@ -26,6 +30,12 @@ class CapturingLLM:
                 return llm.response
 
         return _Wrapper()
+
+
+SHOULD_NOT_APPEAR_RAW_TOOL_DATA = "SHOULD_NOT_APPEAR_RAW_TOOL_DATA"
+SHOULD_NOT_APPEAR_BUSINESS_CONTEXT = "SHOULD_NOT_APPEAR_BUSINESS_CONTEXT"
+SHOULD_NOT_APPEAR_APPROVAL_BODY = "SHOULD_NOT_APPEAR_APPROVAL_BODY"
+SHOULD_NOT_APPEAR_NESTED_REPR = "{'nested': ['RAW']}"
 
 
 def _evidence(
@@ -78,6 +88,50 @@ def _with_knowledge_service(monkeypatch, contents):
 
 def _config():
     return {"configurable": {"session": object()}}
+
+
+class FakeConversationService:
+    def __init__(self):
+        self.calls = []
+
+    async def load_prompt_context(self, **kwargs):
+        self.calls.append(kwargs)
+        return SimpleNamespace(
+            latest_thread_summary=SimpleNamespace(
+                summary_text="thread_rolling summary says prior turn discussed ORD-PRIOR-001."
+            ),
+            recent_messages=[
+                SimpleNamespace(role="user", content="recent safe message for ORD-RECENT-001."),
+            ],
+            tool_prompt_summaries=[
+                SimpleNamespace(
+                    tool_call_id="tool-call-context",
+                    tool_result_id="tool-result-context",
+                    tool_name="get_order",
+                    status="success",
+                    summary="Safe context tool summary.",
+                    prompt_summary="Safe tool prompt summary for ORD-TOOL-001.",
+                    business_fact_refs_json=[{"resource_type": "order", "resource_id": "ORD-TOOL-001"}],
+                    policy_evidence_refs_json=[],
+                    raw_result_ref="opaque/ref",
+                    audit_ref="audit/ref",
+                    normalized_result_json={"secret": SHOULD_NOT_APPEAR_RAW_TOOL_DATA},
+                )
+            ],
+        )
+
+
+def _spy_context_assembler(monkeypatch):
+    assemblies: list[PromptAssembly] = []
+    original = generate_recommendation_module.ContextAssembler.assemble
+
+    def spy(self, **kwargs):
+        assembly = original(self, **kwargs)
+        assemblies.append(assembly)
+        return assembly
+
+    monkeypatch.setattr(generate_recommendation_module.ContextAssembler, "assemble", spy)
+    return assemblies
 
 
 def _draft(*, chunk_id: str = "chunk_001") -> dict:
@@ -320,3 +374,61 @@ async def test_expected_error_retries_then_falls_back(monkeypatch, base_state):
 
     assert result["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
     assert result["node_errors"][0]["retry_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_generate_recommendation_prompt_uses_context_assembly_and_excludes_raw_payloads(
+    monkeypatch, base_state
+):
+    evidence = _evidence(tenant_id=base_state["tenant_id"])
+    fake_llm = CapturingLLM(_draft())
+    fake_conversation = FakeConversationService()
+    assemblies = _spy_context_assembler(monkeypatch)
+    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
+    _with_knowledge_service(monkeypatch, {(evidence.doc_key, evidence.chunk_id): "Allowed verified policy text."})
+
+    await generate_recommendation_module.generate_recommendation(
+        {
+            **base_state,
+            "current_run_id": str(uuid4()),
+            **_retrieval_state(evidence=[evidence]),
+            "business_context": {
+                "order": {"order_id": "ORD-001", "status": "paid"},
+                "facts": {
+                    "marker": SHOULD_NOT_APPEAR_BUSINESS_CONTEXT,
+                    "nested": ["RAW"],
+                },
+                "raw_payload": SHOULD_NOT_APPEAR_RAW_TOOL_DATA,
+                "approval_authority_body": SHOULD_NOT_APPEAR_APPROVAL_BODY,
+            },
+            "tool_results": [
+                {
+                    "tool_call_id": "tool-call-state",
+                    "tool_result_id": "tool-result-state",
+                    "tool_name": "get_refund",
+                    "status": "success",
+                    "summary": "Safe state tool summary.",
+                    "prompt_summary": "Safe state tool prompt summary for RF-001.",
+                    "business_fact_refs": [{"resource_type": "refund_case", "resource_id": "RF-001"}],
+                    "policy_evidence_refs": [],
+                    "data": {"secret": SHOULD_NOT_APPEAR_RAW_TOOL_DATA},
+                }
+            ],
+        },
+        {"configurable": {"session": object(), "conversation_service": fake_conversation}},
+    )
+
+    assert assemblies
+    assert fake_llm.messages == assemblies[-1].to_messages()
+    prompt = fake_llm.messages[-1]["content"]
+    assert "thread_rolling_summary" in prompt
+    assert "recent safe message" in prompt
+    assert "Safe tool prompt summary" in prompt
+    assert "Safe state tool prompt summary" in prompt
+    assert "Allowed citation objects" in prompt
+    assert "PromptAssembly" in PromptAssembly.__name__
+    assert fake_conversation.calls
+    assert SHOULD_NOT_APPEAR_RAW_TOOL_DATA not in prompt
+    assert SHOULD_NOT_APPEAR_BUSINESS_CONTEXT not in prompt
+    assert SHOULD_NOT_APPEAR_APPROVAL_BODY not in prompt
+    assert SHOULD_NOT_APPEAR_NESTED_REPR not in prompt

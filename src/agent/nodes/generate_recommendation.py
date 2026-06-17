@@ -10,10 +10,14 @@ from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
+from src.agent.context import ContextAssembler, PromptAssembly
 from src.agent.prompts import GENERATE_RECOMMENDATION_SYSTEM
 from src.agent.schemas import RecommendationDraft
 from src.agent.state import AgentState
+from src.agent.working_state import project_working_state
 from src.config import settings
+from src.conversation.repository import ConversationRepository
+from src.conversation.service import ConversationService
 from src.knowledge.citation import validate_membership
 from src.knowledge.config import (
     MAX_EVIDENCE_TEXT_CHARS,
@@ -23,6 +27,7 @@ from src.knowledge.config import (
 from src.knowledge.retrieval import PolicyRetrievalEngine
 from src.knowledge.schemas import EvidenceRefV1
 from src.knowledge.service import PolicyKnowledgeService
+from src.tools.contracts import ToolResultPromptSummary
 
 logger = logging.getLogger(__name__)
 
@@ -76,14 +81,10 @@ def _retrieval_data(state: AgentState) -> dict[str, Any]:
     return retrieved.get("data") or retrieved
 
 
-def _summarize_business_context(context: dict[str, Any]) -> str:
-    return json.dumps(context, ensure_ascii=False, sort_keys=True)[:2000]
-
-
-def _summarize_evidence(
+def _policy_snippets(
     evidence: list[dict[str, Any]],
     text_by_evidence_id: dict[str, str],
-) -> str:
+) -> list[dict[str, Any]]:
     items = []
     remaining_chars = MAX_PROMPT_EVIDENCE_TOTAL_CHARS
     for item in evidence[:MAX_PROMPT_EVIDENCE_ITEMS]:
@@ -100,7 +101,7 @@ def _summarize_evidence(
                 "text": bounded_text,
             }
         )
-    return json.dumps(items, ensure_ascii=False, sort_keys=True)
+    return items
 
 
 def _allowed_citation_objects(
@@ -169,21 +170,13 @@ async def generate_recommendation(state: AgentState, config: RunnableConfig = No
         (item.get("doc_key"), item.get("chunk_id")): item["evidence_id"] for item in evidence_items
     }
     allowed_citations = _allowed_citation_objects(evidence_items)
-    messages: list[dict[str, str]] = [
-        {"role": "system", "content": GENERATE_RECOMMENDATION_SYSTEM},
-        {
-            "role": "user",
-            "content": (
-                f"User query: {state.get('user_query') or ''}\n"
-                f"Business context: {_summarize_business_context(state.get('business_context') or {})}\n"
-                f"Policy evidence: {_summarize_evidence(evidence_items, text_by_evidence_id)}\n"
-                f"Allowed citation objects: {allowed_citations}\n"
-                "For evidence_refs, copy one or more complete objects from Allowed citation objects. "
-                "For each material claim, rely only on the evidence_id in those objects. "
-                "Do not return strings, doc_key-only values, or chunk_id-only values."
-            ),
-        },
-    ]
+    prompt_assembly = await _assemble_recommendation_prompt(
+        state=state,
+        config=config,
+        allowed_citations=allowed_citations,
+        policy_snippets=_policy_snippets(evidence_items, text_by_evidence_id),
+    )
+    messages = prompt_assembly.to_messages()
     structured_llm = _get_llm().with_structured_output(RecommendationDraft)
     last_error: str | None = None
     provider_latency_ms: int | None = None
@@ -256,7 +249,7 @@ async def generate_recommendation(state: AgentState, config: RunnableConfig = No
                         validated_refs,
                         provider_latency_ms,
                         retry_count,
-                        len(str(messages)),
+                        _messages_chars(messages),
                     )
                 ],
             }
@@ -292,7 +285,106 @@ async def generate_recommendation(state: AgentState, config: RunnableConfig = No
                 started_at,
                 provider_latency_ms=provider_latency_ms,
                 retry_count=retry_count,
-                context_chars=len(str(messages)),
+                context_chars=_messages_chars(messages),
             )
         ],
     }
+
+
+async def _assemble_recommendation_prompt(
+    *,
+    state: AgentState,
+    config: RunnableConfig | None,
+    allowed_citations: str,
+    policy_snippets: list[dict[str, Any]],
+) -> PromptAssembly:
+    prompt_context = await _load_prompt_context(state, config)
+    return ContextAssembler().assemble(
+        system_prompt=GENERATE_RECOMMENDATION_SYSTEM,
+        current_user_message=str(state.get("user_query") or ""),
+        working_state=project_working_state(state),
+        thread_rolling_summary=prompt_context["thread_rolling_summary"],
+        recent_messages=prompt_context["recent_messages"],
+        verified_policy_snippets=policy_snippets,
+        tool_result_summaries=[
+            *prompt_context["tool_result_summaries"],
+            *(state.get("tool_results") or []),
+        ],
+        business_context=state.get("business_context") or {},
+        node_hints=[
+            f"Allowed citation objects: {allowed_citations}",
+            "For evidence_refs, copy one or more complete objects from Allowed citation objects.",
+            "For each material claim, rely only on the evidence_id in those objects.",
+            "Do not return strings, doc_key-only values, or chunk_id-only values.",
+        ],
+    )
+
+
+async def _load_prompt_context(state: AgentState, config: RunnableConfig | None) -> dict[str, Any]:
+    configurable = ((config or {}).get("configurable") or {}) if config else {}
+    session = configurable.get("session")
+    run_id = state.get("current_run_id") or state.get("run_id")
+    if session is None or not state.get("tenant_id") or not state.get("thread_id") or not run_id:
+        return _empty_prompt_context()
+
+    service = configurable.get("conversation_service")
+    if service is None:
+        if not hasattr(session, "execute"):
+            return _empty_prompt_context()
+        service = ConversationService(ConversationRepository(session))
+
+    try:
+        context = await service.load_prompt_context(
+            tenant_id=state["tenant_id"],
+            thread_id=str(state["thread_id"]),
+            run_id=run_id,
+        )
+    except Exception:
+        logger.warning("Prompt context load failed; continuing with current state only")
+        return _empty_prompt_context()
+
+    latest_summary = getattr(context, "latest_thread_summary", None)
+    return {
+        "thread_rolling_summary": getattr(latest_summary, "summary_text", None) or "",
+        "recent_messages": [
+            {"role": getattr(message, "role", "message"), "content": getattr(message, "content", "")}
+            for message in getattr(context, "recent_messages", [])
+        ],
+        "tool_result_summaries": [
+            summary
+            for summary in (
+                _tool_prompt_summary_from_record(record)
+                for record in getattr(context, "tool_prompt_summaries", [])
+            )
+            if summary is not None
+        ],
+    }
+
+
+def _empty_prompt_context() -> dict[str, Any]:
+    return {"thread_rolling_summary": "", "recent_messages": [], "tool_result_summaries": []}
+
+
+def _tool_prompt_summary_from_record(record: Any) -> ToolResultPromptSummary | None:
+    if isinstance(record, ToolResultPromptSummary):
+        return record
+    payload = {
+        "tool_call_id": getattr(record, "tool_call_id", ""),
+        "tool_result_id": getattr(record, "tool_result_id", "") or str(getattr(record, "id", "")),
+        "tool_name": getattr(record, "tool_name", "tool"),
+        "status": getattr(record, "status", "success"),
+        "summary": getattr(record, "summary", "") or "",
+        "prompt_summary": getattr(record, "prompt_summary", "") or getattr(record, "summary", "") or "",
+        "business_fact_refs": getattr(record, "business_fact_refs_json", []) or [],
+        "policy_evidence_refs": getattr(record, "policy_evidence_refs_json", []) or [],
+        "raw_result_ref": getattr(record, "raw_result_ref", None),
+        "audit_ref": getattr(record, "audit_ref", None),
+    }
+    try:
+        return ToolResultPromptSummary.model_validate(payload)
+    except ValidationError:
+        return None
+
+
+def _messages_chars(messages: list[dict[str, str]]) -> int:
+    return sum(len(message.get("content") or "") for message in messages)

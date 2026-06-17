@@ -13,9 +13,11 @@ from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
+from src.agent.context import ContextAssembler, PromptAssembly
 from src.agent.prompts import ASSESS_RISK_SYSTEM
 from src.agent.schemas import RiskAssessment
 from src.agent.state import AgentState
+from src.agent.working_state import project_working_state
 from src.approvals.snapshot_service import (
     ActionSafetySnapshotPersistenceError,
     compute_action_payload_hash,
@@ -24,7 +26,10 @@ from src.approvals.snapshot_service import (
 from src.approvals.snapshots import build_action_safety_snapshot
 from src.approvals.schemas import PROPOSED_ACTION_SCHEMA_VERSION
 from src.config import settings
+from src.conversation.repository import ConversationRepository
+from src.conversation.service import ConversationService
 from src.knowledge.schemas import EvidenceRefV1, canonical_evidence_projection
+from src.tools.contracts import ToolResultPromptSummary
 
 RISK_RULES_PATH = Path("rules/risk_rules.yaml")
 POLICY_CONFIG_VERSION = "approval-policy.v1"
@@ -431,10 +436,14 @@ async def assess_risk_and_approval(state: AgentState, config: RunnableConfig = N
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
         }
 
-    messages: list[dict[str, str]] = [
-        {"role": "system", "content": ASSESS_RISK_SYSTEM},
-        {"role": "user", "content": f"Risk rules: {rules}\nRecommendation: {draft}\nBusiness context: {context}"},
-    ]
+    prompt_assembly = await _assemble_risk_prompt(
+        state=state,
+        config=config,
+        rules=rules,
+        draft=draft,
+        context=context,
+    )
+    messages = prompt_assembly.to_messages()
     structured_llm = _get_llm().with_structured_output(RiskAssessment)
     last_error: str | None = None
     provider_latency_ms: int | None = None
@@ -479,7 +488,7 @@ async def assess_risk_and_approval(state: AgentState, config: RunnableConfig = N
                         started_at,
                         provider_latency_ms,
                         retry_count,
-                        len(str(messages)),
+                        _messages_chars(messages),
                     )
                 ],
             }
@@ -524,7 +533,7 @@ async def assess_risk_and_approval(state: AgentState, config: RunnableConfig = N
                 started_at,
                 provider_latency_ms,
                 retry_count,
-                len(str(messages)),
+                _messages_chars(messages),
             )
         ],
     }
@@ -536,3 +545,163 @@ async def assess_risk_and_approval(state: AgentState, config: RunnableConfig = N
         context=context,
         config=config,
     )
+
+
+async def _assemble_risk_prompt(
+    *,
+    state: AgentState,
+    config: RunnableConfig | None,
+    rules: dict[str, Any],
+    draft: dict[str, Any],
+    context: dict[str, Any],
+) -> PromptAssembly:
+    prompt_context = await _load_prompt_context(state, config)
+    return ContextAssembler().assemble(
+        system_prompt=ASSESS_RISK_SYSTEM,
+        current_user_message=str(state.get("user_query") or ""),
+        working_state=project_working_state(state),
+        thread_rolling_summary=prompt_context["thread_rolling_summary"],
+        recent_messages=prompt_context["recent_messages"],
+        verified_policy_snippets=_policy_refs_from_state(state, draft),
+        tool_result_summaries=[
+            *prompt_context["tool_result_summaries"],
+            *(state.get("tool_results") or []),
+        ],
+        business_context=context,
+        node_hints=[
+            _risk_rules_summary(rules),
+            _recommendation_summary(draft),
+            "Assess whether the recommendation needs approval. Use only projected business context and policy refs.",
+        ],
+    )
+
+
+def _risk_rules_summary(rules: dict[str, Any]) -> str:
+    lines: list[str] = ["Risk rules summary:"]
+    for group in ("high_risk", "low_risk"):
+        for rule in rules.get(group) or []:
+            if not isinstance(rule, dict):
+                continue
+            parts = [
+                f"group={group}",
+                f"id={rule.get('id')}",
+                f"condition={rule.get('condition')}",
+                f"description={rule.get('description')}",
+            ]
+            lines.append("; ".join(str(part) for part in parts if part and not str(part).endswith("=None")))
+    return "\n".join(lines)
+
+
+def _recommendation_summary(draft: dict[str, Any]) -> str:
+    fields = []
+    for key in ("recommended_action", "reasoning_summary", "confidence", "risk_level"):
+        value = draft.get(key)
+        if value is not None:
+            fields.append(f"{key}={value}")
+    missing_info = draft.get("missing_info")
+    if isinstance(missing_info, list) and missing_info:
+        fields.append("missing_info=" + "; ".join(str(item) for item in missing_info if item))
+    evidence_ids = [
+        str(item.get("evidence_id") or f"{item.get('doc_key')}:{item.get('chunk_id')}")
+        for item in draft.get("evidence_refs") or []
+        if isinstance(item, dict)
+    ]
+    if evidence_ids:
+        fields.append("evidence_refs=" + ", ".join(evidence_ids))
+    return "Recommendation summary: " + "; ".join(fields)
+
+
+def _policy_refs_from_state(state: AgentState, draft: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates = []
+    for value in (
+        state.get("evidence_refs"),
+        draft.get("evidence_refs"),
+        (state.get("retrieved_evidence") or {}).get("evidence_refs")
+        if isinstance(state.get("retrieved_evidence"), dict)
+        else None,
+    ):
+        if isinstance(value, list) and value:
+            candidates = value
+            break
+    refs: list[dict[str, Any]] = []
+    for item in candidates:
+        mapping = item.model_dump(mode="json") if hasattr(item, "model_dump") else item
+        if isinstance(mapping, dict):
+            refs.append(
+                {
+                    "evidence_id": mapping.get("evidence_id"),
+                    "doc_key": mapping.get("doc_key"),
+                    "chunk_id": mapping.get("chunk_id"),
+                    "policy_version": mapping.get("policy_version"),
+                }
+            )
+    return refs
+
+
+async def _load_prompt_context(state: AgentState, config: RunnableConfig | None) -> dict[str, Any]:
+    configurable = ((config or {}).get("configurable") or {}) if config else {}
+    session = configurable.get("session")
+    run_id = state.get("current_run_id") or state.get("run_id")
+    if session is None or not state.get("tenant_id") or not state.get("thread_id") or not run_id:
+        return _empty_prompt_context()
+
+    service = configurable.get("conversation_service")
+    if service is None:
+        if not hasattr(session, "execute"):
+            return _empty_prompt_context()
+        service = ConversationService(ConversationRepository(session))
+
+    try:
+        context = await service.load_prompt_context(
+            tenant_id=state["tenant_id"],
+            thread_id=str(state["thread_id"]),
+            run_id=run_id,
+        )
+    except Exception:
+        return _empty_prompt_context()
+
+    latest_summary = getattr(context, "latest_thread_summary", None)
+    return {
+        "thread_rolling_summary": getattr(latest_summary, "summary_text", None) or "",
+        "recent_messages": [
+            {"role": getattr(message, "role", "message"), "content": getattr(message, "content", "")}
+            for message in getattr(context, "recent_messages", [])
+        ],
+        "tool_result_summaries": [
+            summary
+            for summary in (
+                _tool_prompt_summary_from_record(record)
+                for record in getattr(context, "tool_prompt_summaries", [])
+            )
+            if summary is not None
+        ],
+    }
+
+
+def _empty_prompt_context() -> dict[str, Any]:
+    return {"thread_rolling_summary": "", "recent_messages": [], "tool_result_summaries": []}
+
+
+def _tool_prompt_summary_from_record(record: Any) -> ToolResultPromptSummary | None:
+    if isinstance(record, ToolResultPromptSummary):
+        return record
+    payload = {
+        "tool_call_id": getattr(record, "tool_call_id", ""),
+        "tool_result_id": getattr(record, "tool_result_id", "") or str(getattr(record, "id", "")),
+        "tool_name": getattr(record, "tool_name", "tool"),
+        "status": getattr(record, "status", "success"),
+        "summary": getattr(record, "summary", "") or "",
+        "prompt_summary": getattr(record, "prompt_summary", "") or getattr(record, "summary", "") or "",
+        "business_fact_refs": getattr(record, "business_fact_refs_json", []) or [],
+        "policy_evidence_refs": getattr(record, "policy_evidence_refs_json", []) or [],
+        "raw_result_ref": getattr(record, "raw_result_ref", None),
+        "audit_ref": getattr(record, "audit_ref", None),
+    }
+    try:
+        return ToolResultPromptSummary.model_validate(payload)
+    except ValidationError:
+        return None
+
+
+def _messages_chars(messages: list[dict[str, str]]) -> int:
+    return sum(len(message.get("content") or "") for message in messages)

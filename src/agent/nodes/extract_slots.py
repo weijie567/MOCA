@@ -7,10 +7,12 @@ from typing import Any
 from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
+from src.agent.context import ContextAssembler, PromptAssembly, project_candidate_slot_hints_for_prompt
 from src.agent.prompts import EXTRACT_SLOTS_SYSTEM
 from src.agent.routing import resolve_slots_with_metadata
 from src.agent.schemas import SlotExtractionResult
 from src.agent.state import AgentState
+from src.agent.working_state import project_working_state
 from src.config import settings
 
 
@@ -57,18 +59,8 @@ def _trace_step(
 
 async def extract_slots(state: AgentState) -> dict:
     started_at = _now_iso()
-    messages: list[dict[str, str]] = [
-        {"role": "system", "content": EXTRACT_SLOTS_SYSTEM},
-        {"role": "user", "content": state.get("normalized_query") or state.get("user_query") or ""},
-    ]
-    candidate_slots = state.get("candidate_slots")
-    if isinstance(candidate_slots, dict) and candidate_slots:
-        messages.append(
-            {
-                "role": "user",
-                "content": f"Candidate slot hints from classifier: {candidate_slots}. Validate against the user text; do not copy hints blindly.",
-            }
-        )
+    prompt_assembly = _assemble_slot_prompt(state)
+    messages = prompt_assembly.to_messages()
     structured_llm = _get_llm().with_structured_output(SlotExtractionResult)
     last_error: str | None = None
     provider_latency_ms: int | None = None
@@ -97,7 +89,7 @@ async def extract_slots(state: AgentState) -> dict:
                         started_at,
                         provider_latency_ms,
                         retry_count,
-                        len(str(messages)),
+                        _messages_chars(messages),
                     )
                 ],
             }
@@ -124,7 +116,31 @@ async def extract_slots(state: AgentState) -> dict:
                 started_at,
                 provider_latency_ms,
                 retry_count,
-                len(str(messages)),
+                _messages_chars(messages),
             )
         ],
     }
+
+
+def _assemble_slot_prompt(state: AgentState) -> PromptAssembly:
+    candidate_slots = state.get("candidate_slots")
+    node_hints = (
+        project_candidate_slot_hints_for_prompt(candidate_slots)
+        if isinstance(candidate_slots, dict) and candidate_slots
+        else ""
+    )
+    return ContextAssembler().assemble(
+        system_prompt=EXTRACT_SLOTS_SYSTEM,
+        current_user_message=str(state.get("normalized_query") or state.get("user_query") or ""),
+        working_state=project_working_state(state),
+        thread_rolling_summary="",
+        recent_messages=[],
+        verified_policy_snippets=[],
+        tool_result_summaries=[],
+        business_context={},
+        node_hints=node_hints,
+    )
+
+
+def _messages_chars(messages: list[dict[str, str]]) -> int:
+    return sum(len(message.get("content") or "") for message in messages)

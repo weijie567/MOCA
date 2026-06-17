@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from src.agent.context import ContextAssembler, TokenBudgetPolicy
+from src.agent.context import (
+    ContextAssembler,
+    PromptAssembly,
+    TokenBudgetPolicy,
+    project_business_context_for_prompt,
+    project_policy_refs_for_prompt,
+    project_tool_result_summary,
+    project_working_state_for_prompt,
+)
 from src.agent.working_state import WorkingStateV1
 
 
@@ -169,3 +177,11 @@ def test_context_assembler_does_not_stringify_unprojected_dicts():
     assert "safe recent message" in prompt
     assert SHOULD_NOT_APPEAR_NESTED_REPR not in prompt
     assert "RAW" not in prompt
+
+
+def test_context_exports_prompt_projectors():
+    assert PromptAssembly
+    assert callable(project_business_context_for_prompt)
+    assert callable(project_policy_refs_for_prompt)
+    assert callable(project_tool_result_summary)
+    assert callable(project_working_state_for_prompt)
