@@ -1,43 +1,43 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: Agent Architecture Migration
-status: milestone_complete
-stopped_at: v1.1 archived; ready to define next milestone
-last_updated: "2026-06-17T10:20:00Z"
+milestone: v1.2
+milestone_name: Long-term / Case Memory
+status: ready_to_plan
+stopped_at: v1.2 defined; Phase 16 ready for discussion/planning
+last_updated: "2026-06-17T10:21:37Z"
 last_activity: 2026-06-17
 progress:
-  total_phases: 11
-  completed_phases: 11
-  total_plans: 62
-  completed_plans: 62
-  percent: 100
+  total_phases: 1
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State: MOCA
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-06-16)
+See: `.planning/PROJECT.md` (updated 2026-06-17)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Define the next milestone with fresh requirements.
+**Current focus:** Phase 16 Long-term / Case Memory.
 
 ## Current Position
 
-Phase: none
+Phase: 16 - Long-term / Case Memory
 Plan: none
-Plans: none
-Status: v1.1 archived; ready for `$gsd-new-milestone`
+Plans: none yet
+Status: v1.2 milestone created; ready for `$gsd-discuss-phase 16` then `$gsd-plan-phase 16`
 Last activity: 2026-06-17
 
-Progress: [██████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 ## Completed Baseline
 
 Phase 7 Contract Baseline completed on 2026-06-06.
 
-- Artifacts: `.planning/phases/07-contract-baseline/`
+- Artifacts: `.planning/milestones/v1.1-phases/07-contract-baseline/`
 - Coverage result: `MISSING=0`
 - Downstream readiness: Phase 8 and Phase 9 may proceed to planning.
 - Phase 7 is docs-only and does not claim later target contracts are implemented.
@@ -54,6 +54,10 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 15.1 Memory Foundation V2 is inserted before Phase 16 to solve conversation log, working memory, short-term summaries, ContextAssembler, tool result layering, token budgeting, and trace/audit/conversation ID alignment without implementing long-term memory or case memory retrieval.
 - Phase 15.2 v1.1 Readiness Closure is inserted after Phase 15.1 and before Phase 16 to close milestone audit evidence gaps without expanding runtime scope.
 - Phase 15.2 adds formal Phase 7 and Phase 10 verification artifacts and records tenant-over-global global/default fallback as target-state `DEFERRED_WITH_OWNER` to post-Phase 17 `Policy Scope`.
+- v1.2 is Long-term / Case Memory and is scoped to Phase 16 only.
+- Phase 16 remains the single owner phase for memory_identity.v1, reviewed long-term memory, reviewed case memory, tombstones, memory write events, and prompt context integration.
+- Phase 17 remains deferred for External Action Execution; v1.2 does not renumber or absorb external execution/outbox/reconciliation/compensation scope.
+- v1.2 memory is contextual assistance only and cannot become policy evidence, approval/action authority, current business fact, or replay/audit truth.
 - Phase 15.1 Plan 01 stores conversation facts in dedicated conversation/tool/summary tables while business tables, policy KB, approval/action tables, and replay remain authoritative for their own domains.
 - ConversationService rejects raw prompt/tool payload, private reasoning, and approval/action authority keys before append.
 - Phase 15.1 Plan 01 reserves nullable case_id only; long-term memory, case retrieval, tombstones, embeddings, and vector retrieval remain Phase 16-owned.
@@ -133,7 +137,7 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 15.1 Plan 06 aligns conversation/tool/replay/audit refs using safe IDs and keeps ReplayService raw-key guards unchanged.
 - Phase 15.1 final defers Phase 16 long-term memory write gate, memory tombstones, user-manageable memory, case memory vector search, and case precedent retrieval; Phase 17 owns external action execution storage, outbox/execution reconciliation, and compensation workflow.
 - Phase 15.2 final readiness closure passed a focused suite with 181 tests and leaves Phase 16/17 runtime scope untouched.
-- v1.1 archived on 2026-06-17. `.planning/REQUIREMENTS.md` is removed after archive so the next milestone starts with fresh requirements.
+- v1.1 archived on 2026-06-17. `.planning/REQUIREMENTS.md` was removed at archive time and then recreated with fresh v1.2 requirements.
 
 ## Accumulated Context
 
@@ -141,6 +145,7 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 
 - Phase 15.1 inserted after Phase 15: Memory Foundation V2 (URGENT). It is a pre-Phase 16 foundation phase for conversation log, WorkingStateV1, short-term thread summaries, ContextAssembler, tool result storage, token budgeting, and trace/audit/conversation ID alignment. It explicitly does not implement Phase 16 long-term memory, tombstones, user-manageable memory, case memory vector search, or case precedent retrieval.
 - Phase 15.2 inserted after Phase 15.1: v1.1 Readiness Closure (URGENT). It closes formal verification and owner-disposition gaps from the milestone audit before Phase 16 planning.
+- v1.2 starts after v1.1 archive with fresh requirements in `.planning/REQUIREMENTS.md` and a one-phase roadmap for Phase 16 Long-term / Case Memory.
 
 ## Blockers / Concerns
 
@@ -149,6 +154,9 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 13 must keep the active SLA scanner as an explicit owned follow-up gate.
 - Phase 15.1 must not weaken ReplayEventV3 redaction rules by turning trace events into raw conversation/tool payload storage.
 - Phase 16/17 deferral must not weaken Phase 12 session-memory fallback or Phase 14 demo action safety.
+- Phase 16 planning must read `docs/contract-spec.md`, `docs/phase-13-17-architecture-plan.md`, and `docs/current-implementation-map.md` before choosing implementation details.
+- Any Phase 16 schema migration must include downgrade/rollback preflight strategy and tests for duplicate or tombstone-sensitive data where applicable.
+- Long-term/case memory must stay separate from session memory, policy evidence, current business data, approval authority, action authority, and replay/audit truth.
 
 ## Performance Metrics
 
@@ -206,9 +214,10 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 
 ## Session Continuity
 
-Last session: 2026-06-17T08:03:41.302Z
-Stopped at: v1.1 archived after Phase 15.2 readiness closure
+Last session: 2026-06-17T10:21:37Z
+Stopped at: v1.2 created after v1.1 archive
 Resume file: None
-Next: Run `$gsd-new-milestone`; likely candidate is Phase 16 Long-term / Case Memory.
+Next: Run `$gsd-discuss-phase 16`, then `$gsd-plan-phase 16`.
 
 **Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17
+**Active Milestone:** v1.2 Long-term / Case Memory — defined 2026-06-17

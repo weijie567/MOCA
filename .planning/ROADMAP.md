@@ -4,7 +4,7 @@
 
 - [x] **v1.0 MVP** - Shipped on 2026-05-22. Full archive: [v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md)
 - [x] **v1.1 Agent Architecture Migration** - Shipped on 2026-06-17. Full archive: [v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md)
-- [ ] **Next milestone** - Not started. Define with `$gsd-new-milestone` before planning Phase 16 or any new scope.
+- [ ] **v1.2 Long-term / Case Memory** - Active. Defined on 2026-06-17. Scope: Phase 16.
 
 ## Phases
 
@@ -35,21 +35,50 @@
 - [x] Phase 15.1: Memory Foundation V2
 - [x] Phase 15.2: v1.1 Readiness Closure
 
-Deferred beyond the v1.1 gate:
-
-- Phase 16: Long-term / Case Memory
-- Phase 17: External Action Execution
-- post-Phase 17 Policy Scope for tenant-over-global global/default fallback
-
 </details>
+
+## Active Milestone: v1.2 Long-term / Case Memory
+
+### Phase 16: Long-term / Case Memory
+
+**Status:** Ready for discussion and planning
+
+**Goal:** Implement reviewed long-term profile memory and reviewed case memory retrieval on top of the v1.1 conversation/context foundation, while preserving the boundaries that memory is contextual assistance only.
+
+**Requirements:** `MEMID-01`, `MEMSCHEMA-01`, `LONGMEM-01`, `LONGMEM-02`, `LONGMEM-03`, `CASEMEM-01`, `CASEMEM-02`, `CASEMEM-03`, `TOMBSTONE-01`, `TOMBSTONE-02`, `MEMCTX-01`, `MEMCTX-02`, `MEMREVIEW-01`, `MEMEVAL-01`
+
+**Success criteria:**
+
+- `memory_identity.v1` has golden tests for canonical normalization and hash behavior.
+- Long-term memory writes are reviewed/deterministic and retrieval excludes rejected, deleted, tombstoned, prohibited, superseded, stale, or out-of-scope records.
+- Case memory stores reviewed precedents and retrieval is separate from session memory, long-term memory, policy evidence, and current business facts.
+- Tombstones prevent immediate retrieval and block delayed/asynchronous rewrites in the same transaction.
+- `ContextAssembler` can include bounded memory snippets without raw payload leakage or authority escalation.
+- Tests prove memory cannot act as `EvidenceRefV1`, approval evidence, action authorization, current business truth, or replay/audit truth.
+- Transitional `search_case_memory` behavior is renamed, quarantined, or backed by the new reviewed case memory store.
+
+**Planning prerequisites:**
+
+- Read `docs/contract-spec.md` Section 20 memory contracts.
+- Read `docs/phase-13-17-architecture-plan.md` Phase 16 scope.
+- Read `docs/current-implementation-map.md` memory-related current-state notes.
+- Include migration rollback and downgrade preflight strategy for new schema.
+- Include coverage for tombstone no-rewrite and separate-session concurrency risks where relevant.
+
+## Deferred Beyond v1.2
+
+- **Phase 17: External Action Execution** - external execution storage, outbox dispatch, reconciliation, compensation, duplicate execution/key guards.
+- **post-Phase 17 Policy Scope** - tenant-over-global global/default policy fallback.
+- **Memory UX** - full user/admin memory management UI.
+- **Memory retrieval quality expansion** - broader vector retrieval/reranking after lifecycle safety passes.
 
 ## Current Status
 
-v1.1 is archived. `.planning/REQUIREMENTS.md` is intentionally removed at milestone close; the next milestone must create fresh requirements before new phase planning.
+v1.2 is defined and ready to plan. The current active roadmap contains one owner phase, Phase 16, to avoid renumbering the previously deferred Phase 17 external execution scope.
 
 ## Next Step
 
-Run `$gsd-new-milestone` to define the next milestone. If continuing the current architecture path, the likely first candidate is Phase 16 Long-term / Case Memory.
+Run `$gsd-discuss-phase 16` to lock implementation choices, then `$gsd-plan-phase 16` to create the detailed plan.
 
 ---
-*Updated: 2026-06-17 - v1.1 Agent Architecture Migration archived.*
+*Updated: 2026-06-17 - v1.2 Long-term / Case Memory created.*

@@ -17,11 +17,19 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 Full archive records live in `.planning/milestones/`.
 
-## Current State
+## Current Milestone: v1.2 Long-term / Case Memory
 
-v1.1 is archived. There is no active milestone until `$gsd-new-milestone` defines fresh requirements.
+v1.2 is active and scoped to Phase 16. It implements reviewed long-term profile memory and reviewed case memory retrieval on top of the v1.1 conversation/context foundation.
 
-The next likely direction is Phase 16 Long-term / Case Memory, but it must be scoped through a new milestone requirements pass rather than inheriting the deleted v1.1 requirements file.
+**Goal:** Add durable, reviewed memory that can help future runs with user/profile preferences and case precedents, while preserving the rule that memory is contextual assistance only.
+
+**Target features:**
+- `memory_identity.v1` canonical normalization and stable hashing.
+- Durable long-term memory storage with review lifecycle, correction/supersede, retrieval predicates, and tombstone/delete behavior.
+- Reviewed case memory storage and retrieval for precedent context, distinct from session memory and policy evidence.
+- Memory tombstones and write events that prevent deleted memory from being retrieved or rewritten by delayed writes.
+- Prompt-safe `ContextAssembler` integration with strict exclusion of raw payloads and authority-bearing objects.
+- Contract/eval tests proving memory cannot act as policy evidence, approval evidence, action authority, current business truth, or replay/audit truth.
 
 ## Last Shipped Milestone: v1.1 Agent Architecture Migration
 
@@ -61,10 +69,19 @@ The next likely direction is Phase 16 Long-term / Case Memory, but it must be sc
 
 ### Active
 
-- [ ] Define the next milestone with fresh requirements before planning Phase 16 or any new scope.
+- [ ] Implement `memory_identity.v1` and safe memory schema for long-term memories, case memories, tombstones, and write events.
+- [ ] Implement reviewed long-term memory lifecycle with retrieval predicates, correction/supersede, and tombstone no-rewrite behavior.
+- [ ] Implement reviewed case memory retrieval as precedent context, separate from session memory, policy evidence, and current business facts.
+- [ ] Integrate bounded memory snippets through `ContextAssembler` without raw payload leakage or authority escalation.
+- [ ] Add contract/eval coverage for memory identity, retrieval predicates, lifecycle, tombstones, transitional `search_case_memory`, and authority-boundary negatives.
 
 ### Out of Scope
 
+- Real external action execution, outbox, reconciliation, and compensation — future External Action Execution milestone.
+- Tenant-over-global global/default policy fallback — future post-Phase 17 Policy Scope milestone.
+- Memory as policy evidence, approval/action authority, current business fact, or replay/audit truth — violates the contract boundary.
+- Full user-facing memory management UI — defer until storage/review/tombstone/retrieval foundations are safe.
+- New vector database service — PostgreSQL/pgvector remains the default unless Phase 16 planning proves a stronger need.
 - Second scenario (creator appeals) — defer to polish phase
 - MCP protocol layer — adds complexity without MVP value
 - Kubernetes / production deployment — Docker Compose sufficient for demo
@@ -121,11 +138,13 @@ The next likely direction is Phase 16 Long-term / Case Memory, but it must be sc
 - Phase 15.1 Memory Foundation V2 is complete: user-scoped conversation log, layered tool call/result storage, prompt-safe WorkingStateV1, source-range thread summaries, ContextAssembler/token budgeting, and replay/audit/conversation ID alignment are verified without implementing Phase 16/17 scope.
 - Phase 15.2 v1.1 Readiness Closure is complete: formal Phase 7/10 verification exists, `KNOW-02` tenant-over-global target semantics have a post-Phase 17 `Policy Scope` owner, and the milestone readiness audit passes.
 - v1.1 is shipped and archived on 2026-06-17. Full milestone history lives in `.planning/milestones/v1.1-ROADMAP.md`, `.planning/milestones/v1.1-REQUIREMENTS.md`, and `.planning/milestones/v1.1-MILESTONE-AUDIT.md`.
-- Active planning is paused until the next milestone is created. Phase 16 Long-term / Case Memory is the likely next candidate, but it needs fresh requirements.
+- v1.2 Long-term / Case Memory is active as a fresh milestone. Phase 16 owns `memory_identity.v1`, reviewed long-term memory, reviewed case memory, memory tombstones, memory write events, and prompt-context integration.
 
-## Next Milestone Goals
+## Current Milestone Goals
 
-Run `$gsd-new-milestone` to decide whether the next milestone should carry forward Phase 16 Long-term / Case Memory, Phase 17 External Action Execution, post-Phase 17 Policy Scope, or a smaller portfolio polish slice.
+- Plan Phase 16 from the new v1.2 requirements rather than from archived v1.1 requirements.
+- Preserve v1.1 safety boundaries: memory cannot become policy evidence, approval/action authority, current business truth, or replay/audit truth.
+- Keep Phase 17 External Action Execution and post-Phase 17 Policy Scope explicitly deferred beyond v1.2.
 
 ## Constraints
 
@@ -149,6 +168,8 @@ Run `$gsd-new-milestone` to decide whether the next milestone should carry forwa
 | Replace the previous v1.1 investigation roadmap with Agent Architecture Migration | The architecture spec now defines the authoritative capability sequence and standard Phase 7-17 identities are required for SDK planning | Adopted 2026-06-06 |
 | Phase 13-17 architecture-first planning standard | Approval, action, replay, memory, and external execution are tightly coupled; plans must read `docs/phase-13-17-architecture-plan.md`, define owners/contracts first, and delete or quarantine old paths instead of preserving minimum-diff compatibility | Adopted 2026-06-15 |
 | Archive v1.1 before Phase 16 | Readiness closure showed v1.1 could be archived cleanly before entering long-term memory, avoiding carry-over evidence debt | Adopted 2026-06-17 |
+| Scope v1.2 to Phase 16 only | Preserves the existing architecture-owner meaning of Phase 16 while avoiding renumbering or absorbing Phase 17 External Action Execution | Adopted 2026-06-17 |
+| Treat long-term/case memory as contextual assistance only | Prevents memory from weakening the policy evidence, approval/action authority, current business fact, and replay/audit contracts established in v1.1 | Adopted 2026-06-17 |
 
 ## Evolution
 
@@ -168,4 +189,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-17 after v1.1 milestone archive*
+*Last updated: 2026-06-17 after v1.2 milestone creation*
