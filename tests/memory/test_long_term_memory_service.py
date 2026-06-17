@@ -200,8 +200,53 @@ async def test_llm_candidate_requires_review(session: AsyncSession, seeded_sessi
     assert result.review_status == "needs_review"
     assert row is not None
     assert row.review_status == "needs_review"
+    assert row.is_current is False
     assert retrieved == []
     assert events[-1].decision == "needs_review"
+
+
+@pytest.mark.asyncio
+async def test_pending_long_term_candidate_does_not_block_later_auto_approved_same_content_write(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    pending_run_id = await _insert_run(session, seeded_session, thread_id="pending-long-term-candidate")
+    service = LongTermMemoryService(LongTermMemoryRepository(session))
+    content = "Merchant prefers invoice follow-ups in concise summaries."
+    pending_candidate = _candidate(
+        seeded_session,
+        run_id=pending_run_id,
+        content=content,
+        source_type="llm_candidate",
+    )
+    pending_result = await service.write_memory(pending_candidate)
+
+    trusted_run_id = await _insert_run(session, seeded_session, thread_id="trusted-long-term-write")
+    trusted_result = await service.write_memory(
+        _candidate(
+            seeded_session,
+            run_id=trusted_run_id,
+            content=content,
+            source_type="explicit_user_preference",
+        )
+    )
+    pending_row = await session.get(LongTermMemory, pending_result.memory_id)
+    trusted_row = await session.get(LongTermMemory, trusted_result.memory_id)
+    retrieved = await LongTermMemoryRepository(session).retrieve_profile_memory(
+        tenant_id=pending_candidate.tenant_id,
+        scope_type=pending_candidate.scope_type,
+        scope_id=pending_candidate.scope_id,
+    )
+
+    assert pending_result.status == "needs_review"
+    assert trusted_result.status == "written"
+    assert pending_row is not None
+    assert trusted_row is not None
+    assert pending_row.review_status == "needs_review"
+    assert pending_row.is_current is False
+    assert trusted_row.review_status == "auto_approved"
+    assert trusted_row.is_current is True
+    assert [row.memory_id for row in retrieved] == [str(trusted_row.id)]
 
 
 @pytest.mark.asyncio
@@ -425,6 +470,48 @@ async def test_supersede_memory_updates_chain_and_emits_event(
 
 
 @pytest.mark.asyncio
+async def test_supersede_memory_requires_current_published_previous(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session)
+    service = LongTermMemoryService(LongTermMemoryRepository(session))
+    first_result = await service.write_memory(_candidate(seeded_session, run_id=run_id))
+    await service.delete_memory(
+        tenant_id=seeded_session["tenant"].id,
+        memory_id=first_result.memory_id,
+        run_id=run_id,
+    )
+    replacement_run_id = await _insert_run(session, seeded_session, thread_id="invalid-supersede-anchor")
+    replacement = _candidate(
+        seeded_session,
+        run_id=replacement_run_id,
+        content="Replacement must not attach to deleted memory.",
+    )
+
+    with pytest.raises(ValueError, match="current published"):
+        await service.supersede_memory(
+            tenant_id=seeded_session["tenant"].id,
+            memory_id=first_result.memory_id,
+            replacement_candidate=replacement,
+            run_id=replacement_run_id,
+            reason_code="correction",
+        )
+
+    rows = (
+        await session.execute(
+            select(LongTermMemory).where(
+                LongTermMemory.tenant_id == replacement.tenant_id,
+                LongTermMemory.scope_type == replacement.scope_type,
+                LongTermMemory.scope_id == replacement.scope_id,
+                LongTermMemory.content == replacement.content,
+            )
+        )
+    ).scalars().all()
+    assert rows == []
+
+
+@pytest.mark.asyncio
 async def test_review_required_supersede_keeps_previous_memory_current_until_approved(
     session: AsyncSession,
     seeded_session: dict,
@@ -486,6 +573,108 @@ async def test_review_required_supersede_keeps_previous_memory_current_until_app
     assert pending.review_status == "approved"
     assert pending.is_current is True
     assert [row.memory_id for row in after_approval] == [str(pending.id)]
+
+
+@pytest.mark.asyncio
+async def test_expired_pending_supersede_cannot_be_approved_and_keeps_previous_current(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session)
+    service = LongTermMemoryService(LongTermMemoryRepository(session))
+    first_result = await service.write_memory(_candidate(seeded_session, run_id=run_id))
+    now = datetime.now(UTC)
+    replacement_run_id = await _insert_run(session, seeded_session, thread_id="expired-pending-supersede")
+    replacement = _candidate(
+        seeded_session,
+        run_id=replacement_run_id,
+        content="Pending replacement that expires before approval.",
+        source_type="llm_candidate",
+        expires_at=now + timedelta(seconds=1),
+    )
+
+    result = await service.supersede_memory(
+        tenant_id=seeded_session["tenant"].id,
+        memory_id=first_result.memory_id,
+        replacement_candidate=replacement,
+        run_id=replacement_run_id,
+        reason_code="correction",
+        now=now,
+    )
+    previous = await session.get(LongTermMemory, first_result.memory_id)
+    pending = await session.get(LongTermMemory, result.memory_id)
+    assert previous is not None
+    assert pending is not None
+
+    with pytest.raises(ValueError, match="unexpired"):
+        await service.approve_memory(
+            tenant_id=seeded_session["tenant"].id,
+            memory_id=result.memory_id,
+            run_id=replacement_run_id,
+            now=now + timedelta(seconds=2),
+        )
+
+    await session.refresh(previous)
+    await session.refresh(pending)
+    retrieved = await LongTermMemoryRepository(session).retrieve_profile_memory(
+        tenant_id=replacement.tenant_id,
+        scope_type=replacement.scope_type,
+        scope_id=replacement.scope_id,
+        now=now + timedelta(seconds=2),
+    )
+
+    assert previous.review_status == "auto_approved"
+    assert previous.is_current is True
+    assert previous.superseded_by is None
+    assert pending.review_status == "needs_review"
+    assert pending.is_current is False
+    assert [row.memory_id for row in retrieved] == [str(previous.id)]
+
+
+@pytest.mark.asyncio
+async def test_expired_auto_approved_supersede_replacement_is_skipped_without_mutating_previous(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session)
+    service = LongTermMemoryService(LongTermMemoryRepository(session))
+    first_result = await service.write_memory(_candidate(seeded_session, run_id=run_id))
+    now = datetime.now(UTC)
+    replacement_run_id = await _insert_run(session, seeded_session, thread_id="expired-auto-supersede")
+    replacement = _candidate(
+        seeded_session,
+        run_id=replacement_run_id,
+        content="Expired replacement must not hide current memory.",
+        expires_at=now - timedelta(seconds=1),
+    )
+
+    result = await service.supersede_memory(
+        tenant_id=seeded_session["tenant"].id,
+        memory_id=first_result.memory_id,
+        replacement_candidate=replacement,
+        run_id=replacement_run_id,
+        reason_code="correction",
+        now=now,
+    )
+    previous = await session.get(LongTermMemory, first_result.memory_id)
+    assert previous is not None
+    retrieved = await LongTermMemoryRepository(session).retrieve_profile_memory(
+        tenant_id=replacement.tenant_id,
+        scope_type=replacement.scope_type,
+        scope_id=replacement.scope_id,
+        now=now,
+    )
+    events = await _events(session, replacement_run_id)
+
+    assert result.status == "skipped"
+    assert result.reason_code == "expired_candidate"
+    assert result.memory_id is None
+    assert previous.review_status == "auto_approved"
+    assert previous.is_current is True
+    assert previous.superseded_by is None
+    assert [row.memory_id for row in retrieved] == [str(previous.id)]
+    assert events[-1].decision == "skip"
+    assert events[-1].reason_code == "expired_candidate"
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import uuid
 
 import pytest
@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.db.models import AgentRun, LongTermMemory, MemoryTombstone, MemoryWriteEvent
 from src.memory.case_memory import CASE_MEMORY_TYPE, CaseMemoryRepository, CaseMemoryService
+from src.memory.identity import canonical_memory_content_hash
 from src.memory.repository import LONG_TERM_MEMORY_TYPE, LongTermMemoryRepository
 from src.memory.long_term import LongTermMemoryService
 from src.memory.schemas import CaseMemoryWriteCandidate, LongTermMemoryWriteCandidate
@@ -279,6 +280,56 @@ async def test_tombstone_blocks_rewrite_by_source_identity_fallback(
     assert result.reason_code == "tombstone_match"
     assert result.source_identity_hash is not None
     assert events[-1].reason_code == "tombstone_match"
+
+
+@pytest.mark.asyncio
+async def test_expired_tombstone_identity_can_be_recreated(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session, thread_id="expired-tombstone-recreate")
+    repository = LongTermMemoryRepository(session)
+    now = datetime.now(UTC)
+    source_ref = _source_ref(
+        source_type="explicit_user_preference",
+        run_id=run_id,
+        business_object_id=str(seeded_session["merchant"].id),
+        event_id="evt-expired-tombstone",
+    )
+    content_hash = canonical_memory_content_hash(
+        memory_type=LONG_TERM_MEMORY_TYPE,
+        content="Merchant deleted a temporary preference.",
+    )
+    expired = await repository.create_tombstone(
+        tenant_id=seeded_session["tenant"].id,
+        memory_type=LONG_TERM_MEMORY_TYPE,
+        scope_type="merchant",
+        scope_id=str(seeded_session["merchant"].id),
+        content_hash=content_hash,
+        source_ref_json=source_ref,
+        reason_code="temporary_forget",
+        created_by_run_id=run_id,
+        expires_at=now - timedelta(seconds=1),
+        now=now - timedelta(seconds=2),
+    )
+
+    replacement = await repository.create_tombstone(
+        tenant_id=seeded_session["tenant"].id,
+        memory_type=LONG_TERM_MEMORY_TYPE,
+        scope_type="merchant",
+        scope_id=str(seeded_session["merchant"].id),
+        content_hash=content_hash,
+        source_ref_json=source_ref,
+        reason_code="fresh_forget",
+        created_by_run_id=run_id,
+        now=now,
+    )
+    await session.refresh(expired)
+
+    assert replacement.id != expired.id
+    assert expired.deleted_at == now
+    assert replacement.deleted_at is None
+    assert replacement.reason_code == "fresh_forget"
 
 
 @pytest.mark.asyncio

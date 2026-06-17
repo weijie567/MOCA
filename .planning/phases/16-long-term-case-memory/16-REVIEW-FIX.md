@@ -8,7 +8,23 @@ fix_commit: 2312abe
 
 # Phase 16 Code Review Fixes
 
-Phase 16 code review fixes have been applied in two passes. The first pass resolved the initial 1 critical issue and 5 warnings in commit `506c50d`. A follow-up deep review on 2026-06-18 found 3 additional long-term memory lifecycle warnings; this report records those fixes and verification results.
+Phase 16 code review fixes have been applied in three passes. The first pass resolved the initial 1 critical issue and 5 warnings in commit `506c50d`. A follow-up deep review on 2026-06-18 found 3 additional long-term memory lifecycle warnings. A later Codex comprehensive lifecycle review found 4 more warning-class edge cases around pending publication, supersede anchors, expired approvals, and expired tombstone identities.
+
+## 2026-06-18 Comprehensive Review Follow-Up
+
+| ID | Resolution |
+| --- | --- |
+| WR-04 | `supersede_memory()` now requires the previous row to be current, published, undeleted, and unexpired before attaching a replacement, so deleted/rejected/pending/superseded rows cannot be used as correction anchors. |
+| WR-05 | Ordinary `needs_review` long-term candidates are inserted as non-current, and legacy unpublished-current rows for the same content are retired before duplicate detection, so a later explicit/deterministic same-content write can publish normally. |
+| WR-06 | Approving long-term memory now rejects expired pending rows; pending supersede approval also verifies that the previous row remains current/published/unexpired before superseding it. Expired auto-approved replacement candidates are skipped without mutating the previous memory. |
+| WR-07 | Long-term and case tombstone creation now retires expired tombstones for the same content/source identity before checking for an active tombstone or inserting a replacement, aligning query behavior with the partial unique indexes. |
+
+## 2026-06-18 Comprehensive Review Verification
+
+- `uv run pytest tests/memory/test_long_term_memory_service.py tests/memory/test_memory_tombstones.py tests/memory/test_case_memory_retrieval.py -q` - passed, 31 tests, 1 warning.
+- `uv run ruff check src/memory tests/memory` - passed.
+- `uv run pytest tests/memory tests/agent/test_memory_evidence_boundary.py tests/agent/test_policy_retrieval_ownership.py tests/agent/test_nodes/test_investigate.py tests/agent/test_tools/test_unified_tool_manager.py -q` - passed, 152 tests, 1 warning.
+- `uv run pytest -q` - passed, 988 tests, 6 warnings, 564.26s.
 
 ## 2026-06-18 Re-Review Resolutions
 

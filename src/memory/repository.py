@@ -201,6 +201,7 @@ class LongTermMemoryRepository:
                 LongTermMemory.content_hash == content_hash,
                 LongTermMemory.deleted_at.is_(None),
                 LongTermMemory.is_current.is_(True),
+                LongTermMemory.review_status.in_(PUBLISHED_LONG_TERM_REVIEW_STATUSES),
                 or_(LongTermMemory.expires_at.is_(None), LongTermMemory.expires_at > now),
             )
             .order_by(LongTermMemory.updated_at.desc(), LongTermMemory.created_at.desc())
@@ -230,6 +231,29 @@ class LongTermMemoryRepository:
                 LongTermMemory.is_current.is_(True),
                 LongTermMemory.expires_at.is_not(None),
                 LongTermMemory.expires_at <= now,
+            )
+            .values(is_current=False, updated_at=func.now())
+        )
+        await self.session.flush()
+
+    async def retire_unpublished_current_by_content_hash(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        scope_type: str,
+        scope_id: str,
+        content_hash: str,
+    ) -> None:
+        await self.session.execute(
+            update(LongTermMemory)
+            .where(
+                LongTermMemory.tenant_id == tenant_id,
+                LongTermMemory.scope_type == scope_type,
+                LongTermMemory.scope_id == scope_id,
+                LongTermMemory.content_hash == content_hash,
+                LongTermMemory.deleted_at.is_(None),
+                LongTermMemory.is_current.is_(True),
+                LongTermMemory.review_status.not_in(PUBLISHED_LONG_TERM_REVIEW_STATUSES),
             )
             .values(is_current=False, updated_at=func.now())
         )
@@ -278,12 +302,23 @@ class LongTermMemoryRepository:
         created_by_user_id: uuid.UUID | None = None,
         created_by_run_id: uuid.UUID | None = None,
         expires_at: datetime | None = None,
+        now: datetime | None = None,
     ) -> MemoryTombstone:
+        now = _aware(now)
         source_ref_json = dict(source_ref_json or {})
         resolved_source_identity_hash = source_identity_hash or source_identity_hash_for_tombstone(source_ref_json)
         if content_hash is None and resolved_source_identity_hash is None:
             raise ValueError("content_hash or source_identity_hash is required for memory tombstone")
 
+        await self._retire_expired_tombstones(
+            tenant_id=tenant_id,
+            memory_type=memory_type,
+            scope_type=scope_type,
+            scope_id=scope_id,
+            content_hash=content_hash,
+            source_identity_hash=resolved_source_identity_hash,
+            now=now,
+        )
         existing = await self.active_tombstone_matches(
             tenant_id=tenant_id,
             memory_type=memory_type,
@@ -291,6 +326,7 @@ class LongTermMemoryRepository:
             scope_id=scope_id,
             content_hash=content_hash,
             source_identity_hash=resolved_source_identity_hash,
+            now=now,
         )
         if existing is not None:
             return existing
@@ -311,6 +347,40 @@ class LongTermMemoryRepository:
         self.session.add(tombstone)
         await self.session.flush()
         return tombstone
+
+    async def _retire_expired_tombstones(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        memory_type: str,
+        scope_type: str,
+        scope_id: str,
+        content_hash: str | None,
+        source_identity_hash: str | None,
+        now: datetime,
+    ) -> None:
+        identity_filters = []
+        if content_hash is not None:
+            identity_filters.append(MemoryTombstone.content_hash == content_hash)
+        if source_identity_hash is not None:
+            identity_filters.append(MemoryTombstone.source_identity_hash == source_identity_hash)
+        if not identity_filters:
+            return
+        await self.session.execute(
+            update(MemoryTombstone)
+            .where(
+                MemoryTombstone.tenant_id == tenant_id,
+                MemoryTombstone.memory_type == memory_type,
+                MemoryTombstone.scope_type == scope_type,
+                MemoryTombstone.scope_id == scope_id,
+                MemoryTombstone.deleted_at.is_(None),
+                MemoryTombstone.expires_at.is_not(None),
+                MemoryTombstone.expires_at <= now,
+                or_(*identity_filters),
+            )
+            .values(deleted_at=now)
+        )
+        await self.session.flush()
 
     async def active_tombstone_matches(
         self,
@@ -395,6 +465,7 @@ class LongTermMemoryRepository:
         expected_review_status: str | None = None,
         now: datetime | None = None,
     ) -> LongTermMemory | None:
+        now = _aware(now)
         memory = await self.get_memory(tenant_id=tenant_id, memory_id=memory_id)
         if memory is None:
             return None
@@ -402,6 +473,8 @@ class LongTermMemoryRepository:
             raise ValueError(f"long-term memory review requires {expected_review_status} status")
         if memory.deleted_at is not None or memory.review_status in {"deleted", "tombstoned", "superseded"}:
             raise ValueError("long-term memory review requires an active needs_review row")
+        if review_status == "approved" and memory.expires_at is not None and _aware(memory.expires_at) <= now:
+            raise ValueError("long-term memory approval requires an unexpired row")
         if review_status == "approved" and memory.supersedes is not None:
             previous = await self.get_memory(tenant_id=tenant_id, memory_id=memory.supersedes)
             if (
@@ -409,12 +482,30 @@ class LongTermMemoryRepository:
                 or previous.deleted_at is not None
                 or previous.is_current is not True
                 or previous.review_status not in PUBLISHED_LONG_TERM_REVIEW_STATUSES
+                or (previous.expires_at is not None and _aware(previous.expires_at) <= now)
             ):
                 raise ValueError("superseded long-term memory is not current")
             previous.is_current = False
             previous.review_status = "superseded"
-            previous.superseded_at = _aware(now)
+            previous.superseded_at = now
             previous.superseded_by = memory.id
+        elif review_status == "approved" and is_current is True:
+            await self.retire_expired_current_by_content_hash(
+                tenant_id=memory.tenant_id,
+                scope_type=memory.scope_type,
+                scope_id=memory.scope_id,
+                content_hash=memory.content_hash,
+                now=now,
+            )
+            existing = await self.get_active_by_content_hash(
+                tenant_id=memory.tenant_id,
+                scope_type=memory.scope_type,
+                scope_id=memory.scope_id,
+                content_hash=memory.content_hash,
+                now=now,
+            )
+            if existing is not None and existing.id != memory.id:
+                raise ValueError("active long-term memory already exists for content")
         memory.review_status = review_status
         if is_current is not None:
             memory.is_current = is_current

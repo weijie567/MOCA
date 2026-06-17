@@ -11,7 +11,7 @@ from src.memory.identity import (
     canonical_memory_content_hash,
     canonical_source_identity_hash,
 )
-from src.memory.repository import LONG_TERM_MEMORY_TYPE, LongTermMemoryRepository
+from src.memory.repository import LONG_TERM_MEMORY_TYPE, PUBLISHED_LONG_TERM_REVIEW_STATUSES, LongTermMemoryRepository
 from src.memory.schemas import (
     LongTermMemoryWriteCandidate,
     LongTermMemoryWriteResult,
@@ -135,6 +135,12 @@ class LongTermMemoryService:
             content_hash=identity["content_hash"],
             now=now,
         )
+        await self.repository.retire_unpublished_current_by_content_hash(
+            tenant_id=candidate.tenant_id,
+            scope_type=candidate.scope_type,
+            scope_id=candidate.scope_id,
+            content_hash=identity["content_hash"],
+        )
         existing = await self.repository.get_active_by_content_hash(
             tenant_id=candidate.tenant_id,
             scope_type=candidate.scope_type,
@@ -177,6 +183,7 @@ class LongTermMemoryService:
             source_identity_hash=identity["source_identity_hash"],
             review_status=review_status,
             now=now,
+            is_current=review_status in PUBLISHED_LONG_TERM_REVIEW_STATUSES,
         )
         event = await self.repository.emit_write_event(
             tenant_id=candidate.tenant_id,
@@ -209,6 +216,7 @@ class LongTermMemoryService:
         memory_id,
         run_id,
         reason_code: str = "approved",
+        now: datetime | None = None,
     ):
         memory = await self.repository.update_review_status(
             tenant_id=tenant_id,
@@ -216,6 +224,7 @@ class LongTermMemoryService:
             review_status="approved",
             is_current=True,
             expected_review_status="needs_review",
+            now=now,
         )
         if memory is None:
             raise ValueError("long-term memory not found")
@@ -346,6 +355,8 @@ class LongTermMemoryService:
             raise ValueError("replacement candidate tenant does not match memory tenant")
         if replacement_candidate.scope_type != previous.scope_type or replacement_candidate.scope_id != previous.scope_id:
             raise ValueError("replacement candidate scope does not match memory scope")
+        if not _is_current_published(previous, now):
+            raise ValueError("long-term memory supersede requires current published row")
 
         identity = _candidate_identity(replacement_candidate)
         tombstone = await self.repository.check_tombstone_before_write(
@@ -400,6 +411,31 @@ class LongTermMemoryService:
                 review_status=None,
                 decision="skip",
                 reason_code="pii_blocked",
+                pii_classification=replacement_candidate.pii_classification,
+                candidate_hash=identity["candidate_hash"],
+                content_hash=identity["content_hash"],
+                source_identity_hash=identity["source_identity_hash"],
+                event_id=event.id,
+            )
+
+        if _is_expired(replacement_candidate.expires_at, now):
+            event = await self.repository.emit_write_event(
+                tenant_id=replacement_candidate.tenant_id,
+                run_id=run_id,
+                memory_type=LONG_TERM_MEMORY_TYPE,
+                memory_id=None,
+                decision="skip",
+                reason_code="expired_candidate",
+                pii_classification=replacement_candidate.pii_classification,
+                candidate_hash=identity["candidate_hash"],
+                source_ref_json=identity["source_ref_json"],
+            )
+            return LongTermMemoryWriteResult(
+                status="skipped",
+                memory_id=None,
+                review_status=None,
+                decision="skip",
+                reason_code="expired_candidate",
                 pii_classification=replacement_candidate.pii_classification,
                 candidate_hash=identity["candidate_hash"],
                 content_hash=identity["content_hash"],
@@ -500,6 +536,19 @@ def _candidate_hash_for_memory(memory) -> str:
         content_hash=memory.content_hash,
         source_identity_hash=memory.source_identity_hash,
     )
+
+
+def _is_current_published(memory, now: datetime) -> bool:
+    return (
+        memory.deleted_at is None
+        and memory.is_current is True
+        and memory.review_status in PUBLISHED_LONG_TERM_REVIEW_STATUSES
+        and not _is_expired(memory.expires_at, now)
+    )
+
+
+def _is_expired(expires_at: datetime | None, now: datetime) -> bool:
+    return expires_at is not None and _aware(expires_at) <= now
 
 
 def _aware(value: datetime | None) -> datetime:

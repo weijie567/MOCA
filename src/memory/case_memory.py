@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 import uuid
 
-from sqlalchemy import and_, literal, or_, select
+from sqlalchemy import and_, literal, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import CaseMemory, MemoryTombstone, MemoryWriteEvent
@@ -206,12 +206,23 @@ class CaseMemoryRepository:
         created_by_user_id: uuid.UUID | None = None,
         created_by_run_id: uuid.UUID | None = None,
         expires_at: datetime | None = None,
+        now: datetime | None = None,
     ) -> MemoryTombstone:
+        now = _aware(now)
         source_ref_json = dict(source_ref_json or {})
         resolved_source_identity_hash = source_identity_hash or source_identity_hash_for_tombstone(source_ref_json)
         if content_hash is None and resolved_source_identity_hash is None:
             raise ValueError("content_hash or source_identity_hash is required for memory tombstone")
 
+        await self._retire_expired_tombstones(
+            tenant_id=tenant_id,
+            memory_type=memory_type,
+            scope_type=scope_type,
+            scope_id=scope_id,
+            content_hash=content_hash,
+            source_identity_hash=resolved_source_identity_hash,
+            now=now,
+        )
         existing = await self.active_tombstone_matches(
             tenant_id=tenant_id,
             memory_type=memory_type,
@@ -219,6 +230,7 @@ class CaseMemoryRepository:
             scope_id=scope_id,
             content_hash=content_hash,
             source_identity_hash=resolved_source_identity_hash,
+            now=now,
         )
         if existing is not None:
             return existing
@@ -239,6 +251,40 @@ class CaseMemoryRepository:
         self.session.add(tombstone)
         await self.session.flush()
         return tombstone
+
+    async def _retire_expired_tombstones(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        memory_type: str,
+        scope_type: str,
+        scope_id: str,
+        content_hash: str | None,
+        source_identity_hash: str | None,
+        now: datetime,
+    ) -> None:
+        identity_filters = []
+        if content_hash is not None:
+            identity_filters.append(MemoryTombstone.content_hash == content_hash)
+        if source_identity_hash is not None:
+            identity_filters.append(MemoryTombstone.source_identity_hash == source_identity_hash)
+        if not identity_filters:
+            return
+        await self.session.execute(
+            update(MemoryTombstone)
+            .where(
+                MemoryTombstone.tenant_id == tenant_id,
+                MemoryTombstone.memory_type == memory_type,
+                MemoryTombstone.scope_type == scope_type,
+                MemoryTombstone.scope_id == scope_id,
+                MemoryTombstone.deleted_at.is_(None),
+                MemoryTombstone.expires_at.is_not(None),
+                MemoryTombstone.expires_at <= now,
+                or_(*identity_filters),
+            )
+            .values(deleted_at=now)
+        )
+        await self.session.flush()
 
     async def active_tombstone_matches(
         self,
