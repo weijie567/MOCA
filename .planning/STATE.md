@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Long-term / Case Memory
 status: ready_to_plan
-stopped_at: v1.2 defined; Phase 16 ready for discussion/planning
-last_updated: "2026-06-17T10:21:37Z"
+stopped_at: Phase 16 context gathered
+last_updated: "2026-06-17T12:45:17.242Z"
 last_activity: 2026-06-17
 progress:
   total_phases: 1
@@ -28,7 +28,7 @@ See: `.planning/PROJECT.md` (updated 2026-06-17)
 Phase: 16 - Long-term / Case Memory
 Plan: none
 Plans: none yet
-Status: v1.2 milestone created; ready for `$gsd-discuss-phase 16` then `$gsd-plan-phase 16`
+Status: ready_to_plan
 Last activity: 2026-06-17
 
 Progress: [░░░░░░░░░░] 0%
@@ -218,10 +218,10 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 
 ## Session Continuity
 
-Last session: 2026-06-17T10:21:37Z
-Stopped at: v1.2 created after v1.1 archive
-Resume file: None
-Next: Run `$gsd-discuss-phase 16`, then `$gsd-plan-phase 16`.
+Last session: 2026-06-17T12:43:32.972Z
+Stopped at: Phase 16 context gathered
+Resume file: .planning/phases/16-long-term-case-memory/16-CONTEXT.md
+Next: Run `$gsd-plan-phase 16`.
 
 **Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17
 **Active Milestone:** v1.2 Long-term / Case Memory — defined 2026-06-17
