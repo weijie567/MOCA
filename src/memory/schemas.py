@@ -116,6 +116,82 @@ class SessionMemoryWriteResult(BaseModel):
     fallback_reason: str | None = None
 
 
+LongTermScopeType = Literal["tenant", "merchant", "user", "thread", "case"]
+LongTermMemoryKind = Literal["fact", "preference", "constraint", "pattern"]
+LongTermPiiClassification = Literal["none", "low", "sensitive", "prohibited"]
+LongTermReviewStatus = Literal[
+    "auto_approved",
+    "needs_review",
+    "approved",
+    "rejected",
+    "superseded",
+    "tombstoned",
+    "deleted",
+]
+LongTermWriteDecision = Literal["write", "skip", "needs_review", "delete", "supersede", "tombstone", "write_blocked"]
+LongTermSourceType = Literal[
+    "explicit_user_preference",
+    "explicit_admin_preference",
+    "human_reviewed",
+    "deterministic_tool_result",
+    "confirmed_business_outcome",
+    "approved_approval_state",
+    "llm_candidate",
+    "semantic_episode_candidate",
+    "summary_candidate",
+    "cross_case_pattern_candidate",
+    "behavior_inference",
+]
+
+
+class LongTermMemoryWriteCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: uuid.UUID
+    run_id: uuid.UUID
+    scope_type: LongTermScopeType
+    scope_id: str = Field(min_length=1, max_length=128)
+    memory_kind: LongTermMemoryKind = "fact"
+    content: str = Field(min_length=1, max_length=4000)
+    source_type: LongTermSourceType
+    source_ref: MemorySourceRefV1 | None = None
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    pii_classification: LongTermPiiClassification = "none"
+    expires_at: datetime | None = None
+
+
+class LongTermMemoryWriteResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["written", "needs_review", "skipped", "error"]
+    memory_id: uuid.UUID | None = None
+    review_status: LongTermReviewStatus | None = None
+    decision: LongTermWriteDecision
+    reason_code: str
+    pii_classification: LongTermPiiClassification = "none"
+    candidate_hash: str = Field(pattern=_SHA256_PATTERN)
+    content_hash: str = Field(pattern=_SHA256_PATTERN)
+    source_identity_hash: str | None = Field(default=None, pattern=_SHA256_PATTERN)
+    event_id: uuid.UUID | None = None
+
+
+class LongTermMemoryView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    memory_id: str
+    tenant_id: str
+    scope_type: LongTermScopeType
+    scope_id: str
+    memory_kind: LongTermMemoryKind
+    content: str
+    source_type: str
+    source_ref: dict[str, Any] = Field(default_factory=dict)
+    review_status: Literal["auto_approved", "approved"]
+    version: int
+    valid_from: datetime | None = None
+    expires_at: datetime | None = None
+
+
 class SessionPrecedentSearchItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
