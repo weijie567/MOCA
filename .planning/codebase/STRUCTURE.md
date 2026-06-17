@@ -15,7 +15,7 @@ MOCA/
 │   ├── conversation/        # Conversation log and safe tool call/result persistence services
 │   ├── db/                  # SQLAlchemy models, session, Alembic migrations
 │   ├── knowledge/           # Canonical policy evidence contracts and KnowledgeService facade
-│   ├── memory/              # Session memory schemas, repository, and service
+│   ├── memory/              # Session, long-term/case memory schemas, repositories, services, identity, and tombstone helpers
 │   ├── rag/                 # Chunking, embedding, retrieval, citation validation
 │   ├── replay/              # ReplayEventV3 schemas, validators, and replay event service boundary
 │   ├── tools/               # Business tool contracts, descriptors, manager, and adapters
@@ -56,7 +56,7 @@ MOCA/
 - `src/approvals/schemas.py` centralizes approval-domain schema version literals
 
 **`src/knowledge/`, `src/business/`, `src/memory/`, and `src/tools/`:**
-- Phase 8-16 domain facades and contracts for policy evidence, business reads, session memory, reviewed long-term/case memory schema, and tool invocation
+- Phase 8-16 domain facades and contracts for policy evidence, business reads, session memory, reviewed long-term/case memory schema/lifecycle, tombstone no-rewrite behavior, and tool invocation
 - `src/knowledge/schemas.py` owns EvidenceRefV1 and canonical evidence projection reused by approval snapshots
 
 **`src/conversation/`:**
@@ -69,7 +69,7 @@ MOCA/
 - Lifecycle, operation-pairing, and `/replay` API behavior are planned in later Phase 15 slices
 
 **`src/db/` and `src/repositories/`:**
-- ORM models for tenants, users, orders, refund cases, tickets, policy docs/chunks, audit logs, agent runs, approvals, action drafts, agent steps, replay/conversation records, and reviewed memory tables
+- ORM models for tenants, users, orders, refund cases, tickets, policy docs/chunks, audit logs, agent runs, approvals, action drafts, agent steps, replay/conversation records, reviewed memory tables, tombstones, and memory write events
 - Alembic migrations through `013_long_term_case_memory`
 - Repository classes that keep route and tool logic away from raw SQL
 

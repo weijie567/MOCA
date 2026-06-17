@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Long-term / Case Memory
 status: executing
-stopped_at: Completed 16-04-semantic-episode-PLAN.md
-last_updated: "2026-06-17T16:13:13Z"
+stopped_at: Completed 16-05-tombstone-supersede-PLAN.md
+last_updated: "2026-06-17T16:31:39.292Z"
 last_activity: 2026-06-17
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 9
-  completed_plans: 4
-  percent: 44
+  completed_plans: 5
+  percent: 56
 ---
 
 # Project State: MOCA
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md` (updated 2026-06-17)
 ## Current Position
 
 Phase: 16 (long-term-case-memory) — EXECUTING
-Plan: 5 of 9
+Plan: 6 of 9
 Plans: 9 plan files in `.planning/phases/16-long-term-case-memory/`
 Status: Ready to execute
 Last activity: 2026-06-17
 
-Progress: [████░░░░░░] 44%
+Progress: [██████░░░░] 56%
 
 Planned files:
 
@@ -163,6 +163,9 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - SemanticEpisodeCandidate converts to LongTermMemoryWriteCandidate with source_type=semantic_episode_candidate so existing long-term memory policy forces needs_review.
 - Projection output keeps prompt-safe summaries and ignores raw payload, policy text, evidence refs, authority bodies, and replay/debug blobs.
 - Semantic episode projection has no repository dependency and does not mutate session_memories.
+- Forget/delete create active tombstone identities while keeping existing delete event semantics for delete_memory.
+- Tombstone matching uses canonical content_hash first, then allowed source_identity_hash fallback, with no semantic similarity path.
+- Supersede marks the previous row superseded/non-current, inserts a current replacement, links supersedes/superseded_by, and emits decision=supersede.
 
 ## Accumulated Context
 
@@ -244,13 +247,14 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | 16 | 02 | 10 min | 4 | 3 |
 | 16 | 03 | 10 min | 4 | 5 |
 | Phase 16 P04 | 6 min | 2 tasks | 2 files |
+| Phase 16 P05 | 14 min | 4 tasks | 5 files |
 
 ## Session Continuity
 
-Last session: 2026-06-17T16:13:13Z
-Stopped at: Completed 16-04-semantic-episode-PLAN.md
+Last session: 2026-06-17T16:31:39.027Z
+Stopped at: Completed 16-05-tombstone-supersede-PLAN.md
 Resume file: None
-Next: Continue with `.planning/phases/16-long-term-case-memory/16-05-tombstone-supersede-PLAN.md`.
+Next: Continue with `.planning/phases/16-long-term-case-memory/16-06-reviewed-case-memory-PLAN.md`.
 
 **Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17
 **Active Milestone:** v1.2 Long-term / Case Memory — defined 2026-06-17

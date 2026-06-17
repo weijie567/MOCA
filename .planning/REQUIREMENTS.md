@@ -17,7 +17,7 @@ Committed scope for the active v1.2 milestone. All requirements map to Phase 16.
 
 - [x] **LONGMEM-01**: Long-term profile memory writes are accepted only from explicit user/admin/human-reviewed or deterministic durable sources, never from raw model guesses or unreviewed prompt inference.
 - [x] **LONGMEM-02**: Long-term memory retrieval filters by tenant and allowed scope, approved/current status, freshness/expiry, and non-deleted/non-tombstoned/non-prohibited state.
-- [ ] **LONGMEM-03**: Long-term memory correction and supersede behavior is transactional and leaves exactly one current memory per identity.
+- [x] **LONGMEM-03**: Long-term memory correction and supersede behavior is transactional and leaves exactly one current memory per identity.
 
 ### Case Memory
 
@@ -28,7 +28,7 @@ Committed scope for the active v1.2 milestone. All requirements map to Phase 16.
 ### Tombstone & Deletion
 
 - [x] **TOMBSTONE-01**: Forget/delete operations create tombstone identities and retrieval excludes matching long-term or case memories immediately.
-- [ ] **TOMBSTONE-02**: Delayed or asynchronous candidate writes check tombstones in the same transaction before insert and emit `memory_write_event` records with a skip reason such as `tombstone_match` instead of rewriting deleted content.
+- [x] **TOMBSTONE-02**: Delayed or asynchronous candidate writes check tombstones in the same transaction before insert and emit `memory_write_event` records with a skip reason such as `tombstone_match` instead of rewriting deleted content.
 
 ### Prompt Context & Authority Boundary
 
@@ -82,12 +82,12 @@ Tracked but not in the active v1.2 roadmap.
 | MEMSCHEMA-01 | Phase 16 | Complete |
 | LONGMEM-01 | Phase 16 | Complete |
 | LONGMEM-02 | Phase 16 | Complete |
-| LONGMEM-03 | Phase 16 | Pending |
+| LONGMEM-03 | Phase 16 | Complete |
 | CASEMEM-01 | Phase 16 | Pending |
 | CASEMEM-02 | Phase 16 | Pending |
 | CASEMEM-03 | Phase 16 | Pending |
 | TOMBSTONE-01 | Phase 16 | Complete |
-| TOMBSTONE-02 | Phase 16 | Pending |
+| TOMBSTONE-02 | Phase 16 | Complete |
 | MEMCTX-01 | Phase 16 | Pending |
 | MEMCTX-02 | Phase 16 | Pending |
 | MEMREVIEW-01 | Phase 16 | Complete |
@@ -100,4 +100,4 @@ Tracked but not in the active v1.2 roadmap.
 
 ---
 *Requirements defined: 2026-06-17*
-*Last updated: 2026-06-17 after Phase 16 Plan 03 long-term memory service*
+*Last updated: 2026-06-17 after Phase 16 Plan 05 tombstone/supersede*
