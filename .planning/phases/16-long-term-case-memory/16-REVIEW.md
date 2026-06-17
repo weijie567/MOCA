@@ -1,6 +1,6 @@
 ---
 phase: 16-long-term-case-memory
-reviewed: 2026-06-17T18:08:26Z
+reviewed: 2026-06-18T00:00:00Z
 depth: deep
 files_reviewed: 39
 files_reviewed_list:
@@ -44,199 +44,71 @@ files_reviewed_list:
   - tests/replay/test_memory_foundation_alignment.py
   - tests/tools/test_catalog.py
 findings:
-  critical: 1
-  warning: 5
+  critical: 0
+  warning: 3
   info: 0
-  total: 6
+  total: 3
 status: issues_found
 ---
 
 # Phase 16: Code Review Report
 
-**Reviewed:** 2026-06-17T18:08:26Z
+**Reviewed:** 2026-06-18T00:00:00Z
 **Depth:** deep
 **Files Reviewed:** 39
 **Status:** issues_found
 
 ## Summary
 
-Deep review covered the Phase 16 long-term/case memory stack: identity hashing, schema/migration/ORM mapping, review lifecycle, tombstone semantics, prompt projection, graph retrieval integration, and planner-visible tool dispatch. The authority boundary is mostly well protected: reviewed memory does not become `EvidenceRefV1`, policy evidence, approval authority, action authority, or raw prompt state in the main projection paths.
-
-The main defects are in edge paths around memory writes and integration: `supersede_memory` can persist prohibited PII, source-only tombstones can over-block unrelated future writes, duplicate long-term writes can crash on the active-identity unique index, the ORM vector index does not match the migration's HNSW index, and the planner-visible `search_case_memory` path both drops returned snippets and ignores its required query.
-
-## Critical Issues
-
-### CR-01: Supersede Path Can Persist Prohibited PII
-
-**File:** `src/memory/long_term.py:309`
-
-**Issue:** `write_memory()` blocks `candidate.pii_classification == "prohibited"` before insert at `src/memory/long_term.py:106`, but `supersede_memory()` computes identity, checks tombstones, marks the previous row superseded, and inserts `replacement_candidate` without the same PII guard. A caller can therefore persist a prohibited-PII replacement through the correction/supersede path, bypassing the normal memory write safety policy.
-
-**Fix:**
-```python
-if replacement_candidate.pii_classification == "prohibited":
-    event = await self.repository.emit_write_event(
-        tenant_id=replacement_candidate.tenant_id,
-        run_id=run_id,
-        memory_type=LONG_TERM_MEMORY_TYPE,
-        memory_id=None,
-        decision="skip",
-        reason_code="pii_blocked",
-        pii_classification=replacement_candidate.pii_classification,
-        candidate_hash=identity["candidate_hash"],
-        source_ref_json=identity["source_ref_json"],
-    )
-    return LongTermMemoryWriteResult(
-        status="skipped",
-        memory_id=None,
-        review_status=None,
-        decision="skip",
-        reason_code="pii_blocked",
-        pii_classification=replacement_candidate.pii_classification,
-        candidate_hash=identity["candidate_hash"],
-        content_hash=identity["content_hash"],
-        source_identity_hash=identity["source_identity_hash"],
-        event_id=event.id,
-    )
-```
-
-Add a regression test that calls `supersede_memory()` with `replacement_candidate.pii_classification="prohibited"` and asserts no replacement row is inserted and the write event uses `reason_code == "pii_blocked"`.
+Deep review covered the listed context assembly, graph nodes, memory services/repositories/schemas, migration/model declarations, tool catalog/manager, and related tests. The prompt-safe projection and reviewed-memory-vs-policy-evidence boundaries are generally well covered. The main concerns are long-term memory lifecycle edge cases that can hide approved memories or allow invalid lifecycle transitions.
 
 ## Warnings
 
-### WR-01: Source-Only Tombstones Can Over-Block Future Writes
+### WR-01: Superseding With A Review-Required Replacement Hides The Current Approved Memory
 
-**File:** `src/memory/identity.py:120`
+**File:** `src/memory/long_term.py:400`
+**Issue:** `supersede_memory()` marks the previous memory as `is_current=False` and `review_status='superseded'` before inserting the replacement, regardless of the replacement's review status. If the replacement source is `llm_candidate`, `semantic_episode_candidate`, or another review-required source, the new row is inserted with `review_status='needs_review'` but `is_current=True`. Retrieval only publishes `auto_approved`/`approved` rows, so the previously approved memory disappears until manual approval, creating a continuity/data-contract regression.
+**Fix:** Keep the previous memory current when the replacement requires review, or insert review-required replacements as non-current pending candidates and only supersede the previous row during approval.
 
-**Issue:** `canonical_source_identity_hash()` returns a hash when the source ref contains only `source_type`. Both `src/memory/long_term.py:416` and `src/memory/case_memory.py:644` create `{"source_type": candidate.source_type}` when `source_ref` is omitted. Because tombstone checks match either `content_hash` or `source_identity_hash`, deleting one memory with a source-type-only identity can block unrelated future memories in the same tenant/scope/source category even when the content is different.
-
-**Fix:**
 ```python
-_SOURCE_IDENTITY_REQUIRED_DISCRIMINATORS = {
-    "event_id",
-    "conversation_message_id",
-    "tool_result_id",
-    "agent_run_id",
-    "business_object_id",
-    "outcome_id",
-}
-
-if not any(source_ref.get(key) for key in _SOURCE_IDENTITY_REQUIRED_DISCRIMINATORS):
-    return None
+review_status = _review_status_for_source(replacement_candidate.source_type)
+replacement_is_current = review_status == "auto_approved"
+if replacement_is_current:
+    previous.is_current = False
+    previous.review_status = "superseded"
+    previous.superseded_at = now
 ```
 
-Apply this rule before hashing source identity, or avoid emitting `source_identity_hash` for source refs that lack a stable discriminator beyond `source_type`. Keep content-hash tombstones active for exact content no-rewrite.
+### WR-02: Long-Term Review Actions Can Mutate Invalid Lifecycle States
 
-### WR-02: Duplicate Active Long-Term Memory Writes Crash Instead Of Returning An Idempotent Result
+**File:** `src/memory/long_term.py:197`
+**Issue:** `approve_memory()` and `reject_memory()` call `update_review_status()` without checking the current lifecycle state. Unlike `CaseMemoryRepository.approve_case_memory()`/`reject_case_memory()`, long-term memory can be approved or rejected after it is already approved, rejected, deleted, tombstoned, or superseded. In particular, approval sets `is_current=True` while leaving fields such as `deleted_at`, `superseded_by`, or `superseded_at` untouched, which can create inconsistent rows and future retrieval/unique-index surprises.
+**Fix:** Require `review_status == 'needs_review'` before approval/rejection, and refuse deleted/tombstoned/superseded rows. Prefer repository-level guards so all service entry points share the same lifecycle contract.
 
-**File:** `src/memory/long_term.py:134`
-
-**Issue:** The migration defines `uq_long_term_memories_active_identity` over `(tenant_id, scope_type, scope_id, content_hash)` for current, undeleted rows at `src/db/migrations/versions/013_long_term_case_memory.py:90`, but `write_memory()` always calls `insert_memory()` after tombstone/PII checks. Re-submitting the same active memory content for the same scope will raise an `IntegrityError` at flush time instead of returning a stable `skipped`/existing-memory result and an observable `memory_write_events` row.
-
-**Fix:**
 ```python
-existing = await self.repository.get_active_by_content_hash(
-    tenant_id=candidate.tenant_id,
-    scope_type=candidate.scope_type,
-    scope_id=candidate.scope_id,
-    content_hash=identity["content_hash"],
-)
-if existing is not None:
-    event = await self.repository.emit_write_event(
-        tenant_id=candidate.tenant_id,
-        run_id=candidate.run_id,
-        memory_type=LONG_TERM_MEMORY_TYPE,
-        memory_id=existing.id,
-        decision="skip",
-        reason_code="duplicate_active_identity",
-        pii_classification=candidate.pii_classification,
-        candidate_hash=identity["candidate_hash"],
-        source_ref_json=identity["source_ref_json"],
-    )
-    return LongTermMemoryWriteResult(
-        status="skipped",
-        memory_id=existing.id,
-        review_status=existing.review_status,
-        decision="skip",
-        reason_code="duplicate_active_identity",
-        pii_classification=candidate.pii_classification,
-        candidate_hash=identity["candidate_hash"],
-        content_hash=identity["content_hash"],
-        source_identity_hash=identity["source_identity_hash"],
-        event_id=event.id,
-    )
+memory = await self.repository.get_memory(tenant_id=tenant_id, memory_id=memory_id)
+if memory is None:
+    raise ValueError("long-term memory not found")
+if memory.review_status != "needs_review" or memory.deleted_at is not None:
+    raise ValueError("long-term memory review requires needs_review status")
 ```
 
-Also catch `IntegrityError` around the insert as a race fallback so concurrent duplicate writers do not leave the session in a failed state without a controlled result.
+### WR-03: Expired Current Memories Block Fresh Writes With The Same Content
 
-### WR-03: ORM Declares A Different Case-Memory Vector Index Than The Migration
+**File:** `src/memory/repository.py:185`
+**Issue:** `get_active_by_content_hash()` treats any non-deleted `is_current=True` row as a duplicate, but it does not exclude expired rows. `write_memory()` uses this method to skip duplicate writes, while retrieval excludes expired rows. A same-content refresh after expiry can therefore be skipped as `duplicate_active_identity`, leaving no retrievable memory even though the existing row is expired.
+**Fix:** Pass `now` from `write_memory()` into `get_active_by_content_hash()` and filter out expired rows with `expires_at IS NULL OR expires_at > now`.
 
-**File:** `src/db/models.py:424`
-
-**Issue:** The migration creates `ix_case_memories_embedding_hnsw` with `USING hnsw` at `src/db/migrations/versions/013_long_term_case_memory.py:180`, but the ORM metadata declares `ix_case_memories_embedding_vector` with `postgresql_using="ivfflat"` at `src/db/models.py:424`. This schema drift means metadata-created databases and future Alembic autogeneration will not match the applied migration, and Phase 16's MEMSCHEMA/HNSW contract is not represented in `Base.metadata`.
-
-**Fix:**
 ```python
-Index(
-    "ix_case_memories_embedding_hnsw",
-    CaseMemory.embedding,
-    postgresql_using="hnsw",
-    postgresql_ops={"embedding": "vector_cosine_ops"},
-    postgresql_with={"m": 16, "ef_construction": 128},
+.where(
+    LongTermMemory.deleted_at.is_(None),
+    LongTermMemory.is_current.is_(True),
+    or_(LongTermMemory.expires_at.is_(None), LongTermMemory.expires_at > now),
 )
 ```
-
-Alternatively, remove the ORM index declaration and document that the HNSW index is migration-managed only, then add a metadata/migration contract test so the names do not drift again.
-
-### WR-04: Planner-Visible Case Memory Search Drops The Retrieved Snippets
-
-**File:** `src/agent/nodes/investigate.py:201`
-
-**Issue:** `MemoryToolExecutor` returns reviewed case-memory items in `ToolResultV2.data["items"]` at `src/tools/executors/memory.py:92`, but `investigate()` only carries forward `state.get("case_memory")` and never accumulates those retrieved items into `case_memory`. `_project_tool_result()` also summarizes only tool status/count, so a planner-visible `search_case_memory` call provides little usable precedent context to later prompt assembly even though it reports success.
-
-**Fix:**
-```python
-context: dict[str, Any] = {
-    # ...
-    "case_memory": list(state.get("case_memory") or []),
-}
-
-def _accumulate_tool_result(...):
-    # existing accumulation
-    if tool_name == "search_case_memory" and result.status == "success":
-        items = (result.data or {}).get("items") if isinstance(result.data, dict) else None
-        if isinstance(items, list):
-            context["case_memory"].extend(item for item in items if isinstance(item, dict))
-
-# return
-"case_memory": context["case_memory"],
-```
-
-Keep the current boundary intact: do not copy those items into `policy_evidence`, `evidence_refs`, `business_context.facts`, approval state, or action authority.
-
-### WR-05: `search_case_memory` Ignores Its Required Query Argument
-
-**File:** `src/tools/executors/memory.py:62`
-
-**Issue:** The catalog requires `{"query": string}` for `search_case_memory`, but `_case_memory_request()` immediately deletes the query and builds only broad scope filters. With no `query_embedding`, `case_type`, or other query-derived constraint, the tool can return the latest reviewed memories in broad tenant/user/thread/merchant scope even when they are unrelated to the user's current question.
-
-**Fix:**
-```python
-def _case_memory_request(*, query: str, context: ToolCallContext) -> CaseMemorySearchRequest | None:
-    query_embedding = context.metadata.get("case_memory_query_embedding") if hasattr(context, "metadata") else None
-    # or inject an embedding service into MemoryToolExecutor and compute it here
-    return CaseMemorySearchRequest(
-        tenant_id=tenant_id,
-        scopes=scopes,
-        query_embedding=query_embedding,
-        limit=5,
-    )
-```
-
-If Phase 16 intentionally defers query embedding for this planner-visible tool, fail closed instead of returning unrelated rows: make the executor return `unavailable` or keep the tool internal until it can honor the query.
 
 ---
 
-_Reviewed: 2026-06-17T18:08:26Z_
+_Reviewed: 2026-06-18T00:00:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
