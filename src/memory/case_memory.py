@@ -307,21 +307,7 @@ class CaseMemoryRepository:
 
     async def search_reviewed(self, request: CaseMemorySearchRequest) -> CaseMemorySearchResult:
         now = _aware(request.now)
-        filters = [
-            CaseMemory.tenant_id == request.tenant_id,
-            _scope_filter(request),
-            CaseMemory.review_status.in_(PUBLISHED_CASE_REVIEW_STATUSES),
-            CaseMemory.deleted_at.is_(None),
-            or_(CaseMemory.expires_at.is_(None), CaseMemory.expires_at > now),
-            CaseMemory.pii_classification != "prohibited",
-            ~self._active_tombstone_exists(now=now),
-        ]
-        if request.case_type is not None:
-            filters.append(CaseMemory.case_type == request.case_type)
-        if request.policy_family is not None:
-            filters.append(or_(CaseMemory.policy_family.is_(None), CaseMemory.policy_family == request.policy_family))
-        if request.policy_version is not None:
-            filters.append(or_(CaseMemory.policy_version.is_(None), CaseMemory.policy_version == request.policy_version))
+        filters = self._metadata_filters(request=request, now=now)
 
         if request.query_embedding is not None:
             distance_expr = CaseMemory.embedding.cosine_distance(request.query_embedding)
@@ -348,6 +334,24 @@ class CaseMemoryRepository:
         )
         items = [_to_search_item(memory, score) for memory, score in ranked_rows[: request.limit]]
         return CaseMemorySearchResult(status="success" if items else "empty", items=items)
+
+    def _metadata_filters(self, *, request: CaseMemorySearchRequest, now: datetime) -> list[Any]:
+        filters = [
+            CaseMemory.tenant_id == request.tenant_id,
+            _scope_filter(request),
+            CaseMemory.review_status.in_(PUBLISHED_CASE_REVIEW_STATUSES),
+            CaseMemory.deleted_at.is_(None),
+            or_(CaseMemory.expires_at.is_(None), CaseMemory.expires_at > now),
+            CaseMemory.pii_classification != "prohibited",
+            ~self._active_tombstone_exists(now=now),
+        ]
+        if request.case_type is not None:
+            filters.append(CaseMemory.case_type == request.case_type)
+        if request.policy_family is not None:
+            filters.append(or_(CaseMemory.policy_family.is_(None), CaseMemory.policy_family == request.policy_family))
+        if request.policy_version is not None:
+            filters.append(or_(CaseMemory.policy_version.is_(None), CaseMemory.policy_version == request.policy_version))
+        return filters
 
     def _active_tombstone_exists(self, *, now: datetime):
         return (
