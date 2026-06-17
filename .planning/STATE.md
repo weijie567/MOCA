@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
 status: executing
-stopped_at: Completed 15.1-04-PLAN.md
-last_updated: "2026-06-17T07:19:04.748Z"
+stopped_at: Completed 15.1-05-PLAN.md
+last_updated: "2026-06-17T07:38:19.282Z"
 last_activity: 2026-06-17
 progress:
   total_phases: 12
   completed_phases: 9
   total_plans: 61
-  completed_plans: 59
-  percent: 97
+  completed_plans: 60
+  percent: 98
 ---
 
 # Project State: MOCA
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md` (updated 2026-06-16)
 ## Current Position
 
 Phase: 15.1 (memory-foundation-v2) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Plans: 6 planned
 Status: Ready to execute
 Last activity: 2026-06-17
 
-Progress: [██████████] 97%
+Progress: [██████████] 98%
 
 ## Completed Baseline
 
@@ -124,6 +124,9 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 15.1 Plan 04: session_memories remains Phase 12 slot continuity; thread summaries do not mutate active_slots_json, session_summary, unresolved_questions_json, or last_intent.
 - Phase 15.1 Plan 04: Phase 16 case memory, embeddings, tombstones, vector retrieval, and case precedent search remain unimplemented.
 - Phase 15.1 Plan 04: load_prompt_context returns latest committed prior-turn thread_rolling summary plus bounded recent conversation messages and tool prompt summaries.
+- Phase 15.1 Plan 05: token budgeting protects system prompt, current user message, safety constraints, business IDs, and policy refs before lower-priority context.
+- Phase 15.1 Plan 05: ContextAssembler owns prompt block assembly and token budgeting without repository imports or raw prompt persistence.
+- Phase 15.1 Plan 05: slot extraction uses PromptAssembly for current user text plus bounded candidate-slot hints, without synthetic thread/tool context injection.
 
 ## Accumulated Context
 
@@ -190,12 +193,13 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | Phase 15.1 P02 | 11 min | 3 tasks | 6 files |
 | Phase 15.1 P03 | inline | 3 tasks | 4 files |
 | Phase 15.1 P04 | 21 min | 4 tasks | 7 files |
+| Phase 15.1 P05 | 12 min | 3 tasks | 12 files |
 
 ## Session Continuity
 
-Last session: 2026-06-17T07:19:04.727Z
-Stopped at: Completed 15.1-04-PLAN.md
+Last session: 2026-06-17T07:38:19.005Z
+Stopped at: Completed 15.1-05-PLAN.md
 Resume file: None
-Next: Execute 15.1-05-PLAN.md
+Next: Execute 15.1-06-PLAN.md
 
 **Planned Phase:** 15.1 (Memory Foundation V2) — 6 plans — 2026-06-17T04:22:43.755Z

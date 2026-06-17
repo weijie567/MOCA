@@ -174,14 +174,14 @@ Plans:
   1. Conversation threads/messages and tool call/result records capture what happened without replacing business tables, policy KB, approval/action tables, or redacted replay.
   2. WorkingStateV1 and ContextAssembler provide prompt-safe current-run context without raw tool payloads, policy full text, approval/action authority objects, or trace/debug blobs.
   3. Thread rolling summaries are derived from conversation messages/tool summaries with source ranges and remain distinct from session slot memory and future Phase 16 case/long-term memory.
-**Plans**: 6/6 planned; 4/6 complete.
+**Plans**: 6/6 planned; 5/6 complete.
 
 Plans:
 - [x] 15.1-01-PLAN.md — conversation/tool/summary schema, migration rollout, ConversationService, and chat message append wiring (Wave 1) — completed 2026-06-17
 - [x] 15.1-02-PLAN.md — four-layer tool call/result storage and prompt-safe tool result state projection (Wave 2) — completed 2026-06-17
 - [x] 15.1-03-PLAN.md — WorkingStateV1 prompt-safe current-run projection and authority boundary tests (Wave 3) — completed 2026-06-17
 - [x] 15.1-04-PLAN.md — thread rolling summaries, source ranges, session-memory separation, and prompt-context loading (Wave 4) — completed 2026-06-17
-- [ ] 15.1-05-PLAN.md — ContextAssembler, token budgeting, prompt projectors, and live prompt-node wiring (Wave 5)
+- [x] 15.1-05-PLAN.md — ContextAssembler, token budgeting, prompt projectors, and live prompt-node wiring (Wave 5) — completed 2026-06-17
 - [ ] 15.1-06-PLAN.md — replay/audit/conversation ID alignment, boundary regressions, and final phase verification (Wave 6)
 
 ### Phase 16: Long-term / Case Memory
@@ -219,9 +219,9 @@ Plans:
 | 13. Approval State Machine | 8/8 | Complete    | 2026-06-15 |
 | 14. Demo Action Executor Boundary | 7/7 | Complete    | 2026-06-16 |
 | 15. Replay Event Contract | 6/6 | Complete    | 2026-06-16 |
-| 15.1 Memory Foundation V2 | 4/6 | In Progress | - |
+| 15.1 Memory Foundation V2 | 5/6 | In Progress | - |
 | 16. Long-term / Case Memory | 0/TBD | Deferred beyond MVP gate | - |
 | 17. External Action Execution | 0/TBD | Deferred beyond MVP gate | - |
 
 ---
-*Updated: 2026-06-17 — Phase 15.1 Memory Foundation V2 Plan 04 complete; 2 plans remaining.*
+*Updated: 2026-06-17 — Phase 15.1 Memory Foundation V2 Plan 05 complete; 1 plan remaining.*
