@@ -13,7 +13,10 @@ from src.db.models import Base
 
 
 MIGRATION_PATH = Path("src/db/migrations/versions/008_approval_state_machine.py")
-REPORT_PATH = Path(".planning/phases/13-approval-state-machine/13-MIGRATION-REPORT.md")
+REPORT_PATHS = (
+    Path(".planning/phases/13-approval-state-machine/13-MIGRATION-REPORT.md"),
+    Path(".planning/milestones/v1.1-phases/13-approval-state-machine/13-MIGRATION-REPORT.md"),
+)
 
 
 def _table(name: str):
@@ -43,6 +46,13 @@ def _item_columns(item: UniqueConstraint | CheckConstraint | Index) -> set[str]:
 def _migration_source() -> str:
     assert MIGRATION_PATH.exists(), "migration 008 must exist"
     return MIGRATION_PATH.read_text(encoding="utf-8")
+
+
+def _migration_report_source() -> str:
+    for report_path in REPORT_PATHS:
+        if report_path.exists():
+            return report_path.read_text(encoding="utf-8")
+    raise AssertionError("Phase 13 migration report must exist in active or archived planning artifacts")
 
 
 def test_action_safety_snapshots_has_unique_immutable_hash_contract():
@@ -248,8 +258,7 @@ def test_legacy_duplicate_run_backfill_uses_deterministic_row_number():
 
 
 def test_migration_report_names_read_switch_fallback_rollback_and_verification_commands():
-    assert REPORT_PATH.exists()
-    report = REPORT_PATH.read_text(encoding="utf-8")
+    report = _migration_report_source()
 
     for required in (
         "alembic_current_before",

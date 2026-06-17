@@ -282,29 +282,31 @@ def test_memory_foundation_layers_do_not_overlap_authority() -> None:
     assert "raw_prompt" in FORBIDDEN_REDACTED_PAYLOAD_KEYS
 
 
-def test_phase_16_and_phase_17_artifacts_are_not_created() -> None:
+def test_memory_foundation_and_phase_17_artifacts_remain_separate() -> None:
     source = "\n".join(
         path.read_text(encoding="utf-8")
         for root in ("src/conversation", "src/agent/context")
         for path in Path(root).glob("*.py")
     )
-    migration_source = "\n".join(
+    memory_foundation_source = "\n".join(
         path.read_text(encoding="utf-8")
-        for path in Path("src/db/migrations/versions").glob("*memory*.py")
+        for path in (
+            Path("src/db/migrations/versions/011_memory_foundation_v2.py"),
+            Path("src/db/migrations/versions/012_thread_user_scope.py"),
+        )
     )
     table_names = set(Base.metadata.tables)
 
-    assert "case_memories" not in source
-    assert "memory_tombstones" not in source
     assert "embedding" not in source
     assert "vector search" not in source
     assert "external_execution" not in source
     assert "outbox" not in source
     assert "compensation workflow" not in source
-    assert "case_memories" not in migration_source
-    assert "memory_tombstones" not in migration_source
-    assert "action_executions" not in migration_source
-    assert "action_outbox_events" not in migration_source
-    assert "case_memories" not in table_names
-    assert "memory_tombstones" not in table_names
+    assert "case_memories" not in memory_foundation_source
+    assert "memory_tombstones" not in memory_foundation_source
+    assert "action_executions" not in memory_foundation_source
+    assert "action_outbox_events" not in memory_foundation_source
+    assert "long_term_memories" in table_names
+    assert "case_memories" in table_names
+    assert "memory_tombstones" in table_names
     assert "action_outbox_events" not in table_names
