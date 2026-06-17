@@ -97,4 +97,49 @@ class ToolResultV2(BaseModel):
     audit_ref: str | None = None
 
 
+class ToolArgumentSummaryV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["tool_argument_summary.v1"] = "tool_argument_summary.v1"
+    tool_call_id: str
+    tool_name: str
+    argument_summary_json: dict[str, Any]
+    argument_hash: str
+    redaction_policy_version: str
+
+
+class ToolResultStorageV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["tool_result_storage.v1"] = "tool_result_storage.v1"
+    tool_call_id: str
+    tool_result_id: str
+    tool_name: str
+    status: str
+    source_system: str
+    raw_result_ref: str | None = None
+    raw_result_hash: str | None = None
+    normalized_result_json: dict[str, Any] = Field(default_factory=dict)
+    summary: str
+    prompt_summary: str
+    business_fact_refs: list[dict[str, Any]] = Field(default_factory=list)
+    policy_evidence_refs: list[dict[str, Any]] = Field(default_factory=list)
+    audit_ref: str | None = None
+
+
+class ToolResultPromptSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tool_call_id: str
+    tool_result_id: str
+    tool_name: str
+    status: str
+    summary: str
+    prompt_summary: str
+    business_fact_refs: list[dict[str, Any]] = Field(default_factory=list)
+    policy_evidence_refs: list[dict[str, Any]] = Field(default_factory=list)
+    raw_result_ref: str | None = None
+    audit_ref: str | None = None
+
+
 ToolResult = ToolResultV2
