@@ -276,6 +276,259 @@ Index("ix_session_memories_scope", SessionMemory.tenant_id, SessionMemory.user_i
 Index("ix_session_memories_expires_at", SessionMemory.expires_at)
 
 
+MEMORY_SCOPE_CHECK = "scope_type IN ('tenant', 'merchant', 'user', 'thread', 'case')"
+MEMORY_REVIEW_STATUS_CHECK = (
+    "review_status IN ("
+    "'auto_approved', 'needs_review', 'approved', 'rejected', 'superseded', 'tombstoned', 'deleted'"
+    ")"
+)
+MEMORY_PII_CLASSIFICATION_CHECK = "pii_classification IN ('none', 'low', 'sensitive', 'prohibited')"
+
+
+class LongTermMemory(TimestampMixin, Base):
+    __tablename__ = "long_term_memories"
+    __table_args__ = (
+        CheckConstraint(MEMORY_SCOPE_CHECK, name="ck_long_term_memories_scope_type"),
+        CheckConstraint(
+            "memory_kind IN ('fact', 'preference', 'constraint', 'pattern')",
+            name="ck_long_term_memories_memory_kind",
+        ),
+        CheckConstraint(MEMORY_REVIEW_STATUS_CHECK, name="ck_long_term_memories_review_status"),
+        CheckConstraint(MEMORY_PII_CLASSIFICATION_CHECK, name="ck_long_term_memories_pii_classification"),
+        CheckConstraint("confidence >= 0 AND confidence <= 1", name="ck_long_term_memories_confidence_range"),
+        CheckConstraint("version > 0", name="ck_long_term_memories_version_positive"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    schema_version: Mapped[str] = mapped_column(String(48), nullable=False, default="long_term_memory.v2")
+    scope_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    memory_kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(80), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_ref_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    source_identity_hash: Mapped[str | None] = mapped_column(String(80))
+    confidence: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)
+    pii_classification: Mapped[str] = mapped_column(String(32), nullable=False, default="none")
+    review_status: Mapped[str] = mapped_column(String(32), nullable=False, default="needs_review")
+    version: Mapped[int] = mapped_column(default=1, nullable=False)
+    supersedes: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("long_term_memories.id"))
+    superseded_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("long_term_memories.id"))
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_runs.id"))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+Index(
+    "uq_long_term_memories_active_identity",
+    LongTermMemory.tenant_id,
+    LongTermMemory.scope_type,
+    LongTermMemory.scope_id,
+    LongTermMemory.content_hash,
+    unique=True,
+    postgresql_where=text("deleted_at IS NULL AND is_current IS TRUE"),
+)
+Index(
+    "ix_long_term_memories_active_retrieval",
+    LongTermMemory.tenant_id,
+    LongTermMemory.scope_type,
+    LongTermMemory.scope_id,
+    LongTermMemory.review_status,
+    LongTermMemory.is_current,
+    LongTermMemory.expires_at,
+    postgresql_where=text("deleted_at IS NULL"),
+)
+Index(
+    "ix_long_term_memories_source_identity",
+    LongTermMemory.tenant_id,
+    LongTermMemory.scope_type,
+    LongTermMemory.scope_id,
+    LongTermMemory.source_identity_hash,
+    postgresql_where=text("source_identity_hash IS NOT NULL AND deleted_at IS NULL"),
+)
+
+
+class CaseMemory(TimestampMixin, Base):
+    __tablename__ = "case_memories"
+    __table_args__ = (
+        CheckConstraint(MEMORY_SCOPE_CHECK, name="ck_case_memories_scope_type"),
+        CheckConstraint(MEMORY_REVIEW_STATUS_CHECK, name="ck_case_memories_review_status"),
+        CheckConstraint(MEMORY_PII_CLASSIFICATION_CHECK, name="ck_case_memories_pii_classification"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    schema_version: Mapped[str] = mapped_column(String(48), nullable=False, default="case_memory.v2")
+    scope_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    case_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    excerpt: Mapped[str] = mapped_column(Text, nullable=False)
+    applicability: Mapped[str | None] = mapped_column(Text)
+    outcome: Mapped[str | None] = mapped_column(Text)
+    caveats: Mapped[str | None] = mapped_column(Text)
+    content_hash: Mapped[str] = mapped_column(String(80), nullable=False)
+    policy_family: Mapped[str | None] = mapped_column(String(80))
+    policy_version: Mapped[str | None] = mapped_column(String(80))
+    policy_refs_json: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    source_ref_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    source_identity_hash: Mapped[str | None] = mapped_column(String(80))
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(1024))
+    review_status: Mapped[str] = mapped_column(String(32), nullable=False, default="needs_review")
+    reviewed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    review_reason: Mapped[str | None] = mapped_column(Text)
+    pii_classification: Mapped[str] = mapped_column(String(32), nullable=False, default="none")
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_runs.id"))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+Index(
+    "ix_case_memories_metadata_filters",
+    CaseMemory.tenant_id,
+    CaseMemory.scope_type,
+    CaseMemory.scope_id,
+    CaseMemory.case_type,
+    CaseMemory.policy_family,
+    CaseMemory.policy_version,
+    CaseMemory.review_status,
+    CaseMemory.expires_at,
+    postgresql_where=text("deleted_at IS NULL"),
+)
+Index(
+    "ix_case_memories_active_content_identity",
+    CaseMemory.tenant_id,
+    CaseMemory.scope_type,
+    CaseMemory.scope_id,
+    CaseMemory.content_hash,
+    postgresql_where=text("deleted_at IS NULL"),
+)
+Index(
+    "ix_case_memories_source_identity",
+    CaseMemory.tenant_id,
+    CaseMemory.scope_type,
+    CaseMemory.scope_id,
+    CaseMemory.source_identity_hash,
+    postgresql_where=text("source_identity_hash IS NOT NULL AND deleted_at IS NULL"),
+)
+Index(
+    "ix_case_memories_embedding_vector",
+    CaseMemory.embedding,
+    postgresql_using="ivfflat",
+    postgresql_ops={"embedding": "vector_cosine_ops"},
+)
+
+
+class MemoryTombstone(TimestampMixin, Base):
+    __tablename__ = "memory_tombstones"
+    __table_args__ = (
+        CheckConstraint(MEMORY_SCOPE_CHECK, name="ck_memory_tombstones_scope_type"),
+        CheckConstraint(
+            "memory_type IN ('long_term_fact', 'case_memory')",
+            name="ck_memory_tombstones_memory_type",
+        ),
+        CheckConstraint(
+            "content_hash IS NOT NULL OR source_identity_hash IS NOT NULL",
+            name="ck_memory_tombstones_identity_present",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    schema_version: Mapped[str] = mapped_column(String(48), nullable=False, default="memory_tombstone.v1")
+    memory_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    content_hash: Mapped[str | None] = mapped_column(String(80))
+    source_ref_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    source_identity_hash: Mapped[str | None] = mapped_column(String(80))
+    reason_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
+    created_by_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_runs.id"))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+Index(
+    "ix_memory_tombstones_active_content_identity",
+    MemoryTombstone.tenant_id,
+    MemoryTombstone.memory_type,
+    MemoryTombstone.scope_type,
+    MemoryTombstone.scope_id,
+    MemoryTombstone.content_hash,
+    unique=True,
+    postgresql_where=text("content_hash IS NOT NULL AND deleted_at IS NULL"),
+)
+Index(
+    "ix_memory_tombstones_active_source_identity",
+    MemoryTombstone.tenant_id,
+    MemoryTombstone.memory_type,
+    MemoryTombstone.scope_type,
+    MemoryTombstone.scope_id,
+    MemoryTombstone.source_identity_hash,
+    postgresql_where=text("source_identity_hash IS NOT NULL AND deleted_at IS NULL"),
+)
+Index(
+    "ix_memory_tombstones_active_scope",
+    MemoryTombstone.tenant_id,
+    MemoryTombstone.memory_type,
+    MemoryTombstone.scope_type,
+    MemoryTombstone.scope_id,
+    postgresql_where=text("deleted_at IS NULL"),
+)
+
+
+class MemoryWriteEvent(Base):
+    __tablename__ = "memory_write_events"
+    __table_args__ = (
+        CheckConstraint(
+            "memory_type IN ('session_slot', 'long_term_fact', 'case_memory', 'none')",
+            name="ck_memory_write_events_memory_type",
+        ),
+        CheckConstraint(
+            "decision IN ('write', 'skip', 'needs_review', 'delete', 'supersede', 'tombstone', 'write_blocked')",
+            name="ck_memory_write_events_decision",
+        ),
+        CheckConstraint(MEMORY_PII_CLASSIFICATION_CHECK, name="ck_memory_write_events_pii_classification"),
+        CheckConstraint(
+            "(memory_type = 'none' AND memory_id IS NULL) OR memory_type != 'none'",
+            name="ck_memory_write_events_none_has_no_memory_id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_runs.id"), nullable=False)
+    memory_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    memory_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    schema_version: Mapped[str] = mapped_column(String(48), nullable=False, default="memory_write_event.v2")
+    decision: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    pii_classification: Mapped[str] = mapped_column(String(32), nullable=False)
+    candidate_hash: Mapped[str] = mapped_column(String(80), nullable=False)
+    source_ref_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+Index("ix_memory_write_events_tenant_run", MemoryWriteEvent.tenant_id, MemoryWriteEvent.run_id)
+Index("ix_memory_write_events_memory", MemoryWriteEvent.memory_type, MemoryWriteEvent.memory_id)
+Index("ix_memory_write_events_candidate_hash", MemoryWriteEvent.tenant_id, MemoryWriteEvent.candidate_hash)
+
+
 class ActionSafetySnapshot(Base):
     __tablename__ = "action_safety_snapshots"
     __table_args__ = (
