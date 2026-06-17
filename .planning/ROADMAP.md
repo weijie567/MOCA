@@ -30,10 +30,11 @@
 - [x] **Phase 13: Approval State Machine** - Versioned approval lifecycle and ActionSafetySnapshot ownership. ✓ Verified 2026-06-15 — 8/8 plans complete, 12/12 must-haves verified.
 - [x] **Phase 14: Demo Action Executor Boundary** - Durable draft-only demo behavior and snapshot/hash binding. ✓ Verified 2026-06-16 — 7/7 plans complete, 10/10 must-haves verified.
 - [x] **Phase 15: Replay Event Contract** - ReplayEventV3, lifecycle finalizer, sequence allocation, redaction, retention, and replay read-switch. Final gates passed 2026-06-16; ready for GSD verification.
+- [ ] **Phase 15.1: Memory Foundation V2 (INSERTED)** - Conversation log, tool call/result storage, WorkingStateV1, thread summaries, ContextAssembler, token budget, and trace/audit ID alignment before Phase 16.
 - [ ] **Phase 16: Long-term / Case Memory** - memory_identity.v1, tombstones, review workflow, and long-term/case memory. Deferred beyond the MVP completion gate.
 - [ ] **Phase 17: External Action Execution** - External execution, outbox, reconciliation, and compensation. Deferred beyond the MVP completion gate.
 
-**Phase 13-17 planning standard:** Every Phase 13-17 plan must read `docs/phase-13-17-architecture-plan.md` before task decomposition and include an Architecture Alignment section. The section must identify the canonical owner package, schema owner, old-path quarantine/deletion strategy, forbidden new imports/references, boundary tests, and the exact Phase 13/14/15/16/17 non-overlap. The goal is stable owner/contract architecture first, not minimum-diff compatibility.
+**Phase 13-17 planning standard:** Every Phase 13-17 plan, including inserted Phase 15.1, must read `docs/phase-13-17-architecture-plan.md` before task decomposition and include an Architecture Alignment section. The section must identify the canonical owner package, schema owner, old-path quarantine/deletion strategy, forbidden new imports/references, boundary tests, and the exact Phase 13/14/15/15.1/16/17 non-overlap. The goal is stable owner/contract architecture first, not minimum-diff compatibility.
 
 ## Phase Details
 
@@ -163,9 +164,29 @@ Plans:
   - [x] 15-05-PLAN.md — `/replay` event-store-first API, access control, read-switch, and `/trace` rollback fallback (Wave 5)
   - [x] 15-06-PLAN.md — replay-facing demo draft cleanup, redaction/retention safety, coverage artifact, and final verification gate (Wave 6)
 
+### Phase 15.1: Memory Foundation V2 (INSERTED)
+
+**Goal:** Establish the pre-Phase 16 memory foundation: complete conversation log, tool call/result layering, prompt-safe WorkingStateV1, thread rolling summaries, ContextAssembler, token budgeting, and trace/audit/conversation ID alignment.
+**Depends on:** Phase 12, Phase 15
+**Non-goals:** No long-term memory write gate, memory tombstones, user-manageable memory, case memory vector search, or case precedent retrieval.
+**Requirements**: MEMORY-FOUNDATION-01, MEMORY-FOUNDATION-02, MEMORY-FOUNDATION-03
+**Success Criteria**:
+  1. Conversation threads/messages and tool call/result records capture what happened without replacing business tables, policy KB, approval/action tables, or redacted replay.
+  2. WorkingStateV1 and ContextAssembler provide prompt-safe current-run context without raw tool payloads, policy full text, approval/action authority objects, or trace/debug blobs.
+  3. Thread rolling summaries are derived from conversation messages/tool summaries with source ranges and remain distinct from session slot memory and future Phase 16 case/long-term memory.
+**Plans**: 6/6 planned; 2/6 complete.
+
+Plans:
+- [x] 15.1-01-PLAN.md — conversation/tool/summary schema, migration rollout, ConversationService, and chat message append wiring (Wave 1) — completed 2026-06-17
+- [x] 15.1-02-PLAN.md — four-layer tool call/result storage and prompt-safe tool result state projection (Wave 2) — completed 2026-06-17
+- [ ] 15.1-03-PLAN.md — WorkingStateV1 prompt-safe current-run projection and authority boundary tests (Wave 3)
+- [ ] 15.1-04-PLAN.md — thread rolling summaries, source ranges, session-memory separation, and prompt-context loading (Wave 4)
+- [ ] 15.1-05-PLAN.md — ContextAssembler, token budgeting, prompt projectors, and live prompt-node wiring (Wave 5)
+- [ ] 15.1-06-PLAN.md — replay/audit/conversation ID alignment, boundary regressions, and final phase verification (Wave 6)
+
 ### Phase 16: Long-term / Case Memory
 **Goal**: Implement reviewed long-term/case memory with canonical identity and tombstone enforcement.
-**Depends on**: Phase 12, Phase 15
+**Depends on**: Phase 12, Phase 15, Phase 15.1
 **Mandatory architecture input**: `docs/phase-13-17-architecture-plan.md`
 **Requirements**: MEMORY-01, MEMORY-02
 **Success Criteria**:
@@ -198,8 +219,9 @@ Plans:
 | 13. Approval State Machine | 8/8 | Complete    | 2026-06-15 |
 | 14. Demo Action Executor Boundary | 7/7 | Complete    | 2026-06-16 |
 | 15. Replay Event Contract | 6/6 | Complete    | 2026-06-16 |
+| 15.1 Memory Foundation V2 | 2/6 | In Progress | - |
 | 16. Long-term / Case Memory | 0/TBD | Deferred beyond MVP gate | - |
 | 17. External Action Execution | 0/TBD | Deferred beyond MVP gate | - |
 
 ---
-*Updated: 2026-06-16 — Phase 15 Plan 15-05 complete; 1 plan remains.*
+*Updated: 2026-06-17 — Phase 15.1 Memory Foundation V2 Plan 02 complete; 4 plans remaining.*

@@ -34,6 +34,9 @@
 - [x] **REPLAY-01**: ReplayEventV3 and lifecycle finalizer cover all required completed/interrupted/terminal paths.
 - [x] **REPLAY-02**: Shared per-run sequence allocator and operation pairing/retry contracts are enforced.
 - [x] **REPLAY-03**: Replay redaction, retention, access control, read-switch, fallback, and rollback are defined.
+- [x] **MEMORY-FOUNDATION-01**: Conversation threads/messages and tool call/result records capture user, assistant, and tool facts with run/thread/trace correlation, without replacing business tables, policy KB, approval/action tables, or redacted replay.
+- [x] **MEMORY-FOUNDATION-02**: WorkingStateV1, four-layer tool result storage, ContextAssembler, and token budgeting provide prompt-safe current-run context without raw tool payloads, policy full text, approval/action authority object bodies, trace/debug blobs, or implicit dict/list stringification.
+- [ ] **MEMORY-FOUNDATION-03**: Thread rolling summaries are derived from conversation messages and safe tool summaries with source ranges, remain distinct from Phase 12 session slot memory, and do not implement Phase 16 long-term/case memory.
 - [ ] **MEMORY-01**: Long-term/case memory uses memory_identity.v1, review workflow, and distinct retrieval predicates.
 - [ ] **MEMORY-02**: Tombstones prevent retrieval and asynchronous rewrite of deleted memory.
 - [ ] **EXTERNAL-01**: External dispatch occurs only after transactional draft claim, execution creation, and committed outbox claim.
@@ -64,8 +67,9 @@
 | DEMO-01 | Phase 14 | Complete |
 | DEMO-02 | Phase 14 | Complete |
 | REPLAY-01..03 | Phase 15 | Complete - 15-06 final verification gates passed |
+| MEMORY-FOUNDATION-01..03 | Phase 15.1 | In Progress - Plan 2/6 complete |
 | MEMORY-01..02 | Phase 16 | Deferred beyond MVP gate |
 | EXTERNAL-01..03 | Phase 17 | Deferred beyond MVP gate |
 
 ---
-*Updated: 2026-06-16 after Phase 15 Plan 15-02 completed replay service boundary work.*
+*Updated: 2026-06-17 after Phase 15.1 Plan 02 execution.*

@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
-status: ready_to_plan
-stopped_at: Completed 15-06-PLAN.md
-last_updated: "2026-06-16T16:14:30.097Z"
-last_activity: 2026-06-16
+status: executing
+stopped_at: Completed 15.1-02-PLAN.md
+last_updated: "2026-06-17T05:21:22.154Z"
+last_activity: 2026-06-17
 progress:
-  total_phases: 11
-  completed_phases: 10
-  total_plans: 55
-  completed_plans: 55
-  percent: 91
+  total_phases: 12
+  completed_phases: 9
+  total_plans: 61
+  completed_plans: 57
+  percent: 93
 ---
 
 # Project State: MOCA
@@ -21,17 +21,17 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-16)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 15 — replay-event-contract
+**Current focus:** Phase 15.1 — memory-foundation-v2
 
 ## Current Position
 
-Phase: 16
-Plan: Not started
+Phase: 15.1 (memory-foundation-v2) — EXECUTING
+Plan: 3 of 6
 Plans: 6 planned
-Status: Ready to plan
-Last activity: 2026-06-16
+Status: Ready to execute
+Last activity: 2026-06-17
 
-Progress: [██████████] 100%
+Progress: [█████████░] 93%
 
 ## Completed Baseline
 
@@ -51,6 +51,11 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Source code, tests, and git history from the previous planning line were not rolled back.
 - Phase 8 and Phase 9 may plan and execute in parallel after Phase 7.
 - Phase 16 and Phase 17 remain named owner phases but do not block the MVP completion gate.
+- Phase 15.1 Memory Foundation V2 is inserted before Phase 16 to solve conversation log, working memory, short-term summaries, ContextAssembler, tool result layering, token budgeting, and trace/audit/conversation ID alignment without implementing long-term memory or case memory retrieval.
+- Phase 15.1 Plan 01 stores conversation facts in dedicated conversation/tool/summary tables while business tables, policy KB, approval/action tables, and replay remain authoritative for their own domains.
+- ConversationService rejects raw prompt/tool payload, private reasoning, and approval/action authority keys before append.
+- Phase 15.1 Plan 01 reserves nullable case_id only; long-term memory, case retrieval, tombstones, embeddings, and vector retrieval remain Phase 16-owned.
+- Memory foundation schema rollback target is 010_replay_event_v3, with disposable DB downgrade/re-upgrade verification recorded in 15.1-MIGRATION-REPORT.md.
 - Policy evidence identity uses `v{PolicyDocument.version}`; effective dates do not determine evidence identity.
 - Policy re-import uses a row lock so concurrent changed-content imports serialize version bumps.
 - Runtime policy retrieval uses `PolicyKnowledgeService`; the legacy `search_policy` path remains unchanged for rollback.
@@ -109,12 +114,22 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 15 Plan 06: action_draft_created remains draft-only and projects DraftOutcomeV1 in redacted replay payloads.
 - Phase 15 Plan 06: external execution/outbox/reconciliation/compensation and action_execution_* remain Phase 17-owned deferrals.
 - Phase 15 Plan 06: /trace remains rollback fallback through TraceRepository.build_timeline while /replay stays event-store-first.
+- Phase 15.1 Plan 02 wires tool call/result persistence in investigate because ToolManager.invoke() does not own database session access.
+- Phase 15.1 Plan 02 stores tool argument summaries plus SHA-256 argument hashes, not raw argument bodies.
+- Phase 15.1 Plan 02 keeps raw result storage as nullable ref/hash only and introduces no blob table or object-storage surface.
+
+## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 15.1 inserted after Phase 15: Memory Foundation V2 (URGENT). It is a pre-Phase 16 foundation phase for conversation log, WorkingStateV1, short-term thread summaries, ContextAssembler, tool result storage, token budgeting, and trace/audit/conversation ID alignment. It explicitly does not implement Phase 16 long-term memory, tombstones, user-manageable memory, case memory vector search, or case precedent retrieval.
 
 ## Blockers / Concerns
 
 - Every phase plan must preserve coverage-matrix and follow-up-register visibility.
 - Relevant `MISSING` rows block execution.
 - Phase 13 must keep the active SLA scanner as an explicit owned follow-up gate.
+- Phase 15.1 must not weaken ReplayEventV3 redaction rules by turning trace events into raw conversation/tool payload storage.
 - Phase 16/17 deferral must not weaken Phase 12 session-memory fallback or Phase 14 demo action safety.
 
 ## Performance Metrics
@@ -164,12 +179,14 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | Phase 15 P04 | 22 min | 3 tasks | 12 files |
 | Phase 15 P05 | 11 min | 2 tasks | 4 files |
 | Phase 15 P06 | 36 min | 3 tasks | 6 files |
+| 15.1 | 01 | 17 min | 4 | 11 |
+| Phase 15.1 P02 | 11 min | 3 tasks | 6 files |
 
 ## Session Continuity
 
-Last session: 2026-06-16T16:14:30.089Z
-Stopped at: Completed 15-06-PLAN.md
+Last session: 2026-06-17T05:21:22.139Z
+Stopped at: Completed 15.1-02-PLAN.md
 Resume file: None
-Next: Verify Phase 15 Replay Event Contract
+Next: Execute 15.1-03-PLAN.md
 
-**Planned Phase:** 15 (Replay Event Contract) — 6 plans — 2026-06-16T13:17:00.124Z
+**Planned Phase:** 15.1 (Memory Foundation V2) — 6 plans — 2026-06-17T04:22:43.755Z

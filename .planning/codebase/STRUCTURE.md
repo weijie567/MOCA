@@ -12,6 +12,7 @@ MOCA/
 │   ├── approvals/           # Approval-domain schemas, snapshots, services, and state machine logic
 │   ├── auth/                # JWT and permission helpers
 │   ├── common/              # Domain-independent canonical helpers shared across phases
+│   ├── conversation/        # Conversation log and safe tool call/result persistence services
 │   ├── db/                  # SQLAlchemy models, session, Alembic migrations
 │   ├── knowledge/           # Canonical policy evidence contracts and KnowledgeService facade
 │   ├── memory/              # Session memory schemas, repository, and service
@@ -57,6 +58,11 @@ MOCA/
 **`src/knowledge/`, `src/business/`, `src/memory/`, and `src/tools/`:**
 - Phase 8-12 domain facades and contracts for policy evidence, business reads, session memory, and tool invocation
 - `src/knowledge/schemas.py` owns EvidenceRefV1 and canonical evidence projection reused by approval snapshots
+
+**`src/conversation/`:**
+- Phase 15.1 conversation memory boundary for safe user/assistant/tool message append and tool call/result persistence
+- `ConversationService` owns raw payload/key rejection for messages, tool argument hashing, and prompt-safe tool result summaries
+- `ConversationRepository` owns tenant/thread scoped writes to conversation, `tool_calls`, and `tool_results` tables
 
 **`src/replay/`:**
 - Phase 15 replay contract owner for strict ReplayEventV3/ReplayResponseV3 schemas, replay event registry validation, redaction/retention rules, and the ReplayService append/projection/allocation boundary
@@ -133,6 +139,7 @@ MOCA/
 - New DB access behavior: `src/repositories/` plus model/migration if schema changes
 - New approval/snapshot behavior: `src/approvals/`
 - New replay contract/service behavior: `src/replay/`
+- New conversation/tool-result persistence behavior: `src/conversation/`
 - New shared canonical/hash helper: `src/common/`
 - New agent node: `src/agent/nodes/` and graph wiring in `src/agent/graph.py`
 - New tool: `src/agent/tools/` plus registry metadata and contract tests
