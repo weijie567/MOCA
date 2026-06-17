@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -41,6 +42,25 @@ REVIEW_REQUIRED_LONG_TERM_SOURCE_TYPES = frozenset(
 class LongTermMemoryService:
     def __init__(self, repository: LongTermMemoryRepository) -> None:
         self.repository = repository
+
+    async def retrieve_profile_memory(
+        self,
+        *,
+        tenant_id,
+        scope_type: str | None = None,
+        scope_id: str | None = None,
+        scopes: Sequence[tuple[str, str]] | None = None,
+        now: datetime | None = None,
+        limit: int = 10,
+    ):
+        return await self.repository.retrieve_profile_memory(
+            tenant_id=tenant_id,
+            scope_type=scope_type,
+            scope_id=scope_id,
+            scopes=scopes,
+            now=now,
+            limit=limit,
+        )
 
     async def write_memory(
         self,

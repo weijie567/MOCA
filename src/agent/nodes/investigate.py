@@ -198,7 +198,7 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
         },
         "retrieval_status": context["retrieval_status"],
         "best_score": context["best_score"],
-        "case_memory": [],
+        "case_memory": state.get("case_memory") or [],
         "claim_dependency_map": context["claim_dependency_map"],
         "tool_results": context["tool_results"],
         "last_business_context_refs": {"business_fact_refs": context["business_fact_refs"], "loaded_at": _now_iso()},
