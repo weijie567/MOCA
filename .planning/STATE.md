@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Long-term / Case Memory
 status: executing
-stopped_at: Completed 16-02-schema-migration-PLAN.md
-last_updated: "2026-06-17T15:42:07.040Z"
+stopped_at: Completed 16-03-long-term-memory-service-PLAN.md
+last_updated: "2026-06-17T15:59:18.882Z"
 last_activity: 2026-06-17
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 9
-  completed_plans: 2
-  percent: 22
+  completed_plans: 3
+  percent: 33
 ---
 
 # Project State: MOCA
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md` (updated 2026-06-17)
 ## Current Position
 
 Phase: 16 (long-term-case-memory) — EXECUTING
-Plan: 3 of 9
+Plan: 4 of 9
 Plans: 9 plan files in `.planning/phases/16-long-term-case-memory/`
 Status: Ready to execute
 Last activity: 2026-06-17
 
-Progress: [██░░░░░░░░] 22%
+Progress: [███░░░░░░░] 33%
 
 Planned files:
 
@@ -155,6 +155,10 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 16 Plan 01 candidate hashes accept only stable envelope fields and reuse `content_hash` / `source_identity_hash`, excluding raw payloads and authority-bearing bodies.
 - Phase 16 Plan 02 uses separate durable long-term/case/tombstone/write-event memory tables instead of overloading session_memories.
 - Phase 16 Plan 02 uses PostgreSQL/pgvector Vector(1024) plus HNSW index for reviewed case memory embeddings.
+- Approve/reject review paths use the existing memory_write_events decision enum: decision=write/reason_code=approved and decision=skip/reason_code=rejected.
+- Explicit, admin, human-reviewed, deterministic tool, confirmed outcome, and approved approval-state sources may auto-approve when PII is not prohibited.
+- Long-term retrieval returns bounded LongTermMemoryView values and excludes tombstoned rows by content hash or source identity.
+- LLM, semantic, summary, cross-case pattern, and behavior inference candidates are persisted only as needs_review and are excluded from retrieval.
 
 ## Accumulated Context
 
@@ -234,13 +238,14 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | Phase 15.1 P06 | 20 min | 3 tasks | 6 files |
 | 16 | 01 | 6 min | 3 | 3 |
 | 16 | 02 | 10 min | 4 | 3 |
+| 16 | 03 | 10 min | 4 | 5 |
 
 ## Session Continuity
 
-Last session: 2026-06-17T15:42:07Z
-Stopped at: Completed 16-02-schema-migration-PLAN.md
+Last session: 2026-06-17T15:59:18Z
+Stopped at: Completed 16-03-long-term-memory-service-PLAN.md
 Resume file: None
-Next: Continue with `.planning/phases/16-long-term-case-memory/16-03-long-term-memory-service-PLAN.md`.
+Next: Continue with `.planning/phases/16-long-term-case-memory/16-04-semantic-episode-PLAN.md`.
 
 **Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17
 **Active Milestone:** v1.2 Long-term / Case Memory — defined 2026-06-17

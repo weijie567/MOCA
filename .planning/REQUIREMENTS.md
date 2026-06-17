@@ -15,8 +15,8 @@ Committed scope for the active v1.2 milestone. All requirements map to Phase 16.
 
 ### Long-term Memory
 
-- [ ] **LONGMEM-01**: Long-term profile memory writes are accepted only from explicit user/admin/human-reviewed or deterministic durable sources, never from raw model guesses or unreviewed prompt inference.
-- [ ] **LONGMEM-02**: Long-term memory retrieval filters by tenant and allowed scope, approved/current status, freshness/expiry, and non-deleted/non-tombstoned/non-prohibited state.
+- [x] **LONGMEM-01**: Long-term profile memory writes are accepted only from explicit user/admin/human-reviewed or deterministic durable sources, never from raw model guesses or unreviewed prompt inference.
+- [x] **LONGMEM-02**: Long-term memory retrieval filters by tenant and allowed scope, approved/current status, freshness/expiry, and non-deleted/non-tombstoned/non-prohibited state.
 - [ ] **LONGMEM-03**: Long-term memory correction and supersede behavior is transactional and leaves exactly one current memory per identity.
 
 ### Case Memory
@@ -80,8 +80,8 @@ Tracked but not in the active v1.2 roadmap.
 |-------------|-------|--------|
 | MEMID-01 | Phase 16 | Complete |
 | MEMSCHEMA-01 | Phase 16 | Complete |
-| LONGMEM-01 | Phase 16 | Pending |
-| LONGMEM-02 | Phase 16 | Pending |
+| LONGMEM-01 | Phase 16 | Complete |
+| LONGMEM-02 | Phase 16 | Complete |
 | LONGMEM-03 | Phase 16 | Pending |
 | CASEMEM-01 | Phase 16 | Pending |
 | CASEMEM-02 | Phase 16 | Pending |
@@ -100,4 +100,4 @@ Tracked but not in the active v1.2 roadmap.
 
 ---
 *Requirements defined: 2026-06-17*
-*Last updated: 2026-06-17 after Phase 16 Plan 02 schema migration*
+*Last updated: 2026-06-17 after Phase 16 Plan 03 long-term memory service*
