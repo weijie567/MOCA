@@ -1,0 +1,10 @@
+{
+  "program_start_date": "2026-06-18",
+  "timezone": "Asia/Shanghai",
+  "default_work_start": "07:50",
+  "daily_work_hours": 10,
+  "cycle_work_minutes": 30,
+  "cycle_break_minutes": 0,
+  "calendar_name": "MOCA 30 Days",
+  "codex_path": "/opt/homebrew/bin/codex"
+}
