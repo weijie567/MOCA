@@ -24,6 +24,8 @@ from src.api.routers.agent_runs import (
 from src.api.schemas.agent import ChatRequest, ChatResponse, TraceSummary
 from src.api.schemas.common import ApiResponse, ErrorDetail, INTERNAL_ERROR
 from src.auth.permissions import get_current_user
+from src.conversation.repository import ConversationRepository
+from src.conversation.service import ConversationService
 from src.db.models import User
 from src.db.session import get_session
 
@@ -78,6 +80,15 @@ async def chat(
             completed_at=None,
             total_latency_ms=0,
             trace_id=getattr(request.state, "trace_id", None),
+        )
+        await ConversationService(ConversationRepository(session)).append_user_message(
+            tenant_id=user.tenant_id,
+            user_id=user.id,
+            thread_id=body.thread_id,
+            run_id=UUID(str(run_id)),
+            content=body.query,
+            trace_id=getattr(request.state, "trace_id", None),
+            prompt_template_version="chat.request.v1",
         )
         final_state = await graph.ainvoke(input_state, config)
     except Exception as exc:
@@ -160,6 +171,15 @@ async def chat(
             trace_id=getattr(request.state, "trace_id", None),
         )
         await write_agent_steps(session, run_id=run_id, trace_steps=trace_steps)
+        await ConversationService(ConversationRepository(session)).append_assistant_message(
+            tenant_id=user.tenant_id,
+            user_id=user.id,
+            thread_id=body.thread_id,
+            run_id=UUID(str(run_id)),
+            content=final_response_text,
+            trace_id=getattr(request.state, "trace_id", None),
+            metadata_json={"status": final_status},
+        )
         await session.commit()
     except Exception:
         await session.rollback()
@@ -269,6 +289,15 @@ async def _handle_interrupt(
             trace_id=getattr(request.state, "trace_id", None),
         )
 
+    await ConversationService(ConversationRepository(session)).append_assistant_message(
+        tenant_id=user.tenant_id,
+        user_id=user.id,
+        thread_id=body.thread_id,
+        run_id=UUID(str(run_id)),
+        content="请求需要审批，已暂停等待处理。",
+        trace_id=getattr(request.state, "trace_id", None),
+        metadata_json={"status": "interrupted"},
+    )
     await session.commit()
     return ApiResponse(
         success=True,
@@ -343,6 +372,15 @@ async def _persist_error_run(
             total_latency_ms=total_latency_ms,
             error_summary="graph invocation failed",
             trace_id=trace_id,
+        )
+        await ConversationService(ConversationRepository(session)).append_assistant_message(
+            tenant_id=user.tenant_id,
+            user_id=user.id,
+            thread_id=body.thread_id,
+            run_id=UUID(str(run_id)),
+            content=final_response,
+            trace_id=trace_id,
+            metadata_json={"status": "error"},
         )
         await session.commit()
     except Exception:
