@@ -67,9 +67,9 @@
 | DEMO-01 | Phase 14 | Complete |
 | DEMO-02 | Phase 14 | Complete |
 | REPLAY-01..03 | Phase 15 | Complete - 15-06 final verification gates passed |
-| MEMORY-FOUNDATION-01..03 | Phase 15.1 | In Progress - Plan 6/6 complete; awaiting verifier |
+| MEMORY-FOUNDATION-01..03 | Phase 15.1 | Complete - 15.1 verification passed |
 | MEMORY-01..02 | Phase 16 | Deferred beyond MVP gate |
 | EXTERNAL-01..03 | Phase 17 | Deferred beyond MVP gate |
 
 ---
-*Updated: 2026-06-17 after Phase 15.1 Plan 06 execution.*
+*Updated: 2026-06-17 after Phase 15.1 verification.*

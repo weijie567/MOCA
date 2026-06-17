@@ -30,7 +30,7 @@
 - [x] **Phase 13: Approval State Machine** - Versioned approval lifecycle and ActionSafetySnapshot ownership. ✓ Verified 2026-06-15 — 8/8 plans complete, 12/12 must-haves verified.
 - [x] **Phase 14: Demo Action Executor Boundary** - Durable draft-only demo behavior and snapshot/hash binding. ✓ Verified 2026-06-16 — 7/7 plans complete, 10/10 must-haves verified.
 - [x] **Phase 15: Replay Event Contract** - ReplayEventV3, lifecycle finalizer, sequence allocation, redaction, retention, and replay read-switch. Final gates passed 2026-06-16; ready for GSD verification.
-- [ ] **Phase 15.1: Memory Foundation V2 (INSERTED)** - Conversation log, tool call/result storage, WorkingStateV1, thread summaries, ContextAssembler, token budget, and trace/audit ID alignment before Phase 16.
+- [x] **Phase 15.1: Memory Foundation V2 (INSERTED)** - Conversation log, tool call/result storage, WorkingStateV1, thread summaries, ContextAssembler, token budget, and trace/audit ID alignment before Phase 16. (completed 2026-06-17)
 - [ ] **Phase 16: Long-term / Case Memory** - memory_identity.v1, tombstones, review workflow, and long-term/case memory. Deferred beyond the MVP completion gate.
 - [ ] **Phase 17: External Action Execution** - External execution, outbox, reconciliation, and compensation. Deferred beyond the MVP completion gate.
 
@@ -219,9 +219,9 @@ Plans:
 | 13. Approval State Machine | 8/8 | Complete    | 2026-06-15 |
 | 14. Demo Action Executor Boundary | 7/7 | Complete    | 2026-06-16 |
 | 15. Replay Event Contract | 6/6 | Complete    | 2026-06-16 |
-| 15.1 Memory Foundation V2 | 6/6 | Awaiting verification | - |
+| 15.1 Memory Foundation V2 | 6/6 | Complete    | 2026-06-17 |
 | 16. Long-term / Case Memory | 0/TBD | Deferred beyond MVP gate | - |
 | 17. External Action Execution | 0/TBD | Deferred beyond MVP gate | - |
 
 ---
-*Updated: 2026-06-17 — Phase 15.1 Memory Foundation V2 Plan 06 complete; awaiting verifier.*
+*Updated: 2026-06-17 — Phase 15.1 Memory Foundation V2 verified and complete; Phase 16 ready to plan when resumed.*

@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Agent Architecture Migration
-status: executing
-stopped_at: Completed 15.1-06-PLAN.md; awaiting verifier for Phase 15.1 completion
-last_updated: "2026-06-17T08:03:54.505Z"
+status: ready_to_plan
+stopped_at: Phase 15.1 verified and completed; ready to plan Phase 16
+last_updated: "2026-06-17T08:52:14Z"
 last_activity: 2026-06-17
 progress:
   total_phases: 12
-  completed_phases: 9
+  completed_phases: 10
   total_plans: 61
   completed_plans: 61
-  percent: 100
+  percent: 83
 ---
 
 # Project State: MOCA
@@ -21,17 +21,17 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-16)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 15.1 — memory-foundation-v2
+**Current focus:** Phase 16 — long-term / case memory
 
 ## Current Position
 
-Phase: 15.1 (memory-foundation-v2) — EXECUTING
-Plan: 6 of 6
-Plans: 6 planned
-Status: Awaiting verifier
+Phase: 16
+Plan: Not started
+Plans: TBD
+Status: Ready to plan
 Last activity: 2026-06-17
 
-Progress: [██████████] 100%
+Progress: [████████░░] 83%
 
 ## Completed Baseline
 
@@ -202,8 +202,8 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 ## Session Continuity
 
 Last session: 2026-06-17T08:03:41.302Z
-Stopped at: Completed 15.1-06-PLAN.md; awaiting verifier for Phase 15.1 completion
+Stopped at: Phase 15.1 verified and completed; ready to plan Phase 16
 Resume file: None
-Next: Verify Phase 15.1 Memory Foundation V2
+Next: Plan Phase 16 Long-term / Case Memory, unless MVP gates keep it deferred
 
 **Planned Phase:** 15.1 (Memory Foundation V2) — 6 plans — 2026-06-17T04:22:43.755Z
