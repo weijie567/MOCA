@@ -5,7 +5,7 @@ import uuid
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.db.models import AgentRun, LongTermMemory, MemoryTombstone, MemoryWriteEvent
 from src.memory.repository import LONG_TERM_MEMORY_TYPE, LongTermMemoryRepository
@@ -303,3 +303,73 @@ async def test_supersede_leaves_exactly_one_current_memory(session: AsyncSession
     assert [row.id for row in current_rows] == [replacement_row.id]
     assert supersede_result.decision == "supersede"
     assert events[-1].decision == "supersede"
+
+
+@pytest.mark.asyncio
+async def test_delayed_rewrite_separate_session_blocks_by_source_identity(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    session_factory = async_sessionmaker(session.bind, expire_on_commit=False, class_=AsyncSession)
+    run_id = await _insert_run(session, seeded_session, thread_id="tombstone-session-a")
+    service = LongTermMemoryService(LongTermMemoryRepository(session))
+    source_ref = _source_ref(
+        source_type="deterministic_tool_result",
+        run_id=run_id,
+        business_object_id=str(seeded_session["merchant"].id),
+        event_id="evt-delayed-source",
+    )
+    original = _candidate(
+        seeded_session,
+        run_id=run_id,
+        content="Tool-confirmed merchant asks for concise summaries.",
+        source_type="deterministic_tool_result",
+        source_ref=source_ref,
+    )
+    write_result = await service.write_memory(original)
+    await service.forget_long_term_memory(
+        tenant_id=original.tenant_id,
+        memory_id=write_result.memory_id,
+        run_id=run_id,
+        reason_code="user_forget",
+    )
+    await session.commit()
+
+    async with session_factory() as delayed_session:
+        delayed_run_id = uuid.uuid4()
+        user = seeded_session["users"]["cs_zhang"]
+        delayed_session.add(
+            AgentRun(
+                id=delayed_run_id,
+                tenant_id=user.tenant_id,
+                user_id=user.id,
+                thread_id="tombstone-session-b-delayed",
+                input_query="delayed memory write",
+                final_status="completed",
+                started_at=datetime.now(UTC),
+            )
+        )
+        await delayed_session.flush()
+        delayed_service = LongTermMemoryService(LongTermMemoryRepository(delayed_session))
+        delayed_candidate = _candidate(
+            seeded_session,
+            run_id=delayed_run_id,
+            content="Delayed worker rewrites the forgotten source with new text.",
+            source_type="deterministic_tool_result",
+            source_ref=source_ref,
+        )
+
+        result = await delayed_service.write_memory(delayed_candidate)
+        retrieved = await delayed_service.repository.retrieve_profile_memory(
+            tenant_id=delayed_candidate.tenant_id,
+            scope_type=delayed_candidate.scope_type,
+            scope_id=delayed_candidate.scope_id,
+        )
+        events = await _events(delayed_session, delayed_run_id)
+
+    assert result.status == "skipped"
+    assert result.memory_id is None
+    assert result.reason_code == "tombstone_match"
+    assert retrieved == []
+    assert events[-1].decision == "skip"
+    assert events[-1].reason_code == "tombstone_match"
