@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Long-term / Case Memory
 status: executing
-stopped_at: Completed 16-03-long-term-memory-service-PLAN.md
-last_updated: "2026-06-17T15:59:18.882Z"
+stopped_at: Completed 16-04-semantic-episode-PLAN.md
+last_updated: "2026-06-17T16:13:13Z"
 last_activity: 2026-06-17
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 9
-  completed_plans: 3
-  percent: 33
+  completed_plans: 4
+  percent: 44
 ---
 
 # Project State: MOCA
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md` (updated 2026-06-17)
 ## Current Position
 
 Phase: 16 (long-term-case-memory) — EXECUTING
-Plan: 4 of 9
+Plan: 5 of 9
 Plans: 9 plan files in `.planning/phases/16-long-term-case-memory/`
 Status: Ready to execute
 Last activity: 2026-06-17
 
-Progress: [███░░░░░░░] 33%
+Progress: [████░░░░░░] 44%
 
 Planned files:
 
@@ -159,6 +159,10 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Explicit, admin, human-reviewed, deterministic tool, confirmed outcome, and approved approval-state sources may auto-approve when PII is not prohibited.
 - Long-term retrieval returns bounded LongTermMemoryView values and excludes tombstoned rows by content hash or source identity.
 - LLM, semantic, summary, cross-case pattern, and behavior inference candidates are persisted only as needs_review and are excluded from retrieval.
+- Semantic Episode remains a candidate-only projection layer and does not create an authoritative semantic episode table.
+- SemanticEpisodeCandidate converts to LongTermMemoryWriteCandidate with source_type=semantic_episode_candidate so existing long-term memory policy forces needs_review.
+- Projection output keeps prompt-safe summaries and ignores raw payload, policy text, evidence refs, authority bodies, and replay/debug blobs.
+- Semantic episode projection has no repository dependency and does not mutate session_memories.
 
 ## Accumulated Context
 
@@ -239,13 +243,14 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | 16 | 01 | 6 min | 3 | 3 |
 | 16 | 02 | 10 min | 4 | 3 |
 | 16 | 03 | 10 min | 4 | 5 |
+| Phase 16 P04 | 6 min | 2 tasks | 2 files |
 
 ## Session Continuity
 
-Last session: 2026-06-17T15:59:18Z
-Stopped at: Completed 16-03-long-term-memory-service-PLAN.md
+Last session: 2026-06-17T16:13:13Z
+Stopped at: Completed 16-04-semantic-episode-PLAN.md
 Resume file: None
-Next: Continue with `.planning/phases/16-long-term-case-memory/16-04-semantic-episode-PLAN.md`.
+Next: Continue with `.planning/phases/16-long-term-case-memory/16-05-tombstone-supersede-PLAN.md`.
 
 **Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17
 **Active Milestone:** v1.2 Long-term / Case Memory — defined 2026-06-17
