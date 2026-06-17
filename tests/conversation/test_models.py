@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import ast
 from collections.abc import Iterable
 from pathlib import Path
-import re
 
 import pytest
 from alembic import command
@@ -165,10 +165,28 @@ def _migration_source() -> str:
 
 
 def _created_columns_from_migration(source: str, table_name: str) -> set[str]:
-    pattern = rf"op\.create_table\(\s*[\"']{table_name}[\"'](?P<body>.*?)\n\s*\)"
-    match = re.search(pattern, source, re.S)
-    assert match, f"migration must create {table_name}"
-    return set(re.findall(r"sa\.Column\(\s*[\"']([^\"']+)[\"']", match.group("body")))
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if not isinstance(node.func, ast.Attribute) or node.func.attr != "create_table":
+            continue
+        if not node.args or not isinstance(node.args[0], ast.Constant) or node.args[0].value != table_name:
+            continue
+        columns: set[str] = set()
+        for arg in node.args[1:]:
+            if isinstance(arg, ast.Call) and isinstance(arg.func, ast.Attribute) and arg.func.attr == "Column":
+                first_arg = arg.args[0]
+                if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+                    columns.add(first_arg.value)
+            if isinstance(arg, ast.Starred) and isinstance(arg.value, ast.Call):
+                helper = arg.value.func
+                if isinstance(helper, ast.Name) and helper.id == "_retention_columns":
+                    columns.update({"archived_at", "retention_until", "deleted_at"})
+                if isinstance(helper, ast.Name) and helper.id == "_timestamps":
+                    columns.update({"created_at", "updated_at"})
+        return columns
+    raise AssertionError(f"migration must create {table_name}")
 
 
 async def _reset_database(database_url: str) -> None:

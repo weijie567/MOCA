@@ -642,6 +642,211 @@ class AgentStep(TimestampMixin, Base):
     run: Mapped["AgentRun"] = relationship(back_populates="steps")
 
 
+class ConversationThread(TimestampMixin, Base):
+    __tablename__ = "conversation_threads"
+    __table_args__ = (
+        CheckConstraint("status IN ('active', 'archived')", name="ck_conversation_threads_status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    thread_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    case_id: Mapped[str | None] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retention_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    messages: Mapped[list["ConversationMessage"]] = relationship(back_populates="thread")
+    tool_calls: Mapped[list["ToolCallRecord"]] = relationship(back_populates="thread")
+    tool_results: Mapped[list["ToolResultRecord"]] = relationship(back_populates="thread")
+    summaries: Mapped[list["ConversationSummary"]] = relationship(back_populates="thread")
+
+
+Index(
+    "uq_conversation_threads_active_tenant_thread",
+    ConversationThread.tenant_id,
+    ConversationThread.thread_id,
+    unique=True,
+    postgresql_where=ConversationThread.deleted_at.is_(None),
+)
+Index(
+    "ix_conversation_threads_tenant_user_thread",
+    ConversationThread.tenant_id,
+    ConversationThread.user_id,
+    ConversationThread.thread_id,
+)
+Index("ix_conversation_threads_case_id", ConversationThread.case_id)
+
+
+class ConversationMessage(TimestampMixin, Base):
+    __tablename__ = "conversation_messages"
+    __table_args__ = (
+        UniqueConstraint("conversation_thread_id", "message_index", name="uq_conversation_messages_thread_index"),
+        CheckConstraint("role IN ('user', 'assistant', 'tool')", name="ck_conversation_messages_role"),
+        CheckConstraint("message_index > 0", name="ck_conversation_messages_index_positive"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    conversation_thread_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("conversation_threads.id"), nullable=False, index=True
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    thread_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_runs.id"), nullable=False, index=True)
+    trace_id: Mapped[str | None] = mapped_column(String(128))
+    message_index: Mapped[int] = mapped_column(nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(80), nullable=False)
+    prompt_template_version: Mapped[str | None] = mapped_column(String(64))
+    prompt_block_hashes_json: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    context_snapshot_ref: Mapped[str | None] = mapped_column(String(255))
+    redacted_prompt_snapshot_ref: Mapped[str | None] = mapped_column(String(255))
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retention_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    thread: Mapped["ConversationThread"] = relationship(back_populates="messages")
+
+
+Index(
+    "ix_conversation_messages_tenant_thread_index",
+    ConversationMessage.tenant_id,
+    ConversationMessage.thread_id,
+    ConversationMessage.message_index,
+)
+Index("ix_conversation_messages_tenant_run", ConversationMessage.tenant_id, ConversationMessage.run_id)
+Index("ix_conversation_messages_trace_id", ConversationMessage.trace_id)
+
+
+class ToolCallRecord(TimestampMixin, Base):
+    __tablename__ = "tool_calls"
+    __table_args__ = (
+        CheckConstraint("attempt IS NULL OR attempt > 0", name="ck_tool_calls_attempt_positive"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    conversation_thread_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("conversation_threads.id"), nullable=False, index=True
+    )
+    message_id: Mapped[str | None] = mapped_column(String(128))
+    conversation_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("conversation_messages.id"), index=True
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    thread_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_runs.id"), index=True)
+    trace_id: Mapped[str | None] = mapped_column(String(128))
+    tool_call_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    tool_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    caller_node: Mapped[str | None] = mapped_column(String(64))
+    operation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    attempt: Mapped[int | None] = mapped_column()
+    argument_summary_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    argument_hash: Mapped[str | None] = mapped_column(String(80))
+    redaction_policy_version: Mapped[str] = mapped_column(String(48), nullable=False, default="conversation_redaction.v1")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="started")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    latency_ms: Mapped[int | None] = mapped_column()
+    error_summary: Mapped[str | None] = mapped_column(String(500))
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retention_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    thread: Mapped["ConversationThread"] = relationship(back_populates="tool_calls")
+    results: Mapped[list["ToolResultRecord"]] = relationship(back_populates="tool_call")
+
+
+Index("ix_tool_calls_tenant_thread_run", ToolCallRecord.tenant_id, ToolCallRecord.thread_id, ToolCallRecord.run_id)
+Index("ix_tool_calls_tenant_operation", ToolCallRecord.tenant_id, ToolCallRecord.operation_id)
+Index("ix_tool_calls_tool_call_id", ToolCallRecord.tool_call_id)
+
+
+class ToolResultRecord(TimestampMixin, Base):
+    __tablename__ = "tool_results"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    conversation_thread_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("conversation_threads.id"), nullable=False, index=True
+    )
+    tool_call_record_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("tool_calls.id"))
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    thread_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_runs.id"), index=True)
+    trace_id: Mapped[str | None] = mapped_column(String(128))
+    operation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    conversation_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("conversation_messages.id"), index=True
+    )
+    tool_call_id: Mapped[str | None] = mapped_column(String(128))
+    tool_result_id: Mapped[str | None] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="success")
+    source_system: Mapped[str | None] = mapped_column(String(128))
+    data_freshness_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    latency_ms: Mapped[int | None] = mapped_column()
+    raw_result_ref: Mapped[str | None] = mapped_column(String(255))
+    raw_result_hash: Mapped[str | None] = mapped_column(String(80))
+    normalized_result_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    prompt_summary: Mapped[str | None] = mapped_column(Text)
+    business_fact_refs_json: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    policy_evidence_refs_json: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    audit_ref: Mapped[str | None] = mapped_column(String(255))
+    replay_event_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retention_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    thread: Mapped["ConversationThread"] = relationship(back_populates="tool_results")
+    tool_call: Mapped["ToolCallRecord | None"] = relationship(back_populates="results")
+
+
+Index("ix_tool_results_tenant_thread_run", ToolResultRecord.tenant_id, ToolResultRecord.thread_id, ToolResultRecord.run_id)
+Index("ix_tool_results_tenant_operation", ToolResultRecord.tenant_id, ToolResultRecord.operation_id)
+Index("ix_tool_results_tool_result_id", ToolResultRecord.tool_result_id)
+Index("ix_tool_results_replay_event_id", ToolResultRecord.replay_event_id)
+
+
+class ConversationSummary(TimestampMixin, Base):
+    __tablename__ = "summaries"
+    __table_args__ = (
+        CheckConstraint("summary_type IN ('thread_rolling', 'case_current')", name="ck_summaries_type"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    thread_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    conversation_thread_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("conversation_threads.id"), nullable=False, index=True
+    )
+    case_id: Mapped[str | None] = mapped_column(String(128))
+    summary_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_start_message_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    source_end_message_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    source_message_ids_json: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    source_tool_result_ids_json: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    summary_text: Mapped[str | None] = mapped_column(Text)
+    summary_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    summary_model: Mapped[str | None] = mapped_column(String(128))
+    summary_prompt_version: Mapped[str | None] = mapped_column(String(64))
+    summary_hash: Mapped[str | None] = mapped_column(String(80))
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retention_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    thread: Mapped["ConversationThread"] = relationship(back_populates="summaries")
+
+
+Index("ix_summaries_tenant_thread_type", ConversationSummary.tenant_id, ConversationSummary.thread_id, ConversationSummary.summary_type)
+Index("ix_summaries_case_id", ConversationSummary.case_id)
+
+
 class AgentTraceEvent(TimestampMixin, Base):
     """Phase 10 minimal envelope expanded for Phase 15 ReplayEventV3 storage."""
 
