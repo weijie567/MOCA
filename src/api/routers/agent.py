@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -32,6 +33,7 @@ from src.memory.thread_summary import ThreadRollingSummaryService
 
 
 router = APIRouter(tags=["agent"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/chat", response_model=ApiResponse)
@@ -159,6 +161,12 @@ async def chat(
     final_status = build_trace_summary(run_id, final_state, total_ms)["final_status"]
     total_tokens = _count_tokens(trace_steps)
 
+    trace_summary = build_trace_summary(run_id, final_state, total_ms)
+    response_data = ChatResponse(
+        response=final_response_text,
+        trace_summary=TraceSummary(**trace_summary),
+    ).model_dump()
+
     try:
         await write_agent_run(
             session,
@@ -194,12 +202,17 @@ async def chat(
         await session.commit()
     except Exception:
         await session.rollback()
+        logger.exception("Failed to persist completed chat turn")
+        return ApiResponse(
+            success=False,
+            data=response_data,
+            error=ErrorDetail(
+                code=INTERNAL_ERROR,
+                message="回复已生成，但会话记录保存失败，请重试。",
+            ),
+            trace_id=request.state.trace_id,
+        )
 
-    trace_summary = build_trace_summary(run_id, final_state, total_ms)
-    response_data = ChatResponse(
-        response=final_response_text,
-        trace_summary=TraceSummary(**trace_summary),
-    ).model_dump()
     _schedule_memory_write_after_response(
         {**input_state, **final_state, "current_run_id": str(run_id), "final_response": final_response_text},
         session_factory=_session_factory_from_session(session),

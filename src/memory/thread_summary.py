@@ -52,20 +52,27 @@ class ThreadRollingSummaryService:
         self,
         *,
         tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
         thread_id: str,
         since_message_id: uuid.UUID | None = None,
     ) -> ThreadSummaryUpdateInput:
-        old_summary = await self.repository.get_latest_thread_summary(tenant_id=tenant_id, thread_id=thread_id)
+        old_summary = await self.repository.get_latest_thread_summary(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            thread_id=thread_id,
+        )
         effective_since = since_message_id
         if effective_since is None and old_summary is not None:
             effective_since = old_summary.source_end_message_id
         new_messages = await self.repository.list_messages_after(
             tenant_id=tenant_id,
+            user_id=user_id,
             thread_id=thread_id,
             since_message_id=effective_since,
         )
         tool_results = await self.repository.list_tool_results_after_summary(
             tenant_id=tenant_id,
+            user_id=user_id,
             thread_id=thread_id,
             previous_summary=old_summary,
         )
@@ -118,6 +125,7 @@ class ThreadRollingSummaryService:
         del run_id
         update_input = await self.build_update_input(
             tenant_id=tenant_id,
+            user_id=user_id,
             thread_id=thread_id,
             since_message_id=since_message_id,
         )
@@ -148,7 +156,7 @@ class ThreadRollingSummaryService:
 
 
 def _safe_tool_summary(result: ToolResultRecord) -> str:
-    candidates = [result.summary, result.prompt_summary]
+    candidates = [result.prompt_summary, result.summary]
     for candidate in candidates:
         sanitized = _sanitize_text(candidate or "")
         if sanitized:

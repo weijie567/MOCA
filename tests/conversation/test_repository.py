@@ -61,7 +61,7 @@ async def test_append_messages_preserves_tenant_thread_run_order(session: AsyncS
         )
     )
 
-    messages = await repository.list_messages(tenant_id=tenant_id, thread_id=thread_id)
+    messages = await repository.list_messages(tenant_id=tenant_id, user_id=user_id, thread_id=thread_id)
 
     assert thread.id == first.conversation_thread_id == second.conversation_thread_id
     assert [message.message_index for message in messages] == [1, 2]
@@ -109,10 +109,19 @@ async def test_thread_lookup_is_tenant_scoped(session: AsyncSession, seeded_sess
         thread_id=thread_id,
     )
 
-    own_thread = await repository.get_thread(tenant_id=seeded_session["tenant"].id, thread_id=thread_id)
-    other_thread = await repository.get_thread(tenant_id=seeded_session["other_tenant"].id, thread_id=thread_id)
+    own_thread = await repository.get_thread(
+        tenant_id=seeded_session["tenant"].id,
+        user_id=seeded_session["users"]["cs_zhang"].id,
+        thread_id=thread_id,
+    )
+    other_thread = await repository.get_thread(
+        tenant_id=seeded_session["other_tenant"].id,
+        user_id=seeded_session["users"]["other_support"].id,
+        thread_id=thread_id,
+    )
     missing_cross_tenant = await repository.get_thread(
         tenant_id=seeded_session["other_tenant"].id,
+        user_id=seeded_session["users"]["other_support"].id,
         thread_id="missing-thread",
     )
 
@@ -120,3 +129,29 @@ async def test_thread_lookup_is_tenant_scoped(session: AsyncSession, seeded_sess
     assert other_thread is not None
     assert own_thread.id != other_thread.id
     assert missing_cross_tenant is None
+
+
+@pytest.mark.asyncio
+async def test_thread_lookup_is_user_scoped_within_tenant(session: AsyncSession, seeded_session: dict) -> None:
+    from src.conversation.repository import ConversationRepository
+
+    repository = ConversationRepository(session)
+    tenant_id = seeded_session["tenant"].id
+    support_user_id = seeded_session["users"]["cs_zhang"].id
+    merchant_user_id = seeded_session["users"]["merchant_wang"].id
+    thread_id = "thread-user-scoped"
+
+    support_thread = await repository.get_or_create_thread(
+        tenant_id=tenant_id,
+        user_id=support_user_id,
+        thread_id=thread_id,
+    )
+    merchant_thread = await repository.get_or_create_thread(
+        tenant_id=tenant_id,
+        user_id=merchant_user_id,
+        thread_id=thread_id,
+    )
+
+    assert support_thread.id != merchant_thread.id
+    assert await repository.get_thread(tenant_id=tenant_id, user_id=support_user_id, thread_id=thread_id) == support_thread
+    assert await repository.get_thread(tenant_id=tenant_id, user_id=merchant_user_id, thread_id=thread_id) == merchant_thread

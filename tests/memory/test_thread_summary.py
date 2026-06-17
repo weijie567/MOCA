@@ -17,6 +17,7 @@ from src.tools.contracts import BusinessFactRefV1, ToolResultV2
 
 RAW_TOOL_PAYLOAD_SHOULD_NOT_APPEAR = "RAW_TOOL_PAYLOAD_SHOULD_NOT_APPEAR"
 RAW_POLICY_TEXT_SHOULD_NOT_APPEAR = "RAW_POLICY_TEXT_SHOULD_NOT_APPEAR"
+STORED_TOOL_SUMMARY_SHOULD_NOT_APPEAR = "STORED_TOOL_SUMMARY_SHOULD_NOT_APPEAR"
 
 
 async def _insert_run(session: AsyncSession, seeded_session: dict, thread_id: str) -> uuid.UUID:
@@ -174,6 +175,14 @@ async def test_thread_rolling_summary_includes_safe_tool_summaries_only(
         raw_result_ref="raw-result://orders/ORD-TOOL-001",
         raw_result_hash="sha256:rawresultfixture",
     )
+    stored_tool_result = (
+        await session.execute(
+            select(ToolResultRecord).where(ToolResultRecord.tool_result_id == "tool-result-thread-summary-1")
+        )
+    ).scalar_one()
+    stored_tool_result.summary = STORED_TOOL_SUMMARY_SHOULD_NOT_APPEAR
+    stored_tool_result.prompt_summary = "Prompt-safe tool summary for ORD-TOOL-001."
+    await session.flush()
 
     persisted = await summary_service.persist_thread_summary(
         tenant_id=tenant_id,
@@ -181,16 +190,12 @@ async def test_thread_rolling_summary_includes_safe_tool_summaries_only(
         thread_id=thread_id,
         run_id=run_id,
     )
-    stored_tool_result = (
-        await session.execute(
-            select(ToolResultRecord).where(ToolResultRecord.tool_result_id == "tool-result-thread-summary-1")
-        )
-    ).scalar_one()
 
     summary_text = persisted.summary_text or ""
-    assert stored_tool_result.prompt_summary == prompt_summary.prompt_summary
+    assert prompt_summary.prompt_summary
     assert "ORD-TOOL-001" in summary_text
-    assert "Safe tool summary" in summary_text
+    assert "Prompt-safe tool summary" in summary_text
+    assert STORED_TOOL_SUMMARY_SHOULD_NOT_APPEAR not in summary_text
     assert str(stored_tool_result.id) in persisted.source_tool_result_ids_json
     assert RAW_TOOL_PAYLOAD_SHOULD_NOT_APPEAR not in summary_text
     assert RAW_POLICY_TEXT_SHOULD_NOT_APPEAR not in summary_text

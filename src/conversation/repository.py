@@ -22,10 +22,17 @@ class ConversationRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def get_thread(self, *, tenant_id: uuid.UUID, thread_id: str) -> ConversationThread | None:
+    async def get_thread(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        thread_id: str,
+    ) -> ConversationThread | None:
         result = await self.session.execute(
             select(ConversationThread).where(
                 ConversationThread.tenant_id == tenant_id,
+                ConversationThread.user_id == user_id,
                 ConversationThread.thread_id == thread_id,
                 ConversationThread.deleted_at.is_(None),
             )
@@ -40,7 +47,7 @@ class ConversationRepository:
         thread_id: str,
         case_id: str | None = None,
     ) -> ConversationThread:
-        thread = await self.get_thread(tenant_id=tenant_id, thread_id=thread_id)
+        thread = await self.get_thread(tenant_id=tenant_id, user_id=user_id, thread_id=thread_id)
         if thread is not None:
             return thread
         thread = ConversationThread(
@@ -61,7 +68,8 @@ class ConversationRepository:
             user_id=message.user_id,
             thread_id=message.thread_id,
         )
-        next_index = await self._next_message_index(tenant_id=message.tenant_id, thread_id=message.thread_id)
+        await self._lock_thread(thread.id)
+        next_index = await self._next_message_index(conversation_thread_id=thread.id)
         row = ConversationMessage(
             id=uuid.uuid4(),
             conversation_thread_id=thread.id,
@@ -87,15 +95,18 @@ class ConversationRepository:
         self,
         *,
         tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
         thread_id: str,
         limit: int | None = None,
     ) -> list[ConversationMessage]:
+        thread = await self.get_thread(tenant_id=tenant_id, user_id=user_id, thread_id=thread_id)
+        if thread is None:
+            return []
         stmt = (
             select(ConversationMessage)
             .where(
                 and_(
-                    ConversationMessage.tenant_id == tenant_id,
-                    ConversationMessage.thread_id == thread_id,
+                    ConversationMessage.conversation_thread_id == thread.id,
                     ConversationMessage.deleted_at.is_(None),
                 )
             )
@@ -110,15 +121,18 @@ class ConversationRepository:
         self,
         *,
         tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
         thread_id: str,
         limit: int,
     ) -> list[ConversationMessage]:
+        thread = await self.get_thread(tenant_id=tenant_id, user_id=user_id, thread_id=thread_id)
+        if thread is None:
+            return []
         stmt = (
             select(ConversationMessage)
             .where(
                 and_(
-                    ConversationMessage.tenant_id == tenant_id,
-                    ConversationMessage.thread_id == thread_id,
+                    ConversationMessage.conversation_thread_id == thread.id,
                     ConversationMessage.deleted_at.is_(None),
                 )
             )
@@ -128,11 +142,20 @@ class ConversationRepository:
         result = await self.session.execute(stmt)
         return list(reversed(result.scalars().all()))
 
-    async def get_message(self, *, tenant_id: uuid.UUID, thread_id: str, message_id: uuid.UUID) -> ConversationMessage | None:
+    async def get_message(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        thread_id: str,
+        message_id: uuid.UUID,
+    ) -> ConversationMessage | None:
+        thread = await self.get_thread(tenant_id=tenant_id, user_id=user_id, thread_id=thread_id)
+        if thread is None:
+            return None
         result = await self.session.execute(
             select(ConversationMessage).where(
-                ConversationMessage.tenant_id == tenant_id,
-                ConversationMessage.thread_id == thread_id,
+                ConversationMessage.conversation_thread_id == thread.id,
                 ConversationMessage.id == message_id,
                 ConversationMessage.deleted_at.is_(None),
             )
@@ -143,16 +166,19 @@ class ConversationRepository:
         self,
         *,
         tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
         thread_id: str,
         message_ids: list[uuid.UUID],
     ) -> list[ConversationMessage]:
         if not message_ids:
             return []
+        thread = await self.get_thread(tenant_id=tenant_id, user_id=user_id, thread_id=thread_id)
+        if thread is None:
+            return []
         result = await self.session.execute(
             select(ConversationMessage)
             .where(
-                ConversationMessage.tenant_id == tenant_id,
-                ConversationMessage.thread_id == thread_id,
+                ConversationMessage.conversation_thread_id == thread.id,
                 ConversationMessage.id.in_(message_ids),
                 ConversationMessage.deleted_at.is_(None),
             )
@@ -164,17 +190,21 @@ class ConversationRepository:
         self,
         *,
         tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
         thread_id: str,
         since_message_id: uuid.UUID | None = None,
     ) -> list[ConversationMessage]:
+        thread = await self.get_thread(tenant_id=tenant_id, user_id=user_id, thread_id=thread_id)
+        if thread is None:
+            return []
         filters = [
-            ConversationMessage.tenant_id == tenant_id,
-            ConversationMessage.thread_id == thread_id,
+            ConversationMessage.conversation_thread_id == thread.id,
             ConversationMessage.deleted_at.is_(None),
         ]
         if since_message_id is not None:
             since_message = await self.get_message(
                 tenant_id=tenant_id,
+                user_id=user_id,
                 thread_id=thread_id,
                 message_id=since_message_id,
             )
@@ -189,13 +219,16 @@ class ConversationRepository:
         self,
         *,
         tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
         thread_id: str,
     ) -> ConversationSummary | None:
+        thread = await self.get_thread(tenant_id=tenant_id, user_id=user_id, thread_id=thread_id)
+        if thread is None:
+            return None
         result = await self.session.execute(
             select(ConversationSummary)
             .where(
-                ConversationSummary.tenant_id == tenant_id,
-                ConversationSummary.thread_id == thread_id,
+                ConversationSummary.conversation_thread_id == thread.id,
                 ConversationSummary.summary_type == "thread_rolling",
                 ConversationSummary.deleted_at.is_(None),
             )
@@ -208,14 +241,17 @@ class ConversationRepository:
         self,
         *,
         tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
         thread_id: str,
         limit: int = 10,
     ) -> list[ConversationSummary]:
+        thread = await self.get_thread(tenant_id=tenant_id, user_id=user_id, thread_id=thread_id)
+        if thread is None:
+            return []
         result = await self.session.execute(
             select(ConversationSummary)
             .where(
-                ConversationSummary.tenant_id == tenant_id,
-                ConversationSummary.thread_id == thread_id,
+                ConversationSummary.conversation_thread_id == thread.id,
                 ConversationSummary.summary_type == "thread_rolling",
                 ConversationSummary.deleted_at.is_(None),
             )
@@ -228,12 +264,15 @@ class ConversationRepository:
         self,
         *,
         tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
         thread_id: str,
         previous_summary: ConversationSummary | None = None,
     ) -> list[ToolResultRecord]:
+        thread = await self.get_thread(tenant_id=tenant_id, user_id=user_id, thread_id=thread_id)
+        if thread is None:
+            return []
         filters = [
-            ToolResultRecord.tenant_id == tenant_id,
-            ToolResultRecord.thread_id == thread_id,
+            ToolResultRecord.conversation_thread_id == thread.id,
             ToolResultRecord.deleted_at.is_(None),
         ]
         if previous_summary is not None:
@@ -254,14 +293,17 @@ class ConversationRepository:
         self,
         *,
         tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
         thread_id: str,
         limit: int,
     ) -> list[ToolResultRecord]:
+        thread = await self.get_thread(tenant_id=tenant_id, user_id=user_id, thread_id=thread_id)
+        if thread is None:
+            return []
         result = await self.session.execute(
             select(ToolResultRecord)
             .where(
-                ToolResultRecord.tenant_id == tenant_id,
-                ToolResultRecord.thread_id == thread_id,
+                ToolResultRecord.conversation_thread_id == thread.id,
                 ToolResultRecord.prompt_summary.is_not(None),
                 ToolResultRecord.deleted_at.is_(None),
             )
@@ -409,11 +451,15 @@ class ConversationRepository:
         await self.session.flush()
         return row
 
-    async def _next_message_index(self, *, tenant_id: uuid.UUID, thread_id: str) -> int:
+    async def _lock_thread(self, thread_id: uuid.UUID) -> None:
+        await self.session.execute(
+            select(ConversationThread.id).where(ConversationThread.id == thread_id).with_for_update()
+        )
+
+    async def _next_message_index(self, *, conversation_thread_id: uuid.UUID) -> int:
         result = await self.session.execute(
             select(func.max(ConversationMessage.message_index)).where(
-                ConversationMessage.tenant_id == tenant_id,
-                ConversationMessage.thread_id == thread_id,
+                ConversationMessage.conversation_thread_id == conversation_thread_id,
                 ConversationMessage.deleted_at.is_(None),
             )
         )

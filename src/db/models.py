@@ -667,8 +667,9 @@ class ConversationThread(TimestampMixin, Base):
 
 
 Index(
-    "uq_conversation_threads_active_tenant_thread",
+    "uq_conversation_threads_active_tenant_user_thread",
     ConversationThread.tenant_id,
+    ConversationThread.user_id,
     ConversationThread.thread_id,
     unique=True,
     postgresql_where=ConversationThread.deleted_at.is_(None),

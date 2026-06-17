@@ -12,7 +12,7 @@ from src.agent.trace import write_agent_run
 from src.conversation.repository import ConversationRepository
 from src.conversation.schemas import FORBIDDEN_MESSAGE_KEYS
 from src.conversation.service import ConversationService
-from src.db.models import AgentTraceEvent, AuditLog, ToolCallRecord, ToolResultRecord
+from src.db.models import AgentTraceEvent, AuditLog, Base, ToolCallRecord, ToolResultRecord
 from src.replay.service import ReplayService
 from src.replay.validators import FORBIDDEN_REDACTED_PAYLOAD_KEYS, guard_redacted_payload
 from src.repositories.audit_repo import AuditRepository
@@ -288,9 +288,11 @@ def test_phase_16_and_phase_17_artifacts_are_not_created() -> None:
         for root in ("src/conversation", "src/agent/context")
         for path in Path(root).glob("*.py")
     )
-    table_names = set()
-    for table in ("case_memories", "memory_tombstones", "action_executions", "action_outbox_events"):
-        table_names.add(table)
+    migration_source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in Path("src/db/migrations/versions").glob("*memory*.py")
+    )
+    table_names = set(Base.metadata.tables)
 
     assert "case_memories" not in source
     assert "memory_tombstones" not in source
@@ -299,6 +301,10 @@ def test_phase_16_and_phase_17_artifacts_are_not_created() -> None:
     assert "external_execution" not in source
     assert "outbox" not in source
     assert "compensation workflow" not in source
-    assert "case_memories" in table_names
-    assert "memory_tombstones" in table_names
-    assert "action_outbox_events" in table_names
+    assert "case_memories" not in migration_source
+    assert "memory_tombstones" not in migration_source
+    assert "action_executions" not in migration_source
+    assert "action_outbox_events" not in migration_source
+    assert "case_memories" not in table_names
+    assert "memory_tombstones" not in table_names
+    assert "action_outbox_events" not in table_names

@@ -220,6 +220,7 @@ class ConversationService:
         self,
         *,
         tenant_id: uuid.UUID | str,
+        user_id: uuid.UUID | str,
         thread_id: str,
         run_id: uuid.UUID | str,
         max_recent_messages: int = 8,
@@ -232,19 +233,23 @@ class ConversationService:
         if self.repository is None:
             raise RuntimeError("ConversationRepository is required for prompt context reads")
         tenant_uuid = _coerce_uuid(tenant_id)
+        user_uuid = _coerce_uuid(user_id)
         run_uuid = _coerce_uuid(run_id)
         recent_messages = await self.repository.list_recent_messages(
             tenant_id=tenant_uuid,
+            user_id=user_uuid,
             thread_id=thread_id,
             limit=max_recent_messages,
         )
         tool_prompt_summaries = await self.repository.list_recent_tool_prompt_summaries(
             tenant_id=tenant_uuid,
+            user_id=user_uuid,
             thread_id=thread_id,
             limit=max_recent_messages,
         )
         latest_prior_summary = await self._latest_prior_thread_summary(
             tenant_id=tenant_uuid,
+            user_id=user_uuid,
             thread_id=thread_id,
             current_run_id=run_uuid,
         )
@@ -303,15 +308,22 @@ class ConversationService:
         self,
         *,
         tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
         thread_id: str,
         current_run_id: uuid.UUID,
     ) -> ConversationSummary | None:
         assert self.repository is not None
-        summaries = await self.repository.list_thread_summaries(tenant_id=tenant_id, thread_id=thread_id, limit=10)
+        summaries = await self.repository.list_thread_summaries(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            thread_id=thread_id,
+            limit=10,
+        )
         for summary in summaries:
             source_message_ids = [_coerce_uuid(message_id) for message_id in summary.source_message_ids_json]
             source_messages = await self.repository.list_messages_by_ids(
                 tenant_id=tenant_id,
+                user_id=user_id,
                 thread_id=thread_id,
                 message_ids=source_message_ids,
             )

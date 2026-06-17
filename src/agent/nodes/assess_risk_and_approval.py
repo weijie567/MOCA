@@ -642,7 +642,7 @@ async def _load_prompt_context(state: AgentState, config: RunnableConfig | None)
     configurable = ((config or {}).get("configurable") or {}) if config else {}
     session = configurable.get("session")
     run_id = state.get("current_run_id") or state.get("run_id")
-    if session is None or not state.get("tenant_id") or not state.get("thread_id") or not run_id:
+    if session is None or not state.get("tenant_id") or not state.get("user_id") or not state.get("thread_id") or not run_id:
         return _empty_prompt_context()
 
     service = configurable.get("conversation_service")
@@ -654,6 +654,7 @@ async def _load_prompt_context(state: AgentState, config: RunnableConfig | None)
     try:
         context = await service.load_prompt_context(
             tenant_id=state["tenant_id"],
+            user_id=state["user_id"],
             thread_id=str(state["thread_id"]),
             run_id=run_id,
         )

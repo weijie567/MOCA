@@ -10,13 +10,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.models import AgentRun
 
 
-async def _insert_run(session: AsyncSession, seeded_session: dict, thread_id: str) -> uuid.UUID:
+async def _insert_run(
+    session: AsyncSession,
+    seeded_session: dict,
+    thread_id: str,
+    *,
+    user_key: str = "cs_zhang",
+) -> uuid.UUID:
     run_id = uuid.uuid4()
     session.add(
         AgentRun(
             id=run_id,
             tenant_id=seeded_session["tenant"].id,
-            user_id=seeded_session["users"]["cs_zhang"].id,
+            user_id=seeded_session["users"][user_key].id,
             thread_id=thread_id,
             input_query="test",
             final_status="completed",
@@ -59,7 +65,7 @@ async def test_chat_turn_records_user_and_assistant_messages_without_raw_prompt(
         content="已查询到退款仍在审核中。",
     )
 
-    messages = await repository.list_messages(tenant_id=tenant_id, thread_id=thread_id)
+    messages = await repository.list_messages(tenant_id=tenant_id, user_id=user_id, thread_id=thread_id)
 
     assert [message.role for message in messages] == ["user", "assistant"]
     assert [message.message_index for message in messages] == [1, 2]
@@ -137,6 +143,7 @@ async def test_load_prompt_context_first_turn_with_zero_summaries(
 
     context = await service.load_prompt_context(
         tenant_id=tenant_id,
+        user_id=user_id,
         thread_id=thread_id,
         run_id=run_id,
         max_recent_messages=4,
@@ -369,6 +376,7 @@ async def test_load_prompt_context_returns_latest_committed_prior_turn_and_bound
 
     context = await service.load_prompt_context(
         tenant_id=tenant_id,
+        user_id=user_id,
         thread_id=thread_id,
         run_id=current_run_id,
         max_recent_messages=2,
@@ -384,3 +392,67 @@ async def test_load_prompt_context_returns_latest_committed_prior_turn_and_bound
     assert len(context.recent_messages) == 2
     assert len(context.tool_prompt_summaries) == 1
     assert "ORD-CURRENT-001" in (context.tool_prompt_summaries[0].prompt_summary or "")
+
+
+@pytest.mark.asyncio
+async def test_load_prompt_context_is_user_scoped_within_tenant(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    from src.conversation.repository import ConversationRepository
+    from src.conversation.service import ConversationService
+    from src.memory.thread_summary import ThreadRollingSummaryService
+
+    repository = ConversationRepository(session)
+    service = ConversationService(repository)
+    summary_service = ThreadRollingSummaryService(repository)
+    tenant_id = seeded_session["tenant"].id
+    support_user_id = seeded_session["users"]["cs_zhang"].id
+    merchant_user_id = seeded_session["users"]["merchant_wang"].id
+    thread_id = "shared-thread-id-user-scope"
+
+    support_run_id = await _insert_run(session, seeded_session, thread_id, user_key="cs_zhang")
+    await service.append_user_message(
+        tenant_id=tenant_id,
+        user_id=support_user_id,
+        thread_id=thread_id,
+        run_id=support_run_id,
+        content="support user secret ORD-SUPPORT-ONLY.",
+    )
+    await service.append_assistant_message(
+        tenant_id=tenant_id,
+        user_id=support_user_id,
+        thread_id=thread_id,
+        run_id=support_run_id,
+        content="support-only answer.",
+    )
+    await summary_service.persist_thread_summary(
+        tenant_id=tenant_id,
+        user_id=support_user_id,
+        thread_id=thread_id,
+        run_id=support_run_id,
+    )
+
+    merchant_run_id = await _insert_run(session, seeded_session, thread_id, user_key="merchant_wang")
+    await service.append_user_message(
+        tenant_id=tenant_id,
+        user_id=merchant_user_id,
+        thread_id=thread_id,
+        run_id=merchant_run_id,
+        content="merchant user message ORD-MERCHANT-ONLY.",
+    )
+
+    merchant_context = await service.load_prompt_context(
+        tenant_id=tenant_id,
+        user_id=merchant_user_id,
+        thread_id=thread_id,
+        run_id=merchant_run_id,
+        max_recent_messages=4,
+    )
+
+    assert merchant_context.latest_thread_summary is None
+    assert [message.content for message in merchant_context.recent_messages] == [
+        "merchant user message ORD-MERCHANT-ONLY."
+    ]
+    serialized = "\n".join(message.content for message in merchant_context.recent_messages)
+    assert "ORD-SUPPORT-ONLY" not in serialized
