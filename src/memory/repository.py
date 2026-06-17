@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import LongTermMemory, MemoryTombstone, MemoryWriteEvent, SessionMemory
 from src.memory.schemas import LongTermMemoryView, LongTermMemoryWriteCandidate
+from src.memory.tombstones import source_identity_hash_for_tombstone
 
 
 LONG_TERM_MEMORY_TYPE = "long_term_fact"
@@ -153,6 +154,9 @@ class LongTermMemoryRepository:
         source_identity_hash: str | None,
         review_status: str,
         now: datetime | None = None,
+        supersedes: uuid.UUID | None = None,
+        version: int | None = None,
+        is_current: bool = True,
     ) -> LongTermMemory:
         memory = LongTermMemory(
             tenant_id=candidate.tenant_id,
@@ -167,6 +171,9 @@ class LongTermMemoryRepository:
             confidence=Decimal(str(candidate.confidence)),
             pii_classification=candidate.pii_classification,
             review_status=review_status,
+            version=version or 1,
+            supersedes=supersedes,
+            is_current=is_current,
             valid_from=_aware(now),
             expires_at=candidate.expires_at,
             created_by_run_id=candidate.run_id,
@@ -204,6 +211,119 @@ class LongTermMemoryRepository:
         await self.session.flush()
         return event
 
+    async def create_tombstone(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        memory_type: str,
+        scope_type: str,
+        scope_id: str,
+        content_hash: str | None,
+        source_ref_json: dict[str, Any] | None,
+        reason_code: str,
+        source_identity_hash: str | None = None,
+        created_by_user_id: uuid.UUID | None = None,
+        created_by_run_id: uuid.UUID | None = None,
+        expires_at: datetime | None = None,
+    ) -> MemoryTombstone:
+        source_ref_json = dict(source_ref_json or {})
+        resolved_source_identity_hash = source_identity_hash or source_identity_hash_for_tombstone(source_ref_json)
+        if content_hash is None and resolved_source_identity_hash is None:
+            raise ValueError("content_hash or source_identity_hash is required for memory tombstone")
+
+        existing = await self.active_tombstone_matches(
+            tenant_id=tenant_id,
+            memory_type=memory_type,
+            scope_type=scope_type,
+            scope_id=scope_id,
+            content_hash=content_hash,
+            source_identity_hash=resolved_source_identity_hash,
+        )
+        if existing is not None:
+            return existing
+
+        tombstone = MemoryTombstone(
+            tenant_id=tenant_id,
+            memory_type=memory_type,
+            scope_type=scope_type,
+            scope_id=scope_id,
+            content_hash=content_hash,
+            source_ref_json=source_ref_json,
+            source_identity_hash=resolved_source_identity_hash,
+            reason_code=reason_code,
+            created_by_user_id=created_by_user_id,
+            created_by_run_id=created_by_run_id,
+            expires_at=expires_at,
+        )
+        self.session.add(tombstone)
+        await self.session.flush()
+        return tombstone
+
+    async def active_tombstone_matches(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        memory_type: str,
+        scope_type: str,
+        scope_id: str,
+        content_hash: str | None,
+        source_identity_hash: str | None,
+        now: datetime | None = None,
+    ) -> MemoryTombstone | None:
+        now = _aware(now)
+        base_filters = [
+            MemoryTombstone.tenant_id == tenant_id,
+            MemoryTombstone.memory_type == memory_type,
+            MemoryTombstone.scope_type == scope_type,
+            MemoryTombstone.scope_id == scope_id,
+            MemoryTombstone.deleted_at.is_(None),
+            or_(MemoryTombstone.expires_at.is_(None), MemoryTombstone.expires_at > now),
+        ]
+        if content_hash is not None:
+            result = await self.session.execute(
+                select(MemoryTombstone)
+                .where(*base_filters, MemoryTombstone.content_hash == content_hash)
+                .order_by(MemoryTombstone.created_at.desc())
+                .limit(1)
+                .execution_options(populate_existing=True)
+            )
+            tombstone = result.scalar_one_or_none()
+            if tombstone is not None:
+                return tombstone
+
+        if source_identity_hash is not None:
+            result = await self.session.execute(
+                select(MemoryTombstone)
+                .where(*base_filters, MemoryTombstone.source_identity_hash == source_identity_hash)
+                .order_by(MemoryTombstone.created_at.desc())
+                .limit(1)
+                .execution_options(populate_existing=True)
+            )
+            return result.scalar_one_or_none()
+
+        return None
+
+    async def check_tombstone_before_write(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        memory_type: str,
+        scope_type: str,
+        scope_id: str,
+        content_hash: str | None,
+        source_identity_hash: str | None,
+        now: datetime | None = None,
+    ) -> MemoryTombstone | None:
+        return await self.active_tombstone_matches(
+            tenant_id=tenant_id,
+            memory_type=memory_type,
+            scope_type=scope_type,
+            scope_id=scope_id,
+            content_hash=content_hash,
+            source_identity_hash=source_identity_hash,
+            now=now,
+        )
+
     async def get_memory(self, *, tenant_id: uuid.UUID, memory_id: uuid.UUID) -> LongTermMemory | None:
         result = await self.session.execute(
             select(LongTermMemory)
@@ -238,6 +358,39 @@ class LongTermMemoryRepository:
         memory.deleted_at = _aware(now)
         await self.session.flush()
         return memory
+
+    async def forget_memory(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        memory_id: uuid.UUID,
+        memory_type: str,
+        reason_code: str,
+        run_id: uuid.UUID,
+        now: datetime | None = None,
+        review_status: str = "tombstoned",
+    ) -> tuple[LongTermMemory, MemoryTombstone] | None:
+        memory = await self.get_memory(tenant_id=tenant_id, memory_id=memory_id)
+        if memory is None:
+            return None
+        now = _aware(now)
+        memory.review_status = review_status
+        memory.is_current = False
+        memory.deleted_at = now
+        tombstone = await self.create_tombstone(
+            tenant_id=memory.tenant_id,
+            memory_type=memory_type,
+            scope_type=memory.scope_type,
+            scope_id=memory.scope_id,
+            content_hash=memory.content_hash,
+            source_ref_json=dict(memory.source_ref_json or {}),
+            source_identity_hash=memory.source_identity_hash,
+            reason_code=reason_code,
+            created_by_run_id=run_id,
+            expires_at=memory.expires_at,
+        )
+        await self.session.flush()
+        return memory, tombstone
 
     async def retrieve_profile_memory(
         self,

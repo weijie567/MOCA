@@ -49,6 +49,40 @@ class LongTermMemoryService:
     ) -> LongTermMemoryWriteResult:
         now = _aware(now)
         identity = _candidate_identity(candidate)
+        tombstone = await self.repository.check_tombstone_before_write(
+            tenant_id=candidate.tenant_id,
+            memory_type=LONG_TERM_MEMORY_TYPE,
+            scope_type=candidate.scope_type,
+            scope_id=candidate.scope_id,
+            content_hash=identity["content_hash"],
+            source_identity_hash=identity["source_identity_hash"],
+            now=now,
+        )
+        if tombstone is not None:
+            event = await self.repository.emit_write_event(
+                tenant_id=candidate.tenant_id,
+                run_id=candidate.run_id,
+                memory_type=LONG_TERM_MEMORY_TYPE,
+                memory_id=None,
+                decision="skip",
+                reason_code="tombstone_match",
+                pii_classification=candidate.pii_classification,
+                candidate_hash=identity["candidate_hash"],
+                source_ref_json=identity["source_ref_json"],
+            )
+            return LongTermMemoryWriteResult(
+                status="skipped",
+                memory_id=None,
+                review_status=None,
+                decision="skip",
+                reason_code="tombstone_match",
+                pii_classification=candidate.pii_classification,
+                candidate_hash=identity["candidate_hash"],
+                content_hash=identity["content_hash"],
+                source_identity_hash=identity["source_identity_hash"],
+                event_id=event.id,
+            )
+
         if candidate.pii_classification == "prohibited":
             event = await self.repository.emit_write_event(
                 tenant_id=candidate.tenant_id,
@@ -174,9 +208,18 @@ class LongTermMemoryService:
         reason_code: str = "deleted",
         now: datetime | None = None,
     ):
-        memory = await self.repository.mark_deleted(tenant_id=tenant_id, memory_id=memory_id, now=now)
-        if memory is None:
+        forgotten = await self.repository.forget_memory(
+            tenant_id=tenant_id,
+            memory_id=memory_id,
+            memory_type=LONG_TERM_MEMORY_TYPE,
+            reason_code=reason_code,
+            run_id=run_id,
+            now=now,
+            review_status="deleted",
+        )
+        if forgotten is None:
             raise ValueError("long-term memory not found")
+        memory, _tombstone = forgotten
         return await self.repository.emit_write_event(
             tenant_id=tenant_id,
             run_id=run_id,
@@ -187,6 +230,135 @@ class LongTermMemoryService:
             pii_classification=memory.pii_classification,
             candidate_hash=_candidate_hash_for_memory(memory),
             source_ref_json=dict(memory.source_ref_json or {}),
+        )
+
+    async def forget_long_term_memory(
+        self,
+        *,
+        tenant_id,
+        memory_id,
+        run_id,
+        reason_code: str = "forgotten",
+        now: datetime | None = None,
+    ):
+        forgotten = await self.repository.forget_memory(
+            tenant_id=tenant_id,
+            memory_id=memory_id,
+            memory_type=LONG_TERM_MEMORY_TYPE,
+            reason_code=reason_code,
+            run_id=run_id,
+            now=now,
+        )
+        if forgotten is None:
+            raise ValueError("long-term memory not found")
+        memory, _tombstone = forgotten
+        return await self.repository.emit_write_event(
+            tenant_id=tenant_id,
+            run_id=run_id,
+            memory_type=LONG_TERM_MEMORY_TYPE,
+            memory_id=memory.id,
+            decision="tombstone",
+            reason_code=reason_code,
+            pii_classification=memory.pii_classification,
+            candidate_hash=_candidate_hash_for_memory(memory),
+            source_ref_json=dict(memory.source_ref_json or {}),
+        )
+
+    async def forget_memory(self, **kwargs):
+        return await self.forget_long_term_memory(**kwargs)
+
+    async def supersede_memory(
+        self,
+        *,
+        tenant_id,
+        memory_id,
+        replacement_candidate: LongTermMemoryWriteCandidate,
+        run_id,
+        reason_code: str = "correction",
+        now: datetime | None = None,
+    ) -> LongTermMemoryWriteResult:
+        now = _aware(now)
+        previous = await self.repository.get_memory(tenant_id=tenant_id, memory_id=memory_id)
+        if previous is None:
+            raise ValueError("long-term memory not found")
+        if replacement_candidate.tenant_id != tenant_id:
+            raise ValueError("replacement candidate tenant does not match memory tenant")
+        if replacement_candidate.scope_type != previous.scope_type or replacement_candidate.scope_id != previous.scope_id:
+            raise ValueError("replacement candidate scope does not match memory scope")
+
+        identity = _candidate_identity(replacement_candidate)
+        tombstone = await self.repository.check_tombstone_before_write(
+            tenant_id=replacement_candidate.tenant_id,
+            memory_type=LONG_TERM_MEMORY_TYPE,
+            scope_type=replacement_candidate.scope_type,
+            scope_id=replacement_candidate.scope_id,
+            content_hash=identity["content_hash"],
+            source_identity_hash=identity["source_identity_hash"],
+            now=now,
+        )
+        if tombstone is not None:
+            event = await self.repository.emit_write_event(
+                tenant_id=replacement_candidate.tenant_id,
+                run_id=run_id,
+                memory_type=LONG_TERM_MEMORY_TYPE,
+                memory_id=None,
+                decision="skip",
+                reason_code="tombstone_match",
+                pii_classification=replacement_candidate.pii_classification,
+                candidate_hash=identity["candidate_hash"],
+                source_ref_json=identity["source_ref_json"],
+            )
+            return LongTermMemoryWriteResult(
+                status="skipped",
+                memory_id=None,
+                review_status=None,
+                decision="skip",
+                reason_code="tombstone_match",
+                pii_classification=replacement_candidate.pii_classification,
+                candidate_hash=identity["candidate_hash"],
+                content_hash=identity["content_hash"],
+                source_identity_hash=identity["source_identity_hash"],
+                event_id=event.id,
+            )
+
+        previous.is_current = False
+        previous.review_status = "superseded"
+        previous.superseded_at = now
+        review_status = _review_status_for_source(replacement_candidate.source_type)
+        replacement = await self.repository.insert_memory(
+            replacement_candidate,
+            content_hash=identity["content_hash"],
+            source_ref_json=identity["source_ref_json"],
+            source_identity_hash=identity["source_identity_hash"],
+            review_status=review_status,
+            now=now,
+            supersedes=previous.id,
+            version=previous.version + 1,
+            is_current=True,
+        )
+        previous.superseded_by = replacement.id
+        event = await self.repository.emit_write_event(
+            tenant_id=replacement_candidate.tenant_id,
+            run_id=run_id,
+            memory_type=LONG_TERM_MEMORY_TYPE,
+            memory_id=replacement.id,
+            decision="supersede",
+            reason_code=reason_code,
+            pii_classification=replacement_candidate.pii_classification,
+            candidate_hash=identity["candidate_hash"],
+            source_ref_json=identity["source_ref_json"],
+        )
+        return LongTermMemoryWriteResult(
+            status="written" if review_status == "auto_approved" else "needs_review",
+            memory_id=replacement.id,
+            review_status=review_status,
+            decision="supersede",
+            reason_code=reason_code,
+            pii_classification=replacement_candidate.pii_classification,
+            candidate_hash=identity["candidate_hash"],
+            content_hash=identity["content_hash"],
+            source_identity_hash=identity["source_identity_hash"],
+            event_id=event.id,
         )
 
 
