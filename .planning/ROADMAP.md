@@ -4,7 +4,7 @@
 
 - [x] **v1.0 MVP** - Shipped on 2026-05-22. Full archive: [v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md)
 - [x] **v1.1 Agent Architecture Migration** - Shipped on 2026-06-17. Full archive: [v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md)
-- [ ] **v1.2 Long-term / Case Memory** - Active. Defined on 2026-06-17. Scope: Phase 16.
+- [x] **v1.2 Long-term / Case Memory** - Shipped on 2026-06-17. Scope: Phase 16.
 
 ## Phases
 
@@ -37,13 +37,13 @@
 
 </details>
 
-## Active Milestone: v1.2 Long-term / Case Memory
+## Completed Milestone: v1.2 Long-term / Case Memory
 
 ### Phase 16: Long-term / Case Memory
 
-**Status:** In Progress — 9/9 plans complete; phase verification pending
+**Status:** Complete — 9/9 plans executed; verification passed
 
-**Plans:** 9/9 plans executed
+**Plans:** 9/9 plans complete
 
 **Goal:** Implement reviewed long-term profile memory and reviewed case memory retrieval on top of the v1.1 conversation/context foundation, while preserving the boundaries that memory is contextual assistance only.
 
@@ -76,11 +76,11 @@
 
 ## Current Status
 
-v1.2 Phase 16 execution is complete. All 9 Phase 16 plans have summaries; phase-level review, regression, schema drift, and verification gates are next.
+v1.2 Phase 16 is complete. All 9 Phase 16 plans have summaries, code review findings are resolved, schema drift passed, verification passed 14/14 requirements, and the post-review full suite passed with 980 tests.
 
 ## Next Step
 
-Run Phase 16 phase-level verification gates.
+Archive v1.2 when ready, or start the next milestone.
 
 ---
-*Updated: 2026-06-18 - Phase 16 Plan 09 execution complete.*
+*Updated: 2026-06-18 - Phase 16 verification complete.*

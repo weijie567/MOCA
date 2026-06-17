@@ -100,4 +100,4 @@ Tracked but not in the active v1.2 roadmap.
 
 ---
 *Requirements defined: 2026-06-17*
-*Last updated: 2026-06-18 after Phase 16 Plan 09 eval closure*
+*Last updated: 2026-06-18 after Phase 16 verification and review-fix closure*

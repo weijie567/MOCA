@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Long-term / Case Memory
-status: executing
-stopped_at: Completed 16-09-legacy-search-eval-closure-PLAN.md
-last_updated: "2026-06-17T18:02:00Z"
-last_activity: 2026-06-18 -- Phase 16 execution complete; verification pending
+status: milestone_complete
+stopped_at: Phase 16 verification complete
+last_updated: "2026-06-17T18:37:27Z"
+last_activity: 2026-06-18 -- Phase 16 verification passed; milestone complete
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 9
   completed_plans: 9
   percent: 100
@@ -21,15 +21,15 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-17)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 16 — long-term-case-memory
+**Current focus:** Phase 16 complete — long-term-case-memory
 
 ## Current Position
 
-Phase: 16 (long-term-case-memory) — EXECUTING
-Plan: verification pending
+Phase: 16 (long-term-case-memory) — COMPLETE
+Plan: complete
 Plans: 9 plan files in `.planning/phases/16-long-term-case-memory/`
-Status: Phase execution complete; verification pending
-Last activity: 2026-06-18 -- Phase 16 execution complete; verification pending
+Status: Milestone complete
+Last activity: 2026-06-18 -- Phase 16 verification passed; milestone complete
 
 Progress: [██████████] 100%
 
@@ -267,12 +267,12 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 
 ## Session Continuity
 
-Last session: 2026-06-17T18:02:00Z
-Stopped at: Completed 16-09-legacy-search-eval-closure-PLAN.md
+Last session: 2026-06-17T18:37:27Z
+Stopped at: Phase 16 verification complete
 Resume file: None
-Next: Run Phase 16 phase-level verification gates.
+Next: Archive v1.2 when ready, or start the next milestone.
 
 **Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17
-**Active Milestone:** v1.2 Long-term / Case Memory — defined 2026-06-17
+**Completed Milestone:** v1.2 Long-term / Case Memory — shipped 2026-06-17
 
-**Planned Phase:** 16 (Long-term / Case Memory) — 9 plans — ready to execute — 2026-06-17T14:55:52Z
+**Completed Phase:** 16 (Long-term / Case Memory) — 9 plans — verified 2026-06-17T18:37:27Z
