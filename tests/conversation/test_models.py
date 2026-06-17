@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import ast
+import uuid
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from tests.conftest import TEST_DATABASE_URL, _ensure_test_database
 
 
 MIGRATION_PATH = Path("src/db/migrations/versions/011_memory_foundation_v2.py")
+THREAD_SCOPE_MIGRATION_PATH = Path("src/db/migrations/versions/012_thread_user_scope.py")
 PHASE_TABLES = {
     "conversation_threads",
     "conversation_messages",
@@ -207,6 +209,37 @@ async def _table_names(database_url: str) -> set[str]:
     return names
 
 
+async def _insert_active_thread_id_duplicates(database_url: str) -> None:
+    tenant_id = uuid.uuid4()
+    user_ids = [uuid.uuid4(), uuid.uuid4()]
+    engine = create_async_engine(database_url, future=True, poolclass=NullPool)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("INSERT INTO tenants (id, name, status) VALUES (:id, :name, 'active')"),
+            {"id": tenant_id, "name": "thread-scope-downgrade-tenant"},
+        )
+        for index, user_id in enumerate(user_ids):
+            await conn.execute(
+                text(
+                    """
+                    INSERT INTO users (id, tenant_id, username, password_hash, role, is_active)
+                    VALUES (:id, :tenant_id, :username, 'hash', 'support', true)
+                    """
+                ),
+                {"id": user_id, "tenant_id": tenant_id, "username": f"thread_scope_user_{index}"},
+            )
+            await conn.execute(
+                text(
+                    """
+                    INSERT INTO conversation_threads (id, tenant_id, user_id, thread_id, status)
+                    VALUES (:id, :tenant_id, :user_id, 'shared-thread-id', 'active')
+                    """
+                ),
+                {"id": uuid.uuid4(), "tenant_id": tenant_id, "user_id": user_id},
+            )
+    await engine.dispose()
+
+
 def _alembic_config(database_url: str) -> Config:
     cfg = Config("alembic.ini")
     cfg.set_main_option("sqlalchemy.url", database_url)
@@ -266,6 +299,22 @@ def test_memory_foundation_migration_downgrade_round_trip() -> None:
     command.upgrade(cfg, "head")
     reupgraded_tables = asyncio.run(_table_names(database_url))
     assert PHASE_TABLES.issubset(reupgraded_tables)
+
+
+def test_thread_user_scope_migration_downgrade_fails_on_active_duplicate_threads() -> None:
+    database_url = TEST_DATABASE_URL
+    asyncio.run(_reset_database(database_url))
+    cfg = _alembic_config(database_url)
+
+    command.upgrade(cfg, "head")
+    asyncio.run(_insert_active_thread_id_duplicates(database_url))
+
+    with pytest.raises(RuntimeError, match="Cannot downgrade 012_thread_user_scope"):
+        command.downgrade(cfg, "011_memory_foundation_v2")
+
+    source = THREAD_SCOPE_MIGRATION_PATH.read_text(encoding="utf-8")
+    assert "HAVING COUNT(*) > 1" in source
+    assert "Archive, delete, or merge" in source
 
 
 @pytest.mark.parametrize("table_name", sorted(PHASE_TABLES))

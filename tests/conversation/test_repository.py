@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 import uuid
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from src.db.models import AgentRun
+from src.db.models import AgentRun, Tenant, User
 
 
 async def _insert_run(session: AsyncSession, seeded_session: dict, thread_id: str) -> uuid.UUID:
@@ -67,6 +68,63 @@ async def test_append_messages_preserves_tenant_thread_run_order(session: AsyncS
     assert [message.message_index for message in messages] == [1, 2]
     assert [message.run_id for message in messages] == [first_run_id, second_run_id]
     assert [message.content for message in messages] == ["用户第一句", "助手回复"]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_first_message_append_reuses_single_thread(test_engine) -> None:
+    from src.conversation.repository import ConversationRepository
+    from src.conversation.schemas import ConversationMessageCreate
+
+    session_factory = async_sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession)
+    tenant_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    thread_id = "thread-concurrent-first-append"
+    run_ids = [uuid.uuid4() for _ in range(5)]
+    async with session_factory() as setup_session:
+        setup_session.add(Tenant(id=tenant_id, name="concurrent-thread-tenant", status="active"))
+        setup_session.add(
+            User(
+                id=user_id,
+                tenant_id=tenant_id,
+                username="concurrent_thread_user",
+                password_hash="hash",
+                role="support",
+                is_active=True,
+            )
+        )
+        setup_session.add_all(
+            AgentRun(
+                id=run_id,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                thread_id=thread_id,
+                input_query=f"test {index}",
+                final_status="completed",
+                started_at=datetime.now(UTC),
+            )
+            for index, run_id in enumerate(run_ids)
+        )
+        await setup_session.commit()
+
+    async def append_from_worker(index: int) -> tuple[uuid.UUID, int]:
+        async with session_factory() as worker_session:
+            row = await ConversationRepository(worker_session).append_message(
+                ConversationMessageCreate(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    thread_id=thread_id,
+                    run_id=run_ids[index],
+                    role="user",
+                    content=f"并发首句 {index}",
+                )
+            )
+            await worker_session.commit()
+            return row.conversation_thread_id, row.message_index
+
+    results = await asyncio.gather(*(append_from_worker(index) for index in range(len(run_ids))))
+
+    assert {thread_id for thread_id, _message_index in results} == {results[0][0]}
+    assert sorted(message_index for _thread_id, message_index in results) == [1, 2, 3, 4, 5]
 
 
 def test_tool_message_rejects_raw_payload_keys() -> None:

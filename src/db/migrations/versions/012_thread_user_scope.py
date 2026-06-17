@@ -31,6 +31,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    _ensure_no_active_thread_id_duplicates()
     op.drop_index("uq_conversation_threads_active_tenant_user_thread", table_name="conversation_threads")
     op.create_index(
         "uq_conversation_threads_active_tenant_thread",
@@ -39,3 +40,27 @@ def downgrade() -> None:
         unique=True,
         postgresql_where=sa.text("deleted_at IS NULL"),
     )
+
+
+def _ensure_no_active_thread_id_duplicates() -> None:
+    bind = op.get_bind()
+    duplicate = bind.execute(
+        sa.text(
+            """
+            SELECT tenant_id, thread_id, COUNT(*) AS duplicate_count
+            FROM conversation_threads
+            WHERE deleted_at IS NULL
+            GROUP BY tenant_id, thread_id
+            HAVING COUNT(*) > 1
+            LIMIT 1
+            """
+        )
+    ).mappings().first()
+    if duplicate is not None:
+        raise RuntimeError(
+            "Cannot downgrade 012_thread_user_scope: active conversation_threads contain "
+            "multiple users for the same tenant_id/thread_id. Archive, delete, or merge "
+            "duplicates before restoring the legacy tenant/thread unique index. "
+            f"Example tenant_id={duplicate['tenant_id']} thread_id={duplicate['thread_id']} "
+            f"count={duplicate['duplicate_count']}."
+        )

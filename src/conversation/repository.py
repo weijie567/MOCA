@@ -47,6 +47,7 @@ class ConversationRepository:
         thread_id: str,
         case_id: str | None = None,
     ) -> ConversationThread:
+        await self._lock_thread_identity(tenant_id=tenant_id, user_id=user_id, thread_id=thread_id)
         thread = await self.get_thread(tenant_id=tenant_id, user_id=user_id, thread_id=thread_id)
         if thread is not None:
             return thread
@@ -456,6 +457,10 @@ class ConversationRepository:
             select(ConversationThread.id).where(ConversationThread.id == thread_id).with_for_update()
         )
 
+    async def _lock_thread_identity(self, *, tenant_id: uuid.UUID, user_id: uuid.UUID, thread_id: str) -> None:
+        lock_key = _thread_identity_lock_key(tenant_id, user_id, thread_id)
+        await self.session.execute(select(func.pg_advisory_xact_lock(lock_key)))
+
     async def _next_message_index(self, *, conversation_thread_id: uuid.UUID) -> int:
         result = await self.session.execute(
             select(func.max(ConversationMessage.message_index)).where(
@@ -468,6 +473,12 @@ class ConversationRepository:
 
 def _content_hash(content: str) -> str:
     return f"sha256:{sha256(content.encode('utf-8')).hexdigest()}"
+
+
+def _thread_identity_lock_key(tenant_id: uuid.UUID, user_id: uuid.UUID, thread_id: str) -> int:
+    identity = f"conversation-thread:{tenant_id}:{user_id}:{thread_id}".encode("utf-8")
+    unsigned = int.from_bytes(sha256(identity).digest()[:8], "big", signed=False)
+    return unsigned - (1 << 64) if unsigned >= (1 << 63) else unsigned
 
 
 def _is_uuid(value: str) -> bool:
