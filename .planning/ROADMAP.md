@@ -41,9 +41,9 @@
 
 ### Phase 16: Long-term / Case Memory
 
-**Status:** Planned — ready for execution
+**Status:** In Progress — 1/9 plans complete
 
-**Plans:** 9 plan files in `.planning/phases/16-long-term-case-memory/` (`16-01` through `16-09`)
+**Plans:** 1 summary / 9 plan files in `.planning/phases/16-long-term-case-memory/` (`16-01` complete; `16-02` through `16-09` pending)
 
 **Goal:** Implement reviewed long-term profile memory and reviewed case memory retrieval on top of the v1.1 conversation/context foundation, while preserving the boundaries that memory is contextual assistance only.
 
@@ -76,11 +76,11 @@
 
 ## Current Status
 
-v1.2 is planned and ready to execute. The current active roadmap contains one owner phase, Phase 16, to avoid renumbering the previously deferred Phase 17 external execution scope.
+v1.2 Phase 16 is in progress. Plan `16-01-memory-identity` is complete; 8 Phase 16 plans remain.
 
 ## Next Step
 
-Run `$gsd-execute-phase 16` to implement the 9 planned Phase 16 workstreams.
+Continue with `.planning/phases/16-long-term-case-memory/16-02-schema-migration-PLAN.md`.
 
 ---
-*Updated: 2026-06-17 - Phase 16 planned and ready for execution.*
+*Updated: 2026-06-17 - Phase 16 Plan 01 complete.*

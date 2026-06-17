@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Long-term / Case Memory
-status: ready_to_execute
-stopped_at: Phase 16 planned
-last_updated: "2026-06-17T14:55:52Z"
-last_activity: 2026-06-17
+status: executing
+stopped_at: Completed 16-01-memory-identity-PLAN.md
+last_updated: "2026-06-17T15:25:50.274Z"
+last_activity: 2026-06-17 -- Plan 16-01 complete; ready for Plan 16-02
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 9
-  completed_plans: 0
-  percent: 0
+  completed_plans: 1
+  percent: 11
 ---
 
 # Project State: MOCA
@@ -21,19 +21,20 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-17)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 16 Long-term / Case Memory.
+**Current focus:** Phase 16 — long-term-case-memory
 
 ## Current Position
 
-Phase: 16 - Long-term / Case Memory
-Plan: 16-01 through 16-09
+Phase: 16 (long-term-case-memory) — EXECUTING
+Plan: 2 of 9
 Plans: 9 plan files in `.planning/phases/16-long-term-case-memory/`
-Status: ready_to_execute
-Last activity: 2026-06-17
+Status: Ready to execute
+Last activity: 2026-06-17 -- Plan 16-01 complete; ready for Plan 16-02
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█░░░░░░░░░] 11%
 
 Planned files:
+
 - `16-01-memory-identity-PLAN.md`
 - `16-02-schema-migration-PLAN.md`
 - `16-03-long-term-memory-service-PLAN.md`
@@ -149,6 +150,9 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 15.1 final defers Phase 16 long-term memory write gate, memory tombstones, user-manageable memory, case memory vector search, and case precedent retrieval; Phase 17 owns external action execution storage, outbox/execution reconciliation, and compensation workflow.
 - Phase 15.2 final readiness closure passed a focused suite with 181 tests and leaves Phase 16/17 runtime scope untouched.
 - v1.1 archived on 2026-06-17. `.planning/REQUIREMENTS.md` was removed at archive time and then recreated with fresh v1.2 requirements.
+- Phase 16 Plan 01 keeps `memory_identity.v1` helpers in `src/memory/identity.py` because normalization and source-ref allowlists are memory-domain rules.
+- Phase 16 Plan 01 adds `MemorySourceRefV1` now so downstream tombstone/source fallback code uses the same authoritative typed key set.
+- Phase 16 Plan 01 candidate hashes accept only stable envelope fields and reuse `content_hash` / `source_identity_hash`, excluding raw payloads and authority-bearing bodies.
 
 ## Accumulated Context
 
@@ -226,13 +230,14 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | Phase 15.1 P04 | 21 min | 4 tasks | 7 files |
 | Phase 15.1 P05 | 12 min | 3 tasks | 12 files |
 | Phase 15.1 P06 | 20 min | 3 tasks | 6 files |
+| 16 | 01 | 6 min | 3 | 3 |
 
 ## Session Continuity
 
-Last session: 2026-06-17T12:43:32.972Z
-Stopped at: Phase 16 planned
-Resume file: .planning/phases/16-long-term-case-memory/
-Next: Run `$gsd-execute-phase 16`.
+Last session: 2026-06-17T15:25:50Z
+Stopped at: Completed 16-01-memory-identity-PLAN.md
+Resume file: None
+Next: Continue with `.planning/phases/16-long-term-case-memory/16-02-schema-migration-PLAN.md`.
 
 **Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17
 **Active Milestone:** v1.2 Long-term / Case Memory — defined 2026-06-17

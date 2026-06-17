@@ -10,7 +10,7 @@ Committed scope for the active v1.2 milestone. All requirements map to Phase 16.
 
 ### Identity & Schema
 
-- [ ] **MEMID-01**: Memory writes compute `memory_identity.v1` using canonical normalization and stable content/source hashing for long-term memories, case memories, tombstones, and candidate write events.
+- [x] **MEMID-01**: Memory writes compute `memory_identity.v1` using canonical normalization and stable content/source hashing for long-term memories, case memories, tombstones, and candidate write events.
 - [ ] **MEMSCHEMA-01**: The database provides durable `long_term_memories`, `case_memories`, `memory_tombstones`, and `memory_write_events` storage with tenant/user/scope identity, review lifecycle, timestamps, and indexes/constraints needed for safe retrieval and migration rollback planning.
 
 ### Long-term Memory
@@ -38,7 +38,7 @@ Committed scope for the active v1.2 milestone. All requirements map to Phase 16.
 ### Review & Observability
 
 - [ ] **MEMREVIEW-01**: Memory candidate, approve/reject, write, skip, delete, supersede, and tombstone decisions are observable through review status and audit/replay-safe `memory_write_events`.
-- [ ] **MEMEVAL-01**: Contract tests and eval gates cover identity golden cases, retrieval predicates, correction/supersede, deletion/tombstone no-rewrite, authority-boundary negatives, and transitional `search_case_memory` behavior.
+- [x] **MEMEVAL-01**: Contract tests and eval gates cover identity golden cases, retrieval predicates, correction/supersede, deletion/tombstone no-rewrite, authority-boundary negatives, and transitional `search_case_memory` behavior.
 
 ## Future Requirements
 
@@ -78,7 +78,7 @@ Tracked but not in the active v1.2 roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| MEMID-01 | Phase 16 | Pending |
+| MEMID-01 | Phase 16 | Complete |
 | MEMSCHEMA-01 | Phase 16 | Pending |
 | LONGMEM-01 | Phase 16 | Pending |
 | LONGMEM-02 | Phase 16 | Pending |
@@ -91,7 +91,7 @@ Tracked but not in the active v1.2 roadmap.
 | MEMCTX-01 | Phase 16 | Pending |
 | MEMCTX-02 | Phase 16 | Pending |
 | MEMREVIEW-01 | Phase 16 | Pending |
-| MEMEVAL-01 | Phase 16 | Pending |
+| MEMEVAL-01 | Phase 16 | Complete |
 
 **Coverage:**
 - v1.2 requirements: 14 total
