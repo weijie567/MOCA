@@ -497,3 +497,86 @@ async def test_service_blocks_sensitive_pii_even_when_candidate_requests_write(
     assert result.reason_code == "pii_blocked"
     assert result.pii_classification == "sensitive"
     assert view.continuity_claimed is False
+
+
+@pytest.mark.asyncio
+async def test_thread_rolling_summary_rows_are_not_loaded_as_session_memory(
+    session: AsyncSession, seeded_session: dict
+) -> None:
+    from sqlalchemy import select
+
+    from src.conversation.repository import ConversationRepository
+    from src.conversation.service import ConversationService
+    from src.db.models import ConversationSummary
+    from src.memory.thread_summary import ThreadRollingSummaryService
+
+    tenant_id = seeded_session["tenant"].id
+    user_id = seeded_session["users"]["cs_zhang"].id
+    thread_id = "thread-service-summary-separation"
+    run_id = await _insert_run(session, seeded_session, thread_id)
+    session_memory_repository = SessionMemoryRepository(session)
+    existing = await session_memory_repository.insert_active(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        active_slots_json=_envelope("ORD-SESSION-001"),
+        session_summary="Phase 12 session summary only",
+        unresolved_questions_json=["Phase 12 unresolved question"],
+        last_intent="refund_troubleshooting",
+    )
+    original_active_slots_json = dict(existing.active_slots_json)
+    original_session_summary = existing.session_summary
+    original_unresolved_questions_json = list(existing.unresolved_questions_json)
+    original_last_intent = existing.last_intent
+
+    conversation_repository = ConversationRepository(session)
+    conversation = ConversationService(conversation_repository)
+    await conversation.append_user_message(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=run_id,
+        content="继续跟进 ORD-THREAD-SUMMARY-001。",
+    )
+    await conversation.append_assistant_message(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=run_id,
+        content="ORD-THREAD-SUMMARY-001 只应进入 thread_rolling summary。",
+    )
+
+    persisted_summary = await ThreadRollingSummaryService(conversation_repository).persist_thread_summary(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=run_id,
+    )
+    stored_summary = (
+        await session.execute(
+            select(ConversationSummary).where(
+                ConversationSummary.id == persisted_summary.id,
+                ConversationSummary.summary_type == "thread_rolling",
+            )
+        )
+    ).scalar_one()
+    active_session_memory = await session_memory_repository.get_active(tenant_id, user_id, thread_id)
+    loaded = await MemoryService(session_memory_repository).load_session_memory(
+        tenant_id,
+        user_id,
+        thread_id,
+        current_intent="refund_troubleshooting",
+    )
+
+    assert stored_summary.summary_type == "thread_rolling"
+    assert "ORD-THREAD-SUMMARY-001" in (stored_summary.summary_text or "")
+    assert active_session_memory is not None
+    assert active_session_memory.active_slots_json == original_active_slots_json
+    assert active_session_memory.session_summary == original_session_summary
+    assert active_session_memory.unresolved_questions_json == original_unresolved_questions_json
+    assert active_session_memory.last_intent == original_last_intent
+    assert loaded.active_slots["order_id"] == "ORD-SESSION-001"
+    assert loaded.session_summary == "Phase 12 session summary only"
+    assert loaded.unresolved_questions == ["Phase 12 unresolved question"]
+    assert loaded.last_intent == "refund_troubleshooting"
+    assert "ORD-THREAD-SUMMARY-001" not in (loaded.session_summary or "")
