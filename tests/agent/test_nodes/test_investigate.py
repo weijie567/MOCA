@@ -5,8 +5,10 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.nodes.investigate import investigate
+from src.db.models import AgentRun
 from src.knowledge.schemas import EvidenceRefV1
 from src.tools.catalog import ToolCatalog
 from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolError, ToolResultV2
@@ -92,6 +94,52 @@ def _business_success(resource_type: str = "order", resource_id: str = "ORD-001"
     )
 
 
+def _business_success_with_raw_payload(resource_type: str = "order", resource_id: str = "ORD-RAW-001") -> ToolResultV2:
+    ref = BusinessFactRefV1(
+        tenant_id=str(uuid4()),
+        source_system="moca",
+        resource_type=resource_type,
+        resource_id=resource_id,
+        resource_version=None,
+        data_freshness_at=datetime.now(UTC),
+        retrieved_at=datetime.now(UTC),
+    )
+    return ToolResultV2(
+        status="success",
+        data={
+            "id": resource_id,
+            "raw_payload": {"customer_phone": "13800000000", "nested": ["SHOULD_NOT_APPEAR"]},
+        },
+        summary="business fact loaded",
+        source_system="business_tool_service",
+        data_freshness_at=datetime.now(UTC),
+        policy_evidence_refs=[],
+        business_fact_refs=[ref],
+        error=None,
+        retryable=False,
+        retry_after_ms=None,
+        latency_ms=2,
+        audit_ref="audit/tool-result/ORD-RAW-001",
+    )
+
+
+async def _insert_run(session: AsyncSession, seeded_session: dict, thread_id: str) -> str:
+    run_id = uuid4()
+    session.add(
+        AgentRun(
+            id=run_id,
+            tenant_id=seeded_session["tenant"].id,
+            user_id=seeded_session["users"]["cs_zhang"].id,
+            thread_id=thread_id,
+            input_query="test",
+            final_status="completed",
+            started_at=datetime.now(UTC),
+        )
+    )
+    await session.flush()
+    return str(run_id)
+
+
 def _policy_success(status: str = "strong_evidence", score: float = 0.91) -> ToolResultV2:
     ref = EvidenceRefV1.build(
         tenant_id=str(uuid4()),
@@ -146,7 +194,9 @@ def _policy_retrieval_error() -> ToolResultV2:
         data_freshness_at=None,
         policy_evidence_refs=[],
         business_fact_refs=[],
-        error=ToolError(code="KNOWLEDGE_SEARCH_ERROR", safe_message="Policy search failed", retryable=False, source="upstream"),
+        error=ToolError(
+            code="KNOWLEDGE_SEARCH_ERROR", safe_message="Policy search failed", retryable=False, source="upstream"
+        ),
         retryable=False,
         retry_after_ms=None,
         latency_ms=3,
@@ -357,6 +407,37 @@ async def test_policy_retrieval_semantics_survive_tool_result_flattening():
     assert result["best_score"] == 0.61
     assert result["policy_evidence"]
     assert result["tool_results"][0]["policy_evidence_refs"]
+
+
+@pytest.mark.asyncio
+async def test_investigate_state_tool_results_are_prompt_safe_refs(session: AsyncSession, seeded_session: dict):
+    events: list[dict[str, Any]] = []
+    manager = FakeManager({"get_order": _business_success_with_raw_payload()})
+    thread_id = "thread-investigate-tool-projection"
+    state = _state([{"next_tool": "get_order", "args": {"order_no": "ORD-RAW-001"}, "reason": "test"}])
+    state["tenant_id"] = str(seeded_session["tenant"].id)
+    state["user_id"] = str(seeded_session["users"]["cs_zhang"].id)
+    state["thread_id"] = thread_id
+    state["current_run_id"] = await _insert_run(session, seeded_session, thread_id)
+
+    result = await investigate(_state([]) | state, _config(manager, events, session=session))
+
+    projection = result["tool_results"][0]
+
+    assert {
+        "tool_call_id",
+        "tool_result_id",
+        "tool_name",
+        "status",
+        "summary",
+        "prompt_summary",
+        "business_fact_refs",
+        "policy_evidence_refs",
+    } <= set(projection)
+    assert "data" not in projection
+    assert "raw_payload" not in projection
+    assert "13800000000" not in str(projection)
+    assert "SHOULD_NOT_APPEAR" not in str(projection)
 
 
 @pytest.mark.asyncio
