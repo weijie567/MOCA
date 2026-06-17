@@ -33,7 +33,7 @@ created: 2026-06-17
 | Requirement | Required Automated Coverage | Command |
 |-------------|-----------------------------|---------|
 | MEMID-01 | `memory_identity.v1` golden normalization/hash tests, allowed source refs, unknown source refs rejected | `pytest tests/memory/test_memory_identity.py -q` |
-| MEMSCHEMA-01 | Migration/model tests for `long_term_memories`, `case_memories`, `memory_tombstones`, `memory_write_events`, constraints, indexes, downgrade | migration-specific pytest command |
+| MEMSCHEMA-01 | Migration/model tests for `long_term_memories`, `case_memories`, `memory_tombstones`, `memory_write_events`, constraints, indexes, downgrade | `uv run pytest tests/memory/test_memory_schema.py tests/conversation/test_models.py -q` |
 | LONGMEM-01 | Long-term write source policy tests: deterministic/explicit sources allowed, LLM inference `needs_review`, prohibited PII skipped | `pytest tests/memory/test_long_term_memory_service.py -q` |
 | LONGMEM-02 | Retrieval predicate tests for tenant/scope, approved/current status, freshness/expiry, deleted/tombstoned/prohibited exclusion | `pytest tests/memory/test_long_term_memory_repository.py -q` |
 | LONGMEM-03 | Correction/supersede transactional tests proving exactly one current memory per identity | `pytest tests/memory/test_long_term_memory_service.py -q` |
@@ -44,15 +44,16 @@ created: 2026-06-17
 | TOMBSTONE-02 | Delayed/asynchronous candidate writes check tombstones in the same transaction and emit `memory_write_event(reason_code='tombstone_match')` | `pytest tests/memory/test_memory_tombstones.py -q` |
 | MEMCTX-01 | `ContextAssembler` bounded memory snippets, profile/case count caps, total memory char cap, no raw payload/hash/authority leakage | `pytest tests/agent/context/test_assembler.py -q` |
 | MEMCTX-02 | Memory cannot produce evidence, approval evidence, action authorization, current business truth, or replay/audit truth | `pytest tests/agent/test_memory_evidence_boundary.py -q` |
-| MEMREVIEW-01 | Candidate/review/write/skip/delete/supersede/tombstone decisions create observable `memory_write_events` | `pytest tests/memory/test_long_term_memory_service.py tests/memory/test_memory_tombstones.py -q` |
-| MEMEVAL-01 | Contract/eval gates cover identity, retrieval predicates, supersede, tombstones, boundaries, and legacy search behavior | `pytest tests/memory tests/agent/context tests/agent/test_memory_evidence_boundary.py -q` |
+| MEMREVIEW-01 | Candidate/review/write/skip/delete/supersede/tombstone decisions create observable `memory_write_events` for long-term and case memory | `uv run pytest tests/memory/test_long_term_memory_service.py tests/memory/test_case_memory_retrieval.py tests/memory/test_memory_tombstones.py -q` |
+| MEMEVAL-01 | Contract/eval gates cover identity, retrieval predicates, supersede, tombstones, boundaries, legacy search behavior, and Phase 16 requirement coverage manifest | `uv run pytest tests/memory tests/agent/context tests/agent/test_memory_evidence_boundary.py tests/memory/test_phase16_requirement_coverage.py -q` |
 
 ## Wave 0 Requirements
 
 - [ ] `tests/memory/test_memory_identity.py` — golden identity fixtures for MEMID-01.
+- [ ] `tests/memory/test_memory_schema.py` — migration/model contract checks for MEMSCHEMA-01, including `case_memories.content_hash`.
 - [ ] `tests/memory/test_memory_tombstones.py` — tombstone no-rewrite and transaction fixtures.
 - [ ] `tests/memory/test_case_memory_retrieval.py` — reviewed case retrieval separation fixtures.
-- [ ] Migration-contract test file chosen by implementation plan — schema object and downgrade checks.
+- [ ] `tests/memory/test_phase16_requirement_coverage.py` — verifies `.planning/phases/16-long-term-case-memory/16-COVERAGE.md` lists all Phase 16 requirement IDs before `$gsd-verify-work`.
 
 Existing infrastructure covers pytest itself; no framework install task is expected.
 
@@ -73,4 +74,3 @@ All authority-boundary, tombstone, prompt-safety, identity, and legacy-search ga
 - [x] `nyquist_compliant: true` set in frontmatter.
 
 **Approval:** pending
-

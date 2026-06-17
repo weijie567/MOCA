@@ -1217,7 +1217,7 @@ Memory lifecycle rules：
 Memory canonical identity profile：
 
 - `content_hash` 和 `candidate_hash` 必须由 `memory_identity.v1` 生成：先按 memory type 规范化 content（trim、Unicode NFC、collapse internal whitespace、lowercase only for configured enum-like fields, preserve user/business proper nouns），再序列化 `{schema_version, tenant_id, memory_type, scope_type, scope_id, normalized_content, source_identity?}`，最后计算 `sha256:<lowercase hex>`。
-- `source_ref_json` 必须规范化为 typed source identity，不保存任意调用方 JSON 作为匹配键；允许的 key 至少包括 `source_type`, `run_id`, `event_id`, `business_object_type`, `business_object_id`, `policy_version`, `outcome_id`，未知 key 不参与 identity hash。
+- `source_ref_json` 必须规范化为 typed source identity，不保存任意调用方 JSON 作为匹配键；`MemorySourceRefV1` 允许的 key 固定为 `source_type`, `run_id`, `event_id`, `conversation_message_id`, `tool_result_id`, `agent_run_id`, `business_object_type`, `business_object_id`, `policy_version`, `outcome_id`，未知 key 必须被确定性拒绝，且不得参与 identity hash。
 - Long-term memory 的 duplicate/tombstone identity 使用 `(tenant_id, memory_type='long_term_fact', scope_type, scope_id, content_hash)`；case memory 使用 `(tenant_id, memory_type='case_memory', scope_type, scope_id, content_hash)`，其中 `scope_type` 必须来自 stable case/merchant identity。
 - Contract tests 必须固定 content normalization、source_ref normalization、candidate_hash、content_hash 和 tombstone match golden cases；异步 writer 不得用自由文本相似度替代 canonical identity。
 
@@ -2075,16 +2075,32 @@ long_term_memories
 case_memories
 - id uuid primary key
 - tenant_id uuid not null references tenants(id)
+- scope_type varchar not null
+- scope_id varchar not null
 - merchant_id uuid null references merchants(id)
 - schema_version varchar not null default 'case_memory.v2'
 - case_type varchar not null
 - summary text not null
+- excerpt text not null
+- applicability text null
+- outcome text null
+- caveats text null
+- content_hash varchar not null
+- policy_family varchar null
+- policy_version varchar null
 - policy_refs_json jsonb not null default '[]'
+- source_ref_json jsonb not null default '{}'
+- source_identity_hash varchar null
 - action_taken_json jsonb not null default '{}'
 - approval_outcome_json jsonb not null default '{}'
 - outcome_label varchar not null
 - review_status varchar not null
+- reviewed_by_user_id uuid null references users(id)
+- reviewed_at timestamptz null
+- review_reason text null
+- pii_classification varchar not null
 - source_run_id uuid null references agent_runs(id)
+- created_by_run_id uuid null references agent_runs(id)
 - embedding vector null
 - expires_at timestamptz null
 - created_at timestamptz not null

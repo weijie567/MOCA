@@ -16,6 +16,8 @@ files_modified:
   - tests/agent/test_tools/test_unified_tool_manager.py
   - tests/memory/test_session_precedent_search.py
   - tests/agent/test_memory_evidence_boundary.py
+  - tests/memory/test_phase16_requirement_coverage.py
+  - .planning/phases/16-long-term-case-memory/16-COVERAGE.md
 autonomous: true
 requirements:
   - CASEMEM-03
@@ -27,7 +29,7 @@ must_haves:
   - "The planner-visible `search_case_memory` name is backed by reviewed case memory only."
   - "The old session-derived search is renamed to legacy/debug-only and cannot claim reviewed case memory."
   - "Case memory is not `EvidenceRefV1` and not approval/action authority."
-  - "Final verification covers identity, schema, retrieval predicates, tombstones, prompt safety, authority negatives, and legacy transition behavior."
+  - "Final verification covers identity, schema, retrieval predicates, tombstones, prompt safety, authority negatives, legacy transition behavior, and a Phase 16 requirement coverage manifest."
 ---
 
 # Plan 16-09: Legacy Search Transition And Eval Closure
@@ -135,7 +137,7 @@ uv run pytest tests/agent/test_events.py tests/agent/test_policy_retrieval_owner
 
 <task id="16-09-04" type="execute">
 <name>Run final Phase 16 eval closure</name>
-<files>src/tools/catalog.py, src/tools/executors/memory.py, src/tools/manager.py, src/agent/events.py, tests/tools/test_catalog.py, tests/agent/test_policy_retrieval_ownership.py, tests/agent/test_tools/test_unified_tool_manager.py, tests/memory/test_session_precedent_search.py, tests/agent/test_memory_evidence_boundary.py</files>
+<files>src/tools/catalog.py, src/tools/executors/memory.py, src/tools/manager.py, src/agent/events.py, tests/tools/test_catalog.py, tests/agent/test_policy_retrieval_ownership.py, tests/agent/test_tools/test_unified_tool_manager.py, tests/memory/test_session_precedent_search.py, tests/agent/test_memory_evidence_boundary.py, tests/memory/test_phase16_requirement_coverage.py, .planning/phases/16-long-term-case-memory/16-COVERAGE.md</files>
 <read_first>
 - .planning/phases/16-long-term-case-memory/16-VALIDATION.md
 - .planning/REQUIREMENTS.md
@@ -145,20 +147,27 @@ uv run pytest tests/agent/test_events.py tests/agent/test_policy_retrieval_owner
 </read_first>
 <action>
 Add final Phase 16 eval/coverage closure:
-- Ensure every requirement ID in `.planning/REQUIREMENTS.md` has at least one automated test or documented DB-backed migration check.
-- Add a lightweight requirement coverage test or documented manifest if the repository already has a pattern for phase eval manifests.
+- Create `.planning/phases/16-long-term-case-memory/16-COVERAGE.md` mapping every Phase 16 requirement ID to exact automated test file(s), exact verify command(s), and any DB-backed manual fallback explicitly allowed by `16-VALIDATION.md`.
+- Add `tests/memory/test_phase16_requirement_coverage.py` that fails unless `16-COVERAGE.md` lists all 14 Phase 16 requirement IDs: `MEMID-01`, `MEMSCHEMA-01`, `LONGMEM-01`, `LONGMEM-02`, `LONGMEM-03`, `CASEMEM-01`, `CASEMEM-02`, `CASEMEM-03`, `TOMBSTONE-01`, `TOMBSTONE-02`, `MEMCTX-01`, `MEMCTX-02`, `MEMREVIEW-01`, and `MEMEVAL-01`.
+- Ensure every requirement ID in `.planning/REQUIREMENTS.md` has at least one automated test command or documented DB-backed migration check in the manifest before `$gsd-verify-work`.
+- Run the exact MEMSCHEMA migration/model command from `16-VALIDATION.md`:
+  `uv run pytest tests/memory/test_memory_schema.py tests/conversation/test_models.py -q`
 - Run the focused Phase 16 suite:
-  `uv run pytest tests/memory tests/agent/context tests/agent/test_memory_evidence_boundary.py tests/tools/test_catalog.py tests/agent/test_policy_retrieval_ownership.py -q`
-- Run `uv run pytest -q` before final verification when time allows.
+  `uv run pytest tests/memory tests/agent/context tests/agent/test_memory_evidence_boundary.py tests/tools/test_catalog.py tests/agent/test_policy_retrieval_ownership.py tests/memory/test_phase16_requirement_coverage.py -q`
+- Run `uv run pytest -q` before final verification; if environment prevents the full suite, record the exact error before `$gsd-verify-work`.
 </action>
 <acceptance_criteria>
-- `.planning/phases/16-long-term-case-memory/16-VALIDATION.md` remains consistent with implemented test file names or is updated in the phase summary.
+- `.planning/phases/16-long-term-case-memory/16-COVERAGE.md` exists and lists all 14 Phase 16 requirement IDs.
+- `tests/memory/test_phase16_requirement_coverage.py` exists and validates the coverage manifest.
+- `.planning/phases/16-long-term-case-memory/16-VALIDATION.md` remains consistent with implemented test file names or is updated before final verification.
+- Exact MEMSCHEMA command `uv run pytest tests/memory/test_memory_schema.py tests/conversation/test_models.py -q` exits 0.
 - Focused Phase 16 suite exits 0.
 - Full suite result is recorded in execution summary; if full suite cannot run due environment, exact error is recorded.
 </acceptance_criteria>
 <done>All acceptance criteria for 16-09-04 are met and the verify command exits 0.</done>
 <verify>
-uv run pytest tests/memory tests/agent/context tests/agent/test_memory_evidence_boundary.py tests/tools/test_catalog.py tests/agent/test_policy_retrieval_ownership.py -q
+uv run pytest tests/memory/test_memory_schema.py tests/conversation/test_models.py -q
+uv run pytest tests/memory tests/agent/context tests/agent/test_memory_evidence_boundary.py tests/tools/test_catalog.py tests/agent/test_policy_retrieval_ownership.py tests/memory/test_phase16_requirement_coverage.py -q
 uv run pytest -q
 </verify>
 </task>
@@ -166,7 +175,8 @@ uv run pytest -q
 
 <verification>
 - Run `uv run pytest tests/tools/test_catalog.py tests/agent/test_policy_retrieval_ownership.py tests/agent/test_tools/test_unified_tool_manager.py tests/memory/test_session_precedent_search.py -q`.
-- Run `uv run pytest tests/memory tests/agent/context tests/agent/test_memory_evidence_boundary.py -q`.
+- Run `uv run pytest tests/memory/test_memory_schema.py tests/conversation/test_models.py -q`.
+- Run `uv run pytest tests/memory tests/agent/context tests/agent/test_memory_evidence_boundary.py tests/memory/test_phase16_requirement_coverage.py -q`.
 - Run `uv run pytest -q` before final phase verification.
 </verification>
 
@@ -174,12 +184,12 @@ uv run pytest -q
 - `search_case_memory` no longer claims reviewed case memory unless it is backed by the reviewed case-memory store.
 - Memory retrieval stays read-only and separate from policy evidence.
 - Event classification remains explicit and tested.
-- Phase 16 requirements have focused automated verification coverage.
+- Phase 16 requirements have focused automated verification coverage and an explicit coverage manifest.
 </success_criteria>
 
 <must_haves>
 - The planner-visible `search_case_memory` name is backed by reviewed case memory only.
 - The old session-derived search is renamed to legacy/debug-only and cannot claim reviewed case memory.
 - Case memory is not `EvidenceRefV1` and not approval/action authority.
-- Final verification covers identity, schema, retrieval predicates, tombstones, prompt safety, authority negatives, and legacy transition behavior.
+- Final verification covers identity, schema, retrieval predicates, tombstones, prompt safety, authority negatives, legacy transition behavior, and a Phase 16 requirement coverage manifest.
 </must_haves>

@@ -20,7 +20,7 @@ must_haves:
   - "`long_term_memories`, `case_memories`, `memory_tombstones`, and `memory_write_events` are separate durable tables."
   - "Schema supports migration rollback and downgrade preflight."
   - "Case memory uses existing PostgreSQL/pgvector stack."
-  - "Active tombstone lookup is indexed by tenant, memory type, scope, and content/source identity."
+  - "Active tombstone lookup is indexed by tenant, memory type, scope, and content/source identity; case memory has both `content_hash` and `source_identity_hash`."
 ---
 
 # Plan 16-02: Reviewed Memory Schema And Migration
@@ -33,7 +33,7 @@ Add durable SQLAlchemy models and Alembic migration for `long_term_memories`, `c
 - T-16-02-01 schema_authority_mixup: using `session_memories` for reviewed memory would blur same-thread continuity and long-term/case memory. Severity: high. Mitigation: new tables only; no migration mutates `session_memories`.
 - T-16-02-02 prohibited_status_retrieval: missing DB checks could allow prohibited/rejected/deleted memory states to persist without clear lifecycle. Severity: high. Mitigation: check constraints for `review_status`, `pii_classification`, and `scope_type`.
 - T-16-02-03 rollback_failure: migration without downgrade/preflight can strand deployments. Severity: medium. Mitigation: migration tests for upgrade and downgrade object presence.
-- T-16-02-04 cross_tenant_tombstone_collision: tombstone indexes missing tenant/scope/type fields could block or leak memory across tenants. Severity: high. Mitigation: active tombstone indexes include tenant, memory type, scope, and content hash.
+- T-16-02-04 cross_tenant_tombstone_collision: tombstone indexes missing tenant/scope/type fields could block or leak memory across tenants. Severity: high. Mitigation: active tombstone indexes include tenant, memory type, scope, content hash, and source identity where available.
 </threat_model>
 
 <tasks>
@@ -53,6 +53,7 @@ Add failing schema tests that assert the ORM/migration exposes:
 - table `case_memories`
 - table `memory_tombstones`
 - table `memory_write_events`
+- `case_memories` includes `content_hash` and `source_identity_hash` so tombstones can match canonical content identity or source identity for case memories.
 - check constraint text containing `auto_approved`, `needs_review`, `approved`, `rejected`, `superseded`, `tombstoned`, `deleted`
 - check constraint text containing `none`, `low`, `sensitive`, `prohibited`
 - an active tombstone lookup index containing `tenant_id`, `memory_type`, `scope_type`, `scope_id`, `content_hash`
@@ -60,6 +61,7 @@ Add failing schema tests that assert the ORM/migration exposes:
 </action>
 <acceptance_criteria>
 - `tests/memory/test_memory_schema.py` contains `def test_phase16_memory_tables_exist`.
+- `tests/memory/test_memory_schema.py` contains `def test_case_memory_has_content_and_source_identity_columns`.
 - `tests/memory/test_memory_schema.py` contains `def test_memory_lifecycle_check_constraints_exist`.
 - `tests/memory/test_memory_schema.py` contains `def test_memory_tombstone_active_identity_index_exists`.
 - `uv run pytest tests/memory/test_memory_schema.py -q` fails before model/migration implementation and passes after.
@@ -89,7 +91,7 @@ Add SQLAlchemy models to `src/db/models.py`:
 Required columns:
 - common: `id`, `tenant_id`, `schema_version`, `created_at`, `updated_at` where applicable, `deleted_at` where lifecycle needs soft delete.
 - `LongTermMemory`: `scope_type`, `scope_id`, `memory_kind`, `content`, `content_hash`, `source_type`, `source_ref_json`, `source_identity_hash`, `confidence`, `pii_classification`, `review_status`, `version`, `supersedes`, `superseded_by`, `superseded_at`, `is_current`, `valid_from`, `expires_at`, `created_by_run_id`.
-- `CaseMemory`: `scope_type`, `scope_id`, `case_type`, `summary`, `excerpt`, `applicability`, `outcome`, `caveats`, `policy_family`, `policy_version`, `policy_refs_json`, `source_ref_json`, `source_identity_hash`, `embedding` using `Vector(1024)`, `review_status`, `pii_classification`, `expires_at`, `created_by_run_id`.
+- `CaseMemory`: `scope_type`, `scope_id`, `case_type`, `summary`, `excerpt`, `applicability`, `outcome`, `caveats`, `content_hash`, `policy_family`, `policy_version`, `policy_refs_json`, `source_ref_json`, `source_identity_hash`, `embedding` using `Vector(1024)`, `review_status`, `reviewed_by_user_id`, `reviewed_at`, `review_reason`, `pii_classification`, `expires_at`, `created_by_run_id`.
 - `MemoryTombstone`: `memory_type`, `scope_type`, `scope_id`, `content_hash`, `source_ref_json`, `source_identity_hash`, `reason_code`, `created_by_user_id`, `created_by_run_id`, `expires_at`, `deleted_at`.
 - `MemoryWriteEvent`: `run_id`, `memory_type`, `memory_id`, `schema_version`, `decision`, `reason_code`, `pii_classification`, `candidate_hash`, `source_ref_json`, `created_at`.
 
@@ -102,6 +104,8 @@ Add check constraints for review status, pii classification, scope type, memory 
 - `src/db/models.py` contains `class MemoryWriteEvent`.
 - `src/db/models.py` contains `policy_family`.
 - `src/db/models.py` contains `policy_version`.
+- `src/db/models.py` contains `content_hash` in or near `CaseMemory`.
+- `src/db/models.py` contains `reviewed_by_user_id`, `reviewed_at`, and `review_reason` in or near `CaseMemory`.
 - `src/db/models.py` contains `Vector(1024)` in or near `CaseMemory`.
 - `src/db/models.py` contains `ck_long_term_memories_review_status`.
 - `src/db/models.py` contains `ck_case_memories_review_status`.
@@ -128,8 +132,9 @@ Create Alembic migration `src/db/migrations/versions/013_long_term_case_memory.p
 - `revision = "013_long_term_case_memory"`
 - `down_revision = "012_thread_user_scope"`
 - `upgrade()` creating `long_term_memories`, `case_memories`, `memory_tombstones`, and `memory_write_events`
-- indexes for active retrieval predicates, active tombstone identity, source identity lookup, write-event tenant/run, case metadata filters, and case embedding vector search where supported
+- indexes for active retrieval predicates, active tombstone identity, source identity lookup, case content identity lookup, write-event tenant/run, case metadata filters, and case embedding vector search where supported
 - case metadata filter index must include `tenant_id`, `scope_type`, `scope_id`, `case_type`, `policy_family`, `policy_version`, `review_status`, and `expires_at` where practical
+- case identity indexes must support tombstone matching by either `content_hash` or `source_identity_hash` for the same tenant/scope/memory type.
 - `downgrade()` dropping indexes and tables in reverse dependency order
 Do not alter or backfill `session_memories`.
 </action>
@@ -140,6 +145,8 @@ Do not alter or backfill `session_memories`.
 - `src/db/migrations/versions/013_long_term_case_memory.py` contains `op.create_table("case_memories"`.
 - `src/db/migrations/versions/013_long_term_case_memory.py` contains `policy_family`.
 - `src/db/migrations/versions/013_long_term_case_memory.py` contains `policy_version`.
+- `src/db/migrations/versions/013_long_term_case_memory.py` contains `content_hash` in the `case_memories` table definition.
+- `src/db/migrations/versions/013_long_term_case_memory.py` contains `reviewed_by_user_id`, `reviewed_at`, and `review_reason` in the `case_memories` table definition.
 - `src/db/migrations/versions/013_long_term_case_memory.py` contains `op.create_table("memory_tombstones"`.
 - `src/db/migrations/versions/013_long_term_case_memory.py` contains `op.create_table("memory_write_events"`.
 - `src/db/migrations/versions/013_long_term_case_memory.py` contains `op.drop_table("memory_write_events")` before dropping memory/tombstone tables.
@@ -188,7 +195,7 @@ make migrate
 <success_criteria>
 - Four Phase 16 tables exist in ORM and Alembic migration.
 - Review, PII, memory type, scope type, and confidence constraints are present.
-- Tombstone and retrieval indexes include tenant and scope dimensions.
+- Tombstone and retrieval indexes include tenant/scope dimensions and case memory can be matched by content hash or source identity.
 - Migration has downgrade and no destructive changes to `session_memories`.
 </success_criteria>
 
@@ -196,5 +203,5 @@ make migrate
 - `long_term_memories`, `case_memories`, `memory_tombstones`, and `memory_write_events` are separate durable tables.
 - Schema supports migration rollback and downgrade preflight.
 - Case memory uses existing PostgreSQL/pgvector stack.
-- Active tombstone lookup is indexed by tenant, memory type, scope, and content/source identity.
+- Active tombstone lookup is indexed by tenant, memory type, scope, and content/source identity; case memory has both `content_hash` and `source_identity_hash`.
 </must_haves>

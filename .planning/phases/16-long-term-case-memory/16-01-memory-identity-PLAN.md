@@ -15,7 +15,7 @@ requirements:
 must_haves:
   - "`memory_identity.v1` computes stable `sha256:` hashes."
   - "Tenant, memory type, scope type, scope id, and content hash participate in canonical identity."
-  - "Source fallback accepts only `conversation_message_id`, `tool_result_id`, `agent_run_id`, and `business_object_id`."
+  - "Source fallback accepts only the authoritative `MemorySourceRefV1` typed key set."
   - "Tests cover hash stability, unknown key rejection, and authority-boundary imports."
 ---
 
@@ -27,7 +27,7 @@ Add `memory_identity.v1` canonical normalization and stable content/source hashi
 
 <threat_model>
 - T-16-01-01 tenant_cross_scope_hash_collision: identity inputs must include tenant/scope/memory type fields so two tenants or scopes cannot share an active tombstone or memory identity. Severity: high. Mitigation: tests require tenant/scope/type fields in hash input.
-- T-16-01-02 arbitrary_source_ref_rewrite: arbitrary JSON keys in source identity could bypass tombstones or create unauditable source matches. Severity: high. Mitigation: reject source refs outside `conversation_message_id`, `tool_result_id`, `agent_run_id`, `business_object_id`.
+- T-16-01-02 arbitrary_source_ref_rewrite: arbitrary JSON keys in source identity could bypass tombstones or create unauditable source matches. Severity: high. Mitigation: reject source refs outside the authoritative `MemorySourceRefV1` typed key set.
 - T-16-01-03 unstable_normalization: whitespace, Unicode casing, unordered mappings, or datetime formatting drift could make tombstone matching nondeterministic. Severity: medium. Mitigation: golden tests for normalized content/source hashes.
 - T-16-01-04 authority_confusion: identity helpers must not import or emit `EvidenceRefV1`, approval evidence, or action authorization structures. Severity: high. Mitigation: boundary grep tests.
 </threat_model>
@@ -45,10 +45,10 @@ Add `memory_identity.v1` canonical normalization and stable content/source hashi
 <action>
 Create `tests/memory/test_memory_identity.py` with failing tests for `memory_identity.v1`. Include exact cases for:
 - `normalize_memory_content("  Refund  policy\npreference  ")` returns `"refund policy preference"`.
-- `canonical_memory_content_hash(memory_type="long_term", content="Refund policy preference")` returns a string matching `^sha256:[0-9a-f]{64}$`.
+- `canonical_memory_content_hash(memory_type="long_term_fact", content="Refund policy preference")` returns a string matching `^sha256:[0-9a-f]{64}$`.
 - identical content with extra whitespace produces the same hash.
 - different `memory_type` values produce different hashes for the same content.
-- `canonical_source_identity_hash(...)` accepts only `conversation_message_id`, `tool_result_id`, `agent_run_id`, `business_object_id`.
+- `canonical_source_identity_hash(...)` accepts only the authoritative `MemorySourceRefV1` keys: `source_type`, `run_id`, `event_id`, `conversation_message_id`, `tool_result_id`, `agent_run_id`, `business_object_type`, `business_object_id`, `policy_version`, and `outcome_id`.
 - `canonical_source_identity_hash({"random_json_key": "x"})` raises `MemoryIdentityError`.
 </action>
 <acceptance_criteria>
@@ -73,17 +73,18 @@ uv run pytest tests/memory/test_memory_identity.py -q
 <action>
 Add `src/memory/identity.py` with:
 - `MEMORY_IDENTITY_VERSION = "memory_identity.v1"`
-- `ALLOWED_SOURCE_REF_KEYS = frozenset({"conversation_message_id", "tool_result_id", "agent_run_id", "business_object_id"})`
+- `ALLOWED_SOURCE_REF_KEYS = frozenset({"source_type", "run_id", "event_id", "conversation_message_id", "tool_result_id", "agent_run_id", "business_object_type", "business_object_id", "policy_version", "outcome_id"})`
 - `class MemoryIdentityError(ValueError)`
 - `normalize_memory_content(content: str) -> str`
 - `canonical_memory_content_hash(*, memory_type: str, content: str) -> str`
 - `canonical_memory_identity_hash(*, tenant_id: str, memory_type: str, scope_type: str, scope_id: str, content_hash: str) -> str`
 - `canonical_source_identity_hash(source_ref: Mapping[str, Any]) -> str | None`
-Use `src.common.canonical_hash.canonical_hash` with explicit `schema_version` values and allowed field sets. Reject bare floats through the shared canonical hash behavior.
+Use `src.common.canonical_hash.canonical_hash` with explicit `schema_version` values and allowed field sets. `source_type` is the typed discriminator for source identity; run/event/business/policy/outcome keys are optional but only the listed keys are allowed. Reject unknown keys deterministically and reject bare floats through the shared canonical hash behavior.
 </action>
 <acceptance_criteria>
 - `src/memory/identity.py` contains `MEMORY_IDENTITY_VERSION = "memory_identity.v1"`.
 - `src/memory/identity.py` contains `ALLOWED_SOURCE_REF_KEYS`.
+- `src/memory/identity.py` contains `source_type`, `run_id`, `event_id`, `business_object_type`, `policy_version`, and `outcome_id` in the allowed source key set.
 - `src/memory/identity.py` contains `canonical_memory_identity_hash`.
 - `src/memory/identity.py` contains `canonical_source_identity_hash`.
 - `src/memory/identity.py` does not contain `EvidenceRefV1`, `ApprovalRequest`, or `ActionDraft`.
@@ -105,7 +106,7 @@ uv run pytest tests/memory/test_memory_identity.py -q
 </read_first>
 <action>
 Add Pydantic input schemas in `src/memory/schemas.py` only if useful for downstream services:
-- `MemorySourceRefV1` with optional fields `conversation_message_id`, `tool_result_id`, `agent_run_id`, `business_object_id`.
+- `MemorySourceRefV1` with the same authoritative optional key set used by `ALLOWED_SOURCE_REF_KEYS`: `source_type`, `run_id`, `event_id`, `conversation_message_id`, `tool_result_id`, `agent_run_id`, `business_object_type`, `business_object_id`, `policy_version`, and `outcome_id`.
 - `MemoryIdentityV1` with `tenant_id`, `memory_type`, `scope_type`, `scope_id`, `content_hash`, `source_identity_hash`.
 Keep these schemas prompt-safe and do not add raw payload, policy evidence, approval authority, action authority, or replay body fields.
 </action>
@@ -128,13 +129,13 @@ uv run pytest tests/memory/test_memory_identity.py -q
 <success_criteria>
 - `memory_identity.v1` helpers exist and are deterministic.
 - Unknown source identity keys are rejected.
-- Source identity fallback is limited to approved source refs.
+- Source identity fallback is limited to the authoritative typed `MemorySourceRefV1` key set.
 - Identity helpers do not import evidence, approval, action, or replay authority structures.
 </success_criteria>
 
 <must_haves>
 - `memory_identity.v1` computes stable `sha256:` hashes.
 - Tenant, memory type, scope type, scope id, and content hash participate in canonical identity.
-- Source fallback accepts only `conversation_message_id`, `tool_result_id`, `agent_run_id`, and `business_object_id`.
+- Source fallback accepts only the authoritative `MemorySourceRefV1` typed key set.
 - Tests cover hash stability, unknown key rejection, and authority-boundary imports.
 </must_haves>

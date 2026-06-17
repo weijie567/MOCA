@@ -152,12 +152,12 @@ uv run pytest tests/memory/test_long_term_memory_repository.py -q
 - tests/memory/test_long_term_memory_service.py
 </read_first>
 <action>
-Add write-event emission for candidate, write, skip, approve, reject, delete, and retrieval-blocking decisions. Ensure event fields include `tenant_id`, `run_id`, `memory_type="long_term"`, `decision`, `reason_code`, `pii_classification`, `candidate_hash`, and `source_ref_json`.
+Add write-event emission for candidate, write, skip, approve, reject, delete, and retrieval-blocking decisions. Ensure event fields include `tenant_id`, `run_id`, `memory_type="long_term_fact"`, `decision`, `reason_code`, `pii_classification`, `candidate_hash`, and `source_ref_json`.
 </action>
 <acceptance_criteria>
 - Tests assert `memory_write_events.reason_code == "pii_blocked"` for prohibited skip.
 - Tests assert a successful auto-approved write creates a `memory_write_events` row with `decision == "write"`.
-- Source contains `memory_type=\"long_term\"` or equivalent constant.
+- Source contains `memory_type=\"long_term_fact\"` or equivalent constant.
 </acceptance_criteria>
 <done>All acceptance criteria for 16-03-04 are met and the verify command exits 0.</done>
 <verify>

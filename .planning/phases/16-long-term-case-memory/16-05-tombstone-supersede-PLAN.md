@@ -5,6 +5,7 @@ type: tdd
 wave: 5
 depends_on:
   - 16-03-long-term-memory-service-PLAN.md
+  - 16-04-semantic-episode-PLAN.md
 files_modified:
   - src/memory/long_term.py
   - src/memory/tombstones.py
@@ -177,4 +178,3 @@ uv run pytest tests/memory/test_memory_tombstones.py -q
 - Same-transaction write path checks active tombstones before insert.
 - `reason_code="tombstone_match"` is emitted for blocked rewrites.
 </must_haves>
-

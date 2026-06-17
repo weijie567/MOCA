@@ -51,12 +51,12 @@ The implementation should keep memory as contextual assistance only:
 
 Add memory-specific identity helpers under `src/memory/identity.py` or equivalent:
 
-- `memory_type`: `long_term` | `case`
+- `memory_type`: `long_term_fact` | `case_memory`
 - `scope_type`: `tenant` | `merchant` | `user` | `thread` | `case`
 - `scope_id`: string
 - `content_hash`: canonical content hash for normalized memory content
 - `source_identity_hash`: canonical hash over allowed source refs only
-- allowed source refs: `conversation_message_id`, `tool_result_id`, `agent_run_id`, `business_object_id`
+- allowed source refs: `source_type`, `run_id`, `event_id`, `conversation_message_id`, `tool_result_id`, `agent_run_id`, `business_object_type`, `business_object_id`, `policy_version`, `outcome_id`
 
 Do not allow arbitrary JSON keys to participate in source identity. Tombstone fallback must compare canonical identity first, then normalized source identity, never semantic similarity.
 
@@ -212,7 +212,6 @@ Nyquist expectations:
 - Every Phase 16 requirement should map to at least one automated test file or migration-contract check.
 - Manual verification should be unnecessary for core behavior; if DB/pgvector integration is not available in CI, planner must include a local DB-backed eval/manual command and a pure unit fallback.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 None blocking for planning. Exact file naming, pgvector index parameters, and whether case embeddings live on `case_memories` or a separate embedding table can be decided during implementation as long as the plan preserves metadata-first retrieval, tombstone semantics, and prompt authority boundaries.
-
