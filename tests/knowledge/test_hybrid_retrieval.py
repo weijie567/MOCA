@@ -122,6 +122,33 @@ async def test_rrf_score_does_not_replace_normalized_confidence_score() -> None:
 
 
 @pytest.mark.asyncio
+async def test_ocr_confidence_metadata_does_not_replace_retrieval_scores() -> None:
+    target = _chunk("ocr_refund_policy_001", section="OCR", content="截图政策识别文本。")
+    target.source_block_refs_json = [
+        {"source_block_id": "block-ocr-001", "ocr": {"average_confidence": 12, "confidence_status": "rejected"}}
+    ]
+    engine, _ = _engine(sparse=[(target, 0.16)])
+
+    _, hits, best_score = await engine.retrieve_hits(
+        query="截图政策识别文本",
+        context=_context(),
+        max_results=5,
+    )
+    _, refs, ref_best_score = await engine.retrieve(
+        query="截图政策识别文本",
+        context=_context(),
+        max_results=5,
+    )
+
+    assert hits[0].score == pytest.approx(0.8)
+    assert best_score == pytest.approx(0.8)
+    assert refs[0].score == pytest.approx(0.8)
+    assert ref_best_score == pytest.approx(0.8)
+    assert "ocr" not in refs[0].model_dump()
+    assert "confidence_status" not in refs[0].model_dump()
+
+
+@pytest.mark.asyncio
 async def test_retrieval_trace_stays_internal_to_hits() -> None:
     target = _chunk("refund_policy_001")
     engine, _ = _engine(dense=[(target, 0.82)], sparse=[(target, 0.12)])

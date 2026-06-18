@@ -4,9 +4,6 @@ import pytest
 
 
 PHASE21_XFAIL_OWNERS: dict[str, str] = {
-    "21-03-02/image-ocr": "21-03-02",
-    "21-03-02/ocr-confidence-metadata": "21-03-02",
-    "21-03-02/ocr-confidence-gates": "21-03-02",
     "21-03-03/pdf-adapter": "21-03-03",
     "21-03-03/docx-adapter": "21-03-03",
     "21-04-01/provenance-lookup": "21-04-01",

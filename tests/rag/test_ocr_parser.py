@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import pytest
+from pathlib import Path
 
-from tests.rag.phase21_xfail_inventory import xfail_for
+import pytest
+from PIL import Image
 
 
 ACCEPTED_OCR_AVERAGE_CONFIDENCE = 80
@@ -10,14 +11,6 @@ REVIEW_NEEDED_OCR_CONFIDENCE_MIN = 55
 REVIEW_NEEDED_OCR_CONFIDENCE_MAX = 79
 REJECTED_OCR_CONFIDENCE_MAX = 54
 OCR_TIMEOUT_SECONDS_PER_PAGE = 15
-
-
-def _require_tesseract_preflight() -> None:
-    pytesseract = pytest.importorskip("pytesseract", reason="pytesseract is required for native OCR tests")
-    try:
-        pytesseract.get_tesseract_version()
-    except Exception as exc:  # pragma: no cover - depends on local native install
-        pytest.skip(f"native Tesseract runtime unavailable: {exc}")
 
 
 def test_ocr_confidence_threshold_scaffold_values_are_locked() -> None:
@@ -102,47 +95,105 @@ def test_ocr_runtime_preflight_reports_missing_executable(monkeypatch) -> None:
     assert result.missing_languages == ("chi_sim", "eng")
 
 
-@xfail_for("21-03-02/image-ocr")
-def test_image_ocr_parser_emits_text_pixel_boxes_language_engine_and_timeout_status() -> None:
-    _require_tesseract_preflight()
+def _write_png(tmp_path, *, name: str = "refund_notice.png", size: tuple[int, int] = (200, 80)) -> Path:
+    path = tmp_path / name
+    Image.new("RGB", size, color="white").save(path)
+    return path
 
-    from src.rag.parsers.ocr import OcrParser
 
-    result = OcrParser(language="chi_sim+eng", timeout_seconds=OCR_TIMEOUT_SECONDS_PER_PAGE).parse_image(
-        b"png fixture bytes",
-        source_name="refund_notice.png",
-    )
+def _ocr_data(*, texts: list[str], confidences: list[int]) -> dict[str, list]:
+    return {
+        "level": [5 for _ in texts],
+        "page_num": [1 for _ in texts],
+        "block_num": [1 for _ in texts],
+        "par_num": [1 for _ in texts],
+        "line_num": [1 for _ in texts],
+        "word_num": list(range(1, len(texts) + 1)),
+        "left": [10 + index * 42 for index, _ in enumerate(texts)],
+        "top": [12 for _ in texts],
+        "width": [36 for _ in texts],
+        "height": [18 for _ in texts],
+        "conf": confidences,
+        "text": texts,
+    }
 
-    assert result.blocks[0].text == "七天无理由"
-    assert result.blocks[0].source_box.unit == "pixel"
+
+def test_image_ocr_parser_emits_text_pixel_boxes_language_engine_and_timeout_status(tmp_path, monkeypatch) -> None:
+    from src.rag.parsers import ocr as ocr_module
+    from src.rag.parsers.image import ImageOcrParser
+
+    image_path = _write_png(tmp_path)
+    calls: dict[str, object] = {}
+
+    def fake_image_to_data(image, *, lang, output_type, timeout, config=""):
+        calls.update({"lang": lang, "timeout": timeout, "output_type": output_type})
+        return _ocr_data(texts=["七天", "无理由"], confidences=[90, 86])
+
+    monkeypatch.setattr(ocr_module.pytesseract, "get_tesseract_version", lambda: "5.5.0")
+    monkeypatch.setattr(ocr_module.pytesseract, "image_to_data", fake_image_to_data)
+
+    result = ImageOcrParser().parse(image_path, doc_key="refund_notice", source_type="policy_image", metadata={})
+
+    assert result.status == "success"
+    assert result.blocks[0].text == "七天 无理由"
+    assert result.blocks[0].box is not None
+    assert result.blocks[0].box.unit == "pixel"
+    assert result.blocks[0].box.origin == "top_left"
+    assert result.blocks[0].box.width == 200
+    assert result.blocks[0].box.height == 80
     assert result.blocks[0].ocr_metadata["language"] == "chi_sim+eng"
     assert result.blocks[0].ocr_metadata["engine"] == "tesseract"
-    assert result.blocks[0].ocr_metadata["engine_version"]
-    assert result.status in {"success", "timeout", "error"}
+    assert result.blocks[0].ocr_metadata["engine_version"] == "5.5.0"
+    assert result.blocks[0].ocr_metadata["average_confidence"] == pytest.approx(88.0)
+    assert result.blocks[0].ocr_metadata["confidence_status"] == "accepted"
+    assert result.blocks[0].ocr_metadata["low_confidence_word_count"] == 0
+    assert result.blocks[0].ocr_metadata["timeout"] is False
+    assert result.blocks[0].ocr_metadata["error"] is None
+    assert result.blocks[0].ocr_metadata["word_boxes"][0]["unit"] == "pixel"
+    assert calls == {
+        "lang": "chi_sim+eng",
+        "timeout": OCR_TIMEOUT_SECONDS_PER_PAGE,
+        "output_type": ocr_module.pytesseract.Output.DICT,
+    }
 
 
-@xfail_for("21-03-02/ocr-confidence-metadata")
-def test_ocr_confidence_stays_block_metadata_and_does_not_replace_retrieval_scores() -> None:
-    _require_tesseract_preflight()
-
+def test_ocr_confidence_gates_accept_review_or_reject_by_threshold() -> None:
     from src.rag.parsers.ocr import classify_ocr_confidence
 
-    metadata = classify_ocr_confidence(average_confidence=82)
+    assert classify_ocr_confidence(text="ok", average_confidence=80)["confidence_status"] == "accepted"
+    assert classify_ocr_confidence(text="ok", average_confidence=55)["confidence_status"] == "review_needed"
+    assert classify_ocr_confidence(text="ok", average_confidence=79)["confidence_status"] == "review_needed"
+    assert classify_ocr_confidence(text="ok", average_confidence=54)["confidence_status"] == "rejected"
+    assert classify_ocr_confidence(text="", average_confidence=99)["confidence_status"] == "rejected"
 
-    assert metadata["quality"] == "accepted"
+
+def test_ocr_confidence_stays_block_metadata_and_has_no_retrieval_fields() -> None:
+    from src.rag.parsers.ocr import classify_ocr_confidence
+
+    metadata = classify_ocr_confidence(text="七天无理由", average_confidence=82)
+
+    assert metadata["confidence_status"] == "accepted"
     assert metadata["average_confidence"] >= ACCEPTED_OCR_AVERAGE_CONFIDENCE
     assert "EvidenceRefV1" not in metadata
     assert "best_score" not in metadata
 
 
-@xfail_for("21-03-02/ocr-confidence-gates")
-def test_ocr_confidence_gates_accept_review_or_reject_by_threshold() -> None:
-    _require_tesseract_preflight()
+def test_image_ocr_timeout_returns_safe_failure_without_local_path(tmp_path, monkeypatch) -> None:
+    from src.rag.parsers import ocr as ocr_module
+    from src.rag.parsers.image import ImageOcrParser
 
-    from src.rag.parsers.ocr import classify_ocr_confidence
+    image_path = _write_png(tmp_path)
 
-    assert classify_ocr_confidence(average_confidence=80)["quality"] == "accepted"
-    assert classify_ocr_confidence(average_confidence=55)["quality"] == "review-needed"
-    assert classify_ocr_confidence(average_confidence=79)["quality"] == "review-needed"
-    assert classify_ocr_confidence(average_confidence=54)["quality"] == "rejected"
-    assert classify_ocr_confidence(text="", average_confidence=99)["quality"] == "rejected"
+    def fake_timeout(*args, **kwargs):
+        raise RuntimeError("Tesseract process timeout")
+
+    monkeypatch.setattr(ocr_module.pytesseract, "get_tesseract_version", lambda: "5.5.0")
+    monkeypatch.setattr(ocr_module.pytesseract, "image_to_data", fake_timeout)
+
+    result = ImageOcrParser().parse(image_path, doc_key="refund_notice", source_type="policy_image", metadata={})
+
+    assert result.status == "failed"
+    assert result.failure_code == "ocr_timeout"
+    assert result.blocks == ()
+    assert result.safe_message == "OCR execution timed out safely."
+    assert str(image_path) not in repr(result)
