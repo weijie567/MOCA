@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.3
-milestone_name: RAG Hybrid Retrieval
-status: milestone_archived
-stopped_at: v1.3 milestone archived
-last_updated: "2026-06-18T13:30:00.000Z"
-last_activity: 2026-06-18 -- v1.3 RAG Hybrid Retrieval archived; next step is fresh milestone planning
+milestone: v1.4
+milestone_name: RAG Production Ingestion + OCR
+status: defining_requirements
+stopped_at: Milestone v1.4 started
+last_updated: "2026-06-18T13:45:00.000Z"
+last_activity: 2026-06-18 -- Milestone v1.4 RAG Production Ingestion + OCR started
 progress:
-  total_phases: 1
-  completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State: MOCA
@@ -21,24 +21,22 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-18)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v1.3 archived — ready for `$gsd-new-milestone`
+**Current focus:** v1.4 RAG Production Ingestion + OCR — defining requirements
 
 ## Current Position
 
-Phase: none active
-Plan: none active
-Plans: 1/1 complete
-Status: v1.3 RAG Hybrid Retrieval archived; PostgreSQL hybrid retrieval implementation complete; UAT passed 7/7; security threats closed 5/5; `uv run pytest -q` passed with 1002 tests
-Last activity: 2026-06-18 -- v1.3 milestone archive created; `REQUIREMENTS.md` removed for fresh next-milestone requirements
+Phase: Not started (defining requirements)
+Plan: —
+Plans: 0/0 complete
+Status: Defining fresh v1.4 requirements for parser/OCR ingestion, source-block provenance, and production document parsing on top of v1.3 hybrid retrieval
+Last activity: 2026-06-18 -- Milestone v1.4 started; next step is requirements and roadmap creation
 
-Progress: [██████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 Planning files:
 
-- `.planning/milestones/v1.3-ROADMAP.md`
-- `.planning/milestones/v1.3-REQUIREMENTS.md`
-- `.planning/MILESTONES.md`
-- `.planning/RETROSPECTIVE.md`
+- `.planning/PROJECT.md`
+- `.planning/STATE.md`
 
 ## Completed Baseline
 

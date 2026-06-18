@@ -19,6 +19,20 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 Full archive records live in `.planning/milestones/`.
 
+## Current Milestone: v1.4 RAG Production Ingestion + OCR
+
+v1.4 is scoped to Phase 21. It turns the v1.3 hybrid retrieval base into a production ingestion foundation for real policy source files: PDF, DOCX, and image inputs with parser/OCR metadata.
+
+**Goal:** Introduce parser/OCR ingestion and source-block citation metadata so policy chunks can be traced back to pages, bounding boxes, table cells, parser versions, OCR confidence, and source blocks without weakening `EvidenceRefV1` or mixing business facts into policy evidence.
+
+**Target features:**
+- Parser/OCR abstraction for PDF, DOCX, and image inputs.
+- Durable `DocumentBlock` or equivalent source-block model with page, bbox, block type, table/cell metadata, parser version, OCR confidence, and source block references.
+- Table-aware chunking that can preserve cell/header context for retrieval search text.
+- Ingestion trace that records parser/OCR decisions and failure modes without storing unsafe raw payloads in prompts.
+- Compatibility with v1.3 hybrid retrieval: `PolicyChunk.content` remains citation text, `search_text` remains retrieval-only enrichment, and `EvidenceRefV1` identity remains stable.
+- Focused tests for parser fixtures, OCR confidence boundaries, block-to-chunk provenance, downgrade/rollback behavior, and no cross-contamination with business facts.
+
 ## Last Shipped Milestone: v1.3 RAG Hybrid Retrieval
 
 v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only search plus lightweight lexical rerank into a minimal production hybrid retrieval backend on PostgreSQL.
@@ -75,7 +89,10 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 
 ### Active
 
-- [ ] Define the next milestone with fresh requirements via `$gsd-new-milestone`.
+- [ ] Add parser/OCR abstraction for PDF, DOCX, and image policy sources.
+- [ ] Persist source-block metadata that can support page/bbox/cell citation and parser trace.
+- [ ] Extend ingestion/chunking so `DocumentBlock` provenance flows into policy chunks without changing canonical evidence identity.
+- [ ] Keep `MaterialClaim`, semantic verifier, reranker/query rewrite, and external search backend outside v1.4.
 
 ### Out of Scope
 
@@ -147,11 +164,12 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - v1.1 is shipped and archived on 2026-06-17. Full milestone history lives in `.planning/milestones/v1.1-ROADMAP.md`, `.planning/milestones/v1.1-REQUIREMENTS.md`, and `.planning/milestones/v1.1-MILESTONE-AUDIT.md`.
 - v1.2 Long-term / Case Memory is complete. Phase 16 owns `memory_identity.v1`, reviewed long-term memory, reviewed case memory, memory tombstones, memory write events, and prompt-context integration.
 - v1.3 RAG Hybrid Retrieval is shipped and archived. Phase 20 owns the minimal PostgreSQL hybrid retrieval upgrade and explicitly excludes OCR, `DocumentBlock`, `MaterialClaim`, semantic verifier, reranker/query rewrite, Vespa/OpenSearch, and full external `SearchBackend`. OCR/parser/`DocumentBlock` is Phase 21-owned; `MaterialClaim`/semantic verifier is Phase 22-owned; reranker/query rewrite is Phase 23-owned; Vespa/OpenSearch/full external `SearchBackend` is Phase RAG-5-owned.
+- v1.4 RAG Production Ingestion + OCR is active and scoped to Phase 21. It must preserve v1.3 retrieval/evidence contracts while adding parser/OCR and source-block provenance.
 
-## Next Milestone Goals
+## Current Milestone Goals
 
-- Start from fresh requirements rather than carrying v1.3 `REQUIREMENTS.md` forward.
-- Choose whether the next active RAG milestone is Phase 21 production ingestion/OCR, Phase 22 context builder/hallucination control, Phase 23 reranker/query rewrite, or another priority.
+- Define fresh v1.4 requirements for Phase 21 production ingestion/OCR rather than carrying v1.3 requirements forward.
+- Add parser/OCR and source-block provenance without implementing Phase 22 hallucination control, Phase 23 reranker/query rewrite, or Phase RAG-5 external backend scope.
 - Preserve v1.1/v1.2 safety boundaries: policy evidence remains `EvidenceRefV1`; business facts remain Tool System outputs; memory remains contextual assistance only.
 - Keep Phase 17 External Action Execution and post-Phase 17 Policy Scope explicitly deferred unless a new milestone intentionally selects them.
 
@@ -182,6 +200,7 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 | Keep v1.3 hybrid retrieval inside PostgreSQL and PolicyKnowledgeService | PostgreSQL hybrid search is enough for the current scale, and the service facade already hides retriever details from Agent nodes | Adopted 2026-06-18 |
 | Separate retrieval search text from citation content | Preserves `PolicyChunk.content`, `EvidenceRefV1.text_hash`, approval snapshots, and replay/citation identity while improving retrieval quality | Adopted 2026-06-18 |
 | Name RAG deferral owners explicitly | Prevents OCR, `DocumentBlock`, `MaterialClaim`, reranking, and external backend work from being treated as vague future scope | Adopted 2026-06-18 |
+| Scope v1.4 to Phase 21 ingestion/OCR | Keeps source parsing and provenance separate from later hallucination-control, reranking, and backend-scale work | Adopted 2026-06-18 |
 
 ## Evolution
 
@@ -201,4 +220,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-18 after v1.3 milestone archive*
+*Last updated: 2026-06-18 after v1.4 milestone start*
