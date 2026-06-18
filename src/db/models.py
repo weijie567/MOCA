@@ -172,8 +172,94 @@ class PolicyDocument(TimestampMixin, Base):
     risk_level: Mapped[str] = mapped_column(String(32), nullable=False)
     version: Mapped[int] = mapped_column(default=1, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    source_type: Mapped[str | None] = mapped_column(String(32))
+    source_checksum: Mapped[str | None] = mapped_column(String(128))
+    parser_metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    policy_version_fingerprint: Mapped[str | None] = mapped_column(String(128))
 
     chunks: Mapped[list["PolicyChunk"]] = relationship(back_populates="document")
+    document_blocks: Mapped[list["DocumentBlock"]] = relationship(back_populates="document")
+    ingestion_jobs: Mapped[list["RagIngestionJob"]] = relationship(back_populates="document")
+
+
+class DocumentBlock(TimestampMixin, Base):
+    __tablename__ = "document_blocks"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "doc_id",
+            "source_block_id",
+            name="uq_document_blocks_tenant_doc_source_block",
+        ),
+        CheckConstraint("block_index >= 0", name="ck_document_blocks_block_index_nonnegative"),
+        CheckConstraint("char_length(text) <= 20000", name="ck_document_blocks_text_max_length"),
+        Index("ix_document_blocks_tenant_doc_index", "tenant_id", "doc_id", "block_index"),
+        Index("ix_document_blocks_tenant_doc_source_block", "tenant_id", "doc_id", "source_block_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    doc_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("policy_documents.id"), nullable=False, index=True
+    )
+    source_block_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    block_index: Mapped[int] = mapped_column(nullable=False)
+    block_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_text: Mapped[str] = mapped_column(Text, nullable=False)
+    text_hash: Mapped[str] = mapped_column(String(80), nullable=False)
+    page_number: Mapped[int | None] = mapped_column()
+    bbox_json: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    table_metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    parser_metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    ocr_metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    source_uri: Mapped[str | None] = mapped_column(String(1024))
+
+    document: Mapped["PolicyDocument"] = relationship(back_populates="document_blocks")
+
+
+class RagIngestionJob(TimestampMixin, Base):
+    __tablename__ = "rag_ingestion_jobs"
+    __table_args__ = (
+        CheckConstraint(
+            "stage IN ('received', 'parsing', 'cleaning', 'chunking', 'embedding', 'persisting', 'completed')",
+            name="ck_rag_ingestion_jobs_stage",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'running', 'success', 'failed')",
+            name="ck_rag_ingestion_jobs_status",
+        ),
+        Index("ix_rag_ingestion_jobs_tenant_doc", "tenant_id", "doc_id"),
+        Index("ix_rag_ingestion_jobs_tenant_doc_key", "tenant_id", "doc_key"),
+        Index("ix_rag_ingestion_jobs_tenant_status", "tenant_id", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    doc_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("policy_documents.id"), nullable=False, index=True
+    )
+    doc_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_checksum: Mapped[str] = mapped_column(String(128), nullable=False)
+    parser_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    parser_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    ocr_engine: Mapped[str | None] = mapped_column(String(64))
+    stage: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    safe_message: Mapped[str | None] = mapped_column(String(500))
+    warnings_json: Mapped[list[Any]] = mapped_column(JSONB, default=list, nullable=False)
+    counts_json: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    timings_json: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    document: Mapped["PolicyDocument"] = relationship(back_populates="ingestion_jobs")
 
 
 class PolicyChunk(TimestampMixin, Base):
@@ -190,6 +276,8 @@ class PolicyChunk(TimestampMixin, Base):
     section: Mapped[str] = mapped_column(String(200), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     search_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    source_block_refs_json: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, nullable=False)
+    ocr_metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
     search_vector: Mapped[str | None] = mapped_column(
         TSVECTOR,
         Computed("to_tsvector('simple', coalesce(search_text, ''))", persisted=True),

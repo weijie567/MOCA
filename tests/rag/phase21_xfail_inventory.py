@@ -4,10 +4,6 @@ import pytest
 
 
 PHASE21_XFAIL_OWNERS: dict[str, str] = {
-    "21-01a-01/source-block-schema": "21-01a-01",
-    "21-01a-01/ingestion-job-schema": "21-01a-01",
-    "21-01a-01/chunk-source-block-refs": "21-01a-01",
-    "21-01a-01/migration-rollback": "21-01a-01",
     "21-02-01/chunk-content": "21-02-01",
     "21-02-01/table-chunking": "21-02-01",
     "21-02-01/chunk-provenance": "21-02-01",
