@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import asdict
 from datetime import UTC, date, datetime
@@ -12,6 +13,7 @@ from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.conversation.schemas import FORBIDDEN_MESSAGE_KEYS
 from src.db.models import DocumentBlock, PolicyChunk, PolicyDocument, RagIngestionJob
 from src.knowledge.text_hash import evidence_text_hash
 from src.rag.chunker import BlockChunkResult, chunk_blocks
@@ -36,6 +38,89 @@ class IngestionReport:
     job_id: UUID | None = None
     error_code: str | None = None
     safe_message: str | None = None
+
+
+SAFE_INGESTION_REPORT_FIELDS = (
+    "job_id",
+    "doc_key",
+    "source_type",
+    "source_checksum",
+    "parser_name",
+    "parser_version",
+    "ocr_engine",
+    "stage",
+    "status",
+    "error_code",
+    "safe_message",
+    "warnings",
+    "counts",
+    "timings",
+    "started_at",
+    "completed_at",
+)
+_FORBIDDEN_REPORT_KEYS = FORBIDDEN_MESSAGE_KEYS | {
+    "debug_image",
+    "debug_payload",
+    "exception",
+    "file_bytes",
+    "file_path",
+    "hidden_text",
+    "local_path",
+    "parser_dump",
+    "path",
+    "raw_bytes",
+    "raw_parser_dump",
+    "stack",
+    "stack_trace",
+    "traceback",
+}
+
+
+def build_safe_ingestion_report(job: RagIngestionJob | Mapping[str, Any]) -> dict[str, Any]:
+    """Project durable ingestion trace data into an allowlisted maintainer report."""
+
+    return {
+        "job_id": _safe_report_scalar(_read_report_field(job, "job_id", "id")),
+        "doc_key": _safe_report_scalar(_read_report_field(job, "doc_key")),
+        "source_type": _safe_report_scalar(_read_report_field(job, "source_type")),
+        "source_checksum": _safe_report_scalar(_read_report_field(job, "source_checksum")),
+        "parser_name": _safe_report_scalar(_read_report_field(job, "parser_name")),
+        "parser_version": _safe_report_scalar(_read_report_field(job, "parser_version")),
+        "ocr_engine": _safe_report_scalar(_read_report_field(job, "ocr_engine")),
+        "stage": _safe_report_scalar(_read_report_field(job, "stage")),
+        "status": _safe_report_scalar(_read_report_field(job, "status")),
+        "error_code": _safe_report_scalar(_read_report_field(job, "error_code")),
+        "safe_message": _safe_report_message(_read_report_field(job, "safe_message")),
+        "warnings": _safe_report_list(_read_report_field(job, "warnings", "warnings_json")),
+        "counts": _safe_report_mapping(_read_report_field(job, "counts", "counts_json")),
+        "timings": _safe_report_mapping(_read_report_field(job, "timings", "timings_json")),
+        "started_at": _safe_report_scalar(_read_report_field(job, "started_at")),
+        "completed_at": _safe_report_scalar(_read_report_field(job, "completed_at")),
+    }
+
+
+def sanitize_failure_reason(
+    reason: Any,
+    *,
+    failure_code: str = "parser_failed",
+    default_message: str = "Policy source could not be parsed safely.",
+) -> dict[str, str]:
+    safe_reason = _safe_report_value(reason)
+    code = failure_code
+    message = default_message
+    if isinstance(safe_reason, Mapping):
+        raw_code = safe_reason.get("failure_code") or safe_reason.get("error_code")
+        if raw_code:
+            code = str(raw_code)
+        raw_message = safe_reason.get("safe_message") or safe_reason.get("message") or safe_reason.get("error")
+        if raw_message:
+            message = str(raw_message)
+    elif isinstance(safe_reason, str):
+        message = safe_reason
+    return {
+        "failure_code": _safe_message(code, default=failure_code),
+        "safe_message": _safe_message(message, default=default_message),
+    }
 
 
 class IngestionService:
@@ -423,6 +508,86 @@ def _safe_message(message: str | None, *, default: str) -> str:
     if _CONTROL_CHARS.search(value) or any(pattern.search(value) for pattern in _UNSAFE_MESSAGE_PATTERNS):
         value = default
     return value[:500]
+
+
+def _read_report_field(job: RagIngestionJob | Mapping[str, Any], *names: str) -> Any:
+    for name in names:
+        if isinstance(job, Mapping):
+            if name in job:
+                return job[name]
+            continue
+        if hasattr(job, name):
+            return getattr(job, name)
+    return None
+
+
+def _safe_report_message(value: Any) -> str | None:
+    if value is None:
+        return None
+    safe_value = _safe_report_value(value)
+    if safe_value is None:
+        return "Policy ingestion message was redacted."
+    return _safe_message(str(safe_value), default="Policy ingestion message was redacted.")
+
+
+def _safe_report_scalar(value: Any) -> Any:
+    safe_value = _safe_report_value(value)
+    if isinstance(safe_value, dict | list):
+        return None
+    return safe_value
+
+
+def _safe_report_mapping(value: Any) -> dict[str, Any]:
+    safe_value = _safe_report_value(value)
+    return safe_value if isinstance(safe_value, dict) else {}
+
+
+def _safe_report_list(value: Any) -> list[Any]:
+    safe_value = _safe_report_value(value)
+    return safe_value if isinstance(safe_value, list) else []
+
+
+def _safe_report_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        safe: dict[str, Any] = {}
+        for key, nested in value.items():
+            key_text = str(key)
+            if _is_forbidden_report_key(key_text):
+                continue
+            safe_nested = _safe_report_value(nested)
+            if safe_nested is not None:
+                safe[key_text] = safe_nested
+        return safe
+    if isinstance(value, list):
+        safe_items = []
+        for nested in value:
+            safe_nested = _safe_report_value(nested)
+            if safe_nested is not None:
+                safe_items.append(safe_nested)
+        return safe_items
+    if isinstance(value, tuple):
+        return _safe_report_value(list(value))
+    if isinstance(value, bytes | bytearray | memoryview):
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, Path):
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text or _CONTROL_CHARS.search(text) or any(pattern.search(text) for pattern in _UNSAFE_MESSAGE_PATTERNS):
+            return None
+        return text
+    if isinstance(value, int | float | bool) or value is None:
+        return value
+    return str(value)
+
+
+def _is_forbidden_report_key(key: str) -> bool:
+    normalized = key.strip().lower()
+    return normalized in _FORBIDDEN_REPORT_KEYS
 
 
 def _utc_now() -> datetime:

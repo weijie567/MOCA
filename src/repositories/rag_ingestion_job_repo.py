@@ -8,25 +8,34 @@ from uuid import UUID
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.conversation.schemas import FORBIDDEN_MESSAGE_KEYS
 from src.db.models import RagIngestionJob
 
 
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _UNSAFE_MESSAGE_PATTERNS = (
-    re.compile(r"/(?:Users|home|tmp|var)/"),
+    re.compile(r"/(?:Users|home|tmp|var|private|Volumes)/"),
     re.compile(r"[A-Za-z]:\\\\"),
     re.compile(r"Traceback \\(most recent call last\\):"),
     re.compile(r"raw[_ -]?(?:payload|parser|bytes|dump)", re.IGNORECASE),
+    re.compile(r"parser_dump", re.IGNORECASE),
 )
-_FORBIDDEN_TRACE_KEYS = {
+_FORBIDDEN_TRACE_KEYS = FORBIDDEN_MESSAGE_KEYS | {
+    "debug_image",
     "debug_payload",
     "exception",
+    "file_bytes",
     "file_path",
     "local_path",
+    "parser_dump",
+    "path",
     "raw",
+    "raw_args",
     "raw_bytes",
     "raw_parser_dump",
     "raw_payload",
+    "raw_prompt",
+    "raw_tool_output",
     "stack",
     "stack_trace",
     "traceback",
