@@ -4,15 +4,15 @@ milestone: v1.4
 milestone_name: RAG Production Ingestion + OCR
 current_phase: 21
 status: executing
-stopped_at: Completed 21-04a-PLAN.md
-last_updated: "2026-06-18T23:41:13.827Z"
-last_activity: 2026-06-19 -- 21-04a boundary regression tests complete
+stopped_at: Completed 21-05-PLAN.md
+last_updated: "2026-06-18T23:53:42.314Z"
+last_activity: 2026-06-19 -- 21-05 migration rollback/security closure complete
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 9
-  completed_plans: 7
-  percent: 78
+  completed_plans: 8
+  percent: 89
 ---
 
 # Project State: MOCA
@@ -27,12 +27,12 @@ See: `.planning/PROJECT.md` (updated 2026-06-18)
 ## Current Position
 
 Phase: 21 of 21 (RAG Production Ingestion + OCR) — EXECUTING
-Plan: 8 of 9
-Plans: 7/9 complete
-Status: Ready to execute 21-05-PLAN.md
-Last activity: 2026-06-19 -- 21-04a boundary regression tests complete
+Plan: 9 of 9
+Plans: 8/9 complete
+Status: Ready to execute 21-05a-PLAN.md
+Last activity: 2026-06-19 -- 21-05 migration rollback/security closure complete
 
-Progress: [████████░░] 78%
+Progress: [█████████░] 89%
 
 Planning files:
 
@@ -201,6 +201,9 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Parser/OCR/source-block metadata is explicitly forbidden in ReplayEventV3 redacted payload keys, including source_block_id, parser_metadata_json, ocr_metadata_json, raw_parser_payload, parser_dump, and hidden_text.
 - 21-04a removed only the completed boundary xfail owner entry; the reusable xfail helper remains for later Phase 21 cleanup/final acceptance work.
 - No production retrieval or public search schema changes were needed; Phase 20 hybrid ranking and EvidenceRefV1 score semantics remain unchanged.
+- Phase 21 Plan 05: Optional live migration coverage is destructive by design and only runs when MOCA_TEST_DATABASE_URL is explicitly set.
+- Phase 21 Plan 05: Downgrade tests assert Phase 21 provenance columns drop before Phase 21 tables/document metadata while avoiding a false job-to-block table dependency.
+- Phase 21 Plan 05: Final xfail inventory keeps PHASE21_XFAIL_OWNERS for audit readability but removes the obsolete strict xfail helper and all implementation-pending entries.
 
 ## Accumulated Context
 
@@ -305,13 +308,14 @@ Items acknowledged and deferred at milestone close on 2026-06-18:
 | Phase 21 P03 | 16 min | 3 tasks | 15 files |
 | Phase 21 P04 | 9m 29s | 2 tasks | 10 files |
 | Phase 21 P04a | 6m | 1 tasks | 6 files |
+| Phase 21 P05 | 7m 42s | 2 tasks | 4 files |
 
 ## Session Continuity
 
-Last session: 2026-06-18T23:41:13.819Z
-Stopped at: Completed 21-04a-PLAN.md
+Last session: 2026-06-18T23:53:42.304Z
+Stopped at: Completed 21-05-PLAN.md
 Resume file: None
-Next: Continue with `21-05-PLAN.md`.
+Next: Continue with `21-05a-PLAN.md`.
 
 **Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17
 **Completed Milestone:** v1.2 Long-term / Case Memory — shipped 2026-06-17

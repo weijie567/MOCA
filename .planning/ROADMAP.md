@@ -107,7 +107,7 @@ Plans:
 - [x] 21-03-PLAN.md — PDF, DOCX, image OCR adapters, and runtime preflight
 - [x] 21-04-PLAN.md — Verified provenance lookup and safe trace reporting
 - [x] 21-04a-PLAN.md — Phase 21 boundary regression
-- [ ] 21-05-PLAN.md — Migration rollback and security closure
+- [x] 21-05-PLAN.md — Migration rollback and security closure
 - [ ] 21-05a-PLAN.md — Final Phase 21 acceptance gate
 
 **Planning prerequisites**:
@@ -144,11 +144,11 @@ v1.4 RAG Production Ingestion + OCR is active and scoped to Phase 21 only. The m
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 21. RAG Production Ingestion + OCR | v1.4 | 7/9 | Executing; boundary regression complete | - |
+| 21. RAG Production Ingestion + OCR | v1.4 | 8/9 | Executing; migration rollback/security closure complete | - |
 
 ## Next Step
 
-Run `$gsd-execute-phase 21` to continue with `21-05-PLAN.md`.
+Run `$gsd-execute-phase 21` to continue with `21-05a-PLAN.md`.
 
 ---
-*Updated: 2026-06-19 - Phase 21 Plan 04a boundary regression complete.*
+*Updated: 2026-06-19 - Phase 21 Plan 05 migration rollback/security closure complete.*
