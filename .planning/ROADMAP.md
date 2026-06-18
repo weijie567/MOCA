@@ -97,7 +97,18 @@
   4. Table and OCR-derived chunks preserve faithful visible citation text, row/header/cell context, retrieval-only `search_text` enrichment, and deterministic low-confidence OCR quarantine or review-needed behavior.
   5. Failed parsing, OCR timeout, embedding mismatch, DB insert failure, malformed or unsafe files, business-artifact inputs, and migration downgrade/reupgrade leave prior committed policy versions, chunks, blocks, retrieval behavior, and safety boundaries intact.
 
-**Plans**: TBD
+**Plans**: 9 plans
+
+Plans:
+- [ ] 21-00-PLAN.md — Wave 0 validation and test scaffolding
+- [ ] 21-01-PLAN.md — Parser contracts, source guards, and Markdown/plain-text adapters
+- [ ] 21-01a-PLAN.md — Source-block schema, repositories, and boundary guards
+- [ ] 21-02-PLAN.md — Block-aware chunking and atomic ingestion
+- [ ] 21-03-PLAN.md — PDF, DOCX, image OCR adapters, and runtime preflight
+- [ ] 21-04-PLAN.md — Verified provenance lookup and safe trace reporting
+- [ ] 21-04a-PLAN.md — Phase 21 boundary regression
+- [ ] 21-05-PLAN.md — Migration rollback and security closure
+- [ ] 21-05a-PLAN.md — Final Phase 21 acceptance gate
 
 **Planning prerequisites**:
 - Treat research work packages 21.1-21.5 as Phase 21 implementation slices, not separate roadmap phases.
@@ -133,11 +144,11 @@ v1.4 RAG Production Ingestion + OCR is active and scoped to Phase 21 only. The m
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 21. RAG Production Ingestion + OCR | v1.4 | 0/TBD | Not started | - |
+| 21. RAG Production Ingestion + OCR | v1.4 | 0/9 | Planned; ready to execute | - |
 
 ## Next Step
 
-Run `$gsd-plan-phase 21` to plan Phase 21.
+Run `$gsd-execute-phase 21` to execute Phase 21.
 
 ---
-*Updated: 2026-06-18 - v1.4 roadmap created for Phase 21.*
+*Updated: 2026-06-18 - Phase 21 planned for v1.4.*

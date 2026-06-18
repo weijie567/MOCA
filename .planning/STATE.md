@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: RAG Production Ingestion + OCR
-status: roadmap_created
-stopped_at: Phase 21 roadmap created
-last_updated: "2026-06-18T14:00:34.000Z"
-last_activity: 2026-06-18 -- Phase 21 roadmap created for v1.4 RAG Production Ingestion + OCR
+status: ready_to_execute
+stopped_at: Phase 21 planned
+last_updated: "2026-06-18T15:36:45.383Z"
+last_activity: 2026-06-18 -- Phase 21 planned with 9 plans; next step is `$gsd-execute-phase 21`
 progress:
   total_phases: 1
   completed_phases: 0
-  total_plans: 0
+  total_plans: 9
   completed_plans: 0
   percent: 0
 ---
@@ -21,15 +21,15 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-18)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 21 RAG Production Ingestion + OCR — ready to plan
+**Current focus:** Phase 21 RAG Production Ingestion + OCR — ready to execute
 
 ## Current Position
 
 Phase: 21 of 21 (RAG Production Ingestion + OCR)
 Plan: —
-Plans: 0/0 complete
-Status: Roadmap created; ready to plan Phase 21 parser/OCR ingestion, source-block provenance, and production document parsing on top of v1.3 hybrid retrieval
-Last activity: 2026-06-18 -- Phase 21 roadmap created; next step is `$gsd-plan-phase 21`
+Plans: 0/9 complete
+Status: Planned; ready to execute Phase 21 parser/OCR ingestion, source-block provenance, and production document parsing on top of v1.3 hybrid retrieval
+Last activity: 2026-06-18 -- Phase 21 planned; next step is `$gsd-execute-phase 21`
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -277,13 +277,15 @@ Items acknowledged and deferred at milestone close on 2026-06-18:
 ## Session Continuity
 
 Last session: v1.3 milestone archive
-Stopped at: Phase 21 roadmap created for v1.4 RAG Production Ingestion + OCR
+Stopped at: Phase 21 planned for v1.4 RAG Production Ingestion + OCR
 Resume file: n/a
-Next: Run `$gsd-plan-phase 21`.
+Next: Run `$gsd-execute-phase 21`.
 
 **Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17
 **Completed Milestone:** v1.2 Long-term / Case Memory — shipped 2026-06-17
 **Archived Milestone:** v1.3 RAG Hybrid Retrieval — shipped 2026-06-18
 
 **Completed Phase:** 20 (RAG Hybrid Retrieval) — 1 plan — UAT/security verified 2026-06-18
-**Current Phase:** 21 (RAG Production Ingestion + OCR) — roadmap created; ready to plan
+**Current Phase:** 21 (RAG Production Ingestion + OCR) — planned; ready to execute
+
+**Planned Phase:** 21 (RAG Production Ingestion + OCR) — 9 plans — 2026-06-18T15:36:45.369Z

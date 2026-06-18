@@ -61,7 +61,7 @@ The highest planning risks are partial reindexing, parser/OCR trace leakage, low
 | SRC-04 | DOCX ingestion extracts paragraphs, headings, and tables as logical blocks without fake page/bbox metadata. [VERIFIED: .planning/REQUIREMENTS.md] | 21.3 | `python-docx` exposes document-order paragraphs/tables via `iter_inner_content`; it does not provide stable rendered page/bbox layout. [CITED: https://python-docx.readthedocs.io/en/latest/api/document.html] |
 | SRC-05 | Image ingestion runs local OCR and emits text, bbox, language, engine/version, timeout/error status, and confidence metadata. [VERIFIED: .planning/REQUIREMENTS.md] | 21.3 | `pytesseract.image_to_data` exposes bounding boxes/confidence and supports timeout handling; local `tesseract` is installed but `chi_sim` is missing. [CITED: https://pypi.org/project/pytesseract/] [VERIFIED: local `tesseract --list-langs`] |
 | PROV-01 | Store durable source-block rows scoped by tenant/document with stable IDs and parser/OCR/table metadata. [VERIFIED: .planning/REQUIREMENTS.md] | 21.1 | Add `DocumentBlock` SQLAlchemy model and migration after current `PolicyDocument`/`PolicyChunk` tables. [VERIFIED: src/db/models.py + src/db/migrations/versions] |
-| PROV-02 | Every parser/OCR-derived `PolicyChunk` stores ordered source-block provenance. [VERIFIED: .planning/REQUIREMENTS.md] | 21.2 | Add JSONB ordered refs on `PolicyChunk` or a join table; choose JSONB for v1.4 unless block-centric review queries are required. [VERIFIED: .planning/research/SUMMARY.md] |
+| PROV-02 | Every parser/OCR-derived `PolicyChunk` stores ordered source-block provenance. [VERIFIED: .planning/REQUIREMENTS.md] | 21.2 | Add ordered JSONB refs on `PolicyChunk` for v1.4 chunk-centric provenance lookup. [RESOLVED: planner revision 2026-06-18] |
 | PROV-03 | Source-location metadata is exposed only through verified tenant-scoped provenance lookup. [VERIFIED: .planning/REQUIREMENTS.md] | 21.4 | Mirror `get_verified_evidence_contents`: validate tenant, unique key, and `evidence_text_hash(content)` before returning locators. [VERIFIED: src/knowledge/service.py + tests/knowledge/test_service.py] |
 | PROV-04 | `DocumentBlock` IDs cannot act as policy evidence, approval evidence, memory authority, action authority, replay truth, or business facts. [VERIFIED: .planning/REQUIREMENTS.md] | 21.1, 21.4, 21.5 | Add boundary tests scanning memory/action/approval/replay/tool paths for block IDs or parser metadata as authority. [VERIFIED: tests/agent/test_memory_evidence_boundary.py + tests/approvals/test_snapshots.py] |
 | CHUNK-01 | Block-aware chunking derives `PolicyChunk.content` from faithful visible text while preserving stable chunk IDs and source-block mappings. [VERIFIED: .planning/REQUIREMENTS.md] | 21.2 | Extend `src/rag/chunker.py` with `chunk_blocks` while keeping `chunk_markdown` compatibility. [VERIFIED: src/rag/chunker.py + tests/test_chunker.py] |
@@ -110,7 +110,7 @@ Render scanned PDF pages with `pypdfium2` in a conservative process or mutex-iso
 
 Use `python-docx` for DOCX paragraph/table logical order and explicitly set page/bbox fields to null for DOCX blocks. [CITED: https://python-docx.readthedocs.io/en/latest/api/document.html] [VERIFIED: .planning/REQUIREMENTS.md]
 
-Use local `tesseract` via `pytesseract` for OCR; require `chi_sim+eng` language availability for Chinese policy OCR acceptance. [CITED: https://pypi.org/project/pytesseract/] [VERIFIED: local `tesseract --list-langs`] [ASSUMED: `chi_sim+eng` default]
+Use local `tesseract` via `pytesseract` for OCR; require `chi_sim+eng` language availability preflight for Chinese policy OCR acceptance. [CITED: https://pypi.org/project/pytesseract/] [VERIFIED: local `tesseract --list-langs`] [RESOLVED: planner revision 2026-06-18]
 
 ### Slice 21.4 - Provenance Lookup, Trace Reporting, Boundary Regression
 
@@ -473,14 +473,14 @@ Add static migration tests and, when a disposable PostgreSQL URL is available, r
 
 | Decision | Recommended Default | Confidence |
 |----------|---------------------|------------|
-| OCR accepted threshold | Accept block when average valid word confidence is `>= 85`; mark review-needed for `65-84`; reject/quarantine below `65` or if more than 30% of non-empty words are below `50`. [ASSUMED] | LOW until fixtures calibrate. |
-| OCR timeout | `10s/page` and `30s/file` for images/scanned PDF pages in synchronous maintainer ingestion. [ASSUMED] | LOW until local fixture timing is measured. |
+| OCR accepted threshold | Accept block when average valid word confidence is `>= 80`; mark review-needed for `55-79`; reject below `55` or empty text. [RESOLVED: planner revision 2026-06-18] | HIGH for v1.4 acceptance criteria. |
+| OCR timeout | `15s/page` for OCR pages/images and `30s` parser timeout in synchronous maintainer ingestion. [RESOLVED: planner revision 2026-06-18] | MEDIUM until local fixture timing is measured. |
 | PDF page limit | 50 pages per source in Phase 21 default. [ASSUMED] | LOW until product fixtures confirm size. |
-| PDF/DOCX file limit | 25 MB per source file. [ASSUMED] | LOW until maintainer corpus size is known. |
-| Image limit | 10 MB and 20 megapixels per image; treat Pillow decompression-bomb warning as hard failure. [ASSUMED] [CITED: https://pillow.readthedocs.io/en/stable/reference/Image.html] | MEDIUM for bomb handling, LOW for exact numeric cap. |
+| PDF/DOCX/image file limit | 20 MB per source file. [RESOLVED: planner revision 2026-06-18] | MEDIUM until maintainer corpus size is known. |
+| Image limit | Maximum image dimension `8000x8000`; treat Pillow decompression-bomb warning as hard failure. [RESOLVED: planner revision 2026-06-18] [CITED: https://pillow.readthedocs.io/en/stable/reference/Image.html] | MEDIUM for bomb handling. |
 | SourceBox coordinates | Persist `(page_number, x0, top, x1, bottom, unit, origin="top_left", page_width, page_height, rotation_degrees)`; use `pdf_point` for PDF extraction and `pixel` for OCR images. [ASSUMED] [CITED: https://github.com/jsvine/pdfplumber] [CITED: https://pypi.org/project/pytesseract/] | MEDIUM. |
 | DOCX bbox/page | Store `null` page/bbox and logical block order only. [VERIFIED: .planning/REQUIREMENTS.md + python-docx docs] | HIGH. |
-| Chunk provenance storage | Use `PolicyChunk.source_block_refs_json` for v1.4 unless block-centric UI/review queries become must-have. [ASSUMED] | MEDIUM. |
+| Chunk provenance storage | Use ordered JSONB refs in `PolicyChunk.source_block_refs_json` for v1.4. [RESOLVED: planner revision 2026-06-18] | HIGH for v1.4 chunk-centric provenance lookup. |
 | Migration downgrade | Downgrade to `014_rag_hybrid_retrieval` removes Phase 21 provenance/job structures but preserves v1.3 retrieval tables/columns. [VERIFIED: migration chain + .planning/ROADMAP.md] | HIGH for strategy, MEDIUM until tested. |
 
 ## Code Examples
@@ -551,27 +551,23 @@ Use static migration assertions plus disposable DB round-trip when possible. [VE
 | Cloud/LLM parsing | Do not add Textract, Azure OCR, Google Document AI, LlamaParse, or LLM vision parser. [VERIFIED: .planning/REQUIREMENTS.md] |
 | Business data ingestion | Do not ingest orders/refunds/tickets/tool results/screenshots as policy chunks. [VERIFIED: .planning/REQUIREMENTS.md + docs/contract-spec.md] |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **What exact OCR thresholds should become locked acceptance criteria?** [ASSUMED]
+1. **What exact OCR thresholds should become locked acceptance criteria?** [RESOLVED]
    - What we know: Requirements demand deterministic thresholds and fixtures. [VERIFIED: .planning/REQUIREMENTS.md]
-   - What's unclear: The project has no OCR fixture corpus yet. [VERIFIED: codebase inspection]
-   - Recommendation: Start with the recommended thresholds above and require fixture calibration in Slice 21.3. [ASSUMED]
+   - Decision: v1.4 locks `accepted` at average confidence `>= 80`, `review_needed` at `55-79`, and `rejected` at `< 55` or empty text. Fixtures must cover 80, 79, 55, 54, and empty text boundaries. [RESOLVED: planner revision 2026-06-18]
 
-2. **Should legacy Markdown chunks get synthetic `DocumentBlock` rows?** [ASSUMED]
+2. **Should legacy Markdown chunks get synthetic `DocumentBlock` rows?** [RESOLVED]
    - What we know: Existing Markdown ingestion has no source-block layer. [VERIFIED: src/rag/ingestion.py]
-   - What's unclear: Whether maintainers need provenance lookup for pre-Phase-21 ingested docs. [ASSUMED]
-   - Recommendation: Make legacy provenance optional; do not block v1.3 retrieval if synthetic blocks are absent. [ASSUMED]
+   - Decision: Markdown and plain-text ingestion executed through the Phase 21 parser registry must emit synthetic source blocks. Existing pre-Phase-21 rows may remain retrieval-compatible; newly ingested legacy formats get `DocumentBlock` provenance. [RESOLVED: planner revision 2026-06-18]
 
-3. **Is the planner allowed to require installing `chi_sim` on developer/CI machines?** [ASSUMED]
+3. **Is the planner allowed to require installing `chi_sim` on developer/CI machines?** [RESOLVED]
    - What we know: Local Tesseract lacks `chi_sim`, and Chinese policy OCR needs Simplified Chinese traineddata. [VERIFIED: local `tesseract --list-langs`] [CITED: https://tesseract-ocr.github.io/tessdoc/Data-Files.html]
-   - What's unclear: CI image and product deployment environment are not documented in the files read. [VERIFIED: codebase inspection]
-   - Recommendation: Add a preflight that fails OCR tests clearly when `chi_sim` is unavailable, and document install steps. [ASSUMED]
+   - Decision: `chi_sim+eng` runtime preflight is required. When either language is absent, OCR-dependent tests must skip or fail with an explicit missing-language message rather than silently passing. [RESOLVED: planner revision 2026-06-18]
 
-4. **Should chunk provenance be JSONB or relational join table?** [ASSUMED]
+4. **Should chunk provenance be JSONB or relational join table?** [RESOLVED]
    - What we know: Requirement only says ordered provenance must be stored. [VERIFIED: .planning/REQUIREMENTS.md]
-   - What's unclear: Whether Phase 21 needs block-centric review queries. [ASSUMED]
-   - Recommendation: JSONB ordered refs are adequate for chunk-centric provenance lookup in Phase 21; use join table only if planner adds block-centric query acceptance. [ASSUMED]
+   - Decision: Use JSONB ordered source-block refs on `PolicyChunk` for v1.4. A relational join table remains out of scope unless a later block-centric review/query phase is explicitly planned. [RESOLVED: planner revision 2026-06-18]
 
 ## Environment Availability
 
@@ -692,14 +688,14 @@ OWASP ASVS 5.0.0 is the current stable ASVS version according to OWASP project d
 
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
-| A1 | OCR acceptance threshold recommendation: accept `>=85`, review `65-84`, reject `<65` or too many low-confidence words. | Phase Requirements / Concrete Planning Decisions | OCR evidence may be over-quarantined or under-protected. |
-| A2 | OCR timeout recommendation: `10s/page` and `30s/file`. | Concrete Planning Decisions | Slow valid scans may fail or bad files may consume too much time. |
+| A1 | OCR acceptance threshold locked: accept `>=80`, review `55-79`, reject `<55` or empty text. | Phase Requirements / Concrete Planning Decisions | Boundary fixtures may still need expansion after real corpus import. |
+| A2 | OCR timeout locked: `15s/page`; parser timeout remains `30s`. | Concrete Planning Decisions | Slow valid scans may fail or bad files may consume too much time. |
 | A3 | PDF page limit recommendation: 50 pages. | Concrete Planning Decisions | Real maintainer sources may exceed the cap. |
-| A4 | PDF/DOCX file limit recommendation: 25 MB. | Concrete Planning Decisions | Real maintainer sources may exceed the cap. |
-| A5 | Image limit recommendation: 10 MB and 20 megapixels. | Concrete Planning Decisions | Real image sources may exceed the cap or DoS risk may remain too high. |
-| A6 | Default OCR language should be `chi_sim+eng`. | Slice 21.3 / Standard Stack | OCR may fail on local/CI if language data is missing. |
-| A7 | JSONB ordered source-block refs are adequate for v1.4. | Open Questions / Migration Strategy | Block-centric review queries may become awkward or slow. |
-| A8 | Legacy Markdown chunks do not require synthetic source blocks unless provenance lookup is required for old docs. | Open Questions | Maintainers may expect provenance for existing policy rows. |
+| A4 | PDF/DOCX/image file limit locked at 20 MB. | Concrete Planning Decisions | Real maintainer sources may exceed the cap. |
+| A5 | Image dimension limit locked at `8000x8000`. | Concrete Planning Decisions | Real image sources may exceed the cap or DoS risk may remain too high. |
+| A6 | OCR language preflight requires `chi_sim+eng`. | Slice 21.3 / Standard Stack | OCR may fail on local/CI if language data is missing. |
+| A7 | JSONB ordered source-block refs are selected for v1.4. | Resolved Decisions / Migration Strategy | Block-centric review queries may become awkward or slow. |
+| A8 | Phase 21 Markdown/plain-text ingestion emits synthetic source blocks; pre-Phase-21 rows remain retrieval-compatible. | Resolved Decisions | Maintainers may expect provenance for already committed legacy rows. |
 | A9 | Exact policy semantics metadata allowlist for version bumping is not yet defined. | Slice 21.2 | Parser metadata-only changes may accidentally churn policy versions. |
 | A10 | Dependency lock update should be assigned during implementation rather than research. | Runtime State Inventory | Planner might sequence dependency changes later than parser-contract tests need. |
 
