@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -9,6 +10,8 @@ import pytest
 from src.db.models import PolicyDocument
 from src.knowledge.schemas import EvidenceRefV1
 from src.rag.ingestion import IngestionService
+from src.rag.parsers.base import ParsedBlock, ParseResult
+from src.rag.versioning import build_policy_version_fingerprint
 
 
 class _FakeEmbedder:
@@ -98,12 +101,18 @@ def _write_policy(tmp_path: Path, content: str) -> Path:
 
 
 def _doc_meta() -> dict:
-    return {
+    return _doc_meta_with()
+
+
+def _doc_meta_with(**overrides) -> dict:
+    data = {
         "doc_key": "refund_policy",
         "title": "退款规则",
         "doc_type": "refund_rule",
         "risk_level": "high",
     }
+    data.update(overrides)
+    return data
 
 
 def _existing_doc(content: str, version: int = 1):
@@ -114,7 +123,73 @@ def _existing_doc(content: str, version: int = 1):
         title="退款规则",
         doc_type="refund_rule",
         risk_level="high",
-        effective_date=None,
+        effective_date=date(2026, 1, 1),
+        policy_version_fingerprint=None,
+        parser_metadata_json={},
+    )
+
+
+class _FakeParserRegistry:
+    def __init__(self, *, parser_version: str = "1.0", block_text: str = "相同内容") -> None:
+        self.parser_version = parser_version
+        self.block_text = block_text
+
+    def parse(self, path: Path, *, doc_key: str, source_type: str, metadata: dict) -> ParseResult:
+        return ParseResult(
+            status="success",
+            source_type="policy_markdown",
+            parser_name="fake_parser",
+            parser_version=self.parser_version,
+            blocks=(
+                ParsedBlock(
+                    source_block_id=f"{doc_key}:policy_markdown:synthetic:0000",
+                    block_index=0,
+                    block_type="heading",
+                    text="退款规则",
+                    normalized_text="退款规则",
+                    source_type="policy_markdown",
+                    parser_name="fake_parser",
+                    parser_version=self.parser_version,
+                    page_number=None,
+                    box=None,
+                    table_metadata={},
+                    ocr_metadata={"engine_version": self.parser_version, "confidence": 92.0},
+                ),
+                ParsedBlock(
+                    source_block_id=f"{doc_key}:policy_markdown:synthetic:0001",
+                    block_index=1,
+                    block_type="paragraph",
+                    text=self.block_text,
+                    normalized_text=self.block_text,
+                    source_type="policy_markdown",
+                    parser_name="fake_parser",
+                    parser_version=self.parser_version,
+                    page_number=None,
+                    box=None,
+                    table_metadata={},
+                    ocr_metadata={"engine_version": self.parser_version, "confidence": 92.0},
+                ),
+            ),
+            warnings=(),
+            failure_code=None,
+            safe_message=None,
+        )
+
+
+def _fingerprint(
+    *,
+    citation_text: str = "退款规则\n相同内容",
+    title: str = "退款规则",
+    doc_type: str = "refund_rule",
+    risk_level: str = "high",
+    effective_date: date = date(2026, 1, 1),
+) -> str:
+    return build_policy_version_fingerprint(
+        citation_text=citation_text,
+        title=title,
+        doc_type=doc_type,
+        risk_level=risk_level,
+        effective_date=effective_date,
     )
 
 
@@ -257,3 +332,58 @@ async def test_failed_changed_content_reimport_rolls_back_version(tmp_path: Path
     assert session.rolled_back is True
     assert doc.version == 1
     assert doc.content == original_content
+
+
+@pytest.mark.asyncio
+async def test_parser_and_ocr_trace_changes_do_not_bump_document_version(tmp_path: Path):
+    policy_file = _write_policy(tmp_path, "# 退款规则\n\n相同内容")
+    doc = _existing_doc("退款规则\n相同内容")
+    doc.policy_version_fingerprint = _fingerprint()
+    session = _FakeSession(doc)
+    service = IngestionService(session=session, embedder=_FakeEmbedder(), tenant_id=uuid4())
+    service.parser_registry = _FakeParserRegistry(parser_version="2.0")
+    service.doc_repo = _FakeDocumentRepo(doc)
+    service.chunk_repo = _FakeChunkRepo()
+    service.block_repo = _FakeBlockRepo()
+    service.job_repo = _FakeJobRepo()
+
+    report = await service.ingest_document(policy_file, _doc_meta())
+
+    assert report.status == "success"
+    assert doc.version == 1
+    assert doc.policy_version_fingerprint == _fingerprint()
+    assert doc.parser_metadata_json["parser_version"] == "2.0"
+    assert "policy_version_fingerprint" not in doc.parser_metadata_json
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("meta_overrides", "old_fingerprint_kwargs"),
+    [
+        ({"title": "退款规则新版"}, {"title": "退款规则"}),
+        ({"doc_type": "refund_rule_v2"}, {"doc_type": "refund_rule"}),
+        ({"risk_level": "medium"}, {"risk_level": "high"}),
+        ({"effective_date": date(2026, 2, 1)}, {"effective_date": date(2026, 1, 1)}),
+    ],
+)
+async def test_semantic_policy_metadata_changes_bump_document_version(
+    tmp_path: Path,
+    meta_overrides: dict,
+    old_fingerprint_kwargs: dict,
+):
+    policy_file = _write_policy(tmp_path, "# 退款规则\n\n相同内容")
+    doc = _existing_doc("退款规则\n相同内容")
+    doc.policy_version_fingerprint = _fingerprint(**old_fingerprint_kwargs)
+    session = _FakeSession(doc)
+    service = IngestionService(session=session, embedder=_FakeEmbedder(), tenant_id=uuid4())
+    service.parser_registry = _FakeParserRegistry()
+    service.doc_repo = _FakeDocumentRepo(doc)
+    service.chunk_repo = _FakeChunkRepo()
+    service.block_repo = _FakeBlockRepo()
+    service.job_repo = _FakeJobRepo()
+
+    report = await service.ingest_document(policy_file, _doc_meta_with(**meta_overrides))
+
+    assert report.status == "success"
+    assert doc.version == 2
+    assert doc.policy_version_fingerprint == _fingerprint(**meta_overrides)

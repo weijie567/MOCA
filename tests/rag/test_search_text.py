@@ -50,6 +50,26 @@ def test_build_policy_chunk_search_text_includes_context_without_mutating_conten
     assert content == "商品不影响二次销售时，客服可支持七天无理由退货退款。"
 
 
+def test_build_policy_chunk_search_text_accepts_retrieval_only_block_context() -> None:
+    content = "客服应先核实物流状态。"
+
+    search_text = build_policy_chunk_search_text(
+        title="退款规则",
+        section="仅退款",
+        content=content,
+        doc_type="refund_rule",
+        risk_level="medium",
+        heading_path=("退款规则", "仅退款已发货"),
+        table_headers=("场景", "审核要求"),
+        source_context=("source_block_id=block-001", "page=2"),
+    )
+
+    assert "仅退款已发货" in search_text
+    assert "场景" in search_text
+    assert "source_block_id=block-001" in search_text
+    assert content == "客服应先核实物流状态。"
+
+
 def test_build_sparse_query_text_uses_bounded_or_terms_for_chinese_query() -> None:
     query_text = build_sparse_query_text("商家已发货还能仅退款吗")
 

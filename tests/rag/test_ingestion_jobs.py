@@ -188,22 +188,35 @@ def _existing_doc(content: str = "old visible policy text"):
     )
 
 
-@xfail_for("21-02-03/versioning")
 def test_parser_trace_only_metadata_does_not_bump_document_version() -> None:
-    from src.rag.versioning import policy_version_fingerprint
+    from datetime import date
 
-    first = policy_version_fingerprint(
-        content="七天无理由正文",
-        semantic_metadata={"effective_date": "2026-01-01"},
-        parser_trace={"parser_version": "pdfplumber-0.11.9", "elapsed_ms": 120},
+    from src.rag.versioning import build_policy_version_fingerprint
+
+    first = build_policy_version_fingerprint(
+        citation_text="七天无理由正文",
+        title="退款规则",
+        doc_type="refund_rule",
+        risk_level="high",
+        effective_date=date(2026, 1, 1),
     )
-    second = policy_version_fingerprint(
-        content="七天无理由正文",
-        semantic_metadata={"effective_date": "2026-01-01"},
-        parser_trace={"parser_version": "pdfplumber-0.11.10", "elapsed_ms": 155},
+    second = build_policy_version_fingerprint(
+        citation_text=" 七天无理由正文 ",
+        title="退款规则",
+        doc_type="refund_rule",
+        risk_level="high",
+        effective_date=date(2026, 1, 1),
+    )
+    changed_semantics = build_policy_version_fingerprint(
+        citation_text="七天无理由正文",
+        title="退款规则",
+        doc_type="refund_rule",
+        risk_level="medium",
+        effective_date=date(2026, 1, 1),
     )
 
     assert first == second
+    assert first != changed_semantics
 
 
 @pytest.mark.asyncio
