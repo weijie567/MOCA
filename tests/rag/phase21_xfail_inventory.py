@@ -4,9 +4,6 @@ import pytest
 
 
 PHASE21_XFAIL_OWNERS: dict[str, str] = {
-    "21-02-01/chunk-content": "21-02-01",
-    "21-02-01/table-chunking": "21-02-01",
-    "21-02-01/chunk-provenance": "21-02-01",
     "21-02-02/transaction-order": "21-02-02",
     "21-02-02/rollback": "21-02-02",
     "21-02-03/search-text": "21-02-03",
