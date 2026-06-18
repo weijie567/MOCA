@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: RAG Hybrid Retrieval
-status: ready_to_verify
+status: uat_passed_security_pending
 stopped_at: Completed 20-01-postgres-hybrid-retrieval-PLAN.md
 last_updated: "2026-06-18T10:03:29.354Z"
-last_activity: 2026-06-18 -- Phase 20 PostgreSQL Hybrid Retrieval implementation completed; focused and full pytest gates passed
+last_activity: 2026-06-18 -- Phase 20 UAT completed with 7/7 passed; security review pending
 progress:
   total_phases: 1
   completed_phases: 1
@@ -21,15 +21,15 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-18)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 20 complete — ready for GSD verification
+**Current focus:** Phase 20 UAT passed — security review pending
 
 ## Current Position
 
-Phase: 20 (rag-hybrid-retrieval) — COMPLETE / READY TO VERIFY
+Phase: 20 (rag-hybrid-retrieval) — COMPLETE / UAT PASSED
 Plan: `.planning/phases/20-rag-hybrid-retrieval/20-01-postgres-hybrid-retrieval-SUMMARY.md`
 Plans: 1/1 complete
-Status: PostgreSQL hybrid retrieval implementation complete; `uv run pytest -q` passed with 1002 tests
-Last activity: 2026-06-18 -- Phase 20 implementation, summary, and local fallback code review completed
+Status: PostgreSQL hybrid retrieval implementation complete; UAT passed 7/7; `uv run pytest -q` passed with 1002 tests
+Last activity: 2026-06-18 -- Phase 20 UAT completed; security review remains pending
 
 Progress: [██████████] 100%
 
@@ -40,6 +40,7 @@ Planning files:
 - `20-CONTEXT.md`
 - `20-RESEARCH.md`
 - `20-REVIEW.md`
+- `20-UAT.md`
 - `20-VALIDATION.md`
 
 ## Completed Baseline

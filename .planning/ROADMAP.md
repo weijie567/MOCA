@@ -72,7 +72,7 @@
 
 ### Phase 20: RAG Hybrid Retrieval
 
-**Status:** Complete — 1/1 plan executed; verification pending
+**Status:** Complete — 1/1 plan executed; UAT passed; security review pending
 
 **Goal:** Upgrade MOCA's current pgvector-only policy retrieval path into a minimal production hybrid retrieval backend using PostgreSQL + pgvector + PostgreSQL full-text + pg_trgm, while preserving `PolicyKnowledgeService`, `EvidenceRefV1`, existing citation identity, and the Tool System boundary for business facts.
 
@@ -99,16 +99,19 @@
 
 - **Phase 17: External Action Execution** - external execution storage, outbox dispatch, reconciliation, compensation, duplicate execution/key guards. Phase 17 remains owner-named deferred work and is not renumbered by v1.3.
 - **post-Phase 17 Policy Scope** - tenant-over-global global/default policy fallback.
+- **Phase 21: RAG Production Ingestion + OCR** - parser/OCR abstraction, PDF/DOCX/image ingestion, `DocumentBlock`, page/bbox/cell citation, table-aware chunking, OCR confidence, and parser trace.
+- **Phase 22: RAG Context Builder + Hallucination Control** - evidence re-fetch/hash validation in ContextBuilder, citation map, `MaterialClaim`, semantic support verifier, conflict/freshness routing, refusal/manual-review policy, and faithfulness/citation eval.
+- **Phase RAG-5: Optional External Search Backend** - Vespa/OpenSearch shadow testing and full external `SearchBackend` only if scale, latency, or ranking-profile complexity outgrows PostgreSQL hybrid.
 - **Memory UX** - full user/admin memory management UI.
 - **Memory retrieval quality expansion** - broader vector retrieval/reranking after lifecycle safety passes.
 
 ## Current Status
 
-v1.3 Phase 20 implementation is complete and ready for GSD verification. The retrieval slice adds policy chunk `search_text` / generated `search_vector`, PostgreSQL full-text and pg_trgm retrieval channels, RRF fusion, internal hybrid trace, and focused eval diagnostics while preserving `EvidenceRefV1` and Tool System boundaries. Local fallback code review found no issues; interactive UAT remains pending.
+v1.3 Phase 20 implementation is complete and UAT passed. The retrieval slice adds policy chunk `search_text` / generated `search_vector`, PostgreSQL full-text and pg_trgm retrieval channels, RRF fusion, internal hybrid trace, and focused eval diagnostics while preserving `EvidenceRefV1` and Tool System boundaries. Local fallback code review found no issues; security review remains pending.
 
 ## Next Step
 
-Run `$gsd-verify-work 20` for Phase 20 RAG Hybrid Retrieval, then complete the v1.3 milestone if verification passes.
+Run `$gsd-secure-phase 20` for Phase 20 RAG Hybrid Retrieval, then complete the v1.3 milestone if security verification passes.
 
 ---
-*Updated: 2026-06-18 - Phase 20 implementation complete; verification pending.*
+*Updated: 2026-06-18 - Phase 20 UAT passed; security review pending.*
