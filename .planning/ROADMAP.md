@@ -5,6 +5,7 @@
 - [x] **v1.0 MVP** - Shipped on 2026-05-22. Full archive: [v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md)
 - [x] **v1.1 Agent Architecture Migration** - Shipped on 2026-06-17. Full archive: [v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md)
 - [x] **v1.2 Long-term / Case Memory** - Shipped on 2026-06-17. Scope: Phase 16.
+- [ ] **v1.3 RAG Hybrid Retrieval** - Active. Scope: Phase 20.
 
 ## Phases
 
@@ -67,20 +68,47 @@
 - Include migration rollback and downgrade preflight strategy for new schema.
 - Include coverage for tombstone no-rewrite and separate-session concurrency risks where relevant.
 
-## Deferred Beyond v1.2
+## Current Milestone: v1.3 RAG Hybrid Retrieval
 
-- **Phase 17: External Action Execution** - external execution storage, outbox dispatch, reconciliation, compensation, duplicate execution/key guards.
+### Phase 20: RAG Hybrid Retrieval
+
+**Status:** Complete — 1/1 plan executed; verification pending
+
+**Goal:** Upgrade MOCA's current pgvector-only policy retrieval path into a minimal production hybrid retrieval backend using PostgreSQL + pgvector + PostgreSQL full-text + pg_trgm, while preserving `PolicyKnowledgeService`, `EvidenceRefV1`, existing citation identity, and the Tool System boundary for business facts.
+
+**Requirements:** `RAGHYB-01`, `RAGHYB-02`, `RAGTOK-01`, `RAGTOK-02`, `RAGRET-01`, `RAGRET-02`, `RAGRET-03`, `RAGSCOPE-01`, `RAGSCOPE-02`, `RAGTRACE-01`, `RAGEVAL-01`
+
+**Success criteria:**
+
+- `PolicyChunk` has retrieval-ready `search_text` / `search_vector` support and indexes for full-text and pg_trgm search.
+- Chinese tokenizer and domain dictionary produce stable query/content search terms without mutating citation text.
+- Retrieval combines dense, sparse, and fuzzy candidates through RRF.
+- Tenant/effective-date/scope filters apply before each retrieval channel contributes candidates.
+- `PolicyKnowledgeService` and canonical `EvidenceRefV1` behavior remain compatible with existing Agent, approval, snapshot, and replay consumers.
+- Minimal retrieval trace is available for eval/debug and does not enter prompts.
+- Focused tests and eval cover tokenizer, sparse/fuzzy search, RRF ordering, scope filtering, effective-date filtering, Hit@5, and fallback accuracy.
+
+**Planning prerequisites:**
+
+- Read `docs/rag-architecture-spec.md` sections 2, 8, 9, 14, 15, and 16.
+- Read `docs/contract-spec.md` §8.3, especially canonical `EvidenceRefV1` and citation membership semantics.
+- Read `src/knowledge/retrieval.py`, `src/knowledge/service.py`, `src/repositories/policy_chunk_repo.py`, `src/rag/ingestion.py`, `src/rag/chunker.py`, `src/db/models.py`, and `src/db/migrations/versions/002_rag_pipeline.py`.
+- Do not implement OCR, `DocumentBlock`, `MaterialClaim`, semantic verifier, Vespa/OpenSearch, or full external `SearchBackend` in Phase 20.
+
+## Deferred Beyond v1.3
+
+- **Phase 17: External Action Execution** - external execution storage, outbox dispatch, reconciliation, compensation, duplicate execution/key guards. Phase 17 remains owner-named deferred work and is not renumbered by v1.3.
 - **post-Phase 17 Policy Scope** - tenant-over-global global/default policy fallback.
 - **Memory UX** - full user/admin memory management UI.
 - **Memory retrieval quality expansion** - broader vector retrieval/reranking after lifecycle safety passes.
 
 ## Current Status
 
-v1.2 Phase 16 is complete. All 9 Phase 16 plans have summaries, code review findings are resolved, schema drift passed, verification passed 14/14 requirements, and the post-review full suite passed with 980 tests.
+v1.3 Phase 20 implementation is complete and ready for GSD verification. The retrieval slice adds policy chunk `search_text` / generated `search_vector`, PostgreSQL full-text and pg_trgm retrieval channels, RRF fusion, internal hybrid trace, and focused eval diagnostics while preserving `EvidenceRefV1` and Tool System boundaries.
 
 ## Next Step
 
-Archive v1.2 when ready, or start the next milestone.
+Run `$gsd-verify-work 20` for Phase 20 RAG Hybrid Retrieval, then complete the v1.3 milestone if verification passes.
 
 ---
-*Updated: 2026-06-18 - Phase 16 verification complete.*
+*Updated: 2026-06-18 - Phase 20 implementation complete; verification pending.*

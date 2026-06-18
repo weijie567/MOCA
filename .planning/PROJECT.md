@@ -14,22 +14,23 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 - **v1.0 MVP** — shipped 2026-05-22.
 - **v1.1 Agent Architecture Migration** — shipped 2026-06-17.
+- **v1.2 Long-term / Case Memory** — shipped 2026-06-18.
 
 Full archive records live in `.planning/milestones/`.
 
-## Current Milestone: v1.2 Long-term / Case Memory
+## Current Milestone: v1.3 RAG Hybrid Retrieval
 
-v1.2 is active and scoped to Phase 16. It implements reviewed long-term profile memory and reviewed case memory retrieval on top of the v1.1 conversation/context foundation.
+v1.3 is active and scoped to Phase 20. It upgrades MOCA's policy retrieval from pgvector-only search plus lightweight lexical rerank into a minimal production hybrid retrieval backend on PostgreSQL.
 
-**Goal:** Add durable, reviewed memory that can help future runs with user/profile preferences and case precedents, while preserving the rule that memory is contextual assistance only.
+**Goal:** Combine pgvector semantic retrieval, PostgreSQL full-text sparse retrieval, and pg_trgm fuzzy retrieval with RRF, while preserving `PolicyKnowledgeService`, canonical `EvidenceRefV1`, citation identity, and the Tool System boundary for business facts.
 
 **Target features:**
-- `memory_identity.v1` canonical normalization and stable hashing.
-- Durable long-term memory storage with review lifecycle, correction/supersede, retrieval predicates, and tombstone/delete behavior.
-- Reviewed case memory storage and retrieval for precedent context, distinct from session memory and policy evidence.
-- Memory tombstones and write events that prevent deleted memory from being retrieved or rewritten by delayed writes.
-- Prompt-safe `ContextAssembler` integration with strict exclusion of raw payloads and authority-bearing objects.
-- Contract/eval tests proving memory cannot act as policy evidence, approval evidence, action authority, current business truth, or replay/audit truth.
+- `PolicyChunk.search_text` / `search_vector` storage and indexes for full-text and pg_trgm search.
+- Application-level Chinese tokenizer with refund/support domain dictionary.
+- Dense + sparse + fuzzy retrieval merged by Reciprocal Rank Fusion.
+- Retrieval pre-filters for tenant, effective date, doc type, risk level, and existing knowledge scope.
+- Minimal retrieval trace for eval/debug without entering prompts or replacing `EvidenceRefV1`.
+- Focused tests and eval coverage for tokenizer, hybrid ranking, RRF ordering, permission/effective-date filtering, Hit@5, and fallback accuracy.
 
 ## Last Shipped Milestone: v1.1 Agent Architecture Migration
 
@@ -69,11 +70,11 @@ v1.2 is active and scoped to Phase 16. It implements reviewed long-term profile 
 
 ### Active
 
-- [ ] Implement `memory_identity.v1` and safe memory schema for long-term memories, case memories, tombstones, and write events.
-- [ ] Implement reviewed long-term memory lifecycle with retrieval predicates, correction/supersede, and tombstone no-rewrite behavior.
-- [ ] Implement reviewed case memory retrieval as precedent context, separate from session memory, policy evidence, and current business facts.
-- [ ] Integrate bounded memory snippets through `ContextAssembler` without raw payload leakage or authority escalation.
-- [ ] Add contract/eval coverage for memory identity, retrieval predicates, lifecycle, tombstones, transitional `search_case_memory`, and authority-boundary negatives.
+- [ ] Add `PolicyChunk.search_text`, full-text representation, pg_trgm/full-text indexes, and rollback-safe migration coverage.
+- [ ] Add Chinese tokenization and domain dictionary for policy content/query search text.
+- [ ] Implement `PostgresHybridRetriever` behavior behind the existing `PolicyKnowledgeService` facade.
+- [ ] Merge dense/sparse/fuzzy retrieval with RRF and preserve existing strong/partial/no-evidence semantics.
+- [ ] Add minimal retrieval trace and focused hybrid retrieval eval/tests.
 
 ### Out of Scope
 
@@ -81,7 +82,11 @@ v1.2 is active and scoped to Phase 16. It implements reviewed long-term profile 
 - Tenant-over-global global/default policy fallback — future post-Phase 17 Policy Scope milestone.
 - Memory as policy evidence, approval/action authority, current business fact, or replay/audit truth — violates the contract boundary.
 - Full user-facing memory management UI — defer until storage/review/tombstone/retrieval foundations are safe.
-- New vector database service — PostgreSQL/pgvector remains the default unless Phase 16 planning proves a stronger need.
+- OCR / PDF / DOCX / image parsing — production ingestion is important but belongs after minimal hybrid retrieval is stable.
+- `DocumentBlock` persistence — needed for page/bbox citation and OCR, but not required for Phase 20's hybrid retrieval slice.
+- `MaterialClaim` and semantic verifier — belongs to later hallucination-control work after retrieval and context building are stable.
+- Full external `SearchBackend` interface — current code has one Postgres backend; `PolicyKnowledgeService` already hides retriever details from Agent nodes.
+- New vector database service — PostgreSQL/pgvector remains the default unless later RAG backend planning proves a stronger need.
 - Second scenario (creator appeals) — defer to polish phase
 - MCP protocol layer — adds complexity without MVP value
 - Kubernetes / production deployment — Docker Compose sufficient for demo
@@ -138,13 +143,14 @@ v1.2 is active and scoped to Phase 16. It implements reviewed long-term profile 
 - Phase 15.1 Memory Foundation V2 is complete: user-scoped conversation log, layered tool call/result storage, prompt-safe WorkingStateV1, source-range thread summaries, ContextAssembler/token budgeting, and replay/audit/conversation ID alignment are verified without implementing Phase 16/17 scope.
 - Phase 15.2 v1.1 Readiness Closure is complete: formal Phase 7/10 verification exists, `KNOW-02` tenant-over-global target semantics have a post-Phase 17 `Policy Scope` owner, and the milestone readiness audit passes.
 - v1.1 is shipped and archived on 2026-06-17. Full milestone history lives in `.planning/milestones/v1.1-ROADMAP.md`, `.planning/milestones/v1.1-REQUIREMENTS.md`, and `.planning/milestones/v1.1-MILESTONE-AUDIT.md`.
-- v1.2 Long-term / Case Memory is active as a fresh milestone. Phase 16 owns `memory_identity.v1`, reviewed long-term memory, reviewed case memory, memory tombstones, memory write events, and prompt-context integration.
+- v1.2 Long-term / Case Memory is complete. Phase 16 owns `memory_identity.v1`, reviewed long-term memory, reviewed case memory, memory tombstones, memory write events, and prompt-context integration.
+- v1.3 RAG Hybrid Retrieval implementation is complete and pending GSD verification. Phase 20 owns the minimal PostgreSQL hybrid retrieval upgrade and explicitly excludes OCR, `DocumentBlock`, `MaterialClaim`, semantic verifier, Vespa/OpenSearch, and full external `SearchBackend`.
 
 ## Current Milestone Goals
 
-- Plan Phase 16 from the new v1.2 requirements rather than from archived v1.1 requirements.
-- Preserve v1.1 safety boundaries: memory cannot become policy evidence, approval/action authority, current business truth, or replay/audit truth.
-- Keep Phase 17 External Action Execution and post-Phase 17 Policy Scope explicitly deferred beyond v1.2.
+- Verify Phase 20 against the new v1.3 requirements rather than archived v1.2 memory requirements.
+- Preserve v1.1/v1.2 safety boundaries: policy evidence remains `EvidenceRefV1`; business facts remain Tool System outputs; memory remains contextual assistance only.
+- Keep Phase 17 External Action Execution and post-Phase 17 Policy Scope explicitly deferred beyond v1.3.
 
 ## Constraints
 
@@ -189,4 +195,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-17 after v1.2 milestone creation*
+*Last updated: 2026-06-18 after Phase 20 implementation*

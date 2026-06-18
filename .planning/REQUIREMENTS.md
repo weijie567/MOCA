@@ -1,103 +1,90 @@
-# Requirements: MOCA v1.2 Long-term / Case Memory
+# Requirements: MOCA v1.3 RAG Hybrid Retrieval
 
-**Defined:** 2026-06-17
-**Core Value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Milestone Goal:** Implement reviewed long-term profile memory and reviewed case memory retrieval on top of the v1.1 memory foundation without weakening policy evidence, session memory, approval/action authority, or replay/audit boundaries.
+**Defined:** 2026-06-18
+**Core Value:** Retrieve policy evidence with stronger small-scale production quality by combining semantic, sparse keyword, and fuzzy retrieval while preserving MOCA's existing KnowledgeService and EvidenceRefV1 contracts.
+**Milestone Goal:** Upgrade the current pgvector-only policy retrieval path into a minimal production hybrid retrieval backend using PostgreSQL + pgvector + PostgreSQL full-text + pg_trgm, without introducing OCR, DocumentBlock, MaterialClaim, semantic verifier, Vespa, or Elasticsearch in this milestone.
 
-## v1.2 Requirements
+## v1.3 Requirements
 
-Committed scope for the active v1.2 milestone. All requirements map to Phase 16.
+Committed scope for the active v1.3 milestone. All requirements map to Phase 20.
 
-### Identity & Schema
+### Schema & Indexing
 
-- [x] **MEMID-01**: Memory writes compute `memory_identity.v1` using canonical normalization and stable content/source hashing for long-term memories, case memories, tombstones, and candidate write events.
-- [x] **MEMSCHEMA-01**: The database provides durable `long_term_memories`, `case_memories`, `memory_tombstones`, and `memory_write_events` storage with tenant/user/scope identity, review lifecycle, timestamps, and indexes/constraints needed for safe retrieval and migration rollback planning.
+- [x] **RAGHYB-01**: `PolicyChunk` stores retrieval-ready `search_text` and a PostgreSQL full-text `search_vector` representation, with Alembic migration coverage and rollback-safe indexes for full-text and pg_trgm search.
+- [x] **RAGHYB-02**: Existing pgvector HNSW search remains intact, and new sparse/fuzzy indexes do not change `EvidenceRefV1`, policy document versioning, or existing citation identity semantics.
 
-### Long-term Memory
+### Tokenization
 
-- [x] **LONGMEM-01**: Long-term profile memory writes are accepted only from explicit user/admin/human-reviewed or deterministic durable sources, never from raw model guesses or unreviewed prompt inference.
-- [x] **LONGMEM-02**: Long-term memory retrieval filters by tenant and allowed scope, approved/current status, freshness/expiry, and non-deleted/non-tombstoned/non-prohibited state.
-- [x] **LONGMEM-03**: Long-term memory correction and supersede behavior is transactional and leaves exactly one current memory per identity.
+- [x] **RAGTOK-01**: Chinese policy content and query text are normalized through an application-level tokenizer with a domain dictionary for refund/support terms such as `仅退款`, `七天无理由`, `二次销售`, `商家举证`, `高价值订单`, `补偿券`, `退款时效`, and `跨境订单`.
+- [x] **RAGTOK-02**: Ingestion derives `search_text` from persisted chunk content plus allowed document/section context without mutating the citation text used for `text_hash`.
 
-### Case Memory
+### Hybrid Retrieval
 
-- [x] **CASEMEM-01**: Reviewed case memory stores precedent summaries with stable case/source identity, outcome metadata, review status, and safe references back to authoritative records.
-- [x] **CASEMEM-02**: Case memory retrieval is distinct from long-term profile memory, session memory, policy evidence, and current business facts; it is surfaced only as reviewed precedent context.
-- [x] **CASEMEM-03**: The transitional `search_case_memory` surface no longer claims reviewed case memory unless backed by the new case memory store; old session-derived search is renamed, quarantined, or explicitly unavailable.
+- [x] **RAGRET-01**: Policy retrieval combines dense pgvector, PostgreSQL full-text sparse retrieval, and pg_trgm fuzzy retrieval into one ranked candidate set.
+- [x] **RAGRET-02**: Reciprocal Rank Fusion merges dense/sparse/fuzzy candidates by rank instead of summing incompatible raw scores.
+- [x] **RAGRET-03**: The current lightweight lexical rerank may remain as a fallback or tie-breaker, but it is not described as the completed hybrid retrieval implementation.
 
-### Tombstone & Deletion
+### Scope & Safety
 
-- [x] **TOMBSTONE-01**: Forget/delete operations create tombstone identities and retrieval excludes matching long-term or case memories immediately.
-- [x] **TOMBSTONE-02**: Delayed or asynchronous candidate writes check tombstones in the same transaction before insert and emit `memory_write_event` records with a skip reason such as `tombstone_match` instead of rewriting deleted content.
+- [x] **RAGSCOPE-01**: Tenant, effective date, doc type, risk level, and any existing knowledge-scope filters are applied before each retrieval channel contributes candidates.
+- [x] **RAGSCOPE-02**: Retrieval preserves existing `PolicyKnowledgeService` behavior for strong/partial/no evidence, no-evidence fallback, and merchant-scope deny-all behavior.
 
-### Prompt Context & Authority Boundary
+### Trace & Evaluation
 
-- [x] **MEMCTX-01**: `ContextAssembler` injects bounded long-term and case memory snippets with refs/summaries only, excluding raw memory records, raw tool payloads, policy full text, approval/action authority bodies, replay/debug blobs, and implicit dict/list stringification.
-- [x] **MEMCTX-02**: Memory cannot produce `EvidenceRefV1`, authorize actions, satisfy approval evidence, replace current business facts, alter replay/audit truth, or bypass approval/action safety contracts; tests enforce these negative boundaries.
-
-### Review & Observability
-
-- [x] **MEMREVIEW-01**: Memory candidate, approve/reject, write, skip, delete, supersede, and tombstone decisions are observable through review status and audit/replay-safe `memory_write_events`.
-- [x] **MEMEVAL-01**: Contract tests and eval gates cover identity golden cases, retrieval predicates, correction/supersede, deletion/tombstone no-rewrite, authority-boundary negatives, and transitional `search_case_memory` behavior.
+- [x] **RAGTRACE-01**: Retrieval produces a minimal internal trace for debugging/eval with `selected_by`, channel ranks, `rrf_score`, and `filter_status`; this trace does not enter prompts or replace `EvidenceRefV1`.
+- [x] **RAGEVAL-01**: Tests and eval cover tokenizer output, sparse/fuzzy repository behavior, RRF ordering, effective-date filtering, tenant/scope pre-filtering, Hit@5, and fallback accuracy.
 
 ## Future Requirements
 
-Tracked but not in the active v1.2 roadmap.
+Tracked but not in the active v1.3 roadmap.
 
-### User/Admin Memory UX
+### Production Ingestion + OCR
 
-- **MEMUI-01**: User/admin memory management UI for reviewing, editing, deleting, and exporting memories.
+- **RAG-OCR-01**: Introduce parser/OCR abstraction for PDF/DOCX/image inputs.
+- **RAG-OCR-02**: Persist `DocumentBlock` or equivalent source-block metadata with page, bbox, block type, OCR confidence, table metadata, parser version, and source block references.
 
-### Retrieval Quality Expansion
+### Hallucination Control + Verifier
 
-- **MEMEMB-01**: Broader vector retrieval, reranking, and quality eval for memory after baseline predicates and lifecycle safety pass.
+- **RAG-HALLU-01**: Introduce runtime `MaterialClaim` objects for claim-level answer validation.
+- **RAG-HALLU-02**: Add a risk-triggered semantic support verifier and conflict/staleness manual-review routing.
+- **RAG-HALLU-03**: Add faithfulness, citation accuracy, unsupported-claim refusal, and business-fact grounding eval.
 
-### External Execution
+### External Search Backend
 
-- **EXTERNAL-01**: External dispatch occurs only after transactional draft claim, execution creation, and committed outbox claim.
-- **EXTERNAL-02**: Unknown/reconciling paths prevent unsafe retry with a new external idempotency key.
-- **EXTERNAL-03**: Reconciliation, compensation, and duplicate execution/key guards are enforced.
-
-### Policy Scope
-
-- **POLICY-SCOPE-01**: Tenant-over-global global/default policy fallback with explicit schema and retrieval merge semantics.
+- **RAG-BACKEND-01**: Define a full external `SearchBackend` contract only when shadow testing or replacing Postgres with Vespa/OpenSearch becomes necessary.
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Real external action execution, outbox, reconciliation, and compensation | Remains owned by a future External Action Execution milestone; v1.2 must not blur demo draft-only safety. |
-| Tenant-over-global global/default policy fallback | Requires a separate Policy Scope phase after external execution and must not be hidden inside memory retrieval. |
-| Memory as policy evidence or approval/action authority | Violates the contract-spec boundary; memory is contextual assistance only. |
-| Memory as current business fact source | Orders/refunds/tickets and policy KB remain authoritative; memory may only summarize reviewed context. |
-| Full user-facing memory management UI | Useful later, but the v1.2 slice focuses on storage, review lifecycle, tombstones, retrieval predicates, and prompt integration. |
-| New vector database service | PostgreSQL/pgvector remains the default unless Phase 16 planning proves a stronger need. |
-| Storing raw prompts, raw tool payloads, private reasoning, or replay/debug blobs as memory | Conflicts with v1.1 prompt-safety, replay redaction, and storage boundaries. |
+| OCR / PDF / DOCX / image parsing | Production ingestion is important but belongs to a later RAG ingestion milestone after hybrid retrieval is stable. |
+| `DocumentBlock` persistence | Needed for OCR/page-bbox citation, but not required for Phase 20's Postgres hybrid retrieval. |
+| `MaterialClaim` and semantic verifier | Belongs to hallucination control after evidence retrieval and context building are stable. |
+| Complete external `SearchBackend` interface | Current code only has one Postgres backend; `PolicyKnowledgeService` already hides repository details from Agent nodes. |
+| Vespa / Elasticsearch / OpenSearch | Current data scale favors PostgreSQL hybrid; external search stays a future optional backend. |
+| Business Data QA inside RAG | Business facts remain Tool System outputs and must not be encoded as policy chunks or `EvidenceRefV1`. |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| MEMID-01 | Phase 16 | Complete |
-| MEMSCHEMA-01 | Phase 16 | Complete |
-| LONGMEM-01 | Phase 16 | Complete |
-| LONGMEM-02 | Phase 16 | Complete |
-| LONGMEM-03 | Phase 16 | Complete |
-| CASEMEM-01 | Phase 16 | Complete |
-| CASEMEM-02 | Phase 16 | Complete |
-| CASEMEM-03 | Phase 16 | Complete |
-| TOMBSTONE-01 | Phase 16 | Complete |
-| TOMBSTONE-02 | Phase 16 | Complete |
-| MEMCTX-01 | Phase 16 | Complete |
-| MEMCTX-02 | Phase 16 | Complete |
-| MEMREVIEW-01 | Phase 16 | Complete |
-| MEMEVAL-01 | Phase 16 | Complete |
+| RAGHYB-01 | Phase 20 | Complete |
+| RAGHYB-02 | Phase 20 | Complete |
+| RAGTOK-01 | Phase 20 | Complete |
+| RAGTOK-02 | Phase 20 | Complete |
+| RAGRET-01 | Phase 20 | Complete |
+| RAGRET-02 | Phase 20 | Complete |
+| RAGRET-03 | Phase 20 | Complete |
+| RAGSCOPE-01 | Phase 20 | Complete |
+| RAGSCOPE-02 | Phase 20 | Complete |
+| RAGTRACE-01 | Phase 20 | Complete |
+| RAGEVAL-01 | Phase 20 | Complete |
 
 **Coverage:**
-- v1.2 requirements: 14 total
-- Mapped to phases: 14
+- v1.3 requirements: 11 total
+- Mapped to phases: 11
 - Unmapped: 0
 
 ---
-*Requirements defined: 2026-06-17*
-*Last updated: 2026-06-18 after Phase 16 verification and review-fix closure*
+*Requirements defined: 2026-06-18*
+*Last updated: 2026-06-18 after Phase 20 implementation*

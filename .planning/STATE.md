@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2
-milestone_name: Long-term / Case Memory
-status: milestone_complete
-stopped_at: Phase 16 verification complete
-last_updated: "2026-06-17T18:37:27Z"
-last_activity: 2026-06-18 -- Phase 16 verification passed; milestone complete
+milestone: v1.3
+milestone_name: RAG Hybrid Retrieval
+status: ready_to_verify
+stopped_at: Completed 20-01-postgres-hybrid-retrieval-PLAN.md
+last_updated: "2026-06-18T10:03:29.354Z"
+last_activity: 2026-06-18 -- Phase 20 PostgreSQL Hybrid Retrieval implementation completed; focused and full pytest gates passed
 progress:
   total_phases: 1
   completed_phases: 1
-  total_plans: 9
-  completed_plans: 9
+  total_plans: 1
+  completed_plans: 1
   percent: 100
 ---
 
@@ -18,32 +18,28 @@ progress:
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-06-17)
+See: `.planning/PROJECT.md` (updated 2026-06-18)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 16 complete — long-term-case-memory
+**Current focus:** Phase 20 complete — ready for GSD verification
 
 ## Current Position
 
-Phase: 16 (long-term-case-memory) — COMPLETE
-Plan: complete
-Plans: 9 plan files in `.planning/phases/16-long-term-case-memory/`
-Status: Milestone complete
-Last activity: 2026-06-18 -- Phase 16 verification passed; milestone complete
+Phase: 20 (rag-hybrid-retrieval) — COMPLETE / READY TO VERIFY
+Plan: `.planning/phases/20-rag-hybrid-retrieval/20-01-postgres-hybrid-retrieval-SUMMARY.md`
+Plans: 1/1 complete
+Status: PostgreSQL hybrid retrieval implementation complete; `uv run pytest -q` passed with 1002 tests
+Last activity: 2026-06-18 -- Phase 20 implementation and summary completed
 
 Progress: [██████████] 100%
 
-Planned files:
+Planning files:
 
-- `16-01-memory-identity-PLAN.md`
-- `16-02-schema-migration-PLAN.md`
-- `16-03-long-term-memory-service-PLAN.md`
-- `16-04-semantic-episode-PLAN.md`
-- `16-05-tombstone-supersede-PLAN.md`
-- `16-06-reviewed-case-memory-PLAN.md`
-- `16-07-context-assembler-memory-PLAN.md`
-- `16-08-memory-retrieval-integration-PLAN.md`
-- `16-09-legacy-search-eval-closure-PLAN.md`
+- `20-01-postgres-hybrid-retrieval-PLAN.md`
+- `20-01-postgres-hybrid-retrieval-SUMMARY.md`
+- `20-CONTEXT.md`
+- `20-RESEARCH.md`
+- `20-VALIDATION.md`
 
 ## Completed Baseline
 
@@ -178,6 +174,9 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 16 Plan 09 routes planner-visible `search_case_memory` to reviewed case memory and keeps session-derived precedent search legacy/debug-only.
 - Phase 16 Plan 09 updated stale cross-phase guards after v1.1 archive and intentional Phase 16 schema creation; full suite passed with 974 tests.
 - Phase 16 coverage manifest lists all 14 v1.2 requirement IDs and is guarded by `tests/memory/test_phase16_requirement_coverage.py`.
+- Phase 20 keeps `PolicyChunk.content` as canonical citation text and stores retrieval-only `search_text` plus generated `search_vector` for PostgreSQL full-text search.
+- Phase 20 fuses dense, sparse, and fuzzy retrieval candidates with RRF, while `EvidenceRefV1.score` and `KnowledgeSearchResult.best_score` remain normalized 0-1 confidence values.
+- Phase 20 hybrid trace fields stay internal/eval-only and are excluded from API serialization; they do not enter `EvidenceRefV1` or prompts.
 
 ## Accumulated Context
 
@@ -267,9 +266,9 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 
 ## Session Continuity
 
-Last session: 2026-06-17T18:37:27Z
-Stopped at: Phase 16 verification complete
-Resume file: None
+Last session: --stopped-at
+Stopped at: Completed 20-01-postgres-hybrid-retrieval-PLAN.md
+Resume file: --resume-file
 Next: Archive v1.2 when ready, or start the next milestone.
 
 **Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17
