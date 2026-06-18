@@ -4,15 +4,15 @@ milestone: v1.4
 milestone_name: RAG Production Ingestion + OCR
 current_phase: 21
 status: executing
-stopped_at: Completed 21-00-PLAN.md
-last_updated: "2026-06-18T16:54:33Z"
-last_activity: 2026-06-19 -- 21-00 validation scaffold complete
+stopped_at: Completed 21-01-PLAN.md
+last_updated: "2026-06-18T17:11:21.273Z"
+last_activity: 2026-06-19 -- 21-01 parser contracts and source guards complete
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 9
-  completed_plans: 1
-  percent: 11
+  completed_plans: 2
+  percent: 22
 ---
 
 # Project State: MOCA
@@ -27,12 +27,12 @@ See: `.planning/PROJECT.md` (updated 2026-06-18)
 ## Current Position
 
 Phase: 21 of 21 (RAG Production Ingestion + OCR) — EXECUTING
-Plan: 2 of 9
-Plans: 1/9 complete
-Status: Ready to execute 21-01-PLAN.md
-Last activity: 2026-06-19 -- 21-00 validation scaffold complete
+Plan: 3 of 9
+Plans: 2/9 complete
+Status: Ready to execute 21-01a-PLAN.md
+Last activity: 2026-06-19 -- 21-01 parser contracts and source guards complete
 
-Progress: [█░░░░░░░░░] 11%
+Progress: [██░░░░░░░░] 22%
 
 Planning files:
 
@@ -180,6 +180,9 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Wave 0 records validation coverage for all Phase 21 requirements but does not mark the product requirements implemented.
 - Implementation-pending Phase 21 behavior uses strict xfail markers with owner_task=21-* reasons and PHASE21_XFAIL_OWNERS entries.
 - Native OCR behavior uses explicit pytest.importorskip/preflight instead of silent pass-through when pytesseract/Tesseract is unavailable.
+- Phase 21 Plan 01: Markdown and plain-text adapters emit synthetic block IDs as doc_key:source_type:synthetic:0000-style identifiers.
+- Phase 21 Plan 01: Hidden Markdown comments, control characters, local paths, raw parser dumps, and debug payload markers are excluded from ParsedBlock text and represented by safe warning codes.
+- Phase 21 Plan 01: PDF, DOCX, and image source types are allowlisted for registry resolution, but parsing remains fail-closed until later native adapter plans register implementations.
 
 ## Accumulated Context
 
@@ -278,13 +281,14 @@ Items acknowledged and deferred at milestone close on 2026-06-18:
 | 16 | 09 | 24 min | 4 | 14 |
 | 20 | 01 | 1h 10m | 6 | 13 |
 | 21 | 00 | 8m 48s | 3 | 12 |
+| Phase 21 P01 | 12m | 1 tasks | 10 files |
 
 ## Session Continuity
 
-Last session: 2026-06-18T16:54:33Z
-Stopped at: Completed 21-00-PLAN.md
+Last session: 2026-06-18T17:11:21.266Z
+Stopped at: Completed 21-01-PLAN.md
 Resume file: None
-Next: Continue with `21-01-PLAN.md`.
+Next: Continue with `21-01a-PLAN.md`.
 
 **Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17
 **Completed Milestone:** v1.2 Long-term / Case Memory — shipped 2026-06-17
