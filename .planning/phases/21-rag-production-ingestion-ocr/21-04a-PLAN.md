@@ -6,8 +6,7 @@ type: "execute"
 wave: 7
 depends_on: ["21-04"]
 files_modified:
-  - "src/knowledge/retrieval.py"
-  - "src/api/schemas/search.py"
+  - "tests/rag/phase21_xfail_inventory.py"
   - "tests/knowledge/test_phase21_boundaries.py"
   - "tests/knowledge/test_hybrid_retrieval.py"
   - "tests/agent/test_memory_evidence_boundary.py"
@@ -41,13 +40,13 @@ must_haves:
 Prove Phase 21 provenance and parser/OCR metadata remain outside evidence, prompt, memory, action, replay, business, and ranking authority.
 
 Purpose: richer ingestion metadata is safe only if it stays subordinate to canonical evidence and verified maintainer/debug paths.
-Output: boundary regression tests and any narrowly required implementation fixes.
+Output: boundary regression tests and xfail cleanup; production fixes are allowed only if these tests expose an actual Phase 21 metadata leak.
 </objective>
 
 <scope>
-In scope: API/prompt/memory/action/replay boundary tests, Tool System ownership tests, strict Phase 22/23/RAG-5 implementation guards, and v1.3 hybrid retrieval regression.
+In scope: API/prompt/memory/action/replay boundary tests, Tool System ownership tests, precise Phase 22/23/RAG-5 implementation guards, and v1.3 hybrid retrieval regression.
 
-Out of scope: provenance lookup implementation, report projection, user-facing source document viewer/highlight UI, public evidence schema changes, `MaterialClaim`, semantic verifier, query rewrite, reranker, or external search backend.
+Out of scope: provenance lookup implementation, report projection, user-facing source document viewer/highlight UI, public evidence schema changes, `MaterialClaim`, semantic verifier, query rewrite service, reranker service/interface, or external search backend.
 </scope>
 
 <context>
@@ -93,7 +92,7 @@ Out of scope: provenance lookup implementation, report projection, user-facing s
 
 <task type="auto" id="21-04a-01">
   <name>Enforce evidence, prompt, memory, action, replay, business, and retrieval boundaries</name>
-  <files>src/knowledge/retrieval.py, src/api/schemas/search.py, tests/knowledge/test_phase21_boundaries.py, tests/knowledge/test_hybrid_retrieval.py, tests/agent/test_memory_evidence_boundary.py, tests/agent/context/test_assembler.py, tests/agent/test_policy_retrieval_ownership.py</files>
+  <files>tests/rag/phase21_xfail_inventory.py, tests/knowledge/test_phase21_boundaries.py, tests/knowledge/test_hybrid_retrieval.py, tests/agent/test_memory_evidence_boundary.py, tests/agent/context/test_assembler.py, tests/agent/test_policy_retrieval_ownership.py</files>
   <read_first>
     docs/contract-spec.md
     src/knowledge/schemas.py
@@ -104,6 +103,7 @@ Out of scope: provenance lookup implementation, report projection, user-facing s
     src/approvals/snapshots.py
     src/replay/schemas.py
     src/tools/contracts.py
+    tests/rag/phase21_xfail_inventory.py
     tests/knowledge/test_phase21_boundaries.py
     tests/knowledge/test_hybrid_retrieval.py
     tests/agent/test_memory_evidence_boundary.py
@@ -112,10 +112,12 @@ Out of scope: provenance lookup implementation, report projection, user-facing s
   </read_first>
   <action>
     Complete boundary tests so parser/OCR provenance and source-block IDs are excluded from public `EvidenceRefV1`, API evidence serialization, prompt assembly, memory prompt blocks, approval snapshots, action draft authority, replay redacted payload authority, and Tool System business facts.
+    Do not modify `src/knowledge/retrieval.py` or `src/api/schemas/search.py` unless a new boundary test exposes an actual Phase 21 metadata leak. If such a production fix is required, keep it narrowly scoped and record the deviation in `21-04a-SUMMARY.md`.
     Preserve existing Phase 20 hybrid behavior: dense/sparse/fuzzy filters run before candidate contribution, RRF controls ordering, and normalized confidence remains the evidence score.
     Ensure business artifact rejection tests prove orders/refunds/tickets/screenshots/tool results/business fact refs cannot be parsed into policy chunks or `EvidenceRefV1`.
     If any new internal provenance DTO is serialized for reports, mark it maintainer/debug/internal and keep it out of public API evidence response schemas unless the endpoint is tenant-scoped and verified.
-    Remove Wave 0 strict xfail markers for boundary tests this task satisfies.
+    Scope guard assertions must allow current v1.3 `KnowledgeSearchResult.query_rewrite`, `RERANK_CONFIG_VERSION`, `rerank_config_version`, and `rerank_candidates(...)`, while forbidding new Phase 23-style query rewrite services, reranker services/interfaces, cross-encoders, Vespa/OpenSearch, or full external `SearchBackend`.
+    Remove Wave 0 strict xfail markers for boundary tests this task satisfies and remove their entries from `tests/rag/phase21_xfail_inventory.py`.
   </action>
   <verify>
     <automated>uv run pytest tests/knowledge/test_phase21_boundaries.py tests/knowledge/test_hybrid_retrieval.py tests/agent/test_memory_evidence_boundary.py tests/agent/context/test_assembler.py tests/agent/test_policy_retrieval_ownership.py -q</automated>
@@ -123,6 +125,7 @@ Out of scope: provenance lookup implementation, report projection, user-facing s
   <acceptance_criteria>
     Tests fail if `source_block_id`, `DocumentBlock`, parser metadata, OCR metadata, or provenance locator fields are added to `EvidenceRefV1`.
     Prompt/memory/action/replay tests prove hidden prompt injection fixture text and raw parser payloads do not appear in serialized prompt state or authority payloads.
+    Scope guard tests allow current v1.3 query rewrite/rerank compatibility names and fail only on new Phase 23-style implementation deliverables.
     Hybrid retrieval tests from Phase 20 still pass unchanged.
   </acceptance_criteria>
   <done>Boundary regression tests prove provenance metadata stays internal and Phase 20 hybrid retrieval behavior remains unchanged.</done>
@@ -141,7 +144,7 @@ Out of scope: provenance lookup implementation, report projection, user-facing s
 </must_haves>
 
 <out_of_scope>
-No public document viewer/highlight UI, no semantic verifier, no refusal/manual-review answer policy, no query rewrite, no reranker, no cross-encoder, no external backend, and no business fact ingestion into RAG.
+No public document viewer/highlight UI, no semantic verifier, no refusal/manual-review answer policy, no query rewrite service, no reranker service/interface, no cross-encoder, no external backend, and no business fact ingestion into RAG.
 </out_of_scope>
 
 <output>

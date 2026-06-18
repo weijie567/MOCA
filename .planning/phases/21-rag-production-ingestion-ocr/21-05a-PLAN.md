@@ -37,7 +37,7 @@ Output: `.planning/phases/21-rag-production-ingestion-ocr/21-ACCEPTANCE.md`.
 <scope>
 In scope: focused Phase 21 suite, full pytest gate, Ruff gate, threat/requirement coverage evidence, OCR runtime preflight status, migration downgrade/reupgrade status, and final scope-guard confirmation.
 
-Out of scope: new implementation beyond acceptance-record fixes, Phase 22 context builder/hallucination control, Phase 23 reranker/query rewrite, Phase RAG-5 external backend, source document UI, async workers, business data ingestion, and external action execution.
+Out of scope: new implementation beyond acceptance-record fixes, Phase 22 context builder/hallucination control, Phase 23 reranker/query rewrite services, Phase RAG-5 external backend, source document UI, async workers, business data ingestion, and external action execution.
 </scope>
 
 <context>
@@ -56,6 +56,7 @@ Out of scope: new implementation beyond acceptance-record fixes, Phase 22 contex
 @tests/rag/test_ocr_parser.py
 @tests/rag/test_ingestion_safety.py
 @tests/rag/test_ingestion_jobs.py
+@tests/rag/phase21_xfail_inventory.py
 @tests/knowledge/test_provenance_lookup.py
 @tests/knowledge/test_phase21_boundaries.py
 </context>
@@ -102,6 +103,7 @@ Out of scope: new implementation beyond acceptance-record fixes, Phase 22 contex
     tests/rag/test_ocr_parser.py
     tests/rag/test_ingestion_safety.py
     tests/rag/test_ingestion_jobs.py
+    tests/rag/phase21_xfail_inventory.py
     tests/knowledge/test_provenance_lookup.py
     tests/knowledge/test_phase21_boundaries.py
   </read_first>
@@ -110,7 +112,8 @@ Out of scope: new implementation beyond acceptance-record fixes, Phase 22 contex
     `uv run pytest tests/test_ingestion.py tests/test_chunker.py tests/rag tests/knowledge -q`.
     Run the full gate:
     `uv run pytest -q --tb=short` and `uv run ruff check src tests`.
-    Create `.planning/phases/21-rag-production-ingestion-ocr/21-ACCEPTANCE.md` with: requirement coverage for all 26 IDs, threat coverage for T21-01 through T21-08, exact command results, migration downgrade/reupgrade status, OCR runtime preflight status, and explicit confirmation that Phase 22/23/RAG-5 deliverables remain absent.
+    Create `.planning/phases/21-rag-production-ingestion-ocr/21-ACCEPTANCE.md` with: requirement coverage for all 26 IDs, threat coverage for T21-01 through T21-08, exact command results, migration downgrade/reupgrade status, OCR runtime preflight status, Wave 0 xfail inventory status, and explicit confirmation that Phase 22/23/RAG-5 deliverables remain absent.
+    The scope guard evidence must use the precise deliverable patterns from Plans 00/01a/04a/05 and must explicitly allow current v1.3 `KnowledgeSearchResult.query_rewrite`, `RERANK_CONFIG_VERSION`, `rerank_config_version`, `rerank_candidates(...)`, and existing hybrid retrieval tests.
     The acceptance record must list any native OCR dependency skip separately from implementation gaps. If any requirement is not covered by a passing test or explicit dependency skip, mark the phase blocked instead of claiming acceptance.
   </action>
   <verify>
@@ -123,7 +126,8 @@ Out of scope: new implementation beyond acceptance-record fixes, Phase 22 contex
     Focused Phase 21 suite passes.
     Full suite command result is recorded in `21-ACCEPTANCE.md`; if it fails for unrelated pre-existing reasons, record exact failing tests and keep Phase 21 focused suite plus Ruff results separate.
     Ruff passes.
-    Static scope guard confirms no Phase 22/23/RAG-5 deliverables were implemented.
+    `tests/rag/phase21_xfail_inventory.py` has no implementation-pending owner entries and `rg -n "target code absent|owner_task=21-|xfail" tests/rag tests/knowledge tests/test_ingestion.py tests/test_rag_production_migration.py` shows no implementation-pending xfails.
+    Static scope guard confirms no Phase 22/23/RAG-5 deliverables were implemented while current v1.3 query rewrite/rerank compatibility names remain allowed.
   </acceptance_criteria>
   <done>Focused suite, full-suite result, Ruff, requirement coverage, threat coverage, and scope guard status are captured in `21-ACCEPTANCE.md`.</done>
 </task>
@@ -145,7 +149,7 @@ Lint gate: `uv run ruff check src tests`
 </must_haves>
 
 <out_of_scope>
-No `MaterialClaim`, semantic verifier, runtime hallucination control, conflict/freshness routing, refusal/manual-review answer policy, query rewrite, reranker interface/API, cross-encoder, Vespa, OpenSearch, full external `SearchBackend`, source document UI/CMS, real external action execution, or business data ingestion into RAG.
+No `MaterialClaim`, semantic verifier, runtime hallucination control, conflict/freshness routing, refusal/manual-review answer policy, query rewrite service, reranker service/interface/API, cross-encoder, Vespa, OpenSearch, full external `SearchBackend`, source document UI/CMS, real external action execution, or business data ingestion into RAG.
 </out_of_scope>
 
 <output>
