@@ -12,9 +12,9 @@ Committed scope for the active v1.4 milestone. All requirements map to Phase 21.
 
 - [x] **SRC-01**: Policy ingestion can route Markdown/plain text, PDF, DOCX, and image policy sources through a parser registry with project-owned parser DTOs rather than parser-library-native objects.
 - [x] **SRC-02**: Parser outputs include deterministic block order, visible text, normalized text, block type, parser name/version, source type, warnings, and safe failure codes.
-- [ ] **SRC-03**: PDF ingestion extracts page-aware text blocks and table/cell metadata when available, and scanned PDF pages can fall back to local OCR without changing the retrieval runtime path.
-- [ ] **SRC-04**: DOCX ingestion extracts paragraphs, headings, and tables as logical source blocks without fabricating page or bbox metadata.
-- [ ] **SRC-05**: Image ingestion runs local OCR and emits text, bbox, language, engine/version, timeout/error status, and confidence metadata.
+- [x] **SRC-03**: PDF ingestion extracts page-aware text blocks and table/cell metadata when available, and scanned PDF pages can fall back to local OCR without changing the retrieval runtime path.
+- [x] **SRC-04**: DOCX ingestion extracts paragraphs, headings, and tables as logical source blocks without fabricating page or bbox metadata.
+- [x] **SRC-05**: Image ingestion runs local OCR and emits text, bbox, language, engine/version, timeout/error status, and confidence metadata.
 
 ### Source Provenance
 
@@ -33,9 +33,9 @@ Committed scope for the active v1.4 milestone. All requirements map to Phase 21.
 ### OCR Quality & Safety
 
 - [x] **OCR-01**: OCR confidence is stored at source-block level and propagated to chunk metadata without replacing `EvidenceRefV1.score` or `KnowledgeSearchResult.best_score`.
-- [ ] **OCR-02**: Low-confidence OCR blocks are rejected, quarantined, or marked review-needed according to deterministic thresholds covered by high-confidence, low-confidence, noisy, and mixed-language fixtures.
+- [x] **OCR-02**: Low-confidence OCR blocks are rejected, quarantined, or marked review-needed according to deterministic thresholds covered by high-confidence, low-confidence, noisy, and mixed-language fixtures.
 - [x] **SAFE-01**: Ingestion validates source type, extension/signature, file size, page count, image dimensions, decompression/zip-style hazards, parser timeouts, and malformed-file behavior with safe failed reports.
-- [ ] **SAFE-02**: Parser/OCR text is treated as untrusted external content; hidden prompt-injection text, comments, raw payloads, parser dumps, file bytes, and unsafe paths do not enter prompts, API evidence output, memory, action snapshots, or replay payloads.
+- [x] **SAFE-02**: Parser/OCR text is treated as untrusted external content; hidden prompt-injection text, comments, raw payloads, parser dumps, file bytes, and unsafe paths do not enter prompts, API evidence output, memory, action snapshots, or replay payloads.
 - [x] **SAFE-03**: Policy source ingestion rejects business artifacts such as orders, refunds, tickets, screenshots, tool results, or business fact refs so Tool System facts cannot become policy chunks or `EvidenceRefV1`.
 
 ### Ingestion Trace & Rollback
@@ -93,25 +93,25 @@ Tracked but not in the active v1.4 roadmap.
 |-------------|-------|--------|
 | SRC-01 | Phase 21 | Complete |
 | SRC-02 | Phase 21 | Complete |
-| SRC-03 | Phase 21 | Pending |
-| SRC-04 | Phase 21 | Pending |
-| SRC-05 | Phase 21 | Pending |
+| SRC-03 | Phase 21 | Complete |
+| SRC-04 | Phase 21 | Complete |
+| SRC-05 | Phase 21 | Complete |
 | PROV-01 | Phase 21 | Complete |
 | PROV-02 | Phase 21 | Pending |
 | PROV-03 | Phase 21 | Pending |
 | PROV-04 | Phase 21 | Complete |
 | CHUNK-01 | Phase 21 | Pending |
-| CHUNK-02 | Phase 21 | Pending |
+| CHUNK-02 | Phase 21 | Complete |
 | CHUNK-03 | Phase 21 | Pending |
 | CHUNK-04 | Phase 21 | Pending |
 | OCR-01 | Phase 21 | Complete |
-| OCR-02 | Phase 21 | Pending |
+| OCR-02 | Phase 21 | Complete |
 | SAFE-01 | Phase 21 | Complete |
-| SAFE-02 | Phase 21 | Pending |
+| SAFE-02 | Phase 21 | Complete |
 | SAFE-03 | Phase 21 | Complete |
 | INGEST-01 | Phase 21 | Complete |
 | INGEST-02 | Phase 21 | Pending |
-| INGEST-03 | Phase 21 | Pending |
+| INGEST-03 | Phase 21 | Complete |
 | INGEST-04 | Phase 21 | Complete |
 | BOUNDARY-01 | Phase 21 | Complete |
 | BOUNDARY-02 | Phase 21 | Pending |
