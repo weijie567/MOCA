@@ -8,12 +8,29 @@ import pytest
 
 from src.rag.ingestion import IngestionService
 from src.rag.parsers.base import ParsedBlock, ParseResult, safe_failed_result
-from tests.rag.phase21_xfail_inventory import xfail_for
 
 
 PARSER_TIMEOUT_SECONDS = 30
 OCR_TIMEOUT_SECONDS_PER_PAGE = 15
 SAFE_JOB_STATUSES = {"pending", "success", "failed", "review_needed", "rejected"}
+ALLOWED_REPORT_FIELDS = {
+    "job_id",
+    "doc_key",
+    "source_type",
+    "source_checksum",
+    "parser_name",
+    "parser_version",
+    "ocr_engine",
+    "stage",
+    "status",
+    "error_code",
+    "safe_message",
+    "warnings",
+    "counts",
+    "timings",
+    "started_at",
+    "completed_at",
+}
 FORBIDDEN_REPORT_TERMS = (
     "/Users/ming/private/policy.pdf",
     "Traceback (most recent call last)",
@@ -374,29 +391,41 @@ async def test_db_unavailable_early_failure_returns_safe_report_without_persiste
     assert service.doc_repo.locked is False
 
 
-@xfail_for("21-04-02/safe-job-report")
 def test_safe_job_report_includes_status_warnings_counts_timings_and_timeout_limits() -> None:
-    from src.rag.ingestion_reports import build_safe_ingestion_report
+    from src.rag.ingestion import build_safe_ingestion_report
 
     report = build_safe_ingestion_report(
         {
+            "job_id": "job-001",
+            "doc_key": "refund_policy",
+            "source_type": "policy_image",
+            "source_checksum": "sha256:abc",
+            "parser_name": "fake_ocr",
+            "parser_version": "1.0",
+            "ocr_engine": "tesseract",
+            "stage": "parsing",
             "status": "review_needed",
+            "error_code": None,
+            "safe_message": "OCR confidence requires review.",
             "warnings": [{"code": "ocr_confidence_review_needed"}],
             "counts": {"pages": 12, "blocks": 42, "chunks": 7},
             "timings": {"parse_ms": 1200, "ocr_ms": OCR_TIMEOUT_SECONDS_PER_PAGE * 1000},
             "limits": {"parser_timeout_seconds": PARSER_TIMEOUT_SECONDS},
+            "raw_payload": {"stack_trace": "Traceback (most recent call last)"},
         }
     )
 
+    assert set(report) == ALLOWED_REPORT_FIELDS
     assert report["status"] in SAFE_JOB_STATUSES
     assert report["warnings"][0]["code"] == "ocr_confidence_review_needed"
     assert report["counts"] == {"pages": 12, "blocks": 42, "chunks": 7}
     assert report["timings"]["parse_ms"] == 1200
+    assert "limits" not in report
+    assert "raw_payload" not in repr(report)
 
 
-@xfail_for("21-04-02/raw-payload-report-boundary")
 def test_sanitized_failure_reasons_forbid_raw_paths_stack_traces_bytes_and_parser_dumps() -> None:
-    from src.rag.ingestion_reports import sanitize_failure_reason
+    from src.rag.ingestion import sanitize_failure_reason
 
     unsafe_reason = {
         "path": "/Users/ming/private/policy.pdf",
@@ -409,5 +438,6 @@ def test_sanitized_failure_reasons_forbid_raw_paths_stack_traces_bytes_and_parse
     serialized = repr(safe_reason)
 
     assert safe_reason["failure_code"] == "parser_failed"
+    assert safe_reason["safe_message"]
     for term in FORBIDDEN_REPORT_TERMS:
         assert term not in serialized
