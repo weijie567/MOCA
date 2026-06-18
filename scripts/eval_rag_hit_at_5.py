@@ -77,8 +77,9 @@ def _record_category(per_category: dict[str, dict[str, int]], category: str, hit
 
 
 def _ranked_evidence(result: RetrievalResult) -> list[dict[str, object]]:
-    return [
-        {
+    rows: list[dict[str, object]] = []
+    for rank, evidence in enumerate(result.evidence, start=1):
+        row: dict[str, object] = {
             "rank": rank,
             "doc_key": evidence.doc_key,
             "chunk_id": evidence.chunk_id,
@@ -86,8 +87,15 @@ def _ranked_evidence(result: RetrievalResult) -> list[dict[str, object]]:
             "score": evidence.score,
             "text_snippet": evidence.text,
         }
-        for rank, evidence in enumerate(result.evidence, start=1)
-    ]
+        selected_by = getattr(evidence, "selected_by", None)
+        if selected_by:
+            row["selected_by"] = list(selected_by)
+        for attr in ("dense_rank", "sparse_rank", "fuzzy_rank", "rrf_score"):
+            value = getattr(evidence, attr, None)
+            if value is not None:
+                row[attr] = value
+        rows.append(row)
+    return rows
 
 
 def _score_case(case: dict[str, Any], result: RetrievalResult) -> dict[str, Any]:
@@ -149,6 +157,11 @@ async def _search_policy(
                 section=hit.section,
                 score=hit.score,
                 text=hit.text[:300],
+                selected_by=list(hit.selected_by) if hit.selected_by else None,
+                dense_rank=hit.dense_rank,
+                sparse_rank=hit.sparse_rank,
+                fuzzy_rank=hit.fuzzy_rank,
+                rrf_score=hit.rrf_score,
             )
             for hit in hits
         ],

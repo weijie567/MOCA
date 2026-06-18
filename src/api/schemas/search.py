@@ -10,6 +10,11 @@ class EvidenceItem(BaseModel):
     section: str
     score: float = Field(ge=0.0, le=1.0)
     text: str
+    selected_by: list[str] | None = Field(default=None, exclude=True)
+    dense_rank: int | None = Field(default=None, exclude=True)
+    sparse_rank: int | None = Field(default=None, exclude=True)
+    fuzzy_rank: int | None = Field(default=None, exclude=True)
+    rrf_score: float | None = Field(default=None, exclude=True)
 
 
 class RetrievalResult(BaseModel):

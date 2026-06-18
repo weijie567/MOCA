@@ -25,6 +25,11 @@ def _evidence(
     section: str = "七天无理由退货退款",
     score: float = 0.82,
     text: str = "消费者在签收商品后七个自然日内申请退货退款，且商品保持完好。",
+    selected_by: list[str] | None = None,
+    dense_rank: int | None = None,
+    sparse_rank: int | None = None,
+    fuzzy_rank: int | None = None,
+    rrf_score: float | None = None,
 ) -> EvidenceItem:
     return EvidenceItem(
         doc_key=doc_key,
@@ -33,6 +38,11 @@ def _evidence(
         section=section,
         score=score,
         text=text,
+        selected_by=selected_by,
+        dense_rank=dense_rank,
+        sparse_rank=sparse_rank,
+        fuzzy_rank=fuzzy_rank,
+        rrf_score=rrf_score,
     )
 
 
@@ -113,6 +123,28 @@ def test_ranked_evidence_preserves_retriever_order_and_text_snippets():
             "text_snippet": "第一条证据",
         },
     ]
+
+
+def test_ranked_evidence_includes_optional_hybrid_trace_without_business_facts():
+    rows = _ranked_evidence(
+        _result(
+            evidence=[
+                _evidence(
+                    selected_by=["sparse", "fuzzy"],
+                    sparse_rank=1,
+                    fuzzy_rank=1,
+                    rrf_score=0.0328,
+                )
+            ]
+        )
+    )
+
+    assert rows[0]["selected_by"] == ["sparse", "fuzzy"]
+    assert rows[0]["sparse_rank"] == 1
+    assert rows[0]["fuzzy_rank"] == 1
+    assert rows[0]["rrf_score"] == 0.0328
+    assert "business_fact_refs" not in rows[0]
+    assert "EvidenceRefV1" not in rows[0]
 
 
 def test_eval_parser_keeps_official_top5_and_allows_diagnostic_depth():
