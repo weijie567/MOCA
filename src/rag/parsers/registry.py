@@ -42,6 +42,7 @@ class ParserRegistry:
             self.register("policy_markdown", MarkdownParserAdapter())
             self.register("policy_plain_text", PlainTextParserAdapter())
             self.register("policy_text", PlainTextParserAdapter())
+            self._register_native_adapters()
 
     def register(self, source_type: str, adapter: ParserAdapter) -> None:
         route = _ROUTES.get(source_type)
@@ -92,3 +93,12 @@ class ParserRegistry:
             )
 
         return adapter.parse(path, doc_key=doc_key, source_type=route.source_type, metadata=metadata)
+
+    def _register_native_adapters(self) -> None:
+        from src.rag.parsers.docx import DocxParser
+        from src.rag.parsers.image import ImageOcrParser
+        from src.rag.parsers.pdf import PdfParser
+
+        self.register("policy_pdf", PdfParser())
+        self.register("policy_docx", DocxParser())
+        self.register("policy_image", ImageOcrParser())

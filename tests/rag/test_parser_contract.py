@@ -19,6 +19,19 @@ def test_parser_registry_routes_only_allowlisted_policy_source_types() -> None:
     assert registry.resolve("policy_pdf", ".md") is None
 
 
+def test_parser_registry_registers_native_adapters_by_default() -> None:
+    from src.rag.parsers.docx import DocxParser
+    from src.rag.parsers.image import ImageOcrParser
+    from src.rag.parsers.pdf import PdfParser
+    from src.rag.parsers.registry import ParserRegistry
+
+    registry = ParserRegistry()
+
+    assert isinstance(registry._adapters["policy_pdf"], PdfParser)
+    assert isinstance(registry._adapters["policy_docx"], DocxParser)
+    assert isinstance(registry._adapters["policy_image"], ImageOcrParser)
+
+
 def test_parse_result_exposes_project_owned_deterministic_output_fields() -> None:
     parser_base = import_module("src.rag.parsers.base")
 

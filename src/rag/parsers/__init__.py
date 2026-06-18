@@ -5,7 +5,10 @@ from src.rag.parsers.base import (
     ParserWarning,
     SourceBox,
 )
+from src.rag.parsers.docx import DocxParser
+from src.rag.parsers.image import ImageOcrParser
 from src.rag.parsers.markdown import MarkdownParserAdapter
+from src.rag.parsers.pdf import PdfParser
 from src.rag.parsers.plain_text import PlainTextParserAdapter
 from src.rag.parsers.registry import ParserAdapter, ParserRegistry, ParserRoute
 from src.rag.parsers.safety import (
@@ -38,6 +41,9 @@ __all__ = [
     "ParserRoute",
     "ParserWarning",
     "PlainTextParserAdapter",
+    "DocxParser",
+    "ImageOcrParser",
+    "PdfParser",
     "SourceBox",
     "reject_business_artifact_source",
     "validate_policy_source",
