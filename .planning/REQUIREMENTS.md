@@ -20,7 +20,7 @@ Committed scope for the active v1.4 milestone. All requirements map to Phase 21.
 
 - [x] **PROV-01**: The database stores durable `DocumentBlock` or equivalent source-block rows scoped by tenant and policy document, with stable source block IDs, block index, block type, text hash, page number, bbox, table/cell metadata, parser metadata, and OCR metadata.
 - [x] **PROV-02**: Every parser/OCR-derived `PolicyChunk` stores ordered source-block provenance so source page, bbox, table row/cell, and OCR confidence metadata can be resolved after retrieval.
-- [ ] **PROV-03**: Source-location metadata is exposed only through a verified tenant-scoped provenance lookup that first validates the canonical evidence content/hash.
+- [x] **PROV-03**: Source-location metadata is exposed only through a verified tenant-scoped provenance lookup that first validates the canonical evidence content/hash.
 - [x] **PROV-04**: `DocumentBlock` and source-block IDs cannot act as standalone policy evidence, approval evidence, memory authority, action authority, replay truth, or business facts.
 
 ### Chunking & Search Text
@@ -98,7 +98,7 @@ Tracked but not in the active v1.4 roadmap.
 | SRC-05 | Phase 21 | Complete |
 | PROV-01 | Phase 21 | Complete |
 | PROV-02 | Phase 21 | Pending |
-| PROV-03 | Phase 21 | Pending |
+| PROV-03 | Phase 21 | Complete |
 | PROV-04 | Phase 21 | Complete |
 | CHUNK-01 | Phase 21 | Pending |
 | CHUNK-02 | Phase 21 | Complete |
