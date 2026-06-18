@@ -4,11 +4,6 @@ import pytest
 
 
 PHASE21_XFAIL_OWNERS: dict[str, str] = {
-    "21-01-01/parser-registry": "21-01-01",
-    "21-01-01/parser-dto": "21-01-01",
-    "21-01-01/parser-failure-codes": "21-01-01",
-    "21-01-01/source-guards": "21-01-01",
-    "21-01-01/business-artifact-guard": "21-01-01",
     "21-01a-01/source-block-schema": "21-01a-01",
     "21-01a-01/ingestion-job-schema": "21-01a-01",
     "21-01a-01/chunk-source-block-refs": "21-01a-01",
@@ -40,4 +35,3 @@ def xfail_for(marker_id: str) -> pytest.MarkDecorator:
         strict=True,
         reason=f"phase21 owner_task={owner_task} target code absent",
     )
-
