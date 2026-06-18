@@ -67,6 +67,16 @@ FORBIDDEN_REDACTED_PAYLOAD_KEYS: set[str] = {
     "credential",
     "credentials",
     "pii",
+    "source_block_id",
+    "source_block_ids",
+    "document_block_id",
+    "parser_metadata_json",
+    "ocr_metadata_json",
+    "rag_ingestion_job_id",
+    "ingestion_job_id",
+    "raw_parser_payload",
+    "parser_dump",
+    "hidden_text",
 }
 
 

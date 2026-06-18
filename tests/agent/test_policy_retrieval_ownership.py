@@ -11,16 +11,18 @@ the durable re-verification contract.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import pytest
+from pydantic import ValidationError
 
 from src.agent.nodes import investigate as investigate_module
 from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
-from src.knowledge.schemas import KnowledgeSearchResult
+from src.knowledge.schemas import EvidenceRefV1, KnowledgeSearchResult
 from src.memory.schemas import CaseMemorySearchItem, CaseMemorySearchResult
 from src.tools.catalog import ToolCatalog
-from src.tools.contracts import ToolCallContext, ToolResultV2
+from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolResultV2
 from src.tools.executors.memory import MemoryToolExecutor
 
 
@@ -48,6 +50,18 @@ def _base_state() -> dict:
         "user_query": "订单 ORD-001 为什么还没退款？",
         "current_intent": "refund_troubleshooting",
     }
+
+
+def _business_fact_ref(resource_type: str, resource_id: str) -> BusinessFactRefV1:
+    return BusinessFactRefV1(
+        tenant_id="11111111-1111-1111-1111-111111111111",
+        source_system="moca",
+        resource_type=resource_type,
+        resource_id=resource_id,
+        resource_version=None,
+        data_freshness_at=None,
+        retrieved_at=datetime.now(UTC),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +231,38 @@ class TestPolicyRetrievalOwnership:
         assert result.data["items"][0]["case_memory_id"] == "case-memory-1"
         assert "reviewed case memory" in result.summary
         assert service.requests[0].tenant_id.hex == "11111111111111111111111111111111"
+
+    @pytest.mark.parametrize(
+        ("resource_type", "resource_id"),
+        [
+            ("order", "ORD-001"),
+            ("refund_case", "RF-001"),
+            ("ticket", "TK-001"),
+        ],
+    )
+    def test_business_fact_refs_are_not_policy_evidence_refs(self, resource_type: str, resource_id: str):
+        business_ref = _business_fact_ref(resource_type, resource_id)
+
+        with pytest.raises(ValidationError):
+            EvidenceRefV1.model_validate(business_ref.model_dump(mode="json"))
+
+        result = ToolResultV2(
+            status="success",
+            data={"id": resource_id, "status": "loaded"},
+            summary="business fact loaded",
+            source_system="business_tool_service",
+            data_freshness_at=None,
+            policy_evidence_refs=[],
+            business_fact_refs=[business_ref],
+            error=None,
+            retryable=False,
+            retry_after_ms=None,
+            latency_ms=1,
+            audit_ref=None,
+        )
+
+        assert result.policy_evidence_refs == []
+        assert result.business_fact_refs == [business_ref]
 
 
 # ---------------------------------------------------------------------------
