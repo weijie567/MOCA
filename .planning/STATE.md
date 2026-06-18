@@ -29,7 +29,7 @@ Phase: 20 (rag-hybrid-retrieval) — COMPLETE / READY TO VERIFY
 Plan: `.planning/phases/20-rag-hybrid-retrieval/20-01-postgres-hybrid-retrieval-SUMMARY.md`
 Plans: 1/1 complete
 Status: PostgreSQL hybrid retrieval implementation complete; `uv run pytest -q` passed with 1002 tests
-Last activity: 2026-06-18 -- Phase 20 implementation and summary completed
+Last activity: 2026-06-18 -- Phase 20 implementation, summary, and local fallback code review completed
 
 Progress: [██████████] 100%
 
@@ -39,6 +39,7 @@ Planning files:
 - `20-01-postgres-hybrid-retrieval-SUMMARY.md`
 - `20-CONTEXT.md`
 - `20-RESEARCH.md`
+- `20-REVIEW.md`
 - `20-VALIDATION.md`
 
 ## Completed Baseline

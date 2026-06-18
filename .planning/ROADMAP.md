@@ -104,7 +104,7 @@
 
 ## Current Status
 
-v1.3 Phase 20 implementation is complete and ready for GSD verification. The retrieval slice adds policy chunk `search_text` / generated `search_vector`, PostgreSQL full-text and pg_trgm retrieval channels, RRF fusion, internal hybrid trace, and focused eval diagnostics while preserving `EvidenceRefV1` and Tool System boundaries.
+v1.3 Phase 20 implementation is complete and ready for GSD verification. The retrieval slice adds policy chunk `search_text` / generated `search_vector`, PostgreSQL full-text and pg_trgm retrieval channels, RRF fusion, internal hybrid trace, and focused eval diagnostics while preserving `EvidenceRefV1` and Tool System boundaries. Local fallback code review found no issues; interactive UAT remains pending.
 
 ## Next Step
 
