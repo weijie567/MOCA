@@ -15,12 +15,18 @@ from src.knowledge.config import (
 )
 from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext
 from src.rag.embedder import EmbeddingService
+from src.rag.search_text import build_policy_chunk_search_text
 from src.repositories.policy_chunk_repo import PolicyChunkRepository
 
 
 QUERY_PREFIX = "电商售后政策查询: "
 INTERNAL_SEARCH_THRESHOLD = 0.40
 CANDIDATE_MULTIPLIER = 4
+SPARSE_CANDIDATE_TOP_K = 50
+FUZZY_CANDIDATE_TOP_K = 20
+FUZZY_MIN_SIMILARITY = 0.10
+RRF_K = 60
+SPARSE_SCORE_SCALE = 0.20
 TITLE_SECTION_BOOST = 0.12
 CONTENT_OVERLAP_BOOST = 0.08
 RETRIEVAL_TIMEOUT_SECONDS = 15.0
@@ -107,6 +113,87 @@ class PolicyRetrievalHit:
     text: str
     score: float
     rank: int
+    selected_by: tuple[str, ...] = ()
+    dense_rank: int | None = None
+    sparse_rank: int | None = None
+    fuzzy_rank: int | None = None
+    rrf_score: float | None = None
+    filter_status: str = "passed"
+
+
+@dataclass
+class _FusedCandidate:
+    chunk: object
+    dense_score: float | None = None
+    sparse_score: float | None = None
+    fuzzy_score: float | None = None
+    dense_rank: int | None = None
+    sparse_rank: int | None = None
+    fuzzy_rank: int | None = None
+    rrf_score: float = 0.0
+
+    @property
+    def selected_by(self) -> tuple[str, ...]:
+        channels: list[str] = []
+        if self.dense_rank is not None:
+            channels.append("dense")
+        if self.sparse_rank is not None:
+            channels.append("sparse")
+        if self.fuzzy_rank is not None:
+            channels.append("fuzzy")
+        return tuple(channels)
+
+    @property
+    def confidence(self) -> float:
+        scores = []
+        if self.dense_score is not None:
+            scores.append(_clamp_score(self.dense_score))
+        if self.sparse_score is not None:
+            scores.append(normalize_sparse_score(self.sparse_score))
+        if self.fuzzy_score is not None:
+            scores.append(_clamp_score(self.fuzzy_score))
+        return max(scores, default=0.0)
+
+
+def normalize_sparse_score(raw_score: float) -> float:
+    return _clamp_score(raw_score / SPARSE_SCORE_SCALE)
+
+
+def rrf_fuse_candidates(
+    channel_results: dict[str, list[tuple[object, float]]],
+) -> list[_FusedCandidate]:
+    candidates: dict[tuple[str, str, str], _FusedCandidate] = {}
+
+    for channel, results in channel_results.items():
+        seen_in_channel: set[tuple[str, str, str]] = set()
+        for rank, (chunk, raw_score) in enumerate(results, start=1):
+            key = _candidate_key(chunk)
+            if key in seen_in_channel:
+                continue
+            seen_in_channel.add(key)
+
+            candidate = candidates.setdefault(key, _FusedCandidate(chunk=chunk))
+            score = float(raw_score or 0.0)
+            if channel == "dense":
+                candidate.dense_rank = rank
+                candidate.dense_score = score
+            elif channel == "sparse":
+                candidate.sparse_rank = rank
+                candidate.sparse_score = score
+            elif channel == "fuzzy":
+                candidate.fuzzy_rank = rank
+                candidate.fuzzy_score = score
+            candidate.rrf_score += 1 / (RRF_K + rank)
+
+    return sorted(
+        candidates.values(),
+        key=lambda candidate: (
+            -candidate.rrf_score,
+            -candidate.confidence,
+            str(candidate.chunk.document.doc_key),
+            str(candidate.chunk.chunk_id),
+        ),
+    )
 
 
 class PolicyRetrievalEngine:
@@ -202,7 +289,8 @@ class PolicyRetrievalEngine:
         effective_date = effective_at.date()
         limit = max(max_results, 1)
         query_embedding = await self.embedder.embed_query(f"{QUERY_PREFIX}{query}")
-        raw_results = await self.chunk_repo.search_similar(
+        query_search_text = build_policy_chunk_search_text(title="", section="", content=query)
+        dense_raw_results = await self.chunk_repo.search_similar(
             query_embedding=query_embedding,
             tenant_id=UUID(context.tenant_id),
             top_k=max(limit * CANDIDATE_MULTIPLIER, limit),
@@ -211,39 +299,69 @@ class PolicyRetrievalEngine:
             risk_level=risk_level,
             effective_date=effective_date,
         )
+        sparse_raw_results = await _call_optional_channel(
+            self.chunk_repo,
+            "search_sparse",
+            query_text=query_search_text,
+            tenant_id=UUID(context.tenant_id),
+            top_k=SPARSE_CANDIDATE_TOP_K,
+            doc_type=doc_type,
+            risk_level=risk_level,
+            effective_date=effective_date,
+        )
+        fuzzy_raw_results = await _call_optional_channel(
+            self.chunk_repo,
+            "search_fuzzy",
+            query_text=query_search_text,
+            tenant_id=UUID(context.tenant_id),
+            top_k=FUZZY_CANDIDATE_TOP_K,
+            min_similarity=FUZZY_MIN_SIMILARITY,
+            doc_type=doc_type,
+            risk_level=risk_level,
+            effective_date=effective_date,
+        )
 
-        effective_results = [
-            (chunk, score)
-            for chunk, score in raw_results
-            if _chunk_effective_date(chunk) is None or _chunk_effective_date(chunk) <= effective_date
-        ]
-        reranked_results = [
-            (chunk, score)
-            for chunk, score in rerank_candidates(query, effective_results)
-            if score >= MIN_SIMILARITY_THRESHOLD
+        dense_results = rerank_candidates(query, _filter_effective_results(dense_raw_results, effective_date))
+        sparse_results = _filter_effective_results(sparse_raw_results, effective_date)
+        fuzzy_results = _filter_effective_results(fuzzy_raw_results, effective_date)
+        fused_results = [
+            candidate
+            for candidate in rrf_fuse_candidates(
+                {
+                    "dense": dense_results,
+                    "sparse": sparse_results,
+                    "fuzzy": fuzzy_results,
+                }
+            )
+            if candidate.confidence >= MIN_SIMILARITY_THRESHOLD
         ]
         if has_domain_anchor(query):
-            results = reranked_results[:limit]
+            results = fused_results[:limit]
         else:
             terms = query_terms(query)
             results = [
-                (chunk, score)
-                for chunk, score in reranked_results
-                if score >= STRONG_EVIDENCE_THRESHOLD and has_candidate_overlap(terms, chunk)
+                candidate
+                for candidate in fused_results
+                if candidate.confidence >= STRONG_EVIDENCE_THRESHOLD and has_candidate_overlap(terms, candidate.chunk)
             ][:limit]
 
         hits = [
             PolicyRetrievalHit(
-                doc_key=str(chunk.document.doc_key),
-                chunk_id=chunk.chunk_id,
-                title=str(chunk.document.title),
-                section=str(chunk.section),
-                policy_version=f"v{getattr(chunk.document, 'version', 1)}",
-                text=chunk.content,
-                score=score,
+                doc_key=str(candidate.chunk.document.doc_key),
+                chunk_id=candidate.chunk.chunk_id,
+                title=str(candidate.chunk.document.title),
+                section=str(candidate.chunk.section),
+                policy_version=_policy_version(candidate.chunk),
+                text=candidate.chunk.content,
+                score=candidate.confidence,
                 rank=rank,
+                selected_by=candidate.selected_by,
+                dense_rank=candidate.dense_rank,
+                sparse_rank=candidate.sparse_rank,
+                fuzzy_rank=candidate.fuzzy_rank,
+                rrf_score=candidate.rrf_score,
             )
-            for rank, (chunk, score) in enumerate(results, start=1)
+            for rank, candidate in enumerate(results, start=1)
         ]
         best_score = max((hit.score for hit in hits), default=0.0)
         if not hits or best_score < MIN_SIMILARITY_THRESHOLD:
@@ -264,3 +382,37 @@ def _chunk_effective_date(chunk: object) -> date | None:
     if isinstance(value, date):
         return value
     return None
+
+
+def _filter_effective_results(
+    raw_results: list[tuple[object, float]],
+    effective_date: date,
+) -> list[tuple[object, float]]:
+    return [
+        (chunk, score)
+        for chunk, score in raw_results
+        if _chunk_effective_date(chunk) is None or _chunk_effective_date(chunk) <= effective_date
+    ]
+
+
+async def _call_optional_channel(
+    repo: object,
+    method_name: str,
+    **kwargs,
+) -> list[tuple[object, float]]:
+    method = getattr(repo, method_name, None)
+    if method is None:
+        return []
+    return await method(**kwargs)
+
+
+def _candidate_key(chunk: object) -> tuple[str, str, str]:
+    return (str(chunk.document.doc_key), str(chunk.chunk_id), _policy_version(chunk))
+
+
+def _policy_version(chunk: object) -> str:
+    return f"v{getattr(chunk.document, 'version', 1)}"
+
+
+def _clamp_score(value: float) -> float:
+    return min(max(float(value), 0.0), 1.0)
