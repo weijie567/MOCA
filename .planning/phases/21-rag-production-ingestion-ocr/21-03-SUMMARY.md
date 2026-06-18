@@ -17,6 +17,7 @@ tech-stack:
   added: [pdfplumber==0.11.10, pypdfium2==5.10.1, python-docx==1.2.0, pytesseract==0.3.13, Pillow==12.2.0, filetype==1.2.0, tesseract-ocr-chi-sim, tesseract-ocr-eng]
   patterns:
     - "Native parser libraries are wrapped behind project-owned DTO adapters"
+    - "Default ParserRegistry registers Markdown, plain text, PDF, DOCX, and image adapters."
     - "OCR confidence remains source-block metadata and never replaces retrieval confidence"
     - "File validation fails closed before native parser execution"
 key-files:
@@ -31,6 +32,8 @@ key-files:
     - "uv.lock"
     - "Dockerfile"
     - "src/rag/parsers/safety.py"
+    - "src/rag/parsers/registry.py"
+    - "src/rag/parsers/__init__.py"
     - "tests/rag/phase21_xfail_inventory.py"
     - "tests/rag/test_ingestion_safety.py"
     - "tests/rag/test_ocr_parser.py"
@@ -41,7 +44,7 @@ key-decisions:
   - "Use exact parser/OCR pins as a Phase 21 local ingestion reproducibility exception."
   - "Mock native OCR availability in tests while preflight returns deterministic chi_sim/eng/executable failure states."
   - "Store OCR confidence only in block/chunk metadata; retrieval score contracts remain unchanged."
-  - "Do not edit ParserRegistry wiring in this plan because registry.py was outside the explicit 21-03 write scope."
+  - "Wire native adapters into the default ParserRegistry so IngestionService can auto-route PDF/DOCX/image sources."
 patterns-established:
   - "Adapters sanitize visible parser text before building ParsedBlock text/normalized_text."
   - "Scanned PDF fallback reuses OcrEngine and converts OCR pixel boxes back to PDF page coordinates."
@@ -67,6 +70,7 @@ completed: "2026-06-19"
 - Added exact local parser/OCR pins, refreshed `uv.lock`, and installed native Tesseract plus Simplified Chinese/English language packages in Docker.
 - Implemented OCR preflight, deadline helpers, and file validation for source signatures, oversize files, PDF page count, image dimensions, DOCX zip hazards, malformed files, and business artifact rejection.
 - Added `OcrEngine`, `ImageOcrParser`, `PdfParser`, and `DocxParser` adapters that emit project-owned `ParseResult`/`ParsedBlock` DTOs only.
+- Wired `PdfParser`, `DocxParser`, and `ImageOcrParser` into the default `ParserRegistry()` after orchestrator review found the adapters were implemented but not auto-routed.
 - Preserved OCR confidence as metadata only and extended retrieval tests to prove `EvidenceRefV1.score` and best-score behavior remain retrieval-owned.
 
 ## Task Commits
@@ -76,6 +80,7 @@ completed: "2026-06-19"
 3. **Task 21-03-02 GREEN: Image OCR adapter** - `df58d5d` (feat)
 4. **Task 21-03-03 RED: PDF/DOCX adapter coverage** - `cc2bca8` (test)
 5. **Task 21-03-03 GREEN: PDF/DOCX adapters** - `d3378ac` (feat)
+6. **Orchestrator correction: Native adapter registry wiring** - `24eb889` (fix)
 
 ## Files Created/Modified
 
@@ -85,6 +90,8 @@ completed: "2026-06-19"
 - `src/rag/parsers/image.py` - Image validation plus OCR adapter.
 - `src/rag/parsers/pdf.py` - PDF text/table parser and scanned-page OCR fallback.
 - `src/rag/parsers/docx.py` - DOCX logical heading, paragraph, and table parser.
+- `src/rag/parsers/registry.py` - default registry now registers PDF, DOCX, and image adapters.
+- `src/rag/parsers/__init__.py` - exports native adapters from the parser package.
 - Parser/safety/retrieval tests - Fixture and mocked-runtime coverage for the adapter contract.
 
 ## Decisions Made
@@ -95,24 +102,25 @@ completed: "2026-06-19"
 
 ## Deviations from Plan
 
-### Scope-Constrained Adjustment
+### Resolved Corrective Action
 
-**1. Registry factory wiring not changed**
+**1. Registry factory wiring was initially missing**
 - **Found during:** Task 21-03-03
-- **Issue:** The task text asked to register PDF/DOCX adapters in the registry factory, but both the plan `files_modified` list and the user’s explicit write scope excluded `src/rag/parsers/registry.py` and `src/rag/parsers/__init__.py`.
-- **Action:** Implemented and verified the concrete adapters directly without editing the registry factory.
-- **Impact:** Adapter behavior is complete and tested, but default `ParserRegistry()` construction still needs an explicitly scoped registry-wiring follow-up before ingestion service routes PDF/DOCX/image sources automatically.
-- **Verification:** `tests/rag/test_parser_contract.py` still passes for existing registry routing; direct adapter tests pass.
+- **Issue:** The concrete adapters were complete, but default `ParserRegistry()` still only registered Markdown and plain-text adapters. `IngestionService` would have returned a safe no-adapter failure for PDF/DOCX/image sources.
+- **Resolution:** Orchestrator review added native adapter wiring to `ParserRegistry._register_native_adapters()` and package exports for `PdfParser`, `DocxParser`, and `ImageOcrParser`.
+- **Impact:** Default `ParserRegistry()` now routes PDF/DOCX/image sources through the Phase 21 adapters.
+- **Verification:** `tests/rag/test_parser_contract.py` includes a regression asserting native adapters are registered by default; required 21-03 suite now passes.
+- **Committed in:** `24eb889`
 
-**Total deviations:** 1 scope-constrained adjustment.
+**Total deviations:** 1 resolved corrective action.
 
 ## Issues Encountered
 
-None beyond the registry write-scope conflict documented above.
+None beyond the registry wiring correction documented above.
 
 ## Verification
 
-- `uv run pytest tests/rag/test_pdf_parser.py tests/rag/test_docx_parser.py tests/rag/test_ocr_parser.py tests/rag/test_ingestion_safety.py tests/rag/test_parser_contract.py tests/knowledge/test_hybrid_retrieval.py -q` - **PASS** (41 passed, 1 xfailed; xfail is later 21-04 safe-report boundary)
+- Required after registry correction: `uv run pytest tests/rag/test_pdf_parser.py tests/rag/test_docx_parser.py tests/rag/test_ocr_parser.py tests/rag/test_ingestion_safety.py tests/rag/test_parser_contract.py tests/knowledge/test_hybrid_retrieval.py -q` - **PASS** (42 passed, 1 xfailed; xfail is later 21-04 safe-report boundary)
 - `uv lock --check` - **PASS**
 - `uv run ruff check src/rag/parsers/runtime.py src/rag/parsers/safety.py src/rag/parsers/ocr.py src/rag/parsers/image.py src/rag/parsers/pdf.py src/rag/parsers/docx.py tests/rag/test_ingestion_safety.py tests/rag/test_ocr_parser.py tests/rag/test_pdf_parser.py tests/rag/test_docx_parser.py tests/knowledge/test_hybrid_retrieval.py tests/rag/test_parser_contract.py` - **PASS**
 - `uv run pytest tests/rag/test_block_chunker.py -q` - **PASS** (5 passed)
@@ -132,7 +140,7 @@ None for tests. Runtime OCR deployments must include the Docker/native Tesseract
 
 ## Next Phase Readiness
 
-Ready for 21-04 provenance lookup and trace reporting. Before production ingestion routes PDF/DOCX/image sources through `IngestionService`, add an explicitly scoped registry-wiring change for the native adapters.
+Ready for 21-04 provenance lookup and trace reporting. Production ingestion can now route PDF/DOCX/image sources through the default `ParserRegistry()`.
 
 ## Self-Check: PASSED
 
