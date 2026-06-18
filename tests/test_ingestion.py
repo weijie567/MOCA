@@ -71,6 +71,26 @@ class _FakeChunkRepo:
         self.inserted = chunks
 
 
+class _FakeBlockRepo:
+    def __init__(self) -> None:
+        self.inserted = []
+
+    async def delete_by_document_id(self, document_id, tenant_id) -> int:
+        return 0
+
+    async def bulk_insert(self, blocks) -> None:
+        self.inserted = list(blocks)
+
+
+class _FakeJobRepo:
+    def __init__(self) -> None:
+        self.created = []
+
+    async def create(self, job):
+        self.created.append(job)
+        return job
+
+
 def _write_policy(tmp_path: Path, content: str) -> Path:
     policy_file = tmp_path / "refund_policy.md"
     policy_file.write_text(content, encoding="utf-8")
@@ -117,6 +137,8 @@ async def test_ingestion_embeds_title_and_section_but_persists_raw_content(tmp_p
     service = IngestionService(session=session, embedder=embedder, tenant_id=tenant_id)
     service.doc_repo = _FakeDocumentRepo(doc)
     service.chunk_repo = chunk_repo
+    service.block_repo = _FakeBlockRepo()
+    service.job_repo = _FakeJobRepo()
 
     report = await service.ingest_document(
         policy_file,
@@ -125,16 +147,22 @@ async def test_ingestion_embeds_title_and_section_but_persists_raw_content(tmp_p
 
     assert report.status == "success"
     assert embedder.texts == [
-        "退款规则: # 退款规则",
-        "退款规则 / 七天无理由: 商品不影响二次销售时，支持七天无理由退货退款。",
+        (
+            "退款规则 / 七天无理由: 退款规则\n"
+            "七天无理由\n"
+            "商品不影响二次销售时，支持七天无理由退货退款。\n"
+            "source_block_id=refund_policy:policy_markdown:synthetic:0000 "
+            "source_block_id=refund_policy:policy_markdown:synthetic:0001 "
+            "source_block_id=refund_policy:policy_markdown:synthetic:0002"
+        ),
     ]
     assert [chunk.content for chunk in chunk_repo.inserted] == [
-        "# 退款规则",
-        "商品不影响二次销售时，支持七天无理由退货退款。",
+        "退款规则\n七天无理由\n商品不影响二次销售时，支持七天无理由退货退款。",
     ]
     assert "退款规则" in chunk_repo.inserted[0].search_text
-    assert "七天无理由" in chunk_repo.inserted[1].search_text
-    assert "二次销售" in chunk_repo.inserted[1].search_text
+    assert "七天无理由" in chunk_repo.inserted[0].search_text
+    assert "二次销售" in chunk_repo.inserted[0].search_text
+    assert chunk_repo.inserted[0].source_block_refs_json[0]["source_block_id"].endswith(":0000")
     assert session.committed is True
 
 
@@ -145,6 +173,8 @@ async def test_first_import_starts_at_version_one(tmp_path: Path):
     service = IngestionService(session=session, embedder=_FakeEmbedder(), tenant_id=uuid4())
     service.doc_repo = _FakeDocumentRepo(None)
     service.chunk_repo = _FakeChunkRepo()
+    service.block_repo = _FakeBlockRepo()
+    service.job_repo = _FakeJobRepo()
 
     report = await service.ingest_document(policy_file, _doc_meta())
 
@@ -155,14 +185,15 @@ async def test_first_import_starts_at_version_one(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_same_content_reimport_keeps_version_one_and_locks_row(tmp_path: Path):
-    content = "# 退款规则\n\n相同内容"
-    policy_file = _write_policy(tmp_path, content)
-    doc = _existing_doc(content)
+    policy_file = _write_policy(tmp_path, "# 退款规则\n\n相同内容")
+    doc = _existing_doc("退款规则\n相同内容")
     session = _FakeSession(doc)
     doc_repo = _FakeDocumentRepo(doc)
     service = IngestionService(session=session, embedder=_FakeEmbedder(), tenant_id=uuid4())
     service.doc_repo = doc_repo
     service.chunk_repo = _FakeChunkRepo()
+    service.block_repo = _FakeBlockRepo()
+    service.job_repo = _FakeJobRepo()
 
     report = await service.ingest_document(policy_file, _doc_meta())
 
@@ -174,11 +205,13 @@ async def test_same_content_reimport_keeps_version_one_and_locks_row(tmp_path: P
 @pytest.mark.asyncio
 async def test_changed_content_reimport_bumps_version_and_evidence_identity(tmp_path: Path):
     policy_file = _write_policy(tmp_path, "# 退款规则\n\n变更后内容")
-    doc = _existing_doc("# 退款规则\n\n变更前内容")
+    doc = _existing_doc("退款规则\n变更前内容")
     session = _FakeSession(doc)
     service = IngestionService(session=session, embedder=_FakeEmbedder(), tenant_id=uuid4())
     service.doc_repo = _FakeDocumentRepo(doc)
     service.chunk_repo = _FakeChunkRepo()
+    service.block_repo = _FakeBlockRepo()
+    service.job_repo = _FakeJobRepo()
 
     old_ref = EvidenceRefV1.build(
         tenant_id="tenant-001",
@@ -208,13 +241,15 @@ async def test_changed_content_reimport_bumps_version_and_evidence_identity(tmp_
 
 @pytest.mark.asyncio
 async def test_failed_changed_content_reimport_rolls_back_version(tmp_path: Path):
-    original_content = "# 退款规则\n\n变更前内容"
+    original_content = "退款规则\n变更前内容"
     policy_file = _write_policy(tmp_path, "# 退款规则\n\n变更后内容")
     doc = _existing_doc(original_content)
     session = _FakeSession(doc)
     service = IngestionService(session=session, embedder=_FakeEmbedder(), tenant_id=uuid4())
     service.doc_repo = _FakeDocumentRepo(doc)
     service.chunk_repo = _FakeChunkRepo(fail_insert=True)
+    service.block_repo = _FakeBlockRepo()
+    service.job_repo = _FakeJobRepo()
 
     report = await service.ingest_document(policy_file, _doc_meta())
 
