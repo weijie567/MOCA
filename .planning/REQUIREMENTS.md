@@ -124,6 +124,11 @@ Tracked but not in the active v1.4 roadmap.
 - Mapped to phases: 26
 - Unmapped: 0
 
+**Wave 0 scaffold status:**
+
+- 21-00 created automated scaffold tests for all 26 requirement IDs.
+- Requirement statuses remain Pending until implementation plans remove their owned strict xfails and pass the corresponding acceptance gates.
+
 ---
 *Requirements defined: 2026-06-18*
-*Last updated: 2026-06-18 after v1.4 requirement definition*
+*Last updated: 2026-06-18 after 21-00 validation scaffold*

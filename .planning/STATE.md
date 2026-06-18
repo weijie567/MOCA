@@ -4,15 +4,15 @@ milestone: v1.4
 milestone_name: RAG Production Ingestion + OCR
 current_phase: 21
 status: executing
-stopped_at: Phase 21 execution started
-last_updated: "2026-06-19T00:40:41+08:00"
-last_activity: 2026-06-19 -- Phase 21 execution started
+stopped_at: Completed 21-00-PLAN.md
+last_updated: "2026-06-18T16:54:33Z"
+last_activity: 2026-06-19 -- 21-00 validation scaffold complete
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 9
-  completed_plans: 0
-  percent: 0
+  completed_plans: 1
+  percent: 11
 ---
 
 # Project State: MOCA
@@ -27,12 +27,12 @@ See: `.planning/PROJECT.md` (updated 2026-06-18)
 ## Current Position
 
 Phase: 21 of 21 (RAG Production Ingestion + OCR) — EXECUTING
-Plan: 1 of 9
-Plans: 0/9 complete
-Status: Executing Phase 21
-Last activity: 2026-06-19 -- Phase 21 execution started
+Plan: 2 of 9
+Plans: 1/9 complete
+Status: Ready to execute 21-01-PLAN.md
+Last activity: 2026-06-19 -- 21-00 validation scaffold complete
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█░░░░░░░░░] 11%
 
 Planning files:
 
@@ -177,6 +177,9 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 20 keeps `PolicyChunk.content` as canonical citation text and stores retrieval-only `search_text` plus generated `search_vector` for PostgreSQL full-text search.
 - Phase 20 fuses dense, sparse, and fuzzy retrieval candidates with RRF, while `EvidenceRefV1.score` and `KnowledgeSearchResult.best_score` remain normalized 0-1 confidence values.
 - Phase 20 hybrid trace fields stay internal/eval-only and are excluded from API serialization; they do not enter `EvidenceRefV1` or prompts.
+- Wave 0 records validation coverage for all Phase 21 requirements but does not mark the product requirements implemented.
+- Implementation-pending Phase 21 behavior uses strict xfail markers with owner_task=21-* reasons and PHASE21_XFAIL_OWNERS entries.
+- Native OCR behavior uses explicit pytest.importorskip/preflight instead of silent pass-through when pytesseract/Tesseract is unavailable.
 
 ## Accumulated Context
 
@@ -274,13 +277,14 @@ Items acknowledged and deferred at milestone close on 2026-06-18:
 | 16 | 08 | 10 min | 3 | 8 |
 | 16 | 09 | 24 min | 4 | 14 |
 | 20 | 01 | 1h 10m | 6 | 13 |
+| 21 | 00 | 8m 48s | 3 | 12 |
 
 ## Session Continuity
 
-Last session: v1.3 milestone archive
-Stopped at: Phase 21 planned for v1.4 RAG Production Ingestion + OCR
-Resume file: n/a
-Next: Run `$gsd-execute-phase 21`.
+Last session: 2026-06-18T16:54:33Z
+Stopped at: Completed 21-00-PLAN.md
+Resume file: None
+Next: Continue with `21-01-PLAN.md`.
 
 **Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17
 **Completed Milestone:** v1.2 Long-term / Case Memory — shipped 2026-06-17
