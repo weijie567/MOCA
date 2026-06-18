@@ -4,7 +4,6 @@ import pytest
 
 
 PHASE21_XFAIL_OWNERS: dict[str, str] = {
-    "21-04-01/provenance-lookup": "21-04-01",
     "21-04-02/safe-job-report": "21-04-02",
     "21-04-02/raw-payload-report-boundary": "21-04-02",
     "21-04a-01/prompt-api-memory-boundary": "21-04a-01",
