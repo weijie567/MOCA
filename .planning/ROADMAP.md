@@ -72,7 +72,7 @@
 
 ### Phase 20: RAG Hybrid Retrieval
 
-**Status:** Complete — 1/1 plan executed; UAT passed; security review pending
+**Status:** Complete — 1/1 plan executed; UAT passed; security verified
 
 **Goal:** Upgrade MOCA's current pgvector-only policy retrieval path into a minimal production hybrid retrieval backend using PostgreSQL + pgvector + PostgreSQL full-text + pg_trgm, while preserving `PolicyKnowledgeService`, `EvidenceRefV1`, existing citation identity, and the Tool System boundary for business facts.
 
@@ -107,11 +107,11 @@
 
 ## Current Status
 
-v1.3 Phase 20 implementation is complete and UAT passed. The retrieval slice adds policy chunk `search_text` / generated `search_vector`, PostgreSQL full-text and pg_trgm retrieval channels, RRF fusion, internal hybrid trace, and focused eval diagnostics while preserving `EvidenceRefV1` and Tool System boundaries. Local fallback code review found no issues; security review remains pending.
+v1.3 Phase 20 implementation, UAT, and security verification are complete. The retrieval slice adds policy chunk `search_text` / generated `search_vector`, PostgreSQL full-text and pg_trgm retrieval channels, RRF fusion, internal hybrid trace, and focused eval diagnostics while preserving `EvidenceRefV1` and Tool System boundaries. Local fallback code review found no issues; security verification closed 5/5 threats with `threats_open: 0`.
 
 ## Next Step
 
-Run `$gsd-secure-phase 20` for Phase 20 RAG Hybrid Retrieval, then complete the v1.3 milestone if security verification passes.
+Run `$gsd-complete-milestone` to archive the v1.3 milestone.
 
 ---
-*Updated: 2026-06-18 - Phase 20 UAT passed; security review pending.*
+*Updated: 2026-06-18 - Phase 20 security verified; threats_open: 0.*
