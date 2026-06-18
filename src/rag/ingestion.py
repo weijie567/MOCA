@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.models import PolicyChunk, PolicyDocument
 from src.rag.chunker import chunk_markdown
 from src.rag.embedder import EmbeddingService
+from src.rag.search_text import build_policy_chunk_search_text
 from src.repositories.policy_chunk_repo import PolicyChunkRepository
 from src.repositories.policy_document_repo import PolicyDocumentRepository
 
@@ -94,6 +95,13 @@ class IngestionService:
                     chunk_id=chunk.chunk_id,
                     section=chunk.section,
                     content=chunk.content,
+                    search_text=build_policy_chunk_search_text(
+                        title=title,
+                        section=chunk.section,
+                        content=chunk.content,
+                        doc_type=doc_meta["doc_type"],
+                        risk_level=doc_meta["risk_level"],
+                    ),
                     risk_level=doc_meta["risk_level"],
                     effective_date=effective_date,
                     embedding=embeddings[index],

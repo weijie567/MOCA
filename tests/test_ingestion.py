@@ -132,6 +132,9 @@ async def test_ingestion_embeds_title_and_section_but_persists_raw_content(tmp_p
         "# 退款规则",
         "商品不影响二次销售时，支持七天无理由退货退款。",
     ]
+    assert "退款规则" in chunk_repo.inserted[0].search_text
+    assert "七天无理由" in chunk_repo.inserted[1].search_text
+    assert "二次销售" in chunk_repo.inserted[1].search_text
     assert session.committed is True
 
 
