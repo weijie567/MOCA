@@ -103,7 +103,7 @@ Plans:
 - [x] 21-00-PLAN.md — Wave 0 validation and test scaffolding
 - [x] 21-01-PLAN.md — Parser contracts, source guards, and Markdown/plain-text adapters
 - [x] 21-01a-PLAN.md — Source-block schema, repositories, and boundary guards
-- [ ] 21-02-PLAN.md — Block-aware chunking and atomic ingestion
+- [x] 21-02-PLAN.md — Block-aware chunking and atomic ingestion
 - [ ] 21-03-PLAN.md — PDF, DOCX, image OCR adapters, and runtime preflight
 - [ ] 21-04-PLAN.md — Verified provenance lookup and safe trace reporting
 - [ ] 21-04a-PLAN.md — Phase 21 boundary regression
@@ -144,11 +144,11 @@ v1.4 RAG Production Ingestion + OCR is active and scoped to Phase 21 only. The m
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 21. RAG Production Ingestion + OCR | v1.4 | 3/9 | Executing; source-block schema and boundary guards complete | - |
+| 21. RAG Production Ingestion + OCR | v1.4 | 4/9 | Executing; block-aware chunking and atomic ingestion complete | - |
 
 ## Next Step
 
-Run `$gsd-execute-phase 21` to continue with `21-02-PLAN.md`.
+Run `$gsd-execute-phase 21` to continue with `21-03-PLAN.md`.
 
 ---
-*Updated: 2026-06-18 - Phase 21 Plan 01a source-block schema complete.*
+*Updated: 2026-06-18 - Phase 21 Plan 02 block-aware chunking and atomic ingestion complete.*

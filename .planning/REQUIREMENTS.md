@@ -19,16 +19,16 @@ Committed scope for the active v1.4 milestone. All requirements map to Phase 21.
 ### Source Provenance
 
 - [x] **PROV-01**: The database stores durable `DocumentBlock` or equivalent source-block rows scoped by tenant and policy document, with stable source block IDs, block index, block type, text hash, page number, bbox, table/cell metadata, parser metadata, and OCR metadata.
-- [ ] **PROV-02**: Every parser/OCR-derived `PolicyChunk` stores ordered source-block provenance so source page, bbox, table row/cell, and OCR confidence metadata can be resolved after retrieval.
+- [x] **PROV-02**: Every parser/OCR-derived `PolicyChunk` stores ordered source-block provenance so source page, bbox, table row/cell, and OCR confidence metadata can be resolved after retrieval.
 - [ ] **PROV-03**: Source-location metadata is exposed only through a verified tenant-scoped provenance lookup that first validates the canonical evidence content/hash.
 - [x] **PROV-04**: `DocumentBlock` and source-block IDs cannot act as standalone policy evidence, approval evidence, memory authority, action authority, replay truth, or business facts.
 
 ### Chunking & Search Text
 
-- [ ] **CHUNK-01**: Block-aware chunking derives `PolicyChunk.content` from faithful visible source text while preserving stable chunk IDs and source-block mappings.
-- [ ] **CHUNK-02**: Table-aware chunking preserves row/header/cell context for citation text and retrieval search text, including merged-cell or repeated-header cases covered by fixtures.
-- [ ] **CHUNK-03**: Retrieval-only `PolicyChunk.search_text` may include title, section, table header, and source-context enrichment, but this enrichment never changes `PolicyChunk.content` or `EvidenceRefV1.text_hash`.
-- [ ] **CHUNK-04**: Re-ingestion changes `PolicyDocument.version` only when canonical citation content or policy semantics metadata changes, not for parser trace or non-content metadata-only changes.
+- [x] **CHUNK-01**: Block-aware chunking derives `PolicyChunk.content` from faithful visible source text while preserving stable chunk IDs and source-block mappings.
+- [x] **CHUNK-02**: Table-aware chunking preserves row/header/cell context for citation text and retrieval search text, including merged-cell or repeated-header cases covered by fixtures.
+- [x] **CHUNK-03**: Retrieval-only `PolicyChunk.search_text` may include title, section, table header, and source-context enrichment, but this enrichment never changes `PolicyChunk.content` or `EvidenceRefV1.text_hash`.
+- [x] **CHUNK-04**: Re-ingestion changes `PolicyDocument.version` only when canonical citation content or policy semantics metadata changes, not for parser trace or non-content metadata-only changes.
 
 ### OCR Quality & Safety
 
@@ -41,14 +41,14 @@ Committed scope for the active v1.4 milestone. All requirements map to Phase 21.
 ### Ingestion Trace & Rollback
 
 - [x] **INGEST-01**: Ingestion records a safe parser/OCR job trace with source checksum, parser/OCR versions, stage/status, warnings, counts, timings, and sanitized failure reasons.
-- [ ] **INGEST-02**: Parsing, OCR, cleaning, chunking, and embedding complete before the short document write transaction deletes or inserts committed chunks/blocks.
-- [ ] **INGEST-03**: Failed parse, OCR timeout, embedding mismatch, or DB insert failure leaves the previous committed policy document version, chunks, blocks, and retrieval behavior intact.
+- [x] **INGEST-02**: Parsing, OCR, cleaning, chunking, and embedding complete before the short document write transaction deletes or inserts committed chunks/blocks.
+- [x] **INGEST-03**: Failed parse, OCR timeout, embedding mismatch, or DB insert failure leaves the previous committed policy document version, chunks, blocks, and retrieval behavior intact.
 - [x] **INGEST-04**: Alembic migration and downgrade coverage creates and removes source-block, ingestion-job, and provenance structures in dependency-safe order without regressing existing Markdown/hybrid retrieval.
 
 ### Contract Preservation
 
 - [x] **BOUNDARY-01**: `EvidenceRefV1`, canonical evidence projection, approval snapshots, replay events, and policy citation text hashing remain schema-compatible with v1.3.
-- [ ] **BOUNDARY-02**: Existing hybrid retrieval behavior remains intact: dense/sparse/fuzzy filters apply before candidate contribution, RRF controls ordering, and normalized confidence controls evidence thresholds.
+- [x] **BOUNDARY-02**: Existing hybrid retrieval behavior remains intact: dense/sparse/fuzzy filters apply before candidate contribution, RRF controls ordering, and normalized confidence controls evidence thresholds.
 - [x] **BOUNDARY-03**: Parser/OCR trace and provenance metadata are internal/debug/eval data by default and are excluded from `EvidenceRefV1`, prompts, public API evidence serialization, memory, and action authority.
 - [x] **BOUNDARY-04**: Phase 21 implementation does not introduce `MaterialClaim`, semantic verifier, reranker/query rewrite, cross-encoder rerank API, Vespa/OpenSearch, or a full external `SearchBackend`.
 

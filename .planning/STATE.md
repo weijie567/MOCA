@@ -4,15 +4,15 @@ milestone: v1.4
 milestone_name: RAG Production Ingestion + OCR
 current_phase: 21
 status: executing
-stopped_at: Completed 21-01a-PLAN.md
-last_updated: "2026-06-18T17:26:07.853Z"
-last_activity: 2026-06-19 -- 21-01a schema/repository and boundary guards complete
+stopped_at: Completed 21-02-PLAN.md
+last_updated: "2026-06-18T17:52:02.524Z"
+last_activity: 2026-06-19 -- 21-02 block-aware chunking and atomic ingestion complete
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 9
-  completed_plans: 3
-  percent: 33
+  completed_plans: 4
+  percent: 44
 ---
 
 # Project State: MOCA
@@ -27,12 +27,12 @@ See: `.planning/PROJECT.md` (updated 2026-06-18)
 ## Current Position
 
 Phase: 21 of 21 (RAG Production Ingestion + OCR) — EXECUTING
-Plan: 4 of 9
-Plans: 3/9 complete
-Status: Ready to execute 21-02-PLAN.md
-Last activity: 2026-06-19 -- 21-01a schema/repository and boundary guards complete
+Plan: 5 of 9
+Plans: 4/9 complete
+Status: Ready to execute 21-03-PLAN.md
+Last activity: 2026-06-19 -- 21-02 block-aware chunking and atomic ingestion complete
 
-Progress: [███░░░░░░░] 33%
+Progress: [████░░░░░░] 44%
 
 Planning files:
 
@@ -187,6 +187,10 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 21 Plan 01a stores ordered source-block refs and OCR metadata on PolicyChunk while preserving EvidenceRefV1 and canonical evidence projection.
 - Phase 21 Plan 01a source-block and ingestion-job repositories are tenant-scoped AsyncSession repositories with no independent commits.
 - Phase 21 Plan 01a scope guards allow existing v1.3 query_rewrite/rerank compatibility names only at known sites and forbid new Phase 22/23/RAG-5 implementation surfaces.
+- Phase 21 Plan 02 keeps chunk_markdown stable and adds BlockChunkResult/chunk_blocks as the parser-block path.
+- Phase 21 Plan 02 stores policy version authority only in PolicyDocument.policy_version_fingerprint; parser_metadata_json remains trace/debug-only.
+- Phase 21 Plan 02 keeps source/table/heading context retrieval-only in PolicyChunk.search_text; EvidenceRefV1.text_hash still hashes chunk.content.
+- Phase 21 Plan 02 schema edge: first-import pre-document failures return safe job_id=None because RagIngestionJob.doc_id is non-null and no PolicyDocument id exists yet.
 
 ## Accumulated Context
 
@@ -287,13 +291,14 @@ Items acknowledged and deferred at milestone close on 2026-06-18:
 | 21 | 00 | 8m 48s | 3 | 12 |
 | Phase 21 P01 | 12m | 1 tasks | 10 files |
 | Phase 21 P01a | 10 min | 2 tasks | 8 files |
+| Phase 21 P02 | 19 min | 3 tasks | 10 files |
 
 ## Session Continuity
 
-Last session: 2026-06-18T17:26:07.846Z
-Stopped at: Completed 21-01a-PLAN.md
+Last session: 2026-06-18T17:52:02.516Z
+Stopped at: Completed 21-02-PLAN.md
 Resume file: None
-Next: Continue with `21-02-PLAN.md`.
+Next: Continue with `21-03-PLAN.md`.
 
 **Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17
 **Completed Milestone:** v1.2 Long-term / Case Memory — shipped 2026-06-17
