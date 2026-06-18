@@ -4,15 +4,15 @@ milestone: v1.4
 milestone_name: RAG Production Ingestion + OCR
 current_phase: 21
 status: executing
-stopped_at: Completed 21-04-PLAN.md
-last_updated: "2026-06-18T23:30:40.930Z"
-last_activity: 2026-06-19 -- 21-04 verified provenance lookup and safe trace reporting complete
+stopped_at: Completed 21-04a-PLAN.md
+last_updated: "2026-06-18T23:41:13.827Z"
+last_activity: 2026-06-19 -- 21-04a boundary regression tests complete
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 9
-  completed_plans: 6
-  percent: 67
+  completed_plans: 7
+  percent: 78
 ---
 
 # Project State: MOCA
@@ -27,12 +27,12 @@ See: `.planning/PROJECT.md` (updated 2026-06-18)
 ## Current Position
 
 Phase: 21 of 21 (RAG Production Ingestion + OCR) — EXECUTING
-Plan: 7 of 9
-Plans: 6/9 complete
-Status: Ready to execute 21-04a-PLAN.md
-Last activity: 2026-06-19 -- 21-04 verified provenance lookup and safe trace reporting complete
+Plan: 8 of 9
+Plans: 7/9 complete
+Status: Ready to execute 21-05-PLAN.md
+Last activity: 2026-06-19 -- 21-04a boundary regression tests complete
 
-Progress: [███████░░░] 67%
+Progress: [████████░░] 78%
 
 Planning files:
 
@@ -197,7 +197,10 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - ParserRegistry native-adapter wiring remains a scoped follow-up because registry.py was outside 21-03 write scope.
 - Source provenance is internal maintainer/debug data and is returned only after tenant, unique-key, and canonical text-hash verification.
 - Safe ingestion reports always project exactly the allowed fields and recursively drop raw payload, path, stack, parser dump, private reasoning, and authority-body keys.
-- Wave 0 xfails were removed only for 21-04-owned provenance/report behavior; 21-04a-owned boundary xfail remains.
+- Wave 0 xfails were removed incrementally: 21-04 removed provenance/report behavior entries, and 21-04a removed the boundary regression owner entry.
+- Parser/OCR/source-block metadata is explicitly forbidden in ReplayEventV3 redacted payload keys, including source_block_id, parser_metadata_json, ocr_metadata_json, raw_parser_payload, parser_dump, and hidden_text.
+- 21-04a removed only the completed boundary xfail owner entry; the reusable xfail helper remains for later Phase 21 cleanup/final acceptance work.
+- No production retrieval or public search schema changes were needed; Phase 20 hybrid ranking and EvidenceRefV1 score semantics remain unchanged.
 
 ## Accumulated Context
 
@@ -301,13 +304,14 @@ Items acknowledged and deferred at milestone close on 2026-06-18:
 | Phase 21 P02 | 19 min | 3 tasks | 10 files |
 | Phase 21 P03 | 16 min | 3 tasks | 15 files |
 | Phase 21 P04 | 9m 29s | 2 tasks | 10 files |
+| Phase 21 P04a | 6m | 1 tasks | 6 files |
 
 ## Session Continuity
 
-Last session: 2026-06-18T23:30:40.922Z
-Stopped at: Completed 21-04-PLAN.md
+Last session: 2026-06-18T23:41:13.819Z
+Stopped at: Completed 21-04a-PLAN.md
 Resume file: None
-Next: Continue with `21-04a-PLAN.md`.
+Next: Continue with `21-05-PLAN.md`.
 
 **Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17
 **Completed Milestone:** v1.2 Long-term / Case Memory — shipped 2026-06-17

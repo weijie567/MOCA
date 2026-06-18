@@ -114,7 +114,7 @@ Tracked but not in the active v1.4 roadmap.
 | INGEST-03 | Phase 21 | Complete |
 | INGEST-04 | Phase 21 | Complete |
 | BOUNDARY-01 | Phase 21 | Complete |
-| BOUNDARY-02 | Phase 21 | Pending |
+| BOUNDARY-02 | Phase 21 | Complete |
 | BOUNDARY-03 | Phase 21 | Complete |
 | BOUNDARY-04 | Phase 21 | Complete |
 
