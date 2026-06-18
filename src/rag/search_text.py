@@ -13,6 +13,9 @@ DOMAIN_TERMS: tuple[str, ...] = (
     "补偿券",
     "退款时效",
     "跨境订单",
+    "已发货",
+    "发货",
+    "商家",
     "退款",
     "退货",
     "售后",
@@ -24,6 +27,8 @@ DOMAIN_TERMS: tuple[str, ...] = (
 _ALNUM_PATTERN = re.compile(r"[a-z0-9]+")
 _CJK_PATTERN = re.compile(r"[\u4e00-\u9fff]+")
 _WHITESPACE_PATTERN = re.compile(r"\s+")
+_TSQUERY_SAFE_PATTERN = re.compile(r"^[a-z0-9\u4e00-\u9fff]+$")
+_QUESTION_PARTICLES = frozenset("吗呢嘛呀啊吧？?")
 
 
 def normalize_search_text(text: str) -> str:
@@ -88,3 +93,40 @@ def build_policy_chunk_search_text(
             seen.add(part)
             deduped.append(part)
     return " ".join(deduped)
+
+
+def build_sparse_query_text(text: str, *, max_terms: int = 16) -> str:
+    """Build a bounded PostgreSQL tsquery expression over application tokens.
+
+    `plainto_tsquery` treats all terms as required, which is too strict for
+    Chinese n-gram query text. We generate an OR expression from trusted tokens
+    so sparse retrieval can match the important anchors without requiring every
+    generated n-gram to appear in a chunk.
+    """
+    normalized = normalize_search_text(text)
+    tokens = tokenize_search_text(normalized)
+
+    terms: list[str] = []
+    seen: set[str] = set()
+
+    def add(term: str) -> None:
+        if term not in seen and _is_sparse_query_term(term):
+            seen.add(term)
+            terms.append(term)
+
+    for token in tokens:
+        if token in DOMAIN_TERMS:
+            add(token)
+    for token in tokens:
+        if token not in DOMAIN_TERMS:
+            add(token)
+        if len(terms) >= max_terms:
+            break
+
+    return " | ".join(terms[:max_terms])
+
+
+def _is_sparse_query_term(term: str) -> bool:
+    return len(term) >= 2 and _TSQUERY_SAFE_PATTERN.fullmatch(term) is not None and not (
+        _QUESTION_PARTICLES & set(term)
+    )

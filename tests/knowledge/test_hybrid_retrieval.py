@@ -6,7 +6,9 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.db.models import PolicyChunk, PolicyDocument
 from src.knowledge.retrieval import (
     FUZZY_CANDIDATE_TOP_K,
     FUZZY_MIN_SIMILARITY,
@@ -15,6 +17,8 @@ from src.knowledge.retrieval import (
     PolicyRetrievalEngine,
 )
 from src.knowledge.schemas import KnowledgeContext
+from src.rag.search_text import build_policy_chunk_search_text, build_sparse_query_text
+from src.rag.search_text_backfill import rebuild_policy_chunk_search_texts
 from src.repositories.policy_chunk_repo import PolicyChunkRepository
 
 
@@ -152,6 +156,7 @@ async def test_each_hybrid_channel_receives_scope_filters() -> None:
         assert kwargs["risk_level"] == "high"
         assert kwargs["effective_date"] == date(2026, 6, 14)
     assert repo.search_sparse.await_args.kwargs["top_k"] == SPARSE_CANDIDATE_TOP_K
+    assert " | " in repo.search_sparse.await_args.kwargs["query_text"]
     assert repo.search_fuzzy.await_args.kwargs["top_k"] == FUZZY_CANDIDATE_TOP_K
     assert repo.search_fuzzy.await_args.kwargs["min_similarity"] == FUZZY_MIN_SIMILARITY
 
@@ -195,7 +200,7 @@ async def test_repository_sparse_and_fuzzy_methods_apply_scope_filters() -> None
     fuzzy_sql = str(session.statements[1].compile(compile_kwargs={"literal_binds": False})).lower()
 
     assert "@@" in sparse_sql
-    assert "plainto_tsquery" in sparse_sql
+    assert "to_tsquery" in sparse_sql
     assert "ts_rank_cd" in sparse_sql
     assert "similarity" in fuzzy_sql
     for sql in (sparse_sql, fuzzy_sql):
@@ -203,3 +208,155 @@ async def test_repository_sparse_and_fuzzy_methods_apply_scope_filters() -> None
         assert "policy_documents.doc_type" in sql
         assert "policy_chunks.risk_level" in sql
         assert "policy_chunks.effective_date" in sql
+
+
+def _unit_vector(index: int, dimensions: int = 1024) -> list[float]:
+    vector = [0.0] * dimensions
+    vector[index] = 1.0
+    return vector
+
+
+@pytest.mark.asyncio
+async def test_sparse_repository_matches_chinese_domain_terms_in_postgres(
+    session: AsyncSession,
+    seeded_session,
+) -> None:
+    tenant_id = seeded_session["tenant"].id
+    other_tenant_id = seeded_session["other_tenant"].id
+    document = PolicyDocument(
+        tenant_id=tenant_id,
+        doc_key="refund_policy",
+        doc_type="refund_rule",
+        title="退款规则",
+        effective_date=date(2026, 1, 1),
+        risk_level="high",
+        content="退款规则",
+    )
+    other_document = PolicyDocument(
+        tenant_id=other_tenant_id,
+        doc_key="other_refund_policy",
+        doc_type="refund_rule",
+        title="异租户退款规则",
+        effective_date=date(2026, 1, 1),
+        risk_level="high",
+        content="异租户退款规则",
+    )
+    session.add_all([document, other_document])
+    await session.flush()
+    target_content = "用户申请仅退款但商家已经发货时，客服应先核实物流状态和商家举证。"
+    future_content = "未来规则：用户申请仅退款但商家已经发货时直接转人工。"
+    session.add_all(
+        [
+            PolicyChunk(
+                tenant_id=tenant_id,
+                doc_id=document.id,
+                chunk_id="refund_policy_001",
+                section="仅退款已发货",
+                content=target_content,
+                search_text=build_policy_chunk_search_text(
+                    title=document.title,
+                    section="仅退款已发货",
+                    content=target_content,
+                    doc_type=document.doc_type,
+                    risk_level="high",
+                ),
+                risk_level="high",
+                effective_date=date(2026, 1, 1),
+                embedding=_unit_vector(0),
+            ),
+            PolicyChunk(
+                tenant_id=tenant_id,
+                doc_id=document.id,
+                chunk_id="refund_policy_future",
+                section="未来规则",
+                content=future_content,
+                search_text=build_policy_chunk_search_text(
+                    title=document.title,
+                    section="未来规则",
+                    content=future_content,
+                    doc_type=document.doc_type,
+                    risk_level="high",
+                ),
+                risk_level="high",
+                effective_date=date(2026, 7, 1),
+                embedding=_unit_vector(1),
+            ),
+            PolicyChunk(
+                tenant_id=other_tenant_id,
+                doc_id=other_document.id,
+                chunk_id="other_refund_policy_001",
+                section="仅退款已发货",
+                content=target_content,
+                search_text=build_policy_chunk_search_text(
+                    title=other_document.title,
+                    section="仅退款已发货",
+                    content=target_content,
+                    doc_type=other_document.doc_type,
+                    risk_level="high",
+                ),
+                risk_level="high",
+                effective_date=date(2026, 1, 1),
+                embedding=_unit_vector(2),
+            ),
+        ]
+    )
+    await session.commit()
+
+    repo = PolicyChunkRepository(session)
+    results = await repo.search_sparse(
+        query_text=build_sparse_query_text("商家已发货还能仅退款吗"),
+        tenant_id=tenant_id,
+        doc_type="refund_rule",
+        risk_level="high",
+        effective_date=date(2026, 6, 14),
+    )
+
+    assert [chunk.chunk_id for chunk, _ in results] == ["refund_policy_001"]
+
+
+@pytest.mark.asyncio
+async def test_rebuild_policy_chunk_search_texts_matches_ingestion_builder(
+    session: AsyncSession,
+    seeded_session,
+) -> None:
+    tenant_id = seeded_session["tenant"].id
+    document = PolicyDocument(
+        tenant_id=tenant_id,
+        doc_key="refund_policy",
+        doc_type="refund_rule",
+        title="退款规则",
+        effective_date=date(2026, 1, 1),
+        risk_level="high",
+        content="退款规则",
+    )
+    session.add(document)
+    await session.flush()
+    content = "商品不影响二次销售时，支持七天无理由退货退款。"
+    chunk = PolicyChunk(
+        tenant_id=tenant_id,
+        doc_id=document.id,
+        chunk_id="refund_policy_001",
+        section="七天无理由",
+        content=content,
+        search_text="七天无理由 " + content,
+        risk_level="high",
+        effective_date=date(2026, 1, 1),
+        embedding=_unit_vector(0),
+    )
+    session.add(chunk)
+    await session.commit()
+
+    count = await rebuild_policy_chunk_search_texts(session, tenant_id=tenant_id)
+    await session.commit()
+    await session.refresh(chunk)
+
+    assert count == 1
+    assert chunk.search_text == build_policy_chunk_search_text(
+        title="退款规则",
+        section="七天无理由",
+        content=content,
+        doc_type="refund_rule",
+        risk_level="high",
+    )
+    assert "refund_rule" in chunk.search_text
+    assert "二次销售" in chunk.search_text

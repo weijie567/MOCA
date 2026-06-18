@@ -15,7 +15,7 @@ from src.knowledge.config import (
 )
 from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext
 from src.rag.embedder import EmbeddingService
-from src.rag.search_text import build_policy_chunk_search_text
+from src.rag.search_text import build_policy_chunk_search_text, build_sparse_query_text
 from src.repositories.policy_chunk_repo import PolicyChunkRepository
 
 
@@ -290,6 +290,7 @@ class PolicyRetrievalEngine:
         limit = max(max_results, 1)
         query_embedding = await self.embedder.embed_query(f"{QUERY_PREFIX}{query}")
         query_search_text = build_policy_chunk_search_text(title="", section="", content=query)
+        sparse_query_text = build_sparse_query_text(query)
         dense_raw_results = await self.chunk_repo.search_similar(
             query_embedding=query_embedding,
             tenant_id=UUID(context.tenant_id),
@@ -302,7 +303,7 @@ class PolicyRetrievalEngine:
         sparse_raw_results = await _call_optional_channel(
             self.chunk_repo,
             "search_sparse",
-            query_text=query_search_text,
+            query_text=sparse_query_text,
             tenant_id=UUID(context.tenant_id),
             top_k=SPARSE_CANDIDATE_TOP_K,
             doc_type=doc_type,

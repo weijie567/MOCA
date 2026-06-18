@@ -113,7 +113,9 @@ class PolicyChunkRepository:
         effective_date: date | None = None,
     ) -> list[tuple[PolicyChunk, float]]:
         """PostgreSQL full-text search over retrieval-ready chunk text."""
-        query_expr = func.plainto_tsquery("simple", query_text)
+        if not query_text.strip():
+            return []
+        query_expr = func.to_tsquery("simple", query_text)
         rank_expr = func.ts_rank_cd(PolicyChunk.search_vector, query_expr)
 
         stmt = (

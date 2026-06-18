@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.rag.search_text import DOMAIN_TERMS, build_policy_chunk_search_text, tokenize_search_text
+from src.rag.search_text import DOMAIN_TERMS, build_policy_chunk_search_text, build_sparse_query_text, tokenize_search_text
 
 
 def test_domain_terms_are_preserved_as_tokens() -> None:
@@ -48,3 +48,14 @@ def test_build_policy_chunk_search_text_includes_context_without_mutating_conten
     assert "refund_rule" in search_text
     assert "high" in search_text
     assert content == "商品不影响二次销售时，客服可支持七天无理由退货退款。"
+
+
+def test_build_sparse_query_text_uses_bounded_or_terms_for_chinese_query() -> None:
+    query_text = build_sparse_query_text("商家已发货还能仅退款吗")
+
+    assert " | " in query_text
+    assert "商家" in query_text
+    assert "已发货" in query_text
+    assert "仅退款" in query_text
+    assert "商家已发货还能仅退款吗" not in query_text
+    assert "退款吗" not in query_text
