@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: RAG Production Ingestion + OCR
-status: defining_requirements
-stopped_at: Milestone v1.4 started
-last_updated: "2026-06-18T13:45:00.000Z"
-last_activity: 2026-06-18 -- Milestone v1.4 RAG Production Ingestion + OCR started
+status: roadmap_created
+stopped_at: Phase 21 roadmap created
+last_updated: "2026-06-18T14:00:34.000Z"
+last_activity: 2026-06-18 -- Phase 21 roadmap created for v1.4 RAG Production Ingestion + OCR
 progress:
-  total_phases: 0
+  total_phases: 1
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,21 +21,23 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-18)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v1.4 RAG Production Ingestion + OCR — defining requirements
+**Current focus:** Phase 21 RAG Production Ingestion + OCR — ready to plan
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 21 of 21 (RAG Production Ingestion + OCR)
 Plan: —
 Plans: 0/0 complete
-Status: Defining fresh v1.4 requirements for parser/OCR ingestion, source-block provenance, and production document parsing on top of v1.3 hybrid retrieval
-Last activity: 2026-06-18 -- Milestone v1.4 started; next step is requirements and roadmap creation
+Status: Roadmap created; ready to plan Phase 21 parser/OCR ingestion, source-block provenance, and production document parsing on top of v1.3 hybrid retrieval
+Last activity: 2026-06-18 -- Phase 21 roadmap created; next step is `$gsd-plan-phase 21`
 
 Progress: [░░░░░░░░░░] 0%
 
 Planning files:
 
 - `.planning/PROJECT.md`
+- `.planning/REQUIREMENTS.md`
+- `.planning/ROADMAP.md`
 - `.planning/STATE.md`
 
 ## Completed Baseline
@@ -182,7 +184,8 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 15.1 inserted after Phase 15: Memory Foundation V2 (URGENT). It is a pre-Phase 16 foundation phase for conversation log, WorkingStateV1, short-term thread summaries, ContextAssembler, tool result storage, token budgeting, and trace/audit/conversation ID alignment. It explicitly does not implement Phase 16 long-term memory, tombstones, user-manageable memory, case memory vector search, or case precedent retrieval.
 - Phase 15.2 inserted after Phase 15.1: v1.1 Readiness Closure (URGENT). It closes formal verification and owner-disposition gaps from the milestone audit before Phase 16 planning.
 - v1.2 starts after v1.1 archive with fresh requirements in `.planning/REQUIREMENTS.md` and a one-phase roadmap for Phase 16 Long-term / Case Memory.
-- v1.3 RAG Hybrid Retrieval shipped and archived on 2026-06-18 with Phase 20 as the only active phase. Future RAG work is owner-named as Phase 21, Phase 22, Phase 23, and Phase RAG-5.
+- v1.3 RAG Hybrid Retrieval shipped and archived on 2026-06-18 with Phase 20 completed.
+- v1.4 RAG Production Ingestion + OCR is active as the single Phase 21 roadmap phase. Research work packages 21.1-21.5 are planning slices, not roadmap phases; Phase 22, Phase 23, and Phase RAG-5 remain deferred.
 
 ### Pending Todos
 
@@ -274,12 +277,13 @@ Items acknowledged and deferred at milestone close on 2026-06-18:
 ## Session Continuity
 
 Last session: v1.3 milestone archive
-Stopped at: v1.3 RAG Hybrid Retrieval shipped and archived
+Stopped at: Phase 21 roadmap created for v1.4 RAG Production Ingestion + OCR
 Resume file: n/a
-Next: Start the next milestone with `$gsd-new-milestone`.
+Next: Run `$gsd-plan-phase 21`.
 
 **Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17
 **Completed Milestone:** v1.2 Long-term / Case Memory — shipped 2026-06-17
 **Archived Milestone:** v1.3 RAG Hybrid Retrieval — shipped 2026-06-18
 
 **Completed Phase:** 20 (RAG Hybrid Retrieval) — 1 plan — UAT/security verified 2026-06-18
+**Current Phase:** 21 (RAG Production Ingestion + OCR) — roadmap created; ready to plan
