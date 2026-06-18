@@ -1,15 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 
 PHASE21_XFAIL_OWNERS: dict[str, str] = {
 }
-
-
-def xfail_for(marker_id: str) -> pytest.MarkDecorator:
-    owner_task = PHASE21_XFAIL_OWNERS[marker_id]
-    return pytest.mark.xfail(
-        strict=True,
-        reason=f"phase21 owner_task={owner_task} target code absent",
-    )

@@ -486,8 +486,12 @@ _UNSAFE_MESSAGE_PATTERNS = (
     re.compile(r"/(?:Users|home|tmp|var|private|Volumes)/"),
     re.compile(r"[A-Za-z]:\\\\"),
     re.compile(r"Traceback \(most recent call last\):"),
+    re.compile(r"ignore\s+(?:all\s+)?previous\s+instructions", re.IGNORECASE),
     re.compile(r"raw[_ -]?(?:payload|parser|bytes|dump)", re.IGNORECASE),
     re.compile(r"parser_dump", re.IGNORECASE),
+    re.compile(r"\b(?:Tool\s+System|ToolResultV2|BusinessFactRefV1)\b", re.IGNORECASE),
+    re.compile(r"\bbusiness[_ -]?(?:object|artifact|fact)[_ -]?(?:payload|ref|refs|json|output)\b", re.IGNORECASE),
+    re.compile(r"\b(?:order|refund|ticket|merchant|customer)_(?:id|payload|json)\b", re.IGNORECASE),
 )
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
