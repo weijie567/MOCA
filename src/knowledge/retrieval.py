@@ -13,6 +13,7 @@ from src.knowledge.config import (
     RETRIEVAL_CONFIG_VERSION,
     STRONG_EVIDENCE_THRESHOLD,
 )
+from src.knowledge.provenance import EvidenceProvenance
 from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext
 from src.rag.embedder import EmbeddingService
 from src.rag.search_text import build_policy_chunk_search_text, build_sparse_query_text
@@ -275,6 +276,14 @@ class PolicyRetrievalEngine:
         keys: list[tuple[str, str]],
     ) -> dict[tuple[str, str], str]:
         return await self.chunk_repo.get_contents_by_evidence_keys(tenant_id, keys)
+
+    async def get_provenance_by_evidence_keys(
+        self,
+        *,
+        tenant_id: UUID,
+        keys: list[tuple[str, str]],
+    ) -> dict[tuple[str, str], EvidenceProvenance]:
+        return await self.chunk_repo.get_provenance_by_evidence_keys(tenant_id, keys)
 
     async def _retrieve_hits(
         self,

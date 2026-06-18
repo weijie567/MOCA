@@ -18,6 +18,7 @@ from src.knowledge.config import (
     RERANK_CONFIG_VERSION,
     RETRIEVAL_CONFIG_VERSION,
 )
+from src.knowledge.provenance import EvidenceProvenance
 from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext, KnowledgeSearchRequest, KnowledgeSearchResult
 from src.knowledge.text_hash import evidence_text_hash
 
@@ -39,6 +40,13 @@ class PolicyRetriever(Protocol):
         tenant_id: UUID,
         keys: list[tuple[str, str]],
     ) -> dict[tuple[str, str], str]: ...
+
+    async def get_provenance_by_evidence_keys(
+        self,
+        *,
+        tenant_id: UUID,
+        keys: list[tuple[str, str]],
+    ) -> dict[tuple[str, str], EvidenceProvenance]: ...
 
 
 class PolicyKnowledgeService:
@@ -138,6 +146,68 @@ class PolicyKnowledgeService:
             ):
                 verified[ref.evidence_id] = content
         return verified
+
+    async def get_verified_evidence_provenance(
+        self,
+        *,
+        tenant_id: str,
+        evidence_refs: list[EvidenceRefV1],
+    ) -> dict[str, EvidenceProvenance]:
+        try:
+            tenant_uuid = UUID(tenant_id)
+        except ValueError:
+            return {}
+
+        key_counts = Counter((ref.doc_key, ref.chunk_id) for ref in evidence_refs)
+        keys = [key for key, count in key_counts.items() if count == 1 and all(key)]
+        if not keys:
+            return {}
+
+        try:
+            contents = await self.retriever.get_contents_by_evidence_keys(
+                tenant_id=tenant_uuid,
+                keys=keys,
+            )
+        except Exception:
+            return {}
+
+        verified_refs: list[EvidenceRefV1] = []
+        for ref in evidence_refs:
+            key = (ref.doc_key, ref.chunk_id)
+            content = contents.get(key)
+            if (
+                key_counts.get(key) == 1
+                and ref.tenant_id == tenant_id
+                and content is not None
+                and evidence_text_hash(content) == ref.text_hash
+            ):
+                verified_refs.append(ref)
+        if not verified_refs:
+            return {}
+
+        verified_keys = [(ref.doc_key, ref.chunk_id) for ref in verified_refs]
+        try:
+            provenance_by_key = await self.retriever.get_provenance_by_evidence_keys(
+                tenant_id=tenant_uuid,
+                keys=verified_keys,
+            )
+        except Exception:
+            return {}
+
+        result: dict[str, EvidenceProvenance] = {}
+        for ref in verified_refs:
+            key = (ref.doc_key, ref.chunk_id)
+            provenance = provenance_by_key.get(key)
+            if (
+                provenance is None
+                or provenance.evidence_id != ref.evidence_id
+                or provenance.doc_key != ref.doc_key
+                or provenance.chunk_id != ref.chunk_id
+                or not provenance.source_locators
+            ):
+                return {}
+            result[ref.evidence_id] = provenance
+        return result
 
     @staticmethod
     def _no_evidence_result() -> KnowledgeSearchResult:

@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.db.models import PolicyChunk, PolicyDocument
+from src.knowledge.provenance import EvidenceProvenance, source_locator_from_block
+from src.repositories.document_block_repo import DocumentBlockRepository
 
 
 class PolicyChunkRepository:
@@ -56,6 +58,78 @@ class PolicyChunkRepository:
             for doc_key, chunk_id, content in rows
             if counts[(doc_key, chunk_id)] == 1
         }
+
+    async def get_provenance_by_evidence_keys(
+        self,
+        tenant_id: UUID,
+        keys: list[tuple[str, str]],
+    ) -> dict[tuple[str, str], EvidenceProvenance]:
+        if not keys:
+            return {}
+
+        stmt = (
+            select(
+                PolicyDocument.doc_key,
+                PolicyDocument.version,
+                PolicyChunk.chunk_id,
+                PolicyChunk.doc_id,
+                PolicyChunk.source_block_refs_json,
+            )
+            .join(
+                PolicyDocument,
+                and_(
+                    PolicyChunk.doc_id == PolicyDocument.id,
+                    PolicyDocument.tenant_id == tenant_id,
+                ),
+            )
+            .where(
+                PolicyChunk.tenant_id == tenant_id,
+                tuple_(PolicyDocument.doc_key, PolicyChunk.chunk_id).in_(keys),
+            )
+        )
+        rows = (await self.session.execute(stmt)).all()
+        row_counts = Counter((row[0], row[2]) for row in rows)
+        block_repo = DocumentBlockRepository(self.session)
+        provenance: dict[tuple[str, str], EvidenceProvenance] = {}
+
+        for doc_key, document_version, chunk_id, doc_id, source_refs in rows:
+            key = (doc_key, chunk_id)
+            if row_counts[key] != 1 or not isinstance(source_refs, list):
+                continue
+
+            valid_source_refs = [
+                (ref, str(ref.get("source_block_id")))
+                for ref in source_refs
+                if isinstance(ref, dict) and str(ref.get("source_block_id") or "").strip()
+            ]
+            source_block_ids = [source_block_id for _, source_block_id in valid_source_refs]
+            if not source_block_ids:
+                continue
+
+            blocks = await block_repo.get_by_source_block_ids(
+                tenant_id=tenant_id,
+                document_id=doc_id,
+                source_block_ids=source_block_ids,
+            )
+            block_counts = Counter(block.source_block_id for block in blocks)
+            if any(block_counts[source_block_id] != 1 for source_block_id in set(source_block_ids)):
+                continue
+            block_by_id = {block.source_block_id: block for block in blocks}
+            if any(source_block_id not in block_by_id for source_block_id in source_block_ids):
+                continue
+
+            locators = []
+            for ref, source_block_id in valid_source_refs:
+                locators.append(source_locator_from_block(block_by_id[source_block_id], source_ref=ref))
+            if not locators:
+                continue
+            provenance[key] = EvidenceProvenance(
+                evidence_id=f"{doc_key}/{chunk_id}@v{document_version or 1}",
+                doc_key=doc_key,
+                chunk_id=chunk_id,
+                source_locators=locators,
+            )
+        return provenance
 
     async def search_similar(
         self,
