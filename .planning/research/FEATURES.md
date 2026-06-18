@@ -1,216 +1,183 @@
-# Features Research: MOCA
+# Feature Research
 
-## Table Stakes
-Features that must exist or the project looks like a demo/toy.
+**Domain:** Production policy-source ingestion and OCR for MOCA RAG
+**Researched:** 2026-06-18
+**Confidence:** HIGH for project scope and dependencies; MEDIUM for exact parser/OCR implementation details because this file intentionally does not select third-party libraries.
 
-### Structured Tool Calls for Business Data Retrieval
-- **What**: Agent calls typed tools (get_order, get_refund, get_ticket) that return structured JSON from the database, not free-text hallucinations.
-- **Why table stakes**: Any interviewer will immediately ask "how does it get real data?" If the agent only generates text without grounding in actual records, it's indistinguishable from a prompt wrapper. Structured tool calls prove the agent operates on real systems.
-- **Complexity**: Medium
-- **Dependencies**: Database schema with orders/refunds/tickets; FastAPI endpoints or direct DB access layer; LangGraph tool node definition.
+## Feature Landscape
 
-### Evidence-Cited Answers (RAG with Source Attribution)
-- **What**: Every factual claim in the agent's response links back to a specific knowledge base document (rule ID, SOP section) or data record (order number, refund ID).
-- **Why table stakes**: Citation is what separates "AI that helps" from "AI that hallucinates." In regulated e-commerce operations, unsourced answers are useless. Interviewers at Alibaba/Meituan will expect this because their internal systems already do it.
-- **Complexity**: Medium
-- **Dependencies**: pgvector knowledge base with chunk-level metadata; retrieval chain that returns source references; response formatting that renders citations.
+Phase 21 should turn MOCA's existing Markdown-oriented policy ingestion into a production ingestion foundation for real policy source files. The milestone should stop at parser/OCR normalization, durable source-block provenance, table-aware chunking, and traceability into the existing `PolicyChunk` and `EvidenceRefV1` retrieval contract.
 
-### Human-in-the-Loop Approval Workflow
-- **What**: When the agent determines an action is high-risk (compensation above threshold, refund override), it pauses execution, creates an approval request, and only resumes after a human approves or rejects.
-- **Why table stakes**: This is the project's core differentiator claim. Without it actually working end-to-end (interrupt → persist state → resume), the project fails to deliver on its own premise.
-- **Complexity**: High
-- **Dependencies**: LangGraph interrupt/resume mechanism; persistent state (checkpointer); approval state machine; notification to reviewer; resume logic that picks up where it left off.
+The key product behavior is: a policy source file can be ingested, parsed into auditable source blocks, chunked without losing page/table/cell provenance, embedded through the existing v1.3 retrieval path, and cited later with source-location metadata. It must not introduce business-fact ingestion or change the existing policy evidence identity.
 
-### Audit Trail
-- **What**: Every agent run logs: user input, tools called with arguments, retrieved evidence, LLM reasoning steps, approval decisions, final output. Stored in a queryable format.
-- **Why table stakes**: Enterprise agents without audit trails are toys. This is the minimum bar for any system that touches financial operations. Interviewers will ask "how do you debug a bad decision?" and "how do you prove compliance?"
-- **Complexity**: Medium
-- **Dependencies**: Structured logging schema; write-on-every-step middleware in the graph; query API to retrieve run history.
+### Table Stakes (Users Expect These)
 
-### Docker Compose One-Command Startup
-- **What**: `docker compose up` brings up the entire system (API, DB, Redis, frontend) with seed data, ready for demo in under 2 minutes.
-- **Why table stakes**: If the interviewer can't run it, it doesn't exist. Every portfolio project that requires 15 manual setup steps gets abandoned during review.
-- **Complexity**: Medium
-- **Dependencies**: Dockerfiles for each service; compose file with health checks and dependency ordering; seed script that runs on first boot; environment variable defaults that work out of the box.
+Features users assume exist. Missing these = Phase 21 does not satisfy "production ingestion/OCR."
 
-### Realistic Demo Data (Chinese Business Context)
-- **What**: Seed script populates orders, merchants, refund cases, knowledge base documents with realistic Chinese e-commerce data (product names, merchant names, refund reasons, platform rules).
-- **Why table stakes**: Empty databases or "John Doe bought Widget A" data signals the candidate doesn't understand the domain. Chinese internet company interviewers expect to see familiar patterns (Taobao-style order flows, Meituan-style dispute categories).
-- **Complexity**: Low
-- **Dependencies**: Database schema must be finalized first; knowledge base documents (markdown/PDF) for rules and SOPs.
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| PDF, DOCX, and image policy source intake | Real policy sources rarely arrive only as Markdown; Phase 21 is explicitly scoped to these formats. | MEDIUM | Keep current Markdown path working, but route new file types through a parser registry rather than branching inside `IngestionService`. |
+| Parser abstraction with normalized output | The rest of MOCA should not care whether text came from PDF text extraction, DOCX structure, image OCR, or a scanned PDF fallback. | MEDIUM | Define a small adapter contract that returns source metadata, blocks, warnings, parser version, and fatal/nonfatal errors. |
+| Durable `DocumentBlock` source-block model | Page, bbox, block type, table/cell metadata, parser version, and OCR confidence cannot be reconstructed reliably from chunk text later. | HIGH | Persist blocks separately from `PolicyChunk`; include stable block IDs, source order, text hash, parser/OCR metadata, and tenant/doc ownership. |
+| Block-to-chunk provenance | A retrieved chunk must be traceable back to the exact source blocks that produced it. | HIGH | Add a chunk provenance mapping or JSON sidecar that records block IDs and ranges. Do not replace `EvidenceRefV1.evidence_id`. |
+| Page and bounding-box citation metadata | Human reviewers need to verify policy answers against the original source location, especially for scanned or paginated rules. | MEDIUM | Store page number and bbox where available. Missing bbox should be explicit, not silently represented as zero or full page. |
+| Table-aware block and chunk handling | Platform policies often encode thresholds, categories, and exceptions in tables; naive line chunking loses row/header meaning. | HIGH | Preserve table ID, row/column indexes, header cells, merged-cell context, and row-level text. Add header context to retrieval `search_text` without mutating canonical citation text. |
+| Cell-level citation support where available | For table-derived answers, citing only a broad page is often too weak; reviewers need the exact row/cell that supplied the rule. | HIGH | Cell citation is metadata/provenance. It should enrich source verification, not become a new evidence identity. |
+| OCR confidence capture and gating | OCR output can be wrong; low-confidence text should not silently become authoritative policy evidence. | MEDIUM | Store per-block or per-token/page confidence when available. Define thresholds for accepted, degraded, and failed OCR blocks. |
+| Parser trace and ingest report | Production ingestion needs debuggability: which parser ran, which fallback triggered, what failed, and how many blocks/chunks were produced. | MEDIUM | Persist trace metadata safe for logs/eval. Exclude raw file blobs, full OCR images, and unsafe raw payloads from prompts. |
+| Existing v1.3 retrieval compatibility | Phase 20 established `PolicyChunk.content` as citation text and `search_text` as retrieval-only enrichment. Phase 21 must preserve that contract. | HIGH | `PolicyChunk.content`, `PolicyChunk.search_text`, embeddings, tenant/effective filters, hybrid retrieval, and `EvidenceRefV1` identity must remain compatible. |
+| Rollback-safe migration and downgrade behavior | New block/provenance tables are foundational; failed migrations or disabled ingestion should not corrupt existing policy retrieval. | HIGH | Expand schema first, keep read paths tolerant of absent provenance, and include downgrade/preflight tests. |
+| Fixture-based parser tests | Parser output must be deterministic enough for regression tests, not manually inspected only. | MEDIUM | Use small synthetic PDF/DOCX/image fixtures with expected block order, page, bbox/cell metadata, confidence buckets, and chunk provenance. |
 
-### Conversation Memory (Within Session)
-- **What**: Agent maintains context within a conversation session. User can ask follow-up questions ("what about the other order?") without re-stating everything.
-- **Why table stakes**: Without session memory, every interaction is isolated and the UX feels broken. LangGraph checkpointing helps resume runs, but same-thread conversation continuity should be an explicit session-memory contract.
-- **Complexity**: Medium
-- **Dependencies**: PostgreSQL-authoritative `session_memories` with CAS; LangGraph checkpointer for workflow recovery; session ID management in API layer; optional Redis hot cache only as a non-authoritative TTL layer.
+### Differentiators (Competitive Advantage)
 
-### Basic Role-Based Access Control
-- **What**: Different roles (merchant, support_agent, reviewer, manager) see different data and can perform different actions. Merchants can't approve their own refunds. Only managers can override thresholds.
-- **Why table stakes**: Any enterprise system without access control is a prototype. For a PM-angle portfolio piece, permission modeling is expected.
-- **Complexity**: Medium
-- **Dependencies**: User/role table; FastAPI OAuth2 scopes or dependency-based guards; LangGraph conditional edges that check permissions before tool execution.
+Features that set Phase 21 apart from a basic "upload document and chunk text" pipeline.
 
-## Differentiators
-Features that make this project stand out in interviews.
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| Evidence identity plus source-location sidecar | Preserves MOCA's stable `EvidenceRefV1` contract while adding richer source verification. | HIGH | This is the core design advantage: retrieval identity stays stable, provenance becomes inspectable metadata. |
+| Table row reconstruction for search and citation | Enables accurate retrieval for threshold-heavy policy tables without claiming table parsing is a later hallucination-control feature. | HIGH | Row text should include relevant headers; source metadata should retain cell coordinates and original cell text. |
+| Confidence-aware OCR status | Makes scanned policy ingestion honest: accepted text, degraded text, and failed regions are distinguishable. | MEDIUM | Low confidence should affect ingestion status and tests before it affects answer generation. |
+| Parser trace designed for replay/debug, not prompting | Helps diagnose ingestion errors without leaking full raw payloads or parser internals into the LLM context. | MEDIUM | Mirrors v1.3's internal retrieval trace pattern: useful for eval/debug, excluded from prompts and public evidence refs by default. |
+| Stable block hashes across re-ingestion | Lets MOCA detect unchanged source regions and reason about provenance when source files are re-imported. | MEDIUM | Hash normalized block text plus source coordinates/structure, not volatile parser timestamps. |
+| Partial-ingestion status model | A real source file may parse mostly correctly while some pages/tables fail; treating all failures as binary hides useful progress. | MEDIUM | Per-document status should distinguish success, degraded, failed, and skipped; per-block warnings should be queryable. |
 
-### Graph Visualization of Agent Execution
-- **What**: Visual representation (in frontend or exportable) showing the actual LangGraph execution path: which nodes fired, what tools were called, where approval interrupted, how it resumed. Not a static diagram — reflects the actual run.
-- **Why differentiating**: Most portfolio projects show input/output. Showing the execution graph proves you understand the internals and makes the system debuggable. Interviewers can see the state machine in action.
-- **Complexity**: Medium
-- **Dependencies**: LangGraph execution trace export; frontend component to render DAG; mapping from trace events to visual nodes.
+### Anti-Features (Commonly Requested, Often Problematic)
 
-### Evaluation Framework with Automated Test Cases
-- **What**: A suite of test scenarios (happy path refund, edge case denial, threshold boundary, multi-step approval) that run the agent end-to-end and score outputs on correctness, citation accuracy, and appropriate tool usage.
-- **Why differentiating**: Shows engineering maturity beyond "it works in demo." Proves the candidate thinks about reliability, regression, and continuous improvement. Very few portfolio projects include eval frameworks.
-- **Complexity**: Medium-High
-- **Dependencies**: Test scenario definitions (input + expected behavior); scoring functions; CI-compatible runner; baseline results to compare against.
+Features that seem useful but would make Phase 21 too broad or unsafe.
 
-### Structured Reasoning Trace (Chain-of-Thought Logging)
-- **What**: Agent's internal reasoning (why it chose to escalate, why it selected this rule over that one) is captured as structured data, not just raw LLM output. Stored alongside the audit trail.
-- **Why differentiating**: Demonstrates understanding of agent observability and explainability. When an interviewer asks "why did it make this decision?", you can show the exact reasoning chain, not just the final answer.
-- **Complexity**: Low-Medium
-- **Dependencies**: Prompt engineering to elicit structured reasoning; parsing layer to extract reasoning steps; storage in audit schema.
-
-### Approval Workflow with Escalation Tiers
-- **What**: Not just binary approve/reject. Multiple tiers: auto-approve (low risk), single reviewer (medium risk), manager escalation (high risk), with configurable thresholds. Timeout handling if reviewer doesn't respond.
-- **Why differentiating**: Shows product thinking beyond basic implementation. Demonstrates understanding of real operational workflows where not everything needs the same level of scrutiny.
-- **Complexity**: Medium
-- **Dependencies**: Risk scoring logic; tier configuration; timeout mechanism (could be simple polling or Redis TTL); escalation state transitions in the graph.
-
-### OpenTelemetry Tracing with Span Correlation
-- **What**: Every agent run produces OTel traces with proper span hierarchy: top-level run → LLM call → tool execution → DB query. Traces are viewable in Jaeger or similar.
-- **Complexity**: Medium
-- **Why differentiating**: Proves production engineering mindset. Most AI projects have zero observability. Being able to show latency breakdown, error rates, and trace correlation in a demo is impressive.
-- **Dependencies**: OTel SDK integration in FastAPI and LangGraph; Jaeger container in Docker Compose; span context propagation through async boundaries.
-
-### Configurable Business Rules Engine
-- **What**: Refund thresholds, approval tiers, auto-approve conditions are defined in a configuration layer (YAML or DB table), not hardcoded. Agent reads rules dynamically.
-- **Why differentiating**: Shows the system is adaptable without code changes. Demonstrates understanding that business rules change frequently in e-commerce operations.
-- **Complexity**: Low-Medium
-- **Dependencies**: Rules schema definition; loader that the agent consults; admin UI or API to modify rules (optional for MVP, but the architecture should support it).
-
-### Streaming Responses with Progressive Disclosure
-- **What**: Agent streams its response token-by-token to the frontend, and progressively reveals: "Retrieving order data..." → "Found 2 relevant rules..." → "Recommendation: ..." rather than blocking until complete.
-- **Why differentiating**: Shows attention to UX and real-world latency management. LLM calls take seconds; streaming makes the system feel responsive. Demonstrates SSE/WebSocket competence.
-- **Complexity**: Medium
-- **Dependencies**: FastAPI streaming response (SSE); LangGraph streaming callbacks; frontend that renders progressive updates.
-
-## Anti-Features (Do NOT Build)
-Things to explicitly exclude from MVP.
-
-### Multi-Agent Architecture
-- **What it is**: Multiple specialized agents (refund agent, knowledge agent, approval agent) communicating via message passing or shared state.
-- **Why exclude**: Adds massive complexity with no demo benefit. A single LangGraph with well-defined nodes achieves the same outcome and is far easier to debug, explain, and demonstrate. Multi-agent is a buzzword that impresses less than a well-executed single graph.
-- **When to add**: Never for this project scope. Only if adding a genuinely independent scenario (e.g., creator appeals) that can't share state with refund flow.
-
-### Real Payment/Refund Execution
-- **What it is**: Actually processing refunds through payment gateways or modifying real financial records.
-- **Why exclude**: Massive liability, compliance burden, and zero interview value. Simulated execution with clear "this would execute X" messaging is sufficient and safer.
-- **When to add**: Never. This is a demo system.
-
-### Natural Language Rule Authoring
-- **What it is**: Letting users define business rules in natural language that the system interprets and enforces.
-- **Why exclude**: Extremely hard to make reliable. Rule interpretation ambiguity creates more problems than it solves. Structured rule configuration is more trustworthy and demonstrable.
-- **When to add**: Polish phase at earliest, and only if the structured rules engine is solid.
-
-### Multi-Language / i18n Support
-- **What it is**: Full internationalization of the interface and agent responses.
-- **Why exclude**: The demo targets Chinese internet companies with Chinese data. English README is sufficient for GitHub visibility. Building i18n infrastructure is pure overhead for MVP.
-- **When to add**: Polish phase if targeting international companies.
-
-### Custom Model Fine-Tuning
-- **What it is**: Fine-tuning a model specifically for merchant operations tasks.
-- **Why exclude**: Requires training data, compute budget, and evaluation infrastructure that dwarfs the rest of the project. Prompt engineering + RAG achieves 90% of the benefit for a demo.
-- **When to add**: Never for portfolio. Mention as "production enhancement" in documentation.
-
-### Real-Time Notifications (Push)
-- **What it is**: WebSocket push notifications when approval requests arrive, when status changes, etc.
-- **Why exclude**: Polling or manual refresh is sufficient for a demo with one user. Push notification infrastructure (WebSocket management, connection state, reconnection) adds complexity without demo impact.
-- **When to add**: Polish phase, and only if the demo flow feels broken without it.
-
-### Analytics Dashboard
-- **What it is**: Charts showing refund trends, agent accuracy over time, approval turnaround metrics.
-- **Why exclude**: Requires meaningful historical data that a demo won't have. Static seed data makes dashboards look fake. The evaluation framework serves the "metrics" angle better.
-- **When to add**: Polish phase with synthetic historical data generation.
-
-### MCP (Model Context Protocol) Layer
-- **What it is**: Exposing tools via Anthropic's MCP protocol for interoperability with other AI systems.
-- **Why exclude**: Adds an abstraction layer that doesn't improve the demo. The interviewer cares about the agent working correctly, not protocol compatibility. MCP is still early-stage and adds learning burden.
-- **When to add**: Polish phase if targeting Anthropic-ecosystem roles specifically.
-
-### Kubernetes / Production Deployment
-- **What it is**: Helm charts, K8s manifests, production-grade infrastructure.
-- **Why exclude**: Docker Compose is the right abstraction for "run it locally in 2 minutes." K8s signals over-engineering for a demo and makes it harder for interviewers to run.
-- **When to add**: Only if deploying a live demo instance (could use a simple cloud VM with Docker Compose instead).
+| Feature | Why Requested | Why Problematic | Alternative |
+|---------|---------------|-----------------|-------------|
+| Use an LLM to parse or rewrite policy source text | It looks flexible for messy PDFs and scanned images. | It can change policy wording, erase layout evidence, and make OCR errors non-reproducible. | Use deterministic parser/OCR adapters; keep extracted text, confidence, warnings, and trace. |
+| Store raw files, page images, or full extracted payloads in prompts | It seems convenient for later answer generation. | It violates the existing prompt-safety boundary and bloats context with unaudited data. | Store durable source refs, hashes, block text, bbox/cell metadata, and safe trace summaries. |
+| Replace `EvidenceRefV1` with page/bbox/cell identity | It makes citations look more precise. | It breaks v1.1/v1.3 evidence identity, approval snapshots, replay assumptions, and existing tests. | Keep `EvidenceRefV1` unchanged; attach source-block provenance as metadata resolved by `doc_key/chunk_id/version`. |
+| Treat low-confidence OCR as normal policy text | It maximizes recall and makes ingestion appear successful. | It turns OCR noise into authoritative policy evidence. | Gate OCR by confidence; mark degraded blocks; exclude or quarantine blocks below threshold. |
+| Chunk directly from parser text without storing blocks | It is faster to implement. | Page, bbox, table, parser, and OCR metadata are lost permanently, forcing a rewrite for citations. | Persist `DocumentBlock` first, then derive chunks from blocks. |
+| Flatten tables into plain paragraphs only | It makes chunks easy to embed. | Header and row/cell semantics are lost, especially for fee, threshold, and exception tables. | Build row-aware text for retrieval while preserving structured table/cell metadata. |
+| Ingest business attachments into the policy KB | It reuses the parser for more files. | It mixes business facts with policy evidence and violates the Tool System boundary. | Restrict Phase 21 ingestion to policy source documents only. |
+| Build a full document-management CMS | It looks production-like. | It shifts the milestone from ingestion infrastructure to admin product scope. | Provide ingestion CLI/service behavior, persisted reports, and tests; UI can be selected by a separately named future milestone. |
 
 ## Feature Dependencies
 
-Build order (critical path):
-
 ```
-Layer 0 — Foundation (no agent logic yet):
-├── Database schema (orders, refunds, tickets, users, roles)
-├── Docker Compose skeleton (Postgres, Redis, API shell)
-├── Seed data script
-└── FastAPI project structure with auth
+Source file metadata
+    -> requires -> Parser registry and adapter selection
+        -> requires -> Format-specific parser/OCR adapters
+            -> produces -> DocumentBlock records
+                -> requires -> Block validation, hashes, parser trace
+                    -> feeds -> Table-aware chunker
+                        -> produces -> PolicyChunk.content and search_text
+                            -> links -> Chunk-to-block provenance
+                                -> supports -> page/bbox/cell citation metadata
 
-Layer 1 — Core Agent (minimal viable agent):
-├── LangGraph graph definition (single node: LLM + tools)
-├── Tool implementations (get_order, get_refund, get_ticket)
-├── Basic conversation endpoint (POST /chat)
-└── Workflow checkpoint via LangGraph checkpointer
-    └── Depends on: Layer 0
+Existing v1.3 retrieval
+    -> requires -> PolicyChunk.content/search_text/embedding compatibility
+        -> preserves -> EvidenceRefV1 identity and PolicyKnowledgeService behavior
 
-Layer 1b — Session Memory:
-├── PostgreSQL `session_memories` table with version CAS
-├── Same-thread active slot continuity
-├── Optional Redis hot cache with TTL and PostgreSQL fallback
-└── Depends on: Layer 1
+OCR confidence
+    -> gates -> DocumentBlock accepted/degraded/failed status
+        -> gates -> whether block text can contribute to chunks
 
-Layer 2 — Knowledge & Citations:
-├── Knowledge base ingestion (rules/SOPs → pgvector)
-├── Retrieval tool (search_knowledge_base)
-├── Citation formatting in responses
-└── Depends on: Layer 1
-
-Layer 3 — Approval Workflow:
-├── Risk assessment logic (threshold detection)
-├── Approval interrupt node in graph
-├── Approval state persistence
-├── Resume-after-approval logic
-├── Reviewer notification (API-based, not push)
-└── Depends on: Layer 1, Layer 0 (roles)
-
-Layer 4 — Audit & Observability:
-├── Audit trail middleware (logs every step)
-├── Audit query API
-├── OTel tracing integration
-└── Depends on: Layer 1, Layer 3
-
-Layer 5 — Frontend:
-├── Chat interface
-├── Approval queue view (for reviewers)
-├── Audit log viewer
-├── Role-based UI routing
-└── Depends on: Layers 1-4 (API contracts)
-
-Layer 6 — Evaluation & Polish:
-├── Eval test suite
-├── Graph visualization
-├── Streaming responses
-├── Escalation tiers
-└── Depends on: Layers 1-5 stable
+Parser trace
+    -> records -> parser version, OCR version, fallback path, warnings, failure modes
+        -> must not enter -> prompts or EvidenceRefV1
 ```
 
-### Key Dependency Insights
+### Dependency Notes
 
-1. **Approval workflow depends on checkpointer** — checkpointing enables interrupt/resume and workflow recovery. Session memory should not rely on checkpoint blobs as its authoritative store; build it as a separate PostgreSQL/CAS service.
+- **Parser registry requires source metadata:** Format, MIME type, file extension, source hash, tenant, `doc_key`, and policy metadata must be known before selecting an adapter.
+- **`DocumentBlock` requires parser/OCR adapters:** Blocks are the normalized boundary. Adapters may differ internally, but downstream chunking should consume one block contract.
+- **Table-aware chunking requires structured blocks:** Cell and header context cannot be recovered reliably after tables are flattened.
+- **Page/bbox/cell citation requires block-to-chunk provenance:** Citation metadata should be resolved from chunk provenance, not guessed from chunk text.
+- **OCR confidence gates chunk eligibility:** A low-confidence block should not contribute to `PolicyChunk.content` unless Phase 21 explicitly marks it as degraded and tests that behavior.
+- **`PolicyChunk.search_text` depends on v1.3 search-text builder:** Phase 21 may enrich search text with table headers and source-section context, but must keep it retrieval-only.
+- **`EvidenceRefV1` depends on stable `PolicyChunk.content`:** Re-ingestion should only bump policy version when canonical content changes, not when parser trace timestamps or non-content metadata change.
+- **Rollback safety depends on read-path tolerance:** Retrieval should still work with existing chunks if source-block tables are absent, disabled, or empty during rollout.
 
-2. **Citations depend on retrieval quality** — invest in chunking strategy and metadata before building the citation UI. Bad retrieval makes citations useless.
+## MVP Definition
 
-3. **Audit trail should be built INTO the graph, not bolted on** — adding audit logging after the graph is built requires touching every node. Design the middleware pattern in Layer 1 even if you don't persist until Layer 4.
+### Launch With (Phase 21)
 
-4. **Frontend is last but API contracts are early** — define OpenAPI schemas in Layer 1 so frontend work can parallelize later. Don't let frontend drive API design.
+Minimum viable Phase 21 behavior needed for v1.4.
 
-5. **Eval framework validates everything else** — it's listed last but should be started in Layer 2 (simple happy-path tests) and grown incrementally. Don't wait until "everything works" to start testing.
+- [ ] Parser registry and adapter contract for PDF, DOCX, and image policy sources.
+- [ ] Durable `DocumentBlock` or equivalent source-block schema with tenant/doc ownership, source order, block type, page, bbox, table/cell metadata, parser/OCR versions, confidence, and text hash.
+- [ ] Ingestion flow that parses sources into blocks before deriving chunks.
+- [ ] Table-aware chunking that preserves row/header context and keeps retrieval-only enrichment in `search_text`.
+- [ ] Chunk-to-block provenance so each `PolicyChunk` can resolve source page/bbox/cell metadata.
+- [ ] OCR confidence thresholds with accepted/degraded/failed outcomes.
+- [ ] Parser trace and per-document ingest report with warnings and failure modes.
+- [ ] Compatibility tests proving `EvidenceRefV1`, `PolicyChunk.content`, hybrid retrieval filters, and business-tool boundaries remain unchanged.
+- [ ] Migration, downgrade, and failed-ingestion rollback coverage.
+- [ ] Synthetic parser fixtures for PDF, DOCX, image OCR, scanned/low-confidence OCR, and table extraction.
+
+### Add After Validation (Phase 21 Stretch Only)
+
+Add only if the launch set is stable and tests are passing.
+
+- [ ] Duplicate source-file detection by source hash - useful if repeated imports become noisy.
+- [ ] More table-layout fixtures - add complex merged-header and multi-page table cases after the basic row/cell contract is proven.
+- [ ] Internal provenance inspection endpoint or CLI report - useful for debugging if it does not become a user-facing CMS.
+
+### Future Consideration (Owner Must Be Named Before Build)
+
+These are not Phase 21 requirements.
+
+- [ ] User-facing document viewer/highlight UI - owner if selected: `Policy Source Review UI` milestone; Phase 21 should only persist the metadata needed for it.
+- [ ] Broad document-management workflow for uploads, approvals, lifecycle, and retention - owner if selected: `Policy Source Operations` milestone.
+- [ ] Async large-batch ingestion workers - owner if selected: `Ingestion Scale` milestone; require file-volume or latency evidence before planning.
+
+## Feature Prioritization Matrix
+
+| Feature | User Value | Implementation Cost | Priority |
+|---------|------------|---------------------|----------|
+| Parser adapter contract | HIGH | MEDIUM | P1 |
+| PDF/DOCX/image intake | HIGH | MEDIUM | P1 |
+| Durable `DocumentBlock` schema | HIGH | HIGH | P1 |
+| Chunk-to-block provenance | HIGH | HIGH | P1 |
+| Page/bbox citation metadata | HIGH | MEDIUM | P1 |
+| Table-aware chunking | HIGH | HIGH | P1 |
+| OCR confidence capture and gating | HIGH | MEDIUM | P1 |
+| Parser trace and ingest report | HIGH | MEDIUM | P1 |
+| v1.3 retrieval/evidence compatibility tests | HIGH | MEDIUM | P1 |
+| Migration/downgrade/rollback coverage | HIGH | HIGH | P1 |
+| Cell-level citation support | MEDIUM | HIGH | P2 |
+| Stable block hashes across re-ingestion | MEDIUM | MEDIUM | P2 |
+| Partial-ingestion status model | MEDIUM | MEDIUM | P2 |
+| Duplicate source-file detection | MEDIUM | LOW | P3 |
+| Internal provenance inspection report | MEDIUM | LOW | P3 |
+| User-facing source document viewer | LOW for Phase 21 | HIGH | P3 |
+
+**Priority key:**
+- P1: Must have for Phase 21 launch
+- P2: Should have if it fits without weakening the core contract
+- P3: Nice to have; defer unless core scope is already stable
+
+## Baseline Feature Analysis
+
+External competitor research was not performed because the request scoped this file to MOCA v1.4 expected behavior and asked to use project context first. The relevant comparison is MOCA's current v1.3 baseline versus the Phase 21 target.
+
+| Feature | Current MOCA v1.3 | Phase 21 Approach |
+|---------|-------------------|-------------------|
+| Source formats | Markdown text ingestion path. | Add PDF, DOCX, and image policy source parsing through adapters. |
+| Source structure | Heading-aware Markdown chunks. | Normalize source files into `DocumentBlock` records before chunking. |
+| Citation text | `PolicyChunk.content` is canonical citation text. | Preserve `PolicyChunk.content`; add provenance metadata outside evidence identity. |
+| Retrieval enrichment | `PolicyChunk.search_text` is retrieval-only and feeds PostgreSQL full-text/pg_trgm. | Add table/header/source context to `search_text` only where it improves retrieval without changing citation text. |
+| Evidence identity | `EvidenceRefV1` uses `doc_key/chunk_id@policy_version` plus text hash. | Keep unchanged; resolve page/bbox/cell metadata through chunk provenance. |
+| Trace | Internal hybrid retrieval diagnostics excluded from prompts/API serialization. | Add parser/OCR trace with the same internal/debug-only posture. |
+| Boundary protection | Business facts stay in Tool System outputs, not policy chunks. | Keep parser/OCR ingestion restricted to policy sources only. |
+
+## Sources
+
+- `.planning/PROJECT.md` - v1.4 goal, target features, active requirements, and out-of-scope boundaries. Confidence: HIGH.
+- `.planning/MILESTONES.md` - v1.3 shipped context and Phase 21 owner scope. Confidence: HIGH.
+- `.planning/milestones/v1.3-ROADMAP.md` - Phase 20 decisions and explicit Phase 21 deferrals. Confidence: HIGH.
+- `.planning/phases/20-rag-hybrid-retrieval/20-CONTEXT.md` - v1.3 retrieval boundary, deferred OCR/parser/DocumentBlock ownership, and current-code references. Confidence: HIGH.
+- `.planning/phases/20-rag-hybrid-retrieval/20-01-postgres-hybrid-retrieval-SUMMARY.md` - shipped search-text, retrieval trace, and `EvidenceRefV1` preservation decisions. Confidence: HIGH.
+- `src/rag/ingestion.py`, `src/rag/chunker.py`, `src/db/models.py`, `src/knowledge/schemas.py`, `tests/test_ingestion.py` - current ingestion, chunking, model, and evidence identity behavior. Confidence: HIGH.
+
+No external library or vendor documentation was used. This research recommends feature behavior and dependencies, not a parser/OCR technology stack.
+
+---
+*Feature research for: MOCA v1.4 Phase 21 RAG Production Ingestion + OCR*
+*Researched: 2026-06-18*
