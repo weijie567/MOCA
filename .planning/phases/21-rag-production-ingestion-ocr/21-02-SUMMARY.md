@@ -19,6 +19,7 @@ tech-stack:
     - "PolicyChunk.content remains faithful visible citation text; source/table context is search_text-only."
     - "PolicyDocument.version is driven by policy_version_fingerprint with a legacy no-fingerprint content fallback."
     - "Repository helpers remain transaction-neutral; IngestionService owns commits and rollbacks."
+    - "RagIngestionJob.doc_id is nullable only for pre-document failure trace rows; successful jobs and existing-document failures bind to PolicyDocument.id."
 
 key-files:
   created:
@@ -27,6 +28,8 @@ key-files:
     - src/rag/chunker.py
     - src/rag/search_text.py
     - src/rag/ingestion.py
+    - src/db/models.py
+    - src/db/migrations/versions/015_rag_production_ingestion_ocr.py
     - tests/rag/phase21_xfail_inventory.py
     - tests/rag/test_block_chunker.py
     - tests/rag/test_search_text.py
@@ -38,11 +41,11 @@ key-decisions:
   - "BlockChunkResult is additive beside ChunkResult so chunk_markdown stable behavior remains unchanged."
   - "Parser/OCR trace metadata is stored only in parser_metadata_json/job/block trace fields; version authority lives only in PolicyDocument.policy_version_fingerprint."
   - "search_text includes heading, table, and source-block context for retrieval, while EvidenceRefV1.text_hash continues to hash chunk.content only."
-  - "Because RagIngestionJob.doc_id is non-null in the Plan 21-01a schema, first-import pre-document failures return safe in-memory reports instead of inserting invalid job rows."
+  - "First-import pre-document failures persist sanitized RagIngestionJob rows with doc_id unset and doc_key populated; DB-unavailable trace failures still return safe job_id=None reports."
 
 patterns-established:
-  - "Parse, chunk, and embed run before get_by_doc_key_for_update; the locked transaction then replaces document blocks and chunks together."
-  - "Early failures update sanitized job status when a document-scoped job row can exist; DB-unavailable trace failures return job_id=None."
+  - "A sanitized job trace row is created before parser preflight; parse, chunk, and embed run before get_by_doc_key_for_update; the locked transaction then replaces document blocks and chunks together."
+  - "Early failures update sanitized job status before document lock, including first-import failures with doc_id unset; DB-unavailable trace failures return job_id=None."
   - "Table chunks repeat headers on row-group splits and preserve merged-cell metadata in source-block refs."
 
 requirements-completed:
@@ -98,7 +101,9 @@ completed: 2026-06-18
 ## Files Created/Modified
 
 - `src/rag/chunker.py` - adds block-aware chunk results, ordered source refs, and table-aware row-group splitting.
-- `src/rag/ingestion.py` - parser-aware preflight, document/block/chunk replacement, sanitized job trace handling, and fingerprint-driven versioning.
+- `src/rag/ingestion.py` - parser-aware preflight, pre-document job trace creation, document/block/chunk replacement, sanitized job trace handling, and fingerprint-driven versioning.
+- `src/db/models.py` - permits `RagIngestionJob.doc_id` to remain unset for pre-document failure rows while keeping `DocumentBlock.doc_id` non-null.
+- `src/db/migrations/versions/015_rag_production_ingestion_ocr.py` - aligns the job trace schema with nullable pre-document `doc_id`.
 - `src/rag/search_text.py` - optional retrieval-only heading/table/source context.
 - `src/rag/versioning.py` - canonical policy version fingerprint helper.
 - `tests/rag/test_block_chunker.py` - source ref, visible text, stable ID, and table chunking coverage.
@@ -117,20 +122,20 @@ completed: 2026-06-18
 
 ## Deviations from Plan
 
-### Schema-Compatible Adjustment
+### Resolved Corrective Action
 
-**1. [Rule 4 - Architecture Avoided] First-import early failure job rows cannot be persisted before a document row exists**
+**1. [Rule 4 - Architecture Avoided] First-import early failure job rows initially could not be persisted before a document row existed**
 - **Found during:** Task 21-02-02
 - **Issue:** Plan 21-02 asks for durable job rows before document replacement, but Plan 21-01a made `RagIngestionJob.doc_id` non-null and FK-scoped to `PolicyDocument`. Persisting a first-import job before a document exists would require a schema change or an invalid FK.
-- **Resolution:** Stayed inside the requested 21-02 write scope. Existing-document early failures persist sanitized failed jobs; first-import cases create job rows once a document id exists, and DB-unavailable/trace-unavailable early failures return safe in-memory reports with `job_id=None`.
-- **Files modified:** `src/rag/ingestion.py`, `tests/rag/test_ingestion_jobs.py`
-- **Verification:** Required plan pytest command passed; DB-unavailable early failure test asserts `job_id is None`.
-- **Committed in:** `d5ae198`
+- **Resolution:** Orchestrator review corrected the schema and ingestion flow: `RagIngestionJob.doc_id` is nullable for pre-document trace rows, every ingest attempts a sanitized job trace before parser preflight, and successful new-document imports bind the job row to the created `PolicyDocument.id`.
+- **Files modified:** `src/db/models.py`, `src/db/migrations/versions/015_rag_production_ingestion_ocr.py`, `src/rag/ingestion.py`, `tests/rag/test_document_block_schema.py`, `tests/test_rag_production_migration.py`, `tests/rag/test_ingestion_jobs.py`
+- **Verification:** Required plan pytest command now passes with first-import early failure persistence coverage; DB-unavailable trace failure still asserts `job_id is None`.
+- **Committed in:** `3c1c405`
 
 ---
 
-**Total deviations:** 1 schema-compatible adjustment.
-**Impact on plan:** Core document/block/chunk atomicity, source refs, versioning, and evidence boundaries are implemented. The only limitation is the first-import pre-document job trace edge caused by the existing non-null job FK.
+**Total deviations:** 1 resolved corrective action.
+**Impact on plan:** Durable sanitized job trace now covers first-import pre-document parser/OCR failures when the DB is available, while DB-unavailable trace failures still return safe in-memory reports.
 
 ## Issues Encountered
 
@@ -142,7 +147,8 @@ completed: 2026-06-18
 - `uv run pytest tests/rag/test_block_chunker.py tests/test_chunker.py -q` -> 15 passed.
 - `uv run pytest tests/test_ingestion.py tests/rag/test_ingestion_jobs.py tests/rag/test_block_chunker.py -q` -> 15 passed, 3 xfailed.
 - `uv run pytest tests/test_ingestion.py tests/rag/test_search_text.py tests/knowledge/test_text_hash.py tests/knowledge/test_hybrid_retrieval.py -q` -> 29 passed.
-- Required: `uv run pytest tests/rag/test_block_chunker.py tests/test_chunker.py tests/test_ingestion.py tests/rag/test_search_text.py tests/rag/test_ingestion_jobs.py tests/knowledge/test_text_hash.py tests/knowledge/test_hybrid_retrieval.py -q` -> 50 passed, 2 xfailed.
+- Required after corrective commit `3c1c405`: `uv run pytest tests/rag/test_block_chunker.py tests/test_chunker.py tests/test_ingestion.py tests/rag/test_search_text.py tests/rag/test_ingestion_jobs.py tests/knowledge/test_text_hash.py tests/knowledge/test_hybrid_retrieval.py -q` -> 51 passed, 2 xfailed.
+- Schema/migration guard after corrective commit `3c1c405`: `uv run pytest tests/rag/test_document_block_schema.py tests/test_rag_production_migration.py -q` -> 15 passed.
 - `uv run ruff check src/rag/chunker.py src/rag/ingestion.py src/rag/search_text.py src/rag/versioning.py tests/rag/test_block_chunker.py tests/test_ingestion.py tests/rag/test_search_text.py tests/rag/test_ingestion_jobs.py tests/knowledge/test_text_hash.py` -> passed.
 - `rg -n "21-02-0[123]" tests/rag/phase21_xfail_inventory.py` -> no matches; later-plan xfails remain.
 
@@ -156,7 +162,7 @@ None - no external service configuration required.
 
 ## Next Phase Readiness
 
-Plan 21-03 can build native PDF/DOCX/image/OCR parser internals on top of the parser-block ingestion path. Plan 21-04 should account for the non-null ingestion-job `doc_id` constraint when designing provenance/job reporting for first-import failures.
+Plan 21-03 can build native PDF/DOCX/image/OCR parser internals on top of the parser-block ingestion path. Plan 21-04 can rely on sanitized job traces for DB-available first-import parser/OCR failures, with `doc_id` populated only after a document row exists.
 
 ## Self-Check: PASSED
 
