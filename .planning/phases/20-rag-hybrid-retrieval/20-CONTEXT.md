@@ -10,7 +10,7 @@ Phase 20 upgrades MOCA's policy retrieval path from pgvector-only retrieval plus
 
 This phase owns retrieval-ready chunk search text, PostgreSQL full-text and pg_trgm indexes, application-level Chinese tokenization, dense + sparse + fuzzy retrieval, RRF fusion, minimal retrieval trace, and focused retrieval eval coverage.
 
-This phase does not implement OCR, PDF/DOCX/image parsing, `DocumentBlock`, page/bbox citation, `MaterialClaim`, semantic verifier, Vespa/OpenSearch, or a full external `SearchBackend` contract.
+This phase does not implement OCR, PDF/DOCX/image parsing, `DocumentBlock`, page/bbox citation, `MaterialClaim`, semantic verifier, reranker/query rewrite, Vespa/OpenSearch, or a full external `SearchBackend` contract. OCR/parser/`DocumentBlock` belongs to Phase 21: RAG Production Ingestion + OCR. `MaterialClaim` and semantic verification belong to Phase 22: RAG Context Builder + Hallucination Control. Reranker/query rewrite belongs to Phase 23: RAG Reranker + Query Rewrite. Vespa/OpenSearch and full external `SearchBackend` belong to Phase RAG-5: Optional External Search Backend.
 </domain>
 
 <decisions>
@@ -106,10 +106,11 @@ This phase does not implement OCR, PDF/DOCX/image parsing, `DocumentBlock`, page
 <deferred>
 ## Deferred Ideas
 
-- OCR and parser abstraction for PDF/DOCX/image inputs - later production ingestion phase.
-- `DocumentBlock`, page/bbox/cell citation, table-aware chunking - later production ingestion phase.
-- `MaterialClaim`, semantic support verifier, conflict detector, risk-only hallucination verifier - later hallucination-control phase.
-- Vespa/OpenSearch shadow testing and external `SearchBackend` contract - later backend-scale phase.
+- OCR and parser abstraction for PDF/DOCX/image inputs - Phase 21: RAG Production Ingestion + OCR.
+- `DocumentBlock`, page/bbox/cell citation, table-aware chunking - Phase 21: RAG Production Ingestion + OCR.
+- `MaterialClaim`, semantic support verifier, conflict detector, risk-only hallucination verifier - Phase 22: RAG Context Builder + Hallucination Control.
+- Query rewrite, reranker interface, optional cross-encoder/external rerank API, full ranking explanation, ablation eval, and latency budget - Phase 23: RAG Reranker + Query Rewrite.
+- Vespa/OpenSearch shadow testing and external `SearchBackend` contract - Phase RAG-5: Optional External Search Backend.
 </deferred>
 
 ---

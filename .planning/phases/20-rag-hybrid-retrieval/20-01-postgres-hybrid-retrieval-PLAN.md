@@ -360,6 +360,6 @@ uv run pytest tests/rag tests/knowledge tests/test_ingestion.py tests/test_rag_e
 <must_haves>
 - `EvidenceRefV1` remains canonical and unchanged.
 - Business data remains outside policy chunk storage and policy evidence refs.
-- OCR, `DocumentBlock`, `MaterialClaim`, semantic verifier, Vespa/OpenSearch, and full external `SearchBackend` stay deferred.
+- OCR/parser/`DocumentBlock` stays deferred to Phase 21: RAG Production Ingestion + OCR. `MaterialClaim` and semantic verifier stay deferred to Phase 22: RAG Context Builder + Hallucination Control. Query rewrite, reranker, and full ranking explanation stay deferred to Phase 23: RAG Reranker + Query Rewrite. Vespa/OpenSearch and full external `SearchBackend` stay deferred to Phase RAG-5: Optional External Search Backend.
 - Every Phase 20 requirement ID appears in this plan's frontmatter.
 </must_haves>

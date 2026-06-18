@@ -15,22 +15,23 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - **v1.0 MVP** — shipped 2026-05-22.
 - **v1.1 Agent Architecture Migration** — shipped 2026-06-17.
 - **v1.2 Long-term / Case Memory** — shipped 2026-06-18.
+- **v1.3 RAG Hybrid Retrieval** — shipped 2026-06-18.
 
 Full archive records live in `.planning/milestones/`.
 
-## Current Milestone: v1.3 RAG Hybrid Retrieval
+## Last Shipped Milestone: v1.3 RAG Hybrid Retrieval
 
-v1.3 is active and scoped to Phase 20. It upgrades MOCA's policy retrieval from pgvector-only search plus lightweight lexical rerank into a minimal production hybrid retrieval backend on PostgreSQL.
+v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only search plus lightweight lexical rerank into a minimal production hybrid retrieval backend on PostgreSQL.
 
-**Goal:** Combine pgvector semantic retrieval, PostgreSQL full-text sparse retrieval, and pg_trgm fuzzy retrieval with RRF, while preserving `PolicyKnowledgeService`, canonical `EvidenceRefV1`, citation identity, and the Tool System boundary for business facts.
+**Delivered:** Combined pgvector semantic retrieval, PostgreSQL full-text sparse retrieval, and pg_trgm fuzzy retrieval with RRF, while preserving `PolicyKnowledgeService`, canonical `EvidenceRefV1`, citation identity, and the Tool System boundary for business facts.
 
-**Target features:**
+**Shipped features:**
 - `PolicyChunk.search_text` / `search_vector` storage and indexes for full-text and pg_trgm search.
 - Application-level Chinese tokenizer with refund/support domain dictionary.
 - Dense + sparse + fuzzy retrieval merged by Reciprocal Rank Fusion.
 - Retrieval pre-filters for tenant, effective date, doc type, risk level, and existing knowledge scope.
 - Minimal retrieval trace for eval/debug without entering prompts or replacing `EvidenceRefV1`.
-- Focused tests and eval coverage for tokenizer, hybrid ranking, RRF ordering, permission/effective-date filtering, Hit@5, and fallback accuracy.
+- Focused tests and eval coverage for tokenizer, hybrid ranking, RRF ordering, permission/effective-date filtering, Hit@5, fallback accuracy, UAT, and security threats.
 
 ## Last Shipped Milestone: v1.1 Agent Architecture Migration
 
@@ -67,14 +68,14 @@ v1.3 is active and scoped to Phase 20. It upgrades MOCA's policy retrieval from 
 - [x] v1.1 approval lifecycle and ActionSafetySnapshot binding are versioned, immutable, and verified (validated in Phase 13)
 - [x] v1.1 demo action boundary creates durable drafts only, binds exact payload/hash/snapshot data, and fails closed without trusted approval permission (validated in Phase 14)
 - [x] v1.1 replay contract stores and reads ReplayEventV3 facts with lifecycle finalization, shared sequence allocation, operation pairing, redaction/retention, `/replay` read-switch, and `/trace` fallback (validated in Phase 15)
+- [x] v1.3 policy retrieval stores retrieval-only search text, generated search vectors, full-text and pg_trgm indexes, and rollback-safe migration coverage (validated in Phase 20)
+- [x] v1.3 policy retrieval combines dense, sparse, and fuzzy channels with RRF while preserving normalized evidence confidence and `EvidenceRefV1` citation identity (validated in Phase 20)
+- [x] v1.3 retrieval applies tenant, effective-date, doc type, risk level, and knowledge-scope filters before every channel contributes candidates (validated in Phase 20)
+- [x] v1.3 hybrid retrieval exposes internal eval/debug trace without entering prompts, API serialization, business facts, or policy evidence refs (validated in Phase 20)
 
 ### Active
 
-- [ ] Add `PolicyChunk.search_text`, full-text representation, pg_trgm/full-text indexes, and rollback-safe migration coverage.
-- [ ] Add Chinese tokenization and domain dictionary for policy content/query search text.
-- [ ] Implement `PostgresHybridRetriever` behavior behind the existing `PolicyKnowledgeService` facade.
-- [ ] Merge dense/sparse/fuzzy retrieval with RRF and preserve existing strong/partial/no-evidence semantics.
-- [ ] Add minimal retrieval trace and focused hybrid retrieval eval/tests.
+- [ ] Define the next milestone with fresh requirements via `$gsd-new-milestone`.
 
 ### Out of Scope
 
@@ -82,11 +83,12 @@ v1.3 is active and scoped to Phase 20. It upgrades MOCA's policy retrieval from 
 - Tenant-over-global global/default policy fallback — future post-Phase 17 Policy Scope milestone.
 - Memory as policy evidence, approval/action authority, current business fact, or replay/audit truth — violates the contract boundary.
 - Full user-facing memory management UI — defer until storage/review/tombstone/retrieval foundations are safe.
-- OCR / PDF / DOCX / image parsing — production ingestion is important but belongs after minimal hybrid retrieval is stable.
-- `DocumentBlock` persistence — needed for page/bbox citation and OCR, but not required for Phase 20's hybrid retrieval slice.
-- `MaterialClaim` and semantic verifier — belongs to later hallucination-control work after retrieval and context building are stable.
-- Full external `SearchBackend` interface — current code has one Postgres backend; `PolicyKnowledgeService` already hides retriever details from Agent nodes.
-- New vector database service — PostgreSQL/pgvector remains the default unless later RAG backend planning proves a stronger need.
+- OCR / PDF / DOCX / image parsing — deferred to Phase 21: RAG Production Ingestion + OCR.
+- `DocumentBlock` persistence — deferred to Phase 21: RAG Production Ingestion + OCR; needed for page/bbox citation, but not required for Phase 20's hybrid retrieval slice.
+- `MaterialClaim` and semantic verifier — deferred to Phase 22: RAG Context Builder + Hallucination Control.
+- Query rewrite, reranker interface, cross-encoder/external rerank API, full ranking explanation, retrieval ablation eval, and latency budget — deferred to Phase 23: RAG Reranker + Query Rewrite.
+- Full external `SearchBackend` interface — deferred to Phase RAG-5: Optional External Search Backend; current code has one Postgres backend and `PolicyKnowledgeService` already hides retriever details from Agent nodes.
+- New vector database service — PostgreSQL/pgvector remains the default unless Phase RAG-5 backend planning proves a stronger need.
 - Second scenario (creator appeals) — defer to polish phase
 - MCP protocol layer — adds complexity without MVP value
 - Kubernetes / production deployment — Docker Compose sufficient for demo
@@ -144,13 +146,14 @@ v1.3 is active and scoped to Phase 20. It upgrades MOCA's policy retrieval from 
 - Phase 15.2 v1.1 Readiness Closure is complete: formal Phase 7/10 verification exists, `KNOW-02` tenant-over-global target semantics have a post-Phase 17 `Policy Scope` owner, and the milestone readiness audit passes.
 - v1.1 is shipped and archived on 2026-06-17. Full milestone history lives in `.planning/milestones/v1.1-ROADMAP.md`, `.planning/milestones/v1.1-REQUIREMENTS.md`, and `.planning/milestones/v1.1-MILESTONE-AUDIT.md`.
 - v1.2 Long-term / Case Memory is complete. Phase 16 owns `memory_identity.v1`, reviewed long-term memory, reviewed case memory, memory tombstones, memory write events, and prompt-context integration.
-- v1.3 RAG Hybrid Retrieval implementation is complete and pending GSD verification. Phase 20 owns the minimal PostgreSQL hybrid retrieval upgrade and explicitly excludes OCR, `DocumentBlock`, `MaterialClaim`, semantic verifier, Vespa/OpenSearch, and full external `SearchBackend`.
+- v1.3 RAG Hybrid Retrieval is shipped and archived. Phase 20 owns the minimal PostgreSQL hybrid retrieval upgrade and explicitly excludes OCR, `DocumentBlock`, `MaterialClaim`, semantic verifier, reranker/query rewrite, Vespa/OpenSearch, and full external `SearchBackend`. OCR/parser/`DocumentBlock` is Phase 21-owned; `MaterialClaim`/semantic verifier is Phase 22-owned; reranker/query rewrite is Phase 23-owned; Vespa/OpenSearch/full external `SearchBackend` is Phase RAG-5-owned.
 
-## Current Milestone Goals
+## Next Milestone Goals
 
-- Verify Phase 20 against the new v1.3 requirements rather than archived v1.2 memory requirements.
+- Start from fresh requirements rather than carrying v1.3 `REQUIREMENTS.md` forward.
+- Choose whether the next active RAG milestone is Phase 21 production ingestion/OCR, Phase 22 context builder/hallucination control, Phase 23 reranker/query rewrite, or another priority.
 - Preserve v1.1/v1.2 safety boundaries: policy evidence remains `EvidenceRefV1`; business facts remain Tool System outputs; memory remains contextual assistance only.
-- Keep Phase 17 External Action Execution and post-Phase 17 Policy Scope explicitly deferred beyond v1.3.
+- Keep Phase 17 External Action Execution and post-Phase 17 Policy Scope explicitly deferred unless a new milestone intentionally selects them.
 
 ## Constraints
 
@@ -176,6 +179,9 @@ v1.3 is active and scoped to Phase 20. It upgrades MOCA's policy retrieval from 
 | Archive v1.1 before Phase 16 | Readiness closure showed v1.1 could be archived cleanly before entering long-term memory, avoiding carry-over evidence debt | Adopted 2026-06-17 |
 | Scope v1.2 to Phase 16 only | Preserves the existing architecture-owner meaning of Phase 16 while avoiding renumbering or absorbing Phase 17 External Action Execution | Adopted 2026-06-17 |
 | Treat long-term/case memory as contextual assistance only | Prevents memory from weakening the policy evidence, approval/action authority, current business fact, and replay/audit contracts established in v1.1 | Adopted 2026-06-17 |
+| Keep v1.3 hybrid retrieval inside PostgreSQL and PolicyKnowledgeService | PostgreSQL hybrid search is enough for the current scale, and the service facade already hides retriever details from Agent nodes | Adopted 2026-06-18 |
+| Separate retrieval search text from citation content | Preserves `PolicyChunk.content`, `EvidenceRefV1.text_hash`, approval snapshots, and replay/citation identity while improving retrieval quality | Adopted 2026-06-18 |
+| Name RAG deferral owners explicitly | Prevents OCR, `DocumentBlock`, `MaterialClaim`, reranking, and external backend work from being treated as vague future scope | Adopted 2026-06-18 |
 
 ## Evolution
 
@@ -195,4 +201,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-18 after Phase 20 implementation*
+*Last updated: 2026-06-18 after v1.3 milestone archive*

@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: RAG Hybrid Retrieval
-status: security_verified
-stopped_at: Completed 20-01-postgres-hybrid-retrieval-PLAN.md
-last_updated: "2026-06-18T13:17:41.000Z"
-last_activity: 2026-06-18 -- Phase 20 security verification completed with threats_open: 0
+status: milestone_archived
+stopped_at: v1.3 milestone archived
+last_updated: "2026-06-18T13:30:00.000Z"
+last_activity: 2026-06-18 -- v1.3 RAG Hybrid Retrieval archived; next step is fresh milestone planning
 progress:
   total_phases: 1
   completed_phases: 1
@@ -21,28 +21,24 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-18)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 20 security verified — ready for milestone completion
+**Current focus:** v1.3 archived — ready for `$gsd-new-milestone`
 
 ## Current Position
 
-Phase: 20 (rag-hybrid-retrieval) — COMPLETE / SECURITY VERIFIED
-Plan: `.planning/phases/20-rag-hybrid-retrieval/20-01-postgres-hybrid-retrieval-SUMMARY.md`
+Phase: none active
+Plan: none active
 Plans: 1/1 complete
-Status: PostgreSQL hybrid retrieval implementation complete; UAT passed 7/7; security threats closed 5/5; `uv run pytest -q` passed with 1002 tests
-Last activity: 2026-06-18 -- Phase 20 security verification completed; `20-SECURITY.md` records threats_open: 0
+Status: v1.3 RAG Hybrid Retrieval archived; PostgreSQL hybrid retrieval implementation complete; UAT passed 7/7; security threats closed 5/5; `uv run pytest -q` passed with 1002 tests
+Last activity: 2026-06-18 -- v1.3 milestone archive created; `REQUIREMENTS.md` removed for fresh next-milestone requirements
 
 Progress: [██████████] 100%
 
 Planning files:
 
-- `20-01-postgres-hybrid-retrieval-PLAN.md`
-- `20-01-postgres-hybrid-retrieval-SUMMARY.md`
-- `20-CONTEXT.md`
-- `20-RESEARCH.md`
-- `20-REVIEW.md`
-- `20-SECURITY.md`
-- `20-UAT.md`
-- `20-VALIDATION.md`
+- `.planning/milestones/v1.3-ROADMAP.md`
+- `.planning/milestones/v1.3-REQUIREMENTS.md`
+- `.planning/MILESTONES.md`
+- `.planning/RETROSPECTIVE.md`
 
 ## Completed Baseline
 
@@ -188,10 +184,19 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 15.1 inserted after Phase 15: Memory Foundation V2 (URGENT). It is a pre-Phase 16 foundation phase for conversation log, WorkingStateV1, short-term thread summaries, ContextAssembler, tool result storage, token budgeting, and trace/audit/conversation ID alignment. It explicitly does not implement Phase 16 long-term memory, tombstones, user-manageable memory, case memory vector search, or case precedent retrieval.
 - Phase 15.2 inserted after Phase 15.1: v1.1 Readiness Closure (URGENT). It closes formal verification and owner-disposition gaps from the milestone audit before Phase 16 planning.
 - v1.2 starts after v1.1 archive with fresh requirements in `.planning/REQUIREMENTS.md` and a one-phase roadmap for Phase 16 Long-term / Case Memory.
+- v1.3 RAG Hybrid Retrieval shipped and archived on 2026-06-18 with Phase 20 as the only active phase. Future RAG work is owner-named as Phase 21, Phase 22, Phase 23, and Phase RAG-5.
 
 ### Pending Todos
 
 - [ ] Constrain AgentState memory expansion - `.planning/todos/pending/2026-06-17-constrain-agentstate-memory-expansion.md`
+
+## Deferred Items
+
+Items acknowledged and deferred at milestone close on 2026-06-18:
+
+| Category | Item | Status |
+|----------|------|--------|
+| todo | 2026-06-17-constrain-agentstate-memory-expansion.md | pending |
 
 ## Blockers / Concerns
 
@@ -266,15 +271,17 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 | 16 | 07 | 6 min | 3 | 4 |
 | 16 | 08 | 10 min | 3 | 8 |
 | 16 | 09 | 24 min | 4 | 14 |
+| 20 | 01 | 1h 10m | 6 | 13 |
 
 ## Session Continuity
 
-Last session: --stopped-at
-Stopped at: Completed 20-01-postgres-hybrid-retrieval-PLAN.md
-Resume file: --resume-file
-Next: Archive v1.2 when ready, or start the next milestone.
+Last session: v1.3 milestone archive
+Stopped at: v1.3 RAG Hybrid Retrieval shipped and archived
+Resume file: n/a
+Next: Start the next milestone with `$gsd-new-milestone`.
 
 **Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17
 **Completed Milestone:** v1.2 Long-term / Case Memory — shipped 2026-06-17
+**Archived Milestone:** v1.3 RAG Hybrid Retrieval — shipped 2026-06-18
 
-**Completed Phase:** 16 (Long-term / Case Memory) — 9 plans — verified 2026-06-17T18:37:27Z
+**Completed Phase:** 20 (RAG Hybrid Retrieval) — 1 plan — UAT/security verified 2026-06-18

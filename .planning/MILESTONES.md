@@ -1,5 +1,43 @@
 # Milestones
 
+## v1.3 RAG Hybrid Retrieval (Shipped: 2026-06-18)
+
+**Delivered:** Minimal production hybrid policy retrieval on PostgreSQL + pgvector + PostgreSQL full-text + pg_trgm, with RRF fusion and evidence-boundary preservation.
+
+**Phases completed:** 20 (1 phase, 1 plan, 6 tasks)
+
+**Key accomplishments:**
+- Added deterministic Chinese/domain search text construction for policy chunks and queries.
+- Added `PolicyChunk.search_text`, generated `search_vector`, pg_trgm/full-text indexes, and rollback-safe migration coverage.
+- Persisted retrieval-only search text during ingestion while keeping `PolicyChunk.content` as citation text.
+- Added sparse and fuzzy repository channels with the same trusted tenant/effective/doc/risk filters as dense retrieval.
+- Added RRF fusion across dense/sparse/fuzzy results while keeping evidence confidence normalized to 0-1.
+- Added internal retrieval trace fields and eval diagnostics without extending `EvidenceRefV1`.
+
+**Stats:**
+- 1 completed phase, 1 plan, 6 task markers
+- 9 Phase 20 closeout commits from `e25a979` to `8b1d0c5`
+- 26 files changed, 3,314 insertions, 148 deletions since the Phase 16 close baseline
+- Shipped on 2026-06-18
+- UAT passed 7/7; security verification closed 5/5 threats with `threats_open: 0`
+- Full regression gate passed: `1002 passed, 6 warnings`
+
+**Known deferred items at close:**
+- 1 pending todo acknowledged and deferred at close: `2026-06-17-constrain-agentstate-memory-expansion.md` (see `.planning/STATE.md` Deferred Items).
+- Phase 21 owns OCR/parser, `DocumentBlock`, page/bbox/cell citation, table-aware chunking, OCR confidence, and parser trace.
+- Phase 22 owns `MaterialClaim`, semantic support verifier, conflict/freshness routing, refusal/manual-review policy, and faithfulness/citation eval.
+- Phase 23 owns query rewrite, reranker interface, optional cross-encoder/external rerank API, full ranking explanation, retrieval ablation eval, and latency budget.
+- Phase RAG-5 owns Vespa/OpenSearch shadow testing and full external `SearchBackend` if PostgreSQL hybrid no longer fits.
+- No standalone `.planning/v1.3-MILESTONE-AUDIT.md` existed at close; closure used Phase 20 validation, review, UAT, security verification, and full pytest gates.
+
+**Archived:**
+- `.planning/milestones/v1.3-ROADMAP.md`
+- `.planning/milestones/v1.3-REQUIREMENTS.md`
+
+**What's next:** Start the next milestone with fresh requirements via `$gsd-new-milestone`.
+
+---
+
 ## v1.1 Agent Architecture Migration (Shipped: 2026-06-17)
 
 **Delivered:** A contract-hardened agent architecture with explicit service facades, deterministic state/routing, approval/action safety contracts, replay events, and pre-Phase 16 memory foundation.

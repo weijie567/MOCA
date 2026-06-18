@@ -5,7 +5,7 @@
 - [x] **v1.0 MVP** - Shipped on 2026-05-22. Full archive: [v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md)
 - [x] **v1.1 Agent Architecture Migration** - Shipped on 2026-06-17. Full archive: [v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md)
 - [x] **v1.2 Long-term / Case Memory** - Shipped on 2026-06-17. Scope: Phase 16.
-- [ ] **v1.3 RAG Hybrid Retrieval** - Active. Scope: Phase 20.
+- [x] **v1.3 RAG Hybrid Retrieval** - Shipped on 2026-06-18. Full archive: [v1.3-ROADMAP.md](milestones/v1.3-ROADMAP.md)
 
 ## Phases
 
@@ -68,32 +68,9 @@
 - Include migration rollback and downgrade preflight strategy for new schema.
 - Include coverage for tombstone no-rewrite and separate-session concurrency risks where relevant.
 
-## Current Milestone: v1.3 RAG Hybrid Retrieval
+## Completed Milestone: v1.3 RAG Hybrid Retrieval
 
-### Phase 20: RAG Hybrid Retrieval
-
-**Status:** Complete — 1/1 plan executed; UAT passed; security verified
-
-**Goal:** Upgrade MOCA's current pgvector-only policy retrieval path into a minimal production hybrid retrieval backend using PostgreSQL + pgvector + PostgreSQL full-text + pg_trgm, while preserving `PolicyKnowledgeService`, `EvidenceRefV1`, existing citation identity, and the Tool System boundary for business facts.
-
-**Requirements:** `RAGHYB-01`, `RAGHYB-02`, `RAGTOK-01`, `RAGTOK-02`, `RAGRET-01`, `RAGRET-02`, `RAGRET-03`, `RAGSCOPE-01`, `RAGSCOPE-02`, `RAGTRACE-01`, `RAGEVAL-01`
-
-**Success criteria:**
-
-- `PolicyChunk` has retrieval-ready `search_text` / `search_vector` support and indexes for full-text and pg_trgm search.
-- Chinese tokenizer and domain dictionary produce stable query/content search terms without mutating citation text.
-- Retrieval combines dense, sparse, and fuzzy candidates through RRF.
-- Tenant/effective-date/scope filters apply before each retrieval channel contributes candidates.
-- `PolicyKnowledgeService` and canonical `EvidenceRefV1` behavior remain compatible with existing Agent, approval, snapshot, and replay consumers.
-- Minimal retrieval trace is available for eval/debug and does not enter prompts.
-- Focused tests and eval cover tokenizer, sparse/fuzzy search, RRF ordering, scope filtering, effective-date filtering, Hit@5, and fallback accuracy.
-
-**Planning prerequisites:**
-
-- Read `docs/rag-architecture-spec.md` sections 2, 8, 9, 14, 15, and 16.
-- Read `docs/contract-spec.md` §8.3, especially canonical `EvidenceRefV1` and citation membership semantics.
-- Read `src/knowledge/retrieval.py`, `src/knowledge/service.py`, `src/repositories/policy_chunk_repo.py`, `src/rag/ingestion.py`, `src/rag/chunker.py`, `src/db/models.py`, and `src/db/migrations/versions/002_rag_pipeline.py`.
-- Do not implement OCR, `DocumentBlock`, `MaterialClaim`, semantic verifier, Vespa/OpenSearch, or full external `SearchBackend` in Phase 20.
+- [x] Phase 20: RAG Hybrid Retrieval - 1/1 plan complete; UAT passed 7/7; security verified with `threats_open: 0`; archive: [v1.3-ROADMAP.md](milestones/v1.3-ROADMAP.md)
 
 ## Deferred Beyond v1.3
 
@@ -101,17 +78,18 @@
 - **post-Phase 17 Policy Scope** - tenant-over-global global/default policy fallback.
 - **Phase 21: RAG Production Ingestion + OCR** - parser/OCR abstraction, PDF/DOCX/image ingestion, `DocumentBlock`, page/bbox/cell citation, table-aware chunking, OCR confidence, and parser trace.
 - **Phase 22: RAG Context Builder + Hallucination Control** - evidence re-fetch/hash validation in ContextBuilder, citation map, `MaterialClaim`, semantic support verifier, conflict/freshness routing, refusal/manual-review policy, and faithfulness/citation eval.
+- **Phase 23: RAG Reranker + Query Rewrite** - query rewrite, reranker interface, optional cross-encoder/external rerank API, full ranking explanation, retrieval ablation eval, and latency budget.
 - **Phase RAG-5: Optional External Search Backend** - Vespa/OpenSearch shadow testing and full external `SearchBackend` only if scale, latency, or ranking-profile complexity outgrows PostgreSQL hybrid.
 - **Memory UX** - full user/admin memory management UI.
 - **Memory retrieval quality expansion** - broader vector retrieval/reranking after lifecycle safety passes.
 
 ## Current Status
 
-v1.3 Phase 20 implementation, UAT, and security verification are complete. The retrieval slice adds policy chunk `search_text` / generated `search_vector`, PostgreSQL full-text and pg_trgm retrieval channels, RRF fusion, internal hybrid trace, and focused eval diagnostics while preserving `EvidenceRefV1` and Tool System boundaries. Local fallback code review found no issues; security verification closed 5/5 threats with `threats_open: 0`.
+v1.3 RAG Hybrid Retrieval is shipped and archived. The retrieval slice adds policy chunk `search_text` / generated `search_vector`, PostgreSQL full-text and pg_trgm retrieval channels, RRF fusion, internal hybrid trace, and focused eval diagnostics while preserving `EvidenceRefV1` and Tool System boundaries.
 
 ## Next Step
 
-Run `$gsd-complete-milestone` to archive the v1.3 milestone.
+Run `$gsd-new-milestone` to define the next milestone with fresh requirements.
 
 ---
-*Updated: 2026-06-18 - Phase 20 security verified; threats_open: 0.*
+*Updated: 2026-06-18 - v1.3 shipped and archived.*

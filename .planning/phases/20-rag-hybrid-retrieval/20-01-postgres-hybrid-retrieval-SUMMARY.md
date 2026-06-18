@@ -160,7 +160,7 @@ None - no external service configuration required.
 
 ## Next Phase Readiness
 
-Phase 20 retrieval implementation is ready for GSD verification. Future RAG phases can build OCR/parser, `DocumentBlock`, `MaterialClaim`, semantic verifier, or external backend work on top of this hybrid retrieval base.
+Phase 20 retrieval implementation is ready for GSD verification. Phase 21: RAG Production Ingestion + OCR can build OCR/parser and `DocumentBlock` work on top of this hybrid retrieval base. Phase 22: RAG Context Builder + Hallucination Control can build `MaterialClaim` and semantic verifier work on top of it. Phase 23: RAG Reranker + Query Rewrite owns query rewrite, reranker, full ranking explanation, ablation eval, and latency budget. Phase RAG-5: Optional External Search Backend owns Vespa/OpenSearch and full external `SearchBackend` work if scale or ranking complexity requires it.
 
 ---
 *Phase: 20-rag-hybrid-retrieval*
