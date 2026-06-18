@@ -18,10 +18,10 @@ Committed scope for the active v1.4 milestone. All requirements map to Phase 21.
 
 ### Source Provenance
 
-- [ ] **PROV-01**: The database stores durable `DocumentBlock` or equivalent source-block rows scoped by tenant and policy document, with stable source block IDs, block index, block type, text hash, page number, bbox, table/cell metadata, parser metadata, and OCR metadata.
+- [x] **PROV-01**: The database stores durable `DocumentBlock` or equivalent source-block rows scoped by tenant and policy document, with stable source block IDs, block index, block type, text hash, page number, bbox, table/cell metadata, parser metadata, and OCR metadata.
 - [ ] **PROV-02**: Every parser/OCR-derived `PolicyChunk` stores ordered source-block provenance so source page, bbox, table row/cell, and OCR confidence metadata can be resolved after retrieval.
 - [ ] **PROV-03**: Source-location metadata is exposed only through a verified tenant-scoped provenance lookup that first validates the canonical evidence content/hash.
-- [ ] **PROV-04**: `DocumentBlock` and source-block IDs cannot act as standalone policy evidence, approval evidence, memory authority, action authority, replay truth, or business facts.
+- [x] **PROV-04**: `DocumentBlock` and source-block IDs cannot act as standalone policy evidence, approval evidence, memory authority, action authority, replay truth, or business facts.
 
 ### Chunking & Search Text
 
@@ -40,17 +40,17 @@ Committed scope for the active v1.4 milestone. All requirements map to Phase 21.
 
 ### Ingestion Trace & Rollback
 
-- [ ] **INGEST-01**: Ingestion records a safe parser/OCR job trace with source checksum, parser/OCR versions, stage/status, warnings, counts, timings, and sanitized failure reasons.
+- [x] **INGEST-01**: Ingestion records a safe parser/OCR job trace with source checksum, parser/OCR versions, stage/status, warnings, counts, timings, and sanitized failure reasons.
 - [ ] **INGEST-02**: Parsing, OCR, cleaning, chunking, and embedding complete before the short document write transaction deletes or inserts committed chunks/blocks.
 - [ ] **INGEST-03**: Failed parse, OCR timeout, embedding mismatch, or DB insert failure leaves the previous committed policy document version, chunks, blocks, and retrieval behavior intact.
-- [ ] **INGEST-04**: Alembic migration and downgrade coverage creates and removes source-block, ingestion-job, and provenance structures in dependency-safe order without regressing existing Markdown/hybrid retrieval.
+- [x] **INGEST-04**: Alembic migration and downgrade coverage creates and removes source-block, ingestion-job, and provenance structures in dependency-safe order without regressing existing Markdown/hybrid retrieval.
 
 ### Contract Preservation
 
-- [ ] **BOUNDARY-01**: `EvidenceRefV1`, canonical evidence projection, approval snapshots, replay events, and policy citation text hashing remain schema-compatible with v1.3.
+- [x] **BOUNDARY-01**: `EvidenceRefV1`, canonical evidence projection, approval snapshots, replay events, and policy citation text hashing remain schema-compatible with v1.3.
 - [ ] **BOUNDARY-02**: Existing hybrid retrieval behavior remains intact: dense/sparse/fuzzy filters apply before candidate contribution, RRF controls ordering, and normalized confidence controls evidence thresholds.
-- [ ] **BOUNDARY-03**: Parser/OCR trace and provenance metadata are internal/debug/eval data by default and are excluded from `EvidenceRefV1`, prompts, public API evidence serialization, memory, and action authority.
-- [ ] **BOUNDARY-04**: Phase 21 implementation does not introduce `MaterialClaim`, semantic verifier, reranker/query rewrite, cross-encoder rerank API, Vespa/OpenSearch, or a full external `SearchBackend`.
+- [x] **BOUNDARY-03**: Parser/OCR trace and provenance metadata are internal/debug/eval data by default and are excluded from `EvidenceRefV1`, prompts, public API evidence serialization, memory, and action authority.
+- [x] **BOUNDARY-04**: Phase 21 implementation does not introduce `MaterialClaim`, semantic verifier, reranker/query rewrite, cross-encoder rerank API, Vespa/OpenSearch, or a full external `SearchBackend`.
 
 ## Future Requirements
 
@@ -96,10 +96,10 @@ Tracked but not in the active v1.4 roadmap.
 | SRC-03 | Phase 21 | Pending |
 | SRC-04 | Phase 21 | Pending |
 | SRC-05 | Phase 21 | Pending |
-| PROV-01 | Phase 21 | Pending |
+| PROV-01 | Phase 21 | Complete |
 | PROV-02 | Phase 21 | Pending |
 | PROV-03 | Phase 21 | Pending |
-| PROV-04 | Phase 21 | Pending |
+| PROV-04 | Phase 21 | Complete |
 | CHUNK-01 | Phase 21 | Pending |
 | CHUNK-02 | Phase 21 | Pending |
 | CHUNK-03 | Phase 21 | Pending |
@@ -109,14 +109,14 @@ Tracked but not in the active v1.4 roadmap.
 | SAFE-01 | Phase 21 | Complete |
 | SAFE-02 | Phase 21 | Pending |
 | SAFE-03 | Phase 21 | Complete |
-| INGEST-01 | Phase 21 | Pending |
+| INGEST-01 | Phase 21 | Complete |
 | INGEST-02 | Phase 21 | Pending |
 | INGEST-03 | Phase 21 | Pending |
-| INGEST-04 | Phase 21 | Pending |
-| BOUNDARY-01 | Phase 21 | Pending |
+| INGEST-04 | Phase 21 | Complete |
+| BOUNDARY-01 | Phase 21 | Complete |
 | BOUNDARY-02 | Phase 21 | Pending |
-| BOUNDARY-03 | Phase 21 | Pending |
-| BOUNDARY-04 | Phase 21 | Pending |
+| BOUNDARY-03 | Phase 21 | Complete |
+| BOUNDARY-04 | Phase 21 | Complete |
 
 **Coverage:**
 
