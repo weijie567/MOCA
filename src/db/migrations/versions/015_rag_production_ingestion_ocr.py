@@ -89,7 +89,7 @@ def upgrade() -> None:
         "rag_ingestion_jobs",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("tenant_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("doc_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("doc_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("doc_key", sa.String(length=64), nullable=False),
         sa.Column("source_type", sa.String(length=32), nullable=False),
         sa.Column("source_checksum", sa.String(length=128), nullable=False),

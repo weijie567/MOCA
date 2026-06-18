@@ -67,7 +67,8 @@ def test_rag_ingestion_job_schema_records_safe_trace_fields() -> None:
         "completed_at",
     }.issubset(set(table.c.keys()))
     assert table.c.tenant_id.nullable is False
-    assert table.c.doc_id.nullable is False
+    assert table.c.doc_id.nullable is True
+    assert table.c.doc_key.nullable is False
 
 
 def test_policy_chunk_and_document_schema_names_include_provenance_fields() -> None:

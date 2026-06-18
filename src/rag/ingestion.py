@@ -68,24 +68,23 @@ class IngestionService:
         except Exception:
             preexisting_doc = None
 
-        if preexisting_doc is not None:
-            job = await self._create_job_trace(
-                doc_id=preexisting_doc.id,
+        job = await self._create_job_trace(
+            doc_id=preexisting_doc.id if preexisting_doc is not None else None,
+            doc_key=doc_key,
+            source_type=source_type,
+            source_checksum=source_checksum,
+            stage="received",
+            status="running",
+        )
+        if job is None:
+            return IngestionReport(
                 doc_key=doc_key,
-                source_type=source_type,
-                source_checksum=source_checksum,
-                stage="received",
-                status="running",
+                title=title,
+                status="failed",
+                error="Job trace unavailable",
+                error_code="job_trace_unavailable",
+                safe_message="Policy ingestion job trace could not be persisted.",
             )
-            if job is None:
-                return IngestionReport(
-                    doc_key=doc_key,
-                    title=title,
-                    status="failed",
-                    error="Job trace unavailable",
-                    error_code="job_trace_unavailable",
-                    safe_message="Policy ingestion job trace could not be persisted.",
-                )
 
         try:
             parse_result = self.parser_registry.parse(
@@ -248,6 +247,8 @@ class IngestionService:
             await self.session.rollback()
             if doc is not None and doc_snapshot is not None:
                 _restore_document(doc, doc_snapshot)
+            elif doc is not None and job is not None and getattr(job, "doc_id", None) == doc.id:
+                job.doc_id = None
             safe_message = _safe_message(str(exc), default="Document replacement failed safely.")
             if job is not None:
                 await self._mark_job_failed(
@@ -285,7 +286,7 @@ class IngestionService:
     async def _create_job_trace(
         self,
         *,
-        doc_id: UUID,
+        doc_id: UUID | None,
         doc_key: str,
         source_type: str,
         source_checksum: str,

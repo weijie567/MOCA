@@ -28,6 +28,7 @@ def test_phase21_migration_creates_tenant_doc_scoped_tables_and_indexes() -> Non
     assert 'op.create_table(\n        "rag_ingestion_jobs"' in source
     assert '"tenant_id", postgresql.UUID(as_uuid=True), nullable=False' in source
     assert '"doc_id", postgresql.UUID(as_uuid=True), nullable=False' in source
+    assert '"doc_id", postgresql.UUID(as_uuid=True), nullable=True' in source
     assert "uq_document_blocks_tenant_doc_source_block" in source
     assert "ix_document_blocks_tenant_doc_index" in source
     assert "ix_document_blocks_tenant_doc_source_block" in source

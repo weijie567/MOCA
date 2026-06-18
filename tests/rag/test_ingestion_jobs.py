@@ -276,6 +276,36 @@ async def test_pre_transaction_failures_persist_sanitized_failed_job_without_doc
 
 
 @pytest.mark.asyncio
+async def test_first_import_pre_transaction_failure_persists_job_without_document_row(tmp_path: Path) -> None:
+    events: list[str] = []
+    failure = safe_failed_result(
+        source_type="policy_image",
+        parser_name="fake_ocr",
+        parser_version="1.0",
+        failure_code="ocr_runtime_unavailable",
+        safe_message="OCR runtime is unavailable.",
+    )
+    session = _FakeSession(events)
+    service = IngestionService(session=session, embedder=_FakeEmbedder(events), tenant_id=uuid4())
+    service.parser_registry = _FakeParserRegistry(failure, events)
+    service.doc_repo = _FakeDocumentRepo(None, events)
+    service.job_repo = _FakeJobRepo(events)
+
+    report = await service.ingest_document(_write_policy(tmp_path), _doc_meta(source_type="policy_image"))
+
+    assert report.status == "failed"
+    assert report.error_code == "ocr_runtime_unavailable"
+    assert report.job_id is not None
+    assert service.doc_repo.locked is False
+    failed_job = service.job_repo.created[-1]
+    assert failed_job.doc_id is None
+    assert failed_job.doc_key == "refund_policy"
+    assert failed_job.status == "failed"
+    assert failed_job.stage == "parsing"
+    assert failed_job.error_code == "ocr_runtime_unavailable"
+
+
+@pytest.mark.asyncio
 async def test_business_artifact_rejection_persists_failed_job_without_document_lock(tmp_path: Path) -> None:
     events: list[str] = []
     session = _FakeSession(events)
