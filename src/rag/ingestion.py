@@ -19,6 +19,7 @@ from src.rag.embedder import EmbeddingService
 from src.rag.parsers.base import ParsedBlock, ParseResult
 from src.rag.parsers.registry import ParserRegistry
 from src.rag.search_text import build_policy_chunk_search_text
+from src.rag.versioning import build_policy_version_fingerprint
 from src.repositories.document_block_repo import DocumentBlockRepository
 from src.repositories.policy_chunk_repo import PolicyChunkRepository
 from src.repositories.policy_document_repo import PolicyDocumentRepository
@@ -59,7 +60,7 @@ class IngestionService:
         title = doc_meta["title"]
         source_type = _source_type_for(file_path, doc_meta)
         source_checksum = _source_checksum(file_path)
-        effective_date = doc_meta.get("effective_date", date.today())
+        effective_date = doc_meta.get("effective_date")
         job: RagIngestionJob | None = None
 
         try:
@@ -152,8 +153,17 @@ class IngestionService:
                 doc = existing_doc
                 doc_snapshot = _snapshot_document(doc)
                 content = _document_citation_text(chunks)
-                content_changed = doc.content != content
-                if content_changed:
+                effective_date = effective_date or doc.effective_date or date.today()
+                fingerprint = build_policy_version_fingerprint(
+                    citation_text=content,
+                    title=title,
+                    doc_type=doc_meta["doc_type"],
+                    risk_level=doc_meta["risk_level"],
+                    effective_date=effective_date,
+                )
+                previous_fingerprint = getattr(doc, "policy_version_fingerprint", None)
+                fingerprint_changed = doc.content != content if previous_fingerprint is None else previous_fingerprint != fingerprint
+                if fingerprint_changed:
                     doc.version = (doc.version or 1) + 1
                 doc.title = title
                 doc.doc_type = doc_meta["doc_type"]
@@ -163,7 +173,17 @@ class IngestionService:
                 doc.source_type = parse_result.source_type
                 doc.source_checksum = source_checksum
                 doc.parser_metadata_json = _parser_metadata(parse_result)
+                doc.policy_version_fingerprint = fingerprint
             else:
+                effective_date = effective_date or date.today()
+                content = _document_citation_text(chunks)
+                fingerprint = build_policy_version_fingerprint(
+                    citation_text=content,
+                    title=title,
+                    doc_type=doc_meta["doc_type"],
+                    risk_level=doc_meta["risk_level"],
+                    effective_date=effective_date,
+                )
                 doc = PolicyDocument(
                     id=uuid4(),
                     tenant_id=self.tenant_id,
@@ -172,10 +192,11 @@ class IngestionService:
                     title=title,
                     effective_date=effective_date,
                     risk_level=doc_meta["risk_level"],
-                    content=_document_citation_text(chunks),
+                    content=content,
                     source_type=parse_result.source_type,
                     source_checksum=source_checksum,
                     parser_metadata_json=_parser_metadata(parse_result),
+                    policy_version_fingerprint=fingerprint,
                 )
                 self.session.add(doc)
                 await self.session.flush()
@@ -497,6 +518,9 @@ def _policy_chunks_from_block_chunks(
                     content=chunk.content,
                     doc_type=doc_type,
                     risk_level=risk_level,
+                    heading_path=_chunk_heading_path(chunk),
+                    table_headers=_chunk_table_headers(chunk),
+                    source_context=_chunk_source_context(chunk),
                 ),
                 source_block_refs_json=[dict(ref) for ref in chunk.source_block_refs],
                 ocr_metadata_json=_chunk_ocr_metadata(chunk),
@@ -511,6 +535,30 @@ def _policy_chunks_from_block_chunks(
 def _chunk_ocr_metadata(chunk: BlockChunkResult) -> dict[str, Any]:
     ocr_refs = [ref["ocr"] for ref in chunk.source_block_refs if "ocr" in ref]
     return {"blocks": ocr_refs} if ocr_refs else {}
+
+
+def _chunk_heading_path(chunk: BlockChunkResult) -> tuple[str, ...]:
+    return (chunk.section,) if chunk.section and chunk.section != "intro" else ()
+
+
+def _chunk_table_headers(chunk: BlockChunkResult) -> tuple[str, ...]:
+    table = chunk.metadata.get("table", {})
+    headers = table.get("headers") if isinstance(table, dict) else None
+    if not isinstance(headers, list):
+        return ()
+    return tuple(str(header) for header in headers if str(header).strip())
+
+
+def _chunk_source_context(chunk: BlockChunkResult) -> tuple[str, ...]:
+    parts: list[str] = []
+    for ref in chunk.source_block_refs:
+        source_block_id = ref.get("source_block_id")
+        if source_block_id:
+            parts.append(f"source_block_id={source_block_id}")
+        page_number = ref.get("page_number")
+        if page_number is not None:
+            parts.append(f"page={page_number}")
+    return tuple(parts)
 
 
 def _mark_job_success(

@@ -80,8 +80,20 @@ def build_policy_chunk_search_text(
     content: str,
     doc_type: str | None = None,
     risk_level: str | None = None,
+    heading_path: tuple[str, ...] | list[str] | None = None,
+    table_headers: tuple[str, ...] | list[str] | None = None,
+    source_context: tuple[str, ...] | list[str] | None = None,
 ) -> str:
-    context_parts = [title, section, doc_type or "", risk_level or "", content]
+    context_parts = [
+        title,
+        section,
+        doc_type or "",
+        risk_level or "",
+        *(heading_path or ()),
+        *(table_headers or ()),
+        *(source_context or ()),
+        content,
+    ]
     normalized_context = normalize_search_text(" ".join(part for part in context_parts if part))
     tokens = tokenize_search_text(normalized_context)
     parts = [normalized_context, *tokens]
