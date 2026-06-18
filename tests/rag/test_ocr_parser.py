@@ -28,6 +28,80 @@ def test_ocr_confidence_threshold_scaffold_values_are_locked() -> None:
     assert OCR_TIMEOUT_SECONDS_PER_PAGE == 15
 
 
+def _completed(stdout: str, returncode: int = 0):
+    from subprocess import CompletedProcess
+
+    return CompletedProcess(args=["tesseract"], returncode=returncode, stdout=stdout, stderr="")
+
+
+def test_ocr_runtime_preflight_accepts_chi_sim_and_eng(monkeypatch) -> None:
+    from src.rag.parsers import runtime
+
+    def fake_run(args, **kwargs):
+        if args == ["tesseract", "--version"]:
+            return _completed("tesseract 5.5.0\n")
+        return _completed("List of available languages in /safe:\nchi_sim\neng\n")
+
+    monkeypatch.setattr(runtime.subprocess, "run", fake_run)
+
+    result = runtime.check_ocr_runtime()
+
+    assert result.available is True
+    assert result.failure_code is None
+    assert result.installed_languages == ("chi_sim", "eng")
+
+
+def test_ocr_runtime_preflight_reports_missing_chi_sim(monkeypatch) -> None:
+    from src.rag.parsers import runtime
+
+    monkeypatch.setattr(
+        runtime.subprocess,
+        "run",
+        lambda args, **kwargs: _completed("tesseract 5.5.0\n")
+        if args == ["tesseract", "--version"]
+        else _completed("List of available languages in /safe:\neng\n"),
+    )
+
+    result = runtime.check_ocr_runtime()
+
+    assert result.available is False
+    assert result.failure_code == "OCR_LANGUAGE_UNAVAILABLE"
+    assert result.missing_languages == ("chi_sim",)
+
+
+def test_ocr_runtime_preflight_reports_missing_eng(monkeypatch) -> None:
+    from src.rag.parsers import runtime
+
+    monkeypatch.setattr(
+        runtime.subprocess,
+        "run",
+        lambda args, **kwargs: _completed("tesseract 5.5.0\n")
+        if args == ["tesseract", "--version"]
+        else _completed("List of available languages in /safe:\nchi_sim\n"),
+    )
+
+    result = runtime.check_ocr_runtime()
+
+    assert result.available is False
+    assert result.failure_code == "OCR_LANGUAGE_UNAVAILABLE"
+    assert result.missing_languages == ("eng",)
+
+
+def test_ocr_runtime_preflight_reports_missing_executable(monkeypatch) -> None:
+    from src.rag.parsers import runtime
+
+    def missing_run(args, **kwargs):
+        raise FileNotFoundError("tesseract")
+
+    monkeypatch.setattr(runtime.subprocess, "run", missing_run)
+
+    result = runtime.check_ocr_runtime()
+
+    assert result.available is False
+    assert result.failure_code == "OCR_RUNTIME_UNAVAILABLE"
+    assert result.missing_languages == ("chi_sim", "eng")
+
+
 @xfail_for("21-03-02/image-ocr")
 def test_image_ocr_parser_emits_text_pixel_boxes_language_engine_and_timeout_status() -> None:
     _require_tesseract_preflight()
@@ -72,4 +146,3 @@ def test_ocr_confidence_gates_accept_review_or_reject_by_threshold() -> None:
     assert classify_ocr_confidence(average_confidence=79)["quality"] == "review-needed"
     assert classify_ocr_confidence(average_confidence=54)["quality"] == "rejected"
     assert classify_ocr_confidence(text="", average_confidence=99)["quality"] == "rejected"
-

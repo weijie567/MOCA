@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import zipfile
+
 from src.rag.parsers.safety import (
     MAX_IMAGE_DIMENSION,
     MAX_PDF_PAGES,
@@ -68,7 +70,6 @@ def test_source_guards_reject_spoofed_or_oversized_inputs_before_parser_executio
     ).failure_code == "image_too_large"
 
 
-@xfail_for("21-03-01/runtime-safety")
 def test_parser_and_ocr_deadlines_are_enforced_as_safe_failures() -> None:
     from src.rag.parsers.runtime import run_with_ocr_deadline, run_with_parser_deadline
 
@@ -76,6 +77,59 @@ def test_parser_and_ocr_deadlines_are_enforced_as_safe_failures() -> None:
     assert run_with_parser_deadline(lambda: None, timeout_seconds=0).failure_code == "parser_timeout"
     assert run_with_ocr_deadline(lambda: None, timeout_seconds=OCR_TIMEOUT_SECONDS_PER_PAGE).stage == "ocr"
     assert run_with_ocr_deadline(lambda: None, timeout_seconds=0).failure_code == "ocr_timeout"
+
+
+def test_validate_source_file_rejects_spoofed_extension_and_oversize(tmp_path, monkeypatch) -> None:
+    from src.rag.parsers import safety
+
+    monkeypatch.setattr(safety, "_count_pdf_pages", lambda path: 1)
+    pdf = tmp_path / "policy.pdf"
+    pdf.write_bytes(b"%PDF-1.7\n")
+    assert safety.validate_source_file(pdf, source_type="policy_pdf", declared_mime="application/pdf").allowed is True
+
+    spoofed = tmp_path / "spoofed.pdf"
+    spoofed.write_bytes(b"PK\x03\x04not a pdf")
+    assert safety.validate_source_file(spoofed, source_type="policy_pdf").failure_code == "SOURCE_SIGNATURE_MISMATCH"
+
+    oversize = tmp_path / "large.pdf"
+    oversize.write_bytes(b"%PDF" + (b"x" * (MAX_SOURCE_FILE_BYTES + 1)))
+    assert safety.validate_source_file(oversize, source_type="policy_pdf").failure_code == "SOURCE_FILE_TOO_LARGE"
+
+
+def test_validate_source_file_rejects_pdf_page_limit(tmp_path, monkeypatch) -> None:
+    from src.rag.parsers import safety
+
+    monkeypatch.setattr(safety, "_count_pdf_pages", lambda path: MAX_PDF_PAGES + 1)
+    pdf = tmp_path / "many-pages.pdf"
+    pdf.write_bytes(b"%PDF-1.7\n")
+
+    result = safety.validate_source_file(pdf, source_type="policy_pdf")
+
+    assert result.failure_code == "SOURCE_PAGE_LIMIT_EXCEEDED"
+    assert result.page_count == MAX_PDF_PAGES + 1
+
+
+def test_validate_source_file_rejects_image_dimension_and_malformed_file(tmp_path, monkeypatch) -> None:
+    from src.rag.parsers import safety
+
+    image = tmp_path / "huge.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\n")
+    monkeypatch.setattr(safety, "_inspect_image", lambda path: (MAX_IMAGE_DIMENSION + 1, 100))
+    assert safety.validate_source_file(image, source_type="policy_image").failure_code == "SOURCE_IMAGE_TOO_LARGE"
+
+    monkeypatch.setattr(safety, "_inspect_image", lambda path: "SOURCE_MALFORMED")
+    assert safety.validate_source_file(image, source_type="policy_image").failure_code == "SOURCE_MALFORMED"
+
+
+def test_validate_source_file_rejects_docx_zip_decompression_hazard(tmp_path) -> None:
+    from src.rag.parsers.safety import validate_source_file
+
+    docx = tmp_path / "hazard.docx"
+    with zipfile.ZipFile(docx, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", "<Types></Types>")
+        archive.writestr("word/document.xml", "x" * 200_000)
+
+    assert validate_source_file(docx, source_type="policy_docx").failure_code == "SOURCE_DECOMPRESSION_HAZARD"
 
 
 def test_business_artifacts_are_rejected_before_becoming_policy_sources() -> None:
@@ -100,6 +154,18 @@ def test_business_artifacts_are_rejected_before_becoming_policy_sources() -> Non
         assert reject_business_artifact_source(source_type, {}) == "business_artifact_rejected"
 
     assert validate_policy_source_type("policy_markdown").allowed is True
+
+
+def test_validate_source_file_rejects_business_artifact_source(tmp_path) -> None:
+    from src.rag.parsers.safety import validate_source_file
+
+    artifact = tmp_path / "ticket.png"
+    artifact.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    result = validate_source_file(artifact, source_type="business_screenshot")
+
+    assert result.allowed is False
+    assert result.failure_code == "BUSINESS_ARTIFACT_REJECTED"
 
 
 @xfail_for("21-04-02/raw-payload-report-boundary")
