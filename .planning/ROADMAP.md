@@ -6,7 +6,7 @@
 - [x] **v1.1 Agent Architecture Migration** - Shipped on 2026-06-17. Full archive: [v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md)
 - [x] **v1.2 Long-term / Case Memory** - Shipped on 2026-06-17. Scope: Phase 16.
 - [x] **v1.3 RAG Hybrid Retrieval** - Shipped on 2026-06-18. Full archive: [v1.3-ROADMAP.md](milestones/v1.3-ROADMAP.md)
-- [ ] **v1.4 RAG Production Ingestion + OCR** - Active milestone. Scope: Phase 21.
+- [x] **v1.4 RAG Production Ingestion + OCR** - Shipped on 2026-06-19. Full archive: [v1.4-ROADMAP.md](milestones/v1.4-ROADMAP.md)
 
 ## Phases
 
@@ -76,51 +76,19 @@
 
 </details>
 
-### Active Milestone: v1.4 RAG Production Ingestion + OCR
+<details>
+<summary>v1.4 RAG Production Ingestion + OCR (Phase 21) - SHIPPED 2026-06-19</summary>
 
-- [x] **Phase 21: RAG Production Ingestion + OCR** - Parser/OCR ingestion and source-block provenance for PDF, DOCX, image, scanned-PDF, Markdown, and plain-text policy sources while preserving v1.3 evidence and retrieval contracts.
+- [x] Phase 21: RAG Production Ingestion + OCR - 9/9 plans complete; accepted; security verified; archive: [v1.4-ROADMAP.md](milestones/v1.4-ROADMAP.md)
+- Delivered parser/OCR ingestion and source-block provenance for PDF, DOCX, image, scanned-PDF, Markdown, and plain-text policy sources while preserving v1.3 evidence and retrieval contracts.
+- Final gate: `1136 passed, 9 warnings`; live migration + OCR gate: `28 passed, 4 warnings`; milestone audit: 26/26 requirements satisfied.
 
-## Phase Details
-
-### Phase 21: RAG Production Ingestion + OCR
-
-**Goal**: Policy maintainers can ingest real policy source files with parser/OCR traceability and source-block provenance, while users continue receiving canonical `EvidenceRefV1` policy evidence through the existing v1.3 hybrid retrieval path.
-
-**Depends on**: Phase 20
-
-**Requirements**: SRC-01, SRC-02, SRC-03, SRC-04, SRC-05, PROV-01, PROV-02, PROV-03, PROV-04, CHUNK-01, CHUNK-02, CHUNK-03, CHUNK-04, OCR-01, OCR-02, SAFE-01, SAFE-02, SAFE-03, INGEST-01, INGEST-02, INGEST-03, INGEST-04, BOUNDARY-01, BOUNDARY-02, BOUNDARY-03, BOUNDARY-04
-
-**Success Criteria** (what must be TRUE):
-  1. Maintainer can ingest Markdown/plain text, PDF, DOCX, image, and scanned-PDF policy sources through project-owned parser DTOs and receive deterministic parser/OCR status, warnings, safe failure codes, counts, timings, and version metadata.
-  2. Retrieved policy evidence still uses schema-compatible `EvidenceRefV1`, canonical citation text, stable content hashes, v1.3 dense/sparse/fuzzy filters, RRF ordering, and normalized evidence confidence.
-  3. Maintainer can resolve a retrieved evidence ref to tenant-scoped source-block provenance after content/hash validation, including page, bbox, table row/cell, parser metadata, and OCR confidence when that metadata exists.
-  4. Table and OCR-derived chunks preserve faithful visible citation text, row/header/cell context, retrieval-only `search_text` enrichment, and deterministic low-confidence OCR quarantine or review-needed behavior.
-  5. Failed parsing, OCR timeout, embedding mismatch, DB insert failure, malformed or unsafe files, business-artifact inputs, and migration downgrade/reupgrade leave prior committed policy versions, chunks, blocks, retrieval behavior, and safety boundaries intact.
-
-**Plans**: 9 plans
-
-Plans:
-- [x] 21-00-PLAN.md — Wave 0 validation and test scaffolding
-- [x] 21-01-PLAN.md — Parser contracts, source guards, and Markdown/plain-text adapters
-- [x] 21-01a-PLAN.md — Source-block schema, repositories, and boundary guards
-- [x] 21-02-PLAN.md — Block-aware chunking and atomic ingestion
-- [x] 21-03-PLAN.md — PDF, DOCX, image OCR adapters, and runtime preflight
-- [x] 21-04-PLAN.md — Verified provenance lookup and safe trace reporting
-- [x] 21-04a-PLAN.md — Phase 21 boundary regression
-- [x] 21-05-PLAN.md — Migration rollback and security closure
-- [x] 21-05a-PLAN.md — Final Phase 21 acceptance gate
-
-**Planning prerequisites**:
-- Treat research work packages 21.1-21.5 as Phase 21 implementation slices, not separate roadmap phases.
-- Use the research sequence as planning input: Slice 21.1 schema/parser contract/scope guards; Slice 21.2 block-aware chunking/atomic ingestion; Slice 21.3 PDF/DOCX/image/OCR adapters; Slice 21.4 provenance lookup/trace reporting/boundary regression; Slice 21.5 acceptance/downgrade/security gate.
-- Read `docs/contract-spec.md`, `docs/rag-architecture-spec.md`, current v1.3 ingestion/retrieval code, and `.planning/research/SUMMARY.md` before implementation planning.
-- Define concrete OCR confidence thresholds, file-size/page/image limits, parser timeouts, SourceBox coordinate semantics, and migration downgrade strategy during Phase 21 planning.
-- Preserve the explicit v1.4 boundary: do not introduce `MaterialClaim`, semantic verifier, reranker/query rewrite, cross-encoder/external rerank API, Vespa/OpenSearch, or a full external `SearchBackend`.
+</details>
 
 ## Coverage
 
-- v1.4 requirements mapped: 26/26
-- Active roadmap phases: 1
+- v1.4 requirements archived: 26/26
+- Active roadmap phases: 0
 - Orphaned requirements: 0
 - Duplicate phase mappings: 0
 
@@ -138,17 +106,17 @@ Plans:
 
 ## Current Status
 
-v1.4 RAG Production Ingestion + OCR is accepted, verified, and complete. The milestone turns v1.3 hybrid retrieval into a production ingestion foundation for PDF, DOCX, image/scanned-PDF, Markdown, and plain-text policy sources with parser/OCR traceability, durable source-block provenance, table-aware chunking, and rollback-safe ingestion while preserving `PolicyKnowledgeService`, `PolicyChunk.content`, `PolicyChunk.search_text`, `EvidenceRefV1`, Tool System facts, memory boundaries, approval snapshots, and replay contracts.
+v1.4 RAG Production Ingestion + OCR is shipped and archived. The project is between active milestones; start the next milestone with fresh requirements.
 
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 21. RAG Production Ingestion + OCR | v1.4 | 9/9 | Complete; verified | 2026-06-19 |
+| 21. RAG Production Ingestion + OCR | v1.4 | 9/9 | Shipped; archived | 2026-06-19 |
 
 ## Next Step
 
-Run `$gsd-complete-milestone` for v1.4 closure or start the next milestone.
+Run `$gsd-new-milestone` to select and scope the next milestone.
 
 ---
-*Updated: 2026-06-19 - Phase 21 verified and v1.4 milestone complete.*
+*Updated: 2026-06-19 - v1.4 shipped and archived.*

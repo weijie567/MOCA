@@ -147,6 +147,55 @@
 
 ---
 
+## Milestone: v1.4 — RAG Production Ingestion + OCR
+
+**Shipped:** 2026-06-19
+**Phases:** 1 | **Plans:** 9 | **Task markers:** 18
+
+### What Was Built
+
+- Project-owned parser DTOs, parser registry routing, source guards, and deterministic Markdown/plain-text synthetic source blocks.
+- Durable source-block and ingestion-job persistence with chunk provenance refs and safe parser/OCR job trace projection.
+- Block-aware and table-aware chunking with retrieval-only `search_text` enrichment while preserving canonical citation text and `EvidenceRefV1.text_hash`.
+- Local PDF, DOCX, image, scanned-PDF, and OCR adapters with Tesseract `chi_sim+eng` preflight and deterministic confidence thresholds.
+- Verified source-block provenance lookup that checks tenant, evidence id, and canonical text hash before exposing maintainer/debug metadata.
+- Boundary regression coverage across evidence refs, API evidence serialization, prompts, memory, approval/action snapshots, replay payloads, Tool System facts, and v1.3 hybrid retrieval.
+
+### What Worked
+
+- Separating source provenance from evidence authority kept Phase 21 large but still bounded.
+- The two-pass review loop caught real parser/OCR safety issues before archive: hidden PDF text, table metadata sanitizer bypasses, OCR word-box text, malformed OCR dicts, malicious `doc_key`, and ingestion-job trace revalidation.
+- Running the dependency-only gates after local setup removed ambiguity from final acceptance: native `chi_sim+eng` OCR and live pgvector migration round trip both passed.
+- Keeping Phase 22/23/RAG-5 deliverables out of Phase 21 prevented ingestion work from expanding into hallucination control, reranking, or backend replacement.
+
+### What Was Inefficient
+
+- GSD milestone auto-detection still misread older expanded completed milestone details in `ROADMAP.md`, so v1.4 archive creation required manual correction.
+- Plan review needed multiple rounds because validation maps, xfail ownership, and scope guards were initially too coarse for a 9-plan phase.
+- Parser/OCR safety looked green under focused tests until adversarial code review checked the metadata-to-chunk paths, so table/OCR metadata needs first-class threat tests earlier.
+
+### Patterns Established
+
+- Treat parser/OCR output as hostile data even after it becomes structured metadata; sanitize both visible text and metadata values before persistence.
+- Keep `doc_key` and source-block IDs as validated internal identifiers, never as free-form source metadata.
+- Persist source provenance, but expose it only through tenant/hash-verified maintainer lookup.
+- Run dependency-only gates before archive when local setup is feasible, then update acceptance artifacts from dependency-only to accepted.
+
+### Key Lessons
+
+1. Parser security is not only about extracted text; table cells, word boxes, source IDs, and job traces can all become indirect evidence or prompt inputs.
+2. Archive tooling should not infer the current milestone from broad roadmap prose when older completed milestones remain expanded.
+3. Large RAG phases need owner-tasked xfail inventories and validation maps that match actual task IDs.
+4. Optional runtime dependencies are acceptable only when fail-closed behavior and post-dependency verification are both recorded.
+
+### Cost Observations
+
+- Model mix: quality profile across plan review, execution, code review, security verification, and archive repair.
+- Sessions: multi-session planning, execution, review, and closure from 2026-06-18 to 2026-06-19.
+- Notable: The highest leverage came from adversarial metadata-boundary review after the focused test suite was already green.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -156,6 +205,7 @@
 | v1.0 | multi-session | 6 | Established phase-by-phase planning, execution, code review, verification, and final archive workflow |
 | v1.1 | multi-session | 11 | Established architecture-first contracts, formal readiness audit, and owner-named deferrals before long-term memory |
 | v1.3 | resumed closeout | 1 | Established minimal PostgreSQL hybrid retrieval while keeping OCR, verifier, reranker, and external backend scope owner-named and deferred |
+| v1.4 | multi-session | 1 | Established production parser/OCR ingestion with source-block provenance while preserving evidence, memory, action, and replay boundaries |
 
 ### Cumulative Quality
 
@@ -164,6 +214,7 @@
 | v1.0 | 164 non-integration tests in final CI-equivalent gate | Phase 6 verifier passed 23/23 must-haves | Deterministic FakeLLM and JSONL golden-set gates avoid provider dependency in CI |
 | v1.1 | 181-test readiness suite plus prior 175-test integration checker suite | Milestone audit passed 32/32 current-scope requirements | Focused smoke suites and formal verification artifacts avoid provider dependency in archive readiness |
 | v1.3 | Full regression gate passed with 1002 tests; UAT 7/7; security threats 5/5 closed | Phase 20 requirements complete 11/11 | Tokenizer, schema, RRF, scope, and eval diagnostics covered without provider dependency |
+| v1.4 | Full post-dependency regression gate passed with 1136 tests; live migration + OCR gate passed with 28 tests | Milestone audit passed 26/26 requirements, 8/8 integration contracts, 5/5 end-to-end flows | Native OCR and live pgvector migration gates are explicit runtime dependencies, not silent skips |
 
 ### Top Lessons (Verified Across Milestones)
 
@@ -172,3 +223,4 @@
 3. Demo readiness depends on docs, scripts, and seed data staying synchronized with actual API response shapes.
 4. Architecture migrations need explicit owner boundaries and named deferrals before new memory or execution domains begin.
 5. RAG retrieval upgrades need a hard citation-identity boundary before adding ranking complexity.
+6. Parser/OCR ingestion needs metadata-value sanitization and identifier validation in addition to visible-text sanitization.

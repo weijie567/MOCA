@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: RAG Production Ingestion + OCR
-current_phase: 21
-status: milestone_complete
-stopped_at: Phase 21 verified and v1.4 milestone complete
-last_updated: "2026-06-19T00:29:09Z"
-last_activity: 2026-06-19 -- Phase 21 verified and milestone complete
+current_phase: null
+status: milestone_archived
+stopped_at: v1.4 archived; ready for next milestone
+last_updated: "2026-06-19T04:37:32Z"
+last_activity: "2026-06-19 -- v1.4 archived"
 progress:
   total_phases: 1
   completed_phases: 1
@@ -19,27 +19,28 @@ progress:
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-06-18)
+See: `.planning/PROJECT.md` (updated 2026-06-19)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 21 RAG Production Ingestion + OCR — verified complete
+**Current focus:** Between milestones — v1.4 RAG Production Ingestion + OCR is archived
 
 ## Current Position
 
-Phase: 21 of 21 (RAG Production Ingestion + OCR) — VERIFIED COMPLETE
-Plan: 9 of 9
-Plans: 9/9 complete
-Status: Milestone complete
-Last activity: 2026-06-19 -- Phase 21 verified and milestone complete
+Phase: none active
+Plan: none active
+Plans: 9/9 complete for v1.4
+Status: Milestone archived
+Last activity: 2026-06-19 -- v1.4 archived
 
 Progress: [██████████] 100%
 
 Planning files:
 
 - `.planning/PROJECT.md`
-- `.planning/REQUIREMENTS.md`
 - `.planning/ROADMAP.md`
 - `.planning/STATE.md`
+- `.planning/MILESTONES.md`
+- `.planning/milestones/v1.4-REQUIREMENTS.md`
 
 ## Completed Baseline
 
@@ -204,7 +205,7 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 21 Plan 05: Optional live migration coverage is destructive by design and only runs when MOCA_TEST_DATABASE_URL is explicitly set.
 - Phase 21 Plan 05: Downgrade tests assert Phase 21 provenance columns drop before Phase 21 tables/document metadata while avoiding a false job-to-block table dependency.
 - Phase 21 Plan 05: Final xfail inventory keeps PHASE21_XFAIL_OWNERS for audit readability but removes the obsolete strict xfail helper and all implementation-pending entries.
-- Phase 21 final acceptance is accepted with dependency-only statuses for missing chi_sim OCR traineddata and unset MOCA_TEST_DATABASE_URL.
+- Phase 21 final acceptance is accepted; post-dependency gates resolved local chi_sim OCR traineddata and live pgvector migration coverage.
 - Phase 21 scope guard confirms no Phase 22/23/RAG-5 deliverables were implemented; existing v1.3 query rewrite/rerank compatibility names remain allowed at known sites.
 
 ## Accumulated Context
@@ -215,7 +216,7 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 15.2 inserted after Phase 15.1: v1.1 Readiness Closure (URGENT). It closes formal verification and owner-disposition gaps from the milestone audit before Phase 16 planning.
 - v1.2 starts after v1.1 archive with fresh requirements in `.planning/REQUIREMENTS.md` and a one-phase roadmap for Phase 16 Long-term / Case Memory.
 - v1.3 RAG Hybrid Retrieval shipped and archived on 2026-06-18 with Phase 20 completed.
-- v1.4 RAG Production Ingestion + OCR is active as the single Phase 21 roadmap phase. Research work packages 21.1-21.5 are planning slices, not roadmap phases; Phase 22, Phase 23, and Phase RAG-5 remain deferred.
+- v1.4 RAG Production Ingestion + OCR shipped and archived on 2026-06-19 with Phase 21 completed. Research work packages 21.1-21.5 were implementation slices, not roadmap phases; Phase 22, Phase 23, and Phase RAG-5 remain deferred.
 
 ### Pending Todos
 
@@ -223,7 +224,7 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 
 ## Deferred Items
 
-Items acknowledged and deferred at milestone close on 2026-06-18:
+Items acknowledged and still deferred at milestone close on 2026-06-19:
 
 | Category | Item | Status |
 |----------|------|--------|
@@ -316,15 +317,16 @@ Items acknowledged and deferred at milestone close on 2026-06-18:
 ## Session Continuity
 
 Last session: 2026-06-19T00:29:09Z
-Stopped at: Phase 21 verified and v1.4 milestone complete
+Stopped at: v1.4 archived and ready for next milestone
 Resume file: None
-Next: Close/archive the v1.4 milestone or start the next milestone.
+Next: Start the next milestone with `$gsd-new-milestone`.
 
 **Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17
 **Completed Milestone:** v1.2 Long-term / Case Memory — shipped 2026-06-17
 **Archived Milestone:** v1.3 RAG Hybrid Retrieval — shipped 2026-06-18
+**Archived Milestone:** v1.4 RAG Production Ingestion + OCR — shipped 2026-06-19
 
 **Completed Phase:** 20 (RAG Hybrid Retrieval) — 1 plan — UAT/security verified 2026-06-18
-**Current Phase:** 21 (RAG Production Ingestion + OCR) — verified complete
+**Completed Phase:** 21 (RAG Production Ingestion + OCR) — 9 plans — verified and archived 2026-06-19
 
-**Planned Phase:** 21 (RAG Production Ingestion + OCR) — 9 plans — 2026-06-18T15:36:45.369Z
+**Current Phase:** none active

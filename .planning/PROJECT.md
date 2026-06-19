@@ -14,18 +14,19 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 - **v1.0 MVP** — shipped 2026-05-22.
 - **v1.1 Agent Architecture Migration** — shipped 2026-06-17.
-- **v1.2 Long-term / Case Memory** — shipped 2026-06-18.
+- **v1.2 Long-term / Case Memory** — shipped 2026-06-17.
 - **v1.3 RAG Hybrid Retrieval** — shipped 2026-06-18.
+- **v1.4 RAG Production Ingestion + OCR** — shipped 2026-06-19.
 
 Full archive records live in `.planning/milestones/`.
 
-## Current Milestone: v1.4 RAG Production Ingestion + OCR
+## Last Shipped Milestone: v1.4 RAG Production Ingestion + OCR
 
-v1.4 is scoped to Phase 21. It turns the v1.3 hybrid retrieval base into a production ingestion foundation for real policy source files: PDF, DOCX, and image inputs with parser/OCR metadata.
+v1.4 shipped Phase 21. It turns the v1.3 hybrid retrieval base into a production ingestion foundation for real policy source files: Markdown/plain text, PDF, DOCX, image inputs, and scanned PDFs with parser/OCR metadata.
 
-**Goal:** Introduce parser/OCR ingestion and source-block citation metadata so policy chunks can be traced back to pages, bounding boxes, table cells, parser versions, OCR confidence, and source blocks without weakening `EvidenceRefV1` or mixing business facts into policy evidence.
+**Delivered:** Parser/OCR ingestion and source-block citation metadata so policy chunks can be traced back to pages, bounding boxes, table cells, parser versions, OCR confidence, and source blocks without weakening `EvidenceRefV1` or mixing business facts into policy evidence.
 
-**Target features:**
+**Shipped features:**
 - Parser/OCR abstraction for PDF, DOCX, and image inputs.
 - Durable `DocumentBlock` or equivalent source-block model with page, bbox, block type, table/cell metadata, parser version, OCR confidence, and source block references.
 - Table-aware chunking that can preserve cell/header context for retrieval search text.
@@ -33,7 +34,7 @@ v1.4 is scoped to Phase 21. It turns the v1.3 hybrid retrieval base into a produ
 - Compatibility with v1.3 hybrid retrieval: `PolicyChunk.content` remains citation text, `search_text` remains retrieval-only enrichment, and `EvidenceRefV1` identity remains stable.
 - Focused tests for parser fixtures, OCR confidence boundaries, block-to-chunk provenance, downgrade/rollback behavior, and no cross-contamination with business facts.
 
-## Last Shipped Milestone: v1.3 RAG Hybrid Retrieval
+## Prior Shipped Milestone: v1.3 RAG Hybrid Retrieval
 
 v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only search plus lightweight lexical rerank into a minimal production hybrid retrieval backend on PostgreSQL.
 
@@ -47,7 +48,7 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - Minimal retrieval trace for eval/debug without entering prompts or replacing `EvidenceRefV1`.
 - Focused tests and eval coverage for tokenizer, hybrid ranking, RRF ordering, permission/effective-date filtering, Hit@5, fallback accuracy, UAT, and security threats.
 
-## Last Shipped Milestone: v1.1 Agent Architecture Migration
+## Earlier Shipped Milestone: v1.1 Agent Architecture Migration
 
 **Goal:** Migrate the existing deterministic agent toward explicit, testable contracts for knowledge, business tools, state/routing, intent/clarification, memory, approvals, actions, replay, schema rollout, and evaluation without weakening the shipped v1.0 safety boundary.
 
@@ -86,13 +87,14 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - [x] v1.3 policy retrieval combines dense, sparse, and fuzzy channels with RRF while preserving normalized evidence confidence and `EvidenceRefV1` citation identity (validated in Phase 20)
 - [x] v1.3 retrieval applies tenant, effective-date, doc type, risk level, and knowledge-scope filters before every channel contributes candidates (validated in Phase 20)
 - [x] v1.3 hybrid retrieval exposes internal eval/debug trace without entering prompts, API serialization, business facts, or policy evidence refs (validated in Phase 20)
+- [x] v1.4 policy source ingestion routes Markdown/plain text, PDF, DOCX, image, and scanned-PDF sources through project-owned parser/OCR DTOs (validated in Phase 21)
+- [x] v1.4 source-block provenance persists page/bbox/table/OCR metadata and exposes it only through verified tenant/hash-checked lookup (validated in Phase 21)
+- [x] v1.4 block-aware chunking preserves canonical citation text and keeps search enrichment retrieval-only (validated in Phase 21)
+- [x] v1.4 ingestion traces, rollback behavior, parser/OCR safety, migration downgrade/reupgrade, and v1.3 contract preservation are verified (validated in Phase 21)
 
 ### Active
 
-- [ ] Add parser/OCR abstraction for PDF, DOCX, and image policy sources.
-- [ ] Persist source-block metadata that can support page/bbox/cell citation and parser trace.
-- [ ] Extend ingestion/chunking so `DocumentBlock` provenance flows into policy chunks without changing canonical evidence identity.
-- [ ] Keep `MaterialClaim`, semantic verifier, reranker/query rewrite, and external search backend outside v1.4.
+- No active milestone is selected. Start the next milestone with fresh requirements via `$gsd-new-milestone`.
 
 ### Out of Scope
 
@@ -100,8 +102,6 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - Tenant-over-global global/default policy fallback — future post-Phase 17 Policy Scope milestone.
 - Memory as policy evidence, approval/action authority, current business fact, or replay/audit truth — violates the contract boundary.
 - Full user-facing memory management UI — defer until storage/review/tombstone/retrieval foundations are safe.
-- OCR / PDF / DOCX / image parsing — deferred to Phase 21: RAG Production Ingestion + OCR.
-- `DocumentBlock` persistence — deferred to Phase 21: RAG Production Ingestion + OCR; needed for page/bbox citation, but not required for Phase 20's hybrid retrieval slice.
 - `MaterialClaim` and semantic verifier — deferred to Phase 22: RAG Context Builder + Hallucination Control.
 - Query rewrite, reranker interface, cross-encoder/external rerank API, full ranking explanation, retrieval ablation eval, and latency budget — deferred to Phase 23: RAG Reranker + Query Rewrite.
 - Full external `SearchBackend` interface — deferred to Phase RAG-5: Optional External Search Backend; current code has one Postgres backend and `PolicyKnowledgeService` already hides retriever details from Agent nodes.
@@ -164,14 +164,13 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - v1.1 is shipped and archived on 2026-06-17. Full milestone history lives in `.planning/milestones/v1.1-ROADMAP.md`, `.planning/milestones/v1.1-REQUIREMENTS.md`, and `.planning/milestones/v1.1-MILESTONE-AUDIT.md`.
 - v1.2 Long-term / Case Memory is complete. Phase 16 owns `memory_identity.v1`, reviewed long-term memory, reviewed case memory, memory tombstones, memory write events, and prompt-context integration.
 - v1.3 RAG Hybrid Retrieval is shipped and archived. Phase 20 owns the minimal PostgreSQL hybrid retrieval upgrade and explicitly excludes OCR, `DocumentBlock`, `MaterialClaim`, semantic verifier, reranker/query rewrite, Vespa/OpenSearch, and full external `SearchBackend`. OCR/parser/`DocumentBlock` is Phase 21-owned; `MaterialClaim`/semantic verifier is Phase 22-owned; reranker/query rewrite is Phase 23-owned; Vespa/OpenSearch/full external `SearchBackend` is Phase RAG-5-owned.
-- v1.4 RAG Production Ingestion + OCR is active and scoped to Phase 21. It must preserve v1.3 retrieval/evidence contracts while adding parser/OCR and source-block provenance.
+- v1.4 RAG Production Ingestion + OCR is shipped and archived. Phase 21 preserved v1.3 retrieval/evidence contracts while adding parser/OCR and source-block provenance.
 
-## Current Milestone Goals
+## Next Milestone Setup
 
-- Define fresh v1.4 requirements for Phase 21 production ingestion/OCR rather than carrying v1.3 requirements forward.
-- Add parser/OCR and source-block provenance without implementing Phase 22 hallucination control, Phase 23 reranker/query rewrite, or Phase RAG-5 external backend scope.
-- Preserve v1.1/v1.2 safety boundaries: policy evidence remains `EvidenceRefV1`; business facts remain Tool System outputs; memory remains contextual assistance only.
-- Keep Phase 17 External Action Execution and post-Phase 17 Policy Scope explicitly deferred unless a new milestone intentionally selects them.
+- Define fresh requirements for the next milestone instead of carrying v1.4 requirements forward.
+- Keep owner-named deferrals explicit: Phase 17 External Action Execution, post-Phase 17 Policy Scope, Phase 22 hallucination control, Phase 23 reranker/query rewrite, Phase RAG-5 external backend, and Policy Source Operations.
+- Preserve v1.1/v1.2/v1.3/v1.4 safety boundaries: policy evidence remains `EvidenceRefV1`; business facts remain Tool System outputs; memory remains contextual assistance only; parser/OCR provenance remains internal unless verified through the maintainer provenance lookup.
 
 ## Constraints
 
@@ -201,6 +200,7 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 | Separate retrieval search text from citation content | Preserves `PolicyChunk.content`, `EvidenceRefV1.text_hash`, approval snapshots, and replay/citation identity while improving retrieval quality | Adopted 2026-06-18 |
 | Name RAG deferral owners explicitly | Prevents OCR, `DocumentBlock`, `MaterialClaim`, reranking, and external backend work from being treated as vague future scope | Adopted 2026-06-18 |
 | Scope v1.4 to Phase 21 ingestion/OCR | Keeps source parsing and provenance separate from later hallucination-control, reranking, and backend-scale work | Adopted 2026-06-18 |
+| Ship v1.4 only after dependency gates pass | Local `chi_sim+eng` OCR preflight and live pgvector migration round trip remove the earlier dependency-only acceptance caveat | Adopted 2026-06-19 |
 
 ## Evolution
 
@@ -220,4 +220,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-18 after v1.4 milestone start*
+*Last updated: 2026-06-19 after v1.4 milestone archive*
