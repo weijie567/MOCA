@@ -24,14 +24,27 @@ from src.agent.rag_context.schemas import (
     RagSafeContext,
     RagVerifierContext,
 )
+from src.agent.rag_context.verifier import (
+    Level1VerificationResult,
+    Level2SupportOutcome,
+    Level2VerificationResult,
+    MaterialClaimVerificationResult,
+    MaterialClaimVerifier,
+    VerificationOutcome,
+)
 
 __all__ = [
     "CitationMapEntry",
     "ClaimVerifierStatus",
     "ContextBuilder",
     "EvidenceTraceEntry",
+    "Level1VerificationResult",
+    "Level2SupportOutcome",
+    "Level2VerificationResult",
     "MaterialClaim",
     "MaterialClaimAuthorityClass",
+    "MaterialClaimVerificationResult",
+    "MaterialClaimVerifier",
     "PromptCitation",
     "RagContextBudget",
     "RagContextBudgetTrace",
@@ -41,6 +54,7 @@ __all__ = [
     "RagPromptContext",
     "RagSafeContext",
     "RagVerifierContext",
+    "VerificationOutcome",
     "claim_dependency_map_from_claims",
     "normalize_claim_dependency_map",
     "normalize_material_claim",
