@@ -98,7 +98,7 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 
 ### Pending Todos
 
-- [ ] Constrain AgentState memory expansion - `.planning/todos/pending/2026-06-17-constrain-agentstate-memory-expansion.md`
+- [ ] 17-prep: AgentState Surface Contracts + Authority Isolation - `.planning/todos/pending/2026-06-17-constrain-agentstate-memory-expansion.md`
 
 ### Blockers / Concerns
 
@@ -108,7 +108,7 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 
 | Category | Item | Status |
 |----------|------|--------|
-| todo | 2026-06-17-constrain-agentstate-memory-expansion.md | pending |
+| todo | 17-prep AgentState Surface Contracts + Authority Isolation | pending |
 | future phase | Phase 17 External Action Execution | deferred |
 | future phase | Phase 23 RAG Reranker + Query Rewrite | deferred |
 | future phase | Phase RAG-5 Optional External Search Backend | deferred |

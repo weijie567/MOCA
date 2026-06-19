@@ -1,7 +1,9 @@
 ---
 created: 2026-06-17T10:38:23.355Z
-title: Constrain AgentState memory expansion
-area: general
+title: "17-prep: AgentState Surface Contracts + Authority Isolation"
+area: architecture
+target_phase: 17-prep
+timing: before Phase 17 External Action Execution
 files:
   - src/agent/state.py:48
   - src/agent/working_state.py:114
@@ -13,15 +15,27 @@ files:
 
 `AgentState` is still a wide LangGraph runtime/checkpoint bus. It mixes trusted identity, turn runtime fields, business context copies, policy evidence refs, session/long-term/case memory views, approval/action bindings, tool results, LLM outputs, node errors, and trace steps in one `TypedDict`.
 
-The immediate risk is controlled by the current boundaries: `receive_request` resets per-turn fields, `WorkingStateV1` is the prompt-safe projection, and session memory/conversation/replay/approval/action facts have separate stores or services. However, Phase 16 long-term/case memory could make the mixed state worse if it stores full memory records or authority-bearing memory payloads directly in `AgentState.long_term_memory` or `AgentState.case_memory`.
+The immediate risk is controlled by the current boundaries: `receive_request` resets per-turn fields, `WorkingStateV1` is the prompt-safe projection, and session memory/conversation/replay/approval/action facts have separate stores or services. Phase 16 and Phase 22 also added service-owned reviewed memory, prompt-safe memory projection, and tests proving memory cannot become policy, business, approval, action, replay, or audit authority.
+
+The remaining cleanup is architectural: before Phase 17 introduces real external action execution, the state surfaces that carry memory context, verifier route state, approval/action bindings, and debug traces should be made easier to audit.
 
 ## Solution
 
-Do not start a standalone `AgentState` refactor before Phase 16 unless a concrete leak appears. Instead, make Phase 16 planning enforce that long-term/case memory writes and reads are owned by dedicated memory services/tables, while `AgentState` carries only bounded prompt-safe memory snippets or refs for the current turn.
+Do not start a broad standalone `AgentState` rewrite. Keep `AgentState` as the LangGraph transport, but add typed surface contracts around high-risk areas before Phase 17 external execution.
 
-Recommended constraints:
+Recommended 17-prep scope:
 
 - Add a narrow memory context projection such as `MemoryContextV1` or `MemorySnippetV1`.
-- Keep full long-term/case memory records out of `AgentState`.
+- Add or formalize `VerifierRouteStateV1` for route/status/safe reasons/metrics only.
+- Add or formalize `ActionBoundaryStateV1` for approval/action/safety snapshot refs only.
+- Keep full long-term/case memory records out of `AgentState`; state may carry only bounded prompt-safe memory snippets or refs for the current turn.
 - Keep memory separate from policy evidence, approval/action authority, current business facts, and replay/audit truth.
-- Treat a deeper `AgentState` split as future architecture cleanup, likely before or during Phase 17 external execution if action authority state becomes harder to audit.
+- Add boundary tests for checkpoint serialization, prompt projection, replay/audit projection, and approval/action snapshots.
+- Keep this as pre-Phase 17 safety cleanup, not a v1.5 blocker.
+
+Out of scope:
+
+- No business behavior changes.
+- No retrieval ranking changes.
+- No rewrite of Phase 16 memory services or Phase 22 verifier routing.
+- No external action execution implementation.
