@@ -1,5 +1,51 @@
 # Milestones
 
+## v1.5 RAG Context Builder + Hallucination Control (Shipped: 2026-06-19)
+
+**Delivered:** A bounded RAG reasoning kernel between retrieval and answer/action reasoning. It validates canonical current-row evidence, builds prompt-safe context bundles, verifies typed material claims against the correct authority source, routes unsupported outcomes deterministically, blocks non-allow action paths, and closes hallucination-control acceptance without live provider dependency.
+
+**Phases completed:** 22 (1 phase, 6 plans, 18 tasks)
+
+**Key accomplishments:**
+
+- RED pytest scaffold for ContextBuilder, MaterialClaim, verifier tiers, authority boundaries, semantic fail-closed behavior, and deterministic routes.
+- RED safety scaffold for canonical evidence validation, leakage boundaries, graph/action/final routing, and hallucination-control eval metrics.
+- Prompt-safe RAG context bundles backed by canonical current-row evidence validation.
+- Typed MaterialClaim authority contracts with deterministic Level 1/2 support checks and budgeted fail-closed semantic verification.
+- Backend-owned verifier routing now gates recommendation, action, and final-response paths without model-selected safety outcomes.
+- Deterministic hallucination-control metrics, leakage/boundary closure, and a passing full Phase 22 acceptance gate without live provider calls.
+
+**Stats:**
+
+- 1 completed phase, 6 plans, 18 task markers
+- Shipped on 2026-06-19
+- Milestone audit status: `tech_debt`; 32/32 active v1.5 requirements satisfied, 0 partial, 0 orphaned
+- Integration checker passed: 6/6 integration areas wired, estimated score 94/100
+- Phase 22 UAT passed: 6/6 checkpoints
+- Phase 22 security verification passed: 7/7 threats closed, `threats_open: 0`
+- Hallucination eval passed: 24 cases, 5 production-verifier cases, no failed cases, no threshold failures
+- Final acceptance gates recorded: Phase 22 related suite `119 passed, 1 warning`; full non-integration pytest `1228 passed, 1 skipped, 6 warnings`; Ruff check and format check passed
+
+**Known deferred items at close:**
+
+- 1 pending todo acknowledged and deferred at close: `2026-06-17-constrain-agentstate-memory-expansion.md`, retargeted as `17-prep: AgentState Surface Contracts + Authority Isolation`.
+- Non-blocking v1.5 audit debt remains documented in `.planning/milestones/v1.5-MILESTONE-AUDIT.md`: defensive business fact status filtering hardening, deeper production-verifier eval coverage, eval script header drift, and stale planning-time validation table wording.
+- Phase 17 owns real external action execution, outbox, reconciliation, compensation dispatch, external idempotency, and duplicate execution/key guards.
+- Post-Phase 17 Policy Scope owns tenant-over-global global/default policy fallback and precedence merge.
+- Phase 23 owns query rewrite, reranker interface, optional cross-encoder/external rerank API, ranking explanations, retrieval ablation eval, and latency budget.
+- Phase RAG-5 owns Vespa/OpenSearch shadow testing and full external `SearchBackend` if PostgreSQL hybrid no longer fits.
+- Policy Source Operations owns policy source upload/review/lifecycle UI, source document viewer, and admin review workflow.
+
+**Archived:**
+
+- `.planning/milestones/v1.5-ROADMAP.md`
+- `.planning/milestones/v1.5-REQUIREMENTS.md`
+- `.planning/milestones/v1.5-MILESTONE-AUDIT.md`
+
+**What's next:** Start the next milestone with fresh requirements via `$gsd-new-milestone`.
+
+---
+
 ## v1.4 RAG Production Ingestion + OCR (Shipped: 2026-06-19)
 
 **Delivered:** Production policy-source ingestion for PDF, DOCX, image/scanned-PDF, Markdown, and plain-text sources with parser/OCR traceability, durable source-block provenance, table-aware chunking, safe job traces, and v1.3 retrieval/evidence boundary preservation.

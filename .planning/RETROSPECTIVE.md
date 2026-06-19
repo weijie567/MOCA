@@ -196,6 +196,58 @@
 
 ---
 
+## Milestone: v1.5 — RAG Context Builder + Hallucination Control
+
+**Shipped:** 2026-06-19
+**Phases:** 1 | **Plans:** 6 | **Task markers:** 18
+
+### What Was Built
+
+- Prompt-safe `RagContextBundle` construction with canonical evidence re-fetch, tenant/scope/hash/freshness/latest-version validation, citation maps, dedupe/merge traceability, exclusion reasons, and budget traces.
+- Typed `MaterialClaim` authority contracts for policy claims, business fact claims, and action recommendation claims.
+- Deterministic Level 1/2 verification plus risk-triggered, budgeted, fail-closed Level 3 semantic verification.
+- Backend-owned route control for allow, regenerate-route, refusal/insufficient evidence, and manual review without model-selected safety routing.
+- Recommendation, graph, action-boundary, approval, and final-response integration that blocks non-allow verifier outcomes from creating action state.
+- Deterministic hallucination-control eval metrics with a 24-case golden dataset, 5 production-verifier cases, aggregate/redacted reporting, and no live provider dependency.
+
+### What Worked
+
+- Splitting Wave 0 RED scaffolds from implementation plans gave the phase strong regression pressure before production code existed.
+- Canonical evidence validation in ContextBuilder kept policy support separate from retrieval candidates, source-block provenance, memory, and business facts.
+- Treating route decisions as backend-owned state avoided model-selected safety outcomes and made graph/action/final behavior testable.
+- The post-review loop caught real edge cases: failed dependency aggregation, missing-session fail-closed behavior, tenant-aware dedupe, stale action snapshot binding, and production-path eval coverage.
+- Running UAT checkpoints, security verification, eval, related suites, full non-integration pytest, and Ruff gates before archive made the close decision evidence-based.
+
+### What Was Inefficient
+
+- GSD milestone helper tooling again misread stale/historical planning metadata, creating a bad `STATE.md` frontmatter update that needed manual repair.
+- Several artifacts drifted during rapid closeout: `22-06-SUMMARY.md` case counts, `22-VALIDATION.md` planning-time table wording, and an eval script header comment.
+- Deep review warnings required follow-up hardening/regression passes after the main implementation was otherwise complete.
+- The active roadmap retained full completed Phase 22 detail until archive, which increased the chance of tooling and human readers treating the milestone as still active.
+
+### Patterns Established
+
+- RAG answer/action grounding needs four gates together: canonical evidence validation, authority-separated claims, backend route control, and leakage/eval closure.
+- Citation membership is not semantic support; support checks need explicit claim types and authority refs.
+- Non-allow verifier outcomes should clear and block action state at every boundary, not only at graph routing.
+- Eval reports for safety-sensitive RAG should expose aggregate metrics, threshold failures, and case IDs, not raw verifier prompts or private reasoning.
+- Keep production-verifier coverage visible as its own dimension, even when deterministic adapter cases are acceptable for local gates.
+
+### Key Lessons
+
+1. A RAG hallucination-control phase is not just verifier code; it must own context construction, claim authority, route decisions, action boundaries, final wording, and eval leakage together.
+2. Latest/current policy version validation must be tested independently from effective-date and text-hash validation.
+3. Action recommendation support requires both policy and current business fact authority, and successful support still must not bypass approval/action contracts.
+4. Milestone archive tooling needs a compact active roadmap and reliable current milestone metadata, or manual archive repair remains likely.
+
+### Cost Observations
+
+- Model mix: quality profile across planning, implementation, deep code review, verification, security review, and milestone audit.
+- Sessions: multi-session Phase 22 execution and closure on 2026-06-19.
+- Notable: The highest leverage came from targeted regressions after deep review, especially around route/action boundaries and canonical evidence validation.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -206,6 +258,7 @@
 | v1.1 | multi-session | 11 | Established architecture-first contracts, formal readiness audit, and owner-named deferrals before long-term memory |
 | v1.3 | resumed closeout | 1 | Established minimal PostgreSQL hybrid retrieval while keeping OCR, verifier, reranker, and external backend scope owner-named and deferred |
 | v1.4 | multi-session | 1 | Established production parser/OCR ingestion with source-block provenance while preserving evidence, memory, action, and replay boundaries |
+| v1.5 | multi-session | 1 | Established canonical RAG context, authority-separated claim verification, deterministic safety routing, and hallucination-control evals |
 
 ### Cumulative Quality
 
@@ -215,6 +268,7 @@
 | v1.1 | 181-test readiness suite plus prior 175-test integration checker suite | Milestone audit passed 32/32 current-scope requirements | Focused smoke suites and formal verification artifacts avoid provider dependency in archive readiness |
 | v1.3 | Full regression gate passed with 1002 tests; UAT 7/7; security threats 5/5 closed | Phase 20 requirements complete 11/11 | Tokenizer, schema, RRF, scope, and eval diagnostics covered without provider dependency |
 | v1.4 | Full post-dependency regression gate passed with 1136 tests; live migration + OCR gate passed with 28 tests | Milestone audit passed 26/26 requirements, 8/8 integration contracts, 5/5 end-to-end flows | Native OCR and live pgvector migration gates are explicit runtime dependencies, not silent skips |
+| v1.5 | Phase 22 related suite 119 passed; full non-integration pytest 1228 passed, 1 skipped; hallucination eval 24 cases | Milestone audit passed 32/32 active requirements, 6/6 integration areas, 8/8 required flows | Deterministic local hallucination eval plus production-verifier case coverage avoid live provider dependency |
 
 ### Top Lessons (Verified Across Milestones)
 
@@ -224,3 +278,4 @@
 4. Architecture migrations need explicit owner boundaries and named deferrals before new memory or execution domains begin.
 5. RAG retrieval upgrades need a hard citation-identity boundary before adding ranking complexity.
 6. Parser/OCR ingestion needs metadata-value sanitization and identifier validation in addition to visible-text sanitization.
+7. RAG answer/action grounding needs canonical evidence validation, authority separation, backend-owned route control, and leakage-aware eval as one acceptance gate.
