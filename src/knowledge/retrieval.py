@@ -285,6 +285,14 @@ class PolicyRetrievalEngine:
     ) -> dict[tuple[str, str], EvidenceProvenance]:
         return await self.chunk_repo.get_provenance_by_evidence_keys(tenant_id, keys)
 
+    async def get_canonical_evidence_rows_by_keys(
+        self,
+        *,
+        tenant_id: UUID,
+        keys: list[tuple[str, str]],
+    ) -> dict[tuple[str, str], dict[str, object]]:
+        return await self.chunk_repo.get_canonical_evidence_rows_by_keys(tenant_id, keys)
+
     async def _retrieve_hits(
         self,
         *,

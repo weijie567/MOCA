@@ -18,7 +18,7 @@ from src.agent.schemas import IntentResultV3, RecommendationDraft, RiskAssessmen
 from src.agent.state import AgentState
 from src.api.main import app
 from src.auth.jwt import hash_password
-from src.db.models import Base, Merchant, Order, RefundCase, Tenant, Ticket, User
+from src.db.models import Base, Merchant, Order, PolicyChunk, PolicyDocument, RefundCase, Tenant, Ticket, User
 from src.db.session import get_session
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1
@@ -216,6 +216,40 @@ async def seeded_session(session: AsyncSession):
         ],
     )
     session.add(ticket)
+    policy_content = "补偿超过500元需人工审批。"
+    policy_document = PolicyDocument(
+        id=uuid.uuid4(),
+        tenant_id=demo_tenant.id,
+        doc_key="refund_policy",
+        doc_type="refund_rule",
+        title="售后补偿政策",
+        effective_date=(now - timedelta(days=30)).date(),
+        risk_level="high",
+        version=1,
+        content=policy_content,
+        source_type="test_fixture",
+        source_checksum="test-refund-policy-v1",
+        parser_metadata_json={},
+        policy_version_fingerprint="test-refund-policy-v1",
+    )
+    session.add(policy_document)
+    await session.flush()
+    session.add(
+        PolicyChunk(
+            id=uuid.uuid4(),
+            tenant_id=demo_tenant.id,
+            doc_id=policy_document.id,
+            chunk_id="refund_policy#001",
+            section="高风险补偿",
+            content=policy_content,
+            search_text=policy_content,
+            source_block_refs_json=[],
+            ocr_metadata_json={},
+            risk_level="high",
+            effective_date=policy_document.effective_date,
+            embedding=None,
+        )
+    )
     await session.commit()
     return {
         "tenant": demo_tenant,

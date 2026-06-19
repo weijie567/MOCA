@@ -7,6 +7,7 @@ from uuid import uuid4
 import pytest
 
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
+from src.knowledge.retrieval import PolicyRetrievalEngine
 from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext, KnowledgeSearchFilters, KnowledgeSearchRequest
 from src.knowledge.service import PolicyKnowledgeService
 
@@ -144,3 +145,29 @@ async def test_verified_evidence_contents_returns_empty_on_adapter_error():
     )
 
     assert result == {}
+
+
+@pytest.mark.asyncio
+async def test_verified_evidence_details_uses_real_retrieval_engine_canonical_rows(session, seeded_session):
+    tenant_id = str(seeded_session["tenant"].id)
+    evidence = EvidenceRefV1.build(
+        tenant_id=tenant_id,
+        doc_key="refund_policy",
+        chunk_id="refund_policy#001",
+        policy_version="v1",
+        text="补偿超过500元需人工审批。",
+        retrieved_at="2026-06-19T00:00:00Z",
+        retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+        score=0.93,
+        rank=1,
+    )
+    service = PolicyKnowledgeService(PolicyRetrievalEngine(session))
+
+    result = await service.get_verified_evidence_details(
+        tenant_id=tenant_id,
+        evidence_refs=[evidence],
+        effective_at="2026-06-19T00:00:00Z",
+    )
+
+    assert evidence.evidence_id in result.included
+    assert result.excluded == []

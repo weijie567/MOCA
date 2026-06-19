@@ -163,9 +163,31 @@ def route_after_recommendation(state: AgentState) -> str:
 
 
 def _route_after_recommendation(state: AgentState) -> str:
-    if state.get("verification_route") == "allow":
+    route = _recommendation_verification_route(state)
+    if route is None or route == "allow":
         return "assess_risk_and_approval"
     return "final_response"
+
+
+def _recommendation_verification_route(state: AgentState) -> str | None:
+    route_value = state.get("verification_route")
+    if isinstance(route_value, str) and route_value:
+        return route_value
+
+    rag_verification = state.get("rag_verification")
+    if isinstance(rag_verification, dict):
+        route = rag_verification.get("route")
+        if isinstance(route, dict):
+            route = route.get("route")
+        if isinstance(route, str) and route:
+            return route
+
+    draft = state.get("recommendation_draft")
+    if isinstance(draft, dict):
+        draft_route = draft.get("verification_route")
+        if isinstance(draft_route, str) and draft_route:
+            return draft_route
+    return None
 
 
 def _route_after_investigate(state: AgentState) -> str:

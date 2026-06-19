@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.graph import route_after_approval, route_after_risk
 from src.agent.nodes import assess_risk_and_approval as risk_module
-from src.agent.routing import route_after_investigate
+from src.agent.routing import route_after_investigate, route_after_recommendation
 from src.agent.schemas import IntentResultV3, RiskAssessment
 from src.db.models import ActionSafetySnapshot
 from tests.approvals.test_service_transitions import _create_run, _evidence_ref
@@ -95,6 +95,35 @@ def test_route_after_risk_returns_final_response_for_policy_qa_no_action():
 
 def test_route_after_risk_returns_approval_gate_when_required_snapshot_refs_are_present():
     assert route_after_risk(_risk_route_state()) == "approval_gate"
+
+
+def test_route_after_recommendation_preserves_legacy_approval_path_without_verifier_state():
+    state = {
+        "recommendation_draft": {
+            "recommended_action": "issue_coupon",
+            "risk_level": "high",
+        }
+    }
+
+    assert route_after_recommendation(state) == "assess_risk_and_approval"
+
+
+def test_route_after_recommendation_prefers_backend_nested_verifier_route():
+    state = {
+        "rag_verification": {
+            "route": {
+                "route": "manual_review",
+                "selected_by": "backend",
+                "model_selected": False,
+            }
+        },
+        "recommendation_draft": {
+            "recommended_action": "issue_coupon",
+            "verification_route": "allow",
+        },
+    }
+
+    assert route_after_recommendation(state) == "final_response"
 
 
 def test_route_after_risk_returns_final_response_for_auto_allowed_snapshot_verified_action():
