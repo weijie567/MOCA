@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: milestone
 status: Not started; ready to discuss or plan Phase 23
 stopped_at: Phase 23 context gathered
-last_updated: "2026-06-19T17:47:50.692Z"
+last_updated: "2026-06-19T23:05:02.311Z"
 last_activity: 2026-06-20 — Created v1.6 roadmap with Phase 23 as the only active phase
 progress:
   total_phases: 1
   completed_phases: 0
-  total_plans: 0
+  total_plans: 6
   completed_plans: 0
   percent: 0
 ---
@@ -94,3 +94,5 @@ Last session: --stopped-at
 Stopped at: Phase 23 context gathered
 Resume file: --resume-file
 Next: Discuss or plan Phase 23.
+
+**Planned Phase:** 23 (RAG Reranker + Query Rewrite) — 6 plans — 2026-06-19T23:05:02.298Z
