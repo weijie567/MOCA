@@ -8,41 +8,91 @@
 - [x] **v1.3 RAG Hybrid Retrieval** - Shipped on 2026-06-18. Full archive: [v1.3-ROADMAP.md](milestones/v1.3-ROADMAP.md)
 - [x] **v1.4 RAG Production Ingestion + OCR** - Shipped on 2026-06-19. Full archive: [v1.4-ROADMAP.md](milestones/v1.4-ROADMAP.md)
 - [x] **v1.5 RAG Context Builder + Hallucination Control** - Shipped on 2026-06-19. Full archive: [v1.5-ROADMAP.md](milestones/v1.5-ROADMAP.md)
+- [ ] **v1.6 RAG Reranker + Query Rewrite** - Active milestone. Scope: Phase 23 only.
 
-## Current Roadmap Status
+## Overview
 
-No active roadmap phases are defined. v1.5 has been archived; start the next milestone with `$gsd-new-milestone`.
+v1.6 is a one-phase retrieval-quality milestone. Phase 23 improves policy evidence recall and ranking after the v1.3 hybrid retrieval backend, v1.4 parser/OCR provenance, and v1.5 ContextBuilder/verifier kernel by adding bounded query rewrite, deterministic/default reranking, optional config-gated provider adapters, safe ranking diagnostics, retrieval ablation evals, and explicit latency budgets. The milestone must preserve all existing authority boundaries: `EvidenceRefV1` remains canonical policy evidence identity, trusted retrieval filters apply before candidates affect rank, provenance remains internal/maintainer-scoped, and reranker scores never substitute for ContextBuilder or verifier support.
+
+Research is intentionally skipped for this milestone. Active planning uses `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, archived v1.5 owner notes, and current code/doc context during phase planning, not stale active research.
+
+## Phases
+
+- [ ] **Phase 23: RAG Reranker + Query Rewrite** - Improve policy retrieval recall/ranking with bounded rewrite, safe reranking, diagnostics, ablations, and latency fallback while preserving Phase 20-22 safety contracts.
+
+## Phase Details
+
+### Phase 23: RAG Reranker + Query Rewrite
+**Goal**: Users get more relevant policy evidence for ambiguous, underspecified, and domain-synonym questions, while maintainers can evaluate and tune rewrite/rerank behavior safely; all retrieval filters, evidence identity, provenance boundaries, ContextBuilder validation, verifier authority, and action-boundary protections remain intact.
+**Depends on**: Phase 22
+**Requirements**: QRW-01, QRW-02, QRW-03, QRW-04, QRW-05, RRK-01, RRK-02, RRK-03, RRK-04, RRK-05, RRK-06, EXP-01, EXP-02, EXP-03, EXP-04, EVAL-01, EVAL-02, EVAL-03, EVAL-04, EVAL-05, BND-01, BND-02, BND-03, BND-04, BND-05, BND-06
+**Success Criteria** (what must be TRUE):
+  1. Support or merchant questions with ambiguous wording, missing detail, or domain synonyms can retrieve better policy candidates through original-query plus bounded rewrite channels, while the original query and all trusted tenant/scope/effective-date filters are preserved.
+  2. Specific, out-of-domain, unsafe, or insufficient-context queries skip rewrite deterministically and keep the existing safe hybrid retrieval or no-evidence behavior.
+  3. Maintainers can run deterministic/default reranking without live provider credentials, and optional provider adapters are controlled by config, candidate/text budgets, timeouts, retry limits, fallback behavior, and provider/config version records.
+  4. Maintainers and evals can inspect bounded ranking diagnostics showing selected channels, rewrite contribution, rerank contribution, rank changes, safe score components, and fallback reasons without leaking raw prompts, raw provider payloads, source-block internals, raw tool facts, private reasoning, or unbounded policy text.
+  5. Final retrieval output still satisfies Phase 20-22 boundaries: reranking cannot mutate canonical chunk content, text hashes, policy version identity, `EvidenceRefV1` fields, ContextBuilder canonical validation, verifier support, approval snapshots, or action-draft safety.
+  6. Retrieval evals compare dense-only, sparse-only, fuzzy-only, RRF baseline, rewrite-enabled, reranker-enabled, and rewrite-plus-reranker variants with blocking metrics for Hit@K, MRR or equivalent rank quality, citation-support compatibility, no-evidence precision, unsafe retrieval rate, fallback rate, and latency percentiles.
+**Plans**: TBD
+
+Suggested plan slices:
+
+- [ ] 23-01 - Query rewrite contracts, deterministic skip rules, trusted-filter preservation, and safe rewrite trace fields.
+- [ ] 23-02 - Original-query plus rewritten-query candidate generation, channel limits, merge/dedupe behavior, and baseline fallback.
+- [ ] 23-03 - Project-owned reranker contract, deterministic/default local reranking, confidence/rank semantics, and safe adapter position before `EvidenceRefV1` construction.
+- [ ] 23-04 - Optional provider adapter gates, timeouts/retries, redacted inputs, fallback records, score components, and maintainer/eval diagnostics.
+- [ ] 23-05 - Retrieval ablation golden cases, metrics reporting, latency budget enforcement, and no-live-provider default test gates.
+- [ ] 23-06 - Boundary regression closure across Phase 20 filters, Phase 21 provenance, Phase 22 ContextBuilder/verifier/action rules, Phase 17 deferrals, and RAG-5 backend deferrals.
+
+Hard boundaries:
+
+- No 17-prep AgentState Surface Contracts + Authority Isolation work; that todo stays deferred until before Phase 17 External Action Execution.
+- No Phase 17 external action execution, outbox, reconciliation, compensation dispatch, external idempotency, or real side effects.
+- No Phase RAG-5 external `SearchBackend`, Vespa/OpenSearch shadow testing, new vector database service, or backend replacement.
+- No Policy Source Operations upload/review/lifecycle UI, source-document viewer, or admin source-management workflow.
+- No `EvidenceRefV1` identity changes, canonical citation text mutation, `text_hash` mutation, policy version identity mutation, or source-block/OCR/provenance fields added to ordinary evidence refs.
+- No reranker score or rewrite output may replace tenant/scope/effective-date/risk/doc-type filters, ContextBuilder canonical validation, verifier support, business fact authority, approval safety, or action-boundary checks.
+- No raw rewrite prompts, raw provider payloads, private reasoning, parser/OCR/source-block internals, raw tool payloads, unbounded policy text, or ranking diagnostics in ordinary prompts, final responses, memory, replay payloads, approval snapshots, or action drafts.
+- No Phase 24 or later phase is created in v1.6.
 
 ## Progress
 
-| Milestone | Scope | Status | Shipped |
-|-----------|-------|--------|---------|
-| v1.0 MVP | Phases 1-6 | Archived | 2026-05-22 |
-| v1.1 Agent Architecture Migration | Phases 7-15.2 | Archived | 2026-06-17 |
-| v1.2 Long-term / Case Memory | Phase 16 | Shipped | 2026-06-17 |
-| v1.3 RAG Hybrid Retrieval | Phase 20 | Archived | 2026-06-18 |
-| v1.4 RAG Production Ingestion + OCR | Phase 21 | Archived | 2026-06-19 |
-| v1.5 RAG Context Builder + Hallucination Control | Phase 22 | Archived | 2026-06-19 |
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 23. RAG Reranker + Query Rewrite | v1.6 | 0/TBD | Not started | - |
+
+## Coverage
+
+- v1.6 requirements mapped: 26/26
+- Active roadmap phases: 1
+- Orphaned requirements: 0
+- Duplicate phase mappings: 0
+- Traceability status: `.planning/REQUIREMENTS.md` already maps every active requirement to Phase 23 exactly once.
+
+Requirement groups:
+
+- Query Rewrite: QRW-01, QRW-02, QRW-03, QRW-04, QRW-05
+- Reranker: RRK-01, RRK-02, RRK-03, RRK-04, RRK-05, RRK-06
+- Explanations: EXP-01, EXP-02, EXP-03, EXP-04
+- Evaluation and Latency: EVAL-01, EVAL-02, EVAL-03, EVAL-04, EVAL-05
+- Boundary Preservation: BND-01, BND-02, BND-03, BND-04, BND-05, BND-06
 
 ## Deferred Work
 
-These items are intentionally outside the active roadmap until a future milestone adopts them.
-
-- **17-prep: AgentState Surface Contracts + Authority Isolation** - pending cleanup todo before Phase 17 external action execution.
-- **Phase 17: External Action Execution** - external execution storage, outbox dispatch, reconciliation, compensation, duplicate execution/key guards.
+- **17-prep: AgentState Surface Contracts + Authority Isolation** - pending cleanup todo before Phase 17 external action execution; intentionally not the next active phase.
+- **Phase 17: External Action Execution** - external execution storage, outbox dispatch, reconciliation, compensation, duplicate execution/key guards, and real side effects.
 - **post-Phase 17 Policy Scope** - tenant-over-global global/default policy fallback and precedence merge.
-- **Phase 23: RAG Reranker + Query Rewrite** - query rewrite, reranker interface, optional cross-encoder/external rerank API, ranking explanations, retrieval ablation eval, and latency budget.
 - **Phase RAG-5: Optional External Search Backend** - Vespa/OpenSearch shadow testing and full external `SearchBackend` only if PostgreSQL hybrid no longer fits.
 - **Policy Source Operations** - policy source upload/review/lifecycle UI, source document viewer, and admin review workflow.
-- **Phase 22 Stretch Only** - bounded automatic regeneration attempt, persisted claim dependency map, maintainer verifier trace report, and granular policy claim subtypes.
+- **Phase 23 Stretch Only** - live default-demo cross-encoder provider use, maintainer CLI trace reports, and eval-driven auto-tuning remain stretch unless explicitly accepted during Phase 23 planning.
 
 ## Current Status
 
-v1.5 RAG Context Builder + Hallucination Control is complete and archived. The milestone audit found no blockers and recorded only non-blocking tech debt.
+v1.6 RAG Reranker + Query Rewrite is initialized as a one-phase milestone. Phase 23 is not started, no Phase 23 plans have been created, and research was intentionally skipped.
 
 ## Next Step
 
-Run `$gsd-new-milestone` to define the next milestone's requirements and roadmap.
+Discuss or plan Phase 23 next: `$gsd-discuss-phase 23` for clarification first, or `$gsd-plan-phase 23` if the requirements are ready to decompose.
 
 ---
-*Updated: 2026-06-19 after v1.5 milestone archive.*
+*Updated: 2026-06-20 after v1.6 roadmap creation.*
