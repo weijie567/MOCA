@@ -36,7 +36,7 @@ Research is intentionally skipped for this milestone. Active planning uses `.pla
 **Plans**: 6 plans
 
 Plans:
-- [ ] 23-01-PLAN.md — Wave 0 RED test scaffold and static boundary updates for query rewrite, rerank, diagnostics, eval, budgets, and deferral expectations.
+- [x] 23-01-PLAN.md — Wave 0 RED test scaffold and static boundary updates for query rewrite, rerank, diagnostics, eval, budgets, and deferral expectations.
 - [ ] 23-02-PLAN.md — Query rewrite contracts, deterministic skip rules, safe summaries, and trusted-filter no-widening.
 - [ ] 23-03-PLAN.md — Original-query plus rewritten-query candidate generation, channel limits, merge/dedupe, and baseline fallback.
 - [ ] 23-04-PLAN.md — Project-owned reranker contract, deterministic/default local reranking, optional provider gates, and fallback diagnostics.
@@ -67,7 +67,7 @@ Hard boundaries:
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 23. RAG Reranker + Query Rewrite | v1.6 | 0/6 executed | Planned; ready to execute | - |
+| 23. RAG Reranker + Query Rewrite | v1.6 | 1/6 executed | In progress | - |
 
 ## Coverage
 
@@ -96,11 +96,11 @@ Requirement groups:
 
 ## Current Status
 
-v1.6 RAG Reranker + Query Rewrite is initialized as a one-phase milestone. Phase 23 has context, research, validation, pattern map, and six plan files. Plan-checker verification passed after one revision loop; Phase 23 is ready to execute.
+v1.6 RAG Reranker + Query Rewrite is in execution. Phase 23 has completed 23-01 Wave 0 RED test scaffold and static boundary updates; 5 implementation/verification plans remain.
 
 ## Next Step
 
-Execute Phase 23 next: `$gsd-execute-phase 23`.
+Continue Phase 23 execution with 23-02 query rewrite contract work.
 
 ---
 *Updated: 2026-06-20 after v1.6 roadmap creation.*
