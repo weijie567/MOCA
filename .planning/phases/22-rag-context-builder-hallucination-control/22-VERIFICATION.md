@@ -1,6 +1,6 @@
 ---
 phase: 22-rag-context-builder-hallucination-control
-verified: 2026-06-19T12:28:04Z
+verified: 2026-06-19T14:29:03Z
 status: passed
 score: "5/5 roadmap must-haves verified; 19/19 plan truths covered"
 overrides_applied: 0
@@ -9,9 +9,9 @@ overrides_applied: 0
 # Phase 22: RAG Context Builder + Hallucination Control Verification Report
 
 **Phase Goal:** Users and downstream agent nodes can rely on answers and action recommendations being grounded only in current, authorized, hash-valid, semantically supported policy evidence and current Tool System business facts, with unsupported or unsafe outcomes routed to regenerate-route, refusal/insufficient-evidence, or manual review before any action boundary can proceed.
-**Verified:** 2026-06-19T12:28:04Z
+**Verified:** 2026-06-19T14:29:03Z
 **Status:** passed
-**Re-verification:** No - initial verification
+**Re-verification:** Yes - post-review-fix re-verification
 
 ## Goal Achievement
 
@@ -36,7 +36,7 @@ overrides_applied: 0
 | `src/knowledge/service.py` and `src/repositories/policy_chunk_repo.py` | Canonical current evidence validation and tenant-scoped row lookup | VERIFIED | `get_verified_evidence_details()` checks tenant, duplicate key, content, hash, latest version, freshness, merchant/doc/risk scope; repository fetches current doc/chunk metadata. |
 | `src/agent/rag_context/claims.py` and `src/agent/rag_context/verifier.py` | MaterialClaim normalization, dependency map, Level 1/2/3 verification contracts | VERIFIED | Business facts require `BusinessFactRefV1`/safe tool refs; policy claims require active bundle evidence; action claims require policy and business dependencies. |
 | `src/agent/rag_context/routing.py` | Deterministic route map | VERIFIED | Covers allow, regenerate-route, insufficient evidence, refuse, and manual review; route permissions are false unless route is allow. |
-| `src/agent/nodes/generate_recommendation.py` | Shared ContextBuilder/verifier integration before recommendation advances | VERIFIED | Builds bundle from retrieved evidence/business refs, verifies draft-derived material claims, applies backend route to state/draft. Review fix confirmed draft claim text no longer self-verifies evidence text. |
+| `src/agent/nodes/generate_recommendation.py` | Shared ContextBuilder/verifier integration before recommendation advances | VERIFIED | Builds bundle from retrieved evidence/business refs, verifies draft-derived material claims, aggregates non-allow claim dependencies fail-closed, and applies backend route to state/draft. Review fixes confirmed draft claim text no longer self-verifies evidence text and missing-session compatibility no longer returns `allow`. |
 | `src/agent/graph.py`, `src/agent/routing.py`, `src/agent/nodes/assess_risk_and_approval.py`, `src/agent/nodes/action_draft.py`, `src/agent/nodes/final_response.py` | Graph/action/final-response hardening | VERIFIED | Non-allow routes skip risk/action path, clear action-boundary state, reject action drafts, and render safe user-facing final responses. |
 | `src/agent/rag_context/metrics.py`, `scripts/eval_phase22_hallucination.py`, `evaluation/golden/phase22_hallucination_cases.jsonl` | Blocking hallucination eval and metrics | VERIFIED | 20 golden cases; one marked `production_verifier` case exercises ContextBuilder + MaterialClaimVerifier + route map; thresholds are enforced. |
 | `tests/agent/rag_context/*`, `tests/agent/test_phase22_*`, `tests/knowledge/test_phase22_evidence_validation.py`, `tests/knowledge/test_phase21_boundaries.py` | Unit/integration/boundary/leakage coverage | VERIFIED | Tests cover ContextBuilder, budgeting, claim authority, verifier tiers, semantic fail-closed behavior, routing, recommendation integration, action boundaries, final response, evidence validation, and static boundaries. |
@@ -68,11 +68,12 @@ overrides_applied: 0
 |---|---|---|---|
 | Blocking hallucination eval passes thresholds | `uv run python scripts/eval_phase22_hallucination.py --dataset evaluation/golden/phase22_hallucination_cases.jsonl --fail-thresholds` | `status: pass`, `case_count: 20`, `failed_cases: []`, `threshold_failures: {}` | PASS |
 | Review-fix regressions pass | `uv run pytest tests/agent/test_phase22_recommendation_integration.py::test_valid_citation_membership_does_not_allow_unsupported_action_recommendation tests/agent/rag_context/test_budgeting.py::test_prompt_budget_caps_cumulative_citation_snippet_text -q --tb=short` | `2 passed, 1 warning` | PASS |
+| Second deep-review regressions pass | `uv run pytest tests/agent/test_phase22_recommendation_integration.py::test_supported_policy_claim_does_not_mask_failed_action_dependency tests/agent/test_phase22_recommendation_integration.py::test_missing_session_context_builder_fails_closed_instead_of_allowing_membership_only tests/agent/rag_context/test_context_builder.py::test_wrong_tenant_duplicate_cannot_discard_valid_tenant_evidence -q --tb=short` | `3 passed, 1 warning` | PASS |
 | Action/final non-allow boundaries pass | `uv run pytest tests/agent/test_phase22_action_boundary.py::test_action_draft_node_refuses_even_trusted_approval_when_verifier_route_is_non_allow tests/agent/test_phase22_final_response.py::test_final_response_does_not_turn_manual_review_verification_into_action_success -q --tb=short` | `2 passed, 1 warning` | PASS |
 | Golden dataset includes production verifier path and all route classes | Local JSONL inspection | `20`, `production_verifier=True`, routes: allow, insufficient_evidence, manual_review, refuse, regenerate_route | PASS |
 | `EvidenceRefV1` identity has no Phase 22 authority/debug fields | Local model field inspection | `MaterialClaim`, source block, OCR, provenance, business fact, verifier fields all absent | PASS |
 
-Parent-reported final gates were also considered: full non-integration pytest passed (`1220 passed, 1 skipped`), `ruff check` passed, `ruff format --check` passed, and the Phase 22 eval passed.
+Final gates after post-review fixes passed: full non-integration pytest (`1223 passed, 1 skipped`), `ruff check .`, `ruff format --check .`, and Phase 22 eval (`20` cases, no failed cases). Focused gates also passed: Phase 22 related suite (`180 passed`), graph/facade compatibility suites (`26 passed`), targeted ruff check, and targeted format check.
 
 ### Requirements Coverage
 
@@ -127,15 +128,14 @@ None. Phase 22 is backend/eval logic with deterministic local tests; no visual f
 
 ### Gaps Summary
 
-No blocking gaps found. Review findings from `22-REVIEW.md` were re-checked against code: draft-derived claim verification is present, cumulative prompt budgeting is enforced, and the eval includes a production-verifier golden path.
+No blocking gaps found. Review findings from `22-REVIEW.md` were re-checked against code: draft-derived claim verification is present, cumulative prompt budgeting is enforced, failed action dependencies cannot aggregate to `allow`, missing-session recommendation verification fails closed, tenant-aware dedupe preserves valid tenant evidence, and the eval includes a production-verifier golden path.
 
 Residual risks/test gaps:
 
-- The no-session compatibility branch in `generate_recommendation` can treat valid citation membership as supported when a graph config lacks a DB session. The API entry path passes `configurable.session`, so this is not blocking for the verified production path, but it remains a compatibility risk if the node is invoked directly without session-backed config.
 - Most golden cases use deterministic status inference; one case (`P22-HC-020`) exercises ContextBuilder + MaterialClaimVerifier + route map. Future coverage should move more golden categories onto the production-verifier path if the eval is intended to become a stronger end-to-end oracle.
 - Level 3 semantic provider behavior is verified with deterministic fake providers and local fail-closed tests, not a live provider. That matches the no-live-model Phase 22 gate, but live provider integration should be verified separately if enabled later.
 
 ---
 
-_Verified: 2026-06-19T12:28:04Z_
+_Verified: 2026-06-19T14:29:03Z_
 _Verifier: Codex (gsd-verifier)_

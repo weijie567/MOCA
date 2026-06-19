@@ -11,6 +11,32 @@ status: complete
 
 ## Findings Addressed
 
+### Deep review CR-01: Failed action dependencies can be aggregated as supported and routed allow
+
+Verdict: true positive.
+
+Fix:
+- Recommendation verification now aggregates the first non-allow claim result instead of letting an earlier supported policy claim mask a later failed action dependency.
+- Dependency failure reason codes now route as non-allow through the backend route map.
+- Added a regression test where a supported policy claim plus missing business/action dependency must not route `allow`.
+
+### Deep review CR-02: Missing-session compatibility path returns supported/allow without verification
+
+Verdict: true positive.
+
+Fix:
+- Missing session now fails closed as `insufficient` with `context_builder_session_missing` and `policy_evidence_required`.
+- The branch no longer exposes safe citation refs or `allows_recommendation=True`.
+- Updated legacy no-session tests to assert fail-closed behavior.
+
+### Deep review WR-01: Dedupe can discard a valid tenant evidence ref before validation
+
+Verdict: true positive.
+
+Fix:
+- ContextBuilder duplicate collapse now groups by `(tenant_id, doc_key, chunk_id)`.
+- Added a regression test proving a wrong-tenant duplicate cannot suppress the valid-tenant ref.
+
 ### CR-01: Recommendation verification self-verifies evidence instead of the draft claim
 
 Verdict: true positive.
@@ -43,7 +69,12 @@ Fix:
 ## Verification
 
 - `uv run pytest tests/agent/rag_context/test_budgeting.py tests/agent/rag_context/test_leakage.py tests/agent/test_phase22_recommendation_integration.py tests/agent/test_nodes/test_generate_recommendation.py -q --tb=short`
+- `uv run pytest tests/agent/test_phase22_recommendation_integration.py::test_supported_policy_claim_does_not_mask_failed_action_dependency tests/agent/test_phase22_recommendation_integration.py::test_missing_session_context_builder_fails_closed_instead_of_allowing_membership_only tests/agent/rag_context/test_context_builder.py::test_wrong_tenant_duplicate_cannot_discard_valid_tenant_evidence -q --tb=short`
 - `uv run pytest tests/agent/rag_context tests/knowledge/test_citation_membership.py tests/agent/context/test_budget.py tests/agent/test_nodes/test_generate_recommendation.py tests/agent/test_phase22_recommendation_integration.py tests/agent/test_phase22_action_boundary.py tests/agent/test_phase22_final_response.py tests/test_graph_routing.py tests/test_approval_integration.py tests/knowledge/test_phase22_evidence_validation.py tests/knowledge/test_service.py -q --tb=short`
+- `uv run pytest tests/agent/test_graph.py tests/knowledge/test_facade_integration.py -q --tb=short`
+- `uv run pytest tests/ -x --ignore=tests/integration -q --tb=short`
 - `uv run python scripts/eval_phase22_hallucination.py --dataset evaluation/golden/phase22_hallucination_cases.jsonl --fail-thresholds`
-- `uv run ruff check src/agent/rag_context/metrics.py src/agent/rag_context/builder.py src/agent/nodes/generate_recommendation.py tests/agent/rag_context/test_budgeting.py tests/agent/test_phase22_recommendation_integration.py tests/agent/test_nodes/test_generate_recommendation.py tests/conftest.py`
-- `uv run ruff format --check src/agent/rag_context/metrics.py src/agent/rag_context/builder.py src/agent/nodes/generate_recommendation.py tests/agent/rag_context/test_budgeting.py tests/agent/test_phase22_recommendation_integration.py tests/agent/test_nodes/test_generate_recommendation.py tests/conftest.py`
+- `uv run ruff check .`
+- `uv run ruff format --check .`
+- `uv run ruff check src/agent/nodes/generate_recommendation.py src/agent/rag_context/builder.py src/agent/rag_context/routing.py tests/agent/test_phase22_recommendation_integration.py tests/agent/rag_context/test_context_builder.py tests/agent/test_nodes/test_generate_recommendation.py`
+- `uv run ruff format --check src/agent/nodes/generate_recommendation.py src/agent/rag_context/builder.py src/agent/rag_context/routing.py tests/agent/test_phase22_recommendation_integration.py tests/agent/rag_context/test_context_builder.py tests/agent/test_nodes/test_generate_recommendation.py`
