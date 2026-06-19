@@ -1,0 +1,110 @@
+# Requirements: MOCA v1.5 RAG Context Builder + Hallucination Control
+
+**Defined:** 2026-06-19
+**Core Value:** When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution — never silently executing something irreversible.
+
+## v1.5 Requirements
+
+Requirements for Phase 22. Each requirement must preserve the existing v1.3/v1.4 retrieval and evidence contracts unless explicitly stated otherwise.
+
+### Context Builder
+
+- [ ] **CTX-01**: System can build a `RagContextBundle` or equivalent prompt-safe context from candidate `EvidenceRefV1` values, business fact refs, trusted tenant/run/thread context, and risk/conflict hints after retrieval and before answer/action reasoning.
+- [ ] **CTX-02**: System can re-fetch canonical policy evidence content through `PolicyKnowledgeService` and exclude evidence whose tenant, scope, duplicate-key, content, `text_hash`, or freshness validation fails.
+- [ ] **CTX-03**: System can emit stable citation map entries that preserve canonical evidence identity while exposing only prompt-safe citation IDs, bounded snippets, display labels, and required metadata to prompts.
+- [ ] **CTX-04**: System can deduplicate repeated evidence and safely merge adjacent same-document evidence without changing `EvidenceRefV1` identity or losing traceability to source refs.
+- [ ] **CTX-05**: System can enforce a deterministic evidence token/character budget while preserving protected citation metadata and recording included, truncated, and excluded evidence with reason codes.
+- [ ] **CTX-06**: System can label evidence freshness, authority, conflict, OCR-confidence, and provenance availability risks without turning source-block/OCR/provenance metadata into policy evidence identity.
+
+### Material Claims
+
+- [ ] **CLM-01**: System can represent material reasoning output as typed `MaterialClaim` records with at least `policy_claim`, `business_fact_claim`, and `action_recommendation_claim` authority classes.
+- [ ] **CLM-02**: System rejects or marks invalid any `policy_claim` that lacks current allowed `EvidenceRefV1` support from the active context bundle.
+- [ ] **CLM-03**: System rejects or marks invalid any `business_fact_claim` that lacks current Tool System support through `BusinessFactRefV1`, safe `ToolResultV2` refs, or equivalent existing business fact authority.
+- [ ] **CLM-04**: System rejects or marks invalid any `action_recommendation_claim` that lacks both supported policy claims and supported current business fact claims, and successful support never bypasses approval/action boundaries.
+- [ ] **CLM-05**: System prevents memory, prior conversation summaries, case memory, parser/OCR provenance, or generic model knowledge from satisfying policy, business fact, or action recommendation claim authority.
+
+### Claim Verification
+
+- [ ] **VER-01**: System always runs Level 1 deterministic gates for membership, tenant/scope, duplicate-key, `text_hash`, freshness/effective-at, and authority-source compatibility before a material claim can be treated as supported.
+- [ ] **VER-02**: System keeps citation membership validation distinct from semantic support validation so a cited-but-unsupported claim cannot pass as grounded.
+- [ ] **VER-03**: System runs low-cost Level 2 lexical/span support checks for ordinary material claims and returns typed outcomes such as supported, unsupported, insufficient, ambiguous, or needs-semantic-review.
+- [ ] **VER-04**: System runs Level 3 semantic support only for configured high-risk, action, conflict, stale, OCR-low-confidence, or Level 2 ambiguous cases.
+- [ ] **VER-05**: System enforces explicit Level 3 budgets for claim count, evidence count, text/token size, timeout, retries, and config version, and fails closed on timeout, provider error, malformed output, or budget overflow.
+- [ ] **VER-06**: System stores or exposes only redacted verifier status, reason codes, metrics, and safe refs; raw verifier prompts, private reasoning, source-block internals, raw OCR metadata, and unbounded policy text stay out of ordinary prompts and user-facing answers.
+
+### Routing and Integration
+
+- [ ] **RTE-01**: System deterministically maps verification outcomes to allow, regenerate-route, refuse or insufficient-evidence response, or manual review without letting the model choose the safety route; implementing an automatic regeneration attempt remains stretch scope unless separately accepted.
+- [ ] **RTE-02**: System handles unsupported, insufficient-evidence, conflicting-evidence, stale-evidence, unauthorized-evidence, scope-invalid, hash-mismatch, OCR-low-confidence, business-fact-missing, and needs-manual-review states with explicit route behavior.
+- [ ] **RTE-03**: System integrates ContextBuilder and claim verification into recommendation generation so local node-specific evidence re-fetch and citation-map logic do not diverge from the shared reasoning kernel.
+- [ ] **RTE-04**: System prevents non-allow verification outcomes from creating proposed actions, approval requests, action drafts, or `ActionSafetySnapshot` evidence.
+- [ ] **RTE-05**: System renders final responses for refusal, insufficient evidence, conflict, stale evidence, unauthorized evidence, and manual review using safe user-facing language without dumping verifier/debug/provenance traces.
+
+### Boundaries and Scope Guards
+
+- [ ] **BND-01**: System preserves `EvidenceRefV1` as the canonical policy evidence identity and does not add MaterialClaim, source-block, OCR, provenance, business fact, or verifier fields to that identity.
+- [ ] **BND-02**: System preserves Phase 20 dense/sparse/fuzzy/RRF ranking semantics and does not implement query rewrite, model/cross-encoder relevance reranking, external rerank APIs, or new search backend behavior in Phase 22.
+- [ ] **BND-03**: System preserves Tool System authority for current business facts and prevents business facts from being represented as policy `EvidenceRefV1`.
+- [ ] **BND-04**: System preserves memory as contextual assistance only and prevents memory from becoming policy evidence, current business fact authority, approval/action authority, or replay/audit truth.
+- [ ] **BND-05**: System preserves Phase 21 provenance boundaries by keeping source-block/OCR/parser metadata internal, debug, or maintainer-lookup only unless a prompt-safe label is explicitly projected.
+
+### Evaluation and Acceptance
+
+- [ ] **EVAL-01**: System has hallucination-control golden cases for supported policy claims, cited-but-unsupported claims, missing citations, stale policy, conflicting policy, unauthorized or hash-mismatched evidence, OCR-low-confidence traps, and insufficient evidence.
+- [ ] **EVAL-02**: System has golden cases proving business facts cannot be inferred from policy evidence, policy claims cannot be supported by business facts or memory, and action recommendations require both policy and business support.
+- [ ] **EVAL-03**: System has golden cases proving unsupported, conflicting, stale, unauthorized, hash-mismatched, OCR-low-confidence, and business-fact-missing outcomes refuse, regenerate, or route to manual review as specified.
+- [ ] **EVAL-04**: System has prompt/debug leakage tests proving raw tool payloads, retrieval debug fields, verifier traces, source-block/OCR raw metadata, raw provenance, private reasoning, and unbounded policy text do not enter ordinary prompts, final responses, memory, replay, or action snapshots.
+- [ ] **EVAL-05**: System reports blocking Phase 22 acceptance metrics for claim support accuracy, citation support accuracy, refusal/manual-review routing accuracy, unsafe answer rate, business-data hallucination rate, leakage count, Level 3 trigger rate, timeout rate, and fail-closed rate.
+
+## Future Requirements
+
+Deferred to named owner phases. Tracked but not in the current roadmap.
+
+### Phase 22 Stretch Only
+
+- **STRETCH-01**: System can perform one bounded verifier-constrained regeneration attempt after support failure while preserving original failure traces and route budgets.
+- **STRETCH-02**: System can persist a claim dependency map for replay/eval summaries if implementation cost stays low and redaction boundaries remain clear.
+- **STRETCH-03**: System can provide a maintainer-facing verifier trace report or CLI that excludes private reasoning and ordinary user-facing surfaces.
+- **STRETCH-04**: System can add granular policy claim subtypes such as rule, exception, threshold, deadline, eligibility, and conflict notice after the three authority classes are stable.
+
+### Named Future Owners
+
+- **P23-01**: Query rewrite, model relevance reranking, cross-encoder reranking, external rerank APIs, ranking explanations, retrieval ablation, and retrieval latency tuning — owner: Phase 23 RAG Reranker + Query Rewrite.
+- **P17-01**: Real external action execution, outbox, reconciliation, external idempotency, and compensation dispatch — owner: Phase 17 External Action Execution.
+- **RAG5-01**: External `SearchBackend`, Vespa/OpenSearch, or a new vector database service — owner: Phase RAG-5 Optional External Search Backend.
+- **PSO-01**: Policy source upload/review/lifecycle UI, source document viewer, and admin review workflow — owner: Policy Source Operations.
+- **PSCOPE-01**: Tenant-over-global/default policy fallback and global policy precedence merge — owner: post-Phase 17 Policy Scope.
+
+## Out of Scope
+
+Explicitly excluded from v1.5 to prevent scope creep.
+
+| Feature | Reason |
+|---------|--------|
+| Query rewrite or new retrieval query generation | Phase 23 owns retrieval-quality expansion; Phase 22 consumes retrieved evidence only. |
+| Model/cross-encoder relevance reranking or external rerank API | Phase 23 owns reranking; verifier support scores must not mutate retrieval ranking semantics. |
+| Vespa/OpenSearch/new vector database/new `SearchBackend` | Phase RAG-5 owns backend replacement; PostgreSQL hybrid remains the active backend. |
+| `EvidenceRefV1` identity changes | Would break policy evidence, action snapshot, replay, and citation contracts. |
+| Source-block/OCR/provenance as policy evidence | Phase 21 provenance remains subordinate internal/debug metadata, not an authority ref. |
+| Business facts as policy evidence | Violates Tool System authority separation. |
+| Memory as evidence, business fact authority, approval authority, action authority, replay truth, or audit truth | Violates the memory contextual-assistance boundary. |
+| Real external action execution, outbox, reconciliation, or compensation dispatch | Phase 17 owns external side effects. |
+| Policy source upload/review/lifecycle UI or source-document viewer | Policy Source Operations owns source-management workflows. |
+| Always-on Level 3 semantic verification for all low-risk FAQ/policy QA | Adds cost/latency without evidence; Phase 22 uses risk-triggered Level 3 only. |
+
+## Traceability
+
+Which phases cover which requirements. Updated during roadmap creation.
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+
+**Coverage:**
+- v1.5 requirements: 32 total
+- Mapped to phases: 0
+- Unmapped: 32
+
+---
+*Requirements defined: 2026-06-19*
+*Last updated: 2026-06-19 after initial v1.5 definition*
