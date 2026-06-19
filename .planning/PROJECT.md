@@ -10,17 +10,22 @@ Built as an open-source portfolio project demonstrating enterprise Agent enginee
 
 When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution — never silently executing something irreversible.
 
-## Current State: Between Milestones
+## Current Milestone: v1.6 RAG Reranker + Query Rewrite
 
-v1.5 RAG Context Builder + Hallucination Control shipped and is archived. There is no active milestone; the next milestone should be defined with `$gsd-new-milestone`.
+**Goal:** Improve policy retrieval quality after the v1.3 hybrid backend and v1.5 grounding kernel by adding bounded query rewrite, a configurable reranker interface, safe ranking explanations, retrieval ablation evals, and latency budgets.
 
-**Last delivered capability:** A reusable RAG reasoning kernel after retrieval and before answer/action reasoning so policy conclusions are grounded only in current, authorized, hash-valid, and semantically supported evidence.
+**Target features:**
+- Query rewrite for policy search that preserves the original user query, tenant/scope/effective-date filters, and failure fallback.
+- Reranker interface that can support deterministic local reranking first and optional cross-encoder/external adapters later behind config, timeout, and fallback contracts.
+- Safe ranking explanation and retrieval diagnostics for maintainer/eval use without exposing raw prompts, raw provider payloads, source-block internals, or private reasoning to ordinary user surfaces.
+- Retrieval ablation evaluation that compares dense, sparse, fuzzy, RRF, query rewrite, and reranker variants against golden policy cases.
+- Latency and budget enforcement for rewrite/rerank stages so retrieval failures degrade to the existing safe hybrid path rather than blocking or weakening evidence validation.
 
 **Preserved scope boundaries:**
-- Query rewrite, model relevance reranking, cross-encoder reranking, external rerank APIs, and ranking explanations remain future Phase 23 scope.
 - Real external action execution, outbox, reconciliation, and compensation dispatch remain future Phase 17 scope.
 - `EvidenceRefV1` remains the canonical policy evidence identity; Phase 22 did not add claim, verifier, OCR, provenance, or business fact fields to it.
 - Source-block/OCR/parser provenance remains internal/debug/maintainer lookup data unless explicitly projected as prompt-safe labels.
+- Phase 23 may reorder or expand retrieval candidates before `EvidenceRefV1` construction, but it must not mutate canonical citation text, text hashes, policy version identity, or ContextBuilder/verifier authority rules.
 
 ## Shipped Milestones
 
@@ -127,7 +132,11 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 
 ### Active
 
-- No active requirements. The next milestone should define fresh active requirements through `$gsd-new-milestone`.
+- [ ] Phase 23 query rewrite improves recall for ambiguous, underspecified, or domain-synonym policy questions without losing the original query or trusted filters.
+- [ ] Phase 23 reranker interface reorders candidate evidence with bounded deterministic/default behavior and optional provider adapters behind timeout/fallback controls.
+- [ ] Phase 23 ranking explanations expose safe, bounded diagnostics for maintainers and evals without changing `EvidenceRefV1` identity or leaking internal payloads.
+- [ ] Phase 23 evals compare retrieval variants, report recall/precision/Hit@K/citation-support impacts, and enforce latency budgets.
+- [ ] Phase 23 preserves Phase 20 retrieval filters, Phase 21 provenance boundaries, and Phase 22 grounding/verifier/action boundaries.
 
 ### Out of Scope
 
@@ -135,7 +144,6 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - Tenant-over-global global/default policy fallback — future post-Phase 17 Policy Scope milestone.
 - Memory as policy evidence, approval/action authority, current business fact, or replay/audit truth — violates the contract boundary.
 - Full user-facing memory management UI — defer until storage/review/tombstone/retrieval foundations are safe.
-- Query rewrite, reranker interface, cross-encoder/external rerank API, full ranking explanation, retrieval ablation eval, and latency budget — deferred to Phase 23: RAG Reranker + Query Rewrite.
 - Full external `SearchBackend` interface — deferred to Phase RAG-5: Optional External Search Backend; current code has one Postgres backend and `PolicyKnowledgeService` already hides retriever details from Agent nodes.
 - New vector database service — PostgreSQL/pgvector remains the default unless Phase RAG-5 backend planning proves a stronger need.
 - Source-block/OCR/provenance fields in `EvidenceRefV1` or ordinary business facts — provenance remains internal/debug/maintainer lookup data.
@@ -204,10 +212,10 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 
 ## Current Milestone Setup
 
-- No active milestone is currently defined.
-- Start the next milestone with `$gsd-new-milestone` so fresh requirements, roadmap, and state are generated from the current archived baseline.
-- Keep owner-named deferrals explicit: 17-prep AgentState Surface Contracts + Authority Isolation, Phase 17 External Action Execution, post-Phase 17 Policy Scope, Phase 23 reranker/query rewrite, Phase RAG-5 external backend, and Policy Source Operations.
+- v1.6 owns Phase 23 RAG Reranker + Query Rewrite.
+- Keep owner-named deferrals explicit: 17-prep AgentState Surface Contracts + Authority Isolation, Phase 17 External Action Execution, post-Phase 17 Policy Scope, Phase RAG-5 external backend, and Policy Source Operations.
 - Preserve v1.1/v1.2/v1.3/v1.4/v1.5 safety boundaries: policy evidence remains `EvidenceRefV1`; business facts remain Tool System outputs; memory remains contextual assistance only; parser/OCR provenance remains internal unless verified through the maintainer provenance lookup; verifier failures and timeouts fail closed.
+- Keep 17-prep AgentState cleanup as a Phase 17 prerequisite, not a blocker for Phase 23.
 
 ## Constraints
 
@@ -239,6 +247,7 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 | Scope v1.4 to Phase 21 ingestion/OCR | Keeps source parsing and provenance separate from later hallucination-control, reranking, and backend-scale work | Adopted 2026-06-18 |
 | Ship v1.4 only after dependency gates pass | Local `chi_sim+eng` OCR preflight and live pgvector migration round trip remove the earlier dependency-only acceptance caveat | Adopted 2026-06-19 |
 | Scope v1.5 to Phase 22 hallucination control | Keeps reasoning-context validation, MaterialClaim support checks, and deterministic failure routing separate from Phase 23 reranking/query rewrite and Phase 17 external execution | Adopted 2026-06-19 |
+| Scope v1.6 to Phase 23 retrieval quality | Starts the owner-named RAG reranker/query rewrite phase while keeping 17-prep as a later Phase 17 prerequisite | Adopted 2026-06-20 |
 
 ## Evolution
 
@@ -258,4 +267,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-19 after v1.5 milestone archive*
+*Last updated: 2026-06-20 after v1.6 milestone start*

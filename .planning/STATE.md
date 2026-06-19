@@ -1,13 +1,13 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.5
-milestone_name: RAG Context Builder + Hallucination Control
-status: between_milestones
-stopped_at: Archived v1.5 milestone
-last_updated: "2026-06-19T17:19:30.509Z"
-last_activity: 2026-06-19
+milestone: v1.6
+milestone_name: RAG Reranker + Query Rewrite
+status: defining_requirements
+stopped_at: Started v1.6 milestone
+last_updated: "2026-06-20T00:00:00+08:00"
+last_activity: 2026-06-20
 progress:
-  total_phases: 0
+  total_phases: 1
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -18,56 +18,43 @@ progress:
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-06-19)
+See: `.planning/PROJECT.md` (updated 2026-06-20)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Between milestones after v1.5 archive.
+**Current focus:** Phase 23 — RAG Reranker + Query Rewrite
 
 ## Current Position
 
-Phase: None active
-Plan: None active
-Status: v1.5 archived; ready to define the next milestone
-Last activity: 2026-06-19
+Phase: 23 (RAG Reranker + Query Rewrite) — NOT STARTED
+Plan: —
+Status: Defining requirements and roadmap
+Last activity: 2026-06-20 — Milestone v1.6 started
 
-Progress: [----------] 0% for the next milestone
+Progress: [----------] 0%
 
 Planning files:
 
 - `.planning/PROJECT.md`
+- `.planning/REQUIREMENTS.md`
 - `.planning/ROADMAP.md`
 - `.planning/STATE.md`
 - `.planning/MILESTONES.md`
-- `.planning/research/SUMMARY.md`
 
-Archived v1.5 files:
+## Current Milestone Context
 
-- `.planning/milestones/v1.5-ROADMAP.md`
-- `.planning/milestones/v1.5-REQUIREMENTS.md`
-- `.planning/milestones/v1.5-MILESTONE-AUDIT.md`
-
-## Last Milestone Context
-
-- v1.5 owned exactly one roadmap phase: Phase 22.
-- Phase 22 added the retrieval-after / reasoning-before RAG kernel: ContextBuilder, canonical evidence validation, typed `MaterialClaim` verification, deterministic route control, action-boundary blocking, final-response safety wording, and deterministic hallucination-control evals.
-- v1.5 milestone audit status is `tech_debt`: no blockers, 32/32 active requirements satisfied, 6/6 integration areas wired, 8/8 required route/action/eval flows covered.
-- Latest/current policy version validity, effective-date/freshness, and hash re-fetch were all verified acceptance points.
-- `regenerate-route` was implemented as a backend route value only; automatic regeneration remains stretch scope unless separately accepted.
+- v1.6 owns exactly one roadmap phase: Phase 23.
+- Phase 23 follows v1.3 hybrid retrieval, v1.4 parser/OCR provenance, and v1.5 ContextBuilder/hallucination-control work.
+- Phase 23 may add bounded query rewrite, a reranker interface, optional provider adapters behind config, ranking explanations, ablation evals, and latency budgets.
+- Phase 23 must preserve `EvidenceRefV1` identity, canonical citation text/text_hash, tenant/scope/effective-date filters, ContextBuilder validation, verifier routing, and action-boundary safety.
+- 17-prep AgentState cleanup remains a pending todo before Phase 17 External Action Execution, not a blocker for Phase 23.
 
 ## Performance Metrics
 
-**v1.5 velocity:** 1 phase complete, 6 of 6 plans complete.
+**v1.6 velocity:** 0 phases complete, 0 plans complete.
 
 | Phase | Plans | Status |
 |-------|-------|--------|
-| 22. RAG Context Builder + Hallucination Control | 6/6 | Archived |
-
-Final v1.5 verification evidence:
-
-- Phase 22 UAT: 6/6 checkpoints passed.
-- Phase 22 security: 7/7 threats closed, `threats_open: 0`.
-- Hallucination eval: 24 cases, 5 production-verifier cases, no failed cases, no threshold failures.
-- Final gates: Phase 22 related suite `119 passed, 1 warning`; full non-integration pytest `1228 passed, 1 skipped, 6 warnings`; Ruff check and format check passed.
+| 23. RAG Reranker + Query Rewrite | 0/0 | Not started |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
 
@@ -93,6 +80,7 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 - Plan 22-06 uses deterministic local hallucination-control metrics as the blocking Phase 22 acceptance gate; no live semantic/model provider is required by default.
 - Plan 22-06 eval reports remain redacted to metrics, threshold failures, and case IDs only; raw verifier prompts, private reasoning, raw policy/OCR/provenance/debug material stay out of reports.
 - Plan 22-06 preserves `EvidenceRefV1` identity and deferred Phase 23, Phase 17, RAG5, Policy Source Operations, and automatic regeneration boundaries while allowing Phase 22-owned verifier and claim surfaces.
+- v1.6 starts the owner-named Phase 23 retrieval-quality work. 17-prep AgentState cleanup remains deferred until Phase 17 preparation.
 
 ### Pending Todos
 
@@ -100,28 +88,21 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 
 ### Blockers / Concerns
 
-- None for completed v1.5. The milestone audit recorded non-blocking tech debt only.
+- None for starting Phase 23. The active requirement and roadmap artifacts still need to be finalized in this milestone initialization.
 
 ## Deferred Items
 
-Items acknowledged and deferred at v1.5 close on 2026-06-19:
-
 | Category | Item | Status |
 |----------|------|--------|
-| todo | 17-prep AgentState Surface Contracts + Authority Isolation | pending |
-| tech debt | Defensive business fact ref status filtering hardening | deferred |
-| tech debt | Deeper production-verifier eval coverage | deferred |
-| tech debt | Eval script header wording drift | deferred |
-| tech debt | 22-VALIDATION planning-time table wording drift | deferred |
+| todo | 17-prep AgentState Surface Contracts + Authority Isolation | pending before Phase 17 |
 | future phase | Phase 17 External Action Execution | deferred |
-| future phase | Phase 23 RAG Reranker + Query Rewrite | deferred |
 | future phase | Phase RAG-5 Optional External Search Backend | deferred |
 | future milestone | Policy Source Operations | deferred |
 | future scope | post-Phase 17 Policy Scope | deferred |
 
 ## Session Continuity
 
-Last session: 2026-06-19T17:19:30.509Z
-Stopped at: Archived v1.5 milestone
+Last session: 2026-06-20T00:00:00+08:00
+Stopped at: Started v1.6 milestone
 Resume file: None
-Next: Run `$gsd-new-milestone` to define the next milestone.
+Next: Finish `$gsd-new-milestone` by creating `.planning/REQUIREMENTS.md` and `.planning/ROADMAP.md`.
