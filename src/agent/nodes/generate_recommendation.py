@@ -379,12 +379,17 @@ async def _verify_recommendation_with_shared_kernel(
         )
         return _normalize_recommendation_verification(result)
 
+    cited_evidence_ids = _cited_evidence_ids_from_claims(claims)
+    context_reason_codes = _context_exclusion_reason_codes(context_bundle, cited_evidence_ids)
     if claims and citation_validation.get("is_valid") is True and _missing_session_compat(context_bundle):
-        reason_codes = ["policy_evidence_required", "context_builder_session_missing"]
-        route = determine_verification_route({"overall_outcome": "insufficient", "reason_codes": reason_codes})
+        reason_codes = _unique_text(
+            ["policy_evidence_required", "context_builder_session_missing", *context_reason_codes]
+        )
+        overall = _promote_context_blocking_outcome("insufficient", reason_codes)
+        route = determine_verification_route({"overall_outcome": overall, "reason_codes": reason_codes})
         return _normalize_recommendation_verification(
             {
-                "overall_outcome": "insufficient",
+                "overall_outcome": overall,
                 "allows_recommendation": False,
                 "route": route,
                 "material_claims": _safe_material_claims(claims),
@@ -405,24 +410,26 @@ async def _verify_recommendation_with_shared_kernel(
             )
         )
     if not verification_results:
-        route = determine_verification_route(
-            {"overall_outcome": "insufficient", "reason_codes": ["policy_evidence_required"]}
-        )
+        reason_codes = _unique_text(["policy_evidence_required", *context_reason_codes])
+        overall = _promote_context_blocking_outcome("insufficient", reason_codes)
+        route = determine_verification_route({"overall_outcome": overall, "reason_codes": reason_codes})
         return _normalize_recommendation_verification(
             {
-                "overall_outcome": "insufficient",
+                "overall_outcome": overall,
                 "allows_recommendation": False,
                 "route": route,
                 "material_claims": [],
-                "reason_codes": ["policy_evidence_required"],
+                "reason_codes": reason_codes,
                 "safe_citation_refs": [],
                 "metrics": route.metrics,
             }
         )
 
-    reason_codes = _unique_text(code for result in verification_results for code in result.reason_codes)
+    reason_codes = _unique_text(
+        [*(code for result in verification_results for code in result.reason_codes), *context_reason_codes]
+    )
     safe_refs = _unique_text(ref for result in verification_results for ref in result.safe_support_refs)
-    overall = _aggregate_verification_outcome(verification_results)
+    overall = _promote_context_blocking_outcome(_aggregate_verification_outcome(verification_results), reason_codes)
     route = determine_verification_route(
         {
             "overall_outcome": overall,
@@ -453,6 +460,49 @@ def _aggregate_verification_outcome(verification_results: list[Any]) -> str:
     if not blocking:
         return "supported"
     return str(blocking[0].outcome.value)
+
+
+def _cited_evidence_ids_from_claims(claims: list[MaterialClaim]) -> list[str]:
+    return _unique_text(evidence_id for claim in claims for evidence_id in claim.cited_evidence_ids)
+
+
+def _context_exclusion_reason_codes(context_bundle: Any, cited_evidence_ids: list[str]) -> list[str]:
+    cited = set(cited_evidence_ids)
+    if not cited:
+        return []
+    debug_context = _get_value(context_bundle, "debug_context")
+    entries = _get_value(debug_context, "truncated_or_excluded_evidence")
+    if not isinstance(entries, list):
+        return []
+
+    reason_codes: list[str] = []
+    for entry in entries:
+        evidence_id = str(_get_value(entry, "evidence_id") or "")
+        if evidence_id not in cited:
+            continue
+        entry_reason_codes = _get_value(entry, "reason_codes")
+        if isinstance(entry_reason_codes, list):
+            reason_codes.extend(str(code) for code in entry_reason_codes if str(code))
+        else:
+            reason_code = _get_value(entry, "reason_code")
+            if reason_code:
+                reason_codes.append(str(reason_code))
+    return _unique_text(reason_codes)
+
+
+def _promote_context_blocking_outcome(overall: str, reason_codes: list[str]) -> str:
+    reasons = set(reason_codes)
+    if reasons & {"text_hash_mismatch", "hash_mismatch"}:
+        return "hash_mismatch"
+    if "latest_version_invalid" in reasons:
+        return "latest_version_invalid"
+    if reasons & {"scope_invalid", "merchant_scope_invalid", "doc_type_invalid", "risk_level_invalid"}:
+        return "scope_invalid"
+    if reasons & {"tenant_mismatch", "tenant_scope_invalid"}:
+        return "unauthorized"
+    if reasons & {"freshness_invalid", "effective_date_invalid", "stale_evidence"}:
+        return "stale"
+    return overall
 
 
 async def _assemble_recommendation_prompt(

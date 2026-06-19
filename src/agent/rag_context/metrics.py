@@ -98,7 +98,7 @@ async def _evaluate_production_hallucination_case(case: Mapping[str, Any]) -> di
     input_data = case.get("input") if isinstance(case.get("input"), Mapping) else {}
     tenant_id = str(input_data.get("tenant_id") or "11111111-1111-1111-1111-111111111111")
     refs: list[EvidenceRefV1] = []
-    contents: dict[str, str] = {}
+    rows: dict[tuple[str, str], dict[str, Any]] = {}
     for index, raw_ref in enumerate(_evidence_refs(case), start=1):
         content = str(raw_ref.get("text") or "")
         if not content:
@@ -115,7 +115,7 @@ async def _evaluate_production_hallucination_case(case: Mapping[str, Any]) -> di
             rank=int(raw_ref.get("rank") or index),
         )
         refs.append(ref)
-        contents[ref.evidence_id] = content
+        rows[(ref.doc_key, ref.chunk_id)] = _golden_canonical_row(ref, raw_ref, fallback_content=content)
 
     input_claims = input_data.get("claims")
     raw_claims = (
@@ -123,7 +123,7 @@ async def _evaluate_production_hallucination_case(case: Mapping[str, Any]) -> di
     )
     claims = normalize_material_claims(_claim_with_defaults(raw_claim) for raw_claim in raw_claims)
     bundle = await ContextBuilder(
-        policy_service=_GoldenCasePolicyService(contents),
+        policy_service=_GoldenCasePolicyService(rows),
     ).build(
         candidate_evidence_refs=refs,
         business_fact_refs=[],
@@ -145,8 +145,10 @@ async def _evaluate_production_hallucination_case(case: Mapping[str, Any]) -> di
             await verifier.verify_claim(claim, context_bundle=bundle, dependency_results=dependency_results)
         )
 
+    context_reason_codes = _bundle_exclusion_reason_codes(bundle, _cited_evidence_ids_from_claims(claims))
     status, reason_codes = _aggregate_production_verifier_results(
-        [result.model_dump(mode="json") for result in verification_results]
+        [result.model_dump(mode="json") for result in verification_results],
+        context_reason_codes=context_reason_codes,
     )
     route_decision = determine_verification_route(
         {
@@ -175,8 +177,20 @@ async def _evaluate_production_hallucination_case(case: Mapping[str, Any]) -> di
 
 
 class _GoldenCasePolicyService:
-    def __init__(self, contents: Mapping[str, str]) -> None:
-        self.contents = dict(contents)
+    def __init__(self, rows: Mapping[tuple[str, str], Mapping[str, Any]]) -> None:
+        self.rows = {key: dict(value) for key, value in rows.items()}
+
+    async def get_canonical_evidence_rows(
+        self,
+        *,
+        tenant_id: str,
+        evidence_refs: list[Any],
+    ) -> dict[tuple[str, str], Mapping[str, Any]]:
+        return {
+            (ref.doc_key, ref.chunk_id): self.rows[(ref.doc_key, ref.chunk_id)]
+            for ref in evidence_refs
+            if ref.tenant_id == tenant_id and (ref.doc_key, ref.chunk_id) in self.rows
+        }
 
     async def get_verified_evidence_contents(
         self,
@@ -185,10 +199,41 @@ class _GoldenCasePolicyService:
         evidence_refs: list[Any],
     ) -> dict[str, str]:
         return {
-            ref.evidence_id: self.contents[ref.evidence_id]
+            ref.evidence_id: str(self.rows[(ref.doc_key, ref.chunk_id)].get("content") or "")
             for ref in evidence_refs
-            if ref.tenant_id == tenant_id and ref.evidence_id in self.contents
+            if ref.tenant_id == tenant_id and (ref.doc_key, ref.chunk_id) in self.rows
         }
+
+
+def _golden_canonical_row(
+    ref: Any,
+    raw_ref: Mapping[str, Any],
+    *,
+    fallback_content: str,
+) -> dict[str, Any]:
+    current_policy_version = str(raw_ref.get("current_policy_version") or ref.policy_version)
+    return {
+        "tenant_id": ref.tenant_id,
+        "doc_key": ref.doc_key,
+        "chunk_id": ref.chunk_id,
+        "content": str(raw_ref.get("canonical_text") or fallback_content),
+        "policy_document_version": int(
+            raw_ref.get("policy_document_version") or _version_number(current_policy_version)
+        ),
+        "current_policy_version": current_policy_version,
+        "effective_date": str(raw_ref.get("effective_date") or "2026-01-01"),
+        "expires_at": raw_ref.get("expires_at"),
+        "merchant_ids": list(raw_ref.get("merchant_ids") or []),
+        "doc_type": raw_ref.get("doc_type"),
+        "risk_level": raw_ref.get("risk_level"),
+    }
+
+
+def _version_number(policy_version: str) -> int:
+    try:
+        return int(str(policy_version).removeprefix("v"))
+    except ValueError:
+        return 1
 
 
 def threshold_failures(
@@ -218,10 +263,17 @@ def _claim_with_defaults(raw_claim: Any) -> dict[str, Any]:
     return payload
 
 
-def _aggregate_production_verifier_results(results: Sequence[Mapping[str, Any]]) -> tuple[str, list[str]]:
+def _aggregate_production_verifier_results(
+    results: Sequence[Mapping[str, Any]],
+    *,
+    context_reason_codes: Sequence[str] = (),
+) -> tuple[str, list[str]]:
     if not results:
-        return "insufficient", ["insufficient_evidence"]
-    reason_codes = _unique_strings(code for result in results for code in _string_list(result.get("reason_codes")))
+        reason_codes = _unique_strings(["insufficient_evidence", *context_reason_codes])
+        return _promote_context_blocking_status("insufficient", reason_codes), reason_codes
+    reason_codes = _unique_strings(
+        [*(code for result in results for code in _string_list(result.get("reason_codes"))), *context_reason_codes]
+    )
     outcomes = {_normalized(result.get("outcome")) for result in results}
     for outcome in (
         "fail_closed",
@@ -233,10 +285,53 @@ def _aggregate_production_verifier_results(results: Sequence[Mapping[str, Any]])
         "unsupported",
     ):
         if outcome in outcomes:
-            return outcome, reason_codes
+            return _promote_context_blocking_status(outcome, reason_codes), reason_codes
     if outcomes == {"supported"}:
-        return "supported", reason_codes
-    return "insufficient", reason_codes or ["insufficient_evidence"]
+        return _promote_context_blocking_status("supported", reason_codes), reason_codes
+    fallback_reasons = reason_codes or ["insufficient_evidence"]
+    return _promote_context_blocking_status("insufficient", fallback_reasons), fallback_reasons
+
+
+def _cited_evidence_ids_from_claims(claims: Sequence[Any]) -> list[str]:
+    return _unique_strings(evidence_id for claim in claims for evidence_id in getattr(claim, "cited_evidence_ids", []))
+
+
+def _bundle_exclusion_reason_codes(bundle: Any, cited_evidence_ids: Sequence[str]) -> list[str]:
+    cited = set(cited_evidence_ids)
+    if not cited:
+        return []
+    debug_context = getattr(bundle, "debug_context", None)
+    entries = getattr(debug_context, "truncated_or_excluded_evidence", None)
+    if not isinstance(entries, Sequence) or isinstance(entries, str | bytes):
+        return []
+    reason_codes: list[str] = []
+    for entry in entries:
+        evidence_id = str(getattr(entry, "evidence_id", ""))
+        if evidence_id not in cited:
+            continue
+        entry_reason_codes = getattr(entry, "reason_codes", None)
+        if isinstance(entry_reason_codes, Sequence) and not isinstance(entry_reason_codes, str | bytes):
+            reason_codes.extend(str(code) for code in entry_reason_codes if str(code))
+        else:
+            reason_code = getattr(entry, "reason_code", None)
+            if reason_code:
+                reason_codes.append(str(reason_code))
+    return _unique_strings(reason_codes)
+
+
+def _promote_context_blocking_status(status: str, reason_codes: Sequence[str]) -> str:
+    reasons = set(reason_codes)
+    if reasons & {"text_hash_mismatch", "hash_mismatch"}:
+        return "hash_mismatch"
+    if "latest_version_invalid" in reasons:
+        return "latest_version_invalid"
+    if reasons & {"scope_invalid", "merchant_scope_invalid", "doc_type_invalid", "risk_level_invalid"}:
+        return "scope_invalid"
+    if reasons & {"tenant_mismatch", "tenant_scope_invalid"}:
+        return "unauthorized"
+    if reasons & {"freshness_invalid", "effective_date_invalid", "stale_evidence"}:
+        return "stale"
+    return status
 
 
 def _safe_support_refs_from_results(results: Sequence[Any]) -> list[str]:

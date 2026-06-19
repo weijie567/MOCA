@@ -137,6 +137,40 @@ async def test_non_allow_verifier_outcomes_block_proposed_actions_and_snapshot_e
     assert result["rag_verification"]["route"]["model_selected"] is False
 
 
+@pytest.mark.asyncio
+async def test_non_allow_risk_assessment_clears_same_turn_stale_snapshot_bindings(
+    monkeypatch: pytest.MonkeyPatch,
+    base_state: dict[str, Any],
+) -> None:
+    """RTE-04: non-allow verifier updates must clear any stale action binding in state merge."""
+    monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: ExplodingRiskLLM())
+    state = {
+        **_actionable_state(base_state, outcome="latest_version_invalid", route="refuse"),
+        "proposed_action": {"action_type": "issue_coupon"},
+        "approval_result": _approved_result(base_state["tenant_id"], str(uuid4())),
+        "action_draft": {"draft_id": "stale-draft"},
+        "action_payload_hash": ACTION_HASH,
+        "safety_snapshot_ref": "snapshot:stale",
+        "safety_snapshot_hash": SNAPSHOT_HASH,
+        "safety_snapshot_verified": True,
+    }
+
+    result = await assess_risk_module.assess_risk_and_approval(
+        state,
+        {"configurable": {"session": object()}},
+    )
+    merged_state = {**state, **result}
+
+    assert merged_state["proposed_action"] is None
+    assert merged_state["approval_result"] is None
+    assert merged_state["action_draft"] is None
+    assert merged_state["action_payload_hash"] is None
+    assert merged_state["safety_snapshot_ref"] is None
+    assert merged_state["safety_snapshot_hash"] is None
+    assert merged_state["safety_snapshot_verified"] is False
+    assert route_after_risk(merged_state) == "final_response"
+
+
 def test_route_after_risk_fails_closed_when_verification_route_is_non_allow() -> None:
     """RTE-04: graph routing cannot send non-allow verifier state to approval_gate."""
     state = {

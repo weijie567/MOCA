@@ -42,13 +42,14 @@ def _evidence(
     *,
     tenant_id: str = "tenant",
     chunk_id: str = "chunk_001",
+    policy_version: str = "v1",
     text: str = "退款超时时，客服应核实支付通道和退款状态。",
 ) -> EvidenceRefV1:
     return EvidenceRefV1.build(
         tenant_id=tenant_id,
         doc_key="policy_refund_timeout",
         chunk_id=chunk_id,
-        policy_version="v1",
+        policy_version=policy_version,
         text=text,
         retrieved_at="2026-06-07T02:30:00+00:00",
         retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
@@ -84,6 +85,43 @@ def _with_knowledge_service(monkeypatch, contents):
 
     monkeypatch.setattr(generate_recommendation_module, "PolicyKnowledgeService", FakeKnowledgeService)
     return calls
+
+
+def _with_canonical_knowledge_service(monkeypatch, rows):
+    class FakeKnowledgeService:
+        def __init__(self, retriever):
+            assert retriever is not None
+
+        async def get_canonical_evidence_rows(self, *, tenant_id, evidence_refs):
+            return {
+                (ref.doc_key, ref.chunk_id): rows[(ref.doc_key, ref.chunk_id)]
+                for ref in evidence_refs
+                if (ref.doc_key, ref.chunk_id) in rows
+            }
+
+    monkeypatch.setattr(generate_recommendation_module, "PolicyKnowledgeService", FakeKnowledgeService)
+
+
+def _canonical_row(
+    evidence: EvidenceRefV1,
+    *,
+    content: str,
+    current_policy_version: str,
+    effective_date: str = "2026-06-01",
+) -> dict:
+    return {
+        "tenant_id": evidence.tenant_id,
+        "doc_key": evidence.doc_key,
+        "chunk_id": evidence.chunk_id,
+        "content": content,
+        "policy_document_version": int(current_policy_version.removeprefix("v")),
+        "current_policy_version": current_policy_version,
+        "effective_date": effective_date,
+        "expires_at": None,
+        "merchant_ids": [],
+        "doc_type": None,
+        "risk_level": None,
+    }
 
 
 def _config():
@@ -252,6 +290,33 @@ async def test_hash_mismatch_content_is_not_grounded(monkeypatch, base_state):
     )
 
     assert distinctive_rule not in fake_llm.messages[-1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_canonical_latest_invalid_reason_routes_refuse_not_generic_insufficient(monkeypatch, base_state):
+    text = "退款超时时，客服应核实支付通道和退款状态。"
+    evidence = _evidence(tenant_id=base_state["tenant_id"], policy_version="v1", text=text)
+    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_draft(reasoning_summary=text)))
+    _with_canonical_knowledge_service(
+        monkeypatch,
+        {
+            (evidence.doc_key, evidence.chunk_id): _canonical_row(
+                evidence,
+                content=text,
+                current_policy_version="v2",
+            )
+        },
+    )
+
+    result = await generate_recommendation_module.generate_recommendation(
+        {**base_state, **_retrieval_state(evidence=[evidence])},
+        _config(),
+    )
+
+    assert result["verifier_status"] == "latest_version_invalid"
+    assert result["verification_route"] == "refuse"
+    assert "latest_version_invalid" in result["verifier_reason_codes"]
+    assert result["evidence_refs"] == []
 
 
 @pytest.mark.asyncio
