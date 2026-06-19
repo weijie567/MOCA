@@ -1,398 +1,366 @@
 # Architecture Research
 
-**Domain:** MOCA v1.4 RAG Production Ingestion + OCR
-**Researched:** 2026-06-18
-**Confidence:** HIGH
+**Domain:** MOCA v1.5 / Phase 22 RAG Context Builder + Hallucination Control
+**Researched:** 2026-06-19
+**Confidence:** HIGH for integration boundaries, MEDIUM for Level 3 semantic verifier details
 
 ## Standard Architecture
 
 ### System Overview
 
-Phase 21 should extend the existing RAG ingestion plane, not the agent runtime plane. The current online retrieval contract is already correct: `PolicyRetrievalEngine` reads `PolicyChunk`, builds internal hits, and `PolicyKnowledgeService` exposes canonical `EvidenceRefV1` refs to Agent, approval, snapshot, and replay consumers. Parser/OCR and source-block provenance belong before chunk storage.
+Phase 22 should add a retrieval-after, reasoning-before evidence kernel. It should not add a retriever, query rewriter, reranker, external search backend, external action executor, or generic prompt assembly layer.
 
-Recommended architecture:
-
-```text
-Ingestion plane, offline or admin-triggered
-
-Source file + manifest
-  -> IngestionService
-  -> ParserRegistry
-  -> PDF/DOCX/Image/Markdown parser
-  -> optional OCR adapter
-  -> ParsedBlock DTOs
-  -> cleaning/normalization
-  -> block-aware chunker
-  -> search_text + embedding text builders
-  -> embedding
-  -> single DB write transaction
-  -> policy_documents + document_blocks + policy_chunks + rag_ingestion_jobs
-
-Online retrieval plane, unchanged by default
-
-Agent / search API
-  -> UnifiedToolManager / KnowledgeToolExecutor
-  -> PolicyKnowledgeService
-  -> PolicyRetrievalEngine
-  -> PolicyChunkRepository dense/sparse/fuzzy retrieval
-  -> EvidenceRefV1
-
-Optional provenance side path
-
-EvidenceRefV1
-  -> verify chunk content hash
-  -> policy_chunks.source_block_ids_json
-  -> document_blocks page/bbox/table/cell metadata
-  -> UI/debug locator outside EvidenceRefV1
-```
-
-Storage layers:
+Current online retrieval remains:
 
 ```text
-+-------------------------------------------------------------+
-| Existing online contract                                    |
-| PolicyKnowledgeService -> EvidenceRefV1                     |
-| unchanged fields, unchanged canonical hash projection       |
-+------------------------------+------------------------------+
-                               |
-                               v
-+-------------------------------------------------------------+
-| Existing retrieval backend                                  |
-| policy_chunks.content      citation text                    |
-| policy_chunks.search_text  retrieval-only text              |
-| policy_chunks.search_vector / embedding / filters           |
-+------------------------------+------------------------------+
-                               ^
-                               |
-+-------------------------------------------------------------+
-| New Phase 21 ingestion provenance                           |
-| document_blocks: parsed source blocks with page/bbox/table  |
-| rag_ingestion_jobs: parser/OCR/indexing status and warnings |
-| policy_chunks.source_block_ids_json + page/bbox summaries   |
-+------------------------------+------------------------------+
-                               ^
-                               |
-+-------------------------------------------------------------+
-| New parser/OCR adapters                                     |
-| Markdown fast path, PDF, DOCX, image/OCR                    |
-| adapters are replaceable implementation, not agent contract |
-+-------------------------------------------------------------+
+User query
+  -> LangGraph investigate node
+  -> UnifiedToolManager search_policy
+  -> KnowledgeToolExecutor
+  -> PolicyKnowledgeService.search(...)
+  -> PolicyRetrievalEngine dense + sparse + fuzzy + RRF
+  -> KnowledgeSearchResult.evidence_refs: EvidenceRefV1[]
 ```
 
-The key decision is to make `DocumentBlock` durable but non-canonical for cross-layer evidence identity. It is authoritative for source location and parser/OCR quality, while `EvidenceRefV1` remains authoritative for citation identity.
+Phase 22 inserts after candidate refs are retrieved and before recommendation/action reasoning:
+
+```text
+candidate EvidenceRefV1[] + BusinessContextV1 + ToolResultV2 summaries
+  + trusted tenant/run/thread context
+  + risk/conflict/OCR/freshness hints
+    |
+    v
+ContextBuilder
+  - canonical content re-fetch through PolicyKnowledgeService
+  - tenant/scope/hash/effective-time validation
+  - dedupe and adjacent-chunk merge
+  - citation map E1/E2/...
+  - freshness/authority/OCR/conflict labels
+  - exclusion reasons
+  - token budget trace
+    |
+    v
+RagContextBundle
+  - internal evidence items and validation labels
+  - prompt-safe projection for ContextAssembler
+  - verifier/debug trace kept separate
+    |
+    v
+ReasoningContext
+  - prompt-safe RAG bundle
+  - safe business fact refs and tool summaries
+  - memory context as non-authoritative context
+  - risk/action hints
+    |
+    v
+recommendation_generation LLM structured output
+  -> MaterialClaim[] normalization
+  -> TieredClaimVerifier
+  -> deterministic route: allow | regenerate | refuse | manual_review
+  -> final_response or risk/approval/action-draft path
+```
+
+The reasoning kernel should be implemented behind the existing `recommendation_generation` node first. Add a deterministic `route_after_recommendation` router only after verifier outputs are stable. Do not introduce a new registered LangGraph node unless a later phase needs independent node lifecycle replay.
 
 ### Component Responsibilities
 
-| Component | Status | Responsibility | Implementation Guidance |
-|-----------|--------|----------------|-------------------------|
-| `src/rag/ingestion.py` `IngestionService` | Modify | Orchestrate parse, clean, chunk, embed, and DB write. Preserve current report style and transaction rollback behavior. | Keep one service. Add a block-based path beside the current Markdown path, then route Markdown through the same parser contract once stable. |
-| `src/rag/parsers/base.py` | New | Define parser-neutral DTOs: `ParseResult`, `ParsedBlock`, parser metadata, warnings, OCR confidence. | Use small frozen dataclasses or Pydantic models. Do not leak backend-specific objects. |
-| `src/rag/parsers/markdown.py` | New | Preserve current Markdown/plain-text fast path and produce structured blocks. | This should be the first adapter because existing ingestion fixtures can validate no evidence identity regression. |
-| `src/rag/parsers/pdf.py`, `docx.py`, `image.py`, `ocr.py` | New | Convert source formats into `ParsedBlock` objects with page, bbox, table/cell, parser version, and OCR confidence where available. | Keep backend choice behind the adapter. Phase 21 should not bind MOCA contracts to a parser framework's internal model. |
-| `src/rag/cleaning.py` | New | Normalize Unicode, whitespace, soft line breaks, repeated headers/footers, and low-confidence OCR markers before chunking. | Cleaning must be deterministic and fixture-tested. It must not hide low OCR confidence. |
-| `src/rag/chunker.py` | Modify | Add block-aware chunking while preserving `chunk_markdown(...)` compatibility. | Introduce `chunk_blocks(...)` rather than replacing the current function in one step. Table chunks keep headers with row groups. |
-| `PolicyDocument` model | Modify | Store source and parser-level metadata for a policy document. | Add only Phase 21-needed fields: source type/URI, checksums, content hash, parser/OCR metadata, ingestion status, last indexed time. |
-| `DocumentBlock` model | New | Store parsed source blocks before chunking. | First-class DB table with tenant/doc scope, block index, page, bbox, type, text, normalized text, table metadata, parser version, OCR/layout confidence. |
-| `PolicyChunk` model | Modify | Link chunks back to source blocks and expose source location summaries. | Add nullable provenance columns. Keep `content` and `search_text` semantics unchanged. |
-| `rag_ingestion_jobs` model | New | Track parse/chunk/embed/index stages, warnings, errors, checksums, and parser versions. | Use a job log, not a full event stream, for Phase 21. Events can wait until async OCR is actually introduced. |
-| `PolicyChunkRepository` | Modify narrowly | Existing retrieval queries stay the same. Add a separate provenance lookup method only if needed by tests/API. | Do not join `document_blocks` in default dense/sparse/fuzzy retrieval. |
-| `PolicyRetrievalEngine` | Mostly unchanged | Continue to return `PolicyRetrievalHit` and build `EvidenceRefV1` from chunk content. | Optional internal hit fields may include locator metadata, but `EvidenceRefV1.model_dump()` must not change. |
-| `PolicyKnowledgeService` | Interface unchanged | Preserve facade boundary and canonical evidence refs. | If provenance is exposed, add a separate verified lookup helper that first validates evidence text hash. |
-| Agent nodes, `BusinessToolService`, approval, memory, replay | Unchanged | Consume policy evidence refs and business facts through existing boundaries. | No parser/OCR code should be imported by agent nodes or business tools. |
+| Component | New or Modified | Responsibility | Implementation Guidance |
+|-----------|-----------------|----------------|-------------------------|
+| `src/agent/rag_context/schemas.py` | New | Runtime schemas for `RagContextBundle`, `ReasoningContext`, `EvidenceContextItem`, `CitationMapEntry`, `MaterialClaim`, and `ClaimVerificationResult`. | Keep these as Reasoning Kernel DTOs. They do not replace `EvidenceRefV1`, `BusinessFactRefV1`, or `ToolResultV2`. |
+| `src/agent/rag_context/builder.py` | New | Build prompt-safe evidence context from candidate `EvidenceRefV1` values. | Use `PolicyKnowledgeService` verified lookup helpers. Never call `PolicyRetrievalEngine.retrieve` or alter ranking. |
+| `src/agent/rag_context/budget.py` | New or local helper | Evidence-specific token/character budgeting before generic prompt assembly. | Protect citation metadata and labels; trim snippet text only. Reuse `TokenBudgetPolicy` concepts but keep evidence budgeting explicit. |
+| `src/agent/rag_context/claims.py` | New | Normalize LLM output into `MaterialClaim[]`; validate authority refs by claim type. | Start with an adapter from current `RecommendationDraft`, then move to native structured claim output. |
+| `src/agent/rag_context/verifier.py` | New | Tiered claim verifier: Level 1 deterministic gates, Level 2 lexical/span checks, Level 3 risk-triggered semantic support. | Import existing `validate_membership` for membership, but do not change its membership-only contract. |
+| `src/agent/rag_context/routing.py` | New | Deterministic mapping from verification failures to `allow`, `regenerate`, `refuse`, or `manual_review`. | Keep pure and side-effect free so it can back `route_after_recommendation`. |
+| `src/knowledge/service.py` | Modified narrowly | Add or consolidate verified evidence context lookup. | Extend facade with context lookup that re-fetches content/provenance/metadata by ref. Do not expose repository details to agent nodes. |
+| `src/repositories/policy_chunk_repo.py` | Modified narrowly | Supply verified context rows needed by ContextBuilder. | Existing `get_contents_by_evidence_keys` and provenance lookup are the base. Add metadata lookup only if needed for labels. Do not change search SQL ranking. |
+| `src/agent/nodes/generate_recommendation.py` | Modified | Replace local content re-fetch, allowed-citation JSON, and one-claim projection with ContextBuilder + MaterialClaim + verifier. | Preserve existing skip behavior for `insufficient_evidence` and `retrieval_error`. Keep LLM retry inside the node. |
+| `src/agent/routing.py` and `src/agent/graph.py` | Modified | Add `route_after_recommendation` from verifier action to `assess_risk_and_approval` or `final_response`. | This is already a target contract router in `docs/contract-spec.md`; current graph lacks it. Do not add model/tool calls to the router. |
+| `src/agent/nodes/final_response.py` | Modified | Render deterministic refusal/manual-review/insufficient-evidence messages from verifier status. | Do not expose verifier trace or source-block raw metadata in user-facing text. |
+| `src/agent/context/projectors.py` | Modified narrowly | Project prompt-safe RAG bundle fields. | Allow `citation_id`, citation ref fields, compact labels, and snippet text. Continue filtering hash/debug/raw/provenance fields. |
+| `src/agent/context/assembler.py` | Usually unchanged | Generic prompt assembly and block budgeting. | Consume `RagContextBundle.prompt_policy_snippets` through existing `verified_policy_snippets`; ContextBuilder owns RAG-specific budgeting. |
+| `src/agent/state.py` | Modified | Add per-turn fields for prompt-safe `rag_context`, `material_claims`, `claim_verification`, and `verification_route`. | Reset every turn. Keep internal debug trace redacted or out of state if it would leak into prompt/replay. |
+| `src/agent/events.py` / replay | Prefer unchanged | Use existing node/LLM/RAG event families and redacted payloads. | Do not add new event types unless registry/redaction tests are included. Use `generate_recommendation` node payload summaries for Phase 22. |
+| Approval/action snapshot modules | Mostly unchanged | Consume only verified `evidence_refs` selected by claim validation. | `ActionSafetySnapshot` still stores canonical `EvidenceRefV1[]`; no MaterialClaim or provenance extension is required. |
+
+### Current-Code Constraints
+
+- `docs/current-implementation-map.md` is useful but stale for Phase 21. Current code now has `ContextAssembler`, `DocumentBlock`, `RagIngestionJob`, chunk source-block refs, OCR metadata, and verified provenance lookup.
+- `generate_recommendation.py` already performs local evidence content re-fetch and membership validation. Phase 22 should move that behavior into reusable ContextBuilder/verifier services instead of duplicating it.
+- `PolicyRetrievalEngine` already implements dense + sparse + fuzzy retrieval with RRF and effective-date filtering. Phase 22 must not alter its score normalization, candidate fusion, or final rank order.
+- Current policy models include `effective_date`, `risk_level`, source metadata, source-block refs, and OCR metadata. They do not currently expose full `authority_level` or `supersedes_doc_id` policy conflict semantics. Phase 22 may label authority/conflict as `unknown` and route high-risk ambiguity to manual review; adding full authority/supersedes ranking behavior belongs outside Phase 22 unless the planner scopes a very narrow context-only metadata addition.
+- `PolicyKnowledgeService.get_verified_evidence_provenance(...)` intentionally returns only verified locator data. Missing provenance should not break low-risk text-only policy answers, but high-risk OCR/table-dependent claims should route to manual review if required locator/confidence data is unavailable.
 
 ## Recommended Project Structure
 
-Keep the structure close to the current `src/rag` and repository patterns:
-
 ```text
 src/
-├── rag/
-│   ├── ingestion.py             # modified orchestration path
-│   ├── chunker.py               # keep chunk_markdown, add chunk_blocks
-│   ├── cleaning.py              # deterministic block/text normalization
-│   ├── search_text.py           # existing retrieval-only text builder
-│   └── parsers/
-│       ├── __init__.py
-│       ├── base.py              # ParsedBlock / ParseResult / parser protocol
-│       ├── markdown.py          # existing markdown behavior as parser
-│       ├── pdf.py               # PDF parser adapter
-│       ├── docx.py              # DOCX parser adapter
-│       ├── image.py             # image source adapter
-│       └── ocr.py               # OCR backend wrapper
-├── repositories/
-│   ├── policy_document_repo.py  # existing, extend with source metadata if needed
-│   ├── policy_chunk_repo.py     # existing retrieval, optional provenance lookup
-│   ├── document_block_repo.py   # new block bulk insert/delete/query
-│   └── rag_ingestion_job_repo.py# new job status writes
-└── db/
-    ├── models.py                # add DocumentBlock, RagIngestionJob, columns
-    └── migrations/versions/
-        └── 015_rag_source_blocks.py
++-- agent/
+|   +-- rag_context/
+|   |   +-- __init__.py
+|   |   +-- schemas.py       # RagContextBundle, ReasoningContext, MaterialClaim, verifier DTOs
+|   |   +-- builder.py       # ContextBuilder retrieval-after evidence kernel
+|   |   +-- budget.py        # evidence-specific snippet budgeting and trace
+|   |   +-- claims.py        # MaterialClaim normalization and authority validation
+|   |   +-- verifier.py      # tiered verifier policy engine
+|   |   +-- routing.py       # deterministic verification action mapping
+|   +-- context/
+|   |   +-- assembler.py     # existing generic prompt assembler
+|   |   +-- projectors.py    # extend only for prompt-safe RAG projection
+|   +-- nodes/
+|   |   +-- generate_recommendation.py  # integrate builder/claims/verifier
+|   |   +-- final_response.py           # deterministic failure responses
+|   +-- routing.py           # add route_after_recommendation
+|   +-- graph.py             # wire recommendation router if needed
++-- knowledge/
+|   +-- citation.py          # keep membership-only validation
+|   +-- service.py           # verified evidence context lookup helper
+|   +-- schemas.py           # EvidenceRefV1 remains canonical
++-- repositories/
+    +-- policy_chunk_repo.py # optional context metadata lookup, no search ranking change
+
+tests/
++-- agent/
+|   +-- rag_context/
+|   |   +-- test_context_builder.py
+|   |   +-- test_material_claims.py
+|   |   +-- test_verifier.py
+|   |   +-- test_routing.py
+|   +-- test_nodes/
+|       +-- test_generate_recommendation.py
+|       +-- test_final_response.py
++-- knowledge/
+    +-- test_evidence_context_lookup.py
+
+eval/
++-- rag_context/
+    +-- phase22_claims.jsonl
+    +-- phase22_conflict_stale_ocr.jsonl
+    +-- phase22_action_grounding.jsonl
 ```
 
 ### Structure Rationale
 
-- **`src/rag/parsers/`:** parser/OCR backend churn stays inside ingestion. The rest of MOCA sees normalized `ParsedBlock` records, not PDF/DOCX/OCR library objects.
-- **`src/rag/chunker.py`:** the current chunker is already the local home for chunk identity. Add block-aware behavior here to avoid a new parallel chunking subsystem.
-- **Repository additions:** current code uses repository classes for policy documents/chunks. Add repositories only for new persistent tables; do not create a broad RAG service hierarchy.
-- **No new search backend package:** Phase 21 is ingestion/provenance. PostgreSQL hybrid retrieval remains the backend.
+- **`src/agent/rag_context/`:** Phase 22 belongs to the Agent reasoning layer, not the retrieval backend. A separate package prevents the existing generic `ContextAssembler` from becoming a RAG policy engine.
+- **`src/knowledge/service.py`:** content/provenance re-fetch should stay behind the Knowledge facade because repository queries must remain tenant/hash checked.
+- **`src/knowledge/citation.py`:** keep current membership validator simple. Semantic support is a new verifier concern and should not be smuggled into citation membership.
+- **No new `src/knowledge/reranker.py` or `SearchBackend`:** those are Phase 23 and RAG-5 respectively.
+- **No action module changes beyond consumption:** Phase 22 may block unsupported action recommendations, but Phase 17 owns external execution.
 
 ## Architectural Patterns
 
-### Pattern 1: Parser Contract Before Backend Choice
+### Pattern 1: ContextBuilder As A Reasoning Kernel
 
-**What:** Every source parser returns the same project-owned DTOs.
+**What:** Build evidence context from already-retrieved candidate refs. The builder validates, filters, labels, and budgets evidence. It does not search.
+
+**When to use:** In `recommendation_generation` before constructing the LLM prompt, and in tests/eval that need deterministic context assembly.
+
+**Trade-offs:** This adds another runtime object between retrieval and generation, but it removes duplicated evidence re-fetch/hash/citation-map logic from nodes.
+
+**Example:**
 
 ```python
-@dataclass(frozen=True)
-class ParsedBlock:
-    block_index: int
-    block_type: str
-    text: str
-    normalized_text: str
-    page_number: int | None = None
-    bbox_json: dict | None = None
-    ocr_confidence: float | None = None
-    layout_confidence: float | None = None
-    parent_heading_path: tuple[str, ...] = ()
-    table_json: dict | None = None
-    metadata_json: dict = field(default_factory=dict)
+bundle = await ContextBuilder(knowledge_service).build(
+    candidate_evidence_refs=evidence_models,
+    business_fact_refs=business_context.business_fact_refs,
+    trusted_context=trusted_context,
+    effective_at=run_effective_at,
+    risk_hints=risk_hints,
+    token_budget_chars=5000,
+)
 
-
-@dataclass(frozen=True)
-class ParseResult:
-    source_type: str
-    parser_name: str
-    parser_version: str
-    ocr_required: bool
-    ocr_engine: str | None
-    blocks: list[ParsedBlock]
-    warnings: list[dict]
+if bundle.status in {"no_valid_evidence", "unauthorized", "hash_mismatch"}:
+    return verifier_route_to_safe_draft(bundle)
 ```
 
-**When to use:** For Markdown, PDF, DOCX, image, and OCR paths.
+ContextBuilder input is candidate evidence. Calling `PolicyKnowledgeService.search(...)` from ContextBuilder would violate Phase 22 scope.
 
-**Trade-offs:** This adds a small adapter layer, but it prevents parser lock-in and lets tests pin MOCA's real contract: page/bbox stability, table preservation, low-confidence markers, and source-block traceability.
+### Pattern 2: Internal Bundle, Prompt-Safe Projection
 
-### Pattern 2: Source Blocks Are Durable, Not Prompt Payload
+**What:** `RagContextBundle` can contain internal verification labels and ref objects, but prompts receive only its prompt-safe projection.
 
-**What:** Persist `DocumentBlock` rows as provenance and quality-control records. Do not push raw parser payloads or full OCR debug blobs into prompts.
+Recommended split:
 
-Recommended `DocumentBlock` columns:
+```python
+class EvidenceContextItem(BaseModel):
+    citation_id: str              # E1, E2, ...
+    ref: EvidenceRefV1            # internal canonical ref, not expanded raw into prompt
+    snippet: str                  # canonical chunk content, budgeted
+    title: str | None = None
+    section: str | None = None
+    labels: EvidenceLabels
+    support_candidates: list[str] = []
+
+class RagContextBundle(BaseModel):
+    schema_version: Literal["rag_context_bundle.v1"]
+    status: Literal["ready", "partial", "no_valid_evidence"]
+    items: list[EvidenceContextItem]
+    citation_map: dict[str, str]  # E1 -> evidence_id
+    exclusions: list[EvidenceExclusion]
+    token_budget_trace: TokenBudgetTrace
+    verifier_trace_ref: str | None = None
+
+    def prompt_policy_snippets(self) -> list[dict[str, str]]:
+        ...
+```
+
+The prompt projection should include:
+
+- `citation_id`
+- `evidence_id`
+- `doc_key`
+- `chunk_id`
+- `policy_version`
+- title/section when available
+- compact labels such as `freshness=current`, `ocr=review_needed`, `conflict=possible`
+- bounded snippet text
+
+The prompt projection should not include:
+
+- raw `text_hash`
+- full source block locators, bbox, table JSON, parser/OCR raw metadata
+- retrieval debug features such as dense/sparse/fuzzy ranks or RRF scores
+- verifier trace, model judge prompt, private reasoning, approval/action snapshot bodies
+
+### Pattern 3: MaterialClaim As Authority-Separated Output
+
+**What:** The generator must produce structured claims with explicit authority refs. Phase 22 should use the milestone taxonomy:
+
+```python
+ClaimType = Literal[
+    "policy_claim",
+    "business_fact_claim",
+    "action_recommendation_claim",
+]
+
+class MaterialClaim(BaseModel):
+    schema_version: Literal["material_claim.v1"] = "material_claim.v1"
+    claim_id: str
+    claim_type: ClaimType
+    claim_text: str
+    risk_level: Literal["low", "medium", "high"]
+    cited_evidence_ids: list[str] = []
+    business_fact_refs: list[BusinessFactRefV1] = []
+    tool_result_refs: list[str] = []
+    depends_on_claim_ids: list[str] = []
+```
+
+Validation rules:
+
+- `policy_claim` requires at least one cited `EvidenceRefV1` from the current `RagContextBundle`.
+- `business_fact_claim` requires `BusinessFactRefV1` or safe `ToolResultV2` refs and must not cite policy evidence as factual business state.
+- `action_recommendation_claim` requires both policy support and business fact support, usually through `depends_on_claim_ids`.
+- Memory context may help language/continuity, but must not satisfy any material claim authority requirement.
+- A recommended action claim may create a proposed action candidate only after verification; it cannot bypass risk/approval/action snapshot boundaries.
+
+**When to use:** Every recommendation that gives a policy conclusion, business factual conclusion, or action recommendation.
+
+**Trade-offs:** Claim generation adds structured-output burden. The payoff is deterministic routing and eval visibility.
+
+### Pattern 4: Tiered Verifier Policy Engine
+
+**What:** Verification is a policy engine with deterministic gates first and semantic support only when risk requires it.
 
 ```text
-id
-tenant_id
-doc_id
-block_index
-page_number
-block_type
-text
-normalized_text
-bbox_json
-ocr_confidence
-layout_confidence
-parent_heading_path_json
-table_json
-metadata_json
-parser_name
-parser_version
-created_at
-updated_at
+Level 1, always:
+  - citation membership against current bundle
+  - tenant/scope match
+  - content hash match from canonical re-fetch
+  - effective_at/freshness validity
+  - business ref tenant/scope/status validity
+  - claim-type authority separation
+
+Level 2, normal path:
+  - lexical/span support for cited snippets
+  - numeric/date/entity consistency
+  - required condition/action words present in cited evidence
+  - business identifiers present only when backed by business refs
+
+Level 3, risk-triggered:
+  - semantic support judge over claim text and cited snippets only
+  - conflict/stale/OCR-low-confidence/manual-review policy
+  - timeout and model error fail closed
 ```
 
-Recommended indexes:
+Triggers for Level 3:
 
-```text
-unique: tenant_id, doc_id, block_index
-index:  tenant_id, doc_id, page_number
-index:  tenant_id, doc_id, block_type
-```
+- high-risk refund responsibility, compensation, penalty, appeal, unban, compliance, or merchant-impacting recommendations
+- any `action_recommendation_claim`
+- conflict labels
+- stale or superseded evidence risk
+- low-confidence OCR/table evidence
+- Level 2 ambiguity or insufficient lexical support
 
-**When to use:** Always for Phase 21 source ingestion, including Markdown. Markdown blocks may have null page/bbox/OCR fields, but the path should still prove block-to-chunk provenance.
+Do not use verifier scores to reorder evidence. Reranking belongs to Phase 23.
 
-**Trade-offs:** Storing block text duplicates some content already represented in chunks. That is acceptable because blocks answer a different question: "where did this chunk come from?"
+### Pattern 5: Deterministic Failure Routing
 
-### Pattern 3: Provenance Sidecar, Not EvidenceRef Extension
+**What:** Verifier output drives product behavior through a pure route map, not another LLM decision.
 
-**What:** Store locator metadata beside chunks and blocks, but leave `EvidenceRefV1` unchanged.
+Recommended route map:
 
-Recommended `PolicyChunk` additions:
+| Verification condition | Route | User-facing outcome |
+|------------------------|-------|---------------------|
+| All required claims supported | `allow` | Continue to risk/approval/action-draft path or final response. |
+| Citation missing but evidence exists | `regenerate_once` | Retry structured generation once inside `recommendation_generation`; fail to insufficient evidence if still invalid. |
+| Unsupported low-risk policy claim | `refuse` | Explain current evidence is insufficient for that conclusion. |
+| Unauthorized or hash-mismatched evidence | `refuse` | Do not mention restricted content. Ask to retry or escalate safely. |
+| Stale/superseded evidence only | `manual_review` or `refuse` | Manual review for high risk; refusal/insufficient evidence for low risk. |
+| Conflict label without deterministic authority winner | `manual_review` | State that policy evidence conflicts and needs human review. |
+| Business fact claim without business refs | `refuse` | Ask for missing business data or tool lookup. |
+| Action recommendation missing policy or business support | `manual_review` | No proposed action, no snapshot, no draft. |
+| Level 3 timeout/error | `manual_review` for high risk, `refuse` otherwise | Fail closed. |
 
-```text
-source_block_ids_json   JSONB array of DocumentBlock ids in chunk order
-page_start              nullable int
-page_end                nullable int
-bbox_json               nullable JSONB summary, page keyed if multi-page
-content_hash            hash of PolicyChunk.content
-token_count             nullable int
-metadata_json           JSONB, including low_ocr_confidence flags/table summary
-```
-
-`PolicyChunk.content` remains the citation text used for `EvidenceRefV1.text_hash`. `PolicyChunk.search_text` remains retrieval-only enrichment. `embedding_text` can be built in memory during ingestion; storing it is not required for Phase 21 and should not be treated as citation text.
-
-**When to use:** Whenever UI/debug needs page/bbox/cell provenance or tests need to prove chunk-to-source traceability.
-
-**Trade-offs:** A JSONB block-id array has weaker DB-level referential integrity than a join table. It is the right v1.4 default because ingestion recreates all blocks/chunks per document and online retrieval does not need reverse block-to-chunk joins. Add a join table later only if visual review workflows need block-centric queries.
-
-### Pattern 4: Atomic Reindex With Parse/Embed Outside The Write Transaction
-
-**What:** Continue the existing pattern where expensive work happens before the short DB mutation window.
-
-Recommended flow:
-
-```text
-1. Compute source checksum.
-2. Parse/OCR source file to ParsedBlock DTOs.
-3. Clean and normalize blocks.
-4. Chunk blocks and build content/search_text/embedding_text.
-5. Generate embeddings.
-6. Open DB transaction and lock policy_documents row by tenant/doc_key.
-7. Decide whether canonical content changed and whether PolicyDocument.version bumps.
-8. Delete old chunks and blocks for the document.
-9. Insert DocumentBlock rows.
-10. Insert PolicyChunk rows with source_block_ids_json mapped from block_index -> id.
-11. Update document metadata and job status.
-12. Commit.
-```
-
-If parse, OCR, chunking, or embedding fails before step 6, no existing indexed document is touched. If DB mutation fails after step 6, rollback restores the previous indexed document because delete/insert happened inside one transaction. After rollback, mark the job failed in a separate best-effort status update so failures are observable without partial index state.
-
-**When to use:** Every reimport, including same-content reimports and parser-version-only reindexes.
-
-**Trade-offs:** Parser/OCR output is held in memory for the current document. That is acceptable for Phase 21 fixtures and admin imports; async streaming/worker ingestion can be a later phase if file sizes demand it.
-
-### Pattern 5: Version Bump Based On Canonical Citation Text
-
-**What:** Keep evidence identity stable unless the policy text seen by citations changes.
-
-Rules:
-
-- Bump `PolicyDocument.version` when canonical document/chunk citation text changes, or when policy semantics metadata changes in a way that should invalidate old evidence, such as effective date, doc type, or risk level.
-- Do not bump version for parser-version-only changes when `PolicyChunk.content` and `EvidenceRefV1.text_hash` remain unchanged.
-- Do not hash `search_text`, parser warnings, bbox, or OCR debug metadata into `EvidenceRefV1`.
-- If OCR output changes chunk citation text, the content hash changes and version should bump.
-
-This preserves approval/replay expectations: old evidence refs remain meaningful when citation text is unchanged, and changed text forces a new evidence identity or fails text-hash verification.
+`route_after_recommendation` should only read verifier output and return a graph node key. It must not call LLMs, tools, repositories, or services.
 
 ## Data Flow
 
-### Ingestion Flow
+### Request Flow
 
 ```text
-Manifest row
-  doc_key, title, doc_type, risk_level, source_type, file/source URI
-    |
-    v
-IngestionService.ingest_document(...)
-    |
-    +-> create rag_ingestion_jobs row: stage=received, status=running
-    |
-    +-> ParserRegistry selects adapter by source_type or file extension
-    |
-    +-> parser returns ParseResult(blocks, warnings, parser metadata)
-    |
-    +-> cleaning normalizes block text and marks low-confidence OCR
-    |
-    +-> chunk_blocks produces ChunkResult records:
-    |      content             citation text
-    |      search_text input   retrieval-only enrichment source
-    |      embedding_text      title/heading/context-enriched embedding input
-    |      source_block_indexes
-    |      page_start/page_end/bbox/table metadata
-    |
-    +-> embedder.embed_documents(embedding_texts)
-    |
-    v
-DB transaction
-    |
-    +-> lock PolicyDocument by tenant/doc_key
-    +-> upsert PolicyDocument source/parser/checksum/content metadata
-    +-> delete old PolicyChunk rows for doc
-    +-> delete old DocumentBlock rows for doc
-    +-> bulk insert DocumentBlock rows
-    +-> bulk insert PolicyChunk rows with source_block_ids_json
-    +-> set rag_ingestion_jobs stage=indexed, status=success
-    |
-    v
-commit
+receive_request
+  -> classify_intent
+  -> optional session_memory_load + extract_slots
+  -> investigate
+       - read tools return ToolResultV2 + BusinessFactRefV1
+       - search_policy returns candidate EvidenceRefV1[]
+       - retrieval_status/best_score drive route_after_investigate
+  -> generate_recommendation
+       - ContextBuilder builds RagContextBundle
+       - ContextAssembler receives prompt-safe policy snippets
+       - LLM returns structured recommendation + MaterialClaim[]
+       - TieredClaimVerifier returns ClaimVerificationResult
+       - node writes verified evidence_refs only
+  -> route_after_recommendation
+       - allow -> assess_risk_and_approval
+       - refuse/manual_review/insufficient -> final_response
+  -> assess_risk_and_approval
+       - builds ActionSafetySnapshot only from verified EvidenceRefV1 refs
+  -> approval_gate/action_draft/final_response
 ```
 
-`rag_ingestion_jobs` minimum columns:
+### State Management
+
+Add only per-turn state fields, reset by `receive_request`:
 
 ```text
-id
-tenant_id
-doc_id
-doc_key
-source_type
-source_uri
-source_checksum
-stage
-status
-parser_name
-parser_version
-ocr_engine
-retrieval_config_version
-warnings_json
-error_code
-error_message
-started_at
-completed_at
-created_at
-updated_at
+rag_context_bundle       prompt-safe summary or compact dict
+reasoning_context        prompt-safe generation input summary
+material_claims          MaterialClaim[] after normalization
+claim_verification       ClaimVerificationResult
+verification_route       allow | regenerate | refuse | manual_review
+manual_review_reason     safe reason code/message
 ```
 
-Use stage values that match actual implementation gates:
+Do not store full prompts, raw chunk text beyond existing evidence snippet needs, raw source-block metadata, semantic verifier prompt/completion, or private reasoning in replay. Existing `evidence_refs` remains the verified, action-consumable subset written by recommendation/citation validation, not by `investigate`.
 
-```text
-received -> parsed -> cleaned -> chunked -> embedded -> indexed -> ready
-parse_failed | clean_failed | chunk_failed | embedding_failed | index_failed
-```
+### Key Data Flows
 
-### Chunking Flow
-
-Current `chunk_markdown(content, doc_key=...)` should remain as a compatibility helper. Phase 21 adds `chunk_blocks(parse_result, doc_key=...)` with these rules:
-
-1. Heading/list/paragraph blocks inherit `parent_heading_path`.
-2. Table blocks remain atomic by default.
-3. Oversized tables split by row groups and repeat header context in `content` and `search_text` input.
-4. Chunk overlap is allowed for paragraphs but must not create false page/bbox ranges.
-5. Each chunk records source block indexes before DB insert and source block ids after block rows exist.
-6. Low OCR confidence propagates into chunk metadata and should be available for future ranking/verification, but Phase 21 must not implement Phase 22 semantic verifier logic.
-
-### Retrieval Flow
-
-Default online retrieval stays as v1.3:
-
-```text
-query
-  -> build_policy_chunk_search_text(query)
-  -> embed query
-  -> PolicyChunkRepository.search_similar/search_sparse/search_fuzzy
-  -> RRF merge in PolicyRetrievalEngine
-  -> PolicyRetrievalHit(text=PolicyChunk.content)
-  -> EvidenceRefV1.build(text=hit.text)
-  -> KnowledgeSearchResult.evidence_refs
-```
-
-No default retrieval query needs to join `document_blocks`. The extra provenance fields are read only when explicitly requested for display/debug. This avoids latency and keeps `PolicyKnowledgeService.search(...)` stable.
-
-### Provenance Lookup Flow
-
-If Phase 21 exposes source locators, use a verified side path:
-
-```text
-EvidenceRefV1
-  -> PolicyKnowledgeService.get_verified_evidence_contents(...)
-  -> content hash matches ref.text_hash
-  -> PolicyChunkRepository.get_provenance_by_evidence_keys(...)
-  -> source_block_ids_json
-  -> DocumentBlockRepository.get_by_ids(...)
-  -> locator payload: page, bbox, block type, table/cell metadata, OCR confidence
-```
-
-Do not include this locator payload in `EvidenceRefV1`, `canonical_evidence_projection`, or `ActionSafetySnapshot.immutable_hash` in Phase 21. The locator is useful context, not canonical citation identity.
+1. **Evidence candidate to context bundle:** `EvidenceRefV1[]` from `retrieved_evidence` is re-fetched through Knowledge facade, hash checked, deduped, labeled, budgeted, and projected into `policy_refs` prompt block.
+2. **Business facts to claims:** `BusinessFactRefV1[]` from `ToolResultV2` is carried into `ReasoningContext`; business factual claims must bind to these refs.
+3. **Claims to verifier:** Material claims reference citation IDs/evidence IDs and business refs; verifier checks authority and support.
+4. **Verifier to router:** Claim verification emits one deterministic route. No model chooses whether to allow/refuse/manual-review.
+5. **Verified refs to action boundary:** Only supported claim refs are promoted to `state.evidence_refs`; approval/action snapshot code continues to hash canonical `EvidenceRefV1` only.
 
 ## Integration Points
 
@@ -400,161 +368,209 @@ Do not include this locator payload in `EvidenceRefV1`, `canonical_evidence_proj
 
 | Boundary | Communication | Recommendation |
 |----------|---------------|----------------|
-| Source manifest -> `IngestionService` | Existing dict-style `doc_meta`, extended | Add `source_type`, optional `source_uri`, optional parser hints. Keep existing Markdown manifest working. |
-| `IngestionService` -> parser adapters | `ParseResult` DTO | Parser adapters never receive DB models and never write DB rows. |
-| Parser adapters -> OCR backend | Adapter-local implementation | OCR backend is replaceable. Store backend name/version/confidence, not backend-native objects. |
-| Parser/cleaner -> chunker | `ParsedBlock` list | Chunker owns chunk ids, content text, source block span, and table-aware splitting. |
-| Chunker -> search text builder | Plain strings and metadata | Reuse `build_policy_chunk_search_text`; extend inputs only if needed for heading/table context. |
-| Ingestion -> DB repositories | SQLAlchemy models/repositories | Preserve bulk insert style and short write transactions. |
-| Retrieval -> Knowledge facade | Existing `EvidenceRefV1` | Do not widen `KnowledgeSearchResult` for provenance in Phase 21. |
-| Provenance display/debug -> repository | Separate lookup helper | Verify evidence content hash before returning locator metadata. |
-| Business tools -> RAG ingestion | No communication | Business facts must never become policy source files, document blocks, chunks, or evidence refs. |
+| `investigate` -> ContextBuilder | Candidate `EvidenceRefV1[]` plus retrieval status/score | Treat as candidates only. Do not promote to action evidence until claim verification succeeds. |
+| ContextBuilder -> `PolicyKnowledgeService` | Verified content/provenance/context lookup | Add a facade helper if needed. Preserve `EvidenceRefV1` identity and Phase 20 RRF semantics. |
+| ContextBuilder -> `ContextAssembler` | `prompt_policy_snippets()` list | Let ContextBuilder own evidence budget; let assembler own final prompt block assembly. |
+| `generate_recommendation` -> MaterialClaim normalizer | Structured LLM output | Keep backward-compatible adapter from current `RecommendationDraft` while introducing native claims. |
+| MaterialClaim verifier -> `knowledge.citation.validate_membership` | Membership-only check | Existing validator remains membership-only; semantic support lives in new verifier. |
+| Verifier -> `route_after_recommendation` | `ClaimVerificationResult.action` | Pure route map. No DB/LLM/tool calls in router. |
+| Verifier -> `final_response` | Safe status/reason codes | User text names missing support/conflict/manual-review, not debug internals. |
+| Verifier -> `assess_risk_and_approval` | Supported `evidence_refs` and proposed action only | Action snapshots continue to use canonical `EvidenceRefV1[]`; no provenance or MaterialClaim hash contract in Phase 22. |
+| Business tools -> MaterialClaim | `BusinessFactRefV1`, `ToolResultPromptSummary` | Business facts never become policy evidence; policy evidence never proves current order/refund/ticket state. |
+| Memory -> MaterialClaim | Context-only snippets/source refs | Memory may shape continuity but never satisfies policy, business, approval, action, or replay authority. |
+| Replay/debug -> prompt | Redacted summaries only | No raw prompt, verifier trace, source-block raw metadata, OCR payload, bbox table dump, or chain-of-thought. |
 
 ### External Services
 
 | Service | Integration Pattern | Notes |
 |---------|---------------------|-------|
-| PDF parser | Wrapped behind `src/rag/parsers/pdf.py` | Must output page numbers, text blocks, table hints, and parser warnings. Backend can change without schema changes. |
-| DOCX parser | Wrapped behind `src/rag/parsers/docx.py` | Must preserve headings, paragraphs, tables, and image OCR requirements. |
-| OCR engine | Wrapped behind `src/rag/parsers/ocr.py` | Must expose confidence and bbox. Low confidence is metadata, not silent normal text. |
-| Embedding provider | Existing `EmbeddingService` | Continue embedding before DB mutation. Store only needed metadata; do not make embedding text citation text. |
-| PostgreSQL/pgvector | Existing canonical store | Add provenance tables/columns. Do not add Vespa/OpenSearch or external `SearchBackend` in Phase 21. |
+| PostgreSQL / pgvector | Existing retrieval and verified lookup store | Phase 22 may add lookup queries, not ranking semantics. |
+| OpenAI-compatible chat model | Existing `ChatOpenAI` for generation; optional Level 3 judge | Level 3 input must be bounded claim + cited snippets only. Timeout/error fails closed. |
+| OCR/parser outputs from Phase 21 | Consumed as labels through provenance/context lookup | Source-block and OCR raw metadata stay out of ordinary prompts and responses. |
+| No external search backend | None | RAG-5 owns Vespa/OpenSearch/full `SearchBackend`. |
+| No external action execution | None | Phase 17 owns outbox, reconciliation, and real side effects. |
 
 ## Build Order
 
-1. **Schema and model foundation**
-   - Add migration `015_rag_source_blocks.py` after `014_rag_hybrid_retrieval`.
-   - Add `DocumentBlock`, `RagIngestionJob`, `PolicyDocument` source metadata, and nullable `PolicyChunk` provenance columns.
-   - Add model/migration tests for columns, indexes, check constraints, downgrade order, and unchanged `EvidenceRefV1`.
+1. **Schema and state foundation**
+   - Add Reasoning Kernel DTOs under `src/agent/rag_context/schemas.py`.
+   - Add per-turn state fields and reset rules.
+   - Add tests proving `EvidenceRefV1`, `BusinessFactRefV1`, and `ToolResultV2` remain separate authorities.
 
-2. **Parser contract and Markdown adapter**
-   - Add `ParsedBlock`/`ParseResult` DTOs and parser protocol.
-   - Implement Markdown/plain-text parser by adapting current behavior.
-   - Fixtures should prove current Markdown ingestion still produces the same `PolicyChunk.content`, `search_text`, and evidence text hashes.
+2. **Verified evidence context lookup**
+   - Extend `PolicyKnowledgeService` with a verified context lookup if current content/provenance helpers are insufficient.
+   - Return content, safe title/section/page summary, effective/freshness metadata, OCR label inputs, and provenance references needed for labels.
+   - Tests must cover tenant mismatch, duplicate keys, missing content, text hash mismatch, and no `EvidenceRefV1` schema change.
 
-3. **Cleaning and block-aware chunking**
-   - Add deterministic cleaning.
-   - Add `chunk_blocks(...)` with source block indexes, page range, bbox summary, table handling, and OCR confidence propagation.
-   - Keep `chunk_markdown(...)` tests passing.
+3. **ContextBuilder MVP**
+   - Implement build from candidate refs to `RagContextBundle`.
+   - Include dedupe, stable citation IDs, exclusion reasons, prompt-safe snippets, labels, and token budget trace.
+   - Keep retrieval ranking untouched; tests should assert ContextBuilder never calls `retrieve`/`search`.
 
-4. **Ingestion transaction integration**
-   - Modify `IngestionService` to parse, clean, chunk, and embed before DB writes.
-   - Inside one transaction, lock doc, version if needed, delete old chunks/blocks, insert blocks/chunks, update job status.
-   - Add rollback tests proving a failed insert leaves previous doc version/content/chunks/blocks intact.
+4. **Prompt integration without semantic verifier**
+   - Replace `generate_recommendation.py` local `_policy_snippets` and `_allowed_citation_objects` logic with ContextBuilder.
+   - Feed `bundle.prompt_policy_snippets()` into `ContextAssembler`.
+   - Preserve existing membership validation behavior while the new claim verifier is built.
 
-5. **PDF, DOCX, image/OCR adapters**
-   - Add fixture-backed adapters with predictable output.
-   - Prioritize contract behavior over parser sophistication: page/bbox presence, table header preservation, low-confidence flags, warnings.
-   - Avoid making OCR async unless a local blocking fixture path is impossible.
+5. **MaterialClaim generation and authority validation**
+   - Add a compatibility adapter from current `RecommendationDraft` to minimal claims.
+   - Then extend structured output to emit `material_claims` natively.
+   - Validate claim type authority deterministically before any semantic check.
 
-6. **Provenance read path**
-   - Add repository lookup for block locators if Phase 21 needs display/debug output.
-   - Gate it behind evidence hash verification.
-   - Tests must assert provenance fields do not appear in `EvidenceRefV1.model_dump()`.
+6. **Level 1 and Level 2 verifier**
+   - Implement membership/scope/hash/freshness/business-ref gates.
+   - Add lexical/span checks for ordinary claims.
+   - Add deterministic route mapping and final response support for refusal/manual-review.
+   - Wire `route_after_recommendation` to skip risk/approval/action when verification is not `allow`.
 
-7. **Boundary and regression tests**
-   - Run focused ingestion/retrieval tests plus schema tests.
-   - Add tests proving business tool outputs are not accepted as policy ingestion sources and no business fact refs are serialized as `EvidenceRefV1`.
-   - Keep v1.3 hybrid retrieval behavior intact: dense/sparse/fuzzy filters, RRF ordering, and `search_text` semantics.
+7. **Level 3 semantic verifier**
+   - Add only after Level 1/2 are stable.
+   - Gate by risk/conflict/stale/OCR/ambiguous triggers.
+   - Use strict budgets, timeout, stable output enum, and fail-closed routing.
+   - Do not reuse semantic verifier as reranker or query rewrite.
 
-8. **Rollback verification**
-   - Migration downgrade drops provenance indexes/tables and then columns in reverse dependency order.
-   - Runtime feature rollback can disable parser/OCR ingestion and keep Markdown ingestion working.
-   - Failed ingestion must leave the last committed indexed document retrievable.
+8. **Action boundary hardening**
+   - Ensure `action_recommendation_claim` without both policy and business support cannot produce `proposed_action`.
+   - Ensure `ActionSafetySnapshot` uses only verified canonical `EvidenceRefV1[]`.
+   - Add regression tests for partial evidence, unsupported claims, and manual-review route before approval/action draft.
+
+9. **Eval and leakage tests**
+   - Add Phase 22 golden sets for faithfulness, citation support, conflict/stale/OCR traps, business hallucination, and action grounding.
+   - Add prompt/replay leakage tests proving debug fields, source locators, raw OCR, verifier prompts, and hashes do not enter ordinary prompts/responses.
 
 ## Scaling Considerations
 
 | Scale | Architecture Adjustments |
 |-------|--------------------------|
-| Local demo / current MOCA | Synchronous admin/CLI ingestion is enough. Parser/OCR work can run in process, with a job log for observability. |
-| Larger policy corpus | Add batching, per-document job retries, and separate parser/OCR timeouts. Keep PostgreSQL as source of truth. |
-| Slow OCR or large scanned PDFs | Introduce a background worker only after job durations make synchronous ingestion painful. The job log already gives the handoff point. |
-| Retrieval scale pressure | Do not solve in Phase 21. PostgreSQL hybrid remains the backend until Phase RAG-5 explicitly evaluates external search. |
+| Current demo | Run ContextBuilder and Level 1/2 in-process inside `generate_recommendation`; Level 3 only for risk triggers. |
+| Larger policy corpus | Optimize verified context lookup batching and snippet budgeting before changing retrieval. |
+| More high-risk traffic | Add verifier latency budgets, cache hash-verified context by run, and track Level 3 timeout/manual-review rate. |
+| More complex policy conflicts | Add explicit conflict-group metadata in ingestion/retrieval labels, but keep manual-review fallback until authority rules are deterministic. |
 
 ### Scaling Priorities
 
-1. **First bottleneck: OCR latency.** Add parser/OCR timeout, job status, and retry before adding queues.
-2. **Second bottleneck: large source blocks/tables.** Cap block/table metadata sizes and store summaries in chunks; keep full details in `DocumentBlock.table_json`.
-3. **Third bottleneck: retrieval query latency.** Avoid default joins to `document_blocks`; keep provenance lookup separate and on-demand.
+1. **First bottleneck: repeated evidence re-fetch.** Batch by `(tenant_id, doc_key, chunk_id)` and cache within one run only.
+2. **Second bottleneck: Level 3 verifier latency.** Trigger only on risk labels; use strict claim and snippet budgets.
+3. **Third bottleneck: prompt size.** ContextBuilder should trim snippets before `ContextAssembler`; protected citation metadata must remain.
 
 ## Anti-Patterns
 
-### Anti-Pattern 1: Extending `EvidenceRefV1` With Page/Bbox Fields
+### Anti-Pattern 1: ContextBuilder Calls Retrieval
 
-**What people do:** Add `page_number`, `bbox`, `source_block_ids`, or parser metadata directly to `EvidenceRefV1`.
+**What people do:** Add query rewrite, reranker, or `PolicyRetrievalEngine.retrieve(...)` calls inside ContextBuilder.
 
-**Why it is wrong:** `EvidenceRefV1` is already consumed by AgentState, approval snapshots, replay, citation validation, and canonical hash projection. Adding mutable locator metadata risks invalidating snapshots and widening a stable contract for UI/debug needs.
+**Why it is wrong:** Phase 22 is after retrieval. Calling retrieval changes Phase 20 RRF semantics and overlaps Phase 23.
 
-**Do this instead:** Store locators on `PolicyChunk` and `DocumentBlock`; expose them through a separate verified provenance lookup.
+**Do this instead:** ContextBuilder accepts candidate refs and validates/labels/budgets them.
 
-### Anti-Pattern 2: Treating `search_text` Or `embedding_text` As Citation Text
+### Anti-Pattern 2: EvidenceRefV1 Becomes A Provenance Container
 
-**What people do:** Put heading expansions, synonyms, table headers, OCR hints, or retrieval tokens into `PolicyChunk.content`.
+**What people do:** Add page, bbox, OCR confidence, conflict labels, or support status to `EvidenceRefV1`.
 
-**Why it is wrong:** `PolicyChunk.content` is hashed into `EvidenceRefV1.text_hash` and shown as evidence. Retrieval enrichment would become fake citation text.
+**Why it is wrong:** `EvidenceRefV1` is canonical identity for Knowledge result, AgentState, replay, approval snapshots, and hash projection.
 
-**Do this instead:** Keep three surfaces separate: `content` for citation, `search_text` for sparse/fuzzy retrieval, and in-memory `embedding_text` for embeddings.
+**Do this instead:** Keep provenance and labels in `RagContextBundle` / debug side paths. The canonical ref remains unchanged.
 
-### Anti-Pattern 3: Parser/OCR Output Goes Straight To Chunks
+### Anti-Pattern 3: Citation Membership Equals Semantic Support
 
-**What people do:** Parse a PDF into a long string and feed it directly to the existing markdown chunker.
+**What people do:** Treat `validate_membership(...).is_valid` as proof that the claim is true.
 
-**Why it is wrong:** Page numbers, bbox, table cells, OCR confidence, and parser warnings are lost before chunks are created.
+**Why it is wrong:** Current citation validation explicitly checks only evidence ID membership.
 
-**Do this instead:** Persist `DocumentBlock` first conceptually, even if DB insert happens in the final transaction. Chunks must carry source block ids.
+**Do this instead:** Use membership as Level 1, then lexical/span Level 2, and risk-triggered semantic Level 3.
 
-### Anti-Pattern 4: Low-Confidence OCR Becomes Normal Evidence
+### Anti-Pattern 4: Business Facts Cited As Policy Evidence
 
-**What people do:** OCR text with confidence 0.42 is indexed and retrieved the same as clean text.
+**What people do:** Let an order/refund/ticket claim cite a policy chunk, or let a policy claim cite a tool summary.
 
-**Why it is wrong:** Misread amounts, dates, and policy exceptions can produce high-risk wrong answers.
+**Why it is wrong:** MOCA separates policy authority from current business facts. Mixing them causes business-data hallucination and unsafe action recommendations.
 
-**Do this instead:** Propagate confidence to `DocumentBlock` and chunk metadata. Phase 21 should flag and test it; future Phase 22 can use it for verifier/manual-review policy.
+**Do this instead:** `business_fact_claim` requires `BusinessFactRefV1`/tool refs; `policy_claim` requires `EvidenceRefV1`; action claims require both.
 
-### Anti-Pattern 5: Business Facts Enter The RAG Corpus
+### Anti-Pattern 5: Debug Trace In Prompt
 
-**What people do:** Ingest order, refund, ticket, or tool result summaries as policy chunks to improve answers.
+**What people do:** Put RRF ranks, source-block locators, OCR raw payload, verifier trace, or hash fields into prompts to help the model.
 
-**Why it is wrong:** MOCA's contract separates policy evidence from current business facts. Business facts belong to the Tool System and typed business fact refs, not `EvidenceRefV1`.
+**Why it is wrong:** Debug artifacts can leak internals, bloat prompt budget, and confuse the authority boundary.
 
-**Do this instead:** Keep RAG ingestion limited to policy/FAQ source documents. Troubleshooting answers must combine business tool refs with policy evidence refs at reasoning time.
+**Do this instead:** Prompts get compact labels and snippets. Debug/replay gets redacted IDs, reason codes, counts, and safe summaries.
 
-### Anti-Pattern 6: Building Phase 22/23 Early
+### Anti-Pattern 6: Semantic Verifier As A Reranker
 
-**What people do:** Add `MaterialClaim`, semantic verifier, reranker/query rewrite, or external search backend while implementing OCR provenance.
+**What people do:** Use Level 3 support scores to reorder evidence or improve retrieval quality.
 
-**Why it is wrong:** It expands too many contracts at once and makes it hard to tell whether regressions come from ingestion, retrieval ranking, or generation control.
+**Why it is wrong:** Reranking/query rewrite is Phase 23. Verifier answers "can this evidence support this claim?", not "which candidate should rank higher?"
 
-**Do this instead:** Phase 21 ends when source files can become block-provenanced chunks without changing current evidence identity. Later phases consume that foundation.
+**Do this instead:** Verifier outputs support status and route action only.
 
-## Phase-Specific Test Strategy
+### Anti-Pattern 7: Manual Review As A Prompt Suggestion
 
-| Test Area | Required Coverage |
-|-----------|-------------------|
-| Schema/migration | `DocumentBlock` and job tables exist; chunk provenance columns exist; downgrade drops indexes/tables/columns in reverse order; `EvidenceRefV1` schema unchanged. |
-| Parser fixtures | Markdown, PDF, DOCX, image/OCR fixture outputs produce stable `ParsedBlock` objects with parser metadata and warnings. |
-| OCR confidence | Low-confidence blocks remain flagged through chunk metadata; no test should expect them to become high-confidence evidence. |
-| Table chunking | Table headers/cells survive chunking; oversized tables split by row group with header context retained. |
-| Provenance mapping | Every chunk from block ingestion has source block references, page range, and retrievable block rows. |
-| Citation identity | `EvidenceRefV1.text_hash` is still based on `PolicyChunk.content`; provenance fields do not appear in `EvidenceRefV1`. |
-| Transaction rollback | Failed parse/chunk/embed/insert does not delete the previous document's committed chunks/blocks or bump version. |
-| Business boundary | Tool results/business fact refs cannot be ingested into `policy_chunks`, `document_blocks`, or `EvidenceRefV1`. |
-| v1.3 regression | Hybrid retrieval tests still pass; sparse/fuzzy search still use `search_text`; tenant/effective/risk filters still apply before candidates. |
+**What people do:** Ask the model to decide whether to escalate.
+
+**Why it is wrong:** Unsupported, stale, conflicting, or high-risk failures must fail closed deterministically.
+
+**Do this instead:** Use verifier reason codes and deterministic route mapping.
+
+## Evaluation Integration
+
+Phase 22 eval should add evidence-chain and routing tests, not just retrieval Hit@5.
+
+Recommended golden categories:
+
+| Category | Expected Check |
+|----------|----------------|
+| `policy_claim_supported` | Supported policy claim cites evidence whose snippet contains the rule. |
+| `citation_membership_invalid` | Generated nonexistent citation routes to regenerate/refuse. |
+| `semantic_support_failure` | Cited chunk is related but does not support the claim. |
+| `business_fact_required` | Business fact claim without `BusinessFactRefV1` refuses or asks for lookup. |
+| `action_missing_policy_support` | No action recommendation reaches risk/approval/action draft. |
+| `action_missing_business_support` | No action recommendation reaches risk/approval/action draft. |
+| `policy_conflict` | Conflicting evidence routes to manual review unless deterministic authority rule exists. |
+| `policy_stale_version` | Stale/superseded evidence cannot support a material claim. |
+| `ocr_low_confidence_trap` | Low-confidence OCR evidence cannot support high-risk action without manual review. |
+| `prompt_debug_leakage` | Prompt excludes hash/debug/source-block/OCR raw/verifier trace fields. |
+| `memory_authority_boundary` | Memory snippets cannot satisfy policy/business/action support. |
+
+Recommended metrics:
+
+- faithfulness rate by claim type
+- citation membership accuracy
+- citation support accuracy
+- refusal accuracy for no/unsupported evidence
+- manual-review routing accuracy for conflict/stale/OCR/high-risk traps
+- business-data hallucination rate
+- action recommendation support completeness
+- prompt/debug leakage count
+- Level 3 trigger rate, timeout rate, and fail-closed route rate
+
+Implementation options:
+
+- Add `scripts/eval_rag_context_builder.py` for offline deterministic bundle/verifier cases.
+- Extend `scripts/eval_agent.py` for end-to-end route assertions.
+- Keep existing `scripts/eval_rag.py` and `scripts/eval_rag_hit_at_5.py` focused on retrieval; do not turn retrieval eval into hallucination-control eval.
+
+## Explicit Non-Overlap Boundaries
+
+| Deferred Owner | Do Not Build In Phase 22 | Allowed Phase 22 Work |
+|----------------|--------------------------|-----------------------|
+| Phase 23 reranker/query rewrite | Query rewrite, cross-encoder reranking, external rerank APIs, ranking explanation UI. | Consume current candidate refs and labels; verify support after retrieval. |
+| Phase 17 external execution | Outbox, real dispatch, reconciliation, compensation, external idempotency worker. | Block unsupported action recommendations before risk/approval/action draft. |
+| Phase RAG-5 external backend | Vespa/OpenSearch, full `SearchBackend`, vector database migration. | Add verified context lookup behind existing `PolicyKnowledgeService`. |
+| post-Phase 17 Policy Scope | Tenant-over-global fallback/precedence implementation. | Enforce current tenant/scope/hash/effective-time gates. |
+| Policy Source Operations | Upload/review UI and policy lifecycle workflows. | Consume Phase 21 provenance/OCR labels for context/verifier routing. |
 
 ## Sources
 
-- `.planning/PROJECT.md` - v1.4 scope, Phase 21 active requirements, and evidence/business boundaries. Confidence: HIGH.
-- `.planning/MILESTONES.md` - v1.3 shipped state and explicit Phase 21/22/23/RAG-5 deferrals. Confidence: HIGH.
-- `.planning/milestones/v1.3-ROADMAP.md` - Phase 20 delivered architecture and deferred ingestion/OCR ownership. Confidence: HIGH.
-- `src/rag/ingestion.py` - current Markdown ingestion transaction, version bump, search text, embedding, and rollback pattern. Confidence: HIGH.
-- `src/rag/chunker.py` - current heading-based chunk identity and split behavior. Confidence: HIGH.
-- `src/db/models.py` - current `PolicyDocument`, `PolicyChunk`, and JSONB/model conventions. Confidence: HIGH.
-- `src/db/migrations/versions/002_rag_pipeline.py` and `014_rag_hybrid_retrieval.py` - current migration chain, pgvector, full-text, trigram, and rollback patterns. Confidence: HIGH.
-- `src/knowledge/schemas.py`, `src/knowledge/service.py`, `src/knowledge/retrieval.py` - canonical `EvidenceRefV1`, facade behavior, retrieval hit projection, and verified content lookup. Confidence: HIGH.
-- `docs/contract-spec.md` - normative EvidenceRefV1 and business-tool boundary contracts. Confidence: HIGH.
-- `docs/rag-architecture-spec.md` - project RAG target architecture, DocumentBlock/OCR rationale, and Phase RAG-2 goals. Confidence: MEDIUM because it is target-state design, not all implemented code.
-- `.planning/phases/20-rag-hybrid-retrieval/20-RESEARCH.md` and `20-CONTEXT.md` - v1.3 decisions about `search_text`, internal retrieval trace, and no business fact pollution. Confidence: HIGH.
+- `.planning/PROJECT.md` - v1.5 scope, active requirements, and hard deferrals.
+- `docs/rag-architecture-spec.md` sections 4.1, 4.2, 9.5, 11, 12 - target Reasoning Kernel, Context Builder, and hallucination-control architecture.
+- `docs/contract-spec.md` sections 8.0, 8.3, 8.4, 9, 12.5, 15, 17 - normative trusted context, evidence/tool/action/replay contracts.
+- `docs/current-implementation-map.md` - useful baseline, but generated 2026-06-17 and stale for Phase 21 additions; current code now includes `DocumentBlock` and `ContextAssembler`.
+- `src/agent/context/assembler.py` and `src/agent/context/projectors.py` - existing prompt-safe assembly and projection boundaries.
+- `src/knowledge/service.py`, `src/knowledge/provenance.py`, `src/knowledge/citation.py`, `src/knowledge/retrieval.py` - Knowledge facade, provenance side path, membership-only citation validation, and Phase 20 retrieval semantics.
+- `src/agent/nodes/generate_recommendation.py`, `src/agent/nodes/final_response.py`, `src/agent/nodes/investigate.py`, `src/agent/graph.py` - current graph integration points.
+- `src/tools/contracts.py` - `ToolResultV2` and `BusinessFactRefV1` authority boundary.
+- `src/db/models.py` and `src/repositories/policy_chunk_repo.py` - Phase 21 source-block/provenance storage now present in code.
 
 ---
-*Architecture research for: MOCA v1.4 Phase 21 parser/OCR ingestion and source-block provenance*
-*Researched: 2026-06-18*
+*Architecture research for: MOCA Phase 22 RAG Context Builder + Hallucination Control*
+*Researched: 2026-06-19*

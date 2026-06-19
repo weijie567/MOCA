@@ -1,183 +1,181 @@
 # Stack Research
 
-**Domain:** MOCA v1.4 production RAG ingestion, OCR, and citation provenance
-**Researched:** 2026-06-18
-**Confidence:** MEDIUM-HIGH
+**Domain:** MOCA v1.5 / Phase 22 RAG Context Builder + Hallucination Control
+**Researched:** 2026-06-19
+**Confidence:** HIGH
 
 ## Recommended Stack
+
+Phase 22 should add project-owned reasoning-kernel DTOs and services on top of the existing FastAPI/PostgreSQL/Pydantic/LangGraph stack. It should not add a new RAG framework, search backend, reranker package, queue, vector database, or external verifier service by default.
 
 ### Core Technologies
 
 | Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
-| Existing FastAPI ingestion CLI/service boundary | Current repo | Keep ingestion outside the hot online retrieval path | `src/rag/ingestion.py` is already offline/batch-oriented. Phase 21 should add parser/OCR before chunking, not add API background infrastructure or a new queue. |
-| Existing PostgreSQL + Alembic + SQLAlchemy | PostgreSQL 16 via `pgvector/pgvector:pg16`; SQLAlchemy 2.x; Alembic current repo | Persist `DocumentBlock`, parser trace, OCR confidence, and block-to-chunk provenance | The repo already stores policy documents/chunks, JSONB metadata, generated full-text vectors, and pgvector in one database. Use relational rows plus JSONB for provenance instead of adding object storage or a document DB. |
-| `pdfplumber` | 0.11.10 | Digital PDF parser for text, layout coordinates, page objects, and tables | It is MIT-licensed, current as of 2026-06-15, Python 3.12-compatible, and exposes page numbers, object coordinates, word bounding boxes, table cells, rows, columns, and debug signals. This fits source-block provenance better than plain `pypdf` and avoids PyMuPDF's AGPL/commercial decision. |
-| `pypdfium2` | 5.10.1 | PDF page rendering for scanned-PDF OCR fallback | It is liberal-licensed, current as of 2026-06-15, ships prebuilt PDFium wheels on common platforms, and can render pages to bitmaps/Pillow images for Tesseract. Use it only for rendering scanned pages, not as the primary layout parser. |
-| `python-docx` | 1.2.0 | DOCX paragraph and table extraction | It is stable, MIT-licensed, current as of 2025-06-16, and provides direct access to paragraphs, rows, cells, merged-cell metadata, and table structure. DOCX has no stable rendered page/bbox without a layout engine, so store logical provenance for DOCX. |
-| Tesseract OCR engine | OS package: `tesseract-ocr` plus `tesseract-ocr-chi-sim` | Local OCR engine for images and scanned PDF pages | Tesseract is open source, runs locally, supports language traineddata packages, and matches demo/local constraints. Install the Simplified Chinese traineddata package in Docker for `chi_sim+eng`. |
-| `pytesseract` | 0.3.13 | Python wrapper around the Tesseract executable | It supports Python 3.12 and exposes `image_to_data(...)`, which returns bounding boxes, confidence values, line/page fields, language selection, and timeout handling. This is the cleanest way to produce OCR confidence metadata. |
-| `Pillow` | 12.2.0 | Image loading/normalization and OCR input | `pytesseract` requires Pillow/PIL-compatible images; `pypdfium2` can convert rendered pages to Pillow images. Pillow 12.2.0 supports Python 3.12 and is mature. |
+| Existing Python + Pydantic DTO layer | Python `>=3.12`; Pydantic v2 via current FastAPI stack | Define `RagContextBundle`, `ReasoningContext`, `MaterialClaim`, `ClaimSupportResult`, `ClaimVerificationResult`, and deterministic routing enums | MOCA already uses Pydantic contracts for `EvidenceRefV1`, `KnowledgeSearchResult`, `ToolResultV2`, and prompt summaries. Phase 22 needs stricter project-owned DTOs, not another schema framework. |
+| Existing `PolicyKnowledgeService` + `PolicyRetriever` protocol | Project-owned `knowledge_search_result.v2`, `retrieval.v3`, `rerank.v2` | Source of allowed policy evidence and canonical re-fetch/hash/provenance lookup | `generate_recommendation.py` already re-fetches chunk text and checks `text_hash`; move this into a reusable `ContextBuilder` instead of duplicating node-local evidence assembly. |
+| Existing PostgreSQL + SQLAlchemy/Alembic | Existing project stack | Canonical policy chunks, source-block provenance, business facts, trace/replay records | Phase 22 should read existing stored evidence and provenance. No new database service is needed; do not change `EvidenceRefV1` identity or move policy/business facts into a new store. |
+| Existing `ContextAssembler` + `TokenBudgetPolicy` | Project-owned | Final prompt assembly after RAG context building | Keep generic prompt assembly separate from RAG reasoning. `ContextBuilder` should emit prompt-safe policy blocks and budget trace; `ContextAssembler` should still decide cross-source prompt block inclusion. |
+| Existing LangGraph deterministic routers | `langgraph>=0.4` from `pyproject.toml` | Route verifier failures to regenerate, refuse, manual review, risk, approval, or final response | Contract-spec requires routers to be deterministic and side-effect free. Verifier output should be state consumed by routers, not an LLM routing decision. |
+| Existing OpenAI-compatible structured LLM path | `openai>=1.30`, `langchain-openai>=0.3`, `langchain-core>=0.3` | Generate structured `MaterialClaim` output and perform Level 3 semantic support only when risk-triggered | The current stack already uses `ChatOpenAI.with_structured_output`. Reuse it for bounded Level 3 semantic checks; do not introduce a verifier provider or cross-encoder in Phase 22. |
+| Existing pytest/eval scripts | `pytest>=8.0`, `pytest-asyncio>=0.23` | Hallucination-control contract tests and golden evals | Current eval already covers RAG and agent flows. Extend it with claim support, refusal/manual-review routing, and authority-boundary cases instead of adding RAGAS/TruLens/DeepEval now. |
 
 ### Supporting Libraries
 
+No new runtime package is recommended for Phase 22. Use the existing Python standard library and project dependencies:
+
 | Library | Version | Purpose | When to Use |
 |---------|---------|---------|-------------|
-| Existing Pydantic v2 | FastAPI-provided/current repo | Define `ParsedDocument`, `DocumentBlock`, `BlockBBox`, `OCRTrace`, and `ParserTrace` contracts | Use for parser outputs before DB persistence, mirroring existing `EvidenceRefV1`/knowledge schemas. No new schema library needed. |
-| Existing stdlib `zipfile` | Python 3.12 | Preflight DOCX zip size/member count before `python-docx` opens it | Use to reject zip bombs and oversized embedded media in local fixtures and future uploads. Avoid `python-magic` unless content sniffing becomes a real requirement. |
-| Existing stdlib `mimetypes` plus magic-byte checks | Python 3.12 | Route `.pdf`, `.docx`, and image files to parser adapters | Good enough for synthetic/local ingestion. Keep a strict extension and header allowlist rather than adding libmagic system dependencies. |
-| Existing `hashlib` | Python 3.12 | Stable source-block and content hashes | Use for `source_block_id`, block content hash, parser input hash, and trace identity. Keep hashes deterministic and independent from retrieval time. |
-| Existing PostgreSQL `JSONB` | Current repo | Store parser trace, bbox objects, table/cell metadata, OCR detail snippets | Use JSONB for low-cardinality provenance metadata, not for foreign-key identity. Keep durable IDs in columns. |
+| `unicodedata`, `re`, `difflib` | Python 3.12 stdlib | Text normalization, exact/near-span matching, lexical support heuristics | Level 2 support checks should be deterministic, cheap, and testable before any LLM judge is considered. |
+| Existing `src.knowledge.text_hash` | `evidence_text_hash.v1` | Verify canonical chunk text still matches `EvidenceRefV1.text_hash` | Level 1 always runs hash validation through re-fetched content, not prompt text. |
+| Existing `src.knowledge.provenance` | Project-owned | Read prompt-safe source-block/OCR labels after tenant/hash verification | Use for OCR-low-confidence and source locator risk labels. Keep raw provenance/debug fields out of ordinary prompts and answers. |
+| Existing `ToolResultV2` / `BusinessFactRefV1` | `tool_result.v2`, `business_fact_ref.v1` | Bind business fact claims to Tool System outputs | Business facts are not policy evidence and must not be converted into `EvidenceRefV1`. |
+| Existing `EvidenceRefV1` / citation validator | `evidence_ref.v1`, `citation_validator.v2` | Level 1 citation membership foundation | Keep membership validation as a necessary but insufficient gate; add claim support verification next to it, not by redefining it. |
 
 ### Development Tools
 
 | Tool | Purpose | Notes |
 |------|---------|-------|
-| Existing `uv` | Dependency install and lock updates | Add Python packages through `uv add` and commit lock updates during implementation. |
-| Existing `ruff` | Linting | No new lint tooling needed. |
-| Existing `pytest` + committed synthetic fixtures | Parser/OCR regression tests | Use small PDF/DOCX/PNG fixtures with known text, page numbers, bbox presence, table-cell coordinates, and OCR confidence ranges. Avoid network/model-dependent parser tests. |
-| Tesseract CLI health check | Verify OCR runtime in Docker/local dev | Add a test or script that records `tesseract --version` and available languages in parser trace or test diagnostics. |
+| Existing `pytest` suites | Unit and contract tests for DTOs, ContextBuilder, verifier, routing, and eval helpers | Add focused tests under `tests/knowledge/` and `tests/agent/`. Mock Level 3 LLM output in unit tests. |
+| Existing golden-set eval runners | Hallucination-control regression reports | Extend `scripts/eval_agent.py`, `scripts/eval_rag.py`, or add a small `scripts/eval_hallucination_control.py` that reuses their JSONL/report conventions. |
+| Existing `ruff` | Linting | No new lint or type-check tooling required. |
 
 ## Installation
 
 ```bash
-# Python runtime additions
-uv add "pdfplumber==0.11.10" "pypdfium2==5.10.1" "python-docx==1.2.0" "pytesseract==0.3.13" "pillow==12.2.0"
+# No Phase 22 runtime package additions recommended.
+uv sync
 
-# Dockerfile system additions for OCR
-apt-get update \
-  && apt-get install -y --no-install-recommends \
-    tesseract-ocr \
-    tesseract-ocr-chi-sim \
-  && rm -rf /var/lib/apt/lists/*
+# Expected verification entry points during implementation.
+uv run pytest tests/knowledge tests/agent
+uv run python scripts/eval_all.py
 ```
 
-Use exact pins for the phase implementation so parser traces can record deterministic `parser_name`, `parser_version`, `ocr_engine`, and `ocr_engine_version`. If exact patch pins are relaxed later, keep `uv.lock` authoritative and persist runtime versions in ingestion trace.
+If a later implementation proposes any package addition, treat it as a scope exception requiring current-version verification and a written rationale. Phase 22 should be implementable with the existing dependencies in `pyproject.toml`.
+
+## Required Project-Owned Additions
+
+| Addition | Suggested Location | Purpose | Notes |
+|----------|--------------------|---------|-------|
+| `ContextBuilder` | `src/knowledge/context_builder.py` | Build bounded RAG context after retrieval and before recommendation/final reasoning | Inputs: candidate `EvidenceRefV1`, business fact refs/summaries, trusted context, risk/conflict hints, budget. Outputs: prompt-safe bundle plus internal reasoning context. |
+| `RagContextBundle` | `src/knowledge/schemas.py` or `src/knowledge/reasoning_schemas.py` | Prompt-safe evidence snippets, citation map, labels, exclusions, budget trace | This is allowed into prompts. It must exclude verifier trace, raw OCR/source-block debug, raw tool output, and private provenance fields. |
+| `ReasoningContext` | Same reasoning schema module | Internal evidence/business context for verifier and routing | May include verified refs, full bounded text, safe provenance labels, exclusion reasons, and risk labels. It is not ordinary user-facing text. |
+| `MaterialClaim` | Same reasoning schema module | Structured claim taxonomy | Use exactly three authority classes: `policy_claim`, `business_fact_claim`, `action_recommendation_claim`. Add subtypes only as secondary fields if useful. |
+| `ClaimSupportVerifier` | `src/knowledge/claim_verifier.py` | Level 1/2/3 verification policy engine | Deterministic gates first; Level 3 semantic check only after Level 1 passes and risk triggers require it. |
+| `ClaimVerificationResult` | Reasoning schema module | Verifier output consumed by routers and final response | Include per-claim status, failure code, support level used, routing action, and redacted reason. Do not make it a replacement for `EvidenceRefV1`. |
+| Hallucination eval dataset | `evaluation/golden/` or `eval/` following existing conventions | Faithfulness/citation/routing/authority regression cases | Include stale evidence, conflict, OCR-low-confidence, business-fact hallucination, memory/evidence separation, and action recommendation missing support. |
 
 ## Integration with Existing MOCA Boundaries
 
 | Boundary | Recommendation | Rationale |
 |----------|----------------|-----------|
-| Parser abstraction | Add `PolicySourceParser` adapters: `PdfPlumberParser`, `DocxParser`, `ImageOCRParser` | Keeps file-type parsing out of `IngestionService` and makes parser/OCR trace testable. |
-| Intermediate model | Add Pydantic `DocumentBlock` DTO before DB persistence | Current `chunk_markdown()` returns only citation text chunks. Phase 21 needs page/bbox/table/OCR metadata before chunking. |
-| Persistence | Add `document_blocks` plus either `policy_chunk_blocks` join table or `PolicyChunk.source_block_refs_json` | Prefer a join table if chunks can span many source blocks. Use JSONB only for MVP metadata, not as the only durable link. |
-| `PolicyDocument.content` | Store normalized extracted citation text, not raw binary | Preserves existing ingestion/version behavior while avoiding unsafe raw payload storage in prompts. |
-| `PolicyChunk.content` | Keep as user-visible citation text | v1.3 explicitly separates citation text from retrieval-only enrichment. Do not inject OCR trace, bbox, or parser debug text into this field. |
-| `PolicyChunk.search_text` | Enrich with table headers/cell labels when useful | Search text can include retrieval-only table context, but `EvidenceRefV1.text_hash` must continue hashing `PolicyChunk.content`. |
-| `EvidenceRefV1` | Do not add page, bbox, cell, or OCR fields in v1.4 | Keep evidence identity stable: `doc_key/chunk_id@policy_version` plus text hash. Resolve provenance by looking up the chunk's source blocks after retrieval. |
-| OCR confidence | Store per OCR block and aggregate per chunk | Tesseract confidence is word-level in TSV-style output. Aggregate deterministically, e.g. mean of valid word confidences and min confidence warning. |
-| Parser trace | Store internal/eval metadata only | Trace belongs in DB/debug/eval views, not prompts, agent state, approval snapshots, or `EvidenceRefV1`. |
+| Evidence identity | Preserve `EvidenceRefV1` exactly | `EvidenceRefV1` remains canonical for policy evidence, snapshots, replay, and citation membership. Do not add page/bbox/OCR/material-claim fields to it. |
+| Context assembly | Move node-local evidence re-fetch from `generate_recommendation.py` into `ContextBuilder` | Recommendation, final response, verifier, and future answer nodes need one shared source of hash-checked evidence context. |
+| Prompt safety | Feed only `RagContextBundle` into `ContextAssembler` | The generic assembler should never receive raw provenance traces, verifier internals, source-block debug, raw tool results, or authority objects. |
+| Policy claim support | `policy_claim` requires cited `EvidenceRefV1` and verified context membership/hash/scope/freshness | Membership alone is not semantic support; Level 2/3 must decide whether the claim text is actually supported. |
+| Business fact support | `business_fact_claim` requires `BusinessFactRefV1` from `ToolResultV2` | Business facts remain Tool System outputs. They cannot be embedded as policy chunks or assigned to `EvidenceRefV1`. |
+| Action recommendation support | `action_recommendation_claim` requires both policy support and business fact support | This still does not authorize execution. Risk gate, approval gate, action draft, and Phase 17 external execution boundaries remain authoritative. |
+| Memory | Treat profile/session/case memory as contextual hints only | Memory can help phrasing or slot continuity, but cannot satisfy policy evidence, current business fact, approval, action, replay, or audit requirements. |
+| Routing | Add verifier result fields read by `route_after_recommendation` and risk/final nodes | Routers should map `unsupported`, `insufficient`, `conflicting`, `stale`, `unauthorized`, `hash_mismatch`, and `manual_review_needed` deterministically. |
+| Eval/debug | Keep detailed verifier trace out of prompts and ordinary answers | Store only redacted summaries in trace/eval output. Use full trace in test artifacts or internal debug paths if needed. |
 
-## Recommended Data Shape
+## Verification Stack
 
-Add these concepts with the existing SQLAlchemy/Alembic stack:
+| Level | Stack | Checks | Routing Output |
+|-------|-------|--------|----------------|
+| Level 1 always | Existing Pydantic DTOs, `validate_membership`, `evidence_text_hash`, trusted context | Citation membership, tenant match, scope/ACL projection, hash match, duplicate key rejection, freshness/effective-time labels | `allow_next_check`, `regenerate`, `refuse`, or `manual_review` depending on failure code |
+| Level 2 ordinary claims | Python stdlib normalization/span/lexical checks | Exact span support, normalized phrase support, required-term overlap, contradiction keywords for known policy patterns, business-ref presence | `supported`, `unsupported`, or `ambiguous` |
+| Level 3 risk-triggered | Existing `ChatOpenAI.with_structured_output` behind `ClaimSupportVerifier` | Semantic support only for high-risk, action, conflict, stale, OCR-low-confidence, ambiguous, or compensation/penalty claims | `allow`, `regenerate`, `refuse`, or `manual_review`; timeout/error fails closed |
 
-| Table/Field | Purpose | Notes |
-|-------------|---------|-------|
-| `document_blocks.id` | Internal UUID primary key | Standard repo pattern. |
-| `document_blocks.tenant_id`, `document_blocks.doc_id` | Scope and parent document | Match existing policy document/chunk tenant discipline. |
-| `document_blocks.source_block_id` | Stable parser-level ID | Derive from `doc_key`, `policy_version`, parser name/version, page/logical index, block index, and normalized text hash. |
-| `document_blocks.block_type` | `heading`, `paragraph`, `table`, `table_cell`, `image_ocr`, `page_ocr` | Use strings plus check constraints; no enum dependency needed. |
-| `document_blocks.text` | Normalized block citation text | Keep raw parser payload out. |
-| `document_blocks.page_number` | 1-indexed PDF/image page when available | `NULL` for DOCX logical blocks unless a later layout engine creates rendered pages. |
-| `document_blocks.bbox_json` | Coordinate box and unit | For PDFs/images, store `{x0, top, x1, bottom, unit, page_width, page_height, origin}`. For DOCX, `NULL`. |
-| `document_blocks.table_json` | Table/cell provenance | Include table index, row index, column index, grid span, header text, and whether this block is a header/cell. |
-| `document_blocks.ocr_json` | OCR metadata | Include engine, language, confidence 0-1, source image/page, timeout/error flags. |
-| `document_blocks.parser_json` | Parser trace | Include parser name/version, parse mode, warnings, fallback path, input hash, and failure reason. |
-| `policy_chunk_blocks` | Many-to-many provenance from chunks to blocks | Use if chunking can merge paragraph + table cell blocks. Store chunk UUID, block UUID, order, and text range if needed. |
+Level 3 must have explicit claim count, evidence count, character/token budget, timeout, retry count, and config-version fields before implementation. It must not rerank retrieval results or replace deterministic Level 1 gates.
+
+## Installation Impact
+
+Phase 22 should not need:
+
+- New Python packages.
+- New Docker services.
+- New PostgreSQL extensions.
+- New model providers.
+- New background workers.
+- New frontend dependencies.
+
+The likely code changes are new DTO/service modules, modifications to recommendation/final-response/routing nodes, and expanded tests/evals.
 
 ## Alternatives Considered
 
 | Recommended | Alternative | When to Use Alternative |
 |-------------|-------------|-------------------------|
-| `pdfplumber` + `pypdfium2` | `PyMuPDF` | Use PyMuPDF only after an explicit license decision. It is technically excellent and current, but PyPI lists AGPL/commercial licensing. |
-| `pdfplumber` PDF tables | `camelot-py` / `tabula-py` | Use only if Phase 21 fixtures prove `pdfplumber` cannot handle required policy tables. They are table-specific and bring heavier system/Java/Ghostscript complexity. |
-| Tesseract + `pytesseract` | PaddleOCR / EasyOCR | Use only if Chinese scanned-policy OCR accuracy becomes a blocker. They add model downloads, heavier CPU/GPU dependencies, and less predictable Docker demo behavior. |
-| Local OCR | Cloud OCR / LLM vision parsers | Use only in a future production integration milestone. They need secrets/network, weaken local reproducibility, and complicate synthetic-data demos. |
-| Pydantic DTOs + SQLAlchemy models | LlamaIndex document readers as the parser contract | Keep LlamaIndex as an offline ingestion baseline if useful, but do not make its reader/node metadata the normative source-block contract. MOCA needs stable page/bbox/cell/OCR provenance independent from LlamaIndex internals. |
-| JSONB parser trace in PostgreSQL | External trace/event service | Existing DB is enough for Phase 21. Add observability only if ingestion volume or retention requirements become real. |
+| Project-owned `ContextBuilder` | LlamaIndex/LangChain RAG context chain | Only if a future milestone intentionally delegates MOCA's evidence contracts to a framework. Phase 22 needs exact `EvidenceRefV1`, ToolResult, approval, and replay semantics. |
+| Deterministic Level 2 lexical/span checks | Cross-encoder or model reranker | Phase 23 owns reranker/query rewrite. Claim support verification must not become relevance reranking. |
+| Existing OpenAI-compatible LLM for Level 3 | Dedicated verifier API/provider | Use only if Phase 22 eval proves current model path cannot meet reliability/latency needs. That would need current-version and cost research. |
+| Existing eval scripts + pytest | RAGAS, TruLens, DeepEval | Consider later for broad research benchmarking. Phase 22 needs deterministic safety gates and golden contract cases more than stochastic aggregate judging. |
+| Existing trace/replay surfaces | New claim-verification database tables | Add tables only if roadmap requires long-term claim-level audit queries. For Phase 22, redacted trace/eval artifacts are enough. |
 
 ## What NOT to Use
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| `unstructured` with all extras | Large dependency surface, optional ML/OCR extras, and harder-to-pin parser behavior for a local demo | Explicit adapters around `pdfplumber`, `python-docx`, and Tesseract. |
-| PyMuPDF as the default | Strong technical fit but AGPL/commercial licensing is a project-level decision; MOCA has no visible repo license file in this checkout | Default to MIT/liberal-licensed `pdfplumber` + `pypdfium2`; revisit PyMuPDF only with a recorded license decision. |
-| `PyPDF2`, `PyPDF3`, `PyPDF4` | Old/forked PDF stack and weaker layout/table provenance | `pdfplumber` for layout/table metadata. |
-| `pypdf` as the main parser | Good for basic PDF operations, but not enough for page/bbox/table-cell provenance | `pdfplumber`. |
-| `ocrmypdf` | Excellent for making searchable PDFs, but it rewrites PDFs and adds system dependencies not needed for block-level provenance | Render pages/images and call `pytesseract.image_to_data(...)` directly. |
-| PaddleOCR/EasyOCR by default | Heavy model/runtime footprint and less conservative for Docker Compose demo | Tesseract first, with `OCRProvider` abstraction for later replacement. |
-| LlamaParse, Textract, Azure OCR, Google Document AI, Qwen-VL, GPT-4.1 vision | External services violate local/dev demo constraints and add credential/network failure modes | Local parser/OCR stack. |
-| Celery/RQ/new queue | Phase 21 ingestion is still batch/offline and synthetic-data friendly | Existing CLI/service execution; revisit only when concurrent user uploads exist. |
-| S3/MinIO/object storage | v1.4 needs provenance, not binary document management | Keep fixture inputs local and persist normalized text/provenance in Postgres. |
-| Vespa/OpenSearch/external `SearchBackend` | Explicitly out of Phase 21 scope | Existing PostgreSQL hybrid retrieval through `PolicyKnowledgeService`. |
-| `MaterialClaim`, semantic verifier, reranker/query rewrite | Owned by later phases | Preserve current retrieval/evidence contracts only. |
+| Query rewrite | Explicit Phase 23 scope | Use existing retrieval results and ContextBuilder filtering/labeling only. |
+| Cross-encoder/model reranking or external rerank APIs | Explicit Phase 23 scope and would mix relevance ranking with support verification | Keep Level 2 deterministic; Level 3 judges support only after evidence is selected. |
+| Vespa/OpenSearch/new vector DB/new search backend | Explicit RAG-5 scope | Existing PostgreSQL hybrid retrieval through `PolicyKnowledgeService`. |
+| New `EvidenceRefV1` variant or added identity fields | Breaks canonical evidence identity and action snapshot/replay assumptions | Keep provenance and claim support as side-path DTOs keyed by existing refs. |
+| Business tool outputs as policy evidence | Violates Tool System boundary | Use `BusinessFactRefV1` and `ToolResultV2` for business facts. |
+| Memory as claim authority | Violates memory boundary | Use memory only as contextual assistance; require evidence/tool refs for material claims. |
+| New action execution path | Phase 17 owns external execution | Verifier can block or route action recommendations, but cannot authorize execution. |
+| Source upload/review UI | Policy Source Operations scope | Use existing persisted parser/OCR provenance labels for verification. |
+| Raw provenance/debug in prompts | Leaks internal metadata and weakens prompt boundary | Use prompt-safe `RagContextBundle` labels only. |
 
 ## Stack Patterns by Variant
 
-**If the source is a text PDF:**
-- Use `pdfplumber.open(...)`, `page.extract_words(...)`, `page.extract_text_lines(...)`, and `page.find_tables(...)`.
-- Persist page numbers and PDF-coordinate bboxes for text blocks/table cells.
-- Use `pdfplumber` table debug metadata in parser trace when table extraction is uncertain.
+**Policy-only answer:**
+- Build `RagContextBundle` from retrieved `EvidenceRefV1`.
+- Require at least one `policy_claim`.
+- Run Level 1 and Level 2.
+- Route unsupported/no-evidence to insufficient evidence response, not free-form completion.
 
-**If the source is a scanned PDF:**
-- Use `pdfplumber` first to detect low/no text.
-- Render the page with `pypdfium2` at a fixed DPI such as 200-300.
-- OCR the rendered image with `pytesseract.image_to_data(..., lang="chi_sim+eng", timeout=...)`.
-- Map OCR pixel boxes back to page-relative coordinates and mark `block_type = "page_ocr"` or `"image_ocr"`.
+**Troubleshooting answer:**
+- Build `ReasoningContext` with both policy evidence and `BusinessFactRefV1` values.
+- Require separate `policy_claim` and `business_fact_claim` records.
+- Final answer may combine them only through a supported `action_recommendation_claim` or explanatory recommendation.
 
-**If the source is a standalone image:**
-- Load with Pillow, normalize orientation/mode, then run `pytesseract.image_to_data(...)`.
-- Store image pixel bboxes with `origin = "top_left"` and confidence aggregates.
-- Do not fabricate PDF page numbers; use `page_number = 1` only if the parser contract defines image pages that way.
+**Action or compensation recommendation:**
+- Require `strong_evidence` plus business facts.
+- Run Level 3 if high-risk, compensation, penalty, stale/conflict, OCR-low-confidence, or ambiguous.
+- Verifier success still only permits risk/approval evaluation; it never bypasses approval/action boundaries.
 
-**If the source is DOCX:**
-- Use `python-docx` to walk paragraphs and tables in document order.
-- Persist logical block order, heading style when available, table/row/cell metadata, and merged-cell info.
-- Store `page_number = NULL` and `bbox_json = NULL`; DOCX pagination depends on a rendering engine and should not be faked.
-
-**If OCR confidence is low:**
-- Persist the block with `ocr_confidence`, `ocr_low_confidence = true`, and parser warnings.
-- Keep it eligible for retrieval only if Phase 21 requirements explicitly allow low-confidence text; otherwise mark it as review-needed and exclude from chunk insertion.
-- Do not change `EvidenceRefV1` to express OCR confidence.
+**Conflict, stale, unauthorized, hash mismatch, or OCR-low-confidence evidence:**
+- Label in `ReasoningContext`.
+- Do not let the model silently choose.
+- Route conflict/stale/OCR-low-confidence high-risk cases to manual review; route unauthorized/hash mismatch to refuse or regenerate depending on whether fresh authorized context can be rebuilt.
 
 ## Version Compatibility
 
 | Package A | Compatible With | Notes |
 |-----------|-----------------|-------|
-| MOCA Python | Python 3.12 | Current `pyproject.toml` requires `>=3.12`; all recommended Python packages support 3.12. |
-| `pdfplumber==0.11.10` | Python 3.10-3.14 | PyPI lists 0.11.10 as latest on 2026-06-15 and tested on Python 3.10-3.14. |
-| `pypdfium2==5.10.1` | Python 3.x; PDFium bundled on common wheels | Docs warn PDFium is not thread-safe; serialize PDFium calls in-process or use processes for parallel rendering. |
-| `python-docx==1.2.0` | Python >=3.9 | Works with MOCA's Python 3.12; use stdlib zip preflight before opening untrusted DOCX files. |
-| `pytesseract==0.3.13` | Python >=3.8; Tesseract executable; Pillow | `image_to_data` returns boxes/confidence and supports `timeout`. Requires system Tesseract installed separately. |
-| `Pillow==12.2.0` | Python >=3.10 | Works with Python 3.12 and supports image I/O needed by Tesseract and PDF rendering. |
-| Tesseract OCR | `tesseract-ocr-chi-sim` traineddata | Tesseract docs distinguish engine install from language traineddata. Docker must install both engine and Simplified Chinese language data. |
-
-## Confidence Assessment
-
-| Area | Confidence | Notes |
-|------|------------|-------|
-| PDF digital parsing | HIGH | `pdfplumber` directly supports coordinates, words, page objects, and tables; current version verified. |
-| PDF scanned-page rendering | MEDIUM-HIGH | `pypdfium2` is current and capable, but its docs warn PDFium is not thread-safe. Keep ingestion serial/process-based. |
-| DOCX logical extraction | HIGH | `python-docx` table/paragraph APIs are stable. Page/bbox absence is a real DOCX limitation, not a library miss. |
-| OCR integration | MEDIUM | Tesseract is conservative and local, but Simplified Chinese accuracy varies by scan quality. Parser abstraction should allow future OCR provider replacement. |
-| MOCA boundary fit | HIGH | Recommendations preserve `PolicyChunk.content`, retrieval-only `search_text`, and `EvidenceRefV1` identity. |
+| Phase 22 additions | Existing `pyproject.toml` dependencies | No new package versions are recommended. |
+| Pydantic DTOs | FastAPI/Pydantic v2 stack | Keep `extra="forbid"` on authority-bearing DTOs where the repo already uses it for tool contracts. |
+| `ContextBuilder` | `PolicyKnowledgeService.get_verified_evidence_contents` and `get_verified_evidence_provenance` | Reuse tenant/hash-checked lookup methods. Extend retriever protocol only if missing metadata is required. |
+| `ClaimSupportVerifier` | Existing `ChatOpenAI.with_structured_output` | Level 3 should be optional/risk-triggered and fail closed on validation error, timeout, or malformed model output. |
+| Hallucination eval | Existing JSONL golden sets and eval reports | Add metrics without replacing Hit@5/fallback/citation membership gates. |
 
 ## Sources
 
-- Context7: `/pymupdf/pymupdf` - verified PyMuPDF OCR/page API shape for comparison, including Tesseract-backed OCR caveats. HIGH confidence.
-- Context7: `/websites/python-docx_readthedocs_io_en` - verified table/cell iteration, grid-span, and row-column caveats. HIGH confidence.
-- Context7: `/websites/pypi_project_pytesseract` - verified `image_to_data`, confidence/box output, language config, and timeout support. HIGH confidence.
-- https://pypi.org/project/pdfplumber/ - verified `pdfplumber` 0.11.10, release date, MIT license, Python 3.10-3.14 support, PDF object coordinates, table extraction, and explicit lack of OCR. HIGH confidence.
-- https://pypi.org/project/pypdfium2/ - verified `pypdfium2` 5.10.1, release date, liberal licensing, prebuilt package guidance, optional Pillow adapters, and Python compatibility. HIGH confidence.
-- https://pypdfium2.readthedocs.io/en/stable/python_api.html - verified `PdfPage.render()`, bitmap/Pillow conversion surface, text page APIs, and PDFium thread-safety warning. HIGH confidence.
-- https://python-docx.readthedocs.io/en/latest/ and https://python-docx.readthedocs.io/en/latest/api/table.html - verified python-docx 1.2.0 docs and table/cell APIs. HIGH confidence.
-- https://pypi.org/project/python-docx/ - verified python-docx 1.2.0 release date, Python requirement, and MIT license. HIGH confidence.
-- https://pypi.org/project/pytesseract/ - verified pytesseract 0.3.13, Python 3.12 classifier, Tesseract wrapper role, Pillow prerequisite, `image_to_data`, and timeout support. HIGH confidence.
-- https://tesseract-ocr.github.io/tessdoc/Installation.html - verified Tesseract engine/traineddata split and package naming including `tesseract-ocr-chi-sim`. HIGH confidence.
-- https://pypi.org/project/pillow/ - verified Pillow 12.2.0, release date, Python >=3.10, and imaging role. HIGH confidence.
-- https://pypi.org/project/PyMuPDF/ and https://pymupdf.readthedocs.io/en/latest/recipes-text.html - verified PyMuPDF current version, page text/bbox/table/OCR capabilities, and AGPL/commercial license caveat. HIGH confidence.
+- `.planning/PROJECT.md` - v1.5 scope, hard boundaries, existing stack, and shipped v1.3/v1.4 capabilities. HIGH confidence.
+- `docs/rag-architecture-spec.md` sections 4.1, 4.2, 9.5, 11, 12, 13 - Context Builder, Reasoning Kernel, freshness/authority/conflict labels, hallucination-control levels, and eval categories. HIGH confidence.
+- `docs/contract-spec.md` sections 8.3, 8.4, 9.5, 12.5 - canonical `EvidenceRefV1`, `BusinessToolService`, `ToolResultV2`, `BusinessFactRefV1`, deterministic routers, memory/action boundaries. HIGH confidence.
+- `src/knowledge/schemas.py` - current `EvidenceRefV1`, `KnowledgeSearchResult`, membership result DTOs, and canonical evidence projection. HIGH confidence.
+- `src/knowledge/service.py` - existing evidence re-fetch, tenant/hash validation, and verified provenance lookup. HIGH confidence.
+- `src/agent/context/assembler.py` and `src/agent/context/budget.py` - existing prompt-safe block assembly and protected prompt budget behavior. HIGH confidence.
+- `src/agent/nodes/generate_recommendation.py` - current node-local evidence re-fetch, allowed citations, and membership-only material claim projection to replace with ContextBuilder/verifier. HIGH confidence.
+- `src/knowledge/citation.py` and `tests/knowledge/test_citation_membership.py` - citation membership is intentionally not semantic support. HIGH confidence.
+- `src/tools/contracts.py` - current `ToolResultV2` and `BusinessFactRefV1` code contract. HIGH confidence.
+- `pyproject.toml` - existing dependency ranges; no new Phase 22 dependency recommended. HIGH confidence.
+
+## Orchestrator Summary
+
+Phase 22 should be a project-owned reasoning-kernel extension, not a dependency or backend change. Add `ContextBuilder`, prompt-safe `RagContextBundle`, internal `ReasoningContext`, `MaterialClaim`, and `ClaimSupportVerifier`; integrate them into recommendation/final-response routing and eval. Preserve `EvidenceRefV1`, Tool System business refs, memory boundaries, approval/action gates, PostgreSQL hybrid retrieval, and Phase 23/17/RAG-5 deferrals.
 
 ---
-*Stack research for: MOCA v1.4 RAG Production Ingestion + OCR*
-*Researched: 2026-06-18*
+*Stack research for: MOCA v1.5 Phase 22 RAG Context Builder + Hallucination Control*
+*Researched: 2026-06-19*
