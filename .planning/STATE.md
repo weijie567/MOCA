@@ -2,7 +2,7 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: RAG Context Builder + Hallucination Control
-status: verifying
+status: milestone_complete
 stopped_at: Completed 22-06-PLAN.md
 last_updated: "2026-06-19T11:48:03.221Z"
 last_activity: 2026-06-19
@@ -28,7 +28,7 @@ See: `.planning/PROJECT.md` (updated 2026-06-19)
 Phase: 22 (RAG Context Builder + Hallucination Control) — COMPLETE
 Plan: 6 of 6
 Plans: 6/6 complete for v1.5
-Status: Phase complete — ready for verification
+Status: Milestone complete
 Last activity: 2026-06-19
 
 Progress: [██████████] 100%
