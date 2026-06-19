@@ -134,10 +134,14 @@ def _spy_context_assembler(monkeypatch):
     return assemblies
 
 
-def _draft(*, chunk_id: str = "chunk_001") -> dict:
+def _draft(
+    *,
+    chunk_id: str = "chunk_001",
+    reasoning_summary: str = "退款超时时，客服应核实支付通道和退款状态。",
+) -> dict:
     return {
         "recommended_action": "建议退款",
-        "reasoning_summary": "根据规则",
+        "reasoning_summary": reasoning_summary,
         "evidence_refs": [
             {
                 "doc_key": "policy_refund_timeout",
@@ -246,10 +250,15 @@ async def test_hash_mismatch_content_is_not_grounded(monkeypatch, base_state):
 
 @pytest.mark.asyncio
 async def test_policy_text_never_persisted(monkeypatch, base_state):
-    policy_text = "node local policy body"
+    policy_text = "node local policy body SHOULD_NOT_PERSIST"
+    safe_claim_text = "node local policy body"
     evidence = _evidence(tenant_id=base_state["tenant_id"], text=policy_text)
     retrieval_state = _retrieval_state(evidence=[evidence])
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_draft()))
+    monkeypatch.setattr(
+        generate_recommendation_module,
+        "_get_llm",
+        lambda: FakeLLM(_draft(reasoning_summary=safe_claim_text)),
+    )
     _with_knowledge_service(monkeypatch, {(evidence.doc_key, evidence.chunk_id): policy_text})
 
     result = await generate_recommendation_module.generate_recommendation(
@@ -267,7 +276,7 @@ async def test_policy_text_never_persisted(monkeypatch, base_state):
 async def test_text_hash_uses_full_content_not_truncated(monkeypatch, base_state):
     full_text = "B" * (MAX_EVIDENCE_TEXT_CHARS + 200)
     evidence = _evidence(tenant_id=base_state["tenant_id"], text=full_text)
-    fake_llm = CapturingLLM(_draft())
+    fake_llm = CapturingLLM(_draft(reasoning_summary="B" * MAX_EVIDENCE_TEXT_CHARS))
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
     _with_knowledge_service(monkeypatch, {(evidence.doc_key, evidence.chunk_id): full_text})
 

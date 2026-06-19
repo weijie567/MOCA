@@ -163,3 +163,42 @@ async def test_budget_trace_records_included_truncated_and_excluded_reason_codes
     ]
     assert refs[2].evidence_id not in bundle.citation_map
     assert refs[3].evidence_id not in bundle.citation_map
+
+
+@pytest.mark.asyncio
+async def test_prompt_budget_caps_cumulative_citation_snippet_text() -> None:
+    """CTX-05: max_prompt_chars caps cumulative prompt citation text."""
+    ContextBuilder, RagContextBudget = _load_budget_api()
+    refs = [
+        _evidence_ref(chunk_id=f"chunk_{index:03d}", text=f"Prompt budget section {index}. " * 12, rank=index)
+        for index in range(1, 4)
+    ]
+    service = FakePolicyKnowledgeService(
+        {ref.evidence_id: f"Prompt budget section {index}. " * 12 for index, ref in enumerate(refs, 1)}
+    )
+
+    bundle = await ContextBuilder(
+        policy_service=service,
+        budget=RagContextBudget(max_prompt_chars=130, max_snippet_chars=80, max_evidence_items=3),
+    ).build(
+        candidate_evidence_refs=refs,
+        business_fact_refs=[_business_fact_ref()],
+        trusted_context=_trusted_context(),
+        risk_hints=[],
+    )
+
+    snippet_chars = sum(len(citation.snippet) for citation in bundle.prompt_context.citations)
+
+    assert snippet_chars <= 130
+    assert [citation.citation_id for citation in bundle.prompt_context.citations] == ["C1", "C2"]
+    assert len(bundle.prompt_context.citations[0].snippet) == 80
+    assert len(bundle.prompt_context.citations[1].snippet) <= 50
+    assert bundle.prompt_context.citations[1].snippet.endswith("[truncated]")
+    assert bundle.citation_map["C1"].evidence_ref == refs[0]
+    assert bundle.citation_map["C2"].evidence_ref == refs[1]
+    assert refs[2].evidence_id not in {entry.evidence_ref.evidence_id for entry in bundle.citation_map.values()}
+    assert any(entry.reason_code == "budget_prompt_char_limit" for entry in bundle.budget_trace.excluded)
+    assert any(
+        entry.evidence_id == refs[1].evidence_id and entry.reason_code == "snippet_truncated"
+        for entry in bundle.budget_trace.truncated
+    )

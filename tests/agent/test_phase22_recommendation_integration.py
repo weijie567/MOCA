@@ -14,6 +14,14 @@ from tests.agent.conftest import FakeLLM
 TENANT_ID = "11111111-1111-1111-1111-111111111111"
 
 
+class AttrDict(dict[str, Any]):
+    def __getattr__(self, key: str) -> Any:
+        try:
+            return self[key]
+        except KeyError as exc:
+            raise AttributeError(key) from exc
+
+
 def _evidence_ref(tenant_id: str = TENANT_ID) -> EvidenceRefV1:
     return EvidenceRefV1.build(
         tenant_id=tenant_id,
@@ -73,10 +81,12 @@ class FakeContextBuilder:
     async def build(self, **kwargs: Any) -> SimpleNamespace:
         self.calls.append(kwargs)
         evidence = kwargs["candidate_evidence_refs"][0]
-        return SimpleNamespace(
-            prompt_context=SimpleNamespace(
+        evidence_payload = evidence.model_dump(mode="json")
+        return AttrDict(
+            trusted_context=kwargs["trusted_context"],
+            prompt_context=AttrDict(
                 citations=[
-                    SimpleNamespace(
+                    AttrDict(
                         citation_id="C1",
                         evidence_id=evidence.evidence_id,
                         display_label=f"{evidence.doc_key} / {evidence.chunk_id}",
@@ -93,12 +103,15 @@ class FakeContextBuilder:
                     }
                 ],
                 "business_fact_refs": [],
+                "safe_refs": [evidence.evidence_id],
             },
             citation_map={
-                "C1": SimpleNamespace(
+                "C1": AttrDict(
                     citation_id="C1",
-                    evidence_ref=evidence,
+                    evidence_ref=evidence_payload,
                     source_evidence_ids=[evidence.evidence_id],
+                    snippet="Refund policy requires current evidence and verified business facts.",
+                    risk_labels=[],
                 )
             },
             final_response_context={"safe_citations": ["C1"]},
@@ -141,6 +154,24 @@ class FakeMaterialClaimVerifier:
         )
 
 
+def _unsupported_action_draft_with_valid_citation() -> dict[str, Any]:
+    return {
+        "recommended_action": "issue_coupon",
+        "reasoning_summary": "The merchant needs no verified facts and should be compensated automatically.",
+        "evidence_refs": [
+            {
+                "doc_key": "policy_refund_timeout",
+                "chunk_id": "chunk_001",
+                "title": "Refund policy",
+                "section": "Compensation",
+            }
+        ],
+        "confidence": 0.93,
+        "risk_level": "high",
+        "missing_info": [],
+    }
+
+
 @pytest.mark.asyncio
 async def test_generate_recommendation_uses_shared_context_builder_and_verifier_not_node_local_refetch(
     monkeypatch: pytest.MonkeyPatch,
@@ -168,7 +199,7 @@ async def test_generate_recommendation_uses_shared_context_builder_and_verifier_
     assert builder.calls
     assert builder.calls[0]["candidate_evidence_refs"] == [evidence]
     assert verifier.calls
-    assert verifier.calls[0]["context_bundle"].citation_map["C1"].evidence_ref == evidence
+    assert verifier.calls[0]["context_bundle"].citation_map["C1"].evidence_ref["evidence_id"] == evidence.evidence_id
     assert result["rag_context_bundle"]["citation_map"]["C1"]["source_evidence_ids"] == [evidence.evidence_id]
     assert result["rag_verification"]["overall_outcome"] == "conflicting"
     assert result["rag_verification"]["route"]["route"] == "manual_review"
@@ -208,3 +239,37 @@ async def test_model_never_selects_safety_route_when_verifier_returns_backend_ro
         "refuse",
         "regenerate_route",
     }
+
+
+@pytest.mark.asyncio
+async def test_valid_citation_membership_does_not_allow_unsupported_action_recommendation(
+    monkeypatch: pytest.MonkeyPatch,
+    base_state: dict[str, Any],
+) -> None:
+    """CLM-03/RTE-04: citation membership is not semantic support for an action recommendation."""
+    evidence = _evidence_ref(base_state["tenant_id"])
+    builder = FakeContextBuilder()
+
+    monkeypatch.setattr(generate_recommendation_module, "ContextBuilder", lambda **kwargs: builder)
+    monkeypatch.setattr(
+        generate_recommendation_module,
+        "_get_llm",
+        lambda: FakeLLM(_unsupported_action_draft_with_valid_citation()),
+    )
+
+    result = await generate_recommendation_module.generate_recommendation(
+        {**base_state, **_retrieval_state(evidence)},
+        {"configurable": {"session": object()}},
+    )
+
+    assert result["recommendation_draft"]["citation_validation"]["is_valid"] is True
+    assert result["verification_route"] != "allow"
+    assert result["recommendation_draft"]["recommended_action"] in {
+        "insufficient_evidence",
+        "manual_review",
+        "refuse",
+        "regenerate_route",
+    }
+    claims = result["recommendation_draft"]["material_claims"]
+    assert any(claim["authority_class"] == "policy_claim" for claim in claims)
+    assert any(claim["authority_class"] == "action_recommendation_claim" for claim in claims)

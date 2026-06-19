@@ -336,7 +336,7 @@ def mock_llm_responses() -> dict[str, dict[str, Any]]:
         "recommendation": {
             "high_risk": {
                 "recommended_action": "issue_coupon",
-                "reasoning_summary": "建议对该订单补偿600元 CNY，已超过人工审批阈值。",
+                "reasoning_summary": "补偿超过500元需人工审批。",
                 "evidence_refs": [evidence_ref],
                 "confidence": 0.91,
                 "risk_level": "high",
@@ -344,7 +344,7 @@ def mock_llm_responses() -> dict[str, dict[str, Any]]:
             },
             "low_risk": {
                 "recommended_action": "policy_answer",
-                "reasoning_summary": "仅解释七天无理由退款政策，不建议执行客户补偿动作。",
+                "reasoning_summary": "补偿超过500元需人工审批。",
                 "evidence_refs": [evidence_ref],
                 "confidence": 0.9,
                 "risk_level": "low",

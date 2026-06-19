@@ -123,13 +123,22 @@ class ContextBuilder:
         budget_truncated: list[EvidenceTraceEntry] = []
         debug_included: list[EvidenceTraceEntry] = []
 
-        for index, group in enumerate(citation_items, start=1):
-            citation_id = f"C{index}"
+        remaining_prompt_chars = self.budget.max_prompt_chars
+        for group in citation_items:
+            citation_id = f"C{len(prompt_citations) + 1}"
             primary = group[0]
             source_ids = [item.evidence_ref.evidence_id for item in group]
             merged_chunk_ids = [item.evidence_ref.chunk_id for item in group[1:]]
             content = "\n".join(item.content for item in group)
-            snippet, truncated = _bounded_snippet(content, self.budget.max_snippet_chars)
+            if remaining_prompt_chars <= 0:
+                exclusions.extend(_trace(item.evidence_ref, "budget_prompt_char_limit") for item in group)
+                continue
+            snippet_limit = min(self.budget.max_snippet_chars, remaining_prompt_chars)
+            snippet, truncated = _bounded_snippet(content, snippet_limit)
+            if not snippet:
+                exclusions.extend(_trace(item.evidence_ref, "budget_prompt_char_limit") for item in group)
+                continue
+            remaining_prompt_chars -= len(snippet)
             labels = _unique_label_list(label for item in group for label in item.risk_labels)
             metadata = {
                 "doc_key": primary.evidence_ref.doc_key,
@@ -389,8 +398,12 @@ def _display_label(group: list[_IncludedEvidence]) -> str:
 
 def _bounded_snippet(content: str, max_chars: int) -> tuple[str, bool]:
     safe = _sanitize_ordinary_text(" ".join(content.split()))
+    if max_chars <= 0:
+        return "", bool(safe)
     if len(safe) <= max_chars:
         return safe, False
+    if max_chars <= len(_TRUNCATION_MARKER):
+        return safe[:max_chars].rstrip(), True
     limit = max(0, max_chars - len(_TRUNCATION_MARKER))
     return safe[:limit].rstrip() + _TRUNCATION_MARKER, True
 

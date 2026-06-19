@@ -39,6 +39,13 @@ from src.tools.contracts import BusinessFactRefV1, ToolResultPromptSummary
 
 logger = logging.getLogger(__name__)
 _TRUNCATION_MARKER = " [truncated]"
+_ACTIONABLE_RECOMMENDATIONS = {
+    "issue_coupon",
+    "approve_refund",
+    "full_refund",
+    "partial_refund",
+    "compensation",
+}
 
 
 def _now_iso() -> str:
@@ -386,7 +393,16 @@ async def _verify_recommendation_with_shared_kernel(
             }
         )
 
-    verification_results = [await verifier.verify_claim(claim, context_bundle=context_bundle) for claim in claims]
+    verification_results = []
+    for claim in claims:
+        dependency_results = [result.model_dump(mode="json") for result in verification_results]
+        verification_results.append(
+            await verifier.verify_claim(
+                claim,
+                context_bundle=context_bundle,
+                dependency_results=dependency_results,
+            )
+        )
     if not verification_results:
         route = determine_verification_route(
             {"overall_outcome": "insufficient", "reason_codes": ["policy_evidence_required"]}
@@ -610,33 +626,68 @@ def _material_claims_from_draft(
     draft: dict[str, Any], cited_evidence_ids: list[str], context_bundle: Any
 ) -> list[MaterialClaim]:
     cited = [evidence_id for evidence_id in cited_evidence_ids if not evidence_id.startswith("unresolved:")]
-    if not cited:
+    claim_text = _draft_claim_text(draft)
+    if not cited or not claim_text:
         return []
-    return [
+    claims = [
         MaterialClaim(
             claim_id="claim-policy-1",
-            claim_text=_supportable_claim_text(draft, cited[0], context_bundle),
+            claim_text=claim_text,
             authority_class=MaterialClaimAuthorityClass.POLICY_CLAIM,
             source_node="generate_recommendation",
             risk_level=draft.get("risk_level"),
             cited_evidence_ids=cited,
         )
     ]
+    business_refs = _business_fact_refs_from_context_bundle(context_bundle)
+    if _is_actionable_recommendation(draft.get("recommended_action")):
+        if business_refs:
+            claims.append(
+                MaterialClaim(
+                    claim_id="claim-business-1",
+                    claim_text=claim_text,
+                    authority_class=MaterialClaimAuthorityClass.BUSINESS_FACT_CLAIM,
+                    source_node="generate_recommendation",
+                    risk_level=draft.get("risk_level"),
+                    business_fact_refs=business_refs,
+                )
+            )
+        claims.append(
+            MaterialClaim(
+                claim_id="claim-action-1",
+                claim_text=f"{draft.get('recommended_action')}: {claim_text}",
+                authority_class=MaterialClaimAuthorityClass.ACTION_RECOMMENDATION_CLAIM,
+                source_node="generate_recommendation",
+                risk_level=draft.get("risk_level"),
+                cited_evidence_ids=cited,
+                business_fact_refs=business_refs,
+                dependency_claim_ids=["claim-policy-1", "claim-business-1"],
+            )
+        )
+    return claims
 
 
-def _supportable_claim_text(draft: dict[str, Any], evidence_id: str, context_bundle: Any) -> str:
-    for snippet in _verifier_evidence_snippets(context_bundle):
-        if str(snippet.get("evidence_id") or "") == evidence_id and str(snippet.get("text") or "").strip():
-            return str(snippet["text"])
-    return str(draft.get("reasoning_summary") or "")
+def _draft_claim_text(draft: dict[str, Any]) -> str:
+    return str(draft.get("reasoning_summary") or draft.get("recommended_action") or "").strip()
 
 
-def _verifier_evidence_snippets(context_bundle: Any) -> list[dict[str, Any]]:
+def _is_actionable_recommendation(action: Any) -> bool:
+    action_text = str(action or "").casefold()
+    return any(token in action_text for token in _ACTIONABLE_RECOMMENDATIONS)
+
+
+def _business_fact_refs_from_context_bundle(context_bundle: Any) -> list[BusinessFactRefV1]:
     verifier_context = _get_value(context_bundle, "verifier_context")
-    snippets = _get_value(verifier_context, "evidence_snippets")
-    if isinstance(snippets, list):
-        return [dict(item) for item in snippets if isinstance(item, dict)]
-    return []
+    raw_refs = _get_value(verifier_context, "business_fact_refs")
+    if not isinstance(raw_refs, list):
+        return []
+    refs: list[BusinessFactRefV1] = []
+    for item in raw_refs:
+        try:
+            refs.append(BusinessFactRefV1.model_validate(item))
+        except Exception:
+            continue
+    return refs
 
 
 def _normalize_recommendation_verification(value: Any) -> dict[str, Any]:
