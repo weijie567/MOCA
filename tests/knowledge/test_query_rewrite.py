@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from src.knowledge.schemas import KnowledgeContext
+from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext, KnowledgeSearchResult
 
 TRUSTED_CONTEXT = {
     "tenant_id": "tenant-001",
@@ -121,3 +121,36 @@ def test_rewrite_skips_specific_out_of_domain_unsafe_or_missing_context() -> Non
         assert plan.rewritten_queries == ()
         assert plan.expansions == ()
         assert plan.safe_summary == f"rule_default: skip_reason={expected_reason}; rewrite_count=0"
+
+
+def test_knowledge_search_result_query_rewrite_uses_safe_summary_without_evidence_identity_changes() -> None:
+    _QueryRewritePlan, _RewriteExpansion, build_query_rewrite_plan = _load_rewrite_api()
+    from src.knowledge.rewrite import safe_rewrite_summary
+
+    plan = build_query_rewrite_plan("商家已发货还能仅退款吗？", _context())
+    query_rewrite = safe_rewrite_summary(plan)
+    result = KnowledgeSearchResult(
+        status="strong_evidence",
+        query_rewrite=query_rewrite,
+        retrieval_config_version="retrieval.v3",
+        rerank_config_version="rerank.v2",
+        best_score=0.91,
+        threshold=0.70,
+    )
+
+    assert result.query_rewrite == query_rewrite
+    assert "rewrite_count=" in result.query_rewrite
+    assert "商家已发货还能仅退款吗？" not in result.query_rewrite
+    assert set(EvidenceRefV1.model_fields) == {
+        "schema_version",
+        "tenant_id",
+        "evidence_id",
+        "doc_key",
+        "chunk_id",
+        "policy_version",
+        "text_hash",
+        "retrieved_at",
+        "retrieval_config_version",
+        "score",
+        "rank",
+    }
