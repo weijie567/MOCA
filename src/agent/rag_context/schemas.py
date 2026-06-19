@@ -2,12 +2,47 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.knowledge.schemas import EvidenceRefV1
 from src.tools.contracts import BusinessFactRefV1
+
+
+class MaterialClaimAuthorityClass(StrEnum):
+    POLICY_CLAIM = "policy_claim"
+    BUSINESS_FACT_CLAIM = "business_fact_claim"
+    ACTION_RECOMMENDATION_CLAIM = "action_recommendation_claim"
+
+
+class ClaimVerifierStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["claim_verifier_status.v1"] = "claim_verifier_status.v1"
+    outcome: str
+    reason_codes: list[str] = Field(default_factory=list)
+    level: Literal["level1", "level2", "level3", "combined"] = "combined"
+    checked_by: str = "material_claim_verifier.v1"
+
+
+class MaterialClaim(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["material_claim.v1"] = "material_claim.v1"
+    claim_id: str = Field(min_length=1)
+    claim_text: str = Field(min_length=1)
+    authority_class: MaterialClaimAuthorityClass
+    source_node: str = Field(min_length=1)
+    source_stage: str | None = None
+    risk_level: str | None = None
+    risk_hints: list[str] = Field(default_factory=list)
+    cited_evidence_ids: list[str] = Field(default_factory=list)
+    business_fact_refs: list[BusinessFactRefV1] = Field(default_factory=list)
+    dependency_claim_ids: list[str] = Field(default_factory=list)
+    optional_labels: list[str] = Field(default_factory=list)
+    verifier_status: ClaimVerifierStatus | None = None
 
 
 class RagContextBudget(BaseModel):
