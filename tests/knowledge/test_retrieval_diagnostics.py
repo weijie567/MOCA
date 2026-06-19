@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from src.knowledge.schemas import EvidenceRefV1
+from src.knowledge.schemas import KnowledgeContext
 
 RAW_REWRITE_PROMPT = "SHOULD_NOT_LEAK_RAW_REWRITE_PROMPT"
 RAW_PROVIDER_PAYLOAD = "SHOULD_NOT_LEAK_RAW_PROVIDER_PAYLOAD"
@@ -28,16 +29,33 @@ def _json_text(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, default=str, sort_keys=True)
 
 
+def _context() -> KnowledgeContext:
+    return KnowledgeContext(
+        tenant_id="tenant-001",
+        user_id="user-001",
+        role="support_agent",
+        merchant_scope=["merchant-001"],
+        run_id="run-001",
+        trace_id="trace-001",
+        locale="zh-CN",
+        effective_at="2026-06-14T00:00:00+00:00",
+    )
+
+
 def test_query_rewrite_summary_excludes_raw_payloads() -> None:
     RetrievalDiagnostics, _RankingExplanation, build_retrieval_diagnostics = _load_diagnostics_api()
+    from src.knowledge.rewrite import build_query_rewrite_plan, safe_rewrite_summary
+
+    rewrite_plan = build_query_rewrite_plan("商家已发货还能仅退款吗？", _context())
+    safe_summary = safe_rewrite_summary(rewrite_plan)
 
     diagnostics = build_retrieval_diagnostics(
         original_query="商家已发货还能仅退款吗？",
-        query_rewrite_summary="保留原始问题，并扩展为已发货仅退款、商家举证、物流核实。",
-        rewrite_expansion_count=2,
+        query_rewrite_summary=safe_summary,
+        rewrite_expansion_count=len(rewrite_plan.rewritten_queries),
         raw_rewrite_payload={
-            "prompt": RAW_REWRITE_PROMPT,
-            "provider_payload": RAW_PROVIDER_PAYLOAD,
+            "raw_prompt": RAW_REWRITE_PROMPT,
+            "raw_provider": RAW_PROVIDER_PAYLOAD,
             "private_reasoning": PRIVATE_REASONING,
             "source_block": RAW_SOURCE_BLOCK,
             "tool_payload": RAW_TOOL_PAYLOAD,
@@ -47,7 +65,9 @@ def test_query_rewrite_summary_excludes_raw_payloads() -> None:
 
     assert isinstance(diagnostics, RetrievalDiagnostics)
     diagnostics_text = _json_text(diagnostics)
-    assert "保留原始问题" in diagnostics_text
+    assert "safe_summary" in diagnostics_text
+    assert "rewrite_count=2" in diagnostics_text
+    assert "triggers=仅退款,已发货" in diagnostics_text
     for sentinel in (
         RAW_REWRITE_PROMPT,
         RAW_PROVIDER_PAYLOAD,
