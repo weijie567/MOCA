@@ -39,35 +39,14 @@
 
 </details>
 
-## Completed Milestone: v1.2 Long-term / Case Memory
+<details>
+<summary>v1.2 Long-term / Case Memory (Phase 16) - SHIPPED 2026-06-17</summary>
 
-### Phase 16: Long-term / Case Memory
+- [x] Phase 16: Long-term / Case Memory - 9/9 plans complete; verification passed.
+- Delivered reviewed long-term profile memory and reviewed case memory retrieval on top of the v1.1 conversation/context foundation.
+- Preserved the boundary that memory is contextual assistance only and cannot become policy evidence, approval/action authority, current business fact, or replay/audit truth.
 
-**Status:** Complete — 9/9 plans executed; verification passed
-
-**Plans:** 9/9 plans complete
-
-**Goal:** Implement reviewed long-term profile memory and reviewed case memory retrieval on top of the v1.1 conversation/context foundation, while preserving the boundaries that memory is contextual assistance only.
-
-**Requirements:** `MEMID-01`, `MEMSCHEMA-01`, `LONGMEM-01`, `LONGMEM-02`, `LONGMEM-03`, `CASEMEM-01`, `CASEMEM-02`, `CASEMEM-03`, `TOMBSTONE-01`, `TOMBSTONE-02`, `MEMCTX-01`, `MEMCTX-02`, `MEMREVIEW-01`, `MEMEVAL-01`
-
-**Success criteria:**
-
-- `memory_identity.v1` has golden tests for canonical normalization and hash behavior.
-- Long-term memory writes are reviewed/deterministic and retrieval excludes rejected, deleted, tombstoned, prohibited, superseded, stale, or out-of-scope records.
-- Case memory stores reviewed precedents and retrieval is separate from session memory, long-term memory, policy evidence, and current business facts.
-- Tombstones prevent immediate retrieval and block delayed/asynchronous rewrites in the same transaction.
-- `ContextAssembler` can include bounded memory snippets without raw payload leakage or authority escalation.
-- Tests prove memory cannot act as `EvidenceRefV1`, approval evidence, action authorization, current business truth, or replay/audit truth.
-- Transitional `search_case_memory` behavior is renamed, quarantined, or backed by the new reviewed case memory store.
-
-**Planning prerequisites:**
-
-- Read `docs/contract-spec.md` Section 20 memory contracts.
-- Read `docs/phase-13-17-architecture-plan.md` Phase 16 scope.
-- Read `docs/current-implementation-map.md` memory-related current-state notes.
-- Include migration rollback and downgrade preflight strategy for new schema.
-- Include coverage for tombstone no-rewrite and separate-session concurrency risks where relevant.
+</details>
 
 <details>
 <summary>v1.3 RAG Hybrid Retrieval (Phase 20) - SHIPPED 2026-06-18</summary>
@@ -92,7 +71,7 @@
 - Orphaned requirements: 0
 - Duplicate phase mappings: 0
 
-## Deferred Beyond v1.4
+## Deferred Work
 
 - **Phase 17: External Action Execution** - external execution storage, outbox dispatch, reconciliation, compensation, duplicate execution/key guards. Phase 17 remains owner-named deferred work and is not renumbered by v1.4.
 - **post-Phase 17 Policy Scope** - tenant-over-global global/default policy fallback.
