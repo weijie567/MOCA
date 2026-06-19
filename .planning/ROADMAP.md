@@ -33,7 +33,15 @@ Research is intentionally skipped for this milestone. Active planning uses `.pla
   4. Maintainers and evals can inspect bounded ranking diagnostics showing selected channels, rewrite contribution, rerank contribution, rank changes, safe score components, and fallback reasons without leaking raw prompts, raw provider payloads, source-block internals, raw tool facts, private reasoning, or unbounded policy text.
   5. Final retrieval output still satisfies Phase 20-22 boundaries: reranking cannot mutate canonical chunk content, text hashes, policy version identity, `EvidenceRefV1` fields, ContextBuilder canonical validation, verifier support, approval snapshots, or action-draft safety.
   6. Retrieval evals compare dense-only, sparse-only, fuzzy-only, RRF baseline, rewrite-enabled, reranker-enabled, and rewrite-plus-reranker variants with blocking metrics for Hit@K, MRR or equivalent rank quality, citation-support compatibility, no-evidence precision, unsafe retrieval rate, fallback rate, and latency percentiles.
-**Plans**: TBD
+**Plans**: 6 plans
+
+Plans:
+- [ ] 23-01-PLAN.md — Wave 0 RED test scaffold and static boundary updates for query rewrite, rerank, diagnostics, eval, budgets, and deferral expectations.
+- [ ] 23-02-PLAN.md — Query rewrite contracts, deterministic skip rules, safe summaries, and trusted-filter no-widening.
+- [ ] 23-03-PLAN.md — Original-query plus rewritten-query candidate generation, channel limits, merge/dedupe, and baseline fallback.
+- [ ] 23-04-PLAN.md — Project-owned reranker contract, deterministic/default local reranking, optional provider gates, and fallback diagnostics.
+- [ ] 23-05-PLAN.md — Retrieval diagnostics, ablation golden cases, metrics reporting, latency budgets, and no-live-provider eval gates.
+- [ ] 23-06-PLAN.md — Boundary regression closure across Phase 20 filters, Phase 21 provenance, Phase 22 verifier/action rules, deferrals, and final acceptance gates.
 
 Suggested plan slices:
 
