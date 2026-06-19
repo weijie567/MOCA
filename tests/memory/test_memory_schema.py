@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 from sqlalchemy import CheckConstraint
 
@@ -44,6 +45,12 @@ def _migration_source() -> str:
     return MIGRATION_PATH.read_text(encoding="utf-8")
 
 
+def _migration_operation_position(source: str, operation: str, table_name: str, start: int = 0) -> int:
+    match = re.search(rf"op\.{operation}\(\s*\"{re.escape(table_name)}\"", source[start:])
+    assert match is not None
+    return start + match.start()
+
+
 def _table_columns(table_name: str) -> set[str]:
     assert table_name in Base.metadata.tables
     return set(Base.metadata.tables[table_name].c.keys())
@@ -65,7 +72,7 @@ def test_phase16_memory_tables_exist() -> None:
 
     source = _migration_source()
     for table_name in PHASE16_TABLES:
-        assert f'op.create_table("{table_name}"' in source
+        _migration_operation_position(source, "create_table", table_name)
 
 
 def test_case_memory_has_content_and_source_identity_columns() -> None:
@@ -74,8 +81,8 @@ def test_case_memory_has_content_and_source_identity_columns() -> None:
     assert expected_columns.issubset(_table_columns("case_memories"))
 
     source = _migration_source()
-    case_table_start = source.index('op.create_table("case_memories"')
-    case_table_end = source.index('op.create_table("memory_tombstones"', case_table_start)
+    case_table_start = _migration_operation_position(source, "create_table", "case_memories")
+    case_table_end = _migration_operation_position(source, "create_table", "memory_tombstones", case_table_start)
     case_table_source = source[case_table_start:case_table_end]
     for column_name in expected_columns:
         assert f'"{column_name}"' in case_table_source
@@ -124,7 +131,7 @@ def test_phase16_memory_migration_preflight_objects_are_declared() -> None:
     assert "def downgrade() -> None:" in source
     assert "session_memories" not in source
     for table_name in PHASE16_TABLES:
-        assert f'op.create_table("{table_name}"' in source
+        _migration_operation_position(source, "create_table", table_name)
     for index_name in REQUIRED_MIGRATION_INDEXES:
         assert index_name in source
     for constraint_name in (
@@ -145,5 +152,5 @@ def test_phase16_memory_migration_downgrade_drops_tables_in_reverse_dependency_o
         "long_term_memories",
     ]
 
-    positions = [source.index(f'op.drop_table("{table_name}")') for table_name in expected_drop_order]
+    positions = [_migration_operation_position(source, "drop_table", table_name) for table_name in expected_drop_order]
     assert positions == sorted(positions)
