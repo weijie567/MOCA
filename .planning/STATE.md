@@ -1,18 +1,18 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.4
-milestone_name: RAG Production Ingestion + OCR
+milestone: v1.5
+milestone_name: RAG Context Builder + Hallucination Control
 current_phase: null
-status: milestone_archived
-stopped_at: v1.4 archived; ready for next milestone
-last_updated: "2026-06-19T04:37:32Z"
-last_activity: "2026-06-19 -- v1.4 archived"
+status: defining_requirements
+stopped_at: v1.5 started; defining requirements
+last_updated: "2026-06-19T05:15:01Z"
+last_activity: "2026-06-19 -- Milestone v1.5 started"
 progress:
-  total_phases: 1
-  completed_phases: 1
-  total_plans: 9
-  completed_plans: 9
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State: MOCA
@@ -22,17 +22,17 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-19)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Between milestones — v1.4 RAG Production Ingestion + OCR is archived
+**Current focus:** v1.5 RAG Context Builder + Hallucination Control — defining requirements
 
 ## Current Position
 
-Phase: none active
-Plan: none active
-Plans: 9/9 complete for v1.4
-Status: Milestone archived
-Last activity: 2026-06-19 -- v1.4 archived
+Phase: Not started (defining requirements)
+Plan: —
+Plans: 0/0 complete for v1.5
+Status: Defining requirements
+Last activity: 2026-06-19 -- Milestone v1.5 started
 
-Progress: [██████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 Planning files:
 
@@ -40,7 +40,6 @@ Planning files:
 - `.planning/ROADMAP.md`
 - `.planning/STATE.md`
 - `.planning/MILESTONES.md`
-- `.planning/milestones/v1.4-REQUIREMENTS.md`
 
 ## Completed Baseline
 
@@ -207,6 +206,10 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 21 Plan 05: Final xfail inventory keeps PHASE21_XFAIL_OWNERS for audit readability but removes the obsolete strict xfail helper and all implementation-pending entries.
 - Phase 21 final acceptance is accepted; post-dependency gates resolved local chi_sim OCR traineddata and live pgvector migration coverage.
 - Phase 21 scope guard confirms no Phase 22/23/RAG-5 deliverables were implemented; existing v1.3 query rewrite/rerank compatibility names remain allowed at known sites.
+- v1.5 starts Phase 22 RAG Context Builder + Hallucination Control after v1.4 archive.
+- Phase 22 owns retrieval-after / reasoning-before ContextBuilder work, MaterialClaim taxonomy, tiered verification, deterministic failure routing, and hallucination-control evals.
+- Phase 22 must not implement Phase 23 query rewrite, model/cross-encoder reranking, external rerank APIs, new search backends, or Phase 17 external execution.
+- Phase 22 must preserve authority separation: policy conclusions require `EvidenceRefV1`, business fact claims require Tool System refs, memory remains contextual only, and provenance/debug metadata must not change `EvidenceRefV1` identity.
 
 ## Accumulated Context
 

@@ -10,6 +10,25 @@ Built as an open-source portfolio project demonstrating enterprise Agent enginee
 
 When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution — never silently executing something irreversible.
 
+## Current Milestone: v1.5 RAG Context Builder + Hallucination Control
+
+**Goal:** Build a reusable RAG reasoning kernel after retrieval and before answer/action reasoning so policy conclusions are grounded only in current, authorized, hash-valid, and semantically supported evidence.
+
+**Target features:**
+- ContextBuilder contract: input candidate `EvidenceRefV1` values, business fact refs, trusted tenant/run/thread context, and risk/conflict hints; output a prompt-safe `RagContextBundle` or `ReasoningContext` with canonical evidence snippets, citation map, claim support candidates, freshness/authority/OCR/conflict labels, exclusion reasons, and token budget trace.
+- Evidence context assembly: re-fetch canonical evidence content, validate tenant/scope/text_hash/freshness, deduplicate and merge evidence, enforce token budgets without dropping protected citation metadata, and label conflict/freshness/authority/OCR confidence risks.
+- MaterialClaim taxonomy: produce `policy_claim`, `business_fact_claim`, and `action_recommendation_claim` records, each bound to the correct authority refs.
+- Authority separation: policy claims require `EvidenceRefV1`; business fact claims require `BusinessFactRefV1` / `ToolResultV2` safe refs; action recommendation claims require both policy support and business fact support and cannot bypass approval/action boundaries.
+- Tiered verification: Level 1 deterministic membership/tenant/scope/hash/freshness gates always run; Level 2 lexical/span support checks ordinary claims; Level 3 semantic support runs only for high-risk, conflict, stale, OCR-low-confidence, or ambiguous cases.
+- Deterministic failure routing: unsupported, insufficient, conflicting, stale, unauthorized, hash-mismatched, or manual-review-needed claims route to regenerate, refuse, or manual review instead of letting the model decide.
+- Prompt/debug boundaries: prompts receive only prompt-safe context bundles; verifier trace, retrieval debug fields, source-block/OCR raw metadata, and provenance details stay out of ordinary user answers and do not change `EvidenceRefV1` identity.
+- Evaluation coverage: faithfulness, citation accuracy, refusal/manual-review routing, stale/conflicting evidence, OCR low-confidence traps, business-data hallucination, memory/evidence/action authority separation, and action recommendations missing required support.
+
+**Scope boundaries:**
+- v1.5 may deduplicate, merge, budget, validate, label, and filter unsupported evidence context.
+- v1.5 must not implement model-based relevance reranking, cross-encoder reranking, query rewrite, or external rerank APIs.
+- v1.5 must not change Phase 20 dense/sparse/fuzzy/RRF ranking semantics.
+
 ## Shipped Milestones
 
 - **v1.0 MVP** — shipped 2026-05-22.
@@ -94,7 +113,12 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 
 ### Active
 
-- No active milestone is selected. Start the next milestone with fresh requirements via `$gsd-new-milestone`.
+- [ ] Phase 22 RAG reasoning kernel builds a bounded ContextBuilder between retrieval and answer/action reasoning.
+- [ ] Phase 22 ContextBuilder emits prompt-safe evidence context with citation maps, risk labels, exclusion reasons, and token budget trace.
+- [ ] Phase 22 MaterialClaim outputs separate policy claims, business fact claims, and action recommendation claims with the correct authority refs.
+- [ ] Phase 22 verifier applies deterministic Level 1 gates, low-cost Level 2 lexical/span support checks, and risk-triggered Level 3 semantic support.
+- [ ] Phase 22 routes unsupported, stale, conflicting, unauthorized, hash-mismatched, and insufficient claims deterministically to regenerate, refuse, or manual review.
+- [ ] Phase 22 evals cover faithfulness, citation accuracy, refusal/manual-review routing, business-data hallucination, OCR/conflict traps, and authority-boundary regressions.
 
 ### Out of Scope
 
@@ -102,10 +126,12 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - Tenant-over-global global/default policy fallback — future post-Phase 17 Policy Scope milestone.
 - Memory as policy evidence, approval/action authority, current business fact, or replay/audit truth — violates the contract boundary.
 - Full user-facing memory management UI — defer until storage/review/tombstone/retrieval foundations are safe.
-- `MaterialClaim` and semantic verifier — deferred to Phase 22: RAG Context Builder + Hallucination Control.
 - Query rewrite, reranker interface, cross-encoder/external rerank API, full ranking explanation, retrieval ablation eval, and latency budget — deferred to Phase 23: RAG Reranker + Query Rewrite.
 - Full external `SearchBackend` interface — deferred to Phase RAG-5: Optional External Search Backend; current code has one Postgres backend and `PolicyKnowledgeService` already hides retriever details from Agent nodes.
 - New vector database service — PostgreSQL/pgvector remains the default unless Phase RAG-5 backend planning proves a stronger need.
+- Source-block/OCR/provenance fields in `EvidenceRefV1` or ordinary business facts — provenance remains internal/debug/maintainer lookup data.
+- Policy source upload/review/lifecycle UI — future Policy Source Operations milestone.
+- Vespa/OpenSearch or another search backend — future Phase RAG-5 only if PostgreSQL hybrid no longer fits.
 - Second scenario (creator appeals) — defer to polish phase
 - MCP protocol layer — adds complexity without MVP value
 - Kubernetes / production deployment — Docker Compose sufficient for demo
@@ -166,11 +192,13 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - v1.3 RAG Hybrid Retrieval is shipped and archived. Phase 20 owns the minimal PostgreSQL hybrid retrieval upgrade and explicitly excludes OCR, `DocumentBlock`, `MaterialClaim`, semantic verifier, reranker/query rewrite, Vespa/OpenSearch, and full external `SearchBackend`. OCR/parser/`DocumentBlock` is Phase 21-owned; `MaterialClaim`/semantic verifier is Phase 22-owned; reranker/query rewrite is Phase 23-owned; Vespa/OpenSearch/full external `SearchBackend` is Phase RAG-5-owned.
 - v1.4 RAG Production Ingestion + OCR is shipped and archived. Phase 21 preserved v1.3 retrieval/evidence contracts while adding parser/OCR and source-block provenance.
 
-## Next Milestone Setup
+## Current Milestone Setup
 
-- Define fresh requirements for the next milestone instead of carrying v1.4 requirements forward.
-- Keep owner-named deferrals explicit: Phase 17 External Action Execution, post-Phase 17 Policy Scope, Phase 22 hallucination control, Phase 23 reranker/query rewrite, Phase RAG-5 external backend, and Policy Source Operations.
+- v1.5 owns Phase 22 RAG Context Builder + Hallucination Control.
+- Keep owner-named deferrals explicit: Phase 17 External Action Execution, post-Phase 17 Policy Scope, Phase 23 reranker/query rewrite, Phase RAG-5 external backend, and Policy Source Operations.
 - Preserve v1.1/v1.2/v1.3/v1.4 safety boundaries: policy evidence remains `EvidenceRefV1`; business facts remain Tool System outputs; memory remains contextual assistance only; parser/OCR provenance remains internal unless verified through the maintainer provenance lookup.
+- ContextBuilder is retrieval-after / reasoning-before evidence kernel work; it must not become a retrieval backend, reranker, query rewriter, or generic prompt assembler.
+- Verifier failures and timeouts fail closed; Level 3 semantic verification must have explicit claim/evidence/token/latency budgets before implementation.
 
 ## Constraints
 
@@ -201,6 +229,7 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 | Name RAG deferral owners explicitly | Prevents OCR, `DocumentBlock`, `MaterialClaim`, reranking, and external backend work from being treated as vague future scope | Adopted 2026-06-18 |
 | Scope v1.4 to Phase 21 ingestion/OCR | Keeps source parsing and provenance separate from later hallucination-control, reranking, and backend-scale work | Adopted 2026-06-18 |
 | Ship v1.4 only after dependency gates pass | Local `chi_sim+eng` OCR preflight and live pgvector migration round trip remove the earlier dependency-only acceptance caveat | Adopted 2026-06-19 |
+| Scope v1.5 to Phase 22 hallucination control | Keeps reasoning-context validation, MaterialClaim support checks, and deterministic failure routing separate from Phase 23 reranking/query rewrite and Phase 17 external execution | Adopted 2026-06-19 |
 
 ## Evolution
 
@@ -220,4 +249,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-19 after v1.4 milestone archive*
+*Last updated: 2026-06-19 after v1.5 milestone start*
