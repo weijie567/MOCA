@@ -95,6 +95,21 @@ def _compat_action_result_from_data(data: dict[str, Any], draft_outcome: dict[st
     }
 
 
+def _verification_route(state: AgentState) -> str | None:
+    rag_verification = state.get("rag_verification")
+    if isinstance(rag_verification, dict):
+        route = rag_verification.get("route")
+        if isinstance(route, dict) and route.get("route"):
+            return str(route["route"])
+    route_value = state.get("verification_route")
+    return str(route_value) if route_value else None
+
+
+def _verification_blocks_action(state: AgentState) -> bool:
+    route = _verification_route(state)
+    return route is not None and route != "allow"
+
+
 def _action_error_result(result: ToolResultV2) -> dict[str, Any]:
     error = result.error
     return {
@@ -185,6 +200,19 @@ def _trusted_approval_result(state: AgentState, approval: dict[str, Any]) -> Tru
 async def action_draft(state: AgentState, config: RunnableConfig) -> dict:
     """Create a durable demo action draft through the node-only tool boundary."""
     started_at = _now_iso()
+    if _verification_blocks_action(state):
+        return {
+            "action_result": {
+                "status": "error",
+                "data": {},
+                "error": {
+                    "error_code": "VERIFIER_NOT_ALLOW",
+                    "message": "Recommendation verification did not allow action draft creation",
+                    "retryable": False,
+                },
+            },
+            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("error", started_at)],
+        }
     proposed = state.get("proposed_action") or {}
     approval = state.get("approval_result") or {}
     risk = state.get("risk_assessment") or {}

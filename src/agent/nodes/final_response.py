@@ -131,6 +131,71 @@ def _completed_response(draft: dict[str, Any], risk_assessment: dict[str, Any]) 
     return "\n".join(parts)
 
 
+def _verification_route_payload(state: AgentState) -> dict[str, Any] | None:
+    rag_verification = state.get("rag_verification")
+    if isinstance(rag_verification, dict):
+        route = rag_verification.get("route")
+        if isinstance(route, dict) and route.get("route") and route.get("route") != "allow":
+            return rag_verification
+    route_value = state.get("verification_route")
+    if isinstance(route_value, str) and route_value and route_value != "allow":
+        return {
+            "overall_outcome": state.get("verifier_status") or "unknown",
+            "route": {
+                "route": route_value,
+                "selected_by": "backend",
+                "model_selected": False,
+                "decision_source": "phase22_verifier",
+            },
+            "reason_codes": state.get("verifier_reason_codes") or [],
+        }
+    return None
+
+
+def _verification_route_value(verification: dict[str, Any]) -> str:
+    route = verification.get("route")
+    if isinstance(route, dict):
+        return str(route.get("route") or "manual_review")
+    return "manual_review"
+
+
+def _verification_final_status(route: str) -> str:
+    if route == "manual_review":
+        return "manual_review"
+    if route == "refuse":
+        return "refused"
+    return "insufficient_evidence"
+
+
+def _safe_verification_response(verification: dict[str, Any]) -> str:
+    route = _verification_route_value(verification)
+    reason_codes = {str(code) for code in verification.get("reason_codes") or []}
+    if route == "regenerate_route":
+        return "当前建议未通过证据支持校验，需要重新生成后再继续处理。"
+    if route == "manual_review":
+        return "当前证据状态需要人工复核，暂不能创建审批请求或动作草稿。"
+    if route == "refuse":
+        return "无法基于当前政策证据支持该建议，请补充有效证据或交由人工处理。"
+    if "business_fact_missing" in reason_codes:
+        return "业务事实不足，当前不能给出动作建议或创建审批请求。"
+    return "没有找到足够证据支持该建议，当前不能继续创建审批请求或动作草稿。"
+
+
+def _verification_llm_output(response_text: str, verification: dict[str, Any]) -> dict[str, Any]:
+    route = _verification_route_value(verification)
+    route_payload = verification.get("route") if isinstance(verification.get("route"), dict) else {}
+    return {
+        "response_text": response_text,
+        "evidence_citations": [],
+        "final_status": _verification_final_status(route),
+        "mode": "deterministic-template",
+        "approval_context": None,
+        "verification_route": route,
+        "route_selected_by": route_payload.get("selected_by") or "backend",
+        "model_selected_route": bool(route_payload.get("model_selected")),
+    }
+
+
 def _is_successful_demo_draft_outcome(draft_outcome: object) -> bool:
     return (
         isinstance(draft_outcome, dict)
@@ -220,6 +285,17 @@ async def final_response(state: AgentState) -> dict:
                     "mode": "deterministic-template",
                     "approval_context": None,
                 },
+            },
+            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
+        }
+    verification = _verification_route_payload(state)
+    if verification is not None:
+        response_text = _safe_verification_response(verification)
+        return {
+            "final_response": response_text,
+            "llm_outputs": {
+                **(state.get("llm_outputs") or {}),
+                "final_response": _verification_llm_output(response_text, verification),
             },
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
         }

@@ -151,6 +151,32 @@ def _is_actionable_recommendation(action: Any) -> bool:
     return any(actionable in action_text for actionable in ACTIONABLE_ACTIONS)
 
 
+def _verification_route(state: AgentState) -> str | None:
+    rag_verification = state.get("rag_verification")
+    if isinstance(rag_verification, dict):
+        route = rag_verification.get("route")
+        if isinstance(route, dict) and route.get("route"):
+            return str(route["route"])
+    route_value = state.get("verification_route")
+    return str(route_value) if route_value else None
+
+
+def _non_allow_verification(state: AgentState) -> bool:
+    route = _verification_route(state)
+    return route is not None and route != "allow"
+
+
+def _blocked_verifier_risk(state: AgentState) -> dict[str, Any]:
+    route = _verification_route(state)
+    risk_level = "manual_review" if route == "manual_review" else "blocked" if route == "refuse" else "low"
+    return {
+        "risk_level": risk_level,
+        "risk_reason": "Recommendation verification did not allow action assessment.",
+        "approval_required": False,
+        "rule_ref": "PHASE22-VERIFY",
+    }
+
+
 def _canonical_action_type(action: Any) -> str:
     action_text = str(action or "")
     lowered = action_text.lower()
@@ -415,6 +441,17 @@ async def assess_risk_and_approval(state: AgentState, config: RunnableConfig = N
     rules = _load_risk_rules()
     draft = state.get("recommendation_draft") or {}
     context = state.get("business_context") or {}
+
+    if _non_allow_verification(state):
+        return {
+            "risk_assessment": _blocked_verifier_risk(state),
+            "proposed_action": None,
+            "approval_result": None,
+            "action_draft": None,
+            "safety_snapshot_verified": False,
+            "rag_verification": state.get("rag_verification"),
+            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("blocked", started_at)],
+        }
 
     if draft.get("recommended_action") in NO_ACTION_RECOMMENDATIONS:
         assessment = _fallback_risk(draft, context, rules)

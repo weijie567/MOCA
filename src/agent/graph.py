@@ -52,6 +52,8 @@ APPROVAL_RESULT_REQUIRED_FIELDS = (
 
 def route_after_risk(state: AgentState) -> str:
     """Route based on risk assessment and proposed action."""
+    if not _verification_allows_action_path(state):
+        return "final_response"
     risk = state.get("risk_assessment") or {}
     proposed = state.get("proposed_action")
     if not proposed:
@@ -64,6 +66,18 @@ def route_after_risk(state: AgentState) -> str:
         return "approval_gate"
     # Phase 14 has no durable auto-allowed binding, so no-approval actions fail closed.
     return "final_response"
+
+
+def _verification_allows_action_path(state: AgentState) -> bool:
+    route = state.get("verification_route")
+    rag_verification = state.get("rag_verification")
+    if isinstance(rag_verification, dict):
+        route_value = rag_verification.get("route")
+        if isinstance(route_value, dict):
+            route = route_value.get("route")
+    if route is None:
+        return True
+    return route == "allow"
 
 
 def route_after_approval(state: AgentState) -> str:
