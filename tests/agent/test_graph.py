@@ -105,7 +105,7 @@ def _slots(order_id: str | None = None) -> dict:
 def _recommendation() -> dict:
     return {
         "recommended_action": "建议退款",
-        "reasoning_summary": "根据规则",
+        "reasoning_summary": "退款超时时，客服应核实支付通道和退款状态。",
         "evidence_refs": [
             {
                 "doc_key": "policy_refund_timeout",
@@ -150,7 +150,7 @@ class FakeGraphToolManager:
         if name == "get_order":
             return self._order_result(args.get("order_no") or self.order_id or "ORD-001")
         if name == "search_policy":
-            return self._policy_result()
+            return self._policy_result(ctx.tenant_id)
         raise AssertionError(f"Unexpected graph tool call: {name}")
 
     def _order_result(self, order_id: str) -> ToolResultV2:
@@ -178,12 +178,12 @@ class FakeGraphToolManager:
             audit_ref=None,
         )
 
-    def _policy_result(self) -> ToolResultV2:
+    def _policy_result(self, tenant_id: str) -> ToolResultV2:
         evidence = []
         if self.policy_status != "no_evidence":
             evidence = [
                 EvidenceRefV1.build(
-                    tenant_id="tenant",
+                    tenant_id=tenant_id,
                     doc_key="policy_refund_timeout",
                     chunk_id="chunk_001",
                     policy_version="v1",
@@ -221,6 +221,19 @@ def _patch_graph_dependencies(
     monkeypatch.setattr(extract_slots_module, "_get_llm", lambda: FakeLLM(_slots(order_id)))
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
     monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: FakeLLM(_risk()))
+
+    class FakePolicyKnowledgeService:
+        def __init__(self, retriever) -> None:
+            pass
+
+        async def get_verified_evidence_contents(self, *, tenant_id, evidence_refs):
+            return {
+                ref.evidence_id: "退款超时时，客服应核实支付通道和退款状态。"
+                for ref in evidence_refs
+                if ref.tenant_id == tenant_id
+            }
+
+    monkeypatch.setattr(generate_recommendation_module, "PolicyKnowledgeService", FakePolicyKnowledgeService)
     manager = FakeGraphToolManager(order_id=order_id, policy_status=policy_status)
     events: list[dict[str, Any]] = []
     return {"tool_manager": manager, "events": events}
@@ -296,7 +309,10 @@ async def test_happy_path_policy_qa_uses_investigate_manager(monkeypatch):
     deps = _patch_graph_dependencies(monkeypatch, intent="policy_qa")
     graph = build_graph(MemorySaver())
 
-    final_state = await graph.ainvoke(_state("退款超时规则是什么？"), _config(deps["tool_manager"], deps["events"]))
+    final_state = await graph.ainvoke(
+        _state("退款超时规则是什么？"),
+        _config(deps["tool_manager"], deps["events"], session=object()),
+    )
 
     assert final_state["final_response"]
     assert final_state["current_intent"] == "policy_qa"

@@ -14,10 +14,13 @@ from src.tools.contracts import ToolCallContext, ToolResultV2
 from tests.agent.conftest import FakeLLM
 
 
+TENANT_ID = "11111111-1111-1111-1111-111111111111"
+
+
 def _base_state() -> dict:
     return {
         "thread_id": "facade-integration-thread",
-        "tenant_id": "tenant-001",
+        "tenant_id": TENANT_ID,
         "user_id": "user-001",
         "role": "support_agent",
         "user_query": "退款超时规则是什么？",
@@ -33,7 +36,7 @@ def _base_state() -> dict:
 
 def _evidence(*, text: str = "退款超时时，应核实支付通道和退款状态。") -> EvidenceRefV1:
     return EvidenceRefV1.build(
-        tenant_id="tenant-001",
+        tenant_id=TENANT_ID,
         doc_key="policy_refund_timeout",
         chunk_id="chunk_001",
         policy_version="v3",
@@ -137,6 +140,19 @@ async def _run_path(
     else:
         monkeypatch.setattr(recommendation_module, "_get_llm", lambda: FakeLLM(recommendation))
 
+    class FakePolicyKnowledgeService:
+        def __init__(self, retriever) -> None:
+            pass
+
+        async def get_verified_evidence_contents(self, *, tenant_id, evidence_refs):
+            return {
+                ref.evidence_id: "退款超时时，应核实支付通道和退款状态。"
+                for ref in evidence_refs
+                if ref.tenant_id == tenant_id
+            }
+
+    monkeypatch.setattr(recommendation_module, "PolicyKnowledgeService", FakePolicyKnowledgeService)
+
     state = _base_state()
     state["_investigate_plan"] = [
         {"next_tool": "search_policy", "args": {"query": state["user_query"]}, "reason": "policy"}
@@ -159,7 +175,10 @@ async def _run_path(
         },
     )
     state.update(investigate_output)
-    recommendation_output = await recommendation_module.generate_recommendation(state)
+    recommendation_output = await recommendation_module.generate_recommendation(
+        state,
+        {"configurable": {"session": AsyncMock()}},
+    )
     state.update(recommendation_output)
     response_output = await final_response(state)
     state.update(response_output)
@@ -181,7 +200,7 @@ async def test_facade_path_preserves_actionable_status_and_canonical_evidence(
     state = await _run_path(
         monkeypatch,
         search_result=_search_result(status=status, best_score=best_score, evidence_refs=[evidence]),
-        recommendation=_recommendation(),
+        recommendation=_recommendation(reasoning="退款超时时，应核实支付通道和退款状态。"),
     )
 
     assert state["retrieved_evidence"]["status"] == status
@@ -232,4 +251,5 @@ async def test_present_evidence_id_passes_membership_without_semantic_support(mo
     )
 
     assert state["recommendation_draft"]["citation_validation"]["is_valid"] is True
-    assert state["recommendation_draft"]["recommended_action"] == "建议退款"
+    assert state["recommendation_draft"]["recommended_action"] != "建议退款"
+    assert state["verification_route"] != "allow"
