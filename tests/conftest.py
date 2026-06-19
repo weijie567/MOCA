@@ -216,40 +216,6 @@ async def seeded_session(session: AsyncSession):
         ],
     )
     session.add(ticket)
-    policy_content = "补偿超过500元需人工审批。"
-    policy_document = PolicyDocument(
-        id=uuid.uuid4(),
-        tenant_id=demo_tenant.id,
-        doc_key="approval_refund_policy",
-        doc_type="refund_rule",
-        title="售后补偿政策",
-        effective_date=(now - timedelta(days=30)).date(),
-        risk_level="high",
-        version=1,
-        content=policy_content,
-        source_type="test_fixture",
-        source_checksum="test-refund-policy-v1",
-        parser_metadata_json={},
-        policy_version_fingerprint="test-refund-policy-v1",
-    )
-    session.add(policy_document)
-    await session.flush()
-    session.add(
-        PolicyChunk(
-            id=uuid.uuid4(),
-            tenant_id=demo_tenant.id,
-            doc_id=policy_document.id,
-            chunk_id="approval_refund_policy#001",
-            section="高风险补偿",
-            content=policy_content,
-            search_text=policy_content,
-            source_block_refs_json=[],
-            ocr_metadata_json={},
-            risk_level="high",
-            effective_date=policy_document.effective_date,
-            embedding=None,
-        )
-    )
     await session.commit()
     return {
         "tenant": demo_tenant,
@@ -402,8 +368,47 @@ def mock_llm_responses() -> dict[str, dict[str, Any]]:
     }
 
 
+async def _seed_approval_policy(session: AsyncSession, tenant_id: uuid.UUID) -> None:
+    policy_content = "补偿超过500元需人工审批。"
+    policy_document = PolicyDocument(
+        id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        doc_key="approval_refund_policy",
+        doc_type="refund_rule",
+        title="售后补偿政策",
+        effective_date=(datetime.now(UTC) - timedelta(days=30)).date(),
+        risk_level="high",
+        version=1,
+        content=policy_content,
+        source_type="test_fixture",
+        source_checksum="test-approval-refund-policy-v1",
+        parser_metadata_json={},
+        policy_version_fingerprint="test-approval-refund-policy-v1",
+    )
+    session.add(policy_document)
+    await session.flush()
+    session.add(
+        PolicyChunk(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            doc_id=policy_document.id,
+            chunk_id="approval_refund_policy#001",
+            section="高风险补偿",
+            content=policy_content,
+            search_text=policy_content,
+            source_block_refs_json=[],
+            ocr_metadata_json={},
+            risk_level="high",
+            effective_date=policy_document.effective_date,
+            embedding=None,
+        )
+    )
+    await session.flush()
+
+
 @pytest.fixture
-def mock_graph(monkeypatch, mock_llm_responses):
+async def mock_graph(monkeypatch, mock_llm_responses, session: AsyncSession, seeded_session):
+    await _seed_approval_policy(session, seeded_session["tenant"].id)
     fake_llm = _FakeLLM(mock_llm_responses)
 
     import src.agent.nodes.assess_risk_and_approval as assess_node

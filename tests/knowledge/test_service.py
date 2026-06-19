@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
 
+from src.db.models import PolicyChunk, PolicyDocument
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
 from src.knowledge.retrieval import PolicyRetrievalEngine
 from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext, KnowledgeSearchFilters, KnowledgeSearchRequest
@@ -150,12 +152,46 @@ async def test_verified_evidence_contents_returns_empty_on_adapter_error():
 @pytest.mark.asyncio
 async def test_verified_evidence_details_uses_real_retrieval_engine_canonical_rows(session, seeded_session):
     tenant_id = str(seeded_session["tenant"].id)
+    policy_content = "补偿超过500元需人工审批。"
+    policy_document = PolicyDocument(
+        tenant_id=seeded_session["tenant"].id,
+        doc_key="approval_refund_policy",
+        doc_type="refund_rule",
+        title="售后补偿政策",
+        effective_date=date(2026, 1, 1),
+        risk_level="high",
+        version=1,
+        content=policy_content,
+        source_type="test_fixture",
+        source_checksum="test-approval-refund-policy-v1",
+        parser_metadata_json={},
+        policy_version_fingerprint="test-approval-refund-policy-v1",
+    )
+    session.add(policy_document)
+    await session.flush()
+    session.add(
+        PolicyChunk(
+            tenant_id=seeded_session["tenant"].id,
+            doc_id=policy_document.id,
+            chunk_id="approval_refund_policy#001",
+            section="高风险补偿",
+            content=policy_content,
+            search_text=policy_content,
+            source_block_refs_json=[],
+            ocr_metadata_json={},
+            risk_level="high",
+            effective_date=policy_document.effective_date,
+            embedding=None,
+        )
+    )
+    await session.flush()
+
     evidence = EvidenceRefV1.build(
         tenant_id=tenant_id,
         doc_key="approval_refund_policy",
         chunk_id="approval_refund_policy#001",
         policy_version="v1",
-        text="补偿超过500元需人工审批。",
+        text=policy_content,
         retrieved_at="2026-06-19T00:00:00Z",
         retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
         score=0.93,
