@@ -1247,7 +1247,7 @@ RAG 只能回答政策和 FAQ，不得推断具体业务对象状态。Troublesh
 - 高风险场景启用 verifier。
 - 扩展 faithfulness/citation accuracy eval。
 
-### Phase RAG-4：Reranker 与 Query Rewrite
+### Phase RAG-4 / MOCA Phase 23：Reranker 与 Query Rewrite
 
 目标：
 
