@@ -89,7 +89,7 @@ class ContextBuilder:
 
         included: list[_IncludedEvidence] = []
         exclusions = [*initial_exclusions, *validation_exclusions]
-        excluded_ids = {entry.evidence_id for entry in exclusions}
+        validation_excluded_ids = {entry.evidence_id for entry in validation_exclusions}
         for ref in retained_refs:
             if not _valid_uuid(ref.tenant_id):
                 exclusions.append(_trace(ref, "tenant_id_malformed"))
@@ -97,7 +97,7 @@ class ContextBuilder:
             if ref.tenant_id != tenant_id:
                 exclusions.append(_trace(ref, "tenant_mismatch"))
                 continue
-            if ref.evidence_id in excluded_ids:
+            if ref.evidence_id in validation_excluded_ids:
                 continue
             content = contents.get(ref.evidence_id)
             if content is None:
