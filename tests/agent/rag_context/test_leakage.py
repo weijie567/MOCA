@@ -75,8 +75,7 @@ class FakePolicyKnowledgeService:
     ) -> dict[str, str]:
         return {
             ref.evidence_id: (
-                "Refund policy requires verified evidence before compensation. "
-                f"{UNBOUNDED_POLICY_TEXT} " * 120
+                f"Refund policy requires verified evidence before compensation. {UNBOUNDED_POLICY_TEXT} " * 120
             )
             for ref in evidence_refs
             if ref.tenant_id == tenant_id and ref.evidence_id == self.evidence.evidence_id
@@ -140,6 +139,110 @@ def _ordinary_surface_text(bundle: Any) -> str:
         "action_snapshot": bundle.action_snapshot_context,
     }
     return _json_text(ordinary_surfaces)
+
+
+def test_eval_failure_report_redacts_case_inputs_prompts_and_sentinels(tmp_path) -> None:
+    """T-22-07: eval reports expose case IDs/metrics, not raw prompts or private payloads."""
+    from scripts.eval_phase22_hallucination import run_eval
+
+    raw_prompt = "SHOULD_NOT_LEAK_RAW_VERIFIER_PROMPT_IN_REPORT"
+    raw_case_payload = "SHOULD_NOT_LEAK_RAW_CASE_INPUT_IN_REPORT"
+    case = {
+        "id": "P22-HC-RED-ACTED",
+        "category": "supported_policy_claim",
+        "query": raw_prompt,
+        "input": {
+            "claims": [
+                {
+                    "claim_id": "claim-policy-supported",
+                    "authority_class": "policy_claim",
+                    "claim_text": raw_case_payload,
+                    "cited_evidence_ids": ["refund_policy/chunk_current@v2"],
+                }
+            ],
+            "evidence_refs": [
+                {
+                    "evidence_id": "refund_policy/chunk_current@v2",
+                    "doc_key": "refund_policy",
+                    "chunk_id": "chunk_current",
+                    "policy_version": "v2",
+                    "status": "current",
+                    "text_hash_valid": True,
+                }
+            ],
+            "business_fact_refs": [],
+        },
+        "expected_verifier_status": "unsupported",
+        "expected_route": "manual_review",
+        "expected_metrics_bucket": "claim_support_accuracy",
+        "expected_citation_support": True,
+        "must_not_contain": [*sorted(LEAKAGE_SENTINELS), raw_prompt, raw_case_payload],
+    }
+    dataset = tmp_path / "phase22-redacted-case.jsonl"
+    dataset.write_text(json.dumps(case, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    report = run_eval(str(dataset))
+
+    assert report["status"] == "fail"
+    assert report["failed_cases"][0]["id"] == "P22-HC-RED-ACTED"
+    report_text = _json_text(report)
+    assert raw_prompt not in report_text
+    assert raw_case_payload not in report_text
+    assert "input" not in report["failed_cases"][0]
+    assert "query" not in report["failed_cases"][0]
+    assert "must_not_contain" not in report["failed_cases"][0]
+
+
+def test_hallucination_case_result_does_not_echo_raw_sentinels_to_answer_text() -> None:
+    """EVAL-04: deterministic eval adapter keeps answer text prompt-safe."""
+    from src.agent.rag_context.metrics import evaluate_hallucination_case
+
+    case = {
+        "id": "P22-HC-LEAKAGE-ADAPTER",
+        "category": "semantic_timeout_fail_closed",
+        "query": VERIFIER_PROMPT_TRACE,
+        "input": {
+            "claims": [
+                {
+                    "claim_id": "claim-semantic-timeout",
+                    "authority_class": "action_recommendation_claim",
+                    "claim_text": PRIVATE_REASONING,
+                    "cited_evidence_ids": ["coupon_policy/chunk_ambiguous@v2"],
+                    "business_fact_refs": ["business_fact_ref:order:ORD-1001"],
+                    "risk_hints": ["high_risk", "semantic_timeout"],
+                }
+            ],
+            "evidence_refs": [
+                {
+                    "evidence_id": "coupon_policy/chunk_ambiguous@v2",
+                    "doc_key": "coupon_policy",
+                    "chunk_id": "chunk_ambiguous",
+                    "policy_version": "v2",
+                    "status": "current",
+                    "text_hash_valid": True,
+                }
+            ],
+            "business_fact_refs": [
+                {
+                    "business_fact_ref": "business_fact_ref:order:ORD-1001",
+                    "resource_type": "order",
+                    "resource_id": "ORD-1001",
+                }
+            ],
+        },
+        "expected_verifier_status": "fail_closed",
+        "expected_route": "manual_review",
+        "expected_metrics_bucket": "fail_closed_rate",
+        "must_not_contain": sorted(LEAKAGE_SENTINELS),
+    }
+
+    result = evaluate_hallucination_case(case)
+    answer_text = result["answer_text"]
+
+    assert result["verifier_status"] == "fail_closed"
+    assert result["route"] == "manual_review"
+    for sentinel in LEAKAGE_SENTINELS:
+        assert sentinel not in answer_text
 
 
 @pytest.mark.asyncio

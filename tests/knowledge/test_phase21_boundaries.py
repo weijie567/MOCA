@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from src.api.schemas.search import EvidenceItem, RetrievalResult
 from src.approvals.snapshots import build_action_safety_snapshot, snapshot_hash_projection
@@ -11,6 +13,7 @@ from src.knowledge.retrieval import rerank_candidates
 from src.knowledge.schemas import EvidenceRefV1, KnowledgeSearchResult, canonical_evidence_projection
 from src.replay.schemas import ReplayEventV3
 from src.replay.validators import guard_redacted_payload
+from src.tools.contracts import BusinessFactRefV1, ToolResultV2
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -29,7 +32,16 @@ FORBIDDEN_IMPLEMENTATION_PATTERNS = {
     "cross_encoder": "cross_encoder",
     "cross-encoder": "cross-encoder",
     "external_action_execution": "external_action_execution",
+    "action_outbox_events": "action_outbox_events",
+    "outbox_worker": "outbox_worker",
+    "action_compensation_records": "action_compensation_records",
+    "compensation_dispatch": "compensation_dispatch",
     "business_data_ingestion_into_rag": "business_data_ingestion_into_rag",
+    "PolicySourceOperations": "PolicySourceOperations",
+    "PolicySourceReviewUI": "PolicySourceReviewUI",
+    "policy_source_upload_ui": "policy_source_upload_ui",
+    "policy_source_lifecycle_ui": "policy_source_lifecycle_ui",
+    "source_document_viewer": "source_document_viewer",
 }
 PHASE22_ALLOWED_SURFACE_PATTERNS = {
     "MaterialClaim",
@@ -41,13 +53,17 @@ PHASE22_ALLOWED_SURFACE_PATH_PREFIXES = {
     Path("tests/agent/rag_context"),
 }
 PHASE22_ALLOWED_SURFACE_FILES = {
+    Path("src/agent/nodes/generate_recommendation.py"),
     Path("tests/knowledge/test_phase22_evidence_validation.py"),
     Path("tests/agent/test_phase22_recommendation_integration.py"),
     Path("tests/agent/test_phase22_action_boundary.py"),
     Path("tests/agent/test_phase22_final_response.py"),
 }
 IGNORED_STATIC_GUARD_FILES = {
+    Path("tests/actions/test_action_draft_v2.py"),
+    Path("tests/architecture/test_action_draft_boundaries.py"),
     Path("tests/knowledge/test_phase21_boundaries.py"),
+    Path("tests/replay/test_memory_foundation_alignment.py"),
     Path("tests/test_rag_production_migration.py"),
 }
 ALLOWED_COMPATIBILITY_REFERENCES = {
@@ -79,11 +95,7 @@ def _implementation_python_files() -> list[Path]:
     files: list[Path] = []
     for root in (REPO_ROOT / "src", REPO_ROOT / "tests"):
         files.extend(path for path in root.rglob("*.py") if path.is_file())
-    return sorted(
-        path
-        for path in files
-        if path.relative_to(REPO_ROOT) not in IGNORED_STATIC_GUARD_FILES
-    )
+    return sorted(path for path in files if path.relative_to(REPO_ROOT) not in IGNORED_STATIC_GUARD_FILES)
 
 
 def _is_phase22_owned_surface(relative: Path, label: str) -> bool:
@@ -122,7 +134,16 @@ def test_phase22_boundary_guard_still_blocks_rerank_query_rewrite_search_backend
         "cross_encoder",
         "cross-encoder",
         "external_action_execution",
+        "action_outbox_events",
+        "outbox_worker",
+        "action_compensation_records",
+        "compensation_dispatch",
         "business_data_ingestion_into_rag",
+        "PolicySourceOperations",
+        "PolicySourceReviewUI",
+        "policy_source_upload_ui",
+        "policy_source_lifecycle_ui",
+        "source_document_viewer",
     } <= set(FORBIDDEN_IMPLEMENTATION_PATTERNS)
 
 
@@ -260,6 +281,35 @@ def test_approval_snapshot_hash_projection_keeps_canonical_evidence_shape() -> N
     assert "score" not in projected["evidence"][0]
 
 
+def test_business_fact_refs_cannot_become_policy_evidence_identity() -> None:
+    business_ref = BusinessFactRefV1(
+        tenant_id="tenant-001",
+        source_system="moca",
+        resource_type="order",
+        resource_id="ORD-1001",
+        resource_version="v1",
+        data_freshness_at=datetime(2026, 6, 19, tzinfo=UTC),
+        retrieved_at=datetime(2026, 6, 19, tzinfo=UTC),
+    )
+
+    with pytest.raises(ValidationError):
+        EvidenceRefV1.model_validate(business_ref.model_dump(mode="json"))
+
+    result = ToolResultV2(
+        status="success",
+        data={"order_status": "delivered"},
+        summary="Order status found.",
+        source_system="moca",
+        data_freshness_at=datetime(2026, 6, 19, tzinfo=UTC),
+        policy_evidence_refs=[],
+        business_fact_refs=[business_ref],
+        latency_ms=1,
+    )
+
+    assert result.policy_evidence_refs == []
+    assert result.business_fact_refs == [business_ref]
+
+
 def test_action_snapshot_ignores_parser_ocr_source_metadata_on_evidence_inputs() -> None:
     evidence_with_internal_metadata = _evidence_ref().model_dump() | {
         "source_block_id": "refund-policy:policy_pdf:text:0001",
@@ -304,6 +354,24 @@ def test_action_snapshot_rejects_internal_provenance_as_top_level_authority() ->
             created_at="2026-06-15T00:00:00.000Z",
             source_block_id="refund-policy:policy_pdf:text:0001",
         )
+
+
+def test_action_snapshot_rejects_raw_verifier_debug_fields_as_top_level_authority() -> None:
+    for field_name in ("verifier_prompt_trace", "private_reasoning", "raw_tool_payload"):
+        with pytest.raises(ValueError, match="unknown snapshot fields"):
+            build_action_safety_snapshot(
+                tenant_id="tenant-001",
+                run_id="run-001",
+                snapshot_id="snap-001",
+                snapshot_ref="snapshot:snap-001",
+                policy_config_version="approval-policy.v1",
+                risk_config_version="risk-rules.v1",
+                retrieval_config_version="retrieval.v3",
+                evidence=[_evidence_ref()],
+                action_payload_hash="sha256:" + "a" * 64,
+                created_at="2026-06-15T00:00:00.000Z",
+                **{field_name: "SHOULD_NOT_LEAK_VERIFIER_TRACE"},
+            )
 
 
 def test_replay_memory_and_business_tool_contracts_do_not_expose_provenance_authority() -> None:
