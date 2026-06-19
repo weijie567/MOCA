@@ -21,9 +21,23 @@ FORBIDDEN_IMPLEMENTATION_PATTERNS = {
     "MaterialClaim": "MaterialClaim",
     "semantic_verifier": "semantic_verifier",
     "SemanticVerifier": "SemanticVerifier",
+    "QueryRewritePlan": "QueryRewritePlan",
+    "RewriteExpansion": "RewriteExpansion",
+    "build_query_rewrite_plan": "build_query_rewrite_plan",
     "QueryRewriteService": "QueryRewriteService",
     "query_rewriter": "query_rewriter",
     "rewrite_query(": "rewrite_query(",
+    "DefaultLocalReranker": "DefaultLocalReranker",
+    "RerankCandidate": "RerankCandidate",
+    "RerankerProviderAdapter": "RerankerProviderAdapter",
+    "RerankConfig": "RerankConfig",
+    "rerank_candidates_for_query": "rerank_candidates_for_query",
+    "RetrievalDiagnostics": "RetrievalDiagnostics",
+    "RankingExplanation": "RankingExplanation",
+    "build_retrieval_diagnostics": "build_retrieval_diagnostics",
+    "REQUIRED_ABLATION_VARIANTS": "REQUIRED_ABLATION_VARIANTS",
+    "build_ablation_report": "build_ablation_report",
+    "score_ablation_case": "score_ablation_case",
     "CrossEncoderReranker": "CrossEncoderReranker",
     "ExternalRerankClient": "ExternalRerankClient",
     "SearchBackend": "SearchBackend",
@@ -58,6 +72,33 @@ PHASE22_ALLOWED_SURFACE_FILES = {
     Path("tests/agent/test_phase22_recommendation_integration.py"),
     Path("tests/agent/test_phase22_action_boundary.py"),
     Path("tests/agent/test_phase22_final_response.py"),
+}
+PHASE23_ALLOWED_SURFACE_PATTERNS = {
+    "QueryRewritePlan",
+    "RewriteExpansion",
+    "build_query_rewrite_plan",
+    "DefaultLocalReranker",
+    "RerankCandidate",
+    "RerankerProviderAdapter",
+    "RerankConfig",
+    "rerank_candidates_for_query",
+    "RetrievalDiagnostics",
+    "RankingExplanation",
+    "build_retrieval_diagnostics",
+    "REQUIRED_ABLATION_VARIANTS",
+    "build_ablation_report",
+    "score_ablation_case",
+}
+PHASE23_ALLOWED_SURFACE = {
+    Path("src/knowledge/rewrite.py"),
+    Path("src/knowledge/rerank.py"),
+    Path("src/knowledge/diagnostics.py"),
+    Path("tests/knowledge/test_query_rewrite.py"),
+    Path("tests/knowledge/test_reranker.py"),
+    Path("tests/knowledge/test_retrieval_diagnostics.py"),
+    Path("tests/knowledge/test_retrieval_budgets.py"),
+    Path("tests/test_rag_ablation_eval.py"),
+    Path("scripts/eval_rag_ablation.py"),
 }
 IGNORED_STATIC_GUARD_FILES = {
     Path("tests/actions/test_action_draft_v2.py"),
@@ -106,6 +147,10 @@ def _is_phase22_owned_surface(relative: Path, label: str) -> bool:
     return any(prefix in relative.parents or relative == prefix for prefix in PHASE22_ALLOWED_SURFACE_PATH_PREFIXES)
 
 
+def _is_phase23_owned_surface(relative: Path, label: str) -> bool:
+    return label in PHASE23_ALLOWED_SURFACE_PATTERNS and relative in PHASE23_ALLOWED_SURFACE
+
+
 def test_phase21_boundary_allows_phase22_claim_verifier_files_but_no_phase23_rag5_or_execution_surfaces() -> None:
     violations: list[str] = []
 
@@ -113,7 +158,7 @@ def test_phase21_boundary_allows_phase22_claim_verifier_files_but_no_phase23_rag
         relative = path.relative_to(REPO_ROOT)
         source = path.read_text(encoding="utf-8")
         for label, pattern in FORBIDDEN_IMPLEMENTATION_PATTERNS.items():
-            if _is_phase22_owned_surface(relative, label):
+            if _is_phase22_owned_surface(relative, label) or _is_phase23_owned_surface(relative, label):
                 continue
             if pattern in source:
                 violations.append(f"{relative}: {label}")
@@ -122,6 +167,12 @@ def test_phase21_boundary_allows_phase22_claim_verifier_files_but_no_phase23_rag
 
 
 def test_phase22_boundary_guard_still_blocks_rerank_query_rewrite_search_backend_and_execution_scope() -> None:
+    assert {
+        Path("src/knowledge/rewrite.py"),
+        Path("src/knowledge/rerank.py"),
+        Path("src/knowledge/diagnostics.py"),
+        Path("scripts/eval_rag_ablation.py"),
+    } <= PHASE23_ALLOWED_SURFACE
     assert {
         "QueryRewriteService",
         "query_rewriter",

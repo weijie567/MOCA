@@ -68,6 +68,99 @@ def _engine(
 
 
 @pytest.mark.asyncio
+async def test_original_and_rewrite_channels_merge_before_rerank() -> None:
+    tenant_id = uuid4()
+    original_hit = _chunk(
+        "refund_policy_001",
+        doc_key="refund_policy",
+        section="仅退款已发货",
+        content="商家已经发货时，客服应先核实物流状态和商家举证。",
+    )
+    rewrite_duplicate = _chunk(
+        "refund_policy_001",
+        doc_key="refund_policy",
+        section="仅退款已发货",
+        content="商家已经发货时，客服应先核实物流状态和商家举证。",
+    )
+    rewrite_only = _chunk(
+        "refund_policy_002",
+        doc_key="refund_policy",
+        section="商家举证",
+        content="仅退款争议需要商家提供物流和履约证据。",
+    )
+    channel_calls: list[tuple[str, dict]] = []
+
+    async def search_similar(**kwargs):
+        channel_calls.append(("dense", kwargs))
+        if len([name for name, _ in channel_calls if name == "dense"]) == 1:
+            return [(original_hit, 0.72)]
+        return [(rewrite_duplicate, 0.71), (rewrite_only, 0.70)]
+
+    async def search_sparse(**kwargs):
+        channel_calls.append(("sparse", kwargs))
+        if len([name for name, _ in channel_calls if name == "sparse"]) == 1:
+            return [(original_hit, 0.16)]
+        return [(rewrite_duplicate, 0.15), (rewrite_only, 0.14)]
+
+    async def search_fuzzy(**kwargs):
+        channel_calls.append(("fuzzy", kwargs))
+        if len([name for name, _ in channel_calls if name == "fuzzy"]) == 1:
+            return [(original_hit, 0.78)]
+        return [(rewrite_duplicate, 0.77), (rewrite_only, 0.76)]
+
+    repo = SimpleNamespace(
+        search_similar=AsyncMock(side_effect=search_similar),
+        search_sparse=AsyncMock(side_effect=search_sparse),
+        search_fuzzy=AsyncMock(side_effect=search_fuzzy),
+    )
+    embedder = SimpleNamespace(embed_query=AsyncMock(return_value=[0.1, 0.2, 0.3]))
+    engine = PolicyRetrievalEngine(chunk_repo=repo, embedder=embedder)
+
+    _status, hits, _best_score = await engine.retrieve_hits(
+        query="商家发了货还能只退款吗？",
+        context=_context(tenant_id),
+        max_results=5,
+        doc_type="refund_rule",
+        risk_level="high",
+    )
+
+    call_order = [name for name, _kwargs in channel_calls]
+    assert call_order[:3] == ["dense", "sparse", "fuzzy"]
+    assert len([name for name in call_order if name == "dense"]) >= 2
+    assert len([name for name in call_order if name == "sparse"]) >= 2
+    assert len([name for name in call_order if name == "fuzzy"]) >= 2
+
+    for _name, kwargs in channel_calls:
+        assert kwargs["tenant_id"] == tenant_id
+        assert kwargs["doc_type"] == "refund_rule"
+        assert kwargs["risk_level"] == "high"
+        assert kwargs["effective_date"] == date(2026, 6, 14)
+
+    hit_keys = [(hit.doc_key, hit.chunk_id, hit.policy_version) for hit in hits]
+    assert hit_keys.count(("refund_policy", "refund_policy_001", "v1")) == 1
+    assert "refund_policy_002" in [hit.chunk_id for hit in hits]
+
+    failing_repo = SimpleNamespace(
+        search_similar=AsyncMock(side_effect=[[(original_hit, 0.72)], RuntimeError("rewrite dense failed")]),
+        search_sparse=AsyncMock(side_effect=[[(original_hit, 0.16)], RuntimeError("rewrite sparse failed")]),
+        search_fuzzy=AsyncMock(side_effect=[[(original_hit, 0.78)], RuntimeError("rewrite fuzzy failed")]),
+    )
+    fallback_engine = PolicyRetrievalEngine(chunk_repo=failing_repo, embedder=embedder)
+
+    fallback_status, fallback_hits, fallback_best_score = await fallback_engine.retrieve_hits(
+        query="商家发了货还能只退款吗？",
+        context=_context(tenant_id),
+        max_results=5,
+        doc_type="refund_rule",
+        risk_level="high",
+    )
+
+    assert fallback_status == "strong_evidence"
+    assert [hit.chunk_id for hit in fallback_hits] == ["refund_policy_001"]
+    assert fallback_best_score >= 0.70
+
+
+@pytest.mark.asyncio
 async def test_rrf_promotes_candidate_seen_by_multiple_channels() -> None:
     generic = _chunk(
         "generic_001",
