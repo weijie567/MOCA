@@ -166,7 +166,7 @@ class IngestionService:
         job = await self._create_job_trace(
             doc_id=preexisting_doc.id if preexisting_doc is not None else None,
             doc_key=doc_key,
-            source_type=source_type,
+            source_type=_safe_source_type_for_persistence(source_type),
             source_checksum=source_checksum,
             stage="received",
             status="running",
@@ -185,7 +185,7 @@ class IngestionService:
             parse_result = self.parser_registry.parse(
                 file_path,
                 doc_key=doc_key,
-                source_type=source_type,
+                source_type=_safe_source_type_for_persistence(source_type),
                 metadata=doc_meta,
             )
             if parse_result.status == "failed":
@@ -264,7 +264,7 @@ class IngestionService:
                 doc.risk_level = doc_meta["risk_level"]
                 doc.effective_date = effective_date
                 doc.content = content
-                doc.source_type = parse_result.source_type
+                doc.source_type = _safe_source_type_for_persistence(parse_result.source_type)
                 doc.source_checksum = source_checksum
                 doc.parser_metadata_json = _parser_metadata(parse_result)
                 doc.policy_version_fingerprint = fingerprint
@@ -287,7 +287,7 @@ class IngestionService:
                     effective_date=effective_date,
                     risk_level=doc_meta["risk_level"],
                     content=content,
-                    source_type=parse_result.source_type,
+                    source_type=_safe_source_type_for_persistence(parse_result.source_type),
                     source_checksum=source_checksum,
                     parser_metadata_json=_parser_metadata(parse_result),
                     policy_version_fingerprint=fingerprint,
@@ -300,7 +300,7 @@ class IngestionService:
                     job = await self._create_job_trace(
                         doc_id=doc.id,
                         doc_key=doc_key,
-                        source_type=source_type,
+                        source_type=_safe_source_type_for_persistence(source_type),
                         source_checksum=source_checksum,
                         stage="persisting",
                         status="running",
@@ -394,7 +394,7 @@ class IngestionService:
             tenant_id=self.tenant_id,
             doc_id=doc_id,
             doc_key=doc_key,
-            source_type=source_type,
+            source_type=_safe_source_type_for_persistence(source_type),
             source_checksum=source_checksum,
             parser_name="moca_parser_registry",
             parser_version="21.02",
@@ -437,7 +437,7 @@ class IngestionService:
             if parse_result is not None:
                 job.parser_name = parse_result.parser_name
                 job.parser_version = parse_result.parser_version
-                job.source_type = parse_result.source_type
+                job.source_type = _safe_source_type_for_persistence(parse_result.source_type)
             await self._mark_job_failed(
                 job=job,
                 stage=stage,
@@ -492,6 +492,7 @@ _SOURCE_TYPE_BY_EXTENSION = {
     ".tif": "policy_image",
     ".tiff": "policy_image",
 }
+_SAFE_JOB_SOURCE_TYPE = re.compile(r"^[a-z0-9][a-z0-9_]{0,31}$")
 _UNSAFE_MESSAGE_PATTERNS = (
     re.compile(r"/(?:Users|home|tmp|var|private|Volumes)/"),
     re.compile(r"[A-Za-z]:\\\\"),
@@ -508,6 +509,13 @@ _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 def _source_type_for(file_path: Path, doc_meta: dict[str, Any]) -> str:
     return str(doc_meta.get("source_type") or _SOURCE_TYPE_BY_EXTENSION.get(file_path.suffix.lower()) or "unsupported")
+
+
+def _safe_source_type_for_persistence(source_type: Any) -> str:
+    value = str(source_type or "unsupported").strip().lower()
+    if _SAFE_JOB_SOURCE_TYPE.fullmatch(value):
+        return value
+    return "unsupported"
 
 
 def _source_checksum(file_path: Path) -> str:
@@ -752,7 +760,7 @@ def _mark_job_success(
     job.doc_id = doc_id
     job.parser_name = parse_result.parser_name
     job.parser_version = parse_result.parser_version
-    job.source_type = parse_result.source_type
+    job.source_type = _safe_source_type_for_persistence(parse_result.source_type)
     job.stage = "completed"
     job.status = "success"
     job.error_code = None

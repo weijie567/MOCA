@@ -141,22 +141,49 @@ def test_document_block_validation_rejects_control_characters_and_raw_parser_met
 
 
 def test_rag_ingestion_job_validation_rejects_raw_paths_stacks_and_dumps() -> None:
+    for safe_message in (
+        "/Users/alice/private/source.pdf failed",
+        "Traceback (most recent call last): stack only",
+        "parser_dump: raw parser payload",
+    ):
+        job = RagIngestionJob(
+            tenant_id=uuid4(),
+            doc_id=uuid4(),
+            doc_key="refund_policy",
+            source_type="policy_markdown",
+            source_checksum="sha256:" + "a" * 64,
+            parser_name="markdown",
+            parser_version="phase21.parser.v1",
+            stage="parsing",
+            status="failed",
+            error_code="parse_failed",
+            safe_message=safe_message,
+            warnings_json=[],
+            counts_json={},
+            timings_json={},
+        )
+
+        with pytest.raises(ValueError, match="safe_message_not_sanitized"):
+            validate_rag_ingestion_job(job)
+
+
+def test_rag_ingestion_job_validation_rejects_unsafe_scalar_trace_fields() -> None:
     job = RagIngestionJob(
         tenant_id=uuid4(),
         doc_id=uuid4(),
         doc_key="refund_policy",
-        source_type="markdown",
+        source_type="policy_pdf\n/Users/alice/private/source.pdf\nparser_dump",
         source_checksum="sha256:" + "a" * 64,
         parser_name="markdown",
         parser_version="phase21.parser.v1",
         stage="parsing",
         status="failed",
         error_code="parse_failed",
-        safe_message="/Users/alice/private/source.pdf failed",
+        safe_message="Policy source could not be parsed safely.",
         warnings_json=[],
         counts_json={},
         timings_json={},
     )
 
-    with pytest.raises(ValueError, match="safe_message_not_sanitized"):
+    with pytest.raises(ValueError, match="source_type_not_sanitized"):
         validate_rag_ingestion_job(job)

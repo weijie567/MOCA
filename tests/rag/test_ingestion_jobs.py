@@ -159,10 +159,10 @@ def _block(*, source_block_id: str = "block-001", text: str = "退款审核通�
     )
 
 
-def _parse_result(*, blocks: tuple[ParsedBlock, ...] | None = None) -> ParseResult:
+def _parse_result(*, blocks: tuple[ParsedBlock, ...] | None = None, source_type: str = "policy_markdown") -> ParseResult:
     return ParseResult(
         status="success",
-        source_type="policy_markdown",
+        source_type=source_type,
         parser_name="fake_parser",
         parser_version="1.0",
         blocks=blocks or (_block(),),
@@ -336,6 +336,56 @@ async def test_business_artifact_rejection_persists_failed_job_without_document_
     assert report.error_code == "business_artifact_rejected"
     assert service.doc_repo.locked is False
     assert service.job_repo.created[-1].status == "failed"
+
+
+@pytest.mark.asyncio
+async def test_malicious_source_type_is_sanitized_before_durable_job_trace(tmp_path: Path) -> None:
+    from src.rag.ingestion import build_safe_ingestion_report
+
+    events: list[str] = []
+    session = _FakeSession(events)
+    service = IngestionService(session=session, embedder=_FakeEmbedder(events), tenant_id=uuid4())
+    service.doc_repo = _FakeDocumentRepo(None, events)
+    service.job_repo = _FakeJobRepo(events)
+
+    report = await service.ingest_document(
+        _write_policy(tmp_path),
+        _doc_meta(source_type="policy_pdf\n/Users/ming/private/source.pdf\nparser_dump"),
+    )
+    failed_job = service.job_repo.created[-1]
+    serialized_job = repr(failed_job)
+
+    assert report.status == "failed"
+    assert report.error_code == "unsupported_source_type"
+    assert failed_job.source_type == "unsupported"
+    assert build_safe_ingestion_report(failed_job)["source_type"] == "unsupported"
+    assert "/Users/ming" not in serialized_job
+    for term in FORBIDDEN_REPORT_TERMS:
+        assert term not in serialized_job
+
+
+@pytest.mark.asyncio
+async def test_parser_result_source_type_is_sanitized_before_document_and_job_persistence(tmp_path: Path) -> None:
+    events: list[str] = []
+    unsafe_source_type = "policy_pdf\n/Users/ming/private/source.pdf\nparser_dump"
+    session = _FakeSession(events)
+    service = IngestionService(session=session, embedder=_FakeEmbedder(events), tenant_id=uuid4())
+    service.parser_registry = _FakeParserRegistry(_parse_result(source_type=unsafe_source_type), events)
+    service.doc_repo = _FakeDocumentRepo(None, events)
+    service.block_repo = _FakeBlockRepo(events)
+    service.chunk_repo = _FakeChunkRepo(events)
+    service.job_repo = _FakeJobRepo(events)
+
+    report = await service.ingest_document(_write_policy(tmp_path), _doc_meta())
+    created_doc = next(item for item in session.added if hasattr(item, "doc_key"))
+    created_job = service.job_repo.created[-1]
+    serialized = f"{created_doc!r} {created_job!r}"
+
+    assert report.status == "success"
+    assert created_doc.source_type == "unsupported"
+    assert created_job.source_type == "unsupported"
+    assert "/Users/ming" not in serialized
+    assert "parser_dump" not in serialized
 
 
 @pytest.mark.asyncio

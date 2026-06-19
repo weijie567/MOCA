@@ -16,10 +16,12 @@ _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _UNSAFE_MESSAGE_PATTERNS = (
     re.compile(r"/(?:Users|home|tmp|var|private|Volumes)/"),
     re.compile(r"[A-Za-z]:\\\\"),
-    re.compile(r"Traceback \\(most recent call last\\):"),
+    re.compile(r"Traceback \(most recent call last\):"),
     re.compile(r"raw[_ -]?(?:payload|parser|bytes|dump)", re.IGNORECASE),
     re.compile(r"parser_dump", re.IGNORECASE),
 )
+_SAFE_DOC_KEY = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+_SAFE_SOURCE_TYPE = re.compile(r"^[a-z0-9][a-z0-9_]{0,31}$")
 _FORBIDDEN_TRACE_KEYS = FORBIDDEN_MESSAGE_KEYS | {
     "debug_image",
     "debug_payload",
@@ -87,14 +89,31 @@ class RagIngestionJobRepository:
 
 
 def validate_rag_ingestion_job(job: RagIngestionJob) -> None:
-    if job.safe_message:
-        if _CONTROL_CHARS.search(job.safe_message):
-            raise ValueError("rag_ingestion_job_safe_message_control_chars")
-        if any(pattern.search(job.safe_message) for pattern in _UNSAFE_MESSAGE_PATTERNS):
-            raise ValueError("rag_ingestion_job_safe_message_not_sanitized")
+    _reject_unsafe_scalar(job.doc_key, "doc_key", pattern=_SAFE_DOC_KEY)
+    _reject_unsafe_scalar(job.source_type, "source_type", pattern=_SAFE_SOURCE_TYPE)
+    _reject_unsafe_scalar(job.source_checksum, "source_checksum")
+    _reject_unsafe_scalar(job.parser_name, "parser_name")
+    _reject_unsafe_scalar(job.parser_version, "parser_version")
+    _reject_unsafe_scalar(job.ocr_engine, "ocr_engine")
+    _reject_unsafe_scalar(job.stage, "stage")
+    _reject_unsafe_scalar(job.status, "status")
+    _reject_unsafe_scalar(job.error_code, "error_code")
+    _reject_unsafe_scalar(job.safe_message, "safe_message")
     _reject_forbidden_trace_keys(job.warnings_json, "warnings_json")
     _reject_forbidden_trace_keys(job.counts_json, "counts_json")
     _reject_forbidden_trace_keys(job.timings_json, "timings_json")
+
+
+def _reject_unsafe_scalar(value: Any, field_name: str, *, pattern: re.Pattern[str] | None = None) -> None:
+    if value is None:
+        return
+    text = str(value)
+    if _CONTROL_CHARS.search(text):
+        raise ValueError(f"rag_ingestion_job_{field_name}_control_chars")
+    if any(unsafe_pattern.search(text) for unsafe_pattern in _UNSAFE_MESSAGE_PATTERNS):
+        raise ValueError(f"rag_ingestion_job_{field_name}_not_sanitized")
+    if pattern is not None and not pattern.fullmatch(text):
+        raise ValueError(f"rag_ingestion_job_{field_name}_invalid")
 
 
 def _reject_forbidden_trace_keys(value: Any, path: str) -> None:
