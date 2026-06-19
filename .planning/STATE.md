@@ -1,13 +1,11 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.5
-milestone_name: RAG Context Builder + Hallucination Control
-current_phase: 22
-current_phase_name: RAG Context Builder + Hallucination Control
-status: planning_ready
-stopped_at: v1.5 roadmap created; Phase 22 ready to discuss or plan
-last_updated: "2026-06-19"
-last_activity: "2026-06-19 -- v1.5 roadmap created"
+milestone: v1.0
+milestone_name: milestone
+status: planning
+stopped_at: Phase 22 context gathered
+last_updated: "2026-06-19T07:10:50.551Z"
+last_activity: 2026-06-19 -- v1.5 roadmap created with one active roadmap phase
 progress:
   total_phases: 1
   completed_phases: 0
@@ -92,7 +90,7 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 
 ## Session Continuity
 
-Last session: 2026-06-19
-Stopped at: v1.5 roadmap created; Phase 22 is ready to discuss or plan
-Resume file: None
+Last session: --stopped-at
+Stopped at: Phase 22 context gathered
+Resume file: --resume-file
 Next: Run `$gsd-discuss-phase 22` or `$gsd-plan-phase 22`
