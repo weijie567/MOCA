@@ -61,7 +61,7 @@ Plans:
 - [x] 22-01-PLAN.md — Wave 0 unit scaffolding for ContextBuilder, MaterialClaim, verifier tiers, authority boundaries, and deterministic routes.
 - [x] 22-02-PLAN.md — Wave 0 evidence validation, leakage, graph/action/final integration, boundary, and hallucination-eval scaffolding.
 - [x] 22-03-PLAN.md — ContextBuilder, canonical evidence re-fetch, latest/current validation, citation maps, budgeting, and prompt-safe projections.
-- [ ] 22-04-PLAN.md — MaterialClaim contracts, Level 1/2 authority verification, and risk-triggered Level 3 semantic verifier.
+- [x] 22-04-PLAN.md — MaterialClaim contracts, Level 1/2 authority verification, and risk-triggered Level 3 semantic verifier.
 - [ ] 22-05-PLAN.md — Deterministic route map, recommendation/graph integration, action-boundary hardening, and safe final responses.
 - [ ] 22-06-PLAN.md — Hallucination-control metrics/eval gate, boundary guards, leakage closure, and final Phase 22 verification.
 
@@ -94,7 +94,7 @@ Hard boundaries:
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 22. RAG Context Builder + Hallucination Control | v1.5 | 3/6 | In Progress | - |
+| 22. RAG Context Builder + Hallucination Control | v1.5 | 4/6 | In Progress | - |
 
 ## Coverage
 
@@ -114,11 +114,11 @@ Hard boundaries:
 
 ## Current Status
 
-v1.5 RAG Context Builder + Hallucination Control is executing as Phase 22. Plans 22-01, 22-02, and 22-03 are complete.
+v1.5 RAG Context Builder + Hallucination Control is executing as Phase 22. Plans 22-01 through 22-04 are complete.
 
 ## Next Step
 
-Run `$gsd-execute-phase 22` to continue with Plan 22-04.
+Run `$gsd-execute-phase 22` to continue with Plan 22-05.
 
 ---
-*Updated: 2026-06-19 - Plan 22-03 ContextBuilder and canonical evidence validation complete.*
+*Updated: 2026-06-19 - Plan 22-04 MaterialClaim verifier tiers complete.*

@@ -7,7 +7,7 @@
 
 Requirements for Phase 22. Each requirement must preserve the existing v1.3/v1.4 retrieval and evidence contracts unless explicitly stated otherwise.
 
-**Progress note:** Plans 22-01 and 22-02 provide Wave 0 RED test/eval scaffold coverage. Plan 22-03 implements the ContextBuilder bundle, canonical evidence validation, prompt-safe projections, and related boundary guards.
+**Progress note:** Plans 22-01 and 22-02 provide Wave 0 RED test/eval scaffold coverage. Plan 22-03 implements the ContextBuilder bundle, canonical evidence validation, prompt-safe projections, and related boundary guards. Plan 22-04 implements MaterialClaim contracts, Level 1/2 verification, Level 3 semantic budgets, and authority-boundary checks.
 
 ### Context Builder
 
@@ -107,17 +107,17 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CTX-04 | Phase 22 | Implemented in 22-03 |
 | CTX-05 | Phase 22 | Implemented in 22-03 |
 | CTX-06 | Phase 22 | Implemented in 22-03 |
-| CLM-01 | Phase 22 | Wave 0 RED scaffold (22-01) |
-| CLM-02 | Phase 22 | Wave 0 RED scaffold (22-01) |
-| CLM-03 | Phase 22 | Wave 0 RED scaffold (22-01) |
-| CLM-04 | Phase 22 | Wave 0 RED scaffold (22-01) |
-| CLM-05 | Phase 22 | Wave 0 RED scaffold (22-01) |
-| VER-01 | Phase 22 | Context/evidence gates implemented in 22-03; claim gates continue in later plans |
-| VER-02 | Phase 22 | Wave 0 RED scaffold (22-01) |
-| VER-03 | Phase 22 | Wave 0 RED scaffold (22-01) |
-| VER-04 | Phase 22 | Wave 0 RED scaffold (22-01) |
-| VER-05 | Phase 22 | Wave 0 RED scaffold (22-01) |
-| VER-06 | Phase 22 | Wave 0 RED scaffold (22-02) |
+| CLM-01 | Phase 22 | Implemented in 22-04 |
+| CLM-02 | Phase 22 | Implemented in 22-04 |
+| CLM-03 | Phase 22 | Implemented in 22-04 |
+| CLM-04 | Phase 22 | Implemented in 22-04 |
+| CLM-05 | Phase 22 | Implemented in 22-04 |
+| VER-01 | Phase 22 | Context/evidence gates implemented in 22-03; claim gates implemented in 22-04 |
+| VER-02 | Phase 22 | Implemented in 22-04 |
+| VER-03 | Phase 22 | Implemented in 22-04 |
+| VER-04 | Phase 22 | Implemented in 22-04 |
+| VER-05 | Phase 22 | Implemented in 22-04 |
+| VER-06 | Phase 22 | Implemented in 22-04 |
 | RTE-01 | Phase 22 | Wave 0 RED scaffold (22-01) |
 | RTE-02 | Phase 22 | Wave 0 RED scaffold (22-01) |
 | RTE-03 | Phase 22 | Wave 0 RED scaffold (22-02) |
@@ -125,8 +125,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RTE-05 | Phase 22 | Wave 0 RED scaffold (22-02) |
 | BND-01 | Phase 22 | EvidenceRefV1 identity preserved in 22-03 |
 | BND-02 | Phase 22 | Retrieval/ranking behavior preserved in 22-03 |
-| BND-03 | Phase 22 | Wave 0 RED scaffold (22-01/22-02) |
-| BND-04 | Phase 22 | Wave 0 RED scaffold (22-01/22-02) |
+| BND-03 | Phase 22 | Implemented in 22-04 |
+| BND-04 | Phase 22 | Implemented in 22-04 |
 | BND-05 | Phase 22 | Prompt-safe provenance/OCR label boundary implemented in 22-03 |
 | EVAL-01 | Phase 22 | Wave 0 RED scaffold (22-02) |
 | EVAL-02 | Phase 22 | Wave 0 RED scaffold (22-02) |
@@ -141,4 +141,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-06-19*
-*Last updated: 2026-06-19 after Plan 22-03 ContextBuilder and canonical evidence validation*
+*Last updated: 2026-06-19 after Plan 22-04 MaterialClaim verifier tiers*
