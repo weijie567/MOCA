@@ -99,12 +99,44 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
+| CTX-01 | Phase 22 | Pending |
+| CTX-02 | Phase 22 | Pending |
+| CTX-03 | Phase 22 | Pending |
+| CTX-04 | Phase 22 | Pending |
+| CTX-05 | Phase 22 | Pending |
+| CTX-06 | Phase 22 | Pending |
+| CLM-01 | Phase 22 | Pending |
+| CLM-02 | Phase 22 | Pending |
+| CLM-03 | Phase 22 | Pending |
+| CLM-04 | Phase 22 | Pending |
+| CLM-05 | Phase 22 | Pending |
+| VER-01 | Phase 22 | Pending |
+| VER-02 | Phase 22 | Pending |
+| VER-03 | Phase 22 | Pending |
+| VER-04 | Phase 22 | Pending |
+| VER-05 | Phase 22 | Pending |
+| VER-06 | Phase 22 | Pending |
+| RTE-01 | Phase 22 | Pending |
+| RTE-02 | Phase 22 | Pending |
+| RTE-03 | Phase 22 | Pending |
+| RTE-04 | Phase 22 | Pending |
+| RTE-05 | Phase 22 | Pending |
+| BND-01 | Phase 22 | Pending |
+| BND-02 | Phase 22 | Pending |
+| BND-03 | Phase 22 | Pending |
+| BND-04 | Phase 22 | Pending |
+| BND-05 | Phase 22 | Pending |
+| EVAL-01 | Phase 22 | Pending |
+| EVAL-02 | Phase 22 | Pending |
+| EVAL-03 | Phase 22 | Pending |
+| EVAL-04 | Phase 22 | Pending |
+| EVAL-05 | Phase 22 | Pending |
 
 **Coverage:**
 - v1.5 requirements: 32 total
-- Mapped to phases: 0
-- Unmapped: 32
+- Mapped to phases: 32
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-06-19*
-*Last updated: 2026-06-19 after initial v1.5 definition*
+*Last updated: 2026-06-19 after v1.5 roadmap creation*
