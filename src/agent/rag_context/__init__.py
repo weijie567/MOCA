@@ -30,7 +30,13 @@ from src.agent.rag_context.verifier import (
     Level2VerificationResult,
     MaterialClaimVerificationResult,
     MaterialClaimVerifier,
+    SemanticSupportVerifier,
+    SemanticVerificationOutcome,
+    SemanticVerificationResult,
+    SemanticVerifierConfig,
+    SemanticVerifierRequest,
     VerificationOutcome,
+    should_run_level3_semantic_verification,
 )
 
 __all__ = [
@@ -54,10 +60,16 @@ __all__ = [
     "RagPromptContext",
     "RagSafeContext",
     "RagVerifierContext",
+    "SemanticSupportVerifier",
+    "SemanticVerificationOutcome",
+    "SemanticVerificationResult",
+    "SemanticVerifierConfig",
+    "SemanticVerifierRequest",
     "VerificationOutcome",
     "claim_dependency_map_from_claims",
     "normalize_claim_dependency_map",
     "normalize_material_claim",
     "normalize_material_claims",
+    "should_run_level3_semantic_verification",
     "valid_claim_dependency_map",
 ]

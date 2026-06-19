@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from src.agent.rag_context.claims import MaterialClaim
 from src.agent.rag_context.schemas import MaterialClaimAuthorityClass, RagContextBundle
@@ -69,6 +70,181 @@ class MaterialClaimVerificationResult(BaseModel):
     blocks_proposed_action: bool = True
     safe_support_refs: list[str] = Field(default_factory=list)
     metrics: dict[str, int | float | bool | str] = Field(default_factory=dict)
+
+
+class SemanticVerificationOutcome(StrEnum):
+    SUPPORTED = "supported"
+    UNSUPPORTED = "unsupported"
+    INSUFFICIENT = "insufficient"
+    AMBIGUOUS = "ambiguous"
+    FAIL_CLOSED = "fail_closed"
+
+
+class SemanticVerifierConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    max_claims_per_run: int = Field(default=6, ge=1)
+    max_evidence_snippets_per_claim: int = Field(default=3, ge=1)
+    max_input_chars_per_run: int = Field(default=12_000, ge=1)
+    timeout_seconds: float = Field(default=15, gt=0)
+    provider_retries: int = Field(default=0, ge=0)
+    config_version: str = "semantic_verifier.v1"
+
+
+class SemanticVerifierRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = "semantic_verifier_request.v1"
+    config_version: str
+    claims: list[dict[str, Any]] = Field(default_factory=list)
+    safe_refs: list[str] = Field(default_factory=list)
+    total_input_chars: int = 0
+
+
+class SemanticProviderResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    outcome: SemanticVerificationOutcome
+    confidence: float = Field(ge=0, le=1)
+    reason_codes: list[str] = Field(default_factory=list)
+
+
+class SemanticVerificationResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = "semantic_verification_result.v1"
+    outcome: SemanticVerificationOutcome
+    reason_codes: list[str] = Field(default_factory=list)
+    allows_claims: bool = False
+    provider_retries_attempted: int = 0
+    claims_checked: int = 0
+    evidence_snippets_checked: int = 0
+    input_chars: int = 0
+    config_version: str
+    safe_refs: list[str] = Field(default_factory=list)
+
+
+class SemanticSupportVerifier:
+    """Budgeted semantic verifier wrapper around a deterministic provider."""
+
+    def __init__(self, *, provider: Any, config: SemanticVerifierConfig | None = None) -> None:
+        self.provider = provider
+        self.config = config or SemanticVerifierConfig()
+
+    async def verify_claims(
+        self,
+        claims: Sequence[Mapping[str, Any]],
+        *,
+        context_bundle: Mapping[str, Any] | RagContextBundle,
+    ) -> SemanticVerificationResult:
+        context = _context_dict(context_bundle)
+        budget_result = self._budget_result_if_exceeded(claims, context)
+        if budget_result is not None:
+            return budget_result
+        request = self._request(claims, context)
+        if self.provider is None or not hasattr(self.provider, "verify"):
+            return self._fail_closed(
+                "semantic_provider_missing",
+                claims_checked=len(claims),
+                evidence_snippets_checked=_evidence_snippet_count(claims),
+                input_chars=request.total_input_chars,
+                safe_refs=request.safe_refs,
+            )
+        try:
+            raw_response = await asyncio.wait_for(
+                self.provider.verify(request),
+                timeout=self.config.timeout_seconds,
+            )
+        except TimeoutError:
+            return self._fail_closed(
+                "semantic_provider_timeout",
+                claims_checked=len(claims),
+                evidence_snippets_checked=_evidence_snippet_count(claims),
+                input_chars=request.total_input_chars,
+                safe_refs=request.safe_refs,
+            )
+        except Exception:
+            return self._fail_closed(
+                "semantic_provider_error",
+                claims_checked=len(claims),
+                evidence_snippets_checked=_evidence_snippet_count(claims),
+                input_chars=request.total_input_chars,
+                safe_refs=request.safe_refs,
+            )
+        try:
+            parsed = SemanticProviderResponse.model_validate(raw_response)
+        except (TypeError, ValueError, ValidationError):
+            return self._fail_closed(
+                "semantic_provider_malformed",
+                claims_checked=len(claims),
+                evidence_snippets_checked=_evidence_snippet_count(claims),
+                input_chars=request.total_input_chars,
+                safe_refs=request.safe_refs,
+            )
+        return SemanticVerificationResult(
+            outcome=parsed.outcome,
+            reason_codes=_unique(parsed.reason_codes),
+            allows_claims=parsed.outcome == SemanticVerificationOutcome.SUPPORTED,
+            provider_retries_attempted=0,
+            claims_checked=len(claims),
+            evidence_snippets_checked=_evidence_snippet_count(claims),
+            input_chars=request.total_input_chars,
+            config_version=self.config.config_version,
+            safe_refs=request.safe_refs,
+        )
+
+    def _budget_result_if_exceeded(
+        self,
+        claims: Sequence[Mapping[str, Any]],
+        context: Mapping[str, Any],
+    ) -> SemanticVerificationResult | None:
+        if len(claims) > self.config.max_claims_per_run:
+            return self._fail_closed("semantic_budget_claim_count_exceeded", claims_checked=len(claims))
+        if any(_claim_evidence_count(claim) > self.config.max_evidence_snippets_per_claim for claim in claims):
+            return self._fail_closed(
+                "semantic_budget_evidence_count_exceeded",
+                claims_checked=len(claims),
+                evidence_snippets_checked=_evidence_snippet_count(claims),
+            )
+        input_chars = _semantic_input_chars(claims)
+        if input_chars > self.config.max_input_chars_per_run:
+            return self._fail_closed(
+                "semantic_budget_input_chars_exceeded",
+                claims_checked=len(claims),
+                evidence_snippets_checked=_evidence_snippet_count(claims),
+                input_chars=input_chars,
+                safe_refs=_semantic_safe_refs(context),
+            )
+        return None
+
+    def _request(self, claims: Sequence[Mapping[str, Any]], context: Mapping[str, Any]) -> SemanticVerifierRequest:
+        return SemanticVerifierRequest(
+            config_version=self.config.config_version,
+            claims=[_redacted_semantic_claim(claim, self.config.max_evidence_snippets_per_claim) for claim in claims],
+            safe_refs=_semantic_safe_refs(context),
+            total_input_chars=_semantic_input_chars(claims),
+        )
+
+    def _fail_closed(
+        self,
+        reason_code: str,
+        *,
+        claims_checked: int = 0,
+        evidence_snippets_checked: int = 0,
+        input_chars: int = 0,
+        safe_refs: Sequence[str] = (),
+    ) -> SemanticVerificationResult:
+        return SemanticVerificationResult(
+            outcome=SemanticVerificationOutcome.FAIL_CLOSED,
+            reason_codes=[reason_code],
+            allows_claims=False,
+            provider_retries_attempted=0,
+            claims_checked=claims_checked,
+            evidence_snippets_checked=evidence_snippets_checked,
+            input_chars=input_chars,
+            config_version=self.config.config_version,
+            safe_refs=list(safe_refs),
+        )
 
 
 class MaterialClaimVerifier:
@@ -569,11 +745,88 @@ _STOPWORDS = {
 }
 
 
+def should_run_level3_semantic_verification(case: Mapping[str, Any]) -> bool:
+    authority_class = str(case.get("authority_class") or "")
+    risk_level = str(case.get("risk_level") or "").casefold()
+    risk_hints = {str(hint) for hint in case.get("risk_hints") or []}
+    level2_outcome = str(case.get("level2_outcome") or "")
+    if authority_class == MaterialClaimAuthorityClass.ACTION_RECOMMENDATION_CLAIM.value:
+        return True
+    if risk_level in {"high", "critical"}:
+        return True
+    if level2_outcome in {
+        Level2SupportOutcome.AMBIGUOUS.value,
+        Level2SupportOutcome.NEEDS_SEMANTIC_REVIEW.value,
+    }:
+        return True
+    return bool(risk_hints & {"conflict", "stale_evidence", "ocr_low_confidence", "manual_review_sensitive"})
+
+
+def _redacted_semantic_claim(claim: Mapping[str, Any], max_evidence: int) -> dict[str, Any]:
+    snippets = [
+        {
+            "citation_id": str(snippet.get("citation_id") or ""),
+            "evidence_id": str(snippet.get("evidence_id") or ""),
+            "text": _bounded_semantic_text(str(snippet.get("text") or "")),
+        }
+        for snippet in list(claim.get("evidence_snippets") or [])[:max_evidence]
+        if isinstance(snippet, Mapping)
+    ]
+    return {
+        "claim_id": str(claim.get("claim_id") or ""),
+        "claim_text": _bounded_semantic_text(str(claim.get("claim_text") or "")),
+        "authority_class": str(claim.get("authority_class") or ""),
+        "risk_level": str(claim.get("risk_level") or ""),
+        "risk_hints": [str(hint) for hint in claim.get("risk_hints") or [] if str(hint)],
+        "level2_outcome": str(claim.get("level2_outcome") or ""),
+        "evidence_snippets": snippets,
+    }
+
+
+def _bounded_semantic_text(value: str, limit: int = 1_500) -> str:
+    safe = " ".join(value.split())
+    if len(safe) <= limit:
+        return safe
+    return safe[: limit - 12].rstrip() + " [truncated]"
+
+
+def _claim_evidence_count(claim: Mapping[str, Any]) -> int:
+    snippets = claim.get("evidence_snippets")
+    return len(snippets) if isinstance(snippets, list) else 0
+
+
+def _evidence_snippet_count(claims: Sequence[Mapping[str, Any]]) -> int:
+    return sum(_claim_evidence_count(claim) for claim in claims)
+
+
+def _semantic_input_chars(claims: Sequence[Mapping[str, Any]]) -> int:
+    total = 0
+    for claim in claims:
+        total += len(str(claim.get("claim_text") or ""))
+        snippets = claim.get("evidence_snippets")
+        if isinstance(snippets, list):
+            total += sum(len(str(snippet.get("text") or "")) for snippet in snippets if isinstance(snippet, Mapping))
+    return total
+
+
+def _semantic_safe_refs(context: Mapping[str, Any]) -> list[str]:
+    safe_refs = _verifier_context(context).get("safe_refs")
+    if isinstance(safe_refs, list):
+        return _unique(str(ref) for ref in safe_refs if str(ref))
+    return []
+
+
 __all__ = [
     "Level1VerificationResult",
     "Level2SupportOutcome",
     "Level2VerificationResult",
     "MaterialClaimVerificationResult",
     "MaterialClaimVerifier",
+    "SemanticSupportVerifier",
+    "SemanticVerificationOutcome",
+    "SemanticVerificationResult",
+    "SemanticVerifierConfig",
+    "SemanticVerifierRequest",
     "VerificationOutcome",
+    "should_run_level3_semantic_verification",
 ]
