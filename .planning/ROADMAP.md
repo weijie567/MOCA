@@ -138,17 +138,17 @@ Plans:
 
 ## Current Status
 
-v1.4 RAG Production Ingestion + OCR is accepted and ready for final verification/milestone closure. The milestone turns v1.3 hybrid retrieval into a production ingestion foundation for PDF, DOCX, image/scanned-PDF, Markdown, and plain-text policy sources with parser/OCR traceability, durable source-block provenance, table-aware chunking, and rollback-safe ingestion while preserving `PolicyKnowledgeService`, `PolicyChunk.content`, `PolicyChunk.search_text`, `EvidenceRefV1`, Tool System facts, memory boundaries, approval snapshots, and replay contracts.
+v1.4 RAG Production Ingestion + OCR is accepted, verified, and complete. The milestone turns v1.3 hybrid retrieval into a production ingestion foundation for PDF, DOCX, image/scanned-PDF, Markdown, and plain-text policy sources with parser/OCR traceability, durable source-block provenance, table-aware chunking, and rollback-safe ingestion while preserving `PolicyKnowledgeService`, `PolicyChunk.content`, `PolicyChunk.search_text`, `EvidenceRefV1`, Tool System facts, memory boundaries, approval snapshots, and replay contracts.
 
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 21. RAG Production Ingestion + OCR | v1.4 | 9/9 | Complete; final acceptance gate passed | 2026-06-19 |
+| 21. RAG Production Ingestion + OCR | v1.4 | 9/9 | Complete; verified | 2026-06-19 |
 
 ## Next Step
 
-Run final GSD verification or `$gsd-complete-milestone` for v1.4 closure.
+Run `$gsd-complete-milestone` for v1.4 closure or start the next milestone.
 
 ---
-*Updated: 2026-06-19 - Phase 21 Plan 05a final acceptance gate complete.*
+*Updated: 2026-06-19 - Phase 21 verified and v1.4 milestone complete.*
