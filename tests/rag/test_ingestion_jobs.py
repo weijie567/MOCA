@@ -142,16 +142,23 @@ class _FakeParserRegistry:
         return self.result
 
 
-def _block(*, source_block_id: str = "block-001", text: str = "退款审核通过后两个工作日退回。") -> ParsedBlock:
+def _block(
+    *,
+    source_block_id: str = "block-001",
+    text: str = "退款审核通过后两个工作日退回。",
+    source_type: str = "policy_markdown",
+    parser_name: str = "fake_parser",
+    parser_version: str = "1.0",
+) -> ParsedBlock:
     return ParsedBlock(
         source_block_id=source_block_id,
         block_index=0,
         block_type="paragraph",
         text=text,
         normalized_text=text,
-        source_type="policy_markdown",
-        parser_name="fake_parser",
-        parser_version="1.0",
+        source_type=source_type,
+        parser_name=parser_name,
+        parser_version=parser_version,
         page_number=2,
         box=None,
         table_metadata={},
@@ -159,12 +166,18 @@ def _block(*, source_block_id: str = "block-001", text: str = "退款审核通�
     )
 
 
-def _parse_result(*, blocks: tuple[ParsedBlock, ...] | None = None, source_type: str = "policy_markdown") -> ParseResult:
+def _parse_result(
+    *,
+    blocks: tuple[ParsedBlock, ...] | None = None,
+    source_type: str = "policy_markdown",
+    parser_name: str = "fake_parser",
+    parser_version: str = "1.0",
+) -> ParseResult:
     return ParseResult(
         status="success",
         source_type=source_type,
-        parser_name="fake_parser",
-        parser_version="1.0",
+        parser_name=parser_name,
+        parser_version=parser_version,
         blocks=blocks or (_block(),),
         warnings=(),
         failure_code=None,
@@ -367,10 +380,19 @@ async def test_malicious_source_type_is_sanitized_before_durable_job_trace(tmp_p
 @pytest.mark.asyncio
 async def test_parser_result_source_type_is_sanitized_before_document_and_job_persistence(tmp_path: Path) -> None:
     events: list[str] = []
-    unsafe_source_type = "policy_pdf\n/Users/ming/private/source.pdf\nparser_dump"
+    unsafe_scalar = "policy_pdf\n/Users/ming/private/source.pdf\nparser_dump"
+    unsafe_block = _block(source_type=unsafe_scalar, parser_name=unsafe_scalar, parser_version=unsafe_scalar)
     session = _FakeSession(events)
     service = IngestionService(session=session, embedder=_FakeEmbedder(events), tenant_id=uuid4())
-    service.parser_registry = _FakeParserRegistry(_parse_result(source_type=unsafe_source_type), events)
+    service.parser_registry = _FakeParserRegistry(
+        _parse_result(
+            blocks=(unsafe_block,),
+            source_type=unsafe_scalar,
+            parser_name=unsafe_scalar,
+            parser_version=unsafe_scalar,
+        ),
+        events,
+    )
     service.doc_repo = _FakeDocumentRepo(None, events)
     service.block_repo = _FakeBlockRepo(events)
     service.chunk_repo = _FakeChunkRepo(events)
@@ -378,13 +400,58 @@ async def test_parser_result_source_type_is_sanitized_before_document_and_job_pe
 
     report = await service.ingest_document(_write_policy(tmp_path), _doc_meta())
     created_doc = next(item for item in session.added if hasattr(item, "doc_key"))
+    created_block = service.block_repo.inserted[0]
     created_job = service.job_repo.created[-1]
     serialized = f"{created_doc!r} {created_job!r}"
 
     assert report.status == "success"
     assert created_doc.source_type == "unsupported"
+    assert created_doc.parser_metadata_json["source_type"] == "unsupported"
+    assert created_doc.parser_metadata_json["parser_name"] == "unknown_parser"
+    assert created_doc.parser_metadata_json["parser_version"] == "unknown"
+    assert created_block.parser_metadata_json["source_type"] == "unsupported"
+    assert created_block.parser_metadata_json["parser_name"] == "unknown_parser"
+    assert created_block.parser_metadata_json["parser_version"] == "unknown"
     assert created_job.source_type == "unsupported"
+    assert created_job.parser_name == "unknown_parser"
+    assert created_job.parser_version == "unknown"
     assert "/Users/ming" not in serialized
+    assert "parser_dump" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_failed_job_update_sanitizes_parser_identity_and_revalidates_before_commit(tmp_path: Path) -> None:
+    events: list[str] = []
+    unsafe_scalar = "Traceback (most recent call last): /Users/ming/private/source.pdf parser_dump"
+    failure = ParseResult(
+        status="failed",
+        source_type=unsafe_scalar,
+        parser_name=unsafe_scalar,
+        parser_version=unsafe_scalar,
+        blocks=(),
+        warnings=(),
+        failure_code=unsafe_scalar,
+        safe_message="Policy source could not be parsed safely.",
+    )
+    session = _FakeSession(events)
+    service = IngestionService(session=session, embedder=_FakeEmbedder(events), tenant_id=uuid4())
+    service.parser_registry = _FakeParserRegistry(failure, events)
+    service.doc_repo = _FakeDocumentRepo(None, events)
+    service.job_repo = _FakeJobRepo(events)
+
+    report = await service.ingest_document(_write_policy(tmp_path), _doc_meta())
+    failed_job = service.job_repo.created[-1]
+    serialized = f"{report!r} {failed_job!r}"
+
+    assert report.status == "failed"
+    assert report.error_code == "parser_failed"
+    assert failed_job.status == "failed"
+    assert failed_job.error_code == "parser_failed"
+    assert failed_job.source_type == "unsupported"
+    assert failed_job.parser_name == "unknown_parser"
+    assert failed_job.parser_version == "unknown"
+    assert "/Users/ming" not in serialized
+    assert "Traceback" not in serialized
     assert "parser_dump" not in serialized
 
 

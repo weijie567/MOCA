@@ -25,7 +25,7 @@ from src.rag.versioning import build_policy_version_fingerprint
 from src.repositories.document_block_repo import DocumentBlockRepository
 from src.repositories.policy_chunk_repo import PolicyChunkRepository
 from src.repositories.policy_document_repo import PolicyDocumentRepository
-from src.repositories.rag_ingestion_job_repo import RagIngestionJobRepository
+from src.repositories.rag_ingestion_job_repo import RagIngestionJobRepository, validate_rag_ingestion_job
 
 
 @dataclass
@@ -428,15 +428,15 @@ class IngestionService:
         default_message: str,
         counts: dict[str, Any] | None = None,
     ) -> IngestionReport:
-        error_code = default_code
+        error_code = _safe_trace_scalar(default_code, default="parser_failed")
         safe_message = _safe_message(
             parse_result.safe_message if parse_result is not None else default_message,
             default=default_message,
         )
         if job is not None:
             if parse_result is not None:
-                job.parser_name = parse_result.parser_name
-                job.parser_version = parse_result.parser_version
+                job.parser_name = _safe_trace_scalar(parse_result.parser_name, default="unknown_parser")
+                job.parser_version = _safe_trace_scalar(parse_result.parser_version, default="unknown")
                 job.source_type = _safe_source_type_for_persistence(parse_result.source_type)
             await self._mark_job_failed(
                 job=job,
@@ -467,11 +467,12 @@ class IngestionService:
     ) -> bool:
         job.stage = stage
         job.status = "failed"
-        job.error_code = error_code
+        job.error_code = _safe_trace_scalar(error_code, default="ingestion_failed")
         job.safe_message = _safe_message(safe_message, default="Policy ingestion failed safely.")
         job.counts_json = counts or {"chunks_created": 0}
         job.completed_at = _utc_now()
         try:
+            validate_rag_ingestion_job(job)
             await self.session.commit()
             return True
         except Exception:
@@ -493,6 +494,7 @@ _SOURCE_TYPE_BY_EXTENSION = {
     ".tiff": "policy_image",
 }
 _SAFE_JOB_SOURCE_TYPE = re.compile(r"^[a-z0-9][a-z0-9_]{0,31}$")
+_SAFE_TRACE_SCALAR = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$")
 _UNSAFE_MESSAGE_PATTERNS = (
     re.compile(r"/(?:Users|home|tmp|var|private|Volumes)/"),
     re.compile(r"[A-Za-z]:\\\\"),
@@ -516,6 +518,17 @@ def _safe_source_type_for_persistence(source_type: Any) -> str:
     if _SAFE_JOB_SOURCE_TYPE.fullmatch(value):
         return value
     return "unsupported"
+
+
+def _safe_trace_scalar(value: Any, *, default: str) -> str:
+    text = str(value or default).strip() or default
+    if (
+        _CONTROL_CHARS.search(text)
+        or any(pattern.search(text) for pattern in _UNSAFE_MESSAGE_PATTERNS)
+        or not _SAFE_TRACE_SCALAR.fullmatch(text)
+    ):
+        return default
+    return text
 
 
 def _source_checksum(file_path: Path) -> str:
@@ -634,18 +647,18 @@ def _embedding_text(*, title: str, chunk: BlockChunkResult) -> str:
 
 def _parser_metadata(parse_result: ParseResult) -> dict[str, Any]:
     return {
-        "source_type": parse_result.source_type,
-        "parser_name": parse_result.parser_name,
-        "parser_version": parse_result.parser_version,
+        "source_type": _safe_source_type_for_persistence(parse_result.source_type),
+        "parser_name": _safe_trace_scalar(parse_result.parser_name, default="unknown_parser"),
+        "parser_version": _safe_trace_scalar(parse_result.parser_version, default="unknown"),
         "warning_codes": [warning.code for warning in parse_result.warnings],
     }
 
 
 def _block_parser_metadata(block: ParsedBlock) -> dict[str, Any]:
     return {
-        "source_type": block.source_type,
-        "parser_name": block.parser_name,
-        "parser_version": block.parser_version,
+        "source_type": _safe_source_type_for_persistence(block.source_type),
+        "parser_name": _safe_trace_scalar(block.parser_name, default="unknown_parser"),
+        "parser_version": _safe_trace_scalar(block.parser_version, default="unknown"),
         "warning_codes": [warning.code for warning in block.warnings],
     }
 
@@ -758,8 +771,8 @@ def _mark_job_success(
     chunks: int,
 ) -> None:
     job.doc_id = doc_id
-    job.parser_name = parse_result.parser_name
-    job.parser_version = parse_result.parser_version
+    job.parser_name = _safe_trace_scalar(parse_result.parser_name, default="unknown_parser")
+    job.parser_version = _safe_trace_scalar(parse_result.parser_version, default="unknown")
     job.source_type = _safe_source_type_for_persistence(parse_result.source_type)
     job.stage = "completed"
     job.status = "success"
@@ -768,6 +781,7 @@ def _mark_job_success(
     job.warnings_json = [{"code": warning.code} for warning in parse_result.warnings]
     job.counts_json = {"blocks": blocks, "chunks": chunks, "chunks_created": chunks}
     job.completed_at = _utc_now()
+    validate_rag_ingestion_job(job)
 
 
 def _snapshot_document(doc: Any) -> dict[str, Any]:
