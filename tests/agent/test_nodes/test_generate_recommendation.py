@@ -68,6 +68,26 @@ def _retrieval_state(*, evidence: list[EvidenceRefV1] | None = None) -> dict:
     }
 
 
+def test_risk_hints_merge_state_and_evidence_labels():
+    evidence = _evidence()
+    retrieval_state = _retrieval_state(evidence=[evidence])
+    retrieval_state["retrieved_evidence"]["evidence_refs"][0]["risk_labels"] = ["ocr_low_confidence"]
+
+    hints = generate_recommendation_module._risk_hints_from_state(
+        {
+            **retrieval_state,
+            "risk_hints": [{"evidence_id": evidence.evidence_id, "labels": ["manual_review_sensitive"]}],
+        }
+    )
+
+    assert hints == [
+        {
+            "evidence_id": evidence.evidence_id,
+            "labels": ["manual_review_sensitive", "ocr_low_confidence"],
+        }
+    ]
+
+
 def _with_knowledge_service(monkeypatch, contents):
     calls = []
 
@@ -231,9 +251,16 @@ async def test_membership_pass_keeps_canonical_evidence_ref(monkeypatch, base_st
 
 @pytest.mark.asyncio
 async def test_membership_fail_drops_ref_and_marks_citation_invalid(monkeypatch, base_state):
+    evidence = _evidence(tenant_id=base_state["tenant_id"])
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_draft(chunk_id="missing")))
+    _with_knowledge_service(
+        monkeypatch, {(evidence.doc_key, evidence.chunk_id): "退款超时时，客服应核实支付通道和退款状态。"}
+    )
 
-    result = await generate_recommendation_module.generate_recommendation({**base_state, **_retrieval_state()})
+    result = await generate_recommendation_module.generate_recommendation(
+        {**base_state, **_retrieval_state(evidence=[evidence])},
+        _config(),
+    )
 
     draft = result["recommendation_draft"]
     assert draft["evidence_refs"] == []
@@ -245,15 +272,42 @@ async def test_membership_fail_drops_ref_and_marks_citation_invalid(monkeypatch,
 
 @pytest.mark.asyncio
 async def test_prompt_lists_evidence_ids_in_allowed_citation_objects(monkeypatch, base_state):
+    evidence = _evidence(tenant_id=base_state["tenant_id"])
     fake_llm = CapturingLLM(_draft())
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
+    _with_knowledge_service(
+        monkeypatch, {(evidence.doc_key, evidence.chunk_id): "退款超时时，客服应核实支付通道和退款状态。"}
+    )
 
-    await generate_recommendation_module.generate_recommendation({**base_state, **_retrieval_state()})
+    await generate_recommendation_module.generate_recommendation(
+        {**base_state, **_retrieval_state(evidence=[evidence])},
+        _config(),
+    )
 
     prompt = fake_llm.messages[-1]["content"]
     assert "Allowed citation objects" in prompt
-    assert _evidence().evidence_id in prompt
+    assert evidence.evidence_id in prompt
     assert "For each material claim" in prompt
+
+
+@pytest.mark.asyncio
+async def test_prompt_excludes_invalid_candidate_from_allowed_citation_objects(monkeypatch, base_state):
+    invalid_text = "invalid candidate body must not be offered as an allowed citation"
+    evidence = _evidence(tenant_id=base_state["tenant_id"], text=invalid_text)
+    fake_llm = CapturingLLM(_draft())
+    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
+    _with_knowledge_service(monkeypatch, {})
+
+    result = await generate_recommendation_module.generate_recommendation(
+        {**base_state, **_retrieval_state(evidence=[evidence])},
+        _config(),
+    )
+
+    prompt = fake_llm.messages[-1]["content"]
+    assert "Allowed citation objects: []" in prompt
+    assert invalid_text not in prompt
+    assert result["verification_route"] == "insufficient_evidence"
+    assert result["evidence_refs"] == []
 
 
 @pytest.mark.asyncio
@@ -316,6 +370,28 @@ async def test_canonical_latest_invalid_reason_routes_refuse_not_generic_insuffi
     assert result["verifier_status"] == "latest_version_invalid"
     assert result["verification_route"] == "refuse"
     assert "latest_version_invalid" in result["verifier_reason_codes"]
+    assert result["evidence_refs"] == []
+
+
+@pytest.mark.asyncio
+async def test_evidence_ocr_low_confidence_label_routes_manual_review(monkeypatch, base_state):
+    text = "扫描件显示可直接补偿 800 元。"
+    evidence = _evidence(tenant_id=base_state["tenant_id"], text=text)
+    retrieval_state = _retrieval_state(evidence=[evidence])
+    retrieval_state["retrieved_evidence"]["evidence_refs"][0]["risk_labels"] = ["ocr_low_confidence"]
+    draft = _draft(reasoning_summary=text)
+    draft["risk_level"] = "high"
+    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(draft))
+    _with_knowledge_service(monkeypatch, {(evidence.doc_key, evidence.chunk_id): text})
+
+    result = await generate_recommendation_module.generate_recommendation(
+        {**base_state, **retrieval_state},
+        _config(),
+    )
+
+    assert result["verifier_status"] == "ocr_low_confidence"
+    assert result["verification_route"] == "manual_review"
+    assert "ocr_low_confidence" in result["verifier_reason_codes"]
     assert result["evidence_refs"] == []
 
 

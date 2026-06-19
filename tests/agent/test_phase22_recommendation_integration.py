@@ -344,7 +344,7 @@ async def test_missing_session_context_builder_fails_closed_instead_of_allowing_
         {},
     )
 
-    assert result["recommendation_draft"]["citation_validation"]["is_valid"] is True
+    assert result["recommendation_draft"]["citation_validation"]["is_valid"] is False
     assert result["verification_route"] != "allow"
     assert result["rag_verification"]["overall_outcome"] in {"insufficient", "manual_review"}
     assert "context_builder_session_missing" in result["verifier_reason_codes"]

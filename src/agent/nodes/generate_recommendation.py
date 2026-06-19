@@ -46,6 +46,21 @@ _ACTIONABLE_RECOMMENDATIONS = {
     "partial_refund",
     "compensation",
 }
+_SAFE_EVIDENCE_RISK_LABELS = frozenset(
+    {
+        "authority_checked",
+        "conflict",
+        "freshness_risk",
+        "high_risk",
+        "latest_version_checked",
+        "manual_review_sensitive",
+        "ocr_low_confidence",
+        "provenance_available",
+        "source_locator_available",
+        "stale_evidence",
+    }
+)
+_ROUTING_RISK_LABELS = frozenset({"conflict", "manual_review_sensitive", "ocr_low_confidence", "stale_evidence"})
 
 
 def _now_iso() -> str:
@@ -191,6 +206,7 @@ async def generate_recommendation(state: AgentState, config: RunnableConfig = No
             result = await structured_llm.ainvoke(messages)
             provider_latency_ms = round((time.perf_counter() - t0) * 1000)
             draft = result.model_dump()
+            draft_evidence_refs = list(draft.get("evidence_refs") or [])
             cited_evidence_ids = [
                 evidence_id_by_citation.get(
                     (item.get("doc_key"), item.get("chunk_id")),
@@ -241,6 +257,7 @@ async def generate_recommendation(state: AgentState, config: RunnableConfig = No
                 claims=material_claims,
                 context_bundle=rag_bundle,
                 citation_validation=validation.model_dump(),
+                draft_evidence_refs=draft_evidence_refs,
             )
             route_value = _verification_route_value(verification)
             _apply_verification_to_draft(draft, verification, material_claims)
@@ -368,6 +385,7 @@ async def _verify_recommendation_with_shared_kernel(
     claims: list[MaterialClaim],
     context_bundle: Any,
     citation_validation: dict[str, Any],
+    draft_evidence_refs: list[Any],
 ) -> dict[str, Any]:
     verifier = MaterialClaimVerifier()
     if hasattr(verifier, "verify_recommendation"):
@@ -380,8 +398,13 @@ async def _verify_recommendation_with_shared_kernel(
         return _normalize_recommendation_verification(result)
 
     cited_evidence_ids = _cited_evidence_ids_from_claims(claims)
-    context_reason_codes = _context_exclusion_reason_codes(context_bundle, cited_evidence_ids)
-    if claims and citation_validation.get("is_valid") is True and _missing_session_compat(context_bundle):
+    context_reason_codes = _unique_text(
+        [
+            *_context_exclusion_reason_codes(context_bundle, cited_evidence_ids, draft_evidence_refs),
+            *_context_risk_reason_codes(context_bundle, cited_evidence_ids),
+        ]
+    )
+    if _missing_session_compat(context_bundle):
         reason_codes = _unique_text(
             ["policy_evidence_required", "context_builder_session_missing", *context_reason_codes]
         )
@@ -466,9 +489,14 @@ def _cited_evidence_ids_from_claims(claims: list[MaterialClaim]) -> list[str]:
     return _unique_text(evidence_id for claim in claims for evidence_id in claim.cited_evidence_ids)
 
 
-def _context_exclusion_reason_codes(context_bundle: Any, cited_evidence_ids: list[str]) -> list[str]:
+def _context_exclusion_reason_codes(
+    context_bundle: Any,
+    cited_evidence_ids: list[str],
+    draft_evidence_refs: list[Any],
+) -> list[str]:
     cited = set(cited_evidence_ids)
-    if not cited:
+    draft_keys = _draft_evidence_keys(draft_evidence_refs)
+    if not cited and not draft_keys:
         return []
     debug_context = _get_value(context_bundle, "debug_context")
     entries = _get_value(debug_context, "truncated_or_excluded_evidence")
@@ -478,7 +506,8 @@ def _context_exclusion_reason_codes(context_bundle: Any, cited_evidence_ids: lis
     reason_codes: list[str] = []
     for entry in entries:
         evidence_id = str(_get_value(entry, "evidence_id") or "")
-        if evidence_id not in cited:
+        entry_key = (str(_get_value(entry, "doc_key") or ""), str(_get_value(entry, "chunk_id") or ""))
+        if evidence_id not in cited and entry_key not in draft_keys:
             continue
         entry_reason_codes = _get_value(entry, "reason_codes")
         if isinstance(entry_reason_codes, list):
@@ -490,8 +519,38 @@ def _context_exclusion_reason_codes(context_bundle: Any, cited_evidence_ids: lis
     return _unique_text(reason_codes)
 
 
+def _draft_evidence_keys(draft_evidence_refs: list[Any]) -> set[tuple[str, str]]:
+    keys: set[tuple[str, str]] = set()
+    for item in draft_evidence_refs:
+        if not isinstance(item, dict):
+            continue
+        doc_key = str(item.get("doc_key") or "")
+        chunk_id = str(item.get("chunk_id") or "")
+        if doc_key and chunk_id:
+            keys.add((doc_key, chunk_id))
+    return keys
+
+
+def _context_risk_reason_codes(context_bundle: Any, cited_evidence_ids: list[str]) -> list[str]:
+    cited = set(cited_evidence_ids)
+    if not cited:
+        return []
+
+    reason_codes: list[str] = []
+    for entry in _citation_map_entries(context_bundle):
+        source_ids = {str(value) for value in _get_value(entry, "source_evidence_ids") or [] if str(value)}
+        if not cited & source_ids:
+            continue
+        reason_codes.extend(
+            str(label) for label in _get_value(entry, "risk_labels") or [] if str(label) in _ROUTING_RISK_LABELS
+        )
+    return _unique_text(reason_codes)
+
+
 def _promote_context_blocking_outcome(overall: str, reason_codes: list[str]) -> str:
     reasons = set(reason_codes)
+    if "ocr_low_confidence" in reasons:
+        return "ocr_low_confidence"
     if reasons & {"text_hash_mismatch", "hash_mismatch"}:
         return "hash_mismatch"
     if "latest_version_invalid" in reasons:
@@ -630,10 +689,42 @@ def _business_fact_refs_from_state(state: AgentState) -> list[BusinessFactRefV1]
 
 
 def _risk_hints_from_state(state: AgentState) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
     hints = state.get("risk_hints")
     if isinstance(hints, list):
-        return [dict(item) for item in hints if isinstance(item, dict)]
-    return []
+        result.extend(dict(item) for item in hints if isinstance(item, dict))
+    result.extend(_risk_hints_from_evidence_items(list(_retrieval_data(state).get("evidence_refs") or [])))
+    return _merge_risk_hints(result)
+
+
+def _risk_hints_from_evidence_items(evidence_items: list[Any]) -> list[dict[str, Any]]:
+    hints: list[dict[str, Any]] = []
+    for item in evidence_items:
+        if not isinstance(item, dict):
+            continue
+        evidence_id = str(item.get("evidence_id") or "")
+        labels = [str(label) for label in item.get("risk_labels") or [] if str(label) in _SAFE_EVIDENCE_RISK_LABELS]
+        if evidence_id and labels:
+            hints.append({"evidence_id": evidence_id, "labels": _unique_text(labels)})
+    return hints
+
+
+def _merge_risk_hints(hints: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    labels_by_evidence_id: dict[str, list[str]] = {}
+    for hint in hints:
+        evidence_id = str(hint.get("evidence_id") or "")
+        if not evidence_id:
+            continue
+        labels = labels_by_evidence_id.setdefault(evidence_id, [])
+        for label in hint.get("labels") or []:
+            label_text = str(label)
+            if label_text and label_text not in labels:
+                labels.append(label_text)
+    return [
+        {"evidence_id": evidence_id, "labels": labels}
+        for evidence_id, labels in labels_by_evidence_id.items()
+        if labels
+    ]
 
 
 def _evidence_id_by_citation(
@@ -654,7 +745,11 @@ def _evidence_items_from_bundle(context_bundle: Any, fallback_items: list[dict[s
         ref = _dump_json(evidence_ref)
         if isinstance(ref, dict):
             items.append(ref)
-    return items or fallback_items
+    if items:
+        return items
+    if _missing_session_compat(context_bundle):
+        return []
+    return fallback_items if not _get_value(context_bundle, "debug_context") else []
 
 
 def _policy_snippets_from_bundle(context_bundle: Any) -> list[dict[str, Any]]:
@@ -792,7 +887,11 @@ def _apply_verification_to_draft(
         claim.model_dump(mode="json") for claim in claims
     ]
     if route != "allow":
-        if draft.get("recommended_action") == "citation_invalid":
+        reason_codes = set(verification.get("reason_codes") or [])
+        if (
+            draft.get("recommended_action") == "citation_invalid"
+            and "context_builder_session_missing" not in reason_codes
+        ):
             return
         draft["recommended_action"] = route
         draft["confidence"] = 0.0

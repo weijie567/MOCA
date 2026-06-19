@@ -34,6 +34,21 @@ REQUIRED_HALLUCINATION_METRICS: tuple[str, ...] = (
     "fail_closed_rate",
     "total_cases",
 )
+_SAFE_EVIDENCE_RISK_LABELS = frozenset(
+    {
+        "authority_checked",
+        "conflict",
+        "freshness_risk",
+        "high_risk",
+        "latest_version_checked",
+        "manual_review_sensitive",
+        "ocr_low_confidence",
+        "provenance_available",
+        "source_locator_available",
+        "stale_evidence",
+    }
+)
+_ROUTING_RISK_LABELS = frozenset({"conflict", "manual_review_sensitive", "ocr_low_confidence", "stale_evidence"})
 
 
 class HallucinationCaseResult(BaseModel):
@@ -134,7 +149,7 @@ async def _evaluate_production_hallucination_case(case: Mapping[str, Any]) -> di
             "effective_at": "2026-06-19T00:00:00+00:00",
             "scope": {},
         },
-        risk_hints=[],
+        risk_hints=_risk_hints_from_evidence_refs(_evidence_refs(case)),
     )
 
     verifier = MaterialClaimVerifier()
@@ -145,7 +160,13 @@ async def _evaluate_production_hallucination_case(case: Mapping[str, Any]) -> di
             await verifier.verify_claim(claim, context_bundle=bundle, dependency_results=dependency_results)
         )
 
-    context_reason_codes = _bundle_exclusion_reason_codes(bundle, _cited_evidence_ids_from_claims(claims))
+    cited_evidence_ids = _cited_evidence_ids_from_claims(claims)
+    context_reason_codes = _unique_strings(
+        [
+            *_bundle_exclusion_reason_codes(bundle, cited_evidence_ids),
+            *_bundle_risk_reason_codes(bundle, cited_evidence_ids),
+        ]
+    )
     status, reason_codes = _aggregate_production_verifier_results(
         [result.model_dump(mode="json") for result in verification_results],
         context_reason_codes=context_reason_codes,
@@ -319,8 +340,28 @@ def _bundle_exclusion_reason_codes(bundle: Any, cited_evidence_ids: Sequence[str
     return _unique_strings(reason_codes)
 
 
+def _bundle_risk_reason_codes(bundle: Any, cited_evidence_ids: Sequence[str]) -> list[str]:
+    cited = set(cited_evidence_ids)
+    if not cited:
+        return []
+    citation_map = getattr(bundle, "citation_map", None)
+    if not isinstance(citation_map, Mapping):
+        return []
+    reason_codes: list[str] = []
+    for entry in citation_map.values():
+        source_ids = {str(value) for value in getattr(entry, "source_evidence_ids", []) or [] if str(value)}
+        if not cited & source_ids:
+            continue
+        reason_codes.extend(
+            str(label) for label in getattr(entry, "risk_labels", []) or [] if str(label) in _ROUTING_RISK_LABELS
+        )
+    return _unique_strings(reason_codes)
+
+
 def _promote_context_blocking_status(status: str, reason_codes: Sequence[str]) -> str:
     reasons = set(reason_codes)
+    if "ocr_low_confidence" in reasons:
+        return "ocr_low_confidence"
     if reasons & {"text_hash_mismatch", "hash_mismatch"}:
         return "hash_mismatch"
     if "latest_version_invalid" in reasons:
@@ -341,6 +382,16 @@ def _safe_support_refs_from_results(results: Sequence[Any]) -> list[str]:
         if isinstance(dumped, Mapping):
             refs.extend(_string_list(dumped.get("safe_support_refs")))
     return _unique_strings(refs)
+
+
+def _risk_hints_from_evidence_refs(refs: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    hints: list[dict[str, Any]] = []
+    for ref in refs:
+        evidence_id = str(ref.get("evidence_id") or "")
+        labels = [str(label) for label in ref.get("risk_labels") or [] if str(label) in _SAFE_EVIDENCE_RISK_LABELS]
+        if evidence_id and labels:
+            hints.append({"evidence_id": evidence_id, "labels": _unique_strings(labels)})
+    return hints
 
 
 def _determine_verifier_status(case: Mapping[str, Any]) -> tuple[str, list[str]]:
