@@ -1,6 +1,6 @@
 ---
 phase: 22-rag-context-builder-hallucination-control
-reviewed: 2026-06-19T11:57:07Z
+reviewed: 2026-06-19T12:50:54Z
 depth: deep
 files_reviewed: 35
 files_reviewed_list:
@@ -40,8 +40,8 @@ files_reviewed_list:
   - tests/knowledge/test_service.py
   - tests/test_graph_routing.py
 findings:
-  critical: 1
-  warning: 2
+  critical: 2
+  warning: 1
   info: 0
   total: 3
 status: issues_found
@@ -49,118 +49,92 @@ status: issues_found
 
 # Phase 22: Code Review Report
 
-**Reviewed:** 2026-06-19T11:57:07Z
+**Reviewed:** 2026-06-19T12:50:54Z
 **Depth:** deep
 **Files Reviewed:** 35
 **Status:** issues_found
 
 ## Summary
 
-Deep review covered the Phase 22 RAG context builder, verifier, route mapping, recommendation/risk/action/final-response integration, golden eval scaffold, and related tests. The deterministic verifier kernel has useful low-level checks, but the recommendation integration currently bypasses the material-claim safety contract: it verifies evidence text against itself and never models action/business dependencies. Existing Phase 22 tests and eval pass despite this bypass.
-
-Validation performed:
-
-- `uv run pytest tests/agent/rag_context tests/agent/test_phase22_action_boundary.py tests/agent/test_phase22_final_response.py tests/agent/test_phase22_recommendation_integration.py tests/knowledge/test_phase22_evidence_validation.py tests/knowledge/test_service.py tests/test_graph_routing.py` passed: 145 tests.
-- `uv run python scripts/eval_phase22_hallucination.py --dataset evaluation/golden/phase22_hallucination_cases.jsonl --fail-thresholds` passed.
-- A focused runtime probe showed an unsupported `issue_coupon` draft with valid citation membership routes as `allow` because the generated claim text is replaced with the cited snippet.
+Deep review covered the listed implementation, repository/service validation paths, graph routing, deterministic eval scaffold, and Phase 22 tests. The context builder and most non-allow routing paths are fail-closed, but two recommendation-verification paths can still synthesize an `allow` route without the required authority checks. One additional edge case can let an invalid duplicate evidence ref suppress a valid tenant ref before validation.
 
 ## Critical Issues
 
-### CR-01: Recommendation Verification Self-Verifies Evidence Instead Of The Draft Claim
+### CR-01: Failed action dependencies can be aggregated as `supported` and routed `allow`
 
-**File:** `src/agent/nodes/generate_recommendation.py:618`
+**File:** `src/agent/nodes/generate_recommendation.py:424`
 
-**Issue:** `_material_claims_from_draft()` sets `claim_text` from `_supportable_claim_text()`, and `_supportable_claim_text()` returns the cited verifier snippet when available (`src/agent/nodes/generate_recommendation.py:627`). That means the verifier checks whether evidence text supports itself, not whether the LLM-generated `reasoning_summary` or actionable recommendation is supported. The same function only creates a `POLICY_CLAIM`, so an actionable `issue_coupon`/refund recommendation can route `allow` without a business fact claim or an action recommendation dependency check.
+**Issue:** `_verify_recommendation_with_shared_kernel()` sets the aggregate outcome to `verification_results[0].outcome.value` whenever not all claims pass. If the first policy claim is supported but the later action recommendation claim fails, for example because `claim-business-1` is missing, the aggregate outcome remains `supported`. The route map then allows it because `dependency_result_missing` is not a blocking reason in `src/agent/rag_context/routing.py:116`. I reproduced this with a supported policy claim plus an `issue_coupon` action claim with no business refs; the result was `overall_outcome: supported`, `allows_recommendation: True`, and `route: allow` with `reason_codes: ["lexical_span_supported", "dependency_result_missing"]`.
 
-I confirmed this with a runtime probe: a draft saying "The merchant needs no logistics evidence and should be compensated automatically" cited evidence saying the opposite, but the claim text became "Delivered orders require verified logistics evidence before compensation" and `_verify_recommendation_with_shared_kernel()` returned `overall_outcome: supported`, `route: allow`.
+This violates the Phase 22 action boundary: an actionable recommendation can proceed without current Tool System business support.
 
-**Fix:** Build material claims from the model draft, not from the evidence snippet, and include action/business dependency claims for actionable recommendations. Add a regression test in `tests/agent/test_phase22_recommendation_integration.py` that uses the real verifier path and asserts a cited-but-unsupported `reasoning_summary` plus `issue_coupon` does not route `allow`.
-
+**Fix:**
 ```python
-def _material_claims_from_draft(
-    draft: dict[str, Any],
-    cited_evidence_ids: list[str],
-    context_bundle: Any,
-    business_fact_refs: list[BusinessFactRefV1],
-) -> list[MaterialClaim]:
-    cited = [evidence_id for evidence_id in cited_evidence_ids if not evidence_id.startswith("unresolved:")]
-    claim_text = str(draft.get("reasoning_summary") or draft.get("recommended_action") or "").strip()
-    if not cited or not claim_text:
-        return []
+# src/agent/nodes/generate_recommendation.py
+blocking_results = [result for result in verification_results if not result.allows_claim]
+overall = "supported" if not blocking_results else _highest_priority_blocking_outcome(blocking_results)
 
-    claims = [
-        MaterialClaim(
-            claim_id="claim-policy-1",
-            claim_text=claim_text,
-            authority_class=MaterialClaimAuthorityClass.POLICY_CLAIM,
-            source_node="generate_recommendation",
-            risk_level=draft.get("risk_level"),
-            cited_evidence_ids=cited,
-        )
-    ]
-    if _is_actionable_recommendation(draft.get("recommended_action")):
-        claims.append(
-            MaterialClaim(
-                claim_id="claim-action-1",
-                claim_text=f"{draft.get('recommended_action')}: {claim_text}",
-                authority_class=MaterialClaimAuthorityClass.ACTION_RECOMMENDATION_CLAIM,
-                source_node="generate_recommendation",
-                risk_level=draft.get("risk_level"),
-                cited_evidence_ids=cited,
-                business_fact_refs=business_fact_refs,
-                dependency_claim_ids=["claim-policy-1", "claim-business-1"],
-            )
-        )
-    return claims
+# At minimum, do not let the first supported claim mask later failures:
+# overall = "supported" if all(result.allows_claim for result in verification_results) else next(
+#     result.outcome.value for result in verification_results if not result.allows_claim
+# )
 ```
 
-Also update `_verify_recommendation_with_shared_kernel()` to verify policy/business dependency results before verifying `claim-action-1`; otherwise the `MaterialClaimVerifier` action boundary remains unused by the graph integration.
+Also add dependency failure reason codes to the route map's blocking/insufficient sets, including `dependency_result_missing`, `unsupported_dependency`, `unsupported_policy_dependency`, `unsupported_business_dependency`, `policy_dependency_not_evidence_supported`, and `business_dependency_not_tool_supported`. Add a regression test where a supported policy claim plus missing business dependency must route non-allow.
+
+### CR-02: Missing-session compatibility path returns `supported/allow` without verification
+
+**File:** `src/agent/nodes/generate_recommendation.py:382`
+
+**Issue:** When `ContextBuilder` runs without a session, `_context_builder_mode()` marks the bundle as `missing_session_compat`. `_verify_recommendation_with_shared_kernel()` then returns `overall_outcome: supported` and an `allow` route for any non-empty claim list as long as citation membership passed, without canonical re-fetch, Level 1 bundle membership, Level 2 support, or business-fact authority checks. I confirmed the branch returns `supported/allow` for an unsupported policy claim with only `citation_validation={"is_valid": True}`.
+
+This is a fail-open safety path if a caller invokes the node without `configurable.session`, and it bypasses the shared verifier kernel that Phase 22 is meant to enforce.
+
+**Fix:**
+```python
+if claims and citation_validation.get("is_valid") is True and _missing_session_compat(context_bundle):
+    route = determine_verification_route(
+        {
+            "overall_outcome": "insufficient",
+            "reason_codes": ["policy_evidence_required", "context_builder_session_missing"],
+        }
+    )
+    return _normalize_recommendation_verification(
+        {
+            "overall_outcome": "insufficient",
+            "allows_recommendation": False,
+            "route": route,
+            "material_claims": _safe_material_claims(claims),
+            "reason_codes": ["policy_evidence_required", "context_builder_session_missing"],
+            "safe_citation_refs": [],
+            "metrics": route.metrics,
+        }
+    )
+```
+
+Prefer removing the compatibility allowance entirely; if no canonical evidence service is available, the recommendation path should be insufficient evidence or manual review, not allow.
 
 ## Warnings
 
-### WR-01: RAG Prompt Total Budget Is Recorded But Not Enforced
+### WR-01: Dedupe can discard a valid tenant evidence ref before validation
 
-**File:** `src/agent/rag_context/builder.py:115`
+**File:** `src/agent/rag_context/builder.py:340`
 
-**Issue:** `RagContextBudget.max_prompt_chars` is copied into `budget_trace` but never used to limit included citations. The builder only applies `max_evidence_items` (`src/agent/rag_context/builder.py:115`) and per-snippet limits (`src/agent/rag_context/builder.py:132`). A probe with `max_prompt_chars=100`, three 80-character snippets, and `max_evidence_items=3` produced a prompt context JSON length of 946 characters while reporting `max_prompt_chars: 100`. This makes the budget trace misleading and can allow Phase 22 prompt/context surfaces to exceed the intended safety budget.
+**Issue:** `_dedupe_candidates()` groups by `(doc_key, chunk_id)` before tenant validation. Since `EvidenceRefV1.evidence_id` does not include tenant, a wrong-tenant ref and a valid-tenant ref with the same doc/chunk/version/text are treated as duplicates. If the wrong-tenant ref appears first, the valid ref is excluded as `duplicate_evidence_key`, then the retained wrong-tenant ref is excluded as `tenant_mismatch`, leaving no citation even though valid evidence was present.
 
-**Fix:** Apply a cumulative prompt budget before appending citations. If a citation cannot fit, either truncate it to the remaining budget or exclude it with a trace reason such as `budget_prompt_char_limit`.
-
-```python
-remaining_prompt_chars = self.budget.max_prompt_chars
-for index, group in enumerate(citation_items, start=1):
-    snippet, truncated = _bounded_snippet(content, min(self.budget.max_snippet_chars, remaining_prompt_chars))
-    if not snippet:
-        exclusions.extend(_trace(item.evidence_ref, "budget_prompt_char_limit") for item in group)
-        continue
-    remaining_prompt_chars -= len(snippet)
-    # build PromptCitation/CitationMapEntry from the bounded snippet
-```
-
-### WR-02: Golden Hallucination Eval Does Not Exercise The Production Verifier Path
-
-**File:** `src/agent/rag_context/metrics.py:57`
-
-**Issue:** `evaluate_hallucination_case()` delegates to `_determine_verifier_status()`, which infers status from synthetic fields like `category`, `status`, risk hints, and claim ids rather than invoking `ContextBuilder`, `MaterialClaimVerifier`, or `generate_recommendation` integration. The Phase 22 eval passes all 19 cases even while CR-01 allows an unsupported actionable recommendation through the real shared-kernel integration. This makes the release gate a weak oracle for hallucination-control correctness.
-
-**Fix:** Make the golden evaluator call the same implementation boundaries used by the graph. Add safe evidence text or fixture-backed canonical rows to the JSONL cases, build a `RagContextBundle`, normalize `MaterialClaim` payloads, run `MaterialClaimVerifier`, then route via `determine_verification_route()`. Include at least one integration case where valid citation membership plus unsupported `reasoning_summary` must produce `regenerate_route` or `insufficient_evidence`.
+**Fix:** Include tenant in the dedupe key or validate/sort tenant-matching refs before duplicate collapse.
 
 ```python
-async def evaluate_hallucination_case(case: Mapping[str, Any]) -> dict[str, Any]:
-    claims = normalize_material_claims(case["input"]["claims"])
-    bundle = await ContextBuilder(policy_service=GoldenCasePolicyService(case)).build(
-        candidate_evidence_refs=golden_evidence_refs(case),
-        business_fact_refs=golden_business_fact_refs(case),
-        trusted_context=golden_trusted_context(case),
-        risk_hints=golden_risk_hints(case),
-    )
-    results = [await MaterialClaimVerifier().verify_claim(claim, context_bundle=bundle) for claim in claims]
-    route = determine_verification_route(combine_verifier_results(results, case))
-    return hallucination_case_result_from_route(case, results, route)
+def _dedupe_candidates(refs: list[EvidenceRefV1]) -> tuple[list[EvidenceRefV1], list[EvidenceTraceEntry]]:
+    grouped: dict[tuple[str, str, str], list[EvidenceRefV1]] = defaultdict(list)
+    for ref in refs:
+        grouped[(ref.tenant_id, ref.doc_key, ref.chunk_id)].append(ref)
 ```
+
+Add a regression test with wrong-tenant and valid-tenant refs sharing the same doc/chunk/version/text; the valid tenant ref should survive and the wrong tenant ref should be excluded.
 
 ---
 
-_Reviewed: 2026-06-19T11:57:07Z_
+_Reviewed: 2026-06-19T12:50:54Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
