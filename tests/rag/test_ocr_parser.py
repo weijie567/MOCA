@@ -157,6 +157,60 @@ def test_image_ocr_parser_emits_text_pixel_boxes_language_engine_and_timeout_sta
     }
 
 
+def test_image_ocr_parser_sanitizes_word_box_text_and_metadata(tmp_path, monkeypatch) -> None:
+    from src.rag.parsers import ocr as ocr_module
+    from src.rag.parsers.base import ParserWarningCode
+    from src.rag.parsers.image import ImageOcrParser
+
+    image_path = _write_png(tmp_path)
+
+    def fake_image_to_data(image, *, lang, output_type, timeout, config=""):
+        return _ocr_data(
+            texts=[
+                "七天",
+                "/Users/ming/private/ocr-source.png",
+                "parser_dump: Traceback (most recent call last)",
+            ],
+            confidences=[90, 88, 91],
+        )
+
+    monkeypatch.setattr(ocr_module.pytesseract, "get_tesseract_version", lambda: "5.5.0")
+    monkeypatch.setattr(ocr_module.pytesseract, "image_to_data", fake_image_to_data)
+
+    result = ImageOcrParser().parse(image_path, doc_key="refund_notice", source_type="policy_image", metadata={})
+    metadata_projection = repr(result.blocks[0].ocr_metadata)
+    warning_codes = {warning.code for warning in result.warnings}
+
+    assert result.status == "degraded"
+    assert "七天" in result.blocks[0].text
+    assert "/Users/ming" not in result.blocks[0].text
+    assert "/Users/ming" not in metadata_projection
+    assert "Traceback" not in result.blocks[0].text
+    assert "Traceback" not in metadata_projection
+    assert ParserWarningCode.LOCAL_PATH_REDACTED.value in warning_codes
+    assert ParserWarningCode.RAW_PARSER_PAYLOAD_IGNORED.value in warning_codes
+
+
+def test_image_ocr_parser_tolerates_malformed_ocr_dict_lengths(tmp_path, monkeypatch) -> None:
+    from src.rag.parsers import ocr as ocr_module
+    from src.rag.parsers.image import ImageOcrParser
+
+    image_path = _write_png(tmp_path)
+
+    def fake_image_to_data(image, *, lang, output_type, timeout, config=""):
+        data = _ocr_data(texts=["七天", "无理由"], confidences=[90, 86])
+        data["conf"] = [90]
+        return data
+
+    monkeypatch.setattr(ocr_module.pytesseract, "get_tesseract_version", lambda: "5.5.0")
+    monkeypatch.setattr(ocr_module.pytesseract, "image_to_data", fake_image_to_data)
+
+    result = ImageOcrParser().parse(image_path, doc_key="refund_notice", source_type="policy_image", metadata={})
+
+    assert result.status == "success"
+    assert result.blocks[0].text == "七天"
+
+
 def test_ocr_confidence_gates_accept_review_or_reject_by_threshold() -> None:
     from src.rag.parsers.ocr import classify_ocr_confidence
 

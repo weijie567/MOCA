@@ -134,7 +134,9 @@ def synthetic_source_block_id(*, doc_key: str, source_type: str, block_index: in
     return f"{doc_key}:{source_type}:synthetic:{block_index:04d}"
 
 
-def strip_hidden_markdown_comments(text: str) -> tuple[str, tuple[ParserWarning, ...]]:
+def strip_hidden_markdown_comments(
+    text: str, *, block_index: int | None = None
+) -> tuple[str, tuple[ParserWarning, ...]]:
     if not _HTML_COMMENT_RE.search(text):
         return text, ()
     cleaned = _HTML_COMMENT_RE.sub("", text)
@@ -144,9 +146,52 @@ def strip_hidden_markdown_comments(text: str) -> tuple[str, tuple[ParserWarning,
             ParserWarning(
                 code=ParserWarningCode.HIDDEN_TEXT_IGNORED.value,
                 message="Hidden Markdown/HTML comments were ignored.",
+                block_index=block_index,
             ),
         ),
     )
+
+
+def sanitize_parser_text(text: str, *, block_index: int | None = None) -> tuple[str, tuple[ParserWarning, ...]]:
+    unhidden_text, hidden_warnings = strip_hidden_markdown_comments(text, block_index=block_index)
+    sanitized_text, text_warnings = sanitize_visible_text(unhidden_text, block_index=block_index)
+    return sanitized_text, (*hidden_warnings, *text_warnings)
+
+
+def sanitize_table_rows(
+    rows: list[list[str]], *, block_index: int | None = None
+) -> tuple[list[list[str]], tuple[ParserWarning, ...]]:
+    sanitized_rows: list[list[str]] = []
+    warnings: list[ParserWarning] = []
+    rendered_chars = 0
+    table_truncated = False
+    for row in rows:
+        sanitized_row: list[str] = []
+        for cell in row:
+            sanitized_cell, cell_warnings = sanitize_parser_text(str(cell), block_index=block_index)
+            separator_chars = 3 if sanitized_row else (1 if sanitized_rows else 0)
+            remaining_chars = MAX_PARSED_BLOCK_TEXT_CHARS - rendered_chars - separator_chars
+            if sanitized_cell and remaining_chars <= 0:
+                sanitized_cell = ""
+                table_truncated = True
+            elif sanitized_cell and len(sanitized_cell) > remaining_chars:
+                sanitized_cell = sanitized_cell[:remaining_chars].rstrip()
+                table_truncated = True
+            sanitized_row.append(sanitized_cell)
+            warnings.extend(cell_warnings)
+            if sanitized_cell:
+                rendered_chars += separator_chars + len(sanitized_cell)
+        if any(cell.strip() for cell in sanitized_row):
+            sanitized_rows.append(sanitized_row)
+    if table_truncated:
+        warnings.append(
+            ParserWarning(
+                code=ParserWarningCode.TEXT_TRUNCATED.value,
+                message="Parser table text exceeded the maximum block size and was truncated.",
+                block_index=block_index,
+            )
+        )
+    return sanitized_rows, tuple(warnings)
 
 
 def sanitize_visible_text(text: str, *, block_index: int | None = None) -> tuple[str, tuple[ParserWarning, ...]]:
@@ -180,7 +225,8 @@ def sanitize_visible_text(text: str, *, block_index: int | None = None) -> tuple
     retained_lines: list[str] = []
     raw_payload_removed = False
     for line in cleaned.splitlines():
-        if any(marker in line for marker in _RAW_PAYLOAD_MARKERS):
+        normalized_line = line.lower()
+        if any(marker.lower() in normalized_line for marker in _RAW_PAYLOAD_MARKERS):
             raw_payload_removed = True
             continue
         retained_lines.append(line)

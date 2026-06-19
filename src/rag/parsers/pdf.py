@@ -13,11 +13,12 @@ from src.rag.parsers.base import (
     ParseResult,
     ParserFailureCode,
     ParserWarning,
+    ParserWarningCode,
     SourceBox,
     normalize_block_text,
     safe_failed_result,
-    sanitize_visible_text,
-    strip_hidden_markdown_comments,
+    sanitize_parser_text,
+    sanitize_table_rows,
 )
 from src.rag.parsers.ocr import OcrEngine
 from src.rag.parsers.safety import validate_source_file
@@ -117,10 +118,9 @@ class PdfParser:
         blocks: list[ParsedBlock] = []
         warnings: list[ParserWarning] = []
         tables = _page_tables(page)
-        raw_text = page.extract_text() or ""
-        unhidden_text, hidden_warnings = strip_hidden_markdown_comments(raw_text)
-        sanitized_text, text_warnings = sanitize_visible_text(unhidden_text, block_index=block_index_start)
-        warnings.extend(hidden_warnings)
+        sanitized_text, text_warnings, suspicious_hidden_text = _visible_page_text(
+            page, block_index=block_index_start
+        )
         warnings.extend(text_warnings)
 
         if sanitized_text:
@@ -143,7 +143,7 @@ class PdfParser:
                     box=_text_source_box(page, page_number=page_number, rotation=rotation),
                     table_metadata={},
                     ocr_metadata={},
-                    warnings=(*hidden_warnings, *text_warnings),
+                    warnings=text_warnings,
                 )
             )
 
@@ -163,7 +163,7 @@ class PdfParser:
                 next_index += 1
             warnings.extend(table_warnings)
 
-        if not blocks and _is_scanned_page(sanitized_text=sanitized_text, tables=tables):
+        if not blocks and not suspicious_hidden_text and _is_scanned_page(sanitized_text=sanitized_text, tables=tables):
             image = self._render_page_to_image(path, page_index, page)
             ocr_result = self.ocr_engine.parse_image(
                 image,
@@ -229,7 +229,7 @@ def _page_tables(page: Any) -> list:
 
 
 def _text_source_box(page: Any, *, page_number: int, rotation: int | None) -> SourceBox:
-    words = _page_words(page)
+    words = _visible_page_words(page)
     width = float(getattr(page, "width", 0) or 0)
     height = float(getattr(page, "height", 0) or 0)
     if not words:
@@ -259,9 +259,104 @@ def _text_source_box(page: Any, *, page_number: int, rotation: int | None) -> So
 
 def _page_words(page: Any) -> list[dict[str, Any]]:
     try:
-        return list(page.extract_words() or [])
+        return list(
+            page.extract_words(
+                extra_attrs=[
+                    "size",
+                    "non_stroking_color",
+                    "stroking_color",
+                    "rendering_mode",
+                    "text_rendering_mode",
+                ]
+            )
+            or []
+        )
     except Exception:
         return []
+
+
+def _visible_page_text(page: Any, *, block_index: int) -> tuple[str, tuple[ParserWarning, ...], bool]:
+    raw_text = page.extract_text() or ""
+    _, raw_warnings = sanitize_parser_text(raw_text, block_index=block_index)
+    all_words = _page_words(page)
+    visible_words = [word for word in all_words if _word_is_visible(word)]
+    if visible_words:
+        visible_text = " ".join(str(word.get("text", "")).strip() for word in visible_words).strip()
+        sanitized, visible_warnings = sanitize_parser_text(visible_text, block_index=block_index)
+        warnings: tuple[ParserWarning, ...] = (*raw_warnings, *visible_warnings)
+        if len(visible_words) < len(all_words):
+            warnings = (
+                *warnings,
+                ParserWarning(
+                    code=ParserWarningCode.HIDDEN_TEXT_IGNORED.value,
+                    message="PDF words with invisible geometry or style were ignored.",
+                    block_index=block_index,
+                ),
+            )
+        return sanitized, warnings, False
+    if raw_text.strip():
+        return (
+            "",
+            (
+                *raw_warnings,
+                ParserWarning(
+                    code=ParserWarningCode.HIDDEN_TEXT_IGNORED.value,
+                    message="PDF text layer did not expose visible word geometry and was ignored.",
+                    block_index=block_index,
+                ),
+            ),
+            True,
+        )
+    return "", raw_warnings, False
+
+
+def _visible_page_words(page: Any) -> list[dict[str, Any]]:
+    return [word for word in _page_words(page) if _word_is_visible(word)]
+
+
+def _word_is_visible(word: dict[str, Any]) -> bool:
+    return _word_has_visible_box(word) and _word_has_visible_style(word)
+
+
+def _word_has_visible_box(word: dict[str, Any]) -> bool:
+    try:
+        x0 = float(word.get("x0", 0.0))
+        x1 = float(word.get("x1", 0.0))
+        y0 = float(word.get("top", word.get("y0", 0.0)))
+        y1 = float(word.get("bottom", word.get("y1", 0.0)))
+    except (TypeError, ValueError):
+        return False
+    return x1 > x0 and y1 > y0
+
+
+def _word_has_visible_style(word: dict[str, Any]) -> bool:
+    rendering_mode = word.get("rendering_mode", word.get("text_rendering_mode"))
+    if str(rendering_mode).strip().lower() in {"3", "invisible"}:
+        return False
+    size = word.get("size")
+    try:
+        if size is not None and float(size) <= 0.5:
+            return False
+    except (TypeError, ValueError):
+        return False
+    color = word.get("non_stroking_color", word.get("stroking_color"))
+    return not _is_near_white_color(color)
+
+
+def _is_near_white_color(color: Any) -> bool:
+    if color is None:
+        return False
+    if isinstance(color, int | float):
+        return float(color) >= 0.95
+    if isinstance(color, list | tuple) and color:
+        try:
+            channels = [float(channel) for channel in color]
+        except (TypeError, ValueError):
+            return False
+        if len(channels) == 4 and all(channel <= 0.05 for channel in channels):
+            return True
+        return all(channel >= 0.95 for channel in channels)
+    return False
 
 
 def _table_block(
@@ -274,14 +369,14 @@ def _table_block(
     rotation: int | None,
     block_index: int,
 ) -> tuple[ParsedBlock | None, tuple[ParserWarning, ...]]:
-    normalized_rows = [[_cell_text(cell) for cell in row] for row in table if row]
+    raw_rows = [[_cell_text(cell) for cell in row] for row in table if row]
+    normalized_rows, warnings = sanitize_table_rows(raw_rows, block_index=block_index)
     if not normalized_rows:
-        return None, ()
+        return None, warnings
     headers = normalized_rows[0]
     data_rows = normalized_rows[1:]
     text = "\n".join(" | ".join(row) for row in normalized_rows).strip()
-    sanitized, warnings = sanitize_visible_text(text, block_index=block_index)
-    if not sanitized:
+    if not text:
         return None, warnings
     metadata = {
         "headers": headers,
@@ -302,8 +397,8 @@ def _table_block(
             ),
             block_index=block_index,
             block_type="table",
-            text=sanitized,
-            normalized_text=normalize_block_text(sanitized),
+            text=text,
+            normalized_text=normalize_block_text(text),
             source_type=source_type,
             parser_name=PARSER_NAME,
             parser_version=PARSER_VERSION,

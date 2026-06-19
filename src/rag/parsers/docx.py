@@ -15,7 +15,8 @@ from src.rag.parsers.base import (
     ParserWarning,
     normalize_block_text,
     safe_failed_result,
-    sanitize_visible_text,
+    sanitize_parser_text,
+    sanitize_table_rows,
 )
 from src.rag.parsers.safety import validate_source_file
 
@@ -121,7 +122,7 @@ def _paragraph_block(
     source_type: str,
     block_index: int,
 ) -> tuple[ParsedBlock | None, tuple[ParserWarning, ...]]:
-    sanitized, warnings = sanitize_visible_text(paragraph.text, block_index=block_index)
+    sanitized, warnings = sanitize_parser_text(paragraph.text, block_index=block_index)
     if not sanitized:
         return None, warnings
     block_type = "heading" if _is_heading(paragraph) else "paragraph"
@@ -152,13 +153,12 @@ def _table_block(
     source_type: str,
     block_index: int,
 ) -> tuple[ParsedBlock | None, tuple[ParserWarning, ...]]:
-    rows = [[cell.text.strip() for cell in row.cells] for row in table.rows]
-    rows = [row for row in rows if any(cell for cell in row)]
+    raw_rows = [[cell.text.strip() for cell in row.cells] for row in table.rows]
+    rows, warnings = sanitize_table_rows(raw_rows, block_index=block_index)
     if not rows:
-        return None, ()
+        return None, warnings
     text = "\n".join(" | ".join(row) for row in rows).strip()
-    sanitized, warnings = sanitize_visible_text(text, block_index=block_index)
-    if not sanitized:
+    if not text:
         return None, warnings
     headers = rows[0]
     data_rows = rows[1:]
@@ -176,8 +176,8 @@ def _table_block(
             source_block_id=_docx_source_block_id(doc_key=doc_key, source_type=source_type, block_index=block_index),
             block_index=block_index,
             block_type="table",
-            text=sanitized,
-            normalized_text=normalize_block_text(sanitized),
+            text=text,
+            normalized_text=normalize_block_text(text),
             source_type=source_type,
             parser_name=PARSER_NAME,
             parser_version=PARSER_VERSION,

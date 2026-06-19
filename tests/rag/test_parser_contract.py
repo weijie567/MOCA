@@ -83,6 +83,30 @@ def test_parse_result_exposes_project_owned_deterministic_output_fields() -> Non
     }
 
 
+def test_table_row_sanitizer_bounds_metadata_source_text() -> None:
+    from src.rag.parsers.base import MAX_PARSED_BLOCK_TEXT_CHARS, ParserWarningCode, sanitize_table_rows
+
+    rows = [["A" * 8000, "B" * 8000], ["C" * 100]]
+
+    sanitized_rows, warnings = sanitize_table_rows(rows, block_index=3)
+    rendered_text = "\n".join(" | ".join(row) for row in sanitized_rows)
+    warning_codes = {warning.code for warning in warnings}
+
+    assert len(rendered_text) <= MAX_PARSED_BLOCK_TEXT_CHARS
+    assert "C" not in rendered_text
+    assert ParserWarningCode.TEXT_TRUNCATED.value in warning_codes
+
+
+def test_parser_text_sanitizer_removes_raw_payload_markers_case_insensitively() -> None:
+    from src.rag.parsers.base import ParserWarningCode, sanitize_parser_text
+
+    sanitized, warnings = sanitize_parser_text("Visible policy line\nParser_Dump: internal raw payload")
+    warning_codes = {warning.code for warning in warnings}
+
+    assert sanitized == "Visible policy line"
+    assert ParserWarningCode.RAW_PARSER_PAYLOAD_IGNORED.value in warning_codes
+
+
 def test_parser_failure_codes_are_safe_and_finite() -> None:
     parser_base = import_module("src.rag.parsers.base")
 

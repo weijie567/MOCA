@@ -10,9 +10,11 @@ from src.rag.parsers.base import (
     ParsedBlock,
     ParseResult,
     ParserFailureCode,
+    ParserWarning,
     SourceBox,
     normalize_block_text,
     safe_failed_result,
+    sanitize_parser_text,
     sanitize_visible_text,
 )
 from src.rag.parsers.safety import (
@@ -66,9 +68,13 @@ class OcrEngine:
         except Exception:
             return _ocr_safe_failure(source_type=source_type)
 
-        words = _word_boxes(data, page_number=page_number)
+        try:
+            words, word_warnings = _word_boxes(data, page_number=page_number, block_index=block_index)
+        except Exception:
+            return _ocr_safe_failure(source_type=source_type)
         text = " ".join(word["text"] for word in words if str(word.get("text", "")).strip()).strip()
         sanitized, warnings = sanitize_visible_text(text, block_index=block_index)
+        warnings = (*word_warnings, *warnings)
         confidences = [float(word["confidence"]) for word in words if isinstance(word.get("confidence"), int | float)]
         average_confidence = round(sum(confidences) / len(confidences), 2) if confidences else 0.0
         confidence_metadata = classify_ocr_confidence(text=sanitized, average_confidence=average_confidence)
@@ -157,11 +163,15 @@ def _ocr_safe_failure(*, source_type: str) -> ParseResult:
     )
 
 
-def _word_boxes(data: dict[str, list[Any]], *, page_number: int | None) -> list[dict[str, Any]]:
+def _word_boxes(
+    data: dict[str, list[Any]], *, page_number: int | None, block_index: int | None
+) -> tuple[list[dict[str, Any]], tuple[ParserWarning, ...]]:
     texts = data.get("text", [])
     boxes: list[dict[str, Any]] = []
+    warnings: list[ParserWarning] = []
     for index, raw_text in enumerate(texts):
-        text = str(raw_text).strip()
+        text, text_warnings = sanitize_parser_text(str(raw_text).strip(), block_index=block_index)
+        warnings.extend(text_warnings)
         confidence = _confidence_at(data, index)
         if not text or confidence < 0:
             continue
@@ -184,7 +194,7 @@ def _word_boxes(data: dict[str, list[Any]], *, page_number: int | None) -> list[
                 "page_number": page_number,
             }
         )
-    return boxes
+    return boxes, tuple(warnings)
 
 
 def _source_box_for_words(
@@ -220,10 +230,10 @@ def _source_box_for_words(
 
 
 def _confidence_at(data: dict[str, list[Any]], index: int) -> float:
-    value = data.get("conf", [])[index]
     try:
+        value = data.get("conf", [])[index]
         return float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, IndexError):
         return -1.0
 
 
