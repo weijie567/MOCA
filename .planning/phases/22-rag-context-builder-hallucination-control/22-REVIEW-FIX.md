@@ -85,6 +85,17 @@ Fix:
 - The production-verifier eval path now uses canonical rows, not just verified content strings, so hash/latest/freshness filtering is exercised locally.
 - Added golden production-verifier cases `P22-HC-021`, `P22-HC-022`, and `P22-HC-023` for hash mismatch, latest-version invalid, and freshness/effective-at invalid evidence.
 
+### Claude final deep-review WR-01: Production-verifier path ignores OCR risk labels used by golden cases
+
+Verdict: true positive.
+
+Fix:
+- Recommendation generation now derives safe `risk_hints` from retrieved evidence-level `risk_labels`, not only from pre-populated state hints.
+- Production-verifier eval now normalizes safe evidence-level risk labels into `ContextBuilder` risk hints.
+- Context risk labels from active citation-map entries now flow into backend route reasons, with `ocr_low_confidence` promoted to manual-review routing.
+- Invalid builder candidates are no longer exposed as allowed prompt citation objects when the shared context has a debug context but no active citation map.
+- Added a recommendation regression for evidence-level `ocr_low_confidence` routing and a production-verifier golden case `P22-HC-024`.
+
 ## Verification
 
 - `uv run pytest tests/agent/rag_context/test_budgeting.py tests/agent/rag_context/test_leakage.py tests/agent/test_phase22_recommendation_integration.py tests/agent/test_nodes/test_generate_recommendation.py -q --tb=short`
@@ -103,11 +114,15 @@ Fix:
 - `uv run pytest tests/ -x --ignore=tests/integration -q --tb=short`
 - `uv run ruff check .`
 - `uv run ruff format --check .`
+- `uv run pytest tests/agent/test_phase22_action_boundary.py tests/agent/test_nodes/test_generate_recommendation.py tests/agent/rag_context tests/knowledge/test_phase22_evidence_validation.py tests/agent/test_phase22_recommendation_integration.py tests/agent/test_phase22_final_response.py -q`
+- `uv run python scripts/eval_phase22_hallucination.py --dataset evaluation/golden/phase22_hallucination_cases.jsonl --fail-thresholds`
+- `uv run pytest tests/ -x --ignore=tests/integration -q --tb=short`
+- `uv run ruff check .`
+- `uv run ruff format --check .`
 
-Latest results after Claude follow-up fixes:
+Latest results after final Claude deep-review fixes:
 
-- Focused action/recommendation regressions: `28 passed, 1 warning`.
-- Phase 22 related suite: `125 passed, 1 warning`.
-- Hallucination eval: `23` cases, `status: pass`, `failed_cases: []`, all blocking thresholds met.
-- Full non-integration pytest: `1225 passed, 1 skipped, 6 warnings`.
+- Phase 22 related suite: `119 passed, 1 warning`.
+- Hallucination eval: `24` cases, `status: pass`, `failed_cases: []`, all blocking thresholds met.
+- Full non-integration pytest: `1228 passed, 1 skipped, 6 warnings`.
 - Full ruff check/format-check passed.
