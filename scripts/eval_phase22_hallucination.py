@@ -20,17 +20,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable
 
+from src.agent.rag_context.metrics import DEFAULT_HALLUCINATION_THRESHOLDS
+from src.agent.rag_context.metrics import threshold_failures as metric_threshold_failures
+
 
 DEFAULT_DATASET = "evaluation/golden/phase22_hallucination_cases.jsonl"
-DEFAULT_THRESHOLDS = {
-    "claim_support_accuracy": 0.95,
-    "citation_support_accuracy": 0.95,
-    "refusal_manual_review_routing_accuracy": 1.0,
-    "unsafe_answer_rate": 0.0,
-    "business_data_hallucination_rate": 0.0,
-    "leakage_count": 0,
-    "fail_closed_rate": 1.0,
-}
+DEFAULT_THRESHOLDS = dict(DEFAULT_HALLUCINATION_THRESHOLDS)
 REQUIRED_FIELDS = {
     "id",
     "category",
@@ -228,18 +223,7 @@ def _build_report(cases: list[dict[str, Any]], scored: list[dict[str, Any]]) -> 
 
 
 def _threshold_failures(metrics: dict[str, float | int]) -> dict[str, dict[str, float | int | str]]:
-    failures: dict[str, dict[str, float | int | str]] = {}
-    for name, threshold in DEFAULT_THRESHOLDS.items():
-        actual = metrics[name]
-        if name in {"unsafe_answer_rate", "business_data_hallucination_rate", "leakage_count"}:
-            failed = actual > threshold
-            direction = "max"
-        else:
-            failed = actual < threshold
-            direction = "min"
-        if failed:
-            failures[name] = {"actual": actual, "threshold": threshold, "direction": direction}
-    return failures
+    return metric_threshold_failures(metrics, thresholds=DEFAULT_THRESHOLDS)
 
 
 def run_eval(dataset: str) -> dict[str, Any]:

@@ -11,6 +11,13 @@ from src.agent.rag_context.claims import (
     normalize_material_claims,
     valid_claim_dependency_map,
 )
+from src.agent.rag_context.metrics import (
+    DEFAULT_HALLUCINATION_THRESHOLDS,
+    HallucinationCaseResult,
+    REQUIRED_HALLUCINATION_METRICS,
+    evaluate_hallucination_case,
+    threshold_failures,
+)
 from src.agent.rag_context.routing import VerificationRoute, VerificationRouteDecision, determine_verification_route
 from src.agent.rag_context.schemas import (
     CitationMapEntry,
@@ -44,7 +51,9 @@ __all__ = [
     "CitationMapEntry",
     "ClaimVerifierStatus",
     "ContextBuilder",
+    "DEFAULT_HALLUCINATION_THRESHOLDS",
     "EvidenceTraceEntry",
+    "HallucinationCaseResult",
     "Level1VerificationResult",
     "Level2SupportOutcome",
     "Level2VerificationResult",
@@ -59,6 +68,7 @@ __all__ = [
     "RagContextBundle",
     "RagDebugContext",
     "RagPromptContext",
+    "REQUIRED_HALLUCINATION_METRICS",
     "RagSafeContext",
     "RagVerifierContext",
     "SemanticSupportVerifier",
@@ -71,9 +81,11 @@ __all__ = [
     "VerificationRouteDecision",
     "claim_dependency_map_from_claims",
     "determine_verification_route",
+    "evaluate_hallucination_case",
     "normalize_claim_dependency_map",
     "normalize_material_claim",
     "normalize_material_claims",
     "should_run_level3_semantic_verification",
+    "threshold_failures",
     "valid_claim_dependency_map",
 ]
