@@ -1,11 +1,11 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.6
-milestone_name: RAG Reranker + Query Rewrite
-status: not_started
-stopped_at: Roadmap created; ready to discuss or plan Phase 23
-last_updated: "2026-06-20T01:37:14+08:00"
-last_activity: 2026-06-20
+milestone: v1.0
+milestone_name: milestone
+status: Not started; ready to discuss or plan Phase 23
+stopped_at: Phase 23 context gathered
+last_updated: "2026-06-19T17:47:50.692Z"
+last_activity: 2026-06-20 — Created v1.6 roadmap with Phase 23 as the only active phase
 progress:
   total_phases: 1
   completed_phases: 0
@@ -90,7 +90,7 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 
 ## Session Continuity
 
-Last session: 2026-06-20T01:37:14+08:00
-Stopped at: Created v1.6 roadmap and aligned state
-Resume file: None
+Last session: --stopped-at
+Stopped at: Phase 23 context gathered
+Resume file: --resume-file
 Next: Discuss or plan Phase 23.
