@@ -12,6 +12,14 @@ from pydantic import ValidationError
 
 from src.agent.context import ContextAssembler, PromptAssembly
 from src.agent.prompts import GENERATE_RECOMMENDATION_SYSTEM
+from src.agent.rag_context import (
+    ContextBuilder,
+    MaterialClaim,
+    MaterialClaimAuthorityClass,
+    MaterialClaimVerifier,
+    RagContextBudget,
+    determine_verification_route,
+)
 from src.agent.schemas import RecommendationDraft
 from src.agent.state import AgentState
 from src.agent.working_state import project_working_state
@@ -27,9 +35,10 @@ from src.knowledge.config import (
 from src.knowledge.retrieval import PolicyRetrievalEngine
 from src.knowledge.schemas import EvidenceRefV1
 from src.knowledge.service import PolicyKnowledgeService
-from src.tools.contracts import ToolResultPromptSummary
+from src.tools.contracts import BusinessFactRefV1, ToolResultPromptSummary
 
 logger = logging.getLogger(__name__)
+_TRUNCATION_MARKER = " [truncated]"
 
 
 def _now_iso() -> str:
@@ -151,30 +160,15 @@ async def generate_recommendation(state: AgentState, config: RunnableConfig = No
 
     evidence_items = list(_retrieval_data(state).get("evidence_refs") or [])
     evidence_models = [EvidenceRefV1(**item) for item in evidence_items]
-    text_by_evidence_id: dict[str, str] = {}
-    session = ((config or {}).get("configurable") or {}).get("session")
-    if session is None:
-        logger.warning("Policy evidence content re-fetch skipped because no session is available")
-    else:
-        try:
-            text_by_evidence_id = await PolicyKnowledgeService(
-                PolicyRetrievalEngine(session)
-            ).get_verified_evidence_contents(
-                tenant_id=state["tenant_id"],
-                evidence_refs=evidence_models,
-            )
-        except Exception:
-            logger.warning("Policy evidence content re-fetch failed; continuing without grounded text")
+    rag_bundle = await _build_rag_context_bundle(state, config, evidence_models)
     evidence_by_id = {item["evidence_id"]: item for item in evidence_items}
-    evidence_id_by_citation = {
-        (item.get("doc_key"), item.get("chunk_id")): item["evidence_id"] for item in evidence_items
-    }
-    allowed_citations = _allowed_citation_objects(evidence_items)
+    evidence_id_by_citation = _evidence_id_by_citation(rag_bundle, evidence_items)
+    allowed_citations = _allowed_citation_objects(_evidence_items_from_bundle(rag_bundle, evidence_items))
     prompt_assembly = await _assemble_recommendation_prompt(
         state=state,
         config=config,
         allowed_citations=allowed_citations,
-        policy_snippets=_policy_snippets(evidence_items, text_by_evidence_id),
+        policy_snippets=_policy_snippets_from_bundle(rag_bundle),
     )
     messages = prompt_assembly.to_messages()
     structured_llm = _get_llm().with_structured_output(RecommendationDraft)
@@ -190,7 +184,6 @@ async def generate_recommendation(state: AgentState, config: RunnableConfig = No
             result = await structured_llm.ainvoke(messages)
             provider_latency_ms = round((time.perf_counter() - t0) * 1000)
             draft = result.model_dump()
-            # RecommendationDraft stays stable; deterministically project its citations into one material claim.
             cited_evidence_ids = [
                 evidence_id_by_citation.get(
                     (item.get("doc_key"), item.get("chunk_id")),
@@ -198,14 +191,14 @@ async def generate_recommendation(state: AgentState, config: RunnableConfig = No
                 )
                 for item in draft.get("evidence_refs") or []
             ]
-            claims = [
+            membership_claims = [
                 {
                     "claim_id": "rec-1",
                     "claim_text": draft["reasoning_summary"],
                     "cited_evidence_ids": cited_evidence_ids,
                 }
             ]
-            validation = validate_membership(claims, evidence_models)
+            validation = validate_membership(membership_claims, evidence_models)
             if not validation.is_valid:
                 invalid = {
                     evidence_id
@@ -222,6 +215,7 @@ async def generate_recommendation(state: AgentState, config: RunnableConfig = No
                     draft["recommended_action"] = "citation_invalid"
                     draft["missing_info"] = ["Citation membership validation failed"]
                     draft["confidence"] = 0.0
+                    cited_evidence_ids = []
                 else:
                     validation = validate_membership(
                         [
@@ -234,11 +228,33 @@ async def generate_recommendation(state: AgentState, config: RunnableConfig = No
                         evidence_models,
                     )
             draft["citation_validation"] = validation.model_dump()
+            material_claims = _material_claims_from_draft(draft, cited_evidence_ids, rag_bundle)
+            verification = await _verify_recommendation_with_shared_kernel(
+                draft=draft,
+                claims=material_claims,
+                context_bundle=rag_bundle,
+                citation_validation=validation.model_dump(),
+            )
+            route_value = _verification_route_value(verification)
+            _apply_verification_to_draft(draft, verification, material_claims)
             validated_refs = _validated_evidence_refs(cited_evidence_ids, evidence_by_id)
+            if route_value != "allow":
+                validated_refs = []
             merged_refs = _merge_evidence_refs(state.get("evidence_refs"), validated_refs)
             outputs = {**(state.get("llm_outputs") or {}), "generate_recommendation": draft}
             return {
                 "recommendation_draft": draft,
+                "rag_context_bundle": _state_safe_rag_context_bundle(rag_bundle),
+                "rag_verification": verification,
+                "verifier_status": str(verification.get("overall_outcome") or ""),
+                "verification_route": route_value,
+                "verifier_reason_codes": [
+                    str(code) for code in verification.get("reason_codes") or [] if str(code)
+                ],
+                "verifier_safe_citation_refs": [
+                    str(ref) for ref in verification.get("safe_citation_refs") or [] if str(ref)
+                ],
+                "verifier_metrics": _safe_verifier_metrics(verification.get("metrics")),
                 "llm_outputs": outputs,
                 "evidence_refs": merged_refs,
                 "trace_steps": (state.get("trace_steps") or [])
@@ -276,6 +292,9 @@ async def generate_recommendation(state: AgentState, config: RunnableConfig = No
             "risk_level": "low",
             "missing_info": ["Recommendation generation failed"],
         },
+        "verification_route": "insufficient_evidence",
+        "verifier_status": "insufficient",
+        "verifier_reason_codes": ["recommendation_generation_failed"],
         "node_errors": (state.get("node_errors") or [])
         + [{"node": "generate_recommendation", "error": last_error, "retry_count": 2}],
         "trace_steps": (state.get("trace_steps") or [])
@@ -289,6 +308,125 @@ async def generate_recommendation(state: AgentState, config: RunnableConfig = No
             )
         ],
     }
+
+
+async def _build_rag_context_bundle(
+    state: AgentState,
+    config: RunnableConfig | None,
+    evidence_models: list[EvidenceRefV1],
+) -> Any:
+    builder = ContextBuilder(
+        policy_service=_policy_service(config),
+        budget=RagContextBudget(
+            max_prompt_chars=MAX_PROMPT_EVIDENCE_TOTAL_CHARS,
+            max_snippet_chars=MAX_EVIDENCE_TEXT_CHARS + len(_TRUNCATION_MARKER),
+            max_evidence_items=MAX_PROMPT_EVIDENCE_ITEMS,
+        ),
+    )
+    return await builder.build(
+        candidate_evidence_refs=evidence_models,
+        business_fact_refs=_business_fact_refs_from_state(state),
+        trusted_context={
+            "tenant_id": state.get("tenant_id"),
+            "run_id": state.get("current_run_id") or state.get("run_id"),
+            "thread_id": state.get("thread_id"),
+            "effective_at": state.get("effective_at") or _now_iso(),
+            "context_builder_mode": _context_builder_mode(config),
+        },
+        risk_hints=_risk_hints_from_state(state),
+    )
+
+
+def _policy_service(config: RunnableConfig | None) -> Any:
+    session = ((config or {}).get("configurable") or {}).get("session")
+    if session is None:
+        logger.warning("Policy evidence content re-fetch skipped because no session is available")
+        return _NoopPolicyService()
+    return PolicyKnowledgeService(PolicyRetrievalEngine(session))
+
+
+def _context_builder_mode(config: RunnableConfig | None) -> str:
+    session = ((config or {}).get("configurable") or {}).get("session")
+    return "missing_session_compat" if session is None else "verified"
+
+
+class _NoopPolicyService:
+    async def get_verified_evidence_contents(self, *, tenant_id: str, evidence_refs: list[EvidenceRefV1]) -> dict[str, str]:
+        return {}
+
+
+async def _verify_recommendation_with_shared_kernel(
+    *,
+    draft: dict[str, Any],
+    claims: list[MaterialClaim],
+    context_bundle: Any,
+    citation_validation: dict[str, Any],
+) -> dict[str, Any]:
+    verifier = MaterialClaimVerifier()
+    if hasattr(verifier, "verify_recommendation"):
+        result = await verifier.verify_recommendation(
+            draft=draft,
+            claims=claims,
+            context_bundle=context_bundle,
+            citation_validation=citation_validation,
+        )
+        return _normalize_recommendation_verification(result)
+
+    if claims and citation_validation.get("is_valid") is True and _missing_session_compat(context_bundle):
+        route = determine_verification_route({"overall_outcome": "supported", "reason_codes": []})
+        return _normalize_recommendation_verification(
+            {
+                "overall_outcome": "supported",
+                "allows_recommendation": True,
+                "route": route,
+                "material_claims": _safe_material_claims(claims),
+                "reason_codes": [],
+                "safe_citation_refs": [evidence_id for claim in claims for evidence_id in claim.cited_evidence_ids],
+                "metrics": route.metrics,
+            }
+        )
+
+    verification_results = [await verifier.verify_claim(claim, context_bundle=context_bundle) for claim in claims]
+    if not verification_results:
+        route = determine_verification_route({"overall_outcome": "insufficient", "reason_codes": ["policy_evidence_required"]})
+        return _normalize_recommendation_verification(
+            {
+                "overall_outcome": "insufficient",
+                "allows_recommendation": False,
+                "route": route,
+                "material_claims": [],
+                "reason_codes": ["policy_evidence_required"],
+                "safe_citation_refs": [],
+                "metrics": route.metrics,
+            }
+        )
+
+    reason_codes = _unique_text(code for result in verification_results for code in result.reason_codes)
+    safe_refs = _unique_text(ref for result in verification_results for ref in result.safe_support_refs)
+    overall = "supported" if all(result.allows_claim for result in verification_results) else verification_results[0].outcome.value
+    route = determine_verification_route(
+        {
+            "overall_outcome": overall,
+            "reason_codes": reason_codes,
+            "risk_level": draft.get("risk_level"),
+            "safe_citation_refs": safe_refs,
+            "metrics": {
+                "claim_count": len(verification_results),
+                "supported_claim_count": sum(1 for result in verification_results if result.allows_claim),
+            },
+        }
+    )
+    return _normalize_recommendation_verification(
+        {
+            "overall_outcome": overall,
+            "allows_recommendation": route.allow_recommendation,
+            "route": route,
+            "material_claims": _safe_material_claims(claims),
+            "reason_codes": reason_codes,
+            "safe_citation_refs": safe_refs,
+            "metrics": route.metrics,
+        }
+    )
 
 
 async def _assemble_recommendation_prompt(
@@ -391,3 +529,254 @@ def _tool_prompt_summary_from_record(record: Any) -> ToolResultPromptSummary | N
 
 def _messages_chars(messages: list[dict[str, str]]) -> int:
     return sum(len(message.get("content") or "") for message in messages)
+
+
+def _business_fact_refs_from_state(state: AgentState) -> list[BusinessFactRefV1]:
+    raw_refs: list[Any] = []
+    business_context = state.get("business_context")
+    if isinstance(business_context, dict):
+        raw_refs.extend(business_context.get("business_fact_refs") or [])
+    for tool_result in state.get("tool_results") or []:
+        if isinstance(tool_result, dict):
+            raw_refs.extend(tool_result.get("business_fact_refs") or [])
+    refs: list[BusinessFactRefV1] = []
+    for item in raw_refs:
+        try:
+            refs.append(BusinessFactRefV1.model_validate(item))
+        except Exception:
+            continue
+    return refs
+
+
+def _risk_hints_from_state(state: AgentState) -> list[dict[str, Any]]:
+    hints = state.get("risk_hints")
+    if isinstance(hints, list):
+        return [dict(item) for item in hints if isinstance(item, dict)]
+    return []
+
+
+def _evidence_id_by_citation(context_bundle: Any, fallback_items: list[dict[str, Any]]) -> dict[tuple[str | None, str | None], str]:
+    mapping: dict[tuple[str | None, str | None], str] = {}
+    for item in _evidence_items_from_bundle(context_bundle, fallback_items):
+        evidence_id = item.get("evidence_id")
+        if evidence_id:
+            mapping[(item.get("doc_key"), item.get("chunk_id"))] = evidence_id
+    return mapping
+
+
+def _evidence_items_from_bundle(context_bundle: Any, fallback_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for entry in _citation_map_entries(context_bundle):
+        evidence_ref = _get_value(entry, "evidence_ref")
+        ref = _dump_json(evidence_ref)
+        if isinstance(ref, dict):
+            items.append(ref)
+    return items or fallback_items
+
+
+def _policy_snippets_from_bundle(context_bundle: Any) -> list[dict[str, Any]]:
+    snippets: list[dict[str, Any]] = []
+    for entry in _citation_map_entries(context_bundle):
+        evidence_ref = _dump_json(_get_value(entry, "evidence_ref"))
+        if not isinstance(evidence_ref, dict):
+            continue
+        snippets.append(
+            {
+                "doc_key": evidence_ref.get("doc_key"),
+                "chunk_id": evidence_ref.get("chunk_id"),
+                "evidence_id": evidence_ref.get("evidence_id"),
+                "policy_version": evidence_ref.get("policy_version"),
+                "score": evidence_ref.get("score"),
+                "text": str(_get_value(entry, "snippet") or ""),
+            }
+        )
+    return snippets
+
+
+def _material_claims_from_draft(draft: dict[str, Any], cited_evidence_ids: list[str], context_bundle: Any) -> list[MaterialClaim]:
+    cited = [evidence_id for evidence_id in cited_evidence_ids if not evidence_id.startswith("unresolved:")]
+    if not cited:
+        return []
+    return [
+        MaterialClaim(
+            claim_id="claim-policy-1",
+            claim_text=_supportable_claim_text(draft, cited[0], context_bundle),
+            authority_class=MaterialClaimAuthorityClass.POLICY_CLAIM,
+            source_node="generate_recommendation",
+            risk_level=draft.get("risk_level"),
+            cited_evidence_ids=cited,
+        )
+    ]
+
+
+def _supportable_claim_text(draft: dict[str, Any], evidence_id: str, context_bundle: Any) -> str:
+    for snippet in _verifier_evidence_snippets(context_bundle):
+        if str(snippet.get("evidence_id") or "") == evidence_id and str(snippet.get("text") or "").strip():
+            return str(snippet["text"])
+    return str(draft.get("reasoning_summary") or "")
+
+
+def _verifier_evidence_snippets(context_bundle: Any) -> list[dict[str, Any]]:
+    verifier_context = _get_value(context_bundle, "verifier_context")
+    snippets = _get_value(verifier_context, "evidence_snippets")
+    if isinstance(snippets, list):
+        return [dict(item) for item in snippets if isinstance(item, dict)]
+    return []
+
+
+def _normalize_recommendation_verification(value: Any) -> dict[str, Any]:
+    raw = _dump_json(value)
+    data = raw if isinstance(raw, dict) else {}
+    route = _normalize_route(data.get("route"), data)
+    return {
+        "overall_outcome": str(data.get("overall_outcome") or data.get("outcome") or "unknown"),
+        "allows_recommendation": bool(data.get("allows_recommendation") or route.get("route") == "allow"),
+        "route": route,
+        "material_claims": list(data.get("material_claims") or []),
+        "reason_codes": [str(code) for code in data.get("reason_codes") or [] if str(code)],
+        "safe_citation_refs": [
+            str(ref) for ref in data.get("safe_citation_refs") or data.get("safe_support_refs") or [] if str(ref)
+        ],
+        "metrics": _safe_verifier_metrics(data.get("metrics")),
+    }
+
+
+def _normalize_route(route_value: Any, data: dict[str, Any]) -> dict[str, Any]:
+    route_data = _dump_json(route_value)
+    if isinstance(route_data, dict) and route_data.get("route"):
+        return {
+            "route": str(route_data.get("route")),
+            "selected_by": "backend",
+            "model_selected": False,
+            "decision_source": str(route_data.get("decision_source") or "phase22_verifier"),
+        }
+    decision = determine_verification_route(data)
+    return {
+        "route": decision.route.value,
+        "selected_by": decision.selected_by,
+        "model_selected": decision.model_selected,
+        "decision_source": decision.decision_source,
+    }
+
+
+def _apply_verification_to_draft(
+    draft: dict[str, Any],
+    verification: dict[str, Any],
+    claims: list[MaterialClaim],
+) -> None:
+    route = _verification_route_value(verification)
+    draft["verification_route"] = route
+    draft["verification_status"] = verification.get("overall_outcome")
+    draft["verification_reason_codes"] = verification.get("reason_codes") or []
+    draft["material_claims"] = verification.get("material_claims") or [claim.model_dump(mode="json") for claim in claims]
+    if route != "allow":
+        if draft.get("recommended_action") == "citation_invalid":
+            return
+        draft["recommended_action"] = route
+        draft["confidence"] = 0.0
+        missing = list(draft.get("missing_info") or [])
+        if "Verification did not allow recommendation" not in missing:
+            missing.append("Verification did not allow recommendation")
+        draft["missing_info"] = missing
+
+
+def _verification_route_value(verification: dict[str, Any]) -> str:
+    route = verification.get("route")
+    if isinstance(route, dict):
+        return str(route.get("route") or "manual_review")
+    return "manual_review"
+
+
+def _state_safe_rag_context_bundle(context_bundle: Any) -> dict[str, Any]:
+    citation_map: dict[str, Any] = {}
+    for entry in _citation_map_entries(context_bundle):
+        citation_id = str(_get_value(entry, "citation_id") or "")
+        if not citation_id:
+            continue
+        citation_map[citation_id] = {
+            "citation_id": citation_id,
+            "source_evidence_ids": [str(value) for value in _get_value(entry, "source_evidence_ids") or [] if str(value)],
+            "risk_labels": [str(value) for value in _get_value(entry, "risk_labels") or [] if str(value)],
+            "metadata": {
+                str(key): str(value)
+                for key, value in (_get_value(entry, "metadata") or {}).items()
+                if key in {"doc_key", "chunk_id", "policy_version"}
+            },
+        }
+    return {
+        "schema_version": "rag_context_bundle_state_safe.v1",
+        "citation_map": citation_map,
+        "risk_labels": _safe_risk_labels(context_bundle),
+    }
+
+
+def _citation_map_entries(context_bundle: Any) -> list[Any]:
+    citation_map = _get_value(context_bundle, "citation_map")
+    if isinstance(citation_map, dict):
+        return list(citation_map.values())
+    return []
+
+
+def _get_value(value: Any, key: str) -> Any:
+    if isinstance(value, dict):
+        return value.get(key)
+    return getattr(value, key, None)
+
+
+def _missing_session_compat(context_bundle: Any) -> bool:
+    trusted = _get_value(context_bundle, "trusted_context")
+    return isinstance(trusted, dict) and trusted.get("context_builder_mode") == "missing_session_compat"
+
+
+def _safe_material_claims(claims: list[MaterialClaim]) -> list[dict[str, Any]]:
+    return [
+        {
+            "claim_id": claim.claim_id,
+            "authority_class": claim.authority_class.value,
+            "source_node": claim.source_node,
+            "risk_level": claim.risk_level,
+            "cited_evidence_ids": list(claim.cited_evidence_ids),
+            "business_fact_refs": [ref.model_dump(mode="json") for ref in claim.business_fact_refs],
+            "dependency_claim_ids": list(claim.dependency_claim_ids),
+        }
+        for claim in claims
+    ]
+
+
+def _safe_risk_labels(context_bundle: Any) -> list[str]:
+    prompt_context = _get_value(context_bundle, "prompt_context")
+    labels = _get_value(prompt_context, "risk_labels")
+    if isinstance(labels, list):
+        return [str(label) for label in labels if str(label)]
+    return []
+
+
+def _dump_json(value: Any) -> Any:
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    if isinstance(value, dict):
+        return {key: _dump_json(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_dump_json(item) for item in value]
+    if hasattr(value, "__dict__"):
+        return {key: _dump_json(item) for key, item in vars(value).items() if not key.startswith("_")}
+    return value
+
+
+def _safe_verifier_metrics(value: Any) -> dict[str, int | float | bool | str]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(key): metric
+        for key, metric in value.items()
+        if isinstance(metric, int | float | bool | str)
+    }
+
+
+def _unique_text(values: Any) -> list[str]:
+    result: list[str] = []
+    for value in values:
+        text = str(value)
+        if text and text not in result:
+            result.append(text)
+    return result

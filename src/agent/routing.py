@@ -18,6 +18,7 @@ MIN_EVIDENCE_SCORE = 0.55
 _FACT_ONLY_INTENTS = {"order_status_inquiry"}
 _PERMISSION_CODES = {"FORBIDDEN", "permission_denied"}
 _INVESTIGATE_ROUTES = {"final_response", "clarification_gate", "recommendation_generation"}
+_RECOMMENDATION_ROUTES = {"assess_risk_and_approval", "final_response"}
 INTENT_ROUTES = {"clarification_gate", "final_response", "investigate", "session_memory_load"}
 SLOT_ROUTES = {"clarification_gate", "investigate", "long_term_memory_retrieve"}
 
@@ -147,6 +148,23 @@ def route_after_investigate(state: AgentState) -> str:
         return "final_response"
     if route in _INVESTIGATE_ROUTES:
         return route
+    return "final_response"
+
+
+def route_after_recommendation(state: AgentState) -> str:
+    """Route after Phase 22 recommendation verification using state only."""
+    try:
+        route = _route_after_recommendation(state)
+    except Exception:
+        return "final_response"
+    if route in _RECOMMENDATION_ROUTES:
+        return route
+    return "final_response"
+
+
+def _route_after_recommendation(state: AgentState) -> str:
+    if state.get("verification_route") == "allow":
+        return "assess_risk_and_approval"
     return "final_response"
 
 

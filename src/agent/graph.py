@@ -30,7 +30,7 @@ from src.agent.nodes.investigate import investigate
 from src.agent.nodes.long_term_memory_retrieve import long_term_memory_retrieve
 from src.agent.nodes.receive_request import receive_request
 from src.agent.nodes.session_memory_load import session_memory_load
-from src.agent.routing import route_after_intent, route_after_investigate, route_after_slots
+from src.agent.routing import route_after_intent, route_after_investigate, route_after_recommendation, route_after_slots
 from src.agent.state import AgentState
 from src.approvals.schemas import TrustedApprovalResultV1
 
@@ -165,7 +165,14 @@ def build_graph(checkpointer: AsyncPostgresSaver):
         },
     )
     builder.add_edge("clarification_gate", "final_response")
-    builder.add_edge("generate_recommendation", "assess_risk_and_approval")
+    builder.add_conditional_edges(
+        "generate_recommendation",
+        route_after_recommendation,
+        {
+            "assess_risk_and_approval": "assess_risk_and_approval",
+            "final_response": "final_response",
+        },
+    )
     builder.add_conditional_edges(
         "assess_risk_and_approval",
         route_after_risk,
