@@ -31,6 +31,21 @@ FORBIDDEN_IMPLEMENTATION_PATTERNS = {
     "external_action_execution": "external_action_execution",
     "business_data_ingestion_into_rag": "business_data_ingestion_into_rag",
 }
+PHASE22_ALLOWED_SURFACE_PATTERNS = {
+    "MaterialClaim",
+    "semantic_verifier",
+    "SemanticVerifier",
+}
+PHASE22_ALLOWED_SURFACE_PATH_PREFIXES = {
+    Path("src/agent/rag_context"),
+    Path("tests/agent/rag_context"),
+}
+PHASE22_ALLOWED_SURFACE_FILES = {
+    Path("tests/knowledge/test_phase22_evidence_validation.py"),
+    Path("tests/agent/test_phase22_recommendation_integration.py"),
+    Path("tests/agent/test_phase22_action_boundary.py"),
+    Path("tests/agent/test_phase22_final_response.py"),
+}
 IGNORED_STATIC_GUARD_FILES = {
     Path("tests/knowledge/test_phase21_boundaries.py"),
     Path("tests/test_rag_production_migration.py"),
@@ -71,17 +86,44 @@ def _implementation_python_files() -> list[Path]:
     )
 
 
-def test_phase21_does_not_introduce_strict_phase22_23_or_rag5_surfaces() -> None:
+def _is_phase22_owned_surface(relative: Path, label: str) -> bool:
+    if label not in PHASE22_ALLOWED_SURFACE_PATTERNS:
+        return False
+    if relative in PHASE22_ALLOWED_SURFACE_FILES:
+        return True
+    return any(prefix in relative.parents or relative == prefix for prefix in PHASE22_ALLOWED_SURFACE_PATH_PREFIXES)
+
+
+def test_phase21_boundary_allows_phase22_claim_verifier_files_but_no_phase23_rag5_or_execution_surfaces() -> None:
     violations: list[str] = []
 
     for path in _implementation_python_files():
         relative = path.relative_to(REPO_ROOT)
         source = path.read_text(encoding="utf-8")
         for label, pattern in FORBIDDEN_IMPLEMENTATION_PATTERNS.items():
+            if _is_phase22_owned_surface(relative, label):
+                continue
             if pattern in source:
                 violations.append(f"{relative}: {label}")
 
     assert violations == []
+
+
+def test_phase22_boundary_guard_still_blocks_rerank_query_rewrite_search_backend_and_execution_scope() -> None:
+    assert {
+        "QueryRewriteService",
+        "query_rewriter",
+        "rewrite_query(",
+        "CrossEncoderReranker",
+        "ExternalRerankClient",
+        "SearchBackend",
+        "Vespa",
+        "OpenSearch",
+        "cross_encoder",
+        "cross-encoder",
+        "external_action_execution",
+        "business_data_ingestion_into_rag",
+    } <= set(FORBIDDEN_IMPLEMENTATION_PATTERNS)
 
 
 def test_static_guard_allows_current_v13_compatibility_names_only_at_known_sites() -> None:
