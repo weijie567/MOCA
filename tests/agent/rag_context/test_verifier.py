@@ -155,10 +155,16 @@ async def test_level1_gates_run_before_any_supported_outcome() -> None:
     assert result.level1.gates_run == [
         "bundle_membership",
         "tenant_scope",
+        "authority_compatibility",
+        "business_fact_authority",
+    ]
+    assert result.level1.upstream_gates_observed == [
+        "canonical_bundle_filtering",
+        "duplicate_key",
         "text_hash",
         "freshness",
         "latest_policy_version",
-        "authority_compatibility",
+        "scope",
     ]
     assert _value(result.outcome) == VerificationOutcome.UNAUTHORIZED.value
     assert result.level2 is None

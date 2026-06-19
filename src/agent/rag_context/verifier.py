@@ -40,6 +40,7 @@ class Level1VerificationResult(BaseModel):
 
     schema_version: str = "level1_verification_result.v1"
     gates_run: list[str] = Field(default_factory=list)
+    upstream_gates_observed: list[str] = Field(default_factory=list)
     membership_passed: bool = False
     authority_passed: bool = False
     tenant_scope_passed: bool = False
@@ -250,13 +251,19 @@ class SemanticSupportVerifier:
 class MaterialClaimVerifier:
     """Verify claim authority and deterministic text support."""
 
-    _LEVEL1_GATES = [
+    _LEVEL1_LOCAL_GATES = [
         "bundle_membership",
         "tenant_scope",
+        "authority_compatibility",
+        "business_fact_authority",
+    ]
+    _UPSTREAM_CANONICAL_EVIDENCE_GATES = [
+        "canonical_bundle_filtering",
+        "duplicate_key",
         "text_hash",
         "freshness",
         "latest_policy_version",
-        "authority_compatibility",
+        "scope",
     ]
 
     async def verify_claim(
@@ -410,7 +417,8 @@ class MaterialClaimVerifier:
             authority_passed = "tenant_scope_invalid" not in reason_codes
 
         return Level1VerificationResult(
-            gates_run=list(self._LEVEL1_GATES),
+            gates_run=list(self._LEVEL1_LOCAL_GATES),
+            upstream_gates_observed=list(self._UPSTREAM_CANONICAL_EVIDENCE_GATES),
             membership_passed=membership_passed,
             authority_passed=authority_passed,
             tenant_scope_passed="tenant_scope_invalid" not in reason_codes,

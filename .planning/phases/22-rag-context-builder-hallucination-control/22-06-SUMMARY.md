@@ -77,7 +77,7 @@ completed: 2026-06-19
 
 - Added `src/agent/rag_context/metrics.py` with deterministic local case scoring, required Phase 22 metric aggregation, and blocking threshold checks.
 - Connected `scripts/eval_phase22_hallucination.py` to the shared metrics helpers and preserved redacted report output.
-- Expanded `evaluation/golden/phase22_hallucination_cases.jsonl` to 19 cases covering supported policy, unsupported/missing citation, stale/conflict/unauthorized/hash/scope/latest invalid evidence, OCR-low-confidence, insufficient evidence, business authority separation, action dependency, Level 3 fail-closed, and leakage sentinel behavior.
+- Expanded `evaluation/golden/phase22_hallucination_cases.jsonl` to 24 cases covering supported policy, unsupported/missing citation, stale/conflict/unauthorized/hash/scope/latest invalid evidence, OCR-low-confidence, insufficient evidence, business authority separation, action dependency, production-verifier canonical invalid-evidence paths, Level 3 fail-closed, and leakage sentinel behavior.
 - Strengthened boundary and leakage tests for EvidenceRefV1 identity, deferred retrieval/rerank/search/backend scope, business facts, memory authority, action snapshots, eval report redaction, and raw verifier/private/tool/provenance leakage.
 - Ran the required final gate exactly after checkpoint repairs: focused Phase 22 tests, full no-integration tests, Ruff check, Ruff format check, and deterministic hallucination eval thresholds.
 
@@ -108,7 +108,7 @@ _TDD note: Task 1 and Task 2 RED checks were run against existing failing gates 
 - `src/agent/rag_context/metrics.py` - Deterministic hallucination-control case result DTOs, metric aggregation, threshold enforcement, and local case evaluator.
 - `src/agent/rag_context/__init__.py` - Exports Phase 22 metrics helpers.
 - `scripts/eval_phase22_hallucination.py` - Uses shared metric helpers and returns redacted deterministic reports.
-- `evaluation/golden/phase22_hallucination_cases.jsonl` - Golden hallucination-control dataset with 19 deterministic cases.
+- `evaluation/golden/phase22_hallucination_cases.jsonl` - Golden hallucination-control dataset with 24 cases, including 5 production-verifier cases.
 - `tests/agent/rag_context/test_leakage.py` - Adds eval report and answer-text leakage guards.
 - `tests/knowledge/test_phase21_boundaries.py` - Adds EvidenceRefV1 identity, deferred scope, business authority, and action snapshot boundary guards.
 - `src/agent/routing.py` - Task 3 checkpoint repair for backend verifier route preference and legacy route behavior.
@@ -170,11 +170,11 @@ No additional implementation deviations were made inside the Plan 22-06 Task 3 a
 
 ## Verification
 
-- `uv run pytest tests/agent/rag_context tests/knowledge/test_citation_membership.py tests/agent/context/test_budget.py -q` - passed (`74 passed, 1 warning in 0.07s`)
-- `uv run pytest tests/ -x --ignore=tests/integration -q --tb=short` - passed (`1218 passed, 1 skipped, 6 warnings in 498.85s`)
+- `uv run pytest tests/agent/test_phase22_action_boundary.py tests/agent/test_nodes/test_generate_recommendation.py tests/agent/rag_context tests/knowledge/test_phase22_evidence_validation.py tests/agent/test_phase22_recommendation_integration.py tests/agent/test_phase22_final_response.py -q` - passed (`119 passed, 1 warning`)
+- `uv run pytest tests/ -x --ignore=tests/integration -q --tb=short` - passed (`1228 passed, 1 skipped, 6 warnings in 513.31s`)
 - `uv run ruff check .` - passed (`All checks passed!`)
 - `uv run ruff format --check .` - passed (`350 files already formatted`)
-- `uv run python scripts/eval_phase22_hallucination.py --dataset evaluation/golden/phase22_hallucination_cases.jsonl --fail-thresholds` - passed (`status: pass`, `case_count: 19`)
+- `uv run python scripts/eval_phase22_hallucination.py --dataset evaluation/golden/phase22_hallucination_cases.jsonl --fail-thresholds` - passed (`status: pass`, `case_count: 24`)
 
 ### Final Eval Metrics
 
@@ -186,11 +186,11 @@ No additional implementation deviations were made inside the Plan 22-06 Task 3 a
 | unsafe_answer_rate | 0.0 |
 | business_data_hallucination_rate | 0.0 |
 | leakage_count | 0 |
-| level3_trigger_rate | 0.3157894736842105 |
+| level3_trigger_rate | 0.3333333333333333 |
 | level3_trigger_accuracy | 1.0 |
-| timeout_rate | 0.05263157894736842 |
+| timeout_rate | 0.041666666666666664 |
 | fail_closed_rate | 1.0 |
-| total_cases | 19 |
+| total_cases | 24 |
 
 ## Known Stubs
 
