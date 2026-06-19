@@ -138,7 +138,9 @@ async def test_budget_trace_records_included_truncated_and_excluded_reason_codes
         _evidence_ref(chunk_id=f"chunk_{index:03d}", text=f"Policy section {index}. " * 30, rank=index)
         for index in range(1, 5)
     ]
-    service = FakePolicyKnowledgeService({ref.evidence_id: f"Policy section {index}. " * 30 for index, ref in enumerate(refs, 1)})
+    service = FakePolicyKnowledgeService(
+        {ref.evidence_id: f"Policy section {index}. " * 30 for index, ref in enumerate(refs, 1)}
+    )
 
     bundle = await ContextBuilder(
         policy_service=service,

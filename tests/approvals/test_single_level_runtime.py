@@ -23,13 +23,15 @@ async def test_single_level_request_has_one_level_one_assignment(session: AsyncS
     request, level, assignment = await _approval_bundle(session, seeded_session)
 
     levels = (
-        await session.execute(select(ApprovalLevel).where(ApprovalLevel.approval_request_id == request.id))
-    ).scalars().all()
+        (await session.execute(select(ApprovalLevel).where(ApprovalLevel.approval_request_id == request.id)))
+        .scalars()
+        .all()
+    )
     assignments = (
-        await session.execute(
-            select(ApprovalAssignment).where(ApprovalAssignment.approval_level_id == level.id)
-        )
-    ).scalars().all()
+        (await session.execute(select(ApprovalAssignment).where(ApprovalAssignment.approval_level_id == level.id)))
+        .scalars()
+        .all()
+    )
 
     assert len(levels) == 1
     assert len(assignments) == 1
@@ -59,8 +61,10 @@ async def test_single_level_runtime_approves_only_after_required_assignment_acce
     await session.refresh(assignment)
     decisions = (await session.execute(select(ApprovalDecision))).scalars().all()
     events = (
-        await session.execute(select(ApprovalEvent).where(ApprovalEvent.event_type == "approval_decided"))
-    ).scalars().all()
+        (await session.execute(select(ApprovalEvent).where(ApprovalEvent.event_type == "approval_decided")))
+        .scalars()
+        .all()
+    )
 
     assert request.status == "approved"
     assert level.status == "approved"

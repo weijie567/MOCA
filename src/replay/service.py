@@ -154,9 +154,7 @@ class ReplayService:
             pairing_status: OperationPairingStatus | None = None
             if event.schema_version == "replay_event.v3":
                 pairing_status = validate_operation_pairing(prior_events, event).pairing_status
-            timeline.append(
-                self.project_event(event, pairing_status=pairing_status, include_retention_class=False)
-            )
+            timeline.append(self.project_event(event, pairing_status=pairing_status, include_retention_class=False))
             prior_events.append(event)
         response = ReplayResponseV3(
             run_id=run.id,
@@ -170,9 +168,7 @@ class ReplayService:
 
     async def _events_for_run(self, run_id: uuid.UUID) -> list[AgentTraceEvent]:
         result = await self.session.execute(
-            sa.select(AgentTraceEvent)
-            .where(AgentTraceEvent.run_id == run_id)
-            .order_by(AgentTraceEvent.sequence)
+            sa.select(AgentTraceEvent).where(AgentTraceEvent.run_id == run_id).order_by(AgentTraceEvent.sequence)
         )
         return list(result.scalars().all())
 

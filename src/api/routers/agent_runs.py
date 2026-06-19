@@ -65,9 +65,7 @@ def _trusted_tool_config(user: User, token_scopes: Iterable[str], trace_id: str 
     # Intersect verified token scopes with current DB role scopes
     trusted_scopes = set(token_scopes) & set(ROLE_SCOPES.get(user.role, []))
     permissions = [
-        tool_permission
-        for scope, tool_permission in SCOPE_TO_TOOL_PERMISSION.items()
-        if scope in trusted_scopes
+        tool_permission for scope, tool_permission in SCOPE_TO_TOOL_PERMISSION.items() if scope in trusted_scopes
     ]
     if user.role == "merchant":
         merchant_scope = {"merchant_ids": [str(user.merchant_id)] if user.merchant_id is not None else []}
@@ -702,11 +700,7 @@ def _dedupe_evidence_refs(ref_groups: Any) -> list[dict[str, Any]]:
         for ref in refs:
             if not isinstance(ref, dict):
                 continue
-            key = str(
-                ref.get("evidence_id")
-                or ref.get("chunk_id")
-                or json.dumps(ref, sort_keys=True, default=str)
-            )
+            key = str(ref.get("evidence_id") or ref.get("chunk_id") or json.dumps(ref, sort_keys=True, default=str))
             if key in seen:
                 continue
             seen.add(key)

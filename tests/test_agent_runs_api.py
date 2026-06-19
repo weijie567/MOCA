@@ -406,12 +406,16 @@ async def test_event_generator_marks_run_error_when_stream_is_cancelled(
 
     await session.refresh(run)
     lifecycle_rows = (
-        await session.execute(
-            select(AgentTraceEvent)
-            .where(AgentTraceEvent.run_id == run.id, AgentTraceEvent.event_type == "run_status_changed")
-            .order_by(AgentTraceEvent.sequence)
+        (
+            await session.execute(
+                select(AgentTraceEvent)
+                .where(AgentTraceEvent.run_id == run.id, AgentTraceEvent.event_type == "run_status_changed")
+                .order_by(AgentTraceEvent.sequence)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert run.final_status == "error"
     assert run.completed_at is not None
     assert run.error_summary == "client disconnected"
@@ -478,12 +482,16 @@ async def test_event_generator_synthesizes_final_response_when_stream_ends_witho
 
     await session.refresh(run)
     lifecycle_rows = (
-        await session.execute(
-            select(AgentTraceEvent)
-            .where(AgentTraceEvent.run_id == run.id, AgentTraceEvent.event_type == "run_status_changed")
-            .order_by(AgentTraceEvent.sequence)
+        (
+            await session.execute(
+                select(AgentTraceEvent)
+                .where(AgentTraceEvent.run_id == run.id, AgentTraceEvent.event_type == "run_status_changed")
+                .order_by(AgentTraceEvent.sequence)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert final_event is not None
     final_data = _event_data(final_event)
     assert set(final_data["payload"]) == {"final_response"}
@@ -554,12 +562,16 @@ async def test_event_generator_treats_stream_interrupt_node_as_approval_required
     await session.refresh(run)
     approval = (await session.execute(select(ApprovalRequest).where(ApprovalRequest.run_id == run.id))).scalar_one()
     lifecycle_rows = (
-        await session.execute(
-            select(AgentTraceEvent)
-            .where(AgentTraceEvent.run_id == run.id, AgentTraceEvent.event_type == "run_status_changed")
-            .order_by(AgentTraceEvent.sequence)
+        (
+            await session.execute(
+                select(AgentTraceEvent)
+                .where(AgentTraceEvent.run_id == run.id, AgentTraceEvent.event_type == "run_status_changed")
+                .order_by(AgentTraceEvent.sequence)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert approval_event is not None
     approval_data = _event_data(approval_event)
     assert {"approval_id", "proposed_action", "risk_level"}.issubset(approval_data["payload"])

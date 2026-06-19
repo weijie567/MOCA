@@ -173,16 +173,20 @@ async def test_forget_long_term_memory_creates_tombstone_and_excludes_retrieval_
     )
 
     tombstones = (
-        await session.execute(
-            select(MemoryTombstone).where(
-                MemoryTombstone.tenant_id == candidate.tenant_id,
-                MemoryTombstone.memory_type == LONG_TERM_MEMORY_TYPE,
-                MemoryTombstone.scope_type == candidate.scope_type,
-                MemoryTombstone.scope_id == candidate.scope_id,
-                MemoryTombstone.deleted_at.is_(None),
+        (
+            await session.execute(
+                select(MemoryTombstone).where(
+                    MemoryTombstone.tenant_id == candidate.tenant_id,
+                    MemoryTombstone.memory_type == LONG_TERM_MEMORY_TYPE,
+                    MemoryTombstone.scope_type == candidate.scope_type,
+                    MemoryTombstone.scope_id == candidate.scope_id,
+                    MemoryTombstone.deleted_at.is_(None),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     after = await service.repository.retrieve_profile_memory(
         tenant_id=candidate.tenant_id,
         scope_type=candidate.scope_type,
@@ -234,11 +238,14 @@ async def test_tombstone_blocks_same_transaction_rewrite_by_content_hash(
     assert result.reason_code == "tombstone_match"
     assert events[-1].decision == "skip"
     assert events[-1].reason_code == "tombstone_match"
-    assert await service.repository.retrieve_profile_memory(
-        tenant_id=rewrite.tenant_id,
-        scope_type=rewrite.scope_type,
-        scope_id=rewrite.scope_id,
-    ) == []
+    assert (
+        await service.repository.retrieve_profile_memory(
+            tenant_id=rewrite.tenant_id,
+            scope_type=rewrite.scope_type,
+            scope_id=rewrite.scope_id,
+        )
+        == []
+    )
 
 
 @pytest.mark.asyncio

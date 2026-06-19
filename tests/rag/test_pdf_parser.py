@@ -226,7 +226,9 @@ def test_scanned_pdf_falls_back_to_ocr_adapter_with_pdf_point_boxes(tmp_path, mo
             )
 
     engine = FakeOcrEngine()
-    monkeypatch.setattr(PdfParser, "_render_page_to_image", lambda self, path, page_index, page: Image.new("RGB", (300, 400)))
+    monkeypatch.setattr(
+        PdfParser, "_render_page_to_image", lambda self, path, page_index, page: Image.new("RGB", (300, 400))
+    )
 
     result = PdfParser(ocr_engine=engine).parse(source, doc_key="refund_policy", source_type="policy_pdf", metadata={})
     block = result.blocks[0]

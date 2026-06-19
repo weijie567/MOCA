@@ -63,7 +63,9 @@ def test_positive_golden_cases_exercise_deterministic_helpers(case):
                     "primary_intent": expected.get("primary_intent", "unsupported"),
                     "requested_operation": expected.get("requested_operation", "advise"),
                     "intent_confidence": 0.95,
-                    "routing_hints": {"pre_route_disposition": expected.get("pre_route_disposition", "approval_chat_not_trusted")},
+                    "routing_hints": {
+                        "pre_route_disposition": expected.get("pre_route_disposition", "approval_chat_not_trusted")
+                    },
                 }
             )
             == "clarification_gate"

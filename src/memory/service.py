@@ -372,7 +372,9 @@ def _merge_unresolved(existing: list[Any], candidate: list[Any]) -> list[Any]:
     return merged
 
 
-def _merge_last_intent(existing: str | None, candidate: str | None, *, cas_retry: bool) -> tuple[str | None, str | None]:
+def _merge_last_intent(
+    existing: str | None, candidate: str | None, *, cas_retry: bool
+) -> tuple[str | None, str | None]:
     if cas_retry and existing and candidate and existing != candidate:
         return None, "last_intent_conflict"
     return candidate or existing, None

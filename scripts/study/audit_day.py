@@ -258,7 +258,9 @@ def render_review_draft(audit: dict[str, Any]) -> str:
     lines.extend(["", "## 4. 今日偏差", ""])
     for task in audit["tasks"]:
         if task["status"] != "DONE":
-            lines.append(f"- {task['id']} {task['status']}：需要补 `{', '.join(report['path'] for report in task['outputs'])}`")
+            lines.append(
+                f"- {task['id']} {task['status']}：需要补 `{', '.join(report['path'] for report in task['outputs'])}`"
+            )
     if all(task["status"] == "DONE" for task in audit["tasks"]):
         lines.append("- 当前机器审计未发现计划内缺口。")
 

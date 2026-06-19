@@ -49,7 +49,11 @@ def _context(tenant_id) -> KnowledgeContext:
 def _engine(results: list[tuple[object, float]]) -> tuple[PolicyRetrievalEngine, AsyncMock, AsyncMock]:
     embedder = SimpleNamespace(embed_query=AsyncMock(return_value=[0.1, 0.2, 0.3]))
     chunk_repo = SimpleNamespace(search_similar=AsyncMock(return_value=results))
-    return PolicyRetrievalEngine(chunk_repo=chunk_repo, embedder=embedder), chunk_repo.search_similar, embedder.embed_query
+    return (
+        PolicyRetrievalEngine(chunk_repo=chunk_repo, embedder=embedder),
+        chunk_repo.search_similar,
+        embedder.embed_query,
+    )
 
 
 async def _retrieve_hits(

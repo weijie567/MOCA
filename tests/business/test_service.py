@@ -6,7 +6,12 @@ import pytest
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.business.service import BUSINESS_READ_TOOLS, BusinessReadToolDefinition, BusinessToolService, _merchant_scope_allows
+from src.business.service import (
+    BUSINESS_READ_TOOLS,
+    BusinessReadToolDefinition,
+    BusinessToolService,
+    _merchant_scope_allows,
+)
 from src.tools.contracts import ToolCallContext, ToolError, ToolResultV2
 from src.tools.executors.business import BusinessToolExecutor
 

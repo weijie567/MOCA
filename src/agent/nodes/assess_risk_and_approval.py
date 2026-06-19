@@ -383,8 +383,7 @@ async def _attach_snapshot_binding(
             "auto_allowed": False,
             "safety_snapshot_verified": False,
             "final_response": "操作需要人工复核，当前未创建可执行审批或动作草稿。",
-            "node_errors": (state.get("node_errors") or [])
-            + [{"node": "assess_risk_and_approval", "error": str(exc)}],
+            "node_errors": (state.get("node_errors") or []) + [{"node": "assess_risk_and_approval", "error": str(exc)}],
         }
 
     return {
@@ -681,7 +680,13 @@ async def _load_prompt_context(state: AgentState, config: RunnableConfig | None)
     configurable = ((config or {}).get("configurable") or {}) if config else {}
     session = configurable.get("session")
     run_id = state.get("current_run_id") or state.get("run_id")
-    if session is None or not state.get("tenant_id") or not state.get("user_id") or not state.get("thread_id") or not run_id:
+    if (
+        session is None
+        or not state.get("tenant_id")
+        or not state.get("user_id")
+        or not state.get("thread_id")
+        or not run_id
+    ):
         return _empty_prompt_context()
 
     service = configurable.get("conversation_service")
@@ -710,8 +715,7 @@ async def _load_prompt_context(state: AgentState, config: RunnableConfig | None)
         "tool_result_summaries": [
             summary
             for summary in (
-                _tool_prompt_summary_from_record(record)
-                for record in getattr(context, "tool_prompt_summaries", [])
+                _tool_prompt_summary_from_record(record) for record in getattr(context, "tool_prompt_summaries", [])
             )
             if summary is not None
         ],

@@ -88,7 +88,13 @@ def _state(base_state: dict[str, Any], *, outcome: str, route: str, reason_codes
         ("hash_mismatch", "refuse", ["text_hash_mismatch"], "refused", "无法基于当前政策证据"),
         ("latest_version_invalid", "refuse", ["latest_version_invalid"], "refused", "无法基于当前政策证据"),
         ("ocr_low_confidence", "manual_review", ["ocr_low_confidence"], "manual_review", "人工复核"),
-        ("business_fact_missing", "insufficient_evidence", ["business_fact_missing"], "insufficient_evidence", "业务事实不足"),
+        (
+            "business_fact_missing",
+            "insufficient_evidence",
+            ["business_fact_missing"],
+            "insufficient_evidence",
+            "业务事实不足",
+        ),
         ("semantic_ambiguous", "manual_review", ["semantic_ambiguous"], "manual_review", "人工复核"),
     ],
 )
@@ -101,9 +107,7 @@ async def test_final_response_renders_safe_non_allow_verifier_outcomes_without_i
     expected_phrase: str,
 ) -> None:
     """RTE-05: non-allow verifier routes get safe user wording and no debug leakage."""
-    result = await final_response(
-        _state(base_state, outcome=outcome, route=route, reason_codes=reason_codes)
-    )
+    result = await final_response(_state(base_state, outcome=outcome, route=route, reason_codes=reason_codes))
 
     response_text = result["final_response"]
 

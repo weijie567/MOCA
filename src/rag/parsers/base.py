@@ -98,9 +98,7 @@ class ParseResult:
 
 
 _HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
-_LOCAL_PATH_RE = re.compile(
-    r"(?:(?:file://)?/(?:Users|home|private|tmp|var|Volumes)/[^\s)>\]]+|[A-Za-z]:\\[^\s)>\]]+)"
-)
+_LOCAL_PATH_RE = re.compile(r"(?:(?:file://)?/(?:Users|home|private|tmp|var|Volumes)/[^\s)>\]]+|[A-Za-z]:\\[^\s)>\]]+)")
 _RAW_PAYLOAD_MARKERS = (
     "raw_bytes",
     "parser_dump",

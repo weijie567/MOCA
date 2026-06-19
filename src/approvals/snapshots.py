@@ -46,9 +46,7 @@ class ActionSafetySnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["action_safety_snapshot.v1"] = (
-        ACTION_SAFETY_SNAPSHOT_SCHEMA_VERSION
-    )
+    schema_version: Literal["action_safety_snapshot.v1"] = ACTION_SAFETY_SNAPSHOT_SCHEMA_VERSION
     tenant_id: str
     run_id: str
     snapshot_id: str

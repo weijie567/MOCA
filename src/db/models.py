@@ -6,7 +6,21 @@ from decimal import Decimal
 from typing import Any
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, CheckConstraint, Computed, Date, DateTime, ForeignKey, Index, Numeric, String, Text, UniqueConstraint, func, text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Computed,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -371,9 +385,7 @@ Index("ix_session_memories_expires_at", SessionMemory.expires_at)
 
 MEMORY_SCOPE_CHECK = "scope_type IN ('tenant', 'merchant', 'user', 'thread', 'case')"
 MEMORY_REVIEW_STATUS_CHECK = (
-    "review_status IN ("
-    "'auto_approved', 'needs_review', 'approved', 'rejected', 'superseded', 'tombstoned', 'deleted'"
-    ")"
+    "review_status IN ('auto_approved', 'needs_review', 'approved', 'rejected', 'superseded', 'tombstoned', 'deleted')"
 )
 MEMORY_PII_CLASSIFICATION_CHECK = "pii_classification IN ('none', 'low', 'sensitive', 'prohibited')"
 
@@ -625,9 +637,7 @@ Index("ix_memory_write_events_candidate_hash", MemoryWriteEvent.tenant_id, Memor
 
 class ActionSafetySnapshot(Base):
     __tablename__ = "action_safety_snapshots"
-    __table_args__ = (
-        UniqueConstraint("tenant_id", "immutable_hash", name="uq_action_safety_snapshots_tenant_hash"),
-    )
+    __table_args__ = (UniqueConstraint("tenant_id", "immutable_hash", name="uq_action_safety_snapshots_tenant_hash"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     schema_version: Mapped[str] = mapped_column(String(48), nullable=False, default="action_safety_snapshot.v1")
@@ -858,9 +868,7 @@ Index(
     "uq_approval_decisions_winning_accept_level",
     ApprovalDecision.approval_level_id,
     unique=True,
-    postgresql_where=text(
-        "deleted_at IS NULL AND level_mode = 'any_one' AND decision_type IN ('accept', 'approve')"
-    ),
+    postgresql_where=text("deleted_at IS NULL AND level_mode = 'any_one' AND decision_type IN ('accept', 'approve')"),
 )
 
 
@@ -925,9 +933,7 @@ class ApprovalStep(Base):
 
 class ActionDraft(TimestampMixin, Base):
     __tablename__ = "action_drafts"
-    __table_args__ = (
-        UniqueConstraint("tenant_id", "idempotency_key", name="uq_action_drafts_tenant_idempotency_key"),
-    )
+    __table_args__ = (UniqueConstraint("tenant_id", "idempotency_key", name="uq_action_drafts_tenant_idempotency_key"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     run_id: Mapped[uuid.UUID] = mapped_column(
@@ -991,9 +997,7 @@ class AgentStep(TimestampMixin, Base):
 
 class ConversationThread(TimestampMixin, Base):
     __tablename__ = "conversation_threads"
-    __table_args__ = (
-        CheckConstraint("status IN ('active', 'archived')", name="ck_conversation_threads_status"),
-    )
+    __table_args__ = (CheckConstraint("status IN ('active', 'archived')", name="ck_conversation_threads_status"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -1044,7 +1048,9 @@ class ConversationMessage(TimestampMixin, Base):
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     thread_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
-    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_runs.id"), nullable=False, index=True)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agent_runs.id"), nullable=False, index=True
+    )
     trace_id: Mapped[str | None] = mapped_column(String(128))
     message_index: Mapped[int] = mapped_column(nullable=False)
     role: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -1074,9 +1080,7 @@ Index("ix_conversation_messages_trace_id", ConversationMessage.trace_id)
 
 class ToolCallRecord(TimestampMixin, Base):
     __tablename__ = "tool_calls"
-    __table_args__ = (
-        CheckConstraint("attempt IS NULL OR attempt > 0", name="ck_tool_calls_attempt_positive"),
-    )
+    __table_args__ = (CheckConstraint("attempt IS NULL OR attempt > 0", name="ck_tool_calls_attempt_positive"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     conversation_thread_id: Mapped[uuid.UUID] = mapped_column(
@@ -1097,7 +1101,9 @@ class ToolCallRecord(TimestampMixin, Base):
     attempt: Mapped[int | None] = mapped_column()
     argument_summary_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     argument_hash: Mapped[str | None] = mapped_column(String(80))
-    redaction_policy_version: Mapped[str] = mapped_column(String(48), nullable=False, default="conversation_redaction.v1")
+    redaction_policy_version: Mapped[str] = mapped_column(
+        String(48), nullable=False, default="conversation_redaction.v1"
+    )
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="started")
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -1155,7 +1161,9 @@ class ToolResultRecord(TimestampMixin, Base):
     tool_call: Mapped["ToolCallRecord | None"] = relationship(back_populates="results")
 
 
-Index("ix_tool_results_tenant_thread_run", ToolResultRecord.tenant_id, ToolResultRecord.thread_id, ToolResultRecord.run_id)
+Index(
+    "ix_tool_results_tenant_thread_run", ToolResultRecord.tenant_id, ToolResultRecord.thread_id, ToolResultRecord.run_id
+)
 Index("ix_tool_results_tenant_operation", ToolResultRecord.tenant_id, ToolResultRecord.operation_id)
 Index("ix_tool_results_tool_result_id", ToolResultRecord.tool_result_id)
 Index("ix_tool_results_replay_event_id", ToolResultRecord.replay_event_id)
@@ -1163,9 +1171,7 @@ Index("ix_tool_results_replay_event_id", ToolResultRecord.replay_event_id)
 
 class ConversationSummary(TimestampMixin, Base):
     __tablename__ = "summaries"
-    __table_args__ = (
-        CheckConstraint("summary_type IN ('thread_rolling', 'case_current')", name="ck_summaries_type"),
-    )
+    __table_args__ = (CheckConstraint("summary_type IN ('thread_rolling', 'case_current')", name="ck_summaries_type"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
@@ -1191,7 +1197,12 @@ class ConversationSummary(TimestampMixin, Base):
     thread: Mapped["ConversationThread"] = relationship(back_populates="summaries")
 
 
-Index("ix_summaries_tenant_thread_type", ConversationSummary.tenant_id, ConversationSummary.thread_id, ConversationSummary.summary_type)
+Index(
+    "ix_summaries_tenant_thread_type",
+    ConversationSummary.tenant_id,
+    ConversationSummary.thread_id,
+    ConversationSummary.summary_type,
+)
 Index("ix_summaries_case_id", ConversationSummary.case_id)
 
 
@@ -1238,9 +1249,7 @@ class AgentTraceEvent(TimestampMixin, Base):
     thread_id: Mapped[str] = mapped_column(String(128), nullable=False)
     trace_id: Mapped[str | None] = mapped_column(String(128))
     event_type: Mapped[str] = mapped_column(String(48), nullable=False)
-    schema_version: Mapped[str] = mapped_column(
-        String(48), nullable=False, default="minimal_event_envelope.v1"
-    )
+    schema_version: Mapped[str] = mapped_column(String(48), nullable=False, default="minimal_event_envelope.v1")
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     actor: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     resource_refs: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
@@ -1253,7 +1262,12 @@ class AgentTraceEvent(TimestampMixin, Base):
     run: Mapped["AgentRun"] = relationship(back_populates="trace_events")
 
 
-Index("ix_agent_trace_events_tenant_run_sequence", AgentTraceEvent.tenant_id, AgentTraceEvent.run_id, AgentTraceEvent.sequence)
+Index(
+    "ix_agent_trace_events_tenant_run_sequence",
+    AgentTraceEvent.tenant_id,
+    AgentTraceEvent.run_id,
+    AgentTraceEvent.sequence,
+)
 Index(
     "ix_agent_trace_events_tenant_run_operation",
     AgentTraceEvent.tenant_id,

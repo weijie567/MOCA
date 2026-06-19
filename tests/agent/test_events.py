@@ -241,13 +241,17 @@ async def test_single_operation_one_family(session: AsyncSession):
     )
 
     rows = (
-        await session.execute(
-            select(AgentTraceEvent).where(
-                AgentTraceEvent.run_id == run_id,
-                AgentTraceEvent.operation_id == operation_id,
+        (
+            await session.execute(
+                select(AgentTraceEvent).where(
+                    AgentTraceEvent.run_id == run_id,
+                    AgentTraceEvent.operation_id == operation_id,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert [row.event_type for row in rows] == ["tool_call_started"]
     assert not any(row.event_type.startswith("rag_retrieval_") for row in rows)
 

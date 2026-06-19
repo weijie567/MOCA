@@ -189,7 +189,9 @@ async def test_model_never_selects_safety_route_when_verifier_returns_backend_ro
 
     monkeypatch.setattr(generate_recommendation_module, "ContextBuilder", lambda **kwargs: builder)
     monkeypatch.setattr(generate_recommendation_module, "MaterialClaimVerifier", lambda **kwargs: verifier)
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_model_draft_with_model_selected_safety_route()))
+    monkeypatch.setattr(
+        generate_recommendation_module, "_get_llm", lambda: FakeLLM(_model_draft_with_model_selected_safety_route())
+    )
 
     result = await generate_recommendation_module.generate_recommendation(
         {**base_state, **_retrieval_state(evidence)},

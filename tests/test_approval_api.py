@@ -316,13 +316,17 @@ async def test_decide_records_recoverable_resume_failure_and_retries_terminal_ap
     await session.refresh(bundle.approval)
     run = await session.get(AgentRun, bundle.approval.run_id)
     resume_events = (
-        await session.execute(
-            select(ApprovalEvent).where(
-                ApprovalEvent.approval_request_id == bundle.approval.id,
-                ApprovalEvent.event_type == "approval_resumed",
+        (
+            await session.execute(
+                select(ApprovalEvent).where(
+                    ApprovalEvent.approval_request_id == bundle.approval.id,
+                    ApprovalEvent.event_type == "approval_resumed",
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     resume_statuses = {event.metadata_json["resume_status"] for event in resume_events}
 
     assert first_response.status_code == 500
@@ -341,13 +345,17 @@ async def test_decide_records_recoverable_resume_failure_and_retries_terminal_ap
     )
     await session.refresh(run)
     completed_events = (
-        await session.execute(
-            select(ApprovalEvent).where(
-                ApprovalEvent.approval_request_id == bundle.approval.id,
-                ApprovalEvent.event_type == "approval_resumed",
+        (
+            await session.execute(
+                select(ApprovalEvent).where(
+                    ApprovalEvent.approval_request_id == bundle.approval.id,
+                    ApprovalEvent.event_type == "approval_resumed",
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     completed_statuses = [event.metadata_json["resume_status"] for event in completed_events]
 
     assert retry_response.status_code == 200
@@ -458,7 +466,7 @@ def test_approval_resume_reconciliation_uses_draft_outcome_not_action_result_suc
     assert "execute_action(" not in source
     assert "not_executed_demo" in source
     assert "external_side_effect" in source
-    assert "action_result\", {}).get(\"status\") != \"success\"" not in source
+    assert 'action_result", {}).get("status") != "success"' not in source
 
 
 @pytest.mark.asyncio

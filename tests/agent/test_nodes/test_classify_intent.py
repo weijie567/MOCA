@@ -46,7 +46,9 @@ async def test_classify_intent_llm_failure_returns_unknown(monkeypatch, base_sta
     monkeypatch.setattr(
         classify_intent_module,
         "_get_llm",
-        lambda: FakeLLM({"primary_intent": "not_valid", "confidence": 0.95, "approval_result": {"decision": "approve"}}),
+        lambda: FakeLLM(
+            {"primary_intent": "not_valid", "confidence": 0.95, "approval_result": {"decision": "approve"}}
+        ),
     )
 
     result = await classify_intent_module.classify_intent(base_state)

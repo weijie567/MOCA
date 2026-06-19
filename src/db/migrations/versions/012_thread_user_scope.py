@@ -44,9 +44,10 @@ def downgrade() -> None:
 
 def _ensure_no_active_thread_id_duplicates() -> None:
     bind = op.get_bind()
-    duplicate = bind.execute(
-        sa.text(
-            """
+    duplicate = (
+        bind.execute(
+            sa.text(
+                """
             SELECT tenant_id, thread_id, COUNT(*) AS duplicate_count
             FROM conversation_threads
             WHERE deleted_at IS NULL
@@ -54,8 +55,11 @@ def _ensure_no_active_thread_id_duplicates() -> None:
             HAVING COUNT(*) > 1
             LIMIT 1
             """
+            )
         )
-    ).mappings().first()
+        .mappings()
+        .first()
+    )
     if duplicate is not None:
         raise RuntimeError(
             "Cannot downgrade 012_thread_user_scope: active conversation_threads contain "

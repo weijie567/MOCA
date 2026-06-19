@@ -54,9 +54,7 @@ def _chunk(content: str = "退款规则内容") -> object:
 def _service(results: list[tuple[object, float]]) -> PolicyKnowledgeService:
     repo = SimpleNamespace(search_similar=AsyncMock(return_value=results))
     embedder = SimpleNamespace(embed_query=AsyncMock(return_value=[0.1, 0.2]))
-    return PolicyKnowledgeService(
-        PolicyRetrievalEngine(chunk_repo=repo, embedder=embedder)
-    )
+    return PolicyKnowledgeService(PolicyRetrievalEngine(chunk_repo=repo, embedder=embedder))
 
 
 @pytest.mark.asyncio
@@ -95,9 +93,7 @@ async def test_adapter_hashes_full_chunk_content():
     context = _context()
     full_content = "退款规则" * 100
 
-    result = await _service([(_chunk(full_content), 0.8)]).search(
-        _request(context.tenant_id), context
-    )
+    result = await _service([(_chunk(full_content), 0.8)]).search(_request(context.tenant_id), context)
 
     assert result.evidence_refs[0].text_hash == evidence_text_hash(full_content)
     assert result.evidence_refs[0].text_hash != evidence_text_hash(full_content[:300])

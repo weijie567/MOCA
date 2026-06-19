@@ -66,7 +66,9 @@ DAY_OUTPUTS: dict[int, list[dict[str, str]]] = {
     14: [{"path": "study_plan/portfolio/weekly_reviews/week2.md", "purpose": "第二周复盘"}],
     15: [{"path": "study_plan/portfolio/demos/langgraph_hello/README.md", "purpose": "LangGraph 最小例子"}],
     16: [{"path": "study_plan/portfolio/demos/langgraph_moca_lite/README.md", "purpose": "MOCA Lite LangGraph 骨架"}],
-    17: [{"path": "study_plan/portfolio/demos/langgraph_moca_lite/README.md", "purpose": "MOCA Lite LangGraph 可运行版"}],
+    17: [
+        {"path": "study_plan/portfolio/demos/langgraph_moca_lite/README.md", "purpose": "MOCA Lite LangGraph 可运行版"}
+    ],
     18: [{"path": "study_plan/portfolio/demos/rag_v2/README.md", "purpose": "RAG v2 简化版"}],
     19: [
         {"path": "study_plan/portfolio/demos/fastapi_agent/Dockerfile", "purpose": "FastAPI Agent 容器化"},

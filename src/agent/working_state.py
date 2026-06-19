@@ -240,7 +240,9 @@ def _pending_confirmation(state: AgentState) -> dict[str, Any] | None:
 
 
 def _draft_artifact(state: AgentState) -> WorkingDraftArtifact | None:
-    artifact = _select_safe_fields(_mapping(state.get("action_draft")), ("draft_id", "action_type", "status", "summary"))
+    artifact = _select_safe_fields(
+        _mapping(state.get("action_draft")), ("draft_id", "action_type", "status", "summary")
+    )
     if not artifact:
         return None
     return WorkingDraftArtifact.model_validate(artifact)

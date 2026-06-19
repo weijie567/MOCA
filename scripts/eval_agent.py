@@ -399,7 +399,9 @@ class CiToolManager:
             data_freshness_at=None,
             policy_evidence_refs=[],
             business_fact_refs=[],
-            error=ToolError(code="TOOL_UNAVAILABLE", safe_message="CI tool unavailable", retryable=False, source="tool"),
+            error=ToolError(
+                code="TOOL_UNAVAILABLE", safe_message="CI tool unavailable", retryable=False, source="tool"
+            ),
             retryable=False,
             retry_after_ms=None,
             latency_ms=0,

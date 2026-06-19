@@ -353,7 +353,10 @@ class LongTermMemoryService:
             raise ValueError("long-term memory not found")
         if replacement_candidate.tenant_id != tenant_id:
             raise ValueError("replacement candidate tenant does not match memory tenant")
-        if replacement_candidate.scope_type != previous.scope_type or replacement_candidate.scope_id != previous.scope_id:
+        if (
+            replacement_candidate.scope_type != previous.scope_type
+            or replacement_candidate.scope_id != previous.scope_id
+        ):
             raise ValueError("replacement candidate scope does not match memory scope")
         if not _is_current_published(previous, now):
             raise ValueError("long-term memory supersede requires current published row")

@@ -279,9 +279,7 @@ class ConversationRepository:
         if previous_summary is not None:
             filters.append(ToolResultRecord.created_at > previous_summary.created_at)
             previous_ids = {
-                uuid.UUID(value)
-                for value in (previous_summary.source_tool_result_ids_json or [])
-                if _is_uuid(value)
+                uuid.UUID(value) for value in (previous_summary.source_tool_result_ids_json or []) if _is_uuid(value)
             }
             if previous_ids:
                 filters.append(ToolResultRecord.id.not_in(previous_ids))

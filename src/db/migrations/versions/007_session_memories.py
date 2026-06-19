@@ -21,7 +21,8 @@ depends_on: Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.create_table("session_memories",
+    op.create_table(
+        "session_memories",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
         sa.Column("tenant_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("tenants.id"), nullable=False),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id"), nullable=False),

@@ -91,7 +91,10 @@ async def test_approval_requested_persists_trace_and_approval_event_refs(
     assert approval_event.metadata_json["risk_level"] == request.risk_level
     assert approval_event.resource_refs_json["request_ref"] == f"approval_request:{request.id}:r{request.revision}"
     assert approval_event.resource_refs_json["level_ref"] == f"approval_level:{level.id}:v{level.version}"
-    assert approval_event.resource_refs_json["assignment_ref"] == f"approval_assignment:{assignment.id}:v{assignment.version}"
+    assert (
+        approval_event.resource_refs_json["assignment_ref"]
+        == f"approval_assignment:{assignment.id}:v{assignment.version}"
+    )
     assert _required_ref_keys() <= set(approval_event.resource_refs_json)
     assert trace_event.actor == {"type": "approver", "id": str(request.requested_by)}
     assert trace_event.resource_refs == approval_event.resource_refs_json

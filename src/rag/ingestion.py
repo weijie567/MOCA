@@ -256,7 +256,9 @@ class IngestionService:
                     effective_date=effective_date,
                 )
                 previous_fingerprint = getattr(doc, "policy_version_fingerprint", None)
-                fingerprint_changed = doc.content != content if previous_fingerprint is None else previous_fingerprint != fingerprint
+                fingerprint_changed = (
+                    doc.content != content if previous_fingerprint is None else previous_fingerprint != fingerprint
+                )
                 if fingerprint_changed:
                     doc.version = (doc.version or 1) + 1
                 doc.title = title
@@ -636,9 +638,7 @@ def _document_citation_text(chunks: list[BlockChunkResult]) -> str:
 def _embedding_text(*, title: str, chunk: BlockChunkResult) -> str:
     prefix = f"{title}: {chunk.content}" if chunk.section == "intro" else f"{title} / {chunk.section}: {chunk.content}"
     source_context = " ".join(
-        f"source_block_id={ref['source_block_id']}"
-        for ref in chunk.source_block_refs
-        if ref.get("source_block_id")
+        f"source_block_id={ref['source_block_id']}" for ref in chunk.source_block_refs if ref.get("source_block_id")
     )
     if source_context:
         return f"{prefix}\n{source_context}"

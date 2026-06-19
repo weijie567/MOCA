@@ -108,9 +108,7 @@ async def test_append_tool_summary_message_rejects_authority_and_reasoning_paylo
 
 def test_reserved_case_id_does_not_create_case_memory_retrieval() -> None:
     migration_source = Path("src/db/migrations/versions/011_memory_foundation_v2.py").read_text(encoding="utf-8")
-    conversation_sources = "\n".join(
-        path.read_text(encoding="utf-8") for path in Path("src/conversation").glob("*.py")
-    )
+    conversation_sources = "\n".join(path.read_text(encoding="utf-8") for path in Path("src/conversation").glob("*.py"))
 
     assert "case_id" in migration_source
     assert "case_memories" not in migration_source
@@ -121,9 +119,7 @@ def test_reserved_case_id_does_not_create_case_memory_retrieval() -> None:
 
 
 @pytest.mark.asyncio
-async def test_load_prompt_context_first_turn_with_zero_summaries(
-    session: AsyncSession, seeded_session: dict
-) -> None:
+async def test_load_prompt_context_first_turn_with_zero_summaries(session: AsyncSession, seeded_session: dict) -> None:
     from src.conversation.repository import ConversationRepository
     from src.conversation.service import ConversationService
 

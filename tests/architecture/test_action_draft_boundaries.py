@@ -39,11 +39,7 @@ def _source(path: Path) -> str:
 
 def _function_names(path: Path) -> set[str]:
     tree = ast.parse(_source(path))
-    return {
-        node.name
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
-    }
+    return {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)}
 
 
 def _import_targets(path: Path) -> list[str]:
@@ -63,7 +59,7 @@ def test_action_draft_node_is_canonical_entrypoint() -> None:
     source = _source(NODE_PATH)
 
     assert "async def action_draft" in source
-    assert "caller_node=\"action_draft\"" in source
+    assert 'caller_node="action_draft"' in source
     assert "draft_outcome" in source
     assert "execution_mode" in source
     assert "not_executed_demo" in source
@@ -93,9 +89,7 @@ def test_action_result_compatibility_is_draft_only_not_success_sentinel() -> Non
 
 def test_create_coupon_grant_draft_is_node_only_for_action_draft() -> None:
     descriptor = next(
-        descriptor
-        for descriptor in ToolCatalog().descriptors()
-        if descriptor.name == "create_coupon_grant_draft"
+        descriptor for descriptor in ToolCatalog().descriptors() if descriptor.name == "create_coupon_grant_draft"
     )
 
     assert descriptor.caller_allowlist == ["action_draft"]
@@ -103,7 +97,7 @@ def test_create_coupon_grant_draft_is_node_only_for_action_draft() -> None:
     assert descriptor.requires_safety_snapshot is True
     assert _side_effect_allowed("action_draft", descriptor) is True
     assert _side_effect_allowed("execute_action", descriptor) is False
-    assert "caller_allowlist=[\"action_draft\"]" in _source(CATALOG_PATH)
+    assert 'caller_allowlist=["action_draft"]' in _source(CATALOG_PATH)
     assert 'caller_node == "action_draft"' in _source(MANAGER_PATH)
 
 

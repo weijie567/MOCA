@@ -40,9 +40,7 @@ def test_approval_routers_do_not_import_legacy_approval_repository() -> None:
         ROOT / "src" / "api" / "routers" / "agent_runs.py",
     ):
         for module in _imports(path):
-            if module == "src.repositories.approval_repo" or module.startswith(
-                "src.repositories.approval_repo."
-            ):
+            if module == "src.repositories.approval_repo" or module.startswith("src.repositories.approval_repo."):
                 violations.append((str(path.relative_to(ROOT)), module))
 
     assert violations == []
@@ -86,11 +84,7 @@ def test_graph_nodes_do_not_import_raw_action_or_business_adapters_for_approval(
 def test_approval_service_is_canonical_transition_owner() -> None:
     service_path = ROOT / "src" / "approvals" / "service.py"
     assert service_path.exists()
-    classes = [
-        node.name
-        for node in ast.walk(ast.parse(service_path.read_text()))
-        if isinstance(node, ast.ClassDef)
-    ]
+    classes = [node.name for node in ast.walk(ast.parse(service_path.read_text())) if isinstance(node, ast.ClassDef)]
 
     assert "ApprovalService" in classes
 

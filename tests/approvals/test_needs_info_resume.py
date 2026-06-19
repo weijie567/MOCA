@@ -95,7 +95,9 @@ async def _respond(
 
 async def _active_revision_count(session: AsyncSession, request: ApprovalRequest) -> int:
     count = await session.scalar(
-        select(func.count()).select_from(ApprovalRequest).where(
+        select(func.count())
+        .select_from(ApprovalRequest)
+        .where(
             ApprovalRequest.tenant_id == request.tenant_id,
             ApprovalRequest.run_id == request.run_id,
             ApprovalRequest.status.in_(ACTIVE_REQUEST_STATUSES),
@@ -107,15 +109,19 @@ async def _active_revision_count(session: AsyncSession, request: ApprovalRequest
 
 async def _active_revision(session: AsyncSession, request: ApprovalRequest) -> ApprovalRequest:
     rows = (
-        await session.execute(
-            select(ApprovalRequest).where(
-                ApprovalRequest.tenant_id == request.tenant_id,
-                ApprovalRequest.run_id == request.run_id,
-                ApprovalRequest.status.in_(ACTIVE_REQUEST_STATUSES),
-                ApprovalRequest.legacy_non_executable.is_(False),
+        (
+            await session.execute(
+                select(ApprovalRequest).where(
+                    ApprovalRequest.tenant_id == request.tenant_id,
+                    ApprovalRequest.run_id == request.run_id,
+                    ApprovalRequest.status.in_(ACTIVE_REQUEST_STATUSES),
+                    ApprovalRequest.legacy_non_executable.is_(False),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(rows) == 1
     return rows[0]
 
@@ -151,15 +157,19 @@ async def test_respond_writes_needs_info_and_no_resume_payload(session: AsyncSes
 
     decision = (await session.execute(select(ApprovalDecision))).scalar_one()
     lifecycle_events = (
-        await session.execute(
-            select(AgentTraceEvent)
-            .where(
-                AgentTraceEvent.run_id == request.run_id,
-                AgentTraceEvent.event_type == "run_status_changed",
+        (
+            await session.execute(
+                select(AgentTraceEvent)
+                .where(
+                    AgentTraceEvent.run_id == request.run_id,
+                    AgentTraceEvent.event_type == "run_status_changed",
+                )
+                .order_by(AgentTraceEvent.sequence)
             )
-            .order_by(AgentTraceEvent.sequence)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert decision.decision_type == "respond"
     assert decision.response_text == "Please confirm the refund case and coupon amount."
     assert decision.reason == "reviewed"

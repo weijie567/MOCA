@@ -112,11 +112,7 @@ class PolicyKnowledgeService:
         merchant_scope = context.merchant_scope
         if not merchant_scope:
             return self._no_evidence_result()
-        if (
-            merchant_id is not None
-            and "*" not in merchant_scope
-            and merchant_id not in merchant_scope
-        ):
+        if merchant_id is not None and "*" not in merchant_scope and merchant_id not in merchant_scope:
             return self._no_evidence_result()
 
         doc_type = request.filters.policy_types[0] if request.filters.policy_types else None
@@ -302,7 +298,11 @@ class PolicyKnowledgeService:
             )
 
         key_counts = Counter((ref.doc_key, ref.chunk_id) for ref in evidence_refs)
-        query_refs = [ref for ref in evidence_refs if key_counts[(ref.doc_key, ref.chunk_id)] == 1 and ref.doc_key and ref.chunk_id]
+        query_refs = [
+            ref
+            for ref in evidence_refs
+            if key_counts[(ref.doc_key, ref.chunk_id)] == 1 and ref.doc_key and ref.chunk_id
+        ]
         rows = await self.get_canonical_evidence_rows(tenant_id=tenant_id, evidence_refs=query_refs)
 
         included: dict[str, VerifiedEvidenceDetail] = {}
@@ -458,7 +458,11 @@ def _scope_reason_codes(
     row_risk_level: str | None,
 ) -> list[str]:
     reason_codes: list[str] = []
-    if row_merchant_ids and "*" not in (merchant_scope or []) and not set(row_merchant_ids).intersection(merchant_scope or []):
+    if (
+        row_merchant_ids
+        and "*" not in (merchant_scope or [])
+        and not set(row_merchant_ids).intersection(merchant_scope or [])
+    ):
         reason_codes.extend(["scope_invalid", "merchant_scope_invalid"])
     if expected_doc_type and row_doc_type and row_doc_type != expected_doc_type:
         reason_codes.extend(["scope_invalid", "doc_type_invalid"])

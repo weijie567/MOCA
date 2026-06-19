@@ -156,13 +156,17 @@ async def test_enabled_scanner_skips_legacy_non_executable_requests(
     result = await ApprovalSlaScanner(session=session, enabled=True).scan(now=now)
     await session.refresh(legacy)
     expired_events = (
-        await session.execute(
-            select(ApprovalEvent).where(
-                ApprovalEvent.approval_request_id == legacy.id,
-                ApprovalEvent.event_type == "approval_expired",
+        (
+            await session.execute(
+                select(ApprovalEvent).where(
+                    ApprovalEvent.approval_request_id == legacy.id,
+                    ApprovalEvent.event_type == "approval_expired",
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     assert result.status == "completed"
     assert result.expired_count == 0

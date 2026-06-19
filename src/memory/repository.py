@@ -40,7 +40,9 @@ class SessionMemoryRepository:
         if not include_expired:
             filters.append(or_(SessionMemory.expires_at.is_(None), SessionMemory.expires_at > func.now()))
 
-        result = await self.session.execute(select(SessionMemory).where(and_(*filters)).execution_options(populate_existing=True))
+        result = await self.session.execute(
+            select(SessionMemory).where(and_(*filters)).execution_options(populate_existing=True)
+        )
         return result.scalar_one_or_none()
 
     async def insert_active(
@@ -512,7 +514,9 @@ class LongTermMemoryRepository:
         await self.session.flush()
         return memory
 
-    async def mark_deleted(self, *, tenant_id: uuid.UUID, memory_id: uuid.UUID, now: datetime | None = None) -> LongTermMemory | None:
+    async def mark_deleted(
+        self, *, tenant_id: uuid.UUID, memory_id: uuid.UUID, now: datetime | None = None
+    ) -> LongTermMemory | None:
         memory = await self.get_memory(tenant_id=tenant_id, memory_id=memory_id)
         if memory is None:
             return None

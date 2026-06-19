@@ -72,7 +72,7 @@ def render_reminders_applescript(list_name: str, day: int, events: list[dict[str
         "  return dt",
         "end makeDate",
         "",
-        "tell application \"Reminders\"",
+        'tell application "Reminders"',
         f"  set listName to {apple_quote(list_name)}",
         "  if not (exists list listName) then",
         "    make new list with properties {name:listName}",
@@ -113,14 +113,14 @@ def render_import_completions_applescript(list_name: str, day: int) -> str:
     day_tag = f"[D{day:02d}]"
     return "\n".join(
         [
-            "set output to \"\"",
-            "tell application \"Reminders\"",
+            'set output to ""',
+            'tell application "Reminders"',
             f"  if not (exists list {apple_quote(list_name)}) then return output",
             f"  set targetList to list {apple_quote(list_name)}",
             f"  set matchedReminders to every reminder of targetList whose name contains {apple_quote(day_tag)}",
             "  repeat with r in matchedReminders",
             "    set completedFlag to completed of r",
-            "    set completionValue to \"\"",
+            '    set completionValue to ""',
             "    try",
             "      set completionValue to completion date of r as string",
             "    end try",
@@ -137,8 +137,8 @@ def render_status_applescript(list_name: str, day: int) -> str:
     day_tag = f"[D{day:02d}]"
     return "\n".join(
         [
-            "set output to \"\"",
-            "tell application \"Reminders\"",
+            'set output to ""',
+            'tell application "Reminders"',
             f"  if not (exists list {apple_quote(list_name)}) then return output",
             f"  set targetList to list {apple_quote(list_name)}",
             f"  set matchedReminders to every reminder of targetList whose name contains {apple_quote(day_tag)}",
@@ -161,7 +161,7 @@ def render_activate_applescript(list_name: str, day: int, seq: int, new_name: st
     started = datetime.now().strftime("%Y-%m-%d %H:%M")
     return "\n".join(
         [
-            "tell application \"Reminders\"",
+            'tell application "Reminders"',
             f"  set targetList to list {apple_quote(list_name)}",
             f"  set matchedReminders to every reminder of targetList whose name contains {apple_quote(seq_tag)}",
             "  if (count of matchedReminders) is greater than 0 then",
@@ -219,7 +219,9 @@ def advance_on_completion(list_name: str, day: int) -> str:
     activate_script = render_activate_applescript(list_name, day, first_open["seq"], new_name)
     activate_path = daily_file(day, "reminders_activate.applescript")
     write_text(activate_path, activate_script, force=True)
-    result = subprocess.run(["osascript", str(activate_path)], cwd=REPO_ROOT, text=True, capture_output=True, check=False)
+    result = subprocess.run(
+        ["osascript", str(activate_path)], cwd=REPO_ROOT, text=True, capture_output=True, check=False
+    )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip())
 
@@ -260,10 +262,16 @@ def main() -> int:
     parser.add_argument("--date", default=None, help="Reminder date YYYY-MM-DD. Defaults to today.")
     parser.add_argument("--start", default=None, help="Work start time HH:MM. Defaults to tasks/config.")
     parser.add_argument("--list", default="MOCA 30 Days", help="Reminders list name.")
-    parser.add_argument("--sequential", action="store_true", help="Only the first reminder is active; future tasks wait.")
+    parser.add_argument(
+        "--sequential", action="store_true", help="Only the first reminder is active; future tasks wait."
+    )
     parser.add_argument("--write", action="store_true", help="Write reminders via osascript.")
     parser.add_argument("--import-completions", action="store_true", help="Import completed reminders into day log.")
-    parser.add_argument("--advance-on-completion", action="store_true", help="Activate the next waiting reminder if current is complete.")
+    parser.add_argument(
+        "--advance-on-completion",
+        action="store_true",
+        help="Activate the next waiting reminder if current is complete.",
+    )
     args = parser.parse_args()
 
     run_date = date_from_arg(args.date)
@@ -282,7 +290,9 @@ def main() -> int:
         script = render_import_completions_applescript(args.list, day)
         script_path = daily_file(day, "reminders_import.applescript")
         write_text(script_path, script, force=True)
-        result = subprocess.run(["osascript", str(script_path)], cwd=REPO_ROOT, text=True, capture_output=True, check=False)
+        result = subprocess.run(
+            ["osascript", str(script_path)], cwd=REPO_ROOT, text=True, capture_output=True, check=False
+        )
         if result.returncode != 0:
             raise SystemExit(result.stderr.strip())
         append_imported_completions(day, result.stdout)

@@ -46,17 +46,21 @@ class ApprovalSlaScanner:
 
         current_time = now or datetime.now(UTC)
         rows = (
-            await self.session.execute(
-                select(ApprovalRequest)
-                .where(
-                    ApprovalRequest.schema_version == "approval_request.v2",
-                    ApprovalRequest.legacy_non_executable.is_(False),
-                    ApprovalRequest.status == "pending",
-                    ApprovalRequest.expires_at <= current_time,
+            (
+                await self.session.execute(
+                    select(ApprovalRequest)
+                    .where(
+                        ApprovalRequest.schema_version == "approval_request.v2",
+                        ApprovalRequest.legacy_non_executable.is_(False),
+                        ApprovalRequest.status == "pending",
+                        ApprovalRequest.expires_at <= current_time,
+                    )
+                    .order_by(ApprovalRequest.expires_at.asc())
                 )
-                .order_by(ApprovalRequest.expires_at.asc())
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         expired_count = 0
         for request in rows:

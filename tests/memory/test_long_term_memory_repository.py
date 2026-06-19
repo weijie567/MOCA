@@ -133,7 +133,9 @@ async def test_retrieve_profile_memory_excludes_unpublished_states(
         scope_id=scope_id,
         content="Tombstoned memory must not surface.",
     )
-    source_identity_hash = canonical_source_identity_hash({"source_type": "conversation_message", "event_id": "event-1"})
+    source_identity_hash = canonical_source_identity_hash(
+        {"source_type": "conversation_message", "event_id": "event-1"}
+    )
     source_tombstoned = _memory(
         tenant_id=tenant_id,
         scope_type=scope_type,

@@ -119,7 +119,7 @@ def render_applescript(calendar_name: str, day: int, events: list[dict[str, Any]
         "  return dt",
         "end makeDate",
         "",
-        "tell application \"Calendar\"",
+        'tell application "Calendar"',
         f"  set calName to {apple_quote(calendar_name)}",
         "  set targetCalendar to missing value",
         "  repeat with c in calendars",

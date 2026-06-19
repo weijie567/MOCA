@@ -374,9 +374,7 @@ class CaseMemoryRepository:
                 .order_by(CaseMemory.updated_at.desc(), CaseMemory.created_at.desc())
             )
 
-        result = await self.session.execute(
-            stmt.limit(request.limit).execution_options(populate_existing=True)
-        )
+        result = await self.session.execute(stmt.limit(request.limit).execution_options(populate_existing=True))
         ranked_rows = _light_rerank(
             rows=[(row[0], float(row[1])) for row in result.all()],
             request=request,
@@ -399,7 +397,9 @@ class CaseMemoryRepository:
         if request.policy_family is not None:
             filters.append(or_(CaseMemory.policy_family.is_(None), CaseMemory.policy_family == request.policy_family))
         if request.policy_version is not None:
-            filters.append(or_(CaseMemory.policy_version.is_(None), CaseMemory.policy_version == request.policy_version))
+            filters.append(
+                or_(CaseMemory.policy_version.is_(None), CaseMemory.policy_version == request.policy_version)
+            )
         return filters
 
     def _active_tombstone_exists(self, *, now: datetime):
@@ -788,13 +788,7 @@ def _query_text_filter(query: str | None):
         CaseMemory.outcome,
         CaseMemory.caveats,
     )
-    return or_(
-        *[
-            field.ilike(f"%{_escape_like(term)}%", escape="\\")
-            for term in terms
-            for field in fields
-        ]
-    )
+    return or_(*[field.ilike(f"%{_escape_like(term)}%", escape="\\") for term in terms for field in fields])
 
 
 def _text_match_score(memory: CaseMemory, query: str | None) -> float:

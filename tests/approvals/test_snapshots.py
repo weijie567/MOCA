@@ -27,9 +27,7 @@ SNAPSHOT_ALLOWED_FIELDS = {
     "action_payload_hash",
     "created_at",
 }
-PROPOSED_ACTION_HASH = (
-    "sha256:508e649e1b169a9520f7eb76403b0e00c90c1b1c52e17a499fd7bcdce2473094"
-)
+PROPOSED_ACTION_HASH = "sha256:508e649e1b169a9520f7eb76403b0e00c90c1b1c52e17a499fd7bcdce2473094"
 EXPECTED_SNAPSHOT_CANONICAL_JSON = (
     '{"action_payload_hash":"sha256:508e649e1b169a9520f7eb76403b0e00c90c1b1c52e17a499fd7bcdce2473094",'
     '"created_at":"2026-06-15T00:00:00.000Z","evidence":[{'
@@ -45,9 +43,7 @@ EXPECTED_SNAPSHOT_CANONICAL_JSON = (
     '"run_id":"run-001","schema_version":"action_safety_snapshot.v1",'
     '"snapshot_id":"snap-001","snapshot_ref":"snapshot:snap-001","tenant_id":"tenant-001"}'
 )
-EXPECTED_SNAPSHOT_DIGEST = (
-    "sha256:aafef5b8874e80241fce531bc6d3f73a7e713b6066586c50330ec9ee5e0ad144"
-)
+EXPECTED_SNAPSHOT_DIGEST = "sha256:aafef5b8874e80241fce531bc6d3f73a7e713b6066586c50330ec9ee5e0ad144"
 
 
 def _evidence_ref(
@@ -98,9 +94,7 @@ def test_snapshot_hash_projection_contains_hash_material_and_sorted_evidence():
                 _evidence_ref(
                     evidence_id="refund-policy/chunk-002@v3",
                     chunk_id="chunk-002",
-                    text_hash=(
-                        "sha256:2222222222222222222222222222222222222222222222222222222222222222"
-                    ),
+                    text_hash=("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
                     score=0.77,
                     rank=2,
                 ),
@@ -140,8 +134,7 @@ def test_action_safety_snapshot_v1_has_frozen_canonical_json_hash_input_and_dige
         allowed_fields=SNAPSHOT_ALLOWED_FIELDS,
     )
     expected_snapshot_hash_input = (
-        b"hash_profile.v1\naction_safety_snapshot.v1\n"
-        + EXPECTED_SNAPSHOT_CANONICAL_JSON.encode("utf-8")
+        b"hash_profile.v1\naction_safety_snapshot.v1\n" + EXPECTED_SNAPSHOT_CANONICAL_JSON.encode("utf-8")
     )
 
     assert canonical == EXPECTED_SNAPSHOT_CANONICAL_JSON
@@ -164,11 +157,7 @@ def test_action_safety_snapshot_v1_has_frozen_canonical_json_hash_input_and_dige
             "evidence text_hash",
             {
                 "evidence": [
-                    _evidence_ref(
-                        text_hash=(
-                            "sha256:3333333333333333333333333333333333333333333333333333333333333333"
-                        )
-                    )
+                    _evidence_ref(text_hash=("sha256:3333333333333333333333333333333333333333333333333333333333333333"))
                 ]
             },
         ),
@@ -181,11 +170,7 @@ def test_action_safety_snapshot_v1_has_frozen_canonical_json_hash_input_and_dige
         ("risk_config_version", {"risk_config_version": "risk-rules.v2"}),
         (
             "action_payload_hash",
-            {
-                "action_payload_hash": (
-                    "sha256:9999999999999999999999999999999999999999999999999999999999999999"
-                )
-            },
+            {"action_payload_hash": ("sha256:9999999999999999999999999999999999999999999999999999999999999999")},
         ),
     ],
 )

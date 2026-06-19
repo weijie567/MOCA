@@ -53,7 +53,10 @@ async def test_legacy_session_precedent_search_reads_session_memory_storage(
         tenant_id=tenant_id,
         user_id=user_id,
         thread_id="thread-prior-hit",
-        active_slots_json={"schema_version": "session_slots.v1", "slots": {"order_id": _slot("ORD-777").model_dump(mode="json")}},
+        active_slots_json={
+            "schema_version": "session_slots.v1",
+            "slots": {"order_id": _slot("ORD-777").model_dump(mode="json")},
+        },
         session_summary="用户之前咨询退款超时，客服已建议核实支付通道。",
         unresolved_questions_json=["还缺少支付通道回执"],
         last_intent="refund_troubleshooting",

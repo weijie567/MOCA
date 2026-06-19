@@ -53,11 +53,7 @@ class PolicyChunkRepository:
         )
         rows = (await self.session.execute(stmt)).all()
         counts = Counter((row[0], row[1]) for row in rows)
-        return {
-            (doc_key, chunk_id): content
-            for doc_key, chunk_id, content in rows
-            if counts[(doc_key, chunk_id)] == 1
-        }
+        return {(doc_key, chunk_id): content for doc_key, chunk_id, content in rows if counts[(doc_key, chunk_id)] == 1}
 
     async def get_provenance_by_evidence_keys(
         self,
@@ -165,7 +161,16 @@ class PolicyChunkRepository:
         rows = (await self.session.execute(stmt)).all()
         counts = Counter((row[0], row[4]) for row in rows)
         result: dict[tuple[str, str], dict[str, object]] = {}
-        for doc_key, document_version, doc_type, document_effective_date, chunk_id, content, risk_level, chunk_effective_date in rows:
+        for (
+            doc_key,
+            document_version,
+            doc_type,
+            document_effective_date,
+            chunk_id,
+            content,
+            risk_level,
+            chunk_effective_date,
+        ) in rows:
             key = (doc_key, chunk_id)
             if counts[key] != 1:
                 continue

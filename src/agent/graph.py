@@ -103,8 +103,7 @@ def route_after_approval(state: AgentState) -> str:
 
 def _snapshot_binding_ready(state: AgentState) -> bool:
     return all(
-        bool(state.get(field))
-        for field in ("action_payload_hash", "safety_snapshot_ref", "safety_snapshot_hash")
+        bool(state.get(field)) for field in ("action_payload_hash", "safety_snapshot_ref", "safety_snapshot_hash")
     )
 
 

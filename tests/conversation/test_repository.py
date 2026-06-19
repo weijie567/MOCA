@@ -211,5 +211,10 @@ async def test_thread_lookup_is_user_scoped_within_tenant(session: AsyncSession,
     )
 
     assert support_thread.id != merchant_thread.id
-    assert await repository.get_thread(tenant_id=tenant_id, user_id=support_user_id, thread_id=thread_id) == support_thread
-    assert await repository.get_thread(tenant_id=tenant_id, user_id=merchant_user_id, thread_id=thread_id) == merchant_thread
+    assert (
+        await repository.get_thread(tenant_id=tenant_id, user_id=support_user_id, thread_id=thread_id) == support_thread
+    )
+    assert (
+        await repository.get_thread(tenant_id=tenant_id, user_id=merchant_user_id, thread_id=thread_id)
+        == merchant_thread
+    )

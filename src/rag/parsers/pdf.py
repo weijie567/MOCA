@@ -119,9 +119,7 @@ class PdfParser:
         blocks: list[ParsedBlock] = []
         warnings: list[ParserWarning] = []
         tables = _page_tables(page)
-        sanitized_text, text_warnings, suspicious_hidden_text = _visible_page_text(
-            page, block_index=block_index_start
-        )
+        sanitized_text, text_warnings, suspicious_hidden_text = _visible_page_text(page, block_index=block_index_start)
         warnings.extend(text_warnings)
 
         if sanitized_text:

@@ -121,12 +121,8 @@ def _to_approval_response(approval: ApprovalRequest) -> ApprovalResponse:
         action_payload_hash=approval.action_payload_hash,
         safety_snapshot_ref=approval.safety_snapshot_ref,
         safety_snapshot_hash=approval.safety_snapshot_hash,
-        clarification_request_id=str(approval.clarification_request_id)
-        if approval.clarification_request_id
-        else None,
-        superseded_by_request_id=str(approval.superseded_by_request_id)
-        if approval.superseded_by_request_id
-        else None,
+        clarification_request_id=str(approval.clarification_request_id) if approval.clarification_request_id else None,
+        superseded_by_request_id=str(approval.superseded_by_request_id) if approval.superseded_by_request_id else None,
         requested_by=str(approval.requested_by),
         proposed_action=_safe_proposed_action(approval.proposed_action),
         risk_level=approval.risk_level,

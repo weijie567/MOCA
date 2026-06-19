@@ -139,6 +139,6 @@ def build_sparse_query_text(text: str, *, max_terms: int = 16) -> str:
 
 
 def _is_sparse_query_term(term: str) -> bool:
-    return len(term) >= 2 and _TSQUERY_SAFE_PATTERN.fullmatch(term) is not None and not (
-        _QUESTION_PARTICLES & set(term)
+    return (
+        len(term) >= 2 and _TSQUERY_SAFE_PATTERN.fullmatch(term) is not None and not (_QUESTION_PARTICLES & set(term))
     )

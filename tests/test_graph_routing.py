@@ -212,8 +212,7 @@ def test_route_after_approval_fails_closed_on_hash_mismatch():
 
 def test_route_after_approval_fails_closed_when_tenant_or_run_mismatches_state():
     assert (
-        route_after_approval(_approval_route_state(approval_overrides={"tenant_id": str(uuid4())}))
-        == "final_response"
+        route_after_approval(_approval_route_state(approval_overrides={"tenant_id": str(uuid4())})) == "final_response"
     )
     assert route_after_approval(_approval_route_state(approval_overrides={"run_id": str(uuid4())})) == "final_response"
 

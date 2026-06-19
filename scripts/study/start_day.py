@@ -29,7 +29,6 @@ from scripts.study.common import (
 )
 
 
-
 def load_carryover_tasks(day: int) -> list[dict[str, Any]]:
     previous_day = day - 1
     if previous_day < 1:
@@ -367,7 +366,7 @@ def render_start_prompt(spec: dict[str, Any]) -> str:
 - `{tasks_md}`
 - `{baseline}`
 
-今日主题：{spec['theme']}
+今日主题：{spec["theme"]}
 今日计划来源：`study_plan/30天主计划.md`
 面试追问规则：`study_plan/portfolio/daily/interview_question_rules.md`
 

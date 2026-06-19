@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from src.rag.search_text import DOMAIN_TERMS, build_policy_chunk_search_text, build_sparse_query_text, tokenize_search_text
+from src.rag.search_text import (
+    DOMAIN_TERMS,
+    build_policy_chunk_search_text,
+    build_sparse_query_text,
+    tokenize_search_text,
+)
 
 
 def test_domain_terms_are_preserved_as_tokens() -> None:

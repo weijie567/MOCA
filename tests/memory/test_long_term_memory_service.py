@@ -98,17 +98,21 @@ async def test_duplicate_active_long_term_write_returns_skipped_existing_memory(
     first = await service.write_memory(candidate)
     duplicate = await service.write_memory(candidate)
     rows = (
-        await session.execute(
-            select(LongTermMemory).where(
-                LongTermMemory.tenant_id == candidate.tenant_id,
-                LongTermMemory.scope_type == candidate.scope_type,
-                LongTermMemory.scope_id == candidate.scope_id,
-                LongTermMemory.content_hash == first.content_hash,
-                LongTermMemory.deleted_at.is_(None),
-                LongTermMemory.is_current.is_(True),
+        (
+            await session.execute(
+                select(LongTermMemory).where(
+                    LongTermMemory.tenant_id == candidate.tenant_id,
+                    LongTermMemory.scope_type == candidate.scope_type,
+                    LongTermMemory.scope_id == candidate.scope_id,
+                    LongTermMemory.content_hash == first.content_hash,
+                    LongTermMemory.deleted_at.is_(None),
+                    LongTermMemory.is_current.is_(True),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     events = await _events(session, run_id)
 
     assert duplicate.status == "skipped"
@@ -262,14 +266,18 @@ async def test_prohibited_pii_candidate_is_skipped_and_evented(session: AsyncSes
 
     result = await service.write_memory(candidate)
     rows = (
-        await session.execute(
-            select(LongTermMemory).where(
-                LongTermMemory.tenant_id == candidate.tenant_id,
-                LongTermMemory.scope_type == candidate.scope_type,
-                LongTermMemory.scope_id == candidate.scope_id,
+        (
+            await session.execute(
+                select(LongTermMemory).where(
+                    LongTermMemory.tenant_id == candidate.tenant_id,
+                    LongTermMemory.scope_type == candidate.scope_type,
+                    LongTermMemory.scope_id == candidate.scope_id,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     events = await _events(session, run_id)
 
     assert result.status == "skipped"
@@ -443,16 +451,20 @@ async def test_supersede_memory_updates_chain_and_emits_event(
     previous = await session.get(LongTermMemory, first_result.memory_id)
     replacement_row = await session.get(LongTermMemory, result.memory_id)
     current_rows = (
-        await session.execute(
-            select(LongTermMemory).where(
-                LongTermMemory.tenant_id == replacement.tenant_id,
-                LongTermMemory.scope_type == replacement.scope_type,
-                LongTermMemory.scope_id == replacement.scope_id,
-                LongTermMemory.is_current.is_(True),
-                LongTermMemory.deleted_at.is_(None),
+        (
+            await session.execute(
+                select(LongTermMemory).where(
+                    LongTermMemory.tenant_id == replacement.tenant_id,
+                    LongTermMemory.scope_type == replacement.scope_type,
+                    LongTermMemory.scope_id == replacement.scope_id,
+                    LongTermMemory.is_current.is_(True),
+                    LongTermMemory.deleted_at.is_(None),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     events = await _events(session, replacement_run_id)
 
     assert previous is not None
@@ -499,15 +511,19 @@ async def test_supersede_memory_requires_current_published_previous(
         )
 
     rows = (
-        await session.execute(
-            select(LongTermMemory).where(
-                LongTermMemory.tenant_id == replacement.tenant_id,
-                LongTermMemory.scope_type == replacement.scope_type,
-                LongTermMemory.scope_id == replacement.scope_id,
-                LongTermMemory.content == replacement.content,
+        (
+            await session.execute(
+                select(LongTermMemory).where(
+                    LongTermMemory.tenant_id == replacement.tenant_id,
+                    LongTermMemory.scope_type == replacement.scope_type,
+                    LongTermMemory.scope_id == replacement.scope_id,
+                    LongTermMemory.content == replacement.content,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert rows == []
 
 
@@ -702,15 +718,19 @@ async def test_supersede_memory_skips_prohibited_pii_replacement(
     )
     previous = await session.get(LongTermMemory, first_result.memory_id)
     rows = (
-        await session.execute(
-            select(LongTermMemory).where(
-                LongTermMemory.tenant_id == replacement.tenant_id,
-                LongTermMemory.scope_type == replacement.scope_type,
-                LongTermMemory.scope_id == replacement.scope_id,
-                LongTermMemory.deleted_at.is_(None),
+        (
+            await session.execute(
+                select(LongTermMemory).where(
+                    LongTermMemory.tenant_id == replacement.tenant_id,
+                    LongTermMemory.scope_type == replacement.scope_type,
+                    LongTermMemory.scope_id == replacement.scope_id,
+                    LongTermMemory.deleted_at.is_(None),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     events = await _events(session, replacement_run_id)
 
     assert result.status == "skipped"

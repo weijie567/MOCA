@@ -195,9 +195,7 @@ async def test_conversation_tool_replay_and_audit_refs_share_run_thread_trace_id
         metadata_json={"conversation_message_id": str(tool_message.message_id)},
     )
 
-    stored_call = (
-        await session.execute(select(ToolCallRecord).where(ToolCallRecord.id == tool_call.id))
-    ).scalar_one()
+    stored_call = (await session.execute(select(ToolCallRecord).where(ToolCallRecord.id == tool_call.id))).scalar_one()
     stored_result = (
         await session.execute(select(ToolResultRecord).where(ToolResultRecord.tool_result_id == tool_result_id))
     ).scalar_one()

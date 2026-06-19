@@ -248,9 +248,7 @@ async def generate_recommendation(state: AgentState, config: RunnableConfig = No
                 "rag_verification": verification,
                 "verifier_status": str(verification.get("overall_outcome") or ""),
                 "verification_route": route_value,
-                "verifier_reason_codes": [
-                    str(code) for code in verification.get("reason_codes") or [] if str(code)
-                ],
+                "verifier_reason_codes": [str(code) for code in verification.get("reason_codes") or [] if str(code)],
                 "verifier_safe_citation_refs": [
                     str(ref) for ref in verification.get("safe_citation_refs") or [] if str(ref)
                 ],
@@ -351,7 +349,9 @@ def _context_builder_mode(config: RunnableConfig | None) -> str:
 
 
 class _NoopPolicyService:
-    async def get_verified_evidence_contents(self, *, tenant_id: str, evidence_refs: list[EvidenceRefV1]) -> dict[str, str]:
+    async def get_verified_evidence_contents(
+        self, *, tenant_id: str, evidence_refs: list[EvidenceRefV1]
+    ) -> dict[str, str]:
         return {}
 
 
@@ -388,7 +388,9 @@ async def _verify_recommendation_with_shared_kernel(
 
     verification_results = [await verifier.verify_claim(claim, context_bundle=context_bundle) for claim in claims]
     if not verification_results:
-        route = determine_verification_route({"overall_outcome": "insufficient", "reason_codes": ["policy_evidence_required"]})
+        route = determine_verification_route(
+            {"overall_outcome": "insufficient", "reason_codes": ["policy_evidence_required"]}
+        )
         return _normalize_recommendation_verification(
             {
                 "overall_outcome": "insufficient",
@@ -403,7 +405,11 @@ async def _verify_recommendation_with_shared_kernel(
 
     reason_codes = _unique_text(code for result in verification_results for code in result.reason_codes)
     safe_refs = _unique_text(ref for result in verification_results for ref in result.safe_support_refs)
-    overall = "supported" if all(result.allows_claim for result in verification_results) else verification_results[0].outcome.value
+    overall = (
+        "supported"
+        if all(result.allows_claim for result in verification_results)
+        else verification_results[0].outcome.value
+    )
     route = determine_verification_route(
         {
             "overall_outcome": overall,
@@ -464,7 +470,13 @@ async def _load_prompt_context(state: AgentState, config: RunnableConfig | None)
     configurable = ((config or {}).get("configurable") or {}) if config else {}
     session = configurable.get("session")
     run_id = state.get("current_run_id") or state.get("run_id")
-    if session is None or not state.get("tenant_id") or not state.get("user_id") or not state.get("thread_id") or not run_id:
+    if (
+        session is None
+        or not state.get("tenant_id")
+        or not state.get("user_id")
+        or not state.get("thread_id")
+        or not run_id
+    ):
         return _empty_prompt_context()
 
     service = configurable.get("conversation_service")
@@ -494,8 +506,7 @@ async def _load_prompt_context(state: AgentState, config: RunnableConfig | None)
         "tool_result_summaries": [
             summary
             for summary in (
-                _tool_prompt_summary_from_record(record)
-                for record in getattr(context, "tool_prompt_summaries", [])
+                _tool_prompt_summary_from_record(record) for record in getattr(context, "tool_prompt_summaries", [])
             )
             if summary is not None
         ],
@@ -555,7 +566,9 @@ def _risk_hints_from_state(state: AgentState) -> list[dict[str, Any]]:
     return []
 
 
-def _evidence_id_by_citation(context_bundle: Any, fallback_items: list[dict[str, Any]]) -> dict[tuple[str | None, str | None], str]:
+def _evidence_id_by_citation(
+    context_bundle: Any, fallback_items: list[dict[str, Any]]
+) -> dict[tuple[str | None, str | None], str]:
     mapping: dict[tuple[str | None, str | None], str] = {}
     for item in _evidence_items_from_bundle(context_bundle, fallback_items):
         evidence_id = item.get("evidence_id")
@@ -593,7 +606,9 @@ def _policy_snippets_from_bundle(context_bundle: Any) -> list[dict[str, Any]]:
     return snippets
 
 
-def _material_claims_from_draft(draft: dict[str, Any], cited_evidence_ids: list[str], context_bundle: Any) -> list[MaterialClaim]:
+def _material_claims_from_draft(
+    draft: dict[str, Any], cited_evidence_ids: list[str], context_bundle: Any
+) -> list[MaterialClaim]:
     cited = [evidence_id for evidence_id in cited_evidence_ids if not evidence_id.startswith("unresolved:")]
     if not cited:
         return []
@@ -668,7 +683,9 @@ def _apply_verification_to_draft(
     draft["verification_route"] = route
     draft["verification_status"] = verification.get("overall_outcome")
     draft["verification_reason_codes"] = verification.get("reason_codes") or []
-    draft["material_claims"] = verification.get("material_claims") or [claim.model_dump(mode="json") for claim in claims]
+    draft["material_claims"] = verification.get("material_claims") or [
+        claim.model_dump(mode="json") for claim in claims
+    ]
     if route != "allow":
         if draft.get("recommended_action") == "citation_invalid":
             return
@@ -695,7 +712,9 @@ def _state_safe_rag_context_bundle(context_bundle: Any) -> dict[str, Any]:
             continue
         citation_map[citation_id] = {
             "citation_id": citation_id,
-            "source_evidence_ids": [str(value) for value in _get_value(entry, "source_evidence_ids") or [] if str(value)],
+            "source_evidence_ids": [
+                str(value) for value in _get_value(entry, "source_evidence_ids") or [] if str(value)
+            ],
             "risk_labels": [str(value) for value in _get_value(entry, "risk_labels") or [] if str(value)],
             "metadata": {
                 str(key): str(value)
@@ -766,11 +785,7 @@ def _dump_json(value: Any) -> Any:
 def _safe_verifier_metrics(value: Any) -> dict[str, int | float | bool | str]:
     if not isinstance(value, dict):
         return {}
-    return {
-        str(key): metric
-        for key, metric in value.items()
-        if isinstance(metric, int | float | bool | str)
-    }
+    return {str(key): metric for key, metric in value.items() if isinstance(metric, int | float | bool | str)}
 
 
 def _unique_text(values: Any) -> list[str]:

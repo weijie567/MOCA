@@ -120,7 +120,9 @@ def _determine_route(state: Mapping[str, Any], outcome: str, reasons: set[str]) 
     if _ROUTE_MANUAL_REVIEW_REASONS & reasons or outcome in _MANUAL_REVIEW_OUTCOMES:
         return VerificationRoute.MANUAL_REVIEW
     if _ROUTE_STALE_OR_OCR_REASONS & reasons:
-        return VerificationRoute.MANUAL_REVIEW if _high_risk_or_action(state) else VerificationRoute.INSUFFICIENT_EVIDENCE
+        return (
+            VerificationRoute.MANUAL_REVIEW if _high_risk_or_action(state) else VerificationRoute.INSUFFICIENT_EVIDENCE
+        )
     if _regenerate_enabled(state) and (_ROUTE_REGENERATE_REASONS & reasons or outcome in _UNSUPPORTED_OUTCOMES):
         return VerificationRoute.REGENERATE_ROUTE
     if _ROUTE_INSUFFICIENT_REASONS & reasons or outcome in _INSUFFICIENT_OUTCOMES | _UNSUPPORTED_OUTCOMES:
@@ -177,9 +179,10 @@ def _regenerate_enabled(state: Mapping[str, Any]) -> bool:
 
 
 def _high_risk_or_action(state: Mapping[str, Any]) -> bool:
-    return _normalized(state.get("risk_level")) in {"high", "critical", "manual_review"} or _normalized(
-        state.get("authority_class")
-    ) == "action_recommendation_claim"
+    return (
+        _normalized(state.get("risk_level")) in {"high", "critical", "manual_review"}
+        or _normalized(state.get("authority_class")) == "action_recommendation_claim"
+    )
 
 
 def _has_blocking_reason(reasons: set[str]) -> bool:

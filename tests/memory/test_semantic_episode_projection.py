@@ -126,9 +126,7 @@ def _project_candidates(summary: ConversationSummary, seeded_session: dict, *, r
 
 
 @pytest.mark.asyncio
-async def test_semantic_episode_projection_creates_candidates_only(
-    session: AsyncSession, seeded_session: dict
-) -> None:
+async def test_semantic_episode_projection_creates_candidates_only(session: AsyncSession, seeded_session: dict) -> None:
     thread_id = "semantic-episode-candidates-only"
     run_id = await _insert_run(session, seeded_session, thread_id)
     summary = await _semantic_summary(session, seeded_session, run_id=run_id, thread_id=thread_id)
@@ -143,7 +141,10 @@ async def test_semantic_episode_projection_creates_candidates_only(
     }
     assert {candidate.source_type for candidate in candidates} == {"semantic_episode_candidate"}
     assert all(candidate.review_status == "needs_review" for candidate in candidates)
-    assert all(candidate.to_long_term_memory_candidate().source_type == "semantic_episode_candidate" for candidate in candidates)
+    assert all(
+        candidate.to_long_term_memory_candidate().source_type == "semantic_episode_candidate"
+        for candidate in candidates
+    )
     persisted = await session.scalar(
         select(func.count()).select_from(LongTermMemory).where(LongTermMemory.tenant_id == seeded_session["tenant"].id)
     )
@@ -211,9 +212,7 @@ async def test_semantic_episode_projection_does_not_modify_session_memory(
 
 
 @pytest.mark.asyncio
-async def test_semantic_episode_projection_output_is_prompt_safe(
-    session: AsyncSession, seeded_session: dict
-) -> None:
+async def test_semantic_episode_projection_output_is_prompt_safe(session: AsyncSession, seeded_session: dict) -> None:
     thread_id = "semantic-episode-prompt-safe"
     run_id = await _insert_run(session, seeded_session, thread_id)
     summary = await _semantic_summary(session, seeded_session, run_id=run_id, thread_id=thread_id)

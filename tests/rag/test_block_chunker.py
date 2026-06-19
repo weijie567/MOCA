@@ -76,7 +76,9 @@ def test_block_chunker_preserves_policy_chunk_content_and_ordered_source_block_r
 def test_block_chunker_emits_stable_chunk_ids() -> None:
     blocks = [
         _block(source_block_id="block-001", block_index=0, block_type="heading", text="退款时效"),
-        _block(source_block_id="block-002", block_index=1, block_type="paragraph", text="退款审核通过后两个工作日退回。"),
+        _block(
+            source_block_id="block-002", block_index=1, block_type="paragraph", text="退款审核通过后两个工作日退回。"
+        ),
     ]
 
     first = chunk_blocks(blocks, doc_key="refund_policy")

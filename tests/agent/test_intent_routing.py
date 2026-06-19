@@ -39,12 +39,8 @@ def test_intent_policy_views_are_derived_from_definitions():
         for definition in INTENT_DEFINITIONS.values()
     )
     assert ORDINARY_INTENTS == tuple(INTENT_DEFINITIONS)
-    assert REQUIRED_SLOT_POLICY == {
-        name: definition.required_slots for name, definition in INTENT_DEFINITIONS.items()
-    }
-    assert INTENT_ROUTE_POLICY == {
-        name: definition.initial_route for name, definition in INTENT_DEFINITIONS.items()
-    }
+    assert REQUIRED_SLOT_POLICY == {name: definition.required_slots for name, definition in INTENT_DEFINITIONS.items()}
+    assert INTENT_ROUTE_POLICY == {name: definition.initial_route for name, definition in INTENT_DEFINITIONS.items()}
     assert PRECEDENCE_INTENTS == tuple(
         name for name, _definition in sorted(INTENT_DEFINITIONS.items(), key=lambda item: item[1].precedence)
     )
@@ -54,9 +50,7 @@ def test_intent_policy_views_are_derived_from_definitions():
     assert EVIDENCE_REQUIRED_INTENTS == {
         name for name, definition in INTENT_DEFINITIONS.items() if definition.evidence_required
     }
-    assert HIGH_RISK_INTENTS == {
-        name for name, definition in INTENT_DEFINITIONS.items() if definition.high_risk
-    }
+    assert HIGH_RISK_INTENTS == {name for name, definition in INTENT_DEFINITIONS.items() if definition.high_risk}
 
 
 def test_detect_pre_route_approval_chat_and_hard_negatives():

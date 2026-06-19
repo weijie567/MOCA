@@ -147,13 +147,17 @@ async def test_concurrent_terminal_events_do_not_duplicate_operation_pair(test_e
     assert sorted(results) == ["committed", "rejected"]
     async with session_factory() as verify_session:
         rows = (
-            await verify_session.execute(
-                select(AgentTraceEvent.event_type)
-                .where(AgentTraceEvent.run_id == run_id)
-                .where(AgentTraceEvent.operation_id == operation_id)
-                .order_by(AgentTraceEvent.sequence)
+            (
+                await verify_session.execute(
+                    select(AgentTraceEvent.event_type)
+                    .where(AgentTraceEvent.run_id == run_id)
+                    .where(AgentTraceEvent.operation_id == operation_id)
+                    .order_by(AgentTraceEvent.sequence)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
     assert list(rows) == ["tool_call_started", "tool_call_completed"]
 

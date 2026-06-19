@@ -142,9 +142,7 @@ async def test_level1_gates_run_before_any_supported_outcome() -> None:
         text="Delivered orders require verified logistics evidence before compensation.",
         tenant_id="22222222-2222-2222-2222-222222222222",
     )
-    claim = MaterialClaim.model_validate(
-        _claim_payload("policy_claim", cited_evidence_ids=[wrong_tenant.evidence_id])
-    )
+    claim = MaterialClaim.model_validate(_claim_payload("policy_claim", cited_evidence_ids=[wrong_tenant.evidence_id]))
 
     result = await MaterialClaimVerifier().verify_claim(
         claim,

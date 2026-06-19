@@ -55,9 +55,7 @@ def _check_constraint_text() -> str:
         table = Base.metadata.tables.get(table_name)
         assert table is not None
         parts.extend(
-            str(constraint.sqltext)
-            for constraint in table.constraints
-            if isinstance(constraint, CheckConstraint)
+            str(constraint.sqltext) for constraint in table.constraints if isinstance(constraint, CheckConstraint)
         )
     return "\n".join(parts)
 
@@ -101,8 +99,7 @@ def test_memory_tombstone_active_identity_index_exists() -> None:
     tombstone_table = Base.metadata.tables["memory_tombstones"]
     expected_columns = {"tenant_id", "memory_type", "scope_type", "scope_id", "content_hash"}
     assert any(
-        expected_columns.issubset({column.name for column in index.columns})
-        for index in tombstone_table.indexes
+        expected_columns.issubset({column.name for column in index.columns}) for index in tombstone_table.indexes
     )
 
     source = _migration_source()

@@ -83,9 +83,7 @@ async def _summary_row(session: AsyncSession, *, thread_id: str) -> Conversation
 
 
 @pytest.mark.asyncio
-async def test_thread_rolling_summary_records_source_message_range(
-    session: AsyncSession, seeded_session: dict
-) -> None:
+async def test_thread_rolling_summary_records_source_message_range(session: AsyncSession, seeded_session: dict) -> None:
     repository = ConversationRepository(session)
     conversation = ConversationService(repository)
     summary_service = ThreadRollingSummaryService(repository)
@@ -245,9 +243,7 @@ async def test_thread_rolling_summary_preserves_open_questions_and_constraints(
 
 
 @pytest.mark.asyncio
-async def test_thread_summary_is_not_session_memory_or_case_memory(
-    session: AsyncSession, seeded_session: dict
-) -> None:
+async def test_thread_summary_is_not_session_memory_or_case_memory(session: AsyncSession, seeded_session: dict) -> None:
     repository = ConversationRepository(session)
     conversation = ConversationService(repository)
     session_memory_repository = SessionMemoryRepository(session)

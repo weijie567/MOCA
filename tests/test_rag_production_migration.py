@@ -68,9 +68,7 @@ async def _table_names(database_url: str) -> set[str]:
     engine = create_async_engine(database_url, future=True, poolclass=NullPool)
     try:
         async with engine.connect() as conn:
-            result = await conn.execute(
-                text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
-            )
+            result = await conn.execute(text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'"))
             return {row[0] for row in result}
     finally:
         await engine.dispose()

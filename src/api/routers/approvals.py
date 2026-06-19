@@ -71,7 +71,9 @@ async def decide_approval(
         if approval is None:
             raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Approval not found"})
         if approval.requested_by == user.id:
-            raise HTTPException(status_code=403, detail={"code": "SELF_APPROVAL", "message": "Cannot approve own request"})
+            raise HTTPException(
+                status_code=403, detail={"code": "SELF_APPROVAL", "message": "Cannot approve own request"}
+            )
         await _run_resume_lifecycle(
             request=request,
             session=session,
@@ -214,7 +216,9 @@ async def list_pending_approvals(
     )
 
 
-async def _run_resume_lifecycle(*, request: Request, session: AsyncSession, result: ApprovalDecisionResult, actor_id: UUID) -> None:
+async def _run_resume_lifecycle(
+    *, request: Request, session: AsyncSession, result: ApprovalDecisionResult, actor_id: UUID
+) -> None:
     try:
         await _record_resume_event(
             session=session,
@@ -255,7 +259,9 @@ async def _run_resume_lifecycle(*, request: Request, session: AsyncSession, resu
         ) from exc
 
 
-async def _resume_graph_after_decision(*, request: Request, session: AsyncSession, result: ApprovalDecisionResult) -> None:
+async def _resume_graph_after_decision(
+    *, request: Request, session: AsyncSession, result: ApprovalDecisionResult
+) -> None:
     graph = request.app.state.agent_graph
     config = _resume_graph_config(request=request, session=session, result=result)
     t0 = time.perf_counter()
@@ -396,49 +402,65 @@ async def _terminal_decision_result_for_retry(
     body: DecideRequest,
 ) -> ApprovalDecisionResult:
     decision = (
-        await session.execute(
-            select(ApprovalDecision)
-            .where(
-                ApprovalDecision.approval_request_id == approval.id,
-                ApprovalDecision.deleted_at.is_(None),
+        (
+            await session.execute(
+                select(ApprovalDecision)
+                .where(
+                    ApprovalDecision.approval_request_id == approval.id,
+                    ApprovalDecision.deleted_at.is_(None),
+                )
+                .order_by(ApprovalDecision.created_at.desc())
             )
-            .order_by(ApprovalDecision.created_at.desc())
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     level = (
-        await session.execute(
-            select(ApprovalLevel)
-            .where(
-                ApprovalLevel.approval_request_id == approval.id,
-                ApprovalLevel.deleted_at.is_(None),
+        (
+            await session.execute(
+                select(ApprovalLevel)
+                .where(
+                    ApprovalLevel.approval_request_id == approval.id,
+                    ApprovalLevel.deleted_at.is_(None),
+                )
+                .order_by(ApprovalLevel.level_number.desc())
             )
-            .order_by(ApprovalLevel.level_number.desc())
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     assignment = None
     if level is not None:
         assignment = (
-            await session.execute(
-                select(ApprovalAssignment)
-                .where(
-                    ApprovalAssignment.approval_level_id == level.id,
-                    ApprovalAssignment.deleted_at.is_(None),
+            (
+                await session.execute(
+                    select(ApprovalAssignment)
+                    .where(
+                        ApprovalAssignment.approval_level_id == level.id,
+                        ApprovalAssignment.deleted_at.is_(None),
+                    )
+                    .order_by(ApprovalAssignment.created_at.desc())
                 )
-                .order_by(ApprovalAssignment.created_at.desc())
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
     event = None
     if decision is not None:
         event = (
-            await session.execute(
-                select(ApprovalEvent)
-                .where(
-                    ApprovalEvent.approval_decision_id == decision.id,
-                    ApprovalEvent.event_type == "approval_decided",
+            (
+                await session.execute(
+                    select(ApprovalEvent)
+                    .where(
+                        ApprovalEvent.approval_decision_id == decision.id,
+                        ApprovalEvent.event_type == "approval_decided",
+                    )
+                    .order_by(ApprovalEvent.created_at.desc())
                 )
-                .order_by(ApprovalEvent.created_at.desc())
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
     if decision is None or level is None or assignment is None or event is None:
         raise ApprovalTransitionError("approval_conflict")
     if (

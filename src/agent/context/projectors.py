@@ -108,9 +108,13 @@ def project_working_state_for_prompt(working_state: WorkingStateV1, *, max_chars
     for result in working_state.recent_tool_results:
         _append_line(lines, "tool_result", project_tool_result_summary(result))
     if working_state.pending_confirmation:
-        _append_line(lines, "pending_confirmation", _format_mapping(working_state.pending_confirmation, _BUSINESS_SAFE_KEYS))
+        _append_line(
+            lines, "pending_confirmation", _format_mapping(working_state.pending_confirmation, _BUSINESS_SAFE_KEYS)
+        )
     if working_state.draft_artifact:
-        _append_line(lines, "draft_artifact", _format_mapping(working_state.draft_artifact.model_dump(), _BUSINESS_SAFE_KEYS))
+        _append_line(
+            lines, "draft_artifact", _format_mapping(working_state.draft_artifact.model_dump(), _BUSINESS_SAFE_KEYS)
+        )
     return _bounded("\n".join(lines), max_chars)
 
 
@@ -137,7 +141,9 @@ def project_business_context_for_prompt(context: Mapping[str, Any] | None, *, ma
     return _bounded("\n".join(lines), max_chars)
 
 
-def project_tool_result_summary(value: ToolResultPromptSummary | WorkingToolResultRef | Mapping[str, Any], *, max_chars: int = 900) -> str:
+def project_tool_result_summary(
+    value: ToolResultPromptSummary | WorkingToolResultRef | Mapping[str, Any], *, max_chars: int = 900
+) -> str:
     summary = _tool_summary_model(value)
     if summary is None:
         return ""
@@ -177,7 +183,9 @@ def project_policy_refs_for_prompt(snippets: Sequence[Any] | None, *, max_chars:
     return _bounded("\n".join(lines), max_chars)
 
 
-def project_profile_memory_for_prompt(snippets: Sequence[Any] | None, *, max_chars: int = _PROFILE_MEMORY_MAX_CHARS) -> str:
+def project_profile_memory_for_prompt(
+    snippets: Sequence[Any] | None, *, max_chars: int = _PROFILE_MEMORY_MAX_CHARS
+) -> str:
     lines: list[str] = []
     for item in _sequence(snippets)[:_MEMORY_ITEM_LIMIT]:
         mapping = _prompt_mapping(item)
@@ -208,7 +216,9 @@ def project_case_memory_for_prompt(snippets: Sequence[Any] | None, *, max_chars:
     lines: list[str] = []
     for item in _sequence(snippets)[:_MEMORY_ITEM_LIMIT]:
         mapping = _prompt_mapping(item)
-        case_memory_id = _safe_prompt_scalar(mapping.get("case_memory_id") or mapping.get("memory_id") or mapping.get("id"))
+        case_memory_id = _safe_prompt_scalar(
+            mapping.get("case_memory_id") or mapping.get("memory_id") or mapping.get("id")
+        )
         excerpt = _safe_prompt_scalar(mapping.get("excerpt") or mapping.get("summary"))
         if not case_memory_id or not excerpt:
             continue
@@ -252,7 +262,9 @@ def project_candidate_slot_hints_for_prompt(candidate_slots: Mapping[str, Any] |
     formatted = _format_mapping(mapping, tuple(str(key) for key in mapping.keys()))
     if not formatted:
         return ""
-    return _bounded(f"Candidate slot hints: {formatted}. Validate against the user text; do not copy hints blindly.", max_chars)
+    return _bounded(
+        f"Candidate slot hints: {formatted}. Validate against the user text; do not copy hints blindly.", max_chars
+    )
 
 
 def extract_business_ids_from_prompt_parts(*parts: Any) -> list[str]:
@@ -267,7 +279,9 @@ def extract_business_ids_from_prompt_parts(*parts: Any) -> list[str]:
     return sorted(found)
 
 
-def _tool_summary_model(value: ToolResultPromptSummary | WorkingToolResultRef | Mapping[str, Any]) -> ToolResultPromptSummary | None:
+def _tool_summary_model(
+    value: ToolResultPromptSummary | WorkingToolResultRef | Mapping[str, Any],
+) -> ToolResultPromptSummary | None:
     if isinstance(value, ToolResultPromptSummary):
         return value
     if isinstance(value, WorkingToolResultRef):

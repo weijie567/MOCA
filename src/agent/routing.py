@@ -101,9 +101,12 @@ def _route_after_intent(state: AgentState) -> str:
         return "clarification_gate"
     pre_route = PreRouteDecision(
         disposition=routing_hints.get("pre_route_disposition", "none")
-        if routing_hints.get("pre_route_disposition") in {"none", "approval_chat_not_trusted", "safety_sensitive", "multi_target_request"}
+        if routing_hints.get("pre_route_disposition")
+        in {"none", "approval_chat_not_trusted", "safety_sensitive", "multi_target_request"}
         else "none",
-        requested_operation=requested_operation if requested_operation in {"read_status", "advise", "draft_reply", "draft_action", "execute_action", "escalate"} else None,
+        requested_operation=requested_operation
+        if requested_operation in {"read_status", "advise", "draft_reply", "draft_action", "execute_action", "escalate"}
+        else None,
         reason_codes=[],
         requires_clarification=bool(routing_hints.get("requires_clarification")),
     )
@@ -213,7 +216,9 @@ def _route_after_investigate(state: AgentState) -> str:
             for token in (error.get("resource"), error.get("resource_id"))
             if isinstance(token, str)
         }
-        if _denial_blocks_required_claims(denied_resources, claim_dependency_map, missing, facts, retrieval_status, intent):
+        if _denial_blocks_required_claims(
+            denied_resources, claim_dependency_map, missing, facts, retrieval_status, intent
+        ):
             return "final_response"
 
     if missing:

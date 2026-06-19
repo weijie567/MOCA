@@ -107,7 +107,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Create an automatic weekly study review from daily audits.")
     parser.add_argument("--week", default="auto", help="Week number starting from 1, or auto from config/date.")
     parser.add_argument("--date", default=None, help="Review date YYYY-MM-DD. Defaults to today.")
-    parser.add_argument("--codex", action="store_true", help="Accepted for launchd compatibility; prompt output is always written.")
+    parser.add_argument(
+        "--codex", action="store_true", help="Accepted for launchd compatibility; prompt output is always written."
+    )
     args = parser.parse_args()
 
     if args.week == "auto":

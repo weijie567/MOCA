@@ -51,9 +51,7 @@ class CapturingLLM:
 class FakeConversationService:
     async def load_prompt_context(self, **kwargs):
         return SimpleNamespace(
-            latest_thread_summary=SimpleNamespace(
-                summary_text="thread_rolling risk context includes ORD-RISK-PRIOR."
-            ),
+            latest_thread_summary=SimpleNamespace(summary_text="thread_rolling risk context includes ORD-RISK-PRIOR."),
             recent_messages=[SimpleNamespace(role="assistant", content="recent risk-safe assistant note.")],
             tool_prompt_summaries=[
                 SimpleNamespace(

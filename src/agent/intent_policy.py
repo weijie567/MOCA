@@ -23,6 +23,7 @@ class IntentDefinition:
     high_risk: bool = False
     critical_route_class: bool = False
 
+
 REQUESTED_OPERATIONS: tuple[str, ...] = (
     "read_status",
     "advise",
@@ -144,7 +145,9 @@ def detect_pre_route(query: str) -> PreRouteDecision:
     text = query or ""
     lowered = text.lower()
     approval_command = any(token in lowered for token in ("approval", "apr-")) or "审批" in text
-    broad_approval = any(token in lowered for token in ("accept", "reject")) or any(token in text for token in ("通过", "拒绝"))
+    broad_approval = any(token in lowered for token in ("accept", "reject")) or any(
+        token in text for token in ("通过", "拒绝")
+    )
     approval_context = bool(_APPROVAL_ID_RE.search(text)) or "approval" in lowered or "审批" in text
     if approval_command or (broad_approval and approval_context):
         return PreRouteDecision(
@@ -200,7 +203,9 @@ def resolve_intent_precedence(
     if any(token in lowered for token in ("complaint", "escalate")) or any(token in text for token in ("投诉", "升级")):
         candidates.append("complaint_escalation")
         requested_operation = "escalate"
-    if any(token in lowered for token in ("compensation", "coupon")) or any(token in text for token in ("补偿", "券", "赔付")):
+    if any(token in lowered for token in ("compensation", "coupon")) or any(
+        token in text for token in ("补偿", "券", "赔付")
+    ):
         candidates.append("compensation_suggestion")
         if requested_operation == "read_status":
             requested_operation = "draft_action"
@@ -236,7 +241,10 @@ def confidence_requires_clarification(
     safety_sensitive = (
         primary_intent in HIGH_RISK_INTENTS
         or requested_operation in {"draft_action", "execute_action", "escalate"}
-        or (primary_intent in {"refund_troubleshooting", "compensation_suggestion"} and requested_operation != "read_status")
+        or (
+            primary_intent in {"refund_troubleshooting", "compensation_suggestion"}
+            and requested_operation != "read_status"
+        )
     )
     if safety_sensitive and confidence < 0.85:
         return True

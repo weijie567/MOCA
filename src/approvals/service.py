@@ -659,7 +659,9 @@ class ApprovalService:
             policy_config_version=str(
                 command.info_payload.get("policy_config_version") or snapshot_row.policy_config_version
             ),
-            risk_config_version=str(command.info_payload.get("risk_config_version") or snapshot_row.risk_config_version),
+            risk_config_version=str(
+                command.info_payload.get("risk_config_version") or snapshot_row.risk_config_version
+            ),
             retrieval_config_version=str(
                 command.info_payload.get("retrieval_config_version") or snapshot_row.retrieval_config_version
             ),
@@ -936,7 +938,9 @@ class ApprovalService:
         request: ApprovalRequest,
         info_payload: dict[str, Any],
     ) -> tuple[dict[str, Any], list[EvidenceRefV1]]:
-        proposed_action = dict(info_payload.get("proposed_action") or info_payload.get("edited_action") or request.proposed_action)
+        proposed_action = dict(
+            info_payload.get("proposed_action") or info_payload.get("edited_action") or request.proposed_action
+        )
         evidence_payload = info_payload.get("evidence_refs")
         if evidence_payload is not None:
             evidence_refs = self._parse_evidence_refs(evidence_payload)

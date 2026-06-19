@@ -163,7 +163,9 @@ def chunk_blocks(
             pending_refs.append(block_ref)
             continue
 
-        for part_index, part in enumerate(_split_oversized(visible_text, max_chars, target_chars, overlap_chars), start=1):
+        for part_index, part in enumerate(
+            _split_oversized(visible_text, max_chars, target_chars, overlap_chars), start=1
+        ):
             chunks.append(
                 _make_block_chunk(
                     doc_key=doc_key,

@@ -172,9 +172,7 @@ async def test_skips_llm_for_retrieval_safety_drafts(monkeypatch, base_state, re
 async def test_membership_pass_keeps_canonical_evidence_ref(monkeypatch, base_state):
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_draft()))
 
-    result = await generate_recommendation_module.generate_recommendation(
-        {**base_state, **_retrieval_state()}
-    )
+    result = await generate_recommendation_module.generate_recommendation({**base_state, **_retrieval_state()})
 
     evidence = _evidence()
     assert result["evidence_refs"][0]["evidence_id"] == evidence.evidence_id
@@ -187,9 +185,7 @@ async def test_membership_pass_keeps_canonical_evidence_ref(monkeypatch, base_st
 async def test_membership_fail_drops_ref_and_marks_citation_invalid(monkeypatch, base_state):
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_draft(chunk_id="missing")))
 
-    result = await generate_recommendation_module.generate_recommendation(
-        {**base_state, **_retrieval_state()}
-    )
+    result = await generate_recommendation_module.generate_recommendation({**base_state, **_retrieval_state()})
 
     draft = result["recommendation_draft"]
     assert draft["evidence_refs"] == []
@@ -204,9 +200,7 @@ async def test_prompt_lists_evidence_ids_in_allowed_citation_objects(monkeypatch
     fake_llm = CapturingLLM(_draft())
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
 
-    await generate_recommendation_module.generate_recommendation(
-        {**base_state, **_retrieval_state()}
-    )
+    await generate_recommendation_module.generate_recommendation({**base_state, **_retrieval_state()})
 
     prompt = fake_llm.messages[-1]["content"]
     assert "Allowed citation objects" in prompt
@@ -377,9 +371,7 @@ async def test_expected_error_retries_then_falls_back(monkeypatch, base_state):
 
 
 @pytest.mark.asyncio
-async def test_generate_recommendation_prompt_uses_context_assembly_and_excludes_raw_payloads(
-    monkeypatch, base_state
-):
+async def test_generate_recommendation_prompt_uses_context_assembly_and_excludes_raw_payloads(monkeypatch, base_state):
     evidence = _evidence(tenant_id=base_state["tenant_id"])
     fake_llm = CapturingLLM(_draft())
     fake_conversation = FakeConversationService()

@@ -278,11 +278,11 @@ async def _handle_interrupt(
         final_status="interrupted",
         final_response=None,
         started_at=started_at,
-            completed_at=completed_at,
-            total_latency_ms=total_ms,
-            total_tokens=_count_tokens(pre_interrupt_steps),
-            trace_id=getattr(request.state, "trace_id", None),
-        )
+        completed_at=completed_at,
+        total_latency_ms=total_ms,
+        total_tokens=_count_tokens(pre_interrupt_steps),
+        trace_id=getattr(request.state, "trace_id", None),
+    )
     if pre_interrupt_steps:
         await write_agent_steps(session, run_id=run_id, trace_steps=pre_interrupt_steps)
 

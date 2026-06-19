@@ -249,7 +249,9 @@ async def test_search_policy_projects_merchant_scope_for_knowledge_service(merch
 @pytest.mark.asyncio
 async def test_declared_future_search_sop_returns_unavailable():
     tool_name = "search_sop"
-    manager = UnifiedToolManager(executors=[KnowledgeToolExecutor(session=None, service=object()), MemoryToolExecutor()])
+    manager = UnifiedToolManager(
+        executors=[KnowledgeToolExecutor(session=None, service=object()), MemoryToolExecutor()]
+    )
 
     result = await manager.invoke(tool_name, {"query": "refund"}, _ctx(tool=tool_name))
 
@@ -279,7 +281,9 @@ async def test_search_case_memory_dispatches_to_reviewed_case_memory_service():
     service = FakeMemorySearchService()
     manager = UnifiedToolManager(executors=[MemoryToolExecutor(service=service)])
 
-    result = await manager.invoke("search_case_memory", {"query": "similar refund case"}, _ctx(tool="search_case_memory"))
+    result = await manager.invoke(
+        "search_case_memory", {"query": "similar refund case"}, _ctx(tool="search_case_memory")
+    )
 
     assert result.status == "success"
     assert result.source_system == "case_memory_service"

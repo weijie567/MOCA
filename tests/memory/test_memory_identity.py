@@ -193,13 +193,9 @@ def test_source_identity_hash_accepts_only_memory_source_ref_keys() -> None:
 
 def test_source_identity_hash_requires_durable_discriminator() -> None:
     assert canonical_source_identity_hash({"source_type": "deterministic_tool_result"}) is None
-    assert canonical_source_identity_hash(
-        {"source_type": "deterministic_tool_result", "run_id": "run-1"}
-    ) is None
+    assert canonical_source_identity_hash({"source_type": "deterministic_tool_result", "run_id": "run-1"}) is None
     assert SHA256_RE.fullmatch(
-        canonical_source_identity_hash(
-            {"source_type": "deterministic_tool_result", "event_id": "event-1"}
-        )
+        canonical_source_identity_hash({"source_type": "deterministic_tool_result", "event_id": "event-1"})
     )
 
 

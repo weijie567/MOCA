@@ -44,7 +44,8 @@ def _retention_columns() -> tuple[sa.Column, sa.Column, sa.Column]:
 
 
 def upgrade() -> None:
-    op.create_table("conversation_threads",
+    op.create_table(
+        "conversation_threads",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
         sa.Column("tenant_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("tenants.id"), nullable=False),
         sa.Column("thread_id", sa.String(length=128), nullable=False),
@@ -72,7 +73,8 @@ def upgrade() -> None:
         postgresql_where=sa.text("deleted_at IS NULL"),
     )
 
-    op.create_table("conversation_messages",
+    op.create_table(
+        "conversation_messages",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
         sa.Column(
             "conversation_thread_id",
@@ -129,7 +131,8 @@ def upgrade() -> None:
         ["tenant_id", "run_id"],
     )
 
-    op.create_table("tool_calls",
+    op.create_table(
+        "tool_calls",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
         sa.Column(
             "conversation_thread_id",
@@ -183,7 +186,8 @@ def upgrade() -> None:
     op.create_index("ix_tool_calls_tenant_thread_run", "tool_calls", ["tenant_id", "thread_id", "run_id"])
     op.create_index("ix_tool_calls_tenant_operation", "tool_calls", ["tenant_id", "operation_id"])
 
-    op.create_table("tool_results",
+    op.create_table(
+        "tool_results",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
         sa.Column(
             "conversation_thread_id",
@@ -245,7 +249,8 @@ def upgrade() -> None:
     op.create_index("ix_tool_results_tenant_thread_run", "tool_results", ["tenant_id", "thread_id", "run_id"])
     op.create_index("ix_tool_results_tenant_operation", "tool_results", ["tenant_id", "operation_id"])
 
-    op.create_table("summaries",
+    op.create_table(
+        "summaries",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
         sa.Column("tenant_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("thread_id", sa.String(length=128), nullable=False),

@@ -30,6 +30,7 @@ from src.tools.executors.memory import MemoryToolExecutor
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _ok_search_result() -> KnowledgeSearchResult:
     return KnowledgeSearchResult(
         status="strong_evidence",
@@ -67,6 +68,7 @@ def _business_fact_ref(resource_type: str, resource_id: str) -> BusinessFactRefV
 # ---------------------------------------------------------------------------
 # Policy retrieval ownership tests
 # ---------------------------------------------------------------------------
+
 
 class TestPolicyRetrievalOwnership:
     """Policy retrieval graph paths must execute through UnifiedToolManager,
@@ -177,8 +179,7 @@ class TestPolicyRetrievalOwnership:
             "investigate must not import PolicyKnowledgeService directly"
         )
         assert not hasattr(module_source, "BusinessToolService"), (
-            "investigate must NOT import BusinessToolService; "
-            "policy retrieval belongs behind UnifiedToolManager"
+            "investigate must NOT import BusinessToolService; policy retrieval belongs behind UnifiedToolManager"
         )
 
     @pytest.mark.asyncio
@@ -269,6 +270,7 @@ class TestPolicyRetrievalOwnership:
 # Registry declaration-only retrieval descriptors tests
 # ---------------------------------------------------------------------------
 
+
 class TestRetrievalDescriptorsDeclarationOnly:
     """search_policy, search_sop, search_case_memory descriptors exist in the
     tool catalog as declaration/validation catalog entries. ToolCatalog is
@@ -283,28 +285,20 @@ class TestRetrievalDescriptorsDeclarationOnly:
 
     def test_search_policy_descriptor_exists(self, registry):
         descriptors = self._descriptor_map(registry)
-        assert "search_policy" in descriptors, (
-            "search_policy must be declared in the registry catalog"
-        )
+        assert "search_policy" in descriptors, "search_policy must be declared in the registry catalog"
 
     def test_search_sop_descriptor_exists(self, registry):
         descriptors = self._descriptor_map(registry)
-        assert "search_sop" in descriptors, (
-            "search_sop must be declared in the registry catalog"
-        )
+        assert "search_sop" in descriptors, "search_sop must be declared in the registry catalog"
 
     def test_search_case_memory_descriptor_exists(self, registry):
         descriptors = self._descriptor_map(registry)
-        assert "search_case_memory" in descriptors, (
-            "search_case_memory must be declared in the registry catalog"
-        )
+        assert "search_case_memory" in descriptors, "search_case_memory must be declared in the registry catalog"
 
     def test_retrieval_descriptors_are_kind_retrieval(self, registry):
         descriptors = self._descriptor_map(registry)
         for name in ("search_policy", "search_sop", "search_case_memory"):
-            assert descriptors[name].kind == "retrieval", (
-                f"{name} must be kind='retrieval'"
-            )
+            assert descriptors[name].kind == "retrieval", f"{name} must be kind='retrieval'"
 
     def test_retrieval_descriptors_have_rag_event_family(self, registry):
         descriptors = self._descriptor_map(registry)
@@ -316,9 +310,7 @@ class TestRetrievalDescriptorsDeclarationOnly:
     def test_retrieval_descriptors_have_no_resource_type(self, registry):
         descriptors = self._descriptor_map(registry)
         for name in ("search_policy", "search_sop", "search_case_memory"):
-            assert descriptors[name].resource_type is None, (
-                f"{name} must have resource_type=None"
-            )
+            assert descriptors[name].resource_type is None, f"{name} must have resource_type=None"
 
     @pytest.mark.asyncio
     async def test_search_policy_returns_unavailable_through_registry(self, registry):
@@ -385,6 +377,7 @@ class TestRetrievalDescriptorsDeclarationOnly:
 # Business-read descriptors retain adapters
 # ---------------------------------------------------------------------------
 
+
 class TestBusinessReadDescriptorsDeclared:
     """The executable business-read descriptors (get_order, get_refund_case,
     get_ticket) remain declared in the catalog. Their adapters live in
@@ -423,6 +416,7 @@ class TestBusinessReadDescriptorsDeclared:
 # ---------------------------------------------------------------------------
 # Write descriptor blocked
 # ---------------------------------------------------------------------------
+
 
 class TestWriteDescriptorDeclaredOnly:
     """Write tools are declared in the registry but cannot execute there."""
@@ -467,6 +461,7 @@ class TestWriteDescriptorDeclaredOnly:
 # Cross-boundary assertion: no test treats policy retrieval as business-tool
 # ---------------------------------------------------------------------------
 
+
 class TestOwnershipContractEncoding:
     """Encode the ROADMAP/CONTEXT boundary as executable assertions."""
 
@@ -475,6 +470,7 @@ class TestOwnershipContractEncoding:
         BusinessToolService. The ownership contract is: policy retrieval
         enters through UnifiedToolManager, not the business facade."""
         import inspect
+
         source = inspect.getsource(TestPolicyRetrievalOwnership)
         # This is a meta-assertion: the ownership tests above verify
         # UnifiedToolManager boundary is enforced before KnowledgeToolExecutor.

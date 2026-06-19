@@ -312,7 +312,9 @@ class _PriorEvidenceState:
                 content=content,
                 source_block_refs_json=[{"source_block_id": source_block_id} for source_block_id in refs],
             )
-            for index, (content, refs) in enumerate(zip(snapshot["chunk_contents"], snapshot["chunk_refs"], strict=True))
+            for index, (content, refs) in enumerate(
+                zip(snapshot["chunk_contents"], snapshot["chunk_refs"], strict=True)
+            )
         ]
 
     def retrieve(self, query: str) -> tuple[str, ...]:

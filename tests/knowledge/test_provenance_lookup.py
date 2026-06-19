@@ -120,9 +120,7 @@ async def test_valid_refs_return_page_bbox_table_and_ocr_locators_after_hash_val
     provenance = _provenance(evidence)
     retriever = SimpleNamespace(
         get_contents_by_evidence_keys=AsyncMock(return_value={(evidence.doc_key, evidence.chunk_id): "真实政策正文"}),
-        get_provenance_by_evidence_keys=AsyncMock(
-            return_value={(evidence.doc_key, evidence.chunk_id): provenance}
-        ),
+        get_provenance_by_evidence_keys=AsyncMock(return_value={(evidence.doc_key, evidence.chunk_id): provenance}),
     )
     service = PolicyKnowledgeService(retriever)
 
@@ -183,38 +181,50 @@ async def test_provenance_lookup_duplicate_key_malformed_tenant_missing_blocks_a
     )
     duplicate_service = PolicyKnowledgeService(duplicate_retriever)
 
-    assert await duplicate_service.get_verified_evidence_provenance(
-        tenant_id=tenant_id,
-        evidence_refs=[first, second],
-    ) == {}
+    assert (
+        await duplicate_service.get_verified_evidence_provenance(
+            tenant_id=tenant_id,
+            evidence_refs=[first, second],
+        )
+        == {}
+    )
     duplicate_retriever.get_contents_by_evidence_keys.assert_not_awaited()
     duplicate_retriever.get_provenance_by_evidence_keys.assert_not_awaited()
 
     malformed_service = PolicyKnowledgeService(SimpleNamespace(get_contents_by_evidence_keys=AsyncMock()))
-    assert await malformed_service.get_verified_evidence_provenance(
-        tenant_id="not-a-uuid",
-        evidence_refs=[first],
-    ) == {}
+    assert (
+        await malformed_service.get_verified_evidence_provenance(
+            tenant_id="not-a-uuid",
+            evidence_refs=[first],
+        )
+        == {}
+    )
 
     missing_blocks_retriever = SimpleNamespace(
         get_contents_by_evidence_keys=AsyncMock(return_value={(first.doc_key, first.chunk_id): "正文一"}),
         get_provenance_by_evidence_keys=AsyncMock(return_value={}),
     )
     missing_blocks_service = PolicyKnowledgeService(missing_blocks_retriever)
-    assert await missing_blocks_service.get_verified_evidence_provenance(
-        tenant_id=tenant_id,
-        evidence_refs=[first],
-    ) == {}
+    assert (
+        await missing_blocks_service.get_verified_evidence_provenance(
+            tenant_id=tenant_id,
+            evidence_refs=[first],
+        )
+        == {}
+    )
 
     error_retriever = SimpleNamespace(
         get_contents_by_evidence_keys=AsyncMock(return_value={(first.doc_key, first.chunk_id): "正文一"}),
         get_provenance_by_evidence_keys=AsyncMock(side_effect=RuntimeError("raw repository error")),
     )
     error_service = PolicyKnowledgeService(error_retriever)
-    assert await error_service.get_verified_evidence_provenance(
-        tenant_id=tenant_id,
-        evidence_refs=[first],
-    ) == {}
+    assert (
+        await error_service.get_verified_evidence_provenance(
+            tenant_id=tenant_id,
+            evidence_refs=[first],
+        )
+        == {}
+    )
 
 
 @pytest.mark.asyncio
@@ -314,10 +324,13 @@ async def test_chunk_repository_returns_empty_for_missing_or_ambiguous_block_row
             return []
 
     monkeypatch.setattr(policy_chunk_repo_module, "DocumentBlockRepository", _MissingBlockRepo)
-    assert await PolicyChunkRepository(_Session()).get_provenance_by_evidence_keys(
-        tenant_id,
-        [("refund-policy", "chunk-1")],
-    ) == {}
+    assert (
+        await PolicyChunkRepository(_Session()).get_provenance_by_evidence_keys(
+            tenant_id,
+            [("refund-policy", "chunk-1")],
+        )
+        == {}
+    )
 
     class _AmbiguousBlockRepo:
         def __init__(self, session) -> None:
@@ -327,10 +340,13 @@ async def test_chunk_repository_returns_empty_for_missing_or_ambiguous_block_row
             return [block, block]
 
     monkeypatch.setattr(policy_chunk_repo_module, "DocumentBlockRepository", _AmbiguousBlockRepo)
-    assert await PolicyChunkRepository(_Session()).get_provenance_by_evidence_keys(
-        tenant_id,
-        [("refund-policy", "chunk-1")],
-    ) == {}
+    assert (
+        await PolicyChunkRepository(_Session()).get_provenance_by_evidence_keys(
+            tenant_id,
+            [("refund-policy", "chunk-1")],
+        )
+        == {}
+    )
 
 
 def test_provenance_lookup_does_not_change_evidence_ref_v1_identity_shape() -> None:

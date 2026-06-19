@@ -170,8 +170,8 @@ async def test_memory_write_timeout_rolls_back_started_event_before_scheduler_co
     )
     await session.commit()
     rows = (
-        await session.execute(select(AgentTraceEvent).where(AgentTraceEvent.run_id == UUID(run_id)))
-    ).scalars().all()
+        (await session.execute(select(AgentTraceEvent).where(AgentTraceEvent.run_id == UUID(run_id)))).scalars().all()
+    )
 
     assert result["memory_write_result"]["status"] == "skipped"
     assert result["memory_write_result"]["reason_code"] == "write_timeout"

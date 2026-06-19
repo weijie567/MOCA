@@ -68,7 +68,11 @@ def _case_memory_request(*, query: str, context: ToolCallContext) -> CaseMemoryS
     except ValueError:
         return None
 
-    scopes: list[tuple[str, str]] = [("tenant", str(tenant_id)), ("user", context.user_id), ("thread", context.thread_id)]
+    scopes: list[tuple[str, str]] = [
+        ("tenant", str(tenant_id)),
+        ("user", context.user_id),
+        ("thread", context.thread_id),
+    ]
     merchant_ids = _merchant_ids(context.merchant_scope)
     scopes.extend(("merchant", merchant_id) for merchant_id in merchant_ids if merchant_id != "*")
 

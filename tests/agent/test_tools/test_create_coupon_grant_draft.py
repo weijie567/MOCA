@@ -97,9 +97,7 @@ def _draft_payload(request: ApprovalRequest, **overrides: Any) -> dict[str, Any]
 
 
 async def _assert_no_drafts_for_run(session: AsyncSession, run_id: UUID) -> None:
-    rows = (
-        await session.execute(select(ActionDraft).where(ActionDraft.run_id == run_id))
-    ).scalars().all()
+    rows = (await session.execute(select(ActionDraft).where(ActionDraft.run_id == run_id))).scalars().all()
     assert rows == []
 
 
@@ -583,13 +581,17 @@ async def test_action_executor_emits_safe_action_draft_created_event(
     )
 
     rows = (
-        await session.execute(
-            select(AgentTraceEvent).where(
-                AgentTraceEvent.run_id == request.run_id,
-                AgentTraceEvent.event_type == "action_draft_created",
+        (
+            await session.execute(
+                select(AgentTraceEvent).where(
+                    AgentTraceEvent.run_id == request.run_id,
+                    AgentTraceEvent.event_type == "action_draft_created",
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     assert result.status == "success"
     assert len(rows) == 1

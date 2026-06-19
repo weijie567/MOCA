@@ -200,7 +200,8 @@ class ActionService:
             return _tool_error("ACTION_BINDING_MISMATCH", "Action safety snapshot binding is invalid", retryable=False)
 
         if approval_request_id is None:
-            return _tool_error("AUTO_ALLOWED_BINDING_REQUIRED",
+            return _tool_error(
+                "AUTO_ALLOWED_BINDING_REQUIRED",
                 "No-approval action draft requires a durable auto-allowed binding",
                 retryable=False,
             )
@@ -276,11 +277,7 @@ def _target_id(payload: dict[str, Any]) -> str | None:
 
 
 async def _run_thread_id(session: AsyncSession, run_id: UUID) -> str | None:
-    return (
-        await session.execute(
-            select(AgentRun.thread_id).where(AgentRun.id == run_id)
-        )
-    ).scalar_one_or_none()
+    return (await session.execute(select(AgentRun.thread_id).where(AgentRun.id == run_id))).scalar_one_or_none()
 
 
 def _now_iso() -> str:

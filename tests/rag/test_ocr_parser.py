@@ -50,9 +50,11 @@ def test_ocr_runtime_preflight_reports_missing_chi_sim(monkeypatch) -> None:
     monkeypatch.setattr(
         runtime.subprocess,
         "run",
-        lambda args, **kwargs: _completed("tesseract 5.5.0\n")
-        if args == ["tesseract", "--version"]
-        else _completed("List of available languages in /safe:\neng\n"),
+        lambda args, **kwargs: (
+            _completed("tesseract 5.5.0\n")
+            if args == ["tesseract", "--version"]
+            else _completed("List of available languages in /safe:\neng\n")
+        ),
     )
 
     result = runtime.check_ocr_runtime()
@@ -68,9 +70,11 @@ def test_ocr_runtime_preflight_reports_missing_eng(monkeypatch) -> None:
     monkeypatch.setattr(
         runtime.subprocess,
         "run",
-        lambda args, **kwargs: _completed("tesseract 5.5.0\n")
-        if args == ["tesseract", "--version"]
-        else _completed("List of available languages in /safe:\nchi_sim\n"),
+        lambda args, **kwargs: (
+            _completed("tesseract 5.5.0\n")
+            if args == ["tesseract", "--version"]
+            else _completed("List of available languages in /safe:\nchi_sim\n")
+        ),
     )
 
     result = runtime.check_ocr_runtime()

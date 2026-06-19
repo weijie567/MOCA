@@ -115,7 +115,9 @@ class ContextBuilder:
         budget_included, budget_excluded = _apply_evidence_item_budget(included, self.budget.max_evidence_items)
         exclusions.extend(budget_excluded)
 
-        citation_items = _merge_adjacent(budget_included) if self.merge_adjacent_chunks else [[item] for item in budget_included]
+        citation_items = (
+            _merge_adjacent(budget_included) if self.merge_adjacent_chunks else [[item] for item in budget_included]
+        )
         prompt_citations: list[PromptCitation] = []
         citation_map: dict[str, CitationMapEntry] = {}
         budget_truncated: list[EvidenceTraceEntry] = []
@@ -311,7 +313,10 @@ class ContextBuilder:
         if authorized is not None and ref.evidence_id not in authorized:
             return "scope_invalid"
         latest_versions = getattr(self.policy_service, "latest_versions", None)
-        if isinstance(latest_versions, Mapping) and latest_versions.get(ref.doc_key, ref.policy_version) != ref.policy_version:
+        if (
+            isinstance(latest_versions, Mapping)
+            and latest_versions.get(ref.doc_key, ref.policy_version) != ref.policy_version
+        ):
             return "latest_version_invalid"
         return "canonical_content_missing"
 
@@ -360,7 +365,10 @@ def _merge_adjacent(items: list[_IncludedEvidence]) -> list[list[_IncludedEviden
             continue
         previous = groups[-1][-1].evidence_ref
         current = item.evidence_ref
-        if previous.doc_key == current.doc_key and _chunk_number(current.chunk_id) == _chunk_number(previous.chunk_id) + 1:
+        if (
+            previous.doc_key == current.doc_key
+            and _chunk_number(current.chunk_id) == _chunk_number(previous.chunk_id) + 1
+        ):
             groups[-1].append(item)
         else:
             groups.append([item])
@@ -471,7 +479,11 @@ def _canonical_row_reason_codes(
         reason_codes.extend(["freshness_invalid", "effective_date_invalid"])
 
     row_merchant_ids = [str(item) for item in row.get("merchant_ids") or [] if str(item)]
-    if row_merchant_ids and "*" not in (merchant_scope or []) and not set(row_merchant_ids).intersection(merchant_scope or []):
+    if (
+        row_merchant_ids
+        and "*" not in (merchant_scope or [])
+        and not set(row_merchant_ids).intersection(merchant_scope or [])
+    ):
         reason_codes.extend(["scope_invalid", "merchant_scope_invalid"])
     row_doc_type = _optional_str(row.get("doc_type"))
     if expected_doc_type and row_doc_type and row_doc_type != expected_doc_type:
@@ -497,7 +509,9 @@ def _get_attr_or_key(value: Any, key: str, default: Any = None) -> Any:
 def _exclusion_from_detail(value: Any) -> EvidenceTraceEntry:
     evidence_id = str(_get_attr_or_key(value, "evidence_id", ""))
     reason_codes = [str(code) for code in (_get_attr_or_key(value, "reason_codes", []) or []) if str(code)]
-    reason_code = str(_get_attr_or_key(value, "reason_code", reason_codes[0] if reason_codes else "canonical_content_missing"))
+    reason_code = str(
+        _get_attr_or_key(value, "reason_code", reason_codes[0] if reason_codes else "canonical_content_missing")
+    )
     return EvidenceTraceEntry(
         evidence_id=evidence_id,
         reason_code=reason_code,

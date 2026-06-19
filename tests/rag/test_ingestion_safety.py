@@ -27,46 +27,61 @@ def test_phase21_ingestion_safety_thresholds_are_locked_in_scaffold() -> None:
 def test_source_guards_reject_spoofed_or_oversized_inputs_before_parser_execution() -> None:
     from src.rag.parsers.safety import validate_policy_source
 
-    assert validate_policy_source(
-        filename="policy.pdf",
-        declared_content_type="application/pdf",
-        signature=b"%PDF",
-        size_bytes=MAX_SOURCE_FILE_BYTES,
-        page_count=MAX_PDF_PAGES,
-        image_dimensions=None,
-    ).allowed is True
-    assert validate_policy_source(
-        filename="policy.pdf",
-        declared_content_type="application/pdf",
-        signature=b"PK\x03\x04",
-        size_bytes=1024,
-        page_count=1,
-        image_dimensions=None,
-    ).failure_code == "signature_mismatch"
-    assert validate_policy_source(
-        filename="large.pdf",
-        declared_content_type="application/pdf",
-        signature=b"%PDF",
-        size_bytes=MAX_SOURCE_FILE_BYTES + 1,
-        page_count=1,
-        image_dimensions=None,
-    ).failure_code == "file_too_large"
-    assert validate_policy_source(
-        filename="many-pages.pdf",
-        declared_content_type="application/pdf",
-        signature=b"%PDF",
-        size_bytes=1024,
-        page_count=MAX_PDF_PAGES + 1,
-        image_dimensions=None,
-    ).failure_code == "too_many_pages"
-    assert validate_policy_source(
-        filename="huge.png",
-        declared_content_type="image/png",
-        signature=b"\x89PNG\r\n\x1a\n",
-        size_bytes=1024,
-        page_count=None,
-        image_dimensions=(MAX_IMAGE_DIMENSION + 1, MAX_IMAGE_DIMENSION),
-    ).failure_code == "image_too_large"
+    assert (
+        validate_policy_source(
+            filename="policy.pdf",
+            declared_content_type="application/pdf",
+            signature=b"%PDF",
+            size_bytes=MAX_SOURCE_FILE_BYTES,
+            page_count=MAX_PDF_PAGES,
+            image_dimensions=None,
+        ).allowed
+        is True
+    )
+    assert (
+        validate_policy_source(
+            filename="policy.pdf",
+            declared_content_type="application/pdf",
+            signature=b"PK\x03\x04",
+            size_bytes=1024,
+            page_count=1,
+            image_dimensions=None,
+        ).failure_code
+        == "signature_mismatch"
+    )
+    assert (
+        validate_policy_source(
+            filename="large.pdf",
+            declared_content_type="application/pdf",
+            signature=b"%PDF",
+            size_bytes=MAX_SOURCE_FILE_BYTES + 1,
+            page_count=1,
+            image_dimensions=None,
+        ).failure_code
+        == "file_too_large"
+    )
+    assert (
+        validate_policy_source(
+            filename="many-pages.pdf",
+            declared_content_type="application/pdf",
+            signature=b"%PDF",
+            size_bytes=1024,
+            page_count=MAX_PDF_PAGES + 1,
+            image_dimensions=None,
+        ).failure_code
+        == "too_many_pages"
+    )
+    assert (
+        validate_policy_source(
+            filename="huge.png",
+            declared_content_type="image/png",
+            signature=b"\x89PNG\r\n\x1a\n",
+            size_bytes=1024,
+            page_count=None,
+            image_dimensions=(MAX_IMAGE_DIMENSION + 1, MAX_IMAGE_DIMENSION),
+        ).failure_code
+        == "image_too_large"
+    )
 
 
 def test_parser_and_ocr_deadlines_are_enforced_as_safe_failures() -> None:

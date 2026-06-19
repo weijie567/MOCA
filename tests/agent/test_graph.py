@@ -156,12 +156,12 @@ class FakeGraphToolManager:
     def _order_result(self, order_id: str) -> ToolResultV2:
         ref = BusinessFactRefV1(
             tenant_id=str(uuid4()),
-        source_system="moca",
-        resource_type="order",
-        resource_id=order_id,
-        resource_version=None,
-        data_freshness_at=None,
-        retrieved_at=datetime.now(UTC),
+            source_system="moca",
+            resource_type="order",
+            resource_id=order_id,
+            resource_version=None,
+            data_freshness_at=None,
+            retrieved_at=datetime.now(UTC),
         )
         return ToolResultV2(
             status="success",
@@ -244,9 +244,7 @@ def _session_memory_service(
                 "thread_id": "wrong-thread" if wrong_thread else thread_id,
                 "fresh": not stale,
                 "expires_at": (
-                    datetime.now(UTC) - timedelta(minutes=1)
-                    if stale
-                    else datetime.now(UTC) + timedelta(minutes=5)
+                    datetime.now(UTC) - timedelta(minutes=1) if stale else datetime.now(UTC) + timedelta(minutes=5)
                 ).isoformat(),
                 "compatible_intents": [current_intent],
             }
@@ -533,21 +531,30 @@ def test_route_after_investigate_keys_are_edge_targets():
 
 
 def test_all_router_return_keys_have_edges():
-    assert route_after_intent({"primary_intent": "policy_qa", "requested_operation": "advise", "intent_confidence": 0.9}) in ROUTER_EDGE_KEYS[
-        "route_after_intent"
-    ]
-    assert route_after_slots({"primary_intent": "policy_qa", "required_slots": {"all_of": [], "any_of": [], "optional": []}}) in ROUTER_EDGE_KEYS[
-        "route_after_slots"
-    ]
+    assert (
+        route_after_intent({"primary_intent": "policy_qa", "requested_operation": "advise", "intent_confidence": 0.9})
+        in ROUTER_EDGE_KEYS["route_after_intent"]
+    )
+    assert (
+        route_after_slots(
+            {"primary_intent": "policy_qa", "required_slots": {"all_of": [], "any_of": [], "optional": []}}
+        )
+        in ROUTER_EDGE_KEYS["route_after_slots"]
+    )
     assert route_after_risk({"risk_assessment": {"approval_required": True}}) in ROUTER_EDGE_KEYS["route_after_risk"]
-    assert route_after_risk({"proposed_action": {"action_type": "issue_coupon"}}) in ROUTER_EDGE_KEYS["route_after_risk"]
+    assert (
+        route_after_risk({"proposed_action": {"action_type": "issue_coupon"}}) in ROUTER_EDGE_KEYS["route_after_risk"]
+    )
     assert route_after_risk({}) in ROUTER_EDGE_KEYS["route_after_risk"]
-    assert route_after_approval({"approval_result": {"decision": "approve"}}) in ROUTER_EDGE_KEYS["route_after_approval"]
+    assert (
+        route_after_approval({"approval_result": {"decision": "approve"}}) in ROUTER_EDGE_KEYS["route_after_approval"]
+    )
     assert route_after_approval({}) in ROUTER_EDGE_KEYS["route_after_approval"]
     assert route_after_investigate({}) in ROUTER_EDGE_KEYS["route_after_investigate"]
-    assert route_after_investigate({"business_context": {"missing_required_facts": ["order_id"]}}) in ROUTER_EDGE_KEYS[
-        "route_after_investigate"
-    ]
+    assert (
+        route_after_investigate({"business_context": {"missing_required_facts": ["order_id"]}})
+        in ROUTER_EDGE_KEYS["route_after_investigate"]
+    )
     assert (
         route_after_investigate({"retrieval_status": "strong_evidence", "best_score": 0.9})
         in ROUTER_EDGE_KEYS["route_after_investigate"]

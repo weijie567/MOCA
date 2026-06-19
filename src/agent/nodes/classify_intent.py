@@ -216,15 +216,15 @@ async def classify_intent(state: AgentState) -> dict:
         },
         "node_errors": (state.get("node_errors") or [])
         + [{"node": "classify_intent", "error": last_error, "retry_count": 2}],
-                "trace_steps": (state.get("trace_steps") or [])
-                + [
-                    _trace_step(
-                        "classify_intent",
-                        "error",
-                        started_at,
-                        provider_latency_ms,
-                        retry_count,
-                        len(str(messages)),
-                    )
-                ],
+        "trace_steps": (state.get("trace_steps") or [])
+        + [
+            _trace_step(
+                "classify_intent",
+                "error",
+                started_at,
+                provider_latency_ms,
+                retry_count,
+                len(str(messages)),
+            )
+        ],
     }

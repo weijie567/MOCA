@@ -184,7 +184,9 @@ async def test_session_memory_cannot_satisfy_policy_evidence_or_action_authority
     )
     assert write_result["memory_write_result"]["status"] == "written"
     assert stored.active_slots == {"order_id": "ORD-1001"}
-    deps = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id=None, policy_status="no_evidence")
+    deps = _patch_graph_dependencies(
+        monkeypatch, intent="refund_troubleshooting", order_id=None, policy_status="no_evidence"
+    )
     graph = build_graph(MemorySaver())
 
     final_state = await graph.ainvoke(

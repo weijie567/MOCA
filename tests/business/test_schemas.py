@@ -110,6 +110,4 @@ def test_tool_result_requires_latency_ms():
 
 def test_tool_call_context_rejects_untrusted_extra_fields():
     with pytest.raises(ValidationError):
-        ToolCallContext.model_validate(
-            _complete_context_payload(arguments={"tenant_id": "attacker-controlled"})
-        )
+        ToolCallContext.model_validate(_complete_context_payload(arguments={"tenant_id": "attacker-controlled"}))

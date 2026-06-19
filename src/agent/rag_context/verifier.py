@@ -283,7 +283,11 @@ class MaterialClaimVerifier:
             )
 
         if not level1.authority_passed:
-            outcome = VerificationOutcome.UNAUTHORIZED if "tenant_scope_invalid" in reason_codes else VerificationOutcome.INSUFFICIENT
+            outcome = (
+                VerificationOutcome.UNAUTHORIZED
+                if "tenant_scope_invalid" in reason_codes
+                else VerificationOutcome.INSUFFICIENT
+            )
             return self._result(claim, outcome, level1=level1, reason_codes=reason_codes)
 
         snippets = _claim_evidence_snippets(claim, context)
@@ -325,7 +329,9 @@ class MaterialClaimVerifier:
                 reason_codes=["level2_semantic_trigger_hint"],
             )
 
-        texts = [str(snippet.get("text") or "") for snippet in evidence_snippets if str(snippet.get("text") or "").strip()]
+        texts = [
+            str(snippet.get("text") or "") for snippet in evidence_snippets if str(snippet.get("text") or "").strip()
+        ]
         if not texts:
             return Level2VerificationResult(
                 outcome=Level2SupportOutcome.INSUFFICIENT,
@@ -464,7 +470,10 @@ class MaterialClaimVerifier:
             VerificationOutcome.SUPPORTED,
             level1=level1,
             reason_codes=reason_codes,
-            safe_support_refs=[*_safe_support_refs(claim, context), *[_business_ref_key(ref) for ref in claim.business_fact_refs]],
+            safe_support_refs=[
+                *_safe_support_refs(claim, context),
+                *[_business_ref_key(ref) for ref in claim.business_fact_refs],
+            ],
             allows_claim=True,
             allows_action_recommendation=True,
             blocks_proposed_action=False,
@@ -643,9 +652,13 @@ def _contextual_source_reason_codes(
     if not isinstance(contextual, Mapping):
         return []
     reason_codes: list[str] = []
-    has_memory = bool(contextual.get("session_memory") or contextual.get("case_memory") or contextual.get("prior_summaries"))
+    has_memory = bool(
+        contextual.get("session_memory") or contextual.get("case_memory") or contextual.get("prior_summaries")
+    )
     has_model = bool(contextual.get("model_knowledge"))
-    has_provenance = bool(contextual.get("source_provenance") or contextual.get("parser_ocr") or contextual.get("provenance"))
+    has_provenance = bool(
+        contextual.get("source_provenance") or contextual.get("parser_ocr") or contextual.get("provenance")
+    )
     if authority_class == MaterialClaimAuthorityClass.POLICY_CLAIM:
         if has_memory:
             reason_codes.append("memory_not_policy_authority")
@@ -667,7 +680,9 @@ def _action_dependency_reason_codes(
 ) -> list[str]:
     if not claim.dependency_claim_ids:
         return ["dependency_claims_required"]
-    by_id = {str(item.get("claim_id")): str(item.get("outcome") or "") for item in dependency_results if item.get("claim_id")}
+    by_id = {
+        str(item.get("claim_id")): str(item.get("outcome") or "") for item in dependency_results if item.get("claim_id")
+    }
     if not by_id:
         return ["dependency_results_required"]
     reason_codes: list[str] = []
@@ -691,7 +706,9 @@ def _action_dependency_reason_codes(
                     reason_codes.append("unsupported_business_dependency")
         elif outcome != VerificationOutcome.SUPPORTED.value:
             reason_codes.append("unsupported_dependency")
-    required_roles = {role for role in ("policy", "business") if any(role in dep.lower() for dep in claim.dependency_claim_ids)}
+    required_roles = {
+        role for role in ("policy", "business") if any(role in dep.lower() for dep in claim.dependency_claim_ids)
+    }
     if "policy" not in required_roles:
         reason_codes.append("policy_dependency_required")
     if "business" not in required_roles:
@@ -700,7 +717,9 @@ def _action_dependency_reason_codes(
 
 
 def _citation_ids(snippets: Sequence[Mapping[str, Any]]) -> list[str]:
-    return _unique(str(snippet.get("citation_id") or "") for snippet in snippets if str(snippet.get("citation_id") or ""))
+    return _unique(
+        str(snippet.get("citation_id") or "") for snippet in snippets if str(snippet.get("citation_id") or "")
+    )
 
 
 def _normalize_text(value: str) -> str:

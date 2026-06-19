@@ -153,14 +153,10 @@ async def _approval_bundle(
     request = await session.get(ApprovalRequest, created.approval_id)
     assert request is not None
     level = (
-        await session.execute(
-            select(ApprovalLevel).where(ApprovalLevel.approval_request_id == request.id)
-        )
+        await session.execute(select(ApprovalLevel).where(ApprovalLevel.approval_request_id == request.id))
     ).scalar_one()
     assignment = (
-        await session.execute(
-            select(ApprovalAssignment).where(ApprovalAssignment.approval_level_id == level.id)
-        )
+        await session.execute(select(ApprovalAssignment).where(ApprovalAssignment.approval_level_id == level.id))
     ).scalar_one()
     return request, level, assignment
 
@@ -240,9 +236,7 @@ async def test_accept_decision_inserts_exactly_one_decision_and_event(session: A
     request, level, assignment = await _approval_bundle(session, seeded_session)
     actor_id = seeded_session["users"]["approval_manager"].id
 
-    result = await ApprovalService(session).decide(
-        _decision_command(request, level, assignment, actor_id=actor_id)
-    )
+    result = await ApprovalService(session).decide(_decision_command(request, level, assignment, actor_id=actor_id))
 
     assert result.status == "approved"
     assert result.decision_type == "accept"
@@ -262,8 +256,10 @@ async def test_accept_decision_inserts_exactly_one_decision_and_event(session: A
 
     decisions = (await session.execute(select(ApprovalDecision))).scalars().all()
     events = (
-        await session.execute(select(ApprovalEvent).where(ApprovalEvent.event_type == "approval_decided"))
-    ).scalars().all()
+        (await session.execute(select(ApprovalEvent).where(ApprovalEvent.event_type == "approval_decided")))
+        .scalars()
+        .all()
+    )
     assert len(decisions) == 1
     assert len(events) == 1
 
@@ -291,7 +287,9 @@ async def test_accept_decision_inserts_exactly_one_decision_and_event(session: A
     [
         (
             "stale_request_version",
-            lambda command: command.model_copy(update={"expected_request_version": command.expected_request_version + 1}),
+            lambda command: command.model_copy(
+                update={"expected_request_version": command.expected_request_version + 1}
+            ),
         ),
         (
             "stale_level_version",
@@ -505,9 +503,7 @@ async def test_result_projection_validation_error_is_not_reported_as_non_executa
     before = await _counts(session)
 
     with pytest.raises(ApprovalTransitionError) as exc:
-        await ApprovalService(session).decide(
-            _decision_command(request, level, assignment, actor_id=actor_id)
-        )
+        await ApprovalService(session).decide(_decision_command(request, level, assignment, actor_id=actor_id))
 
     await session.refresh(request)
     assert exc.value.code == "approval_invalid_result"

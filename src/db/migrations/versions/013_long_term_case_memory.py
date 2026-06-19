@@ -23,9 +23,7 @@ depends_on: Sequence[str] | None = None
 
 MEMORY_SCOPE_CHECK = "scope_type IN ('tenant', 'merchant', 'user', 'thread', 'case')"
 MEMORY_REVIEW_STATUS_CHECK = (
-    "review_status IN ("
-    "'auto_approved', 'needs_review', 'approved', 'rejected', 'superseded', 'tombstoned', 'deleted'"
-    ")"
+    "review_status IN ('auto_approved', 'needs_review', 'approved', 'rejected', 'superseded', 'tombstoned', 'deleted')"
 )
 MEMORY_PII_CLASSIFICATION_CHECK = "pii_classification IN ('none', 'low', 'sensitive', 'prohibited')"
 
@@ -46,7 +44,8 @@ def _timestamps() -> tuple[sa.Column, sa.Column]:
 
 
 def upgrade() -> None:
-    op.create_table("long_term_memories",
+    op.create_table(
+        "long_term_memories",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
         sa.Column("tenant_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("tenants.id"), nullable=False),
         sa.Column("schema_version", sa.String(length=48), nullable=False, server_default="long_term_memory.v2"),
@@ -107,7 +106,8 @@ def upgrade() -> None:
         postgresql_where=sa.text("source_identity_hash IS NOT NULL AND deleted_at IS NULL"),
     )
 
-    op.create_table("case_memories",
+    op.create_table(
+        "case_memories",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
         sa.Column("tenant_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("tenants.id"), nullable=False),
         sa.Column("schema_version", sa.String(length=48), nullable=False, server_default="case_memory.v2"),
@@ -184,7 +184,8 @@ def upgrade() -> None:
         WITH (m = 16, ef_construction = 128)
     """)
 
-    op.create_table("memory_tombstones",
+    op.create_table(
+        "memory_tombstones",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
         sa.Column("tenant_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("tenants.id"), nullable=False),
         sa.Column("schema_version", sa.String(length=48), nullable=False, server_default="memory_tombstone.v1"),
@@ -236,7 +237,8 @@ def upgrade() -> None:
         postgresql_where=sa.text("deleted_at IS NULL"),
     )
 
-    op.create_table("memory_write_events",
+    op.create_table(
+        "memory_write_events",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
         sa.Column("tenant_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("tenants.id"), nullable=False),
         sa.Column("run_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("agent_runs.id"), nullable=False),

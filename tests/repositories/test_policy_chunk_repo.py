@@ -1,4 +1,5 @@
 """Tests for PolicyChunkRepository effective_date filtering."""
+
 from __future__ import annotations
 
 from datetime import date

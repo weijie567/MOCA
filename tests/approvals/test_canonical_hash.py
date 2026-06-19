@@ -35,9 +35,7 @@ EXPECTED_PROPOSED_ACTION_CANONICAL_JSON = (
     '"schema_version":"proposed_action.v1","target_id":"RF-1",'
     '"target_type":"refund_case","tenant_id":"tenant-1"}'
 )
-EXPECTED_PROPOSED_ACTION_DIGEST = (
-    "sha256:508e649e1b169a9520f7eb76403b0e00c90c1b1c52e17a499fd7bcdce2473094"
-)
+EXPECTED_PROPOSED_ACTION_DIGEST = "sha256:508e649e1b169a9520f7eb76403b0e00c90c1b1c52e17a499fd7bcdce2473094"
 
 
 def _proposed_action_fixture(**overrides):
@@ -61,9 +59,7 @@ def _proposed_action_fixture(**overrides):
                 "doc_key": "policy_refund_timeout",
                 "chunk_id": "chunk_001",
                 "policy_version": "v3",
-                "text_hash": (
-                    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                ),
+                "text_hash": ("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
                 "retrieved_at": "2026-06-05T00:00:00.000Z",
                 "retrieval_config_version": "knowledge-search@v2",
                 "rank": 1,

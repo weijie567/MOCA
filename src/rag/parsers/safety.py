@@ -427,10 +427,7 @@ def _docx_zip_failure(path: Path) -> str | None:
                 return "SOURCE_MALFORMED"
             compressed = sum(max(info.compress_size, 1) for info in infos)
             uncompressed = sum(info.file_size for info in infos)
-            if (
-                uncompressed > MAX_DOCX_UNCOMPRESSED_BYTES
-                or uncompressed / max(compressed, 1) > MAX_DOCX_ZIP_RATIO
-            ):
+            if uncompressed > MAX_DOCX_UNCOMPRESSED_BYTES or uncompressed / max(compressed, 1) > MAX_DOCX_ZIP_RATIO:
                 return "SOURCE_DECOMPRESSION_HAZARD"
     except zipfile.BadZipFile:
         return "SOURCE_MALFORMED"

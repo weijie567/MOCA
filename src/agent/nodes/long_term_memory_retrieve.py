@@ -223,11 +223,7 @@ def _mapping(item: Any) -> dict[str, Any]:
         return dict(item.model_dump(mode="json", exclude_none=True))
     if isinstance(item, Mapping):
         return dict(item)
-    return {
-        key: value
-        for key, value in vars(item).items()
-        if not key.startswith("_")
-    }
+    return {key: value for key, value in vars(item).items() if not key.startswith("_")}
 
 
 def _select_keys(mapping: Mapping[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
@@ -236,11 +232,7 @@ def _select_keys(mapping: Mapping[str, Any], keys: tuple[str, ...]) -> dict[str,
 
 def _safe_ref_mapping(value: Any, allowed_keys: set[str]) -> dict[str, Any]:
     mapping = _mapping(value)
-    return {
-        key: _safe_text(mapping[key])
-        for key in allowed_keys
-        if key in mapping and _safe_text(mapping[key])
-    }
+    return {key: _safe_text(mapping[key]) for key in allowed_keys if key in mapping and _safe_text(mapping[key])}
 
 
 def _safe_ref_list(value: Any, allowed_keys: set[str]) -> list[dict[str, Any]]:

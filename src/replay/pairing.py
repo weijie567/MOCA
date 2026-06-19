@@ -123,9 +123,7 @@ def _validate_retry_shape(
         raise OperationPairingError("retry attempt must be greater than parent attempt")
 
     existing_same_operation = [
-        event
-        for event in existing_events
-        if _optional_uuid(_field(event, "operation_id")) == operation_id
+        event for event in existing_events if _optional_uuid(_field(event, "operation_id")) == operation_id
     ]
     if existing_same_operation:
         raise OperationPairingError("retry must use a new operation_id; same operation_id is forbidden")
