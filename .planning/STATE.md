@@ -1,7 +1,7 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
+milestone: v1.5
+milestone_name: RAG Context Builder + Hallucination Control
 status: planned
 stopped_at: Phase 22 planned
 last_updated: "2026-06-19T08:10:52.013Z"
