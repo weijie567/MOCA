@@ -55,7 +55,15 @@ v1.5 is a one-phase milestone that inserts a bounded RAG reasoning kernel after 
   3. System can deterministically map unsupported, insufficient, conflicting, stale, unauthorized, scope-invalid, hash-mismatched, OCR-low-confidence, business-fact-missing, and manual-review-needed outcomes to allow, regenerate-route, refusal/insufficient-evidence, or manual review without model-chosen safety routing.
   4. System prevents non-allow verification outcomes from creating proposed actions, approval requests, action drafts, or `ActionSafetySnapshot` evidence, while still preserving existing approval/action boundaries when support passes.
   5. System passes blocking hallucination-control acceptance gates for claim support accuracy, citation support accuracy, refusal/manual-review routing, business-data hallucination, prompt/debug leakage, Level 3 trigger/timeout behavior, and fail-closed outcomes.
-**Plans**: TBD
+**Plans**: 6 plans
+
+Plans:
+- [ ] 22-01-PLAN.md — Wave 0 unit scaffolding for ContextBuilder, MaterialClaim, verifier tiers, authority boundaries, and deterministic routes.
+- [ ] 22-02-PLAN.md — Wave 0 evidence validation, leakage, graph/action/final integration, boundary, and hallucination-eval scaffolding.
+- [ ] 22-03-PLAN.md — ContextBuilder, canonical evidence re-fetch, latest/current validation, citation maps, budgeting, and prompt-safe projections.
+- [ ] 22-04-PLAN.md — MaterialClaim contracts, Level 1/2 authority verification, and risk-triggered Level 3 semantic verifier.
+- [ ] 22-05-PLAN.md — Deterministic route map, recommendation/graph integration, action-boundary hardening, and safe final responses.
+- [ ] 22-06-PLAN.md — Hallucination-control metrics/eval gate, boundary guards, leakage closure, and final Phase 22 verification.
 
 Suggested plan slices for Phase 22 planning (internal work-package guidance, not roadmap phases):
 
