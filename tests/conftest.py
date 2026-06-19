@@ -220,7 +220,7 @@ async def seeded_session(session: AsyncSession):
     policy_document = PolicyDocument(
         id=uuid.uuid4(),
         tenant_id=demo_tenant.id,
-        doc_key="refund_policy",
+        doc_key="approval_refund_policy",
         doc_type="refund_rule",
         title="售后补偿政策",
         effective_date=(now - timedelta(days=30)).date(),
@@ -239,7 +239,7 @@ async def seeded_session(session: AsyncSession):
             id=uuid.uuid4(),
             tenant_id=demo_tenant.id,
             doc_id=policy_document.id,
-            chunk_id="refund_policy#001",
+            chunk_id="approval_refund_policy#001",
             section="高风险补偿",
             content=policy_content,
             search_text=policy_content,
@@ -320,8 +320,8 @@ class _FakeLLM:
 @pytest.fixture
 def mock_llm_responses() -> dict[str, dict[str, Any]]:
     evidence_ref = {
-        "doc_key": "refund_policy",
-        "chunk_id": "refund_policy#001",
+        "doc_key": "approval_refund_policy",
+        "chunk_id": "approval_refund_policy#001",
         "title": "售后补偿政策",
         "section": "高风险补偿",
     }
@@ -504,8 +504,8 @@ class _ApprovalGraphToolManager(UnifiedToolManager):
     def _policy_result(self, ctx: ToolCallContext) -> ToolResultV2:
         evidence = EvidenceRefV1.build(
             tenant_id=ctx.tenant_id,
-            doc_key="refund_policy",
-            chunk_id="refund_policy#001",
+            doc_key="approval_refund_policy",
+            chunk_id="approval_refund_policy#001",
             policy_version="v1",
             text="补偿超过500元需人工审批。",
             retrieved_at=datetime.now(UTC).isoformat(),
@@ -565,8 +565,8 @@ def high_risk_state(seeded_session, agent_test_user) -> AgentState:
             "reasoning_summary": "建议补偿600元 CNY。",
             "evidence_refs": [
                 {
-                    "doc_key": "refund_policy",
-                    "chunk_id": "refund_policy#001",
+                    "doc_key": "approval_refund_policy",
+                    "chunk_id": "approval_refund_policy#001",
                     "title": "售后补偿政策",
                     "section": "高风险补偿",
                 }

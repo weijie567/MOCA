@@ -152,8 +152,8 @@ async def test_verified_evidence_details_uses_real_retrieval_engine_canonical_ro
     tenant_id = str(seeded_session["tenant"].id)
     evidence = EvidenceRefV1.build(
         tenant_id=tenant_id,
-        doc_key="refund_policy",
-        chunk_id="refund_policy#001",
+        doc_key="approval_refund_policy",
+        chunk_id="approval_refund_policy#001",
         policy_version="v1",
         text="补偿超过500元需人工审批。",
         retrieved_at="2026-06-19T00:00:00Z",
