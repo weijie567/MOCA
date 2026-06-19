@@ -67,7 +67,7 @@ Hard boundaries:
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 23. RAG Reranker + Query Rewrite | v1.6 | 0/TBD | Not started | - |
+| 23. RAG Reranker + Query Rewrite | v1.6 | 0/6 executed | Planned; ready to execute | - |
 
 ## Coverage
 
@@ -96,11 +96,11 @@ Requirement groups:
 
 ## Current Status
 
-v1.6 RAG Reranker + Query Rewrite is initialized as a one-phase milestone. Phase 23 is not started, no Phase 23 plans have been created, and research was intentionally skipped.
+v1.6 RAG Reranker + Query Rewrite is initialized as a one-phase milestone. Phase 23 has context, research, validation, pattern map, and six plan files. Plan-checker verification passed after one revision loop; Phase 23 is ready to execute.
 
 ## Next Step
 
-Discuss or plan Phase 23 next: `$gsd-discuss-phase 23` for clarification first, or `$gsd-plan-phase 23` if the requirements are ready to decompose.
+Execute Phase 23 next: `$gsd-execute-phase 23`.
 
 ---
 *Updated: 2026-06-20 after v1.6 roadmap creation.*
