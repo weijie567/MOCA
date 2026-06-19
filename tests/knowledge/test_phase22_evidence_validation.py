@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from uuid import uuid4
 
 import pytest
 
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1
+from src.knowledge.service import PolicyKnowledgeService
 
 
 TENANT_ID = "11111111-1111-1111-1111-111111111111"
@@ -111,6 +113,21 @@ class FakeCanonicalPolicyService:
         return result
 
 
+class FakeCanonicalRetriever:
+    def __init__(self, rows: dict[tuple[str, str], dict[str, Any]]) -> None:
+        self.rows = rows
+        self.calls: list[tuple[str, tuple[tuple[str, str], ...]]] = []
+
+    async def get_canonical_evidence_rows_by_keys(
+        self,
+        *,
+        tenant_id: Any,
+        keys: list[tuple[str, str]],
+    ) -> dict[tuple[str, str], dict[str, Any]]:
+        self.calls.append((str(tenant_id), tuple(keys)))
+        return {key: row for key, row in self.rows.items() if key in keys}
+
+
 def _json_text(value: Any) -> str:
     if hasattr(value, "model_dump"):
         return json.dumps(value.model_dump(mode="json"), ensure_ascii=False, default=str, sort_keys=True)
@@ -128,6 +145,41 @@ def _reason_codes(entry: Any) -> set[str]:
     if explicit_codes:
         return set(explicit_codes)
     return {_get(entry, "reason_code")}
+
+
+@pytest.mark.asyncio
+async def test_policy_knowledge_service_verified_details_rejects_current_row_version_mismatch() -> None:
+    """Task 2: current-row PolicyDocument.version=2 rejects incoming policy_version='v1'."""
+    tenant_id = str(uuid4())
+    text = "Current refund policy text with matching hash and valid effective date."
+    stale_version_ref = _evidence_ref(tenant_id=tenant_id, policy_version="v1", text=text)
+    row = _canonical_row(
+        stale_version_ref,
+        tenant_id=tenant_id,
+        content=text,
+        policy_document_version=2,
+        current_policy_version="v2",
+        effective_date="2026-06-01",
+    )
+    service = PolicyKnowledgeService(
+        FakeCanonicalRetriever({(stale_version_ref.doc_key, stale_version_ref.chunk_id): row})
+    )
+
+    result = await service.get_verified_evidence_details(
+        tenant_id=tenant_id,
+        evidence_refs=[stale_version_ref],
+        effective_at="2026-06-19T00:00:00+00:00",
+        merchant_scope=["merchant-001"],
+        doc_type="refund_rule",
+        risk_level="high",
+    )
+
+    assert result.included == {}
+    assert len(result.excluded) == 1
+    reason_codes = set(result.excluded[0].reason_codes)
+    assert "latest_version_invalid" in reason_codes
+    assert "text_hash_mismatch" not in reason_codes
+    assert "freshness_invalid" not in reason_codes
 
 
 def _excluded_by_evidence_id(bundle: Any) -> dict[str, Any]:

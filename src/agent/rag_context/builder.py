@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
+from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
@@ -80,16 +81,23 @@ class ContextBuilder:
         risk_labels_by_id = _risk_labels_by_evidence_id(build_input.risk_hints)
 
         retained_refs, initial_exclusions = _dedupe_candidates(build_input.candidate_evidence_refs)
-        contents = await self._verified_contents(tenant_id=tenant_id, refs=retained_refs)
+        contents, validation_exclusions = await self._validated_contents(
+            tenant_id=tenant_id,
+            refs=retained_refs,
+            trusted_context=build_input.trusted_context,
+        )
 
         included: list[_IncludedEvidence] = []
-        exclusions = list(initial_exclusions)
+        exclusions = [*initial_exclusions, *validation_exclusions]
+        excluded_ids = {entry.evidence_id for entry in exclusions}
         for ref in retained_refs:
             if not _valid_uuid(ref.tenant_id):
                 exclusions.append(_trace(ref, "tenant_id_malformed"))
                 continue
             if ref.tenant_id != tenant_id:
                 exclusions.append(_trace(ref, "tenant_mismatch"))
+                continue
+            if ref.evidence_id in excluded_ids:
                 continue
             content = contents.get(ref.evidence_id)
             if content is None:
@@ -193,6 +201,23 @@ class ContextBuilder:
             budget_trace=budget_trace,
         )
 
+    async def _validated_contents(
+        self,
+        *,
+        tenant_id: str,
+        refs: list[EvidenceRefV1],
+        trusted_context: Mapping[str, Any],
+    ) -> tuple[dict[str, str], list[EvidenceTraceEntry]]:
+        if hasattr(self.policy_service, "get_verified_evidence_details"):
+            result = await self._verified_details(tenant_id=tenant_id, refs=refs, trusted_context=trusted_context)
+            if result is not None:
+                return result
+        if hasattr(self.policy_service, "get_canonical_evidence_rows"):
+            result = await self._canonical_row_contents(tenant_id=tenant_id, refs=refs, trusted_context=trusted_context)
+            if result is not None:
+                return result
+        return await self._verified_contents(tenant_id=tenant_id, refs=refs), []
+
     async def _verified_contents(self, *, tenant_id: str, refs: list[EvidenceRefV1]) -> dict[str, str]:
         if not refs or not hasattr(self.policy_service, "get_verified_evidence_contents"):
             return {}
@@ -204,6 +229,82 @@ class ContextBuilder:
         except Exception:
             return {}
         return result if isinstance(result, dict) else {}
+
+    async def _verified_details(
+        self,
+        *,
+        tenant_id: str,
+        refs: list[EvidenceRefV1],
+        trusted_context: Mapping[str, Any],
+    ) -> tuple[dict[str, str], list[EvidenceTraceEntry]] | None:
+        try:
+            result = await self.policy_service.get_verified_evidence_details(
+                tenant_id=tenant_id,
+                evidence_refs=refs,
+                effective_at=_optional_str(trusted_context.get("effective_at")),
+                merchant_scope=_merchant_scope(trusted_context),
+                doc_type=_expected_doc_type(trusted_context),
+                risk_level=_expected_risk_level(trusted_context),
+            )
+        except Exception:
+            return None
+
+        included = _get_attr_or_key(result, "included", {})
+        raw_exclusions = _get_attr_or_key(result, "excluded", [])
+        contents: dict[str, str] = {}
+        for evidence_id, detail in dict(included).items():
+            content = _get_attr_or_key(detail, "content", None)
+            if isinstance(content, str):
+                contents[str(evidence_id)] = content
+        exclusions = [_exclusion_from_detail(item) for item in list(raw_exclusions)]
+        return contents, exclusions
+
+    async def _canonical_row_contents(
+        self,
+        *,
+        tenant_id: str,
+        refs: list[EvidenceRefV1],
+        trusted_context: Mapping[str, Any],
+    ) -> tuple[dict[str, str], list[EvidenceTraceEntry]] | None:
+        try:
+            rows = await self.policy_service.get_canonical_evidence_rows(
+                tenant_id=tenant_id,
+                evidence_refs=refs,
+            )
+        except Exception:
+            return None
+        if not isinstance(rows, dict):
+            return None
+
+        effective_at = _effective_date(_optional_str(trusted_context.get("effective_at")))
+        merchant_scope = _merchant_scope(trusted_context)
+        expected_doc_type = _expected_doc_type(trusted_context)
+        expected_risk_level = _expected_risk_level(trusted_context)
+        contents: dict[str, str] = {}
+        exclusions: list[EvidenceTraceEntry] = []
+
+        for ref in refs:
+            if not _valid_uuid(ref.tenant_id) or ref.tenant_id != tenant_id:
+                continue
+            row = rows.get((ref.doc_key, ref.chunk_id))
+            if not isinstance(row, Mapping):
+                exclusions.append(_trace(ref, "canonical_content_missing"))
+                continue
+            reason_codes = _canonical_row_reason_codes(
+                ref,
+                row,
+                effective_at=effective_at,
+                merchant_scope=merchant_scope,
+                expected_doc_type=expected_doc_type,
+                expected_risk_level=expected_risk_level,
+            )
+            if reason_codes:
+                exclusions.append(_trace(ref, reason_codes[0], reason_codes=reason_codes))
+                continue
+            content = row.get("content")
+            if isinstance(content, str):
+                contents[ref.evidence_id] = content
+        return contents, exclusions
 
     def _missing_content_reason(self, ref: EvidenceRefV1) -> str:
         authorized = getattr(self.policy_service, "authorized_evidence_ids", None)
@@ -290,11 +391,18 @@ def _sanitize_ordinary_text(value: str) -> str:
     return _LEAKAGE_SENTINEL_RE.sub("", value).strip()
 
 
-def _trace(ref: EvidenceRefV1, reason_code: str, *, citation_id: str | None = None) -> EvidenceTraceEntry:
+def _trace(
+    ref: EvidenceRefV1,
+    reason_code: str,
+    *,
+    reason_codes: list[str] | None = None,
+    citation_id: str | None = None,
+) -> EvidenceTraceEntry:
+    codes = list(dict.fromkeys(reason_codes or [reason_code]))
     return EvidenceTraceEntry(
         evidence_id=ref.evidence_id,
         reason_code=reason_code,
-        reason_codes=[reason_code],
+        reason_codes=codes,
         citation_id=citation_id,
         doc_key=ref.doc_key,
         chunk_id=ref.chunk_id,
@@ -331,3 +439,132 @@ def _valid_uuid(value: str) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _canonical_row_reason_codes(
+    ref: EvidenceRefV1,
+    row: Mapping[str, Any],
+    *,
+    effective_at: date | None,
+    merchant_scope: list[str] | None,
+    expected_doc_type: str | None,
+    expected_risk_level: str | None,
+) -> list[str]:
+    reason_codes: list[str] = []
+    content = row.get("content")
+    if not isinstance(content, str) or not content:
+        reason_codes.append("canonical_content_missing")
+    elif _text_hash(content) != ref.text_hash:
+        reason_codes.append("text_hash_mismatch")
+
+    current_policy_version = _optional_str(row.get("current_policy_version"))
+    if current_policy_version is None:
+        current_policy_version = f"v{int(row.get('policy_document_version') or 1)}"
+    if current_policy_version != ref.policy_version:
+        reason_codes.append("latest_version_invalid")
+
+    row_effective_date = _row_date(row.get("effective_date"))
+    row_expires_at = _row_date(row.get("expires_at"))
+    if effective_at is not None and row_effective_date is not None and row_effective_date > effective_at:
+        reason_codes.extend(["freshness_invalid", "effective_date_invalid"])
+    if effective_at is not None and row_expires_at is not None and row_expires_at < effective_at:
+        reason_codes.extend(["freshness_invalid", "effective_date_invalid"])
+
+    row_merchant_ids = [str(item) for item in row.get("merchant_ids") or [] if str(item)]
+    if row_merchant_ids and "*" not in (merchant_scope or []) and not set(row_merchant_ids).intersection(merchant_scope or []):
+        reason_codes.extend(["scope_invalid", "merchant_scope_invalid"])
+    row_doc_type = _optional_str(row.get("doc_type"))
+    if expected_doc_type and row_doc_type and row_doc_type != expected_doc_type:
+        reason_codes.extend(["scope_invalid", "doc_type_invalid"])
+    row_risk_level = _optional_str(row.get("risk_level"))
+    if expected_risk_level and row_risk_level and row_risk_level != expected_risk_level:
+        reason_codes.extend(["scope_invalid", "risk_level_invalid"])
+    return list(dict.fromkeys(reason_codes))
+
+
+def _text_hash(content: str) -> str:
+    from src.knowledge.text_hash import evidence_text_hash
+
+    return evidence_text_hash(content)
+
+
+def _get_attr_or_key(value: Any, key: str, default: Any = None) -> Any:
+    if isinstance(value, Mapping):
+        return value.get(key, default)
+    return getattr(value, key, default)
+
+
+def _exclusion_from_detail(value: Any) -> EvidenceTraceEntry:
+    evidence_id = str(_get_attr_or_key(value, "evidence_id", ""))
+    reason_codes = [str(code) for code in (_get_attr_or_key(value, "reason_codes", []) or []) if str(code)]
+    reason_code = str(_get_attr_or_key(value, "reason_code", reason_codes[0] if reason_codes else "canonical_content_missing"))
+    return EvidenceTraceEntry(
+        evidence_id=evidence_id,
+        reason_code=reason_code,
+        reason_codes=reason_codes or [reason_code],
+        doc_key=_optional_str(_get_attr_or_key(value, "doc_key", None)),
+        chunk_id=_optional_str(_get_attr_or_key(value, "chunk_id", None)),
+    )
+
+
+def _effective_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).date()
+    except ValueError:
+        return None
+
+
+def _row_date(value: Any) -> date | None:
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value[:10])
+        except ValueError:
+            return None
+    return None
+
+
+def _optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _merchant_scope(context: Mapping[str, Any]) -> list[str] | None:
+    value = context.get("merchant_scope")
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    scope = context.get("scope")
+    if isinstance(scope, Mapping) and isinstance(scope.get("merchant_ids"), list):
+        return [str(item) for item in scope["merchant_ids"]]
+    return None
+
+
+def _expected_doc_type(context: Mapping[str, Any]) -> str | None:
+    filters = context.get("filters")
+    if isinstance(filters, Mapping):
+        value = _optional_str(filters.get("doc_type"))
+        if value:
+            return value
+    scope = context.get("scope")
+    if isinstance(scope, Mapping) and isinstance(scope.get("doc_types"), list) and scope["doc_types"]:
+        return str(scope["doc_types"][0])
+    return None
+
+
+def _expected_risk_level(context: Mapping[str, Any]) -> str | None:
+    filters = context.get("filters")
+    if isinstance(filters, Mapping):
+        value = _optional_str(filters.get("risk_level"))
+        if value:
+            return value
+    scope = context.get("scope")
+    if isinstance(scope, Mapping) and isinstance(scope.get("risk_levels"), list) and scope["risk_levels"]:
+        return str(scope["risk_levels"][0])
+    return None

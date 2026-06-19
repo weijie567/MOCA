@@ -131,6 +131,60 @@ class PolicyChunkRepository:
             )
         return provenance
 
+    async def get_canonical_evidence_rows_by_keys(
+        self,
+        tenant_id: UUID,
+        keys: list[tuple[str, str]],
+    ) -> dict[tuple[str, str], dict[str, object]]:
+        if not keys:
+            return {}
+
+        stmt = (
+            select(
+                PolicyDocument.doc_key,
+                PolicyDocument.version,
+                PolicyDocument.doc_type,
+                PolicyDocument.effective_date,
+                PolicyChunk.chunk_id,
+                PolicyChunk.content,
+                PolicyChunk.risk_level,
+                PolicyChunk.effective_date,
+            )
+            .join(
+                PolicyDocument,
+                and_(
+                    PolicyChunk.doc_id == PolicyDocument.id,
+                    PolicyDocument.tenant_id == tenant_id,
+                ),
+            )
+            .where(
+                PolicyChunk.tenant_id == tenant_id,
+                tuple_(PolicyDocument.doc_key, PolicyChunk.chunk_id).in_(keys),
+            )
+        )
+        rows = (await self.session.execute(stmt)).all()
+        counts = Counter((row[0], row[4]) for row in rows)
+        result: dict[tuple[str, str], dict[str, object]] = {}
+        for doc_key, document_version, doc_type, document_effective_date, chunk_id, content, risk_level, chunk_effective_date in rows:
+            key = (doc_key, chunk_id)
+            if counts[key] != 1:
+                continue
+            version = int(document_version or 1)
+            result[key] = {
+                "tenant_id": str(tenant_id),
+                "doc_key": doc_key,
+                "chunk_id": chunk_id,
+                "content": content,
+                "policy_document_version": version,
+                "current_policy_version": f"v{version}",
+                "effective_date": chunk_effective_date or document_effective_date,
+                "expires_at": None,
+                "doc_type": doc_type,
+                "risk_level": risk_level,
+                "merchant_ids": [],
+            }
+        return result
+
     async def search_similar(
         self,
         query_embedding: list[float],

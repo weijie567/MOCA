@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter
-from typing import Protocol
+from datetime import date, datetime
+from typing import Any, Protocol
 from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.knowledge.config import (
     MIN_SIMILARITY_THRESHOLD,
@@ -47,6 +50,50 @@ class PolicyRetriever(Protocol):
         tenant_id: UUID,
         keys: list[tuple[str, str]],
     ) -> dict[tuple[str, str], EvidenceProvenance]: ...
+
+    async def get_canonical_evidence_rows_by_keys(
+        self,
+        *,
+        tenant_id: UUID,
+        keys: list[tuple[str, str]],
+    ) -> dict[tuple[str, str], dict[str, Any]]: ...
+
+
+class VerifiedEvidenceDetail(BaseModel):
+    """Canonical Phase 22 evidence row after service-level validation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    evidence_ref: EvidenceRefV1
+    content: str
+    policy_document_version: int
+    current_policy_version: str
+    effective_date: date | None = None
+    expires_at: date | None = None
+    doc_type: str | None = None
+    risk_level: str | None = None
+    merchant_ids: list[str] = Field(default_factory=list)
+
+
+class VerifiedEvidenceExclusion(BaseModel):
+    """Typed fail-closed exclusion for an invalid Phase 22 evidence ref."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    evidence_id: str
+    reason_code: str
+    reason_codes: list[str]
+    doc_key: str | None = None
+    chunk_id: str | None = None
+
+
+class VerifiedEvidenceDetailsResult(BaseModel):
+    """Batch result for Phase 22 canonical evidence validation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    included: dict[str, VerifiedEvidenceDetail] = Field(default_factory=dict)
+    excluded: list[VerifiedEvidenceExclusion] = Field(default_factory=list)
 
 
 class PolicyKnowledgeService:
@@ -209,6 +256,122 @@ class PolicyKnowledgeService:
             result[ref.evidence_id] = provenance
         return result
 
+    async def get_canonical_evidence_rows(
+        self,
+        *,
+        tenant_id: str,
+        evidence_refs: list[EvidenceRefV1],
+    ) -> dict[tuple[str, str], dict[str, Any]]:
+        """Return canonical document/chunk metadata under tenant predicates."""
+        try:
+            tenant_uuid = UUID(tenant_id)
+        except ValueError:
+            return {}
+
+        key_counts = Counter((ref.doc_key, ref.chunk_id) for ref in evidence_refs)
+        keys = [key for key, count in key_counts.items() if count == 1 and all(key)]
+        if not keys or not hasattr(self.retriever, "get_canonical_evidence_rows_by_keys"):
+            return {}
+
+        try:
+            rows = await self.retriever.get_canonical_evidence_rows_by_keys(
+                tenant_id=tenant_uuid,
+                keys=keys,
+            )
+        except Exception:
+            return {}
+        return rows if isinstance(rows, dict) else {}
+
+    async def get_verified_evidence_details(
+        self,
+        *,
+        tenant_id: str,
+        evidence_refs: list[EvidenceRefV1],
+        effective_at: str | None = None,
+        merchant_scope: list[str] | None = None,
+        doc_type: str | None = None,
+        risk_level: str | None = None,
+    ) -> VerifiedEvidenceDetailsResult:
+        """Validate Phase 22 evidence refs with typed current-row reason codes."""
+        effective_date = _effective_date(effective_at)
+        try:
+            UUID(tenant_id)
+        except ValueError:
+            return VerifiedEvidenceDetailsResult(
+                excluded=[_detail_exclusion(ref, ["tenant_id_malformed"]) for ref in evidence_refs]
+            )
+
+        key_counts = Counter((ref.doc_key, ref.chunk_id) for ref in evidence_refs)
+        query_refs = [ref for ref in evidence_refs if key_counts[(ref.doc_key, ref.chunk_id)] == 1 and ref.doc_key and ref.chunk_id]
+        rows = await self.get_canonical_evidence_rows(tenant_id=tenant_id, evidence_refs=query_refs)
+
+        included: dict[str, VerifiedEvidenceDetail] = {}
+        excluded: list[VerifiedEvidenceExclusion] = []
+        for ref in evidence_refs:
+            reason_codes: list[str] = []
+            key = (ref.doc_key, ref.chunk_id)
+            if not _valid_uuid(ref.tenant_id):
+                reason_codes.append("tenant_id_malformed")
+            elif ref.tenant_id != tenant_id:
+                reason_codes.append("tenant_mismatch")
+            if key_counts[key] > 1:
+                reason_codes.append("duplicate_evidence_key")
+
+            row = rows.get(key) if not reason_codes else None
+            if row is None and not reason_codes:
+                reason_codes.append("canonical_content_missing")
+            if reason_codes:
+                excluded.append(_detail_exclusion(ref, reason_codes))
+                continue
+
+            row_content = str(row.get("content") or "")
+            current_policy_version = str(
+                row.get("current_policy_version") or f"v{int(row.get('policy_document_version') or 1)}"
+            )
+            row_effective_date = _row_date(row.get("effective_date"))
+            row_expires_at = _row_date(row.get("expires_at"))
+            row_doc_type = _optional_str(row.get("doc_type"))
+            row_risk_level = _optional_str(row.get("risk_level"))
+            row_merchant_ids = [str(item) for item in row.get("merchant_ids") or [] if str(item)]
+
+            if not row_content:
+                reason_codes.append("canonical_content_missing")
+            elif evidence_text_hash(row_content) != ref.text_hash:
+                reason_codes.append("text_hash_mismatch")
+            if current_policy_version != ref.policy_version:
+                reason_codes.append("latest_version_invalid")
+            if effective_date is not None and row_effective_date is not None and row_effective_date > effective_date:
+                reason_codes.extend(["freshness_invalid", "effective_date_invalid"])
+            if effective_date is not None and row_expires_at is not None and row_expires_at < effective_date:
+                reason_codes.extend(["freshness_invalid", "effective_date_invalid"])
+            reason_codes.extend(
+                _scope_reason_codes(
+                    merchant_scope=merchant_scope,
+                    row_merchant_ids=row_merchant_ids,
+                    expected_doc_type=doc_type,
+                    row_doc_type=row_doc_type,
+                    expected_risk_level=risk_level,
+                    row_risk_level=row_risk_level,
+                )
+            )
+
+            if reason_codes:
+                excluded.append(_detail_exclusion(ref, reason_codes))
+                continue
+
+            included[ref.evidence_id] = VerifiedEvidenceDetail(
+                evidence_ref=ref,
+                content=row_content,
+                policy_document_version=int(row.get("policy_document_version") or 1),
+                current_policy_version=current_policy_version,
+                effective_date=row_effective_date,
+                expires_at=row_expires_at,
+                doc_type=row_doc_type,
+                risk_level=row_risk_level,
+                merchant_ids=row_merchant_ids,
+            )
+        return VerifiedEvidenceDetailsResult(included=included, excluded=excluded)
+
     @staticmethod
     def _no_evidence_result() -> KnowledgeSearchResult:
         return KnowledgeSearchResult(
@@ -235,3 +398,70 @@ class PolicyKnowledgeService:
                 "retryable": retryable,
             },
         )
+
+
+def _detail_exclusion(ref: EvidenceRefV1, reason_codes: list[str]) -> VerifiedEvidenceExclusion:
+    ordered = list(dict.fromkeys(reason_codes))
+    return VerifiedEvidenceExclusion(
+        evidence_id=ref.evidence_id,
+        reason_code=ordered[0],
+        reason_codes=ordered,
+        doc_key=ref.doc_key,
+        chunk_id=ref.chunk_id,
+    )
+
+
+def _effective_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).date()
+    except ValueError:
+        return None
+
+
+def _row_date(value: Any) -> date | None:
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value[:10])
+        except ValueError:
+            return None
+    return None
+
+
+def _optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _valid_uuid(value: str) -> bool:
+    try:
+        UUID(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _scope_reason_codes(
+    *,
+    merchant_scope: list[str] | None,
+    row_merchant_ids: list[str],
+    expected_doc_type: str | None,
+    row_doc_type: str | None,
+    expected_risk_level: str | None,
+    row_risk_level: str | None,
+) -> list[str]:
+    reason_codes: list[str] = []
+    if row_merchant_ids and "*" not in (merchant_scope or []) and not set(row_merchant_ids).intersection(merchant_scope or []):
+        reason_codes.extend(["scope_invalid", "merchant_scope_invalid"])
+    if expected_doc_type and row_doc_type and row_doc_type != expected_doc_type:
+        reason_codes.extend(["scope_invalid", "doc_type_invalid"])
+    if expected_risk_level and row_risk_level and row_risk_level != expected_risk_level:
+        reason_codes.extend(["scope_invalid", "risk_level_invalid"])
+    return reason_codes
