@@ -97,20 +97,20 @@ Tracked but not in the active v1.4 roadmap.
 | SRC-04 | Phase 21 | Complete |
 | SRC-05 | Phase 21 | Complete |
 | PROV-01 | Phase 21 | Complete |
-| PROV-02 | Phase 21 | Pending |
+| PROV-02 | Phase 21 | Complete |
 | PROV-03 | Phase 21 | Complete |
 | PROV-04 | Phase 21 | Complete |
-| CHUNK-01 | Phase 21 | Pending |
+| CHUNK-01 | Phase 21 | Complete |
 | CHUNK-02 | Phase 21 | Complete |
-| CHUNK-03 | Phase 21 | Pending |
-| CHUNK-04 | Phase 21 | Pending |
+| CHUNK-03 | Phase 21 | Complete |
+| CHUNK-04 | Phase 21 | Complete |
 | OCR-01 | Phase 21 | Complete |
 | OCR-02 | Phase 21 | Complete |
 | SAFE-01 | Phase 21 | Complete |
 | SAFE-02 | Phase 21 | Complete |
 | SAFE-03 | Phase 21 | Complete |
 | INGEST-01 | Phase 21 | Complete |
-| INGEST-02 | Phase 21 | Pending |
+| INGEST-02 | Phase 21 | Complete |
 | INGEST-03 | Phase 21 | Complete |
 | INGEST-04 | Phase 21 | Complete |
 | BOUNDARY-01 | Phase 21 | Complete |
@@ -124,11 +124,11 @@ Tracked but not in the active v1.4 roadmap.
 - Mapped to phases: 26
 - Unmapped: 0
 
-**Wave 0 scaffold status:**
+**Final acceptance status:**
 
-- 21-00 created automated scaffold tests for all 26 requirement IDs.
-- Requirement statuses remain Pending until implementation plans remove their owned strict xfails and pass the corresponding acceptance gates.
+- 21-05a accepted all 26 requirement IDs with focused/full pytest, Ruff, migration, OCR runtime preflight, xfail inventory, and scope guard evidence in `21-ACCEPTANCE.md`.
+- Dependency-only statuses are recorded separately for missing local `chi_sim` OCR traineddata and the optional live DB migration round trip when `MOCA_TEST_DATABASE_URL` is unset.
 
 ---
 *Requirements defined: 2026-06-18*
-*Last updated: 2026-06-18 after 21-00 validation scaffold*
+*Last updated: 2026-06-19 after 21-05a final acceptance gate*

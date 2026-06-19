@@ -78,7 +78,7 @@
 
 ### Active Milestone: v1.4 RAG Production Ingestion + OCR
 
-- [ ] **Phase 21: RAG Production Ingestion + OCR** - Parser/OCR ingestion and source-block provenance for PDF, DOCX, image, scanned-PDF, Markdown, and plain-text policy sources while preserving v1.3 evidence and retrieval contracts.
+- [x] **Phase 21: RAG Production Ingestion + OCR** - Parser/OCR ingestion and source-block provenance for PDF, DOCX, image, scanned-PDF, Markdown, and plain-text policy sources while preserving v1.3 evidence and retrieval contracts.
 
 ## Phase Details
 
@@ -108,7 +108,7 @@ Plans:
 - [x] 21-04-PLAN.md — Verified provenance lookup and safe trace reporting
 - [x] 21-04a-PLAN.md — Phase 21 boundary regression
 - [x] 21-05-PLAN.md — Migration rollback and security closure
-- [ ] 21-05a-PLAN.md — Final Phase 21 acceptance gate
+- [x] 21-05a-PLAN.md — Final Phase 21 acceptance gate
 
 **Planning prerequisites**:
 - Treat research work packages 21.1-21.5 as Phase 21 implementation slices, not separate roadmap phases.
@@ -138,17 +138,17 @@ Plans:
 
 ## Current Status
 
-v1.4 RAG Production Ingestion + OCR is active and scoped to Phase 21 only. The milestone turns v1.3 hybrid retrieval into a production ingestion foundation for PDF, DOCX, image/scanned-PDF, Markdown, and plain-text policy sources with parser/OCR traceability, durable source-block provenance, table-aware chunking, and rollback-safe ingestion. Phase 21 must preserve `PolicyKnowledgeService`, `PolicyChunk.content`, `PolicyChunk.search_text`, `EvidenceRefV1`, Tool System facts, memory boundaries, approval snapshots, and replay contracts.
+v1.4 RAG Production Ingestion + OCR is accepted and ready for final verification/milestone closure. The milestone turns v1.3 hybrid retrieval into a production ingestion foundation for PDF, DOCX, image/scanned-PDF, Markdown, and plain-text policy sources with parser/OCR traceability, durable source-block provenance, table-aware chunking, and rollback-safe ingestion while preserving `PolicyKnowledgeService`, `PolicyChunk.content`, `PolicyChunk.search_text`, `EvidenceRefV1`, Tool System facts, memory boundaries, approval snapshots, and replay contracts.
 
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 21. RAG Production Ingestion + OCR | v1.4 | 8/9 | Executing; migration rollback/security closure complete | - |
+| 21. RAG Production Ingestion + OCR | v1.4 | 9/9 | Complete; final acceptance gate passed | 2026-06-19 |
 
 ## Next Step
 
-Run `$gsd-execute-phase 21` to continue with `21-05a-PLAN.md`.
+Run final GSD verification or `$gsd-complete-milestone` for v1.4 closure.
 
 ---
-*Updated: 2026-06-19 - Phase 21 Plan 05 migration rollback/security closure complete.*
+*Updated: 2026-06-19 - Phase 21 Plan 05a final acceptance gate complete.*

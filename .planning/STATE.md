@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: RAG Production Ingestion + OCR
 current_phase: 21
-status: executing
-stopped_at: Completed 21-05-PLAN.md
-last_updated: "2026-06-18T23:53:42.314Z"
-last_activity: 2026-06-19 -- 21-05 migration rollback/security closure complete
+status: verifying
+stopped_at: Completed 21-05a-PLAN.md
+last_updated: "2026-06-19T00:12:46.462Z"
+last_activity: 2026-06-19 -- 21-05a final acceptance gate complete
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 9
-  completed_plans: 8
-  percent: 89
+  completed_plans: 9
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -22,17 +22,17 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-18)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 21 RAG Production Ingestion + OCR — executing
+**Current focus:** Phase 21 RAG Production Ingestion + OCR — accepted; ready for verification
 
 ## Current Position
 
-Phase: 21 of 21 (RAG Production Ingestion + OCR) — EXECUTING
+Phase: 21 of 21 (RAG Production Ingestion + OCR) — ACCEPTED; READY FOR VERIFICATION
 Plan: 9 of 9
-Plans: 8/9 complete
-Status: Ready to execute 21-05a-PLAN.md
-Last activity: 2026-06-19 -- 21-05 migration rollback/security closure complete
+Plans: 9/9 complete
+Status: Phase complete — ready for verification
+Last activity: 2026-06-19 -- 21-05a final acceptance gate complete
 
-Progress: [█████████░] 89%
+Progress: [██████████] 100%
 
 Planning files:
 
@@ -204,6 +204,8 @@ Phase 7 Contract Baseline completed on 2026-06-06.
 - Phase 21 Plan 05: Optional live migration coverage is destructive by design and only runs when MOCA_TEST_DATABASE_URL is explicitly set.
 - Phase 21 Plan 05: Downgrade tests assert Phase 21 provenance columns drop before Phase 21 tables/document metadata while avoiding a false job-to-block table dependency.
 - Phase 21 Plan 05: Final xfail inventory keeps PHASE21_XFAIL_OWNERS for audit readability but removes the obsolete strict xfail helper and all implementation-pending entries.
+- Phase 21 final acceptance is accepted with dependency-only statuses for missing chi_sim OCR traineddata and unset MOCA_TEST_DATABASE_URL.
+- Phase 21 scope guard confirms no Phase 22/23/RAG-5 deliverables were implemented; existing v1.3 query rewrite/rerank compatibility names remain allowed at known sites.
 
 ## Accumulated Context
 
@@ -309,19 +311,20 @@ Items acknowledged and deferred at milestone close on 2026-06-18:
 | Phase 21 P04 | 9m 29s | 2 tasks | 10 files |
 | Phase 21 P04a | 6m | 1 tasks | 6 files |
 | Phase 21 P05 | 7m 42s | 2 tasks | 4 files |
+| Phase 21 P05a | 14m 6s | 1 tasks | 2 files |
 
 ## Session Continuity
 
-Last session: 2026-06-18T23:53:42.304Z
-Stopped at: Completed 21-05-PLAN.md
+Last session: 2026-06-19T00:12:46.453Z
+Stopped at: Completed 21-05a-PLAN.md
 Resume file: None
-Next: Continue with `21-05a-PLAN.md`.
+Next: Run final GSD verification or close the v1.4 milestone.
 
 **Archived Milestone:** v1.1 Agent Architecture Migration — shipped 2026-06-17
 **Completed Milestone:** v1.2 Long-term / Case Memory — shipped 2026-06-17
 **Archived Milestone:** v1.3 RAG Hybrid Retrieval — shipped 2026-06-18
 
 **Completed Phase:** 20 (RAG Hybrid Retrieval) — 1 plan — UAT/security verified 2026-06-18
-**Current Phase:** 21 (RAG Production Ingestion + OCR) — executing
+**Current Phase:** 21 (RAG Production Ingestion + OCR) — accepted; ready for verification
 
 **Planned Phase:** 21 (RAG Production Ingestion + OCR) — 9 plans — 2026-06-18T15:36:45.369Z
