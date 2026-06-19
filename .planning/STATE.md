@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: RAG Reranker + Query Rewrite
-status: ready_to_execute
+status: executing
 stopped_at: Phase 23 planned; ready to execute
-last_updated: "2026-06-20T07:05:48+08:00"
-last_activity: 2026-06-20
+last_updated: "2026-06-20T07:29:39+08:00"
+last_activity: 2026-06-20 -- Phase 23 execution started
 progress:
   total_phases: 1
   completed_phases: 0
@@ -21,14 +21,14 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-20)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 23 — RAG Reranker + Query Rewrite
+**Current focus:** Phase 23 — rag-reranker-query-rewrite
 
 ## Current Position
 
-Phase: 23 (1 of 1 active phase: RAG Reranker + Query Rewrite) — PLANNED
-Plan: 6 plans created and verified
-Status: Ready to execute Phase 23
-Last activity: 2026-06-20 — Planned Phase 23 and passed plan-checker verification
+Phase: 23 (rag-reranker-query-rewrite) — EXECUTING
+Plan: 1 of 6
+Status: Executing Phase 23
+Last activity: 2026-06-20 -- Phase 23 execution started
 
 Progress: [----------] 0%
 
