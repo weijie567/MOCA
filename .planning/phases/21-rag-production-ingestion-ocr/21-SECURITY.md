@@ -6,6 +6,7 @@ threats_open: 0
 asvs_level: 1
 created: 2026-06-19T03:29:40Z
 verified: 2026-06-19T03:29:40Z
+post_dependency_gate_utc: 2026-06-19T04:07:57Z
 ---
 
 # Phase 21 - Security
@@ -41,27 +42,29 @@ Per-phase security contract for RAG production ingestion and OCR.
 | Check | Result |
 |-------|--------|
 | Focused job trace regression | `uv run pytest tests/rag/test_ingestion_jobs.py tests/rag/test_document_block_schema.py -q` -> `22 passed, 1 warning`. |
-| Phase 21 broader regression | `uv run pytest tests/rag tests/knowledge tests/test_ingestion.py tests/test_chunker.py tests/test_rag_production_migration.py -q` -> `215 passed, 1 skipped, 1 warning`. |
 | Ruff | `uv run ruff check src tests` -> `All checks passed`. |
-| Previous full regression | `uv run pytest -q` after Phase 21 trace-field hardening -> `1133 passed, 1 skipped, 6 warnings`. |
+| Post-dependency full regression | `MOCA_TEST_DATABASE_URL=... uv run pytest -q --tb=short -rs` against disposable `pgvector/pgvector:pg16` -> `1136 passed, 9 warnings`. |
+| Live migration + OCR dependency gates | `MOCA_TEST_DATABASE_URL=... uv run pytest tests/test_rag_production_migration.py tests/rag/test_ocr_parser.py tests/rag/test_pdf_parser.py -q -rs` -> `28 passed, 4 warnings`. |
+| OCR runtime preflight | `check_ocr_runtime()` -> `available=True`, `failure_code=None`, `missing_languages=()`, version `tesseract 5.5.2`. |
 | Xfail/pending inventory | Scoped Phase 21 xfail/pending search has no implementation-pending matches; `PHASE21_XFAIL_OWNERS={}` in acceptance evidence. |
 
 ## Accepted Risks Log
 
 No accepted risks.
 
-Dependency-only statuses are tracked but are not accepted implementation risks:
+Previously dependency-only gates were rerun and resolved locally:
 
 | Dependency | Status | Follow-up |
 |------------|--------|-----------|
-| Native `chi_sim` OCR traineddata | Missing locally; OCR preflight fails closed with `OCR_LANGUAGE_UNAVAILABLE`. | Install `chi_sim` in runtime/CI before live Simplified Chinese OCR validation. |
-| Optional live DB migration round trip | Skipped because `MOCA_TEST_DATABASE_URL` is unset; static migration downgrade/reupgrade assertions pass. | Run against a disposable PostgreSQL database when the env var is available. |
+| Native `chi_sim` OCR traineddata | Installed locally; OCR preflight passes with `chi_sim+eng` available. | Keep `chi_sim` installed in runtime/CI. |
+| Optional live DB migration round trip | Passed against disposable `pgvector/pgvector:pg16` PostgreSQL using `MOCA_TEST_DATABASE_URL`. | Keep a pgvector-capable disposable DB available for live migration gates. |
 
 ## Security Audit Trail
 
 | Audit Date | Threats Total | Closed | Open | Run By | Evidence |
 |------------|---------------|--------|------|--------|----------|
 | 2026-06-19 | 8 | 8 | 0 | Codex / gsd-secure-phase | Phase 21 artifacts, focused/broader tests, Ruff, commits `5034232`, `7a6a9d7`, `6ee235b`, `01716e2`. |
+| 2026-06-19 | 8 | 8 | 0 | Codex / post-dependency gates | Full pytest with disposable pgvector DB, live migration round trip, OCR parser/PDF parser tests, and `chi_sim+eng` preflight. |
 
 ## Sign-Off
 

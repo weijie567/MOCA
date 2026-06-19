@@ -1,9 +1,10 @@
 ---
 phase: 21-rag-production-ingestion-ocr
 artifact: final-acceptance
-status: ACCEPTED_WITH_DEPENDENCY_ONLY_SKIPS
+status: ACCEPTED
 baseline: f84b2bd
 created_utc: 2026-06-18T23:56:50Z
+post_dependency_gate_utc: 2026-06-19T04:07:57Z
 requirements:
   - SRC-01
   - SRC-02
@@ -44,14 +45,14 @@ threat_refs:
 
 # Phase 21 Final Acceptance
 
-**Acceptance status:** `ACCEPTED_WITH_DEPENDENCY_ONLY_SKIPS`
+**Acceptance status:** `ACCEPTED`
 
-All 26 Phase 21 requirement IDs and all eight Phase 21 threat refs have automated coverage from passing tests or explicit dependency/configuration status. No implementation gap is being accepted as complete.
+All 26 Phase 21 requirement IDs and all eight Phase 21 threat refs have automated coverage from passing tests. No implementation gap is being accepted as complete.
 
-Dependency-only statuses:
+Post-dependency gate status:
 
-- Native OCR preflight correctly fails closed on this machine because `chi_sim` traineddata is not installed. OCR implementation and preflight behavior are covered by passing tests; live Simplified Chinese OCR execution remains a local runtime dependency, not an implementation gap.
-- Optional live DB migration round trip is skipped because `MOCA_TEST_DATABASE_URL` is unset. Static migration rollback/reupgrade assertions passed; a disposable live PostgreSQL round trip should be run when the environment variable is provided.
+- Native `chi_sim` traineddata is installed locally. OCR preflight now reports `available=True` with `missing_languages=()`.
+- Optional live DB migration round trip was executed against a disposable `pgvector/pgvector:pg16` PostgreSQL database via `MOCA_TEST_DATABASE_URL`.
 
 ## Command Evidence
 
@@ -83,16 +84,17 @@ Result:
 Command:
 
 ```bash
-uv run pytest -q --tb=short
+MOCA_TEST_DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:54329/moca_phase21_migration_test" \
+  uv run pytest -q --tb=short -rs
 ```
 
 Result:
 
 ```text
-1119 passed, 1 skipped, 6 warnings in 552.74s (0:09:12)
+1136 passed, 9 warnings in 543.23s (0:09:03)
 ```
 
-The one skipped test is the optional live DB migration round trip recorded below.
+No skipped tests were reported in the post-dependency full pytest gate.
 
 ### Ruff Gate
 
@@ -113,31 +115,37 @@ All checks passed!
 Command:
 
 ```bash
-uv run pytest tests/test_rag_production_migration.py -q -rs
+MOCA_TEST_DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:54329/moca_phase21_migration_test" \
+  uv run pytest tests/test_rag_production_migration.py tests/rag/test_ocr_parser.py tests/rag/test_pdf_parser.py -q -rs
 ```
 
 Result:
 
 ```text
-........s                                                                [100%]
+............................                                             [100%]
 =============================== warnings summary ===============================
 .venv/lib/python3.12/site-packages/langgraph/checkpoint/serde/encrypted.py:5
   /Users/ming/projects/MOCA/.venv/lib/python3.12/site-packages/langgraph/checkpoint/serde/encrypted.py:5: LangChainPendingDeprecationWarning: The default value of `allowed_objects` will change in a future version. Pass an explicit value (e.g., allowed_objects='messages' or allowed_objects='core') to suppress this warning.
     from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
+tests/test_rag_production_migration.py::test_phase21_migration_live_downgrade_round_trip_when_configured
+tests/test_rag_production_migration.py::test_phase21_migration_live_downgrade_round_trip_when_configured
+tests/test_rag_production_migration.py::test_phase21_migration_live_downgrade_round_trip_when_configured
+  /Users/ming/projects/MOCA/.venv/lib/python3.12/site-packages/alembic/config.py:612: DeprecationWarning: No path_separator found in configuration; falling back to legacy splitting on spaces, commas, and colons for prepend_sys_path.  Consider adding path_separator=os to Alembic config.
+    util.warn_deprecated(
+
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-=========================== short test summary info ============================
-SKIPPED [1] tests/test_rag_production_migration.py:234: MOCA_TEST_DATABASE_URL not set; skipping optional live DB migration round trip
-8 passed, 1 skipped, 1 warning in 0.07s
+28 passed, 4 warnings in 1.32s
 ```
 
 Environment confirmation:
 
 ```text
-MOCA_TEST_DATABASE_URL=<unset>
+MOCA_TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:54329/moca_phase21_migration_test
+database_image=pgvector/pgvector:pg16
 ```
 
-Decision: `INGEST-04` is accepted on static migration coverage plus explicit dependency/config skip for the optional live DB downgrade/reupgrade command. This is not an implementation gap.
+Decision: `INGEST-04` is accepted on static migration coverage plus live disposable PostgreSQL downgrade/reupgrade coverage.
 
 ### OCR Runtime Preflight Status
 
@@ -158,14 +166,14 @@ PY
 Result:
 
 ```text
-available=False
-failure_code=OCR_LANGUAGE_UNAVAILABLE
-installed_languages=('eng', 'osd', 'snum')
-missing_languages=('chi_sim',)
-version=tesseract 5.5.0
+available=True
+failure_code=None
+installed_languages includes chi_sim and eng
+missing_languages=()
+version=tesseract 5.5.2
 ```
 
-Decision: `SRC-05` and `OCR-02` are accepted with passing parser/OCR tests and explicit native dependency status. Missing `chi_sim` is recorded separately from implementation gaps.
+Decision: `SRC-05` and `OCR-02` are accepted with passing parser/OCR tests and live native `chi_sim+eng` OCR preflight.
 
 ### Wave 0 / Xfail Inventory Status
 
@@ -239,7 +247,7 @@ Scope decision:
 | SRC-02 | Covered | `tests/rag/test_parser_contract.py`; focused suite passed. |
 | SRC-03 | Covered | `tests/rag/test_pdf_parser.py`; focused suite passed. |
 | SRC-04 | Covered | `tests/rag/test_docx_parser.py`; focused suite passed. |
-| SRC-05 | Covered with dependency status | `tests/rag/test_ocr_parser.py`; focused suite passed. Native preflight reports missing `chi_sim` and fails closed. |
+| SRC-05 | Covered | `tests/rag/test_ocr_parser.py`; focused suite passed; live native preflight reports `chi_sim+eng` available. |
 | PROV-01 | Covered | `tests/rag/test_document_block_schema.py`; focused suite passed. |
 | PROV-02 | Covered | `tests/rag/test_block_chunker.py`; focused suite passed. |
 | PROV-03 | Covered | `tests/knowledge/test_provenance_lookup.py`; focused suite passed. |
@@ -249,14 +257,14 @@ Scope decision:
 | CHUNK-03 | Covered | `tests/rag/test_block_chunker.py`, `tests/rag/test_search_text.py`, `tests/knowledge/test_text_hash.py`; focused suite passed. |
 | CHUNK-04 | Covered | `tests/test_ingestion.py`, versioning tests; focused suite passed. |
 | OCR-01 | Covered | `tests/rag/test_ocr_parser.py`, hybrid retrieval boundary tests; focused suite passed. |
-| OCR-02 | Covered with dependency status | OCR confidence threshold and fail-closed preflight tests passed. Native `chi_sim` is unavailable locally and recorded as dependency status. |
+| OCR-02 | Covered | OCR confidence threshold and fail-closed preflight tests passed; native `chi_sim+eng` preflight passed locally. |
 | SAFE-01 | Covered | `tests/rag/test_ingestion_safety.py`, `tests/rag/test_ocr_parser.py`; focused suite passed. |
 | SAFE-02 | Covered | `tests/rag/test_ingestion_safety.py`, `tests/rag/test_ingestion_jobs.py`, `tests/knowledge/test_phase21_boundaries.py`; focused suite passed. |
 | SAFE-03 | Covered | `tests/rag/test_ingestion_safety.py`, `tests/test_ingestion.py`; focused suite passed. |
 | INGEST-01 | Covered | `tests/rag/test_ingestion_jobs.py`; focused suite passed. |
 | INGEST-02 | Covered | `tests/test_ingestion.py`, `tests/rag/test_ingestion_jobs.py`; focused suite passed. |
 | INGEST-03 | Covered | `tests/test_ingestion.py`, `tests/rag/test_ingestion_jobs.py`; focused suite passed. |
-| INGEST-04 | Covered with dependency skip | `tests/test_rag_production_migration.py` static migration tests passed; optional live DB round trip skipped because `MOCA_TEST_DATABASE_URL` is unset. |
+| INGEST-04 | Covered | `tests/test_rag_production_migration.py` static migration tests passed; live DB downgrade/reupgrade passed against disposable `pgvector/pgvector:pg16`. |
 | BOUNDARY-01 | Covered | `tests/knowledge/test_phase21_boundaries.py` plus full suite evidence/snapshot/replay tests; full pytest passed. |
 | BOUNDARY-02 | Covered | `tests/knowledge/test_hybrid_retrieval.py`, `tests/knowledge/test_hybrid_schema.py`; focused/full suites passed. |
 | BOUNDARY-03 | Covered | `tests/knowledge/test_phase21_boundaries.py`; scope guard passed. |
@@ -267,8 +275,8 @@ Scope decision:
 | Threat | Status | Evidence |
 |---|---|---|
 | T21-01 | Mitigated | Source type/signature routing and parser/source guard tests passed. |
-| T21-02 | Mitigated with optional DB dependency skip | Size/page/image/zip hazard tests and static migration rollback tests passed; optional live DB round trip skipped due unset `MOCA_TEST_DATABASE_URL`. |
-| T21-03 | Mitigated with OCR dependency status | Parser/OCR timeout and rollback tests passed; native OCR preflight reports missing `chi_sim` and fails closed. |
+| T21-02 | Mitigated | Size/page/image/zip hazard tests and static migration rollback tests passed; live DB round trip passed against disposable `pgvector/pgvector:pg16`. |
+| T21-03 | Mitigated | Parser/OCR timeout and rollback tests passed; native OCR preflight reports `chi_sim+eng` available. |
 | T21-04 | Mitigated | Hidden prompt injection, raw payload, prompt/API/memory/action/replay boundary tests passed. |
 | T21-05 | Mitigated | Verified tenant/hash provenance lookup and cross-tenant/hash mismatch tests passed. |
 | T21-06 | Mitigated | Business artifact and Tool System output rejection tests passed. |
@@ -281,6 +289,5 @@ None.
 
 ## Residual Risk
 
-- Live Simplified Chinese OCR execution still depends on installing `chi_sim` traineddata in the runtime environment.
-- Live downgrade/reupgrade against PostgreSQL still depends on setting `MOCA_TEST_DATABASE_URL` to a disposable database.
+- Runtime/CI environments must retain `chi_sim` traineddata and pgvector-capable PostgreSQL for these live gates to remain executable.
 - The full suite emits only existing dependency/deprecation warnings; no Phase 21 acceptance blocker remains.

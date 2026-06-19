@@ -4,9 +4,8 @@ verified: 2026-06-19T00:29:09Z
 status: passed
 score: 33/33 must-haves verified
 overrides_applied: 0
-dependency_only_statuses:
-  - "Native OCR preflight fails closed because chi_sim traineddata is not installed; implementation and fail-closed behavior are covered by tests."
-  - "Optional live DB migration round trip is skipped because MOCA_TEST_DATABASE_URL is unset; static downgrade/reupgrade assertions pass."
+post_dependency_gate_utc: 2026-06-19T04:07:57Z
+dependency_only_statuses: []
 ---
 
 # Phase 21: RAG Production Ingestion + OCR Verification Report
@@ -22,11 +21,11 @@ dependency_only_statuses:
 
 | # | Truth | Status | Evidence |
 |---|---|---|---|
-| 1 | Maintainer can ingest Markdown/plain text, PDF, DOCX, image, and scanned-PDF policy sources through project-owned parser DTOs and receive deterministic parser/OCR status, warnings, safe failure codes, counts, timings, and version metadata. | VERIFIED | `src/rag/parsers/base.py` defines project DTOs; `src/rag/parsers/registry.py` registers Markdown/plain/PDF/DOCX/image adapters by default; native adapters in `pdf.py`, `docx.py`, `image.py`, `ocr.py` return `ParseResult`/`ParsedBlock`; ingestion job traces are persisted and reported safely. Tests: focused Phase 21 suite 191 passed; parser/PDF/DOCX/OCR/job tests present and passing. |
+| 1 | Maintainer can ingest Markdown/plain text, PDF, DOCX, image, and scanned-PDF policy sources through project-owned parser DTOs and receive deterministic parser/OCR status, warnings, safe failure codes, counts, timings, and version metadata. | VERIFIED | `src/rag/parsers/base.py` defines project DTOs; `src/rag/parsers/registry.py` registers Markdown/plain/PDF/DOCX/image adapters by default; native adapters in `pdf.py`, `docx.py`, `image.py`, `ocr.py` return `ParseResult`/`ParsedBlock`; ingestion job traces are persisted and reported safely. Tests: focused Phase 21 suite 191 passed; parser/PDF/DOCX/OCR/job tests present and passing; post-dependency OCR preflight reports `chi_sim+eng` available. |
 | 2 | Retrieved policy evidence still uses schema-compatible `EvidenceRefV1`, canonical citation text, stable content hashes, v1.3 dense/sparse/fuzzy filters, RRF ordering, and normalized evidence confidence. | VERIFIED | `src/knowledge/schemas.py` keeps `EvidenceRefV1` shape; `src/knowledge/retrieval.py` still builds canonical refs from chunk content and uses dense/sparse/fuzzy, RRF, and normalized confidence. Tests cover text hash isolation, hybrid retrieval, evidence projection, and boundary serialization. |
 | 3 | Maintainer can resolve a retrieved evidence ref to tenant-scoped source-block provenance after content/hash validation, including page, bbox, table row/cell, parser metadata, and OCR confidence when metadata exists. | VERIFIED | `PolicyKnowledgeService.get_verified_evidence_provenance(...)` validates tenant UUID, unique keys, ref tenant, content presence, and `evidence_text_hash` before fetching provenance; `PolicyChunkRepository.get_provenance_by_evidence_keys(...)` expands ordered source refs through tenant/doc-scoped `DocumentBlock` rows. Tests verify page/bbox/table/OCR locators and hash/tenant failure cases. |
 | 4 | Table and OCR-derived chunks preserve faithful visible citation text, row/header/cell context, retrieval-only `search_text` enrichment, and deterministic low-confidence OCR quarantine or review-needed behavior. | VERIFIED | `chunk_blocks(...)` derives chunk content from visible block text and ordered source refs; table chunking repeats headers and preserves row/cell metadata; `build_policy_chunk_search_text(...)` enriches retrieval text without mutating content/hash; OCR thresholds classify accepted/review/rejected at 80/55 boundaries. Tests cover block chunking, table metadata, search text, OCR confidence, and retrieval score isolation. |
-| 5 | Failed parsing, OCR timeout, embedding mismatch, DB insert failure, malformed or unsafe files, business-artifact inputs, and migration downgrade/reupgrade leave prior committed policy versions, chunks, blocks, retrieval behavior, and safety boundaries intact. | VERIFIED | `IngestionService.ingest_document(...)` parses/chunks/embeds before the locked write, rolls back DB failures, restores document snapshots, and records sanitized failed jobs; source guards reject unsafe/malformed/business inputs. Migration static tests assert dependency-safe downgrade and Phase 20 hybrid preservation. Full pytest passed with one expected optional DB skip. |
+| 5 | Failed parsing, OCR timeout, embedding mismatch, DB insert failure, malformed or unsafe files, business-artifact inputs, and migration downgrade/reupgrade leave prior committed policy versions, chunks, blocks, retrieval behavior, and safety boundaries intact. | VERIFIED | `IngestionService.ingest_document(...)` parses/chunks/embeds before the locked write, rolls back DB failures, restores document snapshots, and records sanitized failed jobs; source guards reject unsafe/malformed/business inputs. Migration static tests assert dependency-safe downgrade and Phase 20 hybrid preservation. Post-dependency full pytest passed with no skipped tests. |
 
 **Score:** 33/33 must-haves verified (5/5 ROADMAP success criteria plus 28/28 plan-level truth rollup).
 
@@ -35,7 +34,7 @@ dependency_only_statuses:
 | Artifact | Expected | Status | Details |
 |---|---|---|---|
 | `src/rag/parsers/base.py`, `registry.py`, `markdown.py`, `plain_text.py`, `safety.py` | Project-owned parser DTOs, registry, logical text adapters, guards | VERIFIED | Exist, substantive, imported by ingestion/tests; default registry routes supported policy sources and rejects business artifacts. |
-| `src/rag/parsers/pdf.py`, `docx.py`, `image.py`, `ocr.py`, `runtime.py` | PDF/DOCX/image/OCR adapters and runtime preflight | VERIFIED | Exist, substantive, registered by default; PDF uses OCR fallback for scanned pages; OCR runtime preflight reports missing `chi_sim` safely. |
+| `src/rag/parsers/pdf.py`, `docx.py`, `image.py`, `ocr.py`, `runtime.py` | PDF/DOCX/image/OCR adapters and runtime preflight | VERIFIED | Exist, substantive, registered by default; PDF uses OCR fallback for scanned pages; OCR runtime preflight reports `chi_sim+eng` available after dependency gate execution. |
 | `src/db/models.py`, `src/db/migrations/versions/015_rag_production_ingestion_ocr.py` | Source-block/job/provenance schema and rollback | VERIFIED | `DocumentBlock`, nullable pre-document `RagIngestionJob.doc_id`, chunk source refs/OCR JSONB, and dedicated fingerprint fields exist; static migration tests pass. |
 | `src/repositories/document_block_repo.py`, `rag_ingestion_job_repo.py`, `policy_chunk_repo.py` | Tenant-scoped block/job/provenance repositories | VERIFIED | Queries include tenant scope; validation rejects unsafe parser/OCR trace fields; chunk provenance expands through block rows. |
 | `src/rag/chunker.py`, `src/rag/search_text.py`, `src/rag/versioning.py`, `src/rag/ingestion.py` | Block-aware chunking, retrieval-only enrichment, fingerprinting, atomic ingestion | VERIFIED | Chunks preserve visible content and source refs; embeddings use enriched search text; parser trace-only metadata does not bump versions; rollback tests pass. |
@@ -61,17 +60,17 @@ dependency_only_statuses:
 | `src/repositories/policy_chunk_repo.py` | `source_block_refs_json` -> `EvidenceProvenance.source_locators` | Policy chunk rows plus tenant/doc-scoped `DocumentBlock` rows | Yes | FLOWING |
 | `src/knowledge/service.py` | verified refs -> provenance map | Content lookup and hash validation before provenance lookup | Yes | FLOWING |
 | `src/knowledge/retrieval.py` | `EvidenceRefV1` output | Hybrid retrieval hits using `PolicyChunk.content` | Yes | FLOWING |
-| `src/rag/parsers/runtime.py` | OCR runtime status | Local `tesseract --list-langs` preflight | Yes, fail-closed when data missing | FLOWING |
+| `src/rag/parsers/runtime.py` | OCR runtime status | Local `tesseract --list-langs` preflight | Yes, `chi_sim+eng` available after dependency gate execution | FLOWING |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |---|---|---|---|
 | Focused Phase 21 suite | `uv run pytest tests/test_ingestion.py tests/test_chunker.py tests/rag tests/knowledge -q` | 191 passed, 1 warning in 4.35s | PASS |
-| Full pytest gate | `uv run pytest -q --tb=short` | 1119 passed, 1 skipped, 6 warnings in 534.79s | PASS |
+| Full pytest gate | `MOCA_TEST_DATABASE_URL=... uv run pytest -q --tb=short -rs` against disposable `pgvector/pgvector:pg16` | 1136 passed, 9 warnings in 543.23s | PASS |
 | Ruff gate | `uv run ruff check src tests` | All checks passed | PASS |
-| Migration status | `uv run pytest tests/test_rag_production_migration.py -q -rs` | 8 passed, 1 skipped; skip is `MOCA_TEST_DATABASE_URL` unset | PASS |
-| OCR runtime preflight | `uv run python -c "from src.rag.parsers.runtime import check_ocr_runtime; ..."` | `available=False`, `failure_code=OCR_LANGUAGE_UNAVAILABLE`, missing `('chi_sim',)`, version `tesseract 5.5.0` | PASS (dependency-only) |
+| Migration + OCR dependency gates | `MOCA_TEST_DATABASE_URL=... uv run pytest tests/test_rag_production_migration.py tests/rag/test_ocr_parser.py tests/rag/test_pdf_parser.py -q -rs` against disposable `pgvector/pgvector:pg16` | 28 passed, 4 warnings in 1.32s | PASS |
+| OCR runtime preflight | `uv run python -c "from src.rag.parsers.runtime import check_ocr_runtime; ..."` | `available=True`, `failure_code=None`, `missing_languages=()`, version `tesseract 5.5.2` | PASS |
 | Xfail inventory | `uv run python -c "from tests.rag.phase21_xfail_inventory import PHASE21_XFAIL_OWNERS; ..."` plus scoped `rg` | `PHASE21_XFAIL_OWNERS={}`, count 0; scoped xfail grep no matches | PASS |
 | Final scope guard | `uv run pytest tests/knowledge/test_phase21_boundaries.py -q` | 13 passed, 1 warning | PASS |
 
@@ -83,7 +82,7 @@ dependency_only_statuses:
 | SRC-02 | 21-01, 21-05a | Parser outputs deterministic block fields, warnings, failure codes | SATISFIED | Parser DTOs and parser contract tests. |
 | SRC-03 | 21-03, 21-05 | PDF page/table extraction and scanned fallback | SATISFIED | `PdfParser`, OCR fallback, PDF parser tests. |
 | SRC-04 | 21-03, 21-05 | DOCX paragraphs/headings/tables without fake page/bbox | SATISFIED | `DocxParser`, DOCX tests. |
-| SRC-05 | 21-03, 21-05a | Image OCR status, bbox, language, version, timeout/error, confidence | SATISFIED | `ImageOcrParser`, `OcrEngine`, OCR tests; live `chi_sim` is dependency-only. |
+| SRC-05 | 21-03, 21-05a | Image OCR status, bbox, language, version, timeout/error, confidence | SATISFIED | `ImageOcrParser`, `OcrEngine`, OCR tests; live `chi_sim+eng` preflight passed. |
 | PROV-01 | 21-01a, 21-05a | Durable tenant/document scoped source blocks | SATISFIED | ORM/migration/repository tests. |
 | PROV-02 | 21-02, 21-05a | Ordered source-block provenance on chunks | SATISFIED | `source_block_refs_json`, chunker and provenance tests. |
 | PROV-03 | 21-04, 21-05 | Verified tenant/hash provenance lookup | SATISFIED | Service/repository implementation and provenance tests. |
@@ -93,14 +92,14 @@ dependency_only_statuses:
 | CHUNK-03 | 21-02, 21-05a | Retrieval-only search text enrichment | SATISFIED | Search text and text-hash tests. |
 | CHUNK-04 | 21-02, 21-05a | Version changes only on canonical content/semantics metadata | SATISFIED | Versioning and ingestion tests. |
 | OCR-01 | 21-01a, 21-02, 21-03, 21-05a | OCR confidence stays metadata, not retrieval score | SATISFIED | OCR and hybrid retrieval tests. |
-| OCR-02 | 21-03, 21-05, 21-05a | Deterministic OCR thresholds | SATISFIED | OCR confidence boundary tests; live `chi_sim` is dependency-only. |
+| OCR-02 | 21-03, 21-05, 21-05a | Deterministic OCR thresholds | SATISFIED | OCR confidence boundary tests; live `chi_sim+eng` preflight passed. |
 | SAFE-01 | 21-01, 21-03, 21-05 | Source type/signature/size/page/image/zip/malformed/timeout safety | SATISFIED | Safety tests and parser runtime deadline tests. |
 | SAFE-02 | 21-04, 21-04a, 21-05 | Untrusted parser/OCR text excluded from authority surfaces | SATISFIED | Safe report, prompt/API/memory/action/replay boundary tests. |
 | SAFE-03 | 21-01, 21-04a, 21-05 | Business artifacts rejected as policy sources | SATISFIED | Source guard, ingestion rollback, and ownership tests. |
 | INGEST-01 | 21-01a, 21-04, 21-05a | Safe parser/OCR job trace | SATISFIED | Job model/repo, job report, pre-document failure tests. |
 | INGEST-02 | 21-02, 21-05a | Parse/OCR/chunk/embed before write transaction | SATISFIED | Event-order ingestion job tests. |
 | INGEST-03 | 21-02, 21-03, 21-05 | Failures leave prior committed evidence intact | SATISFIED | Adversarial rollback tests. |
-| INGEST-04 | 21-01a, 21-05, 21-05a | Migration upgrade/downgrade/reupgrade coverage | SATISFIED | Static migration tests pass; optional live DB round trip is dependency-only skip. |
+| INGEST-04 | 21-01a, 21-05, 21-05a | Migration upgrade/downgrade/reupgrade coverage | SATISFIED | Static migration tests pass; live DB downgrade/reupgrade passed against disposable `pgvector/pgvector:pg16`. |
 | BOUNDARY-01 | 21-01a, 21-04a, 21-05 | EvidenceRef/projection/snapshot/replay/hash compatibility | SATISFIED | Boundary, evidence projection, text hash, replay, full-suite tests. |
 | BOUNDARY-02 | 21-02, 21-04a, 21-05a | Hybrid retrieval filters/RRF/confidence intact | SATISFIED | Hybrid retrieval tests. |
 | BOUNDARY-03 | 21-01a, 21-04, 21-04a, 21-05 | Parser/OCR/provenance internal by default | SATISFIED | API/prompt/memory/action/replay boundary tests. |
@@ -112,12 +111,12 @@ dependency_only_statuses:
 |---|---|---|---|---|
 | Multiple implementation/test files | Various | Empty return/empty collection matches from guard paths, fakes, and accumulator initialization | INFO | Reviewed as non-stub patterns; no user-visible placeholder, orphaned implementation, or console-only behavior found. |
 
-### Dependency-Only Statuses
+### Resolved Dependency Gates
 
 | Item | Status | Evidence | Residual Risk |
 |---|---|---|---|
-| Native Simplified Chinese OCR data | Dependency-only | Preflight reports `OCR_LANGUAGE_UNAVAILABLE` with missing `('chi_sim',)` and tests cover fail-closed behavior. | Live Chinese OCR requires installing `chi_sim` traineddata in runtime/CI. |
-| Optional live DB migration round trip | Config-only | Migration test skips only because `MOCA_TEST_DATABASE_URL` is unset; static migration downgrade/reupgrade assertions pass. | A disposable PostgreSQL URL is still needed to exercise the live destructive round trip. |
+| Native Simplified Chinese OCR data | Resolved locally | Preflight reports `available=True`, `failure_code=None`, `missing_languages=()`, version `tesseract 5.5.2`; `tests/rag/test_ocr_parser.py` and `tests/rag/test_pdf_parser.py` passed. | Runtime/CI must keep `chi_sim` traineddata installed. |
+| Live DB migration round trip | Resolved locally | `tests/test_rag_production_migration.py` ran against disposable `pgvector/pgvector:pg16`; no skip remained in the full pytest gate. | Runtime/CI needs pgvector-capable PostgreSQL for this live gate. |
 
 ### Gaps Summary
 
