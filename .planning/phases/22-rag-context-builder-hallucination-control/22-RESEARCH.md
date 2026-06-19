@@ -743,27 +743,23 @@ LangGraph `StateGraph` compiles state, nodes, and edges, and supports branching 
 | A4 | Exact Level 2 lexical/span thresholds can be calibrated during implementation without new user decisions. | Architecture Patterns / Common Pitfalls | If thresholds become policy-sensitive acceptance criteria, planner must lock them before execution. |
 | A5 | No OS-level registered state affects this phase. | Runtime State Inventory | If deployment uses external process managers with embedded phase config, planner must add an operational update task. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should bounded regeneration be implemented or only represented as a route?**  
    What we know: route enum support is in scope, but the actual retry/regeneration loop is deferred/stretch. [VERIFIED: .planning/phases/22-rag-context-builder-hallucination-control/22-CONTEXT.md]  
-   What's unclear: whether planner should include only route plumbing or a disabled feature flag. [ASSUMED]  
-   Recommendation: plan route enum and deterministic non-regeneration fallback only. [VERIFIED: .planning/phases/22-rag-context-builder-hallucination-control/22-CONTEXT.md]
+   RESOLVED: Phase 22 plans only route plumbing and deterministic non-regeneration fallback. It does not add a disabled feature flag or retry loop. [VERIFIED: .planning/phases/22-rag-context-builder-hallucination-control/22-CONTEXT.md] [VERIFIED: .planning/phases/22-rag-context-builder-hallucination-control/22-05-PLAN.md]
 
 2. **What exact Level 2 lexical/span thresholds should be used?**  
    What we know: Level 2 must be deterministic or near-deterministic and return typed outcomes. [VERIFIED: .planning/phases/22-rag-context-builder-hallucination-control/22-CONTEXT.md]  
-   What's unclear: exact normalization, span-overlap, numeric/date handling, and ambiguity thresholds. [ASSUMED]  
-   Recommendation: implement conservative heuristics, pin behavior in golden tests, and route ambiguity to Level 3/manual review. [ASSUMED]
+   RESOLVED: Implement conservative deterministic lexical/span/normalization heuristics, pin behavior in Wave 0 and golden tests, and route ambiguity to Level 3 or manual review. Exact numeric thresholds are implementation-owned within those tests, not a new user decision. [VERIFIED: .planning/phases/22-rag-context-builder-hallucination-control/22-CONTEXT.md] [VERIFIED: .planning/phases/22-rag-context-builder-hallucination-control/22-04-PLAN.md]
 
 3. **How visible should verifier metrics be at runtime?**  
    What we know: metrics are required and unsafe answer/business hallucination/leakage/fail-closed thresholds are blocking. [VERIFIED: .planning/phases/22-rag-context-builder-hallucination-control/22-CONTEXT.md]  
-   What's unclear: whether metrics need API exposure or only eval-script output for Phase 22. [ASSUMED]  
-   Recommendation: deliver eval-script and redacted state metrics first; defer UI/API exposure unless separately requested. [ASSUMED]
+   RESOLVED: Phase 22 delivers eval-script metrics and redacted internal state metrics only. UI/API metrics exposure is outside Phase 22 and requires a separate post-Phase 22 roadmap/backlog item before implementation. [VERIFIED: .planning/phases/22-rag-context-builder-hallucination-control/22-CONTEXT.md] [VERIFIED: .planning/phases/22-rag-context-builder-hallucination-control/22-06-PLAN.md]
 
 4. **What is the canonical current-version rule for policy documents?**  
    What we know: `PolicyDocument` has a unique `(tenant_id, doc_key)` row with `version`, while `EvidenceRefV1.policy_version` is `v{document.version}`. [VERIFIED: src/db/models.py] [VERIFIED: src/repositories/policy_chunk_repo.py]  
-   What's unclear: whether future supersession semantics beyond the current row/version should be represented. [ASSUMED]  
-   Recommendation: implement current-row version comparison now and leave more complex supersession policy out of Phase 22. [ASSUMED]
+   RESOLVED: Phase 22 uses current-row version comparison: `EvidenceRefV1.policy_version` must equal `v{PolicyDocument.version}` for the current tenant/document row. More complex supersession semantics are outside Phase 22 and require a separate post-Phase 22 policy-lifecycle phase before implementation. [VERIFIED: src/db/models.py] [VERIFIED: src/repositories/policy_chunk_repo.py] [VERIFIED: .planning/phases/22-rag-context-builder-hallucination-control/22-03-PLAN.md]
 
 ## Environment Availability
 
@@ -809,7 +805,7 @@ Nyquist validation is enabled because `.planning/config.json` sets `workflow.nyq
 | CTX-03 | Stable citation map and prompt-safe citations | unit | `uv run pytest tests/agent/rag_context/test_context_builder.py -q` | no, Wave 0. [VERIFIED: tests directory scan] |
 | CTX-04 | Dedup/merge trace without identity changes | unit | `uv run pytest tests/agent/rag_context/test_context_builder.py -q` | no, Wave 0. [VERIFIED: tests directory scan] |
 | CTX-05 | Budget trace and protected citation metadata | unit | `uv run pytest tests/agent/rag_context/test_budgeting.py tests/agent/context/test_budget.py -q` | partial existing budget tests. [VERIFIED: tests/agent/context/test_budget.py] |
-| CTX-06 | Safe risk labels without raw provenance identity | unit | `uv run pytest tests/agent/rag_context/test_provenance_labels.py tests/knowledge/test_phase21_boundaries.py -q` | partial existing Phase 21 tests. [VERIFIED: tests/knowledge/test_phase21_boundaries.py] |
+| CTX-06 | Safe risk labels without raw provenance identity | unit | `uv run pytest tests/agent/rag_context/test_context_builder.py tests/agent/rag_context/test_leakage.py tests/knowledge/test_phase21_boundaries.py -q` | no dedicated Phase 22 file yet; covered by Wave 0 context/leakage tests plus existing Phase 21 boundary tests. [VERIFIED: tests/knowledge/test_phase21_boundaries.py] [VERIFIED: .planning/phases/22-rag-context-builder-hallucination-control/22-VALIDATION.md] |
 | CLM-01 | MaterialClaim DTOs and authority classes | unit | `uv run pytest tests/agent/rag_context/test_material_claims.py -q` | no, Wave 0. [VERIFIED: tests directory scan] |
 | CLM-02 | Policy claim requires active bundle evidence support | unit | `uv run pytest tests/agent/rag_context/test_verifier.py -q` | no, Wave 0. [VERIFIED: tests directory scan] |
 | CLM-03 | Business claim requires Tool System authority | unit | `uv run pytest tests/agent/rag_context/test_verifier.py -q` | no, Wave 0. [VERIFIED: tests directory scan] |
