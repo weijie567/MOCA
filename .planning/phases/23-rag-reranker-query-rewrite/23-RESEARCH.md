@@ -477,22 +477,23 @@ Planning implication: ablation should produce a similar machine-readable report 
 
 All claims in this research were verified from local repository files, local tool output, or cited official OWASP pages; no `[ASSUMED]` claims are intentionally present. [VERIFIED: research command outputs; CITED: https://owasp.org/www-project-application-security-verification-standard/]
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Exact deterministic reranker formula**
+1. **RESOLVED: Exact deterministic reranker formula**
    - What we know: The formula can use lexical overlap, selected channels, RRF score, normalized confidence, section/title overlap, and safe metadata. [VERIFIED: `.planning/phases/23-rag-reranker-query-rewrite/23-CONTEXT.md`; `src/knowledge/retrieval.py`]
-   - What's unclear: Exact component weights and tie-break order are planner/executor discretion. [VERIFIED: `.planning/phases/23-rag-reranker-query-rewrite/23-CONTEXT.md`]
-   - Recommendation: Pin weights in `src/knowledge/config.py`, include config version in diagnostics, and test exact ordering. [VERIFIED: `src/knowledge/config.py`; `.planning/REQUIREMENTS.md`]
+   - Decision: The deterministic formula is selected in Plan 04 as the local/default reranker path. It is credential-free, no-live-provider by default, and test-pinned through `tests/knowledge/test_reranker.py`.
+   - Selected formula: `final_score = baseline_score + 0.10 * lexical_overlap + 0.05 * title_section_overlap + 0.03 * channel_coverage + min(rrf_score or 0, 0.10)`, clamped to `[0, 1]` and tie-broken by `(baseline_rank, doc_key, chunk_id)`.
+   - Implementation location: Plan 04 creates the reranker DTOs and formula in `src/knowledge/rerank.py`, with config/version constants in `src/knowledge/config.py` and safe score components in diagnostics.
 
-2. **Dedicated ablation script vs extending existing eval**
+2. **RESOLVED: Dedicated ablation script vs extending existing eval**
    - What we know: `scripts/eval_rag.py` has structured JSON reports, while `scripts/eval_rag_hit_at_5.py` has Hit@5/fallback helpers and diagnostic top-k. [VERIFIED: `scripts/eval_rag.py`; `scripts/eval_rag_hit_at_5.py`]
-   - What's unclear: The context leaves the exact script choice to planning. [VERIFIED: `.planning/phases/23-rag-reranker-query-rewrite/23-CONTEXT.md`]
-   - Recommendation: Create `scripts/eval_rag_ablation.py` and reuse scoring/report helpers from `scripts/eval_rag.py` to avoid bloating the legacy Hit@5 script. [VERIFIED: `scripts/eval_rag.py`; `.planning/REQUIREMENTS.md`]
+   - Decision: Plan 05 baseline is a dedicated `scripts/eval_rag_ablation.py` script and generated ablation report path, not an overload of `scripts/eval_rag_hit_at_5.py`.
+   - Implementation location: Plan 05 creates `scripts/eval_rag_ablation.py`, appends Phase 23 cases to `evaluation/golden/rag_cases.jsonl`, and verifies report helper behavior in `tests/test_rag_ablation_eval.py`.
 
-3. **How much provider adapter code belongs in baseline**
+3. **RESOLVED: How much provider adapter code belongs in baseline**
    - What we know: Optional adapters are allowed only behind config gates and default tests must use fakes/failure cases. [VERIFIED: `.planning/REQUIREMENTS.md`]
-   - What's unclear: No external product/provider was selected in Phase 23 context. [VERIFIED: `.planning/phases/23-rag-reranker-query-rewrite/23-CONTEXT.md`]
-   - Recommendation: Implement a provider protocol, disabled config path, deterministic fake adapter, and failure/fallback tests; defer real provider credentials/default-demo behavior to stretch. [VERIFIED: `.planning/phases/23-rag-reranker-query-rewrite/23-CONTEXT.md`; `.planning/REQUIREMENTS.md`]
+   - Decision: Baseline provider support is an adapter protocol only. It is disabled by default, config-gated, timeout/retry/budget bounded, fake-tested, and failure-tested; there is no live default provider and no credential requirement.
+   - Implementation location: Plan 04 creates `RerankerProviderAdapter` protocol and fallback behavior for `provider_disabled`, `provider_timeout`, `provider_error`, `provider_malformed_output`, and `budget_overflow`.
 
 ## Environment Availability
 
