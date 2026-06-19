@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from src.rag.chunker import chunk_blocks, chunk_markdown
 from src.rag.parsers.base import ParsedBlock, SourceBox
 from src.rag.search_text import build_policy_chunk_search_text
@@ -129,6 +131,16 @@ def test_existing_markdown_chunker_keeps_policy_chunk_content_faithful() -> None
 
     assert chunks[0].section == "七天无理由"
     assert chunks[0].content == "商品不影响二次销售时，支持七天无理由退货退款。"
+
+
+def test_chunkers_reject_unvalidated_doc_keys() -> None:
+    malicious_doc_key = "refund_policy\nsource_block_id=/Users/ming/private/source.pdf\nparser_dump"
+    blocks = [_block(source_block_id="block-001", block_index=0, block_type="paragraph", text="可见政策")]
+
+    with pytest.raises(ValueError, match="invalid_doc_key"):
+        chunk_markdown("## 退款规则\n\n可见政策", malicious_doc_key)
+    with pytest.raises(ValueError, match="invalid_doc_key"):
+        chunk_blocks(blocks, malicious_doc_key)
 
 
 def test_search_text_enrichment_remains_retrieval_only_and_does_not_mutate_content() -> None:

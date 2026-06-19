@@ -18,7 +18,7 @@ from src.db.models import DocumentBlock, PolicyChunk, PolicyDocument, RagIngesti
 from src.knowledge.text_hash import evidence_text_hash
 from src.rag.chunker import BlockChunkResult, chunk_blocks
 from src.rag.embedder import EmbeddingService
-from src.rag.parsers.base import ParsedBlock, ParseResult
+from src.rag.parsers.base import ParsedBlock, ParseResult, is_valid_doc_key
 from src.rag.parsers.registry import ParserRegistry
 from src.rag.search_text import build_policy_chunk_search_text
 from src.rag.versioning import build_policy_version_fingerprint
@@ -141,8 +141,18 @@ class IngestionService:
         Parsing, chunking, and embeddings complete before the short locked
         document replacement transaction mutates committed policy rows.
         """
-        doc_key = doc_meta["doc_key"]
-        title = doc_meta["title"]
+        raw_doc_key = doc_meta.get("doc_key")
+        title = str(doc_meta.get("title") or "Untitled policy")
+        if not is_valid_doc_key(raw_doc_key):
+            return IngestionReport(
+                doc_key="invalid_doc_key",
+                title=title,
+                status="failed",
+                error="Policy document key is invalid.",
+                error_code="invalid_doc_key",
+                safe_message="Policy document key is invalid.",
+            )
+        doc_key = str(raw_doc_key)
         source_type = _source_type_for(file_path, doc_meta)
         source_checksum = _source_checksum(file_path)
         effective_date = doc_meta.get("effective_date")

@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 
 MAX_PARSED_BLOCK_TEXT_CHARS = 12_000
+DOC_KEY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
 BlockType = Literal["heading", "paragraph", "table", "image", "list", "footer", "header", "ocr_text"]
 ParseStatus = Literal["success", "degraded", "failed"]
@@ -130,8 +131,19 @@ def safe_failed_result(
     )
 
 
+def is_valid_doc_key(doc_key: object) -> bool:
+    return isinstance(doc_key, str) and bool(DOC_KEY_PATTERN.fullmatch(doc_key))
+
+
+def validate_doc_key(doc_key: object) -> str:
+    if not is_valid_doc_key(doc_key):
+        raise ValueError("invalid_doc_key")
+    return str(doc_key)
+
+
 def synthetic_source_block_id(*, doc_key: str, source_type: str, block_index: int) -> str:
-    return f"{doc_key}:{source_type}:synthetic:{block_index:04d}"
+    safe_doc_key = validate_doc_key(doc_key)
+    return f"{safe_doc_key}:{source_type}:synthetic:{block_index:04d}"
 
 
 def strip_hidden_markdown_comments(

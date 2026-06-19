@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from src.knowledge.text_hash import evidence_text_hash
-from src.rag.parsers.base import ParsedBlock
+from src.rag.parsers.base import ParsedBlock, validate_doc_key
 
 
 @dataclass(frozen=True)
@@ -43,8 +43,7 @@ def chunk_markdown(
     overlap_chars: int = 100,
 ) -> list[ChunkResult]:
     """Split Markdown policy text into stable heading-based chunks."""
-    if not doc_key:
-        raise ValueError("doc_key must not be empty")
+    doc_key = validate_doc_key(doc_key)
     if max_chars <= 0 or target_chars <= 0:
         raise ValueError("max_chars and target_chars must be positive")
     if overlap_chars < 0:
@@ -94,8 +93,7 @@ def chunk_blocks(
     overlap_chars: int = 100,
 ) -> list[BlockChunkResult]:
     """Split parser blocks into stable chunks while preserving provenance refs."""
-    if not doc_key:
-        raise ValueError("doc_key must not be empty")
+    doc_key = validate_doc_key(doc_key)
     if max_chars <= 0 or target_chars <= 0:
         raise ValueError("max_chars and target_chars must be positive")
     if overlap_chars < 0:

@@ -16,6 +16,7 @@ from src.rag.parsers.base import (
     safe_failed_result,
     sanitize_parser_text,
     sanitize_visible_text,
+    validate_doc_key,
 )
 from src.rag.parsers.safety import (
     OCR_CONFIDENCE_ACCEPTED_MIN,
@@ -245,4 +246,5 @@ def _number_at(data: dict[str, list[Any]], key: str, index: int) -> float:
 
 
 def _ocr_source_block_id(*, doc_key: str, source_type: str, block_index: int) -> str:
-    return f"{doc_key}:{source_type}:ocr:{block_index:04d}"
+    safe_doc_key = validate_doc_key(doc_key)
+    return f"{safe_doc_key}:{source_type}:ocr:{block_index:04d}"

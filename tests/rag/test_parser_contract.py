@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from importlib import import_module
 
+import pytest
+
 from src.knowledge.schemas import EvidenceRefV1
 
 
@@ -105,6 +107,29 @@ def test_parser_text_sanitizer_removes_raw_payload_markers_case_insensitively() 
 
     assert sanitized == "Visible policy line"
     assert ParserWarningCode.RAW_PARSER_PAYLOAD_IGNORED.value in warning_codes
+
+
+def test_parser_source_block_id_builders_reject_unvalidated_doc_keys() -> None:
+    from src.rag.parsers.base import synthetic_source_block_id
+    from src.rag.parsers.docx import _docx_source_block_id
+    from src.rag.parsers.ocr import _ocr_source_block_id
+    from src.rag.parsers.pdf import _pdf_source_block_id
+
+    malicious_doc_key = "refund_policy\n/Users/ming/private/source.pdf\nparser_dump"
+
+    with pytest.raises(ValueError, match="invalid_doc_key"):
+        synthetic_source_block_id(doc_key=malicious_doc_key, source_type="policy_markdown", block_index=0)
+    with pytest.raises(ValueError, match="invalid_doc_key"):
+        _docx_source_block_id(doc_key=malicious_doc_key, source_type="policy_docx", block_index=0)
+    with pytest.raises(ValueError, match="invalid_doc_key"):
+        _ocr_source_block_id(doc_key=malicious_doc_key, source_type="policy_image", block_index=0)
+    with pytest.raises(ValueError, match="invalid_doc_key"):
+        _pdf_source_block_id(
+            doc_key=malicious_doc_key,
+            source_type="policy_pdf",
+            block_kind="text",
+            block_index=0,
+        )
 
 
 def test_parser_failure_codes_are_safe_and_finite() -> None:

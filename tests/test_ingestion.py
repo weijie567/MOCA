@@ -453,6 +453,39 @@ async def test_ingestion_persists_sanitized_table_metadata_and_chunk_content(tmp
 
 
 @pytest.mark.asyncio
+async def test_ingestion_rejects_malicious_doc_key_before_parser_or_durable_trace(tmp_path: Path) -> None:
+    policy_file = _write_policy(tmp_path, "# 退款规则\n\n相同内容")
+    session = _FakeSession()
+    embedder = _FakeEmbedder()
+    parser_registry = _FakeParserRegistry()
+    job_repo = _FakeJobRepo()
+    service = IngestionService(session=session, embedder=embedder, tenant_id=uuid4())
+    service.parser_registry = parser_registry
+    service.doc_repo = _FakeDocumentRepo(None)
+    service.block_repo = _FakeBlockRepo()
+    service.chunk_repo = _FakeChunkRepo()
+    service.job_repo = job_repo
+
+    report = await service.ingest_document(
+        policy_file,
+        _doc_meta_with(
+            doc_key="refund_policy\n/Users/ming/private/source.pdf\nparser_dump: Traceback (most recent call last)",
+        ),
+    )
+    serialized_report = repr(report)
+
+    assert report.status == "failed"
+    assert report.doc_key == "invalid_doc_key"
+    assert report.error_code == "invalid_doc_key"
+    assert job_repo.created == []
+    assert embedder.texts == []
+    assert session.added == []
+    assert "/Users/ming" not in serialized_report
+    assert "parser_dump" not in serialized_report
+    assert "Traceback" not in serialized_report
+
+
+@pytest.mark.asyncio
 async def test_first_import_starts_at_version_one(tmp_path: Path):
     policy_file = _write_policy(tmp_path, "# 退款规则\n\n首次内容")
     session = _FakeSession()

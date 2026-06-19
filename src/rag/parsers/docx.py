@@ -17,6 +17,7 @@ from src.rag.parsers.base import (
     safe_failed_result,
     sanitize_parser_text,
     sanitize_table_rows,
+    validate_doc_key,
 )
 from src.rag.parsers.safety import validate_source_file
 
@@ -198,4 +199,5 @@ def _is_heading(paragraph: Paragraph) -> bool:
 
 
 def _docx_source_block_id(*, doc_key: str, source_type: str, block_index: int) -> str:
-    return f"{doc_key}:{source_type}:logical:{block_index:04d}"
+    safe_doc_key = validate_doc_key(doc_key)
+    return f"{safe_doc_key}:{source_type}:logical:{block_index:04d}"
