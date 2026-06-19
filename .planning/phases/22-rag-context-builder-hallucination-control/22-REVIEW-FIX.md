@@ -66,6 +66,25 @@ Fix:
 - That path builds a `ContextBuilder` bundle, runs `MaterialClaimVerifier`, and routes through `determine_verification_route`.
 - Added golden case `P22-HC-020`, which confirms a valid citation membership plus unsupported claim text is rejected as `unsupported -> regenerate_route`.
 
+### Claude follow-up warning: Non-allow risk assessment can leave stale snapshot bindings on same-turn state merge
+
+Verdict: true positive defensive gap, not previously confirmed as a live graph blocker.
+
+Fix:
+- `assess_risk_and_approval` now explicitly clears `action_payload_hash`, `safety_snapshot_ref`, and `safety_snapshot_hash` on non-allow verifier routes.
+- Added a same-turn stale-binding regression proving old proposed action, approval, action draft, and snapshot fields are cleared after the node update is merged into state.
+
+### Claude follow-up warning: Production eval did not cover hash/latest/freshness invalid evidence
+
+Verdict: true positive evaluation-strength gap, and it exposed a production route-reason precision gap.
+
+Fix:
+- Recommendation verification now carries `ContextBuilder.debug_context.truncated_or_excluded_evidence.reason_codes` forward for evidence ids that the draft actually cited.
+- Context-builder blocking reasons now promote generic verifier outcomes to explicit safety outcomes for hash mismatch, latest-version invalid, scope invalid, unauthorized tenant/scope, and freshness/stale evidence.
+- Added a recommendation regression proving canonical `latest_version_invalid` routes `refuse` instead of generic `insufficient_evidence`.
+- The production-verifier eval path now uses canonical rows, not just verified content strings, so hash/latest/freshness filtering is exercised locally.
+- Added golden production-verifier cases `P22-HC-021`, `P22-HC-022`, and `P22-HC-023` for hash mismatch, latest-version invalid, and freshness/effective-at invalid evidence.
+
 ## Verification
 
 - `uv run pytest tests/agent/rag_context/test_budgeting.py tests/agent/rag_context/test_leakage.py tests/agent/test_phase22_recommendation_integration.py tests/agent/test_nodes/test_generate_recommendation.py -q --tb=short`
@@ -78,3 +97,17 @@ Fix:
 - `uv run ruff format --check .`
 - `uv run ruff check src/agent/nodes/generate_recommendation.py src/agent/rag_context/builder.py src/agent/rag_context/routing.py tests/agent/test_phase22_recommendation_integration.py tests/agent/rag_context/test_context_builder.py tests/agent/test_nodes/test_generate_recommendation.py`
 - `uv run ruff format --check src/agent/nodes/generate_recommendation.py src/agent/rag_context/builder.py src/agent/rag_context/routing.py tests/agent/test_phase22_recommendation_integration.py tests/agent/rag_context/test_context_builder.py tests/agent/test_nodes/test_generate_recommendation.py`
+- `uv run pytest tests/agent/test_phase22_action_boundary.py tests/agent/test_nodes/test_generate_recommendation.py -q`
+- `uv run pytest tests/agent/rag_context tests/agent/test_phase22_action_boundary.py tests/agent/test_phase22_final_response.py tests/agent/test_phase22_recommendation_integration.py tests/agent/test_nodes/test_generate_recommendation.py tests/agent/test_nodes/test_assess_risk_and_approval.py tests/knowledge/test_phase22_evidence_validation.py -q`
+- `uv run python scripts/eval_phase22_hallucination.py --dataset evaluation/golden/phase22_hallucination_cases.jsonl --fail-thresholds`
+- `uv run pytest tests/ -x --ignore=tests/integration -q --tb=short`
+- `uv run ruff check .`
+- `uv run ruff format --check .`
+
+Latest results after Claude follow-up fixes:
+
+- Focused action/recommendation regressions: `28 passed, 1 warning`.
+- Phase 22 related suite: `125 passed, 1 warning`.
+- Hallucination eval: `23` cases, `status: pass`, `failed_cases: []`, all blocking thresholds met.
+- Full non-integration pytest: `1225 passed, 1 skipped, 6 warnings`.
+- Full ruff check/format-check passed.
