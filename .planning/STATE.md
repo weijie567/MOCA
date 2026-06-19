@@ -1,11 +1,11 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: Not started; ready to discuss or plan Phase 23
-stopped_at: Phase 23 context gathered
-last_updated: "2026-06-19T23:05:02.311Z"
-last_activity: 2026-06-20 — Created v1.6 roadmap with Phase 23 as the only active phase
+milestone: v1.6
+milestone_name: RAG Reranker + Query Rewrite
+status: ready_to_execute
+stopped_at: Phase 23 planned; ready to execute
+last_updated: "2026-06-20T07:05:48+08:00"
+last_activity: 2026-06-20
 progress:
   total_phases: 1
   completed_phases: 0
@@ -25,10 +25,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-20)
 
 ## Current Position
 
-Phase: 23 (1 of 1 active phase: RAG Reranker + Query Rewrite) — NOT STARTED
-Plan: —
-Status: Not started; ready to discuss or plan Phase 23
-Last activity: 2026-06-20 — Created v1.6 roadmap with Phase 23 as the only active phase
+Phase: 23 (1 of 1 active phase: RAG Reranker + Query Rewrite) — PLANNED
+Plan: 6 plans created and verified
+Status: Ready to execute Phase 23
+Last activity: 2026-06-20 — Planned Phase 23 and passed plan-checker verification
 
 Progress: [----------] 0%
 
@@ -39,6 +39,11 @@ Planning files:
 - `.planning/ROADMAP.md`
 - `.planning/STATE.md`
 - `.planning/MILESTONES.md`
+- `.planning/phases/23-rag-reranker-query-rewrite/23-CONTEXT.md`
+- `.planning/phases/23-rag-reranker-query-rewrite/23-RESEARCH.md`
+- `.planning/phases/23-rag-reranker-query-rewrite/23-VALIDATION.md`
+- `.planning/phases/23-rag-reranker-query-rewrite/23-PATTERNS.md`
+- `.planning/phases/23-rag-reranker-query-rewrite/23-01-PLAN.md` through `23-06-PLAN.md`
 
 ## Current Milestone Context
 
@@ -47,16 +52,16 @@ Planning files:
 - Phase 23 follows v1.3 hybrid retrieval, v1.4 parser/OCR provenance, and v1.5 ContextBuilder/hallucination-control work.
 - Phase 23 may add bounded query rewrite, deterministic/default reranking, optional config-gated provider adapters, ranking diagnostics, ablation evals, and latency budgets.
 - Phase 23 must preserve `EvidenceRefV1` identity, canonical citation text/text_hash, tenant/scope/effective-date filters, source-block/OCR provenance boundaries, ContextBuilder validation, verifier routing, and action-boundary safety.
-- Research was intentionally skipped for v1.6; do not use stale active `.planning/research` content.
+- Phase 23 research was completed in `.planning/phases/23-rag-reranker-query-rewrite/23-RESEARCH.md`; do not use stale active `.planning/research` content.
 - 17-prep AgentState cleanup remains a pending todo before Phase 17 External Action Execution, not a blocker or next active phase for v1.6.
 
 ## Performance Metrics
 
-**v1.6 velocity:** 0 phases complete, 0 plans complete.
+**v1.6 velocity:** 0 phases complete, 6 plans ready to execute.
 
 | Phase | Plans | Status |
 |-------|-------|--------|
-| 23. RAG Reranker + Query Rewrite | 0/TBD | Not started |
+| 23. RAG Reranker + Query Rewrite | 0/6 executed | Planned; ready to execute |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
 
@@ -76,7 +81,7 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 
 ### Blockers / Concerns
 
-- None for discussing or planning Phase 23.
+- None for executing Phase 23 plans. Plan-checker verification passed after one revision loop.
 
 ## Deferred Items
 
@@ -90,9 +95,9 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 
 ## Session Continuity
 
-Last session: --stopped-at
-Stopped at: Phase 23 context gathered
-Resume file: --resume-file
-Next: Discuss or plan Phase 23.
+Last session: 2026-06-20T07:05:48+08:00
+Stopped at: Phase 23 planned; ready to execute
+Resume file: `.planning/phases/23-rag-reranker-query-rewrite/23-01-PLAN.md`
+Next: Execute Phase 23.
 
-**Planned Phase:** 23 (RAG Reranker + Query Rewrite) — 6 plans — 2026-06-19T23:05:02.298Z
+**Planned Phase:** 23 (RAG Reranker + Query Rewrite) — 6 plans — 2026-06-20T07:05:48+08:00
