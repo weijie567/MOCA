@@ -58,7 +58,7 @@ v1.5 is a one-phase milestone that inserts a bounded RAG reasoning kernel after 
 **Plans**: 6 plans
 
 Plans:
-- [ ] 22-01-PLAN.md — Wave 0 unit scaffolding for ContextBuilder, MaterialClaim, verifier tiers, authority boundaries, and deterministic routes.
+- [x] 22-01-PLAN.md — Wave 0 unit scaffolding for ContextBuilder, MaterialClaim, verifier tiers, authority boundaries, and deterministic routes.
 - [ ] 22-02-PLAN.md — Wave 0 evidence validation, leakage, graph/action/final integration, boundary, and hallucination-eval scaffolding.
 - [ ] 22-03-PLAN.md — ContextBuilder, canonical evidence re-fetch, latest/current validation, citation maps, budgeting, and prompt-safe projections.
 - [ ] 22-04-PLAN.md — MaterialClaim contracts, Level 1/2 authority verification, and risk-triggered Level 3 semantic verifier.
@@ -94,7 +94,7 @@ Hard boundaries:
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 22. RAG Context Builder + Hallucination Control | v1.5 | 0/TBD | Not started | - |
+| 22. RAG Context Builder + Hallucination Control | v1.5 | 1/6 | In Progress | - |
 
 ## Coverage
 
@@ -114,11 +114,11 @@ Hard boundaries:
 
 ## Current Status
 
-v1.5 RAG Context Builder + Hallucination Control is planned as Phase 22 and is ready for discussion or phase planning.
+v1.5 RAG Context Builder + Hallucination Control is executing as Phase 22. Plan 22-01 is complete.
 
 ## Next Step
 
-Run `$gsd-discuss-phase 22` to lock implementation decisions, or `$gsd-plan-phase 22` if the current research context is sufficient.
+Run `$gsd-execute-phase 22` to continue with Plan 22-02.
 
 ---
 *Updated: 2026-06-19 - v1.5 roadmap created with one active Phase 22.*

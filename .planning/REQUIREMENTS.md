@@ -7,36 +7,38 @@
 
 Requirements for Phase 22. Each requirement must preserve the existing v1.3/v1.4 retrieval and evidence contracts unless explicitly stated otherwise.
 
+**Progress note:** Requirements checked by Plan 22-01 indicate Wave 0 RED test-scaffold coverage exists. Production implementation remains in later Phase 22 plans.
+
 ### Context Builder
 
-- [ ] **CTX-01**: System can build a `RagContextBundle` or equivalent prompt-safe context from candidate `EvidenceRefV1` values, business fact refs, trusted tenant/run/thread context, and risk/conflict hints after retrieval and before answer/action reasoning.
+- [x] **CTX-01**: System can build a `RagContextBundle` or equivalent prompt-safe context from candidate `EvidenceRefV1` values, business fact refs, trusted tenant/run/thread context, and risk/conflict hints after retrieval and before answer/action reasoning.
 - [ ] **CTX-02**: System can re-fetch canonical policy evidence content through `PolicyKnowledgeService` and exclude evidence whose tenant, scope, duplicate-key, content, `text_hash`, or freshness validation fails.
-- [ ] **CTX-03**: System can emit stable citation map entries that preserve canonical evidence identity while exposing only prompt-safe citation IDs, bounded snippets, display labels, and required metadata to prompts.
-- [ ] **CTX-04**: System can deduplicate repeated evidence and safely merge adjacent same-document evidence without changing `EvidenceRefV1` identity or losing traceability to source refs.
-- [ ] **CTX-05**: System can enforce a deterministic evidence token/character budget while preserving protected citation metadata and recording included, truncated, and excluded evidence with reason codes.
+- [x] **CTX-03**: System can emit stable citation map entries that preserve canonical evidence identity while exposing only prompt-safe citation IDs, bounded snippets, display labels, and required metadata to prompts.
+- [x] **CTX-04**: System can deduplicate repeated evidence and safely merge adjacent same-document evidence without changing `EvidenceRefV1` identity or losing traceability to source refs.
+- [x] **CTX-05**: System can enforce a deterministic evidence token/character budget while preserving protected citation metadata and recording included, truncated, and excluded evidence with reason codes.
 - [ ] **CTX-06**: System can label evidence freshness, authority, conflict, OCR-confidence, and provenance availability risks without turning source-block/OCR/provenance metadata into policy evidence identity.
 
 ### Material Claims
 
-- [ ] **CLM-01**: System can represent material reasoning output as typed `MaterialClaim` records with at least `policy_claim`, `business_fact_claim`, and `action_recommendation_claim` authority classes.
-- [ ] **CLM-02**: System rejects or marks invalid any `policy_claim` that lacks current allowed `EvidenceRefV1` support from the active context bundle.
-- [ ] **CLM-03**: System rejects or marks invalid any `business_fact_claim` that lacks current Tool System support through `BusinessFactRefV1`, safe `ToolResultV2` refs, or equivalent existing business fact authority.
-- [ ] **CLM-04**: System rejects or marks invalid any `action_recommendation_claim` that lacks both supported policy claims and supported current business fact claims, and successful support never bypasses approval/action boundaries.
-- [ ] **CLM-05**: System prevents memory, prior conversation summaries, case memory, parser/OCR provenance, or generic model knowledge from satisfying policy, business fact, or action recommendation claim authority.
+- [x] **CLM-01**: System can represent material reasoning output as typed `MaterialClaim` records with at least `policy_claim`, `business_fact_claim`, and `action_recommendation_claim` authority classes.
+- [x] **CLM-02**: System rejects or marks invalid any `policy_claim` that lacks current allowed `EvidenceRefV1` support from the active context bundle.
+- [x] **CLM-03**: System rejects or marks invalid any `business_fact_claim` that lacks current Tool System support through `BusinessFactRefV1`, safe `ToolResultV2` refs, or equivalent existing business fact authority.
+- [x] **CLM-04**: System rejects or marks invalid any `action_recommendation_claim` that lacks both supported policy claims and supported current business fact claims, and successful support never bypasses approval/action boundaries.
+- [x] **CLM-05**: System prevents memory, prior conversation summaries, case memory, parser/OCR provenance, or generic model knowledge from satisfying policy, business fact, or action recommendation claim authority.
 
 ### Claim Verification
 
-- [ ] **VER-01**: System always runs Level 1 deterministic gates for membership, tenant/scope, duplicate-key, `text_hash`, freshness/effective-at, and authority-source compatibility before a material claim can be treated as supported.
-- [ ] **VER-02**: System keeps citation membership validation distinct from semantic support validation so a cited-but-unsupported claim cannot pass as grounded.
-- [ ] **VER-03**: System runs low-cost Level 2 lexical/span support checks for ordinary material claims and returns typed outcomes such as supported, unsupported, insufficient, ambiguous, or needs-semantic-review.
-- [ ] **VER-04**: System runs Level 3 semantic support only for configured high-risk, action, conflict, stale, OCR-low-confidence, or Level 2 ambiguous cases.
-- [ ] **VER-05**: System enforces explicit Level 3 budgets for claim count, evidence count, text/token size, timeout, retries, and config version, and fails closed on timeout, provider error, malformed output, or budget overflow.
+- [x] **VER-01**: System always runs Level 1 deterministic gates for membership, tenant/scope, duplicate-key, `text_hash`, freshness/effective-at, and authority-source compatibility before a material claim can be treated as supported.
+- [x] **VER-02**: System keeps citation membership validation distinct from semantic support validation so a cited-but-unsupported claim cannot pass as grounded.
+- [x] **VER-03**: System runs low-cost Level 2 lexical/span support checks for ordinary material claims and returns typed outcomes such as supported, unsupported, insufficient, ambiguous, or needs-semantic-review.
+- [x] **VER-04**: System runs Level 3 semantic support only for configured high-risk, action, conflict, stale, OCR-low-confidence, or Level 2 ambiguous cases.
+- [x] **VER-05**: System enforces explicit Level 3 budgets for claim count, evidence count, text/token size, timeout, retries, and config version, and fails closed on timeout, provider error, malformed output, or budget overflow.
 - [ ] **VER-06**: System stores or exposes only redacted verifier status, reason codes, metrics, and safe refs; raw verifier prompts, private reasoning, source-block internals, raw OCR metadata, and unbounded policy text stay out of ordinary prompts and user-facing answers.
 
 ### Routing and Integration
 
-- [ ] **RTE-01**: System deterministically maps verification outcomes to allow, regenerate-route, refuse or insufficient-evidence response, or manual review without letting the model choose the safety route; implementing an automatic regeneration attempt remains stretch scope unless separately accepted.
-- [ ] **RTE-02**: System handles unsupported, insufficient-evidence, conflicting-evidence, stale-evidence, unauthorized-evidence, scope-invalid, hash-mismatch, OCR-low-confidence, business-fact-missing, and needs-manual-review states with explicit route behavior.
+- [x] **RTE-01**: System deterministically maps verification outcomes to allow, regenerate-route, refuse or insufficient-evidence response, or manual review without letting the model choose the safety route; implementing an automatic regeneration attempt remains stretch scope unless separately accepted.
+- [x] **RTE-02**: System handles unsupported, insufficient-evidence, conflicting-evidence, stale-evidence, unauthorized-evidence, scope-invalid, hash-mismatch, OCR-low-confidence, business-fact-missing, and needs-manual-review states with explicit route behavior.
 - [ ] **RTE-03**: System integrates ContextBuilder and claim verification into recommendation generation so local node-specific evidence re-fetch and citation-map logic do not diverge from the shared reasoning kernel.
 - [ ] **RTE-04**: System prevents non-allow verification outcomes from creating proposed actions, approval requests, action drafts, or `ActionSafetySnapshot` evidence.
 - [ ] **RTE-05**: System renders final responses for refusal, insufficient evidence, conflict, stale evidence, unauthorized evidence, and manual review using safe user-facing language without dumping verifier/debug/provenance traces.
@@ -45,8 +47,8 @@ Requirements for Phase 22. Each requirement must preserve the existing v1.3/v1.4
 
 - [ ] **BND-01**: System preserves `EvidenceRefV1` as the canonical policy evidence identity and does not add MaterialClaim, source-block, OCR, provenance, business fact, or verifier fields to that identity.
 - [ ] **BND-02**: System preserves Phase 20 dense/sparse/fuzzy/RRF ranking semantics and does not implement query rewrite, model/cross-encoder relevance reranking, external rerank APIs, or new search backend behavior in Phase 22.
-- [ ] **BND-03**: System preserves Tool System authority for current business facts and prevents business facts from being represented as policy `EvidenceRefV1`.
-- [ ] **BND-04**: System preserves memory as contextual assistance only and prevents memory from becoming policy evidence, current business fact authority, approval/action authority, or replay/audit truth.
+- [x] **BND-03**: System preserves Tool System authority for current business facts and prevents business facts from being represented as policy `EvidenceRefV1`.
+- [x] **BND-04**: System preserves memory as contextual assistance only and prevents memory from becoming policy evidence, current business fact authority, approval/action authority, or replay/audit truth.
 - [ ] **BND-05**: System preserves Phase 21 provenance boundaries by keeping source-block/OCR/parser metadata internal, debug, or maintainer-lookup only unless a prompt-safe label is explicitly projected.
 
 ### Evaluation and Acceptance
@@ -99,32 +101,32 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CTX-01 | Phase 22 | Pending |
+| CTX-01 | Phase 22 | Wave 0 RED scaffold (22-01) |
 | CTX-02 | Phase 22 | Pending |
-| CTX-03 | Phase 22 | Pending |
-| CTX-04 | Phase 22 | Pending |
-| CTX-05 | Phase 22 | Pending |
+| CTX-03 | Phase 22 | Wave 0 RED scaffold (22-01) |
+| CTX-04 | Phase 22 | Wave 0 RED scaffold (22-01) |
+| CTX-05 | Phase 22 | Wave 0 RED scaffold (22-01) |
 | CTX-06 | Phase 22 | Pending |
-| CLM-01 | Phase 22 | Pending |
-| CLM-02 | Phase 22 | Pending |
-| CLM-03 | Phase 22 | Pending |
-| CLM-04 | Phase 22 | Pending |
-| CLM-05 | Phase 22 | Pending |
-| VER-01 | Phase 22 | Pending |
-| VER-02 | Phase 22 | Pending |
-| VER-03 | Phase 22 | Pending |
-| VER-04 | Phase 22 | Pending |
-| VER-05 | Phase 22 | Pending |
+| CLM-01 | Phase 22 | Wave 0 RED scaffold (22-01) |
+| CLM-02 | Phase 22 | Wave 0 RED scaffold (22-01) |
+| CLM-03 | Phase 22 | Wave 0 RED scaffold (22-01) |
+| CLM-04 | Phase 22 | Wave 0 RED scaffold (22-01) |
+| CLM-05 | Phase 22 | Wave 0 RED scaffold (22-01) |
+| VER-01 | Phase 22 | Wave 0 RED scaffold (22-01) |
+| VER-02 | Phase 22 | Wave 0 RED scaffold (22-01) |
+| VER-03 | Phase 22 | Wave 0 RED scaffold (22-01) |
+| VER-04 | Phase 22 | Wave 0 RED scaffold (22-01) |
+| VER-05 | Phase 22 | Wave 0 RED scaffold (22-01) |
 | VER-06 | Phase 22 | Pending |
-| RTE-01 | Phase 22 | Pending |
-| RTE-02 | Phase 22 | Pending |
+| RTE-01 | Phase 22 | Wave 0 RED scaffold (22-01) |
+| RTE-02 | Phase 22 | Wave 0 RED scaffold (22-01) |
 | RTE-03 | Phase 22 | Pending |
 | RTE-04 | Phase 22 | Pending |
 | RTE-05 | Phase 22 | Pending |
 | BND-01 | Phase 22 | Pending |
 | BND-02 | Phase 22 | Pending |
-| BND-03 | Phase 22 | Pending |
-| BND-04 | Phase 22 | Pending |
+| BND-03 | Phase 22 | Wave 0 RED scaffold (22-01) |
+| BND-04 | Phase 22 | Wave 0 RED scaffold (22-01) |
 | BND-05 | Phase 22 | Pending |
 | EVAL-01 | Phase 22 | Pending |
 | EVAL-02 | Phase 22 | Pending |
