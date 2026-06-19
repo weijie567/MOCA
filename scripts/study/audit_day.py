@@ -11,7 +11,6 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from scripts.study.common import (
-    DAILY_DIR,
     REPO_ROOT,
     daily_file,
     date_from_arg,
@@ -22,7 +21,6 @@ from scripts.study.common import (
     rel,
     repo_path,
     resolve_day,
-    task_output_paths,
     write_json,
     write_text,
 )
