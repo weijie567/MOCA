@@ -7,7 +7,7 @@
 
 Requirements for Phase 22. Each requirement must preserve the existing v1.3/v1.4 retrieval and evidence contracts unless explicitly stated otherwise.
 
-**Progress note:** Plans 22-01 and 22-02 provide Wave 0 RED test/eval scaffold coverage. Plan 22-03 implements the ContextBuilder bundle, canonical evidence validation, prompt-safe projections, and related boundary guards. Plan 22-04 implements MaterialClaim contracts, Level 1/2 verification, Level 3 semantic budgets, and authority-boundary checks.
+**Progress note:** Plans 22-01 and 22-02 provide Wave 0 RED test/eval scaffold coverage. Plan 22-03 implements the ContextBuilder bundle, canonical evidence validation, prompt-safe projections, and related boundary guards. Plan 22-04 implements MaterialClaim contracts, Level 1/2 verification, Level 3 semantic budgets, and authority-boundary checks. Plan 22-05 implements deterministic routing, action-boundary gates, and safe final responses. Plan 22-06 closes hallucination-control metrics, leakage/boundary guards, and the final acceptance gate.
 
 ### Context Builder
 
@@ -123,16 +123,16 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RTE-03 | Phase 22 | Implemented in 22-05 |
 | RTE-04 | Phase 22 | Implemented in 22-05 |
 | RTE-05 | Phase 22 | Implemented in 22-05 |
-| BND-01 | Phase 22 | EvidenceRefV1 identity preserved in 22-03 |
-| BND-02 | Phase 22 | Retrieval/ranking behavior preserved in 22-03 |
-| BND-03 | Phase 22 | Implemented in 22-04 |
-| BND-04 | Phase 22 | Implemented in 22-04 |
-| BND-05 | Phase 22 | Prompt-safe provenance/OCR label boundary implemented in 22-03; final/action leakage closure completed in 22-05 |
-| EVAL-01 | Phase 22 | Wave 0 RED scaffold (22-02) |
-| EVAL-02 | Phase 22 | Wave 0 RED scaffold (22-02) |
-| EVAL-03 | Phase 22 | Wave 0 RED scaffold (22-02) |
-| EVAL-04 | Phase 22 | Wave 0 RED scaffold (22-02) |
-| EVAL-05 | Phase 22 | Wave 0 RED scaffold (22-02) |
+| BND-01 | Phase 22 | EvidenceRefV1 identity preserved in 22-03; final static guard closure completed in 22-06 |
+| BND-02 | Phase 22 | Retrieval/ranking behavior preserved in 22-03; deferred-scope guard closure completed in 22-06 |
+| BND-03 | Phase 22 | Implemented in 22-04; business authority guard closure completed in 22-06 |
+| BND-04 | Phase 22 | Implemented in 22-04; memory authority guard closure completed in 22-06 |
+| BND-05 | Phase 22 | Prompt-safe provenance/OCR label boundary implemented in 22-03; final/action leakage closure completed in 22-05; eval/report leakage closure completed in 22-06 |
+| EVAL-01 | Phase 22 | Wave 0 RED scaffold in 22-02; deterministic golden eval implemented in 22-06 |
+| EVAL-02 | Phase 22 | Wave 0 RED scaffold in 22-02; authority separation golden eval implemented in 22-06 |
+| EVAL-03 | Phase 22 | Wave 0 RED scaffold in 22-02; route golden eval implemented in 22-06 |
+| EVAL-04 | Phase 22 | Wave 0 RED scaffold in 22-02; leakage tests completed in 22-06 |
+| EVAL-05 | Phase 22 | Wave 0 RED scaffold in 22-02; blocking metric thresholds completed in 22-06 |
 
 **Coverage:**
 - v1.5 requirements: 32 total
@@ -141,4 +141,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-06-19*
-*Last updated: 2026-06-19 after Plan 22-04 MaterialClaim verifier tiers*
+*Last updated: 2026-06-19 after Plan 22-06 hallucination-control final acceptance gate*
