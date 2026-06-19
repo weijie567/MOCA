@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: RAG Context Builder + Hallucination Control
 status: executing
-stopped_at: Completed 22-04-PLAN.md
-last_updated: "2026-06-19T09:48:37.347Z"
-last_activity: 2026-06-19 -- Completed 22-04 MaterialClaim verifier tiers
+stopped_at: Completed 22-05-PLAN.md
+last_updated: "2026-06-19T10:11:25.140Z"
+last_activity: 2026-06-19 -- Completed 22-05 deterministic routing and action-boundary gating
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 6
-  completed_plans: 4
-  percent: 67
+  completed_plans: 5
+  percent: 83
 ---
 
 # Project State: MOCA
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md` (updated 2026-06-19)
 ## Current Position
 
 Phase: 22 (RAG Context Builder + Hallucination Control) — EXECUTING
-Plan: 5 of 6
-Plans: 4/6 complete for v1.5
+Plan: 6 of 6
+Plans: 5/6 complete for v1.5
 Status: Ready to execute
-Last activity: 2026-06-19 -- Completed 22-04 MaterialClaim verifier tiers
+Last activity: 2026-06-19 -- Completed 22-05 deterministic routing and action-boundary gating
 
-Progress: [███████░░░] 67%
+Progress: [████████░░] 83%
 
 Planning files:
 
@@ -51,11 +51,11 @@ Planning files:
 
 ## Performance Metrics
 
-**v1.5 velocity:** 0 phases complete, 4 of 6 plans complete.
+**v1.5 velocity:** 0 phases complete, 5 of 6 plans complete.
 
 | Phase | Plans | Status |
 |-------|-------|--------|
-| 22. RAG Context Builder + Hallucination Control | 4/6 | In Progress |
+| 22. RAG Context Builder + Hallucination Control | 5/6 | In Progress |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
 
@@ -65,6 +65,7 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 | 22-02 | 13 min | 3 | 8 |
 | 22-03 | 10 min | 3 | 6 |
 | 22-04 | 10 min | 3 | 5 |
+| 22-05 | 17 min | 3 | 10 |
 
 ## Accumulated Context
 
@@ -85,6 +86,10 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 - Plan 22-04 kept MaterialClaim and verifier metadata outside EvidenceRefV1 and BusinessFactRefV1 identity DTOs.
 - Plan 22-04 accepts successful or partial-success ToolResultV2 business_fact_refs as trusted business authority while failed tool results remain non-authority.
 - Plan 22-04 keeps Level 3 semantic verification provider-injected with no live model, network, or credential requirement for default tests.
+- Plan 22-05 keeps regenerate_route as a backend route value only; no automatic regeneration attempt was implemented.
+- Plan 22-05 gates recommendation-to-action flow on explicit backend verification route allow; all other routes go to final response.
+- Plan 22-05 blocks non-allow verifier state in graph routing, risk assessment, and action_draft direct/resume paths.
+- Plan 22-05 renders final responses from safe route categories only and omits raw verifier/provenance/OCR/tool/debug payloads.
 
 ### Pending Todos
 
@@ -92,7 +97,7 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 
 ### Blockers / Concerns
 
-- Plan 22-05 must keep deterministic routing model-owned-route-free and consume only Plan 22-04 typed verifier outcomes.
+- Plan 22-06 must close hallucination-control metrics/eval gates, remaining leakage checks, and final Phase 22 verification.
 - Scope guards must prevent Phase 23 query rewrite/reranking, Phase 17 execution, RAG-5 backend work, Policy Source Operations UI, and `EvidenceRefV1` identity changes.
 
 ## Deferred Items
@@ -107,9 +112,9 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 
 ## Session Continuity
 
-Last session: 2026-06-19T09:48:37.338Z
-Stopped at: Completed 22-04-PLAN.md
+Last session: 2026-06-19T10:11:25.133Z
+Stopped at: Completed 22-05-PLAN.md
 Resume file: None
-Next: Run `$gsd-execute-phase 22`
+Next: Run `$gsd-execute-phase 22` to continue with Plan 22-06
 
 **Planned Phase:** 22 (RAG Context Builder + Hallucination Control) — 6 plans — 2026-06-19T08:10:51.999Z

@@ -110,24 +110,24 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CLM-01 | Phase 22 | Implemented in 22-04 |
 | CLM-02 | Phase 22 | Implemented in 22-04 |
 | CLM-03 | Phase 22 | Implemented in 22-04 |
-| CLM-04 | Phase 22 | Implemented in 22-04 |
+| CLM-04 | Phase 22 | Implemented in 22-04; recommendation route/action closure completed in 22-05 |
 | CLM-05 | Phase 22 | Implemented in 22-04 |
 | VER-01 | Phase 22 | Context/evidence gates implemented in 22-03; claim gates implemented in 22-04 |
 | VER-02 | Phase 22 | Implemented in 22-04 |
 | VER-03 | Phase 22 | Implemented in 22-04 |
 | VER-04 | Phase 22 | Implemented in 22-04 |
 | VER-05 | Phase 22 | Implemented in 22-04 |
-| VER-06 | Phase 22 | Implemented in 22-04 |
-| RTE-01 | Phase 22 | Wave 0 RED scaffold (22-01) |
-| RTE-02 | Phase 22 | Wave 0 RED scaffold (22-01) |
-| RTE-03 | Phase 22 | Wave 0 RED scaffold (22-02) |
-| RTE-04 | Phase 22 | Wave 0 RED scaffold (22-02) |
-| RTE-05 | Phase 22 | Wave 0 RED scaffold (22-02) |
+| VER-06 | Phase 22 | Implemented in 22-04; state/final-response redaction closure completed in 22-05 |
+| RTE-01 | Phase 22 | Implemented in 22-05 |
+| RTE-02 | Phase 22 | Implemented in 22-05 |
+| RTE-03 | Phase 22 | Implemented in 22-05 |
+| RTE-04 | Phase 22 | Implemented in 22-05 |
+| RTE-05 | Phase 22 | Implemented in 22-05 |
 | BND-01 | Phase 22 | EvidenceRefV1 identity preserved in 22-03 |
 | BND-02 | Phase 22 | Retrieval/ranking behavior preserved in 22-03 |
 | BND-03 | Phase 22 | Implemented in 22-04 |
 | BND-04 | Phase 22 | Implemented in 22-04 |
-| BND-05 | Phase 22 | Prompt-safe provenance/OCR label boundary implemented in 22-03 |
+| BND-05 | Phase 22 | Prompt-safe provenance/OCR label boundary implemented in 22-03; final/action leakage closure completed in 22-05 |
 | EVAL-01 | Phase 22 | Wave 0 RED scaffold (22-02) |
 | EVAL-02 | Phase 22 | Wave 0 RED scaffold (22-02) |
 | EVAL-03 | Phase 22 | Wave 0 RED scaffold (22-02) |
