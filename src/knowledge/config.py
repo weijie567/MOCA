@@ -9,7 +9,7 @@ QUERY_REWRITE_CONFIG_VERSION = "query_rewrite.v1"
 STRONG_EVIDENCE_THRESHOLD = 0.70
 MIN_SIMILARITY_THRESHOLD = 0.55
 
-# Phase 23 query rewrite bounds. Rewrite is local and additive; retrieval filters stay caller-owned.
+# Phase 23 query rewrite bounds. Rewrite is local, deterministic, and additive.
 QUERY_REWRITE_ENABLED = True
 MAX_REWRITE_QUERIES = 3
 MAX_REWRITE_QUERY_CHARS = 160

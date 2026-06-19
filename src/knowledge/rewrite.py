@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Literal
+from collections.abc import Mapping
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -8,12 +9,13 @@ from src.knowledge.config import (
     MAX_REWRITE_QUERIES,
     MAX_REWRITE_QUERY_CHARS,
     QUERY_REWRITE_CONFIG_VERSION,
+    QUERY_REWRITE_ENABLED,
 )
 from src.knowledge.schemas import KnowledgeContext
 
 
 RewriteSource = Literal["domain_synonym", "intent_normalization", "merchant_support_alias"]
-RewriteSkipReason = Literal[
+SkipReason = Literal[
     "already_specific",
     "out_of_domain",
     "unsafe_query",
@@ -38,149 +40,130 @@ class QueryRewritePlan(BaseModel):
     original_query: str
     rewritten_queries: tuple[str, ...] = ()
     expansions: tuple[RewriteExpansion, ...] = ()
-    skip_reason: RewriteSkipReason | None = None
+    skip_reason: SkipReason | None = None
     safe_summary: str | None = None
     trigger_terms: tuple[str, ...] = ()
     source: Literal["rule_default"] = "rule_default"
     config_version: str = QUERY_REWRITE_CONFIG_VERSION
 
+    @property
+    def should_rewrite(self) -> bool:
+        return self.skip_reason is None and bool(self.expansions)
 
-# No-widening denylist for trusted filters/scopes: these names must never become rewrite DTO fields.
-TRUSTED_FILTER_FIELD_DENYLIST: tuple[str, ...] = (
+
+_TRUSTED_CONTEXT_FIELD_DENYLIST = {
     "tenant_id",
     "merchant_scope",
     "role",
     "risk_level",
     "doc_type",
     "effective_at",
+    "effective_date",
     "policy_scope",
     "knowledge_scope",
-)
-
-_OUT_OF_DOMAIN_TERMS = ("银行卡", "绑定手机号", "登录密码", "天气", "股票")
-_UNSAFE_QUERY_TERMS = ("ignore previous instructions", "忽略之前", "泄露", "系统提示", "私钥")
-_DOMAIN_ANCHORS = (
-    "补偿",
-    "审批",
-    "订单",
-    "客服",
-    "商家",
-    "商品",
-    "售后",
-    "投诉",
-    "物流",
-    "申诉",
-    "质量",
-    "退款",
-    "退货",
-    "运费",
-    "跨境",
-    "证据",
-    "争议",
-    "政策",
-)
-_SPECIFIC_MARKERS = ("ORD-", "RF-", "跨境订单")
-_ALIAS_EXPANSIONS: tuple[tuple[str, str, RewriteSource], ...] = (
+}
+_OUT_OF_DOMAIN_TRIGGERS = ("银行卡", "绑定手机号", "登录密码", "天气", "股票")
+_UNSAFE_TRIGGERS = ("ignore previous instructions", "忽略之前", "泄露", "系统提示", "私钥")
+_SPECIFIC_TRIGGERS = ("ORD-", "RF-", "退款时效", "跨境订单")
+_DOMAIN_ANCHORS = ("补偿", "审批", "订单", "客服", "商家", "售后", "投诉", "物流", "退款", "退货", "运费", "跨境")
+_ALIAS_RULES: tuple[tuple[str, str, RewriteSource], ...] = (
     ("仅退款", "仅退款 商家举证 物流状态", "domain_synonym"),
-    ("已发货", "商家已发货 物流核实", "merchant_support_alias"),
-    ("补偿券", "补偿券 审批 材料", "domain_synonym"),
-    ("七天无理由", "七天无理由 二次销售 退货退款", "intent_normalization"),
+    ("已发货", "商家已发货 物流核实", "intent_normalization"),
+    ("补偿券", "补偿券 审批 材料", "merchant_support_alias"),
+    ("七天无理由", "七天无理由 二次销售 退货退款", "domain_synonym"),
     ("退款时效", "退款时效 支付通道 超时", "intent_normalization"),
 )
 
 
 def build_query_rewrite_plan(
     query: str,
-    context: KnowledgeContext | None,
+    context: KnowledgeContext | Mapping[str, Any] | None = None,
     *,
-    enabled: bool = True,
+    trusted_context: KnowledgeContext | Mapping[str, Any] | None = None,
+    enabled: bool = QUERY_REWRITE_ENABLED,
+    max_expansions: int = MAX_REWRITE_QUERIES,
 ) -> QueryRewritePlan:
-    original_query = str(query or "")
+    original_query = query.strip()
+    rewrite_context = context if context is not None else trusted_context
 
     if not enabled:
-        return _skip_plan(original_query, "disabled")
-    if not _has_required_trusted_context(context):
-        return _skip_plan(original_query, "missing_trusted_context")
-    if _contains_any(original_query, _UNSAFE_QUERY_TERMS, case_sensitive=False):
-        return _skip_plan(original_query, "unsafe_query")
-    if _contains_any(original_query, _OUT_OF_DOMAIN_TERMS):
-        return _skip_plan(original_query, "out_of_domain")
+        return _skip(original_query, "disabled")
+    if not _has_trusted_context(rewrite_context):
+        return _skip(original_query, "missing_trusted_context")
+    lowered = original_query.lower()
+    if any(trigger in lowered or trigger in original_query for trigger in _UNSAFE_TRIGGERS):
+        return _skip(original_query, "unsafe_query")
+    if any(trigger in original_query for trigger in _OUT_OF_DOMAIN_TRIGGERS):
+        return _skip(original_query, "out_of_domain")
 
-    expansions = _build_expansions(original_query)
-    if expansions:
-        if len(expansions) > MAX_REWRITE_QUERIES:
-            expansions = expansions[:MAX_REWRITE_QUERIES]
-        trigger_terms = tuple(term for expansion in expansions for term in expansion.matched_terms)
-        plan = QueryRewritePlan(
-            original_query=original_query,
-            rewritten_queries=tuple(expansion.query for expansion in expansions),
-            expansions=tuple(expansions),
-            trigger_terms=_dedupe(trigger_terms),
-        )
-        return plan.model_copy(update={"safe_summary": safe_rewrite_summary(plan)})
+    expansions = _build_expansions(original_query, max_expansions=max_expansions)
+    if not expansions:
+        if any(trigger in original_query for trigger in _SPECIFIC_TRIGGERS) or _has_domain_anchor(original_query):
+            return _skip(original_query, "already_specific")
+        return _skip(original_query, "out_of_domain")
 
-    if _is_already_specific(original_query):
-        return _skip_plan(original_query, "already_specific")
-    if not _contains_any(original_query, _DOMAIN_ANCHORS):
-        return _skip_plan(original_query, "out_of_domain")
-
-    return _skip_plan(original_query, "already_specific")
+    trigger_terms = tuple(term for expansion in expansions for term in expansion.matched_terms)
+    return QueryRewritePlan(
+        original_query=original_query,
+        rewritten_queries=tuple(expansion.query for expansion in expansions),
+        expansions=tuple(expansions),
+        safe_summary=_format_summary(rewrite_count=len(expansions), trigger_terms=trigger_terms),
+        trigger_terms=trigger_terms,
+    )
 
 
 def safe_rewrite_summary(plan: QueryRewritePlan) -> str | None:
-    if plan.skip_reason is not None:
-        summary = f"{plan.source}: skip_reason={plan.skip_reason}; rewrite_count=0"
-    else:
-        triggers = ",".join(_dedupe(plan.trigger_terms))
-        summary = f"{plan.source}: rewrite_count={len(plan.rewritten_queries)}; triggers={triggers}"
-    return summary[:MAX_REWRITE_QUERY_CHARS]
+    return plan.safe_summary
 
 
-def _skip_plan(original_query: str, reason: RewriteSkipReason) -> QueryRewritePlan:
-    plan = QueryRewritePlan(original_query=original_query, skip_reason=reason)
-    return plan.model_copy(update={"safe_summary": safe_rewrite_summary(plan)})
-
-
-def _has_required_trusted_context(context: KnowledgeContext | None) -> bool:
-    if context is None:
-        return False
-    tenant_value = getattr(context, f"{'tenant'}_{'id'}", None)
-    merchant_value = getattr(context, f"{'merchant'}_{'scope'}", None)
-    return bool(tenant_value) and bool(merchant_value)
-
-
-def _build_expansions(query: str) -> list[RewriteExpansion]:
+def _build_expansions(query: str, *, max_expansions: int) -> list[RewriteExpansion]:
+    limit = max(0, min(max_expansions, MAX_REWRITE_QUERIES))
     expansions: list[RewriteExpansion] = []
-    seen_queries: set[str] = set()
-    for trigger, rewrite_query, source in _ALIAS_EXPANSIONS:
-        if trigger not in query:
+    seen_queries: set[str] = {query}
+
+    for term, expansion_text, source in _ALIAS_RULES:
+        if term not in query:
             continue
-        bounded_query = rewrite_query[:MAX_REWRITE_QUERY_CHARS]
-        if bounded_query in seen_queries:
+        rewritten = _bounded_query(f"{query} {expansion_text}")
+        if rewritten in seen_queries:
             continue
-        seen_queries.add(bounded_query)
-        expansions.append(RewriteExpansion(query=bounded_query, source=source, matched_terms=(trigger,)))
+        expansions.append(RewriteExpansion(query=rewritten, source=source, matched_terms=(term,)))
+        seen_queries.add(rewritten)
+        if len(expansions) >= limit:
+            break
     return expansions
 
 
-def _is_already_specific(query: str) -> bool:
-    normalized = query.upper()
-    return any(marker in normalized for marker in _SPECIFIC_MARKERS)
+def _has_trusted_context(context: KnowledgeContext | Mapping[str, Any] | None) -> bool:
+    if context is None:
+        return False
+    tenant_id = _context_value(context, "tenant_id")
+    merchant_scope = _context_value(context, "merchant_scope")
+    return bool(tenant_id) and bool(merchant_scope)
 
 
-def _contains_any(query: str, terms: tuple[str, ...], *, case_sensitive: bool = True) -> bool:
-    if case_sensitive:
-        return any(term in query for term in terms)
-    lowered = query.lower()
-    return any(term.lower() in lowered for term in terms)
+def _context_value(context: KnowledgeContext | Mapping[str, Any], key: str) -> Any:
+    if isinstance(context, Mapping):
+        return context.get(key)
+    return getattr(context, key, None)
 
 
-def _dedupe(values: tuple[str, ...]) -> tuple[str, ...]:
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for value in values:
-        if value in seen:
-            continue
-        seen.add(value)
-        ordered.append(value)
-    return tuple(ordered)
+def _has_domain_anchor(query: str) -> bool:
+    return any(anchor in query for anchor in _DOMAIN_ANCHORS)
+
+
+def _bounded_query(query: str) -> str:
+    return query[:MAX_REWRITE_QUERY_CHARS].strip()
+
+
+def _format_summary(*, rewrite_count: int, trigger_terms: tuple[str, ...]) -> str:
+    triggers = ",".join(trigger_terms) if trigger_terms else "none"
+    return f"rule_default: rewrite_count={rewrite_count}; triggers={triggers}"
+
+
+def _skip(query: str, reason: SkipReason) -> QueryRewritePlan:
+    return QueryRewritePlan(
+        original_query=query,
+        skip_reason=reason,
+        safe_summary=f"rule_default: skip_reason={reason}; rewrite_count=0",
+    )
