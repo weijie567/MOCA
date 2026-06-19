@@ -11,6 +11,7 @@ from src.agent.rag_context.claims import (
     normalize_material_claims,
     valid_claim_dependency_map,
 )
+from src.agent.rag_context.routing import VerificationRoute, VerificationRouteDecision, determine_verification_route
 from src.agent.rag_context.schemas import (
     CitationMapEntry,
     EvidenceTraceEntry,
@@ -66,7 +67,10 @@ __all__ = [
     "SemanticVerifierConfig",
     "SemanticVerifierRequest",
     "VerificationOutcome",
+    "VerificationRoute",
+    "VerificationRouteDecision",
     "claim_dependency_map_from_claims",
+    "determine_verification_route",
     "normalize_claim_dependency_map",
     "normalize_material_claim",
     "normalize_material_claims",
