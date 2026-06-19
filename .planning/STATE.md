@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: RAG Context Builder + Hallucination Control
 status: executing
-stopped_at: Completed 22-02-PLAN.md
-last_updated: "2026-06-19T09:14:17.266Z"
-last_activity: 2026-06-19 -- Completed 22-02 Wave 0 integration/eval scaffold
+stopped_at: Completed 22-03-PLAN.md
+last_updated: "2026-06-19T09:30:57.124Z"
+last_activity: 2026-06-19 -- Completed 22-03 ContextBuilder and canonical evidence validation
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 6
-  completed_plans: 2
-  percent: 33
+  completed_plans: 3
+  percent: 50
 ---
 
 # Project State: MOCA
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md` (updated 2026-06-19)
 ## Current Position
 
 Phase: 22 (RAG Context Builder + Hallucination Control) — EXECUTING
-Plan: 3 of 6
-Plans: 2/6 complete for v1.5
+Plan: 4 of 6
+Plans: 3/6 complete for v1.5
 Status: Ready to execute
-Last activity: 2026-06-19 -- Completed 22-02 Wave 0 integration/eval scaffold
+Last activity: 2026-06-19 -- Completed 22-03 ContextBuilder and canonical evidence validation
 
-Progress: [███░░░░░░░] 33%
+Progress: [█████░░░░░] 50%
 
 Planning files:
 
@@ -51,11 +51,11 @@ Planning files:
 
 ## Performance Metrics
 
-**v1.5 velocity:** 0 phases complete, 2 of 6 plans complete.
+**v1.5 velocity:** 0 phases complete, 3 of 6 plans complete.
 
 | Phase | Plans | Status |
 |-------|-------|--------|
-| 22. RAG Context Builder + Hallucination Control | 2/6 | In Progress |
+| 22. RAG Context Builder + Hallucination Control | 3/6 | In Progress |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
 
@@ -63,6 +63,7 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 |------|----------|-------|-------|
 | 22-01 | 9 min | 3 | 7 |
 | 22-02 | 13 min | 3 | 8 |
+| 22-03 | 10 min | 3 | 6 |
 
 ## Accumulated Context
 
@@ -77,6 +78,9 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 - Plan 22-02 remains RED-only; production rag_context APIs and graph behavior are reserved for later implementation plans.
 - Latest/current policy version validation is pinned separately from text hash and effective-date freshness validation.
 - Phase 21 boundary guards now allow Phase 22-owned claim/verifier names only in owned files while preserving Phase 23/RAG-5/Phase 17 scope bans.
+- Plan 22-03 kept EvidenceRefV1 unchanged; Phase 22 citation, trace, and budget metadata live in separate rag_context DTOs.
+- Plan 22-03 implements latest/current policy validity as EvidenceRefV1.policy_version == v{PolicyDocument.version} for the current tenant/document row.
+- Plan 22-03 projects provenance/OCR inputs only as prompt-safe risk labels on ordinary surfaces.
 
 ### Pending Todos
 
@@ -100,8 +104,8 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 
 ## Session Continuity
 
-Last session: 2026-06-19T09:14:17.258Z
-Stopped at: Completed 22-02-PLAN.md
+Last session: 2026-06-19T09:30:57.116Z
+Stopped at: Completed 22-03-PLAN.md
 Resume file: None
 Next: Run `$gsd-execute-phase 22`
 

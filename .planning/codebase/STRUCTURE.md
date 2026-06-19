@@ -8,7 +8,7 @@
 MOCA/
 ├── src/                     # Python backend source
 │   ├── api/                 # FastAPI app, routers, schemas, dependencies
-│   ├── agent/               # LangGraph state, graph, nodes, trace, tool registry
+│   ├── agent/               # LangGraph state, graph, nodes, trace, rag_context, tool registry
 │   ├── approvals/           # Approval-domain schemas, snapshots, services, and state machine logic
 │   ├── auth/                # JWT and permission helpers
 │   ├── common/              # Domain-independent canonical helpers shared across phases
@@ -47,6 +47,7 @@ MOCA/
 - LangGraph orchestration in `graph.py`
 - Shared state and schemas in `state.py` and `schemas.py`
 - Node implementations under `src/agent/nodes/`
+- Phase 22 RAG reasoning context kernel under `src/agent/rag_context/`
 - Trace persistence helpers in `trace.py`
 - Tool contracts, registry, adapters, and concrete tools under `src/agent/tools/`
 
@@ -142,6 +143,7 @@ MOCA/
 - New conversation/tool-result persistence behavior: `src/conversation/`
 - New shared canonical/hash helper: `src/common/`
 - New agent node: `src/agent/nodes/` and graph wiring in `src/agent/graph.py`
+- New post-retrieval reasoning context behavior: `src/agent/rag_context/`
 - New tool: `src/agent/tools/` plus registry metadata and contract tests
 - New RAG behavior: `src/rag/` plus search/RAG tests
 - New UI view: `frontend/src/components/` or `frontend/src/hooks/`
