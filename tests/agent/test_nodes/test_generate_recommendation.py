@@ -174,11 +174,17 @@ async def test_skips_llm_for_retrieval_safety_drafts(monkeypatch, base_state, re
 
 @pytest.mark.asyncio
 async def test_membership_pass_keeps_canonical_evidence_ref(monkeypatch, base_state):
+    evidence = _evidence(tenant_id=base_state["tenant_id"])
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_draft()))
+    _with_knowledge_service(
+        monkeypatch, {(evidence.doc_key, evidence.chunk_id): "退款超时时，客服应核实支付通道和退款状态。"}
+    )
 
-    result = await generate_recommendation_module.generate_recommendation({**base_state, **_retrieval_state()})
+    result = await generate_recommendation_module.generate_recommendation(
+        {**base_state, **_retrieval_state(evidence=[evidence])},
+        _config(),
+    )
 
-    evidence = _evidence()
     assert result["evidence_refs"][0]["evidence_id"] == evidence.evidence_id
     assert result["evidence_refs"][0]["text_hash"] == evidence.text_hash
     assert result["recommendation_draft"]["citation_validation"]["is_valid"] is True
@@ -302,7 +308,9 @@ async def test_missing_session_completes_without_grounded_text(monkeypatch, base
         {},
     )
 
-    assert result["recommendation_draft"]["recommended_action"] == "建议退款"
+    assert result["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
+    assert result["verification_route"] == "insufficient_evidence"
+    assert "context_builder_session_missing" in result["verifier_reason_codes"]
     assert policy_text not in fake_llm.messages[-1]["content"]
 
 
@@ -329,6 +337,7 @@ def test_generate_recommendation_does_not_import_policy_chunk_repository():
 @pytest.mark.asyncio
 async def test_mixed_citations_revalidated_to_valid(monkeypatch, base_state):
     mixed_draft = _draft()
+    evidence = _evidence(tenant_id=base_state["tenant_id"])
     mixed_draft["evidence_refs"].append(
         {
             "doc_key": "policy_refund_timeout",
@@ -338,8 +347,14 @@ async def test_mixed_citations_revalidated_to_valid(monkeypatch, base_state):
         }
     )
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(mixed_draft))
+    _with_knowledge_service(
+        monkeypatch, {(evidence.doc_key, evidence.chunk_id): "退款超时时，客服应核实支付通道和退款状态。"}
+    )
 
-    result = await generate_recommendation_module.generate_recommendation({**base_state, **_retrieval_state()})
+    result = await generate_recommendation_module.generate_recommendation(
+        {**base_state, **_retrieval_state(evidence=[evidence])},
+        _config(),
+    )
 
     draft = result["recommendation_draft"]
     assert [item["chunk_id"] for item in draft["evidence_refs"]] == ["chunk_001"]

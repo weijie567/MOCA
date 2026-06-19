@@ -338,9 +338,9 @@ class _IncludedEvidence:
 
 
 def _dedupe_candidates(refs: list[EvidenceRefV1]) -> tuple[list[EvidenceRefV1], list[EvidenceTraceEntry]]:
-    grouped: dict[tuple[str, str], list[EvidenceRefV1]] = defaultdict(list)
+    grouped: dict[tuple[str, str, str], list[EvidenceRefV1]] = defaultdict(list)
     for ref in refs:
-        grouped[(ref.doc_key, ref.chunk_id)].append(ref)
+        grouped[(ref.tenant_id, ref.doc_key, ref.chunk_id)].append(ref)
 
     retained: list[EvidenceRefV1] = []
     excluded: list[EvidenceTraceEntry] = []

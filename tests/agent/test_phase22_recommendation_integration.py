@@ -172,6 +172,24 @@ def _unsupported_action_draft_with_valid_citation() -> dict[str, Any]:
     }
 
 
+def _supported_policy_action_draft_missing_business_support() -> dict[str, Any]:
+    return {
+        "recommended_action": "issue_coupon",
+        "reasoning_summary": "Refund policy requires current evidence and verified business facts.",
+        "evidence_refs": [
+            {
+                "doc_key": "policy_refund_timeout",
+                "chunk_id": "chunk_001",
+                "title": "Refund policy",
+                "section": "Compensation",
+            }
+        ],
+        "confidence": 0.93,
+        "risk_level": "high",
+        "missing_info": [],
+    }
+
+
 @pytest.mark.asyncio
 async def test_generate_recommendation_uses_shared_context_builder_and_verifier_not_node_local_refetch(
     monkeypatch: pytest.MonkeyPatch,
@@ -273,3 +291,60 @@ async def test_valid_citation_membership_does_not_allow_unsupported_action_recom
     claims = result["recommendation_draft"]["material_claims"]
     assert any(claim["authority_class"] == "policy_claim" for claim in claims)
     assert any(claim["authority_class"] == "action_recommendation_claim" for claim in claims)
+
+
+@pytest.mark.asyncio
+async def test_supported_policy_claim_does_not_mask_failed_action_dependency(
+    monkeypatch: pytest.MonkeyPatch,
+    base_state: dict[str, Any],
+) -> None:
+    """CLM-04/RTE-04: a supported policy claim cannot mask missing action dependencies."""
+    evidence = _evidence_ref(base_state["tenant_id"])
+    builder = FakeContextBuilder()
+
+    monkeypatch.setattr(generate_recommendation_module, "ContextBuilder", lambda **kwargs: builder)
+    monkeypatch.setattr(
+        generate_recommendation_module,
+        "_get_llm",
+        lambda: FakeLLM(_supported_policy_action_draft_missing_business_support()),
+    )
+
+    result = await generate_recommendation_module.generate_recommendation(
+        {**base_state, **_retrieval_state(evidence)},
+        {"configurable": {"session": object()}},
+    )
+
+    assert result["rag_verification"]["overall_outcome"] != "supported"
+    assert result["verification_route"] != "allow"
+    assert result["recommendation_draft"]["recommended_action"] in {
+        "insufficient_evidence",
+        "manual_review",
+        "refuse",
+        "regenerate_route",
+    }
+    assert "dependency_result_missing" in result["verifier_reason_codes"]
+
+
+@pytest.mark.asyncio
+async def test_missing_session_context_builder_fails_closed_instead_of_allowing_membership_only(
+    monkeypatch: pytest.MonkeyPatch,
+    base_state: dict[str, Any],
+) -> None:
+    """RTE-04: missing canonical evidence session cannot fall back to citation-membership allow."""
+    evidence = _evidence_ref(base_state["tenant_id"])
+
+    monkeypatch.setattr(
+        generate_recommendation_module,
+        "_get_llm",
+        lambda: FakeLLM(_supported_policy_action_draft_missing_business_support()),
+    )
+
+    result = await generate_recommendation_module.generate_recommendation(
+        {**base_state, **_retrieval_state(evidence)},
+        {},
+    )
+
+    assert result["recommendation_draft"]["citation_validation"]["is_valid"] is True
+    assert result["verification_route"] != "allow"
+    assert result["rag_verification"]["overall_outcome"] in {"insufficient", "manual_review"}
+    assert "context_builder_session_missing" in result["verifier_reason_codes"]

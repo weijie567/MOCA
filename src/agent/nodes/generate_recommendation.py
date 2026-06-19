@@ -380,15 +380,16 @@ async def _verify_recommendation_with_shared_kernel(
         return _normalize_recommendation_verification(result)
 
     if claims and citation_validation.get("is_valid") is True and _missing_session_compat(context_bundle):
-        route = determine_verification_route({"overall_outcome": "supported", "reason_codes": []})
+        reason_codes = ["policy_evidence_required", "context_builder_session_missing"]
+        route = determine_verification_route({"overall_outcome": "insufficient", "reason_codes": reason_codes})
         return _normalize_recommendation_verification(
             {
-                "overall_outcome": "supported",
-                "allows_recommendation": True,
+                "overall_outcome": "insufficient",
+                "allows_recommendation": False,
                 "route": route,
                 "material_claims": _safe_material_claims(claims),
-                "reason_codes": [],
-                "safe_citation_refs": [evidence_id for claim in claims for evidence_id in claim.cited_evidence_ids],
+                "reason_codes": reason_codes,
+                "safe_citation_refs": [],
                 "metrics": route.metrics,
             }
         )
@@ -421,11 +422,7 @@ async def _verify_recommendation_with_shared_kernel(
 
     reason_codes = _unique_text(code for result in verification_results for code in result.reason_codes)
     safe_refs = _unique_text(ref for result in verification_results for ref in result.safe_support_refs)
-    overall = (
-        "supported"
-        if all(result.allows_claim for result in verification_results)
-        else verification_results[0].outcome.value
-    )
+    overall = _aggregate_verification_outcome(verification_results)
     route = determine_verification_route(
         {
             "overall_outcome": overall,
@@ -449,6 +446,13 @@ async def _verify_recommendation_with_shared_kernel(
             "metrics": route.metrics,
         }
     )
+
+
+def _aggregate_verification_outcome(verification_results: list[Any]) -> str:
+    blocking = [result for result in verification_results if not result.allows_claim]
+    if not blocking:
+        return "supported"
+    return str(blocking[0].outcome.value)
 
 
 async def _assemble_recommendation_prompt(

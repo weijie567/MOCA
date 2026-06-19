@@ -72,9 +72,17 @@ _ROUTE_INSUFFICIENT_REASONS = {
     "policy_evidence_required",
     "policy_dependency_required",
     "business_dependency_required",
+    "dependency_claims_required",
+    "dependency_result_missing",
+    "dependency_results_required",
     "insufficient_evidence",
     "evidence_text_required",
     "canonical_content_missing",
+    "unsupported_dependency",
+    "unsupported_policy_dependency",
+    "unsupported_business_dependency",
+    "policy_dependency_not_evidence_supported",
+    "business_dependency_not_tool_supported",
 }
 _ROUTE_REGENERATE_REASONS = {
     "unsupported",

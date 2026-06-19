@@ -210,6 +210,36 @@ async def test_duplicate_and_adjacent_evidence_merge_projection_without_rewritin
 
 
 @pytest.mark.asyncio
+async def test_wrong_tenant_duplicate_cannot_discard_valid_tenant_evidence() -> None:
+    """CTX-02/CTX-04: duplicate collapse must not run across tenant boundaries."""
+    ContextBuilder, _RagContextBundle = _load_context_api()
+    text = "Tenant-valid policy evidence should survive wrong-tenant duplicates."
+    wrong_tenant = _evidence_ref(
+        text=text,
+        tenant_id="22222222-2222-2222-2222-222222222222",
+        rank=1,
+    )
+    valid = _evidence_ref(text=text, tenant_id=TENANT_ID, rank=2)
+    service = FakePolicyKnowledgeService({valid.evidence_id: text})
+
+    bundle = await ContextBuilder(policy_service=service).build(
+        candidate_evidence_refs=[wrong_tenant, valid],
+        business_fact_refs=[_business_fact_ref()],
+        trusted_context=_trusted_context(),
+        risk_hints=[],
+    )
+
+    exclusion_codes = {
+        (entry.evidence_id, entry.reason_code) for entry in bundle.debug_context.truncated_or_excluded_evidence
+    }
+
+    assert bundle.citation_map["C1"].evidence_ref == valid
+    assert bundle.citation_map["C1"].source_evidence_ids == [valid.evidence_id]
+    assert (wrong_tenant.evidence_id, "tenant_mismatch") in exclusion_codes
+    assert (valid.evidence_id, "duplicate_evidence_key") not in exclusion_codes
+
+
+@pytest.mark.asyncio
 async def test_invalid_evidence_is_excluded_before_prompt_or_claim_support() -> None:
     """CTX-01/CTX-03: invalid evidence is excluded before prompt or support projections."""
     ContextBuilder, _RagContextBundle = _load_context_api()
