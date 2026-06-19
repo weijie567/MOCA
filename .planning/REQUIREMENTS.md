@@ -7,16 +7,16 @@
 
 Requirements for Phase 22. Each requirement must preserve the existing v1.3/v1.4 retrieval and evidence contracts unless explicitly stated otherwise.
 
-**Progress note:** Requirements checked by Plan 22-01 indicate Wave 0 RED test-scaffold coverage exists. Production implementation remains in later Phase 22 plans.
+**Progress note:** Requirements checked by Plans 22-01 and 22-02 indicate Wave 0 RED test/eval scaffold coverage exists. Production implementation remains in later Phase 22 plans.
 
 ### Context Builder
 
 - [x] **CTX-01**: System can build a `RagContextBundle` or equivalent prompt-safe context from candidate `EvidenceRefV1` values, business fact refs, trusted tenant/run/thread context, and risk/conflict hints after retrieval and before answer/action reasoning.
-- [ ] **CTX-02**: System can re-fetch canonical policy evidence content through `PolicyKnowledgeService` and exclude evidence whose tenant, scope, duplicate-key, content, `text_hash`, or freshness validation fails.
+- [x] **CTX-02**: System can re-fetch canonical policy evidence content through `PolicyKnowledgeService` and exclude evidence whose tenant, scope, duplicate-key, content, `text_hash`, or freshness validation fails.
 - [x] **CTX-03**: System can emit stable citation map entries that preserve canonical evidence identity while exposing only prompt-safe citation IDs, bounded snippets, display labels, and required metadata to prompts.
 - [x] **CTX-04**: System can deduplicate repeated evidence and safely merge adjacent same-document evidence without changing `EvidenceRefV1` identity or losing traceability to source refs.
 - [x] **CTX-05**: System can enforce a deterministic evidence token/character budget while preserving protected citation metadata and recording included, truncated, and excluded evidence with reason codes.
-- [ ] **CTX-06**: System can label evidence freshness, authority, conflict, OCR-confidence, and provenance availability risks without turning source-block/OCR/provenance metadata into policy evidence identity.
+- [x] **CTX-06**: System can label evidence freshness, authority, conflict, OCR-confidence, and provenance availability risks without turning source-block/OCR/provenance metadata into policy evidence identity.
 
 ### Material Claims
 
@@ -33,31 +33,31 @@ Requirements for Phase 22. Each requirement must preserve the existing v1.3/v1.4
 - [x] **VER-03**: System runs low-cost Level 2 lexical/span support checks for ordinary material claims and returns typed outcomes such as supported, unsupported, insufficient, ambiguous, or needs-semantic-review.
 - [x] **VER-04**: System runs Level 3 semantic support only for configured high-risk, action, conflict, stale, OCR-low-confidence, or Level 2 ambiguous cases.
 - [x] **VER-05**: System enforces explicit Level 3 budgets for claim count, evidence count, text/token size, timeout, retries, and config version, and fails closed on timeout, provider error, malformed output, or budget overflow.
-- [ ] **VER-06**: System stores or exposes only redacted verifier status, reason codes, metrics, and safe refs; raw verifier prompts, private reasoning, source-block internals, raw OCR metadata, and unbounded policy text stay out of ordinary prompts and user-facing answers.
+- [x] **VER-06**: System stores or exposes only redacted verifier status, reason codes, metrics, and safe refs; raw verifier prompts, private reasoning, source-block internals, raw OCR metadata, and unbounded policy text stay out of ordinary prompts and user-facing answers.
 
 ### Routing and Integration
 
 - [x] **RTE-01**: System deterministically maps verification outcomes to allow, regenerate-route, refuse or insufficient-evidence response, or manual review without letting the model choose the safety route; implementing an automatic regeneration attempt remains stretch scope unless separately accepted.
 - [x] **RTE-02**: System handles unsupported, insufficient-evidence, conflicting-evidence, stale-evidence, unauthorized-evidence, scope-invalid, hash-mismatch, OCR-low-confidence, business-fact-missing, and needs-manual-review states with explicit route behavior.
-- [ ] **RTE-03**: System integrates ContextBuilder and claim verification into recommendation generation so local node-specific evidence re-fetch and citation-map logic do not diverge from the shared reasoning kernel.
-- [ ] **RTE-04**: System prevents non-allow verification outcomes from creating proposed actions, approval requests, action drafts, or `ActionSafetySnapshot` evidence.
-- [ ] **RTE-05**: System renders final responses for refusal, insufficient evidence, conflict, stale evidence, unauthorized evidence, and manual review using safe user-facing language without dumping verifier/debug/provenance traces.
+- [x] **RTE-03**: System integrates ContextBuilder and claim verification into recommendation generation so local node-specific evidence re-fetch and citation-map logic do not diverge from the shared reasoning kernel.
+- [x] **RTE-04**: System prevents non-allow verification outcomes from creating proposed actions, approval requests, action drafts, or `ActionSafetySnapshot` evidence.
+- [x] **RTE-05**: System renders final responses for refusal, insufficient evidence, conflict, stale evidence, unauthorized evidence, and manual review using safe user-facing language without dumping verifier/debug/provenance traces.
 
 ### Boundaries and Scope Guards
 
-- [ ] **BND-01**: System preserves `EvidenceRefV1` as the canonical policy evidence identity and does not add MaterialClaim, source-block, OCR, provenance, business fact, or verifier fields to that identity.
-- [ ] **BND-02**: System preserves Phase 20 dense/sparse/fuzzy/RRF ranking semantics and does not implement query rewrite, model/cross-encoder relevance reranking, external rerank APIs, or new search backend behavior in Phase 22.
+- [x] **BND-01**: System preserves `EvidenceRefV1` as the canonical policy evidence identity and does not add MaterialClaim, source-block, OCR, provenance, business fact, or verifier fields to that identity.
+- [x] **BND-02**: System preserves Phase 20 dense/sparse/fuzzy/RRF ranking semantics and does not implement query rewrite, model/cross-encoder relevance reranking, external rerank APIs, or new search backend behavior in Phase 22.
 - [x] **BND-03**: System preserves Tool System authority for current business facts and prevents business facts from being represented as policy `EvidenceRefV1`.
 - [x] **BND-04**: System preserves memory as contextual assistance only and prevents memory from becoming policy evidence, current business fact authority, approval/action authority, or replay/audit truth.
-- [ ] **BND-05**: System preserves Phase 21 provenance boundaries by keeping source-block/OCR/parser metadata internal, debug, or maintainer-lookup only unless a prompt-safe label is explicitly projected.
+- [x] **BND-05**: System preserves Phase 21 provenance boundaries by keeping source-block/OCR/parser metadata internal, debug, or maintainer-lookup only unless a prompt-safe label is explicitly projected.
 
 ### Evaluation and Acceptance
 
-- [ ] **EVAL-01**: System has hallucination-control golden cases for supported policy claims, cited-but-unsupported claims, missing citations, stale policy, conflicting policy, unauthorized or hash-mismatched evidence, OCR-low-confidence traps, and insufficient evidence.
-- [ ] **EVAL-02**: System has golden cases proving business facts cannot be inferred from policy evidence, policy claims cannot be supported by business facts or memory, and action recommendations require both policy and business support.
-- [ ] **EVAL-03**: System has golden cases proving unsupported, conflicting, stale, unauthorized, hash-mismatched, OCR-low-confidence, and business-fact-missing outcomes refuse, regenerate, or route to manual review as specified.
-- [ ] **EVAL-04**: System has prompt/debug leakage tests proving raw tool payloads, retrieval debug fields, verifier traces, source-block/OCR raw metadata, raw provenance, private reasoning, and unbounded policy text do not enter ordinary prompts, final responses, memory, replay, or action snapshots.
-- [ ] **EVAL-05**: System reports blocking Phase 22 acceptance metrics for claim support accuracy, citation support accuracy, refusal/manual-review routing accuracy, unsafe answer rate, business-data hallucination rate, leakage count, Level 3 trigger rate, timeout rate, and fail-closed rate.
+- [x] **EVAL-01**: System has hallucination-control golden cases for supported policy claims, cited-but-unsupported claims, missing citations, stale policy, conflicting policy, unauthorized or hash-mismatched evidence, OCR-low-confidence traps, and insufficient evidence.
+- [x] **EVAL-02**: System has golden cases proving business facts cannot be inferred from policy evidence, policy claims cannot be supported by business facts or memory, and action recommendations require both policy and business support.
+- [x] **EVAL-03**: System has golden cases proving unsupported, conflicting, stale, unauthorized, hash-mismatched, OCR-low-confidence, and business-fact-missing outcomes refuse, regenerate, or route to manual review as specified.
+- [x] **EVAL-04**: System has prompt/debug leakage tests proving raw tool payloads, retrieval debug fields, verifier traces, source-block/OCR raw metadata, raw provenance, private reasoning, and unbounded policy text do not enter ordinary prompts, final responses, memory, replay, or action snapshots.
+- [x] **EVAL-05**: System reports blocking Phase 22 acceptance metrics for claim support accuracy, citation support accuracy, refusal/manual-review routing accuracy, unsafe answer rate, business-data hallucination rate, leakage count, Level 3 trigger rate, timeout rate, and fail-closed rate.
 
 ## Future Requirements
 
@@ -102,11 +102,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | CTX-01 | Phase 22 | Wave 0 RED scaffold (22-01) |
-| CTX-02 | Phase 22 | Pending |
+| CTX-02 | Phase 22 | Wave 0 RED scaffold (22-02) |
 | CTX-03 | Phase 22 | Wave 0 RED scaffold (22-01) |
 | CTX-04 | Phase 22 | Wave 0 RED scaffold (22-01) |
 | CTX-05 | Phase 22 | Wave 0 RED scaffold (22-01) |
-| CTX-06 | Phase 22 | Pending |
+| CTX-06 | Phase 22 | Wave 0 RED scaffold (22-02) |
 | CLM-01 | Phase 22 | Wave 0 RED scaffold (22-01) |
 | CLM-02 | Phase 22 | Wave 0 RED scaffold (22-01) |
 | CLM-03 | Phase 22 | Wave 0 RED scaffold (22-01) |
@@ -117,22 +117,22 @@ Which phases cover which requirements. Updated during roadmap creation.
 | VER-03 | Phase 22 | Wave 0 RED scaffold (22-01) |
 | VER-04 | Phase 22 | Wave 0 RED scaffold (22-01) |
 | VER-05 | Phase 22 | Wave 0 RED scaffold (22-01) |
-| VER-06 | Phase 22 | Pending |
+| VER-06 | Phase 22 | Wave 0 RED scaffold (22-02) |
 | RTE-01 | Phase 22 | Wave 0 RED scaffold (22-01) |
 | RTE-02 | Phase 22 | Wave 0 RED scaffold (22-01) |
-| RTE-03 | Phase 22 | Pending |
-| RTE-04 | Phase 22 | Pending |
-| RTE-05 | Phase 22 | Pending |
-| BND-01 | Phase 22 | Pending |
-| BND-02 | Phase 22 | Pending |
-| BND-03 | Phase 22 | Wave 0 RED scaffold (22-01) |
-| BND-04 | Phase 22 | Wave 0 RED scaffold (22-01) |
-| BND-05 | Phase 22 | Pending |
-| EVAL-01 | Phase 22 | Pending |
-| EVAL-02 | Phase 22 | Pending |
-| EVAL-03 | Phase 22 | Pending |
-| EVAL-04 | Phase 22 | Pending |
-| EVAL-05 | Phase 22 | Pending |
+| RTE-03 | Phase 22 | Wave 0 RED scaffold (22-02) |
+| RTE-04 | Phase 22 | Wave 0 RED scaffold (22-02) |
+| RTE-05 | Phase 22 | Wave 0 RED scaffold (22-02) |
+| BND-01 | Phase 22 | Wave 0 RED scaffold (22-02) |
+| BND-02 | Phase 22 | Wave 0 RED scaffold (22-02) |
+| BND-03 | Phase 22 | Wave 0 RED scaffold (22-01/22-02) |
+| BND-04 | Phase 22 | Wave 0 RED scaffold (22-01/22-02) |
+| BND-05 | Phase 22 | Wave 0 RED scaffold (22-02) |
+| EVAL-01 | Phase 22 | Wave 0 RED scaffold (22-02) |
+| EVAL-02 | Phase 22 | Wave 0 RED scaffold (22-02) |
+| EVAL-03 | Phase 22 | Wave 0 RED scaffold (22-02) |
+| EVAL-04 | Phase 22 | Wave 0 RED scaffold (22-02) |
+| EVAL-05 | Phase 22 | Wave 0 RED scaffold (22-02) |
 
 **Coverage:**
 - v1.5 requirements: 32 total
@@ -141,4 +141,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-06-19*
-*Last updated: 2026-06-19 after v1.5 roadmap creation*
+*Last updated: 2026-06-19 after Plan 22-02 Wave 0 integration/eval scaffold*
