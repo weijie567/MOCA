@@ -39,7 +39,7 @@ Plans:
 - [x] 23-01-PLAN.md — Wave 0 RED test scaffold and static boundary updates for query rewrite, rerank, diagnostics, eval, budgets, and deferral expectations.
 - [x] 23-02-PLAN.md — Query rewrite contracts, deterministic skip rules, safe summaries, and trusted-filter no-widening.
 - [x] 23-03-PLAN.md — Original-query plus rewritten-query candidate generation, channel limits, merge/dedupe, and baseline fallback.
-- [ ] 23-04-PLAN.md — Project-owned reranker contract, deterministic/default local reranking, optional provider gates, and fallback diagnostics.
+- [x] 23-04-PLAN.md — Project-owned reranker contract, deterministic/default local reranking, optional provider gates, and fallback diagnostics.
 - [ ] 23-05-PLAN.md — Retrieval diagnostics, ablation golden cases, metrics reporting, latency budgets, and no-live-provider eval gates.
 - [ ] 23-06-PLAN.md — Boundary regression closure across Phase 20 filters, Phase 21 provenance, Phase 22 verifier/action rules, deferrals, and final acceptance gates.
 
@@ -67,7 +67,7 @@ Hard boundaries:
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 23. RAG Reranker + Query Rewrite | v1.6 | 3/6 executed | In progress | - |
+| 23. RAG Reranker + Query Rewrite | v1.6 | 4/6 executed | In progress | - |
 
 ## Coverage
 
@@ -96,11 +96,11 @@ Requirement groups:
 
 ## Current Status
 
-v1.6 RAG Reranker + Query Rewrite is in execution. Phase 23 has completed 23-01 Wave 0 RED test scaffold, 23-02 query rewrite contracts/safe summaries, and 23-03 retrieval rewrite channel wiring; 3 implementation/verification plans remain.
+v1.6 RAG Reranker + Query Rewrite is in execution. Phase 23 has completed 23-01 Wave 0 RED test scaffold, 23-02 query rewrite contracts/safe summaries, 23-03 retrieval rewrite channel wiring, and 23-04 reranker contracts/provider gates; 2 implementation/verification plans remain.
 
 ## Next Step
 
-Continue Phase 23 execution with 23-04 reranker contract and deterministic default reranking.
+Continue Phase 23 execution with 23-05 retrieval diagnostics, ablation evals, metrics reporting, and latency budgets.
 
 ---
 *Updated: 2026-06-20 after v1.6 roadmap creation.*
