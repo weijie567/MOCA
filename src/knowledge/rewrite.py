@@ -15,6 +15,7 @@ from src.knowledge.schemas import KnowledgeContext
 
 
 RewriteSource = Literal["domain_synonym", "intent_normalization", "merchant_support_alias"]
+AliasRule = tuple[str, str, RewriteSource, str]
 SkipReason = Literal[
     "already_specific",
     "out_of_domain",
@@ -68,13 +69,17 @@ _SPECIFIC_TRIGGERS = ("ORD-", "RF-", "退款时效", "跨境订单")
 _DOMAIN_ANCHORS = ("补偿", "审批", "订单", "客服", "商家", "售后", "投诉", "物流", "退款", "退货", "运费", "跨境")
 _NEEDS_REWRITE_CONTEXT_TERMS = ("已发货", "发了货", "补偿券", "七天无理由", "退款时效")
 _ALREADY_SPECIFIC_ALIAS_TERMS = ("补偿券", "退款时效")
-_ALIAS_RULES: tuple[tuple[str, str, RewriteSource], ...] = (
-    ("仅退款", "仅退款 商家举证 物流状态", "domain_synonym"),
-    ("已发货", "商家已发货 物流核实", "intent_normalization"),
-    ("发了货", "商家已发货 物流核实", "intent_normalization"),
-    ("补偿券", "补偿券 审批 材料", "merchant_support_alias"),
-    ("七天无理由", "七天无理由 二次销售 退货退款", "domain_synonym"),
-    ("退款时效", "退款时效 支付通道 超时", "intent_normalization"),
+_ALIAS_RULES: tuple[AliasRule, ...] = (
+    ("仅退款", "仅退款 商家举证 物流状态", "domain_synonym", "仅退款"),
+    ("只退款", "仅退款 商家举证 物流状态", "domain_synonym", "仅退款"),
+    ("不退货", "仅退款 商家举证 物流状态", "domain_synonym", "仅退款"),
+    ("已发货", "商家已发货 物流核实", "intent_normalization", "已发货"),
+    ("发了货", "商家已发货 物流核实", "intent_normalization", "发了货"),
+    ("发出去了", "商家已发货 物流核实", "intent_normalization", "已发货"),
+    ("商家举证", "商家举证 物流状态 履约证据", "merchant_support_alias", "商家举证"),
+    ("补偿券", "补偿券 审批 材料", "merchant_support_alias", "补偿券"),
+    ("七天无理由", "七天无理由 二次销售 退货退款", "domain_synonym", "七天无理由"),
+    ("退款时效", "退款时效 支付通道 超时", "intent_normalization", "退款时效"),
 )
 
 
@@ -128,13 +133,13 @@ def _build_expansions(query: str, *, max_expansions: int) -> list[RewriteExpansi
     expansions: list[RewriteExpansion] = []
     seen_queries: set[str] = {query}
 
-    for term, expansion_text, source in _ALIAS_RULES:
+    for term, expansion_text, source, canonical_trigger in _ALIAS_RULES:
         if term not in query:
             continue
         rewritten = _bounded_query(f"{query} {expansion_text}")
         if rewritten in seen_queries:
             continue
-        expansions.append(RewriteExpansion(query=rewritten, source=source, matched_terms=(term,)))
+        expansions.append(RewriteExpansion(query=rewritten, source=source, matched_terms=(canonical_trigger,)))
         seen_queries.add(rewritten)
         if len(expansions) >= limit:
             break

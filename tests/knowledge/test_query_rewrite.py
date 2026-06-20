@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -43,6 +46,14 @@ def _load_rewrite_api():
     return QueryRewritePlan, RewriteExpansion, build_query_rewrite_plan
 
 
+def _load_phase23_golden_cases() -> list[dict]:
+    return [
+        json.loads(line)
+        for line in Path("evaluation/golden/rag_cases.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
 def _dump_model(value: object) -> dict:
     if hasattr(value, "model_dump"):
         return value.model_dump(mode="json")
@@ -69,6 +80,24 @@ def test_rewrite_plan_preserves_original_query() -> None:
     assert plan.safe_summary
     assert "rewrite_count=" in plan.safe_summary
     assert plan.config_version.startswith("query_rewrite.")
+
+
+def test_rewrite_plan_matches_phase23_golden_trigger_metadata() -> None:
+    QueryRewritePlan, _RewriteExpansion, build_query_rewrite_plan = _load_rewrite_api()
+    cases = [
+        case
+        for case in _load_phase23_golden_cases()
+        if case.get("phase") == "23" and case.get("expected_rewrite_triggers")
+    ]
+
+    assert cases
+    for case in cases:
+        plan = build_query_rewrite_plan(str(case["query"]), _context())
+
+        assert isinstance(plan, QueryRewritePlan)
+        assert plan.skip_reason is None
+        assert plan.rewritten_queries
+        assert set(case["expected_rewrite_triggers"]) <= set(plan.trigger_terms)
 
 
 def test_rewrite_plan_cannot_widen_trusted_filters() -> None:
