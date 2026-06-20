@@ -8,6 +8,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.knowledge.config import RERANK_CONFIG_VERSION, RERANK_SCORE_CONFIG_VERSION
 from src.db.models import PolicyChunk, PolicyDocument
 from src.knowledge.retrieval import (
     FUZZY_CANDIDATE_TOP_K,
@@ -267,6 +268,48 @@ async def test_reranker_sees_candidates_before_max_results_trim(monkeypatch) -> 
     assert status == "strong_evidence"
     assert seen_candidate_ids == ["generic_001", "generic_002", "refund_policy_005"]
     assert [hit.chunk_id for hit in hits] == ["refund_policy_005", "generic_001"]
+
+
+@pytest.mark.asyncio
+async def test_retrieve_run_diagnostics_include_rerank_metadata() -> None:
+    target = _chunk(
+        "refund_policy_005",
+        doc_key="refund_policy",
+        section="商家举证",
+        content="仅退款争议需要商家提供物流和履约证据。",
+    )
+    engine, _ = _engine(dense=[(target, 0.88)])
+
+    run = await engine.retrieve_run(
+        query="商家已发货还能仅退款吗？",
+        context=_context(),
+        max_results=5,
+    )
+
+    assert run.diagnostics is not None
+    rerank_diagnostic = run.diagnostics.rerank_diagnostic
+    assert rerank_diagnostic is not None
+    candidate_id = "refund_policy/refund_policy_005@v1"
+    assert rerank_diagnostic.config_version == RERANK_CONFIG_VERSION
+    assert rerank_diagnostic.provider_config_version == RERANK_SCORE_CONFIG_VERSION
+    assert rerank_diagnostic.fallback_reason == "provider_disabled"
+    assert rerank_diagnostic.selected_candidate_ids == [candidate_id]
+    assert set(rerank_diagnostic.score_components[candidate_id]) >= {
+        "baseline_score",
+        "lexical_overlap",
+        "title_section_overlap",
+        "channel_coverage",
+        "rrf_score",
+        "final_score",
+    }
+    explanation = run.diagnostics.ranking_explanations[0]
+    assert explanation.candidate_id == candidate_id
+    assert explanation.provider_config_version == RERANK_SCORE_CONFIG_VERSION
+    assert explanation.fallback_reason == "provider_disabled"
+    assert explanation.rank_before == 1
+    assert explanation.rank_after == 1
+    assert explanation.rank_delta == 0
+    assert "final_score" in explanation.safe_score_components
 
 
 @pytest.mark.asyncio

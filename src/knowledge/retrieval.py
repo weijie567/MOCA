@@ -18,9 +18,14 @@ from src.knowledge.config import (
     REWRITE_QUERY_TOP_K,
     STRONG_EVIDENCE_THRESHOLD,
 )
-from src.knowledge.diagnostics import RankingExplanation, RetrievalDiagnostics, build_retrieval_diagnostics
+from src.knowledge.diagnostics import (
+    RankingExplanation,
+    RerankDiagnosticRecord,
+    RetrievalDiagnostics,
+    build_retrieval_diagnostics,
+)
 from src.knowledge.provenance import EvidenceProvenance
-from src.knowledge.rerank import RerankCandidate, RerankConfig, rerank_candidates_for_query
+from src.knowledge.rerank import RerankCandidate, RerankConfig, RerankOutput, rerank_candidates_for_query
 from src.knowledge.rewrite import build_query_rewrite_plan, safe_rewrite_summary
 from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext
 from src.rag.embedder import EmbeddingService
@@ -398,7 +403,7 @@ class PolicyRetrievalEngine:
                 except Exception:
                     fallback_reason = "merge_error"
 
-        hits, best_score, status = await _finalize_hits(
+        hits, best_score, status, rerank_output = await _finalize_hits(
             query=query,
             candidates=candidates,
             limit=limit,
@@ -429,6 +434,7 @@ class PolicyRetrievalEngine:
                 query=query,
                 query_rewrite_summary=query_rewrite_summary,
                 hits=hits,
+                rerank_output=rerank_output,
                 fallback_reason=fallback_reason,
             ),
         )
@@ -529,7 +535,7 @@ async def _finalize_hits(
     query: str,
     candidates: list[_FusedCandidate],
     limit: int,
-) -> tuple[list[PolicyRetrievalHit], float, str]:
+) -> tuple[list[PolicyRetrievalHit], float, str, RerankOutput | None]:
     fused_results = [
         candidate
         for candidate in _sort_candidates(candidates)
@@ -561,6 +567,7 @@ async def _finalize_hits(
         )
         ordered_candidates = rerank_output.ranked_candidates
     except Exception:
+        rerank_output = None
         ordered_candidates = rerank_candidates
 
     hits = []
@@ -592,7 +599,7 @@ async def _finalize_hits(
         status = "strong_evidence"
     else:
         status = "partial_evidence"
-    return hits, best_score, status
+    return hits, best_score, status, rerank_output
 
 
 def _sort_candidates(candidates: list[_FusedCandidate]) -> list[_FusedCandidate]:
@@ -631,32 +638,122 @@ def _build_internal_diagnostics(
     query: str,
     query_rewrite_summary: str | None,
     hits: list[PolicyRetrievalHit],
+    rerank_output: RerankOutput | None,
     fallback_reason: str | None,
 ) -> RetrievalDiagnostics:
     candidate_ids = [f"{hit.doc_key}/{hit.chunk_id}@{hit.policy_version}" for hit in hits]
+    reranked_by_id = (
+        {candidate.candidate_id: candidate for candidate in rerank_output.ranked_candidates}
+        if rerank_output is not None
+        else {}
+    )
     explanations = [
         RankingExplanation(
             candidate_id=candidate_id,
             selected_channels=hit.selected_by,
             rewrite_contribution=1.0 if query_rewrite_summary and "rewrite_count=0" not in query_rewrite_summary else 0.0,
-            rerank_contribution=min(float(hit.rrf_score or 0.0), 0.10),
-            rank_before=None,
+            rerank_contribution=_rerank_contribution(reranked_by_id.get(candidate_id), hit),
+            rank_before=reranked_by_id.get(candidate_id).baseline_rank if candidate_id in reranked_by_id else None,
             rank_after=hit.rank,
-            safe_score_components={
-                "baseline_score": hit.score,
-                "rrf_score": min(float(hit.rrf_score or 0.0), 0.10),
-            },
-            fallback_reason=fallback_reason,
+            rank_delta=_rank_delta(reranked_by_id.get(candidate_id), hit),
+            safe_score_components=_safe_rerank_score_components(reranked_by_id.get(candidate_id), hit),
+            provider_config_version=_rerank_provider_config_version(rerank_output),
+            fallback_reason=(
+                _candidate_fallback_reason(reranked_by_id[candidate_id])
+                if candidate_id in reranked_by_id and _candidate_fallback_reason(reranked_by_id[candidate_id]) is not None
+                else (_rerank_fallback_reason(rerank_output) or fallback_reason)
+            ),
         )
         for candidate_id, hit in zip(candidate_ids, hits, strict=True)
     ]
+    rerank_diagnostic = _build_rerank_diagnostic(rerank_output, candidate_ids)
     return build_retrieval_diagnostics(
         original_query=query,
         query_rewrite_summary=query_rewrite_summary,
+        rerank_diagnostic=rerank_diagnostic,
         ranking_explanations=explanations,
         selected_candidate_ids=candidate_ids,
         fallback_reason=fallback_reason,
     )
+
+
+def _build_rerank_diagnostic(
+    rerank_output: RerankOutput | None,
+    selected_candidate_ids: list[str],
+) -> RerankDiagnosticRecord | None:
+    if rerank_output is None:
+        return None
+    selected = set(selected_candidate_ids)
+    payload = {
+        "provider_config_version": _rerank_provider_config_version(rerank_output),
+        "fallback_reason": _rerank_fallback_reason(rerank_output),
+        "selected_candidate_ids": selected_candidate_ids,
+        "score_components": {
+            candidate.candidate_id: _candidate_score_components(candidate)
+            for candidate in rerank_output.ranked_candidates
+            if candidate.candidate_id in selected
+        },
+    }
+    config_version = getattr(rerank_output, "config_version", None)
+    if config_version:
+        payload["config_version"] = config_version
+    return RerankDiagnosticRecord(**payload)
+
+
+def _safe_rerank_score_components(reranked_candidate: object | None, hit: PolicyRetrievalHit) -> dict[str, float]:
+    components = {
+        "baseline_score": hit.score,
+        "rrf_score": min(float(hit.rrf_score or 0.0), 0.10),
+    }
+    if reranked_candidate is not None:
+        components.update(
+            {
+                key: float(value)
+                for key, value in getattr(reranked_candidate, "score_components", {}).items()
+            }
+        )
+        final_score = getattr(reranked_candidate, "final_score", None)
+        if final_score is not None:
+            components["final_score"] = float(final_score)
+    return components
+
+
+def _candidate_score_components(reranked_candidate: object) -> dict[str, float]:
+    return {
+        key: float(value)
+        for key, value in getattr(reranked_candidate, "score_components", {}).items()
+    }
+
+
+def _candidate_fallback_reason(reranked_candidate: object) -> str | None:
+    return getattr(reranked_candidate, "fallback_reason", None)
+
+
+def _rerank_contribution(reranked_candidate: object | None, hit: PolicyRetrievalHit) -> float:
+    if reranked_candidate is None:
+        return min(float(hit.rrf_score or 0.0), 0.10)
+    final_score = getattr(reranked_candidate, "final_score", None)
+    if final_score is None:
+        return min(float(hit.rrf_score or 0.0), 0.10)
+    return float(final_score)
+
+
+def _rank_delta(reranked_candidate: object | None, hit: PolicyRetrievalHit) -> int | None:
+    if reranked_candidate is None:
+        return None
+    return hit.rank - int(getattr(reranked_candidate, "baseline_rank"))
+
+
+def _rerank_provider_config_version(rerank_output: object | None) -> str | None:
+    if rerank_output is None:
+        return None
+    return getattr(rerank_output, "provider_config_version", None)
+
+
+def _rerank_fallback_reason(rerank_output: object | None) -> str | None:
+    if rerank_output is None:
+        return None
+    return getattr(rerank_output, "fallback_reason", None)
 
 
 def _append_safe_channel_label(candidate: _FusedCandidate, label: str) -> None:
