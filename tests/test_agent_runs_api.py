@@ -30,6 +30,7 @@ from src.db.models import (
     User,
 )
 from src.knowledge.schemas import EvidenceRefV1
+from src.tools.contracts import BusinessFactRefV1, ToolResultV2
 
 
 class NeverCalledGraph:
@@ -49,6 +50,173 @@ class CaptureConfigGraph:
     async def astream(self, input_state, config, stream_mode):
         self.calls.append((input_state, config))
         yield ("final_response", {"final_response": "done", "trace_steps": []})
+
+
+class ThreeTurnMemoryGraph:
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, dict]] = []
+        self.snapshots: list[dict] = []
+
+    async def astream(self, input_state, config, stream_mode):
+        from src.memory.repository import SessionMemoryRepository
+        from src.memory.service import MemoryService
+
+        self.calls.append((input_state, config))
+        configurable = config["configurable"]
+        session = configurable["session"]
+        conversation_service = configurable["conversation_service"]
+        run_id = UUID(input_state["current_run_id"])
+        query = input_state["user_query"]
+        prompt_context = await conversation_service.load_prompt_context(
+            tenant_id=input_state["tenant_id"],
+            user_id=input_state["user_id"],
+            thread_id=input_state["thread_id"],
+            run_id=run_id,
+        )
+        session_memory = await MemoryService(SessionMemoryRepository(session)).load_session_memory(
+            input_state["tenant_id"],
+            input_state["user_id"],
+            input_state["thread_id"],
+            current_intent="refund_troubleshooting",
+        )
+        extracted_slots, active_slots, active_slot_metadata = self._resolve_slots(query, session_memory)
+        await self._append_tool_result(
+            conversation_service=conversation_service,
+            input_state=input_state,
+            config=config,
+            run_id=run_id,
+            order_id=active_slots["order_id"],
+        )
+        final_state = {
+            "current_run_id": str(run_id),
+            "current_intent": "refund_troubleshooting",
+            "primary_intent": "refund_troubleshooting",
+            "requested_operation": "read_status",
+            "extracted_slots": extracted_slots,
+            "active_slots": active_slots,
+            "active_slot_metadata": active_slot_metadata,
+            "session_memory": session_memory.model_dump(mode="json"),
+            "last_business_context_refs": {
+                "business_fact_refs": [{"resource_type": "order", "resource_id": active_slots["order_id"]}]
+            },
+            "retrieved_evidence": {
+                "evidence_refs": [
+                    _evidence_ref(input_state["tenant_id"], active_slots["order_id"]).model_dump(
+                        mode="json", exclude_none=True
+                    )
+                ]
+            },
+            "final_response": f"已基于当前工具和政策证据处理 {active_slots['order_id']}。",
+            "trace_steps": [
+                _trace("extract_slots"),
+                _trace("investigate"),
+                _trace("final_response"),
+            ],
+        }
+        self.snapshots.append(
+            {
+                "query": query,
+                "prompt_summary": getattr(prompt_context.latest_thread_summary, "summary_text", "") or "",
+                "recent_messages": [(message.role, message.content) for message in prompt_context.recent_messages],
+                "tool_prompt_summaries": [
+                    result.prompt_summary or "" for result in prompt_context.tool_prompt_summaries
+                ],
+                "session_memory": session_memory.model_dump(mode="json"),
+                "active_slots": dict(active_slots),
+                "active_slot_metadata": dict(active_slot_metadata),
+                "retrieved_evidence": final_state["retrieved_evidence"],
+                "last_business_context_refs": final_state["last_business_context_refs"],
+            }
+        )
+        yield ("extract_slots", {"active_slots": active_slots, "active_slot_metadata": active_slot_metadata})
+        yield ("investigate", {"retrieved_evidence": final_state["retrieved_evidence"]})
+        yield ("final_response", final_state)
+
+    def _resolve_slots(self, query: str, session_memory) -> tuple[dict, dict, dict]:
+        if "ORD-TEST-999" in query:
+            extracted = {"order_id": "ORD-TEST-999", "refund_case_id": None, "issue_type": "refund_status"}
+            return extracted, {"order_id": "ORD-TEST-999", "issue_type": "refund_status"}, {
+                "order_id": {
+                    "source": "explicit_user",
+                    "previous_trusted_session_value": session_memory.active_slots.get("order_id"),
+                },
+                "issue_type": {"source": "explicit_user"},
+            }
+        if "ORD-TEST-001" in query:
+            extracted = {
+                "order_id": "ORD-TEST-001",
+                "refund_case_id": "RF-TEST-001",
+                "issue_type": "refund_status",
+            }
+            return extracted, dict(extracted), {
+                "order_id": {"source": "explicit_user"},
+                "refund_case_id": {"source": "explicit_user"},
+                "issue_type": {"source": "explicit_user"},
+            }
+        inherited = dict(session_memory.active_slots)
+        if "issue_type" not in inherited:
+            inherited["issue_type"] = "refund_status"
+        metadata = dict(session_memory.slot_metadata)
+        metadata["issue_type"] = {"source": "explicit_user"}
+        return {"order_id": None, "refund_case_id": None, "issue_type": "refund_status"}, inherited, metadata
+
+    async def _append_tool_result(self, *, conversation_service, input_state, config, run_id: UUID, order_id: str) -> None:
+        operation_id = uuid4()
+        tool_call_id = f"tool-call-{run_id}"
+        tool_call = await conversation_service.append_tool_call(
+            tenant_id=input_state["tenant_id"],
+            user_id=input_state["user_id"],
+            thread_id=input_state["thread_id"],
+            run_id=run_id,
+            trace_id=config["configurable"].get("trace_id"),
+            tool_call_id=tool_call_id,
+            tool_name="get_order",
+            caller_node="investigate",
+            operation_id=operation_id,
+            attempt=1,
+            arguments={"order_no": order_id},
+            argument_summary_json={"order_no": order_id},
+            redaction_policy_version="conversation_redaction.v1",
+            conversation_message_id=config["configurable"]["conversation_message_id"],
+        )
+        business_ref = BusinessFactRefV1(
+            tenant_id=input_state["tenant_id"],
+            source_system="business_tool_service",
+            resource_type="order",
+            resource_id=order_id,
+            resource_version=None,
+            data_freshness_at=datetime.now(UTC),
+            retrieved_at=datetime.now(UTC),
+        )
+        await conversation_service.append_tool_result(
+            tenant_id=input_state["tenant_id"],
+            user_id=input_state["user_id"],
+            thread_id=input_state["thread_id"],
+            run_id=run_id,
+            trace_id=config["configurable"].get("trace_id"),
+            operation_id=operation_id,
+            tool_call_id=tool_call_id,
+            tool_call_record_id=tool_call.id,
+            conversation_message_id=config["configurable"]["conversation_message_id"],
+            tool_result_id=f"tool-result-{run_id}",
+            tool_name="get_order",
+            result=ToolResultV2(
+                status="success",
+                data={"order_id": order_id, "refund_status": "reviewing"},
+                summary=f"Prompt-safe get_order summary for {order_id}.",
+                source_system="business_tool_service",
+                data_freshness_at=datetime.now(UTC),
+                policy_evidence_refs=[_evidence_ref(input_state["tenant_id"], order_id)],
+                business_fact_refs=[business_ref],
+                error=None,
+                retryable=False,
+                retry_after_ms=None,
+                latency_ms=8,
+                audit_ref=f"audit/tool-result/{order_id}",
+            ),
+            raw_result_ref=f"raw-result://orders/{order_id}",
+            raw_result_hash=f"sha256:{run_id.hex}",
+        )
 
 
 class ErrorGraph:
@@ -246,6 +414,28 @@ def _fixed_ms_now() -> datetime:
 def _fixed_ms_iso_z() -> str:
     now = _fixed_ms_now()
     return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+
+
+def _evidence_ref(tenant_id: str, order_id: str) -> EvidenceRefV1:
+    return EvidenceRefV1.build(
+        tenant_id=tenant_id,
+        doc_key="refund_policy",
+        chunk_id=f"refund_policy_{order_id}",
+        policy_version="v1",
+        text=f"Policy evidence for {order_id}.",
+        retrieved_at=_fixed_ms_iso_z(),
+        retrieval_config_version="retrieval.v1",
+        rank=1,
+    )
+
+
+def _trace(node: str) -> dict:
+    return {
+        "node": node,
+        "status": "completed",
+        "started_at": datetime.now(UTC).isoformat(),
+        "completed_at": datetime.now(UTC).isoformat(),
+    }
 
 
 INVESTIGATION_RESPONSE_FIELDS = {
@@ -1382,15 +1572,15 @@ async def test_three_turn_agent_runs_smoke_uses_slots_and_summary_context(
     monkeypatch,
 ):
     user = seeded_session["users"]["cs_zhang"]
-    graph = CaptureConfigGraph()
+    graph = ThreeTurnMemoryGraph()
     monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
     thread_id = f"phase24-three-turn-{uuid4()}"
 
     run_ids: list[UUID] = []
     for query in (
-        "订单 ORD-TEST-001 的退款进度如何？",
+        "订单 ORD-TEST-001 的退款 RF-TEST-001 进度如何？",
         "那这个订单下一步应该怎么处理？",
-        "总结一下刚才这个退款问题和后续动作。",
+        "当前订单改查 ORD-TEST-999，总结一下刚才的问题和后续动作。",
     ):
         response = await client.post(
             "/api/v1/agent-runs",
@@ -1416,7 +1606,9 @@ async def test_three_turn_agent_runs_smoke_uses_slots_and_summary_context(
         ConversationSummary.thread_id == thread_id,
         ConversationSummary.summary_type == "thread_rolling",
     ) >= 1
+    assert await _count_rows(session, ToolResultRecord, ToolResultRecord.thread_id == thread_id) >= 3
     assert len(graph.calls) == 3
+    assert len(graph.snapshots) == 3
     assert all("conversation_message_id" in config["configurable"] for _, config in graph.calls)
     assert all("conversation_thread_id" in config["configurable"] for _, config in graph.calls)
     assert set(run_ids) == {
@@ -1432,11 +1624,32 @@ async def test_three_turn_agent_runs_smoke_uses_slots_and_summary_context(
         .scalars()
         .all()
     }
+    turn1, turn2, turn3 = graph.snapshots
+    assert turn1["active_slots"]["order_id"] == "ORD-TEST-001"
+    assert turn1["active_slots"]["refund_case_id"] == "RF-TEST-001"
+    assert turn2["session_memory"]["active_slots"]["order_id"] == "ORD-TEST-001"
+    assert turn2["active_slots"]["order_id"] == "ORD-TEST-001"
+    assert turn2["active_slot_metadata"]["order_id"]["source"] == "trusted_session_memory"
+    assert "ORD-TEST-001" in turn2["prompt_summary"]
+    assert any("Prompt-safe get_order summary for ORD-TEST-001" in summary for summary in turn2["tool_prompt_summaries"])
+    assert any(role == "user" and "那这个订单下一步" in content for role, content in turn2["recent_messages"])
+    assert turn3["session_memory"]["active_slots"]["order_id"] == "ORD-TEST-001"
+    assert turn3["active_slots"]["order_id"] == "ORD-TEST-999"
+    assert turn3["active_slot_metadata"]["order_id"]["source"] == "explicit_user"
+    assert turn3["active_slot_metadata"]["order_id"]["previous_trusted_session_value"] == "ORD-TEST-001"
+    assert "ORD-TEST-001" in turn3["prompt_summary"]
+    assert any("Prompt-safe get_order summary" in summary for summary in turn3["tool_prompt_summaries"])
     serialized_configs = json.dumps([config["configurable"] for _, config in graph.calls], default=str)
-    assert "memory_policy_evidence_authority" not in serialized_configs
-    assert "memory_business_fact_authority" not in serialized_configs
-    assert "memory_action_authority" not in serialized_configs
-    assert "memory_replay_truth" not in serialized_configs
+    serialized_snapshots = json.dumps(graph.snapshots, ensure_ascii=False, default=str)
+    serialized_memory_context = f"{serialized_configs}\n{serialized_snapshots}"
+    assert "memory_policy_evidence_authority" not in serialized_memory_context
+    assert "memory_business_fact_authority" not in serialized_memory_context
+    assert "memory_action_authority" not in serialized_memory_context
+    assert "memory_replay_truth" not in serialized_memory_context
+    assert "approval_authority_body" not in serialized_memory_context
+    assert "action_authority_body" not in serialized_memory_context
+    assert all(snapshot["retrieved_evidence"]["evidence_refs"] for snapshot in graph.snapshots)
+    assert all(snapshot["last_business_context_refs"]["business_fact_refs"] for snapshot in graph.snapshots)
 
 
 def test_support_token_with_orders_read_gets_only_get_order():
