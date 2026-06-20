@@ -1230,8 +1230,53 @@ async def test_duplicate_sse_stream_does_not_duplicate_memory_surfaces(
     seeded_session,
     monkeypatch,
 ):
+    from src.api.routers import agent_runs as agent_runs_router
+    from src.api.services import agent_run_memory as agent_run_memory_service
+    from src.conversation.service import ConversationService
+    from src.memory.thread_summary import ThreadRollingSummaryService
+
     user = seeded_session["users"]["cs_zhang"]
-    monkeypatch.setattr(app.state, "agent_graph", CaptureConfigGraph(), raising=False)
+    graph = CaptureConfigGraph()
+    calls = {
+        "assistant_message": 0,
+        "finalizer": 0,
+        "graph": 0,
+        "memory_write": 0,
+        "summary": 0,
+        "user_message": 0,
+    }
+    original_user_message = ConversationService.append_or_get_user_message_for_run
+    original_assistant_message = ConversationService.append_or_get_assistant_message_for_run
+    original_summary = ThreadRollingSummaryService.persist_thread_summary
+    original_finalizer = agent_runs_router.finalize_completed_agent_run_memory
+    original_memory_write = agent_run_memory_service.memory_write
+
+    async def spy_user_message(self, *args, **kwargs):
+        calls["user_message"] += 1
+        return await original_user_message(self, *args, **kwargs)
+
+    async def spy_assistant_message(self, *args, **kwargs):
+        calls["assistant_message"] += 1
+        return await original_assistant_message(self, *args, **kwargs)
+
+    async def spy_summary(self, *args, **kwargs):
+        calls["summary"] += 1
+        return await original_summary(self, *args, **kwargs)
+
+    async def spy_finalizer(*args, **kwargs):
+        calls["finalizer"] += 1
+        return await original_finalizer(*args, **kwargs)
+
+    async def spy_memory_write(*args, **kwargs):
+        calls["memory_write"] += 1
+        return await original_memory_write(*args, **kwargs)
+
+    monkeypatch.setattr(ConversationService, "append_or_get_user_message_for_run", spy_user_message)
+    monkeypatch.setattr(ConversationService, "append_or_get_assistant_message_for_run", spy_assistant_message)
+    monkeypatch.setattr(ThreadRollingSummaryService, "persist_thread_summary", spy_summary)
+    monkeypatch.setattr(agent_runs_router, "finalize_completed_agent_run_memory", spy_finalizer)
+    monkeypatch.setattr(agent_run_memory_service, "memory_write", spy_memory_write)
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
     response = await client.post(
         "/api/v1/agent-runs",
         json={"query": "重复打开 SSE 不能重复写记忆", "thread_id": f"phase24-duplicate-{uuid4()}"},
@@ -1241,6 +1286,8 @@ async def test_duplicate_sse_stream_does_not_duplicate_memory_surfaces(
     run_id = UUID(response.json()["data"]["run_id"])
 
     await _run_agent_run_stream(client, str(run_id), user)
+    calls["graph"] = len(graph.calls)
+    calls_after_first = dict(calls)
     counts_after_first = {
         "user": await _count_rows(session, ConversationMessage, ConversationMessage.run_id == run_id, ConversationMessage.role == "user"),
         "assistant": await _count_rows(
@@ -1265,12 +1312,22 @@ async def test_duplicate_sse_stream_does_not_duplicate_memory_surfaces(
         "session_memory_writes": await _count_rows(session, MemoryWriteEvent, MemoryWriteEvent.run_id == run_id),
     }
 
+    assert calls_after_first == {
+        "assistant_message": 1,
+        "finalizer": 1,
+        "graph": 1,
+        "memory_write": 1,
+        "summary": 1,
+        "user_message": 1,
+    }
     assert counts_after_first["user"] == 1
     assert counts_after_first["assistant"] == 1
     assert counts_after_first["tool_results"] == 0
     assert counts_after_first["summaries"] == 1
     assert counts_after_first["session_memory_writes"] >= 0
     assert counts_after_duplicate == counts_after_first
+    calls["graph"] = len(graph.calls)
+    assert calls == calls_after_first
 
 
 @pytest.mark.asyncio
