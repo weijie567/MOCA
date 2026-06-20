@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: RAG Reranker + Query Rewrite
 status: executing
-stopped_at: Completed 23-02 query rewrite contract; ready for 23-03
-last_updated: "2026-06-20T07:56:17+08:00"
-last_activity: 2026-06-20 -- Completed 23-02 query rewrite contract
+stopped_at: Completed 23-03 retrieval rewrite channel wiring; ready for 23-04
+last_updated: "2026-06-20T08:06:18+08:00"
+last_activity: 2026-06-20 -- Completed 23-03 retrieval rewrite channel wiring
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 6
-  completed_plans: 2
-  percent: 33
+  completed_plans: 3
+  percent: 50
 ---
 
 # Project State: MOCA
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-06-20)
 ## Current Position
 
 Phase: 23 (rag-reranker-query-rewrite) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Executing Phase 23
-Last activity: 2026-06-20 -- Completed 23-02 query rewrite contract
+Last activity: 2026-06-20 -- Completed 23-03 retrieval rewrite channel wiring
 
-Progress: [███░░░░░░░] 33%
+Progress: [█████░░░░░] 50%
 
 Planning files:
 
@@ -61,7 +61,7 @@ Planning files:
 
 | Phase | Plans | Status |
 |-------|-------|--------|
-| 23. RAG Reranker + Query Rewrite | 2/6 executed | In progress |
+| 23. RAG Reranker + Query Rewrite | 3/6 executed | In progress |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
 
@@ -95,9 +95,9 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 
 ## Session Continuity
 
-Last session: 2026-06-20T07:56:17+08:00
-Stopped at: Completed 23-02 query rewrite contract; ready for 23-03
-Resume file: `.planning/phases/23-rag-reranker-query-rewrite/23-03-PLAN.md`
-Next: Execute 23-03 retrieval rewrite channel wiring.
+Last session: 2026-06-20T08:06:18+08:00
+Stopped at: Completed 23-03 retrieval rewrite channel wiring; ready for 23-04
+Resume file: `.planning/phases/23-rag-reranker-query-rewrite/23-04-PLAN.md`
+Next: Execute 23-04 reranker contract and deterministic default reranking.
 
-**Executing Phase:** 23 (RAG Reranker + Query Rewrite) — 2/6 plans complete — 2026-06-20T07:56:17+08:00
+**Executing Phase:** 23 (RAG Reranker + Query Rewrite) — 3/6 plans complete — 2026-06-20T08:06:18+08:00
