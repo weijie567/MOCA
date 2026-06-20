@@ -72,6 +72,7 @@ completed: 2026-06-20
 ## Task Commits
 
 1. **Tasks 1-3: Final boundary regression closure and focused gates** - `bd0fac8` (test)
+2. **Code-review fix: No-evidence precision denominator** - `21c639e` (fix)
 
 ## Files Created/Modified
 
@@ -85,7 +86,7 @@ completed: 2026-06-20
 
 - `uv run pytest tests/knowledge/test_query_rewrite.py tests/knowledge/test_reranker.py tests/knowledge/test_hybrid_retrieval.py tests/knowledge/test_retrieval_diagnostics.py tests/knowledge/test_retrieval_budgets.py -q --tb=short` passed (`25 passed`, one existing LangChain deprecation warning).
 - `uv run pytest tests/knowledge/test_phase21_boundaries.py tests/agent/rag_context/test_leakage.py tests/agent/rag_context/test_context_builder.py tests/agent/rag_context/test_verifier.py tests/agent/test_phase22_action_boundary.py -q --tb=short` passed (`50 passed`, one existing LangChain deprecation warning).
-- `uv run pytest tests/test_rag_ablation_eval.py -q --tb=short` passed (`3 passed`, one existing LangChain deprecation warning).
+- `uv run pytest tests/test_rag_ablation_eval.py -q --tb=short` passed (`4 passed`, one existing LangChain deprecation warning).
 - `uv run python scripts/eval_rag_ablation.py --golden-set evaluation/golden/rag_cases.jsonl --output evaluation/reports/rag_ablation.json --dry-run` passed and generated a report; generated report was removed from git working tree.
 - `uv run ruff check src/knowledge tests/knowledge tests/agent/rag_context tests/agent/test_phase22_action_boundary.py scripts/eval_rag_ablation.py tests/test_rag_ablation_eval.py` passed.
 - `gsd-sdk query verify.key-links .planning/phases/23-rag-reranker-query-rewrite/23-06-PLAN.md` passed.
