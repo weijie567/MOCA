@@ -14,11 +14,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.agent.trace import write_agent_run
 from src.api.main import app
 from src.api.routers.agent_runs import _dedupe_evidence_refs, _event_generator, _extract_step_payload
+from src.api.services.agent_run_memory import finalize_completed_agent_run_memory
 from src.approvals.schemas import PROPOSED_ACTION_SCHEMA_VERSION
 from src.approvals.snapshot_service import compute_action_payload_hash, persist_action_safety_snapshot
 from src.auth.jwt import ROLE_SCOPES, create_access_token
 from src.db.models import (
     AgentRun,
+    AgentStep,
     AgentTraceEvent,
     ApprovalRequest,
     ConversationMessage,
@@ -74,6 +76,33 @@ class SlowGraph:
     async def astream(self, input_state, config, stream_mode):
         await asyncio.sleep(0.05)
         yield ("receive_request", {"trace_steps": []})
+
+
+class GatedLifecycleGraph:
+    def __init__(self) -> None:
+        self.allow_completion = asyncio.Event()
+
+    async def astream_events(self, input_state, config, version):
+        yield _node_lifecycle_event("on_chain_start", "investigate", 1, {})
+        await self.allow_completion.wait()
+        trace_steps = [
+            {
+                "node": "investigate",
+                "status": "completed",
+                "started_at": datetime.now(UTC).isoformat(),
+                "completed_at": datetime.now(UTC).isoformat(),
+            }
+        ]
+        yield _node_lifecycle_event("on_chain_end", "investigate", 1, {"trace_steps": trace_steps})
+        yield _node_lifecycle_event("on_chain_start", "final_response", 2, {})
+        final_output = {"final_response": "done", "trace_steps": trace_steps}
+        yield _node_lifecycle_event("on_chain_end", "final_response", 2, final_output)
+        yield {
+            "event": "on_chain_end",
+            "name": "LangGraph",
+            "metadata": {},
+            "data": {"output": final_output},
+        }
 
 
 class MissingFinalResponseGraph:
@@ -225,6 +254,16 @@ INVESTIGATION_RESPONSE_FIELDS = {
     "investigation_trigger_reason",
     "investigation_path",
 }
+FORBIDDEN_MEMORY_METADATA_KEYS = {
+    "raw_payload",
+    "private_reasoning",
+    "approval_authority_body",
+    "action_authority_body",
+    "debug_trace",
+    "snapshot",
+    "hash",
+    "secret",
+}
 
 
 def _auth_header(user: User, scopes: list[str]) -> dict[str, str]:
@@ -303,6 +342,19 @@ async def _messages_for_run(session: AsyncSession, *, run_id: UUID, role: str | 
 async def _count_rows(session: AsyncSession, model, *filters) -> int:
     result = await session.execute(select(func.count()).select_from(model).where(*filters))
     return int(result.scalar_one())
+
+
+def _node_lifecycle_event(event_type: str, node_name: str, step_index: int, output: dict) -> dict:
+    return {
+        "event": event_type,
+        "name": node_name,
+        "metadata": {
+            "langgraph_node": node_name,
+            "langgraph_step": step_index,
+            "langgraph_checkpoint_ns": f"{node_name}:test",
+        },
+        "data": {"output": output},
+    }
 
 
 def _assert_no_investigation_fields(payload: dict) -> None:
@@ -516,6 +568,17 @@ async def test_completed_agent_run_persists_exactly_one_assistant_message(
     assert len(assistant_messages) == 1
     assert assistant_messages[0].content == "done"
     assert assistant_messages[0].metadata_json["status"] == "completed"
+    assert assistant_messages[0].metadata_json["source"] == "agent_runs.finalizer"
+    assert not (set(assistant_messages[0].metadata_json) & FORBIDDEN_MEMORY_METADATA_KEYS)
+    finalizer_step = (
+        await session.execute(
+            select(AgentStep).where(AgentStep.run_id == run_id, AgentStep.node_name == "agent_run_memory_finalize")
+        )
+    ).scalar_one()
+    metrics = finalizer_step.metrics_json or {}
+    assert metrics["assistant_message_id"] == str(assistant_messages[0].id)
+    assert metrics["memory_write_status"] in {"completed", "skipped", "error", "failed"}
+    assert not (set(metrics) & FORBIDDEN_MEMORY_METADATA_KEYS)
 
 
 @pytest.mark.asyncio
@@ -918,6 +981,12 @@ async def test_sse_final_response_after_bounded_memory_persistence_result(
     memory_results: list[dict] = []
 
     async def fake_memory_write(final_state, config):
+        assert final_state["tenant_id"] == str(user.tenant_id)
+        assert final_state["user_id"] == str(user.id)
+        assert final_state["thread_id"] == run.thread_id
+        assert final_state["current_run_id"] == str(run.id)
+        assert final_state["final_response"] == "done"
+        assert config["configurable"]["session"] is session
         result = {"status": "completed", "reason_code": "memory_persisted"}
         memory_results.append(result)
         return {
@@ -933,7 +1002,7 @@ async def test_sse_final_response_after_bounded_memory_persistence_result(
             ],
         }
 
-    monkeypatch.setattr("src.api.routers.agent_runs.memory_write", fake_memory_write)
+    monkeypatch.setattr("src.api.services.agent_run_memory.memory_write", fake_memory_write)
     generator = _event_generator(
         CaptureConfigGraph(),
         {"user_query": run.input_query},
@@ -953,6 +1022,124 @@ async def test_sse_final_response_after_bounded_memory_persistence_result(
         assert final_event is not None
     finally:
         await generator.aclose()
+
+
+@pytest.mark.asyncio
+async def test_sse_lifecycle_events_final_response_after_bounded_memory_persistence_result(
+    session: AsyncSession, seeded_session, monkeypatch
+):
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.commit()
+    graph = GatedLifecycleGraph()
+    memory_results: list[dict] = []
+
+    async def fake_memory_write(final_state, config):
+        assert final_state["tenant_id"] == str(user.tenant_id)
+        assert final_state["user_id"] == str(user.id)
+        assert final_state["thread_id"] == run.thread_id
+        assert final_state["current_run_id"] == str(run.id)
+        assert final_state["final_response"] == "done"
+        assert config["configurable"]["session"] is session
+        result = {"status": "completed", "reason_code": "memory_persisted"}
+        memory_results.append(result)
+        return {
+            **final_state,
+            "memory_write_result": result,
+            "trace_steps": [
+                {
+                    "node": "memory_write",
+                    "status": "completed",
+                    "started_at": datetime.now(UTC).isoformat(),
+                    "completed_at": datetime.now(UTC).isoformat(),
+                }
+            ],
+        }
+
+    monkeypatch.setattr("src.api.services.agent_run_memory.memory_write", fake_memory_write)
+    generator = _event_generator(
+        graph,
+        {"user_query": run.input_query},
+        {"configurable": {"thread_id": run.thread_id, "session": session}},
+        run=run,
+        session=session,
+        user=user,
+    )
+
+    final_event = None
+    try:
+        async for event in generator:
+            if "data" in event and '"event_type": "step_started"' in event["data"]:
+                graph.allow_completion.set()
+            if "data" in event and '"event_type": "final_response"' in event["data"]:
+                final_event = event
+                assert memory_results == [{"status": "completed", "reason_code": "memory_persisted"}]
+                break
+        assert final_event is not None
+    finally:
+        await generator.aclose()
+
+
+@pytest.mark.asyncio
+async def test_completed_agent_run_finalizer_skips_non_completed_status(
+    session: AsyncSession,
+    seeded_session,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.flush()
+
+    result = await finalize_completed_agent_run_memory(
+        session=session,
+        run=run,
+        user=user,
+        input_state=_stream_input(run, user),
+        final_state={"final_response": "x"},
+        final_status="error",
+        final_response="x",
+        trace_steps=[],
+        trace_id=None,
+    )
+
+    assert result.status == "skipped"
+    assert result.trace_steps == []
+    assert await _count_rows(session, ConversationMessage, ConversationMessage.run_id == run.id, ConversationMessage.role == "assistant") == 0
+    assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 0
+    assert await _count_rows(session, MemoryWriteEvent, MemoryWriteEvent.run_id == run.id) == 0
+
+
+@pytest.mark.asyncio
+async def test_completed_agent_run_finalizer_rolls_back_if_complete_run_fails(
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.commit()
+
+    async def fail_write_agent_steps(*args, **kwargs):
+        raise RuntimeError("step write failed")
+
+    monkeypatch.setattr("src.api.routers.agent_runs.write_agent_steps", fail_write_agent_steps)
+    events = [
+        event
+        async for event in _event_generator(
+            CaptureConfigGraph(),
+            _stream_input(run, user),
+            {"configurable": {"thread_id": run.thread_id, "session": session}},
+            run=run,
+            session=session,
+            user=user,
+        )
+    ]
+
+    assert any('"event_type": "error"' in event.get("data", "") for event in events)
+    assert await _count_rows(session, ConversationMessage, ConversationMessage.run_id == run.id, ConversationMessage.role == "assistant") == 0
+    assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 0
+    assert await _count_rows(session, MemoryWriteEvent, MemoryWriteEvent.run_id == run.id) == 0
+    await session.refresh(run)
+    assert run.final_status == "error"
 
 
 @pytest.mark.asyncio

@@ -23,6 +23,7 @@ from sse_starlette.sse import EventSourceResponse
 from src.agent.nodes.memory_write import memory_write
 from src.agent.nodes.final_response import final_response as build_final_response
 from src.agent.trace import build_trace_summary, update_agent_run_status, write_agent_run, write_agent_steps
+from src.api.services.agent_run_memory import finalize_completed_agent_run_memory
 from src.api.schemas.agent_runs import CreateRunRequest, RunStatusResponse
 from src.api.schemas.common import ApiResponse
 from src.approvals.schemas import ApprovalRequestCreateCommand
@@ -242,9 +243,6 @@ async def _event_generator(
 ):
     run_id_str = str(run.id)
     t0 = time.perf_counter()
-    step_index = 0
-    trace_steps: list[dict[str, Any]] = []
-    final_state: dict[str, Any] = {}
 
     yield _sse_event(
         event_type="run_started",
@@ -255,6 +253,47 @@ async def _event_generator(
         payload={},
     )
 
+    if callable(getattr(graph, "astream_events", None)):
+        async for event in _event_generator_from_graph_events(
+            graph,
+            input_state,
+            config,
+            run=run,
+            session=session,
+            user=user,
+            run_id_str=run_id_str,
+            t0=t0,
+        ):
+            yield event
+        return
+
+    async for event in _event_generator_from_graph_updates(
+        graph,
+        input_state,
+        config,
+        run=run,
+        session=session,
+        user=user,
+        run_id_str=run_id_str,
+        t0=t0,
+    ):
+        yield event
+
+
+async def _event_generator_from_graph_updates(
+    graph: Any,
+    input_state: dict[str, Any],
+    config: dict[str, Any],
+    *,
+    run: AgentRun,
+    session: AsyncSession,
+    user: User,
+    run_id_str: str,
+    t0: float,
+):
+    step_index = 0
+    trace_steps: list[dict[str, Any]] = []
+    final_state: dict[str, Any] = {}
     try:
         async for stream_item in _stream_graph_updates_with_heartbeats(graph, input_state, config):
             if stream_item is None:
@@ -315,6 +354,19 @@ async def _event_generator(
             final_status = "error"
             final_response = None
         completed_at = datetime.now(timezone.utc)
+        finalizer_result = await finalize_completed_agent_run_memory(
+            session=session,
+            run=run,
+            user=user,
+            input_state=input_state,
+            final_state=final_state,
+            final_status=str(final_status),
+            final_response=str(final_response) if final_response else None,
+            trace_steps=trace_steps,
+            trace_id=config.get("configurable", {}).get("trace_id"),
+            conversation_service=config.get("configurable", {}).get("conversation_service"),
+        )
+        trace_steps = [*trace_steps, *finalizer_result.trace_steps]
         await _complete_run(
             session=session,
             run=run,
@@ -332,11 +384,6 @@ async def _event_generator(
                 status="completed",
                 message="已完成",
                 payload={"final_response": str(final_response)},
-            )
-            _schedule_memory_write_after_response(
-                {**input_state, **final_state, "final_response": str(final_response)},
-                session_factory=_session_factory_from_session(session),
-                trace_id=config.get("configurable", {}).get("trace_id"),
             )
         else:
             yield _sse_event(
@@ -375,6 +422,161 @@ async def _event_generator(
         await _mark_run_error(session=session, run=run, exc=exc, t0=t0)
 
 
+async def _event_generator_from_graph_events(
+    graph: Any,
+    input_state: dict[str, Any],
+    config: dict[str, Any],
+    *,
+    run: AgentRun,
+    session: AsyncSession,
+    user: User,
+    run_id_str: str,
+    t0: float,
+):
+    trace_steps: list[dict[str, Any]] = []
+    final_state: dict[str, Any] = {}
+    last_step_index = 0
+
+    try:
+        async for lifecycle_event in _stream_graph_lifecycle_events_with_heartbeats(graph, input_state, config):
+            if lifecycle_event is None:
+                yield {"comment": "keepalive"}
+                continue
+
+            parsed = _parse_graph_lifecycle_event(lifecycle_event)
+            if parsed is None:
+                root_output = _root_graph_output(lifecycle_event)
+                if root_output:
+                    final_state.update(root_output)
+                    if isinstance(root_output.get("trace_steps"), list):
+                        trace_steps = root_output["trace_steps"]
+                continue
+
+            event_kind, _node_key, node_name, step_index, update = parsed
+            last_step_index = max(last_step_index, step_index)
+            message = NODE_MESSAGES.get(node_name, f"正在执行 {node_name}")
+
+            if event_kind == "start":
+                yield _sse_event(
+                    event_type="step_started",
+                    run_id=run_id_str,
+                    step_index=step_index,
+                    node_name=node_name,
+                    status="running",
+                    message=message,
+                    payload={},
+                )
+                continue
+
+            if _is_interrupt_stream_item(node_name, update):
+                async for event in _handle_approval_required(
+                    update,
+                    run=run,
+                    session=session,
+                    user=user,
+                    step_index=step_index,
+                    t0=t0,
+                    trace_steps=trace_steps,
+                ):
+                    yield event
+                return
+
+            payload = _extract_step_payload(node_name, update)
+            yield _sse_event(
+                event_type="step_completed",
+                run_id=run_id_str,
+                step_index=step_index,
+                node_name=node_name,
+                status="completed",
+                message=message,
+                payload=payload,
+            )
+
+            update_mapping = _as_mapping(update)
+            final_state.update(update_mapping)
+            if isinstance(update_mapping.get("trace_steps"), list):
+                trace_steps = update_mapping["trace_steps"]
+
+        if not final_state.get("final_response"):
+            final_state.update(await build_final_response(final_state))
+
+        final_response = final_state.get("final_response")
+        if isinstance(final_state.get("trace_steps"), list):
+            trace_steps = final_state["trace_steps"]
+        total_ms = round((time.perf_counter() - t0) * 1000)
+        final_status = build_trace_summary(run_id_str, final_state, total_ms).get("final_status", "completed")
+        if not final_response:
+            final_status = "error"
+            final_response = None
+        completed_at = datetime.now(timezone.utc)
+        finalizer_result = await finalize_completed_agent_run_memory(
+            session=session,
+            run=run,
+            user=user,
+            input_state=input_state,
+            final_state=final_state,
+            final_status=str(final_status),
+            final_response=str(final_response) if final_response else None,
+            trace_steps=trace_steps,
+            trace_id=config.get("configurable", {}).get("trace_id"),
+            conversation_service=config.get("configurable", {}).get("conversation_service"),
+        )
+        trace_steps = [*trace_steps, *finalizer_result.trace_steps]
+        await _complete_run(
+            session=session,
+            run=run,
+            final_status=str(final_status),
+            final_response=str(final_response) if final_response else None,
+            completed_at=completed_at,
+            total_latency_ms=total_ms,
+            trace_steps=trace_steps,
+        )
+        if final_response:
+            yield _sse_event(
+                event_type="final_response",
+                run_id=run_id_str,
+                step_index=last_step_index + 1,
+                status="completed",
+                message="已完成",
+                payload={"final_response": str(final_response)},
+            )
+        else:
+            yield _sse_event(
+                event_type="error",
+                run_id=run_id_str,
+                step_index=last_step_index + 1,
+                status="failed",
+                message="未生成最终回复，请重试",
+                payload={"error_message": "Agent finished without a final response"},
+            )
+    except asyncio.CancelledError as exc:
+        await _mark_run_error(session=session, run=run, exc=exc, t0=t0)
+        raise
+    except Exception as exc:
+        if _is_graph_interrupt(exc):
+            async for event in _handle_approval_required(
+                exc,
+                run=run,
+                session=session,
+                user=user,
+                step_index=last_step_index + 1,
+                t0=t0,
+                trace_steps=trace_steps,
+            ):
+                yield event
+            return
+
+        yield _sse_event(
+            event_type="error",
+            run_id=run_id_str,
+            step_index=last_step_index + 1,
+            status="failed",
+            message="执行遇到问题，请重试",
+            payload={"error_message": str(exc)},
+        )
+        await _mark_run_error(session=session, run=run, exc=exc, t0=t0)
+
+
 async def _stream_graph_updates_with_heartbeats(graph: Any, input_state: dict[str, Any], config: dict[str, Any]):
     stream = graph.astream(input_state, config, stream_mode="updates")
     iterator = stream.__aiter__()
@@ -399,6 +601,65 @@ async def _stream_graph_updates_with_heartbeats(graph: Any, input_state: dict[st
         aclose = getattr(iterator, "aclose", None)
         if callable(aclose):
             await aclose()
+
+
+async def _stream_graph_lifecycle_events_with_heartbeats(
+    graph: Any, input_state: dict[str, Any], config: dict[str, Any]
+):
+    stream = graph.astream_events(input_state, config, version="v2")
+    iterator = stream.__aiter__()
+    pending: asyncio.Task[Any] | None = None
+    try:
+        while True:
+            pending = asyncio.create_task(anext(iterator))
+            while True:
+                done, _ = await asyncio.wait({pending}, timeout=SSE_HEARTBEAT_SECONDS)
+                if pending in done:
+                    break
+                yield None
+            try:
+                yield pending.result()
+            except StopAsyncIteration:
+                break
+    finally:
+        if pending is not None and not pending.done():
+            pending.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await pending
+        aclose = getattr(iterator, "aclose", None)
+        if callable(aclose):
+            await aclose()
+
+
+def _parse_graph_lifecycle_event(event: Any) -> tuple[str, str, str, int, Any] | None:
+    event_mapping = _as_mapping(event)
+    event_type = event_mapping.get("event")
+    metadata = _as_mapping(event_mapping.get("metadata"))
+    node_name = metadata.get("langgraph_node")
+    if not isinstance(node_name, str) or not node_name:
+        return None
+    if event_mapping.get("name") != node_name:
+        return None
+    if event_type not in {"on_chain_start", "on_chain_end"}:
+        return None
+
+    step_raw = metadata.get("langgraph_step")
+    step_index = int(step_raw) if isinstance(step_raw, (int, str)) and str(step_raw).isdigit() else 0
+    node_key = str(metadata.get("langgraph_checkpoint_ns") or f"{node_name}:{step_index}")
+    if event_type == "on_chain_start":
+        return ("start", node_key, node_name, step_index, {})
+
+    data = _as_mapping(event_mapping.get("data"))
+    return ("end", node_key, node_name, step_index, data.get("output") or {})
+
+
+def _root_graph_output(event: Any) -> dict[str, Any]:
+    event_mapping = _as_mapping(event)
+    metadata = _as_mapping(event_mapping.get("metadata"))
+    if metadata.get("langgraph_node") or event_mapping.get("event") != "on_chain_end":
+        return {}
+    data = _as_mapping(event_mapping.get("data"))
+    return _as_mapping(data.get("output"))
 
 
 async def _handle_approval_required(
