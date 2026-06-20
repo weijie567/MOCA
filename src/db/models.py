@@ -1076,6 +1076,14 @@ Index(
 )
 Index("ix_conversation_messages_tenant_run", ConversationMessage.tenant_id, ConversationMessage.run_id)
 Index("ix_conversation_messages_trace_id", ConversationMessage.trace_id)
+Index(
+    "uq_conversation_messages_active_tenant_run_role",
+    ConversationMessage.tenant_id,
+    ConversationMessage.run_id,
+    ConversationMessage.role,
+    unique=True,
+    postgresql_where=text("deleted_at IS NULL AND run_id IS NOT NULL AND role IN ('user', 'assistant')"),
+)
 
 
 class ToolCallRecord(TimestampMixin, Base):
@@ -1204,6 +1212,17 @@ Index(
     ConversationSummary.summary_type,
 )
 Index("ix_summaries_case_id", ConversationSummary.case_id)
+Index(
+    "uq_summaries_thread_rolling_source_end",
+    ConversationSummary.tenant_id,
+    ConversationSummary.conversation_thread_id,
+    ConversationSummary.summary_type,
+    ConversationSummary.source_end_message_id,
+    unique=True,
+    postgresql_where=text(
+        "deleted_at IS NULL AND summary_type = 'thread_rolling' AND source_end_message_id IS NOT NULL"
+    ),
+)
 
 
 class AgentTraceEvent(TimestampMixin, Base):
