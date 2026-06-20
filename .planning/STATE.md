@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.6
-milestone_name: RAG Reranker + Query Rewrite
-status: archived
-stopped_at: final closeout validation passed
-last_updated: "2026-06-20T11:25:07+08:00"
-last_activity: 2026-06-20 -- Final closeout validation passed
+milestone: v1.7
+milestone_name: Short-term Memory Unification
+status: defining_requirements
+stopped_at: milestone initialized
+last_updated: "2026-06-20T19:25:41+08:00"
+last_activity: 2026-06-20 -- Started v1.7 short-term memory milestone
 progress:
-  total_phases: 1
-  completed_phases: 1
-  total_plans: 6
-  completed_plans: 6
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State: MOCA
@@ -21,46 +21,43 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-20)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** No active milestone or current pending work
+**Current focus:** v1.7 Short-term Memory Unification
 
 ## Current Position
 
-Phase: None
+Phase: Requirements definition
 Plan: Not started
-Status: Ready for new milestone
-Last activity: 2026-06-20 -- Final closeout validation passed
+Status: Defining requirements and roadmap
+Last activity: 2026-06-20 -- Started v1.7 short-term memory milestone
 
-Progress: [██████████] 100%
+Progress: [----------] 0%
 
 Planning files:
 
 - `.planning/PROJECT.md`
 - `.planning/ROADMAP.md`
 - `.planning/STATE.md`
-- `.planning/FINAL-CLOSEOUT.md`
+- `.planning/REQUIREMENTS.md` (to be created)
 - `.planning/MILESTONES.md`
-- `.planning/RETROSPECTIVE.md`
 - `.planning/milestones/v1.6-ROADMAP.md`
 - `.planning/milestones/v1.6-REQUIREMENTS.md`
 - `.planning/milestones/v1.6-phases/23-rag-reranker-query-rewrite/`
 
-## Archived Milestone Context
+## Active Milestone Context
 
-- v1.6 owned exactly one roadmap phase: Phase 23 RAG Reranker + Query Rewrite.
-- All 26 v1.6 requirements are complete and archived in `.planning/milestones/v1.6-REQUIREMENTS.md`.
-- Phase 23 follows v1.3 hybrid retrieval, v1.4 parser/OCR provenance, and v1.5 ContextBuilder/hallucination-control work.
-- Phase 23 may add bounded query rewrite, deterministic/default reranking, optional config-gated provider adapters, ranking diagnostics, ablation evals, and latency budgets.
-- Phase 23 must preserve `EvidenceRefV1` identity, canonical citation text/text_hash, tenant/scope/effective-date filters, source-block/OCR provenance boundaries, ContextBuilder validation, verifier routing, and action-boundary safety.
-- Phase 23 research was completed in `.planning/phases/23-rag-reranker-query-rewrite/23-RESEARCH.md`; do not use stale active `.planning/research` content.
-- 17-prep AgentState cleanup is preserved as a deferred record for possible future Phase 17 work, not a pending todo or blocker.
+- v1.7 targets the current Agent Console main path: `/api/v1/agent-runs + SSE`.
+- The milestone goal is to complete the short-term memory chain for follow-up turns: structured session slots, conversation messages, tool prompt summaries, and rolling thread summaries.
+- Legacy `/api/v1/agent/chat` already has conversation-message and rolling-summary persistence behavior; v1.7 should bring the current run-based path to parity without breaking the frontend API contract.
+- Session slot memory must stay PostgreSQL-authoritative, prompt-safe, tenant/thread/session scoped, and contextual only.
+- Memory must not become policy evidence, current business fact authority, approval/action authority, or replay/audit truth.
 
 ## Performance Metrics
 
-**v1.6 velocity:** 1 phase complete, 6 plans executed.
+**v1.7 velocity:** Not started.
 
 | Phase | Plans | Status |
 |-------|-------|--------|
-| 23. RAG Reranker + Query Rewrite | 6/6 executed | Complete |
+| TBD | 0/0 | Requirements definition |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
 
@@ -68,19 +65,19 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 
 ### Decisions
 
-- v1.6 starts owner-named Phase 23 retrieval-quality work and does not reset phase numbering.
-- Phase 23 is the only active roadmap phase; no Phase 24+ is created for this milestone.
-- 17-prep AgentState cleanup remains deferred until Phase 17 preparation.
-- `EvidenceRefV1` remains canonical policy evidence identity; rewrite/rerank may reorder or expand retrieval candidates but cannot mutate evidence identity or bypass ContextBuilder/verifier authority.
-- Optional live reranker providers must be config-gated, timeout-bounded, retry-bounded, and able to fall back to deterministic/default retrieval.
+- v1.7 is scoped to Agent Console short-term memory unification, not a full memory product UI or long-term/case-memory redesign.
+- Current `/agent-runs` is the user-facing Agent Console path and should be the implementation target.
+- The legacy `/agent/chat` path is a compatibility/reference path; v1.7 should avoid introducing incompatible persistence semantics between the two paths.
+- Memory context is contextual assistance only and must preserve established evidence, action, approval, and replay boundaries.
 
 ### Pending Todos
 
-None.
+- Define `.planning/REQUIREMENTS.md` for v1.7.
+- Generate the v1.7 roadmap and trace requirements to phase work.
 
 ### Blockers / Concerns
 
-- None for executing Phase 23 plans. Plan-checker verification passed after one revision loop.
+- No active blockers.
 
 ## Deferred Items
 
@@ -94,11 +91,18 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 | future milestone | Policy Source Operations | deferred |
 | future scope | post-Phase 17 Policy Scope | deferred |
 
+## Last Archived Milestone Context
+
+- v1.6 owned exactly one roadmap phase: Phase 23 RAG Reranker + Query Rewrite.
+- All 26 v1.6 requirements are complete and archived in `.planning/milestones/v1.6-REQUIREMENTS.md`.
+- Phase 23 follows v1.3 hybrid retrieval, v1.4 parser/OCR provenance, and v1.5 ContextBuilder/hallucination-control work.
+- 17-prep AgentState cleanup is preserved as a deferred record for possible future Phase 17 work, not a pending todo or blocker.
+
 ## Session Continuity
 
-Last session: 2026-06-20T11:25:07+08:00
-Stopped at: final closeout validation passed
+Last session: 2026-06-20T19:25:41+08:00
+Stopped at: milestone initialized
 Resume file: None
-Next: None required. Use `$gsd-new-milestone` only when ready to define fresh requirements and roadmap.
+Next: Define v1.7 requirements, create roadmap, then start Phase 24 planning.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00

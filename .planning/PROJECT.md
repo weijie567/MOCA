@@ -10,6 +10,16 @@ Built as an open-source portfolio project demonstrating enterprise Agent enginee
 
 When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution — never silently executing something irreversible.
 
+## Current Milestone: v1.7 Short-term Memory Unification
+
+**Goal:** Make the current Agent Console `/api/v1/agent-runs + SSE` path use the full short-term memory stack: structured session slots, conversation messages, tool prompt summaries, and rolling thread summaries.
+
+**Target features:**
+- Bring `/agent-runs` to parity with the legacy `/agent/chat` conversation persistence path without changing the frontend API contract.
+- Preserve PostgreSQL-authoritative session slot memory while adding rolling-summary and recent-message context for follow-up turns.
+- Ensure memory remains contextual only: it must not become policy evidence, current business fact authority, approval authority, action authority, or replay truth.
+- Define deterministic persistence behavior for completed, error, cancelled, interrupted, and stream-retry run states.
+
 ## Last Shipped Milestone: v1.6 RAG Reranker + Query Rewrite
 
 v1.6 shipped Phase 23 on 2026-06-20. It improves policy retrieval quality after the v1.3 hybrid backend, v1.4 parser/OCR provenance, and v1.5 grounding kernel.
@@ -133,7 +143,10 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 
 ### Active
 
-- None - v1.6 Phase 23 execution is complete.
+- [ ] Current Agent Console `/agent-runs + SSE` runs persist user/assistant conversation messages and rolling summaries consistently with the legacy `/agent/chat` path.
+- [ ] Short-term prompt context combines trusted session slots, recent messages, tool prompt summaries, and thread rolling summary for same-thread follow-ups.
+- [ ] Memory context is prompt-safe and cannot act as policy evidence, current business fact authority, approval/action authority, or replay/audit truth.
+- [ ] Completed, error, cancelled, interrupted, and stream-retry states have deterministic, idempotent memory persistence semantics.
 
 ### Out of Scope
 
@@ -247,6 +260,7 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 | Ship v1.4 only after dependency gates pass | Local `chi_sim+eng` OCR preflight and live pgvector migration round trip remove the earlier dependency-only acceptance caveat | Adopted 2026-06-19 |
 | Scope v1.5 to Phase 22 hallucination control | Keeps reasoning-context validation, MaterialClaim support checks, and deterministic failure routing separate from Phase 23 reranking/query rewrite and Phase 17 external execution | Adopted 2026-06-19 |
 | Scope v1.6 to Phase 23 retrieval quality | Starts the owner-named RAG reranker/query rewrite phase while keeping 17-prep as a later Phase 17 prerequisite | Adopted 2026-06-20 |
+| Scope v1.7 to Agent Console short-term memory unification | The current frontend path uses `/agent-runs + SSE`; it needs parity with the existing conversation log and rolling summary infrastructure while preserving memory authority boundaries | Adopted 2026-06-20 |
 
 ## Evolution
 
@@ -266,4 +280,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-20 after v1.6 milestone archive*
+*Last updated: 2026-06-20 after v1.7 milestone start*
