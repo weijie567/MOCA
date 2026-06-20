@@ -1,63 +1,57 @@
 ---
 phase: 23-rag-reranker-query-rewrite
-fixed_at: 2026-06-20T00:53:54Z
+fixed_at: 2026-06-20T01:51:12Z
 review_path: .planning/phases/23-rag-reranker-query-rewrite/23-REVIEW.md
 iteration: 1
-findings_in_scope: 4
-fixed: 4
+findings_in_scope: 2
+fixed: 2
 skipped: 0
 status: all_fixed
 ---
 
 # Phase 23: Code Review Fix Report
 
-**Fixed at:** 2026-06-20T00:53:54Z
+**Fixed at:** 2026-06-20T01:51:12Z
 **Source review:** `.planning/phases/23-rag-reranker-query-rewrite/23-REVIEW.md`
 **Iteration:** 1
 
 **Summary:**
-- Findings in scope: 4
-- Fixed: 4
+- Findings in scope: 2
+- Fixed: 2
 - Skipped: 0
 
 ## Fixed Issues
 
-### WR-01: Rerank Runs After `max_results` Trimming
+### WR-05: Provider Rerank Scores Accept Boolean And NaN Values
 
-**Files modified:** `src/knowledge/retrieval.py`, `tests/knowledge/test_hybrid_retrieval.py`
-**Commit:** 47de51d
-**Applied fix:** Rerank now receives the eligible candidate set before final `max_results` trimming, with a regression test proving a later candidate can be promoted.
-**Tests:** `tests/knowledge/test_hybrid_retrieval.py::test_reranker_sees_candidates_before_max_results_trim`
+**Files modified:** `src/knowledge/rerank.py`, `tests/knowledge/test_reranker.py`
+**Commit:** 4c70bd6
+**Applied fix:** Provider score normalization now rejects boolean values and non-finite floats before accepting provider rerank output.
+**Tests:** `tests/knowledge/test_reranker.py::test_provider_score_bool_and_nan_are_malformed_output`
 
-### WR-02: Golden Rewrite Alias Cases Skip Rewrite
+### WR-06: Malformed Effective Time Disables Evidence Freshness Checks
 
-**Files modified:** `src/knowledge/rewrite.py`, `tests/knowledge/test_query_rewrite.py`
-**Commit:** fdfed00
-**Applied fix:** Added synonym-aware alias rules with canonical trigger emission for the Phase 23 golden rewrite cases.
-**Tests:** `tests/knowledge/test_query_rewrite.py::test_rewrite_plan_matches_phase23_golden_trigger_metadata`
+**Files modified:** `src/knowledge/service.py`, `tests/knowledge/test_phase22_evidence_validation.py`
+**Commit:** 1dba424
+**Applied fix:** Non-empty malformed `effective_at` values now fail closed with `freshness_invalid` and `effective_date_invalid` reason codes.
+**Tests:** `tests/knowledge/test_phase22_evidence_validation.py::test_policy_knowledge_service_verified_details_rejects_malformed_effective_at`
 
-### WR-03: Ablation Non-Dry-Run Still Uses Fake Results
+## Skipped Issues
 
-**Files modified:** `scripts/eval_rag_ablation.py`, `tests/test_rag_ablation_eval.py`
-**Commit:** c219b3f
-**Applied fix:** Non-dry-run ablation now fails closed until real retrieval execution exists, and dry-run scoring consumes `expected_variant_wins` metadata.
-**Tests:** `tests/test_rag_ablation_eval.py::test_run_rag_ablation_fails_closed_for_non_dry_run`, `tests/test_rag_ablation_eval.py::test_dry_run_consumes_expected_variant_wins_from_golden`
-
-### WR-04: Ablation Hit Scoring Accepts Wrong Chunks From The Right Doc
-
-**Files modified:** `scripts/eval_rag_ablation.py`, `tests/test_rag_ablation_eval.py`
-**Commit:** 77d8040
-**Applied fix:** Ablation scoring now requires an expected chunk match whenever `expected_chunk_ids` are provided.
-**Tests:** `tests/test_rag_ablation_eval.py::test_expected_chunks_override_doc_level_hit_scoring`
+None - all in-scope findings were fixed.
 
 ## Verification
 
-`PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -m pytest -q -p no:cacheprovider tests/knowledge/test_query_rewrite.py tests/test_rag_ablation_eval.py tests/knowledge/test_reranker.py tests/knowledge/test_hybrid_retrieval.py`
+`PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -m pytest -q -p no:cacheprovider tests/knowledge/test_reranker.py -k 'provider_score_bool_and_nan_are_malformed_output or provider_adapter_disabled_timeout_error_malformed_and_budget_fallbacks'`
 
-Result: 28 passed, 1 warning.
+Result: 4 passed, 4 deselected, 1 warning.
+
+`PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -m pytest -q -p no:cacheprovider tests/knowledge/test_phase22_evidence_validation.py -k 'malformed_effective_at or current_row_version_mismatch'`
+
+Result: 2 passed, 4 deselected, 1 warning.
 
 ---
 
-_Fixed: 2026-06-20T00:53:54Z_
+_Fixed: 2026-06-20T01:51:12Z_
 _Fixer: Claude (gsd-code-fixer)_
 _Iteration: 1_
