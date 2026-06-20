@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import inspect
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
+from uuid import uuid4
 
 import pytest
 
-from src.knowledge.schemas import EvidenceRefV1
+from src.knowledge.retrieval import PolicyRetrievalEngine
+from src.knowledge.schemas import KnowledgeContext
 
 SHOULD_NOT_LEAK_RAW_PROVIDER_PAYLOAD = "SHOULD_NOT_LEAK_RAW_PROVIDER_PAYLOAD"
 SHOULD_NOT_LEAK_PRIVATE_REASONING = "SHOULD_NOT_LEAK_PRIVATE_REASONING"
@@ -39,18 +43,16 @@ def _candidate(
     selected_by: tuple[str, ...] = ("dense",),
 ):
     return RerankCandidate(
+        candidate_id=f"{doc_key}/{chunk_id}@v1",
         doc_key=doc_key,
         chunk_id=chunk_id,
         title=title,
         section=section,
         policy_version="v1",
-        text=text,
-        score=score,
-        rank=rank,
+        text_snippet=text,
+        baseline_score=score,
+        baseline_rank=rank,
         selected_by=selected_by,
-        dense_rank=rank if "dense" in selected_by else None,
-        sparse_rank=rank if "sparse" in selected_by else None,
-        fuzzy_rank=rank if "fuzzy" in selected_by else None,
         rrf_score=0.03,
     )
 
@@ -70,7 +72,40 @@ def _candidate_identity(candidate: object) -> tuple[str, str, str, str]:
         getattr(candidate, "doc_key"),
         getattr(candidate, "chunk_id"),
         getattr(candidate, "policy_version"),
-        getattr(candidate, "text"),
+        getattr(candidate, "text_snippet"),
+    )
+
+
+def _ranked(output):
+    return output.ranked_candidates if hasattr(output, "ranked_candidates") else output
+
+
+def _chunk(
+    chunk_id: str,
+    *,
+    doc_key: str,
+    title: str,
+    section: str,
+    content: str,
+):
+    return SimpleNamespace(
+        chunk_id=chunk_id,
+        section=section,
+        content=content,
+        effective_date=None,
+        document=SimpleNamespace(doc_key=doc_key, title=title, version=1),
+    )
+
+
+def _context() -> KnowledgeContext:
+    return KnowledgeContext(
+        tenant_id=str(uuid4()),
+        user_id="user-1",
+        role="support_agent",
+        merchant_scope=["*"],
+        run_id="run-1",
+        trace_id="trace-1",
+        effective_at="2026-06-14T00:00:00+00:00",
     )
 
 
@@ -82,18 +117,20 @@ async def test_reranker_preserves_candidate_identity() -> None:
         _candidate(RerankCandidate, doc_key="shipping_policy", chunk_id="shipping_policy_002", score=0.69, rank=2),
     ]
 
-    ranked = await _rerank(
+    output = await _rerank(
         rerank_candidates_for_query,
         query="商家已发货还能仅退款吗？",
         candidates=candidates,
         config=RerankConfig(provider_enabled=False),
     )
+    ranked = _ranked(output)
 
     assert {_candidate_identity(candidate) for candidate in ranked} == {
         _candidate_identity(candidate) for candidate in candidates
     }
     assert [candidate.rank for candidate in ranked] == list(range(1, len(ranked) + 1))
-    assert all(candidate.score is not None for candidate in ranked)
+    assert all(candidate.baseline_score is not None for candidate in ranked)
+    assert all(candidate.final_score is not None for candidate in ranked)
 
 
 @pytest.mark.asyncio
@@ -122,11 +159,21 @@ async def test_default_reranker_is_deterministic_and_local() -> None:
     ]
     reranker = DefaultLocalReranker(config=RerankConfig(provider_enabled=False))
 
-    first = await _maybe_await(reranker.rerank(query="商家已发货还能仅退款吗？", candidates=candidates))
-    second = await _maybe_await(reranker.rerank(query="商家已发货还能仅退款吗？", candidates=list(reversed(candidates))))
+    first = _ranked(await _maybe_await(reranker.rerank(query="商家已发货还能仅退款吗？", candidates=candidates)))
+    second = _ranked(
+        await _maybe_await(reranker.rerank(query="商家已发货还能仅退款吗？", candidates=list(reversed(candidates))))
+    )
 
     assert [candidate.chunk_id for candidate in first] == [candidate.chunk_id for candidate in second]
     assert first[0].chunk_id == "refund_policy_001"
+    assert set(first[0].score_components) == {
+        "baseline_score",
+        "lexical_overlap",
+        "title_section_overlap",
+        "channel_coverage",
+        "rrf_score",
+        "final_score",
+    }
     assert all(getattr(candidate, "provider_payload", None) is None for candidate in first)
 
 
@@ -178,16 +225,17 @@ async def test_provider_adapter_disabled_timeout_error_malformed_and_budget_fall
     ):
         config = RerankConfig(
             provider_enabled=provider is not None,
-            provider_timeout_seconds=0.01,
-            max_candidate_text_chars=20 if expected_reason == "budget_overflow" else 200,
+            timeout_seconds=0.01,
+            max_candidates=1 if expected_reason == "budget_overflow" else 50,
         )
-        ranked = await _rerank(
+        output = await _rerank(
             rerank_candidates_for_query,
             query="商家已发货还能仅退款吗？",
             candidates=candidates,
             config=config,
             provider=provider,
         )
+        ranked = _ranked(output)
 
         assert [candidate.chunk_id for candidate in ranked] == local_order
         assert ranked[0].fallback_reason == expected_reason
@@ -202,9 +250,9 @@ async def test_reranker_inputs_exclude_raw_internals_and_unbounded_text() -> Non
 
     class CapturingProvider(RerankerProviderAdapter):
         async def rerank(self, *, candidates, **_kwargs):
-            captured_payloads.extend(candidate for candidate in candidates)
+            captured_payloads.extend(candidate.model_dump(mode="json") for candidate in candidates)
             return [
-                {"doc_key": candidate["doc_key"], "chunk_id": candidate["chunk_id"], "score": 0.91}
+                {"candidate_id": candidate.candidate_id, "score": 0.91}
                 for candidate in candidates
             ]
 
@@ -228,7 +276,7 @@ async def test_reranker_inputs_exclude_raw_internals_and_unbounded_text() -> Non
         rerank_candidates_for_query,
         query="商家已发货还能仅退款吗？",
         candidates=[candidate],
-        config=RerankConfig(provider_enabled=True, max_candidate_text_chars=80),
+        config=RerankConfig(provider_enabled=True, text_max_chars=80),
         provider=CapturingProvider(),
     )
 
@@ -243,28 +291,52 @@ async def test_reranker_inputs_exclude_raw_internals_and_unbounded_text() -> Non
     ):
         assert sentinel not in payload_text
     assert "商家已经发货" in payload_text
-    assert len(captured_payloads[0]["text"]) <= 80
+    assert len(captured_payloads[0]["text_snippet"]) <= 80
 
 
 @pytest.mark.asyncio
 async def test_rerank_occurs_before_evidence_ref_construction() -> None:
-    _DefaultLocalReranker, RerankCandidate, _Provider, RerankConfig, rerank_candidates_for_query = _load_rerank_api()
-    candidate = _candidate(
-        RerankCandidate,
+    generic = _chunk(
+        "generic_policy_001",
+        doc_key="generic_policy",
+        title="通用规则",
+        section="常见问题",
+        content="客服应按平台规则处理售后申请。",
+    )
+    target = _chunk(
+        "refund_policy_001",
         doc_key="refund_policy",
-        chunk_id="refund_policy_001",
-        score=0.72,
-        rank=1,
+        title="退款规则",
+        section="仅退款已发货",
+        content="商家已经发货时，客服应先核实物流状态和商家举证，再判断仅退款。",
     )
+    repo = SimpleNamespace(
+        search_similar=AsyncMock(return_value=[(generic, 0.74), (target, 0.68)]),
+        search_sparse=AsyncMock(return_value=[]),
+        search_fuzzy=AsyncMock(return_value=[]),
+    )
+    embedder = SimpleNamespace(embed_query=AsyncMock(return_value=[0.1, 0.2, 0.3]))
+    engine = PolicyRetrievalEngine(chunk_repo=repo, embedder=embedder)
+    context = _context()
 
-    ranked = await _rerank(
-        rerank_candidates_for_query,
+    status, hits, best_score = await engine.retrieve_hits(
         query="商家已发货还能仅退款吗？",
-        candidates=[candidate],
-        config=RerankConfig(provider_enabled=False),
+        context=context,
+        max_results=5,
+    )
+    _ref_status, refs, ref_best_score = await engine.retrieve(
+        query="商家已发货还能仅退款吗？",
+        context=context,
+        max_results=5,
     )
 
-    assert not isinstance(ranked[0], EvidenceRefV1)
-    assert not hasattr(ranked[0], "evidence_id")
-    assert not hasattr(ranked[0], "text_hash")
-    assert _candidate_identity(ranked[0]) == _candidate_identity(candidate)
+    assert status == "strong_evidence"
+    assert hits[0].chunk_id == "refund_policy_001"
+    assert refs[0].chunk_id == "refund_policy_001"
+    assert refs[0].rank == hits[0].rank == 1
+    assert hits[0].score == pytest.approx(0.68)
+    assert refs[0].score == pytest.approx(0.68)
+    assert best_score == pytest.approx(0.74)
+    assert ref_best_score == pytest.approx(0.74)
+    assert "final_score" not in refs[0].model_dump()
+    assert "score_components" not in refs[0].model_dump()

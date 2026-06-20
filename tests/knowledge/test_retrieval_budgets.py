@@ -58,14 +58,15 @@ async def test_stage_timeout_provider_error_malformed_budget_disabled_fallbacks(
     RerankCandidate, RerankConfig, RerankerProviderAdapter, rerank_candidates_for_query = _load_rerank_api()
     candidates = [
         RerankCandidate(
+            candidate_id="refund_policy/refund_policy_001@v1",
             doc_key="refund_policy",
             chunk_id="refund_policy_001",
             title="退款规则",
             section="仅退款已发货",
             policy_version="v1",
-            text="商家已经发货时，客服应先核实物流状态和商家举证。",
-            score=0.72,
-            rank=1,
+            text_snippet="商家已经发货时，客服应先核实物流状态和商家举证。",
+            baseline_score=0.72,
+            baseline_rank=1,
             selected_by=("dense", "sparse"),
         )
     ]
@@ -87,11 +88,11 @@ async def test_stage_timeout_provider_error_malformed_budget_disabled_fallbacks(
         (
             TimeoutProvider(),
             "provider_timeout",
-            {"provider_enabled": True, "provider_timeout_seconds": config_constants["RERANK_STAGE_TIMEOUT_SECONDS"]},
+            {"provider_enabled": True, "timeout_seconds": config_constants["RERANK_STAGE_TIMEOUT_SECONDS"]},
         ),
         (ErrorProvider(), "provider_error", {"provider_enabled": True}),
         (MalformedProvider(), "provider_malformed_output", {"provider_enabled": True}),
-        (MalformedProvider(), "budget_overflow", {"provider_enabled": True, "max_candidate_text_chars": 8}),
+        (MalformedProvider(), "budget_overflow", {"provider_enabled": True, "max_candidates": 0}),
     ]
 
     for provider, expected_reason, overrides in scenarios:
@@ -100,12 +101,12 @@ async def test_stage_timeout_provider_error_malformed_budget_disabled_fallbacks(
                 query="商家已发货还能仅退款吗？",
                 candidates=candidates,
                 config=RerankConfig(
-                    max_provider_retries=config_constants["RERANK_PROVIDER_MAX_RETRIES"],
+                    provider_max_retries=config_constants["RERANK_PROVIDER_MAX_RETRIES"],
                     **overrides,
                 ),
                 provider=provider,
             )
         )
 
-        assert [candidate.chunk_id for candidate in ranked] == ["refund_policy_001"]
-        assert ranked[0].fallback_reason == expected_reason
+        assert [candidate.chunk_id for candidate in ranked.ranked_candidates] == ["refund_policy_001"]
+        assert ranked.ranked_candidates[0].fallback_reason == expected_reason

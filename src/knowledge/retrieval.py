@@ -12,11 +12,13 @@ from src.knowledge.config import (
     MERGED_CANDIDATE_CAP,
     MIN_SIMILARITY_THRESHOLD,
     ORIGINAL_QUERY_TOP_K,
+    RERANK_TEXT_MAX_CHARS,
     RETRIEVAL_CONFIG_VERSION,
     REWRITE_QUERY_TOP_K,
     STRONG_EVIDENCE_THRESHOLD,
 )
 from src.knowledge.provenance import EvidenceProvenance
+from src.knowledge.rerank import RerankCandidate, RerankConfig, rerank_candidates_for_query
 from src.knowledge.rewrite import build_query_rewrite_plan, safe_rewrite_summary
 from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext
 from src.rag.embedder import EmbeddingService
@@ -393,7 +395,7 @@ class PolicyRetrievalEngine:
                 except Exception:
                     fallback_reason = "merge_error"
 
-        hits, best_score, status = _finalize_hits(
+        hits, best_score, status = await _finalize_hits(
             query=query,
             candidates=candidates,
             limit=limit,
@@ -513,7 +515,7 @@ def _merge_query_candidates(
     return _sort_candidates(list(merged.values()))[:MERGED_CANDIDATE_CAP]
 
 
-def _finalize_hits(
+async def _finalize_hits(
     *,
     query: str,
     candidates: list[_FusedCandidate],
@@ -534,24 +536,46 @@ def _finalize_hits(
             if candidate.confidence >= STRONG_EVIDENCE_THRESHOLD and has_candidate_overlap(terms, candidate.chunk)
         ][:limit]
 
-    hits = [
-        PolicyRetrievalHit(
-            doc_key=str(candidate.chunk.document.doc_key),
-            chunk_id=candidate.chunk.chunk_id,
-            title=str(candidate.chunk.document.title),
-            section=str(candidate.chunk.section),
-            policy_version=_policy_version(candidate.chunk),
-            text=candidate.chunk.content,
-            score=candidate.confidence,
-            rank=rank,
-            selected_by=candidate.selected_by,
-            dense_rank=candidate.dense_rank,
-            sparse_rank=candidate.sparse_rank,
-            fuzzy_rank=candidate.fuzzy_rank,
-            rrf_score=candidate.rrf_score,
-        )
+    rerank_candidates = tuple(
+        _to_rerank_candidate(candidate, baseline_rank=rank)
         for rank, candidate in enumerate(results, start=1)
-    ]
+    )
+    fused_by_rerank_id = {
+        rerank_candidate.candidate_id: candidate
+        for rerank_candidate, candidate in zip(rerank_candidates, results, strict=True)
+    }
+    try:
+        rerank_output = await rerank_candidates_for_query(
+            query=query,
+            candidates=rerank_candidates,
+            config=RerankConfig(),
+        )
+        ordered_candidates = rerank_output.ranked_candidates
+    except Exception:
+        ordered_candidates = rerank_candidates
+
+    hits = []
+    for rank, reranked_candidate in enumerate(ordered_candidates, start=1):
+        candidate = fused_by_rerank_id[reranked_candidate.candidate_id]
+        # Rerank final_score is diagnostic-only; evidence scores and thresholds
+        # stay on baseline normalized confidence.
+        hits.append(
+            PolicyRetrievalHit(
+                doc_key=str(candidate.chunk.document.doc_key),
+                chunk_id=candidate.chunk.chunk_id,
+                title=str(candidate.chunk.document.title),
+                section=str(candidate.chunk.section),
+                policy_version=_policy_version(candidate.chunk),
+                text=candidate.chunk.content,
+                score=reranked_candidate.baseline_score,
+                rank=rank,
+                selected_by=candidate.selected_by,
+                dense_rank=candidate.dense_rank,
+                sparse_rank=candidate.sparse_rank,
+                fuzzy_rank=candidate.fuzzy_rank,
+                rrf_score=candidate.rrf_score,
+            )
+        )
     best_score = max((hit.score for hit in hits), default=0.0)
     if not hits or best_score < MIN_SIMILARITY_THRESHOLD:
         status = "no_evidence"
@@ -571,6 +595,25 @@ def _sort_candidates(candidates: list[_FusedCandidate]) -> list[_FusedCandidate]
             str(candidate.chunk.document.doc_key),
             str(candidate.chunk.chunk_id),
         ),
+    )
+
+
+def _to_rerank_candidate(candidate: _FusedCandidate, *, baseline_rank: int) -> RerankCandidate:
+    doc_key = str(candidate.chunk.document.doc_key)
+    chunk_id = candidate.chunk.chunk_id
+    policy_version = _policy_version(candidate.chunk)
+    return RerankCandidate(
+        candidate_id=f"{doc_key}/{chunk_id}@{policy_version}",
+        doc_key=doc_key,
+        chunk_id=chunk_id,
+        policy_version=policy_version,
+        title=str(candidate.chunk.document.title),
+        section=str(candidate.chunk.section),
+        text_snippet=str(candidate.chunk.content)[:RERANK_TEXT_MAX_CHARS],
+        baseline_score=candidate.confidence,
+        baseline_rank=baseline_rank,
+        selected_by=candidate.selected_by,
+        rrf_score=candidate.rrf_score,
     )
 
 
