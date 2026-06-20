@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Short-term Memory Unification
 status: ready_to_plan
-stopped_at: roadmap created
-last_updated: "2026-06-20T19:28:03+08:00"
-last_activity: 2026-06-20 -- Created v1.7 roadmap with Phase 24
+stopped_at: Phase 24 context gathered
+last_updated: "2026-06-20T19:38:19+08:00"
+last_activity: 2026-06-20 -- Gathered Phase 24 context
 progress:
   total_phases: 1
   completed_phases: 0
@@ -27,8 +27,8 @@ See: `.planning/PROJECT.md` (updated 2026-06-20)
 
 Phase: 24 - Agent Runs Short-term Memory Parity
 Plan: Not started
-Status: Ready to discuss and plan
-Last activity: 2026-06-20 -- Created v1.7 roadmap with Phase 24
+Status: Context gathered; ready to plan
+Last activity: 2026-06-20 -- Gathered Phase 24 context
 
 Progress: [----------] 0%
 
@@ -72,7 +72,6 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 
 ### Pending Todos
 
-- Discuss Phase 24 gray areas.
 - Plan Phase 24 implementation.
 
 ### Blockers / Concerns
@@ -100,9 +99,9 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-20T19:28:03+08:00
-Stopped at: roadmap created
-Resume file: None
-Next: Run `$gsd-discuss-phase 24`, then `$gsd-plan-phase 24`.
+Last session: 2026-06-20T19:38:19+08:00
+Stopped at: Phase 24 context gathered
+Resume file: `.planning/phases/24-agent-runs-short-term-memory-parity/24-CONTEXT.md`
+Next: Run `$gsd-plan-phase 24`.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
