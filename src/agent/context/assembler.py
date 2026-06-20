@@ -11,6 +11,7 @@ from src.agent.context.projectors import (
     project_policy_refs_for_prompt,
     project_profile_memory_for_prompt,
     project_recent_message_for_prompt,
+    project_thread_summary_for_prompt,
     project_tool_result_summary,
     project_working_state_for_prompt,
 )
@@ -78,8 +79,9 @@ class ContextAssembler:
         if business_context_block:
             blocks.append(PromptBlock("business_context", business_context_block, priority=72))
 
-        if thread_rolling_summary:
-            blocks.append(PromptBlock("thread_rolling_summary", thread_rolling_summary, priority=70))
+        thread_summary_block = project_thread_summary_for_prompt(thread_rolling_summary)
+        if thread_summary_block:
+            blocks.append(PromptBlock("thread_rolling_summary", thread_summary_block, priority=70))
 
         tool_block = _project_tool_summaries(tool_result_summaries)
         if tool_block:

@@ -324,3 +324,100 @@ async def test_disabled_and_unavailable_session_memory_fall_back_to_clarificatio
     assert unavailable_deps["tool_manager"].calls == []
     assert unavailable_state["session_memory"]["fallback_reason"] == "unavailable"
     assert unavailable_state["clarification_request"]["reason"] == "missing_required_slots"
+
+
+@pytest.mark.asyncio
+async def test_extract_slots_loads_agent_runs_prompt_context_from_trusted_config(
+    seeded_session: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from src.agent.nodes import extract_slots as extract_slots_module
+    from tests.agent.conftest import FakeLLM
+
+    user = seeded_session["users"]["cs_zhang"]
+    thread_id = "integration-agent-runs-extract-context"
+    run_id = str(uuid4())
+    calls: list[dict] = []
+    assemblies: list[dict] = []
+
+    class FakeConversationService:
+        async def load_prompt_context(self, **kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(
+                latest_thread_summary=SimpleNamespace(summary_text="Prior summary mentions ORD-PRIOR-001."),
+                recent_messages=[
+                    SimpleNamespace(role="user", content="之前那个订单是 ORD-PRIOR-001"),
+                    SimpleNamespace(role="assistant", content="我会继续按安全边界处理。"),
+                ],
+                tool_prompt_summaries=[
+                    SimpleNamespace(
+                        id=uuid4(),
+                        tool_call_id="tool-call-prior",
+                        tool_result_id="tool-result-prior",
+                        tool_name="get_order",
+                        status="success",
+                        summary="Raw summary should not be preferred.",
+                        prompt_summary="Prompt-safe tool summary for ORD-PRIOR-001.",
+                        business_fact_refs_json=[{"resource_type": "order", "resource_id": "ORD-PRIOR-001"}],
+                        policy_evidence_refs_json=[],
+                        raw_result_ref="tool-results/prior",
+                        audit_ref="audit/prior",
+                    )
+                ],
+            )
+
+    original_assemble = extract_slots_module.ContextAssembler.assemble
+
+    def spy_assemble(self, **kwargs):
+        assemblies.append(kwargs)
+        return original_assemble(self, **kwargs)
+
+    monkeypatch.setattr(extract_slots_module.ContextAssembler, "assemble", spy_assemble)
+    monkeypatch.setattr(
+        extract_slots_module,
+        "_get_llm",
+        lambda: FakeLLM(
+            {
+                "order_id": "ORD-CURRENT-001",
+                "refund_case_id": None,
+                "ticket_id": None,
+                "merchant_id": None,
+                "customer_id": None,
+                "issue_type": "refund_status",
+                "action_type": None,
+            }
+        ),
+    )
+
+    result = await extract_slots_module.extract_slots(
+        _state(user, "当前订单是 ORD-CURRENT-001，继续处理这个退款", thread_id, run_id=run_id),
+        {
+            "configurable": {
+                "session": object(),
+                "conversation_service": FakeConversationService(),
+                "conversation_thread_id": str(uuid4()),
+                "conversation_message_id": str(uuid4()),
+            }
+        },
+    )
+
+    assert calls == [
+        {
+            "tenant_id": str(user.tenant_id),
+            "user_id": str(user.id),
+            "thread_id": thread_id,
+            "run_id": run_id,
+        }
+    ]
+    assert result["active_slots"]["order_id"] == "ORD-CURRENT-001"
+    assert assemblies
+    assembly_kwargs = assemblies[0]
+    assert assembly_kwargs["thread_rolling_summary"] == "Prior summary mentions ORD-PRIOR-001."
+    assert assembly_kwargs["recent_messages"] == [
+        {"role": "user", "content": "之前那个订单是 ORD-PRIOR-001"},
+        {"role": "assistant", "content": "我会继续按安全边界处理。"},
+    ]
+    assert assembly_kwargs["tool_result_summaries"][0].prompt_summary == "Prompt-safe tool summary for ORD-PRIOR-001."
+    assert assembly_kwargs["current_user_message"] == "当前订单是 ORD-CURRENT-001，继续处理这个退款"

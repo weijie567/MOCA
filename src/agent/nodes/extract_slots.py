@@ -4,6 +4,7 @@ import time
 from datetime import UTC, datetime
 from typing import Any
 
+from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
@@ -14,6 +15,9 @@ from src.agent.schemas import SlotExtractionResult
 from src.agent.state import AgentState
 from src.agent.working_state import project_working_state
 from src.config import settings
+from src.conversation.repository import ConversationRepository
+from src.conversation.service import ConversationService
+from src.tools.contracts import ToolResultPromptSummary
 
 
 def _now_iso() -> str:
@@ -57,9 +61,9 @@ def _trace_step(
     }
 
 
-async def extract_slots(state: AgentState) -> dict:
+async def extract_slots(state: AgentState, config: RunnableConfig | None = None) -> dict:
     started_at = _now_iso()
-    prompt_assembly = _assemble_slot_prompt(state)
+    prompt_assembly = await _assemble_slot_prompt(state, config)
     messages = prompt_assembly.to_messages()
     structured_llm = _get_llm().with_structured_output(SlotExtractionResult)
     last_error: str | None = None
@@ -122,26 +126,102 @@ async def extract_slots(state: AgentState) -> dict:
     }
 
 
-def _assemble_slot_prompt(state: AgentState) -> PromptAssembly:
+async def _assemble_slot_prompt(state: AgentState, config: RunnableConfig | None) -> PromptAssembly:
     candidate_slots = state.get("candidate_slots")
     node_hints = (
         project_candidate_slot_hints_for_prompt(candidate_slots)
         if isinstance(candidate_slots, dict) and candidate_slots
         else ""
     )
+    prompt_context = await _load_prompt_context(state, config)
     return ContextAssembler().assemble(
         system_prompt=EXTRACT_SLOTS_SYSTEM,
         current_user_message=str(state.get("normalized_query") or state.get("user_query") or ""),
         working_state=project_working_state(state),
-        thread_rolling_summary="",
-        recent_messages=[],
+        thread_rolling_summary=prompt_context["thread_rolling_summary"],
+        recent_messages=prompt_context["recent_messages"],
         verified_policy_snippets=[],
         profile_memory_snippets=state.get("long_term_memory") or [],
         case_memory_snippets=state.get("case_memory") or [],
-        tool_result_summaries=[],
+        tool_result_summaries=prompt_context["tool_result_summaries"],
         business_context={},
         node_hints=node_hints,
     )
+
+
+async def _load_prompt_context(state: AgentState, config: RunnableConfig | None) -> dict[str, Any]:
+    configurable = ((config or {}).get("configurable") or {}) if config else {}
+    session = configurable.get("session")
+    conversation_thread_id = configurable.get("conversation_thread_id")
+    conversation_message_id = configurable.get("conversation_message_id")
+    run_id = state.get("current_run_id") or state.get("run_id")
+    if (
+        session is None
+        or not conversation_thread_id
+        or not conversation_message_id
+        or not state.get("tenant_id")
+        or not state.get("user_id")
+        or not state.get("thread_id")
+        or not run_id
+    ):
+        return _empty_prompt_context()
+
+    service = configurable.get("conversation_service")
+    if service is None:
+        if not hasattr(session, "execute"):
+            return _empty_prompt_context()
+        service = ConversationService(ConversationRepository(session))
+
+    try:
+        context = await service.load_prompt_context(
+            tenant_id=state["tenant_id"],
+            user_id=state["user_id"],
+            thread_id=str(state["thread_id"]),
+            run_id=run_id,
+        )
+    except Exception:
+        return _empty_prompt_context()
+
+    latest_summary = getattr(context, "latest_thread_summary", None)
+    return {
+        "thread_rolling_summary": getattr(latest_summary, "summary_text", None) or "",
+        "recent_messages": [
+            {"role": getattr(message, "role", "message"), "content": getattr(message, "content", "")}
+            for message in getattr(context, "recent_messages", [])
+        ],
+        "tool_result_summaries": [
+            summary
+            for summary in (
+                _tool_prompt_summary_from_record(record) for record in getattr(context, "tool_prompt_summaries", [])
+            )
+            if summary is not None
+        ],
+    }
+
+
+def _empty_prompt_context() -> dict[str, Any]:
+    return {"thread_rolling_summary": "", "recent_messages": [], "tool_result_summaries": []}
+
+
+def _tool_prompt_summary_from_record(record: Any) -> ToolResultPromptSummary | None:
+    if isinstance(record, ToolResultPromptSummary):
+        return record
+    payload = {
+        "tool_call_id": getattr(record, "tool_call_id", ""),
+        "tool_result_id": getattr(record, "tool_result_id", "") or str(getattr(record, "id", "")),
+        "tool_name": getattr(record, "tool_name", "tool"),
+        "status": getattr(record, "status", "success"),
+        "summary": getattr(record, "summary", "") or "",
+        "prompt_summary": getattr(record, "prompt_summary", "") or getattr(record, "summary", "") or "",
+        "business_fact_refs": getattr(record, "business_fact_refs_json", []) or [],
+        "policy_evidence_refs": getattr(record, "policy_evidence_refs_json", []) or [],
+        "raw_result_ref": getattr(record, "raw_result_ref", None),
+        "audit_ref": getattr(record, "audit_ref", None),
+    }
+    try:
+        return ToolResultPromptSummary.model_validate(payload)
+    except ValidationError:
+        return None
 
 
 def _messages_chars(messages: list[dict[str, str]]) -> int:

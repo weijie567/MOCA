@@ -87,8 +87,12 @@ _FORBIDDEN_PROMPT_VALUE_MARKERS = (
     "action_authority_body",
     "raw_payload",
     "raw_tool_output",
+    "private_reasoning",
     "debug_blob",
+    "debug_trace",
     "replay_debug_blob",
+    "secret",
+    "ReplayEventV3",
 )
 
 
@@ -154,7 +158,9 @@ def project_tool_result_summary(
         f"tool_call_id={summary.tool_call_id}",
         f"tool_result_id={summary.tool_result_id}",
     ]
-    prompt_summary = _safe_scalar(summary.prompt_summary) or _safe_scalar(summary.summary)
+    prompt_summary = sanitize_prompt_context_text(summary.prompt_summary) or sanitize_prompt_context_text(
+        summary.summary
+    )
     if prompt_summary:
         lines.append(f"summary={_bounded(prompt_summary, _MAX_LINE_CHARS)}")
     business_refs = _format_ref_list(summary.business_fact_refs, keys=_TOOL_REF_KEYS)
@@ -163,10 +169,12 @@ def project_tool_result_summary(
     policy_refs = _format_ref_list(summary.policy_evidence_refs, keys=_TOOL_REF_KEYS)
     if policy_refs:
         lines.append(f"policy_refs={policy_refs}")
-    if summary.raw_result_ref:
-        lines.append(f"raw_result_ref={_bounded(summary.raw_result_ref, 160)}")
-    if summary.audit_ref:
-        lines.append(f"audit_ref={_bounded(summary.audit_ref, 160)}")
+    raw_result_ref = _safe_prompt_scalar(summary.raw_result_ref)
+    if raw_result_ref:
+        lines.append(f"raw_result_ref={_bounded(raw_result_ref, 160)}")
+    audit_ref = _safe_prompt_scalar(summary.audit_ref)
+    if audit_ref:
+        lines.append(f"audit_ref={_bounded(audit_ref, 160)}")
     return _bounded("; ".join(lines), max_chars)
 
 
@@ -251,10 +259,14 @@ def project_case_memory_for_prompt(snippets: Sequence[Any] | None, *, max_chars:
 
 def project_recent_message_for_prompt(message: Mapping[str, Any], *, max_chars: int = 500) -> str:
     role = _safe_scalar(message.get("role")) or "message"
-    content = _safe_scalar(message.get("content")) or ""
+    content = sanitize_prompt_context_text(message.get("content")) or ""
     if not content:
         return ""
     return _bounded(f"{role}: {content}", max_chars)
+
+
+def project_thread_summary_for_prompt(summary: str | None, *, max_chars: int = 1200) -> str:
+    return _bounded(sanitize_prompt_context_text(summary), max_chars)
 
 
 def project_candidate_slot_hints_for_prompt(candidate_slots: Mapping[str, Any] | None, *, max_chars: int = 700) -> str:
@@ -343,7 +355,7 @@ def _format_mapping(mapping: Mapping[str, Any], keys: Sequence[str]) -> str:
     for key in keys:
         if key not in mapping or _is_unsafe_key(key):
             continue
-        value = _safe_scalar(mapping.get(key))
+        value = _safe_prompt_scalar(mapping.get(key))
         if value:
             parts.append(f"{key}={_bounded(value, 180)}")
     return ", ".join(parts)
@@ -378,6 +390,16 @@ def _safe_prompt_scalar(value: Any) -> str:
         if marker.lower() in lowered:
             return ""
     return text
+
+
+def sanitize_prompt_context_text(value: Any) -> str:
+    text = _safe_scalar(value)
+    if not text:
+        return ""
+    text = _SHA256_RE.sub("", text)
+    for marker in _FORBIDDEN_PROMPT_VALUE_MARKERS:
+        text = re.sub(re.escape(marker), "", text, flags=re.IGNORECASE)
+    return _clean_text(text)
 
 
 def _format_sequence(values: Sequence[Any] | None) -> str:
