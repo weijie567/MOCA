@@ -912,23 +912,67 @@ async def test_agent_chat_only_token_streams_with_no_tool_permissions(
 @pytest.mark.asyncio
 async def test_agent_chat_only_token_invokes_legacy_chat_with_no_tool_permissions(
     client: AsyncClient,
+    session: AsyncSession,
     seeded_session,
     monkeypatch,
 ):
     user = seeded_session["users"]["cs_zhang"]
     graph = CaptureInvokeConfigGraph()
     monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+    thread_id = f"restricted-chat-{uuid4()}"
 
     response = await client.post(
         "/api/v1/agent/chat",
-        json={"query": "退款政策是什么？", "thread_id": f"restricted-chat-{uuid4()}"},
+        json={"query": "退款政策是什么？", "thread_id": thread_id},
         headers=_auth_header(user, ["agent:chat"]),
     )
 
     assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert response.json()["data"]["response"] == "done"
     assert len(graph.calls) == 1
     _, config = graph.calls[0]
     assert config["configurable"]["permissions"] == []
+    assert "conversation_thread_id" in config["configurable"]
+    assert "conversation_message_id" in config["configurable"]
+
+    messages = (
+        (
+            await session.execute(
+                select(ConversationMessage)
+                .where(
+                    ConversationMessage.tenant_id == user.tenant_id,
+                    ConversationMessage.thread_id == thread_id,
+                    ConversationMessage.deleted_at.is_(None),
+                )
+                .order_by(ConversationMessage.message_index)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert [message.role for message in messages] == ["user", "assistant"]
+    assert messages[0].content == "退款政策是什么？"
+    assert messages[1].content == "done"
+    assert str(messages[0].conversation_thread_id) == config["configurable"]["conversation_thread_id"]
+    assert str(messages[0].id) == config["configurable"]["conversation_message_id"]
+
+    summaries = (
+        (
+            await session.execute(
+                select(ConversationSummary).where(
+                    ConversationSummary.tenant_id == user.tenant_id,
+                    ConversationSummary.thread_id == thread_id,
+                    ConversationSummary.summary_type == "thread_rolling",
+                    ConversationSummary.deleted_at.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(summaries) == 1
+    assert summaries[0].source_message_ids_json == [str(message.id) for message in messages]
 
 
 @pytest.mark.asyncio

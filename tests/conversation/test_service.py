@@ -306,7 +306,7 @@ async def test_load_prompt_context_returns_latest_committed_prior_turn_and_bound
 
     current_run_id = await _insert_run(session, seeded_session, thread_id)
     operation_id = uuid.uuid4()
-    await service.append_user_message(
+    await service.append_assistant_message(
         tenant_id=tenant_id,
         user_id=user_id,
         thread_id=thread_id,
