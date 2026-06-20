@@ -58,9 +58,10 @@ def score_ablation_case(case: dict[str, Any], variant_result: dict[str, Any]) ->
     first_match_rank = _first_match_rank(evidence, expected_chunks, expected_docs)
     should_fallback = bool(case.get("should_fallback"))
     retrieval_status = str(variant_result.get("retrieval_status", "no_evidence"))
+    predicted_no_evidence = retrieval_status == "no_evidence" and not evidence
 
     if should_fallback:
-        hit = retrieval_status == "no_evidence" and not evidence
+        hit = predicted_no_evidence
         no_evidence_correct = hit
     else:
         hit = first_match_rank is not None
@@ -74,6 +75,7 @@ def score_ablation_case(case: dict[str, Any], variant_result: dict[str, Any]) ->
         "hit": hit,
         "reciprocal_rank": (1 / first_match_rank) if first_match_rank else 0.0,
         "citation_support_compatible": bool(variant_result.get("citation_support_compatible", hit)),
+        "predicted_no_evidence": predicted_no_evidence,
         "no_evidence_correct": no_evidence_correct,
         "unsafe_retrieval": bool(variant_result.get("unsafe_retrieval", False)),
         "fallback": fallback_reason is not None or should_fallback,
@@ -203,12 +205,12 @@ def _metrics(case_scores: list[dict[str, Any]]) -> dict[str, float]:
         return {metric: 0.0 for metric in REQUIRED_ABLATION_METRICS}
     latencies = [float(score.get("latency_ms", 0.0)) for score in case_scores]
     fallback_cases = [score for score in case_scores if score.get("fallback")]
-    no_evidence_cases = [score for score in case_scores if score.get("no_evidence_correct") is not None]
+    no_evidence_predictions = [score for score in case_scores if score.get("predicted_no_evidence")]
     return {
         "hit_at_k": _rate(score.get("hit") for score in case_scores),
         "mrr": sum(float(score.get("reciprocal_rank", 0.0)) for score in case_scores) / len(case_scores),
         "citation_support_compatibility": _rate(score.get("citation_support_compatible") for score in case_scores),
-        "no_evidence_precision": _rate(score.get("no_evidence_correct") for score in no_evidence_cases),
+        "no_evidence_precision": _rate(score.get("no_evidence_correct") for score in no_evidence_predictions),
         "unsafe_retrieval_rate": _rate(score.get("unsafe_retrieval") for score in case_scores),
         "fallback_rate": len(fallback_cases) / len(case_scores),
         "latency_p50_ms": _percentile(latencies, 50),

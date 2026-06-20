@@ -105,7 +105,7 @@ def test_ablation_report_contains_rank_safety_fallback_and_latency_metrics() -> 
     assert report["metrics"]["hit_at_k"] >= 0
     assert report["metrics"]["mrr"] >= 0
     assert report["metrics"]["citation_support_compatibility"] >= 0
-    assert report["metrics"]["no_evidence_precision"] >= 0
+    assert report["metrics"]["no_evidence_precision"] == 0
     assert report["metrics"]["unsafe_retrieval_rate"] >= 0
     assert report["metrics"]["fallback_rate"] >= 0
     assert report["metrics"]["latency_p50_ms"] >= 0
@@ -127,3 +127,43 @@ def test_ablation_report_contains_rank_safety_fallback_and_latency_metrics() -> 
         "raw_rewrite_payload",
     ):
         assert forbidden_key not in report_text
+
+
+def test_no_evidence_precision_counts_only_no_evidence_predictions() -> None:
+    _REQUIRED_ABLATION_VARIANTS, build_ablation_report, score_ablation_case = _load_ablation_api()
+    fallback_case = {
+        "id": "phase23-no-evidence",
+        "query": "用户问如何更换银行卡绑定手机号？",
+        "expected_doc_ids": [],
+        "expected_chunk_ids": [],
+        "should_fallback": True,
+    }
+    normal_case = {
+        "id": "phase23-hit",
+        "query": "退款规则",
+        "expected_doc_ids": ["refund_policy"],
+        "expected_chunk_ids": ["refund_policy_001"],
+        "should_fallback": False,
+    }
+    scores = [
+        score_ablation_case(
+            fallback_case,
+            {"variant": "rrf_baseline", "retrieval_status": "no_evidence", "evidence": [], "latency_ms": 1},
+        ),
+        score_ablation_case(
+            normal_case,
+            {
+                "variant": "rrf_baseline",
+                "retrieval_status": "strong_evidence",
+                "evidence": [{"doc_key": "refund_policy", "chunk_id": "refund_policy_001", "rank": 1}],
+                "latency_ms": 1,
+            },
+        ),
+    ]
+
+    report = build_ablation_report(
+        variant_results=[{"variant": "rrf_baseline", "case_scores": scores}],
+        generated_at="2026-06-20T00:00:00Z",
+    )
+
+    assert report["metrics"]["no_evidence_precision"] == 1.0
