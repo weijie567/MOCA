@@ -1,5 +1,49 @@
 # Milestones
 
+## v1.6 RAG Reranker + Query Rewrite (Shipped: 2026-06-20)
+
+**Delivered:** Retrieval-quality upgrade with bounded query rewrite, original-plus-rewrite retrieval fan-out, deterministic local reranking, disabled-by-default provider gates, safe internal diagnostics, no-live-provider ablation evaluation, and final boundary regressions preserving Phase 20-22 evidence authority.
+
+**Phases completed:** 23 (1 phase, 6 plans, 18 tasks)
+
+**Key accomplishments:**
+
+- RED pytest scaffold for Phase 23 query rewrite, reranker, diagnostics, ablation, latency budgets, and boundary preservation
+- Strict local query rewrite planner with bounded aliases, deterministic skip reasons, and safe summary compatibility
+- Original-first hybrid retrieval now supports bounded query rewrite channels, safe merge/dedupe, baseline fallback, and service-level safe summary propagation.
+- A strict project-owned reranker now runs before evidence construction, improves candidate order locally, and keeps all evidence confidence and authority boundaries unchanged.
+- Safe retrieval diagnostics and deterministic ablation reporting now cover Phase 23 variants, golden categories, blocking metrics, fallback reasons, and latency budgets without live provider dependencies.
+- Final Phase 23 boundary regressions pass: rewrite/rerank diagnostics do not weaken EvidenceRefV1, ContextBuilder, verifier, action, AgentState, deferred-scope, or ordinary-surface protections.
+
+**Stats:**
+
+- 1 completed phase, 6 plans, 18 task markers
+- 75 files changed, 8,325 insertions, 171 deletions from `v1.5` tag through Phase 23 closeout
+- Git range: `f05f5bf` to `3ea539b` before archive
+- Phase 23 UAT passed: 7/7 checkpoints
+- Phase 23 security review passed with `verdict: pass`
+- Deep code review clean after WR-01 through WR-06 fixes
+- Final focused acceptance gates passed, including ablation dry-run and Ruff
+- No standalone `.planning/v1.6-MILESTONE-AUDIT.md` existed at close; closure used plan checker, code review, security review, UAT, and final focused gates.
+
+**Known deferred items at close:**
+
+- 1 pending todo acknowledged and deferred at close: `2026-06-17-constrain-agentstate-memory-expansion.md`, retained as `17-prep: AgentState Surface Contracts + Authority Isolation`.
+- Phase 17 owns real external action execution, outbox, reconciliation, compensation dispatch, external idempotency, and duplicate execution/key guards.
+- Post-Phase 17 Policy Scope owns tenant-over-global global/default policy fallback and precedence merge.
+- Phase RAG-5 owns Vespa/OpenSearch shadow testing and full external `SearchBackend` if PostgreSQL hybrid no longer fits.
+- Policy Source Operations owns policy source upload/review/lifecycle UI, source document viewer, and admin review workflow.
+
+**Archived:**
+
+- `.planning/milestones/v1.6-ROADMAP.md`
+- `.planning/milestones/v1.6-REQUIREMENTS.md`
+- `.planning/milestones/v1.6-phases/`
+
+**What's next:** Start the next milestone with fresh requirements via `$gsd-new-milestone`.
+
+---
+
 ## v1.5 RAG Context Builder + Hallucination Control (Shipped: 2026-06-19)
 
 **Delivered:** A bounded RAG reasoning kernel between retrieval and answer/action reasoning. It validates canonical current-row evidence, builds prompt-safe context bundles, verifies typed material claims against the correct authority source, routes unsupported outcomes deterministically, blocks non-allow action paths, and closes hallucination-control acceptance without live provider dependency.

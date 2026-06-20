@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: RAG Reranker + Query Rewrite
-status: milestone_complete
-stopped_at: Completed Phase 23 UAT and v1.6 phase transition
-last_updated: "2026-06-20T10:33:42+08:00"
-last_activity: 2026-06-20 -- Completed Phase 23 UAT; v1.6 ready for milestone archive
+status: archived
+stopped_at: v1.6 milestone archived
+last_updated: "2026-06-20T10:38:23+08:00"
+last_activity: 2026-06-20 -- Archived v1.6 RAG Reranker + Query Rewrite
 progress:
   total_phases: 1
   completed_phases: 1
@@ -21,34 +21,32 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-20)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v1.6 complete — milestone archive pending
+**Current focus:** Ready to define the next milestone
 
 ## Current Position
 
-Phase: 23 (rag-reranker-query-rewrite) — COMPLETE
-Plan: 6 of 6
-Status: Milestone complete; archive pending
-Last activity: 2026-06-20 -- Completed Phase 23 UAT
+Phase: None
+Plan: Not started
+Status: Ready for new milestone
+Last activity: 2026-06-20 -- Archived v1.6 RAG Reranker + Query Rewrite
 
 Progress: [██████████] 100%
 
 Planning files:
 
 - `.planning/PROJECT.md`
-- `.planning/REQUIREMENTS.md`
 - `.planning/ROADMAP.md`
 - `.planning/STATE.md`
 - `.planning/MILESTONES.md`
-- `.planning/phases/23-rag-reranker-query-rewrite/23-CONTEXT.md`
-- `.planning/phases/23-rag-reranker-query-rewrite/23-RESEARCH.md`
-- `.planning/phases/23-rag-reranker-query-rewrite/23-VALIDATION.md`
-- `.planning/phases/23-rag-reranker-query-rewrite/23-PATTERNS.md`
-- `.planning/phases/23-rag-reranker-query-rewrite/23-01-PLAN.md` through `23-06-PLAN.md`
+- `.planning/RETROSPECTIVE.md`
+- `.planning/milestones/v1.6-ROADMAP.md`
+- `.planning/milestones/v1.6-REQUIREMENTS.md`
+- `.planning/milestones/v1.6-phases/23-rag-reranker-query-rewrite/`
 
-## Current Milestone Context
+## Archived Milestone Context
 
-- v1.6 owns exactly one roadmap phase: Phase 23 RAG Reranker + Query Rewrite.
-- All 26 v1.6 requirements are complete and map to Phase 23 exactly once in `.planning/REQUIREMENTS.md`.
+- v1.6 owned exactly one roadmap phase: Phase 23 RAG Reranker + Query Rewrite.
+- All 26 v1.6 requirements are complete and archived in `.planning/milestones/v1.6-REQUIREMENTS.md`.
 - Phase 23 follows v1.3 hybrid retrieval, v1.4 parser/OCR provenance, and v1.5 ContextBuilder/hallucination-control work.
 - Phase 23 may add bounded query rewrite, deterministic/default reranking, optional config-gated provider adapters, ranking diagnostics, ablation evals, and latency budgets.
 - Phase 23 must preserve `EvidenceRefV1` identity, canonical citation text/text_hash, tenant/scope/effective-date filters, source-block/OCR provenance boundaries, ContextBuilder validation, verifier routing, and action-boundary safety.
@@ -85,9 +83,11 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 
 ## Deferred Items
 
+Items acknowledged and deferred at milestone close on 2026-06-20:
+
 | Category | Item | Status |
 |----------|------|--------|
-| todo | 17-prep AgentState Surface Contracts + Authority Isolation | pending before Phase 17 |
+| todo | 2026-06-17-constrain-agentstate-memory-expansion.md | acknowledged; pending before Phase 17 |
 | future phase | Phase 17 External Action Execution | deferred |
 | future phase | Phase RAG-5 Optional External Search Backend | deferred |
 | future milestone | Policy Source Operations | deferred |
@@ -95,9 +95,9 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 
 ## Session Continuity
 
-Last session: 2026-06-20T10:33:42+08:00
-Stopped at: Phase 23 UAT complete; v1.6 milestone complete, archive pending
+Last session: 2026-06-20T10:38:23+08:00
+Stopped at: v1.6 milestone archived
 Resume file: None
-Next: `$gsd-complete-milestone v1.6` — archive and prepare the next milestone.
+Next: `$gsd-new-milestone` — define fresh requirements and roadmap for the next milestone.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00

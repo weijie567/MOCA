@@ -248,6 +248,56 @@
 
 ---
 
+## Milestone: v1.6 — RAG Reranker + Query Rewrite
+
+**Shipped:** 2026-06-20
+**Phases:** 1 | **Plans:** 6 | **Task markers:** 18
+
+### What Was Built
+
+- Bounded deterministic query rewrite for ambiguous, underspecified, and domain-synonym policy searches.
+- Original-query plus rewrite-channel retrieval fan-out with candidate caps, merge/dedupe, and baseline fallback.
+- Project-owned deterministic local reranker with disabled-by-default provider adapter gates and malformed-output fallback.
+- Internal retrieval diagnostics, ranking explanations, score components, fallback reasons, and safe ablation reports.
+- Deterministic no-live-provider ablation eval covering dense, sparse, fuzzy, RRF, rewrite, reranker, and combined variants.
+- Boundary regressions proving rewrite/rerank diagnostics do not weaken `EvidenceRefV1`, ContextBuilder, verifier, action, AgentState, or deferred-scope protections.
+
+### What Worked
+
+- Wave 0 RED scaffolds gave every later implementation plan concrete rewrite, rerank, diagnostics, budget, eval, and boundary pressure.
+- Keeping rewrite/rerank inside `src/knowledge` and before `EvidenceRefV1` construction preserved the existing authority architecture.
+- The deep review/fix loop was high leverage: it found ordering, dry-run default, boundary allowlist, diagnostic metadata, malformed score, and effective-time fail-closed issues before archive.
+- UAT after code review gave a clean user-facing closure signal: 7/7 checkpoints passed.
+
+### What Was Inefficient
+
+- `summary-extract` returned `undefined` for the v1.6 summary files, so milestone accomplishments had to be extracted from summary bodies.
+- `gsd-sdk query milestone.complete` did not route cleanly to the working handler; closing required direct `gsd-tools.cjs milestone complete`.
+- The milestone handler still corrupted `STATE.md` frontmatter, requiring manual repair before commit.
+- No standalone v1.6 milestone audit file existed, so closure relied on phase-level review, security, UAT, and focused acceptance gates.
+
+### Patterns Established
+
+- Treat rewrite/rerank as relevance stages only; do not let their scores, channels, diagnostics, or provider output become authority evidence.
+- Provider adapters should be disabled by default, budgeted, validated, and fail back to deterministic local behavior.
+- Ablation CLIs should default to credential-free deterministic dry-run, with live execution made explicit and fail-closed until implemented.
+- Static boundary guards need explicit owner allowlists for integration files as well as new module files.
+
+### Key Lessons
+
+1. Reranking must happen before max-results trimming when its purpose is to rescue candidates outside the baseline cutoff.
+2. Diagnostic metadata is part of the product contract if maintainers/evals depend on it; test the real retrieval path, not only DTO builders.
+3. Dry-run evaluation defaults are important operational safety, not convenience.
+4. Milestone archive tooling should be treated as mutable infrastructure and verified like application code when it edits STATE/ROADMAP.
+
+### Cost Observations
+
+- Model mix: quality profile across plan execution, deep code review, review-fix loops, UAT, and archive repair.
+- Sessions: single-day multi-step execution and closeout on 2026-06-20.
+- Notable: The highest leverage came from adversarial review after final gates appeared green; six real WR fixes plus three Claude-review follow-ups materially improved closure quality.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -259,6 +309,7 @@
 | v1.3 | resumed closeout | 1 | Established minimal PostgreSQL hybrid retrieval while keeping OCR, verifier, reranker, and external backend scope owner-named and deferred |
 | v1.4 | multi-session | 1 | Established production parser/OCR ingestion with source-block provenance while preserving evidence, memory, action, and replay boundaries |
 | v1.5 | multi-session | 1 | Established canonical RAG context, authority-separated claim verification, deterministic safety routing, and hallucination-control evals |
+| v1.6 | single-day closeout | 1 | Established rewrite/rerank relevance improvements with diagnostics/evals while preserving evidence and action authority boundaries |
 
 ### Cumulative Quality
 
@@ -269,6 +320,7 @@
 | v1.3 | Full regression gate passed with 1002 tests; UAT 7/7; security threats 5/5 closed | Phase 20 requirements complete 11/11 | Tokenizer, schema, RRF, scope, and eval diagnostics covered without provider dependency |
 | v1.4 | Full post-dependency regression gate passed with 1136 tests; live migration + OCR gate passed with 28 tests | Milestone audit passed 26/26 requirements, 8/8 integration contracts, 5/5 end-to-end flows | Native OCR and live pgvector migration gates are explicit runtime dependencies, not silent skips |
 | v1.5 | Phase 22 related suite 119 passed; full non-integration pytest 1228 passed, 1 skipped; hallucination eval 24 cases | Milestone audit passed 32/32 active requirements, 6/6 integration areas, 8/8 required flows | Deterministic local hallucination eval plus production-verifier case coverage avoid live provider dependency |
+| v1.6 | Phase 23 targeted tests passed; UAT 7/7; security verdict pass; deep code review clean after WR fixes | 26/26 requirements complete | Deterministic local reranker, query rewrite, diagnostics, and ablation dry-run avoid live provider dependency |
 
 ### Top Lessons (Verified Across Milestones)
 
@@ -279,3 +331,4 @@
 5. RAG retrieval upgrades need a hard citation-identity boundary before adding ranking complexity.
 6. Parser/OCR ingestion needs metadata-value sanitization and identifier validation in addition to visible-text sanitization.
 7. RAG answer/action grounding needs canonical evidence validation, authority separation, backend-owned route control, and leakage-aware eval as one acceptance gate.
+8. RAG ranking improvements must remain relevance-only signals; authority still belongs to canonical evidence validation, claim support, Tool System facts, and action approvals.

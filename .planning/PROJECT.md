@@ -10,22 +10,17 @@ Built as an open-source portfolio project demonstrating enterprise Agent enginee
 
 When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution — never silently executing something irreversible.
 
-## Current Milestone: v1.6 RAG Reranker + Query Rewrite
+## Last Shipped Milestone: v1.6 RAG Reranker + Query Rewrite
 
-**Goal:** Improve policy retrieval quality after the v1.3 hybrid backend and v1.5 grounding kernel by adding bounded query rewrite, a configurable reranker interface, safe ranking explanations, retrieval ablation evals, and latency budgets.
+v1.6 shipped Phase 23 on 2026-06-20. It improves policy retrieval quality after the v1.3 hybrid backend, v1.4 parser/OCR provenance, and v1.5 grounding kernel.
 
-**Target features:**
+**Delivered:**
 - Query rewrite for policy search that preserves the original user query, tenant/scope/effective-date filters, and failure fallback.
-- Reranker interface that can support deterministic local reranking first and optional cross-encoder/external adapters later behind config, timeout, and fallback contracts.
-- Safe ranking explanation and retrieval diagnostics for maintainer/eval use without exposing raw prompts, raw provider payloads, source-block internals, or private reasoning to ordinary user surfaces.
-- Retrieval ablation evaluation that compares dense, sparse, fuzzy, RRF, query rewrite, and reranker variants against golden policy cases.
-- Latency and budget enforcement for rewrite/rerank stages so retrieval failures degrade to the existing safe hybrid path rather than blocking or weakening evidence validation.
-
-**Preserved scope boundaries:**
-- Real external action execution, outbox, reconciliation, and compensation dispatch remain future Phase 17 scope.
-- `EvidenceRefV1` remains the canonical policy evidence identity; Phase 22 did not add claim, verifier, OCR, provenance, or business fact fields to it.
-- Source-block/OCR/parser provenance remains internal/debug/maintainer lookup data unless explicitly projected as prompt-safe labels.
-- Phase 23 may reorder or expand retrieval candidates before `EvidenceRefV1` construction, but it must not mutate canonical citation text, text hashes, policy version identity, or ContextBuilder/verifier authority rules.
+- Original-plus-rewrite retrieval fan-out with channel limits, merge/dedupe, and original-query fallback.
+- Deterministic local reranking plus optional provider gates behind timeout, budget, validation, and fallback contracts.
+- Safe ranking diagnostics and ablation reports for maintainers/evals without exposing raw prompts, provider payloads, source-block internals, or private reasoning to ordinary surfaces.
+- Retrieval ablation evaluation for dense, sparse, fuzzy, RRF, rewrite, reranker, and rewrite-plus-reranker variants with latency/fallback metrics.
+- Boundary regressions proving `EvidenceRefV1`, ContextBuilder, verifier, action snapshots, AgentState, and deferred Phase 17/RAG-5/Policy Source scopes remain intact.
 
 ## Shipped Milestones
 
@@ -35,10 +30,11 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - **v1.3 RAG Hybrid Retrieval** — shipped 2026-06-18.
 - **v1.4 RAG Production Ingestion + OCR** — shipped 2026-06-19.
 - **v1.5 RAG Context Builder + Hallucination Control** — shipped 2026-06-19.
+- **v1.6 RAG Reranker + Query Rewrite** — shipped 2026-06-20.
 
 Full archive records live in `.planning/milestones/`.
 
-## Last Shipped Milestone: v1.5 RAG Context Builder + Hallucination Control
+## Prior Shipped Milestone: v1.5 RAG Context Builder + Hallucination Control
 
 v1.5 shipped Phase 22. It inserts a bounded reasoning kernel after retrieval and before answer/action reasoning, so RAG-backed policy conclusions and action recommendations use canonical verified evidence and current Tool System business facts.
 
@@ -52,7 +48,7 @@ v1.5 shipped Phase 22. It inserts a bounded reasoning kernel after retrieval and
 - Action/risk/approval/final-response integration that blocks non-allow verifier outcomes from creating proposed actions, approval requests, action drafts, or safety snapshot evidence.
 - Deterministic 24-case hallucination-control eval with 5 production-verifier cases, no live provider dependency, and no raw verifier/provenance/OCR/debug leakage.
 
-## Prior Shipped Milestone: v1.4 RAG Production Ingestion + OCR
+## Earlier Shipped Milestone: v1.4 RAG Production Ingestion + OCR
 
 v1.4 shipped Phase 21. It turns the v1.3 hybrid retrieval base into a production ingestion foundation for real policy source files: Markdown/plain text, PDF, DOCX, image inputs, and scanned PDFs with parser/OCR metadata.
 
@@ -210,14 +206,15 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - v1.3 RAG Hybrid Retrieval is shipped and archived. Phase 20 owns the minimal PostgreSQL hybrid retrieval upgrade and explicitly excludes OCR, `DocumentBlock`, `MaterialClaim`, semantic verifier, reranker/query rewrite, Vespa/OpenSearch, and full external `SearchBackend`. OCR/parser/`DocumentBlock` is Phase 21-owned; `MaterialClaim`/semantic verifier is Phase 22-owned; reranker/query rewrite is Phase 23-owned; Vespa/OpenSearch/full external `SearchBackend` is Phase RAG-5-owned.
 - v1.4 RAG Production Ingestion + OCR is shipped and archived. Phase 21 preserved v1.3 retrieval/evidence contracts while adding parser/OCR and source-block provenance.
 - v1.5 RAG Context Builder + Hallucination Control is shipped and archived. Phase 22 owns ContextBuilder, canonical evidence validation, MaterialClaim authority verification, deterministic route control, action-boundary blocking, safe final-response wording, and hallucination-control evals while preserving v1.3/v1.4 evidence and provenance boundaries.
-- v1.6 RAG Reranker + Query Rewrite Phase 23 execution is complete. Phase 23 owns bounded query rewrite, retrieval fan-out/merge, deterministic local reranking, disabled-by-default provider gates, safe diagnostics, no-live-provider ablation evaluation, latency budgets, and final boundary regression closure while preserving Phase 20-22 safety contracts.
+- v1.6 RAG Reranker + Query Rewrite is shipped and archived on 2026-06-20. Full milestone history lives in `.planning/milestones/v1.6-ROADMAP.md`, `.planning/milestones/v1.6-REQUIREMENTS.md`, and `.planning/milestones/v1.6-phases/`.
 
-## Current Milestone Setup
+## Next Milestone Setup
 
-- v1.6 owns Phase 23 RAG Reranker + Query Rewrite.
+- No active milestone is defined after v1.6 archive.
+- Start the next milestone with `$gsd-new-milestone` so fresh requirements and roadmap scope are defined before implementation resumes.
 - Keep owner-named deferrals explicit: 17-prep AgentState Surface Contracts + Authority Isolation, Phase 17 External Action Execution, post-Phase 17 Policy Scope, Phase RAG-5 external backend, and Policy Source Operations.
-- Preserve v1.1/v1.2/v1.3/v1.4/v1.5 safety boundaries: policy evidence remains `EvidenceRefV1`; business facts remain Tool System outputs; memory remains contextual assistance only; parser/OCR provenance remains internal unless verified through the maintainer provenance lookup; verifier failures and timeouts fail closed.
-- Keep 17-prep AgentState cleanup as a Phase 17 prerequisite, not a blocker for Phase 23.
+- Preserve v1.1-v1.6 safety boundaries: policy evidence remains `EvidenceRefV1`; business facts remain Tool System outputs; memory remains contextual assistance only; parser/OCR provenance remains internal unless verified through the maintainer provenance lookup; verifier failures and timeouts fail closed; rewrite/rerank diagnostics remain relevance/eval signals only.
+- Keep 17-prep AgentState cleanup as a Phase 17 prerequisite, not a blocker for retrieval-quality milestones.
 
 ## Constraints
 
@@ -269,4 +266,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-20 after Phase 23 UAT completion*
+*Last updated: 2026-06-20 after v1.6 milestone archive*
