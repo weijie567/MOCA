@@ -395,19 +395,22 @@ if state.get("final_status") == "interrupted":
 |---|-------|---------|---------------|
 | None | All implementation facts in this research were verified from project files, local commands, or user-provided Phase 24 context. [VERIFIED: sources listed below] | All | No assumption-driven planner decision identified. [VERIFIED: sources listed below] |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should Phase 24 add DB partial unique indexes for run/role messages and summary source-end idempotency?**  
    What we know: current ORM has no run/role message uniqueness and no summary source-end uniqueness. [VERIFIED: src/db/models.py]  
-   Recommendation: include a minimal Alembic migration unless planner intentionally accepts service-only idempotency. [VERIFIED: src/db/migrations/versions/011_memory_foundation_v2.py migration pattern]
+   Recommendation: include a minimal Alembic migration unless planner intentionally accepts service-only idempotency. [VERIFIED: src/db/migrations/versions/011_memory_foundation_v2.py migration pattern]  
+   **RESOLVED:** Plan 24-03 chooses DB-backed idempotency with `src/db/migrations/versions/016_agent_run_memory_idempotency.py`, ORM index mirrors in `src/db/models.py`, and a blocking `uv run alembic upgrade head` verification gate before dependent service work.
 
 2. **Should legacy chat interrupted/error assistant messages be changed now?**  
    What we know: legacy chat appends assistant messages on interrupt/error, while Phase 24 completed-only semantics are required for `/agent-runs`. [VERIFIED: src/api/routers/agent.py, 24-CONTEXT.md]  
-   Recommendation: keep legacy behavior unless shared helper extraction forces a semantic decision; do not silently alter legacy tests. [VERIFIED: 24-CONTEXT.md]
+   Recommendation: keep legacy behavior unless shared helper extraction forces a semantic decision; do not silently alter legacy tests. [VERIFIED: 24-CONTEXT.md]  
+   **RESOLVED:** Plan 24-09 keeps `/api/v1/agent/chat` as the compatibility reference path and requires legacy tests to remain green; completed-only non-completed terminal semantics are scoped to `/api/v1/agent-runs + SSE`.
 
 3. **Should slot extraction load prior conversation context?**  
    What we know: `extract_slots` currently passes empty recent/summary/tool context, while recommendation/risk nodes load it. [VERIFIED: src/agent/nodes/extract_slots.py, src/agent/nodes/generate_recommendation.py]  
-   Recommendation: if STM-05 three-turn smoke includes ambiguous slot references that session slots cannot resolve, add shared prompt-context loading to `extract_slots` through `ContextAssembler`; otherwise document that slot continuity is owned by session slots. [VERIFIED: .planning/REQUIREMENTS.md, src/agent/context/assembler.py]
+   Recommendation: if STM-05 three-turn smoke includes ambiguous slot references that session slots cannot resolve, add shared prompt-context loading to `extract_slots` through `ContextAssembler`; otherwise document that slot continuity is owned by session slots. [VERIFIED: .planning/REQUIREMENTS.md, src/agent/context/assembler.py]  
+   **RESOLVED:** Plan 24-08 chooses to load same-thread prompt context in `src/agent/nodes/extract_slots.py` through `ConversationService.load_prompt_context`, `ContextAssembler`, and projector-safe inputs, while preserving trusted session-slot override/fail-closed rules.
 
 ## Environment Availability
 
