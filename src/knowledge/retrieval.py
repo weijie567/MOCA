@@ -536,22 +536,22 @@ async def _finalize_hits(
         if candidate.confidence >= MIN_SIMILARITY_THRESHOLD
     ][:MERGED_CANDIDATE_CAP]
     if has_domain_anchor(query):
-        results = fused_results[:limit]
+        eligible_results = fused_results
     else:
         terms = query_terms(query)
-        results = [
+        eligible_results = [
             candidate
             for candidate in fused_results
             if candidate.confidence >= STRONG_EVIDENCE_THRESHOLD and has_candidate_overlap(terms, candidate.chunk)
-        ][:limit]
+        ]
 
     rerank_candidates = tuple(
         _to_rerank_candidate(candidate, baseline_rank=rank)
-        for rank, candidate in enumerate(results, start=1)
+        for rank, candidate in enumerate(eligible_results[:MERGED_CANDIDATE_CAP], start=1)
     )
     fused_by_rerank_id = {
         rerank_candidate.candidate_id: candidate
-        for rerank_candidate, candidate in zip(rerank_candidates, results, strict=True)
+        for rerank_candidate, candidate in zip(rerank_candidates, eligible_results, strict=True)
     }
     try:
         rerank_output = await rerank_candidates_for_query(
@@ -564,7 +564,7 @@ async def _finalize_hits(
         ordered_candidates = rerank_candidates
 
     hits = []
-    for rank, reranked_candidate in enumerate(ordered_candidates, start=1):
+    for rank, reranked_candidate in enumerate(ordered_candidates[:limit], start=1):
         candidate = fused_by_rerank_id[reranked_candidate.candidate_id]
         # Rerank final_score is diagnostic-only; evidence scores and thresholds
         # stay on baseline normalized confidence.

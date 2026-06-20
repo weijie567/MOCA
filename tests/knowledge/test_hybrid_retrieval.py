@@ -211,6 +211,65 @@ async def test_rrf_promotes_candidate_seen_by_multiple_channels() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reranker_sees_candidates_before_max_results_trim(monkeypatch) -> None:
+    generic_one = _chunk(
+        "generic_001",
+        doc_key="generic_policy",
+        title="通用规则",
+        section="退款",
+        content="退款申请处理规则。",
+    )
+    generic_two = _chunk(
+        "generic_002",
+        doc_key="generic_policy",
+        title="通用规则",
+        section="退款",
+        content="退款进度查询规则。",
+    )
+    rerank_target = _chunk(
+        "refund_policy_005",
+        doc_key="refund_policy",
+        title="退款规则",
+        section="商家举证",
+        content="平台需核实商家举证和物流履约证据。",
+    )
+    seen_candidate_ids: list[str] = []
+
+    async def promote_late_candidate(*, query, candidates, config):
+        nonlocal seen_candidate_ids
+        seen_candidate_ids = [candidate.chunk_id for candidate in candidates]
+        target = next(candidate for candidate in candidates if candidate.chunk_id == "refund_policy_005")
+        return SimpleNamespace(
+            ranked_candidates=(
+                target,
+                *(candidate for candidate in candidates if candidate.candidate_id != target.candidate_id),
+            )
+        )
+
+    monkeypatch.setattr(
+        "src.knowledge.retrieval.rerank_candidates_for_query",
+        promote_late_candidate,
+    )
+    engine, _ = _engine(
+        dense=[
+            (generic_one, 0.90),
+            (generic_two, 0.89),
+            (rerank_target, 0.88),
+        ],
+    )
+
+    status, hits, _ = await engine.retrieve_hits(
+        query="退款规则怎么处理？",
+        context=_context(),
+        max_results=2,
+    )
+
+    assert status == "strong_evidence"
+    assert seen_candidate_ids == ["generic_001", "generic_002", "refund_policy_005"]
+    assert [hit.chunk_id for hit in hits] == ["refund_policy_005", "generic_001"]
+
+
+@pytest.mark.asyncio
 async def test_rrf_score_does_not_replace_normalized_confidence_score() -> None:
     target = _chunk("refund_timeout_001", section="退款时效", content="退款时效超过48小时需要核实支付通道。")
     engine, _ = _engine(sparse=[(target, 0.16)])
