@@ -21,7 +21,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-20)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Ready to define the next milestone
+**Current focus:** No active milestone or current pending work
 
 ## Current Position
 
@@ -75,7 +75,7 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 
 ### Pending Todos
 
-- [ ] 17-prep: AgentState Surface Contracts + Authority Isolation - `.planning/todos/pending/2026-06-17-constrain-agentstate-memory-expansion.md`
+None.
 
 ### Blockers / Concerns
 
@@ -87,7 +87,7 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 | Category | Item | Status |
 |----------|------|--------|
-| todo | 2026-06-17-constrain-agentstate-memory-expansion.md | acknowledged; pending before Phase 17 |
+| deferred record | `.planning/todos/deferred/2026-06-17-constrain-agentstate-memory-expansion.md` | future candidate only if Phase 17 is reintroduced |
 | future phase | Phase 17 External Action Execution | deferred |
 | future phase | Phase RAG-5 Optional External Search Backend | deferred |
 | future milestone | Policy Source Operations | deferred |
@@ -98,6 +98,6 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 Last session: 2026-06-20T10:38:23+08:00
 Stopped at: v1.6 milestone archived
 Resume file: None
-Next: `$gsd-new-milestone` — define fresh requirements and roadmap for the next milestone.
+Next: None required. Use `$gsd-new-milestone` only when ready to define fresh requirements and roadmap.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00

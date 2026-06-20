@@ -27,19 +27,19 @@
 
 ## Current Status
 
-No active milestone is defined. v1.6 is archived, and `.planning/REQUIREMENTS.md` is intentionally absent until the next milestone is started.
+No active milestone is defined. v1.6 is archived, `.planning/REQUIREMENTS.md` is intentionally absent until the next milestone is started, and there are no current pending GSD todos.
 
 ## Deferred Work
 
-- **17-prep: AgentState Surface Contracts + Authority Isolation** - pending cleanup todo before Phase 17 external action execution.
-- **Phase 17: External Action Execution** - external execution storage, outbox dispatch, reconciliation, compensation, duplicate execution/key guards, and real side effects.
+- **17-prep: AgentState Surface Contracts + Authority Isolation** - preserved as `.planning/todos/deferred/2026-06-17-constrain-agentstate-memory-expansion.md`; future candidate only if Phase 17 is reintroduced.
+- **Phase 17: External Action Execution** - not active. Possible future scope: external execution storage, outbox dispatch, reconciliation, compensation, duplicate execution/key guards, and real side effects.
 - **post-Phase 17 Policy Scope** - tenant-over-global global/default policy fallback and precedence merge.
 - **Phase RAG-5: Optional External Search Backend** - Vespa/OpenSearch shadow testing and full external `SearchBackend` only if PostgreSQL hybrid no longer fits.
 - **Policy Source Operations** - policy source upload/review/lifecycle UI, source document viewer, and admin review workflow.
 
 ## Next Step
 
-Start the next milestone with `$gsd-new-milestone`.
+No action is required. Start a new milestone with `$gsd-new-milestone` only when there is a new active goal.
 
 ---
 *Updated: 2026-06-20 after v1.6 milestone archive.*

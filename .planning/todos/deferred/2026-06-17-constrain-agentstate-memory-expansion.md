@@ -4,6 +4,9 @@ title: "17-prep: AgentState Surface Contracts + Authority Isolation"
 area: architecture
 target_phase: 17-prep
 timing: before Phase 17 External Action Execution
+status: deferred
+deferred_on: 2026-06-20
+deferred_reason: "Phase 17 is not active. Preserve this as future planning context only."
 files:
   - src/agent/state.py:48
   - src/agent/working_state.py:114
@@ -12,6 +15,8 @@ files:
 ---
 
 ## Problem
+
+This is not current work after v1.6 closeout. Keep it as a future candidate only if Phase 17 or real external action execution is reintroduced.
 
 `AgentState` is still a wide LangGraph runtime/checkpoint bus. It mixes trusted identity, turn runtime fields, business context copies, policy evidence refs, session/long-term/case memory views, approval/action bindings, tool results, LLM outputs, node errors, and trace steps in one `TypedDict`.
 
