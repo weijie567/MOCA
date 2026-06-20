@@ -9,44 +9,44 @@ Requirements for Phase 23. Each requirement must preserve the existing v1.3 hybr
 
 ### Query Rewrite
 
-- [ ] **QRW-01**: System can produce a bounded policy-search query rewrite or expansion plan for ambiguous, underspecified, or domain-synonym user questions while preserving the original user query.
-- [ ] **QRW-02**: System can skip query rewrite deterministically when the original query is already specific, out of domain, unsafe, or missing trusted context.
-- [ ] **QRW-03**: Query rewrite output is a typed internal retrieval input that cannot add tenant, merchant, role, risk, document-type, effective-date, or policy-scope permissions not already present in trusted context.
-- [ ] **QRW-04**: Retrieval can run original-query and rewritten-query candidate channels with deterministic candidate limits and merge/dedupe behavior before final ranking.
-- [ ] **QRW-05**: Search results retain the original query and safe rewrite summary for eval/debug while ordinary user-facing answers do not expose rewrite prompts, model reasoning, or raw rewrite payloads.
+- [x] **QRW-01**: System can produce a bounded policy-search query rewrite or expansion plan for ambiguous, underspecified, or domain-synonym user questions while preserving the original user query.
+- [x] **QRW-02**: System can skip query rewrite deterministically when the original query is already specific, out of domain, unsafe, or missing trusted context.
+- [x] **QRW-03**: Query rewrite output is a typed internal retrieval input that cannot add tenant, merchant, role, risk, document-type, effective-date, or policy-scope permissions not already present in trusted context.
+- [x] **QRW-04**: Retrieval can run original-query and rewritten-query candidate channels with deterministic candidate limits and merge/dedupe behavior before final ranking.
+- [x] **QRW-05**: Search results retain the original query and safe rewrite summary for eval/debug while ordinary user-facing answers do not expose rewrite prompts, model reasoning, or raw rewrite payloads.
 
 ### Reranker Interface
 
-- [ ] **RRK-01**: System exposes a project-owned reranker interface that accepts bounded retrieval candidates and returns ranked candidates without changing canonical chunk content, text hashes, or policy version identity.
-- [ ] **RRK-02**: System ships a deterministic default reranker path that can run without live model/provider credentials and preserve existing dense/sparse/fuzzy/RRF fallback behavior.
-- [ ] **RRK-03**: Optional cross-encoder or external reranker adapters are config-gated, timeout-bounded, retry-bounded, and can fall back to the deterministic local/default ranking path.
-- [ ] **RRK-04**: Reranker inputs exclude raw source-block/OCR/parser internals, raw tool payloads, private reasoning, unbounded policy text, and current business fact payloads.
-- [ ] **RRK-05**: Reranker output records safe score components, provider/config version, fallback reason, and selected candidate IDs for maintainer/eval use without extending `EvidenceRefV1`.
-- [ ] **RRK-06**: Reranking occurs before `EvidenceRefV1` construction or through a safe adapter that preserves final evidence rank, confidence score semantics, and ContextBuilder canonical validation.
+- [x] **RRK-01**: System exposes a project-owned reranker interface that accepts bounded retrieval candidates and returns ranked candidates without changing canonical chunk content, text hashes, or policy version identity.
+- [x] **RRK-02**: System ships a deterministic default reranker path that can run without live model/provider credentials and preserve existing dense/sparse/fuzzy/RRF fallback behavior.
+- [x] **RRK-03**: Optional cross-encoder or external reranker adapters are config-gated, timeout-bounded, retry-bounded, and can fall back to the deterministic local/default ranking path.
+- [x] **RRK-04**: Reranker inputs exclude raw source-block/OCR/parser internals, raw tool payloads, private reasoning, unbounded policy text, and current business fact payloads.
+- [x] **RRK-05**: Reranker output records safe score components, provider/config version, fallback reason, and selected candidate IDs for maintainer/eval use without extending `EvidenceRefV1`.
+- [x] **RRK-06**: Reranking occurs before `EvidenceRefV1` construction or through a safe adapter that preserves final evidence rank, confidence score semantics, and ContextBuilder canonical validation.
 
 ### Ranking Explanations
 
-- [ ] **EXP-01**: System can generate bounded ranking explanations for maintainers/evals that identify selected channels, rewrite contribution, reranker contribution, rank changes, and fallback reasons.
-- [ ] **EXP-02**: Ranking explanations are available only through internal diagnostics/eval/report surfaces and are not included in ordinary prompts, final responses, memory, replay payloads, approval snapshots, or action drafts.
-- [ ] **EXP-03**: Ranking diagnostics preserve tenant isolation and cannot expose evidence from unauthorized tenants, scopes, stale policy versions, or hash-invalid rows.
-- [ ] **EXP-04**: Retrieval traces remain separate from policy evidence identity; `EvidenceRefV1` remains limited to canonical evidence fields plus rank/score.
+- [x] **EXP-01**: System can generate bounded ranking explanations for maintainers/evals that identify selected channels, rewrite contribution, reranker contribution, rank changes, and fallback reasons.
+- [x] **EXP-02**: Ranking explanations are available only through internal diagnostics/eval/report surfaces and are not included in ordinary prompts, final responses, memory, replay payloads, approval snapshots, or action drafts.
+- [x] **EXP-03**: Ranking diagnostics preserve tenant isolation and cannot expose evidence from unauthorized tenants, scopes, stale policy versions, or hash-invalid rows.
+- [x] **EXP-04**: Retrieval traces remain separate from policy evidence identity; `EvidenceRefV1` remains limited to canonical evidence fields plus rank/score.
 
 ### Evaluation and Latency
 
-- [ ] **EVAL-01**: System has retrieval golden cases for query rewrite recall wins, synonym/alias queries, ambiguous merchant-support wording, out-of-domain no-evidence, stale/unauthorized evidence, and ranking regressions.
-- [ ] **EVAL-02**: System can run retrieval ablation comparing dense-only, sparse-only, fuzzy-only, RRF baseline, rewrite-enabled, reranker-enabled, and rewrite+reranker variants.
-- [ ] **EVAL-03**: System reports blocking metrics for Hit@K, MRR or equivalent rank quality, citation-support compatibility, no-evidence precision, unsafe retrieval rate, fallback rate, and latency percentiles.
-- [ ] **EVAL-04**: Rewrite/rerank latency budgets are explicit for per-stage timeout, total retrieval timeout, candidate count, text/token size, retries, and provider config version.
-- [ ] **EVAL-05**: Timeout, provider error, malformed output, budget overflow, and disabled-provider cases fall back to safe baseline retrieval or no-evidence behavior without weakening evidence validation.
+- [x] **EVAL-01**: System has retrieval golden cases for query rewrite recall wins, synonym/alias queries, ambiguous merchant-support wording, out-of-domain no-evidence, stale/unauthorized evidence, and ranking regressions.
+- [x] **EVAL-02**: System can run retrieval ablation comparing dense-only, sparse-only, fuzzy-only, RRF baseline, rewrite-enabled, reranker-enabled, and rewrite+reranker variants.
+- [x] **EVAL-03**: System reports blocking metrics for Hit@K, MRR or equivalent rank quality, citation-support compatibility, no-evidence precision, unsafe retrieval rate, fallback rate, and latency percentiles.
+- [x] **EVAL-04**: Rewrite/rerank latency budgets are explicit for per-stage timeout, total retrieval timeout, candidate count, text/token size, retries, and provider config version.
+- [x] **EVAL-05**: Timeout, provider error, malformed output, budget overflow, and disabled-provider cases fall back to safe baseline retrieval or no-evidence behavior without weakening evidence validation.
 
 ### Boundary Preservation
 
-- [ ] **BND-01**: Phase 23 preserves Phase 20 trusted retrieval filters for tenant, effective date, doc type, risk level, and knowledge scope before any candidate can affect final ranking.
-- [ ] **BND-02**: Phase 23 preserves Phase 21 source-block/OCR/parser boundaries; provenance remains internal/debug/maintainer lookup data and does not become policy evidence identity.
-- [ ] **BND-03**: Phase 23 preserves Phase 22 ContextBuilder and claim-verifier authority rules; reranker scores cannot substitute for semantic support, freshness, latest-version validity, or business fact authority.
-- [ ] **BND-04**: Phase 23 does not implement Phase 17 external action execution, outbox, reconciliation, compensation dispatch, or external side effects.
-- [ ] **BND-05**: Phase 23 does not implement RAG-5 external search backend replacement, Vespa/OpenSearch shadow testing, new vector database service, or Policy Source Operations UI.
-- [ ] **BND-06**: Phase 23 keeps 17-prep AgentState cleanup as a future Phase 17 prerequisite and does not expand `AgentState` authority surfaces as part of retrieval-quality work.
+- [x] **BND-01**: Phase 23 preserves Phase 20 trusted retrieval filters for tenant, effective date, doc type, risk level, and knowledge scope before any candidate can affect final ranking.
+- [x] **BND-02**: Phase 23 preserves Phase 21 source-block/OCR/parser boundaries; provenance remains internal/debug/maintainer lookup data and does not become policy evidence identity.
+- [x] **BND-03**: Phase 23 preserves Phase 22 ContextBuilder and claim-verifier authority rules; reranker scores cannot substitute for semantic support, freshness, latest-version validity, or business fact authority.
+- [x] **BND-04**: Phase 23 does not implement Phase 17 external action execution, outbox, reconciliation, compensation dispatch, or external side effects.
+- [x] **BND-05**: Phase 23 does not implement RAG-5 external search backend replacement, Vespa/OpenSearch shadow testing, new vector database service, or Policy Source Operations UI.
+- [x] **BND-06**: Phase 23 keeps 17-prep AgentState cleanup as a future Phase 17 prerequisite and does not expand `AgentState` authority surfaces as part of retrieval-quality work.
 
 ## Future Requirements
 
@@ -89,32 +89,32 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| QRW-01 | Phase 23 | Pending |
-| QRW-02 | Phase 23 | Pending |
-| QRW-03 | Phase 23 | Pending |
-| QRW-04 | Phase 23 | Pending |
-| QRW-05 | Phase 23 | Pending |
-| RRK-01 | Phase 23 | Pending |
-| RRK-02 | Phase 23 | Pending |
-| RRK-03 | Phase 23 | Pending |
-| RRK-04 | Phase 23 | Pending |
-| RRK-05 | Phase 23 | Pending |
-| RRK-06 | Phase 23 | Pending |
-| EXP-01 | Phase 23 | Pending |
-| EXP-02 | Phase 23 | Pending |
-| EXP-03 | Phase 23 | Pending |
-| EXP-04 | Phase 23 | Pending |
-| EVAL-01 | Phase 23 | Pending |
-| EVAL-02 | Phase 23 | Pending |
-| EVAL-03 | Phase 23 | Pending |
-| EVAL-04 | Phase 23 | Pending |
-| EVAL-05 | Phase 23 | Pending |
-| BND-01 | Phase 23 | Pending |
-| BND-02 | Phase 23 | Pending |
-| BND-03 | Phase 23 | Pending |
-| BND-04 | Phase 23 | Pending |
-| BND-05 | Phase 23 | Pending |
-| BND-06 | Phase 23 | Pending |
+| QRW-01 | Phase 23 | Complete |
+| QRW-02 | Phase 23 | Complete |
+| QRW-03 | Phase 23 | Complete |
+| QRW-04 | Phase 23 | Complete |
+| QRW-05 | Phase 23 | Complete |
+| RRK-01 | Phase 23 | Complete |
+| RRK-02 | Phase 23 | Complete |
+| RRK-03 | Phase 23 | Complete |
+| RRK-04 | Phase 23 | Complete |
+| RRK-05 | Phase 23 | Complete |
+| RRK-06 | Phase 23 | Complete |
+| EXP-01 | Phase 23 | Complete |
+| EXP-02 | Phase 23 | Complete |
+| EXP-03 | Phase 23 | Complete |
+| EXP-04 | Phase 23 | Complete |
+| EVAL-01 | Phase 23 | Complete |
+| EVAL-02 | Phase 23 | Complete |
+| EVAL-03 | Phase 23 | Complete |
+| EVAL-04 | Phase 23 | Complete |
+| EVAL-05 | Phase 23 | Complete |
+| BND-01 | Phase 23 | Complete |
+| BND-02 | Phase 23 | Complete |
+| BND-03 | Phase 23 | Complete |
+| BND-04 | Phase 23 | Complete |
+| BND-05 | Phase 23 | Complete |
+| BND-06 | Phase 23 | Complete |
 
 **Coverage:**
 - v1.6 requirements: 26 total

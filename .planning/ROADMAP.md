@@ -8,7 +8,7 @@
 - [x] **v1.3 RAG Hybrid Retrieval** - Shipped on 2026-06-18. Full archive: [v1.3-ROADMAP.md](milestones/v1.3-ROADMAP.md)
 - [x] **v1.4 RAG Production Ingestion + OCR** - Shipped on 2026-06-19. Full archive: [v1.4-ROADMAP.md](milestones/v1.4-ROADMAP.md)
 - [x] **v1.5 RAG Context Builder + Hallucination Control** - Shipped on 2026-06-19. Full archive: [v1.5-ROADMAP.md](milestones/v1.5-ROADMAP.md)
-- [ ] **v1.6 RAG Reranker + Query Rewrite** - Active milestone. Scope: Phase 23 only.
+- [x] **v1.6 RAG Reranker + Query Rewrite** - Completed on 2026-06-20. Scope: Phase 23 only; archive pending.
 
 ## Overview
 
@@ -45,12 +45,12 @@ Plans:
 
 Suggested plan slices:
 
-- [ ] 23-01 - Query rewrite contracts, deterministic skip rules, trusted-filter preservation, and safe rewrite trace fields.
-- [ ] 23-02 - Original-query plus rewritten-query candidate generation, channel limits, merge/dedupe behavior, and baseline fallback.
-- [ ] 23-03 - Project-owned reranker contract, deterministic/default local reranking, confidence/rank semantics, and safe adapter position before `EvidenceRefV1` construction.
-- [ ] 23-04 - Optional provider adapter gates, timeouts/retries, redacted inputs, fallback records, score components, and maintainer/eval diagnostics.
-- [ ] 23-05 - Retrieval ablation golden cases, metrics reporting, latency budget enforcement, and no-live-provider default test gates.
-- [ ] 23-06 - Boundary regression closure across Phase 20 filters, Phase 21 provenance, Phase 22 ContextBuilder/verifier/action rules, Phase 17 deferrals, and RAG-5 backend deferrals.
+- [x] 23-01 - Query rewrite contracts, deterministic skip rules, trusted-filter preservation, and safe rewrite trace fields.
+- [x] 23-02 - Original-query plus rewritten-query candidate generation, channel limits, merge/dedupe behavior, and baseline fallback.
+- [x] 23-03 - Project-owned reranker contract, deterministic/default local reranking, confidence/rank semantics, and safe adapter position before `EvidenceRefV1` construction.
+- [x] 23-04 - Optional provider adapter gates, timeouts/retries, redacted inputs, fallback records, score components, and maintainer/eval diagnostics.
+- [x] 23-05 - Retrieval ablation golden cases, metrics reporting, latency budget enforcement, and no-live-provider default test gates.
+- [x] 23-06 - Boundary regression closure across Phase 20 filters, Phase 21 provenance, Phase 22 ContextBuilder/verifier/action rules, Phase 17 deferrals, and RAG-5 backend deferrals.
 
 Hard boundaries:
 
@@ -67,12 +67,12 @@ Hard boundaries:
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 23. RAG Reranker + Query Rewrite | v1.6 | 6/6 executed | Complete | 2026-06-20 |
+| 23. RAG Reranker + Query Rewrite | v1.6 | 6/6 | Complete    | 2026-06-20 |
 
 ## Coverage
 
 - v1.6 requirements mapped: 26/26
-- Active roadmap phases: 1
+- Active roadmap phases: 0
 - Orphaned requirements: 0
 - Duplicate phase mappings: 0
 - Traceability status: `.planning/REQUIREMENTS.md` already maps every active requirement to Phase 23 exactly once.
@@ -100,7 +100,7 @@ v1.6 RAG Reranker + Query Rewrite has completed Phase 23 execution: 23-01 RED sc
 
 ## Next Step
 
-Run execute-phase final review/ship gates or complete the v1.6 milestone.
+Complete the v1.6 milestone archive with `$gsd-complete-milestone v1.6`.
 
 ---
-*Updated: 2026-06-20 after v1.6 roadmap creation.*
+*Updated: 2026-06-20 after Phase 23 UAT completion.*
