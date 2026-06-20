@@ -198,3 +198,27 @@ def test_no_evidence_precision_counts_only_no_evidence_predictions() -> None:
     )
 
     assert report["metrics"]["no_evidence_precision"] == 1.0
+
+
+def test_expected_chunks_override_doc_level_hit_scoring() -> None:
+    _REQUIRED_ABLATION_VARIANTS, _build_ablation_report, score_ablation_case = _load_ablation_api()
+    score = score_ablation_case(
+        {
+            "id": "phase23-wrong-chunk",
+            "query": "用户申请仅退款但商家已经发货，客服应该怎么处理？",
+            "expected_doc_ids": ["refund_policy"],
+            "expected_chunk_ids": ["refund_policy_005"],
+            "should_fallback": False,
+        },
+        {
+            "variant": "rrf_baseline",
+            "retrieval_status": "strong_evidence",
+            "evidence": [{"doc_key": "refund_policy", "chunk_id": "refund_policy_001", "rank": 1}],
+            "latency_ms": 1,
+        },
+    )
+
+    assert score["hit"] is False
+    assert score["reciprocal_rank"] == 0.0
+    assert score["expected_doc_id_hit"] is True
+    assert score["missing_expected_chunks"] == ["refund_policy_005"]

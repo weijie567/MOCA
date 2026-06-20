@@ -241,7 +241,12 @@ def _first_match_rank(
     expected_docs: set[str],
 ) -> int | None:
     for rank, item in enumerate(evidence, start=1):
-        if str(item.get("chunk_id", "")) in expected_chunks or str(item.get("doc_key", "")) in expected_docs:
+        chunk_id = str(item.get("chunk_id", ""))
+        doc_key = str(item.get("doc_key", ""))
+        if expected_chunks:
+            if chunk_id in expected_chunks:
+                return int(item.get("rank") or rank)
+        elif doc_key in expected_docs:
             return int(item.get("rank") or rank)
     return None
 
