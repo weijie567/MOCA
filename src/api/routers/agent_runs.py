@@ -29,6 +29,8 @@ from src.approvals.schemas import ApprovalRequestCreateCommand
 from src.approvals.service import ApprovalService, ApprovalTransitionError
 from src.auth.jwt import ROLE_SCOPES
 from src.auth.permissions import get_current_user
+from src.conversation.repository import ConversationRepository
+from src.conversation.service import ConversationService
 from src.db.models import AgentRun, User
 from src.db.session import get_session
 from src.repositories.trace_repo import TraceRepository
@@ -47,6 +49,7 @@ SCOPE_TO_TOOL_PERMISSION = {
 }
 APPROVAL_ALLOWED_DECISION_TYPES = ["accept", "approve", "edit", "respond", "reject", "ignore"]
 APPROVAL_NOT_EXECUTABLE = "APPROVAL_NOT_EXECUTABLE"
+RUN_CONVERSATION_MESSAGE_MISSING = "RUN_CONVERSATION_MESSAGE_MISSING"
 
 NODE_MESSAGES: dict[str, str] = {
     "receive_request": "正在接收请求",
@@ -87,25 +90,41 @@ async def create_agent_run(
 ) -> ApiResponse:
     """Create a pending agent run that can be executed by the SSE endpoint."""
     run_id = str(uuid.uuid4())
-    await write_agent_run(
-        session,
-        run_id=run_id,
-        thread_id=body.thread_id,
-        tenant_id=str(user.tenant_id),
-        user_id=str(user.id),
-        input_query=body.query,
-        final_status="pending",
-        final_response=None,
-        started_at=datetime.now(timezone.utc),
-        completed_at=None,
-        total_latency_ms=None,
-        trace_id=getattr(request.state, "trace_id", None),
-    )
-    await session.commit()
+    trace_id = getattr(request.state, "trace_id", None)
+    try:
+        await write_agent_run(
+            session,
+            run_id=run_id,
+            thread_id=body.thread_id,
+            tenant_id=str(user.tenant_id),
+            user_id=str(user.id),
+            input_query=body.query,
+            final_status="pending",
+            final_response=None,
+            started_at=datetime.now(timezone.utc),
+            completed_at=None,
+            total_latency_ms=None,
+            trace_id=trace_id,
+        )
+        conversation_service = ConversationService(ConversationRepository(session))
+        await conversation_service.append_or_get_user_message_for_run(
+            tenant_id=user.tenant_id,
+            user_id=user.id,
+            thread_id=body.thread_id,
+            run_id=UUID(str(run_id)),
+            content=body.query,
+            trace_id=trace_id,
+            prompt_template_version="agent_runs.request.v1",
+            metadata_json={"status": "pending", "source": "agent_runs.create"},
+        )
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
     return ApiResponse(
         success=True,
         data={"run_id": run_id, "status": "pending"},
-        trace_id=getattr(request.state, "trace_id", None),
+        trace_id=trace_id,
     )
 
 
@@ -146,6 +165,24 @@ async def stream_agent_run_events(
     """Execute a pending run and stream node-level status events."""
     run_uuid = _parse_run_id(run_id)
     run = await _claim_pending_run_for_stream(session, run_uuid, user)
+    conversation_repository = ConversationRepository(session)
+    conversation_service = ConversationService(conversation_repository)
+    user_message = await conversation_repository.get_message_by_run_role(
+        tenant_id=run.tenant_id,
+        user_id=run.user_id,
+        thread_id=run.thread_id,
+        run_id=run.id,
+        role="user",
+    )
+    if user_message is None:
+        await _mark_run_conversation_message_missing(session=session, run=run)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": RUN_CONVERSATION_MESSAGE_MISSING,
+                "message": "Run conversation user message is missing",
+            },
+        )
 
     graph = request.app.state.agent_graph
     input_state = {
@@ -162,6 +199,9 @@ async def stream_agent_run_events(
         "configurable": {
             "thread_id": _checkpoint_thread_id(user=user, thread_id=run.thread_id),
             "session": session,
+            "conversation_thread_id": str(user_message.conversation_thread_id),
+            "conversation_message_id": str(user_message.id),
+            "conversation_service": conversation_service,
             **_trusted_tool_config(user, verified_token_scopes, getattr(request.state, "trace_id", None)),
         }
     }
@@ -615,6 +655,26 @@ async def _mark_run_error(*, session: AsyncSession, run: AgentRun, exc: BaseExce
         await session.commit()
     except Exception:
         await session.rollback()
+
+
+async def _mark_run_conversation_message_missing(*, session: AsyncSession, run: AgentRun) -> None:
+    try:
+        await update_agent_run_status(
+            session,
+            run_id=str(run.id),
+            final_status="error",
+            final_response=None,
+            completed_at=datetime.now(timezone.utc),
+            reason_code=RUN_CONVERSATION_MESSAGE_MISSING,
+            error_code=RUN_CONVERSATION_MESSAGE_MISSING,
+        )
+        fresh_run = await session.get(AgentRun, run.id)
+        if fresh_run is not None:
+            fresh_run.error_summary = RUN_CONVERSATION_MESSAGE_MISSING
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
 
 
 def _sse_event(

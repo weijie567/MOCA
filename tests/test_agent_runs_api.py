@@ -462,6 +462,38 @@ async def test_agent_run_stream_passes_conversation_ids_to_graph_and_tools(
 
 
 @pytest.mark.asyncio
+async def test_agent_run_stream_fails_closed_when_user_message_missing(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(
+        session,
+        tenant_id=user.tenant_id,
+        user_id=user.id,
+        final_status="pending",
+    )
+    await session.commit()
+    graph = NeverCalledGraph()
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+
+    response = await client.get(
+        f"/api/v1/agent-runs/{run.id}/events",
+        headers=_auth_header(user, ["agent:chat"]),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "RUN_CONVERSATION_MESSAGE_MISSING"
+    assert graph.calls == []
+    await session.refresh(run)
+    assert run.final_status == "error"
+    assert run.error_summary == "RUN_CONVERSATION_MESSAGE_MISSING"
+    assert run.completed_at is not None
+
+
+@pytest.mark.asyncio
 async def test_completed_agent_run_persists_exactly_one_assistant_message(
     client: AsyncClient,
     session: AsyncSession,
