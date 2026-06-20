@@ -116,13 +116,26 @@ class PolicyKnowledgeService:
             return self._no_evidence_result()
 
         doc_type = request.filters.policy_types[0] if request.filters.policy_types else None
+        query_rewrite_summary: str | None = None
         try:
-            status, evidence_refs, best_score = await self.retriever.retrieve(
-                query=request.query,
-                context=context,
-                max_results=request.max_results,
-                doc_type=doc_type,
-            )
+            if hasattr(self.retriever, "retrieve_run"):
+                run = await self.retriever.retrieve_run(
+                    query=request.query,
+                    context=context,
+                    max_results=request.max_results,
+                    doc_type=doc_type,
+                )
+                status = run.status
+                evidence_refs = run.evidence_refs
+                best_score = run.best_score
+                query_rewrite_summary = run.query_rewrite_summary
+            else:
+                status, evidence_refs, best_score = await self.retriever.retrieve(
+                    query=request.query,
+                    context=context,
+                    max_results=request.max_results,
+                    doc_type=doc_type,
+                )
         except asyncio.TimeoutError:
             return self._error_result("DB_TIMEOUT", "Policy search timeout", retryable=True)
         except Exception:
@@ -151,6 +164,7 @@ class PolicyKnowledgeService:
             best_score=best_score,
             threshold=MIN_SIMILARITY_THRESHOLD,
             evidence_refs=evidence_refs,
+            query_rewrite=query_rewrite_summary,
         )
 
     async def get_verified_evidence_contents(

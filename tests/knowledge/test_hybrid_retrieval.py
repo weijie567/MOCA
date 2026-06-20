@@ -135,10 +135,23 @@ async def test_original_and_rewrite_channels_merge_before_rerank() -> None:
         assert kwargs["doc_type"] == "refund_rule"
         assert kwargs["risk_level"] == "high"
         assert kwargs["effective_date"] == date(2026, 6, 14)
+    for method_name in ("search_similar", "search_sparse", "search_fuzzy"):
+        for call in getattr(repo, method_name).await_args_list:
+            kwargs = call.kwargs
+            assert kwargs["tenant_id"] == tenant_id
+            assert kwargs["doc_type"] == "refund_rule"
+            assert kwargs["risk_level"] == "high"
+            assert kwargs["effective_date"] == date(2026, 6, 14)
 
     hit_keys = [(hit.doc_key, hit.chunk_id, hit.policy_version) for hit in hits]
     assert hit_keys.count(("refund_policy", "refund_policy_001", "v1")) == 1
     assert "refund_policy_002" in [hit.chunk_id for hit in hits]
+    selected_by_by_chunk = {hit.chunk_id: hit.selected_by for hit in hits}
+    assert "original_dense" in selected_by_by_chunk["refund_policy_001"]
+    assert "rewrite_1_sparse" in selected_by_by_chunk["refund_policy_001"]
+    assert "rewrite_1_dense" in selected_by_by_chunk["refund_policy_002"]
+    for hit in hits:
+        assert all("商家发了货" not in channel for channel in hit.selected_by)
 
     failing_repo = SimpleNamespace(
         search_similar=AsyncMock(side_effect=[[(original_hit, 0.72)], RuntimeError("rewrite dense failed")]),
@@ -147,7 +160,7 @@ async def test_original_and_rewrite_channels_merge_before_rerank() -> None:
     )
     fallback_engine = PolicyRetrievalEngine(chunk_repo=failing_repo, embedder=embedder)
 
-    fallback_status, fallback_hits, fallback_best_score = await fallback_engine.retrieve_hits(
+    fallback_run = await fallback_engine.retrieve_run(
         query="商家发了货还能只退款吗？",
         context=_context(tenant_id),
         max_results=5,
@@ -155,9 +168,10 @@ async def test_original_and_rewrite_channels_merge_before_rerank() -> None:
         risk_level="high",
     )
 
-    assert fallback_status == "strong_evidence"
-    assert [hit.chunk_id for hit in fallback_hits] == ["refund_policy_001"]
-    assert fallback_best_score >= 0.70
+    assert fallback_run.status == "strong_evidence"
+    assert fallback_run.fallback_reason == "rewrite_channel_error"
+    assert [hit.chunk_id for hit in fallback_run.hits] == ["refund_policy_001"]
+    assert fallback_run.best_score >= 0.70
 
 
 @pytest.mark.asyncio

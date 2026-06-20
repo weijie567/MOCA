@@ -66,9 +66,12 @@ _OUT_OF_DOMAIN_TRIGGERS = ("银行卡", "绑定手机号", "登录密码", "天�
 _UNSAFE_TRIGGERS = ("ignore previous instructions", "忽略之前", "泄露", "系统提示", "私钥")
 _SPECIFIC_TRIGGERS = ("ORD-", "RF-", "退款时效", "跨境订单")
 _DOMAIN_ANCHORS = ("补偿", "审批", "订单", "客服", "商家", "售后", "投诉", "物流", "退款", "退货", "运费", "跨境")
+_NEEDS_REWRITE_CONTEXT_TERMS = ("已发货", "发了货", "补偿券", "七天无理由", "退款时效")
+_ALREADY_SPECIFIC_ALIAS_TERMS = ("补偿券", "退款时效")
 _ALIAS_RULES: tuple[tuple[str, str, RewriteSource], ...] = (
     ("仅退款", "仅退款 商家举证 物流状态", "domain_synonym"),
     ("已发货", "商家已发货 物流核实", "intent_normalization"),
+    ("发了货", "商家已发货 物流核实", "intent_normalization"),
     ("补偿券", "补偿券 审批 材料", "merchant_support_alias"),
     ("七天无理由", "七天无理由 二次销售 退货退款", "domain_synonym"),
     ("退款时效", "退款时效 支付通道 超时", "intent_normalization"),
@@ -101,6 +104,10 @@ def build_query_rewrite_plan(
         if any(trigger in original_query for trigger in _SPECIFIC_TRIGGERS) or _has_domain_anchor(original_query):
             return _skip(original_query, "already_specific")
         return _skip(original_query, "out_of_domain")
+    if any(term in original_query for term in _ALREADY_SPECIFIC_ALIAS_TERMS):
+        return _skip(original_query, "already_specific")
+    if _only_generic_refund_expansion(expansions) and not _has_rewrite_context(original_query):
+        return _skip(original_query, "already_specific")
 
     trigger_terms = tuple(term for expansion in expansions for term in expansion.matched_terms)
     return QueryRewritePlan(
@@ -150,6 +157,15 @@ def _context_value(context: KnowledgeContext | Mapping[str, Any], key: str) -> A
 
 def _has_domain_anchor(query: str) -> bool:
     return any(anchor in query for anchor in _DOMAIN_ANCHORS)
+
+
+def _only_generic_refund_expansion(expansions: list[RewriteExpansion]) -> bool:
+    matched_terms = {term for expansion in expansions for term in expansion.matched_terms}
+    return matched_terms == {"仅退款"}
+
+
+def _has_rewrite_context(query: str) -> bool:
+    return any(term in query for term in _NEEDS_REWRITE_CONTEXT_TERMS)
 
 
 def _bounded_query(query: str) -> str:

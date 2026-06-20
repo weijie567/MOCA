@@ -2,18 +2,22 @@ from __future__ import annotations
 
 import asyncio
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.knowledge.config import (
+    MERGED_CANDIDATE_CAP,
     MIN_SIMILARITY_THRESHOLD,
+    ORIGINAL_QUERY_TOP_K,
     RETRIEVAL_CONFIG_VERSION,
+    REWRITE_QUERY_TOP_K,
     STRONG_EVIDENCE_THRESHOLD,
 )
 from src.knowledge.provenance import EvidenceProvenance
+from src.knowledge.rewrite import build_query_rewrite_plan, safe_rewrite_summary
 from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext
 from src.rag.embedder import EmbeddingService
 from src.rag.search_text import build_policy_chunk_search_text, build_sparse_query_text
@@ -32,6 +36,7 @@ TITLE_SECTION_BOOST = 0.12
 CONTENT_OVERLAP_BOOST = 0.08
 RETRIEVAL_TIMEOUT_SECONDS = 15.0
 POLICY_NO_EVIDENCE_MESSAGE = "当前知识库中没有找到足够证据支持这个问题，建议转人工或补充规则文档。"
+_SAFE_CHANNEL_LABEL_EXAMPLES = ("original_dense", "rewrite_1_sparse")
 
 _ALNUM_PATTERN = re.compile(r"[a-z0-9]+")
 _CJK_PATTERN = re.compile(r"[\u4e00-\u9fff]+")
@@ -122,6 +127,17 @@ class PolicyRetrievalHit:
     filter_status: str = "passed"
 
 
+@dataclass(frozen=True)
+class PolicyRetrievalRun:
+    status: str
+    hits: list[PolicyRetrievalHit]
+    evidence_refs: list[EvidenceRefV1]
+    best_score: float
+    original_query: str
+    query_rewrite_summary: str | None = None
+    fallback_reason: str | None = None
+
+
 @dataclass
 class _FusedCandidate:
     chunk: object
@@ -132,9 +148,13 @@ class _FusedCandidate:
     sparse_rank: int | None = None
     fuzzy_rank: int | None = None
     rrf_score: float = 0.0
+    channel_labels: list[str] = field(default_factory=list)
 
     @property
     def selected_by(self) -> tuple[str, ...]:
+        if any(label.startswith("rewrite_") for label in self.channel_labels):
+            return tuple(self.channel_labels)
+
         channels: list[str] = []
         if self.dense_rank is not None:
             channels.append("dense")
@@ -162,6 +182,8 @@ def normalize_sparse_score(raw_score: float) -> float:
 
 def rrf_fuse_candidates(
     channel_results: dict[str, list[tuple[object, float]]],
+    *,
+    channel_prefix: str | None = None,
 ) -> list[_FusedCandidate]:
     candidates: dict[tuple[str, str, str], _FusedCandidate] = {}
 
@@ -184,6 +206,8 @@ def rrf_fuse_candidates(
             elif channel == "fuzzy":
                 candidate.fuzzy_rank = rank
                 candidate.fuzzy_score = score
+            if channel_prefix is not None:
+                _append_safe_channel_label(candidate, f"{channel_prefix}_{channel}")
             candidate.rrf_score += 1 / (RRF_K + rank)
 
     return sorted(
@@ -223,28 +247,14 @@ class PolicyRetrievalEngine:
         doc_type: str | None = None,
         risk_level: str | None = None,
     ) -> tuple[str, list[EvidenceRefV1], float]:
-        status, hits, best_score = await self.retrieve_hits(
+        run = await self.retrieve_run(
             query=query,
             context=context,
             max_results=max_results,
             doc_type=doc_type,
             risk_level=risk_level,
         )
-        evidence_refs = [
-            EvidenceRefV1.build(
-                tenant_id=context.tenant_id,
-                doc_key=hit.doc_key,
-                chunk_id=hit.chunk_id,
-                policy_version=hit.policy_version,
-                text=hit.text,
-                retrieved_at=context.effective_at,
-                retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
-                score=hit.score,
-                rank=hit.rank,
-            )
-            for hit in hits
-        ]
-        return status, evidence_refs, best_score
+        return run.status, run.evidence_refs, run.best_score
 
     async def retrieve_hits(
         self,
@@ -255,9 +265,27 @@ class PolicyRetrievalEngine:
         doc_type: str | None = None,
         risk_level: str | None = None,
     ) -> tuple[str, list[PolicyRetrievalHit], float]:
+        run = await self.retrieve_run(
+            query=query,
+            context=context,
+            max_results=max_results,
+            doc_type=doc_type,
+            risk_level=risk_level,
+        )
+        return run.status, run.hits, run.best_score
+
+    async def retrieve_run(
+        self,
+        *,
+        query: str,
+        context: KnowledgeContext,
+        max_results: int,
+        doc_type: str | None = None,
+        risk_level: str | None = None,
+    ) -> PolicyRetrievalRun:
         try:
             return await asyncio.wait_for(
-                self._retrieve_hits(
+                self._retrieve_run(
                     query=query,
                     context=context,
                     max_results=max_results,
@@ -267,7 +295,14 @@ class PolicyRetrievalEngine:
                 timeout=RETRIEVAL_TIMEOUT_SECONDS,
             )
         except asyncio.TimeoutError:
-            return "error", [], 0.0
+            return PolicyRetrievalRun(
+                status="error",
+                hits=[],
+                evidence_refs=[],
+                best_score=0.0,
+                original_query=query,
+                fallback_reason="rewrite_timeout",
+            )
 
     async def get_contents_by_evidence_keys(
         self,
@@ -293,7 +328,7 @@ class PolicyRetrievalEngine:
     ) -> dict[tuple[str, str], dict[str, object]]:
         return await self.chunk_repo.get_canonical_evidence_rows_by_keys(tenant_id, keys)
 
-    async def _retrieve_hits(
+    async def _retrieve_run(
         self,
         *,
         query: str,
@@ -301,17 +336,111 @@ class PolicyRetrievalEngine:
         max_results: int,
         doc_type: str | None,
         risk_level: str | None,
-    ) -> tuple[str, list[PolicyRetrievalHit], float]:
+    ) -> PolicyRetrievalRun:
         effective_at = _parse_effective_at(context.effective_at)
         effective_date = effective_at.date()
         limit = max(max_results, 1)
-        query_embedding = await self.embedder.embed_query(f"{QUERY_PREFIX}{query}")
-        query_search_text = build_policy_chunk_search_text(title="", section="", content=query)
-        sparse_query_text = build_sparse_query_text(query)
+        original_candidates = await self._retrieve_query_channel(
+            query_text=query,
+            channel_prefix="original",
+            tenant_id=UUID(context.tenant_id),
+            effective_date=effective_date,
+            limit=limit,
+            top_k=max(limit * CANDIDATE_MULTIPLIER, limit),
+            doc_type=doc_type,
+            risk_level=risk_level,
+        )
+        candidates = original_candidates
+        query_rewrite_summary: str | None = None
+        fallback_reason: str | None = None
+
+        try:
+            rewrite_plan = build_query_rewrite_plan(query, context)
+            query_rewrite_summary = safe_rewrite_summary(rewrite_plan)
+        except asyncio.TimeoutError:
+            fallback_reason = "rewrite_timeout"
+            rewrite_plan = None
+        except Exception:
+            fallback_reason = "rewrite_error"
+            rewrite_plan = None
+
+        if rewrite_plan is not None and rewrite_plan.skip_reason is None:
+            try:
+                rewrite_candidates: list[_FusedCandidate] = []
+                for index, rewrite_query in enumerate(rewrite_plan.rewritten_queries, start=1):
+                    rewrite_candidates.extend(
+                        await self._retrieve_query_channel(
+                            query_text=rewrite_query,
+                            channel_prefix=f"rewrite_{index}",
+                            tenant_id=UUID(context.tenant_id),
+                            effective_date=effective_date,
+                            limit=limit,
+                            top_k=REWRITE_QUERY_TOP_K,
+                            doc_type=doc_type,
+                            risk_level=risk_level,
+                        )
+                    )
+            except asyncio.TimeoutError:
+                fallback_reason = "rewrite_timeout"
+                rewrite_candidates = []
+            except Exception:
+                fallback_reason = "rewrite_channel_error"
+                rewrite_candidates = []
+
+            if fallback_reason is None:
+                try:
+                    candidates = _merge_query_candidates(original_candidates, rewrite_candidates)
+                except Exception:
+                    fallback_reason = "merge_error"
+
+        hits, best_score, status = _finalize_hits(
+            query=query,
+            candidates=candidates,
+            limit=limit,
+        )
+        evidence_refs = [
+            EvidenceRefV1.build(
+                tenant_id=context.tenant_id,
+                doc_key=hit.doc_key,
+                chunk_id=hit.chunk_id,
+                policy_version=hit.policy_version,
+                text=hit.text,
+                retrieved_at=context.effective_at,
+                retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+                score=hit.score,
+                rank=hit.rank,
+            )
+            for hit in hits
+        ]
+        return PolicyRetrievalRun(
+            status=status,
+            hits=hits,
+            evidence_refs=evidence_refs,
+            best_score=best_score,
+            original_query=query,
+            query_rewrite_summary=query_rewrite_summary,
+            fallback_reason=fallback_reason,
+        )
+
+    async def _retrieve_query_channel(
+        self,
+        *,
+        query_text: str,
+        channel_prefix: str,
+        tenant_id: UUID,
+        effective_date: date,
+        limit: int,
+        top_k: int,
+        doc_type: str | None,
+        risk_level: str | None,
+    ) -> list[_FusedCandidate]:
+        query_embedding = await self.embedder.embed_query(f"{QUERY_PREFIX}{query_text}")
+        query_search_text = build_policy_chunk_search_text(title="", section="", content=query_text)
+        sparse_query_text = build_sparse_query_text(query_text)
         dense_raw_results = await self.chunk_repo.search_similar(
             query_embedding=query_embedding,
-            tenant_id=UUID(context.tenant_id),
-            top_k=max(limit * CANDIDATE_MULTIPLIER, limit),
+            tenant_id=tenant_id,
+            top_k=min(max(top_k, limit), ORIGINAL_QUERY_TOP_K if top_k != REWRITE_QUERY_TOP_K else REWRITE_QUERY_TOP_K),
             min_similarity=INTERNAL_SEARCH_THRESHOLD,
             doc_type=doc_type,
             risk_level=risk_level,
@@ -321,7 +450,7 @@ class PolicyRetrievalEngine:
             self.chunk_repo,
             "search_sparse",
             query_text=sparse_query_text,
-            tenant_id=UUID(context.tenant_id),
+            tenant_id=tenant_id,
             top_k=SPARSE_CANDIDATE_TOP_K,
             doc_type=doc_type,
             risk_level=risk_level,
@@ -331,7 +460,7 @@ class PolicyRetrievalEngine:
             self.chunk_repo,
             "search_fuzzy",
             query_text=query_search_text,
-            tenant_id=UUID(context.tenant_id),
+            tenant_id=tenant_id,
             top_k=FUZZY_CANDIDATE_TOP_K,
             min_similarity=FUZZY_MIN_SIMILARITY,
             doc_type=doc_type,
@@ -339,56 +468,115 @@ class PolicyRetrievalEngine:
             effective_date=effective_date,
         )
 
-        dense_results = rerank_candidates(query, _filter_effective_results(dense_raw_results, effective_date))
+        dense_results = rerank_candidates(query_text, _filter_effective_results(dense_raw_results, effective_date))
         sparse_results = _filter_effective_results(sparse_raw_results, effective_date)
         fuzzy_results = _filter_effective_results(fuzzy_raw_results, effective_date)
-        fused_results = [
-            candidate
-            for candidate in rrf_fuse_candidates(
-                {
-                    "dense": dense_results,
-                    "sparse": sparse_results,
-                    "fuzzy": fuzzy_results,
-                }
-            )
-            if candidate.confidence >= MIN_SIMILARITY_THRESHOLD
-        ]
-        if has_domain_anchor(query):
-            results = fused_results[:limit]
-        else:
-            terms = query_terms(query)
-            results = [
-                candidate
-                for candidate in fused_results
-                if candidate.confidence >= STRONG_EVIDENCE_THRESHOLD and has_candidate_overlap(terms, candidate.chunk)
-            ][:limit]
+        return rrf_fuse_candidates(
+            {
+                "dense": dense_results,
+                "sparse": sparse_results,
+                "fuzzy": fuzzy_results,
+            },
+            channel_prefix=channel_prefix,
+        )
 
-        hits = [
-            PolicyRetrievalHit(
-                doc_key=str(candidate.chunk.document.doc_key),
-                chunk_id=candidate.chunk.chunk_id,
-                title=str(candidate.chunk.document.title),
-                section=str(candidate.chunk.section),
-                policy_version=_policy_version(candidate.chunk),
-                text=candidate.chunk.content,
-                score=candidate.confidence,
-                rank=rank,
-                selected_by=candidate.selected_by,
-                dense_rank=candidate.dense_rank,
-                sparse_rank=candidate.sparse_rank,
-                fuzzy_rank=candidate.fuzzy_rank,
-                rrf_score=candidate.rrf_score,
-            )
-            for rank, candidate in enumerate(results, start=1)
-        ]
-        best_score = max((hit.score for hit in hits), default=0.0)
-        if not hits or best_score < MIN_SIMILARITY_THRESHOLD:
-            status = "no_evidence"
-        elif best_score >= STRONG_EVIDENCE_THRESHOLD:
-            status = "strong_evidence"
-        else:
-            status = "partial_evidence"
-        return status, hits, best_score
+
+def _merge_query_candidates(
+    original_candidates: list[_FusedCandidate],
+    rewrite_candidates: list[_FusedCandidate],
+) -> list[_FusedCandidate]:
+    merged: dict[tuple[str, str, str], _FusedCandidate] = {}
+    for candidate in [*original_candidates, *rewrite_candidates]:
+        key = _candidate_key(candidate.chunk)
+        existing = merged.get(key)
+        if existing is None:
+            merged[key] = candidate
+            continue
+        existing.rrf_score += candidate.rrf_score
+        for label in candidate.channel_labels:
+            _append_safe_channel_label(existing, label)
+        if candidate.dense_score is not None and (
+            existing.dense_score is None or candidate.dense_score > existing.dense_score
+        ):
+            existing.dense_score = candidate.dense_score
+            existing.dense_rank = candidate.dense_rank
+        if candidate.sparse_score is not None and (
+            existing.sparse_score is None or candidate.sparse_score > existing.sparse_score
+        ):
+            existing.sparse_score = candidate.sparse_score
+            existing.sparse_rank = candidate.sparse_rank
+        if candidate.fuzzy_score is not None and (
+            existing.fuzzy_score is None or candidate.fuzzy_score > existing.fuzzy_score
+        ):
+            existing.fuzzy_score = candidate.fuzzy_score
+            existing.fuzzy_rank = candidate.fuzzy_rank
+    return _sort_candidates(list(merged.values()))[:MERGED_CANDIDATE_CAP]
+
+
+def _finalize_hits(
+    *,
+    query: str,
+    candidates: list[_FusedCandidate],
+    limit: int,
+) -> tuple[list[PolicyRetrievalHit], float, str]:
+    fused_results = [
+        candidate
+        for candidate in _sort_candidates(candidates)
+        if candidate.confidence >= MIN_SIMILARITY_THRESHOLD
+    ][:MERGED_CANDIDATE_CAP]
+    if has_domain_anchor(query):
+        results = fused_results[:limit]
+    else:
+        terms = query_terms(query)
+        results = [
+            candidate
+            for candidate in fused_results
+            if candidate.confidence >= STRONG_EVIDENCE_THRESHOLD and has_candidate_overlap(terms, candidate.chunk)
+        ][:limit]
+
+    hits = [
+        PolicyRetrievalHit(
+            doc_key=str(candidate.chunk.document.doc_key),
+            chunk_id=candidate.chunk.chunk_id,
+            title=str(candidate.chunk.document.title),
+            section=str(candidate.chunk.section),
+            policy_version=_policy_version(candidate.chunk),
+            text=candidate.chunk.content,
+            score=candidate.confidence,
+            rank=rank,
+            selected_by=candidate.selected_by,
+            dense_rank=candidate.dense_rank,
+            sparse_rank=candidate.sparse_rank,
+            fuzzy_rank=candidate.fuzzy_rank,
+            rrf_score=candidate.rrf_score,
+        )
+        for rank, candidate in enumerate(results, start=1)
+    ]
+    best_score = max((hit.score for hit in hits), default=0.0)
+    if not hits or best_score < MIN_SIMILARITY_THRESHOLD:
+        status = "no_evidence"
+    elif best_score >= STRONG_EVIDENCE_THRESHOLD:
+        status = "strong_evidence"
+    else:
+        status = "partial_evidence"
+    return hits, best_score, status
+
+
+def _sort_candidates(candidates: list[_FusedCandidate]) -> list[_FusedCandidate]:
+    return sorted(
+        candidates,
+        key=lambda candidate: (
+            -candidate.rrf_score,
+            -candidate.confidence,
+            str(candidate.chunk.document.doc_key),
+            str(candidate.chunk.chunk_id),
+        ),
+    )
+
+
+def _append_safe_channel_label(candidate: _FusedCandidate, label: str) -> None:
+    if label not in candidate.channel_labels:
+        candidate.channel_labels.append(label)
 
 
 def _parse_effective_at(value: str) -> datetime:

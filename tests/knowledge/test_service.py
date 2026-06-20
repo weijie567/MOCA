@@ -80,6 +80,44 @@ async def test_authorized_merchant_scope_calls_adapter(merchant_scope, merchant_
     retrieve.assert_awaited_once()
 
 
+@pytest.mark.asyncio
+async def test_search_uses_retrieval_run_safe_query_rewrite_summary():
+    evidence = _evidence(tenant_id="tenant-001")
+    retrieve = AsyncMock(return_value=("no_evidence", [], 0.0))
+    retrieve_run = AsyncMock(
+        return_value=SimpleNamespace(
+            status="strong_evidence",
+            evidence_refs=[evidence],
+            best_score=0.8,
+            query_rewrite_summary="rule_default: rewrite_count=2; triggers=仅退款,已发货",
+        )
+    )
+    service = PolicyKnowledgeService(SimpleNamespace(retrieve=retrieve, retrieve_run=retrieve_run))
+
+    result = await service.search(_request(), _context(["*"]))
+
+    assert result.status == "strong_evidence"
+    assert result.evidence_refs == [evidence]
+    assert result.query_rewrite == "rule_default: rewrite_count=2; triggers=仅退款,已发货"
+    assert "raw_prompt" not in result.query_rewrite
+    retrieve_run.assert_awaited_once()
+    retrieve.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_search_legacy_retriever_without_retrieve_run_remains_compatible():
+    evidence = _evidence(tenant_id="tenant-001")
+    retrieve = AsyncMock(return_value=("strong_evidence", [evidence], 0.8))
+    service = PolicyKnowledgeService(SimpleNamespace(retrieve=retrieve))
+
+    result = await service.search(_request(), _context(["*"]))
+
+    assert result.status == "strong_evidence"
+    assert result.evidence_refs == [evidence]
+    assert result.query_rewrite is None
+    retrieve.assert_awaited_once()
+
+
 def _evidence(*, tenant_id: str, chunk_id: str = "chunk-1", text: str = "退款规则正文") -> EvidenceRefV1:
     return EvidenceRefV1.build(
         tenant_id=tenant_id,
