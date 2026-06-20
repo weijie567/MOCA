@@ -307,6 +307,7 @@ class PolicyKnowledgeService:
     ) -> VerifiedEvidenceDetailsResult:
         """Validate Phase 22 evidence refs with typed current-row reason codes."""
         effective_date = _effective_date(effective_at)
+        effective_at_malformed = bool(effective_at) and effective_date is None
         try:
             UUID(tenant_id)
         except ValueError:
@@ -357,9 +358,11 @@ class PolicyKnowledgeService:
                 reason_codes.append("text_hash_mismatch")
             if current_policy_version != ref.policy_version:
                 reason_codes.append("latest_version_invalid")
-            if effective_date is not None and row_effective_date is not None and row_effective_date > effective_date:
+            if effective_at_malformed:
                 reason_codes.extend(["freshness_invalid", "effective_date_invalid"])
-            if effective_date is not None and row_expires_at is not None and row_expires_at < effective_date:
+            elif effective_date is not None and row_effective_date is not None and row_effective_date > effective_date:
+                reason_codes.extend(["freshness_invalid", "effective_date_invalid"])
+            elif effective_date is not None and row_expires_at is not None and row_expires_at < effective_date:
                 reason_codes.extend(["freshness_invalid", "effective_date_invalid"])
             reason_codes.extend(
                 _scope_reason_codes(

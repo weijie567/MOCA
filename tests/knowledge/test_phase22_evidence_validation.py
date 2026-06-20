@@ -182,6 +182,38 @@ async def test_policy_knowledge_service_verified_details_rejects_current_row_ver
     assert "freshness_invalid" not in reason_codes
 
 
+@pytest.mark.asyncio
+async def test_policy_knowledge_service_verified_details_rejects_malformed_effective_at() -> None:
+    tenant_id = str(uuid4())
+    text = "Future refund policy text with matching hash and current version."
+    future_ref = _evidence_ref(tenant_id=tenant_id, policy_version="v2", text=text)
+    row = _canonical_row(
+        future_ref,
+        tenant_id=tenant_id,
+        content=text,
+        policy_document_version=2,
+        current_policy_version="v2",
+        effective_date="2099-01-01",
+    )
+    service = PolicyKnowledgeService(FakeCanonicalRetriever({(future_ref.doc_key, future_ref.chunk_id): row}))
+
+    result = await service.get_verified_evidence_details(
+        tenant_id=tenant_id,
+        evidence_refs=[future_ref],
+        effective_at="not-a-date",
+        merchant_scope=["merchant-001"],
+        doc_type="refund_rule",
+        risk_level="high",
+    )
+
+    assert result.included == {}
+    assert len(result.excluded) == 1
+    reason_codes = set(result.excluded[0].reason_codes)
+    assert {"freshness_invalid", "effective_date_invalid"} <= reason_codes
+    assert "latest_version_invalid" not in reason_codes
+    assert "text_hash_mismatch" not in reason_codes
+
+
 def _excluded_by_evidence_id(bundle: Any) -> dict[str, Any]:
     debug_context = bundle.debug_context
     entries = getattr(debug_context, "truncated_or_excluded_evidence", None)
