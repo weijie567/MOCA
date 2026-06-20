@@ -1,6 +1,6 @@
 ---
 phase: 23-rag-reranker-query-rewrite
-reviewed: 2026-06-20T00:41:59Z
+reviewed: 2026-06-20T01:43:37Z
 depth: deep
 files_reviewed: 19
 files_reviewed_list:
@@ -25,91 +25,69 @@ files_reviewed_list:
   - tests/test_rag_ablation_eval.py
 findings:
   critical: 0
-  warning: 4
+  warning: 2
   info: 0
-  total: 4
+  total: 2
 status: issues_found
 ---
 
 # Phase 23: Code Review Report
 
-**Reviewed:** 2026-06-20T00:41:59Z
+**Reviewed:** 2026-06-20T01:43:37Z
 **Depth:** deep
 **Files Reviewed:** 19
 **Status:** issues_found
 
 ## Summary
 
-Deep review covered the Phase 23 query rewrite, hybrid retrieval, reranker, diagnostics, service facade, golden cases, and focused tests. No critical security issue was found, but four correctness/test-gate issues remain: rerank is applied after result trimming, two golden rewrite expectations are not implemented, the ablation harness can label fake local execution as non-dry-run, and ablation scoring can pass the wrong chunk as a hit.
+Deep re-review covered the Phase 23 query rewrite, hybrid retrieval, reranker, diagnostics, service facade, golden cases, and boundary/leakage tests against current HEAD.
 
-Verification run: `PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -m pytest -q -p no:cacheprovider tests/knowledge/test_query_rewrite.py tests/test_rag_ablation_eval.py tests/knowledge/test_reranker.py tests/knowledge/test_hybrid_retrieval.py` passed: 23 tests.
+The requested post-fix checks are verified: ablation CLI no-arg execution defaults to dry-run; explicit `--deterministic-local` exits fail-closed with `NotImplementedError`; Phase 21/22 static guards still block non-owned Phase 23/search/execution surfaces while allowing the Phase 23-owned files; `retrieve_run().diagnostics` carries rerank metadata through `RetrievalDiagnostics` without extending `EvidenceRefV1`; and prior WR-01 through WR-04 remain fixed.
+
+Verification run:
+`PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -m pytest -q -p no:cacheprovider tests/agent/rag_context/test_leakage.py tests/agent/rag_context/test_verifier.py tests/agent/test_phase22_action_boundary.py tests/knowledge/test_hybrid_retrieval.py tests/knowledge/test_phase21_boundaries.py tests/knowledge/test_query_rewrite.py tests/knowledge/test_reranker.py tests/knowledge/test_retrieval_budgets.py tests/knowledge/test_retrieval_diagnostics.py tests/knowledge/test_service.py tests/test_rag_ablation_eval.py`
+
+Result: 93 passed, 1 third-party deprecation warning.
 
 ## Warnings
 
-### WR-01: Rerank Runs After `max_results` Trimming
+### WR-05: Provider Rerank Scores Accept Boolean And NaN Values
 
-**File:** `src/knowledge/retrieval.py:538`
-**Issue:** `_finalize_hits()` slices `fused_results` to `limit` before building `RerankCandidate`s. A candidate outside the RRF top `max_results` can never be promoted by the Phase 23 reranker, even when local/provider rerank would rank it first. This also means retrieval rarely exercises the configured rerank candidate budget.
+**File:** `src/knowledge/rerank.py:423`
+**Issue:** `_normalize_provider_scores()` checks `isinstance(raw_score, int | float)` and then only rejects values `< 0` or `> 1`. In Python, `bool` is an `int`, so a provider JSON value of `true` is accepted as `1.0`. `float("nan")` also passes the range check because comparisons with NaN are false. Either case can turn malformed provider output into a successful provider rank instead of the intended `provider_malformed_output` fallback.
 **Fix:**
 ```python
-eligible = fused_results if has_domain_anchor(query) else [
-    candidate
-    for candidate in fused_results
-    if candidate.confidence >= STRONG_EVIDENCE_THRESHOLD and has_candidate_overlap(terms, candidate.chunk)
-]
-rerank_inputs = tuple(
-    _to_rerank_candidate(candidate, baseline_rank=rank)
-    for rank, candidate in enumerate(eligible[:MERGED_CANDIDATE_CAP], start=1)
-)
-rerank_output = await rerank_candidates_for_query(query=query, candidates=rerank_inputs, config=RerankConfig())
-ordered_candidates = rerank_output.ranked_candidates[:limit]
+import math
+
+if isinstance(raw_score, bool) or not isinstance(raw_score, int | float):
+    return None
+score = float(raw_score)
+if not math.isfinite(score) or score < 0 or score > 1:
+    return None
 ```
-Add a test where a candidate below the RRF top-`max_results` cutoff is promoted when the full eligible candidate set is reranked.
+Add a regression test in `tests/knowledge/test_reranker.py` or `tests/knowledge/test_retrieval_budgets.py` that provider scores of `True`, `False`, and `float("nan")` all produce `provider_malformed_output`.
 
-### WR-02: Golden Rewrite Alias Cases Skip Rewrite
+### WR-06: Malformed Effective Time Disables Evidence Freshness Checks
 
-**File:** `src/knowledge/rewrite.py:71`
-**Issue:** `evaluation/golden/rag_cases.jsonl` expects rewrites for line 16 (`只退款不退货` / `发出去了`) and line 17 (`商家举证`), but `_ALIAS_RULES` only matches exact terms such as `仅退款`, `已发货`, and `发了货`. Those two golden cases currently return `skip_reason="already_specific"` with no expansions, so the implementation does not satisfy its own Phase 23 golden metadata.
-**Fix:** Add synonym-aware alias rules or canonical trigger mapping, then assert the golden expectations in tests. For example:
-```python
-("只退款", "仅退款 商家举证 物流状态", "domain_synonym"),
-("不退货", "仅退款 商家举证 物流状态", "domain_synonym"),
-("发出去了", "商家已发货 物流核实", "intent_normalization"),
-("商家举证", "商家举证 物流状态 履约证据", "merchant_support_alias"),
-```
-If `expected_rewrite_triggers` must stay canonical (`仅退款`, `已发货`), extend the rule shape so matched input aliases can emit canonical trigger terms.
-
-### WR-03: Ablation Non-Dry-Run Still Uses Fake Results
-
-**File:** `scripts/eval_rag_ablation.py:141`
-**Issue:** `run_rag_ablation()` builds every variant from `_fake_variant_result()` regardless of `dry_run`. The CLI defaults `--dry-run` to false, so running the script normally reports `mode="deterministic_local"` while still scoring synthetic evidence copied from the golden expected IDs. This can mask retrieval/rewrite/rerank regressions and makes `expected_variant_wins` ineffective.
-**Fix:** Either wire non-dry-run to real deterministic retrieval variants, or fail closed until that exists:
-```python
-if not dry_run:
-    raise NotImplementedError("deterministic_local ablation requires real retrieval execution")
-```
-Also add tests that consume `expected_rewrite_triggers` and `expected_variant_wins` from the golden JSONL so those fields are not inert metadata.
-
-### WR-04: Ablation Hit Scoring Accepts Wrong Chunks From The Right Doc
-
-**File:** `scripts/eval_rag_ablation.py:240`
-**Issue:** `_first_match_rank()` returns a hit when either `chunk_id` matches `expected_chunk_ids` or `doc_key` matches `expected_doc_ids`. For cases with explicit expected chunks, retrieving `refund_policy_001` passes even when the case expects `refund_policy_005`; `missing_expected_chunks` records the miss but does not fail the case.
+**File:** `src/knowledge/service.py:309`
+**Issue:** `get_verified_evidence_details()` converts malformed `effective_at` values to `None` via `_effective_date()` and then skips both future-effective and expired-row checks. A canonical row with `effective_date="2099-01-01"` is included when the caller passes `effective_at="not-a-date"`, so malformed trusted-context time can fail open and admit evidence that should be excluded from prompt/verifier authority surfaces.
 **Fix:**
 ```python
-for rank, item in enumerate(evidence, start=1):
-    chunk_id = str(item.get("chunk_id", ""))
-    doc_key = str(item.get("doc_key", ""))
-    if expected_chunks:
-        if chunk_id in expected_chunks:
-            return int(item.get("rank") or rank)
-    elif doc_key in expected_docs:
-        return int(item.get("rank") or rank)
-return None
+effective_date = _effective_date(effective_at)
+effective_at_malformed = bool(effective_at) and effective_date is None
+
+# inside the per-ref validation, before inclusion:
+if effective_at_malformed:
+    reason_codes.extend(["freshness_invalid", "effective_date_invalid"])
+elif effective_date is not None and row_effective_date is not None and row_effective_date > effective_date:
+    reason_codes.extend(["freshness_invalid", "effective_date_invalid"])
+elif effective_date is not None and row_expires_at is not None and row_expires_at < effective_date:
+    reason_codes.extend(["freshness_invalid", "effective_date_invalid"])
 ```
-Add a regression test where the correct document but wrong chunk is scored as a miss.
+Add a regression test in `tests/knowledge/test_phase22_evidence_validation.py` with malformed `effective_at` and a future-effective row, asserting the evidence is excluded with freshness/effective-date reason codes.
 
 ---
 
-_Reviewed: 2026-06-20T00:41:59Z_
+_Reviewed: 2026-06-20T01:43:37Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
