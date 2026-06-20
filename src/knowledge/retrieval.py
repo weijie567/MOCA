@@ -14,9 +14,11 @@ from src.knowledge.config import (
     ORIGINAL_QUERY_TOP_K,
     RERANK_TEXT_MAX_CHARS,
     RETRIEVAL_CONFIG_VERSION,
+    RETRIEVAL_TOTAL_TIMEOUT_SECONDS,
     REWRITE_QUERY_TOP_K,
     STRONG_EVIDENCE_THRESHOLD,
 )
+from src.knowledge.diagnostics import RankingExplanation, RetrievalDiagnostics, build_retrieval_diagnostics
 from src.knowledge.provenance import EvidenceProvenance
 from src.knowledge.rerank import RerankCandidate, RerankConfig, rerank_candidates_for_query
 from src.knowledge.rewrite import build_query_rewrite_plan, safe_rewrite_summary
@@ -36,7 +38,7 @@ RRF_K = 60
 SPARSE_SCORE_SCALE = 0.20
 TITLE_SECTION_BOOST = 0.12
 CONTENT_OVERLAP_BOOST = 0.08
-RETRIEVAL_TIMEOUT_SECONDS = 15.0
+RETRIEVAL_TIMEOUT_SECONDS = RETRIEVAL_TOTAL_TIMEOUT_SECONDS
 POLICY_NO_EVIDENCE_MESSAGE = "当前知识库中没有找到足够证据支持这个问题，建议转人工或补充规则文档。"
 _SAFE_CHANNEL_LABEL_EXAMPLES = ("original_dense", "rewrite_1_sparse")
 
@@ -138,6 +140,7 @@ class PolicyRetrievalRun:
     original_query: str
     query_rewrite_summary: str | None = None
     fallback_reason: str | None = None
+    diagnostics: RetrievalDiagnostics | None = None
 
 
 @dataclass
@@ -422,6 +425,12 @@ class PolicyRetrievalEngine:
             original_query=query,
             query_rewrite_summary=query_rewrite_summary,
             fallback_reason=fallback_reason,
+            diagnostics=_build_internal_diagnostics(
+                query=query,
+                query_rewrite_summary=query_rewrite_summary,
+                hits=hits,
+                fallback_reason=fallback_reason,
+            ),
         )
 
     async def _retrieve_query_channel(
@@ -614,6 +623,39 @@ def _to_rerank_candidate(candidate: _FusedCandidate, *, baseline_rank: int) -> R
         baseline_rank=baseline_rank,
         selected_by=candidate.selected_by,
         rrf_score=candidate.rrf_score,
+    )
+
+
+def _build_internal_diagnostics(
+    *,
+    query: str,
+    query_rewrite_summary: str | None,
+    hits: list[PolicyRetrievalHit],
+    fallback_reason: str | None,
+) -> RetrievalDiagnostics:
+    candidate_ids = [f"{hit.doc_key}/{hit.chunk_id}@{hit.policy_version}" for hit in hits]
+    explanations = [
+        RankingExplanation(
+            candidate_id=candidate_id,
+            selected_channels=hit.selected_by,
+            rewrite_contribution=1.0 if query_rewrite_summary and "rewrite_count=0" not in query_rewrite_summary else 0.0,
+            rerank_contribution=min(float(hit.rrf_score or 0.0), 0.10),
+            rank_before=None,
+            rank_after=hit.rank,
+            safe_score_components={
+                "baseline_score": hit.score,
+                "rrf_score": min(float(hit.rrf_score or 0.0), 0.10),
+            },
+            fallback_reason=fallback_reason,
+        )
+        for candidate_id, hit in zip(candidate_ids, hits, strict=True)
+    ]
+    return build_retrieval_diagnostics(
+        original_query=query,
+        query_rewrite_summary=query_rewrite_summary,
+        ranking_explanations=explanations,
+        selected_candidate_ids=candidate_ids,
+        fallback_reason=fallback_reason,
     )
 
 

@@ -15,12 +15,13 @@ UNBOUNDED_POLICY_TEXT = "SHOULD_NOT_LEAK_UNBOUNDED_POLICY_TEXT " * 80
 
 def _load_diagnostics_api():
     from src.knowledge.diagnostics import (
+        DiagnosticEvidenceExclusion,
         RankingExplanation,
         RetrievalDiagnostics,
         build_retrieval_diagnostics,
     )
 
-    return RetrievalDiagnostics, RankingExplanation, build_retrieval_diagnostics
+    return RetrievalDiagnostics, RankingExplanation, DiagnosticEvidenceExclusion, build_retrieval_diagnostics
 
 
 def _json_text(value: object) -> str:
@@ -43,7 +44,9 @@ def _context() -> KnowledgeContext:
 
 
 def test_query_rewrite_summary_excludes_raw_payloads() -> None:
-    RetrievalDiagnostics, _RankingExplanation, build_retrieval_diagnostics = _load_diagnostics_api()
+    RetrievalDiagnostics, _RankingExplanation, _DiagnosticEvidenceExclusion, build_retrieval_diagnostics = (
+        _load_diagnostics_api()
+    )
     from src.knowledge.rewrite import build_query_rewrite_plan, safe_rewrite_summary
 
     rewrite_plan = build_query_rewrite_plan("商家已发货还能仅退款吗？", _context())
@@ -80,16 +83,18 @@ def test_query_rewrite_summary_excludes_raw_payloads() -> None:
 
 
 def test_rerank_diagnostics_do_not_extend_evidence_ref() -> None:
-    RetrievalDiagnostics, RankingExplanation, _build_retrieval_diagnostics = _load_diagnostics_api()
+    RetrievalDiagnostics, RankingExplanation, _DiagnosticEvidenceExclusion, _build_retrieval_diagnostics = (
+        _load_diagnostics_api()
+    )
     explanation = RankingExplanation(
         candidate_id="refund_policy/refund_policy_001@v1",
         selected_channels=("dense", "sparse"),
-        rewrite_contribution="matched rewrite expansion: 已发货 仅退款",
-        rerank_contribution="lexical and section overlap promoted the candidate",
-        original_rank=4,
-        final_rank=1,
+        rewrite_contribution=1.0,
+        rerank_contribution=0.42,
+        rank_before=4,
+        rank_after=1,
         rank_delta=-3,
-        score_components={"lexical_overlap": 0.38, "channel_coverage": 0.66},
+        safe_score_components={"lexical_overlap": 0.38, "channel_coverage": 0.66},
         provider_config_version="rerank.v3",
         fallback_reason=None,
     )
@@ -122,17 +127,19 @@ def test_rerank_diagnostics_do_not_extend_evidence_ref() -> None:
 
 
 def test_ranking_explanation_contains_safe_components() -> None:
-    _RetrievalDiagnostics, RankingExplanation, _build_retrieval_diagnostics = _load_diagnostics_api()
+    _RetrievalDiagnostics, RankingExplanation, _DiagnosticEvidenceExclusion, _build_retrieval_diagnostics = (
+        _load_diagnostics_api()
+    )
 
     explanation = RankingExplanation(
         candidate_id="refund_policy/refund_policy_001@v1",
         selected_channels=("dense", "sparse", "fuzzy"),
-        rewrite_contribution="rewrite_expansion: 已发货 仅退款 商家举证",
-        rerank_contribution="title_section_overlap + channel_coverage",
-        original_rank=5,
-        final_rank=1,
+        rewrite_contribution=1.0,
+        rerank_contribution=0.62,
+        rank_before=5,
+        rank_after=1,
         rank_delta=-4,
-        score_components={
+        safe_score_components={
             "lexical_overlap": 0.41,
             "title_section_overlap": 0.33,
             "channel_coverage": 1.0,
@@ -145,10 +152,12 @@ def test_ranking_explanation_contains_safe_components() -> None:
     dumped = explanation.model_dump(mode="json")
     assert dumped["candidate_id"] == "refund_policy/refund_policy_001@v1"
     assert dumped["selected_channels"] == ["dense", "sparse", "fuzzy"]
-    assert dumped["rewrite_contribution"]
-    assert dumped["rerank_contribution"]
+    assert dumped["rewrite_contribution"] == 1.0
+    assert dumped["rerank_contribution"] == 0.62
+    assert dumped["rank_before"] == 5
+    assert dumped["rank_after"] == 1
     assert dumped["rank_delta"] == -4
-    assert set(dumped["score_components"]) == {
+    assert set(dumped["safe_score_components"]) == {
         "lexical_overlap",
         "title_section_overlap",
         "channel_coverage",
@@ -156,3 +165,49 @@ def test_ranking_explanation_contains_safe_components() -> None:
     }
     assert dumped["provider_config_version"] == "rerank.v3"
     assert dumped["fallback_reason"] == "provider_disabled"
+
+
+def test_phase22_evidence_validation_reason_codes_exclude_unsafe_diagnostic_candidates() -> None:
+    """Mirrors test_phase22_evidence_validation reason-code patterns for EXP-03 diagnostics."""
+    RetrievalDiagnostics, RankingExplanation, DiagnosticEvidenceExclusion, build_retrieval_diagnostics = (
+        _load_diagnostics_api()
+    )
+    excluded_ids = {
+        "candidate_scope_invalid": ["scope_invalid"],
+        "candidate_freshness_invalid": ["freshness_invalid"],
+        "candidate_effective_date_invalid": ["effective_date_invalid"],
+        "candidate_latest_version_invalid": ["latest_version_invalid"],
+        "candidate_text_hash_mismatch": ["text_hash_mismatch"],
+    }
+    diagnostics = build_retrieval_diagnostics(
+        original_query="商家已发货还能仅退款吗？",
+        selected_candidate_ids=["candidate_valid", *excluded_ids],
+        ranking_explanations=[
+            RankingExplanation(
+                candidate_id=candidate_id,
+                selected_channels=("dense",),
+                rewrite_contribution=0.0,
+                rerank_contribution=0.0,
+                rank_before=rank,
+                rank_after=rank,
+                safe_score_components={"baseline_score": 0.8},
+            )
+            for rank, candidate_id in enumerate(["candidate_valid", *excluded_ids], start=1)
+        ],
+        excluded_evidence=[
+            DiagnosticEvidenceExclusion(evidence_id=evidence_id, reason_codes=reason_codes)
+            for evidence_id, reason_codes in excluded_ids.items()
+        ],
+    )
+
+    assert isinstance(diagnostics, RetrievalDiagnostics)
+    assert diagnostics.selected_candidate_ids == ["candidate_valid"]
+    assert [explanation.candidate_id for explanation in diagnostics.ranking_explanations] == ["candidate_valid"]
+    reason_codes = {reason for item in diagnostics.excluded_evidence for reason in item.reason_codes}
+    assert {
+        "scope_invalid",
+        "freshness_invalid",
+        "effective_date_invalid",
+        "latest_version_invalid",
+        "text_hash_mismatch",
+    } <= reason_codes

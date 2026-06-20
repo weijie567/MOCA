@@ -16,6 +16,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.knowledge.diagnostics import RankingExplanation, RetrievalDiagnostics
 from src.knowledge.config import (
     MIN_SIMILARITY_THRESHOLD,
     RERANK_CONFIG_VERSION,
@@ -24,6 +25,8 @@ from src.knowledge.config import (
 from src.knowledge.provenance import EvidenceProvenance
 from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext, KnowledgeSearchRequest, KnowledgeSearchResult
 from src.knowledge.text_hash import evidence_text_hash
+
+_INTERNAL_DIAGNOSTIC_TYPES = (RetrievalDiagnostics, RankingExplanation)
 
 
 class PolicyRetriever(Protocol):

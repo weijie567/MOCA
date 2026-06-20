@@ -7,11 +7,12 @@ from pathlib import Path
 REQUIRED_PHASE23_GOLDEN_CATEGORIES = {
     "rewrite_win",
     "synonym_alias",
-    "ambiguous_merchant_support",
-    "underspecified_policy_question",
+    "ambiguous_support_wording",
+    "underspecified_question",
     "no_evidence_out_of_domain",
     "stale_unauthorized_evidence",
     "ranking_regression",
+    "reranker_win",
 }
 REQUIRED_METRICS = {
     "hit_at_k",
@@ -20,6 +21,7 @@ REQUIRED_METRICS = {
     "no_evidence_precision",
     "unsafe_retrieval_rate",
     "fallback_rate",
+    "latency_p50_ms",
     "latency_p95_ms",
 }
 
@@ -106,4 +108,9 @@ def test_ablation_report_contains_rank_safety_fallback_and_latency_metrics() -> 
     assert report["metrics"]["no_evidence_precision"] >= 0
     assert report["metrics"]["unsafe_retrieval_rate"] >= 0
     assert report["metrics"]["fallback_rate"] >= 0
+    assert report["metrics"]["latency_p50_ms"] >= 0
     assert report["metrics"]["latency_p95_ms"] >= 0
+    assert "fallback_reasons" in report
+    assert "provider_config_version" in report
+    assert "retrieval_config_version" in report
+    assert "rerank_config_version" in report
