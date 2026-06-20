@@ -18,7 +18,7 @@ Research is intentionally skipped for this milestone. Active planning uses `.pla
 
 ## Phases
 
-- [ ] **Phase 23: RAG Reranker + Query Rewrite** - Improve policy retrieval recall/ranking with bounded rewrite, safe reranking, diagnostics, ablations, and latency fallback while preserving Phase 20-22 safety contracts.
+- [x] **Phase 23: RAG Reranker + Query Rewrite** - Improve policy retrieval recall/ranking with bounded rewrite, safe reranking, diagnostics, ablations, and latency fallback while preserving Phase 20-22 safety contracts.
 
 ## Phase Details
 
@@ -41,7 +41,7 @@ Plans:
 - [x] 23-03-PLAN.md — Original-query plus rewritten-query candidate generation, channel limits, merge/dedupe, and baseline fallback.
 - [x] 23-04-PLAN.md — Project-owned reranker contract, deterministic/default local reranking, optional provider gates, and fallback diagnostics.
 - [x] 23-05-PLAN.md — Retrieval diagnostics, ablation golden cases, metrics reporting, latency budgets, and no-live-provider eval gates.
-- [ ] 23-06-PLAN.md — Boundary regression closure across Phase 20 filters, Phase 21 provenance, Phase 22 verifier/action rules, deferrals, and final acceptance gates.
+- [x] 23-06-PLAN.md — Boundary regression closure across Phase 20 filters, Phase 21 provenance, Phase 22 verifier/action rules, deferrals, and final acceptance gates.
 
 Suggested plan slices:
 
@@ -67,7 +67,7 @@ Hard boundaries:
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 23. RAG Reranker + Query Rewrite | v1.6 | 5/6 executed | In progress | - |
+| 23. RAG Reranker + Query Rewrite | v1.6 | 6/6 executed | Complete | 2026-06-20 |
 
 ## Coverage
 
@@ -96,11 +96,11 @@ Requirement groups:
 
 ## Current Status
 
-v1.6 RAG Reranker + Query Rewrite is in execution. Phase 23 has completed 23-01 Wave 0 RED test scaffold, 23-02 query rewrite contracts/safe summaries, 23-03 retrieval rewrite channel wiring, 23-04 reranker contracts/provider gates, and 23-05 diagnostics/ablation/latency gates; 1 final boundary plan remains.
+v1.6 RAG Reranker + Query Rewrite has completed Phase 23 execution: 23-01 RED scaffold, 23-02 rewrite contracts, 23-03 retrieval rewrite channel wiring, 23-04 reranker contracts/provider gates, 23-05 diagnostics/ablation/latency gates, and 23-06 final boundary regression closure all passed.
 
 ## Next Step
 
-Continue Phase 23 execution with 23-06 boundary regression closure and final acceptance gates.
+Run execute-phase final review/ship gates or complete the v1.6 milestone.
 
 ---
 *Updated: 2026-06-20 after v1.6 roadmap creation.*

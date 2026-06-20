@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: RAG Reranker + Query Rewrite
-status: executing
-stopped_at: Completed 23-05 retrieval diagnostics, ablation evals, metrics, and latency budgets; ready for 23-06
-last_updated: "2026-06-20T08:20:11+08:00"
-last_activity: 2026-06-20 -- Completed 23-05 retrieval diagnostics, ablation evals, metrics, and latency budgets
+status: phase_complete
+stopped_at: Completed Phase 23 RAG Reranker + Query Rewrite execution
+last_updated: "2026-06-20T08:24:15+08:00"
+last_activity: 2026-06-20 -- Completed Phase 23 boundary regression closure and final focused gates
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 6
-  completed_plans: 5
-  percent: 83
+  completed_plans: 6
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -25,12 +25,12 @@ See: `.planning/PROJECT.md` (updated 2026-06-20)
 
 ## Current Position
 
-Phase: 23 (rag-reranker-query-rewrite) — EXECUTING
+Phase: 23 (rag-reranker-query-rewrite) — COMPLETE
 Plan: 6 of 6
-Status: Executing Phase 23
-Last activity: 2026-06-20 -- Completed 23-05 retrieval diagnostics, ablation evals, metrics, and latency budgets
+Status: Phase 23 complete
+Last activity: 2026-06-20 -- Completed Phase 23 boundary regression closure and final focused gates
 
-Progress: [████████░░] 83%
+Progress: [██████████] 100%
 
 Planning files:
 
@@ -57,11 +57,11 @@ Planning files:
 
 ## Performance Metrics
 
-**v1.6 velocity:** 0 phases complete, 6 plans ready to execute.
+**v1.6 velocity:** 1 phase complete, 6 plans executed.
 
 | Phase | Plans | Status |
 |-------|-------|--------|
-| 23. RAG Reranker + Query Rewrite | 5/6 executed | In progress |
+| 23. RAG Reranker + Query Rewrite | 6/6 executed | Complete |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
 
@@ -95,9 +95,9 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 
 ## Session Continuity
 
-Last session: 2026-06-20T08:20:11+08:00
-Stopped at: Completed 23-05 retrieval diagnostics, ablation evals, metrics, and latency budgets; ready for 23-06
-Resume file: `.planning/phases/23-rag-reranker-query-rewrite/23-06-PLAN.md`
-Next: Execute 23-06 boundary regression closure and final acceptance gates.
+Last session: 2026-06-20T08:24:15+08:00
+Stopped at: Completed Phase 23 RAG Reranker + Query Rewrite execution
+Resume file: `.planning/phases/23-rag-reranker-query-rewrite/23-06-SUMMARY.md`
+Next: Run execute-phase final review/ship gates or complete the v1.6 milestone.
 
-**Executing Phase:** 23 (RAG Reranker + Query Rewrite) — 5/6 plans complete — 2026-06-20T08:20:11+08:00
+**Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete — 2026-06-20T08:24:15+08:00
