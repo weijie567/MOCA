@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Short-term Memory Unification
-status: ready_to_execute
-stopped_at: Phase 24 planned
-last_updated: "2026-06-20T20:47:45+08:00"
-last_activity: 2026-06-20 -- Planned Phase 24
+status: milestone_complete
+stopped_at: Phase 24 completed
+last_updated: "2026-06-20T23:32:39+08:00"
+last_activity: 2026-06-20 -- Completed Phase 24
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 9
-  completed_plans: 0
-  percent: 0
+  completed_plans: 9
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -21,16 +21,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-20)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v1.7 Short-term Memory Unification
+**Current focus:** v1.7 Short-term Memory Unification — complete
 
 ## Current Position
 
 Phase: 24 - Agent Runs Short-term Memory Parity
-Plan: 9 plans ready
-Status: Ready to execute
-Last activity: 2026-06-20 -- Planned Phase 24
+Plan: 9/9 complete
+Status: Milestone complete
+Last activity: 2026-06-20 -- Completed Phase 24
 
-Progress: [----------] 0%
+Progress: [██████████] 100%
 
 Planning files:
 
@@ -53,11 +53,11 @@ Planning files:
 
 ## Performance Metrics
 
-**v1.7 velocity:** Not started.
+**v1.7 velocity:** 1 phase, 9 plans complete.
 
 | Phase | Plans | Status |
 |-------|-------|--------|
-| 24. Agent Runs Short-term Memory Parity | 0/9 | Ready to execute |
+| 24. Agent Runs Short-term Memory Parity | 9/9 | Complete |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
 
@@ -72,7 +72,7 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 
 ### Pending Todos
 
-- Execute Phase 24 implementation.
+- Start the next milestone with `$gsd-new-milestone` when ready.
 
 ### Blockers / Concerns
 
@@ -99,11 +99,11 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-20T19:38:19+08:00
-Stopped at: Phase 24 context gathered
+Last session: 2026-06-20T23:32:39+08:00
+Stopped at: Phase 24 complete
 Resume file: `.planning/phases/24-agent-runs-short-term-memory-parity/24-CONTEXT.md`
-Next: Run `$gsd-execute-phase 24`.
+Next: Start the next milestone with `$gsd-new-milestone`.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
 
-**Planned Phase:** 24 (Agent Runs Short-term Memory Parity) — 9 plans — 2026-06-20T12:47:13.230Z
+**Completed Phase:** 24 (Agent Runs Short-term Memory Parity) — 9/9 plans complete; verification passed — 2026-06-20T23:32:39+08:00

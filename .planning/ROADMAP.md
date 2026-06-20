@@ -9,12 +9,12 @@
 - [x] **v1.4 RAG Production Ingestion + OCR** - Shipped on 2026-06-19. Full archive: [v1.4-ROADMAP.md](milestones/v1.4-ROADMAP.md)
 - [x] **v1.5 RAG Context Builder + Hallucination Control** - Shipped on 2026-06-19. Full archive: [v1.5-ROADMAP.md](milestones/v1.5-ROADMAP.md)
 - [x] **v1.6 RAG Reranker + Query Rewrite** - Shipped on 2026-06-20. Full archive: [v1.6-ROADMAP.md](milestones/v1.6-ROADMAP.md)
-- [ ] **v1.7 Short-term Memory Unification** - Current milestone. Goal: complete the short-term memory chain for the current Agent Console `/api/v1/agent-runs + SSE` path.
+- [x] **v1.7 Short-term Memory Unification** - Completed on 2026-06-20. Goal: complete the short-term memory chain for the current Agent Console `/api/v1/agent-runs + SSE` path.
 
 ## Phases
 
 <details>
-<summary>Shipped phases through v1.6</summary>
+<summary>Shipped phases through v1.7</summary>
 
 - v1.0 MVP: Phases 1-6
 - v1.1 Agent Architecture Migration: Phases 7-15.2
@@ -23,15 +23,16 @@
 - v1.4 RAG Production Ingestion + OCR: Phase 21
 - v1.5 RAG Context Builder + Hallucination Control: Phase 22
 - v1.6 RAG Reranker + Query Rewrite: Phase 23
+- v1.7 Short-term Memory Unification: Phase 24
 
 </details>
 
 ### Phase 24: Agent Runs Short-term Memory Parity
 
-**Status:** Planned  
-**Milestone:** v1.7 Short-term Memory Unification  
+**Status:** Complete
+**Milestone:** v1.7 Short-term Memory Unification
 **Requirements:** STM-01, STM-02, STM-03, STM-04, STM-05, STM-06, STM-07, STM-08, STM-09, STM-10, STM-11, STM-12, STM-13, STM-14
-**Plans:** 9 plans
+**Plans:** 9/9 plans complete
 
 **Goal:** Make the current `/api/v1/agent-runs + SSE` path persist and consume the same short-term memory surfaces expected by Agent Console follow-up turns: conversation messages, prompt-safe tool summaries, rolling thread summaries, and PostgreSQL-backed session slots.
 
@@ -46,19 +47,19 @@
 7. Regression tests and an integration or live smoke flow prove a three-turn Agent Console conversation can use both slot continuity and rolling-summary context.
 
 Plans:
-- [ ] 24-01-PLAN.md — Wave 0 API/SSE RED scaffolding for create, config, finalizer, retry, and smoke behavior
-- [ ] 24-02-PLAN.md — Wave 0 prompt context, session slot, prompt-safety, and authority-boundary RED scaffolding
-- [ ] 24-03-PLAN.md — DB-backed idempotency indexes and blocking Alembic verification
-- [ ] 24-04-PLAN.md — Shared conversation and rolling-summary idempotency helpers
-- [ ] 24-05-PLAN.md — `/agent-runs` user-message creation and trusted SSE graph config
-- [ ] 24-06-PLAN.md — Completed-run assistant, summary, and bounded session-memory finalizer
-- [ ] 24-07-PLAN.md — Error/cancel/interruption and retry/reopen completed-only safeguards
-- [ ] 24-08-PLAN.md — Prompt-context parity and memory authority-boundary protections
-- [ ] 24-09-PLAN.md — Legacy compatibility, focused regression, and three-turn smoke
+- [x] 24-01-PLAN.md — Wave 0 API/SSE RED scaffolding for create, config, finalizer, retry, and smoke behavior
+- [x] 24-02-PLAN.md — Wave 0 prompt context, session slot, prompt-safety, and authority-boundary RED scaffolding
+- [x] 24-03-PLAN.md — DB-backed idempotency indexes and blocking Alembic verification
+- [x] 24-04-PLAN.md — Shared conversation and rolling-summary idempotency helpers
+- [x] 24-05-PLAN.md — `/agent-runs` user-message creation and trusted SSE graph config
+- [x] 24-06-PLAN.md — Completed-run assistant, summary, and bounded session-memory finalizer
+- [x] 24-07-PLAN.md — Error/cancel/interruption and retry/reopen completed-only safeguards
+- [x] 24-08-PLAN.md — Prompt-context parity and memory authority-boundary protections
+- [x] 24-09-PLAN.md — Legacy compatibility, focused regression, and three-turn smoke
 
 ## Current Status
 
-v1.7 is active and ready for Phase 24 discussion/planning. `.planning/REQUIREMENTS.md` defines the short-term memory parity requirements.
+v1.7 is complete. Phase 24 delivered Agent Console `/agent-runs + SSE` short-term memory parity, including conversation persistence, rolling summaries, prompt-safe tool summaries, session slot continuity, failure/idempotency safeguards, authority-boundary regressions, and a three-turn smoke verification.
 
 ## Requirement Coverage
 
@@ -81,7 +82,7 @@ v1.7 is active and ready for Phase 24 discussion/planning. `.planning/REQUIREMEN
 
 ## Last Closeout
 
-v1.6 final closeout is recorded in `.planning/FINAL-CLOSEOUT.md` and archived milestone files.
+Phase 24 final review and verification are recorded in `.planning/phases/24-agent-runs-short-term-memory-parity/24-REVIEW.md` and `.planning/phases/24-agent-runs-short-term-memory-parity/24-VERIFICATION.md`.
 
 ## Deferred Work
 
@@ -93,7 +94,7 @@ v1.6 final closeout is recorded in `.planning/FINAL-CLOSEOUT.md` and archived mi
 
 ## Next Step
 
-Run `$gsd-discuss-phase 24` to lock gray-area decisions, then `$gsd-plan-phase 24` to produce the implementation plan.
+Start the next milestone with `$gsd-new-milestone`.
 
 ---
-*Updated: 2026-06-20 when v1.7 roadmap was created.*
+*Updated: 2026-06-20 after Phase 24 completion.*

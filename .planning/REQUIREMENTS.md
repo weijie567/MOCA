@@ -15,29 +15,29 @@ Complete the short-term memory chain for the current Agent Console main path, `/
 
 ### Agent Runs Conversation Persistence
 
-- [ ] **STM-01:** Current Agent Console `/api/v1/agent-runs` creates or resolves a conversation thread and persists exactly one user conversation message for each submitted query before graph execution.
-- [ ] **STM-02:** `/agent-runs` graph execution receives trusted `conversation_thread_id` and `conversation_message_id` in the run config so tool calls and tool results can be linked to the current turn.
-- [ ] **STM-03:** Completed `/agent-runs` runs persist exactly one assistant conversation message containing the final response and final status metadata.
-- [ ] **STM-04:** Completed `/agent-runs` runs update the thread rolling summary from newly committed user/assistant messages and eligible prompt-safe tool summaries.
+- [x] **STM-01:** Current Agent Console `/api/v1/agent-runs` creates or resolves a conversation thread and persists exactly one user conversation message for each submitted query before graph execution.
+- [x] **STM-02:** `/agent-runs` graph execution receives trusted `conversation_thread_id` and `conversation_message_id` in the run config so tool calls and tool results can be linked to the current turn.
+- [x] **STM-03:** Completed `/agent-runs` runs persist exactly one assistant conversation message containing the final response and final status metadata.
+- [x] **STM-04:** Completed `/agent-runs` runs update the thread rolling summary from newly committed user/assistant messages and eligible prompt-safe tool summaries.
 
 ### Short-term Prompt Context
 
-- [ ] **STM-05:** Same-thread follow-up turns on `/agent-runs` can load recent conversation messages, the latest prior rolling summary, and prompt-safe tool summaries into prompt context.
-- [ ] **STM-06:** PostgreSQL-authoritative session slot memory remains active on `/agent-runs`, and explicit current-turn slots continue to override inherited trusted session slots.
-- [ ] **STM-07:** Tool prompt summaries persisted from `/agent-runs` exclude raw payloads, private reasoning, authority bodies, debug traces, secrets, and PII beyond the existing allowed summary surface.
-- [ ] **STM-08:** Legacy `/api/v1/agent/chat` remains compatible with the shared conversation, tool summary, rolling summary, and session memory infrastructure.
+- [x] **STM-05:** Same-thread follow-up turns on `/agent-runs` can load recent conversation messages, the latest prior rolling summary, and prompt-safe tool summaries into prompt context.
+- [x] **STM-06:** PostgreSQL-authoritative session slot memory remains active on `/agent-runs`, and explicit current-turn slots continue to override inherited trusted session slots.
+- [x] **STM-07:** Tool prompt summaries persisted from `/agent-runs` exclude raw payloads, private reasoning, authority bodies, debug traces, secrets, and PII beyond the existing allowed summary surface.
+- [x] **STM-08:** Legacy `/api/v1/agent/chat` remains compatible with the shared conversation, tool summary, rolling summary, and session memory infrastructure.
 
 ### Failure and Idempotency Semantics
 
-- [ ] **STM-09:** Error, cancelled, and approval-interrupted runs have deterministic conversation persistence behavior and do not create false completed assistant messages or false completed rolling summaries.
-- [ ] **STM-10:** Retried, re-opened, or duplicate SSE streams do not duplicate user messages, assistant messages, tool result records, rolling summaries, or session memory writes.
-- [ ] **STM-11:** Memory writes are ordered so an incomplete stage stays running until its persistence obligations are done, then the next stage can begin with consistent state.
+- [x] **STM-09:** Error, cancelled, and approval-interrupted runs have deterministic conversation persistence behavior and do not create false completed assistant messages or false completed rolling summaries.
+- [x] **STM-10:** Retried, re-opened, or duplicate SSE streams do not duplicate user messages, assistant messages, tool result records, rolling summaries, or session memory writes.
+- [x] **STM-11:** Memory writes are ordered so an incomplete stage stays running until its persistence obligations are done, then the next stage can begin with consistent state.
 
 ### Authority Boundaries and Verification
 
-- [ ] **STM-12:** Rolling summaries, recent messages, tool summaries, session memory, long-term memory, and case memory remain contextual assistance only and cannot satisfy policy evidence, current business fact, approval/action authority, or replay/audit truth requirements.
-- [ ] **STM-13:** Regression tests cover `/agent-runs` conversation persistence, rolling summary generation, prompt context loading, session slot continuity, idempotent stream retry behavior, and legacy `/agent/chat` compatibility.
-- [ ] **STM-14:** A live or integration smoke flow verifies a three-turn Agent Console conversation can use both slot continuity and rolling-summary context.
+- [x] **STM-12:** Rolling summaries, recent messages, tool summaries, session memory, long-term memory, and case memory remain contextual assistance only and cannot satisfy policy evidence, current business fact, approval/action authority, or replay/audit truth requirements.
+- [x] **STM-13:** Regression tests cover `/agent-runs` conversation persistence, rolling summary generation, prompt context loading, session slot continuity, idempotent stream retry behavior, and legacy `/agent/chat` compatibility.
+- [x] **STM-14:** A live or integration smoke flow verifies a three-turn Agent Console conversation can use both slot continuity and rolling-summary context.
 
 ## v2 / Future Requirements
 
@@ -61,20 +61,20 @@ Complete the short-term memory chain for the current Agent Console main path, `/
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| STM-01 | Phase 24 | Pending |
-| STM-02 | Phase 24 | Pending |
-| STM-03 | Phase 24 | Pending |
-| STM-04 | Phase 24 | Pending |
-| STM-05 | Phase 24 | Pending |
-| STM-06 | Phase 24 | Pending |
-| STM-07 | Phase 24 | Pending |
-| STM-08 | Phase 24 | Pending |
-| STM-09 | Phase 24 | Pending |
-| STM-10 | Phase 24 | Pending |
-| STM-11 | Phase 24 | Pending |
-| STM-12 | Phase 24 | Pending |
-| STM-13 | Phase 24 | Pending |
-| STM-14 | Phase 24 | Pending |
+| STM-01 | Phase 24 | Complete |
+| STM-02 | Phase 24 | Complete |
+| STM-03 | Phase 24 | Complete |
+| STM-04 | Phase 24 | Complete |
+| STM-05 | Phase 24 | Complete |
+| STM-06 | Phase 24 | Complete |
+| STM-07 | Phase 24 | Complete |
+| STM-08 | Phase 24 | Complete |
+| STM-09 | Phase 24 | Complete |
+| STM-10 | Phase 24 | Complete |
+| STM-11 | Phase 24 | Complete |
+| STM-12 | Phase 24 | Complete |
+| STM-13 | Phase 24 | Complete |
+| STM-14 | Phase 24 | Complete |
 
 ---
-*Last updated: 2026-06-20 when v1.7 roadmap traceability was created.*
+*Last updated: 2026-06-20 after Phase 24 completion.*
