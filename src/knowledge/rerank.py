@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import re
 from collections.abc import Sequence
 from typing import Any, Literal, Protocol
@@ -420,10 +421,10 @@ def _normalize_provider_scores(values: Sequence[ProviderRerankScore] | Sequence[
             return None
         if not isinstance(candidate_id, str) or candidate_id in scores:
             return None
-        if not isinstance(raw_score, int | float):
+        if isinstance(raw_score, bool) or not isinstance(raw_score, int | float):
             return None
         score = float(raw_score)
-        if score < 0 or score > 1:
+        if not math.isfinite(score) or score < 0 or score > 1:
             return None
         scores[candidate_id] = score
     return scores

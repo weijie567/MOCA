@@ -242,6 +242,47 @@ async def test_provider_adapter_disabled_timeout_error_malformed_and_budget_fall
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("score", [True, False, float("nan")])
+async def test_provider_score_bool_and_nan_are_malformed_output(score: object) -> None:
+    DefaultLocalReranker, RerankCandidate, RerankerProviderAdapter, RerankConfig, rerank_candidates_for_query = (
+        _load_rerank_api()
+    )
+    candidate = _candidate(
+        RerankCandidate,
+        doc_key="refund_policy",
+        chunk_id="refund_policy_001",
+        score=0.68,
+        rank=1,
+    )
+    local_order = [
+        item.chunk_id
+        for item in await _maybe_await(
+            DefaultLocalReranker(config=RerankConfig(provider_enabled=False)).rerank(
+                query="商家已发货还能仅退款吗？",
+                candidates=[candidate],
+            )
+        )
+    ]
+
+    class MalformedScoreProvider(RerankerProviderAdapter):
+        async def rerank(self, **_kwargs):
+            return [{"candidate_id": candidate.candidate_id, "score": score}]
+
+    output = await _rerank(
+        rerank_candidates_for_query,
+        query="商家已发货还能仅退款吗？",
+        candidates=[candidate],
+        config=RerankConfig(provider_enabled=True),
+        provider=MalformedScoreProvider(),
+    )
+    ranked = _ranked(output)
+
+    assert [item.chunk_id for item in ranked] == local_order
+    assert ranked[0].fallback_reason == "provider_malformed_output"
+    assert output.fallback_reason == "provider_malformed_output"
+
+
+@pytest.mark.asyncio
 async def test_reranker_inputs_exclude_raw_internals_and_unbounded_text() -> None:
     _DefaultLocalReranker, RerankCandidate, RerankerProviderAdapter, RerankConfig, rerank_candidates_for_query = (
         _load_rerank_api()
