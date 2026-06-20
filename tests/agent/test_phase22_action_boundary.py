@@ -8,6 +8,7 @@ import pytest
 from src.agent.graph import route_after_risk
 from src.agent.nodes import assess_risk_and_approval as assess_risk_module
 from src.agent.nodes.action_draft import action_draft
+from src.approvals.snapshots import build_action_safety_snapshot
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1
 
@@ -213,3 +214,21 @@ async def test_action_draft_node_refuses_even_trusted_approval_when_verifier_rou
     assert result.get("draft_outcome") is None
     assert result["action_result"]["status"] == "error"
     assert result["action_result"]["error"]["error_code"] == "VERIFIER_NOT_ALLOW"
+
+
+def test_action_safety_snapshot_rejects_phase23_ranking_diagnostics_as_authority(base_state: dict[str, Any]) -> None:
+    for field_name in ("ranking_diagnostics", "provider_payload", "raw_rewrite_payload"):
+        with pytest.raises(ValueError, match="unknown snapshot fields"):
+            build_action_safety_snapshot(
+                tenant_id=base_state["tenant_id"],
+                run_id=str(uuid4()),
+                snapshot_id="snap-phase23-boundary",
+                snapshot_ref="snapshot:phase23-boundary",
+                policy_config_version="approval-policy.v1",
+                risk_config_version="risk-rules.v1",
+                retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+                evidence=[_evidence_ref(base_state["tenant_id"])],
+                action_payload_hash=ACTION_HASH,
+                created_at="2026-06-20T00:00:00.000Z",
+                **{field_name: "SHOULD_NOT_LEAK_RANKING_DIAGNOSTICS"},
+            )

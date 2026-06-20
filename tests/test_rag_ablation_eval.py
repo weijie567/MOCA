@@ -114,3 +114,16 @@ def test_ablation_report_contains_rank_safety_fallback_and_latency_metrics() -> 
     assert "provider_config_version" in report
     assert "retrieval_config_version" in report
     assert "rerank_config_version" in report
+    report_text = json.dumps(report, ensure_ascii=False, sort_keys=True)
+    for forbidden_key in (
+        "raw_prompt",
+        "raw_provider",
+        "private_reasoning",
+        "source_block",
+        "ocr_metadata",
+        "raw_tool",
+        "business_fact_payload",
+        "provider_payload",
+        "raw_rewrite_payload",
+    ):
+        assert forbidden_key not in report_text

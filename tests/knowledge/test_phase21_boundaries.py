@@ -89,10 +89,12 @@ PHASE23_ALLOWED_SURFACE_PATTERNS = {
     "build_ablation_report",
     "score_ablation_case",
 }
-PHASE23_ALLOWED_SURFACE = {
+PHASE23_ALLOWED_SURFACE_FILES = {
     Path("src/knowledge/rewrite.py"),
     Path("src/knowledge/rerank.py"),
     Path("src/knowledge/diagnostics.py"),
+    Path("src/knowledge/retrieval.py"),
+    Path("src/knowledge/service.py"),
     Path("tests/knowledge/test_query_rewrite.py"),
     Path("tests/knowledge/test_reranker.py"),
     Path("tests/knowledge/test_retrieval_diagnostics.py"),
@@ -100,6 +102,7 @@ PHASE23_ALLOWED_SURFACE = {
     Path("tests/test_rag_ablation_eval.py"),
     Path("scripts/eval_rag_ablation.py"),
 }
+PHASE23_ALLOWED_SURFACE = PHASE23_ALLOWED_SURFACE_FILES
 IGNORED_STATIC_GUARD_FILES = {
     Path("tests/actions/test_action_draft_v2.py"),
     Path("tests/architecture/test_action_draft_boundaries.py"),
@@ -171,8 +174,9 @@ def test_phase22_boundary_guard_still_blocks_rerank_query_rewrite_search_backend
         Path("src/knowledge/rewrite.py"),
         Path("src/knowledge/rerank.py"),
         Path("src/knowledge/diagnostics.py"),
+        Path("src/knowledge/retrieval.py"),
         Path("scripts/eval_rag_ablation.py"),
-    } <= PHASE23_ALLOWED_SURFACE
+    } <= PHASE23_ALLOWED_SURFACE_FILES
     assert {
         "QueryRewriteService",
         "query_rewriter",
@@ -196,6 +200,19 @@ def test_phase22_boundary_guard_still_blocks_rerank_query_rewrite_search_backend
         "policy_source_lifecycle_ui",
         "source_document_viewer",
     } <= set(FORBIDDEN_IMPLEMENTATION_PATTERNS)
+
+
+def test_phase23_does_not_expand_agentstate_authority_fields() -> None:
+    source = (REPO_ROOT / "src/agent/state.py").read_text(encoding="utf-8")
+
+    for forbidden in (
+        "rerank_authority",
+        "query_rewrite_authority",
+        "ranking_diagnostics",
+        "provider_payload",
+        "raw_rewrite_payload",
+    ):
+        assert forbidden not in source
 
 
 def test_static_guard_allows_current_v13_compatibility_names_only_at_known_sites() -> None:

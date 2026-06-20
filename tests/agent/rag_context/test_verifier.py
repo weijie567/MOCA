@@ -278,3 +278,35 @@ async def test_action_recommendation_requires_supported_policy_and_business_depe
     assert "unsupported_business_dependency" in result.reason_codes
     assert result.allows_claim is False
     assert result.allows_action_recommendation is False
+
+
+@pytest.mark.asyncio
+async def test_rerank_and_rewrite_diagnostics_do_not_satisfy_material_claim_support() -> None:
+    """MaterialClaimVerifier treats reranker score, rewrite confidence, selected channels, and ranking explanation as relevance diagnostics only, never supported policy authority."""
+    MaterialClaim, MaterialClaimVerifier, VerificationOutcome = _load_verifier_api()
+    evidence = _evidence_ref(text="Policy only says delivered orders need logistics evidence before compensation.")
+    claim = MaterialClaim.model_validate(
+        _claim_payload(
+            "policy_claim",
+            claim_text="The platform must issue a no-evidence coupon immediately.",
+            cited_evidence_ids=[evidence.evidence_id],
+        )
+    )
+    context_bundle = _bundle(
+        evidence=evidence,
+        evidence_text="Policy only says delivered orders need logistics evidence before compensation.",
+    )
+    context_bundle["verifier_context"]["reranker_score"] = 0.99
+    context_bundle["verifier_context"]["rewrite_confidence"] = 0.99
+    context_bundle["verifier_context"]["selected_channels"] = ["dense", "sparse", "fuzzy"]
+    context_bundle["verifier_context"]["ranking_explanation"] = {
+        "candidate_id": evidence.evidence_id,
+        "final_score": 0.99,
+        "reason": "ranking explanation SHOULD_NOT_ACT_AS_SUPPORT",
+    }
+
+    result = await MaterialClaimVerifier().verify_claim(claim, context_bundle=context_bundle)
+
+    assert _value(result.outcome) == VerificationOutcome.UNSUPPORTED.value
+    assert "citation_membership_not_support" in result.reason_codes
+    assert result.allows_claim is False
