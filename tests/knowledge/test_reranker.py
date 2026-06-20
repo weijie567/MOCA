@@ -292,10 +292,7 @@ async def test_reranker_inputs_exclude_raw_internals_and_unbounded_text() -> Non
     class CapturingProvider(RerankerProviderAdapter):
         async def rerank(self, *, candidates, **_kwargs):
             captured_payloads.extend(candidate.model_dump(mode="json") for candidate in candidates)
-            return [
-                {"candidate_id": candidate.candidate_id, "score": 0.91}
-                for candidate in candidates
-            ]
+            return [{"candidate_id": candidate.candidate_id, "score": 0.91} for candidate in candidates]
 
     candidate = _candidate(
         RerankCandidate,

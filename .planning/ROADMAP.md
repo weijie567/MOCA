@@ -29,6 +29,15 @@
 
 No active milestone is defined. v1.6 is archived, `.planning/REQUIREMENTS.md` is intentionally absent until the next milestone is started, and there are no current pending GSD todos.
 
+## Final Closeout
+
+Final closeout is recorded in `.planning/FINAL-CLOSEOUT.md`.
+
+- Final validation passed on 2026-06-20.
+- GSD state has no active milestone phase and no pending todos.
+- No remote push was performed.
+- Local non-GSD work in `study_plan/deep-research-report (1).md` was intentionally preserved outside the closeout commit.
+
 ## Deferred Work
 
 - **17-prep: AgentState Surface Contracts + Authority Isolation** - preserved as `.planning/todos/deferred/2026-06-17-constrain-agentstate-memory-expansion.md`; future candidate only if Phase 17 is reintroduced.
@@ -42,4 +51,4 @@ No active milestone is defined. v1.6 is archived, `.planning/REQUIREMENTS.md` is
 No action is required. Start a new milestone with `$gsd-new-milestone` only when there is a new active goal.
 
 ---
-*Updated: 2026-06-20 after v1.6 milestone archive.*
+*Updated: 2026-06-20 after final closeout validation.*

@@ -91,11 +91,11 @@ def build_retrieval_diagnostics(
     safe_summary = _bound_summary(query_rewrite_summary)
     exclusions = excluded_evidence or []
     excluded_ids = {item.evidence_id for item in exclusions}
-    safe_candidate_ids = [candidate_id for candidate_id in selected_candidate_ids or [] if candidate_id not in excluded_ids]
+    safe_candidate_ids = [
+        candidate_id for candidate_id in selected_candidate_ids or [] if candidate_id not in excluded_ids
+    ]
     safe_explanations = [
-        explanation
-        for explanation in ranking_explanations or []
-        if explanation.candidate_id not in excluded_ids
+        explanation for explanation in ranking_explanations or [] if explanation.candidate_id not in excluded_ids
     ]
     return RetrievalDiagnostics(
         original_query=original_query,

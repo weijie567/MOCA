@@ -4,7 +4,10 @@ import re
 from pathlib import Path
 
 
-COVERAGE_PATH = Path(".planning/phases/16-long-term-case-memory/16-COVERAGE.md")
+COVERAGE_PATHS = (
+    Path(".planning/phases/16-long-term-case-memory/16-COVERAGE.md"),
+    Path(".planning/milestones/v1.2-phases/16-long-term-case-memory/16-COVERAGE.md"),
+)
 PHASE16_REQUIREMENTS = {
     "MEMID-01",
     "MEMSCHEMA-01",
@@ -23,17 +26,25 @@ PHASE16_REQUIREMENTS = {
 }
 
 
-def test_phase16_coverage_manifest_lists_all_requirement_ids() -> None:
-    assert COVERAGE_PATH.exists(), "Phase 16 coverage manifest must exist before verify-work"
+def _coverage_path() -> Path:
+    for path in COVERAGE_PATHS:
+        if path.exists():
+            return path
+    return COVERAGE_PATHS[0]
 
-    text = COVERAGE_PATH.read_text(encoding="utf-8")
+
+def test_phase16_coverage_manifest_lists_all_requirement_ids() -> None:
+    coverage_path = _coverage_path()
+    assert coverage_path.exists(), "Phase 16 coverage manifest must exist before verify-work"
+
+    text = coverage_path.read_text(encoding="utf-8")
     listed_ids = set(re.findall(r"\b[A-Z]+-\d{2}\b", text))
 
     assert PHASE16_REQUIREMENTS <= listed_ids
 
 
 def test_phase16_coverage_manifest_maps_each_requirement_to_verification() -> None:
-    text = COVERAGE_PATH.read_text(encoding="utf-8")
+    text = _coverage_path().read_text(encoding="utf-8")
 
     for requirement_id in PHASE16_REQUIREMENTS:
         row_match = re.search(rf"^\|\s*{requirement_id}\s*\|(?P<row>.+)$", text, re.MULTILINE)

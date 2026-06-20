@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: RAG Reranker + Query Rewrite
 status: archived
-stopped_at: v1.6 milestone archived
-last_updated: "2026-06-20T10:38:23+08:00"
-last_activity: 2026-06-20 -- Archived v1.6 RAG Reranker + Query Rewrite
+stopped_at: final closeout validation passed
+last_updated: "2026-06-20T11:25:07+08:00"
+last_activity: 2026-06-20 -- Final closeout validation passed
 progress:
   total_phases: 1
   completed_phases: 1
@@ -28,7 +28,7 @@ See: `.planning/PROJECT.md` (updated 2026-06-20)
 Phase: None
 Plan: Not started
 Status: Ready for new milestone
-Last activity: 2026-06-20 -- Archived v1.6 RAG Reranker + Query Rewrite
+Last activity: 2026-06-20 -- Final closeout validation passed
 
 Progress: [██████████] 100%
 
@@ -37,6 +37,7 @@ Planning files:
 - `.planning/PROJECT.md`
 - `.planning/ROADMAP.md`
 - `.planning/STATE.md`
+- `.planning/FINAL-CLOSEOUT.md`
 - `.planning/MILESTONES.md`
 - `.planning/RETROSPECTIVE.md`
 - `.planning/milestones/v1.6-ROADMAP.md`
@@ -51,7 +52,7 @@ Planning files:
 - Phase 23 may add bounded query rewrite, deterministic/default reranking, optional config-gated provider adapters, ranking diagnostics, ablation evals, and latency budgets.
 - Phase 23 must preserve `EvidenceRefV1` identity, canonical citation text/text_hash, tenant/scope/effective-date filters, source-block/OCR provenance boundaries, ContextBuilder validation, verifier routing, and action-boundary safety.
 - Phase 23 research was completed in `.planning/phases/23-rag-reranker-query-rewrite/23-RESEARCH.md`; do not use stale active `.planning/research` content.
-- 17-prep AgentState cleanup remains a pending todo before Phase 17 External Action Execution, not a blocker or next active phase for v1.6.
+- 17-prep AgentState cleanup is preserved as a deferred record for possible future Phase 17 work, not a pending todo or blocker.
 
 ## Performance Metrics
 
@@ -95,8 +96,8 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-20T10:38:23+08:00
-Stopped at: v1.6 milestone archived
+Last session: 2026-06-20T11:25:07+08:00
+Stopped at: final closeout validation passed
 Resume file: None
 Next: None required. Use `$gsd-new-milestone` only when ready to define fresh requirements and roadmap.
 

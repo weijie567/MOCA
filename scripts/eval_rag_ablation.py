@@ -82,9 +82,7 @@ def score_ablation_case(case: dict[str, Any], variant_result: dict[str, Any]) ->
         "fallback_reason": fallback_reason,
         "latency_ms": float(variant_result.get("latency_ms", 0.0)),
         "selected_candidate_ids": [
-            _candidate_id(item)
-            for item in evidence
-            if item.get("doc_key") and item.get("chunk_id")
+            _candidate_id(item) for item in evidence if item.get("doc_key") and item.get("chunk_id")
         ],
         "safe_evidence": evidence,
         "missing_expected_chunks": sorted(expected_chunks - set(got_chunks)),

@@ -537,9 +537,7 @@ async def _finalize_hits(
     limit: int,
 ) -> tuple[list[PolicyRetrievalHit], float, str, RerankOutput | None]:
     fused_results = [
-        candidate
-        for candidate in _sort_candidates(candidates)
-        if candidate.confidence >= MIN_SIMILARITY_THRESHOLD
+        candidate for candidate in _sort_candidates(candidates) if candidate.confidence >= MIN_SIMILARITY_THRESHOLD
     ][:MERGED_CANDIDATE_CAP]
     if has_domain_anchor(query):
         eligible_results = fused_results
@@ -651,7 +649,9 @@ def _build_internal_diagnostics(
         RankingExplanation(
             candidate_id=candidate_id,
             selected_channels=hit.selected_by,
-            rewrite_contribution=1.0 if query_rewrite_summary and "rewrite_count=0" not in query_rewrite_summary else 0.0,
+            rewrite_contribution=1.0
+            if query_rewrite_summary and "rewrite_count=0" not in query_rewrite_summary
+            else 0.0,
             rerank_contribution=_rerank_contribution(reranked_by_id.get(candidate_id), hit),
             rank_before=reranked_by_id.get(candidate_id).baseline_rank if candidate_id in reranked_by_id else None,
             rank_after=hit.rank,
@@ -660,7 +660,8 @@ def _build_internal_diagnostics(
             provider_config_version=_rerank_provider_config_version(rerank_output),
             fallback_reason=(
                 _candidate_fallback_reason(reranked_by_id[candidate_id])
-                if candidate_id in reranked_by_id and _candidate_fallback_reason(reranked_by_id[candidate_id]) is not None
+                if candidate_id in reranked_by_id
+                and _candidate_fallback_reason(reranked_by_id[candidate_id]) is not None
                 else (_rerank_fallback_reason(rerank_output) or fallback_reason)
             ),
         )
@@ -707,10 +708,7 @@ def _safe_rerank_score_components(reranked_candidate: object | None, hit: Policy
     }
     if reranked_candidate is not None:
         components.update(
-            {
-                key: float(value)
-                for key, value in getattr(reranked_candidate, "score_components", {}).items()
-            }
+            {key: float(value) for key, value in getattr(reranked_candidate, "score_components", {}).items()}
         )
         final_score = getattr(reranked_candidate, "final_score", None)
         if final_score is not None:
@@ -719,10 +717,7 @@ def _safe_rerank_score_components(reranked_candidate: object | None, hit: Policy
 
 
 def _candidate_score_components(reranked_candidate: object) -> dict[str, float]:
-    return {
-        key: float(value)
-        for key, value in getattr(reranked_candidate, "score_components", {}).items()
-    }
+    return {key: float(value) for key, value in getattr(reranked_candidate, "score_components", {}).items()}
 
 
 def _candidate_fallback_reason(reranked_candidate: object) -> str | None:

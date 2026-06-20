@@ -222,7 +222,9 @@ async def rerank_candidates_for_query(
             fallback_reason="provider_disabled",
         )
 
-    provider_candidates = tuple(_sanitize_candidate_for_provider(candidate, effective_config) for candidate in candidates)
+    provider_candidates = tuple(
+        _sanitize_candidate_for_provider(candidate, effective_config) for candidate in candidates
+    )
     try:
         provider_scores = await _call_provider_with_retries(
             provider=provider,
@@ -299,10 +301,7 @@ def _rank_locally(
         for candidate in candidates
     ]
     scored.sort(key=lambda item: (-item.final_score, item.baseline_rank, item.doc_key, item.chunk_id))
-    return tuple(
-        candidate.model_copy(update={"rank": rank})
-        for rank, candidate in enumerate(scored, start=1)
-    )
+    return tuple(candidate.model_copy(update={"rank": rank}) for rank, candidate in enumerate(scored, start=1))
 
 
 def _provider_order(
@@ -398,7 +397,9 @@ def _channel_coverage(selected_by: tuple[str, ...]) -> float:
 
 
 def _sanitize_candidate_for_provider(candidate: RerankCandidate, config: RerankConfig) -> RerankCandidate:
-    return candidate.model_copy(update={"text_snippet": _safe_provider_text(candidate.text_snippet, config.text_max_chars)})
+    return candidate.model_copy(
+        update={"text_snippet": _safe_provider_text(candidate.text_snippet, config.text_max_chars)}
+    )
 
 
 def _safe_provider_text(text: str, max_chars: int) -> str:
@@ -408,7 +409,9 @@ def _safe_provider_text(text: str, max_chars: int) -> str:
     return safe_text[:max_chars]
 
 
-def _normalize_provider_scores(values: Sequence[ProviderRerankScore] | Sequence[dict[str, Any]]) -> dict[str, float] | None:
+def _normalize_provider_scores(
+    values: Sequence[ProviderRerankScore] | Sequence[dict[str, Any]],
+) -> dict[str, float] | None:
     scores: dict[str, float] = {}
     for value in values:
         if isinstance(value, ProviderRerankScore):
