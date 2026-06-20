@@ -61,20 +61,20 @@ Complete the short-term memory chain for the current Agent Console main path, `/
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| STM-01 | TBD | Pending |
-| STM-02 | TBD | Pending |
-| STM-03 | TBD | Pending |
-| STM-04 | TBD | Pending |
-| STM-05 | TBD | Pending |
-| STM-06 | TBD | Pending |
-| STM-07 | TBD | Pending |
-| STM-08 | TBD | Pending |
-| STM-09 | TBD | Pending |
-| STM-10 | TBD | Pending |
-| STM-11 | TBD | Pending |
-| STM-12 | TBD | Pending |
-| STM-13 | TBD | Pending |
-| STM-14 | TBD | Pending |
+| STM-01 | Phase 24 | Pending |
+| STM-02 | Phase 24 | Pending |
+| STM-03 | Phase 24 | Pending |
+| STM-04 | Phase 24 | Pending |
+| STM-05 | Phase 24 | Pending |
+| STM-06 | Phase 24 | Pending |
+| STM-07 | Phase 24 | Pending |
+| STM-08 | Phase 24 | Pending |
+| STM-09 | Phase 24 | Pending |
+| STM-10 | Phase 24 | Pending |
+| STM-11 | Phase 24 | Pending |
+| STM-12 | Phase 24 | Pending |
+| STM-13 | Phase 24 | Pending |
+| STM-14 | Phase 24 | Pending |
 
 ---
-*Last updated: 2026-06-20 when v1.7 requirements were defined.*
+*Last updated: 2026-06-20 when v1.7 roadmap traceability was created.*

@@ -9,6 +9,7 @@
 - [x] **v1.4 RAG Production Ingestion + OCR** - Shipped on 2026-06-19. Full archive: [v1.4-ROADMAP.md](milestones/v1.4-ROADMAP.md)
 - [x] **v1.5 RAG Context Builder + Hallucination Control** - Shipped on 2026-06-19. Full archive: [v1.5-ROADMAP.md](milestones/v1.5-ROADMAP.md)
 - [x] **v1.6 RAG Reranker + Query Rewrite** - Shipped on 2026-06-20. Full archive: [v1.6-ROADMAP.md](milestones/v1.6-ROADMAP.md)
+- [ ] **v1.7 Short-term Memory Unification** - Current milestone. Goal: complete the short-term memory chain for the current Agent Console `/api/v1/agent-runs + SSE` path.
 
 ## Phases
 
@@ -25,18 +26,50 @@
 
 </details>
 
+### Phase 24: Agent Runs Short-term Memory Parity
+
+**Status:** Ready to plan  
+**Milestone:** v1.7 Short-term Memory Unification  
+**Requirements:** STM-01, STM-02, STM-03, STM-04, STM-05, STM-06, STM-07, STM-08, STM-09, STM-10, STM-11, STM-12, STM-13, STM-14
+
+**Goal:** Make the current `/api/v1/agent-runs + SSE` path persist and consume the same short-term memory surfaces expected by Agent Console follow-up turns: conversation messages, prompt-safe tool summaries, rolling thread summaries, and PostgreSQL-backed session slots.
+
+**Success criteria:**
+
+1. `/api/v1/agent-runs` creates or resolves a conversation thread, persists exactly one user message per submitted query, and passes trusted conversation identifiers into graph execution.
+2. Completed runs persist exactly one assistant message and update the rolling thread summary from committed messages and eligible prompt-safe tool summaries.
+3. Follow-up runs can load recent messages, latest prior rolling summary, prompt-safe tool summaries, and session slot memory into prompt context.
+4. Explicit current-turn slots override inherited trusted session slots, and stale or scope-mismatched inherited memory fails closed.
+5. Error, cancelled, approval-interrupted, retried, and re-opened stream states are idempotent and do not produce false completed summaries or duplicated records.
+6. Memory surfaces remain contextual only and cannot satisfy policy evidence, current business fact, approval/action authority, or replay/audit truth.
+7. Regression tests and an integration or live smoke flow prove a three-turn Agent Console conversation can use both slot continuity and rolling-summary context.
+
 ## Current Status
 
-No active milestone is defined. v1.6 is archived, `.planning/REQUIREMENTS.md` is intentionally absent until the next milestone is started, and there are no current pending GSD todos.
+v1.7 is active and ready for Phase 24 discussion/planning. `.planning/REQUIREMENTS.md` defines the short-term memory parity requirements.
 
-## Final Closeout
+## Requirement Coverage
 
-Final closeout is recorded in `.planning/FINAL-CLOSEOUT.md`.
+| Requirement | Phase | Coverage |
+|-------------|-------|----------|
+| STM-01 | Phase 24 | Agent runs user-message persistence |
+| STM-02 | Phase 24 | Conversation identifiers in graph config |
+| STM-03 | Phase 24 | Assistant-message persistence |
+| STM-04 | Phase 24 | Rolling-summary update |
+| STM-05 | Phase 24 | Prompt-context loading |
+| STM-06 | Phase 24 | Session slot continuity and override |
+| STM-07 | Phase 24 | Prompt-safe tool summary constraints |
+| STM-08 | Phase 24 | Legacy chat compatibility |
+| STM-09 | Phase 24 | Error/cancel/interruption semantics |
+| STM-10 | Phase 24 | SSE retry idempotency |
+| STM-11 | Phase 24 | Ordered memory persistence stages |
+| STM-12 | Phase 24 | Authority boundary preservation |
+| STM-13 | Phase 24 | Regression coverage |
+| STM-14 | Phase 24 | Three-turn smoke verification |
 
-- Final validation passed on 2026-06-20.
-- GSD state has no active milestone phase and no pending todos.
-- No remote push was performed.
-- Local non-GSD work in `study_plan/deep-research-report (1).md` was intentionally preserved outside the closeout commit.
+## Last Closeout
+
+v1.6 final closeout is recorded in `.planning/FINAL-CLOSEOUT.md` and archived milestone files.
 
 ## Deferred Work
 
@@ -48,7 +81,7 @@ Final closeout is recorded in `.planning/FINAL-CLOSEOUT.md`.
 
 ## Next Step
 
-No action is required. Start a new milestone with `$gsd-new-milestone` only when there is a new active goal.
+Run `$gsd-discuss-phase 24` to lock gray-area decisions, then `$gsd-plan-phase 24` to produce the implementation plan.
 
 ---
-*Updated: 2026-06-20 after final closeout validation.*
+*Updated: 2026-06-20 when v1.7 roadmap was created.*
