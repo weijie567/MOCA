@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Short-term Memory Unification
-status: ready_to_plan
-stopped_at: Phase 24 context gathered
-last_updated: "2026-06-20T19:38:19+08:00"
-last_activity: 2026-06-20 -- Gathered Phase 24 context
+status: ready_to_execute
+stopped_at: Phase 24 planned
+last_updated: "2026-06-20T20:47:45+08:00"
+last_activity: 2026-06-20 -- Planned Phase 24
 progress:
   total_phases: 1
   completed_phases: 0
-  total_plans: 0
+  total_plans: 9
   completed_plans: 0
   percent: 0
 ---
@@ -26,9 +26,9 @@ See: `.planning/PROJECT.md` (updated 2026-06-20)
 ## Current Position
 
 Phase: 24 - Agent Runs Short-term Memory Parity
-Plan: Not started
-Status: Context gathered; ready to plan
-Last activity: 2026-06-20 -- Gathered Phase 24 context
+Plan: 9 plans ready
+Status: Ready to execute
+Last activity: 2026-06-20 -- Planned Phase 24
 
 Progress: [----------] 0%
 
@@ -57,7 +57,7 @@ Planning files:
 
 | Phase | Plans | Status |
 |-------|-------|--------|
-| 24. Agent Runs Short-term Memory Parity | 0/0 | Ready to plan |
+| 24. Agent Runs Short-term Memory Parity | 0/9 | Ready to execute |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
 
@@ -72,7 +72,7 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 
 ### Pending Todos
 
-- Plan Phase 24 implementation.
+- Execute Phase 24 implementation.
 
 ### Blockers / Concerns
 
@@ -102,6 +102,8 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 Last session: 2026-06-20T19:38:19+08:00
 Stopped at: Phase 24 context gathered
 Resume file: `.planning/phases/24-agent-runs-short-term-memory-parity/24-CONTEXT.md`
-Next: Run `$gsd-plan-phase 24`.
+Next: Run `$gsd-execute-phase 24`.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
+
+**Planned Phase:** 24 (Agent Runs Short-term Memory Parity) — 9 plans — 2026-06-20T12:47:13.230Z
