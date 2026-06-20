@@ -286,3 +286,104 @@ async def test_reviewed_memory_cannot_satisfy_policy_evidence_or_action_authorit
         "must-not-leak",
     ]
     assert all(term not in memory_json for term in forbidden_terms)
+
+
+@pytest.mark.asyncio
+async def test_agent_runs_memory_context_is_not_policy_business_action_or_replay_authority() -> None:
+    from src.agent.rag_context.claims import MaterialClaim
+    from src.agent.rag_context.verifier import MaterialClaimVerifier, VerificationOutcome
+    from src.tools.contracts import BusinessFactRefV1
+
+    tenant_id = "11111111-1111-1111-1111-111111111111"
+    business_ref = BusinessFactRefV1(
+        tenant_id=tenant_id,
+        source_system="business_tool_service",
+        resource_type="order",
+        resource_id="ORD-MEMORY-CONTEXT",
+        resource_version="v1",
+        data_freshness_at=datetime(2026, 6, 20, tzinfo=UTC),
+        retrieved_at=datetime(2026, 6, 20, tzinfo=UTC),
+    )
+    contextual_sources = {
+        "session_memory": {
+            "active_slots": {"order_id": "ORD-MEMORY-CONTEXT"},
+            "slot_metadata": {"order_id": {"source": "trusted_session_memory"}},
+        },
+        "prior_summaries": ["Prior summary can resolve references to ORD-MEMORY-CONTEXT."],
+        "case_memory": [{"case_memory_id": "case-memory-context", "outcome": "context only"}],
+    }
+    context_bundle = {
+        "trusted_context": {"tenant_id": tenant_id, "thread_id": "agent-runs-memory-boundary"},
+        "citation_map": {},
+        "verifier_context": {"business_fact_refs": [], "evidence_snippets": []},
+        "contextual_sources": contextual_sources,
+    }
+    verifier = MaterialClaimVerifier()
+    policy_claim = MaterialClaim.model_validate(
+        {
+            "claim_id": "claim-policy-memory-context",
+            "claim_text": "Policy allows compensation for ORD-MEMORY-CONTEXT.",
+            "authority_class": "policy_claim",
+            "source_node": "generate_recommendation",
+            "cited_evidence_ids": ["policy-memory-context"],
+        }
+    )
+    business_claim = MaterialClaim.model_validate(
+        {
+            "claim_id": "claim-business-memory-context",
+            "claim_text": "Order ORD-MEMORY-CONTEXT is delivered.",
+            "authority_class": "business_fact_claim",
+            "source_node": "generate_recommendation",
+            "business_fact_refs": [business_ref.model_dump(mode="json")],
+        }
+    )
+    action_claim = MaterialClaim.model_validate(
+        {
+            "claim_id": "claim-action-memory-context",
+            "claim_text": "Issue compensation for ORD-MEMORY-CONTEXT.",
+            "authority_class": "action_recommendation_claim",
+            "source_node": "generate_recommendation",
+            "cited_evidence_ids": ["policy-memory-context"],
+            "business_fact_refs": [business_ref.model_dump(mode="json")],
+            "dependency_claim_ids": ["claim-policy-memory-context", "claim-business-memory-context"],
+        }
+    )
+
+    policy_result = await verifier.verify_claim(policy_claim, context_bundle=context_bundle)
+    business_result = await verifier.verify_claim(business_claim, context_bundle=context_bundle)
+    action_result = await verifier.verify_claim(
+        action_claim,
+        context_bundle=context_bundle,
+        dependency_results=[
+            {"claim_id": "claim-policy-memory-context", "outcome": "supported_by_memory"},
+            {"claim_id": "claim-business-memory-context", "outcome": "supported_by_memory"},
+        ],
+    )
+
+    assert policy_result.outcome == VerificationOutcome.INSUFFICIENT
+    assert "memory_not_policy_authority" in policy_result.reason_codes
+    assert business_result.outcome == VerificationOutcome.BUSINESS_FACT_MISSING
+    assert "memory_not_business_authority" in business_result.reason_codes
+    assert "business_fact_ref_required" in business_result.reason_codes
+    assert action_result.outcome == VerificationOutcome.UNSUPPORTED
+    assert "policy_dependency_not_evidence_supported" in action_result.reason_codes
+    assert "business_dependency_not_tool_supported" in action_result.reason_codes
+    assert action_result.allows_action_recommendation is False
+    assert action_result.blocks_proposed_action is True
+    assert action_result.safe_support_refs == []
+
+    serialized_memory_surface = json.dumps(
+        {"contextual_sources": contextual_sources, "safe_support_refs": action_result.safe_support_refs},
+        ensure_ascii=False,
+    )
+    for marker in (
+        "raw_payload",
+        "private_reasoning",
+        "approval_authority_body",
+        "action_authority_body",
+        "debug_trace",
+        "secret",
+        "EvidenceRefV1",
+        "ReplayEventV3",
+    ):
+        assert marker not in serialized_memory_surface

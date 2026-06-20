@@ -243,6 +243,64 @@ async def test_thread_rolling_summary_preserves_open_questions_and_constraints(
 
 
 @pytest.mark.asyncio
+async def test_thread_rolling_summary_is_idempotent_for_same_source_end(
+    session: AsyncSession, seeded_session: dict
+) -> None:
+    repository = ConversationRepository(session)
+    conversation = ConversationService(repository)
+    summary_service = ThreadRollingSummaryService(repository)
+    tenant_id = seeded_session["tenant"].id
+    user_id = seeded_session["users"]["cs_zhang"].id
+    thread_id = "thread-summary-idempotent-source-end"
+    run_id = await _insert_run(session, seeded_session, thread_id)
+
+    await conversation.append_user_message(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=run_id,
+        content="请确认 ORD-IDEMPOTENT-001 的退款状态。",
+    )
+    assistant_message = await conversation.append_assistant_message(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=run_id,
+        content="ORD-IDEMPOTENT-001 当前仍在审核中。",
+    )
+
+    first = await summary_service.persist_thread_summary(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=run_id,
+    )
+    second = await summary_service.persist_thread_summary(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=run_id,
+        since_message_id=None,
+    )
+    rows = (
+        await session.execute(
+            select(ConversationSummary).where(
+                ConversationSummary.tenant_id == tenant_id,
+                ConversationSummary.thread_id == thread_id,
+                ConversationSummary.summary_type == "thread_rolling",
+                ConversationSummary.source_end_message_id == assistant_message.message_id,
+                ConversationSummary.deleted_at.is_(None),
+            )
+        )
+    ).scalars().all()
+
+    assert first is not None
+    assert second is not None
+    assert second.id == first.id
+    assert len(rows) == 1
+
+
+@pytest.mark.asyncio
 async def test_thread_summary_is_not_session_memory_or_case_memory(session: AsyncSession, seeded_session: dict) -> None:
     repository = ConversationRepository(session)
     conversation = ConversationService(repository)

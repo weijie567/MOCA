@@ -356,6 +356,75 @@ def test_context_assembler_injects_bounded_memory_blocks():
     assert SHOULD_NOT_APPEAR_NESTED_REPR not in prompt
 
 
+def test_agent_runs_prompt_context_excludes_raw_tool_private_authority_and_debug_fields():
+    forbidden_markers = (
+        "raw_payload",
+        "private_reasoning",
+        "approval_authority_body",
+        "action_authority_body",
+        "debug_trace",
+        "secret",
+        "EvidenceRefV1",
+        "ReplayEventV3",
+    )
+    assembly = ContextAssembler(TokenBudgetPolicy(max_chars=5000)).assemble(
+        system_prompt="System prompt",
+        current_user_message="Agent-runs follow-up for ORD-AGENT-SAFE.",
+        working_state=_working_state(),
+        thread_rolling_summary=(
+            "Safe prior summary for ORD-AGENT-SAFE. "
+            "raw_payload private_reasoning approval_authority_body action_authority_body "
+            "debug_trace secret EvidenceRefV1 ReplayEventV3"
+        ),
+        recent_messages=[
+            {
+                "role": "assistant",
+                "content": "Safe recent assistant context for ORD-AGENT-SAFE.",
+                "metadata": {
+                    "raw_payload": "secret",
+                    "private_reasoning": "hidden",
+                    "approval_authority_body": {"decision": "approve"},
+                    "debug_trace": "debug only",
+                },
+            }
+        ],
+        tool_result_summaries=[
+            {
+                "tool_call_id": "tool-call-agent-runs-safe",
+                "tool_result_id": "tool-result-agent-runs-safe",
+                "tool_name": "get_order",
+                "status": "success",
+                "summary": "raw_payload private_reasoning secret",
+                "prompt_summary": "Safe prompt summary for ORD-AGENT-SAFE.",
+                "business_fact_refs": [{"resource_type": "order", "resource_id": "ORD-AGENT-SAFE"}],
+                "policy_evidence_refs": [{"evidence_id": "EvidenceRefV1"}],
+                "raw_result_ref": "raw_payload://secret",
+                "audit_ref": "ReplayEventV3://debug_trace",
+                "data": {
+                    "approval_authority_body": {"decision": "approve"},
+                    "action_authority_body": {"action": "refund"},
+                },
+            }
+        ],
+        profile_memory_snippets=[
+            {
+                "memory_id": "profile-agent-runs-safe",
+                "memory_kind": "preference",
+                "content": "Use concise updates for ORD-AGENT-SAFE. ReplayEventV3 must not leak.",
+                "source_ref": {"source_type": "human_reviewed", "raw_payload": "secret"},
+            }
+        ],
+    )
+
+    prompt = _prompt_text(assembly)
+
+    assert "Safe prior summary" in prompt
+    assert "Safe recent assistant context" in prompt
+    assert "Safe prompt summary for ORD-AGENT-SAFE" in prompt
+    for marker in forbidden_markers:
+        assert marker not in prompt
+
+
 def test_memory_blocks_cannot_evict_protected_policy_or_user_blocks():
     oversized_memory = [
         {

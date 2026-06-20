@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -70,6 +70,32 @@ async def _write_order_memory(session: AsyncSession, user: User, thread_id: str,
     await session.commit()
 
 
+def _slot_envelope(
+    value: str,
+    *,
+    source_run_id: str,
+    expires_at: datetime | None = None,
+    compatible_intents: list[str] | None = None,
+) -> dict:
+    now = datetime.now(UTC)
+    expiry = expires_at or now + timedelta(minutes=30)
+    return {
+        "schema_version": "session_slots.v1",
+        "slots": {
+            "order_id": {
+                "value": value,
+                "source": "explicit_user",
+                "source_run_id": source_run_id,
+                "updated_at": now.isoformat(),
+                "expires_at": expiry.isoformat(),
+                "compatible_intents": compatible_intents or ["refund_troubleshooting"],
+                "business_object_type": "order",
+                "business_object_id": value,
+            }
+        },
+    }
+
+
 @pytest.mark.asyncio
 async def test_same_thread_vague_turn_inherits_session_order_and_reruns_investigation(
     session: AsyncSession,
@@ -92,6 +118,107 @@ async def test_same_thread_vague_turn_inherits_session_order_and_reruns_investig
     assert final_state["active_slot_metadata"]["order_id"]["explicit_current_turn"] is False
     assert final_state["business_context"]["facts"]["order"]["order_no"] == "ORD-1001"
     assert [call[0] for call in deps["tool_manager"].calls] == ["get_order", "search_policy"]
+
+
+@pytest.mark.asyncio
+async def test_agent_runs_session_slots_explicit_current_turn_overrides_inherited(
+    session: AsyncSession,
+    seeded_session: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = seeded_session["users"]["cs_zhang"]
+    thread_id = "integration-agent-runs-current-turn-overrides-memory"
+    await _write_order_memory(session, user, thread_id, order_id="ORD-INHERITED-001")
+    current_run_id = await _persist_run(session, user, thread_id, "current run ORD-CURRENT-001")
+    deps = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id="ORD-CURRENT-001")
+    graph = build_graph(MemorySaver())
+
+    final_state = await graph.ainvoke(
+        _state(user, "订单是 ORD-CURRENT-001，继续查这笔退款", thread_id, run_id=current_run_id),
+        _config(deps["tool_manager"], deps["events"], thread_id, session=session),
+    )
+
+    assert final_state["session_memory"]["active_slots"]["order_id"] == "ORD-INHERITED-001"
+    assert final_state["session_memory"]["slot_metadata"]["order_id"]["source"] == "trusted_session_memory"
+    assert final_state["active_slots"]["order_id"] == "ORD-CURRENT-001"
+    assert final_state["active_slot_metadata"]["order_id"]["source"] == "current_turn"
+    assert final_state["active_slot_metadata"]["order_id"]["explicit_current_turn"] is True
+    assert final_state["business_context"]["facts"]["order"]["order_no"] == "ORD-CURRENT-001"
+
+
+@pytest.mark.asyncio
+async def test_agent_runs_session_memory_wrong_scope_fails_closed(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    from src.agent.routing import resolve_slots_for_completeness, route_after_slots
+
+    user = seeded_session["users"]["cs_zhang"]
+    repository = SessionMemoryRepository(session)
+    service = MemoryService(repository)
+    source_thread_id = "integration-agent-runs-memory-source-scope"
+    source_run_id = await _persist_run(session, user, source_thread_id, "remember ORD-SCOPE-001")
+    await repository.insert_active(
+        tenant_id=user.tenant_id,
+        user_id=user.id,
+        thread_id=source_thread_id,
+        active_slots_json=_slot_envelope("ORD-SCOPE-001", source_run_id=source_run_id),
+        expires_at=datetime.now(UTC) + timedelta(minutes=30),
+    )
+    expired_thread_id = "integration-agent-runs-memory-expired-scope"
+    expired_run_id = await _persist_run(session, user, expired_thread_id, "remember ORD-EXPIRED-001")
+    await repository.insert_active(
+        tenant_id=user.tenant_id,
+        user_id=user.id,
+        thread_id=expired_thread_id,
+        active_slots_json=_slot_envelope(
+            "ORD-EXPIRED-001",
+            source_run_id=expired_run_id,
+            expires_at=datetime.now(UTC) - timedelta(minutes=1),
+        ),
+        expires_at=datetime.now(UTC) + timedelta(minutes=30),
+    )
+    incompatible_thread_id = "integration-agent-runs-memory-incompatible-scope"
+    incompatible_run_id = await _persist_run(session, user, incompatible_thread_id, "remember ORD-INCOMPATIBLE-001")
+    await repository.insert_active(
+        tenant_id=user.tenant_id,
+        user_id=user.id,
+        thread_id=incompatible_thread_id,
+        active_slots_json=_slot_envelope(
+            "ORD-INCOMPATIBLE-001",
+            source_run_id=incompatible_run_id,
+            compatible_intents=["ticket_reply_draft"],
+        ),
+        expires_at=datetime.now(UTC) + timedelta(minutes=30),
+    )
+
+    cases = [
+        (user.tenant_id, user.id, "integration-agent-runs-memory-wrong-thread"),
+        (uuid4(), user.id, source_thread_id),
+        (user.tenant_id, uuid4(), source_thread_id),
+        (user.tenant_id, user.id, expired_thread_id),
+        (user.tenant_id, user.id, incompatible_thread_id),
+    ]
+    for tenant_id, user_id, thread_id in cases:
+        view = await service.load_session_memory(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            thread_id=thread_id,
+            current_intent="refund_troubleshooting",
+        )
+        state = {
+            "tenant_id": str(tenant_id),
+            "user_id": str(user_id),
+            "thread_id": thread_id,
+            "primary_intent": "refund_troubleshooting",
+            "required_slots": {"all_of": [], "any_of": [["order_id", "refund_case_id"]], "optional": []},
+            "extracted_slots": {},
+            "session_memory": view.model_dump(mode="json"),
+        }
+
+        assert view.continuity_claimed is False or view.active_slots == {}
+        assert resolve_slots_for_completeness(state) == {}
+        assert route_after_slots(state) == "clarification_gate"
 
 
 @pytest.mark.asyncio
