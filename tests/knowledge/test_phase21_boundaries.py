@@ -96,6 +96,7 @@ PHASE23_ALLOWED_SURFACE_FILES = {
     Path("src/knowledge/retrieval.py"),
     Path("src/knowledge/service.py"),
     Path("tests/knowledge/test_query_rewrite.py"),
+    Path("tests/knowledge/test_hybrid_retrieval.py"),
     Path("tests/knowledge/test_reranker.py"),
     Path("tests/knowledge/test_retrieval_diagnostics.py"),
     Path("tests/knowledge/test_retrieval_budgets.py"),
@@ -175,6 +176,7 @@ def test_phase22_boundary_guard_still_blocks_rerank_query_rewrite_search_backend
         Path("src/knowledge/rerank.py"),
         Path("src/knowledge/diagnostics.py"),
         Path("src/knowledge/retrieval.py"),
+        Path("tests/knowledge/test_hybrid_retrieval.py"),
         Path("scripts/eval_rag_ablation.py"),
     } <= PHASE23_ALLOWED_SURFACE_FILES
     assert {
