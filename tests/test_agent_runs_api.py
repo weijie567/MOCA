@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.trace import write_agent_run
@@ -17,7 +17,16 @@ from src.api.routers.agent_runs import _dedupe_evidence_refs, _event_generator, 
 from src.approvals.schemas import PROPOSED_ACTION_SCHEMA_VERSION
 from src.approvals.snapshot_service import compute_action_payload_hash, persist_action_safety_snapshot
 from src.auth.jwt import ROLE_SCOPES, create_access_token
-from src.db.models import AgentRun, AgentTraceEvent, ApprovalRequest, User
+from src.db.models import (
+    AgentRun,
+    AgentTraceEvent,
+    ApprovalRequest,
+    ConversationMessage,
+    ConversationSummary,
+    MemoryWriteEvent,
+    ToolResultRecord,
+    User,
+)
 from src.knowledge.schemas import EvidenceRefV1
 
 
@@ -38,6 +47,12 @@ class CaptureConfigGraph:
     async def astream(self, input_state, config, stream_mode):
         self.calls.append((input_state, config))
         yield ("final_response", {"final_response": "done", "trace_steps": []})
+
+
+class ErrorGraph:
+    async def astream(self, input_state, config, stream_mode):
+        raise RuntimeError("graph failed")
+        yield
 
 
 class CaptureInvokeConfigGraph:
@@ -263,6 +278,33 @@ def _event_data(event: dict) -> dict:
     return json.loads(event["data"])
 
 
+async def _run_agent_run_stream(client: AsyncClient, run_id: str, user: User) -> list[dict]:
+    response = await client.get(
+        f"/api/v1/agent-runs/{run_id}/events",
+        headers=_auth_header(user, ["agent:chat"]),
+    )
+    assert response.status_code == 200
+    events: list[dict] = []
+    for line in response.text.splitlines():
+        if not line.startswith("data: "):
+            continue
+        events.append(json.loads(line.removeprefix("data: ")))
+    return events
+
+
+async def _messages_for_run(session: AsyncSession, *, run_id: UUID, role: str | None = None) -> list[ConversationMessage]:
+    filters = [ConversationMessage.run_id == run_id, ConversationMessage.deleted_at.is_(None)]
+    if role is not None:
+        filters.append(ConversationMessage.role == role)
+    result = await session.execute(select(ConversationMessage).where(*filters).order_by(ConversationMessage.message_index))
+    return list(result.scalars().all())
+
+
+async def _count_rows(session: AsyncSession, model, *filters) -> int:
+    result = await session.execute(select(func.count()).select_from(model).where(*filters))
+    return int(result.scalar_one())
+
+
 def _assert_no_investigation_fields(payload: dict) -> None:
     assert INVESTIGATION_RESPONSE_FIELDS.isdisjoint(payload)
     serialized = json.dumps(payload, ensure_ascii=False)
@@ -354,6 +396,136 @@ async def test_events_rejects_terminal_run_with_409(
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "RUN_ALREADY_STARTED"
     assert graph.calls == []
+
+
+@pytest.mark.asyncio
+async def test_create_agent_run_persists_exactly_one_user_message(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    graph = CaptureConfigGraph()
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+
+    response = await client.post(
+        "/api/v1/agent-runs",
+        json={"query": "订单 ORD-TEST-001 的退款进度如何？", "thread_id": f"phase24-create-{uuid4()}"},
+        headers=_auth_header(user, ["agent:chat"]),
+    )
+
+    assert response.status_code == 200
+    run_id = UUID(response.json()["data"]["run_id"])
+    user_messages = await _messages_for_run(session, run_id=run_id, role="user")
+    assert len(user_messages) == 1
+    assert user_messages[0].role == "user"
+    assert user_messages[0].run_id == run_id
+    assert user_messages[0].content == "订单 ORD-TEST-001 的退款进度如何？"
+
+    await _run_agent_run_stream(client, str(run_id), user)
+    duplicate_response = await client.get(
+        f"/api/v1/agent-runs/{run_id}/events",
+        headers=_auth_header(user, ["agent:chat"]),
+    )
+    assert duplicate_response.status_code == 409
+    assert len(await _messages_for_run(session, run_id=run_id, role="user")) == 1
+
+
+@pytest.mark.asyncio
+async def test_agent_run_stream_passes_conversation_ids_to_graph_and_tools(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    graph = CaptureConfigGraph()
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+    response = await client.post(
+        "/api/v1/agent-runs",
+        json={"query": "帮我查一下订单 ORD-TEST-001", "thread_id": f"phase24-config-{uuid4()}"},
+        headers=_auth_header(user, ["agent:chat"]),
+    )
+    assert response.status_code == 200
+    run_id = UUID(response.json()["data"]["run_id"])
+
+    user_messages = await _messages_for_run(session, run_id=run_id, role="user")
+    assert len(user_messages) == 1
+    await _run_agent_run_stream(client, str(run_id), user)
+
+    assert len(graph.calls) == 1
+    _, config = graph.calls[0]
+    configurable = config["configurable"]
+    assert configurable["conversation_thread_id"] == str(user_messages[0].conversation_thread_id)
+    assert configurable["conversation_message_id"] == str(user_messages[0].id)
+
+
+@pytest.mark.asyncio
+async def test_completed_agent_run_persists_exactly_one_assistant_message(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    monkeypatch.setattr(app.state, "agent_graph", CaptureConfigGraph(), raising=False)
+    response = await client.post(
+        "/api/v1/agent-runs",
+        json={"query": "给我一个完成答复", "thread_id": f"phase24-assistant-{uuid4()}"},
+        headers=_auth_header(user, ["agent:chat"]),
+    )
+    assert response.status_code == 200
+    run_id = UUID(response.json()["data"]["run_id"])
+
+    await _run_agent_run_stream(client, str(run_id), user)
+
+    assistant_messages = await _messages_for_run(session, run_id=run_id, role="assistant")
+    assert len(assistant_messages) == 1
+    assert assistant_messages[0].content == "done"
+    assert assistant_messages[0].metadata_json["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_completed_agent_run_updates_thread_summary_idempotently(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    tenant_id = user.tenant_id
+    monkeypatch.setattr(app.state, "agent_graph", CaptureConfigGraph(), raising=False)
+    response = await client.post(
+        "/api/v1/agent-runs",
+        json={"query": "总结这个回合", "thread_id": f"phase24-summary-{uuid4()}"},
+        headers=_auth_header(user, ["agent:chat"]),
+    )
+    assert response.status_code == 200
+    run_id = UUID(response.json()["data"]["run_id"])
+
+    await _run_agent_run_stream(client, str(run_id), user)
+    duplicate_response = await client.get(
+        f"/api/v1/agent-runs/{run_id}/events",
+        headers=_auth_header(user, ["agent:chat"]),
+    )
+    assert duplicate_response.status_code == 409
+
+    summaries = (
+        (
+            await session.execute(
+                select(ConversationSummary).where(
+                    ConversationSummary.tenant_id == tenant_id,
+                    ConversationSummary.summary_type == "thread_rolling",
+                    ConversationSummary.deleted_at.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(summaries) == 1
+    assert str(run_id) in (summaries[0].summary_json or {}).get("source_run_ids", [str(run_id)])
 
 
 @pytest.mark.asyncio
@@ -705,16 +877,31 @@ async def test_chat_memory_write_background_returns_final_response_before_slow_h
 
 
 @pytest.mark.asyncio
-async def test_sse_final_response_before_memory_write_schedule(session: AsyncSession, seeded_session, monkeypatch):
+async def test_sse_final_response_after_bounded_memory_persistence_result(
+    session: AsyncSession, seeded_session, monkeypatch
+):
     user = seeded_session["users"]["cs_zhang"]
     run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
     await session.commit()
-    scheduled: list[dict] = []
+    memory_results: list[dict] = []
 
-    def fake_schedule_memory_write(final_state, *, session_factory, trace_id=None):
-        scheduled.append(final_state)
+    async def fake_memory_write(final_state, config):
+        result = {"status": "completed", "reason_code": "memory_persisted"}
+        memory_results.append(result)
+        return {
+            **final_state,
+            "memory_write_result": result,
+            "trace_steps": [
+                {
+                    "node": "memory_write",
+                    "status": "completed",
+                    "started_at": datetime.now(UTC).isoformat(),
+                    "completed_at": datetime.now(UTC).isoformat(),
+                }
+            ],
+        }
 
-    monkeypatch.setattr("src.api.routers.agent_runs._schedule_memory_write_after_response", fake_schedule_memory_write)
+    monkeypatch.setattr("src.api.routers.agent_runs.memory_write", fake_memory_write)
     generator = _event_generator(
         CaptureConfigGraph(),
         {"user_query": run.input_query},
@@ -729,12 +916,9 @@ async def test_sse_final_response_before_memory_write_schedule(session: AsyncSes
         async for event in generator:
             if "data" in event and '"event_type": "final_response"' in event["data"]:
                 final_event = event
-                assert scheduled == []
+                assert memory_results == [{"status": "completed", "reason_code": "memory_persisted"}]
                 break
         assert final_event is not None
-        with pytest.raises(StopAsyncIteration):
-            await anext(generator)
-        assert scheduled
     finally:
         await generator.aclose()
 
@@ -763,6 +947,176 @@ async def test_sse_interrupted_path_skips_memory_write(session: AsyncSession, se
 
     assert any("approval_required" in event.get("data", "") for event in events)
     assert scheduled == []
+
+
+@pytest.mark.asyncio
+async def test_agent_run_error_cancel_interrupted_do_not_write_completed_memory(
+    session: AsyncSession,
+    seeded_session,
+):
+    user = seeded_session["users"]["cs_zhang"]
+
+    error_run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    cancelled_run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    interrupted_run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.commit()
+
+    error_events = [
+        event
+        async for event in _event_generator(
+            ErrorGraph(),
+            _stream_input(error_run, user),
+            {"configurable": {"thread_id": error_run.thread_id, "session": session}},
+            run=error_run,
+            session=session,
+            user=user,
+        )
+    ]
+    with pytest.raises(asyncio.CancelledError):
+        generator = _event_generator(
+            CancelledGraph(),
+            _stream_input(cancelled_run, user),
+            {"configurable": {"thread_id": cancelled_run.thread_id, "session": session}},
+            run=cancelled_run,
+            session=session,
+            user=user,
+        )
+        await anext(generator)
+        await anext(generator)
+    interrupted_events = [
+        event
+        async for event in _event_generator(
+            StreamInterruptGraph(),
+            _stream_input(interrupted_run, user),
+            {"configurable": {"thread_id": interrupted_run.thread_id, "session": session}},
+            run=interrupted_run,
+            session=session,
+            user=user,
+        )
+    ]
+
+    assert any('"event_type": "error"' in event.get("data", "") for event in error_events)
+    assert any('"event_type": "approval_required"' in event.get("data", "") for event in interrupted_events)
+    for run in (error_run, cancelled_run, interrupted_run):
+        await session.refresh(run)
+        assert run.final_status in {"error", "interrupted"}
+        assert await _count_rows(session, ConversationMessage, ConversationMessage.run_id == run.id, ConversationMessage.role == "assistant") == 0
+        assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 0
+
+
+@pytest.mark.asyncio
+async def test_duplicate_sse_stream_does_not_duplicate_memory_surfaces(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    monkeypatch.setattr(app.state, "agent_graph", CaptureConfigGraph(), raising=False)
+    response = await client.post(
+        "/api/v1/agent-runs",
+        json={"query": "重复打开 SSE 不能重复写记忆", "thread_id": f"phase24-duplicate-{uuid4()}"},
+        headers=_auth_header(user, ["agent:chat"]),
+    )
+    assert response.status_code == 200
+    run_id = UUID(response.json()["data"]["run_id"])
+
+    await _run_agent_run_stream(client, str(run_id), user)
+    counts_after_first = {
+        "user": await _count_rows(session, ConversationMessage, ConversationMessage.run_id == run_id, ConversationMessage.role == "user"),
+        "assistant": await _count_rows(
+            session, ConversationMessage, ConversationMessage.run_id == run_id, ConversationMessage.role == "assistant"
+        ),
+        "tool_results": await _count_rows(session, ToolResultRecord, ToolResultRecord.run_id == run_id),
+        "summaries": await _count_rows(session, ConversationSummary, ConversationSummary.thread_id.like("phase24-duplicate-%")),
+        "session_memory_writes": await _count_rows(session, MemoryWriteEvent, MemoryWriteEvent.run_id == run_id),
+    }
+    duplicate_response = await client.get(
+        f"/api/v1/agent-runs/{run_id}/events",
+        headers=_auth_header(user, ["agent:chat"]),
+    )
+    assert duplicate_response.status_code == 409
+    counts_after_duplicate = {
+        "user": await _count_rows(session, ConversationMessage, ConversationMessage.run_id == run_id, ConversationMessage.role == "user"),
+        "assistant": await _count_rows(
+            session, ConversationMessage, ConversationMessage.run_id == run_id, ConversationMessage.role == "assistant"
+        ),
+        "tool_results": await _count_rows(session, ToolResultRecord, ToolResultRecord.run_id == run_id),
+        "summaries": await _count_rows(session, ConversationSummary, ConversationSummary.thread_id.like("phase24-duplicate-%")),
+        "session_memory_writes": await _count_rows(session, MemoryWriteEvent, MemoryWriteEvent.run_id == run_id),
+    }
+
+    assert counts_after_first["user"] == 1
+    assert counts_after_first["assistant"] == 1
+    assert counts_after_first["tool_results"] == 0
+    assert counts_after_first["summaries"] == 1
+    assert counts_after_first["session_memory_writes"] >= 0
+    assert counts_after_duplicate == counts_after_first
+
+
+@pytest.mark.asyncio
+async def test_three_turn_agent_runs_smoke_uses_slots_and_summary_context(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    graph = CaptureConfigGraph()
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+    thread_id = f"phase24-three-turn-{uuid4()}"
+
+    run_ids: list[UUID] = []
+    for query in (
+        "订单 ORD-TEST-001 的退款进度如何？",
+        "那这个订单下一步应该怎么处理？",
+        "总结一下刚才这个退款问题和后续动作。",
+    ):
+        response = await client.post(
+            "/api/v1/agent-runs",
+            json={"query": query, "thread_id": thread_id},
+            headers=_auth_header(user, ["agent:chat"]),
+        )
+        assert response.status_code == 200
+        run_id = UUID(response.json()["data"]["run_id"])
+        run_ids.append(run_id)
+        await _run_agent_run_stream(client, str(run_id), user)
+
+    assert await _count_rows(session, ConversationMessage, ConversationMessage.thread_id == thread_id, ConversationMessage.role == "user") >= 3
+    assert await _count_rows(
+        session,
+        ConversationMessage,
+        ConversationMessage.thread_id == thread_id,
+        ConversationMessage.role == "assistant",
+        ConversationMessage.metadata_json["status"].as_string() == "completed",
+    ) >= 3
+    assert await _count_rows(
+        session,
+        ConversationSummary,
+        ConversationSummary.thread_id == thread_id,
+        ConversationSummary.summary_type == "thread_rolling",
+    ) >= 1
+    assert len(graph.calls) == 3
+    assert all("conversation_message_id" in config["configurable"] for _, config in graph.calls)
+    assert all("conversation_thread_id" in config["configurable"] for _, config in graph.calls)
+    assert set(run_ids) == {
+        UUID(str(message.run_id))
+        for message in (
+            await session.execute(
+                select(ConversationMessage).where(
+                    ConversationMessage.thread_id == thread_id,
+                    ConversationMessage.role == "user",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    }
+    serialized_configs = json.dumps([config["configurable"] for _, config in graph.calls], default=str)
+    assert "memory_policy_evidence_authority" not in serialized_configs
+    assert "memory_business_fact_authority" not in serialized_configs
+    assert "memory_action_authority" not in serialized_configs
+    assert "memory_replay_truth" not in serialized_configs
 
 
 def test_support_token_with_orders_read_gets_only_get_order():
