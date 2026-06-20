@@ -10,17 +10,24 @@ Built as an open-source portfolio project demonstrating enterprise Agent enginee
 
 When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution — never silently executing something irreversible.
 
-## Current Milestone: v1.7 Short-term Memory Unification
+## Current Milestone
 
-**Goal:** Make the current Agent Console `/api/v1/agent-runs + SSE` path use the full short-term memory stack: structured session slots, conversation messages, tool prompt summaries, and rolling thread summaries.
+No active milestone is currently defined after v1.7 completion. Start the next milestone with `$gsd-new-milestone` so fresh requirements and roadmap scope are defined before implementation resumes.
 
-**Target features:**
-- Bring `/agent-runs` to parity with the legacy `/agent/chat` conversation persistence path without changing the frontend API contract.
-- Preserve PostgreSQL-authoritative session slot memory while adding rolling-summary and recent-message context for follow-up turns.
-- Ensure memory remains contextual only: it must not become policy evidence, current business fact authority, approval authority, action authority, or replay truth.
-- Define deterministic persistence behavior for completed, error, cancelled, interrupted, and stream-retry run states.
+## Last Shipped Milestone: v1.7 Short-term Memory Unification
 
-## Last Shipped Milestone: v1.6 RAG Reranker + Query Rewrite
+v1.7 shipped Phase 24 on 2026-06-20. It completes the short-term memory chain for the current Agent Console `/api/v1/agent-runs + SSE` path.
+
+**Delivered:**
+- `/agent-runs` creates or resolves conversation threads, persists one user message per run, and passes trusted conversation identifiers into graph execution.
+- Completed runs persist one assistant message and update thread rolling summaries from committed messages and eligible prompt-safe tool summaries.
+- Same-thread follow-up turns can load trusted session slots, recent messages, tool prompt summaries, and rolling thread summaries into prompt context.
+- Explicit current-turn slots override inherited session slots, while stale or scope-mismatched memory fails closed.
+- Error, cancelled, approval-interrupted, retried, and re-opened stream states have deterministic idempotent memory persistence behavior.
+- Memory remains contextual only and cannot satisfy policy evidence, current business fact, approval/action authority, or replay/audit truth.
+- Focused regression coverage and a three-turn integration smoke prove slot continuity plus rolling-summary context.
+
+## Prior Shipped Milestone: v1.6 RAG Reranker + Query Rewrite
 
 v1.6 shipped Phase 23 on 2026-06-20. It improves policy retrieval quality after the v1.3 hybrid backend, v1.4 parser/OCR provenance, and v1.5 grounding kernel.
 
@@ -41,8 +48,9 @@ v1.6 shipped Phase 23 on 2026-06-20. It improves policy retrieval quality after 
 - **v1.4 RAG Production Ingestion + OCR** — shipped 2026-06-19.
 - **v1.5 RAG Context Builder + Hallucination Control** — shipped 2026-06-19.
 - **v1.6 RAG Reranker + Query Rewrite** — shipped 2026-06-20.
+- **v1.7 Short-term Memory Unification** — shipped 2026-06-20.
 
-Full archive records live in `.planning/milestones/`.
+Full archive records for archived milestones live in `.planning/milestones/`.
 
 ## Prior Shipped Milestone: v1.5 RAG Context Builder + Hallucination Control
 
@@ -140,13 +148,14 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - [x] Phase 23 ranking explanations expose safe, bounded diagnostics for maintainers and evals without changing `EvidenceRefV1` identity or leaking internal payloads (validated in Phase 23)
 - [x] Phase 23 evals compare retrieval variants, report recall/precision/Hit@K/citation-support impacts, and enforce latency budgets (validated in Phase 23)
 - [x] Phase 23 preserves Phase 20 retrieval filters, Phase 21 provenance boundaries, and Phase 22 grounding/verifier/action boundaries (validated in Phase 23)
+- [x] Current Agent Console `/agent-runs + SSE` runs persist user/assistant conversation messages and rolling summaries consistently with the legacy `/agent/chat` path (validated in Phase 24)
+- [x] Short-term prompt context combines trusted session slots, recent messages, tool prompt summaries, and thread rolling summary for same-thread follow-ups (validated in Phase 24)
+- [x] Memory context is prompt-safe and cannot act as policy evidence, current business fact authority, approval/action authority, or replay/audit truth (validated in Phase 24)
+- [x] Completed, error, cancelled, interrupted, and stream-retry states have deterministic, idempotent memory persistence semantics (validated in Phase 24)
 
 ### Active
 
-- [ ] Current Agent Console `/agent-runs + SSE` runs persist user/assistant conversation messages and rolling summaries consistently with the legacy `/agent/chat` path.
-- [ ] Short-term prompt context combines trusted session slots, recent messages, tool prompt summaries, and thread rolling summary for same-thread follow-ups.
-- [ ] Memory context is prompt-safe and cannot act as policy evidence, current business fact authority, approval/action authority, or replay/audit truth.
-- [ ] Completed, error, cancelled, interrupted, and stream-retry states have deterministic, idempotent memory persistence semantics.
+No active milestone requirements are defined after v1.7 completion.
 
 ### Out of Scope
 
@@ -220,13 +229,14 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - v1.4 RAG Production Ingestion + OCR is shipped and archived. Phase 21 preserved v1.3 retrieval/evidence contracts while adding parser/OCR and source-block provenance.
 - v1.5 RAG Context Builder + Hallucination Control is shipped and archived. Phase 22 owns ContextBuilder, canonical evidence validation, MaterialClaim authority verification, deterministic route control, action-boundary blocking, safe final-response wording, and hallucination-control evals while preserving v1.3/v1.4 evidence and provenance boundaries.
 - v1.6 RAG Reranker + Query Rewrite is shipped and archived on 2026-06-20. Full milestone history lives in `.planning/milestones/v1.6-ROADMAP.md`, `.planning/milestones/v1.6-REQUIREMENTS.md`, and `.planning/milestones/v1.6-phases/`.
+- v1.7 Short-term Memory Unification is complete on 2026-06-20. Phase 24 owns Agent Console `/agent-runs + SSE` conversation persistence, rolling summaries, prompt-safe tool summaries, PostgreSQL-backed session slot continuity, failure/idempotency safeguards, authority-boundary regressions, and three-turn smoke verification.
 
 ## Next Milestone Setup
 
-- No active milestone is defined after v1.6 archive.
+- No active milestone is defined after v1.7 completion.
 - Start the next milestone with `$gsd-new-milestone` so fresh requirements and roadmap scope are defined before implementation resumes.
 - Keep owner-named deferrals explicit: 17-prep AgentState Surface Contracts + Authority Isolation, Phase 17 External Action Execution, post-Phase 17 Policy Scope, Phase RAG-5 external backend, and Policy Source Operations.
-- Preserve v1.1-v1.6 safety boundaries: policy evidence remains `EvidenceRefV1`; business facts remain Tool System outputs; memory remains contextual assistance only; parser/OCR provenance remains internal unless verified through the maintainer provenance lookup; verifier failures and timeouts fail closed; rewrite/rerank diagnostics remain relevance/eval signals only.
+- Preserve v1.1-v1.7 safety boundaries: policy evidence remains `EvidenceRefV1`; business facts remain Tool System outputs; memory remains contextual assistance only; parser/OCR provenance remains internal unless verified through the maintainer provenance lookup; verifier failures and timeouts fail closed; rewrite/rerank diagnostics remain relevance/eval signals only; short-term memory remains contextual and never becomes evidence, action, approval, current business fact, or replay authority.
 - Keep 17-prep AgentState cleanup as a Phase 17 prerequisite, not a blocker for retrieval-quality milestones.
 
 ## Constraints
@@ -280,4 +290,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-20 after v1.7 milestone start*
+*Last updated: 2026-06-20 after Phase 24 completion*
