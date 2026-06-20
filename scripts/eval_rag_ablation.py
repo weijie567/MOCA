@@ -138,6 +138,9 @@ def run_rag_ablation(
     dry_run: bool = True,
     thresholds: dict[str, float] | None = None,
 ) -> dict[str, Any]:
+    if not dry_run:
+        raise NotImplementedError("deterministic_local ablation requires real retrieval execution")
+
     cases = _load_cases(golden_set)
     variant_results = [
         {
@@ -176,9 +179,10 @@ def _load_cases(path: str) -> list[dict[str, Any]]:
 def _fake_variant_result(case: dict[str, Any], variant: str, *, index: int) -> dict[str, Any]:
     expected_doc_ids = list(case.get("expected_doc_ids", []))
     expected_chunk_ids = list(case.get("expected_chunk_ids", []))
+    expected_variant_wins = set(case.get("expected_variant_wins") or REQUIRED_ABLATION_VARIANTS)
     should_fallback = bool(case.get("should_fallback"))
     evidence = []
-    if not should_fallback and expected_doc_ids and expected_chunk_ids:
+    if not should_fallback and expected_doc_ids and expected_chunk_ids and variant in expected_variant_wins:
         evidence.append(
             {
                 "doc_key": expected_doc_ids[0],
@@ -191,7 +195,7 @@ def _fake_variant_result(case: dict[str, Any], variant: str, *, index: int) -> d
     fallback_reason = "provider_disabled" if variant in {"reranker_enabled", "rewrite_plus_reranker"} else None
     return {
         "variant": variant,
-        "retrieval_status": "no_evidence" if should_fallback else "strong_evidence",
+        "retrieval_status": "no_evidence" if should_fallback or not evidence else "strong_evidence",
         "evidence": evidence,
         "latency_ms": 20 + index,
         "fallback_reason": fallback_reason,

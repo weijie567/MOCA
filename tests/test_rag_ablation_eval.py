@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 
 REQUIRED_PHASE23_GOLDEN_CATEGORIES = {
     "rewrite_win",
@@ -56,6 +58,35 @@ def test_ablation_variants_include_required_modes() -> None:
         "reranker_enabled",
         "rewrite_plus_reranker",
     } <= set(REQUIRED_ABLATION_VARIANTS)
+
+
+def test_run_rag_ablation_fails_closed_for_non_dry_run() -> None:
+    from scripts.eval_rag_ablation import run_rag_ablation
+
+    with pytest.raises(NotImplementedError, match="deterministic_local ablation requires real retrieval execution"):
+        run_rag_ablation(output=None, dry_run=False)
+
+
+def test_dry_run_consumes_expected_variant_wins_from_golden() -> None:
+    from scripts.eval_rag_ablation import run_rag_ablation
+
+    REQUIRED_ABLATION_VARIANTS, _build_ablation_report, _score_ablation_case = _load_ablation_api()
+    cases = {
+        case["id"]: case
+        for case in _load_jsonl("evaluation/golden/rag_cases.jsonl")
+        if case.get("phase") == "23" and case.get("expected_variant_wins") and not case.get("should_fallback")
+    }
+    report = run_rag_ablation(output=None, dry_run=True)
+
+    assert cases
+    for case_id, case in cases.items():
+        expected_winners = set(case["expected_variant_wins"])
+        for variant in REQUIRED_ABLATION_VARIANTS:
+            failed_cases = set(report["per_variant"][variant]["failed_cases"])
+            if variant in expected_winners:
+                assert case_id not in failed_cases
+            else:
+                assert case_id in failed_cases
 
 
 def test_ablation_report_contains_rank_safety_fallback_and_latency_metrics() -> None:
