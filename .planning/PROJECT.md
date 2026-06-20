@@ -129,14 +129,15 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - [x] Phase 22 verifier applies deterministic Level 1 gates, low-cost Level 2 lexical/span support checks, and risk-triggered Level 3 semantic support (validated in Phase 22)
 - [x] Phase 22 routes unsupported, stale, conflicting, unauthorized, hash-mismatched, and insufficient claims deterministically to regenerate, refuse, or manual review (validated in Phase 22)
 - [x] Phase 22 evals cover faithfulness, citation accuracy, refusal/manual-review routing, business-data hallucination, OCR/conflict traps, and authority-boundary regressions (validated in Phase 22)
+- [x] Phase 23 query rewrite improves recall for ambiguous, underspecified, or domain-synonym policy questions without losing the original query or trusted filters (validated in Phase 23)
+- [x] Phase 23 reranker interface reorders candidate evidence with bounded deterministic/default behavior and optional provider adapters behind timeout/fallback controls (validated in Phase 23)
+- [x] Phase 23 ranking explanations expose safe, bounded diagnostics for maintainers and evals without changing `EvidenceRefV1` identity or leaking internal payloads (validated in Phase 23)
+- [x] Phase 23 evals compare retrieval variants, report recall/precision/Hit@K/citation-support impacts, and enforce latency budgets (validated in Phase 23)
+- [x] Phase 23 preserves Phase 20 retrieval filters, Phase 21 provenance boundaries, and Phase 22 grounding/verifier/action boundaries (validated in Phase 23)
 
 ### Active
 
-- [ ] Phase 23 query rewrite improves recall for ambiguous, underspecified, or domain-synonym policy questions without losing the original query or trusted filters.
-- [ ] Phase 23 reranker interface reorders candidate evidence with bounded deterministic/default behavior and optional provider adapters behind timeout/fallback controls.
-- [ ] Phase 23 ranking explanations expose safe, bounded diagnostics for maintainers and evals without changing `EvidenceRefV1` identity or leaking internal payloads.
-- [ ] Phase 23 evals compare retrieval variants, report recall/precision/Hit@K/citation-support impacts, and enforce latency budgets.
-- [ ] Phase 23 preserves Phase 20 retrieval filters, Phase 21 provenance boundaries, and Phase 22 grounding/verifier/action boundaries.
+- None - v1.6 Phase 23 execution is complete.
 
 ### Out of Scope
 
@@ -209,6 +210,7 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - v1.3 RAG Hybrid Retrieval is shipped and archived. Phase 20 owns the minimal PostgreSQL hybrid retrieval upgrade and explicitly excludes OCR, `DocumentBlock`, `MaterialClaim`, semantic verifier, reranker/query rewrite, Vespa/OpenSearch, and full external `SearchBackend`. OCR/parser/`DocumentBlock` is Phase 21-owned; `MaterialClaim`/semantic verifier is Phase 22-owned; reranker/query rewrite is Phase 23-owned; Vespa/OpenSearch/full external `SearchBackend` is Phase RAG-5-owned.
 - v1.4 RAG Production Ingestion + OCR is shipped and archived. Phase 21 preserved v1.3 retrieval/evidence contracts while adding parser/OCR and source-block provenance.
 - v1.5 RAG Context Builder + Hallucination Control is shipped and archived. Phase 22 owns ContextBuilder, canonical evidence validation, MaterialClaim authority verification, deterministic route control, action-boundary blocking, safe final-response wording, and hallucination-control evals while preserving v1.3/v1.4 evidence and provenance boundaries.
+- v1.6 RAG Reranker + Query Rewrite Phase 23 execution is complete. Phase 23 owns bounded query rewrite, retrieval fan-out/merge, deterministic local reranking, disabled-by-default provider gates, safe diagnostics, no-live-provider ablation evaluation, latency budgets, and final boundary regression closure while preserving Phase 20-22 safety contracts.
 
 ## Current Milestone Setup
 
