@@ -168,7 +168,9 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Phase 23 deterministic RAG ablation evaluation")
     parser.add_argument("--golden-set", default=DEFAULT_GOLDEN_SET)
     parser.add_argument("--output", default=DEFAULT_OUTPUT)
-    parser.add_argument("--dry-run", action="store_true", default=False)
+    parser.set_defaults(dry_run=True)
+    parser.add_argument("--dry-run", dest="dry_run", action="store_true")
+    parser.add_argument("--deterministic-local", dest="dry_run", action="store_false")
     return parser
 
 

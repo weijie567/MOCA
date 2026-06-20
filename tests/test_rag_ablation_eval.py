@@ -67,6 +67,22 @@ def test_run_rag_ablation_fails_closed_for_non_dry_run() -> None:
         run_rag_ablation(output=None, dry_run=False)
 
 
+def test_no_arg_cli_defaults_to_dry_run() -> None:
+    from scripts.eval_rag_ablation import _parser
+
+    args = _parser().parse_args([])
+
+    assert args.dry_run is True
+
+
+def test_cli_non_dry_run_requires_explicit_opt_in() -> None:
+    from scripts.eval_rag_ablation import _parser
+
+    args = _parser().parse_args(["--deterministic-local"])
+
+    assert args.dry_run is False
+
+
 def test_dry_run_consumes_expected_variant_wins_from_golden() -> None:
     from scripts.eval_rag_ablation import run_rag_ablation
 
