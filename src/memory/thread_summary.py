@@ -7,6 +7,8 @@ from hashlib import sha256
 from typing import Any
 import uuid
 
+from sqlalchemy.exc import IntegrityError
+
 from src.conversation.repository import ConversationRepository
 from src.db.models import ConversationMessage, ConversationSummary, ToolResultRecord
 
@@ -122,7 +124,6 @@ class ThreadRollingSummaryService:
         run_id: uuid.UUID | None = None,
         since_message_id: uuid.UUID | None = None,
     ) -> ConversationSummary | None:
-        del run_id
         update_input = await self.build_update_input(
             tenant_id=tenant_id,
             user_id=user_id,
@@ -130,7 +131,25 @@ class ThreadRollingSummaryService:
             since_message_id=since_message_id,
         )
         if not update_input.new_messages:
+            if run_id is not None:
+                return await self._existing_summary_for_run_end(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    thread_id=thread_id,
+                    run_id=run_id,
+                )
             return None
+
+        source_end_message_id = update_input.new_messages[-1].id
+        existing = await self.repository.get_thread_summary_by_source_end(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            thread_id=thread_id,
+            source_end_message_id=source_end_message_id,
+            summary_type=THREAD_ROLLING_SUMMARY_TYPE,
+        )
+        if existing is not None:
+            return existing
 
         derived = self.derive_summary(
             update_input.old_summary,
@@ -139,19 +158,52 @@ class ThreadRollingSummaryService:
         )
         source_message_ids = [str(message.id) for message in update_input.new_messages]
         source_tool_result_ids = [str(result.id) for result in update_input.important_tool_results]
-        return await self.repository.insert_thread_summary(
+        try:
+            async with self.repository.session.begin_nested():
+                return await self.repository.insert_thread_summary(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    thread_id=thread_id,
+                    source_start_message_id=update_input.new_messages[0].id,
+                    source_end_message_id=source_end_message_id,
+                    source_message_ids_json=source_message_ids,
+                    source_tool_result_ids_json=source_tool_result_ids,
+                    summary_text=derived.summary_text,
+                    summary_json=derived.summary_json,
+                    summary_model=THREAD_SUMMARY_MODEL,
+                    summary_prompt_version=THREAD_SUMMARY_PROMPT_VERSION,
+                    summary_hash=derived.summary_hash,
+                )
+        except IntegrityError:
+            existing = await self.repository.get_thread_summary_by_source_end(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                thread_id=thread_id,
+                source_end_message_id=source_end_message_id,
+                summary_type=THREAD_ROLLING_SUMMARY_TYPE,
+            )
+            if existing is None:
+                raise
+            return existing
+
+    async def _existing_summary_for_run_end(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        thread_id: str,
+        run_id: uuid.UUID,
+    ) -> ConversationSummary | None:
+        messages = await self.repository.list_messages(tenant_id=tenant_id, user_id=user_id, thread_id=thread_id)
+        run_messages = [message for message in messages if message.run_id == run_id]
+        if not run_messages:
+            return None
+        return await self.repository.get_thread_summary_by_source_end(
             tenant_id=tenant_id,
             user_id=user_id,
             thread_id=thread_id,
-            source_start_message_id=update_input.new_messages[0].id,
-            source_end_message_id=update_input.new_messages[-1].id,
-            source_message_ids_json=source_message_ids,
-            source_tool_result_ids_json=source_tool_result_ids,
-            summary_text=derived.summary_text,
-            summary_json=derived.summary_json,
-            summary_model=THREAD_SUMMARY_MODEL,
-            summary_prompt_version=THREAD_SUMMARY_PROMPT_VERSION,
-            summary_hash=derived.summary_hash,
+            source_end_message_id=run_messages[-1].id,
+            summary_type=THREAD_ROLLING_SUMMARY_TYPE,
         )
 
 

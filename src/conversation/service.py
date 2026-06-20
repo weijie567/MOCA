@@ -6,6 +6,8 @@ from hashlib import sha256
 from typing import Any
 import uuid
 
+from sqlalchemy.exc import IntegrityError
+
 from src.conversation.repository import ConversationRepository
 from src.conversation.schemas import (
     ConversationAppendResult,
@@ -74,6 +76,58 @@ class ConversationService:
         metadata_json: dict[str, Any] | None = None,
     ) -> ConversationAppendResult:
         return await self._append_message(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            thread_id=thread_id,
+            run_id=run_id,
+            role="assistant",
+            content=content,
+            trace_id=trace_id,
+            metadata_json=metadata_json or {},
+        )
+
+    async def append_or_get_user_message_for_run(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        thread_id: str,
+        run_id: uuid.UUID,
+        content: str,
+        trace_id: str | None = None,
+        prompt_template_version: str | None = None,
+        prompt_block_hashes_json: list[str] | None = None,
+        context_snapshot_ref: str | None = None,
+        redacted_prompt_snapshot_ref: str | None = None,
+        metadata_json: dict[str, Any] | None = None,
+    ) -> ConversationAppendResult:
+        return await self._append_or_get_message_for_run(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            thread_id=thread_id,
+            run_id=run_id,
+            role="user",
+            content=content,
+            trace_id=trace_id,
+            prompt_template_version=prompt_template_version,
+            prompt_block_hashes_json=prompt_block_hashes_json or [],
+            context_snapshot_ref=context_snapshot_ref,
+            redacted_prompt_snapshot_ref=redacted_prompt_snapshot_ref,
+            metadata_json=metadata_json or {},
+        )
+
+    async def append_or_get_assistant_message_for_run(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        thread_id: str,
+        run_id: uuid.UUID,
+        content: str,
+        trace_id: str | None = None,
+        metadata_json: dict[str, Any] | None = None,
+    ) -> ConversationAppendResult:
+        return await self._append_or_get_message_for_run(
             tenant_id=tenant_id,
             user_id=user_id,
             thread_id=thread_id,
@@ -304,6 +358,66 @@ class ConversationService:
             role=row.role,
         )
 
+    async def _append_or_get_message_for_run(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        thread_id: str,
+        run_id: uuid.UUID,
+        role: str,
+        content: str,
+        trace_id: str | None = None,
+        prompt_template_version: str | None = None,
+        prompt_block_hashes_json: list[str] | None = None,
+        context_snapshot_ref: str | None = None,
+        redacted_prompt_snapshot_ref: str | None = None,
+        metadata_json: dict[str, Any] | None = None,
+    ) -> ConversationAppendResult:
+        if role not in {"user", "assistant"}:
+            raise ValueError("run-role helper only supports user and assistant messages")
+        if self.repository is None:
+            raise RuntimeError("ConversationRepository is required for append operations")
+        metadata = metadata_json or {}
+        self.validate_safe_message_payload(content=content, metadata_json=metadata)
+        existing = await self.repository.get_message_by_run_role(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            thread_id=thread_id,
+            run_id=run_id,
+            role=role,
+        )
+        if existing is not None:
+            return _append_result_from_message(existing)
+
+        try:
+            async with self.repository.session.begin_nested():
+                return await self._append_message(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    role=role,
+                    content=content,
+                    trace_id=trace_id,
+                    prompt_template_version=prompt_template_version,
+                    prompt_block_hashes_json=prompt_block_hashes_json or [],
+                    context_snapshot_ref=context_snapshot_ref,
+                    redacted_prompt_snapshot_ref=redacted_prompt_snapshot_ref,
+                    metadata_json=metadata,
+                )
+        except IntegrityError:
+            existing = await self.repository.get_message_by_run_role(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                thread_id=thread_id,
+                run_id=run_id,
+                role=role,
+            )
+            if existing is None:
+                raise
+            return _append_result_from_message(existing)
+
     async def _latest_prior_thread_summary(
         self,
         *,
@@ -361,9 +475,17 @@ def _build_prompt_summary(
         parts.append(f"business refs: {', '.join(business_refs[:5])}")
     if evidence_refs:
         parts.append(f"policy refs: {', '.join(evidence_refs[:5])}")
-    if raw_result_ref:
-        parts.append(f"raw result ref: {raw_result_ref}")
     return " | ".join(parts)
+
+
+def _append_result_from_message(row: ConversationMessage) -> ConversationAppendResult:
+    return ConversationAppendResult(
+        thread_id=row.thread_id,
+        conversation_thread_id=row.conversation_thread_id,
+        message_id=row.id,
+        message_index=row.message_index,
+        role=row.role,
+    )
 
 
 def _bounded_text(value: str, limit: int) -> str:

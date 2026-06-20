@@ -163,6 +163,32 @@ class ConversationRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_message_by_run_role(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        thread_id: str,
+        run_id: uuid.UUID,
+        role: str,
+    ) -> ConversationMessage | None:
+        thread = await self.get_thread(tenant_id=tenant_id, user_id=user_id, thread_id=thread_id)
+        if thread is None:
+            return None
+        result = await self.session.execute(
+            select(ConversationMessage)
+            .where(
+                ConversationMessage.conversation_thread_id == thread.id,
+                ConversationMessage.tenant_id == tenant_id,
+                ConversationMessage.run_id == run_id,
+                ConversationMessage.role == role,
+                ConversationMessage.deleted_at.is_(None),
+            )
+            .order_by(ConversationMessage.message_index)
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def list_messages_by_ids(
         self,
         *,
@@ -260,6 +286,32 @@ class ConversationRepository:
             .limit(max(limit, 1))
         )
         return list(result.scalars().all())
+
+    async def get_thread_summary_by_source_end(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        thread_id: str,
+        source_end_message_id: uuid.UUID,
+        summary_type: str = "thread_rolling",
+    ) -> ConversationSummary | None:
+        thread = await self.get_thread(tenant_id=tenant_id, user_id=user_id, thread_id=thread_id)
+        if thread is None:
+            return None
+        result = await self.session.execute(
+            select(ConversationSummary)
+            .where(
+                ConversationSummary.conversation_thread_id == thread.id,
+                ConversationSummary.tenant_id == tenant_id,
+                ConversationSummary.summary_type == summary_type,
+                ConversationSummary.source_end_message_id == source_end_message_id,
+                ConversationSummary.deleted_at.is_(None),
+            )
+            .order_by(ConversationSummary.created_at.desc(), ConversationSummary.id.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
 
     async def list_tool_results_after_summary(
         self,
