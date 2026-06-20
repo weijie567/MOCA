@@ -28,9 +28,10 @@
 
 ### Phase 24: Agent Runs Short-term Memory Parity
 
-**Status:** Ready to plan  
+**Status:** Planned  
 **Milestone:** v1.7 Short-term Memory Unification  
 **Requirements:** STM-01, STM-02, STM-03, STM-04, STM-05, STM-06, STM-07, STM-08, STM-09, STM-10, STM-11, STM-12, STM-13, STM-14
+**Plans:** 9 plans
 
 **Goal:** Make the current `/api/v1/agent-runs + SSE` path persist and consume the same short-term memory surfaces expected by Agent Console follow-up turns: conversation messages, prompt-safe tool summaries, rolling thread summaries, and PostgreSQL-backed session slots.
 
@@ -43,6 +44,17 @@
 5. Error, cancelled, approval-interrupted, retried, and re-opened stream states are idempotent and do not produce false completed summaries or duplicated records.
 6. Memory surfaces remain contextual only and cannot satisfy policy evidence, current business fact, approval/action authority, or replay/audit truth.
 7. Regression tests and an integration or live smoke flow prove a three-turn Agent Console conversation can use both slot continuity and rolling-summary context.
+
+Plans:
+- [ ] 24-01-PLAN.md — Wave 0 API/SSE RED scaffolding for create, config, finalizer, retry, and smoke behavior
+- [ ] 24-02-PLAN.md — Wave 0 prompt context, session slot, prompt-safety, and authority-boundary RED scaffolding
+- [ ] 24-03-PLAN.md — DB-backed idempotency indexes and blocking Alembic verification
+- [ ] 24-04-PLAN.md — Shared conversation and rolling-summary idempotency helpers
+- [ ] 24-05-PLAN.md — `/agent-runs` user-message creation and trusted SSE graph config
+- [ ] 24-06-PLAN.md — Completed-run assistant, summary, and bounded session-memory finalizer
+- [ ] 24-07-PLAN.md — Error/cancel/interruption and retry/reopen completed-only safeguards
+- [ ] 24-08-PLAN.md — Prompt-context parity and memory authority-boundary protections
+- [ ] 24-09-PLAN.md — Legacy compatibility, focused regression, and three-turn smoke
 
 ## Current Status
 
