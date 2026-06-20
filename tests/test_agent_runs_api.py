@@ -1078,18 +1078,22 @@ def test_agent_chat_only_support_token_receives_no_tool_permissions():
 @pytest.mark.asyncio
 async def test_agent_chat_only_token_streams_with_no_tool_permissions(
     client: AsyncClient,
-    session: AsyncSession,
     seeded_session,
     monkeypatch,
 ):
     user = seeded_session["users"]["cs_zhang"]
-    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id)
-    await session.commit()
     graph = CaptureConfigGraph()
     monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+    create_response = await client.post(
+        "/api/v1/agent-runs",
+        json={"query": "权限最小化测试", "thread_id": f"restricted-stream-{uuid4()}"},
+        headers=_auth_header(user, ["agent:chat"]),
+    )
+    assert create_response.status_code == 200
+    run_id = create_response.json()["data"]["run_id"]
 
     response = await client.get(
-        f"/api/v1/agent-runs/{run.id}/events",
+        f"/api/v1/agent-runs/{run_id}/events",
         headers=_auth_header(user, ["agent:chat"]),
     )
 
