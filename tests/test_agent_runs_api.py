@@ -594,6 +594,37 @@ def test_dedupe_evidence_refs_preserves_policy_versions():
     assert all("text" not in ref for ref in refs)
 
 
+def test_dedupe_evidence_refs_drops_later_display_projection_duplicate():
+    refs = _dedupe_evidence_refs(
+        [
+            [
+                {
+                    "evidence_id": "refund_policy/refund_policy_001@v1",
+                    "doc_key": "refund_policy",
+                    "chunk_id": "refund_policy_001",
+                    "score": 0.91,
+                }
+            ],
+            [
+                {
+                    "doc_key": "refund_policy",
+                    "chunk_id": "refund_policy_001",
+                    "title": "退款规则",
+                }
+            ],
+        ]
+    )
+
+    assert refs == [
+        {
+            "evidence_id": "refund_policy/refund_policy_001@v1",
+            "doc_key": "refund_policy",
+            "chunk_id": "refund_policy_001",
+            "score": 0.91,
+        }
+    ]
+
+
 @pytest.mark.asyncio
 async def test_events_rejects_already_started_run_with_409(
     client: AsyncClient,

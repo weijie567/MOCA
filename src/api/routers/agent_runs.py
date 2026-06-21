@@ -1050,6 +1050,7 @@ def _extract_step_payload(node_name: str, update: Any) -> dict[str, Any]:
 
 def _dedupe_evidence_refs(ref_groups: Any) -> list[dict[str, Any]]:
     seen: set[str] = set()
+    seen_citations: set[str] = set()
     evidence: list[dict[str, Any]] = []
     for refs in ref_groups:
         if not isinstance(refs, list):
@@ -1057,12 +1058,26 @@ def _dedupe_evidence_refs(ref_groups: Any) -> list[dict[str, Any]]:
         for ref in refs:
             if not isinstance(ref, dict):
                 continue
-            key = str(ref.get("evidence_id") or ref.get("chunk_id") or json.dumps(ref, sort_keys=True, default=str))
+            evidence_id = ref.get("evidence_id")
+            citation_key = _evidence_citation_key(ref)
+            key = str(evidence_id or citation_key or ref.get("chunk_id") or json.dumps(ref, sort_keys=True, default=str))
             if key in seen:
                 continue
+            if not evidence_id and citation_key and citation_key in seen_citations:
+                continue
             seen.add(key)
+            if citation_key:
+                seen_citations.add(citation_key)
             evidence.append(ref)
     return evidence
+
+
+def _evidence_citation_key(ref: dict[str, Any]) -> str:
+    doc_key = str(ref.get("doc_key") or ref.get("doc_id") or "")
+    chunk_id = str(ref.get("chunk_id") or "")
+    if doc_key and chunk_id:
+        return f"{doc_key}:{chunk_id}"
+    return ""
 
 
 def _with_approval_gate_step(trace_steps: list[dict[str, Any]], completed_at: datetime) -> list[dict[str, Any]]:
