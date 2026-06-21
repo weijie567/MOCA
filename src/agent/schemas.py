@@ -39,6 +39,14 @@ RequestedOperationLiteral = Literal[
     "escalate",
 ]
 
+RiskTierLiteral = Literal[
+    "read_only",
+    "draft_only",
+    "suggest_action",
+    "approval_required",
+    "forbidden_in_chat",
+]
+
 
 class RequiredSlotExpression(BaseModel):
     model_config = ConfigDict(extra="forbid")

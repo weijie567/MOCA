@@ -17,6 +17,7 @@ from src.agent.intent_policy import (
     confidence_requires_clarification,
     detect_pre_route,
     resolve_intent_precedence,
+    resolve_risk_tier,
 )
 from src.agent.nodes import classify_intent as classify_intent_module
 from src.agent.nodes.classify_intent import intent_result_to_state
@@ -114,6 +115,25 @@ def test_confidence_defaults_for_low_and_safety_sensitive_routes():
     assert not confidence_requires_clarification("policy_qa", "advise", 0.8)
 
 
+@pytest.mark.parametrize(
+    ("primary_intent", "requested_operation", "routing_hints", "expected"),
+    [
+        ("refund_troubleshooting", "read_status", {}, "read_only"),
+        ("refund_troubleshooting", "draft_reply", {}, "draft_only"),
+        ("compensation_suggestion", "draft_action", {}, "suggest_action"),
+        ("complaint_escalation", "escalate", {}, "approval_required"),
+        (
+            "unsupported",
+            "advise",
+            {"pre_route_disposition": "approval_chat_not_trusted"},
+            "forbidden_in_chat",
+        ),
+    ],
+)
+def test_resolve_risk_tier(primary_intent, requested_operation, routing_hints, expected):
+    assert resolve_risk_tier(primary_intent, requested_operation, channel="ordinary_chat", routing_hints=routing_hints) == expected
+
+
 @pytest.mark.asyncio
 async def test_classifier_pre_route_wiring_for_approval_chat(monkeypatch, base_state):
     payload = {
@@ -137,6 +157,10 @@ async def test_classifier_pre_route_wiring_for_approval_chat(monkeypatch, base_s
     assert update["routing_hints"]["pre_route_disposition"] == "approval_chat_not_trusted"
     assert update["routing_hints"]["clarification_reason"] == "approval_chat_not_trusted"
     assert update["requested_operation"] == "advise"
+    assert update["risk_tier"] == "forbidden_in_chat"
+    assert update["classification_trace"]["raw_llm_classification"]["primary_intent"] == "policy_qa"
+    assert update["classification_trace"]["effective_classification"]["primary_intent"] == "unsupported"
+    assert update["classification_trace"]["route_decision"] == "clarification_gate"
     assert "approval_result" not in update
     assert route_after_intent(update) == "clarification_gate"
 
@@ -165,6 +189,8 @@ def test_safety_sensitive_pre_route_forces_action_request_policy(llm_intent):
 
     assert update["primary_intent"] == "action_request"
     assert update["requested_operation"] == "execute_action"
+    assert update["risk_tier"] == "approval_required"
+    assert update["classification_trace"]["effective_classification"]["primary_intent"] == "action_request"
     assert update["required_slots"]["all_of"] == ["action_type"]
     assert route_after_slots({**update, "extracted_slots": {"order_id": "ORD-7001"}}) == "clarification_gate"
 

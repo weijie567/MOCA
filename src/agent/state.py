@@ -65,6 +65,8 @@ class AgentState(TypedDict, total=False):
     normalized_query: str | None
     current_intent: str | None
     intent_confidence: float | None
+    risk_tier: str | None
+    classification_trace: dict[str, Any] | None
     secondary_intents: list[str]
     required_slots: dict[str, Any]
     candidate_slots: dict[str, Any]

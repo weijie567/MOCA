@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from src.agent.schemas import IntentLiteral, RequiredSlotExpression, RequestedOperationLiteral
+from src.agent.schemas import IntentLiteral, RequiredSlotExpression, RequestedOperationLiteral, RiskTierLiteral
 
 
 IntentRouteLiteral = Literal["investigate", "session_memory_load", "final_response"]
@@ -127,6 +127,9 @@ CRITICAL_ROUTE_CLASSES = {
     "approval_decision",
     *(name for name, definition in INTENT_DEFINITIONS.items() if definition.critical_route_class),
 }
+
+
+ORDINARY_CHAT_CHANNELS = {"ordinary_chat", "chat", "agent_chat", "agent_runs"}
 
 
 class PreRouteDecision(BaseModel):
@@ -255,6 +258,40 @@ def confidence_requires_clarification(
     if safety_sensitive and confidence < 0.85:
         return True
     return False
+
+
+def resolve_risk_tier(
+    primary_intent: str,
+    requested_operation: str,
+    role: str | None = None,
+    channel: str | None = None,
+    routing_hints: dict[str, Any] | None = None,
+) -> RiskTierLiteral:
+    """Resolve ordinary-chat safety tier from effective policy state.
+
+    The role is accepted for policy expansion but does not grant chat approval
+    authority in this phase.
+    """
+    del role
+    hints = routing_hints or {}
+    effective_channel = channel or str(hints.get("channel") or "ordinary_chat")
+    if (
+        requested_operation == "approval_decision"
+        or hints.get("pre_route_disposition") == "approval_chat_not_trusted"
+        or hints.get("clarification_reason") == "approval_chat_not_trusted"
+    ):
+        return "forbidden_in_chat"
+    if requested_operation == "read_status":
+        return "read_only"
+    if requested_operation == "draft_reply":
+        return "draft_only"
+    if requested_operation == "draft_action" or primary_intent == "compensation_suggestion":
+        return "suggest_action"
+    if requested_operation in {"execute_action", "escalate"}:
+        return "approval_required" if effective_channel in ORDINARY_CHAT_CHANNELS else "approval_required"
+    if primary_intent in HIGH_RISK_INTENTS or primary_intent == "action_request":
+        return "approval_required"
+    return "read_only"
 
 
 def _valid_operation(value: str) -> RequestedOperationLiteral:

@@ -12,9 +12,11 @@ from src.agent.intent_policy import (
     PreRouteDecision,
     detect_pre_route,
     resolve_intent_precedence,
+    resolve_risk_tier,
 )
 from src.agent.prompts import CLASSIFY_INTENT_SYSTEM
 from src.agent.schemas import IntentResultV3, RequiredSlotExpression
+from src.agent.routing import route_after_intent
 from src.agent.state import AgentState
 from src.config import settings
 
@@ -81,19 +83,68 @@ def intent_result_to_state(
     prior_llm_outputs: dict[str, Any] | None = None,
     pre_route: PreRouteDecision | None = None,
     user_query: str = "",
+    role: str | None = None,
+    channel: str | None = None,
 ) -> dict[str, Any]:
+    raw_primary_intent = result.primary_intent
+    raw_requested_operation = result.requested_operation
     primary_intent, requested_operation, precedence_reasons = resolve_intent_precedence(
         result.primary_intent,
         result.requested_operation,
         user_query,
         [str(intent) for intent in result.secondary_intents],
     )
+    policy_overrides: list[dict[str, Any]] = []
+    if (primary_intent, requested_operation) != (raw_primary_intent, raw_requested_operation):
+        policy_overrides.append(
+            {
+                "source": "intent_precedence",
+                "from": {
+                    "primary_intent": raw_primary_intent,
+                    "requested_operation": raw_requested_operation,
+                },
+                "to": {
+                    "primary_intent": primary_intent,
+                    "requested_operation": requested_operation,
+                },
+                "reason_codes": precedence_reasons,
+            }
+        )
     if pre_route and pre_route.requested_operation:
+        if requested_operation != pre_route.requested_operation:
+            policy_overrides.append(
+                {
+                    "source": "pre_route_requested_operation",
+                    "from": {"requested_operation": requested_operation},
+                    "to": {"requested_operation": pre_route.requested_operation},
+                    "reason_codes": pre_route.reason_codes,
+                }
+            )
         requested_operation = pre_route.requested_operation
     if pre_route and pre_route.disposition == "safety_sensitive" and pre_route.requested_operation == "execute_action":
+        if primary_intent != "action_request":
+            policy_overrides.append(
+                {
+                    "source": "safety_sensitive_pre_route",
+                    "from": {"primary_intent": primary_intent},
+                    "to": {"primary_intent": "action_request"},
+                    "reason_codes": pre_route.reason_codes,
+                }
+            )
         primary_intent = "action_request"
         requested_operation = pre_route.requested_operation or "execute_action"
     if pre_route and pre_route.disposition == "approval_chat_not_trusted":
+        policy_overrides.append(
+            {
+                "source": "approval_chat_not_trusted",
+                "from": {
+                    "primary_intent": primary_intent,
+                    "requested_operation": requested_operation,
+                },
+                "to": {"primary_intent": "unsupported", "requested_operation": "advise"},
+                "reason_codes": pre_route.reason_codes,
+            }
+        )
         primary_intent = "unsupported"
         requested_operation = "advise"
 
@@ -108,10 +159,38 @@ def intent_result_to_state(
             routing_hints["clarification_reason"] = pre_route.disposition
         reason_codes.extend(pre_route.reason_codes)
 
+    risk_tier = resolve_risk_tier(primary_intent, requested_operation, role, channel, routing_hints)
+    update = {
+        "primary_intent": primary_intent,
+        "requested_operation": requested_operation,
+        "intent_confidence": result.confidence,
+        "risk_tier": risk_tier,
+        "secondary_intents": [str(intent) for intent in result.secondary_intents],
+        "required_slots": policy_required_slots,
+        "candidate_slots": dict(result.candidate_slots),
+        "routing_hints": routing_hints,
+        "current_intent": primary_intent,
+        "last_intent": primary_intent,
+    }
+    route_decision = route_after_intent(update)
+    classification_trace = {
+        "raw_llm_classification": raw,
+        "pre_route_decision": pre_route.model_dump() if pre_route else None,
+        "policy_overrides": policy_overrides,
+        "effective_classification": {
+            "primary_intent": primary_intent,
+            "requested_operation": requested_operation,
+            "required_slots": policy_required_slots,
+        },
+        "risk_tier": risk_tier,
+        "route_decision": route_decision,
+        "reason_codes": reason_codes,
+    }
     llm_outputs = {
         **(prior_llm_outputs or {}),
         "intent_classification": {
             "raw": raw,
+            "classification_trace": classification_trace,
             "eval_metadata": {
                 "calibrated_confidence": result.calibrated_confidence,
                 "classifier_version": result.classifier_version,
@@ -121,18 +200,8 @@ def intent_result_to_state(
             },
         },
     }
-    update = {
-        "primary_intent": primary_intent,
-        "requested_operation": requested_operation,
-        "intent_confidence": result.confidence,
-        "secondary_intents": [str(intent) for intent in result.secondary_intents],
-        "required_slots": policy_required_slots,
-        "candidate_slots": dict(result.candidate_slots),
-        "routing_hints": routing_hints,
-        "current_intent": primary_intent,
-        "last_intent": primary_intent,
-        "llm_outputs": llm_outputs,
-    }
+    update["classification_trace"] = classification_trace
+    update["llm_outputs"] = llm_outputs
     return {key: value for key, value in update.items() if key not in FORBIDDEN_STATE_WRITES}
 
 
@@ -161,6 +230,8 @@ async def classify_intent(state: AgentState) -> dict:
                 prior_llm_outputs=state.get("llm_outputs") or {},
                 pre_route=pre_route,
                 user_query=user_text,
+                role=state.get("role"),
+                channel="ordinary_chat",
             )
             update["trace_steps"] = (state.get("trace_steps") or []) + [
                 _trace_step(
@@ -192,20 +263,43 @@ async def classify_intent(state: AgentState) -> dict:
             "requires_clarification": pre_route.requires_clarification,
             "clarification_reason": pre_route.disposition if pre_route.requires_clarification else None,
         }
+    risk_tier = resolve_risk_tier("unsupported", "advise", state.get("role"), "ordinary_chat", routing_hints)
+    fallback_state = {
+        "primary_intent": "unsupported",
+        "requested_operation": "advise",
+        "intent_confidence": 0.0,
+        "routing_hints": {key: value for key, value in routing_hints.items() if value is not None},
+    }
+    classification_trace = {
+        "raw_llm_classification": None,
+        "pre_route_decision": pre_route.model_dump(),
+        "policy_overrides": [{"source": "classifier_validation_failed", "reason_codes": [*pre_route.reason_codes]}],
+        "effective_classification": {
+            "primary_intent": "unsupported",
+            "requested_operation": "advise",
+            "required_slots": fallback_required,
+        },
+        "risk_tier": risk_tier,
+        "route_decision": route_after_intent(fallback_state),
+        "reason_codes": ["classifier_validation_failed", *pre_route.reason_codes],
+    }
     return {
         "primary_intent": "unsupported",
         "requested_operation": "advise",
         "intent_confidence": 0.0,
+        "risk_tier": risk_tier,
+        "classification_trace": classification_trace,
         "secondary_intents": [],
         "required_slots": fallback_required,
         "candidate_slots": {},
-        "routing_hints": {key: value for key, value in routing_hints.items() if value is not None},
+        "routing_hints": fallback_state["routing_hints"],
         "current_intent": "unsupported",
         "last_intent": "unsupported",
         "llm_outputs": {
             **(state.get("llm_outputs") or {}),
             "intent_classification": {
                 "raw": None,
+                "classification_trace": classification_trace,
                 "eval_metadata": {
                     "calibrated_confidence": 0.0,
                     "classifier_version": "intent_classifier.v2",
