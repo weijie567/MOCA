@@ -37,6 +37,7 @@ async def receive_request(state: AgentState) -> dict:
         "extracted_slots": None,
         "active_slots": {},
         "active_slot_metadata": {},
+        "last_business_context_refs": None,
         "business_context": None,
         "retrieved_evidence": None,
         "recommendation_draft": None,

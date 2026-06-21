@@ -16,6 +16,7 @@ async def test_receive_request_resets_ephemeral(base_state):
         "candidate_slots": {"order_id": "ORD-OLD"},
         "routing_hints": {"pre_route_disposition": "old"},
         "clarification_request": {"reason": "old"},
+        "last_business_context_refs": {"business_fact_refs": [{"resource_id": "ORD-OLD"}]},
         "business_context": {"old": "data"},
         "action_draft": {"draft_id": "old-draft"},
         "draft_outcome": {"status": "not_executed_demo"},
@@ -33,6 +34,7 @@ async def test_receive_request_resets_ephemeral(base_state):
     assert result["candidate_slots"] == {}
     assert result["routing_hints"] == {}
     assert result["clarification_request"] is None
+    assert result["last_business_context_refs"] is None
     assert result["business_context"] is None
     assert result["action_draft"] is None
     assert result["draft_outcome"] is None
