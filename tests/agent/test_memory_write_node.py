@@ -74,6 +74,9 @@ async def test_memory_write_node_writes_explicit_slots_and_unresolved_questions(
     candidate = candidates[0]
     assert set(candidate.explicit_slots) == {"order_id"}
     assert candidate.explicit_slots["order_id"].value == "ORD-1001"
+    assert "order_status_inquiry" in candidate.explicit_slots["order_id"].compatible_intents
+    assert "refund_troubleshooting" in candidate.explicit_slots["order_id"].compatible_intents
+    assert "action_request" in candidate.explicit_slots["order_id"].compatible_intents
     assert "refund_case_id" not in candidate.explicit_slots
     assert candidate.unresolved_questions == ["请补充退款通道状态。"]
     assert candidate.last_intent == "refund_troubleshooting"

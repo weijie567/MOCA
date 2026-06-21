@@ -8,12 +8,14 @@ from langgraph.checkpoint.memory import MemorySaver
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.graph import build_graph
+from src.agent.nodes import classify_intent as classify_intent_module
 from src.agent.nodes import session_memory_load as session_memory_load_module
 from src.agent.nodes.memory_write import memory_write
 from src.agent.trace import write_agent_run
 from src.db.models import User
 from src.memory.repository import SessionMemoryRepository
 from src.memory.service import MemoryService
+from tests.agent.conftest import FakeLLM
 from tests.agent.test_graph import _config, _patch_graph_dependencies
 
 
@@ -94,6 +96,34 @@ def _slot_envelope(
             }
         },
     }
+
+
+async def _write_order_status_memory(
+    session: AsyncSession,
+    user: User,
+    thread_id: str,
+    order_id: str = "ORD-1001",
+) -> None:
+    run_id = await _persist_run(session, user, thread_id, f"status {order_id}")
+    await memory_write(
+        {
+            "tenant_id": str(user.tenant_id),
+            "user_id": str(user.id),
+            "thread_id": thread_id,
+            "current_run_id": run_id,
+            "final_response": "已查询到订单信息。",
+            "primary_intent": "order_status_inquiry",
+            "requested_operation": "read_status",
+            "extracted_slots": {"order_id": order_id, "issue_type": "refund_status", "action_type": "inquiry"},
+            "active_slots": {"order_id": order_id, "issue_type": "refund_status", "action_type": "inquiry"},
+            "clarification_request": None,
+            "last_business_context_refs": {"business_fact_refs": [{"resource_type": "order", "resource_id": order_id}]},
+            "trace_steps": [],
+            "node_errors": [],
+        },
+        {"configurable": {"session": session}},
+    )
+    await session.commit()
 
 
 @pytest.mark.asyncio
@@ -219,6 +249,53 @@ async def test_agent_runs_session_memory_wrong_scope_fails_closed(
         assert view.continuity_claimed is False or view.active_slots == {}
         assert resolve_slots_for_completeness(state) == {}
         assert route_after_slots(state) == "clarification_gate"
+
+
+@pytest.mark.asyncio
+async def test_next_step_followup_reuses_prior_order_status_memory_instead_of_action_type_clarification(
+    session: AsyncSession,
+    seeded_session: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = seeded_session["users"]["cs_zhang"]
+    thread_id = "integration-next-step-followup"
+    await _write_order_status_memory(session, user, thread_id, order_id="ORD-2024-001")
+    deps = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id=None)
+    monkeypatch.setattr(
+        classify_intent_module,
+        "_get_llm",
+        lambda: FakeLLM(
+            {
+                "schema_version": "intent_result.v3",
+                "primary_intent": "action_request",
+                "requested_operation": "advise",
+                "confidence": 0.82,
+                "calibrated_confidence": 0.82,
+                "secondary_intents": ["order_status_inquiry"],
+                "required_slots": {"all_of": [], "any_of": [["order_id", "refund_case_id"]], "optional": []},
+                "candidate_slots": {},
+                "routing_hints": {"clarification_reason": "missing_order_reference"},
+                "classifier_version": "intent_classifier.v2",
+                "calibration_version": "calibration.unverified",
+                "reason_codes": ["action_handling_question", "missing_context_reference"],
+            }
+        ),
+    )
+    graph = build_graph(MemorySaver())
+
+    final_state = await graph.ainvoke(
+        _state(user, "那这个订单下一步应该怎么处理？", thread_id),
+        _config(deps["tool_manager"], deps["events"], thread_id, session=session),
+    )
+
+    assert final_state["current_intent"] == "refund_troubleshooting"
+    assert final_state["requested_operation"] == "read_status"
+    assert final_state["active_slots"]["order_id"] == "ORD-2024-001"
+    assert final_state["active_slot_metadata"]["order_id"]["source"] == "trusted_session_memory"
+    assert final_state.get("clarification_request") is None
+    assert "请提供操作类型" not in final_state["final_response"]
+    assert final_state["business_context"]["facts"]["order"]["order_no"] == "ORD-2024-001"
+    assert [call[0] for call in deps["tool_manager"].calls] == ["get_order", "search_policy"]
 
 
 @pytest.mark.asyncio

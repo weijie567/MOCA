@@ -72,6 +72,8 @@ def _config(manager, events: list[dict[str, Any]], thread_id: str = "graph-test-
 def _intent(intent: str) -> dict:
     requested_operation = "advise" if intent == "policy_qa" else "read_status"
     required_slots = {"all_of": [], "any_of": [], "optional": []}
+    if intent == "order_status_inquiry":
+        required_slots = {"all_of": [], "any_of": [["order_id", "refund_case_id", "ticket_id"]], "optional": []}
     if intent == "refund_troubleshooting":
         required_slots = {"all_of": [], "any_of": [["order_id", "refund_case_id"]], "optional": []}
     return {
@@ -471,6 +473,26 @@ async def test_policy_qa_direct_investigate_ignores_stale_active_slots(monkeypat
 
     assert [call[0] for call in deps["tool_manager"].calls] == ["search_policy"]
     assert "ORD-STALE" not in str(final_state["business_context"])
+
+
+@pytest.mark.asyncio
+async def test_order_status_inquiry_fact_only_path_renders_business_fact_response(monkeypatch):
+    deps = _patch_graph_dependencies(monkeypatch, intent="order_status_inquiry", order_id="ORD-001")
+    graph = build_graph(MemorySaver())
+
+    final_state = await graph.ainvoke(
+        _state("订单ORD-001的退款进度如何？"),
+        _config(deps["tool_manager"], deps["events"]),
+    )
+
+    nodes = [step["node"] for step in final_state["trace_steps"]]
+    assert final_state["current_intent"] == "order_status_inquiry"
+    assert "generate_recommendation" not in nodes
+    assert "已查询到订单信息" in final_state["final_response"]
+    assert "ORD-001" in final_state["final_response"]
+    assert "建议按已检索到的政策依据处理" not in final_state["final_response"]
+    assert final_state["llm_outputs"]["final_response"]["final_status"] == "completed"
+    assert [call[0] for call in deps["tool_manager"].calls] == ["get_order", "search_policy"]
 
 
 @pytest.mark.asyncio

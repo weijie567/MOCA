@@ -221,6 +221,12 @@ def resolve_intent_precedence(
         and (any(token in lowered for token in ("policy", "rule")) or any(token in text for token in ("政策", "规则")))
     ):
         return "policy_qa", "advise", []
+    if (
+        primary_intent == "action_request"
+        and requested_operation == "advise"
+        and _is_next_step_advice_query(text, lowered)
+    ):
+        return "refund_troubleshooting", "read_status", ["next_step_advice_normalized"]
     for intent in PRECEDENCE_INTENTS:
         if intent in valid_candidates:
             reason_codes = [] if intent == primary_intent else ["intent_precedence_applied"]
@@ -255,3 +261,17 @@ def _valid_operation(value: str) -> RequestedOperationLiteral:
     if value in REQUESTED_OPERATIONS:
         return value  # type: ignore[return-value]
     return "advise"
+
+
+def _is_next_step_advice_query(text: str, lowered: str) -> bool:
+    if any(token in lowered for token in ("execute", "refund now", "override", "compensation", "coupon")):
+        return False
+    if any(token in text for token in ("直接退款", "执行", "发券", "创建", "补偿", "券", "赔付")):
+        return False
+    has_business_reference = any(token in lowered for token in ("order", "refund", "ticket", "that", "this")) or any(
+        token in text for token in ("订单", "退款", "工单", "这个", "该", "那")
+    )
+    asks_for_next_step = any(token in lowered for token in ("next step", "handle", "what should")) or any(
+        token in text for token in ("下一步", "怎么处理", "如何处理", "怎么处置", "处理建议")
+    )
+    return has_business_reference and asks_for_next_step

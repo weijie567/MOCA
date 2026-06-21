@@ -122,3 +122,33 @@ async def test_load_session_memory_filters_expired_and_incompatible_slots(
 
     assert view.active_slots == {"order_id": "ORD-FRESH"}
     assert set(view.slot_metadata) == {"order_id"}
+
+
+@pytest.mark.asyncio
+async def test_load_session_memory_reuses_business_id_slots_across_related_followup_intents(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    user = seeded_session["users"]["cs_zhang"]
+    repository = SessionMemoryRepository(session)
+    await repository.insert_active(
+        tenant_id=user.tenant_id,
+        user_id=user.id,
+        thread_id="thread-related-followup",
+        active_slots_json=_envelope(
+            {
+                "order_id": _slot("ORD-STATUS", intents=["order_status_inquiry"]),
+                "action_type": _slot("inquiry", intents=["order_status_inquiry"]),
+            }
+        ),
+    )
+
+    view = await MemoryService(repository).load_session_memory(
+        user.tenant_id,
+        user.id,
+        "thread-related-followup",
+        current_intent="refund_troubleshooting",
+    )
+
+    assert view.active_slots == {"order_id": "ORD-STATUS"}
+    assert view.slot_metadata["order_id"]["intent_compatible"] is True

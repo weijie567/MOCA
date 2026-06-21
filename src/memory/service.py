@@ -19,6 +19,29 @@ from src.memory.schemas import (
 _SUMMARY_CAP = 2000
 _SUMMARY_TRUNCATION_MARKER = "\n\n[summary_truncated]"
 BLOCKED_PII_CLASSIFICATIONS = {"sensitive", "prohibited"}
+_CROSS_INTENT_SLOT_GROUPS = {
+    "order_id": {
+        "order_status_inquiry",
+        "refund_troubleshooting",
+        "compensation_suggestion",
+        "action_request",
+        "appeal_or_unban",
+        "complaint_escalation",
+    },
+    "refund_case_id": {
+        "order_status_inquiry",
+        "refund_troubleshooting",
+        "compensation_suggestion",
+        "action_request",
+    },
+    "ticket_id": {
+        "order_status_inquiry",
+        "ticket_reply_draft",
+        "appeal_or_unban",
+        "complaint_escalation",
+        "compensation_suggestion",
+    },
+}
 
 
 class MemoryService:
@@ -56,7 +79,7 @@ class MemoryService:
         for slot_name, slot in envelope.slots.items():
             if _is_expired(slot.expires_at, now):
                 continue
-            if current_intent not in slot.compatible_intents:
+            if not _slot_intent_compatible(slot_name, slot.compatible_intents, current_intent):
                 continue
             active_slots[slot_name] = slot.value
             slot_metadata[slot_name] = {
@@ -316,6 +339,17 @@ def _merge_memory(
         "expires_at": _max_expiry(merged_slots, now),
     }
     return _MergeResult(values, reason_code=summary_reason)
+
+
+def _slot_intent_compatible(slot_name: str, compatible_intents: list[str], current_intent: str | None) -> bool:
+    if current_intent is None:
+        return False
+    if current_intent in compatible_intents:
+        return True
+    intent_group = _CROSS_INTENT_SLOT_GROUPS.get(slot_name)
+    if intent_group is None:
+        return False
+    return current_intent in intent_group and any(intent in intent_group for intent in compatible_intents)
 
 
 def _fallback_view(reason: str) -> SessionMemoryView:

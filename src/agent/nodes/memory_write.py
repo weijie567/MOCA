@@ -9,6 +9,7 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 
 from src.agent.events import emit_event
+from src.agent.intent_policy import REQUIRED_SLOT_POLICY
 from src.agent.state import AgentState
 from src.config import settings
 from src.memory.repository import SessionMemoryRepository
@@ -17,6 +18,7 @@ from src.memory.service import BLOCKED_PII_CLASSIFICATIONS, MemoryService
 
 
 _PROHIBITED_PII_MARKERS = {"身份证", "手机号", "password", "secret"}
+_CROSS_INTENT_BUSINESS_ID_SLOTS = {"order_id", "refund_case_id", "ticket_id"}
 _SENSITIVE_PII_PATTERNS = (
     re.compile(r"(?<!\d)(?:\+?86[-\s]?)?1[3-9]\d{9}(?!\d)"),
     re.compile(r"(?<!\d)\d{17}[\dXx](?!\w)"),
@@ -147,7 +149,6 @@ def _explicit_slots(
     now: datetime,
 ) -> dict[str, SessionSlotV1]:
     extracted = state.get("extracted_slots") if isinstance(state.get("extracted_slots"), dict) else {}
-    compatible_intents = [intent] if intent else []
     expires_at = now + timedelta(seconds=settings.session_memory_ttl_seconds)
     slots: dict[str, SessionSlotV1] = {}
     for key, value in extracted.items():
@@ -159,9 +160,32 @@ def _explicit_slots(
             source_run_id=str(run_id),
             updated_at=now,
             expires_at=expires_at,
-            compatible_intents=compatible_intents,
+            compatible_intents=_compatible_intents_for_slot(key, intent),
         )
     return slots
+
+
+def _compatible_intents_for_slot(slot_name: str, current_intent: str | None) -> list[str]:
+    if slot_name not in _CROSS_INTENT_BUSINESS_ID_SLOTS:
+        return [current_intent] if current_intent else []
+
+    compatible = [
+        intent
+        for intent, policy in REQUIRED_SLOT_POLICY.items()
+        if slot_name in _required_slot_names(policy.model_dump())
+    ]
+    if current_intent and current_intent not in compatible:
+        compatible.append(current_intent)
+    return compatible
+
+
+def _required_slot_names(policy: dict[str, Any]) -> set[str]:
+    names = set(str(slot) for slot in policy.get("all_of") or [])
+    names.update(str(slot) for slot in policy.get("optional") or [])
+    for group in policy.get("any_of") or []:
+        if isinstance(group, list):
+            names.update(str(slot) for slot in group)
+    return names
 
 
 def _unresolved_questions(state: AgentState) -> list[str]:

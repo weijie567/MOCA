@@ -79,6 +79,35 @@ def test_resolve_intent_precedence(text, expected_intent, expected_operation):
     assert "intent_precedence_applied" in reason_codes
 
 
+def test_next_step_advice_is_not_forced_into_action_type_clarification():
+    result = IntentResultV3.model_validate(
+        {
+            "schema_version": "intent_result.v3",
+            "primary_intent": "action_request",
+            "requested_operation": "advise",
+            "confidence": 0.82,
+            "calibrated_confidence": 0.82,
+            "secondary_intents": ["order_status_inquiry"],
+            "required_slots": {"all_of": [], "any_of": [["order_id", "refund_case_id"]], "optional": []},
+            "candidate_slots": {},
+            "routing_hints": {"clarification_reason": "missing_order_reference"},
+            "classifier_version": "intent_classifier.v2",
+            "calibration_version": "calibration.unverified",
+            "reason_codes": ["action_handling_question", "missing_context_reference"],
+        }
+    )
+
+    update = intent_result_to_state(result, user_query="那这个订单下一步应该怎么处理？")
+
+    assert update["primary_intent"] == "refund_troubleshooting"
+    assert update["requested_operation"] == "read_status"
+    assert update["required_slots"] == {"all_of": [], "any_of": [["order_id", "refund_case_id"]], "optional": []}
+    assert (
+        "next_step_advice_normalized" in update["llm_outputs"]["intent_classification"]["eval_metadata"]["reason_codes"]
+    )
+    assert route_after_intent(update) == "session_memory_load"
+
+
 def test_confidence_defaults_for_low_and_safety_sensitive_routes():
     assert confidence_requires_clarification("policy_qa", "advise", 0.6)
     assert confidence_requires_clarification("compensation_suggestion", "execute_action", 0.8)
