@@ -5,18 +5,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class IntentResult(BaseModel):
-    intent: Literal[
-        "policy_qa",
-        "refund_troubleshooting",
-        "compensation_suggestion",
-        "approval_request",
-        "unknown",
-    ]
-    confidence: float = Field(ge=0.0, le=1.0)
-    reasoning: str
-
-
 IntentLiteral = Literal[
     "policy_qa",
     "order_status_inquiry",

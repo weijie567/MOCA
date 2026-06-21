@@ -80,6 +80,19 @@ def test_resolve_intent_precedence(text, expected_intent, expected_operation):
     assert "intent_precedence_applied" in reason_codes
 
 
+def test_secondary_intents_participate_in_precedence_resolution():
+    primary, operation, reason_codes = resolve_intent_precedence(
+        "policy_qa",
+        "advise",
+        "帮我看看这个问题",
+        ["complaint_escalation"],
+    )
+
+    assert primary == "complaint_escalation"
+    assert operation == "escalate"
+    assert "intent_precedence_applied" in reason_codes
+
+
 def test_next_step_advice_is_not_forced_into_action_type_clarification():
     result = IntentResultV3.model_validate(
         {
@@ -193,6 +206,34 @@ def test_safety_sensitive_pre_route_forces_action_request_policy(llm_intent):
     assert update["classification_trace"]["effective_classification"]["primary_intent"] == "action_request"
     assert update["required_slots"]["all_of"] == ["action_type"]
     assert route_after_slots({**update, "extracted_slots": {"order_id": "ORD-7001"}}) == "clarification_gate"
+
+
+def test_safety_sensitive_escalation_pre_route_forces_complaint_escalation_policy():
+    result = IntentResultV3.model_validate(
+        {
+            "schema_version": "intent_result.v3",
+            "primary_intent": "policy_qa",
+            "requested_operation": "read_status",
+            "confidence": 0.97,
+            "calibrated_confidence": 0.94,
+            "secondary_intents": [],
+            "required_slots": {"all_of": [], "any_of": [], "optional": []},
+            "candidate_slots": {"ticket_id": "TKT-6001"},
+            "routing_hints": {},
+            "classifier_version": "intent_classifier.v2",
+            "calibration_version": "calibration.unverified",
+            "reason_codes": ["llm_misclassified_escalation"],
+        }
+    )
+    pre_route = detect_pre_route("TKT-6001要不要转主管")
+
+    update = intent_result_to_state(result, pre_route=pre_route, user_query="TKT-6001要不要转主管")
+
+    assert update["primary_intent"] == "complaint_escalation"
+    assert update["requested_operation"] == "escalate"
+    assert update["risk_tier"] == "approval_required"
+    assert update["required_slots"]["any_of"] == [["ticket_id", "order_id", "merchant_id"]]
+    assert route_after_intent(update) == "session_memory_load"
 
 
 @pytest.mark.parametrize(

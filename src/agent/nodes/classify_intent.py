@@ -165,18 +165,24 @@ def intent_result_to_state(
                 }
             )
         requested_operation = pre_route.requested_operation
-    if pre_route and pre_route.disposition == "safety_sensitive" and pre_route.requested_operation == "execute_action":
-        if primary_intent != "action_request":
+    if pre_route and pre_route.disposition == "safety_sensitive":
+        forced_intent = None
+        if pre_route.requested_operation == "execute_action":
+            forced_intent = "action_request"
+        elif pre_route.requested_operation == "escalate":
+            forced_intent = "complaint_escalation"
+        if forced_intent and primary_intent != forced_intent:
             policy_overrides.append(
                 {
                     "source": "safety_sensitive_pre_route",
                     "from": {"primary_intent": primary_intent},
-                    "to": {"primary_intent": "action_request"},
+                    "to": {"primary_intent": forced_intent},
                     "reason_codes": pre_route.reason_codes,
                 }
             )
-        primary_intent = "action_request"
-        requested_operation = pre_route.requested_operation or "execute_action"
+            primary_intent = forced_intent
+        if forced_intent:
+            requested_operation = pre_route.requested_operation or requested_operation
     if pre_route and pre_route.disposition == "approval_chat_not_trusted":
         policy_overrides.append(
             {

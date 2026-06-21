@@ -197,30 +197,25 @@ def resolve_intent_precedence(
     query: str,
     secondary_intents: list[str] | None = None,
 ) -> tuple[str, str, list[str]]:
-    candidates = [primary_intent]
+    candidates = [primary_intent, *(secondary_intents or [])]
     text = query or ""
     lowered = text.lower()
     if any(token in lowered for token in ("appeal", "unban")) or any(token in text for token in ("申诉", "解封")):
         candidates.append("appeal_or_unban")
-        requested_operation = "escalate" if requested_operation == "read_status" else requested_operation
-    if any(token in lowered for token in ("complaint", "escalate")) or any(token in text for token in ("投诉", "升级")):
+    if any(token in lowered for token in ("complaint", "escalate")) or any(token in text for token in ("投诉", "升级", "主管")):
         candidates.append("complaint_escalation")
-        requested_operation = "escalate"
     if any(token in lowered for token in ("compensation", "coupon")) or any(
         token in text for token in ("补偿", "券", "赔付")
     ):
         candidates.append("compensation_suggestion")
-        if requested_operation == "read_status":
-            requested_operation = "draft_action"
     if any(token in lowered for token in ("reply", "draft")) or any(token in text for token in ("回复", "话术")):
         candidates.append("ticket_reply_draft")
-        if requested_operation == "read_status":
-            requested_operation = "draft_reply"
 
     valid_candidates = [candidate for candidate in candidates if candidate in ORDINARY_INTENTS]
     if (
         primary_intent == "policy_qa"
         and requested_operation == "advise"
+        and not any(candidate in {"appeal_or_unban", "complaint_escalation", "compensation_suggestion"} for candidate in valid_candidates)
         and (any(token in lowered for token in ("policy", "rule")) or any(token in text for token in ("政策", "规则")))
     ):
         return "policy_qa", "advise", []
@@ -233,7 +228,7 @@ def resolve_intent_precedence(
     for intent in PRECEDENCE_INTENTS:
         if intent in valid_candidates:
             reason_codes = [] if intent == primary_intent else ["intent_precedence_applied"]
-            return intent, _valid_operation(requested_operation), reason_codes
+            return intent, _operation_for_selected_intent(intent, requested_operation), reason_codes
     return "unsupported", "advise", ["unsupported_intent"]
 
 
@@ -298,6 +293,17 @@ def _valid_operation(value: str) -> RequestedOperationLiteral:
     if value in REQUESTED_OPERATIONS:
         return value  # type: ignore[return-value]
     return "advise"
+
+
+def _operation_for_selected_intent(intent: str, requested_operation: str) -> RequestedOperationLiteral:
+    operation = _valid_operation(requested_operation)
+    if intent in {"appeal_or_unban", "complaint_escalation"}:
+        return "escalate"
+    if intent == "compensation_suggestion" and operation in {"read_status", "advise"}:
+        return "draft_action"
+    if intent == "ticket_reply_draft" and operation in {"read_status", "advise"}:
+        return "draft_reply"
+    return operation
 
 
 def _is_next_step_advice_query(text: str, lowered: str) -> bool:
