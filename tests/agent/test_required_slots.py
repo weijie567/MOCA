@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from src.agent.routing import missing_required_slots, resolve_slots_for_completeness, route_after_slots
+from src.agent.routing import (
+    detect_slot_invalidations,
+    missing_required_slots,
+    resolve_slots_for_completeness,
+    resolve_slots_with_metadata,
+    route_after_slots,
+)
 
 
 def test_missing_required_slots_all_of_any_of_and_optional():
@@ -123,6 +129,40 @@ def test_trusted_session_memory_explicit_override_wins():
 
     assert resolved["order_id"] == "ORD-CURRENT"
     assert route_after_slots(state) == "investigate"
+
+
+def test_slot_invalidation_prevents_trusted_session_inheritance():
+    state = _trusted_state(value="ORD-SESSION")
+    state["user_query"] = "不是这个订单"
+
+    resolved, metadata = resolve_slots_with_metadata(state)
+
+    assert "order_id" not in resolved
+    assert metadata["order_id"]["source"] == "invalidated_trusted_session_memory"
+    assert metadata["order_id"]["invalidated_by_current_query"] is True
+    assert route_after_slots(state) == "clarification_gate"
+
+
+def test_current_turn_slot_replaces_invalidated_session_slot_with_provenance():
+    state = _trusted_state(value="ORD-SESSION")
+    state["user_query"] = "不是这个订单，是 ORD-CURRENT"
+    state["run_started_at"] = "2026-06-21T10:00:00+00:00"
+    state["extracted_slots"] = {"order_id": "ORD-CURRENT"}
+
+    resolved, metadata = resolve_slots_with_metadata(state)
+
+    assert resolved["order_id"] == "ORD-CURRENT"
+    assert metadata["order_id"]["source"] == "current_turn"
+    assert metadata["order_id"]["provenance_source"] == "current_query"
+    assert metadata["order_id"]["observed_at"] == "2026-06-21T10:00:00+00:00"
+    assert metadata["order_id"]["previous_trusted_session_value"] == "ORD-SESSION"
+    assert metadata["order_id"]["slot_invalidation"]["slot"] == "order_id"
+    assert route_after_slots(state) == "investigate"
+
+
+def test_detect_slot_invalidations_for_refund_and_broad_switches():
+    assert set(detect_slot_invalidations("换成刚才那个退款单")) == {"refund_case_id"}
+    assert set(detect_slot_invalidations("不是这个，是另一个")) == {"order_id", "refund_case_id", "ticket_id"}
 
 
 def test_required_slots_mismatch_fails_closed():

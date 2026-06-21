@@ -21,6 +21,36 @@ _INVESTIGATE_ROUTES = {"final_response", "clarification_gate", "recommendation_g
 _RECOMMENDATION_ROUTES = {"assess_risk_and_approval", "final_response"}
 INTENT_ROUTES = {"clarification_gate", "final_response", "investigate", "session_memory_load"}
 SLOT_ROUTES = {"clarification_gate", "investigate", "long_term_memory_retrieve"}
+BUSINESS_ID_SLOTS = ("order_id", "refund_case_id", "ticket_id")
+_SLOT_INVALIDATION_TERMS = {
+    "order_id": ("订单", "order"),
+    "refund_case_id": ("退款单", "退款", "refund"),
+    "ticket_id": ("工单", "ticket"),
+}
+_INVALIDATION_MARKERS = (
+    "不是",
+    "另一个",
+    "另外一个",
+    "别的",
+    "换成",
+    "换为",
+    "换个",
+    "换一下",
+    "different",
+    "another",
+    "not this",
+    "not that",
+)
+_BROAD_INVALIDATION_MARKERS = (
+    "不是这个",
+    "不是这一个",
+    "另一个",
+    "另外一个",
+    "换成",
+    "换一个",
+    "different one",
+    "another one",
+)
 
 
 def route_after_intent(state: AgentState) -> str:
@@ -62,17 +92,33 @@ def resolve_slots_for_completeness(state: AgentState) -> dict[str, Any]:
 
 def resolve_slots_with_metadata(state: AgentState) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
     extracted = state.get("extracted_slots")
-    resolved = {key: value for key, value in (extracted or {}).items() if value not in (None, "")}
-    resolved_metadata = {
-        key: {"source": "current_turn", "explicit_current_turn": True}
-        for key, value in (extracted or {}).items()
-        if value not in (None, "")
-    }
+    current_slots = {key: value for key, value in (extracted or {}).items() if value not in (None, "")}
+    invalidations = detect_slot_invalidations(str(state.get("user_query") or ""))
     session_memory = state.get("session_memory")
+    active_slots: dict[str, Any] = {}
+    slot_metadata: dict[str, Any] = {}
+    if isinstance(session_memory, dict) and session_memory.get("continuity_claimed") is True:
+        raw_active_slots = session_memory.get("active_slots")
+        raw_slot_metadata = session_memory.get("slot_metadata")
+        if isinstance(raw_active_slots, dict) and isinstance(raw_slot_metadata, dict):
+            active_slots = raw_active_slots
+            slot_metadata = raw_slot_metadata
+
+    resolved: dict[str, Any] = {}
+    resolved_metadata: dict[str, dict[str, Any]] = {}
+    for slot, value in current_slots.items():
+        resolved[slot] = value
+        resolved_metadata[slot] = _current_turn_slot_metadata(
+            slot,
+            value,
+            state,
+            active_slots,
+            slot_metadata,
+            invalidations,
+        )
+
     if not isinstance(session_memory, dict) or session_memory.get("continuity_claimed") is not True:
         return resolved, resolved_metadata
-    active_slots = session_memory.get("active_slots")
-    slot_metadata = session_memory.get("slot_metadata")
     if not isinstance(active_slots, dict) or not isinstance(slot_metadata, dict):
         return resolved, resolved_metadata
     for slot, value in active_slots.items():
@@ -80,6 +126,9 @@ def resolve_slots_with_metadata(state: AgentState) -> tuple[dict[str, Any], dict
             continue
         metadata = slot_metadata.get(slot)
         if _trusted_session_slot(metadata, state):
+            if slot in invalidations:
+                resolved_metadata[slot] = _invalidated_slot_metadata(metadata, invalidations[slot])
+                continue
             resolved[slot] = value
             resolved_metadata[slot] = {
                 **metadata,
@@ -87,6 +136,73 @@ def resolve_slots_with_metadata(state: AgentState) -> tuple[dict[str, Any], dict
                 "explicit_current_turn": False,
             }
     return resolved, resolved_metadata
+
+
+def detect_slot_invalidations(user_query: str) -> dict[str, dict[str, Any]]:
+    lowered = user_query.lower()
+    if not any(marker in lowered or marker in user_query for marker in _INVALIDATION_MARKERS):
+        return {}
+
+    invalidations: dict[str, dict[str, Any]] = {}
+    for slot, terms in _SLOT_INVALIDATION_TERMS.items():
+        if any(term in lowered or term in user_query for term in terms):
+            invalidations[slot] = _slot_invalidation(slot)
+    if invalidations:
+        return invalidations
+
+    if any(marker in lowered or marker in user_query for marker in _BROAD_INVALIDATION_MARKERS):
+        return {slot: _slot_invalidation(slot) for slot in BUSINESS_ID_SLOTS}
+    return {}
+
+
+def _slot_invalidation(slot: str) -> dict[str, Any]:
+    return {
+        "slot": slot,
+        "source": "current_query",
+        "reason": "negated_or_switched_context",
+    }
+
+
+def _current_turn_slot_metadata(
+    slot: str,
+    value: Any,
+    state: AgentState,
+    active_slots: dict[str, Any],
+    slot_metadata: dict[str, Any],
+    invalidations: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "source": "current_turn",
+        "provenance_source": "current_query",
+        "explicit_current_turn": True,
+    }
+    observed_at = state.get("run_started_at")
+    if isinstance(observed_at, str) and observed_at:
+        metadata["observed_at"] = observed_at
+
+    prior_value = active_slots.get(slot)
+    prior_metadata = slot_metadata.get(slot)
+    if (
+        prior_value not in (None, "")
+        and str(prior_value) != str(value)
+        and _trusted_session_slot(prior_metadata, state)
+    ):
+        metadata["previous_trusted_session_value"] = prior_value
+    if slot in invalidations:
+        metadata["slot_invalidation"] = invalidations[slot]
+        metadata["invalidates_prior_slot"] = True
+    return metadata
+
+
+def _invalidated_slot_metadata(metadata: Any, invalidation: dict[str, Any]) -> dict[str, Any]:
+    base = dict(metadata) if isinstance(metadata, dict) else {}
+    return {
+        **base,
+        "source": "invalidated_trusted_session_memory",
+        "explicit_current_turn": False,
+        "invalidated_by_current_query": True,
+        "slot_invalidation": invalidation,
+    }
 
 
 def _route_after_intent(state: AgentState) -> str:
