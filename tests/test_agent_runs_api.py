@@ -839,6 +839,32 @@ async def test_events_rejects_cross_tenant_run_before_claim(
 
 
 @pytest.mark.asyncio
+async def test_events_rejects_same_tenant_supervisor_execution_before_claim(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    owner = seeded_session["users"]["cs_zhang"]
+    supervisor = seeded_session["users"]["admin_user"]
+    run = await _create_run(session, tenant_id=owner.tenant_id, user_id=owner.id)
+    await session.commit()
+    graph = NeverCalledGraph()
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+
+    response = await client.get(
+        f"/api/v1/agent-runs/{run.id}/events",
+        headers=_auth_header(supervisor, ["agent:chat"]),
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "FORBIDDEN"
+    assert graph.calls == []
+    await session.refresh(run)
+    assert run.final_status == "pending"
+
+
+@pytest.mark.asyncio
 async def test_event_generator_marks_run_error_when_stream_is_cancelled(
     session: AsyncSession,
     seeded_session,

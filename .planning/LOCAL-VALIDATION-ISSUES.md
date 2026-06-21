@@ -1317,6 +1317,45 @@ uv run ruff check src/agent/context/session_memory_bundle.py src/memory/session_
 
 均通过。
 
+## 29. Phase 24 review-fix 文档提交前 whitespace check 发现 EOF 多余空行
+
+日期：2026-06-21
+
+### 问题现象
+
+准备提交 Phase 24 review-fix 时，`git diff --cached --check` 失败，提示 `.planning/phases/24-agent-runs-short-term-memory-parity/24-REVIEW-FIX.md` 文件末尾存在多余空行。
+
+### 如何检测 / 复现
+
+在 stage review-fix 相关代码和文档后运行：
+
+```bash
+git diff --cached --check
+```
+
+### 关键证据或命令
+
+```text
+.planning/phases/24-agent-runs-short-term-memory-parity/24-REVIEW-FIX.md:27: new blank line at EOF.
+```
+
+### 当前判断 / 根因
+
+新增 Markdown 文档末尾多留了一个空白行，触发 git whitespace check。
+
+### 已做处理
+
+已删除该 EOF 空白行，并保留 review-fix 文档内容不变。
+
+### 剩余问题
+
+无。
+
+### 下次继续排查入口
+
+- `.planning/phases/24-agent-runs-short-term-memory-parity/24-REVIEW-FIX.md`
+- `git diff --cached --check`
+
 ## 28. 宽后端 smoke 初跑暴露旧 direct session memory fixture 与新 bundle fail-closed 语义不一致
 
 日期：2026-06-21

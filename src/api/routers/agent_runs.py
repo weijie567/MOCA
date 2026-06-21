@@ -852,6 +852,11 @@ async def _claim_pending_run_for_stream(session: AsyncSession, run_id: UUID, use
     )
     run = result.scalar_one_or_none()
     _ensure_can_view_run(run, user=user)
+    try:
+        _ensure_can_execute_run(run, user=user)
+    except HTTPException:
+        await session.rollback()
+        raise
     if run.final_status != "pending":
         await session.rollback()
         raise HTTPException(
@@ -1083,6 +1088,11 @@ def _ensure_can_view_run(run: AgentRun | None, *, user: User) -> None:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Run not found"})
     if run.user_id != user.id and user.role not in SUPERVISOR_ROLES:
         raise HTTPException(status_code=403, detail={"code": "FORBIDDEN", "message": "Cannot view this run"})
+
+
+def _ensure_can_execute_run(run: AgentRun, *, user: User) -> None:
+    if run.user_id != user.id:
+        raise HTTPException(status_code=403, detail={"code": "FORBIDDEN", "message": "Cannot execute this run"})
 
 
 def _parse_run_id(run_id: str) -> UUID:
