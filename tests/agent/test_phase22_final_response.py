@@ -148,3 +148,174 @@ async def test_final_response_does_not_turn_manual_review_verification_into_acti
     assert "draft-should-not-appear" not in result["final_response"]
     assert "审批结果" not in result["final_response"]
     assert "草稿已创建" not in result["final_response"]
+
+
+@pytest.mark.asyncio
+async def test_manual_review_response_keeps_business_facts_and_safe_missing_info(
+    base_state: dict[str, Any],
+) -> None:
+    """A verifier block should explain known order facts without trusting draft hallucinations."""
+    state = _state(
+        base_state,
+        outcome="ambiguous",
+        route="manual_review",
+        reason_codes=["level2_partial_overlap_ambiguous"],
+    )
+    state.update(
+        {
+            "recommendation_draft": {
+                "recommended_action": "manual_review",
+                "reasoning_summary": "订单ORD-2024-001当前状态为已完成，建议直接关闭。",
+                "evidence_refs": [],
+                "missing_info": [
+                    "Verification did not allow recommendation",
+                    "退款原因",
+                    "退款场景分类",
+                ],
+            },
+            "business_context": {
+                "facts": {
+                    "order": {
+                        "order_no": "ORD-2024-001",
+                        "status": "pending",
+                        "item_name": "蓝牙降噪耳机 Pro",
+                        "amount": "599.00",
+                        "currency": "CNY",
+                        "relation_hints": {
+                            "has_active_refund": True,
+                            "has_open_ticket": True,
+                        },
+                    }
+                }
+            },
+        }
+    )
+
+    result = await final_response(state)
+
+    assert "当前查询结果" in result["final_response"]
+    assert "ORD-2024-001" in result["final_response"]
+    assert "状态 pending" in result["final_response"]
+    assert "蓝牙降噪耳机 Pro" in result["final_response"]
+    assert "存在关联退款" in result["final_response"]
+    assert "存在未关闭工单" in result["final_response"]
+    assert "人工复核" in result["final_response"]
+    assert "未创建审批请求或动作草稿" in result["final_response"]
+    assert "退款原因" in result["final_response"]
+    assert "退款场景分类" in result["final_response"]
+    assert "Verification did not allow recommendation" not in result["final_response"]
+    assert "已完成" not in result["final_response"]
+    assert "直接关闭" not in result["final_response"]
+    assert result["llm_outputs"]["final_response"]["final_status"] == "manual_review"
+
+
+@pytest.mark.asyncio
+async def test_policy_qa_partial_overlap_manual_review_renders_cited_policy_answer(
+    base_state: dict[str, Any],
+) -> None:
+    """policy_qa with strong evidence can answer a lexical partial-overlap verifier result without action success."""
+    state = {
+        **base_state,
+        "primary_intent": "policy_qa",
+        "current_intent": "policy_qa",
+        "requested_operation": "advise",
+        "retrieval_status": "strong_evidence",
+        "rag_verification": _verification_state(
+            outcome="ambiguous",
+            route="manual_review",
+            reason_codes=["level2_partial_overlap_ambiguous"],
+        ),
+        "retrieved_evidence": {
+            "status": "strong_evidence",
+            "evidence_refs": [
+                {
+                    "evidence_id": "refund_policy/refund_policy_000@v1",
+                    "doc_key": "refund_policy",
+                    "chunk_id": "refund_policy_000",
+                    "title": "退款规则",
+                    "section": "超时自动退款",
+                    "score": 0.88,
+                    "tenant_id": "tenant-should-not-expose",
+                }
+            ],
+        },
+        "recommendation_draft": {
+            "recommended_action": "manual_review",
+            "reasoning_summary": "商家收到退款申请后二十四小时内应响应；超过四十八小时仍未处理且证据满足规则的，平台可自动同意退款。",
+            "evidence_refs": [
+                {
+                    "doc_key": "refund_policy",
+                    "chunk_id": "refund_policy_000",
+                    "title": "退款规则",
+                    "section": "超时自动退款",
+                    "raw_provider_payload": {"private": "do-not-expose"},
+                }
+            ],
+            "confidence": 0.0,
+            "risk_level": "low",
+            "missing_info": ["Verification did not allow recommendation"],
+            "citation_validation": {"is_valid": True},
+        },
+    }
+
+    result = await final_response(state)
+
+    assert "政策说明" in result["final_response"]
+    assert "超过四十八小时" in result["final_response"]
+    assert "根据 refund_policy / refund_policy_000" in result["final_response"]
+    assert "暂不能创建审批请求或动作草稿" not in result["final_response"]
+    assert result["llm_outputs"]["final_response"]["final_status"] == "completed"
+    assert result["llm_outputs"]["final_response"]["verification_route"] == "manual_review"
+    assert result["llm_outputs"]["final_response"]["model_selected_route"] is False
+    assert result["trace_steps"][-1]["evidence_refs"] == [
+        {
+            "evidence_id": "refund_policy/refund_policy_000@v1",
+            "doc_key": "refund_policy",
+            "chunk_id": "refund_policy_000",
+            "title": "退款规则",
+            "section": "超时自动退款",
+            "score": 0.88,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_policy_qa_partial_overlap_with_action_state_still_fails_closed(
+    base_state: dict[str, Any],
+) -> None:
+    state = {
+        **base_state,
+        "primary_intent": "policy_qa",
+        "current_intent": "policy_qa",
+        "requested_operation": "advise",
+        "retrieval_status": "strong_evidence",
+        "rag_verification": _verification_state(
+            outcome="ambiguous",
+            route="manual_review",
+            reason_codes=["level2_partial_overlap_ambiguous"],
+        ),
+        "recommendation_draft": {
+            "recommended_action": "manual_review",
+            "reasoning_summary": "商家超时未处理时平台可自动退款。",
+            "evidence_refs": [
+                {
+                    "doc_key": "refund_policy",
+                    "chunk_id": "refund_policy_000",
+                    "title": "退款规则",
+                    "section": "超时自动退款",
+                }
+            ],
+            "confidence": 0.0,
+            "risk_level": "low",
+            "missing_info": ["Verification did not allow recommendation"],
+            "citation_validation": {"is_valid": True},
+        },
+        "action_draft": {"draft_id": "draft-should-not-appear"},
+    }
+
+    result = await final_response(state)
+
+    assert "人工复核" in result["final_response"]
+    assert "draft-should-not-appear" not in result["final_response"]
+    assert result["llm_outputs"]["final_response"]["final_status"] == "manual_review"
+    assert "evidence_refs" not in result["trace_steps"][-1]

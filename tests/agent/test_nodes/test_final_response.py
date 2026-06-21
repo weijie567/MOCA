@@ -52,9 +52,21 @@ async def test_final_response_uses_deterministic_citation_template(base_state):
                     "chunk_id": "refund_policy_006",
                     "title": "退款规则",
                     "section": "超时自动退款",
+                    "raw_provider_payload": {"private": "do-not-expose"},
                 }
             ],
         },
+        "evidence_refs": [
+            {
+                "evidence_id": "refund_policy/refund_policy_006@v1",
+                "doc_key": "refund_policy",
+                "chunk_id": "refund_policy_006",
+                "title": "退款规则",
+                "section": "超时自动退款",
+                "score": 0.91,
+                "tenant_id": "tenant-should-not-expose",
+            }
+        ],
         "risk_assessment": {
             "risk_level": "low",
             "risk_reason": "Policy explanation only.",
@@ -68,6 +80,16 @@ async def test_final_response_uses_deterministic_citation_template(base_state):
     assert "根据 refund_policy / refund_policy_006" in result["final_response"]
     assert result["llm_outputs"]["final_response"]["final_status"] == "completed"
     assert result["trace_steps"][-1]["model_name"] == "deterministic-template"
+    assert result["trace_steps"][-1]["evidence_refs"] == [
+        {
+            "evidence_id": "refund_policy/refund_policy_006@v1",
+            "doc_key": "refund_policy",
+            "chunk_id": "refund_policy_006",
+            "title": "退款规则",
+            "section": "超时自动退款",
+            "score": 0.91,
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -266,16 +288,18 @@ async def test_final_response_preserves_order_facts_when_policy_evidence_is_miss
     state = {
         **base_state,
         "business_context": {
-            "order": {
-                "order_no": "ORD-2024-001",
-                "status": "delivered",
-                "item_name": "测试商品",
-                "amount": "199.00",
-                "currency": "CNY",
-                "relation_hints": {
-                    "has_active_refund": True,
-                    "has_open_ticket": False,
-                },
+            "facts": {
+                "order": {
+                    "order_no": "ORD-2024-001",
+                    "status": "delivered",
+                    "item_name": "测试商品",
+                    "amount": "199.00",
+                    "currency": "CNY",
+                    "relation_hints": {
+                        "has_active_refund": True,
+                        "has_open_ticket": False,
+                    },
+                }
             }
         },
         "recommendation_draft": {
@@ -296,6 +320,46 @@ async def test_final_response_preserves_order_facts_when_policy_evidence_is_miss
     assert "关于退款风险" in result["final_response"]
     assert "没有找到足够证据" in result["final_response"]
     assert result["llm_outputs"]["final_response"]["final_status"] == "insufficient_evidence"
+
+
+@pytest.mark.asyncio
+async def test_final_response_renders_order_status_business_fact_response_without_default_recommendation(base_state):
+    state = {
+        **base_state,
+        "primary_intent": "order_status_inquiry",
+        "current_intent": "order_status_inquiry",
+        "requested_operation": "read_status",
+        "business_context": {
+            "facts": {
+                "order": {
+                    "order_no": "ORD-2024-001",
+                    "status": "pending",
+                    "item_name": "蓝牙降噪耳机 Pro",
+                    "amount": "599.00",
+                    "currency": "CNY",
+                    "relation_hints": {
+                        "has_active_refund": True,
+                        "has_open_ticket": True,
+                    },
+                }
+            },
+            "status": "complete",
+            "missing_required_facts": [],
+            "errors": [],
+        },
+        "recommendation_draft": None,
+    }
+
+    result = await final_response(state)
+
+    assert "当前查询结果" in result["final_response"]
+    assert "ORD-2024-001" in result["final_response"]
+    assert "状态 pending" in result["final_response"]
+    assert "蓝牙降噪耳机 Pro" in result["final_response"]
+    assert "存在关联退款" in result["final_response"]
+    assert "存在未关闭工单" in result["final_response"]
+    assert "建议按已检索到的政策依据处理" not in result["final_response"]
+    assert result["llm_outputs"]["final_response"]["final_status"] == "completed"
 
 
 @pytest.mark.asyncio

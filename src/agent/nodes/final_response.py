@@ -7,14 +7,60 @@ from src.agent.prompts import INSUFFICIENT_EVIDENCE_RESPONSE
 from src.agent.state import AgentState
 
 DEMO_NOT_EXECUTED_TEXT = "演示模式未执行优惠券发放、退款、工单关闭或任何外部动作"
+_POLICY_QA_DISPLAYABLE_VERIFIER_REASONS = frozenset({"level2_partial_overlap_ambiguous"})
+_INTERNAL_MISSING_INFO = frozenset(
+    {
+        "Citation membership validation failed",
+        "Recommendation generation failed",
+        "Verification did not allow recommendation",
+    }
+)
+_VERIFICATION_REASON_TEXT = {
+    "business_fact_missing": "业务事实不足",
+    "conflicting_evidence": "政策证据存在冲突",
+    "level2_partial_overlap_ambiguous": "政策证据和处理动作之间仍有歧义",
+    "missing_citation": "建议缺少可核验政策引用",
+    "ocr_low_confidence": "政策证据识别置信度偏低",
+    "semantic_ambiguous": "政策证据和处理动作之间仍有歧义",
+    "stale_evidence": "政策证据可能不是最新版本",
+    "unsupported": "建议没有被当前证据充分支持",
+}
+_ACTION_BOUNDARY_FIELDS = (
+    "approval_result",
+    "action_result",
+    "action_draft",
+    "draft_outcome",
+    "proposed_action",
+)
+_SAFE_EVIDENCE_REF_KEYS = frozenset(
+    {
+        "evidence_id",
+        "doc_key",
+        "doc_id",
+        "chunk_id",
+        "title",
+        "section",
+        "section_title",
+        "confidence",
+        "score",
+        "risk_level",
+        "policy_version",
+        "text_hash",
+        "retrieved_at",
+    }
+)
 
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def _trace_step(status: str, started_at: str) -> dict[str, Any]:
-    return {
+def _trace_step(
+    status: str,
+    started_at: str,
+    evidence_refs: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    step = {
         "node": "final_response",
         "status": status,
         "started_at": started_at,
@@ -26,6 +72,69 @@ def _trace_step(status: str, started_at: str) -> dict[str, Any]:
         "retry_count": 0,
         "metrics_json": None,
     }
+    safe_refs = _safe_display_evidence_refs(evidence_refs)
+    if safe_refs:
+        step["evidence_refs"] = safe_refs
+    return step
+
+
+def _safe_display_evidence_refs(evidence_refs: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    safe_refs: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for ref in evidence_refs or []:
+        if not isinstance(ref, dict):
+            continue
+        safe_ref = {key: value for key, value in ref.items() if key in _SAFE_EVIDENCE_REF_KEYS and value is not None}
+        if not safe_ref:
+            continue
+        key = str(safe_ref.get("evidence_id") or f"{safe_ref.get('doc_key')}:{safe_ref.get('chunk_id')}")
+        if key in seen:
+            continue
+        seen.add(key)
+        safe_refs.append(safe_ref)
+    return safe_refs
+
+
+def _final_response_evidence_refs(state: AgentState, draft: dict[str, Any]) -> list[dict[str, Any]]:
+    draft_refs = [ref for ref in draft.get("evidence_refs") or [] if isinstance(ref, dict)]
+    if not draft_refs:
+        return []
+
+    full_refs_by_citation: dict[tuple[str, str], dict[str, Any]] = {}
+    for ref in _state_evidence_ref_candidates(state):
+        doc_key = str(ref.get("doc_key") or ref.get("doc_id") or "")
+        chunk_id = str(ref.get("chunk_id") or "")
+        if doc_key and chunk_id:
+            full_refs_by_citation.setdefault((doc_key, chunk_id), ref)
+
+    resolved_refs: list[dict[str, Any]] = []
+    for ref in draft_refs:
+        doc_key = str(ref.get("doc_key") or ref.get("doc_id") or "")
+        chunk_id = str(ref.get("chunk_id") or "")
+        resolved_refs.append(full_refs_by_citation.get((doc_key, chunk_id), ref))
+    return resolved_refs
+
+
+def _state_evidence_ref_candidates(state: AgentState) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for value in (
+        state.get("evidence_refs"),
+        state.get("policy_evidence"),
+        _retrieved_evidence_refs(state.get("retrieved_evidence")),
+    ):
+        if isinstance(value, list):
+            candidates.extend(ref for ref in value if isinstance(ref, dict))
+    return candidates
+
+
+def _retrieved_evidence_refs(retrieved: Any) -> list[dict[str, Any]]:
+    if not isinstance(retrieved, dict):
+        return []
+    data = retrieved.get("data")
+    if isinstance(data, dict) and isinstance(data.get("evidence_refs"), list):
+        return data["evidence_refs"]
+    refs = retrieved.get("evidence_refs")
+    return refs if isinstance(refs, list) else []
 
 
 def _insufficient_response(draft: dict[str, Any]) -> str:
@@ -43,9 +152,10 @@ def _retrieval_error_response(draft: dict[str, Any]) -> str:
 
 def _business_context_summary(context: dict[str, Any]) -> str:
     parts: list[str] = []
-    order = context.get("order") or {}
-    refund_case = context.get("refund_case") or {}
-    ticket = context.get("ticket") or {}
+    facts = _business_context_facts(context)
+    order = _dict_value(facts.get("order"))
+    refund_case = _dict_value(facts.get("refund_case"))
+    ticket = _dict_value(facts.get("ticket"))
 
     if order:
         order_fields = [
@@ -95,12 +205,40 @@ def _business_context_summary(context: dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
+def _business_context_facts(context: dict[str, Any]) -> dict[str, Any]:
+    facts = context.get("facts")
+    if isinstance(facts, dict):
+        return facts
+    return context
+
+
+def _dict_value(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
 def _insufficient_response_with_context(draft: dict[str, Any], context: dict[str, Any]) -> str:
     evidence_text = _insufficient_response(draft)
     fact_summary = _business_context_summary(context)
     if not fact_summary:
         return evidence_text
     return f"{fact_summary}\n关于退款风险：{evidence_text}"
+
+
+def _business_fact_response(context: dict[str, Any]) -> str:
+    fact_summary = _business_context_summary(context)
+    if not fact_summary:
+        return ""
+    return f"当前查询结果：\n{fact_summary}"
+
+
+def _business_fact_llm_output(response_text: str) -> dict[str, Any]:
+    return {
+        "response_text": response_text,
+        "evidence_citations": [],
+        "final_status": "completed",
+        "mode": "deterministic-template",
+        "approval_context": None,
+    }
 
 
 def _citation_summary(evidence_refs: list[dict[str, Any]]) -> str:
@@ -181,6 +319,62 @@ def _safe_verification_response(verification: dict[str, Any]) -> str:
     return "没有找到足够证据支持该建议，当前不能继续创建审批请求或动作草稿。"
 
 
+def _displayable_missing_info(draft: dict[str, Any]) -> list[str]:
+    displayable: list[str] = []
+    seen: set[str] = set()
+    for item in draft.get("missing_info") or []:
+        text = str(item).strip()
+        if not text or text in _INTERNAL_MISSING_INFO or _looks_internal_missing_info(text):
+            continue
+        if text in seen:
+            continue
+        seen.add(text)
+        displayable.append(text)
+    return displayable
+
+
+def _looks_internal_missing_info(text: str) -> bool:
+    lowered = text.lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "context_builder",
+            "membership",
+            "verification",
+            "verifier",
+            "trace",
+        )
+    )
+
+
+def _verification_reason_texts(verification: dict[str, Any]) -> list[str]:
+    texts: list[str] = []
+    seen: set[str] = set()
+    for code in verification.get("reason_codes") or []:
+        text = _VERIFICATION_REASON_TEXT.get(str(code))
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        texts.append(text)
+    return texts
+
+
+def _manual_review_response(
+    draft: dict[str, Any],
+    verification: dict[str, Any],
+    context: dict[str, Any],
+) -> str:
+    fact_summary = _business_context_summary(context)
+    parts: list[str] = []
+    if fact_summary:
+        parts.append(f"当前查询结果：\n{fact_summary}")
+    parts.append("当前还不能给出具体处理动作：证据状态需要人工复核，系统未创建审批请求或动作草稿。")
+    reasons = _displayable_missing_info(draft) or _verification_reason_texts(verification)
+    if reasons:
+        parts.append(f"需要补充或复核：{'、'.join(reasons)}。")
+    return "\n".join(parts)
+
+
 def _verification_llm_output(response_text: str, verification: dict[str, Any]) -> dict[str, Any]:
     route = _verification_route_value(verification)
     route_payload = verification.get("route") if isinstance(verification.get("route"), dict) else {}
@@ -194,6 +388,75 @@ def _verification_llm_output(response_text: str, verification: dict[str, Any]) -
         "route_selected_by": route_payload.get("selected_by") or "backend",
         "model_selected_route": bool(route_payload.get("model_selected")),
     }
+
+
+def _state_intent(state: AgentState) -> str:
+    value = state.get("primary_intent") or state.get("current_intent")
+    return value if isinstance(value, str) else ""
+
+
+def _has_action_boundary_state(state: AgentState) -> bool:
+    return any(bool(state.get(field)) for field in _ACTION_BOUNDARY_FIELDS)
+
+
+def _citation_validation_passed(draft: dict[str, Any]) -> bool:
+    validation = draft.get("citation_validation")
+    return isinstance(validation, dict) and validation.get("is_valid") is True
+
+
+def _can_render_policy_qa_partial_overlap(
+    state: AgentState,
+    draft: dict[str, Any],
+    verification: dict[str, Any],
+) -> bool:
+    if _state_intent(state) != "policy_qa":
+        return False
+    if state.get("requested_operation") not in (None, "advise", "read_status"):
+        return False
+    if _verification_route_value(verification) != "manual_review":
+        return False
+    if state.get("retrieval_status") != "strong_evidence":
+        return False
+    if _has_action_boundary_state(state):
+        return False
+    reason_codes = {str(code) for code in verification.get("reason_codes") or []}
+    if not reason_codes or not reason_codes <= _POLICY_QA_DISPLAYABLE_VERIFIER_REASONS:
+        return False
+    return bool(draft.get("evidence_refs")) and _citation_validation_passed(draft)
+
+
+def _can_render_business_fact_response(state: AgentState, draft: dict[str, Any]) -> bool:
+    if _state_intent(state) != "order_status_inquiry":
+        return False
+    if state.get("requested_operation") not in (None, "read_status", "advise"):
+        return False
+    if _has_action_boundary_state(state):
+        return False
+    if draft.get("recommended_action"):
+        return False
+    return bool(_business_context_summary(state.get("business_context") or {}))
+
+
+def _policy_qa_partial_overlap_response(draft: dict[str, Any]) -> str:
+    reasoning = draft.get("reasoning_summary") or "已根据当前知识库证据生成政策说明。"
+    citations = _citation_summary(draft.get("evidence_refs") or [])
+    parts = [f"政策说明：{reasoning}"]
+    if citations:
+        parts.append(f"依据：{citations}。")
+    return "\n".join(parts)
+
+
+def _policy_qa_partial_overlap_llm_output(
+    response_text: str,
+    draft: dict[str, Any],
+    verification: dict[str, Any],
+) -> dict[str, Any]:
+    output = _verification_llm_output(response_text, verification)
+    output["final_status"] = "completed"
+    output["evidence_citations"] = [
+        f"{ref.get('doc_key')} / {ref.get('chunk_id')}" for ref in draft.get("evidence_refs") or []
+    ]
+    return output
 
 
 def _is_successful_demo_draft_outcome(draft_outcome: object) -> bool:
@@ -290,7 +553,21 @@ async def final_response(state: AgentState) -> dict:
         }
     verification = _verification_route_payload(state)
     if verification is not None:
-        response_text = _safe_verification_response(verification)
+        if _can_render_policy_qa_partial_overlap(state, draft, verification):
+            response_text = _policy_qa_partial_overlap_response(draft)
+            return {
+                "final_response": response_text,
+                "llm_outputs": {
+                    **(state.get("llm_outputs") or {}),
+                    "final_response": _policy_qa_partial_overlap_llm_output(response_text, draft, verification),
+                },
+                "trace_steps": (state.get("trace_steps") or [])
+                + [_trace_step("completed", started_at, _final_response_evidence_refs(state, draft))],
+            }
+        if _verification_route_value(verification) == "manual_review":
+            response_text = _manual_review_response(draft, verification, state.get("business_context") or {})
+        else:
+            response_text = _safe_verification_response(verification)
         return {
             "final_response": response_text,
             "llm_outputs": {
@@ -320,6 +597,16 @@ async def final_response(state: AgentState) -> dict:
             },
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
         }
+    if _can_render_business_fact_response(state, draft):
+        response_text = _business_fact_response(state.get("business_context") or {})
+        return {
+            "final_response": response_text,
+            "llm_outputs": {
+                **(state.get("llm_outputs") or {}),
+                "final_response": _business_fact_llm_output(response_text),
+            },
+            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
+        }
     response_text = _completed_response(draft, state.get("risk_assessment") or {})
     approval_context = _approval_outcome_text(approval_result, action_result, action_draft, draft_outcome)
     if approval_context:
@@ -338,5 +625,6 @@ async def final_response(state: AgentState) -> dict:
                 "approval_context": approval_context or None,
             },
         },
-        "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
+        "trace_steps": (state.get("trace_steps") or [])
+        + [_trace_step("completed", started_at, _final_response_evidence_refs(state, draft))],
     }
