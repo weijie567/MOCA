@@ -1442,6 +1442,45 @@ npm test -- --run src/hooks/useAgentRun.test.ts src/lib/api.test.ts
 - `frontend/src/lib/api.test.ts`
 - `frontend/package.json`
 
+## 32. study_plan 文档剩余 dirty diff 仅为尾部空格
+
+日期：2026-06-21
+
+### 问题现象
+
+整理剩余工作区时，`study_plan/deep-research-report (1).md` 仍显示 dirty，但 diff 只是在最后一行新增了尾部空格，且无文件内容语义变化。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+git diff --check -- 'study_plan/deep-research-report (1).md'
+```
+
+### 关键证据或命令
+
+```text
+study_plan/deep-research-report (1).md:261: trailing whitespace.
+```
+
+### 当前判断 / 根因
+
+这是文档尾部 whitespace 噪声，不属于当前后端、前端、Docker 或记忆机制收口范围；直接提交会污染提交边界。
+
+### 已做处理
+
+未纳入本轮提交。保留该工作区变更，等待用户确认是否清理或保留。
+
+### 剩余问题
+
+该文件仍会在 `git status --short` 中显示为 modified。
+
+### 下次继续排查入口
+
+- `study_plan/deep-research-report (1).md`
+- `git diff --check -- 'study_plan/deep-research-report (1).md'`
+
 ## 28. 宽后端 smoke 初跑暴露旧 direct session memory fixture 与新 bundle fail-closed 语义不一致
 
 日期：2026-06-21
