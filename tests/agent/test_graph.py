@@ -21,7 +21,7 @@ from src.agent.nodes import long_term_memory_retrieve as memory_retrieve_module
 from src.agent.routing import route_after_intent, route_after_investigate, route_after_slots
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1
-from src.memory.schemas import SessionMemoryView
+from src.memory.schemas import SessionMemoryBundle, SessionMemoryView
 from src.tools.catalog import ToolCatalog
 from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolResultV2
 from src.tools.manager import UnifiedToolManager
@@ -272,6 +272,41 @@ def _session_memory_service(
     return FakeMemoryService
 
 
+def _session_memory_bundle_service(
+    *,
+    order_id: str = "ORD-SESSION-001",
+    wrong_thread: bool = False,
+    stale: bool = False,
+):
+    memory_service_type = _session_memory_service(order_id=order_id, wrong_thread=wrong_thread, stale=stale)
+
+    class FakeBundleService:
+        def __init__(self, *, conversation_service, memory_service) -> None:
+            pass
+
+        async def load_session_memory_bundle(self, **kwargs):
+            view = await memory_service_type(None).load_session_memory(
+                kwargs["tenant_id"],
+                kwargs["user_id"],
+                kwargs["thread_id"],
+                kwargs.get("current_intent"),
+            )
+            return SessionMemoryBundle(
+                tenant_id=str(kwargs["tenant_id"]),
+                user_id=str(kwargs["user_id"]),
+                thread_id=kwargs["thread_id"],
+                run_id=str(kwargs["run_id"]),
+                slot_continuity=view,
+            )
+
+    return FakeBundleService
+
+
+class _FakeSession:
+    async def execute(self, *args, **kwargs):
+        raise AssertionError("fake bundle service should avoid repository reads")
+
+
 def _patch_reviewed_memory_services(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -364,12 +399,12 @@ async def test_same_thread_session_memory_active_slots_feed_investigate(monkeypa
     deps = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id=None)
     from src.agent.nodes import session_memory_load as session_memory_load_module
 
-    monkeypatch.setattr(session_memory_load_module, "MemoryService", _session_memory_service())
+    monkeypatch.setattr(session_memory_load_module, "SessionMemoryBundleService", _session_memory_bundle_service())
     graph = build_graph(MemorySaver())
 
     final_state = await graph.ainvoke(
         _state("那这个退款呢？"),
-        _config(deps["tool_manager"], deps["events"], session=object()),
+        _config(deps["tool_manager"], deps["events"], session=_FakeSession()),
     )
 
     assert final_state["active_slots"]["order_id"] == "ORD-SESSION-001"
@@ -389,12 +424,16 @@ async def test_wrong_thread_or_stale_session_memory_routes_to_clarification(monk
     deps = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id=None)
     from src.agent.nodes import session_memory_load as session_memory_load_module
 
-    monkeypatch.setattr(session_memory_load_module, "MemoryService", _session_memory_service(**memory_kwargs))
+    monkeypatch.setattr(
+        session_memory_load_module,
+        "SessionMemoryBundleService",
+        _session_memory_bundle_service(**memory_kwargs),
+    )
     graph = build_graph(MemorySaver())
 
     final_state = await graph.ainvoke(
         _state("那这个退款呢？"),
-        _config(deps["tool_manager"], deps["events"], session=object()),
+        _config(deps["tool_manager"], deps["events"], session=_FakeSession()),
     )
 
     assert deps["tool_manager"].calls == []

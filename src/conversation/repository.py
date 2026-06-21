@@ -7,6 +7,7 @@ import uuid
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.conversation.schemas import ConversationMessageCreate
 from src.db.models import (
@@ -336,7 +337,10 @@ class ConversationRepository:
             if previous_ids:
                 filters.append(ToolResultRecord.id.not_in(previous_ids))
         result = await self.session.execute(
-            select(ToolResultRecord).where(and_(*filters)).order_by(ToolResultRecord.created_at, ToolResultRecord.id)
+            select(ToolResultRecord)
+            .options(selectinload(ToolResultRecord.tool_call))
+            .where(and_(*filters))
+            .order_by(ToolResultRecord.created_at, ToolResultRecord.id)
         )
         return list(result.scalars().all())
 
@@ -353,6 +357,7 @@ class ConversationRepository:
             return []
         result = await self.session.execute(
             select(ToolResultRecord)
+            .options(selectinload(ToolResultRecord.tool_call))
             .where(
                 ToolResultRecord.conversation_thread_id == thread.id,
                 ToolResultRecord.prompt_summary.is_not(None),

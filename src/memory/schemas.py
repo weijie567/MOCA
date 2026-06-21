@@ -86,6 +86,62 @@ class SessionMemoryView(BaseModel):
     fallback_reason: str | None = None
 
 
+SlotContinuityMemoryView = SessionMemoryView
+
+
+class SessionRollingSummaryView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    summary_id: str
+    summary_text: str
+    source_message_ids: list[str] = Field(default_factory=list)
+    source_tool_result_ids: list[str] = Field(default_factory=list)
+    created_at: datetime | None = None
+
+
+class SessionRecentMessageView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    message_id: str
+    run_id: str
+    message_index: int
+    role: Literal["user", "assistant", "tool"]
+    content: str
+    created_at: datetime | None = None
+
+
+class SessionToolSummaryView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tool_result_record_id: str
+    tool_result_id: str | None = None
+    run_id: str | None = None
+    tool_call_id: str | None = None
+    tool_name: str | None = None
+    status: str
+    prompt_summary: str
+    business_fact_refs: list[dict[str, Any]] = Field(default_factory=list)
+    policy_evidence_refs: list[dict[str, Any]] = Field(default_factory=list)
+    audit_ref: str | None = None
+    created_at: datetime | None = None
+
+
+class SessionMemoryBundle(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["session_memory_bundle.v1"] = "session_memory_bundle.v1"
+    source: Literal["session_memory_bundle"] = "session_memory_bundle"
+    tenant_id: str
+    user_id: str
+    thread_id: str
+    run_id: str
+    rolling_summary: SessionRollingSummaryView | None = None
+    recent_messages: list[SessionRecentMessageView] = Field(default_factory=list)
+    tool_summaries: list[SessionToolSummaryView] = Field(default_factory=list)
+    slot_continuity: SlotContinuityMemoryView
+    fallback_reasons: dict[str, str] = Field(default_factory=dict)
+
+
 class SessionMemoryWriteCandidate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

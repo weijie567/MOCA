@@ -51,6 +51,7 @@ async def receive_request(state: AgentState) -> dict:
         "case_memory": None,
         "claim_dependency_map": None,
         "session_memory": None,
+        "session_memory_bundle": None,
         "memory_write_candidates": None,
         "memory_write_result": None,
         "long_term_memory": None,

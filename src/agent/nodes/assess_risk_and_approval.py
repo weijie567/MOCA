@@ -14,6 +14,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
 from src.agent.context import ContextAssembler, PromptAssembly
+from src.agent.context.session_memory_bundle import load_session_prompt_context
 from src.agent.prompts import ASSESS_RISK_SYSTEM
 from src.agent.schemas import RiskAssessment
 from src.agent.state import AgentState
@@ -26,10 +27,7 @@ from src.approvals.snapshot_service import (
 from src.approvals.snapshots import build_action_safety_snapshot
 from src.approvals.schemas import PROPOSED_ACTION_SCHEMA_VERSION
 from src.config import settings
-from src.conversation.repository import ConversationRepository
-from src.conversation.service import ConversationService
 from src.knowledge.schemas import EvidenceRefV1, canonical_evidence_projection
-from src.tools.contracts import ToolResultPromptSummary
 
 RISK_RULES_PATH = Path("rules/risk_rules.yaml")
 POLICY_CONFIG_VERSION = "approval-policy.v1"
@@ -594,7 +592,7 @@ async def _assemble_risk_prompt(
     draft: dict[str, Any],
     context: dict[str, Any],
 ) -> PromptAssembly:
-    prompt_context = await _load_prompt_context(state, config)
+    prompt_context = await load_session_prompt_context(state, config)
     return ContextAssembler().assemble(
         system_prompt=ASSESS_RISK_SYSTEM,
         current_user_message=str(state.get("user_query") or ""),
@@ -677,77 +675,6 @@ def _policy_refs_from_state(state: AgentState, draft: dict[str, Any]) -> list[di
                 }
             )
     return refs
-
-
-async def _load_prompt_context(state: AgentState, config: RunnableConfig | None) -> dict[str, Any]:
-    configurable = ((config or {}).get("configurable") or {}) if config else {}
-    session = configurable.get("session")
-    run_id = state.get("current_run_id") or state.get("run_id")
-    if (
-        session is None
-        or not state.get("tenant_id")
-        or not state.get("user_id")
-        or not state.get("thread_id")
-        or not run_id
-    ):
-        return _empty_prompt_context()
-
-    service = configurable.get("conversation_service")
-    if service is None:
-        if not hasattr(session, "execute"):
-            return _empty_prompt_context()
-        service = ConversationService(ConversationRepository(session))
-
-    try:
-        context = await service.load_prompt_context(
-            tenant_id=state["tenant_id"],
-            user_id=state["user_id"],
-            thread_id=str(state["thread_id"]),
-            run_id=run_id,
-        )
-    except Exception:
-        return _empty_prompt_context()
-
-    latest_summary = getattr(context, "latest_thread_summary", None)
-    return {
-        "thread_rolling_summary": getattr(latest_summary, "summary_text", None) or "",
-        "recent_messages": [
-            {"role": getattr(message, "role", "message"), "content": getattr(message, "content", "")}
-            for message in getattr(context, "recent_messages", [])
-        ],
-        "tool_result_summaries": [
-            summary
-            for summary in (
-                _tool_prompt_summary_from_record(record) for record in getattr(context, "tool_prompt_summaries", [])
-            )
-            if summary is not None
-        ],
-    }
-
-
-def _empty_prompt_context() -> dict[str, Any]:
-    return {"thread_rolling_summary": "", "recent_messages": [], "tool_result_summaries": []}
-
-
-def _tool_prompt_summary_from_record(record: Any) -> ToolResultPromptSummary | None:
-    if isinstance(record, ToolResultPromptSummary):
-        return record
-    payload = {
-        "tool_call_id": getattr(record, "tool_call_id", ""),
-        "tool_result_id": getattr(record, "tool_result_id", "") or str(getattr(record, "id", "")),
-        "tool_name": getattr(record, "tool_name", "tool"),
-        "status": getattr(record, "status", "success"),
-        "summary": getattr(record, "summary", "") or "",
-        "prompt_summary": getattr(record, "prompt_summary", "") or getattr(record, "summary", "") or "",
-        "business_fact_refs": getattr(record, "business_fact_refs_json", []) or [],
-        "policy_evidence_refs": getattr(record, "policy_evidence_refs_json", []) or [],
-        "raw_result_ref": getattr(record, "raw_result_ref", None),
-        "audit_ref": getattr(record, "audit_ref", None),
-    }
-    try:
-        return ToolResultPromptSummary.model_validate(payload)
-    except ValidationError:
-        return None
 
 
 def _messages_chars(messages: list[dict[str, str]]) -> int:

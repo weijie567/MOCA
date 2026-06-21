@@ -409,6 +409,7 @@ async def test_extract_slots_loads_agent_runs_prompt_context_from_trusted_config
             "user_id": str(user.id),
             "thread_id": thread_id,
             "run_id": run_id,
+            "max_recent_messages": 8,
         }
     ]
     assert result["active_slots"]["order_id"] == "ORD-CURRENT-001"

@@ -588,4 +588,119 @@ async def test_generate_recommendation_prompt_uses_context_assembly_and_excludes
     assert SHOULD_NOT_APPEAR_RAW_TOOL_DATA not in prompt
     assert SHOULD_NOT_APPEAR_BUSINESS_CONTEXT not in prompt
     assert SHOULD_NOT_APPEAR_APPROVAL_BODY not in prompt
+
+
+@pytest.mark.asyncio
+async def test_generate_recommendation_prompt_uses_existing_session_memory_bundle_first(monkeypatch, base_state):
+    evidence = _evidence(tenant_id=base_state["tenant_id"])
+    run_id = str(uuid4())
+    fake_llm = CapturingLLM(_draft())
+    assemblies = _spy_context_assembler(monkeypatch)
+    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
+    _with_knowledge_service(monkeypatch, {(evidence.doc_key, evidence.chunk_id): "Allowed verified policy text."})
+
+    class ExplodingConversationService:
+        async def load_prompt_context(self, **kwargs):
+            raise AssertionError("existing session_memory_bundle should be used before conversation service")
+
+    await generate_recommendation_module.generate_recommendation(
+        {
+            **base_state,
+            "current_run_id": run_id,
+            **_retrieval_state(evidence=[evidence]),
+            "session_memory_bundle": {
+                "schema_version": "session_memory_bundle.v1",
+                "source": "session_memory_bundle",
+                "tenant_id": base_state["tenant_id"],
+                "user_id": base_state["user_id"],
+                "thread_id": base_state["thread_id"],
+                "run_id": run_id,
+                "rolling_summary": {
+                    "summary_id": "summary-existing-bundle",
+                    "summary_text": "existing bundle rolling summary for ORD-BUNDLE-PROMPT",
+                },
+                "recent_messages": [
+                    {
+                        "message_id": "message-existing-bundle",
+                        "run_id": run_id,
+                        "message_index": 1,
+                        "role": "user",
+                        "content": "existing bundle recent message for ORD-BUNDLE-PROMPT",
+                    }
+                ],
+                "tool_summaries": [
+                    {
+                        "tool_result_record_id": "record-existing-bundle",
+                        "tool_result_id": "tool-result-existing-bundle",
+                        "run_id": run_id,
+                        "tool_call_id": "tool-call-existing-bundle",
+                        "tool_name": "get_order",
+                        "status": "success",
+                        "prompt_summary": "get_order success from bundle source | existing bundle tool summary",
+                        "business_fact_refs": [{"resource_type": "order", "resource_id": "ORD-BUNDLE-PROMPT"}],
+                        "policy_evidence_refs": [],
+                        "audit_ref": "audit/existing-bundle",
+                    }
+                ],
+                "slot_continuity": {
+                    "source": "postgres_session_memory",
+                    "continuity_claimed": False,
+                    "active_slots": {},
+                    "slot_metadata": {},
+                },
+                "fallback_reasons": {},
+            },
+        },
+        {"configurable": {"session": object(), "conversation_service": ExplodingConversationService()}},
+    )
+
+    assert assemblies
+    prompt = fake_llm.messages[-1]["content"]
+    assert "existing bundle rolling summary" in prompt
+    assert "existing bundle recent message" in prompt
+    assert "existing bundle tool summary" in prompt
+    assert "tool=get_order" in prompt
     assert SHOULD_NOT_APPEAR_NESTED_REPR not in prompt
+
+
+@pytest.mark.asyncio
+async def test_generate_recommendation_prompt_ignores_mismatched_session_memory_bundle(monkeypatch, base_state):
+    evidence = _evidence(tenant_id=base_state["tenant_id"])
+    run_id = str(uuid4())
+    fake_llm = CapturingLLM(_draft())
+    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
+    _with_knowledge_service(monkeypatch, {(evidence.doc_key, evidence.chunk_id): "Allowed verified policy text."})
+
+    await generate_recommendation_module.generate_recommendation(
+        {
+            **base_state,
+            "current_run_id": run_id,
+            **_retrieval_state(evidence=[evidence]),
+            "session_memory_bundle": {
+                "schema_version": "session_memory_bundle.v1",
+                "source": "session_memory_bundle",
+                "tenant_id": base_state["tenant_id"],
+                "user_id": base_state["user_id"],
+                "thread_id": "other-thread",
+                "run_id": str(uuid4()),
+                "rolling_summary": {
+                    "summary_id": "summary-wrong-scope",
+                    "summary_text": "SHOULD_NOT_USE_MISMATCHED_BUNDLE_SUMMARY",
+                },
+                "recent_messages": [],
+                "tool_summaries": [],
+                "slot_continuity": {
+                    "source": "postgres_session_memory",
+                    "continuity_claimed": True,
+                    "active_slots": {"order_id": "ORD-WRONG-BUNDLE"},
+                    "slot_metadata": {"order_id": {"source": "trusted_session_memory"}},
+                },
+                "fallback_reasons": {},
+            },
+        },
+        {},
+    )
+
+    prompt = fake_llm.messages[-1]["content"]
+    assert "SHOULD_NOT_USE_MISMATCHED_BUNDLE_SUMMARY" not in prompt
+    assert "ORD-WRONG-BUNDLE" not in prompt
