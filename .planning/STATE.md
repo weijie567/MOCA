@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Short-term Memory Unification
 status: milestone_complete
-stopped_at: Phase 24 completed
-last_updated: "2026-06-20T23:32:39+08:00"
-last_activity: 2026-06-20 -- Completed Phase 24
+stopped_at: Phase 24.4 completed
+last_updated: "2026-06-21T00:00:00+08:00"
+last_activity: 2026-06-21 -- Completed Phase 24.2-24.4 memory consolidation follow-ups
 progress:
-  total_phases: 1
-  completed_phases: 1
-  total_plans: 9
-  completed_plans: 9
+  total_phases: 4
+  completed_phases: 4
+  total_plans: 12
+  completed_plans: 12
   percent: 100
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-20)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v1.7 Short-term Memory Unification — complete
+**Current focus:** v1.7 Short-term Memory Unification follow-ups — complete
 
 ## Current Position
 
-Phase: 24 - Agent Runs Short-term Memory Parity
-Plan: 9/9 complete
+Phase: 24.4 - Memory Eval MVP
+Plan: 1/1 complete
 Status: Milestone complete
-Last activity: 2026-06-20 -- Completed Phase 24
+Last activity: 2026-06-21 -- Completed Phase 24.2-24.4 memory consolidation follow-ups
 
 Progress: [██████████] 100%
 
@@ -53,11 +53,14 @@ Planning files:
 
 ## Performance Metrics
 
-**v1.7 velocity:** 1 phase, 9 plans complete.
+**v1.7 velocity:** 4 phases, 12 plans complete.
 
 | Phase | Plans | Status |
 |-------|-------|--------|
 | 24. Agent Runs Short-term Memory Parity | 9/9 | Complete |
+| 24.2 Unified Session Memory Bundle Read Path | 1/1 | Complete |
+| 24.3 Memory Write Isolation Policy and Observability MVP | 1/1 | Complete |
+| 24.4 Memory Eval MVP | 1/1 | Complete |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
 
@@ -69,6 +72,12 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 - Current `/agent-runs` is the user-facing Agent Console path and should be the implementation target.
 - The legacy `/agent/chat` path is a compatibility/reference path; v1.7 should avoid introducing incompatible persistence semantics between the two paths.
 - Memory context is contextual assistance only and must preserve established evidence, action, approval, and replay boundaries.
+
+### Roadmap Evolution
+
+- Phase 24.2 inserted after Phase 24: Unified Session Memory Bundle Read Path.
+- Phase 24.3 inserted after Phase 24: Memory Write Isolation Policy and Observability MVP.
+- Phase 24.4 inserted after Phase 24: Memory Eval MVP.
 
 ### Pending Todos
 
@@ -99,11 +108,17 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-20T23:32:39+08:00
-Stopped at: Phase 24 complete
-Resume file: `.planning/phases/24-agent-runs-short-term-memory-parity/24-CONTEXT.md`
+Last session: 2026-06-21T00:00:00+08:00
+Stopped at: Phase 24.4 complete
+Resume file: `.planning/phases/24.4-memory-eval-mvp/24.4-CONTEXT.md`
 Next: Start the next milestone with `$gsd-new-milestone`.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
 
 **Completed Phase:** 24 (Agent Runs Short-term Memory Parity) — 9/9 plans complete; verification passed — 2026-06-20T23:32:39+08:00
+
+**Completed Phase:** 24.2 (Unified Session Memory Bundle Read Path) — 1/1 plans complete; verification passed — 2026-06-21
+
+**Completed Phase:** 24.3 (Memory Write Isolation Policy and Observability MVP) — 1/1 plans complete; verification passed — 2026-06-21
+
+**Completed Phase:** 24.4 (Memory Eval MVP) — 1/1 plans complete; verification passed — 2026-06-21

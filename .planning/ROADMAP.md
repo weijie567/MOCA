@@ -59,7 +59,7 @@ Plans:
 
 ## Current Status
 
-v1.7 is complete. Phase 24 delivered Agent Console `/agent-runs + SSE` short-term memory parity, including conversation persistence, rolling summaries, prompt-safe tool summaries, session slot continuity, failure/idempotency safeguards, authority-boundary regressions, and a three-turn smoke verification.
+v1.7 is complete. Phase 24 delivered Agent Console `/agent-runs + SSE` short-term memory parity, including conversation persistence, rolling summaries, prompt-safe tool summaries, session slot continuity, failure/idempotency safeguards, authority-boundary regressions, and a three-turn smoke verification. Phase 24.2-24.4 follow-ups then consolidated the session memory bundle read path, memory write isolation/observability, and deterministic memory eval MVP.
 
 ## Requirement Coverage
 
@@ -92,9 +92,42 @@ Phase 24 final review and verification are recorded in `.planning/phases/24-agen
 - **Phase RAG-5: Optional External Search Backend** - Vespa/OpenSearch shadow testing and full external `SearchBackend` only if PostgreSQL hybrid no longer fits.
 - **Policy Source Operations** - policy source upload/review/lifecycle UI, source document viewer, and admin review workflow.
 
+### Phase 24.2: Unified Session Memory Bundle Read Path (INSERTED)
+
+**Status:** Complete
+**Goal:** Make `SessionMemoryBundle` the graph-facing session read model for rolling summary, recent messages, tool summaries, and slot continuity while preserving the existing `session_memory` slot-continuity contract.
+**Requirements**: Memory consolidation follow-up
+**Depends on:** Phase 24
+**Plans:** 1/1 plans complete
+
+Plans:
+- [x] 24.2-01-PLAN.md — Unified session memory bundle read path
+
+### Phase 24.3: Memory Write Isolation Policy and Observability MVP (INSERTED)
+
+**Status:** Complete
+**Goal:** Extract and enforce the rule that memory side effects must not rollback or otherwise contaminate the main business transaction, and add minimal safe trace metrics for finalizer memory writes.
+**Requirements**: Memory consolidation follow-up
+**Depends on:** Phase 24
+**Plans:** 1/1 plans complete
+
+Plans:
+- [x] 24.3-01-PLAN.md — Memory write isolation policy and observability MVP
+
+### Phase 24.4: Memory Eval MVP (INSERTED)
+
+**Status:** Complete
+**Goal:** Create a focused deterministic pytest suite that acts as MOCA's first memory quality gate for short-term recall, slot expiry, tombstone forgetting, and authority contamination.
+**Requirements**: Memory consolidation follow-up
+**Depends on:** Phase 24
+**Plans:** 1/1 plans complete
+
+Plans:
+- [x] 24.4-01-PLAN.md — Memory eval MVP
+
 ## Next Step
 
 Start the next milestone with `$gsd-new-milestone`.
 
 ---
-*Updated: 2026-06-20 after Phase 24 completion.*
+*Updated: 2026-06-21 after completing Phase 24.2-24.4 memory consolidation follow-ups.*
