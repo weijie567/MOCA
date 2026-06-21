@@ -45,7 +45,9 @@ export function DetailsPanel({
     () => [...steps].reverse().find((step) => step.event_type === 'approval_required'),
     [steps],
   )
-  const detailsRefreshKey = `${status}-${steps.length}`
+  const detailsRefreshKey = `${status}-${steps
+    .map((step) => `${step.node_name ?? step.event_type}:${step.status}:${step.timestamp}`)
+    .join('|')}`
 
   return (
     <section className="flex min-h-0 min-w-0 flex-col bg-background">

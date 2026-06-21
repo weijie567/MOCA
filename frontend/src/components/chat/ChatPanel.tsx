@@ -1,13 +1,12 @@
-import { useState } from 'react'
 import { Plus } from 'lucide-react'
 import { ChatInput } from './ChatInput'
 import { MessageList } from './MessageList'
 import { Button } from '@/components/ui/button'
+import type { ChatMessage } from '@/types/events'
 
 interface ChatPanelState {
   status: string
-  finalResponse: string | null
-  error: string | null
+  messages: ChatMessage[]
 }
 
 interface ChatPanelProps {
@@ -23,15 +22,11 @@ function inputDisabled(status: string) {
 }
 
 export function ChatPanel({ state, submitQuery, newConversation, authReady, authError }: ChatPanelProps) {
-  const [queries, setQueries] = useState<string[]>([])
-
   async function handleSubmit(query: string) {
-    setQueries((current) => [...current, query])
     await submitQuery(query)
   }
 
   function handleNewConversation() {
-    setQueries([])
     newConversation()
   }
 
@@ -52,12 +47,7 @@ export function ChatPanel({ state, submitQuery, newConversation, authReady, auth
           新对话
         </Button>
       </div>
-      <MessageList
-        queries={queries}
-        finalResponse={state.finalResponse}
-        status={state.status}
-        error={state.error}
-      />
+      <MessageList messages={state.messages} />
       {authError ? (
         <div
           className="border-t border-destructive/40 bg-destructive/10 px-4 py-3 text-label text-destructive"

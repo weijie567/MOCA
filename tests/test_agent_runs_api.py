@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
@@ -969,6 +970,53 @@ async def test_event_generator_sends_keepalive_while_graph_node_is_running(
     assert '"event_type": "run_started"' in first_event["data"]
     assert keepalive == {"comment": "keepalive"}
     assert '"event_type": "step_started"' in next_event["data"]
+
+
+@pytest.mark.asyncio
+async def test_event_generator_keeps_started_event_visible_before_completion(
+    session: AsyncSession,
+    seeded_session,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.commit()
+    graph = GatedLifecycleGraph()
+
+    generator = _event_generator(
+        graph,
+        {"user_query": run.input_query},
+        {"configurable": {"thread_id": run.thread_id, "session": session}},
+        run=run,
+        session=session,
+        user=user,
+    )
+    completion_task: asyncio.Task[dict] | None = None
+
+    try:
+        run_started = await anext(generator)
+        step_started = await anext(generator)
+        completion_task = asyncio.create_task(anext(generator))
+        await asyncio.sleep(0.02)
+        assert not completion_task.done()
+        graph.allow_completion.set()
+        step_completed = await asyncio.wait_for(completion_task, timeout=1)
+        remaining_events = [event async for event in generator]
+    finally:
+        if completion_task is not None and not completion_task.done():
+            completion_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await completion_task
+        await generator.aclose()
+
+    assert _event_data(run_started)["event_type"] == "run_started"
+    started_data = _event_data(step_started)
+    completed_data = _event_data(step_completed)
+    assert started_data["event_type"] == "step_started"
+    assert started_data["status"] == "running"
+    assert completed_data["event_type"] == "step_completed"
+    assert completed_data["status"] == "completed"
+    assert completed_data["node_name"] == started_data["node_name"]
+    assert any(_event_data(event)["event_type"] == "final_response" for event in remaining_events if "data" in event)
 
 
 @pytest.mark.asyncio

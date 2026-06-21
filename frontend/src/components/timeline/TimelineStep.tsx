@@ -54,7 +54,8 @@ interface TimelineStepProps {
 }
 
 export function TimelineStep({ step, isLast }: TimelineStepProps) {
-  const message = step.message || NODE_MESSAGES[step.node_name] || `正在执行 ${step.node_name}`
+  const nodeName = step.node_name ?? ''
+  const message = step.message || (nodeName ? NODE_MESSAGES[nodeName] : '') || `正在执行 ${step.event_type}`
   const dotClass = STATUS_DOT[step.status] ?? STATUS_DOT.pending
 
   return (
@@ -76,7 +77,7 @@ export function TimelineStep({ step, isLast }: TimelineStepProps) {
           <p className="truncate text-body font-semibold">{message}</p>
         </div>
         <p className="mt-1 truncate text-label text-muted-foreground">
-          {step.node_name || step.event_type} · status: {step.status}
+          {nodeName || step.event_type} · status: {step.status}
         </p>
       </div>
       <time className="pt-0.5 text-label text-muted-foreground">{formatTime(step.timestamp)}</time>

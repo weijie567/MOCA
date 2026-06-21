@@ -1395,6 +1395,53 @@ git diff --cached --check
 - `.planning/phases/24.1-session-memory-bundle-naming-and-read-model-facade/24.1-SUMMARY.md`
 - `git diff --cached --check`
 
+## 31. 前端定点测试初跑使用错误相对路径导致 Vitest 找不到测试文件
+
+日期：2026-06-21
+
+### 问题现象
+
+在 `frontend/` 工作目录下运行前端定点测试时，命令仍带 `frontend/` 路径前缀，Vitest 没有匹配到测试文件并以 code 1 退出。
+
+### 如何检测 / 复现
+
+在 `/Users/ming/projects/MOCA/frontend` 下运行：
+
+```bash
+npm test -- --run frontend/src/hooks/useAgentRun.test.ts frontend/src/lib/api.test.ts
+```
+
+### 关键证据或命令
+
+```text
+No test files found, exiting with code 1
+filter: frontend/src/hooks/useAgentRun.test.ts, frontend/src/lib/api.test.ts
+```
+
+### 当前判断 / 根因
+
+命令在 frontend 子目录执行，测试路径应使用 `src/...` 相对路径；带上 `frontend/` 前缀后路径变成不存在的嵌套目录。
+
+### 已做处理
+
+改用正确路径重跑：
+
+```bash
+npm test -- --run src/hooks/useAgentRun.test.ts src/lib/api.test.ts
+```
+
+结果通过：2 个测试文件、6 个测试全部通过。
+
+### 剩余问题
+
+无。
+
+### 下次继续排查入口
+
+- `frontend/src/hooks/useAgentRun.test.ts`
+- `frontend/src/lib/api.test.ts`
+- `frontend/package.json`
+
 ## 28. 宽后端 smoke 初跑暴露旧 direct session memory fixture 与新 bundle fail-closed 语义不一致
 
 日期：2026-06-21

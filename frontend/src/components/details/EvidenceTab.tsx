@@ -78,8 +78,10 @@ export function EvidenceTab({ runId, refreshKey }: EvidenceTabProps) {
   if (evidence.length === 0) {
     return (
       <div className="rounded-md border border-dashed border-border p-4 text-body text-muted-foreground">
-        暂无证据
-        <p className="mt-2 text-label">Agent 执行过程中将自动检索相关规则和证据</p>
+        暂无政策证据
+        <p className="mt-2 text-label">
+          本次回答可能只基于订单、退款单或工单等业务事实；可在 Trace 中查看实际执行的查询步骤。
+        </p>
       </div>
     )
   }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createRun, decideApproval, getRunStatus } from '@/lib/api'
 import { connectToRunEvents } from '@/lib/sse'
-import type { RunStatus, SseEvent } from '@/types/events'
+import type { ChatMessage, RunStatus, SseEvent } from '@/types/events'
 
 type AgentRunStatus = RunStatus | 'idle'
 
@@ -9,8 +9,10 @@ interface AgentRunState {
   runId: string | null
   status: AgentRunStatus
   steps: SseEvent[]
+  messages: ChatMessage[]
   finalResponse: string | null
   approvalId: string | null
+  activeAssistantMessageId: string | null
   error: string | null
 }
 
@@ -18,12 +20,16 @@ const INITIAL_STATE: AgentRunState = {
   runId: null,
   status: 'idle',
   steps: [],
+  messages: [],
   finalResponse: null,
   approvalId: null,
+  activeAssistantMessageId: null,
   error: null,
 }
 
 const THREAD_ID_STORAGE_KEY = 'moca.agent.threadId'
+const DEFAULT_ERROR_MESSAGE = '执行遇到问题，请重试。如问题持续，请联系管理员'
+let messageCounter = 0
 
 const TERMINAL_STATUSES = new Set<AgentRunStatus>([
   'completed',
@@ -46,6 +52,11 @@ function createThreadId() {
     return `demo-${crypto.randomUUID()}`
   }
   return `demo-${Date.now()}`
+}
+
+function createMessageId(role: ChatMessage['role']) {
+  messageCounter += 1
+  return `${role}-${Date.now()}-${messageCounter}`
 }
 
 function readStoredThreadId() {
@@ -81,6 +92,58 @@ function nextStepIndex(steps: SseEvent[]) {
   return steps.reduce((max, step) => Math.max(max, step.step_index), 0) + 1
 }
 
+function timelineEventKey(event: SseEvent) {
+  if (event.event_type === 'run_started') return 'receive_request'
+  if (event.event_type === 'final_response' || event.node_name === 'final_response') return 'final_response'
+  if (event.event_type === 'approval_required' || event.node_name === 'approval_gate') return 'approval_gate'
+  if (event.event_type === 'error') return 'error'
+  return event.node_name || `${event.event_type}-${event.step_index}`
+}
+
+function upsertTimelineEvent(steps: SseEvent[], event: SseEvent) {
+  const key = timelineEventKey(event)
+  const existingIndex = steps.findIndex((step) => timelineEventKey(step) === key)
+  if (existingIndex === -1) return [...steps, event]
+
+  return steps.map((step, index) => {
+    if (index !== existingIndex) return step
+    return {
+      ...step,
+      ...event,
+      node_name: event.node_name ?? step.node_name,
+      payload: {
+        ...(step.payload ?? {}),
+        ...(event.payload ?? {}),
+      },
+    }
+  })
+}
+
+function runStatusFromEvent(currentStatus: AgentRunStatus, event: SseEvent): AgentRunStatus {
+  if (event.event_type === 'approval_required' || event.status === 'waiting_approval' || event.status === 'interrupted') {
+    return 'waiting_approval'
+  }
+  if (event.event_type === 'error' || event.status === 'failed' || event.status === 'error') {
+    return 'failed'
+  }
+  if (event.event_type === 'final_response') {
+    return 'completed'
+  }
+  if (event.event_type === 'run_started' || event.event_type === 'step_started' || event.event_type === 'step_completed') {
+    return currentStatus === 'waiting_approval' ? currentStatus : 'running'
+  }
+  return normalizeStatus(event.status)
+}
+
+function updateAssistantMessage(
+  messages: ChatMessage[],
+  messageId: string | null,
+  patch: Partial<Pick<ChatMessage, 'content' | 'status' | 'runId'>>,
+) {
+  if (!messageId) return messages
+  return messages.map((message) => (message.id === messageId ? { ...message, ...patch } : message))
+}
+
 function withRecoveredTerminalStep(
   steps: SseEvent[],
   runId: string,
@@ -93,35 +156,29 @@ function withRecoveredTerminalStep(
   }
 
   if (status === 'completed' && finalResponse) {
-    return [
-      ...steps,
-      {
-        event_type: 'final_response',
-        run_id: runId,
-        step_index: nextStepIndex(steps),
-        node_name: 'final_response',
-        status: 'completed',
-        message: '已完成',
-        timestamp: new Date().toISOString(),
-        payload: { final_response: finalResponse },
-      } satisfies SseEvent,
-    ]
+    return upsertTimelineEvent(steps, {
+      event_type: 'final_response',
+      run_id: runId,
+      step_index: nextStepIndex(steps),
+      node_name: 'final_response',
+      status: 'completed',
+      message: '已完成',
+      timestamp: new Date().toISOString(),
+      payload: { final_response: finalResponse },
+    })
   }
 
   if (status === 'failed' || status === 'error') {
-    return [
-      ...steps,
-      {
-        event_type: 'error',
-        run_id: runId,
-        step_index: nextStepIndex(steps),
-        node_name: 'error',
-        status: 'failed',
-        message: '执行遇到问题，请重试',
-        timestamp: new Date().toISOString(),
-        payload: { error_message: errorMessage ?? '执行遇到问题，请重试。如问题持续，请联系管理员' },
-      } satisfies SseEvent,
-    ]
+    return upsertTimelineEvent(steps, {
+      event_type: 'error',
+      run_id: runId,
+      step_index: nextStepIndex(steps),
+      node_name: 'error',
+      status: 'failed',
+      message: '执行遇到问题，请重试',
+      timestamp: new Date().toISOString(),
+      payload: { error_message: errorMessage ?? DEFAULT_ERROR_MESSAGE },
+    })
   }
 
   return steps
@@ -171,8 +228,22 @@ export function useAgentRun() {
           finalResponse ?? current.finalResponse,
           null,
         ),
+        messages: finalResponse
+          ? updateAssistantMessage(current.messages, current.activeAssistantMessageId, {
+              content: finalResponse,
+              status: 'completed',
+              runId,
+            })
+          : recoveredStatus === 'failed'
+            ? updateAssistantMessage(current.messages, current.activeAssistantMessageId, {
+                content: DEFAULT_ERROR_MESSAGE,
+                status: 'error',
+                runId,
+              })
+            : current.messages,
         finalResponse: finalResponse ?? current.finalResponse,
-        error: recoveredStatus === 'failed' ? '执行遇到问题，请重试。如问题持续，请联系管理员' : null,
+        activeAssistantMessageId: TERMINAL_STATUSES.has(recoveredStatus) ? null : current.activeAssistantMessageId,
+        error: recoveredStatus === 'failed' ? DEFAULT_ERROR_MESSAGE : null,
       }))
     } catch {
       setState((current) => ({
@@ -212,8 +283,25 @@ export function useAgentRun() {
                 finalResponse ?? current.finalResponse,
                 null,
               ),
+              messages: finalResponse
+                ? updateAssistantMessage(current.messages, current.activeAssistantMessageId, {
+                    content: finalResponse,
+                    status: 'completed',
+                    runId,
+                  })
+                : nextStatus === 'failed'
+                  ? updateAssistantMessage(current.messages, current.activeAssistantMessageId, {
+                      content: DEFAULT_ERROR_MESSAGE,
+                      status: 'error',
+                      runId,
+                    })
+                  : current.messages,
               finalResponse: finalResponse ?? current.finalResponse,
-              error: nextStatus === 'failed' ? '执行遇到问题，请重试。如问题持续，请联系管理员' : null,
+              activeAssistantMessageId:
+                TERMINAL_STATUSES.has(nextStatus) && nextStatus !== 'waiting_approval'
+                  ? null
+                  : current.activeAssistantMessageId,
+              error: nextStatus === 'failed' ? DEFAULT_ERROR_MESSAGE : null,
             }))
 
             if (TERMINAL_STATUSES.has(nextStatus)) {
@@ -234,15 +322,18 @@ export function useAgentRun() {
   )
 
   const attachStream = useCallback(
-    (runId: string) => {
+    (runId: string, assistantMessageId: string) => {
       closeExpectedRef.current = false
       controllerRef.current = connectToRunEvents(runId, {
         onEvent(event) {
           setState((current) => {
-            const nextStatus = normalizeStatus(event.status)
+            if (current.runId && current.runId !== runId) {
+              return current
+            }
+            const nextStatus = runStatusFromEvent(current.status, event)
             const approvalId = event.payload?.approval_id ?? current.approvalId
             const finalResponse = event.payload?.final_response ?? current.finalResponse
-            const errorMessage = event.payload?.error_message ?? current.error
+            const errorMessage = event.payload?.error_message ?? current.error ?? DEFAULT_ERROR_MESSAGE
 
             if (event.event_type === 'approval_required' || nextStatus === 'waiting_approval') {
               closeExpectedRef.current = true
@@ -251,13 +342,32 @@ export function useAgentRun() {
               closeExpectedRef.current = true
             }
 
+            const messages = event.payload?.final_response
+              ? updateAssistantMessage(current.messages, assistantMessageId, {
+                  content: event.payload.final_response,
+                  status: 'completed',
+                  runId,
+                })
+              : nextStatus === 'failed'
+                ? updateAssistantMessage(current.messages, assistantMessageId, {
+                    content: errorMessage,
+                    status: 'error',
+                    runId,
+                  })
+                : current.messages
+
             return {
               ...current,
               status: nextStatus,
-              steps: [...current.steps, event],
+              steps: upsertTimelineEvent(current.steps, event),
+              messages,
               approvalId,
               finalResponse,
-              error: nextStatus === 'failed' ? errorMessage ?? '执行遇到问题，请重试。如问题持续，请联系管理员' : null,
+              activeAssistantMessageId:
+                event.event_type === 'final_response' || nextStatus === 'failed'
+                  ? null
+                  : current.activeAssistantMessageId,
+              error: nextStatus === 'failed' ? errorMessage : null,
             }
           })
         },
@@ -283,11 +393,25 @@ export function useAgentRun() {
 
       stopStream()
       clearPolling()
+      const userMessage: ChatMessage = {
+        id: createMessageId('user'),
+        role: 'user',
+        content: trimmedQuery,
+        status: 'completed',
+      }
+      const assistantMessage: ChatMessage = {
+        id: createMessageId('assistant'),
+        role: 'assistant',
+        content: '',
+        status: 'pending',
+      }
 
-      setState({
+      setState((current) => ({
         ...INITIAL_STATE,
+        messages: [...current.messages, userMessage, assistantMessage],
+        activeAssistantMessageId: assistantMessage.id,
         status: 'running',
-      })
+      }))
 
       try {
         const result = await createRun(trimmedQuery, threadId)
@@ -295,7 +419,12 @@ export function useAgentRun() {
           setState((current) => ({
             ...current,
             status: 'failed',
-            error: result.error?.message ?? '执行遇到问题，请重试。如问题持续，请联系管理员',
+            messages: updateAssistantMessage(current.messages, assistantMessage.id, {
+              content: result.error?.message ?? DEFAULT_ERROR_MESSAGE,
+              status: 'error',
+            }),
+            activeAssistantMessageId: null,
+            error: result.error?.message ?? DEFAULT_ERROR_MESSAGE,
           }))
           return
         }
@@ -304,13 +433,21 @@ export function useAgentRun() {
           ...current,
           runId: result.data.run_id,
           status: normalizeStatus(result.data.status),
+          messages: updateAssistantMessage(current.messages, assistantMessage.id, {
+            runId: result.data.run_id,
+          }),
         }))
-        attachStream(result.data.run_id)
+        attachStream(result.data.run_id, assistantMessage.id)
       } catch {
         setState((current) => ({
           ...current,
           status: 'failed',
-          error: '执行遇到问题，请重试。如问题持续，请联系管理员',
+          messages: updateAssistantMessage(current.messages, assistantMessage.id, {
+            content: DEFAULT_ERROR_MESSAGE,
+            status: 'error',
+          }),
+          activeAssistantMessageId: null,
+          error: DEFAULT_ERROR_MESSAGE,
         }))
       }
     },
@@ -353,7 +490,16 @@ export function useAgentRun() {
           }))
           return
         }
-        setState((current) => ({ ...current, status: 'rejected', error: reason }))
+        setState((current) => ({
+          ...current,
+          status: 'rejected',
+          messages: updateAssistantMessage(current.messages, current.activeAssistantMessageId, {
+            content: `审批已拒绝：${reason}`,
+            status: 'error',
+          }),
+          activeAssistantMessageId: null,
+          error: reason,
+        }))
         startPolling(state.runId)
       } catch {
         setState((current) => ({

@@ -35,9 +35,17 @@ export interface SseEvent {
   event_type: SseEventType
   run_id: string
   step_index: number
-  node_name: string
+  node_name: string | null
   status: RunStatus
   message: string
   timestamp: string
   payload?: SseEventPayload
+}
+
+export interface ChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  status: 'completed' | 'pending' | 'error'
+  runId?: string
 }
