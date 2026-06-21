@@ -10,7 +10,7 @@
 - [x] **v1.5 RAG Context Builder + Hallucination Control** - Shipped on 2026-06-19. Full archive: [v1.5-ROADMAP.md](milestones/v1.5-ROADMAP.md)
 - [x] **v1.6 RAG Reranker + Query Rewrite** - Shipped on 2026-06-20. Full archive: [v1.6-ROADMAP.md](milestones/v1.6-ROADMAP.md)
 - [x] **v1.7 Short-term Memory Unification** - Completed on 2026-06-20. Goal: complete the short-term memory chain for the current Agent Console `/api/v1/agent-runs + SSE` path.
-- [ ] **v1.8 Intent Routing Safety Hardening** - Active. Goal: harden ordinary-chat intent/routing traceability, risk tiering, workflow-state-first routing, and slot invalidation.
+- [x] **v1.8 Intent Routing Safety Hardening** - Completed on 2026-06-21. Goal: harden ordinary-chat intent/routing traceability, risk tiering, workflow-state-first routing, and slot invalidation.
 
 ## Phases
 
@@ -60,7 +60,7 @@ Plans:
 
 ## Current Status
 
-v1.8 is active. Phase 25 owns production hardening for MOCA's ordinary-chat intent/routing layer: traceable raw-to-effective classification decisions, risk tiers derived from intent/operation/role/channel, workflow-state-first handling for pending clarifications, slot provenance/invalidation, and end-to-end regression coverage for route and safety outcomes.
+v1.8 is complete. Phase 25 delivered production hardening for MOCA's ordinary-chat intent/routing layer: traceable raw-to-effective classification decisions, risk tiers derived from intent/operation/role/channel, workflow-state-first handling for pending clarifications, slot provenance/invalidation, and focused regression coverage for route and safety outcomes.
 
 ## Requirement Coverage
 
@@ -81,7 +81,7 @@ v1.8 is active. Phase 25 owns production hardening for MOCA's ordinary-chat inte
 
 ## Last Closeout
 
-Phase 24 final review and verification are recorded in `.planning/phases/24-agent-runs-short-term-memory-parity/24-REVIEW.md` and `.planning/phases/24-agent-runs-short-term-memory-parity/24-VERIFICATION.md`.
+Phase 25 final review, summary, and verification are recorded in `.planning/phases/25-intent-routing-safety-hardening/25-REVIEW.md`, `.planning/phases/25-intent-routing-safety-hardening/25-SUMMARY.md`, and `.planning/phases/25-intent-routing-safety-hardening/25-VERIFICATION.md`.
 
 ## Deferred Work
 
@@ -126,12 +126,12 @@ Plans:
 
 ### Phase 25: Intent routing safety hardening
 
-**Status:** Planned
+**Status:** Complete
 **Milestone:** v1.8 Intent Routing Safety Hardening
 **Goal:** Harden the ordinary-chat intent/routing contract so raw LLM classification remains advisory, deterministic policy produces effective classification/risk/route decisions, active workflow state can answer pending clarification turns before reclassification, and inherited slots can be traced and invalidated safely.
 **Requirements:** IRS-01, IRS-02, IRS-03, IRS-04, IRS-05, IRS-06, IRS-07, IRS-08, IRS-09, IRS-10, IRS-11, IRS-12
 **Depends on:** Phase 24
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 **Success criteria:**
 
@@ -142,7 +142,7 @@ Plans:
 5. Golden/focused regression tests cover effective classification, route, risk tier, clarification reason, and memory inheritance/invalidation outcomes without weakening existing authority boundaries.
 
 Plans:
-- [ ] 25-01-PLAN.md — Intent routing safety hardening
+- [x] 25-01-PLAN.md — Intent routing safety hardening
 
 ---
-*Updated: 2026-06-21 after starting v1.8 Intent Routing Safety Hardening and adding Phase 25.*
+*Updated: 2026-06-21 after completing Phase 25 and v1.8 Intent Routing Safety Hardening.*

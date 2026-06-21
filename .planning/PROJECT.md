@@ -12,6 +12,8 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 ## Current Milestone: v1.8 Intent Routing Safety Hardening
 
+**Status:** Completed on 2026-06-21.
+
 **Goal:** Harden the ordinary-chat intent, routing, risk, workflow-state, and slot-continuity contracts so multi-turn support interactions remain auditable and safe without giving the LLM authority over control flow.
 
 **Target features:**
@@ -20,7 +22,19 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - Active workflow state is checked before ordinary intent classification so pending clarifications and short follow-up answers are resolved deterministically.
 - Slot continuity records provenance and invalidation behavior so negated or switched order/refund/ticket references cannot be silently inherited.
 
-## Last Shipped Milestone: v1.7 Short-term Memory Unification
+## Last Shipped Milestone: v1.8 Intent Routing Safety Hardening
+
+v1.8 shipped Phase 25 on 2026-06-21. It hardens the ordinary-chat intent/routing layer for production-style multi-turn safety.
+
+**Delivered:**
+- Raw LLM classification, deterministic pre-route decisions, policy overrides, effective classification, risk tier, final route, and reason codes are recorded in classification trace.
+- Risk tier policy resolves read-only, draft-only, suggest-action, approval-required, and forbidden-in-chat outcomes from effective intent/operation/channel hints.
+- Pending required-slot clarification can consume identifier replies before ordinary classification.
+- Standalone ambiguous short approval/action replies fail closed in ordinary chat.
+- Trusted inherited slots carry provenance and are invalidated on user negation or context switching.
+- Focused regressions and GSD review/verification cover IRS-01 through IRS-12.
+
+## Prior Shipped Milestone: v1.7 Short-term Memory Unification
 
 v1.7 shipped Phase 24 on 2026-06-20. It completes the short-term memory chain for the current Agent Console `/api/v1/agent-runs + SSE` path.
 
@@ -55,6 +69,7 @@ v1.6 shipped Phase 23 on 2026-06-20. It improves policy retrieval quality after 
 - **v1.5 RAG Context Builder + Hallucination Control** — shipped 2026-06-19.
 - **v1.6 RAG Reranker + Query Rewrite** — shipped 2026-06-20.
 - **v1.7 Short-term Memory Unification** — shipped 2026-06-20.
+- **v1.8 Intent Routing Safety Hardening** — shipped 2026-06-21.
 
 Full archive records for archived milestones live in `.planning/milestones/`.
 
@@ -243,7 +258,7 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 
 ## Next Milestone Setup
 
-- v1.8 is active. Phase 25 owns intent routing safety hardening across traceability, risk tiering, workflow-state-first routing, slot provenance/invalidation, and end-to-end eval coverage.
+- v1.8 is complete. Phase 25 owns intent routing safety hardening across traceability, risk tiering, workflow-state-first routing, slot provenance/invalidation, and focused route/safety eval coverage.
 - Keep owner-named deferrals explicit: 17-prep AgentState Surface Contracts + Authority Isolation, Phase 17 External Action Execution, post-Phase 17 Policy Scope, Phase RAG-5 external backend, and Policy Source Operations.
 - Preserve v1.1-v1.7 safety boundaries: policy evidence remains `EvidenceRefV1`; business facts remain Tool System outputs; memory remains contextual assistance only; parser/OCR provenance remains internal unless verified through the maintainer provenance lookup; verifier failures and timeouts fail closed; rewrite/rerank diagnostics remain relevance/eval signals only; short-term memory remains contextual and never becomes evidence, action, approval, current business fact, or replay authority.
 - Keep 17-prep AgentState cleanup as a Phase 17 prerequisite, not a blocker for retrieval-quality milestones.

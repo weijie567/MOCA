@@ -15,30 +15,30 @@ Harden MOCA's ordinary-chat intent/routing layer for production-style multi-turn
 
 ### Classification Traceability
 
-- [ ] **IRS-01:** Agent traces expose raw LLM classification, deterministic pre-route decision, policy overrides, effective classification, risk tier, final route, and reason codes for every ordinary-chat intent/routing decision.
-- [ ] **IRS-02:** Business code consumes the effective classification and route decision, not the raw LLM classification, and tests prove policy overrides are audit-visible.
+- [x] **IRS-01:** Agent traces expose raw LLM classification, deterministic pre-route decision, policy overrides, effective classification, risk tier, final route, and reason codes for every ordinary-chat intent/routing decision.
+- [x] **IRS-02:** Business code consumes the effective classification and route decision, not the raw LLM classification, and tests prove policy overrides are audit-visible.
 
 ### Risk Tier Policy
 
-- [ ] **IRS-03:** Ordinary-chat risk policy resolves a `RiskTier` from primary intent, requested operation, user role, channel, and routing hints.
-- [ ] **IRS-04:** Approval decisions or direct execution attempts in ordinary chat resolve to a blocked or approval-gated tier without writing approval, action, or execution authority state.
-- [ ] **IRS-05:** Existing high-risk intent behavior remains backward-compatible until callers migrate to risk tiers.
+- [x] **IRS-03:** Ordinary-chat risk policy resolves a `RiskTier` from primary intent, requested operation, user role, channel, and routing hints.
+- [x] **IRS-04:** Approval decisions or direct execution attempts in ordinary chat resolve to a blocked or approval-gated tier without writing approval, action, or execution authority state.
+- [x] **IRS-05:** Existing high-risk intent behavior remains backward-compatible until callers migrate to risk tiers.
 
 ### Workflow-State-First Routing
 
-- [ ] **IRS-06:** The graph checks active workflow state before ordinary classification so pending slot clarifications can treat short identifier replies as answers to the current flow.
-- [ ] **IRS-07:** Ambiguous short replies such as "继续吧", "同意", or "就按上面的处理" cannot execute actions or approve decisions when no trusted pending flow exists.
+- [x] **IRS-06:** The graph checks active workflow state before ordinary classification so pending slot clarifications can treat short identifier replies as answers to the current flow.
+- [x] **IRS-07:** Ambiguous short replies such as "继续吧", "同意", or "就按上面的处理" cannot execute actions or approve decisions when no trusted pending flow exists.
 
 ### Slot Provenance and Invalidation
 
-- [ ] **IRS-08:** Active slot metadata records provenance, confidence, observed time, compatibility, tenant/user/thread scope, and whether the value was explicit in the current turn or inherited from trusted memory.
-- [ ] **IRS-09:** Deterministic invalidation/reset handles user negation or context switching such as "不是这个订单", "换另一个", and "我说的是另外一个工单".
-- [ ] **IRS-10:** Explicit current-turn slots continue to override inherited slots, and invalidated inherited slots cannot satisfy required slot completeness.
+- [x] **IRS-08:** Active slot metadata records provenance, confidence, observed time, compatibility, tenant/user/thread scope, and whether the value was explicit in the current turn or inherited from trusted memory.
+- [x] **IRS-09:** Deterministic invalidation/reset handles user negation or context switching such as "不是这个订单", "换另一个", and "我说的是另外一个工单".
+- [x] **IRS-10:** Explicit current-turn slots continue to override inherited slots, and invalidated inherited slots cannot satisfy required slot completeness.
 
 ### Evaluation and Regression Coverage
 
-- [ ] **IRS-11:** Intent golden or focused regression cases verify expected primary intent, requested operation, route, risk tier, clarification reason, and memory inheritance/invalidation behavior.
-- [ ] **IRS-12:** Approval/action boundary regressions prove the new trace/risk/workflow/slot logic preserves existing evidence, business fact, memory, approval, action, and replay authority boundaries.
+- [x] **IRS-11:** Intent golden or focused regression cases verify expected primary intent, requested operation, route, risk tier, clarification reason, and memory inheritance/invalidation behavior.
+- [x] **IRS-12:** Approval/action boundary regressions prove the new trace/risk/workflow/slot logic preserves existing evidence, business fact, memory, approval, action, and replay authority boundaries.
 
 ## v2 / Future Requirements
 
@@ -60,18 +60,18 @@ Harden MOCA's ordinary-chat intent/routing layer for production-style multi-turn
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| IRS-01 | Phase 25 | Pending |
-| IRS-02 | Phase 25 | Pending |
-| IRS-03 | Phase 25 | Pending |
-| IRS-04 | Phase 25 | Pending |
-| IRS-05 | Phase 25 | Pending |
-| IRS-06 | Phase 25 | Pending |
-| IRS-07 | Phase 25 | Pending |
-| IRS-08 | Phase 25 | Pending |
-| IRS-09 | Phase 25 | Pending |
-| IRS-10 | Phase 25 | Pending |
-| IRS-11 | Phase 25 | Pending |
-| IRS-12 | Phase 25 | Pending |
+| IRS-01 | Phase 25 | Complete |
+| IRS-02 | Phase 25 | Complete |
+| IRS-03 | Phase 25 | Complete |
+| IRS-04 | Phase 25 | Complete |
+| IRS-05 | Phase 25 | Complete |
+| IRS-06 | Phase 25 | Complete |
+| IRS-07 | Phase 25 | Complete |
+| IRS-08 | Phase 25 | Complete with verifier warning on optional confidence projection |
+| IRS-09 | Phase 25 | Complete |
+| IRS-10 | Phase 25 | Complete |
+| IRS-11 | Phase 25 | Complete |
+| IRS-12 | Phase 25 | Complete |
 
 **Coverage:**
 - v1 requirements: 12 total

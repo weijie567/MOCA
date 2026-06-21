@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Intent Routing Safety Hardening
-status: ready_to_execute
-stopped_at: Phase 25 planning
-last_updated: "2026-06-21T03:59:19.449Z"
-last_activity: 2026-06-21 -- Started v1.8 Intent Routing Safety Hardening and added Phase 25
+status: complete
+stopped_at: Phase 25 complete
+last_updated: "2026-06-21T04:25:00Z"
+last_activity: 2026-06-21 -- Completed Phase 25 Intent Routing Safety Hardening
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 13
-  completed_plans: 12
-  percent: 92
+  completed_plans: 13
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -21,16 +21,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-21)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v1.8 Intent Routing Safety Hardening — Phase 25 planning/execution
+**Current focus:** v1.8 Intent Routing Safety Hardening — Phase 25 complete
 
 ## Current Position
 
 Phase: 25 - Intent routing safety hardening
-Plan: 1/1 planned
-Status: Ready to execute
-Last activity: 2026-06-21 -- Planned Phase 25 Intent Routing Safety Hardening
+Plan: 1/1 complete
+Status: Complete
+Last activity: 2026-06-21 -- Completed Phase 25 Intent Routing Safety Hardening
 
-Progress: [████████░░] 80%
+Progress: [██████████] 100%
 
 Planning files:
 
@@ -53,7 +53,7 @@ Planning files:
 
 ## Performance Metrics
 
-**v1.8 velocity:** Phase 25 planned; execution pending.
+**v1.8 velocity:** Phase 25 complete; review and goal-backward verification passed.
 
 | Phase | Plans | Status |
 |-------|-------|--------|
@@ -61,7 +61,7 @@ Planning files:
 | 24.2 Unified Session Memory Bundle Read Path | 1/1 | Complete |
 | 24.3 Memory Write Isolation Policy and Observability MVP | 1/1 | Complete |
 | 24.4 Memory Eval MVP | 1/1 | Complete |
-| 25. Intent Routing Safety Hardening | 1/1 | Ready to execute |
+| 25. Intent Routing Safety Hardening | 1/1 | Complete |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
 
@@ -80,15 +80,15 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 - Phase 24.2 inserted after Phase 24: Unified Session Memory Bundle Read Path.
 - Phase 24.3 inserted after Phase 24: Memory Write Isolation Policy and Observability MVP.
 - Phase 24.4 inserted after Phase 24: Memory Eval MVP.
-- Phase 25 added: Intent routing safety hardening.
+- Phase 25 added and completed: Intent routing safety hardening.
 
 ### Pending Todos
 
-- Execute Phase 25 with GSD.
+- Optional follow-up: pin active slot `confidence` projection before confidence becomes a meaningful provenance field.
 
 ### Blockers / Concerns
 
-- No active blockers.
+- No active blockers. Phase verifier recorded one non-blocking warning: optional slot confidence projection is not pinned by focused tests because current writers do not populate confidence.
 
 ## Deferred Items
 
@@ -112,9 +112,9 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 ## Session Continuity
 
 Last session: 2026-06-21T12:00:00+08:00
-Stopped at: Phase 25 planning
+Stopped at: Phase 25 complete
 Resume file: `.planning/phases/25-intent-routing-safety-hardening/25-CONTEXT.md`
-Next: `$gsd-plan-phase 25`, then `$gsd-execute-phase 25`.
+Next: start the next milestone or archive v1.8 if desired.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
 
@@ -126,4 +126,4 @@ Next: `$gsd-plan-phase 25`, then `$gsd-execute-phase 25`.
 
 **Completed Phase:** 24.4 (Memory Eval MVP) — 1/1 plans complete; verification passed — 2026-06-21
 
-**Planned Phase:** 25 (Intent routing safety hardening) — 1 plans — 2026-06-21T03:59:19.434Z
+**Completed Phase:** 25 (Intent routing safety hardening) — 1/1 plans complete; review and verification passed — 2026-06-21T04:25:00Z
