@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from time import perf_counter
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +11,7 @@ from src.agent.nodes.memory_write import memory_write
 from src.conversation.repository import ConversationRepository
 from src.conversation.service import ConversationService
 from src.db.models import AgentRun, User
+from src.memory.write_isolation import run_memory_side_effect_in_isolated_session
 from src.memory.thread_summary import ThreadRollingSummaryService
 
 
@@ -28,6 +30,12 @@ class AgentRunMemoryFinalizeResult:
     memory_write_status: str
     memory_write_result: dict[str, Any]
     trace_steps: list[dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class TerminalMemoryWriteExecution:
+    result: dict[str, Any]
+    duration_ms: int
 
 
 async def finalize_completed_agent_run_memory(
@@ -71,7 +79,8 @@ async def finalize_completed_agent_run_memory(
         thread_id=run.thread_id,
         run_id=run.id,
     )
-    memory_write_result = await _run_terminal_memory_write(
+    await session.commit()
+    memory_write_execution = await _run_terminal_memory_write(
         session=session,
         run=run,
         user=user,
@@ -81,6 +90,7 @@ async def finalize_completed_agent_run_memory(
         trace_steps=trace_steps,
         trace_id=trace_id,
     )
+    memory_write_result = memory_write_execution.result
     memory_write_status = _canonical_memory_write_status(memory_write_result)
     trace_step = _trace_step(
         started_at=started_at,
@@ -88,6 +98,7 @@ async def finalize_completed_agent_run_memory(
         thread_summary_id=str(thread_summary.id) if thread_summary is not None else None,
         memory_write_status=memory_write_status,
         memory_write_result=memory_write_result,
+        memory_write_duration_ms=memory_write_execution.duration_ms,
     )
     return AgentRunMemoryFinalizeResult(
         status="completed" if memory_write_status == "completed" else memory_write_status,
@@ -119,7 +130,8 @@ async def _run_terminal_memory_write(
     final_response: str,
     trace_steps: list[dict[str, Any]],
     trace_id: str | None,
-) -> dict[str, Any]:
+) -> TerminalMemoryWriteExecution:
+    started = perf_counter()
     memory_state = _memory_state(
         run=run,
         user=user,
@@ -129,19 +141,31 @@ async def _run_terminal_memory_write(
         trace_steps=trace_steps,
     )
     try:
-        result_state = await memory_write(
-            memory_state,
-            {"configurable": {"session": session, "trace_id": trace_id or ""}},
+        result_state = await run_memory_side_effect_in_isolated_session(
+            session,
+            lambda memory_session: memory_write(
+                memory_state,
+                {"configurable": {"session": memory_session, "trace_id": trace_id or ""}},
+            ),
         )
     except TimeoutError:
-        return {"status": "skipped", "reason_code": "write_timeout"}
+        return TerminalMemoryWriteExecution(
+            result={"status": "skipped", "reason_code": "write_timeout"},
+            duration_ms=_duration_ms(started),
+        )
     except Exception as exc:
-        return {"status": "error", "reason_code": "write_failed", "error_type": type(exc).__name__}
+        return TerminalMemoryWriteExecution(
+            result={"status": "error", "reason_code": "write_failed", "error_type": type(exc).__name__},
+            duration_ms=_duration_ms(started),
+        )
 
     result = result_state.get("memory_write_result") if isinstance(result_state, dict) else None
     if isinstance(result, dict):
-        return dict(result)
-    return {"status": "failed", "reason_code": "missing_memory_write_result"}
+        return TerminalMemoryWriteExecution(result=dict(result), duration_ms=_duration_ms(started))
+    return TerminalMemoryWriteExecution(
+        result={"status": "failed", "reason_code": "missing_memory_write_result"},
+        duration_ms=_duration_ms(started),
+    )
 
 
 def _memory_state(
@@ -188,6 +212,7 @@ def _trace_step(
     thread_summary_id: str | None,
     memory_write_status: str,
     memory_write_result: dict[str, Any],
+    memory_write_duration_ms: int,
 ) -> dict[str, Any]:
     return {
         "node": FINALIZER_NODE,
@@ -201,6 +226,11 @@ def _trace_step(
             "thread_summary_id": thread_summary_id,
             "memory_write_status": memory_write_status,
             "memory_write_reason_code": memory_write_result.get("reason_code"),
+            "memory_write_duration_ms": memory_write_duration_ms,
+            "slot_count": memory_write_result.get("slot_count"),
+            "fallback_reason": memory_write_result.get("fallback_reason"),
+            "pii_decision": memory_write_result.get("decision"),
+            "pii_classification": memory_write_result.get("pii_classification"),
         },
     }
 
@@ -211,3 +241,7 @@ def _has_final_response(value: str | None) -> bool:
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _duration_ms(started: float) -> int:
+    return max(0, int((perf_counter() - started) * 1000))

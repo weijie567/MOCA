@@ -22,7 +22,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from src.agent.nodes.memory_write import memory_write
 from src.agent.nodes.final_response import final_response as build_final_response
-from src.agent.trace import build_trace_summary, update_agent_run_status, write_agent_run, write_agent_steps
+from src.agent.trace import append_agent_steps, build_trace_summary, update_agent_run_status, write_agent_run, write_agent_steps
 from src.api.services.agent_run_memory import finalize_completed_agent_run_memory
 from src.api.schemas.agent_runs import CreateRunRequest, RunStatusResponse
 from src.api.schemas.common import ApiResponse
@@ -354,6 +354,15 @@ async def _event_generator_from_graph_updates(
             final_status = "error"
             final_response = None
         completed_at = datetime.now(timezone.utc)
+        await _complete_run(
+            session=session,
+            run=run,
+            final_status=str(final_status),
+            final_response=str(final_response) if final_response else None,
+            completed_at=completed_at,
+            total_latency_ms=total_ms,
+            trace_steps=trace_steps,
+        )
         finalizer_result = await finalize_completed_agent_run_memory(
             session=session,
             run=run,
@@ -366,15 +375,11 @@ async def _event_generator_from_graph_updates(
             trace_id=config.get("configurable", {}).get("trace_id"),
             conversation_service=config.get("configurable", {}).get("conversation_service"),
         )
-        trace_steps = [*trace_steps, *finalizer_result.trace_steps]
-        await _complete_run(
+        await _persist_finalizer_trace_steps(
             session=session,
             run=run,
-            final_status=str(final_status),
-            final_response=str(final_response) if final_response else None,
-            completed_at=completed_at,
-            total_latency_ms=total_ms,
-            trace_steps=trace_steps,
+            prior_trace_steps=trace_steps,
+            finalizer_trace_steps=finalizer_result.trace_steps,
         )
         if final_response:
             yield _sse_event(
@@ -509,6 +514,15 @@ async def _event_generator_from_graph_events(
             final_status = "error"
             final_response = None
         completed_at = datetime.now(timezone.utc)
+        await _complete_run(
+            session=session,
+            run=run,
+            final_status=str(final_status),
+            final_response=str(final_response) if final_response else None,
+            completed_at=completed_at,
+            total_latency_ms=total_ms,
+            trace_steps=trace_steps,
+        )
         finalizer_result = await finalize_completed_agent_run_memory(
             session=session,
             run=run,
@@ -521,15 +535,11 @@ async def _event_generator_from_graph_events(
             trace_id=config.get("configurable", {}).get("trace_id"),
             conversation_service=config.get("configurable", {}).get("conversation_service"),
         )
-        trace_steps = [*trace_steps, *finalizer_result.trace_steps]
-        await _complete_run(
+        await _persist_finalizer_trace_steps(
             session=session,
             run=run,
-            final_status=str(final_status),
-            final_response=str(final_response) if final_response else None,
-            completed_at=completed_at,
-            total_latency_ms=total_ms,
-            trace_steps=trace_steps,
+            prior_trace_steps=trace_steps,
+            finalizer_trace_steps=finalizer_result.trace_steps,
         )
         if final_response:
             yield _sse_event(
@@ -893,6 +903,27 @@ async def _complete_run(
     except Exception:
         await session.rollback()
         raise
+
+
+async def _persist_finalizer_trace_steps(
+    *,
+    session: AsyncSession,
+    run: AgentRun,
+    prior_trace_steps: list[dict[str, Any]],
+    finalizer_trace_steps: list[dict[str, Any]],
+) -> None:
+    if not finalizer_trace_steps:
+        return
+    try:
+        await append_agent_steps(
+            session,
+            run_id=str(run.id),
+            trace_steps=[*prior_trace_steps, *finalizer_trace_steps],
+            start_index=len(prior_trace_steps),
+        )
+        await session.commit()
+    except Exception:
+        await session.rollback()
 
 
 async def _mark_run_error(*, session: AsyncSession, run: AgentRun, exc: BaseException, t0: float) -> None:

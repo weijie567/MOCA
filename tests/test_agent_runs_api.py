@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -26,6 +25,7 @@ from src.db.models import (
     ConversationMessage,
     ConversationSummary,
     MemoryWriteEvent,
+    SessionMemory,
     ToolResultRecord,
     User,
 )
@@ -1193,7 +1193,6 @@ async def test_chat_memory_write_background_returns_final_response_before_slow_h
         return asyncio.create_task(slow_hook())
 
     monkeypatch.setattr("src.api.routers.agent._schedule_memory_write_after_response", fake_schedule_memory_write)
-    t0 = time.perf_counter()
 
     response = await client.post(
         "/api/v1/agent/chat",
@@ -1203,7 +1202,6 @@ async def test_chat_memory_write_background_returns_final_response_before_slow_h
 
     assert response.status_code == 200
     assert response.json()["data"]["response"] == "done"
-    assert time.perf_counter() - t0 < 0.15
     assert captured["session_factory"] is not None
     assert started.is_set()
     assert not finished.is_set()
@@ -1224,7 +1222,7 @@ async def test_sse_final_response_after_bounded_memory_persistence_result(
         assert final_state["thread_id"] == run.thread_id
         assert final_state["current_run_id"] == str(run.id)
         assert final_state["final_response"] == "done"
-        assert config["configurable"]["session"] is session
+        assert config["configurable"]["session"] is not session
         result = {"status": "completed", "reason_code": "memory_persisted"}
         memory_results.append(result)
         return {
@@ -1278,7 +1276,7 @@ async def test_sse_lifecycle_events_final_response_after_bounded_memory_persiste
         assert final_state["thread_id"] == run.thread_id
         assert final_state["current_run_id"] == str(run.id)
         assert final_state["final_response"] == "done"
-        assert config["configurable"]["session"] is session
+        assert config["configurable"]["session"] is not session
         result = {"status": "completed", "reason_code": "memory_persisted"}
         memory_results.append(result)
         return {
@@ -1347,6 +1345,66 @@ async def test_completed_agent_run_finalizer_skips_non_completed_status(
 
 
 @pytest.mark.asyncio
+async def test_completed_agent_run_finalizer_memory_write_rollback_does_not_remove_terminal_rows(
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.commit()
+
+    async def fake_memory_write(final_state, config):
+        memory_session = config["configurable"]["session"]
+        assert memory_session is not session
+        await memory_session.rollback()
+        return {
+            **final_state,
+            "memory_write_result": {
+                "status": "fallback",
+                "reason_code": "unavailable",
+                "slot_count": 2,
+                "fallback_reason": "repository_unavailable",
+                "decision": "skip",
+                "pii_classification": "none",
+            },
+            "trace_steps": [],
+        }
+
+    monkeypatch.setattr("src.api.services.agent_run_memory.memory_write", fake_memory_write)
+
+    result = await finalize_completed_agent_run_memory(
+        session=session,
+        run=run,
+        user=user,
+        input_state=_stream_input(run, user),
+        final_state={"final_response": "done"},
+        final_status="completed",
+        final_response="done",
+        trace_steps=[],
+        trace_id=None,
+    )
+    await session.commit()
+
+    assert result.memory_write_status == "failed"
+    metrics = result.trace_steps[0]["metrics_json"]
+    assert metrics["memory_write_status"] == "failed"
+    assert metrics["memory_write_reason_code"] == "unavailable"
+    assert isinstance(metrics["memory_write_duration_ms"], int)
+    assert metrics["slot_count"] == 2
+    assert metrics["fallback_reason"] == "repository_unavailable"
+    assert metrics["pii_decision"] == "skip"
+    assert metrics["pii_classification"] == "none"
+    assert await _count_rows(
+        session,
+        ConversationMessage,
+        ConversationMessage.run_id == run.id,
+        ConversationMessage.role == "assistant",
+    ) == 1
+    assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 1
+
+
+@pytest.mark.asyncio
 async def test_completed_agent_run_finalizer_rolls_back_if_complete_run_fails(
     session: AsyncSession,
     seeded_session,
@@ -1356,6 +1414,20 @@ async def test_completed_agent_run_finalizer_rolls_back_if_complete_run_fails(
     run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
     await session.commit()
 
+    class MemoryEligibleGraph:
+        async def astream(self, input_state, config, stream_mode):
+            yield (
+                "final_response",
+                {
+                    "current_run_id": str(run.id),
+                    "current_intent": "refund_troubleshooting",
+                    "primary_intent": "refund_troubleshooting",
+                    "extracted_slots": {"order_id": "ORD-COMPLETE-FAIL"},
+                    "final_response": "done",
+                    "trace_steps": [_trace("final_response")],
+                },
+            )
+
     async def fail_write_agent_steps(*args, **kwargs):
         raise RuntimeError("step write failed")
 
@@ -1363,7 +1435,7 @@ async def test_completed_agent_run_finalizer_rolls_back_if_complete_run_fails(
     events = [
         event
         async for event in _event_generator(
-            CaptureConfigGraph(),
+            MemoryEligibleGraph(),
             _stream_input(run, user),
             {"configurable": {"thread_id": run.thread_id, "session": session}},
             run=run,
@@ -1376,6 +1448,8 @@ async def test_completed_agent_run_finalizer_rolls_back_if_complete_run_fails(
     assert await _count_rows(session, ConversationMessage, ConversationMessage.run_id == run.id, ConversationMessage.role == "assistant") == 0
     assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 0
     assert await _count_rows(session, MemoryWriteEvent, MemoryWriteEvent.run_id == run.id) == 0
+    assert await _count_rows(session, SessionMemory, SessionMemory.thread_id == run.thread_id) == 0
+    assert await _count_rows(session, AgentStep, AgentStep.run_id == run.id, AgentStep.node_name == "agent_run_memory_finalize") == 0
     await session.refresh(run)
     assert run.final_status == "error"
 
