@@ -10,6 +10,7 @@
 - [x] **v1.5 RAG Context Builder + Hallucination Control** - Shipped on 2026-06-19. Full archive: [v1.5-ROADMAP.md](milestones/v1.5-ROADMAP.md)
 - [x] **v1.6 RAG Reranker + Query Rewrite** - Shipped on 2026-06-20. Full archive: [v1.6-ROADMAP.md](milestones/v1.6-ROADMAP.md)
 - [x] **v1.7 Short-term Memory Unification** - Completed on 2026-06-20. Goal: complete the short-term memory chain for the current Agent Console `/api/v1/agent-runs + SSE` path.
+- [ ] **v1.8 Intent Routing Safety Hardening** - Active. Goal: harden ordinary-chat intent/routing traceability, risk tiering, workflow-state-first routing, and slot invalidation.
 
 ## Phases
 
@@ -59,26 +60,24 @@ Plans:
 
 ## Current Status
 
-v1.7 is complete. Phase 24 delivered Agent Console `/agent-runs + SSE` short-term memory parity, including conversation persistence, rolling summaries, prompt-safe tool summaries, session slot continuity, failure/idempotency safeguards, authority-boundary regressions, and a three-turn smoke verification. Phase 24.2-24.4 follow-ups then consolidated the session memory bundle read path, memory write isolation/observability, and deterministic memory eval MVP.
+v1.8 is active. Phase 25 owns production hardening for MOCA's ordinary-chat intent/routing layer: traceable raw-to-effective classification decisions, risk tiers derived from intent/operation/role/channel, workflow-state-first handling for pending clarifications, slot provenance/invalidation, and end-to-end regression coverage for route and safety outcomes.
 
 ## Requirement Coverage
 
 | Requirement | Phase | Coverage |
 |-------------|-------|----------|
-| STM-01 | Phase 24 | Agent runs user-message persistence |
-| STM-02 | Phase 24 | Conversation identifiers in graph config |
-| STM-03 | Phase 24 | Assistant-message persistence |
-| STM-04 | Phase 24 | Rolling-summary update |
-| STM-05 | Phase 24 | Prompt-context loading |
-| STM-06 | Phase 24 | Session slot continuity and override |
-| STM-07 | Phase 24 | Prompt-safe tool summary constraints |
-| STM-08 | Phase 24 | Legacy chat compatibility |
-| STM-09 | Phase 24 | Error/cancel/interruption semantics |
-| STM-10 | Phase 24 | SSE retry idempotency |
-| STM-11 | Phase 24 | Ordered memory persistence stages |
-| STM-12 | Phase 24 | Authority boundary preservation |
-| STM-13 | Phase 24 | Regression coverage |
-| STM-14 | Phase 24 | Three-turn smoke verification |
+| IRS-01 | Phase 25 | Classification trace exposes raw/pre-route/override/effective/risk/route |
+| IRS-02 | Phase 25 | Business code consumes effective classification and route |
+| IRS-03 | Phase 25 | RiskTier derives from intent, operation, role, channel, and hints |
+| IRS-04 | Phase 25 | Chat approval/direct execution attempts fail closed or gate safely |
+| IRS-05 | Phase 25 | Existing high-risk behavior remains backward-compatible |
+| IRS-06 | Phase 25 | Active workflow state is checked before ordinary classification |
+| IRS-07 | Phase 25 | Ambiguous short replies cannot approve or execute without trusted pending flow |
+| IRS-08 | Phase 25 | Slot metadata records trusted provenance and scope |
+| IRS-09 | Phase 25 | Slot negation/context switching invalidates inherited identifiers |
+| IRS-10 | Phase 25 | Current-turn slots override memory and invalidated slots do not satisfy required slots |
+| IRS-11 | Phase 25 | Golden/regression coverage verifies route, risk, clarification, and slot outcomes |
+| IRS-12 | Phase 25 | Existing evidence/business fact/memory/approval/action/replay boundaries remain intact |
 
 ## Last Closeout
 
@@ -125,9 +124,25 @@ Plans:
 Plans:
 - [x] 24.4-01-PLAN.md — Memory eval MVP
 
-## Next Step
+### Phase 25: Intent routing safety hardening
 
-Start the next milestone with `$gsd-new-milestone`.
+**Status:** Planned
+**Milestone:** v1.8 Intent Routing Safety Hardening
+**Goal:** Harden the ordinary-chat intent/routing contract so raw LLM classification remains advisory, deterministic policy produces effective classification/risk/route decisions, active workflow state can answer pending clarification turns before reclassification, and inherited slots can be traced and invalidated safely.
+**Requirements:** IRS-01, IRS-02, IRS-03, IRS-04, IRS-05, IRS-06, IRS-07, IRS-08, IRS-09, IRS-10, IRS-11, IRS-12
+**Depends on:** Phase 24
+**Plans:** 1 plan
+
+**Success criteria:**
+
+1. Trace output clearly distinguishes raw LLM classification, deterministic pre-route, policy overrides, effective classification, risk tier, and final route.
+2. Risk policy can classify read-only, draft, suggestion, approval-required, and ordinary-chat-forbidden requests from intent/operation/role/channel inputs.
+3. Pending clarification state can consume short identifier replies before ordinary intent classification, while unsafe short approvals or "continue" replies fail closed.
+4. Slot metadata includes trusted provenance and deterministic invalidation prevents stale order/refund/ticket identifiers from satisfying required slots.
+5. Golden/focused regression tests cover effective classification, route, risk tier, clarification reason, and memory inheritance/invalidation outcomes without weakening existing authority boundaries.
+
+Plans:
+- [ ] 25-01-PLAN.md — Intent routing safety hardening
 
 ---
-*Updated: 2026-06-21 after completing Phase 24.2-24.4 memory consolidation follow-ups.*
+*Updated: 2026-06-21 after starting v1.8 Intent Routing Safety Hardening and adding Phase 25.*

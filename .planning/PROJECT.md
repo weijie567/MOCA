@@ -10,9 +10,15 @@ Built as an open-source portfolio project demonstrating enterprise Agent enginee
 
 When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution — never silently executing something irreversible.
 
-## Current Milestone
+## Current Milestone: v1.8 Intent Routing Safety Hardening
 
-No active milestone is currently defined after v1.7 completion. Start the next milestone with `$gsd-new-milestone` so fresh requirements and roadmap scope are defined before implementation resumes.
+**Goal:** Harden the ordinary-chat intent, routing, risk, workflow-state, and slot-continuity contracts so multi-turn support interactions remain auditable and safe without giving the LLM authority over control flow.
+
+**Target features:**
+- End-to-end classification trace records raw LLM output, deterministic pre-route decisions, policy overrides, effective classification, risk tier, and final route.
+- Risk handling uses an explicit intent + requested operation + role + channel risk tier instead of relying only on intent-level high-risk booleans.
+- Active workflow state is checked before ordinary intent classification so pending clarifications and short follow-up answers are resolved deterministically.
+- Slot continuity records provenance and invalidation behavior so negated or switched order/refund/ticket references cannot be silently inherited.
 
 ## Last Shipped Milestone: v1.7 Short-term Memory Unification
 
@@ -155,7 +161,11 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 
 ### Active
 
-No active milestone requirements are defined after v1.7 completion.
+- [ ] **IRS-01:** Agent traces expose raw LLM classification, pre-route decision, policy overrides, effective classification, risk tier, route decision, and reason codes for intent/routing decisions.
+- [ ] **IRS-02:** Ordinary-chat risk policy resolves `RiskTier` from primary intent, requested operation, user role, channel, and routing hints while preserving approval/action safety boundaries.
+- [ ] **IRS-03:** The graph checks active workflow state before ordinary classification so pending slot clarifications and short follow-up answers are handled deterministically.
+- [ ] **IRS-04:** Slot continuity records trusted provenance and supports deterministic invalidation/reset when the user negates or switches business identifiers.
+- [ ] **IRS-05:** Golden and focused regression tests verify effective classification, route, risk tier, clarification reason, and slot inheritance/invalidation outcomes.
 
 ### Out of Scope
 
@@ -233,8 +243,7 @@ No active milestone requirements are defined after v1.7 completion.
 
 ## Next Milestone Setup
 
-- No active milestone is defined after v1.7 completion.
-- Start the next milestone with `$gsd-new-milestone` so fresh requirements and roadmap scope are defined before implementation resumes.
+- v1.8 is active. Phase 25 owns intent routing safety hardening across traceability, risk tiering, workflow-state-first routing, slot provenance/invalidation, and end-to-end eval coverage.
 - Keep owner-named deferrals explicit: 17-prep AgentState Surface Contracts + Authority Isolation, Phase 17 External Action Execution, post-Phase 17 Policy Scope, Phase RAG-5 external backend, and Policy Source Operations.
 - Preserve v1.1-v1.7 safety boundaries: policy evidence remains `EvidenceRefV1`; business facts remain Tool System outputs; memory remains contextual assistance only; parser/OCR provenance remains internal unless verified through the maintainer provenance lookup; verifier failures and timeouts fail closed; rewrite/rerank diagnostics remain relevance/eval signals only; short-term memory remains contextual and never becomes evidence, action, approval, current business fact, or replay authority.
 - Keep 17-prep AgentState cleanup as a Phase 17 prerequisite, not a blocker for retrieval-quality milestones.

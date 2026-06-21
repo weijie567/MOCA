@@ -1,7 +1,7 @@
-# Requirements: MOCA v1.7 Short-term Memory Unification
+# Requirements: MOCA v1.8 Intent Routing Safety Hardening
 
-**Defined:** 2026-06-20  
-**Milestone:** v1.7 Short-term Memory Unification
+**Defined:** 2026-06-21  
+**Milestone:** v1.8 Intent Routing Safety Hardening
 
 ## Core Value
 
@@ -9,72 +9,74 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 ## Milestone Goal
 
-Complete the short-term memory chain for the current Agent Console main path, `/api/v1/agent-runs + SSE`, so same-thread follow-up turns can use structured session slots, conversation messages, prompt-safe tool summaries, and rolling thread summaries without weakening evidence, business-fact, approval, action, or replay authority boundaries.
+Harden MOCA's ordinary-chat intent/routing layer for production-style multi-turn safety: raw LLM classification remains advisory, deterministic policy produces the effective classification and route, risk is tiered by intent/operation/role/channel, workflow state can answer pending clarifications before reclassification, and inherited slots can be traced, reset, and evaluated.
 
 ## v1 Requirements
 
-### Agent Runs Conversation Persistence
+### Classification Traceability
 
-- [x] **STM-01:** Current Agent Console `/api/v1/agent-runs` creates or resolves a conversation thread and persists exactly one user conversation message for each submitted query before graph execution.
-- [x] **STM-02:** `/agent-runs` graph execution receives trusted `conversation_thread_id` and `conversation_message_id` in the run config so tool calls and tool results can be linked to the current turn.
-- [x] **STM-03:** Completed `/agent-runs` runs persist exactly one assistant conversation message containing the final response and final status metadata.
-- [x] **STM-04:** Completed `/agent-runs` runs update the thread rolling summary from newly committed user/assistant messages and eligible prompt-safe tool summaries.
+- [ ] **IRS-01:** Agent traces expose raw LLM classification, deterministic pre-route decision, policy overrides, effective classification, risk tier, final route, and reason codes for every ordinary-chat intent/routing decision.
+- [ ] **IRS-02:** Business code consumes the effective classification and route decision, not the raw LLM classification, and tests prove policy overrides are audit-visible.
 
-### Short-term Prompt Context
+### Risk Tier Policy
 
-- [x] **STM-05:** Same-thread follow-up turns on `/agent-runs` can load recent conversation messages, the latest prior rolling summary, and prompt-safe tool summaries into prompt context.
-- [x] **STM-06:** PostgreSQL-authoritative session slot memory remains active on `/agent-runs`, and explicit current-turn slots continue to override inherited trusted session slots.
-- [x] **STM-07:** Tool prompt summaries persisted from `/agent-runs` exclude raw payloads, private reasoning, authority bodies, debug traces, secrets, and PII beyond the existing allowed summary surface.
-- [x] **STM-08:** Legacy `/api/v1/agent/chat` remains compatible with the shared conversation, tool summary, rolling summary, and session memory infrastructure.
+- [ ] **IRS-03:** Ordinary-chat risk policy resolves a `RiskTier` from primary intent, requested operation, user role, channel, and routing hints.
+- [ ] **IRS-04:** Approval decisions or direct execution attempts in ordinary chat resolve to a blocked or approval-gated tier without writing approval, action, or execution authority state.
+- [ ] **IRS-05:** Existing high-risk intent behavior remains backward-compatible until callers migrate to risk tiers.
 
-### Failure and Idempotency Semantics
+### Workflow-State-First Routing
 
-- [x] **STM-09:** Error, cancelled, and approval-interrupted runs have deterministic conversation persistence behavior and do not create false completed assistant messages or false completed rolling summaries.
-- [x] **STM-10:** Retried, re-opened, or duplicate SSE streams do not duplicate user messages, assistant messages, tool result records, rolling summaries, or session memory writes.
-- [x] **STM-11:** Memory writes are ordered so an incomplete stage stays running until its persistence obligations are done, then the next stage can begin with consistent state.
+- [ ] **IRS-06:** The graph checks active workflow state before ordinary classification so pending slot clarifications can treat short identifier replies as answers to the current flow.
+- [ ] **IRS-07:** Ambiguous short replies such as "继续吧", "同意", or "就按上面的处理" cannot execute actions or approve decisions when no trusted pending flow exists.
 
-### Authority Boundaries and Verification
+### Slot Provenance and Invalidation
 
-- [x] **STM-12:** Rolling summaries, recent messages, tool summaries, session memory, long-term memory, and case memory remain contextual assistance only and cannot satisfy policy evidence, current business fact, approval/action authority, or replay/audit truth requirements.
-- [x] **STM-13:** Regression tests cover `/agent-runs` conversation persistence, rolling summary generation, prompt context loading, session slot continuity, idempotent stream retry behavior, and legacy `/agent/chat` compatibility.
-- [x] **STM-14:** A live or integration smoke flow verifies a three-turn Agent Console conversation can use both slot continuity and rolling-summary context.
+- [ ] **IRS-08:** Active slot metadata records provenance, confidence, observed time, compatibility, tenant/user/thread scope, and whether the value was explicit in the current turn or inherited from trusted memory.
+- [ ] **IRS-09:** Deterministic invalidation/reset handles user negation or context switching such as "不是这个订单", "换另一个", and "我说的是另外一个工单".
+- [ ] **IRS-10:** Explicit current-turn slots continue to override inherited slots, and invalidated inherited slots cannot satisfy required slot completeness.
+
+### Evaluation and Regression Coverage
+
+- [ ] **IRS-11:** Intent golden or focused regression cases verify expected primary intent, requested operation, route, risk tier, clarification reason, and memory inheritance/invalidation behavior.
+- [ ] **IRS-12:** Approval/action boundary regressions prove the new trace/risk/workflow/slot logic preserves existing evidence, business fact, memory, approval, action, and replay authority boundaries.
 
 ## v2 / Future Requirements
 
-- [ ] **STM-FUT-01:** User-facing memory inspection and management UI.
-- [ ] **STM-FUT-02:** Configurable conversation retention, archival, and deletion policy controls.
-- [ ] **STM-FUT-03:** Admin review workflow for promoting short-term conversation patterns into reviewed long-term or case memory.
-- [ ] **STM-FUT-04:** Broader memory observability dashboard across tenants, users, threads, runs, and replay artifacts.
+- [ ] **IRS-FUT-01:** Manifest-owned deterministic blockers and hard-negative pattern groups for every future intent.
+- [ ] **IRS-FUT-02:** Separate `ResponseMode` taxonomy for direct answers, evidence-grounded answers, business-fact answers, policy-plus-fact recommendations, draft replies, clarification, refusal, and handoff.
+- [ ] **IRS-FUT-03:** Full PR admission checklist for newly added intents, including multi-turn, memory, prompt-injection, unsafe-action, and channel/capability cases.
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Full long-term or case memory redesign | v1.2 Phase 16 already owns reviewed long-term and case memory foundations; v1.7 wires the current short-term runtime path. |
-| Treating memory as evidence or business fact authority | Violates established `EvidenceRefV1`, tool-result, and current-business-fact boundaries. |
-| Approval/action execution redesign | Approval and real external action execution remain separate boundaries; memory can provide context but not authorization or side effects. |
-| Replay truth redesign | Replay must continue to rely on persisted run/step/tool/audit artifacts, not generated memory summaries. |
-| Frontend redesign | The current Agent Console API and UX should keep working; v1.7 is backend memory persistence and prompt-context work. |
-| Policy source operations UI | Separate future milestone. |
+| LLM free-routing or agent-selected tools | Violates MOCA's deterministic routing and tool/capability boundary. |
+| Real external action execution | Still owned by future Phase 17 External Action Execution. |
+| Approval UI or approval lifecycle redesign | This milestone only blocks unsafe ordinary-chat decisions and preserves existing approval boundaries. |
+| Full response-mode taxonomy rollout | Tracked as `IRS-FUT-02`; v1.8 keeps scope to trace/risk/workflow/slot hardening. |
+| Memory as policy evidence, business fact, approval/action authority, or replay truth | Violates established v1.7 memory authority boundaries. |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| STM-01 | Phase 24 | Complete |
-| STM-02 | Phase 24 | Complete |
-| STM-03 | Phase 24 | Complete |
-| STM-04 | Phase 24 | Complete |
-| STM-05 | Phase 24 | Complete |
-| STM-06 | Phase 24 | Complete |
-| STM-07 | Phase 24 | Complete |
-| STM-08 | Phase 24 | Complete |
-| STM-09 | Phase 24 | Complete |
-| STM-10 | Phase 24 | Complete |
-| STM-11 | Phase 24 | Complete |
-| STM-12 | Phase 24 | Complete |
-| STM-13 | Phase 24 | Complete |
-| STM-14 | Phase 24 | Complete |
+| IRS-01 | Phase 25 | Pending |
+| IRS-02 | Phase 25 | Pending |
+| IRS-03 | Phase 25 | Pending |
+| IRS-04 | Phase 25 | Pending |
+| IRS-05 | Phase 25 | Pending |
+| IRS-06 | Phase 25 | Pending |
+| IRS-07 | Phase 25 | Pending |
+| IRS-08 | Phase 25 | Pending |
+| IRS-09 | Phase 25 | Pending |
+| IRS-10 | Phase 25 | Pending |
+| IRS-11 | Phase 25 | Pending |
+| IRS-12 | Phase 25 | Pending |
+
+**Coverage:**
+- v1 requirements: 12 total
+- Mapped to phases: 12
+- Unmapped: 0
 
 ---
-*Last updated: 2026-06-20 after Phase 24 completion.*
+*Requirements defined: 2026-06-21 for v1.8 Intent Routing Safety Hardening.*
