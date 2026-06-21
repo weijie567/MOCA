@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
+from src.agent.intent_policy import REQUIRED_SLOT_POLICY
 from src.agent.state import AgentState
 
 
@@ -10,9 +12,40 @@ def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _project_active_flow_state(state: AgentState) -> dict[str, Any] | None:
+    clarification = state.get("clarification_request")
+    if not isinstance(clarification, dict) or clarification.get("reason") != "missing_required_slots":
+        return None
+
+    intent = state.get("primary_intent") or state.get("current_intent") or state.get("last_intent")
+    if not isinstance(intent, str) or intent not in REQUIRED_SLOT_POLICY:
+        return None
+
+    required_slots = state.get("required_slots")
+    if not isinstance(required_slots, dict) or required_slots == {"all_of": [], "any_of": [], "optional": []}:
+        required_slots = REQUIRED_SLOT_POLICY[intent].model_dump()
+    if required_slots == {"all_of": [], "any_of": [], "optional": []}:
+        return None
+
+    operation = state.get("requested_operation")
+    candidate_slots = state.get("candidate_slots") if isinstance(state.get("candidate_slots"), dict) else {}
+    blocked_nodes = clarification.get("blocked_nodes") if isinstance(clarification.get("blocked_nodes"), list) else []
+    return {
+        "kind": "pending_required_slot",
+        "reason": "missing_required_slots",
+        "last_effective_intent": intent,
+        "last_requested_operation": operation if isinstance(operation, str) else "advise",
+        "required_slots": required_slots,
+        "candidate_slots": candidate_slots,
+        "clarification_request_id": clarification.get("clarification_request_id"),
+        "blocked_nodes": blocked_nodes,
+    }
+
+
 async def receive_request(state: AgentState) -> dict:
     """Reset per-turn state so checkpointed graph context cannot leak stale context."""
     started_at = _now_iso()
+    active_flow_state = _project_active_flow_state(state)
     trace_steps = [
         {
             "node": "receive_request",
@@ -30,6 +63,9 @@ async def receive_request(state: AgentState) -> dict:
         "normalized_query": None,
         "current_intent": None,
         "intent_confidence": None,
+        "risk_tier": None,
+        "classification_trace": None,
+        "active_flow_state": active_flow_state,
         "secondary_intents": [],
         "required_slots": {"all_of": [], "any_of": [], "optional": []},
         "candidate_slots": {},

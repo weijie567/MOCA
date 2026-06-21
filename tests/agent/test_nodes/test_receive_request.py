@@ -11,6 +11,9 @@ async def test_receive_request_resets_ephemeral(base_state):
         **base_state,
         "current_intent": "old_intent",
         "intent_confidence": 0.99,
+        "risk_tier": "read_only",
+        "classification_trace": {"old": "trace"},
+        "active_flow_state": {"old": "flow"},
         "secondary_intents": ["policy_qa"],
         "required_slots": {"all_of": ["order_id"], "any_of": [], "optional": []},
         "candidate_slots": {"order_id": "ORD-OLD"},
@@ -29,6 +32,9 @@ async def test_receive_request_resets_ephemeral(base_state):
 
     assert result["current_intent"] is None
     assert result["intent_confidence"] is None
+    assert result["risk_tier"] is None
+    assert result["classification_trace"] is None
+    assert result["active_flow_state"] is None
     assert result["secondary_intents"] == []
     assert result["required_slots"] == {"all_of": [], "any_of": [], "optional": []}
     assert result["candidate_slots"] == {}
@@ -85,3 +91,34 @@ async def test_receive_request_preserves_api_run_id_when_provided(base_state):
     result = await receive_request({**base_state, "current_run_id": "api-run-001"})
 
     assert result["current_run_id"] == "api-run-001"
+
+
+@pytest.mark.asyncio
+async def test_receive_request_projects_pending_required_slot_flow(base_state):
+    state = {
+        **base_state,
+        "primary_intent": "refund_troubleshooting",
+        "requested_operation": "read_status",
+        "required_slots": {"all_of": [], "any_of": [["order_id", "refund_case_id"]], "optional": []},
+        "candidate_slots": {"order_id": None},
+        "clarification_request": {
+            "reason": "missing_required_slots",
+            "clarification_request_id": "clarify_run-001",
+            "questions": ["请提供订单号或退款单号。"],
+            "blocked_nodes": ["investigate", "action_draft"],
+            "resume_policy": "same_thread_only",
+        },
+    }
+
+    result = await receive_request({**state, "user_query": "ORD-12345"})
+
+    assert result["active_flow_state"] == {
+        "kind": "pending_required_slot",
+        "reason": "missing_required_slots",
+        "last_effective_intent": "refund_troubleshooting",
+        "last_requested_operation": "read_status",
+        "required_slots": {"all_of": [], "any_of": [["order_id", "refund_case_id"]], "optional": []},
+        "candidate_slots": {"order_id": None},
+        "clarification_request_id": "clarify_run-001",
+        "blocked_nodes": ["investigate", "action_draft"],
+    }

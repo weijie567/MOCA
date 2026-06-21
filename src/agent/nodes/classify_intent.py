@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -75,6 +76,49 @@ FORBIDDEN_STATE_WRITES = {
     "tool_results",
     "action_result",
     "proposed_action",
+}
+
+
+_ID_ANSWER_RE = re.compile(
+    r"\b(?:OD|ORD|ORDER|RF|REFUND|TKT|TK|APR|MER|CUST)[-_]?[A-Z0-9]{2,}\b",
+    re.IGNORECASE,
+)
+_AMBIGUOUS_SHORT_REPLIES = {
+    "继续",
+    "继续吧",
+    "就按上面",
+    "就按上面的处理",
+    "按上面处理",
+    "好的",
+    "好",
+    "可以",
+    "行",
+    "嗯",
+    "同意",
+    "批准",
+    "确认",
+    "执行",
+    "approve",
+    "approved",
+    "accept",
+    "accepted",
+    "yes",
+    "ok",
+    "goahead",
+    "doit",
+}
+_SHORT_APPROVAL_OR_ACTION_REPLIES = {
+    "同意",
+    "批准",
+    "确认",
+    "执行",
+    "approve",
+    "approved",
+    "accept",
+    "accepted",
+    "yes",
+    "goahead",
+    "doit",
 }
 
 
@@ -205,10 +249,242 @@ def intent_result_to_state(
     return {key: value for key, value in update.items() if key not in FORBIDDEN_STATE_WRITES}
 
 
+def _short_text_key(text: str) -> str:
+    return re.sub(r"[\s。！!,.，、；;：:]+", "", text.strip()).lower()
+
+
+def _is_identifier_like_answer(text: str) -> bool:
+    if _ID_ANSWER_RE.search(text):
+        return True
+    stripped = text.strip()
+    return (
+        2 <= len(stripped) <= 64
+        and any(char.isdigit() for char in stripped)
+        and re.fullmatch(r"[\w\s\-_:：#号单]+", stripped, flags=re.IGNORECASE) is not None
+    )
+
+
+def _is_ambiguous_short_reply(text: str) -> bool:
+    return _short_text_key(text) in _AMBIGUOUS_SHORT_REPLIES
+
+
+def _is_short_approval_or_action(text: str) -> bool:
+    return _short_text_key(text) in _SHORT_APPROVAL_OR_ACTION_REPLIES
+
+
+def _trace_step_without_llm(started_at: str, context_chars: int, source: str, reason_codes: list[str]) -> dict[str, Any]:
+    return {
+        "node": "classify_intent",
+        "status": "completed",
+        "started_at": started_at,
+        "completed_at": _now_iso(),
+        "provider_latency_ms": None,
+        "retry_count": 0,
+        "metrics_json": {
+            "source": source,
+            "reason_codes": reason_codes,
+            "context_chars": context_chars,
+        },
+    }
+
+
+def _required_slots_from_flow(flow: dict[str, Any], primary_intent: str) -> dict[str, Any]:
+    required_slots = flow.get("required_slots")
+    if isinstance(required_slots, dict):
+        try:
+            return RequiredSlotExpression.model_validate(required_slots).model_dump()
+        except ValidationError:
+            pass
+    return REQUIRED_SLOT_POLICY.get(primary_intent, RequiredSlotExpression()).model_dump()
+
+
+def _deterministic_classification_update(
+    state: AgentState,
+    *,
+    started_at: str,
+    pre_route: PreRouteDecision,
+    primary_intent: str,
+    requested_operation: str,
+    intent_confidence: float,
+    required_slots: dict[str, Any],
+    candidate_slots: dict[str, Any],
+    routing_hints: dict[str, Any],
+    policy_overrides: list[dict[str, Any]],
+    reason_codes: list[str],
+    source: str,
+) -> dict[str, Any]:
+    risk_tier = resolve_risk_tier(
+        primary_intent,
+        requested_operation,
+        state.get("role"),
+        "ordinary_chat",
+        routing_hints,
+    )
+    update = {
+        "primary_intent": primary_intent,
+        "requested_operation": requested_operation,
+        "intent_confidence": intent_confidence,
+        "risk_tier": risk_tier,
+        "secondary_intents": [],
+        "required_slots": required_slots,
+        "candidate_slots": candidate_slots,
+        "routing_hints": routing_hints,
+        "current_intent": primary_intent,
+        "last_intent": primary_intent,
+    }
+    route_decision = route_after_intent(update)
+    classification_trace = {
+        "raw_llm_classification": None,
+        "pre_route_decision": pre_route.model_dump(),
+        "policy_overrides": policy_overrides,
+        "effective_classification": {
+            "primary_intent": primary_intent,
+            "requested_operation": requested_operation,
+            "required_slots": required_slots,
+        },
+        "risk_tier": risk_tier,
+        "route_decision": route_decision,
+        "reason_codes": reason_codes,
+    }
+    llm_outputs = {
+        **(state.get("llm_outputs") or {}),
+        "intent_classification": {
+            "raw": None,
+            "classification_trace": classification_trace,
+            "eval_metadata": {
+                "calibrated_confidence": intent_confidence,
+                "classifier_version": "intent_classifier.v2",
+                "calibration_version": "deterministic_context",
+                "reason_codes": reason_codes,
+            },
+        },
+    }
+    update["classification_trace"] = classification_trace
+    update["llm_outputs"] = llm_outputs
+    update["trace_steps"] = (state.get("trace_steps") or []) + [
+        _trace_step_without_llm(started_at, len(str(state.get("user_query") or "")), source, reason_codes)
+    ]
+    return {key: value for key, value in update.items() if key not in FORBIDDEN_STATE_WRITES}
+
+
+def _deterministic_context_update(
+    state: AgentState,
+    user_text: str,
+    pre_route: PreRouteDecision,
+    started_at: str,
+) -> dict[str, Any] | None:
+    flow = state.get("active_flow_state") if isinstance(state.get("active_flow_state"), dict) else None
+    if flow and flow.get("kind") == "pending_required_slot":
+        primary_intent = str(flow.get("last_effective_intent") or "unsupported")
+        requested_operation = str(flow.get("last_requested_operation") or "advise")
+        required_slots = _required_slots_from_flow(flow, primary_intent)
+        candidate_slots = flow.get("candidate_slots") if isinstance(flow.get("candidate_slots"), dict) else {}
+        if _is_identifier_like_answer(user_text):
+            reason_codes = ["active_flow_pending_slot_answered"]
+            return _deterministic_classification_update(
+                state,
+                started_at=started_at,
+                pre_route=pre_route,
+                primary_intent=primary_intent,
+                requested_operation=requested_operation,
+                intent_confidence=1.0,
+                required_slots=required_slots,
+                candidate_slots=candidate_slots,
+                routing_hints={
+                    "workflow_state_resolution": "answered_pending_required_slot",
+                    "clarification_request_id": flow.get("clarification_request_id"),
+                },
+                policy_overrides=[
+                    {
+                        "source": "active_flow_state",
+                        "reason_codes": reason_codes,
+                        "clarification_request_id": flow.get("clarification_request_id"),
+                    }
+                ],
+                reason_codes=reason_codes,
+                source="active_flow_state",
+            )
+        if _is_ambiguous_short_reply(user_text):
+            if _is_short_approval_or_action(user_text):
+                return _short_reply_clarification_update(state, user_text, pre_route, started_at, True)
+            reason_codes = ["active_flow_pending_slot_not_answered"]
+            return _deterministic_classification_update(
+                state,
+                started_at=started_at,
+                pre_route=pre_route,
+                primary_intent=primary_intent,
+                requested_operation=requested_operation,
+                intent_confidence=0.0,
+                required_slots=required_slots,
+                candidate_slots=candidate_slots,
+                routing_hints={
+                    "workflow_state_resolution": "pending_required_slot_not_answered",
+                    "requires_clarification": True,
+                    "clarification_reason": "missing_required_slots",
+                    "clarification_request_id": flow.get("clarification_request_id"),
+                },
+                policy_overrides=[
+                    {
+                        "source": "active_flow_state",
+                        "reason_codes": reason_codes,
+                        "clarification_request_id": flow.get("clarification_request_id"),
+                    }
+                ],
+                reason_codes=reason_codes,
+                source="active_flow_state",
+            )
+    if _is_ambiguous_short_reply(user_text):
+        return _short_reply_clarification_update(
+            state,
+            user_text,
+            pre_route,
+            started_at,
+            _is_short_approval_or_action(user_text),
+        )
+    return None
+
+
+def _short_reply_clarification_update(
+    state: AgentState,
+    user_text: str,
+    pre_route: PreRouteDecision,
+    started_at: str,
+    approval_like: bool,
+) -> dict[str, Any]:
+    del user_text
+    reason = "approval_chat_not_trusted" if approval_like else "unsupported_or_ambiguous"
+    routing_hints = {
+        "requires_clarification": True,
+        "clarification_reason": reason,
+        "short_reply_without_active_flow": True,
+    }
+    if approval_like:
+        routing_hints["pre_route_disposition"] = "approval_chat_not_trusted"
+    required_slots = REQUIRED_SLOT_POLICY["unsupported"].model_dump()
+    reason_codes = ["short_reply_without_active_flow", reason]
+    return _deterministic_classification_update(
+        state,
+        started_at=started_at,
+        pre_route=pre_route,
+        primary_intent="unsupported",
+        requested_operation="advise",
+        intent_confidence=0.0,
+        required_slots=required_slots,
+        candidate_slots={},
+        routing_hints=routing_hints,
+        policy_overrides=[{"source": "short_reply_guard", "reason_codes": reason_codes}],
+        reason_codes=reason_codes,
+        source="short_reply_guard",
+    )
+
+
 async def classify_intent(state: AgentState) -> dict:
     started_at = _now_iso()
     user_text = state.get("user_query") or ""
     pre_route = detect_pre_route(user_text)
+    context_update = _deterministic_context_update(state, user_text, pre_route, started_at)
+    if context_update is not None:
+        return context_update
     messages: list[dict[str, str]] = [
         {"role": "system", "content": CLASSIFY_INTENT_SYSTEM},
         {"role": "user", "content": user_text},

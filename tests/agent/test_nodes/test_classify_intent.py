@@ -85,3 +85,78 @@ async def test_approval_chat_pre_route_overrides_llm(monkeypatch, base_state):
     assert result["routing_hints"]["clarification_reason"] == "approval_chat_not_trusted"
     assert "approval_result" not in result
     assert "resume" not in result
+
+
+@pytest.mark.asyncio
+async def test_pending_required_slot_identifier_reply_uses_active_flow_state(monkeypatch, base_state):
+    def fail_llm():
+        raise AssertionError("LLM should not be called for a pending slot identifier reply")
+
+    monkeypatch.setattr(classify_intent_module, "_get_llm", fail_llm)
+    state = {
+        **base_state,
+        "user_query": "OD-12345",
+        "active_flow_state": {
+            "kind": "pending_required_slot",
+            "last_effective_intent": "refund_troubleshooting",
+            "last_requested_operation": "read_status",
+            "required_slots": {"all_of": [], "any_of": [["order_id", "refund_case_id"]], "optional": []},
+            "candidate_slots": {},
+            "clarification_request_id": "clarify_run-001",
+        },
+    }
+
+    result = await classify_intent_module.classify_intent(state)
+
+    assert result["primary_intent"] == "refund_troubleshooting"
+    assert result["requested_operation"] == "read_status"
+    assert result["intent_confidence"] == 1.0
+    assert result["risk_tier"] == "read_only"
+    assert result["routing_hints"]["workflow_state_resolution"] == "answered_pending_required_slot"
+    assert result["classification_trace"]["raw_llm_classification"] is None
+    assert result["classification_trace"]["route_decision"] == "session_memory_load"
+    assert result["classification_trace"]["policy_overrides"][0]["source"] == "active_flow_state"
+
+
+@pytest.mark.asyncio
+async def test_pending_required_slot_ambiguous_reply_reasks_for_slot(monkeypatch, base_state):
+    def fail_llm():
+        raise AssertionError("LLM should not be called for an ambiguous pending slot reply")
+
+    monkeypatch.setattr(classify_intent_module, "_get_llm", fail_llm)
+    state = {
+        **base_state,
+        "user_query": "继续吧",
+        "active_flow_state": {
+            "kind": "pending_required_slot",
+            "last_effective_intent": "refund_troubleshooting",
+            "last_requested_operation": "read_status",
+            "required_slots": {"all_of": [], "any_of": [["order_id", "refund_case_id"]], "optional": []},
+            "candidate_slots": {},
+            "clarification_request_id": "clarify_run-001",
+        },
+    }
+
+    result = await classify_intent_module.classify_intent(state)
+
+    assert result["primary_intent"] == "refund_troubleshooting"
+    assert result["intent_confidence"] == 0.0
+    assert result["routing_hints"]["workflow_state_resolution"] == "pending_required_slot_not_answered"
+    assert result["routing_hints"]["clarification_reason"] == "missing_required_slots"
+    assert result["classification_trace"]["route_decision"] == "clarification_gate"
+
+
+@pytest.mark.asyncio
+async def test_short_approval_reply_without_flow_is_not_classified_by_llm(monkeypatch, base_state):
+    def fail_llm():
+        raise AssertionError("LLM should not be called for a standalone approval-like short reply")
+
+    monkeypatch.setattr(classify_intent_module, "_get_llm", fail_llm)
+
+    result = await classify_intent_module.classify_intent({**base_state, "user_query": "同意"})
+
+    assert result["primary_intent"] == "unsupported"
+    assert result["requested_operation"] == "advise"
+    assert result["risk_tier"] == "forbidden_in_chat"
+    assert result["routing_hints"]["clarification_reason"] == "approval_chat_not_trusted"
+    assert result["classification_trace"]["route_decision"] == "clarification_gate"
