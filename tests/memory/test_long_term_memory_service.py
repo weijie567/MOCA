@@ -87,6 +87,29 @@ async def test_explicit_user_remember_request_auto_approves(session: AsyncSessio
 
 
 @pytest.mark.asyncio
+async def test_sensitive_long_term_memory_is_not_prompt_retrieved(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session)
+    service = LongTermMemoryService(LongTermMemoryRepository(session))
+    candidate = _candidate(seeded_session, run_id=run_id)
+
+    result = await service.write_memory(candidate)
+    row = await session.get(LongTermMemory, result.memory_id)
+    assert row is not None
+    row.pii_classification = "sensitive"
+    await session.flush()
+    retrieved = await LongTermMemoryRepository(session).retrieve_profile_memory(
+        tenant_id=candidate.tenant_id,
+        scope_type=candidate.scope_type,
+        scope_id=candidate.scope_id,
+    )
+
+    assert retrieved == []
+
+
+@pytest.mark.asyncio
 async def test_duplicate_active_long_term_write_returns_skipped_existing_memory(
     session: AsyncSession,
     seeded_session: dict,
@@ -254,14 +277,19 @@ async def test_pending_long_term_candidate_does_not_block_later_auto_approved_sa
 
 
 @pytest.mark.asyncio
-async def test_prohibited_pii_candidate_is_skipped_and_evented(session: AsyncSession, seeded_session: dict) -> None:
+@pytest.mark.parametrize("pii_classification", ["sensitive", "prohibited"])
+async def test_blocked_pii_candidate_is_skipped_and_evented(
+    session: AsyncSession,
+    seeded_session: dict,
+    pii_classification: str,
+) -> None:
     run_id = await _insert_run(session, seeded_session)
     service = LongTermMemoryService(LongTermMemoryRepository(session))
     candidate = _candidate(
         seeded_session,
         run_id=run_id,
         content="Customer phone number is 13800138000.",
-        pii_classification="prohibited",
+        pii_classification=pii_classification,
     )
 
     result = await service.write_memory(candidate)
@@ -286,7 +314,7 @@ async def test_prohibited_pii_candidate_is_skipped_and_evented(session: AsyncSes
     assert rows == []
     assert events[-1].decision == "skip"
     assert events[-1].reason_code == "pii_blocked"
-    assert events[-1].pii_classification == "prohibited"
+    assert events[-1].pii_classification == pii_classification
     assert events[-1].candidate_hash == result.candidate_hash
 
 

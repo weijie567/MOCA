@@ -11,6 +11,7 @@ from src.memory.identity import (
     canonical_memory_content_hash,
     canonical_source_identity_hash,
 )
+from src.memory.policy import is_blocked_memory_write_pii_classification
 from src.memory.repository import LONG_TERM_MEMORY_TYPE, PUBLISHED_LONG_TERM_REVIEW_STATUSES, LongTermMemoryRepository
 from src.memory.schemas import (
     LongTermMemoryWriteCandidate,
@@ -103,7 +104,7 @@ class LongTermMemoryService:
                 event_id=event.id,
             )
 
-        if candidate.pii_classification == "prohibited":
+        if is_blocked_memory_write_pii_classification(candidate.pii_classification):
             event = await self.repository.emit_write_event(
                 tenant_id=candidate.tenant_id,
                 run_id=candidate.run_id,
@@ -396,7 +397,7 @@ class LongTermMemoryService:
                 event_id=event.id,
             )
 
-        if replacement_candidate.pii_classification == "prohibited":
+        if is_blocked_memory_write_pii_classification(replacement_candidate.pii_classification):
             event = await self.repository.emit_write_event(
                 tenant_id=replacement_candidate.tenant_id,
                 run_id=run_id,

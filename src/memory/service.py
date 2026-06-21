@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 
 from src.db.models import SessionMemory
 from src.memory.repository import SessionMemoryRepository
+from src.memory.policy import BLOCKED_MEMORY_WRITE_PII_CLASSIFICATIONS
 from src.memory.schemas import (
     SessionMemoryView,
     SessionMemoryWriteCandidate,
@@ -18,7 +19,7 @@ from src.memory.schemas import (
 
 _SUMMARY_CAP = 2000
 _SUMMARY_TRUNCATION_MARKER = "\n\n[summary_truncated]"
-BLOCKED_PII_CLASSIFICATIONS = {"sensitive", "prohibited"}
+BLOCKED_PII_CLASSIFICATIONS = BLOCKED_MEMORY_WRITE_PII_CLASSIFICATIONS
 _CROSS_INTENT_SLOT_GROUPS = {
     "order_id": {
         "order_status_inquiry",

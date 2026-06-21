@@ -1,5 +1,55 @@
 # 本地验证问题记录
 
+## 7. 直接运行 pytest 命中了系统 Python 3.9
+
+日期：2026-06-21
+
+### 问题现象
+
+本次 memory 修复后执行目标测试时，直接运行 `pytest ...` 在加载 `tests/conftest.py` 阶段失败：
+
+```text
+ImportError: cannot import name 'UTC' from 'datetime'
+```
+
+### 如何检测 / 复现
+
+在当前 shell 中直接执行：
+
+```bash
+pytest tests/memory/test_long_term_memory_service.py tests/memory/test_case_memory_retrieval.py tests/agent/test_graph.py tests/test_memory_review_api.py
+```
+
+### 关键证据或命令
+
+- `which pytest` → `/Users/ming/Library/Python/3.9/bin/pytest`
+- `pytest --version` → `pytest 8.4.2`
+- `pyproject.toml` 声明 `requires-python = ">=3.12"`
+- `.python-version` 为 `3.12`
+- `uv run pytest --version` → `pytest 9.0.3`
+
+### 当前判断 / 根因
+
+本地 PATH 中优先命中了用户目录下 Python 3.9 安装的 `pytest`。仓库代码使用 `datetime.UTC`，该符号需要 Python 3.11+，且项目声明 Python 3.12+，所以失败是测试启动解释器错误，不是本次 memory 代码逻辑失败。
+
+### 已做处理
+
+改用项目推荐环境执行：
+
+```bash
+uv run pytest tests/memory/test_long_term_memory_service.py tests/memory/test_case_memory_retrieval.py tests/agent/test_graph.py tests/test_memory_review_api.py
+```
+
+验证结果为 `53 passed, 20 warnings`。
+
+### 剩余问题
+
+当前 shell 中直接运行 `pytest` 仍可能复现该问题。后续本仓库测试应优先使用 `uv run pytest`，或调整 PATH 让项目 Python/venv 的 pytest 优先。
+
+### 下次继续排查入口
+
+若后续仍出现 `datetime.UTC` 相关 ImportError，先检查 `which pytest`、`python --version`、`uv run pytest --version` 是否一致。
+
 ## 6. GSD state.begin-phase 参数示例与实际 CLI 行为不一致
 
 日期：2026-06-20

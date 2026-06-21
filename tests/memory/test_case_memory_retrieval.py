@@ -226,6 +226,87 @@ async def test_case_memory_candidate_event_is_observable(session: AsyncSession, 
 
 
 @pytest.mark.asyncio
+async def test_duplicate_active_case_memory_write_returns_skipped_existing_memory(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session)
+    service = CaseMemoryService(CaseMemoryRepository(session))
+    candidate = _candidate(seeded_session, run_id=run_id, source_type="llm_candidate")
+
+    first = await service.submit_case_memory_candidate(candidate)
+    duplicate = await service.submit_case_memory_candidate(candidate)
+    rows = (
+        (
+            await session.execute(
+                select(CaseMemory).where(
+                    CaseMemory.tenant_id == candidate.tenant_id,
+                    CaseMemory.scope_type == candidate.scope_type,
+                    CaseMemory.scope_id == candidate.scope_id,
+                    CaseMemory.content_hash == first.content_hash,
+                    CaseMemory.deleted_at.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    events = await _events(session, run_id)
+
+    assert first.status == "needs_review"
+    assert duplicate.status == "skipped"
+    assert duplicate.memory_id == first.memory_id
+    assert duplicate.review_status == "needs_review"
+    assert duplicate.reason_code == "duplicate_active_identity"
+    assert [row.id for row in rows] == [first.memory_id]
+    assert events[-1].decision == "skip"
+    assert events[-1].reason_code == "duplicate_active_identity"
+    assert events[-1].memory_id == first.memory_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pii_classification", ["sensitive", "prohibited"])
+async def test_blocked_pii_case_memory_candidate_is_skipped_and_evented(
+    session: AsyncSession,
+    seeded_session: dict,
+    pii_classification: str,
+) -> None:
+    run_id = await _insert_run(session, seeded_session)
+    service = CaseMemoryService(CaseMemoryRepository(session))
+    candidate = _candidate(
+        seeded_session,
+        run_id=run_id,
+        source_type="human_reviewed",
+        summary="Customer phone number is 13800138000.",
+        pii_classification=pii_classification,
+    )
+
+    result = await service.submit_case_memory_candidate(candidate)
+    rows = (
+        (
+            await session.execute(
+                select(CaseMemory).where(
+                    CaseMemory.tenant_id == candidate.tenant_id,
+                    CaseMemory.scope_type == candidate.scope_type,
+                    CaseMemory.scope_id == candidate.scope_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    events = await _events(session, run_id)
+
+    assert result.status == "skipped"
+    assert result.memory_id is None
+    assert result.reason_code == "pii_blocked"
+    assert rows == []
+    assert events[-1].decision == "skip"
+    assert events[-1].reason_code == "pii_blocked"
+    assert events[-1].pii_classification == pii_classification
+
+
+@pytest.mark.asyncio
 async def test_case_memory_reject_decision_is_observable(session: AsyncSession, seeded_session: dict) -> None:
     run_id = await _insert_run(session, seeded_session)
     service = CaseMemoryService(CaseMemoryRepository(session))
@@ -284,6 +365,7 @@ async def test_case_memory_retrieval_applies_metadata_filters_before_results(
         _case_row(seeded_session, summary="Rejected must not surface.", review_status="rejected"),
         _case_row(seeded_session, summary="Deleted must not surface.", deleted_at=now),
         _case_row(seeded_session, summary="Expired must not surface.", expires_at=now - timedelta(seconds=1)),
+        _case_row(seeded_session, summary="Sensitive must not surface.", pii_classification="sensitive"),
         _case_row(seeded_session, summary="Prohibited must not surface.", pii_classification="prohibited"),
         _case_row(seeded_session, summary="Cross tenant must not surface.", tenant_id=other_tenant_id),
         _case_row(seeded_session, summary="Wrong case type must not surface.", case_type="chargeback"),

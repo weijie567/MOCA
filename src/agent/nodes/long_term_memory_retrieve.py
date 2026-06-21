@@ -66,14 +66,19 @@ async def long_term_memory_retrieve(state: AgentState, config: RunnableConfig) -
             scopes=scopes,
             limit=5,
         )
-        case_result = await case_service.retrieve_reviewed(
-            CaseMemorySearchRequest(
-                tenant_id=tenant_id,
-                scopes=scopes,
-                case_type=_case_type(state),
-                limit=5,
+        case_items: list[Any] = []
+        case_query = _case_memory_query(state)
+        if case_query:
+            case_result = await case_service.retrieve_reviewed(
+                CaseMemorySearchRequest(
+                    tenant_id=tenant_id,
+                    scopes=scopes,
+                    case_type=_case_type(state),
+                    query=case_query,
+                    limit=5,
+                )
             )
-        )
+            case_items = list(getattr(case_result, "items", []))
     except Exception:
         result = _memory_result(
             state,
@@ -89,7 +94,7 @@ async def long_term_memory_retrieve(state: AgentState, config: RunnableConfig) -
         return result
 
     long_term_memory = [_item for item in profile_items if (_item := _project_profile_memory(item))]
-    case_memory = [_item for item in getattr(case_result, "items", []) if (_item := _project_case_memory(item))]
+    case_memory = [_item for item in case_items if (_item := _project_case_memory(item))]
     source = "reviewed_memory" if long_term_memory or case_memory else "no_reviewed_memory"
     return _memory_result(
         state,
@@ -184,6 +189,14 @@ def _case_type(state: AgentState) -> str | None:
     if not value:
         return None
     return str(value)[:64]
+
+
+def _case_memory_query(state: AgentState) -> str | None:
+    for key in ("user_query", "normalized_query"):
+        value = _safe_text(state.get(key))
+        if value:
+            return value[:500]
+    return None
 
 
 def _project_profile_memory(item: Any) -> dict[str, Any] | None:

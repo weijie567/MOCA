@@ -65,6 +65,12 @@ Planning files:
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
 
+## Quick Tasks Completed
+
+| Date | Quick ID | Task | Status |
+|------|----------|------|--------|
+| 2026-06-21 | 260621-lgq | MOCA memory long-term/case hardening | Complete |
+
 ## Accumulated Context
 
 ### Decisions

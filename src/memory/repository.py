@@ -10,6 +10,7 @@ from sqlalchemy import Text, and_, cast, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import LongTermMemory, MemoryTombstone, MemoryWriteEvent, SessionMemory
+from src.memory.policy import PROMPT_SAFE_PII_CLASSIFICATIONS
 from src.memory.schemas import LongTermMemoryView, LongTermMemoryWriteCandidate
 from src.memory.tombstones import source_identity_hash_for_tombstone
 
@@ -603,7 +604,7 @@ class LongTermMemoryRepository:
                 LongTermMemory.deleted_at.is_(None),
                 LongTermMemory.is_current.is_(True),
                 or_(LongTermMemory.expires_at.is_(None), LongTermMemory.expires_at > now),
-                LongTermMemory.pii_classification != "prohibited",
+                LongTermMemory.pii_classification.in_(tuple(PROMPT_SAFE_PII_CLASSIFICATIONS)),
                 ~active_tombstone,
             )
             .order_by(LongTermMemory.updated_at.desc(), LongTermMemory.created_at.desc())

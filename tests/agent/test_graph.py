@@ -686,6 +686,35 @@ async def test_long_term_memory_reviewed_retrieval_safe_empty_when_no_reviewed_r
 
 
 @pytest.mark.asyncio
+async def test_long_term_memory_retrieve_skips_case_memory_without_query() -> None:
+    case_called = False
+
+    class FakeLongTermMemoryService:
+        async def retrieve_profile_memory(self, **kwargs):
+            return []
+
+    class FakeCaseMemoryService:
+        async def retrieve_reviewed(self, request):
+            nonlocal case_called
+            case_called = True
+            return SimpleNamespace(status="success", items=[{"case_memory_id": "case-1", "excerpt": "must not load"}])
+
+    result = await memory_retrieve_module.long_term_memory_retrieve(
+        {"tenant_id": str(uuid4()), "thread_id": "no-query-memory"},
+        {
+            "configurable": {
+                "long_term_memory_service": FakeLongTermMemoryService(),
+                "case_memory_service": FakeCaseMemoryService(),
+            }
+        },
+    )
+
+    assert case_called is False
+    assert result["case_memory"] == []
+    assert result["llm_outputs"]["long_term_memory_retrieve"]["source"] == "no_reviewed_memory"
+
+
+@pytest.mark.asyncio
 async def test_long_term_memory_reviewed_retrieval_safe_empty_when_unavailable(monkeypatch):
     payload = _intent("refund_troubleshooting")
     payload["routing_hints"] = {"needs_long_term_memory": True}

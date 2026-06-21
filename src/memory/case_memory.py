@@ -16,6 +16,7 @@ from src.memory.identity import (
     canonical_memory_content_hash,
     canonical_source_identity_hash,
 )
+from src.memory.policy import PROMPT_SAFE_PII_CLASSIFICATIONS, is_blocked_memory_write_pii_classification
 from src.memory.schemas import (
     CaseMemoryReviewDecision,
     CaseMemorySearchItem,
@@ -29,6 +30,7 @@ from src.memory.tombstones import source_identity_hash_for_tombstone
 
 CASE_MEMORY_TYPE = "case_memory"
 PUBLISHED_CASE_REVIEW_STATUSES = ("auto_approved", "approved")
+ACTIVE_CASE_DUPLICATE_REVIEW_STATUSES = ("auto_approved", "needs_review", "approved")
 AUTO_APPROVED_CASE_SOURCE_TYPES = frozenset(
     {
         "explicit_admin_preference",
@@ -351,6 +353,50 @@ class CaseMemoryRepository:
             now=now,
         )
 
+    async def get_active_duplicate(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        scope_type: str,
+        scope_id: str,
+        content_hash: str,
+        source_identity_hash: str | None,
+        now: datetime | None = None,
+    ) -> tuple[CaseMemory, str] | None:
+        now = _aware(now)
+        base_filters = [
+            CaseMemory.tenant_id == tenant_id,
+            CaseMemory.scope_type == scope_type,
+            CaseMemory.scope_id == scope_id,
+            CaseMemory.deleted_at.is_(None),
+            CaseMemory.review_status.in_(ACTIVE_CASE_DUPLICATE_REVIEW_STATUSES),
+            or_(CaseMemory.expires_at.is_(None), CaseMemory.expires_at > now),
+        ]
+        result = await self.session.execute(
+            select(CaseMemory)
+            .where(*base_filters, CaseMemory.content_hash == content_hash)
+            .order_by(CaseMemory.updated_at.desc(), CaseMemory.created_at.desc())
+            .limit(1)
+            .execution_options(populate_existing=True)
+        )
+        duplicate = result.scalar_one_or_none()
+        if duplicate is not None:
+            return duplicate, "duplicate_active_identity"
+
+        if source_identity_hash is not None:
+            result = await self.session.execute(
+                select(CaseMemory)
+                .where(*base_filters, CaseMemory.source_identity_hash == source_identity_hash)
+                .order_by(CaseMemory.updated_at.desc(), CaseMemory.created_at.desc())
+                .limit(1)
+                .execution_options(populate_existing=True)
+            )
+            duplicate = result.scalar_one_or_none()
+            if duplicate is not None:
+                return duplicate, "duplicate_active_source_identity"
+
+        return None
+
     async def search_reviewed(self, request: CaseMemorySearchRequest) -> CaseMemorySearchResult:
         now = _aware(request.now)
         filters = self._metadata_filters(request=request, now=now)
@@ -389,7 +435,7 @@ class CaseMemoryRepository:
             CaseMemory.review_status.in_(PUBLISHED_CASE_REVIEW_STATUSES),
             CaseMemory.deleted_at.is_(None),
             or_(CaseMemory.expires_at.is_(None), CaseMemory.expires_at > now),
-            CaseMemory.pii_classification != "prohibited",
+            CaseMemory.pii_classification.in_(tuple(PROMPT_SAFE_PII_CLASSIFICATIONS)),
             ~self._active_tombstone_exists(now=now),
         ]
         if request.case_type is not None:
@@ -471,7 +517,7 @@ class CaseMemoryService:
                 event_id=event.id,
             )
 
-        if candidate.pii_classification == "prohibited":
+        if is_blocked_memory_write_pii_classification(candidate.pii_classification):
             event = await self.repository.emit_write_event(
                 tenant_id=candidate.tenant_id,
                 run_id=candidate.run_id,
@@ -489,6 +535,38 @@ class CaseMemoryService:
                 review_status=None,
                 decision="skip",
                 reason_code="pii_blocked",
+                candidate=candidate,
+                identity=identity,
+                event_id=event.id,
+            )
+
+        duplicate = await self.repository.get_active_duplicate(
+            tenant_id=candidate.tenant_id,
+            scope_type=candidate.scope_type,
+            scope_id=candidate.scope_id,
+            content_hash=identity["content_hash"],
+            source_identity_hash=identity["source_identity_hash"],
+            now=now,
+        )
+        if duplicate is not None:
+            memory, reason_code = duplicate
+            event = await self.repository.emit_write_event(
+                tenant_id=candidate.tenant_id,
+                run_id=candidate.run_id,
+                memory_type=CASE_MEMORY_TYPE,
+                memory_id=memory.id,
+                decision="skip",
+                reason_code=reason_code,
+                pii_classification=candidate.pii_classification,
+                candidate_hash=identity["candidate_hash"],
+                source_ref_json=identity["source_ref_json"],
+            )
+            return _write_result(
+                status="skipped",
+                memory_id=memory.id,
+                review_status=memory.review_status,
+                decision="skip",
+                reason_code=reason_code,
                 candidate=candidate,
                 identity=identity,
                 event_id=event.id,
