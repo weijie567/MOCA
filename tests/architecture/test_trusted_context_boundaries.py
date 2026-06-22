@@ -7,6 +7,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 TRUSTED_CONTEXT_OWNER = ROOT / "src" / "platform" / "trusted_context.py"
 PROMPT_PROJECTORS = ROOT / "src" / "agent" / "context" / "projectors.py"
+ROUTE_SEAMS = [
+    ROOT / "src" / "api" / "routers" / "agent.py",
+    ROOT / "src" / "api" / "routers" / "agent_runs.py",
+]
 
 
 def _imports(path: Path) -> list[str]:
@@ -74,3 +78,11 @@ def test_current_seams_use_projection_helpers_not_direct_trusted_context_constru
 
     assert violations == []
     assert required_helpers
+
+
+def test_route_current_run_id_fields_delegate_to_legacy_identity_projection() -> None:
+    for path in ROUTE_SEAMS:
+        source = path.read_text()
+
+        assert "project_to_legacy_agent_state_identity" in source
+        assert '"current_run_id":' not in source

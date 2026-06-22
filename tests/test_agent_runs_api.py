@@ -31,6 +31,7 @@ from src.db.models import (
     User,
 )
 from src.knowledge.schemas import EvidenceRefV1
+from src.platform.context_projections import project_to_legacy_agent_state_identity
 from src.platform.trusted_context import TrustedContext
 from src.tools.contracts import BusinessFactRefV1, ToolResultV2
 
@@ -764,17 +765,17 @@ async def test_agent_run_stream_graph_config_contains_canonical_trusted_context(
     assert len(graph.calls) == 1
     input_state, config = graph.calls[0]
     configurable = config["configurable"]
-    trusted_context = configurable["trusted_context"]
-    assert isinstance(trusted_context, TrustedContext)
+    trusted_context = TrustedContext.model_validate(configurable["trusted_context"])
+    legacy_identity = project_to_legacy_agent_state_identity(trusted_context)
     assert trusted_context.schema_version == "trusted_context.v1"
     assert trusted_context.run_id == str(run_id)
     assert trusted_context.session_id is None
     assert trusted_context.thread_id == input_state["thread_id"]
     assert trusted_context.trace_id == configurable["trace_id"]
     assert "current_run_id" not in trusted_context.model_dump()
-    assert input_state["current_run_id"] == str(run_id)
+    assert input_state["current_run_id"] == legacy_identity["current_run_id"]
     assert configurable["permissions"] == trusted_context.permissions
-    assert configurable["merchant_scope"] == trusted_context.merchant_scope.model_dump()
+    assert configurable["merchant_scope"] == trusted_context.merchant_scope.model_dump(mode="json")
 
 
 @pytest.mark.asyncio
@@ -1272,8 +1273,13 @@ async def test_agent_chat_only_token_invokes_legacy_chat_with_no_tool_permission
     assert response.json()["success"] is True
     assert response.json()["data"]["response"] == "done"
     assert len(graph.calls) == 1
-    _, config = graph.calls[0]
+    input_state, config = graph.calls[0]
+    trusted_context = TrustedContext.model_validate(config["configurable"]["trusted_context"])
+    legacy_identity = project_to_legacy_agent_state_identity(trusted_context)
     assert config["configurable"]["permissions"] == []
+    assert input_state["current_run_id"] == legacy_identity["current_run_id"]
+    assert config["configurable"]["permissions"] == trusted_context.permissions
+    assert config["configurable"]["merchant_scope"] == trusted_context.merchant_scope.model_dump(mode="json")
     assert "conversation_thread_id" in config["configurable"]
     assert "conversation_message_id" in config["configurable"]
 
