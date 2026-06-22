@@ -28,26 +28,21 @@ from src.api.schemas.agent_runs import CreateRunRequest, RunStatusResponse
 from src.api.schemas.common import ApiResponse
 from src.approvals.schemas import ApprovalRequestCreateCommand
 from src.approvals.service import ApprovalService, ApprovalTransitionError
-from src.auth.jwt import ROLE_SCOPES
 from src.auth.permissions import get_current_user
 from src.conversation.repository import ConversationRepository
 from src.conversation.service import ConversationService
 from src.db.models import AgentRun, User
 from src.db.session import get_session
-from src.repositories.trace_repo import TraceRepository
 from src.knowledge.schemas import EvidenceRefV1
+from src.platform.context_projections import project_to_legacy_agent_state_identity
+from src.platform.trusted_context import TrustedContext, TrustedContextFactory
+from src.repositories.trace_repo import TraceRepository
 
 
 router = APIRouter(tags=["agent-runs"])
 
 SUPERVISOR_ROLES = {"supervisor", "admin", "approval_manager", "manager"}
 SSE_HEARTBEAT_SECONDS = 15.0
-SCOPE_TO_TOOL_PERMISSION = {
-    "orders:read": "tool:get_order",
-    "refunds:read": "tool:get_refund_case",
-    "tickets:read": "tool:get_ticket",
-    "knowledge:read": "tool:search_policy",
-}
 APPROVAL_ALLOWED_DECISION_TYPES = ["accept", "approve", "edit", "respond", "reject", "ignore"]
 APPROVAL_NOT_EXECUTABLE = "APPROVAL_NOT_EXECUTABLE"
 RUN_CONVERSATION_MESSAGE_MISSING = "RUN_CONVERSATION_MESSAGE_MISSING"
@@ -66,20 +61,31 @@ NODE_MESSAGES: dict[str, str] = {
 
 
 def _trusted_tool_config(user: User, token_scopes: Iterable[str], trace_id: str | None) -> dict[str, Any]:
-    # Intersect verified token scopes with current DB role scopes
-    trusted_scopes = set(token_scopes) & set(ROLE_SCOPES.get(user.role, []))
-    permissions = [
-        tool_permission for scope, tool_permission in SCOPE_TO_TOOL_PERMISSION.items() if scope in trusted_scopes
-    ]
-    if user.role == "merchant":
-        merchant_scope = {"merchant_ids": [str(user.merchant_id)] if user.merchant_id is not None else []}
-    else:
-        merchant_scope = {"merchant_ids": ["*"]}
+    trusted_context = TrustedContextFactory.create_from_request(
+        user=user,
+        verified_token_scopes=token_scopes,
+        thread_id="legacy-tool-config",
+        run_id=trace_id or "legacy-run",
+        trace_id=trace_id,
+    )
+    return _trusted_graph_config(trusted_context)
+
+
+def _trusted_graph_config(trusted_context: TrustedContext) -> dict[str, Any]:
+    # Compatibility keys stay derived from canonical trusted_context for existing callers.
     return {
-        "permissions": permissions,
-        "merchant_scope": merchant_scope,
-        "trace_id": trace_id or "",
+        "trusted_context": trusted_context.model_dump(mode="json"),
+        "permissions": list(trusted_context.permissions),
+        "merchant_scope": trusted_context.merchant_scope.model_dump(mode="json"),
+        "trace_id": trusted_context.trace_id or "",
+        "session_id": trusted_context.session_id,
     }
+
+
+def _legacy_agent_state_identity(trusted_context: TrustedContext) -> dict[str, str | None]:
+    identity = project_to_legacy_agent_state_identity(trusted_context)
+    legacy_keys = ("tenant_id", "user_id", "role", "thread_id", "current_run_id")
+    return {key: identity[key] for key in legacy_keys}
 
 
 @router.post("", response_model=ApiResponse)
@@ -186,16 +192,20 @@ async def stream_agent_run_events(
         )
 
     graph = request.app.state.agent_graph
-    input_state = {
-        "user_query": run.input_query,
-        "thread_id": run.thread_id,
-        "tenant_id": str(user.tenant_id),
-        "user_id": str(user.id),
-        "role": user.role,
-        "current_run_id": str(run.id),
-    }
     # Read verified token scopes from trusted request context; fail closed if absent
     verified_token_scopes: Iterable[str] = getattr(request.state, "verified_token_scopes", None) or []
+    trusted_context = TrustedContextFactory.create_from_request(
+        user=user,
+        verified_token_scopes=verified_token_scopes,
+        thread_id=run.thread_id,
+        run_id=str(run.id),
+        trace_id=getattr(request.state, "trace_id", None),
+        locale=getattr(request.state, "locale", None),
+    )
+    input_state = {
+        "user_query": run.input_query,
+        **_legacy_agent_state_identity(trusted_context),
+    }
     config = {
         "configurable": {
             "thread_id": _checkpoint_thread_id(user=user, thread_id=run.thread_id),
@@ -203,7 +213,7 @@ async def stream_agent_run_events(
             "conversation_thread_id": str(user_message.conversation_thread_id),
             "conversation_message_id": str(user_message.id),
             "conversation_service": conversation_service,
-            **_trusted_tool_config(user, verified_token_scopes, getattr(request.state, "trace_id", None)),
+            **_trusted_graph_config(trusted_context),
         }
     }
 

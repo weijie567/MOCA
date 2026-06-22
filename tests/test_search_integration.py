@@ -112,7 +112,7 @@ async def test_search_uses_factory_projected_knowledge_context_and_rejects_reque
     response = await client.post(
         "/api/v1/search/",
         json={"query": "退款规则", "top_k": 5, **request_identity_override},
-        headers=await auth_headers("merchant_li"),
+        headers=await auth_headers("merchant_wang"),
     )
 
     assert response.status_code == 200

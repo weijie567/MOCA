@@ -20,7 +20,6 @@ from src.api.routers.agent_runs import (
     _create_approval_wait_payload_from_interrupt,
     _schedule_memory_write_after_response,
     _session_factory_from_session,
-    _trusted_tool_config,
 )
 from src.api.schemas.agent import ChatRequest, ChatResponse, TraceSummary
 from src.api.schemas.common import ApiResponse, ErrorDetail, INTERNAL_ERROR
@@ -30,6 +29,8 @@ from src.conversation.service import ConversationService
 from src.db.models import User
 from src.db.session import get_session
 from src.memory.thread_summary import ThreadRollingSummaryService
+from src.platform.context_projections import project_to_legacy_agent_state_identity
+from src.platform.trusted_context import TrustedContext, TrustedContextFactory
 
 
 router = APIRouter(tags=["agent"])
@@ -48,24 +49,23 @@ async def chat(
     started_at = datetime.now(timezone.utc)
     t0 = time.perf_counter()
     run_id = getattr(request.state, "run_id", str(uuid.uuid4()))
-
+    trusted_context = TrustedContextFactory.create_from_request(
+        user=user,
+        verified_token_scopes=getattr(request.state, "verified_token_scopes", None) or [],
+        thread_id=body.thread_id,
+        run_id=str(run_id),
+        trace_id=getattr(request.state, "trace_id", None),
+        locale=getattr(request.state, "locale", None),
+    )
     input_state = {
         "user_query": body.query,
-        "thread_id": body.thread_id,
-        "tenant_id": str(user.tenant_id),
-        "user_id": str(user.id),
-        "role": user.role,
-        "current_run_id": run_id,
+        **_legacy_agent_state_identity(trusted_context),
     }
     config = {
         "configurable": {
             "thread_id": _checkpoint_thread_id(user=user, thread_id=body.thread_id),
             "session": session,
-            **_trusted_tool_config(
-                user,
-                getattr(request.state, "verified_token_scopes", None) or [],
-                getattr(request.state, "trace_id", None),
-            ),
+            **_trusted_graph_config(trusted_context),
         }
     }
 
@@ -213,8 +213,14 @@ async def chat(
             trace_id=request.state.trace_id,
         )
 
+    memory_state = {
+        **input_state,
+        **final_state,
+        **_legacy_agent_state_identity(trusted_context),
+        "final_response": final_response_text,
+    }
     _schedule_memory_write_after_response(
-        {**input_state, **final_state, "current_run_id": str(run_id), "final_response": final_response_text},
+        memory_state,
         session_factory=_session_factory_from_session(session),
         trace_id=request.state.trace_id,
     )
@@ -227,6 +233,23 @@ async def chat(
 
 def _checkpoint_thread_id(*, user: User, thread_id: str) -> str:
     return f"{user.tenant_id}:{user.id}:{thread_id}"
+
+
+def _trusted_graph_config(trusted_context: TrustedContext) -> dict[str, Any]:
+    # Compatibility keys stay derived from canonical trusted_context for existing callers.
+    return {
+        "trusted_context": trusted_context.model_dump(mode="json"),
+        "permissions": list(trusted_context.permissions),
+        "merchant_scope": trusted_context.merchant_scope.model_dump(mode="json"),
+        "trace_id": trusted_context.trace_id or "",
+        "session_id": trusted_context.session_id,
+    }
+
+
+def _legacy_agent_state_identity(trusted_context: TrustedContext) -> dict[str, str | None]:
+    identity = project_to_legacy_agent_state_identity(trusted_context)
+    legacy_keys = ("tenant_id", "user_id", "role", "thread_id", "current_run_id")
+    return {key: identity[key] for key in legacy_keys}
 
 
 def _is_graph_interrupt(exc: Exception) -> bool:

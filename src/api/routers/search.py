@@ -11,7 +11,8 @@ from src.auth.permissions import get_current_user
 from src.db.models import User
 from src.db.session import get_session
 from src.knowledge.retrieval import POLICY_NO_EVIDENCE_MESSAGE, PolicyRetrievalEngine
-from src.knowledge.schemas import KnowledgeContext
+from src.platform.context_projections import project_to_knowledge_context
+from src.platform.trusted_context import TrustedContextFactory
 from src.rag.embedder import EmbeddingService
 
 
@@ -27,17 +28,18 @@ async def search_knowledge_base(
 ) -> ApiResponse:
     """Search knowledge base for relevant policy chunks. Scoped to user's tenant."""
     engine = PolicyRetrievalEngine(session, embedder=EmbeddingService())
+    effective_at = datetime.now(UTC).isoformat()
+    trusted_context = TrustedContextFactory.create_from_request(
+        user=user,
+        verified_token_scopes=getattr(request.state, "verified_token_scopes", None) or [],
+        thread_id=str(getattr(request.state, "thread_id", "api-search")),
+        run_id=str(getattr(request.state, "run_id", "api-search")),
+        trace_id=getattr(request.state, "trace_id", None),
+        locale=getattr(request.state, "locale", None),
+    )
     status, hits, best_score = await engine.retrieve_hits(
         query=body.query,
-        context=KnowledgeContext(
-            tenant_id=str(user.tenant_id),
-            user_id=str(user.id),
-            role=user.role,
-            merchant_scope=["*"],
-            run_id="api-search",
-            trace_id=request.state.trace_id,
-            effective_at=datetime.now(UTC).isoformat(),
-        ),
+        context=project_to_knowledge_context(trusted_context, effective_at=effective_at),
         max_results=body.top_k,
         doc_type=body.doc_type,
         risk_level=body.risk_level,
