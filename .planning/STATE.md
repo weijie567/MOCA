@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
 status: executing
-stopped_at: Completed 27-02-PLAN.md
-last_updated: "2026-06-22T17:03:31.753Z"
-last_activity: 2026-06-23 -- 27-02 platform contracts complete
+stopped_at: Completed 27-03-PLAN.md
+last_updated: "2026-06-22T17:41:00.000Z"
+last_activity: 2026-06-23 -- 27-03 seam migrations complete
 progress:
   total_phases: 10
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 10
-  completed_plans: 3
-  percent: 30
+  completed_plans: 4
+  percent: 40
 ---
 
 # Project State: MOCA
@@ -25,12 +25,12 @@ See: `.planning/PROJECT.md` (updated 2026-06-22)
 
 ## Current Position
 
-Phase: 27 - TrustedContextFactory and Projections — EXECUTING
-Plan: 2 of 3 planned
-Status: Ready for 27-03
-Last activity: 2026-06-23 -- 27-02 platform contracts complete
+Phase: 27 - TrustedContextFactory and Projections — COMPLETE
+Plan: 3 of 3 planned
+Status: Ready for Phase 28
+Last activity: 2026-06-23 -- 27-03 seam migrations complete
 
-Progress: [███░░░░░░░] 30%
+Progress: [████░░░░░░] 40%
 
 Planning files:
 
@@ -69,7 +69,7 @@ Planning files:
 | 35. Replay and Eval Hardening | 0/1 | Pending |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
-Latest execution metric: Phase 27 P27-02 — 6 min, 2 tasks, 5 files.
+Latest execution metric: Phase 27 P27-03 — 35 min, 2 tasks, 18 files.
 
 ## Quick Tasks Completed
 
@@ -94,6 +94,9 @@ Latest execution metric: Phase 27 P27-02 — 6 min, 2 tasks, 5 files.
 - Preserved KnowledgeContext.merchant_scope as the existing list shape through project_merchant_scope_for_knowledge.
 - Kept current search, agent route, graph node, and tool executor seam migration out of 27-02; 27-03 owns those call sites.
 - Kept ToolCallContext safety_snapshot_ref and policy_snapshot_ref as compatibility fields only; target schema reconciliation remains Phase 29 scope.
+- Graph config keeps legacy permissions, merchant_scope, trace_id, and session_id only as values derived from canonical trusted_context.
+- Missing or invalid trusted_context in investigate/action_draft fails closed instead of falling back to AgentState authority.
+- Approval resume grants action_draft permission through an explicit server_tool_permissions factory input, not through AgentState or request payload.
 
 ### Roadmap Evolution
 
@@ -105,7 +108,7 @@ Latest execution metric: Phase 27 P27-02 — 6 min, 2 tasks, 5 files.
 
 ### Pending Todos
 
-- Execute Phase 27 plan 27-03 seam migrations.
+- Plan or execute Phase 28 Decision Event Foundation.
 - Archive completed old Phase 24/24.x/25 directories into milestone-specific phase archives after Phase 26 planning is stable.
 - Optional follow-up from v1.8 remains: pin active slot `confidence` projection before confidence becomes a meaningful provenance field.
 
@@ -135,10 +138,10 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-22T17:03:31.278Z
-Stopped at: Completed 27-02-PLAN.md
+Last session: 2026-06-22T17:41:00.000Z
+Stopped at: Completed 27-03-PLAN.md
 Resume file: None
-Next: execute Phase 27 plan 27-03; old phase directory archive remains a separate cleanup todo.
+Next: Phase 28 Decision Event Foundation; old phase directory archive remains a separate cleanup todo.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
 
@@ -153,3 +156,5 @@ Next: execute Phase 27 plan 27-03; old phase directory archive remains a separat
 **Completed Phase:** 25 (Intent routing safety hardening) — 1/1 plans complete; review and verification passed — 2026-06-21T04:25:00Z
 
 **Completed Phase:** 26 (Architecture Contract Baseline) — 1/1 plans complete; external review passed with warnings fixed — 2026-06-22T14:43:37Z
+
+**Completed Phase:** 27 (TrustedContextFactory and Projections) — 3/3 plans complete; seam migration and focused verification passed — 2026-06-23T01:37:34+08:00
