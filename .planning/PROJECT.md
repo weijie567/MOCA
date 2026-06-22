@@ -10,17 +10,18 @@ Built as an open-source portfolio project demonstrating enterprise Agent enginee
 
 When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution — never silently executing something irreversible.
 
-## Current Milestone: v1.8 Intent Routing Safety Hardening
+## Current Milestone: v1.9 Agent Platform Foundation
 
-**Status:** Completed on 2026-06-21.
+**Status:** Defining requirements and roadmap.
 
-**Goal:** Harden the ordinary-chat intent, routing, risk, workflow-state, and slot-continuity contracts so multi-turn support interactions remain auditable and safe without giving the LLM authority over control flow.
+**Goal:** Convert MOCA from feature-by-feature agent code into a microservice-ready modular monolith with clear platform/domain service boundaries, canonical trusted context, decision events, tool policy, memory context, target graph contracts, RAG context build, claim verification, business fact authority, and approval/action boundary hardening.
 
 **Target features:**
-- End-to-end classification trace records raw LLM output, deterministic pre-route decisions, policy overrides, effective classification, risk tier, and final route.
-- Risk handling uses an explicit intent + requested operation + role + channel risk tier instead of relying only on intent-level high-risk booleans.
-- Active workflow state is checked before ordinary intent classification so pending clarifications and short follow-up answers are resolved deterministically.
-- Slot continuity records provenance and invalidation behavior so negated or switched order/refund/ticket references cannot be silently inherited.
+- `TrustedContextFactory` becomes the single source for canonical identity/scope/run context and safe projections.
+- Decision event foundation makes intent, tool, memory, RAG, claim, risk, approval, and action decisions auditable from the start.
+- Tool, memory, knowledge, business fact, approval, and action boundaries move toward service public methods and stable schemas.
+- Target graph contracts introduce safety pre-route, session context loading, contextual intent, slot resolution, RAG context build, and claim verification without doing full real external execution.
+- Eval and replay gates prove each boundary remains deterministic, fail-closed where needed, and compatible with future service extraction.
 
 ## Last Shipped Milestone: v1.8 Intent Routing Safety Hardening
 
@@ -173,14 +174,20 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - [x] Short-term prompt context combines trusted session slots, recent messages, tool prompt summaries, and thread rolling summary for same-thread follow-ups (validated in Phase 24)
 - [x] Memory context is prompt-safe and cannot act as policy evidence, current business fact authority, approval/action authority, or replay/audit truth (validated in Phase 24)
 - [x] Completed, error, cancelled, interrupted, and stream-retry states have deterministic, idempotent memory persistence semantics (validated in Phase 24)
+- [x] v1.8 intent routing safety hardening records traceable raw/effective classification, deterministic risk tiering, workflow-state-first clarification handling, and trusted slot invalidation (validated in Phase 25)
 
 ### Active
 
-- [ ] **IRS-01:** Agent traces expose raw LLM classification, pre-route decision, policy overrides, effective classification, risk tier, route decision, and reason codes for intent/routing decisions.
-- [ ] **IRS-02:** Ordinary-chat risk policy resolves `RiskTier` from primary intent, requested operation, user role, channel, and routing hints while preserving approval/action safety boundaries.
-- [ ] **IRS-03:** The graph checks active workflow state before ordinary classification so pending slot clarifications and short follow-up answers are handled deterministically.
-- [ ] **IRS-04:** Slot continuity records trusted provenance and supports deterministic invalidation/reset when the user negates or switches business identifiers.
-- [ ] **IRS-05:** Golden and focused regression tests verify effective classification, route, risk tier, clarification reason, and slot inheritance/invalidation outcomes.
+- [ ] **APF-01:** Target architecture and `contract-spec.md` stay aligned as the normative baseline for service boundaries, graph vocabulary, AgentState RAG/claim fields, tool policy decisions, business fact results, and decision events.
+- [ ] **APF-02:** `TrustedContextFactory` produces canonical `TrustedContext` and safe projections without widening identity/scope fields.
+- [ ] **APF-03:** Minimal decision event envelope and reason-code convention are available before platform services emit auditable decisions.
+- [ ] **APF-04:** Tool access is mediated by descriptor-driven `ToolView`, `ToolPolicyDecision`, and runtime authorization rather than scattered allowlists.
+- [ ] **APF-05:** Memory read/write surfaces are split into session context, long-term memory, case memory, conversation log, workflow checkpoint, and working-state projections with authority boundaries.
+- [ ] **APF-06:** Intent graph migration introduces safety pre-route, session context loading, contextual intent resolution, and deterministic slot resolution while preserving legacy compatibility.
+- [ ] **APF-07:** RAG context build and claim verification become deterministic, replayable gates around candidate evidence, verified evidence packages, material claims, and action-bound recommendations.
+- [ ] **APF-08:** Business facts are served through `BusinessFactResultV1` / `BusinessFactRefV1` boundaries and cannot be replaced by memory, RAG, or LLM inference.
+- [ ] **APF-09:** Approval and action draft boundaries bind structured action proposals, business fact refs, verified evidence, claim verification, risk decisions, payload hashes, and safety snapshots without enabling full real execution.
+- [ ] **APF-10:** Replay and eval gates cover the new platform boundaries with dev-contract, release, and monitoring gate separation.
 
 ### Out of Scope
 
@@ -258,9 +265,10 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 
 ## Next Milestone Setup
 
-- v1.8 is complete. Phase 25 owns intent routing safety hardening across traceability, risk tiering, workflow-state-first routing, slot provenance/invalidation, and focused route/safety eval coverage.
+- v1.9 Agent Platform Foundation is active. It should land the service-boundary foundation discussed in `docs/target-agent-platform-architecture-plan.md` and normalized in `docs/contract-spec.md`.
+- Phase numbering continues from Phase 25; do not restart at Phase 1 or use Phase 1.x numbering.
 - Keep owner-named deferrals explicit: 17-prep AgentState Surface Contracts + Authority Isolation, Phase 17 External Action Execution, post-Phase 17 Policy Scope, Phase RAG-5 external backend, and Policy Source Operations.
-- Preserve v1.1-v1.7 safety boundaries: policy evidence remains `EvidenceRefV1`; business facts remain Tool System outputs; memory remains contextual assistance only; parser/OCR provenance remains internal unless verified through the maintainer provenance lookup; verifier failures and timeouts fail closed; rewrite/rerank diagnostics remain relevance/eval signals only; short-term memory remains contextual and never becomes evidence, action, approval, current business fact, or replay authority.
+- Preserve v1.1-v1.8 safety boundaries: policy evidence remains `EvidenceRefV1`; business facts remain BusinessFact/Tool System outputs; memory remains contextual assistance only; parser/OCR provenance remains internal unless verified through the maintainer provenance lookup; verifier failures and timeouts fail closed; rewrite/rerank diagnostics remain relevance/eval signals only; short-term memory remains contextual and never becomes evidence, action, approval, current business fact, or replay authority.
 - Keep 17-prep AgentState cleanup as a Phase 17 prerequisite, not a blocker for retrieval-quality milestones.
 
 ## Constraints
@@ -295,6 +303,7 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 | Scope v1.5 to Phase 22 hallucination control | Keeps reasoning-context validation, MaterialClaim support checks, and deterministic failure routing separate from Phase 23 reranking/query rewrite and Phase 17 external execution | Adopted 2026-06-19 |
 | Scope v1.6 to Phase 23 retrieval quality | Starts the owner-named RAG reranker/query rewrite phase while keeping 17-prep as a later Phase 17 prerequisite | Adopted 2026-06-20 |
 | Scope v1.7 to Agent Console short-term memory unification | The current frontend path uses `/agent-runs + SSE`; it needs parity with the existing conversation log and rolling summary infrastructure while preserving memory authority boundaries | Adopted 2026-06-20 |
+| Scope v1.9 to Agent Platform Foundation | The next architecture milestone should land modular-monolith service boundaries and platform contracts before graph/RAG/tool/memory rewrites, without restarting phase numbering or implementing full real execution | Adopted 2026-06-22 |
 
 ## Evolution
 
@@ -314,4 +323,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-20 after Phase 24 completion*
+*Last updated: 2026-06-22 after starting v1.9 Agent Platform Foundation*

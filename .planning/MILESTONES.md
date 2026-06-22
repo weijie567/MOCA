@@ -1,5 +1,73 @@
 # Milestones
 
+## v1.8 Intent Routing Safety Hardening (Shipped: 2026-06-21)
+
+**Delivered:** Production-style hardening for ordinary-chat intent routing, focused on auditable raw-to-effective classification, deterministic risk tiering, workflow-state-first clarification handling, trusted slot provenance, and fail-closed handling for unsafe short approval/action replies.
+
+**Phases completed:** 25 (1 phase, 1 plan)
+
+**Key accomplishments:**
+
+- Classification trace now records raw LLM classification, deterministic pre-route output, policy overrides, effective classification, risk tier, final route, and reason codes.
+- Risk policy resolves read-only, draft-only, suggest-action, approval-required, and forbidden-in-chat outcomes from effective intent, requested operation, role, and channel hints.
+- Pending required-slot clarification can consume identifier replies before ordinary classification, while ambiguous approval/action continuations fail closed.
+- Trusted inherited slots carry provenance and are invalidated on user negation or context switching.
+- Focused regressions and review/verification cover IRS-01 through IRS-12.
+
+**Stats:**
+
+- 1 completed phase, 1 plan
+- Phase 25 review and verification passed
+- Closeout artifacts: `.planning/phases/25-intent-routing-safety-hardening/25-REVIEW.md`, `25-SUMMARY.md`, and `25-VERIFICATION.md`
+
+**Known deferred items at close:**
+
+- Optional confidence follow-up remains: pin active slot `confidence` projection before confidence becomes a meaningful provenance field.
+- Full target graph refactor remains deferred to v1.9 Agent Platform Foundation.
+- Full real external execution remains deferred beyond v1.9.
+
+**Archived:**
+
+- Phase artifacts currently remain in `.planning/phases/25-intent-routing-safety-hardening/` for continuity until a later GSD archive/cleanup pass.
+
+**What's next:** v1.9 Agent Platform Foundation.
+
+---
+
+## v1.7 Short-term Memory Unification (Shipped: 2026-06-20)
+
+**Delivered:** Completed the short-term memory chain for the current Agent Console `/api/v1/agent-runs + SSE` path while preserving memory as contextual assistance only.
+
+**Phases completed:** 24, 24.2, 24.3, 24.4, 24.5 (main Phase 24 plus inserted follow-ups)
+
+**Key accomplishments:**
+
+- `/agent-runs` creates or resolves conversation threads, persists one user message per run, and passes trusted conversation identifiers into graph execution.
+- Completed runs persist one assistant message and update rolling summaries from committed messages and eligible prompt-safe tool summaries.
+- Same-thread follow-up turns can load trusted session slots, recent messages, prompt-safe tool summaries, and rolling thread summaries into prompt context.
+- Explicit current-turn slots override inherited session slots, while stale or scope-mismatched memory fails closed.
+- Error, cancelled, approval-interrupted, retried, and re-opened stream states have deterministic idempotent memory persistence behavior.
+- Memory remains contextual only and cannot satisfy policy evidence, current business fact, approval/action authority, or replay/audit truth.
+
+**Stats:**
+
+- Phase 24 completed 9/9 plans.
+- Inserted memory follow-ups Phase 24.2, 24.3, 24.4, and 24.5 completed.
+- Phase 24 verification passed with focused regression and three-turn smoke coverage.
+
+**Known deferred items at close:**
+
+- Long-term memory, case memory, session context projection, workflow checkpoint, and memory write policy redesign are deferred to v1.9 memory platform work.
+- Admin memory management UI and retention/archive controls remain outside v1.7.
+
+**Archived:**
+
+- Phase artifacts currently remain in `.planning/phases/24-agent-runs-short-term-memory-parity/` and inserted Phase 24.x directories for continuity until a later GSD archive/cleanup pass.
+
+**What's next:** v1.8 Intent Routing Safety Hardening.
+
+---
+
 ## v1.6 RAG Reranker + Query Rewrite (Shipped: 2026-06-20)
 
 **Delivered:** Retrieval-quality upgrade with bounded query rewrite, original-plus-rewrite retrieval fan-out, deterministic local reranking, disabled-by-default provider gates, safe internal diagnostics, no-live-provider ablation evaluation, and final boundary regressions preserving Phase 20-22 evidence authority.
