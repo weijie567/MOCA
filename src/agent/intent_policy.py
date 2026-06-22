@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 import re
+from collections.abc import Mapping
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -127,6 +129,65 @@ CRITICAL_ROUTE_CLASSES = {
     "approval_decision",
     *(name for name, definition in INTENT_DEFINITIONS.items() if definition.critical_route_class),
 }
+
+
+class IntentPolicyRegistry:
+    """Read-only view over current intent policy constants."""
+
+    def definitions(self) -> Mapping[str, IntentDefinition]:
+        return MappingProxyType(INTENT_DEFINITIONS)
+
+    def get_definition(self, name: str) -> IntentDefinition | None:
+        return INTENT_DEFINITIONS.get(name)
+
+    def definition_for(self, name: str) -> IntentDefinition | None:
+        return self.get_definition(name)
+
+    def ordinary_intents(self) -> tuple[str, ...]:
+        return ORDINARY_INTENTS
+
+    def intent_names(self) -> tuple[str, ...]:
+        return self.ordinary_intents()
+
+    def route_policy(self) -> Mapping[str, IntentRouteLiteral]:
+        return MappingProxyType(INTENT_ROUTE_POLICY)
+
+    def precedence_intents(self) -> tuple[str, ...]:
+        return PRECEDENCE_INTENTS
+
+    def precedence_order(self) -> tuple[str, ...]:
+        return self.precedence_intents()
+
+    def direct_response_intents(self) -> frozenset[str]:
+        return frozenset(DIRECT_RESPONSE_INTENTS)
+
+    def evidence_required_intents(self) -> frozenset[str]:
+        return frozenset(EVIDENCE_REQUIRED_INTENTS)
+
+    def high_risk_intents(self) -> frozenset[str]:
+        return frozenset(HIGH_RISK_INTENTS)
+
+    def critical_route_intents(self) -> frozenset[str]:
+        return frozenset(
+            name for name, definition in INTENT_DEFINITIONS.items() if definition.critical_route_class
+        )
+
+
+class SlotPolicyRegistry:
+    """Read-only view over required slot policy constants."""
+
+    def required_slot_policy(self) -> Mapping[str, RequiredSlotExpression]:
+        return MappingProxyType(REQUIRED_SLOT_POLICY)
+
+    def required_slots_for(self, intent: str) -> RequiredSlotExpression:
+        return REQUIRED_SLOT_POLICY.get(intent, RequiredSlotExpression())
+
+    def intents_with_required_slots(self) -> tuple[str, ...]:
+        return tuple(
+            intent
+            for intent, expression in REQUIRED_SLOT_POLICY.items()
+            if expression.all_of or expression.any_of
+        )
 
 
 ORDINARY_CHAT_CHANNELS = {"ordinary_chat", "chat", "agent_chat", "agent_runs"}
