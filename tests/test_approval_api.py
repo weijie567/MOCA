@@ -182,6 +182,25 @@ def _approved_decision_result(bundle: ApprovalBundle, actor_id: UUID) -> Approva
     )
 
 
+def _trusted_resume_config(session: AsyncSession, result: ApprovalDecisionResult, actor: User) -> dict:
+    trusted_context = approvals_router.TrustedContextFactory.create_from_request(
+        user=actor,
+        verified_token_scopes=frozenset(),
+        thread_id=result.graph_thread_id,
+        run_id=str(result.run_id),
+        trace_id="trace-approval-test",
+        server_merchant_scope={"merchant_ids": ["*"]},
+        server_tool_permissions=[approvals_router.ACTION_DRAFT_PERMISSION],
+    )
+    return {
+        "configurable": {
+            "thread_id": result.graph_thread_id,
+            "session": session,
+            **approvals_router._trusted_graph_config(trusted_context),
+        }
+    }
+
+
 def _edited_action(bundle: ApprovalBundle) -> dict:
     return {
         **bundle.approval.proposed_action,
@@ -243,6 +262,16 @@ async def test_decide_approve_builds_command_from_authenticated_actor_and_resume
     assert config["configurable"]["thread_id"] == (
         f"{bundle.approval.tenant_id}:{bundle.approval.requested_by}:{bundle.approval.thread_id}"
     )
+    trusted_context = config["configurable"]["trusted_context"]
+    assert trusted_context["tenant_id"] == str(bundle.approval.tenant_id)
+    assert trusted_context["user_id"] == str(manager.id)
+    assert trusted_context["role"] == "manager"
+    assert trusted_context["thread_id"] == config["configurable"]["thread_id"]
+    assert trusted_context["run_id"] == str(bundle.approval.run_id)
+    assert trusted_context["permissions"] == [approvals_router.ACTION_DRAFT_PERMISSION]
+    assert config["configurable"]["permissions"] == trusted_context["permissions"]
+    assert config["configurable"]["merchant_scope"] == trusted_context["merchant_scope"]
+    assert config["configurable"]["trace_id"] == trusted_context["trace_id"]
 
 
 @pytest.mark.asyncio
@@ -377,6 +406,7 @@ async def test_approval_resume_reconciliation_accepts_not_executed_demo_draft_ou
 
     async def fake_action_draft(state, config):
         assert state["approval_result"] == result.resume_payload
+        assert state["current_run_id"] == str(result.run_id)
         assert config["configurable"]["session"] is session
         return {
             "action_draft": {"draft_id": "draft-api-001", "status": "draft_created"},
@@ -395,7 +425,7 @@ async def test_approval_resume_reconciliation_accepts_not_executed_demo_draft_ou
         session=session,
         result=result,
         final_state={"final_response": "approved"},
-        config={"configurable": {"session": session}},
+        config=_trusted_resume_config(session, result, manager),
     )
 
     assert reconciled["draft_outcome"]["status"] == "not_executed_demo"
@@ -410,7 +440,8 @@ async def test_approval_resume_reconciliation_records_error_when_draft_outcome_m
     monkeypatch,
 ):
     bundle = await _create_approval(session, seeded_session, thread_id="thread-reconcile-missing-outcome")
-    result = _approved_decision_result(bundle, seeded_session["users"]["approval_manager"].id)
+    manager = seeded_session["users"]["approval_manager"]
+    result = _approved_decision_result(bundle, manager.id)
 
     async def fake_action_draft(_state, _config):
         return {"action_result": {"status": "draft_created", "data": {"draft_id": "draft-api-002"}, "error": {}}}
@@ -421,7 +452,7 @@ async def test_approval_resume_reconciliation_records_error_when_draft_outcome_m
         session=session,
         result=result,
         final_state={"final_response": "approved"},
-        config={"configurable": {"session": session}},
+        config=_trusted_resume_config(session, result, manager),
     )
 
     assert {"node": "action_draft", "error": "action_draft_reconcile_failed"} in reconciled["node_errors"]
@@ -434,7 +465,8 @@ async def test_approval_resume_reconciliation_records_error_for_side_effecting_d
     monkeypatch,
 ):
     bundle = await _create_approval(session, seeded_session, thread_id="thread-reconcile-side-effect")
-    result = _approved_decision_result(bundle, seeded_session["users"]["approval_manager"].id)
+    manager = seeded_session["users"]["approval_manager"]
+    result = _approved_decision_result(bundle, manager.id)
 
     async def fake_action_draft(_state, _config):
         return {
@@ -453,7 +485,7 @@ async def test_approval_resume_reconciliation_records_error_for_side_effecting_d
         session=session,
         result=result,
         final_state={"final_response": "approved"},
-        config={"configurable": {"session": session}},
+        config=_trusted_resume_config(session, result, manager),
     )
 
     assert {"node": "action_draft", "error": "action_draft_reconcile_failed"} in reconciled["node_errors"]
@@ -706,6 +738,10 @@ async def test_decide_reject_resumes_graph_with_trusted_rejected_result(
     assert config["configurable"]["thread_id"] == (
         f"{bundle.approval.tenant_id}:{bundle.approval.requested_by}:{bundle.approval.thread_id}"
     )
+    trusted_context = config["configurable"]["trusted_context"]
+    assert trusted_context["run_id"] == str(bundle.approval.run_id)
+    assert trusted_context["permissions"] == []
+    assert config["configurable"]["permissions"] == trusted_context["permissions"]
 
 
 @pytest.mark.asyncio

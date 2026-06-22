@@ -7,8 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
 from src.knowledge.retrieval import PolicyRetrievalEngine
-from src.knowledge.schemas import KnowledgeContext, KnowledgeSearchFilters, KnowledgeSearchRequest
+from src.knowledge.schemas import KnowledgeSearchFilters, KnowledgeSearchRequest
 from src.knowledge.service import PolicyKnowledgeService
+from src.platform.context_projections import project_tool_context_to_knowledge_context
 from src.tools.contracts import ToolCallContext, ToolError, ToolResultV2
 from src.tools.manager_results import result
 
@@ -53,16 +54,7 @@ class KnowledgeToolExecutor:
         )
         search_result = await self.service.search(
             request,
-            KnowledgeContext(
-                tenant_id=ctx.tenant_id,
-                user_id=ctx.user_id,
-                role=ctx.role,
-                merchant_scope=_knowledge_merchant_scope(ctx.merchant_scope),
-                run_id=ctx.run_id,
-                trace_id=ctx.trace_id,
-                locale=None,
-                effective_at=effective_at,
-            ),
+            project_tool_context_to_knowledge_context(ctx, effective_at=effective_at),
         )
         status_map = {
             "strong_evidence": "success",
@@ -97,12 +89,3 @@ class KnowledgeToolExecutor:
             latency_ms=0,
             audit_ref=None,
         )
-
-
-def _knowledge_merchant_scope(value: object) -> list[str]:
-    raw_ids: object = value.get("merchant_ids") if isinstance(value, dict) else value
-    if not isinstance(raw_ids, list) or not raw_ids:
-        return []
-    if not all(isinstance(item, str) and item for item in raw_ids):
-        return []
-    return list(raw_ids)

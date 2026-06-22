@@ -64,14 +64,17 @@ def test_current_seams_use_projection_helpers_not_direct_trusted_context_constru
         ROOT / "src" / "agent" / "nodes" / "action_draft.py",
         ROOT / "src" / "tools" / "executors" / "knowledge.py",
     ]
-    required_helpers = {"TrustedContextFactory", "project_to_tool_context", "project_to_knowledge_context"}
+    required_helpers = {
+        "TrustedContextFactory",
+        "project_to_tool_context",
+        "project_to_knowledge_context",
+        "project_tool_context_to_knowledge_context",
+    }
     violations: list[str] = []
 
     for path in seams:
         source = path.read_text()
-        if "TrustedContextFactory" not in source and not (
-            "project_to_tool_context" in source or "project_to_knowledge_context" in source
-        ):
+        if not any(helper in source for helper in required_helpers):
             violations.append(f"{path.relative_to(ROOT)} does not use trusted-context projection helpers")
         if "ToolCallContext(" in source or "KnowledgeContext(" in source:
             violations.append(f"{path.relative_to(ROOT)} still directly constructs service context")

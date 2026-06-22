@@ -5,12 +5,15 @@ from typing import Any
 from uuid import uuid4
 
 from langchain_core.runnables import RunnableConfig
+from pydantic import ValidationError
 
 from src.agent.events import RAG_RETRIEVAL_TOOLS, TOOL_CALL_TOOLS, emit_event
 from src.agent.prompts import INSUFFICIENT_EVIDENCE_RESPONSE
 from src.agent.state import AgentState
 from src.conversation.repository import ConversationRepository
 from src.conversation.service import ConversationService
+from src.platform.context_projections import project_to_tool_context
+from src.platform.trusted_context import TrustedContext
 from src.tools.contracts import ToolCallContext, ToolResultPromptSummary, ToolResultV2
 from src.tools.manager import UnifiedToolManager
 
@@ -109,19 +112,27 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
             termination_reason = "no_more_useful_tools"
             break
         context["attempted"].add(attempt_key)
+        trusted_context = _trusted_context_from_config(configurable)
+        if trusted_context is None:
+            termination_reason = "unrecoverable_error"
+            context["errors"].append(
+                _safe_error("MISSING_TRUSTED_CONTEXT", "Trusted context is required for tool execution", "tool")
+            )
+            break
 
         descriptor = manager.descriptor(tool_name)
         family = manager.event_family(tool_name)
         operation_id = uuid4()
         await _emit_tool_event(configurable, session, state, descriptor, family, operation_id, iteration, "started")
         tool_ctx = _build_tool_context(
-            state,
+            trusted_context,
             configurable,
             tool_name,
             operation_id,
             iteration,
             max_attempts,
             deadline_at,
+            state.get("run_started_at") or _now_iso(),
         )
         tool_call_record = await _append_tool_call_record(
             configurable,
@@ -231,34 +242,37 @@ def _validate_planner_step(step: Any, manager: UnifiedToolManager, descriptors: 
 
 
 def _build_tool_context(
-    state: AgentState,
+    trusted_context: TrustedContext,
     configurable: dict[str, Any],
     tool_name: str,
     operation_id: Any,
     attempt: int,
     max_attempts: int,
     deadline_at: Any,
+    effective_at: str,
 ) -> ToolCallContext:
-    return ToolCallContext(
-        tenant_id=state["tenant_id"],
-        user_id=state["user_id"],
-        role=state["role"],
-        permissions=list(configurable.get("permissions") or []),
-        merchant_scope=configurable.get("merchant_scope") or {},
-        session_id=configurable.get("session_id"),
-        thread_id=state["thread_id"],
-        run_id=state.get("current_run_id") or str(uuid4()),
-        trace_id=configurable.get("trace_id") or state.get("current_run_id") or "",
+    return project_to_tool_context(
+        trusted_context,
         request_id=configurable.get("request_id") or str(uuid4()),
         tool_call_id=str(operation_id),
         caller_node="investigate",
         deadline_at=deadline_at,
-        effective_at=state.get("run_started_at") or _now_iso(),
+        effective_at=effective_at,
         attempt=attempt,
         max_attempts=max_attempts,
-        idempotency_key=f"{state.get('current_run_id') or 'run'}:{tool_name}:{operation_id}",
+        idempotency_key=f"{trusted_context.run_id}:{tool_name}:{operation_id}",
         policy_snapshot_ref=None,
     )
+
+
+def _trusted_context_from_config(configurable: dict[str, Any]) -> TrustedContext | None:
+    raw_context = configurable.get("trusted_context")
+    if raw_context is None:
+        return None
+    try:
+        return TrustedContext.model_validate(raw_context)
+    except ValidationError:
+        return None
 
 
 async def _append_tool_call_record(

@@ -8,6 +8,7 @@ import pytest
 
 from src.agent.nodes import action_draft as action_draft_module
 from src.agent.nodes import execute_action as execute_action_module
+from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 from src.tools.contracts import ToolCallContext, ToolResultV2
 from src.tools.manager import UnifiedToolManager
 
@@ -96,8 +97,31 @@ def _success_result() -> dict:
     }
 
 
-def _trusted_config(**overrides: Any) -> dict:
-    configurable = {"session": object(), "permissions": [ACTION_PERMISSION]}
+def _trusted_context_for_state(state: dict[str, Any], *, permissions: list[str] | None = None) -> dict[str, Any]:
+    return TrustedContext(
+        tenant_id=state["tenant_id"],
+        user_id=state.get("user_id") or str(uuid4()),
+        role=state.get("role") or "support",
+        permissions=[ACTION_PERMISSION] if permissions is None else permissions,
+        merchant_scope=MerchantScopeV1(merchant_ids=["*"]),
+        session_id=None,
+        thread_id=state.get("thread_id") or "thread-action-draft",
+        run_id=state["current_run_id"],
+        trace_id="trace-action-draft",
+        locale=None,
+    ).model_dump(mode="json")
+
+
+def _trusted_config(state: dict[str, Any] | None = None, **overrides: Any) -> dict:
+    state = state or _approved_state()
+    permissions = [ACTION_PERMISSION]
+    if "permissions" in overrides:
+        permissions = list(overrides["permissions"])
+    configurable = {
+        "session": object(),
+        "trusted_context": _trusted_context_for_state(state, permissions=permissions),
+        "permissions": permissions,
+    }
     configurable.update(overrides)
     return {"configurable": configurable}
 
@@ -136,7 +160,7 @@ async def test_action_draft_with_service_approval_result_creates_draft(monkeypat
     monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
     state = _approved_state()
 
-    result = await action_draft_module.action_draft(state, _trusted_config())
+    result = await action_draft_module.action_draft(state, _trusted_config(state))
 
     assert result["action_draft"]["schema_version"] == "action_draft.v2"
     assert result["draft_outcome"]["status"] == "not_executed_demo"
@@ -156,7 +180,8 @@ async def test_action_draft_tool_success_missing_draft_outcome_fails_closed(monk
     create_draft = AsyncMock(return_value=payload)
     monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
 
-    result = await action_draft_module.action_draft(_approved_state(), _trusted_config())
+    state = _approved_state()
+    result = await action_draft_module.action_draft(state, _trusted_config(state))
 
     assert result["action_result"]["status"] == "error"
     assert result["action_result"]["error"]["error_code"] == "INVALID_DRAFT_OUTCOME"
@@ -177,7 +202,8 @@ async def test_action_draft_tool_success_invalid_draft_outcome_fails_closed(monk
     create_draft = AsyncMock(return_value=payload)
     monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
 
-    result = await action_draft_module.action_draft(_approved_state(), _trusted_config())
+    state = _approved_state()
+    result = await action_draft_module.action_draft(state, _trusted_config(state))
 
     assert result["action_result"]["status"] == "error"
     assert result["action_result"]["error"]["error_code"] == "INVALID_DRAFT_OUTCOME"
@@ -197,6 +223,7 @@ async def test_action_draft_without_write_tool_permission_returns_permission_req
         {
             "configurable": {
                 "session": object(),
+                "trusted_context": _trusted_context_for_state(state, permissions=[]),
                 "permissions": [],
                 "action_tool_manager": manager,
             }
@@ -275,7 +302,7 @@ async def test_action_draft_does_not_build_final_service_idempotency_key(monkeyp
     monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
     state = _approved_state()
 
-    await action_draft_module.action_draft(state, _trusted_config())
+    await action_draft_module.action_draft(state, _trusted_config(state))
 
     _, kwargs = create_draft.await_args
     idempotency_key = kwargs["idempotency_key"]
@@ -293,7 +320,7 @@ async def test_execute_action_prefers_approval_run_id_for_resumed_action(monkeyp
     state["approval_result"]["run_id"] = persisted_run_id
     state["current_run_id"] = persisted_run_id
 
-    await action_draft_module.action_draft(state, _trusted_config())
+    await action_draft_module.action_draft(state, _trusted_config(state))
 
     _, kwargs = create_draft.await_args
     assert kwargs["run_id"] == persisted_run_id
@@ -323,7 +350,7 @@ async def test_execute_action_canonicalizes_legacy_freeform_action_type(monkeypa
         "拒绝600元补偿请求。根据补偿规则，订单实付金额599元对应的最高体验补偿标准为50元。"
     )
 
-    await action_draft_module.action_draft(state, _trusted_config())
+    await action_draft_module.action_draft(state, _trusted_config(state))
 
     _, kwargs = create_draft.await_args
     assert kwargs["action_type"] == "manual_review"
@@ -344,7 +371,8 @@ async def test_execute_action_uses_session_from_runnable_config(monkeypatch):
     monkeypatch.setattr("src.tools.executors.action.ActionService.__init__", init_service)
     session = object()
 
-    await action_draft_module.action_draft(_approved_state(), _trusted_config(session=session))
+    state = _approved_state()
+    await action_draft_module.action_draft(state, _trusted_config(state, session=session))
 
     assert sessions == [session]
 

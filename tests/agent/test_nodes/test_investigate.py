@@ -27,14 +27,31 @@ def _state(plan: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _default_trusted_context(permissions: list[str]) -> dict[str, Any]:
+    return TrustedContext(
+        tenant_id=str(uuid4()),
+        user_id=str(uuid4()),
+        role="support",
+        permissions=permissions,
+        merchant_scope=MerchantScopeV1(merchant_ids=["*"]),
+        session_id=None,
+        thread_id="thread-1",
+        run_id=str(uuid4()),
+        trace_id="trace-1",
+        locale=None,
+    ).model_dump(mode="json")
+
+
 def _config(manager, events: list[dict[str, Any]], **overrides):
     async def event_emitter(**payload):
         events.append(payload)
 
+    permissions = [f"tool:{descriptor.name}" for descriptor in ToolCatalog().descriptors()]
     configurable = {
         "tool_manager": manager,
         "event_emitter": event_emitter,
-        "permissions": [f"tool:{descriptor.name}" for descriptor in ToolCatalog().descriptors()],
+        "trusted_context": _default_trusted_context(permissions),
+        "permissions": permissions,
         "merchant_scope": {"merchant_ids": ["*"]},
         "trace_id": "trace-1",
         "max_iterations": 3,

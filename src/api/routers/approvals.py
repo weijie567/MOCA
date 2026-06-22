@@ -33,6 +33,8 @@ from src.db.models import (
     User,
 )
 from src.db.session import get_session
+from src.platform.context_projections import project_to_legacy_agent_state_identity
+from src.platform.trusted_context import TrustedContext, TrustedContextFactory
 
 
 router = APIRouter(tags=["approvals"])
@@ -79,6 +81,7 @@ async def decide_approval(
             session=session,
             result=retry_result,
             actor_id=user.id,
+            actor_user=user,
         )
         await session.refresh(approval)
         return ApiResponse(
@@ -131,6 +134,7 @@ async def decide_approval(
             session=session,
             result=result,
             actor_id=user.id,
+            actor_user=user,
         )
     else:
         await session.commit()
@@ -217,7 +221,7 @@ async def list_pending_approvals(
 
 
 async def _run_resume_lifecycle(
-    *, request: Request, session: AsyncSession, result: ApprovalDecisionResult, actor_id: UUID
+    *, request: Request, session: AsyncSession, result: ApprovalDecisionResult, actor_id: UUID, actor_user: User
 ) -> None:
     try:
         await _record_resume_event(
@@ -232,6 +236,7 @@ async def _run_resume_lifecycle(
             request=request,
             session=session,
             result=result,
+            actor_user=actor_user,
         )
         await _record_resume_event(
             session=session,
@@ -260,10 +265,10 @@ async def _run_resume_lifecycle(
 
 
 async def _resume_graph_after_decision(
-    *, request: Request, session: AsyncSession, result: ApprovalDecisionResult
+    *, request: Request, session: AsyncSession, result: ApprovalDecisionResult, actor_user: User
 ) -> None:
     graph = request.app.state.agent_graph
-    config = _resume_graph_config(request=request, session=session, result=result)
+    config = _resume_graph_config(request=request, session=session, result=result, actor_user=actor_user)
     t0 = time.perf_counter()
     final_state = await graph.ainvoke(Command(resume=result.resume_payload), config)
     resume_latency_ms = round((time.perf_counter() - t0) * 1000)
@@ -541,7 +546,7 @@ async def _reconcile_approved_action_draft(
         "user_id": str(approval.requested_by),
         "role": final_state.get("role") or "support",
         "thread_id": approval.thread_id,
-        "current_run_id": str(result.run_id),
+        **_legacy_current_run_identity(config),
         "proposed_action": final_state.get("proposed_action") or approval.proposed_action,
         "approval_result": result.resume_payload,
         "action_payload_hash": result.action_payload_hash,
@@ -559,18 +564,45 @@ async def _reconcile_approved_action_draft(
     return reconciled
 
 
-def _resume_graph_config(*, request: Request, session: AsyncSession, result: ApprovalDecisionResult) -> dict:
+def _legacy_current_run_identity(config: dict) -> dict[str, str | None]:
+    configurable = config.get("configurable") or {}
+    trusted_context = TrustedContext.model_validate(configurable["trusted_context"])
+    identity = project_to_legacy_agent_state_identity(trusted_context)
+    return {"current_run_id": identity["current_run_id"]}
+
+
+def _resume_graph_config(
+    *, request: Request, session: AsyncSession, result: ApprovalDecisionResult, actor_user: User
+) -> dict:
     permissions: list[str] = []
     if result.decision_type in {"accept", "approve"} and result.status == "approved":
         permissions.append(ACTION_DRAFT_PERMISSION)
+    trusted_context = TrustedContextFactory.create_from_request(
+        user=actor_user,
+        verified_token_scopes=frozenset(),
+        thread_id=result.graph_thread_id,
+        run_id=str(result.run_id),
+        trace_id=getattr(request.state, "trace_id", "") or "",
+        server_merchant_scope={"merchant_ids": ["*"]},
+        server_tool_permissions=permissions,
+    )
     return {
         "configurable": {
             "thread_id": result.graph_thread_id,
             "session": session,
-            "permissions": permissions,
-            "merchant_scope": {"merchant_ids": ["*"]},
-            "trace_id": getattr(request.state, "trace_id", "") or "",
+            **_trusted_graph_config(trusted_context),
         }
+    }
+
+
+def _trusted_graph_config(trusted_context: TrustedContext) -> dict[str, object]:
+    # Compatibility keys stay derived from canonical trusted_context for existing graph callers.
+    return {
+        "trusted_context": trusted_context.model_dump(mode="json"),
+        "permissions": list(trusted_context.permissions),
+        "merchant_scope": trusted_context.merchant_scope.model_dump(mode="json"),
+        "trace_id": trusted_context.trace_id or "",
+        "session_id": trusted_context.session_id,
     }
 
 

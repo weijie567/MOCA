@@ -9,7 +9,9 @@ from pydantic import ValidationError
 from src.actions.schemas import DraftOutcomeV1
 from src.agent.state import AgentState
 from src.approvals.schemas import TrustedApprovalResultV1
-from src.tools.contracts import ToolCallContext, ToolError, ToolResultV2
+from src.platform.context_projections import project_to_tool_context
+from src.platform.trusted_context import TrustedContext
+from src.tools.contracts import ToolError, ToolResultV2
 from src.tools.executors.action import ActionToolExecutor
 from src.tools.manager import UnifiedToolManager
 
@@ -247,22 +249,27 @@ async def action_draft(state: AgentState, config: RunnableConfig) -> dict:
 
     configurable = config.get("configurable") or {}
     session = configurable["session"]
-    run_id = approval.get("run_id") or state.get("current_run_id") or ""
+    trusted_context = _trusted_context_from_config(configurable)
+    if trusted_context is None:
+        return {
+            "action_result": {
+                "status": "error",
+                "data": {},
+                "error": {
+                    "error_code": "MISSING_TRUSTED_CONTEXT",
+                    "message": "Trusted context is required for action draft creation",
+                    "retryable": False,
+                },
+            },
+            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("error", started_at)],
+        }
+    run_id = approval.get("run_id") or trusted_context.run_id
     approval_id = approval.get("approval_id")
     action_type = _canonical_action_type(proposed.get("action_type"))
     proposed = {**proposed, "action_type": action_type}
-    permissions = list(configurable.get("permissions") or [])
 
-    tool_ctx = ToolCallContext(
-        tenant_id=state.get("tenant_id", ""),
-        user_id=state.get("user_id", ""),
-        role=state.get("role") or "",
-        permissions=permissions,
-        merchant_scope=configurable.get("merchant_scope") or {},
-        session_id=configurable.get("session_id"),
-        thread_id=state.get("thread_id") or "",
-        run_id=run_id,
-        trace_id=configurable.get("trace_id") or state.get("current_run_id") or "",
+    tool_ctx = project_to_tool_context(
+        trusted_context,
         request_id=configurable.get("request_id") or run_id,
         tool_call_id=f"{run_id}:action_draft:{ACTION_TOOL_NAME}",
         caller_node="action_draft",
@@ -303,3 +310,13 @@ async def action_draft(state: AgentState, config: RunnableConfig) -> dict:
         **update,
         "trace_steps": (state.get("trace_steps") or []) + [_trace_step(status, started_at, ACTION_TOOL_NAME)],
     }
+
+
+def _trusted_context_from_config(configurable: dict[str, Any]) -> TrustedContext | None:
+    raw_context = configurable.get("trusted_context")
+    if raw_context is None:
+        return None
+    try:
+        return TrustedContext.model_validate(raw_context)
+    except ValidationError:
+        return None

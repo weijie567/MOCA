@@ -80,3 +80,23 @@ def test_factory_preserves_agent_runs_permission_intersection() -> None:
     assert "seed:write" not in context.permissions
     assert "admin:debug" not in context.permissions
     assert context.merchant_scope.merchant_ids == ["*"]
+
+
+def test_factory_accepts_explicit_server_tool_permissions_without_token_scope_widening() -> None:
+    manager = _user(role="manager")
+    context = TrustedContextFactory.create_from_request(
+        **_factory_kwargs(
+            user=manager,
+            verified_token_scopes=frozenset(),
+            server_tool_permissions=["tool:create_coupon_grant_draft"],
+        )
+    )
+
+    assert context.permissions == ["tool:create_coupon_grant_draft"]
+
+
+def test_factory_rejects_non_tool_server_permissions() -> None:
+    with pytest.raises(ValueError):
+        TrustedContextFactory.create_from_request(
+            **_factory_kwargs(server_tool_permissions=["approvals:review"])
+        )

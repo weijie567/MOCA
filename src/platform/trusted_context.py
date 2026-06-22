@@ -116,6 +116,7 @@ class TrustedContextFactory:
         session_id: str | None = None,
         locale: str | None = None,
         server_merchant_scope: MerchantScopeV1 | dict[str, Any] | None = None,
+        server_tool_permissions: Iterable[str] | None = None,
     ) -> TrustedContext:
         role = str(user.role)
         trusted_scopes = set(verified_token_scopes) & set(ROLE_SCOPES.get(role, []))
@@ -124,6 +125,7 @@ class TrustedContextFactory:
             for scope, tool_permission in SCOPE_TO_TOOL_PERMISSION.items()
             if scope in trusted_scopes
         ]
+        permissions = list(dict.fromkeys(permissions + cls._validated_server_tool_permissions(server_tool_permissions)))
         merchant_scope = cls._merchant_scope_from_user(
             user,
             server_merchant_scope=server_merchant_scope,
@@ -160,3 +162,18 @@ class TrustedContextFactory:
             return MerchantScopeV1(merchant_ids=[str(merchant_id)] if merchant_id is not None else [])
 
         return MerchantScopeV1(merchant_ids=["*"])
+
+    @staticmethod
+    def _validated_server_tool_permissions(values: Iterable[str] | None) -> list[str]:
+        if values is None:
+            return []
+        permissions: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            if not isinstance(value, str) or not value.startswith("tool:"):
+                raise ValueError("server tool permissions must be tool:* strings")
+            if value in seen:
+                continue
+            seen.add(value)
+            permissions.append(value)
+        return permissions
