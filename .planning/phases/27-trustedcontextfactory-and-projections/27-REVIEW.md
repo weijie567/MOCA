@@ -1,8 +1,9 @@
 ---
 phase: 27-trustedcontextfactory-and-projections
-reviewed: "2026-06-22T17:50:10Z"
+reviewed: "2026-06-22T22:57:09Z"
 depth: deep
 files_reviewed: 24
+findings_count: 1
 files_reviewed_list:
   - src/agent/intent_policy.py
   - src/agent/nodes/action_draft.py
@@ -29,8 +30,8 @@ files_reviewed_list:
   - tests/test_execute_action.py
   - tests/test_search_integration.py
 findings:
-  critical: 0
-  warning: 1
+  critical: 1
+  warning: 0
   info: 0
   total: 1
 status: issues_found
@@ -38,59 +39,61 @@ status: issues_found
 
 # Phase 27: Code Review Report
 
-**Reviewed:** 2026-06-22T17:50:10Z
+**Reviewed:** 2026-06-22T22:57:09Z
 **Depth:** deep
 **Files Reviewed:** 24
 **Status:** issues_found
 
 ## Summary
 
-Reviewed Phase 27 TrustedContextFactory/projection implementation, route/node/tool seam migrations, approval resume/action draft safety paths, and the listed regression tests against APF-03/APF-04. The route and node migrations consistently derive permissions and merchant scope from canonical `trusted_context` rather than AgentState. Approval resume config is also factory-backed and action draft creation is still revalidated by the action service.
+Reviewed the explicit Phase 27 scope at deep depth, tracing canonical `TrustedContext` identity from API routes into graph config, tool projections, approval creation/resume, action draft reconciliation, merchant-scope projection, and the related tests.
 
-One scope-widening defect remains in the knowledge projection: canonical `MerchantScopeV1.categories` and `risk_levels` can be discarded before the knowledge service sees them. Tests cover merchant-id projection and malformed legacy values, but not restrictive category/risk dimensions.
+Most seams now derive legacy config from canonical `TrustedContext`, and the previous restrictive merchant-scope projection issue is fixed in current code. One critical approval/action trust-boundary gap remains: graph interrupt payload identity is not validated in the shared approval creation path, so one route can still persist spoofed proposed-action identity.
 
-Tests were not executed as part of this review; this report is based on source, test, and phase artifact inspection.
+## Critical Issues
 
-## Warnings
+### CR-01: Shared Approval Interrupt Path Accepts Spoofed Proposed-Action Identity
 
-### WR-01: Knowledge Projection Drops Restrictive Merchant Scope Dimensions
+**File:** `src/api/routers/agent_runs.py:699`
 
-**File:** `src/platform/context_projections.py:125-140`
+**Issue:** The SSE/run-stream interrupt path calls `_create_approval_wait_payload_from_interrupt()` without validating the graph-controlled `interrupt_data["proposed_action"]` identity against the canonical persisted run and authenticated tenant. The chat route added a local `_validate_interrupt_action_run_binding()` at `src/api/routers/agent.py:361`, but that check only covers `proposed_action.run_id`, does not check `proposed_action.tenant_id`, and does not protect the shared agent-runs path. The shared helper then persists `proposed_action` unchanged at `src/api/routers/agent_runs.py:832-839` under the canonical `ApprovalRequest.run_id`.
 
-**Issue:** `project_merchant_scope_for_knowledge()` projects a structured `MerchantScopeV1` or dict to only `merchant_ids`. If canonical trusted scope includes `categories` or `risk_levels`, `project_to_knowledge_context()` and `project_tool_context_to_knowledge_context()` discard those restrictions before calling `PolicyKnowledgeService`. Downstream knowledge retrieval only receives `KnowledgeContext.merchant_scope: list[str] | None`, so a scope like `merchant_ids=["*"], categories=["refund"], risk_levels=["high"]` becomes `["*"]`, which can authorize broader policy retrieval than the canonical scope allowed. This violates APF-04's no-widening requirement for service-safe projections.
+A compromised or buggy graph node can therefore submit an interrupt whose approval row is bound to the trusted run/tenant while the hashed and later drafted action payload still carries a different `run_id` or `tenant_id`. That breaks the Phase 27 invariant that action/approval safety bindings use canonical TrustedContext identity only, and the current tests only cover chat `run_id` spoofing, not SSE spoofing or tenant spoofing.
 
-**Fix:** Until `KnowledgeContext` can carry and enforce structured scope dimensions, fail closed when unsupported restrictive dimensions are present, and add regression tests for both API/factory projection and tool-context projection.
+**Fix:**
+
+Move identity validation into the shared approval command construction path so both `/agent/chat` and `/agent-runs/{run_id}/events` fail closed before approval creation. Reject missing or mismatched proposed-action identity fields rather than normalizing them after hash/snapshot creation.
 
 ```python
-def project_merchant_scope_for_knowledge(
-    value: MerchantScopeV1 | dict[str, Any] | list[str] | None,
-) -> list[str]:
-    if value is None:
-        return []
-    if isinstance(value, MerchantScopeV1):
-        if value.categories or value.risk_levels:
-            return []
-        return list(value.merchant_ids) if value.merchant_ids else []
-    if isinstance(value, dict):
-        try:
-            parsed = MerchantScopeV1.model_validate(value)
-        except ValueError:
-            return []
-        if parsed.categories or parsed.risk_levels:
-            return []
-        return list(parsed.merchant_ids) if parsed.merchant_ids else []
-    raw_ids = value
-    if not isinstance(raw_ids, list) or not raw_ids:
-        return []
-    if not all(isinstance(item, str) and item for item in raw_ids):
-        return []
-    return list(raw_ids)
+def _validate_interrupt_action_identity(
+    interrupt_data: dict[str, Any],
+    *,
+    user: User,
+    run_id: UUID,
+) -> None:
+    proposed_action = interrupt_data.get("proposed_action")
+    if not isinstance(proposed_action, dict):
+        return
+
+    mismatches: list[str] = []
+    expected = {
+        "tenant_id": str(user.tenant_id),
+        "run_id": str(run_id),
+    }
+    for field, expected_value in expected.items():
+        if str(proposed_action.get(field) or "") != expected_value:
+            mismatches.append(f"proposed_action.{field}")
+
+    if mismatches:
+        raise ApprovalInterruptValidationError(mismatches)
 ```
 
-Add a test such as `test_knowledge_projection_fails_closed_for_restrictive_scope_dimensions()` with `MerchantScopeV1(merchant_ids=["*"], categories=["refund"], risk_levels=["high"])`, and assert the projected knowledge context does not widen to `["*"]`.
+Call this at the start of `_approval_create_command_from_interrupt()` before parsing evidence refs or constructing `ApprovalRequestCreateCommand`. Then either remove the chat-local `_validate_interrupt_action_run_binding()` or replace it with the shared check to avoid drift.
+
+Add regression coverage in `tests/test_agent_runs_api.py` for SSE interrupts where `proposed_action.run_id` and `proposed_action.tenant_id` are spoofed, asserting an `APPROVAL_NOT_EXECUTABLE` error event and zero `ApprovalRequest` rows for both trusted and spoofed IDs. Extend the existing chat spoof tests to cover `proposed_action.tenant_id` mismatch as well.
 
 ---
 
-_Reviewed: 2026-06-22T17:50:10Z_
+_Reviewed: 2026-06-22T22:57:09Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
