@@ -16,6 +16,7 @@ MOCA/
 │   ├── db/                  # SQLAlchemy models, session, Alembic migrations
 │   ├── knowledge/           # Canonical policy evidence contracts and KnowledgeService facade
 │   ├── memory/              # Session, long-term/case memory schemas, repositories, services, identity, and tombstone helpers
+│   ├── platform/            # TrustedContextFactory, canonical trusted context, and service-safe projection helpers
 │   ├── rag/                 # Chunking, embedding, retrieval, citation validation
 │   ├── replay/              # ReplayEventV3 schemas, validators, and replay event service boundary
 │   ├── tools/               # Business tool contracts, descriptors, manager, and adapters
@@ -59,6 +60,10 @@ MOCA/
 **`src/knowledge/`, `src/business/`, `src/memory/`, and `src/tools/`:**
 - Phase 8-16 domain facades and contracts for policy evidence, business reads, session memory, reviewed long-term/case memory schema/lifecycle, tombstone no-rewrite behavior, and tool invocation
 - `src/knowledge/schemas.py` owns EvidenceRefV1 and canonical evidence projection reused by approval snapshots
+
+**`src/platform/`:**
+- Phase 27 trusted context boundary for canonical `TrustedContext`, exact `MerchantScopeV1`, `TrustedContextFactory`, and service-safe projection helpers
+- Projects trusted identity/scope into tool, knowledge, memory, approval, replay, intent policy, and AgentState compatibility contexts
 
 **`src/conversation/`:**
 - Phase 15.1 conversation memory boundary for safe user/assistant/tool message append and tool call/result persistence
@@ -109,6 +114,7 @@ MOCA/
 - Canonical hash: `src/common/canonical_hash.py`
 - Approval snapshots: `src/approvals/snapshots.py`
 - Replay schemas/service: `src/replay/schemas.py`, `src/replay/service.py`
+- Trusted context contracts/projections: `src/platform/trusted_context.py`, `src/platform/context_projections.py`
 - Evidence contracts: `src/knowledge/schemas.py`
 - Approval and trace models: `src/db/models.py`
 - RAG retrieval: `src/rag/retriever.py`
@@ -141,6 +147,7 @@ MOCA/
 - New approval/snapshot behavior: `src/approvals/`
 - New replay contract/service behavior: `src/replay/`
 - New conversation/tool-result persistence behavior: `src/conversation/`
+- New trusted identity/scope or service projection behavior: `src/platform/`
 - New shared canonical/hash helper: `src/common/`
 - New agent node: `src/agent/nodes/` and graph wiring in `src/agent/graph.py`
 - New post-retrieval reasoning context behavior: `src/agent/rag_context/`

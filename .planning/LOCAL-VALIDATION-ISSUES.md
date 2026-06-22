@@ -2069,6 +2069,69 @@ gsd-sdk query validate.health
 
 本次仅修正文档和 `.planning` 记录，没有修改运行时代码。
 
+## 41. 27-02 额外运行 seam-migration boundary test 仍为预期 RED
+
+日期：2026-06-23
+
+### 问题现象
+
+执行 Phase 27 plan 27-02 时，额外运行了 plan 明确排除的 seam-migration boundary 断言：
+
+```bash
+uv run pytest tests/architecture/test_trusted_context_boundaries.py::test_current_seams_use_projection_helpers_not_direct_trusted_context_constructors -q
+```
+
+该测试失败，报告当前 search、agent route、graph node、tool executor seam 仍直接构造或未消费 trusted-context projection helpers。
+
+### 如何检测 / 复现
+
+在项目根目录运行上面的 pytest 单测即可复现。
+
+### 关键证据或命令
+
+失败测试为：
+
+```text
+tests/architecture/test_trusted_context_boundaries.py::test_current_seams_use_projection_helpers_not_direct_trusted_context_constructors
+```
+
+失败首项为 `src/api/routers/search.py does not use trusted-context projection helpers`，并列出多个当前 seam 仍未迁移。
+
+### 当前判断 / 根因
+
+这是 27-02 的已知边界，不是本 plan 的实现失败。27-02 只实现 `TrustedContextFactory`、projection helpers 和 read-only registries；search、agent routes、graph nodes、tool executors 的 seam migration 由 27-03 负责。
+
+### 已做处理
+
+27-02 的 required gates 已通过：
+
+```bash
+uv run pytest tests/platform -q
+uv run pytest tests/agent/test_intent_policy_registry.py tests/architecture/test_trusted_context_boundaries.py::test_only_platform_module_defines_trusted_context_models tests/architecture/test_trusted_context_boundaries.py::test_prompt_projectors_do_not_import_trusted_context_authority -q
+uv run ruff check src/platform src/agent/intent_policy.py tests/platform tests/agent/test_intent_policy_registry.py tests/architecture/test_trusted_context_boundaries.py
+```
+
+27-02 summary 会把该 seam-migration RED 明确记录为 27-03 scope。
+
+### 剩余问题
+
+27-03 需要迁移当前 seam 并让 `test_current_seams_use_projection_helpers_not_direct_trusted_context_constructors` 变绿。
+
+### 下次继续排查入口
+
+- `.planning/phases/27-trustedcontextfactory-and-projections/27-03-PLAN.md`
+- `tests/architecture/test_trusted_context_boundaries.py`
+- `src/api/routers/search.py`
+- `src/api/routers/agent.py`
+- `src/api/routers/agent_runs.py`
+- `src/agent/nodes/investigate.py`
+- `src/agent/nodes/action_draft.py`
+- `src/tools/executors/knowledge.py`
+
+### 验证结果
+
+本次记录的是 27-03-owned RED test；27-02 required verification 已通过。
+
 ## 39. Phase 27 planning 探测命令中的 zsh glob 与缺省 config 噪音
 
 日期：2026-06-22

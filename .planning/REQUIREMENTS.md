@@ -81,8 +81,8 @@ Turn MOCA's agent runtime into a microservice-ready modular monolith: platform/d
 |-------------|-------|--------|
 | APF-01 | Phase 26 | Complete |
 | APF-02 | Phase 26 | Complete |
-| APF-03 | Phase 27 | Pending |
-| APF-04 | Phase 27 | Pending |
+| APF-03 | Phase 27 | Complete |
+| APF-04 | Phase 27 | Complete |
 | APF-05 | Phase 28 | Pending |
 | APF-06 | Phase 29 | Pending |
 | APF-07 | Phase 29 | Pending |
