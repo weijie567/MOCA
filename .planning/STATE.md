@@ -138,8 +138,8 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-22T17:41:00.000Z
-Stopped at: Completed 27-03-PLAN.md
+Last session: 2026-06-23T01:37:34+08:00
+Stopped at: Phase 27 verified and complete; Phase 28 planning ready
 Resume file: None
 Next: Phase 28 Decision Event Foundation; old phase directory archive remains a separate cleanup todo.
 

@@ -2643,3 +2643,75 @@ find .planning/phases -path '*/28-CONTEXT.md' -print
 ### 验证结果
 
 该问题只影响收尾检查命令本身。Phase 27 已完成的验证、测试、ROADMAP / REQUIREMENTS / STATE 结论不受影响。
+
+## 45. `gsd-sdk query state.json` 的 progress 口径与 STATE.md 里程碑口径不一致
+
+日期：2026-06-23
+
+### 问题现象
+
+Phase 27 完成后为判断下一步执行 `gsd-sdk query state.json`，输出的 `stopped_at` 曾读取到 `STATE.md` Session Continuity 的旧断点，且 `progress.total_plans/completed_plans/percent` 显示为 `4/4/100%`。这与 `STATE.md` frontmatter 和正文中 v1.9 里程碑口径的 `10/4/40%` 不一致。
+
+### 如何检测 / 复现
+
+在 MOCA 项目根目录运行：
+
+```bash
+gsd-sdk query state.json
+sed -n '1,35p' .planning/STATE.md
+sed -n '138,146p' .planning/STATE.md
+```
+
+### 关键证据或命令
+
+`STATE.md` frontmatter 和正文显示：
+
+```text
+status: ready_to_plan
+stopped_at: Phase 27 verified and complete; Phase 28 planning ready
+total_plans: 10
+completed_plans: 4
+percent: 40
+```
+
+但 `gsd-sdk query state.json` 仍显示：
+
+```json
+{
+  "status": "planning",
+  "progress": {
+    "total_plans": 4,
+    "completed_plans": 4,
+    "percent": 100
+  }
+}
+```
+
+### 当前判断 / 根因
+
+`state.json` 的 progress 看起来按当前已存在/已执行 plan 文件统计，而不是按 v1.9 milestone 的目标 10 个 phase plans 统计；同时它会读取 `STATE.md` 的 Session Continuity 断点文本。前者是口径差异，后者是本地 STATE 正文残留。
+
+### 已做处理
+
+已修正 `.planning/STATE.md` 的 Session Continuity：
+
+```text
+Stopped at: Phase 27 verified and complete; Phase 28 planning ready
+```
+
+修正后 `state.json` 的 `stopped_at` 已同步为 Phase 28 ready，但 progress 仍保持 `4/4/100%` 口径。
+
+### 剩余问题
+
+后续判断 Phase 28 下一步时不要只看 `gsd-sdk query state.json` 的 `percent`。以 `.planning/STATE.md`、`.planning/ROADMAP.md`、实际 phase 目录和 plan/summary 文件为准。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `.planning/ROADMAP.md`
+- `gsd-sdk query state.json`
+- `$gsd-next`
+
+### 验证结果
+
+`STATE.md` 已明确指向 Phase 28 planning ready；该问题不改变 Phase 27 已完成结论，但会影响自动 next 路由时展示的 progress 解释。
