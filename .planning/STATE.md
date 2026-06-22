@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
 status: ready_to_plan
-stopped_at: Phase 27 verified and complete; Phase 28 planning ready
-last_updated: "2026-06-22T18:47:39Z"
-last_activity: 2026-06-23 -- Phase 27 verified and completed
+stopped_at: Phase 27 UAT complete; Phase 28 planning ready
+last_updated: "2026-06-23T07:51:50+08:00"
+last_activity: 2026-06-23 -- Phase 27 UAT completed and Phase 28 planning ready
 progress:
   total_phases: 10
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 10
   completed_plans: 4
-  percent: 40
+  percent: 30
 ---
 
 # Project State: MOCA
@@ -28,9 +28,9 @@ See: `.planning/PROJECT.md` (updated 2026-06-23)
 Phase: 28 - Decision Event Foundation
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-06-23 -- Phase 27 verified and completed
+Last activity: 2026-06-23 -- Phase 27 UAT completed
 
-Progress: [████░░░░░░] 40%
+Progress: [███░░░░░░░] 30%
 
 Planning files:
 
@@ -138,8 +138,8 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-23T01:37:34+08:00
-Stopped at: Phase 27 verified and complete; Phase 28 planning ready
+Last session: 2026-06-23T07:51:50+08:00
+Stopped at: Phase 27 UAT complete; Phase 28 planning ready
 Resume file: None
 Next: Phase 28 Decision Event Foundation; old phase directory archive remains a separate cleanup todo.
 
@@ -157,4 +157,4 @@ Next: Phase 28 Decision Event Foundation; old phase directory archive remains a 
 
 **Completed Phase:** 26 (Architecture Contract Baseline) — 1/1 plans complete; external review passed with warnings fixed — 2026-06-22T14:43:37Z
 
-**Completed Phase:** 27 (TrustedContextFactory and Projections) — 3/3 plans complete; seam migration and focused verification passed — 2026-06-23T01:37:34+08:00
+**Completed Phase:** 27 (TrustedContextFactory and Projections) — 3/3 plans complete; verification/security passed; UAT 6/6 passed — 2026-06-23T07:51:50+08:00
