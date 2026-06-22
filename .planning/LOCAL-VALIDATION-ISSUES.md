@@ -1779,3 +1779,509 @@ uv run ruff check tests/memory/test_memory_eval_mvp.py
 ```
 
 均通过。
+
+## 33. 目标架构文档修订验证中发现 Markdown fence 残留与命令 quoting 问题
+
+日期：2026-06-22
+
+### 问题现象
+
+修订 `docs/target-agent-platform-architecture-plan.md` 后做文档一致性检查时，发现 `TrustedContext` 小节在非 canonical 字段表后残留一个多余的三反引号 code fence，会导致后续 Markdown 渲染错位。检查过程中还出现本地验证命令写法问题：`rg` pattern 里误用了 literal `\n`，shell 命令中的反引号被 zsh 当作命令替换，以及 zsh 中使用只读变量名 `status` 导致逐文件 fence 检查失败。
+
+### 如何检测 / 复现
+
+运行关键残留词和 code fence 检查时发现：
+
+```bash
+rg -n 'request_id|effective_at|channel|policy_versions|canonical TrustedContext' docs/target-agent-platform-architecture-plan.md
+awk '/^```/{c++} END{print c}' docs/target-agent-platform-architecture-plan.md
+```
+
+### 关键证据或命令
+
+本地命令曾返回：
+
+```text
+rg: the literal "\n" is not allowed in a regex
+zsh:1: parse error near `|'
+zsh:1: read-only variable: status
+```
+
+随后人工查看 `TrustedContext` 片段确认多余 fence。
+
+### 当前判断 / 根因
+
+多余 fence 是文档 patch 时从旧 code block 结构残留的格式错误。`rg` / zsh 报错是验证命令 quoting 和变量命名写法问题，不是仓库代码问题。
+
+### 已做处理
+
+删除了多余 fence，并用单引号重跑关键 `rg` 检查；逐文件 fence 检查改用 `fence_state` 变量名后通过。目标文档当前 code fence 数量为偶数，关键冲突词未再命中。
+
+### 剩余问题
+
+无。
+
+### 下次继续排查入口
+
+- `docs/target-agent-platform-architecture-plan.md` §7.1
+- `docs/target-agent-platform-architecture-plan.md` §3.1
+
+### 验证结果
+
+文档一致性检查通过；本次只修改文档，没有修改代码文件。
+
+## 34. GSD init.new-milestone 读取到旧 v1.0/v1.6 元数据
+
+日期：2026-06-22
+
+### 问题现象
+
+启动 v1.9 Agent Platform Foundation 后，`gsd-sdk query init.new-milestone` 仍返回 `current_milestone: v1.0`、`current_milestone_name: milestone`、`latest_completed_milestone: v1.6`。这会误导后续 `$gsd-new-milestone` 或相关初始化流程，尤其是 phase archive path 和当前 milestone 判断。
+
+### 如何检测 / 复现
+
+在 MOCA 项目根目录运行：
+
+```bash
+gsd-sdk query init.new-milestone
+gsd-sdk query state.load
+gsd-sdk query roadmap.analyze
+```
+
+### 关键证据或命令
+
+修复前 `init.new-milestone` 返回旧值：
+
+```text
+current_milestone: v1.0
+current_milestone_name: milestone
+latest_completed_milestone: v1.6
+```
+
+`state.load` 同时把当前进度重建成 15 phases / 5 completed phases，说明它把旧 Phase 24.x/25 和新 Phase 26-35 混在同一个当前 milestone 里。
+
+### 当前判断 / 根因
+
+GSD SDK 的 `getMilestoneInfo()` 不识别 ROADMAP 里的 `- [ ] **v1.9 ...**` active milestone 写法，只识别 `🚧 **vX.Y Name**` 或带版本号的 heading；找不到后 fallback 到 ROADMAP 里第一次出现的 `v1.0`。`extractCurrentMilestone()` 还要求当前 milestone 有可匹配的 heading，否则会扫描整个非 details ROADMAP 内容。`latest_completed_milestone` 则来自 `.planning/MILESTONES.md` 顶部第一个 `## vX.Y ... (Shipped:)`，该文件此前最新只到 v1.6。
+
+### 已做处理
+
+- 在 `.planning/ROADMAP.md` 的 v1.9 milestone 行加入 GSD SDK 可识别的 `🚧` marker。
+- 为 v1.9 phase 列表增加 `### v1.9 Agent Platform Foundation` heading。
+- 把已完成的 Phase 24/24.2/24.3/24.4/25 明细放入 `<details>`，避免 SDK 当前 milestone 扫描误计旧 phase。
+- 在 `.planning/MILESTONES.md` 顶部补充 v1.8 和 v1.7 closeout 摘要，使 latest completed milestone 更新到 v1.8。
+- 将 v1.9 Phase 26-35 的 `Requirements` / `Success Criteria` 标题统一成 SDK 可解析格式。
+
+### 剩余问题
+
+`gsd-sdk query validate.health` 仍会报告非阻断 warning：当前 `.planning/phases` 里还保留旧 Phase 24/25 目录，而 Phase 26-35 目录尚未创建。这个不影响 `init.new-milestone`、`state.load`、`roadmap.analyze`、`init.plan-phase 26` 的当前 milestone 判断；后续可在 Phase 26 planning 或单独 cleanup/archive 步骤处理。
+
+### 下次继续排查入口
+
+- `.planning/ROADMAP.md`
+- `.planning/MILESTONES.md`
+- `/opt/homebrew/lib/node_modules/@gsd-build/sdk/dist/query/roadmap.js`
+- `/opt/homebrew/lib/node_modules/@gsd-build/sdk/dist/query/init.js`
+
+### 验证结果
+
+修复后：
+
+```text
+init.new-milestone: current_milestone=v1.9, latest_completed_milestone=v1.8
+state.load: milestone=v1.9, total_phases=10, completed_phases=0
+roadmap.analyze: phase_count=10, next_phase=26
+init.plan-phase 26: phase_found=true, phase_req_ids=APF-01, APF-02
+```
+
+## 35. GSD state.planned-phase 只更新了部分 STATE 元数据
+
+日期：2026-06-22
+
+### 问题现象
+
+Phase 26 plan-checker 通过后运行 `gsd-sdk query state.planned-phase --phase 26 --name "Architecture Contract Baseline" --plans 1`，命令返回 `updated: true`，但 `.planning/STATE.md` 只追加了 `Planned Phase` 记录，正文仍显示 `Plan: not started`、`Current focus` 仍是 ready for planning、Phase 26 表格仍是 `0/1 Pending`。同时 frontmatter 的 `progress.total_plans` 被改成 `1`，与 v1.9 10 个 phase plans 的 milestone 目标不一致。
+
+### 如何检测 / 复现
+
+在 MOCA 项目根目录运行：
+
+```bash
+gsd-sdk query state.planned-phase --phase 26 --name "Architecture Contract Baseline" --plans 1
+nl -ba .planning/STATE.md | sed -n '1,160p'
+gsd-sdk query state.load
+```
+
+### 关键证据或命令
+
+命令返回：
+
+```text
+{
+  "updated": true,
+  "phase": "26",
+  "name": "Architecture Contract Baseline",
+  "plans": "1"
+}
+```
+
+但随后 `STATE.md` 中仍能看到：
+
+```text
+Plan: not started
+| 26. Architecture Contract Baseline | 0/1 | Pending |
+- Start Phase 26 planning with GSD plan-phase.
+```
+
+### 当前判断 / 根因
+
+`state.planned-phase` 的 writer 只更新了 frontmatter 的部分统计和文件底部 planned marker，没有同步正文里的当前焦点、当前 plan、phase 表格、pending todo 和 session continuity。`progress.total_plans` 也被解释成当前已规划 plan 数，而不是 v1.9 milestone 目标 plan 总数。
+
+### 已做处理
+
+手动修正 `.planning/STATE.md`：保留 v1.9 milestone，恢复 `progress.total_plans: 10`，将 Phase 26 状态更新为 `26-01-PLAN.md ready` / `1/1 planned`，把 pending todo 从“开始 Phase 26 planning”改为“显式请求后执行 Phase 26 plan”，并保留旧 phase 目录归档为独立 cleanup todo。
+
+### 剩余问题
+
+`gsd-sdk query validate.health` 仍会报告非阻断 warning：旧 STATE phase 引用、未来 Phase 27-35 目录未创建、旧 Phase 24/25 summary/archive 状态，以及 Phase 26 在 execute 前没有 SUMMARY。这些不影响 Phase 26 plan ready 状态。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `/opt/homebrew/lib/node_modules/@gsd-build/sdk/dist/query/state.js`
+- `.planning/phases/26-architecture-contract-baseline/26-01-PLAN.md`
+
+### 验证结果
+
+Phase 26 plan-checker 已返回 `## VERIFICATION PASSED`；本次仅修正 `.planning` 元数据，没有修改运行时代码。
+
+## 36. GSD state.begin-phase 参数解析与正文同步错误
+
+日期：2026-06-22
+
+### 问题现象
+
+进入 Phase 26 execute-phase 时按 GSD workflow 文档运行 `gsd-sdk query state.begin-phase --phase 26 --name "Architecture Contract Baseline" --plans 1`，命令返回的 JSON 把 `--phase` 当成 phase 值、把 `26` 当成 name、把 `--name` 当成 plan_count。随后 `.planning/STATE.md` 被写成 `Phase --phase`、`Plan: 1 of --name`、`Current focus: Phase --phase — 26`。
+
+### 如何检测 / 复现
+
+在 MOCA 项目根目录运行：
+
+```bash
+gsd-sdk query state.begin-phase --phase 26 --name "Architecture Contract Baseline" --plans 1
+nl -ba .planning/STATE.md | sed -n '1,170p'
+gsd-sdk query state.load
+```
+
+### 关键证据或命令
+
+命令返回：
+
+```text
+{
+  "phase": "--phase",
+  "name": "26",
+  "plan_count": "--name"
+}
+```
+
+`STATE.md` 同步出现：
+
+```text
+Current focus: Phase --phase — 26
+Phase: --phase (26) — EXECUTING
+Plan: 1 of --name
+```
+
+### 当前判断 / 根因
+
+`state.begin-phase` 当前 SDK 接口与 workflow 文档中的 flag 调用格式不一致，实际解析疑似使用 positional 参数。该 writer 还会覆盖 `progress.total_plans`，与 v1.9 milestone 目标 10 个 phase plans 的人工状态不一致。
+
+### 已做处理
+
+手动修正 `.planning/STATE.md`：设置为 Phase 26 Architecture Contract Baseline executing、`Plan: 1 of 1 executing`、Phase 26 表格为 `0/1 executed | Executing`，并恢复 `progress.total_plans: 10`。
+
+### 剩余问题
+
+后续本 session 不再依赖 `state.begin-phase` 自动写正文状态。Phase 执行完成时如果必须调用 GSD completion writer，也需要调用后立即人工核对 `.planning/STATE.md`、`.planning/ROADMAP.md`、`.planning/REQUIREMENTS.md`。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `/opt/homebrew/lib/node_modules/@gsd-build/sdk/dist/query/state.js`
+- `/Users/ming/.codex/get-shit-done/workflows/execute-phase.md`
+
+### 验证结果
+
+本次仅修正 `.planning` 元数据，没有修改运行时代码。
+
+## 37. GSD validate.health 需要通过 query 入口调用
+
+日期：2026-06-22
+
+### 问题现象
+
+Phase 26 收尾验证时直接运行 `gsd-sdk validate.health`，命令失败并提示当前 CLI 只接受 `run`、`auto`、`init`、`query` 等顶层命令。
+
+### 如何检测 / 复现
+
+在 MOCA 项目根目录运行：
+
+```bash
+gsd-sdk validate.health
+```
+
+### 关键证据或命令
+
+失败输出提示：
+
+```text
+Error: Expected "gsd-sdk run <prompt>", "gsd-sdk auto", "gsd-sdk init [input]", or "gsd-sdk query <command>"
+```
+
+随后使用正确入口：
+
+```bash
+gsd-sdk query validate.health
+```
+
+该命令成功返回 health report。
+
+### 当前判断 / 根因
+
+`validate.health` 是 GSD query handler，不是顶层 CLI command。正确调用格式必须带 `query`。
+
+### 已做处理
+
+改用 `gsd-sdk query validate.health` 重跑验证。结果为 `degraded` 且 `errors: []`，仅剩已知的旧 `STATE.md` phase 引用、Phase 27-35 未来目录未创建、旧 Phase 24/25 summary/archive 状态 warning。
+
+### 剩余问题
+
+无新的 Phase 26 阻断问题。上述 warning 已作为旧 GSD 元数据/未来 phase 目录 caveat 记录在 Phase 26 checklist 和 summary 中。
+
+### 下次继续排查入口
+
+- `.planning/LOCAL-VALIDATION-ISSUES.md`
+- `gsd-sdk query validate.health`
+- `.planning/phases/26-architecture-contract-baseline/26-BASELINE-CHECKLIST.md`
+
+### 验证结果
+
+本次仅修正文档和 `.planning` 记录，没有修改运行时代码。
+
+## 39. Phase 27 planning 探测命令中的 zsh glob 与缺省 config 噪音
+
+日期：2026-06-22
+
+### 问题现象
+
+为 Phase 27 生成 context 时，两个本地探测命令产生了非阻塞错误输出：
+
+- `ls .planning/phases/27-trustedcontextfactory-and-projections/.continue-here.md .planning/phases/27-trustedcontextfactory-and-projections/*-SPEC.md 2>/dev/null` 在 zsh 下因不存在的 `*-SPEC.md` glob 直接报 `no matches found`。
+- 直接运行 `gsd-sdk query config-get context_window`、`workflow.security_enforcement`、`workflow.pattern_mapper` 时返回 `Error: Key not found`。
+
+### 如何检测 / 复现
+
+在 MOCA 项目根目录运行上述命令即可复现。Phase 27 当前没有 phase 目录内的 SPEC 文件，且这些 GSD config key 未显式设置。
+
+### 关键证据或命令
+
+可容错探测命令：
+
+```bash
+find .planning/phases/27-trustedcontextfactory-and-projections -maxdepth 1 \( -name '.continue-here.md' -o -name '*-SPEC.md' \) -print 2>/dev/null
+```
+
+GSD workflow 原始说明本身也对缺省 config 使用 fallback，例如 `config-get ... 2>/dev/null || echo "true"` 或 `|| echo "200000"`。
+
+### 当前判断 / 根因
+
+这是探测命令写法和未设置 config 的噪音，不是 Phase 27 阻塞问题。zsh 默认会在命令执行前展开 glob，未匹配时直接报错；GSD config key 缺失属于默认配置路径，workflow 应使用 fallback。
+
+### 已做处理
+
+改用 `find` 做 SPEC / handoff 文件探测；对缺省 config 按 workflow 默认值处理：`context_window=200000`、`security_enforcement=true`、`pattern_mapper=true`。
+
+### 剩余问题
+
+无阻塞问题。后续在 zsh 中探测可选文件时应使用 `find`、quoted glob、`noglob` 或 `setopt NULL_GLOB`，不要直接把可选 glob 传给命令。
+
+### 下次继续排查入口
+
+- `$HOME/.codex/get-shit-done/workflows/discuss-phase.md`
+- `$HOME/.codex/get-shit-done/workflows/plan-phase.md`
+- `.planning/phases/27-trustedcontextfactory-and-projections/`
+
+### 验证结果
+
+本次仅新增 Phase 27 planning artifacts 和本地验证问题记录，没有修改运行时代码。
+
+## 40. plan-phase UI gate 正则会被 Requirements 误触发
+
+日期：2026-06-22
+
+### 问题现象
+
+执行 Phase 27 planning gate 预检时，workflow 中的 UI 检测正则包含裸 `UI`：
+
+```bash
+grep -iE "UI|interface|frontend|component|layout|page|screen|view|form|dashboard|widget"
+```
+
+Phase 27 是后端/平台契约 phase，但 `ROADMAP.md` phase section 里的 `Requirements` 含有连续字母 `ui`，导致正则误判为 UI phase。
+
+### 如何检测 / 复现
+
+在 MOCA 项目根目录运行：
+
+```bash
+gsd-sdk query roadmap.get-phase 27 | rg -i "UI|interface|frontend|component|layout|page|screen|view|form|dashboard|widget"
+```
+
+该命令会输出整段 Phase 27 JSON section，即使 phase 本身没有 frontend/UI 工作。
+
+### 关键证据或命令
+
+Phase 27 的 roadmap scope 是 `TrustedContextFactory and Projections`，目标是 canonical trusted identity/scope/run context 和服务 projection；没有 frontend、screen、component 或 layout 交付。
+
+### 当前判断 / 根因
+
+UI gate 使用裸 `UI` 子串匹配，大小写不敏感时会匹配 `Requirements` 这类普通英文词。这个 gate 应该使用词边界或更明确的 frontend 语义，例如 `\bUI\b|frontend|component|layout|page|screen|view|form|dashboard|widget`，并避免对 JSON key/value 整段做过宽匹配。
+
+### 已做处理
+
+本次 Phase 27 planning 将该命中视为误报，按非 UI phase 继续，不要求生成 `UI-SPEC.md`。
+
+### 剩余问题
+
+GSD workflow 源文件仍有误触发风险；后续可在 GSD 工具层修正正则。
+
+### 下次继续排查入口
+
+- `$HOME/.codex/get-shit-done/workflows/plan-phase.md`
+- `.planning/ROADMAP.md` Phase 27
+
+### 验证结果
+
+本次仅新增 Phase 27 planning artifacts 和本地验证问题记录，没有修改运行时代码。
+
+## 39. GSD state.load 输出与 STATE.md frontmatter 不一致
+
+日期：2026-06-22
+
+### 问题现象
+
+Phase 26 external review warning 修复后，`.planning/STATE.md` frontmatter 明确写着 v1.9 有 10 个 phase、10 个 plans、已完成 1 个 phase / 1 个 plan、进度 10%。但 `gsd-sdk query state.load` 输出把 `total_plans` 解析为 1、`percent` 解析为 100，并把 `status` 显示为 `planning`。
+
+### 如何检测 / 复现
+
+在 MOCA 项目根目录运行：
+
+```bash
+nl -ba .planning/STATE.md | sed -n '1,75p'
+gsd-sdk query state.load
+```
+
+### 关键证据或命令
+
+`.planning/STATE.md` 当前 frontmatter：
+
+```text
+status: ready_for_phase_27
+progress:
+  total_phases: 10
+  completed_phases: 1
+  total_plans: 10
+  completed_plans: 1
+  percent: 10
+```
+
+`state.load` 输出：
+
+```text
+"status": "planning"
+"total_plans": 1
+"completed_plans": 1
+"percent": 100
+```
+
+### 当前判断 / 根因
+
+`state.load` 当前 parser/normalizer 仍会根据 Phase 26 plan index 或内部状态重新解释 plan 统计，而不是忠实读取 `.planning/STATE.md` frontmatter。该问题与之前记录的 `state.planned-phase` / `state.begin-phase` writer 行为同类，属于 GSD metadata query caveat。
+
+### 已做处理
+
+确认 `state.load` 没有改写 `.planning/STATE.md` 文件本身；以文件内容作为本次状态权威。`roadmap.analyze --pick next_phase` 正确返回 `"27"`，`phase-plan-index 26` 显示 26-01 有 summary 且 incomplete 为空。
+
+### 剩余问题
+
+`gsd-sdk query validate.health` 仍会因 STATE 里引用 Phase 27、ROADMAP 中 Phase 27-35 目录尚未创建、旧 Phase 24/25 summary/archive 状态而返回 `degraded`。这些不阻塞 Phase 27 planning。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `gsd-sdk query state.load`
+- `gsd-sdk query roadmap.analyze --pick next_phase`
+
+### 验证结果
+
+本次仅修正文档和 `.planning` 记录，没有修改运行时代码。
+
+## 38. Markdown 围栏 parity 检查需要只统计行首围栏
+
+日期：2026-06-22
+
+### 问题现象
+
+Phase 26 最终验证时使用 `rg -o '```'` 统计 Markdown 代码围栏，`.planning/LOCAL-VALIDATION-ISSUES.md` 被误报为奇数围栏。
+
+### 如何检测 / 复现
+
+在 MOCA 项目根目录运行：
+
+```bash
+rg -o '```' .planning/LOCAL-VALIDATION-ISSUES.md | wc -l
+```
+
+该命令会把正文或命令片段里的三反引号也计入，不等价于 Markdown fenced code block 计数。
+
+### 关键证据或命令
+
+用行首规则检查：
+
+```bash
+rg -n '^```' .planning/LOCAL-VALIDATION-ISSUES.md
+```
+
+结果显示行首围栏为偶数；非行首命中来自历史记录中的检查命令文本：
+
+```text
+awk '/^```/{c++} END{print c}' docs/target-agent-platform-architecture-plan.md
+```
+
+### 当前判断 / 根因
+
+`rg -o '```'` 适合查找所有三反引号片段，不适合做 Markdown fence parity。正确检查应只统计以三反引号开头的围栏行。
+
+### 已做处理
+
+改用行首围栏规则重跑所有相关 Markdown 文件：
+
+```bash
+for f in docs/contract-spec.md docs/target-agent-platform-architecture-plan.md docs/eval-test-plan.md .planning/phases/26-architecture-contract-baseline/26-BASELINE-CHECKLIST.md .planning/phases/26-architecture-contract-baseline/26-01-SUMMARY.md .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md .planning/LOCAL-VALIDATION-ISSUES.md; do n=$(rg -n '^```' "$f" | wc -l | tr -d ' '); if [ $((n % 2)) -ne 0 ]; then echo "$f has odd line-start fence count: $n"; exit 1; fi; done
+```
+
+检查通过。
+
+### 剩余问题
+
+无。后续做 Markdown 围栏 parity 验证时应使用行首规则。
+
+### 下次继续排查入口
+
+- `.planning/LOCAL-VALIDATION-ISSUES.md`
+- `.planning/phases/26-architecture-contract-baseline/26-BASELINE-CHECKLIST.md`
+
+### 验证结果
+
+本次仅修正文档和 `.planning` 记录，没有修改运行时代码。
