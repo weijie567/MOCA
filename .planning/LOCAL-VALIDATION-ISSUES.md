@@ -2227,6 +2227,58 @@ progress:
 
 本次仅修正文档和 `.planning` 记录，没有修改运行时代码。
 
+## 40. Phase 27 复现 GSD state.begin-phase 参数解析与统计覆盖问题
+
+日期：2026-06-23
+
+### 问题现象
+
+执行 Phase 27 `gsd-execute-phase` 初始化时，按 workflow 文档运行 `gsd-sdk query state.begin-phase --phase "27" --name "trustedcontextfactory-and-projections" --plans "3"` 后，SDK 将 flag token 当作 positional 值解析，导致 `.planning/STATE.md` 一度出现 `Phase --phase`、`Plan: 1 of --name`。随后改用 positional 调用 `gsd-sdk query state.begin-phase 27 trustedcontextfactory-and-projections 3` 后，phase/name 被部分修正，但 `progress.total_plans` 被覆盖为 `4`、`percent` 被覆盖为 `25`，与 v1.9 里程碑 10 个 phase plans / 10% 进度不一致。
+
+### 如何检测 / 复现
+
+在 MOCA 项目根目录运行：
+
+```bash
+gsd-sdk query state.begin-phase --phase "27" --name "trustedcontextfactory-and-projections" --plans "3"
+gsd-sdk query state.begin-phase 27 trustedcontextfactory-and-projections 3
+git diff -- .planning/STATE.md
+```
+
+### 关键证据或命令
+
+`git diff -- .planning/STATE.md` 显示 `status` 进入 executing 后，正文和 frontmatter 曾被写成错误 phase 或错误统计：
+
+```text
+Current focus: Phase --phase - 27
+Phase: --phase (27) - EXECUTING
+Plan: 1 of --name
+total_plans: 4
+percent: 25
+```
+
+### 当前判断 / 根因
+
+`execute-phase.md` 中 documented flag syntax 与当前 `gsd-sdk query state.begin-phase` 实际 parser 不一致；positional 形式也会按当前 phase plan 数覆盖 milestone 级进度统计，不能作为 MOCA v1.9 的权威状态写入器直接信任。
+
+### 已做处理
+
+手动修正 `.planning/STATE.md`，保留 Phase 27 正在执行状态，但恢复 v1.9 里程碑统计为 `total_plans: 10`、`completed_plans: 1`、`percent: 10`，并将 Current Position 改为 `Phase 27 - TrustedContextFactory and Projections`、`Plan: 0 of 3 planned`。
+
+### 剩余问题
+
+本 session 后续不再依赖 `state.begin-phase` 自动写正文状态。Phase 完成阶段如果必须调用 `phase.complete` 或其他 GSD writer，需要调用后立即核对 `.planning/STATE.md`、`.planning/ROADMAP.md`、`.planning/REQUIREMENTS.md`。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `gsd-sdk query state.begin-phase`
+- `/Users/ming/.codex/get-shit-done/workflows/execute-phase.md`
+
+### 验证结果
+
+本次仅修正 GSD 状态文档和本地验证问题记录，尚未修改运行时代码。
+
 ## 38. Markdown 围栏 parity 检查需要只统计行首围栏
 
 日期：2026-06-22
