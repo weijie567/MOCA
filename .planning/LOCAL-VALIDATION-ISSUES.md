@@ -2342,6 +2342,68 @@ percent: 25
 
 本次仅修正 GSD 状态文档和本地验证问题记录，尚未修改运行时代码。
 
+## 41. Phase 27 regression gate 暴露旧 graph 测试缺少 trusted_context
+
+日期：2026-06-23
+
+### 问题现象
+
+Phase 27 code review fix 后执行 prior Phase 24 regression command 时，`tests/agent/test_session_memory_integration.py` 有 4 个用例失败。失败共同点是 `active_slots` 已正确解析，但 `business_context.facts.order` 缺失，说明 graph 没有执行 `get_order` 工具。
+
+### 如何检测 / 复现
+
+在 MOCA 项目根目录运行：
+
+```bash
+uv run pytest tests/test_agent_runs_api.py tests/conversation/test_service.py tests/memory/test_thread_summary.py tests/memory/test_session_memory_service.py tests/agent/test_session_memory_integration.py tests/agent/test_required_slots.py tests/agent/context/test_assembler.py tests/agent/test_memory_evidence_boundary.py tests/agent/rag_context/test_authority_boundaries.py -q
+```
+
+### 关键证据或命令
+
+失败用例：
+
+```text
+tests/agent/test_session_memory_integration.py::test_same_thread_vague_turn_inherits_session_order_and_reruns_investigation
+tests/agent/test_session_memory_integration.py::test_agent_runs_session_slots_explicit_current_turn_overrides_inherited
+tests/agent/test_session_memory_integration.py::test_next_step_followup_reuses_prior_order_status_memory_instead_of_action_type_clarification
+tests/agent/test_session_memory_integration.py::test_unresolved_question_carryover_keeps_current_turn_slot_authoritative
+```
+
+共同失败断言：
+
+```text
+KeyError: 'order'
+assert final_state["business_context"]["facts"]["order"]["order_no"] == ...
+```
+
+### 当前判断 / 根因
+
+Phase 27 后 `investigate` 正确要求 `configurable["trusted_context"]` 才能执行工具，并在缺失时 fail closed。生产 route 已通过 `TrustedContextFactory` 注入 canonical `trusted_context`，但旧的低层 graph 测试 helper `tests/agent/test_graph.py::_config` 仍只传 legacy `permissions` / `merchant_scope` / `trace_id`，没有传 canonical `trusted_context`。因此这些复用 `_config` 的 session memory 集成测试走到 `investigate` 后被 fail closed。
+
+### 已做处理
+
+修复 `tests/agent/test_graph.py::_config`：构造 canonical `TrustedContext` 并写入 `configurable["trusted_context"]`，同时保留 legacy compatibility fields。没有放宽生产 fail-closed 行为。
+
+### 剩余问题
+
+当前只确认 4 个失败用例已恢复通过；完整 prior-phase regression command 需要重跑并确认。
+
+### 下次继续排查入口
+
+- `tests/agent/test_graph.py::_config`
+- `src/agent/nodes/investigate.py::_trusted_context_from_config`
+- `tests/agent/test_session_memory_integration.py`
+
+### 验证结果
+
+已重跑失败用例：
+
+```bash
+uv run pytest tests/agent/test_session_memory_integration.py::test_same_thread_vague_turn_inherits_session_order_and_reruns_investigation tests/agent/test_session_memory_integration.py::test_agent_runs_session_slots_explicit_current_turn_overrides_inherited tests/agent/test_session_memory_integration.py::test_next_step_followup_reuses_prior_order_status_memory_instead_of_action_type_clarification tests/agent/test_session_memory_integration.py::test_unresolved_question_carryover_keeps_current_turn_slot_authoritative -q
+```
+
+结果：`4 passed, 5 warnings`。
+
 ## 38. Markdown 围栏 parity 检查需要只统计行首围栏
 
 日期：2026-06-22

@@ -22,6 +22,7 @@ from src.agent.routing import route_after_intent, route_after_investigate, route
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1
 from src.memory.schemas import SessionMemoryBundle, SessionMemoryView
+from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 from src.tools.catalog import ToolCatalog
 from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolResultV2
 from src.tools.manager import UnifiedToolManager
@@ -56,13 +57,28 @@ def _config(manager, events: list[dict[str, Any]], thread_id: str = "graph-test-
     async def event_emitter(**payload):
         events.append(payload)
 
+    permissions = [f"tool:{descriptor.name}" for descriptor in ToolCatalog().descriptors()]
+    trusted_context = TrustedContext(
+        tenant_id=str(uuid4()),
+        user_id=str(uuid4()),
+        role="support",
+        permissions=permissions,
+        merchant_scope=MerchantScopeV1(merchant_ids=["*"]),
+        session_id=None,
+        thread_id=thread_id,
+        run_id=str(uuid4()),
+        trace_id="graph-trace",
+        locale=None,
+    )
+
     return {
         "configurable": {
             "thread_id": thread_id,
             "session": session,
             "tool_manager": manager,
             "event_emitter": event_emitter,
-            "permissions": [f"tool:{descriptor.name}" for descriptor in ToolCatalog().descriptors()],
+            "trusted_context": trusted_context.model_dump(mode="json"),
+            "permissions": permissions,
             "merchant_scope": {"merchant_ids": ["*"]},
             "trace_id": "graph-trace",
         }
