@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 from src.knowledge.schemas import KnowledgeContext
 from src.platform.context_projections import (
+    project_merchant_scope_for_knowledge,
     project_to_agent_state_identity,
     project_to_approval_context,
     project_to_intent_policy_context,
@@ -12,6 +13,7 @@ from src.platform.context_projections import (
     project_to_memory_context,
     project_to_replay_context,
     project_to_tool_context,
+    project_tool_context_to_knowledge_context,
 )
 from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 from src.tools.contracts import ToolCallContext
@@ -84,6 +86,39 @@ def test_knowledge_projection_keeps_effective_at_local_and_scope_list_compatible
     assert knowledge_context.locale == trusted.locale
     assert knowledge_context.effective_at == "2026-06-22T12:00:00Z"
     assert "effective_at" not in trusted.model_dump()
+
+
+def test_knowledge_projection_fails_closed_for_restrictive_scope_dimensions() -> None:
+    restricted = _trusted_context().model_copy(
+        update={
+            "merchant_scope": MerchantScopeV1(
+                merchant_ids=["*"],
+                categories=["refund"],
+                risk_levels=["high"],
+            )
+        }
+    )
+
+    knowledge_context = project_to_knowledge_context(
+        restricted,
+        effective_at="2026-06-22T12:00:00Z",
+    )
+    tool_context = project_to_tool_context(
+        restricted,
+        request_id="request-1",
+        tool_call_id="tool-call-1",
+        caller_node="investigate",
+    )
+
+    assert project_merchant_scope_for_knowledge(restricted.merchant_scope.model_dump()) == []
+    assert knowledge_context.merchant_scope == []
+    assert project_tool_context_to_knowledge_context(
+        tool_context,
+        effective_at="2026-06-22T12:00:00Z",
+    ).merchant_scope == []
+    assert tool_context.merchant_scope["merchant_ids"] == ["*"]
+    assert tool_context.merchant_scope["categories"] == ["refund"]
+    assert tool_context.merchant_scope["risk_levels"] == ["high"]
 
 
 def test_memory_approval_replay_intent_projections_do_not_widen_identity_scope() -> None:

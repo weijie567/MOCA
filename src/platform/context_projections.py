@@ -128,9 +128,15 @@ def project_merchant_scope_for_knowledge(
     if value is None:
         return []
     if isinstance(value, MerchantScopeV1):
+        if value.categories or value.risk_levels:
+            return []
         return list(value.merchant_ids) if value.merchant_ids else []
     if isinstance(value, dict):
-        raw_ids = value.get("merchant_ids")
+        try:
+            parsed = MerchantScopeV1.model_validate(value)
+        except ValueError:
+            return []
+        return project_merchant_scope_for_knowledge(parsed)
     else:
         raw_ids = value
     if not isinstance(raw_ids, list) or not raw_ids:
