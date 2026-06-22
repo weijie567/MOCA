@@ -460,17 +460,17 @@ KnowledgeContext(
 | A5 | Create Wave 0 platform tests for canonical context, merchant scope, and projection contracts. | Validation Architecture | Low-medium: names are provisional, but the behaviors are required by D-18 and D-19. |
 | A6 | Create Wave 0 registry and architecture-boundary tests for intent/slot registry freeze and no trusted-context redefinition. | Validation Architecture | Low-medium: filenames are provisional, but D-16, D-17, and D-21 require equivalent coverage. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should `KnowledgeContext.merchant_scope` migrate from list projection to `MerchantScopeV1` object in Phase 27?**
    - What we know: canonical `MerchantScopeV1` object semantics are in scope, but current `KnowledgeContext` and tests use list projection. [VERIFIED: docs/contract-spec.md:54-65; src/knowledge/schemas.py:18-29; tests/agent/test_tools/test_unified_tool_manager.py:213-247]
    - What's unclear: whether changing the public `KnowledgeContext` shape would be considered an allowed contract correction or a breaking public schema change. [VERIFIED: .planning/phases/27-trustedcontextfactory-and-projections/27-CONTEXT.md:35-44]
-   - Recommendation: preserve current `KnowledgeContext` behavior through a projection adapter unless the plan explicitly updates the schema and all affected tests in one task.
+   - RESOLVED: preserve current `KnowledgeContext.merchant_scope` list projection through a central compatibility adapter in Phase 27. Do not change the public `KnowledgeContext` schema unless a later spec-delta phase explicitly requires it.
 
 2. **Should Phase 27 add `project_to_agent_state_identity` even though APF-04 names service projections?**
    - What we know: `AgentState` identity is also a projection of canonical `TrustedContext`, and permissions/merchant scope must not be persisted there. [VERIFIED: docs/contract-spec.md:67-75; docs/contract-spec.md:671-790]
    - What's unclear: whether a helper is necessary for the narrow Phase 27 proof or can wait for Phase 32 graph migration. [VERIFIED: docs/target-agent-platform-architecture-plan.md:1779-1785]
-   - Recommendation: add a small helper only if it removes duplicate API/run input-state construction; do not broaden Phase 27 into graph vocabulary migration.
+   - RESOLVED: Phase 27 may add a small canonical helper only if it returns the target identity projection keys from `contract-spec.md` §10: `tenant_id`, `user_id`, `role`, `session_id`, `thread_id`, `run_id`, and `trace_id`. A separate legacy adapter may map `run_id` to current implementation `current_run_id`, but that adapter must be explicitly named as compatibility-only and must never carry `permissions` or `merchant_scope`.
 
 ## Environment Availability
 
