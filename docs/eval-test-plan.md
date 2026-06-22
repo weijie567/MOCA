@@ -4,6 +4,18 @@ NOTE: This file carries the contract test matrix, eval plan, and golden cases. T
 
 测试计划必须从功能清单升级为 contract matrix：每个 contract 都有正例、反例、边界条件和禁止行为。
 
+### 20.0 Eval gate levels
+
+后续 phase 的 eval 需要区分三类门槛，避免用生产统计门槛阻塞所有开发，也避免用少量单测宣称生产级能力：
+
+| Gate level | 用途 | 典型要求 | 不通过时 |
+| --- | --- | --- | --- |
+| Dev-contract gate | 每个 phase 合并前的最小契约保障 | schema、router totality、state writer、forbidden behavior、scope/permission negative cases | 不应合并该 phase |
+| Release gate | 宣称生产级或开启高风险路径前的统计/覆盖门槛 | per-intent calibration、hard negatives、OOD、RAG groundedness、approval/action safety、Wilson/M6 等 | 能力只能保持 guarded/MVP path |
+| Monitoring gate | 上线后的持续质量约束 | drift、false negative、tool deny reason、RAG no-evidence、memory write quality、replay completeness | 触发降级、review 或 policy/model 回滚 |
+
+每个新增平台能力在 phase plan 中都应标注对应 eval 属于哪一类 gate。安全、权限、证据、approval/action 相关的 forbidden behavior 默认至少是 Dev-contract gate；高风险 intent calibration 和 action-bound 路径默认需要 Release gate。
+
 ### 20.1 Contract test matrix
 
 | Contract | Test type | Required cases | Forbidden behavior |
@@ -11,15 +23,20 @@ NOTE: This file carries the contract test matrix, eval plan, and golden cases. T
 | Node contract | input/output contract tests | 每个 node 缺 required input、合法输出、error output、state writes。 | node 写不属于自己的 state 字段；node 直接越权调用 repository/external API。 |
 | Router contract | totality + determinism tests | 每个合法 state shape 返回合法 next node；同 input 多次同 output；invalid state 走 safe fallback。 | router 调 LLM/tool/service；router 返回未知 node；安全相关状态走低风险路径。 |
 | State lifecycle | reset/property-based tests | 新 turn reset run/turn fields；same interrupted run resume 保留 snapshot；跨 thread/tenant 不继承。 | stale approval/action/evidence/business context 泄漏到新 run。 |
+| Module ownership boundary contract | static boundary + docs contract tests | `docs/contract-spec.md` §0.2 每个模块都有 owned schemas/tables/events、public methods、allowed downstream dependencies、forbidden imports/access、decision events；graph/router/service import checks 覆盖所有 module rows。 | graph/router/service 直接 import 或调用未允许 repository/adapter；architecture/eval docs 定义 spec 未登记的新 service boundary；新增 public dependency 未先做 spec delta。 |
 | Intent precedence | golden-set tests | `docs/contract-spec.md` §11.2 precedence table 的所有 ordinary-chat precedence conflict 至少一正一反；multi-intent 拆分或澄清；trusted approval command 与 chat entry 隔离。 | action request 被误路由成纯 policy QA；ordinary chat 形成 approval decision 或 trusted resume。 |
 | Confidence calibration | eval threshold tests | 低置信澄清、高风险 intent 更高阈值、risk-weighted confusion matrix。 | 未校准 confidence 直接授权动作。 |
 | Tool contract | adapter contract tests | success/partial/not_found/permission_denied/timeout/unavailable/conflict/invalid_response。 | raw upstream payload 进入 graph；缺 `tool_call_id`/scope 仍执行。 |
+| Tool policy decision contract | visibility/runtime auth tests | `ToolView` prompt-safe；visible/hidden/allowed/denied 都有 `ToolPolicyDecision`、reason codes、scope binding、policy version。 | planner 可见即 runtime 自动允许；deny 无 reason；raw descriptor/internal permission reason 进 prompt。 |
+| Business fact contract | domain facade contract tests | `BusinessFactResultV1` 的 ok/partial/not_found/permission_denied/stale/unavailable/invalid_request；resource_version、scope_check_result、safe_errors。 | permission denied 泄露资源存在性；business fact ref 被当作 `EvidenceRefV1`；stale fact 进入 action-bound path。 |
 | Knowledge contract | retrieval contract tests | strong/partial/no evidence、effective time filtering、deterministic tenant-scoped behavior、citation membership validation；global-policy / tenant-over-global deferred to later policy-scope phase。 | no evidence 或 failed citation membership 仍生成确定动作建议；把 membership 当作 semantic support。 |
+| RAG context build contract | deterministic evidence package tests | `VerifiedEvidencePackageV1` status 枚举、hash/scope/effective-date validation、projection separation、rejected/stale/conflict refs、route_after_rag_context totality。 | candidate refs 直接进入 prompt/action；invalid_hash/invalid_scope 仍生成 action-bound recommendation；router 调 LLM/tool。 |
+| Claim verification contract | rules-first support tests | `MaterialClaimV1` 输入、policy/business/action claim 类型、amount/time/negation/condition/exception hard checks、timeout fail-closed。 | LLM semantic review 覆盖 hard gate；unsupported action claim 进入 risk/approval/action；business fact claim 由 RAG/memory 证明。 |
 | Session memory contract | lifecycle + routing safety tests | same-thread continuity；PostgreSQL CAS deterministic merge；scope/freshness/intent compatibility；explicit current-turn override；unresolved question carryover；optional Redis hot-cache miss/unavailable fallback；disable/read-switch fallback telemetry；PII blocked。 | session memory 被当作政策证据；stale/wrong-thread/wrong-user/wrong-tenant slots 通过 slot gate；Redis-only correctness；silent last-write-wins；模型直接写 session memory。 |
 | Long-term/case memory contract | lifecycle tests | write/skip/review/delete/supersede；PII blocked；long-term/case predicates 分离；tombstone match 阻止异步重写并 emit event；scope isolation；supersede transaction rollback。 | case memory 使用 `is_current`；deleted/tombstoned/prohibited/superseded/non-current long-term memory 被检索；异步候选重建 tombstoned memory；模型直接写库。 |
 | Approval contract | transition table tests | accept/edit/respond/reject/ignore/expire/payload_changed；multi-level any_one/all；next-level pending 不进入 draft；canonical hash golden sample；payload/snapshot hash mismatch；cross-table mismatch transaction rollback。 | `next_level_pending -> action_draft`；expired/superseded approval 可执行；edit 沿用旧 payload hash；并发双执行；ordinary chat 伪造 approval decision。 |
 | Action contract | safety/idempotency tests | demo draft only；external execution allowlist；unknown/reconciling；outbox claim-before-dispatch；reconciliation no-new-key retry guard；compensation metadata。 | demo mode 产生 external side effect；未审批高风险动作执行；timeout 被当作成功；未持久化 outbox 就 dispatch。 |
-| Replay contract | completeness/order/redaction tests | normal/interrupted/resumed/rejected/responded/expired/error/cancelled；shared per-run sequence allocator concurrent writers；started/terminal pair 共享 operation_id；retry parent/attempt；V3 shape。 | 空 timeline；sequence 重复/倒退/事后重排；不同 writer 绕过 allocator；prompt/raw tool/ticket PII/action raw payload 泄漏。 |
+| Decision event / Replay contract | completeness/order/redaction tests | `DecisionEventEnvelopeV1` / minimal envelope、normal/interrupted/resumed/rejected/responded/expired/error/cancelled；shared per-run sequence allocator concurrent writers；started/terminal pair 共享 operation_id；retry parent/attempt；V3 shape。 | 空 timeline；sequence 重复/倒退/事后重排；不同 writer 绕过 allocator；prompt/raw tool/ticket PII/action raw payload 泄漏；服务自建并行 envelope。 |
 | Metrics/logging | observability tests | low-cardinality labels；trace_id/run_id log correlation；error counters。 | tenant_id/user_id/run_id/thread_id 成为 Prometheus label。 |
 
 ### 20.2 Integration golden flows
