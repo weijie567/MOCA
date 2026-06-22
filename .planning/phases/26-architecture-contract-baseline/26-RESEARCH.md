@@ -104,7 +104,7 @@ The planner should create focused documentation tasks: an APF-01 cross-document 
 
 | Library / Tool | Version | Purpose | When to Use |
 | --- | --- | --- | --- |
-| `markdownlint-cli2` | v0.22.1, markdownlint v0.40.0 | Markdown formatting gate | Use through `npx --yes markdownlint-cli2` on touched docs if the plan edits Markdown. [VERIFIED: command output `npx --yes markdownlint-cli2 --version`] |
+| `markdownlint-cli2` | v0.22.1, markdownlint v0.40.0 | Optional Markdown diagnostic | Do not use as a blocking Phase 26 gate unless a project-compatible config/scope is added; existing long-line docs and GSD XML-style PLAN files do not pass generic markdownlint. [VERIFIED: command output `npx --yes markdownlint-cli2 --version`; plan-checker feedback] |
 | `pytest` | 8.4.2 | Existing Python contract test framework | Use only if a planner explicitly justifies code-level helpers/tests; docs-only Phase 26 should not require runtime tests. [VERIFIED: command output `pytest --version`; pyproject.toml; .planning/phases/26-architecture-contract-baseline/26-CONTEXT.md] |
 | Python | 3.13.3 installed, project requires `>=3.12` | Existing backend runtime/test environment | Use for existing test commands only if code or test files are touched. [VERIFIED: command output `python3 --version`; pyproject.toml] |
 | Node/npm/npx | Node v25.9.0, npm 11.12.1 | Markdown lint and frontend tooling host | Use for `npx` docs checks; frontend build/test is out of scope unless Phase 26 adds UI work, which it should not. [VERIFIED: command output `node --version`; `npm --version`; frontend/package.json; .planning/phases/26-architecture-contract-baseline/26-CONTEXT.md] |
@@ -120,7 +120,7 @@ The planner should create focused documentation tasks: an APF-01 cross-document 
 
 **Installation:**
 
-No persistent dependency install is recommended for Phase 26. Use existing tools and `npx --yes markdownlint-cli2` for an on-demand Markdown lint check. [VERIFIED: pyproject.toml; frontend/package.json; command output `npx --yes markdownlint-cli2 --version`]
+No persistent dependency install is recommended for Phase 26. Use existing tools, `git diff --check`, targeted code-fence parity checks, `rg`, and GSD metadata queries as blocking gates; use `npx --yes markdownlint-cli2` only as optional diagnostics unless a project-compatible config/scope is added. [VERIFIED: pyproject.toml; frontend/package.json; command output `npx --yes markdownlint-cli2 --version`; plan-checker feedback]
 
 **Version verification:**
 
@@ -395,11 +395,11 @@ Source: APF-02 plus architecture plan Section 5.2 and contract spec Sections 8.3
 gsd-sdk query init.phase-op "26"
 gsd-sdk query roadmap.get-phase "26"
 gsd-sdk query validate.health
-npx --yes markdownlint-cli2 docs/contract-spec.md docs/target-agent-platform-architecture-plan.md docs/eval-test-plan.md .planning/phases/26-architecture-contract-baseline/26-RESEARCH.md
 git diff --check -- docs/contract-spec.md docs/target-agent-platform-architecture-plan.md docs/eval-test-plan.md .planning/phases/26-architecture-contract-baseline
+for f in docs/contract-spec.md docs/target-agent-platform-architecture-plan.md docs/eval-test-plan.md .planning/phases/26-architecture-contract-baseline/*.md; do c=$(rg -n '^```' "$f" | wc -l | tr -d ' '); test $((c % 2)) -eq 0; done
 ```
 
-Source: GSD context and available tooling discovered in this session. [VERIFIED: command output `gsd-sdk query init.phase-op 26`; `gsd-sdk query roadmap.get-phase 26`; `gsd-sdk query validate.health`; `npx --yes markdownlint-cli2 --version`]
+Source: GSD context and available tooling discovered in this session. [VERIFIED: command output `gsd-sdk query init.phase-op 26`; `gsd-sdk query roadmap.get-phase 26`; `gsd-sdk query validate.health`; `npx --yes markdownlint-cli2 --version`; plan-checker feedback]
 
 ## State of the Art
 
@@ -424,17 +424,19 @@ Source: GSD context and available tooling discovered in this session. [VERIFIED:
 | --- | --- | --- | --- |
 | - | No `[ASSUMED]` factual claims are intentionally used in this research; recommendations are derived from local phase context, repository docs, or command outputs. | All sections | If a source file changes after 2026-06-22, the planner should re-run the listed validation commands. [VERIFIED: command outputs; local docs listed in Sources] |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should the alignment matrix live in a separate `26-BASELINE-CHECKLIST.md` artifact or only in edited docs and PLAN.md acceptance checks?**
    - What we know: Phase 26 must prove APF-01/APF-02 coverage and may create verification artifacts. [VERIFIED: 26-CONTEXT.md; .planning/REQUIREMENTS.md]
    - What's unclear: No locked decision names a required verification artifact file. [VERIFIED: 26-CONTEXT.md]
    - Recommendation: Let the planner choose the smallest executable artifact; use a separate checklist if acceptance criteria would otherwise become too diffuse. [VERIFIED: 26-CONTEXT.md]
+   - RESOLVED: use `.planning/phases/26-architecture-contract-baseline/26-BASELINE-CHECKLIST.md` as the durable Phase 26 APF-01/APF-02 audit, validation, and cross-review artifact.
 
 2. **Should Phase 26 update `docs/contract-spec.md` or only verify current alignment?**
    - What we know: The current spec already claims core graph/RAG/tool/business/event deltas are accepted, but Phase 26 deliverables require confirming alignment and recording any delta/MVP/deferred item. [VERIFIED: docs/contract-spec.md; 26-CONTEXT.md]
    - What's unclear: Research did not exhaustively diff every enum/field across all docs. [VERIFIED: research scope and commands run]
    - Recommendation: PLAN.md should include an explicit drift audit task before any docs edit task. [VERIFIED: 26-CONTEXT.md; docs/contract-spec.md]
+   - RESOLVED: audit first, then synchronize executable deltas into `docs/contract-spec.md` or record MVP/deferred items with named target phases from Phase 27-35.
 
 ## Environment Availability
 
@@ -445,7 +447,7 @@ Source: GSD context and available tooling discovered in this session. [VERIFIED:
 | Python | Existing backend test runtime | yes | 3.13.3; project requires `>=3.12` | None needed for docs-only Phase 26. [VERIFIED: command output `python3 --version`; pyproject.toml] |
 | `pytest` | Existing Python test framework | yes | 8.4.2 | Docs-only validation can skip pytest unless code/tests are touched. [VERIFIED: command output `pytest --version`; pyproject.toml; 26-CONTEXT.md] |
 | Node/npm/npx | Markdown lint via `npx`; frontend tooling host | yes | Node v25.9.0, npm 11.12.1 | Manual Markdown review if `npx` is unavailable. [VERIFIED: command output `node --version`; `npm --version`; `command -v npx`] |
-| `markdownlint-cli2` | Optional Markdown lint | yes via `npx --yes` | v0.22.1, markdownlint v0.40.0 | `git diff --check` plus manual Markdown rendering review. [VERIFIED: command output `npx --yes markdownlint-cli2 --version`] |
+| `markdownlint-cli2` | Optional Markdown diagnostic | yes via `npx --yes` | v0.22.1, markdownlint v0.40.0 | Use `git diff --check`, target file fence parity, and manual Markdown review as blockers; generic markdownlint remains optional unless scoped/configured. [VERIFIED: command output `npx --yes markdownlint-cli2 --version`; plan-checker feedback] |
 | GSD optional agents | Automated GSD validation/review helpers | partially missing | `init.phase-op 26` reported `gsd-integration-checker`, `gsd-nyquist-auditor`, `gsd-ui-auditor`, and `gsd-doc-verifier` missing | Use GSD queries, local grep, Markdown lint, and project cross-review workflow. [VERIFIED: command output `gsd-sdk query init.phase-op 26`; AGENTS.md] |
 
 **Missing dependencies with no fallback:**
@@ -465,7 +467,7 @@ Source: GSD context and available tooling discovered in this session. [VERIFIED:
 | Framework | `pytest` 8.4.2 for existing Python tests; Phase 26 should primarily use docs/metadata validation. [VERIFIED: command output `pytest --version`; 26-CONTEXT.md] |
 | Config file | `pyproject.toml` with `tool.pytest.ini_options.asyncio_mode = "auto"`. [VERIFIED: pyproject.toml] |
 | Quick run command | `gsd-sdk query roadmap.get-phase "26"` plus `gsd-sdk query init.phase-op "26"` for metadata, and `git diff --check -- docs/contract-spec.md docs/target-agent-platform-architecture-plan.md docs/eval-test-plan.md .planning/phases/26-architecture-contract-baseline`. [VERIFIED: command outputs; 26-CONTEXT.md] |
-| Full suite command | For docs-only Phase 26, use `npx --yes markdownlint-cli2 docs/contract-spec.md docs/target-agent-platform-architecture-plan.md docs/eval-test-plan.md .planning/phases/26-architecture-contract-baseline/*.md` plus the GSD metadata commands; do not run broad runtime suites unless code/test files are intentionally touched. [VERIFIED: command output `npx --yes markdownlint-cli2 --version`; 26-CONTEXT.md] |
+| Full suite command | For docs-only Phase 26, use `git diff --check -- docs/contract-spec.md docs/target-agent-platform-architecture-plan.md docs/eval-test-plan.md .planning/phases/26-architecture-contract-baseline`, target file code-fence parity checks, and GSD metadata commands; do not run broad runtime suites unless code/test files are intentionally touched. [VERIFIED: 26-CONTEXT.md; plan-checker feedback] |
 
 ### Phase Requirements -> Test Map
 
