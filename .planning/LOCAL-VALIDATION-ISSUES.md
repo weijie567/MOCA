@@ -2590,3 +2590,56 @@ for f in docs/contract-spec.md docs/target-agent-platform-architecture-plan.md d
 ### 验证结果
 
 本次仅修正文档和 `.planning` 记录，没有修改运行时代码。
+
+## 44. Phase 27 收尾检查中裸 zsh glob 导致可选上下文检查失败
+
+日期：2026-06-23
+
+### 问题现象
+
+Phase 27 收尾 sanity check 中尝试检查 Phase 28 是否已有 `28-CONTEXT.md`，命令使用了裸 glob：
+
+```bash
+ls .planning/phases/*28*/28-CONTEXT.md 2>/dev/null || true
+```
+
+在 zsh 下，glob 没有匹配时会先触发 `no matches found`，不会进入 `ls` 或后续 `|| true`，导致该并行检查返回失败。
+
+### 如何检测 / 复现
+
+在 MOCA 项目根目录运行上述命令，如果当前没有匹配的 `28-CONTEXT.md`，zsh 会输出：
+
+```text
+zsh:1: no matches found: .planning/phases/*28*/28-CONTEXT.md
+```
+
+### 关键证据或命令
+
+失败输出来自 Phase 27 最终 sanity check 的可选上下文探测。改用不依赖 shell glob 展开的 `find` 重跑：
+
+```bash
+find .planning/phases -path '*/28-CONTEXT.md' -print
+```
+
+该命令正常返回空输出，表示当前没有 Phase 28 context 文件。
+
+### 当前判断 / 根因
+
+这是验证命令写法问题，不是 Phase 27 实现或 GSD 状态问题。zsh 的默认 `nomatch` 行为会在命令执行前拦截未匹配的 glob。
+
+### 已做处理
+
+已用 `find` 替代裸 glob 完成检查，确认当前仓库没有 `28-CONTEXT.md`。
+
+### 剩余问题
+
+无。后续可选文件检查避免在 zsh 中使用未保护的裸 glob。
+
+### 下次继续排查入口
+
+- `.planning/phases/`
+- `.planning/phases/27-trustedcontextfactory-and-projections/27-VERIFICATION.md`
+
+### 验证结果
+
+该问题只影响收尾检查命令本身。Phase 27 已完成的验证、测试、ROADMAP / REQUIREMENTS / STATE 结论不受影响。
