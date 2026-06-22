@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
-status: ready_for_phase_27
-stopped_at: Phase 26 complete; Phase 27 planning ready
-last_updated: "2026-06-22T14:43:37Z"
-last_activity: 2026-06-22 -- Phase 26 external review warnings fixed and completed
+status: executing
+stopped_at: Completed 27-01-PLAN.md
+last_updated: "2026-06-22T16:50:56Z"
+last_activity: 2026-06-23 -- 27-01 RED tests complete
 progress:
   total_phases: 10
   completed_phases: 1
   total_plans: 10
-  completed_plans: 1
-  percent: 10
+  completed_plans: 2
+  percent: 20
 ---
 
 # Project State: MOCA
@@ -21,16 +21,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-22)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v1.9 Agent Platform Foundation — Phase 27 planning ready
+**Current focus:** v1.9 Agent Platform Foundation — Phase 27 execution in progress
 
 ## Current Position
 
-Phase: 27 - TrustedContextFactory and Projections
-Plan: 0 of 1 planned
-Status: Ready for planning
-Last activity: 2026-06-22 -- Phase 26 external review warnings fixed and completed
+Phase: 27 - TrustedContextFactory and Projections — EXECUTING
+Plan: 1 of 3 planned
+Status: Ready for 27-02
+Last activity: 2026-06-23 -- 27-01 RED tests complete
 
-Progress: [█░░░░░░░░░] 10%
+Progress: [██░░░░░░░░] 20%
 
 Planning files:
 
@@ -58,7 +58,7 @@ Planning files:
 | Phase | Plans | Status |
 |-------|-------|--------|
 | 26. Architecture Contract Baseline | 1/1 complete | Complete |
-| 27. TrustedContextFactory and Projections | 0/1 | Pending |
+| 27. TrustedContextFactory and Projections | 1/3 | In Progress |
 | 28. Decision Event Foundation | 0/1 | Pending |
 | 29. Tool Platform Boundary | 0/1 | Pending |
 | 30. BusinessFactService Boundary | 0/1 | Pending |
@@ -69,6 +69,7 @@ Planning files:
 | 35. Replay and Eval Hardening | 0/1 | Pending |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
+Latest execution metric: Phase 27 P27-01 — 9 min, 2 tasks, 11 files.
 
 ## Quick Tasks Completed
 
@@ -88,6 +89,8 @@ Historical execution metrics are archived in prior milestone files and `.plannin
 - v1.9 starts a platform foundation milestone. Phase numbering continues from Phase 25 instead of restarting at Phase 1.
 - v1.9 should implement a microservice-ready modular monolith, not physical microservice deployment.
 - Full real external execution remains deferred; v1.9 only hardens action draft, approval, evidence, claim, and safety snapshot boundaries.
+- 27-01 remains RED-only by design: planned production symbols are imported but no src/ files are edited.
+- 27-01 seam integration tests use top-level src.platform imports so current failures are deterministic missing planned production modules, not local database setup.
 
 ### Roadmap Evolution
 
@@ -129,10 +132,10 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-22T22:43:37+08:00
-Stopped at: Phase 26 complete; Phase 27 planning ready
-Resume file: `.planning/ROADMAP.md`
-Next: start Phase 27 planning; old phase directory archive remains a separate cleanup todo.
+Last session: 2026-06-22T16:50:56.225Z
+Stopped at: Completed 27-01-PLAN.md
+Resume file: None
+Next: execute Phase 27 plan 27-02; old phase directory archive remains a separate cleanup todo.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
 

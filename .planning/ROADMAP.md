@@ -184,12 +184,12 @@ Plans:
 
 ### Phase 27: TrustedContextFactory and Projections
 
-**Status:** Pending
+**Status:** In Progress
 **Milestone:** v1.9 Agent Platform Foundation
 **Goal:** Make canonical trusted identity/scope/run context and service-specific projections the shared foundation for tool, knowledge, memory, approval, replay, and intent policy.
 **Requirements**: APF-03, APF-04
 **Depends on:** Phase 26
-**Plans:** 0/3 plans complete
+**Plans:** 1/3 plans complete
 
 **Success Criteria**:
 
@@ -198,7 +198,7 @@ Plans:
 3. Tests prove `request_id`, `effective_at`, `channel`, and policy/model/tool versions remain projection-local or metadata, not canonical trusted identity.
 
 Plans:
-- [ ] 27-01-PLAN.md — Wave 0 trusted-context and projection RED tests
+- [x] 27-01-PLAN.md — Wave 0 trusted-context and projection RED tests
 - [ ] 27-02-PLAN.md — Platform trusted-context contracts and read-only registries
 - [ ] 27-03-PLAN.md — Current seam migrations and focused integration gates
 
