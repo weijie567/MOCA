@@ -8,6 +8,9 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import PolicyChunk, PolicyDocument
+from src.knowledge.schemas import KnowledgeContext
+from src.platform.context_projections import project_to_knowledge_context
+from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 
 
 def _unit_vector(index: int, dimensions: int = 1024) -> list[float]:
@@ -65,6 +68,59 @@ async def _post_search(client, auth_headers, query: str, username: str = "cs_zha
         json={"query": query, "top_k": 5},
         headers=await auth_headers(username),
     )
+
+
+@pytest.mark.asyncio
+async def test_search_uses_factory_projected_knowledge_context_and_rejects_request_identity_override(
+    client,
+    auth_headers,
+    monkeypatch,
+):
+    from src.api.routers import search as search_router
+
+    calls: dict[str, object] = {}
+    request_identity_override = {"tenant_id": "tenant-from-request", "merchant_scope": ["*"]}
+
+    class SpyTrustedContextFactory:
+        @staticmethod
+        def create_from_request(**kwargs):
+            calls["factory_kwargs"] = kwargs
+            return TrustedContext(
+                tenant_id="tenant-from-factory",
+                user_id="user-from-factory",
+                role="merchant",
+                permissions=["knowledge:search"],
+                merchant_scope=MerchantScopeV1(merchant_ids=["merchant-from-factory"]),
+                session_id=None,
+                thread_id="thread-from-factory",
+                run_id="run-from-factory",
+                trace_id="trace-from-factory",
+                locale=None,
+            )
+
+    async def fake_retrieve_hits(self, *, query, context, max_results, doc_type=None, risk_level=None):
+        del self, query, max_results, doc_type, risk_level
+        calls["knowledge_context"] = context
+        assert isinstance(context, KnowledgeContext)
+        assert context.merchant_scope == ["merchant-from-factory"]
+        return "no_evidence", [], 0.0
+
+    monkeypatch.setattr(search_router, "TrustedContextFactory", SpyTrustedContextFactory)
+    monkeypatch.setattr(search_router, "project_to_knowledge_context", project_to_knowledge_context)
+    monkeypatch.setattr("src.api.routers.search.PolicyRetrievalEngine.retrieve_hits", fake_retrieve_hits)
+
+    response = await client.post(
+        "/api/v1/search/",
+        json={"query": "退款规则", "top_k": 5, **request_identity_override},
+        headers=await auth_headers("merchant_li"),
+    )
+
+    assert response.status_code == 200
+    factory_kwargs = calls["factory_kwargs"]
+    assert "request_body" not in factory_kwargs
+    assert "tenant_id" not in factory_kwargs
+    assert "merchant_scope" not in factory_kwargs
+    assert calls["knowledge_context"].tenant_id != request_identity_override["tenant_id"]
 
 
 @pytest.mark.asyncio

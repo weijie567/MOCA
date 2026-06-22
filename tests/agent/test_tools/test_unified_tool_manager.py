@@ -20,6 +20,8 @@ from src.tools.manager import UnifiedToolManager
 from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1, KnowledgeSearchResult
 from src.memory.schemas import CaseMemorySearchItem, CaseMemorySearchResult
+from src.platform.context_projections import project_to_tool_context
+from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 
 
 INVESTIGATE_TOOLS = {
@@ -170,6 +172,35 @@ async def test_business_service_permission_error_preserves_tool_result_status():
 
     assert result.status == "permission_denied"
     assert result.source_system == "business_tool_service"
+
+
+@pytest.mark.asyncio
+async def test_unified_tool_manager_invokes_with_projected_tool_context() -> None:
+    trusted_context = TrustedContext(
+        tenant_id=str(uuid4()),
+        user_id=str(uuid4()),
+        role="support",
+        permissions=["tool:get_order"],
+        merchant_scope=MerchantScopeV1(merchant_ids=["*"]),
+        session_id=None,
+        thread_id="thread-1",
+        run_id=str(uuid4()),
+        trace_id="trace-1",
+        locale=None,
+    )
+    executor = _FakeExecutor("get_order", _success_result())
+    manager = UnifiedToolManager(executors=[executor])
+
+    projected_context = project_to_tool_context(
+        trusted_context,
+        request_id="request-1",
+        tool_call_id="tool-call-1",
+        caller_node="investigate",
+    )
+    result = await manager.invoke("get_order", {"order_no": "ORD-TEST-001"}, projected_context)
+
+    assert result.status == "success"
+    assert executor.calls[0][2] is projected_context
 
 
 @pytest.mark.asyncio

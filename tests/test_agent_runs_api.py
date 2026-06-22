@@ -31,6 +31,7 @@ from src.db.models import (
     User,
 )
 from src.knowledge.schemas import EvidenceRefV1
+from src.platform.trusted_context import TrustedContext
 from src.tools.contracts import BusinessFactRefV1, ToolResultV2
 
 
@@ -733,6 +734,47 @@ async def test_agent_run_stream_passes_conversation_ids_to_graph_and_tools(
     configurable = config["configurable"]
     assert configurable["conversation_thread_id"] == str(user_messages[0].conversation_thread_id)
     assert configurable["conversation_message_id"] == str(user_messages[0].id)
+
+
+@pytest.mark.asyncio
+async def test_agent_run_stream_graph_config_contains_canonical_trusted_context(
+    client: AsyncClient,
+    seeded_session,
+    monkeypatch,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    graph = CaptureConfigGraph()
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+    payload_override = {"permissions": ["tool:get_order"], "merchant_scope": {"merchant_ids": ["*"]}}
+
+    response = await client.post(
+        "/api/v1/agent-runs",
+        json={
+            "query": "帮我查一下订单 ORD-TEST-001",
+            "thread_id": f"phase27-trusted-config-{uuid4()}",
+            **payload_override,
+        },
+        headers=_auth_header(user, ["agent:chat", "orders:read", "knowledge:read"]),
+    )
+    assert response.status_code == 200
+    run_id = UUID(response.json()["data"]["run_id"])
+
+    await _run_agent_run_stream(client, str(run_id), user)
+
+    assert len(graph.calls) == 1
+    input_state, config = graph.calls[0]
+    configurable = config["configurable"]
+    trusted_context = configurable["trusted_context"]
+    assert isinstance(trusted_context, TrustedContext)
+    assert trusted_context.schema_version == "trusted_context.v1"
+    assert trusted_context.run_id == str(run_id)
+    assert trusted_context.session_id is None
+    assert trusted_context.thread_id == input_state["thread_id"]
+    assert trusted_context.trace_id == configurable["trace_id"]
+    assert "current_run_id" not in trusted_context.model_dump()
+    assert input_state["current_run_id"] == str(run_id)
+    assert configurable["permissions"] == trusted_context.permissions
+    assert configurable["merchant_scope"] == trusted_context.merchant_scope.model_dump()
 
 
 @pytest.mark.asyncio

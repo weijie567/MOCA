@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.agent.nodes.investigate import investigate
 from src.db.models import AgentRun
 from src.knowledge.schemas import EvidenceRefV1
+from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 from src.tools.catalog import ToolCatalog
 from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolError, ToolResultV2
 
@@ -311,6 +312,44 @@ async def test_every_execution_uses_unified_tool_manager():
 
     assert [call[0] for call in manager.calls] == ["get_order"]
     assert result["business_context"]["facts"]["order"]["id"] == "ORD-001"
+
+
+@pytest.mark.asyncio
+async def test_investigate_consumes_trusted_context_config_not_agentstate_permission_scope():
+    events: list[dict[str, Any]] = []
+    manager = FakeManager({"get_order": _business_success()})
+    state = _state([{"next_tool": "get_order", "args": {"order_no": "ORD-001"}, "reason": "test"}])
+    state["permissions"] = ["tool:search_policy"]
+    state["merchant_scope"] = {"merchant_ids": ["merchant-from-AgentState"]}
+    trusted_context = TrustedContext(
+        tenant_id=state["tenant_id"],
+        user_id=state["user_id"],
+        role=state["role"],
+        permissions=["tool:get_order"],
+        merchant_scope=MerchantScopeV1(merchant_ids=["merchant-from-trusted-config"]),
+        session_id=None,
+        thread_id=state["thread_id"],
+        run_id=state["current_run_id"],
+        trace_id="trace-from-trusted-config",
+        locale=None,
+    )
+
+    await investigate(
+        state,
+        _config(
+            manager,
+            events,
+            trusted_context=trusted_context,
+            permissions=["tool:search_policy"],
+            merchant_scope={"merchant_ids": ["merchant-from-config-legacy"]},
+        ),
+    )
+
+    # AgentState merchant_scope and permissions must never be authority for tool calls.
+    tool_context = manager.calls[0][2]
+    assert tool_context.permissions == ["tool:get_order"]
+    assert tool_context.merchant_scope == {"schema_version": "merchant_scope.v1", "merchant_ids": ["merchant-from-trusted-config"], "categories": None, "risk_levels": None, "match_rule": "all_provided_dimensions"}
+    assert tool_context.trace_id == "trace-from-trusted-config"
 
 
 @pytest.mark.asyncio

@@ -10,6 +10,8 @@ import pytest
 from src.knowledge.retrieval import PolicyRetrievalEngine
 from src.knowledge.schemas import KnowledgeContext, KnowledgeSearchFilters, KnowledgeSearchRequest
 from src.knowledge.service import PolicyKnowledgeService
+from src.platform.context_projections import project_to_knowledge_context
+from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 
 
 def _chunk() -> object:
@@ -89,3 +91,32 @@ async def test_merchant_filter_is_authorized_before_policy_query():
     assert adapter.retrieve.await_count == 2
     assert all(call.kwargs["context"] is context for call in adapter.retrieve.await_args_list)
     assert all("merchant_id" not in call.kwargs for call in adapter.retrieve.await_args_list)
+
+
+@pytest.mark.asyncio
+async def test_factory_projected_knowledge_context_preserves_deny_before_query_behavior():
+    adapter = SimpleNamespace(retrieve=AsyncMock(return_value=("no_evidence", [], 0.0)))
+    service = PolicyKnowledgeService(adapter)
+    tenant_id = str(uuid4())
+    trusted_context = TrustedContext(
+        tenant_id=tenant_id,
+        user_id="user-001",
+        role="support",
+        permissions=["knowledge:search"],
+        merchant_scope=MerchantScopeV1(merchant_ids=["merchant-allowed"]),
+        session_id=None,
+        thread_id="thread-001",
+        run_id="run-001",
+        trace_id="trace-001",
+        locale=None,
+    )
+    context = project_to_knowledge_context(trusted_context, effective_at="2026-06-05T00:00:00Z")
+
+    unauthorized = await service.search(_request(tenant_id, "merchant-denied"), context)
+    authorized = await service.search(_request(tenant_id, "merchant-allowed"), context)
+
+    assert context.merchant_scope == ["merchant-allowed"]
+    assert unauthorized.status == "no_evidence"
+    assert unauthorized.evidence_refs == []
+    assert authorized.status == "no_evidence"
+    assert adapter.retrieve.await_count == 1
