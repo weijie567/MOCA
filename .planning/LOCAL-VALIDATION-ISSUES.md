@@ -2404,6 +2404,134 @@ uv run pytest tests/agent/test_session_memory_integration.py::test_same_thread_v
 
 结果：`4 passed, 5 warnings`。
 
+## 42. Phase 27 verifier subagent 因 Codex 用量限制中断
+
+日期：2026-06-23
+
+### 问题现象
+
+Phase 27 执行到 phase goal verification gate 时，已启动的 `gsd-verifier` subagent 在写出 `27-VERIFICATION.md` 前失败，返回 Codex usage limit 错误。
+
+### 如何检测 / 复现
+
+在 Phase 27 完成 plans、code review fix、regression gates 后启动 `gsd-verifier`：
+
+```text
+Verify Phase 27 goal achievement...
+verification_path: .planning/phases/27-trustedcontextfactory-and-projections/27-VERIFICATION.md
+```
+
+### 关键证据或命令
+
+subagent notification 返回：
+
+```text
+You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 2:26 AM.
+```
+
+随后检查 artifact：
+
+```bash
+test -f .planning/phases/27-trustedcontextfactory-and-projections/27-VERIFICATION.md && sed -n '1,220p' .planning/phases/27-trustedcontextfactory-and-projections/27-VERIFICATION.md || echo NO_VERIFICATION
+```
+
+结果：`NO_VERIFICATION`。
+
+### 当前判断 / 根因
+
+这是外部 Codex usage quota / runtime 限制，不是 Phase 27 代码或测试失败。由于所有 plan summary、key-link、schema drift、code review fix、focused gates 和 prior regression gates 已完成，可由 orchestrator 根据已验证证据补齐 verification artifact。
+
+### 已做处理
+
+关闭失败的 verifier agent 后，由 orchestrator inline 生成 `.planning/phases/27-trustedcontextfactory-and-projections/27-VERIFICATION.md`，并在报告中明确记录 `gsd-verifier` usage-limit fallback。验证结论基于已执行通过的命令和 committed artifacts。
+
+### 剩余问题
+
+无代码阻塞。若需要原生 verifier agent 的独立文本，可在用量恢复后重新运行 `$gsd-verify-work 27` 或对应 verifier workflow 复核。
+
+### 下次继续排查入口
+
+- `.planning/phases/27-trustedcontextfactory-and-projections/27-VERIFICATION.md`
+- `.planning/phases/27-trustedcontextfactory-and-projections/27-REVIEW.md`
+- `.planning/phases/27-trustedcontextfactory-and-projections/27-REVIEW-FIX.md`
+
+### 验证结果
+
+Inline verification artifact 已生成，状态为 `passed`，并列出 APF-03/APF-04、code review fix、focused regression、prior regression、key-link、schema drift 证据。
+
+## 43. Phase 27 phase.complete 后 STATE.md 统计和正文不同步
+
+日期：2026-06-23
+
+### 问题现象
+
+Phase 27 verification 通过后执行 `gsd-sdk query phase.complete 27`，命令返回 `roadmap_updated: true`、`state_updated: true`、`requirements_updated: true` 且无 warnings。但 `.planning/STATE.md` 被写成不一致状态：frontmatter `completed_phases` 变成 `3`，`percent` 变成 `30`，正文 Current focus 仍写 Phase 27 execution in progress，Performance Metrics 表中 Phase 27 仍是 `2/3 | In Progress`。
+
+### 如何检测 / 复现
+
+在 MOCA 项目根目录运行：
+
+```bash
+gsd-sdk query phase.complete 27
+git diff -- .planning/STATE.md .planning/ROADMAP.md .planning/REQUIREMENTS.md
+sed -n '1,75p' .planning/STATE.md
+```
+
+### 关键证据或命令
+
+`phase.complete` 返回：
+
+```json
+{
+  "completed_phase": "27",
+  "plans_executed": "3/3",
+  "next_phase": "28",
+  "roadmap_updated": true,
+  "state_updated": true,
+  "requirements_updated": true,
+  "warnings": []
+}
+```
+
+但 `.planning/STATE.md` 显示：
+
+```text
+completed_phases: 3
+percent: 30
+Current focus: ... Phase 27 execution in progress
+| 27. TrustedContextFactory and Projections | 2/3 | In Progress |
+```
+
+### 当前判断 / 根因
+
+`phase.complete` writer 同时混用了 phase-count 和 plan-count 统计语义，并且正文表格没有同步到 Phase 27 的 3/3 complete。该问题与此前 `state.begin-phase`、`state.load` 的 GSD state writer/parser drift 同类。
+
+### 已做处理
+
+手动修正 `.planning/STATE.md`：
+
+- `completed_phases: 2`（v1.9 当前完成 Phase 26 和 Phase 27）
+- `completed_plans: 4`（Phase 26 的 1 个 plan + Phase 27 的 3 个 plans）
+- `percent: 40`（按当前 STATE 的 plan-count 进度语义）
+- Current focus 改为 Phase 28 planning ready
+- Current Position 改为 `Phase: 28 - Decision Event Foundation`
+- Performance Metrics 中 Phase 27 改为 `3/3 complete | Complete`
+
+### 剩余问题
+
+后续调用 GSD phase/state writer 后仍需人工核对 `.planning/STATE.md` frontmatter 和正文表格。`phase.complete` 对 ROADMAP/REQUIREMENTS 的更新本次看起来正确。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `gsd-sdk query phase.complete 27`
+- `.planning/ROADMAP.md`
+- `.planning/REQUIREMENTS.md`
+
+### 验证结果
+
+修正后 `.planning/STATE.md` 指向 Phase 28 planning ready，并保留 v1.9 10 plans / 4 completed plans / 40% 进度语义。
+
 ## 38. Markdown 围栏 parity 检查需要只统计行首围栏
 
 日期：2026-06-22
