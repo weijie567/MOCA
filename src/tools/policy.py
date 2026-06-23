@@ -321,9 +321,11 @@ class ToolPolicyEngine:
         if descriptor.required_permission not in ctx.permissions:
             reason_codes.append("missing_permission")
 
-        # Side-effect gate for write tools
+        # Side-effect gate for write tools.
+        # action_draft callers are allowed to execute write tools (their purpose).
         if descriptor.side_effect == "write":
-            reason_codes.append("side_effect_blocked")
+            if not (ctx.caller_node == "action_draft" and descriptor.kind == "write"):
+                reason_codes.append("side_effect_blocked")
 
         # Merchant scope binding
         resource_scope_binding = self._build_resource_binding(args, ctx)

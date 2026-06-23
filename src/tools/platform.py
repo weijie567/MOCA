@@ -55,16 +55,25 @@ class ToolPlatform:
         )
         # Retain last visibility decisions for orchestrator inspection.
         self.last_visibility_decisions: list[ToolPolicyDecision] | None = None
+        # Expose projector for tests and direct access.
+        self.projector = self._projector
 
     @classmethod
-    def with_defaults(cls, session: AsyncSession) -> ToolPlatform:
-        """Construct a ToolPlatform with default executors from a DB session."""
+    def with_defaults(cls, session: AsyncSession | None) -> ToolPlatform:
+        """Construct a ToolPlatform with default executors from a DB session.
+
+        When session is None, creates a platform with stub executors that
+        have tools registered but return unavailable errors on dispatch.
+        Useful for visibility and auth testing without a real DB.
+        """
+        catalog = ToolCatalog()
+        if session is None:
+            return cls(catalog=catalog, executors=_StubExecutor.registry(catalog))
         from src.tools.executors.action import ActionToolExecutor
         from src.tools.executors.business import BusinessToolExecutor
         from src.tools.executors.knowledge import KnowledgeToolExecutor
         from src.tools.executors.memory import MemoryToolExecutor
 
-        catalog = ToolCatalog()
         executors = {
             "business": BusinessToolExecutor(session),
             "knowledge": KnowledgeToolExecutor(session),
@@ -179,3 +188,29 @@ class ToolPlatform:
         except Exception:
             # Visibility event emission must not block tool discovery.
             pass
+
+
+class _StubExecutor:
+    """Stub executor that has tools registered but returns unavailable on dispatch."""
+
+    def __init__(self, tool_names: set[str]) -> None:
+        self._tool_names = tool_names
+
+    def has_tool(self, name: str) -> bool:
+        return name in self._tool_names
+
+    async def execute(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
+        from src.tools.manager_results import result as safe_result
+        return safe_result(
+            "unavailable", "Stub executor: tool not available without session",
+            code="TOOL_UNAVAILABLE", source="tool",
+        )
+
+    @classmethod
+    def registry(cls, catalog: ToolCatalog) -> dict[str, _StubExecutor]:
+        """Build a stub executor registry from a catalog's descriptors."""
+        by_executor: dict[str, set[str]] = {}
+        for descriptor in catalog.descriptors():
+            if descriptor.executor is not None:
+                by_executor.setdefault(descriptor.executor, set()).add(descriptor.name)
+        return {name: cls(tools) for name, tools in by_executor.items()}

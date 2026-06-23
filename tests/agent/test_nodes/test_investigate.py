@@ -13,7 +13,17 @@ from src.db.models import AgentRun, AgentTraceEvent
 from src.knowledge.schemas import EvidenceRefV1
 from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 from src.tools.catalog import ToolCatalog
-from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolError, ToolResultV2
+from src.tools.contracts import (
+    BusinessFactRefV1,
+    ToolCallContext,
+    ToolError,
+    ToolInvocationOutcome,
+    ToolPolicyDecision,
+    ToolResultProjectionV1,
+    ToolResultV2,
+    ToolViewV1,
+)
+from src.tools.projection import ToolResultProjector
 
 
 def _state(plan: list[dict[str, Any]]) -> dict[str, Any]:
@@ -67,6 +77,7 @@ class FakeManager:
         self._descriptors = {descriptor.name: descriptor for descriptor in ToolCatalog().descriptors()}
         self.results = results
         self.calls: list[tuple[str, dict[str, Any], ToolCallContext]] = []
+        self._platform = _FakePlatform(self)
 
     def descriptors(self, caller_node: str = "investigate"):
         return [
@@ -85,6 +96,90 @@ class FakeManager:
     async def invoke(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
         self.calls.append((name, args, ctx))
         return self.results[name]
+
+
+class _FakePlatform:
+    """Minimal ToolPlatform facade wrapping FakeManager for tests."""
+
+    def __init__(self, manager: FakeManager) -> None:
+        self._manager = manager
+        self._projector = ToolResultProjector()
+        self.last_visibility_decisions = None
+
+    async def visible_tools(
+        self, *, caller: str, ctx: ToolCallContext, session: Any = None,
+    ) -> list[ToolViewV1]:
+        from src.tools.policy import ToolPolicyEngine, project_prompt_safe_input_schema
+
+        engine = ToolPolicyEngine()
+        decisions = engine.visibility_decisions(caller=caller, ctx=ctx)
+        self.last_visibility_decisions = decisions
+        views = []
+        for decision in decisions:
+            if decision.decision != "visible":
+                continue
+            descriptor = self._manager._descriptors.get(decision.tool_name)
+            if descriptor is None:
+                continue
+            views.append(
+                ToolViewV1(
+                    name=descriptor.name,
+                    description=descriptor.description,
+                    input_schema=project_prompt_safe_input_schema(descriptor.input_schema),
+                    safe_usage_notes=[],
+                    result_contract_version="tool_result.v2",
+                )
+            )
+        return views
+
+    async def invoke(
+        self, tool_name: str, args: dict[str, Any], ctx: ToolCallContext, *, session: Any = None,
+    ) -> ToolInvocationOutcome:
+        result = await self._manager.invoke(tool_name, args, ctx)
+        projection = self._projector.project(
+            tool_name=tool_name, result=result, tool_call_id=ctx.tool_call_id,
+        )
+        _status_to_reason = {
+            "unavailable": "tool_unavailable",
+            "permission_denied": "missing_permission",
+        }
+        decision = ToolPolicyDecision(
+            tool_name=tool_name,
+            caller=ctx.caller_node,
+            decision_stage="runtime_auth",
+            decision="allowed" if result.status == "success" else "denied",
+            reason_codes=(
+                ["visible"] if result.status == "success"
+                else [_status_to_reason.get(result.status, "missing_permission")]
+            ),
+            required_scopes=[],
+            matched_scope=None,
+            policy_version="tool_policy.v1",
+            data_classification="internal",
+            runtime_available=result.status != "unavailable",
+        )
+        return ToolInvocationOutcome(
+            tool_result=result,
+            projection=projection,
+            policy_decision=decision,
+            policy_event_id=None,
+        )
+
+    def descriptor(self, name: str):
+        return self._manager._descriptors.get(name)
+
+    def event_family(self, name: str) -> str | None:
+        descriptor = self._manager._descriptors.get(name)
+        if descriptor is None:
+            return None
+        family = descriptor.event_family
+        if family == "tool_call_*":
+            return "tool_call"
+        if family == "rag_retrieval_*":
+            return "rag_retrieval"
+        if family == "action":
+            return "action"
+        return None
 
 
 def _business_success(resource_type: str = "order", resource_id: str = "ORD-001") -> ToolResultV2:

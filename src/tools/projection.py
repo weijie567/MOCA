@@ -126,6 +126,18 @@ class ToolResultProjector:
         if policy_refs:
             normalized["policy_evidence_refs"] = policy_refs
 
+        # Refs from the ToolResultV2 envelope (not from data).
+        if result.business_fact_refs:
+            normalized["business_fact_refs"] = [
+                {"resource_type": ref.resource_type, "resource_id": ref.resource_id}
+                for ref in result.business_fact_refs
+            ]
+        if result.policy_evidence_refs:
+            normalized["policy_evidence_refs"] = [
+                {"evidence_id": ref.evidence_id, "doc_key": ref.doc_key}
+                for ref in result.policy_evidence_refs
+            ]
+
         # Audit ref from the result envelope.
         if result.audit_ref:
             normalized["audit_ref"] = result.audit_ref

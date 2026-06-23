@@ -7,21 +7,20 @@ from uuid import uuid4
 from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
-from src.agent.events import RAG_RETRIEVAL_TOOLS, TOOL_CALL_TOOLS, emit_event
+from src.agent.events import emit_event
 from src.agent.prompts import INSUFFICIENT_EVIDENCE_RESPONSE
 from src.agent.state import AgentState
 from src.conversation.repository import ConversationRepository
 from src.conversation.service import ConversationService
 from src.platform.context_projections import project_to_tool_context
 from src.platform.trusted_context import TrustedContext
-from src.tools.contracts import ToolCallContext, ToolResultPromptSummary, ToolResultV2
-from src.tools.manager import UnifiedToolManager
+from src.tools.contracts import ToolCallContext, ToolInvocationOutcome, ToolResultPromptSummary, ToolResultV2, ToolViewV1
+from src.tools.platform import ToolPlatform
 
 
 DEFAULT_MAX_ITERATIONS = 3
 GLOBAL_MAX_ITERATIONS_CEILING = 5
 MIN_EVIDENCE_SCORE = 0.55
-ALLOWLIST = TOOL_CALL_TOOLS | RAG_RETRIEVAL_TOOLS
 TERMINAL_STATUSES = {"success", "partial_success", "not_found", "permission_denied", "unavailable", "error"}
 _ACTION_ORIENTED_INTENTS = {"refund_troubleshooting", "compensation_suggestion"}
 _CASE_SLOT_RESOURCES = {
@@ -65,8 +64,16 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
     started_at = _now_iso()
     configurable = config.get("configurable") or {}
     session = configurable.get("session")
-    manager = configurable.get("tool_manager") or UnifiedToolManager.with_defaults(session)
-    descriptors = manager.descriptors("investigate")
+    tool_platform = configurable.get("tool_platform")
+    if tool_platform is None:
+        tool_manager = configurable.get("tool_manager")
+        if tool_manager is not None and hasattr(tool_manager, "_platform"):
+            tool_platform = tool_manager._platform
+        elif session is not None:
+            tool_platform = ToolPlatform.with_defaults(session)
+        else:
+            tool_platform = ToolPlatform(executors={})
+
     max_iterations = _bounded_iterations(configurable.get("max_iterations", DEFAULT_MAX_ITERATIONS))
     max_attempts = int(configurable.get("max_attempts", 1))
     deadline_at = configurable.get("deadline_at")
@@ -87,6 +94,13 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
     termination_reason = "no_more_useful_tools"
     calls_executed = 0
 
+    # Build visibility context and get ToolViewV1 entries for planner.
+    trusted_context = _trusted_context_from_config(configurable)
+    visibility_ctx = _build_visibility_context(trusted_context, configurable, state)
+    tool_views = await tool_platform.visible_tools(
+        caller="investigate", ctx=visibility_ctx, session=session,
+    )
+
     for iteration in range(1, max_iterations + 1):
         if _deadline_reached(deadline_at):
             termination_reason = "unrecoverable_error"
@@ -95,8 +109,8 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
             termination_reason = "unrecoverable_error"
             break
 
-        step = plan_next_step(state, context, descriptors)
-        validation_error = _validate_planner_step(step, manager, descriptors)
+        step = plan_next_step(state, context, tool_views)
+        validation_error = _validate_planner_step(step, tool_views)
         if validation_error is not None:
             termination_reason = "unrecoverable_error"
             context["errors"].append(validation_error)
@@ -112,7 +126,6 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
             termination_reason = "no_more_useful_tools"
             break
         context["attempted"].add(attempt_key)
-        trusted_context = _trusted_context_from_config(configurable)
         if trusted_context is None:
             termination_reason = "unrecoverable_error"
             context["errors"].append(
@@ -120,8 +133,8 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
             )
             break
 
-        descriptor = manager.descriptor(tool_name)
-        family = manager.event_family(tool_name)
+        descriptor = tool_platform.descriptor(tool_name)
+        family = tool_platform.event_family(tool_name)
         operation_id = uuid4()
         tool_ctx = _build_tool_context(
             trusted_context,
@@ -142,7 +155,8 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
             tool_ctx,
             operation_id,
         )
-        result = await manager.invoke(tool_name, args, tool_ctx)
+        outcome = await tool_platform.invoke(tool_name, args, tool_ctx, session=session)
+        result = outcome.tool_result
         calls_executed += 1
         terminal = (
             "completed" if result.status in {"success", "partial_success", "not_found", "unavailable"} else "failed"
@@ -166,6 +180,7 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
             operation_id,
             result,
             tool_call_record,
+            projection=outcome.projection,
         )
         _accumulate_tool_result(context, descriptor, tool_name, result, projection)
         if result.status == "unavailable":
@@ -220,8 +235,8 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
     }
 
 
-def _validate_planner_step(step: Any, manager: UnifiedToolManager, descriptors: list[Any]) -> dict[str, Any] | None:
-    descriptor_names = {descriptor.name for descriptor in descriptors}
+def _validate_planner_step(step: Any, tool_views: list[ToolViewV1]) -> dict[str, Any] | None:
+    view_names = {view.name for view in tool_views}
     if not isinstance(step, dict):
         return _safe_error("INVALID_PLANNER_OUTPUT", "Planner output failed validation", "planner")
     has_stop = step.get("stop") is True
@@ -231,11 +246,8 @@ def _validate_planner_step(step: Any, manager: UnifiedToolManager, descriptors: 
     if has_stop:
         return None
     tool_name = step.get("next_tool")
-    if not isinstance(tool_name, str) or tool_name not in descriptor_names:
+    if not isinstance(tool_name, str) or tool_name not in view_names:
         return _safe_error("INVALID_PLANNER_TOOL", "Planner selected an unavailable tool", "planner")
-    descriptor = manager.descriptor(tool_name)
-    if descriptor is None or descriptor.name not in ALLOWLIST or descriptor.kind == "write":
-        return _safe_error("INVALID_PLANNER_TOOL", "Planner selected a blocked tool", "planner")
     if not isinstance(step.get("args"), dict):
         return _safe_error("INVALID_PLANNER_ARGS", "Planner tool arguments failed validation", "planner")
     return None
@@ -262,6 +274,37 @@ def _build_tool_context(
         max_attempts=max_attempts,
         idempotency_key=f"{trusted_context.run_id}:{tool_name}:{operation_id}",
         policy_snapshot_ref=None,
+    )
+
+
+def _build_visibility_context(
+    trusted_context: TrustedContext | None,
+    configurable: dict[str, Any],
+    state: AgentState,
+) -> ToolCallContext:
+    """Build a ToolCallContext for visibility checks (no operation_id needed)."""
+    if trusted_context is not None:
+        return project_to_tool_context(
+            trusted_context,
+            request_id=configurable.get("request_id") or str(uuid4()),
+            tool_call_id=f"visibility:{state.get('run_id', 'unknown')}",
+            caller_node="investigate",
+        )
+    # Minimal fallback context for visibility when trusted context is missing.
+    from uuid import uuid4 as _uuid4
+    return ToolCallContext(
+        tenant_id=str(_uuid4()),
+        user_id=str(_uuid4()),
+        role="support",
+        permissions=[],
+        merchant_scope={"merchant_ids": ["*"]},
+        session_id=None,
+        thread_id="visibility",
+        run_id=str(state.get("run_id") or _uuid4()),
+        trace_id="trace-visibility",
+        request_id=str(_uuid4()),
+        tool_call_id=f"visibility:{state.get('run_id', 'unknown')}",
+        caller_node="investigate",
     )
 
 
@@ -312,6 +355,7 @@ async def _append_tool_result_record(
     operation_id: Any,
     result: ToolResultV2,
     tool_call_record: Any | None,
+    projection: Any | None = None,
 ) -> ToolResultPromptSummary:
     tool_result_id = str(uuid4())
     if not _can_persist_conversation_tool_records(configurable, session):
@@ -321,6 +365,7 @@ async def _append_tool_result_record(
             tool_name=tool_name,
             result=result,
             raw_result_ref=None,
+            projection=projection,
         )
     service = _conversation_service(configurable, session)
     return await service.append_tool_result(
@@ -338,6 +383,7 @@ async def _append_tool_result_record(
         raw_result_ref=None,
         raw_result_hash=None,
         conversation_message_id=configurable.get("conversation_message_id"),
+        projection=projection,
     )
 
 
@@ -373,7 +419,35 @@ def _project_tool_result(
     tool_name: str,
     result: ToolResultV2,
     raw_result_ref: str | None,
+    projection: Any | None = None,
 ) -> ToolResultPromptSummary:
+    # Use projection data when available; fall back to building from result.
+    if projection is not None:
+        prompt_text = getattr(projection, "text_for_prompt", None) or ""
+        normalized = getattr(projection, "normalized_result", {})
+        prompt_proj = getattr(projection, "prompt_projection", {})
+        business_fact_refs = prompt_proj.get("business_fact_refs", [])
+        policy_evidence_refs = prompt_proj.get("policy_candidate_refs", [])
+        return ToolResultPromptSummary(
+            tool_call_id=tool_call_id,
+            tool_result_id=tool_result_id,
+            tool_name=tool_name,
+            status=result.status,
+            summary=result.summary,
+            prompt_summary=prompt_text or _safe_prompt_summary(
+                tool_name=tool_name,
+                status=result.status,
+                summary=result.summary,
+                source_system=result.source_system,
+                business_fact_refs=business_fact_refs,
+                policy_evidence_refs=policy_evidence_refs,
+            ),
+            business_fact_refs=business_fact_refs,
+            policy_evidence_refs=policy_evidence_refs,
+            raw_result_ref=raw_result_ref,
+            audit_ref=result.audit_ref,
+        )
+
     business_fact_refs = [ref.model_dump(mode="json") for ref in result.business_fact_refs]
     policy_evidence_refs = [ref.model_dump(mode="json") for ref in result.policy_evidence_refs]
     prompt_summary = _safe_prompt_summary(
@@ -474,11 +548,13 @@ def _accumulate_tool_result(
     context["tool_results"].append(projection.model_dump(mode="json"))
     if result.status == "success":
         if tool_name == "search_case_memory":
+            # Use normalized_result from projection when available, else fall back.
             context.setdefault("case_memory", []).extend(_case_memory_items(result.data))
         if result.business_fact_refs:
             for ref in result.business_fact_refs:
                 ref_data = ref.model_dump(mode="json")
                 context["business_fact_refs"].append(ref_data)
+                # Use projection normalized_result instead of raw result.data.
                 context["facts"][ref.resource_type] = _without_raw_payload(result.data or {})
                 context["claim_dependency_map"].append(
                     {

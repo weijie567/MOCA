@@ -91,7 +91,26 @@ class ToolRuntime:
             )
             return error_result, decision, event_id, projection
 
-        # Step 2: Input schema validation
+        # Step 2: Runtime auth decision (before schema validation,
+        # matching old manager gate order: caller → side-effect → permission → schema)
+        availability_map = self._build_availability_map()
+        decision = self._policy_engine.runtime_auth(
+            tool_name=tool_name, args=args, ctx=ctx,
+            availability_map=availability_map,
+        )
+
+        # Step 4-5: Side-effect, approval, safety, idempotency (already in runtime_auth)
+        if decision.decision == "denied":
+            error_result = self._safe_denial_result(decision)
+            projection = self._projector.project(
+                tool_name=tool_name, result=error_result, tool_call_id=ctx.tool_call_id,
+            )
+            event_id = await self._emit_decision_event(
+                decision=decision, ctx=ctx, session=session,
+            )
+            return error_result, decision, event_id, projection
+
+        # Step 5b: Input schema validation (after auth, before dispatch)
         try:
             validate_json_value(args, descriptor.input_schema)
         except (TypeError, ValueError):
@@ -104,24 +123,6 @@ class ToolRuntime:
                 "invalid_request", "Tool input failed validation",
                 code="INVALID_TOOL_INPUT", source="caller",
             )
-            projection = self._projector.project(
-                tool_name=tool_name, result=error_result, tool_call_id=ctx.tool_call_id,
-            )
-            event_id = await self._emit_decision_event(
-                decision=decision, ctx=ctx, session=session,
-            )
-            return error_result, decision, event_id, projection
-
-        # Step 3: Runtime auth decision
-        availability_map = self._build_availability_map()
-        decision = self._policy_engine.runtime_auth(
-            tool_name=tool_name, args=args, ctx=ctx,
-            availability_map=availability_map,
-        )
-
-        # Step 4-5: Side-effect, approval, safety, idempotency (already in runtime_auth)
-        if decision.decision == "denied":
-            error_result = self._safe_denial_result(decision)
             projection = self._projector.project(
                 tool_name=tool_name, result=error_result, tool_call_id=ctx.tool_call_id,
             )
@@ -260,12 +261,15 @@ class ToolRuntime:
             "idempotency_required": "IDEMPOTENCY_KEY_REQUIRED",
             "tool_unavailable": "TOOL_UNAVAILABLE",
         }
+        status_map = {
+            "tool_unavailable": "unavailable",
+            "schema_invalid": "invalid_request",
+            "idempotency_required": "invalid_request",
+        }
         primary_reason = decision.reason_codes[0] if decision.reason_codes else "tool_unavailable"
         code = code_map.get(primary_reason, "POLICY_DENIED")
         message = f"Tool invocation denied: {primary_reason}"
-        status: Any = "permission_denied"
-        if primary_reason == "tool_unavailable":
-            status = "unavailable"
+        status = status_map.get(primary_reason, "permission_denied")
         return safe_result(status, message, code=code, source="policy")
 
     async def _emit_decision_event(

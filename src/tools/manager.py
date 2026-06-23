@@ -5,13 +5,14 @@ from typing import Any, Protocol
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.events import classify_event_family
-from src.tools.catalog import ToolCatalog, ToolDescriptor
-from src.tools.contracts import ToolCallContext, ToolResultV2
+from src.tools.catalog import RegisteredTool, ToolCatalog, ToolDescriptor
+from src.tools.contracts import ToolCallContext, ToolResultV2, ToolViewV1
 from src.tools.executors.action import ActionToolExecutor
 from src.tools.executors.business import BusinessToolExecutor
 from src.tools.executors.knowledge import KnowledgeToolExecutor
 from src.tools.executors.memory import MemoryToolExecutor
 from src.tools.manager_results import result
+from src.tools.platform import ToolPlatform
 from src.tools.validation import validate_json_value
 
 
@@ -43,6 +44,19 @@ class UnifiedToolManager:
         catalog = descriptors if descriptors is not None else ToolCatalog().descriptors()
         self._descriptors = {descriptor.name: descriptor for descriptor in catalog}
         self._executors = self._executor_registry(executors or {})
+        # Build ToolPlatform as the internal policy/runtime owner.
+        # When custom descriptors are provided, build a ToolCatalog from them
+        # so the platform's policy engine sees the same descriptors.
+        if descriptors is not None:
+            platform_catalog = ToolCatalog(
+                tools=[RegisteredTool(descriptor=d) for d in descriptors]
+            )
+        else:
+            platform_catalog = ToolCatalog()
+        self._platform = ToolPlatform(
+            catalog=platform_catalog,
+            executors=self._executors,
+        )
 
     @classmethod
     def with_defaults(cls, session: AsyncSession) -> UnifiedToolManager:
@@ -67,61 +81,23 @@ class UnifiedToolManager:
             ]
         return [descriptor for descriptor in self._descriptors.values() if caller_node in descriptor.caller_allowlist]
 
+    async def visible_tools(
+        self,
+        *,
+        caller: str,
+        ctx: ToolCallContext,
+        session: Any = None,
+    ) -> list[ToolViewV1]:
+        """Delegate to ToolPlatform for prompt-safe planner visibility."""
+        return await self._platform.visible_tools(caller=caller, ctx=ctx, session=session)
+
     def descriptor(self, name: str) -> ToolDescriptor | None:
         return self._descriptors.get(name)
 
     async def invoke(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
-        descriptor = self._descriptors.get(name)
-        if descriptor is None:
-            return result("not_found", "Requested tool is not registered", code="TOOL_NOT_FOUND", source="caller")
-        if ctx.caller_node not in descriptor.caller_allowlist:
-            return result("permission_denied", "Caller is not allowed to invoke this tool", code="CALLER_NOT_ALLOWED")
-        if not _side_effect_allowed(ctx.caller_node, descriptor):
-            return result(
-                "permission_denied",
-                "Caller is not allowed to execute this tool side effect",
-                code="SIDE_EFFECT_BLOCKED",
-            )
-        if descriptor.required_permission not in ctx.permissions:
-            return result("permission_denied", "Required tool permission is missing", code="PERMISSION_REQUIRED")
-
-        try:
-            validate_json_value(args, descriptor.input_schema)
-        except (TypeError, ValueError):
-            return result("invalid_request", "Tool input failed validation", code="INVALID_TOOL_INPUT")
-        if descriptor.requires_approval and ctx.approval_ref is None:
-            return result("permission_denied", "Required approval context is missing", code="APPROVAL_REQUIRED")
-        if descriptor.requires_safety_snapshot and ctx.safety_snapshot_ref is None:
-            return result("permission_denied", "Required safety snapshot is missing", code="SAFETY_SNAPSHOT_REQUIRED")
-        if descriptor.requires_idempotency_key and not ctx.idempotency_key:
-            return result("invalid_request", "Required idempotency key is missing", code="IDEMPOTENCY_KEY_REQUIRED")
-
-        executor = self._executor_for(descriptor)
-        if executor is None or not executor.has_tool(name):
-            return result("unavailable", "Tool is declared but unavailable", code="TOOL_UNAVAILABLE", source="tool")
-
-        try:
-            tool_result = await executor.execute(name, args, ctx)
-        except Exception:
-            return result("error", "Tool executor failed", code="EXECUTOR_ERROR", source="adapter")
-        if not isinstance(tool_result, ToolResultV2):
-            return result(
-                "invalid_response",
-                "Tool executor returned an invalid response",
-                code="INVALID_EXECUTOR_RESPONSE",
-                source="adapter",
-            )
-        try:
-            if tool_result.data is not None:
-                validate_json_value(tool_result.data, descriptor.output_schema)
-        except (TypeError, ValueError):
-            return result(
-                "invalid_response",
-                "Tool executor returned an invalid response",
-                code="INVALID_EXECUTOR_RESPONSE",
-                source="adapter",
-            )
-        return tool_result
+        """Delegate to ToolPlatform.invoke and return the ToolResultV2 for backward compat."""
+        outcome = await self._platform.invoke(name, args, ctx, session=None)
+        return outcome.tool_result
 
     def event_family(self, name: str) -> str:
         descriptor = self._descriptors.get(name)
