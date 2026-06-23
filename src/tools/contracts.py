@@ -142,4 +142,72 @@ class ToolResultPromptSummary(BaseModel):
     audit_ref: str | None = None
 
 
+class ToolViewV1(BaseModel):
+    """Prompt-safe planner capability view derived from a ToolDescriptor.
+
+    Exposes exactly five prompt-visible fields; descriptor/policy/runtime
+    metadata must not leak through this contract.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+    safe_usage_notes: list[str]
+    result_contract_version: Literal["tool_result.v2"] = "tool_result.v2"
+
+
+class ToolPolicyDecision(BaseModel):
+    """Domain-level tool policy decision object.
+
+    This is NOT a replay event envelope; it must not contain event_id,
+    sequence, occurred_at, run_id, or tenant_id.  It is persisted through
+    DecisionEventEnvelopeV1 / emit_decision_event as a redacted_payload
+    sub-object.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["tool_policy_decision.v1"] = "tool_policy_decision.v1"
+    tool_name: str
+    caller: str
+    decision_stage: Literal["visibility", "runtime_auth"]
+    decision: Literal["visible", "hidden", "allowed", "denied"]
+    reason_codes: list[str]
+    required_scopes: list[str]
+    matched_scope: str | None = None
+    policy_version: str
+    data_classification: Literal["public", "internal", "sensitive", "restricted"]
+    resource_scope_binding: dict[str, Any] | None = None
+    runtime_available: bool | None = None
+    availability_summary: str | None = None
+
+
+class ToolResultProjectionV1(BaseModel):
+    """Projected tool result surfaces for graph, prompt, and audit consumption."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    normalized_result: dict[str, Any]
+    prompt_projection: dict[str, Any]
+    text_for_prompt: str
+    audit_refs: list[Any]
+    resource_refs: list[Any]
+    debug_projection: dict[str, Any]
+    raw_artifact_ref: str | None = None
+    raw_artifact_hash: str | None = None
+
+
+class ToolInvocationOutcome(BaseModel):
+    """Complete outcome of a tool invocation including result, projection, and policy decision."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tool_result: ToolResultV2
+    projection: ToolResultProjectionV1
+    policy_decision: ToolPolicyDecision
+    policy_event_id: str | None = None
+
+
 ToolResult = ToolResultV2

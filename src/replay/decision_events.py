@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 SCHEMA_VERSION = "minimal_event_envelope.v1"
-REASON_CODE_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
+REASON_CODE_PATTERN = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)?$")
 OPERATION_EVENT_PREFIXES = ("node_", "tool_call_", "rag_retrieval_", "llm_call_", "memory_write_")
 VERSION_KEYS = ("policy_version", "model_version", "tool_version")
 

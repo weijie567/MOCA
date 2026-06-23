@@ -1242,7 +1242,7 @@ class AgentTraceEvent(TimestampMixin, Base):
             "'memory_write_completed', 'memory_write_failed', 'memory_write_started', 'node_completed', "
             "'node_failed', 'node_started', 'rag_retrieval_completed', 'rag_retrieval_failed', "
             "'rag_retrieval_started', 'run_status_changed', 'tool_call_completed', 'tool_call_failed', "
-            "'tool_call_started')",
+            "'tool_call_started', 'tool_policy_runtime_auth_recorded', 'tool_policy_visibility_recorded')",
             name="ck_agent_trace_events_event_type",
         ),
         CheckConstraint("sequence > 0", name="ck_agent_trace_events_sequence_positive"),

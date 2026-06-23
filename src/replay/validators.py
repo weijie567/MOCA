@@ -27,6 +27,8 @@ REPLAY_EVENT_TYPES: set[str] = {
     "approval_expired",
     "approval_resumed",
     "action_draft_created",
+    "tool_policy_visibility_recorded",
+    "tool_policy_runtime_auth_recorded",
 }
 
 EVENT_RETENTION_CLASSIFICATION: dict[str, str] = {
@@ -51,6 +53,8 @@ EVENT_RETENTION_CLASSIFICATION: dict[str, str] = {
     "approval_expired": "approval_audit_event",
     "approval_resumed": "approval_audit_event",
     "action_draft_created": "action_audit_event",
+    "tool_policy_visibility_recorded": "tool_policy_event",
+    "tool_policy_runtime_auth_recorded": "tool_policy_event",
 }
 
 FORBIDDEN_REDACTED_PAYLOAD_KEYS: set[str] = {
@@ -77,6 +81,9 @@ FORBIDDEN_REDACTED_PAYLOAD_KEYS: set[str] = {
     "raw_parser_payload",
     "parser_dump",
     "hidden_text",
+    "input_schema",
+    "required_permission",
+    "caller_allowlist",
 }
 
 
