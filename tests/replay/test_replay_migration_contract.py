@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 import re
 
-import pytest
 from sqlalchemy import CheckConstraint, Index, UniqueConstraint
 from sqlalchemy.schema import ColumnCollectionConstraint
 

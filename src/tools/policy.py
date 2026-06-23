@@ -2,40 +2,17 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from src.platform.trusted_context import MerchantScopeV1
 from src.tools.catalog import ToolCatalog, ToolDescriptor
 from src.tools.contracts import (
+    TOOL_POLICY_CORE_REASON_CODES,
+    TOOL_POLICY_EXTENSION_REASON_PATTERN,
     ToolCallContext,
     ToolPolicyDecision,
     ToolViewV1,
 )
-
-
-TOOL_POLICY_CORE_REASON_CODES: set[str] = {
-    "visible",
-    "hidden_by_policy",
-    "caller_not_allowed",
-    "missing_permission",
-    "scope_denied",
-    "side_effect_blocked",
-    "schema_invalid",
-    "approval_required",
-    "safety_snapshot_required",
-    "idempotency_required",
-    "tool_unavailable",
-}
-
-TOOL_POLICY_RUNTIME_ONLY_REASON_CODES: set[str] = {
-    "schema_invalid",
-    "approval_required",
-    "safety_snapshot_required",
-    "idempotency_required",
-}
-
-TOOL_POLICY_EXTENSION_REASON_PATTERN = re.compile(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$")
 
 # Schema shape keys retained during prompt-safe projection.
 _PROMPT_SAFE_SCHEMA_KEYS: set[str] = {
@@ -131,6 +108,13 @@ def _project_schema_node(node: dict[str, Any]) -> dict[str, Any]:
         if key == "items" and isinstance(value, dict):
             projected[key] = _project_schema_node(value)
             continue
+        if key == "additionalProperties":
+            if isinstance(value, dict):
+                projected[key] = _project_schema_node(value)
+            elif isinstance(value, bool):
+                projected[key] = value
+            # Other types (e.g. stray strings) are conservatively dropped.
+            continue
         if key in _PROMPT_SAFE_SCHEMA_KEYS:
             projected[key] = value
     return projected
@@ -161,12 +145,23 @@ class ToolPolicyEngine:
         *,
         caller: str,
         ctx: ToolCallContext,
+        availability_map: dict[str, bool] | None = None,
     ) -> list[ToolPolicyDecision]:
-        """Return one visibility decision per catalog descriptor."""
+        """Return one visibility decision per catalog descriptor.
 
+        When *availability_map* is provided, tools whose availability is
+        ``False`` receive a ``hidden`` decision with ``tool_unavailable``
+        reason so the decision record captures unavailability even though
+        the tool is not surfaced in the planner prompt.
+        """
+
+        available = availability_map or {}
         decisions: list[ToolPolicyDecision] = []
         for descriptor in self._catalog.descriptors():
-            decisions.append(self._visibility_decision(descriptor, caller=caller))
+            is_available = available.get(descriptor.name, True)
+            decisions.append(
+                self._visibility_decision(descriptor, caller=caller, runtime_available=is_available)
+            )
         return decisions
 
     def _visibility_decision(
@@ -174,13 +169,19 @@ class ToolPolicyEngine:
         descriptor: ToolDescriptor,
         *,
         caller: str,
+        runtime_available: bool = True,
     ) -> ToolPolicyDecision:
         reason_codes: list[str] = []
         visible = True
 
+        if not runtime_available:
+            visible = False
+            reason_codes.append("tool_unavailable")
+
         if descriptor.exposure != "planner_visible":
             visible = False
-            reason_codes.append("hidden_by_policy")
+            if "hidden_by_policy" not in reason_codes:
+                reason_codes.append("hidden_by_policy")
 
         if caller not in descriptor.caller_allowlist:
             visible = False
@@ -189,6 +190,10 @@ class ToolPolicyEngine:
 
         if not reason_codes:
             reason_codes.append("visible")
+
+        availability_summary = None
+        if not runtime_available:
+            availability_summary = f"Tool {descriptor.name!r} is currently unavailable"
 
         return ToolPolicyDecision(
             tool_name=descriptor.name,
@@ -201,8 +206,8 @@ class ToolPolicyEngine:
             policy_version=self._policy_version,
             data_classification="internal",
             resource_scope_binding=None,
-            runtime_available=None,
-            availability_summary=None,
+            runtime_available=runtime_available,
+            availability_summary=availability_summary,
         )
 
     def tool_views_for_decisions(
