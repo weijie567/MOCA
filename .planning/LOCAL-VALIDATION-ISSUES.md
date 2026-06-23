@@ -3480,3 +3480,78 @@ request_user_input is unavailable in Default mode
 
 - `/Users/ming/.codex/skills/gsd-discuss-phase/SKILL.md`
 - `/Users/ming/.codex/get-shit-done/workflows/discuss-phase.md`
+
+## 56. `state.record-session` 在本轮调用中写坏 STATE.md Session Continuity 字段
+
+日期：2026-06-23
+
+### 问题现象
+
+生成 Phase 29 context 后按 workflow 更新 STATE：
+
+```bash
+gsd-sdk query state.record-session --stopped-at "Phase 29 context gathered" --resume-file ".planning/phases/29-tool-platform-boundary/29-CONTEXT.md"
+```
+
+工具返回 `recorded: true`，但 `.planning/STATE.md` 的 `Session Continuity` 字段被写成错误值。第一次 flag 形式写入后出现：
+
+```text
+Last session: --stopped-at
+Stopped at: Phase 29 context gathered
+Resume file: --resume-file
+```
+
+随后尝试 positional fallback：
+
+```bash
+gsd-sdk query state.record-session "Phase 29 context gathered" ".planning/phases/29-tool-platform-boundary/29-CONTEXT.md"
+```
+
+结果仍不正确：
+
+```text
+Last session: Phase 29 context gathered
+Stopped at: .planning/phases/29-tool-platform-boundary/29-CONTEXT.md
+Resume file: None
+```
+
+### 如何检测 / 复现
+
+运行上述 `state.record-session` 命令后检查：
+
+```bash
+sed -n '136,146p' .planning/STATE.md
+```
+
+### 关键证据或命令
+
+`gsd-sdk query state.record-session` 两次都返回成功，但 `STATE.md` 正文内容错误。相关 handler 位于：
+
+```text
+/Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs
+/Users/ming/.codex/get-shit-done/bin/lib/state.cjs
+```
+
+### 当前判断 / 根因
+
+当前判断是 GSD `state.record-session` 在 `gsd-sdk query` 调用链中的参数传递或字段替换存在缺陷：返回成功并不代表 `Session Continuity` 三行语义正确。`state.patch` 也不适合修复本问题，因为目标字段名包含空格，不能稳定作为 flag 名传递。
+
+### 已做处理
+
+用最小补丁修复 `.planning/STATE.md`：
+
+```text
+Last session: 2026-06-23T13:40:00+08:00
+Stopped at: Phase 29 context gathered
+Resume file: .planning/phases/29-tool-platform-boundary/29-CONTEXT.md
+```
+
+### 剩余问题
+
+未修复 GSD 工具本身。后续使用 `state.record-session` 后必须立刻检查 `.planning/STATE.md` 的 `Session Continuity` 三行。
+
+### 下次继续排查入口
+
+- `gsd-sdk query state.record-session`
+- `/Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs`
+- `/Users/ming/.codex/get-shit-done/bin/lib/state.cjs::cmdStateRecordSession`

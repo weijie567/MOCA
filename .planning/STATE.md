@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
 status: planning
-stopped_at: Phase 29 context gathered
-last_updated: "2026-06-23T05:54:23.759Z"
+stopped_at: .planning/phases/29-tool-platform-boundary/29-CONTEXT.md
+last_updated: "2026-06-23T05:54:53.659Z"
 last_activity: 2026-06-23 -- Phase 28 complete
 progress:
   total_phases: 10
@@ -138,9 +138,9 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: --stopped-at
+Last session: 2026-06-23T13:40:00+08:00
 Stopped at: Phase 29 context gathered
-Resume file: --resume-file
+Resume file: .planning/phases/29-tool-platform-boundary/29-CONTEXT.md
 Next: Plan Phase 29 Tool Platform Boundary; old phase directory archive remains a separate cleanup todo.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
