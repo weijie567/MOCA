@@ -3493,7 +3493,7 @@ request_user_input is unavailable in Default mode
 gsd-sdk query state.record-session --stopped-at "Phase 29 context gathered" --resume-file ".planning/phases/29-tool-platform-boundary/29-CONTEXT.md"
 ```
 
-工具返回 `recorded: true`，但 `.planning/STATE.md` 的 `Session Continuity` 字段被写成错误值。第一次 flag 形式写入后出现：
+工具返回 `recorded: true`，但 `.planning/STATE.md` 的 `Session Continuity` 字段被写成错误值，并且 frontmatter 的 `status` / `stopped_at` / `progress` 也发生漂移。第一次 flag 形式写入后出现：
 
 ```text
 Last session: --stopped-at
@@ -3538,7 +3538,7 @@ sed -n '136,146p' .planning/STATE.md
 
 ### 已做处理
 
-用最小补丁修复 `.planning/STATE.md`：
+用最小补丁修复 `.planning/STATE.md` 正文：
 
 ```text
 Last session: 2026-06-23T13:40:00+08:00
@@ -3546,9 +3546,24 @@ Stopped at: Phase 29 context gathered
 Resume file: .planning/phases/29-tool-platform-boundary/29-CONTEXT.md
 ```
 
+同时恢复 frontmatter：
+
+```yaml
+status: ready_to_plan
+stopped_at: Phase 29 context gathered
+last_updated: "2026-06-23T13:40:00+08:00"
+last_activity: 2026-06-23 -- Phase 29 context gathered
+progress:
+  total_phases: 10
+  completed_phases: 4
+  total_plans: 10
+  completed_plans: 5
+  percent: 40
+```
+
 ### 剩余问题
 
-未修复 GSD 工具本身。后续使用 `state.record-session` 后必须立刻检查 `.planning/STATE.md` 的 `Session Continuity` 三行。
+未修复 GSD 工具本身。后续使用 `state.record-session` 后必须立刻检查 `.planning/STATE.md` 的 frontmatter 和 `Session Continuity` 三行。
 
 ### 下次继续排查入口
 
