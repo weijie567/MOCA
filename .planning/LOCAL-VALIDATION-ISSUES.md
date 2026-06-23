@@ -3701,3 +3701,44 @@ Next: Execute Phase 29 Tool Platform Boundary
 - `gsd-sdk query state.planned-phase`
 - `/Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs`
 - `/Users/ming/.codex/get-shit-done/bin/lib/state.cjs`
+
+## 2026-06-23 16:01 CST - Phase 29 plan 修复复核时 `rg` 正则引号错误
+
+### 问题现象
+
+复核 Phase 29 plan/spec 修复时，一个用于确认旧 `UnifiedToolManager` graph-facing 文本是否残留的 `rg` 命令失败，shell 输出：
+
+```text
+zsh:1: unmatched "
+```
+
+### 如何检测 / 复现
+
+在仓库根目录运行包含未转义反引号和双引号混用的旧复核命令会触发 zsh 解析失败。
+
+### 关键证据或命令
+
+失败命令意图是搜索 `docs/contract-spec.md` 和 `.planning/phases/29-tool-platform-boundary` 中的旧 manager 边界文本；失败原因来自命令本身的 quoting，而不是仓库内容。
+
+### 当前判断 / 根因
+
+复核命令的正则字符串里包含 markdown 反引号，放在双引号 shell 字符串中后被 zsh 当作命令替换边界解析，导致 unmatched quote。
+
+### 已做处理
+
+改用单引号包裹正则并移除反引号敏感片段后重跑：
+
+```bash
+rg -n 'UnifiedToolManager 是 graph-facing|唯一 node-facing|UnifiedToolManager read/retrieval|UnifiedToolManager\.invoke.*执行单次|UnifiedToolManager\.invoke.*必须|UnifiedToolManager\.visible_tools.*输出|execute_action.*UnifiedToolManager' docs/contract-spec.md .planning/phases/29-tool-platform-boundary
+```
+
+该命令无匹配，说明旧 graph-facing manager 文本已经清除。
+
+### 剩余问题
+
+无。后续写 markdown/regex 混合复核命令时，优先用单引号或拆分查询，避免反引号触发 shell 解析。
+
+### 下次继续排查入口
+
+- `docs/contract-spec.md`
+- `.planning/phases/29-tool-platform-boundary/29-*-PLAN.md`

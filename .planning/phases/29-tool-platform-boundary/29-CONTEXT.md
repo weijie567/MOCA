@@ -46,7 +46,7 @@ This phase does not implement the Phase 30 `BusinessFactService` authority bound
 
 - **D-20:** Phase 29 directly establishes the target tool platform component boundaries: `ToolPlatform`, `ToolPolicyEngine`, `ToolRuntime`, and `ToolResultProjector`.
 - **D-21:** These components are minimum public contracts and ownership boundaries, not a mandate to implement every future runtime capability in Phase 29.
-- **D-22:** `ToolPlatform` is the graph-facing public facade. New graph/tool-platform integration after Phase 29 should target `ToolPlatform.visible_tools(...)` and `ToolPlatform.invoke(...)`.
+- **D-22:** `ToolPlatform` is the graph-facing public facade. New graph/tool-platform integration after Phase 29 should target `ToolPlatform.visible_tools(...)` and `ToolPlatform.invoke(...)`. `docs/contract-spec.md` §9 / §12.6 has been aligned to this Phase 29 decision by naming `ToolPlatform` as the graph-facing dispatch boundary and `UnifiedToolManager` as a legacy compatibility adapter.
 - **D-23:** `ToolPolicyEngine` owns visibility and runtime auth decisions. It does not call executors, write graph state, persist conversation records, or project prompt content.
 - **D-24:** `ToolRuntime` owns the execution chain: input schema validation, runtime auth decision checkpoint, side-effect gate, approval/safety/idempotency required-field gates, executor dispatch, output schema validation, result projection, safe error mapping, and decision event emission.
 - **D-25:** Phase 29 reuses existing `deadline_at` and `max_attempts` semantics. It does not introduce a new generic retry system, rate limiter, full timeout wrapper, feature-flag platform, DB artifact store, or full raw artifact persistence layer.
