@@ -48,10 +48,11 @@ async def memory_write(state: AgentState, config: RunnableConfig) -> dict:
     session = configurable.get("session")
     if session is None:
         return _skipped(state, started_at, "missing_async_session")
+    memory_operation_id = uuid.uuid4()
 
     try:
         result = await asyncio.wait_for(
-            _write_with_service(state, session, configurable, started_at),
+            _write_with_service(state, session, configurable, started_at, operation_id=memory_operation_id),
             timeout=settings.session_memory_write_timeout_seconds,
         )
         return result
@@ -61,7 +62,14 @@ async def memory_write(state: AgentState, config: RunnableConfig) -> dict:
             await rollback()
         return _skipped(state, started_at, "write_timeout", final_response=final_response)
     except Exception:
-        await _emit_memory_event(state, configurable, session, "memory_write_failed", {"status": "error"})
+        await _emit_memory_event(
+            state,
+            configurable,
+            session,
+            "memory_write_failed",
+            {"status": "error"},
+            operation_id=memory_operation_id,
+        )
         return _error(state, started_at, final_response)
 
 
@@ -70,6 +78,8 @@ async def _write_with_service(
     session: Any,
     configurable: dict[str, Any],
     started_at: str,
+    *,
+    operation_id: uuid.UUID,
 ) -> dict:
     candidate = _build_candidate(state)
     if candidate.decision == "skip":
@@ -92,12 +102,20 @@ async def _write_with_service(
             "slot_count": len(candidate.explicit_slots),
             "has_unresolved_questions": bool(candidate.unresolved_questions),
         },
+        operation_id=operation_id,
     )
     service = MemoryService(SessionMemoryRepository(session), enabled=settings.session_memory_enabled)
     try:
         result = await service.write_session_memory(candidate)
     except Exception:
-        await _emit_memory_event(state, configurable, session, "memory_write_failed", {"status": "error"})
+        await _emit_memory_event(
+            state,
+            configurable,
+            session,
+            "memory_write_failed",
+            {"status": "error"},
+            operation_id=operation_id,
+        )
         raise
     event_type = "memory_write_completed" if result.status not in {"error", "fallback"} else "memory_write_failed"
     await _emit_memory_event(
@@ -111,6 +129,7 @@ async def _write_with_service(
             "has_unresolved_questions": bool(candidate.unresolved_questions),
             "fallback_reason": result.fallback_reason,
         },
+        operation_id=operation_id,
     )
     return _completed(state, started_at, result, candidate)
 
@@ -318,6 +337,8 @@ async def _emit_memory_event(
     session: Any,
     event_type: str,
     payload: dict[str, Any],
+    *,
+    operation_id: uuid.UUID | None = None,
 ) -> None:
     run_id = state.get("current_run_id")
     tenant_id = state.get("tenant_id")
@@ -335,6 +356,7 @@ async def _emit_memory_event(
             resource_refs={"memory_type": "session_memory"},
             redacted_payload={key: value for key, value in payload.items() if value is not None},
             trace_id=configurable.get("trace_id"),
+            operation_id=operation_id,
         )
     except Exception:
         return

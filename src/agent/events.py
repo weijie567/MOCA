@@ -13,6 +13,7 @@ from src.replay import (
     ReplayService,
     guard_redacted_payload,
 )
+from src.replay.decision_events import emit_decision_event
 
 
 TOOL_CALL_TOOLS = {"get_order", "get_refund_case", "get_ticket", "get_logistics", "get_merchant_risk"}
@@ -51,12 +52,15 @@ async def emit_event(
     operation_id: uuid.UUID | str | None = None,
     iteration: int | None = None,
     redaction_policy_version: str = "redaction.v1",
+    reason_code: str | None = None,
+    reason_codes: list[str] | None = None,
 ) -> dict[str, Any]:
     """Persist and return one minimal event envelope."""
     if event_type not in MINIMAL_EVENT_TYPES:
         raise ValueError(f"event_type {event_type!r} is not registered for the minimal envelope")
 
-    return await ReplayService(session).append_event(
+    return await emit_decision_event(
+        session,
         run_id=run_id,
         tenant_id=tenant_id,
         thread_id=thread_id,
@@ -68,7 +72,8 @@ async def emit_event(
         operation_id=operation_id,
         iteration=iteration,
         redaction_policy_version=redaction_policy_version,
-        schema_version=SCHEMA_VERSION,
+        reason_code=reason_code,
+        reason_codes=reason_codes,
     )
 
 
