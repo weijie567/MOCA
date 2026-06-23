@@ -14,7 +14,7 @@ from src.conversation.repository import ConversationRepository
 from src.conversation.service import ConversationService
 from src.platform.context_projections import project_to_tool_context
 from src.platform.trusted_context import TrustedContext
-from src.tools.contracts import ToolCallContext, ToolInvocationOutcome, ToolResultPromptSummary, ToolResultV2, ToolViewV1
+from src.tools.contracts import ToolCallContext, ToolInvocationOutcome, ToolResultProjectionV1, ToolResultPromptSummary, ToolResultV2, ToolViewV1
 from src.tools.platform import ToolPlatform
 
 
@@ -172,7 +172,7 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
             terminal,
             result=result,
         )
-        projection = await _append_tool_result_record(
+        prompt_summary = await _append_tool_result_record(
             configurable,
             session,
             tool_name,
@@ -182,7 +182,7 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
             tool_call_record,
             projection=outcome.projection,
         )
-        _accumulate_tool_result(context, descriptor, tool_name, result, projection)
+        _accumulate_tool_result(context, descriptor, tool_name, result, prompt_summary, outcome.projection)
         if result.status == "unavailable":
             context["unusable"].add(tool_name)
         if result.status not in TERMINAL_STATUSES:
@@ -355,7 +355,7 @@ async def _append_tool_result_record(
     operation_id: Any,
     result: ToolResultV2,
     tool_call_record: Any | None,
-    projection: Any | None = None,
+    projection: ToolResultProjectionV1 | None = None,
 ) -> ToolResultPromptSummary:
     tool_result_id = str(uuid4())
     if not _can_persist_conversation_tool_records(configurable, session):
@@ -419,13 +419,12 @@ def _project_tool_result(
     tool_name: str,
     result: ToolResultV2,
     raw_result_ref: str | None,
-    projection: Any | None = None,
+    projection: ToolResultProjectionV1 | None = None,
 ) -> ToolResultPromptSummary:
     # Use projection data when available; fall back to building from result.
     if projection is not None:
-        prompt_text = getattr(projection, "text_for_prompt", None) or ""
-        normalized = getattr(projection, "normalized_result", {})
-        prompt_proj = getattr(projection, "prompt_projection", {})
+        prompt_text = projection.text_for_prompt or ""
+        prompt_proj = projection.prompt_projection
         business_fact_refs = prompt_proj.get("business_fact_refs", [])
         policy_evidence_refs = prompt_proj.get("policy_candidate_refs", [])
         return ToolResultPromptSummary(
@@ -543,19 +542,21 @@ def _accumulate_tool_result(
     descriptor: Any,
     tool_name: str,
     result: ToolResultV2,
-    projection: ToolResultPromptSummary,
+    prompt_summary: ToolResultPromptSummary,
+    full_projection: ToolResultProjectionV1,
 ) -> None:
-    context["tool_results"].append(projection.model_dump(mode="json"))
+    context["tool_results"].append(prompt_summary.model_dump(mode="json"))
+    normalized = full_projection.normalized_result
     if result.status == "success":
         if tool_name == "search_case_memory":
-            # Use normalized_result from projection when available, else fall back.
-            context.setdefault("case_memory", []).extend(_case_memory_items(result.data))
+            context.setdefault("case_memory", []).extend(
+                _case_memory_items_from_projection(normalized)
+            )
         if result.business_fact_refs:
             for ref in result.business_fact_refs:
                 ref_data = ref.model_dump(mode="json")
                 context["business_fact_refs"].append(ref_data)
-                # Use projection normalized_result instead of raw result.data.
-                context["facts"][ref.resource_type] = _without_raw_payload(result.data or {})
+                context["facts"][ref.resource_type] = normalized
                 context["claim_dependency_map"].append(
                     {
                         "claim_id": f"business:{ref.resource_type}:{ref.resource_id}",
@@ -571,13 +572,13 @@ def _accumulate_tool_result(
                         "depends_on_refs": [{"resource_type": "policy", "resource_id": ref.evidence_id}],
                     }
                 )
-    if result.data:
-        retrieval_status = result.data.get("retrieval_status")
-        best_score = result.data.get("best_score")
-        if retrieval_status in {"strong_evidence", "partial_evidence", "no_evidence", "error"}:
-            context["retrieval_status"] = retrieval_status
-        if isinstance(best_score, (int, float)):
-            context["best_score"] = float(best_score)
+    # Use normalized_result for retrieval status, not raw result.data.
+    retrieval_status = normalized.get("retrieval_status")
+    best_score = normalized.get("best_score")
+    if retrieval_status in {"strong_evidence", "partial_evidence", "no_evidence", "error"}:
+        context["retrieval_status"] = retrieval_status
+    if isinstance(best_score, (int, float)):
+        context["best_score"] = float(best_score)
     if result.status != "success":
         resource_type = descriptor.resource_type if descriptor is not None and descriptor.resource_type else tool_name
         error = (
@@ -751,6 +752,37 @@ def _safe_case_text(value: Any) -> str | None:
         return None
     normalized = " ".join(value.split())
     return normalized[:1500] or None
+
+
+def _case_memory_items_from_projection(normalized: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extract case-memory items from projector-normalized result.
+
+    Reads from normalized_result (safe projected surface) rather than raw
+    result.data to prevent raw payloads from entering graph state.
+    """
+    items = normalized.get("_case_memory_items")
+    if not isinstance(items, list):
+        return []
+    result: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        entry: dict[str, Any] = {}
+        for key in (
+            "case_id", "case_memory_id", "memory_id", "id",
+            "similarity", "score",
+            "snippet", "excerpt",
+            "outcome", "applicability", "caveats",
+        ):
+            if key in item and isinstance(item[key], (str, int, float, bool)):
+                entry[key] = item[key]
+        for key in ("policy_refs", "source_refs"):
+            refs = item.get(key)
+            if isinstance(refs, list):
+                entry[key] = refs
+        if entry:
+            result.append(entry)
+    return result
 
 
 def _now_iso() -> str:

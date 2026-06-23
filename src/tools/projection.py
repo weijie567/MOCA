@@ -22,11 +22,15 @@ _RAW_SENTINEL_KEYS: set[str] = {
 # Safe scalar keys extracted from result.data into normalized_result.
 _SAFE_SCALAR_KEYS: set[str] = {
     "order_no",
+    "id",
     "status",
     "source_system",
     "summary",
     "best_score",
     "retrieval_status",
+    "draft_id",
+    "created",
+    "idempotent_reused",
 }
 
 # Typed ref keys extracted from result.data.
@@ -151,8 +155,8 @@ class ToolResultProjector:
                 "source": result.error.source,
             }
 
-        # Case-memory items (sanitized).
-        case_memory = data.get("_case_memory_items")
+        # Case-memory items (sanitized). Check both canonical and legacy keys.
+        case_memory = data.get("_case_memory_items") or data.get("items")
         if isinstance(case_memory, list):
             normalized["_case_memory_items"] = self._sanitize_case_memory(case_memory)
 
@@ -180,11 +184,31 @@ class ToolResultProjector:
             if not isinstance(item, dict):
                 continue
             safe_entry: dict[str, Any] = {}
-            for key in ("case_id", "similarity", "snippet", "outcome"):
+            for key in (
+                "case_id", "case_memory_id", "memory_id", "id",
+                "similarity", "score",
+                "snippet", "excerpt",
+                "outcome", "applicability", "caveats",
+            ):
                 if key in item:
                     value = item[key]
                     if isinstance(value, (str, int, float, bool)):
                         safe_entry[key] = value
+            # Sanitize nested ref lists.
+            for key in ("policy_refs", "source_refs"):
+                refs = item.get(key)
+                if isinstance(refs, list):
+                    safe_refs = []
+                    for ref in refs:
+                        if isinstance(ref, dict):
+                            safe_ref = {
+                                k: v for k, v in ref.items()
+                                if isinstance(v, (str, int, float, bool))
+                            }
+                            if safe_ref:
+                                safe_refs.append(safe_ref)
+                    if safe_refs:
+                        safe_entry[key] = safe_refs
             if safe_entry:
                 sanitized.append(safe_entry)
         return sanitized

@@ -15,7 +15,7 @@ from src.conversation.schemas import (
     guard_forbidden_message_keys,
 )
 from src.db.models import ConversationMessage, ConversationSummary, ToolResultRecord
-from src.tools.contracts import ToolResultPromptSummary, ToolResultV2
+from src.tools.contracts import ToolResultProjectionV1, ToolResultPromptSummary, ToolResultV2
 
 
 @dataclass(frozen=True)
@@ -216,7 +216,7 @@ class ConversationService:
         raw_result_ref: str | None = None,
         raw_result_hash: str | None = None,
         replay_event_id: uuid.UUID | str | None = None,
-        projection: Any | None = None,
+        projection: ToolResultProjectionV1 | None = None,
     ) -> ToolResultPromptSummary:
         if self.repository is None:
             raise RuntimeError("ConversationRepository is required for append operations")
@@ -227,13 +227,13 @@ class ConversationService:
             projection = ToolResultProjector().project(
                 tool_name=tool_name, result=result, tool_call_id=tool_call_id,
             )
-        normalized_result_json = getattr(projection, "normalized_result", {}) or {}
-        prompt_proj = getattr(projection, "prompt_projection", {}) or {}
-        prompt_text = getattr(projection, "text_for_prompt", "") or ""
+        normalized_result_json = projection.normalized_result
+        prompt_proj = projection.prompt_projection
+        prompt_text = projection.text_for_prompt
         business_fact_refs = prompt_proj.get("business_fact_refs", [])
         policy_evidence_refs = prompt_proj.get("policy_candidate_refs", [])
         audit_ref = result.audit_ref
-        if getattr(projection, "audit_refs", None):
+        if projection.audit_refs:
             for ref in projection.audit_refs:
                 if ref:
                     audit_ref = ref

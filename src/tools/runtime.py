@@ -27,7 +27,8 @@ class ToolRuntime:
 
     Gate order:
     1. Descriptor lookup
-    2. Input schema validation
+    2. Input schema validation (BEFORE runtime_auth — unvalidated args must
+       never enter resource_scope_binding or decision event resource_refs)
     3. Runtime auth decision (ToolPolicyEngine.runtime_auth)
     4. Side-effect gate (already in runtime_auth)
     5. Approval/safety/idempotency gates (already in runtime_auth)
@@ -91,26 +92,8 @@ class ToolRuntime:
             )
             return error_result, decision, event_id, projection
 
-        # Step 2: Runtime auth decision (before schema validation,
-        # matching old manager gate order: caller → side-effect → permission → schema)
-        availability_map = self._build_availability_map()
-        decision = self._policy_engine.runtime_auth(
-            tool_name=tool_name, args=args, ctx=ctx,
-            availability_map=availability_map,
-        )
-
-        # Step 4-5: Side-effect, approval, safety, idempotency (already in runtime_auth)
-        if decision.decision == "denied":
-            error_result = self._safe_denial_result(decision)
-            projection = self._projector.project(
-                tool_name=tool_name, result=error_result, tool_call_id=ctx.tool_call_id,
-            )
-            event_id = await self._emit_decision_event(
-                decision=decision, ctx=ctx, session=session,
-            )
-            return error_result, decision, event_id, projection
-
-        # Step 5b: Input schema validation (after auth, before dispatch)
+        # Step 2: Input schema validation (BEFORE runtime_auth so unvalidated
+        # args never enter resource_scope_binding or decision event resource_refs)
         try:
             validate_json_value(args, descriptor.input_schema)
         except (TypeError, ValueError):
@@ -123,6 +106,25 @@ class ToolRuntime:
                 "invalid_request", "Tool input failed validation",
                 code="INVALID_TOOL_INPUT", source="caller",
             )
+            projection = self._projector.project(
+                tool_name=tool_name, result=error_result, tool_call_id=ctx.tool_call_id,
+            )
+            event_id = await self._emit_decision_event(
+                decision=decision, ctx=ctx, session=session,
+            )
+            return error_result, decision, event_id, projection
+
+        # Step 3: Runtime auth decision (after schema validation so only
+        # validated args enter resource_scope_binding)
+        availability_map = self._build_availability_map()
+        decision = self._policy_engine.runtime_auth(
+            tool_name=tool_name, args=args, ctx=ctx,
+            availability_map=availability_map,
+        )
+
+        # Step 4-5: Side-effect, approval, safety, idempotency (already in runtime_auth)
+        if decision.decision == "denied":
+            error_result = self._safe_denial_result(decision)
             projection = self._projector.project(
                 tool_name=tool_name, result=error_result, tool_call_id=ctx.tool_call_id,
             )
@@ -297,7 +299,6 @@ class ToolRuntime:
                     "tool_name": decision.tool_name,
                     "tool_call_id": ctx.tool_call_id,
                     "resource_type": "tool",
-                    "resource_scope_binding": str(decision.resource_scope_binding or {}),
                 },
                 redacted_payload={
                     "decision_stage": decision.decision_stage,

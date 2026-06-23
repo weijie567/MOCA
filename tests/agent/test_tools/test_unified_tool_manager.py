@@ -339,13 +339,17 @@ async def test_write_tool_blocked_before_executor_dispatch():
     executor = _FakeExecutor("create_coupon_grant_draft", _success_result())
     manager = UnifiedToolManager(executors=[executor])
 
+    # Schema validation now runs before runtime_auth to prevent unvalidated
+    # args from entering resource_scope_binding (Blocker 1 fix).
+    # These args fail schema validation (missing required fields), so
+    # the tool is blocked with invalid_request before the side-effect check.
     result = await manager.invoke(
         "create_coupon_grant_draft",
         {"merchant_id": "m1", "amount": 1},
         _ctx(tool="create_coupon_grant_draft", permissions=["tool:create_coupon_grant_draft"]),
     )
 
-    assert result.status == "permission_denied"
+    assert result.status == "invalid_request"
     assert executor.calls == []
 
 
