@@ -301,7 +301,7 @@ Prompt input should consume only prompt projection fields:
 #### D-36: Artifact/Blob Storage Out of Scope
 Large raw payload storage is not part of Phase 29.
 
-If raw/debug payload needs future storage, it should be represented as optional ref fields only, with actual artifact store deferred.
+If raw/debug payload needs future storage, it should be represented as optional ref fields only, with actual artifact store deferred to a named post-v1.9 ArtifactStore phase, only if Phase 35 Replay and Eval Hardening identifies a replay/eval retention need.
 
 #### D-37: `ToolResultProjector` Does Not Emit Events
 Projector creates projections.
@@ -372,7 +372,7 @@ Migrating all graph nodes to ToolPlatform beyond investigate is deferred to Phas
 Authoritative domain ownership/fact extraction service is Phase 30.
 
 #### Deferred-03: Retry / Rate Limit / Timeout Framework
-Use existing context fields only. Generic framework deferred beyond Phase 29.
+Use existing context fields only. Generic framework deferred to a named post-v1.9 Platform Runtime Operations phase, only if a later runtime-operations scope requires it.
 
 #### Deferred-04: Feature Flag System
 Do not build generic feature flags. Availability can be represented by executor presence/health only.
@@ -863,22 +863,22 @@ Source: investigate already builds a prompt summary object and strips raw payloa
 |---|-------|---------|---------------|
 | None | All material claims in this research are tagged as `[VERIFIED]`, `[CITED]`, or `[INFERRED]` from repository code/docs read during this session. | All | No user confirmation needed for assumed facts; planner still needs to decide the few open design details below. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Exact `ToolPlatform.invoke(...)` return shape**
-   - What we know: Phase context allows "`ToolResultV2` or equivalent safe runtime result path"; contract docs historically show `invoke -> ToolResultV2`. [VERIFIED: .planning/phases/29-tool-platform-boundary/29-CONTEXT.md] [CITED: docs/contract-spec.md]
-   - What's unclear: Whether the new graph integration should receive a wrapper containing `tool_result`, `projection`, and `policy_decision_ref`, or call a separate projection method after `ToolResultV2`. [INFERRED: .planning/phases/29-tool-platform-boundary/29-CONTEXT.md + docs/contract-spec.md]
-   - Recommendation: Use a `ToolInvocationOutcome(tool_result, projection, policy_decision)` internally and keep `UnifiedToolManager.invoke(...) -> ToolResultV2` for compatibility. Encode the boundary in tests so planner and implementation stay aligned. [INFERRED: src/tools/manager.py + .planning/phases/29-tool-platform-boundary/29-CONTEXT.md]
+   - Chosen answer: Use `ToolInvocationOutcome(tool_result, projection, policy_decision)` internally, with an optional `policy_event_id` when the runtime-auth decision is persisted.
+   - Compatibility answer: Keep `UnifiedToolManager.invoke(...) -> ToolResultV2` by delegating to `ToolPlatform.invoke(...)` and returning `outcome.tool_result`.
+   - Planning impact: Plans 29-02 through 29-04 encode this contract in `ToolInvocationOutcome`, `ToolPlatform.invoke(...)`, manager compatibility tests, investigate integration, and conversation projection wiring.
 
 2. **New replay event types versus existing lifecycle event payloads**
-   - What we know: Exact event type names are discretionary, but must be registered/valid and use the Phase 28 decision event path. [VERIFIED: .planning/phases/29-tool-platform-boundary/29-CONTEXT.md]
-   - What's unclear: Whether planner wants to pay the migration/test cost for clearer `tool_policy_visibility_recorded` and `tool_policy_runtime_auth_recorded` event types. [INFERRED: src/replay/validators.py + src/db/models.py]
-   - Recommendation: Add the two explicit event types with registry, retention classification, ORM check, Alembic migration, and migration-contract tests. This is clearer than overloading lifecycle events and still respects "no parallel event table/envelope." [INFERRED: src/replay/decision_events.py + src/db/models.py]
+   - Chosen answer: Add explicit event types `tool_policy_visibility_recorded` and `tool_policy_runtime_auth_recorded`.
+   - Required implementation: Register both types in replay validators, assign retention classification `tool_policy_event`, update the `AgentTraceEvent` ORM event-type check, add Alembic migration `017_tool_policy_events.py`, and update migration-contract tests.
+   - Boundary retained: These events still use Phase 28 `emit_decision_event(...)` and `agent_trace_events`; no parallel event envelope or table is introduced.
 
 3. **Namespaced reason code validation**
-   - What we know: Phase context permits `<namespace>.<snake_case>` extension reason codes, while current replay normalizer only accepts snake_case. [VERIFIED: .planning/phases/29-tool-platform-boundary/29-CONTEXT.md] [VERIFIED: src/replay/decision_events.py]
-   - What's unclear: Whether Phase 29 will actually emit extension codes or only define the model validation. [INFERRED]
-   - Recommendation: Update replay reason-code validation to accept core snake_case codes and namespaced extension codes, with tests forbidding freeform strings. [INFERRED: .planning/phases/29-tool-platform-boundary/29-CONTEXT.md + src/replay/decision_events.py]
+   - Chosen answer: Update generic replay reason-code validation to accept both existing snake_case codes and `<namespace>.<snake_case>` extension codes.
+   - Tool-policy constraint: Tool-policy contract paths enforce the core-or-namespaced rule and forbid freeform unknown non-namespaced contract codes.
+   - Planning impact: Plan 29-02 updates `src/replay/decision_events.py` for generic compatibility and implements stricter `src/tools/policy.py` validation for tool-policy decisions.
 
 ## Environment Availability
 

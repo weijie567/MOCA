@@ -227,7 +227,7 @@ Plans:
 **Goal:** Replace scattered tool allowlists with descriptor-driven planner views, runtime authorization, result projection, and decision events.
 **Requirements**: APF-06, APF-07
 **Depends on:** Phase 28
-**Plans:** 0/1 plans complete
+**Plans:** 0/4 plans complete
 
 **Success Criteria**:
 
@@ -236,7 +236,10 @@ Plans:
 3. Tests prove visible does not imply allowed, hidden/write tools do not leak into planner prompts, and raw adapter payloads stay out of graph state.
 
 Plans:
-- [ ] 29-01-PLAN.md — Tool platform boundary
+- [ ] 29-01-PLAN.md — Wave 0 tool platform RED tests
+- [ ] 29-02-PLAN.md — Tool contracts, policy engine, and replay event registration
+- [ ] 29-03-PLAN.md — Tool runtime, platform facade, and result projector
+- [ ] 29-04-PLAN.md — Manager, investigate, conversation integration, and final gates
 
 ### Phase 30: BusinessFactService Boundary
 

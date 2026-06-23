@@ -182,7 +182,7 @@ This phase does not implement the Phase 30 `BusinessFactService` authority bound
 - Full target graph/planner-loop migration belongs to Phase 32 Intent Graph Migration.
 - Full current business fact authority, domain ownership checks, freshness, and not-found/permission-denied anti-enumeration behavior belong to Phase 30 BusinessFactService Boundary.
 - Generic retry/rate-limit/feature-flag/runtime policy infrastructure is not part of Phase 29 unless required for the minimal hard gate.
-- DB-backed raw artifact persistence and a full artifact store are deferred beyond Phase 29.
+- DB-backed raw artifact persistence and a full artifact store are deferred to a named post-v1.9 ArtifactStore phase, only if Phase 35 Replay and Eval Hardening identifies a replay/eval retention need.
 - Projection-level replay events are deferred to Phase 35 Replay and Eval Hardening if needed.
 - Dynamic external tool/MCP discovery remains future APF-FUT-03 after tool policy decisions, side-effect gates, and prompt-safe projections are stable.
 
