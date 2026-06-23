@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
 status: ready_to_plan
-stopped_at: Phase 27 UAT complete; Phase 28 planning ready
-last_updated: "2026-06-23T07:51:50+08:00"
-last_activity: 2026-06-23 -- Phase 27 UAT completed and Phase 28 planning ready
+stopped_at: Phase 28 context gathered
+last_updated: "2026-06-23T08:31:19+08:00"
+last_activity: 2026-06-23 -- Phase 28 context gathered
 progress:
   total_phases: 10
   completed_phases: 3
@@ -138,9 +138,9 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-23T07:51:50+08:00
-Stopped at: Phase 27 UAT complete; Phase 28 planning ready
-Resume file: None
+Last session: 2026-06-23T08:31:19+08:00
+Stopped at: Phase 28 context gathered
+Resume file: .planning/phases/28-decision-event-foundation/28-CONTEXT.md
 Next: Phase 28 Decision Event Foundation; old phase directory archive remains a separate cleanup todo.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
