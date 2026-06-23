@@ -12,7 +12,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 ## Current Milestone: v1.9 Agent Platform Foundation
 
-**Status:** Phase 27 complete; Phase 28 planning ready.
+**Status:** Phase 28 complete; Phase 29 planning ready.
 
 **Goal:** Convert MOCA from feature-by-feature agent code into a microservice-ready modular monolith with clear platform/domain service boundaries, canonical trusted context, decision events, tool policy, memory context, target graph contracts, RAG context build, claim verification, business fact authority, and approval/action boundary hardening.
 
@@ -178,16 +178,24 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 
 ### Active
 
-- [ ] **APF-01:** Target architecture and `contract-spec.md` stay aligned as the normative baseline for service boundaries, graph vocabulary, AgentState RAG/claim fields, tool policy decisions, business fact results, and decision events.
-- [ ] **APF-02:** `TrustedContextFactory` produces canonical `TrustedContext` and safe projections without widening identity/scope fields.
-- [ ] **APF-03:** Minimal decision event envelope and reason-code convention are available before platform services emit auditable decisions.
-- [ ] **APF-04:** Tool access is mediated by descriptor-driven `ToolView`, `ToolPolicyDecision`, and runtime authorization rather than scattered allowlists.
-- [ ] **APF-05:** Memory read/write surfaces are split into session context, long-term memory, case memory, conversation log, workflow checkpoint, and working-state projections with authority boundaries.
-- [ ] **APF-06:** Intent graph migration introduces safety pre-route, session context loading, contextual intent resolution, and deterministic slot resolution while preserving legacy compatibility.
-- [ ] **APF-07:** RAG context build and claim verification become deterministic, replayable gates around candidate evidence, verified evidence packages, material claims, and action-bound recommendations.
-- [ ] **APF-08:** Business facts are served through `BusinessFactResultV1` / `BusinessFactRefV1` boundaries and cannot be replaced by memory, RAG, or LLM inference.
-- [ ] **APF-09:** Approval and action draft boundaries bind structured action proposals, business fact refs, verified evidence, claim verification, risk decisions, payload hashes, and safety snapshots without enabling full real execution.
-- [ ] **APF-10:** Replay and eval gates cover the new platform boundaries with dev-contract, release, and monitoring gate separation.
+- [x] **APF-01:** The target architecture plan, `contract-spec.md`, and eval plan define the same target graph vocabulary, service boundaries, AgentState RAG/claim fields, tool policy decisions, business fact results, and decision event foundation (validated in Phase 26)
+- [x] **APF-02:** Each platform/domain module has explicit ownership over schemas, repositories/adapters, public methods, downstream dependencies, forbidden imports, and decision events (validated in Phase 26)
+- [x] **APF-03:** `TrustedContextFactory` produces canonical `TrustedContext` from trusted API/auth/run boundaries without accepting LLM or user-payload overrides (validated in Phase 27)
+- [x] **APF-04:** `TrustedContextFactory` derives prompt-safe and service-safe projections for tool calls, knowledge retrieval, memory loading, approval decisions, replay, and intent policy without widening canonical identity/scope fields (validated in Phase 27)
+- [x] **APF-05:** A minimal `DecisionEventEnvelopeV1` / event emitter foundation records stable reason codes, policy/model/tool versions, redaction policy, and run/tenant/trace identity for later platform service decisions (validated in Phase 28)
+- [ ] **APF-06:** Tool planner visibility is generated from `ToolDescriptor` into prompt-safe `ToolView` rather than exposing raw descriptors, adapters, internal permission reasons, or side-effect capabilities.
+- [ ] **APF-07:** Runtime tool invocation emits `ToolPolicyDecision` and rechecks authorization, resource scope, side-effect class, and input/output schema even when the tool was visible to the planner.
+- [ ] **APF-08:** Business fact reads expose `BusinessFactResultV1` / `BusinessFactRefV1` through domain service public methods, and graph/tool code cannot substitute memory, RAG, LLM inference, or raw repository rows for current business facts.
+- [ ] **APF-09:** Session context loading exposes agent-facing `SessionContextMemory` for same-thread continuity while keeping `SessionContinuityStore` as an internal storage concern.
+- [ ] **APF-10:** Memory context APIs separate session context, long-term memory, case memory, conversation log, workflow checkpoint, working state, and memory write candidates, with explicit authority tags that prevent memory from satisfying policy evidence, current business fact, approval, action, or replay truth.
+- [ ] **APF-11:** The graph can map legacy nodes/routers to target canonical vocabulary for `safety_pre_route`, `session_context_load`, `contextual_intent_resolve`, `slot_resolution_gate`, `memory_context_load`, `rag_context_build`, and `claim_verify`.
+- [ ] **APF-12:** Intent and slot policy registries drive contextual intent resolution and slot inheritance decisions, with LLM output limited to candidates and deterministic policy owning effective route/slot decisions.
+- [ ] **APF-13:** `rag_context_build` validates candidate policy evidence into `VerifiedEvidencePackageV1` with identity/scope/hash/version/effective-date checks, separated prompt/verifier/replay/debug projections, and deterministic `route_after_rag_context`.
+- [ ] **APF-14:** `claim_verify` consumes `MaterialClaimV1` outputs and produces `ClaimVerificationBundleV1` with rules-first support status, hard gates for unsupported user-visible/action claims, and fail-closed behavior for high-risk/action-bound verifier errors.
+- [ ] **APF-15:** Action proposals, approval decisions, and action drafts bind structured payloads to business fact refs, verified evidence refs, claim verification refs, risk decisions, payload hashes, and safety snapshots.
+- [ ] **APF-16:** `risk_gate` owns blocked/approval-required/auto-draft decisions, while `approval_gate` only executes approval plans, trusted resume, interrupt, and revision state machine behavior.
+- [ ] **APF-17:** Replay/trace coverage records platform decisions for trusted context projection, intent/slot policy, memory load/write policy, tool visibility/auth, RAG validation, claim verification, risk/approval, and action draft boundaries.
+- [ ] **APF-18:** Contract tests and eval gates distinguish dev-contract, release, and monitoring gates for the new platform boundaries, including negative cases for scope leaks, unsupported claims, unsafe action paths, and raw payload exposure.
 
 ### Out of Scope
 
@@ -262,7 +270,7 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - v1.5 RAG Context Builder + Hallucination Control is shipped and archived. Phase 22 owns ContextBuilder, canonical evidence validation, MaterialClaim authority verification, deterministic route control, action-boundary blocking, safe final-response wording, and hallucination-control evals while preserving v1.3/v1.4 evidence and provenance boundaries.
 - v1.6 RAG Reranker + Query Rewrite is shipped and archived on 2026-06-20. Full milestone history lives in `.planning/milestones/v1.6-ROADMAP.md`, `.planning/milestones/v1.6-REQUIREMENTS.md`, and `.planning/milestones/v1.6-phases/`.
 - v1.7 Short-term Memory Unification is complete on 2026-06-20. Phase 24 owns Agent Console `/agent-runs + SSE` conversation persistence, rolling summaries, prompt-safe tool summaries, PostgreSQL-backed session slot continuity, failure/idempotency safeguards, authority-boundary regressions, and three-turn smoke verification.
-- v1.9 Agent Platform Foundation has completed Phase 26 Architecture Contract Baseline and Phase 27 TrustedContextFactory and Projections. Phase 27 owns canonical `TrustedContextFactory`, no-widening service projections, read-only intent/slot registries, and current route/node/tool seam migrations for APF-03/APF-04.
+- v1.9 Agent Platform Foundation has completed Phase 26 Architecture Contract Baseline, Phase 27 TrustedContextFactory and Projections, and Phase 28 Decision Event Foundation. Phase 27 owns canonical `TrustedContextFactory`, no-widening service projections, read-only intent/slot registries, and current route/node/tool seam migrations for APF-03/APF-04. Phase 28 owns strict `DecisionEventEnvelopeV1` validation, replay-owned `emit_decision_event`, fail-closed trusted identity projection, reason/version normalization, resource reference leakage guards, and focused wrapper/key-path compatibility for APF-05.
 
 ## Next Milestone Setup
 
@@ -324,4 +332,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-23 after completing Phase 27 TrustedContextFactory and Projections*
+*Last updated: 2026-06-23 after completing Phase 28 Decision Event Foundation*
