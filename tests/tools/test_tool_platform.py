@@ -437,6 +437,68 @@ def test_tool_result_projector_blocks_raw_data_from_prompt_and_graph_surfaces() 
     assert projection.normalized_result.get("order_no") == "ORD-1"
 
 
+def test_tool_result_projector_strips_raw_sentinels_from_case_memory_ref_lists() -> None:
+    from src.tools.projection import ToolResultProjector
+
+    result = ToolResultV2(
+        status="success",
+        data={
+            "items": [
+                {
+                    "case_memory_id": "case-memory-1",
+                    "excerpt": "Reviewed refund timeout precedent.",
+                    "policy_refs": [
+                        {
+                            "doc_key": "refund_policy",
+                            "chunk_id": "chunk-1",
+                            "raw_payload": "nested-policy-raw",
+                            "secret": "nested-policy-secret",
+                        }
+                    ],
+                    "source_refs": [
+                        {
+                            "business_object_id": "refund-case-1",
+                            "raw_payload": "nested-source-raw",
+                            "secret": "nested-source-secret",
+                        }
+                    ],
+                }
+            ],
+        },
+        summary="case memory found",
+        source_system="case_memory_service",
+        data_freshness_at=None,
+        policy_evidence_refs=[],
+        business_fact_refs=[],
+        error=None,
+        retryable=False,
+        retry_after_ms=None,
+        latency_ms=1,
+        audit_ref=None,
+    )
+
+    projection = ToolResultProjector().project(
+        tool_name="search_case_memory",
+        result=result,
+        tool_call_id="tc-1",
+        tool_result_id="tr-1",
+    )
+
+    case_memory = projection.normalized_result["_case_memory_items"]
+    assert case_memory[0]["policy_refs"] == [{"doc_key": "refund_policy", "chunk_id": "chunk-1"}]
+    assert case_memory[0]["source_refs"] == [{"business_object_id": "refund-case-1"}]
+    dumped = str(projection.normalized_result)
+    for forbidden in (
+        "raw_payload",
+        "secret",
+        "nested-policy-raw",
+        "nested-policy-secret",
+        "nested-source-raw",
+        "nested-source-secret",
+    ):
+        assert forbidden not in dumped
+
+
 def test_tool_result_projector_does_not_emit_events() -> None:
     # D-41: the projector must not own event emission.
     import inspect

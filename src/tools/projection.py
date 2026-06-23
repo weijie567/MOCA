@@ -198,20 +198,27 @@ class ToolResultProjector:
             for key in ("policy_refs", "source_refs"):
                 refs = item.get(key)
                 if isinstance(refs, list):
-                    safe_refs = []
-                    for ref in refs:
-                        if isinstance(ref, dict):
-                            safe_ref = {
-                                k: v for k, v in ref.items()
-                                if isinstance(v, (str, int, float, bool))
-                            }
-                            if safe_ref:
-                                safe_refs.append(safe_ref)
+                    safe_refs = self._sanitize_ref_list(refs)
                     if safe_refs:
                         safe_entry[key] = safe_refs
             if safe_entry:
                 sanitized.append(safe_entry)
         return sanitized
+
+    def _sanitize_ref_list(self, refs: list[Any]) -> list[dict[str, Any]]:
+        safe_refs: list[dict[str, Any]] = []
+        for ref in refs:
+            if not isinstance(ref, dict):
+                continue
+            safe_ref = {
+                str(key): value
+                for key, value in ref.items()
+                if str(key).lower() not in _RAW_SENTINEL_KEYS
+                and isinstance(value, (str, int, float, bool))
+            }
+            if safe_ref:
+                safe_refs.append(safe_ref)
+        return safe_refs
 
     # ------------------------------------------------------------------
     # Prompt projection

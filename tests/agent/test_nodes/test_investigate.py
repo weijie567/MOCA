@@ -310,8 +310,21 @@ def _case_memory_success() -> ToolResultV2:
                     "applicability": "Similar delayed refund case.",
                     "outcome": "Context only.",
                     "score": 0.92,
-                    "policy_refs": [{"doc_key": "refund_policy", "chunk_id": "chunk-1"}],
-                    "source_refs": [{"business_object_id": "refund-case-1"}],
+                    "policy_refs": [
+                        {
+                            "doc_key": "refund_policy",
+                            "chunk_id": "chunk-1",
+                            "raw_payload": "nested-policy-raw",
+                            "secret": "nested-policy-secret",
+                        }
+                    ],
+                    "source_refs": [
+                        {
+                            "business_object_id": "refund-case-1",
+                            "raw_payload": "nested-source-raw",
+                            "secret": "nested-source-secret",
+                        }
+                    ],
                     "raw_tool_payload": {"secret": "must-not-leak"},
                 }
             ]
@@ -660,6 +673,12 @@ async def test_search_case_memory_tool_result_accumulates_contextual_case_memory
     assert result["policy_evidence"] == []
     assert "raw_tool_payload" not in str(result["case_memory"])
     assert "must-not-leak" not in str(result["case_memory"])
+    assert "raw_payload" not in str(result["case_memory"])
+    assert "secret" not in str(result["case_memory"])
+    assert "nested-policy-raw" not in str(result["case_memory"])
+    assert "nested-policy-secret" not in str(result["case_memory"])
+    assert "nested-source-raw" not in str(result["case_memory"])
+    assert "nested-source-secret" not in str(result["case_memory"])
 
 
 @pytest.mark.asyncio
