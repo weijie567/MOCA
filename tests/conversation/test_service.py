@@ -675,3 +675,88 @@ async def test_load_prompt_context_is_user_scoped_within_tenant(
     ]
     serialized = "\n".join(message.content for message in merchant_context.recent_messages)
     assert "ORD-SUPPORT-ONLY" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_append_tool_result_stores_projector_normalized_data_without_raw_sentinels(
+    session: AsyncSession, seeded_session: dict
+) -> None:
+    # Phase 29 D-35..D-40: conversation storage must persist projector-normalized data and
+    # prompt projection, never raw ToolResultV2.data. RED until Plan 29-04 routes
+    # append_tool_result through ToolResultProjector.
+    from sqlalchemy import select
+
+    from src.conversation.repository import ConversationRepository
+    from src.conversation.service import ConversationService
+    from src.tools.contracts import ToolResultV2
+
+    repository = ConversationRepository(session)
+    service = ConversationService(repository)
+    tenant_id = seeded_session["tenant"].id
+    user_id = seeded_session["users"]["cs_zhang"].id
+    thread_id = "thread-projector-normalized"
+    run_id = await _insert_run(session, seeded_session, thread_id)
+    operation_id = uuid.uuid4()
+    tool_call = await service.append_tool_call(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=run_id,
+        trace_id="trace-projector-normalized",
+        tool_call_id=str(operation_id),
+        tool_name="get_order",
+        caller_node="investigate",
+        operation_id=operation_id,
+        attempt=1,
+        arguments={"order_no": "ORD-PROJ-001"},
+        argument_summary_json={"order_no": "ORD-PROJ-001"},
+        redaction_policy_version="conversation_redaction.v1",
+    )
+
+    raw_sentinels = {
+        "raw_payload": {"customer_phone": "13800000000"},
+        "raw_tool_output": "<upstream error text>",
+        "private_reasoning": "model chain-of-thought",
+        "approval_authority_body": "authority body",
+        "debug_trace": "stack trace",
+        "secret": "sk-xxx",
+    }
+    result = ToolResultV2(
+        status="success",
+        data={"order_no": "ORD-PROJ-001", "status": "shipped", **raw_sentinels},
+        summary="order shipped",
+        source_system="business_tool_service",
+        data_freshness_at=datetime.now(UTC),
+        policy_evidence_refs=[],
+        business_fact_refs=[],
+        error=None,
+        retryable=False,
+        retry_after_ms=None,
+        latency_ms=5,
+        audit_ref="audit/tool-result/ORD-PROJ-001",
+    )
+    prompt_summary = await service.append_tool_result(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        run_id=run_id,
+        trace_id="trace-projector-normalized",
+        operation_id=operation_id,
+        tool_call_id=str(operation_id),
+        tool_call_record_id=tool_call.id,
+        tool_result_id="tool-result-projector-normalized",
+        tool_name="get_order",
+        result=result,
+    )
+
+    stored = (
+        await session.execute(
+            select(ToolResultRecord).where(ToolResultRecord.tool_result_id == "tool-result-projector-normalized")
+        )
+    ).scalar_one()
+    normalized_blob = str(stored.normalized_result_json)
+    prompt_blob = str(stored.prompt_summary) + str(prompt_summary.prompt_summary)
+    for sentinel in raw_sentinels:
+        assert sentinel not in normalized_blob, f"normalized_result_json must not carry {sentinel!r}"
+        assert sentinel not in prompt_blob, f"prompt_summary must not carry {sentinel!r}"
+    assert stored.normalized_result_json.get("order_no") == "ORD-PROJ-001"

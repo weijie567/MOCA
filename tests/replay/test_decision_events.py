@@ -305,6 +305,33 @@ async def test_reason_code_validation_accepts_unknown_snake_case_without_allowli
 
 
 @pytest.mark.asyncio
+async def test_reason_code_validation_accepts_namespaced_extension_codes(session: AsyncSession) -> None:
+    # Phase 29 D-13: generic replay must accept namespaced ``<namespace>.<snake_case>``
+    # extension reason codes (e.g. ``business.permission_denied``) while still accepting
+    # plain snake_case codes. RED until src/replay/decision_events.py REASON_CODE_PATTERN
+    # is widened to ``^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)?$``.
+    run_id, tenant_id = await _create_run(session)
+
+    event = await emit_decision_event(
+        session,
+        run_id=run_id,
+        tenant_id=tenant_id,
+        thread_id="decision-event-thread",
+        event_type="run_status_changed",
+        actor={"type": "system", "id": "decision-test"},
+        resource_refs={},
+        redacted_payload={"decision": "defer"},
+        reason_codes=["business.permission_denied", "rag.invalid_scope", "memory.retention_blocked"],
+    )
+
+    assert event["redacted_payload"]["reason_codes"] == [
+        "business.permission_denied",
+        "rag.invalid_scope",
+        "memory.retention_blocked",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_redacted_payload_reason_codes_are_normalized(session: AsyncSession) -> None:
     run_id, tenant_id = await _create_run(session)
 

@@ -487,3 +487,51 @@ async def test_manager_generated_errors_have_no_raw_payload_or_secret():
     assert result.error is not None
     assert "secret" not in result.summary.lower()
     assert "raw" not in result.error.safe_message.lower()
+
+
+# --- Phase 29: UnifiedToolManager compatibility adapter delegation (APF-06/APF-07) ---
+# These RED tests assert UnifiedToolManager delegates visibility/runtime behavior to
+# ToolPlatform (D-26) while preserving the legacy invoke(...) -> ToolResultV2 return
+# contract. They fail RED until Plan 29-04 wires the platform delegate into the manager.
+
+
+def test_unified_manager_delegates_visibility_to_tool_platform():
+    from src.tools.platform import ToolPlatform
+
+    manager = UnifiedToolManager()
+    assert isinstance(getattr(manager, "_platform", None), ToolPlatform)
+    assert hasattr(manager, "visible_tools")
+
+
+@pytest.mark.asyncio
+async def test_unified_manager_invoke_returns_tool_result_v2_via_platform(monkeypatch):
+    from src.tools.platform import ToolPlatform
+
+    captured: dict[str, Any] = {}
+
+    async def fake_invoke(self, name, args, ctx, session=None):
+        captured["value"] = (name, args, ctx.caller_node)
+        return _success_result("platform_delegate")
+
+    monkeypatch.setattr(ToolPlatform, "invoke", fake_invoke)
+    manager = UnifiedToolManager()
+
+    result = await manager.invoke("get_order", {"order_no": "ORD-DELEGATE"}, _ctx(tool="get_order"))
+
+    assert isinstance(result, ToolResultV2)
+    assert result.status == "success"
+    assert result.source_system == "platform_delegate"
+    assert captured["value"] == ("get_order", {"order_no": "ORD-DELEGATE"}, "investigate")
+
+
+def test_unified_manager_does_not_own_new_policy_runtime_branches():
+    # D-26/D-29: new policy/runtime logic must live in ToolPolicyEngine/ToolRuntime,
+    # not accumulate in UnifiedToolManager.invoke. The manager must delegate.
+    import inspect
+
+    from src.tools.manager import UnifiedToolManager as _Manager
+
+    source = inspect.getsource(_Manager.invoke)
+    # The compatibility adapter must reference the platform delegate, not re-implement
+    # the policy gate chain inline as the sole authority.
+    assert "_platform" in source or "platform" in source

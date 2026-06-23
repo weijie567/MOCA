@@ -645,3 +645,137 @@ async def test_event_classification_iteration_and_redacted_payload():
     assert [event["iteration"] for event in events] == [1, 1, 2, 2]
     assert all("raw" not in str(event["payload"]).lower() for event in events)
     assert all("arguments" not in event["payload"] for event in events)
+
+
+# --- Phase 29: investigate ToolPlatform integration (APF-06/APF-07) ---
+# RED tests asserting investigate consumes ToolViewV1-only planner surfaces, enforces
+# visible-does-not-imply-allowed runtime auth, accumulates projector output only, and
+# never calls a compatibility manager's raw descriptors(...) for planner prompt assembly.
+# Fail RED until Plan 29-04 rewires investigate onto ToolPlatform.
+
+
+def _planner_forbidden_tokens() -> set[str]:
+    return {
+        "ToolDescriptor",
+        "create_coupon_grant_draft",
+        "side_effect",
+        "required_permission",
+        "caller_allowlist",
+        "event_family",
+        "executor",
+        "risk_level",
+        "exposure",
+    }
+
+
+@pytest.mark.asyncio
+async def test_investigate_planner_surface_exposes_only_tool_view_fields():
+    from src.tools.platform import ToolPlatform
+    from src.tools.contracts import ToolViewV1
+
+    platform = ToolPlatform.with_defaults(session=None)
+    ctx = ToolCallContext(
+        tenant_id=str(uuid4()),
+        user_id=str(uuid4()),
+        role="support",
+        permissions=[f"tool:{name}" for name in (
+            "get_order", "get_refund_case", "get_ticket", "get_logistics",
+            "get_merchant_risk", "search_policy", "search_sop", "search_case_memory",
+        )],
+        merchant_scope={"merchant_ids": ["*"]},
+        session_id=None,
+        thread_id="thread-1",
+        run_id=str(uuid4()),
+        trace_id="trace-1",
+        request_id=str(uuid4()),
+        tool_call_id="visibility-test",
+        caller_node="investigate",
+    )
+    views = await platform.visible_tools(caller="investigate", ctx=ctx, session=None)
+
+    assert views
+    assert all(isinstance(view, ToolViewV1) for view in views)
+    blob = str([view.model_dump() for view in views])
+    for token in _planner_forbidden_tokens():
+        assert token not in blob, f"planner-visible payload must not leak {token!r}"
+    assert "create_coupon_grant_draft" not in {view.name for view in views}
+
+
+@pytest.mark.asyncio
+async def test_investigate_visible_tool_still_requires_runtime_auth():
+    from src.tools.platform import ToolPlatform
+    from src.tools.contracts import ToolInvocationOutcome
+
+    platform = ToolPlatform.with_defaults(session=None)
+    ctx = ToolCallContext(
+        tenant_id=str(uuid4()),
+        user_id=str(uuid4()),
+        role="support",
+        permissions=[],  # visible but missing required permission
+        merchant_scope={"merchant_ids": ["*"]},
+        session_id=None,
+        thread_id="thread-1",
+        run_id=str(uuid4()),
+        trace_id="trace-1",
+        request_id=str(uuid4()),
+        tool_call_id="runtime-auth-test",
+        caller_node="investigate",
+    )
+
+    outcome = await platform.invoke("get_order", {"order_no": "ORD-1"}, ctx, session=None)
+
+    assert isinstance(outcome, ToolInvocationOutcome)
+    assert outcome.tool_result.status == "permission_denied"
+    assert outcome.policy_decision.decision_stage == "runtime_auth"
+    assert outcome.policy_decision.decision == "denied"
+
+
+@pytest.mark.asyncio
+async def test_investigate_graph_state_consumes_projection_not_raw_data():
+    from src.tools.platform import ToolPlatform
+
+    raw_sentinels = {"raw_payload", "raw_tool_output", "private_reasoning", "secret", "debug_trace"}
+    platform = ToolPlatform.with_defaults(session=None)
+    result = _business_success_with_raw_payload()
+    result.data = {
+        "id": "ORD-RAW-001",
+        "raw_payload": {"customer_phone": "13800000000"},
+        "raw_tool_output": "<upstream>",
+        "private_reasoning": "cot",
+        "secret": "sk-xxx",
+        "debug_trace": "stack",
+    }
+    projection = platform.projector.project(
+        tool_name="get_order", result=result, tool_call_id="tc-1", tool_result_id="tr-1"
+    )
+
+    serialized = str(projection.normalized_result) + str(projection.prompt_projection) + str(projection.text_for_prompt)
+    for sentinel in raw_sentinels:
+        assert sentinel not in serialized
+
+
+@pytest.mark.asyncio
+async def test_investigate_planner_does_not_call_raw_descriptors_when_visible_tools_available():
+    # Regression: when ToolPlatform.visible_tools(...) is available, planner prompt/context
+    # assembly must not fall back to a compatibility manager's raw descriptors(...).
+    from src.tools.platform import ToolPlatform
+
+    class _RaisingDescriptorManager:
+        def descriptors(self, caller_node: str = "investigate"):
+            raise AssertionError("planner must use ToolPlatform.visible_tools, not raw descriptors(...)")
+
+        def descriptor(self, name: str):
+            raise AssertionError("planner must not read raw descriptors")
+
+    events: list[dict[str, Any]] = []
+    platform = ToolPlatform.with_defaults(session=None)
+    plan = [{"next_tool": "get_order", "args": {"order_no": "ORD-001"}, "reason": "fact"}]
+    config = _config(_RaisingDescriptorManager(), events)
+    config["configurable"]["tool_platform"] = platform
+
+    # If planner prompt assembly honors visible_tools(...), descriptors(...) is never called
+    # and the run proceeds without the AssertionError surfacing as a planner failure.
+    result = await investigate(_state(plan), config)
+    assert result["termination_reason"] != "unrecoverable_error" or not any(
+        "raw descriptors" in str(error) for error in result.get("business_context", {}).get("errors", [])
+    )

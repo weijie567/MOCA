@@ -11,6 +11,7 @@ from src.replay.validators import REPLAY_EVENT_TYPES
 
 
 MIGRATION_PATH = Path("src/db/migrations/versions/010_replay_event_v3.py")
+TOOL_POLICY_MIGRATION_PATH = Path("src/db/migrations/versions/017_tool_policy_events.py")
 V3_COLUMNS = {
     "parent_operation_id",
     "attempt",
@@ -108,3 +109,32 @@ def test_migration_preserves_minimal_rows_without_v3_backwrite():
     assert "replay_event.v3" in normalized_source
     assert not re.search(r"update agent_trace_events.*replay_event\.v3", normalized_source)
     assert not re.search(r"schema_version.*replay_event\.v3.*where", normalized_source)
+
+
+def test_tool_policy_migration_event_type_check_matches_replay_event_registry():
+    # Phase 29 D-06/D-10: the latest event-type check migration (017_tool_policy_events)
+    # must register tool_policy_visibility_recorded / tool_policy_runtime_auth_recorded
+    # and its check values must equal src.replay.validators.REPLAY_EVENT_TYPES.
+    # RED until Plan 29-02 Task 2 creates migration 017.
+    assert TOOL_POLICY_MIGRATION_PATH.exists(), "migration 017_tool_policy_events must exist"
+    source = TOOL_POLICY_MIGRATION_PATH.read_text(encoding="utf-8")
+
+    assert 'revision: str = "017_tool_policy_events"' in source
+    assert 'down_revision: str | None = "016_agent_run_memory_idempotency"' in source
+    assert "tool_policy_visibility_recorded" in source
+    assert "tool_policy_runtime_auth_recorded" in source
+    assert 'op.drop_constraint("ck_agent_trace_events_event_type"' in source
+    assert 'op.create_check_constraint("ck_agent_trace_events_event_type"' in source
+    assert _event_type_check_values(source) == REPLAY_EVENT_TYPES
+
+
+def test_tool_policy_migration_does_not_create_table_or_envelope():
+    # D-10: no parallel event table / envelope / schema_version for tool policy.
+    if not TOOL_POLICY_MIGRATION_PATH.exists():
+        # RED: migration missing — surface the planned artifact name in the failure.
+        pytest.fail("017_tool_policy_events migration is not implemented yet")
+    source = TOOL_POLICY_MIGRATION_PATH.read_text(encoding="utf-8")
+    assert "create_table" not in source
+    assert "CREATE TABLE" not in source
+    assert "DecisionEventEnvelopeV2" not in source
+    assert "tool_policy_decision.v1" not in source

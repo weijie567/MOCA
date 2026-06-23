@@ -168,3 +168,48 @@ def test_memory_domain_does_not_own_runtime_checkpoint_or_observability() -> Non
                 violations.append((str(path.relative_to(ROOT)), module))
 
     assert violations == []
+
+
+def test_graph_nodes_target_tool_platform_facade() -> None:
+    # Phase 29 D-22: graph-facing tool integration must go through the ToolPlatform facade.
+    # investigate must import src.tools.platform (ToolPlatform). RED until Plan 29-04
+    # rewires investigate off the raw UnifiedToolManager descriptor surface.
+    investigate = ROOT / "src" / "agent" / "nodes" / "investigate.py"
+    targets = _import_targets(investigate)
+    assert any(
+        module == "src.tools.platform" or module.startswith("src.tools.platform.")
+        for module in targets
+    ), "investigate must import src.tools.platform.ToolPlatform"
+
+
+def test_graph_nodes_do_not_import_tool_executors() -> None:
+    # Phase 29 D-27: graph nodes migrated onto ToolPlatform must dispatch through the
+    # facade and must not import src.tools.executors.* directly.
+    #
+    # Scope note: ``action_draft.py`` still imports ``src.tools.executors.action`` for
+    # node-only action-draft creation. Routing action_draft through ToolPlatform is out
+    # of Phase 29 scope (not listed in 29-04 files_modified) and is deferred to a later
+    # phase. The check enforces the executor-import ban for the node Phase 29 migrates
+    # (investigate) and any future node-except-action_draft.
+    violations: list[tuple[str, str]] = []
+    for path in sorted((ROOT / "src" / "agent" / "nodes").glob("*.py")):
+        if path.name == "action_draft.py":
+            continue
+        for module in _imports(path):
+            if module.startswith("src.tools.executors"):
+                violations.append((str(path.relative_to(ROOT)), module))
+
+    assert violations == []
+
+
+def test_domain_packages_do_not_import_tool_runtime_or_policy_internals() -> None:
+    # Phase 29 D-23/D-24: ToolPolicyEngine/ToolRuntime are platform-owned; domain packages
+    # (business/knowledge/memory/actions) must not import src.tools.runtime or src.tools.policy.
+    violations: list[tuple[str, str]] = []
+    for package in ("actions", "business", "knowledge", "memory"):
+        for path in sorted((ROOT / "src" / package).glob("**/*.py")):
+            for module in _imports(path):
+                if module.startswith(("src.tools.runtime", "src.tools.policy")):
+                    violations.append((str(path.relative_to(ROOT)), module))
+
+    assert violations == []
