@@ -304,6 +304,63 @@ async def test_reason_code_validation_accepts_unknown_snake_case_without_allowli
     assert event["redacted_payload"]["reason_codes"] == ["phase_29_future_reason"]
 
 
+@pytest.mark.asyncio
+async def test_redacted_payload_reason_codes_are_normalized(session: AsyncSession) -> None:
+    run_id, tenant_id = await _create_run(session)
+
+    event = await emit_decision_event(
+        session,
+        run_id=run_id,
+        tenant_id=tenant_id,
+        thread_id="decision-event-thread",
+        event_type="run_status_changed",
+        actor={"type": "system", "id": "decision-test"},
+        resource_refs={},
+        redacted_payload={"reason_codes": ["scope_denied", "missing_permission", "scope_denied"]},
+    )
+
+    assert event["redacted_payload"]["reason_codes"] == ["scope_denied", "missing_permission"]
+
+
+@pytest.mark.parametrize("invalid_reason_codes", ["scope_denied", ("scope_denied",)])
+@pytest.mark.asyncio
+async def test_reason_codes_argument_must_be_list(
+    session: AsyncSession,
+    invalid_reason_codes: object,
+) -> None:
+    run_id, tenant_id = await _create_run(session)
+
+    with pytest.raises(ValueError, match="reason_codes must be a list"):
+        await emit_decision_event(
+            session,
+            run_id=run_id,
+            tenant_id=tenant_id,
+            thread_id="decision-event-thread",
+            event_type="run_status_changed",
+            actor={"type": "system", "id": "decision-test"},
+            resource_refs={},
+            redacted_payload={"decision": "deny"},
+            reason_codes=invalid_reason_codes,  # type: ignore[arg-type]
+        )
+
+
+@pytest.mark.asyncio
+async def test_redacted_payload_reason_codes_must_be_list(session: AsyncSession) -> None:
+    run_id, tenant_id = await _create_run(session)
+
+    with pytest.raises(ValueError, match="reason_codes must be a list"):
+        await emit_decision_event(
+            session,
+            run_id=run_id,
+            tenant_id=tenant_id,
+            thread_id="decision-event-thread",
+            event_type="run_status_changed",
+            actor={"type": "system", "id": "decision-test"},
+            resource_refs={},
+            redacted_payload={"reason_codes": "ScopeDenied"},
+        )
+
+
 @pytest.mark.parametrize("reason_code", ["", "ScopeDenied", "scope-denied", "scope denied"])
 @pytest.mark.asyncio
 async def test_invalid_reason_codes_raise_value_error(session: AsyncSession, reason_code: str) -> None:

@@ -122,6 +122,9 @@ def normalize_reason_codes(
 ) -> list[str] | None:
     """Return first-seen de-duplicated reason codes, or None when none were provided."""
 
+    if reason_codes is not None and not isinstance(reason_codes, list):
+        raise ValueError("reason_codes must be a list[str]")
+
     ordered: list[str] = []
     for code in [reason_code, *(reason_codes or [])]:
         if code is None:
@@ -179,6 +182,10 @@ def _normalize_redacted_payload(
     versions: Mapping[str, str | None] | None,
 ) -> dict[str, Any]:
     payload = dict(redacted_payload)
+    payload_reason_codes = payload.get("reason_codes")
+    if payload_reason_codes is not None:
+        payload["reason_codes"] = normalize_reason_codes(reason_codes=payload_reason_codes) or []
+
     normalized_reasons = normalize_reason_codes(reason_code=reason_code, reason_codes=reason_codes)
     if normalized_reasons is not None:
         payload["reason_codes"] = normalized_reasons
