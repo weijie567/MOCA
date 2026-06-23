@@ -19,16 +19,16 @@ created: 2026-06-23
 |----------|-------|
 | **Framework** | pytest 9.0.3 + pytest-asyncio 1.3.0 under `uv run` |
 | **Config file** | `pyproject.toml` (`asyncio_mode = "auto"`) |
-| **Quick run command** | `uv run pytest tests/replay/test_decision_events.py tests/agent/test_events.py -q` |
-| **Full suite command** | `uv run pytest tests/replay tests/agent/test_events.py tests/platform/test_context_projections.py -q` |
+| **Quick run command** | `uv run pytest tests/replay/test_decision_events.py tests/agent/test_events.py tests/agent/test_memory_write_node.py -q` |
+| **Full suite command** | `uv run pytest tests/replay tests/agent/test_events.py tests/agent/test_memory_write_node.py tests/platform/test_context_projections.py -q` |
 | **Estimated runtime** | ~60 seconds |
 
 ---
 
 ## Sampling Rate
 
-- **After every task commit:** Run `uv run pytest tests/replay/test_decision_events.py tests/agent/test_events.py -q`
-- **After every plan wave:** Run `uv run pytest tests/replay tests/agent/test_events.py tests/platform/test_context_projections.py -q`
+- **After every task commit:** Run `uv run pytest tests/replay/test_decision_events.py tests/agent/test_events.py tests/agent/test_memory_write_node.py -q`
+- **After every plan wave:** Run `uv run pytest tests/replay tests/agent/test_events.py tests/agent/test_memory_write_node.py tests/platform/test_context_projections.py -q`
 - **Before `$gsd-verify-work`:** Full targeted suite must be green, plus any writer-specific tests touched by the implementation.
 - **Max feedback latency:** 90 seconds
 
@@ -45,6 +45,7 @@ created: 2026-06-23
 | 28-01-05 | 01 | 1 | APF-05 | T-28-05 | `src.agent.events.emit_event` remains compatible and delegates to the replay-owned facade without breaking existing event writer tests. | unit | `uv run pytest tests/agent/test_events.py -q` | Yes | pending |
 | 28-01-06 | 01 | 1 | APF-05 | T-28-04 | Sequence allocator ordering remains shared across graph, memory, approval, action draft, replay backfill, and lifecycle writers. | integration | `uv run pytest tests/replay/test_sequence_allocator.py -q` | Yes | pending |
 | 28-01-07 | 01 | 1 | APF-05 | T-28-05 | `ReplayContext` / trusted projection remains the preferred source for run/tenant/thread/trace identity and projection-local version metadata does not widen `TrustedContext`. | unit | `uv run pytest tests/platform/test_context_projections.py -q` | Yes | pending |
+| 28-01-08 | 01 | 1 | APF-05 | T-28-01 / T-28-04 | The existing `memory_write` key path emits started and terminal memory lifecycle events with the same non-null `operation_id`, and failure fallback memory events also carry a non-null `operation_id`, after the wrapper starts enforcing operation lifecycle identity. | integration | `uv run pytest tests/agent/test_memory_write_node.py -q` | Partial - test file exists, operation-id assertions missing | pending |
 
 *Status: pending / green / red / flaky*
 

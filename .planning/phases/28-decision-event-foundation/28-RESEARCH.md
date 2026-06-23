@@ -459,17 +459,17 @@ def guard_resource_refs(resource_refs: dict[str, Any]) -> None:
 |---|-------|---------|---------------|
 | None | All material implementation claims in this research were verified from repository files, local commands, or cited contract docs. [VERIFIED: command outputs and file inspection] | All | No user confirmation needed for researched facts; planner still owns task sequencing choices. [VERIFIED: .planning/phases/28-decision-event-foundation/28-CONTEXT.md] |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **How far should fail-closed behavior reach in `memory_write` during Phase 28?** [VERIFIED: src/agent/nodes/memory_write.py; .planning/phases/28-decision-event-foundation/28-CONTEXT.md]
+1. **RESOLVED: How far should fail-closed behavior reach in `memory_write` during Phase 28?** [VERIFIED: src/agent/nodes/memory_write.py; .planning/phases/28-decision-event-foundation/28-CONTEXT.md]
    - What we know: D-09 requires identity/source failures to fail closed, while D-10 says not to broadly rewrite all existing writer call sites. [VERIFIED: .planning/phases/28-decision-event-foundation/28-CONTEXT.md]
-   - What's unclear: `memory_write._emit_memory_event(...)` currently returns on missing identity and catches all emission exceptions. [VERIFIED: src/agent/nodes/memory_write.py]
-   - Recommendation: Plan a focused compatibility test and a narrow change at the wrapper/helper seam; avoid broad memory domain migration. [VERIFIED: .planning/phases/28-decision-event-foundation/28-CONTEXT.md]
+   - Resolution: Phase 28 fails closed at the new replay-owned emitter and compatibility wrapper boundary for required identity/contract failures, with focused tests proving missing identity raises and persists no row. It does not broadly rewrite `memory_write._emit_memory_event(...)`; it only allows a narrow key-path helper patch if the wrapper/facade contract directly breaks current memory lifecycle event emission. [VERIFIED: .planning/phases/28-decision-event-foundation/28-01-PLAN.md]
+   - Plan impact: Task 1 covers missing identity and wrapper compatibility; Task 3 includes the narrow `memory_write.py` operation-id compatibility patch required by the operation lifecycle rule, without changing memory policy, candidate construction, storage semantics, or payload migration scope. [VERIFIED: .planning/phases/28-decision-event-foundation/28-01-PLAN.md]
 
-2. **Should `RunLifecycleService` store only plural `reason_codes`, or keep singular for backward compatibility plus normalized plural?** [VERIFIED: src/replay/lifecycle.py]
+2. **RESOLVED: Should `RunLifecycleService` store only plural `reason_codes`, or keep singular for backward compatibility plus normalized plural?** [VERIFIED: src/replay/lifecycle.py]
    - What we know: lifecycle currently writes `reason_code`, and Phase 28 requires plural `reason_codes` while allowing legacy singular input. [VERIFIED: src/replay/lifecycle.py; .planning/phases/28-decision-event-foundation/28-CONTEXT.md]
-   - What's unclear: Existing tests assert singular `reason_code` in lifecycle payloads. [VERIFIED: tests/replay/test_lifecycle_finalizer.py]
-   - Recommendation: Normalize to plural at the event facade and update lifecycle tests to assert plural while preserving legacy input acceptance. [VERIFIED: .planning/phases/28-decision-event-foundation/28-CONTEXT.md]
+   - Resolution: Phase 28 stores normalized plural `reason_codes` at the replay-owned facade/wrapper boundary and keeps singular `reason_code` only as accepted compatibility input. Existing lifecycle callers may continue passing singular input during this phase, but downstream decision-event assertions should prefer `redacted_payload["reason_codes"]`. [VERIFIED: .planning/phases/28-decision-event-foundation/28-CONTEXT.md; .planning/phases/28-decision-event-foundation/28-01-PLAN.md]
+   - Plan impact: Task 1 adds legacy singular-to-plural tests; Task 2 implements first-seen normalization; Task 3 routes `src.agent.events.emit_event(...)` through the replay-owned emitter without a broad lifecycle service rewrite. [VERIFIED: .planning/phases/28-decision-event-foundation/28-01-PLAN.md]
 
 ## Environment Availability
 
@@ -494,8 +494,8 @@ def guard_resource_refs(resource_refs: dict[str, Any]) -> None:
 |----------|-------|
 | Framework | pytest 9.0.3 + pytest-asyncio 1.3.0 under `uv run` [VERIFIED: `uv run python` import; uv.lock] |
 | Config file | `pyproject.toml` with `asyncio_mode = "auto"` [VERIFIED: pyproject.toml] |
-| Quick run command | `uv run pytest tests/replay/test_decision_events.py tests/agent/test_events.py -q` [VERIFIED: existing pytest layout; proposed new file] |
-| Full suite command | `uv run pytest tests/replay tests/agent/test_events.py tests/platform/test_context_projections.py -q` [VERIFIED: existing test files] |
+| Quick run command | `uv run pytest tests/replay/test_decision_events.py tests/agent/test_events.py tests/agent/test_memory_write_node.py -q` [VERIFIED: existing pytest layout; proposed new file] |
+| Full suite command | `uv run pytest tests/replay tests/agent/test_events.py tests/agent/test_memory_write_node.py tests/platform/test_context_projections.py -q` [VERIFIED: existing test files] |
 
 ### Phase Requirements -> Test Map
 
@@ -505,14 +505,15 @@ def guard_resource_refs(resource_refs: dict[str, Any]) -> None:
 | APF-05 | `emit_decision_event(...)` persists through `ReplayService.append_event(...)` with `schema_version="minimal_event_envelope.v1"` and returns validated minimal envelope. [VERIFIED: src/replay/service.py] | integration | `uv run pytest tests/replay/test_decision_events.py -q` | no, Wave 0 [VERIFIED: `rg --files tests/replay`] |
 | APF-05 | `src.agent.events.emit_event` remains compatible and delegates to replay-owned facade. [VERIFIED: src/agent/events.py] | unit | `uv run pytest tests/agent/test_events.py -q` | yes [VERIFIED: tests/agent/test_events.py] |
 | APF-05 | Sequence allocator ordering remains shared across graph, memory, approval, action draft, replay backfill, and lifecycle writers. [VERIFIED: tests/replay/test_sequence_allocator.py] | integration | `uv run pytest tests/replay/test_sequence_allocator.py -q` | yes [VERIFIED: tests/replay/test_sequence_allocator.py] |
+| APF-05 | Existing `memory_write` lifecycle event helper passes one non-null `operation_id` through started, terminal, and failure fallback event emissions after operation lifecycle validation becomes strict. [VERIFIED: src/agent/nodes/memory_write.py] | integration | `uv run pytest tests/agent/test_memory_write_node.py -q` | partial, operation-id assertions missing [VERIFIED: tests/agent/test_memory_write_node.py] |
 | APF-05 | Redaction rejects unsafe keys in both `redacted_payload` and `resource_refs`. [VERIFIED: src/replay/validators.py; .planning/phases/28-decision-event-foundation/28-CONTEXT.md] | unit/integration | `uv run pytest tests/replay/test_decision_events.py tests/replay/test_replay_redaction_retention.py -q` | partial, Wave 0 for refs [VERIFIED: tests/replay/test_replay_redaction_retention.py] |
 | APF-05 | Reason-code normalization converts `reason_code` to first-seen de-duped `reason_codes` and rejects invalid strings. [VERIFIED: .planning/phases/28-decision-event-foundation/28-CONTEXT.md] | unit | `uv run pytest tests/replay/test_decision_events.py -q` | no, Wave 0 [VERIFIED: `rg --files tests/replay`] |
 | APF-05 | Version metadata lands under `redacted_payload.versions`, not top-level envelope fields. [VERIFIED: .planning/phases/28-decision-event-foundation/28-CONTEXT.md; src/platform/context_projections.py] | unit | `uv run pytest tests/replay/test_decision_events.py tests/platform/test_context_projections.py -q` | partial, Wave 0 for event payload [VERIFIED: tests/platform/test_context_projections.py] |
 
 ### Sampling Rate
 
-- **Per task commit:** `uv run pytest tests/replay/test_decision_events.py tests/agent/test_events.py -q` [VERIFIED: existing test layout; proposed new file]
-- **Per wave merge:** `uv run pytest tests/replay tests/agent/test_events.py tests/platform/test_context_projections.py -q` [VERIFIED: existing test layout]
+- **Per task commit:** `uv run pytest tests/replay/test_decision_events.py tests/agent/test_events.py tests/agent/test_memory_write_node.py -q` [VERIFIED: existing test layout; proposed new file]
+- **Per wave merge:** `uv run pytest tests/replay tests/agent/test_events.py tests/agent/test_memory_write_node.py tests/platform/test_context_projections.py -q` [VERIFIED: existing test layout]
 - **Phase gate:** Full targeted suite above plus any updated writer-specific tests touched by the implementation. [VERIFIED: existing writer tests from rg results]
 
 ### Wave 0 Gaps
