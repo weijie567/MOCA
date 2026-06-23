@@ -2,17 +2,39 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from src.platform.trusted_context import MerchantScopeV1
 from src.tools.catalog import ToolCatalog, ToolDescriptor
 from src.tools.contracts import (
-    TOOL_POLICY_CORE_REASON_CODES,
-    TOOL_POLICY_EXTENSION_REASON_PATTERN,
     ToolCallContext,
     ToolPolicyDecision,
     ToolViewV1,
 )
+
+TOOL_POLICY_CORE_REASON_CODES: frozenset[str] = frozenset({
+    "visible",
+    "hidden_by_policy",
+    "caller_not_allowed",
+    "missing_permission",
+    "scope_denied",
+    "side_effect_blocked",
+    "schema_invalid",
+    "approval_required",
+    "safety_snapshot_required",
+    "idempotency_required",
+    "tool_unavailable",
+})
+
+TOOL_POLICY_RUNTIME_ONLY_REASON_CODES: frozenset[str] = frozenset({
+    "schema_invalid",
+    "approval_required",
+    "safety_snapshot_required",
+    "idempotency_required",
+})
+
+TOOL_POLICY_EXTENSION_REASON_PATTERN = re.compile(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$")
 
 # Schema shape keys retained during prompt-safe projection.
 _PROMPT_SAFE_SCHEMA_KEYS: set[str] = {

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -159,30 +158,6 @@ class ToolViewV1(BaseModel):
     result_contract_version: Literal["tool_result.v2"] = "tool_result.v2"
 
 
-TOOL_POLICY_CORE_REASON_CODES: frozenset[str] = frozenset({
-    "visible",
-    "hidden_by_policy",
-    "caller_not_allowed",
-    "missing_permission",
-    "scope_denied",
-    "side_effect_blocked",
-    "schema_invalid",
-    "approval_required",
-    "safety_snapshot_required",
-    "idempotency_required",
-    "tool_unavailable",
-})
-
-TOOL_POLICY_RUNTIME_ONLY_REASON_CODES: frozenset[str] = frozenset({
-    "schema_invalid",
-    "approval_required",
-    "safety_snapshot_required",
-    "idempotency_required",
-})
-
-TOOL_POLICY_EXTENSION_REASON_PATTERN = re.compile(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$")
-
-
 class ToolPolicyDecision(BaseModel):
     """Domain-level tool policy decision object.
 
@@ -211,19 +186,15 @@ class ToolPolicyDecision(BaseModel):
     @field_validator("reason_codes")
     @classmethod
     def _validate_reason_codes(cls, codes: list[str]) -> list[str]:
-        for code in codes:
-            if code in TOOL_POLICY_CORE_REASON_CODES:
-                continue
-            if TOOL_POLICY_EXTENSION_REASON_PATTERN.fullmatch(code):
-                continue
-            raise ValueError(
-                f"reason_code {code!r} is not a core code and does not match "
-                f"the namespaced extension pattern '<namespace>.<snake_case>'"
-            )
+        from src.tools.policy import validate_tool_policy_reason_codes
+
+        validate_tool_policy_reason_codes(codes)
         return codes
 
     @model_validator(mode="after")
     def _visibility_forbids_runtime_only_codes(self) -> "ToolPolicyDecision":
+        from src.tools.policy import TOOL_POLICY_RUNTIME_ONLY_REASON_CODES
+
         if self.decision_stage == "visibility":
             runtime_leaked = set(self.reason_codes) & TOOL_POLICY_RUNTIME_ONLY_REASON_CODES
             if runtime_leaked:

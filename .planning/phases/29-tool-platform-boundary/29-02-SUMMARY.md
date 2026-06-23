@@ -53,3 +53,9 @@ git diff --check
 ## 未完成项
 
 无。29-02 scope 的两个 task 全部完成。`tests/tools/test_tool_platform.py` 中 4 个 RED 测试（ToolPlatform / ToolResultProjector 相关）仍为 RED，属于 29-03 scope，不在本次范围内。
+
+## Post-Review 修复
+
+- 修复 `ToolPolicyDecision` reason-code 验证：非法 freeform code 会被拒绝，visibility 阶段也禁止 runtime-only reason code。
+- 修复 `project_prompt_safe_input_schema(...)` 对 `additionalProperties` 的递归投影，避免内部策略字段透传到 prompt-safe schema。
+- 修复 `src.tools.policy` 的 public surface：`TOOL_POLICY_CORE_REASON_CODES`、`TOOL_POLICY_RUNTIME_ONLY_REASON_CODES`、`TOOL_POLICY_EXTENSION_REASON_PATTERN` 均由 `policy.py` 导出，`contracts.py` 不再出现 plan forbidden grep 命中的 descriptor/policy 字段文本。
