@@ -204,12 +204,12 @@ Plans:
 
 ### Phase 28: Decision Event Foundation
 
-**Status:** Pending
+**Status:** Complete
 **Milestone:** v1.9 Agent Platform Foundation
 **Goal:** Establish the minimal decision event envelope, reason-code convention, redaction policy, and emitter foundation used by later platform services.
 **Requirements**: APF-05
 **Depends on:** Phase 27
-**Plans:** 0/1 plans complete
+**Plans:** 1/1 plans complete
 
 **Success Criteria**:
 
@@ -218,7 +218,7 @@ Plans:
 3. Contract tests cover ordering, redaction, missing required fields, and service-level event payload extension.
 
 Plans:
-- [ ] 28-01-PLAN.md — Decision event foundation
+- [x] 28-01-PLAN.md — Decision event foundation
 
 ### Phase 29: Tool Platform Boundary
 

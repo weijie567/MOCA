@@ -22,7 +22,7 @@ Turn MOCA's agent runtime into a microservice-ready modular monolith: platform/d
 
 - [x] **APF-03:** `TrustedContextFactory` produces canonical `TrustedContext` from trusted API/auth/run boundaries without accepting LLM or user-payload overrides.
 - [x] **APF-04:** `TrustedContextFactory` derives prompt-safe and service-safe projections for tool calls, knowledge retrieval, memory loading, approval decisions, replay, and intent policy without widening canonical identity/scope fields.
-- [ ] **APF-05:** A minimal `DecisionEventEnvelopeV1` / event emitter foundation records stable reason codes, policy/model/tool versions, redaction policy, and run/tenant/trace identity for later platform service decisions.
+- [x] **APF-05:** A minimal `DecisionEventEnvelopeV1` / event emitter foundation records stable reason codes, policy/model/tool versions, redaction policy, and run/tenant/trace identity for later platform service decisions.
 
 ### Tool and Business Fact Boundaries
 
@@ -83,7 +83,7 @@ Turn MOCA's agent runtime into a microservice-ready modular monolith: platform/d
 | APF-02 | Phase 26 | Complete |
 | APF-03 | Phase 27 | Complete |
 | APF-04 | Phase 27 | Complete |
-| APF-05 | Phase 28 | Pending |
+| APF-05 | Phase 28 | Complete |
 | APF-06 | Phase 29 | Pending |
 | APF-07 | Phase 29 | Pending |
 | APF-08 | Phase 30 | Pending |
