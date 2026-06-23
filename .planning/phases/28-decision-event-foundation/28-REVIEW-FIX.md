@@ -1,39 +1,64 @@
 ---
 phase: 28
-phase_name: decision-event-foundation
-status: fixed
-source_review: external_deep_review
-fixed_at: 2026-06-23T03:00:00Z
-findings_fixed:
-  blocker: 2
-  warning: 1
+fixed_at: 2026-06-23T03:20:16Z
+review_path: .planning/phases/28-decision-event-foundation/28-REVIEW.md
+iteration: 1
+findings_in_scope: 3
+fixed: 3
+skipped: 0
+status: all_fixed
 ---
 
-# Phase 28 Review Fix
+# Phase 28: Code Review Fix Report
 
-## Findings Disposition
+**Fixed at:** 2026-06-23T03:20:16Z
+**Source review:** .planning/phases/28-decision-event-foundation/28-REVIEW.md
+**Iteration:** 1
 
-1. `ReplayService.append_event(...)` flushed invalid minimal lifecycle events before `DecisionEventEnvelopeV1` validation.
-   - Verdict: confirmed.
-   - Fix: minimal envelope projection is now validated before `session.add(...)` / `flush()`.
-   - Regression: `test_append_minimal_event_validates_before_flush_on_operation_id_failure` catches the validation error, commits the session, and asserts no additional `AgentTraceEvent` row was persisted.
+**Summary:**
+- Findings in scope: 3
+- Fixed: 3
+- Skipped: 0
 
-2. `memory_write` emitted duplicate `memory_write_failed` terminal events on service exceptions.
-   - Verdict: confirmed.
-   - Fix: post-start service exceptions are now re-raised to the outer handler, which emits the single failed terminal event with the shared operation id.
-   - Regression: `test_memory_write_failure_events_carry_non_null_operation_id` now asserts the exact lifecycle sequence `memory_write_started`, `memory_write_failed`.
+## Fixed Issues
 
-3. Legacy minimal operation rows with null `operation_id` needed explicit compatibility coverage.
-   - Verdict: partially confirmed. `project_minimal_event(...)` remains strict for the current minimal envelope contract, but `/replay` V3 projection uses `project_event(...)` and can still read historical minimal rows as unresolved provenance.
-   - Fix: no production behavior change required.
-   - Regression: `test_get_replay_projects_legacy_minimal_operation_row_without_operation_id` verifies legacy minimal operation rows remain readable through `ReplayService.get_replay(...)`.
+### CR-01: Cold imports of replay and agent event surfaces fail
+
+**Status:** fixed
+**Files modified:** `src/replay/decision_events.py`, `tests/replay/test_decision_events.py`
+**Commit:** bd928ee
+**Applied fix:** Moved `ReplayContext` behind `TYPE_CHECKING` so `src.replay` no longer imports platform projections at runtime, and added subprocess cold-import smoke coverage for `src.replay` and `src.agent.events`.
+
+### CR-02: Stored `resource_refs` are not guarded during replay projection
+
+**Status:** fixed: requires human verification
+**Files modified:** `src/replay/service.py`, `tests/replay/test_replay_service.py`
+**Commit:** 62af758
+**Applied fix:** Re-validates copied stored `resource_refs` during both V3 and minimal replay projection, and added regressions proving unsafe legacy/direct rows raise before replay data is returned.
+
+### WR-01: `reason_codes` can bypass the list/snake_case contract
+
+**Status:** fixed: requires human verification
+**Files modified:** `src/replay/decision_events.py`, `tests/replay/test_decision_events.py`
+**Commit:** f03597f
+**Applied fix:** Rejects non-list `reason_codes`, normalizes payload-provided `redacted_payload.reason_codes`, rejects malformed payload values, and preserves the legacy singular `redacted_payload.reason_code` behavior.
 
 ## Verification
 
-- `uv run pytest tests/replay/test_decision_events.py tests/agent/test_events.py tests/agent/test_memory_write_node.py tests/replay/test_sequence_allocator.py tests/replay/test_replay_service.py -q` - 90 passed, 1 warning.
-- `uv run pytest tests/replay -q` - 100 passed, 1 warning.
-- `uv run ruff check src/replay/service.py src/agent/nodes/memory_write.py tests/replay/test_decision_events.py tests/agent/test_memory_write_node.py tests/replay/test_replay_service.py` - passed.
+- `uv run python -c "import src.replay" && uv run python -c "import src.agent.events"` - passed.
+- `uv run ruff check src/replay/decision_events.py src/replay/service.py tests/replay/test_decision_events.py tests/replay/test_replay_service.py` - passed.
+- `uv run pytest tests/replay/test_decision_events.py tests/replay/test_replay_service.py -q` - 66 passed, 1 warning.
+- Orchestrator verification: `uv run python -c "import src.replay; import src.agent.events; print('cold imports ok')"` - passed.
+- Orchestrator verification: `uv run ruff check src/replay/decision_events.py src/replay/service.py tests/replay/test_decision_events.py tests/replay/test_replay_service.py src/agent/events.py src/agent/nodes/memory_write.py tests/agent/test_events.py tests/agent/test_memory_write_node.py tests/replay/test_sequence_allocator.py` - passed.
+- Orchestrator verification: `uv run pytest tests/replay/test_decision_events.py tests/replay/test_replay_service.py tests/agent/test_events.py tests/agent/test_memory_write_node.py tests/replay/test_sequence_allocator.py -q` - 97 passed, 1 warning.
+- Orchestrator verification: `uv run pytest tests/replay -q` - 107 passed, 1 warning.
 
 ## Residual Risk
 
-Full repository tests were not rerun for this narrow review fix. The touched behavior is covered by focused replay and memory-write suites.
+Full repository tests were not run. The fixed contract paths were independently verified with cold-import checks, focused Phase 28 replay/agent/memory suites, and the full `tests/replay` suite.
+
+---
+
+_Fixed: 2026-06-23T03:20:16Z_
+_Fixer: Codex (gsd-code-fixer)_
+_Iteration: 1_
