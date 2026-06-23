@@ -3742,3 +3742,47 @@ rg -n 'UnifiedToolManager 是 graph-facing|唯一 node-facing|UnifiedToolManager
 
 - `docs/contract-spec.md`
 - `.planning/phases/29-tool-platform-boundary/29-*-PLAN.md`
+
+## 2026-06-23 16:47 CST - 并行运行 DB-backed pytest 导致测试库建表竞争
+
+### 问题现象
+
+复核 GLM 5.2 执行的 Phase 29-01 RED 测试时，并行运行多个 `uv run pytest ...` 命令，其中两个 DB-backed 测试在 fixture setup 阶段报错：
+
+```text
+asyncpg.exceptions.UniqueViolationError: duplicate key value violates unique constraint "pg_type_typname_nsp_index"
+DETAIL: Key (typname, typnamespace)=(tenants, ...) already exists.
+```
+
+### 如何检测 / 复现
+
+在同一仓库/同一测试库上同时运行多个需要 `tests/conftest.py` 初始化数据库 schema 的 pytest 进程，可能复现建表竞争。
+
+### 关键证据或命令
+
+并行触发的命令包括：
+
+```bash
+uv run pytest tests/replay/test_tool_policy_events.py::test_tool_policy_event_rejects_raw_descriptor_and_arg_payload -q
+uv run pytest tests/conversation/test_service.py::test_append_tool_result_stores_projector_normalized_data_without_raw_sentinels -q
+```
+
+失败栈显示两者都在 `tests/conftest.py` 的 `Base.metadata.create_all` 附近创建 `tenants` 表时冲突。
+
+### 当前判断 / 根因
+
+当前判断是本地验证方式问题：多个 DB-backed pytest 进程并发使用同一 Postgres 测试 schema / database，`create_all` 并发导致 catalog/type 约束冲突。不是 Phase 29-01 测试内容本身的直接证据。
+
+### 已做处理
+
+本轮 code review 中不把该错误计入 GLM 代码问题；后续 DB-backed 测试改为串行运行，或使用隔离测试库/schema。
+
+### 剩余问题
+
+未排查测试 fixture 是否能自动隔离并发 pytest。若未来需要并行 DB 测试，应修 fixture 或给每个进程独立 database/schema。
+
+### 下次继续排查入口
+
+- `tests/conftest.py`
+- `tests/replay/test_tool_policy_events.py`
+- `tests/conversation/test_service.py`

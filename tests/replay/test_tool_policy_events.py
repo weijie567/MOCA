@@ -160,7 +160,22 @@ async def test_tool_policy_runtime_auth_recorded_emits_per_invocation_event(sess
 
 
 @pytest.mark.asyncio
-async def test_tool_policy_event_rejects_raw_descriptor_and_arg_payload(session: AsyncSession) -> None:
+@pytest.mark.parametrize(
+    ("forbidden_key", "forbidden_value"),
+    [
+        ("raw_args", {"order_no": "ORD-1"}),
+        ("raw_payload", {"secret": "sk-xxx"}),
+        ("raw_tool_output", "<upstream error text>"),
+        ("input_schema", {"type": "object"}),
+        ("required_permission", "tool:get_order"),
+        ("caller_allowlist", ["investigate"]),
+    ],
+)
+async def test_tool_policy_event_rejects_raw_descriptor_and_arg_payload(
+    session: AsyncSession,
+    forbidden_key: str,
+    forbidden_value: object,
+) -> None:
     run_id, tenant_id = await _create_run(session)
 
     with pytest.raises(Exception):
@@ -177,9 +192,6 @@ async def test_tool_policy_event_rejects_raw_descriptor_and_arg_payload(session:
                 "tool_name": "get_order",
                 "decision": "denied",
                 "reason_codes": ["missing_permission"],
-                "raw_args": {"order_no": "ORD-1"},
-                "input_schema": {"type": "object"},
-                "required_permission": "tool:get_order",
-                "caller_allowlist": ["investigate"],
+                forbidden_key: forbidden_value,
             },
         )

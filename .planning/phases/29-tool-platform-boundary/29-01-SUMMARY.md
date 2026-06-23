@@ -32,7 +32,7 @@ key-files:
 
 key-decisions:
   - "Top-level imports in test_tool_platform.py limited to Plan 29-02 contracts/policy so the file collects as soon as 29-02 lands; ToolPlatform/ToolRuntime/ToolResultProjector imports (29-03) are deferred into the tests that exercise them so 29-02's four-test verify can run."
-  - "Architecture executor-import ban scoped to nodes Phase 29 migrates (investigate); action_draft.py still imports src.tools.executors.action for node-only draft creation and is deferred — routing it through ToolPlatform is out of Phase 29 scope (not in 29-04 files_modified)."
+  - "Architecture executor-import ban matches 29-04 acceptance: all graph nodes must dispatch through ToolPlatform rather than importing src.tools.executors.* directly."
   - "Conversation smoke test selects ToolResultRecord by tool_result_id (String column), not the auto-generated UUID PK id."
 
 patterns-established:
@@ -56,8 +56,8 @@ completed: 2026-06-23
 
 ## Accomplishments
 - Added `tests/tools/test_tool_platform.py` covering ToolViewV1 prompt-safety, prompt-safe schema projection, ToolPolicyDecision non-envelope + reason-code rules, ToolPlatform visibility/runtime-auth, and ToolResultProjector raw-sentinel stripping.
-- Added `tests/replay/test_tool_policy_events.py` covering `tool_policy_visibility_recorded` / `tool_policy_runtime_auth_recorded` registration, retention, and redaction/resource-ref guards.
-- Extended replay, manager, investigate, conversation, and architecture tests for namespaced reason codes, migration 017 contract, manager delegation, ToolView-only planner surface, projector-normalized storage, and ToolPlatform facade boundaries.
+- Added `tests/replay/test_tool_policy_events.py` covering `tool_policy_visibility_recorded` / `tool_policy_runtime_auth_recorded` registration, retention, and per-field redaction/resource-ref guards.
+- Extended replay, manager, investigate, conversation, and architecture tests for namespaced reason codes, migration 017 contract, manager delegation, ToolView-only planner surface, projector-normalized storage with key/value raw-sentinel checks, and ToolPlatform facade boundaries.
 - Verified the plan's RED gate: suite exits non-zero with a planned-missing-artifact marker (`ToolViewV1`) and no syntax/dependency-collection errors.
 
 ## Task Commits
@@ -83,11 +83,18 @@ Plan `<verify>` command result:
 
 ## Deviations from Plan
 
-- **[Scope decision] Architecture executor-import ban scoped to migrated nodes.** The plan's 29-04 acceptance ("no graph-node imports of src.tools.executors") cannot be met without refactoring `src/agent/nodes/action_draft.py`, which is not listed in 29-04 `files_modified`. The RED test enforces the ban for the node Phase 29 migrates (investigate) and explicitly defers action_draft (comment in test). This avoids expanding Phase 29 scope into action_draft while preserving the guard for the migrated node. Flag for review: if the intent was to also route action_draft through ToolPlatform, 29-04 files_modified should be updated.
+None.
+
+## Post-Review Repairs
+
+- Corrected the unavailable-tool visibility test so executor-unavailable tools are excluded from `ToolViewV1[]` and recorded only as visibility decisions with `tool_unavailable`.
+- Corrected the `UnifiedToolManager` delegation test fake to match the `ToolPlatform.invoke(...) -> ToolInvocationOutcome` contract while preserving manager `invoke(...) -> ToolResultV2` compatibility.
+- Removed the architecture-test exception for `action_draft.py` so the executor-import ban matches 29-04 acceptance.
+- Strengthened raw-sentinel checks to cover forbidden values as well as forbidden keys, and split tool-policy event rejection into per-field assertions.
 
 ## Issues Encountered
 
-None. Postgres test DB was available; all DB-backed RED tests failed for the intended missing-artifact/behavior reasons.
+None in the implementation run. Post-review DB-backed checks were run serially; RED failures were the intended missing-artifact/old-behavior failures, and guard-only assertions passed where the existing redaction layer already enforced them.
 
 ## Self-Check: PASSED
 

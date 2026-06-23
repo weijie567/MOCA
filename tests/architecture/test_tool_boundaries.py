@@ -183,18 +183,10 @@ def test_graph_nodes_target_tool_platform_facade() -> None:
 
 
 def test_graph_nodes_do_not_import_tool_executors() -> None:
-    # Phase 29 D-27: graph nodes migrated onto ToolPlatform must dispatch through the
+    # Phase 29 D-27 / 29-04 acceptance: graph nodes dispatch through the ToolPlatform
     # facade and must not import src.tools.executors.* directly.
-    #
-    # Scope note: ``action_draft.py`` still imports ``src.tools.executors.action`` for
-    # node-only action-draft creation. Routing action_draft through ToolPlatform is out
-    # of Phase 29 scope (not listed in 29-04 files_modified) and is deferred to a later
-    # phase. The check enforces the executor-import ban for the node Phase 29 migrates
-    # (investigate) and any future node-except-action_draft.
     violations: list[tuple[str, str]] = []
     for path in sorted((ROOT / "src" / "agent" / "nodes").glob("*.py")):
-        if path.name == "action_draft.py":
-            continue
         for module in _imports(path):
             if module.startswith("src.tools.executors"):
                 violations.append((str(path.relative_to(ROOT)), module))

@@ -721,6 +721,14 @@ async def test_append_tool_result_stores_projector_normalized_data_without_raw_s
         "debug_trace": "stack trace",
         "secret": "sk-xxx",
     }
+    raw_sentinel_values = {
+        "13800000000",
+        "<upstream error text>",
+        "model chain-of-thought",
+        "authority body",
+        "stack trace",
+        "sk-xxx",
+    }
     result = ToolResultV2(
         status="success",
         data={"order_no": "ORD-PROJ-001", "status": "shipped", **raw_sentinels},
@@ -754,9 +762,17 @@ async def test_append_tool_result_stores_projector_normalized_data_without_raw_s
             select(ToolResultRecord).where(ToolResultRecord.tool_result_id == "tool-result-projector-normalized")
         )
     ).scalar_one()
-    normalized_blob = str(stored.normalized_result_json)
-    prompt_blob = str(stored.prompt_summary) + str(prompt_summary.prompt_summary)
-    for sentinel in raw_sentinels:
-        assert sentinel not in normalized_blob, f"normalized_result_json must not carry {sentinel!r}"
-        assert sentinel not in prompt_blob, f"prompt_summary must not carry {sentinel!r}"
+
+    def _has_raw_sentinel(value: object) -> bool:
+        if isinstance(value, dict):
+            return any(key in raw_sentinels or _has_raw_sentinel(child) for key, child in value.items())
+        if isinstance(value, list):
+            return any(_has_raw_sentinel(item) for item in value)
+        if isinstance(value, str):
+            return any(sentinel in value for sentinel in raw_sentinel_values)
+        return False
+
+    assert not _has_raw_sentinel(stored.normalized_result_json)
+    assert not _has_raw_sentinel(stored.prompt_summary)
+    assert not _has_raw_sentinel(prompt_summary.prompt_summary)
     assert stored.normalized_result_json.get("order_no") == "ORD-PROJ-001"

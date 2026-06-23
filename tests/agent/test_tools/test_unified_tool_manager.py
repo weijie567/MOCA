@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -511,7 +512,7 @@ async def test_unified_manager_invoke_returns_tool_result_v2_via_platform(monkey
 
     async def fake_invoke(self, name, args, ctx, session=None):
         captured["value"] = (name, args, ctx.caller_node)
-        return _success_result("platform_delegate")
+        return SimpleNamespace(tool_result=_success_result("platform_delegate"))
 
     monkeypatch.setattr(ToolPlatform, "invoke", fake_invoke)
     manager = UnifiedToolManager()

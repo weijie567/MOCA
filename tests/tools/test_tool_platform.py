@@ -103,6 +103,16 @@ _RAW_SENTINEL_KEYS = {
     "pii",
 }
 
+_RAW_SENTINEL_VALUES = {
+    "internal ledger blob",
+    "<upstream error text>",
+    "model chain-of-thought",
+    "authority body",
+    "stack",
+    "sk-xxx",
+    "4111111111111111",
+}
+
 
 def _descriptor(name: str):
     return next(item for item in ToolCatalog().descriptors() if item.name == name)
@@ -312,14 +322,26 @@ async def test_visible_tools_records_hidden_and_unavailable_decisions_outside_pr
     assert isinstance(views, list)
     assert all(isinstance(view, ToolViewV1) for view in views)
     visible_names = {view.name for view in views}
+    assert "get_order" not in visible_names
     assert "create_coupon_grant_draft" not in visible_names
     write_descriptor = _descriptor("create_coupon_grant_draft")
     assert write_descriptor.exposure == "node_only"
     # Hidden / unavailable decisions are recorded outside the returned prompt views.
     visibility_events = getattr(platform, "last_visibility_decisions", None)
     assert visibility_events is not None, "ToolPlatform must retain/emit visibility decisions outside the prompt"
-    recorded_names = {decision.tool_name for decision in visibility_events}
-    assert "create_coupon_grant_draft" in recorded_names or "get_order" in recorded_names
+    decisions_by_name = {decision.tool_name: decision for decision in visibility_events}
+    assert {"get_order", "create_coupon_grant_draft"} <= set(decisions_by_name)
+
+    get_order_decision = decisions_by_name["get_order"]
+    assert get_order_decision.decision_stage == "visibility"
+    assert get_order_decision.decision == "hidden"
+    assert get_order_decision.runtime_available is False
+    assert "tool_unavailable" in get_order_decision.reason_codes
+
+    draft_decision = decisions_by_name["create_coupon_grant_draft"]
+    assert draft_decision.decision_stage == "visibility"
+    assert draft_decision.decision == "hidden"
+    assert "hidden_by_policy" in draft_decision.reason_codes
 
 
 @pytest.mark.asyncio
@@ -342,7 +364,7 @@ async def test_runtime_auth_rechecks_visible_tool_before_dispatch() -> None:
 
     # Explicit out-of-scope merchant_id must also deny before dispatch.
     scoped_ctx = _ctx(
-        permissions=["tool:get_order"],
+        permissions=["tool:get_merchant_risk"],
         merchant_scope=MerchantScopeV1(merchant_ids=["M-ALLOWED"]),
     )
     outcome = await platform.invoke(
@@ -399,6 +421,8 @@ def test_tool_result_projector_blocks_raw_data_from_prompt_and_graph_surfaces() 
             return any(key in _RAW_SENTINEL_KEYS or _has_sentinel(child) for key, child in value.items())
         if isinstance(value, list):
             return any(_has_sentinel(item) for item in value)
+        if isinstance(value, str):
+            return any(sentinel in value for sentinel in _RAW_SENTINEL_VALUES)
         return False
 
     assert not _has_sentinel(projection.normalized_result), "normalized_result must strip raw sentinels"
