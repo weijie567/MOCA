@@ -3570,3 +3570,134 @@ progress:
 - `gsd-sdk query state.record-session`
 - `/Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs`
 - `/Users/ming/.codex/get-shit-done/bin/lib/state.cjs::cmdStateRecordSession`
+
+## 57. Phase 29 plan-phase UI heuristic 将 `ToolView` 误判为 UI 工作
+
+### 问题现象
+
+运行 `$gsd-plan-phase 29` 初始化后，GSD UI 检测启发式因为 Phase 29 文档中大量出现 `ToolView` / planner view 字样，将本阶段误判为包含 UI 工作。
+
+### 如何检测 / 复现
+
+执行 Phase 29 plan-phase 初始化流程并检查 UI gate 结果；Phase 29 的目标是工具平台边界和 planner-visible capability view，不是前端 UI。
+
+### 关键证据或命令
+
+Phase 29 roadmap goal：
+
+```text
+Replace scattered tool allowlists with descriptor-driven planner views, runtime authorization, result projection, and decision events.
+```
+
+相关文本中的 `view` 指 `ToolViewV1` 契约，不是 browser/frontend UI。
+
+### 当前判断 / 根因
+
+当前判断是 GSD UI heuristic 使用了过宽关键词匹配，未区分 contract/model 名称里的 `View` 与真实 UI/前端工作。
+
+### 已做处理
+
+本轮将其作为 false positive 处理，未触发 UI-SPEC/UI auditor 流程；Phase 29 计划仍按 backend/platform boundary 处理，并由 validation/threat model 覆盖 prompt-safe `ToolView` 契约。
+
+### 剩余问题
+
+未修复 GSD heuristic 本身。后续包含 `ToolView`、`ProjectionView`、`ViewModel` 等后端契约名的阶段仍可能误触发 UI gate。
+
+### 下次继续排查入口
+
+- `$gsd-plan-phase 29`
+- `/Users/ming/.codex/get-shit-done/workflows/plan-phase.md`
+- GSD UI detection / HAS_UI heuristic
+
+## 58. `state.planned-phase` 在 Phase 29 计划完成时回退 STATE.md 元数据
+
+### 问题现象
+
+运行：
+
+```bash
+gsd-sdk query state.planned-phase --phase "29" --name "Tool Platform Boundary" --plans "4"
+```
+
+工具返回 `updated: true`，但 `.planning/STATE.md` 的 frontmatter 和正文状态出现回退/不一致：
+
+```yaml
+status: planning
+last_activity: 2026-06-23 -- Phase 28 complete
+progress:
+  completed_phases: 3
+  total_plans: 9
+  percent: 56
+```
+
+正文仍显示：
+
+```text
+Plan: Not planned
+Status: Ready to plan
+```
+
+同时追加了 Phase 29 planned 记录，导致同一文件里“已计划”和“未计划”并存。
+
+### 如何检测 / 复现
+
+运行上述 `state.planned-phase` 后检查：
+
+```bash
+sed -n '1,80p' .planning/STATE.md
+git diff -- .planning/STATE.md
+```
+
+### 关键证据或命令
+
+工具返回：
+
+```json
+{
+  "updated": true,
+  "phase": "29",
+  "name": "Tool Platform Boundary",
+  "plans": "4"
+}
+```
+
+随后 `git diff -- .planning/STATE.md` 显示它把 `completed_phases` 从 4 改为 3，把 `last_activity` 改回 Phase 28 complete，并未更新 Current Position 为 ready to execute。
+
+### 当前判断 / 根因
+
+当前判断是 GSD `state.planned-phase` 使用了过期或不完整的 state 模板/统计逻辑，只追加 planned entry，但没有同步正文状态，并且会回退 frontmatter 统计字段。这个问题与上一条 `state.record-session` 的 STATE 写入漂移属于同类风险。
+
+### 已做处理
+
+手动修复 `.planning/STATE.md`：
+
+```yaml
+status: ready_to_execute
+stopped_at: Phase 29 planned
+last_updated: "2026-06-23T14:57:58+08:00"
+last_activity: 2026-06-23 -- Phase 29 planned
+progress:
+  total_phases: 10
+  completed_phases: 4
+  total_plans: 10
+  completed_plans: 5
+  percent: 40
+```
+
+并同步正文：
+
+```text
+Plan: 29-01 through 29-04 planned
+Status: Ready to execute
+Next: Execute Phase 29 Tool Platform Boundary
+```
+
+### 剩余问题
+
+未修复 GSD 工具本身。后续使用 `state.planned-phase` 后必须立刻检查 `.planning/STATE.md` 的 frontmatter、Current Position、Performance Metrics 和 Session Continuity。
+
+### 下次继续排查入口
+
+- `gsd-sdk query state.planned-phase`
+- `/Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs`
+- `/Users/ming/.codex/get-shit-done/bin/lib/state.cjs`

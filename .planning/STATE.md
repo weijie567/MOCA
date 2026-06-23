@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
-status: ready_to_plan
-stopped_at: Phase 29 context gathered
-last_updated: "2026-06-23T13:40:00+08:00"
-last_activity: 2026-06-23 -- Phase 29 context gathered
+status: ready_to_execute
+stopped_at: Phase 29 planned
+last_updated: "2026-06-23T14:57:58+08:00"
+last_activity: 2026-06-23 -- Phase 29 planned
 progress:
   total_phases: 10
   completed_phases: 4
@@ -21,14 +21,14 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-23)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v1.9 Agent Platform Foundation — Phase 29 ready to plan
+**Current focus:** v1.9 Agent Platform Foundation — Phase 29 ready to execute
 
 ## Current Position
 
 Phase: 29 - Tool Platform Boundary
-Plan: Not planned
-Status: Ready to plan
-Last activity: 2026-06-23 -- Phase 28 complete
+Plan: 29-01 through 29-04 planned
+Status: Ready to execute
+Last activity: 2026-06-23 -- Phase 29 planned
 
 Progress: [████░░░░░░] 40%
 
@@ -60,7 +60,7 @@ Planning files:
 | 26. Architecture Contract Baseline | 1/1 complete | Complete |
 | 27. TrustedContextFactory and Projections | 3/3 complete | Complete |
 | 28. Decision Event Foundation | 1/1 complete | Complete |
-| 29. Tool Platform Boundary | 0/1 | Pending |
+| 29. Tool Platform Boundary | 0/4 | Ready to execute |
 | 30. BusinessFactService Boundary | 0/1 | Pending |
 | 31. Memory Platform Boundary | 0/1 | Pending |
 | 32. Intent Graph Migration | 0/1 | Pending |
@@ -108,7 +108,7 @@ Latest execution metric: Phase 28 P28-01 — 18 min, 3 tasks, 10 files.
 
 ### Pending Todos
 
-- Plan Phase 29 Tool Platform Boundary.
+- Execute Phase 29 Tool Platform Boundary.
 - Archive completed old Phase 24/24.x/25 directories into milestone-specific phase archives after Phase 26 planning is stable.
 - Optional follow-up from v1.8 remains: pin active slot `confidence` projection before confidence becomes a meaningful provenance field.
 
@@ -141,7 +141,7 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 Last session: 2026-06-23T13:40:00+08:00
 Stopped at: Phase 29 context gathered
 Resume file: .planning/phases/29-tool-platform-boundary/29-CONTEXT.md
-Next: Plan Phase 29 Tool Platform Boundary; old phase directory archive remains a separate cleanup todo.
+Next: Execute Phase 29 Tool Platform Boundary; old phase directory archive remains a separate cleanup todo.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
 
@@ -160,3 +160,5 @@ Next: Plan Phase 29 Tool Platform Boundary; old phase directory archive remains 
 **Completed Phase:** 27 (TrustedContextFactory and Projections) — 3/3 plans complete; verification/security passed; UAT 6/6 passed — 2026-06-23T07:51:50+08:00
 
 **Completed Phase:** 28 (Decision Event Foundation) — 1/1 plan complete; verification passed — 2026-06-23T10:15:32+08:00
+
+**Planned Phase:** 29 (Tool Platform Boundary) — 4 plans — 2026-06-23T14:57:58+08:00
