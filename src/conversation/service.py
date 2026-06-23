@@ -216,22 +216,42 @@ class ConversationService:
         raw_result_ref: str | None = None,
         raw_result_hash: str | None = None,
         replay_event_id: uuid.UUID | str | None = None,
+        projection: Any | None = None,
     ) -> ToolResultPromptSummary:
         if self.repository is None:
             raise RuntimeError("ConversationRepository is required for append operations")
-        normalized_result_json = result.data or {}
-        business_fact_refs = [ref.model_dump(mode="json") for ref in result.business_fact_refs]
-        policy_evidence_refs = [ref.model_dump(mode="json") for ref in result.policy_evidence_refs]
+
+        # Use projection data when available; otherwise create one.
+        if projection is None:
+            from src.tools.projection import ToolResultProjector
+            projection = ToolResultProjector().project(
+                tool_name=tool_name, result=result, tool_call_id=tool_call_id,
+            )
+        normalized_result_json = getattr(projection, "normalized_result", {}) or {}
+        prompt_proj = getattr(projection, "prompt_projection", {}) or {}
+        prompt_text = getattr(projection, "text_for_prompt", "") or ""
+        business_fact_refs = prompt_proj.get("business_fact_refs", [])
+        policy_evidence_refs = prompt_proj.get("policy_candidate_refs", [])
+        audit_ref = result.audit_ref
+        if getattr(projection, "audit_refs", None):
+            for ref in projection.audit_refs:
+                if ref:
+                    audit_ref = ref
+                    break
+
         stored_tool_result_id = tool_result_id or str(uuid.uuid4())
-        prompt_summary = _build_prompt_summary(
-            tool_name=tool_name,
-            status=result.status,
-            summary=result.summary,
-            source_system=result.source_system,
-            business_fact_refs=business_fact_refs,
-            policy_evidence_refs=policy_evidence_refs,
-            raw_result_ref=raw_result_ref,
-        )
+        if prompt_text:
+            prompt_summary = prompt_text
+        else:
+            prompt_summary = _build_prompt_summary(
+                tool_name=tool_name,
+                status=result.status,
+                summary=result.summary,
+                source_system=result.source_system,
+                business_fact_refs=business_fact_refs,
+                policy_evidence_refs=policy_evidence_refs,
+                raw_result_ref=raw_result_ref,
+            )
         await self.repository.append_tool_result(
             tenant_id=_coerce_uuid(tenant_id),
             user_id=_coerce_uuid(user_id),
@@ -254,7 +274,7 @@ class ConversationService:
             prompt_summary=prompt_summary,
             business_fact_refs_json=business_fact_refs,
             policy_evidence_refs_json=policy_evidence_refs,
-            audit_ref=result.audit_ref,
+            audit_ref=audit_ref,
             replay_event_id=_coerce_optional_uuid(replay_event_id),
         )
         return ToolResultPromptSummary(
@@ -267,7 +287,7 @@ class ConversationService:
             business_fact_refs=business_fact_refs,
             policy_evidence_refs=policy_evidence_refs,
             raw_result_ref=raw_result_ref,
-            audit_ref=result.audit_ref,
+            audit_ref=audit_ref,
         )
 
     async def load_prompt_context(

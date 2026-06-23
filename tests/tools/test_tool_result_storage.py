@@ -115,7 +115,8 @@ async def test_tool_result_storage_keeps_four_layers_separate(session: AsyncSess
 
     assert stored.raw_result_ref == "raw-result://orders/ORD-RAW-001"
     assert stored.raw_result_hash == "sha256:rawresultfixture"
-    assert stored.normalized_result_json["raw_payload"]["customer_phone"] == RAW_PHONE
+    # Phase 29: normalized_result_json is projector-normalized, raw sentinels stripped.
+    assert "raw_payload" not in stored.normalized_result_json
     assert stored.summary == "Order ORD-RAW-001 loaded with safe summary only."
     assert stored.prompt_summary == prompt_summary.prompt_summary
     assert stored.prompt_summary != stored.summary
@@ -182,7 +183,8 @@ async def test_prompt_summary_excludes_large_nested_data(session: AsyncSession, 
     assert "raw_payload" not in dumped
     assert RAW_PHONE not in str(dumped)
     assert RAW_MARKER not in str(dumped)
-    assert "business_tool_service" in dumped["prompt_summary"]
+    # Phase 29: prompt_summary uses projection format [tool_name] status — summary
+    assert "get_order" in dumped["prompt_summary"]
     assert "success" in dumped["prompt_summary"]
 
 
