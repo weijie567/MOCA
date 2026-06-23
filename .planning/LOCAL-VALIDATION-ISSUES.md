@@ -3786,3 +3786,82 @@ uv run pytest tests/conversation/test_service.py::test_append_tool_result_stores
 - `tests/conftest.py`
 - `tests/replay/test_tool_policy_events.py`
 - `tests/conversation/test_service.py`
+
+## 2026-06-23 17:23 CST - 复核 Phase 29-02 时并行 DB-backed pytest 再次触发测试库建表竞争
+
+### 问题现象
+
+复核 `test/xiaomi-phase29-02` 的 29-02 实现时，并行运行两组 pytest，其中包含 DB-backed `tests/replay/test_decision_events.py` 和 `tests/replay/test_tool_policy_events.py`。第一组测试出现 `UniqueViolationError`、`UndefinedTableError` 等 fixture setup/teardown 级错误。
+
+### 如何检测 / 复现
+
+在同一 Postgres 测试库上并行运行多个需要 `tests/conftest.py` 初始化/清理 schema 的 pytest 进程，可能复现。
+
+### 关键证据或命令
+
+并行触发的命令包括：
+
+```bash
+uv run pytest tests/tools/test_tool_platform.py::test_tool_view_exposes_only_prompt_safe_fields tests/tools/test_tool_platform.py::test_prompt_safe_schema_projection_strips_descriptor_policy_and_adapter_metadata tests/tools/test_tool_platform.py::test_tool_policy_decision_is_not_an_event_envelope tests/tools/test_tool_platform.py::test_visibility_stage_forbids_runtime_only_reason_codes tests/replay/test_decision_events.py -q
+uv run pytest tests/replay/test_tool_policy_events.py tests/replay/test_replay_migration_contract.py -q
+```
+
+错误栈包含：
+
+```text
+asyncpg.exceptions.UniqueViolationError: duplicate key value violates unique constraint "pg_type_typname_nsp_index"
+asyncpg.exceptions.UndefinedTableError: relation "agent_runs" does not exist
+```
+
+### 当前判断 / 根因
+
+当前判断仍是本地验证方式问题：多个 DB-backed pytest 进程并发共享同一测试库，schema create/drop 互相踩踏。不是 29-02 实现本身的证据。
+
+### 已做处理
+
+改为串行重跑 29-02 第一组 verify 命令，结果 `57 passed`；第二组 verify 在并行批次中已完成 `16 passed`。后续 DB-backed pytest 继续避免并行执行。
+
+### 剩余问题
+
+测试 fixture 仍不支持同库并发 pytest。若后续希望并行跑 DB 测试，需要给每个 pytest 进程隔离 database/schema，或在 fixture 层串行化 schema lifecycle。
+
+### 下次继续排查入口
+
+- `tests/conftest.py`
+- `tests/replay/test_decision_events.py`
+- `tests/replay/test_tool_policy_events.py`
+
+## 2026-06-23 17:25 CST - Phase 29-02 变更文件 ruff 检查发现未使用 import
+
+### 问题现象
+
+对 29-02 变更文件运行 ruff 时失败，提示 `tests/replay/test_replay_migration_contract.py` 中 `pytest` import 未使用。
+
+### 如何检测 / 复现
+
+```bash
+uv run ruff check src/tools/contracts.py src/tools/policy.py src/replay/decision_events.py src/replay/validators.py src/db/models.py src/db/migrations/versions/017_tool_policy_events.py tests/replay/test_replay_migration_contract.py
+```
+
+### 关键证据或命令
+
+```text
+F401 [*] `pytest` imported but unused
+ --> tests/replay/test_replay_migration_contract.py:6:8
+```
+
+### 当前判断 / 根因
+
+29-01 RED 测试里曾用 `pytest.fail(...)` 标记缺失 migration；29-02 实现后该分支被删除，但 `import pytest` 没有同步删除。
+
+### 已做处理
+
+本轮仅做 code review，未修改小米模型提交；该问题列入 review finding，建议后续修复时删除 unused import。
+
+### 剩余问题
+
+无。删除 unused import 后应重新运行 ruff。
+
+### 下次继续排查入口
+
+- `tests/replay/test_replay_migration_contract.py`
