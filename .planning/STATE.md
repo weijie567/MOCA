@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
-status: ready_to_plan
-stopped_at: Phase 28 context gathered
-last_updated: "2026-06-23T08:31:19+08:00"
-last_activity: 2026-06-23 -- Phase 28 context gathered
+status: ready_to_execute
+stopped_at: Phase 28 planned
+last_updated: "2026-06-23T09:07:54+08:00"
+last_activity: 2026-06-23 -- Phase 28 planned
 progress:
   total_phases: 10
   completed_phases: 3
@@ -21,14 +21,14 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-23)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v1.9 Agent Platform Foundation — Phase 28 planning ready
+**Current focus:** v1.9 Agent Platform Foundation — Phase 28 ready to execute
 
 ## Current Position
 
 Phase: 28 - Decision Event Foundation
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-06-23 -- Phase 27 UAT completed
+Plan: 28-01 planned
+Status: Ready to execute
+Last activity: 2026-06-23 -- Phase 28 planned
 
 Progress: [███░░░░░░░] 30%
 
@@ -141,7 +141,7 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 Last session: 2026-06-23T08:31:19+08:00
 Stopped at: Phase 28 context gathered
 Resume file: .planning/phases/28-decision-event-foundation/28-CONTEXT.md
-Next: Phase 28 Decision Event Foundation; old phase directory archive remains a separate cleanup todo.
+Next: Execute Phase 28 Decision Event Foundation; old phase directory archive remains a separate cleanup todo.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
 
@@ -158,3 +158,5 @@ Next: Phase 28 Decision Event Foundation; old phase directory archive remains a 
 **Completed Phase:** 26 (Architecture Contract Baseline) — 1/1 plans complete; external review passed with warnings fixed — 2026-06-22T14:43:37Z
 
 **Completed Phase:** 27 (TrustedContextFactory and Projections) — 3/3 plans complete; verification/security passed; UAT 6/6 passed — 2026-06-23T07:51:50+08:00
+
+**Planned Phase:** 28 (Decision Event Foundation) — 1 plan — 2026-06-23T09:07:54+08:00
