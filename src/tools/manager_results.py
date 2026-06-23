@@ -10,7 +10,7 @@ def result(
     summary: str,
     *,
     code: str,
-    source: Literal["caller", "tool", "adapter"] = "caller",
+    source: Literal["caller", "tool", "adapter", "policy"] = "caller",
     source_system: str = "unified_tool_manager",
 ) -> ToolResultV2:
     return ToolResultV2(

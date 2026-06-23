@@ -132,7 +132,12 @@ def _ctx(
         user_id=str(uuid4()),
         role="support",
         permissions=[f"tool:{name}" for name in ("get_order", "get_refund_case")] if permissions is None else permissions,
-        merchant_scope=merchant_scope if merchant_scope is not None else {"merchant_ids": ["*"]},
+        merchant_scope=(
+            merchant_scope.model_dump()
+            if hasattr(merchant_scope, "model_dump")
+            else merchant_scope if merchant_scope is not None
+            else {"merchant_ids": ["*"]}
+        ),
         session_id=None,
         thread_id="thread-1",
         run_id=str(uuid4()),
@@ -152,13 +157,13 @@ def _ctx(
 class _RecordingExecutor:
     """Thin executor adapter that records whether dispatch was reached."""
 
-    def __init__(self, name: str, result: ToolResultV2) -> None:
-        self._name = name
+    def __init__(self, name: str | set[str], result: ToolResultV2) -> None:
+        self._names = {name} if isinstance(name, str) else name
         self.result = result
         self.dispatched = False
 
     def has_tool(self, name: str) -> bool:
-        return name == self._name
+        return name in self._names
 
     async def execute(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
         self.dispatched = True
@@ -348,7 +353,7 @@ async def test_visible_tools_records_hidden_and_unavailable_decisions_outside_pr
 async def test_runtime_auth_rechecks_visible_tool_before_dispatch() -> None:
     from src.tools.platform import ToolPlatform
 
-    executor = _RecordingExecutor("get_order", _success_result())
+    executor = _RecordingExecutor({"get_order", "get_merchant_risk"}, _success_result())
     platform = ToolPlatform(executors={"business": executor})
 
     # Visible tool, but caller lacks the required permission -> denied before dispatch.
