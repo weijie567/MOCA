@@ -1245,7 +1245,6 @@ class ToolDescriptor(BaseModel):
     resource_type: str | None
 
 class ToolView(BaseModel):
-    schema_version: Literal["tool_view.v1"] = "tool_view.v1"
     name: str
     description: str
     input_schema: dict[str, Any]
@@ -1273,6 +1272,8 @@ class UnifiedToolManager(Protocol):
     def visible_tools(self, caller: str, ctx: ToolCallContext) -> list[ToolView]: ...
     def invoke(self, name: str, input_data: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2: ...
 ```
+
+Phase 29 locks `ToolView` as a prompt-safe planner capability view with exactly the fields shown above. Unlike durable service/event schemas in this section, `ToolView` intentionally does not expose a prompt-visible `schema_version`; the view contract version is represented by the producer model name (`ToolViewV1`) and `result_contract_version` for the returned tool result envelope.
 
 Catalog / manager rules：
 

@@ -19,7 +19,7 @@ This phase does not implement the Phase 30 `BusinessFactService` authority bound
 
 ### Planner-visible `ToolView`
 
-- **D-01:** Phase 29 uses a minimal `ToolViewV1` for planner visibility. It exposes only `name`, `description`, prompt-safe `input_schema`, `safe_usage_notes`, and `result_contract_version`.
+- **D-01:** Phase 29 uses a minimal `ToolViewV1` for planner visibility. It exposes only `name`, `description`, prompt-safe `input_schema`, `safe_usage_notes`, and `result_contract_version`. `docs/contract-spec.md` §12.6 has been aligned to this Phase 29 decision by removing the old prompt-visible `ToolView.schema_version` field; this is a spec correction, not an MVP divergence.
 - **D-02:** Read/retrieval/action-style guidance may appear only as controlled natural language or restricted descriptions in `safe_usage_notes`. Raw policy/runtime fields such as `data_classification`, `side_effect`, `required_permission`, `caller_allowlist`, executor refs, event family, or internal permission reasons must not enter the planner view.
 - **D-03:** `ToolView.input_schema` is a prompt-safe schema projection, not raw `ToolDescriptor.input_schema` passthrough. It keeps planner argument-construction essentials: field names, types, required fields, basic constraints, and short descriptions.
 - **D-04:** `ToolView.input_schema` must strip defaults, examples, internal validation notes, permission/resource policy, adapter/upstream details, and any descriptor-only or policy-only metadata.
