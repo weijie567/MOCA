@@ -5,14 +5,16 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import datetime
 import re
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.platform.context_projections import ReplayContext
 from src.replay.validators import guard_redacted_payload, guard_resource_refs, validate_event_type
+
+if TYPE_CHECKING:
+    from src.platform.context_projections import ReplayContext
 
 
 SCHEMA_VERSION = "minimal_event_envelope.v1"

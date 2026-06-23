@@ -34,6 +34,14 @@ MINIMAL_ENVELOPE_KEYS = {
 }
 
 
+def test_replay_and_agent_event_modules_cold_import() -> None:
+    import subprocess
+    import sys
+
+    subprocess.run([sys.executable, "-c", "import src.replay"], check=True)
+    subprocess.run([sys.executable, "-c", "import src.agent.events"], check=True)
+
+
 def _base_envelope(**overrides: object) -> dict[str, object]:
     payload: dict[str, object] = {
         "schema_version": "minimal_event_envelope.v1",
