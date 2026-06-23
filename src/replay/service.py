@@ -178,6 +178,11 @@ class ReplayService:
 
     def project_minimal_event(self, event: AgentTraceEvent) -> dict[str, Any]:
         """Project stored rows into the Phase 10-14 minimal envelope shape."""
+        payload = dict(event.redacted_payload or {})
+        refs = dict(event.resource_refs or {})
+        guard_redacted_payload(payload)
+        guard_resource_refs(refs)
+
         projection = {
             "schema_version": event.schema_version,
             "event_id": event.event_id,
@@ -190,9 +195,9 @@ class ReplayService:
             "event_type": event.event_type,
             "occurred_at": event.occurred_at,
             "actor": event.actor,
-            "resource_refs": event.resource_refs,
+            "resource_refs": refs,
             "redaction_policy_version": event.redaction_policy_version,
-            "redacted_payload": event.redacted_payload,
+            "redacted_payload": payload,
         }
         from src.replay.decision_events import DecisionEventEnvelopeV1
 
@@ -208,7 +213,9 @@ class ReplayService:
         """Project stored minimal or V3 rows into the strict ReplayEventV3 shape."""
         retention_class = retention_for_event_type(event.event_type)
         payload = dict(event.redacted_payload or {})
+        refs = dict(event.resource_refs or {})
         guard_redacted_payload(payload)
+        guard_resource_refs(refs)
         source_schema_version = event.schema_version
         projection = {
             "schema_version": "replay_event.v3",
@@ -225,7 +232,7 @@ class ReplayService:
             "attempt": event.attempt,
             "node_name": event.node_name,
             "actor": event.actor,
-            "resource_refs": event.resource_refs,
+            "resource_refs": refs,
             "redacted_payload": payload,
             "redaction_policy_version": event.redaction_policy_version,
             "provenance": {

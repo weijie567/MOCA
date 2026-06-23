@@ -321,6 +321,53 @@ async def test_get_replay_projects_legacy_minimal_operation_row_without_operatio
 
 
 @pytest.mark.asyncio
+async def test_get_replay_rejects_stored_unsafe_resource_refs(session: AsyncSession):
+    run_id, tenant_id, thread_id = await _create_manual_run(session)
+    session.add(
+        AgentTraceEvent(
+            event_id=uuid.uuid4(),
+            run_id=run_id,
+            sequence=1,
+            tenant_id=tenant_id,
+            thread_id=thread_id,
+            event_type="run_status_changed",
+            schema_version="replay_event.v3",
+            occurred_at=datetime.now(UTC),
+            actor={"type": "system", "id": "run_lifecycle"},
+            resource_refs={"typed_ref": {"raw_payload": "unsafe"}},
+            redaction_policy_version="redaction.v1",
+            redacted_payload={"status": "running"},
+        )
+    )
+    await session.flush()
+
+    with pytest.raises(ValueError, match="raw_payload"):
+        await ReplayService(session).get_replay(run_id)
+
+
+@pytest.mark.asyncio
+async def test_project_minimal_event_rejects_stored_unsafe_resource_refs(session: AsyncSession):
+    run_id, tenant_id, thread_id = await _create_manual_run(session)
+    row = AgentTraceEvent(
+        event_id=uuid.uuid4(),
+        run_id=run_id,
+        sequence=1,
+        tenant_id=tenant_id,
+        thread_id=thread_id,
+        event_type="run_status_changed",
+        schema_version="minimal_event_envelope.v1",
+        occurred_at=datetime.now(UTC),
+        actor={"type": "system", "id": "run_lifecycle"},
+        resource_refs={"typed_ref": {"raw_payload": "unsafe"}},
+        redaction_policy_version="redaction.v1",
+        redacted_payload={"status": "running"},
+    )
+
+    with pytest.raises(ValueError, match="raw_payload"):
+        ReplayService(session).project_minimal_event(row)
+
+
+@pytest.mark.asyncio
 async def test_get_replay_projects_persisted_operation_pair_as_paired(session: AsyncSession):
     run_id, tenant_id = await _create_run(session)
     service = ReplayService(session)
