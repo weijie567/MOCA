@@ -410,14 +410,18 @@ class ToolPolicyEngine:
             # Explicit merchant_id must be checked against scope
             if key == "merchant_id":
                 merchant_scope = ctx.merchant_scope
-                if isinstance(merchant_scope, dict):
-                    scope = MerchantScopeV1.model_validate(merchant_scope)
-                elif isinstance(merchant_scope, MerchantScopeV1):
-                    scope = merchant_scope
-                else:
-                    scope = MerchantScopeV1.model_validate(merchant_scope)
-                if not scope.allows(merchant_id=str(value)):
+                try:
+                    if isinstance(merchant_scope, MerchantScopeV1):
+                        scope = merchant_scope
+                    elif isinstance(merchant_scope, list):
+                        scope = MerchantScopeV1(merchant_ids=merchant_scope)
+                    else:
+                        scope = MerchantScopeV1.model_validate(merchant_scope)
+                except (TypeError, ValueError):
                     scope_denied = True
+                else:
+                    if not scope.allows(merchant_id=str(value)):
+                        scope_denied = True
 
             # Domain-lookup identifiers require Phase 30 ownership proof
             if key in _DOMAIN_SCOPE_CHECK_IDENTIFIERS:

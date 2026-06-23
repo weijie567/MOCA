@@ -383,6 +383,39 @@ async def test_runtime_auth_rechecks_visible_tool_before_dispatch() -> None:
     assert outcome.policy_decision.decision == "denied"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("merchant_scope", "expected_status", "expected_decision", "expected_dispatched"),
+    [
+        (["M-ALLOWED"], "success", "allowed", True),
+        (["M-OTHER"], "permission_denied", "denied", False),
+    ],
+)
+async def test_runtime_auth_handles_legacy_list_merchant_scope(
+    merchant_scope: list[str],
+    expected_status: str,
+    expected_decision: str,
+    expected_dispatched: bool,
+) -> None:
+    from src.tools.platform import ToolPlatform
+
+    executor = _RecordingExecutor({"get_merchant_risk"}, _success_result())
+    platform = ToolPlatform(executors={"business": executor})
+
+    outcome = await platform.invoke(
+        "get_merchant_risk",
+        {"merchant_id": "M-ALLOWED"},
+        _ctx(permissions=["tool:get_merchant_risk"], merchant_scope=merchant_scope),
+        session=None,
+    )
+
+    assert outcome.tool_result.status == expected_status
+    assert outcome.policy_decision.decision == expected_decision
+    assert executor.dispatched is expected_dispatched
+    if expected_decision == "denied":
+        assert "scope_denied" in outcome.policy_decision.reason_codes
+
+
 def test_tool_result_projector_blocks_raw_data_from_prompt_and_graph_surfaces() -> None:
     from src.tools.projection import ToolResultProjector
 
