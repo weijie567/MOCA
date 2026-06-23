@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
-status: ready_to_execute
-stopped_at: Phase 29 planned
-last_updated: "2026-06-23T14:57:58+08:00"
-last_activity: 2026-06-23 -- Phase 29 planned
+status: executing
+stopped_at: Phase 29 context gathered
+last_updated: "2026-06-23T08:41:59.285Z"
+last_activity: 2026-06-23 -- Phase --phase execution started
 progress:
   total_phases: 10
-  completed_phases: 4
-  total_plans: 10
-  completed_plans: 5
-  percent: 40
+  completed_phases: 3
+  total_plans: 9
+  completed_plans: 6
+  percent: 67
 ---
 
 # Project State: MOCA
@@ -21,16 +21,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-23)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v1.9 Agent Platform Foundation — Phase 29 ready to execute
+**Current focus:** Phase 29 — tool-platform-boundary
 
 ## Current Position
 
-Phase: 29 - Tool Platform Boundary
-Plan: 29-01 through 29-04 planned
-Status: Ready to execute
-Last activity: 2026-06-23 -- Phase 29 planned
+Phase: 29 (tool-platform-boundary) — EXECUTING
+Plan: 1 of 4 (29-01 complete)
+Status: Executing Phase 29
+Last activity: 2026-06-23 — Phase 29 execution started
 
-Progress: [████░░░░░░] 40%
+Progress: [███████░░░] 67%
 
 Planning files:
 
@@ -60,7 +60,7 @@ Planning files:
 | 26. Architecture Contract Baseline | 1/1 complete | Complete |
 | 27. TrustedContextFactory and Projections | 3/3 complete | Complete |
 | 28. Decision Event Foundation | 1/1 complete | Complete |
-| 29. Tool Platform Boundary | 0/4 | Ready to execute |
+| 29. Tool Platform Boundary | 1/4 | Executing (29-01 RED tests done) |
 | 30. BusinessFactService Boundary | 0/1 | Pending |
 | 31. Memory Platform Boundary | 0/1 | Pending |
 | 32. Intent Graph Migration | 0/1 | Pending |
