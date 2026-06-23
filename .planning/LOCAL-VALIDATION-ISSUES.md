@@ -1,5 +1,267 @@
 # 本地验证问题记录
 
+## 13. Phase 28 execute-phase 复现 `state.begin-phase` flag 解析写坏 STATE
+
+日期：2026-06-23
+
+### 问题现象
+
+执行 Phase 28 execute-phase 初始化时，按 workflow 示例运行：
+
+```bash
+gsd-sdk query state.begin-phase --phase "28" --name "decision-event-foundation" --plans "1"
+```
+
+命令返回 JSON 把 `--phase` 当成 phase、把 `28` 当成 name、把 `--name` 当成 plan_count，并把 `.planning/STATE.md` 写成 `Phase --phase`、`Plan: 1 of --name`、`Current focus: Phase --phase - 28`。
+
+### 如何检测 / 复现
+
+运行上述命令后执行：
+
+```bash
+git diff -- .planning/STATE.md
+```
+
+### 关键证据或命令
+
+命令输出：
+
+```json
+{"phase":"--phase","name":"28","plan_count":"--name"}
+```
+
+STATE diff 同时把 frontmatter 从 `ready_to_execute` / `total_plans: 10` / `percent: 30` 回退到 `executing` / `total_plans: 5` / `percent: 80`。
+
+### 当前判断 / 根因
+
+这是既有 `state.begin-phase` 参数解析与统计覆盖问题在 Phase 28 上的再次复现，和此前 Phase 24/26/27 记录同类。workflow documented flag syntax 与当前 SDK handler 不兼容。
+
+### 已做处理
+
+用补丁恢复 `.planning/STATE.md` 到 Phase 28 planned 的正确状态，并确认后续执行不再信任 `state.begin-phase` 自动写入结果。
+
+### 剩余问题
+
+后续 execute-phase 仍可能按 workflow 自动调用该 writer 并写坏 STATE。需要运行后立即检查 diff，或修复 SDK handler / workflow 文档。
+
+### 下次继续排查入口
+
+查看 `/Users/ming/.codex/get-shit-done/bin/lib/state.cjs::cmdStateBeginPhase` 和 `/Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs` 中 `parseNamedArgs` 的调用方式。
+
+## 12. `state.planned-phase` 重跑会回退 STATE frontmatter 统计
+
+日期：2026-06-23
+
+### 问题现象
+
+Phase 28 plan 已经由 planner 提交为 `ready_to_execute` 后，按 workflow 再运行：
+
+```bash
+gsd-sdk query state.planned-phase --phase "28" --name "Decision Event Foundation" --plans "1"
+```
+
+命令返回 `updated: true`，但 `.planning/STATE.md` frontmatter 被回退为不一致状态：`status: executing`、`stopped_at: Phase 28 context gathered`、`completed_phases: 2`、`total_plans: 5`、`percent: 80`。
+
+### 如何检测 / 复现
+
+在 Phase 28 已 planned 的状态下重跑上述命令，然后执行：
+
+```bash
+git diff -- .planning/STATE.md
+```
+
+### 关键证据或命令
+
+`git diff -- .planning/STATE.md` 显示 frontmatter 从已提交的 `ready_to_execute` / `total_plans: 10` / `percent: 30` 回退到旧统计；正文 Current Position 仍显示 Phase 28 ready to execute，说明 frontmatter 与正文不一致。
+
+### 当前判断 / 根因
+
+`state.planned-phase` handler 对当前 MOCA STATE 格式的 frontmatter / progress 统计同步不可靠；重复运行时会把旧 session/frontmatter 值写回。Phase 28 planning completion 其实已经在 `c92adbd docs(28): create phase plan` 中写入并提交。
+
+### 已做处理
+
+用补丁恢复 `.planning/STATE.md` 到命令前已提交的正确 planned 状态，并确认 `git diff -- .planning/STATE.md` 无输出。本次不提交工具生成的错误 STATE diff。
+
+### 剩余问题
+
+后续 plan-phase 如果重复运行 `state.planned-phase`，仍可能造成 STATE frontmatter 回退。需要在运行后强制检查 diff，或修复 GSD state handler。
+
+### 下次继续排查入口
+
+查看 `/Users/ming/.codex/get-shit-done/bin/lib/state.cjs::cmdStatePlannedPhase` 及其读取/替换 frontmatter 的逻辑，重点核对它如何从旧 state block 推导 status、progress、last_updated。
+
+## 11. macOS `find` 不支持 GNU `-printf`
+
+日期：2026-06-23
+
+### 问题现象
+
+执行 Phase 28 plan-phase 预检时，为列出 phase 目录文件尝试运行：
+
+```bash
+find .planning/phases/28-decision-event-foundation -maxdepth 1 -type f -printf '%f\n' | sort
+```
+
+在当前 macOS/BSD find 环境下失败：
+
+```text
+find: -printf: unknown primary or operator
+```
+
+### 如何检测 / 复现
+
+在 macOS 默认 `/usr/bin/find` 下运行上述命令即可复现。
+
+### 关键证据或命令
+
+失败来自 `find -printf`，这是 GNU find 扩展，BSD find 不支持。
+
+### 当前判断 / 根因
+
+这是平台命令差异，不是 phase 文件状态问题。
+
+### 已做处理
+
+改用 portable 写法：
+
+```bash
+find .planning/phases/28-decision-event-foundation -maxdepth 1 -type f -exec basename {} \; | sort
+```
+
+### 剩余问题
+
+后续 workflow 或手工命令如果复用 GNU-only `find -printf`，在 macOS 上仍会失败。
+
+### 下次继续排查入口
+
+遇到 `find: -printf: unknown primary or operator` 时，把 `-printf` 改成 `-exec basename {} \;`、`sed`、`awk`，或明确使用 GNU find。
+
+## 10. plan-phase UI gate 用大小写不敏感 `UI` 正则误匹配 `required`
+
+日期：2026-06-23
+
+### 问题现象
+
+执行 Phase 28 plan-phase 预检时，Phase 28 是 replay / observability foundation，不涉及前端或 UI 交付；但 UI gate 的粗略正则命中，若严格照 workflow 将要求运行 `$gsd-ui-phase 28`。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+PHASE_SECTION=$(gsd-sdk query roadmap.get-phase 28 2>/dev/null)
+printf '%s' "$PHASE_SECTION" | grep -iE "UI|interface|frontend|component|layout|page|screen|view|form|dashboard|widget"
+```
+
+### 关键证据或命令
+
+命中内容来自 Phase 28 success criteria 中的英文单词 `required`，因为 `grep -iE "UI"` 会把 `required` 里的 `ui` 当作 UI 命中。
+
+### 当前判断 / 根因
+
+这是 workflow UI gate 的 false positive。大小写不敏感的裸 `UI` pattern 没有词边界，会匹配普通英文单词里的 `ui` 子串。
+
+### 已做处理
+
+本次将 Phase 28 判定为非 UI phase，未中断 plan-phase，也未要求生成 UI-SPEC。
+
+### 剩余问题
+
+workflow 示例正则仍可能在其它非 UI phase 中误命中包含 `ui` 的英文单词。
+
+### 下次继续排查入口
+
+修复 UI gate 时应把 `UI` 改成带词边界的 pattern，例如 `\bUI\b`，或优先检测明确 frontend path / design terms。
+
+## 9. GSD state.record-session 参数解析写坏 STATE 元数据
+
+日期：2026-06-23
+
+### 问题现象
+
+执行 Phase 28 discuss workflow 的 state 更新时，按 workflow 示例运行：
+
+```bash
+gsd-sdk query state.record-session --stopped-at "Phase 28 context gathered" --resume-file ".planning/phases/28-decision-event-foundation/28-CONTEXT.md"
+```
+
+`.planning/STATE.md` 被写坏：`Last session` / `Resume file` 等字段出现 `--stopped-at`、`--resume-file` 这类 flag 名；frontmatter 的 `status`、`progress.completed_phases`、`progress.total_plans`、`progress.percent` 也被错误改写。
+
+### 如何检测 / 复现
+
+运行上述命令后查看：
+
+```bash
+git diff -- .planning/STATE.md
+sed -n '1,45p' .planning/STATE.md
+sed -n '136,148p' .planning/STATE.md
+```
+
+### 关键证据或命令
+
+- flag 形式运行后，STATE diff 中出现 `Last session: --stopped-at`、`Resume file: --resume-file`。
+- positional 形式 `gsd-sdk query state.record-session "Phase 28 context gathered" ".planning/phases/28-decision-event-foundation/28-CONTEXT.md"` 仍未按预期写入：`Last session` 被写成 `Phase 28 context gathered`，`Stopped at` 被写成 context 路径，`Resume file` 仍为 `None`。
+- 同时 progress 被错误回退为 `completed_phases: 2`、`total_plans: 4`、`percent: 100`，与 STATE 正文中的 v1.9 进度表不一致。
+
+### 当前判断 / 根因
+
+`gsd-sdk query state.record-session` 与 workflow documented flag syntax 不兼容，且 positional 参数含义也与预期不一致；该 query 还会顺带重算或覆盖 progress/frontmatter，导致与当前 milestone 状态漂移。
+
+### 已做处理
+
+- 手动将 `.planning/STATE.md` frontmatter 恢复为 Phase 28 context gathered 后的合理状态：`status: ready_to_plan`、`stopped_at: Phase 28 context gathered`、v1.9 progress 恢复为 10 phases / 10 plans / 4 completed plans / 30%。
+- 手动将 Session Continuity 更新为：`Stopped at: Phase 28 context gathered`，`Resume file: .planning/phases/28-decision-event-foundation/28-CONTEXT.md`。
+
+### 剩余问题
+
+GSD SDK 的 `state.record-session` 参数解析和 progress 覆盖问题仍存在；后续直接按 workflow 示例执行可能再次写坏 STATE。
+
+### 下次继续排查入口
+
+检查 `gsd-sdk query state.record-session` query handler 的参数解析与 STATE frontmatter update 逻辑，确认它是否应支持 `--stopped-at` / `--resume-file` flags，或 workflow 文档是否应改成当前实际 positional syntax。
+
+## 8. zsh 下直接 `ls path/*-SPEC.md` 会在无匹配时提前失败
+
+日期：2026-06-23
+
+### 问题现象
+
+执行 Phase 28 discuss workflow 的已有 context / SPEC 检查时，目标 phase 目录尚未创建。命令中直接使用未加保护的 zsh glob，导致 shell 在命令运行前报错：
+
+```text
+zsh:1: no matches found: .planning/phases/28-decision-event-foundation/*-SPEC.md
+zsh:1: no matches found: .planning/phases/28-decision-event-foundation/*-CONTEXT.md
+```
+
+### 如何检测 / 复现
+
+在 zsh 中、且 `.planning/phases/28-decision-event-foundation/` 不存在或没有匹配文件时执行：
+
+```bash
+ls .planning/phases/28-decision-event-foundation/*-SPEC.md 2>/dev/null | grep -v AI-SPEC | head -1 || true
+ls .planning/phases/28-decision-event-foundation/*-CONTEXT.md .planning/phases/28-decision-event-foundation/*-DISCUSS-CHECKPOINT.json 2>/dev/null || true
+```
+
+### 关键证据或命令
+
+上述命令在 zsh 的默认 `nomatch` 行为下会在 `ls` 执行前失败；`2>/dev/null` 不能屏蔽 shell glob expansion 阶段的错误。
+
+### 当前判断 / 根因
+
+这是 shell 行为差异，不是 phase 状态错误。workflow 示例里的 `ls path/*` 写法在 bash 常见环境中通常只表现为 no file 输出，但 zsh 默认会对无匹配 glob 抛 `no matches found`。
+
+### 已做处理
+
+本次继续排查时改用 `find` / 已知 phase metadata 判断，不把该 zsh 报错当成已有 SPEC/CONTEXT 的证据。
+
+### 剩余问题
+
+GSD workflow 文档里的 glob 示例仍可能在 zsh 用户环境复现。后续本地执行类似检查时应优先使用 `find`，或显式使用 `noglob` / `setopt NULL_GLOB` 后再运行。
+
+### 下次继续排查入口
+
+如后续 discuss/plan workflow 在“无匹配文件”场景中异常退出，先检查命令是否包含未保护的 `*.md` / `*.json` glob，再替换为 `find <dir> -name ...`。
+
 ## 7. 直接运行 pytest 命中了系统 Python 3.9
 
 日期：2026-06-21
@@ -2715,3 +2977,506 @@ Stopped at: Phase 27 verified and complete; Phase 28 planning ready
 ### 验证结果
 
 `STATE.md` 已明确指向 Phase 28 planning ready；该问题不改变 Phase 27 已完成结论，但会影响自动 next 路由时展示的 progress 解释。
+
+## 46. 手工 code review API 测试初跑使用了不存在的 pytest 节点名
+
+日期：2026-06-23
+
+### 问题现象
+
+手工 code review 阶段，为覆盖 Phase 27 API 入口尝试运行一个混合 pytest 命令，其中两个 `tests/test_approval_api.py` 节点名写错，pytest 以 `not found` 退出：
+
+```text
+ERROR: not found: /Users/ming/projects/MOCA/tests/test_approval_api.py::test_decide_approval_persists_decision_and_resumes_graph
+ERROR: not found: /Users/ming/projects/MOCA/tests/test_approval_api.py::test_reject_decision_resumes_graph_without_action_permission
+```
+
+### 如何检测 / 复现
+
+运行包含上述两个节点名的 pytest 命令即可复现。pytest 没有执行目标测试用例，退出码为 4。
+
+### 关键证据或命令
+
+用 `rg` 查到真实测试名：
+
+```bash
+rg -n "async def test_.*resume|async def test_.*decision|without_action_permission|permissions\\] == \\[\\]" tests/test_approval_api.py
+```
+
+真实节点为：
+
+```text
+tests/test_approval_api.py::test_decide_approve_builds_command_from_authenticated_actor_and_resumes_with_service_payload
+tests/test_approval_api.py::test_decide_reject_resumes_graph_with_trusted_rejected_result
+```
+
+### 当前判断 / 根因
+
+这是手工验证命令的 pytest 节点名错误，不是代码回归。
+
+### 已做处理
+
+已用真实节点名重跑同一组入口测试：
+
+```bash
+uv run pytest tests/test_search_integration.py tests/test_agent_runs_api.py::test_agent_chat_only_token_invokes_legacy_chat_with_no_tool_permissions tests/test_agent_runs_api.py::test_agent_run_stream_graph_config_contains_canonical_trusted_context tests/test_approval_api.py::test_decide_approve_builds_command_from_authenticated_actor_and_resumes_with_service_payload tests/test_approval_api.py::test_decide_reject_resumes_graph_with_trusted_rejected_result -q
+```
+
+结果为 `10 passed, 1 warning`。
+
+### 剩余问题
+
+无。后续手工挑选 pytest 节点时先用 `rg -n "def test_"` 确认真实函数名。
+
+### 下次继续排查入口
+
+- `tests/test_approval_api.py`
+- `tests/test_agent_runs_api.py`
+- `tests/test_search_integration.py`
+
+### 验证结果
+
+修正后的 API 入口测试集合通过。该问题只影响本次手工 code review 验证命令，不影响 Phase 27 代码结论。
+
+## 47. 并行启动多个 pytest 进程会争用同一 Postgres 测试 schema
+
+日期：2026-06-23
+
+### 问题现象
+
+修复 Phase 27 手工 code review 问题时，同时并行启动了三个独立 `uv run pytest ...` 进程。legacy chat 单测在 fixture 建表阶段失败，报 PostgreSQL type/table 名称冲突：
+
+```text
+asyncpg.exceptions.UniqueViolationError: duplicate key value violates unique constraint "pg_type_typname_nsp_index"
+DETAIL: Key (typname, typnamespace)=(tenants, ...) already exists.
+```
+
+### 如何检测 / 复现
+
+同时启动多个会执行 `Base.metadata.create_all` 的 pytest 进程，且它们复用同一测试数据库/schema 时，可能复现该错误。
+
+### 关键证据或命令
+
+失败发生在 `tests/conftest.py` 的 `Base.metadata.create_all` setup 阶段，不是测试断言阶段。将同一测试串行重跑：
+
+```bash
+uv run pytest tests/test_agent_runs_api.py::test_agent_chat_persists_trusted_run_id_when_graph_returns_stale_current_run_id -q
+```
+
+结果为 `1 passed, 1 warning`。
+
+### 当前判断 / 根因
+
+这是本地验证并发方式问题。多个 pytest 进程同时创建同一批 SQLAlchemy metadata，Postgres catalog 上出现建表/类型竞争。
+
+### 已做处理
+
+改为串行重跑受影响测试，确认测试通过。
+
+### 剩余问题
+
+无。后续涉及数据库建表 fixture 的 pytest 命令不要用多个独立进程并行跑；可以串行运行，或使用 pytest 自身隔离好的并发机制。
+
+### 下次继续排查入口
+
+- `tests/conftest.py`
+- `Base.metadata.create_all`
+- `tests/test_agent_runs_api.py::test_agent_chat_persists_trusted_run_id_when_graph_returns_stale_current_run_id`
+
+### 验证结果
+
+串行重跑通过。该问题只影响本地验证方式，不影响本次代码修复结论。
+
+## 48. 裸 pytest 命中系统 Python 3.9 导致 datetime.UTC ImportError
+
+日期：2026-06-23
+
+### 问题现象
+
+验证 Search API Trusted Context Boundary 时，直接运行 `pytest ...` 没有进入项目虚拟环境，而是命中系统旧 Python 3.9，加载 `tests/conftest.py` 失败：
+
+```text
+ImportError: cannot import name 'UTC' from 'datetime' (/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/datetime.py)
+```
+
+### 如何检测 / 复现
+
+在当前 shell 直接运行：
+
+```bash
+pytest tests/test_search_integration.py::test_search_uses_factory_projected_knowledge_context_and_rejects_request_identity_override -q
+```
+
+可能复现该错误，具体取决于 PATH 中 `pytest` 指向哪个解释器。
+
+### 关键证据或命令
+
+项目配置要求 Python 3.12 以上：
+
+```text
+pyproject.toml: requires-python = ">=3.12"
+.python-version: 3.12
+Makefile: uv run pytest
+```
+
+直接运行 `pytest` 时，trace 指向系统 Python 3.9；改用项目入口后命令通过：
+
+```bash
+uv run pytest tests/test_search_integration.py::test_search_uses_factory_projected_knowledge_context_and_rejects_request_identity_override tests/test_search_integration.py::test_search_returns_api_response tests/test_search_integration.py::test_search_tenant_isolation tests/architecture/test_trusted_context_boundaries.py -q
+```
+
+结果为 `7 passed, 1 warning`。
+
+### 当前判断 / 根因
+
+这是本地验证入口问题，不是业务代码回归。裸 `pytest` 使用了不满足项目要求的系统 Python 3.9；`datetime.UTC` 从 Python 3.11 起可用，项目本身要求 Python 3.12。
+
+### 已做处理
+
+改用 `uv run pytest` 重跑 Search API trusted context boundary 相关测试，确认通过。
+
+### 剩余问题
+
+无。后续 MOCA 本地验证默认使用 `uv run pytest ...` 或 `.venv/bin/pytest ...`，不要用裸 `pytest`。
+
+### 下次继续排查入口
+
+- `pyproject.toml`
+- `.python-version`
+- `Makefile`
+- `tests/conftest.py`
+
+### 验证结果
+
+修正验证入口后，Search API trusted context boundary 相关测试通过。该问题只影响本地命令选择，不影响 checkpoint 结论。
+
+## 49. 直接 python 临时脚本导入测试 helper 时触发 conversation/memory 循环导入
+
+日期：2026-06-23
+
+### 问题现象
+
+验证 Tool Nodes trusted context boundary 时，使用 `uv run python -` 直接导入 `tests.agent.test_nodes.test_investigate` helper，触发循环导入：
+
+```text
+ImportError: cannot import name 'ConversationService' from partially initialized module 'src.conversation.service'
+```
+
+### 如何检测 / 复现
+
+运行临时脚本，直接从测试模块导入 helper：
+
+```bash
+uv run python - <<'PY'
+from tests.agent.test_nodes.test_investigate import _state
+PY
+```
+
+在当前导入顺序下可能复现。
+
+### 关键证据或命令
+
+失败链路为：
+
+```text
+src.agent.nodes.investigate
+-> src.conversation.repository
+-> src.conversation.service
+-> src.tools.contracts
+-> src.tools.__init__
+-> src.tools.manager
+-> src.tools.executors.memory
+-> src.memory.session_bundle
+-> src.conversation.service partially initialized
+```
+
+同一测试通过 `uv run pytest ...` 正常执行；临时脚本改为先导入 `src.tools.manager` 后也可正常运行。
+
+### 当前判断 / 根因
+
+这是临时验证脚本的导入顺序问题，不是本次 checkpoint 的业务断言失败。`src.tools.__init__` eager import `UnifiedToolManager`，在直接脚本路径下更容易暴露 conversation/memory 的循环导入。
+
+### 已做处理
+
+改用项目 pytest 入口验证正式测试，并在临时脚本中先导入 `src.tools.manager` 后重跑 missing trusted context 分支：
+
+```text
+investigate_termination unrecoverable_error
+investigate_error MISSING_TRUSTED_CONTEXT
+investigate_manager_calls 0
+action_draft_error MISSING_TRUSTED_CONTEXT
+```
+
+### 剩余问题
+
+无。后续临时脚本不要直接导入测试 helper 作为首个 import；优先使用 `uv run pytest`，或先导入稳定入口规避导入顺序影响。
+
+### 下次继续排查入口
+
+- `src/tools/__init__.py`
+- `src/conversation/service.py`
+- `src/memory/session_bundle.py`
+- `tests/agent/test_nodes/test_investigate.py`
+
+### 验证结果
+
+正式 pytest 验证和修正后的临时函数级验证均通过。该问题只影响临时验证脚本导入方式，不影响 checkpoint 结论。
+
+## 50. `gsd-sdk query state.planned-phase` 更新 Phase 28 时误改 STATE 汇总指标
+
+日期：2026-06-23
+
+### 问题现象
+
+Phase 28 PLAN 写完后，运行 `gsd-sdk query state.planned-phase --phase 28 --name "Decision Event Foundation" --plans 1` 虽然追加了 Planned Phase 记录，但同时把 `.planning/STATE.md` frontmatter 中的汇总指标改成不符合当前 v1.9 状态的值：`completed_phases: 2`、`total_plans: 5`、`percent: 80`，并把 `last_activity` 回退成 Phase 27 UAT。
+
+### 如何检测 / 复现
+
+运行命令后检查 state diff：
+
+```bash
+gsd-sdk query state.planned-phase --phase 28 --name "Decision Event Foundation" --plans 1
+git diff -- .planning/STATE.md
+```
+
+### 关键证据或命令
+
+`git diff -- .planning/STATE.md` 显示 `completed_phases` 从 3 变成 2，`total_plans` 从 10 变成 5，`percent` 从 30 变成 80，且 `last_activity` 不是 Phase 28 planned。
+
+### 当前判断 / 根因
+
+这是 GSD state writer 在 planned-phase 路径下重新计算汇总指标时的本地元数据漂移问题，类似 Phase 26 记录过的 state writer 输出问题。它不影响 Phase 28 PLAN 文件本身，但如果不修正会误导后续进度判断。
+
+### 已做处理
+
+手动把 `.planning/STATE.md` frontmatter 汇总指标恢复为命令前的值，并只保留 Phase 28 已计划的真实状态：`status: ready_to_execute`、`stopped_at: Phase 28 planned`、`last_activity: 2026-06-23 -- Phase 28 planned`、`Plan: 28-01 planned`。
+
+### 剩余问题
+
+未修复 `gsd-sdk` 本身。后续再次运行 `state.planned-phase` 后需要检查 `.planning/STATE.md` diff，确认汇总指标未漂移。
+
+### 下次继续排查入口
+
+- `gsd-sdk query state.planned-phase`
+- `.planning/STATE.md`
+- Phase 26 的 `state.begin-phase` 本地记录
+
+### 验证结果
+
+Phase 28 PLAN 的 `frontmatter.validate` 和 `verify.plan-structure` 均通过；STATE 已恢复为 Phase 28 ready-to-execute 的一致状态。
+
+## 51. Phase 28 RED 测试文件误留下 patch 标记导致 pytest 语法错误
+
+日期：2026-06-23
+
+### 问题现象
+
+新增 `tests/replay/test_decision_events.py` 后运行 RED gate，pytest 在 collection 阶段失败，报 `SyntaxError: invalid syntax`，位置是文件末尾的 `*** End Patch`。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+uv run pytest tests/replay/test_decision_events.py -q
+```
+
+### 关键证据或命令
+
+pytest 输出显示：
+
+```text
+File "/Users/ming/projects/MOCA/tests/replay/test_decision_events.py", line 414
+  *** End Patch
+  ^^
+SyntaxError: invalid syntax
+```
+
+### 当前判断 / 根因
+
+这是手工 `apply_patch` 时把补丁结束标记误写入测试文件内容导致的本地编辑污染，不是 Phase 28 契约测试预期失败。
+
+### 已做处理
+
+删除文件末尾的 `*** End Patch` 标记，并准备重跑 RED gate，确认失败原因回到缺少计划中的 `src.replay.decision_events` 模块或符号。
+
+### 剩余问题
+
+无。后续新增大文件后先用 `tail` 或 pytest collection 快速确认没有补丁标记残留。
+
+### 下次继续排查入口
+
+- `tests/replay/test_decision_events.py`
+- Phase 28 Task 1 RED gate
+
+## 52. 并行运行共享 PostgreSQL test DB 的 pytest suites 导致 create_all 冲突
+
+日期：2026-06-23
+
+### 问题现象
+
+Phase 28 Task 3 验证时，将两条都会使用 `tests/conftest.py::test_engine` 的 pytest 命令并行执行，两个进程同时 drop/create `moca_test` schema，导致 PostgreSQL 报 `duplicate key value violates unique constraint "pg_type_typname_nsp_index"`。
+
+### 如何检测 / 复现
+
+同时运行以下两条命令即可复现：
+
+```bash
+uv run pytest tests/replay/test_decision_events.py tests/agent/test_events.py tests/agent/test_memory_write_node.py -q
+uv run pytest tests/replay/test_sequence_allocator.py tests/platform/test_context_projections.py -q
+```
+
+### 关键证据或命令
+
+pytest setup 阶段失败在 `tests/conftest.py:72` 的 `Base.metadata.create_all`，PostgreSQL 错误为：
+
+```text
+UniqueViolationError: duplicate key value violates unique constraint "pg_type_typname_nsp_index"
+DETAIL: Key (typname, typnamespace)=(tenants, ...) already exists.
+```
+
+### 当前判断 / 根因
+
+这是验证命令调度问题，不是 Phase 28 代码问题。两个 pytest 进程共享同一个 `moca_test` 数据库，而 test fixture 每个进程都会 drop/create 全量 metadata，不能并行跑。
+
+### 已做处理
+
+改为顺序运行两组 targeted suites：
+
+```bash
+uv run pytest tests/replay/test_decision_events.py tests/agent/test_events.py tests/agent/test_memory_write_node.py -q
+uv run pytest tests/replay/test_sequence_allocator.py tests/platform/test_context_projections.py -q
+```
+
+顺序执行后分别通过：第一组 `73 passed`，第二组 `11 passed`。
+
+### 剩余问题
+
+无。后续可以并行 `rg`/`sed` 等只读命令，但不要并行运行会重建共享 PostgreSQL test DB 的 pytest 进程。
+
+### 下次继续排查入口
+
+- `tests/conftest.py::test_engine`
+- Phase 28 targeted pytest commands
+
+## 53. PLAN key_links pattern 带字面单引号导致 verify.key-links 误报 0/4
+
+日期：2026-06-23
+
+### 问题现象
+
+Phase 28 phase-goal verification 时运行 `gsd-sdk query verify.key-links .planning/phases/28-decision-event-foundation/28-01-PLAN.md`，工具返回 `all_verified: false`，4 条 key link 全部未找到。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+gsd-sdk query verify.key-links .planning/phases/28-decision-event-foundation/28-01-PLAN.md
+```
+
+### 关键证据或命令
+
+失败输出里的 pattern 包含字面单引号，例如：
+
+```text
+Pattern "'ReplayService\\(session\\)\\.append_event'" not found
+```
+
+而源码实际存在 `ReplayService(session).append_event`、`DecisionEventEnvelopeV1.model_validate`、`emit_decision_event` 和 `guard_resource_refs(resource_refs)`。
+
+### 当前判断 / 根因
+
+PLAN frontmatter 中 `key_links.pattern` 使用了单引号包裹 regex，当前 `verify.key-links` 工具没有按 YAML 语义剥离这些单引号，而是把单引号当成 regex 内容，导致误报。
+
+### 已做处理
+
+把 `.planning/phases/28-decision-event-foundation/28-01-PLAN.md` 中 4 个 `key_links.pattern` 改为无字面单引号的 plain scalar。重跑后结果为 `all_verified: true`、`verified: 4`、`total: 4`。
+
+### 剩余问题
+
+未修复 `gsd-sdk verify.key-links` 对带引号 pattern 的解析行为。后续 PLAN key_links 的 regex pattern 直接写 plain scalar，避免工具误把引号纳入匹配。
+
+### 下次继续排查入口
+
+- `gsd-sdk query verify.key-links`
+- `.planning/phases/*/*-PLAN.md` 的 `key_links.pattern`
+
+## 54. Phase 28 post-review regression 测试误把既有 trace row 当成 invalid append 写入
+
+日期：2026-06-23
+
+### 问题现象
+
+修复 Phase 28 code review blocker 后运行 focused suite，新增测试 `test_append_minimal_event_validates_before_flush_on_operation_id_failure` 失败，断言 `row_count == 0`，实际为 `1`。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+uv run pytest tests/replay/test_decision_events.py tests/agent/test_events.py tests/agent/test_memory_write_node.py tests/replay/test_sequence_allocator.py tests/replay/test_replay_service.py -q
+```
+
+### 关键证据或命令
+
+失败输出：
+
+```text
+FAILED tests/replay/test_decision_events.py::test_append_minimal_event_validates_before_flush_on_operation_id_failure
+E       assert 1 == 0
+```
+
+### 当前判断 / 根因
+
+测试断言错误，不是修复逻辑错误。`_create_run()` 会通过 `write_agent_run()` 预先写入一条 run trace row，因此 invalid minimal append 失败后按 run 统计仍然会有 1 条既有记录。真正要验证的是 invalid append 被 catch 后再 commit 不会新增 `AgentTraceEvent`。
+
+### 已做处理
+
+把测试改为记录 append 前的 `before_count`，catch 后 commit，再断言当前 count 等于 `before_count`。重跑 focused suite 通过：`90 passed, 1 warning`；重跑 `tests/replay` 通过：`100 passed, 1 warning`。
+
+### 剩余问题
+
+无。
+
+### 下次继续排查入口
+
+- `tests/replay/test_decision_events.py::test_append_minimal_event_validates_before_flush_on_operation_id_failure`
+- `src/replay/service.py::ReplayService.append_event`
+
+## 55. Codex Default mode 下 `request_user_input` 不可用导致 discuss-phase 选择器回退文本模式
+
+日期：2026-06-23
+
+### 问题现象
+
+执行 `$gsd-discuss-phase 29` 时，workflow 要求用交互选择器询问灰区选择，但 Codex 当前处于 Default mode，`request_user_input` 工具不可用，调用返回 `request_user_input is unavailable in Default mode`。
+
+### 如何检测 / 复现
+
+在 Default mode 下按 `gsd-discuss-phase` workflow 的 AskUserQuestion 映射调用 `request_user_input`。
+
+### 关键证据或命令
+
+工具返回：
+
+```text
+request_user_input is unavailable in Default mode
+```
+
+### 当前判断 / 根因
+
+这是运行模式限制，不是 Phase 29 内容问题。`gsd-discuss-phase` skill adapter 已定义 execute/default 不可用时回退为普通文本编号选择。
+
+### 已做处理
+
+改用 plain-text 编号问题继续讨论，并把阶段性决策写入 `.planning/phases/29-tool-platform-boundary/29-DISCUSS-CHECKPOINT.json` 防止中断丢失。
+
+### 剩余问题
+
+无阻塞。后续在 Default mode 执行交互式 GSD workflow 时继续使用文本编号回退。
+
+### 下次继续排查入口
+
+- `/Users/ming/.codex/skills/gsd-discuss-phase/SKILL.md`
+- `/Users/ming/.codex/get-shit-done/workflows/discuss-phase.md`
