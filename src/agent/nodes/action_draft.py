@@ -11,9 +11,8 @@ from src.agent.state import AgentState
 from src.approvals.schemas import TrustedApprovalResultV1
 from src.platform.context_projections import project_to_tool_context
 from src.platform.trusted_context import TrustedContext
-from src.tools.contracts import ToolError, ToolResultV2
-from src.tools.executors.action import ActionToolExecutor
-from src.tools.manager import UnifiedToolManager
+from src.tools.contracts import ToolCallContext, ToolError, ToolResultV2
+from src.tools.platform import ToolPlatform
 
 FULL_REFUND_TERMS = ("full_refund", "全额退款", "全额退", "整单退款")
 ACTION_TOOL_NAME = "create_coupon_grant_draft"
@@ -316,8 +315,7 @@ async def action_draft(state: AgentState, config: RunnableConfig) -> dict:
     if approval_id:
         args["approval_request_id"] = approval_id
 
-    manager = configurable.get("action_tool_manager") or UnifiedToolManager(executors=[ActionToolExecutor(session)])
-    tool_result = await manager.invoke(ACTION_TOOL_NAME, args, tool_ctx)
+    tool_result = await _invoke_action_tool(configurable, session, args, tool_ctx)
     update, status = _draft_update_from_tool_result(tool_result)
 
     return {
@@ -334,3 +332,22 @@ def _trusted_context_from_config(configurable: dict[str, Any]) -> TrustedContext
         return TrustedContext.model_validate(raw_context)
     except ValidationError:
         return None
+
+
+async def _invoke_action_tool(
+    configurable: dict[str, Any],
+    session: Any,
+    args: dict[str, Any],
+    tool_ctx: ToolCallContext,
+) -> ToolResultV2:
+    tool_platform = configurable.get("action_tool_platform")
+    legacy_manager = configurable.get("action_tool_manager")
+    if tool_platform is None and legacy_manager is not None and hasattr(legacy_manager, "_platform"):
+        tool_platform = legacy_manager._platform
+    if tool_platform is None:
+        tool_platform = configurable.get("tool_platform")
+    if tool_platform is None:
+        tool_platform = ToolPlatform.with_defaults(session)
+
+    outcome = await tool_platform.invoke(ACTION_TOOL_NAME, args, tool_ctx, session=session)
+    return outcome.tool_result
