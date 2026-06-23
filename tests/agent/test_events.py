@@ -21,6 +21,9 @@ from src.agent.trace import write_agent_run
 from src.db.models import AgentTraceEvent
 
 
+OPERATION_EVENT_PREFIXES = ("node_", "tool_call_", "rag_retrieval_", "llm_call_", "memory_write_")
+
+
 async def _create_run(session: AsyncSession) -> tuple[uuid.UUID, uuid.UUID]:
     run_id = uuid.uuid4()
     tenant_id = uuid.uuid4()
@@ -51,6 +54,8 @@ async def _emit(
     redacted_payload: dict | None = None,
     iteration: int | None = None,
 ) -> dict:
+    if operation_id is None and event_type.startswith(OPERATION_EVENT_PREFIXES):
+        operation_id = uuid.uuid4()
     return await emit_event(
         session,
         run_id=run_id,
@@ -76,36 +81,34 @@ async def test_sequence_monotonic(session: AsyncSession):
 
 
 @pytest.mark.asyncio
-async def test_emit_event_delegates_to_replay_service(monkeypatch):
+async def test_emit_event_delegates_to_emit_decision_event(monkeypatch):
     calls = []
 
-    class SpyReplayService:
-        def __init__(self, session):
-            self.session = session
+    async def spy_emit_decision_event(session, **kwargs):
+        calls.append((session, kwargs))
+        redacted_payload = {
+            **kwargs["redacted_payload"],
+            "iteration": kwargs["iteration"],
+            "reason_codes": ["scope_denied", "missing_permission"],
+        }
+        return {
+            "schema_version": "minimal_event_envelope.v1",
+            "event_id": uuid.uuid4(),
+            "sequence": 7,
+            "operation_id": kwargs.get("operation_id"),
+            "run_id": uuid.UUID(str(kwargs["run_id"])),
+            "tenant_id": uuid.UUID(str(kwargs["tenant_id"])),
+            "thread_id": kwargs["thread_id"],
+            "trace_id": kwargs.get("trace_id"),
+            "event_type": kwargs["event_type"],
+            "occurred_at": datetime.now(UTC),
+            "actor": kwargs["actor"],
+            "resource_refs": kwargs["resource_refs"],
+            "redaction_policy_version": kwargs["redaction_policy_version"],
+            "redacted_payload": redacted_payload,
+        }
 
-        async def append_event(self, **kwargs):
-            calls.append(kwargs)
-            return {
-                "schema_version": "minimal_event_envelope.v1",
-                "event_id": uuid.uuid4(),
-                "sequence": 7,
-                "operation_id": kwargs.get("operation_id"),
-                "run_id": uuid.UUID(str(kwargs["run_id"])),
-                "tenant_id": uuid.UUID(str(kwargs["tenant_id"])),
-                "thread_id": kwargs["thread_id"],
-                "trace_id": kwargs.get("trace_id"),
-                "event_type": kwargs["event_type"],
-                "occurred_at": datetime.now(UTC),
-                "actor": kwargs["actor"],
-                "resource_refs": kwargs["resource_refs"],
-                "redaction_policy_version": kwargs["redaction_policy_version"],
-                "redacted_payload": {
-                    **kwargs["redacted_payload"],
-                    "iteration": kwargs["iteration"],
-                },
-            }
-
-    monkeypatch.setattr(events_module, "ReplayService", SpyReplayService)
+    monkeypatch.setattr(events_module, "emit_decision_event", spy_emit_decision_event)
 
     run_id = uuid.uuid4()
     tenant_id = uuid.uuid4()
@@ -120,12 +123,17 @@ async def test_emit_event_delegates_to_replay_service(monkeypatch):
         redacted_payload={"status": "started"},
         operation_id=uuid.uuid4(),
         iteration=3,
+        reason_code="scope_denied",
+        reason_codes=["missing_permission", "scope_denied"],
     )
 
-    assert calls[0]["schema_version"] == "minimal_event_envelope.v1"
+    _session, kwargs = calls[0]
     assert emitted["schema_version"] == "minimal_event_envelope.v1"
     assert emitted["sequence"] == 7
     assert emitted["redacted_payload"]["iteration"] == 3
+    assert emitted["redacted_payload"]["reason_codes"] == ["scope_denied", "missing_permission"]
+    assert kwargs["reason_code"] == "scope_denied"
+    assert kwargs["reason_codes"] == ["missing_permission", "scope_denied"]
 
 
 @pytest.mark.asyncio

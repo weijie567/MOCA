@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from src.agent.events import emit_event
 from src.agent.trace import write_agent_run
 from src.db.models import AgentTraceEvent
+from src.replay.decision_events import emit_decision_event
 from src.replay.lifecycle import RunLifecycleService
 from src.replay.pairing import OperationPairingError
 from src.replay.service import ReplayService
@@ -176,6 +177,7 @@ async def test_sequence_allocator_covers_pre_lifecycle_writer_surfaces(session: 
         actor={"type": "agent", "id": "graph-writer"},
         resource_refs={"node": "investigate"},
         redacted_payload={"status": "started"},
+        operation_id=uuid.uuid4(),
     )
     # memory_write writer: src.agent.nodes.memory_write.memory_write event helper surface
     memory_write_writer = await emit_event(
@@ -187,6 +189,18 @@ async def test_sequence_allocator_covers_pre_lifecycle_writer_surfaces(session: 
         actor={"type": "agent", "id": "memory_write-writer"},
         resource_refs={"memory_type": "session_memory"},
         redacted_payload={"status": "started"},
+        operation_id=uuid.uuid4(),
+    )
+    # decision event facade: src.replay.decision_events.emit_decision_event
+    decision_writer = await emit_decision_event(
+        session,
+        run_id=run_id,
+        tenant_id=tenant_id,
+        thread_id="sequence-allocator-thread",
+        event_type="run_status_changed",
+        actor={"type": "system", "id": "decision-event-writer"},
+        resource_refs={},
+        redacted_payload={"from_status": "running", "to_status": "decision-recorded"},
     )
     # approval writer: src.approvals.events approval/API event surface
     approval_writer = await ReplayService(session).append_event(
@@ -228,7 +242,7 @@ async def test_sequence_allocator_covers_pre_lifecycle_writer_surfaces(session: 
     )
 
     # graph writer, memory_write writer, approval writer, action draft writer,
-    # replay backfill writer, lifecycle writer all share the same allocator.
+    # decision event facade, replay backfill writer, lifecycle writer all share the same allocator.
     # External worker allocator coverage DEFERRED_WITH_OWNER: Phase 17.
     rows = (
         await session.execute(
@@ -240,6 +254,7 @@ async def test_sequence_allocator_covers_pre_lifecycle_writer_surfaces(session: 
 
     assert [graph_writer["sequence"], memory_write_writer["sequence"]] == [2, 3]
     assert [
+        decision_writer["sequence"],
         approval_writer["sequence"],
         action_draft_writer["sequence"],
         replay_backfill_writer["sequence"],
@@ -249,9 +264,10 @@ async def test_sequence_allocator_covers_pre_lifecycle_writer_surfaces(session: 
         5,
         6,
         7,
+        8,
     ]
-    assert [sequence for sequence, _event_type in rows] == [1, 2, 3, 4, 5, 6, 7]
+    assert [sequence for sequence, _event_type in rows] == [1, 2, 3, 4, 5, 6, 7, 8]
     assert [event_type for _sequence, event_type in rows][0] == "run_status_changed"
-    assert len({sequence for sequence, _event_type in rows}) == 7
+    assert len({sequence for sequence, _event_type in rows}) == 8
     assert "_lock_run" in inspect.getsource(ReplayService.allocate_sequence)
     assert "pg_advisory_xact_lock" in inspect.getsource(ReplayService._lock_run)

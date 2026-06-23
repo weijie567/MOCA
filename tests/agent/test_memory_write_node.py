@@ -233,6 +233,100 @@ async def test_memory_write_initial_insert_uses_configured_slot_ttl_for_row_expi
     assert before_write < expires_at <= before_write + timedelta(seconds=6)
 
 
+async def test_memory_write_lifecycle_trace_events_share_non_null_operation_id(
+    session: AsyncSession,
+    seeded_session: dict,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    run_id = str(uuid4())
+    thread_id = "thread-memory-write-operation-id"
+    await write_agent_run(
+        session,
+        run_id=run_id,
+        thread_id=thread_id,
+        tenant_id=str(user.tenant_id),
+        user_id=str(user.id),
+        input_query="remember order",
+        final_status="completed",
+        final_response="done",
+        started_at=datetime.now(UTC),
+        completed_at=datetime.now(UTC),
+        total_latency_ms=1,
+    )
+    await session.commit()
+
+    result = await memory_write(
+        _state(
+            tenant_id=str(user.tenant_id),
+            user_id=str(user.id),
+            thread_id=thread_id,
+            current_run_id=run_id,
+            final_response="可写入记忆",
+            extracted_slots={"order_id": "ORD-OPERATION-ID"},
+        ),
+        {"configurable": {"session": session, "trace_id": "memory-write-operation-id-test"}},
+    )
+    rows = (
+        (
+            await session.execute(
+                select(AgentTraceEvent)
+                .where(AgentTraceEvent.run_id == UUID(run_id))
+                .order_by(AgentTraceEvent.sequence)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    assert result["memory_write_result"]["status"] == "written"
+    assert [row.event_type for row in rows] == ["memory_write_started", "memory_write_completed"]
+    assert all(row.operation_id is not None for row in rows)
+    assert len({row.operation_id for row in rows}) == 1
+
+
+async def test_memory_write_failure_events_carry_non_null_operation_id(monkeypatch):
+    emissions = []
+
+    class FailingMemoryService:
+        def __init__(self, repository, *, enabled: bool = True) -> None:
+            pass
+
+        async def write_session_memory(self, candidate):
+            raise RuntimeError("database unavailable")
+
+    async def spy_emit_event(session, **kwargs):
+        emissions.append(kwargs)
+        return {
+            "schema_version": "minimal_event_envelope.v1",
+            "event_id": uuid4(),
+            "sequence": len(emissions),
+            "operation_id": kwargs.get("operation_id"),
+            "run_id": UUID(str(kwargs["run_id"])),
+            "tenant_id": UUID(str(kwargs["tenant_id"])),
+            "thread_id": kwargs["thread_id"],
+            "trace_id": kwargs.get("trace_id"),
+            "event_type": kwargs["event_type"],
+            "occurred_at": datetime.now(UTC),
+            "actor": kwargs["actor"],
+            "resource_refs": kwargs["resource_refs"],
+            "redaction_policy_version": "redaction.v1",
+            "redacted_payload": kwargs["redacted_payload"],
+        }
+
+    monkeypatch.setattr(memory_write_module, "MemoryService", FailingMemoryService)
+    monkeypatch.setattr(memory_write_module, "emit_event", spy_emit_event)
+
+    result = await memory_write(_state(), {"configurable": {"session": object(), "trace_id": "failure-op-test"}})
+
+    event_types = [event["event_type"] for event in emissions]
+    operation_ids = [event["operation_id"] for event in emissions]
+    assert result["memory_write_result"]["status"] == "error"
+    assert "memory_write_started" in event_types
+    assert "memory_write_failed" in event_types
+    assert all(operation_id is not None for operation_id in operation_ids)
+    assert len(set(operation_ids)) == 1
+
+
 async def test_memory_write_prohibited_pii_skips_without_persisting(monkeypatch):
     called = False
 
