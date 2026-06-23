@@ -12,7 +12,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 ## Current Milestone: v1.9 Agent Platform Foundation
 
-**Status:** Phase 28 complete; Phase 29 planning ready.
+**Status:** Phase 29 complete; Phase 30 planning ready.
 
 **Goal:** Convert MOCA from feature-by-feature agent code into a microservice-ready modular monolith with clear platform/domain service boundaries, canonical trusted context, decision events, tool policy, memory context, target graph contracts, RAG context build, claim verification, business fact authority, and approval/action boundary hardening.
 
@@ -183,8 +183,8 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - [x] **APF-03:** `TrustedContextFactory` produces canonical `TrustedContext` from trusted API/auth/run boundaries without accepting LLM or user-payload overrides (validated in Phase 27)
 - [x] **APF-04:** `TrustedContextFactory` derives prompt-safe and service-safe projections for tool calls, knowledge retrieval, memory loading, approval decisions, replay, and intent policy without widening canonical identity/scope fields (validated in Phase 27)
 - [x] **APF-05:** A minimal `DecisionEventEnvelopeV1` / event emitter foundation records stable reason codes, policy/model/tool versions, redaction policy, and run/tenant/trace identity for later platform service decisions (validated in Phase 28)
-- [ ] **APF-06:** Tool planner visibility is generated from `ToolDescriptor` into prompt-safe `ToolView` rather than exposing raw descriptors, adapters, internal permission reasons, or side-effect capabilities.
-- [ ] **APF-07:** Runtime tool invocation emits `ToolPolicyDecision` and rechecks authorization, resource scope, side-effect class, and input/output schema even when the tool was visible to the planner.
+- [x] **APF-06:** Tool planner visibility is generated from `ToolDescriptor` into prompt-safe `ToolView` rather than exposing raw descriptors, adapters, internal permission reasons, or side-effect capabilities (validated in Phase 29).
+- [x] **APF-07:** Runtime tool invocation emits `ToolPolicyDecision` and rechecks authorization, resource scope, side-effect class, and input/output schema even when the tool was visible to the planner (validated in Phase 29).
 - [ ] **APF-08:** Business fact reads expose `BusinessFactResultV1` / `BusinessFactRefV1` through domain service public methods, and graph/tool code cannot substitute memory, RAG, LLM inference, or raw repository rows for current business facts.
 - [ ] **APF-09:** Session context loading exposes agent-facing `SessionContextMemory` for same-thread continuity while keeping `SessionContinuityStore` as an internal storage concern.
 - [ ] **APF-10:** Memory context APIs separate session context, long-term memory, case memory, conversation log, workflow checkpoint, working state, and memory write candidates, with explicit authority tags that prevent memory from satisfying policy evidence, current business fact, approval, action, or replay truth.
@@ -270,7 +270,7 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - v1.5 RAG Context Builder + Hallucination Control is shipped and archived. Phase 22 owns ContextBuilder, canonical evidence validation, MaterialClaim authority verification, deterministic route control, action-boundary blocking, safe final-response wording, and hallucination-control evals while preserving v1.3/v1.4 evidence and provenance boundaries.
 - v1.6 RAG Reranker + Query Rewrite is shipped and archived on 2026-06-20. Full milestone history lives in `.planning/milestones/v1.6-ROADMAP.md`, `.planning/milestones/v1.6-REQUIREMENTS.md`, and `.planning/milestones/v1.6-phases/`.
 - v1.7 Short-term Memory Unification is complete on 2026-06-20. Phase 24 owns Agent Console `/agent-runs + SSE` conversation persistence, rolling summaries, prompt-safe tool summaries, PostgreSQL-backed session slot continuity, failure/idempotency safeguards, authority-boundary regressions, and three-turn smoke verification.
-- v1.9 Agent Platform Foundation has completed Phase 26 Architecture Contract Baseline, Phase 27 TrustedContextFactory and Projections, and Phase 28 Decision Event Foundation. Phase 27 owns canonical `TrustedContextFactory`, no-widening service projections, read-only intent/slot registries, and current route/node/tool seam migrations for APF-03/APF-04. Phase 28 owns strict `DecisionEventEnvelopeV1` validation, replay-owned `emit_decision_event`, fail-closed trusted identity projection, reason/version normalization, resource reference leakage guards, and focused wrapper/key-path compatibility for APF-05.
+- v1.9 Agent Platform Foundation has completed Phase 26 Architecture Contract Baseline, Phase 27 TrustedContextFactory and Projections, Phase 28 Decision Event Foundation, and Phase 29 Tool Platform Boundary. Phase 27 owns canonical `TrustedContextFactory`, no-widening service projections, read-only intent/slot registries, and current route/node/tool seam migrations for APF-03/APF-04. Phase 28 owns strict `DecisionEventEnvelopeV1` validation, replay-owned `emit_decision_event`, fail-closed trusted identity projection, reason/version normalization, resource reference leakage guards, and focused wrapper/key-path compatibility for APF-05. Phase 29 owns prompt-safe `ToolViewV1` planner visibility, `ToolPolicyDecision` runtime authorization, `ToolPlatform` / `ToolRuntime` / `ToolResultProjector` boundaries, and manager/investigate/conversation integration for APF-06/APF-07.
 
 ## Next Milestone Setup
 

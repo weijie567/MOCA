@@ -92,9 +92,9 @@ v1.9 is active. The milestone uses `docs/contract-spec.md` and `docs/target-agen
 | APF-17 | Phase 35 | Replay/trace coverage for platform decisions |
 | APF-18 | Phase 35 | Dev/release/monitoring eval gates |
 
-## Last Closeout
+## Latest Phase Closeout
 
-Phase 25 final review, summary, and verification are recorded in `.planning/phases/25-intent-routing-safety-hardening/25-REVIEW.md`, `.planning/phases/25-intent-routing-safety-hardening/25-SUMMARY.md`, and `.planning/phases/25-intent-routing-safety-hardening/25-VERIFICATION.md`.
+Phase 29 review, UAT, security, and validation are recorded in `.planning/phases/29-tool-platform-boundary/29-REVIEW.md`, `.planning/phases/29-tool-platform-boundary/29-UAT.md`, `.planning/phases/29-tool-platform-boundary/29-SECURITY.md`, and `.planning/phases/29-tool-platform-boundary/29-VALIDATION.md`. Phase 30 is the next pending phase.
 
 ## Deferred Work
 
@@ -222,12 +222,12 @@ Plans:
 
 ### Phase 29: Tool Platform Boundary
 
-**Status:** Pending
+**Status:** Complete
 **Milestone:** v1.9 Agent Platform Foundation
 **Goal:** Replace scattered tool allowlists with descriptor-driven planner views, runtime authorization, result projection, and decision events.
 **Requirements**: APF-06, APF-07
 **Depends on:** Phase 28
-**Plans:** 0/4 plans complete
+**Plans:** 4/4 plans complete
 
 **Success Criteria**:
 
@@ -236,10 +236,10 @@ Plans:
 3. Tests prove visible does not imply allowed, hidden/write tools do not leak into planner prompts, and raw adapter payloads stay out of graph state.
 
 Plans:
-- [ ] 29-01-PLAN.md — Wave 0 tool platform RED tests
-- [ ] 29-02-PLAN.md — Tool contracts, policy engine, and replay event registration
-- [ ] 29-03-PLAN.md — Tool runtime, platform facade, and result projector
-- [ ] 29-04-PLAN.md — Manager, investigate, conversation integration, and final gates
+- [x] 29-01-PLAN.md — Wave 0 tool platform RED tests
+- [x] 29-02-PLAN.md — Tool contracts, policy engine, and replay event registration
+- [x] 29-03-PLAN.md — Tool runtime, platform facade, and result projector
+- [x] 29-04-PLAN.md — Manager, investigate, conversation integration, and final gates
 
 ### Phase 30: BusinessFactService Boundary
 
@@ -350,4 +350,4 @@ Plans:
 - [ ] 35-01-PLAN.md — Replay and eval hardening
 
 ---
-*Updated: 2026-06-22 after starting v1.9 Agent Platform Foundation.*
+*Updated: 2026-06-23 after completing Phase 29 Tool Platform Boundary.*

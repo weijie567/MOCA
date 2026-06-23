@@ -36,7 +36,7 @@ key-decisions:
   - "Investigate falls back to ToolPlatform(executors={}) when session is None"
   - "ToolPlatform.with_defaults(session=None) creates stub executors for auth testing"
   - "Policy engine allows action_draft callers to execute write tools"
-  - "Runtime gate order: descriptor → runtime_auth → schema validation → executor dispatch"
+  - "Runtime gate order: descriptor → schema validation → runtime_auth → executor dispatch"
   - "Runtime denial status maps idempotency_required and schema_invalid to 'invalid_request'"
   - "Conversation service always projects results through ToolResultProjector"
 
@@ -82,7 +82,7 @@ completed: 2026-06-23
 - `src/tools/manager.py` - Delegates to ToolPlatform, adds visible_tools method
 - `src/tools/platform.py` - Adds stub executors, projector property, with_defaults(None) support
 - `src/tools/policy.py` - Allows action_draft callers to execute write tools
-- `src/tools/runtime.py` - Reorders gates (auth before schema), improves denial status mapping
+- `src/tools/runtime.py` - Preserves schema-before-auth gate order, improves denial status mapping
 - `src/tools/projection.py` - Extracts refs from ToolResultV2 envelope
 - `src/agent/nodes/investigate.py` - Uses ToolPlatform for visibility, invocation, validation
 - `src/conversation/service.py` - Always projects results through ToolResultProjector
@@ -133,7 +133,7 @@ completed: 2026-06-23
 
 ## Issues Encountered
 
-- Pre-existing architecture test failure: `action_draft.py` imports `src.tools.executors.action` (not related to Phase 29 changes)
+- Initial post-Plan-04 review found `action_draft.py` still importing `src.tools.executors.action`; this was fixed in post-review commit `29df231`, and the final `29-REVIEW.md` is clean.
 
 ## User Setup Required
 
@@ -145,6 +145,7 @@ None - no external service configuration required.
 - ToolPlatform is the target graph-facing boundary for future phases
 - UnifiedToolManager is now a legacy compatibility adapter
 - Conversation and graph state consume projector-normalized data
+- Code review, UAT, security, and validation gates are complete
 - Ready for Phase 30 BusinessFactService Boundary
 
 ---

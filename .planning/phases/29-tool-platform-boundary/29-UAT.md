@@ -66,7 +66,7 @@ blocked: 0
 
 ## Security Gate
 
-`workflow.security_enforcement=true`, and no `29-SECURITY.md` exists yet. Functional UAT is complete, but phase advancement should wait for `$gsd-secure-phase 29`.
+`workflow.security_enforcement=true`, and `29-SECURITY.md` is verified with `threats_open: 0`. Functional UAT, security, and validation gates are complete; Phase 29 is ready for Phase 30 planning.
 
 ## Gaps
 

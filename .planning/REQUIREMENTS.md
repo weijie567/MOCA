@@ -26,8 +26,8 @@ Turn MOCA's agent runtime into a microservice-ready modular monolith: platform/d
 
 ### Tool and Business Fact Boundaries
 
-- [ ] **APF-06:** Tool planner visibility is generated from `ToolDescriptor` into prompt-safe `ToolView` rather than exposing raw descriptors, adapters, internal permission reasons, or side-effect capabilities.
-- [ ] **APF-07:** Runtime tool invocation emits `ToolPolicyDecision` and rechecks authorization, resource scope, side-effect class, and input/output schema even when the tool was visible to the planner.
+- [x] **APF-06:** Tool planner visibility is generated from `ToolDescriptor` into prompt-safe `ToolView` rather than exposing raw descriptors, adapters, internal permission reasons, or side-effect capabilities.
+- [x] **APF-07:** Runtime tool invocation emits `ToolPolicyDecision` and rechecks authorization, resource scope, side-effect class, and input/output schema even when the tool was visible to the planner.
 - [ ] **APF-08:** Business fact reads expose `BusinessFactResultV1` / `BusinessFactRefV1` through domain service public methods, and graph/tool code cannot substitute memory, RAG, LLM inference, or raw repository rows for current business facts.
 
 ### Memory Platform Boundaries
@@ -84,8 +84,8 @@ Turn MOCA's agent runtime into a microservice-ready modular monolith: platform/d
 | APF-03 | Phase 27 | Complete |
 | APF-04 | Phase 27 | Complete |
 | APF-05 | Phase 28 | Complete |
-| APF-06 | Phase 29 | Pending |
-| APF-07 | Phase 29 | Pending |
+| APF-06 | Phase 29 | Complete |
+| APF-07 | Phase 29 | Complete |
 | APF-08 | Phase 30 | Pending |
 | APF-09 | Phase 31 | Pending |
 | APF-10 | Phase 31 | Pending |

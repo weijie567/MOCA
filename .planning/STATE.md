@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
 status: executing
-stopped_at: Phase 29 context gathered
-last_updated: "2026-06-23T10:51:29.834Z"
+stopped_at: Phase 29 complete; BusinessFactService Boundary ready to plan
+last_updated: "2026-06-23T21:57:57+08:00"
 last_activity: 2026-06-23
 progress:
   total_phases: 10
   completed_phases: 4
-  total_plans: 9
+  total_plans: 15
   completed_plans: 9
-  percent: 100
+  percent: 40
 ---
 
 # Project State: MOCA
@@ -21,16 +21,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-23)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 29 — tool-platform-boundary
+**Current focus:** BusinessFactService Boundary
 
 ## Current Position
 
-Phase: 29 (tool-platform-boundary) — EXECUTING
-Plan: 3 of 4
-Status: Ready to execute
+Next roadmap item: BusinessFactService Boundary — READY TO PLAN
+Plan: 0 of 1
+Status: Ready to plan
 Last activity: 2026-06-23
 
-Progress: [██████████] 100%
+Progress: [████░░░░░░] 40%
 
 Planning files:
 
@@ -53,14 +53,14 @@ Planning files:
 
 ## Performance Metrics
 
-**v1.9 target:** 10 phases, 18 APF requirements, 10 phase plans.
+**v1.9 target:** 10 phases, 18 APF requirements, 15 phase plans.
 
 | Phase | Plans | Status |
 |-------|-------|--------|
 | 26. Architecture Contract Baseline | 1/1 complete | Complete |
 | 27. TrustedContextFactory and Projections | 3/3 complete | Complete |
 | 28. Decision Event Foundation | 1/1 complete | Complete |
-| 29. Tool Platform Boundary | 1/4 | Executing (29-01 RED tests done) |
+| 29. Tool Platform Boundary | 4/4 complete | Complete |
 | 30. BusinessFactService Boundary | 0/1 | Pending |
 | 31. Memory Platform Boundary | 0/1 | Pending |
 | 32. Intent Graph Migration | 0/1 | Pending |
@@ -69,7 +69,7 @@ Planning files:
 | 35. Replay and Eval Hardening | 0/1 | Pending |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
-Latest execution metric: Phase 28 P28-01 — 18 min, 3 tasks, 10 files.
+Latest execution metric: Phase 29 P29-04 — 40 min, 2 tasks, 9 files; Phase 29 code review, UAT, security, and validation gates passed.
 
 ## Quick Tasks Completed
 
@@ -108,14 +108,14 @@ Latest execution metric: Phase 28 P28-01 — 18 min, 3 tasks, 10 files.
 
 ### Pending Todos
 
-- Execute Phase 29 Tool Platform Boundary.
+- Plan BusinessFactService Boundary.
 - Archive completed old Phase 24/24.x/25 directories into milestone-specific phase archives after Phase 26 planning is stable.
 - Optional follow-up from v1.8 remains: pin active slot `confidence` projection before confidence becomes a meaningful provenance field.
 
 ### Blockers / Concerns
 
 - No active blockers.
-- Resolved local GSD metadata drift: `init.new-milestone` now reads v1.9 as the current milestone and v1.8 as the latest completed milestone after ROADMAP/MILESTONES format repair. `validate.health` still reports non-blocking warnings for old STATE phase references, future Phase 27-35 directories, and older Phase 24/25 summary/archive state.
+- Resolved local GSD metadata drift: `init.new-milestone` now reads v1.9 as the current milestone and v1.8 as the latest completed milestone after ROADMAP/MILESTONES format repair. `validate.health` still reports non-blocking warnings for old STATE phase references, future roadmap directories that are intentionally pending, and older Phase 24/25 summary/archive state.
 
 ## Deferred Items
 
@@ -138,10 +138,10 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-23T13:40:00+08:00
-Stopped at: Phase 29 context gathered
-Resume file: .planning/phases/29-tool-platform-boundary/29-CONTEXT.md
-Next: Execute Phase 29 Tool Platform Boundary; old phase directory archive remains a separate cleanup todo.
+Last session: 2026-06-23T21:57:57+08:00
+Stopped at: Phase 29 complete; BusinessFactService Boundary ready to plan
+Resume file: .planning/ROADMAP.md
+Next: Plan BusinessFactService Boundary; old phase directory archive remains a separate cleanup todo.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
 
@@ -161,4 +161,6 @@ Next: Execute Phase 29 Tool Platform Boundary; old phase directory archive remai
 
 **Completed Phase:** 28 (Decision Event Foundation) — 1/1 plan complete; verification passed — 2026-06-23T10:15:32+08:00
 
-**Planned Phase:** 29 (Tool Platform Boundary) — 4 plans — 2026-06-23T14:57:58+08:00
+**Completed Phase:** 29 (Tool Platform Boundary) — 4/4 plans complete; code review clean; UAT 6/6 passed; security `threats_open: 0`; Nyquist validation compliant — 2026-06-23T21:57:57+08:00
+
+**Next Roadmap Item:** BusinessFactService Boundary — 1 planned plan — ready for planning
