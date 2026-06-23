@@ -102,6 +102,23 @@ def guard_redacted_payload(redacted_payload: dict[str, Any]) -> None:
     walk(redacted_payload, "redacted_payload")
 
 
+def guard_resource_refs(resource_refs: dict[str, Any]) -> None:
+    """Reject unsafe keys before resource references are persisted."""
+
+    def walk(value: Any, path: str) -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if key.lower() in FORBIDDEN_REDACTED_PAYLOAD_KEYS:
+                    raise ValueError(f"{path} must not carry {key}")
+                walk(child, f"{path}.{key}")
+            return
+        if isinstance(value, list):
+            for index, child in enumerate(value):
+                walk(child, f"{path}[{index}]")
+
+    walk(resource_refs, "resource_refs")
+
+
 def retention_for_event_type(event_type: str) -> str:
     validate_event_type(event_type)
     try:

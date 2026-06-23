@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.models import AgentRun, AgentTraceEvent
 from src.replay.pairing import OperationPairingStatus, validate_operation_pairing
 from src.replay.schemas import ReplayEventV3, ReplayResponseV3
-from src.replay.validators import guard_redacted_payload, retention_for_event_type, validate_event_type
+from src.replay.validators import guard_redacted_payload, guard_resource_refs, retention_for_event_type, validate_event_type
 
 
 class ReplayService:
@@ -79,6 +79,7 @@ class ReplayService:
         validate_event_type(event_type)
         retention_class = retention_for_event_type(event_type)
         guard_redacted_payload(redacted_payload)
+        guard_resource_refs(resource_refs)
 
         safe_payload = dict(redacted_payload)
         if iteration is not None:
@@ -174,7 +175,7 @@ class ReplayService:
 
     def project_minimal_event(self, event: AgentTraceEvent) -> dict[str, Any]:
         """Project stored rows into the Phase 10-14 minimal envelope shape."""
-        return {
+        projection = {
             "schema_version": event.schema_version,
             "event_id": event.event_id,
             "sequence": event.sequence,
@@ -190,6 +191,9 @@ class ReplayService:
             "redaction_policy_version": event.redaction_policy_version,
             "redacted_payload": event.redacted_payload,
         }
+        from src.replay.decision_events import DecisionEventEnvelopeV1
+
+        return DecisionEventEnvelopeV1.model_validate(projection).model_dump(mode="python")
 
     def project_event(
         self,

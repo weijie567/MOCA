@@ -1,5 +1,7 @@
 """Replay contract schemas and validators."""
 
+from src.replay.decision_events import DecisionEventEnvelopeV1
+from src.replay.decision_events import emit_decision_event
 from src.replay.pairing import OperationPairingError
 from src.replay.pairing import OperationPairingResult
 from src.replay.pairing import OperationPairingStatus
@@ -17,10 +19,12 @@ from src.replay.validators import EVENT_RETENTION_CLASSIFICATION
 from src.replay.validators import FORBIDDEN_REDACTED_PAYLOAD_KEYS
 from src.replay.validators import REPLAY_EVENT_TYPES
 from src.replay.validators import guard_redacted_payload
+from src.replay.validators import guard_resource_refs
 from src.replay.validators import retention_for_event_type
 from src.replay.validators import validate_event_type
 
 __all__ = [
+    "DecisionEventEnvelopeV1",
     "EVENT_RETENTION_CLASSIFICATION",
     "FORBIDDEN_REDACTED_PAYLOAD_KEYS",
     "OperationPairingError",
@@ -36,7 +40,9 @@ __all__ = [
     "RunLifecycleService",
     "STARTED_SUFFIXES",
     "TERMINAL_SUFFIXES",
+    "emit_decision_event",
     "guard_redacted_payload",
+    "guard_resource_refs",
     "retention_for_event_type",
     "validate_operation_pairing",
     "validate_event_type",
