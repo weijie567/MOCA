@@ -13,7 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.trace import write_agent_run
 from src.api.main import app
-from src.api.routers.agent_runs import _dedupe_evidence_refs, _event_generator, _extract_step_payload
+from src.api.routers.agent_runs import (
+    APPROVAL_NOT_EXECUTABLE,
+    _dedupe_evidence_refs,
+    _event_generator,
+    _extract_step_payload,
+)
 from src.api.services.agent_run_memory import finalize_completed_agent_run_memory
 from src.approvals.schemas import PROPOSED_ACTION_SCHEMA_VERSION
 from src.approvals.snapshot_service import compute_action_payload_hash, persist_action_safety_snapshot
@@ -237,6 +242,114 @@ class CaptureInvokeConfigGraph:
         return {"final_response": "done", "trace_steps": []}
 
 
+class SpoofRunIdInvokeGraph:
+    def __init__(self, spoof_run_id: str) -> None:
+        self.spoof_run_id = spoof_run_id
+        self.calls: list[tuple[object, dict]] = []
+
+    async def ainvoke(self, input_state, config):
+        self.calls.append((input_state, config))
+        return {
+            "current_run_id": self.spoof_run_id,
+            "final_response": "done",
+            "trace_steps": [],
+        }
+
+
+class FakeStateSnapshot:
+    def __init__(self, values: dict) -> None:
+        self.values = values
+
+
+class FakeGraphInterrupt(Exception):
+    pass
+
+
+class SpoofInterruptInvokeGraph:
+    def __init__(
+        self,
+        *,
+        interrupt_run_id: str | None = None,
+        checkpoint_run_id: str | None = None,
+        proposed_action_run_id: str | None = None,
+        proposed_action_tenant_id: str | None = None,
+        raise_interrupt: bool = False,
+    ) -> None:
+        self.interrupt_run_id = interrupt_run_id
+        self.checkpoint_run_id = checkpoint_run_id
+        self.proposed_action_run_id = proposed_action_run_id
+        self.proposed_action_tenant_id = proposed_action_tenant_id
+        self.raise_interrupt = raise_interrupt
+        self.calls: list[tuple[object, dict]] = []
+        self.state_calls: list[dict] = []
+
+    async def ainvoke(self, input_state, config):
+        self.calls.append((input_state, config))
+        interrupt = FakeInterrupt(await self._interrupt_payload(input_state, config))
+        if self.raise_interrupt:
+            raise FakeGraphInterrupt([interrupt])
+        return {"__interrupt__": [interrupt]}
+
+    async def aget_state(self, config):
+        self.state_calls.append(config)
+        return FakeStateSnapshot(
+            {
+                "current_run_id": self.checkpoint_run_id,
+                "trace_steps": [_trace("assess_risk_and_approval")],
+            }
+        )
+
+    async def _interrupt_payload(self, input_state, config) -> dict:
+        evidence_ref = _evidence_ref(input_state["tenant_id"], "ORD-2024-001")
+        action_run_id = self.proposed_action_run_id or input_state["current_run_id"]
+        action_tenant_id = self.proposed_action_tenant_id or input_state["tenant_id"]
+        proposed_action = {
+            "schema_version": PROPOSED_ACTION_SCHEMA_VERSION,
+            "tenant_id": action_tenant_id,
+            "run_id": action_run_id,
+            "action_id": f"act:{action_run_id}:issue_coupon:ORD-2024-001",
+            "action_type": "issue_coupon",
+            "target_type": "order",
+            "target_id": "ORD-2024-001",
+            "amount": "600.00",
+            "currency": "CNY",
+            "args": {"risk_level": "high", "rule_ref": "RISK-COMP-001"},
+            "reason": "Compensation amount exceeds threshold.",
+            "evidence_refs": [evidence_ref.model_dump(mode="json", exclude_none=True)],
+        }
+        action_payload_hash = compute_action_payload_hash(proposed_action)
+        snapshot = await persist_action_safety_snapshot(
+            config["configurable"]["session"],
+            tenant_id=UUID(input_state["tenant_id"]),
+            run_id=UUID(input_state["current_run_id"]),
+            proposed_action=proposed_action,
+            action_payload_hash=action_payload_hash,
+            policy_config_version="approval-policy.v1",
+            risk_config_version="risk-rules.v1",
+            retrieval_config_version=evidence_ref.retrieval_config_version,
+            evidence_refs=[evidence_ref],
+            created_at=_fixed_ms_now(),
+            created_by=UUID(input_state["user_id"]),
+        )
+        payload = {
+            "proposed_action": proposed_action,
+            "action_payload_hash": snapshot.action_payload_hash,
+            "safety_snapshot_ref": snapshot.safety_snapshot_ref,
+            "safety_snapshot_hash": snapshot.safety_snapshot_hash,
+            "policy_config_version": "approval-policy.v1",
+            "risk_config_version": "risk-rules.v1",
+            "retrieval_config_version": evidence_ref.retrieval_config_version,
+            "evidence_refs": [evidence_ref.model_dump(mode="json", exclude_none=True)],
+            "risk_level": "high",
+            "risk_reason": "Compensation amount exceeds threshold.",
+            "risk_rule_ref": "RISK-COMP-001",
+            "expires_at": datetime.now(UTC).isoformat(),
+        }
+        if self.interrupt_run_id is not None:
+            payload["run_id"] = self.interrupt_run_id
+        return payload
+
+
 class CancelledGraph:
     async def astream(self, input_state, config, stream_mode):
         raise asyncio.CancelledError("client disconnected")
@@ -319,6 +432,15 @@ class FakeInterrupt:
 
 
 class StreamInterruptGraph:
+    def __init__(
+        self,
+        *,
+        proposed_action_run_id: str | None = None,
+        proposed_action_tenant_id: str | None = None,
+    ) -> None:
+        self.proposed_action_run_id = proposed_action_run_id
+        self.proposed_action_tenant_id = proposed_action_tenant_id
+
     async def astream(self, input_state, config, stream_mode):
         evidence_ref = EvidenceRefV1.build(
             tenant_id=input_state["tenant_id"],
@@ -330,11 +452,13 @@ class StreamInterruptGraph:
             retrieval_config_version="retrieval.v1",
             rank=1,
         )
+        action_run_id = self.proposed_action_run_id or input_state["current_run_id"]
+        action_tenant_id = self.proposed_action_tenant_id or input_state["tenant_id"]
         proposed_action = {
             "schema_version": PROPOSED_ACTION_SCHEMA_VERSION,
-            "tenant_id": input_state["tenant_id"],
-            "run_id": input_state["current_run_id"],
-            "action_id": f"act:{input_state['current_run_id']}:issue_coupon:ORD-2024-001",
+            "tenant_id": action_tenant_id,
+            "run_id": action_run_id,
+            "action_id": f"act:{action_run_id}:issue_coupon:ORD-2024-001",
             "action_type": "issue_coupon",
             "target_type": "order",
             "target_id": "ORD-2024-001",
@@ -1209,6 +1333,55 @@ async def test_event_generator_treats_stream_interrupt_node_as_approval_required
     assert [row.redacted_payload["status"] for row in lifecycle_rows] == ["running", "interrupted"]
 
 
+@pytest.mark.parametrize(
+    ("spoof_field", "expected_missing_field"),
+    [
+        ("run_id", "proposed_action.run_id"),
+        ("tenant_id", "proposed_action.tenant_id"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_event_generator_rejects_spoofed_interrupt_proposed_action_identity(
+    session: AsyncSession,
+    seeded_session,
+    spoof_field: str,
+    expected_missing_field: str,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.commit()
+    spoof_run_id = uuid4()
+    spoof_tenant_id = uuid4()
+    graph = StreamInterruptGraph(
+        proposed_action_run_id=str(spoof_run_id) if spoof_field == "run_id" else None,
+        proposed_action_tenant_id=str(spoof_tenant_id) if spoof_field == "tenant_id" else None,
+    )
+
+    generator = _event_generator(
+        graph,
+        _stream_input(run, user),
+        {"configurable": {"thread_id": run.thread_id, "session": session}},
+        run=run,
+        session=session,
+        user=user,
+    )
+
+    events = [event async for event in generator]
+    error_events = [
+        _event_data(event)
+        for event in events
+        if "data" in event and _event_data(event).get("event_type") == "error"
+    ]
+
+    await session.refresh(run)
+    assert len(error_events) == 1
+    assert error_events[0]["payload"]["error_code"] == APPROVAL_NOT_EXECUTABLE
+    assert error_events[0]["payload"]["missing_fields"] == [expected_missing_field]
+    assert run.final_status == "error"
+    assert await _count_rows(session, ApprovalRequest, ApprovalRequest.run_id == run.id) == 0
+    assert await _count_rows(session, ApprovalRequest, ApprovalRequest.run_id == spoof_run_id) == 0
+
+
 def test_agent_chat_only_support_token_receives_no_tool_permissions():
     """A support-role token with only agent:chat gets permissions=[] in trusted config."""
     from unittest.mock import MagicMock
@@ -1320,6 +1493,144 @@ async def test_agent_chat_only_token_invokes_legacy_chat_with_no_tool_permission
     )
     assert len(summaries) == 1
     assert summaries[0].source_message_ids_json == [str(message.id) for message in messages]
+
+
+@pytest.mark.asyncio
+async def test_agent_chat_persists_trusted_run_id_when_graph_returns_stale_current_run_id(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    spoof_run_id = uuid4()
+    graph = SpoofRunIdInvokeGraph(str(spoof_run_id))
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+
+    response = await client.post(
+        "/api/v1/agent/chat",
+        json={"query": "退款政策是什么？", "thread_id": f"trusted-run-chat-{uuid4()}"},
+        headers=_auth_header(user, ["agent:chat"]),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert len(graph.calls) == 1
+    input_state, config = graph.calls[0]
+    trusted_context = TrustedContext.model_validate(config["configurable"]["trusted_context"])
+
+    trusted_run = await session.get(AgentRun, UUID(trusted_context.run_id))
+    spoof_run = await session.get(AgentRun, spoof_run_id)
+
+    assert input_state["current_run_id"] == trusted_context.run_id
+    assert response.json()["data"]["trace_summary"]["run_id"] == trusted_context.run_id
+    assert trusted_run is not None
+    assert trusted_run.final_status == "completed"
+    assert spoof_run is None
+
+
+@pytest.mark.parametrize("raise_interrupt", [False, True])
+@pytest.mark.asyncio
+async def test_agent_chat_interrupt_uses_trusted_run_id_when_payload_and_checkpoint_spoof(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+    raise_interrupt: bool,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    spoof_payload_run_id = uuid4()
+    spoof_checkpoint_run_id = uuid4()
+    graph = SpoofInterruptInvokeGraph(
+        interrupt_run_id=str(spoof_payload_run_id),
+        checkpoint_run_id=str(spoof_checkpoint_run_id),
+        raise_interrupt=raise_interrupt,
+    )
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+
+    response = await client.post(
+        "/api/v1/agent/chat",
+        json={"query": "请补偿 600 元", "thread_id": f"trusted-interrupt-chat-{uuid4()}"},
+        headers=_auth_header(user, ["agent:chat"]),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert len(graph.calls) == 1
+    input_state, config = graph.calls[0]
+    trusted_context = TrustedContext.model_validate(config["configurable"]["trusted_context"])
+    trusted_run_id = UUID(trusted_context.run_id)
+
+    trusted_run = await session.get(AgentRun, trusted_run_id)
+    spoof_payload_run = await session.get(AgentRun, spoof_payload_run_id)
+    spoof_checkpoint_run = await session.get(AgentRun, spoof_checkpoint_run_id)
+    trusted_approval = (
+        await session.execute(select(ApprovalRequest).where(ApprovalRequest.run_id == trusted_run_id))
+    ).scalar_one()
+
+    assert input_state["current_run_id"] == trusted_context.run_id
+    assert body["data"]["run_id"] == trusted_context.run_id
+    assert trusted_run is not None
+    assert trusted_run.final_status == "interrupted"
+    assert trusted_approval.run_id == trusted_run_id
+    assert trusted_approval.proposed_action["run_id"] == trusted_context.run_id
+    assert spoof_payload_run is None
+    assert spoof_checkpoint_run is None
+    assert await _count_rows(session, ApprovalRequest, ApprovalRequest.run_id == spoof_payload_run_id) == 0
+    assert await _count_rows(session, ApprovalRequest, ApprovalRequest.run_id == spoof_checkpoint_run_id) == 0
+
+
+@pytest.mark.parametrize(
+    ("spoof_field", "expected_missing_field"),
+    [
+        ("run_id", "proposed_action.run_id"),
+        ("tenant_id", "proposed_action.tenant_id"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_agent_chat_interrupt_rejects_proposed_action_identity_mismatch(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+    spoof_field: str,
+    expected_missing_field: str,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    spoof_action_run_id = uuid4()
+    spoof_action_tenant_id = uuid4()
+    graph = SpoofInterruptInvokeGraph(
+        proposed_action_run_id=str(spoof_action_run_id) if spoof_field == "run_id" else None,
+        proposed_action_tenant_id=str(spoof_action_tenant_id) if spoof_field == "tenant_id" else None,
+    )
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+
+    response = await client.post(
+        "/api/v1/agent/chat",
+        json={"query": "请补偿 600 元", "thread_id": f"trusted-action-chat-{uuid4()}"},
+        headers=_auth_header(user, ["agent:chat"]),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == APPROVAL_NOT_EXECUTABLE
+    assert body["error"]["details"]["missing_fields"] == [expected_missing_field]
+    assert len(graph.calls) == 1
+    _, config = graph.calls[0]
+    trusted_context = TrustedContext.model_validate(config["configurable"]["trusted_context"])
+    trusted_run_id = UUID(trusted_context.run_id)
+
+    trusted_run = await session.get(AgentRun, trusted_run_id)
+    spoof_action_run = await session.get(AgentRun, spoof_action_run_id)
+
+    assert body["data"]["run_id"] == trusted_context.run_id
+    assert trusted_run is not None
+    assert trusted_run.final_status == "interrupted"
+    assert spoof_action_run is None
+    assert await _count_rows(session, ApprovalRequest, ApprovalRequest.run_id == trusted_run_id) == 0
+    assert await _count_rows(session, ApprovalRequest, ApprovalRequest.run_id == spoof_action_run_id) == 0
 
 
 @pytest.mark.asyncio

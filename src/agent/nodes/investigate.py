@@ -123,7 +123,6 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
         descriptor = manager.descriptor(tool_name)
         family = manager.event_family(tool_name)
         operation_id = uuid4()
-        await _emit_tool_event(configurable, session, state, descriptor, family, operation_id, iteration, "started")
         tool_ctx = _build_tool_context(
             trusted_context,
             configurable,
@@ -134,6 +133,7 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
             deadline_at,
             state.get("run_started_at") or _now_iso(),
         )
+        await _emit_tool_event(configurable, session, tool_ctx, descriptor, family, operation_id, iteration, "started")
         tool_call_record = await _append_tool_call_record(
             configurable,
             session,
@@ -150,7 +150,7 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
         await _emit_tool_event(
             configurable,
             session,
-            state,
+            tool_ctx,
             descriptor,
             family,
             operation_id,
@@ -424,7 +424,7 @@ def _safe_prompt_summary(
 async def _emit_tool_event(
     configurable: dict[str, Any],
     session: Any,
-    state: AgentState,
+    tool_ctx: ToolCallContext,
     descriptor: Any,
     family: str,
     operation_id: Any,
@@ -451,14 +451,14 @@ async def _emit_tool_event(
         return
     await emit_event(
         session,
-        run_id=state.get("current_run_id") or str(uuid4()),
-        tenant_id=state["tenant_id"],
-        thread_id=state["thread_id"],
+        run_id=tool_ctx.run_id,
+        tenant_id=tool_ctx.tenant_id,
+        thread_id=tool_ctx.thread_id,
         event_type=event_type,
         actor={"type": "agent", "id": "moca"},
         resource_refs={"tool": descriptor.name if descriptor is not None else "unknown"},
         redacted_payload=redacted_payload,
-        trace_id=configurable.get("trace_id"),
+        trace_id=tool_ctx.trace_id,
         operation_id=operation_id,
         iteration=iteration,
     )

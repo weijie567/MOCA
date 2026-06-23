@@ -328,6 +328,25 @@ async def test_execute_action_prefers_approval_run_id_for_resumed_action(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_action_draft_authorizes_approval_against_trusted_context_not_legacy_state(monkeypatch):
+    create_draft = AsyncMock(return_value=_success_result())
+    monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
+    state = _approved_state()
+    trusted_context = _trusted_context_for_state(state)
+    state["tenant_id"] = str(uuid4())
+    state["current_run_id"] = str(uuid4())
+
+    await action_draft_module.action_draft(
+        state,
+        {"configurable": {"session": object(), "trusted_context": trusted_context}},
+    )
+
+    _, kwargs = create_draft.await_args
+    assert kwargs["tenant_id"] == trusted_context["tenant_id"]
+    assert kwargs["run_id"] == trusted_context["run_id"]
+
+
+@pytest.mark.asyncio
 async def test_execute_action_blocks_when_approval_result_run_mismatches_state(monkeypatch):
     create_draft = AsyncMock()
     monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)

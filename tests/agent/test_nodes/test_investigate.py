@@ -5,10 +5,11 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.nodes.investigate import investigate
-from src.db.models import AgentRun
+from src.db.models import AgentRun, AgentTraceEvent
 from src.knowledge.schemas import EvidenceRefV1
 from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 from src.tools.catalog import ToolCatalog
@@ -367,6 +368,61 @@ async def test_investigate_consumes_trusted_context_config_not_agentstate_permis
     assert tool_context.permissions == ["tool:get_order"]
     assert tool_context.merchant_scope == {"schema_version": "merchant_scope.v1", "merchant_ids": ["merchant-from-trusted-config"], "categories": None, "risk_levels": None, "match_rule": "all_provided_dimensions"}
     assert tool_context.trace_id == "trace-from-trusted-config"
+
+
+@pytest.mark.asyncio
+async def test_investigate_events_use_trusted_context_identity_not_agentstate(
+    session: AsyncSession,
+    seeded_session: dict,
+):
+    manager = FakeManager({"get_order": _business_success()})
+    thread_id = "thread-investigate-trusted-events"
+    trusted_run_id = await _insert_run(session, seeded_session, thread_id)
+    state = _state([{"next_tool": "get_order", "args": {"order_no": "ORD-001"}, "reason": "test"}])
+    state["tenant_id"] = str(uuid4())
+    state["user_id"] = str(uuid4())
+    state["thread_id"] = "legacy-thread-from-state"
+    state["current_run_id"] = str(uuid4())
+    trusted_context = TrustedContext(
+        tenant_id=str(seeded_session["tenant"].id),
+        user_id=str(seeded_session["users"]["cs_zhang"].id),
+        role="support",
+        permissions=["tool:get_order"],
+        merchant_scope=MerchantScopeV1(merchant_ids=["*"]),
+        session_id=None,
+        thread_id=thread_id,
+        run_id=trusted_run_id,
+        trace_id="trace-from-trusted-event-context",
+        locale=None,
+    )
+
+    await investigate(
+        state,
+        _config(
+            manager,
+            [],
+            session=session,
+            event_emitter=None,
+            trusted_context=trusted_context.model_dump(mode="json"),
+        ),
+    )
+
+    rows = (
+        (
+            await session.execute(
+                select(AgentTraceEvent)
+                .where(AgentTraceEvent.run_id == trusted_run_id)
+                .order_by(AgentTraceEvent.sequence)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    assert [row.event_type for row in rows] == ["tool_call_started", "tool_call_completed"]
+    assert {str(row.tenant_id) for row in rows} == {trusted_context.tenant_id}
+    assert {row.thread_id for row in rows} == {trusted_context.thread_id}
+    assert {row.trace_id for row in rows} == {trusted_context.trace_id}
 
 
 @pytest.mark.asyncio

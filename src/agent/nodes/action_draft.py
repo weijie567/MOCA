@@ -172,24 +172,38 @@ def _draft_update_from_tool_result(result: ToolResultV2) -> tuple[dict[str, Any]
     return update, trace_status
 
 
-def _approval_result_is_action_authorizing(state: AgentState, approval: dict[str, Any]) -> bool:
-    trusted = _trusted_approval_result(state, approval)
+def _approval_result_is_action_authorizing(
+    state: AgentState,
+    approval: dict[str, Any],
+    trusted_context: TrustedContext | None,
+) -> bool:
+    trusted = _trusted_approval_result(state, approval, trusted_context)
     if trusted is None:
         return False
     return trusted.decision_type in {"accept", "approve"} and trusted.status == "approved"
 
 
-def _trusted_approval_result(state: AgentState, approval: dict[str, Any]) -> TrustedApprovalResultV1 | None:
+def _trusted_approval_result(
+    state: AgentState,
+    approval: dict[str, Any],
+    trusted_context: TrustedContext | None,
+) -> TrustedApprovalResultV1 | None:
     if any(not approval.get(field) for field in REQUIRED_APPROVAL_RESULT_FIELDS):
         return None
     try:
         trusted = TrustedApprovalResultV1.model_validate(approval)
     except ValidationError:
         return None
-    if str(trusted.tenant_id) != str(state.get("tenant_id") or ""):
-        return None
-    if str(trusted.run_id) != str(state.get("current_run_id") or ""):
-        return None
+    if trusted_context is not None:
+        if str(trusted.tenant_id) != trusted_context.tenant_id:
+            return None
+        if str(trusted.run_id) != trusted_context.run_id:
+            return None
+    else:
+        if str(trusted.tenant_id) != str(state.get("tenant_id") or ""):
+            return None
+        if str(trusted.run_id) != str(state.get("current_run_id") or ""):
+            return None
     if (
         trusted.action_payload_hash != state.get("action_payload_hash")
         or trusted.safety_snapshot_ref != state.get("safety_snapshot_ref")
@@ -218,7 +232,9 @@ async def action_draft(state: AgentState, config: RunnableConfig) -> dict:
     proposed = state.get("proposed_action") or {}
     approval = state.get("approval_result") or {}
     risk = state.get("risk_assessment") or {}
-    approval_accepted = _approval_result_is_action_authorizing(state, approval)
+    configurable = config.get("configurable") or {}
+    trusted_context = _trusted_context_from_config(configurable)
+    approval_accepted = _approval_result_is_action_authorizing(state, approval, trusted_context)
 
     if risk.get("approval_required") and not approval_accepted:
         return {
@@ -247,9 +263,7 @@ async def action_draft(state: AgentState, config: RunnableConfig) -> dict:
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("error", started_at)],
         }
 
-    configurable = config.get("configurable") or {}
     session = configurable["session"]
-    trusted_context = _trusted_context_from_config(configurable)
     if trusted_context is None:
         return {
             "action_result": {

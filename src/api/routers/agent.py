@@ -106,7 +106,7 @@ async def chat(
                 session=session,
                 user=user,
                 body=body,
-                fallback_run_id=run_id,
+                trusted_context=trusted_context,
                 started_at=started_at,
                 t0=t0,
             )
@@ -148,14 +148,16 @@ async def chat(
             session=session,
             user=user,
             body=body,
-            fallback_run_id=run_id,
+            trusted_context=trusted_context,
             started_at=started_at,
             t0=t0,
         )
 
     total_ms = round((time.perf_counter() - t0) * 1000)
     completed_at = datetime.now(timezone.utc)
-    run_id = final_state.get("current_run_id") or run_id
+    # Graph state may carry legacy/checkpoint identity. Persistence authority remains
+    # the canonical trusted context created at the API boundary.
+    run_id = trusted_context.run_id
     trace_steps = final_state.get("trace_steps") or []
     final_response_text = final_state.get("final_response") or "处理完成，但未生成回复。"
     final_status = build_trace_summary(run_id, final_state, total_ms)["final_status"]
@@ -263,7 +265,7 @@ async def _handle_interrupt(
     session: AsyncSession,
     user: User,
     body: ChatRequest,
-    fallback_run_id: str,
+    trusted_context: TrustedContext,
     started_at: datetime,
     t0: float,
 ) -> ApiResponse:
@@ -276,7 +278,9 @@ async def _handle_interrupt(
     state_snapshot = await graph.aget_state({"configurable": {"thread_id": checkpoint_tid}})
     snapshot_values = getattr(state_snapshot, "values", None) or {}
     pre_interrupt_steps = list(snapshot_values.get("trace_steps") or [])
-    run_id = str(interrupt_data.get("run_id") or snapshot_values.get("current_run_id") or fallback_run_id)
+    # Interrupt payload/checkpoint state is graph-controlled. Persistence remains
+    # bound to the API boundary trusted context.
+    run_id = trusted_context.run_id
     if not any(step.get("node") == "approval_gate" for step in pre_interrupt_steps):
         pre_interrupt_steps.append(
             {

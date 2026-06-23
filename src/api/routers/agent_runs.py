@@ -826,6 +826,7 @@ def _approval_create_command_from_interrupt(
     missing = [field for field in required_fields if not interrupt_data.get(field)]
     if missing:
         raise ApprovalInterruptValidationError(missing)
+    _validate_interrupt_action_identity(interrupt_data, user=user, run_id=run_id)
 
     try:
         evidence_refs = [EvidenceRefV1.model_validate(ref) for ref in interrupt_data["evidence_refs"]]
@@ -854,6 +855,29 @@ def _approval_create_command_from_interrupt(
         )
     except (TypeError, ValueError, ValidationError) as exc:
         raise ApprovalInterruptValidationError(["approval_request_payload"]) from exc
+
+
+def _validate_interrupt_action_identity(
+    interrupt_data: dict[str, Any],
+    *,
+    user: User,
+    run_id: UUID,
+) -> None:
+    proposed_action = interrupt_data.get("proposed_action")
+    if not isinstance(proposed_action, dict):
+        raise ApprovalInterruptValidationError(["proposed_action"])
+
+    mismatches: list[str] = []
+    expected_identity = {
+        "tenant_id": str(user.tenant_id),
+        "run_id": str(run_id),
+    }
+    for field, expected in expected_identity.items():
+        actual = proposed_action.get(field)
+        if actual is None or str(actual) != expected:
+            mismatches.append(f"proposed_action.{field}")
+    if mismatches:
+        raise ApprovalInterruptValidationError(mismatches)
 
 
 async def _claim_pending_run_for_stream(session: AsyncSession, run_id: UUID, user: User) -> AgentRun:
