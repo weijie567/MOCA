@@ -321,8 +321,7 @@ async def test_memory_write_failure_events_carry_non_null_operation_id(monkeypat
     event_types = [event["event_type"] for event in emissions]
     operation_ids = [event["operation_id"] for event in emissions]
     assert result["memory_write_result"]["status"] == "error"
-    assert "memory_write_started" in event_types
-    assert "memory_write_failed" in event_types
+    assert event_types == ["memory_write_started", "memory_write_failed"]
     assert all(operation_id is not None for operation_id in operation_ids)
     assert len(set(operation_ids)) == 1
 

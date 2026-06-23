@@ -134,10 +134,13 @@ class ReplayService:
             retention_until=retention_until,
             deleted_at=deleted_at,
         )
+        if schema_version == "minimal_event_envelope.v1":
+            projected = self.project_minimal_event(row)
+            self.session.add(row)
+            await self.session.flush()
+            return projected
         self.session.add(row)
         await self.session.flush()
-        if schema_version == "minimal_event_envelope.v1":
-            return self.project_minimal_event(row)
         return self.project_event(row, pairing_status=pairing_status)
 
     async def get_replay(self, run_id: uuid.UUID | str) -> dict[str, Any]:

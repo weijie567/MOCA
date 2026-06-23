@@ -285,6 +285,42 @@ async def test_get_replay_projects_minimal_rows_with_source_provenance(session: 
 
 
 @pytest.mark.asyncio
+async def test_get_replay_projects_legacy_minimal_operation_row_without_operation_id(
+    session: AsyncSession,
+):
+    run_id, tenant_id, thread_id = await _create_manual_run(session, final_status="completed")
+    session.add(
+        AgentTraceEvent(
+            event_id=uuid.uuid4(),
+            run_id=run_id,
+            sequence=1,
+            operation_id=None,
+            tenant_id=tenant_id,
+            thread_id=thread_id,
+            event_type="node_started",
+            schema_version="minimal_event_envelope.v1",
+            occurred_at=datetime.now(UTC),
+            actor={"type": "agent", "id": "moca"},
+            resource_refs={"node": "investigate"},
+            redaction_policy_version="redaction.v1",
+            redacted_payload={"status": "started"},
+        )
+    )
+    await session.flush()
+
+    replay = await ReplayService(session).get_replay(run_id)
+
+    event = replay["timeline"][0]
+    assert event["schema_version"] == "replay_event.v3"
+    assert event["event_type"] == "node_started"
+    assert event["operation_id"] is None
+    assert event["provenance"] == {
+        "source_schema_version": "minimal_event_envelope.v1",
+        "pairing_status": "unresolved",
+    }
+
+
+@pytest.mark.asyncio
 async def test_get_replay_projects_persisted_operation_pair_as_paired(session: AsyncSession):
     run_id, tenant_id = await _create_run(session)
     service = ReplayService(session)

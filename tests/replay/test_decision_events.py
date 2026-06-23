@@ -228,6 +228,34 @@ async def test_emit_decision_event_missing_required_identity_fails_closed(sessio
 
 
 @pytest.mark.asyncio
+async def test_append_minimal_event_validates_before_flush_on_operation_id_failure(
+    session: AsyncSession,
+) -> None:
+    run_id, tenant_id = await _create_run(session)
+    before_count = await session.scalar(
+        select(func.count()).select_from(AgentTraceEvent).where(AgentTraceEvent.run_id == run_id)
+    )
+
+    with pytest.raises(ValueError, match="operation_id"):
+        await ReplayService(session).append_event(
+            run_id=run_id,
+            tenant_id=tenant_id,
+            thread_id="decision-event-thread",
+            event_type="node_started",
+            actor={"type": "agent", "id": "moca"},
+            resource_refs={"node": "investigate"},
+            redacted_payload={"status": "started"},
+            schema_version="minimal_event_envelope.v1",
+        )
+
+    await session.commit()
+    row_count = await session.scalar(
+        select(func.count()).select_from(AgentTraceEvent).where(AgentTraceEvent.run_id == run_id)
+    )
+    assert row_count == before_count
+
+
+@pytest.mark.asyncio
 async def test_reason_code_compatibility_normalizes_first_seen_reason_codes(session: AsyncSession) -> None:
     run_id, tenant_id = await _create_run(session)
 

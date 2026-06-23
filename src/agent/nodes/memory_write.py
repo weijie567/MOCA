@@ -105,18 +105,7 @@ async def _write_with_service(
         operation_id=operation_id,
     )
     service = MemoryService(SessionMemoryRepository(session), enabled=settings.session_memory_enabled)
-    try:
-        result = await service.write_session_memory(candidate)
-    except Exception:
-        await _emit_memory_event(
-            state,
-            configurable,
-            session,
-            "memory_write_failed",
-            {"status": "error"},
-            operation_id=operation_id,
-        )
-        raise
+    result = await service.write_session_memory(candidate)
     event_type = "memory_write_completed" if result.status not in {"error", "fallback"} else "memory_write_failed"
     await _emit_memory_event(
         state,
