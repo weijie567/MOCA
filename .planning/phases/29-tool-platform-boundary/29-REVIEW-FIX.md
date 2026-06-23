@@ -1,41 +1,35 @@
 ---
 phase: 29-tool-platform-boundary
-fixed_at: 2026-06-23T12:25:49Z
+fixed_at: 2026-06-23T12:51:50Z
 review_path: .planning/phases/29-tool-platform-boundary/29-REVIEW.md
 iteration: 1
-findings_in_scope: 2
-fixed: 2
+findings_in_scope: 1
+fixed: 1
 skipped: 0
 status: all_fixed
 ---
 
 # Phase 29: Code Review Fix Report
 
-**Fixed at:** 2026-06-23T12:25:49Z
+**Fixed at:** 2026-06-23T12:51:50Z
 **Source review:** .planning/phases/29-tool-platform-boundary/29-REVIEW.md
 **Iteration:** 1
 
 **Summary:**
-- Findings in scope: 2
-- Fixed: 2
+- Findings in scope: 1
+- Fixed: 1
 - Skipped: 0
 
 ## Fixed Issues
 
-### CR-01: Nested Case-Memory Refs Can Leak Raw Payload Keys Into Normalized Graph State
+### WR-01: Action Draft Graph Node Still Imports A Tool Executor Directly
 
-**Files modified:** `src/tools/projection.py`, `tests/tools/test_tool_platform.py`, `tests/agent/test_nodes/test_investigate.py`
-**Commit:** e8fc63a
-**Applied fix:** Added nested case-memory ref sanitization for `policy_refs` and `source_refs`, stripping raw sentinel keys before normalized projection and investigate graph-state accumulation.
-
-### WR-01: Runtime Auth Raises Instead Of Denying Legacy List Merchant Scope
-
-**Files modified:** `src/tools/policy.py`, `tests/tools/test_tool_platform.py`
-**Commit:** 2063214
-**Applied fix:** Normalized legacy list-form merchant scopes before validation and denied closed on malformed scope validation errors, with runtime-auth coverage for allowed and denied list scopes.
+**Files modified:** `src/agent/nodes/action_draft.py`
+**Commit:** 29df231
+**Applied fix:** Removed direct graph-node imports of `ActionToolExecutor` and `UnifiedToolManager`, then routed action draft execution through `ToolPlatform` with support for injected action or generic platforms and existing manager-backed platform seams.
 
 ---
 
-_Fixed: 2026-06-23T12:25:49Z_
+_Fixed: 2026-06-23T12:51:50Z_
 _Fixer: Claude (gsd-code-fixer)_
 _Iteration: 1_
