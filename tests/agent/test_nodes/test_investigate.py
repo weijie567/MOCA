@@ -315,6 +315,7 @@ def _case_memory_success() -> ToolResultV2:
                             "doc_key": "refund_policy",
                             "chunk_id": "chunk-1",
                             "raw_payload": "nested-policy-raw",
+                            "raw_tool_payload": "nested-policy-tool-raw",
                             "secret": "nested-policy-secret",
                         }
                     ],
@@ -322,6 +323,7 @@ def _case_memory_success() -> ToolResultV2:
                         {
                             "business_object_id": "refund-case-1",
                             "raw_payload": "nested-source-raw",
+                            "raw_tool_payload": "nested-source-tool-raw",
                             "secret": "nested-source-secret",
                         }
                     ],
@@ -676,8 +678,10 @@ async def test_search_case_memory_tool_result_accumulates_contextual_case_memory
     assert "raw_payload" not in str(result["case_memory"])
     assert "secret" not in str(result["case_memory"])
     assert "nested-policy-raw" not in str(result["case_memory"])
+    assert "nested-policy-tool-raw" not in str(result["case_memory"])
     assert "nested-policy-secret" not in str(result["case_memory"])
     assert "nested-source-raw" not in str(result["case_memory"])
+    assert "nested-source-tool-raw" not in str(result["case_memory"])
     assert "nested-source-secret" not in str(result["case_memory"])
 
 

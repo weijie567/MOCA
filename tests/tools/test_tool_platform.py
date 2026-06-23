@@ -94,6 +94,7 @@ _RUNTIME_DENIAL_REASONS = {
 _RAW_SENTINEL_KEYS = {
     "raw",
     "raw_payload",
+    "raw_tool_payload",
     "raw_tool_output",
     "raw_args",
     "private_reasoning",
@@ -106,6 +107,7 @@ _RAW_SENTINEL_KEYS = {
 _RAW_SENTINEL_VALUES = {
     "internal ledger blob",
     "<upstream error text>",
+    "raw tool payload blob",
     "model chain-of-thought",
     "authority body",
     "stack",
@@ -426,6 +428,7 @@ def test_tool_result_projector_blocks_raw_data_from_prompt_and_graph_surfaces() 
             "status": "shipped",
             "raw": "internal ledger blob",
             "raw_payload": {"secret": "sk-xxx"},
+            "raw_tool_payload": "raw tool payload blob",
             "raw_tool_output": "<upstream error text>",
             "private_reasoning": "model chain-of-thought",
             "approval_authority_body": "authority body",
@@ -485,6 +488,7 @@ def test_tool_result_projector_strips_raw_sentinels_from_case_memory_ref_lists()
                             "doc_key": "refund_policy",
                             "chunk_id": "chunk-1",
                             "raw_payload": "nested-policy-raw",
+                            "raw_tool_payload": "nested-policy-tool-raw",
                             "secret": "nested-policy-secret",
                         }
                     ],
@@ -492,6 +496,7 @@ def test_tool_result_projector_strips_raw_sentinels_from_case_memory_ref_lists()
                         {
                             "business_object_id": "refund-case-1",
                             "raw_payload": "nested-source-raw",
+                            "raw_tool_payload": "nested-source-tool-raw",
                             "secret": "nested-source-secret",
                         }
                     ],
@@ -523,10 +528,13 @@ def test_tool_result_projector_strips_raw_sentinels_from_case_memory_ref_lists()
     dumped = str(projection.normalized_result)
     for forbidden in (
         "raw_payload",
+        "raw_tool_payload",
         "secret",
         "nested-policy-raw",
+        "nested-policy-tool-raw",
         "nested-policy-secret",
         "nested-source-raw",
+        "nested-source-tool-raw",
         "nested-source-secret",
     ):
         assert forbidden not in dumped

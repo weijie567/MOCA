@@ -10,6 +10,7 @@ from src.tools.contracts import ToolResultProjectionV1, ToolResultV2
 _RAW_SENTINEL_KEYS: set[str] = {
     "raw",
     "raw_payload",
+    "raw_tool_payload",
     "raw_tool_output",
     "raw_args",
     "private_reasoning",
