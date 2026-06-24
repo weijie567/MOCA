@@ -44,7 +44,7 @@ async def get_ticket_history(
         )
         raise HTTPException(status_code=404, detail={"code": TICKET_NOT_FOUND, "message": "Ticket not found"})
     merchant_id = (await session.execute(select(Order.merchant_id).where(Order.id == ticket.order_id))).scalar_one()
-    if user.role == "merchant" and user.merchant_id is not None and merchant_id != user.merchant_id:
+    if user.role == "merchant" and (user.merchant_id is None or merchant_id != user.merchant_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"code": FORBIDDEN, "message": "Merchant access is limited to the merchant's own tickets"},
