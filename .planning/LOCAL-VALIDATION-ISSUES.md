@@ -4024,3 +4024,86 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_service.py::test_me
 - `.planning/LOCAL-VALIDATION-ISSUES.md` 中既有 “直接运行 pytest 命中了系统 Python 3.9” 条目
 - `pyproject.toml`
 - `.venv/bin/python`
+
+## 2026-06-27 22:26 CST - Phase 29.5 verify-work focused suite 暴露 raw tool mock authz seam
+
+### 问题现象
+
+执行 Phase 29.5 非交互式 verify-work focused regression suite 时，5 个 raw demo business tool 的旧 success 测试失败；另外检查 SECURITY artifact 时直接使用 zsh glob，空匹配触发 `no matches found`。
+
+### 如何检测 / 复现
+
+空 glob 问题：
+
+```bash
+ls .planning/phases/29.5-merchant-scope-role-model-alignment/*-SECURITY.md 2>/dev/null || true
+```
+
+focused suite 问题：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/platform/test_trusted_context_factory.py tests/platform/test_merchant_scope.py tests/integration/test_orders.py tests/integration/test_refund_cases.py tests/integration/test_tickets.py tests/agent/test_tools/test_get_order.py tests/agent/test_tools/test_get_refund_case.py tests/agent/test_tools/test_get_ticket.py tests/business/test_service.py tests/knowledge/test_service.py tests/agent/test_tools/test_unified_tool_manager.py tests/test_approval_api.py tests/approvals/test_single_level_runtime.py tests/approvals/test_hash_binding.py tests/approvals/test_events.py tests/approvals/test_needs_info_resume.py tests/test_approval_integration.py tests/test_agent_runs_api.py tests/test_trace_api.py tests/replay/test_replay_api.py tests/agent/test_nodes/test_investigate.py tests/tools/test_merchant_scope_static.py -q --tb=short
+```
+
+### 关键证据或命令
+
+空 glob 证据：
+
+```text
+zsh:1: no matches found: .planning/phases/29.5-merchant-scope-role-model-alignment/*-SECURITY.md
+```
+
+focused suite 首次结果：
+
+```text
+5 failed, 333 passed, 11 warnings
+FAILED tests/agent/test_tools/test_get_order.py::test_get_order_success
+FAILED tests/agent/test_tools/test_get_order.py::test_get_order_no_messages_field
+FAILED tests/agent/test_tools/test_get_refund_case.py::test_get_refund_case_success
+FAILED tests/agent/test_tools/test_get_ticket.py::test_get_ticket_by_ticket_no_success
+FAILED tests/agent/test_tools/test_get_ticket.py::test_get_ticket_by_uuid_success
+```
+
+失败 warning 中还出现：
+
+```text
+RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+```
+
+### 当前判断 / 根因
+
+空 glob 是 zsh 默认 `nomatch` 行为；检查可选 artifact 应改用 `find` 或关闭 nomatch，而不是裸 glob。
+
+5 个测试失败是 test seam 与 Phase 29.5 review-fix 后的 authz 语义不一致：WR-01 修复后 `merchant_can_access()` 即使对 `role="admin"` 也会查询真实 active same-tenant `User` 并校验 stored role。旧 success tests 同时 mock repository 和传入 `AsyncMock()` session，只想覆盖 response shaping / repository routing，却没有 stub 新的 DB-backed authz helper，因此 helper 访问 AsyncMock session 后落入 raw tool 的 broad `DB_ERROR` 捕获。
+
+### 已做处理
+
+- SECURITY artifact 检查改用 `find .planning/phases/29.5-merchant-scope-role-model-alignment -maxdepth 1 -name '*-SECURITY.md' -type f -print`，确认当前没有 SECURITY artifact。
+- 在 5 个 isolated raw tool success tests 中显式 monkeypatch 对应模块的 `merchant_can_access` 为 `AsyncMock(return_value=True)`；真实 DB-backed admin/merchant-bound allow/deny 行为仍由 seeded-session tests 覆盖。
+- 重跑失败点：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_tools/test_get_order.py::test_get_order_success tests/agent/test_tools/test_get_order.py::test_get_order_no_messages_field tests/agent/test_tools/test_get_refund_case.py::test_get_refund_case_success tests/agent/test_tools/test_get_ticket.py::test_get_ticket_by_ticket_no_success tests/agent/test_tools/test_get_ticket.py::test_get_ticket_by_uuid_success -q --tb=short
+```
+
+结果：`5 passed, 1 warning`。
+
+- 重跑完整 Phase 29.5 focused suite：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/platform/test_trusted_context_factory.py tests/platform/test_merchant_scope.py tests/integration/test_orders.py tests/integration/test_refund_cases.py tests/integration/test_tickets.py tests/agent/test_tools/test_get_order.py tests/agent/test_tools/test_get_refund_case.py tests/agent/test_tools/test_get_ticket.py tests/business/test_service.py tests/knowledge/test_service.py tests/agent/test_tools/test_unified_tool_manager.py tests/test_approval_api.py tests/approvals/test_single_level_runtime.py tests/approvals/test_hash_binding.py tests/approvals/test_events.py tests/approvals/test_needs_info_resume.py tests/test_approval_integration.py tests/test_agent_runs_api.py tests/test_trace_api.py tests/replay/test_replay_api.py tests/agent/test_nodes/test_investigate.py tests/tools/test_merchant_scope_static.py -q --tb=short
+```
+
+结果：`338 passed, 6 warnings`。
+
+### 剩余问题
+
+无本轮阻塞问题。当前 Phase 29.5 仍缺 SECURITY artifact；security enforcement 为 `true`，后续推进 phase 前应跑 `$gsd-secure-phase 29.5`。
+
+### 下次继续排查入口
+
+- `tests/agent/test_tools/test_get_order.py`
+- `tests/agent/test_tools/test_get_refund_case.py`
+- `tests/agent/test_tools/test_get_ticket.py`
+- `src/integrations/demo_business/authz.py`
+- `.planning/phases/29.5-merchant-scope-role-model-alignment/29.5-UAT.md`
