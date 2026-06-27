@@ -326,6 +326,42 @@ async def test_search_case_memory_dispatches_to_reviewed_case_memory_service():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("merchant_scope", "expected_merchant_scopes"),
+    [
+        ({"merchant_ids": ["merchant-a"]}, {("merchant", "merchant-a")}),
+        ({"merchant_ids": []}, set()),
+        ({"merchant_ids": ["*"]}, set()),
+    ],
+)
+async def test_search_case_memory_uses_narrowed_merchant_scope_without_wildcard(
+    merchant_scope, expected_merchant_scopes
+):
+    class FakeMemorySearchService:
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def retrieve_reviewed(self, request):
+            self.calls.append(request)
+            return CaseMemorySearchResult(status="empty", items=[])
+
+    service = FakeMemorySearchService()
+    manager = UnifiedToolManager(executors=[MemoryToolExecutor(service=service)])
+
+    result = await manager.invoke(
+        "search_case_memory",
+        {"query": "similar refund case"},
+        _ctx(tool="search_case_memory", merchant_scope=merchant_scope),
+    )
+
+    assert result.status == "not_found"
+    assert len(service.calls) == 1
+    merchant_scopes = {scope for scope in service.calls[0].scopes if scope[0] == "merchant"}
+    assert merchant_scopes == expected_merchant_scopes
+    assert ("merchant", "*") not in merchant_scopes
+
+
+@pytest.mark.asyncio
 async def test_unknown_tool_returns_not_found():
     result = await UnifiedToolManager().invoke("unknown_tool", {}, _ctx())
 
