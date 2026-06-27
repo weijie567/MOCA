@@ -34,15 +34,6 @@ _SAFE_SCALAR_KEYS: set[str] = {
     "idempotent_reused",
 }
 
-# Typed ref keys extracted from result.data.
-_BUSINESS_FACT_REF_KEYS: set[str] = {
-    "order_no",
-    "refund_case_no",
-    "ticket_id",
-    "tracking_no",
-    "merchant_id",
-}
-
 _POLICY_EVIDENCE_REF_KEYS: set[str] = {
     "policy_id",
     "policy_version",
