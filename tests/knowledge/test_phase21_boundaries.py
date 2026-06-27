@@ -72,6 +72,8 @@ PHASE22_ALLOWED_SURFACE_FILES = {
     Path("tests/agent/test_phase22_recommendation_integration.py"),
     Path("tests/agent/test_phase22_action_boundary.py"),
     Path("tests/agent/test_phase22_final_response.py"),
+    Path("tests/agent/test_memory_evidence_boundary.py"),
+    Path("tests/conftest.py"),
 }
 PHASE23_ALLOWED_SURFACE_PATTERNS = {
     "QueryRewritePlan",

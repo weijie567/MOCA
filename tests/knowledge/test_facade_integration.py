@@ -9,8 +9,10 @@ from src.agent.nodes.investigate import investigate
 from src.agent.nodes.final_response import final_response
 from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1, KnowledgeSearchResult
+from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 from src.tools.catalog import ToolCatalog
-from src.tools.contracts import ToolCallContext, ToolResultV2
+from src.tools.contracts import ToolCallContext, ToolInvocationOutcome, ToolPolicyDecision, ToolResultV2, ToolViewV1
+from src.tools.projection import ToolResultProjector
 from tests.agent.conftest import FakeLLM
 
 
@@ -69,6 +71,7 @@ class FakePolicyManager:
         self._descriptors = {descriptor.name: descriptor for descriptor in ToolCatalog().descriptors()}
         self.search_result = search_result
         self.calls: list[tuple[str, dict, ToolCallContext]] = []
+        self._platform = _FakePolicyPlatform(self)
 
     def descriptors(self, caller_node: str = "investigate"):
         return [
@@ -105,6 +108,89 @@ class FakePolicyManager:
             latency_ms=1,
             audit_ref=None,
         )
+
+
+class _FakePolicyPlatform:
+    def __init__(self, manager: FakePolicyManager) -> None:
+        self._manager = manager
+        self._projector = ToolResultProjector()
+        self.last_visibility_decisions = None
+
+    async def visible_tools(
+        self,
+        *,
+        caller: str,
+        ctx: ToolCallContext,
+        session=None,
+    ) -> list[ToolViewV1]:
+        from src.tools.policy import ToolPolicyEngine, project_prompt_safe_input_schema
+
+        engine = ToolPolicyEngine()
+        decisions = engine.visibility_decisions(caller=caller, ctx=ctx)
+        self.last_visibility_decisions = decisions
+        views = []
+        for decision in decisions:
+            if decision.decision != "visible":
+                continue
+            descriptor = self._manager._descriptors.get(decision.tool_name)
+            if descriptor is None:
+                continue
+            views.append(
+                ToolViewV1(
+                    name=descriptor.name,
+                    description=descriptor.description,
+                    input_schema=project_prompt_safe_input_schema(descriptor.input_schema),
+                    safe_usage_notes=[],
+                    result_contract_version="tool_result.v2",
+                )
+            )
+        return views
+
+    async def invoke(
+        self,
+        tool_name: str,
+        args: dict,
+        ctx: ToolCallContext,
+        *,
+        session=None,
+    ) -> ToolInvocationOutcome:
+        result = await self._manager.invoke(tool_name, args, ctx)
+        projection = self._projector.project(
+            tool_name=tool_name,
+            result=result,
+            tool_call_id=ctx.tool_call_id,
+        )
+        decision = ToolPolicyDecision(
+            tool_name=tool_name,
+            caller=ctx.caller_node,
+            decision_stage="runtime_auth",
+            decision="allowed",
+            reason_codes=["visible"],
+            required_scopes=[],
+            matched_scope=None,
+            policy_version="tool_policy.v1",
+            data_classification="internal",
+            runtime_available=True,
+        )
+        return ToolInvocationOutcome(
+            tool_result=result,
+            projection=projection,
+            policy_decision=decision,
+            policy_event_id=None,
+        )
+
+    def descriptor(self, name: str):
+        return self._manager._descriptors.get(name)
+
+    def event_family(self, name: str) -> str | None:
+        descriptor = self._manager._descriptors.get(name)
+        if descriptor is None:
+            return None
+        if descriptor.event_family == "rag_retrieval_*":
+            return "rag_retrieval"
+        if descriptor.event_family == "tool_call_*":
+            return "tool_call"
+        return None
 
 
 def _recommendation(*, chunk_id: str = "chunk_001", reasoning: str = "根据规则应处理退款。") -> dict:
@@ -158,6 +244,19 @@ async def _run_path(
         {"next_tool": "search_policy", "args": {"query": state["user_query"]}, "reason": "policy"}
     ]
     events: list[dict] = []
+    manager = FakePolicyManager(search_result)
+    trusted_context = TrustedContext(
+        tenant_id=TENANT_ID,
+        user_id=state["user_id"],
+        role="support",
+        permissions=["tool:search_policy"],
+        merchant_scope=MerchantScopeV1(merchant_ids=[]),
+        session_id=None,
+        thread_id=state["thread_id"],
+        run_id=state["current_run_id"],
+        trace_id="facade-trace",
+        locale=None,
+    )
 
     async def event_emitter(**payload):
         events.append(payload)
@@ -168,8 +267,10 @@ async def _run_path(
             "configurable": {
                 "session": AsyncMock(),
                 "permissions": ["tool:search_policy"],
-                "merchant_scope": {"merchant_ids": ["*"]},
-                "tool_manager": FakePolicyManager(search_result),
+                "merchant_scope": {"merchant_ids": []},
+                "tool_manager": manager,
+                "tool_platform": manager._platform,
+                "trusted_context": trusted_context.model_dump(mode="json"),
                 "event_emitter": event_emitter,
             }
         },

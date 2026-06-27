@@ -12,6 +12,7 @@ the durable re-verification contract.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -21,9 +22,18 @@ from src.agent.nodes import investigate as investigate_module
 from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1, KnowledgeSearchResult
 from src.memory.schemas import CaseMemorySearchItem, CaseMemorySearchResult
+from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 from src.tools.catalog import ToolCatalog
-from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolResultV2
+from src.tools.contracts import (
+    BusinessFactRefV1,
+    ToolCallContext,
+    ToolInvocationOutcome,
+    ToolPolicyDecision,
+    ToolResultV2,
+    ToolViewV1,
+)
 from src.tools.executors.memory import MemoryToolExecutor
+from src.tools.projection import ToolResultProjector
 
 
 # ---------------------------------------------------------------------------
@@ -65,13 +75,96 @@ def _business_fact_ref(resource_type: str, resource_id: str) -> BusinessFactRefV
     )
 
 
+class _FakePolicyToolPlatform:
+    def __init__(self, manager: Any) -> None:
+        self._manager = manager
+        self._projector = ToolResultProjector()
+        self.last_visibility_decisions = None
+
+    async def visible_tools(
+        self,
+        *,
+        caller: str,
+        ctx: ToolCallContext,
+        session=None,
+    ) -> list[ToolViewV1]:
+        from src.tools.policy import ToolPolicyEngine, project_prompt_safe_input_schema
+
+        engine = ToolPolicyEngine()
+        decisions = engine.visibility_decisions(caller=caller, ctx=ctx)
+        self.last_visibility_decisions = decisions
+        views = []
+        for decision in decisions:
+            if decision.decision != "visible":
+                continue
+            descriptor = self._manager._descriptors.get(decision.tool_name)
+            if descriptor is None:
+                continue
+            views.append(
+                ToolViewV1(
+                    name=descriptor.name,
+                    description=descriptor.description,
+                    input_schema=project_prompt_safe_input_schema(descriptor.input_schema),
+                    safe_usage_notes=[],
+                    result_contract_version="tool_result.v2",
+                )
+            )
+        return views
+
+    async def invoke(
+        self,
+        tool_name: str,
+        args: dict,
+        ctx: ToolCallContext,
+        *,
+        session=None,
+    ) -> ToolInvocationOutcome:
+        result = await self._manager.invoke(tool_name, args, ctx)
+        projection = self._projector.project(
+            tool_name=tool_name,
+            result=result,
+            tool_call_id=ctx.tool_call_id,
+        )
+        decision = ToolPolicyDecision(
+            tool_name=tool_name,
+            caller=ctx.caller_node,
+            decision_stage="runtime_auth",
+            decision="allowed",
+            reason_codes=["visible"],
+            required_scopes=[],
+            matched_scope=None,
+            policy_version="tool_policy.v1",
+            data_classification="internal",
+            runtime_available=True,
+        )
+        return ToolInvocationOutcome(
+            tool_result=result,
+            projection=projection,
+            policy_decision=decision,
+            policy_event_id=None,
+        )
+
+    def descriptor(self, name: str):
+        return self._manager._descriptors.get(name)
+
+    def event_family(self, name: str) -> str | None:
+        descriptor = self._manager._descriptors.get(name)
+        if descriptor is None:
+            return None
+        if descriptor.event_family == "rag_retrieval_*":
+            return "rag_retrieval"
+        if descriptor.event_family == "tool_call_*":
+            return "tool_call"
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Policy retrieval ownership tests
 # ---------------------------------------------------------------------------
 
 
 class TestPolicyRetrievalOwnership:
-    """Policy retrieval graph paths must execute through UnifiedToolManager,
+    """Policy retrieval graph paths must execute through ToolPlatform,
     not through BusinessToolService or raw knowledge services."""
 
     @pytest.mark.asyncio
@@ -82,6 +175,7 @@ class TestPolicyRetrievalOwnership:
             def __init__(self) -> None:
                 self._descriptors = {descriptor.name: descriptor for descriptor in ToolCatalog().descriptors()}
                 self.calls: list[tuple[str, dict, ToolCallContext]] = []
+                self._platform = _FakePolicyToolPlatform(self)
 
             def descriptors(self, caller_node: str = "investigate"):
                 return [
@@ -119,6 +213,18 @@ class TestPolicyRetrievalOwnership:
                 )
 
         manager = FakeManager()
+        trusted_context = TrustedContext(
+            tenant_id="t-1",
+            user_id="u-1",
+            role="support",
+            permissions=["tool:search_policy"],
+            merchant_scope=MerchantScopeV1(merchant_ids=[]),
+            session_id=None,
+            thread_id="test-thread",
+            run_id="run-1",
+            trace_id="trace-1",
+            locale=None,
+        )
         await investigate_module.investigate(
             {
                 **_base_state(),
@@ -131,6 +237,8 @@ class TestPolicyRetrievalOwnership:
                 "configurable": {
                     "permissions": ["tool:search_policy"],
                     "tool_manager": manager,
+                    "tool_platform": manager._platform,
+                    "trusted_context": trusted_context.model_dump(mode="json"),
                 }
             },
         )
@@ -154,7 +262,7 @@ class TestPolicyRetrievalOwnership:
             user_id="u-1",
             role="support_agent",
             permissions=["tool:search_policy"],
-            merchant_scope={"merchant_ids": ["*"]},
+            merchant_scope={"merchant_ids": []},
             thread_id="thread-1",
             run_id="run-1",
             trace_id="trace-1",
@@ -169,17 +277,17 @@ class TestPolicyRetrievalOwnership:
         mock_search.assert_awaited_once()
         request, knowledge_context = mock_search.await_args.args
         assert request.schema_version == "knowledge_search_request.v2"
-        assert knowledge_context.merchant_scope == ["*"]
+        assert knowledge_context.merchant_scope == []
 
     def test_investigate_imports_only_manager_boundary(self):
-        """The active graph node imports manager/contracts, not domain service facades."""
+        """The active graph node imports platform/contracts, not domain service facades."""
         module_source = investigate_module
-        assert hasattr(module_source, "UnifiedToolManager")
+        assert hasattr(module_source, "ToolPlatform")
         assert not hasattr(module_source, "PolicyKnowledgeService"), (
             "investigate must not import PolicyKnowledgeService directly"
         )
         assert not hasattr(module_source, "BusinessToolService"), (
-            "investigate must NOT import BusinessToolService; policy retrieval belongs behind UnifiedToolManager"
+            "investigate must NOT import BusinessToolService; policy retrieval belongs behind ToolPlatform"
         )
 
     @pytest.mark.asyncio
@@ -214,7 +322,7 @@ class TestPolicyRetrievalOwnership:
             user_id="22222222-2222-2222-2222-222222222222",
             role="support_agent",
             permissions=["tool:search_case_memory"],
-            merchant_scope={"merchant_ids": ["*"]},
+            merchant_scope={"merchant_ids": ["merchant-primary"]},
             thread_id="thread-1",
             run_id="33333333-3333-3333-3333-333333333333",
             trace_id="trace-1",
@@ -321,7 +429,7 @@ class TestRetrievalDescriptorsDeclarationOnly:
             user_id="u-1",
             role="support_agent",
             permissions=["tool:search_policy"],
-            merchant_scope={"merchant_ids": ["*"]},
+            merchant_scope={"merchant_ids": []},
             thread_id="thread-1",
             run_id="run-1",
             trace_id="trace-1",
@@ -343,7 +451,7 @@ class TestRetrievalDescriptorsDeclarationOnly:
             user_id="u-1",
             role="support_agent",
             permissions=["tool:search_sop"],
-            merchant_scope={"merchant_ids": ["*"]},
+            merchant_scope={"merchant_ids": []},
             thread_id="thread-1",
             run_id="run-1",
             trace_id="trace-1",
@@ -361,7 +469,7 @@ class TestRetrievalDescriptorsDeclarationOnly:
             user_id="u-1",
             role="support_agent",
             permissions=["tool:search_case_memory"],
-            merchant_scope={"merchant_ids": ["*"]},
+            merchant_scope={"merchant_ids": ["merchant-primary"]},
             thread_id="thread-1",
             run_id="run-1",
             trace_id="trace-1",
@@ -438,7 +546,7 @@ class TestWriteDescriptorDeclaredOnly:
             user_id="u-1",
             role="support_agent",
             permissions=["tool:create_coupon_grant_draft"],
-            merchant_scope={"merchant_ids": ["*"]},
+            merchant_scope={"merchant_ids": ["merchant-primary"]},
             thread_id="thread-1",
             run_id="run-1",
             trace_id="trace-1",
@@ -468,11 +576,11 @@ class TestOwnershipContractEncoding:
     def test_no_business_tool_service_policy_search_in_this_module(self):
         """This test module never asserts that policy retrieval goes through
         BusinessToolService. The ownership contract is: policy retrieval
-        enters through UnifiedToolManager, not the business facade."""
+        enters through ToolPlatform, not the business facade."""
         import inspect
 
         source = inspect.getsource(TestPolicyRetrievalOwnership)
         # This is a meta-assertion: the ownership tests above verify
-        # UnifiedToolManager boundary is enforced before KnowledgeToolExecutor.
-        assert "UnifiedToolManager" in source
+        # ToolPlatform boundary is enforced before KnowledgeToolExecutor.
+        assert "ToolPlatform" in source
         assert "BusinessToolService" not in source or "NOT" in source

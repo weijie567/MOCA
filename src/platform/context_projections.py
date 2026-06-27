@@ -122,6 +122,30 @@ def project_to_tool_context(
     )
 
 
+def project_missing_trusted_visibility_context(
+    *,
+    tenant_id: str,
+    user_id: str,
+    run_id: str,
+    request_id: str,
+    tool_call_id: str,
+) -> ToolCallContext:
+    return ToolCallContext(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        role="support",
+        permissions=[],
+        merchant_scope={"merchant_ids": []},
+        session_id=None,
+        thread_id="visibility",
+        run_id=run_id,
+        trace_id="trace-visibility",
+        request_id=request_id,
+        tool_call_id=tool_call_id,
+        caller_node="missing_trusted_context",
+    )
+
+
 def project_merchant_scope_for_knowledge(
     value: MerchantScopeV1 | dict[str, Any] | list[str] | None,
 ) -> list[str]:

@@ -24,8 +24,9 @@ from src.knowledge.schemas import EvidenceRefV1
 from src.memory.schemas import SessionMemoryBundle, SessionMemoryView
 from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 from src.tools.catalog import ToolCatalog
-from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolResultV2
+from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolInvocationOutcome, ToolPolicyDecision, ToolResultV2, ToolViewV1
 from src.tools.manager import UnifiedToolManager
+from src.tools.projection import ToolResultProjector
 
 
 INVESTIGATION_STATE_FIELDS = {
@@ -41,14 +42,16 @@ ROUTER_EDGE_KEYS = {
     "route_after_approval": {"assess_risk_and_approval", "action_draft", "final_response"},
     "route_after_investigate": {"final_response", "clarification_gate", "recommendation_generation"},
 }
+GRAPH_TEST_TENANT_ID = "11111111-1111-1111-1111-111111111111"
+GRAPH_TEST_USER_ID = "22222222-2222-2222-2222-222222222222"
 
 
 def _state(query: str, thread_id: str = "graph-test-thread") -> dict:
     return {
         "user_query": query,
         "thread_id": thread_id,
-        "tenant_id": str(uuid4()),
-        "user_id": str(uuid4()),
+        "tenant_id": GRAPH_TEST_TENANT_ID,
+        "user_id": GRAPH_TEST_USER_ID,
         "role": "support_agent",
     }
 
@@ -59,11 +62,11 @@ def _config(manager, events: list[dict[str, Any]], thread_id: str = "graph-test-
 
     permissions = [f"tool:{descriptor.name}" for descriptor in ToolCatalog().descriptors()]
     trusted_context = TrustedContext(
-        tenant_id=str(uuid4()),
-        user_id=str(uuid4()),
+        tenant_id=GRAPH_TEST_TENANT_ID,
+        user_id=GRAPH_TEST_USER_ID,
         role="support",
         permissions=permissions,
-        merchant_scope=MerchantScopeV1(merchant_ids=["*"]),
+        merchant_scope=MerchantScopeV1(merchant_ids=["merchant-primary"]),
         session_id=None,
         thread_id=thread_id,
         run_id=str(uuid4()),
@@ -71,18 +74,19 @@ def _config(manager, events: list[dict[str, Any]], thread_id: str = "graph-test-
         locale=None,
     )
 
-    return {
-        "configurable": {
-            "thread_id": thread_id,
-            "session": session,
-            "tool_manager": manager,
-            "event_emitter": event_emitter,
-            "trusted_context": trusted_context.model_dump(mode="json"),
-            "permissions": permissions,
-            "merchant_scope": {"merchant_ids": ["*"]},
-            "trace_id": "graph-trace",
-        }
+    configurable = {
+        "thread_id": thread_id,
+        "session": session,
+        "tool_manager": manager,
+        "event_emitter": event_emitter,
+        "trusted_context": trusted_context.model_dump(mode="json"),
+        "permissions": permissions,
+        "merchant_scope": {"merchant_ids": ["merchant-primary"]},
+        "trace_id": "graph-trace",
     }
+    if hasattr(manager, "_platform"):
+        configurable["tool_platform"] = manager._platform
+    return {"configurable": configurable}
 
 
 def _intent(intent: str) -> dict:
@@ -148,6 +152,7 @@ class FakeGraphToolManager:
         self.order_id = order_id
         self.policy_status = policy_status
         self.calls: list[tuple[str, dict[str, Any], ToolCallContext]] = []
+        self._platform = _FakeGraphToolPlatform(self)
 
     def descriptors(self, caller_node: str = "investigate"):
         return [
@@ -226,6 +231,94 @@ class FakeGraphToolManager:
             latency_ms=1,
             audit_ref=None,
         )
+
+
+class _FakeGraphToolPlatform:
+    def __init__(self, manager: FakeGraphToolManager) -> None:
+        self._manager = manager
+        self._projector = ToolResultProjector()
+        self.last_visibility_decisions = None
+
+    async def visible_tools(
+        self,
+        *,
+        caller: str,
+        ctx: ToolCallContext,
+        session: Any = None,
+    ) -> list[ToolViewV1]:
+        from src.tools.policy import ToolPolicyEngine, project_prompt_safe_input_schema
+
+        engine = ToolPolicyEngine()
+        decisions = engine.visibility_decisions(caller=caller, ctx=ctx)
+        self.last_visibility_decisions = decisions
+        views = []
+        for decision in decisions:
+            if decision.decision != "visible":
+                continue
+            descriptor = self._manager._descriptors.get(decision.tool_name)
+            if descriptor is None:
+                continue
+            views.append(
+                ToolViewV1(
+                    name=descriptor.name,
+                    description=descriptor.description,
+                    input_schema=project_prompt_safe_input_schema(descriptor.input_schema),
+                    safe_usage_notes=[],
+                    result_contract_version="tool_result.v2",
+                )
+            )
+        return views
+
+    async def invoke(
+        self,
+        tool_name: str,
+        args: dict[str, Any],
+        ctx: ToolCallContext,
+        *,
+        session: Any = None,
+    ) -> ToolInvocationOutcome:
+        result = await self._manager.invoke(tool_name, args, ctx)
+        projection = self._projector.project(
+            tool_name=tool_name,
+            result=result,
+            tool_call_id=ctx.tool_call_id,
+        )
+        denied = result.status in {"permission_denied", "unavailable"}
+        decision = ToolPolicyDecision(
+            tool_name=tool_name,
+            caller=ctx.caller_node,
+            decision_stage="runtime_auth",
+            decision="denied" if denied else "allowed",
+            reason_codes=["missing_permission" if result.status == "permission_denied" else "tool_unavailable"]
+            if denied
+            else ["visible"],
+            required_scopes=[],
+            matched_scope=None,
+            policy_version="tool_policy.v1",
+            data_classification="internal",
+            runtime_available=result.status != "unavailable",
+        )
+        return ToolInvocationOutcome(
+            tool_result=result,
+            projection=projection,
+            policy_decision=decision,
+            policy_event_id=None,
+        )
+
+    def descriptor(self, name: str):
+        return self._manager._descriptors.get(name)
+
+    def event_family(self, name: str) -> str | None:
+        descriptor = self._manager._descriptors.get(name)
+        if descriptor is None:
+            return None
+        if descriptor.event_family == "tool_call_*":
+            return "tool_call"
+        if descriptor.event_family == "rag_retrieval_*":
+            return "rag_retrieval"
+        if descriptor.event_family == "action":
+            return "action"
+        return None
 
 
 def _patch_graph_dependencies(

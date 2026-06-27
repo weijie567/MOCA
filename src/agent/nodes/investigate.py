@@ -12,7 +12,7 @@ from src.agent.prompts import INSUFFICIENT_EVIDENCE_RESPONSE
 from src.agent.state import AgentState
 from src.conversation.repository import ConversationRepository
 from src.conversation.service import ConversationService
-from src.platform.context_projections import project_to_tool_context
+from src.platform.context_projections import project_missing_trusted_visibility_context, project_to_tool_context
 from src.platform.trusted_context import TrustedContext
 from src.tools.contracts import ToolCallContext, ToolResultProjectionV1, ToolResultPromptSummary, ToolResultV2, ToolViewV1
 from src.tools.platform import ToolPlatform
@@ -298,21 +298,12 @@ def _build_visibility_context(
             tool_call_id=f"visibility:{state.get('run_id', 'unknown')}",
             caller_node="investigate",
         )
-    # Minimal fallback context for visibility when trusted context is missing.
-    from uuid import uuid4 as _uuid4
-    return ToolCallContext(
-        tenant_id=str(_uuid4()),
-        user_id=str(_uuid4()),
-        role="support",
-        permissions=[],
-        merchant_scope={"merchant_ids": []},
-        session_id=None,
-        thread_id="visibility",
-        run_id=str(state.get("run_id") or _uuid4()),
-        trace_id="trace-visibility",
-        request_id=str(_uuid4()),
+    return project_missing_trusted_visibility_context(
+        tenant_id=str(uuid4()),
+        user_id=str(uuid4()),
+        run_id=str(state.get("run_id") or uuid4()),
+        request_id=str(uuid4()),
         tool_call_id=f"visibility:{state.get('run_id', 'unknown')}",
-        caller_node="missing_trusted_context",
     )
 
 
