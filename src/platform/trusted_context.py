@@ -11,6 +11,8 @@ from src.auth.jwt import ROLE_SCOPES
 
 TRUSTED_CONTEXT_SCHEMA_VERSION = "trusted_context.v1"
 MERCHANT_SCOPE_SCHEMA_VERSION = "merchant_scope.v1"
+MERCHANT_BOUND_ROLES = {"support", "manager", "merchant"}
+PLATFORM_ADMIN_ROLES = {"admin"}
 
 SCOPE_TO_TOOL_PERMISSION = {
     "orders:read": "tool:get_order",
@@ -150,18 +152,52 @@ class TrustedContextFactory:
         *,
         server_merchant_scope: MerchantScopeV1 | dict[str, Any] | None,
     ) -> MerchantScopeV1:
+        role = str(user.role)
+        base_scope = TrustedContextFactory._base_merchant_scope_from_user(user, role=role)
         if server_merchant_scope is not None:
-            return (
+            override_scope = (
                 server_merchant_scope
                 if isinstance(server_merchant_scope, MerchantScopeV1)
                 else MerchantScopeV1.model_validate(server_merchant_scope)
             )
+            return TrustedContextFactory._narrow_merchant_scope(
+                base_scope,
+                override_scope,
+                is_platform_admin=role in PLATFORM_ADMIN_ROLES,
+            )
 
-        if str(user.role) == "merchant":
+        return base_scope
+
+    @staticmethod
+    def _base_merchant_scope_from_user(user: Any, *, role: str) -> MerchantScopeV1:
+        if role in MERCHANT_BOUND_ROLES:
             merchant_id = getattr(user, "merchant_id", None)
             return MerchantScopeV1(merchant_ids=[str(merchant_id)] if merchant_id is not None else [])
 
-        return MerchantScopeV1(merchant_ids=["*"])
+        if role in PLATFORM_ADMIN_ROLES:
+            return MerchantScopeV1(merchant_ids=["*"])
+
+        return MerchantScopeV1(merchant_ids=[])
+
+    @staticmethod
+    def _narrow_merchant_scope(
+        base_scope: MerchantScopeV1,
+        override_scope: MerchantScopeV1,
+        *,
+        is_platform_admin: bool,
+    ) -> MerchantScopeV1:
+        if is_platform_admin:
+            return override_scope
+
+        if "*" in override_scope.merchant_ids:
+            raise ValueError("server merchant scope cannot widen non-admin merchant scope")
+
+        allowed_ids = set(base_scope.merchant_ids)
+        requested_ids = set(override_scope.merchant_ids)
+        if not requested_ids.issubset(allowed_ids):
+            raise ValueError("server merchant scope cannot add merchant ids for non-admin actors")
+
+        return override_scope
 
     @staticmethod
     def _validated_server_tool_permissions(values: Iterable[str] | None) -> list[str]:
