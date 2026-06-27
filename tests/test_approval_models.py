@@ -69,7 +69,7 @@ async def test_approval_service_accept_uses_exact_version_revision_and_hash_bind
         seeded_session,
         thread_id="approval-model-exact-binding",
     )
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
     command: ApprovalDecisionCommand = _decision_command(
         request,
         level,
@@ -105,7 +105,7 @@ async def test_duplicate_same_decision_after_terminal_conflicts(
         seeded_session,
         thread_id="approval-model-duplicate-terminal",
     )
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
     command = _decision_command(request, level, assignment, actor_id=actor_id, decision_type="approve")
 
     await ApprovalService(session).decide(command)
@@ -126,7 +126,7 @@ async def test_changed_decision_after_terminal_status_conflicts(
         seeded_session,
         thread_id="approval-model-terminal-conflict",
     )
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
 
     await ApprovalService(session).decide(
         _decision_command(request, level, assignment, actor_id=actor_id, decision_type="approve")
@@ -156,7 +156,7 @@ async def test_legacy_v1_approval_row_cannot_authorize_service_decision(
 ):
     tenant_id = seeded_session["tenant"].id
     requested_by = seeded_session["users"]["cs_zhang"].id
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
     run_id = await _create_run(
         session,
         tenant_id=tenant_id,
@@ -190,7 +190,7 @@ async def test_legacy_v1_approval_row_cannot_authorize_service_decision(
         level_id=uuid4(),
         assignment_id=uuid4(),
         actor_id=actor_id,
-        actor_role="manager",
+        actor_role="admin",
         decision_type="approve",
         expected_request_version=1,
         expected_level_version=1,
@@ -319,7 +319,7 @@ async def test_list_pending_requests_excludes_expired_and_terminal_approvals(
             approved,
             approved_level,
             approved_assignment,
-            actor_id=seeded_session["users"]["approval_manager"].id,
+            actor_id=seeded_session["users"]["admin_user"].id,
             decision_type="approve",
         )
     )

@@ -67,7 +67,7 @@ async def _approval_context(
                 request,
                 level,
                 assignment,
-                actor_id=seeded_session["users"]["approval_manager"].id,
+                actor_id=seeded_session["users"]["admin_user"].id,
             )
         )
         await session.refresh(request)

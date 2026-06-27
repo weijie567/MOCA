@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
 
-APPROVAL_ROLES = {"admin", "manager"}
+APPROVAL_ROLES = {"admin"}
 
 
 class ApprovalPolicyError(ValueError):

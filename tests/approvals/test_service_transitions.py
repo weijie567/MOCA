@@ -167,7 +167,7 @@ def _decision_command(
     assignment: ApprovalAssignment,
     *,
     actor_id: UUID,
-    actor_role: str = "manager",
+    actor_role: str = "admin",
     decision_type: str = "accept",
     **overrides: Any,
 ) -> ApprovalDecisionCommand:
@@ -234,7 +234,7 @@ async def _assert_transition_error(
 @pytest.mark.asyncio
 async def test_accept_decision_inserts_exactly_one_decision_and_event(session: AsyncSession, seeded_session):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
 
     result = await ApprovalService(session).decide(_decision_command(request, level, assignment, actor_id=actor_id))
 
@@ -282,6 +282,24 @@ async def test_accept_decision_inserts_exactly_one_decision_and_event(session: A
 
 
 @pytest.mark.asyncio
+async def test_manager_service_decision_is_forbidden_without_orphans(session: AsyncSession, seeded_session):
+    request, level, assignment = await _approval_bundle(session, seeded_session)
+    actor_id = seeded_session["users"]["approval_manager"].id
+
+    await _assert_transition_error(
+        session,
+        _decision_command(
+            request,
+            level,
+            assignment,
+            actor_id=actor_id,
+            actor_role="manager",
+        ),
+        code="approval_forbidden",
+    )
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("name", "mutate"),
     [
@@ -314,7 +332,7 @@ async def test_stale_version_or_revision_returns_conflict_without_orphans(
     mutate: Callable[[ApprovalDecisionCommand], ApprovalDecisionCommand],
 ):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
     command = mutate(_decision_command(request, level, assignment, actor_id=actor_id))
 
     assert name in {
@@ -333,7 +351,7 @@ async def test_expired_request_returns_conflict_without_orphans(session: AsyncSe
         seeded_session,
         expires_at=datetime.now(UTC) - timedelta(minutes=1),
     )
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
 
     await _assert_transition_error(
         session,
@@ -345,7 +363,7 @@ async def test_expired_request_returns_conflict_without_orphans(session: AsyncSe
 @pytest.mark.asyncio
 async def test_wrong_tenant_returns_not_found_or_forbidden_without_orphans(session: AsyncSession, seeded_session):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
 
     await _assert_transition_error(
         session,
@@ -363,7 +381,7 @@ async def test_wrong_tenant_returns_not_found_or_forbidden_without_orphans(sessi
 @pytest.mark.asyncio
 async def test_wrong_run_returns_conflict_without_orphans(session: AsyncSession, seeded_session):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
 
     await _assert_transition_error(
         session,
@@ -375,7 +393,7 @@ async def test_wrong_run_returns_conflict_without_orphans(session: AsyncSession,
 @pytest.mark.asyncio
 async def test_wrong_thread_returns_conflict_without_orphans(session: AsyncSession, seeded_session):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
 
     await _assert_transition_error(
         session,
@@ -401,7 +419,6 @@ async def test_self_approval_returns_forbidden_without_orphans(session: AsyncSes
             level,
             assignment,
             actor_id=request.requested_by,
-            actor_role="manager",
         ),
         code="approval_forbidden",
     )
@@ -415,7 +432,7 @@ async def test_wrong_assignment_level_binding_rolls_back_without_orphans(session
         seeded_session,
         thread_id="approval-service-other-thread",
     )
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
 
     await _assert_transition_error(
         session,
@@ -438,7 +455,7 @@ async def test_wrong_level_request_binding_rolls_back_without_orphans(session: A
         seeded_session,
         thread_id="approval-service-other-thread",
     )
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
 
     await _assert_transition_error(
         session,
@@ -460,7 +477,7 @@ async def test_malformed_edit_action_returns_transition_error_without_orphans(
     seeded_session,
 ):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
     malformed_action = {
         **request.proposed_action,
         "amount": 88.0,
@@ -487,7 +504,7 @@ async def test_result_projection_validation_error_is_not_reported_as_non_executa
     monkeypatch,
 ):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
 
     class BrokenProjection(BaseModel):
         value: int
