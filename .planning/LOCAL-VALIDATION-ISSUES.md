@@ -3922,3 +3922,55 @@ uv run pytest tests/platform/test_trusted_context_factory.py tests/platform/test
 - `src/agent/nodes/investigate.py`
 - `tests/architecture/test_trusted_context_boundaries.py`
 - `.planning/phases/29.5-merchant-scope-role-model-alignment/29.5-05-PLAN.md`
+
+## 2026-06-27 19:40 CST - Phase 29.5 Plan 05 approval integration fixture 仍使用旧工具注入 seam
+
+### 问题现象
+
+执行 Phase 29.5 Plan 05 Task 1 红测集合时，除预期的 approval admin-only / resume wildcard 失败外，`tests/test_approval_integration.py` 的高风险 approval 流程一度无法生成 `approval_id`，低风险 policy 查询也出现 `insufficient_evidence`。
+
+### 如何检测 / 复现
+
+```bash
+uv run pytest tests/test_approval_integration.py -q --tb=short
+```
+
+### 关键证据或命令
+
+PDB 查看高风险 chat payload 时，trace 显示只执行了 `get_order` / `get_refund_case` / `get_ticket` 或 `get_order` / `search_policy`，但没有稳定进入 approval interrupt：
+
+```text
+"nodes_executed": ["receive_request", "classify_intent", "session_memory_load", "extract_slots", "investigate", "final_response"]
+"final_status": "insufficient_evidence"
+```
+
+直接调用 fixture platform 曾返回：
+
+```text
+invalid_response [] ... INVALID_EXECUTOR_RESPONSE
+```
+
+### 当前判断 / 根因
+
+Phase 29 后 `investigate.py` 通过 `ToolPlatform.with_defaults(...)` 获取 graph-facing 工具平台；旧 fixture 仍尝试 monkeypatch `UnifiedToolManager.with_defaults`，后来又误把 `ToolPlatform.with_defaults` 类方法全局替换，导致 `action_draft` 也拿到只有 read/retrieval executor 的 fake platform。另有一次缩进错误让 fake `search_policy` executor 构造 evidence 后没有返回 `ToolResultV2`。
+
+### 已做处理
+
+在 `tests/conftest.py` 中把 approval graph fixture 改为只替换 `investigate` 模块内的 `ToolPlatform` 符号，直接提供测试用 `ToolPlatform` / business executor / knowledge executor，并 stub `MaterialClaimVerifier` 为 allow，避免 Phase 33 claim-verifier 细节干扰 Plan 05 approval resume 覆盖。随后验证：
+
+```bash
+uv run pytest tests/test_approval_integration.py -q --tb=short
+```
+
+结果：`5 passed`。
+
+### 剩余问题
+
+无本轮阻塞问题。该 fixture 仍是 approval integration 专用 mock；Phase 33 重新深化 RAG / claim verification 时应避免把此 allow stub 误当成 verifier 行为覆盖。
+
+### 下次继续排查入口
+
+- `tests/conftest.py::mock_graph`
+- `tests/test_approval_integration.py`
+- `src/agent/nodes/investigate.py`
+- `src/agent/nodes/action_draft.py`

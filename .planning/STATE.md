@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
 status: executing
-stopped_at: Completed 29.5-04-PLAN.md
-last_updated: "2026-06-27T10:44:36.000Z"
+stopped_at: Completed 29.5-05-PLAN.md
+last_updated: "2026-06-27T11:40:37.000Z"
 last_activity: 2026-06-27
 progress:
   total_phases: 11
   completed_phases: 4
   total_plans: 15
-  completed_plans: 13
-  percent: 87
+  completed_plans: 14
+  percent: 93
 ---
 
 # Project State: MOCA
@@ -26,12 +26,12 @@ See: `.planning/PROJECT.md` (updated 2026-06-23)
 ## Current Position
 
 Phase: 29.5 (Merchant Scope / Role Model Alignment) — EXECUTING
-Next roadmap item: Phase 29.5 Wave 3 — Plan 05
-Plan: 5 of 6
-Status: Ready to continue wave 3
+Next roadmap item: Phase 29.5 Wave 4 — Plan 06
+Plan: 6 of 6
+Status: Ready to continue wave 4
 Last activity: 2026-06-27
 
-Progress: [█████████░] 87%
+Progress: [█████████░] 93%
 
 Planning files:
 
@@ -62,7 +62,7 @@ Planning files:
 | 27. TrustedContextFactory and Projections | 3/3 complete | Complete |
 | 28. Decision Event Foundation | 1/1 complete | Complete |
 | 29. Tool Platform Boundary | 4/4 complete | Complete |
-| 29.5. Merchant Scope / Role Model Alignment | 4/6 complete | Executing |
+| 29.5. Merchant Scope / Role Model Alignment | 5/6 complete | Executing |
 | 30. BusinessFactService Boundary | 0/1 | Pending |
 | 31. Memory Platform Boundary | 0/1 | Pending |
 | 32. Intent Graph Migration | 0/1 | Pending |
@@ -76,6 +76,7 @@ Latest execution metric: Phase 29 P29-04 — 40 min, 2 tasks, 9 files; Phase 29 
 | Phase 29.5 P02 | 5min | 2 tasks | 5 files |
 | Phase 29.5 P03 | 34min | 2 tasks | 13 files |
 | Phase 29.5 P04 | 6min | 2 tasks | 3 files |
+| Phase 29.5 P05 | 55min | 2 tasks | 16 files |
 
 ## Quick Tasks Completed
 
@@ -114,7 +115,7 @@ Latest execution metric: Phase 29 P29-04 — 40 min, 2 tasks, 9 files; Phase 29 
 
 ### Pending Todos
 
-- Execute Phase 29.5 Plans 05-06 before planning BusinessFactService Boundary.
+- Execute Phase 29.5 Plan 06 before planning BusinessFactService Boundary.
 - Archive completed old Phase 24/24.x/25 directories into milestone-specific phase archives after Phase 26 planning is stable.
 - Optional follow-up from v1.8 remains: pin active slot `confidence` projection before confidence becomes a meaningful provenance field.
 
@@ -144,10 +145,10 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-27T10:44:36.000Z
-Stopped at: Completed 29.5-04-PLAN.md
+Last session: 2026-06-27T11:40:37.000Z
+Stopped at: Completed 29.5-05-PLAN.md
 Resume file: None
-Next: Phase 29.5 Wave 3 — Plan 05; old phase directory archive remains a separate cleanup todo.
+Next: Phase 29.5 Wave 4 — Plan 06; old phase directory archive remains a separate cleanup todo.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
 
@@ -169,6 +170,6 @@ Next: Phase 29.5 Wave 3 — Plan 05; old phase directory archive remains a separ
 
 **Completed Phase:** 29 (Tool Platform Boundary) — 4/4 plans complete; code review clean; UAT 6/6 passed; security `threats_open: 0`; Nyquist validation compliant — 2026-06-23T21:57:57+08:00
 
-**Next Roadmap Item:** Phase 29.5 Wave 3 — Plan 05; BusinessFactService Boundary is not ready to plan until 29.5-05 through 29.5-06 are complete
+**Next Roadmap Item:** Phase 29.5 Wave 4 — Plan 06; BusinessFactService Boundary is not ready to plan until 29.5-06 is complete
 
 **Planned Phase:** 29.5 (Merchant Scope / Role Model Alignment) — 6 plans — 2026-06-27T08:35:11.050Z
