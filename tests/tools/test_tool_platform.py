@@ -15,6 +15,7 @@ symbols), never syntax errors or unrelated environment failures.
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 from uuid import uuid4
 
@@ -122,6 +123,9 @@ def _descriptor(name: str):
 
 def _ctx(
     *,
+    tenant_id: str | None = None,
+    user_id: str | None = None,
+    role: str = "support",
     caller_node: str = "investigate",
     permissions: list[str] | None = None,
     merchant_scope: Any | None = None,
@@ -130,9 +134,9 @@ def _ctx(
     approval_ref: str | None = None,
 ) -> ToolCallContext:
     return ToolCallContext(
-        tenant_id=str(uuid4()),
-        user_id=str(uuid4()),
-        role="support",
+        tenant_id=tenant_id or str(uuid4()),
+        user_id=user_id or str(uuid4()),
+        role=role,
         permissions=[f"tool:{name}" for name in ("get_order", "get_refund_case")] if permissions is None else permissions,
         merchant_scope=(
             merchant_scope.model_dump()
@@ -153,6 +157,33 @@ def _ctx(
         safety_snapshot_ref=safety_snapshot_ref,
         approval_ref=approval_ref,
         policy_snapshot_ref=None,
+    )
+
+
+def _business_permissions() -> list[str]:
+    return [
+        "tool:get_order",
+        "tool:get_refund_case",
+        "tool:get_ticket",
+        "tool:get_logistics",
+        "tool:get_merchant_risk",
+    ]
+
+
+def _seeded_ctx(seeded_session: dict, user_key: str = "cs_zhang") -> ToolCallContext:
+    tenant = seeded_session["tenant"]
+    user = seeded_session["users"][user_key]
+    merchant_scope = (
+        {"merchant_ids": ["*"]}
+        if user.role == "admin"
+        else {"merchant_ids": [] if user.merchant_id is None else [str(user.merchant_id)]}
+    )
+    return _ctx(
+        tenant_id=str(tenant.id),
+        user_id=str(user.id),
+        role=user.role,
+        permissions=_business_permissions(),
+        merchant_scope=merchant_scope,
     )
 
 
@@ -416,6 +447,114 @@ async def test_runtime_auth_handles_legacy_list_merchant_scope(
     assert executor.dispatched is expected_dispatched
     if expected_decision == "denied":
         assert "scope_denied" in outcome.policy_decision.reason_codes
+
+
+def test_business_tool_executor_source_uses_business_fact_service_boundary() -> None:
+    import src.tools.executors.business as business_executor_module
+
+    source = inspect.getsource(business_executor_module)
+
+    assert "BusinessFactService" in source
+    for forbidden in (
+        "src.integrations.demo_business",
+        "src.repositories",
+        "OrderRepository",
+        "RefundRepository",
+        "TicketRepository",
+    ):
+        assert forbidden not in source
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool_name", "args", "resource_type", "resource_id"),
+    [
+        ("get_order", {"order_no": "ORD-TEST-001"}, "order", "ORD-TEST-001"),
+        ("get_refund_case", {"refund_case_no": "RF-TEST-001"}, "refund_case", "RF-TEST-001"),
+        ("get_ticket", {"ticket_id": "TK-TEST-001"}, "ticket", "TK-TEST-001"),
+    ],
+)
+async def test_tool_platform_business_reads_use_service_approved_refs_and_domain_scope_marker(
+    session,
+    seeded_session: dict,
+    tool_name: str,
+    args: dict[str, str],
+    resource_type: str,
+    resource_id: str,
+) -> None:
+    from src.tools.platform import ToolPlatform
+
+    platform = ToolPlatform.with_defaults(session)
+
+    outcome = await platform.invoke(tool_name, args, _seeded_ctx(seeded_session), session=None)
+
+    assert outcome.policy_decision.decision == "allowed"
+    assert outcome.policy_decision.resource_scope_binding == {"requires_domain_scope_check": True}
+    assert outcome.tool_result.status == "success"
+    assert outcome.tool_result.data is not None
+    assert outcome.tool_result.policy_evidence_refs == []
+    assert len(outcome.tool_result.business_fact_refs) == 1
+    ref = outcome.tool_result.business_fact_refs[0]
+    assert ref.resource_type == resource_type
+    assert ref.resource_id == resource_id
+
+
+@pytest.mark.asyncio
+async def test_tool_platform_business_read_domain_scope_denial_is_no_leak(
+    session,
+    seeded_session: dict,
+) -> None:
+    from src.tools.platform import ToolPlatform
+
+    platform = ToolPlatform.with_defaults(session)
+
+    outcome = await platform.invoke(
+        "get_order",
+        {"order_no": "ORD-TEST-002"},
+        _seeded_ctx(seeded_session),
+        session=None,
+    )
+
+    assert outcome.policy_decision.decision == "allowed"
+    assert outcome.policy_decision.resource_scope_binding == {"requires_domain_scope_check": True}
+    assert outcome.tool_result.status == "permission_denied"
+    assert outcome.tool_result.data is None
+    assert outcome.tool_result.business_fact_refs == []
+    assert outcome.tool_result.policy_evidence_refs == []
+    assert outcome.tool_result.error is not None
+    assert outcome.tool_result.error.code == "BUSINESS_FACT_PERMISSION_DENIED"
+    assert outcome.tool_result.error.safe_message == "Business resource unavailable for this request"
+    assert "ORD-TEST-002" not in outcome.model_dump_json()
+    assert "ORD-TEST-002" not in outcome.projection.model_dump_json()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool_name", "args"),
+    [
+        ("get_logistics", {"tracking_no": "TRACK-09"}),
+        ("get_merchant_risk", {"merchant_id": "*"}),
+    ],
+)
+async def test_tool_platform_unsupported_business_reads_are_safe_unavailable(
+    session,
+    seeded_session: dict,
+    tool_name: str,
+    args: dict[str, str],
+) -> None:
+    from src.tools.platform import ToolPlatform
+
+    platform = ToolPlatform.with_defaults(session)
+
+    outcome = await platform.invoke(tool_name, args, _seeded_ctx(seeded_session, "admin_user"), session=None)
+
+    assert outcome.policy_decision.decision == "allowed"
+    assert outcome.tool_result.status == "unavailable"
+    assert outcome.tool_result.data is None
+    assert outcome.tool_result.business_fact_refs == []
+    assert outcome.tool_result.policy_evidence_refs == []
+    assert outcome.tool_result.error is not None
+    assert outcome.tool_result.error.code == "BUSINESS_FACT_UNAVAILABLE"
 
 
 def test_tool_result_projector_blocks_raw_data_from_prompt_and_graph_surfaces() -> None:
