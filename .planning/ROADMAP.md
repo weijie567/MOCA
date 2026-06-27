@@ -250,7 +250,7 @@ Plans:
 **Goal:** Align MOCA's single-tenant MVP identity model so `support`, `manager`, and legacy `merchant` are merchant-bound business users, `admin` is the only platform-wide business-data role, and tenant public policy remains readable by ordinary business users.
 **Requirements**: MER-01
 **Depends on:** Phase 29
-**Plans:** 3/6 plans complete
+**Plans:** 4/6 plans complete
 
 **Success Criteria**:
 
@@ -269,7 +269,7 @@ Plans:
 - [x] 29.5-01-PLAN.md — Traceability, contract, seed, and fixture alignment
 - [x] 29.5-02-PLAN.md — TrustedContextFactory and merchant access helper
 - [x] 29.5-03-PLAN.md — Order, refund, and ticket API/tool merchant guards
-- [ ] 29.5-04-PLAN.md — Policy-only knowledge scope and memory smoke guard
+- [x] 29.5-04-PLAN.md — Policy-only knowledge scope and memory smoke guard
 - [ ] 29.5-05-PLAN.md — Approval, AgentRun, trace, replay, and investigate interim guards
 - [ ] 29.5-06-PLAN.md — Static wildcard guard and final focused verification
 
