@@ -60,6 +60,7 @@ MOCA/
 **`src/knowledge/`, `src/business/`, `src/memory/`, and `src/tools/`:**
 - Phase 8-16 domain facades and contracts for policy evidence, business reads, session memory, reviewed long-term/case memory schema/lifecycle, tombstone no-rewrite behavior, and tool invocation
 - `src/knowledge/schemas.py` owns EvidenceRefV1 and canonical evidence projection reused by approval snapshots
+- `src/business/schemas.py` owns BusinessContextV1 and BusinessFactResultV1; `src/business/service.py` now contains BusinessFactService as the current-business-fact domain boundary beside the BusinessToolService compatibility facade
 
 **`src/platform/`:**
 - Phase 27 trusted context boundary for canonical `TrustedContext`, exact `MerchantScopeV1`, `TrustedContextFactory`, and service-safe projection helpers
