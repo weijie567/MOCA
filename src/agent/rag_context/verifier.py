@@ -403,6 +403,12 @@ class MaterialClaimVerifier:
         if claim.authority_class == MaterialClaimAuthorityClass.BUSINESS_FACT_CLAIM:
             if claim.cited_evidence_ids:
                 reason_codes.append("policy_evidence_not_business_authority")
+        if claim.authority_class in {
+            MaterialClaimAuthorityClass.BUSINESS_FACT_CLAIM,
+            MaterialClaimAuthorityClass.ACTION_RECOMMENDATION_CLAIM,
+        }:
+            if trusted_tenant and any(ref.tenant_id != trusted_tenant for ref in claim.business_fact_refs):
+                reason_codes.append("tenant_scope_invalid")
 
         reason_codes.extend(_contextual_source_reason_codes(claim.authority_class, context))
         business_authority = _business_authority_passed(claim, context)
@@ -608,9 +614,15 @@ def _safe_support_refs(claim: MaterialClaim, context: Mapping[str, Any]) -> list
 
 
 def _business_authority_passed(claim: MaterialClaim, context: Mapping[str, Any]) -> bool:
+    trusted_tenant = str(_trusted_context(context).get("tenant_id") or "")
     if not claim.business_fact_refs:
         return False
-    context_refs = _context_business_refs(context)
+    if trusted_tenant and any(ref.tenant_id != trusted_tenant for ref in claim.business_fact_refs):
+        return False
+    context_refs = [
+        ref for ref in _context_business_refs(context)
+        if not trusted_tenant or ref.tenant_id == trusted_tenant
+    ]
     context_keys = {_business_ref_key(ref) for ref in context_refs}
     return all(_business_ref_key(ref) in context_keys for ref in claim.business_fact_refs)
 
