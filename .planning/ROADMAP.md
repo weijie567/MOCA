@@ -282,7 +282,7 @@ Plans:
 **Goal:** Make current business facts available only through stable domain service public methods and `BusinessFactResultV1` / `BusinessFactRefV1` contracts.
 **Requirements**: APF-08
 **Depends on:** Phase 29.5
-**Plans:** 0/1 plans complete
+**Plans:** 0/3 plans complete
 
 **Success Criteria**:
 
@@ -294,7 +294,9 @@ Plans:
 6. ToolPlatform `requires_domain_scope_check` markers for order/refund/ticket identifiers are resolved by BusinessFactService and cannot remain as non-enforced annotations.
 
 Plans:
-- [ ] 30-01-PLAN.md — BusinessFactService boundary
+- [ ] 30-01-PLAN.md — Domain contract and BusinessFactService service boundary
+- [ ] 30-02-PLAN.md — Compatibility and ToolPlatform business executor integration
+- [ ] 30-03-PLAN.md — Projection, graph authority boundaries, and focused verification
 
 ### Phase 31: Memory Platform Boundary
 

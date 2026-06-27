@@ -1,27 +1,27 @@
 # Phase 30: BusinessFactService Boundary - Pattern Map
 
 **Mapped:** 2026-06-28
-**Files analyzed:** 14 planned new/modified files
+**Files analyzed:** 12 planned new/modified files + 2 reference-only source analogs
 **Analogs found:** 14 / 14
 
 ## File Classification
 
-| New/Modified File | Role | Data Flow | Closest Analog | Match Quality |
-|-------------------|------|-----------|----------------|---------------|
-| `src/business/schemas.py` | model | transform | `src/tools/contracts.py` | role-match |
-| `src/business/service.py` | service | request-response / CRUD read | `src/business/service.py` | exact |
-| `src/business/adapters.py` | utility / adapter | transform | `src/business/adapters.py` | exact |
-| `src/business/__init__.py` | provider / public export | transform | `src/business/__init__.py` | exact |
-| `src/tools/executors/business.py` | service / executor | request-response | `src/tools/executors/business.py` | exact |
-| `src/tools/projection.py` | utility | transform | `src/tools/projection.py` | exact |
-| `src/agent/nodes/investigate.py` | controller / graph node | event-driven / request-response | `src/agent/nodes/investigate.py` | exact |
-| `tests/business/test_schemas.py` | test | contract validation | `tests/business/test_schemas.py` | exact |
-| `tests/business/test_service.py` | test | service / integration | `tests/business/test_service.py` | exact |
-| `tests/business/test_adapters.py` | test | transform / adapter | `tests/business/test_adapters.py` | exact |
-| `tests/tools/test_tool_platform.py` | test | platform / integration | `tests/tools/test_tool_platform.py` | exact |
-| `tests/agent/test_nodes/test_investigate.py` | test | graph / event-driven | `tests/agent/test_nodes/test_investigate.py` | exact |
-| `tests/agent/rag_context/test_authority_boundaries.py` | test | authority-boundary transform | `tests/agent/rag_context/test_authority_boundaries.py` | exact |
-| `tests/agent/test_policy_retrieval_ownership.py` | test | authority-boundary integration | `tests/agent/test_policy_retrieval_ownership.py` | exact |
+| File | Plan Classification | Role | Data Flow | Closest Analog | Match Quality |
+|------|---------------------|------|-----------|----------------|---------------|
+| `src/business/schemas.py` | Plan 30-01 source edit | model | transform | `src/tools/contracts.py` | role-match |
+| `src/business/service.py` | Plan 30-01 and 30-02 source edit | service | request-response / CRUD read | `src/business/service.py` | exact |
+| `src/business/adapters.py` | Reference-only source analog | utility / adapter | transform | `src/business/adapters.py` | exact |
+| `src/business/__init__.py` | Plan 30-01 source edit | provider / public export | transform | `src/business/__init__.py` | exact |
+| `src/tools/executors/business.py` | Plan 30-02 source edit | service / executor | request-response | `src/tools/executors/business.py` | exact |
+| `src/tools/projection.py` | Plan 30-03 source edit | utility | transform | `src/tools/projection.py` | exact |
+| `src/agent/nodes/investigate.py` | Reference-only source analog | controller / graph node | event-driven / request-response | `src/agent/nodes/investigate.py` | exact |
+| `tests/business/test_schemas.py` | Plan 30-01 test edit | test | contract validation | `tests/business/test_schemas.py` | exact |
+| `tests/business/test_service.py` | Plan 30-01 and 30-02 test edit | test | service / integration | `tests/business/test_service.py` | exact |
+| `tests/business/test_adapters.py` | Plan 30-02 test edit | test | transform / adapter | `tests/business/test_adapters.py` | exact |
+| `tests/tools/test_tool_platform.py` | Plan 30-02 test edit | test | platform / integration | `tests/tools/test_tool_platform.py` | exact |
+| `tests/agent/test_nodes/test_investigate.py` | Plan 30-03 test edit | test | graph / event-driven | `tests/agent/test_nodes/test_investigate.py` | exact |
+| `tests/agent/rag_context/test_authority_boundaries.py` | Plan 30-03 test edit | test | authority-boundary transform | `tests/agent/rag_context/test_authority_boundaries.py` | exact |
+| `tests/agent/test_policy_retrieval_ownership.py` | Plan 30-03 test edit | test | authority-boundary integration | `tests/agent/test_policy_retrieval_ownership.py` | exact |
 
 ## Pattern Assignments
 
@@ -670,6 +670,8 @@ These files are important analog/reference sources but are not classified as pla
 | `src/tools/policy.py` | `requires_domain_scope_check` marker source. |
 | `src/tools/runtime.py` | ToolPlatform runtime gate order and safe denial envelope. |
 | `src/tools/platform.py` | Default executor wiring and graph-facing facade. |
+| `src/business/adapters.py` | Private adapter projection analog; source edits are not expected in split plans unless execution finds a direct adapter contract regression and records the reason. |
+| `src/agent/nodes/investigate.py` | Graph accumulation analog; source edits are not expected in split plans unless projection-only changes cannot satisfy APF-08 no-leak tests. |
 | `src/integrations/demo_business/authz.py` | Interim Phase 29.5 merchant role semantics; use behind `BusinessFactService`, not as public authority. |
 | `src/integrations/demo_business/orders.py` / `refunds.py` / `tickets.py` | Current raw repository-backed reads; keep private behind service/adapters. |
 | `tests/agent/test_tools/test_get_order.py` / `test_get_refund_case.py` / `test_get_ticket.py` | Regression-only raw tool suites from validation full command. |

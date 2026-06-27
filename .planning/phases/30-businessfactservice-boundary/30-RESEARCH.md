@@ -420,20 +420,23 @@ Phase 30 should duplicate this no-leak shape for `BusinessFactResultV1`, ToolPla
 |---|-------|---------|---------------|
 | A1 | Planner may choose either same-file or adjacent-module implementation for `BusinessFactService`. [ASSUMED from user discretion and context wording] | Recommended Project Structure | Low; context explicitly allows adjacent or same-file placement, but exact split should follow planner/edit complexity. [VERIFIED: .planning/phases/30-businessfactservice-boundary/30-CONTEXT.md] |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should API routes call `BusinessFactService` in Phase 30, or only preserve current API semantics while tools migrate first?** [VERIFIED: .planning/phases/30-businessfactservice-boundary/30-CONTEXT.md]
+   - **RESOLVED:** No API route migration in Phase 30 unless execution discovers an unavoidable shared projection need; preserve Phase 29.5 HTTP tenant-first 404 and same-tenant 403 semantics. [VERIFIED: .planning/phases/30-businessfactservice-boundary/30-CONTEXT.md; .planning/phases/30-businessfactservice-boundary/30-01-PLAN.md]
    - What we know: API routes may preserve Phase 29.5 HTTP 403/404 semantics, and shared fact projection/ref emission should be service-owned where practical. [VERIFIED: .planning/phases/30-businessfactservice-boundary/30-CONTEXT.md]
-   - What's unclear: The phase context leaves exact route migration sequence to planning. [VERIFIED: .planning/phases/30-businessfactservice-boundary/30-CONTEXT.md]
-   - Recommendation: Plan API migration as last/optional compatibility cleanup after service and ToolPlatform tests pass. [VERIFIED: .planning/phases/30-businessfactservice-boundary/30-CONTEXT.md]
+   - Prior uncertainty: The phase context left exact route migration sequence to planning. [VERIFIED: .planning/phases/30-businessfactservice-boundary/30-CONTEXT.md]
+   - Resolution handling: Split plans exclude API route files and instruct executors to record any unavoidable shared projection route edit while preserving Phase 29.5 semantics. [VERIFIED: .planning/phases/30-businessfactservice-boundary/30-01-PLAN.md]
 2. **How should `stale` be produced for demo rows with no freshness/version metadata?** [VERIFIED: docs/contract-spec.md; .planning/phases/30-businessfactservice-boundary/30-CONTEXT.md]
+   - **RESOLVED:** Use explicit test doubles/service result conversion for `stale` and fail-closed wrapping; demo rows may keep `resource_version=None` and `data_freshness_at=None`. [VERIFIED: .planning/phases/30-businessfactservice-boundary/30-CONTEXT.md; .planning/phases/30-businessfactservice-boundary/30-01-PLAN.md; .planning/phases/30-businessfactservice-boundary/30-02-PLAN.md]
    - What we know: `resource_version` and `data_freshness_at` may be nullable for MVP demo rows, but fields must exist. [VERIFIED: .planning/phases/30-businessfactservice-boundary/30-CONTEXT.md]
-   - What's unclear: No current repository field appears to provide row version/freshness for all resources. [VERIFIED: src/integrations/demo_business/orders.py; src/integrations/demo_business/refunds.py; src/integrations/demo_business/tickets.py]
-   - Recommendation: Add explicit null-value tests and simulate `stale` via adapter/service test doubles for action-bound fail-closed routing. [VERIFIED: docs/eval-test-plan.md; .planning/phases/30-businessfactservice-boundary/30-CONTEXT.md]
+   - Prior uncertainty: No current repository field appears to provide row version/freshness for all resources. [VERIFIED: src/integrations/demo_business/orders.py; src/integrations/demo_business/refunds.py; src/integrations/demo_business/tickets.py]
+   - Resolution handling: Schema/service tests pin explicit null metadata, and service/tool wrapping tests produce stale through controlled service doubles rather than demo-row metadata. [VERIFIED: .planning/phases/30-businessfactservice-boundary/30-01-PLAN.md; .planning/phases/30-businessfactservice-boundary/30-02-PLAN.md]
 3. **Should `get_logistics` and `get_merchant_risk` stay planner-visible while unavailable?** [VERIFIED: src/tools/catalog.py; src/business/service.py]
+   - **RESOLVED:** Return typed unavailable no-fact/no-ref reads unless real support exists in the current codebase; do not emit facts, refs, or prompt summaries that imply data exists. [VERIFIED: .planning/phases/30-businessfactservice-boundary/30-CONTEXT.md; .planning/phases/30-businessfactservice-boundary/30-01-PLAN.md; .planning/phases/30-businessfactservice-boundary/30-02-PLAN.md]
    - What we know: Catalog declares both tools, but the default business registry only supports order/refund/ticket. [VERIFIED: src/tools/catalog.py; src/business/service.py]
-   - What's unclear: The context allows unavailable or typed reads according to existing data support. [VERIFIED: .planning/phases/30-businessfactservice-boundary/30-CONTEXT.md]
-   - Recommendation: Return typed unavailable `BusinessFactResultV1` with no facts/refs and test that prompt summaries do not imply data exists; hide only if ToolPlatform availability semantics become simpler to maintain. [VERIFIED: .planning/phases/30-businessfactservice-boundary/30-CONTEXT.md]
+   - Prior uncertainty: The context allows unavailable or typed reads according to existing data support. [VERIFIED: .planning/phases/30-businessfactservice-boundary/30-CONTEXT.md]
+   - Resolution handling: Split plans keep catalog/tool-platform compatibility while requiring typed unavailable `BusinessFactResultV1` and wrapped `ToolResultV2` outputs with no facts/refs. [VERIFIED: .planning/phases/30-businessfactservice-boundary/30-01-PLAN.md; .planning/phases/30-businessfactservice-boundary/30-02-PLAN.md]
 
 ## Environment Availability
 
