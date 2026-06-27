@@ -4155,3 +4155,65 @@ if [ -d .planning/sketches ]; then grep -rl 'winner: null' .planning/sketches/*/
 - `$HOME/.codex/get-shit-done/workflows/next.md`
 - `.planning/spikes/`
 - `.planning/sketches/`
+
+## 2026-06-27 23:56 CST - gsd-next prior-phase completeness gate 误判历史 summary 命名
+
+### 问题现象
+
+重新执行 `$gsd-next` 前的 prior-phase completeness scan 时，`gsd-sdk query find-phase` 将历史阶段 24.2、24.3、24.4、25 标记为 `incomplete_plans`。这些阶段实际已有 summary 和验证记录，但 summary 文件使用了阶段级命名，例如 `24.2-SUMMARY.md`、`25-SUMMARY.md`，没有采用当前 SDK 匹配规则需要的 plan 级命名 `*-01-SUMMARY.md`。
+
+### 如何检测 / 复现
+
+```bash
+for n in 24.2 24.3 24.4 25; do
+  gsd-sdk query find-phase "$n"
+done
+```
+
+### 关键证据或命令
+
+```text
+24.2 incomplete_plans: ["24.2-01-PLAN.md"]
+24.3 incomplete_plans: ["24.3-01-PLAN.md"]
+24.4 incomplete_plans: ["24.4-01-PLAN.md"]
+25 incomplete_plans: ["25-01-PLAN.md"]
+```
+
+同时人工读取确认这些文件均为对应唯一 plan 的完成总结：
+
+```text
+.planning/phases/24.2-unified-session-memory-bundle-read-path/24.2-SUMMARY.md
+.planning/phases/24.3-memory-write-isolation-policy-and-observability-mvp/24.3-SUMMARY.md
+.planning/phases/24.4-memory-eval-mvp/24.4-SUMMARY.md
+.planning/phases/25-intent-routing-safety-hardening/25-SUMMARY.md
+```
+
+### 当前判断 / 根因
+
+这是历史 GSD 文档命名与当前 `gsd-sdk find-phase` plan-summary 配对规则不一致，不是这些历史阶段真的缺少收尾总结。当前规则期望 `N-01-PLAN.md` 对应 `N-01-SUMMARY.md`。
+
+### 已做处理
+
+使用 `git mv` 将历史 summary 改为当前 SDK 可识别的 plan 级命名：
+
+```text
+24.2-SUMMARY.md -> 24.2-01-SUMMARY.md
+24.3-SUMMARY.md -> 24.3-01-SUMMARY.md
+24.4-SUMMARY.md -> 24.4-01-SUMMARY.md
+25-SUMMARY.md -> 25-01-SUMMARY.md
+```
+
+同步更新 Phase 25 中指向旧 summary 文件名的引用。随后应重新运行 `gsd-sdk query find-phase 24.2/24.3/24.4/25` 确认 `incomplete_plans: []`。
+
+### 剩余问题
+
+无本轮代码阻塞问题。若后续还有更早历史阶段使用阶段级 summary 命名，可能在类似安全门中再次暴露，需要按同样方式确认后修正。
+
+### 下次继续排查入口
+
+- `$HOME/.codex/get-shit-done/workflows/next.md`
+- `gsd-sdk query find-phase <phase>`
+- `.planning/phases/24.2-unified-session-memory-bundle-read-path/`
+- `.planning/phases/24.3-memory-write-isolation-policy-and-observability-mvp/`
+- `.planning/phases/24.4-memory-eval-mvp/`
+- `.planning/phases/25-intent-routing-safety-hardening/`

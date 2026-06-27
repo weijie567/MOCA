@@ -18,7 +18,7 @@
 
 - 1 completed phase, 1 plan
 - Phase 25 review and verification passed
-- Closeout artifacts: `.planning/phases/25-intent-routing-safety-hardening/25-REVIEW.md`, `25-SUMMARY.md`, and `25-VERIFICATION.md`
+- Closeout artifacts: `.planning/phases/25-intent-routing-safety-hardening/25-REVIEW.md`, `25-01-SUMMARY.md`, and `25-VERIFICATION.md`
 
 **Known deferred items at close:**
 

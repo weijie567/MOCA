@@ -21,9 +21,9 @@ blockers: []
 warnings:
   - id: W-01
     area: gsd_closeout
-    issue: "Resolved after verifier run: 25-SUMMARY.md was added and ROADMAP.md now marks Phase 25 complete."
+    issue: "Resolved after verifier run: 25-01-SUMMARY.md was added and ROADMAP.md now marks Phase 25 complete."
     evidence:
-      - ".planning/phases/25-intent-routing-safety-hardening/25-SUMMARY.md exists"
+      - ".planning/phases/25-intent-routing-safety-hardening/25-01-SUMMARY.md exists"
       - ".planning/ROADMAP.md marks Status: Complete"
       - ".planning/ROADMAP.md checks 25-01-PLAN.md"
   - id: W-02
@@ -59,7 +59,7 @@ human_verification: []
 
 Phase 25 achieved its stated implementation goal in the code path under verification. The classifier preserves raw LLM output as trace data, computes effective policy state before routing, resolves risk tiers deterministically, consumes trusted pending-slot flow before LLM classification, blocks ambiguous approval/action replies, and prevents invalidated inherited business identifiers from satisfying required slots.
 
-The verifier initially found two non-blocking warnings. The GSD closeout metadata warning was resolved after the verifier run by adding `25-SUMMARY.md` and updating roadmap/state files. The optional slot-confidence metadata warning remains a future hardening note.
+The verifier initially found two non-blocking warnings. The GSD closeout metadata warning was resolved after the verifier run by adding `25-01-SUMMARY.md` and updating roadmap/state files. The optional slot-confidence metadata warning remains a future hardening note.
 
 ## Observable Truths
 
@@ -151,7 +151,7 @@ The verifier initially found two non-blocking warnings. The GSD closeout metadat
 
 ## Warnings
 
-1. **W-01: GSD closeout metadata not updated.** Resolved after the verifier run: `25-SUMMARY.md` now exists and `.planning/ROADMAP.md` marks Phase 25 complete with the plan checked.
+1. **W-01: GSD closeout metadata not updated.** Resolved after the verifier run: `25-01-SUMMARY.md` now exists and `.planning/ROADMAP.md` marks Phase 25 complete with the plan checked.
 2. **W-02: Optional confidence projection is not pinned.** `SessionSlotV1` supports `confidence`, but trusted active slot metadata projection does not explicitly include or test that field. Since current writers do not populate confidence, this did not block the verified current path, but it should be pinned before confidence becomes meaningful slot provenance.
 
 ## Final Verdict
