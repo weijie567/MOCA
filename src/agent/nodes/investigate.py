@@ -587,13 +587,6 @@ def _accumulate_tool_result(
         )
         error["resource"] = resource_type
         context["errors"].append(error)
-        if result.status == "permission_denied":
-            context["claim_dependency_map"].append(
-                {
-                    "claim_id": f"denied:{resource_type}",
-                    "depends_on_refs": [{"resource_type": resource_type, "resource_id": resource_type}],
-                }
-            )
 
 
 def _business_status(context: dict[str, Any]) -> str:
