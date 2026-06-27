@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
-status: verifying
-stopped_at: Completed 30-03-PLAN.md
-last_updated: "2026-06-27T19:31:05.494Z"
+status: ready_to_plan
+stopped_at: Phase 30 complete; ready to plan Phase 31
+last_updated: "2026-06-27T23:08:18Z"
 last_activity: 2026-06-27
 progress:
   total_phases: 11
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 18
   completed_plans: 18
-  percent: 100
+  percent: 64
 ---
 
 # Project State: MOCA
@@ -21,17 +21,17 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-23)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 30 — BusinessFactService Boundary
+**Current focus:** Phase 31 — Memory Platform Boundary
 
 ## Current Position
 
-Phase: 30 (BusinessFactService Boundary) — EXECUTING
-Next roadmap item: Phase 30 — BusinessFactService Boundary
-Plan: 3 of 3
-Status: Phase complete — ready for verification
+Phase: 31
+Next roadmap item: Phase 31 — Memory Platform Boundary
+Plan: Not started
+Status: Ready to plan
 Last activity: 2026-06-27
 
-Progress: [██████████] 100%
+Progress: [██████░░░░] 64%
 
 Planning files:
 
@@ -63,7 +63,7 @@ Planning files:
 | 28. Decision Event Foundation | 1/1 complete | Complete |
 | 29. Tool Platform Boundary | 4/4 complete | Complete |
 | 29.5. Merchant Scope / Role Model Alignment | 6/6 complete | Complete |
-| 30. BusinessFactService Boundary | 0/3 | Planned |
+| 30. BusinessFactService Boundary | 3/3 complete | Complete |
 | 31. Memory Platform Boundary | 0/1 | Pending |
 | 32. Intent Graph Migration | 0/1 | Pending |
 | 33. RAG Context Build and Claim Verification | 0/1 | Pending |
@@ -71,7 +71,7 @@ Planning files:
 | 35. Replay and Eval Hardening | 0/1 | Pending |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
-Latest execution metric: Phase 29.5 P06 — 2h 35min, 2 tasks, 14 files; focused suite and whole suite passed.
+Latest execution metric: Phase 30 P03 — 10min, 3 tasks, 6 files; focused Phase 30 suite passed.
 | Phase 29.5 P01 | 35min | 2 tasks | 5 files |
 | Phase 29.5 P02 | 5min | 2 tasks | 5 files |
 | Phase 29.5 P03 | 34min | 2 tasks | 13 files |
@@ -128,7 +128,7 @@ Latest execution metric: Phase 29.5 P06 — 2h 35min, 2 tasks, 14 files; focused
 
 ### Pending Todos
 
-- Plan Phase 30 BusinessFactService Boundary.
+- Plan Phase 31 Memory Platform Boundary.
 - Archive completed old Phase 24/24.x/25 directories into milestone-specific phase archives after Phase 26 planning is stable.
 - Optional follow-up from v1.8 remains: pin active slot `confidence` projection before confidence becomes a meaningful provenance field.
 
@@ -158,10 +158,10 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-27T19:31:05.484Z
-Stopped at: Completed 30-03-PLAN.md
+Last session: 2026-06-27T23:08:18Z
+Stopped at: Phase 30 complete; ready to plan Phase 31
 Resume file: None
-Next: Phase 30 — BusinessFactService Boundary; old phase directory archive remains a separate cleanup todo.
+Next: Phase 31 — Memory Platform Boundary; old phase directory archive remains a separate cleanup todo.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
 
@@ -185,6 +185,6 @@ Next: Phase 30 — BusinessFactService Boundary; old phase directory archive rem
 
 **Completed Phase:** 29.5 (Merchant Scope / Role Model Alignment) — 6/6 plans complete; focused suite `341 passed`; whole suite `1590 passed, 1 skipped`; static wildcard guard passed — 2026-06-27
 
-**Next Roadmap Item:** Phase 30 — BusinessFactService Boundary
+**Completed Phase:** 30 (BusinessFactService Boundary) — 3/3 plans complete; verification passed; focused suite `190 passed`; code review warning fixed — 2026-06-27
 
-**Planned Phase:** 30 (BusinessFactService Boundary) — 3 plans — 2026-06-27T17:58:15.318Z
+**Next Roadmap Item:** Phase 31 — Memory Platform Boundary
