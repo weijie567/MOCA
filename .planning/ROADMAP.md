@@ -277,12 +277,12 @@ Plans:
 
 ### Phase 30: BusinessFactService Boundary
 
-**Status:** In Progress
+**Status:** Complete
 **Milestone:** v1.9 Agent Platform Foundation
 **Goal:** Make current business facts available only through stable domain service public methods and `BusinessFactResultV1` / `BusinessFactRefV1` contracts.
 **Requirements**: APF-08
 **Depends on:** Phase 29.5
-**Plans:** 2/3 plans complete
+**Plans:** 3/3 plans complete
 
 **Success Criteria**:
 
@@ -296,7 +296,7 @@ Plans:
 Plans:
 - [x] 30-01-PLAN.md — Domain contract and BusinessFactService service boundary
 - [x] 30-02-PLAN.md — Compatibility and ToolPlatform business executor integration
-- [ ] 30-03-PLAN.md — Projection, graph authority boundaries, and focused verification
+- [x] 30-03-PLAN.md — Projection, graph authority boundaries, and focused verification
 
 ### Phase 31: Memory Platform Boundary
 

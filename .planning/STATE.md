@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
-status: executing
-stopped_at: Completed 30-02-PLAN.md
-last_updated: "2026-06-27T19:17:01.462Z"
+status: verifying
+stopped_at: Completed 30-03-PLAN.md
+last_updated: "2026-06-27T19:31:05.494Z"
 last_activity: 2026-06-27
 progress:
   total_phases: 11
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 18
-  completed_plans: 17
-  percent: 94
+  completed_plans: 18
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -28,10 +28,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-23)
 Phase: 30 (BusinessFactService Boundary) — EXECUTING
 Next roadmap item: Phase 30 — BusinessFactService Boundary
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-27
 
-Progress: [█████████░] 94%
+Progress: [██████████] 100%
 
 Planning files:
 
@@ -80,6 +80,7 @@ Latest execution metric: Phase 29.5 P06 — 2h 35min, 2 tasks, 14 files; focused
 | Phase 29.5 P06 | 2h 35min | 2 tasks | 14 files |
 | Phase 30 P01 | 10min | 2 tasks | 5 files |
 | Phase 30 P02 | 10min | 2 tasks | 5 files |
+| Phase 30 P03 | 10min | 3 tasks | 6 files |
 
 ## Quick Tasks Completed
 
@@ -113,6 +114,9 @@ Latest execution metric: Phase 29.5 P06 — 2h 35min, 2 tasks, 14 files; focused
 - BusinessToolService remains the source-compatible facade, but current business fact authority now flows through BusinessFactService.
 - ToolPolicyEngine keeps requires_domain_scope_check for order/refund/ticket identifiers but redacts the identifier values from ToolInvocationOutcome serialization.
 - BusinessToolExecutor constructs BusinessFactService explicitly and wraps it with BusinessToolService for ToolResultV2 compatibility.
+- ToolResultProjector no longer treats result.data business identifiers as authoritative business refs.
+- Investigate records non-success business results as safe errors only; denied resources do not create claim dependency refs.
+- Prompt summaries and raw repository-row-shaped context receive explicit non-authority reason codes while BusinessFactRefV1 remains required.
 
 ### Roadmap Evolution
 
@@ -154,8 +158,8 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-27T19:17:01.015Z
-Stopped at: Completed 30-02-PLAN.md
+Last session: 2026-06-27T19:31:05.484Z
+Stopped at: Completed 30-03-PLAN.md
 Resume file: None
 Next: Phase 30 — BusinessFactService Boundary; old phase directory archive remains a separate cleanup todo.
 
