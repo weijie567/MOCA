@@ -85,7 +85,7 @@ class ToolResultProjector:
         )
         text_for_prompt = self._build_text_for_prompt(prompt_proj)
         audit_refs = self._build_audit_refs(result, tool_call_id, policy_decision_ref)
-        resource_refs = self._build_resource_refs(data, tool_call_id)
+        resource_refs = self._build_resource_refs(result)
         debug_proj = self._build_debug_projection(data, result)
 
         return ToolResultProjectionV1(
@@ -122,21 +122,13 @@ class ToolResultProjector:
             if key in data and isinstance(data[key], (str, int, float, bool)):
                 normalized[key] = data[key]
 
-        # Typed refs.
-        business_refs = self._extract_business_fact_refs(data)
-        if business_refs:
-            normalized["business_fact_refs"] = business_refs
-
         policy_refs = self._extract_policy_evidence_refs(data)
         if policy_refs:
             normalized["policy_evidence_refs"] = policy_refs
 
         # Refs from the ToolResultV2 envelope (not from data).
         if result.business_fact_refs:
-            normalized["business_fact_refs"] = [
-                {"resource_type": ref.resource_type, "resource_id": ref.resource_id}
-                for ref in result.business_fact_refs
-            ]
+            normalized["business_fact_refs"] = self._business_fact_refs_from_envelope(result)
         if result.policy_evidence_refs:
             normalized["policy_evidence_refs"] = [
                 {"evidence_id": ref.evidence_id, "doc_key": ref.doc_key}
@@ -163,13 +155,11 @@ class ToolResultProjector:
 
         return normalized
 
-    def _extract_business_fact_refs(self, data: dict[str, Any]) -> list[dict[str, Any]]:
-        refs: list[dict[str, Any]] = []
-        for key in _BUSINESS_FACT_REF_KEYS:
-            value = data.get(key)
-            if isinstance(value, str) and value:
-                refs.append({"resource_type": key, "resource_id": value})
-        return refs
+    def _business_fact_refs_from_envelope(self, result: ToolResultV2) -> list[dict[str, Any]]:
+        return [
+            {"resource_type": ref.resource_type, "resource_id": ref.resource_id}
+            for ref in result.business_fact_refs
+        ]
 
     def _extract_policy_evidence_refs(self, data: dict[str, Any]) -> list[dict[str, Any]]:
         refs: list[dict[str, Any]] = []
@@ -285,17 +275,8 @@ class ToolResultProjector:
             refs.append(policy_decision_ref)
         return refs
 
-    def _build_resource_refs(
-        self,
-        data: dict[str, Any],
-        tool_call_id: str,
-    ) -> list[Any]:
-        refs: list[Any] = []
-        for key in _BUSINESS_FACT_REF_KEYS:
-            value = data.get(key)
-            if isinstance(value, str) and value:
-                refs.append({"resource_type": key, "resource_id": value})
-        return refs
+    def _build_resource_refs(self, result: ToolResultV2) -> list[Any]:
+        return self._business_fact_refs_from_envelope(result)
 
     # ------------------------------------------------------------------
     # Debug projection
@@ -309,7 +290,7 @@ class ToolResultProjector:
         return {
             "had_raw_data": bool(data),
             "redaction_applied": _has_raw_sentinels_in_dict(data),
-            "business_fact_ref_count": len(self._extract_business_fact_refs(data)),
+            "business_fact_ref_count": len(result.business_fact_refs),
             "policy_evidence_ref_count": len(self._extract_policy_evidence_refs(data)),
             "status": result.status,
         }
