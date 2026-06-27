@@ -4,14 +4,14 @@ milestone: v1.9
 milestone_name: Agent Platform Foundation
 status: planning
 stopped_at: Phase 30 context gathered
-last_updated: "2026-06-27T16:06:56.276Z"
+last_updated: "2026-06-27T17:58:15.329Z"
 last_activity: 2026-06-27
 progress:
   total_phases: 11
   completed_phases: 5
-  total_plans: 15
+  total_plans: 18
   completed_plans: 15
-  percent: 100
+  percent: 83
 ---
 
 # Project State: MOCA
@@ -175,4 +175,4 @@ Next: Phase 30 — BusinessFactService Boundary; old phase directory archive rem
 
 **Next Roadmap Item:** Phase 30 — BusinessFactService Boundary
 
-**Planned Phase:** 29.5 (Merchant Scope / Role Model Alignment) — 6 plans — 2026-06-27T08:35:11.050Z
+**Planned Phase:** 30 (BusinessFactService Boundary) — 3 plans — 2026-06-27T17:58:15.318Z
