@@ -414,6 +414,22 @@ class BusinessFactService:
         tenant_id: str,
     ) -> BusinessFactResultV1:
         if result.status in {"ok", "partial"}:
+            has_service_approved_refs = (
+                result.fact is not None
+                and bool(result.business_fact_refs)
+                and all(fact_ref.tenant_id == tenant_id for fact_ref in result.business_fact_refs)
+            )
+            if not has_service_approved_refs:
+                return self._safe_result(
+                    "unavailable",
+                    resource_name=resource_name,
+                    tenant_id=tenant_id,
+                    source_system=result.source_system,
+                    scope_check_result="unknown",
+                    code="BUSINESS_FACT_UNAVAILABLE",
+                    safe_message="Business fact is unavailable",
+                    error_source="adapter",
+                )
             return result.model_copy(update={"tenant_id": tenant_id, "scope_check_result": "allowed"})
         if result.status == "permission_denied":
             return self._permission_denied_result(resource_name, tenant_id, source_system=result.source_system)

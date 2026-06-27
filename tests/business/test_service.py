@@ -551,6 +551,59 @@ async def test_business_tool_service_wraps_domain_partial_result_as_partial_succ
 
 
 @pytest.mark.asyncio
+async def test_business_fact_service_rejects_domain_success_without_service_refs() -> None:
+    unsafe_fact = _business_fact_result(
+        status="ok",
+        resource_name="order",
+        resource_type="order",
+        resource_id="ORD-UNREF-09",
+    ).model_copy(update={"business_fact_refs": []})
+    fact_adapter = AsyncMock(return_value=unsafe_fact)
+    service = BusinessFactService(AsyncMock(), adapters={"get_order": fact_adapter})
+
+    fact_result = await service.get_order("ORD-UNREF-09", _context())
+
+    _assert_fail_closed(fact_result, "unavailable")
+    assert fact_result.scope_check_result == "unknown"
+    assert fact_result.safe_errors[0].code == "BUSINESS_FACT_UNAVAILABLE"
+
+    tool_adapter = AsyncMock(return_value=unsafe_fact)
+    tool_result = await BusinessToolService(AsyncMock(), adapters={"get_order": tool_adapter}).invoke_tool(
+        "get_order",
+        {"order_no": "ORD-UNREF-09"},
+        _context(),
+    )
+
+    _assert_wrapped_tool_result_has_no_facts(
+        tool_result,
+        status="unavailable",
+        code="BUSINESS_FACT_UNAVAILABLE",
+    )
+    assert "ORD-UNREF-09" not in tool_result.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_business_fact_service_rejects_domain_success_with_wrong_tenant_ref() -> None:
+    unsafe_fact = _business_fact_result(
+        status="ok",
+        resource_name="order",
+        resource_type="order",
+        resource_id="ORD-WRONG-TENANT-09",
+    ).model_copy(update={"business_fact_refs": [_fact_ref("tenant-other", "order", "ORD-WRONG-TENANT-09")]})
+    adapter = AsyncMock(return_value=unsafe_fact)
+    service = BusinessFactService(AsyncMock(), adapters={"get_order": adapter})
+
+    result = await service.get_order("ORD-WRONG-TENANT-09", _context())
+
+    _assert_fail_closed(result, "unavailable")
+    assert result.scope_check_result == "unknown"
+    assert result.safe_errors[0].code == "BUSINESS_FACT_UNAVAILABLE"
+    serialized = result.model_dump_json()
+    assert "tenant-other" not in serialized
+    assert "ORD-WRONG-TENANT-09" not in serialized
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("domain_status", "tool_status", "expected_code", "expected_message"),
     [
