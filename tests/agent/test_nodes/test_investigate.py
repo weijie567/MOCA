@@ -416,6 +416,29 @@ def _error(status: str, code: str = "TOOL_UNAVAILABLE", message: str = "unavaila
     )
 
 
+def _business_error_with_data(
+    *,
+    status: str,
+    code: str,
+    safe_message: str,
+    data: dict[str, Any] | None = None,
+) -> ToolResultV2:
+    return ToolResultV2(
+        status=status,
+        data=data,
+        summary=safe_message,
+        source_system="business_tool_service",
+        data_freshness_at=None,
+        policy_evidence_refs=[],
+        business_fact_refs=[],
+        error=ToolError(code=code, safe_message=safe_message, retryable=False, source="policy"),
+        retryable=False,
+        retry_after_ms=None,
+        latency_ms=1,
+        audit_ref=None,
+    )
+
+
 @pytest.mark.asyncio
 async def test_max_iterations_reached_does_not_degrade_retrieval_status():
     events: list[dict[str, Any]] = []
@@ -688,6 +711,88 @@ async def test_permission_denied_preserves_successful_facts_without_denied_fact_
     assert "merchant_risk" not in result["business_context"]["facts"]
     assert result["business_context"]["errors"][0]["resource"] == "merchant_risk"
     assert "M-SECRET" not in str(result["business_context"]["errors"])
+
+
+@pytest.mark.asyncio
+async def test_permission_denied_business_result_does_not_leak_identifier_or_dependency():
+    events: list[dict[str, Any]] = []
+    denied_id = "ORD-DENIED-30"
+    manager = FakeManager(
+        {
+            "get_order": _business_error_with_data(
+                status="permission_denied",
+                code="BUSINESS_FACT_PERMISSION_DENIED",
+                safe_message="Business resource unavailable for this request",
+                data={"order_no": denied_id, "status": "denied"},
+            )
+        }
+    )
+    plan = [{"next_tool": "get_order", "args": {"order_no": denied_id}, "reason": "deny"}]
+
+    result = await investigate(_state(plan), _config(manager, events))
+
+    assert result["business_context"]["facts"] == {}
+    assert result["business_context"]["business_fact_refs"] == []
+    assert result["last_business_context_refs"]["business_fact_refs"] == []
+    assert result["claim_dependency_map"] == []
+    assert denied_id not in result["tool_results"][0]["prompt_summary"]
+    assert denied_id not in str(result["business_context"])
+    assert denied_id not in str(result["last_business_context_refs"])
+    assert denied_id not in str(result["claim_dependency_map"])
+
+
+@pytest.mark.asyncio
+async def test_unavailable_business_result_has_no_facts_refs_or_dependencies():
+    events: list[dict[str, Any]] = []
+    unavailable_id = "ORD-UNAVAILABLE-30"
+    manager = FakeManager(
+        {
+            "get_order": _business_error_with_data(
+                status="unavailable",
+                code="BUSINESS_FACT_UNAVAILABLE",
+                safe_message="Business fact source unavailable",
+                data={"order_no": unavailable_id, "status": "unavailable"},
+            )
+        }
+    )
+    plan = [{"next_tool": "get_order", "args": {"order_no": unavailable_id}, "reason": "unavailable"}]
+
+    result = await investigate(_state(plan), _config(manager, events))
+
+    assert result["business_context"]["facts"] == {}
+    assert result["business_context"]["business_fact_refs"] == []
+    assert result["last_business_context_refs"]["business_fact_refs"] == []
+    assert result["claim_dependency_map"] == []
+    assert result["business_context"]["errors"][0]["code"] == "BUSINESS_FACT_UNAVAILABLE"
+    assert unavailable_id not in result["tool_results"][0]["prompt_summary"]
+    assert unavailable_id not in str(result["business_context"])
+
+
+@pytest.mark.asyncio
+async def test_stale_business_result_fails_closed_without_facts_refs_or_dependencies():
+    events: list[dict[str, Any]] = []
+    stale_id = "ORD-STALE-30"
+    manager = FakeManager(
+        {
+            "get_order": _business_error_with_data(
+                status="unavailable",
+                code="BUSINESS_FACT_STALE",
+                safe_message="Business fact is stale",
+                data={"order_no": stale_id, "status": "stale"},
+            )
+        }
+    )
+    plan = [{"next_tool": "get_order", "args": {"order_no": stale_id}, "reason": "stale"}]
+
+    result = await investigate(_state(plan), _config(manager, events))
+
+    assert result["business_context"]["facts"] == {}
+    assert result["business_context"]["business_fact_refs"] == []
+    assert result["last_business_context_refs"]["business_fact_refs"] == []
+    assert result["claim_dependency_map"] == []
+    assert result["business_context"]["errors"][0]["code"] == "BUSINESS_FACT_STALE"
+    assert stale_id not in result["tool_results"][0]["prompt_summary"]
+    assert stale_id not in str(result["business_context"])
 
 
 @pytest.mark.asyncio
