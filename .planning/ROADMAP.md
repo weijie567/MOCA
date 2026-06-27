@@ -80,6 +80,7 @@ v1.9 is active. The milestone uses `docs/contract-spec.md` and `docs/target-agen
 | APF-05 | Phase 28 | Decision event envelope and emitter foundation |
 | APF-06 | Phase 29 | ToolView planner projection |
 | APF-07 | Phase 29 | ToolPolicyDecision runtime authorization |
+| MER-01 | Phase 29.5 | Merchant-bound role and business-data scope alignment |
 | APF-08 | Phase 30 | BusinessFactResultV1 domain service facade |
 | APF-09 | Phase 31 | SessionContextMemory projection |
 | APF-10 | Phase 31 | Memory layer and authority separation |
@@ -94,7 +95,7 @@ v1.9 is active. The milestone uses `docs/contract-spec.md` and `docs/target-agen
 
 ## Latest Phase Closeout
 
-Phase 29 review, UAT, security, and validation are recorded in `.planning/phases/29-tool-platform-boundary/29-REVIEW.md`, `.planning/phases/29-tool-platform-boundary/29-UAT.md`, `.planning/phases/29-tool-platform-boundary/29-SECURITY.md`, and `.planning/phases/29-tool-platform-boundary/29-VALIDATION.md`. Phase 30 is the next pending phase.
+Phase 29 review, UAT, security, and validation are recorded in `.planning/phases/29-tool-platform-boundary/29-REVIEW.md`, `.planning/phases/29-tool-platform-boundary/29-UAT.md`, `.planning/phases/29-tool-platform-boundary/29-SECURITY.md`, and `.planning/phases/29-tool-platform-boundary/29-VALIDATION.md`. Phase 29.5 has been inserted before Phase 30 to lock merchant-bound role and business-data scope semantics before BusinessFactService planning.
 
 ## Deferred Work
 
@@ -103,6 +104,7 @@ Phase 29 review, UAT, security, and validation are recorded in `.planning/phases
 - **post-Phase 17 Policy Scope** - tenant-over-global global/default policy fallback and precedence merge.
 - **Phase RAG-5: Optional External Search Backend** - Vespa/OpenSearch shadow testing and full external `SearchBackend` only if PostgreSQL hybrid no longer fits.
 - **Policy Source Operations** - policy source upload/review/lifecycle UI, source document viewer, and admin review workflow.
+- **Merchant scope deferred routing from Phase 29.5** - AgentRun, Approval, ActionDraft, Memory, Replay, and DB hardening merchant-scope follow-ups are indexed under `.planning/todos/deferred/2026-06-27-merchant-scope-*.md` and must be consumed by Phases 30-35 or Phase 36+ as assigned.
 
 <details>
 <summary>Detailed shipped Phase 24.2-25 records</summary>
@@ -241,13 +243,43 @@ Plans:
 - [x] 29-03-PLAN.md — Tool runtime, platform facade, and result projector
 - [x] 29-04-PLAN.md — Manager, investigate, conversation integration, and final gates
 
+### Phase 29.5: Merchant Scope / Role Model Alignment (INSERTED)
+
+**Status:** Spec ready
+**Milestone:** v1.9 Agent Platform Foundation
+**Goal:** Align MOCA's single-tenant MVP identity model so `support`, `manager`, and legacy `merchant` are merchant-bound business users, `admin` is the only platform-wide business-data role, and tenant public policy remains readable by ordinary business users.
+**Requirements**: MER-01
+**Depends on:** Phase 29
+**Plans:** 1/6 plans complete
+
+**Success Criteria**:
+
+1. `support`, `manager`, and legacy `merchant` are defined as `merchant_bound_roles`; `admin` is defined as the only `platform_admin_roles` member for business data scope.
+2. `docs/contract-spec.md` contains the normative role-to-merchant-scope policy, including unknown role deny-all and business-scope vs tenant-public-policy separation; Phase 29.5 reconciles old contract text, current code, tests, and the accepted MER-01 product model rather than treating historical contract text as automatically correct.
+3. `TrustedContextFactory` generates merchant scope from trusted user role and `merchant_id`: merchant-bound users get `[merchant_id]` or deny-all `[]`; `admin` gets `["*"]`.
+4. `server_merchant_scope` cannot widen a non-admin human actor to wildcard and wildcard override is rejected rather than silently narrowed; `server_tool_permissions` cannot expand merchant scope; system-owned wildcard scope remains deferred until a separate `TrustedSystemContext` exists.
+5. Order, RefundCase, and Ticket APIs use a unified merchant access helper with 404 for cross-tenant resources and 403 for same-tenant out-of-merchant-scope or missing merchant binding.
+6. Tenant public policy retrieval remains available to authenticated ordinary business users with `knowledge:read`, including deny-all business scope `[]`; business merchant scope must not be misused as a tenant-public policy filter, while business-scoped policy filters and business data still fail closed.
+7. Manager approval list/get/decide and approval resume no longer retain tenant-wide visibility or wildcard merchant scope; Phase 29.5 uses admin-only / fail-closed interim behavior and does not implement a `requested_by -> user.merchant_id` approximation until Phase 34 target merchant binding exists.
+8. Manager AgentRun status/evidence/trace access no longer remains tenant-wide; ghost supervisor roles such as `supervisor` / `approval_manager` do not grant business-data run visibility; business run details are owner/admin-only until Phase 32/35 can prove same-merchant access.
+9. Seed/demo data and tests cover at least two merchants with `support` + `manager`, admin cross-merchant access, legacy merchant compatibility, tenant isolation, and merchant isolation.
+10. AgentRun, Approval, ActionDraft, Memory, Replay, and DB hardening merchant-scope work is explicitly deferred to the assigned Phase 30-35 or Phase 36+ entries with interim guards where needed; no graph/tool fallback outside `TrustedContextFactory` may fabricate wildcard business merchant scope.
+
+Plans:
+- [x] 29.5-01-PLAN.md — Traceability, contract, seed, and fixture alignment
+- [ ] 29.5-02-PLAN.md — TrustedContextFactory and merchant access helper
+- [ ] 29.5-03-PLAN.md — Order, refund, and ticket API merchant guards
+- [ ] 29.5-04-PLAN.md — Policy-only knowledge scope and memory smoke guard
+- [ ] 29.5-05-PLAN.md — Approval, AgentRun, trace, replay, and investigate interim guards
+- [ ] 29.5-06-PLAN.md — Static wildcard guard and final focused verification
+
 ### Phase 30: BusinessFactService Boundary
 
 **Status:** Pending
 **Milestone:** v1.9 Agent Platform Foundation
 **Goal:** Make current business facts available only through stable domain service public methods and `BusinessFactResultV1` / `BusinessFactRefV1` contracts.
 **Requirements**: APF-08
-**Depends on:** Phase 29
+**Depends on:** Phase 29.5
 **Plans:** 0/1 plans complete
 
 **Success Criteria**:
@@ -255,6 +287,9 @@ Plans:
 1. Order, refund, ticket, logistics, and merchant-risk reads project to `BusinessFactResultV1` with status, freshness, scope check, resource version, refs, and safe errors.
 2. Graph/tool code cannot use memory, RAG, LLM inference, or raw repository rows as current business fact authority.
 3. Tests cover permission denied no-leak behavior, stale/unavailable fail-closed routes for action-bound paths, and no `EvidenceRefV1`/`BusinessFactRefV1` mixing.
+4. Business fact reads consume Phase 29.5 merchant scope semantics: `support` / `manager` / legacy `merchant` are merchant-bound, `admin` is platform-wide, and order/refund/ticket identifiers require domain ownership proof before `BusinessFactRefV1` is emitted.
+5. Tool/service `permission_denied` is no-leak and must not expose whether an out-of-scope resource exists; `BusinessFactRefV1`, prompt summaries, and graph facts are emitted only after scope checks pass.
+6. ToolPlatform `requires_domain_scope_check` markers for order/refund/ticket identifiers are resolved by BusinessFactService and cannot remain as non-enforced annotations.
 
 Plans:
 - [ ] 30-01-PLAN.md — BusinessFactService boundary
@@ -273,6 +308,7 @@ Plans:
 1. `SessionContextMemory` becomes the agent-facing same-thread projection, while `SessionContinuityStore` remains an internal storage concern.
 2. Memory context loading distinguishes early session context for intent from post-slot long-term/case memory bundles.
 3. Tests prove memory cannot satisfy policy evidence, current business fact, approval/action snapshot, or replay truth requirements.
+4. Memory load/write policy preserves Phase 29.5 merchant boundaries so one merchant's conversation, case, or long-term memory cannot contaminate another merchant's prompt context.
 
 Plans:
 - [ ] 31-01-PLAN.md — Memory platform boundary
@@ -291,6 +327,7 @@ Plans:
 1. Legacy `intent_classification`, `session_memory_load`, `route_after_intent`, and `route_after_slots` behavior maps to target canonical node/router names in trace/eval projections.
 2. `IntentPolicyRegistry` and `SlotPolicyRegistry` own effective route and slot inheritance decisions; LLM output remains candidate-only.
 3. Router totality tests cover safety pre-route, low confidence, direct response, slot required, missing/stale/incompatible slots, and memory context load paths.
+4. AgentRun and graph routing work records how target merchant context is resolved or deferred, and manager/supervisor-style access must not remain implicitly tenant-wide without target merchant or business fact refs.
 
 Plans:
 - [ ] 32-01-PLAN.md — Intent graph migration
@@ -309,6 +346,7 @@ Plans:
 1. `rag_context_build` produces `VerifiedEvidencePackageV1`, status, citation map, evidence map, projections, and rejected/stale/conflict refs.
 2. `claim_verify` consumes `MaterialClaimV1` and outputs `ClaimVerificationBundleV1` with rules-first support, safe refs, blocked claims, and fail-closed high-risk behavior.
 3. Tests prove candidate refs do not enter prompt/action directly, invalid scope/hash fails closed, unsupported action recommendations cannot reach risk/approval/action, and business fact claims require `BusinessFactRefV1`.
+4. Tenant public policy remains separate from business merchant scope, while business fact and action recommendation claims require merchant-scoped `BusinessFactRefV1` authority.
 
 Plans:
 - [ ] 33-01-PLAN.md — RAG context build and claim verification
@@ -327,6 +365,8 @@ Plans:
 1. Action proposals and drafts bind structured payloads to business fact refs, verified evidence refs, claim verification refs, risk decisions, payload hashes, and safety snapshots.
 2. `risk_gate` owns blocked/approval-required/auto-draft routing, while `approval_gate` only executes approval plan, trusted resume, interrupt, and revision state machine behavior.
 3. Tests prove ordinary chat cannot forge approval/action authority, payload changes invalidate old approval, and no full real external execution is introduced.
+4. ApprovalRequest and ActionDraft bind target merchant or scoped `BusinessFactRefV1`; manager approval queues and resume paths cannot use wildcard `server_merchant_scope` unless the actor is `admin`.
+5. Any future system-owned wildcard approval/action job must use a separate trusted system context contract, not `TrustedContextFactory.create_from_request(user=...)`.
 
 Plans:
 - [ ] 34-01-PLAN.md — Approval and ActionDraft boundary hardening
@@ -345,9 +385,10 @@ Plans:
 1. Platform decisions for context projection, intent/slot policy, memory load/write, tool visibility/auth, RAG validation, claim verification, risk/approval, and action draft produce replayable event coverage.
 2. Eval gates distinguish dev-contract, release, and monitoring gates and cover forbidden behavior for scope leaks, unsupported claims, unsafe action paths, and raw payload exposure.
 3. Final milestone verification proves all APF requirements are mapped, tested, and documented without implementing physical microservices or full real execution.
+4. Replay, trace, and eval views preserve Phase 29.5 merchant scope boundaries and prove no cross-merchant leakage through run listing, trace detail, tool result records, approval views, memory, or replay artifacts.
 
 Plans:
 - [ ] 35-01-PLAN.md — Replay and eval hardening
 
 ---
-*Updated: 2026-06-23 after completing Phase 29 Tool Platform Boundary.*
+*Updated: 2026-06-27 after inserting Phase 29.5 Merchant Scope / Role Model Alignment.*

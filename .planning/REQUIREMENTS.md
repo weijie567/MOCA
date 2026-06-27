@@ -30,6 +30,10 @@ Turn MOCA's agent runtime into a microservice-ready modular monolith: platform/d
 - [x] **APF-07:** Runtime tool invocation emits `ToolPolicyDecision` and rechecks authorization, resource scope, side-effect class, and input/output schema even when the tool was visible to the planner.
 - [ ] **APF-08:** Business fact reads expose `BusinessFactResultV1` / `BusinessFactRefV1` through domain service public methods, and graph/tool code cannot substitute memory, RAG, LLM inference, or raw repository rows for current business facts.
 
+### Merchant Scope Alignment
+
+- [ ] **MER-01:** Merchant-bound role semantics align the single-tenant MVP: `support` / `manager` / legacy `merchant` are scoped to their merchant for business data, `admin` is the only platform-wide business-data role, tenant public policy remains shared, and AgentRun / Approval / ActionDraft / Memory / Replay scope risks are routed to Phases 30-35 or Phase 36+.
+
 ### Memory Platform Boundaries
 
 - [ ] **APF-09:** Session context loading exposes agent-facing `SessionContextMemory` for same-thread continuity while keeping `SessionContinuityStore` as an internal storage concern.
@@ -86,6 +90,7 @@ Turn MOCA's agent runtime into a microservice-ready modular monolith: platform/d
 | APF-05 | Phase 28 | Complete |
 | APF-06 | Phase 29 | Complete |
 | APF-07 | Phase 29 | Complete |
+| MER-01 | Phase 29.5 | Pending |
 | APF-08 | Phase 30 | Pending |
 | APF-09 | Phase 31 | Pending |
 | APF-10 | Phase 31 | Pending |
@@ -99,8 +104,8 @@ Turn MOCA's agent runtime into a microservice-ready modular monolith: platform/d
 | APF-18 | Phase 35 | Pending |
 
 **Coverage:**
-- v1 requirements: 18 total
-- Mapped to phases: 18
+- v1 requirements: 19 total
+- Mapped to phases: 19
 - Unmapped: 0
 
 ---

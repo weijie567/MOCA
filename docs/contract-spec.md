@@ -1,5 +1,7 @@
 NOTE: This file is the ONLY normative contract source for MOCA agent architecture. Other docs (architecture-overview / migration-plan / eval-test-plan) are illustrative or process docs; when they conflict with this file, this file wins.
 
+This file is also a living contract. Older sections may describe target contracts that were not fully implemented yet, or semantics that a later phase intentionally replaces. A phase must not treat historical text here as proof that the current code already behaves that way. When a new phase discovers conflict between this contract, the codebase, tests, and the accepted product model, the phase must amend this file or record an explicit MVP scope/deferral before implementation proceeds.
+
 ## 0.1 Target architecture delta sync rule
 
 `docs/target-agent-platform-architecture-plan.md` may describe proposed target vocabulary, service boundaries, runtime graph shapes, and schema deltas. Those proposals do not become normative until this file is amended or an implementation phase records an explicit mapping to the canonical contracts below. In particular, proposed registered nodes/routers, `TrustedContext` fields, AgentState fields, RAG/claim verification bundles, tool policy decisions, business fact refs, and decision event envelopes must not silently widen or rename the canonical contracts in this file.
@@ -9,6 +11,7 @@ Phase 0 target architecture delta accepted here:
 - §9 accepts the target graph vocabulary for Phase 5 Intent Graph migration, while keeping current implementation node/router names as legacy aliases until that migration completes.
 - §10 accepts AgentState registry fields for deterministic RAG context build and post-generation claim verification.
 - §8.3 / §8.4 / §12.6 / §17.2 freeze minimal contracts for `VerifiedEvidencePackageV1`, `MaterialClaimV1`, `ClaimVerificationBundleV1`, `BusinessFactResultV1`, `ToolView`, `ToolPolicyDecision`, and `DecisionEventEnvelopeV1`.
+- §8.0.1 accepts Phase 29.5 role-to-merchant-scope policy for the single-tenant MVP: `support`, `manager`, and legacy `merchant` are merchant-bound business users; `admin` is the only human platform-wide business-data role; tenant public policy scope is separate from business merchant scope.
 
 ## 0.2 Module ownership boundary registry
 
@@ -63,6 +66,82 @@ class MerchantScopeV1(BaseModel):
 ```
 
 `MerchantScopeV1` 的 match rule 是所有已提供维度均必须匹配。空或缺失 scope 表示 deny-all，不表示 unrestricted；只有显式 `"*"` token 才表示对应维度 wildcard；deny 先于 allow。该 scope 是 trusted context，不可由模型或用户输入设置、覆盖或扩展。`permissions` 是 namespaced tokens（例如 `tool:get_order`、`knowledge:search`），必须在 adapter execution 前校验；unknown token 或空 permissions 均表示 deny。Phase 8/Phase 9 contract tests 必须包含 deny-all、unknown-category 和 no-widening negative cases。
+
+### 8.0.1 Role-to-MerchantScope Policy (normative)
+
+Phase 29.5 冻结 MOCA 单 tenant MVP 的 role-to-merchant-scope 规则。本节只定义 business data scope；tenant public policy scope 见 §8.0.2 / §8.3。
+
+Role registry：
+
+```python
+merchant_bound_roles = {"support", "manager", "merchant"}
+platform_admin_roles = {"admin"}
+```
+
+Role semantics：
+
+- `support` 是商家客服 / customer support。
+- `manager` 是商家客服主管 / support manager；它不是 tenant-wide supervisor。
+- `merchant` 是 legacy 商家用户 role；兼容期按 `support` 处理，不作为推荐新增 role。
+- `admin` 是 platform admin，是唯一 human platform-wide business-data role。
+- 任何新增或未知 role 在未显式归类前按 merchant-bound deny-all 处理；不得因为名称包含 `supervisor`、`approval_manager`、`agent` 等词而自动获得 tenant-wide scope。
+
+Merchant scope derivation：
+
+- `support` / `manager` / legacy `merchant`：
+  - `user.merchant_id` 存在时，`merchant_scope = {"merchant_ids": [str(user.merchant_id)]}`。
+  - `user.merchant_id` 缺失时，`merchant_scope = {"merchant_ids": []}`，表示 deny-all for business data。
+- `admin`：
+  - `merchant_scope = {"merchant_ids": ["*"]}`。
+- `merchant_scope=["*"]` 只能来自可信服务端对 `admin` role 的判断，不得来自 LLM、request body、frontend payload、checkpoint state、memory、RAG、tool args 或 ordinary approval chat。
+
+Server override rules：
+
+- `server_merchant_scope` 是 trusted narrowing input，只能收窄 human actor 从 role/merchant binding 推导出的 scope，不能扩大。
+- Non-admin human actor 的 `server_merchant_scope={"merchant_ids":["*"]}` 必须被拒绝；不得静默采用，也不得静默收窄后继续执行。
+- `server_tool_permissions` 只影响 tool permission，例如 action draft resume 所需的服务端工具权限；它不得扩大 `merchant_scope`。
+- System-owned internal job wildcard scope 不由 `TrustedContextFactory.create_from_request(user=...)` 授权。未来若需要 system wildcard，必须先定义单独 `TrustedSystemContext` / actor type / job identity / reason code / decision event contract。
+
+Business data access rules：
+
+- `support` / `manager` / legacy `merchant` 只能访问自己 merchant 的 business data。
+- `admin` 可以跨 merchant 访问 business data。
+- Business data 包括 order、refund case、ticket、business facts、approval/action objects、agent runs/traces/evidence tied to business objects、business-scoped memory/replay artifacts。
+- Cross-tenant resources must not leak existence. API paths return 404 for cross-tenant not-found/no-leak cases.
+- Same-tenant out-of-merchant-scope business resources must return 403 at API layer.
+- Service/tool paths such as `BusinessFactResultV1.permission_denied` must not reveal whether the underlying resource exists.
+
+Required interim guards until target merchant binding lands in later phases：
+
+- `manager` must not be treated as a tenant-wide supervisor for business-data run, evidence, trace, approval, or action visibility.
+- Business-data AgentRun status/evidence/trace access is limited to run owner and `admin` unless a later phase proves same-merchant access through target merchant or scoped `BusinessFactRefV1`.
+- Phase 29.5 manager approval list/get/decide is admin-only / fail-closed until Phase 34 target merchant / `BusinessFactRefV1` binding exists. Phase 29.5 must not use `requested_by -> user.merchant_id` as a temporary authorization approximation.
+- Approval resume must not use wildcard `server_merchant_scope` for non-admin human actors.
+- Business-data wildcard merchant scope must not be constructed outside `TrustedContextFactory` / trusted system context. Fallback paths in graph nodes, tool executors, checkpoint recovery, memory, RAG, or approval resume must fail closed instead of fabricating `{"merchant_ids":["*"]}`.
+
+### 8.0.2 Business Scope vs Tenant Public Policy Scope (normative)
+
+Business merchant scope and tenant public policy scope are separate.
+
+Tenant public policy retrieval：
+
+- Requires trusted `tenant_id` and `knowledge:read` / `tool:search_policy` permission.
+- Does not require wildcard merchant scope.
+- Must not be denied solely because a merchant-bound user has `merchant_scope=[merchant_id]` or deny-all business scope `merchant_scope=[]`.
+- Must ignore user, request body, frontend, memory, checkpoint, tool args, or LLM attempts to widen tenant/policy/merchant scope.
+- An empty business merchant scope may still perform policy-only tenant public policy retrieval when authenticated and authorized. The same scope remains deny-all for business data and for merchant-specific/business-scoped policy filters.
+
+Business data reads：
+
+- Require trusted `tenant_id`, appropriate business read permission, and merchant scope authorization.
+- Must use BusinessFactService domain ownership proof before returning facts or emitting `BusinessFactRefV1`.
+- Must not use tenant public policy evidence, memory, or LLM inference to prove current order/refund/ticket facts.
+- For service/tool paths, `permission_denied` must not reveal whether the underlying resource exists.
+
+Future merchant-specific policy：
+
+- Merchant-specific policy is not part of Phase 29.5.
+- If introduced later, it must define an explicit policy scope and must not silently reuse business data merchant access rules as retrieval filters for tenant public policies.
 
 Projection 规则（消费者只取子集，字段语义与本表一致，不得重命名或放宽 trusted-source）：
 
@@ -2241,8 +2320,8 @@ Replay ordering and completeness rules：
 
 API 安全和权限：
 
-- `/replay` 使用与 `/trace` 相同或更严格的 tenant/user/supervisor 权限。
-- 非 owner 且非 supervisor/admin 不能读取同 tenant 其他用户 run。
+- `/replay` 使用与 `/trace` 相同或更严格的权限，并服从 §8.0.1 的 business-data run 访问规则。
+- Phase 29.5 起，涉及 business data 的 run/evidence/trace/replay 仅 run owner 与 `admin` 可读；`manager` 不再作为 tenant-wide supervisor 读取他人 run。manager same-merchant 可见性须等 Phase 32/35 具备 target merchant 或 scoped `BusinessFactRefV1` 后恢复（见 §8.0.1 interim guards 与 deferred todo）。
 - cross-tenant run 返回 404，不暴露存在性。
 - response 中默认不包含 `input_query`、完整 `final_response`、完整 prompt、raw tool payload 或 ActionDraft raw payload。
 

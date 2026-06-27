@@ -99,6 +99,13 @@ async def seeded_session(session: AsyncSession):
         category="electronics",
         risk_level="low",
     )
+    second_merchant = Merchant(
+        id=uuid.uuid4(),
+        tenant_id=demo_tenant.id,
+        merchant_name="Second Test Shop",
+        category="home",
+        risk_level="low",
+    )
     other_merchant = Merchant(
         id=uuid.uuid4(),
         tenant_id=other_tenant.id,
@@ -106,7 +113,7 @@ async def seeded_session(session: AsyncSession):
         category="electronics",
         risk_level="low",
     )
-    session.add_all([merchant, other_merchant])
+    session.add_all([merchant, second_merchant, other_merchant])
     await session.flush()
 
     users = {
@@ -121,6 +128,7 @@ async def seeded_session(session: AsyncSession):
         "cs_zhang": User(
             id=uuid.uuid4(),
             tenant_id=demo_tenant.id,
+            merchant_id=merchant.id,
             username="cs_zhang",
             password_hash=hash_password("moca2024"),
             role="support",
@@ -129,7 +137,26 @@ async def seeded_session(session: AsyncSession):
         "approval_manager": User(
             id=uuid.uuid4(),
             tenant_id=demo_tenant.id,
+            merchant_id=merchant.id,
             username="approval_manager",
+            password_hash=hash_password("moca2024"),
+            role="manager",
+            is_active=True,
+        ),
+        "cs_other_merchant": User(
+            id=uuid.uuid4(),
+            tenant_id=demo_tenant.id,
+            merchant_id=second_merchant.id,
+            username="cs_other_merchant",
+            password_hash=hash_password("moca2024"),
+            role="support",
+            is_active=True,
+        ),
+        "manager_other_merchant": User(
+            id=uuid.uuid4(),
+            tenant_id=demo_tenant.id,
+            merchant_id=second_merchant.id,
+            username="manager_other_merchant",
             password_hash=hash_password("moca2024"),
             role="manager",
             is_active=True,
@@ -146,6 +173,7 @@ async def seeded_session(session: AsyncSession):
         "other_support": User(
             id=uuid.uuid4(),
             tenant_id=other_tenant.id,
+            merchant_id=other_merchant.id,
             username="other_support",
             password_hash=hash_password("moca2024"),
             role="support",
@@ -183,7 +211,21 @@ async def seeded_session(session: AsyncSession):
         updated_at=now - timedelta(days=2),
         delivered_at=now - timedelta(days=1),
     )
-    session.add_all([order, other_order])
+    second_order = Order(
+        id=uuid.uuid4(),
+        tenant_id=demo_tenant.id,
+        merchant_id=second_merchant.id,
+        order_no="ORD-TEST-002",
+        buyer_name="同租户其他商家用户",
+        item_name="人体工学椅",
+        amount=Decimal("699.00"),
+        currency="CNY",
+        status="delivered",
+        created_at=now - timedelta(days=2),
+        updated_at=now - timedelta(days=2),
+        delivered_at=now - timedelta(days=1),
+    )
+    session.add_all([order, second_order, other_order])
     await session.flush()
 
     refund_case = RefundCase(
@@ -198,7 +240,19 @@ async def seeded_session(session: AsyncSession):
         created_at=now - timedelta(days=1),
         updated_at=now - timedelta(days=1),
     )
-    session.add(refund_case)
+    second_refund_case = RefundCase(
+        id=uuid.uuid4(),
+        tenant_id=demo_tenant.id,
+        order_id=second_order.id,
+        refund_case_no="RF-TEST-002",
+        reason_code="quality_issue",
+        reason_text="商品质量问题",
+        status="reviewing",
+        requested_amount=Decimal("699.00"),
+        created_at=now - timedelta(days=1),
+        updated_at=now - timedelta(days=1),
+    )
+    session.add_all([refund_case, second_refund_case])
     await session.flush()
 
     ticket = Ticket(
@@ -215,18 +269,36 @@ async def seeded_session(session: AsyncSession):
             {"speaker": "agent", "content": "正在核实物流签收情况。"},
         ],
     )
-    session.add(ticket)
+    second_ticket = Ticket(
+        id=uuid.uuid4(),
+        tenant_id=demo_tenant.id,
+        order_id=second_order.id,
+        refund_case_id=second_refund_case.id,
+        ticket_no="TK-TEST-002",
+        channel="chat",
+        status="open",
+        summary="同租户其他商家用户咨询退款",
+        messages=[
+            {"speaker": "user", "content": "这个订单也需要退款。"},
+            {"speaker": "agent", "content": "正在核实订单归属。"},
+        ],
+    )
+    session.add_all([ticket, second_ticket])
     await session.commit()
     return {
         "tenant": demo_tenant,
         "other_tenant": other_tenant,
         "merchant": merchant,
+        "second_merchant": second_merchant,
         "other_merchant": other_merchant,
         "users": users,
         "order": order,
+        "second_order": second_order,
         "other_order": other_order,
         "refund_case": refund_case,
+        "second_refund_case": second_refund_case,
         "ticket": ticket,
+        "second_ticket": second_ticket,
     }
 
 

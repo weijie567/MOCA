@@ -12,12 +12,13 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 ## Current Milestone: v1.9 Agent Platform Foundation
 
-**Status:** Phase 29 complete; Phase 30 planning ready.
+**Status:** Phase 29 complete; Phase 29.5 spec ready before Phase 30 planning.
 
 **Goal:** Convert MOCA from feature-by-feature agent code into a microservice-ready modular monolith with clear platform/domain service boundaries, canonical trusted context, decision events, tool policy, memory context, target graph contracts, RAG context build, claim verification, business fact authority, and approval/action boundary hardening.
 
 **Target features:**
 - `TrustedContextFactory` becomes the single source for canonical identity/scope/run context and safe projections.
+- Merchant-bound business roles are aligned before BusinessFactService planning: `support`, `manager`, and legacy `merchant` are merchant-scoped; `admin` is the only platform-wide business-data role; tenant public policy remains shared.
 - Decision event foundation makes intent, tool, memory, RAG, claim, risk, approval, and action decisions auditable from the start.
 - Tool, memory, knowledge, business fact, approval, and action boundaries move toward service public methods and stable schemas.
 - Target graph contracts introduce safety pre-route, session context loading, contextual intent, slot resolution, RAG context build, and claim verification without doing full real external execution.
@@ -185,6 +186,7 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - [x] **APF-05:** A minimal `DecisionEventEnvelopeV1` / event emitter foundation records stable reason codes, policy/model/tool versions, redaction policy, and run/tenant/trace identity for later platform service decisions (validated in Phase 28)
 - [x] **APF-06:** Tool planner visibility is generated from `ToolDescriptor` into prompt-safe `ToolView` rather than exposing raw descriptors, adapters, internal permission reasons, or side-effect capabilities (validated in Phase 29).
 - [x] **APF-07:** Runtime tool invocation emits `ToolPolicyDecision` and rechecks authorization, resource scope, side-effect class, and input/output schema even when the tool was visible to the planner (validated in Phase 29).
+- [ ] **MER-01:** Merchant-bound role semantics align the single-tenant MVP: `support` / `manager` / legacy `merchant` are scoped to their merchant for business data, `admin` is the only platform-wide business-data role, tenant public policy remains shared, and AgentRun / Approval / ActionDraft / Memory / Replay scope risks are routed to Phases 30-35 or Phase 36+.
 - [ ] **APF-08:** Business fact reads expose `BusinessFactResultV1` / `BusinessFactRefV1` through domain service public methods, and graph/tool code cannot substitute memory, RAG, LLM inference, or raw repository rows for current business facts.
 - [ ] **APF-09:** Session context loading exposes agent-facing `SessionContextMemory` for same-thread continuity while keeping `SessionContinuityStore` as an internal storage concern.
 - [ ] **APF-10:** Memory context APIs separate session context, long-term memory, case memory, conversation log, workflow checkpoint, working state, and memory write candidates, with explicit authority tags that prevent memory from satisfying policy evidence, current business fact, approval, action, or replay truth.

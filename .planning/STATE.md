@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
 status: executing
-stopped_at: Phase 29 complete; BusinessFactService Boundary ready to plan
-last_updated: "2026-06-23T21:57:57+08:00"
-last_activity: 2026-06-23
+stopped_at: Completed 29.5-01-PLAN.md
+last_updated: "2026-06-27T08:38:30.279Z"
+last_activity: 2026-06-27
 progress:
-  total_phases: 10
+  total_phases: 11
   completed_phases: 4
   total_plans: 15
-  completed_plans: 9
-  percent: 40
+  completed_plans: 10
+  percent: 67
 ---
 
 # Project State: MOCA
@@ -21,16 +21,17 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-23)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** BusinessFactService Boundary
+**Current focus:** Phase 29.5 — Merchant Scope / Role Model Alignment
 
 ## Current Position
 
+Phase: 29.5 (Merchant Scope / Role Model Alignment) — EXECUTING
 Next roadmap item: BusinessFactService Boundary — READY TO PLAN
-Plan: 0 of 1
-Status: Ready to plan
-Last activity: 2026-06-23
+Plan: 2 of 6
+Status: Ready to execute
+Last activity: 2026-06-27
 
-Progress: [████░░░░░░] 40%
+Progress: [███████░░░] 67%
 
 Planning files:
 
@@ -70,6 +71,7 @@ Planning files:
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
 Latest execution metric: Phase 29 P29-04 — 40 min, 2 tasks, 9 files; Phase 29 code review, UAT, security, and validation gates passed.
+| Phase 29.5 P01 | 35min | 2 tasks | 5 files |
 
 ## Quick Tasks Completed
 
@@ -138,9 +140,9 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-23T21:57:57+08:00
-Stopped at: Phase 29 complete; BusinessFactService Boundary ready to plan
-Resume file: .planning/ROADMAP.md
+Last session: 2026-06-27T08:37:44.421Z
+Stopped at: Completed 29.5-01-PLAN.md
+Resume file: None
 Next: Plan BusinessFactService Boundary; old phase directory archive remains a separate cleanup todo.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
@@ -164,3 +166,5 @@ Next: Plan BusinessFactService Boundary; old phase directory archive remains a s
 **Completed Phase:** 29 (Tool Platform Boundary) — 4/4 plans complete; code review clean; UAT 6/6 passed; security `threats_open: 0`; Nyquist validation compliant — 2026-06-23T21:57:57+08:00
 
 **Next Roadmap Item:** BusinessFactService Boundary — 1 planned plan — ready for planning
+
+**Planned Phase:** 29.5 (Merchant Scope / Role Model Alignment) — 6 plans — 2026-06-27T08:35:11.050Z
