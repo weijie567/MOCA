@@ -405,10 +405,10 @@ class ToolPolicyEngine:
             value = args.get(key)
             if value is None:
                 continue
-            binding[key] = value
 
             # Explicit merchant_id must be checked against scope
             if key == "merchant_id":
+                binding[key] = value
                 merchant_scope = ctx.merchant_scope
                 try:
                     if isinstance(merchant_scope, MerchantScopeV1):
@@ -426,6 +426,10 @@ class ToolPolicyEngine:
             # Domain-lookup identifiers require Phase 30 ownership proof
             if key in _DOMAIN_SCOPE_CHECK_IDENTIFIERS:
                 binding["requires_domain_scope_check"] = True
+                continue
+
+            if key != "merchant_id":
+                binding[key] = value
 
         if scope_denied:
             binding["_scope_denied"] = True
