@@ -13,9 +13,14 @@ from tests.approvals.test_service_transitions import (
     _approval_bundle,
     _assert_transition_error,
     _create_run,
-    _decision_command,
+    _decision_command as _base_decision_command,
     _evidence_ref,
 )
+
+
+def _decision_command(*args, **kwargs):
+    kwargs.setdefault("actor_role", "admin")
+    return _base_decision_command(*args, **kwargs)
 
 
 def _changed_snapshot_hash(*, tenant_id, run_id, field: str) -> str:
@@ -70,7 +75,7 @@ def _changed_snapshot_hash(*, tenant_id, run_id, field: str) -> str:
 @pytest.mark.asyncio
 async def test_changed_action_payload_hash_fails_closed(session: AsyncSession, seeded_session):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
 
     await _assert_transition_error(
         session,
@@ -88,7 +93,7 @@ async def test_changed_action_payload_hash_fails_closed(session: AsyncSession, s
 @pytest.mark.asyncio
 async def test_changed_safety_snapshot_hash_fails_closed(session: AsyncSession, seeded_session):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
 
     await _assert_transition_error(
         session,
@@ -121,7 +126,7 @@ async def test_changed_snapshot_material_fails_closed_via_snapshot_hash(
     field: str,
 ):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
     changed_hash = _changed_snapshot_hash(tenant_id=request.tenant_id, run_id=request.run_id, field=field)
 
     await _assert_transition_error(
@@ -140,7 +145,7 @@ async def test_changed_snapshot_material_fails_closed_via_snapshot_hash(
 @pytest.mark.asyncio
 async def test_missing_snapshot_fails_closed(session: AsyncSession, seeded_session):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
     await session.execute(
         delete(ActionSafetySnapshot).where(
             ActionSafetySnapshot.tenant_id == request.tenant_id,
@@ -160,7 +165,7 @@ async def test_missing_snapshot_fails_closed(session: AsyncSession, seeded_sessi
 async def test_legacy_v1_rows_fail_closed(session: AsyncSession, seeded_session):
     tenant_id = seeded_session["tenant"].id
     requested_by = seeded_session["users"]["cs_zhang"].id
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
     run_id = await _create_run(session, tenant_id=tenant_id, user_id=requested_by, thread_id="legacy-v1-thread")
     legacy = ApprovalRequest(
         run_id=run_id,

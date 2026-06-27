@@ -24,7 +24,7 @@ from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1
 from src.tools.catalog import ToolCatalog
 from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolResultV2
-from src.tools.manager import UnifiedToolManager
+from src.tools.platform import ToolPlatform
 
 
 TEST_DATABASE_URL = "postgresql+asyncpg://moca:moca_dev@localhost:5432/moca_test"
@@ -339,7 +339,7 @@ class _FakeStructuredLLM:
         if self.schema is SlotExtractionResult:
             return SlotExtractionResult(**self.responses["slots"])
         if self.schema is RecommendationDraft:
-            key = "high_risk" if "600" in user_content else "low_risk"
+            key = "low_risk" if "policy_qa" in user_content or "policy_answer" in user_content else "high_risk"
             return RecommendationDraft(**self.responses["recommendation"][key])
         if self.schema is RiskAssessment:
             key = "low_risk" if "policy_answer" in user_content else "high_risk"
@@ -408,7 +408,7 @@ def mock_llm_responses() -> dict[str, dict[str, Any]]:
         "recommendation": {
             "high_risk": {
                 "recommended_action": "issue_coupon",
-                "reasoning_summary": "补偿超过500元需人工审批。",
+                "reasoning_summary": "建议补偿600元 CNY，补偿超过500元需人工审批。",
                 "evidence_refs": [evidence_ref],
                 "confidence": 0.91,
                 "risk_level": "high",
@@ -492,42 +492,43 @@ async def mock_graph(monkeypatch, mock_llm_responses, session: AsyncSession, see
     monkeypatch.setattr(classify_node, "_get_llm", lambda: fake_llm)
     monkeypatch.setattr(extract_node, "_get_llm", lambda: fake_llm)
     monkeypatch.setattr(recommendation_node, "_get_llm", lambda: fake_llm)
+    monkeypatch.setattr(recommendation_node, "MaterialClaimVerifier", _ApprovalGraphMaterialClaimVerifier)
     monkeypatch.setattr(assess_node, "_get_llm", lambda: fake_llm)
 
-    monkeypatch.setattr(
-        investigate_node.UnifiedToolManager,
-        "with_defaults",
-        lambda session: _ApprovalGraphToolManager(),
-    )
+    monkeypatch.setattr(investigate_node, "ToolPlatform", _ApprovalGraphInvestigateToolPlatform)
     return build_graph(MemorySaver())
 
 
-class _ApprovalGraphToolManager(UnifiedToolManager):
-    def __init__(self):
-        super().__init__(descriptors=ToolCatalog().descriptors())
+def _approval_graph_tool_platform() -> ToolPlatform:
+    return ToolPlatform(
+        catalog=ToolCatalog(),
+        executors={
+            "business": _ApprovalGraphBusinessExecutor(),
+            "knowledge": _ApprovalGraphKnowledgeExecutor(),
+        },
+    )
 
-    def descriptors(self, caller_node: str = "investigate"):
-        return [
-            descriptor
-            for descriptor in self._descriptors.values()
-            if caller_node in descriptor.caller_allowlist
-            and descriptor.kind != "write"
-            and descriptor.name in {"get_order", "search_policy"}
-        ]
 
-    def event_family(self, name: str) -> str:
-        family = self._descriptors[name].event_family
-        return "rag_retrieval" if family == "rag_retrieval_*" else "tool_call"
+class _ApprovalGraphInvestigateToolPlatform:
+    @staticmethod
+    def with_defaults(session) -> ToolPlatform:
+        return _approval_graph_tool_platform()
 
-    async def invoke(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
+    def __new__(cls, *args: Any, **kwargs: Any) -> ToolPlatform:
+        return ToolPlatform(*args, **kwargs)
+
+
+class _ApprovalGraphBusinessExecutor:
+    def has_tool(self, name: str) -> bool:
+        return name == "get_order"
+
+    async def execute(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
         if name == "get_order":
             return self._order_result(args.get("order_no") or "ORD-TEST-001", ctx)
         if name == "get_refund_case":
             return self._refund_case_result(args.get("refund_case_no") or "RF-TEST-001", ctx)
         if name == "get_ticket":
             return self._ticket_result(args.get("ticket_id") or "TK-TEST-001", ctx)
-        if name == "search_policy":
-            return self._policy_result(ctx)
         raise AssertionError(f"Unexpected approval graph tool call: {name}")
 
     def _order_result(self, order_no: str, ctx: ToolCallContext) -> ToolResultV2:
@@ -578,6 +579,28 @@ class _ApprovalGraphToolManager(UnifiedToolManager):
             audit_ref=None,
         )
 
+    @staticmethod
+    def _fact_ref(tenant_id: str, resource_type: str, resource_id: str) -> BusinessFactRefV1:
+        return BusinessFactRefV1(
+            tenant_id=tenant_id,
+            source_system="moca",
+            resource_type=resource_type,
+            resource_id=resource_id,
+            resource_version=None,
+            data_freshness_at=None,
+            retrieved_at=datetime.now(UTC),
+        )
+
+
+class _ApprovalGraphKnowledgeExecutor:
+    def has_tool(self, name: str) -> bool:
+        return name == "search_policy"
+
+    async def execute(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
+        if name == "search_policy":
+            return self._policy_result(ctx)
+        raise AssertionError(f"Unexpected approval graph tool call: {name}")
+
     def _policy_result(self, ctx: ToolCallContext) -> ToolResultV2:
         evidence = EvidenceRefV1.build(
             tenant_id=ctx.tenant_id,
@@ -605,17 +628,29 @@ class _ApprovalGraphToolManager(UnifiedToolManager):
             audit_ref=None,
         )
 
-    @staticmethod
-    def _fact_ref(tenant_id: str, resource_type: str, resource_id: str) -> BusinessFactRefV1:
-        return BusinessFactRefV1(
-            tenant_id=tenant_id,
-            source_system="moca",
-            resource_type=resource_type,
-            resource_id=resource_id,
-            resource_version=None,
-            data_freshness_at=None,
-            retrieved_at=datetime.now(UTC),
-        )
+
+class _ApprovalGraphMaterialClaimVerifier:
+    async def verify_recommendation(self, **kwargs: Any) -> dict[str, Any]:
+        return {
+            "overall_outcome": "supported",
+            "allows_recommendation": True,
+            "route": {
+                "route": "allow",
+                "selected_by": "backend",
+                "model_selected": False,
+                "decision_source": "phase22_test_fixture",
+            },
+            "material_claims": [
+                {
+                    "claim_id": "claim-policy-1",
+                    "authority_class": "policy_claim",
+                    "verifier_status": "supported",
+                }
+            ],
+            "reason_codes": [],
+            "safe_citation_refs": ["approval_refund_policy#001"],
+            "metrics": {"claim_count": 1, "supported_claim_count": 1},
+        }
 
 
 @pytest.fixture

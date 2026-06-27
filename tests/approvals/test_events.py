@@ -12,7 +12,7 @@ from src.approvals.events import emit_approval_decided, emit_approval_resumed, v
 from src.approvals.service import ApprovalService
 from src.db.models import AgentTraceEvent, ApprovalEvent
 from tests.approvals.test_needs_info_resume import _changed_action
-from tests.approvals.test_service_transitions import _approval_bundle, _decision_command
+from tests.approvals.test_service_transitions import _approval_bundle, _decision_command as _base_decision_command
 
 
 APPROVAL_EVENT_TYPES = {
@@ -21,6 +21,13 @@ APPROVAL_EVENT_TYPES = {
     "approval_expired",
     "approval_resumed",
 }
+
+
+def _decision_command(*args, **kwargs):
+    kwargs.setdefault("actor_role", "admin")
+    return _base_decision_command(*args, **kwargs)
+
+
 FORBIDDEN_APPROVAL_PAYLOAD_KEYS = {
     "raw_prompt",
     "raw_args",
@@ -112,7 +119,7 @@ async def test_approval_decided_payload_distinguishes_all_decision_types(
     decision_type: str,
 ):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
     overrides: dict[str, Any] = {}
     if decision_type == "edit":
         overrides["edited_action"] = _changed_action(request)
@@ -157,7 +164,7 @@ async def test_approval_decided_requires_old_and_new_revision_refs_for_edit_and_
     seeded_session,
 ):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
     result = await ApprovalService(session).decide(
         _decision_command(
             request,
@@ -198,7 +205,7 @@ async def test_approval_decided_requires_old_and_new_revision_refs_for_hash_conf
     changed_ref: str,
 ):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
 
     with pytest.raises(ValueError, match="new_revision_ref"):
         await emit_approval_decided(
@@ -219,7 +226,7 @@ async def test_approval_resumed_helper_uses_minimal_event_without_graph_resume_w
     seeded_session,
 ):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
 
     approval_event = await emit_approval_resumed(
         session,

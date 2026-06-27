@@ -189,7 +189,6 @@ def _trusted_resume_config(session: AsyncSession, result: ApprovalDecisionResult
         thread_id=result.graph_thread_id,
         run_id=str(result.run_id),
         trace_id="trace-approval-test",
-        server_merchant_scope={"merchant_ids": ["*"]},
         server_tool_permissions=[approvals_router.ACTION_DRAFT_PERMISSION],
     )
     return {
@@ -206,7 +205,7 @@ def _edited_action(bundle: ApprovalBundle) -> dict:
         **bundle.approval.proposed_action,
         "amount": "88.00",
         "args": {**bundle.approval.proposed_action.get("args", {}), "coupon_type": "service_recovery"},
-        "reason": "manager edited compensation amount",
+        "reason": "reviewer edited compensation amount",
     }
 
 
@@ -224,21 +223,32 @@ async def test_decide_approve_builds_command_from_authenticated_actor_and_resume
 ):
     bundle = await _create_approval(session, seeded_session, thread_id="thread-approve")
     graph = FakeResumeGraph("approved response")
-    manager = seeded_session["users"]["approval_manager"]
+    admin = seeded_session["users"]["admin_user"]
     captured: dict[str, ApprovalDecisionCommand] = {}
+    factory_kwargs: list[dict] = []
     original_decide = ApprovalService.decide
+    original_create_from_request = approvals_router.TrustedContextFactory.create_from_request
 
     async def spy_decide(self, command: ApprovalDecisionCommand):
         captured["command"] = command
         return await original_decide(self, command)
 
+    def spy_create_from_request(**kwargs):
+        factory_kwargs.append(kwargs)
+        return original_create_from_request(**kwargs)
+
     monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
     monkeypatch.setattr(ApprovalService, "decide", spy_decide)
+    monkeypatch.setattr(
+        approvals_router.TrustedContextFactory,
+        "create_from_request",
+        staticmethod(spy_create_from_request),
+    )
 
     response = await client.post(
         f"/api/v1/approvals/{bundle.approval.id}/decide",
         json=_decision_body(bundle, "approve"),
-        headers=await _manager_headers(client),
+        headers=await _admin_headers(client),
     )
     payload = response.json()
 
@@ -246,10 +256,13 @@ async def test_decide_approve_builds_command_from_authenticated_actor_and_resume
     assert payload["success"] is True
     assert payload["data"]["status"] == "approved"
     assert payload["data"]["request_version"] == 2
-    assert captured["command"].actor_id == manager.id
-    assert captured["command"].tenant_id == manager.tenant_id
-    assert captured["command"].actor_role == "manager"
+    assert captured["command"].actor_id == admin.id
+    assert captured["command"].tenant_id == admin.tenant_id
+    assert captured["command"].actor_role == "admin"
     assert len(graph.calls) == 1
+    assert factory_kwargs
+    assert factory_kwargs[-1]["server_tool_permissions"] == [approvals_router.ACTION_DRAFT_PERMISSION]
+    assert "server_merchant_scope" not in factory_kwargs[-1]
     command, config = graph.calls[0]
     assert command.resume["schema_version"] == "approval_result.v1"
     assert command.resume["decision_type"] == "approve"
@@ -258,14 +271,14 @@ async def test_decide_approve_builds_command_from_authenticated_actor_and_resume
     assert command.resume["action_payload_hash"] == bundle.approval.action_payload_hash
     assert command.resume["safety_snapshot_ref"] == bundle.approval.safety_snapshot_ref
     assert command.resume["safety_snapshot_hash"] == bundle.approval.safety_snapshot_hash
-    assert command.resume["decided_by"] == str(manager.id)
+    assert command.resume["decided_by"] == str(admin.id)
     assert config["configurable"]["thread_id"] == (
         f"{bundle.approval.tenant_id}:{bundle.approval.requested_by}:{bundle.approval.thread_id}"
     )
     trusted_context = config["configurable"]["trusted_context"]
     assert trusted_context["tenant_id"] == str(bundle.approval.tenant_id)
-    assert trusted_context["user_id"] == str(manager.id)
-    assert trusted_context["role"] == "manager"
+    assert trusted_context["user_id"] == str(admin.id)
+    assert trusted_context["role"] == "admin"
     assert trusted_context["thread_id"] == config["configurable"]["thread_id"]
     assert trusted_context["run_id"] == str(bundle.approval.run_id)
     assert trusted_context["permissions"] == [approvals_router.ACTION_DRAFT_PERMISSION]
@@ -283,7 +296,7 @@ async def test_decide_commits_approval_decision_before_graph_resume(
 ):
     bundle = await _create_approval(session, seeded_session, thread_id="thread-commit-before-resume")
     graph = FakeResumeGraph("approved response")
-    headers = await _manager_headers(client)
+    headers = await _admin_headers(client)
     decision_body = _decision_body(bundle, "approve")
     original_commit = session.commit
     commit_count = 0
@@ -322,7 +335,7 @@ async def test_decide_records_recoverable_resume_failure_and_retries_terminal_ap
 ):
     bundle = await _create_approval(session, seeded_session, thread_id="thread-resume-retry")
     graph = FakeResumeGraph("approved response")
-    headers = await _manager_headers(client)
+    headers = await _admin_headers(client)
     decision_body = _decision_body(bundle, "approve")
     original_commit = session.commit
     commit_count = 0
@@ -401,8 +414,8 @@ async def test_approval_resume_reconciliation_accepts_not_executed_demo_draft_ou
     monkeypatch,
 ):
     bundle = await _create_approval(session, seeded_session, thread_id="thread-reconcile-draft-outcome")
-    manager = seeded_session["users"]["approval_manager"]
-    result = _approved_decision_result(bundle, manager.id)
+    admin = seeded_session["users"]["admin_user"]
+    result = _approved_decision_result(bundle, admin.id)
 
     async def fake_action_draft(state, config):
         assert state["approval_result"] == result.resume_payload
@@ -425,7 +438,7 @@ async def test_approval_resume_reconciliation_accepts_not_executed_demo_draft_ou
         session=session,
         result=result,
         final_state={"final_response": "approved"},
-        config=_trusted_resume_config(session, result, manager),
+        config=_trusted_resume_config(session, result, admin),
     )
 
     assert reconciled["draft_outcome"]["status"] == "not_executed_demo"
@@ -440,8 +453,8 @@ async def test_approval_resume_reconciliation_records_error_when_draft_outcome_m
     monkeypatch,
 ):
     bundle = await _create_approval(session, seeded_session, thread_id="thread-reconcile-missing-outcome")
-    manager = seeded_session["users"]["approval_manager"]
-    result = _approved_decision_result(bundle, manager.id)
+    admin = seeded_session["users"]["admin_user"]
+    result = _approved_decision_result(bundle, admin.id)
 
     async def fake_action_draft(_state, _config):
         return {"action_result": {"status": "draft_created", "data": {"draft_id": "draft-api-002"}, "error": {}}}
@@ -452,7 +465,7 @@ async def test_approval_resume_reconciliation_records_error_when_draft_outcome_m
         session=session,
         result=result,
         final_state={"final_response": "approved"},
-        config=_trusted_resume_config(session, result, manager),
+        config=_trusted_resume_config(session, result, admin),
     )
 
     assert {"node": "action_draft", "error": "action_draft_reconcile_failed"} in reconciled["node_errors"]
@@ -465,8 +478,8 @@ async def test_approval_resume_reconciliation_records_error_for_side_effecting_d
     monkeypatch,
 ):
     bundle = await _create_approval(session, seeded_session, thread_id="thread-reconcile-side-effect")
-    manager = seeded_session["users"]["approval_manager"]
-    result = _approved_decision_result(bundle, manager.id)
+    admin = seeded_session["users"]["admin_user"]
+    result = _approved_decision_result(bundle, admin.id)
 
     async def fake_action_draft(_state, _config):
         return {
@@ -485,7 +498,7 @@ async def test_approval_resume_reconciliation_records_error_for_side_effecting_d
         session=session,
         result=result,
         final_state={"final_response": "approved"},
-        config=_trusted_resume_config(session, result, manager),
+        config=_trusted_resume_config(session, result, admin),
     )
 
     assert {"node": "action_draft", "error": "action_draft_reconcile_failed"} in reconciled["node_errors"]
@@ -514,7 +527,7 @@ async def test_decide_respond_requires_response_text_validation(
     response = await client.post(
         f"/api/v1/approvals/{bundle.approval.id}/decide",
         json=_decision_body(bundle, "respond"),
-        headers=await _manager_headers(client),
+        headers=await _admin_headers(client),
     )
 
     assert response.status_code == 422
@@ -538,7 +551,7 @@ async def test_decide_respond_sets_needs_info_without_graph_resume(
             "respond",
             response_text="Please confirm the order and coupon amount.",
         ),
-        headers=await _manager_headers(client),
+        headers=await _admin_headers(client),
     )
     payload = response.json()
 
@@ -564,7 +577,7 @@ async def test_attach_info_same_revision_reopens_pending_request(
     respond = await client.post(
         f"/api/v1/approvals/{bundle.approval.id}/decide",
         json=_decision_body(bundle, "respond", response_text="Please confirm the coupon details."),
-        headers=await _manager_headers(client),
+        headers=await _admin_headers(client),
     )
     assert respond.status_code == 200
     await session.refresh(bundle.approval)
@@ -574,7 +587,7 @@ async def test_attach_info_same_revision_reopens_pending_request(
     response = await client.post(
         f"/api/v1/approvals/{bundle.approval.id}/info",
         json=_info_body(bundle),
-        headers=await _manager_headers(client),
+        headers=await _admin_headers(client),
     )
     payload = response.json()
     await session.refresh(bundle.approval)
@@ -603,7 +616,7 @@ async def test_attach_info_changed_payload_supersedes_old_request(
     respond = await client.post(
         f"/api/v1/approvals/{bundle.approval.id}/decide",
         json=_decision_body(bundle, "respond", response_text="Please confirm the coupon amount."),
-        headers=await _manager_headers(client),
+        headers=await _admin_headers(client),
     )
     assert respond.status_code == 200
     await session.refresh(bundle.approval)
@@ -617,7 +630,7 @@ async def test_attach_info_changed_payload_supersedes_old_request(
             bundle,
             info_payload={"response_text": "confirmed", "proposed_action": _edited_action(bundle)},
         ),
-        headers=await _manager_headers(client),
+        headers=await _admin_headers(client),
     )
     payload = response.json()
     await session.refresh(bundle.approval)
@@ -646,7 +659,7 @@ async def test_attach_info_wrong_thread_returns_conflict(
     respond = await client.post(
         f"/api/v1/approvals/{bundle.approval.id}/decide",
         json=_decision_body(bundle, "respond", response_text="Please confirm details."),
-        headers=await _manager_headers(client),
+        headers=await _admin_headers(client),
     )
     assert respond.status_code == 200
     await session.refresh(bundle.approval)
@@ -656,7 +669,7 @@ async def test_attach_info_wrong_thread_returns_conflict(
     response = await client.post(
         f"/api/v1/approvals/{bundle.approval.id}/info",
         json=_info_body(bundle, thread_id="wrong-thread"),
-        headers=await _manager_headers(client),
+        headers=await _admin_headers(client),
     )
 
     assert response.status_code == 409
@@ -676,7 +689,7 @@ async def test_decide_edit_requires_edited_action_validation(
     response = await client.post(
         f"/api/v1/approvals/{bundle.approval.id}/decide",
         json=_decision_body(bundle, "edit"),
-        headers=await _manager_headers(client),
+        headers=await _admin_headers(client),
     )
 
     assert response.status_code == 422
@@ -697,7 +710,7 @@ async def test_decide_edit_supersedes_without_action_draft_resume(
     response = await client.post(
         f"/api/v1/approvals/{bundle.approval.id}/decide",
         json=_decision_body(bundle, "edit", edited_action=_edited_action(bundle)),
-        headers=await _manager_headers(client),
+        headers=await _admin_headers(client),
     )
     payload = response.json()
 
@@ -723,7 +736,7 @@ async def test_decide_reject_resumes_graph_with_trusted_rejected_result(
     response = await client.post(
         f"/api/v1/approvals/{bundle.approval.id}/decide",
         json=_decision_body(bundle, "reject", reason="not enough evidence"),
-        headers=await _manager_headers(client),
+        headers=await _admin_headers(client),
     )
     payload = response.json()
 
@@ -754,7 +767,7 @@ async def test_decide_stale_version_conflict_returns_409_code_conflict(
     response = await client.post(
         f"/api/v1/approvals/{bundle.approval.id}/decide",
         json=_decision_body(bundle, expected_request_version=bundle.approval.version + 1),
-        headers=await _manager_headers(client),
+        headers=await _admin_headers(client),
     )
 
     assert response.status_code == 409
@@ -765,14 +778,14 @@ async def test_decide_stale_version_conflict_returns_409_code_conflict(
 async def test_decide_self_approval_returns_403_self_approval(
     client: AsyncClient, session: AsyncSession, seeded_session, monkeypatch
 ):
-    manager = seeded_session["users"]["approval_manager"]
-    bundle = await _create_approval(session, seeded_session, requested_by=manager)
+    admin = seeded_session["users"]["admin_user"]
+    bundle = await _create_approval(session, seeded_session, requested_by=admin)
     monkeypatch.setattr(app.state, "agent_graph", FakeResumeGraph(), raising=False)
 
     response = await client.post(
         f"/api/v1/approvals/{bundle.approval.id}/decide",
         json=_decision_body(bundle),
-        headers=await _manager_headers(client),
+        headers=await _admin_headers(client),
     )
 
     assert response.status_code == 403
@@ -801,7 +814,7 @@ async def test_decide_cross_tenant_approval_does_not_leak_request(
 async def test_get_approval_returns_v2_details(client: AsyncClient, session: AsyncSession, seeded_session):
     bundle = await _create_approval(session, seeded_session)
 
-    response = await client.get(f"/api/v1/approvals/{bundle.approval.id}", headers=await _manager_headers(client))
+    response = await client.get(f"/api/v1/approvals/{bundle.approval.id}", headers=await _admin_headers(client))
     payload = response.json()
 
     assert response.status_code == 200
@@ -829,6 +842,33 @@ async def test_get_approval_rejects_over_scoped_non_reviewer_token(
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "FORBIDDEN"
+
+
+@pytest.mark.asyncio
+async def test_manager_approval_review_paths_return_403(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(session, seeded_session, thread_id="thread-manager-deny")
+    monkeypatch.setattr(app.state, "agent_graph", FakeResumeGraph(), raising=False)
+    manager_headers = await _manager_headers(client)
+
+    list_response = await client.get("/api/v1/approvals", headers=manager_headers)
+    get_response = await client.get(f"/api/v1/approvals/{bundle.approval.id}", headers=manager_headers)
+    decide_response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=_decision_body(bundle),
+        headers=manager_headers,
+    )
+
+    assert list_response.status_code == 403
+    assert get_response.status_code == 403
+    assert decide_response.status_code == 403
+    assert list_response.json()["error"]["code"] == "FORBIDDEN"
+    assert get_response.json()["error"]["code"] == "FORBIDDEN"
+    assert decide_response.json()["error"]["code"] == "FORBIDDEN"
 
 
 @pytest.mark.asyncio
@@ -862,7 +902,7 @@ async def test_list_pending_approvals_returns_unexpired_pending_only(
     session.add(legacy)
     await session.commit()
 
-    response = await client.get("/api/v1/approvals", headers=await _manager_headers(client))
+    response = await client.get("/api/v1/approvals", headers=await _admin_headers(client))
     payload = response.json()
     ids = {item["id"] for item in payload["data"]["approvals"]}
 
@@ -899,7 +939,7 @@ async def test_agent_run_status_updates_to_completed_after_service_resume(
     response = await client.post(
         f"/api/v1/approvals/{bundle.approval.id}/decide",
         json=_decision_body(bundle),
-        headers=await _manager_headers(client),
+        headers=await _admin_headers(client),
     )
 
     run = await session.get(AgentRun, bundle.approval.run_id)
@@ -912,4 +952,9 @@ async def test_agent_run_status_updates_to_completed_after_service_resume(
 
 async def _manager_headers(client: AsyncClient) -> dict[str, str]:
     response = await client.post("/api/v1/auth/login", json={"username": "approval_manager", "password": "moca2024"})
+    return {"Authorization": f"Bearer {response.json()['data']['access_token']}"}
+
+
+async def _admin_headers(client: AsyncClient) -> dict[str, str]:
+    response = await client.post("/api/v1/auth/login", json={"username": "admin_user", "password": "moca2024"})
     return {"Authorization": f"Bearer {response.json()['data']['access_token']}"}

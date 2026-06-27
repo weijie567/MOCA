@@ -56,7 +56,7 @@ async def test_high_risk_approve_flow_interrupts_resumes_executes_action(
     decision_response = await client.post(
         f"/api/v1/approvals/{approval_id}/decide",
         json=_decision_body_from_wait_payload(chat_payload["data"]),
-        headers=await auth_headers(approval_test_user.username),
+        headers=await auth_headers("admin_user"),
     )
     decision_payload = decision_response.json()
     await session.refresh(interrupted_run)
@@ -104,7 +104,7 @@ async def test_high_risk_reject_flow_completes_without_action(
     decision_response = await client.post(
         f"/api/v1/approvals/{approval_id}/decide",
         json=_decision_body_from_wait_payload(chat_payload["data"], decision_type="reject", reason="Too expensive"),
-        headers=await auth_headers(approval_test_user.username),
+        headers=await auth_headers("admin_user"),
     )
     approval = await session.get(ApprovalRequest, approval_id)
     run = await session.get(AgentRun, run_id)
@@ -171,7 +171,7 @@ async def test_expired_approval_decision_returns_409_conflict(
     response = await client.post(
         f"/api/v1/approvals/{bundle.approval.id}/decide",
         json=_decision_body(bundle),
-        headers=await auth_headers(approval_test_user.username),
+        headers=await auth_headers("admin_user"),
     )
     await session.refresh(bundle.approval)
 
@@ -199,7 +199,7 @@ async def test_idempotent_approve_does_not_duplicate_action_draft(
     wait_payload = chat_response.json()["data"]
     approval_id = UUID(wait_payload["approval_id"])
     run_id = UUID(wait_payload["run_id"])
-    headers = await auth_headers(approval_test_user.username)
+    headers = await auth_headers("admin_user")
 
     first_response = await client.post(
         f"/api/v1/approvals/{approval_id}/decide",

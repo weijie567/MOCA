@@ -13,12 +13,17 @@ from src.approvals.service import ApprovalService, ApprovalTransitionError
 from src.db.models import ActionSafetySnapshot, AgentTraceEvent, ApprovalDecision, ApprovalEvent, ApprovalRequest
 from tests.approvals.test_service_transitions import (
     _approval_bundle,
-    _decision_command,
+    _decision_command as _base_decision_command,
     _evidence_ref,
 )
 
 
 ACTIVE_REQUEST_STATUSES = {"pending", "needs_info"}
+
+
+def _decision_command(*args, **kwargs):
+    kwargs.setdefault("actor_role", "admin")
+    return _base_decision_command(*args, **kwargs)
 
 
 def _changed_action(request: ApprovalRequest, *, amount: str = "88.00") -> dict[str, Any]:
@@ -46,7 +51,7 @@ def _info_command(
     request: ApprovalRequest,
     *,
     actor_id: UUID,
-    actor_role: str = "manager",
+    actor_role: str = "admin",
     clarification_request_id: str | None = None,
     info_payload: dict[str, Any] | None = None,
     **overrides: Any,
@@ -140,7 +145,7 @@ async def _assert_old_revision_cannot_execute(
 @pytest.mark.asyncio
 async def test_respond_writes_needs_info_and_no_resume_payload(session: AsyncSession, seeded_session):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
 
     result = await _respond(session, request, level, assignment, actor_id=actor_id)
 
@@ -182,7 +187,7 @@ async def test_respond_writes_needs_info_and_no_resume_payload(session: AsyncSes
 @pytest.mark.asyncio
 async def test_respond_does_not_create_action_draft_or_approval_result(session: AsyncSession, seeded_session):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
 
     result = await _respond(session, request, level, assignment, actor_id=actor_id)
 
@@ -195,7 +200,7 @@ async def test_respond_does_not_create_action_draft_or_approval_result(session: 
 @pytest.mark.asyncio
 async def test_attach_info_wrong_clarification_id_fails_closed(session: AsyncSession, seeded_session):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
     await _respond(session, request, level, assignment, actor_id=actor_id)
 
     with pytest.raises(ApprovalTransitionError) as exc:
@@ -214,7 +219,7 @@ async def test_attach_info_wrong_clarification_id_fails_closed(session: AsyncSes
 @pytest.mark.asyncio
 async def test_attach_info_wrong_tenant_or_thread_fails_closed(session: AsyncSession, seeded_session):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
     await _respond(session, request, level, assignment, actor_id=actor_id)
 
     for command in [
@@ -234,7 +239,7 @@ async def test_attach_info_stale_request_level_assignment_versions_fail_closed(
     seeded_session,
 ):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
     await _respond(session, request, level, assignment, actor_id=actor_id)
 
     for overrides in [
@@ -251,7 +256,7 @@ async def test_attach_info_stale_request_level_assignment_versions_fail_closed(
 @pytest.mark.asyncio
 async def test_attach_info_changed_payload_supersedes_old_revision(session: AsyncSession, seeded_session):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
     await _respond(session, request, level, assignment, actor_id=actor_id)
     old_action_payload_hash = request.action_payload_hash
     old_decision_command = _decision_command(request, level, assignment, actor_id=actor_id)
@@ -283,7 +288,7 @@ async def test_attach_info_malformed_changed_payload_fails_closed_without_orphan
     seeded_session,
 ):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
     await _respond(session, request, level, assignment, actor_id=actor_id)
     malformed_action = {**_changed_action(request), "amount": 88.0}
     before_decisions = await session.scalar(select(func.count()).select_from(ApprovalDecision))
@@ -316,7 +321,7 @@ async def test_attach_info_changed_payload_emits_replay_linked_requested_event(
     seeded_session,
 ):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
     await _respond(session, request, level, assignment, actor_id=actor_id)
 
     result = await ApprovalService(session).attach_info(
@@ -352,7 +357,7 @@ async def test_attach_info_changed_payload_emits_replay_linked_requested_event(
 @pytest.mark.asyncio
 async def test_attach_info_leaves_only_one_active_revision(session: AsyncSession, seeded_session):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
     await _respond(session, request, level, assignment, actor_id=actor_id)
 
     result = await ApprovalService(session).attach_info(
@@ -372,7 +377,7 @@ async def test_attach_info_leaves_only_one_active_revision(session: AsyncSession
 @pytest.mark.asyncio
 async def test_edit_generates_new_action_payload_hash_before_reroute(session: AsyncSession, seeded_session):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
     old_action_payload_hash = request.action_payload_hash
 
     result = await ApprovalService(session).decide(
@@ -404,7 +409,7 @@ async def test_edit_generates_new_action_payload_hash_before_reroute(session: As
 @pytest.mark.asyncio
 async def test_attach_info_changed_evidence_or_config_requires_new_snapshot_hash(session: AsyncSession, seeded_session):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
     await _respond(session, request, level, assignment, actor_id=actor_id)
     old_snapshot_hash = request.safety_snapshot_hash
 
@@ -440,7 +445,7 @@ async def test_attach_info_timeout_cancelled_old_revision_cannot_execute(session
         seeded_session,
         expires_at=datetime.now(UTC) + timedelta(seconds=1),
     )
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
     await _respond(session, expired_request, expired_level, expired_assignment, actor_id=actor_id)
     expired_request.expires_at = datetime.now(UTC) - timedelta(seconds=1)
     await session.flush()
@@ -474,7 +479,7 @@ async def test_attach_info_timeout_cancelled_old_revision_cannot_execute(session
 @pytest.mark.asyncio
 async def test_edit_supersedes_old_revision_and_reroutes_to_risk(session: AsyncSession, seeded_session):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
     old_decision_command = _decision_command(request, level, assignment, actor_id=actor_id)
 
     result = await ApprovalService(session).decide(

@@ -14,8 +14,13 @@ from tests.approvals.test_service_transitions import (
     _approval_bundle,
     _create_command,
     _create_run,
-    _decision_command,
+    _decision_command as _base_decision_command,
 )
+
+
+def _decision_command(*args, **kwargs):
+    kwargs.setdefault("actor_role", "admin")
+    return _base_decision_command(*args, **kwargs)
 
 
 @pytest.mark.asyncio
@@ -50,7 +55,7 @@ async def test_single_level_runtime_approves_only_after_required_assignment_acce
     seeded_session,
 ):
     request, level, assignment = await _approval_bundle(session, seeded_session)
-    actor_id = seeded_session["users"]["approval_manager"].id
+    actor_id = seeded_session["users"]["admin_user"].id
 
     result = await ApprovalService(session).decide(
         _decision_command(request, level, assignment, actor_id=actor_id, decision_type="approve")
