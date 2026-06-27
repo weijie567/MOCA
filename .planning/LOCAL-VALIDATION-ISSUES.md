@@ -3865,3 +3865,60 @@ F401 [*] `pytest` imported but unused
 ### 下次继续排查入口
 
 - `tests/replay/test_replay_migration_contract.py`
+
+## 2026-06-27 18:02 CST - Phase 29.5 Plan 02 Task 1 verify 暴露 investigate 既有架构边界红灯
+
+### 问题现象
+
+执行 Phase 29.5 Plan 02 Task 1 的 verify 命令时，`tests/platform/test_trusted_context_factory.py` 和 `tests/platform/test_trusted_context.py` 均通过，但 `tests/architecture/test_trusted_context_boundaries.py` 有 1 个失败。
+
+### 如何检测 / 复现
+
+```bash
+uv run pytest tests/platform/test_trusted_context_factory.py tests/platform/test_trusted_context.py tests/architecture/test_trusted_context_boundaries.py -q
+```
+
+### 关键证据或命令
+
+失败断言：
+
+```text
+tests/architecture/test_trusted_context_boundaries.py::test_current_seams_use_projection_helpers_not_direct_trusted_context_constructors
+AssertionError: ['src/agent/nodes/investigate.py still directly constructs service context'] == []
+```
+
+定位命令：
+
+```bash
+rg -n 'ToolCallContext\(|KnowledgeContext\(' src/agent/nodes/investigate.py
+```
+
+命中：
+
+```text
+src/agent/nodes/investigate.py:295:    return ToolCallContext(
+```
+
+### 当前判断 / 根因
+
+当前判断为既有架构边界红灯，不是 Plan 02 本轮 `TrustedContextFactory` / `require_merchant_access` 变更引入。Phase 29.5 Plan 05 已把 `src/agent/nodes/investigate.py` missing trusted context / wildcard fallback 收敛列为执行范围，因此本轮不提前改 Plan 05 文件，避免跨 wave scope creep。
+
+### 已做处理
+
+Plan 02 本轮只完成 factory role matrix 和 route-level merchant helper。Plan-level 验证命令已通过：
+
+```bash
+uv run pytest tests/platform/test_trusted_context_factory.py tests/platform/test_merchant_scope.py -q
+```
+
+结果：`42 passed`。Task 1 broader verify 中的 architecture 红灯已记录为 Plan 05 入口。
+
+### 剩余问题
+
+执行 Phase 29.5 Plan 05 时，需要移除或重构 `src/agent/nodes/investigate.py` 中直接构造 `ToolCallContext` 的路径，并让 architecture boundary test 重新通过。
+
+### 下次继续排查入口
+
+- `src/agent/nodes/investigate.py`
+- `tests/architecture/test_trusted_context_boundaries.py`
+- `.planning/phases/29.5-merchant-scope-role-model-alignment/29.5-05-PLAN.md`
