@@ -4274,3 +4274,63 @@ Phase 30 本轮流程无阻塞。后续在当前本机 `gsd-sdk query state.reco
 - `$HOME/.codex/get-shit-done/workflows/discuss-phase.md`
 - `/opt/homebrew/lib/node_modules/@gsd-build/sdk/dist/query/state-mutation.js`
 - `.planning/STATE.md`
+
+## 2026-06-28 00:23 CST - skill-creator 脚本执行与校验依赖问题
+
+### 问题现象
+
+为创建 `$gsd-phase-autopilot` skill 时，skill-creator 的初始化和校验脚本暴露三个本地环境/参数问题：
+
+1. 直接执行 `init_skill.py --help` 返回 `permission denied`。
+2. `init_skill.py` 初次运行时因 `short_description` 超过 64 字符而中止，但已经创建了 skill 目录和 `SKILL.md`。
+3. `quick_validate.py` 因当前 `python3` 环境缺少 `yaml` 模块而无法运行。
+
+### 如何检测 / 复现
+
+```bash
+/Users/ming/.codex/skills/.system/skill-creator/scripts/init_skill.py --help
+python3 /Users/ming/.codex/skills/.system/skill-creator/scripts/init_skill.py gsd-phase-autopilot --path /Users/ming/.codex/skills --resources references --interface short_description='Run a single GSD phase through dual-AI plan review, execution, and post-phase audits.'
+python3 /Users/ming/.codex/skills/.system/skill-creator/scripts/quick_validate.py /Users/ming/.codex/skills/gsd-phase-autopilot
+```
+
+### 关键证据或命令
+
+```text
+zsh:1: permission denied: /Users/ming/.codex/skills/.system/skill-creator/scripts/init_skill.py
+[ERROR] short_description must be 25-64 characters (got 85).
+ModuleNotFoundError: No module named 'yaml'
+```
+
+同时确认当前默认 Python 为 `/opt/homebrew/bin/python3`，导入 `yaml` 失败：
+
+```bash
+which -a python3 python
+python3 - <<'PY'
+import yaml
+PY
+```
+
+### 当前判断 / 根因
+
+`init_skill.py` 没有可执行权限，需要通过 `python3` 调用。`agents/openai.yaml` 的 `short_description` 有 25-64 字符限制。skill-creator 的校验/元数据生成脚本依赖 `PyYAML`，但当前 Homebrew Python 环境未安装该模块。
+
+### 已做处理
+
+改用 `python3` 调用初始化脚本，并将 `short_description` 缩短到限制内。`generate_openai_yaml.py` 也因缺 `yaml` 无法读取 frontmatter，已通过显式传入 `--name gsd-phase-autopilot` 绕过读取并成功生成 `agents/openai.yaml`：
+
+```bash
+python3 /Users/ming/.codex/skills/.system/skill-creator/scripts/generate_openai_yaml.py /Users/ming/.codex/skills/gsd-phase-autopilot --name gsd-phase-autopilot --interface display_name='GSD Phase Autopilot' --interface short_description='Automate a full GSD phase lifecycle' --interface default_prompt='$gsd-phase-autopilot 30'
+```
+
+由于 `quick_validate.py` 仍缺 `PyYAML`，本轮执行了等价轻量校验：确认 `SKILL.md` frontmatter 存在、`name` 为 `gsd-phase-autopilot`、`description` 非空且包含 29.5 workflow 触发语义，并确认 `references/workflow.md` 与 `agents/openai.yaml` 均存在。
+
+### 剩余问题
+
+官方 `quick_validate.py` 尚未在当前 Python 环境跑通。后续若要使用官方校验脚本，应在合适环境安装 `PyYAML`，或使用已有 conda 环境中带 `yaml` 的 Python。
+
+### 下次继续排查入口
+
+- `/Users/ming/.codex/skills/.system/skill-creator/scripts/init_skill.py`
+- `/Users/ming/.codex/skills/.system/skill-creator/scripts/quick_validate.py`
+- `/Users/ming/.codex/skills/.system/skill-creator/scripts/generate_openai_yaml.py`
+- `/Users/ming/.codex/skills/gsd-phase-autopilot/`
