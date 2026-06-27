@@ -58,6 +58,7 @@ async def test_get_order_success(monkeypatch):
             },
         },
     )
+    monkeypatch.setattr("src.integrations.demo_business.orders.merchant_can_access", AsyncMock(return_value=True))
 
     result = await get_order("ORD-001", str(uuid4()), str(uuid4()), "admin", AsyncMock())
 
@@ -90,6 +91,7 @@ async def test_get_order_no_messages_field(monkeypatch):
             },
         },
     )
+    monkeypatch.setattr("src.integrations.demo_business.orders.merchant_can_access", AsyncMock(return_value=True))
 
     result = await get_order("ORD-001", str(uuid4()), str(uuid4()), "admin", AsyncMock())
 

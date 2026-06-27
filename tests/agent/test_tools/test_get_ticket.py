@@ -37,6 +37,7 @@ async def test_get_ticket_by_ticket_no_success(monkeypatch):
         "src.integrations.demo_business.tickets.order_merchant_id",
         AsyncMock(return_value=uuid4()),
     )
+    monkeypatch.setattr("src.integrations.demo_business.tickets.merchant_can_access", AsyncMock(return_value=True))
 
     result = await get_ticket("TK-001", str(uuid4()), str(uuid4()), "admin", AsyncMock())
 
@@ -55,6 +56,7 @@ async def test_get_ticket_by_uuid_success(monkeypatch):
         "src.integrations.demo_business.tickets.order_merchant_id",
         AsyncMock(return_value=uuid4()),
     )
+    monkeypatch.setattr("src.integrations.demo_business.tickets.merchant_can_access", AsyncMock(return_value=True))
 
     result = await get_ticket(str(ticket_id), str(uuid4()), str(uuid4()), "admin", AsyncMock())
 

@@ -44,6 +44,7 @@ async def test_get_refund_case_success(monkeypatch):
         "src.integrations.demo_business.refunds.order_merchant_id",
         AsyncMock(return_value=uuid4()),
     )
+    monkeypatch.setattr("src.integrations.demo_business.refunds.merchant_can_access", AsyncMock(return_value=True))
 
     result = await get_refund_case("RF-001", str(uuid4()), str(uuid4()), "admin", AsyncMock())
 
