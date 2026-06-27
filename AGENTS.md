@@ -37,6 +37,13 @@ MOCA 采用 Codex 与 Codex 的「双 AI 交叉评审」模式：**Codex 是 pla
 5. **[分流] 执行采纳的修改** —— 按下方「大改/小改判定线」分流：小改 Codex 自己改，大改交 Codex 执行。
 6. **[GSD 工具 → Codex] 复核** —— 优先重跑 `gsd-plan-checker`，再由 Codex 做最终复核，确认修订正确、完整、自洽。
 
+### PLAN 粒度硬约束
+
+- phase-level planning 必须先做 plan 粒度检查：如果一个 phase 涉及多个 service boundary / ownership domain / wave / verification gate，第一版就要拆成多个编号 plan，不允许先写成一个大 `*-01-PLAN.md` 再留给执行阶段拆。
+- 出现「只有一个大 plan」且同时覆盖契约定义、实现迁移、兼容层、调用方改造、权限/安全边界和最终验证时，视为 planning blocker。必须在执行前拆成按依赖排序的小 plan，每个 plan 有单一目标、有限文件面、可执行 task、明确 tests / acceptance criteria。
+- `gsd-plan-checker` 和 Codex 独立复核都必须显式检查 plan 粒度。若 plan 太大导致 task 不具体、验收不可直接执行、或文件跨度过宽，先拆 plan，再继续后续评审或实现。
+- Phase 30 曾出现把 BusinessFactService boundary 写成一个过大的 `30-01-PLAN.md` 的问题，导致计划不可具体执行；后续同类 service-boundary / platform-foundation phase 必须以此为反例，优先拆分为契约/服务边界、兼容/平台集成、调用方/最终验证等可执行单元。
+
 ### 阶段 B：代码实现（Codex 主导）
 
 7. **[Codex] 实现代码** —— 按已定稿的 PLAN.md 实现。

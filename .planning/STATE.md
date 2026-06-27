@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
 status: planning
-stopped_at: Phase 30 context gathered
+stopped_at: Phase 30 planned and approved
 last_updated: "2026-06-27T17:58:15.329Z"
 last_activity: 2026-06-27
 progress:
@@ -25,13 +25,13 @@ See: `.planning/PROJECT.md` (updated 2026-06-23)
 
 ## Current Position
 
-Phase: 29.5 (Merchant Scope / Role Model Alignment) — COMPLETE
+Phase: 30 (BusinessFactService Boundary) — PLANNED
 Next roadmap item: Phase 30 — BusinessFactService Boundary
-Plan: 6 of 6 complete
-Status: Ready to plan Phase 30
+Plan: 0 of 3 complete
+Status: Ready to execute Phase 30
 Last activity: 2026-06-27
 
-Progress: [██████████] 100%
+Progress: [████████  ] 83%
 
 Planning files:
 
@@ -54,7 +54,7 @@ Planning files:
 
 ## Performance Metrics
 
-**v1.9 target:** 11 phases, 18 APF requirements, 15 phase plans.
+**v1.9 current planned scope:** 11 phases, 18 APF requirements, 18 planned phase plans.
 
 | Phase | Plans | Status |
 |-------|-------|--------|
@@ -63,7 +63,7 @@ Planning files:
 | 28. Decision Event Foundation | 1/1 complete | Complete |
 | 29. Tool Platform Boundary | 4/4 complete | Complete |
 | 29.5. Merchant Scope / Role Model Alignment | 6/6 complete | Complete |
-| 30. BusinessFactService Boundary | 0/1 | Pending |
+| 30. BusinessFactService Boundary | 0/3 | Planned |
 | 31. Memory Platform Boundary | 0/1 | Pending |
 | 32. Intent Graph Migration | 0/1 | Pending |
 | 33. RAG Context Build and Claim Verification | 0/1 | Pending |
