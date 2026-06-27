@@ -375,13 +375,16 @@ class BusinessFactService:
         if result.status == "permission_denied":
             return self._permission_denied_result(resource_name, tenant_id, source_system=result.source_system)
         if result.status == "not_found":
-            return self._safe_result(
+            not_found = self._safe_result(
                 "not_found",
                 resource_name=resource_name,
                 tenant_id=tenant_id,
                 source_system=result.source_system,
                 scope_check_result="unknown",
             )
+            if result.error is not None:
+                not_found = not_found.model_copy(update={"safe_errors": [result.error]})
+            return not_found
         if result.status == "invalid_request":
             return self._safe_result(
                 "invalid_request",
@@ -515,16 +518,13 @@ class BusinessToolService:
     def __init__(
         self,
         session: AsyncSession,
-        adapters: Mapping[str, BusinessToolAdapter] | None = None,
+        adapters: Mapping[str, BusinessFactAdapter] | None = None,
         tools: Mapping[str, BusinessReadToolDefinition] | None = None,
+        fact_service: BusinessFactService | None = None,
     ) -> None:
         self.session = session
-        self.tools = dict(BUSINESS_READ_TOOLS if tools is None else tools)
-        if adapters is not None:
-            for name, adapter in adapters.items():
-                definition = self.tools.get(name)
-                if definition is not None:
-                    self.tools[name] = replace(definition, adapter=adapter)
+        self.fact_service = fact_service or BusinessFactService(session, adapters=adapters, tools=tools)
+        self.tools = self.fact_service.tools
 
     @classmethod
     def with_default_registry(cls, session: AsyncSession) -> BusinessToolService:
@@ -537,82 +537,13 @@ class BusinessToolService:
         return cls(session)
 
     def has_tool(self, name: str) -> bool:
-        return name in self.tools
+        return self.fact_service.has_tool(name)
 
     async def invoke_tool(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
-        """Invoke one logical tool call, retrying only explicitly retryable results."""
+        """Invoke a logical business read through the domain fact boundary."""
 
-        if not _merchant_scope_allows(ctx.merchant_scope):
-            return self._local_error(
-                "permission_denied",
-                "Merchant scope is required",
-                code="EMPTY_MERCHANT_SCOPE",
-            )
-
-        # Order/refund/ticket inputs do not expose merchant-identifying dimensions;
-        # their resource merchant check remains at the raw merchant_can_access seam.
-        if not _merchant_scope_allows(
-            ctx.merchant_scope,
-            merchant_id=args.get("merchant_id"),
-            category=args.get("category"),
-            risk_level=args.get("risk_level"),
-        ):
-            return self._local_error(
-                "permission_denied",
-                "Business resource is outside merchant scope",
-                code="MERCHANT_SCOPE_DENIED",
-            )
-
-        if ctx.attempt > ctx.max_attempts:
-            return self._local_error(
-                "error",
-                "Tool retry limit exhausted",
-                code="MAX_ATTEMPTS_EXHAUSTED",
-            )
-
-        for attempt in range(ctx.attempt, ctx.max_attempts + 1):
-            attempt_ctx = ctx.model_copy(update={"attempt": attempt})
-            result = await self._invoke_adapter(name, args, attempt_ctx)
-            if result.status == "success" or result.retryable is not True:
-                return result
-        return result
-
-    async def _invoke_adapter(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
-        definition = self.tools.get(name)
-        if definition is None:
-            return self._local_error(
-                "unavailable",
-                "Business tool is unavailable",
-                code="TOOL_UNAVAILABLE",
-                source="tool",
-            )
-
-        try:
-            input_model = definition.input_model.model_validate(args)
-        except ValidationError:
-            return self._local_error(
-                "invalid_request",
-                "Business read request is invalid",
-                code="INVALID_BUSINESS_REQUEST",
-            )
-
-        try:
-            result = await definition.adapter(input_model, ctx, self.session)
-        except Exception:
-            return self._local_error(
-                "error",
-                "Business read failed",
-                code="ADAPTER_ERROR",
-                source="adapter",
-            )
-        if not isinstance(result, ToolResultV2):
-            return self._local_error(
-                "invalid_response",
-                "Business read returned an invalid response",
-                code="INVALID_ADAPTER_RESPONSE",
-                source="adapter",
-            )
-        return result
+        result = await self.fact_service._read_tool(name, args, ctx)
+        return self._wrap_business_fact_result(result)
 
     async def fetch_context(self, slots: dict[str, Any], intent: str, ctx: ToolCallContext) -> BusinessContextV1:
         """Conditionally aggregate requested business reads into one typed context."""
@@ -696,22 +627,79 @@ class BusinessToolService:
         )
 
     @staticmethod
-    def _local_error(
-        status: Literal["permission_denied", "error", "unavailable", "invalid_request", "invalid_response"],
-        summary: str,
-        *,
-        code: str,
-        source: Literal["caller", "tool", "adapter"] = "caller",
-    ) -> ToolResultV2:
+    def _wrap_business_fact_result(result: BusinessFactResultV1) -> ToolResultV2:
+        status_map: dict[str, Literal[
+            "success",
+            "partial_success",
+            "not_found",
+            "permission_denied",
+            "unavailable",
+            "invalid_request",
+        ]] = {
+            "ok": "success",
+            "partial": "partial_success",
+            "not_found": "not_found",
+            "permission_denied": "permission_denied",
+            "stale": "unavailable",
+            "unavailable": "unavailable",
+            "invalid_request": "invalid_request",
+        }
+        code_map = {
+            "not_found": "BUSINESS_FACT_NOT_FOUND",
+            "permission_denied": "BUSINESS_FACT_PERMISSION_DENIED",
+            "stale": "BUSINESS_FACT_STALE",
+            "unavailable": "BUSINESS_FACT_UNAVAILABLE",
+            "invalid_request": "BUSINESS_FACT_INVALID_REQUEST",
+        }
+        source_map: dict[str, Literal["caller", "tool", "adapter", "upstream", "policy"]] = {
+            "not_found": "upstream",
+            "permission_denied": "caller",
+            "stale": "adapter",
+            "unavailable": "adapter",
+            "invalid_request": "caller",
+        }
+
+        tool_status = status_map[result.status]
+        success = result.status in {"ok", "partial"} and result.fact is not None and result.business_fact_refs
+        if success:
+            return ToolResultV2(
+                status=tool_status,
+                data=result.fact,
+                summary="Business fact read succeeded",
+                source_system=result.source_system,
+                data_freshness_at=result.data_freshness_at,
+                policy_evidence_refs=[],
+                business_fact_refs=result.business_fact_refs,
+                error=None,
+                retryable=False,
+                retry_after_ms=None,
+                latency_ms=0,
+                audit_ref=None,
+            )
+
+        status = result.status if result.status not in {"ok", "partial"} else "unavailable"
+        safe_message = (
+            "Business fact request is invalid"
+            if status == "invalid_request"
+            else NO_LEAK_BUSINESS_RESOURCE_MESSAGE
+        )
+        safe_code = code_map[status]
+        if status == "not_found" and result.safe_errors:
+            safe_code = result.safe_errors[0].code
         return ToolResultV2(
-            status=status,
+            status=status_map[status],
             data=None,
-            summary=summary,
-            source_system="business_tool_service",
+            summary=safe_message,
+            source_system=result.source_system,
             data_freshness_at=None,
             policy_evidence_refs=[],
             business_fact_refs=[],
-            error=ToolError(code=code, safe_message=summary, retryable=False, source=source),
+            error=ToolError(
+                code=safe_code,
+                safe_message=safe_message,
+                retryable=False,
+                source=source_map[status],
+            ),
             retryable=False,
             retry_after_ms=None,
             latency_ms=0,
