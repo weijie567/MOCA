@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Security, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Security
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.schemas.common import ApiResponse, FORBIDDEN, REFUND_CASE_NOT_FOUND
+from src.api.schemas.common import ApiResponse, REFUND_CASE_NOT_FOUND
 from src.api.schemas.refund_cases import RefundCaseResponse
-from src.auth.permissions import get_current_user
+from src.auth.permissions import get_current_user, require_merchant_access
 from src.db.models import Order, User
 from src.db.session import get_session
 from src.repositories.audit_repo import AuditRepository
@@ -44,13 +44,11 @@ async def get_refund_case(
         )
         raise HTTPException(status_code=404, detail={"code": REFUND_CASE_NOT_FOUND, "message": "Refund case not found"})
     merchant_id = (
-        await session.execute(select(Order.merchant_id).where(Order.id == refund_case.order_id))
-    ).scalar_one()
-    if user.role == "merchant" and (user.merchant_id is None or merchant_id != user.merchant_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"code": FORBIDDEN, "message": "Merchant access is limited to the merchant's own refund cases"},
+        await session.execute(
+            select(Order.merchant_id).where(Order.id == refund_case.order_id, Order.tenant_id == user.tenant_id)
         )
+    ).scalar_one()
+    require_merchant_access(user, merchant_id, resource_name="refund cases")
 
     await AuditRepository(session).record_tool_call(
         action="get_refund_case",

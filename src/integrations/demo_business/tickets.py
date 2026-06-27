@@ -59,21 +59,20 @@ async def get_ticket(
                 retryable=False,
             )
 
-        if role == "merchant":
-            merchant_id = await order_merchant_id(session, tenant_id=tenant_uuid, order_id=ticket.order_id)
-            if merchant_id is None or not await merchant_can_access(
-                session,
-                tenant_id=tenant_uuid,
-                user_id=user_id,
-                role=role,
-                merchant_id=merchant_id,
-            ):
-                return _tool_error(
-                    "FORBIDDEN",
-                    "Merchant access is limited to the merchant's own tickets",
-                    retryable=False,
-                    should_stop=True,
-                )
+        merchant_id = await order_merchant_id(session, tenant_id=tenant_uuid, order_id=ticket.order_id)
+        if merchant_id is None or not await merchant_can_access(
+            session,
+            tenant_id=tenant_uuid,
+            user_id=user_id,
+            role=role,
+            merchant_id=merchant_id,
+        ):
+            return _tool_error(
+                "FORBIDDEN",
+                "Merchant access is limited to the merchant's own tickets",
+                retryable=False,
+                should_stop=True,
+            )
 
         return _tool_success(
             {

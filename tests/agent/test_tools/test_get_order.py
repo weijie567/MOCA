@@ -91,7 +91,7 @@ async def test_get_order_no_messages_field(monkeypatch):
         },
     )
 
-    result = await get_order("ORD-001", str(uuid4()), str(uuid4()), "support_agent", AsyncMock())
+    result = await get_order("ORD-001", str(uuid4()), str(uuid4()), "admin", AsyncMock())
 
     assert result["status"] == "success"
     assert "messages" not in result["data"]

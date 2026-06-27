@@ -8,6 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.models import Order, User
 
 
+MERCHANT_BOUND_ROLES = {"support", "manager", "merchant"}
+PLATFORM_ADMIN_ROLES = {"admin"}
+
+
 async def merchant_can_access(
     session: AsyncSession,
     *,
@@ -18,8 +22,10 @@ async def merchant_can_access(
 ) -> bool:
     """Return whether the caller may read data owned by merchant_id."""
 
-    if role != "merchant":
+    if role in PLATFORM_ADMIN_ROLES:
         return True
+    if role not in MERCHANT_BOUND_ROLES:
+        return False
 
     try:
         user_uuid = UUID(user_id)
@@ -29,7 +35,7 @@ async def merchant_can_access(
     stmt = select(User.merchant_id).where(
         User.id == user_uuid,
         User.tenant_id == tenant_id,
-        User.role == "merchant",
+        User.role.in_(tuple(MERCHANT_BOUND_ROLES)),
         User.is_active.is_(True),
     )
     result = await session.execute(stmt)
