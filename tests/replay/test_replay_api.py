@@ -8,7 +8,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.trace import write_agent_run
-from src.auth.jwt import create_access_token
+from src.auth.jwt import create_access_token, hash_password
 from src.db.models import ActionDraft, AgentRun, AgentStep, AgentTraceEvent, User
 
 
@@ -91,6 +91,29 @@ async def test_get_run_replay_same_tenant_non_owner_non_supervisor_gets_403(
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "FORBIDDEN"
+
+
+@pytest.mark.asyncio
+async def test_get_run_replay_supervisor_approval_manager_get_403(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+):
+    owner = seeded_session["users"]["cs_zhang"]
+    run_id = await _create_replay_run(session, tenant_id=owner.tenant_id, user_id=owner.id)
+    await _add_replay_rows_out_of_order(session, run_id=run_id, tenant_id=owner.tenant_id)
+    supervisor = await _create_same_tenant_role_user(session, seeded_session, "supervisor")
+    approval_manager = await _create_same_tenant_role_user(session, seeded_session, "approval_manager")
+    await session.commit()
+
+    for viewer in (supervisor, approval_manager):
+        response = await client.get(
+            f"/api/v1/agent-runs/{run_id}/replay",
+            headers=_auth_header(viewer, ["agent:chat"]),
+        )
+
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "FORBIDDEN"
 
 
 @pytest.mark.asyncio
@@ -323,3 +346,18 @@ def _auth_header(user: User, scopes: list[str]) -> dict[str, str]:
         }
     )
     return {"Authorization": f"Bearer {token}"}
+
+
+async def _create_same_tenant_role_user(session: AsyncSession, seeded_session: dict, role: str) -> User:
+    user = User(
+        id=uuid4(),
+        tenant_id=seeded_session["tenant"].id,
+        merchant_id=seeded_session["merchant"].id,
+        username=f"{role}_{uuid4().hex[:8]}",
+        password_hash=hash_password("moca2024"),
+        role=role,
+        is_active=True,
+    )
+    session.add(user)
+    await session.flush()
+    return user

@@ -22,7 +22,7 @@ from src.api.routers.agent_runs import (
 from src.api.services.agent_run_memory import finalize_completed_agent_run_memory
 from src.approvals.schemas import PROPOSED_ACTION_SCHEMA_VERSION
 from src.approvals.snapshot_service import compute_action_payload_hash, persist_action_safety_snapshot
-from src.auth.jwt import ROLE_SCOPES, create_access_token
+from src.auth.jwt import ROLE_SCOPES, create_access_token, hash_password
 from src.db.models import (
     AgentRun,
     AgentStep,
@@ -595,6 +595,21 @@ def _auth_header(user: User, scopes: list[str]) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+async def _create_same_tenant_role_user(session: AsyncSession, seeded_session: dict, role: str) -> User:
+    user = User(
+        id=uuid4(),
+        tenant_id=seeded_session["tenant"].id,
+        merchant_id=seeded_session["merchant"].id,
+        username=f"{role}_{uuid4().hex[:8]}",
+        password_hash=hash_password("moca2024"),
+        role=role,
+        is_active=True,
+    )
+    session.add(user)
+    await session.flush()
+    return user
+
+
 def _stream_input(run: AgentRun, user: User) -> dict[str, str]:
     return {
         "user_query": run.input_query,
@@ -1038,6 +1053,34 @@ async def test_events_rejects_cross_tenant_run_before_claim(
 
 
 @pytest.mark.asyncio
+async def test_run_visibility_supervisor_approval_manager_get_403(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+):
+    owner = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=owner.tenant_id, user_id=owner.id, final_status="completed")
+    supervisor = await _create_same_tenant_role_user(session, seeded_session, "supervisor")
+    approval_manager = await _create_same_tenant_role_user(session, seeded_session, "approval_manager")
+    await session.commit()
+
+    for viewer in (supervisor, approval_manager):
+        status_response = await client.get(
+            f"/api/v1/agent-runs/{run.id}",
+            headers=_auth_header(viewer, ["agent:chat"]),
+        )
+        evidence_response = await client.get(
+            f"/api/v1/agent-runs/{run.id}/evidence",
+            headers=_auth_header(viewer, ["agent:chat"]),
+        )
+
+        assert status_response.status_code == 403
+        assert status_response.json()["error"]["code"] == "FORBIDDEN"
+        assert evidence_response.status_code == 403
+        assert evidence_response.json()["error"]["code"] == "FORBIDDEN"
+
+
+@pytest.mark.asyncio
 async def test_events_rejects_same_tenant_supervisor_execution_before_claim(
     client: AsyncClient,
     session: AsyncSession,
@@ -1045,7 +1088,7 @@ async def test_events_rejects_same_tenant_supervisor_execution_before_claim(
     monkeypatch,
 ):
     owner = seeded_session["users"]["cs_zhang"]
-    supervisor = seeded_session["users"]["admin_user"]
+    supervisor = await _create_same_tenant_role_user(session, seeded_session, "supervisor")
     run = await _create_run(session, tenant_id=owner.tenant_id, user_id=owner.id)
     await session.commit()
     graph = NeverCalledGraph()

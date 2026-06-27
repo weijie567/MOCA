@@ -182,6 +182,43 @@ class _FakePlatform:
         return None
 
 
+class _CaptureMissingContextPlatform:
+    def __init__(self) -> None:
+        self.visibility_contexts: list[tuple[str, ToolCallContext]] = []
+
+    async def visible_tools(
+        self, *, caller: str, ctx: ToolCallContext, session: Any = None,
+    ) -> list[ToolViewV1]:
+        self.visibility_contexts.append((caller, ctx))
+        merchant_ids = (ctx.merchant_scope or {}).get("merchant_ids")
+        if merchant_ids == ["*"]:
+            from src.tools.policy import project_prompt_safe_input_schema
+
+            descriptor = ToolCatalog().descriptor("get_order")
+            assert descriptor is not None
+            return [
+                ToolViewV1(
+                    name=descriptor.name,
+                    description=descriptor.description,
+                    input_schema=project_prompt_safe_input_schema(descriptor.input_schema),
+                    safe_usage_notes=[],
+                    result_contract_version="tool_result.v2",
+                )
+            ]
+        return []
+
+    async def invoke(
+        self, tool_name: str, args: dict[str, Any], ctx: ToolCallContext, *, session: Any = None,
+    ) -> ToolInvocationOutcome:
+        raise AssertionError("missing trusted context must not execute business tools")
+
+    def descriptor(self, name: str):
+        return ToolCatalog().descriptor(name)
+
+    def event_family(self, name: str) -> str | None:
+        return "tool_call"
+
+
 def _business_success(resource_type: str = "order", resource_id: str = "ORD-001") -> ToolResultV2:
     ref = BusinessFactRefV1(
         tenant_id=str(uuid4()),
@@ -427,6 +464,33 @@ async def test_invalid_planner_output_rejected_before_manager_dispatch(plan):
     result = await investigate(_state(plan), _config(manager, events))
 
     assert result["termination_reason"] == "unrecoverable_error"
+    assert manager.calls == []
+
+
+@pytest.mark.asyncio
+async def test_missing_trusted_context_uses_empty_visibility_scope_and_executes_no_tools():
+    events: list[dict[str, Any]] = []
+    manager = FakeManager({"get_order": _business_success()})
+    platform = _CaptureMissingContextPlatform()
+    state = _state([{"next_tool": "get_order", "args": {"order_no": "ORD-001"}, "reason": "test"}])
+
+    result = await investigate(
+        state,
+        _config(
+            manager,
+            events,
+            trusted_context=None,
+            tool_platform=platform,
+        ),
+    )
+
+    assert platform.visibility_contexts
+    caller, visibility_ctx = platform.visibility_contexts[0]
+    assert caller == "missing_trusted_context"
+    assert visibility_ctx.permissions == []
+    assert visibility_ctx.merchant_scope == {"merchant_ids": []}
+    assert result["termination_reason"] == "unrecoverable_error"
+    assert result["business_context"]["errors"][0]["code"] == "MISSING_TRUSTED_CONTEXT"
     assert manager.calls == []
 
 
