@@ -282,7 +282,7 @@ Plans:
 **Goal:** Make current business facts available only through stable domain service public methods and `BusinessFactResultV1` / `BusinessFactRefV1` contracts.
 **Requirements**: APF-08
 **Depends on:** Phase 29.5
-**Plans:** 1/3 plans complete
+**Plans:** 2/3 plans complete
 
 **Success Criteria**:
 
@@ -295,7 +295,7 @@ Plans:
 
 Plans:
 - [x] 30-01-PLAN.md — Domain contract and BusinessFactService service boundary
-- [ ] 30-02-PLAN.md — Compatibility and ToolPlatform business executor integration
+- [x] 30-02-PLAN.md — Compatibility and ToolPlatform business executor integration
 - [ ] 30-03-PLAN.md — Projection, graph authority boundaries, and focused verification
 
 ### Phase 31: Memory Platform Boundary

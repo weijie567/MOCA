@@ -4379,3 +4379,41 @@ Phase 30 执行无阻塞。后续调用 `state.begin-phase` 时继续使用 posi
 - `/Users/ming/.codex/get-shit-done/workflows/execute-phase.md`
 - `/opt/homebrew/lib/node_modules/@gsd-build/sdk/dist/query/state-mutation.js`
 - `.planning/STATE.md`
+
+## 2026-06-28 03:14 CST - Phase 30-02 BusinessFactService compatibility / ToolPlatform RED failures
+
+### 问题现象
+
+执行 Phase 30-02 时，Task 1 GREEN 首轮验证仍有 1 个兼容性失败；Task 2 RED 验证按预期暴露 executor 未显式引用 `BusinessFactService`、`ToolPolicyEngine.resource_scope_binding` 仍序列化 order/refund/ticket 原始 identifier。
+
+### 如何检测 / 复现
+
+```bash
+uv run pytest tests/business/test_service.py tests/business/test_adapters.py -q --tb=short
+uv run pytest tests/tools/test_tool_platform.py -q --tb=short
+```
+
+### 关键证据或命令
+
+- Task 1 剩余失败：`test_fetch_context_mixed_results_is_partial_and_lists_missing_fact` 期望旧 adapter not-found code `NOT_FOUND`，wrapper 初版输出 `BUSINESS_FACT_NOT_FOUND`。
+- Task 2 RED 失败：`test_business_tool_executor_source_uses_business_fact_service_boundary` 未找到 `BusinessFactService`；order/refund/ticket marker 测试发现 `resource_scope_binding` 额外包含 `order_no` / `refund_case_no` / `ticket_id`。
+
+### 当前判断 / 根因
+
+Task 1 是兼容 facade 迁移时未保留 not-found 聚合错误码；Task 2 是 Phase 29 marker 仍偏向 runtime binding 调试信息，未按 Phase 30 no-leak 要求只暴露 domain-scope proof marker。
+
+### 已做处理
+
+`BusinessToolService` 已通过 `BusinessFactService` 包装 `BusinessFactResultV1`，并对 not-found 保留 adapter safe error code。`BusinessToolExecutor` 已显式构造 `BusinessFactService`，`ToolPolicyEngine` 对 order/refund/ticket domain lookup identifier 只保留 `requires_domain_scope_check` marker，不再序列化原始 identifier。
+
+### 剩余问题
+
+无阻塞。`BusinessFactService.fetch_context(...).tool_results=[]` 仍是 domain-service 侧有意保留的空 tool-result 列表；兼容 facade `BusinessToolService.fetch_context(...)` 已返回 wrapped `ToolResultV2`。
+
+### 下次继续排查入口
+
+- `src/business/service.py`
+- `src/tools/executors/business.py`
+- `src/tools/policy.py`
+- `tests/business/test_service.py`
+- `tests/tools/test_tool_platform.py`
