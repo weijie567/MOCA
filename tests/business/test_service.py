@@ -20,7 +20,7 @@ def _context(**updates: object) -> ToolCallContext:
     values: dict[str, object] = {
         "tenant_id": "tenant-09",
         "user_id": "user-09",
-        "role": "support_agent",
+        "role": "support",
         "permissions": ["tool:get_order", "tool:get_refund_case", "tool:get_ticket"],
         "merchant_scope": {"merchant_ids": ["*"]},
         "thread_id": "thread-09",
@@ -266,6 +266,41 @@ async def test_fetch_context_uses_distinct_tool_call_id_per_logical_read() -> No
 
 
 @pytest.mark.asyncio
+async def test_fetch_context_cross_merchant_permission_denied_has_no_business_facts(
+    session: AsyncSession, seeded_session
+) -> None:
+    tenant = seeded_session["tenant"]
+    user = seeded_session["users"]["cs_zhang"]
+    merchant = seeded_session["merchant"]
+
+    context = await BusinessToolService.with_default_registry(session).fetch_context(
+        {"order_id": "ORD-TEST-002"},
+        "refund_troubleshooting",
+        _context(
+            tenant_id=str(tenant.id),
+            user_id=str(user.id),
+            role=user.role,
+            merchant_scope={"merchant_ids": [str(merchant.id)]},
+        ),
+    )
+
+    assert context.status == "insufficient"
+    assert context.facts == {}
+    assert context.business_fact_refs == []
+    assert context.missing_required_facts == ["order"]
+    assert len(context.tool_results) == 1
+    denied_result = context.tool_results[0]
+    assert denied_result.status == "permission_denied"
+    assert denied_result.business_fact_refs == []
+    assert denied_result.data is None
+    assert denied_result.error is not None
+    assert denied_result.error.code == "FORBIDDEN"
+    serialized_context = context.model_dump_json()
+    assert "ORD-TEST-002" not in serialized_context
+    assert "Order read succeeded" not in serialized_context
+
+
+@pytest.mark.asyncio
 async def test_adapter_exception_returns_safe_tool_result() -> None:
     adapter = AsyncMock(side_effect=RuntimeError("RAW-SERVICE-SECRET"))
 
@@ -320,4 +355,4 @@ async def test_with_default_registry_invokes_real_adapter_with_mocked_raw_get_or
     assert result.status == "success"
     assert result.data is not None
     assert result.data["order_no"] == "ORD-09"
-    raw_get_order.assert_awaited_once_with("ORD-09", "tenant-09", "user-09", "support_agent", session)
+    raw_get_order.assert_awaited_once_with("ORD-09", "tenant-09", "user-09", "support", session)

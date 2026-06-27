@@ -40,8 +40,12 @@ async def test_get_refund_case_success(monkeypatch):
         approved_amount=None,
     )
     _patch_repo(monkeypatch, result=refund_case)
+    monkeypatch.setattr(
+        "src.integrations.demo_business.refunds.order_merchant_id",
+        AsyncMock(return_value=uuid4()),
+    )
 
-    result = await get_refund_case("RF-001", str(uuid4()), str(uuid4()), "support_agent", AsyncMock())
+    result = await get_refund_case("RF-001", str(uuid4()), str(uuid4()), "admin", AsyncMock())
 
     assert result["status"] == "success"
     assert "refund_case_no" in result["data"]
@@ -97,3 +101,41 @@ async def test_get_refund_case_forbids_other_same_tenant_merchant(session: Async
     assert result["status"] == "error"
     assert result["error"]["error_code"] == "FORBIDDEN"
     assert result["error"]["should_stop"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("user_key", ["cs_zhang", "approval_manager", "merchant_wang"])
+async def test_get_refund_case_allows_same_merchant_business_users(session: AsyncSession, seeded_session, user_key):
+    tenant = seeded_session["tenant"]
+    user = seeded_session["users"][user_key]
+
+    result = await get_refund_case("RF-TEST-001", str(tenant.id), str(user.id), user.role, session)
+
+    assert result["status"] == "success"
+    assert result["data"]["refund_case_no"] == "RF-TEST-001"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("user_key", ["cs_zhang", "approval_manager", "merchant_wang"])
+async def test_get_refund_case_denies_other_same_tenant_merchant_for_business_users(
+    session: AsyncSession, seeded_session, user_key
+):
+    tenant = seeded_session["tenant"]
+    user = seeded_session["users"][user_key]
+
+    result = await get_refund_case("RF-TEST-002", str(tenant.id), str(user.id), user.role, session)
+
+    assert result["status"] == "error"
+    assert result["error"]["error_code"] == "FORBIDDEN"
+    assert result["error"]["should_stop"] is True
+
+
+@pytest.mark.asyncio
+async def test_get_refund_case_allows_admin_other_same_tenant_merchant(session: AsyncSession, seeded_session):
+    tenant = seeded_session["tenant"]
+    admin = seeded_session["users"]["admin_user"]
+
+    result = await get_refund_case("RF-TEST-002", str(tenant.id), str(admin.id), admin.role, session)
+
+    assert result["status"] == "success"
+    assert result["data"]["refund_case_no"] == "RF-TEST-002"

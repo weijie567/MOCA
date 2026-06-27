@@ -59,7 +59,7 @@ async def test_get_order_success(monkeypatch):
         },
     )
 
-    result = await get_order("ORD-001", str(uuid4()), str(uuid4()), "support_agent", AsyncMock())
+    result = await get_order("ORD-001", str(uuid4()), str(uuid4()), "admin", AsyncMock())
 
     assert result["status"] == "success"
     assert "order_no" in result["data"]
@@ -69,7 +69,7 @@ async def test_get_order_success(monkeypatch):
 async def test_get_order_timeout(monkeypatch):
     _patch_repo(monkeypatch, side_effect=asyncio.TimeoutError)
 
-    result = await get_order("ORD-001", str(uuid4()), str(uuid4()), "support_agent", AsyncMock())
+    result = await get_order("ORD-001", str(uuid4()), str(uuid4()), "admin", AsyncMock())
 
     assert result["status"] == "error"
     assert result["error"]["error_code"] == "DB_TIMEOUT"
@@ -137,3 +137,41 @@ async def test_get_order_forbids_other_same_tenant_merchant(session: AsyncSessio
     assert result["status"] == "error"
     assert result["error"]["error_code"] == "FORBIDDEN"
     assert result["error"]["should_stop"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("user_key", ["cs_zhang", "approval_manager", "merchant_wang"])
+async def test_get_order_allows_same_merchant_business_users(session: AsyncSession, seeded_session, user_key):
+    tenant = seeded_session["tenant"]
+    user = seeded_session["users"][user_key]
+
+    result = await get_order("ORD-TEST-001", str(tenant.id), str(user.id), user.role, session)
+
+    assert result["status"] == "success"
+    assert result["data"]["order_no"] == "ORD-TEST-001"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("user_key", ["cs_zhang", "approval_manager", "merchant_wang"])
+async def test_get_order_denies_other_same_tenant_merchant_for_business_users(
+    session: AsyncSession, seeded_session, user_key
+):
+    tenant = seeded_session["tenant"]
+    user = seeded_session["users"][user_key]
+
+    result = await get_order("ORD-TEST-002", str(tenant.id), str(user.id), user.role, session)
+
+    assert result["status"] == "error"
+    assert result["error"]["error_code"] == "FORBIDDEN"
+    assert result["error"]["should_stop"] is True
+
+
+@pytest.mark.asyncio
+async def test_get_order_allows_admin_other_same_tenant_merchant(session: AsyncSession, seeded_session):
+    tenant = seeded_session["tenant"]
+    admin = seeded_session["users"]["admin_user"]
+
+    result = await get_order("ORD-TEST-002", str(tenant.id), str(admin.id), admin.role, session)
+
+    assert result["status"] == "success"
+    assert result["data"]["order_no"] == "ORD-TEST-002"

@@ -33,8 +33,12 @@ def _patch_repo(monkeypatch: pytest.MonkeyPatch, *, by_id=None, by_no=None):
 @pytest.mark.asyncio
 async def test_get_ticket_by_ticket_no_success(monkeypatch):
     repo = _patch_repo(monkeypatch, by_no=_ticket("TK-001"))
+    monkeypatch.setattr(
+        "src.integrations.demo_business.tickets.order_merchant_id",
+        AsyncMock(return_value=uuid4()),
+    )
 
-    result = await get_ticket("TK-001", str(uuid4()), str(uuid4()), "support_agent", AsyncMock())
+    result = await get_ticket("TK-001", str(uuid4()), str(uuid4()), "admin", AsyncMock())
 
     assert result["status"] == "success"
     assert result["data"]["ticket_no"] == "TK-001"
@@ -47,8 +51,12 @@ async def test_get_ticket_by_ticket_no_success(monkeypatch):
 async def test_get_ticket_by_uuid_success(monkeypatch):
     ticket_id = uuid4()
     repo = _patch_repo(monkeypatch, by_id=_ticket("TK-UUID"))
+    monkeypatch.setattr(
+        "src.integrations.demo_business.tickets.order_merchant_id",
+        AsyncMock(return_value=uuid4()),
+    )
 
-    result = await get_ticket(str(ticket_id), str(uuid4()), str(uuid4()), "support_agent", AsyncMock())
+    result = await get_ticket(str(ticket_id), str(uuid4()), str(uuid4()), "admin", AsyncMock())
 
     assert result["status"] == "success"
     assert result["data"]["ticket_no"] == "TK-UUID"
@@ -108,3 +116,41 @@ async def test_get_ticket_forbids_other_same_tenant_merchant(session: AsyncSessi
     assert result["status"] == "error"
     assert result["error"]["error_code"] == "FORBIDDEN"
     assert result["error"]["should_stop"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("user_key", ["cs_zhang", "approval_manager", "merchant_wang"])
+async def test_get_ticket_allows_same_merchant_business_users(session: AsyncSession, seeded_session, user_key):
+    tenant = seeded_session["tenant"]
+    user = seeded_session["users"][user_key]
+
+    result = await get_ticket("TK-TEST-001", str(tenant.id), str(user.id), user.role, session)
+
+    assert result["status"] == "success"
+    assert result["data"]["ticket_no"] == "TK-TEST-001"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("user_key", ["cs_zhang", "approval_manager", "merchant_wang"])
+async def test_get_ticket_denies_other_same_tenant_merchant_for_business_users(
+    session: AsyncSession, seeded_session, user_key
+):
+    tenant = seeded_session["tenant"]
+    user = seeded_session["users"][user_key]
+
+    result = await get_ticket("TK-TEST-002", str(tenant.id), str(user.id), user.role, session)
+
+    assert result["status"] == "error"
+    assert result["error"]["error_code"] == "FORBIDDEN"
+    assert result["error"]["should_stop"] is True
+
+
+@pytest.mark.asyncio
+async def test_get_ticket_allows_admin_other_same_tenant_merchant(session: AsyncSession, seeded_session):
+    tenant = seeded_session["tenant"]
+    admin = seeded_session["users"]["admin_user"]
+
+    result = await get_ticket("TK-TEST-002", str(tenant.id), str(admin.id), admin.role, session)
+
+    assert result["status"] == "success"
+    assert result["data"]["ticket_no"] == "TK-TEST-002"
