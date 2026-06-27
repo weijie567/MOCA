@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
-status: ready_for_next_phase
-stopped_at: Completed 29.5-06-PLAN.md
-last_updated: "2026-06-27T12:30:00.000Z"
+status: planning
+stopped_at: Phase 30 context gathered
+last_updated: "2026-06-27T16:06:56.276Z"
 last_activity: 2026-06-27
 progress:
   total_phases: 11
@@ -146,9 +146,9 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-27T12:30:00.000Z
-Stopped at: Completed 29.5-06-PLAN.md
-Resume file: None
+Last session: 2026-06-27T16:06:56.258Z
+Stopped at: Phase 30 context gathered
+Resume file: .planning/phases/30-businessfactservice-boundary/30-CONTEXT.md
 Next: Phase 30 — BusinessFactService Boundary; old phase directory archive remains a separate cleanup todo.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
