@@ -22,6 +22,7 @@ DEFAULT_MAX_ITERATIONS = 3
 GLOBAL_MAX_ITERATIONS_CEILING = 5
 MIN_EVIDENCE_SCORE = 0.55
 TERMINAL_STATUSES = {"success", "partial_success", "not_found", "permission_denied", "unavailable", "error"}
+FACT_STATUSES = {"success", "partial_success"}
 _ACTION_ORIENTED_INTENTS = {"refund_troubleshooting", "compensation_suggestion"}
 _CASE_SLOT_RESOURCES = {
     "order_id": ("get_order", "order"),
@@ -546,7 +547,7 @@ def _accumulate_tool_result(
 ) -> None:
     context["tool_results"].append(prompt_summary.model_dump(mode="json"))
     normalized = full_projection.normalized_result
-    if result.status == "success":
+    if result.status in FACT_STATUSES:
         if tool_name == "search_case_memory":
             context.setdefault("case_memory", []).extend(
                 _case_memory_items_from_projection(normalized)
@@ -578,7 +579,7 @@ def _accumulate_tool_result(
         context["retrieval_status"] = retrieval_status
     if isinstance(best_score, (int, float)):
         context["best_score"] = float(best_score)
-    if result.status != "success":
+    if result.status not in FACT_STATUSES:
         resource_type = descriptor.resource_type if descriptor is not None and descriptor.resource_type else tool_name
         error = (
             result.error.model_dump(mode="json")

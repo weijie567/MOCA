@@ -27,6 +27,7 @@ BusinessFactAdapterResult = ToolResultV2 | BusinessFactResultV1
 BusinessFactAdapter = Callable[[BaseModel, ToolCallContext, AsyncSession], Awaitable[BusinessFactAdapterResult]]
 
 NO_LEAK_BUSINESS_RESOURCE_MESSAGE = "Business resource unavailable for this request"
+FACT_BEARING_TOOL_STATUSES = {"success", "partial_success"}
 
 
 @dataclass(frozen=True)
@@ -591,7 +592,11 @@ class BusinessToolService:
                 result = await self.invoke_tool(tool_name, {argument_name: identifier}, tool_ctx)
                 tool_results.append(result)
 
-                if result.status == "success" and result.data is not None:
+                if (
+                    result.status in FACT_BEARING_TOOL_STATUSES
+                    and result.data is not None
+                    and result.business_fact_refs
+                ):
                     facts[resource_name] = result.data
                     for fact_ref in result.business_fact_refs:
                         key = fact_ref.model_dump_json()

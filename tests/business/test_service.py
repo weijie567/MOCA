@@ -364,6 +364,30 @@ async def test_fetch_context_all_success_is_complete() -> None:
 
 
 @pytest.mark.asyncio
+async def test_fetch_context_partial_success_aggregates_fact_refs() -> None:
+    fact_result = _business_fact_result(
+        status="partial",
+        resource_name="order",
+        resource_type="order",
+        resource_id="ORD-PARTIAL-09",
+    )
+    adapter = AsyncMock(return_value=fact_result)
+
+    context = await BusinessToolService(AsyncMock(), adapters={"get_order": adapter}).fetch_context(
+        {"order_id": "ORD-PARTIAL-09"},
+        "refund_troubleshooting",
+        _context(),
+    )
+
+    assert context.status == "complete"
+    assert context.facts == {"order": fact_result.fact}
+    assert context.business_fact_refs == fact_result.business_fact_refs
+    assert context.missing_required_facts == []
+    assert context.errors == []
+    assert context.tool_results[0].status == "partial_success"
+
+
+@pytest.mark.asyncio
 async def test_fetch_context_no_success_is_insufficient() -> None:
     adapters = {"get_refund_case": AsyncMock(return_value=_result("not_found", data=None, code="NOT_FOUND"))}
 

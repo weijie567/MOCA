@@ -244,6 +244,10 @@ def _business_success(resource_type: str = "order", resource_id: str = "ORD-001"
     )
 
 
+def _business_partial_success(resource_type: str = "order", resource_id: str = "ORD-PARTIAL-001") -> ToolResultV2:
+    return _business_success(resource_type, resource_id).model_copy(update={"status": "partial_success"})
+
+
 def _business_success_with_raw_payload(resource_type: str = "order", resource_id: str = "ORD-RAW-001") -> ToolResultV2:
     ref = BusinessFactRefV1(
         tenant_id=str(uuid4()),
@@ -526,6 +530,24 @@ async def test_every_execution_uses_unified_tool_manager():
 
     assert [call[0] for call in manager.calls] == ["get_order"]
     assert result["business_context"]["facts"]["order"]["id"] == "ORD-001"
+
+
+@pytest.mark.asyncio
+async def test_partial_success_business_result_accumulates_facts_and_refs():
+    events: list[dict[str, Any]] = []
+    manager = FakeManager({"get_order": _business_partial_success("order", "ORD-PARTIAL-001")})
+    plan = [{"next_tool": "get_order", "args": {"order_no": "ORD-PARTIAL-001"}, "reason": "partial"}]
+
+    result = await investigate(_state(plan), _config(manager, events))
+
+    assert result["tool_results"][0]["status"] == "partial_success"
+    assert result["business_context"]["facts"]["order"]["id"] == "ORD-PARTIAL-001"
+    assert result["business_context"]["business_fact_refs"][0]["resource_id"] == "ORD-PARTIAL-001"
+    assert result["last_business_context_refs"]["business_fact_refs"][0]["resource_id"] == "ORD-PARTIAL-001"
+    assert result["business_context"]["errors"] == []
+    assert result["claim_dependency_map"][0]["depends_on_refs"] == [
+        {"resource_type": "order", "resource_id": "ORD-PARTIAL-001"}
+    ]
 
 
 @pytest.mark.asyncio
