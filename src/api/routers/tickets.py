@@ -44,8 +44,12 @@ async def get_ticket_history(
         )
         raise HTTPException(status_code=404, detail={"code": TICKET_NOT_FOUND, "message": "Ticket not found"})
     merchant_id = (
-        await session.execute(select(Order.merchant_id).where(Order.id == ticket.order_id, Order.tenant_id == user.tenant_id))
-    ).scalar_one()
+        await session.execute(
+            select(Order.merchant_id).where(Order.id == ticket.order_id, Order.tenant_id == user.tenant_id)
+        )
+    ).scalar_one_or_none()
+    if merchant_id is None:
+        raise HTTPException(status_code=404, detail={"code": TICKET_NOT_FOUND, "message": "Ticket not found"})
     require_merchant_access(user, merchant_id, resource_name="tickets")
 
     await AuditRepository(session).record_tool_call(

@@ -1,5 +1,7 @@
 import pytest
 
+from src.db.models import Ticket
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("user_key", ["cs_zhang", "approval_manager", "merchant_wang"])
@@ -50,3 +52,25 @@ async def test_merchant_without_merchant_id_cannot_access_ticket(client, auth_he
 
     assert response.status_code == 403
     assert payload["error"]["code"] == "FORBIDDEN"
+
+
+@pytest.mark.asyncio
+async def test_ticket_with_cross_tenant_order_fails_closed(client, auth_headers, seeded_session, session):
+    session.add(
+        Ticket(
+            tenant_id=seeded_session["tenant"].id,
+            order_id=seeded_session["other_order"].id,
+            ticket_no="TK-TEST-CROSS-ORDER",
+            channel="chat",
+            status="open",
+            summary="Cross-tenant order reference",
+            messages=[],
+        )
+    )
+    await session.commit()
+
+    response = await client.get("/api/v1/tickets/TK-TEST-CROSS-ORDER", headers=await auth_headers("admin_user"))
+    payload = response.json()
+
+    assert response.status_code == 404
+    assert payload["error"]["code"] == "TICKET_NOT_FOUND"

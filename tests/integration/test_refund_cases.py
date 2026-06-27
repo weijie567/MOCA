@@ -1,4 +1,8 @@
+from decimal import Decimal
+
 import pytest
+
+from src.db.models import RefundCase
 
 
 @pytest.mark.asyncio
@@ -50,3 +54,25 @@ async def test_merchant_without_merchant_id_cannot_access_refund_case(client, au
 
     assert response.status_code == 403
     assert payload["error"]["code"] == "FORBIDDEN"
+
+
+@pytest.mark.asyncio
+async def test_refund_case_with_cross_tenant_order_fails_closed(client, auth_headers, seeded_session, session):
+    session.add(
+        RefundCase(
+            tenant_id=seeded_session["tenant"].id,
+            order_id=seeded_session["other_order"].id,
+            refund_case_no="RF-TEST-CROSS-ORDER",
+            reason_code="quality_issue",
+            reason_text="Cross-tenant order reference",
+            status="reviewing",
+            requested_amount=Decimal("10.00"),
+        )
+    )
+    await session.commit()
+
+    response = await client.get("/api/v1/refund-cases/RF-TEST-CROSS-ORDER", headers=await auth_headers("admin_user"))
+    payload = response.json()
+
+    assert response.status_code == 404
+    assert payload["error"]["code"] == "REFUND_CASE_NOT_FOUND"

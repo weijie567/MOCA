@@ -47,7 +47,9 @@ async def get_refund_case(
         await session.execute(
             select(Order.merchant_id).where(Order.id == refund_case.order_id, Order.tenant_id == user.tenant_id)
         )
-    ).scalar_one()
+    ).scalar_one_or_none()
+    if merchant_id is None:
+        raise HTTPException(status_code=404, detail={"code": REFUND_CASE_NOT_FOUND, "message": "Refund case not found"})
     require_merchant_access(user, merchant_id, resource_name="refund cases")
 
     await AuditRepository(session).record_tool_call(
