@@ -18,11 +18,15 @@ from src.business.adapters import (
     get_refund_case_adapter,
     get_ticket_adapter,
 )
-from src.business.schemas import BusinessContextV1
+from src.business.schemas import BusinessContextV1, BusinessFactResultV1
 from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolError, ToolResultV2
 
 
 BusinessToolAdapter = Callable[[BaseModel, ToolCallContext, AsyncSession], Awaitable[ToolResultV2]]
+BusinessFactAdapterResult = ToolResultV2 | BusinessFactResultV1
+BusinessFactAdapter = Callable[[BaseModel, ToolCallContext, AsyncSession], Awaitable[BusinessFactAdapterResult]]
+
+NO_LEAK_BUSINESS_RESOURCE_MESSAGE = "Business resource unavailable for this request"
 
 
 @dataclass(frozen=True)
@@ -68,7 +72,7 @@ def _merchant_scope_allows(
 ) -> bool:
     """Apply deny-first, all-provided-dimensions merchant-scope matching."""
 
-    if not merchant_scope:
+    if not merchant_scope or not isinstance(merchant_scope, dict):
         return False
 
     merchant_ids = merchant_scope.get("merchant_ids")
@@ -88,6 +92,423 @@ def _merchant_scope_allows(
         if "*" not in allowed and value not in allowed:
             return False
     return True
+
+
+class BusinessFactService:
+    def __init__(
+        self,
+        session: AsyncSession,
+        adapters: Mapping[str, BusinessFactAdapter] | None = None,
+        tools: Mapping[str, BusinessReadToolDefinition] | None = None,
+    ) -> None:
+        self.session = session
+        self.tools = dict(BUSINESS_READ_TOOLS if tools is None else tools)
+        if adapters is not None:
+            for name, adapter in adapters.items():
+                definition = self.tools.get(name)
+                if definition is not None:
+                    self.tools[name] = replace(definition, adapter=adapter)
+
+    @classmethod
+    def with_default_registry(cls, session: AsyncSession) -> BusinessFactService:
+        """Construct the domain service with current data-backed business reads."""
+
+        return cls(session)
+
+    def has_tool(self, name: str) -> bool:
+        return name in self.tools or name in {"get_logistics", "get_merchant_risk"}
+
+    async def get_order(self, order_no: str, ctx: ToolCallContext) -> BusinessFactResultV1:
+        return await self._read_tool("get_order", {"order_no": order_no}, ctx)
+
+    async def get_refund_case(self, refund_case_no: str, ctx: ToolCallContext) -> BusinessFactResultV1:
+        return await self._read_tool("get_refund_case", {"refund_case_no": refund_case_no}, ctx)
+
+    async def get_ticket(self, ticket_id: str, ctx: ToolCallContext) -> BusinessFactResultV1:
+        return await self._read_tool("get_ticket", {"ticket_id": ticket_id}, ctx)
+
+    async def get_logistics(self, tracking_no: str, ctx: ToolCallContext) -> BusinessFactResultV1:
+        del tracking_no
+        return self._safe_result(
+            "unavailable",
+            resource_name="logistics",
+            tenant_id=ctx.tenant_id,
+            source_system="business_fact_service",
+            scope_check_result="not_applicable",
+            code="BUSINESS_FACT_UNAVAILABLE",
+            safe_message="Business fact is unavailable",
+            error_source="tool",
+        )
+
+    async def get_merchant_risk(self, merchant_id: str, ctx: ToolCallContext) -> BusinessFactResultV1:
+        del merchant_id
+        return self._safe_result(
+            "unavailable",
+            resource_name="merchant_risk",
+            tenant_id=ctx.tenant_id,
+            source_system="business_fact_service",
+            scope_check_result="not_applicable",
+            code="BUSINESS_FACT_UNAVAILABLE",
+            safe_message="Business fact is unavailable",
+            error_source="tool",
+        )
+
+    async def fetch_context(self, slots: dict[str, Any], intent: str, ctx: ToolCallContext) -> BusinessContextV1:
+        """Aggregate approved domain facts into a prompt-safe business context."""
+
+        del intent
+        facts: dict[str, Any] = {}
+        fact_refs: list[BusinessFactRefV1] = []
+        fact_ref_keys: set[str] = set()
+        missing_required_facts: list[str] = []
+        errors: list[ToolError] = []
+        freshness_values = []
+
+        try:
+            for tool_name, definition in self.tools.items():
+                slot_name = definition.slot_name
+                resource_name = definition.resource_name
+                argument_name = definition.argument_name
+                if slot_name is None or resource_name is None or argument_name is None:
+                    continue
+                identifier = slots.get(slot_name)
+                if not identifier:
+                    continue
+
+                tool_ctx = ctx.model_copy(update={"tool_call_id": str(uuid4()), "attempt": 1})
+                result = await self._read_tool(tool_name, {argument_name: identifier}, tool_ctx)
+                if result.status in {"ok", "partial"} and result.fact is not None and result.business_fact_refs:
+                    facts[resource_name] = result.fact
+                    for fact_ref in result.business_fact_refs:
+                        key = fact_ref.model_dump_json()
+                        if key not in fact_ref_keys:
+                            fact_ref_keys.add(key)
+                            fact_refs.append(fact_ref)
+                    if result.data_freshness_at is not None:
+                        freshness_values.append(result.data_freshness_at)
+                else:
+                    for missing in result.missing_required_facts or [resource_name]:
+                        if missing not in missing_required_facts:
+                            missing_required_facts.append(missing)
+                    errors.extend(result.safe_errors)
+        except Exception:
+            errors.append(
+                ToolError(
+                    code="BUSINESS_CONTEXT_AGGREGATION_ERROR",
+                    safe_message="Business context aggregation failed",
+                    retryable=False,
+                    source="adapter",
+                )
+            )
+            requested_resources = [
+                definition.resource_name
+                for definition in self.tools.values()
+                if definition.slot_name is not None
+                and definition.resource_name is not None
+                and slots.get(definition.slot_name)
+            ]
+            missing_required_facts.extend(
+                resource_name
+                for resource_name in requested_resources
+                if resource_name not in facts and resource_name not in missing_required_facts
+            )
+            status = "error"
+        else:
+            if facts and not missing_required_facts:
+                status = "complete"
+            elif facts:
+                status = "partial"
+            else:
+                status = "insufficient"
+
+        return BusinessContextV1(
+            tenant_id=ctx.tenant_id,
+            status=status,
+            facts=facts,
+            business_fact_refs=fact_refs,
+            tool_results=[],
+            missing_required_facts=missing_required_facts,
+            errors=errors,
+            data_freshness_at=max(freshness_values) if freshness_values else None,
+        )
+
+    async def _read_tool(
+        self,
+        name: str,
+        args: dict[str, Any],
+        ctx: ToolCallContext,
+    ) -> BusinessFactResultV1:
+        definition = self.tools.get(name)
+        resource_name = definition.resource_name if definition is not None and definition.resource_name else name
+
+        if not _merchant_scope_allows(ctx.merchant_scope):
+            return self._permission_denied_result(resource_name, ctx.tenant_id)
+
+        if ctx.attempt > ctx.max_attempts:
+            return self._safe_result(
+                "unavailable",
+                resource_name=resource_name,
+                tenant_id=ctx.tenant_id,
+                source_system="business_fact_service",
+                scope_check_result="unknown",
+                code="BUSINESS_FACT_UNAVAILABLE",
+                safe_message="Business fact is unavailable",
+                error_source="adapter",
+            )
+
+        last_result: BusinessFactResultV1 | None = None
+        for attempt in range(ctx.attempt, ctx.max_attempts + 1):
+            attempt_ctx = ctx.model_copy(update={"attempt": attempt})
+            raw_result = await self._invoke_adapter(name, args, attempt_ctx)
+            fact_result = self._to_business_fact_result(raw_result, resource_name, ctx.tenant_id)
+            last_result = fact_result
+            if isinstance(raw_result, ToolResultV2) and raw_result.retryable is True and raw_result.status != "success":
+                continue
+            return fact_result
+        return last_result or self._safe_result(
+            "unavailable",
+            resource_name=resource_name,
+            tenant_id=ctx.tenant_id,
+            source_system="business_fact_service",
+            scope_check_result="unknown",
+            code="BUSINESS_FACT_UNAVAILABLE",
+            safe_message="Business fact is unavailable",
+            error_source="adapter",
+        )
+
+    async def _invoke_adapter(
+        self,
+        name: str,
+        args: dict[str, Any],
+        ctx: ToolCallContext,
+    ) -> BusinessFactAdapterResult:
+        definition = self.tools.get(name)
+        if definition is None:
+            return self._safe_result(
+                "unavailable",
+                resource_name=name,
+                tenant_id=ctx.tenant_id,
+                source_system="business_fact_service",
+                scope_check_result="not_applicable",
+                code="BUSINESS_FACT_UNAVAILABLE",
+                safe_message="Business fact is unavailable",
+                error_source="tool",
+            )
+
+        try:
+            input_model = definition.input_model.model_validate(args)
+        except ValidationError:
+            resource_name = definition.resource_name or name
+            return self._safe_result(
+                "invalid_request",
+                resource_name=resource_name,
+                tenant_id=ctx.tenant_id,
+                source_system="business_fact_service",
+                scope_check_result="unknown",
+                code="BUSINESS_FACT_INVALID_REQUEST",
+                safe_message="Business fact request is invalid",
+                error_source="caller",
+            )
+
+        try:
+            result = await definition.adapter(input_model, ctx, self.session)
+        except Exception:
+            resource_name = definition.resource_name or name
+            return self._safe_result(
+                "unavailable",
+                resource_name=resource_name,
+                tenant_id=ctx.tenant_id,
+                source_system="business_fact_service",
+                scope_check_result="unknown",
+                code="BUSINESS_FACT_UNAVAILABLE",
+                safe_message="Business fact is unavailable",
+                error_source="adapter",
+            )
+        if not isinstance(result, ToolResultV2 | BusinessFactResultV1):
+            resource_name = definition.resource_name or name
+            return self._safe_result(
+                "unavailable",
+                resource_name=resource_name,
+                tenant_id=ctx.tenant_id,
+                source_system="business_fact_service",
+                scope_check_result="unknown",
+                code="BUSINESS_FACT_UNAVAILABLE",
+                safe_message="Business fact is unavailable",
+                error_source="adapter",
+            )
+        return result
+
+    def _to_business_fact_result(
+        self,
+        result: BusinessFactAdapterResult,
+        resource_name: str,
+        tenant_id: str,
+    ) -> BusinessFactResultV1:
+        if isinstance(result, BusinessFactResultV1):
+            return self._sanitize_domain_result(result, resource_name, tenant_id)
+
+        if result.status in {"success", "partial_success"} and result.data is not None:
+            if not result.business_fact_refs:
+                return self._safe_result(
+                    "unavailable",
+                    resource_name=resource_name,
+                    tenant_id=tenant_id,
+                    source_system=result.source_system,
+                    scope_check_result="unknown",
+                    code="BUSINESS_FACT_UNAVAILABLE",
+                    safe_message="Business fact is unavailable",
+                    error_source="adapter",
+                )
+            return BusinessFactResultV1(
+                tenant_id=tenant_id,
+                status="ok" if result.status == "success" else "partial",
+                fact=result.data,
+                business_fact_refs=result.business_fact_refs,
+                resource_version=result.business_fact_refs[0].resource_version,
+                data_freshness_at=result.data_freshness_at,
+                source_system=result.source_system,
+                scope_check_result="allowed",
+                missing_required_facts=[],
+                safe_errors=[],
+            )
+
+        if result.status == "permission_denied":
+            return self._permission_denied_result(resource_name, tenant_id, source_system=result.source_system)
+        if result.status == "not_found":
+            return self._safe_result(
+                "not_found",
+                resource_name=resource_name,
+                tenant_id=tenant_id,
+                source_system=result.source_system,
+                scope_check_result="unknown",
+            )
+        if result.status == "invalid_request":
+            return self._safe_result(
+                "invalid_request",
+                resource_name=resource_name,
+                tenant_id=tenant_id,
+                source_system=result.source_system,
+                scope_check_result="unknown",
+                code="BUSINESS_FACT_INVALID_REQUEST",
+                safe_message="Business fact request is invalid",
+                error_source="caller",
+            )
+        return self._safe_result(
+            "unavailable",
+            resource_name=resource_name,
+            tenant_id=tenant_id,
+            source_system=result.source_system,
+            scope_check_result="unknown",
+            code="BUSINESS_FACT_UNAVAILABLE",
+            safe_message="Business fact is unavailable",
+            error_source="adapter",
+        )
+
+    def _sanitize_domain_result(
+        self,
+        result: BusinessFactResultV1,
+        resource_name: str,
+        tenant_id: str,
+    ) -> BusinessFactResultV1:
+        if result.status in {"ok", "partial"}:
+            return result.model_copy(update={"tenant_id": tenant_id, "scope_check_result": "allowed"})
+        if result.status == "permission_denied":
+            return self._permission_denied_result(resource_name, tenant_id, source_system=result.source_system)
+        if result.status == "stale":
+            safe_errors = result.safe_errors or [
+                ToolError(
+                    code="BUSINESS_FACT_STALE",
+                    safe_message="Business fact is stale",
+                    retryable=False,
+                    source="adapter",
+                )
+            ]
+            return result.model_copy(
+                update={
+                    "tenant_id": tenant_id,
+                    "fact": None,
+                    "business_fact_refs": [],
+                    "missing_required_facts": result.missing_required_facts or [resource_name],
+                    "safe_errors": safe_errors,
+                }
+            )
+        if result.status == "not_found":
+            return self._safe_result(
+                "not_found",
+                resource_name=resource_name,
+                tenant_id=tenant_id,
+                source_system=result.source_system,
+                scope_check_result="unknown",
+            )
+        if result.status == "invalid_request":
+            return self._safe_result(
+                "invalid_request",
+                resource_name=resource_name,
+                tenant_id=tenant_id,
+                source_system=result.source_system,
+                scope_check_result="unknown",
+                code="BUSINESS_FACT_INVALID_REQUEST",
+                safe_message="Business fact request is invalid",
+                error_source="caller",
+            )
+        return self._safe_result(
+            "unavailable",
+            resource_name=resource_name,
+            tenant_id=tenant_id,
+            source_system=result.source_system,
+            scope_check_result="unknown",
+            code="BUSINESS_FACT_UNAVAILABLE",
+            safe_message="Business fact is unavailable",
+            error_source="adapter",
+        )
+
+    def _permission_denied_result(
+        self,
+        resource_name: str,
+        tenant_id: str,
+        *,
+        source_system: str = "business_fact_service",
+    ) -> BusinessFactResultV1:
+        return self._safe_result(
+            "permission_denied",
+            resource_name=resource_name,
+            tenant_id=tenant_id,
+            source_system=source_system,
+            scope_check_result="denied",
+            code="BUSINESS_FACT_PERMISSION_DENIED",
+            safe_message=NO_LEAK_BUSINESS_RESOURCE_MESSAGE,
+            error_source="caller",
+        )
+
+    @staticmethod
+    def _safe_result(
+        status: Literal["not_found", "permission_denied", "stale", "unavailable", "invalid_request"],
+        *,
+        resource_name: str,
+        tenant_id: str,
+        source_system: str,
+        scope_check_result: Literal["allowed", "denied", "not_applicable", "unknown"],
+        code: str | None = None,
+        safe_message: str | None = None,
+        error_source: Literal["caller", "tool", "adapter", "upstream", "policy"] = "adapter",
+    ) -> BusinessFactResultV1:
+        safe_errors = []
+        if code is not None and safe_message is not None:
+            safe_errors.append(
+                ToolError(code=code, safe_message=safe_message, retryable=False, source=error_source)
+            )
+        return BusinessFactResultV1(
+            tenant_id=tenant_id,
+            status=status,
+            fact=None,
+            business_fact_refs=[],
+            resource_version=None,
+            data_freshness_at=None,
+            source_system=source_system,
+            scope_check_result=scope_check_result,
+            missing_required_facts=[resource_name],
+            safe_errors=safe_errors,
+        )
 
 
 class BusinessToolService:
