@@ -935,6 +935,122 @@ async def test_investigate_graph_state_consumes_projection_not_raw_data():
         assert sentinel not in serialized
 
 
+def test_tool_result_projector_rejects_data_only_business_identifiers_as_refs():
+    result = ToolResultV2(
+        status="success",
+        data={
+            "order_no": "ORD-DATA-30",
+            "refund_case_no": "RF-DATA-30",
+            "ticket_id": "TK-DATA-30",
+            "tracking_no": "TRK-DATA-30",
+            "merchant_id": "MER-DATA-30",
+            "status": "loaded",
+        },
+        summary="business fact loaded",
+        source_system="business_tool_service",
+        data_freshness_at=None,
+        policy_evidence_refs=[],
+        business_fact_refs=[],
+        error=None,
+        retryable=False,
+        retry_after_ms=None,
+        latency_ms=1,
+        audit_ref=None,
+    )
+
+    projection = ToolResultProjector().project(
+        tool_name="get_order",
+        result=result,
+        tool_call_id="tool-call-data-only-30",
+    )
+
+    assert "business_fact_refs" not in projection.normalized_result
+    assert projection.prompt_projection["business_fact_refs"] == []
+    assert projection.prompt_projection["resource_refs"] == []
+    assert projection.resource_refs == []
+
+
+def test_tool_result_projector_uses_service_approved_envelope_business_refs():
+    approved_ref = BusinessFactRefV1(
+        tenant_id=str(uuid4()),
+        source_system="business_fact_service",
+        resource_type="order",
+        resource_id="ORD-APPROVED-30",
+        resource_version="v1",
+        data_freshness_at=datetime.now(UTC),
+        retrieved_at=datetime.now(UTC),
+    )
+    result = ToolResultV2(
+        status="success",
+        data={"order_no": "ORD-DATA-IGNORED-30", "status": "loaded"},
+        summary="business fact loaded",
+        source_system="business_tool_service",
+        data_freshness_at=datetime.now(UTC),
+        policy_evidence_refs=[],
+        business_fact_refs=[approved_ref],
+        error=None,
+        retryable=False,
+        retry_after_ms=None,
+        latency_ms=1,
+        audit_ref=None,
+    )
+
+    projection = ToolResultProjector().project(
+        tool_name="get_order",
+        result=result,
+        tool_call_id="tool-call-envelope-30",
+    )
+
+    expected_refs = [{"resource_type": "order", "resource_id": "ORD-APPROVED-30"}]
+    assert projection.normalized_result["business_fact_refs"] == expected_refs
+    assert projection.prompt_projection["business_fact_refs"] == expected_refs
+    assert projection.prompt_projection["resource_refs"] == expected_refs
+    assert projection.resource_refs == expected_refs
+    assert "ORD-DATA-IGNORED-30" not in str(projection.prompt_projection["resource_refs"])
+
+
+def test_tool_result_projector_strips_raw_sentinels_from_projection_surfaces():
+    result = ToolResultV2(
+        status="success",
+        data={
+            "id": "ORD-RAW-SENTINEL-30",
+            "status": "loaded",
+            "raw_payload": {"secret": "RAW-SHOULD-NOT-LEAK-30"},
+            "raw_tool_output": "RAW-TOOL-OUTPUT-30",
+            "private_reasoning": "PRIVATE-REASONING-30",
+            "debug_trace": "DEBUG-TRACE-30",
+        },
+        summary="business fact loaded",
+        source_system="business_tool_service",
+        data_freshness_at=None,
+        policy_evidence_refs=[],
+        business_fact_refs=[],
+        error=None,
+        retryable=False,
+        retry_after_ms=None,
+        latency_ms=1,
+        audit_ref=None,
+    )
+
+    projection = ToolResultProjector().project(
+        tool_name="get_order",
+        result=result,
+        tool_call_id="tool-call-raw-strip-30",
+    )
+
+    serialized = (
+        str(projection.normalized_result)
+        + str(projection.prompt_projection)
+        + str(projection.text_for_prompt)
+        + str(projection.debug_projection)
+    )
+    assert "RAW-SHOULD-NOT-LEAK-30" not in serialized
+    assert "RAW-TOOL-OUTPUT-30" not in serialized
+    assert "PRIVATE-REASONING-30" not in serialized
+    assert "DEBUG-TRACE-30" not in serialized
+    assert projection.debug_projection["redaction_applied"] is True
+
+
 @pytest.mark.asyncio
 async def test_investigate_planner_does_not_call_raw_descriptors_when_visible_tools_available():
     # Regression: when ToolPlatform.visible_tools(...) is available, planner prompt/context
