@@ -41,11 +41,10 @@ def _service() -> tuple[PolicyKnowledgeService, AsyncMock]:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("merchant_scope", [None, []])
-async def test_missing_or_empty_merchant_scope_returns_no_evidence_without_adapter_call(merchant_scope):
+async def test_missing_merchant_scope_returns_no_evidence_without_adapter_call():
     service, retrieve = _service()
 
-    result = await service.search(_request(), _context(merchant_scope))
+    result = await service.search(_request(), _context(None))
 
     assert result.status == "no_evidence"
     assert result.evidence_refs == []
@@ -53,10 +52,22 @@ async def test_missing_or_empty_merchant_scope_returns_no_evidence_without_adapt
 
 
 @pytest.mark.asyncio
-async def test_unauthorized_explicit_merchant_filter_returns_no_evidence_without_adapter_call():
+async def test_policy_only_empty_business_merchant_scope_calls_adapter():
     service, retrieve = _service()
 
-    result = await service.search(_request("merchant-denied"), _context(["merchant-allowed"]))
+    result = await service.search(_request(), _context([]))
+
+    assert result.status == "no_evidence"
+    assert result.evidence_refs == []
+    retrieve.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("merchant_scope", [[], ["merchant-allowed"]])
+async def test_unauthorized_explicit_merchant_filter_returns_no_evidence_without_adapter_call(merchant_scope):
+    service, retrieve = _service()
+
+    result = await service.search(_request("merchant-denied"), _context(merchant_scope))
 
     assert result.status == "no_evidence"
     assert result.evidence_refs == []
