@@ -248,6 +248,25 @@ def test_merchant_scope_no_widening_denied() -> None:
     assert not _merchant_scope_allows({"merchant_ids": ["merchant-1"]}, merchant_id="merchant-2")
 
 
+def test_merchant_scope_legacy_list_supports_canonical_matching() -> None:
+    assert _merchant_scope_allows(["*"], merchant_id="merchant-2")
+    assert not _merchant_scope_allows(["merchant-1"], merchant_id="merchant-2")
+
+
+@pytest.mark.asyncio
+async def test_legacy_list_merchant_scope_reaches_business_adapter() -> None:
+    adapter = AsyncMock(return_value=_result(data={"order_no": "ORD-09"}))
+
+    result = await BusinessToolService(AsyncMock(), adapters={"get_order": adapter}).invoke_tool(
+        "get_order",
+        {"order_no": "ORD-09"},
+        _context(merchant_scope=["*"]),
+    )
+
+    assert result.status == "success"
+    adapter.assert_awaited_once()
+
+
 @pytest.mark.asyncio
 async def test_merchant_can_access_rejects_forged_admin_context(session: AsyncSession, seeded_session) -> None:
     tenant = seeded_session["tenant"]

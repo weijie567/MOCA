@@ -19,6 +19,7 @@ from src.business.adapters import (
     get_ticket_adapter,
 )
 from src.business.schemas import BusinessContextV1, BusinessFactResultV1
+from src.platform.trusted_context import MerchantScopeV1
 from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolError, ToolResultV2
 
 
@@ -65,7 +66,7 @@ BUSINESS_READ_TOOLS: dict[str, BusinessReadToolDefinition] = {
 
 
 def _merchant_scope_allows(
-    merchant_scope: dict[str, Any] | None,
+    merchant_scope: dict[str, Any] | list[str] | None,
     *,
     merchant_id: str | None = None,
     category: str | None = None,
@@ -73,26 +74,17 @@ def _merchant_scope_allows(
 ) -> bool:
     """Apply deny-first, all-provided-dimensions merchant-scope matching."""
 
-    if not merchant_scope or not isinstance(merchant_scope, dict):
+    if merchant_scope is None:
         return False
-
-    merchant_ids = merchant_scope.get("merchant_ids")
-    if not isinstance(merchant_ids, list) or not merchant_ids:
+    try:
+        scope = (
+            MerchantScopeV1(merchant_ids=merchant_scope)
+            if isinstance(merchant_scope, list)
+            else MerchantScopeV1.model_validate(merchant_scope)
+        )
+    except (TypeError, ValueError, ValidationError):
         return False
-
-    dimensions = (
-        (merchant_id, merchant_ids),
-        (category, merchant_scope.get("categories")),
-        (risk_level, merchant_scope.get("risk_levels")),
-    )
-    for value, allowed in dimensions:
-        if value is None:
-            continue
-        if not isinstance(allowed, list) or not allowed:
-            return False
-        if "*" not in allowed and value not in allowed:
-            return False
-    return True
+    return scope.allows(merchant_id=merchant_id, category=category, risk_level=risk_level)
 
 
 class BusinessFactService:
