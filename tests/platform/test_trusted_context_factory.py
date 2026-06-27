@@ -12,7 +12,7 @@ def _user(**overrides: object) -> SimpleNamespace:
         "tenant_id": "tenant-auth",
         "id": "user-auth",
         "role": "support",
-        "merchant_id": None,
+        "merchant_id": "merchant-primary",
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -45,7 +45,7 @@ def test_factory_uses_authenticated_user_verified_scopes_and_server_ids() -> Non
     assert context.trace_id == "trace-server"
     assert context.locale == "zh-CN"
     assert set(context.permissions) == {"tool:get_order", "tool:search_policy"}
-    assert context.merchant_scope.merchant_ids == ["*"]
+    assert context.merchant_scope.merchant_ids == ["merchant-primary"]
 
 
 @pytest.mark.parametrize(
@@ -68,7 +68,7 @@ def test_factory_rejects_user_payload_and_llm_override_kwargs(override_kwargs: d
 
 
 def test_factory_preserves_agent_runs_permission_intersection() -> None:
-    manager = _user(role="manager")
+    manager = _user(role="manager", merchant_id="merchant-manager")
     context = TrustedContextFactory.create_from_request(
         **_factory_kwargs(
             user=manager,
@@ -79,11 +79,11 @@ def test_factory_preserves_agent_runs_permission_intersection() -> None:
     assert set(context.permissions) == {"tool:search_policy"}
     assert "seed:write" not in context.permissions
     assert "admin:debug" not in context.permissions
-    assert context.merchant_scope.merchant_ids == ["*"]
+    assert context.merchant_scope.merchant_ids == ["merchant-manager"]
 
 
 def test_factory_accepts_explicit_server_tool_permissions_without_token_scope_widening() -> None:
-    manager = _user(role="manager")
+    manager = _user(role="manager", merchant_id="merchant-manager")
     context = TrustedContextFactory.create_from_request(
         **_factory_kwargs(
             user=manager,
@@ -93,6 +93,7 @@ def test_factory_accepts_explicit_server_tool_permissions_without_token_scope_wi
     )
 
     assert context.permissions == ["tool:create_coupon_grant_draft"]
+    assert context.merchant_scope.merchant_ids == ["merchant-manager"]
 
 
 def test_factory_rejects_non_tool_server_permissions() -> None:
@@ -100,3 +101,73 @@ def test_factory_rejects_non_tool_server_permissions() -> None:
         TrustedContextFactory.create_from_request(
             **_factory_kwargs(server_tool_permissions=["approvals:review"])
         )
+
+
+@pytest.mark.parametrize(
+    ("role", "merchant_id", "expected_scope"),
+    [
+        ("support", "merchant-support", ["merchant-support"]),
+        ("manager", "merchant-manager", ["merchant-manager"]),
+        ("merchant", "merchant-legacy", ["merchant-legacy"]),
+        ("support", None, []),
+        ("manager", None, []),
+        ("merchant", None, []),
+        ("supervisor", "merchant-ghost", []),
+        ("approval_manager", "merchant-ghost", []),
+    ],
+)
+def test_factory_derives_merchant_bound_and_unknown_role_scopes(
+    role: str,
+    merchant_id: str | None,
+    expected_scope: list[str],
+) -> None:
+    context = TrustedContextFactory.create_from_request(
+        **_factory_kwargs(user=_user(role=role, merchant_id=merchant_id))
+    )
+
+    assert context.merchant_scope.merchant_ids == expected_scope
+
+
+def test_factory_derives_admin_wildcard_scope() -> None:
+    context = TrustedContextFactory.create_from_request(**_factory_kwargs(user=_user(role="admin")))
+
+    assert context.merchant_scope.merchant_ids == ["*"]
+
+
+def test_factory_allows_non_admin_server_scope_narrowing_only_to_base_scope() -> None:
+    context = TrustedContextFactory.create_from_request(
+        **_factory_kwargs(
+            user=_user(role="support", merchant_id="merchant-primary"),
+            server_merchant_scope={"merchant_ids": ["merchant-primary"]},
+        )
+    )
+
+    assert context.merchant_scope.merchant_ids == ["merchant-primary"]
+
+
+@pytest.mark.parametrize(
+    "server_merchant_scope",
+    [
+        {"merchant_ids": ["*"]},
+        {"merchant_ids": ["other-merchant"]},
+    ],
+)
+def test_factory_rejects_non_admin_server_scope_widening(server_merchant_scope: dict) -> None:
+    with pytest.raises(ValueError):
+        TrustedContextFactory.create_from_request(
+            **_factory_kwargs(
+                user=_user(role="support", merchant_id="merchant-primary"),
+                server_merchant_scope=server_merchant_scope,
+            )
+        )
+
+
+def test_factory_allows_admin_server_scope_narrowing() -> None:
+    context = TrustedContextFactory.create_from_request(
+        **_factory_kwargs(
+            user=_user(role="admin"),
+            server_merchant_scope={"merchant_ids": ["merchant-primary"]},
+        )
+    )
+
+    assert context.merchant_scope.merchant_ids == ["merchant-primary"]
