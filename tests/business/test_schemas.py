@@ -5,12 +5,14 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
+from src.business.schemas import BusinessFactResultV1
+from src.knowledge.schemas import EvidenceRefV1
 from src.tools.contracts import (
     BusinessFactRefV1,
     ToolCallContext,
+    ToolError,
     ToolResultV2,
 )
-from src.knowledge.schemas import EvidenceRefV1
 
 
 TOOL_RESULT_STATUSES = [
@@ -26,6 +28,16 @@ TOOL_RESULT_STATUSES = [
     "error",
 ]
 
+BUSINESS_FACT_RESULT_STATUSES = [
+    "ok",
+    "partial",
+    "not_found",
+    "permission_denied",
+    "stale",
+    "unavailable",
+    "invalid_request",
+]
+
 
 def _complete_result_payload(**overrides):
     payload = {
@@ -38,6 +50,33 @@ def _complete_result_payload(**overrides):
         "retry_after_ms": None,
         "latency_ms": 0,
         "audit_ref": None,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _business_fact_ref(resource_type: str = "order", resource_id: str = "ORD-001") -> BusinessFactRefV1:
+    return BusinessFactRefV1(
+        tenant_id="tenant-001",
+        source_system="orders",
+        resource_type=resource_type,
+        resource_id=resource_id,
+        resource_version=None,
+        data_freshness_at=None,
+        retrieved_at=datetime.now(UTC),
+    )
+
+
+def _complete_business_fact_payload(**overrides):
+    payload = {
+        "tenant_id": "tenant-001",
+        "status": "ok",
+        "fact": {"order_no": "ORD-001", "status": "paid"},
+        "business_fact_refs": [_business_fact_ref()],
+        "source_system": "demo_orders_db",
+        "scope_check_result": "allowed",
+        "missing_required_facts": [],
+        "safe_errors": [],
     }
     payload.update(overrides)
     return payload
@@ -74,16 +113,50 @@ def test_tool_result_rejects_unknown_status():
         ToolResultV2.model_validate(_complete_result_payload(status="pending"))
 
 
-def test_business_fact_ref_is_not_coercible_to_policy_evidence_ref():
-    business_ref = BusinessFactRefV1(
-        tenant_id="tenant-001",
-        source_system="orders",
-        resource_type="order",
-        resource_id="order-001",
-        resource_version=None,
-        data_freshness_at=None,
-        retrieved_at=datetime.now(UTC),
+@pytest.mark.parametrize("status", BUSINESS_FACT_RESULT_STATUSES)
+def test_business_fact_result_accepts_all_contract_statuses(status: str):
+    payload = _complete_business_fact_payload(
+        status=status,
+        fact=None if status != "ok" else {"order_no": "ORD-001"},
+        business_fact_refs=[] if status != "ok" else [_business_fact_ref()],
+        scope_check_result="denied" if status == "permission_denied" else "allowed",
+        safe_errors=[
+            ToolError(
+                code="BUSINESS_FACT_PERMISSION_DENIED",
+                safe_message="Business resource unavailable for this request",
+                retryable=False,
+                source="caller",
+            )
+        ]
+        if status == "permission_denied"
+        else [],
     )
+
+    result = BusinessFactResultV1.model_validate(payload)
+
+    assert result.status == status
+
+
+def test_business_fact_result_is_strict_and_requires_normative_fields():
+    with pytest.raises(ValidationError):
+        BusinessFactResultV1.model_validate(_complete_business_fact_payload(extra="not allowed"))
+
+    missing_source = _complete_business_fact_payload()
+    missing_source.pop("source_system")
+    with pytest.raises(ValidationError):
+        BusinessFactResultV1.model_validate(missing_source)
+
+
+def test_business_fact_result_explicit_null_metadata_is_dumped():
+    result = BusinessFactResultV1.model_validate(_complete_business_fact_payload())
+
+    dumped = result.model_dump()
+    assert dumped["resource_version"] is None
+    assert dumped["data_freshness_at"] is None
+
+
+def test_business_fact_ref_is_not_coercible_to_policy_evidence_ref():
+    business_ref = _business_fact_ref(resource_id="order-001")
 
     with pytest.raises(ValidationError):
         EvidenceRefV1.model_validate(business_ref.model_dump())
