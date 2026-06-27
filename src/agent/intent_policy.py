@@ -261,18 +261,22 @@ def resolve_intent_precedence(
     candidates = [primary_intent, *(secondary_intents or [])]
     text = query or ""
     lowered = text.lower()
+    compensation_action_requested = primary_intent == "compensation_suggestion" or _has_compensation_action_cue(
+        text,
+        lowered,
+    )
     if any(token in lowered for token in ("appeal", "unban")) or any(token in text for token in ("申诉", "解封")):
         candidates.append("appeal_or_unban")
     if any(token in lowered for token in ("complaint", "escalate")) or any(token in text for token in ("投诉", "升级", "主管")):
         candidates.append("complaint_escalation")
-    if any(token in lowered for token in ("compensation", "coupon")) or any(
-        token in text for token in ("补偿", "券", "赔付")
-    ):
+    if compensation_action_requested:
         candidates.append("compensation_suggestion")
     if any(token in lowered for token in ("reply", "draft")) or any(token in text for token in ("回复", "话术")):
         candidates.append("ticket_reply_draft")
 
     valid_candidates = [candidate for candidate in candidates if candidate in ORDINARY_INTENTS]
+    if not compensation_action_requested:
+        valid_candidates = [candidate for candidate in valid_candidates if candidate != "compensation_suggestion"]
     if (
         primary_intent == "policy_qa"
         and requested_operation == "advise"
@@ -365,6 +369,37 @@ def _operation_for_selected_intent(intent: str, requested_operation: str) -> Req
     if intent == "ticket_reply_draft" and operation in {"read_status", "advise"}:
         return "draft_reply"
     return operation
+
+
+def _has_compensation_action_cue(text: str, lowered: str) -> bool:
+    has_compensation_term = any(token in lowered for token in ("compensation", "coupon")) or any(
+        token in text for token in ("补偿", "券", "赔付")
+    )
+    if not has_compensation_term:
+        return False
+
+    has_policy_rule_question = any(token in lowered for token in ("policy", "rule", "usage")) or any(
+        token in text for token in ("政策", "规则", "使用")
+    )
+    has_business_reference = any(
+        token in lowered for token in ("ord", "order", "rf", "refund", "tkt", "ticket")
+    ) or any(token in text for token in ("订单", "退款", "工单", "这个", "该"))
+    if has_policy_rule_question and not has_business_reference:
+        return False
+
+    return any(
+        token in lowered
+        for token in (
+            "suggest",
+            "proposal",
+            "propose",
+            "offer",
+            "issue",
+            "grant",
+            "amount",
+            "how much",
+        )
+    ) or any(token in text for token in ("建议", "方案", "给", "发券", "创建", "金额", "多少", "要补偿", "该给"))
 
 
 def _is_next_step_advice_query(text: str, lowered: str) -> bool:

@@ -80,6 +80,28 @@ def test_resolve_intent_precedence(text, expected_intent, expected_operation):
     assert "intent_precedence_applied" in reason_codes
 
 
+@pytest.mark.parametrize("text", ["补偿券使用规则是什么？", "补偿券规则是什么", "通过规则判断是否要补偿"])
+def test_compensation_terms_in_policy_questions_do_not_force_action_intent(text):
+    primary, operation, reason_codes = resolve_intent_precedence("policy_qa", "advise", text)
+
+    assert primary == "policy_qa"
+    assert operation == "advise"
+    assert reason_codes == []
+
+
+def test_secondary_compensation_intent_does_not_override_without_action_cue():
+    primary, operation, reason_codes = resolve_intent_precedence(
+        "refund_troubleshooting",
+        "read_status",
+        "",
+        ["compensation_suggestion"],
+    )
+
+    assert primary == "refund_troubleshooting"
+    assert operation == "read_status"
+    assert reason_codes == []
+
+
 def test_secondary_intents_participate_in_precedence_resolution():
     primary, operation, reason_codes = resolve_intent_precedence(
         "policy_qa",
