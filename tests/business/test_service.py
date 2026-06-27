@@ -6,6 +6,7 @@ import pytest
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.agent.nodes.investigate import _project_tool_result
 from src.business.service import (
     BUSINESS_READ_TOOLS,
     BusinessReadToolDefinition,
@@ -295,6 +296,16 @@ async def test_fetch_context_cross_merchant_permission_denied_has_no_business_fa
     assert denied_result.data is None
     assert denied_result.error is not None
     assert denied_result.error.code == "FORBIDDEN"
+    prompt_summary = _project_tool_result(
+        tool_call_id="tool-call-denied",
+        tool_result_id="tool-result-denied",
+        tool_name="get_order",
+        result=denied_result,
+        raw_result_ref=None,
+    )
+    assert prompt_summary.business_fact_refs == []
+    assert "ORD-TEST-002" not in prompt_summary.prompt_summary
+    assert "Order read succeeded" not in prompt_summary.prompt_summary
     serialized_context = context.model_dump_json()
     assert "ORD-TEST-002" not in serialized_context
     assert "Order read succeeded" not in serialized_context

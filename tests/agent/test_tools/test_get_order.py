@@ -175,3 +175,29 @@ async def test_get_order_allows_admin_other_same_tenant_merchant(session: AsyncS
 
     assert result["status"] == "success"
     assert result["data"]["order_no"] == "ORD-TEST-002"
+
+
+@pytest.mark.asyncio
+async def test_get_order_denies_merchant_bound_user_missing_merchant_id(session: AsyncSession, seeded_session):
+    tenant = seeded_session["tenant"]
+    support = seeded_session["users"]["cs_zhang"]
+    support.merchant_id = None
+    await session.flush()
+
+    result = await get_order("ORD-TEST-001", str(tenant.id), str(support.id), support.role, session)
+
+    assert result["status"] == "error"
+    assert result["error"]["error_code"] == "FORBIDDEN"
+    assert result["error"]["should_stop"] is True
+
+
+@pytest.mark.asyncio
+async def test_get_order_denies_unknown_role(session: AsyncSession, seeded_session):
+    tenant = seeded_session["tenant"]
+    support = seeded_session["users"]["cs_zhang"]
+
+    result = await get_order("ORD-TEST-001", str(tenant.id), str(support.id), "auditor", session)
+
+    assert result["status"] == "error"
+    assert result["error"]["error_code"] == "FORBIDDEN"
+    assert result["error"]["should_stop"] is True
