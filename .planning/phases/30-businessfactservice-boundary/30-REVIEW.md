@@ -1,14 +1,15 @@
 ---
 phase: 30-businessfactservice-boundary
-reviewed: 2026-06-27T23:19:50Z
+reviewed: 2026-06-27T23:48:55Z
 depth: deep
-files_reviewed: 14
+files_reviewed: 15
 files_reviewed_list:
   - src/agent/nodes/investigate.py
   - src/agent/rag_context/verifier.py
   - src/business/__init__.py
   - src/business/schemas.py
   - src/business/service.py
+  - src/tools/__init__.py
   - src/tools/executors/business.py
   - src/tools/policy.py
   - src/tools/projection.py
@@ -19,179 +20,85 @@ files_reviewed_list:
   - tests/business/test_service.py
   - tests/tools/test_tool_platform.py
 findings:
-  critical: 3
-  warning: 2
-  info: 0
-  total: 5
+  critical: 1
+  warning: 0
+  info: 1
+  total: 2
 status: issues_found
 ---
 
 # Phase 30: Code Review Report
 
-**Reviewed:** 2026-06-27T23:19:50Z
+**Reviewed:** 2026-06-27T23:48:55Z
 **Depth:** deep
-**Files Reviewed:** 14
+**Files Reviewed:** 15
 **Status:** issues_found
 
 ## Summary
 
-本次 deep review 覆盖 Phase 30 新增的 BusinessFactService 边界、ToolPlatform 接入、投影、investigate 累积逻辑、verifier authority checks 和对应测试。默认 order/refund/ticket adapters 的主路径测试通过，但跨文件检查发现 3 个会破坏边界安全或直接导致导入崩溃的问题，以及 2 个 contract/状态语义不一致问题。
+本次 deep re-review 覆盖 prompt 指定的 15 个文件，包括 review-fix 后新增进入范围的 `src/tools/__init__.py`。prior 五项已逐项复核：public `src.business` import cycle 已由 lazy `src.tools.__getattr__` 解除；`ToolResultV2` wrong-tenant `BusinessFactRefV1` 已在 `BusinessFactService` 转换层 fail closed；business fact/action recommendation 中 wrong-tenant business refs 的既有回归测试通过；`partial_success` 已进入 fact-bearing 聚合路径；legacy list merchant scope 已在 policy 与 business service 两侧支持。
 
 验证记录：
 
-- `uv run pytest tests/business/test_service.py tests/tools/test_tool_platform.py tests/agent/test_nodes/test_investigate.py tests/agent/rag_context/test_authority_boundaries.py tests/agent/test_policy_retrieval_ownership.py tests/business/test_schemas.py -q` -> `147 passed, 1 warning`
-- `git diff --check -- <reviewed files>` -> passed
-- 裸 `pytest` 使用了本机 Python 3.9 入口而失败，已按项目规则记录到 `.planning/LOCAL-VALIDATION-ISSUES.md`。
+- `uv run python -c "import src.business; import src.business.schemas; import src.business.service; import src.tools; print('imports-ok')"` -> `imports-ok`
+- `uv run pytest tests/business/test_schemas.py tests/business/test_service.py tests/agent/rag_context/test_authority_boundaries.py tests/agent/test_nodes/test_investigate.py tests/agent/test_policy_retrieval_ownership.py tests/tools/test_tool_platform.py -q` -> `157 passed, 1 warning`
+- `git diff --check d1755d9168ff751e29608afcf947dba7d68dd1fb^..HEAD -- <reviewed files>` -> passed
+
+但 verifier 仍有一个相邻的 tenant-scope fail-open：action recommendation 分支会忽略 Level 1 的 tenant scope failure，且 business fact authority 在缺失 trusted tenant 时会把匹配的 business refs 当作有效 authority。
 
 ## Critical Issues
 
-### CR-01: Public Business Imports Fail With Circular Import
+### CR-01: Action/Business Fact Verifier Can Support Claims Without Passing Tenant Scope
 
-**File:** `src/business/schemas.py:10`
+**File:** `src/agent/rag_context/verifier.py:467-494`, `src/agent/rag_context/verifier.py:616-627`
 
-**Issue:** `src.business.schemas` imports `src.tools.contracts`, but importing any `src.tools.*` submodule first executes `src/tools/__init__.py`, which eagerly imports `UnifiedToolManager`. That pulls `src.tools.manager -> src.tools.executors.business -> src.business.service -> src.business.schemas` while `schemas.py` is still initializing. Direct public imports now crash:
+**Issue:** `_check_level1()` 已能把 wrong-tenant evidence/business refs 标为 `tenant_scope_invalid`，但 `_verify_action_recommendation_claim()` 不检查 `level1.authority_passed` 或 `level1.tenant_scope_passed`。因此只要 dependency results 是 `supported` 且 business refs 可匹配，即使 cited policy evidence 属于其他 tenant，action recommendation 仍会返回 `supported`、`allows_action_recommendation=True`、`blocks_proposed_action=False`，reason_codes 里甚至会同时带着 `tenant_scope_invalid`。
 
-```text
-uv run python -c "import src.business"
-uv run python -c "import src.business.schemas"
-uv run python -c "import src.business.service"
-```
+同一边界还有一个 fail-open：`_business_authority_passed()` 只有在 `trusted_tenant` 非空时才检查 business refs 的 tenant；如果 `trusted_context.tenant_id` 缺失，claim refs 与 context refs 只要 key 相同就会被支持。最小复现中 `trusted_context={}`、business ref tenant 为 `tenant-other`，业务事实 claim 返回 `supported True []`。
 
-All three fail with `ImportError: cannot import name 'BusinessContextV1' from partially initialized module 'src.business.schemas'`.
-
-**Fix:** Break the eager package import cycle. Prefer making `UnifiedToolManager` lazy in `src/tools/__init__.py` or removing that package-level export.
+**Fix:**
 
 ```python
-# src/tools/__init__.py
-from src.tools.catalog import ToolCatalog, ToolDescriptor
-from src.tools.contracts import ToolCallContext, ToolError, ToolRequest, ToolResultV2
-
-def __getattr__(name: str):
-    if name == "UnifiedToolManager":
-        from src.tools.manager import UnifiedToolManager
-        return UnifiedToolManager
-    raise AttributeError(name)
-```
-
-Add a regression test that imports `src.business`, `src.business.schemas`, and `src.business.service` in a fresh interpreter or importlib path.
-
-### CR-02: ToolResultV2 Success Can Approve Cross-Tenant BusinessFactRefs
-
-**File:** `src/business/service.py:350`
-
-**Issue:** `_to_business_fact_result()` requires `ToolResultV2.business_fact_refs` to be non-empty, but it does not verify that those refs belong to the current `tenant_id`. A `ToolResultV2(status="success")` with `tenant_id="tenant-other"` in its `BusinessFactRefV1` is converted to `BusinessFactResultV1(status="ok")` and returned as service-approved. I reproduced this after preloading contracts to bypass CR-01: `wrong_tenant_status= ok ref_tenant= tenant-other`.
-
-This undercuts the service boundary: `BusinessFactResultV1` inputs are tenant-checked in `_sanitize_domain_result()`, but the default adapter shape is `ToolResultV2`, and that path is not tenant-checked.
-
-**Fix:** Apply the same tenant/ref validation to `ToolResultV2` success and partial-success conversion.
-
-```python
-if result.status in {"success", "partial_success"} and result.data is not None:
-    has_service_approved_refs = (
-        bool(result.business_fact_refs)
-        and all(ref.tenant_id == tenant_id for ref in result.business_fact_refs)
-    )
-    if not has_service_approved_refs:
-        return self._safe_result(
-            "unavailable",
-            resource_name=resource_name,
-            tenant_id=tenant_id,
-            source_system=result.source_system,
-            scope_check_result="unknown",
-            code="BUSINESS_FACT_UNAVAILABLE",
-            safe_message="Business fact is unavailable",
-            error_source="adapter",
+def _verify_action_recommendation_claim(...):
+    if not level1.tenant_scope_passed or "tenant_scope_invalid" in reason_codes:
+        return self._result(
+            claim,
+            VerificationOutcome.UNAUTHORIZED,
+            level1=level1,
+            reason_codes=reason_codes,
         )
-```
-
-Add a regression test with a `ToolResultV2` adapter returning a wrong-tenant `BusinessFactRefV1`; assert no fact/ref is exposed by both `BusinessFactService.get_order()` and `BusinessToolService.invoke_tool()`.
-
-### CR-03: Verifier Accepts Business Fact Claims From The Wrong Tenant
-
-**File:** `src/agent/rag_context/verifier.py:610`
-
-**Issue:** `_business_authority_passed()` only checks that every claim ref key exists in the context refs. It never checks those `BusinessFactRefV1.tenant_id` values against `trusted_context.tenant_id`. If the context contains a matching wrong-tenant business ref, a business fact claim is marked `supported` with `allows_claim=True`; I reproduced this with trusted tenant `tenant-good` and business ref tenant `tenant-other`.
-
-That makes the verifier weaker than the policy evidence path, which does check tenant scope in `_check_level1()`.
-
-**Fix:** Enforce trusted tenant matching for business refs and emit `tenant_scope_invalid` on mismatch.
-
-```python
-trusted_tenant = str(_trusted_context(context).get("tenant_id") or "")
-if claim.authority_class == MaterialClaimAuthorityClass.BUSINESS_FACT_CLAIM:
-    if trusted_tenant and any(ref.tenant_id != trusted_tenant for ref in claim.business_fact_refs):
-        reason_codes.append("tenant_scope_invalid")
+    ...
 
 def _business_authority_passed(claim: MaterialClaim, context: Mapping[str, Any]) -> bool:
     trusted_tenant = str(_trusted_context(context).get("tenant_id") or "")
+    if not trusted_tenant:
+        return False
     if not claim.business_fact_refs:
         return False
-    if trusted_tenant and any(ref.tenant_id != trusted_tenant for ref in claim.business_fact_refs):
+    if any(ref.tenant_id != trusted_tenant for ref in claim.business_fact_refs):
         return False
-    context_refs = [
-        ref for ref in _context_business_refs(context)
-        if not trusted_tenant or ref.tenant_id == trusted_tenant
-    ]
+    context_refs = [ref for ref in _context_business_refs(context) if ref.tenant_id == trusted_tenant]
     context_keys = {_business_ref_key(ref) for ref in context_refs}
     return all(_business_ref_key(ref) in context_keys for ref in claim.business_fact_refs)
 ```
 
-Add tests for business fact and action recommendation claims where `trusted_context.tenant_id` differs from the cited `BusinessFactRefV1.tenant_id`; both should fail closed.
+同时在 `_check_level1()` 中对 business fact / action recommendation claims 缺失 trusted tenant 的情况追加 `tenant_scope_invalid`，并增加两条回归测试：
 
-## Warnings
+- action recommendation 使用 wrong-tenant policy evidence、correct-tenant business ref、supported dependencies 时不得支持 action。
+- business fact claim 在 `trusted_context.tenant_id` 缺失时不得支持，即使 claim/context business refs 完全匹配。
 
-### WR-01: partial_success Facts Are Produced But Dropped By Consumers
+## Info
 
-**File:** `src/agent/nodes/investigate.py:549`
+### IN-01: Projection Migration Left Dead Helpers Behind
 
-**Issue:** `BusinessToolService._wrap_business_fact_result()` maps domain `status="partial"` to `ToolResultV2.status="partial_success"`, with data and refs. But both `investigate._accumulate_tool_result()` and `BusinessToolService.fetch_context()` only aggregate facts when `result.status == "success"`. A partial business fact becomes `insufficient` / missing even when service-approved refs exist; reproduced result: `partial_context_status= insufficient facts= {} missing= ['order']`.
+**File:** `src/agent/nodes/investigate.py:716`, `src/tools/projection.py:38`
 
-**Fix:** Treat `partial_success` as a fact-bearing success for accumulation, while preserving partial status semantics.
+**Issue:** `investigate._case_memory_items()` 及其 helper `_without_raw_payload()` 已无调用方；`ToolResultProjector` 中 `_BUSINESS_FACT_REF_KEYS` 也已无调用方。当前实现已经改为从 projector-normalized surface 和 ToolResult envelope refs 聚合，这些残留会让后续读代码的人误以为 data-only business identifiers 或 raw-data case-memory projection 仍是活路径。
 
-```python
-FACT_STATUSES = {"success", "partial_success"}
-if result.status in FACT_STATUSES and result.data is not None and result.business_fact_refs:
-    facts[resource_name] = result.data
-    ...
-
-# In investigate:
-if result.status in FACT_STATUSES:
-    ...  # accumulate refs/facts/policy refs
-if result.status not in FACT_STATUSES:
-    ...  # append error
-```
-
-Also update `src/business/service.py:591` in `BusinessToolService.fetch_context()` so compatibility aggregation does not lose partial facts.
-
-### WR-02: BusinessFactService Rejects Legacy List Merchant Scopes Despite The Tool Context Contract
-
-**File:** `src/business/service.py:66`
-
-**Issue:** `ToolCallContext.merchant_scope` allows `dict[str, Any] | list[str]`, and `ToolPolicyEngine._build_resource_binding()` explicitly supports legacy list scopes. `BusinessFactService._merchant_scope_allows()` only accepts dicts, so a runtime-authorized legacy list scope such as `["*"]` is denied before the adapter runs. This is a contract mismatch at the ToolCallContext -> BusinessFactService boundary.
-
-**Fix:** Parse merchant scope through the same canonical model used by policy, including legacy list support.
-
-```python
-from src.platform.trusted_context import MerchantScopeV1
-
-def _merchant_scope_allows(merchant_scope: dict[str, Any] | list[str] | None, **kwargs: Any) -> bool:
-    if merchant_scope is None:
-        return False
-    try:
-        scope = (
-            MerchantScopeV1(merchant_ids=merchant_scope)
-            if isinstance(merchant_scope, list)
-            else MerchantScopeV1.model_validate(merchant_scope)
-        )
-    except (TypeError, ValueError):
-        return False
-    return scope.allows(**kwargs)
-```
-
-Add a regression test with `ToolCallContext(merchant_scope=["*"])` and assert the service reaches the adapter instead of returning `BUSINESS_FACT_PERMISSION_DENIED`.
+**Fix:** 删除未调用的 `_case_memory_items()`、`_without_raw_payload()` 和 `_BUSINESS_FACT_REF_KEYS`。保留现有覆盖 projector-normalized case memory 与 envelope-only business refs 的测试即可。
 
 ---
 
-_Reviewed: 2026-06-27T23:19:50Z_
+_Reviewed: 2026-06-27T23:48:55Z_
 _Reviewer: Codex (gsd-code-reviewer)_
 _Depth: deep_
