@@ -258,7 +258,7 @@ Plans:
 2. `docs/contract-spec.md` contains the normative role-to-merchant-scope policy, including unknown role deny-all and business-scope vs tenant-public-policy separation; Phase 29.5 reconciles old contract text, current code, tests, and the accepted MER-01 product model rather than treating historical contract text as automatically correct.
 3. `TrustedContextFactory` generates merchant scope from trusted user role and `merchant_id`: merchant-bound users get `[merchant_id]` or deny-all `[]`; `admin` gets `["*"]`.
 4. `server_merchant_scope` cannot widen a non-admin human actor to wildcard and wildcard override is rejected rather than silently narrowed; `server_tool_permissions` cannot expand merchant scope; system-owned wildcard scope remains deferred until a separate `TrustedSystemContext` exists.
-5. Order, RefundCase, and Ticket APIs use a unified merchant access helper with 404 for cross-tenant resources and 403 for same-tenant out-of-merchant-scope or missing merchant binding.
+5. Order, RefundCase, and Ticket APIs use a unified merchant access helper with 404 for cross-tenant resources and 403 for same-tenant out-of-merchant-scope or missing merchant binding; current order/refund/ticket tool/raw business reads enforce the same merchant-bound interim guard and denied reads do not emit `BusinessFactRefV1`.
 6. Tenant public policy retrieval remains available to authenticated ordinary business users with `knowledge:read`, including deny-all business scope `[]`; business merchant scope must not be misused as a tenant-public policy filter, while business-scoped policy filters and business data still fail closed.
 7. Manager approval list/get/decide and approval resume no longer retain tenant-wide visibility or wildcard merchant scope; Phase 29.5 uses admin-only / fail-closed interim behavior and does not implement a `requested_by -> user.merchant_id` approximation until Phase 34 target merchant binding exists.
 8. Manager AgentRun status/evidence/trace access no longer remains tenant-wide; ghost supervisor roles such as `supervisor` / `approval_manager` do not grant business-data run visibility; business run details are owner/admin-only until Phase 32/35 can prove same-merchant access.
@@ -268,7 +268,7 @@ Plans:
 Plans:
 - [x] 29.5-01-PLAN.md — Traceability, contract, seed, and fixture alignment
 - [ ] 29.5-02-PLAN.md — TrustedContextFactory and merchant access helper
-- [ ] 29.5-03-PLAN.md — Order, refund, and ticket API merchant guards
+- [ ] 29.5-03-PLAN.md — Order, refund, and ticket API/tool merchant guards
 - [ ] 29.5-04-PLAN.md — Policy-only knowledge scope and memory smoke guard
 - [ ] 29.5-05-PLAN.md — Approval, AgentRun, trace, replay, and investigate interim guards
 - [ ] 29.5-06-PLAN.md — Static wildcard guard and final focused verification

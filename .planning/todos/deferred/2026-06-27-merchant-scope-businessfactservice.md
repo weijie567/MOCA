@@ -6,7 +6,9 @@ Target phase: Phase 30 BusinessFactService Boundary
 
 ## Reason
 
-Phase 29.5 locks role and merchant-scope semantics but does not make BusinessFactService the authority for current business facts. Phase 30 owns `BusinessFactResultV1` / `BusinessFactRefV1`, so order/refund/ticket scope checks should be completed there rather than half-implemented in API routes only.
+Phase 29.5 locks role and merchant-scope semantics but does not make BusinessFactService the authority for current business facts. Phase 30 owns `BusinessFactResultV1` / `BusinessFactRefV1`, so complete no-leak order/refund/ticket scope checks should be completed there rather than half-implemented in API routes only.
+
+Phase 29.5 still needs an interim guard for the existing raw tool/business-read path: current `get_order` / `get_refund_case` / `get_ticket` tool reads must not let merchant-bound users read same-tenant resources for another merchant, and denied reads must not emit `BusinessFactRefV1` or prompt-visible business facts. Phase 30 replaces this interim guard with the authoritative BusinessFactService/domain ownership proof.
 
 ## Required outcome
 
