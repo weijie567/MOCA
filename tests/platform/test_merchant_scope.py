@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
+from types import SimpleNamespace
+from uuid import UUID
 
+from fastapi import HTTPException
+from src.api.schemas.common import FORBIDDEN
+from src.auth.permissions import require_merchant_access
 from src.platform.trusted_context import MerchantScopeV1, merchant_scope_allows
 
 
@@ -66,3 +71,43 @@ def test_merchant_scope_requires_all_provided_dimensions() -> None:
 def test_merchant_scope_rejects_invalid_values(payload: dict) -> None:
     with pytest.raises(ValidationError):
         MerchantScopeV1.model_validate(payload)
+
+
+def _user(*, role: str, merchant_id: object | None) -> SimpleNamespace:
+    return SimpleNamespace(role=role, merchant_id=merchant_id)
+
+
+def test_require_merchant_access_allows_admin_cross_merchant() -> None:
+    require_merchant_access(_user(role="admin", merchant_id=None), "merchant-target", resource_name="orders")
+
+
+@pytest.mark.parametrize("role", ["support", "manager", "merchant"])
+def test_require_merchant_access_allows_merchant_bound_same_merchant(role: str) -> None:
+    merchant_id = UUID("00000000-0000-0000-0000-000000000001")
+
+    require_merchant_access(_user(role=role, merchant_id=merchant_id), str(merchant_id), resource_name="orders")
+
+
+@pytest.mark.parametrize(
+    ("role", "actor_merchant_id", "target_merchant_id"),
+    [
+        ("support", None, "merchant-target"),
+        ("manager", "merchant-primary", "merchant-other"),
+        ("merchant", "merchant-primary", "merchant-other"),
+        ("supervisor", "merchant-primary", "merchant-primary"),
+    ],
+)
+def test_require_merchant_access_fails_closed(
+    role: str,
+    actor_merchant_id: object | None,
+    target_merchant_id: object,
+) -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        require_merchant_access(
+            _user(role=role, merchant_id=actor_merchant_id),
+            target_merchant_id,
+            resource_name="orders",
+        )
+
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail["code"] == FORBIDDEN
