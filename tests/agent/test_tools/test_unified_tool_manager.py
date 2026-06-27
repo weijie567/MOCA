@@ -51,7 +51,7 @@ def _ctx(
         user_id=str(uuid4()),
         role="support",
         permissions=[f"tool:{name}" for name in INVESTIGATE_TOOLS] if permissions is None else permissions,
-        merchant_scope={"merchant_ids": ["*"]} if merchant_scope is None else merchant_scope,
+        merchant_scope={"merchant_ids": ["merchant-primary"]} if merchant_scope is None else merchant_scope,
         session_id=None,
         thread_id="thread-1",
         run_id=str(uuid4()),
@@ -182,7 +182,7 @@ async def test_unified_tool_manager_invokes_with_projected_tool_context() -> Non
         user_id=str(uuid4()),
         role="support",
         permissions=["tool:get_order"],
-        merchant_scope=MerchantScopeV1(merchant_ids=["*"]),
+        merchant_scope=MerchantScopeV1(merchant_ids=["merchant-primary"]),
         session_id=None,
         thread_id="thread-1",
         run_id=str(uuid4()),
@@ -221,7 +221,7 @@ async def test_search_policy_uses_unified_dispatch():
     class FakePolicyService:
         async def search(self, request, context):
             assert request.query == "refund policy"
-            assert context.merchant_scope == ["*"]
+            assert context.merchant_scope == ["merchant-primary"]
             return KnowledgeSearchResult(
                 status="strong_evidence",
                 retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
