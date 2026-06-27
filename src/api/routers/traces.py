@@ -16,7 +16,7 @@ from src.replay.service import ReplayService
 
 router = APIRouter(tags=["traces"])
 
-SUPERVISOR_ROLES = {"admin"}
+ADMIN_RUN_VISIBILITY_ROLES = {"admin"}
 
 
 @router.get("/{run_id}/trace", response_model=ApiResponse)
@@ -33,7 +33,7 @@ async def get_run_trace(
     if not run:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Run not found"})
 
-    if run.user_id != user.id and user.role not in SUPERVISOR_ROLES:
+    if run.user_id != user.id and user.role not in ADMIN_RUN_VISIBILITY_ROLES:
         raise HTTPException(status_code=403, detail={"code": "FORBIDDEN", "message": "Cannot view this run"})
 
     steps = await repo.get_steps(run_uuid)
@@ -92,7 +92,7 @@ async def get_run_replay(
     if not run:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Run not found"})
 
-    if run.user_id != user.id and user.role not in SUPERVISOR_ROLES:
+    if run.user_id != user.id and user.role not in ADMIN_RUN_VISIBILITY_ROLES:
         raise HTTPException(status_code=403, detail={"code": "FORBIDDEN", "message": "Cannot view this run"})
 
     replay_response = await ReplayService(session).get_replay(run_uuid)

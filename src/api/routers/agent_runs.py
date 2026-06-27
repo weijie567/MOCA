@@ -41,7 +41,7 @@ from src.repositories.trace_repo import TraceRepository
 
 router = APIRouter(tags=["agent-runs"])
 
-SUPERVISOR_ROLES = {"admin"}
+ADMIN_RUN_VISIBILITY_ROLES = {"admin"}
 SSE_HEARTBEAT_SECONDS = 15.0
 APPROVAL_ALLOWED_DECISION_TYPES = ["accept", "approve", "edit", "respond", "reject", "ignore"]
 APPROVAL_NOT_EXECUTABLE = "APPROVAL_NOT_EXECUTABLE"
@@ -1135,7 +1135,7 @@ def _with_approval_gate_step(trace_steps: list[dict[str, Any]], completed_at: da
 def _ensure_can_view_run(run: AgentRun | None, *, user: User) -> None:
     if not run:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Run not found"})
-    if run.user_id != user.id and user.role not in SUPERVISOR_ROLES:
+    if run.user_id != user.id and user.role not in ADMIN_RUN_VISIBILITY_ROLES:
         raise HTTPException(status_code=403, detail={"code": "FORBIDDEN", "message": "Cannot view this run"})
 
 
