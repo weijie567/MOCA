@@ -407,7 +407,9 @@ class MaterialClaimVerifier:
             MaterialClaimAuthorityClass.BUSINESS_FACT_CLAIM,
             MaterialClaimAuthorityClass.ACTION_RECOMMENDATION_CLAIM,
         }:
-            if trusted_tenant and any(ref.tenant_id != trusted_tenant for ref in claim.business_fact_refs):
+            if not trusted_tenant:
+                reason_codes.append("tenant_scope_invalid")
+            elif any(ref.tenant_id != trusted_tenant for ref in claim.business_fact_refs):
                 reason_codes.append("tenant_scope_invalid")
 
         reason_codes.extend(_contextual_source_reason_codes(claim.authority_class, context))
@@ -466,6 +468,10 @@ class MaterialClaimVerifier:
     ) -> MaterialClaimVerificationResult:
         dependency_reason_codes = _action_dependency_reason_codes(claim, dependency_results)
         reason_codes.extend(dependency_reason_codes)
+        if not level1.tenant_scope_passed or "tenant_scope_invalid" in reason_codes:
+            if not _business_authority_passed(claim, context) and "business_fact_ref_required" not in reason_codes:
+                reason_codes.append("business_fact_ref_required")
+            return self._result(claim, VerificationOutcome.UNAUTHORIZED, level1=level1, reason_codes=reason_codes)
         if dependency_reason_codes:
             return self._result(claim, VerificationOutcome.UNSUPPORTED, level1=level1, reason_codes=reason_codes)
         if not _business_authority_passed(claim, context):
@@ -615,13 +621,15 @@ def _safe_support_refs(claim: MaterialClaim, context: Mapping[str, Any]) -> list
 
 def _business_authority_passed(claim: MaterialClaim, context: Mapping[str, Any]) -> bool:
     trusted_tenant = str(_trusted_context(context).get("tenant_id") or "")
+    if not trusted_tenant:
+        return False
     if not claim.business_fact_refs:
         return False
-    if trusted_tenant and any(ref.tenant_id != trusted_tenant for ref in claim.business_fact_refs):
+    if any(ref.tenant_id != trusted_tenant for ref in claim.business_fact_refs):
         return False
     context_refs = [
         ref for ref in _context_business_refs(context)
-        if not trusted_tenant or ref.tenant_id == trusted_tenant
+        if ref.tenant_id == trusted_tenant
     ]
     context_keys = {_business_ref_key(ref) for ref in context_refs}
     return all(_business_ref_key(ref) in context_keys for ref in claim.business_fact_refs)

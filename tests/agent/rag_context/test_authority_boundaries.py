@@ -23,9 +23,9 @@ def _value(value: Any) -> str:
     return value.value if hasattr(value, "value") else str(value)
 
 
-def _evidence_ref() -> EvidenceRefV1:
+def _evidence_ref(tenant_id: str = TENANT_ID) -> EvidenceRefV1:
     return EvidenceRefV1.build(
-        tenant_id=TENANT_ID,
+        tenant_id=tenant_id,
         doc_key="policy_refund_timeout",
         chunk_id="chunk_001",
         policy_version="v3",
@@ -203,6 +203,29 @@ async def test_business_fact_claim_rejects_wrong_tenant_business_ref() -> None:
 
 
 @pytest.mark.asyncio
+async def test_business_fact_claim_rejects_missing_trusted_tenant_even_when_refs_match() -> None:
+    MaterialClaim, MaterialClaimVerifier = _load_authority_api()
+    other_tenant_ref = _business_fact_ref(tenant_id="22222222-2222-2222-2222-222222222222")
+    context = _context_with_contextual_only_sources()
+    context["trusted_context"] = {}
+    context["verifier_context"]["business_fact_refs"] = [other_tenant_ref.model_dump(mode="json")]
+    claim = MaterialClaim.model_validate(
+        _claim(
+            "business_fact_claim",
+            claim_text="Order ORD-1001 was delivered.",
+            business_fact_refs=[other_tenant_ref.model_dump(mode="json")],
+        )
+    )
+
+    result = await MaterialClaimVerifier().verify_claim(claim, context_bundle=context)
+
+    assert _value(result.outcome) != "supported"
+    assert result.allows_claim is False
+    assert result.level1.tenant_scope_passed is False
+    assert {"tenant_scope_invalid", "business_fact_ref_required"} <= set(result.reason_codes)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("source_name", "payload", "expected_reason"),
     [
@@ -336,3 +359,53 @@ async def test_action_recommendation_rejects_wrong_tenant_business_ref() -> None
     assert result.blocks_proposed_action is True
     assert result.level1.tenant_scope_passed is False
     assert {"tenant_scope_invalid", "business_fact_ref_required"} <= set(result.reason_codes)
+
+
+@pytest.mark.asyncio
+async def test_action_recommendation_rejects_wrong_tenant_policy_evidence_with_valid_business_ref() -> None:
+    MaterialClaim, MaterialClaimVerifier = _load_authority_api()
+    wrong_tenant_evidence = _evidence_ref(tenant_id="22222222-2222-2222-2222-222222222222")
+    business_ref = _business_fact_ref()
+    context = _context_with_contextual_only_sources()
+    context["citation_map"] = {
+        "C1": {
+            "citation_id": "C1",
+            "evidence_ref": wrong_tenant_evidence.model_dump(mode="json"),
+            "source_evidence_ids": [wrong_tenant_evidence.evidence_id],
+            "snippet": "Delivered orders require verified logistics evidence before compensation.",
+        }
+    }
+    context["verifier_context"]["evidence_snippets"] = [
+        {
+            "citation_id": "C1",
+            "evidence_id": wrong_tenant_evidence.evidence_id,
+            "text": "Delivered orders require verified logistics evidence before compensation.",
+        }
+    ]
+    context["verifier_context"]["business_fact_refs"] = [business_ref.model_dump(mode="json")]
+    claim = MaterialClaim.model_validate(
+        _claim(
+            "action_recommendation_claim",
+            claim_id="claim-action-wrong-tenant-policy",
+            claim_text="Issue compensation for order ORD-1001.",
+            cited_evidence_ids=[wrong_tenant_evidence.evidence_id],
+            business_fact_refs=[business_ref.model_dump(mode="json")],
+            dependency_claim_ids=["claim-policy-1", "claim-business-1"],
+        )
+    )
+
+    result = await MaterialClaimVerifier().verify_claim(
+        claim,
+        context_bundle=context,
+        dependency_results=[
+            {"claim_id": "claim-policy-1", "outcome": "supported"},
+            {"claim_id": "claim-business-1", "outcome": "supported"},
+        ],
+    )
+
+    assert _value(result.outcome) == "unauthorized"
+    assert result.allows_claim is False
+    assert result.allows_action_recommendation is False
+    assert result.blocks_proposed_action is True
+    assert result.level1.tenant_scope_passed is False
+    assert "tenant_scope_invalid" in result.reason_codes

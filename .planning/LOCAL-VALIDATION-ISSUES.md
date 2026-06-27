@@ -4505,3 +4505,38 @@ ImportError: cannot import name 'BusinessContextV1' from partially initialized m
 - `src/tools/__init__.py`
 - `src/tools/manager.py`
 - `src/tools/executors/business.py`
+
+## 2026-06-28 07:55 CST - CR-01 tenant-scope fix initially dropped action business-fact diagnostic
+
+### 问题现象
+
+Phase 30 CR-01 修复后运行 authority boundary 目标测试时，`test_action_recommendation_rejects_wrong_tenant_business_ref` 失败。action recommendation 已 fail closed，但 `reason_codes` 少了既有测试期望的 `business_fact_ref_required`。
+
+### 如何检测 / 复现
+
+```bash
+uv run pytest tests/agent/rag_context/test_authority_boundaries.py -q
+```
+
+### 关键证据或命令
+
+```text
+AssertionError: assert {'business_fact_ref_required', 'tenant_scope_invalid'} <= {'tenant_scope_invalid'}
+```
+
+### 当前判断 / 根因
+
+新增 tenant-scope 早退路径在 `_verify_action_recommendation_claim()` 中直接返回 `UNAUTHORIZED`，没有先保留 wrong-tenant business ref 场景原本由 business authority 检查追加的诊断码。
+
+### 已做处理
+
+在 tenant-scope 早退前补充 `_business_authority_passed()` 检查；业务事实 authority 不通过且尚未包含 `business_fact_ref_required` 时追加该 reason code。随后重跑目标测试通过。
+
+### 剩余问题
+
+无。该问题是本次修复过程中的诊断码回归，已在提交前处理。
+
+### 下次继续排查入口
+
+- `src/agent/rag_context/verifier.py`
+- `tests/agent/rag_context/test_authority_boundaries.py`
