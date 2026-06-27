@@ -41,7 +41,7 @@ from src.repositories.trace_repo import TraceRepository
 
 router = APIRouter(tags=["agent-runs"])
 
-SUPERVISOR_ROLES = {"supervisor", "admin", "approval_manager", "manager"}
+SUPERVISOR_ROLES = {"admin"}
 SSE_HEARTBEAT_SECONDS = 15.0
 APPROVAL_ALLOWED_DECISION_TYPES = ["accept", "approve", "edit", "respond", "reject", "ignore"]
 APPROVAL_NOT_EXECUTABLE = "APPROVAL_NOT_EXECUTABLE"

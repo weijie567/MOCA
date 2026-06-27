@@ -16,7 +16,7 @@ from src.replay.service import ReplayService
 
 router = APIRouter(tags=["traces"])
 
-SUPERVISOR_ROLES = {"supervisor", "admin", "approval_manager", "manager"}
+SUPERVISOR_ROLES = {"admin"}
 
 
 @router.get("/{run_id}/trace", response_model=ApiResponse)

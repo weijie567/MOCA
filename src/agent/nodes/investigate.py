@@ -14,7 +14,7 @@ from src.conversation.repository import ConversationRepository
 from src.conversation.service import ConversationService
 from src.platform.context_projections import project_to_tool_context
 from src.platform.trusted_context import TrustedContext
-from src.tools.contracts import ToolCallContext, ToolInvocationOutcome, ToolResultProjectionV1, ToolResultPromptSummary, ToolResultV2, ToolViewV1
+from src.tools.contracts import ToolCallContext, ToolResultProjectionV1, ToolResultPromptSummary, ToolResultV2, ToolViewV1
 from src.tools.platform import ToolPlatform
 
 
@@ -97,11 +97,19 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
     # Build visibility context and get ToolViewV1 entries for planner.
     trusted_context = _trusted_context_from_config(configurable)
     visibility_ctx = _build_visibility_context(trusted_context, configurable, state)
+    visibility_caller = visibility_ctx.caller_node
     tool_views = await tool_platform.visible_tools(
-        caller="investigate", ctx=visibility_ctx, session=session,
+        caller=visibility_caller, ctx=visibility_ctx, session=session,
     )
+    if trusted_context is None:
+        termination_reason = "unrecoverable_error"
+        context["errors"].append(
+            _safe_error("MISSING_TRUSTED_CONTEXT", "Trusted context is required for tool execution", "tool")
+        )
 
     for iteration in range(1, max_iterations + 1):
+        if trusted_context is None:
+            break
         if _deadline_reached(deadline_at):
             termination_reason = "unrecoverable_error"
             break
@@ -297,14 +305,14 @@ def _build_visibility_context(
         user_id=str(_uuid4()),
         role="support",
         permissions=[],
-        merchant_scope={"merchant_ids": ["*"]},
+        merchant_scope={"merchant_ids": []},
         session_id=None,
         thread_id="visibility",
         run_id=str(state.get("run_id") or _uuid4()),
         trace_id="trace-visibility",
         request_id=str(_uuid4()),
         tool_call_id=f"visibility:{state.get('run_id', 'unknown')}",
-        caller_node="investigate",
+        caller_node="missing_trusted_context",
     )
 
 
