@@ -4417,3 +4417,91 @@ Task 1 是兼容 facade 迁移时未保留 not-found 聚合错误码；Task 2 �
 - `src/tools/policy.py`
 - `tests/business/test_service.py`
 - `tests/tools/test_tool_platform.py`
+
+## 2026-06-28 03:30 CST - Phase 30 code review pytest entrypoint used Python 3.9
+
+### 问题现象
+
+执行 Phase 30 code review 验证时，直接运行 `pytest ...` 失败，报错为 `ImportError: cannot import name 'UTC' from 'datetime'`。
+
+### 如何检测 / 复现
+
+```bash
+pytest tests/business/test_service.py tests/tools/test_tool_platform.py tests/agent/test_nodes/test_investigate.py tests/agent/rag_context/test_authority_boundaries.py tests/agent/test_policy_retrieval_ownership.py tests/business/test_schemas.py -q
+```
+
+### 关键证据或命令
+
+```text
+tests/conftest.py:3: in <module>
+    from datetime import UTC, datetime, timedelta
+E   ImportError: cannot import name 'UTC' from 'datetime' (/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/datetime.py)
+```
+
+`pyproject.toml` 声明 `requires-python = ">=3.12"`；`python --version` 和 `python3 --version` 均为 3.13.3，但 shell 上的裸 `pytest` 入口实际指向 Xcode Python 3.9 环境。
+
+### 当前判断 / 根因
+
+这是本机命令入口环境不一致，不是 Phase 30 代码失败。项目测试应通过 `uv run pytest ...` 使用项目虚拟环境。
+
+### 已做处理
+
+改用以下命令重跑同一测试集合并通过：
+
+```bash
+uv run pytest tests/business/test_service.py tests/tools/test_tool_platform.py tests/agent/test_nodes/test_investigate.py tests/agent/rag_context/test_authority_boundaries.py tests/agent/test_policy_retrieval_ownership.py tests/business/test_schemas.py -q
+```
+
+结果：`147 passed, 1 warning in 38.71s`。
+
+### 剩余问题
+
+无代码阻塞。后续本项目验证避免使用裸 `pytest`，优先使用 `uv run pytest`。
+
+### 下次继续排查入口
+
+- `pyproject.toml`
+- `.venv/`
+- shell PATH 中的 `pytest` 入口
+
+## 2026-06-28 03:36 CST - Phase 30 code review direct business imports fail
+
+### 问题现象
+
+Phase 30 code review 中做最小导入验证时，直接导入新增 business package / module 失败：`import src.business`、`import src.business.schemas`、`import src.business.service` 都触发 circular import。
+
+### 如何检测 / 复现
+
+```bash
+uv run python -c "import src.business"
+uv run python -c "import src.business.schemas"
+uv run python -c "import src.business.service"
+```
+
+### 关键证据或命令
+
+```text
+ImportError: cannot import name 'BusinessContextV1' from partially initialized module 'src.business.schemas'
+```
+
+调用链为：`src.business.__init__ -> src.business.schemas -> src.tools.contracts -> src.tools.__init__ -> src.tools.manager -> src.tools.executors.business -> src.business.service -> src.business.schemas`。
+
+### 当前判断 / 根因
+
+`src.tools.__init__` eager-export `UnifiedToolManager`，导致任何 `src.tools.contracts` 导入都会先执行 tool manager / executor 导入；新增 `src.business.schemas` 又依赖 `src.tools.contracts`，形成 package import 顺序敏感的循环。
+
+### 已做处理
+
+未在 code review 阶段修改源码；已作为 `.planning/phases/30-businessfactservice-boundary/30-REVIEW.md` 的 Critical finding 记录。
+
+### 剩余问题
+
+需要修复导入边界，建议把 `src.tools.__init__` 中的 `UnifiedToolManager` 改成 lazy export，或移除 package-level eager import。
+
+### 下次继续排查入口
+
+- `src/business/__init__.py`
+- `src/business/schemas.py`
+- `src/tools/__init__.py`
+- `src/tools/manager.py`
+- `src/tools/executors/business.py`
