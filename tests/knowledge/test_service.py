@@ -55,7 +55,8 @@ async def test_missing_merchant_scope_returns_no_evidence_without_adapter_call()
 async def test_policy_only_empty_business_merchant_scope_calls_adapter():
     service, retrieve = _service()
 
-    result = await service.search(_request(), _context([]))
+    # policy-only tenant public search is allowed with merchant_scope=[].
+    result = await service.search(_request(), _context(merchant_scope=[]))
 
     assert result.status == "no_evidence"
     assert result.evidence_refs == []
