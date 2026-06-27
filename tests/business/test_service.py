@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import pytest
@@ -7,15 +8,20 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.nodes.investigate import _project_tool_result
+from src.business.schemas import BusinessFactResultV1
 from src.business.service import (
     BUSINESS_READ_TOOLS,
+    BusinessFactService,
     BusinessReadToolDefinition,
     BusinessToolService,
     _merchant_scope_allows,
 )
 from src.integrations.demo_business.authz import merchant_can_access
-from src.tools.contracts import ToolCallContext, ToolError, ToolResultV2
+from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolError, ToolResultV2
 from src.tools.executors.business import BusinessToolExecutor
+
+
+NO_LEAK_MESSAGE = "Business resource unavailable for this request"
 
 
 def _context(**updates: object) -> ToolCallContext:
@@ -57,6 +63,83 @@ def _result(
         latency_ms=1,
         audit_ref=None,
     )
+
+
+def _fact_ref(
+    tenant_id: str = "tenant-09",
+    resource_type: str = "order",
+    resource_id: str = "ORD-09",
+) -> BusinessFactRefV1:
+    return BusinessFactRefV1(
+        tenant_id=tenant_id,
+        source_system="test_business_db",
+        resource_type=resource_type,
+        resource_id=resource_id,
+        resource_version=None,
+        data_freshness_at=None,
+        retrieved_at=datetime.now(UTC),
+    )
+
+
+def _business_fact_result(
+    *,
+    status: str = "ok",
+    resource_name: str = "order",
+    resource_type: str = "order",
+    resource_id: str = "ORD-09",
+    tenant_id: str = "tenant-09",
+) -> BusinessFactResultV1:
+    allowed = status in {"ok", "partial"}
+    error = None
+    if status == "stale":
+        error = ToolError(
+            code="BUSINESS_FACT_STALE",
+            safe_message="Business fact is stale",
+            retryable=False,
+            source="adapter",
+        )
+    return BusinessFactResultV1(
+        tenant_id=tenant_id,
+        status=status,
+        fact={f"{resource_name}_id": resource_id} if allowed else None,
+        business_fact_refs=[_fact_ref(tenant_id, resource_type, resource_id)] if allowed else [],
+        resource_version=None,
+        data_freshness_at=None,
+        source_system="test_business_db",
+        scope_check_result="allowed" if allowed else "unknown",
+        missing_required_facts=[] if allowed else [resource_name],
+        safe_errors=[] if error is None else [error],
+    )
+
+
+def _seeded_context(
+    seeded_session: dict,
+    user_key: str = "cs_zhang",
+    *,
+    merchant_scope: dict | None = None,
+    role: str | None = None,
+) -> ToolCallContext:
+    user = seeded_session["users"][user_key]
+    tenant = seeded_session["tenant"]
+    if merchant_scope is None:
+        if user.role == "admin":
+            merchant_scope = {"merchant_ids": ["*"]}
+        elif user.merchant_id is None:
+            merchant_scope = {"merchant_ids": []}
+        else:
+            merchant_scope = {"merchant_ids": [str(user.merchant_id)]}
+    return _context(
+        tenant_id=str(tenant.id),
+        user_id=str(user.id),
+        role=user.role if role is None else role,
+        merchant_scope=merchant_scope,
+    )
+
+
+def _assert_fail_closed(result: BusinessFactResultV1, status: str) -> None:
+    assert result.status == status
+    assert result.fact is None
+    assert result.business_fact_refs == []
 
 
 @pytest.mark.asyncio
@@ -390,3 +473,145 @@ async def test_with_default_registry_invokes_real_adapter_with_mocked_raw_get_or
     assert result.data is not None
     assert result.data["order_no"] == "ORD-09"
     raw_get_order.assert_awaited_once_with("ORD-09", "tenant-09", "user-09", "support", session)
+
+
+@pytest.mark.asyncio
+async def test_business_fact_service_allowed_reads_emit_domain_results(
+    session: AsyncSession,
+    seeded_session,
+) -> None:
+    service = BusinessFactService.with_default_registry(session)
+    support_ctx = _seeded_context(seeded_session, "cs_zhang")
+    admin_ctx = _seeded_context(seeded_session, "admin_user")
+
+    order_result = await service.get_order("ORD-TEST-001", support_ctx)
+    refund_result = await service.get_refund_case("RF-TEST-001", support_ctx)
+    ticket_result = await service.get_ticket("TK-TEST-001", support_ctx)
+    admin_cross_merchant = await service.get_order("ORD-TEST-002", admin_ctx)
+
+    expected = [
+        (order_result, "order", "ORD-TEST-001", "order_no"),
+        (refund_result, "refund_case", "RF-TEST-001", "refund_case_no"),
+        (ticket_result, "ticket", "TK-TEST-001", "ticket_no"),
+        (admin_cross_merchant, "order", "ORD-TEST-002", "order_no"),
+    ]
+    for result, resource_type, resource_id, fact_key in expected:
+        assert isinstance(result, BusinessFactResultV1)
+        assert result.status == "ok"
+        assert result.scope_check_result == "allowed"
+        assert result.fact is not None
+        assert result.fact[fact_key] == resource_id
+        assert result.resource_version is None
+        assert result.data_freshness_at is None
+        assert len(result.business_fact_refs) == 1
+        assert result.business_fact_refs[0].resource_type == resource_type
+        assert result.business_fact_refs[0].resource_id == resource_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("identifier", "ctx_updates"),
+    [
+        ("ORD-TEST-002", {}),
+        ("ORD-TEST-001", {"merchant_scope": {"merchant_ids": []}}),
+        ("ORD-TEST-001", {"role": "auditor"}),
+    ],
+)
+async def test_business_fact_service_denials_are_generic_no_leak(
+    session: AsyncSession,
+    seeded_session,
+    identifier: str,
+    ctx_updates: dict,
+) -> None:
+    ctx = _seeded_context(seeded_session, "cs_zhang", **ctx_updates)
+
+    result = await BusinessFactService.with_default_registry(session).get_order(identifier, ctx)
+
+    _assert_fail_closed(result, "permission_denied")
+    assert result.scope_check_result == "denied"
+    assert result.missing_required_facts == ["order"]
+    assert len(result.safe_errors) == 1
+    assert result.safe_errors[0].code == "BUSINESS_FACT_PERMISSION_DENIED"
+    assert result.safe_errors[0].safe_message == NO_LEAK_MESSAGE
+    serialized = result.model_dump_json()
+    assert identifier not in serialized
+    assert "ORD-TEST-002" not in serialized
+    assert "FORBIDDEN" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_business_fact_service_cross_tenant_read_fails_closed_without_raw_details(
+    session: AsyncSession,
+    seeded_session,
+) -> None:
+    result = await BusinessFactService.with_default_registry(session).get_order(
+        "ORD-OTHER-001",
+        _seeded_context(seeded_session, "cs_zhang"),
+    )
+
+    _assert_fail_closed(result, "not_found")
+    assert result.scope_check_result == "unknown"
+    assert result.missing_required_facts == ["order"]
+    serialized = result.model_dump_json()
+    assert "ORD-OTHER-001" not in serialized
+    assert "Other Shop" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_business_fact_service_unsupported_reads_are_typed_unavailable() -> None:
+    service = BusinessFactService(AsyncMock())
+    ctx = _context()
+
+    logistics = await service.get_logistics("TRACK-09", ctx)
+    merchant_risk = await service.get_merchant_risk("merchant-09", ctx)
+
+    for result, missing in [(logistics, "logistics"), (merchant_risk, "merchant_risk")]:
+        _assert_fail_closed(result, "unavailable")
+        assert result.scope_check_result == "not_applicable"
+        assert result.missing_required_facts == [missing]
+        assert result.safe_errors[0].code == "BUSINESS_FACT_UNAVAILABLE"
+        assert result.safe_errors[0].safe_message == "Business fact is unavailable"
+
+
+@pytest.mark.asyncio
+async def test_business_fact_service_stale_double_fails_closed() -> None:
+    stale_result = _business_fact_result(status="stale")
+    adapter = AsyncMock(return_value=stale_result)
+    service = BusinessFactService(AsyncMock(), adapters={"get_order": adapter})
+
+    result = await service.get_order("ORD-09", _context())
+
+    _assert_fail_closed(result, "stale")
+    assert result.safe_errors[0].code == "BUSINESS_FACT_STALE"
+
+
+@pytest.mark.asyncio
+async def test_business_fact_service_fetch_context_aggregates_only_service_approved_facts() -> None:
+    order_ref = _fact_ref(resource_type="order", resource_id="ORD-09")
+    adapters = {
+        "get_order": AsyncMock(
+            return_value=_result(
+                data={"order_no": "ORD-09"},
+            ).model_copy(update={"business_fact_refs": [order_ref]})
+        ),
+        "get_refund_case": AsyncMock(
+            return_value=_result("permission_denied", data=None, code="FORBIDDEN"),
+        ),
+        "get_ticket": AsyncMock(return_value=_business_fact_result(status="stale", resource_name="ticket")),
+    }
+    service = BusinessFactService(AsyncMock(), adapters=adapters)
+
+    context = await service.fetch_context(
+        {"order_id": "ORD-09", "refund_case_id": "RF-09", "ticket_id": "TK-09"},
+        "refund_troubleshooting",
+        _context(),
+    )
+
+    assert context.status == "partial"
+    assert context.facts == {"order": {"order_no": "ORD-09"}}
+    assert context.business_fact_refs == [order_ref]
+    assert context.missing_required_facts == ["refund_case", "ticket"]
+    assert [error.code for error in context.errors] == [
+        "BUSINESS_FACT_PERMISSION_DENIED",
+        "BUSINESS_FACT_STALE",
+    ]
