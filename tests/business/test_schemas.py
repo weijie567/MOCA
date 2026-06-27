@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 from datetime import UTC, datetime
 
 import pytest
@@ -184,3 +186,8 @@ def test_tool_result_requires_latency_ms():
 def test_tool_call_context_rejects_untrusted_extra_fields():
     with pytest.raises(ValidationError):
         ToolCallContext.model_validate(_complete_context_payload(arguments={"tenant_id": "attacker-controlled"}))
+
+
+@pytest.mark.parametrize("module_name", ["src.business", "src.business.schemas", "src.business.service"])
+def test_public_business_imports_do_not_trigger_tool_manager_cycle(module_name: str) -> None:
+    subprocess.run([sys.executable, "-c", f"import {module_name}"], check=True)
