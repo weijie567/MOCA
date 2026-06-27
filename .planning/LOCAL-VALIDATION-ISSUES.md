@@ -4217,3 +4217,60 @@ done
 - `.planning/phases/24.3-memory-write-isolation-policy-and-observability-mvp/`
 - `.planning/phases/24.4-memory-eval-mvp/`
 - `.planning/phases/25-intent-routing-safety-hardening/`
+
+## 2026-06-28 00:07 CST - gsd-sdk state.record-session flag 调用写错 STATE 会话字段
+
+### 问题现象
+
+按 `$HOME/.codex/get-shit-done/workflows/discuss-phase.md` 中的示例执行 `gsd-sdk query state.record-session --stopped-at ... --resume-file ...` 后，`.planning/STATE.md` 的 Session Continuity 字段被错误写入：
+
+```text
+Last session: --stopped-at
+Resume file: --resume-file
+```
+
+### 如何检测 / 复现
+
+```bash
+gsd-sdk query state.record-session --stopped-at "Phase 30 context gathered" --resume-file ".planning/phases/30-businessfactservice-boundary/30-CONTEXT.md"
+rg -n "Last session|Stopped at|Resume file" .planning/STATE.md
+```
+
+### 关键证据或命令
+
+```bash
+sed -n '1190,1215p' "$HOME/.codex/get-shit-done/workflows/discuss-phase.md"
+sed -n '620,675p' /opt/homebrew/lib/node_modules/@gsd-build/sdk/dist/query/state-mutation.js
+```
+
+当前 workflow 文档使用 flag 风格调用；本机 `/opt/homebrew` 安装的 `gsd-sdk query state.record-session` handler 注释和实现实际为 positional 参数：`args[0]` timestamp、`args[1]` stopped-at、`args[2]` resume file。
+
+### 当前判断 / 根因
+
+这是 GSD workflow 文档与当前本机 `gsd-sdk query` handler 实现不一致导致的本地工具调用坑，不是 Phase 30 context 内容问题。flag 风格参数被 query handler 当作普通 positional token 消费，因此 `--stopped-at` 和 `--resume-file` 被写入了 `STATE.md`。
+
+### 已做处理
+
+用 positional 形式重跑并修正 `STATE.md`：
+
+```bash
+gsd-sdk query state.record-session "" "Phase 30 context gathered" ".planning/phases/30-businessfactservice-boundary/30-CONTEXT.md"
+```
+
+修正后确认：
+
+```text
+Last session: 2026-06-27T16:06:56.258Z
+Stopped at: Phase 30 context gathered
+Resume file: .planning/phases/30-businessfactservice-boundary/30-CONTEXT.md
+```
+
+### 剩余问题
+
+Phase 30 本轮流程无阻塞。后续在当前本机 `gsd-sdk query state.record-session` 下应使用 positional 调用，或先核对 SDK 版本是否已修正文档 / handler 行为。
+
+### 下次继续排查入口
+
+- `$HOME/.codex/get-shit-done/workflows/discuss-phase.md`
+- `/opt/homebrew/lib/node_modules/@gsd-build/sdk/dist/query/state-mutation.js`
+- `.planning/STATE.md`
