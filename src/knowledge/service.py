@@ -108,13 +108,13 @@ class PolicyKnowledgeService:
         request: KnowledgeSearchRequest,
         context: KnowledgeContext,
     ) -> KnowledgeSearchResult:
-        # Merchant filters are authorization inputs only until policy rows gain
-        # merchant scope. Deny before adapter execution rather than widening an
-        # unauthorized request into an unfiltered tenant search.
         merchant_id = request.filters.merchant_id
         merchant_scope = context.merchant_scope
-        if not merchant_scope:
+        if merchant_scope is None:
             return self._no_evidence_result()
+        # Policy-only tenant public retrieval is authorized by trusted tenant
+        # identity and knowledge permission; business merchant scope is checked
+        # only when an explicit merchant/business policy filter is requested.
         if merchant_id is not None and "*" not in merchant_scope and merchant_id not in merchant_scope:
             return self._no_evidence_result()
 
