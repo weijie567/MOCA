@@ -39,7 +39,7 @@ from src.platform.trusted_context import TrustedContext, TrustedContextFactory
 
 router = APIRouter(tags=["approvals"])
 
-APPROVAL_ROLES = {"admin", "manager"}
+APPROVAL_ROLES = {"admin"}
 RESUMABLE_DECISIONS = {"accept", "approve", "reject", "ignore"}
 RESUME_TERMINAL_STATUSES = {"approved", "rejected", "cancelled"}
 RESUME_INCOMPLETE_STATUSES = {"attempted", "failed"}
@@ -583,7 +583,6 @@ def _resume_graph_config(
         thread_id=result.graph_thread_id,
         run_id=str(result.run_id),
         trace_id=getattr(request.state, "trace_id", "") or "",
-        server_merchant_scope={"merchant_ids": ["*"]},
         server_tool_permissions=permissions,
     )
     return {
