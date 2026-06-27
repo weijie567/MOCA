@@ -667,6 +667,16 @@ def _contextual_source_reason_codes(
     has_provenance = bool(
         contextual.get("source_provenance") or contextual.get("parser_ocr") or contextual.get("provenance")
     )
+    has_prompt_summary = bool(
+        contextual.get("prompt_summaries")
+        or contextual.get("prompt_summary")
+        or contextual.get("tool_prompt_summaries")
+    )
+    has_raw_repository_rows = bool(
+        contextual.get("raw_repository_rows")
+        or contextual.get("repository_rows")
+        or contextual.get("raw_rows")
+    )
     if authority_class == MaterialClaimAuthorityClass.POLICY_CLAIM:
         if has_memory:
             reason_codes.append("memory_not_policy_authority")
@@ -679,6 +689,10 @@ def _contextual_source_reason_codes(
             reason_codes.append("model_knowledge_not_business_authority")
         if has_provenance:
             reason_codes.append("provenance_not_business_authority")
+        if has_prompt_summary:
+            reason_codes.append("prompt_summary_not_business_authority")
+        if has_raw_repository_rows:
+            reason_codes.append("raw_repository_row_not_business_authority")
     return reason_codes
 
 
