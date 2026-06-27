@@ -4107,3 +4107,51 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/platform/test_trusted_context_fac
 - `tests/agent/test_tools/test_get_ticket.py`
 - `src/integrations/demo_business/authz.py`
 - `.planning/phases/29.5-merchant-scope-role-model-alignment/29.5-UAT.md`
+
+## 2026-06-27 23:51 CST - gsd-next pending spike/sketch 空 glob 检查触发 zsh nomatch
+
+### 问题现象
+
+执行 `$gsd-next` 的 exploratory work notice 检查时，仓库当前没有 `.planning/spikes/*/README.md` 或 `.planning/sketches/*/README.md` 匹配文件；直接在 zsh 中展开 glob 触发 `no matches found`。命令后续仍输出计数 `0`，但 stderr 出现环境噪音。
+
+### 如何检测 / 复现
+
+```bash
+grep -rl 'verdict: PENDING' .planning/spikes/*/README.md 2>/dev/null | wc -l | tr -d ' '
+grep -rl 'winner: null' .planning/sketches/*/README.md 2>/dev/null | wc -l | tr -d ' '
+```
+
+### 关键证据或命令
+
+```text
+zsh:1: no matches found: .planning/spikes/*/README.md
+0
+
+zsh:1: no matches found: .planning/sketches/*/README.md
+0
+```
+
+### 当前判断 / 根因
+
+这是 zsh 默认 `nomatch` 行为；workflow 文档里的 shell 片段假设空 glob 可以被 `grep ... 2>/dev/null` 吞掉，但在 zsh 中 glob 展开发生在命令执行前，stderr 不会被该重定向处理。
+
+### 已做处理
+
+改用目录存在性判断包装检查，避免空 glob：
+
+```bash
+if [ -d .planning/spikes ]; then grep -rl 'verdict: PENDING' .planning/spikes/*/README.md 2>/dev/null | wc -l | tr -d ' '; else printf '0'; fi
+if [ -d .planning/sketches ]; then grep -rl 'winner: null' .planning/sketches/*/README.md 2>/dev/null | wc -l | tr -d ' '; else printf '0'; fi
+```
+
+结果：pending spike/sketch 计数均为 `0`。
+
+### 剩余问题
+
+无本轮阻塞问题。后续在 zsh 中检查可选 glob 文件时仍应避免裸 glob，优先用 `find`、目录存在性判断或显式 `noglob`。
+
+### 下次继续排查入口
+
+- `$HOME/.codex/get-shit-done/workflows/next.md`
+- `.planning/spikes/`
+- `.planning/sketches/`
