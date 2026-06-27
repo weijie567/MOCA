@@ -111,6 +111,12 @@ def _context_with_contextual_only_sources() -> dict[str, Any]:
     }
 
 
+def _context_with_business_fact_substitution_source(source_name: str, payload: Any) -> dict[str, Any]:
+    context = _context_with_contextual_only_sources()
+    context["contextual_sources"] = {source_name: payload}
+    return context
+
+
 @pytest.mark.asyncio
 async def test_memory_case_memory_and_model_knowledge_cannot_support_policy_claims() -> None:
     """CLM-05/BND-04: contextual memory and model knowledge cannot satisfy policy authority."""
@@ -172,6 +178,57 @@ async def test_policy_evidence_and_provenance_cannot_support_business_fact_claim
         "policy_evidence_not_business_authority",
         "provenance_not_business_authority",
     } <= set(result.reason_codes)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("source_name", "payload", "expected_reason"),
+    [
+        (
+            "session_memory",
+            [{"memory_id": "mem-raw-order", "content": "Order ORD-1001 was delivered."}],
+            "memory_not_business_authority",
+        ),
+        (
+            "model_knowledge",
+            ["Model knowledge says order ORD-1001 was delivered."],
+            "model_knowledge_not_business_authority",
+        ),
+        (
+            "prompt_summaries",
+            [{"tool_name": "get_order", "prompt_summary": "Order ORD-1001 was delivered."}],
+            "prompt_summary_not_business_authority",
+        ),
+        (
+            "raw_repository_rows",
+            [{"order_no": "ORD-1001", "status": "delivered", "merchant_id": "merchant-001"}],
+            "raw_repository_row_not_business_authority",
+        ),
+    ],
+)
+async def test_memory_model_prompt_summary_and_raw_repository_rows_cannot_support_business_fact_claims(
+    source_name: str,
+    payload: Any,
+    expected_reason: str,
+) -> None:
+    """APF-08: current business fact claims require BusinessFactRefV1 authority."""
+    MaterialClaim, MaterialClaimVerifier = _load_authority_api()
+    claim = MaterialClaim.model_validate(
+        _claim(
+            "business_fact_claim",
+            claim_text="Order ORD-1001 was delivered.",
+            business_fact_refs=[],
+        )
+    )
+
+    result = await MaterialClaimVerifier().verify_claim(
+        claim,
+        context_bundle=_context_with_business_fact_substitution_source(source_name, payload),
+    )
+
+    assert _value(result.outcome) != "supported"
+    assert result.allows_claim is False
+    assert {"business_fact_ref_required", expected_reason} <= set(result.reason_codes)
 
 
 @pytest.mark.asyncio

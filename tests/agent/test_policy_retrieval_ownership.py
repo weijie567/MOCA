@@ -32,6 +32,7 @@ from src.tools.contracts import (
     ToolResultV2,
     ToolViewV1,
 )
+from src.tools.executors import business as business_executor_module
 from src.tools.executors.memory import MemoryToolExecutor
 from src.tools.projection import ToolResultProjector
 
@@ -289,6 +290,38 @@ class TestPolicyRetrievalOwnership:
         assert not hasattr(module_source, "BusinessToolService"), (
             "investigate must NOT import BusinessToolService; policy retrieval belongs behind ToolPlatform"
         )
+
+    def test_investigate_source_uses_tool_platform_not_business_fact_services_or_raw_repositories(self):
+        """Graph orchestration must not substitute raw repository rows for BusinessFactRefV1."""
+        import inspect
+
+        source = inspect.getsource(investigate_module)
+
+        assert "ToolPlatform" in source
+        for forbidden in (
+            "BusinessFactService",
+            "BusinessToolService",
+            "src.integrations.demo_business",
+            "OrderRepository",
+            "RefundRepository",
+            "TicketRepository",
+        ):
+            assert forbidden not in source
+
+    def test_business_tool_executor_uses_service_boundary_without_raw_repository_imports(self):
+        """Executor may import BusinessFactService, but not raw repository/integration seams."""
+        import inspect
+
+        source = inspect.getsource(business_executor_module)
+
+        assert "BusinessFactService" in source
+        for forbidden in (
+            "src.integrations.demo_business",
+            "OrderRepository",
+            "RefundRepository",
+            "TicketRepository",
+        ):
+            assert forbidden not in source
 
     @pytest.mark.asyncio
     async def test_reviewed_case_memory_tool_result_is_not_policy_evidence(self):
