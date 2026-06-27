@@ -48,16 +48,23 @@ def _result(
     data: dict | None = None,
     retryable: bool = False,
     code: str | None = None,
+    business_fact_refs: list[BusinessFactRefV1] | None = None,
 ) -> ToolResultV2:
     error = None
     if code is not None:
         error = ToolError(code=code, safe_message=f"Safe {code}", retryable=retryable, source="adapter")
+    resolved_data = {"id": "resource-09"} if status == "success" and data is None else data
     return ToolResultV2(
         status=status,
-        data={"id": "resource-09"} if status == "success" and data is None else data,
+        data=resolved_data,
         summary=f"{status} result",
         source_system="test_business_db",
         data_freshness_at=None,
+        business_fact_refs=(
+            [_fact_ref()]
+            if business_fact_refs is None and status in {"success", "partial_success"} and resolved_data is not None
+            else business_fact_refs or []
+        ),
         error=error,
         retryable=retryable,
         latency_ms=1,
@@ -142,6 +149,22 @@ def _assert_fail_closed(result: BusinessFactResultV1, status: str) -> None:
     assert result.business_fact_refs == []
 
 
+def _assert_wrapped_tool_result_has_no_facts(
+    result: ToolResultV2,
+    *,
+    status: str,
+    code: str,
+    safe_message: str = NO_LEAK_MESSAGE,
+) -> None:
+    assert result.status == status
+    assert result.data is None
+    assert result.business_fact_refs == []
+    assert result.policy_evidence_refs == []
+    assert result.error is not None
+    assert result.error.code == code
+    assert result.error.safe_message == safe_message
+
+
 @pytest.mark.asyncio
 async def test_retry_cap_reuses_stable_tool_call_id_and_session() -> None:
     adapter = AsyncMock(
@@ -179,7 +202,7 @@ async def test_attempt_exhausted_does_not_invoke_adapter() -> None:
     )
 
     assert result.error is not None
-    assert result.error.code == "MAX_ATTEMPTS_EXHAUSTED"
+    assert result.error.code == "BUSINESS_FACT_UNAVAILABLE"
     adapter.assert_not_awaited()
 
 
@@ -195,7 +218,8 @@ async def test_empty_merchant_scope_denied_before_adapter() -> None:
 
     assert result.status == "permission_denied"
     assert result.error is not None
-    assert result.error.code == "EMPTY_MERCHANT_SCOPE"
+    assert result.error.code == "BUSINESS_FACT_PERMISSION_DENIED"
+    assert result.error.safe_message == NO_LEAK_MESSAGE
     adapter.assert_not_awaited()
 
 
@@ -401,7 +425,8 @@ async def test_fetch_context_cross_merchant_permission_denied_has_no_business_fa
     assert denied_result.business_fact_refs == []
     assert denied_result.data is None
     assert denied_result.error is not None
-    assert denied_result.error.code == "FORBIDDEN"
+    assert denied_result.error.code == "BUSINESS_FACT_PERMISSION_DENIED"
+    assert denied_result.error.safe_message == NO_LEAK_MESSAGE
     prompt_summary = _project_tool_result(
         tool_call_id="tool-call-denied",
         tool_result_id="tool-result-denied",
@@ -427,10 +452,10 @@ async def test_adapter_exception_returns_safe_tool_result() -> None:
         _context(),
     )
 
-    assert result.status == "error"
+    assert result.status == "unavailable"
     assert result.data is None
     assert result.error is not None
-    assert result.error.code == "ADAPTER_ERROR"
+    assert result.error.code == "BUSINESS_FACT_UNAVAILABLE"
     assert "RAW-SERVICE-SECRET" not in str(result.model_dump())
 
 
@@ -470,9 +495,134 @@ async def test_with_default_registry_invokes_real_adapter_with_mocked_raw_get_or
     )
 
     assert result.status == "success"
+    assert result.summary == "Business fact read succeeded"
     assert result.data is not None
     assert result.data["order_no"] == "ORD-09"
+    assert len(result.business_fact_refs) == 1
+    assert result.business_fact_refs[0].resource_id == "ORD-09"
+    assert result.policy_evidence_refs == []
     raw_get_order.assert_awaited_once_with("ORD-09", "tenant-09", "user-09", "support", session)
+
+
+@pytest.mark.asyncio
+async def test_business_tool_service_wraps_domain_ok_result_as_tool_result() -> None:
+    fact_result = _business_fact_result(
+        status="ok",
+        resource_name="order",
+        resource_type="order",
+        resource_id="ORD-09",
+    )
+    adapter = AsyncMock(return_value=fact_result)
+
+    result = await BusinessToolService(AsyncMock(), adapters={"get_order": adapter}).invoke_tool(
+        "get_order",
+        {"order_no": "ORD-09"},
+        _context(),
+    )
+
+    assert result.status == "success"
+    assert result.summary == "Business fact read succeeded"
+    assert result.data == fact_result.fact
+    assert result.business_fact_refs == fact_result.business_fact_refs
+    assert result.policy_evidence_refs == []
+    assert result.data_freshness_at == fact_result.data_freshness_at
+
+
+@pytest.mark.asyncio
+async def test_business_tool_service_wraps_domain_partial_result_as_partial_success() -> None:
+    fact_result = _business_fact_result(
+        status="partial",
+        resource_name="order",
+        resource_type="order",
+        resource_id="ORD-09",
+    )
+    adapter = AsyncMock(return_value=fact_result)
+
+    result = await BusinessToolService(AsyncMock(), adapters={"get_order": adapter}).invoke_tool(
+        "get_order",
+        {"order_no": "ORD-09"},
+        _context(),
+    )
+
+    assert result.status == "partial_success"
+    assert result.data == fact_result.fact
+    assert result.business_fact_refs == fact_result.business_fact_refs
+    assert result.policy_evidence_refs == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("domain_status", "tool_status", "expected_code", "expected_message"),
+    [
+        ("permission_denied", "permission_denied", "BUSINESS_FACT_PERMISSION_DENIED", NO_LEAK_MESSAGE),
+        ("stale", "unavailable", "BUSINESS_FACT_STALE", NO_LEAK_MESSAGE),
+        ("unavailable", "unavailable", "BUSINESS_FACT_UNAVAILABLE", NO_LEAK_MESSAGE),
+        ("invalid_request", "invalid_request", "BUSINESS_FACT_INVALID_REQUEST", "Business fact request is invalid"),
+    ],
+)
+async def test_business_tool_service_wraps_domain_failures_without_facts_or_refs(
+    domain_status: str,
+    tool_status: str,
+    expected_code: str,
+    expected_message: str,
+) -> None:
+    adapter = AsyncMock(return_value=_business_fact_result(status=domain_status))
+
+    result = await BusinessToolService(AsyncMock(), adapters={"get_order": adapter}).invoke_tool(
+        "get_order",
+        {"order_no": "ORD-DENIED-09"},
+        _context(),
+    )
+
+    _assert_wrapped_tool_result_has_no_facts(
+        result,
+        status=tool_status,
+        code=expected_code,
+        safe_message=expected_message,
+    )
+    serialized = result.model_dump_json()
+    assert "ORD-DENIED-09" not in serialized
+    assert "FORBIDDEN" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_business_tool_service_wraps_not_found_without_facts_or_refs() -> None:
+    adapter = AsyncMock(return_value=_business_fact_result(status="not_found"))
+
+    result = await BusinessToolService(AsyncMock(), adapters={"get_order": adapter}).invoke_tool(
+        "get_order",
+        {"order_no": "ORD-MISSING-09"},
+        _context(),
+    )
+
+    _assert_wrapped_tool_result_has_no_facts(
+        result,
+        status="not_found",
+        code="BUSINESS_FACT_NOT_FOUND",
+    )
+    assert "ORD-MISSING-09" not in result.model_dump_json()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool_name", "args"),
+    [
+        ("get_logistics", {"tracking_no": "TRACK-09"}),
+        ("get_merchant_risk", {"merchant_id": "merchant-09"}),
+    ],
+)
+async def test_business_tool_service_unsupported_catalog_reads_wrap_unavailable_domain_results(
+    tool_name: str,
+    args: dict[str, str],
+) -> None:
+    result = await BusinessToolService(AsyncMock()).invoke_tool(tool_name, args, _context())
+
+    _assert_wrapped_tool_result_has_no_facts(
+        result,
+        status="unavailable",
+        code="BUSINESS_FACT_UNAVAILABLE",
+        safe_message=NO_LEAK_MESSAGE,
+    )
 
 
 @pytest.mark.asyncio
