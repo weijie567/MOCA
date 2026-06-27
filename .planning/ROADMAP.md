@@ -245,12 +245,12 @@ Plans:
 
 ### Phase 29.5: Merchant Scope / Role Model Alignment (INSERTED)
 
-**Status:** Executing
+**Status:** Complete
 **Milestone:** v1.9 Agent Platform Foundation
 **Goal:** Align MOCA's single-tenant MVP identity model so `support`, `manager`, and legacy `merchant` are merchant-bound business users, `admin` is the only platform-wide business-data role, and tenant public policy remains readable by ordinary business users.
 **Requirements**: MER-01
 **Depends on:** Phase 29
-**Plans:** 5/6 plans complete
+**Plans:** 6/6 plans complete
 
 **Success Criteria**:
 
@@ -271,7 +271,9 @@ Plans:
 - [x] 29.5-03-PLAN.md — Order, refund, and ticket API/tool merchant guards
 - [x] 29.5-04-PLAN.md — Policy-only knowledge scope and memory smoke guard
 - [x] 29.5-05-PLAN.md — Approval, AgentRun, trace, replay, and investigate interim guards
-- [ ] 29.5-06-PLAN.md — Static wildcard guard and final focused verification
+- [x] 29.5-06-PLAN.md — Static wildcard guard and final focused verification
+
+**Verification:** Phase 29.5 final gate passed on 2026-06-27: focused suite `341 passed`, whole suite `1590 passed, 1 skipped`, static wildcard guard passed, and `git diff --check` passed.
 
 ### Phase 30: BusinessFactService Boundary
 
