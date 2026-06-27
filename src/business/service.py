@@ -348,7 +348,10 @@ class BusinessFactService:
             return self._sanitize_domain_result(result, resource_name, tenant_id)
 
         if result.status in {"success", "partial_success"} and result.data is not None:
-            if not result.business_fact_refs:
+            has_service_approved_refs = bool(result.business_fact_refs) and all(
+                fact_ref.tenant_id == tenant_id for fact_ref in result.business_fact_refs
+            )
+            if not has_service_approved_refs:
                 return self._safe_result(
                     "unavailable",
                     resource_name=resource_name,
