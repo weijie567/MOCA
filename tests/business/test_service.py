@@ -13,6 +13,7 @@ from src.business.service import (
     BusinessToolService,
     _merchant_scope_allows,
 )
+from src.integrations.demo_business.authz import merchant_can_access
 from src.tools.contracts import ToolCallContext, ToolError, ToolResultV2
 from src.tools.executors.business import BusinessToolExecutor
 
@@ -138,6 +139,28 @@ def test_unknown_category_scope_denied() -> None:
 
 def test_merchant_scope_no_widening_denied() -> None:
     assert not _merchant_scope_allows({"merchant_ids": ["merchant-1"]}, merchant_id="merchant-2")
+
+
+@pytest.mark.asyncio
+async def test_merchant_can_access_rejects_forged_admin_context(session: AsyncSession, seeded_session) -> None:
+    tenant = seeded_session["tenant"]
+    user = seeded_session["users"]["cs_zhang"]
+    merchant = seeded_session["second_merchant"]
+
+    assert not await merchant_can_access(
+        session,
+        tenant_id=tenant.id,
+        user_id="not-a-uuid",
+        role="admin",
+        merchant_id=merchant.id,
+    )
+    assert not await merchant_can_access(
+        session,
+        tenant_id=tenant.id,
+        user_id=str(user.id),
+        role="admin",
+        merchant_id=merchant.id,
+    )
 
 
 def test_business_read_tool_definitions_drive_executor_support() -> None:

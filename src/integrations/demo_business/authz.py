@@ -22,25 +22,25 @@ async def merchant_can_access(
 ) -> bool:
     """Return whether the caller may read data owned by merchant_id."""
 
-    if role in PLATFORM_ADMIN_ROLES:
-        return True
-    if role not in MERCHANT_BOUND_ROLES:
-        return False
-
     try:
         user_uuid = UUID(user_id)
     except ValueError:
         return False
 
-    stmt = select(User.merchant_id).where(
+    stmt = select(User).where(
         User.id == user_uuid,
         User.tenant_id == tenant_id,
-        User.role.in_(tuple(MERCHANT_BOUND_ROLES)),
         User.is_active.is_(True),
     )
     result = await session.execute(stmt)
-    caller_merchant_id = result.scalar_one_or_none()
-    return caller_merchant_id is not None and caller_merchant_id == merchant_id
+    user = result.scalar_one_or_none()
+    if user is None or user.role != role:
+        return False
+    if user.role in PLATFORM_ADMIN_ROLES:
+        return True
+    if user.role not in MERCHANT_BOUND_ROLES:
+        return False
+    return user.merchant_id is not None and user.merchant_id == merchant_id
 
 
 async def order_merchant_id(session: AsyncSession, *, tenant_id: UUID, order_id: UUID) -> UUID | None:
