@@ -13,6 +13,9 @@ from src.auth.jwt import ExpiredSignatureError, InvalidTokenError, decode_access
 from src.db.models import User
 from src.db.session import get_session
 
+MERCHANT_BOUND_ROLES = {"support", "manager", "merchant"}
+PLATFORM_ADMIN_ROLES = {"admin"}
+
 
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="/api/v1/auth/token",
@@ -86,3 +89,28 @@ def require_roles(allowed_roles: list[str]) -> Callable[..., User]:
         return user
 
     return role_checker
+
+
+def require_merchant_access(user: User, merchant_id: object, *, resource_name: str = "resource") -> None:
+    """Raise when a human business user cannot access the target merchant resource."""
+
+    role = str(user.role)
+    if role in PLATFORM_ADMIN_ROLES:
+        return
+
+    if role not in MERCHANT_BOUND_ROLES:
+        _raise_merchant_access_forbidden(resource_name)
+
+    user_merchant_id = getattr(user, "merchant_id", None)
+    if user_merchant_id is None or str(user_merchant_id) != str(merchant_id):
+        _raise_merchant_access_forbidden(resource_name)
+
+
+def _raise_merchant_access_forbidden(resource_name: str) -> None:
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={
+            "code": FORBIDDEN,
+            "message": f"Merchant access is limited to the merchant's own {resource_name}",
+        },
+    )
