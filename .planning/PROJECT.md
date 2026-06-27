@@ -12,7 +12,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 ## Current Milestone: v1.9 Agent Platform Foundation
 
-**Status:** Phase 29 complete; Phase 29.5 spec ready before Phase 30 planning.
+**Status:** Phase 30 complete; ready to plan Phase 31 Memory Platform Boundary.
 
 **Goal:** Convert MOCA from feature-by-feature agent code into a microservice-ready modular monolith with clear platform/domain service boundaries, canonical trusted context, decision events, tool policy, memory context, target graph contracts, RAG context build, claim verification, business fact authority, and approval/action boundary hardening.
 
@@ -187,7 +187,7 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - [x] **APF-06:** Tool planner visibility is generated from `ToolDescriptor` into prompt-safe `ToolView` rather than exposing raw descriptors, adapters, internal permission reasons, or side-effect capabilities (validated in Phase 29).
 - [x] **APF-07:** Runtime tool invocation emits `ToolPolicyDecision` and rechecks authorization, resource scope, side-effect class, and input/output schema even when the tool was visible to the planner (validated in Phase 29).
 - [ ] **MER-01:** Merchant-bound role semantics align the single-tenant MVP: `support` / `manager` / legacy `merchant` are scoped to their merchant for business data, `admin` is the only platform-wide business-data role, tenant public policy remains shared, and AgentRun / Approval / ActionDraft / Memory / Replay scope risks are routed to Phases 30-35 or Phase 36+.
-- [ ] **APF-08:** Business fact reads expose `BusinessFactResultV1` / `BusinessFactRefV1` through domain service public methods, and graph/tool code cannot substitute memory, RAG, LLM inference, or raw repository rows for current business facts.
+- [x] **APF-08:** Business fact reads expose `BusinessFactResultV1` / `BusinessFactRefV1` through domain service public methods, and graph/tool code cannot substitute memory, RAG, LLM inference, or raw repository rows for current business facts (validated in Phase 30).
 - [ ] **APF-09:** Session context loading exposes agent-facing `SessionContextMemory` for same-thread continuity while keeping `SessionContinuityStore` as an internal storage concern.
 - [ ] **APF-10:** Memory context APIs separate session context, long-term memory, case memory, conversation log, workflow checkpoint, working state, and memory write candidates, with explicit authority tags that prevent memory from satisfying policy evidence, current business fact, approval, action, or replay truth.
 - [ ] **APF-11:** The graph can map legacy nodes/routers to target canonical vocabulary for `safety_pre_route`, `session_context_load`, `contextual_intent_resolve`, `slot_resolution_gate`, `memory_context_load`, `rag_context_build`, and `claim_verify`.
@@ -272,7 +272,7 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - v1.5 RAG Context Builder + Hallucination Control is shipped and archived. Phase 22 owns ContextBuilder, canonical evidence validation, MaterialClaim authority verification, deterministic route control, action-boundary blocking, safe final-response wording, and hallucination-control evals while preserving v1.3/v1.4 evidence and provenance boundaries.
 - v1.6 RAG Reranker + Query Rewrite is shipped and archived on 2026-06-20. Full milestone history lives in `.planning/milestones/v1.6-ROADMAP.md`, `.planning/milestones/v1.6-REQUIREMENTS.md`, and `.planning/milestones/v1.6-phases/`.
 - v1.7 Short-term Memory Unification is complete on 2026-06-20. Phase 24 owns Agent Console `/agent-runs + SSE` conversation persistence, rolling summaries, prompt-safe tool summaries, PostgreSQL-backed session slot continuity, failure/idempotency safeguards, authority-boundary regressions, and three-turn smoke verification.
-- v1.9 Agent Platform Foundation has completed Phase 26 Architecture Contract Baseline, Phase 27 TrustedContextFactory and Projections, Phase 28 Decision Event Foundation, and Phase 29 Tool Platform Boundary. Phase 27 owns canonical `TrustedContextFactory`, no-widening service projections, read-only intent/slot registries, and current route/node/tool seam migrations for APF-03/APF-04. Phase 28 owns strict `DecisionEventEnvelopeV1` validation, replay-owned `emit_decision_event`, fail-closed trusted identity projection, reason/version normalization, resource reference leakage guards, and focused wrapper/key-path compatibility for APF-05. Phase 29 owns prompt-safe `ToolViewV1` planner visibility, `ToolPolicyDecision` runtime authorization, `ToolPlatform` / `ToolRuntime` / `ToolResultProjector` boundaries, and manager/investigate/conversation integration for APF-06/APF-07.
+- v1.9 Agent Platform Foundation has completed Phase 26 Architecture Contract Baseline, Phase 27 TrustedContextFactory and Projections, Phase 28 Decision Event Foundation, Phase 29 Tool Platform Boundary, Phase 29.5 Merchant Scope / Role Model Alignment, and Phase 30 BusinessFactService Boundary. Phase 27 owns canonical `TrustedContextFactory`, no-widening service projections, read-only intent/slot registries, and current route/node/tool seam migrations for APF-03/APF-04. Phase 28 owns strict `DecisionEventEnvelopeV1` validation, replay-owned `emit_decision_event`, fail-closed trusted identity projection, reason/version normalization, resource reference leakage guards, and focused wrapper/key-path compatibility for APF-05. Phase 29 owns prompt-safe `ToolViewV1` planner visibility, `ToolPolicyDecision` runtime authorization, `ToolPlatform` / `ToolRuntime` / `ToolResultProjector` boundaries, and manager/investigate/conversation integration for APF-06/APF-07. Phase 30 owns strict `BusinessFactResultV1`, service-approved `BusinessFactRefV1` emission, BusinessFactService no-leak/stale/unavailable fail-closed behavior, ToolPlatform domain-scope marker enforcement, projection envelope-only business refs, and authority-boundary tests that prevent memory/RAG/LLM/raw rows from proving current business facts.
 
 ## Next Milestone Setup
 
@@ -334,4 +334,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-23 after completing Phase 28 Decision Event Foundation*
+*Last updated: 2026-06-28 after completing Phase 30 BusinessFactService Boundary*
