@@ -4334,3 +4334,48 @@ python3 /Users/ming/.codex/skills/.system/skill-creator/scripts/generate_openai_
 - `/Users/ming/.codex/skills/.system/skill-creator/scripts/quick_validate.py`
 - `/Users/ming/.codex/skills/.system/skill-creator/scripts/generate_openai_yaml.py`
 - `/Users/ming/.codex/skills/gsd-phase-autopilot/`
+
+## 2026-06-28 02:39 CST - `state.begin-phase` 位置参数误用
+
+### 问题现象
+
+启动 Phase 30 执行时，误把 `gsd-sdk query state.begin-phase` 当成 flag API 调用，导致 `.planning/STATE.md` 临时出现 `Phase --phase`、`Plan: 1 of --name` 等错误状态。
+
+### 如何检测 / 复现
+
+```bash
+gsd-sdk query state.begin-phase --phase "30" --name "businessfactservice-boundary" --plans "3"
+git diff -- .planning/STATE.md
+```
+
+### 关键证据或命令
+
+```text
+{
+  "phase": "--phase",
+  "name": "30",
+  "plan_count": "--name"
+}
+```
+
+### 当前判断 / 根因
+
+`state.begin-phase` 当前接受 positional 参数，不接受 `--phase` / `--name` / `--plans` flag 形式。workflow 示例使用 flag 风格，和实际 SDK handler 行为不一致。
+
+### 已做处理
+
+立即用 positional 参数重跑，覆盖错误状态：
+
+```bash
+gsd-sdk query state.begin-phase "30" "businessfactservice-boundary" "3"
+```
+
+### 剩余问题
+
+Phase 30 执行无阻塞。后续调用 `state.begin-phase` 时继续使用 positional 参数，或修正 GSD workflow 文档 / SDK handler 之一。
+
+### 下次继续排查入口
+
+- `/Users/ming/.codex/get-shit-done/workflows/execute-phase.md`
+- `/opt/homebrew/lib/node_modules/@gsd-build/sdk/dist/query/state-mutation.js`
+- `.planning/STATE.md`
