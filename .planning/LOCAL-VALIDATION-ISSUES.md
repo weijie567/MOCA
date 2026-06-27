@@ -3974,3 +3974,53 @@ uv run pytest tests/test_approval_integration.py -q --tb=short
 - `tests/test_approval_integration.py`
 - `src/agent/nodes/investigate.py`
 - `src/agent/nodes/action_draft.py`
+
+## 2026-06-27 21:54 CST - Phase 29.5 review-fix 直接 pytest 再次命中系统 Python 3.9
+
+### 问题现象
+
+执行 WR-01 focused regression 时，直接运行 `pytest` 在加载 `tests/conftest.py` 阶段失败，未进入测试用例。
+
+### 如何检测 / 复现
+
+```bash
+pytest tests/business/test_service.py::test_merchant_can_access_rejects_forged_admin_context
+```
+
+### 关键证据或命令
+
+```text
+ImportError: cannot import name 'UTC' from 'datetime' (/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/datetime.py)
+```
+
+环境定位：
+
+```text
+which pytest -> /Users/ming/Library/Python/3.9/bin/pytest
+which python3.12 -> /Users/ming/.local/bin/python3.12
+which uv -> /Users/ming/.local/bin/uv
+```
+
+### 当前判断 / 根因
+
+本地 PATH 中的 `pytest` 仍指向 Python 3.9 用户安装版本；MOCA 声明 Python 3.12+，并使用 `datetime.UTC`，因此这是命令入口错误，不是本次 authz 修复逻辑失败。
+
+### 已做处理
+
+改用项目惯用命令重跑 focused regression：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_service.py::test_merchant_can_access_rejects_forged_admin_context -q --tb=short
+```
+
+结果：`1 passed, 1 warning`。WR-02 的 focused integration regressions 也通过 `uv run` 验证。
+
+### 剩余问题
+
+无本轮阻塞问题。直接运行裸 `pytest` 仍可能复现该环境坑。
+
+### 下次继续排查入口
+
+- `.planning/LOCAL-VALIDATION-ISSUES.md` 中既有 “直接运行 pytest 命中了系统 Python 3.9” 条目
+- `pyproject.toml`
+- `.venv/bin/python`
