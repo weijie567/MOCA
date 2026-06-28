@@ -2,7 +2,7 @@
 phase: 32
 review_source: 32-REVIEWS.md
 reviewer: claude
-adjudicated_at: "2026-06-28T13:20:00Z"
+adjudicated_at: "2026-06-28T13:11:00Z"
 status: repaired
 ---
 
