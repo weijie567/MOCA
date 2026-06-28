@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import inspect
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
@@ -13,6 +14,7 @@ from tests.agent.conftest import FakeLLM
 
 from src.agent import trace as trace_module
 from src.agent.graph import build_graph, route_after_approval, route_after_risk
+from src.agent.graph_vocabulary import target_graph_name
 from src.agent.nodes import assess_risk_and_approval as assess_risk_module
 from src.agent.nodes import classify_intent as classify_intent_module
 from src.agent.nodes import extract_slots as extract_slots_module
@@ -681,11 +683,52 @@ def test_graph_compiles_with_investigate():
     graph = build_graph(MemorySaver())
     nodes = set(graph.get_graph().nodes)
 
-    assert {"investigate", "clarification_gate", "session_memory_load", "long_term_memory_retrieve"} <= nodes
+    assert {
+        "classify_intent",
+        "investigate",
+        "clarification_gate",
+        "session_memory_load",
+        "long_term_memory_retrieve",
+    } <= nodes
     assert "action_draft" in nodes
     assert "execute_action" not in nodes
     assert "load_business_context" not in nodes
     assert "retrieve_policy_evidence" not in nodes
+
+
+def test_legacy_graph_runtime_names_project_to_target_vocabulary():
+    graph = build_graph(MemorySaver())
+    nodes = set(graph.get_graph().nodes)
+
+    legacy_node_targets = {
+        "classify_intent": "contextual_intent_resolve",
+        "session_memory_load": "session_context_load",
+        "extract_slots": "slot_resolution_gate",
+        "long_term_memory_retrieve": "memory_context_load",
+    }
+    for legacy_node, target_node in legacy_node_targets.items():
+        assert legacy_node in nodes
+        assert target_graph_name(legacy_node, kind="node") == target_node
+
+    legacy_router_targets = {
+        "route_after_intent": "route_after_contextual_intent",
+        "route_after_slots": "route_after_slot_resolution",
+    }
+    for legacy_router, target_router in legacy_router_targets.items():
+        assert legacy_router in ROUTER_EDGE_KEYS
+        assert target_graph_name(legacy_router, kind="router") == target_router
+
+
+def test_phase_33_target_nodes_are_not_registered_as_runnable_graph_nodes():
+    graph = build_graph(MemorySaver())
+    nodes = set(graph.get_graph().nodes)
+
+    assert "rag_context_build" not in nodes
+    assert "claim_verify" not in nodes
+
+    source = inspect.getsource(build_graph)
+    assert 'builder.add_node("rag_context_build"' not in source
+    assert 'builder.add_node("claim_verify"' not in source
 
 
 def test_approval_gate_edit_branch_is_registered_in_compiled_graph():
