@@ -5474,3 +5474,50 @@ find .planning/phases/31-memory-platform-boundary -maxdepth 1 -name '*-UI-SPEC.m
 
 - `.planning/phases/31-memory-platform-boundary/`
 - verify-work 自动 UI artifact 检查命令
+
+## 2026-06-28 20:50 CST - Phase 32 research 文本检查命令中未转义 Markdown 反引号触发裸 `pytest`
+
+### 问题现象
+
+在检查 `.planning/phases/32-intent-graph-migration/32-RESEARCH.md` 中 pytest 命令写法时，执行了包含 Markdown 反引号的 zsh 双引号命令，zsh 先把 `` `pytest` `` 当作命令替换执行，导致裸 `pytest` 被触发并命中本机 Python 3.9。
+
+报错片段：
+
+```text
+ImportError while loading conftest '/Users/ming/projects/MOCA/tests/conftest.py'.
+tests/conftest.py:3: in <module>
+    from datetime import UTC, datetime, timedelta
+E   ImportError: cannot import name 'UTC' from 'datetime' (/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/datetime.py)
+```
+
+### 如何检测 / 复现
+
+在 zsh 下使用双引号包裹含 Markdown 反引号的搜索模式即可复现，例如模式文本里包含 ``bare `pytest` `` 时，反引号内容会先作为 shell 命令执行。
+
+### 关键证据或命令
+
+触发问题的意图是搜索 research 文档中的测试命令文本；因为搜索模式包含未转义反引号，实际先执行了裸 `pytest`，再执行 `rg`。
+
+修正后的安全写法使用单引号包裹搜索模式，避免反引号命令替换：
+
+```bash
+rg -n 'pytest|python -m pytest' .planning/phases/32-intent-graph-migration/32-RESEARCH.md
+```
+
+### 当前判断 / 根因
+
+这是 shell 引号/反引号处理导致的命令入口错误，不是 Phase 32 research 内容本身的测试失败，也不是应用代码问题。它再次证明 MOCA 不能把裸 `pytest` 输出当作有效验证结论。
+
+### 已做处理
+
+已将 `32-RESEARCH.md` 中的测试命令文档检查改为使用单引号搜索模式，并继续要求所有可执行测试命令使用 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...` 或 `.venv/bin/pytest ...`。
+
+### 剩余问题
+
+无代码问题。该次裸 `pytest` 输出无效，不作为验证结论。
+
+### 下次继续排查入口
+
+- `.planning/phases/32-intent-graph-migration/32-RESEARCH.md`
+- `AGENTS.md` 本地验证命令环境硬规则
+- zsh 搜索命令中的 Markdown 反引号转义
