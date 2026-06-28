@@ -472,6 +472,15 @@ class MaterialClaimVerifier:
             if not _business_authority_passed(claim, context) and "business_fact_ref_required" not in reason_codes:
                 reason_codes.append("business_fact_ref_required")
             return self._result(claim, VerificationOutcome.UNAUTHORIZED, level1=level1, reason_codes=reason_codes)
+        if not level1.membership_passed:
+            if "policy_evidence_required" not in reason_codes:
+                reason_codes.append("policy_evidence_required")
+            return self._result(
+                claim,
+                VerificationOutcome.INSUFFICIENT,
+                level1=level1,
+                reason_codes=reason_codes,
+            )
         if dependency_reason_codes:
             return self._result(claim, VerificationOutcome.UNSUPPORTED, level1=level1, reason_codes=reason_codes)
         if not _business_authority_passed(claim, context):
@@ -482,9 +491,6 @@ class MaterialClaimVerifier:
                 level1=level1,
                 reason_codes=reason_codes,
             )
-        if claim.cited_evidence_ids and not level1.membership_passed:
-            reason_codes.append("policy_evidence_required")
-            return self._result(claim, VerificationOutcome.INSUFFICIENT, level1=level1, reason_codes=reason_codes)
         return self._result(
             claim,
             VerificationOutcome.SUPPORTED,

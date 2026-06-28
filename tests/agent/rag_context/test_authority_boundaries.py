@@ -312,6 +312,40 @@ async def test_action_recommendation_rejects_memory_or_model_supported_dependenc
 
 
 @pytest.mark.asyncio
+async def test_action_recommendation_rejects_missing_policy_evidence_even_with_supported_dependencies() -> None:
+    MaterialClaim, MaterialClaimVerifier = _load_authority_api()
+    business_ref = _business_fact_ref()
+    context = _context_with_contextual_only_sources()
+    context["verifier_context"]["business_fact_refs"] = [business_ref.model_dump(mode="json")]
+    claim = MaterialClaim.model_validate(
+        _claim(
+            "action_recommendation_claim",
+            claim_id="claim-action-no-policy-evidence",
+            claim_text="Issue compensation for order ORD-1001.",
+            cited_evidence_ids=[],
+            business_fact_refs=[business_ref.model_dump(mode="json")],
+            dependency_claim_ids=["claim-policy-1", "claim-business-1"],
+        )
+    )
+
+    result = await MaterialClaimVerifier().verify_claim(
+        claim,
+        context_bundle=context,
+        dependency_results=[
+            {"claim_id": "claim-policy-1", "outcome": "supported"},
+            {"claim_id": "claim-business-1", "outcome": "supported"},
+        ],
+    )
+
+    assert _value(result.outcome) != "supported"
+    assert result.allows_claim is False
+    assert result.allows_action_recommendation is False
+    assert result.blocks_proposed_action is True
+    assert result.level1.membership_passed is False
+    assert "policy_evidence_required" in result.reason_codes
+
+
+@pytest.mark.asyncio
 async def test_action_recommendation_rejects_wrong_tenant_business_ref() -> None:
     MaterialClaim, MaterialClaimVerifier = _load_authority_api()
     evidence = _evidence_ref()
