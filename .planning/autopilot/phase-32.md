@@ -1,11 +1,11 @@
 ---
 phase: "32"
 status: running
-current_step: claude_plan_review
+current_step: execute
 plan_review_loop: 1
 quota_waits: 0
-updated_at: "2026-06-28T13:22:31Z"
-next_command: "$gsd-review 32 --claude (second pass on repaired plans)"
+updated_at: "2026-06-28T13:26:04Z"
+next_command: "$gsd-execute-phase 32"
 ---
 
 # Phase 32 Autopilot Checkpoint
@@ -35,6 +35,7 @@ next_command: "$gsd-review 32 --claude (second pass on repaired plans)"
 - Native plan-checker found one `32-04` merchant-context resolved spoofing blocker and one brittle role-constant warning.
 - Follow-up `32-04` plan repair committed: `ebf9392 docs(32): tighten merchant context plan gate`.
 - Focused native plan-checker re-check passed after `ebf9392`.
+- Claude re-review passed with no remaining actionable plan blocker/warning and was committed: `3c6ff4a docs(32): record repaired plan rereview pass`.
 
 ## Evidence
 
@@ -49,6 +50,7 @@ next_command: "$gsd-review 32 --claude (second pass on repaired plans)"
 - `32-PLAN-REVIEW-DECISIONS.md` records accepted, false-positive, disagreed, and deferred Claude findings.
 - Repaired plans now make `slot_resolution_gate`, behavioral registry tests, deterministic slot freshness/idempotence, merchant-context evidence allowlists, and mapping-doc consistency explicit.
 - `32-04` now requires preexisting `target_merchant_context.status == "resolved"` to carry service-approved `BusinessFactRefV1` provenance and uses value-based `ADMIN_RUN_VISIBILITY_ROLES == {"admin"}` checks.
+- Plan review loop accepted by both native GSD checker and external Claude re-review.
 
 ## Last Failure
 
