@@ -25,26 +25,11 @@ REQUIRED_MAPPINGS = [
     ("slot_resolution_gate", "node", "slot_resolution_gate", "compatibility_alias", True),
     ("route_after_intent", "router", "route_after_contextual_intent", "compatibility_alias", True),
     ("route_after_slots", "router", "route_after_slot_resolution", "compatibility_alias", True),
-    ("rag_context_build", "node", "rag_context_build", "deferred_non_runnable", False),
-    ("claim_verify", "node", "claim_verify", "deferred_non_runnable", False),
 ]
 
 POLICY_CONSTANTS = ("DIRECT_RESPONSE_INTENTS", "INTENT_ROUTE_POLICY", "REQUIRED_SLOT_POLICY")
 PHASE32_ARTIFACT_GLOBS = ("32-*-PLAN.md", "32-*-SUMMARY.md", "32-MVP-TARGET-MAPPING.md")
 BULLET_INLINE_COMMAND_RE = re.compile(r"^-\s+`([^`]+)`")
-
-
-def test_phase33_rag_and_claim_targets_are_deferred_non_runnable_and_not_graph_registered() -> None:
-    graph_source = (ROOT / "src" / "agent" / "graph.py").read_text()
-
-    assert not re.search(r"builder\.add_node\(\s*['\"]rag_context_build['\"]", graph_source)
-    assert not re.search(r"builder\.add_node\(\s*['\"]claim_verify['\"]", graph_source)
-    for name in ("rag_context_build", "claim_verify"):
-        entry = graph_vocabulary.graph_vocabulary_entry(name, kind="node")
-        assert entry is not None
-        assert entry.status == "deferred_non_runnable"
-        assert entry.runnable is False
-        assert graph_vocabulary.is_deferred_non_runnable_target(name, kind="node") is True
 
 
 def test_phase32_required_mapping_entries_match_graph_vocabulary() -> None:

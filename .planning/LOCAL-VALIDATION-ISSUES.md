@@ -6212,6 +6212,57 @@ SDK 输出：
 - `.planning/STATE.md`
 - `gsd-sdk query roadmap.update-plan-progress 33`
 
+## 2026-06-29 05:18 CST - Plan 33-09 Phase 32 stale RAG/claim static guard RED failure
+
+### 问题现象
+
+Plan 33-09 Task 33-09-01 按 TDD RED 流程新增 `tests/architecture/test_phase33_rag_claim_boundaries.py` 后，运行 Phase 32 + Phase 33 architecture smoke 时失败。失败点集中在旧 Phase 32 静态契约仍要求 `rag_context_build` 和 `claim_verify` 不注册 graph node、且 vocabulary status 必须是 `deferred_non_runnable`。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_phase32_static_contract.py tests/architecture/test_phase33_rag_claim_boundaries.py -q --tb=short
+```
+
+### 关键证据或命令
+
+RED 输出中的关键断言：
+
+```text
+FAILED tests/architecture/test_phase32_static_contract.py::test_phase33_rag_and_claim_targets_are_deferred_non_runnable_and_not_graph_registered
+E   assert not <re.Match object; match='builder.add_node("rag_context_build"'>
+
+FAILED tests/architecture/test_phase32_static_contract.py::test_phase32_required_mapping_entries_match_graph_vocabulary
+E   AssertionError: assert 'runtime' == 'deferred_non_runnable'
+```
+
+### 当前判断 / 根因
+
+这是计划内兼容窗口关闭点：Phase 33 Plans 33-02 和 33-05 已经把 `rag_context_build`、`claim_verify` 提升为 runtime/runnable graph nodes，但 Phase 32 的静态契约仍保留历史占位期断言，导致最终静态 gate 假失败。
+
+### 已做处理
+
+已将 Phase 32 静态契约收窄为只检查 Phase 32 自身拥有的 registry、visibility、target merchant-context 和验证入口规则；`rag_context_build` / `claim_verify` 的 runtime graph registration、runtime/runnable vocabulary、deterministic router、writer ownership、no raw leakage、approved validation command 规则改由 `tests/architecture/test_phase33_rag_claim_boundaries.py` 覆盖。
+
+修复后用有效入口重跑并通过：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_phase32_static_contract.py tests/architecture/test_phase33_rag_claim_boundaries.py -q --tb=short
+uv run ruff check tests/architecture/test_phase32_static_contract.py tests/architecture/test_phase33_rag_claim_boundaries.py
+```
+
+### 剩余问题
+
+无当前阻塞。`32-MVP-TARGET-MAPPING.md` 仍需在 Task 33-09-02 中记录历史 Phase 32 deferral 与 Phase 33 runtime behavior 的区别。
+
+### 下次继续排查入口
+
+- `tests/architecture/test_phase32_static_contract.py`
+- `tests/architecture/test_phase33_rag_claim_boundaries.py`
+- `.planning/phases/32-intent-graph-migration/32-MVP-TARGET-MAPPING.md`
+
 ## 2026-06-29 05:34 CST - Plan 33-08 rag_claim_summary GREEN 验证失败已处理
 
 ### 问题现象
