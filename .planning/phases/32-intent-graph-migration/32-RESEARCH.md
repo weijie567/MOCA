@@ -410,22 +410,19 @@ The source requirement is D-13 target merchant context status with no widened ma
 |---|-------|---------|---------------|
 | None | All factual claims in this research are sourced from local project docs, source code, tests, or command output. [VERIFIED: local files and commands listed in Sources] | n/a | n/a |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should target canonical names be persisted in `AgentStep.metrics_json` or only projected at read time?**  
    What we know: `AgentStep.node_name` persists implementation names, and `metrics_json` is available on the same table. [VERIFIED: src/db/models.py; src/agent/trace.py]  
-   What's unclear: Phase 32 context allows graph state, trace metrics, route decision metadata, or AgentRun projection for merchant/context evidence. [VERIFIED: .planning/phases/32-intent-graph-migration/32-CONTEXT.md]  
-   Recommendation: prefer read-time projection first; persist only if eval/replay needs stable snapshot semantics in Phase 32. [VERIFIED: tests/test_trace_api.py; tests/replay/test_replay_api.py]
+   **RESOLVED:** Phase 32 uses projection-first target graph names and does not rewrite `AgentStep.node_name`. Plan `32-01` owns the typed vocabulary helper; Plan `32-04` owns trace/SSE/run projection fields. Persisting target names in storage is deferred unless a later replay/eval phase proves snapshot persistence is required. [VERIFIED: .planning/phases/32-intent-graph-migration/32-01-PLAN.md; .planning/phases/32-intent-graph-migration/32-04-PLAN.md]
 
 2. **Should `slot_resolution_gate` become a physical graph node in Phase 32?**  
    What we know: target architecture says it should become an explicit registered node, but current code resolves slots inside `extract_slots`. [VERIFIED: docs/target-agent-platform-architecture-plan.md §6; src/agent/nodes/extract_slots.py]  
-   What's unclear: a physical node may require broader graph edge and trace fixture churn than APF-12 strictly needs. [VERIFIED: tests/agent/test_graph.py; tests/test_agent_runs_api.py]  
-   Recommendation: plan a helper/projection first, then decide on a physical node only if tests and task scope remain small. [VERIFIED: .planning/phases/32-intent-graph-migration/32-CONTEXT.md]
+   **RESOLVED:** Phase 32 plans a helper/projection boundary first, not a broad physical graph-node split. Plan `32-03` keeps legacy `route_after_slots` edge keys compiling while exposing target `slot_resolution_gate` / `route_after_slot_resolution` semantics through registry-owned policy and vocabulary projection. [VERIFIED: .planning/phases/32-intent-graph-migration/32-03-PLAN.md]
 
 3. **How much target merchant context should be exposed through AgentRun response schemas?**  
    What we know: D-13 requires status evidence, and current run visibility must remain owner/admin-only. [VERIFIED: .planning/phases/32-intent-graph-migration/32-CONTEXT.md; src/api/routers/agent_runs.py]  
-   What's unclear: whether the field belongs in graph state, trace metrics, run detail payload, or all three. [VERIFIED: .planning/phases/32-intent-graph-migration/32-CONTEXT.md]  
-   Recommendation: start with graph state plus trace/run-detail projection; avoid DB schema migration unless the plan proves replay/eval cannot consume projection. [VERIFIED: src/agent/trace.py; src/api/routers/agent_runs.py]
+   **RESOLVED:** Phase 32 records target merchant context in graph state plus trace/SSE/run projection surfaces, with statuses `resolved`, `deferred`, `unavailable`, or `not_applicable`. It must not broaden AgentRun/trace/replay authorization and must not require a DB schema migration unless later phases prove it necessary. [VERIFIED: .planning/phases/32-intent-graph-migration/32-04-PLAN.md]
 
 ## Environment Availability
 
