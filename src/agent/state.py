@@ -67,6 +67,7 @@ class AgentState(TypedDict, total=False):
     intent_confidence: float | None
     risk_tier: str | None
     classification_trace: dict[str, Any] | None
+    target_merchant_context: dict[str, Any] | None
     active_flow_state: dict[str, Any] | None
     secondary_intents: list[str]
     required_slots: dict[str, Any]

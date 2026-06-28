@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.graph_vocabulary import project_trace_step_for_contract
+from src.agent.merchant_context import project_target_merchant_context
 from src.db.models import AgentRun, AgentStep
 from src.replay.lifecycle import RunLifecycleService
 
@@ -278,6 +279,7 @@ def build_trace_summary(
             "schema_version": "target_graph_projection.v1",
             "steps": graph_projection_steps,
         },
+        "target_merchant_context": project_target_merchant_context(final_state),
         "tools_called": tools_called,
         "evidence_count": evidence_count,
         "risk_level": risk.get("risk_level") or "unknown",

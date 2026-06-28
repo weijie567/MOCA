@@ -65,6 +65,7 @@ async def receive_request(state: AgentState) -> dict:
         "intent_confidence": None,
         "risk_tier": None,
         "classification_trace": None,
+        "target_merchant_context": None,
         "active_flow_state": active_flow_state,
         "secondary_intents": [],
         "required_slots": {"all_of": [], "any_of": [], "optional": []},

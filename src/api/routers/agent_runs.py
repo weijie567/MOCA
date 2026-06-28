@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sse_starlette.sse import EventSourceResponse
 
 from src.agent.graph_vocabulary import target_graph_name
+from src.agent.merchant_context import project_target_merchant_context
 from src.agent.nodes.memory_write import memory_write
 from src.agent.nodes.final_response import final_response as build_final_response
 from src.agent.trace import append_agent_steps, build_trace_summary, update_agent_run_status, write_agent_run, write_agent_steps
@@ -399,7 +400,10 @@ async def _event_generator_from_graph_updates(
                 step_index=step_index + 1,
                 status="completed",
                 message="已完成",
-                payload={"final_response": str(final_response)},
+                payload={
+                    "final_response": str(final_response),
+                    "target_merchant_context": project_target_merchant_context(final_state),
+                },
             )
         else:
             yield _sse_event(
@@ -559,7 +563,10 @@ async def _event_generator_from_graph_events(
                 step_index=last_step_index + 1,
                 status="completed",
                 message="已完成",
-                payload={"final_response": str(final_response)},
+                payload={
+                    "final_response": str(final_response),
+                    "target_merchant_context": project_target_merchant_context(final_state),
+                },
             )
         else:
             yield _sse_event(
