@@ -5185,3 +5185,58 @@ SDK `phase-plan-index` 的 wave 归一化/依赖拓扑逻辑仍需后续修复�
 
 - `gsd-sdk query phase-plan-index 31`
 - `.planning/phases/31-memory-platform-boundary/31-*-PLAN.md`
+
+## 2026-06-28 13:51 CST - zsh 中使用 `status` 变量导致 acceptance 检查命令自身失败
+
+### 问题现象
+
+执行 31-01 Task 1 的 `xfail|skip(` acceptance 检查时，命令没有实际完成检查，而是被 shell 报错中断：
+
+```text
+zsh:1: read-only variable: status
+```
+
+### 如何检测 / 复现
+
+在 zsh 中运行包含 `status=$?` 赋值的检查命令：
+
+```bash
+set +e; rg -n "xfail|skip\\(" tests/memory/test_context_refs.py tests/agent/test_session_memory_load.py tests/memory/test_session_memory_bundle.py; status=$?
+```
+
+### 关键证据或命令
+
+失败输出：
+
+```text
+zsh:1: read-only variable: status
+```
+
+修正后重跑：
+
+```bash
+set +e; rg -n "xfail|skip\\(" tests/memory/test_context_refs.py tests/agent/test_session_memory_load.py tests/memory/test_session_memory_bundle.py; rg_status=$?; if [ "$rg_status" -eq 1 ]; then echo 'NO_MATCHES'; exit 0; fi; exit "$rg_status"
+```
+
+输出：
+
+```text
+NO_MATCHES
+```
+
+### 当前判断 / 根因
+
+zsh 中 `status` 是只读特殊参数，不能用作普通 shell 变量名。该问题属于验证命令入口错误，不是测试代码或项目行为失败。
+
+### 已做处理
+
+将变量名改为 `rg_status` 后立即重跑，acceptance 检查通过，确认本次 Task 1 未引入 `xfail` 或 `skip(`。
+
+### 剩余问题
+
+无。后续在 zsh 下编写一次性验证命令时避免使用 `status` 作为变量名。
+
+### 下次继续排查入口
+
+- 31-01 Task 1 acceptance checks
+- zsh 特殊参数文档

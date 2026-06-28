@@ -107,6 +107,10 @@ async def test_session_memory_load_attaches_session_memory_bundle(monkeypatch):
         "bundle rolling summary for ORD-BUNDLE-NODE"
     )
     assert result["session_memory_bundle"]["slot_continuity"]["active_slots"]["order_id"] == "ORD-BUNDLE-NODE"
+    assert result["session_context"]["active_slots"]["order_id"] == "ORD-BUNDLE-NODE"
+    assert result["session_context_bundle"]["schema_version"] == "session_context_bundle.v1"
+    assert result["session_context_load_status"]["schema_version"] == "session_context_load_status.v1"
+    assert result["session_context_load_status"]["authority_class"] == "contextual_only"
 
 
 async def test_session_memory_load_fails_closed_when_bundle_load_fails(monkeypatch):

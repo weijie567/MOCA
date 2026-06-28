@@ -195,3 +195,63 @@ async def test_session_memory_bundle_facade_loads_all_short_term_surfaces(
 
 def test_slot_continuity_view_alias_keeps_existing_session_memory_contract() -> None:
     assert SlotContinuityMemoryView is SessionMemoryView
+
+
+def test_session_context_memory_projection_wraps_session_memory_bundle() -> None:
+    from src.memory.schemas import SessionContextBundle, SessionContextMemory
+
+    run_id = uuid.uuid4()
+    slot_continuity = SessionMemoryView(
+        source="postgres_session_memory",
+        continuity_claimed=True,
+        active_slots={"order_id": "ORD-CONTEXT-PROJECTION"},
+        slot_metadata={"order_id": {"source": "trusted_session_memory"}},
+        version=7,
+    )
+    legacy_bundle = {
+        "schema_version": "session_memory_bundle.v1",
+        "source": "session_memory_bundle",
+        "tenant_id": "tenant-memory-boundary",
+        "user_id": "user-memory-boundary",
+        "thread_id": "thread-memory-boundary",
+        "run_id": str(run_id),
+        "rolling_summary": {
+            "summary_id": "summary-context-projection",
+            "summary_text": "rolling summary keeps ORD-CONTEXT-PROJECTION continuity",
+        },
+        "recent_messages": [
+            {
+                "message_id": "message-context-projection",
+                "run_id": str(run_id),
+                "message_index": 1,
+                "role": "user",
+                "content": "继续刚才那笔 ORD-CONTEXT-PROJECTION。",
+            }
+        ],
+        "tool_summaries": [
+            {
+                "tool_result_record_id": "tool-summary-context-projection",
+                "tool_result_id": "tool-result-context-projection",
+                "run_id": str(run_id),
+                "tool_call_id": "tool-call-context-projection",
+                "tool_name": "get_order",
+                "status": "success",
+                "prompt_summary": "Prompt-safe order summary for ORD-CONTEXT-PROJECTION.",
+            }
+        ],
+        "slot_continuity": slot_continuity.model_dump(mode="json"),
+        "fallback_reasons": {},
+    }
+
+    context_memory = SessionContextMemory.model_validate(legacy_bundle)
+    context_bundle = SessionContextBundle.model_validate(
+        {"schema_version": "session_context_bundle.v1", "session_context": context_memory}
+    )
+    serialized = json.dumps(context_bundle.model_dump(mode="json"), ensure_ascii=False)
+
+    assert context_bundle.schema_version == "session_context_bundle.v1"
+    assert context_bundle.session_context.rolling_summary.summary_text.startswith("rolling summary")
+    assert context_bundle.session_context.recent_messages[0].content == "继续刚才那笔 ORD-CONTEXT-PROJECTION。"
+    assert context_bundle.session_context.tool_summaries[0].tool_name == "get_order"
+    assert context_bundle.session_context.slot_continuity.active_slots["order_id"] == "ORD-CONTEXT-PROJECTION"
+    assert "SessionContinuityStore" not in serialized
