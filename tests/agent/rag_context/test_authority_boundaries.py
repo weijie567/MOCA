@@ -277,6 +277,81 @@ async def test_memory_model_prompt_summary_and_raw_repository_rows_cannot_suppor
 
 
 @pytest.mark.asyncio
+async def test_contextual_only_memory_refs_and_status_refs_have_explicit_non_authority_reasons() -> None:
+    """APF-10: typed contextual-only memory refs/status refs are never authority refs."""
+    MaterialClaim, MaterialClaimVerifier = _load_authority_api()
+    contextual_sources = {
+        "session_context_refs": [
+            {
+                "schema_version": "session_context_ref.v1",
+                "authority_class": "contextual_only",
+                "tenant_id": TENANT_ID,
+                "user_id": "user-authority-boundary",
+                "thread_id": "thread-authority-boundary",
+                "run_id": "run-authority-boundary",
+                "source": "session_context_load",
+                "ref_id": "session-context-ref-authority-boundary",
+            }
+        ],
+        "reviewed_memory_refs": [
+            {
+                "schema_version": "reviewed_memory_ref.v1",
+                "authority_class": "contextual_only",
+                "tenant_id": TENANT_ID,
+                "memory_type": "long_term",
+                "scope_type": "merchant",
+                "scope_id": "merchant-authority-boundary",
+                "memory_id": "reviewed-memory-ref-authority-boundary",
+                "review_status": "approved",
+                "prompt_safe": True,
+            }
+        ],
+        "memory_status_refs": [
+            {
+                "schema_version": "memory_write_decision.v2",
+                "authority_class": "contextual_only",
+                "status": "written",
+                "decision": "write",
+                "memory_type": "session",
+                "scope": {"scope_type": "thread", "thread_id": "thread-authority-boundary"},
+                "pii_classification": "none",
+                "review_status": "not_applicable",
+                "reason_code": "eligible",
+            }
+        ],
+    }
+    context = _context_with_contextual_only_sources()
+    context["contextual_sources"] = contextual_sources
+    policy_claim = MaterialClaim.model_validate(
+        _claim(
+            "policy_claim",
+            claim_id="claim-contextual-memory-policy-ref",
+            cited_evidence_ids=["session-context-ref-authority-boundary"],
+        )
+    )
+    business_claim = MaterialClaim.model_validate(
+        _claim(
+            "business_fact_claim",
+            claim_id="claim-contextual-memory-business-ref",
+            business_fact_refs=[],
+        )
+    )
+
+    policy_result = await MaterialClaimVerifier().verify_claim(policy_claim, context_bundle=context)
+    business_result = await MaterialClaimVerifier().verify_claim(business_claim, context_bundle=context)
+
+    assert _value(policy_result.outcome) != "supported"
+    assert "memory_contextual_ref_not_policy_authority" in policy_result.reason_codes
+    assert policy_result.safe_support_refs == []
+    assert _value(business_result.outcome) != "supported"
+    assert {
+        "business_fact_ref_required",
+        "memory_contextual_ref_not_business_authority",
+    } <= set(business_result.reason_codes)
+    assert business_result.safe_support_refs == []
+
+
+@pytest.mark.asyncio
 async def test_action_recommendation_rejects_memory_or_model_supported_dependencies() -> None:
     """CLM-04/CLM-05: action recommendations need supported policy and business dependencies."""
     MaterialClaim, MaterialClaimVerifier = _load_authority_api()

@@ -643,8 +643,10 @@ async def test_contextual_only_memory_refs_do_not_become_evidence_ref_v1_or_busi
 
     assert policy_result.outcome == VerificationOutcome.INSUFFICIENT
     assert "memory_not_policy_authority" in policy_result.reason_codes
+    assert "memory_contextual_ref_not_policy_authority" in policy_result.reason_codes
     assert business_result.outcome == VerificationOutcome.BUSINESS_FACT_MISSING
     assert "memory_not_business_authority" in business_result.reason_codes
+    assert "memory_contextual_ref_not_business_authority" in business_result.reason_codes
     assert action_result.outcome == VerificationOutcome.INSUFFICIENT
     assert "policy_dependency_not_evidence_supported" in action_result.reason_codes
     assert "business_dependency_not_tool_supported" in action_result.reason_codes
