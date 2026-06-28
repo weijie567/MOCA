@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
 status: executing
-stopped_at: Completed 33-07-PLAN.md
-last_updated: "2026-06-28T20:33:26.934Z"
+stopped_at: Completed 33-08-PLAN.md
+last_updated: "2026-06-28T21:08:13.388Z"
 last_activity: 2026-06-28
 progress:
   total_phases: 12
   completed_phases: 8
   total_plans: 38
-  completed_plans: 36
-  percent: 95
+  completed_plans: 37
+  percent: 97
 ---
 
 # Project State: MOCA
@@ -27,11 +27,11 @@ See: `.planning/PROJECT.md` (updated 2026-06-28)
 
 Phase: 33 (rag-context-build-and-claim-verification) — EXECUTING
 Next roadmap item: Phase 33 — RAG Context Build and Claim Verification
-Plan: 8 of 9
+Plan: 9 of 9
 Status: Ready to execute
 Last activity: 2026-06-28
 
-Progress: [██████████] 95%
+Progress: [██████████] 97%
 
 Planning files:
 
@@ -66,12 +66,12 @@ Planning files:
 | 30. BusinessFactService Boundary | 3/3 complete | Complete |
 | 31. Memory Platform Boundary | 6/6 | Complete |
 | 32. Intent Graph Migration | 5/5 | Complete |
-| 33. RAG Context Build and Claim Verification | 7/9 | In Progress |
+| 33. RAG Context Build and Claim Verification | 8/9 | In Progress |
 | 34. Approval and ActionDraft Boundary Hardening | 0/1 | Pending |
 | 35. Replay and Eval Hardening | 0/1 | Pending |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
-Latest execution metric: Phase 33 P33-07 — 8min, 1 task, 5 files; final/working-state safe projection suite passed.
+Latest execution metric: Phase 33 P33-08 — 28min, 1 task, 16 files; trace/API/replay safe RAG/claim summary suite passed.
 | Phase 29.5 P01 | 35min | 2 tasks | 5 files |
 | Phase 29.5 P02 | 5min | 2 tasks | 5 files |
 | Phase 29.5 P03 | 34min | 2 tasks | 13 files |
@@ -93,6 +93,7 @@ Latest execution metric: Phase 33 P33-07 — 8min, 1 task, 5 files; final/workin
 | Phase 33-rag-context-build-and-claim-verification P33-05 | 11min | 2 tasks | 10 files |
 | Phase 33-rag-context-build-and-claim-verification P33-06 | 10min | 1 tasks | 6 files |
 | Phase 33-rag-context-build-and-claim-verification P33-07 | 8min | 1 tasks | 5 files |
+| Phase 33-rag-context-build-and-claim-verification P33-08 | 28min | 1 tasks | 16 files |
 
 ## Quick Tasks Completed
 
@@ -160,6 +161,9 @@ Latest execution metric: Phase 33 P33-07 — 8min, 1 task, 5 files; final/workin
 - route_after_risk includes the same claim-bundle safety guard as defense-in-depth before approval routing.
 - Blocked RAG package and claim bundle states render through sanitized insufficient-evidence/manual-review templates instead of recommendation draft text.
 - Working-state evidence refs prefer claim bundle/state safe_support_refs, then package prompt_projection safe refs, and only fallback to verified evidence_map when no prompt-safe subset exists.
+- Plan 33-08 centralized rag_claim_summary.v1 in src/agent/rag_claim_summary.py to avoid replay lifecycle import cycles and keep projection logic consistent.
+- Plan 33-08 replay responses sanitize raw package/bundle/debug/verifier fields at projection time and return only the allowlisted summary.
+- Plan 33-08 legacy/no Phase 33 responses use exclude_none so rag_claim_summary is omitted instead of fabricated with zero counts.
 
 ### Roadmap Evolution
 
@@ -201,8 +205,8 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-28T20:33:26.934Z
-Stopped at: Completed 33-07-PLAN.md
+Last session: 2026-06-28T21:08:08.005Z
+Stopped at: Completed 33-08-PLAN.md
 Resume file: None
 Next: Phase 33 — RAG Context Build and Claim Verification; old phase directory archive remains a separate cleanup todo.
 

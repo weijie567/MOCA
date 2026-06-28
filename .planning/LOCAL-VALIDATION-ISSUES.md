@@ -6265,6 +6265,51 @@ git diff --check
 - `src/repositories/trace_repo.py`
 - `src/replay/service.py`
 
+## 2026-06-29 05:40 CST - Plan 33-08 metadata SDK ROADMAP checkbox mismatch
+
+### 问题现象
+
+Plan 33-08 metadata 更新阶段，`gsd-sdk query roadmap.update-plan-progress 33` 返回未更新，ROADMAP 中 Phase 33 仍显示 `7/9 plans complete` 且 `33-08-PLAN.md` 未勾选。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+gsd-sdk query roadmap.update-plan-progress 33
+rg -n "33-08|8/9|Latest execution metric" .planning/ROADMAP.md .planning/STATE.md
+```
+
+### 关键证据或命令
+
+SDK 输出：
+
+```json
+{
+  "updated": false,
+  "phase": "33",
+  "reason": "no matching checkbox found"
+}
+```
+
+### 当前判断 / 根因
+
+这是 Phase 33 已知 GSD SDK 与 MOCA ROADMAP checkbox 格式不匹配问题的延续；SDK 未能识别当前 `33-xx-PLAN.md` checkbox 行。
+
+### 已做处理
+
+已手动更新 `.planning/ROADMAP.md`：Phase 33 `Plans` 改为 `8/9 plans complete`，并勾选 `33-08-PLAN.md`。已手动更新 `.planning/STATE.md`：Phase 33 进度行改为 `8/9`，Latest execution metric 改为 P33-08。
+
+### 剩余问题
+
+无当前阻塞。后续 Phase 33 Plan 33-09 完成时仍需检查 `roadmap.update-plan-progress` 是否继续返回 `no matching checkbox found`。
+
+### 下次继续排查入口
+
+- `.planning/ROADMAP.md`
+- `.planning/STATE.md`
+- `gsd-sdk query roadmap.update-plan-progress 33`
+
 ## 2026-06-29 04:31 CST - Plan 33-07 final/working-state projection TDD RED failures
 
 ### 问题现象
