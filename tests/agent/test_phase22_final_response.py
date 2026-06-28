@@ -5,12 +5,16 @@ from typing import Any
 import pytest
 
 from src.agent.nodes.final_response import final_response
+from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
+from src.knowledge.schemas import EvidenceRefV1
 
 
 VERIFIER_TRACE = "SHOULD_NOT_LEAK_VERIFIER_TRACE"
 RAW_PROVENANCE = "SHOULD_NOT_LEAK_RAW_PROVENANCE"
 SOURCE_BLOCK_ID = "refund-policy:policy_pdf:text:source-block-private"
 PRIVATE_REASONING = "SHOULD_NOT_LEAK_PRIVATE_REASONING"
+DEBUG_PROJECTION = "SHOULD_NOT_LEAK_DEBUG_PROJECTION"
+RAW_REASON_PAYLOAD = "SHOULD_NOT_LEAK_RAW_REASON_PAYLOAD"
 INTERNAL_REASON_CODES = {
     "unsupported",
     "missing_citation",
@@ -24,6 +28,89 @@ INTERNAL_REASON_CODES = {
     "semantic_ambiguous",
     "regenerate_route",
 }
+
+
+def _evidence_ref(tenant_id: str = "11111111-1111-1111-1111-111111111111") -> dict[str, Any]:
+    return EvidenceRefV1.build(
+        tenant_id=tenant_id,
+        doc_key="policy_refund_timeout",
+        chunk_id="chunk_001",
+        policy_version="v3",
+        text="Refund timeout compensation requires verified policy evidence.",
+        retrieved_at="2026-06-19T00:00:00.000Z",
+        retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+        score=0.91,
+        rank=1,
+    ).model_dump(mode="json")
+
+
+def _verified_package(
+    *,
+    status: str,
+    ref: dict[str, Any] | None = None,
+    reason_codes: list[str] | None = None,
+) -> dict[str, Any]:
+    evidence_ref = ref or _evidence_ref()
+    return {
+        "schema_version": "verified_evidence_package.v1",
+        "package_id": "pkg-final-response",
+        "status": status,
+        "evidence_items": [],
+        "citation_map": {"C1": [evidence_ref["evidence_id"]]},
+        "evidence_map": {evidence_ref["evidence_id"]: evidence_ref},
+        "prompt_projection": {"citations": [{"citation_id": "C1", "evidence_id": evidence_ref["evidence_id"]}]},
+        "verifier_projection": {"safe_refs": [evidence_ref["evidence_id"]]},
+        "replay_snapshot_refs": [evidence_ref["evidence_id"]],
+        "debug_projection": {
+            "debug_projection": DEBUG_PROJECTION,
+            "verifier_prompt": VERIFIER_TRACE,
+            "source_block_id": SOURCE_BLOCK_ID,
+            "private_reasoning": PRIVATE_REASONING,
+        },
+        "stale_refs": [],
+        "conflict_refs": [],
+        "rejected_candidate_refs": [evidence_ref],
+        "reason_codes": reason_codes or [status],
+        "policy_version": "v3",
+        "retrieval_config_version": RETRIEVAL_CONFIG_VERSION,
+    }
+
+
+def _claim_bundle(
+    *,
+    route: str,
+    overall_status: str,
+    ref: dict[str, Any] | None = None,
+    blocked_claims: list[str] | None = None,
+    reason_codes: list[str] | None = None,
+) -> dict[str, Any]:
+    evidence_ref = ref or _evidence_ref()
+    return {
+        "schema_version": "claim_verification_bundle.v1",
+        "overall_status": overall_status,
+        "route": route,
+        "claim_results": [
+            {
+                "schema_version": "claim_verification_result.v1",
+                "claim_id": "claim-action-1",
+                "claim_type": "action_recommendation",
+                "support_status": "unsupported",
+                "supporting_evidence_refs": [],
+                "business_fact_refs": [],
+                "rule_checks": [{"rule": "policy_support_required", "passed": False}],
+                "semantic_review_status": "not_needed",
+                "allows_user_visible_claim": False,
+                "allows_action_recommendation": False,
+            }
+        ],
+        "blocked_claims": blocked_claims or ["claim-action-1"],
+        "safe_support_refs": [evidence_ref],
+        "reason_codes": reason_codes or ["unsupported"],
+        "verifier_policy_version": "claim-verifier.v1",
+        "raw_reason_payload": RAW_REASON_PAYLOAD,
+        "verifier_prompt": VERIFIER_TRACE,
+        "private_reasoning": PRIVATE_REASONING,
+    }
 
 
 def _verification_state(
@@ -148,6 +235,85 @@ async def test_final_response_does_not_turn_manual_review_verification_into_acti
     assert "draft-should-not-appear" not in result["final_response"]
     assert "审批结果" not in result["final_response"]
     assert "草稿已创建" not in result["final_response"]
+
+
+@pytest.mark.asyncio
+async def test_final_response_renders_safe_rag_context_block_without_package_debug_leakage(
+    base_state: dict[str, Any],
+) -> None:
+    """APF-13: blocked package states produce safe final text, never debug_projection internals."""
+    state = {
+        **base_state,
+        "rag_context_status": "invalid_hash",
+        "verified_evidence_package": _verified_package(
+            status="invalid_hash",
+            reason_codes=["text_hash_mismatch", "source_block_internal"],
+        ),
+        "recommendation_draft": {
+            "recommended_action": "issue_coupon",
+            "reasoning_summary": f"Unsafe raw policy reasoning {PRIVATE_REASONING}",
+            "evidence_refs": [_evidence_ref()],
+            "missing_info": [DEBUG_PROJECTION, "text_hash_mismatch"],
+        },
+        "business_context": {
+            "order": {"order_no": "ORD-1001", "status": "delivered", "item_name": "测试商品"},
+        },
+        "proposed_action": {"action_type": "coupon_grant"},
+        "approval_result": {"decision": "approve"},
+        "action_draft": {"draft_id": "draft-should-not-appear", "status": "draft_created"},
+        "draft_outcome": {"status": "not_executed_demo", "draft_id": "draft-should-not-appear"},
+    }
+
+    result = await final_response(state)
+    response_text = result["final_response"]
+
+    assert "证据" in response_text
+    assert "草稿已创建" not in response_text
+    assert "draft-should-not-appear" not in response_text
+    assert "issue_coupon" not in response_text
+    assert result["llm_outputs"]["final_response"]["final_status"] in {"insufficient_evidence", "manual_review"}
+    for unsafe in (DEBUG_PROJECTION, VERIFIER_TRACE, SOURCE_BLOCK_ID, PRIVATE_REASONING, "debug_projection"):
+        assert unsafe not in response_text
+
+
+@pytest.mark.asyncio
+async def test_final_response_renders_safe_claim_bundle_block_without_raw_reason_payload(
+    base_state: dict[str, Any],
+) -> None:
+    """APF-14: blocked claim bundles produce safe final text without verifier_prompt/private_reasoning."""
+    ref = _evidence_ref()
+    state = {
+        **base_state,
+        "rag_context_status": "verified",
+        "verified_evidence_package": _verified_package(status="verified", ref=ref),
+        "claim_verification_bundle": _claim_bundle(route="manual_review", overall_status="blocked", ref=ref),
+        "blocked_claims": ["claim-action-1"],
+        "safe_support_refs": [ref],
+        "recommendation_draft": {
+            "recommended_action": "issue_coupon",
+            "reasoning_summary": f"Unsupported model reasoning {RAW_REASON_PAYLOAD}",
+            "evidence_refs": [ref],
+            "missing_info": [RAW_REASON_PAYLOAD, "verifier_prompt"],
+        },
+        "business_context": {
+            "order": {"order_no": "ORD-1001", "status": "delivered", "item_name": "测试商品"},
+        },
+        "proposed_action": {"action_type": "coupon_grant"},
+        "approval_result": {"decision": "approve"},
+        "action_draft": {"draft_id": "draft-should-not-appear", "status": "draft_created"},
+        "draft_outcome": {"status": "not_executed_demo", "draft_id": "draft-should-not-appear"},
+    }
+
+    result = await final_response(state)
+    response_text = result["final_response"]
+
+    assert "人工复核" in response_text
+    assert "未创建审批请求或动作草稿" in response_text
+    assert result["llm_outputs"]["final_response"]["final_status"] == "manual_review"
+    assert "草稿已创建" not in response_text
+    assert "draft-should-not-appear" not in response_text
+    for unsafe in (RAW_REASON_PAYLOAD, VERIFIER_TRACE, PRIVATE_REASONING, "verifier_prompt", "private_reasoning"):
+        assert unsafe not in response_text
 
 
 @pytest.mark.asyncio

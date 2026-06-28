@@ -3,6 +3,14 @@ from __future__ import annotations
 from typing import Any
 
 from src.agent.working_state import project_working_state
+from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
+from src.knowledge.schemas import EvidenceRefV1
+
+
+WORKING_STATE_DEBUG_PROJECTION = "SHOULD_NOT_LEAK_WORKING_STATE_DEBUG_PROJECTION"
+WORKING_STATE_VERIFIER_PROMPT = "SHOULD_NOT_LEAK_WORKING_STATE_VERIFIER_PROMPT"
+WORKING_STATE_PRIVATE_REASONING = "SHOULD_NOT_LEAK_WORKING_STATE_PRIVATE_REASONING"
+WORKING_STATE_CANDIDATE_ONLY = "SHOULD_NOT_LEAK_CANDIDATE_ONLY_REF"
 
 
 def _safe_tool_summary(**overrides: Any) -> dict[str, Any]:
@@ -22,7 +30,73 @@ def _safe_tool_summary(**overrides: Any) -> dict[str, Any]:
     return summary
 
 
+def _evidence_ref(
+    *,
+    doc_key: str = "policy_refund_timeout",
+    chunk_id: str = "chunk_001",
+    text: str = "Refund timeout compensation requires verified policy evidence.",
+    score: float = 0.91,
+    rank: int = 1,
+) -> dict[str, Any]:
+    return EvidenceRefV1.build(
+        tenant_id="11111111-1111-1111-1111-111111111111",
+        doc_key=doc_key,
+        chunk_id=chunk_id,
+        policy_version="v3",
+        text=text,
+        retrieved_at="2026-06-19T00:00:00.000Z",
+        retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+        score=score,
+        rank=rank,
+    ).model_dump(mode="json")
+
+
+def _verified_package(*refs: dict[str, Any], status: str = "verified") -> dict[str, Any]:
+    evidence_refs = list(refs) or [_evidence_ref()]
+    return {
+        "schema_version": "verified_evidence_package.v1",
+        "package_id": "pkg-working-state",
+        "status": status,
+        "evidence_items": [],
+        "citation_map": {"C1": [evidence_refs[0]["evidence_id"]]},
+        "evidence_map": {ref["evidence_id"]: ref for ref in evidence_refs},
+        "prompt_projection": {
+            "safe_refs": [evidence_refs[0]["evidence_id"]],
+            "citations": [{"citation_id": "C1", "evidence_id": evidence_refs[0]["evidence_id"]}],
+        },
+        "verifier_projection": {"safe_refs": [evidence_refs[0]["evidence_id"]]},
+        "replay_snapshot_refs": [ref["evidence_id"] for ref in evidence_refs],
+        "debug_projection": {
+            "debug_projection": WORKING_STATE_DEBUG_PROJECTION,
+            "verifier_prompt": WORKING_STATE_VERIFIER_PROMPT,
+            "private_reasoning": WORKING_STATE_PRIVATE_REASONING,
+        },
+        "stale_refs": [],
+        "conflict_refs": [],
+        "rejected_candidate_refs": [],
+        "reason_codes": [],
+        "policy_version": "v3",
+        "retrieval_config_version": RETRIEVAL_CONFIG_VERSION,
+    }
+
+
+def _claim_bundle(*safe_support_refs: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": "claim_verification_bundle.v1",
+        "overall_status": "verified",
+        "route": "continue",
+        "claim_results": [],
+        "blocked_claims": [],
+        "safe_support_refs": list(safe_support_refs),
+        "reason_codes": [],
+        "verifier_policy_version": "claim-verifier.v1",
+        "verifier_prompt": WORKING_STATE_VERIFIER_PROMPT,
+        "private_reasoning": WORKING_STATE_PRIVATE_REASONING,
+    }
+
+
 def _base_state(**overrides: Any) -> dict[str, Any]:
+    verified_ref = _evidence_ref()
     state = {
         "thread_id": "thread-001",
         "current_run_id": "run-001",
@@ -40,6 +114,7 @@ def _base_state(**overrides: Any) -> dict[str, Any]:
         ],
         "last_business_context_refs": {"business_fact_refs": [{"resource_id": "ORD-1001"}]},
         "evidence_refs": [{"evidence_id": "policy_refund_timeout/chunk_001@v3"}],
+        "verified_evidence_package": _verified_package(verified_ref),
         "tool_results": [_safe_tool_summary()],
         "clarification_request": {
             "question": "请确认退款渠道。",
@@ -74,7 +149,7 @@ def test_working_state_v1_projects_allowlisted_current_run_fields() -> None:
         "policy evidence is required before recommendation",
     ]
     assert dumped["business_context_refs"] == [{"resource_id": "ORD-1001"}]
-    assert dumped["retrieved_evidence_refs"] == [{"evidence_id": "policy_refund_timeout/chunk_001@v3"}]
+    assert dumped["retrieved_evidence_refs"] == [_evidence_ref()]
     assert dumped["recent_tool_results"] == [_safe_tool_summary()]
     assert dumped["pending_confirmation"] == {"question": "请确认退款渠道。"}
     assert dumped["draft_artifact"] == {
@@ -94,7 +169,23 @@ def test_working_state_v1_excludes_raw_tool_business_policy_trace_and_llm_fields
         retrieved_evidence={
             "full_text": "FULL_POLICY_TEXT_SHOULD_NOT_APPEAR",
             "evidence": [{"body": "RETRIEVED_EVIDENCE_BODY_SHOULD_NOT_APPEAR"}],
+            "evidence_refs": [{"evidence_id": WORKING_STATE_CANDIDATE_ONLY}],
         },
+        verified_evidence_package=_verified_package(
+            _evidence_ref(),
+            {
+                **_evidence_ref(
+                    doc_key="policy_candidate_only",
+                    chunk_id="chunk_candidate",
+                    text="candidate-only refs are not claim support",
+                    score=0.4,
+                    rank=2,
+                ),
+                "evidence_id": WORKING_STATE_CANDIDATE_ONLY,
+            },
+        ),
+        claim_verification_bundle=_claim_bundle(_evidence_ref()),
+        safe_support_refs=[_evidence_ref()],
         tool_results=[
             _safe_tool_summary(
                 data={"raw_payload": {"secret_marker": "SHOULD_NOT_APPEAR"}},
@@ -137,6 +228,11 @@ def test_working_state_v1_excludes_raw_tool_business_policy_trace_and_llm_fields
         "BUSINESS_CONTEXT_BODY_SHOULD_NOT_APPEAR",
         "FULL_POLICY_TEXT_SHOULD_NOT_APPEAR",
         "RETRIEVED_EVIDENCE_BODY_SHOULD_NOT_APPEAR",
+        "debug_projection",
+        WORKING_STATE_DEBUG_PROJECTION,
+        WORKING_STATE_VERIFIER_PROMPT,
+        WORKING_STATE_PRIVATE_REASONING,
+        WORKING_STATE_CANDIDATE_ONLY,
         "approval_result",
         "APPROVAL_BODY_SHOULD_NOT_APPEAR",
         "proposed_action",
@@ -153,6 +249,36 @@ def test_working_state_v1_excludes_raw_tool_business_policy_trace_and_llm_fields
         "NODE_ERROR_SHOULD_NOT_APPEAR",
     ):
         assert forbidden not in serialized
+
+
+def test_working_state_v1_uses_claim_safe_support_refs_before_package_evidence_map() -> None:
+    """APF-14: safe_support_refs are the prompt-safe support subset; candidate-only refs stay out."""
+    safe_ref = _evidence_ref(doc_key="policy_safe_support", chunk_id="chunk_safe", rank=1)
+    package_only_ref = {
+        **_evidence_ref(
+            doc_key="policy_candidate_only",
+            chunk_id="chunk_candidate",
+            text="candidate-only package refs are not safe claim support.",
+            score=0.44,
+            rank=2,
+        ),
+        "evidence_id": WORKING_STATE_CANDIDATE_ONLY,
+    }
+
+    working_state = project_working_state(
+        _base_state(
+            verified_evidence_package=_verified_package(safe_ref, package_only_ref),
+            claim_verification_bundle=_claim_bundle(safe_ref),
+            safe_support_refs=[safe_ref],
+            policy_evidence=[package_only_ref],
+            retrieved_evidence={"evidence_refs": [package_only_ref]},
+        )
+    )
+
+    assert working_state.retrieved_evidence_refs == [safe_ref]
+    serialized = working_state.model_dump_json()
+    assert "policy_safe_support/chunk_safe@v3" in serialized
+    assert WORKING_STATE_CANDIDATE_ONLY not in serialized
 
 
 def test_working_state_v1_serialization_excludes_large_nested_tool_result() -> None:
