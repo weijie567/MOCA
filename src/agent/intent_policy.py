@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from types import MappingProxyType
 import re
 from collections.abc import Mapping
@@ -24,6 +25,23 @@ class IntentDefinition:
     evidence_required: bool = True
     high_risk: bool = False
     critical_route_class: bool = False
+
+
+@dataclass(frozen=True)
+class SlotInheritanceContext:
+    tenant_id: str | None
+    user_id: str | None
+    thread_id: str | None
+    intent: str | None
+    max_age_seconds: int
+    current_time: datetime | None = None
+
+
+@dataclass(frozen=True)
+class SlotInheritanceDecision:
+    accepted: bool
+    reason_code: str
+    source: str | None = None
 
 
 REQUESTED_OPERATIONS: tuple[str, ...] = (
@@ -237,12 +255,106 @@ class SlotPolicyRegistry:
     def required_slots_for(self, intent: str) -> RequiredSlotExpression:
         return REQUIRED_SLOT_POLICY.get(intent, RequiredSlotExpression())
 
+    def missing_required_slots(
+        self,
+        required_slots: dict[str, Any] | RequiredSlotExpression | None,
+        resolved_slots: Mapping[str, Any] | None,
+    ) -> list[dict[str, list[str]]]:
+        expression = _required_slot_expression(required_slots)
+        slots = {key: value for key, value in (resolved_slots or {}).items() if value not in (None, "")}
+        missing: list[dict[str, list[str]]] = []
+        for slot in expression.all_of:
+            if slot not in slots:
+                missing.append({"all_of": [slot]})
+        for group in expression.any_of:
+            if group and not any(slot in slots for slot in group):
+                missing.append({"any_of": list(group)})
+        return missing
+
+    def accepts_inherited_slot(
+        self,
+        slot: str,
+        metadata: Mapping[str, Any] | None,
+        context: SlotInheritanceContext,
+        *,
+        invalidation: Mapping[str, Any] | None = None,
+    ) -> SlotInheritanceDecision:
+        del slot
+        if not isinstance(metadata, Mapping):
+            return SlotInheritanceDecision(False, "missing_metadata")
+        source = metadata.get("source") if isinstance(metadata.get("source"), str) else None
+        if source is None:
+            return SlotInheritanceDecision(False, "missing_metadata")
+        if source != "trusted_session_memory":
+            return SlotInheritanceDecision(False, "untrusted_source", source)
+        for field, reason_code in (
+            ("tenant_id", "tenant_mismatch"),
+            ("user_id", "user_mismatch"),
+            ("thread_id", "thread_mismatch"),
+        ):
+            expected = getattr(context, field)
+            observed = metadata.get(field)
+            if expected is not None or observed is not None:
+                if str(observed) != str(expected):
+                    return SlotInheritanceDecision(False, reason_code, source)
+        if invalidation:
+            return SlotInheritanceDecision(False, "slot_invalidated", source)
+        if not _slot_metadata_is_fresh(metadata, context):
+            return SlotInheritanceDecision(False, "stale_slot", source)
+        if _slot_metadata_is_intent_compatible(metadata, context.intent):
+            return SlotInheritanceDecision(True, "accepted", source)
+        return SlotInheritanceDecision(False, "intent_incompatible", source)
+
     def intents_with_required_slots(self) -> tuple[str, ...]:
         return tuple(
             intent
             for intent, expression in REQUIRED_SLOT_POLICY.items()
             if expression.all_of or expression.any_of
         )
+
+
+def _required_slot_expression(value: dict[str, Any] | RequiredSlotExpression | None) -> RequiredSlotExpression:
+    if isinstance(value, RequiredSlotExpression):
+        return value
+    if isinstance(value, dict):
+        return RequiredSlotExpression.model_validate(value)
+    return RequiredSlotExpression()
+
+
+def _slot_metadata_is_fresh(metadata: Mapping[str, Any], context: SlotInheritanceContext) -> bool:
+    now = context.current_time or datetime.now(UTC)
+    expires_at = metadata.get("expires_at")
+    if isinstance(expires_at, str):
+        parsed = _parse_policy_datetime(expires_at)
+        if parsed is None or parsed <= now:
+            return False
+    elif metadata.get("fresh") is not True:
+        return False
+    observed_at = metadata.get("observed_at") or metadata.get("updated_at")
+    if isinstance(observed_at, str) and context.max_age_seconds > 0:
+        parsed_observed = _parse_policy_datetime(observed_at)
+        if parsed_observed is None:
+            return False
+        if (now - parsed_observed).total_seconds() > context.max_age_seconds:
+            return False
+    return True
+
+
+def _parse_policy_datetime(value: str) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed
+
+
+def _slot_metadata_is_intent_compatible(metadata: Mapping[str, Any], intent: str | None) -> bool:
+    if metadata.get("intent_compatible") is True:
+        return True
+    compatible_intents = metadata.get("compatible_intents")
+    return bool(intent and isinstance(compatible_intents, list) and intent in compatible_intents)
 
 
 INTENT_POLICY_REGISTRY = IntentPolicyRegistry()

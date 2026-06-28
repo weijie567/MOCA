@@ -7,6 +7,7 @@ from src.agent.intent_policy import (
     INTENT_POLICY_REGISTRY,
     SLOT_POLICY_REGISTRY,
     PreRouteDecision,
+    SlotInheritanceContext,
     confidence_requires_clarification,
 )
 from src.agent.schemas import RequiredSlotExpression
@@ -72,16 +73,7 @@ def missing_required_slots(
     required_slots: dict[str, Any] | RequiredSlotExpression | None,
     resolved_slots: dict[str, Any] | None,
 ) -> list[dict[str, list[str]]]:
-    expression = _required_expression(required_slots)
-    slots = {key: value for key, value in (resolved_slots or {}).items() if value not in (None, "")}
-    missing: list[dict[str, list[str]]] = []
-    for slot in expression.all_of:
-        if slot not in slots:
-            missing.append({"all_of": [slot]})
-    for group in expression.any_of:
-        if group and not any(slot in slots for slot in group):
-            missing.append({"any_of": list(group)})
-    return missing
+    return SLOT_POLICY_REGISTRY.missing_required_slots(required_slots, resolved_slots)
 
 
 def resolve_slots_for_completeness(state: AgentState) -> dict[str, Any]:
@@ -120,20 +112,26 @@ def resolve_slots_with_metadata(state: AgentState) -> tuple[dict[str, Any], dict
         return resolved, resolved_metadata
     if not isinstance(active_slots, dict) or not isinstance(slot_metadata, dict):
         return resolved, resolved_metadata
+    inheritance_context = _slot_inheritance_context(state)
     for slot, value in active_slots.items():
         if slot in resolved or value in (None, ""):
             continue
         metadata = slot_metadata.get(slot)
-        if _trusted_session_slot(metadata, state):
-            if slot in invalidations:
-                resolved_metadata[slot] = _invalidated_slot_metadata(metadata, invalidations[slot])
-                continue
+        decision = SLOT_POLICY_REGISTRY.accepts_inherited_slot(
+            slot,
+            metadata if isinstance(metadata, dict) else None,
+            inheritance_context,
+            invalidation=invalidations.get(slot),
+        )
+        if decision.accepted:
             resolved[slot] = value
             resolved_metadata[slot] = {
                 **metadata,
                 "source": "trusted_session_memory",
                 "explicit_current_turn": False,
             }
+        elif decision.reason_code == "slot_invalidated":
+            resolved_metadata[slot] = _invalidated_slot_metadata(metadata, invalidations[slot])
     return resolved, resolved_metadata
 
 
@@ -365,32 +363,36 @@ def _required_expression(value: dict[str, Any] | RequiredSlotExpression | None) 
 
 
 def _trusted_session_slot(metadata: Any, state: AgentState) -> bool:
-    if not isinstance(metadata, dict):
-        return False
-    if metadata.get("source") != "trusted_session_memory":
-        return False
-    for key in ("tenant_id", "user_id", "thread_id"):
-        if str(metadata.get(key)) != str(state.get(key)):
-            return False
-    expires_at = metadata.get("expires_at")
-    if isinstance(expires_at, str):
-        try:
-            parsed = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
-        except ValueError:
-            return False
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=UTC)
-        if parsed <= datetime.now(UTC):
-            return False
-    elif metadata.get("fresh") is not True:
-        return False
-    compatible = metadata.get("intent_compatible")
-    compatible_intents = metadata.get("compatible_intents")
-    if compatible is True:
-        return True
-    if isinstance(compatible_intents, list) and _intent(state) in compatible_intents:
-        return True
-    return False
+    decision = SLOT_POLICY_REGISTRY.accepts_inherited_slot(
+        "",
+        metadata if isinstance(metadata, dict) else None,
+        _slot_inheritance_context(state),
+    )
+    return decision.accepted
+
+
+def _slot_inheritance_context(state: AgentState) -> SlotInheritanceContext:
+    return SlotInheritanceContext(
+        tenant_id=str(state.get("tenant_id")) if state.get("tenant_id") is not None else None,
+        user_id=str(state.get("user_id")) if state.get("user_id") is not None else None,
+        thread_id=str(state.get("thread_id")) if state.get("thread_id") is not None else None,
+        intent=_intent(state),
+        max_age_seconds=3600,
+        current_time=_state_current_time(state),
+    )
+
+
+def _state_current_time(state: AgentState) -> datetime | None:
+    value = state.get("run_started_at")
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed
 
 
 def _facts_from_business_context(business_context: dict[str, Any]) -> dict[str, Any]:
