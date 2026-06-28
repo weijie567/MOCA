@@ -1,11 +1,11 @@
 ---
 phase: "32"
 status: running
-current_step: code_review
+current_step: verify
 plan_review_loop: 1
 quota_waits: 0
-updated_at: "2026-06-28T14:46:20Z"
-next_command: "$gsd-code-review 32 --depth=deep"
+updated_at: "2026-06-28T15:10:52Z"
+next_command: "$gsd-verify-work 32 你来自己检测"
 ---
 
 # Phase 32 Autopilot Checkpoint
@@ -39,6 +39,10 @@ next_command: "$gsd-code-review 32 --depth=deep"
 - Executed all five Phase 32 plans with 12/12 tasks complete; implementation commits span `c75042b` through `0eb02ec`.
 - Created summaries `32-01-SUMMARY.md` through `32-05-SUMMARY.md`.
 - Executor reported clean worktree, final focused suite `267 passed`, ruff passed, `git diff --check` passed, and static scope/authorization scans passed.
+- Deep GSD code review found 2 warning issues and was committed: `bc34e66 docs(32): add code review report`.
+- Code review fixes committed: `76dfe83 fix(32): WR-01 accept adapter business fact refs` and `895ea4d fix(32): WR-02 mark canonical runtime graph nodes`.
+- Code review fix report committed: `25ffbd7 docs(32): add code review fix report`.
+- Post-fix deep re-review is clean and committed: `1e8e633 docs(32): update code review report clean`.
 
 ## Evidence
 
@@ -55,6 +59,7 @@ next_command: "$gsd-code-review 32 --depth=deep"
 - `32-04` now requires preexisting `target_merchant_context.status == "resolved"` to carry service-approved `BusinessFactRefV1` provenance and uses value-based `ADMIN_RUN_VISIBILITY_ROLES == {"admin"}` checks.
 - Plan review loop accepted by both native GSD checker and external Claude re-review.
 - Phase 32 implementation completed APF-11/APF-12 and advanced STATE/ROADMAP toward Phase 33 according to executor summary.
+- Code review fixes preserved Phase 33 deferrals and owner/admin-only authorization while adding adapter-source merchant-context coverage and canonical runtime graph identity entries.
 
 ## Last Failure
 
