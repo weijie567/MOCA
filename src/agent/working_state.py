@@ -210,8 +210,77 @@ def _retrieved_evidence_refs(state: AgentState) -> list[dict[str, Any]]:
     if status not in VERIFIED_EVIDENCE_PROJECTION_STATUSES:
         return []
 
-    evidence_map = _mapping(package.get("evidence_map"))
+    evidence_map = _verified_evidence_map(state, package)
+    safe_support_refs = _claim_safe_support_refs(state, evidence_map)
+    if safe_support_refs:
+        return safe_support_refs
+
+    prompt_safe_refs = _package_prompt_safe_refs(package, evidence_map)
+    if prompt_safe_refs:
+        return prompt_safe_refs
+
     return _evidence_ref_list(list(evidence_map.values()))
+
+
+def _claim_safe_support_refs(state: AgentState, evidence_map: Mapping[str, Any]) -> list[dict[str, Any]]:
+    bundle = _mapping(state.get("claim_verification_bundle"))
+    for value in (bundle.get("safe_support_refs"), state.get("safe_support_refs")):
+        refs = _resolved_evidence_refs(value, evidence_map)
+        if refs:
+            return refs
+    return []
+
+
+def _package_prompt_safe_refs(package: Mapping[str, Any], evidence_map: Mapping[str, Any]) -> list[dict[str, Any]]:
+    projection = _mapping(package.get("prompt_projection"))
+    refs = _resolved_evidence_refs(projection.get("safe_refs"), evidence_map)
+    if refs:
+        return refs
+
+    citation_refs = []
+    for citation in _mapping_sequence(projection.get("citations")):
+        ref_id = citation.get("evidence_id")
+        if isinstance(ref_id, str) and ref_id:
+            citation_refs.append(ref_id)
+    return _resolved_evidence_refs(citation_refs, evidence_map)
+
+
+def _verified_evidence_map(state: AgentState, package: Mapping[str, Any]) -> dict[str, Any]:
+    refs: dict[str, Any] = {}
+    for raw_map in (_mapping(package.get("evidence_map")), _mapping(state.get("evidence_map"))):
+        for key, value in raw_map.items():
+            evidence_id = _evidence_id(value) or str(key)
+            refs[evidence_id] = value
+    return refs
+
+
+def _resolved_evidence_refs(value: Any, evidence_map: Mapping[str, Any]) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in _sequence_values(value):
+        resolved = evidence_map.get(item) if isinstance(item, str) else item
+        mapping = _mapping(resolved)
+        if not mapping:
+            continue
+        evidence_id = _evidence_id(mapping)
+        if evidence_id and evidence_id in seen:
+            continue
+        if evidence_id:
+            seen.add(evidence_id)
+        refs.append(mapping)
+    return _evidence_ref_list(refs)
+
+
+def _sequence_values(value: Any) -> list[Any]:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes | bytearray):
+        return []
+    return list(value)
+
+
+def _evidence_id(value: Any) -> str | None:
+    mapping = _mapping(value)
+    evidence_id = mapping.get("evidence_id")
+    return evidence_id if isinstance(evidence_id, str) and evidence_id else None
 
 
 def _recent_tool_results(state: AgentState) -> list[WorkingToolResultRef]:

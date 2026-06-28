@@ -6212,6 +6212,60 @@ SDK 输出：
 - `.planning/STATE.md`
 - `gsd-sdk query roadmap.update-plan-progress 33`
 
+## 2026-06-29 04:31 CST - Plan 33-07 final/working-state projection TDD RED failures
+
+### 问题现象
+
+Plan 33-07 开始时，focused suite 先出现一个既有失败：`test_working_state_v1_projects_allowlisted_current_run_fields` 仍期望 legacy `evidence_refs` 进入 `WorkingStateV1.retrieved_evidence_refs`，但当前实现已经只接受 verified package。随后按 TDD 增加 blocked RAG package、blocked claim bundle、`safe_support_refs` 优先级和 no-leak 断言后，RED 失败显示 final response 仍渲染模型草稿内容，working state 仍把 package `evidence_map` 中的非 claim-safe ref 暴露出来。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_final_response.py tests/agent/test_working_state.py tests/agent/rag_context/test_leakage.py -q --tb=short
+```
+
+### 关键证据或命令
+
+RED 关键失败包括：
+
+```text
+AssertionError: assert '证据' in '建议：issue_coupon...SHOULD_NOT_LEAK_PRIVATE_REASONING...'
+AssertionError: assert '人工复核' in '建议：issue_coupon...SHOULD_NOT_LEAK_RAW_REASON_PAYLOAD...'
+AssertionError: assert 'SHOULD_NOT_LEAK_CANDIDATE_ONLY_REF' not in serialized working_state
+```
+
+### 当前判断 / 根因
+
+这是本计划覆盖的缺口，不是环境问题：`final_response` 只消费 legacy verifier route，不消费 `rag_context_status` / `claim_verification_bundle`；`working_state` 只从 verified package `evidence_map` 投影，没有优先使用 claim bundle/state 的 `safe_support_refs` 或 package `prompt_projection.safe_refs`。
+
+### 已做处理
+
+已将 RED tests 提交为 `ed39684`。随后实现安全投影：
+
+- `final_response` 先把 blocked `claim_verification_bundle` 和 blocking `rag_context_status` 转成后端选择的安全 verification payload；
+- 新 package/bundle block 渲染 manual-review / insufficient-evidence 模板时不读取 draft `missing_info`，避免 raw reason payload、`verifier_prompt`、`debug_projection`、`private_reasoning` 外泄；
+- `working_state` 先使用 claim bundle/state `safe_support_refs`，再使用 package `prompt_projection.safe_refs` / citation evidence IDs，最后才 fallback 到 verified package `evidence_map`。
+
+重跑通过：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_final_response.py tests/agent/test_working_state.py tests/agent/rag_context/test_leakage.py -q --tb=short
+uv run ruff check src/agent/nodes/final_response.py src/agent/working_state.py tests/agent/test_phase22_final_response.py tests/agent/test_working_state.py tests/agent/rag_context/test_leakage.py
+```
+
+### 剩余问题
+
+无当前阻塞。focused suite 仍有一个既有 LangGraph checkpointer serializer deprecation warning，不影响本计划行为。
+
+### 下次继续排查入口
+
+- `src/agent/nodes/final_response.py`
+- `src/agent/working_state.py`
+- `tests/agent/test_phase22_final_response.py`
+- `tests/agent/test_working_state.py`
+
 ## 2026-06-29 03:53 CST - Plan 33-05 Task 1 claim_verify TDD RED 与测试断言修正
 
 ### 问题现象

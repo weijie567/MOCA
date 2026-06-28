@@ -17,14 +17,33 @@ _INTERNAL_MISSING_INFO = frozenset(
 )
 _VERIFICATION_REASON_TEXT = {
     "business_fact_missing": "业务事实不足",
+    "build_error": "证据校验暂时不可用",
     "conflicting_evidence": "政策证据存在冲突",
+    "invalid_hash": "政策证据校验未通过",
+    "invalid_scope": "政策证据范围未通过校验",
     "level2_partial_overlap_ambiguous": "政策证据和处理动作之间仍有歧义",
     "missing_citation": "建议缺少可核验政策引用",
+    "no_evidence": "当前政策证据不足",
     "ocr_low_confidence": "政策证据识别置信度偏低",
     "semantic_ambiguous": "政策证据和处理动作之间仍有歧义",
     "stale_evidence": "政策证据可能不是最新版本",
+    "stale": "政策证据可能不是最新版本",
+    "text_hash_mismatch": "政策证据校验未通过",
+    "unauthorized": "当前政策证据不足",
     "unsupported": "建议没有被当前证据充分支持",
 }
+_BLOCKING_RAG_CONTEXT_STATUSES = frozenset(
+    {
+        "no_evidence",
+        "unauthorized",
+        "stale",
+        "conflict",
+        "invalid_hash",
+        "invalid_scope",
+        "build_error",
+    }
+)
+_SAFE_PROJECTION_SOURCES = frozenset({"claim_verification_bundle", "verified_evidence_package"})
 _ACTION_BOUNDARY_FIELDS = (
     "approval_result",
     "action_result",
@@ -270,6 +289,12 @@ def _completed_response(draft: dict[str, Any], risk_assessment: dict[str, Any]) 
 
 
 def _verification_route_payload(state: AgentState) -> dict[str, Any] | None:
+    claim_verification = _claim_verification_route_payload(state)
+    if claim_verification is not None:
+        return claim_verification
+    rag_context = _rag_context_route_payload(state)
+    if rag_context is not None:
+        return rag_context
     rag_verification = state.get("rag_verification")
     if isinstance(rag_verification, dict):
         route = rag_verification.get("route")
@@ -288,6 +313,72 @@ def _verification_route_payload(state: AgentState) -> dict[str, Any] | None:
             "reason_codes": state.get("verifier_reason_codes") or [],
         }
     return None
+
+
+def _claim_verification_route_payload(state: AgentState) -> dict[str, Any] | None:
+    bundle = _mapping(state.get("claim_verification_bundle"))
+    blocked_claims = _string_values(state.get("blocked_claims")) or _string_values(bundle.get("blocked_claims"))
+    route = str(bundle.get("route") or "")
+    overall_status = str(bundle.get("overall_status") or state.get("verifier_status") or "")
+    if not bundle and not blocked_claims:
+        return None
+    if route == "continue" and overall_status in {"verified", "not_required"} and not blocked_claims:
+        return None
+    selected_route = "manual_review" if route == "manual_review" or blocked_claims else "refuse"
+    return {
+        "overall_outcome": overall_status or "blocked",
+        "route": {
+            "route": selected_route,
+            "selected_by": "backend",
+            "model_selected": False,
+            "decision_source": "claim_verify",
+        },
+        "reason_codes": _string_values(bundle.get("reason_codes")) or ["claim_verification_blocked"],
+        "blocked_claims": blocked_claims,
+        "safe_projection_source": "claim_verification_bundle",
+    }
+
+
+def _rag_context_route_payload(state: AgentState) -> dict[str, Any] | None:
+    status = _rag_context_status(state)
+    if status not in _BLOCKING_RAG_CONTEXT_STATUSES:
+        return None
+    route = "insufficient_evidence" if status == "no_evidence" else "manual_review"
+    package = _mapping(state.get("verified_evidence_package"))
+    return {
+        "overall_outcome": status,
+        "route": {
+            "route": route,
+            "selected_by": "backend",
+            "model_selected": False,
+            "decision_source": "rag_context_build",
+        },
+        "reason_codes": _string_values(package.get("reason_codes")) or [status],
+        "safe_projection_source": "verified_evidence_package",
+    }
+
+
+def _rag_context_status(state: AgentState) -> str:
+    status = state.get("rag_context_status")
+    if isinstance(status, str) and status:
+        return status
+    package_status = _mapping(state.get("verified_evidence_package")).get("status")
+    return package_status if isinstance(package_status, str) else ""
+
+
+def _mapping(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if hasattr(value, "model_dump"):
+        dumped = value.model_dump(mode="json")
+        return dumped if isinstance(dumped, dict) else {}
+    return {}
+
+
+def _string_values(value: Any) -> list[str]:
+    if not isinstance(value, list | tuple | set):
+        return []
+    return [text for item in value if (text := str(item).strip())]
 
 
 def _verification_route_value(verification: dict[str, Any]) -> str:
@@ -363,13 +454,17 @@ def _manual_review_response(
     draft: dict[str, Any],
     verification: dict[str, Any],
     context: dict[str, Any],
+    *,
+    include_draft_missing_info: bool = True,
 ) -> str:
     fact_summary = _business_context_summary(context)
     parts: list[str] = []
     if fact_summary:
         parts.append(f"当前查询结果：\n{fact_summary}")
     parts.append("当前还不能给出具体处理动作：证据状态需要人工复核，系统未创建审批请求或动作草稿。")
-    reasons = _displayable_missing_info(draft) or _verification_reason_texts(verification)
+    reasons = (_displayable_missing_info(draft) if include_draft_missing_info else []) or _verification_reason_texts(
+        verification
+    )
     if reasons:
         parts.append(f"需要补充或复核：{'、'.join(reasons)}。")
     return "\n".join(parts)
@@ -565,7 +660,13 @@ async def final_response(state: AgentState) -> dict:
                 + [_trace_step("completed", started_at, _final_response_evidence_refs(state, draft))],
             }
         if _verification_route_value(verification) == "manual_review":
-            response_text = _manual_review_response(draft, verification, state.get("business_context") or {})
+            include_draft_missing_info = verification.get("safe_projection_source") not in _SAFE_PROJECTION_SOURCES
+            response_text = _manual_review_response(
+                draft,
+                verification,
+                state.get("business_context") or {},
+                include_draft_missing_info=include_draft_missing_info,
+            )
         else:
             response_text = _safe_verification_response(verification)
         return {
