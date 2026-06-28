@@ -4,8 +4,8 @@ status: running
 current_step: claude_plan_review
 plan_review_loop: 1
 quota_waits: 0
-updated_at: "2026-06-28T13:11:42Z"
-next_command: "rerun GSD plan-checker on repaired plans, then $gsd-review 32 --claude"
+updated_at: "2026-06-28T13:22:31Z"
+next_command: "$gsd-review 32 --claude (second pass on repaired plans)"
 ---
 
 # Phase 32 Autopilot Checkpoint
@@ -32,6 +32,9 @@ next_command: "rerun GSD plan-checker on repaired plans, then $gsd-review 32 --c
 - Local Claude review wrapper issue recorded and committed: `a07bbf2 docs(validation): record phase 32 review wrapper issue`.
 - Codex adjudicated Claude findings, repaired accepted plan issues, and committed the repaired plans: `1d54bbf docs(32): adjudicate and repair plan review findings`.
 - Corrected plan review decision timestamp: `af5729a docs(32): correct plan review decision timestamp`.
+- Native plan-checker found one `32-04` merchant-context resolved spoofing blocker and one brittle role-constant warning.
+- Follow-up `32-04` plan repair committed: `ebf9392 docs(32): tighten merchant context plan gate`.
+- Focused native plan-checker re-check passed after `ebf9392`.
 
 ## Evidence
 
@@ -45,6 +48,7 @@ next_command: "rerun GSD plan-checker on repaired plans, then $gsd-review 32 --c
 - Plan-checker confirmed resolved research questions, valid plan structure, compliant test commands, Phase 33 scope guards, and no AgentRun/trace/replay authorization broadening.
 - `32-PLAN-REVIEW-DECISIONS.md` records accepted, false-positive, disagreed, and deferred Claude findings.
 - Repaired plans now make `slot_resolution_gate`, behavioral registry tests, deterministic slot freshness/idempotence, merchant-context evidence allowlists, and mapping-doc consistency explicit.
+- `32-04` now requires preexisting `target_merchant_context.status == "resolved"` to carry service-approved `BusinessFactRefV1` provenance and uses value-based `ADMIN_RUN_VISIBILITY_ROLES == {"admin"}` checks.
 
 ## Last Failure
 
