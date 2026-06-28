@@ -13,6 +13,19 @@ from src.agent.trace import build_trace_summary, write_agent_run, write_agent_st
 from src.db.models import AgentStep
 
 
+RAG_CLAIM_SUMMARY_KEYS = {
+    "schema_version",
+    "rag_context_status",
+    "verified_evidence_count",
+    "rejected_candidate_count",
+    "stale_ref_count",
+    "conflict_ref_count",
+    "claim_verification_status",
+    "blocked_claim_count",
+    "safe_support_ref_count",
+}
+
+
 @pytest.mark.asyncio
 async def test_agent_steps_persist_tools_called_and_evidence_refs(session: AsyncSession):
     run_id = str(uuid4())
@@ -142,8 +155,8 @@ def test_trace_summary_projects_target_graph_names_without_rewriting_legacy_node
         {
             "implementation_node": "rag_context_build",
             "target_node": "rag_context_build",
-            "target_graph_status": "deferred_non_runnable",
-            "target_graph_runnable": False,
+            "target_graph_status": "runtime",
+            "target_graph_runnable": True,
         },
     ]
 
@@ -310,6 +323,100 @@ def test_trace_summary_includes_safe_target_merchant_context_projection():
         "source": "business_fact_refs",
         "reason_codes": [],
         "business_fact_ref_count": 1,
+    }
+
+
+def test_trace_summary_projects_allowlisted_rag_claim_summary_without_raw_fields() -> None:
+    safe_ref = _evidence_ref("tenant-001", "policy-safe")
+    rejected_ref = _evidence_ref("tenant-001", "policy-rejected")
+    stale_ref = _evidence_ref("tenant-001", "policy-stale")
+    conflict_ref = _evidence_ref("tenant-001", "policy-conflict")
+    candidate_only_ref = _evidence_ref("tenant-001", "candidate-only")
+    summary = build_trace_summary(
+        "run-rag-summary",
+        {
+            "rag_context_status": "verified",
+            "verified_evidence_package": {
+                "schema_version": "verified_evidence_package.v1",
+                "package_id": "pkg-safe",
+                "status": "verified",
+                "evidence_map": {safe_ref["evidence_id"]: safe_ref},
+                "prompt_projection": {"safe_refs": [safe_ref["evidence_id"]]},
+                "verifier_projection": {"raw_semantic": "RAW_SEMANTIC_SHOULD_NOT_LEAK"},
+                "debug_projection": {
+                    "debug_projection": "DEBUG_PROJECTION_SHOULD_NOT_LEAK",
+                    "source_block": "SOURCE_BLOCK_SHOULD_NOT_LEAK",
+                    "ocr": {"raw": "OCR_SHOULD_NOT_LEAK"},
+                },
+                "rejected_candidate_refs": [rejected_ref, candidate_only_ref],
+                "stale_refs": [stale_ref],
+                "conflict_refs": [conflict_ref],
+            },
+            "claim_verification_bundle": {
+                "schema_version": "claim_verification_bundle.v1",
+                "overall_status": "blocked",
+                "route": "final_response",
+                "blocked_claims": ["claim-action-1"],
+                "safe_support_refs": [safe_ref, candidate_only_ref],
+                "verifier_projection": "VERIFIER_PROJECTION_SHOULD_NOT_LEAK",
+            },
+            "blocked_claims": ["claim-action-1"],
+            "safe_support_refs": [safe_ref, candidate_only_ref],
+            "final_response": "done",
+        },
+        14,
+    )
+
+    assert set(summary["rag_claim_summary"]) == RAG_CLAIM_SUMMARY_KEYS
+    assert summary["rag_claim_summary"] == {
+        "schema_version": "rag_claim_summary.v1",
+        "rag_context_status": "verified",
+        "verified_evidence_count": 1,
+        "rejected_candidate_count": 2,
+        "stale_ref_count": 1,
+        "conflict_ref_count": 1,
+        "claim_verification_status": "blocked",
+        "blocked_claim_count": 1,
+        "safe_support_ref_count": 1,
+    }
+    serialized = json.dumps(summary, ensure_ascii=False)
+    for forbidden in (
+        "verified_evidence_package",
+        "claim_verification_bundle",
+        "RAW_SEMANTIC_SHOULD_NOT_LEAK",
+        "DEBUG_PROJECTION_SHOULD_NOT_LEAK",
+        "VERIFIER_PROJECTION_SHOULD_NOT_LEAK",
+        "SOURCE_BLOCK_SHOULD_NOT_LEAK",
+        "OCR_SHOULD_NOT_LEAK",
+        candidate_only_ref["evidence_id"],
+    ):
+        assert forbidden not in serialized
+
+
+def test_trace_summary_omits_rag_claim_summary_for_legacy_runs_without_phase33_fields() -> None:
+    summary = build_trace_summary(
+        "run-legacy",
+        {
+            "retrieved_evidence": {"evidence_refs": [_evidence_ref("tenant-001", "legacy-policy")]},
+            "final_response": "done",
+        },
+        10,
+    )
+
+    assert "rag_claim_summary" not in summary
+
+
+def _evidence_ref(tenant_id: str, suffix: str) -> dict[str, str]:
+    return {
+        "schema_version": "evidence_ref.v1",
+        "tenant_id": tenant_id,
+        "evidence_id": f"refund_policy/{suffix}@v1",
+        "doc_key": "refund_policy",
+        "chunk_id": suffix,
+        "policy_version": "v1",
+        "text_hash": f"sha256:{suffix}",
+        "retrieved_at": "2026-06-28T00:00:00+00:00",
+        "retrieval_config_version": "retrieval.v1",
     }
 
 

@@ -16,6 +16,19 @@ from src.db.models import ActionDraft, AgentStep, ApprovalRequest, ApprovalStep,
 from src.repositories.trace_repo import TraceRepository
 
 
+RAG_CLAIM_SUMMARY_KEYS = {
+    "schema_version",
+    "rag_context_status",
+    "verified_evidence_count",
+    "rejected_candidate_count",
+    "stale_ref_count",
+    "conflict_ref_count",
+    "claim_verification_status",
+    "blocked_claim_count",
+    "safe_support_ref_count",
+}
+
+
 @pytest.mark.asyncio
 async def test_get_run_trace_returns_full_timeline_with_agent_steps_approvals_and_action_drafts(
     client: AsyncClient,
@@ -103,6 +116,7 @@ async def test_get_run_trace_non_owner_non_supervisor_gets_403(
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "FORBIDDEN"
+    assert "rag_claim_summary" not in response.text
 
 
 @pytest.mark.asyncio
@@ -125,6 +139,7 @@ async def test_get_run_trace_supervisor_approval_manager_get_403(
 
         assert response.status_code == 403
         assert response.json()["error"]["code"] == "FORBIDDEN"
+        assert "rag_claim_summary" not in response.text
 
 
 def test_trace_and_replay_visibility_guards_remain_admin_only_and_ignore_target_merchant_context():
@@ -156,6 +171,7 @@ async def test_get_run_trace_business_and_ghost_non_owner_roles_get_403(
 
         assert response.status_code == 403
         assert response.json()["error"]["code"] == "FORBIDDEN"
+        assert "rag_claim_summary" not in response.text
 
 
 @pytest.mark.asyncio
@@ -177,6 +193,46 @@ async def test_get_run_trace_admin_can_view_any_run_in_same_tenant(
 
 
 @pytest.mark.asyncio
+async def test_get_run_trace_exposes_allowlisted_rag_claim_summary_from_scoped_run(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+):
+    support = seeded_session["users"]["cs_zhang"]
+    run_id = await _create_trace_run(session, tenant_id=support.tenant_id, user_id=support.id)
+    await _add_rag_claim_summary_steps(session, run_id=run_id)
+
+    response = await client.get(
+        f"/api/v1/agent-runs/{run_id}/trace",
+        headers=await _support_headers(client),
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    summary = payload["data"]["rag_claim_summary"]
+    assert set(summary) == RAG_CLAIM_SUMMARY_KEYS
+    assert summary == {
+        "schema_version": "rag_claim_summary.v1",
+        "rag_context_status": "verified",
+        "verified_evidence_count": 1,
+        "rejected_candidate_count": 2,
+        "stale_ref_count": 1,
+        "conflict_ref_count": 1,
+        "claim_verification_status": "blocked",
+        "blocked_claim_count": 1,
+        "safe_support_ref_count": 1,
+    }
+    for forbidden in (
+        "verified_evidence_package",
+        "debug_projection",
+        "verifier_projection",
+        "RAW_SEMANTIC_SHOULD_NOT_LEAK",
+        "candidate-only",
+    ):
+        assert forbidden not in response.text
+
+
+@pytest.mark.asyncio
 async def test_get_run_trace_cross_tenant_returns_404(
     client: AsyncClient,
     session: AsyncSession,
@@ -193,6 +249,7 @@ async def test_get_run_trace_cross_tenant_returns_404(
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "NOT_FOUND"
+    assert "rag_claim_summary" not in response.text
 
 
 def test_build_timeline_merges_all_event_types_correctly():
@@ -500,6 +557,49 @@ async def _add_full_trace_events(session: AsyncSession, *, run_id: UUID, tenant_
                 draft_outcome=_draft_outcome(draft_id=draft_id, run_id=run_id, tenant_id=tenant_id),
                 created_by_agent_run=run_id,
                 created_at=now + timedelta(seconds=4),
+            ),
+        ]
+    )
+    await session.commit()
+
+
+async def _add_rag_claim_summary_steps(session: AsyncSession, *, run_id: UUID) -> None:
+    now = datetime.now(UTC)
+    session.add_all(
+        [
+            AgentStep(
+                run_id=run_id,
+                node_name="rag_context_build",
+                step_index=0,
+                status="completed",
+                started_at=now,
+                completed_at=now + timedelta(milliseconds=5),
+                latency_ms=5,
+                metrics_json={
+                    "rag_context_status": "verified",
+                    "verified_evidence_count": 1,
+                    "rejected_candidate_count": 2,
+                    "stale_ref_count": 1,
+                    "conflict_ref_count": 1,
+                    "verified_evidence_package": {"debug_projection": "DEBUG_PROJECTION_SHOULD_NOT_LEAK"},
+                    "debug_projection": "RAW_SEMANTIC_SHOULD_NOT_LEAK",
+                },
+            ),
+            AgentStep(
+                run_id=run_id,
+                node_name="claim_verify",
+                step_index=1,
+                status="completed",
+                started_at=now + timedelta(milliseconds=6),
+                completed_at=now + timedelta(milliseconds=9),
+                latency_ms=3,
+                metrics_json={
+                    "claim_verification_status": "blocked",
+                    "blocked_claim_count": 1,
+                    "safe_support_ref_count": 1,
+                    "claim_verification_bundle": {"verifier_projection": "VERIFIER_PROJECTION_SHOULD_NOT_LEAK"},
+                    "safe_support_refs": [{"evidence_id": "candidate-only"}],
+                },
             ),
         ]
     )

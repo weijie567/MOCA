@@ -432,6 +432,48 @@ class MissingFinalResponseGraph:
         )
 
 
+class RagClaimSummaryGraph:
+    async def astream(self, input_state, config, stream_mode):
+        del input_state, config, stream_mode
+        safe_ref = _rag_evidence_ref("tenant-001", "policy-safe")
+        candidate_only_ref = _rag_evidence_ref("tenant-001", "candidate-only")
+        state = {
+            "rag_context_status": "verified",
+            "verified_evidence_package": {
+                "schema_version": "verified_evidence_package.v1",
+                "package_id": "pkg-safe",
+                "status": "verified",
+                "evidence_map": {safe_ref["evidence_id"]: safe_ref},
+                "prompt_projection": {"safe_refs": [safe_ref["evidence_id"]]},
+                "verifier_projection": {"raw_semantic": "RAW_SEMANTIC_SHOULD_NOT_LEAK"},
+                "debug_projection": {"debug_projection": "DEBUG_PROJECTION_SHOULD_NOT_LEAK"},
+                "rejected_candidate_refs": [candidate_only_ref],
+                "stale_refs": [],
+                "conflict_refs": [],
+            },
+            "claim_verification_bundle": {
+                "schema_version": "claim_verification_bundle.v1",
+                "overall_status": "blocked",
+                "route": "final_response",
+                "blocked_claims": ["claim-action-1"],
+                "safe_support_refs": [safe_ref, candidate_only_ref],
+                "verifier_projection": "VERIFIER_PROJECTION_SHOULD_NOT_LEAK",
+            },
+            "blocked_claims": ["claim-action-1"],
+            "safe_support_refs": [safe_ref, candidate_only_ref],
+            "trace_steps": [_trace("claim_verify")],
+        }
+        yield ("claim_verify", state)
+        yield (
+            "final_response",
+            {
+                **state,
+                "final_response": "done",
+                "trace_steps": [*_trace_steps(state), _trace("final_response")],
+            },
+        )
+
+
 class FakeInterrupt:
     def __init__(self, value: dict):
         self.value = value
@@ -571,6 +613,25 @@ def _trace(node: str) -> dict:
     }
 
 
+def _trace_steps(state: dict) -> list[dict]:
+    trace_steps = state.get("trace_steps")
+    return list(trace_steps) if isinstance(trace_steps, list) else []
+
+
+def _rag_evidence_ref(tenant_id: str, suffix: str) -> dict[str, str]:
+    return {
+        "schema_version": "evidence_ref.v1",
+        "tenant_id": tenant_id,
+        "evidence_id": f"refund_policy/{suffix}@v1",
+        "doc_key": "refund_policy",
+        "chunk_id": suffix,
+        "policy_version": "v1",
+        "text_hash": f"sha256:{suffix}",
+        "retrieved_at": "2026-06-28T00:00:00+00:00",
+        "retrieval_config_version": "retrieval.v1",
+    }
+
+
 INVESTIGATION_RESPONSE_FIELDS = {
     "investigation_result",
     "investigation_steps",
@@ -586,6 +647,17 @@ FORBIDDEN_MEMORY_METADATA_KEYS = {
     "snapshot",
     "hash",
     "secret",
+}
+RAG_CLAIM_SUMMARY_KEYS = {
+    "schema_version",
+    "rag_context_status",
+    "verified_evidence_count",
+    "rejected_candidate_count",
+    "stale_ref_count",
+    "conflict_ref_count",
+    "claim_verification_status",
+    "blocked_claim_count",
+    "safe_support_ref_count",
 }
 
 
@@ -735,6 +807,54 @@ def test_sse_event_projects_target_node_name_without_rewriting_legacy_node_name(
     assert data["node_name"] == "extract_slots"
     assert data["target_node_name"] == "slot_resolution_gate"
     assert data["payload"] == {"tool_name": "slot_parser"}
+
+
+@pytest.mark.asyncio
+async def test_event_generator_projects_allowlisted_rag_claim_summary_in_step_payload(
+    session: AsyncSession,
+    seeded_session,
+):
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.commit()
+
+    events = [
+        _event_data(event)
+        async for event in _event_generator(
+            RagClaimSummaryGraph(),
+            _stream_input(run, user),
+            {"configurable": {"thread_id": run.thread_id, "session": session}},
+            run=run,
+            session=session,
+            user=user,
+        )
+        if "data" in event
+    ]
+    claim_event = next(event for event in events if event.get("node_name") == "claim_verify")
+    summary = claim_event["payload"]["rag_claim_summary"]
+
+    assert set(summary) == RAG_CLAIM_SUMMARY_KEYS
+    assert summary == {
+        "schema_version": "rag_claim_summary.v1",
+        "rag_context_status": "verified",
+        "verified_evidence_count": 1,
+        "rejected_candidate_count": 1,
+        "stale_ref_count": 0,
+        "conflict_ref_count": 0,
+        "claim_verification_status": "blocked",
+        "blocked_claim_count": 1,
+        "safe_support_ref_count": 1,
+    }
+    serialized = json.dumps(claim_event["payload"], ensure_ascii=False)
+    for forbidden in (
+        "verified_evidence_package",
+        "claim_verification_bundle",
+        "RAW_SEMANTIC_SHOULD_NOT_LEAK",
+        "DEBUG_PROJECTION_SHOULD_NOT_LEAK",
+        "VERIFIER_PROJECTION_SHOULD_NOT_LEAK",
+        "candidate-only",
+    ):
+        assert forbidden not in serialized
 
 
 def test_dedupe_evidence_refs_preserves_policy_versions():
@@ -1071,6 +1191,7 @@ async def test_events_rejects_cross_tenant_run_before_claim(
     )
 
     assert response.status_code == 404
+    assert "rag_claim_summary" not in response.text
     assert graph.calls == []
     await session.refresh(run)
     assert run.final_status == "pending"
@@ -1100,8 +1221,10 @@ async def test_run_visibility_supervisor_approval_manager_get_403(
 
         assert status_response.status_code == 403
         assert status_response.json()["error"]["code"] == "FORBIDDEN"
+        assert "rag_claim_summary" not in status_response.text
         assert evidence_response.status_code == 403
         assert evidence_response.json()["error"]["code"] == "FORBIDDEN"
+        assert "rag_claim_summary" not in evidence_response.text
 
 
 def test_agent_run_visibility_guards_remain_admin_only_and_ignore_target_merchant_context():
@@ -1156,10 +1279,13 @@ async def test_run_status_evidence_and_stream_reject_non_owner_business_and_ghos
 
         assert status_response.status_code == 403
         assert status_response.json()["error"]["code"] == "FORBIDDEN"
+        assert "rag_claim_summary" not in status_response.text
         assert evidence_response.status_code == 403
         assert evidence_response.json()["error"]["code"] == "FORBIDDEN"
+        assert "rag_claim_summary" not in evidence_response.text
         assert stream_response.status_code == 403
         assert stream_response.json()["error"]["code"] == "FORBIDDEN"
+        assert "rag_claim_summary" not in stream_response.text
 
     await session.refresh(pending_run)
     assert pending_run.final_status == "pending"
@@ -1186,6 +1312,7 @@ async def test_events_rejects_same_tenant_supervisor_execution_before_claim(
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "FORBIDDEN"
+    assert "rag_claim_summary" not in response.text
     assert graph.calls == []
     await session.refresh(run)
     assert run.final_status == "pending"

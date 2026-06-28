@@ -14,6 +14,19 @@ from src.auth.jwt import create_access_token, hash_password
 from src.db.models import ActionDraft, AgentRun, AgentStep, AgentTraceEvent, User
 
 
+RAG_CLAIM_SUMMARY_KEYS = {
+    "schema_version",
+    "rag_context_status",
+    "verified_evidence_count",
+    "rejected_candidate_count",
+    "stale_ref_count",
+    "conflict_ref_count",
+    "claim_verification_status",
+    "blocked_claim_count",
+    "safe_support_ref_count",
+}
+
+
 @pytest.mark.asyncio
 async def test_get_run_replay_owner_success_reads_event_store_rows_first(
     client: AsyncClient,
@@ -37,6 +50,7 @@ async def test_get_run_replay_owner_success_reads_event_store_rows_first(
     assert [event["sequence"] for event in payload["data"]["timeline"]] == [1, 2]
     assert {event["schema_version"] for event in payload["data"]["timeline"]} == {"replay_event.v3"}
     assert payload["data"]["timeline"][0]["provenance"]["source_schema_version"] == "minimal_event_envelope.v1"
+    assert "rag_claim_summary" not in payload["data"]
 
 
 @pytest.mark.asyncio
@@ -75,6 +89,7 @@ async def test_get_run_replay_cross_tenant_returns_404(
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "NOT_FOUND"
+    assert "rag_claim_summary" not in response.text
 
 
 @pytest.mark.asyncio
@@ -93,6 +108,7 @@ async def test_get_run_replay_same_tenant_non_owner_non_supervisor_gets_403(
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "FORBIDDEN"
+    assert "rag_claim_summary" not in response.text
 
 
 @pytest.mark.asyncio
@@ -116,6 +132,7 @@ async def test_get_run_replay_supervisor_approval_manager_get_403(
 
         assert response.status_code == 403
         assert response.json()["error"]["code"] == "FORBIDDEN"
+        assert "rag_claim_summary" not in response.text
 
 
 def test_replay_visibility_guard_remains_admin_only_and_ignores_target_merchant_context():
@@ -146,6 +163,7 @@ async def test_get_run_replay_business_and_ghost_non_owner_roles_get_403(
 
         assert response.status_code == 403
         assert response.json()["error"]["code"] == "FORBIDDEN"
+        assert "rag_claim_summary" not in response.text
 
 
 @pytest.mark.asyncio
@@ -177,6 +195,50 @@ async def test_trace_remains_legacy_rollback_fallback(
     assert response.status_code == 200
     assert payload["data"]["timeline"][0]["type"] == "agent_step"
     assert payload["data"]["timeline"][0]["detail"]["node_name"] == "receive_request"
+    assert "rag_claim_summary" not in payload["data"]
+
+
+@pytest.mark.asyncio
+async def test_get_run_replay_exposes_allowlisted_rag_claim_summary_without_raw_payload(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+):
+    support = seeded_session["users"]["cs_zhang"]
+    run_id = await _create_replay_run(session, tenant_id=support.tenant_id, user_id=support.id)
+    await _add_rag_claim_replay_rows(session, run_id=run_id, tenant_id=support.tenant_id)
+
+    response = await client.get(
+        f"/api/v1/agent-runs/{run_id}/replay",
+        headers=await _support_headers(client),
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    summary = payload["data"]["rag_claim_summary"]
+    assert set(summary) == RAG_CLAIM_SUMMARY_KEYS
+    assert summary == {
+        "schema_version": "rag_claim_summary.v1",
+        "rag_context_status": "verified",
+        "verified_evidence_count": 1,
+        "rejected_candidate_count": 1,
+        "stale_ref_count": 1,
+        "conflict_ref_count": 0,
+        "claim_verification_status": "blocked",
+        "blocked_claim_count": 1,
+        "safe_support_ref_count": 1,
+    }
+    for forbidden in (
+        "verified_evidence_package",
+        "claim_verification_bundle",
+        "debug_projection",
+        "verifier_projection",
+        "RAW_SEMANTIC_SHOULD_NOT_LEAK",
+        "DEBUG_PROJECTION_SHOULD_NOT_LEAK",
+        "VERIFIER_PROJECTION_SHOULD_NOT_LEAK",
+        "candidate-only",
+    ):
+        assert forbidden not in response.text
 
 
 @pytest.mark.asyncio
@@ -325,6 +387,84 @@ async def _add_action_draft_replay_row(session: AsyncSession, *, run_id: UUID, t
         )
     )
     await session.flush()
+
+
+async def _add_rag_claim_replay_rows(session: AsyncSession, *, run_id: UUID, tenant_id: UUID) -> None:
+    now = datetime.now(UTC)
+    safe_ref = _rag_evidence_ref(str(tenant_id), "policy-safe")
+    candidate_only_ref = _rag_evidence_ref(str(tenant_id), "candidate-only")
+    stale_ref = _rag_evidence_ref(str(tenant_id), "policy-stale")
+    session.add_all(
+        [
+            AgentTraceEvent(
+                event_id=uuid4(),
+                run_id=run_id,
+                sequence=1,
+                tenant_id=tenant_id,
+                thread_id=f"replay-api-{run_id}",
+                event_type="run_status_changed",
+                schema_version="replay_event.v3",
+                occurred_at=now,
+                actor={"type": "agent", "id": "moca"},
+                resource_refs={"run_id": str(run_id)},
+                redaction_policy_version="redaction.v1",
+                node_name="rag_context_build",
+                redacted_payload={
+                    "rag_context_status": "verified",
+                    "verified_evidence_package": {
+                        "schema_version": "verified_evidence_package.v1",
+                        "status": "verified",
+                        "evidence_map": {safe_ref["evidence_id"]: safe_ref},
+                        "rejected_candidate_refs": [candidate_only_ref],
+                        "stale_refs": [stale_ref],
+                        "conflict_refs": [],
+                        "debug_projection": "DEBUG_PROJECTION_SHOULD_NOT_LEAK",
+                    },
+                    "debug_projection": "RAW_SEMANTIC_SHOULD_NOT_LEAK",
+                },
+            ),
+            AgentTraceEvent(
+                event_id=uuid4(),
+                run_id=run_id,
+                sequence=2,
+                tenant_id=tenant_id,
+                thread_id=f"replay-api-{run_id}",
+                event_type="run_status_changed",
+                schema_version="replay_event.v3",
+                occurred_at=now + timedelta(seconds=1),
+                actor={"type": "agent", "id": "moca"},
+                resource_refs={"run_id": str(run_id)},
+                redaction_policy_version="redaction.v1",
+                node_name="claim_verify",
+                redacted_payload={
+                    "claim_verification_bundle": {
+                        "schema_version": "claim_verification_bundle.v1",
+                        "overall_status": "blocked",
+                        "route": "final_response",
+                        "blocked_claims": ["claim-action-1"],
+                        "safe_support_refs": [safe_ref, candidate_only_ref],
+                        "verifier_projection": "VERIFIER_PROJECTION_SHOULD_NOT_LEAK",
+                    },
+                    "safe_support_refs": [safe_ref, candidate_only_ref],
+                },
+            ),
+        ]
+    )
+    await session.flush()
+
+
+def _rag_evidence_ref(tenant_id: str, suffix: str) -> dict[str, str]:
+    return {
+        "schema_version": "evidence_ref.v1",
+        "tenant_id": tenant_id,
+        "evidence_id": f"refund_policy/{suffix}@v1",
+        "doc_key": "refund_policy",
+        "chunk_id": suffix,
+        "policy_version": "v1",
+        "text_hash": f"sha256:{suffix}",
+        "retrieved_at": "2026-06-28T00:00:00+00:00",
+        "retrieval_config_version": "retrieval.v1",
+    }
 
 
 async def _create_trace_fallback_run(session: AsyncSession, *, tenant_id: UUID, user_id: UUID) -> UUID:
