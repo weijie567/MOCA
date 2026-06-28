@@ -4540,3 +4540,43 @@ AssertionError: assert {'business_fact_ref_required', 'tenant_scope_invalid'} <=
 
 - `src/agent/rag_context/verifier.py`
 - `tests/agent/rag_context/test_authority_boundaries.py`
+
+## 2026-06-28 08:25 CST - Phase 30 clean re-review again hit bare pytest Python 3.9 entrypoint
+
+### 问题现象
+
+Phase 30 clean re-review 过程中，初次使用系统默认 `pytest` 入口运行目标测试时在环境加载阶段失败；随后切换到项目 `.venv` 的 Python 3.12 测试入口后通过。
+
+### 如何检测 / 复现
+
+```bash
+pytest -q tests/agent/rag_context/test_authority_boundaries.py tests/agent/test_nodes/test_investigate.py tests/agent/test_policy_retrieval_ownership.py tests/business/test_schemas.py tests/business/test_service.py tests/tools/test_tool_platform.py
+```
+
+### 关键证据或命令
+
+`30-REVIEW.md` clean re-review 记录显示：系统默认 `pytest` 指向 Python 3.9，因项目代码使用 `datetime.UTC` 且要求 Python 3.12+，初次运行在环境加载阶段失败；改用以下命令通过：
+
+```bash
+.venv/bin/pytest -q tests/agent/rag_context/test_authority_boundaries.py tests/agent/test_nodes/test_investigate.py tests/agent/test_policy_retrieval_ownership.py tests/business/test_schemas.py tests/business/test_service.py tests/tools/test_tool_platform.py
+```
+
+结果：`160 passed, 1 warning`。
+
+### 当前判断 / 根因
+
+这是已知本机 PATH / 测试入口问题的复发，不是 Phase 30 代码回归。裸 `pytest` 仍可能绕过项目虚拟环境并命中旧 Python 3.9。
+
+### 已做处理
+
+使用 `.venv/bin/pytest` 重新运行同一聚焦测试集合并通过；clean re-review 报告已记录验证结果。
+
+### 剩余问题
+
+无代码阻塞。后续 MOCA 本地验证继续避免裸 `pytest`，优先使用 `uv run pytest` 或 `.venv/bin/pytest`。
+
+### 下次继续排查入口
+
+- `.planning/phases/30-businessfactservice-boundary/30-REVIEW.md`
+- `.venv/bin/pytest`
+- shell PATH 中的 `pytest` 入口
