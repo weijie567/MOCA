@@ -6264,3 +6264,64 @@ uv run ruff check src/agent/nodes/claim_verify.py tests/agent/test_nodes/test_cl
 - `src/agent/nodes/claim_verify.py`
 - `tests/agent/test_nodes/test_claim_verify.py`
 - `src/agent/routing.py`
+
+## 2026-06-29 03:59 CST - Plan 33-05 Task 2 claim_verify graph/router TDD RED 与兼容测试修正
+
+### 问题现象
+
+Task 2 的 TDD RED 阶段新增 graph/router/vocabulary 测试后，focused pytest collection 失败；GREEN 首次实现后，graph 测试先后暴露测试夹具过期和 policy QA 路由期望未更新。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_routing.py tests/agent/test_graph.py tests/agent/test_graph_vocabulary.py tests/agent/test_nodes/test_claim_verify.py -q --tb=short
+```
+
+### 关键证据或命令
+
+RED 输出核心失败：
+
+```text
+ImportError: cannot import name 'route_after_claim_verify' from 'src.agent.routing'
+```
+
+GREEN 首次实现后的测试夹具失败：
+
+```text
+AttributeError: <module 'src.agent.nodes.generate_recommendation' ...> has no attribute 'PolicyKnowledgeService'
+```
+
+随后 policy QA 旧期望失败：
+
+```text
+TypeError: 'NoneType' object is not subscriptable
+```
+
+失败断言仍期待 answer-only policy QA 进入 `assess_risk_and_approval` 并写 `risk_assessment`。
+
+### 当前判断 / 根因
+
+RED 失败是 TDD 预期结果：`route_after_claim_verify` 尚未实现。测试夹具失败来自 Plan 33 前序改造后 `generate_recommendation` 不再直接持有 `PolicyKnowledgeService` 属性。policy QA 失败来自本计划的预期行为变化：answer-only claim verification `continue` 且无 `proposed_action` / risk signal 时应路由到 `final_response`，不再进入 risk/action path。
+
+### 已做处理
+
+已实现 `route_after_claim_verify`、更新 `route_after_recommendation` 到 `claim_verify`/`final_response` 两类返回、注册 graph node/conditional edges，并将 graph vocabulary 中 `claim_verify` 提升为 runtime/runnable。测试夹具改为 `raising=False`，并把 policy QA 期望改为断言经过 `claim_verify` 但 `risk_assessment is None`。
+
+随后用有效入口重跑并通过：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_routing.py tests/agent/test_graph.py tests/agent/test_graph_vocabulary.py tests/agent/test_nodes/test_claim_verify.py -q --tb=short
+uv run ruff check src/agent/routing.py src/agent/graph.py src/agent/graph_vocabulary.py tests/agent/rag_context/test_routing.py tests/agent/test_graph.py tests/agent/test_graph_vocabulary.py
+```
+
+### 剩余问题
+
+无当前阻塞。LangGraph 关于 `extract_slots` config type 的 warning 是既有警告，本计划未修改该节点签名。
+
+### 下次继续排查入口
+
+- `src/agent/routing.py`
+- `src/agent/graph.py`
+- `tests/agent/test_graph.py`

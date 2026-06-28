@@ -23,6 +23,7 @@ from src.agent.nodes.approval_gate import approval_gate
 from src.agent.nodes.action_draft import action_draft
 from src.agent.nodes.classify_intent import classify_intent
 from src.agent.nodes.clarification_gate import clarification_gate
+from src.agent.nodes.claim_verify import claim_verify
 from src.agent.nodes.extract_slots import extract_slots
 from src.agent.nodes.final_response import final_response
 from src.agent.nodes.generate_recommendation import generate_recommendation
@@ -32,6 +33,7 @@ from src.agent.nodes.rag_context_build import rag_context_build
 from src.agent.nodes.receive_request import receive_request
 from src.agent.nodes.session_memory_load import session_memory_load
 from src.agent.routing import (
+    route_after_claim_verify,
     route_after_intent,
     route_after_investigate,
     route_after_rag_context,
@@ -147,6 +149,7 @@ def build_graph(checkpointer: AsyncPostgresSaver):
     builder.add_node("investigate", investigate)
     builder.add_node("rag_context_build", rag_context_build)
     builder.add_node("generate_recommendation", generate_recommendation, retry_policy=_llm_retry)
+    builder.add_node("claim_verify", claim_verify)
     builder.add_node("assess_risk_and_approval", assess_risk_and_approval, retry_policy=_llm_retry)
     builder.add_node("clarification_gate", clarification_gate)
     builder.add_node("approval_gate", approval_gate)
@@ -199,6 +202,14 @@ def build_graph(checkpointer: AsyncPostgresSaver):
     builder.add_conditional_edges(
         "generate_recommendation",
         route_after_recommendation,
+        {
+            "claim_verify": "claim_verify",
+            "final_response": "final_response",
+        },
+    )
+    builder.add_conditional_edges(
+        "claim_verify",
+        route_after_claim_verify,
         {
             "assess_risk_and_approval": "assess_risk_and_approval",
             "final_response": "final_response",

@@ -463,7 +463,7 @@ def _patch_graph_dependencies(
                 if ref.tenant_id == tenant_id
             }
 
-    monkeypatch.setattr(generate_recommendation_module, "PolicyKnowledgeService", FakePolicyKnowledgeService)
+    monkeypatch.setattr(generate_recommendation_module, "PolicyKnowledgeService", FakePolicyKnowledgeService, raising=False)
     manager = FakeGraphToolManager(order_id=order_id, policy_status=policy_status)
     events: list[dict[str, Any]] = []
     return {"tool_manager": manager, "events": events}
@@ -582,9 +582,11 @@ async def test_happy_path_policy_qa_uses_investigate_manager(monkeypatch):
     assert final_state["final_response"]
     assert final_state["current_intent"] == "policy_qa"
     assert final_state["recommendation_draft"]["evidence_refs"]
-    assert final_state["risk_assessment"]["risk_level"] in ("low", "medium", "high")
-    assert "session_memory_load" not in [step["node"] for step in final_state["trace_steps"]]
-    assert "investigate" in [step["node"] for step in final_state["trace_steps"]]
+    nodes = [step["node"] for step in final_state["trace_steps"]]
+    assert final_state["risk_assessment"] is None
+    assert "session_memory_load" not in nodes
+    assert "investigate" in nodes
+    assert "claim_verify" in nodes
     assert all(final_state[field] is None for field in INVESTIGATION_STATE_FIELDS)
     assert [call[0] for call in deps["tool_manager"].calls] == ["search_policy"]
     assert [event["event_type"] for event in deps["events"]] == ["rag_retrieval_started", "rag_retrieval_completed"]

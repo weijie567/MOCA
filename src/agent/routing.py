@@ -18,7 +18,7 @@ MIN_EVIDENCE_SCORE = 0.55
 _FACT_ONLY_INTENTS = {"order_status_inquiry"}
 _PERMISSION_CODES = {"FORBIDDEN", "permission_denied"}
 _INVESTIGATE_ROUTES = {"final_response", "clarification_gate", "rag_context_build", "recommendation_generation"}
-_RECOMMENDATION_ROUTES = {"assess_risk_and_approval", "final_response"}
+_RECOMMENDATION_ROUTES = {"claim_verify", "final_response"}
 RAG_CONTEXT_STATUSES = {
     "not_required",
     "verified",
@@ -32,6 +32,7 @@ RAG_CONTEXT_STATUSES = {
     "build_error",
 }
 _RAG_CONTEXT_ROUTES = {"recommendation_generation", "clarification_gate", "final_response"}
+_CLAIM_VERIFY_ROUTES = {"assess_risk_and_approval", "final_response"}
 INTENT_ROUTES = {"clarification_gate", "final_response", "investigate", "session_memory_load"}
 SLOT_ROUTES = {"clarification_gate", "investigate", "long_term_memory_retrieve"}
 BUSINESS_ID_SLOTS = ("order_id", "refund_case_id", "ticket_id")
@@ -303,6 +304,17 @@ def route_after_rag_context(state: AgentState) -> str:
     return "final_response"
 
 
+def route_after_claim_verify(state: AgentState) -> str:
+    """Route only from claim bundle state to registered graph node keys."""
+    try:
+        route = _route_after_claim_verify(state)
+    except Exception:
+        return "final_response"
+    if route in _CLAIM_VERIFY_ROUTES:
+        return route
+    return "final_response"
+
+
 def _route_after_rag_context(state: AgentState) -> str:
     if _missing_required_validation_inputs(state):
         return "clarification_gate"
@@ -320,8 +332,27 @@ def _route_after_rag_context(state: AgentState) -> str:
 
 
 def _route_after_recommendation(state: AgentState) -> str:
+    if _recommendation_missing_info(state):
+        return "final_response"
     route = _recommendation_verification_route(state)
-    if route is None or route == "allow":
+    if route is not None and route != "allow":
+        return "final_response"
+    if _has_material_claims(state) or _has_proposed_action(state) or _has_user_visible_claims(state):
+        return "claim_verify"
+    return "final_response"
+
+
+def _route_after_claim_verify(state: AgentState) -> str:
+    if _claim_verify_has_blocked_claims(state):
+        return "final_response"
+    bundle = _claim_verification_bundle(state)
+    if not bundle:
+        return "final_response"
+    route = bundle.get("route")
+    overall_status = bundle.get("overall_status")
+    if route != "continue" or overall_status not in {"verified", "not_required"}:
+        return "final_response"
+    if _has_proposed_action(state) or _has_risk_signal(state):
         return "assess_risk_and_approval"
     return "final_response"
 
@@ -345,6 +376,82 @@ def _recommendation_verification_route(state: AgentState) -> str | None:
         if isinstance(draft_route, str) and draft_route:
             return draft_route
     return None
+
+
+def _recommendation_missing_info(state: AgentState) -> bool:
+    missing_info = state.get("missing_info")
+    if isinstance(missing_info, list) and missing_info:
+        return True
+    draft = state.get("recommendation_draft")
+    if isinstance(draft, dict):
+        draft_missing = draft.get("missing_info")
+        return isinstance(draft_missing, list) and bool(draft_missing)
+    return False
+
+
+def _has_material_claims(state: AgentState) -> bool:
+    if _non_empty_sequence(state.get("material_claims")):
+        return True
+    draft = state.get("recommendation_draft")
+    if isinstance(draft, dict):
+        return _non_empty_sequence(draft.get("material_claims"))
+    return False
+
+
+def _has_proposed_action(state: AgentState) -> bool:
+    proposed = state.get("proposed_action")
+    return isinstance(proposed, dict) and bool(proposed)
+
+
+def _has_user_visible_claims(state: AgentState) -> bool:
+    draft = state.get("recommendation_draft")
+    if not isinstance(draft, dict):
+        return False
+    claim_keys = (
+        "user_visible_claims",
+        "policy_claims",
+        "business_claims",
+        "business_fact_claims",
+        "action_claims",
+        "action_recommendation_claims",
+    )
+    return any(_non_empty_sequence(draft.get(key)) or _non_empty_mapping(draft.get(key)) for key in claim_keys)
+
+
+def _has_risk_signal(state: AgentState) -> bool:
+    if _non_empty_sequence(state.get("risk_signals")):
+        return True
+    risk_tier = state.get("risk_tier") or state.get("risk_level")
+    if isinstance(risk_tier, str) and risk_tier.lower() in {"high", "critical", "approval_required"}:
+        return True
+    draft = state.get("recommendation_draft")
+    if isinstance(draft, dict):
+        draft_risk = draft.get("risk_level")
+        return isinstance(draft_risk, str) and draft_risk.lower() in {"high", "critical"}
+    return False
+
+
+def _claim_verify_has_blocked_claims(state: AgentState) -> bool:
+    blocked_claims = state.get("blocked_claims")
+    if isinstance(blocked_claims, list) and blocked_claims:
+        return True
+    bundle = _claim_verification_bundle(state)
+    return bool(bundle and _non_empty_sequence(bundle.get("blocked_claims")))
+
+
+def _claim_verification_bundle(state: AgentState) -> dict[str, Any]:
+    bundle = state.get("claim_verification_bundle")
+    if isinstance(bundle, dict) and isinstance(bundle.get("route"), str) and isinstance(bundle.get("overall_status"), str):
+        return bundle
+    return {}
+
+
+def _non_empty_sequence(value: Any) -> bool:
+    return isinstance(value, list | tuple) and bool(value)
+
+
+def _non_empty_mapping(value: Any) -> bool:
+    return isinstance(value, dict) and bool(value)
 
 
 def _route_after_investigate(state: AgentState) -> str:

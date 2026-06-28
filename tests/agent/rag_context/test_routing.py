@@ -264,3 +264,37 @@ def test_route_after_claim_verify_maps_bundle_routes_to_registered_graph_keys(
     assert route == expected_route
     assert route in {"assess_risk_and_approval", "final_response"}
     assert route != "continue"
+
+
+def test_route_after_claim_verify_blocks_business_fact_and_unsupported_action_claims() -> None:
+    """APF-14: blocked business fact claims and unsupported action_recommendation claims cannot reach risk."""
+    from src.agent.routing import route_after_claim_verify
+
+    assert (
+        route_after_claim_verify(
+            {
+                "claim_verification_bundle": {
+                    "overall_status": "blocked",
+                    "route": "final_response",
+                    "reason_codes": ["business_fact_ref_required"],
+                },
+                "blocked_claims": ["claim-business"],
+                "proposed_action": {"type": "create_compensation_review"},
+            }
+        )
+        == "final_response"
+    )
+    assert (
+        route_after_claim_verify(
+            {
+                "claim_verification_bundle": {
+                    "overall_status": "blocked",
+                    "route": "final_response",
+                    "reason_codes": ["unsupported_action_recommendation"],
+                },
+                "blocked_claims": ["claim-action"],
+                "proposed_action": {"type": "create_compensation_review"},
+            }
+        )
+        == "final_response"
+    )
