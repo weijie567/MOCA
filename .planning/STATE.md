@@ -4,14 +4,14 @@ milestone: v1.9
 milestone_name: Agent Platform Foundation
 status: planning
 stopped_at: Phase 31 context gathered
-last_updated: "2026-06-28T02:45:58.820Z"
+last_updated: "2026-06-28T03:32:31.641Z"
 last_activity: 2026-06-27
 progress:
   total_phases: 11
   completed_phases: 6
-  total_plans: 18
+  total_plans: 24
   completed_plans: 18
-  percent: 100
+  percent: 75
 ---
 
 # Project State: MOCA
@@ -27,11 +27,11 @@ See: `.planning/PROJECT.md` (updated 2026-06-23)
 
 Phase: 31
 Next roadmap item: Phase 31 — Memory Platform Boundary
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-06-27
+Plan: 6 plans created
+Status: Ready to execute
+Last activity: 2026-06-28
 
-Progress: [██████░░░░] 64%
+Progress: [███████░░░] 75%
 
 Planning files:
 
@@ -54,7 +54,7 @@ Planning files:
 
 ## Performance Metrics
 
-**v1.9 current planned scope:** 11 phases, 18 APF requirements, 18 planned phase plans.
+**v1.9 current planned scope:** 11 phases, 18 APF requirements, 24 planned phase plans.
 
 | Phase | Plans | Status |
 |-------|-------|--------|
@@ -64,7 +64,7 @@ Planning files:
 | 29. Tool Platform Boundary | 4/4 complete | Complete |
 | 29.5. Merchant Scope / Role Model Alignment | 6/6 complete | Complete |
 | 30. BusinessFactService Boundary | 3/3 complete | Complete |
-| 31. Memory Platform Boundary | 0/1 | Pending |
+| 31. Memory Platform Boundary | 0/6 | Ready to execute |
 | 32. Intent Graph Migration | 0/1 | Pending |
 | 33. RAG Context Build and Claim Verification | 0/1 | Pending |
 | 34. Approval and ActionDraft Boundary Hardening | 0/1 | Pending |
@@ -188,3 +188,5 @@ Next: Phase 31 — Memory Platform Boundary; old phase directory archive remains
 **Completed Phase:** 30 (BusinessFactService Boundary) — 3/3 plans complete; verification passed; focused suite `190 passed`; code review warning fixed — 2026-06-27
 
 **Next Roadmap Item:** Phase 31 — Memory Platform Boundary
+
+**Planned Phase:** 31 (memory-platform-boundary) — 6 plans — 2026-06-28T03:32:31.626Z

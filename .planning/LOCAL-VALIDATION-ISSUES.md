@@ -4906,3 +4906,41 @@ workflow 层面后续可考虑把 UI gate 关键词改为带单词边界的匹�
 
 - `$HOME/.codex/get-shit-done/workflows/plan-phase.md`
 - `.planning/ROADMAP.md`
+
+## 2026-06-28 11:31 CST - Phase 31 planning audit regex accidentally triggered bare pytest
+
+### 问题现象
+
+Phase 31 plan 文件自查时，用 `rg -v "uv run pytest|bare \`pytest\`|..."` 过滤文本。由于 zsh 执行了双引号内的反引号，命令意外触发裸 `pytest`，随后命中本机 Python 3.9，出现 `datetime.UTC` import 失败。该输出不是有效测试结论。
+
+### 如何检测 / 复现
+
+```bash
+rg -n "\bpytest\b|python -m pytest" .planning/phases/31-memory-platform-boundary/31-*-PLAN.md | rg -v "uv run pytest|bare `pytest`|bare pytest|pytest\\.mark|No validation conclusion"
+```
+
+### 关键证据或命令
+
+```text
+ImportError while loading conftest '/Users/ming/projects/MOCA/tests/conftest.py'.
+tests/conftest.py:3: in <module>
+    from datetime import UTC, datetime, timedelta
+E   ImportError: cannot import name 'UTC' from 'datetime' (/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/datetime.py)
+```
+
+### 当前判断 / 根因
+
+这是命令 quoting 错误导致 shell 执行反引号中的 `pytest`。裸 pytest 命中了系统 Python 3.9，不是 MOCA 项目虚拟环境，也不是 Phase 31 plan 文件或应用代码失败。
+
+### 已做处理
+
+未采信该输出作为验证结果。后续 plan 文本检查改用单引号或避免反引号。Phase 31 PLAN.md 内的自动化验证命令仍显式使用 `uv run pytest ...`。
+
+### 剩余问题
+
+无应用侧剩余问题。后续所有 review/verification 命令仍必须避免裸 `pytest` / 裸 `python -m pytest`。
+
+### 下次继续排查入口
+
+- `AGENTS.md` 本地验证命令环境硬规则
+- `.planning/phases/31-memory-platform-boundary/31-*-PLAN.md`
