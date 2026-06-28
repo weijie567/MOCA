@@ -4662,3 +4662,45 @@ rg: .planning/phases/29.5-merchant-scope-role-model-alignment/29.5-VERIFICATION.
 - `.planning/phases/30-businessfactservice-boundary/30-SECURITY.md`
 - `.planning/phases/30-businessfactservice-boundary/30-VERIFICATION.md`
 - `find .planning/phases -maxdepth 2 -name '*-VERIFICATION.md' -type f`
+
+## 2026-06-28 09:24 CST - Phase 30 validate-phase test infrastructure scan hit zsh no-match glob
+
+### 问题现象
+
+Phase 30 Nyquist validation 的测试基础设施扫描命令包含未加引号的 `jest.config.*` / `vitest.config.*` glob，在 zsh 下因没有匹配文件触发 `no matches found`，导致该命令提前报错。
+
+### 如何检测 / 复现
+
+```bash
+find . -name "pytest.ini" -o -name "jest.config.*" -o -name "vitest.config.*" -o -name "pyproject.toml" 2>/dev/null | head -10
+```
+
+### 关键证据或命令
+
+```text
+zsh:1: no matches found: jest.config.*
+```
+
+### 当前判断 / 根因
+
+这是 zsh 默认 `nomatch` 行为导致的本地验证命令问题，不是 Phase 30 代码、测试或 validation artifact 失败。未匹配 glob 在命令执行前由 shell 拦截，`find` 本身没有机会处理该模式。
+
+### 已做处理
+
+改用加引号并加括号的 `find` 重新扫描：
+
+```bash
+find . \( -name 'pytest.ini' -o -name 'jest.config.*' -o -name 'vitest.config.*' -o -name 'pyproject.toml' \) -not -path '*/.venv/*' 2>/dev/null | head -20
+```
+
+结果找到 `./pyproject.toml`。随后继续完成 Phase 30 validation audit，focused suite 结果为 `203 passed, 1 warning`，ruff 和 `git diff --check` 均通过。
+
+### 剩余问题
+
+无代码阻塞。后续在 zsh 下写 `find -name` 多模式命令时，所有带 `*` 的 pattern 都应加单引号或用 `rg --files` 替代。
+
+### 下次继续排查入口
+
+- `.planning/phases/30-businessfactservice-boundary/30-VALIDATION.md`
+- `pyproject.toml`
+- `$HOME/.codex/get-shit-done/workflows/validate-phase.md`
