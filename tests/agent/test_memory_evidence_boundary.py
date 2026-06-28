@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import pytest
 from langgraph.checkpoint.memory import MemorySaver
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.graph import build_graph
@@ -53,6 +54,76 @@ async def _persist_run(session: AsyncSession, user: User, thread_id: str) -> str
         total_latency_ms=1,
     )
     return run_id
+
+
+def _planned_contextual_only_memory_surfaces(tenant_id: str) -> dict[str, dict]:
+    source_identity_hash = "sha256:" + ("b" * 64)
+    session_context_ref = {
+        "schema_version": "session_context_ref.v1",
+        "authority_class": "contextual_only",
+        "tenant_id": tenant_id,
+        "user_id": "user-memory-boundary",
+        "thread_id": "thread-memory-boundary",
+        "run_id": "run-memory-boundary",
+        "source": "session_context_load",
+        "ref_id": "session-context-ref-authority-boundary",
+    }
+    reviewed_memory_ref = {
+        "schema_version": "reviewed_memory_ref.v1",
+        "authority_class": "contextual_only",
+        "tenant_id": tenant_id,
+        "memory_type": "long_term",
+        "scope_type": "merchant",
+        "scope_id": "merchant-memory-boundary",
+        "memory_id": "reviewed-memory-ref-authority-boundary",
+        "review_status": "approved",
+        "source_identity_hash": source_identity_hash,
+        "prompt_safe": True,
+    }
+    return {
+        "SessionContextRef": session_context_ref,
+        "ReviewedMemoryRef": reviewed_memory_ref,
+        "SessionContextLoadStatusV1": {
+            "schema_version": "session_context_load_status.v1",
+            "status": "loaded",
+            "source": "postgres_session_memory",
+            "authority_class": "contextual_only",
+            "tenant_id": tenant_id,
+            "user_id": "user-memory-boundary",
+            "thread_id": "thread-memory-boundary",
+            "run_id": "run-memory-boundary",
+            "loaded_refs": [session_context_ref],
+            "fallback_reason": None,
+            "slot_count": 1,
+            "recent_message_count": 1,
+            "tool_summary_count": 1,
+        },
+        "ReviewedMemoryContextRetrieveStatusV1": {
+            "schema_version": "reviewed_memory_context_retrieve_status.v1",
+            "status": "loaded",
+            "authority_class": "contextual_only",
+            "trusted_scope_inputs": {"tenant_id": tenant_id, "merchant_scope": ["merchant-memory-boundary"]},
+            "effective_scopes": [{"scope_type": "merchant", "scope_id": "merchant-memory-boundary"}],
+            "filter_reasons": ["reviewed_prompt_safe"],
+            "retrieved_refs": [reviewed_memory_ref],
+            "fallback_reason": None,
+        },
+        "MemoryWriteDecisionV2": {
+            "schema_version": "memory_write_decision.v2",
+            "status": "skipped",
+            "decision": "skip",
+            "authority_class": "contextual_only",
+            "memory_type": "long_term",
+            "memory_id": None,
+            "scope": {"scope_type": "merchant", "scope_id": "merchant-memory-boundary"},
+            "candidate_hash": "sha256:" + ("c" * 64),
+            "source_identity_hash": source_identity_hash,
+            "pii_classification": "none",
+            "review_status": "needs_review",
+            "reason_code": "temporary_chat",
+            "fallback_reason": None,
+        },
+    }
 
 
 def test_session_memory_modules_do_not_import_evidence_ref_v1() -> None:
@@ -365,7 +436,8 @@ async def test_agent_runs_memory_context_is_not_policy_business_action_or_replay
     assert business_result.outcome == VerificationOutcome.BUSINESS_FACT_MISSING
     assert "memory_not_business_authority" in business_result.reason_codes
     assert "business_fact_ref_required" in business_result.reason_codes
-    assert action_result.outcome == VerificationOutcome.UNSUPPORTED
+    # Memory-supported dependencies are insufficient authority, not semantic contradiction.
+    assert action_result.outcome == VerificationOutcome.INSUFFICIENT
     assert "policy_dependency_not_evidence_supported" in action_result.reason_codes
     assert "business_dependency_not_tool_supported" in action_result.reason_codes
     assert action_result.allows_action_recommendation is False
@@ -387,3 +459,129 @@ async def test_agent_runs_memory_context_is_not_policy_business_action_or_replay
         "ReplayEventV3",
     ):
         assert marker not in serialized_memory_surface
+
+
+def test_contextual_only_memory_refs_reject_strict_authority_dto_parsing() -> None:
+    from src.agent.rag_context.claims import MaterialClaim
+    from src.approvals.schemas import ApprovalRequestCreateCommand
+    from src.replay.schemas import ReplayEventV3
+    from src.tools.contracts import BusinessFactRefV1
+
+    tenant_id = "11111111-1111-1111-1111-111111111111"
+    surfaces = _planned_contextual_only_memory_surfaces(tenant_id)
+
+    with pytest.raises(ValidationError):
+        BusinessFactRefV1.model_validate(surfaces["ReviewedMemoryRef"])
+
+    with pytest.raises(ValidationError):
+        ApprovalRequestCreateCommand.model_validate(
+            {
+                "tenant_id": uuid4(),
+                "run_id": uuid4(),
+                "thread_id": "thread-memory-boundary",
+                "requested_by": uuid4(),
+                "proposed_action": {"type": "issue_coupon"},
+                "approval_policy_id": "approval-policy-memory-boundary",
+                "policy_version": "approval-policy.v1",
+                "risk_level": "high",
+                "policy_config_version": "approval-policy-config.v1",
+                "risk_config_version": "risk-config.v1",
+                "retrieval_config_version": "retrieval-config.v1",
+                "evidence_refs": [surfaces["SessionContextRef"]],
+                "created_at": datetime.now(UTC),
+                "expires_at": datetime.now(UTC),
+            }
+        )
+
+    with pytest.raises(ValidationError):
+        ReplayEventV3.model_validate(surfaces["ReviewedMemoryContextRetrieveStatusV1"])
+
+    with pytest.raises(ValidationError):
+        MaterialClaim.model_validate(
+            {
+                "claim_id": "claim-memory-ref-as-business-fact-ref",
+                "claim_text": "Memory ref cannot satisfy a business fact claim.",
+                "authority_class": "business_fact_claim",
+                "source_node": "generate_recommendation",
+                "business_fact_refs": [surfaces["ReviewedMemoryRef"]],
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_contextual_only_memory_refs_do_not_become_evidence_ref_v1_or_business_authority() -> None:
+    from src.agent.rag_context.claims import MaterialClaim
+    from src.agent.rag_context.verifier import MaterialClaimVerifier, VerificationOutcome
+
+    tenant_id = "11111111-1111-1111-1111-111111111111"
+    surfaces = _planned_contextual_only_memory_surfaces(tenant_id)
+    context_bundle = {
+        "trusted_context": {"tenant_id": tenant_id, "thread_id": "thread-memory-boundary"},
+        "citation_map": {},
+        "verifier_context": {"business_fact_refs": [], "evidence_snippets": [], "safe_refs": []},
+        "contextual_sources": {
+            "session_context_refs": [surfaces["SessionContextRef"]],
+            "reviewed_memory_refs": [surfaces["ReviewedMemoryRef"]],
+            "memory_status_refs": [
+                surfaces["SessionContextLoadStatusV1"],
+                surfaces["ReviewedMemoryContextRetrieveStatusV1"],
+                surfaces["MemoryWriteDecisionV2"],
+            ],
+        },
+    }
+    verifier = MaterialClaimVerifier()
+    policy_claim = MaterialClaim.model_validate(
+        {
+            "claim_id": "claim-contextual-memory-not-policy-evidence",
+            "claim_text": "Memory context says compensation is allowed.",
+            "authority_class": "policy_claim",
+            "source_node": "generate_recommendation",
+            "cited_evidence_ids": ["session-context-ref-authority-boundary"],
+        }
+    )
+    business_claim = MaterialClaim.model_validate(
+        {
+            "claim_id": "claim-contextual-memory-not-business-fact",
+            "claim_text": "Memory context says order ORD-MEMORY is delivered.",
+            "authority_class": "business_fact_claim",
+            "source_node": "generate_recommendation",
+            "business_fact_refs": [],
+        }
+    )
+    action_claim = MaterialClaim.model_validate(
+        {
+            "claim_id": "claim-contextual-memory-not-action-authority",
+            "claim_text": "Issue compensation based on contextual memory.",
+            "authority_class": "action_recommendation_claim",
+            "source_node": "generate_recommendation",
+            "cited_evidence_ids": ["session-context-ref-authority-boundary"],
+            "business_fact_refs": [],
+            "dependency_claim_ids": [
+                "claim-contextual-memory-not-policy-evidence",
+                "claim-contextual-memory-not-business-fact",
+            ],
+        }
+    )
+
+    policy_result = await verifier.verify_claim(policy_claim, context_bundle=context_bundle)
+    business_result = await verifier.verify_claim(business_claim, context_bundle=context_bundle)
+    action_result = await verifier.verify_claim(
+        action_claim,
+        context_bundle=context_bundle,
+        dependency_results=[
+            {"claim_id": "claim-contextual-memory-not-policy-evidence", "outcome": "supported_by_memory"},
+            {"claim_id": "claim-contextual-memory-not-business-fact", "outcome": "supported_by_memory"},
+        ],
+    )
+
+    assert policy_result.outcome == VerificationOutcome.INSUFFICIENT
+    assert "memory_not_policy_authority" in policy_result.reason_codes
+    assert business_result.outcome == VerificationOutcome.BUSINESS_FACT_MISSING
+    assert "memory_not_business_authority" in business_result.reason_codes
+    assert action_result.outcome == VerificationOutcome.INSUFFICIENT
+    assert "policy_dependency_not_evidence_supported" in action_result.reason_codes
+    assert "business_dependency_not_tool_supported" in action_result.reason_codes
+    assert action_result.allows_action_recommendation is False
+    assert action_result.blocks_proposed_action is True
+    # Contextual memory refs/status refs must not become EvidenceRefV1 support refs.
+    assert action_result.safe_support_refs == []
