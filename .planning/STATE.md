@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
-status: planning
-stopped_at: Completed 32-01-PLAN.md
-last_updated: "2026-06-28T13:35:30.995Z"
+status: executing
+stopped_at: Completed 32-02-PLAN.md
+last_updated: "2026-06-28T13:44:04.109Z"
 last_activity: 2026-06-28 -- Phase 31 verified complete; ready to plan Phase 32
 progress:
   total_phases: 12
   completed_phases: 7
   total_plans: 29
-  completed_plans: 25
-  percent: 86
+  completed_plans: 26
+  percent: 90
 ---
 
 # Project State: MOCA
@@ -27,11 +27,11 @@ See: `.planning/PROJECT.md` (updated 2026-06-28)
 
 Phase: 32
 Next roadmap item: Phase 32 — Intent Graph Migration
-Plan: 32-02 next
+Plan: 32-03 next
 Status: Executing
 Last activity: 2026-06-28 -- Phase 31 verified complete; ready to plan Phase 32
 
-Progress: [█████████░] 86%
+Progress: [█████████░] 90%
 
 Planning files:
 
@@ -65,7 +65,7 @@ Planning files:
 | 29.5. Merchant Scope / Role Model Alignment | 6/6 complete | Complete |
 | 30. BusinessFactService Boundary | 3/3 complete | Complete |
 | 31. Memory Platform Boundary | 6/6 | Complete |
-| 32. Intent Graph Migration | 1/5 | In Progress |
+| 32. Intent Graph Migration | 2/5 | In Progress |
 | 33. RAG Context Build and Claim Verification | 0/1 | Pending |
 | 34. Approval and ActionDraft Boundary Hardening | 0/1 | Pending |
 | 35. Replay and Eval Hardening | 0/1 | Pending |
@@ -82,6 +82,7 @@ Latest execution metric: Phase 31 P06 — 22min, 3 tasks, 9 source/test files pl
 | Phase 30 P02 | 10min | 2 tasks | 5 files |
 | Phase 30 P03 | 10min | 3 tasks | 6 files |
 | Phase 32-intent-graph-migration P32-01 | 7min | 2 tasks | 3 files |
+| Phase 32-intent-graph-migration P32-02 | 8min | 2 tasks | 6 files |
 
 ## Quick Tasks Completed
 
@@ -120,6 +121,8 @@ Latest execution metric: Phase 31 P06 — 22min, 3 tasks, 9 source/test files pl
 - Prompt summaries and raw repository-row-shaped context receive explicit non-authority reason codes while BusinessFactRefV1 remains required.
 - Phase 32 Plan 01 cataloged rag_context_build and claim_verify only as deferred_non_runnable Phase 33 target entries.
 - Phase 32 Plan 01 kept legacy LangGraph node/router names as runtime/debug names and exposed target names through src.agent.graph_vocabulary.
+- Phase 32 Plan 02 keeps LLM intent output candidate-only and records policy_owner=IntentPolicyRegistry on effective classifier traces.
+- Phase 32 Plan 02 moved effective route, risk, precedence, direct-response, and required-slot decisions behind IntentPolicyRegistry and SlotPolicyRegistry APIs.
 
 ### Roadmap Evolution
 
@@ -161,8 +164,8 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-28T13:35:30.694Z
-Stopped at: Completed 32-01-PLAN.md
+Last session: 2026-06-28T13:44:03.842Z
+Stopped at: Completed 32-02-PLAN.md
 Resume file: None
 Next: Phase 32 — Intent Graph Migration; old phase directory archive remains a separate cleanup todo.
 

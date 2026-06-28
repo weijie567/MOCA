@@ -42,7 +42,7 @@ Turn MOCA's agent runtime into a microservice-ready modular monolith: platform/d
 ### Intent and Graph Migration
 
 - [x] **APF-11:** The graph can map legacy nodes/routers to target canonical vocabulary for `safety_pre_route`, `session_context_load`, `contextual_intent_resolve`, `slot_resolution_gate`, `memory_context_load`, `rag_context_build`, and `claim_verify`.
-- [ ] **APF-12:** Intent and slot policy registries drive contextual intent resolution and slot inheritance decisions, with LLM output limited to candidates and deterministic policy owning effective route/slot decisions.
+- [x] **APF-12:** Intent and slot policy registries drive contextual intent resolution and slot inheritance decisions, with LLM output limited to candidates and deterministic policy owning effective route/slot decisions.
 
 ### RAG Context Build and Claim Verification
 
@@ -95,7 +95,7 @@ Turn MOCA's agent runtime into a microservice-ready modular monolith: platform/d
 | APF-09 | Phase 31 | Complete |
 | APF-10 | Phase 31 | Complete |
 | APF-11 | Phase 32 | Complete |
-| APF-12 | Phase 32 | Pending |
+| APF-12 | Phase 32 | Complete |
 | APF-13 | Phase 33 | Pending |
 | APF-14 | Phase 33 | Pending |
 | APF-15 | Phase 34 | Pending |

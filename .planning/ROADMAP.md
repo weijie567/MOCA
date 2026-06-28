@@ -329,7 +329,7 @@ Plans:
 **Goal:** Migrate the graph toward target canonical safety, session context, contextual intent, slot resolution, and memory context nodes while preserving legacy compatibility.
 **Requirements**: APF-11, APF-12
 **Depends on:** Phase 31
-**Plans:** 1/5 plans complete
+**Plans:** 2/5 plans complete
 
 **Success Criteria**:
 
@@ -340,7 +340,7 @@ Plans:
 
 Plans:
 - [x] 32-01-PLAN.md — Graph vocabulary and projection helper
-- [ ] 32-02-PLAN.md — Intent policy registry consumption
+- [x] 32-02-PLAN.md — Intent policy registry consumption
 - [ ] 32-03-PLAN.md — Slot policy gate and target router projection
 - [ ] 32-04-PLAN.md — Trace/eval/API and target merchant-context evidence
 - [ ] 32-05-PLAN.md — Final focused verification and no Phase 33 scope creep
