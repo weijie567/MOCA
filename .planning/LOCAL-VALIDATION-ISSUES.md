@@ -5240,3 +5240,46 @@ zsh 中 `status` 是只读特殊参数，不能用作普通 shell 变量名。�
 
 - 31-01 Task 1 acceptance checks
 - zsh 特殊参数文档
+
+## 2026-06-28 14:00 CST - 31-02 RED 边界测试 fixture 缺少 LongTermMemory.confidence
+
+### 问题现象
+
+执行 31-02 Task 1 RED 验证时，预期是新测试因计划中的生产模块尚未实现而失败，但其中一个 DB-backed fixture 在 flush 阶段先失败：
+
+```text
+asyncpg.exceptions.NotNullViolationError: null value in column "confidence" of relation "long_term_memories" violates not-null constraint
+```
+
+### 如何检测 / 复现
+
+运行 31-02 Task 1 RED 验证命令：
+
+```bash
+bash -lc 'set +e; uv run pytest tests/agent/test_reviewed_memory_context_retrieve.py tests/memory/test_reviewed_memory_context_boundary.py tests/memory/test_session_memory_isolation.py -q; status=$?; test "$status" -ne 0'
+```
+
+### 关键证据或命令
+
+失败点在 `tests/memory/test_reviewed_memory_context_boundary.py::_long_term_row(...)` 直接构造 `LongTermMemory` 行时未设置 `confidence`，与 `src/db/models.py` 中该字段非空约束不一致。
+
+### 当前判断 / 根因
+
+这是 31-02 新增 RED 测试 fixture 的建模错误，不是目标生产实现缺失导致的预期 RED 失败。直接插入 ORM 行时需要与现有 long-term memory 测试 helper 一样设置 `confidence=Decimal("0.9000")`。
+
+### 已做处理
+
+已在 `_long_term_row(...)` 中补充 `confidence=Decimal("0.9000")`，并重跑同一 RED 命令。重跑后失败原因只剩计划内缺失模块：
+
+- `src.agent.nodes.reviewed_memory_context_retrieve`
+- `src.memory.context_service`
+- `src.agent.nodes.session_context_load`
+
+### 剩余问题
+
+无。当前 RED 失败符合 31-02 计划目标。
+
+### 下次继续排查入口
+
+- `tests/memory/test_reviewed_memory_context_boundary.py::_long_term_row`
+- 31-02 Task 1 RED pytest 命令
