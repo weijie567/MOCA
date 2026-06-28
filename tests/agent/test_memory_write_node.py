@@ -82,6 +82,9 @@ async def test_memory_write_node_writes_explicit_slots_and_unresolved_questions(
     assert result["memory_write_decision"]["authority_class"] == "contextual_only"
     assert result["memory_write_decision"]["candidate_hash"].startswith("sha256:")
     assert result["memory_write_decision"]["scope"]["thread_id"] == "thread-memory-write"
+    assert result["trace_steps"][-1]["metrics_json"]["memory_write_decision_schema_version"] == (
+        "memory_write_decision.v2"
+    )
     assert len(candidates) == 1
     candidate = candidates[0]
     assert set(candidate.explicit_slots) == {"order_id"}
@@ -114,6 +117,10 @@ async def test_memory_write_failure_preserves_final_response(monkeypatch):
 
     assert result["final_response"] == "不可变最终回复"
     assert result["memory_write_result"]["status"] == "error"
+    assert result["memory_write_decision"]["schema_version"] == "memory_write_decision.v2"
+    assert result["memory_write_decision"]["status"] == "error"
+    assert result["memory_write_decision"]["decision"] == "skip"
+    assert result["memory_write_decision"]["reason_code"] == "write_error"
     assert result["node_errors"][-1]["error_code"] == "SESSION_MEMORY_WRITE_FAILED"
 
 
