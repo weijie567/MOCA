@@ -137,6 +137,33 @@ async def test_actionable_recommendation_still_proposes_action(monkeypatch, base
 
 
 @pytest.mark.asyncio
+async def test_missing_claim_bundle_for_actionable_recommendation_withholds_action(monkeypatch, base_state):
+    """APF-14: proposed actions require a claim_verification_bundle from claim_verify."""
+
+    class ExplodingLLM:
+        def with_structured_output(self, schema):
+            raise AssertionError("missing claim bundle must block before risk LLM or action proposal")
+
+    monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: ExplodingLLM())
+    state = {
+        **base_state,
+        "recommendation_draft": {
+            "recommended_action": "issue_coupon",
+            "reasoning_summary": "Issue a small service recovery coupon.",
+        },
+        "business_context": {"order": {"id": "order-1", "status": "paid"}},
+    }
+
+    result = await assess_risk_module.assess_risk_and_approval(state)
+
+    assert result["proposed_action"] is None
+    assert result.get("action_payload_hash") is None
+    assert result.get("safety_snapshot_ref") is None
+    assert result.get("safety_snapshot_hash") is None
+    assert result.get("safety_snapshot_verified") is False
+
+
+@pytest.mark.asyncio
 async def test_chinese_full_refund_delivered_order_matches_high_risk(monkeypatch, base_state):
     monkeypatch.setattr(
         assess_risk_module,
