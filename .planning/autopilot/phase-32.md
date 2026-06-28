@@ -1,11 +1,11 @@
 ---
 phase: "32"
 status: running
-current_step: verify
+current_step: secure
 plan_review_loop: 1
 quota_waits: 0
-updated_at: "2026-06-28T15:10:52Z"
-next_command: "$gsd-verify-work 32 你来自己检测"
+updated_at: "2026-06-28T15:12:45Z"
+next_command: "$gsd-secure-phase 32"
 ---
 
 # Phase 32 Autopilot Checkpoint
@@ -43,6 +43,7 @@ next_command: "$gsd-verify-work 32 你来自己检测"
 - Code review fixes committed: `76dfe83 fix(32): WR-01 accept adapter business fact refs` and `895ea4d fix(32): WR-02 mark canonical runtime graph nodes`.
 - Code review fix report committed: `25ffbd7 docs(32): add code review fix report`.
 - Post-fix deep re-review is clean and committed: `1e8e633 docs(32): update code review report clean`.
+- Verify-work self-check UAT completed with 5 passed, 0 issues: `a5e9eac test(32): complete UAT - 5 passed, 0 issues`.
 
 ## Evidence
 
@@ -60,6 +61,7 @@ next_command: "$gsd-verify-work 32 你来自己检测"
 - Plan review loop accepted by both native GSD checker and external Claude re-review.
 - Phase 32 implementation completed APF-11/APF-12 and advanced STATE/ROADMAP toward Phase 33 according to executor summary.
 - Code review fixes preserved Phase 33 deferrals and owner/admin-only authorization while adding adapter-source merchant-context coverage and canonical runtime graph identity entries.
+- UAT confirms target graph vocabulary, registry ownership, slot resolution semantics, trace/API merchant-context safety, and final static contract gates.
 
 ## Last Failure
 
