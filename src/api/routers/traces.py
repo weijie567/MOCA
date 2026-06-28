@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request, Security
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.agent.graph_vocabulary import project_trace_step_for_contract
 from src.api.schemas.approvals import ApprovalResponse, TraceResponse
 from src.api.schemas.common import ApiResponse
 from src.auth.permissions import get_current_user
@@ -49,15 +50,7 @@ async def get_run_trace(
         started_at=run.started_at,
         completed_at=run.completed_at,
         total_latency_ms=run.total_latency_ms,
-        steps=[
-            {
-                "node": step.node_name,
-                "status": step.status,
-                "latency_ms": step.latency_ms,
-                "tool_name": step.tool_name,
-            }
-            for step in steps
-        ],
+        steps=[_to_trace_step_response(step) for step in steps],
         approvals=[_to_approval_response(approval) for approval in approvals],
         action_drafts=[
             {
@@ -108,6 +101,18 @@ def _parse_run_id(run_id: str) -> UUID:
         return UUID(run_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Run not found"}) from exc
+
+
+def _to_trace_step_response(step) -> dict[str, object]:
+    projected = project_trace_step_for_contract({"node": step.node_name})
+    return {
+        "node": step.node_name,
+        "implementation_node": projected["implementation_node"],
+        "target_node": projected["target_node"],
+        "status": step.status,
+        "latency_ms": step.latency_ms,
+        "tool_name": step.tool_name,
+    }
 
 
 def _to_approval_response(approval: ApprovalRequest) -> ApprovalResponse:

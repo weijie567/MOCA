@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.actions.schemas import DraftOutcomeV1
+from src.agent.graph_vocabulary import target_graph_name
 from src.db.models import ActionDraft, AgentRun, AgentStep, ApprovalRequest, ApprovalStep
 
 _DRAFT_OUTCOME_KEYS = frozenset(
@@ -71,6 +72,7 @@ class TraceRepository:
                     "status": step.status,
                     "detail": {
                         "node_name": step.node_name,
+                        "target_node": target_graph_name(step.node_name, kind="node"),
                         "tool_name": step.tool_name,
                         "latency_ms": step.latency_ms,
                         "provider_latency_ms": step.provider_latency_ms,

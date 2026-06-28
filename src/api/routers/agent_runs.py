@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sse_starlette.sse import EventSourceResponse
 
+from src.agent.graph_vocabulary import target_graph_name
 from src.agent.nodes.memory_write import memory_write
 from src.agent.nodes.final_response import final_response as build_final_response
 from src.agent.trace import append_agent_steps, build_trace_summary, update_agent_run_status, write_agent_run, write_agent_steps
@@ -1028,6 +1029,8 @@ def _sse_event(
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "payload": payload,
     }
+    if node_name:
+        data["target_node_name"] = target_graph_name(node_name, kind="node")
     return {"data": json.dumps(data, ensure_ascii=False)}
 
 

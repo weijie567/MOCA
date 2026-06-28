@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.agent.graph_vocabulary import project_trace_step_for_contract
 from src.db.models import AgentRun, AgentStep
 from src.replay.lifecycle import RunLifecycleService
 
@@ -239,6 +240,19 @@ def build_trace_summary(
     """Build the safe trace summary returned by the API response."""
     trace_steps = final_state.get("trace_steps") or []
     nodes_executed = [str(step.get("node") or "unknown") for step in trace_steps]
+    projected_steps = [
+        project_trace_step_for_contract(step if isinstance(step, dict) else {"node": "unknown"})
+        for step in trace_steps
+    ]
+    graph_projection_steps = [
+        {
+            "implementation_node": str(step["implementation_node"]),
+            "target_node": str(step["target_node"]),
+            "target_graph_status": str(step["target_graph_status"]),
+            "target_graph_runnable": bool(step["target_graph_runnable"]),
+        }
+        for step in projected_steps
+    ]
     tools_called: list[str] = []
     for step in trace_steps:
         tools_called.extend(str(tool) for tool in (step.get("tools_called") or []))
@@ -259,6 +273,11 @@ def build_trace_summary(
         "run_id": run_id,
         "intent": final_state.get("current_intent") or "unknown",
         "nodes_executed": nodes_executed,
+        "target_nodes_executed": [step["target_node"] for step in graph_projection_steps],
+        "graph_projection": {
+            "schema_version": "target_graph_projection.v1",
+            "steps": graph_projection_steps,
+        },
         "tools_called": tools_called,
         "evidence_count": evidence_count,
         "risk_level": risk.get("risk_level") or "unknown",

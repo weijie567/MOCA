@@ -114,7 +114,9 @@ def is_deferred_non_runnable_target(name: str, *, kind: TargetGraphKind | None =
 
 def project_trace_step_for_contract(step: Mapping[str, Any]) -> dict[str, Any]:
     implementation_node = str(step.get("node") or "unknown")
-    entry = graph_vocabulary_entry(implementation_node, kind="node")
+    entry = graph_vocabulary_entry(implementation_node, kind="node") or graph_vocabulary_entry(
+        implementation_node, kind="router"
+    )
     projected = dict(step)
     projected["implementation_node"] = implementation_node
     projected["target_node"] = implementation_node if entry is None else entry.target_name
