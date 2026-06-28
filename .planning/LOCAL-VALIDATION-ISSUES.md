@@ -5058,3 +5058,63 @@ rg -n 'structured `memory_context` projection|permissive/strict bare DTO parse|p
 
 - 复核命令中的 shell quoting
 - `.planning/phases/31-memory-platform-boundary/31-*-PLAN.md`
+
+## 2026-06-28 13:47 CST - `state.begin-phase` 文档化 flag 形式在本地 SDK 中参数错位
+
+### 问题现象
+
+执行 `$gsd-execute-phase 31` 的初始化步骤时，按 workflow 文档运行：
+
+```bash
+gsd-sdk query state.begin-phase --phase 31 --name memory-platform-boundary --plans 6
+```
+
+SDK 返回的 JSON 出现参数错位：
+
+```json
+{
+  "phase": "--phase",
+  "name": "31",
+  "plan_count": "--name"
+}
+```
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行上述命令，然后检查 `.planning/STATE.md` 的 Phase / Plan 字段是否被写成异常值。
+
+### 关键证据或命令
+
+正确可用的本地调用形式是位置参数：
+
+```bash
+gsd-sdk query state.begin-phase 31 memory-platform-boundary 6
+```
+
+该命令返回：
+
+```json
+{
+  "phase": "31",
+  "name": "memory-platform-boundary",
+  "plan_count": "6"
+}
+```
+
+### 当前判断 / 根因
+
+当前本地 `gsd-sdk` 的 `state.begin-phase` 子命令与 workflow 文档中的 flag 形式不一致；本地实现按位置参数解析，导致 flag token 被当成业务参数写入。
+
+### 已做处理
+
+已立即用位置参数形式重跑 `state.begin-phase`，并手动修正 `.planning/STATE.md` 中被 SDK 连带漂移的 `total_phases` 与 Phase 31 显示名。Phase 31 执行继续使用修正后的状态。
+
+### 剩余问题
+
+GSD workflow 文档或 SDK 参数解析仍存在不一致，后续继续执行阶段初始化时应优先用位置参数形式，或先确认当前 SDK help/实现。
+
+### 下次继续排查入口
+
+- `$HOME/.codex/get-shit-done/workflows/execute-phase.md`
+- `gsd-sdk query state.begin-phase`
+- `.planning/STATE.md`
