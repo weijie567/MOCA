@@ -9,11 +9,10 @@ from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
 from src.agent.intent_policy import (
-    REQUIRED_SLOT_POLICY,
+    INTENT_POLICY_REGISTRY,
+    SLOT_POLICY_REGISTRY,
     PreRouteDecision,
     detect_pre_route,
-    resolve_intent_precedence,
-    resolve_risk_tier,
 )
 from src.agent.prompts import CLASSIFY_INTENT_SYSTEM
 from src.agent.schemas import IntentResultV3, RequiredSlotExpression
@@ -132,11 +131,11 @@ def intent_result_to_state(
 ) -> dict[str, Any]:
     raw_primary_intent = result.primary_intent
     raw_requested_operation = result.requested_operation
-    primary_intent, requested_operation, precedence_reasons = resolve_intent_precedence(
+    primary_intent, requested_operation, precedence_reasons = INTENT_POLICY_REGISTRY.resolve_precedence(
         result.primary_intent,
-        result.requested_operation,
-        user_query,
         [str(intent) for intent in result.secondary_intents],
+        result.requested_operation,
+        query=user_query,
     )
     policy_overrides: list[dict[str, Any]] = []
     if (primary_intent, requested_operation) != (raw_primary_intent, raw_requested_operation):
@@ -198,7 +197,7 @@ def intent_result_to_state(
         primary_intent = "unsupported"
         requested_operation = "advise"
 
-    policy_required_slots = REQUIRED_SLOT_POLICY.get(primary_intent, RequiredSlotExpression()).model_dump()
+    policy_required_slots = SLOT_POLICY_REGISTRY.required_slots_for(primary_intent).model_dump()
     raw = result.model_dump()
     routing_hints = dict(result.routing_hints)
     reason_codes = list(result.reason_codes) + precedence_reasons
@@ -209,7 +208,13 @@ def intent_result_to_state(
             routing_hints["clarification_reason"] = pre_route.disposition
         reason_codes.extend(pre_route.reason_codes)
 
-    risk_tier = resolve_risk_tier(primary_intent, requested_operation, role, channel, routing_hints)
+    risk_tier = INTENT_POLICY_REGISTRY.resolve_risk_tier(
+        primary_intent,
+        requested_operation,
+        role,
+        channel,
+        routing_hints,
+    )
     update = {
         "primary_intent": primary_intent,
         "requested_operation": requested_operation,
@@ -225,6 +230,8 @@ def intent_result_to_state(
     route_decision = route_after_intent(update)
     classification_trace = {
         "raw_llm_classification": raw,
+        "candidate_classification": raw,
+        "policy_owner": "IntentPolicyRegistry",
         "pre_route_decision": pre_route.model_dump() if pre_route else None,
         "policy_overrides": policy_overrides,
         "effective_classification": {
@@ -301,7 +308,7 @@ def _required_slots_from_flow(flow: dict[str, Any], primary_intent: str) -> dict
             return RequiredSlotExpression.model_validate(required_slots).model_dump()
         except ValidationError:
             pass
-    return REQUIRED_SLOT_POLICY.get(primary_intent, RequiredSlotExpression()).model_dump()
+    return SLOT_POLICY_REGISTRY.required_slots_for(primary_intent).model_dump()
 
 
 def _deterministic_classification_update(
@@ -319,7 +326,7 @@ def _deterministic_classification_update(
     reason_codes: list[str],
     source: str,
 ) -> dict[str, Any]:
-    risk_tier = resolve_risk_tier(
+    risk_tier = INTENT_POLICY_REGISTRY.resolve_risk_tier(
         primary_intent,
         requested_operation,
         state.get("role"),
@@ -341,6 +348,8 @@ def _deterministic_classification_update(
     route_decision = route_after_intent(update)
     classification_trace = {
         "raw_llm_classification": None,
+        "candidate_classification": None,
+        "policy_owner": "IntentPolicyRegistry",
         "pre_route_decision": pre_route.model_dump(),
         "policy_overrides": policy_overrides,
         "effective_classification": {
@@ -466,7 +475,7 @@ def _short_reply_clarification_update(
     }
     if approval_like:
         routing_hints["pre_route_disposition"] = "approval_chat_not_trusted"
-    required_slots = REQUIRED_SLOT_POLICY["unsupported"].model_dump()
+    required_slots = SLOT_POLICY_REGISTRY.required_slots_for("unsupported").model_dump()
     reason_codes = ["short_reply_without_active_flow", reason]
     return _deterministic_classification_update(
         state,
@@ -537,7 +546,7 @@ async def classify_intent(state: AgentState) -> dict:
                     }
                 )
 
-    fallback_required = REQUIRED_SLOT_POLICY["unsupported"].model_dump()
+    fallback_required = SLOT_POLICY_REGISTRY.required_slots_for("unsupported").model_dump()
     routing_hints: dict[str, Any] = {}
     if pre_route.disposition != "none":
         routing_hints = {
@@ -545,7 +554,13 @@ async def classify_intent(state: AgentState) -> dict:
             "requires_clarification": pre_route.requires_clarification,
             "clarification_reason": pre_route.disposition if pre_route.requires_clarification else None,
         }
-    risk_tier = resolve_risk_tier("unsupported", "advise", state.get("role"), "ordinary_chat", routing_hints)
+    risk_tier = INTENT_POLICY_REGISTRY.resolve_risk_tier(
+        "unsupported",
+        "advise",
+        state.get("role"),
+        "ordinary_chat",
+        routing_hints,
+    )
     fallback_state = {
         "primary_intent": "unsupported",
         "requested_operation": "advise",
@@ -554,6 +569,8 @@ async def classify_intent(state: AgentState) -> dict:
     }
     classification_trace = {
         "raw_llm_classification": None,
+        "candidate_classification": None,
+        "policy_owner": "IntentPolicyRegistry",
         "pre_route_decision": pre_route.model_dump(),
         "policy_overrides": [{"source": "classifier_validation_failed", "reason_codes": [*pre_route.reason_codes]}],
         "effective_classification": {

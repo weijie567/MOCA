@@ -4,9 +4,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 from src.agent.intent_policy import (
-    DIRECT_RESPONSE_INTENTS,
-    INTENT_ROUTE_POLICY,
-    REQUIRED_SLOT_POLICY,
+    INTENT_POLICY_REGISTRY,
+    SLOT_POLICY_REGISTRY,
     PreRouteDecision,
     confidence_requires_clarification,
 )
@@ -228,21 +227,22 @@ def _route_after_intent(state: AgentState) -> str:
     )
     if confidence_requires_clarification(intent, requested_operation, state.get("intent_confidence"), pre_route):
         return "clarification_gate"
-    if intent in DIRECT_RESPONSE_INTENTS:
+    if INTENT_POLICY_REGISTRY.is_direct_response_intent(intent):
         return "final_response"
-    if intent not in INTENT_ROUTE_POLICY:
+    route = INTENT_POLICY_REGISTRY.route_for_intent(intent)
+    if route is None:
         return "clarification_gate"
-    policy = REQUIRED_SLOT_POLICY.get(intent)
-    if policy is not None and not policy.all_of and not policy.any_of:
-        return "investigate"
-    return "session_memory_load"
+    policy = SLOT_POLICY_REGISTRY.required_slots_for(intent)
+    if not policy.all_of and not policy.any_of:
+        return route
+    return route
 
 
 def _route_after_slots(state: AgentState) -> str:
     intent = _intent(state)
-    policy = REQUIRED_SLOT_POLICY.get(intent)
-    if policy is None:
+    if not INTENT_POLICY_REGISTRY.is_known_intent(intent):
         return "clarification_gate"
+    policy = SLOT_POLICY_REGISTRY.required_slots_for(intent)
     state_required = state.get("required_slots")
     if state_required not in (None, {}):
         try:
