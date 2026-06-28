@@ -4865,3 +4865,44 @@ uv run pytest tests/agent/test_session_memory_load.py -q
 - `tests/agent/test_memory_evidence_boundary.py::test_agent_runs_memory_context_is_not_policy_business_action_or_replay_authority`
 - `src/agent/rag_context/verifier.py`
 - `src/agent/rag_context/claims.py`
+
+## 2026-06-28 11:10 CST - Phase 31 plan-phase UI gate regex matched backend word Platform
+
+### 问题现象
+
+Phase 31 plan-phase UI design gate 使用简单关键词正则扫描 phase section，返回 `HAS_UI_EXIT=0`，看起来像命中了 frontend/UI phase。但 Phase 31 是 Memory Platform backend/platform boundary，不涉及 UI。进一步定位发现命中来自 `Memory Platform Boundary` 中的 `Platform` 包含 `form` 子串。
+
+### 如何检测 / 复现
+
+```bash
+PHASE_SECTION=$(gsd-sdk query roadmap.get-phase "31" 2>/dev/null)
+printf '%s' "$PHASE_SECTION" | grep -iE "UI|interface|frontend|component|layout|page|screen|view|form|dashboard|widget" >/dev/null 2>&1
+echo HAS_UI_EXIT=$?
+
+gsd-sdk query roadmap.get-phase "31" 2>/dev/null | rg -in "UI|interface|frontend|component|layout|page|screen|view|form|dashboard|widget"
+```
+
+### 关键证据或命令
+
+```text
+HAS_UI_EXIT=0
+4:  "phase_name": "Memory Platform Boundary",
+12:  "section": "### Phase 31: Memory Platform Boundary...
+```
+
+### 当前判断 / 根因
+
+这是 plan-phase UI gate 关键词正则的假阳性，不是 Phase 31 缺少 UI-SPEC。关键词 `form` 没有单词边界，导致 `Platform` 被误判为 UI/form 相关。
+
+### 已做处理
+
+人工核对 Phase 31 roadmap/context/research，确认该 phase 范围是 memory platform service/API boundary，不涉及 frontend/UI、screen、form 或 dashboard。继续 plan-phase，不要求 `$gsd-ui-phase 31`。
+
+### 剩余问题
+
+workflow 层面后续可考虑把 UI gate 关键词改为带单词边界的匹配，或排除 `platform` 这类常见 backend 词。
+
+### 下次继续排查入口
+
+- `$HOME/.codex/get-shit-done/workflows/plan-phase.md`
+- `.planning/ROADMAP.md`
