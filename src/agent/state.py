@@ -1,8 +1,16 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from typing_extensions import TypedDict
+
+if TYPE_CHECKING:
+    from src.knowledge.schemas import (
+        ClaimVerificationBundleV1,
+        EvidenceRefV1,
+        MaterialClaimV1,
+        VerifiedEvidencePackageV1,
+    )
 
 
 class ActiveSlots(TypedDict, total=False):
@@ -89,6 +97,14 @@ class AgentState(TypedDict, total=False):
     policy_evidence: list[dict[str, Any]] | None
     case_memory: list[dict[str, Any]] | None
     claim_dependency_map: list[dict[str, Any]] | None
+    rag_context_status: str | None
+    verified_evidence_package: VerifiedEvidencePackageV1 | dict[str, Any] | None
+    citation_map: dict[str, list[str]]
+    evidence_map: dict[str, EvidenceRefV1 | dict[str, Any]]
+    material_claims: list[MaterialClaimV1 | dict[str, Any]]
+    claim_verification_bundle: ClaimVerificationBundleV1 | dict[str, Any] | None
+    blocked_claims: list[str]
+    safe_support_refs: list[EvidenceRefV1 | dict[str, Any] | str]
     rag_context_bundle: dict[str, Any] | None
     rag_verification: dict[str, Any] | None
     verifier_status: str | None
