@@ -342,7 +342,7 @@ Plans:
 - [x] 32-01-PLAN.md — Graph vocabulary and projection helper
 - [x] 32-02-PLAN.md — Intent policy registry consumption
 - [x] 32-03-PLAN.md — Slot policy gate and target router projection
-- [ ] 32-04-PLAN.md — Trace/eval/API and target merchant-context evidence
+- [x] 32-04-PLAN.md — Trace/eval/API and target merchant-context evidence
 - [ ] 32-05-PLAN.md — Final focused verification and no Phase 33 scope creep
 
 ### Phase 33: RAG Context Build and Claim Verification

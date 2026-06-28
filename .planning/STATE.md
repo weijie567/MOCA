@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
 status: executing
-stopped_at: Completed 32-03-PLAN.md
-last_updated: "2026-06-28T13:53:43.176Z"
+stopped_at: Completed 32-04-PLAN.md
+last_updated: "2026-06-28T14:27:37.736Z"
 last_activity: 2026-06-28 -- Phase 31 verified complete; ready to plan Phase 32
 progress:
   total_phases: 12
   completed_phases: 7
   total_plans: 29
-  completed_plans: 27
-  percent: 93
+  completed_plans: 28
+  percent: 97
 ---
 
 # Project State: MOCA
@@ -27,11 +27,11 @@ See: `.planning/PROJECT.md` (updated 2026-06-28)
 
 Phase: 32
 Next roadmap item: Phase 32 — Intent Graph Migration
-Plan: 32-04 next
+Plan: 32-05 next
 Status: Executing
 Last activity: 2026-06-28 -- Phase 31 verified complete; ready to plan Phase 32
 
-Progress: [█████████░] 93%
+Progress: [██████████] 97%
 
 Planning files:
 
@@ -84,6 +84,7 @@ Latest execution metric: Phase 31 P06 — 22min, 3 tasks, 9 source/test files pl
 | Phase 32-intent-graph-migration P32-01 | 7min | 2 tasks | 3 files |
 | Phase 32-intent-graph-migration P32-02 | 8min | 2 tasks | 6 files |
 | Phase 32-intent-graph-migration P32-03 | 10min | 2 tasks | 6 files |
+| Phase 32-intent-graph-migration P32-04 | 33min | 3 tasks | 13 files |
 
 ## Quick Tasks Completed
 
@@ -126,6 +127,8 @@ Latest execution metric: Phase 31 P06 — 22min, 3 tasks, 9 source/test files pl
 - Phase 32 Plan 02 moved effective route, risk, precedence, direct-response, and required-slot decisions behind IntentPolicyRegistry and SlotPolicyRegistry APIs.
 - Phase 32 Plan 03 moved required-slot completeness and inherited-slot acceptance behind SlotPolicyRegistry with explicit rejection reason codes.
 - Phase 32 Plan 03 keeps slot_resolution_gate as additive extract_slots trace metadata rather than a physical graph node.
+- Phase 32 Plan 04 treats target_merchant_context as sanitized evidence/status metadata only and not an AgentRun, trace, or replay authorization input.
+- Phase 32 Plan 04 keeps target graph projection additive and leaves persisted AgentStep.node_name as the legacy implementation/debug value.
 
 ### Roadmap Evolution
 
@@ -167,8 +170,8 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-28T13:53:42.939Z
-Stopped at: Completed 32-03-PLAN.md
+Last session: 2026-06-28T14:27:37.472Z
+Stopped at: Completed 32-04-PLAN.md
 Resume file: None
 Next: Phase 32 — Intent Graph Migration; old phase directory archive remains a separate cleanup todo.
 
