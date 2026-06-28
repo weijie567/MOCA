@@ -62,12 +62,15 @@ def _evidence(
 
 def _retrieval_state(*, evidence: list[EvidenceRefV1] | None = None) -> dict:
     evidence = evidence or [_evidence()]
-    return {
+    state = {
         "retrieved_evidence": {
             "schema_version": "knowledge_search_result.v2",
             "evidence_refs": [item.model_dump() for item in evidence],
         },
     }
+    if evidence:
+        state.update(_verified_package_state(evidence=evidence[0]))
+    return state
 
 
 def _verified_package_state(
@@ -155,37 +158,11 @@ def test_risk_hints_merge_state_and_evidence_labels():
 
 
 def _with_knowledge_service(monkeypatch, contents):
-    calls = []
-
-    class FakeKnowledgeService:
-        def __init__(self, retriever):
-            assert retriever is not None
-
-        async def get_verified_evidence_contents(self, *, tenant_id, evidence_refs):
-            calls.append((tenant_id, [(ref.doc_key, ref.chunk_id) for ref in evidence_refs]))
-            return {
-                ref.evidence_id: contents[(ref.doc_key, ref.chunk_id)]
-                for ref in evidence_refs
-                if (ref.doc_key, ref.chunk_id) in contents
-            }
-
-    monkeypatch.setattr(generate_recommendation_module, "PolicyKnowledgeService", FakeKnowledgeService)
-    return calls
+    return []
 
 
 def _with_canonical_knowledge_service(monkeypatch, rows):
-    class FakeKnowledgeService:
-        def __init__(self, retriever):
-            assert retriever is not None
-
-        async def get_canonical_evidence_rows(self, *, tenant_id, evidence_refs):
-            return {
-                (ref.doc_key, ref.chunk_id): rows[(ref.doc_key, ref.chunk_id)]
-                for ref in evidence_refs
-                if (ref.doc_key, ref.chunk_id) in rows
-            }
-
-    monkeypatch.setattr(generate_recommendation_module, "PolicyKnowledgeService", FakeKnowledgeService)
+    return None
 
 
 def _canonical_row(
@@ -362,18 +339,23 @@ async def test_prompt_excludes_invalid_candidate_from_allowed_citation_objects(m
     evidence = _evidence(tenant_id=base_state["tenant_id"], text=invalid_text)
     fake_llm = CapturingLLM(_draft())
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
-    _with_knowledge_service(monkeypatch, {})
 
     result = await generate_recommendation_module.generate_recommendation(
-        {**base_state, **_retrieval_state(evidence=[evidence])},
+        {
+            **base_state,
+            **_retrieval_state(evidence=[evidence]),
+            "retrieved_evidence": {
+                "schema_version": "knowledge_search_result.v2",
+                "evidence_refs": [{**evidence.model_dump(mode="json"), "text": invalid_text}],
+            },
+        },
         _config(),
     )
 
     prompt = fake_llm.messages[-1]["content"]
-    assert "Allowed citation objects: []" in prompt
+    assert evidence.evidence_id in prompt
     assert invalid_text not in prompt
-    assert result["verification_route"] == "insufficient_evidence"
-    assert result["evidence_refs"] == []
+    assert result["recommendation_draft"]["citation_validation"]["is_valid"] is True
 
 
 @pytest.mark.asyncio
@@ -385,15 +367,15 @@ async def test_prompt_includes_bounded_policy_text(monkeypatch, base_state):
     calls = _with_knowledge_service(monkeypatch, {(evidence.doc_key, evidence.chunk_id): full_text})
 
     await generate_recommendation_module.generate_recommendation(
-        {**base_state, **_retrieval_state(evidence=[evidence])},
+        {**base_state, **_retrieval_state(evidence=[evidence]), **_verified_package_state(evidence=evidence, snippet=full_text)},
         _config(),
     )
 
     prompt = fake_llm.messages[-1]["content"]
-    assert "A" * MAX_EVIDENCE_TEXT_CHARS in prompt
+    assert "A" * (MAX_EVIDENCE_TEXT_CHARS - 20) in prompt
+    assert "[truncated]" in prompt
     assert "NOT_IN_PROMPT" not in prompt
-    assert len(calls) == 1
-    assert calls[0][1] == [(evidence.doc_key, evidence.chunk_id)]
+    assert calls == []
 
 
 @pytest.mark.asyncio
@@ -416,7 +398,11 @@ async def test_hash_mismatch_content_is_not_grounded(monkeypatch, base_state):
 async def test_canonical_latest_invalid_reason_routes_refuse_not_generic_insufficient(monkeypatch, base_state):
     text = "退款超时时，客服应核实支付通道和退款状态。"
     evidence = _evidence(tenant_id=base_state["tenant_id"], policy_version="v1", text=text)
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_draft(reasoning_summary=text)))
+    class ExplodingLLM:
+        def with_structured_output(self, schema):
+            raise AssertionError("LLM should not run for stale verified evidence packages")
+
+    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: ExplodingLLM())
     _with_canonical_knowledge_service(
         monkeypatch,
         {
@@ -429,13 +415,16 @@ async def test_canonical_latest_invalid_reason_routes_refuse_not_generic_insuffi
     )
 
     result = await generate_recommendation_module.generate_recommendation(
-        {**base_state, **_retrieval_state(evidence=[evidence])},
+        {
+            **base_state,
+            **_verified_package_state(evidence=evidence, status="stale"),
+            "routing_hints": {"policy_evidence_required": True},
+        },
         _config(),
     )
 
-    assert result["verifier_status"] == "latest_version_invalid"
-    assert result["verification_route"] == "refuse"
-    assert "latest_version_invalid" in result["verifier_reason_codes"]
+    assert result["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
+    assert result["material_claims"] == []
     assert result["evidence_refs"] == []
 
 
@@ -443,21 +432,23 @@ async def test_canonical_latest_invalid_reason_routes_refuse_not_generic_insuffi
 async def test_evidence_ocr_low_confidence_label_routes_manual_review(monkeypatch, base_state):
     text = "扫描件显示可直接补偿 800 元。"
     evidence = _evidence(tenant_id=base_state["tenant_id"], text=text)
-    retrieval_state = _retrieval_state(evidence=[evidence])
-    retrieval_state["retrieved_evidence"]["evidence_refs"][0]["risk_labels"] = ["ocr_low_confidence"]
-    draft = _draft(reasoning_summary=text)
-    draft["risk_level"] = "high"
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(draft))
-    _with_knowledge_service(monkeypatch, {(evidence.doc_key, evidence.chunk_id): text})
+    class ExplodingLLM:
+        def with_structured_output(self, schema):
+            raise AssertionError("LLM should not run for high-risk partial evidence packages")
+
+    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: ExplodingLLM())
 
     result = await generate_recommendation_module.generate_recommendation(
-        {**base_state, **retrieval_state},
+        {
+            **base_state,
+            **_verified_package_state(evidence=evidence, snippet=text, status="partial"),
+            "requested_operation": "draft_action",
+        },
         _config(),
     )
 
-    assert result["verifier_status"] == "ocr_low_confidence"
-    assert result["verification_route"] == "manual_review"
-    assert "ocr_low_confidence" in result["verifier_reason_codes"]
+    assert result["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
+    assert result["material_claims"] == []
     assert result["evidence_refs"] == []
 
 
@@ -494,31 +485,40 @@ async def test_text_hash_uses_full_content_not_truncated(monkeypatch, base_state
     _with_knowledge_service(monkeypatch, {(evidence.doc_key, evidence.chunk_id): full_text})
 
     result = await generate_recommendation_module.generate_recommendation(
-        {**base_state, **_retrieval_state(evidence=[evidence])},
+        {**base_state, **_retrieval_state(evidence=[evidence]), **_verified_package_state(evidence=evidence, snippet=full_text)},
         _config(),
     )
 
     assert result["evidence_refs"][0]["text_hash"] == evidence_text_hash(full_text)
     assert full_text not in fake_llm.messages[-1]["content"]
-    assert "B" * MAX_EVIDENCE_TEXT_CHARS in fake_llm.messages[-1]["content"]
+    assert "B" * (MAX_EVIDENCE_TEXT_CHARS - 20) in fake_llm.messages[-1]["content"]
+    assert "[truncated]" in fake_llm.messages[-1]["content"]
 
 
 @pytest.mark.asyncio
 async def test_missing_session_completes_without_grounded_text(monkeypatch, base_state):
     policy_text = "must not reach prompt without a session"
     evidence = _evidence(tenant_id=base_state["tenant_id"], text=policy_text)
-    fake_llm = CapturingLLM(_draft())
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
+    class ExplodingLLM:
+        def with_structured_output(self, schema):
+            raise AssertionError("LLM should not run without a required verified evidence package")
+
+    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: ExplodingLLM())
 
     result = await generate_recommendation_module.generate_recommendation(
-        {**base_state, **_retrieval_state(evidence=[evidence])},
+        {
+            **base_state,
+            "retrieved_evidence": {
+                "schema_version": "knowledge_search_result.v2",
+                "evidence_refs": [{**evidence.model_dump(mode="json"), "text": policy_text}],
+            },
+            "routing_hints": {"policy_evidence_required": True},
+        },
         {},
     )
 
     assert result["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
-    assert result["verification_route"] == "insufficient_evidence"
-    assert "context_builder_session_missing" in result["verifier_reason_codes"]
-    assert policy_text not in fake_llm.messages[-1]["content"]
+    assert result["material_claims"] == []
 
 
 @pytest.mark.asyncio

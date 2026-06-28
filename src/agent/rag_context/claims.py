@@ -57,16 +57,22 @@ def _legacy_material_claim_to_v1(claim: MaterialClaim) -> MaterialClaimV1:
         cited_evidence_ids=list(claim.cited_evidence_ids),
         business_fact_refs=list(claim.business_fact_refs),
         risk_hints=list(claim.risk_hints),
-        generated_from_step=claim.source_node,
+        generated_from_step=_canonical_generated_from_step(claim.source_node),
     )
 
 
+def _canonical_generated_from_step(source_node: str) -> str:
+    if source_node in {"generate_recommendation", "recommendation_generation"}:
+        return "recommendation_generation"
+    return source_node
+
+
 def claim_dependency_map_from_claims(
-    claims: Sequence[MaterialClaim | Mapping[str, Any]],
+    claims: Sequence[MaterialClaimV1 | MaterialClaim | Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
     """Project claims to the existing state-level ``claim_dependency_map`` shape."""
     entries: list[dict[str, Any]] = []
-    for claim in normalize_material_claims(claims):
+    for claim in normalize_material_claims_v1(claims):
         depends_on_refs: list[dict[str, str]] = []
         depends_on_refs.extend(
             {"resource_type": "policy_evidence", "resource_id": evidence_id}
@@ -79,11 +85,6 @@ def claim_dependency_map_from_claims(
                 "resource_id": ref.resource_id,
             }
             for ref in claim.business_fact_refs
-        )
-        depends_on_refs.extend(
-            {"resource_type": "claim", "resource_id": dependency_id}
-            for dependency_id in claim.dependency_claim_ids
-            if dependency_id
         )
         entries.append({"claim_id": claim.claim_id, "depends_on_refs": depends_on_refs})
     return entries

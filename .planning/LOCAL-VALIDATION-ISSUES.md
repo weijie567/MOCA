@@ -5961,3 +5961,52 @@ gsd-sdk query roadmap.update-plan-progress "33"
 - `.planning/ROADMAP.md`
 - `.planning/STATE.md`
 - `gsd-sdk query roadmap.update-plan-progress "33"`
+
+## 2026-06-29 03:19 CST - Plan 33-03 generation 边界迁移测试失败与裸 Python 入口误用
+
+### 问题现象
+
+执行 Plan 33-03 TDD/本地验证时出现两类已处理问题：RED 阶段和 GREEN 初轮测试按预期暴露旧实现仍由 `generate_recommendation` 拥有 RAG/claim verification；同时误运行了一次裸 `python -m py_compile`，该结果在 MOCA 中视为无效验证入口。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_generate_recommendation.py tests/agent/rag_context/test_material_claims.py -q --tb=short
+```
+
+误用入口为：
+
+```bash
+python -m py_compile src/agent/nodes/generate_recommendation.py
+```
+
+### 关键证据或命令
+
+RED 输出包含 `ContextBuilder` / `MaterialClaimVerifier` / `determine_verification_route` 仍存在、verified package prompt projection 未进入 prompt、不可用 package 仍调用 LLM、legacy claim step 仍为 `generate_recommendation` 等失败。GREEN 初轮输出显示旧测试仍 monkeypatch 已移除的 `PolicyKnowledgeService`，以及旧断言仍期望 `verifier_status` / `verification_route`。
+
+### 当前判断 / 根因
+
+这些测试失败属于当前任务要求的边界迁移：generation 应只消费 `verified_evidence_package.prompt_projection`、`citation_map`、`evidence_map` 并输出 canonical `MaterialClaimV1`，不再直接构造 RAG bundle 或执行 claim verifier。裸 Python 命令是本地验证入口误用，需用 `uv run python` 重跑才有效。
+
+### 已做处理
+
+已移除 `generate_recommendation` 中的本地 RAG build/verifier ownership，改为读取 verified package 并输出 canonical `material_claims`；更新旧测试为 verified-package fixture；将 legacy claim source step 规范化为 `recommendation_generation`；用有效入口重跑：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python -m py_compile src/agent/nodes/generate_recommendation.py
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_generate_recommendation.py tests/agent/rag_context/test_material_claims.py -q --tb=short
+uv run ruff check src/agent/nodes/generate_recommendation.py src/agent/rag_context/claims.py src/knowledge/schemas.py tests/agent/test_nodes/test_generate_recommendation.py tests/agent/rag_context/test_material_claims.py
+```
+
+### 剩余问题
+
+无当前阻塞。裸 `python -m py_compile` 的输出不作为结论，只采用 `uv run python -m py_compile` 的通过结果。
+
+### 下次继续排查入口
+
+- `src/agent/nodes/generate_recommendation.py`
+- `src/agent/rag_context/claims.py`
+- `tests/agent/test_nodes/test_generate_recommendation.py`
+- `tests/agent/rag_context/test_material_claims.py`
