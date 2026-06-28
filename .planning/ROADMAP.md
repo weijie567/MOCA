@@ -300,7 +300,7 @@ Plans:
 
 ### Phase 31: Memory Platform Boundary
 
-**Status:** Executing
+**Status:** Complete
 **Milestone:** v1.9 Agent Platform Foundation
 **Goal:** Separate session context, long-term memory, case memory, conversation log, workflow checkpoint, working state, and memory write policy behind clear memory service APIs.
 **Requirements**: APF-09, APF-10

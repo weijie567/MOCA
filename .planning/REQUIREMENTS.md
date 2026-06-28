@@ -36,8 +36,8 @@ Turn MOCA's agent runtime into a microservice-ready modular monolith: platform/d
 
 ### Memory Platform Boundaries
 
-- [ ] **APF-09:** Session context loading exposes agent-facing `SessionContextMemory` for same-thread continuity while keeping `SessionContinuityStore` as an internal storage concern.
-- [ ] **APF-10:** Memory context APIs separate session context, long-term memory, case memory, conversation log, workflow checkpoint, working state, and memory write candidates, with explicit authority tags that prevent memory from satisfying policy evidence, current business fact, approval, action, or replay truth.
+- [x] **APF-09:** Session context loading exposes agent-facing `SessionContextMemory` for same-thread continuity while keeping `SessionContinuityStore` as an internal storage concern (validated in Phase 31).
+- [x] **APF-10:** Memory context APIs separate session context, long-term memory, case memory, conversation log, workflow checkpoint, working state, and memory write candidates, with explicit authority tags that prevent memory from satisfying policy evidence, current business fact, approval, action, or replay truth (validated in Phase 31).
 
 ### Intent and Graph Migration
 
@@ -92,8 +92,8 @@ Turn MOCA's agent runtime into a microservice-ready modular monolith: platform/d
 | APF-07 | Phase 29 | Complete |
 | MER-01 | Phase 29.5 | Pending |
 | APF-08 | Phase 30 | Complete |
-| APF-09 | Phase 31 | Pending |
-| APF-10 | Phase 31 | Pending |
+| APF-09 | Phase 31 | Complete |
+| APF-10 | Phase 31 | Complete |
 | APF-11 | Phase 32 | Pending |
 | APF-12 | Phase 32 | Pending |
 | APF-13 | Phase 33 | Pending |

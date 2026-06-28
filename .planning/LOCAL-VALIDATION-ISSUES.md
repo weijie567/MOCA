@@ -5325,3 +5325,59 @@ asyncpg.exceptions.DeadlockDetectedError: deadlock detected
 
 - `.planning/phases/31-memory-platform-boundary/31-VALIDATION.md`
 - `tests/conftest.py::test_engine`
+
+## 2026-06-28 16:17 CST - `phase.complete 31` 错误选择 backlog phase `999.1` 作为下一阶段
+
+### 问题现象
+
+Phase 31 验证通过后执行：
+
+```bash
+gsd-sdk query phase.complete 31
+```
+
+SDK 返回成功，但结果中的下一阶段为 backlog/parking-lot 项：
+
+```json
+{
+  "completed_phase": "31",
+  "next_phase": "999.1",
+  "next_phase_name": "evaluate-mem0-as-optional-backend-behind-memorycontextservic"
+}
+```
+
+同时 `.planning/STATE.md` 被写成 `Phase: 999.1`，而 v1.9 正常路线中 Phase 31 之后应进入 Phase 32 Intent Graph Migration。
+
+### 如何检测 / 复现
+
+```bash
+gsd-sdk query phase.complete 31
+sed -n '1,80p' .planning/STATE.md
+rg -n '### Phase 31|### Phase 32|999.1' .planning/ROADMAP.md .planning/STATE.md
+```
+
+### 关键证据或命令
+
+`phase.complete` 输出明确显示 `next_phase: "999.1"`；ROADMAP 中 Phase 31 后的正常顺序是：
+
+```text
+### Phase 32: Intent Graph Migration
+```
+
+### 当前判断 / 根因
+
+当前 `phase.complete` 的 next-phase 选择逻辑把 backlog/parking-lot 编号 `999.1` 纳入了主线 phase 排序，且优先于 Phase 32。该行为不符合 MOCA v1.9 主线 roadmap。
+
+### 已做处理
+
+已手动修正 `.planning/STATE.md`，将当前阶段与下一路线恢复为 Phase 32；同时修正 `.planning/ROADMAP.md` 中 Phase 31 状态为 Complete，并保留 `.planning/REQUIREMENTS.md` 中 APF-09/APF-10 的完成状态。
+
+### 剩余问题
+
+SDK next-phase 选择逻辑仍需后续修复。后续运行 `phase.complete` 后必须核对 `next_phase` 是否跳入 backlog/parking-lot 编号。
+
+### 下次继续排查入口
+
+- `gsd-sdk query phase.complete 31`
+- `.planning/ROADMAP.md`
+- `.planning/STATE.md`

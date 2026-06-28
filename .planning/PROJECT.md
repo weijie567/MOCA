@@ -12,7 +12,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 ## Current Milestone: v1.9 Agent Platform Foundation
 
-**Status:** Phase 30 complete; ready to plan Phase 31 Memory Platform Boundary.
+**Status:** Phase 31 complete; ready to plan Phase 32 Intent Graph Migration.
 
 **Goal:** Convert MOCA from feature-by-feature agent code into a microservice-ready modular monolith with clear platform/domain service boundaries, canonical trusted context, decision events, tool policy, memory context, target graph contracts, RAG context build, claim verification, business fact authority, and approval/action boundary hardening.
 
@@ -188,8 +188,8 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - [x] **APF-07:** Runtime tool invocation emits `ToolPolicyDecision` and rechecks authorization, resource scope, side-effect class, and input/output schema even when the tool was visible to the planner (validated in Phase 29).
 - [ ] **MER-01:** Merchant-bound role semantics align the single-tenant MVP: `support` / `manager` / legacy `merchant` are scoped to their merchant for business data, `admin` is the only platform-wide business-data role, tenant public policy remains shared, and AgentRun / Approval / ActionDraft / Memory / Replay scope risks are routed to Phases 30-35 or Phase 36+.
 - [x] **APF-08:** Business fact reads expose `BusinessFactResultV1` / `BusinessFactRefV1` through domain service public methods, and graph/tool code cannot substitute memory, RAG, LLM inference, or raw repository rows for current business facts (validated in Phase 30).
-- [ ] **APF-09:** Session context loading exposes agent-facing `SessionContextMemory` for same-thread continuity while keeping `SessionContinuityStore` as an internal storage concern.
-- [ ] **APF-10:** Memory context APIs separate session context, long-term memory, case memory, conversation log, workflow checkpoint, working state, and memory write candidates, with explicit authority tags that prevent memory from satisfying policy evidence, current business fact, approval, action, or replay truth.
+- [x] **APF-09:** Session context loading exposes agent-facing `SessionContextMemory` for same-thread continuity while keeping `SessionContinuityStore` as an internal storage concern (validated in Phase 31).
+- [x] **APF-10:** Memory context APIs separate session context, long-term memory, case memory, conversation log, workflow checkpoint, working state, and memory write candidates, with explicit authority tags that prevent memory from satisfying policy evidence, current business fact, approval, action, or replay truth (validated in Phase 31).
 - [ ] **APF-11:** The graph can map legacy nodes/routers to target canonical vocabulary for `safety_pre_route`, `session_context_load`, `contextual_intent_resolve`, `slot_resolution_gate`, `memory_context_load`, `rag_context_build`, and `claim_verify`.
 - [ ] **APF-12:** Intent and slot policy registries drive contextual intent resolution and slot inheritance decisions, with LLM output limited to candidates and deterministic policy owning effective route/slot decisions.
 - [ ] **APF-13:** `rag_context_build` validates candidate policy evidence into `VerifiedEvidencePackageV1` with identity/scope/hash/version/effective-date checks, separated prompt/verifier/replay/debug projections, and deterministic `route_after_rag_context`.
@@ -334,4 +334,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-28 after completing Phase 30 BusinessFactService Boundary*
+*Last updated: 2026-06-28 after completing Phase 31 Memory Platform Boundary*

@@ -2,36 +2,36 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
-status: executing
-stopped_at: Phase 31 context gathered
-last_updated: "2026-06-28T05:47:18.583Z"
-last_activity: 2026-06-28 -- Phase 31 execution started
+status: ready_to_plan
+stopped_at: Phase 31 verified complete; ready to plan Phase 32
+last_updated: "2026-06-28T16:17:11+08:00"
+last_activity: 2026-06-28 -- Phase 31 verified complete; ready to plan Phase 32
 progress:
   total_phases: 11
-  completed_phases: 6
-  total_plans: 24
-  completed_plans: 18
-  percent: 75
+  completed_phases: 7
+  total_plans: 28
+  completed_plans: 24
+  percent: 86
 ---
 
 # Project State: MOCA
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-06-23)
+See: `.planning/PROJECT.md` (updated 2026-06-28)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 31 — Memory Platform Boundary
+**Current focus:** Phase 32 — Intent Graph Migration
 
 ## Current Position
 
-Phase: 31 (Memory Platform Boundary) — EXECUTING
-Next roadmap item: Phase 31 — Memory Platform Boundary
-Plan: 6 of 6 complete
-Status: Executing Phase 31
-Last activity: 2026-06-28 -- Phase 31 execution started
+Phase: 32
+Next roadmap item: Phase 32 — Intent Graph Migration
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-06-28 -- Phase 31 verified complete; ready to plan Phase 32
 
-Progress: [███████░░░] 75%
+Progress: [█████████░] 86%
 
 Planning files:
 
@@ -54,7 +54,7 @@ Planning files:
 
 ## Performance Metrics
 
-**v1.9 current planned scope:** 11 phases, 18 APF requirements, 24 planned phase plans.
+**v1.9 current planned scope:** 11 phases, 18 APF requirements, 28 planned phase plans.
 
 | Phase | Plans | Status |
 |-------|-------|--------|
@@ -64,14 +64,14 @@ Planning files:
 | 29. Tool Platform Boundary | 4/4 complete | Complete |
 | 29.5. Merchant Scope / Role Model Alignment | 6/6 complete | Complete |
 | 30. BusinessFactService Boundary | 3/3 complete | Complete |
-| 31. Memory Platform Boundary | 6/6 | Executing |
+| 31. Memory Platform Boundary | 6/6 | Complete |
 | 32. Intent Graph Migration | 0/1 | Pending |
 | 33. RAG Context Build and Claim Verification | 0/1 | Pending |
 | 34. Approval and ActionDraft Boundary Hardening | 0/1 | Pending |
 | 35. Replay and Eval Hardening | 0/1 | Pending |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
-Latest execution metric: Phase 30 P03 — 10min, 3 tasks, 6 files; focused Phase 30 suite passed.
+Latest execution metric: Phase 31 P06 — 22min, 3 tasks, 9 source/test files plus summary; focused Phase 31 suite passed.
 | Phase 29.5 P01 | 35min | 2 tasks | 5 files |
 | Phase 29.5 P02 | 5min | 2 tasks | 5 files |
 | Phase 29.5 P03 | 34min | 2 tasks | 13 files |
@@ -128,7 +128,7 @@ Latest execution metric: Phase 30 P03 — 10min, 3 tasks, 6 files; focused Phase
 
 ### Pending Todos
 
-- Plan Phase 31 Memory Platform Boundary.
+- Plan Phase 32 Intent Graph Migration.
 - Archive completed old Phase 24/24.x/25 directories into milestone-specific phase archives after Phase 26 planning is stable.
 - Optional follow-up from v1.8 remains: pin active slot `confidence` projection before confidence becomes a meaningful provenance field.
 
@@ -159,9 +159,9 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 ## Session Continuity
 
 Last session: --stopped-at
-Stopped at: Phase 31 context gathered
+Stopped at: Phase 31 verified complete
 Resume file: --resume-file
-Next: Phase 31 — Memory Platform Boundary; old phase directory archive remains a separate cleanup todo.
+Next: Phase 32 — Intent Graph Migration; old phase directory archive remains a separate cleanup todo.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
 
@@ -187,6 +187,8 @@ Next: Phase 31 — Memory Platform Boundary; old phase directory archive remains
 
 **Completed Phase:** 30 (BusinessFactService Boundary) — 3/3 plans complete; verification passed; focused suite `190 passed`; code review warning fixed — 2026-06-27
 
-**Next Roadmap Item:** Phase 31 — Memory Platform Boundary
+**Completed Phase:** 31 (Memory Platform Boundary) — 6/6 plans complete; verification passed; focused suite `124 passed`; prior-phase regression `655 passed`; code review clean after fixes — 2026-06-28
+
+**Next Roadmap Item:** Phase 32 — Intent Graph Migration
 
 **Planned Phase:** 31 (Memory Platform Boundary) — 6 plans — 2026-06-28T04:09:47.767Z
