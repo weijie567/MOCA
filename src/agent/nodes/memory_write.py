@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -12,6 +13,13 @@ from src.agent.events import emit_event
 from src.agent.intent_policy import REQUIRED_SLOT_POLICY
 from src.agent.state import AgentState
 from src.config import settings
+from src.memory.context_service import MemoryContextService
+from src.memory.identity import (
+    MemoryIdentityError,
+    canonical_memory_candidate_hash,
+    canonical_memory_content_hash,
+    canonical_source_identity_hash,
+)
 from src.memory.repository import SessionMemoryRepository
 from src.memory.schemas import SessionMemoryWriteCandidate, SessionMemoryWriteResult, SessionSlotV1
 from src.memory.service import BLOCKED_PII_CLASSIFICATIONS, MemoryService
@@ -19,6 +27,8 @@ from src.memory.service import BLOCKED_PII_CLASSIFICATIONS, MemoryService
 
 _PROHIBITED_PII_MARKERS = {"身份证", "手机号", "password", "secret"}
 _CROSS_INTENT_BUSINESS_ID_SLOTS = {"order_id", "refund_case_id", "ticket_id"}
+_MEMORY_WRITE_DECISION_SCHEMA_VERSION = "memory_write_decision.v2"
+_MEMORY_CONTEXT_SERVICE = MemoryContextService()
 _SENSITIVE_PII_PATTERNS = (
     re.compile(r"(?<!\d)(?:\+?86[-\s]?)?1[3-9]\d{9}(?!\d)"),
     re.compile(r"(?<!\d)\d{17}[\dXx](?!\w)"),
@@ -239,11 +249,13 @@ def _completed(
     candidate: SessionMemoryWriteCandidate,
 ) -> dict:
     result_dict = result.model_dump(mode="json")
+    decision = _memory_write_decision(state, result_dict, candidate=candidate)
     return {
         "final_response": state.get("final_response"),
         "memory_write_candidates": [_candidate_projection(candidate)],
         "memory_write_result": result_dict,
-        "trace_steps": (state.get("trace_steps") or []) + [_trace_step(started_at, result_dict)],
+        "memory_write_decision": decision,
+        "trace_steps": (state.get("trace_steps") or []) + [_trace_step(started_at, result_dict, decision)],
     }
 
 
@@ -260,10 +272,14 @@ def _skipped(
         "reason_code": reason_code,
         "pii_classification": "none",
     }
+    if reason_code == "write_timeout":
+        result["fallback_reason"] = "write_timeout"
+    decision = _memory_write_decision(state, result, fallback_reason=result.get("fallback_reason"))
     return {
         "final_response": final_response if final_response is not None else state.get("final_response"),
         "memory_write_result": result,
-        "trace_steps": (state.get("trace_steps") or []) + [_trace_step(started_at, result)],
+        "memory_write_decision": decision,
+        "trace_steps": (state.get("trace_steps") or []) + [_trace_step(started_at, result, decision)],
     }
 
 
@@ -274,16 +290,18 @@ def _error(state: AgentState, started_at: str, final_response: str | None) -> di
         "reason_code": "write_failed",
         "pii_classification": "none",
     }
+    decision = _memory_write_decision(state, result, reason_code_override="write_error")
     return {
         "final_response": final_response,
         "memory_write_result": result,
+        "memory_write_decision": decision,
         "node_errors": (state.get("node_errors") or [])
         + [{"node": "memory_write", "error_code": "SESSION_MEMORY_WRITE_FAILED"}],
-        "trace_steps": (state.get("trace_steps") or []) + [_trace_step(started_at, result)],
+        "trace_steps": (state.get("trace_steps") or []) + [_trace_step(started_at, result, decision)],
     }
 
 
-def _trace_step(started_at: str, result: dict[str, Any]) -> dict[str, Any]:
+def _trace_step(started_at: str, result: dict[str, Any], decision: dict[str, Any]) -> dict[str, Any]:
     return {
         "node": "memory_write",
         "status": result.get("status"),
@@ -296,6 +314,8 @@ def _trace_step(started_at: str, result: dict[str, Any]) -> dict[str, Any]:
             "decision": result.get("decision"),
             "reason_code": result.get("reason_code"),
             "fallback_reason": result.get("fallback_reason"),
+            "memory_write_decision_schema_version": decision.get("schema_version")
+            or _MEMORY_WRITE_DECISION_SCHEMA_VERSION,
         },
     }
 
@@ -309,6 +329,94 @@ def _candidate_projection(candidate: SessionMemoryWriteCandidate) -> dict[str, A
         "reason_code": candidate.reason_code,
         "pii_classification": candidate.pii_classification,
     }
+
+
+def _memory_write_decision(
+    state: AgentState,
+    result: dict[str, Any],
+    *,
+    candidate: SessionMemoryWriteCandidate | None = None,
+    fallback_reason: str | None = None,
+    reason_code_override: str | None = None,
+) -> dict[str, Any]:
+    projected_result = dict(result)
+    if reason_code_override is not None:
+        projected_result["reason_code"] = reason_code_override
+    if candidate is not None:
+        projected_result.update(_session_candidate_identity(candidate))
+        memory_id = _session_memory_id(candidate, projected_result)
+        if memory_id is not None:
+            projected_result["memory_id"] = memory_id
+    decision = _MEMORY_CONTEXT_SERVICE.project_memory_write_decision(
+        projected_result,
+        memory_type="session",
+        scope=_session_write_scope(state, candidate),
+        fallback_reason=fallback_reason,
+    )
+    return decision.model_dump(mode="json")
+
+
+def _session_candidate_identity(candidate: SessionMemoryWriteCandidate) -> dict[str, str | None]:
+    try:
+        source_identity_hash = canonical_source_identity_hash(
+            {"source_type": "agent_run", "agent_run_id": str(candidate.run_id)}
+        )
+        content_hash = canonical_memory_content_hash(
+            memory_type="session",
+            content=json.dumps(
+                {
+                    "explicit_slots": {
+                        key: slot.value for key, slot in sorted(candidate.explicit_slots.items())
+                    },
+                    "last_intent": candidate.last_intent or "",
+                    "session_summary": candidate.session_summary or "",
+                    "unresolved_questions": [str(question) for question in candidate.unresolved_questions],
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ),
+        )
+        return {
+            "candidate_hash": canonical_memory_candidate_hash(
+                tenant_id=str(candidate.tenant_id),
+                memory_type="session",
+                scope_type="thread",
+                scope_id=candidate.thread_id,
+                content_hash=content_hash,
+                source_identity_hash=source_identity_hash,
+            ),
+            "source_identity_hash": source_identity_hash,
+        }
+    except MemoryIdentityError:
+        return {}
+
+
+def _session_memory_id(candidate: SessionMemoryWriteCandidate, result: dict[str, Any]) -> str | None:
+    if result.get("status") not in {"written", "merged_after_conflict"}:
+        return None
+    version = result.get("version")
+    if version is None:
+        return None
+    return f"session:{candidate.tenant_id}:{candidate.user_id}:{candidate.thread_id}:v{version}"
+
+
+def _session_write_scope(
+    state: AgentState,
+    candidate: SessionMemoryWriteCandidate | None,
+) -> dict[str, Any]:
+    return {
+        "scope_type": "thread",
+        "tenant_id": str(candidate.tenant_id) if candidate is not None else _optional_state_str(state, "tenant_id"),
+        "user_id": str(candidate.user_id) if candidate is not None else _optional_state_str(state, "user_id"),
+        "thread_id": candidate.thread_id if candidate is not None else _optional_state_str(state, "thread_id"),
+        "run_id": str(candidate.run_id) if candidate is not None else _optional_state_str(state, "current_run_id"),
+    }
+
+
+def _optional_state_str(state: AgentState, key: str) -> str | None:
+    value = state.get(key)
+    return str(value) if value is not None else None
 
 
 def _approval_or_interrupted(state: AgentState) -> bool:

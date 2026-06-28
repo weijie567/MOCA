@@ -253,8 +253,12 @@ class MemoryContextService:
         authority_class: str = "contextual_only",
     ) -> MemoryWriteDecisionV2:
         result = _mapping(legacy_result)
-        decision = str(result.get("decision") or "skip")
-        status = str(result.get("status") or ("skipped" if decision in {"delete", "skip", "tombstone"} else "written"))
+        raw_decision = str(result.get("decision") or "skip")
+        raw_status = str(
+            result.get("status") or ("skipped" if raw_decision in {"delete", "skip", "tombstone"} else "written")
+        )
+        status = _memory_write_decision_status(raw_status)
+        decision = _memory_write_decision_action(raw_decision, status)
         return MemoryWriteDecisionV2(
             status=status,
             decision=decision,
@@ -266,7 +270,7 @@ class MemoryContextService:
             scope=dict(scope or {}),
             pii_classification=str(result.get("pii_classification") or "none"),
             review_status=str(result.get("review_status") or _review_status_for_status(status, decision)),
-            reason_code=str(result.get("reason_code") or "unspecified"),
+            reason_code=_memory_write_decision_reason_code(result),
             fallback_reason=fallback_reason if fallback_reason is not None else _optional_str(result.get("fallback_reason")),
         )
 
@@ -719,3 +723,28 @@ def _review_status_for_status(status: str, decision: str) -> str:
     if status in {"skipped", "disabled", "fallback", "error"}:
         return "not_written"
     return "not_applicable"
+
+
+def _memory_write_decision_status(status: str) -> str:
+    if status in {"written", "merged_after_conflict"}:
+        return "written"
+    if status in {"skipped", "disabled", "fallback", "conflict"}:
+        return "skipped"
+    if status == "error":
+        return "error"
+    return status
+
+
+def _memory_write_decision_action(decision: str, status: str) -> str:
+    if decision in {"delete", "needs_review", "supersede", "tombstone", "write_blocked"}:
+        return decision
+    if status in {"skipped", "error"} or decision == "skip":
+        return "skip"
+    return "write"
+
+
+def _memory_write_decision_reason_code(result: Mapping[str, Any]) -> str:
+    reason_code = str(result.get("reason_code") or "unspecified")
+    if result.get("status") == "error" and reason_code in {"write_failed", "unavailable"}:
+        return "write_error"
+    return reason_code

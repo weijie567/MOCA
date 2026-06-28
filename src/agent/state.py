@@ -104,6 +104,7 @@ class AgentState(TypedDict, total=False):
     reviewed_memory_context_retrieve_status: dict[str, Any] | None
     memory_write_candidates: list[dict[str, Any]] | None
     memory_write_result: dict[str, Any] | None
+    memory_write_decision: dict[str, Any] | None
     long_term_memory: list[dict[str, Any]] | None
 
     # Phase 4: approval workflow fields.

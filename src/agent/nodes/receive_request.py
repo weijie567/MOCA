@@ -97,6 +97,7 @@ async def receive_request(state: AgentState) -> dict:
         "reviewed_memory_context_retrieve_status": None,
         "memory_write_candidates": None,
         "memory_write_result": None,
+        "memory_write_decision": None,
         "long_term_memory": None,
         "proposed_action": None,
         "approval_result": None,

@@ -96,6 +96,7 @@ async def test_receive_request_resets_session_context_target_fields(base_state):
             "schema_version": "reviewed_memory_context_retrieve_status.v1"
         },
         "memory_write_result": {"status": "written"},
+        "memory_write_decision": {"schema_version": "memory_write_decision.v2"},
     }
 
     result = await receive_request(state)
@@ -112,6 +113,7 @@ async def test_receive_request_resets_session_context_target_fields(base_state):
         "memory_context_bundle",
         "reviewed_memory_context_retrieve_status",
         "memory_write_result",
+        "memory_write_decision",
     ):
         assert result[field] is None
 
@@ -126,6 +128,7 @@ def test_agent_state_declares_session_context_target_fields():
         "memory_context",
         "memory_context_bundle",
         "reviewed_memory_context_retrieve_status",
+        "memory_write_decision",
     ):
         assert field in annotations
 
