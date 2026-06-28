@@ -113,6 +113,60 @@ async def test_session_memory_load_attaches_session_memory_bundle(monkeypatch):
     assert result["session_context_load_status"]["authority_class"] == "contextual_only"
 
 
+async def test_session_context_load_direct_node_returns_target_and_legacy_fields(monkeypatch):
+    from src.agent.nodes import session_context_load as session_context_load_module
+    from src.agent.nodes.session_context_load import session_context_load
+
+    monkeypatch.setattr(session_context_load_module.settings, "session_memory_enabled", True)
+    run_id = str(uuid.uuid4())
+
+    class FakeSession:
+        async def execute(self, *args, **kwargs):
+            raise AssertionError("bundle service should not hit the repository in this test")
+
+    class FakeBundleService:
+        def __init__(self, *, conversation_service, memory_service) -> None:
+            self.conversation_service = conversation_service
+            self.memory_service = memory_service
+
+        async def load_session_memory_bundle(self, **kwargs):
+            slot_continuity = SessionMemoryView(
+                source="postgres_session_memory",
+                continuity_claimed=True,
+                active_slots={"order_id": "ORD-CONTEXT-DIRECT"},
+                slot_metadata={"order_id": {"source": "trusted_session_memory"}},
+                version=11,
+            )
+            return SessionMemoryBundle(
+                tenant_id=str(kwargs["tenant_id"]),
+                user_id=str(kwargs["user_id"]),
+                thread_id=kwargs["thread_id"],
+                run_id=str(kwargs["run_id"]),
+                rolling_summary={
+                    "summary_id": "summary-context-direct",
+                    "summary_text": "direct target node rolling summary",
+                },
+                recent_messages=[],
+                tool_summaries=[],
+                slot_continuity=slot_continuity,
+            )
+
+    monkeypatch.setattr(session_context_load_module, "SessionMemoryBundleService", FakeBundleService)
+
+    result = await session_context_load(
+        {**_state(), "current_run_id": run_id},
+        {"configurable": {"session": FakeSession()}},
+    )
+
+    assert result["session_context"]["active_slots"] == {"order_id": "ORD-CONTEXT-DIRECT"}
+    assert result["session_context_bundle"]["schema_version"] == "session_context_bundle.v1"
+    assert result["session_context_load_status"]["schema_version"] == "session_context_load_status.v1"
+    assert result["session_context_load_status"]["authority_class"] == "contextual_only"
+    assert result["session_memory"]["active_slots"] == {"order_id": "ORD-CONTEXT-DIRECT"}
+    assert result["session_memory_bundle"]["schema_version"] == "session_memory_bundle.v1"
+    assert result["trace_steps"][-1]["node"] == "session_context_load"
+
+
 async def test_session_memory_load_fails_closed_when_bundle_load_fails(monkeypatch):
     monkeypatch.setattr(session_memory_load_module.settings, "session_memory_enabled", True)
     run_id = str(uuid.uuid4())
