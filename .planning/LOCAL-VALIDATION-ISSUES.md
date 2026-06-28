@@ -5521,3 +5521,48 @@ rg -n 'pytest|python -m pytest' .planning/phases/32-intent-graph-migration/32-RE
 - `.planning/phases/32-intent-graph-migration/32-RESEARCH.md`
 - `AGENTS.md` 本地验证命令环境硬规则
 - zsh 搜索命令中的 Markdown 反引号转义
+
+## 2026-06-28 20:33 CST - Phase 32 plan 准备静态搜索再次被 Markdown 反引号触发裸 `pytest`
+
+### 问题现象
+
+在 Phase 32 planner 运行期间，为预检查 phase artifacts 中的 plan/pytest 文本，执行了包含 Markdown 反引号的 zsh 双引号 `rg` 命令。zsh 先把 `` `pytest` `` 当作命令替换执行，导致裸 `pytest` 再次被触发并命中本机 Python 3.9。
+
+报错片段：
+
+```text
+ImportError while loading conftest '/Users/ming/projects/MOCA/tests/conftest.py'.
+tests/conftest.py:3: in <module>
+    from datetime import UTC, datetime, timedelta
+E   ImportError: cannot import name 'UTC' from 'datetime' (/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/datetime.py)
+```
+
+### 如何检测 / 复现
+
+在 zsh 下执行双引号包裹且含 Markdown 反引号的搜索模式会复现，例如搜索文本包含 ``bare `pytest` `` 时，反引号内容会先被 shell 执行。
+
+### 关键证据或命令
+
+触发问题的命令意图是搜索 Phase 32 planning artifacts 中的 plan/test 命令文本，模式中包含未转义反引号：
+
+```bash
+rg -n "requirements_addressed|<threat_model>|bare `pytest`|python -m pytest|UV_CACHE_DIR=/tmp/uv-cache uv run pytest|32-0[1-5]-PLAN" .planning/phases/32-intent-graph-migration -g '*.md'
+```
+
+### 当前判断 / 根因
+
+这是 shell 引号/反引号处理导致的命令入口错误，不是 Phase 32 planner、research、validation 或应用代码问题。裸 `pytest` 输出无效，不能作为 MOCA 验证结论。
+
+### 已做处理
+
+已记录本问题。后续类似静态搜索必须使用单引号包裹 pattern，或避免在 shell pattern 中出现 Markdown 反引号；需要搜索反引号文本时使用 `rg -F` 并安全引用。
+
+### 剩余问题
+
+无代码问题。该次裸 `pytest` 输出无效，不作为验证结论。
+
+### 下次继续排查入口
+
+- `.planning/phases/32-intent-graph-migration/`
+- `AGENTS.md` 本地验证命令环境硬规则
+- zsh 搜索命令中的 Markdown 反引号转义
