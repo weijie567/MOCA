@@ -244,6 +244,43 @@ def test_target_merchant_context_downgrades_spoofed_resolved_status_without_busi
     assert "ORD-SPOOF" not in serialized
 
 
+@pytest.mark.parametrize("status", ["deferred", "unavailable", "not_applicable"])
+def test_target_merchant_context_sanitizes_explicit_status_metadata(status: str) -> None:
+    projection = project_target_merchant_context(
+        {
+            "tenant_id": "tenant-001",
+            "current_intent": "refund_troubleshooting",
+            "target_merchant_context": {
+                "schema_version": "target_merchant_context.v1",
+                "status": status,
+                "source": (
+                    "merchant_id=MERCHANT-SECRET order_id=ORD-SECRET "
+                    "refund_case_id=RF-SECRET ticket_id=TICKET-SECRET user_query=请帮我查"
+                ),
+                "reason_codes": [
+                    "merchant_id=MERCHANT-SECRET",
+                    "order_id=ORD-SECRET",
+                    "refund_case_id=RF-SECRET",
+                    "ticket TICKET-SECRET",
+                    "user asked 请帮我查",
+                    "SAFE_REASON_CODE",
+                ],
+            },
+            "user_query": "请帮我查 MERCHANT-SECRET ORD-SECRET RF-SECRET TICKET-SECRET",
+        }
+    )
+    serialized = json.dumps(projection, ensure_ascii=False)
+
+    assert projection == {
+        "schema_version": "target_merchant_context.v1",
+        "status": status,
+        "source": "explicit_state",
+        "reason_codes": ["SAFE_REASON_CODE"],
+    }
+    for forbidden in ("MERCHANT-SECRET", "ORD-SECRET", "RF-SECRET", "TICKET-SECRET", "请帮我查"):
+        assert forbidden not in serialized
+
+
 def test_target_merchant_context_marks_direct_response_paths_not_applicable():
     assert project_target_merchant_context({"current_intent": "small_talk"}) == {
         "schema_version": "target_merchant_context.v1",

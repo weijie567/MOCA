@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping
 from typing import Any, Literal
 
@@ -21,6 +22,12 @@ _BUSINESS_SCOPED_INTENTS = {
     "action_request",
 }
 _DIRECT_RESPONSE_INTENTS = {"small_talk", "unsupported", "out_of_scope", "general_chat"}
+_SAFE_SOURCES = {
+    "explicit_state",
+    "business_fact_refs",
+    "intent_policy",
+    "business_context_status",
+}
 _TRUSTED_REF_SOURCES = {
     "business_fact_service",
     "business_tool_service",
@@ -30,6 +37,7 @@ _TRUSTED_REF_SOURCES = {
     "tool_platform",
     "tool_result_v2",
 }
+_SAFE_REASON_CODE_RE = re.compile(r"^[A-Z0-9_]{1,128}$")
 
 
 def project_target_merchant_context(state: Mapping[str, Any]) -> dict[str, Any]:
@@ -161,13 +169,17 @@ def _status(
 
 def _safe_source(value: Any, *, fallback: str) -> str:
     source = _non_empty_str(value)
-    return source if source else fallback
+    return source if source in _SAFE_SOURCES else fallback
 
 
 def _safe_reason_codes(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
-    return [str(code) for code in value if isinstance(code, str) and code]
+    return [
+        code.strip()
+        for code in value
+        if isinstance(code, str) and _SAFE_REASON_CODE_RE.fullmatch(code.strip())
+    ]
 
 
 def _non_empty_str(value: Any) -> str | None:
