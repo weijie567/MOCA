@@ -5611,6 +5611,46 @@ claude -p - < /tmp/gsd-review-prompt-32.md > /tmp/gsd-review-claude-32.md 2> /tm
 - `/tmp/gsd-review-claude-32.err`
 - `.planning/phases/32-intent-graph-migration/32-REVIEWS.md`
 
+## 2026-06-28 23:21 CST - Phase 32 secure-phase 检查缺失 SECURITY 文件时 zsh no-match glob 报错
+
+### 问题现象
+
+在 Phase 32 secure-phase 前检查是否已有 `*-SECURITY.md` 文件时，使用未加防护的 zsh glob。由于当时还没有安全验证文件，zsh 在命令执行前报错：
+
+```text
+zsh:1: no matches found: .planning/phases/32-intent-graph-migration/*-SECURITY.md
+```
+
+### 如何检测 / 复现
+
+在 zsh 默认 `nomatch` 行为下，对一个不存在匹配项的 glob 直接执行 `ls path/*-SECURITY.md` 即可复现。
+
+### 关键证据或命令
+
+触发问题的命令：
+
+```bash
+ls .planning/phases/32-intent-graph-migration/*-SECURITY.md 2>/dev/null || true
+```
+
+### 当前判断 / 根因
+
+这是 zsh glob 展开阶段的 no-match 行为，不是应用代码问题，也不是 Phase 32 security gate 失败。实际状态是 `32-SECURITY.md` 尚未创建，后续安全审计正常完成。
+
+### 已做处理
+
+已继续执行 security auditor，确认 15/15 threats closed，并创建提交 `.planning/phases/32-intent-graph-migration/32-SECURITY.md`。后续检查可使用 `find .planning/phases/32-intent-graph-migration -name '*-SECURITY.md' -type f` 或给 glob 加 zsh 空匹配防护。
+
+### 剩余问题
+
+无应用代码问题。该报错不作为安全验证失败结论。
+
+### 下次继续排查入口
+
+- `.planning/phases/32-intent-graph-migration/32-SECURITY.md`
+- `$HOME/.codex/get-shit-done/workflows/secure-phase.md`
+- zsh `nomatch` glob 行为
+
 ## 2026-06-28 21:35 CST - Phase 32 Plan 32-01 GSD 元数据 handler 部分失效
 
 ### 问题现象
