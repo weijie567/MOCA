@@ -4944,3 +4944,73 @@ E   ImportError: cannot import name 'UTC' from 'datetime' (/Library/Developer/Co
 
 - `AGENTS.md` 本地验证命令环境硬规则
 - `.planning/phases/31-memory-platform-boundary/31-*-PLAN.md`
+
+## 2026-06-28 11:44 CST - Codex app server / CLI 在 Documents 权限被 macOS TCC 拦截
+
+### 问题现象
+
+通过 Codex app server 启动 fresh session 失败，报：
+
+```text
+thread/start failed during TUI bootstrap: thread/start failed: failed to load configuration: Operation not permitted (os error 1)
+Error: turn/start failed in TUI
+```
+
+同一环境中直接访问 `~/Documents` 也失败：
+
+```text
+ls: /Users/ming/Documents: Operation not permitted
+```
+
+### 如何检测 / 复现
+
+```bash
+ls -lde@ /Users/ming/Documents
+ls /Users/ming/Documents
+stat -f '%Sp %Su:%Sg %N' /Users/ming/Documents
+```
+
+### 关键证据或命令
+
+```text
+drwx------@ 9 ming  staff  288 Jun 24 12:02 /Users/ming/Documents
+        com.apple.macl  -1
+ 0: group:everyone deny delete
+
+ls: /Users/ming/Documents: Operation not permitted
+drwx------ ming:staff /Users/ming/Documents
+```
+
+`codex --version` 正常返回 `codex-cli 0.142.3`，且在 `/Users/ming/projects/MOCA` 用伪终端启动 `codex --yolo` 可以进入 TUI；说明二进制和 MOCA 项目配置本身不是直接故障点。
+
+### 当前判断 / 根因
+
+这是 macOS TCC 隐私权限拦截，不是 Unix 文件权限或 MOCA 代码问题。`~/Documents` 属于受保护目录；当启动 Codex 的外层 app（如 Codex App app-server、iTerm、Terminal、VS Code）没有 Documents Folder / Full Disk Access 权限时，子进程里的 `codex` 和普通 `ls` 都会收到 `Operation not permitted`。
+
+如果只给某一个 Codex 入口授权，另一个入口仍可能失败：CLI 继承 iTerm/Terminal/VS Code 的权限；Codex app server 继承 `/Applications/Codex.app` 的权限。授权后也需要完全退出并重新启动相关 app/server，旧进程不会自动拿到新 TCC 授权。
+
+### 已做处理
+
+已确认：
+
+- `/Users/ming/.codex/config.toml` 和 `/Users/ming/.codex/auth.json` owner/权限正常；
+- `/Users/ming/projects/MOCA` 下的 TUI 启动路径可用；
+- 当前进程无法读取 `/Users/ming/Documents`，最小复现与 app server 报错方向一致。
+
+### 剩余问题
+
+需要在 macOS 系统设置里给实际启动入口授权并重启相关进程。建议同时检查：
+
+- `Codex.app`
+- `iTerm.app` 或 `Terminal.app`
+- 如果从编辑器终端启动，还包括 `Visual Studio Code.app` / Cursor 等编辑器
+
+优先使用 Full Disk Access；至少需要 Files and Folders 中的 Documents Folder 权限。
+
+### 下次继续排查入口
+
+- System Settings -> Privacy & Security -> Full Disk Access
+- System Settings -> Privacy & Security -> Files and Folders
+- `ls /Users/ming/Documents`
+- `codex --yolo`
+- Codex app server 进程：`/Applications/Codex.app/Contents/Resources/codex app-server`
