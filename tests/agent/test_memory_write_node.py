@@ -45,6 +45,11 @@ async def test_memory_write_node_skips_when_final_response_missing():
 
     assert result["memory_write_result"]["status"] == "skipped"
     assert result["memory_write_result"]["reason_code"] == "not_completed_path"
+    assert result["memory_write_decision"]["schema_version"] == "memory_write_decision.v2"
+    assert result["memory_write_decision"]["authority_class"] == "contextual_only"
+    assert result["memory_write_decision"]["status"] == "skipped"
+    assert result["memory_write_decision"]["decision"] == "skip"
+    assert result["memory_write_decision"]["reason_code"] == "not_completed_path"
     assert result["trace_steps"][-1]["node"] == "memory_write"
 
 
@@ -70,6 +75,13 @@ async def test_memory_write_node_writes_explicit_slots_and_unresolved_questions(
     result = await memory_write(_state(), {"configurable": {"session": object()}})
 
     assert result["memory_write_result"]["status"] == "written"
+    assert result["memory_write_decision"]["schema_version"] == "memory_write_decision.v2"
+    assert result["memory_write_decision"]["status"] == "written"
+    assert result["memory_write_decision"]["decision"] == "write"
+    assert result["memory_write_decision"]["memory_type"] == "session"
+    assert result["memory_write_decision"]["authority_class"] == "contextual_only"
+    assert result["memory_write_decision"]["candidate_hash"].startswith("sha256:")
+    assert result["memory_write_decision"]["scope"]["thread_id"] == "thread-memory-write"
     assert len(candidates) == 1
     candidate = candidates[0]
     assert set(candidate.explicit_slots) == {"order_id"}
@@ -125,6 +137,11 @@ async def test_memory_write_timeout_preserves_final_response(monkeypatch):
     assert result["final_response"] == "及时返回"
     assert result["memory_write_result"]["status"] == "skipped"
     assert result["memory_write_result"]["reason_code"] == "write_timeout"
+    assert result["memory_write_decision"]["schema_version"] == "memory_write_decision.v2"
+    assert result["memory_write_decision"]["status"] == "skipped"
+    assert result["memory_write_decision"]["decision"] == "skip"
+    assert result["memory_write_decision"]["reason_code"] == "write_timeout"
+    assert result["memory_write_decision"]["fallback_reason"] == "write_timeout"
 
 
 async def test_memory_write_timeout_rolls_back_started_event_before_scheduler_commit(
@@ -178,6 +195,9 @@ async def test_memory_write_timeout_rolls_back_started_event_before_scheduler_co
 
     assert result["memory_write_result"]["status"] == "skipped"
     assert result["memory_write_result"]["reason_code"] == "write_timeout"
+    assert result["memory_write_decision"]["status"] == "skipped"
+    assert result["memory_write_decision"]["reason_code"] == "write_timeout"
+    assert result["memory_write_decision"]["fallback_reason"] == "write_timeout"
     assert rows == []
 
 
@@ -356,6 +376,11 @@ async def test_memory_write_prohibited_pii_skips_without_persisting(monkeypatch)
     assert result["memory_write_result"]["decision"] == "skip"
     assert result["memory_write_result"]["pii_classification"] == "prohibited"
     assert result["memory_write_result"]["reason_code"] == "pii_blocked"
+    assert result["memory_write_decision"]["schema_version"] == "memory_write_decision.v2"
+    assert result["memory_write_decision"]["status"] == "skipped"
+    assert result["memory_write_decision"]["decision"] == "skip"
+    assert result["memory_write_decision"]["pii_classification"] == "prohibited"
+    assert result["memory_write_decision"]["reason_code"] == "pii_blocked"
 
 
 @pytest.mark.parametrize("raw_identifier", ["13800138000", "110101199001011234", "api_key=sk_test_1234567890"])
@@ -389,3 +414,7 @@ async def test_memory_write_raw_sensitive_pii_skips_without_persisting(monkeypat
     assert result["memory_write_result"]["decision"] == "skip"
     assert result["memory_write_result"]["pii_classification"] == "sensitive"
     assert result["memory_write_result"]["reason_code"] == "pii_blocked"
+    assert result["memory_write_decision"]["status"] == "skipped"
+    assert result["memory_write_decision"]["decision"] == "skip"
+    assert result["memory_write_decision"]["pii_classification"] == "sensitive"
+    assert result["memory_write_decision"]["reason_code"] == "pii_blocked"

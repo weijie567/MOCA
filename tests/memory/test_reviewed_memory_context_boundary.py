@@ -6,6 +6,7 @@ from typing import Any
 import uuid
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import AgentRun, CaseMemory, LongTermMemory, MemoryTombstone
@@ -13,7 +14,7 @@ from src.memory.case_memory import CASE_MEMORY_TYPE, CaseMemoryRepository, CaseM
 from src.memory.identity import canonical_memory_content_hash, canonical_source_identity_hash
 from src.memory.long_term import LongTermMemoryService
 from src.memory.repository import LONG_TERM_MEMORY_TYPE, LongTermMemoryRepository
-from src.memory.schemas import CaseMemoryWriteCandidate, LongTermMemoryWriteCandidate
+from src.memory.schemas import CaseMemorySearchRequest, CaseMemoryWriteCandidate, LongTermMemoryWriteCandidate
 from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 
 
@@ -62,6 +63,37 @@ def _bundle_dict(bundle: Any) -> dict[str, Any]:
     if hasattr(bundle, "model_dump"):
         return bundle.model_dump(mode="json")
     return dict(bundle)
+
+
+def _write_outcome_dict(outcome: Any, *, status: str | None = None) -> dict[str, Any]:
+    if hasattr(outcome, "model_dump"):
+        return outcome.model_dump(mode="json")
+    return {
+        "status": status or ("skipped" if outcome.decision in {"delete", "tombstone", "skip"} else "written"),
+        "memory_id": str(outcome.memory_id) if outcome.memory_id is not None else None,
+        "decision": outcome.decision,
+        "reason_code": outcome.reason_code,
+        "pii_classification": outcome.pii_classification,
+        "candidate_hash": outcome.candidate_hash,
+        "event_id": str(outcome.id),
+    }
+
+
+def _memory_write_decision(
+    session: AsyncSession,
+    outcome: Any,
+    *,
+    memory_type: str,
+    scope: dict[str, Any],
+    status: str | None = None,
+) -> dict[str, Any]:
+    decision = _context_service(session).project_memory_write_decision(
+        _write_outcome_dict(outcome, status=status),
+        memory_type=memory_type,
+        authority_class="contextual_only",
+        scope=scope,
+    )
+    return _bundle_dict(decision)
 
 
 def _long_term_candidate(
@@ -411,3 +443,184 @@ async def test_reviewed_memory_context_excludes_deleted_expired_rejected_superse
         "Tombstoned",
     ):
         assert forbidden not in serialized
+
+
+@pytest.mark.asyncio
+async def test_memory_write_decision_projection_marks_needs_review_and_excludes_from_prompt_context(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    tenant_id = seeded_session["tenant"].id
+    merchant_a = str(seeded_session["merchant"].id)
+    run_id = await _insert_run(session, seeded_session, thread_id="needs-review-write-decision")
+    long_term_service = LongTermMemoryService(LongTermMemoryRepository(session))
+    case_service = CaseMemoryService(CaseMemoryRepository(session))
+
+    long_term_result = await long_term_service.write_memory(
+        _long_term_candidate(
+            seeded_session,
+            run_id=run_id,
+            merchant_id=merchant_a,
+            content="Needs-review long-term memory must stay out of reviewed prompt context.",
+            source_type="llm_candidate",
+        )
+    )
+    case_result = await case_service.submit_case_memory_candidate(
+        _case_candidate(
+            seeded_session,
+            run_id=run_id,
+            merchant_id=merchant_a,
+            summary="Needs-review case memory must stay out of reviewed prompt context.",
+            source_type="llm_candidate",
+        )
+    )
+
+    long_term_decision = _memory_write_decision(
+        session,
+        long_term_result,
+        memory_type=LONG_TERM_MEMORY_TYPE,
+        scope={"tenant_id": str(tenant_id), "scope_type": "merchant", "scope_id": merchant_a},
+    )
+    case_decision = _memory_write_decision(
+        session,
+        case_result,
+        memory_type=CASE_MEMORY_TYPE,
+        scope={"tenant_id": str(tenant_id), "scope_type": "merchant", "scope_id": merchant_a},
+    )
+    retrieved_long_term = await long_term_service.retrieve_profile_memory(
+        tenant_id=tenant_id,
+        scope_type="merchant",
+        scope_id=merchant_a,
+    )
+    retrieved_cases = await case_service.retrieve_reviewed(
+        CaseMemorySearchRequest(
+            tenant_id=tenant_id,
+            scope_type="merchant",
+            scope_id=merchant_a,
+            case_type="refund_dispute",
+            query="Needs-review case memory",
+        )
+    )
+
+    assert long_term_decision["schema_version"] == "memory_write_decision.v2"
+    assert long_term_decision["authority_class"] == "contextual_only"
+    assert long_term_decision["status"] == "needs_review"
+    assert long_term_decision["decision"] == "needs_review"
+    assert long_term_decision["review_status"] == "needs_review"
+    assert case_decision["schema_version"] == "memory_write_decision.v2"
+    assert case_decision["status"] == "needs_review"
+    assert case_decision["review_status"] == "needs_review"
+    assert retrieved_long_term == []
+    assert retrieved_cases.items == []
+
+
+@pytest.mark.asyncio
+async def test_memory_write_decision_projection_tombstone_blocks_same_content_and_source_identity(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    tenant_id = seeded_session["tenant"].id
+    merchant_a = str(seeded_session["merchant"].id)
+    run_id = await _insert_run(session, seeded_session, thread_id="tombstone-write-decision")
+    case_service = CaseMemoryService(CaseMemoryRepository(session))
+    candidate = _case_candidate(
+        seeded_session,
+        run_id=run_id,
+        merchant_id=merchant_a,
+        summary="Tombstoned case memory must never return to reviewed prompt context.",
+    )
+    write_result = await case_service.submit_case_memory_candidate(candidate)
+    tombstone_event = await case_service.forget_case_memory(
+        tenant_id=tenant_id,
+        case_memory_id=write_result.memory_id,
+        run_id=run_id,
+        reason_code="user_forget_case_memory",
+    )
+
+    tombstone_decision = _memory_write_decision(
+        session,
+        tombstone_event,
+        memory_type=CASE_MEMORY_TYPE,
+        scope={"tenant_id": str(tenant_id), "scope_type": "merchant", "scope_id": merchant_a},
+    )
+    rewrite_result = await case_service.submit_case_memory_candidate(candidate)
+    reviewed_cases = await case_service.retrieve_reviewed(
+        CaseMemorySearchRequest(
+            tenant_id=tenant_id,
+            scope_type="merchant",
+            scope_id=merchant_a,
+            case_type="refund_dispute",
+            query="Tombstoned case memory",
+        )
+    )
+
+    assert tombstone_decision["schema_version"] == "memory_write_decision.v2"
+    assert tombstone_decision["decision"] in {"tombstone", "delete"}
+    assert rewrite_result.status == "skipped"
+    assert rewrite_result.reason_code == "tombstone_match"
+    assert reviewed_cases.items == []
+
+
+@pytest.mark.asyncio
+async def test_memory_write_decision_projection_supersede_keeps_one_current_prompt_facing_memory(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    tenant_id = seeded_session["tenant"].id
+    merchant_a = str(seeded_session["merchant"].id)
+    run_id = await _insert_run(session, seeded_session, thread_id="supersede-write-decision")
+    long_term_service = LongTermMemoryService(LongTermMemoryRepository(session))
+    original_result = await long_term_service.write_memory(
+        _long_term_candidate(
+            seeded_session,
+            run_id=run_id,
+            merchant_id=merchant_a,
+            content="Superseded preference must not remain prompt-facing.",
+        )
+    )
+    replacement_result = await long_term_service.supersede_memory(
+        tenant_id=tenant_id,
+        memory_id=original_result.memory_id,
+        run_id=run_id,
+        replacement_candidate=_long_term_candidate(
+            seeded_session,
+            run_id=run_id,
+            merchant_id=merchant_a,
+            content="Superseding preference is the only current prompt-facing memory.",
+        ),
+        reason_code="user_correction",
+    )
+
+    supersede_decision = _memory_write_decision(
+        session,
+        replacement_result,
+        memory_type=LONG_TERM_MEMORY_TYPE,
+        scope={"tenant_id": str(tenant_id), "scope_type": "merchant", "scope_id": merchant_a},
+    )
+    current_rows = (
+        (
+            await session.execute(
+                select(LongTermMemory).where(
+                    LongTermMemory.tenant_id == tenant_id,
+                    LongTermMemory.scope_type == "merchant",
+                    LongTermMemory.scope_id == merchant_a,
+                    LongTermMemory.is_current.is_(True),
+                    LongTermMemory.deleted_at.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    prompt_items = await long_term_service.retrieve_profile_memory(
+        tenant_id=tenant_id,
+        scope_type="merchant",
+        scope_id=merchant_a,
+    )
+
+    assert supersede_decision["schema_version"] == "memory_write_decision.v2"
+    assert supersede_decision["decision"] == "supersede"
+    assert supersede_decision["status"] == "written"
+    assert len(current_rows) == 1
+    assert current_rows[0].id == replacement_result.memory_id
+    assert [item.memory_id for item in prompt_items] == [str(replacement_result.memory_id)]
