@@ -138,6 +138,41 @@ async def test_reviewed_memory_context_retrieve_does_not_use_session_memory_to_c
     )
 
 
+async def test_reviewed_memory_context_retrieve_does_not_use_candidate_slots_to_create_scope() -> None:
+    reviewed_memory_context_retrieve = _reviewed_memory_context_retrieve()
+    trusted_context = _trusted_context(merchant_ids=["merchant-b"])
+
+    class NoCallLongTermMemoryService:
+        async def retrieve_profile_memory(self, **kwargs: Any) -> list[dict[str, Any]]:
+            raise AssertionError("LLM candidate slots must not query long-term memory")
+
+    class NoCallCaseMemoryService:
+        async def retrieve_reviewed(self, request: Any) -> Any:
+            raise AssertionError("LLM candidate slots must not query case memory")
+
+    result = await reviewed_memory_context_retrieve(
+        _state(
+            tenant_id=trusted_context.tenant_id,
+            user_id=trusted_context.user_id,
+            extracted_slots={},
+            candidate_slots={"merchant_id": "merchant-b"},
+        ),
+        {
+            "configurable": {
+                "session": object(),
+                "trusted_context": trusted_context,
+                "long_term_memory_service": NoCallLongTermMemoryService(),
+                "case_memory_service": NoCallCaseMemoryService(),
+            }
+        },
+    )
+
+    memory_context = _assert_empty_context_bundle(result, fallback_reason="memory_scope_not_authority")
+    assert "memory_scope_not_authority" in memory_context["status_ref"]["filter_reasons"]
+    assert "current_slots" not in memory_context["status_ref"]["trusted_scope_inputs"]
+    assert result.get("node_errors") is None
+
+
 async def test_reviewed_memory_context_retrieve_keeps_legacy_aliases_empty_on_fail_closed() -> None:
     reviewed_memory_context_retrieve = _reviewed_memory_context_retrieve()
 

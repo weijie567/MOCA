@@ -183,11 +183,10 @@ def _trusted_scope_inputs(*, trusted_context: Any | None, current_slots: Mapping
 
 
 def _current_turn_slots(state: AgentState) -> dict[str, Any]:
-    slots: dict[str, Any] = {}
-    for candidate in (state.get("extracted_slots"), state.get("candidate_slots")):
-        if isinstance(candidate, Mapping):
-            slots.update({str(key): value for key, value in candidate.items() if value not in (None, "")})
-    return slots
+    extracted = state.get("extracted_slots")
+    if not isinstance(extracted, Mapping):
+        return {}
+    return {str(key): value for key, value in extracted.items() if value not in (None, "")}
 
 
 def _trusted_business_context(state: AgentState, configurable: Mapping[str, Any]) -> dict[str, Any] | None:
