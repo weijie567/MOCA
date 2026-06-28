@@ -4742,3 +4742,126 @@ rg: src/models: No such file or directory (os error 2)
 - `src/memory/case_memory.py`
 - `tests/memory/test_long_term_memory_service.py`
 - `tests/memory/test_case_memory_retrieval.py`
+
+## 2026-06-28 10:52 CST - Phase 31 plan-phase artifact scan hit zsh no-match glob
+
+### 问题现象
+
+Phase 31 plan-phase 初始化后，为检查是否已有 PLAN / RESEARCH / VALIDATION / PATTERNS artifact，命令直接传入多个未加引号的 `*.md` glob。由于 Phase 31 当时尚未生成这些文件，zsh 的 `nomatch` 行为在命令执行前报错，导致检查命令退出。
+
+### 如何检测 / 复现
+
+```bash
+ls .planning/phases/31-memory-platform-boundary/*-PLAN.md .planning/phases/31-memory-platform-boundary/*-RESEARCH.md .planning/phases/31-memory-platform-boundary/*-VALIDATION.md .planning/phases/31-memory-platform-boundary/*-PATTERNS.md 2>/dev/null || true
+```
+
+### 关键证据或命令
+
+```text
+zsh:1: no matches found: .planning/phases/31-memory-platform-boundary/*-PLAN.md
+```
+
+### 当前判断 / 根因
+
+这是本地 artifact 检查命令写法问题，不是 Phase 31 planning artifact 缺失异常。zsh 会在 `ls` 执行前展开 glob；没有匹配项时直接报 `no matches found`，`2>/dev/null || true` 无法捕获这个 shell 展开错误。
+
+### 已做处理
+
+改用 `find` 检查目录内容，确认当时 Phase 31 目录只有 `31-CONTEXT.md` 和 `31-DISCUSSION-LOG.md`，符合 plan-phase 前置状态。随后继续 research / planning 流程。
+
+### 剩余问题
+
+无代码阻塞。后续在 zsh 下检查可选 artifact 时，应使用 `find`、`rg --files` 或给 glob 加 `noglob` / 引号后由工具内部处理。
+
+### 下次继续排查入口
+
+- `.planning/phases/31-memory-platform-boundary/`
+- `$HOME/.codex/get-shit-done/workflows/plan-phase.md`
+
+## 2026-06-28 11:20 CST - Phase 31 research parallel DB-backed pytest caused shared test database race
+
+### 问题现象
+
+Phase 31 research 期间，为快速验证 memory 相关现有测试，我把多个 DB-backed `uv run pytest ...` 命令并行启动。MOCA 的 pytest fixture 使用共享 PostgreSQL 测试库 `moca_test`，并在 `test_engine` fixture 中执行 `Base.metadata.drop_all/create_all`。并行命令互相重置同一个 schema，导致 setup 阶段出现 PostgreSQL catalog / table / lock 相关失败。
+
+### 如何检测 / 复现
+
+并行运行以下两组或更多 DB-backed 测试命令容易复现：
+
+```bash
+uv run pytest tests/agent/test_session_memory_load.py tests/memory/test_session_memory_bundle.py tests/agent/test_memory_evidence_boundary.py -q
+uv run pytest tests/memory/test_long_term_memory_repository.py tests/memory/test_long_term_memory_service.py tests/memory/test_case_memory_retrieval.py -q
+```
+
+### 关键证据或命令
+
+```text
+asyncpg.exceptions.UniqueViolationError: duplicate key value violates unique constraint "pg_type_typname_nsp_index"
+asyncpg.exceptions.UndefinedTableError: relation "tenants" does not exist
+asyncpg.exceptions.DeadlockDetectedError: deadlock detected
+```
+
+### 当前判断 / 根因
+
+这是验证命令调度错误，不是 Phase 31 生产代码结论。`tests/conftest.py` 固定使用 `postgresql+asyncpg://moca:moca_dev@localhost:5432/moca_test`，每个 DB-backed pytest 进程都会 drop/create 全部 metadata；并行进程会互相删除或锁住同一批表。
+
+### 已做处理
+
+停止把 DB-backed pytest 组并行作为结论来源。Phase 31 research 后续只把这些失败记录为环境/验证坑，计划中的测试命令必须串行运行，或者先改造 fixture 使用进程隔离数据库名。
+
+### 剩余问题
+
+`tests/agent/test_memory_evidence_boundary.py::test_agent_runs_memory_context_is_not_policy_business_action_or_replay_authority` 在并行失败输出中还出现一次断言差异：期望 `VerificationOutcome.UNSUPPORTED`，实际 `INSUFFICIENT`。该测试不依赖 DB race，后续应单独用串行命令重跑确认是当前仓库真实回归还是并行污染后的附带现象。
+
+### 下次继续排查入口
+
+- `tests/conftest.py`
+- `tests/agent/test_memory_evidence_boundary.py`
+- `src/agent/rag_context/verifier.py`
+- `.planning/phases/31-memory-platform-boundary/31-RESEARCH.md`
+
+## 2026-06-28 11:27 CST - Phase 31 research confirmed memory authority-boundary test outcome drift
+
+### 问题现象
+
+串行单测确认 `tests/agent/test_memory_evidence_boundary.py::test_agent_runs_memory_context_is_not_policy_business_action_or_replay_authority` 当前失败。测试期望 memory-supported action dependency 使 action claim outcome 为 `VerificationOutcome.UNSUPPORTED`，实际返回 `VerificationOutcome.INSUFFICIENT`。
+
+### 如何检测 / 复现
+
+```bash
+uv run pytest tests/agent/test_memory_evidence_boundary.py::test_agent_runs_memory_context_is_not_policy_business_action_or_replay_authority -q
+```
+
+### 关键证据或命令
+
+```text
+E       AssertionError: assert <Verification...insufficient'> == <Verification...'unsupported'>
+E         - unsupported
+E         + insufficient
+```
+
+同轮串行 smoke：
+
+```bash
+uv run pytest tests/agent/test_session_memory_load.py -q
+```
+
+结果为 `6 passed`，说明基础 `session_memory_load` 非 DB 单测可运行。
+
+### 当前判断 / 根因
+
+这是当前仓库真实测试期望与 verifier 行为不一致，不是并行 DB fixture 污染。Phase 31 正好要求“Tests prove memory cannot satisfy policy evidence, current business fact, approval/action snapshot, or replay truth requirements”，因此计划阶段应把该断言语义纳入 RED/repair：要么修正 verifier outcome 到 expected `UNSUPPORTED`，要么若项目决策认为 `INSUFFICIENT` 是正确分类，则同步测试和 Phase 31 acceptance wording，但不能静默忽略。
+
+### 已做处理
+
+已记录为 Phase 31 research 的验证发现；未修改生产代码或测试。
+
+### 剩余问题
+
+需要在 Phase 31 计划中安排一个具体任务处理该 authority-boundary outcome drift，并用串行 `uv run pytest ...` 重跑确认。
+
+### 下次继续排查入口
+
+- `tests/agent/test_memory_evidence_boundary.py::test_agent_runs_memory_context_is_not_policy_business_action_or_replay_authority`
+- `src/agent/rag_context/verifier.py`
+- `src/agent/rag_context/claims.py`
