@@ -372,6 +372,34 @@ async def test_tenant_public_policy_cannot_support_business_fact_without_busines
 
 
 @pytest.mark.asyncio
+async def test_tenant_public_policy_cannot_support_action_recommendation_without_action_authority() -> None:
+    """APF-14: action_recommendation claims need BusinessFactRefV1 authority; RAG evidence alone is not action-safe."""
+    ref = _evidence_ref(text="Tenant public policy describes refund compensation review rules.")
+    claim = MaterialClaimV1(
+        claim_id="claim-action-policy-only",
+        claim_text="Issue a compensation review for refund case RF-1001.",
+        claim_type="action_recommendation",
+        cited_evidence_ids=[ref.evidence_id],
+        business_fact_refs=[],
+        risk_hints=[],
+        generated_from_step="recommendation_generation",
+    )
+
+    bundle = await PolicyKnowledgeService(retriever=object()).verify_claims(
+        material_claims=[claim],
+        verified_evidence_package=_verified_package(ref),
+        business_context={"business_fact_refs": []},
+        proposed_action={"type": "create_compensation_review"},
+    )
+
+    assert bundle.route == "final_response"
+    assert bundle.blocked_claims == ["claim-action-policy-only"]
+    assert bundle.safe_support_refs == []
+    assert "dependency_claims_required" in bundle.reason_codes
+    assert bundle.claim_results[0].allows_action_recommendation is False
+
+
+@pytest.mark.asyncio
 async def test_verify_claims_malformed_input_fails_closed_to_final_response() -> None:
     """APF-14: malformed inputs fail closed to final_response."""
     bundle = await PolicyKnowledgeService(retriever=object()).verify_claims(
