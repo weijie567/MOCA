@@ -1,28 +1,31 @@
 ---
-phase: 30
+phase: 30-businessfactservice-boundary
 status: passed
-verified_at: 2026-06-28
+verified_at: 2026-06-28T08:32:25+0800
 requirements_verified: [APF-08]
 automated_checks:
   focused_phase30: passed
   ruff: passed
   diff_check: passed
-review_status: findings_fixed
+  code_review: clean
+uat_status: complete
+human_verification_required: false
+security_review_required: true
 ---
 
 # Phase 30 Verification - BusinessFactService Boundary
 
 ## Verdict
 
-Phase 30 passes verification. APF-08 is implemented across the domain service, ToolPlatform integration, graph projection, and authority-boundary tests.
+Phase 30 passes verification. APF-08 is implemented across the domain service, ToolPlatform integration, graph projection, investigate aggregation, and material-claim authority boundaries.
 
-Two verifier agents were attempted but did not produce `30-VERIFICATION.md` before timeout; this artifact was completed by the orchestrator from repository evidence, summaries, review artifacts, and post-fix verification results.
+This verification was refreshed after all Phase 30 code-review fixes through `62bd0d0` and the clean deep review report `2ac1da6` / `ad4ac69` follow-up state. The previous verification artifact contained stale post-review-fix evidence; this version reflects the current repository.
 
 ## Requirements
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| APF-08 | PASSED | Business fact reads now expose `BusinessFactResultV1` / `BusinessFactRefV1` through `BusinessFactService`, and tests prove graph/tool code cannot substitute memory, RAG, LLM/model knowledge, prompt summaries, or raw repository-row-shaped data for current business facts. |
+| APF-08 | PASSED | Business fact reads expose `BusinessFactResultV1` / `BusinessFactRefV1` through `BusinessFactService`; ToolPlatform and graph code cannot substitute memory, RAG/policy evidence, model knowledge, prompt summaries, raw repository-row-shaped data, or raw tool data for current business facts. |
 
 ## Success Criteria Verification
 
@@ -33,96 +36,106 @@ Status: PASSED
 Evidence:
 
 - `src/business/schemas.py` defines strict `BusinessFactResultV1` with `schema_version="business_fact_result.v1"`, `scope_check_result`, `missing_required_facts`, and `safe_errors`.
-- `src/business/service.py` defines `BusinessFactService` public methods: `fetch_context`, `get_order`, `get_refund_case`, `get_ticket`, `get_logistics`, and `get_merchant_risk`.
-- `30-01-SUMMARY.md` records focused service verification: `49 passed`, plus an earlier Phase 30 focused regression of `160 passed`.
+- `src/business/service.py` defines `BusinessFactService` public methods for `fetch_context`, order, refund case, ticket, logistics, and merchant-risk reads.
+- Service tests cover allowed same-merchant/admin reads, same-tenant cross-merchant denial, unknown/missing merchant scope denial, unsupported reads, stale/unavailable fail-closed results, wrong-tenant refs, missing refs, and legacy list merchant scope.
 
-### 2. Graph/Tool Cannot Substitute Non-Authoritative Current Facts
-
-Status: PASSED
-
-Evidence:
-
-- `src/tools/executors/business.py` imports `BusinessFactService` and delegates ToolPlatform business reads through the service/compatibility boundary.
-- `src/tools/projection.py` was changed so business refs are sourced from `ToolResultV2.business_fact_refs`, not raw `result.data` identifiers.
-- `tests/agent/rag_context/test_authority_boundaries.py` includes `business_fact_ref_required` checks for memory, RAG/policy evidence, model knowledge, prompt summaries, and raw repository-row-shaped data.
-- `tests/agent/test_policy_retrieval_ownership.py` asserts `investigate` does not import `BusinessFactService`, `BusinessToolService`, raw demo integrations, or business repositories.
-
-### 3. No-Leak, Stale/Unavailable Fail-Closed, and Ref Separation
+### 2. ToolPlatform Business-Read Boundary
 
 Status: PASSED
 
 Evidence:
 
-- `src/business/service.py` uses the generic no-leak message `Business resource unavailable for this request`.
-- `BusinessFactService._sanitize_domain_result(...)` now rejects unsafe domain success/partial values unless they include a fact, at least one `BusinessFactRefV1`, and refs matching the trusted tenant.
-- `30-REVIEW.md` found WR-01 around unsafe domain success refs; `30-REVIEW-FIX.md` records the accepted fix in `747d9f2`.
-- Post-fix tests passed:
-  - targeted regression: `2 passed, 34 deselected, 1 warning`
-  - business/tool focused suite: `65 passed, 1 warning`
-  - final Phase 30 focused suite: `190 passed, 1 warning`
+- `src/tools/executors/business.py` imports and delegates through the service boundary.
+- `src/tools/policy.py` preserves `requires_domain_scope_check` while redacting raw domain identifiers from serialized policy bindings.
+- `tests/tools/test_tool_platform.py` proves service-approved refs are emitted only after domain proof and denied/unavailable paths emit no data and no refs.
 
-### 4. Phase 29.5 Merchant Scope Semantics and Ownership Proof
+### 3. Projection and Investigate No-Leak Behavior
 
 Status: PASSED
 
 Evidence:
 
-- `tests/business/test_service.py` covers allowed same-merchant and admin reads, same-tenant cross-merchant denial, missing merchant binding, unknown role denial, and cross-tenant fail-closed reads.
-- `BusinessFactService` emits facts and refs only after service-approved scope proof.
-- Permission denied results emit no facts, no refs, and no raw denied identifiers.
+- `src/tools/projection.py` sources business refs from `ToolResultV2.business_fact_refs`, not raw `result.data` identifiers.
+- `src/agent/nodes/investigate.py` accumulates facts/refs only from fact-bearing success statuses with service-approved refs.
+- Tests prove denied, stale, unavailable, and raw-data-shaped business identifiers do not populate prompt summaries, `business_context`, `last_business_context_refs`, or `claim_dependency_map`.
 
-### 5. ToolPlatform requires_domain_scope_check Enforcement
+### 4. Authority-Substitution Boundaries
 
 Status: PASSED
 
 Evidence:
 
-- `src/tools/policy.py` preserves `requires_domain_scope_check` for order/refund/ticket identifiers while redacting raw identifier values from policy resource bindings.
-- `tests/tools/test_tool_platform.py` asserts ToolPlatform outcomes for order/refund/ticket carry `{"requires_domain_scope_check": True}`.
-- ToolPlatform tests prove same-merchant reads emit exactly one service-approved `BusinessFactRefV1`, while cross-merchant reads return no data and no refs even when runtime dispatch is allowed.
+- `tests/agent/rag_context/test_authority_boundaries.py` covers memory, RAG/policy evidence, model knowledge, prompt summaries, raw repository rows, wrong tenant refs, missing trusted tenant, and missing policy evidence membership.
+- `tests/agent/test_policy_retrieval_ownership.py` verifies graph nodes do not import `BusinessFactService`, `BusinessToolService`, raw demo integrations, or business repositories; the business executor imports the service boundary without raw repositories/integrations.
+- Latest review fix `62bd0d0` prevents action recommendations from opening allow flags when Level 1 policy evidence membership fails.
 
-### 6. Scope Exclusions
+### 5. Scope Exclusions
 
 Status: PASSED
 
 Evidence:
 
 - No implementation work was added for Phase 31 memory platform isolation, Phase 33 full RAG claim verification, Phase 34 approval/action binding, Phase 35 replay/eval broad hardening, Phase 36+ DB/RLS work, physical microservices, or real external execution.
-- Authority-boundary tests extend negative coverage only for APF-08 and do not implement the later full claim-verification phase.
+- Authority-boundary changes remain narrow APF-08 negative coverage and verifier fail-closed behavior.
 
 ## Automated Verification
 
-Latest post-review-fix checks:
+Commands run:
 
 ```bash
-uv run pytest tests/business/test_service.py -q --tb=short -k 'domain_success_without_service_refs or domain_success_with_wrong_tenant_ref'
-uv run pytest tests/business/test_service.py tests/business/test_adapters.py tests/tools/test_tool_platform.py -q --tb=short
 uv run pytest tests/business/test_service.py tests/business/test_adapters.py tests/business/test_schemas.py tests/tools/test_tool_platform.py tests/agent/test_nodes/test_investigate.py tests/agent/test_tools/test_get_order.py tests/agent/test_tools/test_get_refund_case.py tests/agent/test_tools/test_get_ticket.py tests/agent/rag_context/test_authority_boundaries.py tests/agent/test_policy_retrieval_ownership.py -q --tb=short
+
 uv run ruff check src/business/schemas.py src/business/service.py src/business/__init__.py src/tools/executors/business.py src/tools/policy.py src/tools/projection.py src/agent/nodes/investigate.py src/agent/rag_context/verifier.py tests/business/test_schemas.py tests/business/test_service.py tests/business/test_adapters.py tests/tools/test_tool_platform.py tests/agent/test_nodes/test_investigate.py tests/agent/rag_context/test_authority_boundaries.py tests/agent/test_policy_retrieval_ownership.py
+
 git diff --check
 ```
 
 Results:
 
-- targeted regression: `2 passed, 34 deselected, 1 warning`
-- business/tool focused suite: `65 passed, 1 warning`
-- full Phase 30 focused suite: `190 passed, 1 warning`
-- ruff: passed
+- Full Phase 30 focused suite: `203 passed, 1 warning`
+- Ruff: passed
 - `git diff --check`: passed
+
+The warning is the existing LangGraph `allowed_objects` pending deprecation warning from `.venv/lib/python3.12/site-packages/langgraph/checkpoint/serde/encrypted.py`; it is not a Phase 30 failure.
 
 ## Review Gate
 
-`30-REVIEW.md` reported one warning, WR-01. It was confirmed and fixed:
+Code review is clean:
 
-- Fix commit: `747d9f2 fix(30): reject unreferenced domain fact successes`
-- Fix record: `30-REVIEW-FIX.md`
+- `.planning/phases/30-businessfactservice-boundary/30-REVIEW.md`
+- Status: `clean`
+- Findings: `0 critical`, `0 warning`, `0 info`
 
-No open code-review findings remain for Phase 30.
+Latest review-fix chain:
 
-## Human Verification
+- `cc046a4` - enforce tenant scope for business fact authority
+- `c51b174` - remove dead projection migration helpers
+- `62bd0d0` - fail closed missing policy evidence
 
-No human-only verification is required. All Phase 30 behaviors have automated coverage.
+## UAT / Self-Check
+
+Automated self-check UAT is complete:
+
+- `.planning/phases/30-businessfactservice-boundary/30-UAT.md`
+- Status: `complete`
+- Passed: 6
+- Issues: 0
+- Blocked: 0
+
+No human-only verification is required for Phase 30; behaviors are covered by automated tests and source-boundary checks.
+
+## Artifact Scan
+
+`audit-open --json` found no current Phase 30 UAT gaps, verification gaps, or context open questions. It reported one unrelated global planning TODO for old phase-directory archive cleanup.
+
+## Security Gate
+
+No `30-SECURITY.md` artifact exists. The security enforcement config key is not set; the verify-work workflow defaults missing `workflow.security_enforcement` to enabled. Phase 30 is verification-passed, but security review should run before advancing:
+
+```bash
+$gsd-secure-phase 30
+```
 
 ## Final Status
 
-PASSED. Phase 30 is ready for completion and security review routing.
+PASSED. Phase 30 has no open verification or code-review findings. Security review remains the next gate before advancing/completing the phase.
