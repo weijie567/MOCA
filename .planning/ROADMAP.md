@@ -300,12 +300,12 @@ Plans:
 
 ### Phase 31: Memory Platform Boundary
 
-**Status:** Pending
+**Status:** Executing
 **Milestone:** v1.9 Agent Platform Foundation
 **Goal:** Separate session context, long-term memory, case memory, conversation log, workflow checkpoint, working state, and memory write policy behind clear memory service APIs.
 **Requirements**: APF-09, APF-10
 **Depends on:** Phase 30
-**Plans:** 0/6 plans complete
+**Plans:** 2/6 plans complete
 
 **Success Criteria**:
 
@@ -315,8 +315,8 @@ Plans:
 4. Memory load/write policy preserves Phase 29.5 merchant boundaries so one merchant's conversation, case, or long-term memory cannot contaminate another merchant's prompt context.
 
 Plans:
-- [ ] 31-01-PLAN.md — Wave 0 session-context and authority-boundary RED tests
-- [ ] 31-02-PLAN.md — Wave 0 reviewed-memory scope and write-policy RED tests
+- [x] 31-01-PLAN.md — Wave 0 session-context and authority-boundary RED tests
+- [x] 31-02-PLAN.md — Wave 0 reviewed-memory scope and write-policy RED tests
 - [ ] 31-03-PLAN.md — Memory context DTOs and facade contracts
 - [ ] 31-04-PLAN.md — SessionContextMemory graph-facing node and compatibility aliases
 - [ ] 31-05-PLAN.md — Reviewed memory trusted-scope retrieval boundary
