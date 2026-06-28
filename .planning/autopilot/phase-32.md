@@ -1,11 +1,11 @@
 ---
 phase: "32"
 status: running
-current_step: validate
+current_step: closeout
 plan_review_loop: 1
 quota_waits: 0
-updated_at: "2026-06-28T15:22:41Z"
-next_command: "$gsd-validate-phase 32"
+updated_at: "2026-06-28T15:34:23Z"
+next_command: "final closeout sanity check"
 ---
 
 # Phase 32 Autopilot Checkpoint
@@ -46,6 +46,7 @@ next_command: "$gsd-validate-phase 32"
 - Verify-work self-check UAT completed with 5 passed, 0 issues: `a5e9eac test(32): complete UAT - 5 passed, 0 issues`.
 - Security auditor closed 15/15 threats; `32-SECURITY.md` committed with `threats_open: 0`: `142b26f docs(phase-32): add security threat verification`.
 - Local zsh SECURITY glob issue recorded and committed: `13d904b docs(validation): record phase 32 security glob issue`.
+- Nyquist validation audit found no gaps; `32-VALIDATION.md` updated to `status: verified`, `wave_0_complete: true`, and all five task rows green: `06c3dca docs(phase-32): update validation strategy`.
 
 ## Evidence
 
@@ -65,6 +66,7 @@ next_command: "$gsd-validate-phase 32"
 - Code review fixes preserved Phase 33 deferrals and owner/admin-only authorization while adding adapter-source merchant-context coverage and canonical runtime graph identity entries.
 - UAT confirms target graph vocabulary, registry ownership, slot resolution semantics, trace/API merchant-context safety, and final static contract gates.
 - Security verification confirms all Phase 32 threat-model entries closed, no accepted risks, and no open security threats.
+- Validation confirms existing automated coverage covers APF-11/APF-12 with 0 gaps and no manual-only verifications.
 
 ## Last Failure
 
