@@ -24,6 +24,9 @@ _DIRECT_RESPONSE_INTENTS = {"small_talk", "unsupported", "out_of_scope", "genera
 _TRUSTED_REF_SOURCES = {
     "business_fact_service",
     "business_tool_service",
+    "demo_orders_db",
+    "demo_refund_cases_db",
+    "demo_tickets_db",
     "tool_platform",
     "tool_result_v2",
 }

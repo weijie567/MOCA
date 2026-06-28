@@ -177,6 +177,45 @@ def test_target_merchant_context_resolves_only_from_service_approved_business_fa
         assert forbidden not in serialized
 
 
+@pytest.mark.parametrize(
+    ("source_system", "resource_type", "resource_id"),
+    [
+        ("demo_orders_db", "order", "ORD-ADAPTER-001"),
+        ("demo_refund_cases_db", "refund_case", "REF-ADAPTER-001"),
+        ("demo_tickets_db", "ticket", "TICKET-ADAPTER-001"),
+    ],
+)
+def test_target_merchant_context_resolves_adapter_business_fact_refs(
+    source_system: str,
+    resource_type: str,
+    resource_id: str,
+) -> None:
+    projection = project_target_merchant_context(
+        {
+            "tenant_id": "tenant-001",
+            "current_intent": "refund_troubleshooting",
+            "last_business_context_refs": {
+                "business_fact_refs": [
+                    _business_fact_ref(
+                        "tenant-001",
+                        source_system=source_system,
+                        resource_type=resource_type,
+                        resource_id=resource_id,
+                    )
+                ]
+            },
+        }
+    )
+
+    assert projection == {
+        "schema_version": "target_merchant_context.v1",
+        "status": "resolved",
+        "source": "business_fact_refs",
+        "reason_codes": [],
+        "business_fact_ref_count": 1,
+    }
+
+
 def test_target_merchant_context_downgrades_spoofed_resolved_status_without_business_fact_refs():
     projection = project_target_merchant_context(
         {
@@ -237,12 +276,18 @@ def test_trace_summary_includes_safe_target_merchant_context_projection():
     }
 
 
-def _business_fact_ref(tenant_id: str, *, resource_id: str) -> dict[str, str]:
+def _business_fact_ref(
+    tenant_id: str,
+    *,
+    resource_id: str,
+    resource_type: str = "order",
+    source_system: str = "business_fact_service",
+) -> dict[str, str]:
     return {
         "schema_version": "business_fact_ref.v1",
         "tenant_id": tenant_id,
-        "source_system": "business_fact_service",
-        "resource_type": "order",
+        "source_system": source_system,
+        "resource_type": resource_type,
         "resource_id": resource_id,
         "resource_version": "v1",
         "data_freshness_at": "2026-06-28T00:00:00+00:00",
