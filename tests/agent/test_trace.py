@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -7,6 +8,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.agent.merchant_context import project_target_merchant_context
 from src.agent.trace import build_trace_summary, write_agent_run, write_agent_steps
 from src.db.models import AgentStep
 
@@ -144,3 +146,105 @@ def test_trace_summary_projects_target_graph_names_without_rewriting_legacy_node
             "target_graph_runnable": False,
         },
     ]
+
+
+def test_target_merchant_context_resolves_only_from_service_approved_business_fact_refs():
+    state = {
+        "tenant_id": "tenant-001",
+        "current_intent": "refund_troubleshooting",
+        "last_business_context_refs": {
+            "business_fact_refs": [_business_fact_ref("tenant-001", resource_id="ORD-SECRET-001")]
+        },
+        "business_context": {
+            "merchant_id": "MERCHANT-SECRET",
+            "facts": [{"order_id": "ORD-SECRET-001"}],
+            "raw_tool_payload": {"ticket_id": "TICKET-SECRET"},
+        },
+        "user_query": "请帮我查 ORD-SECRET-001",
+    }
+
+    projection = project_target_merchant_context(state)
+    serialized = json.dumps(projection, ensure_ascii=False)
+
+    assert projection == {
+        "schema_version": "target_merchant_context.v1",
+        "status": "resolved",
+        "source": "business_fact_refs",
+        "reason_codes": [],
+        "business_fact_ref_count": 1,
+    }
+    for forbidden in ("ORD-SECRET-001", "MERCHANT-SECRET", "TICKET-SECRET", "请帮我查"):
+        assert forbidden not in serialized
+
+
+def test_target_merchant_context_downgrades_spoofed_resolved_status_without_business_fact_refs():
+    projection = project_target_merchant_context(
+        {
+            "tenant_id": "tenant-001",
+            "current_intent": "refund_troubleshooting",
+            "target_merchant_context": {
+                "schema_version": "target_merchant_context.v1",
+                "status": "resolved",
+                "source": "active_slots",
+                "merchant_id": "MERCHANT-SPOOF",
+                "order_id": "ORD-SPOOF",
+            },
+            "active_slots": {"merchant_id": "MERCHANT-SPOOF", "order_id": "ORD-SPOOF"},
+            "classification_trace": {"llm_text": "merchant MERCHANT-SPOOF is selected"},
+        }
+    )
+    serialized = json.dumps(projection, ensure_ascii=False)
+
+    assert projection == {
+        "schema_version": "target_merchant_context.v1",
+        "status": "deferred",
+        "source": "business_fact_refs",
+        "reason_codes": ["TARGET_MERCHANT_CONTEXT_DEFERRED_UNTIL_BUSINESS_FACT_REF"],
+    }
+    assert "MERCHANT-SPOOF" not in serialized
+    assert "ORD-SPOOF" not in serialized
+
+
+def test_target_merchant_context_marks_direct_response_paths_not_applicable():
+    assert project_target_merchant_context({"current_intent": "small_talk"}) == {
+        "schema_version": "target_merchant_context.v1",
+        "status": "not_applicable",
+        "source": "intent_policy",
+        "reason_codes": [],
+    }
+
+
+def test_trace_summary_includes_safe_target_merchant_context_projection():
+    summary = build_trace_summary(
+        "run-merchant-context",
+        {
+            "tenant_id": "tenant-001",
+            "current_intent": "order_status_inquiry",
+            "last_business_context_refs": {
+                "business_fact_refs": [_business_fact_ref("tenant-001", resource_id="ORD-SECRET-002")]
+            },
+            "final_response": "done",
+        },
+        11,
+    )
+
+    assert summary["target_merchant_context"] == {
+        "schema_version": "target_merchant_context.v1",
+        "status": "resolved",
+        "source": "business_fact_refs",
+        "reason_codes": [],
+        "business_fact_ref_count": 1,
+    }
+
+
+def _business_fact_ref(tenant_id: str, *, resource_id: str) -> dict[str, str]:
+    return {
+        "schema_version": "business_fact_ref.v1",
+        "tenant_id": tenant_id,
+        "source_system": "business_fact_service",
+        "resource_type": "order",
+        "resource_id": resource_id,
+        "resource_version": "v1",
+        "data_freshness_at": "2026-06-28T00:00:00+00:00",
+        "retrieved_at": "2026-06-28T00:00:00+00:00",
+    }

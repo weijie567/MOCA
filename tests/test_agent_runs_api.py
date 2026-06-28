@@ -1285,7 +1285,13 @@ async def test_event_generator_synthesizes_final_response_when_stream_ends_witho
     )
     assert final_event is not None
     final_data = _event_data(final_event)
-    assert set(final_data["payload"]) == {"final_response"}
+    assert set(final_data["payload"]) == {"final_response", "target_merchant_context"}
+    assert final_data["payload"]["target_merchant_context"] == {
+        "schema_version": "target_merchant_context.v1",
+        "status": "deferred",
+        "source": "business_fact_refs",
+        "reason_codes": ["TARGET_MERCHANT_CONTEXT_DEFERRED_UNTIL_BUSINESS_FACT_REF"],
+    }
     _assert_no_investigation_fields(final_data)
     assert run.final_status == "completed"
     assert run.final_response is not None

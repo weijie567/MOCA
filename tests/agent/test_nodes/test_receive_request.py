@@ -14,6 +14,7 @@ async def test_receive_request_resets_ephemeral(base_state):
         "intent_confidence": 0.99,
         "risk_tier": "read_only",
         "classification_trace": {"old": "trace"},
+        "target_merchant_context": {"status": "resolved", "source": "spoofed"},
         "active_flow_state": {"old": "flow"},
         "secondary_intents": ["policy_qa"],
         "required_slots": {"all_of": ["order_id"], "any_of": [], "optional": []},
@@ -35,6 +36,7 @@ async def test_receive_request_resets_ephemeral(base_state):
     assert result["intent_confidence"] is None
     assert result["risk_tier"] is None
     assert result["classification_trace"] is None
+    assert result["target_merchant_context"] is None
     assert result["active_flow_state"] is None
     assert result["secondary_intents"] == []
     assert result["required_slots"] == {"all_of": [], "any_of": [], "optional": []}
@@ -158,6 +160,10 @@ def test_agent_state_declares_session_context_target_fields():
         "memory_write_decision",
     ):
         assert field in annotations
+
+
+def test_agent_state_declares_target_merchant_context_field():
+    assert "target_merchant_context" in AgentState.__annotations__
 
 
 def test_agent_state_declares_rag_verifier_fields():
