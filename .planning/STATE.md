@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
 status: executing
-stopped_at: Completed 32-02-PLAN.md
-last_updated: "2026-06-28T13:44:04.109Z"
+stopped_at: Completed 32-03-PLAN.md
+last_updated: "2026-06-28T13:53:43.176Z"
 last_activity: 2026-06-28 -- Phase 31 verified complete; ready to plan Phase 32
 progress:
   total_phases: 12
   completed_phases: 7
   total_plans: 29
-  completed_plans: 26
-  percent: 90
+  completed_plans: 27
+  percent: 93
 ---
 
 # Project State: MOCA
@@ -27,11 +27,11 @@ See: `.planning/PROJECT.md` (updated 2026-06-28)
 
 Phase: 32
 Next roadmap item: Phase 32 — Intent Graph Migration
-Plan: 32-03 next
+Plan: 32-04 next
 Status: Executing
 Last activity: 2026-06-28 -- Phase 31 verified complete; ready to plan Phase 32
 
-Progress: [█████████░] 90%
+Progress: [█████████░] 93%
 
 Planning files:
 
@@ -83,6 +83,7 @@ Latest execution metric: Phase 31 P06 — 22min, 3 tasks, 9 source/test files pl
 | Phase 30 P03 | 10min | 3 tasks | 6 files |
 | Phase 32-intent-graph-migration P32-01 | 7min | 2 tasks | 3 files |
 | Phase 32-intent-graph-migration P32-02 | 8min | 2 tasks | 6 files |
+| Phase 32-intent-graph-migration P32-03 | 10min | 2 tasks | 6 files |
 
 ## Quick Tasks Completed
 
@@ -123,6 +124,8 @@ Latest execution metric: Phase 31 P06 — 22min, 3 tasks, 9 source/test files pl
 - Phase 32 Plan 01 kept legacy LangGraph node/router names as runtime/debug names and exposed target names through src.agent.graph_vocabulary.
 - Phase 32 Plan 02 keeps LLM intent output candidate-only and records policy_owner=IntentPolicyRegistry on effective classifier traces.
 - Phase 32 Plan 02 moved effective route, risk, precedence, direct-response, and required-slot decisions behind IntentPolicyRegistry and SlotPolicyRegistry APIs.
+- Phase 32 Plan 03 moved required-slot completeness and inherited-slot acceptance behind SlotPolicyRegistry with explicit rejection reason codes.
+- Phase 32 Plan 03 keeps slot_resolution_gate as additive extract_slots trace metadata rather than a physical graph node.
 
 ### Roadmap Evolution
 
@@ -164,8 +167,8 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-28T13:44:03.842Z
-Stopped at: Completed 32-02-PLAN.md
+Last session: 2026-06-28T13:53:42.939Z
+Stopped at: Completed 32-03-PLAN.md
 Resume file: None
 Next: Phase 32 — Intent Graph Migration; old phase directory archive remains a separate cleanup todo.
 
