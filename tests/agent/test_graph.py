@@ -666,6 +666,9 @@ async def test_trace_summary_shape_uses_merged_investigate_tool_name(monkeypatch
         "run_id",
         "intent",
         "nodes_executed",
+        "target_nodes_executed",
+        "graph_projection",
+        "target_merchant_context",
         "tools_called",
         "evidence_count",
         "risk_level",
@@ -673,6 +676,9 @@ async def test_trace_summary_shape_uses_merged_investigate_tool_name(monkeypatch
         "final_status",
     }
     assert "investigate" in summary["nodes_executed"]
+    assert "investigate" in summary["target_nodes_executed"]
+    assert summary["graph_projection"]["schema_version"] == "target_graph_projection.v1"
+    assert summary["target_merchant_context"]["schema_version"] == "target_merchant_context.v1"
     assert summary["tools_called"] == ["search_policy"]
     assert summary["evidence_count"] == 1
     assert summary["final_status"] in ("completed", "insufficient_evidence", "error")
