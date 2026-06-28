@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Literal
 import uuid
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 _SHA256_PATTERN = r"^sha256:[0-9a-f]{64}$"
@@ -140,6 +140,41 @@ class SessionMemoryBundle(BaseModel):
     tool_summaries: list[SessionToolSummaryView] = Field(default_factory=list)
     slot_continuity: SlotContinuityMemoryView
     fallback_reasons: dict[str, str] = Field(default_factory=dict)
+
+
+class SessionContextMemory(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["session_context_memory.v1"] = "session_context_memory.v1"
+    authority_class: Literal["contextual_only"] = "contextual_only"
+    tenant_id: str
+    user_id: str
+    thread_id: str
+    run_id: str
+    rolling_summary: SessionRollingSummaryView | None = None
+    recent_messages: list[SessionRecentMessageView] = Field(default_factory=list)
+    tool_summaries: list[SessionToolSummaryView] = Field(default_factory=list)
+    slot_continuity: SlotContinuityMemoryView
+    fallback_reasons: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_session_memory_bundle(cls, value: Any) -> Any:
+        if isinstance(value, SessionMemoryBundle):
+            value = value.model_dump(mode="json")
+        if isinstance(value, dict) and value.get("schema_version") == "session_memory_bundle.v1":
+            value = dict(value)
+            value["schema_version"] = "session_context_memory.v1"
+            value.pop("source", None)
+        return value
+
+
+class SessionContextBundle(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["session_context_bundle.v1"] = "session_context_bundle.v1"
+    authority_class: Literal["contextual_only"] = "contextual_only"
+    session_context: SessionContextMemory
 
 
 class SessionMemoryWriteCandidate(BaseModel):

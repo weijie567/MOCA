@@ -9,7 +9,10 @@ from src.memory.context_refs import (
     SessionContextLoadStatusV1,
     SessionContextRef,
 )
+from src.memory.context_service import MemoryContextService
 from src.memory.schemas import (
+    SessionContextBundle,
+    SessionContextMemory,
     SessionMemoryBundle,
     SessionMemoryView,
     SessionMemoryWriteCandidate,
@@ -24,15 +27,18 @@ from src.memory.schemas import (
     SlotContinuityMemoryView,
 )
 from src.memory.service import MemoryService
-from src.memory.session_bundle import SessionMemoryBundleService
+from src.memory.session_bundle import SessionMemoryBundleService, project_session_context_memory
 
 __all__ = [
+    "MemoryContextService",
     "MemoryWriteDecisionV2",
     "MemoryService",
     "ReviewedMemoryContextBundle",
     "ReviewedMemoryContextRetrieveStatusV1",
     "ReviewedMemoryRef",
+    "SessionContextBundle",
     "SessionContextLoadStatusV1",
+    "SessionContextMemory",
     "SessionContextRef",
     "SessionMemoryBundle",
     "SessionMemoryBundleService",
@@ -48,4 +54,5 @@ __all__ = [
     "SessionSlotsEnvelopeV1",
     "SessionToolSummaryView",
     "SlotContinuityMemoryView",
+    "project_session_context_memory",
 ]

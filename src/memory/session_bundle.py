@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from typing import Any
 import uuid
 
 from src.conversation.service import ConversationService, PromptContextWindow
 from src.memory.schemas import (
+    SessionContextBundle,
+    SessionContextMemory,
     SessionMemoryBundle,
     SessionMemoryView,
     SessionRecentMessageView,
@@ -66,6 +69,11 @@ class SessionMemoryBundleService:
             slot_continuity=slot_continuity,
             fallback_reasons=fallback_reasons,
         )
+
+
+def project_session_context_memory(bundle: SessionMemoryBundle) -> dict[str, Any]:
+    context_memory = SessionContextMemory.model_validate(bundle)
+    return SessionContextBundle(session_context=context_memory).model_dump(mode="json")
 
 
 def _rolling_summary_view(prompt_context: PromptContextWindow | None) -> SessionRollingSummaryView | None:
