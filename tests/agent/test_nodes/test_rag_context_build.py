@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -131,6 +130,16 @@ class FakeCanonicalRetriever:
         return {key: row for key, row in self.rows.items() if key in keys}
 
 
+class CountingPolicyKnowledgeService(PolicyKnowledgeService):
+    def __init__(self, retriever: FakeCanonicalRetriever) -> None:
+        super().__init__(retriever)
+        self.build_calls = 0
+
+    async def build_verified_context(self, **kwargs: Any) -> VerifiedEvidencePackageV1:
+        self.build_calls += 1
+        return await super().build_verified_context(**kwargs)
+
+
 def _package(ref: EvidenceRefV1) -> VerifiedEvidencePackageV1:
     return VerifiedEvidencePackageV1(
         package_id="verified-evidence:run-rag-context:policy_refund_timeout/chunk_001@v3",
@@ -221,7 +230,7 @@ async def test_rag_context_build_combined_invalid_scope_stale_policy_version_and
             (invalid_hash.doc_key, invalid_hash.chunk_id): _row(invalid_hash, content="Mutated canonical text."),
         }
     )
-    service = PolicyKnowledgeService(retriever)
+    service = CountingPolicyKnowledgeService(retriever)
     malformed = {"schema_version": "evidence_ref.v1", "tenant_id": TENANT_ID}
 
     result = await rag_context_build(
@@ -239,7 +248,7 @@ async def test_rag_context_build_combined_invalid_scope_stale_policy_version_and
 
     package = result["verified_evidence_package"]
     ordinary_surface = str(package["prompt_projection"]) + str(package["verifier_projection"])
-    assert len(retriever.calls) == 1
+    assert service.build_calls == 1
     assert result["rag_context_status"] == "invalid_hash"
     assert package["evidence_map"] == {}
     assert package["citation_map"] == {}
