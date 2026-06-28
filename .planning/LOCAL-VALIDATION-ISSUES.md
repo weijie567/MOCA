@@ -5566,3 +5566,47 @@ rg -n "requirements_addressed|<threat_model>|bare `pytest`|python -m pytest|UV_C
 - `.planning/phases/32-intent-graph-migration/`
 - `AGENTS.md` 本地验证命令环境硬规则
 - zsh 搜索命令中的 Markdown 反引号转义
+
+## 2026-06-28 21:05 CST - Phase 32 Claude review wrapper 使用 zsh 只读变量 `status` 失败
+
+### 问题现象
+
+在 Phase 32 cross-AI review 阶段，外部 `claude -p` 审核本身已产出 `/tmp/gsd-review-claude-32.md`，但外层 zsh 包装命令随后执行 `status=$?` 时报错：
+
+```text
+zsh:1: read-only variable: status
+```
+
+因此该包装命令整体退出码为 1，不能直接用作 reviewer 失败证据。
+
+### 如何检测 / 复现
+
+在 zsh 中执行形如 `status=$?` 的赋值即可复现；`status` 是 zsh 的只读特殊参数。
+
+### 关键证据或命令
+
+触发问题的包装命令片段：
+
+```bash
+claude -p - < /tmp/gsd-review-prompt-32.md > /tmp/gsd-review-claude-32.md 2> /tmp/gsd-review-claude-32.err; status=$?; printf 'claude_exit=%s\n' "$status"; wc -l /tmp/gsd-review-claude-32.md /tmp/gsd-review-claude-32.err; exit "$status"
+```
+
+后续检查显示 `/tmp/gsd-review-claude-32.md` 有 275 行，`/tmp/gsd-review-claude-32.err` 为 0 行。
+
+### 当前判断 / 根因
+
+这是 zsh 特殊变量命名错误，不是 Claude review 内容失败，也不是 Phase 32 plan 问题。外部 reviewer 输出可用；失败只来自包装脚本的退出码处理。
+
+### 已做处理
+
+已检查 reviewer stdout/stderr，确认 review 内容完整，并将其写入 `.planning/phases/32-intent-graph-migration/32-REVIEWS.md`。后续 shell 包装命令应使用 `rc=$?`、`exit_code=$?` 等非保留变量名。
+
+### 剩余问题
+
+无应用代码问题。该 wrapper 退出码不作为 review 失败结论。
+
+### 下次继续排查入口
+
+- `/tmp/gsd-review-claude-32.md`
+- `/tmp/gsd-review-claude-32.err`
+- `.planning/phases/32-intent-graph-migration/32-REVIEWS.md`
