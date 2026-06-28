@@ -6212,6 +6212,48 @@ SDK 输出：
 - `.planning/STATE.md`
 - `gsd-sdk query roadmap.update-plan-progress 33`
 
+## 2026-06-29 06:13 CST - Phase 33 metadata grep command quoting error
+
+### 问题现象
+
+Phase 33 收口检查规划状态时，一条 `rg` 命令的搜索 pattern 中包含未转义反引号，zsh 将反引号内的 `.planning/PROJECT.md` 当作命令执行，产生 `permission denied: .planning/PROJECT.md`。这是检查命令写法错误，不是项目代码或规划文件失败。
+
+### 如何检测 / 复现
+
+在仓库根目录运行包含未转义反引号的 shell 命令：
+
+```bash
+rg -n "Phase: 999\.1|473 passed|Phase 31 complete|APF-13|APF-14|See: `.planning/PROJECT.md`" .planning/STATE.md .planning/PROJECT.md
+```
+
+### 关键证据或命令
+
+命令输出包含：
+
+```text
+zsh:1: permission denied: .planning/PROJECT.md
+```
+
+同时后续有效匹配显示 APF-13/APF-14 已在 `.planning/PROJECT.md` 中勾选，`STATE.md` 仍需更新 `See: .planning/PROJECT.md` 的日期。
+
+### 当前判断 / 根因
+
+shell 双引号内的反引号仍会触发命令替换；检查 pattern 不应直接包含未转义 markdown inline-code 反引号。
+
+### 已做处理
+
+已将 `.planning/STATE.md` 的 PROJECT 更新日期修正为 2026-06-29，并改用不含反引号的 `rg` pattern 进行后续状态检查。
+
+### 剩余问题
+
+无当前阻塞。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `.planning/PROJECT.md`
+- 使用单引号或去除反引号后的 `rg` pattern
+
 ## 2026-06-29 05:29 CST - Plan 33-09 final focused gate stale Phase 22 compatibility tests
 
 ### 问题现象
