@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+from src.agent.intent_policy import SLOT_POLICY_REGISTRY, SlotInheritanceContext
 from src.agent.routing import (
     detect_slot_invalidations,
     missing_required_slots,
@@ -9,6 +10,19 @@ from src.agent.routing import (
     resolve_slots_with_metadata,
     route_after_slots,
 )
+
+
+def _slot_policy_context(**overrides) -> SlotInheritanceContext:
+    values = {
+        "tenant_id": "tenant-1",
+        "user_id": "user-1",
+        "thread_id": "thread-1",
+        "intent": "refund_troubleshooting",
+        "max_age_seconds": 3600,
+        "current_time": datetime(2026, 6, 28, 12, 0, tzinfo=UTC),
+    }
+    values.update(overrides)
+    return SlotInheritanceContext(**values)
 
 
 def test_missing_required_slots_all_of_any_of_and_optional():
@@ -21,6 +35,86 @@ def test_missing_required_slots_all_of_any_of_and_optional():
     assert missing_required_slots({"all_of": [], "any_of": [["order_id", "refund_case_id"]], "optional": []}, {}) == [
         {"any_of": ["order_id", "refund_case_id"]}
     ]
+
+
+def test_slot_policy_registry_missing_required_slots_matches_router_shape():
+    missing = SLOT_POLICY_REGISTRY.missing_required_slots(
+        {"all_of": ["action_type"], "any_of": [["order_id", "refund_case_id"]], "optional": []},
+        {"order_id": "ORD-1"},
+    )
+
+    assert missing == [{"all_of": ["action_type"]}]
+
+
+def test_slot_policy_registry_accepts_trusted_session_memory() -> None:
+    decision = SLOT_POLICY_REGISTRY.accepts_inherited_slot(
+        "order_id",
+        {
+            "source": "trusted_session_memory",
+            "tenant_id": "tenant-1",
+            "user_id": "user-1",
+            "thread_id": "thread-1",
+            "expires_at": "2026-06-28T12:05:00+00:00",
+            "compatible_intents": ["refund_troubleshooting"],
+        },
+        _slot_policy_context(),
+    )
+
+    assert decision.accepted is True
+    assert decision.reason_code == "accepted"
+    assert decision.source == "trusted_session_memory"
+
+
+def test_slot_policy_registry_rejects_invalidated_slot() -> None:
+    decision = SLOT_POLICY_REGISTRY.accepts_inherited_slot(
+        "order_id",
+        {
+            "source": "trusted_session_memory",
+            "tenant_id": "tenant-1",
+            "user_id": "user-1",
+            "thread_id": "thread-1",
+            "expires_at": "2026-06-28T12:05:00+00:00",
+            "compatible_intents": ["refund_troubleshooting"],
+        },
+        _slot_policy_context(),
+        invalidation={"slot": "order_id", "reason": "negated_or_switched_context"},
+    )
+
+    assert decision.accepted is False
+    assert decision.reason_code == "slot_invalidated"
+    assert decision.source == "trusted_session_memory"
+
+
+def test_slot_policy_registry_rejects_untrusted_scope_stale_and_incompatible_slots() -> None:
+    base = {
+        "source": "trusted_session_memory",
+        "tenant_id": "tenant-1",
+        "user_id": "user-1",
+        "thread_id": "thread-1",
+        "expires_at": "2026-06-28T12:05:00+00:00",
+        "compatible_intents": ["refund_troubleshooting"],
+    }
+    cases = [
+        ({}, "missing_metadata", None),
+        ({**base, "source": "raw_memory"}, "untrusted_source", "raw_memory"),
+        ({**base, "tenant_id": "wrong-tenant"}, "tenant_mismatch", "trusted_session_memory"),
+        ({**base, "user_id": "wrong-user"}, "user_mismatch", "trusted_session_memory"),
+        ({**base, "thread_id": "wrong-thread"}, "thread_mismatch", "trusted_session_memory"),
+        ({**base, "expires_at": "2026-06-28T11:59:00+00:00"}, "stale_slot", "trusted_session_memory"),
+        ({**base, "expires_at": "not-a-date"}, "stale_slot", "trusted_session_memory"),
+        ({**base, "compatible_intents": ["order_status_inquiry"]}, "intent_incompatible", "trusted_session_memory"),
+    ]
+
+    for metadata, reason_code, source in cases:
+        decision = SLOT_POLICY_REGISTRY.accepts_inherited_slot(
+            "order_id",
+            metadata,
+            _slot_policy_context(),
+        )
+
+        assert decision.accepted is False
+        assert decision.reason_code == reason_code
+        assert decision.source == source
 
 
 def test_candidate_slots_and_stale_active_slots_do_not_satisfy_policy():
@@ -140,6 +234,25 @@ def test_slot_invalidation_prevents_trusted_session_inheritance():
     assert "order_id" not in resolved
     assert metadata["order_id"]["source"] == "invalidated_trusted_session_memory"
     assert metadata["order_id"]["invalidated_by_current_query"] is True
+    assert route_after_slots(state) == "clarification_gate"
+
+
+def test_rejected_stale_inherited_slot_resolution_is_idempotent_on_second_pass():
+    state = _trusted_state(
+        {"fresh": False, "expires_at": (datetime(2026, 6, 28, 11, 59, tzinfo=UTC)).isoformat()},
+        value="ORD-STALE",
+    )
+    state["run_started_at"] = "2026-06-28T12:00:00+00:00"
+
+    first_resolved, first_metadata = resolve_slots_with_metadata(state)
+    state["active_slots"] = first_resolved
+    state["active_slot_metadata"] = first_metadata
+    second_resolved, second_metadata = resolve_slots_with_metadata(state)
+
+    assert first_resolved == {}
+    assert second_resolved == {}
+    assert "order_id" not in first_metadata
+    assert "order_id" not in second_metadata
     assert route_after_slots(state) == "clarification_gate"
 
 
