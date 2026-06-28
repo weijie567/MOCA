@@ -27,7 +27,7 @@ from src.approvals.snapshot_service import (
 from src.approvals.snapshots import build_action_safety_snapshot
 from src.approvals.schemas import PROPOSED_ACTION_SCHEMA_VERSION
 from src.config import settings
-from src.knowledge.schemas import EvidenceRefV1, canonical_evidence_projection
+from src.knowledge.schemas import ClaimVerificationBundleV1, EvidenceRefV1, canonical_evidence_projection
 
 RISK_RULES_PATH = Path("rules/risk_rules.yaml")
 POLICY_CONFIG_VERSION = "approval-policy.v1"
@@ -164,14 +164,113 @@ def _non_allow_verification(state: AgentState) -> bool:
     return route is not None and route != "allow"
 
 
-def _blocked_verifier_risk(state: AgentState) -> dict[str, Any]:
+def _action_requires_claim_bundle(state: AgentState, draft: dict[str, Any]) -> bool:
+    if state.get("proposed_action"):
+        return True
+    action = draft.get("recommended_action")
+    return action not in NO_ACTION_RECOMMENDATIONS and _is_actionable_recommendation(action)
+
+
+def _claim_verification_bundle(state: AgentState) -> dict[str, Any] | None:
+    raw_bundle = state.get("claim_verification_bundle")
+    if raw_bundle is None:
+        return None
+    if isinstance(raw_bundle, ClaimVerificationBundleV1):
+        return raw_bundle.model_dump(mode="python")
+    if isinstance(raw_bundle, dict):
+        try:
+            return ClaimVerificationBundleV1.model_validate(raw_bundle).model_dump(mode="python")
+        except ValidationError:
+            return {
+                "overall_status": "error",
+                "route": "final_response",
+                "claim_results": [],
+                "blocked_claims": ["malformed_claim_verification_bundle"],
+                "safe_support_refs": [],
+            }
+    return {
+        "overall_status": "error",
+        "route": "final_response",
+        "claim_results": [],
+        "blocked_claims": ["malformed_claim_verification_bundle"],
+        "safe_support_refs": [],
+    }
+
+
+def _claim_bundle_blocks_action(state: AgentState, draft: dict[str, Any]) -> bool:
+    if not _action_requires_claim_bundle(state, draft):
+        return False
+    bundle = _claim_verification_bundle(state)
+    if bundle is None:
+        return True
+    if bundle.get("route") != "continue":
+        return True
+    if bundle.get("overall_status") not in {"verified", "not_required"}:
+        return True
+    if _non_empty_list(state.get("blocked_claims")) or _non_empty_list(bundle.get("blocked_claims")):
+        return True
+    return _action_claim_result_disallows_action(bundle)
+
+
+def _action_claim_result_disallows_action(bundle: dict[str, Any]) -> bool:
+    for raw_result in bundle.get("claim_results") or []:
+        result = raw_result.model_dump(mode="python") if hasattr(raw_result, "model_dump") else raw_result
+        if not isinstance(result, dict):
+            continue
+        claim_type = result.get("claim_type") or result.get("authority_class")
+        if claim_type == "action_recommendation" and result.get("allows_action_recommendation") is False:
+            return True
+    return False
+
+
+def _non_empty_list(value: Any) -> bool:
+    return isinstance(value, list) and bool(value)
+
+
+def _action_gate_block_reason(state: AgentState, draft: dict[str, Any]) -> str | None:
+    if _non_allow_verification(state):
+        return "legacy_verifier_not_allow"
+    if _claim_bundle_blocks_action(state, draft):
+        return "claim_verification_not_allow"
+    return None
+
+
+def _blocked_verifier_risk(state: AgentState, reason_code: str | None = None) -> dict[str, Any]:
     route = _verification_route(state)
     risk_level = "manual_review" if route == "manual_review" else "blocked" if route == "refuse" else "low"
+    reason = (
+        "Claim verification did not allow action assessment."
+        if reason_code == "claim_verification_not_allow"
+        else "Recommendation verification did not allow action assessment."
+    )
     return {
         "risk_level": risk_level,
-        "risk_reason": "Recommendation verification did not allow action assessment.",
+        "risk_reason": reason,
         "approval_required": False,
-        "rule_ref": "PHASE22-VERIFY",
+        "rule_ref": "PHASE33-CLAIM-VERIFY" if reason_code == "claim_verification_not_allow" else "PHASE22-VERIFY",
+    }
+
+
+def _blocked_action_gate_state(state: AgentState, started_at: str, reason_code: str) -> dict[str, Any]:
+    bundle = _claim_verification_bundle(state)
+    return {
+        "risk_assessment": _blocked_verifier_risk(state, reason_code),
+        "proposed_action": None,
+        "approval_plan": None,
+        "approval_result": None,
+        "action_draft": None,
+        "draft_outcome": None,
+        "action_result": None,
+        "action_payload_hash": None,
+        "safety_snapshot_ref": None,
+        "safety_snapshot_hash": None,
+        "safety_snapshot_verified": False,
+        "auto_allowed": False,
+        "rag_verification": state.get("rag_verification"),
+        "claim_verification_bundle": state.get("claim_verification_bundle"),
+        "blocked_claims": list(state.get("blocked_claims") or (bundle or {}).get("blocked_claims") or []),
+        "safe_support_refs": list(state.get("safe_support_refs") or (bundle or {}).get("safe_support_refs") or []),
+        "trace_steps": (state.get("trace_steps") or []) + [_trace_step("blocked", started_at)],
     }
 
 
@@ -262,27 +361,69 @@ def _normalize_timestamp(value: str) -> str:
 
 
 def _evidence_refs_from_state(state: AgentState, draft: dict[str, Any]) -> list[EvidenceRefV1]:
-    candidates: list[Any] = []
-    for value in (
-        state.get("evidence_refs"),
-        draft.get("evidence_refs"),
-        (state.get("retrieved_evidence") or {}).get("evidence_refs")
-        if isinstance(state.get("retrieved_evidence"), dict)
-        else None,
-    ):
-        if isinstance(value, list) and value:
-            candidates = value
-            break
+    candidates = _safe_support_ref_candidates(state)
     if not candidates:
-        raise ValueError("missing evidence_refs")
+        raise ValueError("missing safe_support_refs")
 
     refs: list[EvidenceRefV1] = []
+    evidence_map = _verified_evidence_map(state)
     for candidate in candidates:
-        item = candidate.model_dump() if hasattr(candidate, "model_dump") else dict(candidate)
+        item = _evidence_ref_item(candidate, evidence_map)
+        if item is None:
+            continue
         if isinstance(item.get("retrieved_at"), str):
             item["retrieved_at"] = _normalize_timestamp(item["retrieved_at"])
         refs.append(EvidenceRefV1.model_validate(item))
+    if not refs:
+        raise ValueError("missing safe_support_refs")
     return refs
+
+
+def _safe_support_ref_candidates(state: AgentState) -> list[Any]:
+    bundle = _claim_verification_bundle(state)
+    for value in ((bundle or {}).get("safe_support_refs"), state.get("safe_support_refs")):
+        if isinstance(value, list) and value:
+            return value
+    return []
+
+
+def _verified_evidence_map(state: AgentState) -> dict[str, Any]:
+    refs: dict[str, Any] = {}
+    for raw_map in (_package_evidence_map(state.get("verified_evidence_package")), state.get("evidence_map")):
+        if not isinstance(raw_map, dict):
+            continue
+        for key, value in raw_map.items():
+            evidence_id = _evidence_id(value) or str(key)
+            refs[evidence_id] = value
+    return refs
+
+
+def _package_evidence_map(package: Any) -> dict[str, Any]:
+    if hasattr(package, "evidence_map"):
+        return dict(package.evidence_map)
+    if isinstance(package, dict) and isinstance(package.get("evidence_map"), dict):
+        return package["evidence_map"]
+    return {}
+
+
+def _evidence_id(value: Any) -> str | None:
+    if isinstance(value, EvidenceRefV1):
+        return value.evidence_id
+    if isinstance(value, dict) and isinstance(value.get("evidence_id"), str):
+        return value["evidence_id"]
+    return None
+
+
+def _evidence_ref_item(candidate: Any, evidence_map: dict[str, Any]) -> dict[str, Any] | None:
+    value = evidence_map.get(candidate) if isinstance(candidate, str) else candidate
+    if isinstance(value, EvidenceRefV1):
+        return value.model_dump()
+    if hasattr(value, "model_dump"):
+        dumped = value.model_dump()
+        return dumped if isinstance(dumped, dict) else None
+    if isinstance(value, dict):
+        return dict(value)
+    return None
 
 
 def _allow_ephemeral_snapshot_binding(state: AgentState, config: RunnableConfig | None) -> bool:
@@ -439,19 +580,9 @@ async def assess_risk_and_approval(state: AgentState, config: RunnableConfig = N
     draft = state.get("recommendation_draft") or {}
     context = state.get("business_context") or {}
 
-    if _non_allow_verification(state):
-        return {
-            "risk_assessment": _blocked_verifier_risk(state),
-            "proposed_action": None,
-            "approval_result": None,
-            "action_draft": None,
-            "action_payload_hash": None,
-            "safety_snapshot_ref": None,
-            "safety_snapshot_hash": None,
-            "safety_snapshot_verified": False,
-            "rag_verification": state.get("rag_verification"),
-            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("blocked", started_at)],
-        }
+    block_reason = _action_gate_block_reason(state, draft)
+    if block_reason is not None:
+        return _blocked_action_gate_state(state, started_at, block_reason)
 
     if draft.get("recommended_action") in NO_ACTION_RECOMMENDATIONS:
         assessment = _fallback_risk(draft, context, rules)
@@ -651,20 +782,10 @@ def _recommendation_summary(draft: dict[str, Any]) -> str:
 
 
 def _policy_refs_from_state(state: AgentState, draft: dict[str, Any]) -> list[dict[str, Any]]:
-    candidates = []
-    for value in (
-        state.get("evidence_refs"),
-        draft.get("evidence_refs"),
-        (state.get("retrieved_evidence") or {}).get("evidence_refs")
-        if isinstance(state.get("retrieved_evidence"), dict)
-        else None,
-    ):
-        if isinstance(value, list) and value:
-            candidates = value
-            break
     refs: list[dict[str, Any]] = []
-    for item in candidates:
-        mapping = item.model_dump(mode="json") if hasattr(item, "model_dump") else item
+    evidence_map = _verified_evidence_map(state)
+    for item in _safe_support_ref_candidates(state):
+        mapping = _evidence_ref_item(item, evidence_map)
         if isinstance(mapping, dict):
             refs.append(
                 {

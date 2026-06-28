@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -14,6 +15,32 @@ from tests.agent.conftest import FakeLLM
 SHOULD_NOT_APPEAR_RAW_TOOL_DATA = "SHOULD_NOT_APPEAR_RAW_TOOL_DATA"
 SHOULD_NOT_APPEAR_APPROVAL_BODY = "SHOULD_NOT_APPEAR_APPROVAL_BODY"
 SHOULD_NOT_APPEAR_NESTED_REPR = "{'nested': ['RAW']}"
+
+
+def _allowing_claim_bundle() -> dict[str, Any]:
+    return {
+        "schema_version": "claim_verification_bundle.v1",
+        "overall_status": "verified",
+        "route": "continue",
+        "claim_results": [
+            {
+                "schema_version": "claim_verification_result.v1",
+                "claim_id": "claim-action-1",
+                "claim_type": "action_recommendation",
+                "support_status": "supported",
+                "supporting_evidence_refs": [],
+                "business_fact_refs": [],
+                "rule_checks": [],
+                "semantic_review_status": "not_needed",
+                "allows_user_visible_claim": True,
+                "allows_action_recommendation": True,
+            }
+        ],
+        "blocked_claims": [],
+        "safe_support_refs": [],
+        "reason_codes": [],
+        "verifier_policy_version": "claim-verifier.v1",
+    }
 
 
 class RaisingLLM:
@@ -128,6 +155,7 @@ async def test_actionable_recommendation_still_proposes_action(monkeypatch, base
             "recommended_action": "issue_coupon",
             "reasoning_summary": "Issue a small service recovery coupon.",
         },
+        "claim_verification_bundle": _allowing_claim_bundle(),
         "business_context": {"order": {"id": "order-1", "status": "paid"}},
     }
 
@@ -187,6 +215,7 @@ async def test_chinese_full_refund_delivered_order_matches_high_risk(monkeypatch
             "risk_level": "low",
             "missing_info": [],
         },
+        "claim_verification_bundle": _allowing_claim_bundle(),
         "business_context": {"order": {"status": "delivered"}},
     }
 
@@ -233,6 +262,7 @@ async def test_programming_error_propagates(monkeypatch, base_state):
             "recommended_action": "issue_coupon",
             "reasoning_summary": "Issue a small service recovery coupon.",
         },
+        "claim_verification_bundle": _allowing_claim_bundle(),
         "business_context": {},
     }
 
@@ -249,6 +279,7 @@ async def test_expected_error_retries_then_falls_back(monkeypatch, base_state):
             "recommended_action": "issue_coupon",
             "reasoning_summary": "Issue a small service recovery coupon.",
         },
+        "claim_verification_bundle": _allowing_claim_bundle(),
         "business_context": {},
     }
 

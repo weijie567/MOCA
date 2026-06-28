@@ -13,6 +13,8 @@ LLM nodes use RetryPolicy(max_attempts=2) per D-10a.
 
 from __future__ import annotations
 
+from typing import Any
+
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import RetryPolicy
@@ -84,9 +86,49 @@ def _verification_allows_action_path(state: AgentState) -> bool:
         route_value = rag_verification.get("route")
         if isinstance(route_value, dict):
             route = route_value.get("route")
-    if route is None:
+    if route is not None and route != "allow":
+        return False
+    return not _claim_bundle_blocks_action_path(state)
+
+
+def _claim_bundle_blocks_action_path(state: AgentState) -> bool:
+    if not state.get("proposed_action"):
+        return False
+    bundle = _bundle_mapping(state.get("claim_verification_bundle"))
+    if bundle is None:
         return True
-    return route == "allow"
+    if bundle.get("route") != "continue":
+        return True
+    if bundle.get("overall_status") not in {"verified", "not_required"}:
+        return True
+    if _non_empty_list(state.get("blocked_claims")) or _non_empty_list(bundle.get("blocked_claims")):
+        return True
+    for result in bundle.get("claim_results") or []:
+        if _action_claim_disallows_action(result):
+            return True
+    return False
+
+
+def _bundle_mapping(raw_bundle: Any) -> dict[str, Any] | None:
+    if isinstance(raw_bundle, dict):
+        return raw_bundle
+    if hasattr(raw_bundle, "model_dump"):
+        dumped = raw_bundle.model_dump(mode="python")
+        return dumped if isinstance(dumped, dict) else None
+    return None
+
+
+def _action_claim_disallows_action(raw_result: Any) -> bool:
+    if hasattr(raw_result, "model_dump"):
+        raw_result = raw_result.model_dump(mode="python")
+    if not isinstance(raw_result, dict):
+        return False
+    claim_type = raw_result.get("claim_type") or raw_result.get("authority_class")
+    return claim_type == "action_recommendation" and raw_result.get("allows_action_recommendation") is False
+
+
+def _non_empty_list(value: Any) -> bool:
+    return isinstance(value, list) and bool(value)
 
 
 def route_after_approval(state: AgentState) -> str:

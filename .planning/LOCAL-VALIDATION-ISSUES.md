@@ -6377,3 +6377,57 @@ ROADMAP 问题与 Plan 33-03/33-04 已记录的 GSD SDK 与 MOCA ROADMAP 格式�
 - `.planning/STATE.md`
 - `gsd-sdk query roadmap.update-plan-progress 33`
 - `gsd-sdk query state.record-metric`
+
+## 2026-06-29 04:18 CST - Plan 33-06 claim bundle/action boundary TDD RED failures
+
+### 问题现象
+
+Plan 33-06 TDD RED 阶段新增的 action-boundary 负例按预期失败：risk 节点仍忽略 `claim_verification_bundle` / `blocked_claims` / `allows_action_recommendation`，继续进入 risk LLM；candidate-only `retrieved_evidence.evidence_refs` 仍会被绑定进 action snapshot evidence；`action_draft` 在 claim bundle 阻断时未优先返回 verifier block。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_action_boundary.py -q --tb=short
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_assess_risk_and_approval.py::test_missing_claim_bundle_for_actionable_recommendation_withholds_action -q --tb=short
+```
+
+### 关键证据或命令
+
+失败断言包括：
+
+```text
+AssertionError: non-allow verifier outcomes must block before risk LLM or action proposal
+AssertionError: missing claim bundle must block before risk LLM or action proposal
+AssertionError: assert 'policy_refund_timeout/chunk_001@v2' not in {'policy_refund_timeout/chunk_001@v2'}
+AssertionError: assert 'MISSING_TRUSTED_CONTEXT' == 'VERIFIER_NOT_ALLOW'
+```
+
+### 当前判断 / 根因
+
+RED 失败是 TDD 预期结果：`assess_risk_and_approval` 只读取 legacy `rag_verification` / `verification_route`，snapshot evidence fallback 仍读取 candidate refs；`action_draft` 也只读取 legacy verifier route。Plan 33-05 已引入 claim bundle 字段，但下游 risk/action gate 尚未消费这些 authoritative 字段。
+
+### 已做处理
+
+已实现 bundle-aware fail-closed guards：non-`continue` bundle、非空 blocked claims、action claim `allows_action_recommendation=False`、以及 proposed action 缺失 bundle 都会清除/拒绝 action-capable state。Snapshot evidence 只从 `claim_verification_bundle.safe_support_refs` / `state["safe_support_refs"]` 及 verified package `evidence_map` 映射得到，不再从 candidate-only refs fallback。`graph.route_after_risk` 也增加了同类防御性阻断。
+
+随后用有效入口重跑并通过：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_action_boundary.py tests/agent/test_nodes/test_assess_risk_and_approval.py tests/architecture/test_action_draft_boundaries.py -q --tb=short
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py -q --tb=short
+uv run ruff check src/agent/nodes/assess_risk_and_approval.py src/agent/nodes/action_draft.py src/agent/graph.py tests/agent/test_phase22_action_boundary.py tests/agent/test_nodes/test_assess_risk_and_approval.py tests/architecture/test_action_draft_boundaries.py
+git diff --check
+```
+
+### 剩余问题
+
+无当前阻塞。`rg -n "retrieved_evidence|policy_evidence" src/agent/nodes/assess_risk_and_approval.py src/agent/nodes/action_draft.py` 仍会命中 `action_draft.py` 的 `policy_evidence_refs` 字段名，但该字段属于 `ToolResultV2` 错误包装，不是 action snapshot evidence fallback。
+
+### 下次继续排查入口
+
+- `src/agent/nodes/assess_risk_and_approval.py`
+- `src/agent/nodes/action_draft.py`
+- `src/agent/graph.py`
+- `tests/agent/test_phase22_action_boundary.py`

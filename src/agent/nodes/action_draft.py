@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from src.actions.schemas import DraftOutcomeV1
 from src.agent.state import AgentState
 from src.approvals.schemas import TrustedApprovalResultV1
+from src.knowledge.schemas import ClaimVerificationBundleV1
 from src.platform.context_projections import project_to_tool_context
 from src.platform.trusted_context import TrustedContext
 from src.tools.contracts import ToolCallContext, ToolError, ToolResultV2
@@ -108,7 +109,65 @@ def _verification_route(state: AgentState) -> str | None:
 
 def _verification_blocks_action(state: AgentState) -> bool:
     route = _verification_route(state)
-    return route is not None and route != "allow"
+    if route is not None and route != "allow":
+        return True
+    return _claim_bundle_blocks_action(state)
+
+
+def _claim_verification_bundle(state: AgentState) -> dict[str, Any] | None:
+    raw_bundle = state.get("claim_verification_bundle")
+    if raw_bundle is None:
+        return None
+    if isinstance(raw_bundle, ClaimVerificationBundleV1):
+        return raw_bundle.model_dump(mode="python")
+    if isinstance(raw_bundle, dict):
+        try:
+            return ClaimVerificationBundleV1.model_validate(raw_bundle).model_dump(mode="python")
+        except ValidationError:
+            return {
+                "overall_status": "error",
+                "route": "final_response",
+                "claim_results": [],
+                "blocked_claims": ["malformed_claim_verification_bundle"],
+                "safe_support_refs": [],
+            }
+    return {
+        "overall_status": "error",
+        "route": "final_response",
+        "claim_results": [],
+        "blocked_claims": ["malformed_claim_verification_bundle"],
+        "safe_support_refs": [],
+    }
+
+
+def _claim_bundle_blocks_action(state: AgentState) -> bool:
+    if not state.get("proposed_action"):
+        return False
+    bundle = _claim_verification_bundle(state)
+    if bundle is None:
+        return True
+    if bundle.get("route") != "continue":
+        return True
+    if bundle.get("overall_status") not in {"verified", "not_required"}:
+        return True
+    if _non_empty_list(state.get("blocked_claims")) or _non_empty_list(bundle.get("blocked_claims")):
+        return True
+    return _action_claim_result_disallows_action(bundle)
+
+
+def _action_claim_result_disallows_action(bundle: dict[str, Any]) -> bool:
+    for raw_result in bundle.get("claim_results") or []:
+        result = raw_result.model_dump(mode="python") if hasattr(raw_result, "model_dump") else raw_result
+        if not isinstance(result, dict):
+            continue
+        claim_type = result.get("claim_type") or result.get("authority_class")
+        if claim_type == "action_recommendation" and result.get("allows_action_recommendation") is False:
+            return True
+    return False
+
+
+def _non_empty_list(value: Any) -> bool:
+    return isinstance(value, list) and bool(value)
 
 
 def _action_error_result(result: ToolResultV2) -> dict[str, Any]:
