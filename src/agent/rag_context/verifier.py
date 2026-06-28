@@ -687,7 +687,12 @@ def _contextual_source_reason_codes(
         return []
     reason_codes: list[str] = []
     has_memory = bool(
-        contextual.get("session_memory") or contextual.get("case_memory") or contextual.get("prior_summaries")
+        contextual.get("session_memory")
+        or contextual.get("case_memory")
+        or contextual.get("prior_summaries")
+        or contextual.get("session_context_refs")
+        or contextual.get("reviewed_memory_refs")
+        or contextual.get("memory_status_refs")
     )
     has_model = bool(contextual.get("model_knowledge"))
     has_provenance = bool(
