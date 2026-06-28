@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import json
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
@@ -13,9 +14,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.trace import write_agent_run
 from src.api.main import app
+from src.agent.merchant_context import project_target_merchant_context
 from src.api.routers.agent_runs import (
+    ADMIN_RUN_VISIBILITY_ROLES,
     APPROVAL_NOT_EXECUTABLE,
     _dedupe_evidence_refs,
+    _ensure_can_execute_run,
+    _ensure_can_view_run,
     _event_generator,
     _extract_step_payload,
     _sse_event,
@@ -1097,6 +1102,67 @@ async def test_run_visibility_supervisor_approval_manager_get_403(
         assert status_response.json()["error"]["code"] == "FORBIDDEN"
         assert evidence_response.status_code == 403
         assert evidence_response.json()["error"]["code"] == "FORBIDDEN"
+
+
+def test_agent_run_visibility_guards_remain_admin_only_and_ignore_target_merchant_context():
+    resolved_context = project_target_merchant_context(
+        {
+            "tenant_id": "tenant-001",
+            "current_intent": "refund_troubleshooting",
+            "last_business_context_refs": {
+                "business_fact_refs": [
+                    {
+                        "schema_version": "business_fact_ref.v1",
+                        "tenant_id": "tenant-001",
+                        "source_system": "business_fact_service",
+                        "resource_type": "order",
+                        "resource_id": "ORD-403",
+                        "resource_version": "v1",
+                        "data_freshness_at": "2026-06-28T00:00:00+00:00",
+                        "retrieved_at": "2026-06-28T00:00:00+00:00",
+                    }
+                ]
+            },
+        }
+    )
+
+    assert resolved_context["status"] == "resolved"
+    assert ADMIN_RUN_VISIBILITY_ROLES == {"admin"}
+    assert "target_merchant_context" not in inspect.getsource(_ensure_can_view_run)
+    assert "target_merchant_context" not in inspect.getsource(_ensure_can_execute_run)
+
+
+@pytest.mark.asyncio
+async def test_run_status_evidence_and_stream_reject_non_owner_business_and_ghost_roles(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+):
+    owner = seeded_session["users"]["admin_user"]
+    run = await _create_run(session, tenant_id=owner.tenant_id, user_id=owner.id, final_status="completed")
+    pending_run = await _create_run(session, tenant_id=owner.tenant_id, user_id=owner.id, final_status="pending")
+    support = seeded_session["users"]["cs_zhang"]
+    manager = await _create_same_tenant_role_user(session, seeded_session, "manager")
+    merchant = await _create_same_tenant_role_user(session, seeded_session, "merchant")
+    supervisor = await _create_same_tenant_role_user(session, seeded_session, "supervisor")
+    approval_manager = await _create_same_tenant_role_user(session, seeded_session, "approval_manager")
+    await session.commit()
+
+    for viewer in (support, manager, merchant, supervisor, approval_manager):
+        headers = _auth_header(viewer, ["agent:chat"])
+        status_response = await client.get(f"/api/v1/agent-runs/{run.id}", headers=headers)
+        evidence_response = await client.get(f"/api/v1/agent-runs/{run.id}/evidence", headers=headers)
+        stream_response = await client.get(f"/api/v1/agent-runs/{pending_run.id}/events", headers=headers)
+
+        assert status_response.status_code == 403
+        assert status_response.json()["error"]["code"] == "FORBIDDEN"
+        assert evidence_response.status_code == 403
+        assert evidence_response.json()["error"]["code"] == "FORBIDDEN"
+        assert stream_response.status_code == 403
+        assert stream_response.json()["error"]["code"] == "FORBIDDEN"
+
+    await session.refresh(pending_run)
+    assert pending_run.final_status == "pending"
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import UUID, uuid4
@@ -9,6 +10,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.trace import write_agent_run
+from src.api.routers import traces as traces_router
 from src.auth.jwt import create_access_token, hash_password
 from src.db.models import ActionDraft, AgentStep, ApprovalRequest, ApprovalStep, User
 from src.repositories.trace_repo import TraceRepository
@@ -116,6 +118,37 @@ async def test_get_run_trace_supervisor_approval_manager_get_403(
     await session.commit()
 
     for viewer in (supervisor, approval_manager):
+        response = await client.get(
+            f"/api/v1/agent-runs/{run_id}/trace",
+            headers=_auth_header(viewer, ["agent:chat"]),
+        )
+
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "FORBIDDEN"
+
+
+def test_trace_and_replay_visibility_guards_remain_admin_only_and_ignore_target_merchant_context():
+    assert traces_router.ADMIN_RUN_VISIBILITY_ROLES == {"admin"}
+    assert "target_merchant_context" not in inspect.getsource(traces_router.get_run_trace)
+    assert "target_merchant_context" not in inspect.getsource(traces_router.get_run_replay)
+
+
+@pytest.mark.asyncio
+async def test_get_run_trace_business_and_ghost_non_owner_roles_get_403(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+):
+    owner = seeded_session["users"]["admin_user"]
+    run_id = await _create_trace_run(session, tenant_id=owner.tenant_id, user_id=owner.id)
+    support = seeded_session["users"]["cs_zhang"]
+    manager = await _create_same_tenant_role_user(session, seeded_session, "manager")
+    merchant = await _create_same_tenant_role_user(session, seeded_session, "merchant")
+    supervisor = await _create_same_tenant_role_user(session, seeded_session, "supervisor")
+    approval_manager = await _create_same_tenant_role_user(session, seeded_session, "approval_manager")
+    await session.commit()
+
+    for viewer in (support, manager, merchant, supervisor, approval_manager):
         response = await client.get(
             f"/api/v1/agent-runs/{run_id}/trace",
             headers=_auth_header(viewer, ["agent:chat"]),
