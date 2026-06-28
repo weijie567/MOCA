@@ -31,3 +31,4 @@ class SseEventPayload(BaseModel):
     final_response: str | None = None
     error_code: str | None = None
     error_message: str | None = None
+    rag_claim_summary: dict[str, Any] | None = None

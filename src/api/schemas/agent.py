@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -23,6 +25,7 @@ class TraceSummary(BaseModel):
     risk_level: str
     total_latency_ms: int
     final_status: str
+    rag_claim_summary: dict[str, Any] | None = None
 
 
 class ChatResponse(BaseModel):

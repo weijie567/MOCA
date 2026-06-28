@@ -24,6 +24,7 @@ from src.agent.graph_vocabulary import target_graph_name
 from src.agent.merchant_context import project_target_merchant_context
 from src.agent.nodes.memory_write import memory_write
 from src.agent.nodes.final_response import final_response as build_final_response
+from src.agent.rag_claim_summary import build_rag_claim_summary
 from src.agent.trace import append_agent_steps, build_trace_summary, update_agent_run_status, write_agent_run, write_agent_steps
 from src.api.services.agent_run_memory import finalize_completed_agent_run_memory
 from src.api.schemas.agent_runs import CreateRunRequest, RunStatusResponse
@@ -328,6 +329,8 @@ async def _event_generator_from_graph_updates(
 
             step_index += 1
             message = NODE_MESSAGES.get(node_name, f"正在执行 {node_name}")
+            payload = _extract_step_payload(node_name, update)
+            started_payload = _started_step_payload(payload)
             yield _sse_event(
                 event_type="step_started",
                 run_id=run_id_str,
@@ -335,10 +338,9 @@ async def _event_generator_from_graph_updates(
                 node_name=node_name,
                 status="running",
                 message=message,
-                payload={},
+                payload=started_payload,
             )
 
-            payload = _extract_step_payload(node_name, update)
             yield _sse_event(
                 event_type="step_completed",
                 run_id=run_id_str,
@@ -1089,7 +1091,16 @@ def _extract_step_payload(node_name: str, update: Any) -> dict[str, Any]:
         if tool_name:
             payload["tool_name"] = tool_name
 
+    rag_claim_summary = build_rag_claim_summary(update_mapping)
+    if rag_claim_summary is not None:
+        payload["rag_claim_summary"] = rag_claim_summary
+
     return payload
+
+
+def _started_step_payload(completed_payload: dict[str, Any]) -> dict[str, Any]:
+    rag_claim_summary = completed_payload.get("rag_claim_summary")
+    return {"rag_claim_summary": rag_claim_summary} if rag_claim_summary is not None else {}
 
 
 def _dedupe_evidence_refs(ref_groups: Any) -> list[dict[str, Any]]:

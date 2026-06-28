@@ -42,6 +42,7 @@ async def get_run_trace(
     approval_steps = await repo.get_approval_steps([approval.id for approval in approvals])
     drafts = await repo.get_action_drafts(run_uuid)
     timeline = repo.build_timeline(steps, approvals, approval_steps, drafts)
+    rag_claim_summary = repo.build_rag_claim_summary(steps)
 
     trace_data = TraceResponse(
         run_id=str(run.id),
@@ -62,11 +63,12 @@ async def get_run_trace(
             for draft in drafts
         ],
         timeline=timeline,
+        rag_claim_summary=rag_claim_summary,
     )
 
     return ApiResponse(
         success=True,
-        data=trace_data.model_dump(mode="json"),
+        data=trace_data.model_dump(mode="json", exclude_none=True),
         trace_id=getattr(request.state, "trace_id", None),
     )
 

@@ -75,3 +75,4 @@ class ReplayResponseV3(BaseModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     timeline: list[ReplayEventV3]
+    rag_claim_summary: dict[str, Any] | None = None

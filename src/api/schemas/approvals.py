@@ -91,3 +91,4 @@ class TraceResponse(BaseModel):
     approvals: list[ApprovalResponse]
     action_drafts: list[dict[str, Any]]
     timeline: list[dict[str, Any]]
+    rag_claim_summary: dict[str, Any] | None = None

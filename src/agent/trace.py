@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.graph_vocabulary import project_trace_step_for_contract
 from src.agent.merchant_context import project_target_merchant_context
+from src.agent.rag_claim_summary import build_rag_claim_summary_from_sources
 from src.db.models import AgentRun, AgentStep
 from src.replay.lifecycle import RunLifecycleService
 
@@ -270,7 +271,7 @@ def build_trace_summary(
 
     risk = final_state.get("risk_assessment") or {}
 
-    return {
+    summary = {
         "run_id": run_id,
         "intent": final_state.get("current_intent") or "unknown",
         "nodes_executed": nodes_executed,
@@ -286,6 +287,12 @@ def build_trace_summary(
         "total_latency_ms": total_latency_ms,
         "final_status": _derive_final_status(final_state),
     }
+    rag_claim_summary = build_rag_claim_summary_from_sources(
+        [final_state, *(step.get("metrics_json") for step in trace_steps if isinstance(step, dict))]
+    )
+    if rag_claim_summary is not None:
+        summary["rag_claim_summary"] = rag_claim_summary
+    return summary
 
 
 def _derive_final_status(state: dict[str, Any]) -> str:

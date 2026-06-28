@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.actions.schemas import DraftOutcomeV1
 from src.agent.graph_vocabulary import project_trace_step_for_contract
+from src.agent.rag_claim_summary import build_rag_claim_summary_from_sources
 from src.db.models import ActionDraft, AgentRun, AgentStep, ApprovalRequest, ApprovalStep
 
 _DRAFT_OUTCOME_KEYS = frozenset(
@@ -126,6 +127,9 @@ class TraceRepository:
 
         timeline.sort(key=lambda item: item["time"])
         return timeline
+
+    def build_rag_claim_summary(self, steps: list[AgentStep]) -> dict[str, Any] | None:
+        return build_rag_claim_summary_from_sources([step.metrics_json for step in steps])
 
 
 def _safe_proposed_action(action: dict[str, Any] | None) -> dict[str, Any]:

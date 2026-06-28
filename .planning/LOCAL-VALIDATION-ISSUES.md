@@ -6212,6 +6212,59 @@ SDK 输出：
 - `.planning/STATE.md`
 - `gsd-sdk query roadmap.update-plan-progress 33`
 
+## 2026-06-29 05:34 CST - Plan 33-08 rag_claim_summary GREEN 验证失败已处理
+
+### 问题现象
+
+Plan 33-08 GREEN 阶段首次运行聚焦测试时，先出现导入期失败，随后出现两个 `rag_claim_summary` 断言失败。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_trace.py tests/test_agent_runs_api.py tests/test_trace_api.py tests/replay/test_replay_api.py -q --tb=short
+```
+
+### 关键证据或命令
+
+首次失败为 `ImportError: cannot import name 'RunLifecycleService' from partially initialized module 'src.replay.lifecycle'`，原因是 replay service 从 `src.agent.trace` 导入新增 summary helper，而 `src.agent.trace` 已依赖 replay lifecycle。
+
+修复导入环后，聚焦测试剩余失败为：
+
+```text
+KeyError: 'rag_claim_summary'
+AssertionError: {'safe_support_ref_count': 0} != {'safe_support_ref_count': 1}
+```
+
+### 当前判断 / 根因
+
+summary helper 放在 `src.agent.trace` 会造成 replay lifecycle/import 环。SSE update-stream 模式中的 `step_started` 是合成事件，测试先取到了同一节点的 started 事件而不是 completed 事件。持久化 trace metrics 只有 `safe_support_ref_count` 计数、没有 verified evidence map，helper 错误地用缺失 evidence map 将 safe support 计数归零。
+
+### 已做处理
+
+新增无 replay 依赖的 `src/agent/rag_claim_summary.py` 承载 summary/sanitize helper。SSE update-stream 的合成 `step_started` 事件只透出 safe `rag_claim_summary`。metrics-only 来源在没有 evidence map 时信任已存储的 `safe_support_ref_count`。
+
+随后用有效入口重跑并通过：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_agent_runs_api.py::test_event_generator_projects_allowlisted_rag_claim_summary_in_step_payload tests/test_trace_api.py::test_get_run_trace_exposes_allowlisted_rag_claim_summary_from_scoped_run -q --tb=short
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_trace.py tests/test_agent_runs_api.py tests/test_trace_api.py tests/replay/test_replay_api.py -q --tb=short
+uv run ruff check src/agent/trace.py src/agent/rag_claim_summary.py src/api/routers/agent.py src/api/routers/agent_runs.py src/api/routers/traces.py src/api/schemas/agent.py src/api/schemas/agent_runs.py src/api/schemas/approvals.py src/repositories/trace_repo.py src/replay/service.py src/replay/schemas.py tests/agent/test_trace.py tests/test_agent_runs_api.py tests/test_trace_api.py tests/replay/test_replay_api.py
+git diff --check
+```
+
+### 剩余问题
+
+无当前阻塞。测试仍输出 LangGraph checkpointer serializer deprecation warning，属于既有依赖警告。
+
+### 下次继续排查入口
+
+- `src/agent/rag_claim_summary.py`
+- `src/api/routers/agent_runs.py`
+- `src/repositories/trace_repo.py`
+- `src/replay/service.py`
+
 ## 2026-06-29 04:31 CST - Plan 33-07 final/working-state projection TDD RED failures
 
 ### 问题现象

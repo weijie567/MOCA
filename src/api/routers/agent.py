@@ -136,7 +136,10 @@ async def chat(
         )
         return ApiResponse(
             success=False,
-            data=ChatResponse(response=fallback_response, trace_summary=TraceSummary(**trace_summary)).model_dump(),
+            data=ChatResponse(
+                response=fallback_response,
+                trace_summary=TraceSummary(**trace_summary),
+            ).model_dump(exclude_none=True),
             error=ErrorDetail(code=INTERNAL_ERROR, message=fallback_response),
             trace_id=request.state.trace_id,
         )
@@ -167,7 +170,7 @@ async def chat(
     response_data = ChatResponse(
         response=final_response_text,
         trace_summary=TraceSummary(**trace_summary),
-    ).model_dump()
+    ).model_dump(exclude_none=True)
 
     try:
         await write_agent_run(

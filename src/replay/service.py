@@ -9,6 +9,7 @@ import uuid
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.agent.rag_claim_summary import build_rag_claim_summary_from_sources, sanitize_rag_claim_payload
 from src.db.models import AgentRun, AgentTraceEvent
 from src.replay.pairing import OperationPairingStatus, validate_operation_pairing
 from src.replay.schemas import ReplayEventV3, ReplayResponseV3
@@ -154,6 +155,7 @@ class ReplayService:
         events = await self._events_for_run(run_uuid)
         timeline: list[dict[str, Any]] = []
         prior_events: list[AgentTraceEvent] = []
+        rag_claim_summary = build_rag_claim_summary_from_sources([event.redacted_payload for event in events])
         for event in events:
             pairing_status: OperationPairingStatus | None = None
             if event.schema_version == "replay_event.v3":
@@ -167,8 +169,9 @@ class ReplayService:
             started_at=run.started_at,
             completed_at=run.completed_at,
             timeline=timeline,
+            rag_claim_summary=rag_claim_summary,
         )
-        return response.model_dump(mode="python")
+        return response.model_dump(mode="python", exclude_none=True)
 
     async def _events_for_run(self, run_id: uuid.UUID) -> list[AgentTraceEvent]:
         result = await self.session.execute(
@@ -178,7 +181,7 @@ class ReplayService:
 
     def project_minimal_event(self, event: AgentTraceEvent) -> dict[str, Any]:
         """Project stored rows into the Phase 10-14 minimal envelope shape."""
-        payload = dict(event.redacted_payload or {})
+        payload = sanitize_rag_claim_payload(dict(event.redacted_payload or {}))
         refs = dict(event.resource_refs or {})
         guard_redacted_payload(payload)
         guard_resource_refs(refs)
@@ -212,7 +215,7 @@ class ReplayService:
     ) -> dict[str, Any]:
         """Project stored minimal or V3 rows into the strict ReplayEventV3 shape."""
         retention_class = retention_for_event_type(event.event_type)
-        payload = dict(event.redacted_payload or {})
+        payload = sanitize_rag_claim_payload(dict(event.redacted_payload or {}))
         refs = dict(event.resource_refs or {})
         guard_redacted_payload(payload)
         guard_resource_refs(refs)
