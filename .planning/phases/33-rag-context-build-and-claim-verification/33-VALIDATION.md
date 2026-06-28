@@ -21,20 +21,21 @@ created: 2026-06-29
 | **Config file** | `pyproject.toml` |
 | **Quick run command** | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_context_builder.py tests/agent/rag_context/test_verifier.py tests/agent/rag_context/test_routing.py -q --tb=short` |
 | **Full suite command** | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_context_builder.py tests/agent/rag_context/test_budgeting.py tests/agent/rag_context/test_material_claims.py tests/agent/rag_context/test_authority_boundaries.py tests/agent/rag_context/test_verifier.py tests/agent/rag_context/test_semantic_verifier.py tests/agent/rag_context/test_routing.py tests/agent/rag_context/test_leakage.py tests/agent/test_nodes/test_generate_recommendation.py tests/agent/test_nodes/test_assess_risk_and_approval.py tests/agent/test_nodes/test_receive_request.py tests/agent/test_phase22_recommendation_integration.py tests/agent/test_phase22_final_response.py tests/agent/test_phase22_action_boundary.py tests/agent/test_graph.py tests/agent/test_graph_vocabulary.py tests/agent/test_trace.py tests/test_agent_runs_api.py tests/test_trace_api.py tests/architecture/test_phase32_static_contract.py tests/architecture/test_action_draft_boundaries.py tests/business/test_schemas.py tests/knowledge/test_phase22_evidence_validation.py tests/knowledge/test_provenance_lookup.py tests/knowledge/test_service.py tests/knowledge/test_tenant_scope.py tests/knowledge/test_text_hash.py tests/platform/test_context_projections.py tests/replay/test_replay_api.py -q --tb=short` |
-| **Estimated runtime** | ~120-240 seconds focused suite |
+| **Estimated runtime** | quick smoke <30 seconds; full focused suite ~120-240 seconds as phase-gate-only validation |
 
 ---
 
 ## Sampling Rate
 
 - **After every task commit:** Run the plan-local quick command for the touched boundary.
+- **Fast smoke/static feedback:** Before any full phase gate, run the relevant plan-local command plus targeted architecture/static tests for the touched boundary.
 - **After state/reset changes:** Also run `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_receive_request.py -q --tb=short`.
 - **After graph/routing changes:** Also run `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py tests/agent/test_graph_vocabulary.py -q --tb=short`.
 - **After risk/action/final-response changes:** Also run `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_action_boundary.py tests/agent/test_phase22_final_response.py tests/architecture/test_action_draft_boundaries.py -q --tb=short`.
 - **After every plan wave:** Run the full focused suite above.
 - **Before `$gsd-verify-work`:** Full focused suite plus `uv run ruff check` on touched Python files and `git diff --check` must pass.
 - **Invalid command guard:** Bare `pytest` and bare `python -m pytest` are invalid validation in MOCA.
-- **Max feedback latency:** 4 minutes for the focused phase suite.
+- **Max feedback latency:** <30 seconds for plan-local smoke/static commands; 4 minutes allowed only for the final focused phase gate.
 
 ---
 
@@ -46,9 +47,12 @@ created: 2026-06-29
 | 33-02-01 | 33-02 | 2 | APF-13 | T-33-02 | Candidate refs are re-fetched and rejected on invalid scope/hash/version/effective-date before prompt/action surfaces. | unit/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_rag_context_build.py tests/agent/rag_context/test_context_builder.py tests/knowledge/test_phase22_evidence_validation.py -q --tb=short` | ❌ W0 | ⬜ pending |
 | 33-02-02 | 33-02 | 2 | APF-13 | T-33-03 | `route_after_rag_context` is deterministic and total over all status values. | unit | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_rag_context_routing.py tests/agent/test_graph.py tests/agent/test_graph_vocabulary.py -q --tb=short` | ❌ W0 | ⬜ pending |
 | 33-03-01 | 33-03 | 3 | APF-14 | T-33-04 | `recommendation_generation` emits `MaterialClaimV1` and does not mark claims supported. | unit/static | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_generate_recommendation.py tests/agent/rag_context/test_material_claims.py -q --tb=short` | ✅ / W0 updates | ⬜ pending |
-| 33-03-02 | 33-03 | 3 | APF-14 | T-33-05 | `claim_verify` writes bundle, blocked claims, and safe support refs; business facts require `BusinessFactRefV1`. | unit/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_claim_verify.py tests/agent/rag_context/test_authority_boundaries.py tests/agent/rag_context/test_verifier.py -q --tb=short` | ❌ W0 | ⬜ pending |
-| 33-04-01 | 33-04 | 4 | APF-13/APF-14 | T-33-06 | Unsupported action claims and candidate-only refs cannot reach risk, approval, action draft, or safety snapshots. | negative/security | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_action_boundary.py tests/agent/test_nodes/test_assess_risk_and_approval.py tests/architecture/test_action_draft_boundaries.py -q --tb=short` | ✅ / W0 updates | ⬜ pending |
-| 33-05-01 | 33-05 | 5 | APF-13/APF-14 | T-33-07 | Trace/API/final projections expose only safe statuses/counts/refs and no raw package/debug/verifier internals. | integration/static | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_leakage.py tests/agent/test_trace.py tests/test_trace_api.py tests/architecture/test_phase33_rag_claim_boundaries.py -q --tb=short` | ❌ W0 | ⬜ pending |
+| 33-04-01 | 33-04 | 4 | APF-14 | T-33-05 | Domain hard gates and bundle aggregation require current policy/business/action authority. | unit/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_verifier.py tests/agent/rag_context/test_authority_boundaries.py tests/agent/rag_context/test_semantic_verifier.py tests/knowledge/test_claim_verification_bundle.py -q --tb=short` | ❌ W0 | ⬜ pending |
+| 33-05-01 | 33-05 | 5 | APF-14 | T-33-06 | `claim_verify` writes bundle, blocked claims, and safe support refs. | unit/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_claim_verify.py tests/agent/rag_context/test_routing.py tests/agent/test_graph.py -q --tb=short` | ❌ W0 | ⬜ pending |
+| 33-06-01 | 33-06 | 6 | APF-13/APF-14 | T-33-07 | Unsupported action claims and candidate-only refs cannot reach risk, approval, action draft, or safety snapshots. | negative/security | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_action_boundary.py tests/agent/test_nodes/test_assess_risk_and_approval.py tests/architecture/test_action_draft_boundaries.py -q --tb=short` | ✅ / W0 updates | ⬜ pending |
+| 33-07-01 | 33-07 | 7 | APF-13/APF-14 | T-33-08 | Final response and working-state projections expose safe evidence/claim text only. | negative/security | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_final_response.py tests/agent/test_working_state.py tests/agent/rag_context/test_leakage.py -q --tb=short` | ✅ / W0 updates | ⬜ pending |
+| 33-08-01 | 33-08 | 8 | APF-13/APF-14 | T-33-09 | Trace/API projections expose only safe statuses/counts/refs and preserve visibility guards. | integration/static | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_trace.py tests/test_agent_runs_api.py tests/test_trace_api.py -q --tb=short` | ✅ / W0 updates | ⬜ pending |
+| 33-09-01 | 33-09 | 9 | APF-13/APF-14 | T-33-10 | Static/focused final gates prove runtime nodes, ownership, no raw leakage, and valid commands. | integration/static | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_phase32_static_contract.py tests/architecture/test_phase33_rag_claim_boundaries.py -q --tb=short` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -80,7 +84,7 @@ created: 2026-06-29
 - [x] Sampling continuity: no 3 consecutive tasks without automated verify.
 - [x] Wave 0 covers all MISSING references.
 - [x] No watch-mode flags.
-- [x] Feedback latency < 4 minutes for focused suite.
+- [x] Feedback latency <30 seconds for plan-local smoke/static commands; full focused suite is phase-gate-only.
 - [x] `nyquist_compliant: true` set in frontmatter.
 
 **Approval:** pending execution

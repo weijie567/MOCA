@@ -474,20 +474,23 @@ No ORM schema push is expected for the Phase 33 MVP if the plan keeps `VerifiedE
 
 No `[ASSUMED]` claims are used in this research; implementation recommendations are either verified from source/docs or explicitly marked as source-backed inference. [VERIFIED: RESEARCH.md self-audit]
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **DTO module placement**
    - What we know: Context leaves exact module/file split to planning and likely targets include `src/knowledge/service.py`, `src/agent/rag_context/`, and `src/knowledge/schemas.py`. [VERIFIED: .planning/phases/33-rag-context-build-and-claim-verification/33-CONTEXT.md:77-81]
    - What's unclear: Whether public target DTOs should live in `src/knowledge/schemas.py` or remain in `src/agent/rag_context/schemas.py` with re-exports. [VERIFIED: .planning/phases/33-rag-context-build-and-claim-verification/33-CONTEXT.md:77-81; INFERRED]
    - Recommendation: Put canonical KnowledgeService-owned DTOs in `src/knowledge/schemas.py` or re-export them from there to match the ownership registry. [VERIFIED: docs/contract-spec.md:16-31; INFERRED]
+   - **RESOLVED for planning:** Plan 33-01 chooses `src/knowledge/schemas.py` as the canonical DTO home for `VerifiedEvidencePackageV1`, `MaterialClaimV1`, and `ClaimVerificationBundleV1`, with compatibility adapters/re-exports from `src/agent/rag_context/` only where needed.
 2. **Decision event expansion**
    - What we know: Phase 35 owns broad replay/trace/eval hardening, while Phase 33 should preserve enough safe refs/status fields. [VERIFIED: .planning/phases/33-rag-context-build-and-claim-verification/33-CONTEXT.md:77-81; .planning/phases/33-rag-context-build-and-claim-verification/33-CONTEXT.md:206-212]
    - What's unclear: Whether Phase 33 should add new event types for evidence validation and claim verification. [VERIFIED: src/db/models.py:1231-1247; INFERRED]
    - Recommendation: Avoid new event types in Phase 33 unless necessary; if added, include an Alembic migration because `AgentTraceEvent.event_type` is CHECK-constrained. [VERIFIED: src/db/models.py:1231-1247; INFERRED]
+   - **RESOLVED for planning:** Phase 33 plans do not add new event types or schema-push work by default. Any execution-time choice to add DB columns, tables, migrations, or CHECK-constrained event types must stop and add a blocking migration/schema-push task first.
 3. **Manual review node absence**
    - What we know: Current graph has `final_response` and approval paths but no dedicated manual-review graph node. [VERIFIED: src/agent/graph.py:131-211]
    - What's unclear: Whether Phase 33 should model `manual_review` as final-response safe handoff or introduce a node. [VERIFIED: docs/contract-spec.md:673-675; src/agent/graph.py:131-211; INFERRED]
    - Recommendation: Use existing final-response/manual-review-style safe response for Phase 33 and defer dedicated review workflow unless user locks a new node. [VERIFIED: .planning/phases/33-rag-context-build-and-claim-verification/33-CONTEXT.md:47; .planning/phases/33-rag-context-build-and-claim-verification/33-CONTEXT.md:198-199; INFERRED]
+   - **RESOLVED for planning:** `manual_review` remains a semantic route/status that maps to safe `final_response` behavior in Phase 33. A dedicated manual-review graph node is deferred unless a later phase explicitly adds that workflow.
 
 ## Environment Availability
 
