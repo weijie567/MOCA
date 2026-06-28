@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
@@ -283,8 +284,16 @@ def _current_turn_slots(state: AgentState) -> dict[str, str]:
 
 
 def _trusted_merchant_ids(trusted_context: Any | None) -> list[str]:
-    merchant_scope = getattr(trusted_context, "merchant_scope", None)
-    merchant_ids = getattr(merchant_scope, "merchant_ids", None)
+    if isinstance(trusted_context, Mapping):
+        merchant_scope = trusted_context.get("merchant_scope")
+    else:
+        merchant_scope = getattr(trusted_context, "merchant_scope", None)
+
+    if isinstance(merchant_scope, Mapping):
+        merchant_ids = merchant_scope.get("merchant_ids")
+    else:
+        merchant_ids = getattr(merchant_scope, "merchant_ids", None)
+
     if not merchant_ids:
         return []
     return [str(merchant_id) for merchant_id in merchant_ids if str(merchant_id) != "*"]

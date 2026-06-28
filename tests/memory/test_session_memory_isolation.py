@@ -358,6 +358,52 @@ async def test_session_context_excludes_cross_merchant_slots_summary_messages_an
 
 
 @pytest.mark.asyncio
+async def test_session_context_filters_production_trusted_context_dict_without_explicit_merchant(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    thread_id = "thread-session-context-production-trusted-dict"
+    merchant_a = str(seeded_session["merchant"].id)
+    merchant_b = str(seeded_session["second_merchant"].id)
+    await _seed_merchant_a_prompt_context(session, seeded_session, thread_id=thread_id, merchant_a=merchant_a)
+    current_run_id = await _insert_run(session, seeded_session, thread_id=thread_id)
+    trusted_context = _trusted_context(seeded_session, merchant_id=merchant_b, thread_id=thread_id, run_id=current_run_id)
+
+    result = await _session_context_load()(
+        {
+            "tenant_id": trusted_context.tenant_id,
+            "user_id": trusted_context.user_id,
+            "thread_id": thread_id,
+            "current_run_id": str(current_run_id),
+            "primary_intent": "refund_troubleshooting",
+            "trace_steps": [],
+        },
+        {"configurable": {"session": session, "trusted_context": trusted_context.model_dump(mode="json")}},
+    )
+
+    serialized = json.dumps(
+        {
+            "session_context": result["session_context"],
+            "session_context_bundle": result["session_context_bundle"],
+        },
+        ensure_ascii=False,
+    )
+    assert result["session_context"]["active_slots"] == {"merchant_id": merchant_b}
+    for forbidden in (
+        merchant_a,
+        "ORD-MERCHANT-A-SESSION",
+        "RF-MERCHANT-A-SESSION",
+        "merchant-a active_slots rolling_summary",
+        "merchant-a recent message",
+        "merchant-a assistant recent message",
+        "merchant-a tool_summaries text",
+    ):
+        assert forbidden not in serialized
+    assert "cross_merchant_session_context_filtered" in result["session_context_load_status"]["filter_reasons"]
+    assert "merchant_scope_denied" in result["session_context_load_status"]["filter_reasons"]
+
+
+@pytest.mark.asyncio
 async def test_session_context_does_not_let_merchant_a_active_slot_override_merchant_b_current_turn(
     session: AsyncSession,
     seeded_session: dict,
