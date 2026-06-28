@@ -10,12 +10,21 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter
-from datetime import date, datetime
+from collections.abc import Mapping, Sequence
+from datetime import UTC, date, datetime
 from typing import Any, Protocol
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.agent.rag_context.builder import ContextBuilder
+from src.agent.rag_context.claims import normalize_material_claim_v1
+from src.agent.rag_context.schemas import MaterialClaim, MaterialClaimAuthorityClass
+from src.agent.rag_context.verifier import (
+    MaterialClaimVerificationResult,
+    MaterialClaimVerifier,
+    VerificationOutcome,
+)
 from src.knowledge.diagnostics import RankingExplanation, RetrievalDiagnostics
 from src.knowledge.config import (
     MIN_SIMILARITY_THRESHOLD,
@@ -23,8 +32,19 @@ from src.knowledge.config import (
     RETRIEVAL_CONFIG_VERSION,
 )
 from src.knowledge.provenance import EvidenceProvenance
-from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext, KnowledgeSearchRequest, KnowledgeSearchResult
+from src.knowledge.schemas import (
+    ClaimVerificationBundleV1,
+    ClaimVerificationResultV1,
+    EvidenceItemV1,
+    EvidenceRefV1,
+    KnowledgeContext,
+    KnowledgeSearchRequest,
+    KnowledgeSearchResult,
+    MaterialClaimV1,
+    VerifiedEvidencePackageV1,
+)
 from src.knowledge.text_hash import evidence_text_hash
+from src.tools.contracts import BusinessFactRefV1
 
 _INTERNAL_DIAGNOSTIC_TYPES = (RetrievalDiagnostics, RankingExplanation)
 
@@ -392,6 +412,181 @@ class PolicyKnowledgeService:
             )
         return VerifiedEvidenceDetailsResult(included=included, excluded=excluded)
 
+    async def build_verified_context(
+        self,
+        *,
+        candidate_evidence_refs: Sequence[EvidenceRefV1 | Mapping[str, Any]],
+        business_fact_refs: Sequence[BusinessFactRefV1 | Mapping[str, Any]] | None,
+        knowledge_context: KnowledgeContext,
+        evidence_policy: Mapping[str, Any] | None = None,
+    ) -> VerifiedEvidencePackageV1:
+        """Validate candidate evidence refs and expose the Phase 33 package contract."""
+        policy = dict(evidence_policy or {})
+        candidates = [_coerce_evidence_ref(ref) for ref in candidate_evidence_refs]
+        business_refs = [_coerce_business_fact_ref(ref) for ref in business_fact_refs or []]
+        retrieval_config_version = _package_retrieval_config_version(candidates, policy)
+        evidence_required = bool(policy.get("evidence_required", True))
+        if not evidence_required:
+            return _empty_verified_package(
+                status="not_required",
+                knowledge_context=knowledge_context,
+                retrieval_config_version=retrieval_config_version,
+                reason_codes=["evidence_not_required"],
+            )
+        if not candidates:
+            return _empty_verified_package(
+                status="no_evidence",
+                knowledge_context=knowledge_context,
+                retrieval_config_version=retrieval_config_version,
+                reason_codes=["candidate_evidence_required"],
+            )
+
+        trusted_context = _package_trusted_context(knowledge_context, policy)
+        try:
+            details = await self.get_verified_evidence_details(
+                tenant_id=knowledge_context.tenant_id,
+                evidence_refs=candidates,
+                effective_at=knowledge_context.effective_at,
+                merchant_scope=knowledge_context.merchant_scope,
+                doc_type=_optional_str(policy.get("doc_type")),
+                risk_level=_optional_str(policy.get("risk_level")),
+            )
+            bundle = await ContextBuilder(policy_service=self).build(
+                candidate_evidence_refs=candidates,
+                business_fact_refs=business_refs,
+                trusted_context=trusted_context,
+                risk_hints=_risk_hints(policy),
+            )
+        except Exception:
+            return _empty_verified_package(
+                status="build_error",
+                knowledge_context=knowledge_context,
+                retrieval_config_version=retrieval_config_version,
+                reason_codes=["build_error"],
+                rejected_candidate_refs=candidates,
+            )
+
+        included = dict(details.included)
+        excluded = list(details.excluded)
+        reason_codes = _unique(
+            code for exclusion in excluded for code in (exclusion.reason_codes or [exclusion.reason_code])
+        )
+        status = _verified_package_status(
+            included_count=len(included),
+            excluded_reason_codes=set(reason_codes),
+            total_candidates=len(candidates),
+        )
+        citation_map = {
+            citation_id: list(entry.source_evidence_ids)
+            for citation_id, entry in bundle.citation_map.items()
+        }
+        evidence_map = {evidence_id: detail.evidence_ref for evidence_id, detail in included.items()}
+        policy_version = _package_policy_version(included, candidates, policy)
+        stale_refs, conflict_refs, rejected_refs = _partition_rejected_refs(candidates, excluded)
+
+        return VerifiedEvidencePackageV1(
+            package_id=_package_id(knowledge_context, candidates),
+            status=status,
+            evidence_items=[
+                _evidence_item_from_detail(detail, bundle=bundle)
+                for detail in included.values()
+            ],
+            citation_map=citation_map,
+            evidence_map=evidence_map,
+            prompt_projection=bundle.prompt_context.model_dump(mode="json"),
+            verifier_projection=bundle.verifier_context.model_dump(mode="json"),
+            replay_snapshot_refs=list(evidence_map),
+            debug_projection=bundle.debug_context.model_dump(mode="json"),
+            stale_refs=stale_refs,
+            conflict_refs=conflict_refs,
+            rejected_candidate_refs=rejected_refs,
+            reason_codes=reason_codes,
+            policy_version=policy_version,
+            retrieval_config_version=retrieval_config_version,
+        )
+
+    async def verify_claims(
+        self,
+        *,
+        material_claims: Sequence[MaterialClaimV1 | MaterialClaim | Mapping[str, Any]],
+        verified_evidence_package: VerifiedEvidencePackageV1 | Mapping[str, Any] | None,
+        business_context: Mapping[str, Any] | None,
+        proposed_action: Mapping[str, Any] | None,
+    ) -> ClaimVerificationBundleV1:
+        """Aggregate material claim checks into the Phase 33 bundle contract."""
+        try:
+            claims = [normalize_material_claim_v1(claim) for claim in material_claims]
+            package = (
+                VerifiedEvidencePackageV1.model_validate(verified_evidence_package)
+                if verified_evidence_package is not None
+                else None
+            )
+        except Exception:
+            return _claim_error_bundle("claim_input_malformed")
+
+        if not claims:
+            return ClaimVerificationBundleV1(
+                overall_status="not_required",
+                route="continue",
+                claim_results=[],
+                blocked_claims=[],
+                safe_support_refs=[],
+                reason_codes=["no_material_claims"],
+                verifier_policy_version="material_claim_verifier.v1",
+            )
+        if package is None:
+            return _blocked_package_bundle(claims, "verified_evidence_package_required")
+        if package.status not in {"verified", "partial", "not_required"}:
+            return _blocked_package_bundle(claims, f"rag_context_{package.status}", package.reason_codes)
+
+        context_bundle = _claim_context_bundle(package, business_context or {})
+        verifier = MaterialClaimVerifier()
+        claim_results: list[ClaimVerificationResultV1] = []
+        dependency_results: list[dict[str, Any]] = []
+        blocked_claims: list[str] = []
+        reason_codes: list[str] = []
+        safe_support_refs: list[EvidenceRefV1] = []
+
+        for claim in claims:
+            legacy_claim = _legacy_claim_from_material_v1(claim, claims)
+            result = await verifier.verify_claim(
+                legacy_claim,
+                context_bundle=context_bundle,
+                dependency_results=dependency_results,
+            )
+            dependency_results.append({"claim_id": claim.claim_id, "outcome": _outcome_value(result.outcome)})
+            reason_codes.extend(result.reason_codes)
+            claim_result = _claim_result_from_verifier_result(
+                claim=claim,
+                result=result,
+                evidence_map=package.evidence_map,
+            )
+            claim_results.append(claim_result)
+            safe_support_refs.extend(claim_result.supporting_evidence_refs)
+            if _claim_is_blocked(claim, result, proposed_action):
+                blocked_claims.append(claim.claim_id)
+
+        bundle_reason_codes = _unique(reason_codes)
+        if _needs_manual_review(bundle_reason_codes):
+            overall_status = "manual_review"
+            route = "manual_review"
+        elif blocked_claims:
+            overall_status = "blocked"
+            route = "final_response"
+        else:
+            overall_status = "verified"
+            route = "continue"
+
+        return ClaimVerificationBundleV1(
+            overall_status=overall_status,
+            route=route,
+            claim_results=claim_results,
+            blocked_claims=blocked_claims,
+            safe_support_refs=_unique_evidence_refs(safe_support_refs),
+            reason_codes=bundle_reason_codes,
+            verifier_policy_version="material_claim_verifier.v1",
+        )
+
     @staticmethod
     def _no_evidence_result() -> KnowledgeSearchResult:
         return KnowledgeSearchResult(
@@ -429,6 +624,462 @@ def _detail_exclusion(ref: EvidenceRefV1, reason_codes: list[str]) -> VerifiedEv
         doc_key=ref.doc_key,
         chunk_id=ref.chunk_id,
     )
+
+
+def _coerce_evidence_ref(value: EvidenceRefV1 | Mapping[str, Any]) -> EvidenceRefV1:
+    return value if isinstance(value, EvidenceRefV1) else EvidenceRefV1.model_validate(value)
+
+
+def _coerce_business_fact_ref(value: BusinessFactRefV1 | Mapping[str, Any]) -> BusinessFactRefV1:
+    return value if isinstance(value, BusinessFactRefV1) else BusinessFactRefV1.model_validate(value)
+
+
+def _package_trusted_context(context: KnowledgeContext, policy: Mapping[str, Any]) -> dict[str, Any]:
+    doc_type = _optional_str(policy.get("doc_type"))
+    risk_level = _optional_str(policy.get("risk_level"))
+    trusted: dict[str, Any] = {
+        "tenant_id": context.tenant_id,
+        "user_id": context.user_id,
+        "role": context.role,
+        "merchant_scope": list(context.merchant_scope or []),
+        "run_id": context.run_id,
+        "trace_id": context.trace_id,
+        "locale": context.locale,
+        "effective_at": context.effective_at,
+        "filters": {"doc_type": doc_type, "risk_level": risk_level},
+        "scope": {
+            "merchant_ids": list(context.merchant_scope or []),
+            "doc_types": [doc_type] if doc_type else [],
+            "risk_levels": [risk_level] if risk_level else [],
+        },
+    }
+    return trusted
+
+
+def _risk_hints(policy: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    hints = policy.get("risk_hints")
+    return [dict(item) for item in hints] if isinstance(hints, list) else []
+
+
+def _package_retrieval_config_version(
+    refs: Sequence[EvidenceRefV1],
+    policy: Mapping[str, Any],
+) -> str:
+    configured = _optional_str(policy.get("retrieval_config_version"))
+    if configured:
+        return configured
+    if refs:
+        return refs[0].retrieval_config_version
+    return RETRIEVAL_CONFIG_VERSION
+
+
+def _empty_verified_package(
+    *,
+    status: str,
+    knowledge_context: KnowledgeContext,
+    retrieval_config_version: str,
+    reason_codes: list[str],
+    rejected_candidate_refs: list[EvidenceRefV1] | None = None,
+) -> VerifiedEvidencePackageV1:
+    return VerifiedEvidencePackageV1(
+        package_id=f"verified-evidence:{knowledge_context.run_id}:empty",
+        status=status,
+        evidence_items=[],
+        citation_map={},
+        evidence_map={},
+        prompt_projection={},
+        verifier_projection={"safe_refs": [], "evidence_snippets": [], "business_fact_refs": []},
+        replay_snapshot_refs=[],
+        debug_projection={"reason_codes": reason_codes},
+        stale_refs=[],
+        conflict_refs=[],
+        rejected_candidate_refs=rejected_candidate_refs or [],
+        reason_codes=reason_codes,
+        policy_version="unknown",
+        retrieval_config_version=retrieval_config_version,
+    )
+
+
+def _verified_package_status(
+    *,
+    included_count: int,
+    excluded_reason_codes: set[str],
+    total_candidates: int,
+) -> str:
+    if included_count == total_candidates and not excluded_reason_codes:
+        return "verified"
+    if "text_hash_mismatch" in excluded_reason_codes:
+        return "invalid_hash"
+    if excluded_reason_codes & {
+        "scope_invalid",
+        "merchant_scope_invalid",
+        "doc_type_invalid",
+        "risk_level_invalid",
+        "tenant_mismatch",
+        "tenant_id_malformed",
+    }:
+        return "invalid_scope"
+    if excluded_reason_codes & {"unauthorized", "permission_denied", "acl_denied"}:
+        return "unauthorized"
+    if excluded_reason_codes & {
+        "latest_version_invalid",
+        "freshness_invalid",
+        "effective_date_invalid",
+    }:
+        return "stale"
+    if excluded_reason_codes & {"conflict", "policy_conflict", "source_conflict"}:
+        return "conflict"
+    if included_count and excluded_reason_codes:
+        return "partial"
+    return "no_evidence"
+
+
+def _package_policy_version(
+    included: Mapping[str, VerifiedEvidenceDetail],
+    refs: Sequence[EvidenceRefV1],
+    policy: Mapping[str, Any],
+) -> str:
+    configured = _optional_str(policy.get("policy_version"))
+    if configured:
+        return configured
+    if included:
+        return next(iter(included.values())).current_policy_version
+    if refs:
+        return refs[0].policy_version
+    return "unknown"
+
+
+def _package_id(context: KnowledgeContext, refs: Sequence[EvidenceRefV1]) -> str:
+    first_ref = refs[0].evidence_id if refs else "none"
+    return f"verified-evidence:{context.run_id}:{first_ref}"
+
+
+def _evidence_item_from_detail(
+    detail: VerifiedEvidenceDetail,
+    *,
+    bundle: Any,
+) -> EvidenceItemV1:
+    citation_entry = next(
+        (
+            entry
+            for entry in bundle.citation_map.values()
+            if detail.evidence_ref.evidence_id in entry.source_evidence_ids
+        ),
+        None,
+    )
+    snippet = citation_entry.snippet if citation_entry is not None else detail.content
+    return EvidenceItemV1(
+        ref=detail.evidence_ref,
+        snippet=snippet,
+        text_hash=detail.evidence_ref.text_hash,
+        doc_version=f"v{detail.policy_document_version}",
+        policy_version=detail.current_policy_version,
+        effective_date_result="valid",
+        tenant_scope_result="valid",
+        authority_level="tenant_policy",
+        source_locator={"doc_key": detail.evidence_ref.doc_key, "chunk_id": detail.evidence_ref.chunk_id},
+        captured_at=_captured_at_from_ref(detail.evidence_ref),
+    )
+
+
+def _captured_at_from_ref(ref: EvidenceRefV1) -> datetime:
+    try:
+        return datetime.fromisoformat(ref.retrieved_at.replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.now(UTC)
+
+
+def _partition_rejected_refs(
+    refs: Sequence[EvidenceRefV1],
+    exclusions: Sequence[VerifiedEvidenceExclusion],
+) -> tuple[list[EvidenceRefV1], list[EvidenceRefV1], list[EvidenceRefV1]]:
+    by_id = {ref.evidence_id: ref for ref in refs}
+    stale: list[EvidenceRefV1] = []
+    conflict: list[EvidenceRefV1] = []
+    rejected: list[EvidenceRefV1] = []
+    for exclusion in exclusions:
+        ref = by_id.get(exclusion.evidence_id)
+        if ref is None:
+            continue
+        codes = set(exclusion.reason_codes or [exclusion.reason_code])
+        if codes & {"latest_version_invalid", "freshness_invalid", "effective_date_invalid"}:
+            stale.append(ref)
+        elif codes & {"conflict", "policy_conflict", "source_conflict"}:
+            conflict.append(ref)
+        else:
+            rejected.append(ref)
+    return stale, conflict, rejected
+
+
+def _claim_error_bundle(reason_code: str) -> ClaimVerificationBundleV1:
+    return ClaimVerificationBundleV1(
+        overall_status="error",
+        route="final_response",
+        claim_results=[],
+        blocked_claims=[],
+        safe_support_refs=[],
+        reason_codes=[reason_code],
+        verifier_policy_version="material_claim_verifier.v1",
+    )
+
+
+def _blocked_package_bundle(
+    claims: Sequence[MaterialClaimV1],
+    reason_code: str,
+    package_reason_codes: Sequence[str] | None = None,
+) -> ClaimVerificationBundleV1:
+    reason_codes = _unique([reason_code, *(package_reason_codes or [])])
+    return ClaimVerificationBundleV1(
+        overall_status="error" if reason_code.endswith("build_error") else "blocked",
+        route="final_response",
+        claim_results=[
+            ClaimVerificationResultV1(
+                claim_id=claim.claim_id,
+                claim_type=claim.claim_type,
+                support_status="error" if reason_code.endswith("build_error") else "unsupported",
+                supporting_evidence_refs=[],
+                business_fact_refs=claim.business_fact_refs,
+                rule_checks=[{"rule": reason_code, "passed": False}],
+                semantic_review_status="not_needed",
+                allows_user_visible_claim=False,
+                allows_action_recommendation=False,
+            )
+            for claim in claims
+        ],
+        blocked_claims=[claim.claim_id for claim in claims],
+        safe_support_refs=[],
+        reason_codes=reason_codes,
+        verifier_policy_version="material_claim_verifier.v1",
+    )
+
+
+def _claim_context_bundle(
+    package: VerifiedEvidencePackageV1,
+    business_context: Mapping[str, Any],
+) -> dict[str, Any]:
+    trusted_context = {"tenant_id": _package_tenant_id(package)}
+    snippet_by_evidence_id = _snippet_by_evidence_id(package)
+    citation_map: dict[str, dict[str, Any]] = {}
+    for citation_id, evidence_ids in package.citation_map.items():
+        if not evidence_ids:
+            continue
+        primary_id = evidence_ids[0]
+        ref = package.evidence_map.get(primary_id)
+        if ref is None:
+            continue
+        citation_map[citation_id] = {
+            "citation_id": citation_id,
+            "evidence_ref": ref.model_dump(mode="json"),
+            "source_evidence_ids": list(evidence_ids),
+            "snippet": snippet_by_evidence_id.get(primary_id, ""),
+            "risk_labels": [],
+        }
+
+    verifier_projection = dict(package.verifier_projection)
+    business_refs = _business_fact_refs_for_verifier(verifier_projection, business_context)
+    verifier_projection["business_fact_refs"] = [ref.model_dump(mode="json") for ref in business_refs]
+    verifier_projection.setdefault("evidence_snippets", _evidence_snippets_from_package(package))
+    verifier_projection.setdefault("safe_refs", list(package.evidence_map))
+    return {
+        "trusted_context": trusted_context,
+        "citation_map": citation_map,
+        "verifier_context": verifier_projection,
+        "business_context": dict(business_context),
+    }
+
+
+def _package_tenant_id(package: VerifiedEvidencePackageV1) -> str:
+    if package.evidence_map:
+        return next(iter(package.evidence_map.values())).tenant_id
+    for ref in [*package.rejected_candidate_refs, *package.stale_refs, *package.conflict_refs]:
+        return ref.tenant_id
+    return ""
+
+
+def _snippet_by_evidence_id(package: VerifiedEvidencePackageV1) -> dict[str, str]:
+    snippets: dict[str, str] = {}
+    for item in package.evidence_items:
+        snippets[item.ref.evidence_id] = item.snippet
+    raw_snippets = package.verifier_projection.get("evidence_snippets")
+    if isinstance(raw_snippets, list):
+        for raw in raw_snippets:
+            if isinstance(raw, Mapping):
+                evidence_id = _optional_str(raw.get("evidence_id"))
+                text = _optional_str(raw.get("text"))
+                if evidence_id and text:
+                    snippets[evidence_id] = text
+    return snippets
+
+
+def _evidence_snippets_from_package(package: VerifiedEvidencePackageV1) -> list[dict[str, str]]:
+    snippets = _snippet_by_evidence_id(package)
+    result: list[dict[str, str]] = []
+    for citation_id, evidence_ids in package.citation_map.items():
+        for evidence_id in evidence_ids:
+            result.append(
+                {
+                    "citation_id": citation_id,
+                    "evidence_id": evidence_id,
+                    "text": snippets.get(evidence_id, ""),
+                }
+            )
+    return result
+
+
+def _business_fact_refs_for_verifier(
+    verifier_projection: Mapping[str, Any],
+    business_context: Mapping[str, Any],
+) -> list[BusinessFactRefV1]:
+    refs: list[BusinessFactRefV1] = []
+    for item in verifier_projection.get("business_fact_refs") or []:
+        try:
+            refs.append(_coerce_business_fact_ref(item))
+        except Exception:
+            continue
+    for item in business_context.get("business_fact_refs") or []:
+        try:
+            refs.append(_coerce_business_fact_ref(item))
+        except Exception:
+            continue
+    for item in business_context.get("business_fact_results") or []:
+        if not isinstance(item, Mapping) or item.get("status") not in {"ok", "partial"}:
+            continue
+        for raw_ref in item.get("business_fact_refs") or []:
+            try:
+                refs.append(_coerce_business_fact_ref(raw_ref))
+            except Exception:
+                continue
+    return _unique_business_fact_refs(refs)
+
+
+def _unique_business_fact_refs(refs: Sequence[BusinessFactRefV1]) -> list[BusinessFactRefV1]:
+    unique_refs: list[BusinessFactRefV1] = []
+    seen: set[tuple[str, str, str, str, str | None]] = set()
+    for ref in refs:
+        key = (ref.tenant_id, ref.source_system, ref.resource_type, ref.resource_id, ref.resource_version)
+        if key not in seen:
+            seen.add(key)
+            unique_refs.append(ref)
+    return unique_refs
+
+
+def _legacy_claim_from_material_v1(claim: MaterialClaimV1, all_claims: Sequence[MaterialClaimV1]) -> MaterialClaim:
+    authority_class = {
+        "policy": MaterialClaimAuthorityClass.POLICY_CLAIM,
+        "business_fact": MaterialClaimAuthorityClass.BUSINESS_FACT_CLAIM,
+        "action_recommendation": MaterialClaimAuthorityClass.ACTION_RECOMMENDATION_CLAIM,
+    }[claim.claim_type]
+    dependency_claim_ids = (
+        [item.claim_id for item in all_claims if item.claim_type in {"policy", "business_fact"}]
+        if claim.claim_type == "action_recommendation"
+        else []
+    )
+    return MaterialClaim(
+        claim_id=claim.claim_id,
+        claim_text=claim.claim_text,
+        authority_class=authority_class,
+        source_node=claim.generated_from_step,
+        risk_hints=list(claim.risk_hints),
+        cited_evidence_ids=list(claim.cited_evidence_ids),
+        business_fact_refs=list(claim.business_fact_refs),
+        dependency_claim_ids=dependency_claim_ids,
+    )
+
+
+def _claim_result_from_verifier_result(
+    *,
+    claim: MaterialClaimV1,
+    result: MaterialClaimVerificationResult,
+    evidence_map: Mapping[str, EvidenceRefV1],
+) -> ClaimVerificationResultV1:
+    support_status = _support_status(result)
+    supporting_refs = [
+        evidence_map[ref_id]
+        for ref_id in result.safe_support_refs
+        if ref_id in evidence_map
+    ]
+    return ClaimVerificationResultV1(
+        claim_id=claim.claim_id,
+        claim_type=claim.claim_type,
+        support_status=support_status,
+        supporting_evidence_refs=supporting_refs,
+        business_fact_refs=claim.business_fact_refs,
+        rule_checks=[
+            {
+                "rule": "material_claim_verifier",
+                "passed": support_status == "supported",
+                "reason_codes": result.reason_codes,
+            }
+        ],
+        semantic_review_status=_semantic_review_status(result.reason_codes),
+        allows_user_visible_claim=result.allows_claim,
+        allows_action_recommendation=result.allows_action_recommendation,
+    )
+
+
+def _support_status(result: MaterialClaimVerificationResult) -> str:
+    outcome = _outcome_value(result.outcome)
+    if outcome == VerificationOutcome.SUPPORTED.value:
+        return "supported"
+    if outcome == VerificationOutcome.AMBIGUOUS.value:
+        return "ambiguous"
+    if outcome == VerificationOutcome.MANUAL_REVIEW.value:
+        return "ambiguous"
+    if outcome == VerificationOutcome.FAIL_CLOSED.value:
+        return "error"
+    if outcome == VerificationOutcome.INSUFFICIENT.value:
+        return "partial"
+    return "unsupported"
+
+
+def _semantic_review_status(reason_codes: Sequence[str]) -> str:
+    codes = set(reason_codes)
+    if "semantic_provider_timeout" in codes:
+        return "timeout"
+    if codes & {"level2_semantic_trigger_hint", "level2_partial_overlap_ambiguous"}:
+        return "ambiguous"
+    return "not_needed"
+
+
+def _claim_is_blocked(
+    claim: MaterialClaimV1,
+    result: MaterialClaimVerificationResult,
+    proposed_action: Mapping[str, Any] | None,
+) -> bool:
+    if _outcome_value(result.outcome) != VerificationOutcome.SUPPORTED.value:
+        return True
+    if claim.claim_type == "action_recommendation":
+        return not result.allows_action_recommendation
+    if proposed_action is not None and claim.claim_type in {"policy", "business_fact"}:
+        return not result.allows_claim
+    return not result.allows_claim
+
+
+def _needs_manual_review(reason_codes: Sequence[str]) -> bool:
+    return any("manual_review" in code or "ambiguous" in code for code in reason_codes)
+
+
+def _outcome_value(value: Any) -> str:
+    return value.value if hasattr(value, "value") else str(value)
+
+
+def _unique_evidence_refs(refs: Sequence[EvidenceRefV1]) -> list[EvidenceRefV1]:
+    unique_refs: list[EvidenceRefV1] = []
+    seen: set[str] = set()
+    for ref in refs:
+        if ref.evidence_id not in seen:
+            seen.add(ref.evidence_id)
+            unique_refs.append(ref)
+    return unique_refs
+
+
+def _unique(values: Sequence[str] | Any) -> list[str]:
+    result: list[str] = []
+    for value in values:
+        text = str(value)
+        if text and text not in result:
+            result.append(text)
+    return result
 
 
 def _effective_date(value: str | None) -> date | None:
