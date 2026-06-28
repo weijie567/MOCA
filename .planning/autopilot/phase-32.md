@@ -1,11 +1,11 @@
 ---
 phase: "32"
-status: running
+status: complete
 current_step: closeout
 plan_review_loop: 1
 quota_waits: 0
-updated_at: "2026-06-28T15:34:23Z"
-next_command: "final closeout sanity check"
+updated_at: "2026-06-28T15:36:17Z"
+next_command: "$gsd-plan-phase 33"
 ---
 
 # Phase 32 Autopilot Checkpoint
@@ -47,6 +47,8 @@ next_command: "final closeout sanity check"
 - Security auditor closed 15/15 threats; `32-SECURITY.md` committed with `threats_open: 0`: `142b26f docs(phase-32): add security threat verification`.
 - Local zsh SECURITY glob issue recorded and committed: `13d904b docs(validation): record phase 32 security glob issue`.
 - Nyquist validation audit found no gaps; `32-VALIDATION.md` updated to `status: verified`, `wave_0_complete: true`, and all five task rows green: `06c3dca docs(phase-32): update validation strategy`.
+- STATE bookkeeping aligned with Phase 32 completion: `a764008 docs(state): align phase 32 completion metrics`.
+- Final closeout passed: clean worktree, `git diff --check` passed, ROADMAP/STATE point to Phase 33, and review/security/validation/UAT gates are green.
 
 ## Evidence
 
@@ -67,6 +69,7 @@ next_command: "final closeout sanity check"
 - UAT confirms target graph vocabulary, registry ownership, slot resolution semantics, trace/API merchant-context safety, and final static contract gates.
 - Security verification confirms all Phase 32 threat-model entries closed, no accepted risks, and no open security threats.
 - Validation confirms existing automated coverage covers APF-11/APF-12 with 0 gaps and no manual-only verifications.
+- Phase 32 autopilot is complete. Recommended next command is `$gsd-plan-phase 33`.
 
 ## Last Failure
 
