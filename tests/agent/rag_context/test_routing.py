@@ -298,3 +298,40 @@ def test_route_after_claim_verify_blocks_business_fact_and_unsupported_action_cl
         )
         == "final_response"
     )
+
+
+def test_route_after_claim_verify_sends_verified_action_recommendation_to_risk_gate() -> None:
+    """APF-14: verified actionable drafts must still bind action authority through risk/snapshot."""
+    from src.agent.routing import route_after_claim_verify
+
+    route = route_after_claim_verify(
+        {
+            "recommendation_draft": {
+                "recommended_action": "issue_coupon",
+                "risk_level": "low",
+                "evidence_refs": [{"doc_key": "policy_refund_timeout", "chunk_id": "chunk_001"}],
+            },
+            "claim_verification_bundle": {
+                "overall_status": "verified",
+                "route": "continue",
+                "claim_results": [
+                    {
+                        "claim_id": "claim-action-1",
+                        "claim_type": "action_recommendation",
+                        "support_status": "supported",
+                        "supporting_evidence_refs": [],
+                        "business_fact_refs": [],
+                        "rule_checks": [{"rule": "policy_support_required", "passed": True}],
+                        "semantic_review_status": "not_needed",
+                        "allows_user_visible_claim": True,
+                        "allows_action_recommendation": True,
+                    }
+                ],
+                "blocked_claims": [],
+                "safe_support_refs": [],
+                "reason_codes": [],
+            },
+        }
+    )
+
+    assert route == "assess_risk_and_approval"

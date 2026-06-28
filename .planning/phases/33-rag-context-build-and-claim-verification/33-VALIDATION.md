@@ -117,5 +117,10 @@ Final gate results from Plan 33-09:
 | Final full focused suite | `473 passed, 22 warnings in 160.87s (0:02:40)` |
 | Ruff focused target list | `All checks passed!` |
 | `git diff --check` | passed |
+| Post-review-fix targeted review regressions | `79 passed, 1 warning in 0.11s` |
+| Post-review-fix adjacent graph/action/API regressions | `90 passed, 22 warnings in 108.08s (0:01:48)` |
+| Post-review-fix full focused suite | `476 passed, 22 warnings in 162.60s (0:02:42)` |
+| Post-review-fix Ruff focused target list | `All checks passed!` |
+| Post-review-fix `git diff --check` | passed |
 
 The handled local validation issue is recorded in `.planning/LOCAL-VALIDATION-ISSUES.md` under the 2026-06-29 05:29 CST Plan 33-09 entry.

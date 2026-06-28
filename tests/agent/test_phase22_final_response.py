@@ -485,3 +485,61 @@ async def test_policy_qa_partial_overlap_with_action_state_still_fails_closed(
     assert "draft-should-not-appear" not in result["final_response"]
     assert result["llm_outputs"]["final_response"]["final_status"] == "manual_review"
     assert "evidence_refs" not in result["trace_steps"][-1]
+
+
+@pytest.mark.asyncio
+async def test_final_response_trace_prefers_current_verified_package_over_stale_state_refs(
+    base_state: dict[str, Any],
+) -> None:
+    current_ref = _evidence_ref()
+    stale_ref = {
+        **current_ref,
+        "evidence_id": "stale-policy/stale-chunk@v1",
+        "policy_version": "v1",
+        "score": 0.11,
+        "retrieval_config_version": "stale-config",
+    }
+    candidate_ref = {
+        **current_ref,
+        "evidence_id": "candidate-policy/candidate-chunk@v2",
+        "policy_version": "v2",
+        "score": 0.22,
+        "retrieval_config_version": "candidate-config",
+    }
+    state = {
+        **base_state,
+        "rag_context_status": "verified",
+        "verified_evidence_package": _verified_package(status="verified", ref=current_ref),
+        "evidence_refs": [stale_ref],
+        "retrieved_evidence": {"evidence_refs": [candidate_ref]},
+        "recommendation_draft": {
+            "recommended_action": "manual_review",
+            "reasoning_summary": "Use the verified current policy.",
+            "evidence_refs": [
+                {
+                    "doc_key": current_ref["doc_key"],
+                    "chunk_id": current_ref["chunk_id"],
+                    "title": "Refund policy",
+                    "section": "Compensation",
+                }
+            ],
+            "confidence": 0.91,
+            "risk_level": "low",
+            "missing_info": [],
+            "citation_validation": {"is_valid": True},
+        },
+        "risk_assessment": {
+            "risk_level": "low",
+            "risk_reason": "Policy explanation only.",
+            "approval_required": False,
+            "rule_ref": "LR-01",
+        },
+    }
+
+    result = await final_response(state)
+
+    trace_refs = result["trace_steps"][-1]["evidence_refs"]
+    assert [ref["evidence_id"] for ref in trace_refs] == [current_ref["evidence_id"]]
+    assert trace_refs[0]["policy_version"] == current_ref["policy_version"]
+    assert all(ref["evidence_id"] != stale_ref["evidence_id"] for ref in trace_refs)
+    assert all(ref["evidence_id"] != candidate_ref["evidence_id"] for ref in trace_refs)

@@ -256,7 +256,7 @@ async def generate_recommendation(state: AgentState, config: RunnableConfig = No
             material_claim_payloads = [claim.model_dump(mode="json") for claim in material_claims]
             draft["material_claims"] = material_claim_payloads
             validated_refs = _validated_evidence_refs(cited_evidence_ids, evidence_by_id)
-            merged_refs = _merge_evidence_refs(state.get("evidence_refs"), validated_refs)
+            merged_refs = _merge_evidence_refs(None, validated_refs)
             outputs = {**(state.get("llm_outputs") or {}), "generate_recommendation": draft}
             return {
                 "recommendation_draft": draft,

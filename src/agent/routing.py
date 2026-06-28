@@ -352,7 +352,7 @@ def _route_after_claim_verify(state: AgentState) -> str:
     overall_status = bundle.get("overall_status")
     if route != "continue" or overall_status not in {"verified", "not_required"}:
         return "final_response"
-    if _has_proposed_action(state) or _has_risk_signal(state):
+    if _has_proposed_action(state) or _has_risk_signal(state) or _has_verified_action_recommendation(state):
         return "assess_risk_and_approval"
     return "final_response"
 
@@ -401,6 +401,18 @@ def _has_material_claims(state: AgentState) -> bool:
 def _has_proposed_action(state: AgentState) -> bool:
     proposed = state.get("proposed_action")
     return isinstance(proposed, dict) and bool(proposed)
+
+
+def _has_verified_action_recommendation(state: AgentState) -> bool:
+    bundle = _claim_verification_bundle(state)
+    for raw_result in bundle.get("claim_results") or []:
+        result = raw_result.model_dump(mode="python") if hasattr(raw_result, "model_dump") else raw_result
+        if not isinstance(result, dict):
+            continue
+        claim_type = result.get("claim_type") or result.get("authority_class")
+        if claim_type == "action_recommendation" and result.get("allows_action_recommendation") is True:
+            return True
+    return False
 
 
 def _has_user_visible_claims(state: AgentState) -> bool:

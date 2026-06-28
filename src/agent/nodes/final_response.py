@@ -135,6 +135,10 @@ def _final_response_evidence_refs(state: AgentState, draft: dict[str, Any]) -> l
 
 
 def _state_evidence_ref_candidates(state: AgentState) -> list[dict[str, Any]]:
+    current_package_refs = _current_verified_package_evidence_refs(state)
+    if current_package_refs:
+        return current_package_refs
+
     candidates: list[dict[str, Any]] = []
     for value in (
         state.get("evidence_refs"),
@@ -144,6 +148,42 @@ def _state_evidence_ref_candidates(state: AgentState) -> list[dict[str, Any]]:
         if isinstance(value, list):
             candidates.extend(ref for ref in value if isinstance(ref, dict))
     return candidates
+
+
+def _current_verified_package_evidence_refs(state: AgentState) -> list[dict[str, Any]]:
+    package = _mapping(state.get("verified_evidence_package"))
+    if package.get("status") not in {"verified", "partial"}:
+        return []
+
+    evidence_map = _mapping(package.get("evidence_map"))
+    refs: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for value in (_mapping(state.get("claim_verification_bundle")).get("safe_support_refs"), state.get("safe_support_refs")):
+        refs.extend(_resolve_package_evidence_refs(value, evidence_map, seen))
+    refs.extend(_resolve_package_evidence_refs(list(evidence_map.values()), evidence_map, seen))
+    return refs
+
+
+def _resolve_package_evidence_refs(value: Any, evidence_map: dict[str, Any], seen: set[str]) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    if isinstance(value, str):
+        items = [value]
+    elif isinstance(value, list | tuple | set):
+        items = list(value)
+    else:
+        items = []
+
+    for item in items:
+        raw_ref = evidence_map.get(item) if isinstance(item, str) else item
+        ref = _mapping(raw_ref)
+        if not ref:
+            continue
+        key = str(ref.get("evidence_id") or f"{ref.get('doc_key')}:{ref.get('chunk_id')}")
+        if key in seen:
+            continue
+        seen.add(key)
+        refs.append(ref)
+    return refs
 
 
 def _retrieved_evidence_refs(retrieved: Any) -> list[dict[str, Any]]:

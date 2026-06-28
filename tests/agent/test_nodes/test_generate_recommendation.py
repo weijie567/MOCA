@@ -293,6 +293,32 @@ async def test_membership_pass_keeps_canonical_evidence_ref(monkeypatch, base_st
 
 
 @pytest.mark.asyncio
+async def test_membership_pass_does_not_carry_stale_state_evidence_refs(monkeypatch, base_state):
+    evidence = _evidence(tenant_id=base_state["tenant_id"])
+    stale_ref = {
+        **evidence.model_dump(mode="json"),
+        "evidence_id": "stale-policy/stale-chunk@v1",
+        "policy_version": "v1",
+    }
+    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_draft()))
+    _with_knowledge_service(
+        monkeypatch, {(evidence.doc_key, evidence.chunk_id): "退款超时时，客服应核实支付通道和退款状态。"}
+    )
+
+    result = await generate_recommendation_module.generate_recommendation(
+        {
+            **base_state,
+            **_retrieval_state(evidence=[evidence]),
+            "evidence_refs": [stale_ref],
+        },
+        _config(),
+    )
+
+    assert [ref["evidence_id"] for ref in result["evidence_refs"]] == [evidence.evidence_id]
+    assert result["trace_steps"][-1]["evidence_refs"][0]["evidence_id"] == evidence.evidence_id
+
+
+@pytest.mark.asyncio
 async def test_membership_fail_drops_ref_and_marks_citation_invalid(monkeypatch, base_state):
     evidence = _evidence(tenant_id=base_state["tenant_id"])
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_draft(chunk_id="missing")))
