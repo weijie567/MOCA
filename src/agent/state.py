@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from typing_extensions import TypedDict
 
-if TYPE_CHECKING:
-    from src.knowledge.schemas import (
-        ClaimVerificationBundleV1,
-        EvidenceRefV1,
-        MaterialClaimV1,
-        VerifiedEvidencePackageV1,
-    )
+from src.knowledge.schemas import (
+    ClaimVerificationBundleV1,
+    EvidenceRefV1,
+    MaterialClaimV1,
+    VerifiedEvidencePackageV1,
+)
 
 
 class ActiveSlots(TypedDict, total=False):

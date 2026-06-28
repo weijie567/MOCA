@@ -17,8 +17,21 @@ from src.agent.state import AgentState
 MIN_EVIDENCE_SCORE = 0.55
 _FACT_ONLY_INTENTS = {"order_status_inquiry"}
 _PERMISSION_CODES = {"FORBIDDEN", "permission_denied"}
-_INVESTIGATE_ROUTES = {"final_response", "clarification_gate", "recommendation_generation"}
+_INVESTIGATE_ROUTES = {"final_response", "clarification_gate", "rag_context_build", "recommendation_generation"}
 _RECOMMENDATION_ROUTES = {"assess_risk_and_approval", "final_response"}
+RAG_CONTEXT_STATUSES = {
+    "not_required",
+    "verified",
+    "partial",
+    "no_evidence",
+    "unauthorized",
+    "stale",
+    "conflict",
+    "invalid_hash",
+    "invalid_scope",
+    "build_error",
+}
+_RAG_CONTEXT_ROUTES = {"recommendation_generation", "clarification_gate", "final_response"}
 INTENT_ROUTES = {"clarification_gate", "final_response", "investigate", "session_memory_load"}
 SLOT_ROUTES = {"clarification_gate", "investigate", "long_term_memory_retrieve"}
 BUSINESS_ID_SLOTS = ("order_id", "refund_case_id", "ticket_id")
@@ -279,6 +292,33 @@ def route_after_recommendation(state: AgentState) -> str:
     return "final_response"
 
 
+def route_after_rag_context(state: AgentState) -> str:
+    """Route after deterministic RAG context package construction."""
+    try:
+        route = _route_after_rag_context(state)
+    except Exception:
+        return "final_response"
+    if route in _RAG_CONTEXT_ROUTES:
+        return route
+    return "final_response"
+
+
+def _route_after_rag_context(state: AgentState) -> str:
+    if _missing_required_validation_inputs(state):
+        return "clarification_gate"
+
+    status = _rag_context_status(state)
+    if status not in RAG_CONTEXT_STATUSES:
+        return "final_response"
+    if status == "verified":
+        return "recommendation_generation"
+    if status == "not_required":
+        return "recommendation_generation" if not _policy_evidence_required(state) else "final_response"
+    if status == "partial":
+        return "recommendation_generation" if _partial_rag_context_can_generate(state) else "final_response"
+    return "final_response"
+
+
 def _route_after_recommendation(state: AgentState) -> str:
     route = _recommendation_verification_route(state)
     if route is None or route == "allow":
@@ -346,6 +386,9 @@ def _route_after_investigate(state: AgentState) -> str:
     if isinstance(best_score, (int, float)) and best_score < MIN_EVIDENCE_SCORE:
         return "final_response"
 
+    if _policy_evidence_required(state) or _has_policy_candidate_refs(state):
+        return "rag_context_build"
+
     return "recommendation_generation"
 
 
@@ -407,6 +450,104 @@ def _string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, str)]
+
+
+def _rag_context_status(state: AgentState) -> str:
+    status = state.get("rag_context_status")
+    if isinstance(status, str) and status:
+        return status
+    package = state.get("verified_evidence_package")
+    if isinstance(package, dict):
+        package_status = package.get("status")
+        if isinstance(package_status, str) and package_status:
+            return package_status
+    return "build_error"
+
+
+def _missing_required_validation_inputs(state: AgentState) -> bool:
+    business_context = state.get("business_context")
+    if isinstance(business_context, dict) and _string_list(business_context.get("missing_required_facts")):
+        return True
+    missing_info = state.get("missing_info")
+    if isinstance(missing_info, list) and missing_info:
+        return True
+    required_slots = state.get("required_slots")
+    if required_slots in (None, {}, {"all_of": [], "any_of": [], "optional": []}):
+        return False
+    try:
+        return bool(missing_required_slots(_required_expression(required_slots), resolve_slots_for_completeness(state)))
+    except Exception:
+        return True
+
+
+def _policy_evidence_required(state: AgentState) -> bool:
+    evidence_policy = state.get("evidence_policy")
+    if isinstance(evidence_policy, dict) and isinstance(evidence_policy.get("evidence_required"), bool):
+        return bool(evidence_policy["evidence_required"])
+    routing_hints = state.get("routing_hints") if isinstance(state.get("routing_hints"), dict) else {}
+    if isinstance(routing_hints.get("policy_evidence_required"), bool):
+        return bool(routing_hints["policy_evidence_required"])
+    requested_operation = state.get("requested_operation")
+    if requested_operation in {"draft_action", "execute_action", "escalate"}:
+        return True
+    intent = _intent(state)
+    return intent in {
+        "policy_qa",
+        "refund_troubleshooting",
+        "compensation_suggestion",
+        "ticket_reply_draft",
+        "appeal_or_unban",
+        "complaint_escalation",
+        "action_request",
+    }
+
+
+def _has_policy_candidate_refs(state: AgentState) -> bool:
+    return bool(_candidate_ref_items(state.get("policy_evidence"))) or bool(
+        _candidate_ref_items(_retrieved_evidence_refs_value(state))
+    )
+
+
+def _retrieved_evidence_refs_value(state: AgentState) -> Any:
+    retrieved = state.get("retrieved_evidence")
+    if isinstance(retrieved, dict):
+        return retrieved.get("evidence_refs") or retrieved.get("policy_refs")
+    return retrieved
+
+
+def _candidate_ref_items(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict) and item.get("evidence_id")]
+    if isinstance(value, dict) and value.get("evidence_id"):
+        return [value]
+    return []
+
+
+def _partial_rag_context_can_generate(state: AgentState) -> bool:
+    if state.get("proposed_action") is not None:
+        return False
+    if _action_bound_or_high_risk(state):
+        return False
+    requested_operation = state.get("requested_operation")
+    intent = _intent(state)
+    return requested_operation == "advise" or intent == "policy_qa"
+
+
+def _action_bound_or_high_risk(state: AgentState) -> bool:
+    requested_operation = state.get("requested_operation")
+    if requested_operation in {"draft_action", "execute_action", "escalate"}:
+        return True
+    risk_tier = state.get("risk_tier") or state.get("risk_level")
+    if isinstance(risk_tier, str) and risk_tier.lower() in {"high", "critical", "approval_required"}:
+        return True
+    draft = state.get("recommendation_draft")
+    if isinstance(draft, dict):
+        draft_risk = draft.get("risk_level")
+        if isinstance(draft_risk, str) and draft_risk.lower() in {"high", "critical"}:
+            return True
+    return False
 
 
 def _denial_blocks_required_claims(

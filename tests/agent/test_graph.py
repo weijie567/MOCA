@@ -20,9 +20,9 @@ from src.agent.nodes import classify_intent as classify_intent_module
 from src.agent.nodes import extract_slots as extract_slots_module
 from src.agent.nodes import generate_recommendation as generate_recommendation_module
 from src.agent.nodes import long_term_memory_retrieve as memory_retrieve_module
-from src.agent.routing import route_after_intent, route_after_investigate, route_after_slots
+from src.agent.routing import route_after_intent, route_after_investigate, route_after_rag_context, route_after_slots
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
-from src.knowledge.schemas import EvidenceRefV1
+from src.knowledge.schemas import EvidenceRefV1, VerifiedEvidencePackageV1
 from src.memory.schemas import SessionMemoryBundle, SessionMemoryView
 from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 from src.tools.catalog import ToolCatalog
@@ -42,7 +42,13 @@ ROUTER_EDGE_KEYS = {
     "route_after_slots": {"clarification_gate", "investigate", "long_term_memory_retrieve"},
     "route_after_risk": {"approval_gate", "final_response"},
     "route_after_approval": {"assess_risk_and_approval", "action_draft", "final_response"},
-    "route_after_investigate": {"final_response", "clarification_gate", "recommendation_generation"},
+    "route_after_investigate": {
+        "final_response",
+        "clarification_gate",
+        "rag_context_build",
+        "recommendation_generation",
+    },
+    "route_after_rag_context": {"recommendation_generation", "clarification_gate", "final_response"},
 }
 GRAPH_TEST_TENANT_ID = "11111111-1111-1111-1111-111111111111"
 GRAPH_TEST_USER_ID = "22222222-2222-2222-2222-222222222222"
@@ -82,6 +88,7 @@ def _config(manager, events: list[dict[str, Any]], thread_id: str = "graph-test-
         "tool_manager": manager,
         "event_emitter": event_emitter,
         "trusted_context": trusted_context.model_dump(mode="json"),
+        "policy_knowledge_service": FakeGraphPolicyKnowledgeService(),
         "permissions": permissions,
         "merchant_scope": {"merchant_ids": ["merchant-primary"]},
         "trace_id": "graph-trace",
@@ -232,6 +239,63 @@ class FakeGraphToolManager:
             retry_after_ms=None,
             latency_ms=1,
             audit_ref=None,
+        )
+
+
+class FakeGraphPolicyKnowledgeService:
+    async def build_verified_context(
+        self,
+        *,
+        candidate_evidence_refs: list[EvidenceRefV1],
+        business_fact_refs: list[Any] | None,
+        knowledge_context: Any,
+        evidence_policy: dict[str, Any] | None = None,
+    ) -> VerifiedEvidencePackageV1:
+        if not candidate_evidence_refs:
+            return VerifiedEvidencePackageV1(
+                package_id=f"verified-evidence:{knowledge_context.run_id}:empty",
+                status="no_evidence",
+                evidence_items=[],
+                citation_map={},
+                evidence_map={},
+                prompt_projection={},
+                verifier_projection={"safe_refs": [], "business_fact_refs": []},
+                replay_snapshot_refs=[],
+                debug_projection={"reason_codes": ["candidate_evidence_required"]},
+                stale_refs=[],
+                conflict_refs=[],
+                rejected_candidate_refs=[],
+                reason_codes=["candidate_evidence_required"],
+                policy_version="unknown",
+                retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+            )
+        ref = candidate_evidence_refs[0]
+        return VerifiedEvidencePackageV1(
+            package_id=f"verified-evidence:{knowledge_context.run_id}:{ref.evidence_id}",
+            status="verified",
+            evidence_items=[],
+            citation_map={"C1": [ref.evidence_id]},
+            evidence_map={ref.evidence_id: ref},
+            prompt_projection={"citations": [{"citation_id": "C1"}]},
+            verifier_projection={
+                "safe_refs": [ref.evidence_id],
+                "business_fact_refs": business_fact_refs or [],
+                "evidence_snippets": [
+                    {
+                        "citation_id": "C1",
+                        "evidence_id": ref.evidence_id,
+                        "text": "退款超时时，客服应核实支付通道和退款状态。",
+                    }
+                ],
+            },
+            replay_snapshot_refs=[ref.evidence_id],
+            debug_projection={"reason_codes": []},
+            stale_refs=[],
+            conflict_refs=[],
+            rejected_candidate_refs=[],
+            reason_codes=[],
+            policy_version=ref.policy_version,
+            retrieval_config_version=ref.retrieval_config_version,
         )
 
 
@@ -692,6 +756,7 @@ def test_graph_compiles_with_investigate():
     assert {
         "classify_intent",
         "investigate",
+        "rag_context_build",
         "clarification_gate",
         "session_memory_load",
         "long_term_memory_retrieve",
@@ -725,15 +790,15 @@ def test_legacy_graph_runtime_names_project_to_target_vocabulary():
         assert target_graph_name(legacy_router, kind="router") == target_router
 
 
-def test_phase_33_target_nodes_are_not_registered_as_runnable_graph_nodes():
+def test_phase_33_rag_context_build_is_registered_as_runnable_graph_node():
     graph = build_graph(MemorySaver())
     nodes = set(graph.get_graph().nodes)
 
-    assert "rag_context_build" not in nodes
+    assert "rag_context_build" in nodes
     assert "claim_verify" not in nodes
 
     source = inspect.getsource(build_graph)
-    assert 'builder.add_node("rag_context_build"' not in source
+    assert 'builder.add_node("rag_context_build"' in source
     assert 'builder.add_node("claim_verify"' not in source
 
 
@@ -756,6 +821,7 @@ def test_route_after_investigate_keys_are_edge_targets():
     mapping = {
         "final_response": "final_response",
         "clarification_gate": "clarification_gate",
+        "rag_context_build": "rag_context_build",
         "recommendation_generation": "generate_recommendation",
     }
 
@@ -796,6 +862,8 @@ def test_all_router_return_keys_have_edges():
         route_after_investigate({"retrieval_status": "strong_evidence", "best_score": 0.9})
         in ROUTER_EDGE_KEYS["route_after_investigate"]
     )
+    assert route_after_rag_context({"rag_context_status": "verified"}) in ROUTER_EDGE_KEYS["route_after_rag_context"]
+    assert route_after_rag_context({"rag_context_status": "build_error"}) in ROUTER_EDGE_KEYS["route_after_rag_context"]
 
 
 def test_requested_operation_execute_action_remains_intent_taxonomy_value():

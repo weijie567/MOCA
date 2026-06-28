@@ -28,9 +28,16 @@ from src.agent.nodes.final_response import final_response
 from src.agent.nodes.generate_recommendation import generate_recommendation
 from src.agent.nodes.investigate import investigate
 from src.agent.nodes.long_term_memory_retrieve import long_term_memory_retrieve
+from src.agent.nodes.rag_context_build import rag_context_build
 from src.agent.nodes.receive_request import receive_request
 from src.agent.nodes.session_memory_load import session_memory_load
-from src.agent.routing import route_after_intent, route_after_investigate, route_after_recommendation, route_after_slots
+from src.agent.routing import (
+    route_after_intent,
+    route_after_investigate,
+    route_after_rag_context,
+    route_after_recommendation,
+    route_after_slots,
+)
 from src.agent.state import AgentState
 from src.approvals.schemas import TrustedApprovalResultV1
 
@@ -138,6 +145,7 @@ def build_graph(checkpointer: AsyncPostgresSaver):
     builder.add_node("extract_slots", extract_slots, retry_policy=_llm_retry)
     builder.add_node("long_term_memory_retrieve", long_term_memory_retrieve)
     builder.add_node("investigate", investigate)
+    builder.add_node("rag_context_build", rag_context_build)
     builder.add_node("generate_recommendation", generate_recommendation, retry_policy=_llm_retry)
     builder.add_node("assess_risk_and_approval", assess_risk_and_approval, retry_policy=_llm_retry)
     builder.add_node("clarification_gate", clarification_gate)
@@ -174,7 +182,17 @@ def build_graph(checkpointer: AsyncPostgresSaver):
         {
             "final_response": "final_response",
             "clarification_gate": "clarification_gate",
+            "rag_context_build": "rag_context_build",
             "recommendation_generation": "generate_recommendation",
+        },
+    )
+    builder.add_conditional_edges(
+        "rag_context_build",
+        route_after_rag_context,
+        {
+            "recommendation_generation": "generate_recommendation",
+            "clarification_gate": "clarification_gate",
+            "final_response": "final_response",
         },
     )
     builder.add_edge("clarification_gate", "final_response")
