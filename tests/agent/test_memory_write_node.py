@@ -425,3 +425,48 @@ async def test_memory_write_raw_sensitive_pii_skips_without_persisting(monkeypat
     assert result["memory_write_decision"]["decision"] == "skip"
     assert result["memory_write_decision"]["pii_classification"] == "sensitive"
     assert result["memory_write_decision"]["reason_code"] == "pii_blocked"
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "请确认 13800138000 是否可联系。",
+        "请核对 110101199001011234。",
+        "请确认 access_token=abc1234567890。",
+    ],
+)
+async def test_memory_write_sensitive_pii_in_unresolved_questions_skips_without_persisting(
+    monkeypatch,
+    question: str,
+):
+    called = False
+
+    class FakeMemoryService:
+        def __init__(self, repository, *, enabled: bool = True) -> None:
+            pass
+
+        async def write_session_memory(self, candidate):
+            nonlocal called
+            called = True
+            return SessionMemoryWriteResult(
+                status="written",
+                version=4,
+                decision="write",
+                reason_code="eligible",
+                pii_classification="none",
+            )
+
+    monkeypatch.setattr(memory_write_module, "MemoryService", FakeMemoryService)
+
+    result = await memory_write(
+        _state(clarification_request={"questions": [question]}),
+        {"configurable": {"session": object()}},
+    )
+
+    assert called is False
+    assert result["memory_write_result"]["status"] == "skipped"
+    assert result["memory_write_result"]["decision"] == "skip"
+    assert result["memory_write_result"]["reason_code"] == "pii_blocked"
+    assert result["memory_write_decision"]["status"] == "skipped"
+    assert result["memory_write_decision"]["decision"] == "skip"
+    assert result["memory_write_decision"]["reason_code"] == "pii_blocked"

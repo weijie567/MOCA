@@ -138,7 +138,14 @@ def _build_candidate(state: AgentState) -> SessionMemoryWriteCandidate:
     run_id = uuid.UUID(str(state.get("current_run_id")))
     intent = state.get("primary_intent") or state.get("current_intent")
     explicit_slots = _explicit_slots(state, run_id, intent, now)
-    pii_classification = _classify_pii(state, explicit_slots)
+    unresolved_questions = _unresolved_questions(state)
+    session_summary = _session_summary(intent, explicit_slots)
+    pii_classification = _classify_pii(
+        state,
+        explicit_slots,
+        unresolved_questions=unresolved_questions,
+        session_summary=session_summary,
+    )
     decision = "skip" if pii_classification in BLOCKED_PII_CLASSIFICATIONS else "write"
     reason_code = "pii_blocked" if decision == "skip" else "eligible"
     session_memory = state.get("session_memory") if isinstance(state.get("session_memory"), dict) else {}
@@ -149,9 +156,9 @@ def _build_candidate(state: AgentState) -> SessionMemoryWriteCandidate:
         thread_id=str(state["thread_id"]),
         run_id=run_id,
         explicit_slots=explicit_slots,
-        unresolved_questions=_unresolved_questions(state),
+        unresolved_questions=unresolved_questions,
         last_intent=str(intent) if intent else None,
-        session_summary=_session_summary(intent, explicit_slots),
+        session_summary=session_summary,
         last_business_context_refs=_last_business_context_refs(state),
         expected_version=expected_version,
         pii_classification=pii_classification,
@@ -229,8 +236,17 @@ def _last_business_context_refs(state: AgentState) -> dict[str, Any]:
     return dict(refs) if isinstance(refs, dict) else {}
 
 
-def _classify_pii(state: AgentState, explicit_slots: dict[str, SessionSlotV1]) -> str:
+def _classify_pii(
+    state: AgentState,
+    explicit_slots: dict[str, SessionSlotV1],
+    *,
+    unresolved_questions: list[str],
+    session_summary: str | None,
+) -> str:
     values = [slot.value for slot in explicit_slots.values()]
+    values.extend(unresolved_questions)
+    if session_summary:
+        values.append(session_summary)
     final_response = state.get("final_response")
     if isinstance(final_response, str):
         values.append(final_response)
