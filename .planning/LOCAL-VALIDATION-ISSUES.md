@@ -5610,3 +5610,47 @@ claude -p - < /tmp/gsd-review-prompt-32.md > /tmp/gsd-review-claude-32.md 2> /tm
 - `/tmp/gsd-review-claude-32.md`
 - `/tmp/gsd-review-claude-32.err`
 - `.planning/phases/32-intent-graph-migration/32-REVIEWS.md`
+
+## 2026-06-28 21:35 CST - Phase 32 Plan 32-01 GSD 元数据 handler 部分失效
+
+### 问题现象
+
+完成 `32-01-SUMMARY.md` 后执行 GSD 元数据更新时，`state.advance-plan` 返回无法解析当前 plan 计数，`roadmap.update-plan-progress "32"` 未找到匹配 checkbox，导致自动进度更新不完整。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录执行对应 GSD handler 即可复现该次状态格式不匹配问题。
+
+### 关键证据或命令
+
+```bash
+gsd-sdk query state.advance-plan
+gsd-sdk query roadmap.update-plan-progress "32"
+```
+
+关键输出：
+
+```text
+{"error":"Cannot parse Current Plan or Total Plans from STATE.md"}
+{"updated":false,"phase":"32","reason":"no matching checkbox found"}
+```
+
+### 当前判断 / 根因
+
+这是 `.planning/STATE.md` / `.planning/ROADMAP.md` 当前文档格式与 GSD handler 解析预期不一致导致的元数据工具问题，不是 Phase 32 代码、测试或计划内容失败。
+
+### 已做处理
+
+已手动修复 `.planning/REQUIREMENTS.md` 中 `APF-11` 的换行格式和 traceability 状态，并手动更新 `.planning/ROADMAP.md` / `.planning/STATE.md` 中 Phase 32 的 `32-01` 完成进度。`state.update-progress`、`state.record-metric`、`state.add-decision`、`state.record-session` 和 `requirements.mark-complete APF-11` 的可用部分已执行。
+
+### 剩余问题
+
+后续 plans 仍可能遇到相同 handler 解析问题；若复现，继续使用 handler 可用部分并手动补齐 state/roadmap 可见进度。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `.planning/ROADMAP.md`
+- `.planning/REQUIREMENTS.md`
+- `gsd-sdk query state.advance-plan`
+- `gsd-sdk query roadmap.update-plan-progress "32"`

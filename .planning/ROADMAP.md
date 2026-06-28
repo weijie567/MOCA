@@ -324,12 +324,12 @@ Plans:
 
 ### Phase 32: Intent Graph Migration
 
-**Status:** Pending
+**Status:** In Progress
 **Milestone:** v1.9 Agent Platform Foundation
 **Goal:** Migrate the graph toward target canonical safety, session context, contextual intent, slot resolution, and memory context nodes while preserving legacy compatibility.
 **Requirements**: APF-11, APF-12
 **Depends on:** Phase 31
-**Plans:** 0/5 plans complete
+**Plans:** 1/5 plans complete
 
 **Success Criteria**:
 
@@ -339,7 +339,7 @@ Plans:
 4. AgentRun and graph routing work records how target merchant context is resolved or deferred, and manager/supervisor-style access must not remain implicitly tenant-wide without target merchant or business fact refs.
 
 Plans:
-- [ ] 32-01-PLAN.md — Graph vocabulary and projection helper
+- [x] 32-01-PLAN.md — Graph vocabulary and projection helper
 - [ ] 32-02-PLAN.md — Intent policy registry consumption
 - [ ] 32-03-PLAN.md — Slot policy gate and target router projection
 - [ ] 32-04-PLAN.md — Trace/eval/API and target merchant-context evidence
