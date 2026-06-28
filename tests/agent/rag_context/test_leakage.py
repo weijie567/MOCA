@@ -63,6 +63,20 @@ def _evidence_ref() -> EvidenceRefV1:
     )
 
 
+def _other_evidence_ref() -> EvidenceRefV1:
+    return EvidenceRefV1.build(
+        tenant_id=TENANT_ID,
+        doc_key="policy_refund_timeout",
+        chunk_id="chunk_unsafe_candidate",
+        policy_version="v2",
+        text="Candidate-only policy evidence must not be prompt safe.",
+        retrieved_at="2026-06-19T00:00:00.000Z",
+        retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+        score=0.4,
+        rank=2,
+    )
+
+
 def _trusted_context() -> dict[str, Any]:
     return {
         "tenant_id": TENANT_ID,
@@ -154,6 +168,47 @@ def _ordinary_surface_text(bundle: Any) -> str:
         "action_snapshot": bundle.action_snapshot_context,
     }
     return _json_text(ordinary_surfaces)
+
+
+def test_working_state_rejects_candidate_only_policy_refs_without_verified_package() -> None:
+    """APF-13: candidate refs cannot become prompt-safe working-state evidence."""
+    from src.agent.working_state import project_working_state
+
+    candidate = _evidence_ref()
+
+    working_state = project_working_state(
+        {
+            "policy_evidence": [candidate.model_dump(mode="json")],
+            "retrieved_evidence": {"evidence_refs": [candidate.model_dump(mode="json")]},
+            "evidence_refs": [candidate.model_dump(mode="json")],
+        }
+    )
+
+    assert working_state.retrieved_evidence_refs == []
+
+
+def test_working_state_projects_only_verified_package_refs() -> None:
+    """APF-13: ordinary working-state evidence comes from verified package refs only."""
+    from src.agent.working_state import project_working_state
+
+    verified = _evidence_ref()
+    candidate = _other_evidence_ref()
+
+    working_state = project_working_state(
+        {
+            "policy_evidence": [candidate.model_dump(mode="json")],
+            "retrieved_evidence": {"evidence_refs": [candidate.model_dump(mode="json")]},
+            "evidence_refs": [candidate.model_dump(mode="json")],
+            "verified_evidence_package": {
+                "schema_version": "verified_evidence_package.v1",
+                "status": "verified",
+                "evidence_map": {verified.evidence_id: verified.model_dump(mode="json")},
+            },
+        }
+    )
+
+    assert working_state.retrieved_evidence_refs == [verified.model_dump(mode="json")]
+    assert candidate.evidence_id not in _json_text(working_state)
 
 
 def test_eval_failure_report_redacts_case_inputs_prompts_and_sentinels(tmp_path) -> None:

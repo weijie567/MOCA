@@ -72,6 +72,7 @@ def test_target_graph_names_are_identity_mapped(name: str, kind: str) -> None:
         "action_draft",
         "final_response",
         "memory_write",
+        "rag_context_build",
     ],
 )
 def test_canonical_runtime_nodes_project_as_runtime(name: str) -> None:
@@ -91,7 +92,6 @@ def test_canonical_runtime_nodes_project_as_runtime(name: str) -> None:
 @pytest.mark.parametrize(
     ("name", "reason_code"),
     [
-        ("rag_context_build", "PHASE_33_APF_13_OWNED"),
         ("claim_verify", "PHASE_33_APF_14_OWNED"),
     ],
 )
