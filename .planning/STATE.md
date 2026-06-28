@@ -27,7 +27,7 @@ See: `.planning/PROJECT.md` (updated 2026-06-23)
 
 Phase: 31 (Memory Platform Boundary) — EXECUTING
 Next roadmap item: Phase 31 — Memory Platform Boundary
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Executing Phase 31
 Last activity: 2026-06-28 -- Phase 31 execution started
 
@@ -64,7 +64,7 @@ Planning files:
 | 29. Tool Platform Boundary | 4/4 complete | Complete |
 | 29.5. Merchant Scope / Role Model Alignment | 6/6 complete | Complete |
 | 30. BusinessFactService Boundary | 3/3 complete | Complete |
-| 31. Memory Platform Boundary | 2/6 | Executing |
+| 31. Memory Platform Boundary | 3/6 | Executing |
 | 32. Intent Graph Migration | 0/1 | Pending |
 | 33. RAG Context Build and Claim Verification | 0/1 | Pending |
 | 34. Approval and ActionDraft Boundary Hardening | 0/1 | Pending |
