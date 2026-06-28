@@ -5694,3 +5694,57 @@ gsd-sdk query roadmap.update-plan-progress "32"
 - `.planning/REQUIREMENTS.md`
 - `gsd-sdk query state.advance-plan`
 - `gsd-sdk query roadmap.update-plan-progress "32"`
+
+## 2026-06-29 00:00 CST - ROADMAP 引用校验不支持既有 deferred todo 通配路径
+
+### 问题现象
+
+在 Phase 33 context 收尾时，为确认新增的 Phase 34/35 core references 没有引入缺失路径，执行 `gsd-sdk query verify references .planning/ROADMAP.md`。命令返回 `valid: false`，报告 `.planning/todos/deferred/2026-06-27-merchant-scope-*.md` 缺失。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+gsd-sdk query verify references .planning/ROADMAP.md
+```
+
+### 关键证据或命令
+
+验证输出包含：
+
+```json
+{
+  "valid": false,
+  "found": 8,
+  "missing": [
+    ".planning/todos/deferred/2026-06-27-merchant-scope-*.md"
+  ]
+}
+```
+
+定位命令：
+
+```bash
+rg -n "2026-06-27-merchant-scope" .planning/ROADMAP.md .planning/todos .planning/phases -g '*.md'
+```
+
+结果显示 `.planning/ROADMAP.md` 中已有 wildcard deferred-todo 说明，同时具体文件如 `.planning/todos/deferred/2026-06-27-merchant-scope-businessfactservice.md`、`memory.md`、`agentrun-replay.md`、`approval-action.md` 等在 prior phase 文档中被引用。
+
+### 当前判断 / 根因
+
+这是既有 roadmap wildcard 路径与 `verify references` 工具按字面路径校验之间的不兼容。新增的 Phase 34/35 core references (`docs/target-agent-platform-architecture-plan.md`, `docs/contract-spec.md`, `docs/eval-test-plan.md`) 均为真实存在文件，不是本次新增引用导致的缺失。
+
+### 已做处理
+
+已单独执行并通过 `gsd-sdk query verify references .planning/phases/33-rag-context-build-and-claim-verification/33-CONTEXT.md`，确认 Phase 33 context 引用完整。ROADMAP wildcard 问题本次仅记录，不顺手改旧 roadmap 表述，避免扩大 `$gsd-discuss-phase 33` 范围。
+
+### 剩余问题
+
+后续若需要让 `ROADMAP.md` 整体通过 `verify references`，应把 wildcard deferred-todo 表述改为具体文件列表，或增强 verifier 支持 glob 解析。
+
+### 下次继续排查入口
+
+- `.planning/ROADMAP.md:107`
+- `.planning/todos/deferred/`
+- `gsd-sdk query verify references .planning/ROADMAP.md`

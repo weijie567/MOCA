@@ -373,6 +373,11 @@ Plans:
 **Depends on:** Phase 33
 **Plans:** 0/1 plans complete
 
+**Core References**:
+
+- `docs/target-agent-platform-architecture-plan.md` — Architecture migration target for approval/action boundary hardening, especially target graph shape, service-boundary rules, risk/approval/action split, no-real-execution boundary, and Phase 34 implementation notes.
+- `docs/contract-spec.md` — Normative contract source if the architecture target and spec differ.
+
 **Success Criteria**:
 
 1. Action proposals and drafts bind structured payloads to business fact refs, verified evidence refs, claim verification refs, risk decisions, payload hashes, and safety snapshots.
@@ -392,6 +397,12 @@ Plans:
 **Requirements**: APF-17, APF-18
 **Depends on:** Phase 34
 **Plans:** 0/1 plans complete
+
+**Core References**:
+
+- `docs/target-agent-platform-architecture-plan.md` — Architecture migration target for replay/eval hardening, especially platform decision coverage, service-boundary observability, eval gate levels, and Phase 35 implementation notes.
+- `docs/contract-spec.md` — Normative contract source if the architecture target and spec differ.
+- `docs/eval-test-plan.md` — Dev-contract, release, and monitoring gate expectations for platform boundaries.
 
 **Success Criteria**:
 
