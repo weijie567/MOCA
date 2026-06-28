@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
 status: executing
-stopped_at: Completed 33-05-PLAN.md
-last_updated: "2026-06-28T20:03:01.810Z"
+stopped_at: Completed 33-06-PLAN.md
+last_updated: "2026-06-28T20:19:38.435Z"
 last_activity: 2026-06-28
 progress:
   total_phases: 12
   completed_phases: 8
   total_plans: 38
-  completed_plans: 34
-  percent: 89
+  completed_plans: 35
+  percent: 92
 ---
 
 # Project State: MOCA
@@ -27,11 +27,11 @@ See: `.planning/PROJECT.md` (updated 2026-06-28)
 
 Phase: 33 (rag-context-build-and-claim-verification) — EXECUTING
 Next roadmap item: Phase 33 — RAG Context Build and Claim Verification
-Plan: 6 of 9
+Plan: 7 of 9
 Status: Ready to execute
 Last activity: 2026-06-28
 
-Progress: [█████████░] 89%
+Progress: [█████████░] 92%
 
 Planning files:
 
@@ -66,12 +66,12 @@ Planning files:
 | 30. BusinessFactService Boundary | 3/3 complete | Complete |
 | 31. Memory Platform Boundary | 6/6 | Complete |
 | 32. Intent Graph Migration | 5/5 | Complete |
-| 33. RAG Context Build and Claim Verification | 5/9 | In Progress |
+| 33. RAG Context Build and Claim Verification | 6/9 | In Progress |
 | 34. Approval and ActionDraft Boundary Hardening | 0/1 | Pending |
 | 35. Replay and Eval Hardening | 0/1 | Pending |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
-Latest execution metric: Phase 33 P33-05 — 11min, 2 tasks, 10 files; claim_verify graph routing suite passed.
+Latest execution metric: Phase 33 P33-06 — 10min, 1 task, 6 files; risk/action claim bundle gate suite passed.
 | Phase 29.5 P01 | 35min | 2 tasks | 5 files |
 | Phase 29.5 P02 | 5min | 2 tasks | 5 files |
 | Phase 29.5 P03 | 34min | 2 tasks | 13 files |
@@ -91,6 +91,7 @@ Latest execution metric: Phase 33 P33-05 — 11min, 2 tasks, 10 files; claim_ver
 | Phase 33-rag-context-build-and-claim-verification P33-03 | 15min | 1 tasks | 5 files |
 | Phase 33-rag-context-build-and-claim-verification P33-04 | 12min | 2 tasks | 7 files |
 | Phase 33-rag-context-build-and-claim-verification P33-05 | 11min | 2 tasks | 10 files |
+| Phase 33-rag-context-build-and-claim-verification P33-06 | 10min | 1 tasks | 6 files |
 
 ## Quick Tasks Completed
 
@@ -153,6 +154,9 @@ Latest execution metric: Phase 33 P33-05 — 11min, 2 tasks, 10 files; claim_ver
 - claim_verify is a narrow graph writer: it calls PolicyKnowledgeService.verify_claims and serializes only claim verification outputs plus compatibility verifier fields.
 - route_after_recommendation routes material claims, proposed actions, and user-visible claim payloads to claim_verify instead of directly to risk.
 - route_after_claim_verify sends verified continue bundles to risk only when a proposed action or risk signal exists; answer-only verified bundles go to final_response.
+- Risk/action gates fail closed when proposed actions lack claim_verification_bundle authority.
+- Safety snapshot evidence is sourced from safe_support_refs mapped through verified evidence maps, never candidate-only retrieved evidence.
+- route_after_risk includes the same claim-bundle safety guard as defense-in-depth before approval routing.
 
 ### Roadmap Evolution
 
@@ -194,9 +198,9 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: --stopped-at
-Stopped at: Completed 33-05-PLAN.md
-Resume file: --resume-file
+Last session: 2026-06-28T20:19:38.424Z
+Stopped at: Completed 33-06-PLAN.md
+Resume file: None
 Next: Phase 33 — RAG Context Build and Claim Verification; old phase directory archive remains a separate cleanup todo.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
