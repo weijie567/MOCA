@@ -504,22 +504,16 @@ def _effective_reviewed_memory_scopes(trusted: TrustedContext, slots: dict[str, 
 
 All claims in this research were verified against repository files, local command output, project docs, or local validation logs; no `[ASSUMED]` claims are intentionally used.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should Phase 31 move reviewed retrieval after `investigate`, or implement the guarded MVP first?**  
-   What we know: The target order places reviewed retrieval after trusted business lookup; current graph places `long_term_memory_retrieve` before `investigate`. [VERIFIED: .planning/phases/31-memory-platform-boundary/31-CONTEXT.md] [VERIFIED: src/agent/graph.py]  
-   What's unclear: Whether moving the graph edge now is within Phase 31 or spills into Phase 32 graph migration. [VERIFIED: .planning/phases/31-memory-platform-boundary/31-CONTEXT.md]  
-   Recommendation: Prefer post-investigate placement if bounded; otherwise explicitly guard the existing path with trusted scope and no memory-inferred merchant/case scopes. [VERIFIED: .planning/phases/31-memory-platform-boundary/31-CONTEXT.md]
+   Selected answer: Phase 31 implements the guarded MVP path first. Plans 31-05 and 31-06 keep the legacy `long_term_memory_retrieve` compatibility path but route active reviewed-memory behavior through `reviewed_memory_context_retrieve`, which fails closed unless trusted tenant/user/thread/run identity and trusted or explicit merchant/resource scope are present. Full canonical graph edge migration remains Phase 32 scope. This reflects D-06, D-07, and D-08.
 
 2. **How should the existing memory-authority outcome drift be classified?**  
-   What we know: `uv run pytest tests/agent/test_memory_evidence_boundary.py::test_agent_runs_memory_context_is_not_policy_business_action_or_replay_authority -q` currently fails because the test expects `UNSUPPORTED` while verifier returns `INSUFFICIENT` for a memory-supported action dependency. [VERIFIED: .planning/LOCAL-VALIDATION-ISSUES.md] [VERIFIED: tests/agent/test_memory_evidence_boundary.py] [VERIFIED: src/agent/rag_context/verifier.py]  
-   What's unclear: Whether project semantics prefer `UNSUPPORTED` or `INSUFFICIENT` for this exact action-claim case. [VERIFIED: .planning/LOCAL-VALIDATION-ISSUES.md]  
-   Recommendation: Treat as a Wave 0 RED/repair item; update verifier or test wording explicitly, not silently. [VERIFIED: .planning/LOCAL-VALIDATION-ISSUES.md]
+   Selected answer: The action-claim case is classified as `VerificationOutcome.INSUFFICIENT`, not `UNSUPPORTED`, because contextual memory is present but insufficient authority for action support. Plan 31-01 updates the RED/repair test with the explicit comment `Memory-supported dependencies are insufficient authority, not semantic contradiction.` and keeps the denial assertions for action recommendation safety. This reflects D-27 and D-28.
 
 3. **Should `MemoryContext` projection include merchant scope directly?**  
-   What we know: `project_to_memory_context` currently returns tenant/user/role/session/thread/run/trace/locale, while tool/approval contexts include merchant scope. [VERIFIED: src/platform/context_projections.py]  
-   What's unclear: Whether Phase 31 should extend `MemoryContext` itself or define a retrieval-specific scope DTO/status ref. [VERIFIED: .planning/phases/31-memory-platform-boundary/31-CONTEXT.md]  
-   Recommendation: Add a reviewed-memory retrieval status/scope DTO that records trusted inputs/effective scopes without widening canonical trusted context. [VERIFIED: src/platform/trusted_context.py] [VERIFIED: .planning/phases/31-memory-platform-boundary/31-CONTEXT.md]
+   Selected answer: Phase 31 does not widen canonical `MemoryContext` projection with merchant scope. Plans use retrieval-specific DTO/status metadata instead: `reviewed_memory_context_retrieve_status.v1` records trusted scope inputs, effective scopes, retrieved refs, filter reasons, and fallback reason, while scope authority continues to come from `TrustedContext` / `MerchantScopeV1` and trusted business/resource context. This reflects D-13 through D-17 and D-25.
 
 ## Environment Availability
 
