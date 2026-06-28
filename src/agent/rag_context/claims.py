@@ -10,6 +10,14 @@ from src.agent.rag_context.schemas import (
     MaterialClaim,
     MaterialClaimAuthorityClass,
 )
+from src.knowledge.schemas import MaterialClaimV1
+
+
+_AUTHORITY_CLASS_TO_CLAIM_TYPE = {
+    "policy_claim": "policy",
+    "business_fact_claim": "business_fact",
+    "action_recommendation_claim": "action_recommendation",
+}
 
 
 def normalize_material_claim(value: MaterialClaim | Mapping[str, Any]) -> MaterialClaim:
@@ -21,6 +29,36 @@ def normalize_material_claim(value: MaterialClaim | Mapping[str, Any]) -> Materi
 
 def normalize_material_claims(values: Iterable[MaterialClaim | Mapping[str, Any]]) -> list[MaterialClaim]:
     return [normalize_material_claim(value) for value in values]
+
+
+def normalize_material_claim_v1(value: MaterialClaimV1 | MaterialClaim | Mapping[str, Any]) -> MaterialClaimV1:
+    """Normalize target or legacy material-claim payloads into ``MaterialClaimV1``."""
+    if isinstance(value, MaterialClaimV1):
+        return value
+    if isinstance(value, MaterialClaim):
+        return _legacy_material_claim_to_v1(value)
+    payload = dict(value)
+    if "claim_type" in payload:
+        return MaterialClaimV1.model_validate(payload)
+    return _legacy_material_claim_to_v1(MaterialClaim.model_validate(payload))
+
+
+def normalize_material_claims_v1(
+    values: Iterable[MaterialClaimV1 | MaterialClaim | Mapping[str, Any]],
+) -> list[MaterialClaimV1]:
+    return [normalize_material_claim_v1(value) for value in values]
+
+
+def _legacy_material_claim_to_v1(claim: MaterialClaim) -> MaterialClaimV1:
+    return MaterialClaimV1(
+        claim_id=claim.claim_id,
+        claim_text=claim.claim_text,
+        claim_type=_AUTHORITY_CLASS_TO_CLAIM_TYPE[claim.authority_class.value],
+        cited_evidence_ids=list(claim.cited_evidence_ids),
+        business_fact_refs=list(claim.business_fact_refs),
+        risk_hints=list(claim.risk_hints),
+        generated_from_step=claim.source_node,
+    )
 
 
 def claim_dependency_map_from_claims(
@@ -102,5 +140,7 @@ __all__ = [
     "normalize_claim_dependency_map",
     "normalize_material_claim",
     "normalize_material_claims",
+    "normalize_material_claim_v1",
+    "normalize_material_claims_v1",
     "valid_claim_dependency_map",
 ]

@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.knowledge.schemas import EvidenceRefV1
+from src.knowledge.schemas import EvidenceRefV1, MaterialClaimV1
 from src.tools.contracts import BusinessFactRefV1
 
 
@@ -43,6 +43,9 @@ class MaterialClaim(BaseModel):
     dependency_claim_ids: list[str] = Field(default_factory=list)
     optional_labels: list[str] = Field(default_factory=list)
     verifier_status: ClaimVerifierStatus | None = None
+
+
+CanonicalMaterialClaim = MaterialClaimV1
 
 
 class RagContextBudget(BaseModel):

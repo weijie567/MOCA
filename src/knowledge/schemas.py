@@ -8,9 +8,10 @@ are reserved for effective-time filtering and do not determine identity.
 
 from __future__ import annotations
 
-from typing import Literal
+from datetime import datetime
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.knowledge.text_hash import evidence_text_hash
 
@@ -67,6 +68,143 @@ class EvidenceRefV1(BaseModel):
             score=score,
             rank=rank,
         )
+
+
+RAG_CONTEXT_STATUSES = (
+    "not_required",
+    "verified",
+    "partial",
+    "no_evidence",
+    "unauthorized",
+    "stale",
+    "conflict",
+    "invalid_hash",
+    "invalid_scope",
+    "build_error",
+)
+CLAIM_TYPES = ("policy", "business_fact", "action_recommendation")
+CLAIM_SUPPORT_STATUSES = ("supported", "unsupported", "partial", "ambiguous", "not_applicable", "error")
+SEMANTIC_REVIEW_STATUSES = ("not_needed", "passed", "failed", "ambiguous", "timeout")
+CLAIM_BUNDLE_OVERALL_STATUSES = ("verified", "blocked", "manual_review", "not_required", "error")
+CLAIM_BUNDLE_ROUTES = ("continue", "final_response", "manual_review")
+
+RagContextStatus = Literal[
+    "not_required",
+    "verified",
+    "partial",
+    "no_evidence",
+    "unauthorized",
+    "stale",
+    "conflict",
+    "invalid_hash",
+    "invalid_scope",
+    "build_error",
+]
+MaterialClaimType = Literal["policy", "business_fact", "action_recommendation"]
+ClaimSupportStatus = Literal["supported", "unsupported", "partial", "ambiguous", "not_applicable", "error"]
+SemanticReviewStatus = Literal["not_needed", "passed", "failed", "ambiguous", "timeout"]
+ClaimBundleOverallStatus = Literal["verified", "blocked", "manual_review", "not_required", "error"]
+ClaimBundleRoute = Literal["continue", "final_response", "manual_review"]
+
+
+class EvidenceItemV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["evidence_item.v1"] = "evidence_item.v1"
+    ref: EvidenceRefV1
+    snippet: str
+    text_hash: str
+    doc_version: str | None = None
+    policy_version: str
+    effective_date_result: Literal["valid", "expired", "not_yet_effective", "unknown"]
+    tenant_scope_result: Literal["valid", "invalid", "unknown"]
+    authority_level: Literal["tenant_policy", "global_policy", "sop", "faq", "unknown"]
+    source_locator: dict[str, Any]
+    captured_at: datetime
+
+
+class VerifiedEvidencePackageV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["verified_evidence_package.v1"] = "verified_evidence_package.v1"
+    package_id: str
+    status: RagContextStatus
+    evidence_items: list[EvidenceItemV1] = Field(default_factory=list)
+    citation_map: dict[str, list[str]] = Field(default_factory=dict)
+    evidence_map: dict[str, EvidenceRefV1] = Field(default_factory=dict)
+    prompt_projection: dict[str, Any] = Field(default_factory=dict)
+    verifier_projection: dict[str, Any] = Field(default_factory=dict)
+    replay_snapshot_refs: list[str] = Field(default_factory=list)
+    debug_projection: dict[str, Any] = Field(default_factory=dict)
+    stale_refs: list[EvidenceRefV1] = Field(default_factory=list)
+    conflict_refs: list[EvidenceRefV1] = Field(default_factory=list)
+    rejected_candidate_refs: list[EvidenceRefV1] = Field(default_factory=list)
+    reason_codes: list[str] = Field(default_factory=list)
+    policy_version: str
+    retrieval_config_version: str
+
+
+class MaterialClaimV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["material_claim.v1"] = "material_claim.v1"
+    claim_id: str
+    claim_text: str
+    claim_type: MaterialClaimType
+    cited_evidence_ids: list[str] = Field(default_factory=list)
+    business_fact_refs: list[Any] = Field(default_factory=list)
+    risk_hints: list[str] = Field(default_factory=list)
+    generated_from_step: str
+
+    @field_validator("business_fact_refs", mode="before")
+    @classmethod
+    def _validate_business_fact_refs(cls, value: Any) -> list[Any]:
+        return _coerce_business_fact_refs(value)
+
+
+class ClaimVerificationResultV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["claim_verification_result.v1"] = "claim_verification_result.v1"
+    claim_id: str
+    claim_type: MaterialClaimType
+    support_status: ClaimSupportStatus
+    supporting_evidence_refs: list[EvidenceRefV1] = Field(default_factory=list)
+    business_fact_refs: list[Any] = Field(default_factory=list)
+    rule_checks: list[dict[str, Any]] = Field(default_factory=list)
+    semantic_review_status: SemanticReviewStatus
+    allows_user_visible_claim: bool
+    allows_action_recommendation: bool
+
+    @field_validator("business_fact_refs", mode="before")
+    @classmethod
+    def _validate_business_fact_refs(cls, value: Any) -> list[Any]:
+        return _coerce_business_fact_refs(value)
+
+
+class ClaimVerificationBundleV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["claim_verification_bundle.v1"] = "claim_verification_bundle.v1"
+    overall_status: ClaimBundleOverallStatus
+    route: ClaimBundleRoute
+    claim_results: list[ClaimVerificationResultV1] = Field(default_factory=list)
+    blocked_claims: list[str] = Field(default_factory=list)
+    safe_support_refs: list[EvidenceRefV1] = Field(default_factory=list)
+    reason_codes: list[str] = Field(default_factory=list)
+    verifier_policy_version: str
+
+
+def _coerce_business_fact_refs(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    from src.tools.contracts import BusinessFactRefV1
+
+    items = value if isinstance(value, list) else [value]
+    return [
+        item if isinstance(item, BusinessFactRefV1) else BusinessFactRefV1.model_validate(item)
+        for item in items
+    ]
 
 
 class ClaimResult(BaseModel):
