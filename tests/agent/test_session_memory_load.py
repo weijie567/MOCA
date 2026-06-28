@@ -4,6 +4,7 @@ import uuid
 
 from src.agent.nodes import session_memory_load as session_memory_load_module
 from src.agent.nodes.session_memory_load import session_memory_load
+from src.memory.context_refs import SessionContextLoadStatusV1
 from src.memory.schemas import SessionMemoryBundle, SessionMemoryView
 
 
@@ -162,9 +163,26 @@ async def test_session_context_load_direct_node_returns_target_and_legacy_fields
     assert result["session_context_bundle"]["schema_version"] == "session_context_bundle.v1"
     assert result["session_context_load_status"]["schema_version"] == "session_context_load_status.v1"
     assert result["session_context_load_status"]["authority_class"] == "contextual_only"
+    status = SessionContextLoadStatusV1.model_validate(result["session_context_load_status"])
+    assert status.status == "loaded"
+    assert status.filter_reasons == []
     assert result["session_memory"]["active_slots"] == {"order_id": "ORD-CONTEXT-DIRECT"}
     assert result["session_memory_bundle"]["schema_version"] == "session_memory_bundle.v1"
     assert result["trace_steps"][-1]["node"] == "session_context_load"
+
+
+async def test_session_context_load_status_dto_accepts_fallback_node_output(monkeypatch):
+    from src.agent.nodes import session_context_load as session_context_load_module
+    from src.agent.nodes.session_context_load import session_context_load
+
+    monkeypatch.setattr(session_context_load_module.settings, "session_memory_enabled", True)
+
+    result = await session_context_load(_state(), {"configurable": {}})
+
+    status = SessionContextLoadStatusV1.model_validate(result["session_context_load_status"])
+    assert status.status == "skipped"
+    assert status.fallback_reason == "missing_async_session"
+    assert status.filter_reasons == []
 
 
 async def test_session_memory_load_fails_closed_when_bundle_load_fails(monkeypatch):

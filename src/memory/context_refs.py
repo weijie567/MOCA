@@ -51,6 +51,7 @@ class SessionContextLoadStatusV1(BaseModel):
     slot_count: int = 0
     recent_message_count: int = 0
     tool_summary_count: int = 0
+    filter_reasons: list[str] = Field(default_factory=list)
 
 
 class ReviewedMemoryContextRetrieveStatusV1(BaseModel):

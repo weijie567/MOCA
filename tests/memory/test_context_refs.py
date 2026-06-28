@@ -91,6 +91,7 @@ def test_session_context_load_status_records_contextual_load_metadata() -> None:
             "slot_count": 1,
             "recent_message_count": 2,
             "tool_summary_count": 1,
+            "filter_reasons": ["cross_merchant_session_context_filtered"],
         }
     )
 
@@ -107,6 +108,7 @@ def test_session_context_load_status_records_contextual_load_metadata() -> None:
     assert status.slot_count == 1
     assert status.recent_message_count == 2
     assert status.tool_summary_count == 1
+    assert status.filter_reasons == ["cross_merchant_session_context_filtered"]
 
 
 def test_reviewed_memory_context_retrieve_status_records_scope_filters_and_refs() -> None:
