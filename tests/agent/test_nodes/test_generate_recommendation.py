@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -11,6 +12,7 @@ from src.agent.nodes import generate_recommendation as generate_recommendation_m
 from src.knowledge.config import MAX_EVIDENCE_TEXT_CHARS, RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1
 from src.knowledge.text_hash import evidence_text_hash
+from src.tools.contracts import BusinessFactRefV1
 from tests.agent.conftest import FakeLLM
 
 
@@ -66,6 +68,70 @@ def _retrieval_state(*, evidence: list[EvidenceRefV1] | None = None) -> dict:
             "evidence_refs": [item.model_dump() for item in evidence],
         },
     }
+
+
+def _verified_package_state(
+    *,
+    evidence: EvidenceRefV1,
+    snippet: str = "VERIFIED_PACKAGE_POLICY_TEXT: refund timeout requires verified package context.",
+    status: str = "verified",
+) -> dict:
+    package = {
+        "schema_version": "verified_evidence_package.v1",
+        "package_id": "pkg-generate-recommendation",
+        "status": status,
+        "evidence_items": [],
+        "citation_map": {"C1": [evidence.evidence_id]} if status in {"verified", "partial"} else {},
+        "evidence_map": {evidence.evidence_id: evidence.model_dump(mode="json")}
+        if status in {"verified", "partial"}
+        else {},
+        "prompt_projection": {
+            "schema_version": "rag_prompt_context.v1",
+            "citations": [
+                {
+                    "citation_id": "C1",
+                    "display_label": "退款超时规则",
+                    "snippet": snippet,
+                    "risk_labels": ["authority_checked"],
+                    "metadata": {
+                        "doc_key": evidence.doc_key,
+                        "chunk_id": evidence.chunk_id,
+                        "policy_version": evidence.policy_version,
+                    },
+                    "merged_from_chunk_ids": [],
+                }
+            ],
+            "risk_labels": ["authority_checked"],
+            "trusted_context": {},
+        },
+        "verifier_projection": {"safe_refs": [evidence.evidence_id], "evidence_snippets": [], "business_fact_refs": []},
+        "replay_snapshot_refs": [evidence.evidence_id],
+        "debug_projection": {},
+        "stale_refs": [],
+        "conflict_refs": [],
+        "rejected_candidate_refs": [],
+        "reason_codes": [],
+        "policy_version": evidence.policy_version,
+        "retrieval_config_version": evidence.retrieval_config_version,
+    }
+    return {
+        "rag_context_status": status,
+        "verified_evidence_package": package,
+        "citation_map": package["citation_map"],
+        "evidence_map": package["evidence_map"],
+    }
+
+
+def _business_fact_ref_payload(tenant_id: str) -> dict:
+    return BusinessFactRefV1(
+        tenant_id=tenant_id,
+        source_system="moca",
+        resource_type="refund_case",
+        resource_id="RF-1001",
+        resource_version="v1",
+        data_freshness_at="2026-06-19T00:00:00Z",
+        retrieved_at="2026-06-19T00:00:00Z",
+    ).model_dump(mode="json")
 
 
 def test_risk_hints_merge_state_and_evidence_labels():
@@ -473,6 +539,92 @@ async def test_cross_tenant_ref_is_not_grounded(monkeypatch, base_state):
 
 def test_generate_recommendation_does_not_import_policy_chunk_repository():
     assert not hasattr(generate_recommendation_module, "PolicyChunkRepository")
+
+
+def test_generate_recommendation_static_boundary_does_not_own_verification():
+    source = inspect.getsource(generate_recommendation_module)
+
+    forbidden_generation_owners = (
+        "ContextBuilder",
+        "MaterialClaimVerifier",
+        "PolicyKnowledgeService",
+        "PolicyRetrievalEngine",
+        "RagContextBudget",
+        "determine_verification_route",
+        "_verify_recommendation_with_shared_kernel",
+    )
+
+    for forbidden in forbidden_generation_owners:
+        assert forbidden not in source
+
+
+@pytest.mark.asyncio
+async def test_generation_consumes_verified_package_prompt_projection_and_emits_material_claim_v1(
+    monkeypatch, base_state
+):
+    evidence = _evidence(tenant_id=base_state["tenant_id"])
+    package_text = "VERIFIED_PACKAGE_POLICY_TEXT: refund timeout requires verified package context."
+    fake_llm = CapturingLLM(_draft(reasoning_summary=package_text))
+    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: fake_llm)
+
+    result = await generate_recommendation_module.generate_recommendation(
+        {
+            **base_state,
+            **_verified_package_state(evidence=evidence, snippet=package_text),
+            "business_context": {"business_fact_refs": [_business_fact_ref_payload(base_state["tenant_id"])]},
+            "retrieved_evidence": {
+                "schema_version": "knowledge_search_result.v2",
+                "evidence_refs": [
+                    {
+                        **evidence.model_dump(mode="json"),
+                        "evidence_id": "candidate-only-id",
+                        "text": "UNVERIFIED_CANDIDATE_TEXT_SHOULD_NOT_ENTER_PROMPT",
+                    }
+                ],
+            },
+        },
+        {},
+    )
+
+    prompt = fake_llm.messages[-1]["content"]
+    assert package_text in prompt
+    assert "UNVERIFIED_CANDIDATE_TEXT_SHOULD_NOT_ENTER_PROMPT" not in prompt
+
+    claim = result["material_claims"][0]
+    assert claim["schema_version"] == "material_claim.v1"
+    assert claim["claim_type"] == "policy"
+    assert claim["generated_from_step"] == "recommendation_generation"
+    assert claim["cited_evidence_ids"] == [evidence.evidence_id]
+    assert "authority_class" not in claim
+    assert "source_node" not in claim
+    assert result["recommendation_draft"]["material_claims"] == result["material_claims"]
+
+
+@pytest.mark.asyncio
+async def test_generation_fails_closed_when_required_verified_package_is_not_usable(monkeypatch, base_state):
+    class ExplodingLLM:
+        def with_structured_output(self, schema):
+            raise AssertionError("LLM should not run without a usable verified evidence package")
+
+    evidence = _evidence(tenant_id=base_state["tenant_id"])
+    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: ExplodingLLM())
+
+    result = await generate_recommendation_module.generate_recommendation(
+        {
+            **base_state,
+            **_verified_package_state(evidence=evidence, status="no_evidence"),
+            "routing_hints": {"policy_evidence_required": True},
+            "requested_operation": "draft_action",
+        },
+        {},
+    )
+
+    assert result["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
+    assert result["recommendation_draft"]["evidence_refs"] == []
+    assert result["material_claims"] == []
+    assert "proposed_action" not in result
+    assert "claim_verification_bundle" not in result
+    assert "safe_support_refs" not in result
 
 
 @pytest.mark.asyncio

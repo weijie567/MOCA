@@ -155,8 +155,8 @@ def test_material_claim_v1_compatibility_mapping_uses_canonical_field_names() ->
     )
 
     assert policy_claim.claim_type == "policy"
-    assert policy_claim.generated_from_step == "generate_recommendation"
+    assert policy_claim.generated_from_step == "recommendation_generation"
     assert action_recommendation_claim.claim_type == "action_recommendation"
-    assert action_recommendation_claim.generated_from_step == "generate_recommendation"
+    assert action_recommendation_claim.generated_from_step == "recommendation_generation"
     assert canonical.claim_type == "business_fact"
     assert canonical.business_fact_refs[0].resource_id == "ORD-1001"
