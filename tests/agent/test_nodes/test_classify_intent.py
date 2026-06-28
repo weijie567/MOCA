@@ -6,7 +6,8 @@ from pydantic import ValidationError
 from tests.agent.conftest import FakeLLM
 
 from src.agent.nodes import classify_intent as classify_intent_module
-from src.agent.schemas import IntentResultV3
+from src.agent.nodes.classify_intent import intent_result_to_state
+from src.agent.schemas import IntentResultV3, RequiredSlotExpression
 
 
 def _intent_v3(**overrides):
@@ -40,6 +41,8 @@ async def test_classify_intent_success(monkeypatch, base_state, fake_llm_intent)
     assert result["intent_confidence"] == 0.95
     assert result["risk_tier"] == "read_only"
     assert result["classification_trace"]["raw_llm_classification"]["primary_intent"] == "refund_troubleshooting"
+    assert result["classification_trace"]["candidate_classification"]["primary_intent"] == "refund_troubleshooting"
+    assert result["classification_trace"]["policy_owner"] == "IntentPolicyRegistry"
     assert result["classification_trace"]["effective_classification"]["primary_intent"] == "refund_troubleshooting"
     assert result["classification_trace"]["route_decision"] == "session_memory_load"
     assert result["required_slots"]["any_of"] == [["order_id", "refund_case_id"]]
@@ -68,6 +71,62 @@ async def test_classify_intent_llm_failure_returns_unknown(monkeypatch, base_sta
 def test_intent_result_v3_rejects_approval_result_extra_field():
     with pytest.raises(ValidationError):
         IntentResultV3.model_validate(_intent_v3(approval_result={"decision": "approve"}))
+
+
+def test_intent_result_to_state_uses_slot_policy_registry_for_required_slots(monkeypatch):
+    class FakeSlotRegistry:
+        def required_slots_for(self, intent: str) -> RequiredSlotExpression:
+            return RequiredSlotExpression(all_of=["ticket_id"])
+
+    monkeypatch.setattr(classify_intent_module, "SLOT_POLICY_REGISTRY", FakeSlotRegistry(), raising=False)
+    result = IntentResultV3.model_validate(_intent_v3(required_slots={"all_of": [], "any_of": [], "optional": []}))
+
+    update = intent_result_to_state(result, user_query="订单 ORD-1 怎么处理？")
+
+    assert update["required_slots"] == {"all_of": ["ticket_id"], "any_of": [], "optional": []}
+    assert update["classification_trace"]["raw_llm_classification"]["required_slots"] == {
+        "all_of": [],
+        "any_of": [],
+        "optional": [],
+    }
+    assert update["classification_trace"]["effective_classification"]["required_slots"] == {
+        "all_of": ["ticket_id"],
+        "any_of": [],
+        "optional": [],
+    }
+
+
+def test_intent_result_to_state_uses_intent_policy_registry_for_precedence_and_risk(monkeypatch):
+    class FakeIntentRegistry:
+        def resolve_precedence(
+            self,
+            primary_intent: str,
+            secondary_intents: list[str],
+            requested_operation: str,
+            *,
+            query: str = "",
+        ) -> tuple[str, str, list[str]]:
+            return "small_talk", "advise", ["fake_registry_precedence"]
+
+        def resolve_risk_tier(
+            self,
+            primary_intent: str,
+            requested_operation: str,
+            role: str | None = None,
+            channel: str | None = None,
+            routing_hints: dict | None = None,
+        ) -> str:
+            return "draft_only"
+
+    monkeypatch.setattr(classify_intent_module, "INTENT_POLICY_REGISTRY", FakeIntentRegistry(), raising=False)
+    result = IntentResultV3.model_validate(_intent_v3(primary_intent="refund_troubleshooting"))
+
+    update = intent_result_to_state(result, user_query="hi")
+
+    assert update["primary_intent"] == "small_talk"
+    assert update["risk_tier"] == "draft_only"
+    assert update["classification_trace"]["policy_owner"] == "IntentPolicyRegistry"
+    assert "fake_registry_precedence" in update["classification_trace"]["reason_codes"]
 
 
 @pytest.mark.asyncio

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import inspect
+
 import pytest
 
 from tests.agent.conftest import FakeLLM
 
+from src.agent import routing as routing_module
 from src.agent.intent_policy import (
     DIRECT_RESPONSE_INTENTS,
     EVIDENCE_REQUIRED_INTENTS,
@@ -22,7 +25,7 @@ from src.agent.intent_policy import (
 from src.agent.nodes import classify_intent as classify_intent_module
 from src.agent.nodes.classify_intent import intent_result_to_state
 from src.agent.routing import INTENT_ROUTES, SLOT_ROUTES, route_after_intent, route_after_slots
-from src.agent.schemas import IntentResultV3
+from src.agent.schemas import IntentResultV3, RequiredSlotExpression
 
 
 def test_policy_taxonomy_has_no_generic_or_approval_decision_intents():
@@ -271,6 +274,78 @@ def test_safety_sensitive_escalation_pre_route_forces_complaint_escalation_polic
 )
 def test_route_after_intent_totality(state):
     assert route_after_intent(state) in INTENT_ROUTES
+
+
+def test_route_after_intent_consumes_registry_route_policy(monkeypatch):
+    class FakeIntentRegistry:
+        def is_direct_response_intent(self, intent: str) -> bool:
+            return False
+
+        def route_for_intent(self, intent: str) -> str | None:
+            return "investigate"
+
+    class FakeSlotRegistry:
+        def required_slots_for(self, intent: str) -> RequiredSlotExpression:
+            return RequiredSlotExpression()
+
+    monkeypatch.setattr(routing_module, "INTENT_POLICY_REGISTRY", FakeIntentRegistry(), raising=False)
+    monkeypatch.setattr(routing_module, "SLOT_POLICY_REGISTRY", FakeSlotRegistry(), raising=False)
+
+    assert (
+        routing_module.route_after_intent(
+            {"primary_intent": "refund_troubleshooting", "requested_operation": "read_status", "intent_confidence": 0.9}
+        )
+        == "investigate"
+    )
+
+
+@pytest.mark.parametrize("route_value", ["not_a_route", None])
+def test_route_after_intent_fails_closed_for_invalid_registry_route(monkeypatch, route_value):
+    class FakeIntentRegistry:
+        def is_direct_response_intent(self, intent: str) -> bool:
+            return False
+
+        def route_for_intent(self, intent: str) -> str | None:
+            return route_value
+
+    class FakeSlotRegistry:
+        def required_slots_for(self, intent: str) -> RequiredSlotExpression:
+            return RequiredSlotExpression()
+
+    monkeypatch.setattr(routing_module, "INTENT_POLICY_REGISTRY", FakeIntentRegistry(), raising=False)
+    monkeypatch.setattr(routing_module, "SLOT_POLICY_REGISTRY", FakeSlotRegistry(), raising=False)
+
+    assert (
+        routing_module.route_after_intent(
+            {"primary_intent": "refund_troubleshooting", "requested_operation": "read_status", "intent_confidence": 0.9}
+        )
+        == "clarification_gate"
+    )
+
+
+def test_route_after_intent_fails_closed_for_registry_exception(monkeypatch):
+    class RaisingIntentRegistry:
+        def is_direct_response_intent(self, intent: str) -> bool:
+            raise RuntimeError("registry unavailable")
+
+    monkeypatch.setattr(routing_module, "INTENT_POLICY_REGISTRY", RaisingIntentRegistry(), raising=False)
+
+    assert (
+        routing_module.route_after_intent(
+            {"primary_intent": "refund_troubleshooting", "requested_operation": "read_status", "intent_confidence": 0.9}
+        )
+        == "clarification_gate"
+    )
+
+
+def test_intent_consumers_do_not_read_policy_constants_directly():
+    routing_source = inspect.getsource(routing_module)
+    classifier_source = inspect.getsource(classify_intent_module)
+
+    forbidden = ("DIRECT_RESPONSE_INTENTS", "INTENT_ROUTE_POLICY", "REQUIRED_SLOT_POLICY")
+    for token in forbidden:
+        assert token not in routing_source
+        assert token not in classifier_source
 
 
 def test_route_after_slots_totality_and_long_term_memory_route():
