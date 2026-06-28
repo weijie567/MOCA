@@ -5014,3 +5014,47 @@ drwx------ ming:staff /Users/ming/Documents
 - `ls /Users/ming/Documents`
 - `codex --yolo`
 - Codex app server 进程：`/Applications/Codex.app/Contents/Resources/codex app-server`
+## 2026-06-28 13:05 CST - rg pattern 中 Markdown 反引号触发 zsh 命令替换
+
+### 问题现象
+
+在复核 Phase 31 plan 修订文本时，`rg` pattern 使用双引号包裹，pattern 内包含 Markdown 反引号形式的 `` `memory_context` ``，zsh 将反引号内容当作命令替换执行，出现：
+
+```text
+zsh:1: command not found: memory_context
+```
+
+### 如何检测 / 复现
+
+在 zsh 中运行包含双引号和反引号的 grep/rg pattern，例如：
+
+```bash
+rg -n "structured `memory_context` projection" .planning/phases/31-memory-platform-boundary/31-*.md
+```
+
+### 关键证据或命令
+
+失败后改用单引号重新运行：
+
+```bash
+rg -n 'structured `memory_context` projection|permissive/strict bare DTO parse|projection sanitizer' .planning/phases/31-memory-platform-boundary/31-*.md
+```
+
+正确引用后的 `rg` 命令返回目标 plan 行；`git diff --check` 通过。
+
+### 当前判断 / 根因
+
+这是 shell quoting 问题，不是 plan 内容或应用代码问题。zsh 在双引号内仍会执行反引号命令替换；包含 Markdown code span 的搜索 pattern 应使用单引号或转义反引号。
+
+### 已做处理
+
+已用单引号重跑文本核对命令，并确认 Phase 31 plan 修订内容可被 `rg` 正确匹配。
+
+### 剩余问题
+
+无应用侧剩余问题。
+
+### 下次继续排查入口
+
+- 复核命令中的 shell quoting
+- `.planning/phases/31-memory-platform-boundary/31-*-PLAN.md`
