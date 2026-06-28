@@ -5118,3 +5118,70 @@ GSD workflow 文档或 SDK 参数解析仍存在不一致，后续继续执行�
 - `$HOME/.codex/get-shit-done/workflows/execute-phase.md`
 - `gsd-sdk query state.begin-phase`
 - `.planning/STATE.md`
+
+## 2026-06-28 13:49 CST - `phase-plan-index` 将 Phase 31 依赖计划错误归入同一执行 wave
+
+### 问题现象
+
+执行 `$gsd-execute-phase 31` 时，`gsd-sdk query phase-plan-index 31` 返回的 wave 分组把 `31-01`、`31-02`、`31-03` 同放入 Wave 1。
+
+但 `31-03-PLAN.md` frontmatter 明确写有：
+
+```yaml
+wave: 1
+depends_on:
+  - 31-01
+  - 31-02
+```
+
+`31-01-PLAN.md` 与 `31-02-PLAN.md` 则是 `wave: 0` RED 测试计划。若按 SDK 分组并行执行，`31-03` 会与其前置 RED 测试计划并行，违背计划依赖和 TDD 顺序。
+
+### 如何检测 / 复现
+
+```bash
+gsd-sdk query phase-plan-index 31
+sed -n '1,40p' .planning/phases/31-memory-platform-boundary/31-03-PLAN.md
+```
+
+### 关键证据或命令
+
+`phase-plan-index` 输出中：
+
+```json
+"waves": {
+  "1": ["31-01", "31-02", "31-03"]
+}
+```
+
+计划 frontmatter 中：
+
+```yaml
+plan: 31-03
+wave: 1
+depends_on:
+  - 31-01
+  - 31-02
+```
+
+### 当前判断 / 根因
+
+当前 SDK wave index 可能把 `wave: 0` 归一化到 Wave 1，但没有同时提升依赖计划的 wave 或按 `depends_on` 重新拓扑排序，导致 Wave 0/1 被折叠成同一执行批次。
+
+### 已做处理
+
+本次 Phase 31 执行不采信该分组；按 plan frontmatter 和 `depends_on` 手动拓扑排序为：
+
+- Wave 0: `31-01`, `31-02`
+- Wave 1: `31-03`
+- Wave 2: `31-04`
+- Wave 3: `31-05`
+- Wave 4: `31-06`
+
+### 剩余问题
+
+SDK `phase-plan-index` 的 wave 归一化/依赖拓扑逻辑仍需后续修复；在修复前，遇到 `wave: 0` 和 `depends_on` 混用的 phase 时必须回读计划 frontmatter 验证。
+
+### 下次继续排查入口
+
+- `gsd-sdk query phase-plan-index 31`
+- `.planning/phases/31-memory-platform-boundary/31-*-PLAN.md`
