@@ -5748,3 +5748,216 @@ rg -n "2026-06-27-merchant-scope" .planning/ROADMAP.md .planning/todos .planning
 - `.planning/ROADMAP.md:107`
 - `.planning/todos/deferred/`
 - `gsd-sdk query verify references .planning/ROADMAP.md`
+
+## 2026-06-29 02:45 CST - Task 33-02-01 RED 测试文件误含 patch footer 导致 collection 失败
+
+### 问题现象
+
+为 Task 33-02-01 新增 `tests/agent/test_nodes/test_rag_context_build.py` 后，首次执行 RED 验证时，pytest 在 collection 阶段报 `SyntaxError`，未进入预期的缺失 production module 失败。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_rag_context_build.py -q --tb=short
+```
+
+### 关键证据或命令
+
+失败输出指出：
+
+```text
+File "/Users/ming/projects/MOCA/tests/agent/test_nodes/test_rag_context_build.py", line 278
+  *** End Patch
+  ^^
+SyntaxError: invalid syntax
+```
+
+随后用 `tail -20 tests/agent/test_nodes/test_rag_context_build.py` 确认文件末尾误保留了 `*** End Patch` 文本。
+
+### 当前判断 / 根因
+
+这是手工 patch 过程中误把补丁 footer 写入测试文件造成的测试文件语法错误，不是 MOCA 代码逻辑或测试环境入口问题。
+
+### 已做处理
+
+已删除测试文件末尾误写入的 `*** End Patch` 行，并重新执行同一命令。重跑后 RED gate 进入预期状态：3 个测试均因 `ModuleNotFoundError: No module named 'src.agent.nodes.rag_context_build'` 失败。
+
+### 剩余问题
+
+无。继续按 TDD GREEN 实现 `src/agent/nodes/rag_context_build.py`。
+
+### 下次继续排查入口
+
+- `tests/agent/test_nodes/test_rag_context_build.py`
+- `src/agent/nodes/rag_context_build.py`
+
+## 2026-06-29 02:52 CST - Task 33-02-01 Ruff 检出新测试文件未使用导入
+
+### 问题现象
+
+Task 33-02-01 GREEN 实现后执行 Ruff 验证时，`tests/agent/test_nodes/test_rag_context_build.py` 存在未使用的 `UTC` 和 `datetime` 导入，导致 lint gate 失败。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/nodes/rag_context_build.py tests/agent/test_nodes/test_rag_context_build.py
+```
+
+### 关键证据或命令
+
+失败输出包含：
+
+```text
+F401 [*] `datetime.UTC` imported but unused
+F401 [*] `datetime.datetime` imported but unused
+```
+
+### 当前判断 / 根因
+
+这是新增测试文件编写过程中遗留的无用导入，属于本任务新增代码的 lint 问题，不涉及业务逻辑。
+
+### 已做处理
+
+已从 `tests/agent/test_nodes/test_rag_context_build.py` 删除未使用的 `from datetime import UTC, datetime`，并重跑同一 Ruff 命令，结果为 `All checks passed!`。
+
+### 剩余问题
+
+无。
+
+### 下次继续排查入口
+
+- `tests/agent/test_nodes/test_rag_context_build.py`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/nodes/rag_context_build.py tests/agent/test_nodes/test_rag_context_build.py`
+
+## 2026-06-29 03:08 CST - Task 33-02-02 图验证暴露 AgentState Phase 33 DTO 运行时类型名缺失
+
+### 问题现象
+
+Task 33-02-02 路由实现后执行图验证时，`tests/agent/test_graph.py` 多个用例在 `StateGraph(AgentState)` 初始化阶段失败，未进入实际图执行。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_rag_context_routing.py tests/agent/test_graph.py -q --tb=short
+```
+
+### 关键证据或命令
+
+失败栈包含：
+
+```text
+NameError: name 'VerifiedEvidencePackageV1' is not defined
+```
+
+触发点为 LangGraph 内部对 `AgentState` 执行 `typing.get_type_hints(schema, include_extras=True)`。
+
+### 当前判断 / 根因
+
+Phase 33 Plan 01 新增的 `AgentState` DTO 类型名只放在 `TYPE_CHECKING` 分支里。静态类型检查可见，但 LangGraph 运行时会解析 `TypedDict` forward annotations，因此运行时全局命名空间缺少 `VerifiedEvidencePackageV1` 等类型名。
+
+### 已做处理
+
+已将 `src/agent/state.py` 中 `ClaimVerificationBundleV1`、`EvidenceRefV1`、`MaterialClaimV1`、`VerifiedEvidencePackageV1` 改为运行时导入。重跑后该 `NameError` 消失。
+
+### 剩余问题
+
+无。后续若新增 AgentState runtime annotations，不能只放在 `TYPE_CHECKING` 中。
+
+### 下次继续排查入口
+
+- `src/agent/state.py`
+- `src/knowledge/schemas.py`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py -q --tb=short`
+
+## 2026-06-29 03:13 CST - Task 33-02-02 路由提前返回 rag_context_build 但图边尚未映射
+
+### 问题现象
+
+实现 `route_after_investigate -> rag_context_build` 后，图验证中 policy evidence 路径在 `investigate` 后抛出 `KeyError: 'rag_context_build'`。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_rag_context_routing.py tests/agent/test_graph.py -q --tb=short
+```
+
+### 关键证据或命令
+
+失败输出包含：
+
+```text
+KeyError: 'rag_context_build'
+During task with name 'investigate'
+```
+
+### 当前判断 / 根因
+
+Task 33-02-02 要求路由器把需要 policy evidence 或包含候选 policy evidence 的路径送到 `rag_context_build`，同时 Task 33-02-02 的验证命令包含 `tests/agent/test_graph.py`。若等到 Task 33-02-03 才添加图边，本任务的图验证会持续失败，属于当前任务引入的阻塞问题。
+
+### 已做处理
+
+按 Rule 3 提前添加 `rag_context_build` graph node、`route_after_investigate` 的 `rag_context_build` 映射，以及 `rag_context_build -> route_after_rag_context` 条件边；同时更新图测试的 fake `policy_knowledge_service`，让本地图测试无需真实数据库即可通过 package-build 节点。
+
+### 剩余问题
+
+无。Task 33-02-03 仍需完成 graph vocabulary promotion 和 working-state no-leak projection。
+
+### 下次继续排查入口
+
+- `src/agent/graph.py`
+- `src/agent/routing.py`
+- `tests/agent/test_graph.py`
+
+## 2026-06-29 03:03 CST - Plan 33-02 roadmap SDK 未更新 Phase 33 checkbox
+
+### 问题现象
+
+Plan 33-02 完成后执行 GSD roadmap 更新命令时，SDK 返回未更新，导致 `.planning/ROADMAP.md` 中 `33-02-PLAN.md` 仍保持未勾选，`.planning/STATE.md` 的 Phase 33 计划计数仍显示 `1/9`。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+gsd-sdk query roadmap.update-plan-progress "33"
+```
+
+### 关键证据或命令
+
+命令输出为：
+
+```json
+{
+  "updated": false,
+  "phase": "33",
+  "reason": "no matching checkbox found"
+}
+```
+
+随后用 `rg -n "33-02|33. RAG Context" .planning/ROADMAP.md .planning/STATE.md` 确认 roadmap 中实际存在 `33-02-PLAN.md` checkbox，STATE 中 Phase 33 计数仍为 `1/9`。
+
+### 当前判断 / 根因
+
+这是 GSD SDK 对当前 ROADMAP 章节格式的匹配问题，不是业务代码问题。Plan 33-02 的 SUMMARY 已落盘且任务提交可达，因此需要手动同步 metadata。
+
+### 已做处理
+
+已手动把 `.planning/ROADMAP.md` 中 Phase 33 plans count 从 `1/9` 改为 `2/9`，并勾选 `33-02-PLAN.md`；同时把 `.planning/STATE.md` 中 Phase 33 进度表从 `1/9` 改为 `2/9`。
+
+### 剩余问题
+
+无阻塞。后续 Phase 33 计划完成后若 SDK 再次返回 `no matching checkbox found`，继续按 SUMMARY 数量手动核对 ROADMAP/STATE。
+
+### 下次继续排查入口
+
+- `.planning/ROADMAP.md`
+- `.planning/STATE.md`
+- `gsd-sdk query roadmap.update-plan-progress "33"`

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
 status: executing
-stopped_at: Completed 33-01-PLAN.md
-last_updated: "2026-06-28T18:38:08.630Z"
+stopped_at: Completed 33-02-PLAN.md
+last_updated: "2026-06-28T19:03:03.319Z"
 last_activity: 2026-06-28
 progress:
   total_phases: 12
   completed_phases: 8
   total_plans: 38
-  completed_plans: 30
-  percent: 79
+  completed_plans: 31
+  percent: 82
 ---
 
 # Project State: MOCA
@@ -27,11 +27,11 @@ See: `.planning/PROJECT.md` (updated 2026-06-28)
 
 Phase: 33 (rag-context-build-and-claim-verification) — EXECUTING
 Next roadmap item: Phase 33 — RAG Context Build and Claim Verification
-Plan: 2 of 9
+Plan: 3 of 9
 Status: Ready to execute
 Last activity: 2026-06-28
 
-Progress: [████████░░] 79%
+Progress: [████████░░] 82%
 
 Planning files:
 
@@ -66,7 +66,7 @@ Planning files:
 | 30. BusinessFactService Boundary | 3/3 complete | Complete |
 | 31. Memory Platform Boundary | 6/6 | Complete |
 | 32. Intent Graph Migration | 5/5 | Complete |
-| 33. RAG Context Build and Claim Verification | 1/9 | In Progress |
+| 33. RAG Context Build and Claim Verification | 2/9 | In Progress |
 | 34. Approval and ActionDraft Boundary Hardening | 0/1 | Pending |
 | 35. Replay and Eval Hardening | 0/1 | Pending |
 
@@ -87,6 +87,7 @@ Latest execution metric: Phase 32 P05 — 15min, 3 tasks, 3 files; focused Phase
 | Phase 32-intent-graph-migration P32-04 | 33min | 3 tasks | 13 files |
 | Phase 32-intent-graph-migration P32-05 | 15min | 3 tasks | 3 files |
 | Phase 33 P33-01 | 14min | 3 tasks | 11 files |
+| Phase 33-rag-context-build-and-claim-verification P33-02 | 19min | 3 tasks | 12 files |
 
 ## Quick Tasks Completed
 
@@ -136,6 +137,10 @@ Latest execution metric: Phase 32 P05 — 15min, 3 tasks, 3 files; focused Phase
 - Phase 33 Plan 01 makes KnowledgeService the public owner of build_verified_context and verify_claims; graph nodes should call these service methods instead of assembling one-off ContextBuilder or MaterialClaimVerifier flows.
 - Phase 33 Plan 01 keeps target DTOs in src/knowledge/schemas.py and uses rag_context compatibility adapters for legacy MaterialClaim authority_class payloads.
 - Phase 32 Plan 05 machine-checks 32-MVP-TARGET-MAPPING.md against src.agent.graph_vocabulary to prevent target mapping drift.
+- rag_context_build is the sole graph node writer for RAG package/status/map fields and delegates canonical validation to PolicyKnowledgeService.build_verified_context.
+- route_after_rag_context is total, side-effect-free, and fail-closed for malformed state and hard package statuses.
+- WorkingState retrieved evidence refs are projected only from verified_evidence_package evidence_map for verified or allowed partial packages.
+- Phase 33 AgentState DTO imports must exist at runtime because LangGraph resolves TypedDict annotations with get_type_hints.
 
 ### Roadmap Evolution
 
@@ -177,9 +182,9 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: --stopped-at
-Stopped at: Completed 33-01-PLAN.md
-Resume file: --resume-file
+Last session: 2026-06-28T19:03:03.300Z
+Stopped at: Completed 33-02-PLAN.md
+Resume file: None
 Next: Phase 33 — RAG Context Build and Claim Verification; old phase directory archive remains a separate cleanup todo.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
