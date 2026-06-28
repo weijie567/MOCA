@@ -352,7 +352,7 @@ Plans:
 **Goal:** Split RAG into investigate-time candidate retrieval, deterministic verified evidence package construction, and post-generation claim verification.
 **Requirements**: APF-13, APF-14
 **Depends on:** Phase 32
-**Plans:** 0/1 plans complete
+**Plans:** 0/5 plans complete
 
 **Success Criteria**:
 
@@ -362,7 +362,11 @@ Plans:
 4. Tenant public policy remains separate from business merchant scope, while business fact and action recommendation claims require merchant-scoped `BusinessFactRefV1` authority.
 
 Plans:
-- [ ] 33-01-PLAN.md — RAG context build and claim verification
+- [ ] 33-01-PLAN.md — Contracts, AgentState lifecycle, and KnowledgeService boundary
+- [ ] 33-02-PLAN.md — `rag_context_build` node, package projections, and `route_after_rag_context`
+- [ ] 33-03-PLAN.md — Material claims, `claim_verify` node, bundle aggregation, and `route_after_claim_verify`
+- [ ] 33-04-PLAN.md — Risk/action/final/working-state/API safety gates and no-leak projections
+- [ ] 33-05-PLAN.md — Final static/focused/eval closure and Phase 32 guard migration
 
 ### Phase 34: Approval and ActionDraft Boundary Hardening
 
