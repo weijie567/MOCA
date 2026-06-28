@@ -1,19 +1,27 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any
+from uuid import UUID
+
+from pydantic import ValidationError
 
 from src.memory.case_memory import CaseMemoryService
 from src.memory.context_refs import (
     MemoryWriteDecisionV2,
     ReviewedMemoryContextBundle,
+    ReviewedMemoryRef,
     ReviewedMemoryContextRetrieveStatusV1,
     SessionContextLoadStatusV1,
     SessionContextRef,
 )
 from src.memory.long_term import LongTermMemoryService
-from src.memory.schemas import SessionContextMemory, SessionMemoryView
+from src.memory.schemas import CaseMemorySearchRequest, SessionContextMemory, SessionMemoryView
 from src.memory.session_bundle import SessionMemoryBundleService
+from src.platform.trusted_context import MerchantScopeV1, TrustedContext, merchant_scope_allows
+
+_UNSUPPORTED_SCOPE_TYPES = {"tenant", "global"}
 
 
 class MemoryContextService:
@@ -93,22 +101,119 @@ class MemoryContextService:
         current_slots: Mapping[str, Any] | None = None,
         trusted_business_context: Mapping[str, Any] | None = None,
         requested_scopes: list[dict[str, Any]] | None = None,
+        query: str | None = None,
+        case_type: str | None = None,
+        now: datetime | None = None,
+        limit: int = 5,
         **_: Any,
     ) -> ReviewedMemoryContextBundle:
-        status_ref = ReviewedMemoryContextRetrieveStatusV1(
-            status="skipped",
-            trusted_scope_inputs=_trusted_scope_inputs(
+        trusted = _parse_trusted_context(trusted_context)
+        if trusted is None:
+            return _empty_reviewed_memory_context(
                 trusted_context=trusted_context,
                 current_slots=current_slots,
                 trusted_business_context=trusted_business_context,
                 requested_scopes=requested_scopes,
-            ),
-            effective_scopes=[],
-            filter_reasons=["not_implemented_in_facade"],
-            retrieved_refs=[],
-            fallback_reason="not_implemented_in_facade",
+                fallback_reason="missing_trusted_context",
+                filter_reasons=["missing_trusted_context"],
+            )
+
+        if not trusted.merchant_scope.merchant_ids:
+            return _empty_reviewed_memory_context(
+                trusted_context=trusted,
+                current_slots=current_slots,
+                trusted_business_context=trusted_business_context,
+                requested_scopes=requested_scopes,
+                fallback_reason="missing_actor_merchant_scope",
+                filter_reasons=["missing_actor_merchant_scope"],
+            )
+
+        if _requests_tenant_or_global_memory(requested_scopes):
+            return _empty_reviewed_memory_context(
+                trusted_context=trusted,
+                current_slots=current_slots,
+                trusted_business_context=trusted_business_context,
+                requested_scopes=requested_scopes,
+                fallback_reason="tenant_global_memory_unsupported",
+                filter_reasons=["tenant_global_memory_unsupported"],
+                effective_scopes=_identity_effective_scopes(trusted),
+            )
+
+        scope_decision = _reviewed_memory_scopes(
+            trusted,
+            current_slots=current_slots,
+            trusted_business_context=trusted_business_context,
         )
-        return ReviewedMemoryContextBundle(long_term_items=[], case_items=[], status_ref=status_ref)
+        if scope_decision.fallback_reason is not None:
+            return _empty_reviewed_memory_context(
+                trusted_context=trusted,
+                current_slots=current_slots,
+                trusted_business_context=trusted_business_context,
+                requested_scopes=requested_scopes,
+                fallback_reason=scope_decision.fallback_reason,
+                filter_reasons=scope_decision.filter_reasons,
+                effective_scopes=scope_decision.effective_scopes,
+            )
+
+        if self.long_term_memory_service is None or self.case_memory_service is None:
+            return _empty_reviewed_memory_context(
+                trusted_context=trusted,
+                current_slots=current_slots,
+                trusted_business_context=trusted_business_context,
+                requested_scopes=requested_scopes,
+                fallback_reason="missing_memory_context_services",
+                filter_reasons=["missing_memory_context_services"],
+                effective_scopes=scope_decision.effective_scopes,
+                status="unavailable",
+            )
+
+        tenant_id = _uuid_or_value(trusted.tenant_id)
+        service_scopes = scope_decision.retrieval_scopes
+        long_term_raw = await self.long_term_memory_service.retrieve_profile_memory(
+            tenant_id=tenant_id,
+            scopes=service_scopes,
+            now=now,
+            limit=limit,
+        )
+        case_raw: list[Any] = []
+        if query:
+            case_result = await self.case_memory_service.retrieve_reviewed(
+                CaseMemorySearchRequest(
+                    tenant_id=tenant_id,
+                    scopes=service_scopes,
+                    case_type=case_type,
+                    query=query,
+                    now=now,
+                    limit=limit,
+                )
+            )
+            case_raw = list(getattr(case_result, "items", []))
+
+        long_term_items, long_term_refs = _reviewed_long_term_items(long_term_raw, tenant_id=str(trusted.tenant_id))
+        case_items, case_refs = _reviewed_case_items(
+            case_raw,
+            tenant_id=str(trusted.tenant_id),
+            fallback_scope=scope_decision.primary_retrieval_scope,
+        )
+        retrieved_refs = long_term_refs + case_refs
+        status_ref = ReviewedMemoryContextRetrieveStatusV1(
+            status="loaded" if retrieved_refs else "skipped",
+            trusted_scope_inputs=_trusted_scope_inputs(
+                trusted_context=trusted,
+                current_slots=current_slots,
+                trusted_business_context=trusted_business_context,
+                requested_scopes=requested_scopes,
+            ),
+            effective_scopes=scope_decision.effective_scopes,
+            filter_reasons=scope_decision.filter_reasons,
+            retrieved_refs=retrieved_refs,
+            fallback_reason=None,
+        )
+        return ReviewedMemoryContextBundle(
+            long_term_items=long_term_items,
+            case_items=case_items,
+            status_ref=status_ref,
+        )
 
     def project_memory_write_decision(
         self,
@@ -222,6 +327,276 @@ def _empty_session_context_memory(
         ),
         fallback_reasons={"session_context": fallback_reason},
     )
+
+
+class _ReviewedMemoryScopeDecision:
+    def __init__(
+        self,
+        *,
+        retrieval_scopes: list[tuple[str, str]],
+        effective_scopes: list[dict[str, Any]],
+        filter_reasons: list[str],
+        fallback_reason: str | None,
+    ) -> None:
+        self.retrieval_scopes = retrieval_scopes
+        self.effective_scopes = effective_scopes
+        self.filter_reasons = filter_reasons
+        self.fallback_reason = fallback_reason
+
+    @property
+    def primary_retrieval_scope(self) -> tuple[str, str]:
+        return self.retrieval_scopes[0] if self.retrieval_scopes else ("merchant", "unknown")
+
+
+def _parse_trusted_context(value: Any | None) -> TrustedContext | None:
+    if value is None:
+        return None
+    try:
+        return value if isinstance(value, TrustedContext) else TrustedContext.model_validate(value)
+    except ValidationError:
+        return None
+
+
+def _reviewed_memory_scopes(
+    trusted: TrustedContext,
+    *,
+    current_slots: Mapping[str, Any] | None,
+    trusted_business_context: Mapping[str, Any] | None,
+) -> _ReviewedMemoryScopeDecision:
+    filter_reasons: list[str] = []
+    effective_scopes = _identity_effective_scopes(trusted)
+    retrieval_scopes: list[tuple[str, str]] = []
+    explicit_merchant_id = _first_string(current_slots, ("merchant_id",))
+    business_merchant_id = _trusted_business_merchant_id(trusted_business_context)
+    denied_merchant_id = _first_denied_merchant(
+        trusted.merchant_scope,
+        [explicit_merchant_id, business_merchant_id],
+    )
+    if denied_merchant_id is not None:
+        filter_reasons.append(f"merchant_scope_denied:{denied_merchant_id}")
+        return _ReviewedMemoryScopeDecision(
+            retrieval_scopes=[],
+            effective_scopes=effective_scopes,
+            filter_reasons=filter_reasons,
+            fallback_reason="merchant_scope_denied",
+        )
+
+    merchant_id = explicit_merchant_id or business_merchant_id
+    if merchant_id is not None:
+        _append_scope(
+            retrieval_scopes,
+            effective_scopes,
+            "merchant",
+            merchant_id,
+            source="current_slots" if explicit_merchant_id is not None else "trusted_business_context",
+            usage="retrieval",
+        )
+
+    case_id = _first_string(current_slots, ("case_id", "refund_case_id")) or _trusted_business_case_id(
+        trusted_business_context
+    )
+    if case_id is not None:
+        case_merchant_id = business_merchant_id or explicit_merchant_id
+        if case_merchant_id is None or not merchant_scope_allows(trusted.merchant_scope, merchant_id=case_merchant_id):
+            filter_reasons.append("case_scope_unverified")
+        else:
+            _append_scope(
+                retrieval_scopes,
+                effective_scopes,
+                "case",
+                case_id,
+                source="trusted_business_context" if business_merchant_id is not None else "current_slots",
+                usage="retrieval",
+            )
+
+    if not retrieval_scopes:
+        filter_reasons.append("memory_scope_not_authority")
+        return _ReviewedMemoryScopeDecision(
+            retrieval_scopes=[],
+            effective_scopes=effective_scopes,
+            filter_reasons=filter_reasons,
+            fallback_reason="memory_scope_not_authority",
+        )
+
+    return _ReviewedMemoryScopeDecision(
+        retrieval_scopes=retrieval_scopes,
+        effective_scopes=effective_scopes,
+        filter_reasons=filter_reasons,
+        fallback_reason=None,
+    )
+
+
+def _identity_effective_scopes(trusted: TrustedContext) -> list[dict[str, Any]]:
+    return [
+        {"scope_type": "tenant", "scope_id": trusted.tenant_id, "source": "trusted_context", "usage": "identity_filter"},
+        {"scope_type": "user", "scope_id": trusted.user_id, "source": "trusted_context", "usage": "identity_filter"},
+        {"scope_type": "thread", "scope_id": trusted.thread_id, "source": "trusted_context", "usage": "identity_filter"},
+    ]
+
+
+def _append_scope(
+    retrieval_scopes: list[tuple[str, str]],
+    effective_scopes: list[dict[str, Any]],
+    scope_type: str,
+    scope_id: str,
+    *,
+    source: str,
+    usage: str,
+) -> None:
+    scope = (scope_type, scope_id)
+    if scope in retrieval_scopes:
+        return
+    retrieval_scopes.append(scope)
+    effective_scopes.append(
+        {"scope_type": scope_type, "scope_id": scope_id, "source": source, "usage": usage}
+    )
+
+
+def _requests_tenant_or_global_memory(requested_scopes: list[dict[str, Any]] | None) -> bool:
+    for requested_scope in requested_scopes or []:
+        scope_type = str(requested_scope.get("scope_type") or requested_scope.get("type") or "").strip().lower()
+        if scope_type in _UNSUPPORTED_SCOPE_TYPES:
+            return True
+    return False
+
+
+def _first_denied_merchant(scope: MerchantScopeV1, merchant_ids: list[str | None]) -> str | None:
+    for merchant_id in merchant_ids:
+        if merchant_id is None:
+            continue
+        if not merchant_scope_allows(scope, merchant_id=merchant_id):
+            return merchant_id
+    return None
+
+
+def _trusted_business_merchant_id(value: Mapping[str, Any] | None) -> str | None:
+    return _first_string_deep(value, ("merchant_id", "merchant_no"))
+
+
+def _trusted_business_case_id(value: Mapping[str, Any] | None) -> str | None:
+    return _first_string_deep(value, ("case_id", "refund_case_id", "refund_case_no"))
+
+
+def _first_string(value: Mapping[str, Any] | None, keys: tuple[str, ...]) -> str | None:
+    if not isinstance(value, Mapping):
+        return None
+    for key in keys:
+        raw = value.get(key)
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+        if isinstance(raw, int | float) and str(raw).strip():
+            return str(raw).strip()
+    return None
+
+
+def _first_string_deep(value: Any, keys: tuple[str, ...]) -> str | None:
+    if isinstance(value, Mapping):
+        direct = _first_string(value, keys)
+        if direct is not None:
+            return direct
+        for nested in value.values():
+            found = _first_string_deep(nested, keys)
+            if found is not None:
+                return found
+    if isinstance(value, list | tuple):
+        for nested in value:
+            found = _first_string_deep(nested, keys)
+            if found is not None:
+                return found
+    return None
+
+
+def _empty_reviewed_memory_context(
+    *,
+    trusted_context: Any | None,
+    current_slots: Mapping[str, Any] | None,
+    trusted_business_context: Mapping[str, Any] | None,
+    requested_scopes: list[dict[str, Any]] | None,
+    fallback_reason: str,
+    filter_reasons: list[str],
+    effective_scopes: list[dict[str, Any]] | None = None,
+    status: str = "skipped",
+) -> ReviewedMemoryContextBundle:
+    status_ref = ReviewedMemoryContextRetrieveStatusV1(
+        status=status,
+        trusted_scope_inputs=_trusted_scope_inputs(
+            trusted_context=trusted_context,
+            current_slots=current_slots,
+            trusted_business_context=trusted_business_context,
+            requested_scopes=requested_scopes,
+        ),
+        effective_scopes=effective_scopes or [],
+        filter_reasons=list(dict.fromkeys(filter_reasons)),
+        retrieved_refs=[],
+        fallback_reason=fallback_reason,
+    )
+    return ReviewedMemoryContextBundle(long_term_items=[], case_items=[], status_ref=status_ref)
+
+
+def _reviewed_long_term_items(items: list[Any], *, tenant_id: str) -> tuple[list[dict[str, Any]], list[ReviewedMemoryRef]]:
+    projected_items: list[dict[str, Any]] = []
+    refs: list[ReviewedMemoryRef] = []
+    for item in items:
+        projected = _mapping(item)
+        memory_id = _optional_str(projected.get("memory_id"))
+        scope_type = _optional_str(projected.get("scope_type"))
+        scope_id = _optional_str(projected.get("scope_id"))
+        review_status = _optional_str(projected.get("review_status"))
+        if memory_id is None or scope_type is None or scope_id is None or review_status is None:
+            continue
+        ref = ReviewedMemoryRef(
+            tenant_id=tenant_id,
+            memory_type="long_term",
+            scope_type=scope_type,
+            scope_id=scope_id,
+            memory_id=memory_id,
+            review_status=review_status,
+            source_identity_hash=_optional_str(projected.get("source_identity_hash")),
+            prompt_safe=True,
+        )
+        projected["ref"] = ref.model_dump(mode="json")
+        projected_items.append(projected)
+        refs.append(ref)
+    return projected_items, refs
+
+
+def _reviewed_case_items(
+    items: list[Any],
+    *,
+    tenant_id: str,
+    fallback_scope: tuple[str, str],
+) -> tuple[list[dict[str, Any]], list[ReviewedMemoryRef]]:
+    projected_items: list[dict[str, Any]] = []
+    refs: list[ReviewedMemoryRef] = []
+    for item in items:
+        projected = _mapping(item)
+        memory_id = _optional_str(
+            projected.get("case_memory_id") or projected.get("memory_id") or projected.get("id")
+        )
+        if memory_id is None:
+            continue
+        scope_type, scope_id = fallback_scope
+        ref = ReviewedMemoryRef(
+            tenant_id=tenant_id,
+            memory_type="case",
+            scope_type=scope_type,
+            scope_id=scope_id,
+            memory_id=memory_id,
+            review_status="approved",
+            source_identity_hash=_optional_str(projected.get("source_identity_hash")),
+            prompt_safe=True,
+        )
+        projected["ref"] = ref.model_dump(mode="json")
+        projected_items.append(projected)
+        refs.append(ref)
+    return projected_items, refs
+
+
+def _uuid_or_value(value: str) -> UUID | str:
+    try:
+        return UUID(str(value))
+    except (TypeError, ValueError):
+        return str(value)
 
 
 def _trusted_scope_inputs(
