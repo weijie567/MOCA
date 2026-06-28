@@ -47,6 +47,41 @@ def _non_allow_verification(outcome: str, route: str = "manual_review") -> dict[
     }
 
 
+def _claim_result(*, allows_action_recommendation: bool, support_status: str = "unsupported") -> dict[str, Any]:
+    return {
+        "schema_version": "claim_verification_result.v1",
+        "claim_id": "claim-action-1",
+        "claim_type": "action_recommendation",
+        "support_status": support_status,
+        "supporting_evidence_refs": [],
+        "business_fact_refs": [],
+        "rule_checks": [],
+        "semantic_review_status": "not_needed",
+        "allows_user_visible_claim": allows_action_recommendation,
+        "allows_action_recommendation": allows_action_recommendation,
+    }
+
+
+def _claim_bundle(
+    *,
+    route: str = "continue",
+    overall_status: str = "verified",
+    blocked_claims: list[str] | None = None,
+    claim_results: list[dict[str, Any]] | None = None,
+    safe_support_refs: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    return {
+        "schema_version": "claim_verification_bundle.v1",
+        "overall_status": overall_status,
+        "route": route,
+        "claim_results": claim_results or [],
+        "blocked_claims": blocked_claims or [],
+        "safe_support_refs": safe_support_refs or [],
+        "reason_codes": [],
+        "verifier_policy_version": "claim-verifier.v1",
+    }
+
+
 def _actionable_state(base_state: dict[str, Any], *, outcome: str, route: str = "manual_review") -> dict[str, Any]:
     return {
         **base_state,
@@ -69,9 +104,46 @@ def _actionable_state(base_state: dict[str, Any], *, outcome: str, route: str = 
     }
 
 
+def _claim_verified_actionable_state(base_state: dict[str, Any], bundle: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **base_state,
+        "current_intent": "compensation_suggestion",
+        "current_run_id": str(uuid4()),
+        "recommendation_draft": {
+            "recommended_action": "issue_coupon",
+            "reasoning_summary": "Model proposes compensation.",
+            "confidence": 0.93,
+            "risk_level": "high",
+            "missing_info": [],
+        },
+        "business_context": {
+            "order": {"id": "order-1", "order_no": "ORD-1001", "status": "delivered"},
+            "refund_case": {"id": "refund-1", "refund_case_no": "RF-1001", "requested_amount": "100.00"},
+        },
+        "claim_verification_bundle": bundle,
+        "blocked_claims": list(bundle.get("blocked_claims") or []),
+        "safe_support_refs": list(bundle.get("safe_support_refs") or []),
+        "verification_route": "allow",
+    }
+
+
 class ExplodingRiskLLM:
     def with_structured_output(self, schema: type[Any]) -> Any:
         raise AssertionError("non-allow verifier outcomes must block before risk LLM or action proposal")
+
+
+class _AllowingRiskLLM:
+    def __init__(self, response: dict[str, Any]) -> None:
+        self.response = response
+
+    def with_structured_output(self, schema: type[Any]) -> Any:
+        response = self.response
+
+        class _Wrapper:
+            async def ainvoke(self, *args: Any, **kwargs: Any) -> Any:
+                return schema.model_validate(response)
+
+        return _Wrapper()
 
 
 class ExplodingActionToolManager:
@@ -172,6 +244,109 @@ async def test_non_allow_risk_assessment_clears_same_turn_stale_snapshot_binding
     assert route_after_risk(merged_state) == "final_response"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "bundle",
+    [
+        _claim_bundle(route="manual_review", overall_status="manual_review"),
+        _claim_bundle(route="final_response", overall_status="blocked", blocked_claims=["claim-action-1"]),
+    ],
+)
+async def test_claim_bundle_blockers_clear_same_turn_action_capable_state(
+    monkeypatch: pytest.MonkeyPatch,
+    base_state: dict[str, Any],
+    bundle: dict[str, Any],
+) -> None:
+    """APF-14: claim bundle blockers are authoritative even when legacy route is allow."""
+    monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: ExplodingRiskLLM())
+    state = {
+        **_claim_verified_actionable_state(base_state, bundle),
+        "proposed_action": {"action_type": "issue_coupon"},
+        "approval_plan": {"plan_id": "stale-plan"},
+        "approval_result": _approved_result(base_state["tenant_id"], str(uuid4())),
+        "action_draft": {"draft_id": "stale-draft"},
+        "action_payload_hash": ACTION_HASH,
+        "safety_snapshot_ref": "snapshot:stale",
+        "safety_snapshot_hash": SNAPSHOT_HASH,
+        "safety_snapshot_verified": True,
+    }
+
+    result = await assess_risk_module.assess_risk_and_approval(
+        state,
+        {"configurable": {"session": object()}},
+    )
+    merged_state = {**state, **result}
+
+    assert merged_state["proposed_action"] is None
+    assert merged_state["approval_plan"] is None
+    assert merged_state["approval_result"] is None
+    assert merged_state["action_draft"] is None
+    assert merged_state["action_payload_hash"] is None
+    assert merged_state["safety_snapshot_ref"] is None
+    assert merged_state["safety_snapshot_hash"] is None
+    assert merged_state["safety_snapshot_verified"] is False
+    assert route_after_risk(merged_state) == "final_response"
+
+
+@pytest.mark.asyncio
+async def test_action_claim_result_disallowing_action_blocks_risk_and_snapshots(
+    monkeypatch: pytest.MonkeyPatch,
+    base_state: dict[str, Any],
+) -> None:
+    """APF-14: action claim results with allows_action_recommendation=False fail closed."""
+    monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: ExplodingRiskLLM())
+    bundle = _claim_bundle(
+        claim_results=[_claim_result(allows_action_recommendation=False)],
+        safe_support_refs=[_evidence_ref(base_state["tenant_id"])],
+    )
+
+    result = await assess_risk_module.assess_risk_and_approval(
+        _claim_verified_actionable_state(base_state, bundle),
+        {"configurable": {"session": object()}},
+    )
+
+    assert result["proposed_action"] is None
+    assert result.get("action_payload_hash") is None
+    assert result.get("safety_snapshot_ref") is None
+    assert result.get("safety_snapshot_hash") is None
+    assert result.get("safety_snapshot_verified") is False
+
+
+@pytest.mark.asyncio
+async def test_candidate_only_retrieved_evidence_refs_do_not_bind_action_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+    base_state: dict[str, Any],
+) -> None:
+    """APF-13/APF-14: candidate-only retrieved_evidence refs are not action snapshot evidence."""
+    monkeypatch.setattr(
+        assess_risk_module,
+        "_get_llm",
+        lambda: _AllowingRiskLLM(
+            {
+                "risk_level": "low",
+                "risk_reason": "standard compensation",
+                "approval_required": False,
+                "rule_ref": "LR-01",
+            }
+        ),
+    )
+    candidate_ref = _evidence_ref(base_state["tenant_id"])
+    bundle = _claim_bundle(claim_results=[_claim_result(allows_action_recommendation=True, support_status="supported")])
+    state = {
+        **_claim_verified_actionable_state(base_state, bundle),
+        "current_run_id": None,
+        "retrieved_evidence": {"evidence_refs": [candidate_ref]},
+    }
+
+    result = await assess_risk_module.assess_risk_and_approval(state)
+
+    proposed_refs = (result.get("proposed_action") or {}).get("evidence_refs") or []
+    assert candidate_ref["evidence_id"] not in {ref.get("evidence_id") for ref in proposed_refs}
+    assert candidate_ref["evidence_id"] not in {
+        ref.get("evidence_id") for ref in result.get("evidence_refs") or [] if isinstance(ref, dict)
+    }
+
+
 def test_route_after_risk_fails_closed_when_verification_route_is_non_allow() -> None:
     """RTE-04: graph routing cannot send non-allow verifier state to approval_gate."""
     state = {
@@ -197,6 +372,37 @@ async def test_action_draft_node_refuses_even_trusted_approval_when_verifier_rou
         **base_state,
         "current_run_id": run_id,
         "rag_verification": _non_allow_verification("latest_version_invalid", route="refuse"),
+        "risk_assessment": {"approval_required": True, "risk_level": "high"},
+        "proposed_action": {"action_type": "issue_coupon", "target_type": "refund_case", "target_id": "RF-1001"},
+        "approval_result": _approved_result(base_state["tenant_id"], run_id),
+        "action_payload_hash": ACTION_HASH,
+        "safety_snapshot_ref": "snapshot:test",
+        "safety_snapshot_hash": SNAPSHOT_HASH,
+    }
+
+    result = await action_draft(
+        state,
+        {"configurable": {"session": object(), "action_tool_manager": ExplodingActionToolManager()}},
+    )
+
+    assert result.get("action_draft") is None
+    assert result.get("draft_outcome") is None
+    assert result["action_result"]["status"] == "error"
+    assert result["action_result"]["error"]["error_code"] == "VERIFIER_NOT_ALLOW"
+
+
+@pytest.mark.asyncio
+async def test_action_draft_node_refuses_when_claim_bundle_route_blocks_action(
+    base_state: dict[str, Any],
+) -> None:
+    """APF-14: action_draft reads claim_verification_bundle blockers, not candidate refs."""
+    run_id = str(uuid4())
+    bundle = _claim_bundle(route="final_response", overall_status="blocked", blocked_claims=["claim-action-1"])
+    state = {
+        **base_state,
+        "current_run_id": run_id,
+        "claim_verification_bundle": bundle,
+        "blocked_claims": ["claim-action-1"],
         "risk_assessment": {"approval_required": True, "risk_level": "high"},
         "proposed_action": {"action_type": "issue_coupon", "target_type": "refund_case", "target_id": "RF-1001"},
         "approval_result": _approved_result(base_state["tenant_id"], run_id),
