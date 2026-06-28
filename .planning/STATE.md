@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
-status: ready_to_plan
-stopped_at: Phase 31 verified complete; ready to plan Phase 32
-last_updated: "2026-06-28T16:17:11+08:00"
+status: planning
+stopped_at: Phase 32 context gathered
+last_updated: "2026-06-28T12:04:28.008Z"
 last_activity: 2026-06-28 -- Phase 31 verified complete; ready to plan Phase 32
 progress:
-  total_phases: 11
+  total_phases: 12
   completed_phases: 7
-  total_plans: 28
+  total_plans: 24
   completed_plans: 24
-  percent: 86
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -159,7 +159,7 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 ## Session Continuity
 
 Last session: --stopped-at
-Stopped at: Phase 31 verified complete
+Stopped at: Phase 32 context gathered
 Resume file: --resume-file
 Next: Phase 32 — Intent Graph Migration; old phase directory archive remains a separate cleanup todo.
 
