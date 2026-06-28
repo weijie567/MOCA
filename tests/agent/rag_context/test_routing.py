@@ -177,3 +177,90 @@ def test_regenerate_route_is_route_value_only_not_automatic_retry_loop() -> None
     assert result.regeneration_attempt_started is False
     assert result.regeneration_attempt_count == 0
     assert result.next_backend_action == "regenerate_route"
+
+
+def test_route_after_recommendation_sends_claims_and_actions_to_claim_verify() -> None:
+    """APF-14: material claims and action recommendations must pass through claim_verify."""
+    from src.agent.routing import route_after_recommendation
+
+    assert route_after_recommendation({"material_claims": [{"claim_id": "claim-policy"}]}) == "claim_verify"
+    assert route_after_recommendation({"proposed_action": {"type": "create_compensation_review"}}) == "claim_verify"
+    assert (
+        route_after_recommendation(
+            {
+                "recommendation_draft": {
+                    "user_visible_claims": [
+                        {"claim_type": "business_fact", "claim_text": "Refund case is eligible."}
+                    ]
+                }
+            }
+        )
+        == "claim_verify"
+    )
+    assert route_after_recommendation({"recommendation_draft": {"recommended_action": "answer_only"}}) == (
+        "final_response"
+    )
+
+
+@pytest.mark.parametrize(
+    ("state", "expected_route"),
+    [
+        (
+            {
+                "claim_verification_bundle": {"overall_status": "verified", "route": "continue"},
+                "proposed_action": {"type": "create_compensation_review"},
+            },
+            "assess_risk_and_approval",
+        ),
+        (
+            {"claim_verification_bundle": {"overall_status": "verified", "route": "continue"}},
+            "final_response",
+        ),
+        (
+            {
+                "claim_verification_bundle": {"overall_status": "manual_review", "route": "manual_review"},
+                "proposed_action": {"type": "create_compensation_review"},
+            },
+            "final_response",
+        ),
+        (
+            {
+                "claim_verification_bundle": {"overall_status": "error", "route": "final_response"},
+                "proposed_action": {"type": "create_compensation_review"},
+            },
+            "final_response",
+        ),
+        (
+            {
+                "claim_verification_bundle": {"overall_status": "verified", "route": "continue"},
+                "blocked_claims": ["claim-business"],
+                "proposed_action": {"type": "create_compensation_review"},
+            },
+            "final_response",
+        ),
+        (
+            {
+                "claim_verification_bundle": {
+                    "overall_status": "blocked",
+                    "route": "final_response",
+                    "reason_codes": ["business_fact_ref_required"],
+                },
+                "proposed_action": {"type": "create_compensation_review"},
+            },
+            "final_response",
+        ),
+        ({}, "final_response"),
+        ({"claim_verification_bundle": {"overall_status": "verified", "route": "continue"}}, "final_response"),
+    ],
+)
+def test_route_after_claim_verify_maps_bundle_routes_to_registered_graph_keys(
+    state: dict[str, Any],
+    expected_route: str,
+) -> None:
+    from src.agent.routing import route_after_claim_verify
+
+    route = route_after_claim_verify(state)
+
+    assert route == expected_route
+    assert route in {"assess_risk_and_approval", "final_response"}
+    assert route != "continue"

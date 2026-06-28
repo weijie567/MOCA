@@ -73,6 +73,7 @@ def test_target_graph_names_are_identity_mapped(name: str, kind: str) -> None:
         "final_response",
         "memory_write",
         "rag_context_build",
+        "claim_verify",
     ],
 )
 def test_canonical_runtime_nodes_project_as_runtime(name: str) -> None:
@@ -89,21 +90,18 @@ def test_canonical_runtime_nodes_project_as_runtime(name: str) -> None:
     assert projected["target_graph_runnable"] is True
 
 
-@pytest.mark.parametrize(
-    ("name", "reason_code"),
-    [
-        ("claim_verify", "PHASE_33_APF_14_OWNED"),
-    ],
-)
-def test_phase_33_target_nodes_are_deferred_non_runnable(name: str, reason_code: str) -> None:
+def test_phase_33_claim_verify_is_runtime_runnable() -> None:
+    name = "claim_verify"
     entry = graph_vocabulary_entry(name, kind="node")
+    projected = project_trace_step_for_contract({"node": name, "status": "completed"})
 
     assert entry is not None
     assert entry.target_name == name
-    assert entry.status == "deferred_non_runnable"
-    assert entry.runnable is False
-    assert reason_code in entry.reason_codes
-    assert is_deferred_non_runnable_target(name, kind="node") is True
+    assert entry.status == "runtime"
+    assert entry.runnable is True
+    assert is_deferred_non_runnable_target(name, kind="node") is False
+    assert projected["target_graph_status"] == "runtime"
+    assert projected["target_graph_runnable"] is True
 
 
 def test_unknown_graph_name_is_safe_passthrough() -> None:

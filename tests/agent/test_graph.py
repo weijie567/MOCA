@@ -20,9 +20,22 @@ from src.agent.nodes import classify_intent as classify_intent_module
 from src.agent.nodes import extract_slots as extract_slots_module
 from src.agent.nodes import generate_recommendation as generate_recommendation_module
 from src.agent.nodes import long_term_memory_retrieve as memory_retrieve_module
-from src.agent.routing import route_after_intent, route_after_investigate, route_after_rag_context, route_after_slots
+from src.agent.routing import (
+    route_after_claim_verify,
+    route_after_intent,
+    route_after_investigate,
+    route_after_rag_context,
+    route_after_recommendation,
+    route_after_slots,
+)
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
-from src.knowledge.schemas import EvidenceRefV1, VerifiedEvidencePackageV1
+from src.knowledge.schemas import (
+    ClaimVerificationBundleV1,
+    ClaimVerificationResultV1,
+    EvidenceRefV1,
+    MaterialClaimV1,
+    VerifiedEvidencePackageV1,
+)
 from src.memory.schemas import SessionMemoryBundle, SessionMemoryView
 from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 from src.tools.catalog import ToolCatalog
@@ -49,6 +62,8 @@ ROUTER_EDGE_KEYS = {
         "recommendation_generation",
     },
     "route_after_rag_context": {"recommendation_generation", "clarification_gate", "final_response"},
+    "route_after_recommendation": {"claim_verify", "final_response"},
+    "route_after_claim_verify": {"assess_risk_and_approval", "final_response"},
 }
 GRAPH_TEST_TENANT_ID = "11111111-1111-1111-1111-111111111111"
 GRAPH_TEST_USER_ID = "22222222-2222-2222-2222-222222222222"
@@ -296,6 +311,44 @@ class FakeGraphPolicyKnowledgeService:
             reason_codes=[],
             policy_version=ref.policy_version,
             retrieval_config_version=ref.retrieval_config_version,
+        )
+
+    async def verify_claims(
+        self,
+        *,
+        material_claims: list[MaterialClaimV1 | dict[str, Any]],
+        verified_evidence_package: VerifiedEvidencePackageV1 | dict[str, Any] | None,
+        business_context: dict[str, Any] | None,
+        proposed_action: dict[str, Any] | None,
+    ) -> ClaimVerificationBundleV1:
+        package = VerifiedEvidencePackageV1.model_validate(verified_evidence_package)
+        safe_refs = list(package.evidence_map.values())
+        claim_results = [
+            ClaimVerificationResultV1(
+                claim_id=(claim.claim_id if isinstance(claim, MaterialClaimV1) else str(claim.get("claim_id"))),
+                claim_type=(
+                    claim.claim_type
+                    if isinstance(claim, MaterialClaimV1)
+                    else str(claim.get("claim_type") or "policy")
+                ),
+                support_status="supported",
+                supporting_evidence_refs=safe_refs,
+                business_fact_refs=[],
+                rule_checks=[{"rule": "fake_graph_claim_verifier", "passed": True}],
+                semantic_review_status="not_needed",
+                allows_user_visible_claim=True,
+                allows_action_recommendation=True,
+            )
+            for claim in material_claims
+        ]
+        return ClaimVerificationBundleV1(
+            overall_status="verified",
+            route="continue",
+            claim_results=claim_results,
+            blocked_claims=[],
+            safe_support_refs=safe_refs,
+            reason_codes=[],
+            verifier_policy_version="material_claim_verifier.v1",
         )
 
 
@@ -757,6 +810,7 @@ def test_graph_compiles_with_investigate():
         "classify_intent",
         "investigate",
         "rag_context_build",
+        "claim_verify",
         "clarification_gate",
         "session_memory_load",
         "long_term_memory_retrieve",
@@ -790,16 +844,21 @@ def test_legacy_graph_runtime_names_project_to_target_vocabulary():
         assert target_graph_name(legacy_router, kind="router") == target_router
 
 
-def test_phase_33_rag_context_build_is_registered_as_runnable_graph_node():
+def test_phase_33_claim_verify_is_registered_as_runnable_graph_node():
     graph = build_graph(MemorySaver())
     nodes = set(graph.get_graph().nodes)
+    conditional_edges = {(edge.source, edge.target) for edge in graph.get_graph().edges if edge.conditional}
 
     assert "rag_context_build" in nodes
-    assert "claim_verify" not in nodes
+    assert "claim_verify" in nodes
+    assert ("generate_recommendation", "claim_verify") in conditional_edges
+    assert ("claim_verify", "assess_risk_and_approval") in conditional_edges
+    assert ("claim_verify", "final_response") in conditional_edges
 
     source = inspect.getsource(build_graph)
     assert 'builder.add_node("rag_context_build"' in source
-    assert 'builder.add_node("claim_verify"' not in source
+    assert 'builder.add_node("claim_verify"' in source
+    assert "route_after_claim_verify" in source
 
 
 def test_approval_gate_edit_branch_is_registered_in_compiled_graph():
@@ -864,6 +923,21 @@ def test_all_router_return_keys_have_edges():
     )
     assert route_after_rag_context({"rag_context_status": "verified"}) in ROUTER_EDGE_KEYS["route_after_rag_context"]
     assert route_after_rag_context({"rag_context_status": "build_error"}) in ROUTER_EDGE_KEYS["route_after_rag_context"]
+    assert (
+        route_after_recommendation({"material_claims": [{"claim_id": "claim-policy"}]})
+        in ROUTER_EDGE_KEYS["route_after_recommendation"]
+    )
+    assert route_after_recommendation({}) in ROUTER_EDGE_KEYS["route_after_recommendation"]
+    assert (
+        route_after_claim_verify(
+            {
+                "claim_verification_bundle": {"overall_status": "verified", "route": "continue"},
+                "proposed_action": {"type": "create_compensation_review"},
+            }
+        )
+        in ROUTER_EDGE_KEYS["route_after_claim_verify"]
+    )
+    assert route_after_claim_verify({}) in ROUTER_EDGE_KEYS["route_after_claim_verify"]
 
 
 def test_requested_operation_execute_action_remains_intent_taxonomy_value():
