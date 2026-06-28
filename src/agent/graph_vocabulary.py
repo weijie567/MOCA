@@ -49,6 +49,7 @@ _ENTRIES: tuple[GraphVocabularyEntry, ...] = (
     _entry("long_term_memory_retrieve", "memory_context_load", "node", "compatibility_alias", True),
     _entry("reviewed_memory_context_retrieve", "memory_context_load", "node", "runtime", True),
     _entry("memory_context_load", "memory_context_load", "node", "compatibility_alias", True),
+    # alias: extract_slots -> slot_resolution_gate
     _entry(
         "extract_slots",
         "slot_resolution_gate",
