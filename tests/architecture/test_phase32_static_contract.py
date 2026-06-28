@@ -71,7 +71,11 @@ def test_phase32_mapping_document_matches_graph_vocabulary_when_present() -> Non
 
 
 def test_phase32_consumers_do_not_reference_direct_policy_constants() -> None:
-    for relative_path in ("src/agent/routing.py", "src/agent/nodes/classify_intent.py"):
+    for relative_path in (
+        "src/agent/routing.py",
+        "src/agent/nodes/classify_intent.py",
+        "src/agent/nodes/receive_request.py",
+    ):
         source = (ROOT / relative_path).read_text()
         for constant in POLICY_CONSTANTS:
             assert constant not in source, f"{relative_path} references {constant} directly"

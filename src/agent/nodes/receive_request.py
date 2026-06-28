@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from src.agent.intent_policy import REQUIRED_SLOT_POLICY
+from src.agent.intent_policy import INTENT_POLICY_REGISTRY, SLOT_POLICY_REGISTRY
 from src.agent.state import AgentState
 
 
@@ -18,12 +18,12 @@ def _project_active_flow_state(state: AgentState) -> dict[str, Any] | None:
         return None
 
     intent = state.get("primary_intent") or state.get("current_intent") or state.get("last_intent")
-    if not isinstance(intent, str) or intent not in REQUIRED_SLOT_POLICY:
+    if not isinstance(intent, str) or not INTENT_POLICY_REGISTRY.is_known_intent(intent):
         return None
 
     required_slots = state.get("required_slots")
     if not isinstance(required_slots, dict) or required_slots == {"all_of": [], "any_of": [], "optional": []}:
-        required_slots = REQUIRED_SLOT_POLICY[intent].model_dump()
+        required_slots = SLOT_POLICY_REGISTRY.required_slots_for(intent).model_dump()
     if required_slots == {"all_of": [], "any_of": [], "optional": []}:
         return None
 

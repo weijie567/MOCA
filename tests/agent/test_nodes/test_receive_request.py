@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import pytest
 
+import src.agent.nodes.receive_request as receive_request_module
 from src.agent.nodes.receive_request import receive_request
+from src.agent.schemas import RequiredSlotExpression
 from src.agent.state import AgentState
 
 
@@ -224,4 +226,44 @@ async def test_receive_request_projects_pending_required_slot_flow(base_state):
         "candidate_slots": {"order_id": None},
         "clarification_request_id": "clarify_run-001",
         "blocked_nodes": ["investigate", "action_draft"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_receive_request_projects_pending_flow_from_slot_policy_registry(monkeypatch, base_state):
+    class FakeIntentRegistry:
+        def is_known_intent(self, intent: str) -> bool:
+            return intent == "registry_only_intent"
+
+    class FakeSlotRegistry:
+        def required_slots_for(self, intent: str) -> RequiredSlotExpression:
+            assert intent == "registry_only_intent"
+            return RequiredSlotExpression(all_of=["ticket_id"])
+
+    monkeypatch.setattr(receive_request_module, "INTENT_POLICY_REGISTRY", FakeIntentRegistry(), raising=False)
+    monkeypatch.setattr(receive_request_module, "SLOT_POLICY_REGISTRY", FakeSlotRegistry(), raising=False)
+    state = {
+        **base_state,
+        "primary_intent": "registry_only_intent",
+        "requested_operation": "read_status",
+        "required_slots": {"all_of": [], "any_of": [], "optional": []},
+        "candidate_slots": {"ticket_id": None},
+        "clarification_request": {
+            "reason": "missing_required_slots",
+            "clarification_request_id": "clarify_run-002",
+            "blocked_nodes": ["investigate"],
+        },
+    }
+
+    result = await receive_request({**state, "user_query": "TKT-12345"})
+
+    assert result["active_flow_state"] == {
+        "kind": "pending_required_slot",
+        "reason": "missing_required_slots",
+        "last_effective_intent": "registry_only_intent",
+        "last_requested_operation": "read_status",
+        "required_slots": {"all_of": ["ticket_id"], "any_of": [], "optional": []},
+        "candidate_slots": {"ticket_id": None},
+        "clarification_request_id": "clarify_run-002",
+        "blocked_nodes": ["investigate"],
     }
