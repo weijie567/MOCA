@@ -58,7 +58,15 @@ def _bundle(
     evidence: EvidenceRefV1,
     evidence_text: str,
     business_refs: list[BusinessFactRefV1] | None = None,
+    evidence_snippet_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    snippet = {
+        "citation_id": "C1",
+        "evidence_id": evidence.evidence_id,
+        "text": evidence_text,
+    }
+    if evidence_snippet_overrides:
+        snippet.update(evidence_snippet_overrides)
     return {
         "trusted_context": {
             "tenant_id": TENANT_ID,
@@ -77,13 +85,7 @@ def _bundle(
             }
         },
         "verifier_context": {
-            "evidence_snippets": [
-                {
-                    "citation_id": "C1",
-                    "evidence_id": evidence.evidence_id,
-                    "text": evidence_text,
-                }
-            ],
+            "evidence_snippets": [snippet],
             "business_fact_refs": [ref.model_dump(mode="json") for ref in business_refs or []],
         },
     }
@@ -132,6 +134,74 @@ async def test_policy_claim_membership_is_not_semantic_support() -> None:
     assert _value(result.level2.outcome) == "unsupported"
     assert "citation_membership_not_support" in result.reason_codes
     assert result.allows_claim is False
+
+
+def test_domain_rule_verifier_reports_all_hard_gate_codes() -> None:
+    """APF-14: hard gate domain rules expose stable reason codes."""
+    from src.agent.rag_context.domain_rules import DomainRuleVerifier
+
+    checks = DomainRuleVerifier().verify(
+        claim_text="Merchant is eligible for immediate compensation up to 300 yuan.",
+        evidence_snippets=[
+            {
+                "text": "Merchant is not eligible for compensation unless delivery is verified.",
+                "required_conditions": ["delivery_verified"],
+                "amount_threshold": {"max": 200},
+                "time_window": {"max_days": 7},
+                "exceptions": ["suspected_fraud"],
+                "policy_hierarchy": {"claim_level": "global", "evidence_level": "tenant", "conflict": True},
+            }
+        ],
+        claim_metadata={
+            "conditions_met": [],
+            "amount": 300,
+            "days_since_event": 10,
+            "exception_flags": ["suspected_fraud"],
+        },
+    )
+
+    failed_rules = {check["rule"] for check in checks if check["passed"] is False}
+
+    assert {
+        "negation_conflict",
+        "condition_branch_unmet",
+        "amount_threshold_unmet",
+        "time_window_unmet",
+        "exception_clause_applies",
+        "policy_hierarchy_conflict",
+    } <= failed_rules
+    for check in checks:
+        assert check["reason_code"] == check["rule"]
+        assert check["hard_gate"] is True
+
+
+@pytest.mark.asyncio
+async def test_hard_gate_negation_conflict_blocks_before_level2_support() -> None:
+    """APF-14: hard gate failure is recorded in rule_checks and blocks support."""
+    MaterialClaim, MaterialClaimVerifier, VerificationOutcome = _load_verifier_api()
+    evidence = _evidence_ref(text="Merchant is not eligible for compensation.")
+    claim = MaterialClaim.model_validate(
+        _claim_payload(
+            "policy_claim",
+            claim_text="Merchant is eligible for compensation.",
+            cited_evidence_ids=[evidence.evidence_id],
+        )
+    )
+
+    result = await MaterialClaimVerifier().verify_claim(
+        claim,
+        context_bundle=_bundle(
+            evidence=evidence,
+            evidence_text="Merchant is not eligible for compensation.",
+        ),
+    )
+
+    assert _value(result.outcome) == VerificationOutcome.UNSUPPORTED.value
+    assert "negation_conflict" in result.reason_codes
+    assert result.level2 is None
+    assert result.allows_claim is False
+    assert result.blocks_proposed_action is True
+    assert any(check["rule"] == "negation_conflict" and check["passed"] is False for check in result.rule_checks)
 
 
 @pytest.mark.asyncio

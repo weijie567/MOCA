@@ -170,3 +170,69 @@ async def test_semantic_budget_overflow_fails_closed_without_calling_provider() 
     assert result.allows_claims is False
     assert "semantic_budget_claim_count_exceeded" in result.reason_codes
     assert provider.requests == []
+
+
+@pytest.mark.asyncio
+async def test_semantic_supported_result_cannot_override_hard_gate_negation_conflict() -> None:
+    """APF-14: semantic success cannot override a hard gate denial."""
+    from src.agent.rag_context.claims import MaterialClaim
+    from src.agent.rag_context.verifier import MaterialClaimVerifier, VerificationOutcome
+    from src.knowledge.schemas import EvidenceRefV1
+
+    ref = EvidenceRefV1.build(
+        tenant_id="11111111-1111-1111-1111-111111111111",
+        doc_key="policy_refund_timeout",
+        chunk_id="chunk_001",
+        policy_version="v3",
+        text="Merchant is not eligible for compensation.",
+        retrieved_at="2026-06-19T00:00:00.000Z",
+        retrieval_config_version="retrieval.v3",
+    )
+    context_bundle = {
+        "trusted_context": {"tenant_id": ref.tenant_id},
+        "citation_map": {
+            "C1": {
+                "citation_id": "C1",
+                "evidence_ref": ref.model_dump(mode="json"),
+                "source_evidence_ids": [ref.evidence_id],
+                "snippet": "Merchant is not eligible for compensation.",
+                "risk_labels": ["manual_review_sensitive"],
+            }
+        },
+        "verifier_context": {
+            "safe_refs": [ref.evidence_id],
+            "evidence_snippets": [
+                {
+                    "citation_id": "C1",
+                    "evidence_id": ref.evidence_id,
+                    "text": "Merchant is not eligible for compensation.",
+                }
+            ],
+        },
+    }
+    claim = MaterialClaim.model_validate(
+        {
+            "claim_id": "claim-hard-gate",
+            "claim_text": "Merchant is eligible for compensation.",
+            "authority_class": "policy_claim",
+            "source_node": "recommendation_generation",
+            "risk_level": "high",
+            "risk_hints": ["manual_review_sensitive"],
+            "cited_evidence_ids": [ref.evidence_id],
+            "business_fact_refs": [],
+            "dependency_claim_ids": [],
+            "verifier_status": None,
+        }
+    )
+
+    SemanticSupportVerifier, SemanticVerificationOutcome, SemanticVerifierConfig, _trigger = _load_semantic_api()
+    semantic = await SemanticSupportVerifier(
+        provider=FakeSemanticProvider(response={"outcome": "supported", "confidence": 0.99, "reason_codes": []}),
+        config=SemanticVerifierConfig(timeout_seconds=0.01),
+    ).verify_claims([_claim(risk_level="high")], context_bundle=context_bundle)
+    verifier_result = await MaterialClaimVerifier().verify_claim(claim, context_bundle=context_bundle)
+
+    assert _value(semantic.outcome) == SemanticVerificationOutcome.SUPPORTED.value
+    assert _value(verifier_result.outcome) == VerificationOutcome.UNSUPPORTED.value
+    assert "negation_conflict" in verifier_result.reason_codes
+    assert verifier_result.allows_claim is False
