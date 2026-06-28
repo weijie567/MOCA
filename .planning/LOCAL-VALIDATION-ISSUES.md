@@ -5381,3 +5381,51 @@ SDK next-phase 选择逻辑仍需后续修复。后续运行 `phase.complete` �
 - `gsd-sdk query phase.complete 31`
 - `.planning/ROADMAP.md`
 - `.planning/STATE.md`
+
+## 2026-06-28 16:20 CST - zsh 裸 glob 检查缺失可选 GSD 文件时触发 `no matches found`
+
+### 问题现象
+
+Phase 31 收尾检查可选 artifact 时运行：
+
+```bash
+ls .planning/phases/31-memory-platform-boundary/*-SECURITY.md
+ls .planning/phases/31-memory-platform-boundary/*-LEARNINGS.md
+```
+
+由于目标文件不存在，zsh 在执行 `ls` 前直接报错：
+
+```text
+zsh:1: no matches found: .planning/phases/31-memory-platform-boundary/*-SECURITY.md
+zsh:1: no matches found: .planning/phases/31-memory-platform-boundary/*-LEARNINGS.md
+```
+
+### 如何检测 / 复现
+
+在 zsh 下对不存在的匹配项使用未转义 glob 即可复现。
+
+### 关键证据或命令
+
+改用 `find` 后得到预期的空输出且 exit 0：
+
+```bash
+find .planning/phases/31-memory-platform-boundary -maxdepth 1 -name '*-SECURITY.md' -print
+find .planning/phases/31-memory-platform-boundary -maxdepth 1 -name '*-LEARNINGS.md' -print
+```
+
+### 当前判断 / 根因
+
+这是 zsh `nomatch` 行为导致的命令入口问题，不是 GSD artifact 或应用代码问题。
+
+### 已做处理
+
+已用 `find` 重查，确认 Phase 31 当前没有 `*-SECURITY.md` 或 `*-LEARNINGS.md`。
+
+### 剩余问题
+
+无代码问题。后续检查可选文件时优先使用 `find` 或显式关闭/处理 zsh `nomatch`。
+
+### 下次继续排查入口
+
+- 可选 artifact 检查命令
+- `.planning/phases/31-memory-platform-boundary/`
