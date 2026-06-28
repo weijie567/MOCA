@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from src.agent.nodes.receive_request import receive_request
+from src.agent.state import AgentState
 
 
 @pytest.mark.asyncio
@@ -76,6 +77,57 @@ async def test_receive_request_clears_phase14_action_bindings(base_state):
     assert result["risk_config_version"] is None
     assert result["retrieval_config_version"] is None
     assert result["auto_allowed"] is None
+
+
+@pytest.mark.asyncio
+async def test_receive_request_resets_session_context_target_fields(base_state):
+    state = {
+        **base_state,
+        "session_memory": {"active_slots": {"order_id": "ORD-OLD"}},
+        "session_memory_bundle": {"schema_version": "session_memory_bundle.v1"},
+        "session_context": {"active_slots": {"order_id": "ORD-OLD"}},
+        "session_context_bundle": {"schema_version": "session_context_bundle.v1"},
+        "session_context_load_status": {"schema_version": "session_context_load_status.v1"},
+        "long_term_memory": [{"content": "old long-term memory"}],
+        "case_memory": [{"excerpt": "old case memory"}],
+        "memory_context": {"long_term_items": [{"content": "old memory context"}]},
+        "memory_context_bundle": {"schema_version": "reviewed_memory_context_bundle.v1"},
+        "reviewed_memory_context_retrieve_status": {
+            "schema_version": "reviewed_memory_context_retrieve_status.v1"
+        },
+        "memory_write_result": {"status": "written"},
+    }
+
+    result = await receive_request(state)
+
+    for field in (
+        "session_memory",
+        "session_memory_bundle",
+        "session_context",
+        "session_context_bundle",
+        "session_context_load_status",
+        "long_term_memory",
+        "case_memory",
+        "memory_context",
+        "memory_context_bundle",
+        "reviewed_memory_context_retrieve_status",
+        "memory_write_result",
+    ):
+        assert result[field] is None
+
+
+def test_agent_state_declares_session_context_target_fields():
+    annotations = AgentState.__annotations__
+
+    for field in (
+        "session_context",
+        "session_context_bundle",
+        "session_context_load_status",
+        "memory_context",
+        "memory_context_bundle",
+        "reviewed_memory_context_retrieve_status",
+    ):
+        assert field in annotations
 
 
 @pytest.mark.asyncio
