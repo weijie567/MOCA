@@ -48,7 +48,7 @@ MOCA/
 - LangGraph orchestration in `graph.py`
 - Shared state and schemas in `state.py` and `schemas.py`
 - Node implementations under `src/agent/nodes/`
-- Phase 22 RAG reasoning context kernel under `src/agent/rag_context/`
+- Phase 22/33 RAG reasoning context kernel under `src/agent/rag_context/`, including material claim verification and deterministic domain hard-rule checks
 - Trace persistence helpers in `trace.py`
 - Tool contracts, registry, adapters, and concrete tools under `src/agent/tools/`
 

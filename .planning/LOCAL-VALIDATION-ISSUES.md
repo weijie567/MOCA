@@ -6166,3 +6166,48 @@ uv run ruff check src/knowledge/service.py src/agent/rag_context/verifier.py tes
 - `src/knowledge/service.py`
 - `tests/knowledge/test_claim_verification_bundle.py`
 - `src/agent/rag_context/verifier.py`
+
+## 2026-06-29 03:50 CST - Plan 33-04 ROADMAP SDK 自动更新未匹配 Phase 33 checkbox
+
+### 问题现象
+
+Plan 33-04 metadata 更新阶段，`gsd-sdk query roadmap.update-plan-progress 33` 返回 `updated: false`，没有自动把 Phase 33 计划进度从 `3/9` 更新为 `4/9`，也没有勾选 `33-04-PLAN.md`。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+gsd-sdk query roadmap.update-plan-progress 33
+rg -n "33-04|Plans:" .planning/ROADMAP.md
+```
+
+### 关键证据或命令
+
+SDK 输出：
+
+```json
+{
+  "updated": false,
+  "phase": "33",
+  "reason": "no matching checkbox found"
+}
+```
+
+### 当前判断 / 根因
+
+这是此前 Plan 33-03 已记录过的 GSD SDK 与 MOCA 当前 ROADMAP 格式不匹配问题，不是业务代码问题。`state.advance-plan`、`state.update-progress`、`state.record-metric` 本次均成功。
+
+### 已做处理
+
+已手动更新 `.planning/ROADMAP.md`：Phase 33 `Plans` 改为 `4/9 plans complete`，并勾选 `33-04-PLAN.md`。同步更新 `.planning/STATE.md` 的 Phase 33 行和 latest execution metric。
+
+### 剩余问题
+
+无当前阻塞。后续 Phase 33 计划完成时仍需检查 `roadmap.update-plan-progress` 是否继续返回 `no matching checkbox found`。
+
+### 下次继续排查入口
+
+- `.planning/ROADMAP.md`
+- `.planning/STATE.md`
+- `gsd-sdk query roadmap.update-plan-progress 33`

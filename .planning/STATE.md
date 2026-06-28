@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
 status: executing
-stopped_at: Completed 33-03-PLAN.md
-last_updated: "2026-06-28T19:22:31.456Z"
+stopped_at: Completed 33-04-PLAN.md
+last_updated: "2026-06-28T19:42:14.877Z"
 last_activity: 2026-06-28
 progress:
   total_phases: 12
   completed_phases: 8
   total_plans: 38
-  completed_plans: 32
-  percent: 84
+  completed_plans: 33
+  percent: 87
 ---
 
 # Project State: MOCA
@@ -27,11 +27,11 @@ See: `.planning/PROJECT.md` (updated 2026-06-28)
 
 Phase: 33 (rag-context-build-and-claim-verification) — EXECUTING
 Next roadmap item: Phase 33 — RAG Context Build and Claim Verification
-Plan: 4 of 9
+Plan: 5 of 9
 Status: Ready to execute
 Last activity: 2026-06-28
 
-Progress: [████████░░] 84%
+Progress: [█████████░] 87%
 
 Planning files:
 
@@ -66,12 +66,12 @@ Planning files:
 | 30. BusinessFactService Boundary | 3/3 complete | Complete |
 | 31. Memory Platform Boundary | 6/6 | Complete |
 | 32. Intent Graph Migration | 5/5 | Complete |
-| 33. RAG Context Build and Claim Verification | 3/9 | In Progress |
+| 33. RAG Context Build and Claim Verification | 4/9 | In Progress |
 | 34. Approval and ActionDraft Boundary Hardening | 0/1 | Pending |
 | 35. Replay and Eval Hardening | 0/1 | Pending |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
-Latest execution metric: Phase 32 P05 — 15min, 3 tasks, 3 files; focused Phase 32 suite passed.
+Latest execution metric: Phase 33 P33-04 — 12min, 2 tasks, 7 files; focused Phase 33 claim verification suite passed.
 | Phase 29.5 P01 | 35min | 2 tasks | 5 files |
 | Phase 29.5 P02 | 5min | 2 tasks | 5 files |
 | Phase 29.5 P03 | 34min | 2 tasks | 13 files |
@@ -89,6 +89,7 @@ Latest execution metric: Phase 32 P05 — 15min, 3 tasks, 3 files; focused Phase
 | Phase 33 P33-01 | 14min | 3 tasks | 11 files |
 | Phase 33-rag-context-build-and-claim-verification P33-02 | 19min | 3 tasks | 12 files |
 | Phase 33-rag-context-build-and-claim-verification P33-03 | 15min | 1 tasks | 5 files |
+| Phase 33-rag-context-build-and-claim-verification P33-04 | 12min | 2 tasks | 7 files |
 
 ## Quick Tasks Completed
 
@@ -145,6 +146,9 @@ Latest execution metric: Phase 32 P05 — 15min, 3 tasks, 3 files; focused Phase
 - recommendation_generation emits canonical MaterialClaimV1 dictionaries but does not verify support or write package/bundle fields.
 - Legacy generate_recommendation source-node claims normalize to generated_from_step=recommendation_generation.
 - recommendation_generation consumes only verified package prompt/evidence projections for policy context.
+- Claim verification runs deterministic domain hard gates before Level 2 support decisions.
+- ClaimVerificationBundleV1 claim_results preserve verifier rule_checks instead of collapsing them to a generic summary.
+- Tenant public policy evidence cannot prove current business facts without merchant-scoped BusinessFactRefV1 / BusinessFactResultV1 authority.
 
 ### Roadmap Evolution
 
@@ -186,8 +190,8 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-28T19:24:40Z
-Stopped at: Completed 33-03-PLAN.md
+Last session: 2026-06-28T19:42:14.861Z
+Stopped at: Completed 33-04-PLAN.md
 Resume file: None
 Next: Phase 33 — RAG Context Build and Claim Verification; old phase directory archive remains a separate cleanup todo.
 
