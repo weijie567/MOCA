@@ -31,6 +31,7 @@ REQUIRED_MAPPINGS = [
 
 POLICY_CONSTANTS = ("DIRECT_RESPONSE_INTENTS", "INTENT_ROUTE_POLICY", "REQUIRED_SLOT_POLICY")
 PHASE32_ARTIFACT_GLOBS = ("32-*-PLAN.md", "32-*-SUMMARY.md", "32-MVP-TARGET-MAPPING.md")
+BULLET_INLINE_COMMAND_RE = re.compile(r"^-\s+`([^`]+)`")
 
 
 def test_phase33_rag_and_claim_targets_are_deferred_non_runnable_and_not_graph_registered() -> None:
@@ -105,6 +106,36 @@ def test_phase32_artifacts_use_project_test_entrypoints_for_validation_commands(
     assert violations == []
 
 
+def test_validation_commands_extract_bullet_inline_code_with_result_suffix(tmp_path: Path) -> None:
+    artifact = tmp_path / "summary.md"
+    artifact.write_text(
+        "\n".join(
+            [
+                "- `pytest tests/foo.py -q` - failed before rerun",
+                "- `python -m pytest tests/bar.py -q` - invalid entrypoint",
+                "- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/baz.py -q` - passed",
+            ]
+        )
+    )
+
+    commands = [command for _, command in _validation_commands(artifact)]
+    violations = [
+        command
+        for command in commands
+        if command.startswith("pytest") or command.startswith("python -m pytest")
+    ]
+
+    assert commands == [
+        "pytest tests/foo.py -q",
+        "python -m pytest tests/bar.py -q",
+        "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/baz.py -q",
+    ]
+    assert violations == [
+        "pytest tests/foo.py -q",
+        "python -m pytest tests/bar.py -q",
+    ]
+
+
 def _phase32_artifacts() -> list[Path]:
     artifacts: list[Path] = []
     for pattern in PHASE32_ARTIFACT_GLOBS:
@@ -125,8 +156,8 @@ def _validation_commands(path: Path) -> list[tuple[int, str]]:
             command = stripped.removeprefix("<automated>").split("</automated>", 1)[0].strip()
         elif in_bash_block:
             command = stripped.removeprefix("$ ").strip()
-        elif stripped.startswith("- `") and stripped.endswith("`"):
-            command = stripped.removeprefix("- `").removesuffix("`").strip()
+        elif match := BULLET_INLINE_COMMAND_RE.match(stripped):
+            command = match.group(1).strip()
         elif stripped.startswith("| `"):
             command = stripped.strip("|").split("|", 1)[0].strip().strip("`")
         if command:
