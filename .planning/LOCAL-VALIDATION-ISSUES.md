@@ -6212,6 +6212,55 @@ SDK 输出：
 - `.planning/STATE.md`
 - `gsd-sdk query roadmap.update-plan-progress 33`
 
+## 2026-06-29 05:29 CST - Plan 33-09 final focused gate stale Phase 22 compatibility tests
+
+### 问题现象
+
+Plan 33-09 最终 focused suite 首次运行失败，6 个测试失败：5 个 `tests/agent/test_phase22_recommendation_integration.py` 测试仍假定 `generate_recommendation` 内部拥有 `ContextBuilder` / `MaterialClaimVerifier` / verifier route；1 个 `tests/agent/test_graph.py` trace summary shape 测试未包含 Phase 33 新增的安全 `rag_claim_summary`。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_context_builder.py tests/agent/rag_context/test_budgeting.py tests/agent/rag_context/test_material_claims.py tests/agent/rag_context/test_authority_boundaries.py tests/agent/rag_context/test_verifier.py tests/agent/rag_context/test_semantic_verifier.py tests/agent/rag_context/test_routing.py tests/agent/rag_context/test_leakage.py tests/agent/test_nodes/test_generate_recommendation.py tests/agent/test_nodes/test_assess_risk_and_approval.py tests/agent/test_nodes/test_receive_request.py tests/agent/test_nodes/test_rag_context_build.py tests/agent/test_nodes/test_claim_verify.py tests/agent/test_rag_context_routing.py tests/agent/test_phase22_recommendation_integration.py tests/agent/test_phase22_final_response.py tests/agent/test_phase22_action_boundary.py tests/agent/test_graph.py tests/agent/test_graph_vocabulary.py tests/agent/test_trace.py tests/agent/test_working_state.py tests/test_agent_runs_api.py tests/test_trace_api.py tests/architecture/test_phase32_static_contract.py tests/architecture/test_phase33_rag_claim_boundaries.py tests/architecture/test_action_draft_boundaries.py tests/business/test_schemas.py tests/knowledge/test_verified_evidence_package.py tests/knowledge/test_claim_verification_bundle.py tests/knowledge/test_phase22_evidence_validation.py tests/knowledge/test_provenance_lookup.py tests/knowledge/test_service.py tests/knowledge/test_tenant_scope.py tests/knowledge/test_text_hash.py tests/platform/test_context_projections.py tests/replay/test_replay_api.py -q --tb=short
+```
+
+### 关键证据或命令
+
+pytest 输出包含：
+
+```text
+AttributeError: <module 'src.agent.nodes.generate_recommendation' ...> has no attribute 'ContextBuilder'
+KeyError: 'verification_route'
+AssertionError: Extra items in the left set: 'rag_claim_summary'
+```
+
+### 当前判断 / 根因
+
+这是 Phase 33 架构拆分后的测试兼容窗口遗留问题，不是产品代码应回退。当前契约要求 `rag_context_build` 负责 verified package，`generate_recommendation` 只消费 `verified_evidence_package` 并生成 `MaterialClaimV1`，`claim_verify` 负责后端 verifier route 和 block/refuse 语义；trace summary 也已允许安全的 `rag_claim_summary` 投影。
+
+### 已做处理
+
+已迁移 stale Phase 22 集成测试：不再 monkeypatch `generate_recommendation.ContextBuilder` / `MaterialClaimVerifier`，改为构造 Phase 33 `verified_evidence_package`，断言 generation 不拥有 verifier 输出，并把后端 route / blocked claim 断言移动到 `claim_verify`。已更新 graph trace summary shape，纳入 `rag_claim_summary.v1`。
+
+修复后用有效入口重跑并通过：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_recommendation_integration.py tests/agent/test_graph.py::test_trace_summary_shape_uses_merged_investigate_tool_name -q --tb=short
+```
+
+### 剩余问题
+
+无当前阻塞。仍需重跑 Plan 33-09 full focused suite、ruff 和 `git diff --check` 作为最终 gate。
+
+### 下次继续排查入口
+
+- `tests/agent/test_phase22_recommendation_integration.py`
+- `tests/agent/test_graph.py`
+- `src/agent/nodes/generate_recommendation.py`
+- `src/agent/nodes/claim_verify.py`
+
 ## 2026-06-29 05:18 CST - Plan 33-09 Phase 32 stale RAG/claim static guard RED failure
 
 ### 问题现象

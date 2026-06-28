@@ -106,3 +106,16 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_context_bu
 uv run ruff check src/knowledge/schemas.py src/knowledge/service.py src/agent/rag_context/schemas.py src/agent/rag_context/claims.py src/agent/rag_context/domain_rules.py src/agent/rag_context/verifier.py src/agent/rag_context/routing.py src/agent/nodes/rag_context_build.py src/agent/nodes/claim_verify.py src/agent/nodes/generate_recommendation.py src/agent/nodes/assess_risk_and_approval.py src/agent/nodes/action_draft.py src/agent/nodes/final_response.py src/agent/routing.py src/agent/graph.py src/agent/graph_vocabulary.py src/agent/state.py src/agent/nodes/receive_request.py src/agent/working_state.py src/agent/trace.py src/api/routers/agent_runs.py src/api/routers/traces.py src/api/schemas/agent_runs.py src/repositories/trace_repo.py tests/knowledge/test_verified_evidence_package.py tests/knowledge/test_claim_verification_bundle.py tests/agent/test_nodes/test_rag_context_build.py tests/agent/test_nodes/test_claim_verify.py tests/agent/test_rag_context_routing.py tests/architecture/test_phase33_rag_claim_boundaries.py
 git diff --check
 ```
+
+Final gate results from Plan 33-09:
+
+| Check | Result |
+| --- | --- |
+| Static smoke | `13 passed, 1 warning in 0.07s` |
+| Initial full focused suite | Failed on stale Phase 22 compatibility tests expecting `generate_recommendation` to own RAG build/verifier route and stale trace summary shape without `rag_claim_summary` |
+| Targeted stale-test rerun after migration | `6 passed, 2 warnings in 0.13s` |
+| Final full focused suite | `473 passed, 22 warnings in 160.87s (0:02:40)` |
+| Ruff focused target list | `All checks passed!` |
+| `git diff --check` | passed |
+
+The handled local validation issue is recorded in `.planning/LOCAL-VALIDATION-ISSUES.md` under the 2026-06-29 05:29 CST Plan 33-09 entry.

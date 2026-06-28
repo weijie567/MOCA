@@ -7,7 +7,7 @@ import pytest
 
 from src.agent.nodes import generate_recommendation as generate_recommendation_module
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
-from src.knowledge.schemas import EvidenceRefV1
+from src.knowledge.schemas import ClaimVerificationBundleV1, ClaimVerificationResultV1, EvidenceRefV1
 from tests.agent.conftest import FakeLLM
 
 
@@ -43,6 +43,55 @@ def _retrieval_state(evidence: EvidenceRefV1) -> dict[str, Any]:
             "evidence_refs": [evidence.model_dump(mode="json")],
         },
         "evidence_refs": [evidence.model_dump(mode="json")],
+    }
+
+
+def _verified_package_state(evidence: EvidenceRefV1) -> dict[str, Any]:
+    package = {
+        "schema_version": "verified_evidence_package.v1",
+        "package_id": "pkg-phase22-compat",
+        "status": "verified",
+        "evidence_items": [],
+        "citation_map": {"C1": [evidence.evidence_id]},
+        "evidence_map": {evidence.evidence_id: evidence.model_dump(mode="json")},
+        "prompt_projection": {
+            "schema_version": "rag_prompt_context.v1",
+            "citations": [
+                {
+                    "citation_id": "C1",
+                    "display_label": f"{evidence.doc_key} / {evidence.chunk_id}",
+                    "snippet": "Refund policy requires current evidence and verified business facts.",
+                    "risk_labels": ["authority_checked"],
+                    "metadata": {
+                        "doc_key": evidence.doc_key,
+                        "chunk_id": evidence.chunk_id,
+                        "policy_version": evidence.policy_version,
+                    },
+                    "merged_from_chunk_ids": [],
+                }
+            ],
+            "risk_labels": ["authority_checked"],
+            "trusted_context": {},
+        },
+        "verifier_projection": {
+            "safe_refs": [evidence.evidence_id],
+            "evidence_snippets": [],
+            "business_fact_refs": [],
+        },
+        "replay_snapshot_refs": [evidence.evidence_id],
+        "debug_projection": {},
+        "stale_refs": [],
+        "conflict_refs": [],
+        "rejected_candidate_refs": [],
+        "reason_codes": [],
+        "policy_version": evidence.policy_version,
+        "retrieval_config_version": evidence.retrieval_config_version,
+    }
+    return {
+        "rag_context_status": "verified",
+        "verified_evidence_package": package,
+        "citation_map": package["citation_map"],
+        "evidence_map": package["evidence_map"],
     }
 
 
@@ -154,6 +203,56 @@ class FakeMaterialClaimVerifier:
         )
 
 
+class RecordingClaimVerifyService:
+    def __init__(self, bundle: ClaimVerificationBundleV1) -> None:
+        self.bundle = bundle
+        self.calls: list[dict[str, Any]] = []
+
+    async def verify_claims(self, **kwargs: Any) -> ClaimVerificationBundleV1:
+        self.calls.append(kwargs)
+        return self.bundle
+
+
+def _claim_result(
+    *,
+    claim_id: str,
+    claim_type: str,
+    support_status: str = "unsupported",
+    allows_action_recommendation: bool = False,
+    allows_user_visible_claim: bool = False,
+) -> ClaimVerificationResultV1:
+    return ClaimVerificationResultV1(
+        claim_id=claim_id,
+        claim_type=claim_type,
+        support_status=support_status,
+        supporting_evidence_refs=[],
+        business_fact_refs=[],
+        rule_checks=[{"rule": "phase33_integration_guard", "passed": support_status == "supported"}],
+        semantic_review_status="not_needed",
+        allows_user_visible_claim=allows_user_visible_claim,
+        allows_action_recommendation=allows_action_recommendation,
+    )
+
+
+def _claim_bundle(
+    *,
+    route: str = "final_response",
+    overall_status: str = "blocked",
+    blocked_claims: list[str] | None = None,
+    reason_codes: list[str] | None = None,
+    claim_results: list[ClaimVerificationResultV1] | None = None,
+) -> ClaimVerificationBundleV1:
+    return ClaimVerificationBundleV1(
+        overall_status=overall_status,
+        route=route,
+        claim_results=claim_results or [],
+        blocked_claims=blocked_claims or [],
+        safe_support_refs=[],
+        reason_codes=reason_codes or [],
+        verifier_policy_version="material_claim_verifier.v1",
+    )
+
+
 def _unsupported_action_draft_with_valid_citation() -> dict[str, Any]:
     return {
         "recommended_action": "issue_coupon",
@@ -191,18 +290,16 @@ def _supported_policy_action_draft_missing_business_support() -> dict[str, Any]:
 
 
 @pytest.mark.asyncio
-async def test_generate_recommendation_uses_shared_context_builder_and_verifier_not_node_local_refetch(
+async def test_generate_recommendation_consumes_verified_package_and_does_not_node_local_refetch(
     monkeypatch: pytest.MonkeyPatch,
     base_state: dict[str, Any],
 ) -> None:
-    """RTE-03: recommendation generation uses shared Phase 22 kernel output."""
+    """RTE-03: recommendation generation consumes Phase 33 package output only."""
     evidence = _evidence_ref(base_state["tenant_id"])
-    builder = FakeContextBuilder()
-    verifier = FakeMaterialClaimVerifier(route="manual_review", outcome="conflicting")
 
-    monkeypatch.setattr(generate_recommendation_module, "ContextBuilder", lambda **kwargs: builder)
-    monkeypatch.setattr(generate_recommendation_module, "MaterialClaimVerifier", lambda **kwargs: verifier)
-    monkeypatch.setattr(generate_recommendation_module, "PolicyKnowledgeService", ExplodingNodeLocalPolicyService)
+    assert not hasattr(generate_recommendation_module, "ContextBuilder")
+    assert not hasattr(generate_recommendation_module, "MaterialClaimVerifier")
+    assert not hasattr(generate_recommendation_module, "PolicyKnowledgeService")
     monkeypatch.setattr(
         generate_recommendation_module,
         "_get_llm",
@@ -210,53 +307,53 @@ async def test_generate_recommendation_uses_shared_context_builder_and_verifier_
     )
 
     result = await generate_recommendation_module.generate_recommendation(
-        {**base_state, **_retrieval_state(evidence)},
+        {**base_state, **_retrieval_state(evidence), **_verified_package_state(evidence)},
         {"configurable": {"session": object()}},
     )
 
-    assert builder.calls
-    assert builder.calls[0]["candidate_evidence_refs"] == [evidence]
-    assert verifier.calls
-    assert verifier.calls[0]["context_bundle"].citation_map["C1"].evidence_ref["evidence_id"] == evidence.evidence_id
-    assert result["rag_context_bundle"]["citation_map"]["C1"]["source_evidence_ids"] == [evidence.evidence_id]
-    assert result["rag_verification"]["overall_outcome"] == "conflicting"
-    assert result["rag_verification"]["route"]["route"] == "manual_review"
-    assert result["rag_verification"]["route"]["selected_by"] == "backend"
-    assert result["rag_verification"]["route"]["model_selected"] is False
-    assert result["recommendation_draft"]["material_claims"][0]["authority_class"] == "policy_claim"
+    assert result["recommendation_draft"]["citation_validation"]["is_valid"] is True
+    assert result["recommendation_draft"]["material_claims"][0]["claim_type"] == "policy"
+    assert result["recommendation_draft"]["material_claims"][0]["generated_from_step"] == "recommendation_generation"
+    assert "rag_context_bundle" not in result
+    assert "rag_verification" not in result
+    assert "claim_verification_bundle" not in result
 
 
 @pytest.mark.asyncio
-async def test_model_never_selects_safety_route_when_verifier_returns_backend_route(
+async def test_model_selected_safety_route_is_ignored_until_backend_claim_verify(
     monkeypatch: pytest.MonkeyPatch,
     base_state: dict[str, Any],
 ) -> None:
     """RTE-03/RTE-04: model-supplied allow routes are ignored in favor of backend verifier output."""
-    evidence = _evidence_ref(base_state["tenant_id"])
-    builder = FakeContextBuilder()
-    verifier = FakeMaterialClaimVerifier(route="insufficient_evidence", outcome="unsupported")
+    from src.agent.nodes.claim_verify import claim_verify
 
-    monkeypatch.setattr(generate_recommendation_module, "ContextBuilder", lambda **kwargs: builder)
-    monkeypatch.setattr(generate_recommendation_module, "MaterialClaimVerifier", lambda **kwargs: verifier)
+    evidence = _evidence_ref(base_state["tenant_id"])
+    service = RecordingClaimVerifyService(
+        _claim_bundle(
+            route="manual_review",
+            overall_status="manual_review",
+            reason_codes=["semantic_review_required"],
+        )
+    )
+
     monkeypatch.setattr(
         generate_recommendation_module, "_get_llm", lambda: FakeLLM(_model_draft_with_model_selected_safety_route())
     )
 
     result = await generate_recommendation_module.generate_recommendation(
-        {**base_state, **_retrieval_state(evidence)},
+        {**base_state, **_retrieval_state(evidence), **_verified_package_state(evidence)},
         {"configurable": {"session": object()}},
     )
+    verify_result = await claim_verify(
+        {**base_state, **_verified_package_state(evidence), **result},
+        {"configurable": {"policy_knowledge_service": service}},
+    )
 
-    assert result["rag_verification"]["route"]["route"] == "insufficient_evidence"
-    assert result["rag_verification"]["route"]["selected_by"] == "backend"
-    assert result["rag_verification"]["route"]["model_selected"] is False
-    assert result["recommendation_draft"]["verification_route"] != "allow"
-    assert result["recommendation_draft"]["recommended_action"] in {
-        "insufficient_evidence",
-        "manual_review",
-        "refuse",
-        "regenerate_route",
-    }
+    assert "verification_route" not in result["recommendation_draft"]
+    assert service.calls
+    assert verify_result["claim_verification_bundle"]["route"] == "manual_review"
+    assert verify_result["verification_route"] == "manual_review"
+    assert "semantic_review_required" in verify_result["verifier_reason_codes"]
 
 
 @pytest.mark.asyncio
@@ -265,10 +362,23 @@ async def test_valid_citation_membership_does_not_allow_unsupported_action_recom
     base_state: dict[str, Any],
 ) -> None:
     """CLM-03/RTE-04: citation membership is not semantic support for an action recommendation."""
-    evidence = _evidence_ref(base_state["tenant_id"])
-    builder = FakeContextBuilder()
+    from src.agent.nodes.claim_verify import claim_verify
 
-    monkeypatch.setattr(generate_recommendation_module, "ContextBuilder", lambda **kwargs: builder)
+    evidence = _evidence_ref(base_state["tenant_id"])
+    service = RecordingClaimVerifyService(
+        _claim_bundle(
+            blocked_claims=["claim-action-1"],
+            reason_codes=["business_dependency_required"],
+            claim_results=[
+                _claim_result(
+                    claim_id="claim-action-1",
+                    claim_type="action_recommendation",
+                    allows_action_recommendation=False,
+                )
+            ],
+        )
+    )
+
     monkeypatch.setattr(
         generate_recommendation_module,
         "_get_llm",
@@ -276,21 +386,21 @@ async def test_valid_citation_membership_does_not_allow_unsupported_action_recom
     )
 
     result = await generate_recommendation_module.generate_recommendation(
-        {**base_state, **_retrieval_state(evidence)},
+        {**base_state, **_retrieval_state(evidence), **_verified_package_state(evidence)},
         {"configurable": {"session": object()}},
+    )
+    verify_result = await claim_verify(
+        {**base_state, **_verified_package_state(evidence), **result},
+        {"configurable": {"policy_knowledge_service": service}},
     )
 
     assert result["recommendation_draft"]["citation_validation"]["is_valid"] is True
-    assert result["verification_route"] != "allow"
-    assert result["recommendation_draft"]["recommended_action"] in {
-        "insufficient_evidence",
-        "manual_review",
-        "refuse",
-        "regenerate_route",
-    }
     claims = result["recommendation_draft"]["material_claims"]
-    assert any(claim["authority_class"] == "policy_claim" for claim in claims)
-    assert any(claim["authority_class"] == "action_recommendation_claim" for claim in claims)
+    assert any(claim["claim_type"] == "policy" for claim in claims)
+    assert any(claim["claim_type"] == "action_recommendation" for claim in claims)
+    assert verify_result["verification_route"] == "refuse"
+    assert verify_result["blocked_claims"] == ["claim-action-1"]
+    assert "business_dependency_required" in verify_result["verifier_reason_codes"]
 
 
 @pytest.mark.asyncio
@@ -299,10 +409,29 @@ async def test_supported_policy_claim_does_not_mask_failed_action_dependency(
     base_state: dict[str, Any],
 ) -> None:
     """CLM-04/RTE-04: a supported policy claim cannot mask missing action dependencies."""
-    evidence = _evidence_ref(base_state["tenant_id"])
-    builder = FakeContextBuilder()
+    from src.agent.nodes.claim_verify import claim_verify
 
-    monkeypatch.setattr(generate_recommendation_module, "ContextBuilder", lambda **kwargs: builder)
+    evidence = _evidence_ref(base_state["tenant_id"])
+    service = RecordingClaimVerifyService(
+        _claim_bundle(
+            blocked_claims=["claim-action-1"],
+            reason_codes=["dependency_result_missing"],
+            claim_results=[
+                _claim_result(
+                    claim_id="claim-policy-1",
+                    claim_type="policy",
+                    support_status="supported",
+                    allows_user_visible_claim=True,
+                ),
+                _claim_result(
+                    claim_id="claim-action-1",
+                    claim_type="action_recommendation",
+                    allows_action_recommendation=False,
+                ),
+            ],
+        )
+    )
+
     monkeypatch.setattr(
         generate_recommendation_module,
         "_get_llm",
@@ -310,27 +439,27 @@ async def test_supported_policy_claim_does_not_mask_failed_action_dependency(
     )
 
     result = await generate_recommendation_module.generate_recommendation(
-        {**base_state, **_retrieval_state(evidence)},
+        {**base_state, **_retrieval_state(evidence), **_verified_package_state(evidence)},
         {"configurable": {"session": object()}},
     )
+    verify_result = await claim_verify(
+        {**base_state, **_verified_package_state(evidence), **result},
+        {"configurable": {"policy_knowledge_service": service}},
+    )
 
-    assert result["rag_verification"]["overall_outcome"] != "supported"
-    assert result["verification_route"] != "allow"
-    assert result["recommendation_draft"]["recommended_action"] in {
-        "insufficient_evidence",
-        "manual_review",
-        "refuse",
-        "regenerate_route",
-    }
-    assert "dependency_result_missing" in result["verifier_reason_codes"]
+    assert any(claim["claim_type"] == "policy" for claim in result["material_claims"])
+    assert any(claim["claim_type"] == "action_recommendation" for claim in result["material_claims"])
+    assert verify_result["claim_verification_bundle"]["overall_status"] == "blocked"
+    assert verify_result["verification_route"] == "refuse"
+    assert "dependency_result_missing" in verify_result["verifier_reason_codes"]
 
 
 @pytest.mark.asyncio
-async def test_missing_session_context_builder_fails_closed_instead_of_allowing_membership_only(
+async def test_missing_verified_package_fails_closed_instead_of_allowing_membership_only(
     monkeypatch: pytest.MonkeyPatch,
     base_state: dict[str, Any],
 ) -> None:
-    """RTE-04: missing canonical evidence session cannot fall back to citation-membership allow."""
+    """RTE-04: required evidence cannot fall back to citation membership without a verified package."""
     evidence = _evidence_ref(base_state["tenant_id"])
 
     monkeypatch.setattr(
@@ -340,11 +469,14 @@ async def test_missing_session_context_builder_fails_closed_instead_of_allowing_
     )
 
     result = await generate_recommendation_module.generate_recommendation(
-        {**base_state, **_retrieval_state(evidence)},
+        {
+            **base_state,
+            **_retrieval_state(evidence),
+            "routing_hints": {"policy_evidence_required": True},
+        },
         {},
     )
 
-    assert result["recommendation_draft"]["citation_validation"]["is_valid"] is False
-    assert result["verification_route"] != "allow"
-    assert result["rag_verification"]["overall_outcome"] in {"insufficient", "manual_review"}
-    assert "context_builder_session_missing" in result["verifier_reason_codes"]
+    assert result["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
+    assert result["material_claims"] == []
+    assert "verified_evidence_package_required" in " ".join(result["recommendation_draft"]["missing_info"])

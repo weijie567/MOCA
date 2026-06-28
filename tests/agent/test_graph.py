@@ -793,6 +793,7 @@ async def test_trace_summary_shape_uses_merged_investigate_tool_name(monkeypatch
         "risk_level",
         "total_latency_ms",
         "final_status",
+        "rag_claim_summary",
     }
     assert "investigate" in summary["nodes_executed"]
     assert "investigate" in summary["target_nodes_executed"]
@@ -801,6 +802,7 @@ async def test_trace_summary_shape_uses_merged_investigate_tool_name(monkeypatch
     assert summary["tools_called"] == ["search_policy"]
     assert summary["evidence_count"] == 1
     assert summary["final_status"] in ("completed", "insufficient_evidence", "error")
+    assert summary["rag_claim_summary"]["schema_version"] == "rag_claim_summary.v1"
     assert INVESTIGATION_STATE_FIELDS.isdisjoint(summary)
 
 
