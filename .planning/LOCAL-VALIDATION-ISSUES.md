@@ -6070,3 +6070,51 @@ rg -n "33-03|Phase --phase|RAG Context Build" .planning/ROADMAP.md .planning/STA
 - `gsd-sdk query roadmap.update-plan-progress "33"`
 - `gsd-sdk query state.record-metric`
 - `gsd-sdk query state.record-session`
+
+## 2026-06-29 03:35 CST - Plan 33-04 Task 1 TDD RED 失败符合预期
+
+### 问题现象
+
+执行 Task 33-04-01 RED 测试时，新增的 hard gate 用例失败：`DomainRuleVerifier` 模块不存在，negation conflict 仍被 Level 2 lexical support 判为 `supported`，semantic supported 结果路径没有记录 `negation_conflict`。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_verifier.py tests/agent/rag_context/test_semantic_verifier.py -q --tb=short
+```
+
+### 关键证据或命令
+
+RED 输出包含：
+
+```text
+ModuleNotFoundError: No module named 'src.agent.rag_context.domain_rules'
+AssertionError: assert 'supported' == 'unsupported'
+AssertionError: assert 'negation_conflict' in ['level2_semantic_trigger_hint']
+```
+
+### 当前判断 / 根因
+
+这是 TDD RED 阶段的预期失败，说明仓库尚未实现计划要求的 rules-first `DomainRuleVerifier`，且现有 verifier 会让高词面重叠的否定冲突进入非硬门控路径。
+
+### 已做处理
+
+已新增 `src/agent/rag_context/domain_rules.py`，在 `MaterialClaimVerifier` 中先运行 hard domain rules，并把 `rule_checks` 写入 `MaterialClaimVerificationResult`；失败 hard gate 在 Level 2 / semantic 支持前返回非 allow 结果。随后用有效入口重跑：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_verifier.py tests/agent/rag_context/test_semantic_verifier.py -q --tb=short
+uv run ruff check src/agent/rag_context/domain_rules.py src/agent/rag_context/verifier.py tests/agent/rag_context/test_verifier.py tests/agent/rag_context/test_semantic_verifier.py
+```
+
+### 剩余问题
+
+无当前阻塞。该记录对应 TDD RED 失败，GREEN 已通过。
+
+### 下次继续排查入口
+
+- `src/agent/rag_context/domain_rules.py`
+- `src/agent/rag_context/verifier.py`
+- `tests/agent/rag_context/test_verifier.py`
+- `tests/agent/rag_context/test_semantic_verifier.py`

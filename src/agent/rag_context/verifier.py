@@ -11,6 +11,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from src.agent.rag_context.claims import MaterialClaim
+from src.agent.rag_context.domain_rules import DomainRuleVerifier, failed_rule_reason_codes
 from src.agent.rag_context.schemas import MaterialClaimAuthorityClass, RagContextBundle
 from src.knowledge.schemas import EvidenceRefV1
 from src.tools.contracts import BusinessFactRefV1, ToolResultV2
@@ -77,6 +78,7 @@ class MaterialClaimVerificationResult(BaseModel):
     reason_codes: list[str] = Field(default_factory=list)
     level1: Level1VerificationResult
     level2: Level2VerificationResult | None = None
+    rule_checks: list[dict[str, Any]] = Field(default_factory=list)
     allows_claim: bool = False
     allows_action_recommendation: bool = False
     blocks_proposed_action: bool = True
@@ -286,18 +288,30 @@ class MaterialClaimVerifier:
     ) -> MaterialClaimVerificationResult:
         context = _context_dict(context_bundle)
         level1 = self._check_level1(claim, context)
+        rule_checks = self._check_domain_rules(claim, context)
         reason_codes = list(level1.reason_codes)
+        hard_rule_reason_codes = failed_rule_reason_codes(rule_checks)
+        reason_codes.extend(hard_rule_reason_codes)
 
         if claim.authority_class == MaterialClaimAuthorityClass.BUSINESS_FACT_CLAIM:
-            return self._verify_business_fact_claim(claim, context, level1, reason_codes)
+            return self._verify_business_fact_claim(claim, context, level1, reason_codes, rule_checks)
 
         if claim.authority_class == MaterialClaimAuthorityClass.ACTION_RECOMMENDATION_CLAIM:
+            if hard_rule_reason_codes:
+                return self._result(
+                    claim,
+                    VerificationOutcome.UNSUPPORTED,
+                    level1=level1,
+                    reason_codes=reason_codes,
+                    rule_checks=rule_checks,
+                )
             return self._verify_action_recommendation_claim(
                 claim,
                 context,
                 level1,
                 reason_codes,
                 dependency_results or [],
+                rule_checks,
             )
 
         if not level1.authority_passed:
@@ -306,7 +320,22 @@ class MaterialClaimVerifier:
                 if "tenant_scope_invalid" in reason_codes
                 else VerificationOutcome.INSUFFICIENT
             )
-            return self._result(claim, outcome, level1=level1, reason_codes=reason_codes)
+            return self._result(
+                claim,
+                outcome,
+                level1=level1,
+                reason_codes=reason_codes,
+                rule_checks=rule_checks,
+            )
+
+        if hard_rule_reason_codes:
+            return self._result(
+                claim,
+                VerificationOutcome.UNSUPPORTED,
+                level1=level1,
+                reason_codes=reason_codes,
+                rule_checks=rule_checks,
+            )
 
         snippets = _claim_evidence_snippets(claim, context)
         level2 = self.check_level2_support(
@@ -322,6 +351,7 @@ class MaterialClaimVerifier:
                 level1=level1,
                 level2=level2,
                 reason_codes=reason_codes,
+                rule_checks=rule_checks,
                 safe_support_refs=_safe_support_refs(claim, context),
                 allows_claim=True,
             )
@@ -331,7 +361,14 @@ class MaterialClaimVerifier:
             outcome = VerificationOutcome.AMBIGUOUS
         else:
             outcome = VerificationOutcome.UNSUPPORTED
-        return self._result(claim, outcome, level1=level1, level2=level2, reason_codes=reason_codes)
+        return self._result(
+            claim,
+            outcome,
+            level1=level1,
+            level2=level2,
+            reason_codes=reason_codes,
+            rule_checks=rule_checks,
+        )
 
     def check_level2_support(
         self,
@@ -450,6 +487,7 @@ class MaterialClaimVerifier:
         context: Mapping[str, Any],
         level1: Level1VerificationResult,
         reason_codes: list[str],
+        rule_checks: list[dict[str, Any]],
     ) -> MaterialClaimVerificationResult:
         if not _business_authority_passed(claim, context):
             if "business_fact_ref_required" not in reason_codes:
@@ -459,12 +497,14 @@ class MaterialClaimVerifier:
                 VerificationOutcome.BUSINESS_FACT_MISSING,
                 level1=level1,
                 reason_codes=reason_codes,
+                rule_checks=rule_checks,
             )
         return self._result(
             claim,
             VerificationOutcome.SUPPORTED,
             level1=level1,
             reason_codes=reason_codes,
+            rule_checks=rule_checks,
             safe_support_refs=[_business_ref_key(ref) for ref in claim.business_fact_refs],
             allows_claim=True,
         )
@@ -476,13 +516,20 @@ class MaterialClaimVerifier:
         level1: Level1VerificationResult,
         reason_codes: list[str],
         dependency_results: Sequence[Mapping[str, Any]],
+        rule_checks: list[dict[str, Any]],
     ) -> MaterialClaimVerificationResult:
         dependency_reason_codes = _action_dependency_reason_codes(claim, dependency_results)
         reason_codes.extend(dependency_reason_codes)
         if not level1.tenant_scope_passed or "tenant_scope_invalid" in reason_codes:
             if not _business_authority_passed(claim, context) and "business_fact_ref_required" not in reason_codes:
                 reason_codes.append("business_fact_ref_required")
-            return self._result(claim, VerificationOutcome.UNAUTHORIZED, level1=level1, reason_codes=reason_codes)
+            return self._result(
+                claim,
+                VerificationOutcome.UNAUTHORIZED,
+                level1=level1,
+                reason_codes=reason_codes,
+                rule_checks=rule_checks,
+            )
         if not level1.membership_passed:
             if "policy_evidence_required" not in reason_codes:
                 reason_codes.append("policy_evidence_required")
@@ -491,9 +538,16 @@ class MaterialClaimVerifier:
                 VerificationOutcome.INSUFFICIENT,
                 level1=level1,
                 reason_codes=reason_codes,
+                rule_checks=rule_checks,
             )
         if dependency_reason_codes:
-            return self._result(claim, VerificationOutcome.UNSUPPORTED, level1=level1, reason_codes=reason_codes)
+            return self._result(
+                claim,
+                VerificationOutcome.UNSUPPORTED,
+                level1=level1,
+                reason_codes=reason_codes,
+                rule_checks=rule_checks,
+            )
         if not _business_authority_passed(claim, context):
             reason_codes.append("business_fact_ref_required")
             return self._result(
@@ -501,12 +555,14 @@ class MaterialClaimVerifier:
                 VerificationOutcome.BUSINESS_FACT_MISSING,
                 level1=level1,
                 reason_codes=reason_codes,
+                rule_checks=rule_checks,
             )
         return self._result(
             claim,
             VerificationOutcome.SUPPORTED,
             level1=level1,
             reason_codes=reason_codes,
+            rule_checks=rule_checks,
             safe_support_refs=[
                 *_safe_support_refs(claim, context),
                 *[_business_ref_key(ref) for ref in claim.business_fact_refs],
@@ -524,6 +580,7 @@ class MaterialClaimVerifier:
         level1: Level1VerificationResult,
         reason_codes: Sequence[str],
         level2: Level2VerificationResult | None = None,
+        rule_checks: Sequence[Mapping[str, Any]] = (),
         safe_support_refs: Sequence[str] = (),
         allows_claim: bool = False,
         allows_action_recommendation: bool = False,
@@ -535,6 +592,7 @@ class MaterialClaimVerifier:
             reason_codes=_unique(reason_codes),
             level1=level1,
             level2=level2,
+            rule_checks=[dict(check) for check in rule_checks],
             allows_claim=allows_claim and outcome == VerificationOutcome.SUPPORTED,
             allows_action_recommendation=allows_action_recommendation and outcome == VerificationOutcome.SUPPORTED,
             blocks_proposed_action=blocks_proposed_action or outcome != VerificationOutcome.SUPPORTED,
@@ -544,6 +602,13 @@ class MaterialClaimVerifier:
                 "level2_ran": level2 is not None,
                 "reason_count": len(_unique(reason_codes)),
             },
+        )
+
+    def _check_domain_rules(self, claim: MaterialClaim, context: Mapping[str, Any]) -> list[dict[str, Any]]:
+        return DomainRuleVerifier().verify(
+            claim_text=claim.claim_text,
+            evidence_snippets=_claim_evidence_snippets(claim, context),
+            claim_metadata=_claim_domain_rule_metadata(claim, context),
         )
 
 
@@ -561,6 +626,16 @@ def _trusted_context(context: Mapping[str, Any]) -> Mapping[str, Any]:
 def _verifier_context(context: Mapping[str, Any]) -> Mapping[str, Any]:
     value = context.get("verifier_context")
     return value if isinstance(value, Mapping) else {}
+
+
+def _claim_domain_rule_metadata(claim: MaterialClaim, context: Mapping[str, Any]) -> Mapping[str, Any]:
+    metadata = _verifier_context(context).get("domain_rule_metadata")
+    if not isinstance(metadata, Mapping):
+        return {}
+    claim_specific = metadata.get(claim.claim_id)
+    if isinstance(claim_specific, Mapping):
+        return claim_specific
+    return metadata
 
 
 def _citation_entries(context: Mapping[str, Any]) -> list[Mapping[str, Any]]:
