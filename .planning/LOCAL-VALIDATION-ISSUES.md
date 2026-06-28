@@ -6118,3 +6118,51 @@ uv run ruff check src/agent/rag_context/domain_rules.py src/agent/rag_context/ve
 - `src/agent/rag_context/verifier.py`
 - `tests/agent/rag_context/test_verifier.py`
 - `tests/agent/rag_context/test_semantic_verifier.py`
+
+## 2026-06-29 03:45 CST - Plan 33-04 Task 2 TDD RED 聚合 rule_checks 失败符合预期
+
+### 问题现象
+
+执行 Task 33-04-02 RED 测试时，`PolicyKnowledgeService.verify_claims` 能阻断 negation hard gate claim，但 `ClaimVerificationResultV1.rule_checks` 只保留了泛化的 `material_claim_verifier` 结果，没有聚合 `DomainRuleVerifier` 输出的 `negation_conflict` hard gate 明细。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/knowledge/test_claim_verification_bundle.py tests/agent/rag_context/test_authority_boundaries.py tests/agent/rag_context/test_verifier.py -q --tb=short
+```
+
+### 关键证据或命令
+
+RED 输出包含：
+
+```text
+FAILED tests/knowledge/test_claim_verification_bundle.py::test_verify_claims_preserves_hard_rule_checks_in_claim_results
+assert False
+```
+
+失败断言检查的是 `bundle.claim_results[0].rule_checks` 中是否存在 `{"rule": "negation_conflict", "passed": False}`。
+
+### 当前判断 / 根因
+
+这是 TDD RED 阶段的预期失败。Task 1 已在 `MaterialClaimVerifier` 结果中记录 `rule_checks`，但 Task 2 的 bundle aggregation 仍用单条泛化 summary 覆盖了 claim-level hard-rule 明细。
+
+### 已做处理
+
+已更新 `src/knowledge/service.py` 的 `ClaimVerificationResultV1` 聚合逻辑，优先复制 `MaterialClaimVerificationResult.rule_checks`；没有 rule checks 的旧路径才回退到泛化 `material_claim_verifier` summary。随后用有效入口重跑：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/knowledge/test_claim_verification_bundle.py tests/agent/rag_context/test_authority_boundaries.py tests/agent/rag_context/test_verifier.py -q --tb=short
+uv run ruff check src/knowledge/service.py src/agent/rag_context/verifier.py tests/knowledge/test_claim_verification_bundle.py tests/agent/rag_context/test_authority_boundaries.py
+```
+
+### 剩余问题
+
+无当前阻塞。该记录对应 TDD RED 失败，GREEN 已通过。
+
+### 下次继续排查入口
+
+- `src/knowledge/service.py`
+- `tests/knowledge/test_claim_verification_bundle.py`
+- `src/agent/rag_context/verifier.py`

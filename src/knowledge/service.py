@@ -1004,17 +1004,23 @@ def _claim_result_from_verifier_result(
         support_status=support_status,
         supporting_evidence_refs=supporting_refs,
         business_fact_refs=claim.business_fact_refs,
-        rule_checks=[
-            {
-                "rule": "material_claim_verifier",
-                "passed": support_status == "supported",
-                "reason_codes": result.reason_codes,
-            }
-        ],
+        rule_checks=_claim_rule_checks(result, support_status),
         semantic_review_status=_semantic_review_status(result.reason_codes),
         allows_user_visible_claim=result.allows_claim,
         allows_action_recommendation=result.allows_action_recommendation,
     )
+
+
+def _claim_rule_checks(result: MaterialClaimVerificationResult, support_status: str) -> list[dict[str, Any]]:
+    if result.rule_checks:
+        return [dict(check) for check in result.rule_checks]
+    return [
+        {
+            "rule": "material_claim_verifier",
+            "passed": support_status == "supported",
+            "reason_codes": result.reason_codes,
+        }
+    ]
 
 
 def _support_status(result: MaterialClaimVerificationResult) -> str:
