@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
 status: executing
-stopped_at: Phase 33 context gathered
-last_updated: "2026-06-28T18:21:04.194Z"
-last_activity: 2026-06-28 -- Phase 33 execution started
+stopped_at: Completed 33-01-PLAN.md
+last_updated: "2026-06-28T18:38:08.630Z"
+last_activity: 2026-06-28
 progress:
   total_phases: 12
   completed_phases: 8
   total_plans: 38
-  completed_plans: 29
-  percent: 76
+  completed_plans: 30
+  percent: 79
 ---
 
 # Project State: MOCA
@@ -27,11 +27,11 @@ See: `.planning/PROJECT.md` (updated 2026-06-28)
 
 Phase: 33 (rag-context-build-and-claim-verification) — EXECUTING
 Next roadmap item: Phase 33 — RAG Context Build and Claim Verification
-Plan: 1 of 9
-Status: Executing Phase 33
-Last activity: 2026-06-28 -- Phase 33 execution started
+Plan: 2 of 9
+Status: Ready to execute
+Last activity: 2026-06-28
 
-Progress: [██████████] 100%
+Progress: [████████░░] 79%
 
 Planning files:
 
@@ -66,7 +66,7 @@ Planning files:
 | 30. BusinessFactService Boundary | 3/3 complete | Complete |
 | 31. Memory Platform Boundary | 6/6 | Complete |
 | 32. Intent Graph Migration | 5/5 | Complete |
-| 33. RAG Context Build and Claim Verification | 0/1 | Pending |
+| 33. RAG Context Build and Claim Verification | 1/9 | In Progress |
 | 34. Approval and ActionDraft Boundary Hardening | 0/1 | Pending |
 | 35. Replay and Eval Hardening | 0/1 | Pending |
 
@@ -86,6 +86,7 @@ Latest execution metric: Phase 32 P05 — 15min, 3 tasks, 3 files; focused Phase
 | Phase 32-intent-graph-migration P32-03 | 10min | 2 tasks | 6 files |
 | Phase 32-intent-graph-migration P32-04 | 33min | 3 tasks | 13 files |
 | Phase 32-intent-graph-migration P32-05 | 15min | 3 tasks | 3 files |
+| Phase 33 P33-01 | 14min | 3 tasks | 11 files |
 
 ## Quick Tasks Completed
 
@@ -131,6 +132,9 @@ Latest execution metric: Phase 32 P05 — 15min, 3 tasks, 3 files; focused Phase
 - Phase 32 Plan 04 treats target_merchant_context as sanitized evidence/status metadata only and not an AgentRun, trace, or replay authorization input.
 - Phase 32 Plan 04 keeps target graph projection additive and leaves persisted AgentStep.node_name as the legacy implementation/debug value.
 - Phase 32 Plan 05 keeps rag_context_build and claim_verify as deferred_non_runnable target names only; APF-13/APF-14 runnable behavior remains Phase 33-owned.
+- Phase 33 Plan 01 keeps package/bundle payloads in Pydantic/state JSON surfaces; no DB schema, migration, endpoint, or event type was added.
+- Phase 33 Plan 01 makes KnowledgeService the public owner of build_verified_context and verify_claims; graph nodes should call these service methods instead of assembling one-off ContextBuilder or MaterialClaimVerifier flows.
+- Phase 33 Plan 01 keeps target DTOs in src/knowledge/schemas.py and uses rag_context compatibility adapters for legacy MaterialClaim authority_class payloads.
 - Phase 32 Plan 05 machine-checks 32-MVP-TARGET-MAPPING.md against src.agent.graph_vocabulary to prevent target mapping drift.
 
 ### Roadmap Evolution
@@ -174,7 +178,7 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 ## Session Continuity
 
 Last session: --stopped-at
-Stopped at: Phase 33 context gathered
+Stopped at: Completed 33-01-PLAN.md
 Resume file: --resume-file
 Next: Phase 33 — RAG Context Build and Claim Verification; old phase directory archive remains a separate cleanup todo.
 

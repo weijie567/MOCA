@@ -347,12 +347,12 @@ Plans:
 
 ### Phase 33: RAG Context Build and Claim Verification
 
-**Status:** Pending
+**Status:** In Progress
 **Milestone:** v1.9 Agent Platform Foundation
 **Goal:** Split RAG into investigate-time candidate retrieval, deterministic verified evidence package construction, and post-generation claim verification.
 **Requirements**: APF-13, APF-14
 **Depends on:** Phase 32
-**Plans:** 0/9 plans complete
+**Plans:** 1/9 plans complete
 
 **Success Criteria**:
 
@@ -362,7 +362,7 @@ Plans:
 4. Tenant public policy remains separate from business merchant scope, while business fact and action recommendation claims require merchant-scoped `BusinessFactRefV1` authority.
 
 Plans:
-- [ ] 33-01-PLAN.md — Contracts, AgentState lifecycle, and KnowledgeService boundary
+- [x] 33-01-PLAN.md — Contracts, AgentState lifecycle, and KnowledgeService boundary
 - [ ] 33-02-PLAN.md — `rag_context_build` node, package projections, and `route_after_rag_context`
 - [ ] 33-03-PLAN.md — MaterialClaimV1 emission from recommendation generation
 - [ ] 33-04-PLAN.md — DomainRuleVerifier and ClaimVerificationBundle aggregation

@@ -46,8 +46,8 @@ Turn MOCA's agent runtime into a microservice-ready modular monolith: platform/d
 
 ### RAG Context Build and Claim Verification
 
-- [ ] **APF-13:** `rag_context_build` validates candidate policy evidence into `VerifiedEvidencePackageV1` with identity/scope/hash/version/effective-date checks, separated prompt/verifier/replay/debug projections, and deterministic `route_after_rag_context`.
-- [ ] **APF-14:** `claim_verify` consumes `MaterialClaimV1` outputs and produces `ClaimVerificationBundleV1` with rules-first support status, hard gates for unsupported user-visible/action claims, and fail-closed behavior for high-risk/action-bound verifier errors.
+- [x] **APF-13:** `rag_context_build` validates candidate policy evidence into `VerifiedEvidencePackageV1` with identity/scope/hash/version/effective-date checks, separated prompt/verifier/replay/debug projections, and deterministic `route_after_rag_context`.
+- [x] **APF-14:** `claim_verify` consumes `MaterialClaimV1` outputs and produces `ClaimVerificationBundleV1` with rules-first support status, hard gates for unsupported user-visible/action claims, and fail-closed behavior for high-risk/action-bound verifier errors.
 
 ### Approval and Action Draft Boundary
 
@@ -96,8 +96,8 @@ Turn MOCA's agent runtime into a microservice-ready modular monolith: platform/d
 | APF-10 | Phase 31 | Complete |
 | APF-11 | Phase 32 | Complete |
 | APF-12 | Phase 32 | Complete |
-| APF-13 | Phase 33 | Pending |
-| APF-14 | Phase 33 | Pending |
+| APF-13 | Phase 33 | Complete |
+| APF-14 | Phase 33 | Complete |
 | APF-15 | Phase 34 | Pending |
 | APF-16 | Phase 34 | Pending |
 | APF-17 | Phase 35 | Pending |
