@@ -6261,6 +6261,52 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_recommendation
 - `src/agent/nodes/generate_recommendation.py`
 - `src/agent/nodes/claim_verify.py`
 
+## 2026-06-29 05:39 CST - Plan 33-09 metadata SDK ROADMAP checkbox mismatch
+
+### 问题现象
+
+Plan 33-09 metadata 更新阶段，`gsd-sdk query roadmap.update-plan-progress 33` 返回未更新，Phase 33 ROADMAP 仍显示 `8/9 plans complete` 且 `33-09-PLAN.md` 未勾选。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+gsd-sdk query roadmap.update-plan-progress 33
+rg -n "33-09|9/9|Latest execution metric" .planning/ROADMAP.md .planning/STATE.md
+```
+
+### 关键证据或命令
+
+SDK 输出：
+
+```json
+{
+  "updated": false,
+  "phase": "33",
+  "reason": "no matching checkbox found"
+}
+```
+
+### 当前判断 / 根因
+
+这是 Phase 33 已知 GSD SDK 与 MOCA ROADMAP checkbox 格式不匹配问题的延续；SDK 未能识别当前 `33-xx-PLAN.md` checkbox 行，因而没有自动更新 Phase 33 plan count。另一次 `state.record-metric` 调用使用 `P33-09` 作为 plan 参数时被 handler 额外加前缀，生成了 `PP33-09`，需要手动修正为 `P33-09`。
+
+### 已做处理
+
+已手动更新 `.planning/ROADMAP.md`：Phase 33 status 改为 `Complete`，`Plans` 改为 `9/9 plans complete`，并勾选 `33-09-PLAN.md`。已手动更新 `.planning/STATE.md`：Phase 33 进度行改为 `9/9 | Complete`，Current Position 改为 Phase 33 complete / next Phase 34，Latest execution metric 改为 P33-09，并将 metrics 表中的 `PP33-09` 修正为 `P33-09`。
+
+### 剩余问题
+
+无当前阻塞。后续阶段完成时仍需检查 `roadmap.update-plan-progress` 是否继续返回 `no matching checkbox found`，并注意 `state.record-metric` 的 plan 参数不要重复带 `P` 前缀。
+
+### 下次继续排查入口
+
+- `.planning/ROADMAP.md`
+- `.planning/STATE.md`
+- `gsd-sdk query roadmap.update-plan-progress 33`
+- `gsd-sdk query state.record-metric`
+
 ## 2026-06-29 05:18 CST - Plan 33-09 Phase 32 stale RAG/claim static guard RED failure
 
 ### 问题现象

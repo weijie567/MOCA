@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
-status: executing
-stopped_at: Completed 33-08-PLAN.md
-last_updated: "2026-06-28T21:08:13.388Z"
+status: verifying
+stopped_at: Completed 33-09-PLAN.md
+last_updated: "2026-06-28T21:37:04.064Z"
 last_activity: 2026-06-28
 progress:
   total_phases: 12
-  completed_phases: 8
+  completed_phases: 9
   total_plans: 38
-  completed_plans: 37
-  percent: 97
+  completed_plans: 38
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -21,17 +21,17 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-28)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 33 — rag-context-build-and-claim-verification
+**Current focus:** Phase 34 — approval-and-actiondraft-boundary-hardening
 
 ## Current Position
 
-Phase: 33 (rag-context-build-and-claim-verification) — EXECUTING
-Next roadmap item: Phase 33 — RAG Context Build and Claim Verification
+Phase: 33 (rag-context-build-and-claim-verification) — COMPLETE
+Next roadmap item: Phase 34 — Approval and ActionDraft Boundary Hardening
 Plan: 9 of 9
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-28
 
-Progress: [██████████] 97%
+Progress: [██████████] 100%
 
 Planning files:
 
@@ -66,12 +66,12 @@ Planning files:
 | 30. BusinessFactService Boundary | 3/3 complete | Complete |
 | 31. Memory Platform Boundary | 6/6 | Complete |
 | 32. Intent Graph Migration | 5/5 | Complete |
-| 33. RAG Context Build and Claim Verification | 8/9 | In Progress |
+| 33. RAG Context Build and Claim Verification | 9/9 | Complete |
 | 34. Approval and ActionDraft Boundary Hardening | 0/1 | Pending |
 | 35. Replay and Eval Hardening | 0/1 | Pending |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
-Latest execution metric: Phase 33 P33-08 — 28min, 1 task, 16 files; trace/API/replay safe RAG/claim summary suite passed.
+Latest execution metric: Phase 33 P33-09 — 24min, 3 tasks, 9 files; final static/focused/eval closure passed.
 | Phase 29.5 P01 | 35min | 2 tasks | 5 files |
 | Phase 29.5 P02 | 5min | 2 tasks | 5 files |
 | Phase 29.5 P03 | 34min | 2 tasks | 13 files |
@@ -94,6 +94,7 @@ Latest execution metric: Phase 33 P33-08 — 28min, 1 task, 16 files; trace/API/
 | Phase 33-rag-context-build-and-claim-verification P33-06 | 10min | 1 tasks | 6 files |
 | Phase 33-rag-context-build-and-claim-verification P33-07 | 8min | 1 tasks | 5 files |
 | Phase 33-rag-context-build-and-claim-verification P33-08 | 28min | 1 tasks | 16 files |
+| Phase 33-rag-context-build-and-claim-verification P33-09 | 24min | 3 tasks | 9 files |
 
 ## Quick Tasks Completed
 
@@ -164,6 +165,10 @@ Latest execution metric: Phase 33 P33-08 — 28min, 1 task, 16 files; trace/API/
 - Plan 33-08 centralized rag_claim_summary.v1 in src/agent/rag_claim_summary.py to avoid replay lifecycle import cycles and keep projection logic consistent.
 - Plan 33-08 replay responses sanitize raw package/bundle/debug/verifier fields at projection time and return only the allowlisted summary.
 - Plan 33-08 legacy/no Phase 33 responses use exclude_none so rag_claim_summary is omitted instead of fabricated with zero counts.
+- Phase 32 static guards no longer assert that rag_context_build and claim_verify are deferred_non_runnable or absent from the graph.
+- Phase 33 static guards now own runtime/runnable RAG and claim boundary checks.
+- generate_recommendation remains a verified-package consumer and MaterialClaimV1 producer; claim_verify owns verifier route/blocking assertions.
+- Semantic verifier coverage remains deterministic/mocked with no live provider requirement.
 
 ### Roadmap Evolution
 
@@ -205,10 +210,10 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-28T21:08:08.005Z
-Stopped at: Completed 33-08-PLAN.md
+Last session: 2026-06-28T21:37:04.055Z
+Stopped at: Completed 33-09-PLAN.md
 Resume file: None
-Next: Phase 33 — RAG Context Build and Claim Verification; old phase directory archive remains a separate cleanup todo.
+Next: Phase 34 — Approval and ActionDraft Boundary Hardening; old phase directory archive remains a separate cleanup todo.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
 
@@ -238,6 +243,8 @@ Next: Phase 33 — RAG Context Build and Claim Verification; old phase directory
 
 **Completed Phase:** 32 (Intent Graph Migration) — 5/5 plans complete; verification passed; focused suite `267 passed`; static contract guards passed — 2026-06-28
 
-**Next Roadmap Item:** Phase 33 — RAG Context Build and Claim Verification
+**Completed Phase:** 33 (RAG Context Build and Claim Verification) — 9/9 plans complete; final focused suite `473 passed, 22 warnings`; static/focused/eval closure passed — 2026-06-29
+
+**Next Roadmap Item:** Phase 34 — Approval and ActionDraft Boundary Hardening
 
 **Planned Phase:** 33 (RAG Context Build and Claim Verification) — 9 plans — 2026-06-28T17:59:33.094Z
