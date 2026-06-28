@@ -94,8 +94,14 @@ class AgentState(TypedDict, total=False):
     verifier_reason_codes: list[str] | None
     verifier_safe_citation_refs: list[str] | None
     verifier_metrics: dict[str, int | float | bool | str] | None
+    session_context: dict[str, Any] | None
+    session_context_bundle: dict[str, Any] | None
+    session_context_load_status: dict[str, Any] | None
     session_memory: dict[str, Any] | None
     session_memory_bundle: dict[str, Any] | None
+    memory_context: dict[str, Any] | None
+    memory_context_bundle: dict[str, Any] | None
+    reviewed_memory_context_retrieve_status: dict[str, Any] | None
     memory_write_candidates: list[dict[str, Any]] | None
     memory_write_result: dict[str, Any] | None
     long_term_memory: list[dict[str, Any]] | None
