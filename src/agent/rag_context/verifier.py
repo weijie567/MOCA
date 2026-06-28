@@ -15,6 +15,17 @@ from src.agent.rag_context.schemas import MaterialClaimAuthorityClass, RagContex
 from src.knowledge.schemas import EvidenceRefV1
 from src.tools.contracts import BusinessFactRefV1, ToolResultV2
 
+_CONTEXTUAL_MEMORY_SCHEMA_VERSIONS = frozenset(
+    {
+        "session_context_ref.v1",
+        "reviewed_memory_ref.v1",
+        "session_context_load_status.v1",
+        "reviewed_memory_context_retrieve_status.v1",
+        "memory_write_decision.v2",
+    }
+)
+_CONTEXTUAL_MEMORY_REF_ID_KEYS = ("ref_id", "memory_id", "candidate_hash", "source_identity_hash")
+
 
 class VerificationOutcome(StrEnum):
     SUPPORTED = "supported"
@@ -561,6 +572,7 @@ def _citation_entries(context: Mapping[str, Any]) -> list[Mapping[str, Any]]:
 
 def _active_source_evidence_ids(context: Mapping[str, Any]) -> list[str]:
     evidence_ids: list[str] = []
+    contextual_memory_ref_ids = set(_contextual_memory_ref_ids(context))
     for entry in _citation_entries(context):
         evidence_ids.extend(str(value) for value in entry.get("source_evidence_ids") or [] if str(value))
         evidence_ref = entry.get("evidence_ref")
@@ -569,7 +581,7 @@ def _active_source_evidence_ids(context: Mapping[str, Any]) -> list[str]:
     safe_refs = _verifier_context(context).get("safe_refs")
     if isinstance(safe_refs, list):
         evidence_ids.extend(str(value) for value in safe_refs if str(value))
-    return _unique(evidence_ids)
+    return _unique(ref for ref in evidence_ids if ref not in contextual_memory_ref_ids)
 
 
 def _cited_evidence_refs(claim: MaterialClaim, context: Mapping[str, Any]) -> list[EvidenceRefV1]:
@@ -580,9 +592,11 @@ def _cited_evidence_refs(claim: MaterialClaim, context: Mapping[str, Any]) -> li
         evidence_ref = entry.get("evidence_ref")
         if not isinstance(evidence_ref, Mapping):
             continue
+        if _is_contextual_memory_ref_or_status(evidence_ref):
+            continue
         if cited & (source_ids | {str(evidence_ref.get("evidence_id") or "")}):
             try:
-                refs.append(EvidenceRefV1.model_validate(evidence_ref))
+                refs.append(EvidenceRefV1(**evidence_ref))
             except Exception:
                 continue
     return refs
@@ -646,8 +660,10 @@ def _context_business_refs(context: Mapping[str, Any]) -> list[BusinessFactRefV1
     refs: list[BusinessFactRefV1] = []
     if isinstance(raw_refs, list):
         for item in raw_refs:
+            if isinstance(item, Mapping) and _is_contextual_memory_ref_or_status(item):
+                continue
             try:
-                refs.append(BusinessFactRefV1.model_validate(item))
+                refs.append(BusinessFactRefV1(**item))
             except Exception:
                 continue
     for item in _raw_tool_results(context):
@@ -686,6 +702,7 @@ def _contextual_source_reason_codes(
     if not isinstance(contextual, Mapping):
         return []
     reason_codes: list[str] = []
+    has_contextual_memory_ref = _has_contextual_memory_ref_or_status(contextual)
     has_memory = bool(
         contextual.get("session_memory")
         or contextual.get("case_memory")
@@ -711,11 +728,15 @@ def _contextual_source_reason_codes(
     if authority_class == MaterialClaimAuthorityClass.POLICY_CLAIM:
         if has_memory:
             reason_codes.append("memory_not_policy_authority")
+        if has_contextual_memory_ref:
+            reason_codes.append("memory_contextual_ref_not_policy_authority")
         if has_model:
             reason_codes.append("model_knowledge_not_policy_authority")
     if authority_class == MaterialClaimAuthorityClass.BUSINESS_FACT_CLAIM:
         if has_memory:
             reason_codes.append("memory_not_business_authority")
+        if has_contextual_memory_ref:
+            reason_codes.append("memory_contextual_ref_not_business_authority")
         if has_model:
             reason_codes.append("model_knowledge_not_business_authority")
         if has_provenance:
@@ -725,6 +746,46 @@ def _contextual_source_reason_codes(
         if has_raw_repository_rows:
             reason_codes.append("raw_repository_row_not_business_authority")
     return reason_codes
+
+
+def _has_contextual_memory_ref_or_status(value: Any) -> bool:
+    if isinstance(value, Mapping):
+        if _is_contextual_memory_ref_or_status(value):
+            return True
+        return any(_has_contextual_memory_ref_or_status(item) for item in value.values())
+    if isinstance(value, list | tuple):
+        return any(_has_contextual_memory_ref_or_status(item) for item in value)
+    return False
+
+
+def _is_contextual_memory_ref_or_status(value: Mapping[str, Any]) -> bool:
+    schema_version = str(value.get("schema_version") or "")
+    authority_class = str(value.get("authority_class") or "")
+    return authority_class == "contextual_only" or schema_version in _CONTEXTUAL_MEMORY_SCHEMA_VERSIONS
+
+
+def _contextual_memory_ref_ids(context: Mapping[str, Any]) -> list[str]:
+    contextual = context.get("contextual_sources")
+    if not isinstance(contextual, Mapping):
+        return []
+    ref_ids: list[str] = []
+    _collect_contextual_memory_ref_ids(contextual, ref_ids)
+    return _unique(ref_ids)
+
+
+def _collect_contextual_memory_ref_ids(value: Any, ref_ids: list[str]) -> None:
+    if isinstance(value, Mapping):
+        if _is_contextual_memory_ref_or_status(value):
+            for key in _CONTEXTUAL_MEMORY_REF_ID_KEYS:
+                raw = value.get(key)
+                if raw:
+                    ref_ids.append(str(raw))
+        for item in value.values():
+            _collect_contextual_memory_ref_ids(item, ref_ids)
+        return
+    if isinstance(value, list | tuple):
+        for item in value:
+            _collect_contextual_memory_ref_ids(item, ref_ids)
 
 
 def _action_dependency_reason_codes(
