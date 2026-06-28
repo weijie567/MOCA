@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from src.agent.context import ContextAssembler, PromptAssembly, project_candidate_slot_hints_for_prompt
 from src.agent.context.session_memory_bundle import load_session_prompt_context
+from src.agent.graph_vocabulary import target_graph_name
 from src.agent.prompts import EXTRACT_SLOTS_SYSTEM
 from src.agent.routing import resolve_slots_with_metadata
 from src.agent.schemas import SlotExtractionResult
@@ -41,6 +42,14 @@ def _trace_step(
     retry_count: int,
     context_chars: int,
 ) -> dict[str, Any]:
+    metrics_json: dict[str, Any] = {
+        "model": settings.llm_model,
+        "provider": "dashscope",
+        "context_chars": context_chars,
+        "target_node": target_graph_name(node, kind="node"),
+    }
+    if node == "extract_slots":
+        metrics_json["target_router"] = target_graph_name("route_after_slots", kind="router")
     return {
         "node": node,
         "status": status,
@@ -51,11 +60,7 @@ def _trace_step(
         "completion_tokens": None,
         "provider_latency_ms": provider_latency_ms,
         "retry_count": retry_count,
-        "metrics_json": {
-            "model": settings.llm_model,
-            "provider": "dashscope",
-            "context_chars": context_chars,
-        },
+        "metrics_json": metrics_json,
     }
 
 
