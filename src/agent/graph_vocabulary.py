@@ -77,9 +77,8 @@ _ENTRIES: tuple[GraphVocabularyEntry, ...] = (
         "rag_context_build",
         "rag_context_build",
         "node",
-        "deferred_non_runnable",
-        False,
-        ("PHASE_33_APF_13_OWNED",),
+        "runtime",
+        True,
     ),
     _entry(
         "claim_verify",

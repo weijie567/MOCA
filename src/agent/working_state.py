@@ -85,6 +85,7 @@ DEFAULT_CONSTRAINTS = [
     "policy evidence is required before recommendation",
     "high risk action requires approval",
 ]
+VERIFIED_EVIDENCE_PROJECTION_STATUSES = frozenset({"verified", "partial"})
 
 
 class WorkingToolResultRef(BaseModel):
@@ -204,16 +205,13 @@ def _business_ref_payload(value: Any) -> list[dict[str, Any]]:
 
 
 def _retrieved_evidence_refs(state: AgentState) -> list[dict[str, Any]]:
-    for value in (
-        state.get("retrieved_evidence_refs"),
-        state.get("evidence_refs"),
-        state.get("policy_evidence"),
-        _mapping(state.get("retrieved_evidence")).get("evidence_refs"),
-    ):
-        refs = _evidence_ref_list(value)
-        if refs:
-            return refs
-    return []
+    package = _mapping(state.get("verified_evidence_package"))
+    status = _as_str(package.get("status"))
+    if status not in VERIFIED_EVIDENCE_PROJECTION_STATUSES:
+        return []
+
+    evidence_map = _mapping(package.get("evidence_map"))
+    return _evidence_ref_list(list(evidence_map.values()))
 
 
 def _recent_tool_results(state: AgentState) -> list[WorkingToolResultRef]:
@@ -275,11 +273,15 @@ def _dict_list(value: Any) -> list[dict[str, Any]]:
 def _mapping_sequence(value: Any) -> list[Mapping[str, Any]]:
     if not isinstance(value, Sequence) or isinstance(value, str | bytes | bytearray):
         return []
-    return [item for item in value if isinstance(item, Mapping)]
+    return [mapping for item in value if (mapping := _mapping(item))]
 
 
 def _mapping(value: Any) -> Mapping[str, Any]:
-    return value if isinstance(value, Mapping) else {}
+    if isinstance(value, Mapping):
+        return value
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json")
+    return {}
 
 
 def _safe_mapping(value: Any) -> dict[str, Any]:
