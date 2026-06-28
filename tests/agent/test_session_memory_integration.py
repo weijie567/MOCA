@@ -490,6 +490,9 @@ async def test_extract_slots_loads_agent_runs_prompt_context_from_trusted_config
         }
     ]
     assert result["active_slots"]["order_id"] == "ORD-CURRENT-001"
+    assert result["trace_steps"][-1]["node"] == "extract_slots"
+    assert result["trace_steps"][-1]["metrics_json"]["target_node"] == "slot_resolution_gate"
+    assert result["trace_steps"][-1]["metrics_json"]["target_router"] == "route_after_slot_resolution"
     assert assemblies
     assembly_kwargs = assemblies[0]
     assert assembly_kwargs["thread_rolling_summary"] == "Prior summary mentions ORD-PRIOR-001."

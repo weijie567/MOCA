@@ -770,6 +770,8 @@ def test_all_router_return_keys_have_edges():
         )
         in ROUTER_EDGE_KEYS["route_after_slots"]
     )
+    assert ROUTER_EDGE_KEYS["route_after_slots"] == {"clarification_gate", "investigate", "long_term_memory_retrieve"}
+    assert target_graph_name("route_after_slots", kind="router") == "route_after_slot_resolution"
     assert route_after_risk({"risk_assessment": {"approval_required": True}}) in ROUTER_EDGE_KEYS["route_after_risk"]
     assert (
         route_after_risk({"proposed_action": {"action_type": "issue_coupon"}}) in ROUTER_EDGE_KEYS["route_after_risk"]
