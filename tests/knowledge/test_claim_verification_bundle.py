@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
+from src.knowledge.service import PolicyKnowledgeService
 from src.knowledge.schemas import (
     ClaimVerificationBundleV1,
     ClaimVerificationResultV1,
@@ -41,6 +42,38 @@ def _business_fact_ref() -> BusinessFactRefV1:
         data_freshness_at=datetime(2026, 6, 19, tzinfo=UTC),
         retrieved_at=datetime(2026, 6, 19, tzinfo=UTC),
     )
+
+
+def _verified_package(ref: EvidenceRefV1 | None = None) -> dict:
+    evidence_ref = ref or _evidence_ref()
+    return {
+        "schema_version": "verified_evidence_package.v1",
+        "package_id": "pkg-verified",
+        "status": "verified",
+        "evidence_items": [],
+        "citation_map": {"C1": [evidence_ref.evidence_id]},
+        "evidence_map": {evidence_ref.evidence_id: evidence_ref.model_dump(mode="json")},
+        "prompt_projection": {"citations": ["C1"]},
+        "verifier_projection": {
+            "safe_refs": [evidence_ref.evidence_id],
+            "evidence_snippets": [
+                {
+                    "citation_id": "C1",
+                    "evidence_id": evidence_ref.evidence_id,
+                    "text": "Refund timeout compensation requires verified policy evidence.",
+                }
+            ],
+            "business_fact_refs": [],
+        },
+        "replay_snapshot_refs": [evidence_ref.evidence_id],
+        "debug_projection": {},
+        "stale_refs": [],
+        "conflict_refs": [],
+        "rejected_candidate_refs": [],
+        "reason_codes": [],
+        "policy_version": "v3",
+        "retrieval_config_version": "retrieval.v3",
+    }
 
 
 def test_material_claim_v1_uses_canonical_claim_type_fields() -> None:
@@ -138,3 +171,89 @@ def test_claim_verification_bundle_rejects_unknown_route_and_extra_fields() -> N
             authority_class="policy_claim",
         )
 
+
+@pytest.mark.asyncio
+async def test_verify_claims_blocks_business_fact_claim_without_business_fact_authority() -> None:
+    """APF-14: RAG evidence cannot replace BusinessFactRefV1 / BusinessFactResultV1 authority."""
+    ref = _evidence_ref()
+    service = PolicyKnowledgeService(retriever=object())
+    business_claim = MaterialClaimV1(
+        claim_id="claim-business",
+        claim_text="Refund case RF-1001 is eligible for compensation.",
+        claim_type="business_fact",
+        cited_evidence_ids=[ref.evidence_id],
+        business_fact_refs=[],
+        risk_hints=[],
+        generated_from_step="recommendation_generation",
+    )
+
+    bundle = await service.verify_claims(
+        material_claims=[business_claim],
+        verified_evidence_package=_verified_package(ref),
+        business_context={"business_fact_refs": []},
+        proposed_action=None,
+    )
+
+    assert bundle.overall_status == "blocked"
+    assert bundle.route == "final_response"
+    assert bundle.blocked_claims == ["claim-business"]
+    assert "business_fact_ref_required" in bundle.reason_codes
+    assert bundle.claim_results[0].support_status == "unsupported"
+    assert bundle.claim_results[0].semantic_review_status == "not_needed"
+
+
+@pytest.mark.asyncio
+async def test_verify_claims_continues_for_supported_policy_business_and_action_claims() -> None:
+    """APF-14: action recommendations require both policy support and merchant-scoped business authority."""
+    ref = _evidence_ref()
+    business_ref = _business_fact_ref()
+    package = _verified_package(ref)
+    package["verifier_projection"]["business_fact_refs"] = [business_ref.model_dump(mode="json")]
+    service = PolicyKnowledgeService(retriever=object())
+    claims = [
+        MaterialClaimV1(
+            claim_id="claim-policy",
+            claim_text="Refund timeout compensation requires verified policy evidence.",
+            claim_type="policy",
+            cited_evidence_ids=[ref.evidence_id],
+            business_fact_refs=[],
+            risk_hints=[],
+            generated_from_step="recommendation_generation",
+        ),
+        MaterialClaimV1(
+            claim_id="claim-business",
+            claim_text="Refund case RF-1001 is merchant scoped.",
+            claim_type="business_fact",
+            cited_evidence_ids=[],
+            business_fact_refs=[business_ref],
+            risk_hints=[],
+            generated_from_step="recommendation_generation",
+        ),
+        MaterialClaimV1(
+            claim_id="claim-action",
+            claim_text="Issue a compensation review for RF-1001.",
+            claim_type="action_recommendation",
+            cited_evidence_ids=[ref.evidence_id],
+            business_fact_refs=[business_ref],
+            risk_hints=[],
+            generated_from_step="recommendation_generation",
+        ),
+    ]
+
+    bundle = await service.verify_claims(
+        material_claims=claims,
+        verified_evidence_package=package,
+        business_context={"business_fact_refs": [business_ref.model_dump(mode="json")]},
+        proposed_action={"type": "create_compensation_review"},
+    )
+
+    assert bundle.overall_status == "verified"
+    assert bundle.route == "continue"
+    assert bundle.blocked_claims == []
+    assert {result.claim_id for result in bundle.claim_results} == {
+        "claim-policy",
+        "claim-business",
+        "claim-action",
+    }
+    assert all(result.support_status == "supported" for result in bundle.claim_results)
+    assert ref in bundle.safe_support_refs

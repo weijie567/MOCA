@@ -8,8 +8,9 @@ from uuid import UUID, uuid4
 import pytest
 
 from src.knowledge.retrieval import PolicyRetrievalEngine
-from src.knowledge.schemas import KnowledgeContext, KnowledgeSearchFilters, KnowledgeSearchRequest
+from src.knowledge.schemas import EvidenceRefV1, KnowledgeContext, KnowledgeSearchFilters, KnowledgeSearchRequest, MaterialClaimV1
 from src.knowledge.service import PolicyKnowledgeService
+from src.knowledge.text_hash import evidence_text_hash
 from src.platform.context_projections import project_to_knowledge_context
 from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 
@@ -120,3 +121,75 @@ async def test_factory_projected_knowledge_context_preserves_deny_before_query_b
     assert unauthorized.evidence_refs == []
     assert authorized.status == "no_evidence"
     assert adapter.retrieve.await_count == 1
+
+
+class FakeTenantPolicyRetriever:
+    async def get_canonical_evidence_rows_by_keys(
+        self,
+        *,
+        tenant_id,
+        keys: list[tuple[str, str]],
+    ) -> dict[tuple[str, str], dict]:
+        return {
+            key: {
+                "tenant_id": str(tenant_id),
+                "doc_key": key[0],
+                "chunk_id": key[1],
+                "content": "Tenant public policy describes refund timeout compensation.",
+                "policy_document_version": 3,
+                "current_policy_version": "v3",
+                "effective_date": "2026-06-01",
+                "expires_at": None,
+                "doc_type": "refund_rule",
+                "risk_level": "medium",
+                "merchant_ids": [],
+                "source_locator": {"page": 1},
+            }
+            for key in keys
+        }
+
+
+@pytest.mark.asyncio
+async def test_tenant_public_policy_does_not_create_merchant_scoped_business_fact_authority():
+    """tenant public policy evidence is separate from merchant-scoped BusinessFactRefV1 / BusinessFactResultV1 business fact authority."""
+    tenant_id = str(uuid4())
+    evidence = EvidenceRefV1(
+        tenant_id=tenant_id,
+        evidence_id="refund-policy/chunk_001@v3",
+        doc_key="refund-policy",
+        chunk_id="chunk_001",
+        policy_version="v3",
+        text_hash=evidence_text_hash("Tenant public policy describes refund timeout compensation."),
+        retrieved_at="2026-06-19T00:00:00.000Z",
+        retrieval_config_version="retrieval.v3",
+        score=0.9,
+        rank=1,
+    )
+    service = PolicyKnowledgeService(FakeTenantPolicyRetriever())
+    package = await service.build_verified_context(
+        candidate_evidence_refs=[evidence],
+        business_fact_refs=[],
+        knowledge_context=_context(tenant_id, merchant_scope=["merchant-001"]),
+        evidence_policy={"doc_type": "refund_rule", "risk_level": "medium", "evidence_required": True},
+    )
+
+    bundle = await service.verify_claims(
+        material_claims=[
+            MaterialClaimV1(
+                claim_id="claim-business-fact-authority",
+                claim_text="Refund case RF-1001 has a merchant-scoped timeout.",
+                claim_type="business_fact",
+                cited_evidence_ids=[evidence.evidence_id],
+                business_fact_refs=[],
+                risk_hints=[],
+                generated_from_step="recommendation_generation",
+            )
+        ],
+        verified_evidence_package=package,
+        business_context={"business_fact_refs": []},
+        proposed_action=None,
+    )
+
+    assert package.status == "verified"
+    assert bundle.route == "final_response"
+    assert "business_fact_ref_required" in bundle.reason_codes
