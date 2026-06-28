@@ -18,6 +18,7 @@ from src.api.routers.agent_runs import (
     _dedupe_evidence_refs,
     _event_generator,
     _extract_step_payload,
+    _sse_event,
 )
 from src.api.services.agent_run_memory import finalize_completed_agent_run_memory
 from src.approvals.schemas import PROPOSED_ACTION_SCHEMA_VERSION
@@ -711,6 +712,24 @@ def test_extract_step_payload_counts_v2_evidence_refs():
     )
 
     assert payload["evidence_count"] == 2
+
+
+def test_sse_event_projects_target_node_name_without_rewriting_legacy_node_name():
+    event = _sse_event(
+        event_type="step_completed",
+        run_id="run-graph-projection",
+        step_index=2,
+        node_name="extract_slots",
+        status="completed",
+        message="done",
+        payload={"tool_name": "slot_parser"},
+    )
+
+    data = json.loads(event["data"])
+
+    assert data["node_name"] == "extract_slots"
+    assert data["target_node_name"] == "slot_resolution_gate"
+    assert data["payload"] == {"tool_name": "slot_parser"}
 
 
 def test_dedupe_evidence_refs_preserves_policy_versions():

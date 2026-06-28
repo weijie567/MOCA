@@ -87,3 +87,60 @@ def test_trace_summary_counts_v2_evidence_refs():
     )
 
     assert summary["evidence_count"] == 2
+
+
+def test_trace_summary_projects_target_graph_names_without_rewriting_legacy_nodes():
+    summary = build_trace_summary(
+        "run-graph-projection",
+        {
+            "current_intent": "refund_troubleshooting",
+            "trace_steps": [
+                {"node": "classify_intent", "status": "completed"},
+                {"node": "extract_slots", "status": "completed"},
+                {"node": "route_after_slots", "status": "completed"},
+                {"node": "rag_context_build", "status": "deferred"},
+            ],
+            "final_response": "done",
+        },
+        25,
+    )
+
+    assert summary["nodes_executed"] == [
+        "classify_intent",
+        "extract_slots",
+        "route_after_slots",
+        "rag_context_build",
+    ]
+    assert summary["target_nodes_executed"] == [
+        "contextual_intent_resolve",
+        "slot_resolution_gate",
+        "route_after_slot_resolution",
+        "rag_context_build",
+    ]
+    assert summary["graph_projection"]["schema_version"] == "target_graph_projection.v1"
+    assert summary["graph_projection"]["steps"] == [
+        {
+            "implementation_node": "classify_intent",
+            "target_node": "contextual_intent_resolve",
+            "target_graph_status": "compatibility_alias",
+            "target_graph_runnable": True,
+        },
+        {
+            "implementation_node": "extract_slots",
+            "target_node": "slot_resolution_gate",
+            "target_graph_status": "compatibility_alias",
+            "target_graph_runnable": True,
+        },
+        {
+            "implementation_node": "route_after_slots",
+            "target_node": "route_after_slot_resolution",
+            "target_graph_status": "compatibility_alias",
+            "target_graph_runnable": True,
+        },
+        {
+            "implementation_node": "rag_context_build",
+            "target_node": "rag_context_build",
+            "target_graph_status": "deferred_non_runnable",
+            "target_graph_runnable": False,
+        },
+    ]

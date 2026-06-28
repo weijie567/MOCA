@@ -42,6 +42,8 @@ async def test_get_run_trace_returns_full_timeline_with_agent_steps_approvals_an
     ]
     assert payload["data"]["steps"][0] == {
         "node": "receive_request",
+        "implementation_node": "receive_request",
+        "target_node": "request_entry",
         "status": "completed",
         "latency_ms": 12,
         "tool_name": None,
@@ -52,6 +54,9 @@ async def test_get_run_trace_returns_full_timeline_with_agent_steps_approvals_an
     assert payload["data"]["action_drafts"][0]["draft_outcome"]["external_side_effect"] is False
     assert "payload" not in payload["data"]["action_drafts"][0]
     action_draft_item = next(item for item in payload["data"]["timeline"] if item["type"] == "action_draft")
+    first_step_item = payload["data"]["timeline"][0]
+    assert first_step_item["detail"]["node_name"] == "receive_request"
+    assert first_step_item["detail"]["target_node"] == "request_entry"
     assert action_draft_item["detail"]["draft_outcome"]["status"] == "not_executed_demo"
     assert action_draft_item["detail"]["draft_outcome"]["external_side_effect"] is False
     assert "payload" not in action_draft_item["detail"]
@@ -213,6 +218,8 @@ def test_build_timeline_merges_all_event_types_correctly():
     ]
     assert all({"type", "time", "title", "status", "detail"} <= set(item) for item in timeline)
     assert timeline[1]["detail"]["tool_name"] == "search_policy"
+    assert timeline[1]["detail"]["node_name"] == "investigate"
+    assert timeline[1]["detail"]["target_node"] == "business_investigation"
     assert timeline[3]["detail"]["draft_outcome"] == draft_outcome
     assert "payload" not in timeline[3]["detail"]
 
