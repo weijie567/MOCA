@@ -1,6 +1,6 @@
 ---
 phase: 31-memory-platform-boundary
-fixed_at: 2026-06-28T07:48:38Z
+fixed_at: 2026-06-28T10:24:52Z
 review_path: .planning/phases/31-memory-platform-boundary/31-REVIEW.md
 iteration: 1
 findings_in_scope: 3
@@ -11,7 +11,7 @@ status: all_fixed
 
 # Phase 31: Code Review Fix Report
 
-**Fixed at:** 2026-06-28T07:48:38Z
+**Fixed at:** 2026-06-28T10:24:52Z
 **Source review:** .planning/phases/31-memory-platform-boundary/31-REVIEW.md
 **Iteration:** 1
 
@@ -22,29 +22,29 @@ status: all_fixed
 
 ## Fixed Issues
 
-### CR-01: Production trusted_context dict bypasses session merchant-scope filtering
+### CR-01: contextual-only memory ref 可通过 citation_map 被当成 policy evidence 支持 claim
 
 **Status:** fixed: requires human verification
-**Files modified:** `src/agent/nodes/session_context_load.py`, `tests/memory/test_session_memory_isolation.py`
-**Commit:** 28daa2c
-**Applied fix:** `_trusted_merchant_ids()` now supports JSON-shaped mapping inputs for both `trusted_context` and nested `merchant_scope`. Added a production-shape regression test that passes `TrustedContext.model_dump(mode="json")` without an explicit current-turn merchant slot and verifies cross-merchant session context is filtered.
+**Files modified:** `src/agent/rag_context/verifier.py`, `tests/agent/rag_context/test_authority_boundaries.py`
+**Commit:** f54033d
+**Applied fix:** Contextual memory/status refs in `citation_map` are now identified as non-authority, excluded from active evidence ids, `safe_refs`, and claim snippets. Added a regression proving a `reviewed_memory_ref.v1` citation cannot support a policy claim.
 
-### WR-01: receive_request leaves stale RAG/verifier fields in checkpointed state
+### CR-02: session memory write 会持久化未参与 PII 分类的 unresolved_questions
 
 **Status:** fixed: requires human verification
-**Files modified:** `src/agent/nodes/receive_request.py`, `src/agent/state.py`, `tests/agent/test_nodes/test_receive_request.py`
-**Commit:** e81e43b
-**Applied fix:** `receive_request()` now resets RAG context and verifier fields, including `rag_verification`, and `AgentState` declares `rag_verification`. Added focused tests for verifier reset coverage and state annotations.
+**Files modified:** `src/agent/nodes/memory_write.py`, `tests/agent/test_memory_write_node.py`
+**Commit:** f5ac4ab
+**Applied fix:** `memory_write` now classifies all persisted candidate text, including `unresolved_questions` and `session_summary`, before deciding whether to call `MemoryService`. Added a regression covering phone/id/token text carried only by clarification questions.
 
-### WR-02: SessionContextLoadStatusV1 does not accept status objects produced by the node
+### WR-01: reviewed memory retrieval uses LLM candidate_slots to create merchant retrieval scope
 
-**Status:** fixed
-**Files modified:** `src/memory/context_refs.py`, `tests/agent/test_session_memory_load.py`, `tests/memory/test_context_refs.py`
-**Commit:** f4cb509
-**Applied fix:** `SessionContextLoadStatusV1` now includes `filter_reasons`. Added validation coverage for loaded and fallback `session_context_load()` outputs plus DTO metadata coverage.
+**Status:** fixed: requires human verification
+**Files modified:** `src/agent/nodes/reviewed_memory_context_retrieve.py`, `tests/agent/test_reviewed_memory_context_retrieve.py`
+**Commit:** ccf7c26
+**Applied fix:** Reviewed-memory retrieval scope now uses only post-extraction `extracted_slots`, ignoring LLM `candidate_slots`. Added a regression proving candidate-slot merchant ids do not trigger long-term/case memory service calls and fall back with `memory_scope_not_authority`.
 
 ---
 
-_Fixed: 2026-06-28T07:48:38Z_
+_Fixed: 2026-06-28T10:24:52Z_
 _Fixer: Claude (gsd-code-fixer)_
 _Iteration: 1_
