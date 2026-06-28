@@ -399,5 +399,25 @@ Plans:
 Plans:
 - [ ] 35-01-PLAN.md — Replay and eval hardening
 
+## Backlog
+
+### Phase 999.1: Evaluate mem0 Memory Backend Spike (BACKLOG)
+
+**Status:** Backlog
+**Goal:** Spike whether mem0 can serve as an optional backend behind `MemoryContextService` for reviewed long-term/case memory only.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+**Success Criteria**:
+
+1. Evaluation treats mem0 only as a backend candidate behind a MOCA adapter; agents must not call mem0 directly.
+2. mem0 is not used for session context and must not become evidence, business fact, approval/action, material-claim, or replay authority.
+3. Adapter design requires tenant, merchant, user, thread, and case filters derived from trusted MOCA context before any read/write.
+4. Writes must pass through `MemoryWriteDecisionV2`; retrieved items must be projected as `ReviewedMemoryRef(authority_class="contextual_only")`.
+5. Spike explicitly verifies tombstone, supersede, review status, PII, merchant isolation, and replay/audit boundary implications before promotion.
+
+Plans:
+- [ ] TBD (promote with `$gsd-review-backlog` when ready)
+
 ---
 *Updated: 2026-06-27 after inserting Phase 29.5 Merchant Scope / Role Model Alignment.*
