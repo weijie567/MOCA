@@ -1,6 +1,6 @@
 # Phase 32 MVP Target Mapping
 
-本文记录 Phase 32 的 MVP 落地边界：运行时代码继续保留 legacy graph node/router 名称，contract/eval/API 表面通过 `src.agent.graph_vocabulary` 投影到 target canonical vocabulary。本文不是 Phase 33 的 RAG/claim 实现说明。
+本文记录 Phase 32 的 MVP 落地边界：运行时代码继续保留 legacy graph node/router 名称，contract/eval/API 表面通过 `src.agent.graph_vocabulary` 投影到 target canonical vocabulary。Phase 33 结束后，本文同时记录 `rag_context_build` / `claim_verify` 从 Phase 32 historical deferral 到 Phase 33 runtime behavior 的状态变化；详细实现说明见 Phase 33 `33-RAG-CLAIM-TARGET-MAPPING.md`。
 
 ## Legacy 到 Target 映射
 
@@ -20,8 +20,8 @@
 | `route_after_contextual_intent` | `router` | `route_after_contextual_intent` | `compatibility_alias` | `true` | target router identity mapping。 |
 | `route_after_slots` | `router` | `route_after_slot_resolution` | `compatibility_alias` | `true` | legacy slot router key 保留，target router 名为 `route_after_slot_resolution`。 |
 | `route_after_slot_resolution` | `router` | `route_after_slot_resolution` | `compatibility_alias` | `true` | target router identity mapping。 |
-| `rag_context_build` | `node` | `rag_context_build` | `deferred_non_runnable` | `false` | Phase 33 / APF-13 owned；Phase 32 只登记 target 名称，不注册 runnable graph node。 |
-| `claim_verify` | `node` | `claim_verify` | `deferred_non_runnable` | `false` | Phase 33 / APF-14 owned；Phase 32 只登记 target 名称，不注册 runnable graph node。 |
+| `rag_context_build` | `node` | `rag_context_build` | `runtime` | `true` | Phase 32 historical state was `deferred_non_runnable`：Phase 32 只登记 target 名称、不注册 runnable graph node。Phase 33 promotes it to runtime behavior：当前由 `src.agent.graph` 注册，负责 `VerifiedEvidencePackageV1` build。 |
+| `claim_verify` | `node` | `claim_verify` | `runtime` | `true` | Phase 32 historical state was `deferred_non_runnable`：Phase 32 只登记 target 名称、不注册 runnable graph node。Phase 33 promotes it to runtime behavior：当前由 `src.agent.graph` 注册，负责 `ClaimVerificationBundleV1` verification。 |
 
 ## Policy Registry Ownership
 
@@ -53,7 +53,7 @@
 
 ## 明确非 Scope
 
-Phase 32 没有实现以下内容：
+Phase 32 historical scope 没有实现以下内容；这些不是 Phase 32 交付物：
 
 - APF-13 `VerifiedEvidencePackageV1` 或完整 `rag_context_build` writer/readers/reset/persist 行为。
 - APF-14 `ClaimVerificationBundleV1` 或完整 `claim_verify` material-claim verification 行为。
@@ -63,7 +63,7 @@ Phase 32 没有实现以下内容：
 - DB/RLS hardening。
 - physical microservice extraction。
 
-`rag_context_build` 和 `claim_verify` 在 Phase 32 中只允许是 `deferred_non_runnable` target vocabulary entries。
+`rag_context_build` 和 `claim_verify` 在 Phase 32 完成时只允许是 `deferred_non_runnable` target vocabulary entries。Phase 33 promotes both names to runtime behavior；当前代码中二者已是 runtime/runnable graph nodes，Phase 32 静态测试不再要求它们保持非 runnable。
 
 ## 最终验证命令
 
