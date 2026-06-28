@@ -4704,3 +4704,41 @@ find . \( -name 'pytest.ini' -o -name 'jest.config.*' -o -name 'vitest.config.*'
 - `.planning/phases/30-businessfactservice-boundary/30-VALIDATION.md`
 - `pyproject.toml`
 - `$HOME/.codex/get-shit-done/workflows/validate-phase.md`
+
+## 2026-06-28 10:36 CST - Phase 31 discuss-phase memory model scan included nonexistent path
+
+### 问题现象
+
+Phase 31 discuss-phase 期间，为核对 memory scope / model 字段，第一次 `rg` 扫描命令包含不存在的 `src/models` 路径，导致 `rg` 返回退出码 2。命令仍输出了部分匹配结果，但不能作为完整验证结果直接引用。
+
+### 如何检测 / 复现
+
+```bash
+rg -n "scope_type|scope_id|review_status|pii_classification|deleted_at|expires_at" src/memory src/models src/db src
+```
+
+### 关键证据或命令
+
+```text
+rg: src/models: No such file or directory (os error 2)
+```
+
+### 当前判断 / 根因
+
+这是本地验证命令路径写错导致的扫描问题，不是 Phase 31 代码或规划 artifact 的问题。MOCA 的 SQLAlchemy 持久化模型实际集中在 `src/db/models.py`，不存在 `src/models` 目录。
+
+### 已做处理
+
+改用实际存在的路径重新核对：`src/db/models.py`、`src/memory/*`、`src/db/migrations/versions/013_long_term_case_memory.py`、`tests/memory/*`。确认 `SessionMemory`、`LongTermMemory`、`CaseMemory`、`MemoryTombstone`、`MemoryWriteEvent` 位于 `src/db/models.py`，long-term/case/tombstone/write-event 已有 scope、review、PII、deleted/expired、identity/hash 等字段和测试基础。
+
+### 剩余问题
+
+无代码阻塞。后续扫描模型路径时应优先使用 `src/db/models.py` 或 `rg --files src/db src/memory` 确认实际文件结构。
+
+### 下次继续排查入口
+
+- `src/db/models.py`
+- `src/memory/long_term.py`
+- `src/memory/case_memory.py`
+- `tests/memory/test_long_term_memory_service.py`
+- `tests/memory/test_case_memory_retrieval.py`
