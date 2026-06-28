@@ -311,3 +311,21 @@ Only the `--claude` reviewer was requested for this autopilot stage, so this sec
 ### Divergent Views
 
 - None captured; only Claude was run by request.
+
+---
+
+## Claude Re-Review After Codex Repairs
+
+Reviewed at: 2026-06-28T13:25:48Z
+
+## PASS
+
+未发现剩余可执行 plan blocker/warning。已确认 accepted findings 在 repaired plans 中落地：
+
+- `slot_resolution_gate` 已作为 first-class vocabulary/identity/projection 覆盖，并纳入 doc/source 一致性静态检查：`.planning/phases/32-intent-graph-migration/32-05-PLAN.md:171`
+- registry 消费不再只靠静态 grep，32-02 要求 fake/monkeypatch 行为测试、异常/invalid route fail-closed 测试和 secondary static guard。
+- slot freshness/idempotence 已收紧：确定性 current-time 输入、`SlotInheritanceDecision`、重复 resolution 不复活 rejected slots：`.planning/phases/32-intent-graph-migration/32-03-PLAN.md:155`
+- merchant-context `resolved` 只允许 service-approved `BusinessFactRefV1` 来源，并禁止从 LLM/memory/slots/raw IDs 推导：`.planning/phases/32-intent-graph-migration/32-04-PLAN.md:249`
+- `target_merchant_context.status == "resolved"` 非授权输入的测试要求已写入：`.planning/phases/32-intent-graph-migration/32-04-PLAN.md:264`
+- final static checks 避免纯格式脆弱断言：要求 import/inspect `ADMIN_RUN_VISIBILITY_ROLES == {"admin"}`、只扫描 command-bearing validation lines、并校验 mapping doc 与 helper 一致：`.planning/phases/32-intent-graph-migration/32-05-PLAN.md:173`
+- Phase 33 scope 保持 deferred/non-runnable，MOCA-approved pytest 命令规则已纳入最终 gate：`.planning/phases/32-intent-graph-migration/32-05-PLAN.md:170`
