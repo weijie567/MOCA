@@ -1,45 +1,37 @@
 ---
 phase: 30-businessfactservice-boundary
-fixed_at: 2026-06-27T23:56:53Z
+fixed_at: 2026-06-28T00:14:35Z
 review_path: .planning/phases/30-businessfactservice-boundary/30-REVIEW.md
 iteration: 1
-findings_in_scope: 2
-fixed: 2
+findings_in_scope: 1
+fixed: 1
 skipped: 0
 status: all_fixed
 ---
 
 # Phase 30：代码审查修复报告
 
-**修复时间：** 2026-06-27T23:56:53Z
+**修复时间：** 2026-06-28T00:14:35Z
 **源 review：** `.planning/phases/30-businessfactservice-boundary/30-REVIEW.md`
 **Iteration：** 1
 
 **汇总：**
-- 范围内 findings：2
-- 已修复：2
+- 范围内 findings：1
+- 已修复：1
 - 已跳过：0
 
 ## 已修复问题
 
-### CR-01: Action/Business Fact Verifier Can Support Claims Without Passing Tenant Scope
+### WR-01: Action Recommendation 可在 Level 1 membership 失败时打开 allow flags
 
 **状态：** fixed: requires human verification
-**修改文件：** `src/agent/rag_context/verifier.py`, `tests/agent/rag_context/test_authority_boundaries.py`, `.planning/LOCAL-VALIDATION-ISSUES.md`
-**Commit：** cc046a4
-**应用修复：** `_business_authority_passed()` 在缺失 trusted tenant 时 fail closed；business fact / action recommendation 的 Level 1 检查在缺失 trusted tenant 时追加 `tenant_scope_invalid`；action recommendation 在 tenant scope 未通过时直接返回 `UNAUTHORIZED`，同时保留 business fact authority 失败的诊断码。新增 wrong-tenant policy evidence 与缺失 trusted tenant 的 business fact 两条回归测试，并记录本地验证过程中已处理的诊断码回归。
-**验证：** `python -c "import ast; ..."` 解析通过；`uv run pytest tests/agent/rag_context/test_authority_boundaries.py -q` 结果为 `11 passed, 1 warning`。
-
-### IN-01: Projection Migration Left Dead Helpers Behind
-
-**状态：** fixed
-**修改文件：** `src/agent/nodes/investigate.py`, `src/tools/projection.py`
-**Commit：** c51b174
-**应用修复：** 删除未调用的 `_case_memory_items()`、`_without_raw_payload()` 和 `_BUSINESS_FACT_REF_KEYS`，保留现有 projector-normalized case memory 与 envelope business refs 活路径。
-**验证：** 精确 `rg` 检查确认 deleted helpers/constant 无剩余定义；AST 解析通过；`uv run pytest tests/agent/test_nodes/test_investigate.py tests/tools/test_tool_platform.py -q` 结果为 `56 passed, 1 warning`。
+**修改文件：** `src/agent/rag_context/verifier.py`, `tests/agent/rag_context/test_authority_boundaries.py`
+**Commit：** 62bd0d0
+**应用修复：** `_verify_action_recommendation_claim()` 现在在 tenant scope 检查通过后立即检查 `level1.membership_passed`；只要 policy evidence membership 未通过，就补齐 `policy_evidence_required` 并返回 `INSUFFICIENT`，不会继续进入 supported 分支打开 `allows_action_recommendation`。
+**验证：** 已回读修改片段确认变更完整；`python -c "import ast, pathlib; ast.parse(...)"` 对两个修改文件均通过；`uv run pytest tests/agent/rag_context/test_authority_boundaries.py::test_action_recommendation_rejects_missing_policy_evidence_even_with_supported_dependencies tests/agent/rag_context/test_authority_boundaries.py::test_action_recommendation_rejects_memory_or_model_supported_dependencies tests/agent/rag_context/test_authority_boundaries.py::test_action_recommendation_rejects_wrong_tenant_business_ref tests/agent/rag_context/test_authority_boundaries.py::test_action_recommendation_rejects_wrong_tenant_policy_evidence_with_valid_business_ref -q` 结果为 `4 passed, 1 warning`。
 
 ---
 
-_Fixed: 2026-06-27T23:56:53Z_
+_Fixed: 2026-06-28T00:14:35Z_
 _Fixer: Claude (gsd-code-fixer)_
 _Iteration: 1_
