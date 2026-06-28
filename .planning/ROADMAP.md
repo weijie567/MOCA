@@ -305,7 +305,7 @@ Plans:
 **Goal:** Separate session context, long-term memory, case memory, conversation log, workflow checkpoint, working state, and memory write policy behind clear memory service APIs.
 **Requirements**: APF-09, APF-10
 **Depends on:** Phase 30
-**Plans:** 3/6 plans complete
+**Plans:** 4/6 plans complete
 
 **Success Criteria**:
 
@@ -318,7 +318,7 @@ Plans:
 - [x] 31-01-PLAN.md — Wave 0 session-context and authority-boundary RED tests
 - [x] 31-02-PLAN.md — Wave 0 reviewed-memory scope and write-policy RED tests
 - [x] 31-03-PLAN.md — Memory context DTOs and facade contracts
-- [ ] 31-04-PLAN.md — SessionContextMemory graph-facing node and compatibility aliases
+- [x] 31-04-PLAN.md — SessionContextMemory graph-facing node and compatibility aliases
 - [ ] 31-05-PLAN.md — Reviewed memory trusted-scope retrieval boundary
 - [ ] 31-06-PLAN.md — Memory write decision status and final authority verification
 
