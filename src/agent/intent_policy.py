@@ -172,6 +172,61 @@ class IntentPolicyRegistry:
             name for name, definition in INTENT_DEFINITIONS.items() if definition.critical_route_class
         )
 
+    def route_for_intent(self, intent: str) -> IntentRouteLiteral | None:
+        return INTENT_ROUTE_POLICY.get(intent)
+
+    def is_known_intent(self, intent: str) -> bool:
+        return intent in INTENT_DEFINITIONS
+
+    def is_direct_response_intent(self, intent: str) -> bool:
+        return intent in DIRECT_RESPONSE_INTENTS
+
+    def requires_evidence(self, intent: str) -> bool:
+        definition = self.get_definition(intent)
+        if definition is None:
+            return True
+        return definition.evidence_required
+
+    def is_high_risk_intent(self, intent: str) -> bool:
+        return intent in HIGH_RISK_INTENTS
+
+    def is_critical_route_intent(self, intent: str) -> bool:
+        return intent in CRITICAL_ROUTE_CLASSES
+
+    def resolve_risk_tier(
+        self,
+        primary_intent: str,
+        requested_operation: str,
+        role: str | None = None,
+        channel: str | None = None,
+        routing_hints: dict[str, Any] | None = None,
+    ) -> RiskTierLiteral:
+        return resolve_risk_tier(
+            primary_intent,
+            requested_operation,
+            role=role,
+            channel=channel,
+            routing_hints=routing_hints,
+        )
+
+    def resolve_precedence(
+        self,
+        primary_intent: str,
+        secondary_intents: list[str],
+        requested_operation: str,
+        *,
+        query: str = "",
+    ) -> tuple[IntentLiteral, RequestedOperationLiteral, list[str]]:
+        resolved_intent, resolved_operation, reason_codes = resolve_intent_precedence(
+            primary_intent,
+            requested_operation,
+            query,
+            secondary_intents,
+        )
+        if resolved_intent not in INTENT_DEFINITIONS:
+            resolved_intent = "unsupported"
+        return resolved_intent, _valid_operation(resolved_operation), reason_codes  # type: ignore[return-value]
+
 
 class SlotPolicyRegistry:
     """Read-only view over required slot policy constants."""
@@ -189,6 +244,9 @@ class SlotPolicyRegistry:
             if expression.all_of or expression.any_of
         )
 
+
+INTENT_POLICY_REGISTRY = IntentPolicyRegistry()
+SLOT_POLICY_REGISTRY = SlotPolicyRegistry()
 
 ORDINARY_CHAT_CHANNELS = {"ordinary_chat", "chat", "agent_chat", "agent_runs"}
 
