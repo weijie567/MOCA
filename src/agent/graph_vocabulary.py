@@ -39,6 +39,13 @@ def _entry(
 
 
 _ENTRIES: tuple[GraphVocabularyEntry, ...] = (
+    _entry("receive_request", "receive_request", "node", "runtime", True),
+    _entry("investigate", "investigate", "node", "runtime", True),
+    _entry("clarification_gate", "clarification_gate", "node", "runtime", True),
+    _entry("approval_gate", "approval_gate", "node", "runtime", True),
+    _entry("action_draft", "action_draft", "node", "runtime", True),
+    _entry("final_response", "final_response", "node", "runtime", True),
+    _entry("memory_write", "memory_write", "node", "runtime", True),
     _entry("classify_intent", "contextual_intent_resolve", "node", "compatibility_alias", True),
     _entry("intent_classification", "contextual_intent_resolve", "node", "compatibility_alias", True),
     _entry("contextual_intent_resolve", "contextual_intent_resolve", "node", "compatibility_alias", True),

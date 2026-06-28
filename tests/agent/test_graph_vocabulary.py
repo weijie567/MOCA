@@ -63,6 +63,32 @@ def test_target_graph_names_are_identity_mapped(name: str, kind: str) -> None:
 
 
 @pytest.mark.parametrize(
+    "name",
+    [
+        "receive_request",
+        "investigate",
+        "clarification_gate",
+        "approval_gate",
+        "action_draft",
+        "final_response",
+        "memory_write",
+    ],
+)
+def test_canonical_runtime_nodes_project_as_runtime(name: str) -> None:
+    entry = graph_vocabulary_entry(name, kind="node")
+    projected = project_trace_step_for_contract({"node": name, "status": "completed"})
+
+    assert entry is not None
+    assert entry.target_name == name
+    assert entry.status == "runtime"
+    assert entry.runnable is True
+    assert projected["implementation_node"] == name
+    assert projected["target_node"] == name
+    assert projected["target_graph_status"] == "runtime"
+    assert projected["target_graph_runnable"] is True
+
+
+@pytest.mark.parametrize(
     ("name", "reason_code"),
     [
         ("rag_context_build", "PHASE_33_APF_13_OWNED"),
