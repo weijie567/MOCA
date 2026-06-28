@@ -6325,3 +6325,55 @@ uv run ruff check src/agent/routing.py src/agent/graph.py src/agent/graph_vocabu
 - `src/agent/routing.py`
 - `src/agent/graph.py`
 - `tests/agent/test_graph.py`
+
+## 2026-06-29 04:02 CST - Plan 33-05 metadata SDK ROADMAP mismatch and malformed metric row
+
+### 问题现象
+
+Plan 33-05 metadata 更新阶段，`gsd-sdk query roadmap.update-plan-progress 33` 仍返回未更新；同时 `state.record-metric` 使用 flag 参数后在 `.planning/STATE.md` 写入了一行格式错误的 metric。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+gsd-sdk query roadmap.update-plan-progress 33
+rg -n "33-05|Phase --phase|5/9" .planning/STATE.md .planning/ROADMAP.md
+```
+
+### 关键证据或命令
+
+ROADMAP SDK 输出：
+
+```json
+{
+  "updated": false,
+  "phase": "33",
+  "reason": "no matching checkbox found"
+}
+```
+
+STATE 中曾出现的错误行：
+
+```text
+| Phase --phase P33-rag-context-build-and-claim-verification | --plan | 33-05 tasks | --duration files |
+```
+
+### 当前判断 / 根因
+
+ROADMAP 问题与 Plan 33-03/33-04 已记录的 GSD SDK 与 MOCA ROADMAP 格式不匹配一致。metric 问题来自本次按新版 flag 形式调用 `state.record-metric`，而当前本地 handler 实际按位置参数解析。
+
+### 已做处理
+
+已手动更新 `.planning/ROADMAP.md`：Phase 33 `Plans` 改为 `5/9 plans complete`，并勾选 `33-05-PLAN.md`。已手动修正 `.planning/STATE.md`：Phase 33 行改为 `5/9`，latest metric 改为 P33-05，并删除错误 metric 行、补入正确 metric 行。
+
+### 剩余问题
+
+无当前阻塞。后续 Phase 33 计划完成时仍需检查 `roadmap.update-plan-progress` 是否继续返回 `no matching checkbox found`，且 `state.record-metric` 应使用位置参数或手动核对结果。
+
+### 下次继续排查入口
+
+- `.planning/ROADMAP.md`
+- `.planning/STATE.md`
+- `gsd-sdk query roadmap.update-plan-progress 33`
+- `gsd-sdk query state.record-metric`

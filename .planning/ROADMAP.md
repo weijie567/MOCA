@@ -352,7 +352,7 @@ Plans:
 **Goal:** Split RAG into investigate-time candidate retrieval, deterministic verified evidence package construction, and post-generation claim verification.
 **Requirements**: APF-13, APF-14
 **Depends on:** Phase 32
-**Plans:** 4/9 plans complete
+**Plans:** 5/9 plans complete
 
 **Success Criteria**:
 
@@ -366,7 +366,7 @@ Plans:
 - [x] 33-02-PLAN.md — `rag_context_build` node, package projections, and `route_after_rag_context`
 - [x] 33-03-PLAN.md — MaterialClaimV1 emission from recommendation generation
 - [x] 33-04-PLAN.md — DomainRuleVerifier and ClaimVerificationBundle aggregation
-- [ ] 33-05-PLAN.md — `claim_verify` node, graph wiring, and `route_after_claim_verify`
+- [x] 33-05-PLAN.md — `claim_verify` node, graph wiring, and `route_after_claim_verify`
 - [ ] 33-06-PLAN.md — Risk/action gate enforcement for verified claim support
 - [ ] 33-07-PLAN.md — Final response and working-state no-leak projections
 - [ ] 33-08-PLAN.md — Trace/API safe RAG and claim summaries
