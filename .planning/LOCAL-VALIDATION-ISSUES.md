@@ -6010,3 +6010,63 @@ uv run ruff check src/agent/nodes/generate_recommendation.py src/agent/rag_conte
 - `src/agent/rag_context/claims.py`
 - `tests/agent/test_nodes/test_generate_recommendation.py`
 - `tests/agent/rag_context/test_material_claims.py`
+
+## 2026-06-29 03:22 CST - Plan 33-03 GSD metadata SDK 写入漂移
+
+### 问题现象
+
+Plan 33-03 metadata 更新阶段出现三处 GSD SDK 写入漂移：`roadmap.update-plan-progress "33"` 返回未找到 checkbox，`state.record-metric --phase ...` 被当前 SDK 解析成位置参数文本并写入了 malformed metric row，`state.record-session --stopped-at ...` 把 flag 名写入 Session Continuity。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+gsd-sdk query roadmap.update-plan-progress "33"
+gsd-sdk query state.record-metric --phase "33" --plan "33-03" --duration "15min" --tasks "1" --files "5"
+gsd-sdk query state.record-session --stopped-at "Completed 33-03-PLAN.md" --resume-file "None"
+```
+
+随后检查：
+
+```bash
+rg -n "33-03|Phase --phase|RAG Context Build" .planning/ROADMAP.md .planning/STATE.md
+```
+
+### 关键证据或命令
+
+`roadmap.update-plan-progress` 输出：
+
+```json
+{
+  "updated": false,
+  "phase": "33",
+  "reason": "no matching checkbox found"
+}
+```
+
+`STATE.md` 曾出现 malformed metric row：
+
+```text
+| Phase --phase P33 | --plan | 33-03 tasks | --duration files |
+```
+
+### 当前判断 / 根因
+
+这是当前 GSD SDK 与 MOCA `.planning/ROADMAP.md` / `state.record-metric` 参数格式不匹配导致的 metadata 写入问题，不是业务代码或测试问题。
+
+### 已做处理
+
+已手动把 `.planning/ROADMAP.md` Phase 33 计划计数改为 `3/9` 并勾选 `33-03-PLAN.md`；已把 `.planning/STATE.md` Phase 33 计划计数改为 `3/9`，将 malformed metric row 修正为 `Phase 33-rag-context-build-and-claim-verification P33-03 | 15min | 1 tasks | 5 files`，并把 Session Continuity 改回真实时间、`Completed 33-03-PLAN.md`、`None`。
+
+### 剩余问题
+
+无当前阻塞。后续 Phase 33 计划完成后仍需检查 SDK 是否继续返回 `no matching checkbox found`、写入 malformed metric row，或把 record-session flag 写入正文。
+
+### 下次继续排查入口
+
+- `.planning/ROADMAP.md`
+- `.planning/STATE.md`
+- `gsd-sdk query roadmap.update-plan-progress "33"`
+- `gsd-sdk query state.record-metric`
+- `gsd-sdk query state.record-session`
