@@ -1,11 +1,11 @@
 ---
 phase: "32"
 status: running
-current_step: secure
+current_step: validate
 plan_review_loop: 1
 quota_waits: 0
-updated_at: "2026-06-28T15:12:45Z"
-next_command: "$gsd-secure-phase 32"
+updated_at: "2026-06-28T15:22:41Z"
+next_command: "$gsd-validate-phase 32"
 ---
 
 # Phase 32 Autopilot Checkpoint
@@ -44,6 +44,8 @@ next_command: "$gsd-secure-phase 32"
 - Code review fix report committed: `25ffbd7 docs(32): add code review fix report`.
 - Post-fix deep re-review is clean and committed: `1e8e633 docs(32): update code review report clean`.
 - Verify-work self-check UAT completed with 5 passed, 0 issues: `a5e9eac test(32): complete UAT - 5 passed, 0 issues`.
+- Security auditor closed 15/15 threats; `32-SECURITY.md` committed with `threats_open: 0`: `142b26f docs(phase-32): add security threat verification`.
+- Local zsh SECURITY glob issue recorded and committed: `13d904b docs(validation): record phase 32 security glob issue`.
 
 ## Evidence
 
@@ -62,6 +64,7 @@ next_command: "$gsd-secure-phase 32"
 - Phase 32 implementation completed APF-11/APF-12 and advanced STATE/ROADMAP toward Phase 33 according to executor summary.
 - Code review fixes preserved Phase 33 deferrals and owner/admin-only authorization while adding adapter-source merchant-context coverage and canonical runtime graph identity entries.
 - UAT confirms target graph vocabulary, registry ownership, slot resolution semantics, trace/API merchant-context safety, and final static contract gates.
+- Security verification confirms all Phase 32 threat-model entries closed, no accepted risks, and no open security threats.
 
 ## Last Failure
 
