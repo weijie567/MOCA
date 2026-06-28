@@ -170,7 +170,7 @@ async def test_claim_verify_calls_knowledge_service_and_writes_only_claim_fields
     }
     assert len(service.calls) == 1
     call = service.calls[0]
-    assert [claim.claim_id for claim in call["material_claims"]] == [
+    assert [claim["claim_id"] for claim in call["material_claims"]] == [
         "claim-policy",
         "claim-business",
         "claim-action",

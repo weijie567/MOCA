@@ -6211,3 +6211,56 @@ SDK 输出：
 - `.planning/ROADMAP.md`
 - `.planning/STATE.md`
 - `gsd-sdk query roadmap.update-plan-progress 33`
+
+## 2026-06-29 03:53 CST - Plan 33-05 Task 1 claim_verify TDD RED 与测试断言修正
+
+### 问题现象
+
+Plan 33-05 Task 1 的 TDD RED 阶段，新增 `tests/agent/test_nodes/test_claim_verify.py` 后，focused pytest 失败；随后 GREEN 首次运行时，一个 node 测试断言也失败。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_claim_verify.py tests/knowledge/test_claim_verification_bundle.py -q --tb=short
+```
+
+### 关键证据或命令
+
+RED 输出核心失败：
+
+```text
+ModuleNotFoundError: No module named 'src.agent.nodes.claim_verify'
+```
+
+GREEN 首次运行输出核心失败：
+
+```text
+AttributeError: 'dict' object has no attribute 'claim_id'
+```
+
+### 当前判断 / 根因
+
+RED 失败是 TDD 预期结果：`claim_verify` runnable node 尚未实现。GREEN 首次失败来自测试断言过度绑定实现细节；真实 `PolicyKnowledgeService.verify_claims(...)` 接受 raw mapping 并在 service 内规范化 `MaterialClaimV1`，node 不需要预先把 state payload 转成 Pydantic 对象。
+
+### 已做处理
+
+已新增 `src/agent/nodes/claim_verify.py`，让 node 调用 `PolicyKnowledgeService.verify_claims(...)`，只写 `claim_verification_bundle`、`blocked_claims`、`safe_support_refs` 及兼容 verifier route/status 字段，并在 verifier 异常时 fail-closed 到 `claim_verify_error`。测试断言改为按 payload key 检查 `claim_id`。
+
+随后用有效入口重跑并通过：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_claim_verify.py tests/knowledge/test_claim_verification_bundle.py -q --tb=short
+uv run ruff check src/agent/nodes/claim_verify.py tests/agent/test_nodes/test_claim_verify.py
+```
+
+### 剩余问题
+
+无当前阻塞。Task 2 仍需把 `claim_verify` 注册进 graph/router。
+
+### 下次继续排查入口
+
+- `src/agent/nodes/claim_verify.py`
+- `tests/agent/test_nodes/test_claim_verify.py`
+- `src/agent/routing.py`
