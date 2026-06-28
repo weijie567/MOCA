@@ -4623,3 +4623,42 @@ find .planning/phases/30-businessfactservice-boundary -name '*-SECURITY.md' -typ
 
 - `.planning/phases/30-businessfactservice-boundary/`
 - `$HOME/.codex/get-shit-done/workflows/verify-work.md`
+
+## 2026-06-28 09:10 CST - Phase 30 secure-phase stale gate scan included nonexistent prior verification files
+
+### 问题现象
+
+Phase 30 security artifact 提交后，收尾检查用一条 `rg` 同时扫描 Phase 30 目录和 Phase 29 / 29.5 verification 文件，命令因 Phase 29 / 29.5 没有对应 `*-VERIFICATION.md` 文件返回退出码 2。
+
+### 如何检测 / 复现
+
+```bash
+rg -n "SECURITY.md|security_review_required|Security Gate|secure-phase|security review" .planning/phases/30-businessfactservice-boundary .planning/phases/29-tool-platform-boundary/29-VERIFICATION.md .planning/phases/29.5-merchant-scope-role-model-alignment/29.5-VERIFICATION.md
+```
+
+### 关键证据或命令
+
+```text
+rg: .planning/phases/29-tool-platform-boundary/29-VERIFICATION.md: No such file or directory (os error 2)
+rg: .planning/phases/29.5-merchant-scope-role-model-alignment/29.5-VERIFICATION.md: No such file or directory (os error 2)
+.planning/phases/30-businessfactservice-boundary/30-VERIFICATION.md:13:security_review_required: true
+.planning/phases/30-businessfactservice-boundary/30-VERIFICATION.md:133:No `30-SECURITY.md` artifact exists.
+```
+
+### 当前判断 / 根因
+
+这是收尾验证命令范围写得过宽导致的本地检查问题，不是 Phase 30 实现或 security artifact 失败。该命令同时暴露了 `30-VERIFICATION.md` 中 security gate 文本已经因新建 `30-SECURITY.md` 变成 stale。
+
+### 已做处理
+
+改为只读取当前 Phase 30 verification 片段，确认 stale gate 后更新 `30-VERIFICATION.md`：`security_review_required` 改为 `false`，Security Gate 改为引用 `30-SECURITY.md`，并记录 12/12 threats closed、0 open、auditor verdict `SECURED`。
+
+### 剩余问题
+
+无代码阻塞。Phase 29 / 29.5 没有 `*-VERIFICATION.md` 属于历史 artifact 差异，不影响 Phase 30 secure-phase 结果。
+
+### 下次继续排查入口
+
+- `.planning/phases/30-businessfactservice-boundary/30-SECURITY.md`
+- `.planning/phases/30-businessfactservice-boundary/30-VERIFICATION.md`
+- `find .planning/phases -maxdepth 2 -name '*-VERIFICATION.md' -type f`

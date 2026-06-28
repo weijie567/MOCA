@@ -10,7 +10,7 @@ automated_checks:
   code_review: clean
 uat_status: complete
 human_verification_required: false
-security_review_required: true
+security_review_required: false
 ---
 
 # Phase 30 Verification - BusinessFactService Boundary
@@ -130,12 +130,16 @@ No human-only verification is required for Phase 30; behaviors are covered by au
 
 ## Security Gate
 
-No `30-SECURITY.md` artifact exists. The security enforcement config key is not set; the verify-work workflow defaults missing `workflow.security_enforcement` to enabled. Phase 30 is verification-passed, but security review should run before advancing:
+Security review is complete:
 
-```bash
-$gsd-secure-phase 30
-```
+- `.planning/phases/30-businessfactservice-boundary/30-SECURITY.md`
+- Status: `verified`
+- Threats total: 12
+- Threats closed: 12
+- Threats open: 0
+- Accepted risks: none
+- Auditor verdict: `SECURED`
 
 ## Final Status
 
-PASSED. Phase 30 has no open verification or code-review findings. Security review remains the next gate before advancing/completing the phase.
+PASSED. Phase 30 has no open verification, code-review, UAT, or security findings.
