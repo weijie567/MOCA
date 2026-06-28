@@ -4582,3 +4582,44 @@ pytest -q tests/agent/rag_context/test_authority_boundaries.py tests/agent/test_
 - `.planning/phases/30-businessfactservice-boundary/30-REVIEW.md`
 - `.venv/bin/pytest`
 - shell PATH 中的 `pytest` 入口
+
+## 2026-06-28 08:32 CST - Phase 30 verify-work security artifact check hit zsh no-match glob
+
+### 问题现象
+
+Phase 30 自检时用 `ls .planning/phases/30-businessfactservice-boundary/*-SECURITY.md 2>/dev/null || true` 检查 security artifact，命令在 zsh 下因 glob 无匹配直接报 `no matches found`，没有进入 `ls`。
+
+### 如何检测 / 复现
+
+```bash
+ls .planning/phases/30-businessfactservice-boundary/*-SECURITY.md 2>/dev/null || true
+```
+
+### 关键证据或命令
+
+```text
+zsh:1: no matches found: .planning/phases/30-businessfactservice-boundary/*-SECURITY.md
+```
+
+### 当前判断 / 根因
+
+这是 zsh 默认 `nomatch` 行为导致的本地验证命令问题，不是 Phase 30 代码或 planning artifact 失败。未匹配的 glob 在 zsh 中会先被 shell 拦截，`2>/dev/null` 不能捕获。
+
+### 已做处理
+
+改用 `find` 检查同一目录：
+
+```bash
+find .planning/phases/30-businessfactservice-boundary -name '*-SECURITY.md' -type f -maxdepth 1
+```
+
+结果为空，确认 Phase 30 当前没有 `SECURITY.md` artifact。
+
+### 剩余问题
+
+无代码阻塞。后续在 zsh 下检查可选文件时避免裸 glob，优先使用 `find`、`rg --files` 或加引号/显式 nullglob 处理。
+
+### 下次继续排查入口
+
+- `.planning/phases/30-businessfactservice-boundary/`
+- `$HOME/.codex/get-shit-done/workflows/verify-work.md`
