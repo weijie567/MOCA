@@ -13,9 +13,14 @@ TENANT_ID = "11111111-1111-1111-1111-111111111111"
 
 
 def _load_claim_api():
-    from src.agent.rag_context.claims import MaterialClaim, MaterialClaimAuthorityClass
+    from src.agent.rag_context.claims import (
+        MaterialClaim,
+        MaterialClaimAuthorityClass,
+        normalize_material_claim_v1,
+    )
+    from src.knowledge.schemas import MaterialClaimV1
 
-    return MaterialClaim, MaterialClaimAuthorityClass
+    return MaterialClaim, MaterialClaimAuthorityClass, MaterialClaimV1, normalize_material_claim_v1
 
 
 def _evidence_ref() -> EvidenceRefV1:
@@ -65,7 +70,7 @@ def _base_claim_payload(authority_class: str) -> dict:
 
 def test_material_claim_allows_exact_required_authority_classes() -> None:
     """CLM-01: MaterialClaim supports exactly the three required authority classes."""
-    MaterialClaim, MaterialClaimAuthorityClass = _load_claim_api()
+    MaterialClaim, MaterialClaimAuthorityClass, _MaterialClaimV1, normalize_material_claim_v1 = _load_claim_api()
 
     authority_values = {item.value for item in MaterialClaimAuthorityClass}
 
@@ -79,10 +84,17 @@ def test_material_claim_allows_exact_required_authority_classes() -> None:
         assert claim.authority_class.value == authority_class
         assert claim.claim_id == f"claim-{authority_class}"
 
+    assert normalize_material_claim_v1(_base_claim_payload("policy_claim")).claim_type == "policy"
+    assert normalize_material_claim_v1(_base_claim_payload("business_fact_claim")).claim_type == "business_fact"
+    assert (
+        normalize_material_claim_v1(_base_claim_payload("action_recommendation_claim")).claim_type
+        == "action_recommendation"
+    )
+
 
 def test_material_claim_rejects_unknown_authority_classes_and_extra_fields() -> None:
     """CLM-01: strict validation rejects unknown classes and unowned fields."""
-    MaterialClaim, _MaterialClaimAuthorityClass = _load_claim_api()
+    MaterialClaim, _MaterialClaimAuthorityClass, MaterialClaimV1, _normalize_material_claim_v1 = _load_claim_api()
 
     with pytest.raises(ValidationError):
         MaterialClaim.model_validate(_base_claim_payload("memory_claim"))
@@ -92,10 +104,23 @@ def test_material_claim_rejects_unknown_authority_classes_and_extra_fields() -> 
     with pytest.raises(ValidationError):
         MaterialClaim.model_validate(payload)
 
+    with pytest.raises(ValidationError):
+        MaterialClaimV1.model_validate(
+            {
+                "claim_id": "claim-unsafe",
+                "claim_text": "Unsafe claim.",
+                "claim_type": "memory",
+                "cited_evidence_ids": [],
+                "business_fact_refs": [],
+                "risk_hints": [],
+                "generated_from_step": "recommendation_generation",
+            }
+        )
+
 
 def test_material_claim_preserves_stable_claim_id_and_typed_authority_refs() -> None:
     """CLM-01/CLM-05: claim IDs are stable and authority refs stay typed/separate."""
-    MaterialClaim, _MaterialClaimAuthorityClass = _load_claim_api()
+    MaterialClaim, _MaterialClaimAuthorityClass, _MaterialClaimV1, normalize_material_claim_v1 = _load_claim_api()
 
     policy_claim = MaterialClaim.model_validate(_base_claim_payload("policy_claim"))
     business_claim = MaterialClaim.model_validate(_base_claim_payload("business_fact_claim"))
@@ -109,3 +134,29 @@ def test_material_claim_preserves_stable_claim_id_and_typed_authority_refs() -> 
     assert action_claim.dependency_claim_ids == ["claim-policy", "claim-business"]
     assert action_claim.business_fact_refs[0].schema_version == "business_fact_ref.v1"
     assert "memory" not in action_claim.model_dump_json()
+
+
+def test_material_claim_v1_compatibility_mapping_uses_canonical_field_names() -> None:
+    """APF-14: legacy authority_class/source_node inputs normalize to target fields."""
+    _MaterialClaim, _MaterialClaimAuthorityClass, MaterialClaimV1, normalize_material_claim_v1 = _load_claim_api()
+
+    policy_claim = normalize_material_claim_v1(_base_claim_payload("policy_claim"))
+    action_recommendation_claim = normalize_material_claim_v1(_base_claim_payload("action_recommendation_claim"))
+    canonical = normalize_material_claim_v1(
+        MaterialClaimV1(
+            claim_id="claim-canonical",
+            claim_text="Canonical target claim.",
+            claim_type="business_fact",
+            cited_evidence_ids=[],
+            business_fact_refs=[_business_fact_ref()],
+            risk_hints=[],
+            generated_from_step="recommendation_generation",
+        )
+    )
+
+    assert policy_claim.claim_type == "policy"
+    assert policy_claim.generated_from_step == "generate_recommendation"
+    assert action_recommendation_claim.claim_type == "action_recommendation"
+    assert action_recommendation_claim.generated_from_step == "generate_recommendation"
+    assert canonical.claim_type == "business_fact"
+    assert canonical.business_fact_refs[0].resource_id == "ORD-1001"
