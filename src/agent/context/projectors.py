@@ -257,6 +257,22 @@ def project_case_memory_for_prompt(snippets: Sequence[Any] | None, *, max_chars:
     return _bounded("\n".join(lines), max_chars)
 
 
+def project_memory_context_for_prompt(
+    memory_context: Mapping[str, Any] | None, *, max_chars: int = _PROFILE_MEMORY_MAX_CHARS + _CASE_MEMORY_MAX_CHARS
+) -> str:
+    mapping = _mapping(memory_context)
+    long_term_items = mapping.get("long_term_items")
+    case_items = mapping.get("case_items")
+    lines: list[str] = []
+    long_term_text = project_profile_memory_for_prompt(_sequence(long_term_items))
+    if long_term_text:
+        _append_line(lines, "reviewed_long_term_memory", long_term_text)
+    case_text = project_case_memory_for_prompt(_sequence(case_items))
+    if case_text:
+        _append_line(lines, "reviewed_case_memory", case_text)
+    return _bounded("\n".join(lines), max_chars)
+
+
 def project_recent_message_for_prompt(message: Mapping[str, Any], *, max_chars: int = 500) -> str:
     role = _safe_scalar(message.get("role")) or "message"
     content = sanitize_prompt_context_text(message.get("content")) or ""

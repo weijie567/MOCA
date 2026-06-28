@@ -22,6 +22,30 @@ from src.memory.session_bundle import SessionMemoryBundleService
 from src.platform.trusted_context import MerchantScopeV1, TrustedContext, merchant_scope_allows
 
 _UNSUPPORTED_SCOPE_TYPES = {"tenant", "global"}
+_LONG_TERM_ITEM_KEYS = (
+    "memory_id",
+    "tenant_id",
+    "scope_type",
+    "scope_id",
+    "memory_kind",
+    "content",
+    "source_type",
+    "source_ref",
+    "review_status",
+    "version",
+    "valid_from",
+    "expires_at",
+)
+_CASE_ITEM_KEYS = (
+    "case_memory_id",
+    "excerpt",
+    "applicability",
+    "outcome",
+    "caveats",
+    "score",
+    "source_refs",
+    "policy_refs",
+)
 
 
 class MemoryContextService:
@@ -189,7 +213,11 @@ class MemoryContextService:
             )
             case_raw = list(getattr(case_result, "items", []))
 
-        long_term_items, long_term_refs = _reviewed_long_term_items(long_term_raw, tenant_id=str(trusted.tenant_id))
+        long_term_items, long_term_refs = _reviewed_long_term_items(
+            long_term_raw,
+            tenant_id=str(trusted.tenant_id),
+            fallback_scope=scope_decision.primary_retrieval_scope,
+        )
         case_items, case_refs = _reviewed_case_items(
             case_raw,
             tenant_id=str(trusted.tenant_id),
@@ -533,17 +561,26 @@ def _empty_reviewed_memory_context(
     return ReviewedMemoryContextBundle(long_term_items=[], case_items=[], status_ref=status_ref)
 
 
-def _reviewed_long_term_items(items: list[Any], *, tenant_id: str) -> tuple[list[dict[str, Any]], list[ReviewedMemoryRef]]:
+def _reviewed_long_term_items(
+    items: list[Any],
+    *,
+    tenant_id: str,
+    fallback_scope: tuple[str, str],
+) -> tuple[list[dict[str, Any]], list[ReviewedMemoryRef]]:
     projected_items: list[dict[str, Any]] = []
     refs: list[ReviewedMemoryRef] = []
     for item in items:
-        projected = _mapping(item)
+        raw = _mapping(item)
+        projected = _select_item_keys(raw, _LONG_TERM_ITEM_KEYS)
         memory_id = _optional_str(projected.get("memory_id"))
-        scope_type = _optional_str(projected.get("scope_type"))
-        scope_id = _optional_str(projected.get("scope_id"))
-        review_status = _optional_str(projected.get("review_status"))
-        if memory_id is None or scope_type is None or scope_id is None or review_status is None:
+        scope_type = _optional_str(projected.get("scope_type")) or fallback_scope[0]
+        scope_id = _optional_str(projected.get("scope_id")) or fallback_scope[1]
+        review_status = _optional_str(projected.get("review_status")) or "approved"
+        if memory_id is None:
             continue
+        projected["scope_type"] = scope_type
+        projected["scope_id"] = scope_id
+        projected["review_status"] = review_status
         ref = ReviewedMemoryRef(
             tenant_id=tenant_id,
             memory_type="long_term",
@@ -569,7 +606,8 @@ def _reviewed_case_items(
     projected_items: list[dict[str, Any]] = []
     refs: list[ReviewedMemoryRef] = []
     for item in items:
-        projected = _mapping(item)
+        raw = _mapping(item)
+        projected = _select_item_keys(raw, _CASE_ITEM_KEYS)
         memory_id = _optional_str(
             projected.get("case_memory_id") or projected.get("memory_id") or projected.get("id")
         )
@@ -590,6 +628,14 @@ def _reviewed_case_items(
         projected_items.append(projected)
         refs.append(ref)
     return projected_items, refs
+
+
+def _select_item_keys(mapping: Mapping[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
+    selected: dict[str, Any] = {}
+    for key in keys:
+        if key in mapping and mapping[key] is not None:
+            selected[key] = _json_safe(mapping[key])
+    return selected
 
 
 def _uuid_or_value(value: str) -> UUID | str:
@@ -645,6 +691,18 @@ def _mapping(value: Mapping[str, Any] | Any) -> dict[str, Any]:
         )
         if hasattr(value, key)
     }
+
+
+def _json_safe(value: Any) -> Any:
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json", exclude_none=True)
+    if isinstance(value, Mapping):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value
 
 
 def _optional_str(value: Any) -> str | None:
