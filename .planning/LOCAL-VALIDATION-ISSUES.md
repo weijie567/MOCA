@@ -4571,6 +4571,8 @@ pytest -q tests/agent/rag_context/test_authority_boundaries.py tests/agent/test_
 
 使用 `.venv/bin/pytest` 重新运行同一聚焦测试集合并通过；clean re-review 报告已记录验证结果。
 
+已把该复发升级为项目级硬规则写入 `AGENTS.md`：MOCA 测试禁止裸 `pytest` / 裸 `python -m pytest`，review、verification、clean re-review、GSD agent 和外部 AI 提示词里的测试命令都必须显式使用 `uv run pytest ...` 或 `.venv/bin/pytest ...`；裸 pytest 结果视为无效验证，必须用项目入口重跑。
+
 ### 剩余问题
 
 无代码阻塞。后续 MOCA 本地验证继续避免裸 `pytest`，优先使用 `uv run pytest` 或 `.venv/bin/pytest`。

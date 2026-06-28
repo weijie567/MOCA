@@ -13,6 +13,13 @@
 
 - 以后在 MOCA 本地调试、启动、验证、UI 手测、API 测试、RAG/agent/记忆/工具调用排查中，只要发现错误、异常、不符合预期的回答、环境坑或验证失败，就要在处理后追加到 `.planning/LOCAL-VALIDATION-ISSUES.md`。记录默认使用中文，应包含：问题现象、如何检测/复现、关键证据或命令、当前判断/根因、已做处理、剩余问题和下次继续排查入口。`AGENTS.md` 只保留这条记录规则，不写具体事故详情。
 
+## 本地验证命令环境硬规则
+
+- MOCA 测试禁止使用裸 `pytest` 或裸 `python -m pytest`。裸命令可能绕过项目虚拟环境并命中本机旧 Python 3.9，导致 `datetime.UTC` 等 Python 3.12+ 代码在 collection 阶段假失败。
+- 本仓库测试默认使用 `uv run pytest ...`；需要指定缓存时使用 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...`。如果必须直接调用虚拟环境，只能使用 `.venv/bin/pytest ...` 或 `.venv/bin/python -m pytest ...`，并先确认该 `.venv` 属于当前仓库。
+- 任何 review、verification、clean re-review、GSD agent、外部 AI 提示词里的测试命令都必须显式写项目入口。凡是由裸 `pytest` / 裸 `python -m pytest` 得到的结果，在 MOCA 中视为无效验证，必须标记为环境入口错误，并用 `uv run pytest ...` 或 `.venv/bin/pytest ...` 重跑后才能作为结论。
+- Ruff、临时 Python 脚本和其他开发工具也优先使用 `uv run ...` 或 `.venv/bin/...`，避免同类 PATH 污染。
+
 ## 双 AI 协作工作流（Codex ↔ Codex）
 
 MOCA 采用 Codex 与 Codex 的「双 AI 交叉评审」模式：**Codex 是 plan 的设计者和决策把关人，Codex 是独立第二意见、大改执行手，以及代码实现/审核的主力。** 每一道审核优先调用 GSD 原生工具，Codex 在其后做独立交叉验证。
