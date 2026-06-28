@@ -184,6 +184,48 @@ def test_agent_state_declares_rag_verifier_fields():
 
 
 @pytest.mark.asyncio
+async def test_receive_request_resets_phase33_rag_claim_package_fields(base_state):
+    state = {
+        **base_state,
+        "rag_context_status": "verified",
+        "verified_evidence_package": {"schema_version": "verified_evidence_package.v1", "package_id": "pkg-old"},
+        "citation_map": {"C1": ["policy#old"]},
+        "evidence_map": {"policy#old": {"evidence_id": "policy#old"}},
+        "material_claims": [{"claim_id": "claim-old"}],
+        "claim_verification_bundle": {"schema_version": "claim_verification_bundle.v1"},
+        "blocked_claims": ["claim-old"],
+        "safe_support_refs": ["policy#old"],
+    }
+
+    result = await receive_request(state)
+
+    assert result["rag_context_status"] is None
+    assert result["verified_evidence_package"] is None
+    assert result["citation_map"] == {}
+    assert result["evidence_map"] == {}
+    assert result["material_claims"] == []
+    assert result["claim_verification_bundle"] is None
+    assert result["blocked_claims"] == []
+    assert result["safe_support_refs"] == []
+
+
+def test_agent_state_declares_phase33_rag_claim_package_fields():
+    annotations = AgentState.__annotations__
+
+    for field in (
+        "rag_context_status",
+        "verified_evidence_package",
+        "citation_map",
+        "evidence_map",
+        "material_claims",
+        "claim_verification_bundle",
+        "blocked_claims",
+        "safe_support_refs",
+    ):
+        assert field in annotations
+
+
+@pytest.mark.asyncio
 async def test_receive_request_new_run_id_each_call(base_state):
     first = await receive_request(base_state)
     second = await receive_request(base_state)
