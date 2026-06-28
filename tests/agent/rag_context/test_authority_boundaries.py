@@ -352,6 +352,66 @@ async def test_contextual_only_memory_refs_and_status_refs_have_explicit_non_aut
 
 
 @pytest.mark.asyncio
+async def test_contextual_memory_citation_map_entry_cannot_support_policy_claim() -> None:
+    MaterialClaim, MaterialClaimVerifier = _load_authority_api()
+    contextual_ref = {
+        "schema_version": "reviewed_memory_ref.v1",
+        "authority_class": "contextual_only",
+        "tenant_id": TENANT_ID,
+        "memory_type": "long_term",
+        "scope_type": "merchant",
+        "scope_id": "merchant-authority-boundary",
+        "memory_id": "mem-ref-1",
+        "review_status": "approved",
+        "prompt_safe": True,
+    }
+    context = {
+        "trusted_context": {
+            "tenant_id": TENANT_ID,
+            "run_id": "run-authority-boundary",
+            "thread_id": "thread-authority-boundary",
+        },
+        "citation_map": {
+            "C1": {
+                "citation_id": "C1",
+                "evidence_ref": contextual_ref,
+                "source_evidence_ids": ["mem-ref-1"],
+                "snippet": "Refund policy allows compensation.",
+            }
+        },
+        "verifier_context": {
+            "business_fact_refs": [],
+            "evidence_snippets": [
+                {
+                    "citation_id": "C1",
+                    "evidence_id": "mem-ref-1",
+                    "text": "Refund policy allows compensation.",
+                }
+            ],
+            "safe_refs": ["mem-ref-1"],
+        },
+        "contextual_sources": {},
+    }
+    claim = MaterialClaim.model_validate(
+        _claim(
+            "policy_claim",
+            claim_id="claim-contextual-citation-not-policy-evidence",
+            claim_text="Refund policy allows compensation.",
+            cited_evidence_ids=["mem-ref-1"],
+        )
+    )
+
+    result = await MaterialClaimVerifier().verify_claim(claim, context_bundle=context)
+
+    assert _value(result.outcome) != "supported"
+    assert result.safe_support_refs == []
+    assert {
+        "policy_evidence_required",
+        "memory_contextual_ref_not_policy_authority",
+    } <= set(result.reason_codes)
+
+
+@pytest.mark.asyncio
 async def test_action_recommendation_rejects_memory_or_model_supported_dependencies() -> None:
     """CLM-04/CLM-05: action recommendations need supported policy and business dependencies."""
     MaterialClaim, MaterialClaimVerifier = _load_authority_api()

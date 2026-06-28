@@ -570,10 +570,35 @@ def _citation_entries(context: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     return []
 
 
+def _entry_is_contextual_memory(entry: Mapping[str, Any]) -> bool:
+    evidence_ref = entry.get("evidence_ref")
+    return isinstance(evidence_ref, Mapping) and _is_contextual_memory_ref_or_status(evidence_ref)
+
+
+def _contextual_memory_authority_ids(context: Mapping[str, Any]) -> list[str]:
+    ref_ids = set(_contextual_memory_ref_ids(context))
+    for entry in _citation_entries(context):
+        if not _entry_is_contextual_memory(entry):
+            continue
+        ref_ids.update(str(value) for value in entry.get("source_evidence_ids") or [] if str(value))
+        citation_id = str(entry.get("citation_id") or "")
+        if citation_id:
+            ref_ids.add(citation_id)
+        evidence_ref = entry.get("evidence_ref")
+        if isinstance(evidence_ref, Mapping):
+            for key in (*_CONTEXTUAL_MEMORY_REF_ID_KEYS, "evidence_id", "citation_id"):
+                raw = evidence_ref.get(key)
+                if raw:
+                    ref_ids.add(str(raw))
+    return _unique(ref_ids)
+
+
 def _active_source_evidence_ids(context: Mapping[str, Any]) -> list[str]:
     evidence_ids: list[str] = []
-    contextual_memory_ref_ids = set(_contextual_memory_ref_ids(context))
+    contextual_memory_ref_ids = set(_contextual_memory_authority_ids(context))
     for entry in _citation_entries(context):
+        if _entry_is_contextual_memory(entry):
+            continue
         evidence_ids.extend(str(value) for value in entry.get("source_evidence_ids") or [] if str(value))
         evidence_ref = entry.get("evidence_ref")
         if isinstance(evidence_ref, Mapping) and evidence_ref.get("evidence_id"):
@@ -604,22 +629,31 @@ def _cited_evidence_refs(claim: MaterialClaim, context: Mapping[str, Any]) -> li
 
 def _claim_evidence_snippets(claim: MaterialClaim, context: Mapping[str, Any]) -> list[dict[str, Any]]:
     cited = set(claim.cited_evidence_ids)
+    contextual_memory_ref_ids = set(_contextual_memory_authority_ids(context))
     snippets: list[dict[str, Any]] = []
     raw_snippets = _verifier_context(context).get("evidence_snippets")
     if isinstance(raw_snippets, list):
         for snippet in raw_snippets:
             if not isinstance(snippet, Mapping):
                 continue
-            if str(snippet.get("evidence_id") or "") in cited or str(snippet.get("citation_id") or "") in cited:
+            snippet_ids = {str(snippet.get("evidence_id") or ""), str(snippet.get("citation_id") or "")}
+            if snippet_ids & contextual_memory_ref_ids:
+                continue
+            if snippet_ids & cited:
                 snippets.append(dict(snippet))
     if snippets:
         return snippets
     for entry in _citation_entries(context):
-        if cited & {str(value) for value in entry.get("source_evidence_ids") or []}:
+        if _entry_is_contextual_memory(entry):
+            continue
+        source_ids = {str(value) for value in entry.get("source_evidence_ids") or []}
+        safe_source_ids = source_ids - contextual_memory_ref_ids
+        matching_ids = cited & safe_source_ids
+        if matching_ids:
             snippets.append(
                 {
                     "citation_id": str(entry.get("citation_id") or ""),
-                    "evidence_id": next(iter(cited), ""),
+                    "evidence_id": next(iter(matching_ids), ""),
                     "text": str(entry.get("snippet") or ""),
                 }
             )
@@ -699,10 +733,11 @@ def _contextual_source_reason_codes(
     context: Mapping[str, Any],
 ) -> list[str]:
     contextual = context.get("contextual_sources")
-    if not isinstance(contextual, Mapping):
-        return []
+    contextual = contextual if isinstance(contextual, Mapping) else {}
     reason_codes: list[str] = []
-    has_contextual_memory_ref = _has_contextual_memory_ref_or_status(contextual)
+    has_contextual_memory_ref = _has_contextual_memory_ref_or_status(contextual) or any(
+        _entry_is_contextual_memory(entry) for entry in _citation_entries(context)
+    )
     has_memory = bool(
         contextual.get("session_memory")
         or contextual.get("case_memory")
