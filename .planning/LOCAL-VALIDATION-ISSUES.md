@@ -5283,3 +5283,45 @@ bash -lc 'set +e; uv run pytest tests/agent/test_reviewed_memory_context_retriev
 
 - `tests/memory/test_reviewed_memory_context_boundary.py::_long_term_row`
 - 31-02 Task 1 RED pytest 命令
+
+## 2026-06-28 14:19 CST - 31-03 并行运行 DB-backed pytest 导致测试库 schema setup 冲突
+
+### 问题现象
+
+31-03 计划级验证时，错误地通过并行工具同时启动了两个包含 DB-backed fixture 的 `uv run pytest` 命令。两个 pytest 进程共享 `moca_test` 测试库并同时执行 metadata drop/create，导致一个命令出现 `pg_type_typname_nsp_index` 重复键与 `relation "tenants" does not exist`，另一个命令出现 PostgreSQL deadlock。
+
+### 如何检测 / 复现
+
+并行启动以下两个命令即可复现该类问题：
+
+```bash
+uv run pytest tests/memory/test_context_refs.py tests/agent/test_memory_evidence_boundary.py -q
+uv run pytest tests/memory/test_context_refs.py tests/memory/test_session_memory_bundle.py -q
+```
+
+### 关键证据或命令
+
+失败输出包含：
+
+```text
+asyncpg.exceptions.UniqueViolationError: duplicate key value violates unique constraint "pg_type_typname_nsp_index"
+asyncpg.exceptions.UndefinedTableError: relation "tenants" does not exist
+asyncpg.exceptions.DeadlockDetectedError: deadlock detected
+```
+
+### 当前判断 / 根因
+
+这是本地验证入口错误，不是 31-03 代码行为失败。Phase 31 的 `31-VALIDATION.md` 已明确 DB-backed pytest groups 必须 serial，因为当前共享 `moca_test` fixture 会 drop/recreate metadata；本次并行执行违反了该规则。
+
+### 已做处理
+
+停止使用并行 pytest 验证，改为串行重跑同一组 `uv run pytest` 命令，并以串行结果作为有效结论。
+
+### 剩余问题
+
+无代码问题待修。后续 Phase 31 验证命令不得并行启动 DB-backed pytest。
+
+### 下次继续排查入口
+
+- `.planning/phases/31-memory-platform-boundary/31-VALIDATION.md`
+- `tests/conftest.py::test_engine`
