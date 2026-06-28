@@ -6266,6 +6266,109 @@ uv run ruff check src/agent/nodes/final_response.py src/agent/working_state.py t
 - `tests/agent/test_phase22_final_response.py`
 - `tests/agent/test_working_state.py`
 
+## 2026-06-29 04:33 CST - Plan 33-07 metadata SDK ROADMAP and metric format issues
+
+### 问题现象
+
+Plan 33-07 metadata 更新阶段出现三个 GSD SDK 元数据问题：
+
+1. `gsd-sdk query roadmap.update-plan-progress 33` 继续返回 `no matching checkbox found`，未自动更新 Phase 33 ROADMAP checkbox/count。
+2. `gsd-sdk query state.record-metric --phase ... --plan ...` 返回成功，但向 `.planning/STATE.md` 写入了格式错误的 metrics 行。
+3. `gsd-sdk query state.record-session --stopped-at ... --resume-file ...` 返回成功，但把 flag 名写入了 session footer 值。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+gsd-sdk query roadmap.update-plan-progress 33
+gsd-sdk query state.record-metric --phase 33-rag-context-build-and-claim-verification --plan 33-07 --duration 8min --tasks 1 --files 5
+gsd-sdk query state.record-session --stopped-at "Completed 33-07-PLAN.md" --resume-file "None"
+rg -n "33-07|no matching checkbox|--phase|--stopped-at|--resume-file" .planning/ROADMAP.md .planning/STATE.md
+```
+
+### 关键证据或命令
+
+ROADMAP SDK 输出：
+
+```json
+{
+  "updated": false,
+  "phase": "33",
+  "reason": "no matching checkbox found"
+}
+```
+
+STATE 中曾出现错误行：
+
+```text
+| Phase --phase P33-rag-context-build-and-claim-verification | --plan | 33-07 tasks | --duration files |
+Last session: --stopped-at
+Resume file: --resume-file
+```
+
+### 当前判断 / 根因
+
+ROADMAP 问题是 Phase 33 已知 GSD SDK checkbox 格式不匹配延续；metric/session 问题说明当前 `state.record-metric` 与 `state.record-session` handler 在本安装版本中按 positional 参数解析，flag 形式会被当成普通值写入表格或 session 字段。
+
+### 已做处理
+
+已手动更新 `.planning/ROADMAP.md`：Phase 33 `Plans` 改为 `7/9 plans complete`，并勾选 `33-07-PLAN.md`。已手动修复 `.planning/STATE.md`：Phase 33 进度行改为 `7/9`，Latest execution metric 改为 P33-07，并把 malformed metric row 替换成正确的 `Phase 33-rag-context-build-and-claim-verification P33-07 | 8min | 1 tasks | 5 files`；session footer 修复为 `Last session: 2026-06-28T20:33:26.934Z`、`Stopped at: Completed 33-07-PLAN.md`、`Resume file: None`。
+
+### 剩余问题
+
+无当前阻塞。后续 Phase 33 计划完成时，`roadmap.update-plan-progress` 仍需人工核对；`state.record-metric` / `state.record-session` 应使用 positional 形式或提交前检查 STATE metrics/session 字段。
+
+### 下次继续排查入口
+
+- `.planning/ROADMAP.md`
+- `.planning/STATE.md`
+- `gsd-sdk query roadmap.update-plan-progress 33`
+- `gsd-sdk query state.record-metric`
+- `gsd-sdk query state.record-session`
+
+## 2026-06-29 04:34 CST - Plan 33-07 metadata grep pattern syntax error
+
+### 问题现象
+
+提交前 sanity check 运行 `rg -n "--phase|--plan|--duration|--stopped-at|--resume-file" ...` 时，`rg` 把以 `--phase` 开头的 pattern 解析为命令行 flag，返回 `unrecognized flag`。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+rg -n "--phase|--plan|--duration|--stopped-at|--resume-file" .planning/STATE.md .planning/ROADMAP.md .planning/LOCAL-VALIDATION-ISSUES.md
+```
+
+### 关键证据或命令
+
+```text
+rg: unrecognized flag --phase|--plan|--duration|--stopped-at|--resume-file
+```
+
+### 当前判断 / 根因
+
+这是命令写法问题：当 ripgrep pattern 以 `-` 开头时，需要使用 `--` 结束 option parsing。
+
+### 已做处理
+
+已改用：
+
+```bash
+rg -n -- "--phase|--plan|--duration|--stopped-at|--resume-file" .planning/STATE.md .planning/ROADMAP.md .planning/LOCAL-VALIDATION-ISSUES.md
+```
+
+该命令成功运行；命中只出现在 `.planning/LOCAL-VALIDATION-ISSUES.md` 的历史/当前问题记录中，未在 STATE/ROADMAP 当前有效字段中发现残留 malformed flag token。
+
+### 剩余问题
+
+无。
+
+### 下次继续排查入口
+
+- 提交前 metadata sanity check 命令
+
 ## 2026-06-29 03:53 CST - Plan 33-05 Task 1 claim_verify TDD RED 与测试断言修正
 
 ### 问题现象
