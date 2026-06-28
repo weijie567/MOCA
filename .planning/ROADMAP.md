@@ -324,12 +324,12 @@ Plans:
 
 ### Phase 32: Intent Graph Migration
 
-**Status:** In Progress
+**Status:** Complete
 **Milestone:** v1.9 Agent Platform Foundation
 **Goal:** Migrate the graph toward target canonical safety, session context, contextual intent, slot resolution, and memory context nodes while preserving legacy compatibility.
 **Requirements**: APF-11, APF-12
 **Depends on:** Phase 31
-**Plans:** 2/5 plans complete
+**Plans:** 5/5 plans complete
 
 **Success Criteria**:
 
@@ -343,7 +343,7 @@ Plans:
 - [x] 32-02-PLAN.md — Intent policy registry consumption
 - [x] 32-03-PLAN.md — Slot policy gate and target router projection
 - [x] 32-04-PLAN.md — Trace/eval/API and target merchant-context evidence
-- [ ] 32-05-PLAN.md — Final focused verification and no Phase 33 scope creep
+- [x] 32-05-PLAN.md — Final focused verification and no Phase 33 scope creep
 
 ### Phase 33: RAG Context Build and Claim Verification
 

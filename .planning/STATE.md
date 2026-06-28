@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
 status: executing
-stopped_at: Completed 32-04-PLAN.md
-last_updated: "2026-06-28T14:27:37.736Z"
-last_activity: 2026-06-28 -- Phase 31 verified complete; ready to plan Phase 32
+stopped_at: Completed 32-05-PLAN.md
+last_updated: "2026-06-28T14:42:45.927Z"
+last_activity: 2026-06-28 -- Phase 32 completed; ready to plan Phase 33
 progress:
   total_phases: 12
-  completed_phases: 7
+  completed_phases: 8
   total_plans: 29
-  completed_plans: 28
-  percent: 97
+  completed_plans: 29
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -21,17 +21,17 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-28)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 32 — Intent Graph Migration
+**Current focus:** Phase 33 — RAG Context Build and Claim Verification
 
 ## Current Position
 
-Phase: 32
-Next roadmap item: Phase 32 — Intent Graph Migration
-Plan: 32-05 next
-Status: Executing
-Last activity: 2026-06-28 -- Phase 31 verified complete; ready to plan Phase 32
+Phase: 33
+Next roadmap item: Phase 33 — RAG Context Build and Claim Verification
+Plan: not planned
+Status: Ready to plan
+Last activity: 2026-06-28 -- Phase 32 completed; ready to plan Phase 33
 
-Progress: [██████████] 97%
+Progress: [██████████] 100%
 
 Planning files:
 
@@ -85,6 +85,7 @@ Latest execution metric: Phase 31 P06 — 22min, 3 tasks, 9 source/test files pl
 | Phase 32-intent-graph-migration P32-02 | 8min | 2 tasks | 6 files |
 | Phase 32-intent-graph-migration P32-03 | 10min | 2 tasks | 6 files |
 | Phase 32-intent-graph-migration P32-04 | 33min | 3 tasks | 13 files |
+| Phase 32-intent-graph-migration P32-05 | 15min | 3 tasks | 3 files |
 
 ## Quick Tasks Completed
 
@@ -129,6 +130,8 @@ Latest execution metric: Phase 31 P06 — 22min, 3 tasks, 9 source/test files pl
 - Phase 32 Plan 03 keeps slot_resolution_gate as additive extract_slots trace metadata rather than a physical graph node.
 - Phase 32 Plan 04 treats target_merchant_context as sanitized evidence/status metadata only and not an AgentRun, trace, or replay authorization input.
 - Phase 32 Plan 04 keeps target graph projection additive and leaves persisted AgentStep.node_name as the legacy implementation/debug value.
+- Phase 32 Plan 05 keeps rag_context_build and claim_verify as deferred_non_runnable target names only; APF-13/APF-14 runnable behavior remains Phase 33-owned.
+- Phase 32 Plan 05 machine-checks 32-MVP-TARGET-MAPPING.md against src.agent.graph_vocabulary to prevent target mapping drift.
 
 ### Roadmap Evolution
 
@@ -170,10 +173,10 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-28T14:27:37.472Z
-Stopped at: Completed 32-04-PLAN.md
+Last session: 2026-06-28T14:42:45.665Z
+Stopped at: Completed 32-05-PLAN.md
 Resume file: None
-Next: Phase 32 — Intent Graph Migration; old phase directory archive remains a separate cleanup todo.
+Next: Phase 33 — RAG Context Build and Claim Verification; old phase directory archive remains a separate cleanup todo.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
 
@@ -201,6 +204,8 @@ Next: Phase 32 — Intent Graph Migration; old phase directory archive remains a
 
 **Completed Phase:** 31 (Memory Platform Boundary) — 6/6 plans complete; verification passed; focused suite `124 passed`; prior-phase regression `655 passed`; code review clean after fixes — 2026-06-28
 
-**Next Roadmap Item:** Phase 32 — Intent Graph Migration
+**Completed Phase:** 32 (Intent Graph Migration) — 5/5 plans complete; verification passed; focused suite `267 passed`; static contract guards passed — 2026-06-28
+
+**Next Roadmap Item:** Phase 33 — RAG Context Build and Claim Verification
 
 **Planned Phase:** 31 (Memory Platform Boundary) — 6 plans — 2026-06-28T04:09:47.767Z
