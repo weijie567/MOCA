@@ -89,6 +89,7 @@ class AgentState(TypedDict, total=False):
     case_memory: list[dict[str, Any]] | None
     claim_dependency_map: list[dict[str, Any]] | None
     rag_context_bundle: dict[str, Any] | None
+    rag_verification: dict[str, Any] | None
     verifier_status: str | None
     verification_route: str | None
     verifier_reason_codes: list[str] | None

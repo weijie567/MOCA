@@ -80,6 +80,33 @@ async def test_receive_request_clears_phase14_action_bindings(base_state):
 
 
 @pytest.mark.asyncio
+async def test_receive_request_resets_rag_verifier_fields(base_state):
+    state = {
+        **base_state,
+        "rag_context_bundle": {"schema_version": "rag_context_bundle_state_safe.v1"},
+        "rag_verification": {"overall_outcome": "supported", "route": {"route": "allow"}},
+        "verifier_status": "supported",
+        "verification_route": "allow",
+        "verifier_reason_codes": ["old_reason"],
+        "verifier_safe_citation_refs": ["policy#old"],
+        "verifier_metrics": {"claim_count": 1},
+    }
+
+    result = await receive_request(state)
+
+    for field in (
+        "rag_context_bundle",
+        "rag_verification",
+        "verifier_status",
+        "verification_route",
+        "verifier_reason_codes",
+        "verifier_safe_citation_refs",
+        "verifier_metrics",
+    ):
+        assert result[field] is None
+
+
+@pytest.mark.asyncio
 async def test_receive_request_resets_session_context_target_fields(base_state):
     state = {
         **base_state,
@@ -129,6 +156,21 @@ def test_agent_state_declares_session_context_target_fields():
         "memory_context_bundle",
         "reviewed_memory_context_retrieve_status",
         "memory_write_decision",
+    ):
+        assert field in annotations
+
+
+def test_agent_state_declares_rag_verifier_fields():
+    annotations = AgentState.__annotations__
+
+    for field in (
+        "rag_context_bundle",
+        "rag_verification",
+        "verifier_status",
+        "verification_route",
+        "verifier_reason_codes",
+        "verifier_safe_citation_refs",
+        "verifier_metrics",
     ):
         assert field in annotations
 
