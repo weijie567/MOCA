@@ -54,7 +54,7 @@ Planning files:
 
 ## Performance Metrics
 
-**v1.9 current planned scope:** 11 phases, 18 APF requirements, 28 planned phase plans.
+**v1.9 current planned scope:** 11 phases, 18 APF requirements, 32 planned phase plans.
 
 | Phase | Plans | Status |
 |-------|-------|--------|
@@ -65,13 +65,13 @@ Planning files:
 | 29.5. Merchant Scope / Role Model Alignment | 6/6 complete | Complete |
 | 30. BusinessFactService Boundary | 3/3 complete | Complete |
 | 31. Memory Platform Boundary | 6/6 | Complete |
-| 32. Intent Graph Migration | 2/5 | In Progress |
+| 32. Intent Graph Migration | 5/5 | Complete |
 | 33. RAG Context Build and Claim Verification | 0/1 | Pending |
 | 34. Approval and ActionDraft Boundary Hardening | 0/1 | Pending |
 | 35. Replay and Eval Hardening | 0/1 | Pending |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
-Latest execution metric: Phase 31 P06 — 22min, 3 tasks, 9 source/test files plus summary; focused Phase 31 suite passed.
+Latest execution metric: Phase 32 P05 — 15min, 3 tasks, 3 files; focused Phase 32 suite passed.
 | Phase 29.5 P01 | 35min | 2 tasks | 5 files |
 | Phase 29.5 P02 | 5min | 2 tasks | 5 files |
 | Phase 29.5 P03 | 34min | 2 tasks | 13 files |
