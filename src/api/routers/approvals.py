@@ -5,12 +5,18 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Security
+from langgraph.errors import GraphInterrupt
 from langgraph.types import Command
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.nodes.action_draft import action_draft
 from src.agent.trace import append_agent_steps, update_agent_run_status
+from src.api.routers.agent_runs import (
+    ApprovalInterruptValidationError,
+    _create_approval_wait_payload_from_interrupt,
+    _extract_interrupt_data,
+)
 from src.api.schemas.approvals import ApprovalInfoRequest, ApprovalListResponse, ApprovalResponse, DecideRequest
 from src.api.schemas.common import ApiResponse
 from src.approvals.events import emit_approval_resumed
@@ -278,8 +284,28 @@ async def _resume_graph_after_decision(
     graph = request.app.state.agent_graph
     config = _resume_graph_config(request=request, session=session, result=result, actor_user=actor_user)
     t0 = time.perf_counter()
-    final_state = await graph.ainvoke(Command(resume=result.resume_payload), config)
+    try:
+        final_state = await graph.ainvoke(Command(resume=result.resume_payload), config)
+    except GraphInterrupt as exc:
+        resume_latency_ms = round((time.perf_counter() - t0) * 1000)
+        await _handle_resume_interrupt(
+            exc,
+            request=request,
+            session=session,
+            result=result,
+            resume_latency_ms=resume_latency_ms,
+        )
+        return
     resume_latency_ms = round((time.perf_counter() - t0) * 1000)
+    if isinstance(final_state, dict) and final_state.get("__interrupt__"):
+        await _handle_resume_interrupt(
+            final_state,
+            request=request,
+            session=session,
+            result=result,
+            resume_latency_ms=resume_latency_ms,
+        )
+        return
     final_state = await _reconcile_approved_action_draft(
         session=session,
         result=result,
@@ -315,6 +341,64 @@ async def _resume_graph_after_decision(
         await append_agent_steps(
             session,
             run_id=run_id,
+            trace_steps=trace_steps,
+            start_index=pre_interrupt_count,
+        )
+
+
+async def _handle_resume_interrupt(
+    exc_or_data: object,
+    *,
+    request: Request,
+    session: AsyncSession,
+    result: ApprovalDecisionResult,
+    resume_latency_ms: int,
+) -> None:
+    interrupt_data = _extract_interrupt_data(exc_or_data)
+    original_approval = await session.get(ApprovalRequest, result.approval_id)
+    if original_approval is None:
+        raise RuntimeError("original approval missing for resume interrupt")
+    requester = await session.get(User, original_approval.requested_by)
+    if requester is None:
+        raise RuntimeError("approval requester missing for resume interrupt")
+    try:
+        await _create_approval_wait_payload_from_interrupt(
+            session=session,
+            user=requester,
+            run_id=result.run_id,
+            thread_id=original_approval.thread_id,
+            interrupt_data=interrupt_data,
+        )
+    except ApprovalInterruptValidationError as exc:
+        raise RuntimeError(f"approval resume interrupt missing fields: {exc.missing_fields}") from exc
+
+    run = await session.get(AgentRun, result.run_id)
+    total_latency_ms = (run.total_latency_ms if run and run.total_latency_ms else 0) + resume_latency_ms
+    await update_agent_run_status(
+        session,
+        run_id=str(result.run_id),
+        final_status="interrupted",
+        final_response=None,
+        completed_at=datetime.now(UTC),
+        total_latency_ms=total_latency_ms,
+        trace_id=getattr(request.state, "trace_id", None),
+        reason_code="approval_resume_interrupted",
+        emit_if_unchanged=True,
+    )
+
+    if not isinstance(exc_or_data, dict):
+        return
+    trace_steps = exc_or_data.get("trace_steps") or []
+    if not trace_steps:
+        return
+    pre_interrupt_count = next(
+        (idx + 1 for idx, step in enumerate(trace_steps) if step.get("node") == "approval_gate"),
+        len(trace_steps),
+    )
+    if pre_interrupt_count < len(trace_steps):
+        await append_agent_steps(
+            session,
+            run_id=str(result.run_id),
             trace_steps=trace_steps,
             start_index=pre_interrupt_count,
         )

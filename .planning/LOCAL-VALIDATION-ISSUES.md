@@ -7376,3 +7376,43 @@ MOCA 当前 ROADMAP 同时包含 v1.9 Phase 35 和 backlog Phase 999.1，GSD SDK
 - `.planning/REQUIREMENTS.md`
 - `gsd-sdk query roadmap.update-plan-progress 34 34-06 complete`
 - `gsd-sdk query phase.complete 34`
+
+## 2026-06-29 15:49 CST - Phase 34 WR-03 edit rebind test initially failed on non-millisecond snapshot timestamp
+
+### 问题现象
+
+在修复 Phase 34 WR-03 时新增的 `test_decide_edit_rebinds_replacement_approval_from_resume_interrupt` 首次运行失败，接口返回 `APPROVAL_RESUME_FAILED`，没有创建 rerisk 后的 replacement approval row。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py::test_decide_edit_rebinds_replacement_approval_from_resume_interrupt
+```
+
+### 关键证据或命令
+
+临时打开 resume 异常输出后，失败根因显示为：
+
+```text
+RESUME_ERROR: ValueError('snapshot timestamp must use fixed millisecond precision')
+```
+
+### 当前判断 / 根因
+
+测试用的 `ReinterruptResumeGraph` fake rerisk path 直接使用 `datetime.now(UTC)` 创建 `ActionSafetySnapshot`，但生产 snapshot contract 要求 `created_at` 固定到毫秒精度；因此 fake graph 在进入 approval interrupt bridge 前失败，导致 API 把已保存的 edit decision 标记为 resume failed。
+
+### 已做处理
+
+已将测试 fake graph 的 `created_at` 调整为毫秒精度：`created_at.replace(microsecond=(created_at.microsecond // 1000) * 1000)`，并移除临时诊断输出。随后使用项目入口重跑 WR-03 focused tests，结果为 `4 passed, 1 warning`。
+
+### 剩余问题
+
+测试仍会输出来自 LangGraph 依赖的 `LangChainPendingDeprecationWarning`，当前不影响验证结论。
+
+### 下次继续排查入口
+
+- `tests/test_approval_api.py::test_decide_edit_rebinds_replacement_approval_from_resume_interrupt`
+- `src/api/routers/approvals.py::_handle_resume_interrupt`
+- `src/approvals/snapshot_service.py::persist_action_safety_snapshot`

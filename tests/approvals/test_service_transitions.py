@@ -482,6 +482,12 @@ async def test_edit_decision_reroutes_to_risk_without_approved_resume_authority(
     assert result.resume_payload["resume_route"] == "assess_risk_and_approval"
     assert result.resume_payload["new_action_payload_hash"]
     assert result.resume_payload["new_action_payload_hash"] != result.action_payload_hash
+    assert result.superseded_by_request_id is None
+    assert request.superseded_by_request_id is None
+    approval_count = await session.scalar(
+        select(func.count()).select_from(ApprovalRequest).where(ApprovalRequest.run_id == request.run_id)
+    )
+    assert approval_count == 1
 
 
 @pytest.mark.asyncio

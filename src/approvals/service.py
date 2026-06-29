@@ -501,27 +501,6 @@ class ApprovalService:
         await self.repository.increment_assignment_version(assignment, status="skipped")
         await self.repository.increment_level_version(level, status="skipped")
         await self.repository.increment_request_version(request, status="superseded")
-        new_request, _new_level, _new_assignment, _event = await self.repository.create_request_with_single_level(
-            tenant_id=request.tenant_id,
-            run_id=request.run_id,
-            thread_id=request.thread_id,
-            requested_by=request.requested_by,
-            proposed_action=proposed_action,
-            approval_policy_id=request.approval_policy_id or "manual-review",
-            policy_version=request.policy_version or "policy.v1",
-            risk_level=request.risk_level,
-            risk_rule_ref=request.risk_rule_ref,
-            action_payload_hash=snapshot.action_payload_hash,
-            safety_snapshot_ref=snapshot.safety_snapshot_ref,
-            safety_snapshot_hash=snapshot.safety_snapshot_hash,
-            expires_at=request.expires_at,
-            required_role=level.required_role,
-            assigned_role=assignment.assigned_role,
-            level_mode=level.mode,
-            sla_due_at=level.sla_due_at or request.expires_at,
-            risk_reason=request.risk_reason,
-        )
-        request.superseded_by_request_id = new_request.id
         await self.session.flush()
         event = await emit_approval_decided(
             self.session,
@@ -532,28 +511,19 @@ class ApprovalService:
             actor_id=command.actor_id,
             decision_type=command.decision_type,
             old_revision_ref=old_revision_ref,
-            new_revision_ref=approval_revision_ref(new_request),
+            new_revision_ref=approval_revision_ref(request),
             metadata={
                 "resume_route": "assess_risk_and_approval",
-                "superseded_by_request_id": str(new_request.id),
+                "pending_rebind": True,
             },
             resource_refs={
                 "old_action_payload_hash": request.action_payload_hash,
                 "old_safety_snapshot_ref": request.safety_snapshot_ref,
                 "old_safety_snapshot_hash": request.safety_snapshot_hash,
-                "new_action_payload_hash": new_request.action_payload_hash,
-                "new_safety_snapshot_ref": new_request.safety_snapshot_ref,
-                "new_safety_snapshot_hash": new_request.safety_snapshot_hash,
+                "new_action_payload_hash": snapshot.action_payload_hash,
+                "new_safety_snapshot_ref": snapshot.safety_snapshot_ref,
+                "new_safety_snapshot_hash": snapshot.safety_snapshot_hash,
             },
-        )
-        await emit_approval_requested(
-            self.session,
-            request=new_request,
-            level=_new_level,
-            assignment=_new_assignment,
-            actor_id=request.requested_by,
-            existing_event=_event,
-            metadata={"superseded_from_request_id": str(request.id)},
         )
         return self._result(
             request=request,
@@ -564,8 +534,7 @@ class ApprovalService:
             event_id=event.id,
             decision_type=command.decision_type,
             reason=command.reason,
-            superseded_by_request_id=new_request.id,
-            new_action_payload_hash=new_request.action_payload_hash,
+            new_action_payload_hash=snapshot.action_payload_hash,
             edited_action=command.edited_action,
             resume_route="assess_risk_and_approval",
         )
@@ -686,37 +655,7 @@ class ApprovalService:
         await self.repository.increment_assignment_version(assignment, status="skipped")
         await self.repository.increment_level_version(level, status="skipped")
         await self.repository.increment_request_version(request, status="superseded")
-        new_request, new_level, new_assignment, _event = await self.repository.create_request_with_single_level(
-            tenant_id=request.tenant_id,
-            run_id=request.run_id,
-            thread_id=request.thread_id,
-            requested_by=request.requested_by,
-            proposed_action=proposed_action,
-            approval_policy_id=request.approval_policy_id or "manual-review",
-            policy_version=request.policy_version or "policy.v1",
-            risk_level=request.risk_level,
-            risk_rule_ref=request.risk_rule_ref,
-            action_payload_hash=snapshot.action_payload_hash,
-            safety_snapshot_ref=snapshot.safety_snapshot_ref,
-            safety_snapshot_hash=snapshot.safety_snapshot_hash,
-            expires_at=request.expires_at,
-            required_role=level.required_role,
-            assigned_role=assignment.assigned_role,
-            level_mode=level.mode,
-            sla_due_at=level.sla_due_at or request.expires_at,
-            risk_reason=request.risk_reason,
-        )
-        request.superseded_by_request_id = new_request.id
         await self.session.flush()
-        await emit_approval_requested(
-            self.session,
-            request=new_request,
-            level=new_level,
-            assignment=new_assignment,
-            actor_id=request.requested_by,
-            existing_event=_event,
-            metadata={"superseded_from_request_id": str(request.id)},
-        )
         await self.repository.insert_approval_event(
             request=request,
             event_type="approval_info_attached",
@@ -726,24 +665,22 @@ class ApprovalService:
             metadata={
                 "clarification_request_id": command.clarification_request_id,
                 "changed_revision_material": True,
-                "superseded_by_request_id": str(new_request.id),
+                "pending_rebind": True,
             },
             resource_refs={
                 "old_action_payload_hash": request.action_payload_hash,
                 "old_safety_snapshot_hash": request.safety_snapshot_hash,
-                "new_action_payload_hash": new_request.action_payload_hash,
-                "new_safety_snapshot_ref": new_request.safety_snapshot_ref,
-                "new_safety_snapshot_hash": new_request.safety_snapshot_hash,
+                "new_action_payload_hash": snapshot.action_payload_hash,
+                "new_safety_snapshot_ref": snapshot.safety_snapshot_ref,
+                "new_safety_snapshot_hash": snapshot.safety_snapshot_hash,
             },
         )
         return self._info_result(
-            request=new_request,
-            level=new_level,
-            assignment=new_assignment,
+            request=request,
+            level=level,
+            assignment=assignment,
             clarification_request_id=command.clarification_request_id,
-            superseded_request_id=request.id,
-            superseded_by_request_id=new_request.id,
-            new_action_payload_hash=new_request.action_payload_hash,
+            new_action_payload_hash=snapshot.action_payload_hash,
         )
 
     def _result(

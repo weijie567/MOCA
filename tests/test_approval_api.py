@@ -16,7 +16,9 @@ from src.api.routers import approvals as approvals_router
 from src.auth.jwt import create_access_token
 from src.approvals.schemas import ApprovalDecisionCommand, ApprovalDecisionResult
 from src.approvals.service import ApprovalService
+from src.approvals.snapshot_service import persist_action_safety_snapshot
 from src.db.models import AgentRun, ApprovalAssignment, ApprovalEvent, ApprovalLevel, ApprovalRequest, User
+from src.knowledge.schemas import EvidenceRefV1
 from tests.approvals.test_service_transitions import _create_command, _phase34_binding_overrides
 
 
@@ -40,6 +42,102 @@ class FakeResumeGraph:
                 {"node": "receive_request", "status": "completed"},
                 {"node": "approval_gate", "status": "completed"},
                 {"node": "final_response", "status": "completed"},
+            ],
+        }
+
+
+class FakeInterrupt:
+    def __init__(self, value: dict):
+        self.value = value
+
+
+class ReinterruptResumeGraph:
+    def __init__(self, *, target_merchant_id: str):
+        self.calls: list[tuple[object, dict]] = []
+        self.target_merchant_id = target_merchant_id
+
+    async def ainvoke(self, command, config):
+        self.calls.append((command, config))
+        session = config["configurable"]["session"]
+        resume = command.resume
+        edited_action = dict(resume["edited_action"])
+        evidence_refs = [EvidenceRefV1.model_validate(ref) for ref in edited_action["evidence_refs"]]
+        created_at = datetime.now(UTC)
+        created_at = created_at.replace(microsecond=(created_at.microsecond // 1000) * 1000)
+        snapshot = await persist_action_safety_snapshot(
+            session,
+            tenant_id=UUID(edited_action["tenant_id"]),
+            run_id=UUID(edited_action["run_id"]),
+            proposed_action=edited_action,
+            action_payload_hash=resume["new_action_payload_hash"],
+            policy_config_version="approval-policy.v1",
+            risk_config_version="risk-rules.v1",
+            retrieval_config_version=evidence_refs[0].retrieval_config_version,
+            evidence_refs=evidence_refs,
+            created_at=created_at,
+            created_by=UUID(resume["decided_by"]),
+        )
+        business_fact_ref = {
+            "schema_version": "business_fact_ref.v1",
+            "tenant_id": edited_action["tenant_id"],
+            "source_system": "moca_demo",
+            "resource_type": edited_action["target_type"],
+            "resource_id": edited_action["target_id"],
+            "resource_version": "v1",
+            "data_freshness_at": "2026-06-29T00:00:00Z",
+            "retrieved_at": "2026-06-29T00:01:00Z",
+        }
+        risk_decision_ref = f"risk_decision:{edited_action['run_id']}:{snapshot.action_payload_hash}"
+        interrupt_payload = {
+            "proposed_action": edited_action,
+            "action_payload_hash": snapshot.action_payload_hash,
+            "safety_snapshot_ref": snapshot.safety_snapshot_ref,
+            "safety_snapshot_hash": snapshot.safety_snapshot_hash,
+            "policy_config_version": "approval-policy.v1",
+            "risk_config_version": "risk-rules.v1",
+            "retrieval_config_version": evidence_refs[0].retrieval_config_version,
+            "evidence_refs": [ref.model_dump(mode="json") for ref in evidence_refs],
+            "risk_level": "high",
+            "risk_reason": "Edited compensation still requires approval.",
+            "risk_rule_ref": "HR-EDIT",
+            "target_merchant_id": self.target_merchant_id,
+            "target_merchant_ref": {
+                "schema_version": "target_merchant_binding.v1",
+                "target_merchant_id": self.target_merchant_id,
+                "source": "business_fact_ref",
+                "business_fact_ref": business_fact_ref,
+            },
+            "business_fact_refs": [business_fact_ref],
+            "verified_evidence_refs": [ref.model_dump(mode="json") for ref in evidence_refs],
+            "claim_verification_ref": None,
+            "claim_verification_summary": {"overall_status": "verified", "safe_support_ref_count": 1},
+            "risk_decision_ref": risk_decision_ref,
+            "risk_decision": {
+                "schema_version": "risk_decision.v1",
+                "tenant_id": edited_action["tenant_id"],
+                "run_id": edited_action["run_id"],
+                "action_id": edited_action["action_id"],
+                "action_payload_hash": snapshot.action_payload_hash,
+                "risk_level": "high",
+                "reason_codes": ["approval_required", "manager_edit"],
+                "policy_config_version": "approval-policy.v1",
+                "risk_config_version": "risk-rules.v1",
+                "approval_required": True,
+                "evaluated_at": "2026-06-29T00:02:00.000Z",
+                "risk_rule_ref": "HR-EDIT",
+                "risk_reason": "Edited compensation still requires approval.",
+            },
+            "approval_idempotency_key": (
+                f"approval:{edited_action['tenant_id']}:{edited_action['run_id']}:{snapshot.action_payload_hash}"
+            ),
+            "expires_at": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
+        }
+        return {
+            "__interrupt__": [FakeInterrupt(interrupt_payload)],
+            "trace_steps": [
+                {"node": "approval_gate", "status": "completed"},
+                {"node": "assess_risk_and_approval", "status": "completed"},
+                {"node": "approval_gate", "status": "interrupted"},
             ],
         }
 
@@ -616,7 +714,7 @@ async def test_attach_info_same_revision_reopens_pending_request(
 
 
 @pytest.mark.asyncio
-async def test_attach_info_changed_payload_supersedes_old_request(
+async def test_attach_info_changed_payload_supersedes_without_unbound_replacement(
     client: AsyncClient,
     session: AsyncSession,
     seeded_session,
@@ -645,17 +743,22 @@ async def test_attach_info_changed_payload_supersedes_old_request(
     )
     payload = response.json()
     await session.refresh(bundle.approval)
-    new_approval = await session.get(ApprovalRequest, UUID(payload["data"]["id"]))
+    rows = (
+        (
+            await session.execute(select(ApprovalRequest).where(ApprovalRequest.run_id == bundle.approval.run_id))
+        )
+        .scalars()
+        .all()
+    )
 
     assert response.status_code == 200
-    assert payload["data"]["status"] == "pending"
-    assert payload["data"]["id"] != str(bundle.approval.id)
+    assert payload["data"]["status"] == "superseded"
+    assert payload["data"]["id"] == str(bundle.approval.id)
     assert payload["data"]["new_action_payload_hash"]
     assert payload["data"]["new_action_payload_hash"] != old_hash
     assert bundle.approval.status == "superseded"
-    assert bundle.approval.superseded_by_request_id == new_approval.id
-    assert new_approval is not None
-    assert new_approval.status == "pending"
+    assert bundle.approval.superseded_by_request_id is None
+    assert len(rows) == 1
 
 
 @pytest.mark.asyncio
@@ -728,7 +831,7 @@ async def test_decide_edit_supersedes_and_resumes_risk_reroute(
 
     assert response.status_code == 200
     assert payload["data"]["status"] == "superseded"
-    assert payload["data"]["superseded_by_request_id"]
+    assert payload["data"]["superseded_by_request_id"] is None
     assert payload["data"]["new_action_payload_hash"]
     assert old_hash != payload["data"]["new_action_payload_hash"]
     assert len(graph.calls) == 1
@@ -740,6 +843,66 @@ async def test_decide_edit_supersedes_and_resumes_risk_reroute(
     assert command.resume["edited_action"] == edited_action
     assert command.resume["new_action_payload_hash"] == payload["data"]["new_action_payload_hash"]
     assert config["configurable"]["permissions"] == []
+
+
+@pytest.mark.asyncio
+async def test_decide_edit_rebinds_replacement_approval_from_resume_interrupt(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(session, seeded_session, thread_id="thread-edit-rebind")
+    graph = ReinterruptResumeGraph(target_merchant_id=str(seeded_session["merchant"].id))
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+    edited_action = _edited_action(bundle)
+
+    response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=_decision_body(bundle, "edit", edited_action=edited_action),
+        headers=await _admin_headers(client),
+    )
+    payload = response.json()
+
+    assert response.status_code == 200, payload
+    assert payload["data"]["status"] == "superseded"
+    assert payload["data"]["superseded_by_request_id"] is None
+    assert payload["data"]["new_action_payload_hash"] == graph.calls[0][0].resume["new_action_payload_hash"]
+
+    rows = (
+        (
+            await session.execute(
+                select(ApprovalRequest)
+                .where(ApprovalRequest.run_id == bundle.approval.run_id)
+                .order_by(ApprovalRequest.revision)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    replacement = next((row for row in rows if row.id != bundle.approval.id), None)
+    manager_list = await client.get("/api/v1/approvals", headers=await _manager_headers(client))
+    manager_ids = {item["id"] for item in manager_list.json()["data"]["approvals"]}
+
+    assert len(rows) == 2
+    assert replacement is not None
+    assert rows[0].id == bundle.approval.id
+    assert rows[0].status == "superseded"
+    assert rows[0].superseded_by_request_id is None
+    assert replacement.status == "pending"
+    assert replacement.requested_by == bundle.approval.requested_by
+    assert replacement.action_payload_hash == payload["data"]["new_action_payload_hash"]
+    assert replacement.target_merchant_id == str(seeded_session["merchant"].id)
+    assert replacement.business_fact_refs[0]["resource_id"] == edited_action["target_id"]
+    assert replacement.verified_evidence_refs[0]["evidence_id"] == edited_action["evidence_refs"][0]["evidence_id"]
+    assert replacement.claim_verification_ref is None
+    assert replacement.claim_verification_summary["overall_status"] == "verified"
+    assert replacement.risk_decision_ref == f"risk_decision:{bundle.approval.run_id}:{replacement.action_payload_hash}"
+    assert replacement.risk_decision["action_payload_hash"] == replacement.action_payload_hash
+    assert replacement.approval_idempotency_key
+    assert manager_list.status_code == 200
+    assert str(replacement.id) in manager_ids
+    assert str(bundle.approval.id) not in manager_ids
 
 
 @pytest.mark.asyncio
