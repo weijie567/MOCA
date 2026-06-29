@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
-status: ready_to_plan
-stopped_at: Phase 34 completed; Phase 35 ready to plan
-last_updated: "2026-06-29T07:00:27Z"
+status: planning
+stopped_at: Phase 35 context gathered
+last_updated: "2026-06-29T09:41:20.936Z"
 last_activity: 2026-06-29 -- Phase 34 completed; final focused suite passed
 progress:
   total_phases: 12
@@ -220,9 +220,9 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: Phase 34 closure
-Stopped at: Phase 34 complete; Phase 35 ready to plan
-Resume file: None
+Last session: --stopped-at
+Stopped at: Phase 35 context gathered
+Resume file: --resume-file
 Next: Phase 35 — Replay and Eval Hardening; old phase directory archive remains a separate cleanup todo.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
