@@ -8300,3 +8300,60 @@ SDK 输出：
 - `.planning/ROADMAP.md`
 - `.planning/STATE.md`
 - `gsd-sdk query roadmap.update-plan-progress 35`
+
+## 2026-06-30 01:22 CST - Phase 35 phase.complete 把 backlog 999.1 识别为下一实施 phase
+
+### 问题现象
+
+Phase 35 已完成 verify / secure / validate 后，执行内部 transition 命令 `gsd-sdk query phase.complete 35`。命令成功返回，但把 `.planning/ROADMAP.md` 里的 backlog `999.1` 当成 `next_phase`，并把 `.planning/STATE.md` 改成 `Phase: 999.1` / `Ready to plan`。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+gsd-sdk query phase.complete 35
+gsd-sdk query roadmap.analyze
+git diff -- .planning/STATE.md
+```
+
+### 关键证据或命令
+
+`phase.complete` 输出包含：
+
+```json
+{
+  "completed_phase": "35",
+  "next_phase": "999.1",
+  "next_phase_name": "evaluate-mem0-as-optional-backend-behind-memorycontextservic",
+  "is_last_phase": false,
+  "state_updated": true
+}
+```
+
+`roadmap.analyze` 也返回 `next_phase: "999.1"`，但 `999.1` 位于 `## Backlog` 下，不应作为 v1.9 主线下一实施 phase。
+
+### 当前判断 / 根因
+
+当前 GSD roadmap/phase transition 逻辑没有把 `## Backlog` 与当前 milestone 主线 phase 区分开，导致 milestone 最后一个正式 phase 完成后，把 backlog 条目识别为下一 phase。
+
+### 已做处理
+
+保留 `phase.complete` 对 Phase 35 完成状态的正向效果，但手动修正 `.planning/STATE.md`：
+
+- `status` 改为 `milestone_ready_for_audit`；
+- current position 改为 Phase 35 complete；
+- next roadmap item 改为 `v1.9 milestone audit / completion`；
+- progress 改为 v1.9 主线 `11/11` phases complete；
+- session continuity 增加 Phase 35 完成记录。
+
+### 剩余问题
+
+无 Phase 35 阻塞。后续如果要处理 backlog `999.1`，应通过 backlog review / promote 流程显式提到 active milestone，而不是由 `phase.complete` 自动推进。
+
+### 下次继续排查入口
+
+- `.planning/ROADMAP.md` 的 `## Backlog`
+- `.planning/STATE.md`
+- `gsd-sdk query phase.complete 35`
+- `gsd-sdk query roadmap.analyze`

@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
-status: verifying
-stopped_at: Completed 35-06-PLAN.md
-last_updated: "2026-06-29T16:31:12.843Z"
+status: milestone_ready_for_audit
+stopped_at: Phase 35 verified, secured, validated; v1.9 ready for milestone audit
+last_updated: "2026-06-29T17:22:14Z"
 last_activity: 2026-06-29
 progress:
-  total_phases: 12
+  total_phases: 11
   completed_phases: 11
   total_plans: 50
   completed_plans: 50
@@ -21,14 +21,14 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-29)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 35 — replay-and-eval-hardening
+**Current focus:** v1.9 milestone audit and completion
 
 ## Current Position
 
-Phase: 35 (replay-and-eval-hardening) — VERIFYING
-Next roadmap item: Phase 35 — Replay and Eval Hardening
+Phase: 35 (replay-and-eval-hardening) — COMPLETE
+Next roadmap item: v1.9 milestone audit / completion
 Plan: 6 of 6
-Status: Phase complete — ready for verification
+Status: Phase verified, secured, and Nyquist-compliant; milestone ready for audit
 Last activity: 2026-06-29
 
 Progress: [██████████] 100%
@@ -244,10 +244,10 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-29T16:31:12.832Z
-Stopped at: Completed 35-06-PLAN.md
+Last session: 2026-06-29T17:22:14Z
+Stopped at: Phase 35 verified, secured, validated; v1.9 ready for milestone audit
 Resume file: None
-Next: Phase 35 — Replay and Eval Hardening is plan-complete and ready for phase verification. Old phase directory archive remains a separate cleanup todo.
+Next: Run milestone audit / completion for v1.9. Old phase directory archive remains a separate cleanup todo.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
 
@@ -281,6 +281,6 @@ Next: Phase 35 — Replay and Eval Hardening is plan-complete and ready for phas
 
 **Completed Phase:** 34 (Approval and ActionDraft Boundary Hardening) — 6/6 plans complete; verification passed; final focused suite `400 passed, 22 warnings`; static/focused/ruff closure passed — 2026-06-29
 
-**Next Roadmap Item:** Phase 35 — Replay and Eval Hardening
+**Completed Phase:** 35 (Replay and Eval Hardening) — 6/6 plans complete; code review clean after fixes; UAT 8/8 passed; security `threats_open: 0`; Nyquist validation compliant; aggregate Phase 35 suite `122 passed, 1 warning` — 2026-06-29
 
-**Planned Phase:** 35 (replay-and-eval-hardening) — ready to plan
+**Next Roadmap Item:** v1.9 milestone audit / completion
