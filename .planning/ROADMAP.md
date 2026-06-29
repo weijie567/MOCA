@@ -379,7 +379,7 @@ Plans:
 **Goal:** Bind action proposals, approval decisions, and action drafts to verified facts/evidence/claims/risk/snapshots while preserving the no-real-execution boundary.
 **Requirements**: APF-15, APF-16
 **Depends on:** Phase 33
-**Plans:** 1/6 plans complete
+**Plans:** 2/6 plans complete
 
 **Core References**:
 
@@ -396,7 +396,7 @@ Plans:
 
 Plans:
 - [x] 34-01-PLAN.md — Contracts and persistence bindings for approval/action refs
-- [ ] 34-02-PLAN.md — Risk gate responsibility extraction and durable auto-allowed binding
+- [x] 34-02-PLAN.md — Risk gate responsibility extraction and durable auto-allowed binding
 - [ ] 34-03-PLAN.md — Approval gate, ApprovalService, and manager-scope restore
 - [ ] 34-04-PLAN.md — Agent runs approval-interrupt bridge and safe projection
 - [ ] 34-05-PLAN.md — Action draft validation, projection, and no-real-execution cleanup
