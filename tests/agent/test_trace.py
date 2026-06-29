@@ -353,6 +353,8 @@ def _business_fact_result(
     scope_check_result: str = "allowed",
     resource_id: str,
     resource_type: str = "order",
+    source_system: str = "business_fact_service",
+    ref_source_system: str | None = None,
 ) -> dict[str, object]:
     allowed = status in {"ok", "partial"} and scope_check_result == "allowed"
     return {
@@ -361,11 +363,20 @@ def _business_fact_result(
         "status": status,
         "fact": {"resource_id": resource_id} if allowed else None,
         "business_fact_refs": (
-            [_business_fact_ref(tenant_id, resource_id=resource_id, resource_type=resource_type)] if allowed else []
+            [
+                _business_fact_ref(
+                    tenant_id,
+                    resource_id=resource_id,
+                    resource_type=resource_type,
+                    source_system=ref_source_system or source_system,
+                )
+            ]
+            if allowed
+            else []
         ),
         "resource_version": "v1" if allowed else None,
         "data_freshness_at": "2026-06-28T00:00:00+00:00" if allowed else None,
-        "source_system": "business_fact_service",
+        "source_system": source_system,
         "scope_check_result": scope_check_result,
         "missing_required_facts": [] if allowed else [resource_type],
         "safe_errors": [],
@@ -443,6 +454,41 @@ def test_replay_authorization_proof_resolves_from_business_fact_results() -> Non
     assert projection["business_fact_result_count"] == 1
     assert projection["scope_check_results"] == ["allowed"]
     assert "RF-SECRET-888" not in json.dumps(projection, ensure_ascii=False)
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        {
+            "tenant_id": "tenant-001",
+            "current_intent": "refund_troubleshooting",
+            "last_business_context_refs": {
+                "business_fact_refs": [
+                    _business_fact_ref("tenant-001", resource_id="ORD-SPOOFED-001", source_system="llm")
+                ]
+            },
+        },
+        {
+            "tenant_id": "tenant-001",
+            "current_intent": "refund_troubleshooting",
+            "business_fact_results": [
+                _business_fact_result(
+                    "tenant-001",
+                    resource_id="ORD-SPOOFED-002",
+                    source_system="user_payload",
+                    ref_source_system="user_payload",
+                )
+            ],
+        },
+    ],
+)
+def test_replay_authorization_proof_rejects_untrusted_business_fact_sources(state: dict[str, object]) -> None:
+    projection = project_replay_authorization_proof(state)
+
+    assert projection["proof_status"] == "unknown"
+    assert projection["business_fact_ref_count"] == 0
+    assert projection["business_fact_result_count"] == 0
+    assert "REPLAY_AUTHORIZATION_PROOF_UNTRUSTED_STATUS" in projection["reason_codes"]
 
 
 @pytest.mark.parametrize(
@@ -650,4 +696,3 @@ def _evidence_ref(tenant_id: str, suffix: str) -> dict[str, str]:
         "retrieved_at": "2026-06-28T00:00:00+00:00",
         "retrieval_config_version": "retrieval.v1",
     }
-

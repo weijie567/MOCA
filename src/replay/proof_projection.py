@@ -47,6 +47,15 @@ _MIXED_TENANTS_REASON = "REPLAY_AUTHORIZATION_PROOF_MIXED_TENANTS"
 _MIXED_DECISION_REASON = "REPLAY_AUTHORIZATION_PROOF_MIXED_DECISIONS"
 _TARGET_CONFLICT_REASON = "REPLAY_AUTHORIZATION_PROOF_TARGET_CONFLICT"
 _UNTRUSTED_STATUS_REASON = "REPLAY_AUTHORIZATION_PROOF_UNTRUSTED_STATUS"
+TRUSTED_BUSINESS_FACT_SOURCES = {
+    "business_fact_service",
+    "business_tool_service",
+    "demo_orders_db",
+    "demo_refund_cases_db",
+    "demo_tickets_db",
+    "tool_platform",
+    "tool_result_v2",
+}
 
 
 def project_replay_authorization_proof(state: Mapping[str, Any]) -> dict[str, Any]:
@@ -154,6 +163,7 @@ def _inspect_business_fact_refs(state: Mapping[str, Any]) -> _RefEvidence:
     seen = False
     invalid = False
     mixed_tenants = False
+    untrusted = False
 
     for payload in _candidate_ref_payloads(state):
         seen = True
@@ -165,6 +175,9 @@ def _inspect_business_fact_refs(state: Mapping[str, Any]) -> _RefEvidence:
         if not _non_empty_str(ref.resource_id):
             invalid = True
             continue
+        if not _is_trusted_business_fact_source(ref.source_system):
+            untrusted = True
+            continue
         if state_tenant and ref.tenant_id != state_tenant:
             mixed_tenants = True
         refs.append(ref)
@@ -174,6 +187,7 @@ def _inspect_business_fact_refs(state: Mapping[str, Any]) -> _RefEvidence:
         allowed_refs=refs if not invalid else [],
         invalid=invalid,
         mixed_tenants=mixed_tenants,
+        untrusted=untrusted,
     )
 
 
@@ -196,6 +210,9 @@ def _inspect_business_fact_results(state: Mapping[str, Any]) -> _ResultEvidence:
             invalid = True
             continue
         scope_check_results.append(result.scope_check_result)
+        if not _is_trusted_business_fact_source(result.source_system):
+            untrusted = True
+            continue
         if state_tenant and result.tenant_id != state_tenant:
             mixed_tenants = True
         if result.status == "permission_denied" or result.scope_check_result == "denied":
@@ -210,12 +227,16 @@ def _inspect_business_fact_results(state: Mapping[str, Any]) -> _ResultEvidence:
         result_refs_valid = True
         for ref in result.business_fact_refs:
             if not _non_empty_str(ref.resource_id):
+                invalid = True
+                result_refs_valid = False
+                break
+            if not _is_trusted_business_fact_source(ref.source_system):
+                untrusted = True
                 result_refs_valid = False
                 break
             if state_tenant and ref.tenant_id != state_tenant:
                 mixed_tenants = True
         if not result_refs_valid:
-            invalid = True
             continue
         allowed_results.append(result)
         allowed_ref_count += len(result.business_fact_refs)
@@ -259,6 +280,10 @@ def _candidate_result_payloads(state: Mapping[str, Any]) -> Iterable[Mapping[str
         for item in _mapping_items(business_context.get("tool_results")):
             if item.get("schema_version") == "business_fact_result.v1" or "scope_check_result" in item:
                 yield item
+
+
+def _is_trusted_business_fact_source(source_system: Any) -> bool:
+    return isinstance(source_system, str) and source_system in TRUSTED_BUSINESS_FACT_SOURCES
 
 
 def _project_target_proof(state: Mapping[str, Any]) -> dict[str, Any]:
