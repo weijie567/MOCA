@@ -136,6 +136,17 @@ class AgentState(TypedDict, total=False):
     risk_config_version: str | None
     retrieval_config_version: str | None
     auto_allowed: bool | None
+    approval_plan: dict[str, Any] | None
+    risk_decision: dict[str, Any] | None
+    risk_decision_ref: str | None
+    target_merchant_id: str | None
+    target_merchant_ref: dict[str, Any] | None
+    business_fact_refs: list[dict[str, Any]]
+    verified_evidence_refs: list[dict[str, Any]]
+    claim_verification_ref: str | None
+    claim_verification_summary: dict[str, Any] | None
+    approval_idempotency_key: str | None
+    auto_allowed_binding: dict[str, Any] | None
     action_draft: dict[str, Any] | None
     draft_outcome: dict[str, Any] | None
     execution_mode: str | None

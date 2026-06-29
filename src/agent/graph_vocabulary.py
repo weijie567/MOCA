@@ -87,10 +87,19 @@ _ENTRIES: tuple[GraphVocabularyEntry, ...] = (
         "runtime",
         True,
     ),
+    _entry(
+        "assess_risk_and_approval",
+        "risk_gate",
+        "node",
+        "compatibility_alias",
+        True,
+        ("RISK_GATE_PROJECTED_FROM_ASSESS_RISK_AND_APPROVAL",),
+    ),
     _entry("route_after_intent", "route_after_contextual_intent", "router", "compatibility_alias", True),
     _entry("route_after_contextual_intent", "route_after_contextual_intent", "router", "compatibility_alias", True),
     _entry("route_after_slots", "route_after_slot_resolution", "router", "compatibility_alias", True),
     _entry("route_after_slot_resolution", "route_after_slot_resolution", "router", "compatibility_alias", True),
+    _entry("route_after_risk", "route_after_risk", "router", "runtime", True),
 )
 
 _ENTRY_BY_KIND_AND_NAME = MappingProxyType({(entry.kind, entry.legacy_name): entry for entry in _ENTRIES})

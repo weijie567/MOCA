@@ -231,8 +231,8 @@ async def test_actionable_recommendation_still_proposes_action(monkeypatch, base
             "recommended_action": "issue_coupon",
             "reasoning_summary": "Issue a small service recovery coupon.",
         },
-        "claim_verification_bundle": _allowing_claim_bundle(),
-        "business_context": {"order": {"id": "order-1", "status": "paid"}},
+        "claim_verification_bundle": _claim_bundle_with_safe_refs(base_state["tenant_id"]),
+        "business_context": _phase34_business_context(base_state["tenant_id"]),
     }
 
     result = await assess_risk_module.assess_risk_and_approval(state)
@@ -291,8 +291,11 @@ async def test_chinese_full_refund_delivered_order_matches_high_risk(monkeypatch
             "risk_level": "low",
             "missing_info": [],
         },
-        "claim_verification_bundle": _allowing_claim_bundle(),
-        "business_context": {"order": {"status": "delivered"}},
+        "claim_verification_bundle": _claim_bundle_with_safe_refs(base_state["tenant_id"]),
+        "business_context": {
+            **_phase34_business_context(base_state["tenant_id"]),
+            "order": {"status": "delivered"},
+        },
     }
 
     result = await assess_risk_module.assess_risk_and_approval(state)
@@ -477,8 +480,8 @@ async def test_programming_error_propagates(monkeypatch, base_state):
             "recommended_action": "issue_coupon",
             "reasoning_summary": "Issue a small service recovery coupon.",
         },
-        "claim_verification_bundle": _allowing_claim_bundle(),
-        "business_context": {},
+        "claim_verification_bundle": _claim_bundle_with_safe_refs(base_state["tenant_id"]),
+        "business_context": _phase34_business_context(base_state["tenant_id"]),
     }
 
     with pytest.raises(KeyError, match="bug"):
@@ -494,8 +497,8 @@ async def test_expected_error_retries_then_falls_back(monkeypatch, base_state):
             "recommended_action": "issue_coupon",
             "reasoning_summary": "Issue a small service recovery coupon.",
         },
-        "claim_verification_bundle": _allowing_claim_bundle(),
-        "business_context": {},
+        "claim_verification_bundle": _claim_bundle_with_safe_refs(base_state["tenant_id"]),
+        "business_context": _phase34_business_context(base_state["tenant_id"]),
     }
 
     result = await assess_risk_module.assess_risk_and_approval(state)

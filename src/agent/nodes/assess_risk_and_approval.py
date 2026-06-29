@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from hashlib import sha256
 import time
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
@@ -26,13 +27,17 @@ from src.approvals.snapshot_service import (
 )
 from src.approvals.snapshots import build_action_safety_snapshot
 from src.approvals.schemas import PROPOSED_ACTION_SCHEMA_VERSION
+from src.approvals.schemas import AutoAllowedActionBindingV1, RiskDecisionV1, TargetMerchantBindingV1
 from src.config import settings
 from src.knowledge.schemas import ClaimVerificationBundleV1, EvidenceRefV1, canonical_evidence_projection
+from src.tools.contracts import BusinessFactRefV1
 
 RISK_RULES_PATH = Path("rules/risk_rules.yaml")
 POLICY_CONFIG_VERSION = "approval-policy.v1"
 RISK_CONFIG_VERSION = "risk-rules.v1"
 DEFAULT_RETRIEVAL_CONFIG_VERSION = "retrieval.v1"
+SAFE_MANUAL_REVIEW_RESPONSE = "操作需要人工复核，当前未创建可执行审批或动作草稿。"
+APPROVAL_DECISION_TYPES = ["accept", "approve", "edit", "respond", "reject", "ignore"]
 FULL_REFUND_TERMS = ("full_refund", "全额退款", "全额退", "整单退款")
 ACTIONABLE_ACTIONS = {
     "issue_coupon",
@@ -426,6 +431,397 @@ def _evidence_ref_item(candidate: Any, evidence_map: dict[str, Any]) -> dict[str
     return None
 
 
+def _business_fact_refs_from_state(state: AgentState) -> list[BusinessFactRefV1]:
+    context = state.get("business_context") or {}
+    raw_refs: list[Any] = []
+    raw_refs.extend(context.get("business_fact_refs") or [])
+    for result in context.get("business_fact_results") or []:
+        if isinstance(result, dict):
+            raw_refs.extend(result.get("business_fact_refs") or [])
+
+    bundle = _claim_verification_bundle(state) or {}
+    for raw_result in bundle.get("claim_results") or []:
+        result = raw_result.model_dump(mode="python") if hasattr(raw_result, "model_dump") else raw_result
+        if isinstance(result, dict):
+            raw_refs.extend(result.get("business_fact_refs") or [])
+
+    refs: list[BusinessFactRefV1] = []
+    seen: set[tuple[str, str, str, str | None]] = set()
+    for raw_ref in raw_refs:
+        ref = raw_ref if isinstance(raw_ref, BusinessFactRefV1) else BusinessFactRefV1.model_validate(raw_ref)
+        key = (ref.tenant_id, ref.source_system, ref.resource_type, ref.resource_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        refs.append(ref)
+    return refs
+
+
+def _target_merchant_binding(
+    *,
+    context: dict[str, Any],
+    proposed_action: dict[str, Any],
+    business_fact_refs: list[BusinessFactRefV1],
+) -> TargetMerchantBindingV1 | None:
+    target_id = str(proposed_action.get("target_id") or "")
+    if not target_id:
+        return None
+
+    merchant_candidates: list[tuple[str, str]] = []
+    for resource_type in ("refund_case", "order", "ticket"):
+        resource = context.get(resource_type)
+        if not isinstance(resource, dict):
+            continue
+        resource_id = _business_resource_id(resource_type, resource)
+        merchant_id = resource.get("merchant_id")
+        if resource_id == target_id and merchant_id:
+            merchant_candidates.append((str(merchant_id), resource_type))
+
+    merchant_ids = {merchant_id for merchant_id, _resource_type in merchant_candidates}
+    if len(merchant_ids) != 1:
+        return None
+
+    supporting_ref = _supporting_business_fact_ref(
+        business_fact_refs=business_fact_refs,
+        resource_types={resource_type for _merchant_id, resource_type in merchant_candidates},
+        target_id=target_id,
+    )
+    if supporting_ref is None:
+        return None
+
+    return TargetMerchantBindingV1(
+        target_merchant_id=next(iter(merchant_ids)),
+        source="business_fact_ref",
+        business_fact_ref=supporting_ref.model_dump(mode="json"),
+    )
+
+
+def _business_resource_id(resource_type: str, resource: dict[str, Any]) -> str | None:
+    keys_by_type = {
+        "refund_case": ("id", "refund_case_id", "refund_case_no"),
+        "order": ("id", "order_id", "order_no"),
+        "ticket": ("id", "ticket_id", "ticket_no"),
+    }
+    for key in keys_by_type[resource_type]:
+        value = resource.get(key)
+        if value:
+            return str(value)
+    return None
+
+
+def _supporting_business_fact_ref(
+    *,
+    business_fact_refs: list[BusinessFactRefV1],
+    resource_types: set[str],
+    target_id: str,
+) -> BusinessFactRefV1 | None:
+    for ref in business_fact_refs:
+        if ref.resource_type in resource_types and ref.resource_id == target_id:
+            return ref
+    return None
+
+
+def _claim_verification_summary(state: AgentState) -> dict[str, Any] | None:
+    bundle = _claim_verification_bundle(state)
+    if bundle is None:
+        return None
+    return {
+        "overall_status": bundle.get("overall_status"),
+        "route": bundle.get("route"),
+        "safe_support_ref_count": len(bundle.get("safe_support_refs") or []),
+        "blocked_claim_count": len(bundle.get("blocked_claims") or []),
+        "reason_codes": sorted(str(code) for code in bundle.get("reason_codes") or []),
+    }
+
+
+def _risk_reason_codes(assessment: dict[str, Any], state: AgentState) -> list[str]:
+    reason_codes = {str(code) for code in (_claim_verification_summary(state) or {}).get("reason_codes") or []}
+    for key in ("risk_level", "rule_ref"):
+        value = assessment.get(key)
+        if value:
+            reason_codes.add(str(value))
+    if assessment.get("approval_required") is True:
+        reason_codes.add("approval_required")
+    if assessment.get("approval_required") is False:
+        reason_codes.add("auto_allowed_candidate")
+    return sorted(reason_codes)
+
+
+def _risk_decision(
+    *,
+    state: AgentState,
+    proposed_action: dict[str, Any],
+    assessment: dict[str, Any],
+    action_payload_hash: str,
+) -> RiskDecisionV1:
+    return RiskDecisionV1(
+        tenant_id=str(state.get("tenant_id") or ""),
+        run_id=str(state.get("current_run_id") or ""),
+        action_id=str(proposed_action.get("action_id") or ""),
+        action_payload_hash=action_payload_hash,
+        risk_level=str(assessment.get("risk_level") or ""),
+        reason_codes=_risk_reason_codes(assessment, state),
+        policy_config_version=POLICY_CONFIG_VERSION,
+        risk_config_version=RISK_CONFIG_VERSION,
+        approval_required=assessment.get("approval_required") is True,
+        evaluated_at=_now_iso(),
+        risk_rule_ref=str(assessment.get("rule_ref")) if assessment.get("rule_ref") else None,
+        risk_reason=str(assessment.get("risk_reason")) if assessment.get("risk_reason") else None,
+    )
+
+
+def _stable_idempotency_key(prefix: str, raw_material: str) -> str:
+    if len(raw_material) <= 256:
+        return raw_material
+    return f"{prefix}:{sha256(raw_material.encode('utf-8')).hexdigest()}"
+
+
+def _approval_idempotency_key(
+    *,
+    state: AgentState,
+    proposed_action: dict[str, Any],
+    action_payload_hash: str,
+    safety_snapshot_hash: str,
+    risk_decision_ref: str,
+) -> str:
+    raw_material = ":".join(
+        [
+            "approval",
+            str(state.get("tenant_id") or ""),
+            str(state.get("current_run_id") or ""),
+            str(proposed_action.get("action_type") or ""),
+            str(proposed_action.get("target_id") or ""),
+            action_payload_hash,
+            safety_snapshot_hash,
+            risk_decision_ref,
+        ]
+    )
+    return _stable_idempotency_key("approval", raw_material)
+
+
+def _auto_allowed_idempotency_key(
+    *,
+    state: AgentState,
+    proposed_action: dict[str, Any],
+    action_payload_hash: str,
+    safety_snapshot_hash: str,
+    risk_decision_ref: str,
+) -> str:
+    raw_material = ":".join(
+        [
+            "auto_allowed",
+            str(state.get("tenant_id") or ""),
+            str(state.get("current_run_id") or ""),
+            str(proposed_action.get("action_type") or ""),
+            str(proposed_action.get("target_id") or ""),
+            action_payload_hash,
+            safety_snapshot_hash,
+            risk_decision_ref,
+        ]
+    )
+    return _stable_idempotency_key("auto_allowed", raw_material)
+
+
+def _approval_plan(
+    *,
+    assessment: dict[str, Any],
+    action_payload_hash: str,
+    safety_snapshot_ref: str,
+    safety_snapshot_hash: str,
+    target_merchant_ref: TargetMerchantBindingV1,
+    business_fact_refs: list[BusinessFactRefV1],
+    verified_evidence_refs: list[EvidenceRefV1],
+    claim_verification_summary: dict[str, Any] | None,
+    risk_decision_ref: str,
+    risk_decision: RiskDecisionV1,
+    approval_idempotency_key: str,
+) -> dict[str, Any]:
+    return {
+        "schema_version": "approval_plan.v1",
+        "approval_required": assessment.get("approval_required") is True,
+        "policy_id": "default-approval-policy",
+        "policy_version": POLICY_CONFIG_VERSION,
+        "action_payload_hash": action_payload_hash,
+        "safety_snapshot_ref": safety_snapshot_ref,
+        "safety_snapshot_hash": safety_snapshot_hash,
+        "risk_decision_ref": risk_decision_ref,
+        "risk_decision": risk_decision.model_dump(mode="json"),
+        "approval_idempotency_key": approval_idempotency_key,
+        "target_merchant_id": target_merchant_ref.target_merchant_id,
+        "target_merchant_ref": target_merchant_ref.model_dump(mode="json"),
+        "business_fact_refs": [ref.model_dump(mode="json") for ref in business_fact_refs],
+        "verified_evidence_refs": [ref.model_dump(mode="json") for ref in verified_evidence_refs],
+        "claim_verification_ref": None,
+        "claim_verification_summary": claim_verification_summary,
+        "allowed_decision_types": APPROVAL_DECISION_TYPES,
+    }
+
+
+def _auto_allowed_binding(
+    *,
+    state: AgentState,
+    target_merchant_ref: TargetMerchantBindingV1,
+    business_fact_refs: list[BusinessFactRefV1],
+    verified_evidence_refs: list[EvidenceRefV1],
+    claim_verification_summary: dict[str, Any] | None,
+    action_payload_hash: str,
+    safety_snapshot_ref: str,
+    safety_snapshot_hash: str,
+    risk_decision_ref: str,
+    idempotency_key: str,
+) -> AutoAllowedActionBindingV1 | None:
+    try:
+        return AutoAllowedActionBindingV1(
+            tenant_id=str(state.get("tenant_id") or ""),
+            run_id=str(state.get("current_run_id") or ""),
+            target_merchant_id=target_merchant_ref.target_merchant_id,
+            action_payload_hash=action_payload_hash,
+            safety_snapshot_ref=safety_snapshot_ref,
+            safety_snapshot_hash=safety_snapshot_hash,
+            risk_decision_ref=risk_decision_ref,
+            idempotency_key=idempotency_key,
+            business_fact_refs=business_fact_refs,
+            verified_evidence_refs=verified_evidence_refs,
+            claim_verification_ref=None,
+            claim_verification_summary=claim_verification_summary,
+        )
+    except ValidationError:
+        return None
+
+
+def _phase34_fail_closed_result(
+    result: dict[str, Any],
+    assessment: dict[str, Any],
+    *,
+    reason: str,
+) -> dict[str, Any]:
+    safe_assessment = {
+        **assessment,
+        "approval_required": False,
+        "blocked": True,
+        "risk_level": "manual_review",
+        "risk_reason": reason,
+    }
+    return {
+        **result,
+        "risk_assessment": safe_assessment,
+        "proposed_action": None,
+        "approval_plan": None,
+        "risk_decision": None,
+        "risk_decision_ref": None,
+        "target_merchant_id": None,
+        "target_merchant_ref": None,
+        "business_fact_refs": [],
+        "verified_evidence_refs": [],
+        "claim_verification_ref": None,
+        "claim_verification_summary": None,
+        "approval_idempotency_key": None,
+        "auto_allowed_binding": None,
+        "auto_allowed": False,
+        "action_payload_hash": None,
+        "safety_snapshot_ref": None,
+        "safety_snapshot_hash": None,
+        "safety_snapshot_verified": False,
+        "final_response": SAFE_MANUAL_REVIEW_RESPONSE,
+    }
+
+
+def _attach_phase34_binding_state(
+    *,
+    state: AgentState,
+    result: dict[str, Any],
+    proposed_action: dict[str, Any],
+    assessment: dict[str, Any],
+    context: dict[str, Any],
+    action_payload_hash: str,
+    safety_snapshot_ref: str,
+    safety_snapshot_hash: str,
+    evidence_refs: list[EvidenceRefV1],
+) -> dict[str, Any]:
+    business_fact_refs = _business_fact_refs_from_state(state)
+    target_merchant_ref = _target_merchant_binding(
+        context=context,
+        proposed_action=proposed_action,
+        business_fact_refs=business_fact_refs,
+    )
+    if target_merchant_ref is None:
+        return _phase34_fail_closed_result(
+            result,
+            assessment,
+            reason="Target merchant binding could not be verified from business facts.",
+        )
+
+    risk_decision = _risk_decision(
+        state=state,
+        proposed_action=proposed_action,
+        assessment=assessment,
+        action_payload_hash=action_payload_hash,
+    )
+    risk_decision_ref = f"risk_decision:{str(state.get('current_run_id') or '')}:{action_payload_hash}"
+    approval_idempotency_key = _approval_idempotency_key(
+        state=state,
+        proposed_action=proposed_action,
+        action_payload_hash=action_payload_hash,
+        safety_snapshot_hash=safety_snapshot_hash,
+        risk_decision_ref=risk_decision_ref,
+    )
+    claim_summary = _claim_verification_summary(state)
+    approval_plan = _approval_plan(
+        assessment=assessment,
+        action_payload_hash=action_payload_hash,
+        safety_snapshot_ref=safety_snapshot_ref,
+        safety_snapshot_hash=safety_snapshot_hash,
+        target_merchant_ref=target_merchant_ref,
+        business_fact_refs=business_fact_refs,
+        verified_evidence_refs=evidence_refs,
+        claim_verification_summary=claim_summary,
+        risk_decision_ref=risk_decision_ref,
+        risk_decision=risk_decision,
+        approval_idempotency_key=approval_idempotency_key,
+    )
+    auto_allowed_binding: dict[str, Any] | None = None
+    if assessment.get("approval_required") is False:
+        binding = _auto_allowed_binding(
+            state=state,
+            target_merchant_ref=target_merchant_ref,
+            business_fact_refs=business_fact_refs,
+            verified_evidence_refs=evidence_refs,
+            claim_verification_summary=claim_summary,
+            action_payload_hash=action_payload_hash,
+            safety_snapshot_ref=safety_snapshot_ref,
+            safety_snapshot_hash=safety_snapshot_hash,
+            risk_decision_ref=risk_decision_ref,
+            idempotency_key=_auto_allowed_idempotency_key(
+                state=state,
+                proposed_action=proposed_action,
+                action_payload_hash=action_payload_hash,
+                safety_snapshot_hash=safety_snapshot_hash,
+                risk_decision_ref=risk_decision_ref,
+            ),
+        )
+        auto_allowed_binding = binding.model_dump(mode="json") if binding else None
+
+    return {
+        **result,
+        "risk_assessment": assessment,
+        "proposed_action": proposed_action,
+        "action_payload_hash": action_payload_hash,
+        "safety_snapshot_ref": safety_snapshot_ref,
+        "safety_snapshot_hash": safety_snapshot_hash,
+        "target_merchant_id": target_merchant_ref.target_merchant_id,
+        "target_merchant_ref": target_merchant_ref.model_dump(mode="json"),
+        "business_fact_refs": [ref.model_dump(mode="json") for ref in business_fact_refs],
+        "verified_evidence_refs": [ref.model_dump(mode="json") for ref in evidence_refs],
+        "claim_verification_ref": None,
+        "claim_verification_summary": claim_summary,
+        "risk_decision_ref": risk_decision_ref,
+        "risk_decision": risk_decision.model_dump(mode="json"),
+        "approval_idempotency_key": approval_idempotency_key,
+        "approval_plan": approval_plan,
+        "auto_allowed_binding": auto_allowed_binding,
+    }
+
+
 def _allow_ephemeral_snapshot_binding(state: AgentState, config: RunnableConfig | None) -> bool:
     """Allow direct risk-node unit calls to keep deterministic risk output without DB state."""
 
@@ -459,6 +855,27 @@ async def _attach_snapshot_binding(
             evidence_refs=evidence_refs,
         )
         action_payload_hash = compute_action_payload_hash(proposed_action)
+        try:
+            business_fact_refs = _business_fact_refs_from_state(state)
+        except ValidationError as exc:
+            return _phase34_fail_closed_result(
+                result,
+                assessment,
+                reason=f"Business fact binding could not be verified: {exc}",
+            )
+        if (
+            _target_merchant_binding(
+                context=context,
+                proposed_action=proposed_action,
+                business_fact_refs=business_fact_refs,
+            )
+            is None
+        ):
+            return _phase34_fail_closed_result(
+                result,
+                assessment,
+                reason="Target merchant binding could not be verified from business facts.",
+            )
         session = (config or {}).get("configurable", {}).get("session") if config else None
         if session is None and _allow_ephemeral_snapshot_binding(state, config):
             snapshot_id = str(uuid5(NAMESPACE_URL, action_payload_hash))
@@ -474,7 +891,7 @@ async def _attach_snapshot_binding(
                 action_payload_hash=action_payload_hash,
                 created_at=_fixed_millisecond_now(),
             )
-            return {
+            snapshot_result = {
                 **result,
                 "risk_assessment": assessment,
                 "proposed_action": proposed_action,
@@ -489,6 +906,17 @@ async def _attach_snapshot_binding(
                 "retrieval_config_version": _retrieval_config_version(evidence_refs),
                 "evidence_refs": [ref.model_dump(mode="json") for ref in evidence_refs],
             }
+            return _attach_phase34_binding_state(
+                state=state,
+                result=snapshot_result,
+                proposed_action=proposed_action,
+                assessment=assessment,
+                context=context,
+                action_payload_hash=action_payload_hash,
+                safety_snapshot_ref=snapshot.snapshot_ref,
+                safety_snapshot_hash=snapshot.immutable_hash,
+                evidence_refs=evidence_refs,
+            )
         if session is None:
             raise ActionSafetySnapshotPersistenceError("session unavailable for snapshot persistence")
 
@@ -519,13 +947,24 @@ async def _attach_snapshot_binding(
             **result,
             "risk_assessment": safe_assessment,
             "proposed_action": None,
+            "approval_plan": None,
+            "risk_decision": None,
+            "risk_decision_ref": None,
+            "target_merchant_id": None,
+            "target_merchant_ref": None,
+            "business_fact_refs": [],
+            "verified_evidence_refs": [],
+            "claim_verification_ref": None,
+            "claim_verification_summary": None,
+            "approval_idempotency_key": None,
+            "auto_allowed_binding": None,
             "auto_allowed": False,
             "safety_snapshot_verified": False,
-            "final_response": "操作需要人工复核，当前未创建可执行审批或动作草稿。",
+            "final_response": SAFE_MANUAL_REVIEW_RESPONSE,
             "node_errors": (state.get("node_errors") or []) + [{"node": "assess_risk_and_approval", "error": str(exc)}],
         }
 
-    return {
+    snapshot_result = {
         **result,
         "risk_assessment": assessment,
         "proposed_action": proposed_action,
@@ -539,6 +978,17 @@ async def _attach_snapshot_binding(
         "retrieval_config_version": _retrieval_config_version(evidence_refs),
         "evidence_refs": [ref.model_dump(mode="json") for ref in evidence_refs],
     }
+    return _attach_phase34_binding_state(
+        state=state,
+        result=snapshot_result,
+        proposed_action=proposed_action,
+        assessment=assessment,
+        context=context,
+        action_payload_hash=snapshot.action_payload_hash,
+        safety_snapshot_ref=snapshot.safety_snapshot_ref,
+        safety_snapshot_hash=snapshot.safety_snapshot_hash,
+        evidence_refs=evidence_refs,
+    )
 
 
 def _retrieval_config_version(evidence_refs: list[EvidenceRefV1]) -> str:
