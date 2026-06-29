@@ -110,6 +110,11 @@ class WorkingDraftArtifact(BaseModel):
     action_type: str | None = None
     status: str | None = None
     summary: str | None = None
+    target_merchant_id: str | None = None
+    business_fact_ref_count: int = 0
+    verified_evidence_ref_count: int = 0
+    claim_verification_ref: str | None = None
+    risk_decision_ref: str | None = None
 
 
 class WorkingStateV1(BaseModel):
@@ -307,11 +312,23 @@ def _pending_confirmation(state: AgentState) -> dict[str, Any] | None:
 
 
 def _draft_artifact(state: AgentState) -> WorkingDraftArtifact | None:
+    draft = _mapping(state.get("action_draft"))
     artifact = _select_safe_fields(
-        _mapping(state.get("action_draft")), ("draft_id", "action_type", "status", "summary")
+        draft,
+        (
+            "draft_id",
+            "action_type",
+            "status",
+            "summary",
+            "target_merchant_id",
+            "claim_verification_ref",
+            "risk_decision_ref",
+        ),
     )
     if not artifact:
         return None
+    artifact["business_fact_ref_count"] = len(_mapping_sequence(draft.get("business_fact_refs")))
+    artifact["verified_evidence_ref_count"] = len(_mapping_sequence(draft.get("verified_evidence_refs")))
     return WorkingDraftArtifact.model_validate(artifact)
 
 

@@ -392,8 +392,6 @@ async def test_execute_action_blocks_when_approval_result_binding_mismatches_sta
         "target_merchant_id",
         "business_fact_refs",
         "verified_evidence_refs",
-        "claim_verification_ref",
-        "risk_decision_ref",
     ],
 )
 async def test_execute_action_blocks_when_phase34_approval_binding_missing(monkeypatch, missing_field: str):
@@ -401,6 +399,36 @@ async def test_execute_action_blocks_when_phase34_approval_binding_missing(monke
     monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
     state = _approved_state()
     state["approval_result"].pop(missing_field)
+
+    result = await action_draft_module.action_draft(state, _trusted_config(state))
+
+    assert result["action_result"]["status"] == "error"
+    assert result["action_result"]["error"]["error_code"] == "NOT_APPROVED"
+    create_draft.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_execute_action_blocks_when_phase34_approval_claim_binding_missing(monkeypatch):
+    create_draft = AsyncMock()
+    monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
+    state = _approved_state()
+    state["approval_result"].pop("claim_verification_ref")
+    state["approval_result"].pop("claim_verification_summary")
+
+    result = await action_draft_module.action_draft(state, _trusted_config(state))
+
+    assert result["action_result"]["status"] == "error"
+    assert result["action_result"]["error"]["error_code"] == "NOT_APPROVED"
+    create_draft.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_execute_action_blocks_when_phase34_approval_risk_binding_missing(monkeypatch):
+    create_draft = AsyncMock()
+    monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
+    state = _approved_state()
+    state["approval_result"].pop("risk_decision_ref")
+    state["approval_result"].pop("risk_decision")
 
     result = await action_draft_module.action_draft(state, _trusted_config(state))
 

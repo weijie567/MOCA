@@ -8,11 +8,11 @@ from pydantic import ValidationError
 
 from src.actions.schemas import DraftOutcomeV1
 from src.agent.state import AgentState
-from src.approvals.schemas import TrustedApprovalResultV1
-from src.knowledge.schemas import ClaimVerificationBundleV1
+from src.approvals.schemas import AutoAllowedActionBindingV1, RiskDecisionV1, TargetMerchantBindingV1, TrustedApprovalResultV1
+from src.knowledge.schemas import ClaimVerificationBundleV1, EvidenceRefV1
 from src.platform.context_projections import project_to_tool_context
 from src.platform.trusted_context import TrustedContext
-from src.tools.contracts import ToolCallContext, ToolError, ToolResultV2
+from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolError, ToolResultV2
 from src.tools.platform import ToolPlatform
 
 FULL_REFUND_TERMS = ("full_refund", "全额退款", "全额退", "整单退款")
@@ -36,6 +36,9 @@ REQUIRED_APPROVAL_RESULT_FIELDS = (
     "action_payload_hash",
     "safety_snapshot_ref",
     "safety_snapshot_hash",
+    "target_merchant_id",
+    "business_fact_refs",
+    "verified_evidence_refs",
 )
 ACTION_RESULT_COMPATIBILITY_GATE = (
     "Phase 14 action-draft-boundary-owned deprecated compatibility output; replace/remove at "
@@ -268,7 +271,165 @@ def _trusted_approval_result(
         or trusted.safety_snapshot_hash != state.get("safety_snapshot_hash")
     ):
         return None
+    if not _approval_phase34_binding_matches(state, trusted):
+        return None
     return trusted
+
+
+def _approval_phase34_binding_matches(state: AgentState, trusted: TrustedApprovalResultV1) -> bool:
+    try:
+        state_binding = _state_phase34_binding(state)
+        trusted_binding = {
+            "target_merchant_id": trusted.target_merchant_id,
+            "target_merchant_ref": _canonical_target_merchant_ref(trusted.target_merchant_ref),
+            "business_fact_refs": _canonical_business_fact_refs(trusted.business_fact_refs),
+            "verified_evidence_refs": _canonical_evidence_refs(trusted.verified_evidence_refs),
+            "claim_verification_ref": trusted.claim_verification_ref,
+            "claim_verification_summary": _json_safe(trusted.claim_verification_summary),
+            "risk_decision_ref": trusted.risk_decision_ref,
+            "risk_decision": _canonical_risk_decision(trusted.risk_decision),
+        }
+    except (TypeError, ValueError, ValidationError):
+        return False
+    return _phase34_binding_matches(state_binding, trusted_binding)
+
+
+def _trusted_auto_allowed_binding(
+    state: AgentState,
+    trusted_context: TrustedContext | None,
+) -> dict[str, Any] | None:
+    raw_binding = state.get("auto_allowed_binding")
+    if not isinstance(raw_binding, dict):
+        return None
+    try:
+        trusted = AutoAllowedActionBindingV1.model_validate(raw_binding)
+    except ValidationError:
+        return None
+    if not trusted.risk_decision_ref:
+        return None
+    expected_tenant_id = trusted_context.tenant_id if trusted_context is not None else str(state.get("tenant_id") or "")
+    expected_run_id = trusted_context.run_id if trusted_context is not None else str(state.get("current_run_id") or "")
+    if str(trusted.tenant_id) != expected_tenant_id or str(trusted.run_id) != expected_run_id:
+        return None
+    try:
+        state_binding = _state_phase34_binding(state)
+        trusted_binding = {
+            "target_merchant_id": trusted.target_merchant_id,
+            "target_merchant_ref": state_binding["target_merchant_ref"],
+            "business_fact_refs": _canonical_business_fact_refs(trusted.business_fact_refs),
+            "verified_evidence_refs": _canonical_evidence_refs(trusted.verified_evidence_refs),
+            "claim_verification_ref": trusted.claim_verification_ref,
+            "claim_verification_summary": _json_safe(trusted.claim_verification_summary),
+            "risk_decision_ref": trusted.risk_decision_ref,
+            "risk_decision": state_binding["risk_decision"],
+        }
+    except (TypeError, ValueError, ValidationError):
+        return None
+    if not _phase34_binding_matches(state_binding, trusted_binding):
+        return None
+    if (
+        trusted.action_payload_hash != state.get("action_payload_hash")
+        or trusted.safety_snapshot_ref != state.get("safety_snapshot_ref")
+        or trusted.safety_snapshot_hash != state.get("safety_snapshot_hash")
+    ):
+        return None
+    return _json_safe(raw_binding)
+
+
+def _phase34_binding_matches(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    if left["target_merchant_id"] != right["target_merchant_id"]:
+        return False
+    if left["target_merchant_ref"] != right["target_merchant_ref"]:
+        return False
+    if left["business_fact_refs"] != right["business_fact_refs"]:
+        return False
+    if left["verified_evidence_refs"] != right["verified_evidence_refs"]:
+        return False
+    claim_left = bool(left["claim_verification_ref"] or left["claim_verification_summary"])
+    claim_right = bool(right["claim_verification_ref"] or right["claim_verification_summary"])
+    if not (claim_left and claim_right):
+        return False
+    if left["claim_verification_ref"] != right["claim_verification_ref"] and (
+        left["claim_verification_summary"] != right["claim_verification_summary"]
+    ):
+        return False
+    risk_left = bool(left["risk_decision_ref"] or left["risk_decision"])
+    risk_right = bool(right["risk_decision_ref"] or right["risk_decision"])
+    if not (risk_left and risk_right):
+        return False
+    if left["risk_decision_ref"] != right["risk_decision_ref"] and left["risk_decision"] != right["risk_decision"]:
+        return False
+    return True
+
+
+def _state_phase34_binding(state: AgentState) -> dict[str, Any]:
+    return {
+        "target_merchant_id": str(state.get("target_merchant_id") or "") or None,
+        "target_merchant_ref": _canonical_target_merchant_ref(state.get("target_merchant_ref")),
+        "business_fact_refs": _canonical_business_fact_refs(state.get("business_fact_refs")),
+        "verified_evidence_refs": _canonical_evidence_refs(state.get("verified_evidence_refs")),
+        "claim_verification_ref": str(state.get("claim_verification_ref") or "") or None,
+        "claim_verification_summary": _json_safe(state.get("claim_verification_summary")),
+        "risk_decision_ref": str(state.get("risk_decision_ref") or "") or None,
+        "risk_decision": _canonical_risk_decision(state.get("risk_decision")),
+    }
+
+
+def _phase34_tool_args(state: AgentState, auto_allowed_binding: dict[str, Any] | None) -> dict[str, Any]:
+    args = {
+        "target_merchant_id": state.get("target_merchant_id"),
+        "target_merchant_ref": _json_safe(state.get("target_merchant_ref")),
+        "business_fact_refs": _json_safe_list(state.get("business_fact_refs")),
+        "verified_evidence_refs": _json_safe_list(state.get("verified_evidence_refs")),
+        "claim_verification_ref": state.get("claim_verification_ref"),
+        "claim_verification_summary": _json_safe(state.get("claim_verification_summary")),
+        "risk_decision_ref": state.get("risk_decision_ref"),
+        "risk_decision": _json_safe(state.get("risk_decision")),
+    }
+    if auto_allowed_binding is not None:
+        args["auto_allowed_binding"] = auto_allowed_binding
+    return {key: value for key, value in args.items() if value is not None}
+
+
+def _canonical_target_merchant_ref(value: Any) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    return TargetMerchantBindingV1.model_validate(_json_safe(value)).model_dump(mode="json")
+
+
+def _canonical_business_fact_refs(value: Any) -> list[dict[str, Any]]:
+    return [BusinessFactRefV1.model_validate(_json_safe(ref)).model_dump(mode="json") for ref in _list_value(value)]
+
+
+def _canonical_evidence_refs(value: Any) -> list[dict[str, Any]]:
+    return [EvidenceRefV1.model_validate(_json_safe(ref)).model_dump(mode="json") for ref in _list_value(value)]
+
+
+def _canonical_risk_decision(value: Any) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    return RiskDecisionV1.model_validate(_json_safe(value)).model_dump(mode="json")
+
+
+def _list_value(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def _json_safe_list(value: Any) -> list[Any]:
+    safe = _json_safe(value)
+    return safe if isinstance(safe, list) else []
+
+
+def _json_safe(value: Any) -> Any:
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json", exclude_none=True)
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items() if item is not None}
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value
 
 
 async def action_draft(state: AgentState, config: RunnableConfig) -> dict:
@@ -293,6 +454,7 @@ async def action_draft(state: AgentState, config: RunnableConfig) -> dict:
     configurable = config.get("configurable") or {}
     trusted_context = _trusted_context_from_config(configurable)
     approval_accepted = _approval_result_is_action_authorizing(state, approval, trusted_context)
+    auto_allowed_binding = None if approval_accepted else _trusted_auto_allowed_binding(state, trusted_context)
 
     if risk.get("approval_required") and not approval_accepted:
         return {
@@ -307,7 +469,7 @@ async def action_draft(state: AgentState, config: RunnableConfig) -> dict:
             },
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("error", started_at)],
         }
-    if not approval_accepted:
+    if not approval_accepted and auto_allowed_binding is None:
         return {
             "action_result": {
                 "status": "error",
@@ -370,6 +532,7 @@ async def action_draft(state: AgentState, config: RunnableConfig) -> dict:
         "action_payload_hash": action_payload_hash,
         "safety_snapshot_ref": safety_snapshot_ref,
         "safety_snapshot_hash": safety_snapshot_hash,
+        **_phase34_tool_args(state, auto_allowed_binding),
     }
     if approval_id:
         args["approval_request_id"] = approval_id
