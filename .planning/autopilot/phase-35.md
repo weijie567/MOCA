@@ -1,10 +1,10 @@
 ---
 phase: "35"
 status: running
-current_step: code_review
+current_step: secure
 plan_review_loop: 2
 quota_waits: 0
-updated_at: "2026-06-29T16:34:17Z"
+updated_at: "2026-06-29T17:16:10Z"
 next_command: "$gsd-phase-autopilot --resume"
 ---
 
@@ -24,6 +24,8 @@ next_command: "$gsd-phase-autopilot --resume"
 - Stage 4 re-review: second Claude review found no actionable blockers; small warnings were repaired.
 - Stage 4 final plan-checker: passed after repairs; APF-17/APF-18 covered, six-plan order valid, no blockers or warnings remain.
 - Stage 5 execute: completed all six plans in dependency order. ROADMAP shows Phase 35 `6/6 plans complete`; STATE is in verification state.
+- Stage 6 code review/fix: deep review found five issues, the GSD fixer repaired them, a stale release-gate coverage hash was corrected, and final deep re-review is clean.
+- Stage 7 verify-work: completed automated UAT with 8/8 checks passed and 0 issues.
 
 ## Evidence
 
@@ -41,6 +43,10 @@ next_command: "$gsd-phase-autopilot --resume"
 - Execution commits completed through `f912c5a docs(35-06): complete final closure plan`.
 - `35-VALIDATION.md` records APF-17/APF-18 covered, replay/eval/API/agent focused pytest evidence, scoped ruff, matrix path audit, no-scope-creep checks, redaction limitation, and MVP scope notes.
 - Final execution spot-check: `git status --short` clean; created summaries `35-01` through `35-06`; ROADMAP shows all six plans checked.
+- Code review/fix commits completed through `80b6788 docs(35): add clean code review fix report`; final `35-REVIEW.md` status is `clean`.
+- Final code-review verification: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_trace.py tests/architecture/test_phase35_replay_eval_boundaries.py tests/eval/test_phase35_release_monitoring_manifests.py tests/eval/test_phase35_replay_eval_gates.py tests/replay/test_phase35_coverage_matrix.py tests/replay/test_phase35_operation_identity.py tests/replay/test_phase35_redaction_negatives.py tests/replay/test_phase35_terminal_timelines.py tests/replay/test_phase35_trace_replay_permissions.py -q --tb=short` -> `122 passed, 1 warning in 41.45s`.
+- Verify-work UAT commit `b5584d6`: `35-UAT.md` status `complete`; 8 passed, 0 issues; repeated aggregate verification command passed with `122 passed, 1 warning in 40.20s`.
+- Artifact open-item scan after UAT found no Phase 35 UAT gaps, verification gaps, or open context questions; the only open item is an unrelated historical planning todo.
 
 ## Last Failure
 
