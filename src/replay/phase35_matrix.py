@@ -56,7 +56,16 @@ APPROVED_PYTEST_ENTRYPOINTS = (
     ".venv/bin/pytest",
     ".venv/bin/python -m pytest",
 )
-PYTEST_ENTRYPOINT_RE = re.compile(r"(^|[\s`;&|])(?:python\s+-m\s+pytest|pytest)(?=\s|$)")
+PYTEST_ENTRYPOINT_RE = re.compile(
+    r"(^|[\s`;&|])"
+    r"(?P<entrypoint>"
+    r"(?:UV_CACHE_DIR=\S+\s+)?uv\s+run\s+pytest"
+    r"|\.venv/bin/pytest"
+    r"|\.venv/bin/python\s+-m\s+pytest"
+    r"|python\s+-m\s+pytest"
+    r"|pytest"
+    r")(?=\s|$)"
+)
 
 
 class Phase35DecisionAssertion(BaseModel):
@@ -201,9 +210,15 @@ def _validate_no_unscoped_pytest_entrypoint(value: Any, location: str, errors: l
 def _contains_unscoped_pytest_entrypoint(value: str) -> bool:
     if "pytest" not in value:
         return False
-    if any(entrypoint in value for entrypoint in APPROVED_PYTEST_ENTRYPOINTS):
-        return False
-    return bool(PYTEST_ENTRYPOINT_RE.search(value))
+    return any(
+        not _is_approved_pytest_entrypoint(match.group("entrypoint"))
+        for match in PYTEST_ENTRYPOINT_RE.finditer(value)
+    )
+
+
+def _is_approved_pytest_entrypoint(entrypoint: str) -> bool:
+    normalized = " ".join(entrypoint.strip().split())
+    return normalized in APPROVED_PYTEST_ENTRYPOINTS
 
 
 def dump_phase35_matrix_json(matrix: Phase35CoverageMatrix) -> str:

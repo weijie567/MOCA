@@ -55,7 +55,16 @@ APPROVED_PYTEST_ENTRYPOINTS = (
     ".venv/bin/pytest ",
     ".venv/bin/python -m pytest ",
 )
-BARE_PYTEST_RE = re.compile(r"(^|[\s;&|])(?:pytest|python\s+-m\s+pytest)(?=\s|$)")
+PYTEST_ENTRYPOINT_RE = re.compile(
+    r"(^|[\s`;&|])"
+    r"(?P<entrypoint>"
+    r"(?:UV_CACHE_DIR=\S+\s+)?uv\s+run\s+pytest"
+    r"|\.venv/bin/pytest"
+    r"|\.venv/bin/python\s+-m\s+pytest"
+    r"|python\s+-m\s+pytest"
+    r"|pytest"
+    r")(?=\s|$)"
+)
 ALLOWED_TEST_ROOTS = {
     "tests/replay/",
     "tests/eval/",
@@ -200,9 +209,15 @@ def _validate_required_commands(manifest: Phase35DevContractManifest, errors: li
 
 
 def _contains_bare_pytest(command: str) -> bool:
-    if any(command.startswith(prefix) for prefix in APPROVED_PYTEST_ENTRYPOINTS):
-        return False
-    return bool(BARE_PYTEST_RE.search(command))
+    return any(
+        not _is_approved_pytest_entrypoint(match.group("entrypoint"))
+        for match in PYTEST_ENTRYPOINT_RE.finditer(command)
+    )
+
+
+def _is_approved_pytest_entrypoint(entrypoint: str) -> bool:
+    normalized = " ".join(entrypoint.strip().split())
+    return normalized in {prefix.strip() for prefix in APPROVED_PYTEST_ENTRYPOINTS}
 
 
 def _validate_non_blocking_gate_refs(manifest: Phase35DevContractManifest, errors: list[str]) -> None:

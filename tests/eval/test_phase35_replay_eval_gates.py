@@ -102,6 +102,25 @@ def test_required_commands_use_moca_approved_project_entrypoints():
         assert not command.startswith("pytest ")
 
 
+def test_required_commands_reject_chained_bare_pytest_entrypoints():
+    manifest = load_dev_contract_manifest(MANIFEST)
+    commands = [
+        (
+            "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay/test_phase35_operation_identity.py; "
+            "pytest tests/replay/test_leak.py"
+        ),
+        (
+            "uv run pytest tests/eval/test_phase35_replay_eval_gates.py && "
+            "python -m pytest tests/eval/test_leak.py"
+        ),
+    ]
+    drifted = manifest.model_copy(update={"required_test_commands": commands})
+
+    errors = validate_dev_contract_manifest(drifted)
+
+    assert sum("required_test_commands contains bare pytest entrypoint" in error for error in errors) == 2
+
+
 def test_stale_coverage_matrix_hash_fails_validation():
     manifest = load_dev_contract_manifest(MANIFEST)
     stale = manifest.model_copy(update={"coverage_matrix_hash": "sha256:stale"})

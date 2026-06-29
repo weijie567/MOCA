@@ -216,6 +216,26 @@ def test_phase35_matrix_has_focused_left_half_decision_assertions() -> None:
             lambda raw: _first_row(raw)["acceptance_tests"].append("pytest tests/replay/test_leak.py"),
             "unscoped pytest entrypoint",
         ),
+        (
+            lambda raw: _first_row(raw).__setitem__(
+                "notes",
+                (
+                    "Run `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay/test_ok.py` before "
+                    "`pytest tests/replay/test_leak.py`"
+                ),
+            ),
+            "unscoped pytest entrypoint",
+        ),
+        (
+            lambda raw: _first_row(raw).__setitem__(
+                "notes",
+                (
+                    "Run `uv run pytest tests/replay/test_ok.py && "
+                    "python -m pytest tests/replay/test_leak.py`"
+                ),
+            ),
+            "unscoped pytest entrypoint",
+        ),
     ],
 )
 def test_phase35_matrix_validator_reports_contract_drift(
