@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
 status: executing
-stopped_at: Completed 35-02-PLAN.md
-last_updated: "2026-06-29T15:16:29.842Z"
+stopped_at: Completed 35-03-PLAN.md
+last_updated: "2026-06-29T15:38:52.563Z"
 last_activity: 2026-06-29
 progress:
   total_phases: 12
   completed_phases: 10
   total_plans: 50
-  completed_plans: 46
-  percent: 92
+  completed_plans: 47
+  percent: 94
 ---
 
 # Project State: MOCA
@@ -27,11 +27,11 @@ See: `.planning/PROJECT.md` (updated 2026-06-29)
 
 Phase: 35 (replay-and-eval-hardening) — EXECUTING
 Next roadmap item: Phase 35 — Replay and Eval Hardening
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Ready to execute
 Last activity: 2026-06-29
 
-Progress: [█████████░] 92%
+Progress: [█████████░] 94%
 
 Planning files:
 
@@ -68,10 +68,10 @@ Planning files:
 | 32. Intent Graph Migration | 5/5 | Complete |
 | 33. RAG Context Build and Claim Verification | 9/9 | Complete |
 | 34. Approval and ActionDraft Boundary Hardening | 6/6 | Complete |
-| 35. Replay and Eval Hardening | 2/6 | In Progress |
+| 35. Replay and Eval Hardening | 3/6 | In Progress |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
-Latest execution metric: Phase 35 P35-02 — 23 min, 2 tasks, 4 files; proof/permission pytest and ruff verification passed.
+Latest execution metric: Phase 35 P35-03 — 15 min, 2 tasks, 8 files; replay timeline/identity/redaction pytest and ruff verification passed.
 | Phase 29.5 P01 | 35min | 2 tasks | 5 files |
 | Phase 29.5 P02 | 5min | 2 tasks | 5 files |
 | Phase 29.5 P03 | 34min | 2 tasks | 13 files |
@@ -103,6 +103,7 @@ Latest execution metric: Phase 35 P35-02 — 23 min, 2 tasks, 4 files; proof/per
 | Phase 34 P34-06 | 24 min | 2 tasks | 3 files |
 | Phase 35 P35-01 | 12 min | 2 tasks | 4 files |
 | Phase 35 P35-02 | 23 min | 2 tasks | 4 files |
+| Phase 35 P35-03 | 15 min | 2 tasks | 8 files |
 
 ## Quick Tasks Completed
 
@@ -187,6 +188,9 @@ Latest execution metric: Phase 35 P35-02 — 23 min, 2 tasks, 4 files; proof/per
 - Replay authorization proof is projection-only evidence and is not wired into trace, replay, or AgentRun authorization guards.
 - Phase 35 keeps business-data run/trace/replay/status/evidence/stream access closed to owner/admin visibility, with stream execution still owner-only.
 - Approval views, tool result records, memory, trace detail, run listing, and replay artifacts are tracked as unchanged non-widening regression surfaces.
+- Phase 35 Plan 35-03 uses existing replay event types only; no replay registry, ORM constraint, or migration event-type expansion was introduced.
+- Phase 35 Plan 35-03 approval expired timeline fixtures use the existing minimal-envelope approval event shape instead of treating approval lifecycle events as V3 operations.
+- Phase 35 Plan 35-03 replay response projection preserves explicit null fields inside timeline events while omitting absent top-level rag_claim_summary.
 
 ### Roadmap Evolution
 
@@ -228,8 +232,8 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-29T15:16:29.832Z
-Stopped at: Completed 35-02-PLAN.md
+Last session: 2026-06-29T15:38:52.555Z
+Stopped at: Completed 35-03-PLAN.md
 Resume file: None
 Next: Phase 35 — Replay and Eval Hardening; old phase directory archive remains a separate cleanup todo.
 
