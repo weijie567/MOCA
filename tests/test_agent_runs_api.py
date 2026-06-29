@@ -279,12 +279,14 @@ class SpoofInterruptInvokeGraph:
         checkpoint_run_id: str | None = None,
         proposed_action_run_id: str | None = None,
         proposed_action_tenant_id: str | None = None,
+        target_merchant_id: str = "merchant-phase34",
         raise_interrupt: bool = False,
     ) -> None:
         self.interrupt_run_id = interrupt_run_id
         self.checkpoint_run_id = checkpoint_run_id
         self.proposed_action_run_id = proposed_action_run_id
         self.proposed_action_tenant_id = proposed_action_tenant_id
+        self.target_merchant_id = target_merchant_id
         self.raise_interrupt = raise_interrupt
         self.calls: list[tuple[object, dict]] = []
         self.state_calls: list[dict] = []
@@ -351,6 +353,15 @@ class SpoofInterruptInvokeGraph:
             "risk_rule_ref": "RISK-COMP-001",
             "expires_at": datetime.now(UTC).isoformat(),
         }
+        payload.update(
+            _phase34_interrupt_bindings(
+                input_state=input_state,
+                proposed_action=proposed_action,
+                action_payload_hash=snapshot.action_payload_hash,
+                evidence_ref=evidence_ref.model_dump(mode="json", exclude_none=True),
+                target_merchant_id=self.target_merchant_id,
+            )
+        )
         if self.interrupt_run_id is not None:
             payload["run_id"] = self.interrupt_run_id
         return payload
@@ -485,9 +496,11 @@ class StreamInterruptGraph:
         *,
         proposed_action_run_id: str | None = None,
         proposed_action_tenant_id: str | None = None,
+        target_merchant_id: str = "merchant-phase34",
     ) -> None:
         self.proposed_action_run_id = proposed_action_run_id
         self.proposed_action_tenant_id = proposed_action_tenant_id
+        self.target_merchant_id = target_merchant_id
 
     async def astream(self, input_state, config, stream_mode):
         evidence_ref = EvidenceRefV1.build(
@@ -575,6 +588,13 @@ class StreamInterruptGraph:
                         "risk_reason": "Compensation amount exceeds threshold.",
                         "risk_rule_ref": "RISK-COMP-001",
                         "expires_at": datetime.now(UTC).isoformat(),
+                        **_phase34_interrupt_bindings(
+                            input_state=input_state,
+                            proposed_action=proposed_action,
+                            action_payload_hash=snapshot.action_payload_hash,
+                            evidence_ref=evidence_ref.model_dump(mode="json", exclude_none=True),
+                            target_merchant_id=self.target_merchant_id,
+                        ),
                     }
                 ),
             ),
@@ -602,6 +622,71 @@ def _evidence_ref(tenant_id: str, order_id: str) -> EvidenceRefV1:
         retrieval_config_version="retrieval.v1",
         rank=1,
     )
+
+
+def _phase34_interrupt_bindings(
+    *,
+    input_state: dict,
+    proposed_action: dict,
+    action_payload_hash: str,
+    evidence_ref: dict,
+    target_merchant_id: str,
+) -> dict:
+    business_fact_ref = BusinessFactRefV1(
+        tenant_id=input_state["tenant_id"],
+        source_system="business_fact_service",
+        resource_type="order",
+        resource_id=proposed_action["target_id"],
+        resource_version="order.v1",
+        data_freshness_at=_fixed_ms_now(),
+        retrieved_at=_fixed_ms_now(),
+    ).model_dump(mode="json")
+    risk_decision = {
+        "schema_version": "risk_decision.v1",
+        "tenant_id": input_state["tenant_id"],
+        "run_id": input_state["current_run_id"],
+        "action_id": proposed_action["action_id"],
+        "action_payload_hash": action_payload_hash,
+        "risk_level": "high",
+        "reason_codes": ["approval_required", "amount_threshold"],
+        "policy_config_version": "approval-policy.v1",
+        "risk_config_version": "risk-rules.v1",
+        "approval_required": True,
+        "evaluated_at": _fixed_ms_iso_z(),
+        "risk_rule_ref": "RISK-COMP-001",
+        "risk_reason": "Compensation amount exceeds threshold.",
+    }
+    return {
+        "approval_plan": {
+            "schema_version": "approval_plan.v1",
+            "approval_required": True,
+            "route": "approval_gate",
+            "policy_id": "default-approval-policy",
+            "risk_level": "high",
+            "reason_codes": ["approval_required", "amount_threshold"],
+            "approval_idempotency_key": f"approval:{input_state['tenant_id']}:{input_state['current_run_id']}",
+        },
+        "target_merchant_id": target_merchant_id,
+        "target_merchant_ref": {
+            "schema_version": "target_merchant_binding.v1",
+            "target_merchant_id": target_merchant_id,
+            "source": "business_fact_ref",
+            "business_fact_ref": business_fact_ref,
+        },
+        "business_fact_refs": [business_fact_ref],
+        "verified_evidence_refs": [evidence_ref],
+        "claim_verification_ref": f"claim_verification:{input_state['current_run_id']}:r1",
+        "claim_verification_summary": {
+            "schema_version": "claim_verification_summary.v1",
+            "overall_status": "verified",
+            "safe_support_ref_count": 1,
+            "blocked_claim_count": 0,
+            "reason_codes": [],
+        },
+        "risk_decision_ref": f"risk_decision:{input_state['current_run_id']}:r1",
+        "risk_decision": risk_decision,
+        "approval_idempotency_key": f"approval:{input_state['tenant_id']}:{input_state['current_run_id']}",
+    }
 
 
 def _trace(node: str) -> dict:
@@ -1532,11 +1617,12 @@ async def test_event_generator_treats_stream_interrupt_node_as_approval_required
     seeded_session,
 ):
     user = seeded_session["users"]["cs_zhang"]
+    target_merchant_id = str(seeded_session["merchant"].id)
     run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
     await session.commit()
 
     generator = _event_generator(
-        StreamInterruptGraph(),
+        StreamInterruptGraph(target_merchant_id=target_merchant_id),
         _stream_input(run, user),
         {"configurable": {"thread_id": run.thread_id, "session": session}},
         run=run,
@@ -1591,6 +1677,21 @@ async def test_event_generator_treats_stream_interrupt_node_as_approval_required
     assert approval.status == "pending"
     assert approval.risk_level == "high"
     assert approval.proposed_action["amount"] == "600.00"
+    assert approval.target_merchant_id == target_merchant_id
+    assert approval.target_merchant_ref["target_merchant_id"] == target_merchant_id
+    assert approval.business_fact_refs[0]["resource_id"] == "ORD-2024-001"
+    assert approval.verified_evidence_refs[0]["evidence_id"] == "refund_policy/refund_policy_001@v1"
+    assert approval.claim_verification_ref == f"claim_verification:{run.id}:r1"
+    assert approval.claim_verification_summary == {
+        "schema_version": "claim_verification_summary.v1",
+        "overall_status": "verified",
+        "safe_support_ref_count": 1,
+        "blocked_claim_count": 0,
+        "reason_codes": [],
+    }
+    assert approval.risk_decision_ref == f"risk_decision:{run.id}:r1"
+    assert approval.risk_decision["action_payload_hash"] == approval.action_payload_hash
+    assert approval.approval_idempotency_key == f"approval:{user.tenant_id}:{run.id}"
     assert [row.redacted_payload["status"] for row in lifecycle_rows] == ["running", "interrupted"]
 
 
@@ -1800,11 +1901,13 @@ async def test_agent_chat_interrupt_uses_trusted_run_id_when_payload_and_checkpo
     raise_interrupt: bool,
 ):
     user = seeded_session["users"]["cs_zhang"]
+    target_merchant_id = str(seeded_session["merchant"].id)
     spoof_payload_run_id = uuid4()
     spoof_checkpoint_run_id = uuid4()
     graph = SpoofInterruptInvokeGraph(
         interrupt_run_id=str(spoof_payload_run_id),
         checkpoint_run_id=str(spoof_checkpoint_run_id),
+        target_merchant_id=target_merchant_id,
         raise_interrupt=raise_interrupt,
     )
     monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
@@ -1836,6 +1939,13 @@ async def test_agent_chat_interrupt_uses_trusted_run_id_when_payload_and_checkpo
     assert trusted_run.final_status == "interrupted"
     assert trusted_approval.run_id == trusted_run_id
     assert trusted_approval.proposed_action["run_id"] == trusted_context.run_id
+    assert trusted_approval.target_merchant_id == target_merchant_id
+    assert trusted_approval.business_fact_refs[0]["resource_id"] == "ORD-2024-001"
+    assert trusted_approval.verified_evidence_refs[0]["doc_key"] == "refund_policy"
+    assert trusted_approval.claim_verification_ref == f"claim_verification:{trusted_run_id}:r1"
+    assert trusted_approval.risk_decision_ref == f"risk_decision:{trusted_run_id}:r1"
+    assert trusted_approval.risk_decision["run_id"] == trusted_context.run_id
+    assert trusted_approval.approval_idempotency_key == f"approval:{user.tenant_id}:{trusted_context.run_id}"
     assert spoof_payload_run is None
     assert spoof_checkpoint_run is None
     assert await _count_rows(session, ApprovalRequest, ApprovalRequest.run_id == spoof_payload_run_id) == 0
