@@ -1,6 +1,6 @@
 ---
 phase: 33-rag-context-build-and-claim-verification
-reviewed: 2026-06-28T21:51:31Z
+reviewed: 2026-06-29T00:55:39Z
 depth: standard
 files_reviewed: 55
 files_reviewed_list:
@@ -61,75 +61,66 @@ files_reviewed_list:
   - tests/test_trace_api.py
 findings:
   critical: 0
-  warning: 2
+  warning: 1
   info: 0
-  total: 2
+  total: 1
 status: issues_found
 ---
 
 # Phase 33: Code Review Report
 
-**Reviewed:** 2026-06-28T21:51:31Z
+**Reviewed:** 2026-06-29T00:55:39Z
 **Depth:** standard
 **Files Reviewed:** 55
 **Status:** issues_found
 
 ## Summary
 
-Reviewed the Phase 33 source and test scope for APF-13/APF-14 contract boundaries, tenant isolation, routing, fail-closed behavior, trace/API/replay projections, and focused test coverage. The RAG package build, claim verifier service, safe summary projection, replay sanitization, and tenant-scoped API guards are generally well covered. I found two correctness gaps that can allow action-capable outputs or evidence projections to bypass the intended Phase 33 boundaries.
+按 standard 深度审查了 Phase 33 的 RAG context build、material claim 校验、路由、最终响应、trace/API/replay 投影以及相关测试。当前代码已经覆盖了 verified action recommendation 进入 risk gate、stale evidence ref 不进入 generation/final trace 等边界；本轮发现 1 个仍然成立的 correctness 问题：action claim 的 policy/business 依赖类型依赖 `claim_id` 命名约定，可能误拦截合法 canonical claims。
 
-Tests were not executed as part of this read-only review.
+验证时使用了 `uv run python` 做最小复现；未运行完整 pytest 套件。
 
 ## Warnings
 
-### WR-01: Verified action recommendation claims can skip the risk and snapshot gate
+### WR-01: Action claim dependency role is inferred from opaque claim_id
 
-**File:** `/Users/ming/projects/MOCA/src/agent/routing.py:355`
-**Issue:** `_route_after_claim_verify` only routes a verified `continue` bundle into `assess_risk_and_approval` when `proposed_action` already exists or a high/critical risk signal is present. Phase 33 generation no longer owns `proposed_action`; it emits `action_recommendation` material claims from actionable drafts in `generate_recommendation.py:652-675`, and `assess_risk_and_approval` is the node that turns an actionable `recommendation_draft` into a `proposed_action`. A low or medium risk verified draft such as `issue_coupon` therefore routes directly to `final_response`, bypassing the risk node and safety snapshot creation even though APF-14 treats action recommendations as claim-gated action-capable output. Current tests cover `proposed_action` and high-risk paths, but not a verified action material claim with no existing `proposed_action`.
+**File:** `/Users/ming/projects/MOCA/src/agent/rag_context/verifier.py:933`
+**Issue:** `_action_dependency_reason_codes` 通过 `dependency_claim_ids` 字符串里是否包含 `policy` / `business` 来判断 action recommendation 是否具备 policy 和 business 依赖。但 `MaterialClaimV1.claim_id` 在 `/Users/ming/projects/MOCA/src/knowledge/schemas.py:151` 只是普通字符串，契约没有要求 ID 必须携带类型；`/Users/ming/projects/MOCA/src/knowledge/service.py:557` 写入 `dependency_results` 时也只保留 `claim_id` 和 `outcome`，而 `_legacy_claim_from_material_v1` 在 `/Users/ming/projects/MOCA/src/knowledge/service.py:972` 只把 policy/business claim 的 ID 放进 action 依赖，丢失了原始 `claim_type`。因此当合法 claims 使用 `c1` / `c2` / `c3` 这类 opaque ID 时，policy 与 business 依赖已经是 `supported`，action claim 仍会被追加 `policy_dependency_required` 和 `business_dependency_required`，最终变成 `blocked -> final_response`。我用最小 `uv run python` 复现得到：`c1 supported`、`c2 supported`、`c3 unsupported`，bundle reason codes 包含 `policy_dependency_required` 与 `business_dependency_required`。
 **Fix:**
 ```python
-def _has_verified_action_recommendation(state: AgentState) -> bool:
-    bundle = _claim_verification_bundle(state)
-    for raw_result in bundle.get("claim_results") or []:
-        result = raw_result if isinstance(raw_result, dict) else {}
-        if (
-            result.get("claim_type") == "action_recommendation"
-            and result.get("allows_action_recommendation") is True
-        ):
-            return True
-    return _recommendation_draft_is_actionable(state)
-
-
-def _route_after_claim_verify(state: AgentState) -> str:
-    ...
-    if _has_proposed_action(state) or _has_risk_signal(state) or _has_verified_action_recommendation(state):
-        return "assess_risk_and_approval"
-    return "final_response"
+# src/knowledge/service.py
+dependency_results.append(
+    {
+        "claim_id": claim.claim_id,
+        "claim_type": claim.claim_type,
+        "outcome": _outcome_value(result.outcome),
+    }
+)
 ```
-Add a regression test where `recommendation_draft.recommended_action == "issue_coupon"` and the verified bundle contains an allowed `action_recommendation` result but no `proposed_action`; the expected route should be `assess_risk_and_approval`.
 
-### WR-02: Final response trace evidence can still be resolved from stale or candidate refs
-
-**File:** `/Users/ming/projects/MOCA/src/agent/nodes/final_response.py:137`
-**Issue:** `_final_response_evidence_refs` resolves displayed/persisted trace evidence from `state["evidence_refs"]`, `policy_evidence`, and `retrieved_evidence.evidence_refs` by `(doc_key, chunk_id)` before writing the final response trace step. `receive_request` does not reset durable `evidence_refs`, and `generate_recommendation.py:259` prepends existing state refs before the current verified refs. A stale prior-turn ref or candidate ref with the same `doc_key/chunk_id` can therefore win the `setdefault` lookup and be persisted in the final response `trace_steps`; `/agent-runs/{run_id}/evidence` later returns persisted step evidence refs. This is outside the prompt/action snapshot protections already added, but it still exposes ordinary trace/API evidence from unverified or stale state instead of the Phase 33 verified package/safe-support boundary.
-**Fix:**
 ```python
-def _state_evidence_ref_candidates(state: AgentState) -> list[dict[str, Any]]:
-    safe_refs = _safe_support_refs_from_claim_bundle(state)
-    if safe_refs:
-        return safe_refs
-
-    package = _verified_package_from_state(state)
-    if package and package.get("status") in {"verified", "partial"}:
-        evidence_map = package.get("evidence_map") or {}
-        return [ref for ref in evidence_map.values() if isinstance(ref, dict)]
-
-    return []
+# src/agent/rag_context/verifier.py
+dependencies = {
+    str(item.get("claim_id")): {
+        "claim_type": str(item.get("claim_type") or ""),
+        "outcome": str(item.get("outcome") or ""),
+    }
+    for item in dependency_results
+    if item.get("claim_id")
+}
+required_roles = {
+    "policy"
+    if dependencies[dep]["claim_type"] == "policy"
+    else "business"
+    for dep in claim.dependency_claim_ids
+    if dep in dependencies and dependencies[dep]["claim_type"] in {"policy", "business_fact"}
+}
 ```
-Also stop carrying old refs into the current generation result, for example by replacing `merged_refs = _merge_evidence_refs(state.get("evidence_refs"), validated_refs)` with current verified refs only, or by resetting `evidence_refs` at `receive_request` if no longer needed as durable state. Add regression coverage where stale `state["evidence_refs"]` and candidate `retrieved_evidence.evidence_refs` share the current draft citation key but must not appear in final response trace evidence or the run evidence endpoint.
+
+保留基于 ID substring 的 fallback 只能作为 legacy 兼容，不能作为 canonical 路径的唯一判定。建议新增回归测试：`MaterialClaimV1(claim_id="c1", claim_type="policy")`、`claim_id="c2", claim_type="business_fact"`、`claim_id="c3", claim_type="action_recommendation"` 在依赖均 supported 时应 `route == "continue"` 且 `blocked_claims == []`。
 
 ---
 
-_Reviewed: 2026-06-28T21:51:31Z_
+_Reviewed: 2026-06-29T00:55:39Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
