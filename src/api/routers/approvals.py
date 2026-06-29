@@ -39,7 +39,7 @@ from src.platform.trusted_context import TrustedContext, TrustedContextFactory
 
 router = APIRouter(tags=["approvals"])
 
-APPROVAL_ROLES = {"admin"}
+APPROVAL_ROLES = {"admin", "manager"}
 RESUMABLE_DECISIONS = {"accept", "approve", "reject", "ignore"}
 RESUME_TERMINAL_STATUSES = {"approved", "rejected", "cancelled"}
 RESUME_INCOMPLETE_STATUSES = {"attempted", "failed"}
@@ -72,6 +72,7 @@ async def decide_approval(
         approval = await session.get(ApprovalRequest, retry_result.approval_id)
         if approval is None:
             raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Approval not found"})
+        _assert_approval_scope(user, approval)
         if approval.requested_by == user.id:
             raise HTTPException(
                 status_code=403, detail={"code": "SELF_APPROVAL", "message": "Cannot approve own request"}
@@ -98,6 +99,7 @@ async def decide_approval(
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Approval not found"})
 
     approval = context.request
+    _assert_approval_scope(user, approval)
     if approval.requested_by == user.id:
         raise HTTPException(status_code=403, detail={"code": "SELF_APPROVAL", "message": "Cannot approve own request"})
 
@@ -156,6 +158,11 @@ async def attach_approval_info(
     _assert_approval_reviewer(user)
 
     approval_uuid = _parse_approval_id(approval_id)
+    service = ApprovalService(session)
+    approval = await service.get_request(approval_uuid, user.tenant_id)
+    if approval is None:
+        raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Approval not found"})
+    _assert_approval_scope(user, approval)
     command = ApprovalInfoCommand(
         approval_id=approval_uuid,
         clarification_request_id=body.clarification_request_id,
@@ -170,7 +177,6 @@ async def attach_approval_info(
         info_payload=body.info_payload,
     )
 
-    service = ApprovalService(session)
     try:
         result = await service.attach_info(command)
     except ApprovalTransitionError as exc:
@@ -199,6 +205,7 @@ async def get_approval(
     approval = await ApprovalService(session).get_request(_parse_approval_id(approval_id), user.tenant_id)
     if not approval:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Approval not found"})
+    _assert_approval_scope(user, approval)
     return ApiResponse(
         success=True,
         data=_to_response(approval).model_dump(mode="json"),
@@ -214,6 +221,7 @@ async def list_pending_approvals(
 ) -> ApiResponse:
     _assert_approval_reviewer(user)
     approvals = await ApprovalService(session).list_pending_requests(user.tenant_id)
+    approvals = [approval for approval in approvals if _approval_scope_allowed(user, approval)]
     payload = ApprovalListResponse(approvals=[_to_response(approval) for approval in approvals], total=len(approvals))
     return ApiResponse(
         success=True, data=payload.model_dump(mode="json"), trace_id=getattr(request.state, "trace_id", None)
@@ -653,6 +661,27 @@ def _assert_approval_reviewer(user: User) -> None:
             status_code=403,
             detail={"code": "FORBIDDEN", "message": "Insufficient role for approval"},
         )
+
+
+def _approval_scope_allowed(user: User, approval: ApprovalRequest) -> bool:
+    if user.role == "admin":
+        return True
+    if user.role == "manager":
+        return bool(
+            approval.target_merchant_id
+            and user.merchant_id
+            and str(approval.target_merchant_id) == str(user.merchant_id)
+        )
+    return False
+
+
+def _assert_approval_scope(user: User, approval: ApprovalRequest) -> None:
+    if _approval_scope_allowed(user, approval):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail={"code": "FORBIDDEN", "message": "Approval target merchant is outside actor scope"},
+    )
 
 
 def _approval_binding_fields(approval: ApprovalRequest) -> dict[str, object]:

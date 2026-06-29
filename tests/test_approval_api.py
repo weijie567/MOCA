@@ -889,10 +889,11 @@ async def test_manager_approval_review_paths_deny_cross_merchant(
     seeded_session,
     monkeypatch,
 ):
+    other_support = seeded_session["users"]["cs_other_merchant"]
     bundle = await _create_approval(
         session,
         seeded_session,
-        requested_by=seeded_session["users"]["cs_other_merchant"],
+        requested_by=other_support,
         thread_id="thread-manager-cross-deny",
     )
     monkeypatch.setattr(app.state, "agent_graph", FakeResumeGraph(), raising=False)
