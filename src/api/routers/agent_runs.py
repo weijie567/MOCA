@@ -800,7 +800,7 @@ async def _create_approval_wait_payload_from_interrupt(
         "approval_id": str(result.approval_id),
         "run_id": str(run_id),
         "thread_id": thread_id,
-        "proposed_action": interrupt_data.get("proposed_action"),
+        "proposed_action_summary": _proposed_action_summary(command.proposed_action),
         "risk_level": interrupt_data.get("risk_level"),
         "risk_reason": interrupt_data.get("risk_reason"),
         "risk_rule_ref": interrupt_data.get("risk_rule_ref"),
@@ -813,6 +813,14 @@ async def _create_approval_wait_payload_from_interrupt(
         "action_payload_hash": result.action_payload_hash,
         "safety_snapshot_ref": result.safety_snapshot_ref,
         "safety_snapshot_hash": result.safety_snapshot_hash,
+        "target_merchant_id": result.target_merchant_id,
+        "target_merchant_ref": _json_safe(result.target_merchant_ref),
+        "business_fact_refs": _json_safe(result.business_fact_refs),
+        "verified_evidence_refs": _json_safe(result.verified_evidence_refs),
+        "claim_verification_ref": result.claim_verification_ref,
+        "claim_verification_summary": _json_safe(result.claim_verification_summary),
+        "risk_decision_ref": result.risk_decision_ref,
+        "risk_decision_summary": _risk_decision_summary(result.risk_decision),
         "allowed_decision_types": APPROVAL_ALLOWED_DECISION_TYPES,
     }
 
@@ -923,6 +931,37 @@ def _approval_idempotency_key_from_interrupt(interrupt_data: dict[str, Any]) -> 
         approval_plan = _as_mapping(interrupt_data.get("approval_plan"))
         value = approval_plan.get("approval_idempotency_key")
     return str(value) if value else None
+
+
+def _proposed_action_summary(proposed_action: dict[str, Any]) -> dict[str, Any]:
+    safe_fields = ("action_id", "action_type", "target_type", "target_id", "amount", "currency", "reason")
+    return {field: proposed_action[field] for field in safe_fields if proposed_action.get(field) is not None}
+
+
+def _risk_decision_summary(risk_decision: Any) -> dict[str, Any] | None:
+    risk = _as_mapping(risk_decision)
+    if not risk:
+        return None
+    reason_codes = risk.get("reason_codes")
+    return {
+        "schema_version": "risk_decision_summary.v1",
+        "risk_level": risk.get("risk_level"),
+        "reason_codes": list(reason_codes) if isinstance(reason_codes, list) else [],
+        "approval_required": risk.get("approval_required") is True,
+        "risk_rule_ref": risk.get("risk_rule_ref"),
+    }
+
+
+def _json_safe(value: Any) -> Any:
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json", exclude_none=True)
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items() if item is not None}
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value
 
 
 async def _claim_pending_run_for_stream(session: AsyncSession, run_id: UUID, user: User) -> AgentRun:

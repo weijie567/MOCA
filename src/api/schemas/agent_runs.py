@@ -27,7 +27,16 @@ class SseEventPayload(BaseModel):
     risk_level: str | None = None
     short_summary: str | None = None
     approval_id: str | None = None
-    proposed_action: dict[str, Any] | None = None
+    proposed_action_summary: dict[str, Any] | None = None
+    approval_revision_refs: list[dict[str, Any]] | None = None
+    target_merchant_id: str | None = None
+    target_merchant_ref: dict[str, Any] | None = None
+    business_fact_refs: list[dict[str, Any]] | None = None
+    verified_evidence_refs: list[dict[str, Any]] | None = None
+    claim_verification_ref: str | None = None
+    claim_verification_summary: dict[str, Any] | None = None
+    risk_decision_ref: str | None = None
+    risk_decision_summary: dict[str, Any] | None = None
     final_response: str | None = None
     error_code: str | None = None
     error_message: str | None = None
