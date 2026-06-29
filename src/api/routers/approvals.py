@@ -648,7 +648,11 @@ def _is_successful_demo_draft_outcome(draft_outcome: object) -> bool:
 
 
 def _should_resume_graph(result) -> bool:
-    return bool(result.resume_payload) and result.decision_type in {"accept", "approve", "reject", "ignore"}
+    if not result.resume_payload:
+        return False
+    if result.decision_type == "edit":
+        return result.resume_payload.get("resume_route") == "assess_risk_and_approval"
+    return result.decision_type in {"accept", "approve", "reject", "ignore"}
 
 
 def _resume_key(approval_id: UUID, revision: int) -> str:

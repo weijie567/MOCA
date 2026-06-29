@@ -28,6 +28,7 @@ from src.approvals.snapshot_service import (
 from src.approvals.snapshots import build_action_safety_snapshot
 from src.approvals.schemas import PROPOSED_ACTION_SCHEMA_VERSION
 from src.approvals.schemas import AutoAllowedActionBindingV1, RiskDecisionV1, TargetMerchantBindingV1
+from src.approvals.schemas import TrustedApprovalResultV1
 from src.config import settings
 from src.knowledge.schemas import ClaimVerificationBundleV1, EvidenceRefV1, canonical_evidence_projection
 from src.tools.contracts import BusinessFactRefV1
@@ -330,6 +331,61 @@ def _build_proposed_action(
         "reason": str(draft.get("reasoning_summary") or assessment.get("risk_reason") or ""),
         "evidence_refs": canonical_evidence_projection(evidence_refs),
     }
+
+
+def _trusted_edit_resume(state: AgentState) -> TrustedApprovalResultV1 | None:
+    raw_result = state.get("approval_result") or {}
+    try:
+        result = TrustedApprovalResultV1.model_validate(raw_result)
+    except ValidationError:
+        return None
+    if (
+        result.decision_type != "edit"
+        or result.status != "superseded"
+        or result.resume_route != "assess_risk_and_approval"
+        or not result.edited_action
+        or not result.new_action_payload_hash
+    ):
+        return None
+    if str(result.tenant_id) != str(state.get("tenant_id") or ""):
+        return None
+    if str(result.run_id) != str(state.get("current_run_id") or ""):
+        return None
+    if (
+        result.action_payload_hash != state.get("action_payload_hash")
+        or result.safety_snapshot_ref != state.get("safety_snapshot_ref")
+        or result.safety_snapshot_hash != state.get("safety_snapshot_hash")
+    ):
+        return None
+    return result
+
+
+def _draft_from_trusted_edit(action: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "recommended_action": action.get("action_type") or "manual_review",
+        "reasoning_summary": action.get("reason") or "Reviewer edited the proposed action.",
+        "compensation_amount": action.get("amount"),
+        "risk_level": (action.get("args") or {}).get("risk_level"),
+        "action_id": action.get("action_id"),
+    }
+
+
+def _canonical_trusted_edit_action(
+    *,
+    state: AgentState,
+    trusted_edit: TrustedApprovalResultV1,
+    evidence_refs: list[EvidenceRefV1],
+) -> dict[str, Any]:
+    action = dict(trusted_edit.edited_action or {})
+    if str(action.get("tenant_id") or "") != str(state.get("tenant_id") or ""):
+        raise ValueError("edited action tenant mismatch")
+    if str(action.get("run_id") or "") != str(state.get("current_run_id") or ""):
+        raise ValueError("edited action run mismatch")
+    action["evidence_refs"] = canonical_evidence_projection(evidence_refs)
+    action_payload_hash = compute_action_payload_hash(action)
+    if action_payload_hash != trusted_edit.new_action_payload_hash:
+        raise ValueError("edited action hash mismatch")
+    return action
 
 
 def _action_target(*, refund_case: dict[str, Any], order: dict[str, Any]) -> tuple[str, str]:
@@ -836,6 +892,7 @@ async def _attach_snapshot_binding(
     draft: dict[str, Any],
     context: dict[str, Any],
     config: RunnableConfig | None,
+    trusted_edit: TrustedApprovalResultV1 | None = None,
 ) -> dict[str, Any]:
     if not result.get("proposed_action"):
         return result
@@ -847,13 +904,20 @@ async def _attach_snapshot_binding(
             if not _allow_ephemeral_snapshot_binding(state, config):
                 raise
             evidence_refs = []
-        proposed_action = _build_proposed_action(
-            state=state,
-            draft=draft,
-            context=context,
-            assessment=assessment,
-            evidence_refs=evidence_refs,
-        )
+        if trusted_edit is not None:
+            proposed_action = _canonical_trusted_edit_action(
+                state=state,
+                trusted_edit=trusted_edit,
+                evidence_refs=evidence_refs,
+            )
+        else:
+            proposed_action = _build_proposed_action(
+                state=state,
+                draft=draft,
+                context=context,
+                assessment=assessment,
+                evidence_refs=evidence_refs,
+            )
         action_payload_hash = compute_action_payload_hash(proposed_action)
         try:
             business_fact_refs = _business_fact_refs_from_state(state)
@@ -1027,7 +1091,12 @@ def _fallback_risk(draft: dict[str, Any], context: dict[str, Any], rules: dict[s
 async def assess_risk_and_approval(state: AgentState, config: RunnableConfig = None) -> dict:
     started_at = _now_iso()
     rules = _load_risk_rules()
-    draft = state.get("recommendation_draft") or {}
+    trusted_edit = _trusted_edit_resume(state)
+    draft = (
+        _draft_from_trusted_edit(trusted_edit.edited_action)
+        if trusted_edit is not None
+        else state.get("recommendation_draft") or {}
+    )
     context = state.get("business_context") or {}
 
     block_reason = _action_gate_block_reason(state, draft)
@@ -1117,6 +1186,7 @@ async def assess_risk_and_approval(state: AgentState, config: RunnableConfig = N
                 draft=draft,
                 context=context,
                 config=config,
+                trusted_edit=trusted_edit,
             )
         except (ValidationError, ValueError, TimeoutError) as exc:
             provider_latency_ms = round((time.perf_counter() - t0) * 1000)
@@ -1162,6 +1232,7 @@ async def assess_risk_and_approval(state: AgentState, config: RunnableConfig = N
         draft=draft,
         context=context,
         config=config,
+        trusted_edit=trusted_edit,
     )
 
 

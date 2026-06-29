@@ -707,20 +707,21 @@ async def test_decide_edit_requires_edited_action_validation(
 
 
 @pytest.mark.asyncio
-async def test_decide_edit_supersedes_without_action_draft_resume(
+async def test_decide_edit_supersedes_and_resumes_risk_reroute(
     client: AsyncClient,
     session: AsyncSession,
     seeded_session,
     monkeypatch,
 ):
     bundle = await _create_approval(session, seeded_session, thread_id="thread-edit-supersede")
-    graph = FakeResumeGraph("should not authorize action")
+    graph = FakeResumeGraph("edited action rerisked")
     monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
     old_hash = bundle.approval.action_payload_hash
+    edited_action = _edited_action(bundle)
 
     response = await client.post(
         f"/api/v1/approvals/{bundle.approval.id}/decide",
-        json=_decision_body(bundle, "edit", edited_action=_edited_action(bundle)),
+        json=_decision_body(bundle, "edit", edited_action=edited_action),
         headers=await _admin_headers(client),
     )
     payload = response.json()
@@ -730,7 +731,15 @@ async def test_decide_edit_supersedes_without_action_draft_resume(
     assert payload["data"]["superseded_by_request_id"]
     assert payload["data"]["new_action_payload_hash"]
     assert old_hash != payload["data"]["new_action_payload_hash"]
-    assert len(graph.calls) == 0
+    assert len(graph.calls) == 1
+    command, config = graph.calls[0]
+    assert command.resume["schema_version"] == "approval_result.v1"
+    assert command.resume["decision_type"] == "edit"
+    assert command.resume["status"] == "superseded"
+    assert command.resume["resume_route"] == "assess_risk_and_approval"
+    assert command.resume["edited_action"] == edited_action
+    assert command.resume["new_action_payload_hash"] == payload["data"]["new_action_payload_hash"]
+    assert config["configurable"]["permissions"] == []
 
 
 @pytest.mark.asyncio

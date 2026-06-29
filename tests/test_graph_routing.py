@@ -11,6 +11,7 @@ from src.agent.graph import route_after_approval, route_after_risk
 from src.agent.nodes import assess_risk_and_approval as risk_module
 from src.agent.routing import route_after_investigate, route_after_recommendation
 from src.agent.schemas import IntentResultV3, RiskAssessment
+from src.approvals.snapshot_service import compute_action_payload_hash
 from src.approvals.schemas import AutoAllowedActionBindingV1
 from src.db.models import ActionSafetySnapshot
 from src.tools.contracts import BusinessFactRefV1
@@ -467,6 +468,102 @@ async def test_auto_allowed_path_persists_durable_snapshot_row_before_action_dra
     assert result["safety_snapshot_verified"] is True
     assert result["auto_allowed_binding"]["schema_version"] == "auto_allowed_action_binding.v1"
     assert route_after_risk({**input_state, **result}) == "action_draft"
+
+
+@pytest.mark.asyncio
+async def test_edit_resume_rerisk_uses_exact_trusted_edited_action(
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    tenant_id = seeded_session["tenant"].id
+    user_id = seeded_session["users"]["cs_zhang"].id
+    run_id = await _create_run(session, tenant_id=tenant_id, user_id=user_id, thread_id="edit-rerisk-route")
+    old_action_hash = "sha256:" + "1" * 64
+    old_snapshot_ref = "snapshot:old-edit"
+    old_snapshot_hash = "sha256:" + "2" * 64
+    evidence_ref = _evidence_ref(tenant_id=tenant_id)
+    edited_action = {
+        "schema_version": "proposed_action.v1",
+        "tenant_id": str(tenant_id),
+        "run_id": str(run_id),
+        "action_id": f"act:{run_id}:issue_coupon:RF-EDIT-001",
+        "action_type": "issue_coupon",
+        "target_type": "refund_case",
+        "target_id": "RF-EDIT-001",
+        "amount": "88.00",
+        "currency": "CNY",
+        "args": {"coupon_type": "service_recovery"},
+        "reason": "Reviewer reduced the compensation amount.",
+        "evidence_refs": [evidence_ref],
+    }
+    edited_hash = compute_action_payload_hash(edited_action)
+    fact_ref = _business_fact_ref_payload(str(tenant_id), resource_id="RF-EDIT-001")
+    claim_bundle = _claim_bundle_payload(str(tenant_id))
+    claim_bundle["safe_support_refs"] = [evidence_ref]
+    claim_bundle["claim_results"][0]["supporting_evidence_refs"] = [evidence_ref]
+    claim_bundle["claim_results"][0]["business_fact_refs"] = [fact_ref]
+    state = {
+        "thread_id": "edit-rerisk-route",
+        "tenant_id": str(tenant_id),
+        "user_id": str(user_id),
+        "role": "support",
+        "current_run_id": str(run_id),
+        "current_intent": "compensation_suggestion",
+        "business_context": {
+            "refund_case": {"id": "RF-EDIT-001", "merchant_id": "merchant-1", "requested_amount": "100.00"},
+            "business_fact_refs": [fact_ref],
+        },
+        "claim_verification_bundle": claim_bundle,
+        "proposed_action": {
+            **edited_action,
+            "amount": "120.00",
+            "reason": "Original action before manager edit.",
+        },
+        "action_payload_hash": old_action_hash,
+        "safety_snapshot_ref": old_snapshot_ref,
+        "safety_snapshot_hash": old_snapshot_hash,
+        "approval_result": _approved_result(
+            tenant_id=str(tenant_id),
+            run_id=str(run_id),
+            decision_type="edit",
+            status="superseded",
+            action_payload_hash=old_action_hash,
+            safety_snapshot_ref=old_snapshot_ref,
+            safety_snapshot_hash=old_snapshot_hash,
+            edited_action=edited_action,
+            new_action_payload_hash=edited_hash,
+            resume_route="assess_risk_and_approval",
+        ),
+        "trace_steps": [],
+    }
+    monkeypatch.setattr(
+        risk_module,
+        "_get_llm",
+        lambda: _FakeRiskLLM(
+            RiskAssessment(
+                risk_level="high",
+                risk_reason="Edited compensation still needs review.",
+                approval_required=True,
+                rule_ref="HR-EDIT",
+            )
+        ),
+    )
+
+    result = await risk_module.assess_risk_and_approval(state, {"configurable": {"session": session}})
+
+    snapshot = (
+        await session.execute(
+            select(ActionSafetySnapshot).where(ActionSafetySnapshot.action_payload_hash == edited_hash)
+        )
+    ).scalar_one()
+    assert result["proposed_action"] == edited_action
+    assert result["action_payload_hash"] == edited_hash
+    assert result["action_payload_hash"] == snapshot.action_payload_hash
+    assert result["risk_decision"]["action_payload_hash"] == edited_hash
+    assert result["approval_plan"]["action_payload_hash"] == edited_hash
+    assert result["approval_plan"]["risk_decision"]["action_payload_hash"] == edited_hash
+    assert route_after_risk({**state, **result}) == "approval_gate"
 
 
 @pytest.mark.asyncio
