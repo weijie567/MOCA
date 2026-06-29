@@ -7509,3 +7509,43 @@ WR-03 的新合同要求 `ApprovalService` 在 edit/changed-info supersede 后�
 - `tests/test_approval_api.py::test_decide_edit_resume_failure_can_retry_and_rebind_without_new_decision`
 - `src/approvals/service.py::_edit`
 - `src/approvals/service.py::_supersede_from_info`
+
+## 2026-06-29 22:11 CST - Phase 35 autopilot external Gemini review failed due to missing API key
+
+### 问题现象
+
+执行 Phase 35 plan review 阶段时，Gemini 外部 reviewer 没有产出审核结果，命令直接报错退出。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+cat /tmp/gsd-review-prompt-35.md | gemini -p -
+```
+
+### 关键证据或命令
+
+Gemini CLI 输出：
+
+```text
+When using Gemini API, you must specify the GEMINI_API_KEY environment variable.
+```
+
+### 当前判断 / 根因
+
+本机 Gemini CLI 缺少 `GEMINI_API_KEY` 环境变量或等效认证配置，属于外部 reviewer 环境问题，不是 Phase 35 plan 内容问题。
+
+### 已做处理
+
+已跳过 Gemini reviewer，继续使用 `gsd-plan-checker` 和 Claude reviewer 的结果推进 Phase 35 plan 修复，并将该失败记录到 `.planning/phases/35-replay-and-eval-hardening/35-REVIEWS.md`。
+
+### 剩余问题
+
+Gemini reviewer 仍不可用；如果后续必须使用 Gemini 作为第二外部意见，需要先配置 `GEMINI_API_KEY`。
+
+### 下次继续排查入口
+
+- `/tmp/gsd-review-prompt-35.md`
+- `gemini -p -`
+- `.planning/phases/35-replay-and-eval-hardening/35-REVIEWS.md`

@@ -294,11 +294,11 @@ uv run ruff check src/ tests/ scripts/
 - Gate-level and terminal-timeline requirements were checked against `docs/eval-test-plan.md` and Phase 35 context. [CITED: docs/eval-test-plan.md; VERIFIED: .planning/phases/35-replay-and-eval-hardening/35-CONTEXT.md]
 - Exact new artifact filenames are recommendations, not existing facts; planners may choose different paths if the artifacts remain discoverable and test-backed. [PLANNING RECOMMENDATION]
 
-### Open questions for planning
+### Resolved planning questions
 
-1. Should missing boundary coverage be represented by new dedicated replay event types, or by existing generic `node_completed` / `run_status_changed` / tool-policy events plus stricter payload conventions? [VERIFIED: src/replay/validators.py; .planning/phases/35-replay-and-eval-hardening/35-CONTEXT.md]
-2. Should proof status/source live on `BusinessFactRefV1`, `BusinessFactResultV1`, `target_merchant_context.v1`, or a replay-only proof projection? [VERIFIED: src/tools/contracts.py; src/business/schemas.py; src/agent/merchant_context.py]
-3. Should Phase 35 replay/eval manifests live under `eval/replay/` to match `eval/intent/`, or under `evaluation/` to match existing report/golden paths? [VERIFIED: eval/intent/coverage-manifest.v1.json; docs/evaluation.md; scripts/eval_agent.py]
+1. RESOLVED: Missing boundary coverage will use existing generic `node_completed`, `run_status_changed`, and tool-policy events plus stricter payload/projection contracts. Phase 35 must not add dedicated replay event types unless a synchronized follow-up task updates `src/replay/validators.py`, `src/db/models.py`, and a migration/check constraint. [VERIFIED: src/replay/validators.py; .planning/phases/35-replay-and-eval-hardening/35-CONTEXT.md; .planning/phases/35-replay-and-eval-hardening/35-01-PLAN.md]
+2. RESOLVED: Proof status/source will live in a replay-only proof projection, not in `BusinessFactRefV1`, `BusinessFactResultV1`, or authorization guards. Phase 35 records proof readiness but keeps manager same-merchant visibility closed. [VERIFIED: src/tools/contracts.py; src/business/schemas.py; src/agent/merchant_context.py; .planning/phases/35-replay-and-eval-hardening/35-02-PLAN.md]
+3. RESOLVED: Phase 35 replay/eval manifests will live under `eval/replay/`, matching the `eval/intent/` manifest pattern while leaving existing `evaluation/` report paths intact. [VERIFIED: eval/intent/coverage-manifest.v1.json; docs/evaluation.md; scripts/eval_agent.py; .planning/phases/35-replay-and-eval-hardening/35-05-PLAN.md]
 
 ## Sources
 
