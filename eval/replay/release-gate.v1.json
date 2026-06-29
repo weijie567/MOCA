@@ -1,0 +1,67 @@
+{
+  "schema_version": "phase35_replay_release_gate.v1",
+  "phase": "35-replay-and-eval-hardening",
+  "gate_level": "release",
+  "blocking": "release_not_phase35_exit",
+  "failure_impact": "block_replay_eval_release_not_phase_35_exit",
+  "dataset_version": "phase35-replay-release-smoke.v1",
+  "dataset_path": "eval/replay/release-smoke-cases.v1.json",
+  "dataset_hash": "sha256:361c087f8f56ac931a4a21f92b2f991098cf325a8ba2166f42f084b1254ad767",
+  "dataset_size": 3,
+  "coverage_manifest_path": "eval/replay/phase35-coverage-matrix.v1.json",
+  "coverage_manifest_hash": "sha256:a9d58190127164a2299c09415824942b6f876ba70273a35dfe6fb1ad83b8b121",
+  "command_entrypoint": "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/eval/test_phase35_release_monitoring_manifests.py -q --tb=short",
+  "default_gate_status": "statistical_gate_not_demonstrated",
+  "coverage_status": "incomplete",
+  "metrics": [
+    {
+      "metric_id": "intent_hard_negatives",
+      "gate_status": "statistical_gate_not_demonstrated",
+      "required_min_n": 300,
+      "required_min_n_source": "docs/eval-test-plan.md section 20.4 release/M6 sample semantics",
+      "smoke_n": 1,
+      "statistical_n": 0,
+      "smoke_case_ids": [
+        "phase35_release_smoke_intent_hard_negatives_001"
+      ],
+      "gap_reasons": [
+        "release_scale_sample_size_not_demonstrated",
+        "coverage_gap_recorded"
+      ]
+    },
+    {
+      "metric_id": "rag_claim_support",
+      "gate_status": "statistical_gate_not_demonstrated",
+      "required_min_n": 300,
+      "required_min_n_source": "docs/eval-test-plan.md section 20.3 semantic groundedness/support and 20.4 release sample semantics",
+      "smoke_n": 1,
+      "statistical_n": 0,
+      "smoke_case_ids": [
+        "phase35_release_smoke_rag_claim_support_001"
+      ],
+      "gap_reasons": [
+        "release_scale_sample_size_not_demonstrated",
+        "coverage_gap_recorded"
+      ]
+    },
+    {
+      "metric_id": "approval_action_safety",
+      "gate_status": "statistical_gate_not_demonstrated",
+      "required_min_n": 300,
+      "required_min_n_source": "docs/eval-test-plan.md section 20.3 approval/action safety and 20.4 release sample semantics",
+      "smoke_n": 1,
+      "statistical_n": 0,
+      "smoke_case_ids": [
+        "phase35_release_smoke_approval_action_safety_001"
+      ],
+      "gap_reasons": [
+        "release_scale_sample_size_not_demonstrated",
+        "coverage_gap_recorded"
+      ]
+    }
+  ],
+  "notes": [
+    "Release gate artifacts are discoverable Phase 35 outputs, not Phase 35 exit blockers.",
+    "Limited smoke cases do not demonstrate release-scale statistical thresholds."
+  ]
+}

@@ -7911,3 +7911,52 @@ SDK 输出：
 - `.planning/ROADMAP.md`
 - `.planning/STATE.md`
 - `gsd-sdk query roadmap.update-plan-progress 35`
+
+## 2026-06-29 23:46 CST - Phase 35-05 shasum locale warning during manifest hash calculation
+
+### 问题现象
+
+执行 35-05 Task 1 release manifest 的 SHA-256 计算时，`shasum -a 256` 输出了本机 locale warning，但命令仍返回成功并输出 hash。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+shasum -a 256 eval/replay/release-smoke-cases.v1.json
+shasum -a 256 eval/replay/phase35-coverage-matrix.v1.json
+```
+
+### 关键证据或命令
+
+命令输出包含：
+
+```text
+perl: warning: Setting locale failed.
+perl: warning: Falling back to a fallback locale ("zh_CN.UTF-8").
+```
+
+同时输出了有效的 SHA-256 digest。
+
+### 当前判断 / 根因
+
+本机环境变量里 `LC_ALL=C.UTF-8` 不被当前 Perl/shasum 环境识别，触发 warning；该 warning 不影响文件 hash 结果，也不影响 pytest 中通过 Python `hashlib` 复核 hash。
+
+### 已做处理
+
+继续使用命令输出的 digest 写入 `eval/replay/release-gate.v1.json`，并用以下项目入口验证 manifest 内 hash 与 Python `hashlib` 计算结果一致：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/eval/test_phase35_release_monitoring_manifests.py -q --tb=short
+```
+
+结果为 `4 passed, 1 warning`。
+
+### 剩余问题
+
+无阻塞。后续如需避免该 warning，可在本地 shell 修正 locale，或改用 Python/openssl 计算 hash。
+
+### 下次继续排查入口
+
+- `eval/replay/release-gate.v1.json`
+- `tests/eval/test_phase35_release_monitoring_manifests.py`

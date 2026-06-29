@@ -1,0 +1,63 @@
+{
+  "schema_version": "phase35_replay_monitoring_gate.v1",
+  "phase": "35-replay-and-eval-hardening",
+  "gate_level": "monitoring",
+  "blocking": "monitoring_not_phase35_exit",
+  "failure_impact": "trigger_review_or_degrade_not_phase_35_exit",
+  "command_entrypoint": "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/eval/test_phase35_release_monitoring_manifests.py -q --tb=short",
+  "allowed_statuses": [
+    "pending",
+    "not_applicable",
+    "sample_only"
+  ],
+  "metrics": [
+    {
+      "metric_id": "replay_completeness",
+      "metric_name": "Replay completeness",
+      "description": "Tracks whether replay timelines include expected node, tool, RAG, approval, action, lifecycle, sequence, and terminal/current status coverage.",
+      "status": "sample_only",
+      "gate_semantics": "sample-only Phase 35 checks exist; production telemetry is not required to exit Phase 35.",
+      "phase35_blocking": false
+    },
+    {
+      "metric_id": "drift",
+      "metric_name": "Replay/eval drift",
+      "description": "Tracks schema, event coverage, forbidden behavior, and replay projection drift once recurring reports exist.",
+      "status": "pending",
+      "gate_semantics": "pending until release or production reporting exists; missing telemetry does not block Phase 35.",
+      "phase35_blocking": false
+    },
+    {
+      "metric_id": "false_negative_trend",
+      "metric_name": "False-negative trend",
+      "description": "Tracks false negatives in intent, claim, approval/action, and scope-leak gates across release-scale datasets.",
+      "status": "pending",
+      "gate_semantics": "pending until release-scale datasets exist; Phase 35 records the schema only.",
+      "phase35_blocking": false
+    },
+    {
+      "metric_id": "tool_deny_reasons",
+      "metric_name": "Tool deny reasons",
+      "description": "Tracks stable runtime authorization denial reason codes without raw tool args, resource identifiers, or internal permission details.",
+      "status": "sample_only",
+      "gate_semantics": "sample-only tests cover deny reason projection; production aggregates are not required for Phase 35.",
+      "phase35_blocking": false
+    },
+    {
+      "metric_id": "rag_no_evidence_trend",
+      "metric_name": "RAG no-evidence trend",
+      "description": "Tracks no-evidence, invalid-scope, stale, conflict, and unsupported-claim trends after verified RAG package and claim verification gates.",
+      "status": "pending",
+      "gate_semantics": "pending until production or release reports exist; deterministic forbidden behavior remains dev-contract owned.",
+      "phase35_blocking": false
+    },
+    {
+      "metric_id": "memory_write_quality",
+      "metric_name": "Memory write quality",
+      "description": "Tracks memory write publish/skip/review outcomes and PII-safe quality signals without exposing raw memory content.",
+      "status": "sample_only",
+      "gate_semantics": "sample-only memory write coverage exists; production quality telemetry is deferred.",
+      "phase35_blocking": false
+    }
+  ]
+}

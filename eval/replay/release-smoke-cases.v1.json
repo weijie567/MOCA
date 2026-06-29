@@ -1,0 +1,39 @@
+{
+  "schema_version": "phase35_replay_release_smoke_cases.v1",
+  "phase": "35-replay-and-eval-hardening",
+  "dataset_version": "phase35-replay-release-smoke.v1",
+  "case_count": 3,
+  "non_blocking_reason": "limited smoke references only; not release-scale statistical evidence",
+  "cases": [
+    {
+      "case_id": "phase35_release_smoke_intent_hard_negatives_001",
+      "release_area": "intent_hard_negatives",
+      "fixture_kind": "limited_smoke_reference",
+      "expected_gate_level": "release",
+      "expected_status": "smoke_only",
+      "source_boundary": "intent_policy",
+      "coverage_gap": "release_scale_intent_hard_negative_corpus_deferred",
+      "statistical_evidence": "not_release_scale_evidence"
+    },
+    {
+      "case_id": "phase35_release_smoke_rag_claim_support_001",
+      "release_area": "rag_claim_support",
+      "fixture_kind": "limited_smoke_reference",
+      "expected_gate_level": "release",
+      "expected_status": "smoke_only",
+      "source_boundary": "claim_verification",
+      "coverage_gap": "release_scale_rag_semantic_claim_support_corpus_deferred",
+      "statistical_evidence": "not_release_scale_evidence"
+    },
+    {
+      "case_id": "phase35_release_smoke_approval_action_safety_001",
+      "release_area": "approval_action_safety",
+      "fixture_kind": "limited_smoke_reference",
+      "expected_gate_level": "release",
+      "expected_status": "smoke_only",
+      "source_boundary": "risk_decision_action_draft",
+      "coverage_gap": "release_scale_approval_action_safety_corpus_deferred",
+      "statistical_evidence": "not_release_scale_evidence"
+    }
+  ]
+}
