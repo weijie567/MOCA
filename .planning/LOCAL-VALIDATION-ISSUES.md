@@ -6212,6 +6212,60 @@ SDK 输出：
 - `.planning/STATE.md`
 - `gsd-sdk query roadmap.update-plan-progress 33`
 
+## 2026-06-29 12:51 CST - Phase 34 execute-phase state.begin-phase 参数错位
+
+### 问题现象
+
+执行 Phase 34 的 `execute-phase` 初始化状态更新时，按工作流文档调用 `gsd-sdk query state.begin-phase --phase 34 --name approval-and-actiondraft-boundary-hardening --plans 6`，SDK 返回成功但把 flag 当成位置参数解析，导致 `.planning/STATE.md` 临时出现 `Phase: --phase (34)`、`Plan: 1 of --name` 等错误状态。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+gsd-sdk query state.begin-phase --phase 34 --name approval-and-actiondraft-boundary-hardening --plans 6
+git diff -- .planning/STATE.md
+```
+
+### 关键证据或命令
+
+错误调用返回：
+
+```json
+{
+  "phase": "--phase",
+  "name": "34",
+  "plan_count": "--name"
+}
+```
+
+`.planning/STATE.md` diff 中出现 `last_activity: 2026-06-29 -- Phase --phase execution started`、`Current focus: Phase --phase — 34`、`Plan: 1 of --name`。
+
+### 当前判断 / 根因
+
+当前本地 `gsd-sdk query state.begin-phase` handler 实际按位置参数解析；`execute-phase.md` 中的 flag 形式对该 handler 不兼容。这与 Phase 33 期间 `state.record-metric` flag 调用错位属于同类 SDK/query handler 参数约定不一致问题。
+
+### 已做处理
+
+已用位置参数形式重跑并修正状态：
+
+```bash
+gsd-sdk query state.begin-phase 34 approval-and-actiondraft-boundary-hardening 6
+```
+
+修正后 `.planning/STATE.md` 显示 Phase 34 executing、`Plan: 1 of 6`、`Status: Executing Phase 34`。
+
+### 剩余问题
+
+无当前阻塞。后续调用 `state.begin-phase`、`state.record-metric` 等 GSD SDK metadata 命令时，应优先用位置参数或在调用后检查返回 JSON 与 `.planning/STATE.md` diff。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `/Users/ming/.codex/get-shit-done/workflows/execute-phase.md`
+- `/Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs`
+- `gsd-sdk query state.begin-phase`
+
 ## 2026-06-29 11:48 CST - rg pattern 反引号触发 zsh 命令替换
 
 ### 问题现象
