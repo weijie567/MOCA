@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
-status: executing
-stopped_at: Phase 34 context gathered
-last_updated: "2026-06-29T06:42:27.374Z"
-last_activity: 2026-06-29 -- Phase 34 P34-05 completed
+status: ready_to_plan
+stopped_at: Phase 34 completed; Phase 35 ready to plan
+last_updated: "2026-06-29T07:00:27Z"
+last_activity: 2026-06-29 -- Phase 34 completed; final focused suite passed
 progress:
   total_phases: 12
-  completed_phases: 9
+  completed_phases: 10
   total_plans: 44
-  completed_plans: 43
-  percent: 98
+  completed_plans: 44
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -21,17 +21,17 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-29)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 34 — approval-and-actiondraft-boundary-hardening
+**Current focus:** Phase 35 — replay-and-eval-hardening
 
 ## Current Position
 
-Phase: 34 (approval-and-actiondraft-boundary-hardening) — EXECUTING
-Next roadmap item: Phase 34 — Approval and ActionDraft Boundary Hardening
-Plan: 5 of 6
-Status: Executing Phase 34
-Last activity: 2026-06-29 -- Phase 34 P34-05 completed
+Phase: 35 (replay-and-eval-hardening) — READY TO PLAN
+Next roadmap item: Phase 35 — Replay and Eval Hardening
+Plan: Not started
+Status: Ready to plan Phase 35
+Last activity: 2026-06-29 -- Phase 34 completed; final focused suite passed
 
-Progress: [█████████░] 95%
+Progress: [██████████] 100%
 
 Planning files:
 
@@ -67,11 +67,11 @@ Planning files:
 | 31. Memory Platform Boundary | 6/6 | Complete |
 | 32. Intent Graph Migration | 5/5 | Complete |
 | 33. RAG Context Build and Claim Verification | 9/9 | Complete |
-| 34. Approval and ActionDraft Boundary Hardening | 5/6 | In Progress |
+| 34. Approval and ActionDraft Boundary Hardening | 6/6 | Complete |
 | 35. Replay and Eval Hardening | 0/1 | Pending |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
-Latest execution metric: Phase 34 P34-05 — 28 min, 2 tasks, 16 files; exact action draft binding validation and safe demo draft projections passed.
+Latest execution metric: Phase 34 P34-06 — 24 min, 2 tasks, 3 files; final static/focused/ruff closure passed.
 | Phase 29.5 P01 | 35min | 2 tasks | 5 files |
 | Phase 29.5 P02 | 5min | 2 tasks | 5 files |
 | Phase 29.5 P03 | 34min | 2 tasks | 13 files |
@@ -100,6 +100,7 @@ Latest execution metric: Phase 34 P34-05 — 28 min, 2 tasks, 16 files; exact ac
 | Phase 34 P34-03 | 35 min | 2 tasks | 9 files |
 | Phase 34 P34-04 | 17 min | 2 tasks | 3 files |
 | Phase 34 P34-05 | 28 min | 2 tasks | 16 files |
+| Phase 34 P34-06 | 24 min | 2 tasks | 3 files |
 
 ## Quick Tasks Completed
 
@@ -174,6 +175,10 @@ Latest execution metric: Phase 34 P34-05 — 28 min, 2 tasks, 16 files; exact ac
 - Phase 33 static guards now own runtime/runnable RAG and claim boundary checks.
 - generate_recommendation remains a verified-package consumer and MaterialClaimV1 producer; claim_verify owns verifier route/blocking assertions.
 - Semantic verifier coverage remains deterministic/mocked with no live provider requirement.
+- Phase 34 binds action proposals, approval decisions, and action drafts to target merchant, business fact, evidence, claim, risk, payload hash, and safety snapshot material.
+- risk_gate owns blocked/approval-required/auto-draft routing; approval_gate is now limited to approval-plan creation, trusted resume, interrupt, and revision state-machine behavior.
+- ActionDraft remains demo-only in v1.9: no execution/outbox/reconciliation/compensation production surfaces were introduced, and final responses must not imply external side effects.
+- Broad trace/run API projection hardening is explicitly Phase 35 scope; Phase 34 closed persistence and live approval-required projection safety.
 
 ### Roadmap Evolution
 
@@ -215,10 +220,10 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: --stopped-at
-Stopped at: Phase 34 context gathered
-Resume file: --resume-file
-Next: Phase 34 — Approval and ActionDraft Boundary Hardening; old phase directory archive remains a separate cleanup todo.
+Last session: Phase 34 closure
+Stopped at: Phase 34 complete; Phase 35 ready to plan
+Resume file: None
+Next: Phase 35 — Replay and Eval Hardening; old phase directory archive remains a separate cleanup todo.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
 
@@ -250,6 +255,8 @@ Next: Phase 34 — Approval and ActionDraft Boundary Hardening; old phase direct
 
 **Completed Phase:** 33 (RAG Context Build and Claim Verification) — 9/9 plans complete; verification passed; code review warnings fixed; final focused suite `476 passed, 22 warnings`; static/focused/eval closure passed — 2026-06-29
 
-**Next Roadmap Item:** Phase 34 — Approval and ActionDraft Boundary Hardening
+**Completed Phase:** 34 (Approval and ActionDraft Boundary Hardening) — 6/6 plans complete; final focused suite `400 passed, 22 warnings`; static/focused/ruff closure passed — 2026-06-29
 
-**Planned Phase:** 34 (approval-and-actiondraft-boundary-hardening) — 6 plans — 2026-06-29T03:59:00.771Z
+**Next Roadmap Item:** Phase 35 — Replay and Eval Hardening
+
+**Planned Phase:** 35 (replay-and-eval-hardening) — ready to plan

@@ -7314,3 +7314,65 @@ SDK 输出：
 - `.planning/ROADMAP.md`
 - `.planning/STATE.md`
 - `gsd-sdk query roadmap.update-plan-progress 33`
+
+## 2026-06-29 15:00 CST - Phase 34 closeout metadata SDK selected backlog phase as next item
+
+### 问题现象
+
+Phase 34 收尾更新元数据时，`gsd-sdk query roadmap.update-plan-progress 34 34-06 complete` 仍返回 `no matching checkbox found`；随后 `gsd-sdk query phase.complete 34` 能勾选 34-06 并更新需求 trace，但把下一阶段选成 backlog `999.1`，同时留下 STATE 中 Phase 34/Phase 999.1 文本混杂、Phase 34 状态仍非完全一致的问题。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+gsd-sdk query roadmap.update-plan-progress 34 34-06 complete
+gsd-sdk query phase.complete 34
+rg -n "Phase 34|Phase 35|999\\.1|APF-15|APF-16" .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md
+```
+
+### 关键证据或命令
+
+`roadmap.update-plan-progress` 输出：
+
+```json
+{
+  "updated": false,
+  "phase": "34",
+  "reason": "no matching checkbox found"
+}
+```
+
+`phase.complete` 输出中的关键字段：
+
+```json
+{
+  "completed_phase": "34",
+  "plans_executed": "6/6",
+  "next_phase": "999.1",
+  "next_phase_name": "evaluate-mem0-as-optional-backend-behind-memorycontextservic",
+  "roadmap_updated": true,
+  "state_updated": true,
+  "requirements_updated": true
+}
+```
+
+### 当前判断 / 根因
+
+MOCA 当前 ROADMAP 同时包含 v1.9 Phase 35 和 backlog Phase 999.1，GSD SDK 的下一阶段选择逻辑在 Phase 34 完成后错误跳到了 backlog；`roadmap.update-plan-progress` 与 MOCA checkbox 格式不匹配的问题也仍然存在。
+
+### 已做处理
+
+已手动修正 `.planning/ROADMAP.md`：Phase 34 状态改为 Complete、6/6 plans complete 且 34-06 勾选。已手动修正 `.planning/REQUIREMENTS.md`：APF-15/APF-16 checkbox 与 trace table 均为 Complete。已手动修正 `.planning/STATE.md`：当前阶段指向 Phase 35 ready to plan，Phase 34 进度为 6/6 Complete，Latest execution metric 指向 P34-06，并补 Session Continuity 的 Completed Phase 34 记录。
+
+### 剩余问题
+
+无当前阻塞。后续执行 Phase 35 前需要确认 GSD SDK 不会继续把 backlog `999.1` 当作下一个 active phase；必要时先通过手工 STATE/ROADMAP 校正或显式指定 Phase 35。
+
+### 下次继续排查入口
+
+- `.planning/ROADMAP.md`
+- `.planning/STATE.md`
+- `.planning/REQUIREMENTS.md`
+- `gsd-sdk query roadmap.update-plan-progress 34 34-06 complete`
+- `gsd-sdk query phase.complete 34`

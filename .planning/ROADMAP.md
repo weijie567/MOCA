@@ -374,12 +374,12 @@ Plans:
 
 ### Phase 34: Approval and ActionDraft Boundary Hardening
 
-**Status:** In Progress
+**Status:** Complete
 **Milestone:** v1.9 Agent Platform Foundation
 **Goal:** Bind action proposals, approval decisions, and action drafts to verified facts/evidence/claims/risk/snapshots while preserving the no-real-execution boundary.
 **Requirements**: APF-15, APF-16
 **Depends on:** Phase 33
-**Plans:** 5/6 plans complete
+**Plans:** 6/6 plans complete
 
 **Core References**:
 
@@ -400,7 +400,7 @@ Plans:
 - [x] 34-03-PLAN.md — Approval gate, ApprovalService, and manager-scope restore
 - [x] 34-04-PLAN.md — Agent runs approval-interrupt bridge and safe projection
 - [x] 34-05-PLAN.md — Action draft validation, projection, and no-real-execution cleanup
-- [ ] 34-06-PLAN.md — Final static/focused/eval closure
+- [x] 34-06-PLAN.md — Final static/focused/eval closure
 
 ### Phase 35: Replay and Eval Hardening
 

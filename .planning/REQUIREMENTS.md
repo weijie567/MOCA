@@ -51,8 +51,8 @@ Turn MOCA's agent runtime into a microservice-ready modular monolith: platform/d
 
 ### Approval and Action Draft Boundary
 
-- [ ] **APF-15:** Action proposals, approval decisions, and action drafts bind structured payloads to business fact refs, verified evidence refs, claim verification refs, risk decisions, payload hashes, and safety snapshots.
-- [ ] **APF-16:** `risk_gate` owns blocked/approval-required/auto-draft decisions, while `approval_gate` only executes approval plans, trusted resume, interrupt, and revision state machine behavior.
+- [x] **APF-15:** Action proposals, approval decisions, and action drafts bind structured payloads to business fact refs, verified evidence refs, claim verification refs, risk decisions, payload hashes, and safety snapshots.
+- [x] **APF-16:** `risk_gate` owns blocked/approval-required/auto-draft decisions, while `approval_gate` only executes approval plans, trusted resume, interrupt, and revision state machine behavior.
 
 ### Replay and Eval Hardening
 
@@ -98,8 +98,8 @@ Turn MOCA's agent runtime into a microservice-ready modular monolith: platform/d
 | APF-12 | Phase 32 | Complete |
 | APF-13 | Phase 33 | Complete |
 | APF-14 | Phase 33 | Complete |
-| APF-15 | Phase 34 | Pending |
-| APF-16 | Phase 34 | Pending |
+| APF-15 | Phase 34 | Complete |
+| APF-16 | Phase 34 | Complete |
 | APF-17 | Phase 35 | Pending |
 | APF-18 | Phase 35 | Pending |
 
