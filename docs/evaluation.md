@@ -116,6 +116,40 @@ make eval-baseline
 
 Saves the current unified report as `evaluation/reports/baseline.json` for future comparison.
 
+## Phase 35 Replay/Eval Gates
+
+Phase 35 replay/eval gate artifacts are discoverable through these paths:
+
+- `eval/replay/phase35-coverage-matrix.v1.json`
+- `eval/replay/dev-contract-manifest.v1.json`
+- `eval/replay/release-gate.v1.json`
+- `eval/replay/release-smoke-cases.v1.json`
+- `eval/replay/monitoring-gate.v1.json`
+
+Approved Phase 35 command entrypoints:
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay/test_phase35_coverage_matrix.py -q --tb=short
+```
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/eval/test_phase35_release_monitoring_manifests.py -q --tb=short
+```
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/eval/test_phase35_replay_eval_gates.py tests/architecture/test_phase35_replay_eval_boundaries.py -q --tb=short
+```
+
+The `dev-contract` gates block Phase 35. Release gate status
+`statistical_gate_not_demonstrated` and monitoring statuses `pending`,
+`not_applicable`, or `sample_only` do not block Phase 35 unless they expose a
+deterministic forbidden-behavior regression.
+
+Phase 35 includes limited release smoke cases for `intent_hard_negatives`,
+`rag_claim_support`, and `approval_action_safety`. These smoke cases do not
+claim production-level sample size, release-scale statistical thresholds, or
+production telemetry has been demonstrated.
+
 ## Report Format
 
 `evaluation/reports/latest.json` is the source of truth. It contains:
