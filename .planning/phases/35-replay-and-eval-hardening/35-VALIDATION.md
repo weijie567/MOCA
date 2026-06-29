@@ -106,3 +106,52 @@ Residual limitation: arbitrary PII hidden inside otherwise safe free-text summar
 | Whitespace/conflict marker check | `git diff --check` | 0 | No output. |
 
 The no-scope scans did not require excluding test-owned negative fixtures. Redaction negative fixtures intentionally contain raw-payload aliases, but those aliases are outside the first two no-scope grep pattern sets and remain under `tests/`.
+
+## Nyquist Validation Audit 2026-06-29
+
+| Metric | Count |
+| --- | --- |
+| Plans audited | 6 |
+| Requirement groups audited | 2 |
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+| Manual-only | 0 |
+
+### Test Infrastructure
+
+| Framework | Config | Approved entrypoint |
+| --- | --- | --- |
+| pytest | `pyproject.toml` | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...` |
+| ruff | `pyproject.toml` | `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check ...` |
+
+### Per-Plan Coverage Map
+
+| Plan | Requirements / decisions | Automated coverage | Status |
+| --- | --- | --- | --- |
+| `35-01` | APF-17/APF-18, D-01..D-04, D-20..D-21 | `tests/replay/test_phase35_coverage_matrix.py`; matrix validator and six-plan roadmap-shape tests | COVERED |
+| `35-02` | APF-17, D-05..D-08, D-17 | `tests/agent/test_trace.py`; `tests/replay/test_phase35_trace_replay_permissions.py`; API visibility regressions referenced in the validation audit | COVERED |
+| `35-03` | APF-17/APF-18, D-14..D-16 | `tests/replay/test_phase35_terminal_timelines.py`; `tests/replay/test_phase35_operation_identity.py`; `tests/replay/test_phase35_redaction_negatives.py` | COVERED |
+| `35-04` | APF-18, D-09..D-13, D-18 | `tests/eval/test_phase35_replay_eval_gates.py`; `tests/architecture/test_phase35_replay_eval_boundaries.py` | COVERED |
+| `35-05` | APF-18, D-11..D-12, D-19 | `tests/eval/test_phase35_release_monitoring_manifests.py`; release/monitoring hash/status artifact checks | COVERED |
+| `35-06` | APF-17/APF-18 closure, D-20..D-21 | `35-VALIDATION.md` command evidence, source audit, matrix path audit, no-scope-creep checks, and UAT/security/code-review artifacts | COVERED |
+
+### Audit Commands
+
+| Command | Exit | Observed result |
+| --- | --- | --- |
+| `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_trace.py tests/architecture/test_phase35_replay_eval_boundaries.py tests/eval/test_phase35_release_monitoring_manifests.py tests/eval/test_phase35_replay_eval_gates.py tests/replay/test_phase35_coverage_matrix.py tests/replay/test_phase35_operation_identity.py tests/replay/test_phase35_redaction_negatives.py tests/replay/test_phase35_terminal_timelines.py tests/replay/test_phase35_trace_replay_permissions.py -q --tb=short` | 0 | `122 passed, 1 warning in 40.20s` |
+| `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay/test_phase35_trace_replay_permissions.py tests/replay/test_phase35_redaction_negatives.py tests/eval/test_phase35_replay_eval_gates.py tests/architecture/test_phase35_replay_eval_boundaries.py -q --tb=short` | 0 | `57 passed, 1 warning in 28.23s` |
+| `git diff --check` | 0 | No whitespace or conflict-marker output before validation audit write. |
+
+### Manual-Only
+
+None. Phase 35 is a replay/eval contract hardening phase with deterministic artifact, API, static, and pytest coverage. Release-scale statistical evidence and production telemetry remain intentionally non-blocking artifacts, not manual-only Phase 35 validation gaps.
+
+### Nyquist Sign-Off
+
+- [x] APF-17 has automated validation coverage.
+- [x] APF-18 has automated validation coverage.
+- [x] All six Phase 35 plans have automated or static validation coverage.
+- [x] No validation gaps are open.
+- [x] `nyquist_compliant: true` remains correct.
