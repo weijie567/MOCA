@@ -6212,6 +6212,51 @@ SDK 输出：
 - `.planning/STATE.md`
 - `gsd-sdk query roadmap.update-plan-progress 33`
 
+## 2026-06-29 09:51 CST - Phase 33 verify-work security artifact glob check hit zsh nomatch
+
+### 问题现象
+
+执行 Phase 33 自动 UAT / verify-work 收尾检查时，用 `ls .planning/phases/33-rag-context-build-and-claim-verification/*-SECURITY.md 2>/dev/null || true` 检查 security artifact，zsh 在命令执行前展开 glob，因没有匹配文件而报错：
+
+```text
+zsh:1: no matches found: .planning/phases/33-rag-context-build-and-claim-verification/*-SECURITY.md
+```
+
+### 如何检测 / 复现
+
+在仓库根目录、zsh shell 下运行：
+
+```bash
+ls .planning/phases/33-rag-context-build-and-claim-verification/*-SECURITY.md 2>/dev/null || true
+```
+
+### 关键证据或命令
+
+失败命令输出为空的文件列表前先触发 zsh `nomatch`，导致 `|| true` 不能按预期吞掉 glob 展开错误。
+
+### 当前判断 / 根因
+
+这是 shell glob 行为问题，不是 Phase 33 功能失败。zsh 默认 `nomatch` 会在没有匹配文件时直接报错；`|| true` 只处理命令执行后的退出码，不能处理 shell 展开阶段错误。
+
+### 已做处理
+
+改用不会触发 shell nomatch 的 `find` 命令重查：
+
+```bash
+find .planning/phases/33-rag-context-build-and-claim-verification -maxdepth 1 -name '*-SECURITY.md' -type f -print
+```
+
+确认 Phase 33 当前没有 security artifact；同时 `gsd-sdk query config-get workflow.security_enforcement --raw` 返回 `true`，因此 UAT 结论里会保留 security review 未运行的后续 gate 提醒。
+
+### 剩余问题
+
+无功能阻塞。后续在 zsh 下检查可选 glob 文件时优先使用 `find`，或显式启用 `NULL_GLOB`/使用引号避免 nomatch。
+
+### 下次继续排查入口
+
+- `.planning/phases/33-rag-context-build-and-claim-verification`
+- `gsd-sdk query config-get workflow.security_enforcement --raw`
+
 ## 2026-06-29 06:13 CST - Phase 33 metadata grep command quoting error
 
 ### 问题现象
