@@ -4,14 +4,14 @@ milestone: v1.9
 milestone_name: Agent Platform Foundation
 status: planning
 stopped_at: Phase 34 context gathered
-last_updated: "2026-06-29T02:21:00.051Z"
+last_updated: "2026-06-29T03:26:14.372Z"
 last_activity: 2026-06-29
 progress:
   total_phases: 12
   completed_phases: 9
-  total_plans: 38
+  total_plans: 43
   completed_plans: 38
-  percent: 100
+  percent: 88
 ---
 
 # Project State: MOCA
@@ -247,4 +247,4 @@ Next: Phase 34 — Approval and ActionDraft Boundary Hardening; old phase direct
 
 **Next Roadmap Item:** Phase 34 — Approval and ActionDraft Boundary Hardening
 
-**Planned Phase:** 33 (RAG Context Build and Claim Verification) — 9 plans — 2026-06-28T17:59:33.094Z
+**Planned Phase:** 34 (approval-and-actiondraft-boundary-hardening) — 5 plans — 2026-06-29T03:26:14.342Z

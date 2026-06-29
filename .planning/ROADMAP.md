@@ -379,7 +379,7 @@ Plans:
 **Goal:** Bind action proposals, approval decisions, and action drafts to verified facts/evidence/claims/risk/snapshots while preserving the no-real-execution boundary.
 **Requirements**: APF-15, APF-16
 **Depends on:** Phase 33
-**Plans:** 0/1 plans complete
+**Plans:** 0/5 plans complete
 
 **Core References**:
 
@@ -395,7 +395,11 @@ Plans:
 5. Any future system-owned wildcard approval/action job must use a separate trusted system context contract, not `TrustedContextFactory.create_from_request(user=...)`.
 
 Plans:
-- [ ] 34-01-PLAN.md — Approval and ActionDraft boundary hardening
+- [ ] 34-01-PLAN.md — Contracts and persistence bindings for approval/action refs
+- [ ] 34-02-PLAN.md — Risk gate responsibility extraction and durable auto-allowed binding
+- [ ] 34-03-PLAN.md — Approval gate, ApprovalService, and manager-scope restore
+- [ ] 34-04-PLAN.md — Action draft validation, projection, and no-real-execution cleanup
+- [ ] 34-05-PLAN.md — Final static/focused/eval closure
 
 ### Phase 35: Replay and Eval Hardening
 
