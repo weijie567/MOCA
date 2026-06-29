@@ -333,7 +333,9 @@ async def test_create_coupon_grant_draft_accepts_exact_auto_allowed_binding(
     assert draft.approval_request_id is None
     assert draft.approval_revision_ref == f"auto_allowed:{binding['risk_decision_ref']}"
     assert draft.auto_allowed_binding_ref == f"auto_allowed:{binding['risk_decision_ref']}"
-    assert f"auto_allowed:{binding['risk_decision_ref']}" in draft.idempotency_key
+    assert len(draft.idempotency_key) <= 256
+    assert draft.idempotency_key.startswith(f"{tenant_id}:{run_id}:auto_allowed_sha256:")
+    assert "key_sha256:" in draft.idempotency_key
 
 
 @pytest.mark.asyncio

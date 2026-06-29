@@ -12,9 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.actions.drafts import ActionDraftStore
 from src.actions.schemas import ActionDraftV2Data, DraftOutcomeV1
 from src.agent.events import emit_event
+from src.approvals.schemas import AutoAllowedActionBindingV1, RiskDecisionV1, TargetMerchantBindingV1
 from src.approvals.snapshot_service import compute_action_payload_hash
 from src.common.canonical_hash import CanonicalHashError
 from src.db.models import ActionSafetySnapshot, AgentRun, ApprovalRequest
+from src.knowledge.schemas import EvidenceRefV1
+from src.tools.contracts import BusinessFactRefV1
 
 _IDEMPOTENCY_CONFLICTS = {"idempotency_key_conflict", "idempotency_binding_conflict"}
 _ACTION_RESULT_COMPAT_GATE = (
@@ -27,6 +30,15 @@ _ACTION_RESULT_COMPAT_GATE = (
 class _ValidatedActionBinding:
     revision_marker: str
     approval_revision_ref: str | None
+    target_merchant_id: str | None = None
+    target_merchant_ref: dict[str, Any] | None = None
+    business_fact_refs: list[dict[str, Any]] | None = None
+    verified_evidence_refs: list[dict[str, Any]] | None = None
+    claim_verification_ref: str | None = None
+    claim_verification_summary: dict[str, Any] | None = None
+    risk_decision_ref: str | None = None
+    risk_decision: dict[str, Any] | None = None
+    auto_allowed_binding_ref: str | None = None
 
 
 def _tool_success(data: dict[str, Any]) -> dict[str, Any]:
@@ -61,6 +73,15 @@ class ActionService:
         action_payload_hash: str | None = None,
         safety_snapshot_ref: str | None = None,
         safety_snapshot_hash: str | None = None,
+        target_merchant_id: str | None = None,
+        target_merchant_ref: dict[str, Any] | None = None,
+        business_fact_refs: list[dict[str, Any]] | None = None,
+        verified_evidence_refs: list[dict[str, Any]] | None = None,
+        claim_verification_ref: str | None = None,
+        claim_verification_summary: dict[str, Any] | None = None,
+        risk_decision_ref: str | None = None,
+        risk_decision: dict[str, Any] | None = None,
+        auto_allowed_binding: dict[str, Any] | None = None,
         thread_id: str | None = None,
         trace_id: str | None = None,
     ) -> dict[str, Any]:
@@ -102,6 +123,15 @@ class ActionService:
                     action_payload_hash=action_payload_hash,
                     safety_snapshot_ref=safety_snapshot_ref,
                     safety_snapshot_hash=safety_snapshot_hash,
+                    target_merchant_id=target_merchant_id,
+                    target_merchant_ref=target_merchant_ref,
+                    business_fact_refs=business_fact_refs,
+                    verified_evidence_refs=verified_evidence_refs,
+                    claim_verification_ref=claim_verification_ref,
+                    claim_verification_summary=claim_verification_summary,
+                    risk_decision_ref=risk_decision_ref,
+                    risk_decision=risk_decision,
+                    auto_allowed_binding=auto_allowed_binding,
                 )
                 if isinstance(binding, dict):
                     return binding
@@ -125,6 +155,15 @@ class ActionService:
                     safety_snapshot_ref=safety_snapshot_ref,
                     safety_snapshot_hash=safety_snapshot_hash,
                     payload=payload,
+                    target_merchant_id=binding.target_merchant_id,
+                    target_merchant_ref=binding.target_merchant_ref,
+                    business_fact_refs=binding.business_fact_refs or [],
+                    verified_evidence_refs=binding.verified_evidence_refs or [],
+                    claim_verification_ref=binding.claim_verification_ref,
+                    claim_verification_summary=binding.claim_verification_summary,
+                    risk_decision_ref=binding.risk_decision_ref,
+                    risk_decision=binding.risk_decision,
+                    auto_allowed_binding_ref=binding.auto_allowed_binding_ref,
                     draft_outcome=_draft_outcome(
                         tenant_id=tenant_uuid,
                         run_id=run_uuid,
@@ -183,6 +222,15 @@ class ActionService:
         action_payload_hash: str,
         safety_snapshot_ref: str,
         safety_snapshot_hash: str,
+        target_merchant_id: str | None,
+        target_merchant_ref: dict[str, Any] | None,
+        business_fact_refs: list[dict[str, Any]] | None,
+        verified_evidence_refs: list[dict[str, Any]] | None,
+        claim_verification_ref: str | None,
+        claim_verification_summary: dict[str, Any] | None,
+        risk_decision_ref: str | None,
+        risk_decision: dict[str, Any] | None,
+        auto_allowed_binding: dict[str, Any] | None,
     ) -> _ValidatedActionBinding | dict[str, Any]:
         snapshot = (
             await self.session.execute(
@@ -199,11 +247,25 @@ class ActionService:
         if snapshot is None:
             return _tool_error("ACTION_BINDING_MISMATCH", "Action safety snapshot binding is invalid", retryable=False)
 
+        requested_binding = _binding_material(
+            target_merchant_id=target_merchant_id,
+            target_merchant_ref=target_merchant_ref,
+            business_fact_refs=business_fact_refs,
+            verified_evidence_refs=verified_evidence_refs,
+            claim_verification_ref=claim_verification_ref,
+            claim_verification_summary=claim_verification_summary,
+            risk_decision_ref=risk_decision_ref,
+            risk_decision=risk_decision,
+        )
         if approval_request_id is None:
-            return _tool_error(
-                "AUTO_ALLOWED_BINDING_REQUIRED",
-                "No-approval action draft requires a durable auto-allowed binding",
-                retryable=False,
+            return self._validate_auto_allowed_binding(
+                tenant_id=tenant_id,
+                run_id=run_id,
+                action_payload_hash=action_payload_hash,
+                safety_snapshot_ref=safety_snapshot_ref,
+                safety_snapshot_hash=safety_snapshot_hash,
+                requested_binding=requested_binding,
+                auto_allowed_binding=auto_allowed_binding,
             )
 
         approval = (
@@ -226,9 +288,73 @@ class ActionService:
             or approval.safety_snapshot_hash != safety_snapshot_hash
         ):
             return _tool_error("APPROVAL_BINDING_MISMATCH", "Approved request binding is invalid", retryable=False)
+        if not _approval_phase34_binding_matches(approval, requested_binding):
+            return _tool_error("APPROVAL_BINDING_MISMATCH", "Approved request binding is invalid", retryable=False)
         return _ValidatedActionBinding(
             revision_marker=f"approval_revision_{approval.revision}",
             approval_revision_ref=f"approval_request/{approval.id}@rev{approval.revision}",
+            **requested_binding,
+        )
+
+    def _validate_auto_allowed_binding(
+        self,
+        *,
+        tenant_id: UUID,
+        run_id: UUID,
+        action_payload_hash: str,
+        safety_snapshot_ref: str,
+        safety_snapshot_hash: str,
+        requested_binding: dict[str, Any],
+        auto_allowed_binding: dict[str, Any] | None,
+    ) -> _ValidatedActionBinding | dict[str, Any]:
+        if not auto_allowed_binding:
+            return _tool_error(
+                "AUTO_ALLOWED_BINDING_REQUIRED",
+                "No-approval action draft requires a durable auto-allowed binding",
+                retryable=False,
+            )
+        try:
+            trusted = AutoAllowedActionBindingV1.model_validate(auto_allowed_binding)
+        except ValueError:
+            return _tool_error(
+                "AUTO_ALLOWED_BINDING_MISMATCH",
+                "Auto-allowed action binding is invalid",
+                retryable=False,
+            )
+        trusted_payload = trusted.model_dump(mode="json")
+        risk_decision_ref = str(trusted.risk_decision_ref or "")
+        if not risk_decision_ref:
+            return _tool_error(
+                "AUTO_ALLOWED_BINDING_MISMATCH",
+                "Auto-allowed action binding is invalid",
+                retryable=False,
+            )
+        expected = {
+            "tenant_id": str(tenant_id),
+            "run_id": str(run_id),
+            "target_merchant_id": requested_binding.get("target_merchant_id"),
+            "action_payload_hash": action_payload_hash,
+            "safety_snapshot_ref": safety_snapshot_ref,
+            "safety_snapshot_hash": safety_snapshot_hash,
+            "risk_decision_ref": requested_binding.get("risk_decision_ref"),
+            "business_fact_refs": requested_binding.get("business_fact_refs") or [],
+            "verified_evidence_refs": requested_binding.get("verified_evidence_refs") or [],
+            "claim_verification_ref": requested_binding.get("claim_verification_ref"),
+            "claim_verification_summary": requested_binding.get("claim_verification_summary"),
+        }
+        actual = {key: trusted_payload.get(key) for key in expected}
+        if actual != expected:
+            return _tool_error(
+                "AUTO_ALLOWED_BINDING_MISMATCH",
+                "Auto-allowed action binding is invalid",
+                retryable=False,
+            )
+        revision_marker = f"auto_allowed:{risk_decision_ref}"
+        return _ValidatedActionBinding(
+            revision_marker=revision_marker,
+            approval_revision_ref=revision_marker,
+            auto_allowed_binding_ref=revision_marker,
+            **requested_binding,
         )
 
     async def _emit_action_draft_created(
@@ -297,7 +423,104 @@ def _build_idempotency_key(
     if len(raw_key) <= 256:
         return raw_key
     digest = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
-    return f"{tenant_id}:{run_id}:{revision_marker}:key_sha256:{digest}"
+    shortened = f"{tenant_id}:{run_id}:{revision_marker}:key_sha256:{digest}"
+    if len(shortened) <= 256:
+        return shortened
+    marker_hint = _revision_marker_hint(revision_marker)
+    marker_digest = hashlib.sha256(revision_marker.encode("utf-8")).hexdigest()[:16]
+    return f"{tenant_id}:{run_id}:{marker_hint}_sha256:{marker_digest}:key_sha256:{digest}"
+
+
+def _revision_marker_hint(revision_marker: str) -> str:
+    raw_hint = (revision_marker.split(":", 1)[0] or "revision")[:48]
+    hint = "".join(char if char.isalnum() or char in {"_", "-"} else "_" for char in raw_hint)
+    return hint or "revision"
+
+
+def _binding_material(
+    *,
+    target_merchant_id: str | None,
+    target_merchant_ref: dict[str, Any] | None,
+    business_fact_refs: list[dict[str, Any]] | None,
+    verified_evidence_refs: list[dict[str, Any]] | None,
+    claim_verification_ref: str | None,
+    claim_verification_summary: dict[str, Any] | None,
+    risk_decision_ref: str | None,
+    risk_decision: dict[str, Any] | None,
+) -> dict[str, Any]:
+    return {
+        "target_merchant_id": str(target_merchant_id) if target_merchant_id else None,
+        "target_merchant_ref": _canonical_target_merchant_ref(target_merchant_ref),
+        "business_fact_refs": _canonical_business_fact_refs(business_fact_refs),
+        "verified_evidence_refs": _canonical_evidence_refs(verified_evidence_refs),
+        "claim_verification_ref": str(claim_verification_ref) if claim_verification_ref else None,
+        "claim_verification_summary": _json_safe(claim_verification_summary),
+        "risk_decision_ref": str(risk_decision_ref) if risk_decision_ref else None,
+        "risk_decision": _canonical_risk_decision(risk_decision),
+    }
+
+
+def _approval_phase34_binding_matches(approval: ApprovalRequest, requested: dict[str, Any]) -> bool:
+    if approval.target_merchant_id != requested["target_merchant_id"]:
+        return False
+    if _canonical_target_merchant_ref(approval.target_merchant_ref) != requested["target_merchant_ref"]:
+        return False
+    if _canonical_business_fact_refs(approval.business_fact_refs) != requested["business_fact_refs"]:
+        return False
+    if _canonical_evidence_refs(approval.verified_evidence_refs) != requested["verified_evidence_refs"]:
+        return False
+    claim_requested = bool(requested["claim_verification_ref"] or requested["claim_verification_summary"])
+    claim_approval = bool(approval.claim_verification_ref or approval.claim_verification_summary)
+    if claim_requested or claim_approval:
+        claim_ref_matches = approval.claim_verification_ref == requested["claim_verification_ref"]
+        claim_summary_matches = _json_safe(approval.claim_verification_summary) == requested["claim_verification_summary"]
+        if not (claim_ref_matches or claim_summary_matches):
+            return False
+    risk_requested = bool(requested["risk_decision_ref"] or requested["risk_decision"])
+    risk_approval = bool(approval.risk_decision_ref or approval.risk_decision)
+    if risk_requested or risk_approval:
+        risk_ref_matches = approval.risk_decision_ref == requested["risk_decision_ref"]
+        risk_payload_matches = _canonical_risk_decision(approval.risk_decision) == requested["risk_decision"]
+        if not (risk_ref_matches or risk_payload_matches):
+            return False
+    return True
+
+
+def _canonical_target_merchant_ref(value: dict[str, Any] | None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    return TargetMerchantBindingV1.model_validate(_json_safe(value)).model_dump(mode="json")
+
+
+def _canonical_business_fact_refs(value: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    return [BusinessFactRefV1.model_validate(_json_safe(ref)).model_dump(mode="json") for ref in value or []]
+
+
+def _canonical_evidence_refs(value: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    return [EvidenceRefV1.model_validate(_json_safe(ref)).model_dump(mode="json") for ref in value or []]
+
+
+def _canonical_risk_decision(value: dict[str, Any] | None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    return RiskDecisionV1.model_validate(_json_safe(value)).model_dump(mode="json")
+
+
+def _json_safe_list(value: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    safe = _json_safe(value)
+    return safe if isinstance(safe, list) else []
+
+
+def _json_safe(value: Any) -> Any:
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json", exclude_none=True)
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items() if item is not None}
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value
 
 
 def _draft_outcome(*, tenant_id: UUID, run_id: UUID, draft_id: UUID | None) -> dict[str, Any]:
@@ -331,6 +554,15 @@ def _action_draft_data(draft) -> dict[str, Any]:
         "safety_snapshot_ref": draft.safety_snapshot_ref,
         "safety_snapshot_hash": draft.safety_snapshot_hash,
         "target_id": draft.target_id,
+        "target_merchant_id": draft.target_merchant_id,
+        "target_merchant_ref": _json_safe(draft.target_merchant_ref),
+        "business_fact_refs": list(draft.business_fact_refs or []),
+        "verified_evidence_refs": list(draft.verified_evidence_refs or []),
+        "claim_verification_ref": draft.claim_verification_ref,
+        "claim_verification_summary": _json_safe(draft.claim_verification_summary),
+        "risk_decision_ref": draft.risk_decision_ref,
+        "risk_decision": _json_safe(draft.risk_decision),
+        "auto_allowed_binding_ref": draft.auto_allowed_binding_ref,
         "idempotency_key": draft.idempotency_key,
         "status": draft.status,
         "execution_mode": draft.execution_mode,
@@ -368,6 +600,15 @@ async def create_coupon_grant_draft(
     action_payload_hash: str | None = None,
     safety_snapshot_ref: str | None = None,
     safety_snapshot_hash: str | None = None,
+    target_merchant_id: str | None = None,
+    target_merchant_ref: dict[str, Any] | None = None,
+    business_fact_refs: list[dict[str, Any]] | None = None,
+    verified_evidence_refs: list[dict[str, Any]] | None = None,
+    claim_verification_ref: str | None = None,
+    claim_verification_summary: dict[str, Any] | None = None,
+    risk_decision_ref: str | None = None,
+    risk_decision: dict[str, Any] | None = None,
+    auto_allowed_binding: dict[str, Any] | None = None,
     thread_id: str | None = None,
     trace_id: str | None = None,
 ) -> dict[str, Any]:
@@ -384,6 +625,15 @@ async def create_coupon_grant_draft(
         action_payload_hash=action_payload_hash,
         safety_snapshot_ref=safety_snapshot_ref,
         safety_snapshot_hash=safety_snapshot_hash,
+        target_merchant_id=target_merchant_id,
+        target_merchant_ref=target_merchant_ref,
+        business_fact_refs=business_fact_refs,
+        verified_evidence_refs=verified_evidence_refs,
+        claim_verification_ref=claim_verification_ref,
+        claim_verification_summary=claim_verification_summary,
+        risk_decision_ref=risk_decision_ref,
+        risk_decision=risk_decision,
+        auto_allowed_binding=auto_allowed_binding,
         thread_id=thread_id,
         trace_id=trace_id,
     )

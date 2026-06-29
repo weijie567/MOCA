@@ -41,11 +41,19 @@ _ACTION_DRAFT_BINDING_COLUMNS = (
     sa.Column("claim_verification_summary", postgresql.JSONB(astext_type=sa.Text())),
     sa.Column("risk_decision_ref", sa.String(length=128)),
     sa.Column("risk_decision", postgresql.JSONB(astext_type=sa.Text())),
-    sa.Column("auto_allowed_binding_ref", sa.String(length=128)),
+    sa.Column("auto_allowed_binding_ref", sa.String(length=256)),
 )
 
 
 def upgrade() -> None:
+    op.alter_column(
+        "action_drafts",
+        "approval_revision_ref",
+        existing_type=sa.String(length=128),
+        type_=sa.String(length=256),
+        existing_nullable=True,
+    )
+
     for column in _APPROVAL_REQUEST_BINDING_COLUMNS:
         op.add_column("approval_requests", column)
 
@@ -73,3 +81,11 @@ def downgrade() -> None:
 
     for column in reversed(_APPROVAL_REQUEST_BINDING_COLUMNS):
         op.drop_column("approval_requests", column.name)
+
+    op.alter_column(
+        "action_drafts",
+        "approval_revision_ref",
+        existing_type=sa.String(length=256),
+        type_=sa.String(length=128),
+        existing_nullable=True,
+    )
