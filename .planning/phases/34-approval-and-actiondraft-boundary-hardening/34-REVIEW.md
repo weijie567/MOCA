@@ -1,6 +1,6 @@
 ---
 phase: 34-approval-and-actiondraft-boundary-hardening
-reviewed: 2026-06-29T07:25:33Z
+reviewed: 2026-06-29T08:04:02Z
 depth: deep
 files_reviewed: 39
 files_reviewed_list:
@@ -45,109 +45,67 @@ files_reviewed_list:
   - tests/test_graph_routing.py
 findings:
   critical: 0
-  warning: 3
+  warning: 1
   info: 0
-  total: 3
+  total: 1
 status: issues_found
 ---
 
 # Phase 34: Code Review Report
 
-**Reviewed:** 2026-06-29T07:25:33Z
+**Reviewed:** 2026-06-29T08:04:02Z
 **Depth:** deep
 **Files Reviewed:** 39
 **Status:** issues_found
 
 ## Warnings
 
-### WR-01: Live approval interrupts reject the risk gate's claim-verification output
+### WR-04: Failed edit resume cannot be retried after the approval is superseded
 
-**File:** `src/api/routers/agent_runs.py:848`
+**File:** `src/api/routers/approvals.py:443`
 
-**Issue:** `_approval_create_command_from_interrupt` requires both `claim_verification_ref` and `claim_verification_summary`, and rejects the interrupt when any required field is falsy. The actual risk gate writes `claim_verification_ref: None` into the approval plan and state (`src/agent/nodes/assess_risk_and_approval.py:654`, `src/agent/nodes/assess_risk_and_approval.py:815`), and `approval_gate` forwards that value unchanged (`src/agent/nodes/approval_gate.py:65`). A real approval-required run can therefore fail with `ApprovalInterruptValidationError(["claim_verification_ref"])` before an `ApprovalRequest` is created.
+**Issue:** The WR-02 fix makes trusted edit decisions resume the graph when `resume_route == "assess_risk_and_approval"` (`src/api/routers/approvals.py:734`), but the recoverable retry gate still only recognizes terminal approved/rejected/cancelled rows and excludes `edit` decisions (`src/api/routers/approvals.py:49`, `src/api/routers/approvals.py:452`, `src/api/routers/approvals.py:454`). If `_run_resume_lifecycle` fails after `ApprovalService._edit` has saved the decision and marked the request `superseded` (`src/approvals/service.py:503`), the API returns `APPROVAL_RESUME_FAILED` and says to retry (`src/api/routers/approvals.py:262-278`), but retry falls through to the normal decision path and conflicts because the row is no longer pending. The retry reconstruction helper also omits edit-specific fields (`edited_action`, `new_action_payload_hash`, `resume_route`) from the rebuilt trusted payload (`src/api/routers/approvals.py:572-589`), so simply admitting `edit` to the set would still not resume.
 
-**Impact:** The Phase 34 approval-required path can dead-end at runtime even though the risk gate produced a verified claim summary and durable risk/snapshot bindings. The current API tests miss this because their fake interrupt helper injects a synthetic `claim_verification_ref` (`tests/test_agent_runs_api.py:678`) instead of using the real risk-gate payload shape.
+**Impact:** A transient graph/DB failure during edit rerisk can leave the original approval permanently `superseded` with no rebound approval row. The user receives an instruction to retry, but the retry cannot reconcile the saved edit decision, so the Phase 34 edit-rebind path can dead-end.
 
-**Fix:** Make the producer and consumer agree on the contract. Either have `assess_risk_and_approval` persist a stable `claim_verification_ref`, or change the interrupt validator to require `claim_verification_ref` OR `claim_verification_summary` and pass a nullable ref into `ApprovalRequestCreateCommand`.
-
-```python
-required_fields = [
-    "proposed_action",
-    "action_payload_hash",
-    "safety_snapshot_ref",
-    "safety_snapshot_hash",
-    "policy_config_version",
-    "risk_config_version",
-    "retrieval_config_version",
-    "evidence_refs",
-    "target_merchant_id",
-    "target_merchant_ref",
-    "business_fact_refs",
-    "verified_evidence_refs",
-    "risk_decision_ref",
-    "risk_decision",
-]
-missing = [field for field in required_fields if not interrupt_data.get(field)]
-if not (interrupt_data.get("claim_verification_ref") or interrupt_data.get("claim_verification_summary")):
-    missing.append("claim_verification")
-```
-
-Add an integration test that feeds actual `assess_risk_and_approval -> approval_gate -> _approval_create_command_from_interrupt` output, including the current summary-only claim binding.
-
-### WR-02: Edit decisions emit a risk reroute payload, but the API never resumes the graph
-
-**File:** `src/api/routers/approvals.py:650`
-
-**Issue:** `ApprovalService._edit` returns a resume payload with `decision_type="edit"` and `resume_route="assess_risk_and_approval"` (`src/approvals/service.py:558`, `src/approvals/service.py:570`), and `route_after_approval` explicitly routes that trusted payload back to the risk gate (`src/agent/graph.py:149`). The API gate excludes edits from `_should_resume_graph`, so `decide_approval` commits the supersede result without invoking `_run_resume_lifecycle` (`src/api/routers/approvals.py:132`). The API test currently asserts this no-resume behavior (`tests/test_approval_api.py:733`), which contradicts the service and graph contract.
-
-**Impact:** Reviewer edits dead-end instead of being re-risked and rebound. The user sees a superseded approval response, but the agent run is not resumed to `assess_risk_and_approval`, so no fresh claim/risk/snapshot/merchant binding is produced for the edited action.
-
-**Fix:** Resume only trusted edit results that explicitly request the risk route, and update the API test to assert a risk resume rather than zero graph calls.
+**Fix:** Treat `edit`/`superseded` as a recoverable resume state and reconstruct the trusted edit payload from the saved decision plus the `approval_decided` event metadata/resource refs before calling `_run_resume_lifecycle`.
 
 ```python
-def _should_resume_graph(result) -> bool:
-    if not result.resume_payload:
-        return False
-    if result.decision_type == "edit":
-        return result.resume_payload.get("resume_route") == "assess_risk_and_approval"
-    return result.decision_type in {"accept", "approve", "reject", "ignore"}
-```
+RESUMABLE_DECISIONS = {"accept", "approve", "reject", "ignore", "edit"}
+RESUME_RETRY_STATUSES = {"approved", "rejected", "cancelled", "superseded"}
 
-The resume path also needs to feed the edited action into the state that risk gate consumes, so the new hash is revalidated rather than treated as approval authority.
-
-### WR-03: Superseding edit/info approvals are persisted without Phase 34 binding fields
-
-**File:** `src/approvals/service.py:504`
-
-**Issue:** `_edit` creates the superseding pending `ApprovalRequest` without passing `target_merchant_id`, `target_merchant_ref`, `business_fact_refs`, `verified_evidence_refs`, claim verification fields, risk decision fields, or `approval_idempotency_key` into `create_request_with_single_level` (`src/approvals/service.py:504`). `_supersede_from_info` has the same omission (`src/approvals/service.py:689`). The normal create path does pass these bindings (`src/approvals/service.py:106`), and the repository supports them.
-
-**Impact:** The new pending approval row can be missing the exact merchant/evidence/claim/risk bindings Phase 34 relies on. Managers cannot see or decide missing-target approvals because `_approval_scope_allowed` requires `approval.target_merchant_id` (`src/api/routers/approvals.py:666`), and any later action draft would fail binding validation. Combined with WR-02, an edit can leave behind a pending approval that is neither properly scoped nor executable.
-
-**Fix:** Do not create a new pending approval row until the edit has been rerun through risk gate and rebuilt with fresh Phase 34 bindings. If the placeholder row must exist, mark it non-executable/non-reviewable until rebound, or pass only verified binding fields that are still exact for the edited action.
-
-```python
-new_request, _new_level, _new_assignment, _event = await self.repository.create_request_with_single_level(
+metadata = event.metadata_json or {}
+resource_refs = event.resource_refs_json or {}
+trusted = TrustedApprovalResultV1(
     ...,
-    target_merchant_id=rebuilt.target_merchant_id,
-    target_merchant_ref=rebuilt.target_merchant_ref,
-    business_fact_refs=rebuilt.business_fact_refs,
-    verified_evidence_refs=rebuilt.verified_evidence_refs,
-    claim_verification_ref=rebuilt.claim_verification_ref,
-    claim_verification_summary=rebuilt.claim_verification_summary,
-    risk_decision_ref=rebuilt.risk_decision_ref,
-    risk_decision=rebuilt.risk_decision,
-    approval_idempotency_key=rebuilt.approval_idempotency_key,
-)
+    decision_type=decision.decision_type,
+    status=approval.status,
+    edited_action=decision.edited_action if decision.decision_type == "edit" else None,
+    new_action_payload_hash=resource_refs.get("new_action_payload_hash"),
+    resume_route=metadata.get("resume_route"),
+).model_dump(mode="json")
 ```
+
+Add an API regression test mirroring `test_approval_resume_failure_can_retry_without_new_decision`, but with `decision_type="edit"` and a resume graph failure before the rebound interrupt is persisted. The retry should return 200, call the graph again with the same trusted edit payload, and create the bound replacement approval after the interrupt.
 
 ## Summary
 
-Deep review traced the Phase 34 call chain from `risk_gate` through `approval_gate`, the agent-run interrupt bridge, `ApprovalService`, approval API resume handling, and `action_draft` binding validation. No critical issues were found. The three warnings are behavioral boundary regressions around approval-required creation and edit/supersede rebinding.
+Deep re-review traced the Phase 34 approval/action flow across risk gating, approval interrupts, edit rerisk resume, rebound approval creation, action draft validation, safe projections, and static no-real-execution boundaries. The prior findings WR-01, WR-02, and WR-03 are resolved in the current code and covered by focused tests.
 
-No tests were run during this review; findings are based on source and test trace analysis.
+One new warning remains: the edit resume retry path was not updated with the WR-02/WR-03 behavior, so a failed edit rerisk resume is not recoverable even though the API tells the caller to retry.
+
+## Verification
+
+- WR-01 resolved: `_approval_create_command_from_interrupt` now accepts `claim_verification_ref` or `claim_verification_summary` and preserves a nullable claim ref (`src/api/routers/agent_runs.py:852`, `src/api/routers/agent_runs.py:892`).
+- WR-02 resolved: `_should_resume_graph` now resumes trusted edit results with `resume_route="assess_risk_and_approval"` (`src/api/routers/approvals.py:734`), and risk gate validates/re-hashes the trusted edited action (`src/agent/nodes/assess_risk_and_approval.py:336`, `src/agent/nodes/assess_risk_and_approval.py:373`).
+- WR-03 resolved: `_edit` and `_supersede_from_info` no longer create unbound replacement approval rows inside `ApprovalService`; edit rebound rows are created through the approval interrupt bridge after rerisk (`src/approvals/service.py:458`, `src/approvals/service.py:618`, `src/api/routers/approvals.py:349`).
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_agent_runs_api.py::test_event_generator_treats_stream_interrupt_node_as_approval_required tests/test_agent_runs_api.py::test_agent_chat_interrupt_uses_trusted_run_id_when_payload_and_checkpoint_spoof tests/test_approval_gate.py::test_approval_gate_interrupt_payload_contains_display_refs_and_versions tests/test_approval_api.py::test_decide_edit_supersedes_and_resumes_risk_reroute tests/test_approval_api.py::test_decide_edit_rebinds_replacement_approval_from_resume_interrupt tests/test_approval_api.py::test_attach_info_changed_payload_supersedes_without_unbound_replacement tests/approvals/test_service_transitions.py::test_edit_decision_reroutes_to_risk_without_approved_resume_authority tests/test_graph_routing.py::test_edit_resume_rerisk_uses_exact_trusted_edited_action -q --tb=short` -> `9 passed, 1 warning`.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_phase34_approval_action_boundaries.py tests/architecture/test_action_draft_boundaries.py -q --tb=short` -> `20 passed, 1 warning`.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/api/routers/agent_runs.py src/api/routers/approvals.py src/agent/nodes/assess_risk_and_approval.py src/approvals/service.py tests/test_agent_runs_api.py tests/test_approval_gate.py tests/test_approval_api.py tests/test_graph_routing.py tests/approvals/test_service_transitions.py` -> passed.
+- Static scans over the 39-file scope found no dangerous function/secret/debug patterns; production source scans found no real execution/outbox/reconciliation/compensation surfaces.
 
 ---
 
-_Reviewed: 2026-06-29T07:25:33Z_
+_Reviewed: 2026-06-29T08:04:02Z_
 _Reviewer: Codex (gsd-code-reviewer)_
 _Depth: deep_
