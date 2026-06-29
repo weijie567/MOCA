@@ -255,7 +255,7 @@ Next: Phase 35 — Replay and Eval Hardening; old phase directory archive remain
 
 **Completed Phase:** 33 (RAG Context Build and Claim Verification) — 9/9 plans complete; verification passed; code review warnings fixed; final focused suite `476 passed, 22 warnings`; static/focused/eval closure passed — 2026-06-29
 
-**Completed Phase:** 34 (Approval and ActionDraft Boundary Hardening) — 6/6 plans complete; final focused suite `400 passed, 22 warnings`; static/focused/ruff closure passed — 2026-06-29
+**Completed Phase:** 34 (Approval and ActionDraft Boundary Hardening) — 6/6 plans complete; verification passed; final focused suite `400 passed, 22 warnings`; static/focused/ruff closure passed — 2026-06-29
 
 **Next Roadmap Item:** Phase 35 — Replay and Eval Hardening
 
