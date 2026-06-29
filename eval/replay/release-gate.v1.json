@@ -9,7 +9,7 @@
   "dataset_hash": "sha256:361c087f8f56ac931a4a21f92b2f991098cf325a8ba2166f42f084b1254ad767",
   "dataset_size": 3,
   "coverage_manifest_path": "eval/replay/phase35-coverage-matrix.v1.json",
-  "coverage_manifest_hash": "sha256:a9d58190127164a2299c09415824942b6f876ba70273a35dfe6fb1ad83b8b121",
+  "coverage_manifest_hash": "sha256:fd9affcc1476f35b61ec3076563006dca548d67ebb26c7fc072075c06df99f67",
   "command_entrypoint": "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/eval/test_phase35_release_monitoring_manifests.py -q --tb=short",
   "default_gate_status": "statistical_gate_not_demonstrated",
   "coverage_status": "incomplete",

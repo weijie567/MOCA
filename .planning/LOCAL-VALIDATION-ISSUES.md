@@ -7756,6 +7756,65 @@ SDK 输出：
 - `.planning/STATE.md`
 - `gsd-sdk query roadmap.update-plan-progress 35`
 
+## 2026-06-30 01:05 CST - Phase 35 code-review-fix left release gate coverage matrix hash stale
+
+### 问题现象
+
+Phase 35 code-review-fix 修复 WR-04 后更新了 `eval/replay/phase35-coverage-matrix.v1.json`，但 `eval/replay/release-gate.v1.json` 中的 `coverage_manifest_hash` 仍指向旧矩阵 hash。re-review 的 focused pytest 因 release gate hash mismatch 失败。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/eval/test_phase35_release_monitoring_manifests.py::test_release_gate_references_smoke_dataset_and_coverage_matrix_hashes -q --tb=short
+```
+
+### 关键证据或命令
+
+re-review 记录的失败命令为：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_trace.py tests/architecture/test_phase35_replay_eval_boundaries.py tests/eval/test_phase35_release_monitoring_manifests.py tests/eval/test_phase35_replay_eval_gates.py tests/replay/test_phase35_coverage_matrix.py tests/replay/test_phase35_operation_identity.py tests/replay/test_phase35_redaction_negatives.py tests/replay/test_phase35_terminal_timelines.py tests/replay/test_phase35_trace_replay_permissions.py -q --tb=short
+```
+
+结果为 `1 failed, 121 passed, 1 warning`，唯一失败是：
+
+```text
+tests/eval/test_phase35_release_monitoring_manifests.py::test_release_gate_references_smoke_dataset_and_coverage_matrix_hashes
+```
+
+当前矩阵 hash 与 release gate 旧 hash 对比：
+
+```text
+matrix sha256:fd9affcc1476f35b61ec3076563006dca548d67ebb26c7fc072075c06df99f67
+release coverage sha256:a9d58190127164a2299c09415824942b6f876ba70273a35dfe6fb1ad83b8b121
+```
+
+### 当前判断 / 根因
+
+WR-04 修复提交修改了 coverage matrix 和 dev-contract manifest hash，但遗漏了 release gate 的 `coverage_manifest_hash` 同步更新，属于静态 artifact drift。
+
+### 已做处理
+
+已将 `eval/replay/release-gate.v1.json` 的 `coverage_manifest_hash` 更新为当前矩阵 hash：
+
+```text
+sha256:fd9affcc1476f35b61ec3076563006dca548d67ebb26c7fc072075c06df99f67
+```
+
+并准备重跑 release manifest focused test 与 code-review re-review scope。
+
+### 剩余问题
+
+需重跑 focused tests 和 deep re-review，确认该 artifact drift 已清除且没有新增 review finding。
+
+### 下次继续排查入口
+
+- `eval/replay/phase35-coverage-matrix.v1.json`
+- `eval/replay/release-gate.v1.json`
+- `tests/eval/test_phase35_release_monitoring_manifests.py::test_release_gate_references_smoke_dataset_and_coverage_matrix_hashes`
+
 ## 2026-06-30 00:31 CST - Phase 35-06 roadmap progress handler still misses current ROADMAP format
 
 ### 问题现象
