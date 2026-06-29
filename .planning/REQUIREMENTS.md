@@ -15,8 +15,8 @@ Turn MOCA's agent runtime into a microservice-ready modular monolith: platform/d
 
 ### Architecture Contract Baseline
 
-- [x] **APF-01:** The target architecture plan, `contract-spec.md`, and eval plan define the same target graph vocabulary, service boundaries, AgentState RAG/claim fields, tool policy decisions, business fact results, and decision event foundation.
-- [x] **APF-02:** Each platform/domain module has explicit ownership over schemas, repositories/adapters, public methods, downstream dependencies, forbidden imports, and decision events.
+- [ ] **APF-01:** The target architecture plan, `contract-spec.md`, and eval plan define the same target graph vocabulary, service boundaries, AgentState RAG/claim fields, tool policy decisions, business fact results, and decision event foundation.
+- [ ] **APF-02:** Each platform/domain module has explicit ownership over schemas, repositories/adapters, public methods, downstream dependencies, forbidden imports, and decision events.
 
 ### Trusted Context and Decision Events
 
@@ -26,8 +26,8 @@ Turn MOCA's agent runtime into a microservice-ready modular monolith: platform/d
 
 ### Tool and Business Fact Boundaries
 
-- [x] **APF-06:** Tool planner visibility is generated from `ToolDescriptor` into prompt-safe `ToolView` rather than exposing raw descriptors, adapters, internal permission reasons, or side-effect capabilities.
-- [x] **APF-07:** Runtime tool invocation emits `ToolPolicyDecision` and rechecks authorization, resource scope, side-effect class, and input/output schema even when the tool was visible to the planner.
+- [ ] **APF-06:** Tool planner visibility is generated from `ToolDescriptor` into prompt-safe `ToolView` rather than exposing raw descriptors, adapters, internal permission reasons, or side-effect capabilities.
+- [ ] **APF-07:** Runtime tool invocation emits `ToolPolicyDecision` and rechecks authorization, resource scope, side-effect class, and input/output schema even when the tool was visible to the planner.
 - [x] **APF-08:** Business fact reads expose `BusinessFactResultV1` / `BusinessFactRefV1` through domain service public methods, and graph/tool code cannot substitute memory, RAG, LLM inference, or raw repository rows for current business facts.
 
 ### Merchant Scope Alignment
@@ -41,8 +41,8 @@ Turn MOCA's agent runtime into a microservice-ready modular monolith: platform/d
 
 ### Intent and Graph Migration
 
-- [x] **APF-11:** The graph can map legacy nodes/routers to target canonical vocabulary for `safety_pre_route`, `session_context_load`, `contextual_intent_resolve`, `slot_resolution_gate`, `memory_context_load`, `rag_context_build`, and `claim_verify`.
-- [x] **APF-12:** Intent and slot policy registries drive contextual intent resolution and slot inheritance decisions, with LLM output limited to candidates and deterministic policy owning effective route/slot decisions.
+- [ ] **APF-11:** The graph can map legacy nodes/routers to target canonical vocabulary for `safety_pre_route`, `session_context_load`, `contextual_intent_resolve`, `slot_resolution_gate`, `memory_context_load`, `rag_context_build`, and `claim_verify`.
+- [ ] **APF-12:** Intent and slot policy registries drive contextual intent resolution and slot inheritance decisions, with LLM output limited to candidates and deterministic policy owning effective route/slot decisions.
 
 ### RAG Context Build and Claim Verification
 
@@ -56,8 +56,8 @@ Turn MOCA's agent runtime into a microservice-ready modular monolith: platform/d
 
 ### Replay and Eval Hardening
 
-- [x] **APF-17:** Replay/trace coverage records platform decisions for trusted context projection, intent/slot policy, memory load/write policy, tool visibility/auth, RAG validation, claim verification, risk/approval, and action draft boundaries.
-- [x] **APF-18:** Contract tests and eval gates distinguish dev-contract, release, and monitoring gates for the new platform boundaries, including negative cases for scope leaks, unsupported claims, unsafe action paths, and raw payload exposure.
+- [ ] **APF-17:** Replay/trace coverage records platform decisions for trusted context projection, intent/slot policy, memory load/write policy, tool visibility/auth, RAG validation, claim verification, risk/approval, and action draft boundaries.
+- [ ] **APF-18:** Contract tests and eval gates distinguish dev-contract, release, and monitoring gates for the new platform boundaries, including negative cases for scope leaks, unsupported claims, unsafe action paths, and raw payload exposure.
 
 ## v2 / Future Requirements
 
@@ -83,30 +83,31 @@ Turn MOCA's agent runtime into a microservice-ready modular monolith: platform/d
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| APF-01 | Phase 26 | Complete |
-| APF-02 | Phase 26 | Complete |
+| APF-01 | Phase 26 + Phase 36 | Pending audit closure |
+| APF-02 | Phase 26 + Phase 36 | Pending audit closure |
 | APF-03 | Phase 27 | Complete |
 | APF-04 | Phase 27 | Complete |
-| APF-05 | Phase 28 | Complete |
-| APF-06 | Phase 29 | Complete |
-| APF-07 | Phase 29 | Complete |
-| MER-01 | Phase 29.5 | Pending |
+| APF-05 | Phase 28 + Phase 36 | Complete; validation metadata cleanup pending |
+| APF-06 | Phase 29 + Phase 36 | Pending audit closure |
+| APF-07 | Phase 29 + Phase 36 | Pending audit closure |
+| MER-01 | Phase 29.5 + Phase 36 | Pending audit closure |
 | APF-08 | Phase 30 | Complete |
 | APF-09 | Phase 31 | Complete |
 | APF-10 | Phase 31 | Complete |
-| APF-11 | Phase 32 | Complete |
-| APF-12 | Phase 32 | Complete |
-| APF-13 | Phase 33 | Complete |
-| APF-14 | Phase 33 | Complete |
+| APF-11 | Phase 32 + Phase 36 | Pending audit closure |
+| APF-12 | Phase 32 + Phase 36 | Pending audit closure |
+| APF-13 | Phase 33 + Phase 36 | Complete; validation metadata cleanup pending |
+| APF-14 | Phase 33 + Phase 36 | Complete; validation metadata cleanup pending |
 | APF-15 | Phase 34 | Complete |
 | APF-16 | Phase 34 | Complete |
-| APF-17 | Phase 35 | Complete |
-| APF-18 | Phase 35 | Complete |
+| APF-17 | Phase 35 + Phase 36 | Pending audit closure |
+| APF-18 | Phase 35 + Phase 36 | Pending audit closure |
 
 **Coverage:**
 - v1 requirements: 19 total
 - Mapped to phases: 19
 - Unmapped: 0
+- Audit closure pending: 9 formal verification requirements and 3 validation metadata rows assigned to Phase 36
 
 ---
 *Requirements defined: 2026-06-22 for v1.9 Agent Platform Foundation.*

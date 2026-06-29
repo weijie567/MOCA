@@ -73,25 +73,25 @@ v1.9 is active. The milestone uses `docs/contract-spec.md` and `docs/target-agen
 
 | Requirement | Phase | Coverage |
 |-------------|-------|----------|
-| APF-01 | Phase 26 | Contract/spec/eval baseline alignment |
-| APF-02 | Phase 26 | Module ownership and dependency boundaries |
+| APF-01 | Phase 26 + Phase 36 | Contract/spec/eval baseline alignment + formal verification closure |
+| APF-02 | Phase 26 + Phase 36 | Module ownership and dependency boundaries + formal verification closure |
 | APF-03 | Phase 27 | Canonical TrustedContext factory |
 | APF-04 | Phase 27 | Service-safe context projections |
-| APF-05 | Phase 28 | Decision event envelope and emitter foundation |
-| APF-06 | Phase 29 | ToolView planner projection |
-| APF-07 | Phase 29 | ToolPolicyDecision runtime authorization |
-| MER-01 | Phase 29.5 | Merchant-bound role and business-data scope alignment |
+| APF-05 | Phase 28 + Phase 36 | Decision event envelope and emitter foundation + validation metadata refresh |
+| APF-06 | Phase 29 + Phase 36 | ToolView planner projection + formal verification closure |
+| APF-07 | Phase 29 + Phase 36 | ToolPolicyDecision runtime authorization + formal verification closure |
+| MER-01 | Phase 29.5 + Phase 36 | Merchant-bound role and business-data scope alignment + ledger reconciliation |
 | APF-08 | Phase 30 | BusinessFactResultV1 domain service facade |
 | APF-09 | Phase 31 | SessionContextMemory projection |
 | APF-10 | Phase 31 | Memory layer and authority separation |
-| APF-11 | Phase 32 | Target graph vocabulary migration |
-| APF-12 | Phase 32 | Intent and slot policy registries |
-| APF-13 | Phase 33 | VerifiedEvidencePackageV1 and route_after_rag_context |
-| APF-14 | Phase 33 | MaterialClaimV1 and ClaimVerificationBundleV1 |
+| APF-11 | Phase 32 + Phase 36 | Target graph vocabulary migration + formal verification closure |
+| APF-12 | Phase 32 + Phase 36 | Intent and slot policy registries + formal verification closure |
+| APF-13 | Phase 33 + Phase 36 | VerifiedEvidencePackageV1 and route_after_rag_context + validation metadata refresh |
+| APF-14 | Phase 33 + Phase 36 | MaterialClaimV1 and ClaimVerificationBundleV1 + validation metadata refresh |
 | APF-15 | Phase 34 | Structured action proposal / draft binding |
 | APF-16 | Phase 34 | Risk vs approval gate responsibility split |
-| APF-17 | Phase 35 | Replay/trace coverage for platform decisions |
-| APF-18 | Phase 35 | Dev/release/monitoring eval gates |
+| APF-17 | Phase 35 + Phase 36 | Replay/trace coverage for platform decisions + formal verification closure |
+| APF-18 | Phase 35 + Phase 36 | Dev/release/monitoring eval gates + formal verification closure |
 
 ## Latest Phase Closeout
 
@@ -104,7 +104,7 @@ Phase 29 review, UAT, security, and validation are recorded in `.planning/phases
 - **post-Phase 17 Policy Scope** - tenant-over-global global/default policy fallback and precedence merge.
 - **Phase RAG-5: Optional External Search Backend** - Vespa/OpenSearch shadow testing and full external `SearchBackend` only if PostgreSQL hybrid no longer fits.
 - **Policy Source Operations** - policy source upload/review/lifecycle UI, source document viewer, and admin review workflow.
-- **Merchant scope deferred routing from Phase 29.5** - AgentRun, Approval, ActionDraft, Memory, Replay, and DB hardening merchant-scope follow-ups are indexed under `.planning/todos/deferred/2026-06-27-merchant-scope-*.md` and must be consumed by Phases 30-35 or Phase 36+ as assigned.
+- **Merchant scope deferred routing from Phase 29.5** - AgentRun, Approval, ActionDraft, Memory, Replay, and DB hardening merchant-scope follow-ups are indexed under `.planning/todos/deferred/2026-06-27-merchant-scope-*.md`; runtime scope was consumed by Phases 30-35, while Phase 36 reconciles audit ledger/formal closure and leaves database hardening as future milestone scope.
 
 <details>
 <summary>Detailed shipped Phase 24.2-25 records</summary>
@@ -431,6 +431,27 @@ Plans:
 - [x] 35-04-PLAN.md — Dev-contract eval gate and forbidden behavior datasets
 - [x] 35-05-PLAN.md — Release and monitoring artifact manifests
 - [x] 35-06-PLAN.md — Final static/focused/eval closure
+
+### Phase 36: v1.9 Milestone Readiness Closure
+
+**Status:** Planned
+**Milestone:** v1.9 Agent Platform Foundation
+**Goal:** Close the strict milestone audit gates without runtime scope creep by adding missing formal verification artifacts, refreshing stale validation metadata, and reconciling MER-01's ledger/deferral status.
+**Requirements:** APF-01, APF-02, APF-06, APF-07, MER-01, APF-11, APF-12, APF-17, APF-18
+**Validation Metadata:** APF-05, APF-13, APF-14
+**Depends on:** Phase 35
+**Gap Closure:** Closes gaps from `.planning/milestones/v1.9-MILESTONE-AUDIT.md`
+**Plans:** 0 plans
+
+**Success Criteria**:
+
+1. Formal `*-VERIFICATION.md` artifacts exist for Phases 26, 29, 29.5, 32, and 35, mapping each audit-orphaned requirement to concrete summary/validation/test evidence.
+2. `26-VALIDATION.md`, `28-VALIDATION.md`, and `33-VALIDATION.md` frontmatter and task rows reflect the executed/verified state or explicitly document any remaining non-blocking validation debt.
+3. `MER-01` is reconciled in `REQUIREMENTS.md`: runtime scope work is marked complete with evidence from Phases 29.5 and 30-35, while database/role hardening and same-merchant trace/replay authorization expansion remain owner-named future scope.
+4. Re-running `$gsd-audit-milestone` no longer reports formal verification orphan gaps, stale Nyquist metadata blockers, or MER-01 ledger mismatch.
+
+Plans:
+- [ ] TBD — run `$gsd-plan-phase 36`
 
 ## Backlog
 

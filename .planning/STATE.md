@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
-status: milestone_ready_for_audit
-stopped_at: Phase 35 verified, secured, validated; v1.9 ready for milestone audit
-last_updated: "2026-06-29T17:22:14Z"
-last_activity: 2026-06-29
+status: phase_ready_to_plan
+stopped_at: Phase 36 gap closure phase created from v1.9 milestone audit
+last_updated: "2026-06-29T23:46:20Z"
+last_activity: 2026-06-30
 progress:
-  total_phases: 11
+  total_phases: 12
   completed_phases: 11
   total_plans: 50
   completed_plans: 50
-  percent: 100
+  percent: 92
 ---
 
 # Project State: MOCA
@@ -21,17 +21,17 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-29)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v1.9 milestone audit and completion
+**Current focus:** v1.9 milestone audit gap closure
 
 ## Current Position
 
-Phase: 35 (replay-and-eval-hardening) — COMPLETE
-Next roadmap item: v1.9 milestone audit / completion
-Plan: 6 of 6
-Status: Phase verified, secured, and Nyquist-compliant; milestone ready for audit
-Last activity: 2026-06-29
+Phase: 36 (v1.9-milestone-readiness-closure) — PLANNED
+Next roadmap item: plan Phase 36 milestone readiness closure
+Plan: 0 plans
+Status: Gap closure phase created from v1.9 milestone audit; ready to plan
+Last activity: 2026-06-30
 
-Progress: [██████████] 100%
+Progress: [█████████░] 92%
 
 Planning files:
 
@@ -49,12 +49,12 @@ Planning files:
 - v1.9 targets the platform foundation for MOCA's agent architecture, not a new user-facing workflow and not full real external execution.
 - The target is a microservice-ready modular monolith: service boundaries should be clear enough to split later, while deployment remains a single app for now.
 - `docs/contract-spec.md` is the normative source. `docs/target-agent-platform-architecture-plan.md` records target architecture and Phase 26 spec-delta baseline decisions.
-- The milestone should land foundations in dependency order: architecture contract baseline, TrustedContextFactory/projections, decision events, tool platform, business facts, memory platform, graph migration, RAG context build/claim verification, approval/action boundary hardening, replay/eval hardening.
+- The milestone should land foundations in dependency order: architecture contract baseline, TrustedContextFactory/projections, decision events, tool platform, business facts, memory platform, graph migration, RAG context build/claim verification, approval/action boundary hardening, replay/eval hardening, and audit-readiness closure.
 - Memory remains contextual only; policy evidence, business facts, approval/action authority, and replay truth keep their own authoritative services and schemas.
 
 ## Performance Metrics
 
-**v1.9 current planned scope:** 11 phases, 18 APF requirements, 33 planned phase plans.
+**v1.9 current planned scope:** 12 phases, 19 v1 requirements, 50 completed phase plans plus pending Phase 36 closure planning.
 
 | Phase | Plans | Status |
 |-------|-------|--------|
@@ -69,9 +69,10 @@ Planning files:
 | 33. RAG Context Build and Claim Verification | 9/9 | Complete |
 | 34. Approval and ActionDraft Boundary Hardening | 6/6 | Complete |
 | 35. Replay and Eval Hardening | 6/6 | Complete |
+| 36. v1.9 Milestone Readiness Closure | 0 plans | Planned |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
-Latest execution metric: Phase 35 P35-06 — 13 min, 2 tasks, 3 files; final focused replay/API/eval/architecture suites, ruff, source audit, and no-scope-creep closure passed.
+Latest execution metric: Phase 35 P35-06 — 13 min, 2 tasks, 3 files; final focused replay/API/eval/architecture suites, ruff, source audit, and no-scope-creep closure passed. Phase 36 has been added as an audit-readiness closure phase and is not yet planned.
 | Phase 29.5 P01 | 35min | 2 tasks | 5 files |
 | Phase 29.5 P02 | 5min | 2 tasks | 5 files |
 | Phase 29.5 P03 | 34min | 2 tasks | 13 files |
@@ -211,6 +212,7 @@ Latest execution metric: Phase 35 P35-06 — 13 min, 2 tasks, 3 files; final foc
 - Phase 24.4 inserted after Phase 24: Memory Eval MVP.
 - Phase 25 added and completed: Intent routing safety hardening.
 - Phase 26-35 added for v1.9 Agent Platform Foundation.
+- Phase 36 added to close v1.9 milestone audit gates: missing formal verification artifacts, stale validation metadata, and MER-01 ledger reconciliation.
 
 ### Pending Todos
 
@@ -244,10 +246,10 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-29T17:22:14Z
-Stopped at: Phase 35 verified, secured, validated; v1.9 ready for milestone audit
+Last session: 2026-06-29T23:46:20Z
+Stopped at: Phase 36 gap closure phase created from v1.9 milestone audit
 Resume file: None
-Next: Run milestone audit / completion for v1.9. Old phase directory archive remains a separate cleanup todo.
+Next: Run `$gsd-plan-phase 36`. Old phase directory archive remains a separate cleanup todo.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
 
@@ -283,4 +285,6 @@ Next: Run milestone audit / completion for v1.9. Old phase directory archive rem
 
 **Completed Phase:** 35 (Replay and Eval Hardening) — 6/6 plans complete; code review clean after fixes; UAT 8/8 passed; security `threats_open: 0`; Nyquist validation compliant; aggregate Phase 35 suite `122 passed, 1 warning` — 2026-06-29
 
-**Next Roadmap Item:** v1.9 milestone audit / completion
+**Planned Phase:** 36 (v1.9 Milestone Readiness Closure) — closes strict v1.9 audit gaps; plans pending — 2026-06-30
+
+**Next Roadmap Item:** plan Phase 36 milestone readiness closure

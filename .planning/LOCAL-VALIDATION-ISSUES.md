@@ -8501,3 +8501,42 @@ zsh 默认 `nomatch` 行为会在 glob 没有匹配时直接报错。对 audit �
 
 - `.planning/milestones/v1.9-MILESTONE-AUDIT.md`
 - `/Users/ming/.codex/get-shit-done/workflows/audit-milestone.md`
+
+## 2026-06-30 07:46 CST - plan-milestone-gaps confirmation tool unavailable in Default mode
+
+### 问题现象
+
+执行 `$gsd-plan-milestone-gaps` 到 user confirmation gate 时，尝试按技能适配规则调用 `request_user_input`，但当前 Codex collaboration mode 为 Default，工具返回不可用。
+
+### 如何检测 / 复现
+
+在 Default mode 下执行需要 AskUserQuestion / confirmation gate 的 GSD workflow，并调用：
+
+```text
+request_user_input
+```
+
+### 关键证据或命令
+
+工具返回：
+
+```text
+request_user_input is unavailable in Default mode
+```
+
+### 当前判断 / 根因
+
+技能适配规则允许把 GSD `AskUserQuestion` 映射为 Codex `request_user_input`，但当前运行模式不支持该工具。技能文档也规定 execute/default fallback：当 `request_user_input` 被拒绝时，展示选项并选择合理默认值。
+
+### 已做处理
+
+本次 gap closure plan 只有一个推荐项：创建 Phase 36 `v1.9 Milestone Readiness Closure` 来关闭 audit formal verification / Nyquist metadata / MER-01 ledger gaps。由于用户已显式执行 `$gsd-plan-milestone-gaps`，且无 optional gaps 需要取舍，按 fallback 采用推荐默认项继续并更新 roadmap/requirements/state。
+
+### 剩余问题
+
+无阻塞。后续若需要真实交互确认，应切换到支持 `request_user_input` 的 Plan mode，或在 Default mode 明确用纯文本停下等待用户回复。
+
+### 下次继续排查入口
+
+- `/Users/ming/.codex/skills/gsd-plan-milestone-gaps/SKILL.md`
+- `/Users/ming/.codex/get-shit-done/workflows/plan-milestone-gaps.md`
