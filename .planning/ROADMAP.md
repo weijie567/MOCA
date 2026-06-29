@@ -374,12 +374,12 @@ Plans:
 
 ### Phase 34: Approval and ActionDraft Boundary Hardening
 
-**Status:** Pending
+**Status:** In Progress
 **Milestone:** v1.9 Agent Platform Foundation
 **Goal:** Bind action proposals, approval decisions, and action drafts to verified facts/evidence/claims/risk/snapshots while preserving the no-real-execution boundary.
 **Requirements**: APF-15, APF-16
 **Depends on:** Phase 33
-**Plans:** 0/6 plans complete
+**Plans:** 1/6 plans complete
 
 **Core References**:
 
@@ -395,7 +395,7 @@ Plans:
 5. Any future system-owned wildcard approval/action job must use a separate trusted system context contract, not `TrustedContextFactory.create_from_request(user=...)`.
 
 Plans:
-- [ ] 34-01-PLAN.md — Contracts and persistence bindings for approval/action refs
+- [x] 34-01-PLAN.md — Contracts and persistence bindings for approval/action refs
 - [ ] 34-02-PLAN.md — Risk gate responsibility extraction and durable auto-allowed binding
 - [ ] 34-03-PLAN.md — Approval gate, ApprovalService, and manager-scope restore
 - [ ] 34-04-PLAN.md — Agent runs approval-interrupt bridge and safe projection

@@ -6266,6 +6266,105 @@ gsd-sdk query state.begin-phase 34 approval-and-actiondraft-boundary-hardening 6
 - `/Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs`
 - `gsd-sdk query state.begin-phase`
 
+## 2026-06-29 13:05 CST - Phase 34 Plan 34-01 executor 未返回 completion signal 但提交已落盘
+
+### 问题现象
+
+执行 Phase 34 Wave 1 时，`gsd-executor` 子代理长时间没有向 orchestrator 返回 completion signal。主线程多次 spot-check 期间未看到 SUMMARY，随后关闭子代理并切换 inline fallback；之后发现 `34-01` Task 1 的 RED/GREEN 提交已经落到 `main`。
+
+### 如何检测 / 复现
+
+执行过程中观察：
+
+```bash
+git log --oneline --grep='34-01' --reverse
+git status --short
+test -f .planning/phases/34-approval-and-actiondraft-boundary-hardening/34-01-SUMMARY.md
+```
+
+### 关键证据或命令
+
+后续 `git log` 显示：
+
+```text
+d0a9f0f test(34-01): add failing tests for approval action bindings
+fc175ea feat(34-01): add approval action binding contracts
+```
+
+但子代理 wait 多次超时，close 时上一状态仍为 `running`，没有通过 agent final output 返回 `## PLAN COMPLETE`。
+
+### 当前判断 / 根因
+
+当前判断为 Codex multi-agent completion signal/agent shutdown 可见性问题，而不是 34-01 代码实现失败。子代理实际完成并提交了 Task 1，但 orchestrator 没收到完成回传；这与 GSD `execute-phase.md` 中描述的 runtime fallback 情况一致。
+
+### 已做处理
+
+已关闭未返回的子代理，按 fallback 改为主线程 inline 执行后续 Task 2。通过 git history 接收 Task 1 提交，并完成 Task 2、SUMMARY、focused pytest/ruff 验证。
+
+### 剩余问题
+
+无当前阻塞。后续使用子代理执行 plan 时，若长时间无 completion signal，应继续执行 filesystem/git spot-check：SUMMARY 是否存在、近期提交是否存在、工作树是否干净，再决定是否 fallback inline。
+
+### 下次继续排查入口
+
+- `.planning/phases/34-approval-and-actiondraft-boundary-hardening/34-01-SUMMARY.md`
+- `git log --oneline --grep='34-01' --reverse`
+- `/Users/ming/.codex/get-shit-done/workflows/execute-phase.md`
+- Codex multi-agent wait/close status output
+
+## 2026-06-29 13:06 CST - Phase 34 roadmap.update-plan-progress 与 record-metric metadata 不匹配
+
+### 问题现象
+
+Plan 34-01 完成后，`gsd-sdk query roadmap.update-plan-progress 34` 未能更新 ROADMAP，返回 `no matching checkbox found`。同时用位置参数调用 `gsd-sdk query state.record-metric 34 P34-01 "7 min" 2 8` 虽返回 `recorded: true`，但写入 `.planning/STATE.md` 的 metric 为 `PP34-01`。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+gsd-sdk query roadmap.update-plan-progress 34
+gsd-sdk query state.record-metric 34 P34-01 "7 min" 2 8
+git diff -- .planning/ROADMAP.md .planning/STATE.md
+```
+
+### 关键证据或命令
+
+ROADMAP SDK 输出：
+
+```json
+{
+  "updated": false,
+  "phase": "34",
+  "reason": "no matching checkbox found"
+}
+```
+
+STATE diff 中出现：
+
+```text
+| Phase 34 PP34-01 | 7 min | 2 tasks | 8 files |
+```
+
+### 当前判断 / 根因
+
+ROADMAP 问题延续 Phase 33 已记录的 GSD SDK 与 MOCA ROADMAP checkbox 格式不匹配。metric 问题来自本次位置参数传入 `P34-01`，而当前 handler 会自行加 `P` 前缀；后续应传 `34-01` 或调用后检查结果。
+
+### 已做处理
+
+已手动更新 `.planning/ROADMAP.md`：Phase 34 状态改为 In Progress，Plans 改为 `1/6 plans complete`，并勾选 `34-01-PLAN.md`。已手动更新 `.planning/STATE.md`：Phase 34 表格改为 `1/6 | In Progress`，Latest execution metric 改为 `Phase 34 P34-01`，并修正错误 metric 行。
+
+### 剩余问题
+
+无当前阻塞。后续 Phase 34 每个 plan 完成后仍需检查 ROADMAP 自动更新是否失败；`state.record-metric` 应传不带 `P` 的 plan id 或手动核对。
+
+### 下次继续排查入口
+
+- `.planning/ROADMAP.md`
+- `.planning/STATE.md`
+- `gsd-sdk query roadmap.update-plan-progress 34`
+- `gsd-sdk query state.record-metric`
+
 ## 2026-06-29 11:48 CST - rg pattern 反引号触发 zsh 命令替换
 
 ### 问题现象
