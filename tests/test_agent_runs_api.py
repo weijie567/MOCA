@@ -686,6 +686,17 @@ def _phase34_interrupt_bindings(
         "risk_decision_ref": f"risk_decision:{input_state['current_run_id']}:r1",
         "risk_decision": risk_decision,
         "approval_idempotency_key": f"approval:{input_state['tenant_id']}:{input_state['current_run_id']}",
+        "verified_evidence_package": {
+            "schema_version": "verified_evidence_package.v1",
+            "debug_projection": "RAW_PACKAGE_SHOULD_NOT_LEAK",
+        },
+        "claim_verification_bundle": {
+            "schema_version": "claim_verification_bundle.v1",
+            "verifier_debug": "CLAIM_VERIFIER_DEBUG_SHOULD_NOT_LEAK",
+        },
+        "prompt_authority_body": "PROMPT_AUTHORITY_SHOULD_NOT_LEAK",
+        "safety_snapshot": {"snapshot_json": "FULL_SAFETY_SNAPSHOT_SHOULD_NOT_LEAK"},
+        "action_authority_body": {"args": {"internal": "ACTION_AUTHORITY_SHOULD_NOT_LEAK"}},
     }
 
 
@@ -1650,7 +1661,7 @@ async def test_event_generator_treats_stream_interrupt_node_as_approval_required
     )
     assert approval_event is not None
     approval_data = _event_data(approval_event)
-    assert {"approval_id", "proposed_action", "risk_level"}.issubset(approval_data["payload"])
+    assert {"approval_id", "proposed_action_summary", "risk_level"}.issubset(approval_data["payload"])
     assert {
         "approval_revision_refs",
         "expected_request_version",
@@ -1661,7 +1672,38 @@ async def test_event_generator_treats_stream_interrupt_node_as_approval_required
         "safety_snapshot_ref",
         "safety_snapshot_hash",
         "allowed_decision_types",
+        "target_merchant_id",
+        "target_merchant_ref",
+        "business_fact_refs",
+        "verified_evidence_refs",
+        "claim_verification_ref",
+        "claim_verification_summary",
+        "risk_decision_ref",
+        "risk_decision_summary",
     }.issubset(approval_data["payload"])
+    assert approval_data["payload"]["proposed_action_summary"] == {
+        "action_id": f"act:{run.id}:issue_coupon:ORD-2024-001",
+        "action_type": "issue_coupon",
+        "target_type": "order",
+        "target_id": "ORD-2024-001",
+        "amount": "600.00",
+        "currency": "CNY",
+        "reason": "Compensation amount exceeds threshold.",
+    }
+    assert approval_data["payload"]["target_merchant_id"] == target_merchant_id
+    assert approval_data["payload"]["target_merchant_ref"]["target_merchant_id"] == target_merchant_id
+    assert approval_data["payload"]["business_fact_refs"][0]["resource_id"] == "ORD-2024-001"
+    assert approval_data["payload"]["verified_evidence_refs"][0]["evidence_id"] == "refund_policy/refund_policy_001@v1"
+    assert approval_data["payload"]["claim_verification_ref"] == f"claim_verification:{run.id}:r1"
+    assert approval_data["payload"]["claim_verification_summary"]["overall_status"] == "verified"
+    assert approval_data["payload"]["risk_decision_ref"] == f"risk_decision:{run.id}:r1"
+    assert approval_data["payload"]["risk_decision_summary"] == {
+        "schema_version": "risk_decision_summary.v1",
+        "risk_level": "high",
+        "reason_codes": ["approval_required", "amount_threshold"],
+        "approval_required": True,
+        "risk_rule_ref": "RISK-COMP-001",
+    }
     assert approval_data["payload"]["allowed_decision_types"] == [
         "accept",
         "approve",
@@ -1670,6 +1712,28 @@ async def test_event_generator_treats_stream_interrupt_node_as_approval_required
         "reject",
         "ignore",
     ]
+    for forbidden_key in (
+        "proposed_action",
+        "approval_plan",
+        "risk_decision",
+        "approval_idempotency_key",
+        "verified_evidence_package",
+        "claim_verification_bundle",
+        "prompt_authority_body",
+        "safety_snapshot",
+        "action_authority_body",
+    ):
+        assert forbidden_key not in approval_data["payload"]
+    serialized_payload = json.dumps(approval_data["payload"], ensure_ascii=False)
+    for forbidden in (
+        "RAW_PACKAGE_SHOULD_NOT_LEAK",
+        "CLAIM_VERIFIER_DEBUG_SHOULD_NOT_LEAK",
+        "PROMPT_AUTHORITY_SHOULD_NOT_LEAK",
+        "FULL_SAFETY_SNAPSHOT_SHOULD_NOT_LEAK",
+        "ACTION_AUTHORITY_SHOULD_NOT_LEAK",
+        '"args"',
+    ):
+        assert forbidden not in serialized_payload
     _assert_no_investigation_fields(approval_data)
     assert '"status": "waiting_approval"' in approval_event["data"]
     assert run.final_status == "interrupted"
