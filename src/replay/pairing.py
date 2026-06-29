@@ -59,9 +59,13 @@ def validate_operation_pairing(
     _validate_retry_shape(prior_events, operation_id, parent_operation_id, attempt, event_type)
 
     if _is_terminal_event(event_type):
-        started = _events_for_operation(prior_events, operation_id, predicate=_is_started_event)
-        if not started:
-            raise OperationPairingError("terminal event requires a known started event")
+        started_event = _single_started_event(prior_events, operation_id)
+        if _operation_family(event_type) != _operation_family(str(_field(started_event, "event_type") or "")):
+            raise OperationPairingError("terminal event family must match started event")
+        if attempt != _field(started_event, "attempt"):
+            raise OperationPairingError("terminal event attempt must match started event")
+        if parent_operation_id != _optional_uuid(_field(started_event, "parent_operation_id")):
+            raise OperationPairingError("terminal event parent_operation_id must match started event")
         terminal_events = _events_for_operation(prior_events, operation_id, predicate=_is_terminal_event)
         if terminal_events:
             raise OperationPairingError("duplicate terminal event for operation_id is forbidden")
@@ -148,6 +152,15 @@ def _events_for_operation(
     ]
 
 
+def _single_started_event(events: list[Any], operation_id: uuid.UUID) -> Any:
+    started_events = _events_for_operation(events, operation_id, predicate=_is_started_event)
+    if not started_events:
+        raise OperationPairingError("terminal event requires a known started event")
+    if len(started_events) > 1:
+        raise OperationPairingError("terminal event requires a unique started event")
+    return started_events[0]
+
+
 def _is_operation_event(event_type: str) -> bool:
     return _is_started_event(event_type) or _is_terminal_event(event_type)
 
@@ -158,6 +171,13 @@ def _is_started_event(event_type: str) -> bool:
 
 def _is_terminal_event(event_type: str) -> bool:
     return event_type.endswith(TERMINAL_SUFFIXES)
+
+
+def _operation_family(event_type: str) -> str:
+    for suffix in (*STARTED_SUFFIXES, *TERMINAL_SUFFIXES):
+        if event_type.endswith(suffix):
+            return event_type[: -len(suffix)]
+    return event_type
 
 
 def _field(event: Any, name: str) -> Any:

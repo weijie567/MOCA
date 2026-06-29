@@ -172,3 +172,80 @@ async def test_retry_terminal_uses_new_operation_id_parent_operation_id_and_incr
     assert retry_terminal["attempt"] == 2
     assert retry_terminal["provenance"]["pairing_status"] == "paired"
     assert [event["sequence"] for event in replay["timeline"]] == list(range(1, len(replay["timeline"]) + 1))
+
+
+@pytest.mark.asyncio
+async def test_terminal_operation_rejects_mismatched_started_event_family(session: AsyncSession) -> None:
+    run_id, tenant_id, thread_id = await _create_run(session)
+    service = ReplayService(session)
+    operation_id = uuid.uuid4()
+
+    await _append_operation_event(
+        service,
+        run_id=run_id,
+        tenant_id=tenant_id,
+        thread_id=thread_id,
+        event_type="tool_call_started",
+        operation_id=operation_id,
+        attempt=1,
+    )
+
+    with pytest.raises(ValueError, match="family must match"):
+        await _append_operation_event(
+            service,
+            run_id=run_id,
+            tenant_id=tenant_id,
+            thread_id=thread_id,
+            event_type="rag_retrieval_completed",
+            operation_id=operation_id,
+            attempt=1,
+        )
+
+
+@pytest.mark.asyncio
+async def test_retry_terminal_rejects_attempt_mismatch(session: AsyncSession) -> None:
+    run_id, tenant_id, thread_id = await _create_run(session)
+    service = ReplayService(session)
+    parent_operation_id = uuid.uuid4()
+    retry_operation_id = uuid.uuid4()
+
+    await _append_operation_event(
+        service,
+        run_id=run_id,
+        tenant_id=tenant_id,
+        thread_id=thread_id,
+        event_type="tool_call_started",
+        operation_id=parent_operation_id,
+        attempt=1,
+    )
+    await _append_operation_event(
+        service,
+        run_id=run_id,
+        tenant_id=tenant_id,
+        thread_id=thread_id,
+        event_type="tool_call_failed",
+        operation_id=parent_operation_id,
+        attempt=1,
+    )
+    await _append_operation_event(
+        service,
+        run_id=run_id,
+        tenant_id=tenant_id,
+        thread_id=thread_id,
+        event_type="tool_call_started",
+        operation_id=retry_operation_id,
+        parent_operation_id=parent_operation_id,
+        attempt=2,
+    )
+
+    with pytest.raises(ValueError, match="attempt must match"):
+        await _append_operation_event(
+            service,
+            run_id=run_id,
+            tenant_id=tenant_id,
+            thread_id=thread_id,
+            event_type="tool_call_completed",
+            operation_id=retry_operation_id,
+            parent_operation_id=parent_operation_id,
+            attempt=3,
+        )
