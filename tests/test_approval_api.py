@@ -17,7 +17,7 @@ from src.auth.jwt import create_access_token
 from src.approvals.schemas import ApprovalDecisionCommand, ApprovalDecisionResult
 from src.approvals.service import ApprovalService
 from src.db.models import AgentRun, ApprovalAssignment, ApprovalEvent, ApprovalLevel, ApprovalRequest, User
-from tests.approvals.test_service_transitions import _create_command
+from tests.approvals.test_service_transitions import _create_command, _phase34_binding_overrides
 
 
 @dataclass(frozen=True)
@@ -84,10 +84,12 @@ async def _create_approval(
     expires_at: datetime | None = None,
     tenant_key: str = "tenant",
     thread_id: str = "approval-thread-1",
+    with_phase34_bindings: bool = True,
 ) -> ApprovalBundle:
     tenant = seeded_session[tenant_key]
     requester = requested_by or seeded_session["users"]["cs_zhang"]
     run_id = await _create_run(session, tenant_id=tenant.id, user_id=requester.id, thread_id=thread_id)
+    binding_overrides = _phase34_binding_overrides(tenant_id=tenant.id, run_id=run_id) if with_phase34_bindings else {}
     created = await ApprovalService(session).create_request(
         _create_command(
             tenant_id=tenant.id,
@@ -95,6 +97,7 @@ async def _create_approval(
             requested_by=requester.id,
             thread_id=thread_id,
             expires_at=expires_at or datetime.now(UTC) + timedelta(hours=1),
+            **binding_overrides,
         )
     )
     approval = await session.get(ApprovalRequest, created.approval_id)

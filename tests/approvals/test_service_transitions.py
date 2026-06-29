@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.agent.trace import write_agent_run
 from src.approvals.schemas import ApprovalDecisionCommand, ApprovalRequestCreateCommand
 from src.approvals.service import ApprovalService, ApprovalTransitionError
+from src.approvals.snapshot_service import compute_action_payload_hash
 from src.db.models import (
     ApprovalAssignment,
     ApprovalDecision,
@@ -70,6 +71,69 @@ def _evidence_ref(
         "retrieved_at": "2026-06-15T00:00:00.000Z",
         "retrieval_config_version": retrieval_config_version,
         "rank": rank,
+    }
+
+
+def _business_fact_ref(*, tenant_id: UUID, resource_id: str = "RF-APPROVAL-1") -> dict[str, Any]:
+    return {
+        "schema_version": "business_fact_ref.v1",
+        "tenant_id": str(tenant_id),
+        "source_system": "moca_demo",
+        "resource_type": "refund_case",
+        "resource_id": resource_id,
+        "resource_version": "v1",
+        "data_freshness_at": "2026-06-15T00:00:00Z",
+        "retrieved_at": "2026-06-15T00:01:00Z",
+    }
+
+
+def _target_merchant_ref(*, tenant_id: UUID, merchant_id: str = "merchant-1") -> dict[str, Any]:
+    return {
+        "schema_version": "target_merchant_binding.v1",
+        "target_merchant_id": merchant_id,
+        "source": "business_fact_ref",
+        "business_fact_ref": _business_fact_ref(tenant_id=tenant_id),
+    }
+
+
+def _risk_decision_payload(*, tenant_id: UUID, run_id: UUID, action_payload_hash: str | None = None) -> dict[str, Any]:
+    return {
+        "schema_version": "risk_decision.v1",
+        "tenant_id": str(tenant_id),
+        "run_id": str(run_id),
+        "action_id": "act-approval-service",
+        "action_payload_hash": action_payload_hash or PROPOSED_ACTION_HASH,
+        "risk_level": "high",
+        "reason_codes": ["manual_review", "policy_threshold"],
+        "policy_config_version": "approval-policy.v1",
+        "risk_config_version": "risk-rules.v1",
+        "approval_required": True,
+        "evaluated_at": "2026-06-15T00:02:00.000Z",
+        "risk_rule_ref": "risk:manual-review",
+        "risk_reason": "Manual review required.",
+    }
+
+
+def _phase34_binding_overrides(*, tenant_id: UUID, run_id: UUID) -> dict[str, Any]:
+    evidence_ref = _evidence_ref(tenant_id=tenant_id)
+    action_payload_hash = compute_action_payload_hash(
+        _proposed_action(tenant_id=tenant_id, run_id=run_id, evidence_refs=[evidence_ref])
+    )
+    return {
+        "target_merchant_id": "merchant-1",
+        "target_merchant_ref": _target_merchant_ref(tenant_id=tenant_id),
+        "business_fact_refs": [_business_fact_ref(tenant_id=tenant_id)],
+        "verified_evidence_refs": [evidence_ref],
+        "claim_verification_ref": "claim_verification_bundle:bundle-1",
+        "claim_verification_summary": {"overall_status": "verified", "safe_support_ref_count": 1},
+        "risk_decision_ref": f"risk_decision:{run_id}:{action_payload_hash}",
+        "risk_decision": _risk_decision_payload(
+            tenant_id=tenant_id,
+            run_id=run_id,
+            action_payload_hash=action_payload_hash,
+        ),
+        "approval_idempotency_key": f"approval:{tenant_id}:{run_id}:act-approval-service",
+        "evidence_refs": [evidence_ref],
     }
 
 
@@ -133,6 +197,7 @@ async def _approval_bundle(
     thread_id: str = "approval-service-thread",
     expires_at: datetime | None = None,
     risk_rule_ref: str | None = "risk:manual-review",
+    command_overrides: dict[str, Any] | None = None,
 ) -> tuple[ApprovalRequest, ApprovalLevel, ApprovalAssignment]:
     tenant_id = seeded_session["tenant"].id
     requested_by = seeded_session["users"][requested_by_key].id
@@ -147,6 +212,7 @@ async def _approval_bundle(
             thread_id=thread_id,
             expires_at=expires_at,
             risk_rule_ref=risk_rule_ref,
+            **(command_overrides or {}),
         )
     )
 
@@ -279,6 +345,136 @@ async def test_accept_decision_inserts_exactly_one_decision_and_event(session: A
     assert event.run_id == request.run_id
     assert event.thread_id == request.thread_id
     assert event.event_type == "approval_decided"
+
+
+@pytest.mark.asyncio
+async def test_create_request_persists_phase34_binding_fields(session: AsyncSession, seeded_session):
+    tenant_id = seeded_session["tenant"].id
+    requested_by = seeded_session["users"]["cs_zhang"].id
+    run_id = await _create_run(session, tenant_id=tenant_id, user_id=requested_by)
+    binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+
+    created = await ApprovalService(session).create_request(
+        _create_command(
+            tenant_id=tenant_id,
+            run_id=run_id,
+            requested_by=requested_by,
+            **binding,
+        )
+    )
+    request = await session.get(ApprovalRequest, created.approval_id)
+
+    assert request is not None
+    assert request.target_merchant_id == "merchant-1"
+    assert request.target_merchant_ref == binding["target_merchant_ref"]
+    assert request.business_fact_refs == binding["business_fact_refs"]
+    assert request.verified_evidence_refs == binding["verified_evidence_refs"]
+    assert request.claim_verification_ref == "claim_verification_bundle:bundle-1"
+    assert request.claim_verification_summary == {"overall_status": "verified", "safe_support_ref_count": 1}
+    assert request.risk_decision_ref == binding["risk_decision_ref"]
+    assert request.risk_decision == binding["risk_decision"]
+    assert request.approval_idempotency_key == binding["approval_idempotency_key"]
+    assert created.target_merchant_id == request.target_merchant_id
+    assert created.business_fact_refs == binding["business_fact_refs"]
+    assert created.verified_evidence_refs == binding["verified_evidence_refs"]
+    assert created.risk_decision_ref == binding["risk_decision_ref"]
+    assert created.risk_decision == binding["risk_decision"]
+    assert created.approval_idempotency_key == binding["approval_idempotency_key"]
+
+
+@pytest.mark.asyncio
+async def test_accept_decision_returns_persisted_phase34_bindings_in_resume_payload(
+    session: AsyncSession,
+    seeded_session,
+):
+    tenant_id = seeded_session["tenant"].id
+    requested_by = seeded_session["users"]["cs_zhang"].id
+    run_id = await _create_run(session, tenant_id=tenant_id, user_id=requested_by)
+    created = await ApprovalService(session).create_request(
+        _create_command(
+            tenant_id=tenant_id,
+            run_id=run_id,
+            requested_by=requested_by,
+            thread_id="phase34-binding-approval",
+            **_phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id),
+        )
+    )
+    request = await session.get(ApprovalRequest, created.approval_id)
+    assert request is not None
+    level = (
+        await session.execute(select(ApprovalLevel).where(ApprovalLevel.approval_request_id == request.id))
+    ).scalar_one()
+    assignment = (
+        await session.execute(select(ApprovalAssignment).where(ApprovalAssignment.approval_level_id == level.id))
+    ).scalar_one()
+    actor_id = seeded_session["users"]["admin_user"].id
+
+    result = await ApprovalService(session).decide(_decision_command(request, level, assignment, actor_id=actor_id))
+
+    assert result.target_merchant_id == request.target_merchant_id
+    assert result.target_merchant_ref == request.target_merchant_ref
+    assert result.business_fact_refs == request.business_fact_refs
+    assert result.verified_evidence_refs == request.verified_evidence_refs
+    assert result.claim_verification_ref == request.claim_verification_ref
+    assert result.claim_verification_summary == request.claim_verification_summary
+    assert result.risk_decision_ref == request.risk_decision_ref
+    assert result.risk_decision == request.risk_decision
+    assert result.approval_idempotency_key == request.approval_idempotency_key
+    assert result.resume_payload is not None
+    assert result.resume_payload["target_merchant_id"] == request.target_merchant_id
+    assert result.resume_payload["business_fact_refs"] == request.business_fact_refs
+    assert result.resume_payload["verified_evidence_refs"] == request.verified_evidence_refs
+    assert result.resume_payload["risk_decision_ref"] == request.risk_decision_ref
+    assert result.resume_payload["risk_decision"] == request.risk_decision
+    assert result.resume_payload["approval_idempotency_key"] == request.approval_idempotency_key
+
+
+@pytest.mark.asyncio
+async def test_edit_decision_reroutes_to_risk_without_approved_resume_authority(
+    session: AsyncSession,
+    seeded_session,
+):
+    tenant_id = seeded_session["tenant"].id
+    requested_by = seeded_session["users"]["cs_zhang"].id
+    run_id = await _create_run(session, tenant_id=tenant_id, user_id=requested_by)
+    created = await ApprovalService(session).create_request(
+        _create_command(
+            tenant_id=tenant_id,
+            run_id=run_id,
+            requested_by=requested_by,
+            thread_id="phase34-edit-reroute",
+            **_phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id),
+        )
+    )
+    request = await session.get(ApprovalRequest, created.approval_id)
+    assert request is not None
+    level = (
+        await session.execute(select(ApprovalLevel).where(ApprovalLevel.approval_request_id == request.id))
+    ).scalar_one()
+    assignment = (
+        await session.execute(select(ApprovalAssignment).where(ApprovalAssignment.approval_level_id == level.id))
+    ).scalar_one()
+    actor_id = seeded_session["users"]["admin_user"].id
+    edited_action = {**request.proposed_action, "amount": "88.00", "reason": "Reviewer edited amount."}
+
+    result = await ApprovalService(session).decide(
+        _decision_command(
+            request,
+            level,
+            assignment,
+            actor_id=actor_id,
+            decision_type="edit",
+            edited_action=edited_action,
+        )
+    )
+
+    assert result.status == "superseded"
+    assert result.resume_payload is not None
+    assert result.resume_payload["status"] == "superseded"
+    assert result.resume_payload["decision_type"] == "edit"
+    assert result.resume_payload["resume_route"] == "assess_risk_and_approval"
+    assert result.resume_payload["new_action_payload_hash"]
+    assert result.resume_payload["new_action_payload_hash"] != result.action_payload_hash
 
 
 @pytest.mark.asyncio
