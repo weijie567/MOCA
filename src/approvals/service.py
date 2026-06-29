@@ -103,6 +103,17 @@ class ApprovalService:
                     level_mode=assignment_plan.mode,
                     sla_due_at=assignment_plan.sla_due_at,
                     risk_reason=command.risk_reason,
+                    target_merchant_id=command.target_merchant_id,
+                    target_merchant_ref=self._json_dump(command.target_merchant_ref),
+                    business_fact_refs=[ref.model_dump(mode="json") for ref in command.business_fact_refs],
+                    verified_evidence_refs=[
+                        ref.model_dump(mode="json") for ref in (command.verified_evidence_refs or command.evidence_refs)
+                    ],
+                    claim_verification_ref=command.claim_verification_ref,
+                    claim_verification_summary=command.claim_verification_summary,
+                    risk_decision_ref=command.risk_decision_ref,
+                    risk_decision=self._json_dump(command.risk_decision),
+                    approval_idempotency_key=command.approval_idempotency_key,
                 )
                 await emit_approval_requested(
                     self.session,
@@ -123,6 +134,7 @@ class ApprovalService:
                     action_payload_hash=request.action_payload_hash,
                     safety_snapshot_ref=request.safety_snapshot_ref,
                     safety_snapshot_hash=request.safety_snapshot_hash,
+                    **self._request_binding_fields(request),
                     graph_thread_id=request.thread_id,
                 )
         except ActionSafetySnapshotPersistenceError as exc:
@@ -757,6 +769,7 @@ class ApprovalService:
         request.reason = reason
         request.decided_by = actor_id
         request.decided_at = decided_at
+        binding_fields = self._request_binding_fields(request)
         try:
             trusted = TrustedApprovalResultV1(
                 approval_id=request.id,
@@ -771,6 +784,7 @@ class ApprovalService:
                 action_payload_hash=request.action_payload_hash,
                 safety_snapshot_ref=request.safety_snapshot_ref,
                 safety_snapshot_hash=request.safety_snapshot_hash,
+                **binding_fields,
                 decided_by=actor_id,
                 decided_at=decided_at,
                 reason=reason,
@@ -795,6 +809,7 @@ class ApprovalService:
                 action_payload_hash=request.action_payload_hash,
                 safety_snapshot_ref=request.safety_snapshot_ref,
                 safety_snapshot_hash=request.safety_snapshot_hash,
+                **binding_fields,
                 decided_by=actor_id,
                 decided_at=decided_at,
                 decision_id=decision_id,
@@ -959,6 +974,26 @@ class ApprovalService:
             item = raw.model_dump(mode="json") if hasattr(raw, "model_dump") else raw
             refs.append(EvidenceRefV1.model_validate(item))
         return refs
+
+    @staticmethod
+    def _json_dump(value: Any) -> Any:
+        if hasattr(value, "model_dump"):
+            return value.model_dump(mode="json")
+        return value
+
+    @classmethod
+    def _request_binding_fields(cls, request: ApprovalRequest) -> dict[str, Any]:
+        return {
+            "target_merchant_id": request.target_merchant_id,
+            "target_merchant_ref": cls._json_dump(request.target_merchant_ref),
+            "business_fact_refs": list(request.business_fact_refs or []),
+            "verified_evidence_refs": list(request.verified_evidence_refs or []),
+            "claim_verification_ref": request.claim_verification_ref,
+            "claim_verification_summary": request.claim_verification_summary,
+            "risk_decision_ref": request.risk_decision_ref,
+            "risk_decision": cls._json_dump(request.risk_decision),
+            "approval_idempotency_key": request.approval_idempotency_key,
+        }
 
     @staticmethod
     def _graph_thread_id(request: ApprovalRequest) -> str:

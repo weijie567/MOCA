@@ -28,6 +28,17 @@ async def approval_gate(state: AgentState) -> dict:
     started_at = _now_iso()
     risk = state.get("risk_assessment") or {}
     proposed = state.get("proposed_action") or {}
+    approval_plan = state.get("approval_plan") if isinstance(state.get("approval_plan"), dict) else {}
+    if approval_plan.get("approval_required") is True:
+        approval_idempotency_key = approval_plan.get("approval_idempotency_key")
+    else:
+        approval_idempotency_key = approval_plan.get("approval_idempotency_key") or state.get("approval_idempotency_key")
+    if approval_plan.get("approval_required") is True and not approval_idempotency_key:
+        return {
+            "approval_result": None,
+            "final_response": "审批计划缺少可信幂等键，已停止执行高风险操作。",
+            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("error", started_at)],
+        }
 
     # interrupt_payload proposed_action is display-only; ApprovalService owns persistence.
     interrupt_payload = {
@@ -46,6 +57,16 @@ async def approval_gate(state: AgentState) -> dict:
         "risk_config_version": state.get("risk_config_version"),
         "retrieval_config_version": state.get("retrieval_config_version"),
         "evidence_refs": state.get("evidence_refs") or [],
+        "approval_plan": approval_plan,
+        "target_merchant_id": state.get("target_merchant_id"),
+        "target_merchant_ref": state.get("target_merchant_ref"),
+        "business_fact_refs": state.get("business_fact_refs") or [],
+        "verified_evidence_refs": state.get("verified_evidence_refs") or [],
+        "claim_verification_ref": state.get("claim_verification_ref"),
+        "claim_verification_summary": state.get("claim_verification_summary"),
+        "risk_decision_ref": state.get("risk_decision_ref"),
+        "risk_decision": state.get("risk_decision"),
+        "approval_idempotency_key": approval_idempotency_key,
         "allowed_decision_types": ["accept", "approve", "edit", "respond", "reject", "ignore"],
         "expires_at": (datetime.now(UTC) + timedelta(hours=APPROVAL_TIMEOUT_HOURS)).isoformat(),
     }

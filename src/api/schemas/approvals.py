@@ -58,6 +58,13 @@ class ApprovalResponse(BaseModel):
     action_payload_hash: str | None
     safety_snapshot_ref: str | None
     safety_snapshot_hash: str | None
+    target_merchant_id: str | None = None
+    business_fact_refs: list[dict[str, Any]] = Field(default_factory=list)
+    verified_evidence_refs: list[dict[str, Any]] = Field(default_factory=list)
+    claim_verification_ref: str | None = None
+    claim_verification_summary: dict[str, Any] | None = None
+    risk_decision_ref: str | None = None
+    risk_decision: dict[str, Any] | None = None
     clarification_request_id: str | None = None
     superseded_by_request_id: str | None = None
     new_action_payload_hash: str | None = None

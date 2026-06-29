@@ -476,6 +476,7 @@ async def _terminal_decision_result_for_retry(
         raise ApprovalTransitionError("approval_conflict")
 
     decided_at = approval.decided_at or decision.created_at
+    binding_fields = _approval_binding_fields(approval)
     trusted = TrustedApprovalResultV1(
         approval_id=approval.id,
         tenant_id=approval.tenant_id,
@@ -489,6 +490,7 @@ async def _terminal_decision_result_for_retry(
         action_payload_hash=approval.action_payload_hash,
         safety_snapshot_ref=approval.safety_snapshot_ref,
         safety_snapshot_hash=approval.safety_snapshot_hash,
+        **binding_fields,
         decided_by=decision.actor_id,
         decided_at=decided_at,
         reason=approval.reason,
@@ -506,6 +508,7 @@ async def _terminal_decision_result_for_retry(
         action_payload_hash=approval.action_payload_hash,
         safety_snapshot_ref=approval.safety_snapshot_ref,
         safety_snapshot_hash=approval.safety_snapshot_hash,
+        **binding_fields,
         decided_by=decision.actor_id,
         decided_at=decided_at,
         decision_id=decision.id,
@@ -549,11 +552,21 @@ async def _reconcile_approved_action_draft(
         **_legacy_current_run_identity(config),
         "proposed_action": final_state.get("proposed_action") or approval.proposed_action,
         "approval_result": result.resume_payload,
+        "claim_verification_bundle": final_state.get("claim_verification_bundle") or _approved_resume_claim_bundle(),
         "action_payload_hash": result.action_payload_hash,
         "safety_snapshot_ref": result.safety_snapshot_ref,
         "safety_snapshot_hash": result.safety_snapshot_hash,
         "safety_snapshot_verified": True,
         "risk_assessment": final_state.get("risk_assessment") or {"approval_required": True},
+        "target_merchant_id": result.target_merchant_id,
+        "target_merchant_ref": result.target_merchant_ref,
+        "business_fact_refs": result.business_fact_refs,
+        "verified_evidence_refs": result.verified_evidence_refs,
+        "claim_verification_ref": result.claim_verification_ref,
+        "claim_verification_summary": result.claim_verification_summary,
+        "risk_decision_ref": result.risk_decision_ref,
+        "risk_decision": result.risk_decision,
+        "approval_idempotency_key": result.approval_idempotency_key,
     }
     update = await action_draft(state, config)
     reconciled = {**final_state, **update}
@@ -562,6 +575,19 @@ async def _reconcile_approved_action_draft(
             {"node": "action_draft", "error": "action_draft_reconcile_failed"}
         ]
     return reconciled
+
+
+def _approved_resume_claim_bundle() -> dict[str, object]:
+    return {
+        "schema_version": "claim_verification_bundle.v1",
+        "overall_status": "not_required",
+        "route": "continue",
+        "claim_results": [],
+        "blocked_claims": [],
+        "safe_support_refs": [],
+        "reason_codes": [],
+        "verifier_policy_version": "approval-service.v1",
+    }
 
 
 def _legacy_current_run_identity(config: dict) -> dict[str, str | None]:
@@ -629,6 +655,20 @@ def _assert_approval_reviewer(user: User) -> None:
         )
 
 
+def _approval_binding_fields(approval: ApprovalRequest) -> dict[str, object]:
+    return {
+        "target_merchant_id": approval.target_merchant_id,
+        "target_merchant_ref": approval.target_merchant_ref,
+        "business_fact_refs": list(approval.business_fact_refs or []),
+        "verified_evidence_refs": list(approval.verified_evidence_refs or []),
+        "claim_verification_ref": approval.claim_verification_ref,
+        "claim_verification_summary": approval.claim_verification_summary,
+        "risk_decision_ref": approval.risk_decision_ref,
+        "risk_decision": approval.risk_decision,
+        "approval_idempotency_key": approval.approval_idempotency_key,
+    }
+
+
 def _approval_http_error(exc: ApprovalTransitionError) -> HTTPException:
     if exc.code == "approval_not_found":
         return HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Approval not found"})
@@ -659,6 +699,13 @@ def _to_response(approval, *, result=None) -> ApprovalResponse:
         action_payload_hash=approval.action_payload_hash,
         safety_snapshot_ref=approval.safety_snapshot_ref,
         safety_snapshot_hash=approval.safety_snapshot_hash,
+        target_merchant_id=approval.target_merchant_id,
+        business_fact_refs=list(approval.business_fact_refs or []),
+        verified_evidence_refs=list(approval.verified_evidence_refs or []),
+        claim_verification_ref=approval.claim_verification_ref,
+        claim_verification_summary=approval.claim_verification_summary,
+        risk_decision_ref=approval.risk_decision_ref,
+        risk_decision=approval.risk_decision,
         clarification_request_id=approval.clarification_request_id,
         superseded_by_request_id=(
             str(getattr(result, "superseded_by_request_id", None) or approval.superseded_by_request_id)

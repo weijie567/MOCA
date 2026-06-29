@@ -21,6 +21,7 @@ from src.db.models import (
     ApprovalLevel,
     ApprovalRequest,
 )
+from src.knowledge.schemas import EvidenceRefV1
 
 
 PROPOSED_ACTION_HASH = "sha256:508e649e1b169a9520f7eb76403b0e00c90c1b1c52e17a499fd7bcdce2473094"
@@ -135,6 +136,10 @@ def _phase34_binding_overrides(*, tenant_id: UUID, run_id: UUID) -> dict[str, An
         "approval_idempotency_key": f"approval:{tenant_id}:{run_id}:act-approval-service",
         "evidence_refs": [evidence_ref],
     }
+
+
+def _canonical_evidence_refs(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [EvidenceRefV1.model_validate(ref).model_dump(mode="json") for ref in refs]
 
 
 def _proposed_action(*, tenant_id: UUID, run_id: UUID, evidence_refs: list[dict[str, Any]]) -> dict[str, Any]:
@@ -368,17 +373,19 @@ async def test_create_request_persists_phase34_binding_fields(session: AsyncSess
     assert request.target_merchant_id == "merchant-1"
     assert request.target_merchant_ref == binding["target_merchant_ref"]
     assert request.business_fact_refs == binding["business_fact_refs"]
-    assert request.verified_evidence_refs == binding["verified_evidence_refs"]
+    assert request.verified_evidence_refs == _canonical_evidence_refs(binding["verified_evidence_refs"])
     assert request.claim_verification_ref == "claim_verification_bundle:bundle-1"
     assert request.claim_verification_summary == {"overall_status": "verified", "safe_support_ref_count": 1}
     assert request.risk_decision_ref == binding["risk_decision_ref"]
     assert request.risk_decision == binding["risk_decision"]
     assert request.approval_idempotency_key == binding["approval_idempotency_key"]
     assert created.target_merchant_id == request.target_merchant_id
-    assert created.business_fact_refs == binding["business_fact_refs"]
-    assert created.verified_evidence_refs == binding["verified_evidence_refs"]
+    assert [ref.model_dump(mode="json") for ref in created.business_fact_refs] == binding["business_fact_refs"]
+    assert [ref.model_dump(mode="json") for ref in created.verified_evidence_refs] == _canonical_evidence_refs(
+        binding["verified_evidence_refs"]
+    )
     assert created.risk_decision_ref == binding["risk_decision_ref"]
-    assert created.risk_decision == binding["risk_decision"]
+    assert created.risk_decision.model_dump(mode="json") == binding["risk_decision"]
     assert created.approval_idempotency_key == binding["approval_idempotency_key"]
 
 
@@ -412,13 +419,13 @@ async def test_accept_decision_returns_persisted_phase34_bindings_in_resume_payl
     result = await ApprovalService(session).decide(_decision_command(request, level, assignment, actor_id=actor_id))
 
     assert result.target_merchant_id == request.target_merchant_id
-    assert result.target_merchant_ref == request.target_merchant_ref
-    assert result.business_fact_refs == request.business_fact_refs
-    assert result.verified_evidence_refs == request.verified_evidence_refs
+    assert result.target_merchant_ref.model_dump(mode="json") == request.target_merchant_ref
+    assert [ref.model_dump(mode="json") for ref in result.business_fact_refs] == request.business_fact_refs
+    assert [ref.model_dump(mode="json") for ref in result.verified_evidence_refs] == request.verified_evidence_refs
     assert result.claim_verification_ref == request.claim_verification_ref
     assert result.claim_verification_summary == request.claim_verification_summary
     assert result.risk_decision_ref == request.risk_decision_ref
-    assert result.risk_decision == request.risk_decision
+    assert result.risk_decision.model_dump(mode="json") == request.risk_decision
     assert result.approval_idempotency_key == request.approval_idempotency_key
     assert result.resume_payload is not None
     assert result.resume_payload["target_merchant_id"] == request.target_merchant_id
