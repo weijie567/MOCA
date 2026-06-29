@@ -6212,6 +6212,53 @@ SDK 输出：
 - `.planning/STATE.md`
 - `gsd-sdk query roadmap.update-plan-progress 33`
 
+## 2026-06-29 11:48 CST - rg pattern 反引号触发 zsh 命令替换
+
+### 问题现象
+
+Phase 34 plan 修订复核时，`rg` 扫描命令的 pattern 中包含 Markdown 反引号片段，zsh 将 `` `risk_gate` `` 当成命令替换执行，输出 `zsh:1: command not found: risk_gate`。该次扫描输出不应作为完整验证依据。
+
+### 如何检测 / 复现
+
+在仓库根目录运行包含未转义反引号的 shell 命令：
+
+```bash
+rg -n "approval_idempotency_key|real `risk_gate`|fake graph" .planning/phases/34-approval-and-actiondraft-boundary-hardening/34-0*-PLAN.md
+```
+
+### 关键证据或命令
+
+失败输出包含：
+
+```text
+zsh:1: command not found: risk_gate
+```
+
+随后使用单引号包裹 pattern 重跑：
+
+```bash
+rg -n 'approval_idempotency_key|real `risk_gate`|fake graph|approval:\{tenant_id\}|sha256' .planning/phases/34-approval-and-actiondraft-boundary-hardening/34-02-PLAN.md .planning/phases/34-approval-and-actiondraft-boundary-hardening/34-03-PLAN.md .planning/phases/34-approval-and-actiondraft-boundary-hardening/34-04-PLAN.md .planning/phases/34-approval-and-actiondraft-boundary-hardening/34-06-PLAN.md
+```
+
+### 当前判断 / 根因
+
+这是 shell quoting 错误，不是项目代码或 GSD plan 内容问题。双引号中的反引号仍会触发 zsh 命令替换。
+
+### 已做处理
+
+已用单引号安全包裹 `rg` pattern 重跑，确认 `approval_idempotency_key` 在 34-02 producer、34-03 approval_gate 透传、34-04 agent_runs bridge、34-06 final closure 中均有计划锚点。
+
+### 剩余问题
+
+无当前阻塞。后续扫描 Markdown 反引号文本时使用单引号或转义反引号。
+
+### 下次继续排查入口
+
+- `.planning/phases/34-approval-and-actiondraft-boundary-hardening/34-02-PLAN.md`
+- `.planning/phases/34-approval-and-actiondraft-boundary-hardening/34-03-PLAN.md`
+- `.planning/phases/34-approval-and-actiondraft-boundary-hardening/34-04-PLAN.md`
+- `.planning/phases/34-approval-and-actiondraft-boundary-hardening/34-06-PLAN.md`
+
 ## 2026-06-29 09:51 CST - Phase 33 verify-work security artifact glob check hit zsh nomatch
 
 ### 问题现象
