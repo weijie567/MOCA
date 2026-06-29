@@ -7756,6 +7756,55 @@ SDK 输出：
 - `.planning/STATE.md`
 - `gsd-sdk query roadmap.update-plan-progress 35`
 
+## 2026-06-30 00:26 CST - Phase 35-06 approved-entrypoint `rg` scan quoting error
+
+### 问题现象
+
+执行 35-06 no-scope-creep 的 approved-entrypoint 辅助扫描时，第一次 `rg` 命令因为正则里的反引号放在双引号 shell 字符串内，被 zsh 当成命令替换解析，导致命令在执行前报语法错误。
+
+### 如何检测 / 复现
+
+运行以下错误命令可复现：
+
+```bash
+rg -n "^[[:space:]]*(`)?(pytest|python -m pytest)\b|`(pytest|python -m pytest)[^`]*`" .planning/phases/35-replay-and-eval-hardening/35-*-PLAN.md docs/evaluation.md
+```
+
+### 关键证据或命令
+
+错误输出：
+
+```text
+zsh:1: parse error near `)'
+zsh:1: parse error in command substitution
+```
+
+修正后使用单引号保护正则：
+
+```bash
+rg -n '^[[:space:]]*(`)?(pytest|python -m pytest)\b|`(pytest|python -m pytest)[^`]*`' .planning/phases/35-replay-and-eval-hardening/35-*-PLAN.md docs/evaluation.md
+```
+
+修正命令退出码为 `1` 且无输出，表示没有命中裸 `pytest` / 裸 `python -m pytest` 命令片段。
+
+### 当前判断 / 根因
+
+根因是本地 shell quoting 错误，不是仓库代码、文档或测试入口问题。
+
+### 已做处理
+
+已改用单引号正则重跑扫描，并在 `35-VALIDATION.md` 的 no-scope-creep 证据中记录通过的 approved-entrypoint 扫描结果。
+
+### 剩余问题
+
+无阻塞。后续包含反引号的 `rg` 正则应优先使用单引号或避开 shell 特殊字符。
+
+### 下次继续排查入口
+
+- `.planning/phases/35-replay-and-eval-hardening/35-VALIDATION.md`
+- `.planning/phases/35-replay-and-eval-hardening/35-*-PLAN.md`
+- `docs/evaluation.md`
+
 ## 2026-06-29 23:59 CST - Phase 35-04 dev-contract validator non-blocking refs 类型错误
 
 ### 问题现象
