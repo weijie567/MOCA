@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
-status: planning
+status: executing
 stopped_at: Phase 35 context gathered
-last_updated: "2026-06-29T09:41:20.936Z"
-last_activity: 2026-06-29 -- Phase 34 completed; final focused suite passed
+last_updated: "2026-06-29T14:30:50.683Z"
+last_activity: 2026-06-29 -- Phase 35 execution started
 progress:
   total_phases: 12
   completed_phases: 10
-  total_plans: 44
+  total_plans: 50
   completed_plans: 44
-  percent: 100
+  percent: 88
 ---
 
 # Project State: MOCA
@@ -25,11 +25,11 @@ See: `.planning/PROJECT.md` (updated 2026-06-29)
 
 ## Current Position
 
-Phase: 35 (replay-and-eval-hardening) — READY TO PLAN
+Phase: 35 (replay-and-eval-hardening) — EXECUTING
 Next roadmap item: Phase 35 — Replay and Eval Hardening
-Plan: Not started
-Status: Ready to plan Phase 35
-Last activity: 2026-06-29 -- Phase 34 completed; final focused suite passed
+Plan: 1 of 6
+Status: Executing Phase 35
+Last activity: 2026-06-29 -- Phase 35 execution started
 
 Progress: [██████████] 100%
 

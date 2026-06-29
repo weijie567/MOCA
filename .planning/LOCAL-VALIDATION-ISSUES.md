@@ -7549,3 +7549,67 @@ Gemini reviewer 仍不可用；如果后续必须使用 Gemini 作为第二外�
 - `/tmp/gsd-review-prompt-35.md`
 - `gemini -p -`
 - `.planning/phases/35-replay-and-eval-hardening/35-REVIEWS.md`
+
+## 2026-06-29 22:30 CST - Phase 35 execute bootstrap flag-style `state.begin-phase` misparsed STATE.md
+
+### 问题现象
+
+执行 Phase 35 execute bootstrap 时，按 `execute-phase.md` 文档使用 flag-style 命令后，`.planning/STATE.md` 被错误写成 `Phase --phase`、`Plan: 1 of --name`。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+gsd-sdk query state.begin-phase --phase 35 --name replay-and-eval-hardening --plans 6
+sed -n '1,40p' .planning/STATE.md
+```
+
+### 关键证据或命令
+
+错误输出显示 SDK 把 flag 当成 positional 值：
+
+```json
+{
+  "phase": "--phase",
+  "name": "35",
+  "plan_count": "--name"
+}
+```
+
+随后 `.planning/STATE.md` 出现：
+
+```text
+last_activity: 2026-06-29 -- Phase --phase execution started
+Phase: --phase (35) — EXECUTING
+Plan: 1 of --name
+```
+
+### 当前判断 / 根因
+
+本地 `gsd-sdk query state.begin-phase` handler 对 flag-style 参数解析不可靠；本仓库历史记忆也记录过相同问题。该问题属于本地 GSD 命令入口坑，不是 Phase 35 计划或实现问题。
+
+### 已做处理
+
+已改用 positional 形式重新写入状态：
+
+```bash
+gsd-sdk query state.begin-phase 35 replay-and-eval-hardening 6
+```
+
+并立即检查 `.planning/STATE.md`，确认已恢复为：
+
+```text
+Phase: 35 (replay-and-eval-hardening) — EXECUTING
+Plan: 1 of 6
+```
+
+### 剩余问题
+
+`execute-phase.md` 仍记录 flag-style 示例；本次执行后续将避免使用该形式，并在任何 GSD state mutation 后立即 diff-check。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `gsd-sdk query state.begin-phase 35 replay-and-eval-hardening 6`
+- `/Users/ming/.codex/get-shit-done/workflows/execute-phase.md`
