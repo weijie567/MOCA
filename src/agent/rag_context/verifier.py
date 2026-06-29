@@ -904,25 +904,31 @@ def _action_dependency_reason_codes(
 ) -> list[str]:
     if not claim.dependency_claim_ids:
         return ["dependency_claims_required"]
-    by_id = {
-        str(item.get("claim_id")): str(item.get("outcome") or "") for item in dependency_results if item.get("claim_id")
+    dependencies = {
+        str(item.get("claim_id")): {
+            "claim_type": str(item.get("claim_type") or ""),
+            "outcome": str(item.get("outcome") or ""),
+        }
+        for item in dependency_results
+        if item.get("claim_id")
     }
-    if not by_id:
+    if not dependencies:
         return ["dependency_results_required"]
     reason_codes: list[str] = []
     for dependency_id in claim.dependency_claim_ids:
-        outcome = by_id.get(dependency_id)
-        lowered = dependency_id.lower()
-        if outcome is None:
+        dependency = dependencies.get(str(dependency_id))
+        if dependency is None:
             reason_codes.append("dependency_result_missing")
             continue
-        if lowered.find("policy") >= 0:
+        outcome = dependency["outcome"]
+        role = _action_dependency_role(str(dependency_id), dependency["claim_type"])
+        if role == "policy":
             if outcome != VerificationOutcome.SUPPORTED.value:
                 if outcome in {"supported_by_memory", "supported_by_model_knowledge"}:
                     reason_codes.append("policy_dependency_not_evidence_supported")
                 else:
                     reason_codes.append("unsupported_policy_dependency")
-        elif lowered.find("business") >= 0:
+        elif role == "business":
             if outcome != VerificationOutcome.SUPPORTED.value:
                 if outcome in {"supported_by_memory", "supported_by_model_knowledge"}:
                     reason_codes.append("business_dependency_not_tool_supported")
@@ -930,14 +936,34 @@ def _action_dependency_reason_codes(
                     reason_codes.append("unsupported_business_dependency")
         elif outcome != VerificationOutcome.SUPPORTED.value:
             reason_codes.append("unsupported_dependency")
-    required_roles = {
-        role for role in ("policy", "business") if any(role in dep.lower() for dep in claim.dependency_claim_ids)
-    }
+    required_roles = set()
+    for dependency_id in claim.dependency_claim_ids:
+        dependency = dependencies.get(str(dependency_id))
+        if dependency is None:
+            continue
+        role = _action_dependency_role(str(dependency_id), dependency["claim_type"])
+        if role in {"policy", "business"}:
+            required_roles.add(role)
     if "policy" not in required_roles:
         reason_codes.append("policy_dependency_required")
     if "business" not in required_roles:
         reason_codes.append("business_dependency_required")
     return _unique(reason_codes)
+
+
+def _action_dependency_role(dependency_id: str, claim_type: str) -> str | None:
+    if claim_type == "policy":
+        return "policy"
+    if claim_type == "business_fact":
+        return "business"
+    if claim_type:
+        return None
+    lowered = dependency_id.lower()
+    if "policy" in lowered:
+        return "policy"
+    if "business" in lowered:
+        return "business"
+    return None
 
 
 def _citation_ids(snippets: Sequence[Mapping[str, Any]]) -> list[str]:

@@ -554,7 +554,13 @@ class PolicyKnowledgeService:
                 context_bundle=context_bundle,
                 dependency_results=dependency_results,
             )
-            dependency_results.append({"claim_id": claim.claim_id, "outcome": _outcome_value(result.outcome)})
+            dependency_results.append(
+                {
+                    "claim_id": claim.claim_id,
+                    "claim_type": claim.claim_type,
+                    "outcome": _outcome_value(result.outcome),
+                }
+            )
             reason_codes.extend(result.reason_codes)
             claim_result = _claim_result_from_verifier_result(
                 claim=claim,

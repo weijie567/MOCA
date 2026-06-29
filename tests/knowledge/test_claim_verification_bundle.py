@@ -261,6 +261,59 @@ async def test_verify_claims_continues_for_supported_policy_business_and_action_
 
 
 @pytest.mark.asyncio
+async def test_verify_claims_uses_claim_type_for_opaque_action_dependency_ids() -> None:
+    """WR-01: opaque claim IDs still satisfy action policy/business dependency roles via claim_type."""
+    ref = _evidence_ref()
+    business_ref = _business_fact_ref()
+    package = _verified_package(ref)
+    package["verifier_projection"]["business_fact_refs"] = [business_ref.model_dump(mode="json")]
+    service = PolicyKnowledgeService(retriever=object())
+    claims = [
+        MaterialClaimV1(
+            claim_id="c1",
+            claim_text="Refund timeout compensation requires verified policy evidence.",
+            claim_type="policy",
+            cited_evidence_ids=[ref.evidence_id],
+            business_fact_refs=[],
+            risk_hints=[],
+            generated_from_step="recommendation_generation",
+        ),
+        MaterialClaimV1(
+            claim_id="c2",
+            claim_text="Refund case RF-1001 is merchant scoped.",
+            claim_type="business_fact",
+            cited_evidence_ids=[],
+            business_fact_refs=[business_ref],
+            risk_hints=[],
+            generated_from_step="recommendation_generation",
+        ),
+        MaterialClaimV1(
+            claim_id="c3",
+            claim_text="Issue a compensation review for RF-1001.",
+            claim_type="action_recommendation",
+            cited_evidence_ids=[ref.evidence_id],
+            business_fact_refs=[business_ref],
+            risk_hints=[],
+            generated_from_step="recommendation_generation",
+        ),
+    ]
+
+    bundle = await service.verify_claims(
+        material_claims=claims,
+        verified_evidence_package=package,
+        business_context={"business_fact_refs": [business_ref.model_dump(mode="json")]},
+        proposed_action={"type": "create_compensation_review"},
+    )
+
+    assert bundle.overall_status == "verified"
+    assert bundle.route == "continue"
+    assert bundle.blocked_claims == []
+    assert {result.claim_id for result in bundle.claim_results} == {"c1", "c2", "c3"}
+    assert "policy_dependency_required" not in bundle.reason_codes
+    assert "business_dependency_required" not in bundle.reason_codes
+
+
+@pytest.mark.asyncio
 async def test_verify_claims_preserves_hard_rule_checks_in_claim_results() -> None:
     """APF-14: ClaimVerificationResultV1.rule_checks records hard-gate outcomes."""
     ref = _evidence_ref(text="Merchant is not eligible for compensation.")
