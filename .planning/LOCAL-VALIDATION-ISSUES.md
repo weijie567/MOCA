@@ -7416,3 +7416,43 @@ RESUME_ERROR: ValueError('snapshot timestamp must use fixed millisecond precisio
 - `tests/test_approval_api.py::test_decide_edit_rebinds_replacement_approval_from_resume_interrupt`
 - `src/api/routers/approvals.py::_handle_resume_interrupt`
 - `src/approvals/snapshot_service.py::persist_action_safety_snapshot`
+
+## 2026-06-29 17:05 CST - Phase 34 WR-04 edit retry regression test initially hit expired async SQLAlchemy fixture access
+
+### 问题现象
+
+修复 Phase 34 WR-04 时新增的 `test_decide_edit_resume_failure_can_retry_and_rebind_without_new_decision` 首次运行失败，不是业务断言失败，而是在断言 replacement approval 的 `target_merchant_id` 时触发 `sqlalchemy.exc.MissingGreenlet`。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py::test_decide_edit_resume_failure_can_retry_and_rebind_without_new_decision -q --tb=short
+```
+
+### 关键证据或命令
+
+失败栈显示测试在访问 `seeded_session["merchant"].id` 时触发 expired attribute lazy load：
+
+```text
+sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called; can't call await_only() here.
+```
+
+### 当前判断 / 根因
+
+该测试会故意经历多次 async commit/rollback 来模拟 edit rerisk resume 失败与重试，导致 seeded fixture 里的 SQLAlchemy ORM 对象属性过期；在普通同步属性访问路径里触发 async DB IO，于是出现 `MissingGreenlet`。业务代码的 retry/rebind 路径已经执行到后续断言位置，问题属于测试 fixture 使用方式。
+
+### 已做处理
+
+已在测试进入 commit/rollback 流程前保存 `merchant_id = str(seeded_session["merchant"].id)`，后续 fake graph 和断言都使用该纯字符串，避免测试末尾再次访问过期 ORM 对象。
+
+### 剩余问题
+
+已重跑 focused tests 确认通过：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py::test_decide_edit_resume_failure_can_retry_and_rebind_without_new_decision -q --tb=short` 结果为 `1 passed, 1 warning in 3.64s`。仍会看到 LangGraph 依赖的 `LangChainPendingDeprecationWarning`，该 warning 不影响本次 WR-04 验证结论。
+
+### 下次继续排查入口
+
+- `tests/test_approval_api.py::test_decide_edit_resume_failure_can_retry_and_rebind_without_new_decision`
+- `src/api/routers/approvals.py::_recoverable_resume_retry_result`
+- `src/api/routers/approvals.py::_terminal_decision_result_for_retry`

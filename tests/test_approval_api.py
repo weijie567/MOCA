@@ -17,7 +17,7 @@ from src.auth.jwt import create_access_token
 from src.approvals.schemas import ApprovalDecisionCommand, ApprovalDecisionResult
 from src.approvals.service import ApprovalService
 from src.approvals.snapshot_service import persist_action_safety_snapshot
-from src.db.models import AgentRun, ApprovalAssignment, ApprovalEvent, ApprovalLevel, ApprovalRequest, User
+from src.db.models import AgentRun, ApprovalAssignment, ApprovalDecision, ApprovalEvent, ApprovalLevel, ApprovalRequest, User
 from src.knowledge.schemas import EvidenceRefV1
 from tests.approvals.test_service_transitions import _create_command, _phase34_binding_overrides
 
@@ -903,6 +903,156 @@ async def test_decide_edit_rebinds_replacement_approval_from_resume_interrupt(
     assert manager_list.status_code == 200
     assert str(replacement.id) in manager_ids
     assert str(bundle.approval.id) not in manager_ids
+
+
+@pytest.mark.asyncio
+async def test_decide_edit_resume_failure_can_retry_and_rebind_without_new_decision(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(session, seeded_session, thread_id="thread-edit-resume-retry")
+    merchant_id = str(seeded_session["merchant"].id)
+    graph = ReinterruptResumeGraph(target_merchant_id=merchant_id)
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+    headers = await _admin_headers(client)
+    edited_action = _edited_action(bundle)
+    decision_body = _decision_body(bundle, "edit", edited_action=edited_action)
+    original_commit = session.commit
+    commit_count = 0
+
+    async def fail_final_resume_commit():
+        nonlocal commit_count
+        commit_count += 1
+        if commit_count == 3:
+            raise RuntimeError("simulated resume interrupt commit failure")
+        await original_commit()
+
+    monkeypatch.setattr(session, "commit", fail_final_resume_commit)
+    first_response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=decision_body,
+        headers=headers,
+    )
+    await session.refresh(bundle.approval)
+    rows_after_failure = (
+        (
+            await session.execute(select(ApprovalRequest).where(ApprovalRequest.run_id == bundle.approval.run_id))
+        )
+        .scalars()
+        .all()
+    )
+    decisions_after_failure = (
+        (
+            await session.execute(select(ApprovalDecision).where(ApprovalDecision.run_id == bundle.approval.run_id))
+        )
+        .scalars()
+        .all()
+    )
+    resume_events_after_failure = (
+        (
+            await session.execute(
+                select(ApprovalEvent).where(
+                    ApprovalEvent.approval_request_id == bundle.approval.id,
+                    ApprovalEvent.event_type == "approval_resumed",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    resume_statuses_after_failure = {event.metadata_json["resume_status"] for event in resume_events_after_failure}
+
+    assert first_response.status_code == 500
+    assert first_response.json()["error"]["code"] == "APPROVAL_RESUME_FAILED"
+    assert bundle.approval.status == "superseded"
+    assert len(rows_after_failure) == 1
+    assert len(decisions_after_failure) == 1
+    assert {"attempted", "failed"} <= resume_statuses_after_failure
+    assert len(graph.calls) == 1
+    first_resume = dict(graph.calls[0][0].resume)
+    assert first_resume["decision_type"] == "edit"
+    assert first_resume["status"] == "superseded"
+    assert first_resume["resume_route"] == "assess_risk_and_approval"
+    assert first_resume["edited_action"] == edited_action
+    assert first_resume["new_action_payload_hash"]
+
+    monkeypatch.setattr(session, "commit", original_commit)
+    retry_response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=decision_body,
+        headers=headers,
+    )
+    payload = retry_response.json()
+    rows = (
+        (
+            await session.execute(
+                select(ApprovalRequest)
+                .where(ApprovalRequest.run_id == bundle.approval.run_id)
+                .order_by(ApprovalRequest.revision)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    decisions = (
+        (
+            await session.execute(select(ApprovalDecision).where(ApprovalDecision.run_id == bundle.approval.run_id))
+        )
+        .scalars()
+        .all()
+    )
+    resume_events = (
+        (
+            await session.execute(
+                select(ApprovalEvent).where(
+                    ApprovalEvent.approval_request_id == bundle.approval.id,
+                    ApprovalEvent.event_type == "approval_resumed",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    resume_statuses = [event.metadata_json["resume_status"] for event in resume_events]
+    replacement = next((row for row in rows if row.id != bundle.approval.id), None)
+    retry_resume = dict(graph.calls[1][0].resume)
+
+    assert retry_response.status_code == 200, payload
+    assert payload["data"]["status"] == "superseded"
+    assert payload["data"]["superseded_by_request_id"] is None
+    assert len(graph.calls) == 2
+    assert len(decisions) == 1
+    assert resume_statuses.count("completed") == 1
+    for key in (
+        "approval_id",
+        "tenant_id",
+        "run_id",
+        "status",
+        "decision_type",
+        "revision",
+        "action_payload_hash",
+        "safety_snapshot_hash",
+        "edited_action",
+        "new_action_payload_hash",
+        "resume_route",
+    ):
+        assert retry_resume[key] == first_resume[key]
+    assert len(rows) == 2
+    assert replacement is not None
+    assert replacement.status == "pending"
+    assert replacement.requested_by == bundle.approval.requested_by
+    assert replacement.action_payload_hash == first_resume["new_action_payload_hash"]
+    assert payload["data"]["new_action_payload_hash"] == first_resume["new_action_payload_hash"]
+    assert replacement.target_merchant_id == merchant_id
+    assert replacement.business_fact_refs[0]["resource_id"] == edited_action["target_id"]
+    assert replacement.verified_evidence_refs[0]["evidence_id"] == edited_action["evidence_refs"][0]["evidence_id"]
+    assert replacement.claim_verification_ref is None
+    assert replacement.claim_verification_summary["overall_status"] == "verified"
+    assert replacement.risk_decision_ref == f"risk_decision:{bundle.approval.run_id}:{replacement.action_payload_hash}"
+    assert replacement.risk_decision["action_payload_hash"] == replacement.action_payload_hash
+    assert replacement.approval_idempotency_key
 
 
 @pytest.mark.asyncio

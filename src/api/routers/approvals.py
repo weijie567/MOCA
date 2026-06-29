@@ -46,8 +46,8 @@ from src.platform.trusted_context import TrustedContext, TrustedContextFactory
 router = APIRouter(tags=["approvals"])
 
 APPROVAL_ROLES = {"admin", "manager"}
-RESUMABLE_DECISIONS = {"accept", "approve", "reject", "ignore"}
-RESUME_TERMINAL_STATUSES = {"approved", "rejected", "cancelled"}
+RESUMABLE_DECISIONS = {"accept", "approve", "reject", "ignore", "edit"}
+RESUME_RETRY_STATUSES = {"approved", "rejected", "cancelled", "superseded"}
 RESUME_INCOMPLETE_STATUSES = {"attempted", "failed"}
 ACTION_DRAFT_PERMISSION = "tool:create_coupon_grant_draft"
 
@@ -449,7 +449,7 @@ async def _recoverable_resume_retry_result(
     body: DecideRequest,
 ) -> ApprovalDecisionResult | None:
     approval = await service.get_request(approval_id, tenant_id)
-    if approval is None or approval.status not in RESUME_TERMINAL_STATUSES:
+    if approval is None or approval.status not in RESUME_RETRY_STATUSES:
         return None
     if body.decision_type not in RESUMABLE_DECISIONS:
         return None
@@ -567,6 +567,23 @@ async def _terminal_decision_result_for_retry(
     ):
         raise ApprovalTransitionError("approval_conflict")
 
+    metadata = event.metadata_json or {}
+    resource_refs = event.resource_refs_json or {}
+    edited_action = None
+    new_action_payload_hash = None
+    resume_route = None
+    if decision.decision_type == "edit":
+        edited_action = decision.edited_action_json
+        new_action_payload_hash = resource_refs.get("new_action_payload_hash")
+        resume_route = metadata.get("resume_route")
+        if (
+            not edited_action
+            or body.edited_action != edited_action
+            or not new_action_payload_hash
+            or resume_route != "assess_risk_and_approval"
+        ):
+            raise ApprovalTransitionError("approval_conflict")
+
     decided_at = approval.decided_at or decision.created_at
     binding_fields = _approval_binding_fields(approval)
     trusted = TrustedApprovalResultV1(
@@ -586,6 +603,9 @@ async def _terminal_decision_result_for_retry(
         decided_by=decision.actor_id,
         decided_at=decided_at,
         reason=approval.reason,
+        edited_action=edited_action,
+        new_action_payload_hash=new_action_payload_hash,
+        resume_route=resume_route,
     ).model_dump(mode="json")
     return ApprovalDecisionResult(
         approval_id=approval.id,
@@ -606,6 +626,8 @@ async def _terminal_decision_result_for_retry(
         decision_id=decision.id,
         event_id=event.id,
         reason=approval.reason,
+        new_action_payload_hash=new_action_payload_hash,
+        edited_action=edited_action,
         resume_payload=trusted,
         graph_thread_id=f"{approval.tenant_id}:{approval.requested_by}:{approval.thread_id}",
     )
