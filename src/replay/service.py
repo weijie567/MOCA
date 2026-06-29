@@ -83,6 +83,7 @@ class ReplayService:
         guard_resource_refs(resource_refs)
 
         safe_payload = dict(redacted_payload)
+        safe_error = _safe_error_json(error_json)
         if iteration is not None:
             safe_payload["iteration"] = iteration
         if schema_version == "replay_event.v3":
@@ -120,7 +121,7 @@ class ReplayService:
             draft_id=_as_uuid(draft_id) if draft_id is not None else None,
             tool_call_id=tool_call_id,
             evidence_refs_json=evidence_refs_json,
-            error_json=error_json,
+            error_json=safe_error,
             tenant_id=_as_uuid(tenant_id),
             thread_id=thread_id,
             trace_id=trace_id,
@@ -250,7 +251,7 @@ class ReplayService:
                 "retention_until": event.retention_until,
                 "deleted_at": event.deleted_at,
             },
-            "error": event.error_json,
+            "error": _safe_error_json(event.error_json),
         }
         event_dict = ReplayEventV3(**projection).model_dump(mode="python")
         if include_retention_class:
@@ -262,6 +263,19 @@ def _as_uuid(value: uuid.UUID | str) -> uuid.UUID:
     if isinstance(value, uuid.UUID):
         return value
     return uuid.UUID(str(value))
+
+
+def _safe_error_json(error_json: dict[str, Any] | None) -> dict[str, Any] | None:
+    if error_json is None:
+        return None
+    guard_redacted_payload({"error": error_json})
+    code = str(error_json.get("code") or "REPLAY_EVENT_ERROR")[:64]
+    safe_message = str(error_json.get("safe_message") or code)[:256]
+    return {
+        "code": code,
+        "message": safe_message,
+        "retryable": error_json.get("retryable") is True,
+    }
 
 
 def _projected_pairing_status(

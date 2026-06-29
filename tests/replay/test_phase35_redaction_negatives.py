@@ -86,6 +86,86 @@ async def test_append_event_rejects_phase35_raw_pii_secret_and_debug_aliases(
 
 
 @pytest.mark.asyncio
+async def test_append_event_rejects_phase35_unsafe_error_json_keys(session: AsyncSession) -> None:
+    run_id, tenant_id, thread_id = await _create_run(session)
+    service = ReplayService(session)
+
+    with pytest.raises(ValueError, match="secret"):
+        await service.append_event(
+            run_id=run_id,
+            tenant_id=tenant_id,
+            thread_id=thread_id,
+            event_type="node_failed",
+            actor={"type": "agent", "id": "moca"},
+            resource_refs={"node": "investigate"},
+            redacted_payload={"status": "failed"},
+            operation_id=uuid.uuid4(),
+            attempt=1,
+            error_json={
+                "code": "GRAPH_ERROR",
+                "secret": "sk_live_should_not_leak",
+                "retryable": False,
+            },
+        )
+
+
+@pytest.mark.asyncio
+async def test_get_replay_sanitizes_stored_phase35_error_json_message(session: AsyncSession) -> None:
+    run_id, tenant_id, thread_id = await _create_run(session)
+    operation_id = uuid.uuid4()
+    session.add(
+        AgentTraceEvent(
+            event_id=uuid.uuid4(),
+            run_id=run_id,
+            sequence=1,
+            operation_id=operation_id,
+            attempt=1,
+            tenant_id=tenant_id,
+            thread_id=thread_id,
+            event_type="node_started",
+            schema_version="replay_event.v3",
+            occurred_at=datetime.now(UTC),
+            actor={"type": "agent", "id": "moca"},
+            resource_refs={"node": "investigate"},
+            redaction_policy_version="redaction.v1",
+            redacted_payload={"status": "started"},
+        )
+    )
+    session.add(
+        AgentTraceEvent(
+            event_id=uuid.uuid4(),
+            run_id=run_id,
+            sequence=2,
+            operation_id=operation_id,
+            attempt=1,
+            tenant_id=tenant_id,
+            thread_id=thread_id,
+            event_type="node_failed",
+            schema_version="replay_event.v3",
+            occurred_at=datetime.now(UTC),
+            actor={"type": "agent", "id": "moca"},
+            resource_refs={"node": "investigate"},
+            redaction_policy_version="redaction.v1",
+            redacted_payload={"status": "failed"},
+            error_json={
+                "code": "GRAPH_ERROR",
+                "message": "Traceback most recent call sk_live_should_not_leak",
+                "retryable": False,
+            },
+        )
+    )
+    await session.flush()
+
+    replay = await ReplayService(session).get_replay(run_id)
+    error = replay["timeline"][1]["error"]
+    serialized = json.dumps(replay, default=str, sort_keys=True)
+
+    assert error == {"code": "GRAPH_ERROR", "message": "GRAPH_ERROR", "retryable": False}
+    assert "Traceback" not in serialized
+    assert "sk_live_should_not_leak" not in serialized
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("unsafe_key", UNSAFE_REPLAY_KEYS)
 async def test_get_replay_rejects_or_omits_stored_phase35_unsafe_payload_aliases(
     session: AsyncSession,
