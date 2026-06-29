@@ -1,6 +1,6 @@
 ---
 phase: 33-rag-context-build-and-claim-verification
-reviewed: 2026-06-29T01:27:17Z
+reviewed: 2026-06-29T01:37:41Z
 depth: deep
 files_reviewed: 3
 files_reviewed_list:
@@ -9,77 +9,54 @@ files_reviewed_list:
   - tests/knowledge/test_claim_verification_bundle.py
 findings:
   critical: 0
-  warning: 1
+  warning: 0
   info: 0
-  total: 1
-status: issues_found
+  total: 0
+status: clean
 ---
 
 # Phase 33: Code Review Report
 
-**Reviewed:** 2026-06-29T01:27:17Z
+**Reviewed:** 2026-06-29T01:37:41Z
 **Depth:** deep
 **Files Reviewed:** 3
-**Status:** issues_found
+**Status:** clean
 
 ## Summary
 
-本次按 deep 深度只复核指定的 3 个文件，重点追踪 `PolicyKnowledgeService.verify_claims`、`MaterialClaimVerifier._action_dependency_reason_codes` 与回归测试之间的 cross-file 行为。
+本次按 deep 深度只复核指定的 3 个文件：
 
-WR-01 的核心修复已成立：`PolicyKnowledgeService.verify_claims()` 现在把 canonical `claim_type` 写入 `dependency_results`，`_action_dependency_reason_codes()` 优先按 `claim_type` 判定 policy/business dependency role；当 legacy `dependency_results` 缺失 `claim_type` 时，仍回退到 `claim_id` substring 兼容旧用例。
+- `src/knowledge/service.py`
+- `src/agent/rag_context/verifier.py`
+- `tests/knowledge/test_claim_verification_bundle.py`
 
-不过 deep review 发现一个相邻边界问题：action dependency 验证仍依赖 `material_claims` 输入顺序。当前 `generate_recommendation` 主路径会先产出 policy/business claim 再产出 action claim，因此 happy path 通过；但 `MaterialClaimV1`/service contract 没有声明 action claim 必须排在依赖之后。若 canonical opaque claim 输入顺序为 `c3` action、`c1` policy、`c2` business，service 会先验证 action，此时 `dependency_results` 为空，错误阻断为 `dependency_results_required`。
+重点复核 `PolicyKnowledgeService.verify_claims()` 的两阶段 claim verification、`MaterialClaimVerifier` 的 action dependency role 判定，以及 claim bundle 输出字段在修复后的语义保持情况。未发现新的 bug、安全问题、行为回归或需要记录的代码质量问题。
+
+All reviewed files meet quality standards. No issues found.
+
+## Targeted Verification Notes
+
+先前 WR-01 已关闭。`PolicyKnowledgeService.verify_claims()` 现在先按 `claim_type != "action_recommendation"` 验证 policy/business claims，再验证 action claims，并把结果存入 `results_by_index`；最终组装阶段仍按原始 `ordered_claims` 顺序输出。因此 action-first 输入不会再因为 `dependency_results` 尚为空而误报 `dependency_results_required`，同时 `claim_results` 保留原始输入顺序。
+
+输出语义保持正确：最终 `claim_results`、`blocked_claims`、`reason_codes` 和 `safe_support_refs` 都在第二阶段按原输入顺序汇总；`safe_support_refs` 仍只汇总能映射到 `VerifiedEvidencePackageV1.evidence_map` 的 `EvidenceRefV1`，business fact authority 继续通过各 claim 的 `business_fact_refs` 表达，符合 `ClaimVerificationBundleV1` 字段类型。
+
+opaque claim ID 修复仍然 intact。`dependency_results` 包含 canonical `claim_type`，`_action_dependency_role()` 优先使用 `claim_type` 判定 policy/business role；当 legacy dependency result 缺少 `claim_type` 时，仍回退到旧的 dependency ID substring 判定，兼容旧调用路径。
+
+相关回归测试覆盖了 opaque IDs 和 action-first 输入顺序：
+
+- `test_verify_claims_uses_claim_type_for_opaque_action_dependency_ids`
+- `test_verify_claims_action_dependencies_are_order_insensitive`
 
 验证命令：
 
-- `uv run pytest tests/knowledge/test_claim_verification_bundle.py -q` -> 11 passed, 1 warning
-- `uv run pytest tests/agent/rag_context/test_verifier.py::test_action_recommendation_requires_supported_policy_and_business_dependencies tests/agent/rag_context/test_authority_boundaries.py::test_action_recommendation_rejects_memory_or_model_supported_dependencies -q` -> 2 passed, 1 warning
-- `uv run python -m py_compile src/knowledge/service.py src/agent/rag_context/verifier.py tests/knowledge/test_claim_verification_bundle.py` -> passed
-- 临时 `uv run python` 只读复现：同一组 `c1/c2/c3` claims 改为 action-first 后得到 `blocked final_response ['c3'] ['dependency_results_required', 'lexical_span_supported']`
-
-## Warnings
-
-### WR-01: Action dependency verification is order-sensitive
-
-**File:** `src/knowledge/service.py:550`
-
-**Issue:** `verify_claims()` 按输入顺序逐条调用 `MaterialClaimVerifier.verify_claim()`，但只在当前 claim 验证完成后才把结果追加到 `dependency_results`。同时 `_legacy_claim_from_material_v1()` 会为 action claim 收集全量 policy/business claim IDs（`src/knowledge/service.py:978`），`_action_dependency_reason_codes()` 又要求这些依赖已经存在于 `dependency_results`（`src/agent/rag_context/verifier.py:905`）。因此 action claim 只要排在 policy/business claim 之前，即使所有 claim 都使用 canonical `claim_type` 且最终都能 supported，也会被错误标记为缺少依赖结果。
-
-**Fix:** 在 service 层改成两阶段验证：先验证所有非 `action_recommendation` claims 并构建 typed `dependency_results`，再验证 action claims；最后按原始输入顺序组装 `claim_results` 和 `blocked_claims`，避免改变输出顺序契约。
-
-```python
-ordered_claims = list(claims)
-verification_order = [
-    *[claim for claim in ordered_claims if claim.claim_type != "action_recommendation"],
-    *[claim for claim in ordered_claims if claim.claim_type == "action_recommendation"],
-]
-
-results_by_claim_id = {}
-dependency_results = []
-for claim in verification_order:
-    result = await verifier.verify_claim(
-        _legacy_claim_from_material_v1(claim, ordered_claims),
-        context_bundle=context_bundle,
-        dependency_results=dependency_results,
-    )
-    results_by_claim_id[claim.claim_id] = result
-    dependency_results.append(
-        {
-            "claim_id": claim.claim_id,
-            "claim_type": claim.claim_type,
-            "outcome": _outcome_value(result.outcome),
-        }
-    )
-
-for claim in ordered_claims:
-    result = results_by_claim_id[claim.claim_id]
-    # existing aggregation logic
+```bash
+uv run pytest tests/knowledge/test_claim_verification_bundle.py tests/agent/rag_context/test_verifier.py tests/agent/test_nodes/test_claim_verify.py tests/architecture/test_phase33_rag_claim_boundaries.py
 ```
 
-同时补一个 regression test：输入顺序为 `[action, policy, business]`，claim IDs 使用 `c3/c1/c2`，预期仍为 `overall_status == "verified"`、`route == "continue"`、`blocked_claims == []`。
+结果：34 passed, 1 warning。warning 为 `.venv/lib/python3.12/site-packages/langgraph/checkpoint/serde/encrypted.py` 的 `LangChainPendingDeprecationWarning`，与本次 review scope 无关。
 
 ---
 
-_Reviewed: 2026-06-29T01:27:17Z_
+_Reviewed: 2026-06-29T01:37:41Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
