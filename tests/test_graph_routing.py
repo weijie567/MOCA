@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
@@ -10,7 +11,9 @@ from src.agent.graph import route_after_approval, route_after_risk
 from src.agent.nodes import assess_risk_and_approval as risk_module
 from src.agent.routing import route_after_investigate, route_after_recommendation
 from src.agent.schemas import IntentResultV3, RiskAssessment
+from src.approvals.schemas import AutoAllowedActionBindingV1
 from src.db.models import ActionSafetySnapshot
+from src.tools.contracts import BusinessFactRefV1
 from tests.approvals.test_service_transitions import _create_run, _evidence_ref
 
 
@@ -52,15 +55,140 @@ def _approved_result(**overrides) -> dict:
     return payload
 
 
+def _business_fact_ref_payload(tenant_id: str, *, resource_id: str = "RF-1001") -> dict:
+    return BusinessFactRefV1(
+        tenant_id=tenant_id,
+        source_system="moca_demo",
+        resource_type="refund_case",
+        resource_id=resource_id,
+        resource_version="v1",
+        data_freshness_at=datetime(2026, 6, 29, 0, 0, tzinfo=UTC),
+        retrieved_at=datetime(2026, 6, 29, 0, 1, tzinfo=UTC),
+    ).model_dump(mode="json")
+
+
+def _evidence_ref_payload(tenant_id: str) -> dict:
+    return {
+        "schema_version": "evidence_ref.v1",
+        "tenant_id": tenant_id,
+        "evidence_id": "refund-policy/chunk-001@v3",
+        "doc_key": "refund-policy",
+        "chunk_id": "chunk-001",
+        "policy_version": "v3",
+        "text_hash": "sha256:" + "a" * 64,
+        "retrieved_at": "2026-06-29T00:00:00.000Z",
+        "retrieval_config_version": "retrieval.v1",
+        "rank": 1,
+    }
+
+
+def _claim_bundle_payload(tenant_id: str) -> dict:
+    fact_ref = _business_fact_ref_payload(tenant_id)
+    evidence_ref = _evidence_ref_payload(tenant_id)
+    return {
+        "schema_version": "claim_verification_bundle.v1",
+        "overall_status": "verified",
+        "route": "continue",
+        "claim_results": [
+            {
+                "schema_version": "claim_verification_result.v1",
+                "claim_id": "claim-action-1",
+                "claim_type": "action_recommendation",
+                "support_status": "supported",
+                "supporting_evidence_refs": [evidence_ref],
+                "business_fact_refs": [fact_ref],
+                "rule_checks": [],
+                "semantic_review_status": "not_needed",
+                "allows_user_visible_claim": True,
+                "allows_action_recommendation": True,
+            }
+        ],
+        "blocked_claims": [],
+        "safe_support_refs": [evidence_ref],
+        "reason_codes": [],
+        "verifier_policy_version": "claim-verifier.v1",
+    }
+
+
+def _approval_plan_payload(state: dict) -> dict:
+    return {
+        "schema_version": "approval_plan.v1",
+        "approval_required": state["risk_assessment"]["approval_required"],
+        "policy_id": "default-approval-policy",
+        "policy_version": "approval-policy.v1",
+        "action_payload_hash": state["action_payload_hash"],
+        "safety_snapshot_ref": state["safety_snapshot_ref"],
+        "safety_snapshot_hash": state["safety_snapshot_hash"],
+        "risk_decision_ref": state["risk_decision_ref"],
+        "risk_decision": state["risk_decision"],
+        "approval_idempotency_key": "approval:test-key",
+        "target_merchant_id": state["target_merchant_id"],
+        "target_merchant_ref": state["target_merchant_ref"],
+        "business_fact_refs": state["business_fact_refs"],
+        "verified_evidence_refs": state["verified_evidence_refs"],
+        "claim_verification_ref": None,
+        "claim_verification_summary": {"overall_status": "verified", "safe_support_ref_count": 1},
+        "allowed_decision_types": ["accept", "approve", "edit", "respond", "reject", "ignore"],
+    }
+
+
+def _auto_allowed_binding_payload(state: dict) -> dict:
+    return AutoAllowedActionBindingV1(
+        tenant_id=state["tenant_id"],
+        run_id=state["current_run_id"],
+        target_merchant_id=state["target_merchant_id"],
+        action_payload_hash=state["action_payload_hash"],
+        safety_snapshot_ref=state["safety_snapshot_ref"],
+        safety_snapshot_hash=state["safety_snapshot_hash"],
+        risk_decision_ref=state["risk_decision_ref"],
+        idempotency_key="auto_allowed:test-key",
+        business_fact_refs=state["business_fact_refs"],
+        verified_evidence_refs=state["verified_evidence_refs"],
+        claim_verification_ref=None,
+        claim_verification_summary={"overall_status": "verified", "safe_support_ref_count": 1},
+    ).model_dump(mode="json")
+
+
 def _risk_route_state(**overrides) -> dict:
+    tenant_id = str(overrides.pop("tenant_id", uuid4()))
+    run_id = str(overrides.pop("current_run_id", uuid4()))
+    risk_assessment = overrides.pop("risk_assessment", {"approval_required": True, "risk_level": "high"})
+    risk_decision_ref = f"risk_decision:{run_id}:{ACTION_HASH}"
     state = {
-        "risk_assessment": {"approval_required": True, "risk_level": "high"},
-        "proposed_action": {"action_type": "issue_coupon"},
+        "tenant_id": tenant_id,
+        "current_run_id": run_id,
+        "risk_assessment": risk_assessment,
+        "proposed_action": {"action_type": "issue_coupon", "target_id": "RF-1001"},
         "action_payload_hash": ACTION_HASH,
         "safety_snapshot_ref": "snapshot:test",
         "safety_snapshot_hash": SNAPSHOT_HASH,
         "safety_snapshot_verified": True,
+        "target_merchant_id": "merchant-1",
+        "target_merchant_ref": {
+            "schema_version": "target_merchant_binding.v1",
+            "target_merchant_id": "merchant-1",
+            "source": "business_fact_ref",
+            "business_fact_ref": _business_fact_ref_payload(tenant_id),
+        },
+        "business_fact_refs": [_business_fact_ref_payload(tenant_id)],
+        "verified_evidence_refs": [_evidence_ref_payload(tenant_id)],
+        "claim_verification_bundle": _claim_bundle_payload(tenant_id),
+        "risk_decision_ref": risk_decision_ref,
+        "risk_decision": {
+            "schema_version": "risk_decision.v1",
+            "tenant_id": tenant_id,
+            "run_id": run_id,
+            "action_id": "act-1",
+            "action_payload_hash": ACTION_HASH,
+            "risk_level": risk_assessment.get("risk_level", "high"),
+            "reason_codes": ["rule-1"],
+            "policy_config_version": "approval-policy.v1",
+            "risk_config_version": "risk-rules.v1",
+            "approval_required": risk_assessment.get("approval_required") is True,
+            "evaluated_at": "2026-06-29T00:00:00.000Z",
+        },
     }
+    state["approval_plan"] = _approval_plan_payload(state)
     state.update(overrides)
     return state
 
@@ -97,15 +225,16 @@ def test_route_after_risk_returns_approval_gate_when_required_snapshot_refs_are_
     assert route_after_risk(_risk_route_state()) == "approval_gate"
 
 
-def test_route_after_recommendation_preserves_legacy_approval_path_without_verifier_state():
+def test_route_after_recommendation_routes_actionable_draft_to_claim_verify():
     state = {
+        "proposed_action": {"action_type": "issue_coupon"},
         "recommendation_draft": {
             "recommended_action": "issue_coupon",
             "risk_level": "high",
         }
     }
 
-    assert route_after_recommendation(state) == "assess_risk_and_approval"
+    assert route_after_recommendation(state) == "claim_verify"
 
 
 def test_route_after_recommendation_prefers_backend_nested_verifier_route():
@@ -129,6 +258,43 @@ def test_route_after_recommendation_prefers_backend_nested_verifier_route():
 def test_route_after_risk_returns_final_response_for_auto_allowed_snapshot_verified_action():
     state = _risk_route_state(risk_assessment={"approval_required": False, "risk_level": "low"})
 
+    assert route_after_risk(state) == "final_response"
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    [
+        "target_merchant_id",
+        "business_fact_refs",
+        "verified_evidence_refs",
+        "risk_decision_ref",
+        "approval_idempotency_key",
+        "action_payload_hash",
+        "safety_snapshot_ref",
+        "safety_snapshot_hash",
+    ],
+)
+def test_route_after_risk_fails_closed_when_approval_plan_binding_missing(missing_field):
+    state = _risk_route_state()
+    state["approval_plan"].pop(missing_field)
+
+    assert route_after_risk(state) == "final_response"
+
+
+def test_route_after_risk_fails_closed_when_approval_plan_hash_mismatches_state():
+    state = _risk_route_state()
+    state["approval_plan"]["action_payload_hash"] = "sha256:" + "9" * 64
+
+    assert route_after_risk(state) == "final_response"
+
+
+def test_route_after_risk_routes_auto_allowed_only_with_exact_binding():
+    state = _risk_route_state(risk_assessment={"approval_required": False, "risk_level": "low"})
+    state["auto_allowed_binding"] = _auto_allowed_binding_payload(state)
+
+    assert route_after_risk(state) == "action_draft"
+
+    state["auto_allowed_binding"]["safety_snapshot_hash"] = "sha256:" + "9" * 64
     assert route_after_risk(state) == "final_response"
 
 
@@ -230,7 +396,7 @@ def test_route_after_approval_fails_closed_when_revision_binding_missing(missing
 
 
 @pytest.mark.asyncio
-async def test_auto_allowed_path_persists_durable_snapshot_row_before_final_response_route(
+async def test_auto_allowed_path_persists_durable_snapshot_row_before_action_draft_route(
     session: AsyncSession,
     seeded_session,
     monkeypatch,
@@ -266,8 +432,24 @@ async def test_auto_allowed_path_persists_durable_snapshot_row_before_final_resp
                 "risk_level": "low",
                 "missing_info": [],
             },
-            "business_context": {"refund_case": {"id": "RF-TEST-001", "requested_amount": "100.00"}},
-            "evidence_refs": [_evidence_ref(tenant_id=tenant_id)],
+            "business_context": {
+                "refund_case": {"id": "RF-TEST-001", "merchant_id": "merchant-1", "requested_amount": "100.00"},
+                "business_fact_refs": [
+                    _business_fact_ref_payload(str(tenant_id), resource_id="RF-TEST-001"),
+                ],
+            },
+            "claim_verification_bundle": {
+                **_claim_bundle_payload(str(tenant_id)),
+                "claim_results": [
+                    {
+                        **_claim_bundle_payload(str(tenant_id))["claim_results"][0],
+                        "business_fact_refs": [
+                            _business_fact_ref_payload(str(tenant_id), resource_id="RF-TEST-001")
+                        ],
+                    }
+                ],
+                "safe_support_refs": [_evidence_ref(tenant_id=tenant_id)],
+            },
             "trace_steps": [],
         },
         {"configurable": {"session": session}},
@@ -282,7 +464,8 @@ async def test_auto_allowed_path_persists_durable_snapshot_row_before_final_resp
     assert result["safety_snapshot_ref"] == snapshot.snapshot_ref
     assert result["safety_snapshot_hash"] == snapshot.immutable_hash
     assert result["safety_snapshot_verified"] is True
-    assert route_after_risk(result) == "final_response"
+    assert result["auto_allowed_binding"]["schema_version"] == "auto_allowed_action_binding.v1"
+    assert route_after_risk(result) == "action_draft"
 
 
 @pytest.mark.asyncio
@@ -323,7 +506,7 @@ def test_insufficient_evidence_to_final(state):
     assert route_after_investigate(state) == "final_response"
 
 
-def test_sufficient_context_to_recommendation():
+def test_sufficient_context_to_rag_context_build_when_policy_evidence_is_required():
     state = {
         "primary_intent": "refund_troubleshooting",
         "business_context": {"facts": {"order": {"status": "delivered"}}},
@@ -331,7 +514,7 @@ def test_sufficient_context_to_recommendation():
         "best_score": 0.9,
     }
 
-    assert route_after_investigate(state) == "recommendation_generation"
+    assert route_after_investigate(state) == "rag_context_build"
 
 
 def test_permission_denied_required_blocks():
@@ -375,7 +558,7 @@ def test_permission_denied_dependency_map_fail_closed(claim_dependency_map):
     assert route_after_investigate(state) == "final_response"
 
 
-def test_permission_denied_nonrequired_preserved():
+def test_permission_denied_nonrequired_still_routes_to_rag_context_build():
     state = {
         "primary_intent": "refund_troubleshooting",
         "business_context": {
@@ -392,10 +575,10 @@ def test_permission_denied_nonrequired_preserved():
         "best_score": 0.9,
     }
 
-    assert route_after_investigate(state) == "recommendation_generation"
+    assert route_after_investigate(state) == "rag_context_build"
 
 
-def test_max_iterations_does_not_force_insufficient():
+def test_max_iterations_does_not_force_insufficient_before_rag_context_build():
     state = {
         "primary_intent": "refund_troubleshooting",
         "business_context": {"facts": {"order": {"status": "delivered"}}},
@@ -404,7 +587,7 @@ def test_max_iterations_does_not_force_insufficient():
         "termination_reason": "max_iterations_reached",
     }
 
-    assert route_after_investigate(state) == "recommendation_generation"
+    assert route_after_investigate(state) == "rag_context_build"
 
 
 @pytest.mark.parametrize(
