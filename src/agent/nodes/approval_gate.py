@@ -29,11 +29,11 @@ async def approval_gate(state: AgentState) -> dict:
     risk = state.get("risk_assessment") or {}
     proposed = state.get("proposed_action") or {}
     approval_plan = state.get("approval_plan") if isinstance(state.get("approval_plan"), dict) else {}
-    if approval_plan.get("approval_required") is True:
+    if approval_plan:
         approval_idempotency_key = approval_plan.get("approval_idempotency_key")
     else:
-        approval_idempotency_key = approval_plan.get("approval_idempotency_key") or state.get("approval_idempotency_key")
-    if approval_plan.get("approval_required") is True and not approval_idempotency_key:
+        approval_idempotency_key = state.get("approval_idempotency_key")
+    if not approval_idempotency_key:
         return {
             "approval_result": None,
             "final_response": "审批计划缺少可信幂等键，已停止执行高风险操作。",
