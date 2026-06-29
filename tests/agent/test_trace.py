@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.agent.merchant_context import project_target_merchant_context
 from src.agent.trace import build_trace_summary, write_agent_run, write_agent_steps
 from src.db.models import AgentStep
+from src.replay.proof_projection import project_replay_authorization_proof
 
 
 RAG_CLAIM_SUMMARY_KEYS = {
@@ -326,6 +327,192 @@ def test_trace_summary_includes_safe_target_merchant_context_projection():
     }
 
 
+def test_replay_authorization_proof_resolves_from_business_fact_refs_without_raw_payloads() -> None:
+    state = {
+        "tenant_id": "tenant-001",
+        "current_intent": "refund_troubleshooting",
+        "last_business_context_refs": {
+            "business_fact_refs": [_business_fact_ref("tenant-001", resource_id="ORD-SECRET-777")]
+        },
+        "business_context": {
+            "facts": [{"order_id": "ORD-SECRET-777"}],
+            "raw_tool_payload": {"ticket_id": "TICKET-SECRET-777"},
+        },
+        "raw_action_payload": {"refund_id": "RF-SECRET-777"},
+        "user_query": "请帮我查 ORD-SECRET-777 和 RF-SECRET-777",
+    }
+
+    projection = project_replay_authorization_proof(state)
+
+    assert set(projection) == {
+        "schema_version",
+        "proof_status",
+        "proof_source",
+        "target_merchant_proof",
+        "business_fact_ref_count",
+        "business_fact_result_count",
+        "scope_check_results",
+        "reason_codes",
+    }
+    assert projection == {
+        "schema_version": "replay_authorization_proof.v1",
+        "proof_status": "resolved",
+        "proof_source": "business_fact_refs",
+        "target_merchant_proof": {
+            "status": "resolved",
+            "source": "business_fact_refs",
+            "reason_codes": [],
+        },
+        "business_fact_ref_count": 1,
+        "business_fact_result_count": 0,
+        "scope_check_results": [],
+        "reason_codes": [],
+    }
+    serialized = json.dumps(projection, ensure_ascii=False)
+    for forbidden in (
+        "ORD-SECRET-777",
+        "TICKET-SECRET-777",
+        "RF-SECRET-777",
+        "请帮我查",
+        "raw_tool_payload",
+        "raw_action_payload",
+        "user_query",
+    ):
+        assert forbidden not in serialized
+
+
+def test_replay_authorization_proof_resolves_from_business_fact_results() -> None:
+    projection = project_replay_authorization_proof(
+        {
+            "tenant_id": "tenant-001",
+            "current_intent": "refund_troubleshooting",
+            "business_fact_results": [
+                _business_fact_result("tenant-001", resource_id="RF-SECRET-888", resource_type="refund_case")
+            ],
+        }
+    )
+
+    assert projection["proof_status"] == "resolved"
+    assert projection["proof_source"] == "business_fact_results"
+    assert projection["business_fact_ref_count"] == 1
+    assert projection["business_fact_result_count"] == 1
+    assert projection["scope_check_results"] == ["allowed"]
+    assert "RF-SECRET-888" not in json.dumps(projection, ensure_ascii=False)
+
+
+@pytest.mark.parametrize(
+    ("state", "proof_status", "proof_source", "reason_code"),
+    [
+        (
+            {"tenant_id": "tenant-001", "current_intent": "refund_troubleshooting"},
+            "unknown",
+            "none",
+            "REPLAY_AUTHORIZATION_PROOF_MISSING",
+        ),
+        (
+            {
+                "tenant_id": "tenant-001",
+                "current_intent": "refund_troubleshooting",
+                "business_fact_results": [
+                    _business_fact_result(
+                        "tenant-001",
+                        status="permission_denied",
+                        scope_check_result="denied",
+                        resource_id="ORD-DENIED-001",
+                    )
+                ],
+            },
+            "denied",
+            "business_fact_results",
+            "REPLAY_AUTHORIZATION_PROOF_DENIED",
+        ),
+        (
+            {
+                "tenant_id": "tenant-001",
+                "current_intent": "refund_troubleshooting",
+                "last_business_context_refs": {
+                    "business_fact_refs": [
+                        {
+                            "schema_version": "business_fact_ref.v1",
+                            "tenant_id": "tenant-001",
+                            "source_system": "business_fact_service",
+                            "resource_type": "order",
+                            "resource_version": "v1",
+                            "data_freshness_at": "2026-06-28T00:00:00+00:00",
+                            "retrieved_at": "2026-06-28T00:00:00+00:00",
+                        }
+                    ]
+                },
+            },
+            "invalid",
+            "business_fact_refs",
+            "REPLAY_AUTHORIZATION_PROOF_INVALID",
+        ),
+        (
+            {
+                "tenant_id": "tenant-001",
+                "current_intent": "refund_troubleshooting",
+                "last_business_context_refs": {
+                    "business_fact_refs": [
+                        _business_fact_ref("tenant-001", resource_id="ORD-MIXED-001"),
+                        _business_fact_ref("tenant-other", resource_id="ORD-MIXED-002"),
+                    ]
+                },
+            },
+            "mixed",
+            "business_fact_refs",
+            "REPLAY_AUTHORIZATION_PROOF_MIXED_TENANTS",
+        ),
+        (
+            {
+                "tenant_id": "tenant-001",
+                "current_intent": "refund_troubleshooting",
+                "target_merchant_context": {
+                    "schema_version": "target_merchant_context.v1",
+                    "status": "unavailable",
+                    "source": "explicit_state",
+                    "reason_codes": ["TARGET_MERCHANT_CONTEXT_UNAVAILABLE"],
+                },
+                "last_business_context_refs": {
+                    "business_fact_refs": [_business_fact_ref("tenant-001", resource_id="ORD-CROSS-001")]
+                },
+            },
+            "cross_merchant",
+            "combined",
+            "REPLAY_AUTHORIZATION_PROOF_TARGET_CONFLICT",
+        ),
+    ],
+)
+def test_replay_authorization_proof_fail_closed_statuses(
+    state: dict[str, object],
+    proof_status: str,
+    proof_source: str,
+    reason_code: str,
+) -> None:
+    projection = project_replay_authorization_proof(state)
+
+    assert projection["proof_status"] == proof_status
+    assert projection["proof_source"] == proof_source
+    assert reason_code in projection["reason_codes"]
+
+
+def test_replay_authorization_proof_marks_direct_response_not_applicable() -> None:
+    assert project_replay_authorization_proof({"current_intent": "small_talk"}) == {
+        "schema_version": "replay_authorization_proof.v1",
+        "proof_status": "not_applicable",
+        "proof_source": "target_merchant_context",
+        "target_merchant_proof": {
+            "status": "not_applicable",
+            "source": "intent_policy",
+            "reason_codes": [],
+        },
+        "business_fact_ref_count": 0,
+        "business_fact_result_count": 0,
+        "scope_check_results": [],
+        "reason_codes": [],
+    }
+
+
 def test_trace_summary_projects_allowlisted_rag_claim_summary_without_raw_fields() -> None:
     safe_ref = _evidence_ref("tenant-001", "policy-safe")
     rejected_ref = _evidence_ref("tenant-001", "policy-rejected")
@@ -436,4 +623,30 @@ def _business_fact_ref(
         "resource_version": "v1",
         "data_freshness_at": "2026-06-28T00:00:00+00:00",
         "retrieved_at": "2026-06-28T00:00:00+00:00",
+    }
+
+
+def _business_fact_result(
+    tenant_id: str,
+    *,
+    status: str = "ok",
+    scope_check_result: str = "allowed",
+    resource_id: str,
+    resource_type: str = "order",
+) -> dict[str, object]:
+    allowed = status in {"ok", "partial"} and scope_check_result == "allowed"
+    return {
+        "schema_version": "business_fact_result.v1",
+        "tenant_id": tenant_id,
+        "status": status,
+        "fact": {"resource_id": resource_id} if allowed else None,
+        "business_fact_refs": (
+            [_business_fact_ref(tenant_id, resource_id=resource_id, resource_type=resource_type)] if allowed else []
+        ),
+        "resource_version": "v1" if allowed else None,
+        "data_freshness_at": "2026-06-28T00:00:00+00:00" if allowed else None,
+        "source_system": "business_fact_service",
+        "scope_check_result": scope_check_result,
+        "missing_required_facts": [] if allowed else [resource_type],
+        "safe_errors": [],
     }
