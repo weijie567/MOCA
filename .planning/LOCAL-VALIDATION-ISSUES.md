@@ -7756,6 +7756,51 @@ SDK 输出：
 - `.planning/STATE.md`
 - `gsd-sdk query roadmap.update-plan-progress 35`
 
+## 2026-06-30 00:31 CST - Phase 35-06 roadmap progress handler still misses current ROADMAP format
+
+### 问题现象
+
+完成 35-06 summary 后执行 roadmap progress 更新命令，SDK 再次返回未更新，Phase 35 roadmap 仍显示 `5/6 plans complete` 且 `35-06-PLAN.md` 未勾选。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+gsd-sdk query roadmap.update-plan-progress 35
+sed -n '405,455p' .planning/ROADMAP.md
+```
+
+### 关键证据或命令
+
+SDK 输出：
+
+```json
+{
+  "updated": false,
+  "phase": "35",
+  "reason": "no matching checkbox found"
+}
+```
+
+### 当前判断 / 根因
+
+与 35-02、35-03、35-05 相同，当前 `roadmap.update-plan-progress` handler 仍未匹配 Phase 35 roadmap 的 `**Plans:** N/6 plans complete` 与计划清单格式。
+
+### 已做处理
+
+已手动更新 `.planning/ROADMAP.md`：Phase 35 状态改为 `Complete`，计划数改为 `6/6 plans complete`，并勾选 `35-06-PLAN.md`。同步修正 `.planning/STATE.md` 的 Phase 35 表格行和 latest execution metric。
+
+### 剩余问题
+
+无阻塞。Phase 35 已完成；后续如继续使用该 handler，需要修复其对当前 ROADMAP 格式的匹配逻辑。
+
+### 下次继续排查入口
+
+- `.planning/ROADMAP.md`
+- `.planning/STATE.md`
+- `gsd-sdk query roadmap.update-plan-progress 35`
+
 ## 2026-06-30 00:26 CST - Phase 35-06 approved-entrypoint `rg` scan quoting error
 
 ### 问题现象
