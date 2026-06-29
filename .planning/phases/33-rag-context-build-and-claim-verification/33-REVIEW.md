@@ -1,6 +1,6 @@
 ---
 phase: 33-rag-context-build-and-claim-verification
-reviewed: 2026-06-29T00:55:39Z
+reviewed: 2026-06-29T01:17:14Z
 depth: standard
 files_reviewed: 55
 files_reviewed_list:
@@ -61,66 +61,36 @@ files_reviewed_list:
   - tests/test_trace_api.py
 findings:
   critical: 0
-  warning: 1
+  warning: 0
   info: 0
-  total: 1
-status: issues_found
+  total: 0
+status: clean
 ---
 
 # Phase 33: Code Review Report
 
-**Reviewed:** 2026-06-29T00:55:39Z
+**Reviewed:** 2026-06-29T01:17:14Z
 **Depth:** standard
 **Files Reviewed:** 55
-**Status:** issues_found
+**Status:** clean
 
 ## Summary
 
-按 standard 深度审查了 Phase 33 的 RAG context build、material claim 校验、路由、最终响应、trace/API/replay 投影以及相关测试。当前代码已经覆盖了 verified action recommendation 进入 risk gate、stale evidence ref 不进入 generation/final trace 等边界；本轮发现 1 个仍然成立的 correctness 问题：action claim 的 policy/business 依赖类型依赖 `claim_id` 命名约定，可能误拦截合法 canonical claims。
+已按 standard 深度复核本次列出的 55 个源文件与测试文件，重点检查 RAG context build、claim verification、action/risk gate、trace/replay/API projection、tenant/evidence 边界以及相关回归测试。未发现新的 bug、安全问题、行为回归或需要记录的代码质量问题。
 
-验证时使用了 `uv run python` 做最小复现；未运行完整 pytest 套件。
+本次是 post-fix re-review，已单独核对上一轮 WR-01：`a66d718 fix(33): WR-01 use claim type for action dependencies` 已关闭 opaque `claim_id` 依赖角色问题。`verify_claims()` 现在把 canonical `claim_type` 写入 dependency results，`_action_dependency_reason_codes()` 优先使用 `claim_type` 判定 dependency role，仅在缺失类型时回退到旧 ID substring 兼容逻辑；新增的 opaque ID 回归测试覆盖了 `c1/c2/c3` 场景。
 
-## Warnings
+验证结果：
 
-### WR-01: Action claim dependency role is inferred from opaque claim_id
+- `uv run python -m py_compile src/knowledge/service.py src/agent/rag_context/verifier.py` 通过。
+- `uv run pytest tests/knowledge/test_claim_verification_bundle.py::test_verify_claims_uses_claim_type_for_opaque_action_dependency_ids -q` 通过。
+- `uv run ruff check` 覆盖本次 29 个源文件，通过。
+- `uv run pytest` 覆盖本次列出的 26 个测试文件，通过：377 passed，22 warnings（均为既有 LangGraph/Pydantic 相关 warning，无失败）。
 
-**File:** `/Users/ming/projects/MOCA/src/agent/rag_context/verifier.py:933`
-**Issue:** `_action_dependency_reason_codes` 通过 `dependency_claim_ids` 字符串里是否包含 `policy` / `business` 来判断 action recommendation 是否具备 policy 和 business 依赖。但 `MaterialClaimV1.claim_id` 在 `/Users/ming/projects/MOCA/src/knowledge/schemas.py:151` 只是普通字符串，契约没有要求 ID 必须携带类型；`/Users/ming/projects/MOCA/src/knowledge/service.py:557` 写入 `dependency_results` 时也只保留 `claim_id` 和 `outcome`，而 `_legacy_claim_from_material_v1` 在 `/Users/ming/projects/MOCA/src/knowledge/service.py:972` 只把 policy/business claim 的 ID 放进 action 依赖，丢失了原始 `claim_type`。因此当合法 claims 使用 `c1` / `c2` / `c3` 这类 opaque ID 时，policy 与 business 依赖已经是 `supported`，action claim 仍会被追加 `policy_dependency_required` 和 `business_dependency_required`，最终变成 `blocked -> final_response`。我用最小 `uv run python` 复现得到：`c1 supported`、`c2 supported`、`c3 unsupported`，bundle reason codes 包含 `policy_dependency_required` 与 `business_dependency_required`。
-**Fix:**
-```python
-# src/knowledge/service.py
-dependency_results.append(
-    {
-        "claim_id": claim.claim_id,
-        "claim_type": claim.claim_type,
-        "outcome": _outcome_value(result.outcome),
-    }
-)
-```
-
-```python
-# src/agent/rag_context/verifier.py
-dependencies = {
-    str(item.get("claim_id")): {
-        "claim_type": str(item.get("claim_type") or ""),
-        "outcome": str(item.get("outcome") or ""),
-    }
-    for item in dependency_results
-    if item.get("claim_id")
-}
-required_roles = {
-    "policy"
-    if dependencies[dep]["claim_type"] == "policy"
-    else "business"
-    for dep in claim.dependency_claim_ids
-    if dep in dependencies and dependencies[dep]["claim_type"] in {"policy", "business_fact"}
-}
-```
-
-保留基于 ID substring 的 fallback 只能作为 legacy 兼容，不能作为 canonical 路径的唯一判定。建议新增回归测试：`MaterialClaimV1(claim_id="c1", claim_type="policy")`、`claim_id="c2", claim_type="business_fact"`、`claim_id="c3", claim_type="action_recommendation"` 在依赖均 supported 时应 `route == "continue"` 且 `blocked_claims == []`。
+All reviewed files meet quality standards. No issues found.
 
 ---
 
-_Reviewed: 2026-06-29T00:55:39Z_
+_Reviewed: 2026-06-29T01:17:14Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
