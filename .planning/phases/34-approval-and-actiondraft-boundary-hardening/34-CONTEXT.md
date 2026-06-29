@@ -70,6 +70,7 @@ This phase must restore manager approval list/get/decide only when target mercha
   - contracts and persistence bindings for `ActionProposal` / `RiskDecision` / approval / draft refs;
   - `risk_gate` responsibility extraction, approval plan, target merchant/business/evidence/claim/risk binding, and durable auto-allowed contract;
   - `approval_gate` / ApprovalService / approval API manager-scope restore and trusted resume hardening;
+  - `agent_runs` approval-interrupt bridge and live approval-required safe projection;
   - `action_draft` / ActionService validation, draft schema enrichment, idempotency, and no-real-execution projection cleanup;
   - final static/focused/eval closure.
 - **D-30:** Verification must use MOCA's valid local entrypoint: `uv run pytest ...`, `UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...`, or `.venv/bin/pytest ...`. Bare `pytest` and bare `python -m pytest` are invalid for this repository.
@@ -205,6 +206,7 @@ This phase must restore manager approval list/get/decide only when target mercha
 
 - Full real external execution, outbox, reconciliation, compensation dispatch, and external idempotency workers remain future scope.
 - Broad replay/eval hardening for every platform decision belongs to Phase 35, though Phase 34 must leave stable refs and events for that work.
+- Broad trace/run API projection hardening for all persisted decision records belongs to Phase 35. Phase 34 only persists stable approval/action refs and keeps live approval-required responses safe.
 - System-owned wildcard approval/action jobs require a future trusted system context contract and are not part of Phase 34.
 - Database/RLS hardening, broad retention lifecycle implementation, role enum cleanup, and merchant-specific policy schema remain Phase 36+ / future hardening.
 

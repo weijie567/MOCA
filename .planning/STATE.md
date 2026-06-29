@@ -4,14 +4,14 @@ milestone: v1.9
 milestone_name: Agent Platform Foundation
 status: planning
 stopped_at: Phase 34 context gathered
-last_updated: "2026-06-29T03:26:14.372Z"
+last_updated: "2026-06-29T03:34:56.000Z"
 last_activity: 2026-06-29
 progress:
   total_phases: 12
   completed_phases: 9
-  total_plans: 43
+  total_plans: 44
   completed_plans: 38
-  percent: 88
+  percent: 86
 ---
 
 # Project State: MOCA
@@ -54,7 +54,7 @@ Planning files:
 
 ## Performance Metrics
 
-**v1.9 current planned scope:** 11 phases, 18 APF requirements, 32 planned phase plans.
+**v1.9 current planned scope:** 11 phases, 18 APF requirements, 33 planned phase plans.
 
 | Phase | Plans | Status |
 |-------|-------|--------|
@@ -67,7 +67,7 @@ Planning files:
 | 31. Memory Platform Boundary | 6/6 | Complete |
 | 32. Intent Graph Migration | 5/5 | Complete |
 | 33. RAG Context Build and Claim Verification | 9/9 | Complete |
-| 34. Approval and ActionDraft Boundary Hardening | 0/1 | Pending |
+| 34. Approval and ActionDraft Boundary Hardening | 0/6 | Pending |
 | 35. Replay and Eval Hardening | 0/1 | Pending |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
@@ -247,4 +247,4 @@ Next: Phase 34 — Approval and ActionDraft Boundary Hardening; old phase direct
 
 **Next Roadmap Item:** Phase 34 — Approval and ActionDraft Boundary Hardening
 
-**Planned Phase:** 34 (approval-and-actiondraft-boundary-hardening) — 5 plans — 2026-06-29T03:26:14.342Z
+**Planned Phase:** 34 (approval-and-actiondraft-boundary-hardening) — 6 plans — 2026-06-29T03:34:56.000Z
