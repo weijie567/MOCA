@@ -417,8 +417,7 @@ async def test_auto_allowed_path_persists_durable_snapshot_row_before_action_dra
         ),
     )
 
-    result = await risk_module.assess_risk_and_approval(
-        {
+    input_state = {
             "thread_id": "auto-allowed-snapshot",
             "tenant_id": str(tenant_id),
             "user_id": str(user_id),
@@ -451,7 +450,9 @@ async def test_auto_allowed_path_persists_durable_snapshot_row_before_action_dra
                 "safe_support_refs": [_evidence_ref(tenant_id=tenant_id)],
             },
             "trace_steps": [],
-        },
+        }
+    result = await risk_module.assess_risk_and_approval(
+        input_state,
         {"configurable": {"session": session}},
     )
 
@@ -465,7 +466,7 @@ async def test_auto_allowed_path_persists_durable_snapshot_row_before_action_dra
     assert result["safety_snapshot_hash"] == snapshot.immutable_hash
     assert result["safety_snapshot_verified"] is True
     assert result["auto_allowed_binding"]["schema_version"] == "auto_allowed_action_binding.v1"
-    assert route_after_risk(result) == "action_draft"
+    assert route_after_risk({**input_state, **result}) == "action_draft"
 
 
 @pytest.mark.asyncio

@@ -43,7 +43,10 @@ from src.agent.routing import (
     route_after_slots,
 )
 from src.agent.state import AgentState
+from src.approvals.schemas import AutoAllowedActionBindingV1
 from src.approvals.schemas import TrustedApprovalResultV1
+from src.knowledge.schemas import EvidenceRefV1
+from src.tools.contracts import BusinessFactRefV1
 
 # 1 retry = 2 total attempts per D-10a.
 _llm_retry = RetryPolicy(max_attempts=2)
@@ -73,9 +76,13 @@ def route_after_risk(state: AgentState) -> str:
         return "final_response"
     if state.get("safety_snapshot_verified") is not True:
         return "final_response"
-    if risk.get("approval_required"):
-        return "approval_gate"
-    # Phase 14 has no durable auto-allowed binding, so no-approval actions fail closed.
+    approval_plan = state.get("approval_plan") if isinstance(state.get("approval_plan"), dict) else {}
+    if risk.get("blocked") is True or approval_plan.get("route") == "blocked":
+        return "final_response"
+    if risk.get("approval_required") is True:
+        return "approval_gate" if _approval_plan_ready(state, approval_plan) else "final_response"
+    if risk.get("approval_required") is False:
+        return "action_draft" if _auto_allowed_binding_ready(state) else "final_response"
     return "final_response"
 
 
@@ -156,6 +163,93 @@ def _snapshot_binding_ready(state: AgentState) -> bool:
     return all(
         bool(state.get(field)) for field in ("action_payload_hash", "safety_snapshot_ref", "safety_snapshot_hash")
     )
+
+
+def _approval_plan_ready(state: AgentState, approval_plan: dict[str, Any]) -> bool:
+    if not approval_plan or approval_plan.get("approval_required") is not True:
+        return False
+    scalar_fields = (
+        "target_merchant_id",
+        "risk_decision_ref",
+        "approval_idempotency_key",
+        "action_payload_hash",
+        "safety_snapshot_ref",
+        "safety_snapshot_hash",
+    )
+    if any(not approval_plan.get(field) for field in scalar_fields):
+        return False
+    if not _non_empty_list(approval_plan.get("business_fact_refs")):
+        return False
+    if not _non_empty_list(approval_plan.get("verified_evidence_refs")):
+        return False
+    if not approval_plan.get("risk_decision") and not state.get("risk_decision"):
+        return False
+    for field in (
+        "action_payload_hash",
+        "safety_snapshot_ref",
+        "safety_snapshot_hash",
+        "target_merchant_id",
+        "risk_decision_ref",
+        "business_fact_refs",
+        "verified_evidence_refs",
+    ):
+        if not state.get(field) or approval_plan.get(field) != state.get(field):
+            return False
+    return True
+
+
+def _auto_allowed_binding_ready(state: AgentState) -> bool:
+    raw_binding = state.get("auto_allowed_binding")
+    if not raw_binding:
+        return False
+    try:
+        binding = AutoAllowedActionBindingV1.model_validate(raw_binding)
+    except ValidationError:
+        return False
+    if not binding.target_merchant_id or not binding.business_fact_refs or not binding.verified_evidence_refs:
+        return False
+    expected = {
+        "tenant_id": str(state.get("tenant_id") or ""),
+        "run_id": str(state.get("current_run_id") or ""),
+        "target_merchant_id": str(state.get("target_merchant_id") or ""),
+        "action_payload_hash": str(state.get("action_payload_hash") or ""),
+        "safety_snapshot_ref": str(state.get("safety_snapshot_ref") or ""),
+        "safety_snapshot_hash": str(state.get("safety_snapshot_hash") or ""),
+        "risk_decision_ref": str(state.get("risk_decision_ref") or ""),
+    }
+    actual = {
+        "tenant_id": binding.tenant_id,
+        "run_id": binding.run_id,
+        "target_merchant_id": binding.target_merchant_id,
+        "action_payload_hash": binding.action_payload_hash,
+        "safety_snapshot_ref": binding.safety_snapshot_ref,
+        "safety_snapshot_hash": binding.safety_snapshot_hash,
+        "risk_decision_ref": binding.risk_decision_ref,
+    }
+    if actual != expected:
+        return False
+    if [ref.model_dump(mode="json") for ref in binding.business_fact_refs] != _canonical_business_fact_refs(state):
+        return False
+    if [ref.model_dump(mode="json") for ref in binding.verified_evidence_refs] != _canonical_evidence_refs(state):
+        return False
+    return True
+
+
+def _canonical_business_fact_refs(state: AgentState) -> list[dict[str, Any]]:
+    try:
+        return [
+            BusinessFactRefV1.model_validate(ref).model_dump(mode="json")
+            for ref in state.get("business_fact_refs") or []
+        ]
+    except ValidationError:
+        return []
+
+
+def _canonical_evidence_refs(state: AgentState) -> list[dict[str, Any]]:
+    try:
+        return [EvidenceRefV1.model_validate(ref).model_dump(mode="json") for ref in state.get("verified_evidence_refs") or []]
+    except ValidationError:
+        return []
 
 
 def _trusted_approval_result(state: AgentState) -> TrustedApprovalResultV1 | None:
@@ -263,6 +357,7 @@ def build_graph(checkpointer: AsyncPostgresSaver):
         {
             "assess_risk_and_approval": "assess_risk_and_approval",
             "approval_gate": "approval_gate",
+            "action_draft": "action_draft",
             "final_response": "final_response",
         },
     )
