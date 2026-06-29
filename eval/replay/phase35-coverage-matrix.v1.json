@@ -1,0 +1,445 @@
+{
+  "schema_version": "phase35_replay_coverage_matrix.v1",
+  "phase": "35-replay-and-eval-hardening",
+  "blocking_gate": "dev-contract",
+  "event_type_policy": "no_new_event_types_in_phase35_matrix",
+  "gate_levels": [
+    "dev-contract",
+    "release",
+    "monitoring"
+  ],
+  "rows": [
+    {
+      "boundary": "trusted_context_projection",
+      "owner": "TrustedContextFactory",
+      "replay_events": [
+        "run_status_changed",
+        "node_completed"
+      ],
+      "trace_projection": "replay_context_projection.v1",
+      "eval_gate_level": "dev-contract",
+      "forbidden_behaviors": [
+        "LLM or user payload widens tenant, user, role, run, or trace identity.",
+        "Replay omits a safe trusted-context projection proof for the run.",
+        "Raw request or trusted-context payload is persisted instead of safe refs and reason codes."
+      ],
+      "acceptance_tests": [
+        "tests/replay/test_phase35_coverage_matrix.py",
+        "tests/replay/test_phase35_trace_replay_permissions.py",
+        "tests/architecture/test_phase35_replay_eval_boundaries.py"
+      ],
+      "decision_assertions": [
+        {
+          "assertion_id": "trusted_context_projection_replay_context",
+          "test_path": "tests/replay/test_phase35_trace_replay_permissions.py",
+          "assertion_type": "replay_event_payload",
+          "asserts": "Replay-safe node/run payloads carry trusted replay context projection refs without accepting LLM or user-payload identity overrides."
+        },
+        {
+          "assertion_id": "trusted_context_projection_owner_admin_guard",
+          "test_path": "tests/replay/test_phase35_trace_replay_permissions.py",
+          "assertion_type": "api_projection",
+          "asserts": "Trace and replay API projections remain owner/admin-only and do not authorize from requested_by.user.merchant_id."
+        }
+      ],
+      "event_strategy": "existing_event_plus_payload_contract",
+      "notes": "Uses existing run and node replay events; Phase 35 tests assert payload/projection content rather than adding a dedicated context event type."
+    },
+    {
+      "boundary": "intent_policy",
+      "owner": "IntentService",
+      "replay_events": [
+        "node_completed"
+      ],
+      "trace_projection": "target_graph.contextual_intent_resolve.v1",
+      "eval_gate_level": "release",
+      "forbidden_behaviors": [
+        "Model confidence directly authorizes action routing.",
+        "Effective route omits policy-owner and reason-code trace.",
+        "High-risk/action intent calibration is reported as production-ready without release-gate evidence."
+      ],
+      "acceptance_tests": [
+        "tests/replay/test_phase35_coverage_matrix.py",
+        "tests/eval/test_phase35_replay_eval_gates.py",
+        "tests/architecture/test_phase35_replay_eval_boundaries.py"
+      ],
+      "decision_assertions": [
+        {
+          "assertion_id": "intent_policy_effective_route_trace",
+          "test_path": "tests/eval/test_phase35_replay_eval_gates.py",
+          "assertion_type": "trace_projection",
+          "asserts": "Effective intent route is projected with policy owner, reason codes, risk/operation hints, and release-gate status without using LLM output as authority."
+        },
+        {
+          "assertion_id": "intent_policy_release_gate_manifest",
+          "test_path": "tests/eval/test_phase35_replay_eval_gates.py",
+          "assertion_type": "eval_manifest",
+          "asserts": "Release gate artifacts distinguish statistical readiness from deterministic Phase 35 dev-contract blockers."
+        }
+      ],
+      "event_strategy": "existing_event_plus_payload_contract",
+      "notes": "Intent policy coverage uses the existing contextual-intent node event plus trace/eval projections; broad statistical expansion remains a release-gate artifact."
+    },
+    {
+      "boundary": "slot_policy",
+      "owner": "SlotPolicyRegistry",
+      "replay_events": [
+        "node_completed"
+      ],
+      "trace_projection": "slot_resolution_gate.v1",
+      "eval_gate_level": "dev-contract",
+      "forbidden_behaviors": [
+        "Stale, wrong-thread, wrong-tenant, or incompatible inherited slots pass the slot gate.",
+        "Current-turn explicit slots are overwritten by untrusted memory or model output.",
+        "Missing required slots route into action-bound paths without clarification."
+      ],
+      "acceptance_tests": [
+        "tests/replay/test_phase35_coverage_matrix.py",
+        "tests/eval/test_phase35_replay_eval_gates.py",
+        "tests/architecture/test_phase35_replay_eval_boundaries.py"
+      ],
+      "decision_assertions": [
+        {
+          "assertion_id": "slot_policy_inheritance_trace",
+          "test_path": "tests/eval/test_phase35_replay_eval_gates.py",
+          "assertion_type": "trace_projection",
+          "asserts": "Slot inheritance/rejection decisions include source, freshness, missing-slot, stale, and incompatible reason codes."
+        }
+      ],
+      "event_strategy": "existing_event_plus_payload_contract",
+      "notes": "Slot policy remains trace-projection coverage over the existing node event; no ad hoc slot replay event is introduced."
+    },
+    {
+      "boundary": "memory_load_policy",
+      "owner": "MemoryContextService",
+      "replay_events": [
+        "node_completed"
+      ],
+      "trace_projection": "session_context_memory_projection.v1",
+      "eval_gate_level": "dev-contract",
+      "forbidden_behaviors": [
+        "Memory context satisfies policy evidence, current business fact, approval, action, or replay authority.",
+        "Wrong-thread, wrong-user, wrong-tenant, stale, or incompatible memory enters prompt or trace projections.",
+        "Memory load omits scope/freshness/rejection reason codes."
+      ],
+      "acceptance_tests": [
+        "tests/replay/test_phase35_coverage_matrix.py",
+        "tests/replay/test_phase35_trace_replay_permissions.py",
+        "tests/architecture/test_phase35_replay_eval_boundaries.py"
+      ],
+      "decision_assertions": [
+        {
+          "assertion_id": "memory_load_scope_trace",
+          "test_path": "tests/replay/test_phase35_trace_replay_permissions.py",
+          "assertion_type": "trace_projection",
+          "asserts": "Memory load projection records tenant/thread/user scope, authority_class=contextual_only, accepted refs, and rejection reason codes."
+        }
+      ],
+      "event_strategy": "existing_event_plus_payload_contract",
+      "notes": "Memory load coverage is carried by target trace projection and node completion payload contracts."
+    },
+    {
+      "boundary": "memory_write_policy",
+      "owner": "MemoryContextService",
+      "replay_events": [
+        "memory_write_started",
+        "memory_write_completed",
+        "memory_write_failed"
+      ],
+      "trace_projection": "memory_write_policy_projection.v1",
+      "eval_gate_level": "monitoring",
+      "forbidden_behaviors": [
+        "Raw memory content, PII, or private reasoning enters replay payloads.",
+        "Skipped or review-required memory candidates are reported as published memory.",
+        "Memory write quality metrics are claimed without monitoring status semantics."
+      ],
+      "acceptance_tests": [
+        "tests/replay/test_phase35_coverage_matrix.py",
+        "tests/replay/test_phase35_redaction_negatives.py",
+        "tests/eval/test_phase35_release_monitoring_manifests.py"
+      ],
+      "decision_assertions": [
+        {
+          "assertion_id": "memory_write_policy_safe_payload",
+          "test_path": "tests/replay/test_phase35_redaction_negatives.py",
+          "assertion_type": "replay_event_payload",
+          "asserts": "Memory write lifecycle events expose only status refs, counts, policy versions, and safe reason codes."
+        },
+        {
+          "assertion_id": "memory_write_monitoring_manifest",
+          "test_path": "tests/eval/test_phase35_release_monitoring_manifests.py",
+          "assertion_type": "eval_manifest",
+          "asserts": "Monitoring artifact tracks memory write quality as pending/sample-only when production telemetry is unavailable."
+        }
+      ],
+      "event_strategy": "existing_event_plus_payload_contract",
+      "notes": "Memory write lifecycle events already exist; Phase 35 gates assert safe payloads and monitoring schema semantics."
+    },
+    {
+      "boundary": "tool_visibility",
+      "owner": "ToolPlatform",
+      "replay_events": [
+        "tool_policy_visibility_recorded"
+      ],
+      "trace_projection": "tool_view_policy_projection.v1",
+      "eval_gate_level": "dev-contract",
+      "forbidden_behaviors": [
+        "Planner sees raw tool descriptors, adapters, required_permission internals, or side-effect capability details.",
+        "Hidden tool decisions omit stable denial reason codes.",
+        "Tool visibility is treated as runtime authorization."
+      ],
+      "acceptance_tests": [
+        "tests/replay/test_phase35_coverage_matrix.py",
+        "tests/replay/test_phase35_redaction_negatives.py",
+        "tests/architecture/test_phase35_replay_eval_boundaries.py"
+      ],
+      "decision_assertions": [
+        {
+          "assertion_id": "tool_visibility_prompt_safe_view",
+          "test_path": "tests/replay/test_phase35_redaction_negatives.py",
+          "assertion_type": "replay_event_payload",
+          "asserts": "Tool visibility event payload contains prompt-safe ToolView fields, decision, reason codes, and policy version only."
+        }
+      ],
+      "event_strategy": "existing_event_plus_payload_contract",
+      "notes": "Uses existing tool policy visibility event introduced before Phase 35."
+    },
+    {
+      "boundary": "tool_runtime_auth",
+      "owner": "ToolPlatform",
+      "replay_events": [
+        "tool_policy_runtime_auth_recorded"
+      ],
+      "trace_projection": "tool_runtime_auth_projection.v1",
+      "eval_gate_level": "dev-contract",
+      "forbidden_behaviors": [
+        "Visible tools are automatically allowed at runtime without scope, permission, side-effect, or schema checks.",
+        "Denied runtime auth leaks raw identifiers or internal permission reasons.",
+        "Runtime auth denial lacks resource scope and stable reason-code projection."
+      ],
+      "acceptance_tests": [
+        "tests/replay/test_phase35_coverage_matrix.py",
+        "tests/replay/test_phase35_trace_replay_permissions.py",
+        "tests/replay/test_phase35_operation_identity.py",
+        "tests/replay/test_phase35_redaction_negatives.py"
+      ],
+      "decision_assertions": [
+        {
+          "assertion_id": "tool_runtime_auth_resource_scope_trace",
+          "test_path": "tests/replay/test_phase35_trace_replay_permissions.py",
+          "assertion_type": "replay_event_payload",
+          "asserts": "Runtime auth event records allowed/denied decision, resource scope result, side-effect class, and stable deny reason without raw args."
+        }
+      ],
+      "event_strategy": "existing_event_plus_payload_contract",
+      "notes": "Uses existing runtime auth policy event; operation identity tests cover pairing with tool invocation timelines."
+    },
+    {
+      "boundary": "business_fact_read_scope_freshness",
+      "owner": "BusinessFactService",
+      "replay_events": [
+        "node_completed",
+        "tool_call_completed",
+        "tool_call_failed"
+      ],
+      "trace_projection": "business_fact_scope_freshness_projection.v1",
+      "eval_gate_level": "dev-contract",
+      "forbidden_behaviors": [
+        "Memory, RAG, LLM inference, or raw repository rows substitute for current business facts.",
+        "Permission denied leaks whether a business resource exists.",
+        "Stale, denied, invalid, or wrong-scope business facts enter action-bound paths."
+      ],
+      "acceptance_tests": [
+        "tests/replay/test_phase35_coverage_matrix.py",
+        "tests/replay/test_phase35_trace_replay_permissions.py",
+        "tests/eval/test_phase35_replay_eval_gates.py",
+        "tests/architecture/test_phase35_replay_eval_boundaries.py"
+      ],
+      "decision_assertions": [
+        {
+          "assertion_id": "business_fact_scope_freshness_proof",
+          "test_path": "tests/replay/test_phase35_trace_replay_permissions.py",
+          "assertion_type": "trace_projection",
+          "asserts": "Trace/replay-safe projection proves BusinessFactRefV1/BusinessFactResultV1 tenant scope, resource version, freshness, source system, and fail-closed status."
+        },
+        {
+          "assertion_id": "business_fact_wrong_scope_blocks_action_path",
+          "test_path": "tests/eval/test_phase35_replay_eval_gates.py",
+          "assertion_type": "eval_manifest",
+          "asserts": "Dev-contract forbidden-behavior gate covers stale and wrong-scope business facts before risk, approval, or action draft."
+        }
+      ],
+      "event_strategy": "existing_event_plus_payload_contract",
+      "notes": "Current business fact coverage uses existing node/tool events plus payload/projection assertions; no new business_fact event type is added."
+    },
+    {
+      "boundary": "rag_validation",
+      "owner": "KnowledgeService",
+      "replay_events": [
+        "node_completed",
+        "rag_retrieval_completed",
+        "rag_retrieval_failed"
+      ],
+      "trace_projection": "verified_evidence_package_projection.v1",
+      "eval_gate_level": "dev-contract",
+      "forbidden_behaviors": [
+        "Candidate refs enter prompt, action, or replay authority without verification.",
+        "Invalid hash, invalid scope, stale, conflict, or no-evidence package creates action-bound recommendation.",
+        "Raw source blocks, OCR/parser metadata, or candidate text leaks through replay."
+      ],
+      "acceptance_tests": [
+        "tests/replay/test_phase35_coverage_matrix.py",
+        "tests/replay/test_phase35_redaction_negatives.py",
+        "tests/eval/test_phase35_replay_eval_gates.py",
+        "tests/architecture/test_phase35_replay_eval_boundaries.py"
+      ],
+      "decision_assertions": [
+        {
+          "assertion_id": "rag_validation_safe_package_projection",
+          "test_path": "tests/eval/test_phase35_replay_eval_gates.py",
+          "assertion_type": "trace_projection",
+          "asserts": "RAG validation projection records verified, rejected, stale, conflict, invalid-hash, and invalid-scope refs without candidate-only authority."
+        }
+      ],
+      "event_strategy": "existing_event_plus_payload_contract",
+      "notes": "RAG validation remains a node/retrieval event payload contract and should not create a parallel evidence event family."
+    },
+    {
+      "boundary": "claim_verification",
+      "owner": "KnowledgeService",
+      "replay_events": [
+        "node_completed"
+      ],
+      "trace_projection": "claim_verification_bundle_projection.v1",
+      "eval_gate_level": "dev-contract",
+      "forbidden_behaviors": [
+        "Unsupported user-visible or action-bound claims enter risk, approval, or action draft.",
+        "Semantic review overrides deterministic hard gates for amount, time, negation, condition, or exception checks.",
+        "Business fact claims are proven by RAG or memory instead of scoped BusinessFactRefV1 authority."
+      ],
+      "acceptance_tests": [
+        "tests/replay/test_phase35_coverage_matrix.py",
+        "tests/eval/test_phase35_replay_eval_gates.py",
+        "tests/architecture/test_phase35_replay_eval_boundaries.py"
+      ],
+      "decision_assertions": [
+        {
+          "assertion_id": "claim_verification_blocks_unsupported_action_claim",
+          "test_path": "tests/eval/test_phase35_replay_eval_gates.py",
+          "assertion_type": "trace_projection",
+          "asserts": "Claim verification bundle projection includes support status, hard-gate failures, safe support refs, blocked claims, and fail-closed route."
+        }
+      ],
+      "event_strategy": "existing_event_plus_payload_contract",
+      "notes": "Claim verification coverage is asserted through existing claim_verify node completion payloads."
+    },
+    {
+      "boundary": "risk_decision",
+      "owner": "RiskPolicy",
+      "replay_events": [
+        "node_completed",
+        "approval_requested",
+        "action_draft_created"
+      ],
+      "trace_projection": "risk_decision_action_path_projection.v1",
+      "eval_gate_level": "dev-contract",
+      "forbidden_behaviors": [
+        "Risk gate routes unsupported, no-evidence, stale business fact, or invalid evidence scope into approval or action paths.",
+        "Approval-required or blocked decisions are owned by approval_gate instead of risk_gate.",
+        "Risk decision payload omits action payload hash, safety snapshot, business fact refs, or claim verification refs."
+      ],
+      "acceptance_tests": [
+        "tests/replay/test_phase35_coverage_matrix.py",
+        "tests/eval/test_phase35_replay_eval_gates.py",
+        "tests/architecture/test_phase35_replay_eval_boundaries.py"
+      ],
+      "decision_assertions": [
+        {
+          "assertion_id": "risk_decision_action_path_trace",
+          "test_path": "tests/eval/test_phase35_replay_eval_gates.py",
+          "assertion_type": "trace_projection",
+          "asserts": "Risk decision trace binds proposed action payload hash, business facts, verified evidence, claim bundle, safety snapshot, and final risk route before approval/action."
+        },
+        {
+          "assertion_id": "risk_decision_dev_contract_forbidden_paths",
+          "test_path": "tests/eval/test_phase35_replay_eval_gates.py",
+          "assertion_type": "eval_manifest",
+          "asserts": "Dev-contract gate covers unsupported claims, no-evidence action recommendations, stale business facts, invalid evidence scope, and hash mismatch before action draft."
+        }
+      ],
+      "event_strategy": "existing_event_plus_payload_contract",
+      "notes": "Risk decisions use the existing risk node event plus downstream approval/action refs; no risk-specific replay event type is added in this plan."
+    },
+    {
+      "boundary": "approval_lifecycle",
+      "owner": "ApprovalService",
+      "replay_events": [
+        "approval_requested",
+        "approval_decided",
+        "approval_expired",
+        "approval_resumed",
+        "run_status_changed"
+      ],
+      "trace_projection": "approval_lifecycle_projection.v1",
+      "eval_gate_level": "dev-contract",
+      "forbidden_behaviors": [
+        "Ordinary chat creates approval decisions or trusted resume results.",
+        "Approval edit/respond/reject/ignore/expire paths execute old approval payloads.",
+        "Responded needs-info run is projected as completed or produces an action draft."
+      ],
+      "acceptance_tests": [
+        "tests/replay/test_phase35_coverage_matrix.py",
+        "tests/replay/test_phase35_terminal_timelines.py",
+        "tests/replay/test_phase35_operation_identity.py",
+        "tests/eval/test_phase35_replay_eval_gates.py"
+      ],
+      "decision_assertions": [
+        {
+          "assertion_id": "approval_lifecycle_terminal_timeline",
+          "test_path": "tests/replay/test_phase35_terminal_timelines.py",
+          "assertion_type": "replay_event_payload",
+          "asserts": "Replay timelines cover requested, decided, expired, resumed, rejected, responded/needs-info, interrupted, and terminal status events with stable approval refs."
+        }
+      ],
+      "event_strategy": "existing_event_plus_payload_contract",
+      "notes": "Approval lifecycle events already exist; Phase 35 timeline tests make their ordering and terminal semantics blocking."
+    },
+    {
+      "boundary": "action_draft",
+      "owner": "ActionDraftService",
+      "replay_events": [
+        "action_draft_created"
+      ],
+      "trace_projection": "action_draft_safety_projection.v1",
+      "eval_gate_level": "dev-contract",
+      "forbidden_behaviors": [
+        "Demo draft is represented as real external execution.",
+        "Action draft is created without target merchant, business facts, verified evidence, claim verification, risk decision, payload hash, or safety snapshot binding.",
+        "Raw proposed action payload or external side-effect details enter replay."
+      ],
+      "acceptance_tests": [
+        "tests/replay/test_phase35_coverage_matrix.py",
+        "tests/replay/test_phase35_terminal_timelines.py",
+        "tests/replay/test_phase35_redaction_negatives.py",
+        "tests/eval/test_phase35_replay_eval_gates.py",
+        "tests/architecture/test_phase35_replay_eval_boundaries.py"
+      ],
+      "decision_assertions": [
+        {
+          "assertion_id": "action_draft_demo_only_safe_payload",
+          "test_path": "tests/replay/test_phase35_redaction_negatives.py",
+          "assertion_type": "replay_event_payload",
+          "asserts": "Action draft replay payload carries draft id, payload hash, safety refs, demo execution mode, external_side_effect=false, and no raw action payload."
+        },
+        {
+          "assertion_id": "action_draft_timeline_no_real_execution",
+          "test_path": "tests/replay/test_phase35_terminal_timelines.py",
+          "assertion_type": "replay_event_payload",
+          "asserts": "Replay timeline may include action_draft_created but must not include action_execution_completed in v1.9 demo mode."
+        }
+      ],
+      "event_strategy": "existing_event_plus_payload_contract",
+      "notes": "Action draft coverage stays demo-only and explicitly excludes real external execution."
+    }
+  ]
+}
