@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
 status: executing
-stopped_at: Completed 35-05-PLAN.md
-last_updated: "2026-06-29T15:52:45.768Z"
+stopped_at: Completed 35-04-PLAN.md
+last_updated: "2026-06-29T16:11:19.579Z"
 last_activity: 2026-06-29
 progress:
   total_phases: 12
   completed_phases: 10
   total_plans: 50
-  completed_plans: 48
-  percent: 96
+  completed_plans: 49
+  percent: 98
 ---
 
 # Project State: MOCA
@@ -27,11 +27,11 @@ See: `.planning/PROJECT.md` (updated 2026-06-29)
 
 Phase: 35 (replay-and-eval-hardening) — EXECUTING
 Next roadmap item: Phase 35 — Replay and Eval Hardening
-Plan: 4 of 6
+Plan: 6 of 6
 Status: Ready to execute
 Last activity: 2026-06-29
 
-Progress: [██████████] 96%
+Progress: [██████████] 98%
 
 Planning files:
 
@@ -68,10 +68,10 @@ Planning files:
 | 32. Intent Graph Migration | 5/5 | Complete |
 | 33. RAG Context Build and Claim Verification | 9/9 | Complete |
 | 34. Approval and ActionDraft Boundary Hardening | 6/6 | Complete |
-| 35. Replay and Eval Hardening | 4/6 | In Progress |
+| 35. Replay and Eval Hardening | 5/6 | In Progress |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
-Latest execution metric: Phase 35 P35-05 — 8 min, 2 tasks, 6 files; release/monitoring manifest pytest, ruff, and docs verification passed.
+Latest execution metric: Phase 35 P35-04 — 12 min, 2 tasks, 5 files; dev-contract manifest pytest, architecture guard pytest, and ruff verification passed.
 | Phase 29.5 P01 | 35min | 2 tasks | 5 files |
 | Phase 29.5 P02 | 5min | 2 tasks | 5 files |
 | Phase 29.5 P03 | 34min | 2 tasks | 13 files |
@@ -105,6 +105,7 @@ Latest execution metric: Phase 35 P35-05 — 8 min, 2 tasks, 6 files; release/mo
 | Phase 35 P35-02 | 23 min | 2 tasks | 4 files |
 | Phase 35 P35-03 | 15 min | 2 tasks | 8 files |
 | Phase 35 P35-05 | 8 min | 2 tasks | 6 files |
+| Phase 35 P35-04 | 12 min | 2 tasks | 5 files |
 
 ## Quick Tasks Completed
 
@@ -195,6 +196,9 @@ Latest execution metric: Phase 35 P35-05 — 8 min, 2 tasks, 6 files; release/mo
 - Monitoring metrics are schema/status artifacts only until production telemetry exists.
 - The release smoke dataset is limited to three smoke references and is not release-scale statistical evidence.
 - Release statistical readiness remains non-blocking for Phase 35 and is represented as statistical_gate_not_demonstrated.
+- Phase 35 dev-contract eval gates are blocking phase-exit checks; release sample volume and production telemetry remain non-blocking references.
+- Forbidden behavior cases are manifest-owned and point to concrete existing focused tests rather than broad statistical datasets.
+- Replay-by-rerun checks are intentionally scoped to replay-owned code and the trace/replay API router to avoid false positives in legitimate runtime graph paths.
 
 ### Roadmap Evolution
 
@@ -236,10 +240,10 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-29T15:52:45.511Z
-Stopped at: Completed 35-05-PLAN.md
+Last session: 2026-06-29T16:11:19.565Z
+Stopped at: Completed 35-04-PLAN.md
 Resume file: None
-Next: Phase 35 — Replay and Eval Hardening; next incomplete plan is 35-04, with 35-05 already complete. Old phase directory archive remains a separate cleanup todo.
+Next: Phase 35 — Replay and Eval Hardening; next incomplete plan is 35-06 final static/focused/eval closure. Old phase directory archive remains a separate cleanup todo.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
 
