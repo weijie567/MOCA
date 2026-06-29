@@ -688,6 +688,15 @@ class ApprovalRequest(TimestampMixin, Base):
     action_payload_hash: Mapped[str | None] = mapped_column(String(128))
     safety_snapshot_ref: Mapped[str | None] = mapped_column(String(128))
     safety_snapshot_hash: Mapped[str | None] = mapped_column(String(128))
+    target_merchant_id: Mapped[str | None] = mapped_column(String(128))
+    target_merchant_ref: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    business_fact_refs: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    verified_evidence_refs: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    claim_verification_ref: Mapped[str | None] = mapped_column(String(128))
+    claim_verification_summary: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    risk_decision_ref: Mapped[str | None] = mapped_column(String(128))
+    risk_decision: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    approval_idempotency_key: Mapped[str | None] = mapped_column(String(256))
     legacy_non_executable: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     superseded_by_request_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("approval_requests.id")
@@ -724,6 +733,7 @@ class ApprovalRequest(TimestampMixin, Base):
 
 Index("ix_approval_requests_tenant_status", ApprovalRequest.tenant_id, ApprovalRequest.status)
 Index("ix_approval_requests_tenant_action_hash", ApprovalRequest.tenant_id, ApprovalRequest.action_payload_hash)
+Index("ix_approval_requests_tenant_target_merchant", ApprovalRequest.tenant_id, ApprovalRequest.target_merchant_id)
 Index(
     "uq_approval_requests_active_revision",
     ApprovalRequest.tenant_id,
@@ -950,6 +960,15 @@ class ActionDraft(TimestampMixin, Base):
     action_payload_hash: Mapped[str | None] = mapped_column(String(128))
     safety_snapshot_ref: Mapped[str | None] = mapped_column(String(128))
     safety_snapshot_hash: Mapped[str | None] = mapped_column(String(128))
+    target_merchant_id: Mapped[str | None] = mapped_column(String(128))
+    target_merchant_ref: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    business_fact_refs: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    verified_evidence_refs: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    claim_verification_ref: Mapped[str | None] = mapped_column(String(128))
+    claim_verification_summary: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    risk_decision_ref: Mapped[str | None] = mapped_column(String(128))
+    risk_decision: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    auto_allowed_binding_ref: Mapped[str | None] = mapped_column(String(128))
     action_type: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft_created")
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
@@ -959,6 +978,9 @@ class ActionDraft(TimestampMixin, Base):
     lifecycle_status: Mapped[str | None] = mapped_column(String(32), default="active")
     retention_policy: Mapped[str | None] = mapped_column(String(64), default="phase14_demo_draft")
     created_by_agent_run: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+
+
+Index("ix_action_drafts_tenant_target_merchant", ActionDraft.tenant_id, ActionDraft.target_merchant_id)
 
 
 class AgentStep(TimestampMixin, Base):
