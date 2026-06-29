@@ -89,7 +89,15 @@ async def _create_approval(
     tenant = seeded_session[tenant_key]
     requester = requested_by or seeded_session["users"]["cs_zhang"]
     run_id = await _create_run(session, tenant_id=tenant.id, user_id=requester.id, thread_id=thread_id)
-    binding_overrides = _phase34_binding_overrides(tenant_id=tenant.id, run_id=run_id) if with_phase34_bindings else {}
+    binding_overrides = (
+        _phase34_binding_overrides(
+            tenant_id=tenant.id,
+            run_id=run_id,
+            merchant_id=str(requester.merchant_id or seeded_session["merchant"].id),
+        )
+        if with_phase34_bindings
+        else {}
+    )
     created = await ApprovalService(session).create_request(
         _create_command(
             tenant_id=tenant.id,
@@ -848,13 +856,13 @@ async def test_get_approval_rejects_over_scoped_non_reviewer_token(
 
 
 @pytest.mark.asyncio
-async def test_manager_approval_review_paths_return_403(
+async def test_manager_approval_review_paths_allow_same_merchant(
     client: AsyncClient,
     session: AsyncSession,
     seeded_session,
     monkeypatch,
 ):
-    bundle = await _create_approval(session, seeded_session, thread_id="thread-manager-deny")
+    bundle = await _create_approval(session, seeded_session, thread_id="thread-manager-allow")
     monkeypatch.setattr(app.state, "agent_graph", FakeResumeGraph(), raising=False)
     manager_headers = await _manager_headers(client)
 
@@ -866,10 +874,74 @@ async def test_manager_approval_review_paths_return_403(
         headers=manager_headers,
     )
 
-    assert list_response.status_code == 403
+    assert list_response.status_code == 200
+    assert get_response.status_code == 200
+    assert decide_response.status_code == 200
+    assert list_response.json()["data"]["total"] == 1
+    assert list_response.json()["data"]["approvals"][0]["id"] == str(bundle.approval.id)
+    assert get_response.json()["data"]["target_merchant_id"] == str(seeded_session["merchant"].id)
+
+
+@pytest.mark.asyncio
+async def test_manager_approval_review_paths_deny_cross_merchant(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(
+        session,
+        seeded_session,
+        requested_by=seeded_session["users"]["cs_other_merchant"],
+        thread_id="thread-manager-cross-deny",
+    )
+    monkeypatch.setattr(app.state, "agent_graph", FakeResumeGraph(), raising=False)
+    manager_headers = await _manager_headers(client)
+
+    list_response = await client.get("/api/v1/approvals", headers=manager_headers)
+    get_response = await client.get(f"/api/v1/approvals/{bundle.approval.id}", headers=manager_headers)
+    decide_response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=_decision_body(bundle),
+        headers=manager_headers,
+    )
+
+    assert list_response.status_code == 200
+    assert list_response.json()["data"]["total"] == 0
     assert get_response.status_code == 403
     assert decide_response.status_code == 403
-    assert list_response.json()["error"]["code"] == "FORBIDDEN"
+    assert get_response.json()["error"]["code"] == "FORBIDDEN"
+    assert decide_response.json()["error"]["code"] == "FORBIDDEN"
+
+
+@pytest.mark.asyncio
+async def test_manager_approval_review_paths_deny_missing_target_merchant(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(
+        session,
+        seeded_session,
+        thread_id="thread-manager-missing-target-deny",
+        with_phase34_bindings=False,
+    )
+    monkeypatch.setattr(app.state, "agent_graph", FakeResumeGraph(), raising=False)
+    manager_headers = await _manager_headers(client)
+
+    list_response = await client.get("/api/v1/approvals", headers=manager_headers)
+    get_response = await client.get(f"/api/v1/approvals/{bundle.approval.id}", headers=manager_headers)
+    decide_response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=_decision_body(bundle),
+        headers=manager_headers,
+    )
+
+    assert list_response.status_code == 200
+    assert list_response.json()["data"]["total"] == 0
+    assert get_response.status_code == 403
+    assert decide_response.status_code == 403
     assert get_response.json()["error"]["code"] == "FORBIDDEN"
     assert decide_response.json()["error"]["code"] == "FORBIDDEN"
 

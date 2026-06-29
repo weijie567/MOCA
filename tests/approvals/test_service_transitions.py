@@ -115,14 +115,14 @@ def _risk_decision_payload(*, tenant_id: UUID, run_id: UUID, action_payload_hash
     }
 
 
-def _phase34_binding_overrides(*, tenant_id: UUID, run_id: UUID) -> dict[str, Any]:
+def _phase34_binding_overrides(*, tenant_id: UUID, run_id: UUID, merchant_id: str = "merchant-1") -> dict[str, Any]:
     evidence_ref = _evidence_ref(tenant_id=tenant_id)
     action_payload_hash = compute_action_payload_hash(
         _proposed_action(tenant_id=tenant_id, run_id=run_id, evidence_refs=[evidence_ref])
     )
     return {
-        "target_merchant_id": "merchant-1",
-        "target_merchant_ref": _target_merchant_ref(tenant_id=tenant_id),
+        "target_merchant_id": merchant_id,
+        "target_merchant_ref": _target_merchant_ref(tenant_id=tenant_id, merchant_id=merchant_id),
         "business_fact_refs": [_business_fact_ref(tenant_id=tenant_id)],
         "verified_evidence_refs": [evidence_ref],
         "claim_verification_ref": "claim_verification_bundle:bundle-1",
@@ -485,21 +485,22 @@ async def test_edit_decision_reroutes_to_risk_without_approved_resume_authority(
 
 
 @pytest.mark.asyncio
-async def test_manager_service_decision_is_forbidden_without_orphans(session: AsyncSession, seeded_session):
+async def test_manager_service_decision_is_allowed_for_assigned_role(session: AsyncSession, seeded_session):
     request, level, assignment = await _approval_bundle(session, seeded_session)
     actor_id = seeded_session["users"]["approval_manager"].id
 
-    await _assert_transition_error(
-        session,
+    result = await ApprovalService(session).decide(
         _decision_command(
             request,
             level,
             assignment,
             actor_id=actor_id,
             actor_role="manager",
-        ),
-        code="approval_forbidden",
+        )
     )
+
+    assert result.status == "approved"
+    assert result.decision_type == "accept"
 
 
 @pytest.mark.asyncio
