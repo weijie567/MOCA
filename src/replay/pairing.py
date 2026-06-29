@@ -56,7 +56,7 @@ def validate_operation_pairing(
 
     parent_operation_id = _optional_uuid(_field(candidate_event, "parent_operation_id"))
     prior_events = list(existing_events)
-    _validate_retry_shape(prior_events, operation_id, parent_operation_id, attempt)
+    _validate_retry_shape(prior_events, operation_id, parent_operation_id, attempt, event_type)
 
     if _is_terminal_event(event_type):
         started = _events_for_operation(prior_events, operation_id, predicate=_is_started_event)
@@ -102,6 +102,7 @@ def _validate_retry_shape(
     operation_id: uuid.UUID,
     parent_operation_id: uuid.UUID | None,
     attempt: int,
+    event_type: str,
 ) -> None:
     if attempt == 1:
         return
@@ -126,6 +127,10 @@ def _validate_retry_shape(
         event for event in existing_events if _optional_uuid(_field(event, "operation_id")) == operation_id
     ]
     if existing_same_operation:
+        if _is_terminal_event(event_type) and all(
+            _is_started_event(str(_field(event, "event_type") or "")) for event in existing_same_operation
+        ):
+            return
         raise OperationPairingError("retry must use a new operation_id; same operation_id is forbidden")
 
 

@@ -7812,3 +7812,57 @@ UV_CACHE_DIR=/tmp/uv-cache uv run ruff check tests/replay/test_phase35_terminal_
 - `tests/replay/test_phase35_terminal_timelines.py`
 - `src/replay/lifecycle.py`
 - `src/replay/service.py`
+
+## 2026-06-29 23:33 CST - Phase 35-03 operation retry and redaction alias RED failures
+
+### 问题现象
+
+执行 35-03 Task 2 新增 operation identity 与 redaction negative 测试时，RED suite 出现预期失败：retry terminal event 无法使用 retry operation id 完成 paired terminal，Phase 35 要求的 raw/PII/debug key aliases 未被 replay redaction guard 拦截。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay/test_phase35_operation_identity.py tests/replay/test_phase35_redaction_negatives.py tests/replay/test_operation_pairing.py tests/replay/test_replay_redaction_retention.py tests/replay/test_tool_policy_events.py -q --tb=short
+```
+
+### 关键证据或命令
+
+pytest 输出包含：
+
+```text
+OperationPairingError: retry must use a new operation_id; same operation_id is forbidden
+AssertionError: assert set(UNSAFE_REPLAY_KEYS) <= FORBIDDEN_REDACTED_PAYLOAD_KEYS
+Failed: DID NOT RAISE <class 'ValueError'>
+SHOULD_NOT_LEAK_RAW_TOOL_PAYLOAD is contained here
+```
+
+### 当前判断 / 根因
+
+- `src/replay/pairing.py` 的 retry 校验在 `attempt > 1` 时禁止任何同 operation id 的既有事件，因此 retry terminal event 会被 retry started event 阻挡；这与 Phase 35 要求的 started/terminal retry pair 共享新的 retry `operation_id` 冲突。
+- `FORBIDDEN_REDACTED_PAYLOAD_KEYS` 已覆盖 `raw_prompt`、`raw_payload`、`raw_tool_output`、`secret`、`credential`、`pii` 等基础 key，但缺少 Phase 35 D-16 明确要求的 `raw_tool_payload`、`ticket_pii`、`order_pii`、`refund_pii`、`raw_action_payload`、`unsafe_debug_payload`、`buyer_name`、`api_key` aliases。
+
+### 已做处理
+
+- 调整 retry 校验：retry started 仍必须使用新 operation id；retry terminal 可以闭合已经存在的 retry started event；duplicate terminal 仍由后续 terminal duplicate guard 拦截。
+- 将 Phase 35 raw/PII/debug aliases 加入 `FORBIDDEN_REDACTED_PAYLOAD_KEYS`。
+- 重新运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay/test_phase35_operation_identity.py tests/replay/test_phase35_redaction_negatives.py tests/replay/test_operation_pairing.py tests/replay/test_replay_redaction_retention.py tests/replay/test_tool_policy_events.py -q --tb=short
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff check tests/replay/test_phase35_operation_identity.py tests/replay/test_phase35_redaction_negatives.py src/replay/service.py src/replay/validators.py
+```
+
+结果为 `61 passed, 1 warning`，ruff 通过。
+
+### 剩余问题
+
+无。该问题已通过 replay pairing 与 validators 的最小范围修正处理。
+
+### 下次继续排查入口
+
+- `tests/replay/test_phase35_operation_identity.py`
+- `tests/replay/test_phase35_redaction_negatives.py`
+- `src/replay/pairing.py`
+- `src/replay/validators.py`
