@@ -232,7 +232,7 @@
         }
       ],
       "event_strategy": "existing_event_plus_payload_contract",
-      "notes": "Uses existing runtime auth policy event; operation identity tests cover pairing with tool invocation timelines."
+      "notes": "Uses existing runtime auth policy event; strict V3 append tests cover paired operation attempts, while the production minimal-emitter path is explicitly asserted as unresolved compatibility."
     },
     {
       "boundary": "business_fact_read_scope_freshness",

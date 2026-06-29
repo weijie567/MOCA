@@ -5,7 +5,7 @@
   "blocking": "phase_exit",
   "failure_impact": "block_phase_35_verification",
   "coverage_matrix_path": "eval/replay/phase35-coverage-matrix.v1.json",
-  "coverage_matrix_hash": "sha256:a9d58190127164a2299c09415824942b6f876ba70273a35dfe6fb1ad83b8b121",
+  "coverage_matrix_hash": "sha256:fd9affcc1476f35b61ec3076563006dca548d67ebb26c7fc072075c06df99f67",
   "required_gate_categories": [
     "schema_validity",
     "platform_event_coverage",

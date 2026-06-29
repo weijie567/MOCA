@@ -6,6 +6,7 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.agent.events import emit_event
 from src.db.models import AgentRun
 from src.replay.service import ReplayService
 
@@ -249,3 +250,62 @@ async def test_retry_terminal_rejects_attempt_mismatch(session: AsyncSession) ->
             parent_operation_id=parent_operation_id,
             attempt=3,
         )
+
+
+@pytest.mark.asyncio
+async def test_production_minimal_emitter_projects_operation_identity_as_unresolved_compatibility(
+    session: AsyncSession,
+) -> None:
+    run_id, tenant_id, thread_id = await _create_run(session)
+    operation_id = uuid.uuid4()
+
+    await emit_event(
+        session,
+        run_id=run_id,
+        tenant_id=tenant_id,
+        thread_id=thread_id,
+        event_type="tool_call_started",
+        actor={"type": "agent", "id": "moca"},
+        resource_refs={"tool": "get_order"},
+        redacted_payload={
+            "tool_name": "get_order",
+            "status": "started",
+            "latency_ms": None,
+        },
+        operation_id=operation_id,
+        iteration=1,
+    )
+    await emit_event(
+        session,
+        run_id=run_id,
+        tenant_id=tenant_id,
+        thread_id=thread_id,
+        event_type="tool_call_completed",
+        actor={"type": "agent", "id": "moca"},
+        resource_refs={"tool": "get_order"},
+        redacted_payload={
+            "tool_name": "get_order",
+            "status": "success",
+            "latency_ms": 7,
+        },
+        operation_id=operation_id,
+        iteration=1,
+    )
+
+    replay = await ReplayService(session).get_replay(run_id)
+    started, terminal = _operation_events(replay, "tool_call_started", "tool_call_completed")
+
+    assert started["operation_id"] == operation_id
+    assert terminal["operation_id"] == operation_id
+    assert started["attempt"] is None
+    assert terminal["attempt"] is None
+    assert started["parent_operation_id"] is None
+    assert terminal["parent_operation_id"] is None
+    assert started["provenance"] == {
+        "source_schema_version": "minimal_event_envelope.v1",
+        "pairing_status": "unresolved",
+    }
+    assert terminal["provenance"] == {
+        "source_schema_version": "minimal_event_envelope.v1",
+        "pairing_status": "unresolved",
+    }
