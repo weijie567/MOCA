@@ -254,7 +254,7 @@ async def test_attach_info_stale_request_level_assignment_versions_fail_closed(
 
 
 @pytest.mark.asyncio
-async def test_attach_info_changed_payload_supersedes_old_revision(session: AsyncSession, seeded_session):
+async def test_attach_info_changed_payload_supersedes_pending_rebind(session: AsyncSession, seeded_session):
     request, level, assignment = await _approval_bundle(session, seeded_session)
     actor_id = seeded_session["users"]["admin_user"].id
     await _respond(session, request, level, assignment, actor_id=actor_id)
@@ -269,15 +269,15 @@ async def test_attach_info_changed_payload_supersedes_old_revision(session: Asyn
         )
     )
     await session.refresh(request)
-    new_request = await session.get(ApprovalRequest, result.approval_id)
-    assert new_request is not None
-    new_action_payload_hash = new_request.action_payload_hash
 
     assert request.status == "superseded"
-    assert request.superseded_by_request_id == new_request.id
-    assert new_request.status == "pending"
-    assert new_request.revision == request.revision + 1
-    assert old_action_payload_hash != new_action_payload_hash
+    assert request.superseded_by_request_id is None
+    assert result.approval_id == request.id
+    assert result.status == "superseded"
+    assert result.superseded_by_request_id is None
+    assert result.new_action_payload_hash
+    assert old_action_payload_hash != result.new_action_payload_hash
+    assert await _active_revision_count(session, request) == 0
     assert result.resume_payload is None
     await _assert_old_revision_cannot_execute(session, old_decision_command)
 
@@ -316,7 +316,7 @@ async def test_attach_info_malformed_changed_payload_fails_closed_without_orphan
 
 
 @pytest.mark.asyncio
-async def test_attach_info_changed_payload_emits_replay_linked_requested_event(
+async def test_attach_info_changed_payload_records_pending_rebind_event(
     session: AsyncSession,
     seeded_session,
 ):
@@ -331,31 +331,28 @@ async def test_attach_info_changed_payload_emits_replay_linked_requested_event(
             info_payload={"response_text": "confirmed", "proposed_action": _changed_action(request)},
         )
     )
-    new_request = await session.get(ApprovalRequest, result.approval_id)
-    assert new_request is not None
+    await session.refresh(request)
 
     event = (
         await session.execute(
             select(ApprovalEvent).where(
-                ApprovalEvent.approval_request_id == new_request.id,
-                ApprovalEvent.event_type == "approval_requested",
+                ApprovalEvent.approval_request_id == request.id,
+                ApprovalEvent.event_type == "approval_info_attached",
             )
         )
     ).scalar_one()
-    trace_event = await session.get(AgentTraceEvent, event.replay_event_id)
 
-    assert event.replay_event_id is not None
-    assert event.metadata_json["superseded_from_request_id"] == str(request.id)
-    assert event.resource_refs_json["request_ref"] == f"approval_request:{new_request.id}:r{new_request.revision}"
-    assert event.resource_refs_json["action_payload_hash"] == new_request.action_payload_hash
-    assert trace_event is not None
-    assert trace_event.event_type == "approval_requested"
-    assert trace_event.resource_refs == event.resource_refs_json
-    assert trace_event.redacted_payload == event.redacted_payload_json
+    assert result.approval_id == request.id
+    assert event.metadata_json["changed_revision_material"] is True
+    assert event.metadata_json["pending_rebind"] is True
+    assert event.resource_refs_json["request_ref"] == f"approval_request:{request.id}:r{request.revision}"
+    assert event.resource_refs_json["action_payload_hash"] == request.action_payload_hash
+    assert event.resource_refs_json["new_action_payload_hash"] == result.new_action_payload_hash
+    assert event.resource_refs_json["new_safety_snapshot_hash"]
 
 
 @pytest.mark.asyncio
-async def test_attach_info_leaves_only_one_active_revision(session: AsyncSession, seeded_session):
+async def test_attach_info_changed_payload_leaves_no_unbound_active_revision(session: AsyncSession, seeded_session):
     request, level, assignment = await _approval_bundle(session, seeded_session)
     actor_id = seeded_session["users"]["admin_user"].id
     await _respond(session, request, level, assignment, actor_id=actor_id)
@@ -368,10 +365,16 @@ async def test_attach_info_leaves_only_one_active_revision(session: AsyncSession
         )
     )
 
-    assert await _active_revision_count(session, request) == 1
-    active = await _active_revision(session, request)
-    assert active.id == result.approval_id
-    assert active.status == "pending"
+    await session.refresh(request)
+
+    assert result.approval_id == request.id
+    assert result.status == "superseded"
+    assert request.superseded_by_request_id is None
+    assert await _active_revision_count(session, request) == 0
+    request_count = await session.scalar(
+        select(func.count()).select_from(ApprovalRequest).where(ApprovalRequest.run_id == request.run_id)
+    )
+    assert request_count == 1
 
 
 @pytest.mark.asyncio
@@ -391,18 +394,16 @@ async def test_edit_generates_new_action_payload_hash_before_reroute(session: As
         )
     )
     await session.refresh(request)
-    new_request = await session.get(ApprovalRequest, result.superseded_by_request_id)
-    assert new_request is not None
-    new_action_payload_hash = new_request.action_payload_hash
-
     assert result.decision_type == "edit"
     assert result.status == "superseded"
-    assert result.new_action_payload_hash == new_action_payload_hash
-    assert old_action_payload_hash != new_action_payload_hash
+    assert result.superseded_by_request_id is None
+    assert request.superseded_by_request_id is None
+    assert result.new_action_payload_hash
+    assert old_action_payload_hash != result.new_action_payload_hash
     assert result.resume_payload is not None
     assert result.resume_payload["decision_type"] == "edit"
     assert result.resume_payload["status"] == "superseded"
-    assert result.resume_payload["new_action_payload_hash"] == new_action_payload_hash
+    assert result.resume_payload["new_action_payload_hash"] == result.new_action_payload_hash
     assert result.resume_payload["resume_route"] == "assess_risk_and_approval"
 
 
@@ -424,17 +425,28 @@ async def test_attach_info_changed_evidence_or_config_requires_new_snapshot_hash
             },
         )
     )
-    new_request = await session.get(ApprovalRequest, result.approval_id)
-    assert new_request is not None
+    await session.refresh(request)
+    event = (
+        await session.execute(
+            select(ApprovalEvent).where(
+                ApprovalEvent.approval_request_id == request.id,
+                ApprovalEvent.event_type == "approval_info_attached",
+            )
+        )
+    ).scalar_one()
+    new_safety_snapshot_hash = event.resource_refs_json["new_safety_snapshot_hash"]
     snapshot = (
         await session.execute(
-            select(ActionSafetySnapshot).where(ActionSafetySnapshot.immutable_hash == new_request.safety_snapshot_hash)
+            select(ActionSafetySnapshot).where(ActionSafetySnapshot.immutable_hash == new_safety_snapshot_hash)
         )
     ).scalar_one()
 
     assert request.status == "superseded"
-    assert new_request.status == "pending"
-    assert old_snapshot_hash != new_request.safety_snapshot_hash
+    assert request.superseded_by_request_id is None
+    assert result.approval_id == request.id
+    assert result.status == "superseded"
+    assert old_snapshot_hash != new_safety_snapshot_hash
+    assert event.metadata_json["pending_rebind"] is True
     assert snapshot.retrieval_config_version == "retrieval.v2"
 
 
@@ -498,8 +510,9 @@ async def test_edit_supersedes_old_revision_and_reroutes_to_risk(session: AsyncS
     assert decision.decision_type == "edit"
     assert decision.edited_action_json == _changed_action(request, amount="66.00")
     assert request.status == "superseded"
-    assert request.superseded_by_request_id == result.superseded_by_request_id
+    assert request.superseded_by_request_id is None
+    assert result.superseded_by_request_id is None
     assert result.resume_payload is not None
     assert result.resume_payload["resume_route"] == "assess_risk_and_approval"
-    assert await _active_revision_count(session, request) == 1
+    assert await _active_revision_count(session, request) == 0
     await _assert_old_revision_cannot_execute(session, old_decision_command)

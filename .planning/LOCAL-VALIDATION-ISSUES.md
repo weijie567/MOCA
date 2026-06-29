@@ -7456,3 +7456,56 @@ sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called; can't call a
 - `tests/test_approval_api.py::test_decide_edit_resume_failure_can_retry_and_rebind_without_new_decision`
 - `src/api/routers/approvals.py::_recoverable_resume_retry_result`
 - `src/api/routers/approvals.py::_terminal_decision_result_for_retry`
+
+## 2026-06-29 16:43 CST - Phase 34 verify-work full focused suite exposed stale needs-info revision tests after WR-03
+
+### 问题现象
+
+执行 `$gsd-verify-work 34` 自测时，Phase 34 full focused suite 失败 6 个用例，全部集中在 `tests/approvals/test_needs_info_resume.py` 的 changed-info/edit supersede 流程。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/approvals tests/actions/test_action_draft_v2.py tests/actions/test_phase34_action_draft_bindings.py tests/test_agent_runs_api.py tests/test_approval_api.py tests/test_approval_gate.py tests/test_execute_action.py tests/test_graph_routing.py tests/agent/test_nodes/test_assess_risk_and_approval.py tests/agent/test_graph.py tests/architecture/test_approval_boundaries.py tests/architecture/test_action_draft_boundaries.py tests/architecture/test_phase33_rag_claim_boundaries.py tests/architecture/test_phase34_approval_action_boundaries.py tests/platform/test_merchant_scope.py tests/tools/test_merchant_scope_static.py -q --tb=short
+```
+
+### 关键证据或命令
+
+失败摘要显示旧测试仍期待 service 层立即创建 replacement approval：
+
+```text
+6 failed, 397 passed, 23 warnings in 410.10s
+AssertionError: assert None == UUID(...)
+KeyError: 'superseded_from_request_id'
+assert 0 == 1
+```
+
+随后 targeted 验证：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/approvals/test_needs_info_resume.py -q --tb=short
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_agent_runs_api.py::test_event_generator_treats_stream_interrupt_node_as_approval_required tests/test_agent_runs_api.py::test_agent_chat_interrupt_uses_trusted_run_id_when_payload_and_checkpoint_spoof tests/test_approval_gate.py::test_approval_gate_interrupt_payload_contains_display_refs_and_versions tests/test_approval_api.py::test_decide_edit_supersedes_and_resumes_risk_reroute tests/test_approval_api.py::test_decide_edit_rebinds_replacement_approval_from_resume_interrupt tests/test_approval_api.py::test_attach_info_changed_payload_supersedes_without_unbound_replacement tests/test_approval_api.py::test_decide_edit_resume_failure_can_retry_and_rebind_without_new_decision tests/approvals/test_service_transitions.py::test_edit_decision_reroutes_to_risk_without_approved_resume_authority tests/test_graph_routing.py::test_edit_resume_rerisk_uses_exact_trusted_edited_action -q --tb=short
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff check tests/approvals/test_needs_info_resume.py
+```
+
+### 当前判断 / 根因
+
+WR-03 的新合同要求 `ApprovalService` 在 edit/changed-info supersede 后只产生 rerisk/rebind 信号，不再创建未经过 resumed graph 新风控 interrupt 的 replacement approval。`tests/test_approval_api.py` 和 `tests/approvals/test_service_transitions.py` 已按该合同更新，但 `tests/approvals/test_needs_info_resume.py` 仍保留旧断言：要求 `superseded_by_request_id` 指向立即创建的新 pending revision，并要求 `approval_requested` 事件带 `superseded_from_request_id`。
+
+### 已做处理
+
+已更新 `tests/approvals/test_needs_info_resume.py`，改为断言 service 层行为：旧 request 进入 `superseded`、不产生未绑定 active revision、`superseded_by_request_id` 为空、`new_action_payload_hash` / `new_safety_snapshot_hash` 已记录、`approval_info_attached` 事件带 `pending_rebind`，旧 revision 不能继续执行。API 层的 reinterrupt replacement 创建仍由 WR-03/WR-04 回归切片覆盖。
+
+### 剩余问题
+
+已通过 targeted suite：`tests/approvals/test_needs_info_resume.py` 结果为 `13 passed, 1 warning`；WR-03/WR-04 回归切片结果为 `10 passed, 1 warning`；ruff 对修改文件通过。仍需重跑完整 Phase 34 focused suite 作为最终 verify-work 结论。LangGraph 依赖 warning 仍存在，不影响本次判断。
+
+### 下次继续排查入口
+
+- `tests/approvals/test_needs_info_resume.py`
+- `tests/test_approval_api.py::test_decide_edit_rebinds_replacement_approval_from_resume_interrupt`
+- `tests/test_approval_api.py::test_decide_edit_resume_failure_can_retry_and_rebind_without_new_decision`
+- `src/approvals/service.py::_edit`
+- `src/approvals/service.py::_supersede_from_info`
