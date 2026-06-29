@@ -4,14 +4,14 @@ milestone: v1.9
 milestone_name: Agent Platform Foundation
 status: executing
 stopped_at: Phase 34 context gathered
-last_updated: "2026-06-29T05:55:43Z"
+last_updated: "2026-06-29T06:12:26Z"
 last_activity: 2026-06-29
 progress:
   total_phases: 12
   completed_phases: 9
   total_plans: 44
-  completed_plans: 41
-  percent: 93
+  completed_plans: 42
+  percent: 95
 ---
 
 # Project State: MOCA
@@ -27,11 +27,11 @@ See: `.planning/PROJECT.md` (updated 2026-06-29)
 
 Phase: 34 (approval-and-actiondraft-boundary-hardening) — EXECUTING
 Next roadmap item: Phase 34 — Approval and ActionDraft Boundary Hardening
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Ready to execute
 Last activity: 2026-06-29
 
-Progress: [█████████░] 93%
+Progress: [█████████░] 95%
 
 Planning files:
 
@@ -67,11 +67,11 @@ Planning files:
 | 31. Memory Platform Boundary | 6/6 | Complete |
 | 32. Intent Graph Migration | 5/5 | Complete |
 | 33. RAG Context Build and Claim Verification | 9/9 | Complete |
-| 34. Approval and ActionDraft Boundary Hardening | 3/6 | In Progress |
+| 34. Approval and ActionDraft Boundary Hardening | 4/6 | In Progress |
 | 35. Replay and Eval Hardening | 0/1 | Pending |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
-Latest execution metric: Phase 34 P34-03 — 35 min, 2 tasks, 9 files; approval binding propagation and manager same-merchant scope passed.
+Latest execution metric: Phase 34 P34-04 — 17 min, 2 tasks, 3 files; agent_runs binding bridge and safe approval-required projection passed.
 | Phase 29.5 P01 | 35min | 2 tasks | 5 files |
 | Phase 29.5 P02 | 5min | 2 tasks | 5 files |
 | Phase 29.5 P03 | 34min | 2 tasks | 13 files |
@@ -98,6 +98,7 @@ Latest execution metric: Phase 34 P34-03 — 35 min, 2 tasks, 9 files; approval 
 | Phase 34 P34-01 | 7 min | 2 tasks | 8 files |
 | Phase 34 P34-02 | 18 min | 2 tasks | 7 files |
 | Phase 34 P34-03 | 35 min | 2 tasks | 9 files |
+| Phase 34 P34-04 | 17 min | 2 tasks | 3 files |
 
 ## Quick Tasks Completed
 
