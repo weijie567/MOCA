@@ -56,8 +56,8 @@ Turn MOCA's agent runtime into a microservice-ready modular monolith: platform/d
 
 ### Replay and Eval Hardening
 
-- [ ] **APF-17:** Replay/trace coverage records platform decisions for trusted context projection, intent/slot policy, memory load/write policy, tool visibility/auth, RAG validation, claim verification, risk/approval, and action draft boundaries.
-- [ ] **APF-18:** Contract tests and eval gates distinguish dev-contract, release, and monitoring gates for the new platform boundaries, including negative cases for scope leaks, unsupported claims, unsafe action paths, and raw payload exposure.
+- [x] **APF-17:** Replay/trace coverage records platform decisions for trusted context projection, intent/slot policy, memory load/write policy, tool visibility/auth, RAG validation, claim verification, risk/approval, and action draft boundaries.
+- [x] **APF-18:** Contract tests and eval gates distinguish dev-contract, release, and monitoring gates for the new platform boundaries, including negative cases for scope leaks, unsupported claims, unsafe action paths, and raw payload exposure.
 
 ## v2 / Future Requirements
 
@@ -100,8 +100,8 @@ Turn MOCA's agent runtime into a microservice-ready modular monolith: platform/d
 | APF-14 | Phase 33 | Complete |
 | APF-15 | Phase 34 | Complete |
 | APF-16 | Phase 34 | Complete |
-| APF-17 | Phase 35 | Pending |
-| APF-18 | Phase 35 | Pending |
+| APF-17 | Phase 35 | Complete |
+| APF-18 | Phase 35 | Complete |
 
 **Coverage:**
 - v1 requirements: 19 total
