@@ -1,10 +1,10 @@
 ---
 phase: "35"
 status: running
-current_step: secure
+current_step: validate
 plan_review_loop: 2
 quota_waits: 0
-updated_at: "2026-06-29T17:16:10Z"
+updated_at: "2026-06-29T17:19:12Z"
 next_command: "$gsd-phase-autopilot --resume"
 ---
 
@@ -26,6 +26,7 @@ next_command: "$gsd-phase-autopilot --resume"
 - Stage 5 execute: completed all six plans in dependency order. ROADMAP shows Phase 35 `6/6 plans complete`; STATE is in verification state.
 - Stage 6 code review/fix: deep review found five issues, the GSD fixer repaired them, a stale release-gate coverage hash was corrected, and final deep re-review is clean.
 - Stage 7 verify-work: completed automated UAT with 8/8 checks passed and 0 issues.
+- Stage 8 secure-phase: verified the Phase 35 threat register with `threats_open: 0`.
 
 ## Evidence
 
@@ -47,6 +48,8 @@ next_command: "$gsd-phase-autopilot --resume"
 - Final code-review verification: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_trace.py tests/architecture/test_phase35_replay_eval_boundaries.py tests/eval/test_phase35_release_monitoring_manifests.py tests/eval/test_phase35_replay_eval_gates.py tests/replay/test_phase35_coverage_matrix.py tests/replay/test_phase35_operation_identity.py tests/replay/test_phase35_redaction_negatives.py tests/replay/test_phase35_terminal_timelines.py tests/replay/test_phase35_trace_replay_permissions.py -q --tb=short` -> `122 passed, 1 warning in 41.45s`.
 - Verify-work UAT commit `b5584d6`: `35-UAT.md` status `complete`; 8 passed, 0 issues; repeated aggregate verification command passed with `122 passed, 1 warning in 40.20s`.
 - Artifact open-item scan after UAT found no Phase 35 UAT gaps, verification gaps, or open context questions; the only open item is an unrelated historical planning todo.
+- Security commit `cc8d4c0`: `35-SECURITY.md` status `verified`, `threats_open: 0`, 18/18 threats closed, one accepted release/monitoring artifact risk documented.
+- Security focused verification: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay/test_phase35_trace_replay_permissions.py tests/replay/test_phase35_redaction_negatives.py tests/eval/test_phase35_replay_eval_gates.py tests/architecture/test_phase35_replay_eval_boundaries.py -q --tb=short` -> `57 passed, 1 warning in 28.23s`.
 
 ## Last Failure
 
