@@ -347,7 +347,8 @@ async def test_resumed_completed_timeline_continues_sequence_after_resume(sessio
     decided = _sequence_for(replay, "approval_decided", decision_type="accept")
     resumed = _sequence_for(replay, "approval_resumed", status="resumed")
     action = _sequence_for(replay, "action_draft_created", execution_mode="demo")
-    completed = _sequence_for(replay, "run_status_changed", status="completed")
+    terminal_status = "completed"
+    completed = _sequence_for(replay, "run_status_changed", status=terminal_status)
     assert decided < resumed < action < completed
 
 

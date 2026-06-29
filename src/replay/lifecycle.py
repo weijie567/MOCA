@@ -169,6 +169,7 @@ class RunLifecycleService:
         thread_id: str,
         previous_status: str | None,
         reason_code: str = "run_cancelled",
+        cancellation_source: str | None = "system",
         trace_id: str | None = None,
     ) -> dict[str, Any]:
         return await self._append_status_event(
@@ -178,6 +179,7 @@ class RunLifecycleService:
             status="cancelled",
             previous_status=previous_status,
             reason_code=reason_code,
+            cancellation_source=cancellation_source,
             trace_id=trace_id,
         )
 
@@ -193,6 +195,7 @@ class RunLifecycleService:
         trace_id: str | None = None,
         clarification_ref: str | None = None,
         error_code: str | None = None,
+        cancellation_source: str | None = None,
     ) -> dict[str, Any]:
         run_uuid = _as_uuid(run_id)
         payload: dict[str, Any] = {
@@ -204,6 +207,8 @@ class RunLifecycleService:
             payload["clarification_ref"] = clarification_ref
         if error_code is not None:
             payload["error_code"] = error_code
+        if cancellation_source is not None:
+            payload["cancellation_source"] = cancellation_source
 
         return await self.replay_service.append_event(
             run_id=run_uuid,

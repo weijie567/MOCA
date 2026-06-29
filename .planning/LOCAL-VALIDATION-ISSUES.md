@@ -7755,3 +7755,60 @@ SDK 输出：
 - `.planning/ROADMAP.md`
 - `.planning/STATE.md`
 - `gsd-sdk query roadmap.update-plan-progress 35`
+
+## 2026-06-29 23:28 CST - Phase 35-03 terminal timeline RED verification exposed fixture and replay projection gaps
+
+### 问题现象
+
+执行 35-03 Task 1 终态 replay timeline 新增测试的首次验证时，focused suite 出现 4 个失败：新增 expired/error/cancelled golden fixture 各 1 个失败，既有 `tests/replay/test_replay_service.py` 也暴露 replay timeline 中 `operation_id=None` 被投影省略的问题。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay/test_phase35_terminal_timelines.py tests/replay/test_lifecycle_finalizer.py tests/replay/test_replay_service.py -q --tb=short
+```
+
+### 关键证据或命令
+
+pytest 输出包含：
+
+```text
+OperationPairingError: operation event requires operation_id
+ValidationError: error.retryable Field required
+TypeError: RunLifecycleService.mark_cancelled() got an unexpected keyword argument 'cancellation_source'
+KeyError: 'operation_id'
+```
+
+### 当前判断 / 根因
+
+- 新增 expired fixture 把 `approval_expired` 当作 V3 operation event 写入；该事件名以 `_expired` 结尾，会触发通用 operation pairing 校验。现有 approval event helper 使用 minimal envelope，不应在 fixture 中伪造成 operation event。
+- 新增 error fixture 的 `error_json` 缺少 `ReplayError.retryable` 必填字段。
+- `RunLifecycleService.mark_cancelled` 缺少安全的取消来源元数据，不能满足 Phase 35 cancelled timeline golden。
+- `ReplayService.get_replay(..., exclude_none=True)` 会把 timeline 内显式为 `None` 的 `operation_id` 等字段移除，破坏 V3 replay contract 和既有测试预期；但顶层空 `rag_claim_summary` 仍应保持省略。
+
+### 已做处理
+
+- 将 expired fixture 的 `approval_expired` 按现有 approval 事件模式写为 `minimal_event_envelope.v1`。
+- 为 error fixture 的 `error_json` 增加 `retryable: false`。
+- 为 `RunLifecycleService.mark_cancelled` 增加 `cancellation_source` 安全字段，并写入 `redacted_payload`。
+- 调整 `ReplayService.get_replay`：保留 timeline 内显式 `None` 字段，只在 `rag_claim_summary is None` 时移除该顶层字段。
+- 重新运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay/test_phase35_terminal_timelines.py tests/replay/test_lifecycle_finalizer.py tests/replay/test_replay_service.py -q --tb=short
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff check tests/replay/test_phase35_terminal_timelines.py src/replay/lifecycle.py src/replay/service.py
+```
+
+结果为 `32 passed, 1 warning`，ruff 通过。
+
+### 剩余问题
+
+无。该问题已收敛为 Task 1 范围内的测试 fixture 修正和 replay/lifecycle 投影修正。
+
+### 下次继续排查入口
+
+- `tests/replay/test_phase35_terminal_timelines.py`
+- `src/replay/lifecycle.py`
+- `src/replay/service.py`

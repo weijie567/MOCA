@@ -171,7 +171,10 @@ class ReplayService:
             timeline=timeline,
             rag_claim_summary=rag_claim_summary,
         )
-        return response.model_dump(mode="python", exclude_none=True)
+        payload = response.model_dump(mode="python")
+        if payload.get("rag_claim_summary") is None:
+            payload.pop("rag_claim_summary", None)
+        return payload
 
     async def _events_for_run(self, run_id: uuid.UUID) -> list[AgentTraceEvent]:
         result = await self.session.execute(
