@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
@@ -9,6 +10,8 @@ from pydantic import BaseModel
 
 from src.agent.context import PromptAssembly
 from src.agent.nodes import assess_risk_and_approval as assess_risk_module
+from src.approvals.schemas import AutoAllowedActionBindingV1, RiskDecisionV1
+from src.tools.contracts import BusinessFactRefV1
 from tests.agent.conftest import FakeLLM
 
 
@@ -40,6 +43,79 @@ def _allowing_claim_bundle() -> dict[str, Any]:
         "safe_support_refs": [],
         "reason_codes": [],
         "verifier_policy_version": "claim-verifier.v1",
+    }
+
+
+def _business_fact_ref_payload(
+    tenant_id: str,
+    *,
+    resource_type: str = "refund_case",
+    resource_id: str = "RF-1001",
+) -> dict[str, Any]:
+    return BusinessFactRefV1(
+        tenant_id=tenant_id,
+        source_system="moca_demo",
+        resource_type=resource_type,
+        resource_id=resource_id,
+        resource_version="v1",
+        data_freshness_at=datetime(2026, 6, 29, 0, 0, tzinfo=UTC),
+        retrieved_at=datetime(2026, 6, 29, 0, 1, tzinfo=UTC),
+    ).model_dump(mode="json")
+
+
+def _evidence_ref_payload(tenant_id: str, *, evidence_id: str = "refund-policy/chunk-001@v3") -> dict[str, Any]:
+    return {
+        "schema_version": "evidence_ref.v1",
+        "tenant_id": tenant_id,
+        "evidence_id": evidence_id,
+        "doc_key": "refund-policy",
+        "chunk_id": "chunk-001",
+        "policy_version": "v3",
+        "text_hash": "sha256:" + "a" * 64,
+        "retrieved_at": "2026-06-29T00:00:00.000Z",
+        "retrieval_config_version": "retrieval.v1",
+        "score": 0.91,
+        "rank": 1,
+    }
+
+
+def _claim_bundle_with_safe_refs(tenant_id: str) -> dict[str, Any]:
+    fact_ref = _business_fact_ref_payload(tenant_id)
+    evidence_ref = _evidence_ref_payload(tenant_id)
+    return {
+        "schema_version": "claim_verification_bundle.v1",
+        "overall_status": "verified",
+        "route": "continue",
+        "claim_results": [
+            {
+                "schema_version": "claim_verification_result.v1",
+                "claim_id": "claim-action-1",
+                "claim_type": "action_recommendation",
+                "support_status": "supported",
+                "supporting_evidence_refs": [evidence_ref],
+                "business_fact_refs": [fact_ref],
+                "rule_checks": [],
+                "semantic_review_status": "not_needed",
+                "allows_user_visible_claim": True,
+                "allows_action_recommendation": True,
+            }
+        ],
+        "blocked_claims": [],
+        "safe_support_refs": [evidence_ref],
+        "reason_codes": ["coupon_amount", "verified_claim"],
+        "verifier_policy_version": "claim-verifier.v1",
+    }
+
+
+def _phase34_business_context(tenant_id: str, *, merchant_id: str | None = "merchant-1") -> dict[str, Any]:
+    fact_ref = _business_fact_ref_payload(tenant_id)
+    refund_case: dict[str, Any] = {"id": "RF-1001", "status": "open"}
+    if merchant_id is not None:
+        refund_case["merchant_id"] = merchant_id
+    return {
+        "refund_case": refund_case,
+        "business_fact_refs": [fact_ref],
+        "business_fact_results": [{"business_fact_refs": [fact_ref]}],
     }
 
 
@@ -251,6 +327,145 @@ async def test_policy_qa_does_not_treat_rule_threshold_as_compensation_amount(mo
 
     assert result["risk_assessment"]["risk_level"] == "low"
     assert result["risk_assessment"]["approval_required"] is False
+
+
+@pytest.mark.asyncio
+async def test_phase34_approval_required_writes_risk_gate_bindings(monkeypatch, base_state):
+    tenant_id = base_state["tenant_id"]
+    evidence_ref = _evidence_ref_payload(tenant_id)
+    monkeypatch.setattr(
+        assess_risk_module,
+        "_get_llm",
+        lambda: FakeLLM(
+            {
+                "risk_level": "high",
+                "risk_reason": "Coupon amount requires manager approval.",
+                "approval_required": True,
+                "rule_ref": "HR-COUPON",
+            }
+        ),
+    )
+    state = {
+        **base_state,
+        "recommendation_draft": {
+            "recommended_action": "issue_coupon",
+            "reasoning_summary": "Issue a 50 CNY coupon for the refund delay.",
+            "compensation_amount": 50,
+        },
+        "claim_verification_bundle": _claim_bundle_with_safe_refs(tenant_id),
+        "business_context": _phase34_business_context(tenant_id),
+        "retrieved_evidence": {
+            "candidate_refs": [
+                {
+                    **_evidence_ref_payload(tenant_id, evidence_id="candidate-only/chunk-999@v1"),
+                    "doc_key": "candidate-only",
+                    "chunk_id": "chunk-999",
+                }
+            ]
+        },
+    }
+
+    result = await assess_risk_module.assess_risk_and_approval(state)
+
+    assert result["target_merchant_id"] == "merchant-1"
+    assert result["target_merchant_ref"]["target_merchant_id"] == "merchant-1"
+    assert result["business_fact_refs"][0]["resource_id"] == "RF-1001"
+    assert result["verified_evidence_refs"] == [evidence_ref]
+    assert result["claim_verification_summary"] == {
+        "overall_status": "verified",
+        "route": "continue",
+        "safe_support_ref_count": 1,
+        "blocked_claim_count": 0,
+        "reason_codes": ["coupon_amount", "verified_claim"],
+    }
+    assert result["risk_decision_ref"] == f"risk_decision::{result['action_payload_hash']}"
+    RiskDecisionV1.model_validate(result["risk_decision"])
+    plan = result["approval_plan"]
+    assert plan["schema_version"] == "approval_plan.v1"
+    assert plan["approval_required"] is True
+    assert plan["action_payload_hash"] == result["action_payload_hash"]
+    assert plan["safety_snapshot_ref"] == result["safety_snapshot_ref"]
+    assert plan["safety_snapshot_hash"] == result["safety_snapshot_hash"]
+    assert plan["risk_decision_ref"] == result["risk_decision_ref"]
+    assert plan["approval_idempotency_key"] == result["approval_idempotency_key"]
+    assert "candidate-only/chunk-999@v1" not in {
+        ref["evidence_id"] for ref in result["verified_evidence_refs"]
+    }
+    assert result.get("auto_allowed_binding") is None
+
+
+@pytest.mark.asyncio
+async def test_phase34_missing_target_merchant_fails_closed_without_approval_plan(monkeypatch, base_state):
+    tenant_id = base_state["tenant_id"]
+    monkeypatch.setattr(
+        assess_risk_module,
+        "_get_llm",
+        lambda: FakeLLM(
+            {
+                "risk_level": "high",
+                "risk_reason": "Coupon amount requires manager approval.",
+                "approval_required": True,
+                "rule_ref": "HR-COUPON",
+            }
+        ),
+    )
+    state = {
+        **base_state,
+        "recommendation_draft": {
+            "recommended_action": "issue_coupon",
+            "reasoning_summary": "Issue a 50 CNY coupon for the refund delay.",
+            "compensation_amount": 50,
+        },
+        "claim_verification_bundle": _claim_bundle_with_safe_refs(tenant_id),
+        "business_context": _phase34_business_context(tenant_id, merchant_id=None),
+    }
+
+    result = await assess_risk_module.assess_risk_and_approval(state)
+
+    assert result["proposed_action"] is None
+    assert result["approval_plan"] is None
+    assert result["auto_allowed_binding"] is None
+    assert result["final_response"] == "操作需要人工复核，当前未创建可执行审批或动作草稿。"
+    assert result["risk_assessment"]["risk_level"] == "manual_review"
+
+
+@pytest.mark.asyncio
+async def test_phase34_auto_allowed_path_validates_durable_binding(monkeypatch, base_state):
+    tenant_id = base_state["tenant_id"]
+    monkeypatch.setattr(
+        assess_risk_module,
+        "_get_llm",
+        lambda: FakeLLM(
+            {
+                "risk_level": "low",
+                "risk_reason": "Small coupon is auto-allowed.",
+                "approval_required": False,
+                "rule_ref": "LR-01",
+            }
+        ),
+    )
+    state = {
+        **base_state,
+        "recommendation_draft": {
+            "recommended_action": "issue_coupon",
+            "reasoning_summary": "Issue a 10 CNY coupon for the delay.",
+            "compensation_amount": 10,
+        },
+        "claim_verification_bundle": _claim_bundle_with_safe_refs(tenant_id),
+        "business_context": _phase34_business_context(tenant_id),
+    }
+
+    result = await assess_risk_module.assess_risk_and_approval(state)
+
+    binding = AutoAllowedActionBindingV1.model_validate(result["auto_allowed_binding"])
+    assert binding.target_merchant_id == "merchant-1"
+    assert binding.action_payload_hash == result["action_payload_hash"]
+    assert binding.safety_snapshot_ref == result["safety_snapshot_ref"]
+    assert binding.safety_snapshot_hash == result["safety_snapshot_hash"]
+    assert binding.risk_decision_ref == result["risk_decision_ref"]
+    assert binding.idempotency_key != result["approval_idempotency_key"]
+    assert binding.business_fact_refs[0].resource_id == "RF-1001"
+    assert binding.verified_evidence_refs[0].evidence_id == "refund-policy/chunk-001@v3"
 
 
 @pytest.mark.asyncio
