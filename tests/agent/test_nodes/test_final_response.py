@@ -7,11 +7,15 @@ from src.agent.nodes.final_response import final_response
 
 FORBIDDEN_DEMO_SUCCESS_PHRASES = (
     "waiting for final issuance",
+    "coupon issued",
+    "refund completed",
+    "ticket closed",
     "issued coupon",
     "refunded",
     "closed ticket",
     "external success",
     "等待最终发放",
+    "已发券",
     "已发放",
     "已退款",
     "已关闭工单",

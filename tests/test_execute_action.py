@@ -40,18 +40,89 @@ def _approval_result(**overrides) -> dict:
     return payload
 
 
+def _business_fact_ref(tenant_id: str) -> dict[str, Any]:
+    return {
+        "schema_version": "business_fact_ref.v1",
+        "tenant_id": tenant_id,
+        "source_system": "moca_demo",
+        "resource_type": "refund_case",
+        "resource_id": "RF-1001",
+        "resource_version": "v1",
+        "data_freshness_at": "2026-06-29T00:00:00Z",
+        "retrieved_at": "2026-06-29T00:01:00Z",
+    }
+
+
+def _evidence_ref(tenant_id: str) -> dict[str, Any]:
+    return {
+        "schema_version": "evidence_ref.v1",
+        "tenant_id": tenant_id,
+        "evidence_id": "refund-policy/chunk-001@v3",
+        "doc_key": "refund-policy",
+        "chunk_id": "chunk-001",
+        "policy_version": "v3",
+        "text_hash": "sha256:" + "3" * 64,
+        "retrieved_at": "2026-06-29T00:00:00.000Z",
+        "retrieval_config_version": "retrieval.v1",
+        "rank": 1,
+    }
+
+
+def _phase34_binding_fields(tenant_id: str, run_id: str) -> dict[str, Any]:
+    business_fact_ref = _business_fact_ref(tenant_id)
+    return {
+        "target_merchant_id": "merchant-1",
+        "target_merchant_ref": {
+            "schema_version": "target_merchant_binding.v1",
+            "target_merchant_id": "merchant-1",
+            "source": "business_fact_ref",
+            "business_fact_ref": business_fact_ref,
+        },
+        "business_fact_refs": [business_fact_ref],
+        "verified_evidence_refs": [_evidence_ref(tenant_id)],
+        "claim_verification_ref": "claim_verification_bundle/bundle-1",
+        "claim_verification_summary": {"overall_status": "verified", "safe_support_ref_count": 1},
+        "risk_decision_ref": f"risk_decision:{run_id}:{ACTION_HASH}",
+        "risk_decision": {
+            "schema_version": "risk_decision.v1",
+            "tenant_id": tenant_id,
+            "run_id": run_id,
+            "action_id": "act-action-draft",
+            "action_payload_hash": ACTION_HASH,
+            "risk_level": "high",
+            "reason_codes": ["manual_review"],
+            "policy_config_version": "approval-policy.v1",
+            "risk_config_version": "risk-rules.v1",
+            "approval_required": True,
+            "evaluated_at": "2026-06-29T00:02:00.000Z",
+        },
+    }
+
+
 def _approved_state() -> dict:
     tenant_id = str(uuid4())
     run_id = str(uuid4())
+    phase34_bindings = _phase34_binding_fields(tenant_id, run_id)
     return {
         "tenant_id": tenant_id,
         "user_id": str(uuid4()),
         "current_run_id": run_id,
         "risk_assessment": {"approval_required": True},
-        "approval_result": _approval_result(tenant_id=tenant_id, run_id=run_id),
+        "approval_result": _approval_result(tenant_id=tenant_id, run_id=run_id, **phase34_bindings),
         "action_payload_hash": ACTION_HASH,
         "safety_snapshot_ref": "snapshot:test",
         "safety_snapshot_hash": SNAPSHOT_HASH,
+        **phase34_bindings,
+        "claim_verification_bundle": {
+            "schema_version": "claim_verification_bundle.v1",
+            "overall_status": "verified",
+            "route": "continue",
+            "claim_results": [],
+            "blocked_claims": [],
+            "safe_support_refs": phase34_bindings["verified_evidence_refs"],
+            "reason_codes": [],
+            "verifier_policy_version": "claim-verifier.v1",
+        },
         "proposed_action": {
             "action_type": "issue_coupon",
             "target_id": "refund-001",
@@ -60,6 +131,24 @@ def _approved_state() -> dict:
             "reasoning_summary": "Compensation within approved policy.",
         },
         "trace_steps": [],
+    }
+
+
+def _auto_allowed_binding(state: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": "auto_allowed_action_binding.v1",
+        "tenant_id": state["tenant_id"],
+        "run_id": state["current_run_id"],
+        "target_merchant_id": state["target_merchant_id"],
+        "action_payload_hash": state["action_payload_hash"],
+        "safety_snapshot_ref": state["safety_snapshot_ref"],
+        "safety_snapshot_hash": state["safety_snapshot_hash"],
+        "risk_decision_ref": state["risk_decision_ref"],
+        "idempotency_key": f"auto:{state['tenant_id']}:{state['current_run_id']}",
+        "business_fact_refs": state["business_fact_refs"],
+        "verified_evidence_refs": state["verified_evidence_refs"],
+        "claim_verification_ref": state["claim_verification_ref"],
+        "claim_verification_summary": state["claim_verification_summary"],
     }
 
 
@@ -294,6 +383,84 @@ async def test_execute_action_blocks_when_approval_result_binding_mismatches_sta
     assert result["action_result"]["status"] == "error"
     assert result["action_result"]["error"]["error_code"] == "NOT_APPROVED"
     create_draft.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "missing_field",
+    [
+        "target_merchant_id",
+        "business_fact_refs",
+        "verified_evidence_refs",
+        "claim_verification_ref",
+        "risk_decision_ref",
+    ],
+)
+async def test_execute_action_blocks_when_phase34_approval_binding_missing(monkeypatch, missing_field: str):
+    create_draft = AsyncMock()
+    monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
+    state = _approved_state()
+    state["approval_result"].pop(missing_field)
+
+    result = await action_draft_module.action_draft(state, _trusted_config(state))
+
+    assert result["action_result"]["status"] == "error"
+    assert result["action_result"]["error"]["error_code"] == "NOT_APPROVED"
+    create_draft.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_execute_action_blocks_when_phase34_approval_binding_mismatches_state(monkeypatch):
+    create_draft = AsyncMock()
+    monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
+    state = _approved_state()
+    state["approval_result"]["target_merchant_id"] = "merchant-other"
+
+    result = await action_draft_module.action_draft(state, _trusted_config(state))
+
+    assert result["action_result"]["status"] == "error"
+    assert result["action_result"]["error"]["error_code"] == "NOT_APPROVED"
+    create_draft.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_execute_action_passes_phase34_binding_fields_to_action_tool(monkeypatch):
+    create_draft = AsyncMock(return_value=_success_result())
+    monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
+    state = _approved_state()
+
+    await action_draft_module.action_draft(state, _trusted_config(state))
+
+    _, kwargs = create_draft.await_args
+    for field in (
+        "target_merchant_id",
+        "target_merchant_ref",
+        "business_fact_refs",
+        "verified_evidence_refs",
+        "claim_verification_ref",
+        "claim_verification_summary",
+        "risk_decision_ref",
+        "risk_decision",
+    ):
+        assert kwargs[field] == state[field]
+    assert kwargs["auto_allowed_binding"] is None
+
+
+@pytest.mark.asyncio
+async def test_execute_action_auto_allowed_binding_invokes_action_tool(monkeypatch):
+    create_draft = AsyncMock(return_value=_success_result())
+    monkeypatch.setattr("src.tools.executors.action.ActionService.create_coupon_grant_draft", create_draft)
+    state = _approved_state()
+    state["risk_assessment"] = {"approval_required": False}
+    state["approval_result"] = None
+    state["auto_allowed_binding"] = _auto_allowed_binding(state)
+
+    result = await action_draft_module.action_draft(state, _trusted_config(state))
+
+    assert result["draft_outcome"]["status"] == "not_executed_demo"
+    _, kwargs = create_draft.await_args
+    assert kwargs["approval_request_id"] is None
+    assert kwargs["auto_allowed_binding"] == state["auto_allowed_binding"]
 
 
 @pytest.mark.asyncio

@@ -125,6 +125,11 @@ def _base_state(**overrides: Any) -> dict[str, Any]:
             "action_type": "coupon_grant",
             "status": "draft_created",
             "summary": "Created demo coupon draft.",
+            "target_merchant_id": "merchant-1",
+            "business_fact_refs": [{"resource_id": "RF-1001"}],
+            "verified_evidence_refs": [_evidence_ref()],
+            "claim_verification_ref": "claim_verification_bundle/bundle-1",
+            "risk_decision_ref": "risk_decision/run-001/action-001",
             "payload": {"amount": 50, "secret_marker": "ACTION_PAYLOAD_SHOULD_NOT_APPEAR"},
         },
     }
@@ -157,6 +162,11 @@ def test_working_state_v1_projects_allowlisted_current_run_fields() -> None:
         "action_type": "coupon_grant",
         "status": "draft_created",
         "summary": "Created demo coupon draft.",
+        "target_merchant_id": "merchant-1",
+        "business_fact_ref_count": 1,
+        "verified_evidence_ref_count": 1,
+        "claim_verification_ref": "claim_verification_bundle/bundle-1",
+        "risk_decision_ref": "risk_decision/run-001/action-001",
     }
 
 
@@ -208,6 +218,11 @@ def test_working_state_v1_excludes_raw_tool_business_policy_trace_and_llm_fields
             "action_type": "coupon_grant",
             "status": "draft_created",
             "summary": "Safe draft summary.",
+            "target_merchant_id": "merchant-1",
+            "business_fact_refs": [{"resource_id": "RF-1001", "raw_payload": "SHOULD_NOT_APPEAR"}],
+            "verified_evidence_refs": [_evidence_ref()],
+            "claim_verification_ref": "claim_verification_bundle/bundle-1",
+            "risk_decision_ref": "risk_decision/run-001/action-001",
             "payload": {"amount": 50, "secret_marker": "ACTION_DRAFT_PAYLOAD_SHOULD_NOT_APPEAR"},
         },
         draft_outcome={
@@ -222,6 +237,9 @@ def test_working_state_v1_excludes_raw_tool_business_policy_trace_and_llm_fields
     serialized = project_working_state(state).model_dump_json()
 
     assert "Safe prompt summary survives." in serialized
+    assert "merchant-1" in serialized
+    assert "claim_verification_bundle/bundle-1" in serialized
+    assert "risk_decision/run-001/action-001" in serialized
     for forbidden in (
         "SHOULD_NOT_APPEAR",
         "raw_payload",

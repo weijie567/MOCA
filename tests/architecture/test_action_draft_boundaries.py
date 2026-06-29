@@ -63,6 +63,14 @@ def test_action_draft_node_is_canonical_entrypoint() -> None:
     assert "draft_outcome" in source
     assert "execution_mode" in source
     assert "not_executed_demo" in source
+    for required in (
+        "target_merchant_id",
+        "business_fact_refs",
+        "verified_evidence_refs",
+        "claim_verification_ref",
+        "risk_decision_ref",
+    ):
+        assert required in source
 
 
 def test_execute_action_is_phase14_compatibility_shim_only() -> None:
@@ -170,6 +178,11 @@ def test_working_state_exposes_only_safe_action_draft_artifact() -> None:
                 "action_type": "coupon_grant",
                 "status": "draft_created",
                 "summary": "Created a demo coupon draft.",
+                "target_merchant_id": "merchant-1",
+                "business_fact_refs": [{"resource_id": "RF-1001"}],
+                "verified_evidence_refs": [{"evidence_id": "policy/chunk-001@v1"}],
+                "claim_verification_ref": "claim_verification_bundle/bundle-1",
+                "risk_decision_ref": "risk_decision/run-001/action-001",
                 "payload": {"amount": 50, "secret": "ACTION_PAYLOAD_SHOULD_NOT_APPEAR"},
                 "proposed_action": {"body": "PROPOSED_ACTION_SHOULD_NOT_APPEAR"},
                 "snapshot_json": {"secret": "SNAPSHOT_JSON_SHOULD_NOT_APPEAR"},
@@ -191,6 +204,11 @@ def test_working_state_exposes_only_safe_action_draft_artifact() -> None:
         "action_type": "coupon_grant",
         "status": "draft_created",
         "summary": "Created a demo coupon draft.",
+        "target_merchant_id": "merchant-1",
+        "business_fact_ref_count": 1,
+        "verified_evidence_ref_count": 1,
+        "claim_verification_ref": "claim_verification_bundle/bundle-1",
+        "risk_decision_ref": "risk_decision/run-001/action-001",
     }
     for forbidden in (
         "action_draft",
