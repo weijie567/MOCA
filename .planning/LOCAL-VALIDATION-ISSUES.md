@@ -7663,3 +7663,50 @@ Plan: 1 of 6
 - `.planning/STATE.md`
 - `gsd-sdk query state.begin-phase 35 replay-and-eval-hardening 6`
 - `/Users/ming/.codex/get-shit-done/workflows/execute-phase.md`
+
+## 2026-06-29 22:55 CST - Phase 35-02 Task 1 proof projection test helper order caused collection failure
+
+### 问题现象
+
+执行 Task 1 GREEN 验证时，`tests/agent/test_trace.py` 在 collection 阶段失败，新增的参数化用例无法加载。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_trace.py -q --tb=short
+```
+
+### 关键证据或命令
+
+pytest 输出显示：
+
+```text
+NameError: name '_business_fact_result' is not defined
+```
+
+错误发生在参数化用例模块加载时调用 `_business_fact_result(...)`，但该 helper 当时定义在文件底部。
+
+### 当前判断 / 根因
+
+这是新增测试代码的 helper 定义顺序问题。`pytest.mark.parametrize` 的参数在 import/collection 阶段求值，不能依赖后面才定义的 helper。
+
+### 已做处理
+
+已将 `_business_fact_ref` 与 `_business_fact_result` 移到新增参数化用例之前，并重新运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_trace.py -q --tb=short
+```
+
+结果为 `23 passed, 1 warning`。
+
+### 剩余问题
+
+无。该问题只影响本次新增测试的 collection，不影响生产代码路径。
+
+### 下次继续排查入口
+
+- `tests/agent/test_trace.py`
+- `src/replay/proof_projection.py`

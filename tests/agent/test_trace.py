@@ -327,6 +327,51 @@ def test_trace_summary_includes_safe_target_merchant_context_projection():
     }
 
 
+def _business_fact_ref(
+    tenant_id: str,
+    *,
+    resource_id: str,
+    resource_type: str = "order",
+    source_system: str = "business_fact_service",
+) -> dict[str, str]:
+    return {
+        "schema_version": "business_fact_ref.v1",
+        "tenant_id": tenant_id,
+        "source_system": source_system,
+        "resource_type": resource_type,
+        "resource_id": resource_id,
+        "resource_version": "v1",
+        "data_freshness_at": "2026-06-28T00:00:00+00:00",
+        "retrieved_at": "2026-06-28T00:00:00+00:00",
+    }
+
+
+def _business_fact_result(
+    tenant_id: str,
+    *,
+    status: str = "ok",
+    scope_check_result: str = "allowed",
+    resource_id: str,
+    resource_type: str = "order",
+) -> dict[str, object]:
+    allowed = status in {"ok", "partial"} and scope_check_result == "allowed"
+    return {
+        "schema_version": "business_fact_result.v1",
+        "tenant_id": tenant_id,
+        "status": status,
+        "fact": {"resource_id": resource_id} if allowed else None,
+        "business_fact_refs": (
+            [_business_fact_ref(tenant_id, resource_id=resource_id, resource_type=resource_type)] if allowed else []
+        ),
+        "resource_version": "v1" if allowed else None,
+        "data_freshness_at": "2026-06-28T00:00:00+00:00" if allowed else None,
+        "source_system": "business_fact_service",
+        "scope_check_result": scope_check_result,
+        "missing_required_facts": [] if allowed else [resource_type],
+        "safe_errors": [],
+    }
+
+
 def test_replay_authorization_proof_resolves_from_business_fact_refs_without_raw_payloads() -> None:
     state = {
         "tenant_id": "tenant-001",
@@ -606,47 +651,3 @@ def _evidence_ref(tenant_id: str, suffix: str) -> dict[str, str]:
         "retrieval_config_version": "retrieval.v1",
     }
 
-
-def _business_fact_ref(
-    tenant_id: str,
-    *,
-    resource_id: str,
-    resource_type: str = "order",
-    source_system: str = "business_fact_service",
-) -> dict[str, str]:
-    return {
-        "schema_version": "business_fact_ref.v1",
-        "tenant_id": tenant_id,
-        "source_system": source_system,
-        "resource_type": resource_type,
-        "resource_id": resource_id,
-        "resource_version": "v1",
-        "data_freshness_at": "2026-06-28T00:00:00+00:00",
-        "retrieved_at": "2026-06-28T00:00:00+00:00",
-    }
-
-
-def _business_fact_result(
-    tenant_id: str,
-    *,
-    status: str = "ok",
-    scope_check_result: str = "allowed",
-    resource_id: str,
-    resource_type: str = "order",
-) -> dict[str, object]:
-    allowed = status in {"ok", "partial"} and scope_check_result == "allowed"
-    return {
-        "schema_version": "business_fact_result.v1",
-        "tenant_id": tenant_id,
-        "status": status,
-        "fact": {"resource_id": resource_id} if allowed else None,
-        "business_fact_refs": (
-            [_business_fact_ref(tenant_id, resource_id=resource_id, resource_type=resource_type)] if allowed else []
-        ),
-        "resource_version": "v1" if allowed else None,
-        "data_freshness_at": "2026-06-28T00:00:00+00:00" if allowed else None,
-        "source_system": "business_fact_service",
-        "scope_check_result": scope_check_result,
-        "missing_required_facts": [] if allowed else [resource_type],
-        "safe_errors": [],
-    }
