@@ -17,6 +17,7 @@ from src.agent.trace import write_agent_run
 
 
 MIGRATION_PATH = Path("src/db/migrations/versions/009_action_draft_v2.py")
+PHASE34_MIGRATION_PATH = Path("src/db/migrations/versions/018_phase34_approval_action_bindings.py")
 ACTION_DRAFT_V2_COLUMNS = {
     "schema_version",
     "target_id",
@@ -29,6 +30,17 @@ ACTION_DRAFT_V2_COLUMNS = {
     "draft_version",
     "lifecycle_status",
     "retention_policy",
+}
+PHASE34_ACTION_DRAFT_BINDING_COLUMNS = {
+    "target_merchant_id",
+    "target_merchant_ref",
+    "business_fact_refs",
+    "verified_evidence_refs",
+    "claim_verification_ref",
+    "claim_verification_summary",
+    "risk_decision_ref",
+    "risk_decision",
+    "auto_allowed_binding_ref",
 }
 PHASE17_EXTERNAL_SURFACES = (
     "action_executions",
@@ -149,6 +161,11 @@ def _migration_source() -> str:
     return MIGRATION_PATH.read_text(encoding="utf-8")
 
 
+def _phase34_migration_source() -> str:
+    assert PHASE34_MIGRATION_PATH.exists(), "migration 018 must exist"
+    return PHASE34_MIGRATION_PATH.read_text(encoding="utf-8")
+
+
 def test_draft_outcome_v1_defaults_to_not_executed_demo():
     outcome = DraftOutcomeV1()
 
@@ -202,6 +219,18 @@ def test_action_drafts_orm_declares_action_draft_v2_columns_and_payload_mapping(
     assert "payload" in table.c, "contract proposed_action is stored in the existing payload JSONB column"
     assert "proposed_action" not in table.c
     assert table.c["draft_outcome"].nullable
+
+
+def test_action_drafts_orm_declares_phase34_binding_columns():
+    table = _table("action_drafts")
+
+    assert PHASE34_ACTION_DRAFT_BINDING_COLUMNS.issubset(_column_names("action_drafts"))
+    assert table.c["target_merchant_id"].nullable
+    assert table.c["business_fact_refs"].nullable
+    assert table.c["verified_evidence_refs"].nullable
+    source = _phase34_migration_source()
+    for column in PHASE34_ACTION_DRAFT_BINDING_COLUMNS:
+        assert f'"{column}"' in source
 
 
 def test_action_drafts_orm_uses_tenant_scoped_idempotency_uniqueness():

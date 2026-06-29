@@ -13,6 +13,35 @@ from src.db.models import Base
 
 
 MIGRATION_PATH = Path("src/db/migrations/versions/008_approval_state_machine.py")
+PHASE34_MIGRATION_PATH = Path("src/db/migrations/versions/018_phase34_approval_action_bindings.py")
+PHASE34_APPROVAL_BINDING_COLUMNS = {
+    "target_merchant_id",
+    "target_merchant_ref",
+    "business_fact_refs",
+    "verified_evidence_refs",
+    "claim_verification_ref",
+    "claim_verification_summary",
+    "risk_decision_ref",
+    "risk_decision",
+    "approval_idempotency_key",
+}
+PHASE34_ACTION_DRAFT_BINDING_COLUMNS = {
+    "target_merchant_id",
+    "target_merchant_ref",
+    "business_fact_refs",
+    "verified_evidence_refs",
+    "claim_verification_ref",
+    "claim_verification_summary",
+    "risk_decision_ref",
+    "risk_decision",
+    "auto_allowed_binding_ref",
+}
+PHASE17_EXTERNAL_SURFACES = (
+    "action_executions",
+    "action_outbox_events",
+    "action_reconciliation_jobs",
+    "action_compensation_records",
+)
 REPORT_PATHS = (
     Path(".planning/phases/13-approval-state-machine/13-MIGRATION-REPORT.md"),
     Path(".planning/milestones/v1.1-phases/13-approval-state-machine/13-MIGRATION-REPORT.md"),
@@ -46,6 +75,11 @@ def _item_columns(item: UniqueConstraint | CheckConstraint | Index) -> set[str]:
 def _migration_source() -> str:
     assert MIGRATION_PATH.exists(), "migration 008 must exist"
     return MIGRATION_PATH.read_text(encoding="utf-8")
+
+
+def _phase34_migration_source() -> str:
+    assert PHASE34_MIGRATION_PATH.exists(), "migration 018 must exist"
+    return PHASE34_MIGRATION_PATH.read_text(encoding="utf-8")
 
 
 def _migration_report_source() -> str:
@@ -114,6 +148,24 @@ def test_approval_request_v2_columns_and_named_constraints_are_declared():
     assert "uq_approval_requests_tenant_run_revision" in source
     assert "uq_approval_requests_active_revision" in source
     assert "ck_approval_requests_status" in source
+
+
+def test_phase34_approval_and_action_binding_columns_are_declared():
+    assert PHASE34_APPROVAL_BINDING_COLUMNS.issubset(_column_names("approval_requests"))
+    assert PHASE34_ACTION_DRAFT_BINDING_COLUMNS.issubset(_column_names("action_drafts"))
+
+    source = _phase34_migration_source()
+    assert 'revision: str = "018_phase34_approval_action_bindings"' in source
+    assert 'down_revision: str | None = "017_tool_policy_events"' in source
+    for column in sorted(PHASE34_APPROVAL_BINDING_COLUMNS | PHASE34_ACTION_DRAFT_BINDING_COLUMNS):
+        assert f'"{column}"' in source
+
+
+def test_phase34_migration_does_not_create_external_execution_surfaces():
+    source = _phase34_migration_source()
+
+    for forbidden in PHASE17_EXTERNAL_SURFACES:
+        assert forbidden not in source
 
 
 def test_level_assignment_decision_event_tables_and_constraints_are_declared():
