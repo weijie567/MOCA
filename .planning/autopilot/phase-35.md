@@ -1,11 +1,11 @@
 ---
 phase: "35"
-status: running
-current_step: validate
+status: complete
+current_step: closeout
 plan_review_loop: 2
 quota_waits: 0
-updated_at: "2026-06-29T17:19:12Z"
-next_command: "$gsd-phase-autopilot --resume"
+updated_at: "2026-06-29T17:26:09Z"
+next_command: "$gsd-audit-milestone"
 ---
 
 # Phase 35 Autopilot Checkpoint
@@ -27,6 +27,8 @@ next_command: "$gsd-phase-autopilot --resume"
 - Stage 6 code review/fix: deep review found five issues, the GSD fixer repaired them, a stale release-gate coverage hash was corrected, and final deep re-review is clean.
 - Stage 7 verify-work: completed automated UAT with 8/8 checks passed and 0 issues.
 - Stage 8 secure-phase: verified the Phase 35 threat register with `threats_open: 0`.
+- Stage 9 validate-phase: appended Nyquist validation audit; APF-17/APF-18 and all six plans are covered with 0 gaps and 0 manual-only items.
+- Stage 10 light closeout: inspected roadmap/state/reviews/fixes/security/validation, corrected STATE after `phase.complete` misidentified backlog `999.1` as next phase, and left v1.9 ready for milestone audit.
 
 ## Evidence
 
@@ -50,6 +52,10 @@ next_command: "$gsd-phase-autopilot --resume"
 - Artifact open-item scan after UAT found no Phase 35 UAT gaps, verification gaps, or open context questions; the only open item is an unrelated historical planning todo.
 - Security commit `cc8d4c0`: `35-SECURITY.md` status `verified`, `threats_open: 0`, 18/18 threats closed, one accepted release/monitoring artifact risk documented.
 - Security focused verification: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay/test_phase35_trace_replay_permissions.py tests/replay/test_phase35_redaction_negatives.py tests/eval/test_phase35_replay_eval_gates.py tests/architecture/test_phase35_replay_eval_boundaries.py -q --tb=short` -> `57 passed, 1 warning in 28.23s`.
+- Validation commit `dc8d645`: `35-VALIDATION.md` includes Nyquist Validation Audit 2026-06-29; plans audited 6, gaps found 0, manual-only 0.
+- Transition command `gsd-sdk query phase.complete 35` succeeded for Phase 35 but identified backlog `999.1` as next phase; the issue is recorded in `.planning/LOCAL-VALIDATION-ISSUES.md`.
+- State correction commit `28e5adb`: `.planning/STATE.md` now marks Phase 35 complete and v1.9 ready for milestone audit/completion, with active milestone progress `11/11` phases complete.
+- Light closeout found no accepted plan-review or code-review finding without resolution; no work performed outside the Phase 35 no-real-execution, no-manager-same-merchant-authorization, and no-single-large-plan constraints.
 
 ## Last Failure
 
