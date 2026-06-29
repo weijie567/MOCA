@@ -541,19 +541,34 @@ class PolicyKnowledgeService:
 
         context_bundle = _claim_context_bundle(package, business_context or {})
         verifier = MaterialClaimVerifier()
+        ordered_claims = list(claims)
+        verification_order = [
+            *[
+                (index, claim)
+                for index, claim in enumerate(ordered_claims)
+                if claim.claim_type != "action_recommendation"
+            ],
+            *[
+                (index, claim)
+                for index, claim in enumerate(ordered_claims)
+                if claim.claim_type == "action_recommendation"
+            ],
+        ]
+        results_by_index: dict[int, MaterialClaimVerificationResult] = {}
         claim_results: list[ClaimVerificationResultV1] = []
         dependency_results: list[dict[str, Any]] = []
         blocked_claims: list[str] = []
         reason_codes: list[str] = []
         safe_support_refs: list[EvidenceRefV1] = []
 
-        for claim in claims:
-            legacy_claim = _legacy_claim_from_material_v1(claim, claims)
+        for index, claim in verification_order:
+            legacy_claim = _legacy_claim_from_material_v1(claim, ordered_claims)
             result = await verifier.verify_claim(
                 legacy_claim,
                 context_bundle=context_bundle,
                 dependency_results=dependency_results,
             )
+            results_by_index[index] = result
             dependency_results.append(
                 {
                     "claim_id": claim.claim_id,
@@ -561,6 +576,9 @@ class PolicyKnowledgeService:
                     "outcome": _outcome_value(result.outcome),
                 }
             )
+
+        for index, claim in enumerate(ordered_claims):
+            result = results_by_index[index]
             reason_codes.extend(result.reason_codes)
             claim_result = _claim_result_from_verifier_result(
                 claim=claim,
