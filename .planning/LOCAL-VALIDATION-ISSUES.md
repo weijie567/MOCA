@@ -8404,3 +8404,100 @@ sed -n '1,80p' .planning/config.json
 - `/Users/ming/.codex/get-shit-done/workflows/code-review.md`
 - `gsd-sdk query config-get workflow.code_review_depth`
 - `.planning/config.json`
+
+## 2026-06-30 07:31 CST - Milestone audit scope autodetect included old phases and backlog
+
+### 问题现象
+
+执行 `$gsd-audit-milestone` 初始化时，`gsd-sdk query init.milestone-op` 和 `gsd-sdk query phases.list` 把旧 Phase 24/24.x/25 目录以及 backlog `999.1` 也计入当前 milestone，返回 `phase_count: 19`、`completed_phases: 18`、`all_phases_complete: false`。这与 `.planning/STATE.md` 和 `.planning/ROADMAP.md` 中 v1.9 当前正式范围 `Phase 26-35` / `11/11 complete` 不一致。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+gsd-sdk query init.milestone-op
+gsd-sdk query phases.list
+sed -n '1,80p' .planning/STATE.md
+sed -n '167,455p' .planning/ROADMAP.md
+```
+
+### 关键证据或命令
+
+`init.milestone-op` 输出包含：
+
+```json
+{
+  "milestone_version": "v1.9",
+  "phase_count": 19,
+  "completed_phases": 18,
+  "all_phases_complete": false
+}
+```
+
+`phases.list` 输出包含旧目录和 backlog：
+
+```text
+24-agent-runs-short-term-memory-parity
+24.1-session-memory-bundle-naming-and-read-model-facade
+25-intent-routing-safety-hardening
+999.1-evaluate-mem0-as-optional-backend-behind-memorycontextservic
+```
+
+### 当前判断 / 根因
+
+当前 GSD milestone scope 检测按 `.planning/phases/` 目录枚举，未按 `.planning/ROADMAP.md` 的 active milestone section 和 `## Backlog` 边界过滤，导致历史 phase 与 backlog 被误纳入 v1.9 当前 milestone。
+
+### 已做处理
+
+本次 milestone audit 明确按 `.planning/STATE.md` / `.planning/ROADMAP.md` 的 v1.9 范围执行：Phase 26、27、28、29、29.5、30、31、32、33、34、35。旧 Phase 24/25 和 backlog `999.1` 被排除，并在 `.planning/milestones/v1.9-MILESTONE-AUDIT.md` 的 scope notes 中留痕。
+
+### 剩余问题
+
+无本次 audit 阻塞。后续应修正 GSD scope resolver：当前 milestone phases 应来自 active milestone roadmap section，而不是裸扫 `.planning/phases/`。
+
+### 下次继续排查入口
+
+- `gsd-sdk query init.milestone-op`
+- `gsd-sdk query phases.list`
+- `.planning/ROADMAP.md`
+- `.planning/STATE.md`
+
+## 2026-06-30 07:31 CST - zsh optional verification glob caused no-match failure during audit
+
+### 问题现象
+
+审计 Phase 26/29/29.5/32/35 的 `*-VERIFICATION.md` 时，部分 phase 本来就缺少该文件。直接用 zsh glob 读取可选文件导致 shell 在命令执行前失败，输出 `zsh:1: no matches found`，中断了该批读取命令。
+
+### 如何检测 / 复现
+
+运行类似命令：
+
+```bash
+rg -n "APF-01" .planning/phases/26-architecture-contract-baseline/*-VERIFICATION.md
+```
+
+### 关键证据或命令
+
+命令输出：
+
+```text
+zsh:1: no matches found: .planning/phases/26-architecture-contract-baseline/*-VERIFICATION.md
+```
+
+### 当前判断 / 根因
+
+zsh 默认 `nomatch` 行为会在 glob 没有匹配时直接报错。对 audit 来说，缺失 `*-VERIFICATION.md` 本身是需要记录的审计事实，读取命令不应该因此提前失败。
+
+### 已做处理
+
+后续改用 Node/`fs.readdirSync` 和显式文件存在性检查枚举 phase artifact，成功区分“文件缺失”和“读取失败”。缺失 formal verification artifacts 已记录到 `.planning/milestones/v1.9-MILESTONE-AUDIT.md`。
+
+### 剩余问题
+
+无本次 audit 阻塞。以后审计 optional artifact 时避免直接使用会触发 zsh `nomatch` 的裸 glob；使用 `find`、Node/Python 文件枚举，或先启用安全的空匹配处理。
+
+### 下次继续排查入口
+
+- `.planning/milestones/v1.9-MILESTONE-AUDIT.md`
+- `/Users/ming/.codex/get-shit-done/workflows/audit-milestone.md`
