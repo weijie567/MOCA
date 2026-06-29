@@ -7710,3 +7710,48 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_trace.py -q --tb=short
 
 - `tests/agent/test_trace.py`
 - `src/replay/proof_projection.py`
+
+## 2026-06-29 23:17 CST - Phase 35-02 roadmap progress handler did not match ROADMAP format
+
+### 问题现象
+
+完成 35-02 后执行 roadmap progress 更新命令时，SDK 返回未更新，`.planning/ROADMAP.md` 中 Phase 35 仍显示 `1/6 plans complete`，且 `35-02-PLAN.md` 仍未勾选。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+gsd-sdk query roadmap.update-plan-progress 35
+sed -n '405,435p' .planning/ROADMAP.md
+```
+
+### 关键证据或命令
+
+SDK 输出：
+
+```json
+{
+  "updated": false,
+  "phase": "35",
+  "reason": "no matching checkbox found"
+}
+```
+
+### 当前判断 / 根因
+
+本地 `roadmap.update-plan-progress` handler 期望匹配特定 checkbox/progress 格式；当前 Phase 35 roadmap 使用 `**Plans:** 1/6 plans complete` 加计划清单的格式，handler 没有命中。
+
+### 已做处理
+
+已手动更新 `.planning/ROADMAP.md`：Phase 35 计划数改为 `2/6 plans complete`，并勾选 `35-02-PLAN.md`。同时同步修正 `.planning/STATE.md` 的 Phase 35 表格行与 latest execution metric。
+
+### 剩余问题
+
+无阻塞。后续 Phase 35 计划完成时仍需检查 `roadmap.update-plan-progress` 是否能命中；若继续返回 `updated: false`，按本次方式手动核对并记录。
+
+### 下次继续排查入口
+
+- `.planning/ROADMAP.md`
+- `.planning/STATE.md`
+- `gsd-sdk query roadmap.update-plan-progress 35`
