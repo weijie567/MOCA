@@ -675,7 +675,7 @@ def _phase34_interrupt_bindings(
         },
         "business_fact_refs": [business_fact_ref],
         "verified_evidence_refs": [evidence_ref],
-        "claim_verification_ref": f"claim_verification:{input_state['current_run_id']}:r1",
+        "claim_verification_ref": None,
         "claim_verification_summary": {
             "schema_version": "claim_verification_summary.v1",
             "overall_status": "verified",
@@ -1694,7 +1694,7 @@ async def test_event_generator_treats_stream_interrupt_node_as_approval_required
     assert approval_data["payload"]["target_merchant_ref"]["target_merchant_id"] == target_merchant_id
     assert approval_data["payload"]["business_fact_refs"][0]["resource_id"] == "ORD-2024-001"
     assert approval_data["payload"]["verified_evidence_refs"][0]["evidence_id"] == "refund_policy/refund_policy_001@v1"
-    assert approval_data["payload"]["claim_verification_ref"] == f"claim_verification:{run.id}:r1"
+    assert approval_data["payload"]["claim_verification_ref"] is None
     assert approval_data["payload"]["claim_verification_summary"]["overall_status"] == "verified"
     assert approval_data["payload"]["risk_decision_ref"] == f"risk_decision:{run.id}:r1"
     assert approval_data["payload"]["risk_decision_summary"] == {
@@ -1745,7 +1745,7 @@ async def test_event_generator_treats_stream_interrupt_node_as_approval_required
     assert approval.target_merchant_ref["target_merchant_id"] == target_merchant_id
     assert approval.business_fact_refs[0]["resource_id"] == "ORD-2024-001"
     assert approval.verified_evidence_refs[0]["evidence_id"] == "refund_policy/refund_policy_001@v1"
-    assert approval.claim_verification_ref == f"claim_verification:{run.id}:r1"
+    assert approval.claim_verification_ref is None
     assert approval.claim_verification_summary == {
         "schema_version": "claim_verification_summary.v1",
         "overall_status": "verified",
@@ -2006,7 +2006,7 @@ async def test_agent_chat_interrupt_uses_trusted_run_id_when_payload_and_checkpo
     assert trusted_approval.target_merchant_id == target_merchant_id
     assert trusted_approval.business_fact_refs[0]["resource_id"] == "ORD-2024-001"
     assert trusted_approval.verified_evidence_refs[0]["doc_key"] == "refund_policy"
-    assert trusted_approval.claim_verification_ref == f"claim_verification:{trusted_run_id}:r1"
+    assert trusted_approval.claim_verification_ref is None
     assert trusted_approval.risk_decision_ref == f"risk_decision:{trusted_run_id}:r1"
     assert trusted_approval.risk_decision["run_id"] == trusted_context.run_id
     assert trusted_approval.approval_idempotency_key == f"approval:{user.tenant_id}:{trusted_context.run_id}"

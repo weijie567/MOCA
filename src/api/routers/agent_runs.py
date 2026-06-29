@@ -845,12 +845,12 @@ def _approval_create_command_from_interrupt(
         "target_merchant_ref",
         "business_fact_refs",
         "verified_evidence_refs",
-        "claim_verification_ref",
-        "claim_verification_summary",
         "risk_decision_ref",
         "risk_decision",
     ]
     missing = [field for field in required_fields if not interrupt_data.get(field)]
+    if not (interrupt_data.get("claim_verification_ref") or interrupt_data.get("claim_verification_summary")):
+        missing.append("claim_verification")
     approval_idempotency_key = _approval_idempotency_key_from_interrupt(interrupt_data)
     if not approval_idempotency_key:
         missing.append("approval_idempotency_key")
@@ -889,7 +889,11 @@ def _approval_create_command_from_interrupt(
                 "target_merchant_ref": interrupt_data["target_merchant_ref"],
                 "business_fact_refs": business_fact_refs,
                 "verified_evidence_refs": verified_evidence_refs,
-                "claim_verification_ref": str(interrupt_data["claim_verification_ref"]),
+                "claim_verification_ref": (
+                    str(interrupt_data["claim_verification_ref"])
+                    if interrupt_data.get("claim_verification_ref") is not None
+                    else None
+                ),
                 "claim_verification_summary": interrupt_data["claim_verification_summary"],
                 "risk_decision_ref": str(interrupt_data["risk_decision_ref"]),
                 "risk_decision": interrupt_data["risk_decision"],

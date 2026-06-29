@@ -65,7 +65,7 @@ def _state() -> dict:
             "target_merchant_ref": target_merchant_ref,
             "business_fact_refs": business_fact_refs,
             "verified_evidence_refs": verified_evidence_refs,
-            "claim_verification_ref": "claim_verification_bundle:bundle-1",
+            "claim_verification_ref": None,
             "claim_verification_summary": {"overall_status": "verified"},
             "risk_decision_ref": risk_decision_ref,
             "risk_decision": risk_decision,
@@ -77,7 +77,7 @@ def _state() -> dict:
         "target_merchant_ref": target_merchant_ref,
         "business_fact_refs": business_fact_refs,
         "verified_evidence_refs": verified_evidence_refs,
-        "claim_verification_ref": "claim_verification_bundle:bundle-1",
+        "claim_verification_ref": None,
         "claim_verification_summary": {"overall_status": "verified"},
         "risk_decision_ref": risk_decision_ref,
         "risk_decision": risk_decision,
@@ -129,6 +129,7 @@ async def test_approval_gate_interrupt_payload_contains_display_refs_and_version
     assert captured_payload["target_merchant_ref"]["target_merchant_id"] == "merchant-1"
     assert captured_payload["business_fact_refs"][0]["resource_id"] == "refund-001"
     assert captured_payload["verified_evidence_refs"][0]["evidence_id"] == "refund-policy/chunk-001@v3"
+    assert captured_payload["claim_verification_ref"] is None
     assert captured_payload["claim_verification_summary"] == {"overall_status": "verified"}
     assert captured_payload["risk_decision_ref"].startswith("risk_decision:")
     assert captured_payload["risk_decision"]["schema_version"] == "risk_decision.v1"
