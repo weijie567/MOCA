@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,11 @@ from src.replay.validators import REPLAY_EVENT_TYPES
 
 MATRIX_PATH = Path("eval/replay/phase35-coverage-matrix.v1.json")
 MATRIX_SELF_TEST = "tests/replay/test_phase35_coverage_matrix.py"
+ROADMAP_PATH = Path(".planning/ROADMAP.md")
+PHASE35_PLAN_DIR = Path(".planning/phases/35-replay-and-eval-hardening")
+PHASE35_PLAN_FILES = tuple(PHASE35_PLAN_DIR / f"35-{index:02d}-PLAN.md" for index in range(1, 7))
+PHASE35_SCAN_FILES = (*PHASE35_PLAN_FILES, MATRIX_PATH)
+PLAN_PROGRESS_RE = re.compile(r"\*\*Plans:\*\*\s+(?P<complete>\d+)/6 plans complete")
 
 EXPECTED_ROW_FIELDS = {
     "boundary",
@@ -44,6 +50,28 @@ REQUIRED_LEFT_HALF_ASSERTIONS = {
     "business_fact_read_scope_freshness": "business_fact_scope_freshness_proof",
     "risk_decision": "risk_decision_action_path_trace",
 }
+DETERMINISTIC_DEV_CONTRACT_BOUNDARIES = {
+    "trusted_context_projection",
+    "slot_policy",
+    "memory_load_policy",
+    "tool_visibility",
+    "tool_runtime_auth",
+    "business_fact_read_scope_freshness",
+    "rag_validation",
+    "claim_verification",
+    "risk_decision",
+    "approval_lifecycle",
+    "action_draft",
+}
+APPROVED_PYTEST_ENTRYPOINTS = (
+    "UV_CACHE_DIR=/tmp/uv-cache uv run pytest",
+    "uv run pytest",
+    ".venv/bin/pytest",
+    ".venv/bin/python -m pytest",
+)
+PYTEST_COMMAND_START_RE = re.compile(r"^(?:UV_CACHE_DIR=\S+\s+)?(?:uv\s+run\s+pytest|\.venv/bin/pytest|\.venv/bin/python\s+-m\s+pytest|python\s+-m\s+pytest|pytest)\b")
+INLINE_CODE_RE = re.compile(r"`([^`]*pytest[^`]*)`")
+AUTOMATED_XML_RE = re.compile(r"<automated>([^<]*pytest[^<]*)</automated>")
 
 
 def test_phase35_matrix_covers_required_platform_boundaries() -> None:
@@ -76,6 +104,55 @@ def test_phase35_matrix_rows_are_replay_contracts_not_documentation_only() -> No
             assert assertion.assertion_type in ALLOWED_ASSERTION_TYPES
             assert assertion.test_path in row.acceptance_tests
             assert assertion.asserts
+
+
+def test_phase35_matrix_uses_registered_events_and_existing_event_strategy() -> None:
+    matrix = load_phase35_matrix()
+
+    assert validate_phase35_matrix(matrix) == []
+    for row in matrix.rows:
+        assert set(row.replay_events) <= REPLAY_EVENT_TYPES
+        assert row.event_strategy == "existing_event_plus_payload_contract"
+        assert any(test.endswith(".py") for test in row.acceptance_tests)
+        assert row.decision_assertions
+
+
+def test_phase35_matrix_distinguishes_dev_release_and_monitoring_gates() -> None:
+    matrix = load_phase35_matrix()
+    rows = {row.boundary: row for row in matrix.rows}
+    gate_levels = {row.eval_gate_level for row in matrix.rows}
+
+    assert {"dev-contract", "release", "monitoring"} <= gate_levels
+    for boundary in DETERMINISTIC_DEV_CONTRACT_BOUNDARIES:
+        assert rows[boundary].eval_gate_level == "dev-contract"
+
+
+def test_phase35_roadmap_keeps_six_plan_shape() -> None:
+    roadmap = ROADMAP_PATH.read_text(encoding="utf-8")
+    phase35_section = roadmap.split("### Phase 35: Replay and Eval Hardening", maxsplit=1)[1]
+    phase35_section = phase35_section.split("## Backlog", maxsplit=1)[0]
+
+    progress = PLAN_PROGRESS_RE.search(phase35_section)
+    assert progress is not None
+    assert int(progress.group("complete")) >= 0
+
+    expected_plan_names = [f"35-{index:02d}-PLAN.md" for index in range(1, 7)]
+    assert re.findall(r"35-\d{2}-PLAN\.md", phase35_section) == expected_plan_names
+    for plan_file in expected_plan_names:
+        assert plan_file in phase35_section
+    assert "35-06-PLAN.md" in phase35_section
+    assert "35-07-PLAN.md" not in phase35_section
+
+
+def test_phase35_plan_and_matrix_files_have_approved_entrypoint_scan() -> None:
+    violations: list[str] = []
+    for path in PHASE35_SCAN_FILES:
+        assert path.exists()
+        for snippet in _pytest_command_snippets(path):
+            if not any(entrypoint in snippet for entrypoint in APPROVED_PYTEST_ENTRYPOINTS):
+                violations.append(f"{path}:{snippet}")
+
+    assert violations == []
 
 
 def test_phase35_matrix_has_focused_left_half_decision_assertions() -> None:
@@ -166,3 +243,20 @@ def _required_assertion(raw: dict[str, Any], boundary: str) -> dict[str, Any]:
     row = next(row for row in raw["rows"] if row["boundary"] == boundary)
     assertion_id = REQUIRED_LEFT_HALF_ASSERTIONS[boundary]
     return next(assertion for assertion in row["decision_assertions"] if assertion["assertion_id"] == assertion_id)
+
+
+def _pytest_command_snippets(path: Path) -> list[str]:
+    snippets: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if PYTEST_COMMAND_START_RE.match(stripped):
+            snippets.append(stripped)
+        for match in INLINE_CODE_RE.finditer(line):
+            snippet = match.group(1).strip()
+            if PYTEST_COMMAND_START_RE.match(snippet):
+                snippets.append(snippet)
+        for match in AUTOMATED_XML_RE.finditer(line):
+            snippet = match.group(1).strip()
+            if PYTEST_COMMAND_START_RE.match(snippet):
+                snippets.append(snippet)
+    return [snippet for snippet in snippets if "pytest" in snippet]

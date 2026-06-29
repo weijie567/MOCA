@@ -1,5 +1,55 @@
 # 本地验证问题记录
 
+## 14. Phase 35 matrix pytest entrypoint scan 误判 PLAN 说明文字
+
+日期：2026-06-29
+
+### 问题现象
+
+执行 Phase 35 Plan 35-01 Task 2 的 coverage matrix 测试时，新增的 pytest entrypoint 静态扫描误把 `35-01-PLAN.md` 中说明 validator 规则的文字片段识别为未授权 pytest 命令，导致测试失败。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay/test_phase35_coverage_matrix.py -q --tb=short
+```
+
+### 关键证据或命令
+
+失败用例：
+
+```text
+test_phase35_plan_and_matrix_files_have_approved_entrypoint_scan
+AssertionError: '.planning/phases/35-replay-and-eval-hardening/35-01-PLAN.md:, unscoped pytest entrypoints, and any row whose'
+```
+
+### 当前判断 / 根因
+
+测试中的 inline-code 抽取正则只要代码片段包含 `pytest` 就纳入命令检查，没有再判断片段是否是命令起始形式。`35-01-PLAN.md` 的说明文字包含 “unscoped pytest entrypoints”，属于规则描述，不是可执行命令。
+
+### 已做处理
+
+将 `_pytest_command_snippets()` 收窄为只收集命令形态的片段：行首命令、inline code 或 `<automated>` 内容都必须匹配 `uv run pytest`、`UV_CACHE_DIR=/tmp/uv-cache uv run pytest`、`.venv/bin/pytest`、`.venv/bin/python -m pytest`、裸 `pytest` 或裸 `python -m pytest` 这类命令起始模式，避免扫描普通说明文字。
+
+修复后重跑：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay/test_phase35_coverage_matrix.py -q --tb=short
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff check tests/replay/test_phase35_coverage_matrix.py
+```
+
+结果：pytest `18 passed, 1 warning`；ruff `All checks passed!`。
+
+### 剩余问题
+
+当前扫描覆盖 Phase 35 plan 文件和 matrix 文件中的 pytest 命令片段，不覆盖未来 docs/evaluation.md 或 eval manifest 的命令字段；这些由后续 Phase 35 plans 自己扩展。
+
+### 下次继续排查入口
+
+若后续再次出现误报，优先检查 `tests/replay/test_phase35_coverage_matrix.py::_pytest_command_snippets()` 的 snippet 抽取范围，以及新增文档是否把命令写成非标准形态。
+
 ## 13. Phase 28 execute-phase 复现 `state.begin-phase` flag 解析写坏 STATE
 
 日期：2026-06-23
