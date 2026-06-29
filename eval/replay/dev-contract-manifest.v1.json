@@ -1,0 +1,272 @@
+{
+  "schema_version": "phase35_replay_dev_contract_manifest.v1",
+  "phase": "35-replay-and-eval-hardening",
+  "gate_level": "dev-contract",
+  "blocking": "phase_exit",
+  "failure_impact": "block_phase_35_verification",
+  "coverage_matrix_path": "eval/replay/phase35-coverage-matrix.v1.json",
+  "coverage_matrix_hash": "sha256:a9d58190127164a2299c09415824942b6f876ba70273a35dfe6fb1ad83b8b121",
+  "required_gate_categories": [
+    "schema_validity",
+    "platform_event_coverage",
+    "event_order",
+    "terminal_replay_timelines",
+    "redaction",
+    "owner_admin_only_permissions",
+    "cross_tenant_cross_merchant_negatives",
+    "forbidden_behavior",
+    "release_monitoring_manifest_format"
+  ],
+  "forbidden_behaviors": [
+    {
+      "case_id": "raw_prompt_leak",
+      "category": "redaction",
+      "gate_level": "dev-contract",
+      "blocking": true,
+      "source_decisions": [
+        "D-13",
+        "D-16"
+      ],
+      "description": "Replay, trace, and eval projections must not expose raw prompts or user input payloads.",
+      "expected_guard": "guard_redacted_payload rejects raw prompt aliases and replay API projection remains sanitized.",
+      "test_paths": [
+        "tests/replay/test_phase35_redaction_negatives.py"
+      ]
+    },
+    {
+      "case_id": "raw_tool_payload_leak",
+      "category": "redaction",
+      "gate_level": "dev-contract",
+      "blocking": true,
+      "source_decisions": [
+        "D-13",
+        "D-16"
+      ],
+      "description": "Replay artifacts must not expose raw tool args, raw tool payloads, descriptors, or unsafe upstream output.",
+      "expected_guard": "Tool policy and replay redaction negatives reject raw tool payload aliases before append or projection.",
+      "test_paths": [
+        "tests/replay/test_phase35_redaction_negatives.py",
+        "tests/replay/test_tool_policy_events.py"
+      ]
+    },
+    {
+      "case_id": "pii_leak",
+      "category": "redaction",
+      "gate_level": "dev-contract",
+      "blocking": true,
+      "source_decisions": [
+        "D-13",
+        "D-16"
+      ],
+      "description": "Ticket, order, refund, buyer, credential, API key, and secret aliases must not appear in replay payloads.",
+      "expected_guard": "Phase 35 redaction negatives reject PII and secret aliases recursively.",
+      "test_paths": [
+        "tests/replay/test_phase35_redaction_negatives.py"
+      ]
+    },
+    {
+      "case_id": "action_raw_payload_leak",
+      "category": "redaction",
+      "gate_level": "dev-contract",
+      "blocking": true,
+      "source_decisions": [
+        "D-13",
+        "D-16",
+        "D-18"
+      ],
+      "description": "Action draft replay events must expose stable refs and hashes, not raw proposed action payloads.",
+      "expected_guard": "Action draft event payloads are hash/ref based and raw action payload aliases are rejected.",
+      "test_paths": [
+        "tests/replay/test_phase35_redaction_negatives.py",
+        "tests/actions/test_phase34_action_draft_bindings.py"
+      ]
+    },
+    {
+      "case_id": "owner_admin_only_bypass",
+      "category": "owner_admin_only_permissions",
+      "gate_level": "dev-contract",
+      "blocking": true,
+      "source_decisions": [
+        "D-05",
+        "D-07",
+        "D-13",
+        "D-17"
+      ],
+      "description": "Business-data trace, replay, run status, evidence, and stream views must remain owner/admin-only in Phase 35.",
+      "expected_guard": "Phase 35 permission regressions deny non-owner support, manager, merchant, supervisor, and approval_manager users.",
+      "test_paths": [
+        "tests/replay/test_phase35_trace_replay_permissions.py"
+      ]
+    },
+    {
+      "case_id": "cross_tenant_replay_access",
+      "category": "cross_tenant_cross_merchant_negatives",
+      "gate_level": "dev-contract",
+      "blocking": true,
+      "source_decisions": [
+        "D-05",
+        "D-13",
+        "D-17"
+      ],
+      "description": "Cross-tenant trace/replay lookups must fail closed and not expose run existence.",
+      "expected_guard": "Replay and trace API tests keep cross-tenant access at not-found semantics.",
+      "test_paths": [
+        "tests/replay/test_phase35_trace_replay_permissions.py"
+      ]
+    },
+    {
+      "case_id": "cross_merchant_replay_access",
+      "category": "cross_tenant_cross_merchant_negatives",
+      "gate_level": "dev-contract",
+      "blocking": true,
+      "source_decisions": [
+        "D-05",
+        "D-07",
+        "D-13",
+        "D-17"
+      ],
+      "description": "Same-tenant cross-merchant or requested_by merchant shortcuts must not open trace/replay access.",
+      "expected_guard": "Static/API permission tests prove target merchant proof is projection-only and not an authorization shortcut.",
+      "test_paths": [
+        "tests/replay/test_phase35_trace_replay_permissions.py"
+      ]
+    },
+    {
+      "case_id": "unsupported_claim_to_action_bound_path",
+      "category": "forbidden_behavior",
+      "gate_level": "dev-contract",
+      "blocking": true,
+      "source_decisions": [
+        "D-13",
+        "D-18"
+      ],
+      "description": "Unsupported user-visible or action-bound claims must be blocked before risk, approval, or action draft paths.",
+      "expected_guard": "Claim verification and risk tests fail closed on unsupported action-bound claims.",
+      "test_paths": [
+        "tests/agent/test_nodes/test_claim_verify.py",
+        "tests/agent/test_nodes/test_assess_risk_and_approval.py"
+      ]
+    },
+    {
+      "case_id": "no_evidence_to_deterministic_action_recommendation",
+      "category": "forbidden_behavior",
+      "gate_level": "dev-contract",
+      "blocking": true,
+      "source_decisions": [
+        "D-13",
+        "D-18"
+      ],
+      "description": "No-evidence RAG or claim verification states must not produce deterministic action recommendations.",
+      "expected_guard": "RAG/claim/risk tests route insufficient evidence to refusal or manual review without proposed actions.",
+      "test_paths": [
+        "tests/agent/test_nodes/test_rag_context_build.py",
+        "tests/agent/test_nodes/test_claim_verify.py",
+        "tests/agent/test_nodes/test_assess_risk_and_approval.py"
+      ]
+    },
+    {
+      "case_id": "unsafe_action_path",
+      "category": "forbidden_behavior",
+      "gate_level": "dev-contract",
+      "blocking": true,
+      "source_decisions": [
+        "D-13",
+        "D-18"
+      ],
+      "description": "Unsafe, unbound, or insufficiently authorized action paths must not reach approval or action draft creation.",
+      "expected_guard": "Risk/action draft tests require claim, evidence, business fact, target merchant, payload hash, and safety snapshot bindings.",
+      "test_paths": [
+        "tests/agent/test_nodes/test_assess_risk_and_approval.py",
+        "tests/actions/test_phase34_action_draft_bindings.py"
+      ]
+    },
+    {
+      "case_id": "stale_business_fact_ref_accepted",
+      "category": "forbidden_behavior",
+      "gate_level": "dev-contract",
+      "blocking": true,
+      "source_decisions": [
+        "D-13",
+        "D-18"
+      ],
+      "description": "Stale BusinessFactRefV1 values must not enter action-bound risk, approval, or draft paths.",
+      "expected_guard": "Business fact and risk/action tests fail closed when current business fact authority is unavailable or stale.",
+      "test_paths": [
+        "tests/agent/test_nodes/test_assess_risk_and_approval.py",
+        "tests/actions/test_phase34_action_draft_bindings.py"
+      ]
+    },
+    {
+      "case_id": "wrong_scope_business_fact_ref_accepted",
+      "category": "forbidden_behavior",
+      "gate_level": "dev-contract",
+      "blocking": true,
+      "source_decisions": [
+        "D-13",
+        "D-18"
+      ],
+      "description": "Wrong-scope BusinessFactRefV1 values must not satisfy action safety or target merchant binding.",
+      "expected_guard": "Approval/action binding tests reject merchant or scope mismatches before draft creation.",
+      "test_paths": [
+        "tests/agent/test_nodes/test_assess_risk_and_approval.py",
+        "tests/actions/test_phase34_action_draft_bindings.py"
+      ]
+    },
+    {
+      "case_id": "invalid_scope_evidence_accepted",
+      "category": "forbidden_behavior",
+      "gate_level": "dev-contract",
+      "blocking": true,
+      "source_decisions": [
+        "D-13",
+        "D-18"
+      ],
+      "description": "Invalid-scope evidence must not enter prompt authority, claim support, risk, approval, or action draft paths.",
+      "expected_guard": "RAG context build and claim verification tests reject invalid-scope evidence before action routing.",
+      "test_paths": [
+        "tests/agent/test_nodes/test_rag_context_build.py",
+        "tests/agent/test_nodes/test_claim_verify.py"
+      ]
+    },
+    {
+      "case_id": "approval_payload_hash_mismatch_creates_action_draft",
+      "category": "forbidden_behavior",
+      "gate_level": "dev-contract",
+      "blocking": true,
+      "source_decisions": [
+        "D-13",
+        "D-18"
+      ],
+      "description": "Approval payload hash mismatches must not create action drafts.",
+      "expected_guard": "Action draft binding tests reject approval or auto-allowed payload hash mismatches and persist no drafts.",
+      "test_paths": [
+        "tests/actions/test_phase34_action_draft_bindings.py"
+      ]
+    }
+  ],
+  "required_test_commands": [
+    "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/eval/test_phase35_replay_eval_gates.py -q --tb=short",
+    "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_phase35_replay_eval_boundaries.py -q --tb=short",
+    "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay/test_phase35_coverage_matrix.py tests/replay/test_phase35_trace_replay_permissions.py tests/replay/test_phase35_terminal_timelines.py tests/replay/test_phase35_redaction_negatives.py -q --tb=short",
+    "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_rag_context_build.py tests/agent/test_nodes/test_claim_verify.py tests/agent/test_nodes/test_assess_risk_and_approval.py tests/actions/test_phase34_action_draft_bindings.py -q --tb=short",
+    "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/eval/test_phase35_release_monitoring_manifests.py -q --tb=short"
+  ],
+  "non_blocking_gate_refs": [
+    {
+      "path": "eval/replay/release-gate.v1.json",
+      "gate_level": "release",
+      "schema_version": "phase35_replay_release_gate.v1",
+      "blocking": "release_not_phase35_exit",
+      "failure_impact": "block_replay_eval_release_not_phase_35_exit",
+      "phase35_blocking": false
+    },
+    {
+      "path": "eval/replay/monitoring-gate.v1.json",
+      "gate_level": "monitoring",
+      "schema_version": "phase35_replay_monitoring_gate.v1",
+      "blocking": "monitoring_not_phase35_exit",
+      "failure_impact": "trigger_review_or_degrade_not_phase_35_exit",
+      "phase35_blocking": false
+    }
+  ]
+}

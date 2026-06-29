@@ -7756,6 +7756,103 @@ SDK 输出：
 - `.planning/STATE.md`
 - `gsd-sdk query roadmap.update-plan-progress 35`
 
+## 2026-06-29 23:59 CST - Phase 35-04 dev-contract validator non-blocking refs 类型错误
+
+### 问题现象
+
+执行 35-04 Task 1 GREEN 验证时，`tests/eval/test_phase35_replay_eval_gates.py` 中 dev-contract manifest 校验失败，报 `TypeError`。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/eval/test_phase35_replay_eval_gates.py -q --tb=short
+```
+
+### 关键证据或命令
+
+失败信息：
+
+```text
+TypeError: unsupported operand type(s) for -: 'dict' and 'set'
+```
+
+触发位置：
+
+```text
+src/replay/phase35_eval_manifest.py::_validate_non_blocking_gate_refs
+```
+
+### 当前判断 / 根因
+
+`REQUIRED_NON_BLOCKING_GATE_PATHS` 是 `dict[str, str]`，实现中直接用它与 `ref_paths` 集合做差集，Python 不支持 `dict - set`。应先取 key set。
+
+### 已做处理
+
+将 `_validate_non_blocking_gate_refs()` 中的差集计算改为先构造：
+
+```python
+required_paths = set(REQUIRED_NON_BLOCKING_GATE_PATHS)
+```
+
+再进行 `required_paths - ref_paths` 和 `ref_paths - required_paths`。
+
+### 剩余问题
+
+无阻塞。待继续重跑 Task 1 pytest 与 ruff 确认。
+
+### 下次继续排查入口
+
+- `src/replay/phase35_eval_manifest.py`
+- `tests/eval/test_phase35_replay_eval_gates.py`
+
+## 2026-06-29 23:59 CST - Phase 35-04 复现 shasum locale warning，改用 Python hash
+
+### 问题现象
+
+为 35-04 dev-contract manifest 计算 coverage matrix SHA-256 时再次运行 `shasum -a 256`，本机 Perl/shasum 输出 locale warning。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+shasum -a 256 eval/replay/phase35-coverage-matrix.v1.json
+```
+
+### 关键证据或命令
+
+命令输出包含：
+
+```text
+perl: warning: Setting locale failed.
+perl: warning: Falling back to a fallback locale ("zh_CN.UTF-8").
+```
+
+### 当前判断 / 根因
+
+这是 35-05 已记录过的本机 locale 环境问题：`LC_ALL=C.UTF-8` 不被当前 Perl/shasum 环境识别。warning 不代表 hash 不可靠，但会污染验证输出。
+
+### 已做处理
+
+35-04 后续 hash 计算改用项目入口下的 Python `hashlib`：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python -c "import hashlib, pathlib; p=pathlib.Path('eval/replay/phase35-coverage-matrix.v1.json'); print('sha256:' + hashlib.sha256(p.read_bytes()).hexdigest())"
+```
+
+结果写入 `eval/replay/dev-contract-manifest.v1.json`，并由 `compute_file_sha256()` / focused pytest 复核。
+
+### 剩余问题
+
+无阻塞。后续继续避免把 `shasum` 输出作为验证命令，优先使用 Python `hashlib` 或修正本机 locale。
+
+### 下次继续排查入口
+
+- `eval/replay/dev-contract-manifest.v1.json`
+- `src/replay/phase35_eval_manifest.py::compute_file_sha256`
+
 ## 2026-06-29 23:28 CST - Phase 35-03 terminal timeline RED verification exposed fixture and replay projection gaps
 
 ### 问题现象
