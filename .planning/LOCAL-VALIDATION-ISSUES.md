@@ -8357,3 +8357,50 @@ git diff -- .planning/STATE.md
 - `.planning/STATE.md`
 - `gsd-sdk query phase.complete 35`
 - `gsd-sdk query roadmap.analyze`
+
+## 2026-06-30 07:18 CST - Phase 35 code-review depth config output caused an intermediate standard report
+
+### 问题现象
+
+执行 `$gsd-code-review 35` 时，`gsd-sdk query config-get workflow.code_review_depth` 返回 JSON 字符串形式 `"deep"`。按 workflow 文档里的 shell `case quick|standard|deep` 直接匹配会把带引号值判为非法，导致中间一次 `35-REVIEW.md` 被按 `standard` 深度生成，而不是项目配置语义上的 `deep`。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+gsd-sdk query config-get workflow.code_review_depth
+sed -n '1,80p' .planning/config.json
+```
+
+### 关键证据或命令
+
+`config-get` 输出：
+
+```text
+"deep"
+```
+
+`.planning/config.json` 中对应配置为：
+
+```json
+"code_review_depth": "deep"
+```
+
+### 当前判断 / 根因
+
+`config-get` 当前输出的是 JSON 编码后的字符串，而 code-review workflow 文档里的 depth 校验示例假设拿到的是裸值 `deep`。如果不先去掉 JSON 引号，就会误触发非法值 fallback。
+
+### 已做处理
+
+识别到问题后，没有提交中间的 `standard` report，已要求同一个 `gsd-code-reviewer` 按语义配置重新执行 `deep` review 并覆盖 `35-REVIEW.md`。
+
+### 剩余问题
+
+无 Phase 35 阻塞。后续可修正 GSD workflow 或 `gsd-sdk config-get` 输出消费方式：要么让 workflow 对 JSON 字符串做 parse/trim，要么让 config-get 在该用法下输出裸值。
+
+### 下次继续排查入口
+
+- `/Users/ming/.codex/get-shit-done/workflows/code-review.md`
+- `gsd-sdk query config-get workflow.code_review_depth`
+- `.planning/config.json`
