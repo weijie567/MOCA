@@ -6212,6 +6212,156 @@ SDK 输出：
 - `.planning/STATE.md`
 - `gsd-sdk query roadmap.update-plan-progress 33`
 
+## 2026-06-29 14:26 CST - Phase 34 execute-phase state.begin-phase flag parsing pitfall
+
+### 问题现象
+
+执行 `$gsd-execute-phase 34` 的初始化步骤时，按 workflow 示例运行：
+
+```bash
+gsd-sdk query state.begin-phase --phase 34 --name approval-and-actiondraft-boundary-hardening --plans 6
+```
+
+本地 `gsd-sdk` 将 flag 名当成位置参数写入 `.planning/STATE.md`，导致 `Phase: --phase (34)`、`Plan: 1 of --name`、`Last activity: Phase --phase execution started` 等错误状态。
+
+### 如何检测 / 复现
+
+运行上述 flag 形式命令后检查：
+
+```bash
+sed -n '1,80p' .planning/STATE.md
+```
+
+### 关键证据或命令
+
+错误命令输出为：
+
+```json
+{
+  "phase": "--phase",
+  "name": "34",
+  "plan_count": "--name"
+}
+```
+
+### 当前判断 / 根因
+
+当前本地 `gsd-sdk query state.begin-phase` handler 实际按位置参数解析，和 workflow 文档中的 flag 形式不一致。
+
+### 已做处理
+
+使用位置参数重跑并修复 STATE：
+
+```bash
+gsd-sdk query state.begin-phase 34 approval-and-actiondraft-boundary-hardening 6
+```
+
+修复后 `.planning/STATE.md` 显示 `Phase: 34 (approval-and-actiondraft-boundary-hardening)` 和 `Plan: 1 of 6`。
+
+### 剩余问题
+
+无当前阻塞。`Plan: 1 of 6` 是 SDK begin-phase 的默认写法，后续完成 Phase 34 时仍需用 summary/roadmap 状态核对真实 plan 进度。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `$HOME/.codex/get-shit-done/workflows/execute-phase.md`
+- `gsd-sdk query state.begin-phase`
+
+## 2026-06-29 14:28 CST - Phase 34-05 auto-allowed action draft idempotency/ref length failure
+
+### 问题现象
+
+Plan 34-05 Task 1 GREEN 后，auto-allowed action draft 正例仍返回 `DRAFT_CREATION_FAILED`，不是预期的成功 draft。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/actions/test_phase34_action_draft_bindings.py::test_create_coupon_grant_draft_accepts_exact_auto_allowed_binding -q --tb=long --showlocals
+```
+
+### 关键证据或命令
+
+临时让异常冒泡后，Postgres/asyncpg 报错：
+
+```text
+asyncpg.exceptions.StringDataRightTruncationError: value too long for type character varying(256)
+```
+
+SQL 参数显示 auto-allowed raw idempotency key 包含完整 `auto_allowed:risk_decision:{run_id}:sha256:...` marker，超过 `action_drafts.idempotency_key varchar(256)`；随后也确认完整 auto marker 会超过既有 `approval_revision_ref` / `auto_allowed_binding_ref` 128 字符列宽。
+
+### 当前判断 / 根因
+
+Phase 34 规范要求 auto-allowed revision marker 使用 `auto_allowed:{risk_decision_ref}`，但 `risk_decision_ref` 本身较长；持久化 idempotency key 必须保留 256 字符上限并使用 sha256 shortening，完整 marker 应保存在 revision/binding ref 字段中。
+
+### 已做处理
+
+已在 `src/actions/service.py` 修复 `_build_idempotency_key(...)`：短 raw key 保持原格式；长 key 先尝试保留 revision marker；marker 本身过长时使用 `{marker_hint}_sha256:{digest}:key_sha256:{digest}` 形式，确保总长不超过 256。已将 `ActionDraft.approval_revision_ref` 与 `auto_allowed_binding_ref` 扩为 256，并更新 migration 018。相关测试也改为断言完整 marker 保存在 ref 字段，idempotency key 稳定缩短。
+
+验证通过：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/actions/test_phase34_action_draft_bindings.py tests/actions/test_action_draft_v2.py tests/agent/test_tools/test_create_coupon_grant_draft.py::test_build_idempotency_key_preserves_raw_shape_until_256_chars_and_bounds_long_keys -q --tb=short
+```
+
+### 剩余问题
+
+无当前阻塞。后续若 risk_decision_ref 格式继续增长，仍由 bounded idempotency key 和 256 字符 ref 列承载；超过 256 的 ref 本体需要另行评估是否改为 digest/ref table。
+
+### 下次继续排查入口
+
+- `src/actions/service.py::_build_idempotency_key`
+- `src/db/models.py::ActionDraft`
+- `src/db/migrations/versions/018_phase34_approval_action_bindings.py`
+- `tests/actions/test_phase34_action_draft_bindings.py`
+
+## 2026-06-29 14:41 CST - Plan 34-05 metadata SDK ROADMAP checkbox mismatch
+
+### 问题现象
+
+Plan 34-05 完成后，`gsd-sdk query roadmap.update-plan-progress 34` 未能勾选 `34-05-PLAN.md` 或更新 Phase 34 plans count。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+gsd-sdk query roadmap.update-plan-progress 34
+rg -n "34-05|5/6|Latest execution metric" .planning/ROADMAP.md .planning/STATE.md
+```
+
+### 关键证据或命令
+
+SDK 输出：
+
+```json
+{
+  "updated": false,
+  "phase": "34",
+  "reason": "no matching checkbox found"
+}
+```
+
+### 当前判断 / 根因
+
+这是 Phase 33 已反复出现的 GSD SDK 与 MOCA ROADMAP checkbox/heading 格式不匹配问题在 Phase 34 的延续；SDK 没有识别当前 `34-xx-PLAN.md` checkbox 行。
+
+### 已做处理
+
+已手动更新 `.planning/ROADMAP.md`：Phase 34 `Plans` 改为 `5/6 plans complete`，并勾选 `34-05-PLAN.md`。已手动更新 `.planning/STATE.md`：Phase 34 行改为 `5/6`，Latest execution metric 改为 P34-05，并保留 `state.record-metric 34 34-05 "28 min" 2 16` 成功追加的 metric 行。
+
+### 剩余问题
+
+无当前阻塞。后续 Plan 34-06 完成时仍需检查 `roadmap.update-plan-progress 34` 是否继续返回 `no matching checkbox found`，并手动核对 ROADMAP/STATE。
+
+### 下次继续排查入口
+
+- `.planning/ROADMAP.md`
+- `.planning/STATE.md`
+- `gsd-sdk query roadmap.update-plan-progress 34`
+
 ## 2026-06-29 12:51 CST - Phase 34 execute-phase state.begin-phase 参数错位
 
 ### 问题现象
