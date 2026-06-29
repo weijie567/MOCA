@@ -409,7 +409,7 @@ Plans:
 **Goal:** Close observability and eval coverage for the new platform boundaries so future implementation phases can be judged by deterministic contract gates.
 **Requirements**: APF-17, APF-18
 **Depends on:** Phase 34
-**Plans:** 3/6 plans complete
+**Plans:** 4/6 plans complete
 
 **Core References**:
 
@@ -429,7 +429,7 @@ Plans:
 - [x] 35-02-PLAN.md — Trace/replay proof fields and owner/admin-only permission hardening
 - [x] 35-03-PLAN.md — Golden replay timelines, operation identity, and redaction negatives
 - [ ] 35-04-PLAN.md — Dev-contract eval gate and forbidden behavior datasets
-- [ ] 35-05-PLAN.md — Release and monitoring artifact manifests
+- [x] 35-05-PLAN.md — Release and monitoring artifact manifests
 - [ ] 35-06-PLAN.md — Final static/focused/eval closure
 
 ## Backlog
