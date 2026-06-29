@@ -40,6 +40,7 @@ from src.knowledge.schemas import EvidenceRefV1
 from src.platform.context_projections import project_to_legacy_agent_state_identity
 from src.platform.trusted_context import TrustedContext, TrustedContextFactory
 from src.repositories.trace_repo import TraceRepository
+from src.tools.contracts import BusinessFactRefV1
 
 
 router = APIRouter(tags=["agent-runs"])
@@ -832,14 +833,31 @@ def _approval_create_command_from_interrupt(
         "risk_config_version",
         "retrieval_config_version",
         "evidence_refs",
+        "target_merchant_id",
+        "target_merchant_ref",
+        "business_fact_refs",
+        "verified_evidence_refs",
+        "claim_verification_ref",
+        "claim_verification_summary",
+        "risk_decision_ref",
+        "risk_decision",
     ]
     missing = [field for field in required_fields if not interrupt_data.get(field)]
+    approval_idempotency_key = _approval_idempotency_key_from_interrupt(interrupt_data)
+    if not approval_idempotency_key:
+        missing.append("approval_idempotency_key")
     if missing:
         raise ApprovalInterruptValidationError(missing)
     _validate_interrupt_action_identity(interrupt_data, user=user, run_id=run_id)
 
     try:
         evidence_refs = [EvidenceRefV1.model_validate(ref) for ref in interrupt_data["evidence_refs"]]
+        business_fact_refs = [
+            BusinessFactRefV1.model_validate(ref) for ref in interrupt_data["business_fact_refs"]
+        ]
+        verified_evidence_refs = [
+            EvidenceRefV1.model_validate(ref) for ref in interrupt_data["verified_evidence_refs"]
+        ]
         return ApprovalRequestCreateCommand.model_validate(
             {
                 "tenant_id": user.tenant_id,
@@ -859,6 +877,15 @@ def _approval_create_command_from_interrupt(
                 "risk_config_version": interrupt_data["risk_config_version"],
                 "retrieval_config_version": interrupt_data["retrieval_config_version"],
                 "evidence_refs": evidence_refs,
+                "target_merchant_id": str(interrupt_data["target_merchant_id"]),
+                "target_merchant_ref": interrupt_data["target_merchant_ref"],
+                "business_fact_refs": business_fact_refs,
+                "verified_evidence_refs": verified_evidence_refs,
+                "claim_verification_ref": str(interrupt_data["claim_verification_ref"]),
+                "claim_verification_summary": interrupt_data["claim_verification_summary"],
+                "risk_decision_ref": str(interrupt_data["risk_decision_ref"]),
+                "risk_decision": interrupt_data["risk_decision"],
+                "approval_idempotency_key": approval_idempotency_key,
                 "created_at": _fixed_millisecond_now(),
                 "expires_at": _parse_expires_at(interrupt_data.get("expires_at")),
             }
@@ -888,6 +915,14 @@ def _validate_interrupt_action_identity(
             mismatches.append(f"proposed_action.{field}")
     if mismatches:
         raise ApprovalInterruptValidationError(mismatches)
+
+
+def _approval_idempotency_key_from_interrupt(interrupt_data: dict[str, Any]) -> str | None:
+    value = interrupt_data.get("approval_idempotency_key")
+    if not value:
+        approval_plan = _as_mapping(interrupt_data.get("approval_plan"))
+        value = approval_plan.get("approval_idempotency_key")
+    return str(value) if value else None
 
 
 async def _claim_pending_run_for_stream(session: AsyncSession, run_id: UUID, user: User) -> AgentRun:
