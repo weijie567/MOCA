@@ -3,7 +3,11 @@ from __future__ import annotations
 from typing import Any
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+from src.approvals.schemas import RiskDecisionV1, TargetMerchantBindingV1
+from src.knowledge.schemas import EvidenceRefV1
+from src.tools.contracts import BusinessFactRefV1
 
 
 class DraftOutcomeV1(BaseModel):
@@ -32,6 +36,15 @@ class ActionDraftV2Data(BaseModel):
     safety_snapshot_ref: str
     safety_snapshot_hash: str
     target_id: str
+    target_merchant_id: str | None = None
+    target_merchant_ref: TargetMerchantBindingV1 | None = None
+    business_fact_refs: list[BusinessFactRefV1] = Field(default_factory=list)
+    verified_evidence_refs: list[EvidenceRefV1] = Field(default_factory=list)
+    claim_verification_ref: str | None = None
+    claim_verification_summary: dict[str, Any] | None = None
+    risk_decision_ref: str | None = None
+    risk_decision: RiskDecisionV1 | None = None
+    auto_allowed_binding_ref: str | None = None
     idempotency_key: str
     status: str
     execution_mode: Literal["demo"]

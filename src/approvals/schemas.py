@@ -9,10 +9,13 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.knowledge.schemas import EvidenceRefV1
+from src.tools.contracts import BusinessFactRefV1
 
 ACTION_SAFETY_SNAPSHOT_SCHEMA_VERSION = "action_safety_snapshot.v1"
 PROPOSED_ACTION_SCHEMA_VERSION = "proposed_action.v1"
 APPROVAL_RESULT_SCHEMA_VERSION = "approval_result.v1"
+RISK_DECISION_SCHEMA_VERSION = "risk_decision.v1"
+AUTO_ALLOWED_ACTION_BINDING_SCHEMA_VERSION = "auto_allowed_action_binding.v1"
 
 ApprovalDecisionType = Literal["accept", "approve", "edit", "respond", "reject", "ignore"]
 ApprovalRequestStatus = Literal[
@@ -24,6 +27,57 @@ ApprovalRequestStatus = Literal[
     "expired",
     "cancelled",
 ]
+
+
+class RiskDecisionV1(BaseModel):
+    """Risk-gate decision bound to an exact proposed action payload hash."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["risk_decision.v1"] = RISK_DECISION_SCHEMA_VERSION
+    tenant_id: str
+    run_id: str
+    action_id: str
+    action_payload_hash: str
+    risk_level: str
+    reason_codes: list[str]
+    policy_config_version: str
+    risk_config_version: str
+    approval_required: bool
+    evaluated_at: str
+    risk_rule_ref: str | None = None
+    risk_reason: str | None = None
+
+
+class TargetMerchantBindingV1(BaseModel):
+    """Target merchant derived from scoped business fact authority."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["target_merchant_binding.v1"] = "target_merchant_binding.v1"
+    target_merchant_id: str
+    source: Literal["business_fact_ref", "business_fact_result"]
+    business_fact_ref: dict[str, Any]
+
+
+class AutoAllowedActionBindingV1(BaseModel):
+    """Durable no-approval binding required before any auto-draft path."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["auto_allowed_action_binding.v1"] = AUTO_ALLOWED_ACTION_BINDING_SCHEMA_VERSION
+    tenant_id: str
+    run_id: str
+    target_merchant_id: str
+    action_payload_hash: str
+    safety_snapshot_ref: str
+    safety_snapshot_hash: str
+    risk_decision_ref: str
+    idempotency_key: str
+    business_fact_refs: list[BusinessFactRefV1]
+    verified_evidence_refs: list[EvidenceRefV1]
+    claim_verification_ref: str | None = None
+    claim_verification_summary: dict[str, Any] | None = None
 
 
 class ApprovalRequestCreateCommand(BaseModel):
@@ -48,6 +102,15 @@ class ApprovalRequestCreateCommand(BaseModel):
     risk_config_version: str = Field(min_length=1)
     retrieval_config_version: str = Field(min_length=1)
     evidence_refs: list[EvidenceRefV1] = Field(min_length=1)
+    target_merchant_id: str | None = None
+    target_merchant_ref: TargetMerchantBindingV1 | dict[str, Any] | None = None
+    business_fact_refs: list[BusinessFactRefV1] = Field(default_factory=list)
+    verified_evidence_refs: list[EvidenceRefV1] = Field(default_factory=list)
+    claim_verification_ref: str | None = None
+    claim_verification_summary: dict[str, Any] | None = None
+    risk_decision_ref: str | None = None
+    risk_decision: RiskDecisionV1 | dict[str, Any] | None = None
+    approval_idempotency_key: str | None = None
     required_role: str = "manager"
     level_mode: Literal["any_one", "all"] = "any_one"
     created_at: datetime
@@ -69,6 +132,15 @@ class ApprovalRequestCreateResult(BaseModel):
     action_payload_hash: str
     safety_snapshot_ref: str
     safety_snapshot_hash: str
+    target_merchant_id: str | None = None
+    target_merchant_ref: TargetMerchantBindingV1 | dict[str, Any] | None = None
+    business_fact_refs: list[BusinessFactRefV1] = Field(default_factory=list)
+    verified_evidence_refs: list[EvidenceRefV1] = Field(default_factory=list)
+    claim_verification_ref: str | None = None
+    claim_verification_summary: dict[str, Any] | None = None
+    risk_decision_ref: str | None = None
+    risk_decision: RiskDecisionV1 | dict[str, Any] | None = None
+    approval_idempotency_key: str | None = None
     graph_thread_id: str
 
 
@@ -141,6 +213,15 @@ class TrustedApprovalResultV1(BaseModel):
     action_payload_hash: str
     safety_snapshot_ref: str
     safety_snapshot_hash: str
+    target_merchant_id: str | None = None
+    target_merchant_ref: TargetMerchantBindingV1 | dict[str, Any] | None = None
+    business_fact_refs: list[BusinessFactRefV1] = Field(default_factory=list)
+    verified_evidence_refs: list[EvidenceRefV1] = Field(default_factory=list)
+    claim_verification_ref: str | None = None
+    claim_verification_summary: dict[str, Any] | None = None
+    risk_decision_ref: str | None = None
+    risk_decision: RiskDecisionV1 | dict[str, Any] | None = None
+    approval_idempotency_key: str | None = None
     decided_by: UUID
     decided_at: datetime
     reason: str | None = None
@@ -168,6 +249,15 @@ class ApprovalDecisionResult(BaseModel):
     action_payload_hash: str
     safety_snapshot_ref: str
     safety_snapshot_hash: str
+    target_merchant_id: str | None = None
+    target_merchant_ref: TargetMerchantBindingV1 | dict[str, Any] | None = None
+    business_fact_refs: list[BusinessFactRefV1] = Field(default_factory=list)
+    verified_evidence_refs: list[EvidenceRefV1] = Field(default_factory=list)
+    claim_verification_ref: str | None = None
+    claim_verification_summary: dict[str, Any] | None = None
+    risk_decision_ref: str | None = None
+    risk_decision: RiskDecisionV1 | dict[str, Any] | None = None
+    approval_idempotency_key: str | None = None
     decided_by: UUID
     decided_at: datetime
     decision_id: UUID
