@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
@@ -101,6 +102,60 @@ def _draft_outcome(*, tenant_id: UUID, run_id: UUID, draft_id: str | None = None
     ).model_dump(mode="json")
 
 
+def _phase34_store_bindings(*, tenant_id: UUID, run_id: UUID, target_merchant_id: str = "merchant-1") -> dict[str, Any]:
+    business_fact_ref = {
+        "schema_version": "business_fact_ref.v1",
+        "tenant_id": str(tenant_id),
+        "source_system": "moca_demo",
+        "resource_type": "refund_case",
+        "resource_id": "RF-1001",
+        "resource_version": "v1",
+        "data_freshness_at": "2026-06-29T00:00:00Z",
+        "retrieved_at": "2026-06-29T00:01:00Z",
+    }
+    evidence_ref = {
+        "schema_version": "evidence_ref.v1",
+        "tenant_id": str(tenant_id),
+        "evidence_id": "refund-policy/chunk-001@v3",
+        "doc_key": "refund-policy",
+        "chunk_id": "chunk-001",
+        "policy_version": "v3",
+        "text_hash": "sha256:" + "1" * 64,
+        "retrieved_at": "2026-06-29T00:00:00.000Z",
+        "retrieval_config_version": "retrieval.v1",
+        "rank": 1,
+    }
+    risk_decision_ref = f"risk_decision:{run_id}:sha256-a"
+    return {
+        "target_merchant_id": target_merchant_id,
+        "target_merchant_ref": {
+            "schema_version": "target_merchant_binding.v1",
+            "target_merchant_id": target_merchant_id,
+            "source": "business_fact_ref",
+            "business_fact_ref": business_fact_ref,
+        },
+        "business_fact_refs": [business_fact_ref],
+        "verified_evidence_refs": [evidence_ref],
+        "claim_verification_ref": f"claim_verification:{run_id}:r1",
+        "claim_verification_summary": {"overall_status": "verified", "safe_support_ref_count": 1},
+        "risk_decision_ref": risk_decision_ref,
+        "risk_decision": {
+            "schema_version": "risk_decision.v1",
+            "tenant_id": str(tenant_id),
+            "run_id": str(run_id),
+            "action_id": "act-action-draft-store",
+            "action_payload_hash": "sha256:" + "a" * 64,
+            "risk_level": "high",
+            "reason_codes": ["approval_required"],
+            "policy_config_version": "approval-policy.v1",
+            "risk_config_version": "risk-rules.v1",
+            "approval_required": True,
+            "evaluated_at": "2026-06-29T00:02:00.000Z",
+        },
+        "auto_allowed_binding_ref": f"auto_allowed:{risk_decision_ref}",
+    }
+
+
 async def _create_store_draft(
     session: AsyncSession,
     *,
@@ -111,9 +166,15 @@ async def _create_store_draft(
     action_payload_hash: str = "sha256:" + "a" * 64,
     safety_snapshot_ref: str = "action_safety_snapshot/snap-1",
     safety_snapshot_hash: str = "sha256:" + "b" * 64,
+    target_merchant_id: str = "merchant-1",
 ):
     tenant_uuid = tenant_id or uuid4()
     run_uuid = run_id or await _create_run(session, tenant_id=tenant_uuid)
+    phase34_bindings = _phase34_store_bindings(
+        tenant_id=tenant_uuid,
+        run_id=run_uuid,
+        target_merchant_id=target_merchant_id,
+    )
     return await ActionDraftStore(session).create_or_get(
         run_id=run_uuid,
         tenant_id=tenant_uuid,
@@ -126,6 +187,7 @@ async def _create_store_draft(
         safety_snapshot_ref=safety_snapshot_ref,
         safety_snapshot_hash=safety_snapshot_hash,
         payload={"target_id": target_id, "amount": "25.00", "currency": "CNY"},
+        **phase34_bindings,
         draft_outcome=_draft_outcome(tenant_id=tenant_uuid, run_id=run_uuid),
         execution_mode="demo",
         draft_version=1,
@@ -280,6 +342,13 @@ async def test_action_draft_store_persists_v2_binding_and_outcome_fields(session
     assert draft.safety_snapshot_ref == "action_safety_snapshot/snap-1"
     assert draft.safety_snapshot_hash == "sha256:" + "b" * 64
     assert draft.approval_revision_ref == "auto_allowed"
+    assert draft.target_merchant_id == "merchant-1"
+    assert draft.target_merchant_ref["target_merchant_id"] == "merchant-1"
+    assert draft.business_fact_refs[0]["resource_id"] == "RF-1001"
+    assert draft.verified_evidence_refs[0]["evidence_id"] == "refund-policy/chunk-001@v3"
+    assert draft.claim_verification_ref == f"claim_verification:{run_id}:r1"
+    assert draft.risk_decision_ref == f"risk_decision:{run_id}:sha256-a"
+    assert draft.auto_allowed_binding_ref == f"auto_allowed:risk_decision:{run_id}:sha256-a"
     assert draft.execution_mode == "demo"
     assert draft.draft_outcome["status"] == "not_executed_demo"
     assert draft.draft_outcome["external_side_effect"] is False
@@ -335,4 +404,19 @@ async def test_action_draft_store_key_hit_with_mismatched_snapshot_hash_conflict
             tenant_id=tenant_id,
             run_id=run_id,
             safety_snapshot_hash="sha256:" + "c" * 64,
+        )
+
+
+@pytest.mark.asyncio
+async def test_action_draft_store_key_hit_with_mismatched_phase34_binding_conflicts(session: AsyncSession):
+    tenant_id = uuid4()
+    run_id = await _create_run(session, tenant_id=tenant_id)
+    await _create_store_draft(session, tenant_id=tenant_id, run_id=run_id)
+
+    with pytest.raises(ValueError, match="idempotency_binding_conflict"):
+        await _create_store_draft(
+            session,
+            tenant_id=tenant_id,
+            run_id=run_id,
+            target_merchant_id="merchant-2",
         )
