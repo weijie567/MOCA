@@ -227,7 +227,7 @@ async def test_create_coupon_grant_draft_rejects_phase34_approval_binding_mismat
         action_type="issue_coupon",
         payload=dict(request.proposed_action),
         session=session,
-        **_phase34_tool_kwargs(request, target_merchant_id="merchant-other"),
+        **_phase34_tool_kwargs(request, verified_evidence_refs=[]),
     )
 
     assert result["status"] == "error"

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.actions.drafts import ActionDraftStore
 from src.actions.schemas import ActionDraftV2Data, DraftOutcomeV1
 from src.agent.events import emit_event
+from src.agent.run_scope import BUSINESS_MERCHANT
 from src.approvals.schemas import AutoAllowedActionBindingV1, RiskDecisionV1, TargetMerchantBindingV1
 from src.approvals.snapshot_service import compute_action_payload_hash
 from src.common.canonical_hash import CanonicalHashError
@@ -257,6 +258,27 @@ class ActionService:
             risk_decision_ref=risk_decision_ref,
             risk_decision=risk_decision,
         )
+        run = (
+            await self.session.execute(
+                select(AgentRun).where(
+                    AgentRun.id == run_id,
+                    AgentRun.tenant_id == tenant_id,
+                )
+            )
+        ).scalar_one_or_none()
+        run_matches, run_error = _run_scope_matches_target(run, requested_binding["target_merchant_id"])
+        if not run_matches:
+            return _tool_error(
+                run_error or "RUN_SCOPE_BINDING_MISMATCH",
+                "Action target merchant does not match run scope",
+                retryable=False,
+            )
+        if not _snapshot_phase36_binding_matches(snapshot, requested_binding):
+            return _tool_error(
+                "SNAPSHOT_BINDING_MISMATCH",
+                "Action safety snapshot target binding is invalid",
+                retryable=False,
+            )
         if approval_request_id is None:
             return self._validate_auto_allowed_binding(
                 tenant_id=tenant_id,
@@ -406,6 +428,18 @@ async def _run_thread_id(session: AsyncSession, run_id: UUID) -> str | None:
     return (await session.execute(select(AgentRun.thread_id).where(AgentRun.id == run_id))).scalar_one_or_none()
 
 
+def _run_scope_matches_target(run: AgentRun | None, requested_target_merchant_id: str | None) -> tuple[bool, str | None]:
+    if run is None:
+        return False, "RUN_SCOPE_MISSING"
+    if run.scope_classification == BUSINESS_MERCHANT:
+        if not requested_target_merchant_id or str(run.target_merchant_id) != str(requested_target_merchant_id):
+            return False, "RUN_SCOPE_BINDING_MISMATCH"
+        return True, None
+    if requested_target_merchant_id:
+        return False, "RUN_SCOPE_NOT_BUSINESS_MERCHANT"
+    return False, "RUN_SCOPE_NOT_BUSINESS_MERCHANT"
+
+
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -483,6 +517,18 @@ def _approval_phase34_binding_matches(approval: ApprovalRequest, requested: dict
         risk_payload_matches = _canonical_risk_decision(approval.risk_decision) == requested["risk_decision"]
         if not (risk_ref_matches or risk_payload_matches):
             return False
+    return True
+
+
+def _snapshot_phase36_binding_matches(snapshot: ActionSafetySnapshot, requested: dict[str, Any]) -> bool:
+    if snapshot.action_payload_hash is None:
+        return True
+    if snapshot.target_merchant_id != requested["target_merchant_id"]:
+        return False
+    if _canonical_target_merchant_ref(snapshot.target_merchant_ref) != requested["target_merchant_ref"]:
+        return False
+    if _canonical_business_fact_refs(snapshot.business_fact_refs) != requested["business_fact_refs"]:
+        return False
     return True
 
 

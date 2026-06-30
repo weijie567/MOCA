@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.agent.run_scope import BUSINESS_MERCHANT
 from src.agent.trace import update_agent_run_status
 from src.approvals.events import (
     approval_revision_ref,
@@ -27,6 +28,7 @@ from src.approvals.schemas import (
     ApprovalInfoResult,
     ApprovalRequestCreateCommand,
     ApprovalRequestCreateResult,
+    TargetMerchantBindingV1,
     TrustedApprovalResultV1,
 )
 from src.approvals.snapshot_service import (
@@ -34,8 +36,9 @@ from src.approvals.snapshot_service import (
     persist_action_safety_snapshot,
 )
 from src.common.canonical_hash import CanonicalHashError
-from src.db.models import ApprovalAssignment, ApprovalLevel, ApprovalRequest
+from src.db.models import AgentRun, ApprovalAssignment, ApprovalLevel, ApprovalRequest
 from src.knowledge.schemas import EvidenceRefV1, canonical_evidence_projection
+from src.tools.contracts import BusinessFactRefV1
 
 
 class ApprovalTransitionError(ValueError):
@@ -78,6 +81,12 @@ class ApprovalService:
         self._assert_create_context(command)
         try:
             async with self.session.begin_nested():
+                await self._assert_agent_run_scope_matches_approval(
+                    tenant_id=command.tenant_id,
+                    run_id=command.run_id,
+                    target_merchant_id=command.target_merchant_id,
+                    target_merchant_ref=self._json_dump(command.target_merchant_ref),
+                )
                 snapshot = await self._load_or_persist_snapshot(command)
                 assignment_plan = self.policy.default_single_level_assignment(
                     now=command.created_at,
@@ -334,6 +343,12 @@ class ApprovalService:
             )
             if snapshot is None or snapshot.action_payload_hash != command.action_payload_hash:
                 raise ApprovalTransitionError("approval_not_executable")
+            self._assert_snapshot_scope_matches_binding(
+                snapshot=snapshot,
+                target_merchant_id=command.target_merchant_id,
+                target_merchant_ref=self._json_dump(command.target_merchant_ref),
+                business_fact_refs=[ref.model_dump(mode="json") for ref in command.business_fact_refs],
+            )
             return _SnapshotBinding(
                 action_payload_hash=snapshot.action_payload_hash,
                 safety_snapshot_ref=snapshot.snapshot_ref,
@@ -473,6 +488,12 @@ class ApprovalService:
         )
         if snapshot_row is None:
             raise ApprovalTransitionError("approval_not_executable")
+        await self._assert_agent_run_scope_matches_approval(
+            tenant_id=request.tenant_id,
+            run_id=request.run_id,
+            target_merchant_id=request.target_merchant_id,
+            target_merchant_ref=self._json_dump(request.target_merchant_ref),
+        )
 
         proposed_action, evidence_refs = self._replacement_action_and_evidence(
             request,
@@ -635,6 +656,12 @@ class ApprovalService:
         )
         if snapshot_row is None:
             raise ApprovalTransitionError("approval_not_executable")
+        await self._assert_agent_run_scope_matches_approval(
+            tenant_id=request.tenant_id,
+            run_id=request.run_id,
+            target_merchant_id=request.target_merchant_id,
+            target_merchant_ref=self._json_dump(request.target_merchant_ref),
+        )
 
         proposed_action, evidence_refs = self._replacement_action_and_evidence(request, command.info_payload)
         snapshot = await persist_action_safety_snapshot(
@@ -848,6 +875,12 @@ class ApprovalService:
         )
         if snapshot is None or snapshot.action_payload_hash != request.action_payload_hash:
             raise ApprovalTransitionError("approval_not_executable")
+        self._assert_snapshot_scope_matches_binding(
+            snapshot=snapshot,
+            target_merchant_id=request.target_merchant_id,
+            target_merchant_ref=self._json_dump(request.target_merchant_ref),
+            business_fact_refs=list(request.business_fact_refs or []),
+        )
 
     @staticmethod
     def _assert_hash_binding(request: ApprovalRequest, command: ApprovalDecisionCommand) -> None:
@@ -920,6 +953,102 @@ class ApprovalService:
             item = raw.model_dump(mode="json") if hasattr(raw, "model_dump") else raw
             refs.append(EvidenceRefV1.model_validate(item))
         return refs
+
+    async def _assert_agent_run_scope_matches_approval(
+        self,
+        *,
+        tenant_id: UUID,
+        run_id: UUID,
+        target_merchant_id: str | None,
+        target_merchant_ref: dict[str, Any] | None,
+    ) -> None:
+        run = (
+            await self.session.execute(
+                select(AgentRun).where(
+                    AgentRun.id == run_id,
+                    AgentRun.tenant_id == tenant_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if run is None:
+            raise ApprovalTransitionError(
+                "approval_scope_mismatch",
+                "Approval target merchant does not match run scope",
+            )
+
+        canonical_target_ref = self._canonical_target_merchant_ref(target_merchant_ref)
+        if run.scope_classification == BUSINESS_MERCHANT:
+            run_target_ref = self._canonical_target_merchant_ref(run.target_merchant_ref)
+            if (
+                not target_merchant_id
+                or canonical_target_ref is None
+                or str(run.target_merchant_id) != str(target_merchant_id)
+                or run_target_ref != canonical_target_ref
+            ):
+                raise ApprovalTransitionError(
+                    "approval_scope_mismatch",
+                    "Approval target merchant does not match run scope",
+                )
+            return
+
+        if target_merchant_id or canonical_target_ref is not None:
+            raise ApprovalTransitionError(
+                "approval_scope_mismatch",
+                "Approval target merchant does not match run scope",
+            )
+
+    @classmethod
+    def _assert_snapshot_scope_matches_binding(
+        cls,
+        *,
+        snapshot,
+        target_merchant_id: str | None,
+        target_merchant_ref: dict[str, Any] | None,
+        business_fact_refs: list[dict[str, Any]],
+    ) -> None:
+        if snapshot.action_payload_hash is None:
+            return
+        if snapshot.target_merchant_id != target_merchant_id:
+            raise ApprovalTransitionError(
+                "approval_scope_mismatch",
+                "Approval target merchant does not match snapshot scope",
+            )
+        if cls._canonical_target_merchant_ref(snapshot.target_merchant_ref) != cls._canonical_target_merchant_ref(
+            target_merchant_ref
+        ):
+            raise ApprovalTransitionError(
+                "approval_scope_mismatch",
+                "Approval target merchant does not match snapshot scope",
+            )
+        if cls._canonical_business_fact_refs(snapshot.business_fact_refs) != cls._canonical_business_fact_refs(
+            business_fact_refs
+        ):
+            raise ApprovalTransitionError(
+                "approval_scope_mismatch",
+                "Approval target merchant does not match snapshot scope",
+            )
+
+    @staticmethod
+    def _canonical_target_merchant_ref(value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        try:
+            return TargetMerchantBindingV1.model_validate(value).model_dump(mode="json")
+        except ValidationError as exc:
+            raise ApprovalTransitionError(
+                "approval_scope_mismatch",
+                "Approval target merchant does not match run scope",
+            ) from exc
+
+    @staticmethod
+    def _canonical_business_fact_refs(value: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+        try:
+            return [BusinessFactRefV1.model_validate(ref).model_dump(mode="json") for ref in value or []]
+        except ValidationError as exc:
+            raise ApprovalTransitionError(
+                "approval_scope_mismatch",
+                "Approval target merchant does not match snapshot scope",
+            ) from exc
 
     @staticmethod
     def _json_dump(value: Any) -> Any:
