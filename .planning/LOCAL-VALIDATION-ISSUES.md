@@ -8540,3 +8540,42 @@ request_user_input is unavailable in Default mode
 
 - `/Users/ming/.codex/skills/gsd-plan-milestone-gaps/SKILL.md`
 - `/Users/ming/.codex/get-shit-done/workflows/plan-milestone-gaps.md`
+
+## 2026-06-30 08:35 CST - Phase 35.1 plan quality-check rg pattern触发 zsh 反引号替换
+
+### 问题现象
+
+在 Phase 35.1 PLAN 质量检查中，原本想用 `rg` 搜索文档里是否出现未授权测试入口文本，但搜索 pattern 写在双引号中且包含 markdown command literal 的反引号，zsh 把反引号内容当成命令替换执行，导致错误命中本机旧 Python/缺失模块路径。
+
+### 如何检测 / 复现
+
+在 zsh 中执行一个双引号包裹、且内部包含反引号命令片段的 `rg -n ...` pattern；shell 会先处理反引号内容，而不是把它作为普通搜索文本传给 `rg`。
+
+### 关键证据或命令
+
+本次错误输出包含：
+
+```text
+ImportError while loading conftest '/Users/ming/projects/MOCA/tests/conftest.py'.
+tests/conftest.py:3: in <module>
+    from datetime import UTC, datetime, timedelta
+E   ImportError: cannot import name 'UTC' from 'datetime' (/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/datetime.py)
+/opt/homebrew/bin/python: No module named pytest
+```
+
+### 当前判断 / 根因
+
+根因不是项目测试失败，而是质量检查命令自身的 shell quoting 错误。反引号触发命令替换后，本机 PATH 上的旧 Python 3.9 被调用，正好复现了 MOCA AGENTS.md 中禁止绕过项目虚拟环境的风险。
+
+### 已做处理
+
+已改用安全 quoting / 不含反引号替换风险的搜索命令重跑 PLAN 质量检查；PLAN 本身的验证命令保持项目入口形式，例如 `uv run ...` 或 `UV_CACHE_DIR=/tmp/uv-cache uv run ...`。
+
+### 剩余问题
+
+无项目代码或计划内容阻塞。该问题只影响本次人工质量检查命令，未作为有效验证结论使用。
+
+### 下次继续排查入口
+
+- `AGENTS.md` 的本地验证命令环境硬规则
+- `.planning/phases/35.1-v1-9-milestone-readiness-closure/35.1-01-PLAN.md`

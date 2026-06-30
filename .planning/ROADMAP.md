@@ -441,7 +441,7 @@ Plans:
 **Validation Metadata:** APF-05, APF-13, APF-14
 **Depends on:** Phase 35
 **Gap Closure:** Closes gaps from `.planning/milestones/v1.9-MILESTONE-AUDIT.md`
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 **Success Criteria**:
 
@@ -451,7 +451,7 @@ Plans:
 4. Re-running `$gsd-audit-milestone` no longer reports formal verification orphan gaps, stale Nyquist metadata blockers, or MER-01 ledger mismatch.
 
 Plans:
-- [ ] TBD — run `$gsd-plan-phase 35.1`
+- [ ] 35.1-01-PLAN.md — Milestone readiness audit closure
 
 ## Backlog
 
