@@ -1,6 +1,6 @@
 ---
 phase: 36-merchant-scope-db-hardening-role-cleanup
-reviewed: 2026-06-30T14:22:56Z
+reviewed: 2026-06-30T14:50:49Z
 depth: deep
 files_reviewed: 43
 files_reviewed_list:
@@ -57,76 +57,67 @@ status: issues_found
 
 # Phase 36: Code Review Report
 
-**Reviewed:** 2026-06-30T14:22:56Z
+**Reviewed:** 2026-06-30T14:50:49Z
 **Depth:** deep
 **Files Reviewed:** 43
 **Status:** issues_found
 
 ## Summary
 
-Deep review covered the listed contract, readiness artifact, source, migration, and tests. The tenant/role scope hardening, migration preflights, approval/action binding checks, and readiness command guards are generally consistent. One behavioral gap remains: normal business-read runs can miss persisted `AgentRun.target_merchant_id` even when the current turn has trusted business facts.
+Deep re-review covered the listed contract, readiness artifact, source, migration, and tests after the Phase 36 code-review-fix commit `5093ed8` and fix report `6b78feb`. The prior gap where current `business_context.facts` plus trusted refs were ignored is mostly fixed, and `last_business_context_refs` alone remains non-authoritative. One authorization-boundary warning remains: the new runtime business-context classifier accepts any trusted ref for the same resource type without proving that the fact body belongs to that specific referenced resource.
 
 ## Warnings
 
-### WR-01: Runtime business facts are not consumed by AgentRun scope classification
+### WR-01: Runtime business fact scope is not bound to the referenced resource id
 
-**File:** `src/agent/run_scope.py:231`
+**File:** `src/agent/run_scope.py:263`
 
-**Issue:** `classify_agent_run_scope()` only derives merchant scope from explicit target bindings or `business_fact_results` payloads. The actual runtime `investigate` node emits business proof as `business_context.facts` plus `business_context.business_fact_refs` at `src/agent/nodes/investigate.py:206`, and its `tool_results` entries are prompt summaries rather than `BusinessFactResultV1` payloads. As a result, a completed order/refund/ticket read can have validated `merchant_id` facts and `BusinessFactRefV1` refs but still persist as `unknown_legacy` with `target_merchant_id = null`. That undermines the Phase 36 readiness claim that `AgentRun.target_merchant_id` is persisted from validated business-fact proof and leaves Phase 37 same-merchant visibility without its intended primary authorization fact for ordinary read-only business runs.
+**Issue:** `_candidates_from_business_context()` stores trusted `BusinessFactRefV1` values by `resource_type` only, then classifies a current fact as `business_merchant` when the fact has a `merchant_id` and any trusted ref of the same type exists. It does not verify that the fact body's resource identifier matches `BusinessFactRefV1.resource_id`. A state with `business_context.facts.order.id = "order-spoofed"` and a trusted ref for `resource_id = "order-authorized"` is currently classified as `business_merchant` for the spoofed fact's merchant while persisting a target ref for the unrelated authorized order. This partially fixes the old WR-01 but widens weak authority: current facts plus trusted refs may classify business scope, but only when the fact is bound to the same resource proven by the trusted ref.
 
-**Fix:** Teach the classifier to consume the runtime business-context shape, or have `investigate` emit sanitized `BusinessFactResultV1` payloads alongside the prompt-safe context. Keep `last_business_context_refs` alone non-authoritative because it lacks the current fact body; require a current fact containing `merchant_id` plus a service-approved `BusinessFactRefV1`.
+**Fix:** Bind facts to refs by both `resource_type` and resource id before creating a scope candidate. Add a regression test in `tests/agent/test_phase36_run_scope.py` where a current fact and trusted ref have the same type but different ids; it should remain `unknown_legacy` with no `target_merchant_id`.
 
 ```python
-def classify_agent_run_scope(state: Mapping[str, Any]) -> AgentRunScopeFacts:
+_RESOURCE_ID_KEYS = {
+    "order": ("id", "order_id", "order_no"),
+    "refund_case": ("id", "refund_case_id", "refund_case_no"),
+    "ticket": ("id", "ticket_id", "ticket_no"),
+}
+
+
+def _fact_resource_id(resource_type: str, fact: Mapping[str, Any]) -> str | None:
+    for key in _RESOURCE_ID_KEYS.get(resource_type, ("id",)):
+        value = _non_empty_str(fact.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+refs_by_key: dict[tuple[str, str], BusinessFactRefV1] = {}
+for raw_ref in _list_items(context.get("business_fact_refs")):
+    ref = BusinessFactRefV1.model_validate(raw_ref)
+    if tenant_id is not None and ref.tenant_id == tenant_id and ref.source_system in _TRUSTED_FACT_SOURCES:
+        refs_by_key.setdefault((ref.resource_type, ref.resource_id), ref)
+
+for resource_type, fact in facts.items():
+    if not isinstance(resource_type, str) or not isinstance(fact, Mapping):
+        continue
+    merchant_id = _non_empty_str(fact.get("merchant_id"))
+    resource_id = _fact_resource_id(resource_type, fact)
+    if merchant_id is None or resource_id is None:
+        continue
+    ref = refs_by_key.get((resource_type, resource_id))
+    if ref is None:
+        reason_codes.append("missing_business_fact_ref")
+        continue
     ...
-    fact_candidates, fact_errors = _candidates_from_business_fact_results(state)
-    context_candidates, context_errors = _candidates_from_business_context(state)
-    candidates.extend(fact_candidates)
-    candidates.extend(context_candidates)
-    reason_codes.extend(fact_errors)
-    reason_codes.extend(context_errors)
-
-
-def _candidates_from_business_context(state: Mapping[str, Any]) -> tuple[list[_ScopeCandidate], list[str]]:
-    context = state.get("business_context")
-    if not isinstance(context, Mapping):
-        return [], []
-
-    facts = context.get("facts") if isinstance(context.get("facts"), Mapping) else {}
-    refs = []
-    for raw_ref in _list_items(context.get("business_fact_refs")):
-        try:
-            ref = BusinessFactRefV1.model_validate(raw_ref)
-        except ValidationError:
-            return [], ["malformed_business_fact_ref"]
-        if ref.source_system in _TRUSTED_FACT_SOURCES and ref.tenant_id == state.get("tenant_id"):
-            refs.append(ref)
-
-    candidates = []
-    for resource_type, fact in facts.items():
-        merchant_id = _non_empty_str(fact.get("merchant_id") if isinstance(fact, Mapping) else None)
-        ref = next((item for item in refs if item.resource_type == resource_type), None)
-        if merchant_id and ref is not None:
-            candidates.append(
-                _ScopeCandidate(
-                    target_merchant_id=merchant_id,
-                    target_merchant_ref=TargetMerchantBindingV1(
-                        target_merchant_id=merchant_id,
-                        source="business_fact_ref",
-                        business_fact_ref=ref.model_dump(mode="json"),
-                    ).model_dump(mode="json"),
-                    scope_source="business_context_business_fact_ref_v1",
-                )
-            )
-    return candidates, []
 ```
 
-Add a regression test in `tests/agent/test_phase36_run_scope.py` that passes the realistic `investigate` output shape (`business_context.facts.order.merchant_id` plus `business_context.business_fact_refs`) and expects `BUSINESS_MERCHANT`. Run with:
+Suggested focused verification:
 
-`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase36_run_scope.py tests/test_agent_runs_api.py -q --tb=short`
+`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase36_run_scope.py::test_business_context_fact_requires_matching_business_fact_ref_resource_id -q --tb=short`
 
 ---
 
-_Reviewed: 2026-06-30T14:22:56Z_
+_Reviewed: 2026-06-30T14:50:49Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
