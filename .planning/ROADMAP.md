@@ -23,7 +23,7 @@
 **Goal:** Convert v1.9 runtime merchant-bound role semantics into database, migration, and readiness facts without opening new run/status/evidence/trace/replay visibility.
 **Requirements:** MSH-01, MSH-02, MSH-03, MSH-04, MSH-05, MSH-06, MSH-07, MSH-08
 **Depends on:** v1.9 MER-01 runtime-scope closure, Phase 34 approval/action binding, Phase 35 owner/admin-only trace/replay hardening
-**Plans:** 0 plans
+**Plans:** 6 plans
 
 **Success Criteria**:
 
@@ -37,7 +37,12 @@
 8. Phase 36 emits one readiness conclusion for later Phase 37: `ready_with_agent_run_binding`, `ready_with_derived_refs_only`, or `not_ready`.
 
 Plans:
-- [ ] TBD — run `$gsd-spec-phase 36`, then `$gsd-discuss-phase 36`, then `$gsd-plan-phase 36`
+- [ ] 36-01-PLAN.md — Role registry and active business-user binding hardening
+- [ ] 36-02-PLAN.md — Tenant-aware username identity and auth resolution contract
+- [ ] 36-03-PLAN.md — AgentRun target merchant scope model and runtime persistence
+- [ ] 36-04-PLAN.md — Approval/action/snapshot target merchant consistency
+- [ ] 36-05-PLAN.md — Alembic migration, preflight, backfill, and downgrade gates
+- [ ] 36-06-PLAN.md — Readiness artifact and final no-widening validation
 
 ## Requirement Coverage
 
