@@ -92,6 +92,10 @@ class User(TimestampMixin, Base):
             ["merchants.id", "merchants.tenant_id"],
             name="fk_users_merchant_tenant",
         ),
+        CheckConstraint(
+            "NOT is_active OR role NOT IN ('support', 'manager', 'merchant') OR merchant_id IS NOT NULL",
+            name="ck_users_active_business_role_has_merchant",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

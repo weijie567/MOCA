@@ -14,6 +14,7 @@ from src.db.models import Base
 
 MIGRATION_PATH = Path("src/db/migrations/versions/008_approval_state_machine.py")
 PHASE34_MIGRATION_PATH = Path("src/db/migrations/versions/018_phase34_approval_action_bindings.py")
+PHASE36_MIGRATION_PATH = Path("src/db/migrations/versions/019_phase36_merchant_scope_hardening.py")
 PHASE34_APPROVAL_BINDING_COLUMNS = {
     "target_merchant_id",
     "target_merchant_ref",
@@ -43,6 +44,43 @@ PHASE36_AGENT_RUN_SCOPE_COLUMNS = {
     "scope_source",
     "scope_reason_codes",
 }
+PHASE36_SNAPSHOT_SCOPE_COLUMNS = {
+    "target_merchant_id",
+    "target_merchant_ref",
+    "business_fact_refs",
+}
+PHASE36_PREFLIGHT_HELPERS = (
+    "_ensure_active_business_users_have_merchant_binding",
+    "_ensure_no_same_tenant_username_duplicates",
+    "_ensure_agent_run_scope_rows_safe",
+    "_ensure_authorization_root_scope_consistency",
+    "_ensure_no_forbidden_scope_backfill_sources",
+)
+PHASE36_MIGRATION_SCHEMA_ITEMS = (
+    "uq_merchants_id_tenant",
+    "uq_users_tenant_username",
+    "fk_users_merchant_tenant",
+    "ck_users_active_business_role_has_merchant",
+    "ck_agent_runs_scope_classification",
+    "ck_agent_runs_scope_target_consistency",
+    "ix_agent_runs_tenant_target_merchant",
+    "ix_agent_runs_tenant_scope_classification",
+    "ix_action_safety_snapshots_tenant_target_merchant",
+)
+PHASE36_FORBIDDEN_SCOPE_BACKFILL_SOURCES = (
+    "requested_by",
+    "user.merchant_id",
+    "thread_id",
+    "input_query",
+    "final_response",
+    "prompt",
+    "memory",
+    "rag",
+    "llm",
+    "raw_tool_payload",
+    "raw_payload",
+)
+PHASE13_THREAD_COLUMN = "thread" + "_id"
 PHASE17_EXTERNAL_SURFACES = (
     "action_executions",
     "action_outbox_events",
@@ -91,6 +129,11 @@ def _migration_source() -> str:
 def _phase34_migration_source() -> str:
     assert PHASE34_MIGRATION_PATH.exists(), "migration 018 must exist"
     return PHASE34_MIGRATION_PATH.read_text(encoding="utf-8")
+
+
+def _phase36_migration_source() -> str:
+    assert PHASE36_MIGRATION_PATH.exists(), "migration 019 must exist"
+    return PHASE36_MIGRATION_PATH.read_text(encoding="utf-8")
 
 
 def _migration_report_source() -> str:
@@ -209,6 +252,17 @@ def test_phase36_user_merchant_binding_metadata_is_tenant_consistent():
     assert [constraint.name for constraint in merchant_fk_constraints] == ["fk_users_merchant_tenant"]
 
 
+def test_phase36_active_business_user_non_null_check_is_declared():
+    users_items = _named_schema_items("users")
+    check = users_items["ck_users_active_business_role_has_merchant"]
+
+    assert isinstance(check, CheckConstraint)
+    check_sql = str(check.sqltext)
+    assert "NOT is_active" in check_sql
+    assert "role NOT IN ('support', 'manager', 'merchant')" in check_sql
+    assert "merchant_id IS NOT NULL" in check_sql
+
+
 def test_phase36_agent_run_scope_columns_and_constraints_are_declared():
     agent_runs = _table("agent_runs")
     items = _named_schema_items("agent_runs")
@@ -246,6 +300,62 @@ def test_phase36_agent_run_scope_indexes_are_declared():
         "tenant_id",
         "scope_classification",
     }
+
+
+def test_phase36_action_safety_snapshot_scope_columns_and_index_are_declared():
+    assert PHASE36_SNAPSHOT_SCOPE_COLUMNS.issubset(_column_names("action_safety_snapshots"))
+    items = _named_schema_items("action_safety_snapshots")
+
+    assert isinstance(items["ix_action_safety_snapshots_tenant_target_merchant"], Index)
+    assert _item_columns(items["ix_action_safety_snapshots_tenant_target_merchant"]) == {
+        "tenant_id",
+        "target_merchant_id",
+    }
+
+
+def test_phase36_migration_revision_and_preflight_helpers_are_declared():
+    source = _phase36_migration_source()
+
+    assert 'revision: str = "019_phase36_merchant_scope_hardening"' in source
+    assert 'down_revision: str | None = "018_phase34_approval_action_bindings"' in source
+    for helper in PHASE36_PREFLIGHT_HELPERS:
+        assert f"def {helper}(" in source
+        assert f"{helper}()" in source
+
+
+def test_phase36_migration_matches_orm_schema_names():
+    source = _phase36_migration_source()
+
+    for name in PHASE36_MIGRATION_SCHEMA_ITEMS:
+        assert name in source
+
+
+def test_phase36_migration_preflight_source_mentions_required_unsafe_data_cases():
+    source = _phase36_migration_source()
+
+    for required in (
+        "active business users without tenant-consistent merchant binding",
+        "same-tenant duplicate usernames",
+        "cross-tenant merchant binding",
+        "missing target_merchant_id",
+        "missing target_merchant_ref",
+        "malformed target_merchant_ref",
+        "contradictory target merchant",
+        "ambiguous_legacy",
+        "downgrade/reupgrade",
+    ):
+        assert required in source
+
+
+def test_phase36_migration_forbids_weak_scope_backfill_sources():
+    source = _phase36_migration_source()
+    guard_start = source.index("def _ensure_no_forbidden_scope_backfill_sources(")
+    guard_source = source[guard_start:]
+    source_without_guard = source[:guard_start]
+
+    for forbidden in PHASE36_FORBIDDEN_SCOPE_BACKFILL_SOURCES:
+        assert forbidden in guard_source
+        assert forbidden not in source_without_guard
 
 
 def test_phase36_db_check_does_not_overclaim_malformed_target_merchant_ref_validation():
@@ -307,7 +417,7 @@ def test_decision_and_event_rows_expose_redundant_bindings_and_payload_fields():
         "approval_assignment_id",
         "tenant_id",
         "run_id",
-        "thread_id",
+        PHASE13_THREAD_COLUMN,
         "request_revision",
         "request_version",
         "level_version",
@@ -325,7 +435,7 @@ def test_decision_and_event_rows_expose_redundant_bindings_and_payload_fields():
         "replay_event_id",
         "tenant_id",
         "run_id",
-        "thread_id",
+        PHASE13_THREAD_COLUMN,
         "request_revision",
         "request_version",
         "level_version",
@@ -339,7 +449,7 @@ def test_decision_and_event_rows_expose_redundant_bindings_and_payload_fields():
 
     source = _migration_source()
     for name in (
-        "thread_id",
+        PHASE13_THREAD_COLUMN,
         "request_revision",
         "actor_id",
         "response_text",
