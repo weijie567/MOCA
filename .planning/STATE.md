@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Merchant Scope Hardening
-status: defining_requirements
-stopped_at: v2.0 milestone started; defining requirements
-last_updated: "2026-06-30T03:47:28Z"
+status: active
+stopped_at: v2.0 roadmap created; ready for Phase 36 spec
+last_updated: "2026-06-30T03:50:00Z"
 last_activity: 2026-06-30
 progress:
-  total_phases: 0
+  total_phases: 1
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -25,10 +25,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-30)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Next roadmap item: define Phase 36 Merchant-scope DB hardening / role cleanup
+Phase: 36 - Merchant-scope DB Hardening / Role Cleanup
+Next roadmap item: write Phase 36 SPEC.md
 Plan: none active
-Status: Defining v2.0 requirements
+Status: Ready for `$gsd-spec-phase 36`
 Last activity: 2026-06-30
 
 Progress: [░░░░░░░░░░] 0%
@@ -36,6 +36,7 @@ Progress: [░░░░░░░░░░] 0%
 Planning files:
 
 - `.planning/PROJECT.md`
+- `.planning/REQUIREMENTS.md`
 - `.planning/ROADMAP.md`
 - `.planning/STATE.md`
 - `.planning/MILESTONES.md`
@@ -52,6 +53,12 @@ Planning files:
 - Phase 36 should convert v1.9 runtime merchant-bound role semantics into database/migration/readiness facts: deprecated legacy `merchant` compatibility, active business-user merchant binding, tenant-scoped username identity, run-level target merchant scope classification, and cross-table consistency gates.
 - Same-merchant manager run/trace/replay visibility remains future Phase 37 scope until Phase 36 proves a trustworthy run-level merchant binding and emits a readiness conclusion.
 - PostgreSQL RLS remains out of scope for v2.0 unless a later explicit phase adopts it; Phase 36 should prepare schema constraints, indexes, validation, and backfill gates only.
+
+## Current Roadmap
+
+| Phase | Plans | Status |
+|-------|-------|--------|
+| 36. Merchant-scope DB Hardening / Role Cleanup | 0 plans | Not started |
 
 ## Last Milestone Context
 

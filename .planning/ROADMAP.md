@@ -12,55 +12,50 @@
 - [x] **v1.7 Short-term Memory Unification** - Shipped on 2026-06-20. Goal: complete the short-term memory chain for the current Agent Console `/api/v1/agent-runs + SSE` path.
 - [x] **v1.8 Intent Routing Safety Hardening** - Shipped on 2026-06-21. Goal: harden ordinary-chat intent/routing traceability, risk tiering, workflow-state-first routing, and slot invalidation.
 - [x] **v1.9 Agent Platform Foundation** - Shipped on 2026-06-30. Full archive: [v1.9-ROADMAP.md](milestones/v1.9-ROADMAP.md). Audit: [v1.9-MILESTONE-AUDIT.md](milestones/v1.9-MILESTONE-AUDIT.md).
+- [ ] **v2.0 Merchant Scope Hardening** - Active. Goal: harden merchant-bound role semantics at database, migration, and authorization-readiness boundaries without widening run/trace/replay visibility.
 
 ## Phases
 
-<details>
-<summary>v1.9 Agent Platform Foundation (Phases 26-35.1) - SHIPPED 2026-06-30</summary>
+### Phase 36: Merchant-scope DB Hardening / Role Cleanup
 
-- [x] Phase 26: Architecture Contract Baseline (1/1 plan)
-- [x] Phase 27: TrustedContextFactory and Projections (3/3 plans)
-- [x] Phase 28: Decision Event Foundation (1/1 plan)
-- [x] Phase 29: Tool Platform Boundary (4/4 plans)
-- [x] Phase 29.5: Merchant Scope / Role Model Alignment (6/6 plans)
-- [x] Phase 30: BusinessFactService Boundary (3/3 plans)
-- [x] Phase 31: Memory Platform Boundary (6/6 plans)
-- [x] Phase 32: Intent Graph Migration (5/5 plans)
-- [x] Phase 33: RAG Context Build and Claim Verification (9/9 plans)
-- [x] Phase 34: Approval and ActionDraft Boundary Hardening (6/6 plans)
-- [x] Phase 35: Replay and Eval Hardening (6/6 plans)
-- [x] Phase 35.1: v1.9 Milestone Readiness Closure (1/1 plan)
+**Status:** Not started
+**Milestone:** v2.0 Merchant Scope Hardening
+**Goal:** Convert v1.9 runtime merchant-bound role semantics into database, migration, and readiness facts without opening new run/status/evidence/trace/replay visibility.
+**Requirements:** MSH-01, MSH-02, MSH-03, MSH-04, MSH-05, MSH-06, MSH-07, MSH-08
+**Depends on:** v1.9 MER-01 runtime-scope closure, Phase 34 approval/action binding, Phase 35 owner/admin-only trace/replay hardening
+**Plans:** 0 plans
 
-Full details are archived in [v1.9-ROADMAP.md](milestones/v1.9-ROADMAP.md).
+**Success Criteria**:
 
-</details>
+1. Legacy `merchant` role is preserved only as deprecated compatibility and cannot become platform-wide or tenant-wide business-data authority.
+2. Active merchant-bound business users have valid merchant binding or fail closed with explicit migration/preflight handling.
+3. Username identity has tenant-scoped uniqueness or an explicit transitional tenant-resolution contract with tests preventing same-tenant duplicate principal ambiguity.
+4. `AgentRun` has an unambiguous target merchant binding model and scope classification for business, policy-only / merchant-not-required, and unknown legacy runs.
+5. Approval request, action draft, and safety snapshot target merchant bindings cannot contradict linked business-scoped run binding.
+6. Migration/backfill gates reject unsafe null, duplicate, contradictory, or ambiguous data instead of guessing merchant scope.
+7. Existing business-data runtime behavior remains unchanged: BusinessFactService authority, tenant public policy retrieval, memory contextual-only boundaries, RAG/claim boundaries, Phase 34 approval access, and owner/admin-only run/trace/replay access continue to pass.
+8. Phase 36 emits one readiness conclusion for later Phase 37: `ready_with_agent_run_binding`, `ready_with_derived_refs_only`, or `not_ready`.
 
-<details>
-<summary>Shipped phases through v1.8</summary>
+Plans:
+- [ ] TBD — run `$gsd-spec-phase 36`, then `$gsd-discuss-phase 36`, then `$gsd-plan-phase 36`
 
-- v1.0 MVP: Phases 1-6
-- v1.1 Agent Architecture Migration: Phases 7-15.2
-- v1.2 Long-term / Case Memory: Phase 16
-- v1.3 RAG Hybrid Retrieval: Phase 20
-- v1.4 RAG Production Ingestion + OCR: Phase 21
-- v1.5 RAG Context Builder + Hallucination Control: Phase 22
-- v1.6 RAG Reranker + Query Rewrite: Phase 23
-- v1.7 Short-term Memory Unification: Phase 24 and inserted memory follow-ups
-- v1.8 Intent Routing Safety Hardening: Phase 25
+## Requirement Coverage
 
-Archived milestone details live in `.planning/milestones/`.
+| Requirement | Phase | Coverage |
+|-------------|-------|----------|
+| MSH-01 | Phase 36 | Legacy `merchant` role deprecation and role registry hardening |
+| MSH-02 | Phase 36 | Active business-user merchant binding and invalid legacy fail-closed behavior |
+| MSH-03 | Phase 36 | Tenant-scoped username identity or transitional tenant-resolution contract |
+| MSH-04 | Phase 36 | `AgentRun` target merchant binding and scope classification |
+| MSH-05 | Phase 36 | Cross-table target merchant consistency for authorization/audit roots |
+| MSH-06 | Phase 36 | Migration/backfill preflight, idempotence, and no-guess classification |
+| MSH-07 | Phase 36 | No regression for v1.9 runtime boundaries and owner/admin-only trace/replay access |
+| MSH-08 | Phase 36 | Trace/replay authorization readiness conclusion for future Phase 37 |
 
-</details>
+## Future / Conditional Work
 
-## Current Status
-
-v1.9 is shipped and archived. The project is between milestones.
-
-Next step:
-
-```text
-$gsd-new-milestone
-```
+- **Phase 37 candidate: Same-merchant trace/replay authorization expansion** - only after Phase 36 proves trusted run-level merchant binding or explicitly reports an acceptable derived-ref readiness path. Scope should exclude live stream execution by default.
+- **RLS hardening candidate** - PostgreSQL Row Level Security remains deferred until schema facts and local test harness are stable.
 
 ## Backlog
 
