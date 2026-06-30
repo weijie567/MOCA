@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
-status: phase_ready_to_plan
-stopped_at: Phase 35.1 gap closure phase created from v1.9 milestone audit
-last_updated: "2026-06-30T00:20:47Z"
+status: ready_to_execute
+stopped_at: Phase 35.1 planned and ready to execute
+last_updated: "2026-06-30T00:51:51Z"
 last_activity: 2026-06-30
 progress:
   total_phases: 12
   completed_phases: 11
-  total_plans: 50
+  total_plans: 51
   completed_plans: 50
   percent: 92
 ---
@@ -25,10 +25,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-29)
 
 ## Current Position
 
-Phase: 35.1 (v1.9-milestone-readiness-closure) — PLANNED
-Next roadmap item: plan Phase 35.1 milestone readiness closure
-Plan: 0 plans
-Status: Gap closure phase created from v1.9 milestone audit; ready to plan
+Phase: 35.1 (v1.9-milestone-readiness-closure) — READY TO EXECUTE
+Next roadmap item: execute Phase 35.1 milestone readiness closure
+Plan: 1 plan (`35.1-01-PLAN.md`)
+Status: Phase 35.1 planned; ready to execute
 Last activity: 2026-06-30
 
 Progress: [█████████░] 92%
@@ -54,7 +54,7 @@ Planning files:
 
 ## Performance Metrics
 
-**v1.9 current planned scope:** 12 phases, 19 v1 requirements, 50 completed phase plans plus pending Phase 35.1 closure planning.
+**v1.9 current planned scope:** 12 phases, 19 v1 requirements, 50 completed phase plans plus 1 planned Phase 35.1 closure plan.
 
 | Phase | Plans | Status |
 |-------|-------|--------|
@@ -69,10 +69,10 @@ Planning files:
 | 33. RAG Context Build and Claim Verification | 9/9 | Complete |
 | 34. Approval and ActionDraft Boundary Hardening | 6/6 | Complete |
 | 35. Replay and Eval Hardening | 6/6 | Complete |
-| 35.1. v1.9 Milestone Readiness Closure | 0 plans | Planned |
+| 35.1. v1.9 Milestone Readiness Closure | 1 planned | Ready to execute |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
-Latest execution metric: Phase 35 P35-06 — 13 min, 2 tasks, 3 files; final focused replay/API/eval/architecture suites, ruff, source audit, and no-scope-creep closure passed. Phase 35.1 has been added as an audit-readiness closure phase and is not yet planned.
+Latest planning metric: Phase 35.1 planned with 1 artifact-only gap-closure plan; GSD plan-checker passed after dependency, verify-block, evidence-read, and audit-gate revisions. Next command is `$gsd-execute-phase 35.1`.
 | Phase 29.5 P01 | 35min | 2 tasks | 5 files |
 | Phase 29.5 P02 | 5min | 2 tasks | 5 files |
 | Phase 29.5 P03 | 34min | 2 tasks | 13 files |
@@ -246,10 +246,10 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-30T00:20:47Z
-Stopped at: Phase 35.1 gap closure phase created from v1.9 milestone audit
+Last session: 2026-06-30T00:51:51Z
+Stopped at: Phase 35.1 planned and ready to execute
 Resume file: None
-Next: Run `$gsd-plan-phase 35.1`. Old phase directory archive remains a separate cleanup todo.
+Next: Run `$gsd-execute-phase 35.1`. Old phase directory archive remains a separate cleanup todo.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
 
@@ -285,6 +285,6 @@ Next: Run `$gsd-plan-phase 35.1`. Old phase directory archive remains a separate
 
 **Completed Phase:** 35 (Replay and Eval Hardening) — 6/6 plans complete; code review clean after fixes; UAT 8/8 passed; security `threats_open: 0`; Nyquist validation compliant; aggregate Phase 35 suite `122 passed, 1 warning` — 2026-06-29
 
-**Planned Phase:** 35.1 (v1.9 Milestone Readiness Closure) — closes strict v1.9 audit gaps; plans pending — 2026-06-30
+**Planned Phase:** 35.1 (v1.9 Milestone Readiness Closure) — 1 plan; plan-checker passed — 2026-06-30T00:51:51Z
 
-**Next Roadmap Item:** plan Phase 35.1 milestone readiness closure
+**Next Roadmap Item:** execute Phase 35.1 milestone readiness closure

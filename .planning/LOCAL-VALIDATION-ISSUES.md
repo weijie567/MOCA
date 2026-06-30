@@ -8579,3 +8579,51 @@ E   ImportError: cannot import name 'UTC' from 'datetime' (/Library/Developer/Co
 
 - `AGENTS.md` 的本地验证命令环境硬规则
 - `.planning/phases/35.1-v1-9-milestone-readiness-closure/35.1-01-PLAN.md`
+
+## 2026-06-30 08:51 CST - Phase 35.1 state.planned-phase 回退 v1.9 统计
+
+### 问题现象
+
+Phase 35.1 PLAN 通过 plan-checker 后，按 `gsd-plan-phase` workflow 的状态更新步骤执行 `gsd-sdk query state.planned-phase --phase 35.1 --name "v1.9 Milestone Readiness Closure" --plans 1`。命令返回 `updated: true`，但 `.planning/STATE.md` frontmatter 被写回不正确的 milestone 汇总：`status: planning`、`total_phases: 11`、`total_plans: 50`、`percent: 100`，正文也仍保留“下一步 plan Phase 35.1”的陈旧描述。
+
+### 如何检测 / 复现
+
+在 Phase 35.1 planning 完成后执行：
+
+```bash
+gsd-sdk query state.planned-phase --phase 35.1 --name "v1.9 Milestone Readiness Closure" --plans 1
+git diff -- .planning/STATE.md
+```
+
+### 关键证据或命令
+
+命令输出显示：
+
+```json
+{
+  "updated": true,
+  "phase": "35.1",
+  "name": "v1.9 Milestone Readiness Closure",
+  "plans": "1"
+}
+```
+
+但 `git diff -- .planning/STATE.md` 显示 frontmatter 从 `phase_ready_to_plan` / `total_phases: 12` / `percent: 92` 被改成 `planning` / `total_phases: 11` / `percent: 100`，且正文仍写着 `Next: Run $gsd-plan-phase 35.1`。
+
+### 当前判断 / 根因
+
+这是 GSD state writer 与 MOCA 当前 decimal gap-closure phase / milestone 汇总统计不兼容的又一次状态写入问题。该 handler 成功写入了 planned phase 记录，但没有正确保留 Phase 35.1 已加入 v1.9 scope 后的 12-phase 统计，也没有把正文 Current Position/Session Continuity 一起更新成 execute-ready。
+
+### 已做处理
+
+手动修正 `.planning/STATE.md`：`status: ready_to_execute`，`total_phases: 12`，`total_plans: 51`，`completed_plans: 50`，`percent: 92`；正文改为 Phase 35.1 `READY TO EXECUTE`、`Plan: 1 plan (35.1-01-PLAN.md)`，下一步改为 `$gsd-execute-phase 35.1`。
+
+### 剩余问题
+
+无当前阻塞。后续继续避免盲信 `gsd-sdk query state.*` 写入器结果；每次状态 mutation 后必须立刻 `git diff -- .planning/STATE.md` 检查。
+
+### 下次继续排查入口
+
+- `gsd-sdk query state.planned-phase`
+- `/Users/ming/.codex/get-shit-done/workflows/plan-phase.md`
+- `.planning/STATE.md`
