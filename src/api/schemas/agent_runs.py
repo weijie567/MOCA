@@ -19,6 +19,9 @@ class RunStatusResponse(BaseModel):
     started_at: datetime
     completed_at: datetime | None = None
     final_response: str | None = None
+    target_merchant_id: str | None = None
+    scope_classification: str
+    scope_source: str | None = None
 
 
 class SseEventPayload(BaseModel):

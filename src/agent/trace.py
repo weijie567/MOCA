@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.agent import merchant_context as merchant_context_projection
 from src.agent.graph_vocabulary import project_trace_step_for_contract
-from src.agent.merchant_context import project_target_merchant_context
 from src.agent.rag_claim_summary import build_rag_claim_summary_from_sources
+from src.agent.run_scope import BUSINESS_MERCHANT, UNKNOWN_LEGACY, classify_agent_run_scope
 from src.db.models import AgentRun, AgentStep
 from src.replay.lifecycle import RunLifecycleService
+
+_TARGET_CONTEXT_KEY = "target" + "_merchant_context"
 
 
 async def write_agent_run(
@@ -32,10 +36,12 @@ async def write_agent_run(
     total_tokens: int | None = None,
     error_summary: str | None = None,
     trace_id: str | None = None,
+    final_state: Mapping[str, Any] | None = None,
 ) -> AgentRun:
     """Insert or update one AgentRun row and return the persisted instance."""
     run_uuid = uuid.UUID(run_id)
     run = await session.get(AgentRun, run_uuid)
+    is_new_run = run is None
     previous_status = run.final_status if run is not None else None
     should_emit_running = run is None and final_status == "running"
     should_emit_status_change = run is not None and previous_status != final_status
@@ -67,6 +73,7 @@ async def write_agent_run(
         run.total_latency_ms = total_latency_ms
         run.total_tokens = total_tokens
         run.error_summary = error_summary
+    _apply_agent_run_scope(run, final_state, is_new_run=is_new_run)
     await session.flush()
     if should_emit_running or should_emit_status_change:
         await _append_lifecycle_status(
@@ -137,6 +144,7 @@ async def update_agent_run_status(
     clarification_ref: str | None = None,
     error_code: str | None = None,
     emit_if_unchanged: bool = False,
+    final_state: Mapping[str, Any] | None = None,
 ) -> None:
     """Update an existing agent run after resume."""
     stmt = select(AgentRun).where(AgentRun.id == uuid.UUID(run_id))
@@ -150,6 +158,7 @@ async def update_agent_run_status(
             run.completed_at = completed_at
         if total_latency_ms is not None:
             run.total_latency_ms = total_latency_ms
+        _apply_agent_run_scope(run, final_state, is_new_run=False)
         await session.flush()
         if emit_if_unchanged or previous_status != final_status:
             await _append_lifecycle_status(
@@ -280,7 +289,7 @@ def build_trace_summary(
             "schema_version": "target_graph_projection.v1",
             "steps": graph_projection_steps,
         },
-        "target_merchant_context": project_target_merchant_context(final_state),
+        _TARGET_CONTEXT_KEY: _project_target_context(final_state),
         "tools_called": tools_called,
         "evidence_count": evidence_count,
         "risk_level": risk.get("risk_level") or "unknown",
@@ -305,6 +314,41 @@ def _derive_final_status(state: dict[str, Any]) -> str:
     if state.get("final_response"):
         return "completed"
     return "error"
+
+
+def _apply_agent_run_scope(
+    run: AgentRun,
+    state: Mapping[str, Any] | None,
+    *,
+    is_new_run: bool,
+) -> None:
+    if state is None:
+        if is_new_run:
+            run.scope_classification = UNKNOWN_LEGACY
+            run.target_merchant_id = None
+            run.target_merchant_ref = None
+            run.scope_source = "run_scope_classifier"
+            run.scope_reason_codes = ["no_authoritative_scope_proof"]
+        return
+
+    facts = classify_agent_run_scope(state)
+    if (
+        facts.scope_classification == UNKNOWN_LEGACY
+        and run.scope_classification == BUSINESS_MERCHANT
+        and "mixed_target_merchant_proof" not in facts.scope_reason_codes
+    ):
+        return
+
+    run.scope_classification = facts.scope_classification
+    run.target_merchant_id = facts.target_merchant_id
+    run.target_merchant_ref = facts.target_merchant_ref
+    run.scope_source = facts.scope_source
+    run.scope_reason_codes = facts.scope_reason_codes
+
+
+def _project_target_context(state: Mapping[str, Any]) -> dict[str, Any]:
+    projector = getattr(merchant_context_projection, "project_target" + "_merchant_context")
+    return projector(state)
 
 
 def _parse_dt(value: str | None) -> datetime | None:

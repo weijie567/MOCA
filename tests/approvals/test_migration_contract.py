@@ -36,6 +36,13 @@ PHASE34_ACTION_DRAFT_BINDING_COLUMNS = {
     "risk_decision",
     "auto_allowed_binding_ref",
 }
+PHASE36_AGENT_RUN_SCOPE_COLUMNS = {
+    "target_merchant_id",
+    "target_merchant_ref",
+    "scope_classification",
+    "scope_source",
+    "scope_reason_codes",
+}
 PHASE17_EXTERNAL_SURFACES = (
     "action_executions",
     "action_outbox_events",
@@ -200,6 +207,55 @@ def test_phase36_user_merchant_binding_metadata_is_tenant_consistent():
         if {element.parent.name for element in constraint.elements} & {"merchant_id"}
     ]
     assert [constraint.name for constraint in merchant_fk_constraints] == ["fk_users_merchant_tenant"]
+
+
+def test_phase36_agent_run_scope_columns_and_constraints_are_declared():
+    agent_runs = _table("agent_runs")
+    items = _named_schema_items("agent_runs")
+
+    assert PHASE36_AGENT_RUN_SCOPE_COLUMNS.issubset(_column_names("agent_runs"))
+    assert agent_runs.c["target_merchant_id"].nullable
+    assert agent_runs.c["target_merchant_ref"].nullable
+    assert agent_runs.c["scope_classification"].nullable is False
+    assert agent_runs.c["scope_source"].nullable
+    assert agent_runs.c["scope_reason_codes"].nullable
+
+    scope_check = items["ck_agent_runs_scope_classification"]
+    target_check = items["ck_agent_runs_scope_target_consistency"]
+    assert isinstance(scope_check, CheckConstraint)
+    assert isinstance(target_check, CheckConstraint)
+
+    scope_sql = str(scope_check.sqltext)
+    target_sql = str(target_check.sqltext)
+    for classification in ("business_merchant", "policy_only", "merchant_not_required", "unknown_legacy"):
+        assert classification in scope_sql
+    assert "scope_classification = 'business_merchant'" in target_sql
+    assert "target_merchant_id IS NOT NULL" in target_sql
+    assert "target_merchant_ref IS NOT NULL" in target_sql
+    assert "target_merchant_id IS NULL" in target_sql
+    assert "target_merchant_ref IS NULL" in target_sql
+
+
+def test_phase36_agent_run_scope_indexes_are_declared():
+    items = _named_schema_items("agent_runs")
+
+    assert isinstance(items["ix_agent_runs_tenant_target_merchant"], Index)
+    assert _item_columns(items["ix_agent_runs_tenant_target_merchant"]) == {"tenant_id", "target_merchant_id"}
+    assert isinstance(items["ix_agent_runs_tenant_scope_classification"], Index)
+    assert _item_columns(items["ix_agent_runs_tenant_scope_classification"]) == {
+        "tenant_id",
+        "scope_classification",
+    }
+
+
+def test_phase36_db_check_does_not_overclaim_malformed_target_merchant_ref_validation():
+    target_check = _named_schema_items("agent_runs")["ck_agent_runs_scope_target_consistency"]
+    target_sql = str(target_check.sqltext)
+
+    assert "target_merchant_ref IS NOT NULL" in target_sql
+    assert "target_merchant_binding.v1" not in target_sql
+    assert "business_fact_ref" not in target_sql
+    assert "TargetMerchantBindingV1" not in target_sql
 
 
 def test_level_assignment_decision_event_tables_and_constraints_are_declared():

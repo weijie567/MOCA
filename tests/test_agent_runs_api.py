@@ -12,9 +12,10 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.agent.trace import write_agent_run
 from src.api.main import app
 from src.agent.merchant_context import project_target_merchant_context
+from src.agent.run_scope import BUSINESS_MERCHANT
+from src.agent.trace import write_agent_run
 from src.api.routers.agent_runs import (
     ADMIN_RUN_VISIBILITY_ROLES,
     APPROVAL_NOT_EXECUTABLE,
@@ -1321,6 +1322,43 @@ async def test_run_visibility_supervisor_approval_manager_get_403(
         assert evidence_response.status_code == 403
         assert evidence_response.json()["error"]["code"] == "FORBIDDEN"
         assert "rag_claim_summary" not in evidence_response.text
+
+
+@pytest.mark.asyncio
+async def test_run_status_response_exposes_safe_scope_metadata(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+) -> None:
+    owner = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=owner.tenant_id, user_id=owner.id, final_status="completed")
+    run.scope_classification = BUSINESS_MERCHANT
+    run.target_merchant_id = "merchant-1"
+    run.target_merchant_ref = {
+        "schema_version": "target_merchant_binding.v1",
+        "target_merchant_id": "merchant-1",
+        "source": "business_fact_ref",
+        "business_fact_ref": {
+            "schema_version": "business_fact_ref.v1",
+            "tenant_id": str(owner.tenant_id),
+            "source_system": "business_fact_service",
+            "resource_type": "order",
+            "resource_id": "ORD-SCOPE-1",
+            "resource_version": "order.v1",
+            "data_freshness_at": None,
+            "retrieved_at": datetime.now(UTC).isoformat(),
+        },
+    }
+    run.scope_source = "target_merchant_binding_v1"
+    await session.commit()
+
+    response = await client.get(f"/api/v1/agent-runs/{run.id}", headers=_auth_header(owner, ["agent:chat"]))
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["scope_classification"] == BUSINESS_MERCHANT
+    assert data["target_merchant_id"] == "merchant-1"
+    assert data["scope_source"] == "target_merchant_binding_v1"
 
 
 def test_agent_run_visibility_guards_remain_admin_only_and_ignore_target_merchant_context():
