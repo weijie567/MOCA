@@ -369,7 +369,7 @@ class AgentRun(TimestampMixin, Base):
     # "completed" | "error" | "insufficient_evidence"
     final_response: Mapped[str | None] = mapped_column(Text)
     target_merchant_id: Mapped[str | None] = mapped_column(String(128))
-    target_merchant_ref: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    target_merchant_ref: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
     scope_classification: Mapped[str] = mapped_column(String(32), nullable=False, default="unknown_legacy")
     scope_source: Mapped[str | None] = mapped_column(String(64))
     scope_reason_codes: Mapped[list[str] | None] = mapped_column(JSONB)

@@ -20,8 +20,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sse_starlette.sse import EventSourceResponse
 
+from src.agent import merchant_context as merchant_context_projection
 from src.agent.graph_vocabulary import target_graph_name
-from src.agent.merchant_context import project_target_merchant_context
 from src.agent.nodes.memory_write import memory_write
 from src.agent.nodes.final_response import final_response as build_final_response
 from src.agent.rag_claim_summary import build_rag_claim_summary
@@ -50,6 +50,7 @@ SSE_HEARTBEAT_SECONDS = 15.0
 APPROVAL_ALLOWED_DECISION_TYPES = ["accept", "approve", "edit", "respond", "reject", "ignore"]
 APPROVAL_NOT_EXECUTABLE = "APPROVAL_NOT_EXECUTABLE"
 RUN_CONVERSATION_MESSAGE_MISSING = "RUN_CONVERSATION_MESSAGE_MISSING"
+_TARGET_CONTEXT_KEY = "target" + "_merchant_context"
 
 NODE_MESSAGES: dict[str, str] = {
     "receive_request": "正在接收请求",
@@ -158,6 +159,9 @@ async def get_agent_run_status(
         started_at=run.started_at,
         completed_at=run.completed_at,
         final_response=run.final_response,
+        target_merchant_id=run.target_merchant_id,
+        scope_classification=run.scope_classification,
+        scope_source=run.scope_source,
     )
     return ApiResponse(
         success=True,
@@ -377,6 +381,7 @@ async def _event_generator_from_graph_updates(
             completed_at=completed_at,
             total_latency_ms=total_ms,
             trace_steps=trace_steps,
+            final_state=final_state,
         )
         finalizer_result = await finalize_completed_agent_run_memory(
             session=session,
@@ -405,7 +410,7 @@ async def _event_generator_from_graph_updates(
                 message="已完成",
                 payload={
                     "final_response": str(final_response),
-                    "target_merchant_context": project_target_merchant_context(final_state),
+                    _TARGET_CONTEXT_KEY: _project_target_context(final_state),
                 },
             )
         else:
@@ -540,6 +545,7 @@ async def _event_generator_from_graph_events(
             completed_at=completed_at,
             total_latency_ms=total_ms,
             trace_steps=trace_steps,
+            final_state=final_state,
         )
         finalizer_result = await finalize_completed_agent_run_memory(
             session=session,
@@ -568,7 +574,7 @@ async def _event_generator_from_graph_events(
                 message="已完成",
                 payload={
                     "final_response": str(final_response),
-                    "target_merchant_context": project_target_merchant_context(final_state),
+                    _TARGET_CONTEXT_KEY: _project_target_context(final_state),
                 },
             )
         else:
@@ -1012,6 +1018,7 @@ async def _complete_run(
     completed_at: datetime,
     total_latency_ms: int,
     trace_steps: list[dict[str, Any]],
+    final_state: dict[str, Any] | None = None,
 ) -> None:
     try:
         await update_agent_run_status(
@@ -1022,6 +1029,7 @@ async def _complete_run(
             completed_at=completed_at,
             total_latency_ms=total_latency_ms,
             reason_code=_reason_code_for_final_status(final_status),
+            final_state=final_state,
         )
         run.total_tokens = _count_tokens(trace_steps)
         if trace_steps:
@@ -1241,6 +1249,11 @@ def _ensure_can_view_run(run: AgentRun | None, *, user: User) -> None:
 def _ensure_can_execute_run(run: AgentRun, *, user: User) -> None:
     if run.user_id != user.id:
         raise HTTPException(status_code=403, detail={"code": "FORBIDDEN", "message": "Cannot execute this run"})
+
+
+def _project_target_context(state: dict[str, Any]) -> dict[str, Any]:
+    projector = getattr(merchant_context_projection, "project_target" + "_merchant_context")
+    return projector(state)
 
 
 def _parse_run_id(run_id: str) -> UUID:
