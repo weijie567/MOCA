@@ -10,9 +10,15 @@ Built as an open-source portfolio project demonstrating enterprise Agent enginee
 
 When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution — never silently executing something irreversible.
 
-## Current State
+## Current Milestone: v2.0 Merchant Scope Hardening
 
-v1.9 Agent Platform Foundation shipped on 2026-06-30. The project is between milestones; start the next cycle with `$gsd-new-milestone`.
+**Goal:** Harden v1.9 merchant-bound business role semantics at the database, migration, and role cleanup boundary before opening any new run/trace/replay visibility.
+
+**Target features:**
+- Deprecate legacy `merchant` role as compatibility-only while preserving existing merchant-bound access semantics.
+- Enforce active business-user merchant binding, tenant-scoped username identity, and fail-closed handling for invalid or ambiguous legacy data.
+- Persist unambiguous target merchant scope on authorization/audit root records, especially `AgentRun`, with explicit scope classification for business, policy-only, and unknown legacy runs.
+- Keep run/status/evidence/trace/replay visibility owner/admin-only during this milestone while producing readiness evidence for a later same-merchant manager trace/replay authorization phase.
 
 ## Last Shipped Milestone: v1.9 Agent Platform Foundation
 
@@ -195,7 +201,8 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 
 ### Active
 
-- [ ] Define next milestone requirements with `$gsd-new-milestone`.
+- [ ] v2.0 hardens merchant-scope database and role semantics without opening new run/trace/replay visibility.
+- [ ] Phase 36 produces a trace/replay authorization readiness conclusion for the later same-merchant manager visibility expansion.
 
 ### Out of Scope
 
@@ -216,6 +223,8 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - Mobile app or native clients — web only
 - Real payment/refund execution — all tools are simulated
 - Multi-tenant SaaS deployment — single-tenant demo with role separation
+- Same-merchant manager run/trace/replay visibility expansion — future Phase 37 after Phase 36 readiness is proven.
+- PostgreSQL RLS enforcement — future hardening phase; v2.0 prepares schema constraints and migration gates only.
 
 ## Context
 

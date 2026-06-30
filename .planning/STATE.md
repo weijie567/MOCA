@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.9
-milestone_name: Agent Platform Foundation
-status: between_milestones
-stopped_at: v1.9 archived; ready to start next milestone
-last_updated: "2026-06-30T01:45:00Z"
+milestone: v2.0
+milestone_name: Merchant Scope Hardening
+status: defining_requirements
+stopped_at: v2.0 milestone started; defining requirements
+last_updated: "2026-06-30T03:47:28Z"
 last_activity: 2026-06-30
 progress:
-  total_phases: 12
-  completed_phases: 12
-  total_plans: 51
-  completed_plans: 51
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State: MOCA
@@ -21,17 +21,17 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-30)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Planning next milestone
+**Current focus:** v2.0 Merchant Scope Hardening
 
 ## Current Position
 
-Phase: between milestones
-Next roadmap item: start next milestone discovery and requirements
+Phase: Not started (defining requirements)
+Next roadmap item: define Phase 36 Merchant-scope DB hardening / role cleanup
 Plan: none active
-Status: v1.9 Agent Platform Foundation shipped and archived
+Status: Defining v2.0 requirements
 Last activity: 2026-06-30
 
-Progress: [██████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 Planning files:
 
@@ -45,6 +45,13 @@ Planning files:
 - `.planning/milestones/v1.6-ROADMAP.md`
 - `.planning/milestones/v1.6-REQUIREMENTS.md`
 - `.planning/milestones/v1.6-phases/23-rag-reranker-query-rewrite/`
+
+## Current Milestone Context
+
+- v2.0 focuses on merchant-scope database hardening and role cleanup, not new user-facing agent behavior.
+- Phase 36 should convert v1.9 runtime merchant-bound role semantics into database/migration/readiness facts: deprecated legacy `merchant` compatibility, active business-user merchant binding, tenant-scoped username identity, run-level target merchant scope classification, and cross-table consistency gates.
+- Same-merchant manager run/trace/replay visibility remains future Phase 37 scope until Phase 36 proves a trustworthy run-level merchant binding and emits a readiness conclusion.
+- PostgreSQL RLS remains out of scope for v2.0 unless a later explicit phase adopts it; Phase 36 should prepare schema constraints, indexes, validation, and backfill gates only.
 
 ## Last Milestone Context
 
