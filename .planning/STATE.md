@@ -4,7 +4,7 @@ milestone: v2.0
 milestone_name: Merchant Scope Hardening
 status: active
 stopped_at: Phase 36 planned; ready for execution
-last_updated: "2026-06-30T05:36:11.320Z"
+last_updated: "2026-06-30T06:04:35.903Z"
 last_activity: 2026-06-30
 progress:
   total_phases: 1
@@ -26,9 +26,9 @@ See: `.planning/PROJECT.md` (updated 2026-06-30)
 ## Current Position
 
 Phase: 36 - Merchant-scope DB Hardening / Role Cleanup
-Next roadmap item: plan Phase 36
-Plan: none active
-Status: Ready for `$gsd-plan-phase 36`
+Next roadmap item: execute Phase 36
+Plan: 6 plans ready
+Status: Ready for `$gsd-execute-phase 36`
 Last activity: 2026-06-30
 
 Progress: [░░░░░░░░░░] 0%
@@ -58,7 +58,7 @@ Planning files:
 
 | Phase | Plans | Status |
 |-------|-------|--------|
-| 36. Merchant-scope DB Hardening / Role Cleanup | 0 plans | Not started |
+| 36. Merchant-scope DB Hardening / Role Cleanup | 6 plans | Planned; ready to execute |
 
 ## Last Milestone Context
 
@@ -268,9 +268,9 @@ Items acknowledged and deferred at milestone close on 2026-06-30:
 ## Session Continuity
 
 Last session: 2026-06-30T04:01:09.008Z
-Stopped at: Phase 36 context gathered
-Resume file: .planning/phases/36-merchant-scope-db-hardening-role-cleanup/36-CONTEXT.md
-Next: Run `$gsd-plan-phase 36`.
+Stopped at: Phase 36 planned; ready for execution
+Resume file: .planning/phases/36-merchant-scope-db-hardening-role-cleanup/36-06-PLAN.md
+Next: Run `$gsd-execute-phase 36`.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
 
@@ -308,6 +308,6 @@ Next: Run `$gsd-plan-phase 36`.
 
 **Completed Phase:** 35.1 (v1.9 Milestone Readiness Closure) — 1/1 plan complete; v1.9 archived and phase artifacts archived — 2026-06-30
 
-**Next Roadmap Item:** start next milestone discovery and requirements
+**Next Roadmap Item:** execute Phase 36
 
-**Planned Phase:** 36 (Merchant-scope DB Hardening / Role Cleanup) — 6 plans — 2026-06-30T05:36:11.305Z
+**Planned Phase:** 36 (Merchant-scope DB Hardening / Role Cleanup) — 6 plans — 2026-06-30T06:04:35.887Z
