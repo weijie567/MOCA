@@ -141,6 +141,9 @@ class AgentState(TypedDict, total=False):
     risk_decision_ref: str | None
     target_merchant_id: str | None
     target_merchant_ref: dict[str, Any] | None
+    scope_classification: str | None
+    scope_source: str | None
+    scope_reason_codes: list[str] | None
     business_fact_refs: list[dict[str, Any]]
     verified_evidence_refs: list[dict[str, Any]]
     claim_verification_ref: str | None

@@ -28,7 +28,9 @@ def _business_fact_ref(*, merchant_id: str = "merchant-1") -> dict[str, Any]:
         "source_system": "business_fact_service",
         "resource_type": "order",
         "resource_id": "order-1",
-        "merchant_id": merchant_id,
+        "resource_version": None,
+        "data_freshness_at": None,
+        "retrieved_at": datetime(2026, 6, 30, tzinfo=UTC),
     }
 
 

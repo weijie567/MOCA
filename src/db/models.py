@@ -346,6 +346,19 @@ class AgentRun(TimestampMixin, Base):
     """One row per graph.ainvoke() call. Records run-level trace. Per D-05b."""
 
     __tablename__ = "agent_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "scope_classification IN ('business_merchant', 'policy_only', 'merchant_not_required', 'unknown_legacy')",
+            name="ck_agent_runs_scope_classification",
+        ),
+        CheckConstraint(
+            "((scope_classification = 'business_merchant' "
+            "AND target_merchant_id IS NOT NULL AND target_merchant_ref IS NOT NULL) "
+            "OR (scope_classification IN ('policy_only', 'merchant_not_required', 'unknown_legacy') "
+            "AND target_merchant_id IS NULL AND target_merchant_ref IS NULL))",
+            name="ck_agent_runs_scope_target_consistency",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     thread_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
@@ -355,6 +368,11 @@ class AgentRun(TimestampMixin, Base):
     final_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     # "completed" | "error" | "insufficient_evidence"
     final_response: Mapped[str | None] = mapped_column(Text)
+    target_merchant_id: Mapped[str | None] = mapped_column(String(128))
+    target_merchant_ref: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    scope_classification: Mapped[str] = mapped_column(String(32), nullable=False, default="unknown_legacy")
+    scope_source: Mapped[str | None] = mapped_column(String(64))
+    scope_reason_codes: Mapped[list[str] | None] = mapped_column(JSONB)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     total_latency_ms: Mapped[int | None] = mapped_column()
@@ -364,6 +382,10 @@ class AgentRun(TimestampMixin, Base):
 
     steps: Mapped[list["AgentStep"]] = relationship(back_populates="run", cascade="all, delete-orphan")
     trace_events: Mapped[list["AgentTraceEvent"]] = relationship(back_populates="run", cascade="all, delete-orphan")
+
+
+Index("ix_agent_runs_tenant_target_merchant", AgentRun.tenant_id, AgentRun.target_merchant_id)
+Index("ix_agent_runs_tenant_scope_classification", AgentRun.tenant_id, AgentRun.scope_classification)
 
 
 class SessionMemory(TimestampMixin, Base):
