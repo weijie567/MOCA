@@ -83,31 +83,31 @@ Turn MOCA's agent runtime into a microservice-ready modular monolith: platform/d
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| APF-01 | Phase 26 + Phase 36 | Pending audit closure |
-| APF-02 | Phase 26 + Phase 36 | Pending audit closure |
+| APF-01 | Phase 26 + Phase 35.1 | Pending audit closure |
+| APF-02 | Phase 26 + Phase 35.1 | Pending audit closure |
 | APF-03 | Phase 27 | Complete |
 | APF-04 | Phase 27 | Complete |
-| APF-05 | Phase 28 + Phase 36 | Complete; validation metadata cleanup pending |
-| APF-06 | Phase 29 + Phase 36 | Pending audit closure |
-| APF-07 | Phase 29 + Phase 36 | Pending audit closure |
-| MER-01 | Phase 29.5 + Phase 36 | Pending audit closure |
+| APF-05 | Phase 28 + Phase 35.1 | Complete; validation metadata cleanup pending |
+| APF-06 | Phase 29 + Phase 35.1 | Pending audit closure |
+| APF-07 | Phase 29 + Phase 35.1 | Pending audit closure |
+| MER-01 | Phase 29.5 + Phase 35.1 | Pending audit closure |
 | APF-08 | Phase 30 | Complete |
 | APF-09 | Phase 31 | Complete |
 | APF-10 | Phase 31 | Complete |
-| APF-11 | Phase 32 + Phase 36 | Pending audit closure |
-| APF-12 | Phase 32 + Phase 36 | Pending audit closure |
-| APF-13 | Phase 33 + Phase 36 | Complete; validation metadata cleanup pending |
-| APF-14 | Phase 33 + Phase 36 | Complete; validation metadata cleanup pending |
+| APF-11 | Phase 32 + Phase 35.1 | Pending audit closure |
+| APF-12 | Phase 32 + Phase 35.1 | Pending audit closure |
+| APF-13 | Phase 33 + Phase 35.1 | Complete; validation metadata cleanup pending |
+| APF-14 | Phase 33 + Phase 35.1 | Complete; validation metadata cleanup pending |
 | APF-15 | Phase 34 | Complete |
 | APF-16 | Phase 34 | Complete |
-| APF-17 | Phase 35 + Phase 36 | Pending audit closure |
-| APF-18 | Phase 35 + Phase 36 | Pending audit closure |
+| APF-17 | Phase 35 + Phase 35.1 | Pending audit closure |
+| APF-18 | Phase 35 + Phase 35.1 | Pending audit closure |
 
 **Coverage:**
 - v1 requirements: 19 total
 - Mapped to phases: 19
 - Unmapped: 0
-- Audit closure pending: 9 formal verification requirements and 3 validation metadata rows assigned to Phase 36
+- Audit closure pending: 9 formal verification requirements and 3 validation metadata rows assigned to Phase 35.1
 
 ---
 *Requirements defined: 2026-06-22 for v1.9 Agent Platform Foundation.*

@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
 status: phase_ready_to_plan
-stopped_at: Phase 36 gap closure phase created from v1.9 milestone audit
-last_updated: "2026-06-29T23:46:20Z"
+stopped_at: Phase 35.1 gap closure phase created from v1.9 milestone audit
+last_updated: "2026-06-30T00:20:47Z"
 last_activity: 2026-06-30
 progress:
   total_phases: 12
@@ -25,8 +25,8 @@ See: `.planning/PROJECT.md` (updated 2026-06-29)
 
 ## Current Position
 
-Phase: 36 (v1.9-milestone-readiness-closure) — PLANNED
-Next roadmap item: plan Phase 36 milestone readiness closure
+Phase: 35.1 (v1.9-milestone-readiness-closure) — PLANNED
+Next roadmap item: plan Phase 35.1 milestone readiness closure
 Plan: 0 plans
 Status: Gap closure phase created from v1.9 milestone audit; ready to plan
 Last activity: 2026-06-30
@@ -54,7 +54,7 @@ Planning files:
 
 ## Performance Metrics
 
-**v1.9 current planned scope:** 12 phases, 19 v1 requirements, 50 completed phase plans plus pending Phase 36 closure planning.
+**v1.9 current planned scope:** 12 phases, 19 v1 requirements, 50 completed phase plans plus pending Phase 35.1 closure planning.
 
 | Phase | Plans | Status |
 |-------|-------|--------|
@@ -69,10 +69,10 @@ Planning files:
 | 33. RAG Context Build and Claim Verification | 9/9 | Complete |
 | 34. Approval and ActionDraft Boundary Hardening | 6/6 | Complete |
 | 35. Replay and Eval Hardening | 6/6 | Complete |
-| 36. v1.9 Milestone Readiness Closure | 0 plans | Planned |
+| 35.1. v1.9 Milestone Readiness Closure | 0 plans | Planned |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
-Latest execution metric: Phase 35 P35-06 — 13 min, 2 tasks, 3 files; final focused replay/API/eval/architecture suites, ruff, source audit, and no-scope-creep closure passed. Phase 36 has been added as an audit-readiness closure phase and is not yet planned.
+Latest execution metric: Phase 35 P35-06 — 13 min, 2 tasks, 3 files; final focused replay/API/eval/architecture suites, ruff, source audit, and no-scope-creep closure passed. Phase 35.1 has been added as an audit-readiness closure phase and is not yet planned.
 | Phase 29.5 P01 | 35min | 2 tasks | 5 files |
 | Phase 29.5 P02 | 5min | 2 tasks | 5 files |
 | Phase 29.5 P03 | 34min | 2 tasks | 13 files |
@@ -212,7 +212,7 @@ Latest execution metric: Phase 35 P35-06 — 13 min, 2 tasks, 3 files; final foc
 - Phase 24.4 inserted after Phase 24: Memory Eval MVP.
 - Phase 25 added and completed: Intent routing safety hardening.
 - Phase 26-35 added for v1.9 Agent Platform Foundation.
-- Phase 36 added to close v1.9 milestone audit gates: missing formal verification artifacts, stale validation metadata, and MER-01 ledger reconciliation.
+- Phase 35.1 added to close v1.9 milestone audit gates: missing formal verification artifacts, stale validation metadata, and MER-01 ledger reconciliation.
 
 ### Pending Todos
 
@@ -246,10 +246,10 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 
 ## Session Continuity
 
-Last session: 2026-06-29T23:46:20Z
-Stopped at: Phase 36 gap closure phase created from v1.9 milestone audit
+Last session: 2026-06-30T00:20:47Z
+Stopped at: Phase 35.1 gap closure phase created from v1.9 milestone audit
 Resume file: None
-Next: Run `$gsd-plan-phase 36`. Old phase directory archive remains a separate cleanup todo.
+Next: Run `$gsd-plan-phase 35.1`. Old phase directory archive remains a separate cleanup todo.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
 
@@ -285,6 +285,6 @@ Next: Run `$gsd-plan-phase 36`. Old phase directory archive remains a separate c
 
 **Completed Phase:** 35 (Replay and Eval Hardening) — 6/6 plans complete; code review clean after fixes; UAT 8/8 passed; security `threats_open: 0`; Nyquist validation compliant; aggregate Phase 35 suite `122 passed, 1 warning` — 2026-06-29
 
-**Planned Phase:** 36 (v1.9 Milestone Readiness Closure) — closes strict v1.9 audit gaps; plans pending — 2026-06-30
+**Planned Phase:** 35.1 (v1.9 Milestone Readiness Closure) — closes strict v1.9 audit gaps; plans pending — 2026-06-30
 
-**Next Roadmap Item:** plan Phase 36 milestone readiness closure
+**Next Roadmap Item:** plan Phase 35.1 milestone readiness closure

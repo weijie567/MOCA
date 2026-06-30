@@ -8530,7 +8530,7 @@ request_user_input is unavailable in Default mode
 
 ### 已做处理
 
-本次 gap closure plan 只有一个推荐项：创建 Phase 36 `v1.9 Milestone Readiness Closure` 来关闭 audit formal verification / Nyquist metadata / MER-01 ledger gaps。由于用户已显式执行 `$gsd-plan-milestone-gaps`，且无 optional gaps 需要取舍，按 fallback 采用推荐默认项继续并更新 roadmap/requirements/state。
+本次 gap closure plan 只有一个推荐项：创建 audit-readiness closure phase 来关闭 audit formal verification / Nyquist metadata / MER-01 ledger gaps。初始执行按最高 phase 续号创建为 Phase 36；随后根据用户反馈，为避免与既有 `Phase 36+` future hardening 语义冲突，修正为 Phase 35.1。由于用户已显式执行 `$gsd-plan-milestone-gaps`，且无 optional gaps 需要取舍，按 fallback 采用推荐默认项继续并更新 roadmap/requirements/state。
 
 ### 剩余问题
 
