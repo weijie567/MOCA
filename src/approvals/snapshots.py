@@ -6,11 +6,12 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from src.approvals.schemas import ACTION_SAFETY_SNAPSHOT_SCHEMA_VERSION
+from src.approvals.schemas import ACTION_SAFETY_SNAPSHOT_SCHEMA_VERSION, TargetMerchantBindingV1
 from src.common.canonical_hash import canonical_hash
 from src.knowledge.schemas import EvidenceRefV1, canonical_evidence_projection
+from src.tools.contracts import BusinessFactRefV1
 
 SNAPSHOT_HASH_FIELDS = {
     "schema_version",
@@ -24,6 +25,9 @@ SNAPSHOT_HASH_FIELDS = {
     "evidence",
     "evidence_ids",
     "action_payload_hash",
+    "target_merchant_id",
+    "target_merchant_ref",
+    "business_fact_refs",
     "created_at",
 }
 
@@ -56,7 +60,10 @@ class ActionSafetySnapshot(BaseModel):
     retrieval_config_version: str
     evidence: list[EvidenceRefV1]
     evidence_ids: list[str]
-    action_payload_hash: str
+    action_payload_hash: str | None = None
+    target_merchant_id: str | None = None
+    target_merchant_ref: TargetMerchantBindingV1 | None = None
+    business_fact_refs: list[BusinessFactRefV1] = Field(default_factory=list)
     created_at: str
     immutable_hash: str
     archived_at: str | None = None
@@ -76,6 +83,8 @@ def snapshot_hash_projection(snapshot: ActionSafetySnapshot | Mapping[str, Any])
     data = _snapshot_mapping(snapshot)
     evidence_refs = [_as_evidence_ref(ref) for ref in data["evidence"]]
     projected_evidence = canonical_evidence_projection(evidence_refs)
+    target_merchant_ref = _as_target_merchant_ref(data.get("target_merchant_ref"))
+    business_fact_refs = [_as_business_fact_ref(ref) for ref in data.get("business_fact_refs") or []]
 
     return {
         "schema_version": ACTION_SAFETY_SNAPSHOT_SCHEMA_VERSION,
@@ -88,7 +97,12 @@ def snapshot_hash_projection(snapshot: ActionSafetySnapshot | Mapping[str, Any])
         "retrieval_config_version": data["retrieval_config_version"],
         "evidence": projected_evidence,
         "evidence_ids": [item["evidence_id"] for item in projected_evidence],
-        "action_payload_hash": data["action_payload_hash"],
+        "action_payload_hash": data.get("action_payload_hash"),
+        "target_merchant_id": data.get("target_merchant_id"),
+        "target_merchant_ref": _hashable_json(target_merchant_ref.model_dump(mode="json"))
+        if target_merchant_ref
+        else None,
+        "business_fact_refs": [_hashable_json(ref.model_dump(mode="json")) for ref in business_fact_refs],
         "created_at": _format_timestamp(data["created_at"]),
     }
 
@@ -103,7 +117,10 @@ def build_action_safety_snapshot(
     risk_config_version: str,
     retrieval_config_version: str,
     evidence: list[EvidenceRefV1 | Mapping[str, Any]],
-    action_payload_hash: str,
+    action_payload_hash: str | None,
+    target_merchant_id: str | None = None,
+    target_merchant_ref: TargetMerchantBindingV1 | Mapping[str, Any] | None = None,
+    business_fact_refs: list[BusinessFactRefV1 | Mapping[str, Any]] | None = None,
     created_at: str | datetime,
     archived_at: str | None = None,
     retention_until: str | None = None,
@@ -116,7 +133,14 @@ def build_action_safety_snapshot(
         _reject_forbidden_keys(extra)
         raise ValueError(f"unknown snapshot fields: {sorted(extra)}")
 
+    if action_payload_hash is not None and (not target_merchant_id or target_merchant_ref is None):
+        raise ValueError("action-bound snapshot requires target merchant binding")
+
     evidence_refs = [_as_evidence_ref(ref) for ref in evidence]
+    canonical_target_ref = _as_target_merchant_ref(target_merchant_ref)
+    if target_merchant_id and canonical_target_ref and canonical_target_ref.target_merchant_id != target_merchant_id:
+        raise ValueError("snapshot target merchant binding mismatch")
+    canonical_business_fact_refs = [_as_business_fact_ref(ref) for ref in business_fact_refs or []]
     data = {
         "schema_version": ACTION_SAFETY_SNAPSHOT_SCHEMA_VERSION,
         "tenant_id": tenant_id,
@@ -128,6 +152,9 @@ def build_action_safety_snapshot(
         "retrieval_config_version": retrieval_config_version,
         "evidence": evidence_refs,
         "action_payload_hash": action_payload_hash,
+        "target_merchant_id": target_merchant_id,
+        "target_merchant_ref": canonical_target_ref,
+        "business_fact_refs": canonical_business_fact_refs,
         "created_at": _format_timestamp(created_at),
     }
     projection = snapshot_hash_projection(data)
@@ -135,6 +162,7 @@ def build_action_safety_snapshot(
         projection,
         schema_version=ACTION_SAFETY_SNAPSHOT_SCHEMA_VERSION,
         allowed_fields=SNAPSHOT_HASH_FIELDS,
+        nullable_fields={"action_payload_hash", "target_merchant_id", "target_merchant_ref"},
     )
 
     return ActionSafetySnapshot(
@@ -158,6 +186,38 @@ def _as_evidence_ref(ref: EvidenceRefV1 | Mapping[str, Any]) -> EvidenceRefV1:
     if isinstance(ref, EvidenceRefV1):
         return ref
     return EvidenceRefV1.model_validate(ref)
+
+
+def _as_target_merchant_ref(ref: TargetMerchantBindingV1 | Mapping[str, Any] | None) -> TargetMerchantBindingV1 | None:
+    if ref is None:
+        return None
+    if isinstance(ref, TargetMerchantBindingV1):
+        return ref
+    return TargetMerchantBindingV1.model_validate(ref)
+
+
+def _as_business_fact_ref(ref: BusinessFactRefV1 | Mapping[str, Any]) -> BusinessFactRefV1:
+    if isinstance(ref, BusinessFactRefV1):
+        return ref
+    return BusinessFactRefV1.model_validate(ref)
+
+
+def _hashable_json(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _hashable_json_timestamp(str(key), nested) for key, nested in value.items()}
+    if isinstance(value, list):
+        return [_hashable_json(item) for item in value]
+    return value
+
+
+def _hashable_json_timestamp(key: str, value: Any) -> Any:
+    if key.endswith("_at") and isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return value
+        return _format_timestamp(parsed)
+    return _hashable_json(value)
 
 
 def _format_timestamp(value: str | datetime) -> str:

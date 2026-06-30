@@ -25,6 +25,29 @@ from tests.approvals.test_service_transitions import (
 )
 
 
+def _hashable_binding_payload(value: dict) -> dict:
+    normalized = dict(value)
+    business_fact_ref = dict(normalized["business_fact_ref"])
+    for key in ("data_freshness_at", "retrieved_at"):
+        if isinstance(business_fact_ref.get(key), str) and business_fact_ref[key].endswith("Z"):
+            parsed = datetime.fromisoformat(business_fact_ref[key].replace("Z", "+00:00"))
+            business_fact_ref[key] = parsed.strftime("%Y-%m-%dT%H:%M:%S.") + f"{parsed.microsecond // 1000:03d}Z"
+    normalized["business_fact_ref"] = business_fact_ref
+    return normalized
+
+
+def _hashable_business_fact_refs(values: list[dict]) -> list[dict]:
+    normalized_refs = []
+    for value in values:
+        normalized = dict(value)
+        for key in ("data_freshness_at", "retrieved_at"):
+            if isinstance(normalized.get(key), str) and normalized[key].endswith("Z"):
+                parsed = datetime.fromisoformat(normalized[key].replace("Z", "+00:00"))
+                normalized[key] = parsed.strftime("%Y-%m-%dT%H:%M:%S.") + f"{parsed.microsecond // 1000:03d}Z"
+        normalized_refs.append(normalized)
+    return normalized_refs
+
+
 def test_action_safety_snapshot_contract_accepts_target_merchant_proof() -> None:
     tenant_id = "11111111-1111-1111-1111-111111111111"
     run_id = "22222222-2222-2222-2222-222222222222"
@@ -74,8 +97,8 @@ def test_snapshot_hash_projection_includes_target_merchant_binding_material() ->
     projection = snapshot_hash_projection(snapshot)
 
     assert projection["target_merchant_id"] == "merchant-1"
-    assert projection["target_merchant_ref"] == binding["target_merchant_ref"]
-    assert projection["business_fact_refs"] == binding["business_fact_refs"]
+    assert projection["target_merchant_ref"] == _hashable_binding_payload(binding["target_merchant_ref"])
+    assert projection["business_fact_refs"] == _hashable_business_fact_refs(binding["business_fact_refs"])
 
 
 def test_action_safety_snapshot_row_declares_target_merchant_columns_and_index() -> None:
