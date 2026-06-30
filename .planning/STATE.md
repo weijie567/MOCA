@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Merchant Scope Hardening
 status: active
-stopped_at: v2.0 roadmap created; ready for Phase 36 spec
-last_updated: "2026-06-30T03:50:00Z"
+stopped_at: Phase 36 context gathered; ready for planning
+last_updated: "2026-06-30T04:02:00Z"
 last_activity: 2026-06-30
 progress:
   total_phases: 1
@@ -26,9 +26,9 @@ See: `.planning/PROJECT.md` (updated 2026-06-30)
 ## Current Position
 
 Phase: 36 - Merchant-scope DB Hardening / Role Cleanup
-Next roadmap item: write Phase 36 SPEC.md
+Next roadmap item: plan Phase 36
 Plan: none active
-Status: Ready for `$gsd-spec-phase 36`
+Status: Ready for `$gsd-plan-phase 36`
 Last activity: 2026-06-30
 
 Progress: [░░░░░░░░░░] 0%
@@ -267,10 +267,10 @@ Items acknowledged and deferred at milestone close on 2026-06-30:
 
 ## Session Continuity
 
-Last session: 2026-06-30T01:45:00Z
-Stopped at: v1.9 archived
-Resume file: None
-Next: Run `$gsd-new-milestone`; phase directory archive cleanup is complete.
+Last session: 2026-06-30T04:01:09.008Z
+Stopped at: Phase 36 context gathered
+Resume file: .planning/phases/36-merchant-scope-db-hardening-role-cleanup/36-CONTEXT.md
+Next: Run `$gsd-plan-phase 36`.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
 
