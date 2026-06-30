@@ -7,6 +7,17 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = PROJECT_ROOT / "src"
 TRUSTED_FACTORY = SRC_ROOT / "platform" / "trusted_context.py"
+HIGH_RISK_WILDCARD_SURFACES = (
+    SRC_ROOT / "agent" / "graph.py",
+    SRC_ROOT / "agent" / "nodes" / "approval_gate.py",
+    SRC_ROOT / "agent" / "nodes" / "action_draft.py",
+    SRC_ROOT / "agent" / "nodes" / "rag_context_build.py",
+    SRC_ROOT / "agent" / "nodes" / "session_memory_load.py",
+    SRC_ROOT / "memory" / "service.py",
+    SRC_ROOT / "tools" / "runtime.py",
+    SRC_ROOT / "approvals" / "service.py",
+    SRC_ROOT / "actions" / "drafts.py",
+)
 
 
 def test_production_business_scope_wildcards_stay_inside_trusted_context_factory() -> None:
@@ -20,6 +31,12 @@ def test_production_business_scope_wildcards_stay_inside_trusted_context_factory
         offenders.extend(visitor.offenders)
 
     assert offenders == []
+
+
+def test_phase36_high_risk_surfaces_are_covered_by_wildcard_static_scan() -> None:
+    missing = [path.relative_to(PROJECT_ROOT).as_posix() for path in HIGH_RISK_WILDCARD_SURFACES if not path.exists()]
+
+    assert missing == []
 
 
 class _WildcardMerchantScopeVisitor(ast.NodeVisitor):

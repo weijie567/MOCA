@@ -10,7 +10,12 @@ from fastapi import HTTPException
 from src.api.schemas.common import FORBIDDEN
 from src.auth.permissions import require_merchant_access
 from src.platform import trusted_context
-from src.platform.trusted_context import MerchantScopeV1, TrustedContextFactory, merchant_scope_allows
+from src.platform.trusted_context import (
+    MerchantScopeV1,
+    TrustedContextFactory,
+    merchant_scope_allows,
+    requires_business_merchant_binding,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -139,6 +144,49 @@ def test_admin_is_only_human_role_with_wildcard_business_scope() -> None:
     assert unknown_context.merchant_scope.merchant_ids == []
 
 
+@pytest.mark.parametrize("role", ["support", "manager", "merchant"])
+def test_active_business_users_without_merchant_id_receive_deny_all_scope(role: str) -> None:
+    context = TrustedContextFactory.create_from_request(
+        user=_trusted_user(role=role, merchant_id=None),
+        verified_token_scopes=[],
+        thread_id="thread-1",
+        run_id=f"run-missing-merchant-{role}",
+        trace_id=None,
+    )
+
+    assert requires_business_merchant_binding(role, is_active=True) is True
+    assert context.merchant_scope == MerchantScopeV1(merchant_ids=[])
+
+
+def test_inactive_legacy_merchant_rows_do_not_require_active_binding() -> None:
+    assert requires_business_merchant_binding("merchant", is_active=False) is False
+
+
+def test_non_admin_wildcard_server_merchant_scope_is_rejected() -> None:
+    with pytest.raises(ValueError, match="cannot widen non-admin merchant scope"):
+        TrustedContextFactory.create_from_request(
+            user=_trusted_user(role="support", merchant_id="merchant-primary"),
+            verified_token_scopes=[],
+            thread_id="thread-1",
+            run_id="run-wildcard-rejected",
+            trace_id=None,
+            server_merchant_scope={"merchant_ids": ["*"]},
+        )
+
+
+def test_manager_is_not_tenant_wide_supervisor_for_business_access() -> None:
+    """manager is not tenant-wide for merchant business data."""
+
+    with pytest.raises(HTTPException) as exc_info:
+        require_merchant_access(
+            _user(role="manager", merchant_id="merchant-primary"),
+            "merchant-other",
+            resource_name="orders",
+        )
+
+    assert exc_info.value.status_code == 403
+
+
 def test_seed_roles_mark_merchant_as_deprecated_compatibility() -> None:
     seed_source = (PROJECT_ROOT / "scripts" / "seed_demo.py").read_text(encoding="utf-8")
 
@@ -157,6 +205,15 @@ def test_require_merchant_access_allows_merchant_bound_same_merchant(role: str) 
     merchant_id = UUID("00000000-0000-0000-0000-000000000001")
 
     require_merchant_access(_user(role=role, merchant_id=merchant_id), str(merchant_id), resource_name="orders")
+
+
+@pytest.mark.parametrize("role", ["support", "manager", "merchant"])
+def test_require_merchant_access_denies_active_business_user_missing_binding(role: str) -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        require_merchant_access(_user(role=role, merchant_id=None), "merchant-target", resource_name="orders")
+
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail["code"] == FORBIDDEN
 
 
 @pytest.mark.parametrize(
