@@ -687,6 +687,9 @@ class ActionSafetySnapshot(Base):
     snapshot_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     immutable_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     action_payload_hash: Mapped[str | None] = mapped_column(String(128))
+    target_merchant_id: Mapped[str | None] = mapped_column(String(128))
+    target_merchant_ref: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    business_fact_refs: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
     policy_config_version: Mapped[str] = mapped_column(String(64), nullable=False)
     risk_config_version: Mapped[str] = mapped_column(String(64), nullable=False)
     retrieval_config_version: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -702,6 +705,11 @@ class ActionSafetySnapshot(Base):
 Index("ix_action_safety_snapshots_tenant_id", ActionSafetySnapshot.tenant_id)
 Index("ix_action_safety_snapshots_run_id", ActionSafetySnapshot.run_id)
 Index("ix_action_safety_snapshots_tenant_hash", ActionSafetySnapshot.tenant_id, ActionSafetySnapshot.immutable_hash)
+Index(
+    "ix_action_safety_snapshots_tenant_target_merchant",
+    ActionSafetySnapshot.tenant_id,
+    ActionSafetySnapshot.target_merchant_id,
+)
 
 
 class ApprovalRequest(TimestampMixin, Base):

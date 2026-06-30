@@ -13,7 +13,7 @@ from src.actions.service import create_coupon_grant_draft
 from src.approvals.service import ApprovalService
 from src.approvals.schemas import RiskDecisionV1, TargetMerchantBindingV1
 from src.approvals.snapshot_service import compute_action_payload_hash, persist_action_safety_snapshot
-from src.db.models import ActionDraft, ApprovalAssignment, ApprovalLevel, ApprovalRequest
+from src.db.models import ActionDraft, AgentRun, ApprovalAssignment, ApprovalLevel, ApprovalRequest
 from src.knowledge.schemas import EvidenceRefV1
 from src.tools.contracts import BusinessFactRefV1
 from tests.approvals.test_service_transitions import (
@@ -149,12 +149,21 @@ async def _approved_phase34_request(session: AsyncSession, seeded_session) -> Ap
     tenant_id = seeded_session["tenant"].id
     requested_by = seeded_session["users"]["cs_zhang"].id
     run_id = await _create_run(session, tenant_id=tenant_id, user_id=requested_by)
+    binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    run = await session.get(AgentRun, run_id)
+    assert run is not None
+    run.scope_classification = "business_merchant"
+    run.target_merchant_id = binding["target_merchant_id"]
+    run.target_merchant_ref = binding["target_merchant_ref"]
+    run.scope_source = "target_merchant_binding_v1"
+    run.scope_reason_codes = []
+    await session.flush()
     created = await ApprovalService(session).create_request(
         _create_command(
             tenant_id=tenant_id,
             run_id=run_id,
             requested_by=requested_by,
-            **_phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id),
+            **binding,
         )
     )
     request = await session.get(ApprovalRequest, created.approval_id)
@@ -218,7 +227,7 @@ async def test_create_coupon_grant_draft_rejects_phase34_approval_binding_mismat
         action_type="issue_coupon",
         payload=dict(request.proposed_action),
         session=session,
-        **_phase34_tool_kwargs(request, target_merchant_id="merchant-other"),
+        **_phase34_tool_kwargs(request, verified_evidence_refs=[]),
     )
 
     assert result["status"] == "error"
@@ -273,6 +282,14 @@ async def test_create_coupon_grant_draft_accepts_exact_auto_allowed_binding(
     user_id = seeded_session["users"]["cs_zhang"].id
     run_id = await _create_run(session, tenant_id=tenant_id, user_id=user_id)
     binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    run = await session.get(AgentRun, run_id)
+    assert run is not None
+    run.scope_classification = "business_merchant"
+    run.target_merchant_id = binding["target_merchant_id"]
+    run.target_merchant_ref = binding["target_merchant_ref"]
+    run.scope_source = "target_merchant_binding_v1"
+    run.scope_reason_codes = []
+    await session.flush()
     command = _create_command(tenant_id=tenant_id, run_id=run_id, requested_by=user_id, **binding)
     action_payload_hash = compute_action_payload_hash(command.proposed_action)
     snapshot = await persist_action_safety_snapshot(
@@ -285,6 +302,9 @@ async def test_create_coupon_grant_draft_accepts_exact_auto_allowed_binding(
         risk_config_version=command.risk_config_version,
         retrieval_config_version=command.retrieval_config_version,
         evidence_refs=command.evidence_refs,
+        target_merchant_id=binding["target_merchant_id"],
+        target_merchant_ref=binding["target_merchant_ref"],
+        business_fact_refs=binding["business_fact_refs"],
         created_at=command.created_at,
         created_by=user_id,
     )
@@ -347,6 +367,14 @@ async def test_create_coupon_grant_draft_rejects_auto_allowed_binding_mismatch(
     user_id = seeded_session["users"]["cs_zhang"].id
     run_id = await _create_run(session, tenant_id=tenant_id, user_id=user_id)
     binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    run = await session.get(AgentRun, run_id)
+    assert run is not None
+    run.scope_classification = "business_merchant"
+    run.target_merchant_id = binding["target_merchant_id"]
+    run.target_merchant_ref = binding["target_merchant_ref"]
+    run.scope_source = "target_merchant_binding_v1"
+    run.scope_reason_codes = []
+    await session.flush()
     command = _create_command(tenant_id=tenant_id, run_id=run_id, requested_by=user_id, **binding)
     action_payload_hash = compute_action_payload_hash(command.proposed_action)
     snapshot = await persist_action_safety_snapshot(
@@ -359,6 +387,9 @@ async def test_create_coupon_grant_draft_rejects_auto_allowed_binding_mismatch(
         risk_config_version=command.risk_config_version,
         retrieval_config_version=command.retrieval_config_version,
         evidence_refs=command.evidence_refs,
+        target_merchant_id=binding["target_merchant_id"],
+        target_merchant_ref=binding["target_merchant_ref"],
+        business_fact_refs=binding["business_fact_refs"],
         created_at=command.created_at,
         created_by=user_id,
     )

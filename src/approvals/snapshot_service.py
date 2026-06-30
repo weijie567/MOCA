@@ -62,6 +62,9 @@ async def persist_action_safety_snapshot(
     risk_config_version: str,
     retrieval_config_version: str,
     evidence_refs: list[EvidenceRefV1],
+    target_merchant_id: str | None = None,
+    target_merchant_ref: dict[str, Any] | None = None,
+    business_fact_refs: list[dict[str, Any]] | None = None,
     created_at,
     created_by: UUID | None = None,
     repository: ApprovalRepository | None = None,
@@ -72,21 +75,35 @@ async def persist_action_safety_snapshot(
         raise ActionSafetySnapshotPersistenceError("action_payload_hash mismatch")
 
     snapshot_id = str(uuid4())
-    snapshot = build_action_safety_snapshot(
-        tenant_id=str(tenant_id),
-        run_id=str(run_id),
-        snapshot_id=snapshot_id,
-        snapshot_ref=f"snapshot:{snapshot_id}",
-        policy_config_version=policy_config_version,
-        risk_config_version=risk_config_version,
-        retrieval_config_version=retrieval_config_version,
-        evidence=evidence_refs,
-        action_payload_hash=computed_hash,
-        created_at=created_at,
-    )
+    try:
+        snapshot = build_action_safety_snapshot(
+            tenant_id=str(tenant_id),
+            run_id=str(run_id),
+            snapshot_id=snapshot_id,
+            snapshot_ref=f"snapshot:{snapshot_id}",
+            policy_config_version=policy_config_version,
+            risk_config_version=risk_config_version,
+            retrieval_config_version=retrieval_config_version,
+            evidence=evidence_refs,
+            action_payload_hash=computed_hash,
+            target_merchant_id=target_merchant_id,
+            target_merchant_ref=target_merchant_ref,
+            business_fact_refs=business_fact_refs,
+            created_at=created_at,
+        )
+    except ValueError as exc:
+        raise ActionSafetySnapshotPersistenceError(str(exc)) from exc
     row = await repo.create_snapshot_row(snapshot, created_by=created_by)
     if row.action_payload_hash != computed_hash:
         raise ActionSafetySnapshotPersistenceError("persisted snapshot action hash mismatch")
+    if row.target_merchant_id != snapshot.target_merchant_id:
+        raise ActionSafetySnapshotPersistenceError("persisted snapshot target merchant mismatch")
+    expected_target_ref = snapshot.target_merchant_ref.model_dump(mode="json") if snapshot.target_merchant_ref else None
+    if row.target_merchant_ref != expected_target_ref:
+        raise ActionSafetySnapshotPersistenceError("persisted snapshot target merchant ref mismatch")
+    expected_business_fact_refs = [ref.model_dump(mode="json") for ref in snapshot.business_fact_refs]
+    if (row.business_fact_refs or []) != expected_business_fact_refs:
+        raise ActionSafetySnapshotPersistenceError("persisted snapshot business fact refs mismatch")
 
     reloaded = await repo.get_snapshot_by_ref_or_hash(
         tenant_id=tenant_id,
@@ -95,6 +112,12 @@ async def persist_action_safety_snapshot(
     )
     if reloaded is None:
         raise ActionSafetySnapshotPersistenceError("persisted snapshot could not be reloaded")
+    if (
+        reloaded.target_merchant_id != snapshot.target_merchant_id
+        or reloaded.target_merchant_ref != expected_target_ref
+        or (reloaded.business_fact_refs or []) != expected_business_fact_refs
+    ):
+        raise ActionSafetySnapshotPersistenceError("persisted snapshot target binding reload mismatch")
 
     return PersistedActionSafetySnapshot(
         action_payload_hash=computed_hash,
