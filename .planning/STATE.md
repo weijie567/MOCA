@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Merchant Scope Hardening
-status: active
+status: executing
 stopped_at: Phase 36 planned; ready for execution
-last_updated: "2026-06-30T06:04:35.903Z"
-last_activity: 2026-06-30
+last_updated: "2026-06-30T06:33:57.117Z"
+last_activity: 2026-06-30 -- Phase 36 execution started
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 6
-  completed_plans: 0
-  percent: 0
+  completed_plans: 2
+  percent: 33
 ---
 
 # Project State: MOCA
@@ -21,17 +21,17 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-30)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v2.0 Merchant Scope Hardening
+**Current focus:** Phase 36 — merchant-scope-db-hardening-role-cleanup
 
 ## Current Position
 
-Phase: 36 - Merchant-scope DB Hardening / Role Cleanup
+Phase: 36 (merchant-scope-db-hardening-role-cleanup) — EXECUTING
 Next roadmap item: execute Phase 36
-Plan: 6 plans ready
-Status: Ready for `$gsd-execute-phase 36`
-Last activity: 2026-06-30
+Plan: 3 of 6
+Status: Executing Phase 36
+Last activity: 2026-06-30 -- Phase 36 execution started
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [███░░░░░░░] 33%
 
 Planning files:
 
@@ -58,7 +58,7 @@ Planning files:
 
 | Phase | Plans | Status |
 |-------|-------|--------|
-| 36. Merchant-scope DB Hardening / Role Cleanup | 6 plans | Planned; ready to execute |
+| 36. Merchant-scope DB Hardening / Role Cleanup | 2/6 plans | In progress |
 
 ## Last Milestone Context
 

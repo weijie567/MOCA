@@ -18,7 +18,7 @@
 
 ### Phase 36: Merchant-scope DB Hardening / Role Cleanup
 
-**Status:** Not started
+**Status:** In progress — 2/6 plans complete
 **Milestone:** v2.0 Merchant Scope Hardening
 **Goal:** Convert v1.9 runtime merchant-bound role semantics into database, migration, and readiness facts without opening new run/status/evidence/trace/replay visibility.
 **Requirements:** MSH-01, MSH-02, MSH-03, MSH-04, MSH-05, MSH-06, MSH-07, MSH-08
@@ -37,8 +37,8 @@
 8. Phase 36 emits one readiness conclusion for later Phase 37: `ready_with_agent_run_binding`, `ready_with_derived_refs_only`, or `not_ready`.
 
 Plans:
-- [ ] 36-01-PLAN.md — Role registry and active business-user binding hardening
-- [ ] 36-02-PLAN.md — Tenant-aware username identity and auth resolution contract
+- [x] 36-01-PLAN.md — Role registry and active business-user binding hardening
+- [x] 36-02-PLAN.md — Tenant-aware username identity and auth resolution contract
 - [ ] 36-03-PLAN.md — AgentRun target merchant scope model and runtime persistence
 - [ ] 36-04-PLAN.md — Approval/action/snapshot target merchant consistency
 - [ ] 36-05-PLAN.md — Alembic migration, preflight, backfill, and downgrade gates
