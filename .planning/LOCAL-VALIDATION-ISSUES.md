@@ -8627,3 +8627,54 @@ git diff -- .planning/STATE.md
 - `gsd-sdk query state.planned-phase`
 - `/Users/ming/.codex/get-shit-done/workflows/plan-phase.md`
 - `.planning/STATE.md`
+
+## 2026-06-30 09:12 CST - Phase 35.1 audit-milestone integration checker降级为inline审计
+
+### 问题现象
+
+执行 Phase 35.1 Task 4 的 `$gsd-audit-milestone` gate 时，GSD 工作流要求 spawn `gsd-integration-checker` 做跨 phase integration check；但本次 Codex 多代理工具规则要求只有在用户显式请求 subagent / delegation / parallel agent work 时才能 spawn。用户当前请求是 `$gsd-execute-phase 35.1`，没有额外授权启动 subagent。
+
+### 如何检测 / 复现
+
+运行 Phase 35.1 执行 gate：
+
+```bash
+gsd-sdk query init.phase-op 35.1
+gsd-sdk query init.milestone-op
+```
+
+再按 audit workflow 读取 `/Users/ming/.codex/get-shit-done/workflows/audit-milestone.md`，其中 Step 3 要求 `Task(subagent_type="gsd-integration-checker", ...)`。
+
+### 关键证据或命令
+
+`gsd-sdk query init.phase-op 35.1` 输出中包含：
+
+```json
+"agents_installed": false,
+"missing_agents": [
+  "gsd-integration-checker",
+  "gsd-nyquist-auditor",
+  "gsd-ui-auditor",
+  "gsd-doc-verifier"
+]
+```
+
+同时本轮可发现的多代理工具说明要求：不要 spawn sub-agents，除非用户显式请求 subagents、delegation 或 parallel agent work。
+
+### 当前判断 / 根因
+
+这是 workflow 执行环境/授权边界问题，不是 MOCA 产品代码或 milestone 内容缺口。审计仍可用本地 artifact、requirements ledger、summary frontmatter、verification reports、validation metadata 和 `git diff --check` 完成三源交叉检查；但不能声称本次实际启动了独立 `gsd-integration-checker`。
+
+### 已做处理
+
+本次 `$gsd-audit-milestone` gate 降级为 inline 审计：保留 v1.9 ROADMAP/STATE scope，读取 Phase 26-35.1 相关 verification/summary/validation/requirements 证据，手动交叉检查跨 phase wiring 和 readiness blockers，并在 refreshed audit 中注明 integration checker 未实际 spawn。
+
+### 剩余问题
+
+无 Phase 35.1 archive-readiness 阻塞。若后续用户要求严格执行独立集成检查器，应显式授权 subagent，或修复 GSD agent 安装/识别状态后重跑 `$gsd-audit-milestone`。
+
+### 下次继续排查入口
+
+- `/Users/ming/.codex/get-shit-done/workflows/audit-milestone.md`
+- `gsd-sdk query init.phase-op 35.1`
+- `gsd-sdk query init.milestone-op`

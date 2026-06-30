@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
-status: ready_to_execute
-stopped_at: Phase 35.1 planned and ready to execute
-last_updated: "2026-06-30T00:51:51Z"
+status: ready_to_archive
+stopped_at: Phase 35.1 complete; v1.9 ready to archive
+last_updated: "2026-06-30T01:12:00Z"
 last_activity: 2026-06-30
 progress:
   total_phases: 12
-  completed_phases: 11
+  completed_phases: 12
   total_plans: 51
-  completed_plans: 50
-  percent: 92
+  completed_plans: 51
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -21,17 +21,17 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-06-29)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v1.9 milestone audit gap closure
+**Current focus:** v1.9 ready to archive
 
 ## Current Position
 
-Phase: 35.1 (v1.9-milestone-readiness-closure) — READY TO EXECUTE
-Next roadmap item: execute Phase 35.1 milestone readiness closure
+Phase: 35.1 (v1.9-milestone-readiness-closure) — COMPLETE
+Next roadmap item: archive v1.9 Agent Platform Foundation
 Plan: 1 plan (`35.1-01-PLAN.md`)
-Status: Phase 35.1 planned; ready to execute
+Status: Phase 35.1 complete; strict milestone audit gates closed
 Last activity: 2026-06-30
 
-Progress: [█████████░] 92%
+Progress: [██████████] 100%
 
 Planning files:
 
@@ -54,7 +54,7 @@ Planning files:
 
 ## Performance Metrics
 
-**v1.9 current planned scope:** 12 phases, 19 v1 requirements, 50 completed phase plans plus 1 planned Phase 35.1 closure plan.
+**v1.9 current planned scope:** 12 phases, 19 v1 requirements, 51/51 phase plans complete. Milestone audit status: ready to archive.
 
 | Phase | Plans | Status |
 |-------|-------|--------|
@@ -69,10 +69,10 @@ Planning files:
 | 33. RAG Context Build and Claim Verification | 9/9 | Complete |
 | 34. Approval and ActionDraft Boundary Hardening | 6/6 | Complete |
 | 35. Replay and Eval Hardening | 6/6 | Complete |
-| 35.1. v1.9 Milestone Readiness Closure | 1 planned | Ready to execute |
+| 35.1. v1.9 Milestone Readiness Closure | 1/1 | Complete |
 
 Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
-Latest planning metric: Phase 35.1 planned with 1 artifact-only gap-closure plan; GSD plan-checker passed after dependency, verify-block, evidence-read, and audit-gate revisions. Next command is `$gsd-execute-phase 35.1`.
+Latest planning metric: Phase 35.1 completed with 1 artifact-only gap-closure plan. Formal verification artifacts, validation metadata refresh, requirements ledger reconciliation, and refreshed milestone audit all passed. Next command is `$gsd-complete-milestone v1.9`.
 | Phase 29.5 P01 | 35min | 2 tasks | 5 files |
 | Phase 29.5 P02 | 5min | 2 tasks | 5 files |
 | Phase 29.5 P03 | 34min | 2 tasks | 13 files |

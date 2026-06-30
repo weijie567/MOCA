@@ -434,14 +434,14 @@ Plans:
 
 ### Phase 35.1: v1.9 Milestone Readiness Closure
 
-**Status:** In Progress
+**Status:** Complete
 **Milestone:** v1.9 Agent Platform Foundation
 **Goal:** Close the strict milestone audit gates without runtime scope creep by adding missing formal verification artifacts, refreshing stale validation metadata, and reconciling MER-01's ledger/deferral status.
 **Requirements:** APF-01, APF-02, APF-06, APF-07, MER-01, APF-11, APF-12, APF-17, APF-18
 **Validation Metadata:** APF-05, APF-13, APF-14
 **Depends on:** Phase 35
 **Gap Closure:** Closes gaps from `.planning/milestones/v1.9-MILESTONE-AUDIT.md`
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 **Success Criteria**:
 
@@ -451,7 +451,7 @@ Plans:
 4. Re-running `$gsd-audit-milestone` no longer reports formal verification orphan gaps, stale Nyquist metadata blockers, or MER-01 ledger mismatch.
 
 Plans:
-- [ ] 35.1-01-PLAN.md — Milestone readiness audit closure
+- [x] 35.1-01-PLAN.md — Milestone readiness audit closure
 
 ## Backlog
 
