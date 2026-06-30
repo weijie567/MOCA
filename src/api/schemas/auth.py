@@ -6,10 +6,12 @@ from pydantic import BaseModel, ConfigDict
 class LoginRequest(BaseModel):
     username: str
     password: str
+    tenant_id: uuid.UUID | None = None
 
 
 class DemoTokenRequest(BaseModel):
     username: str
+    tenant_id: uuid.UUID | None = None
 
 
 class TokenResponse(BaseModel):
