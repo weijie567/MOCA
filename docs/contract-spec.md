@@ -83,6 +83,9 @@ Role semantics：
 - `support` 是商家客服 / customer support。
 - `manager` 是商家客服主管 / support manager；它不是 tenant-wide supervisor。
 - `merchant` 是 legacy 商家用户 role；兼容期按 `support` 处理，不作为推荐新增 role。
+- Phase 36 implementation target: `merchant` remains enabled only as a deprecated compatibility role,
+  is support-equivalent for merchant-bound business data, is not a recommended new role in seeds/examples,
+  and never grants platform-wide or tenant-wide business scope.
 - `admin` 是 platform admin，是唯一 human platform-wide business-data role。
 - 任何新增或未知 role 在未显式归类前按 merchant-bound deny-all 处理；不得因为名称包含 `supervisor`、`approval_manager`、`agent` 等词而自动获得 tenant-wide scope。
 

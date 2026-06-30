@@ -73,7 +73,14 @@ async def seed_roles(session) -> dict[str, Role]:
     roles = {
         "support": Role(id=deterministic_id("role", "support"), name="support", description="Support agent"),
         "manager": Role(id=deterministic_id("role", "manager"), name="manager", description="Operations manager"),
-        "merchant": Role(id=deterministic_id("role", "merchant"), name="merchant", description="Merchant operator"),
+        "merchant": Role(
+            id=deterministic_id("role", "merchant"),
+            name="merchant",
+            description=(
+                "Deprecated compatibility role; support-equivalent merchant-bound access; "
+                "not a recommended new role"
+            ),
+        ),
         "admin": Role(id=deterministic_id("role", "admin"), name="admin", description="System admin"),
     }
     for role in roles.values():
@@ -127,12 +134,9 @@ async def seed_users(
         ("demo_support_3", "demo", "cs_sun", "客服孙悦", "support", merchants["qingmu"].id),
         ("demo_manager_1", "demo", "mgr_li", "运营经理李欣", "manager", merchants["xinghe"].id),
         ("demo_manager_2", "demo", "mgr_zhou", "风控经理周航", "manager", merchants["zhiwei"].id),
-        ("demo_merchant_1", "demo", "merchant_wang", "商家王林", "merchant", merchants["xinghe"].id),
-        ("demo_merchant_2", "demo", "merchant_chen", "商家陈岚", "merchant", merchants["zhiwei"].id),
-        ("demo_merchant_3", "demo", "merchant_qiao", "商家乔杉", "merchant", merchants["qingmu"].id),
+        ("demo_merchant_legacy", "demo", "merchant_legacy_wang", "兼容商家王林", "merchant", merchants["xinghe"].id),
         ("other_admin", "other", "other_admin", "异租户管理员", "admin", None),
         ("other_support", "other", "other_support", "异租户客服", "support", merchants["other_shop"].id),
-        ("other_merchant", "other", "other_merchant", "异租户商家", "merchant", merchants["other_shop"].id),
     ]
     users: dict[str, User] = {}
     for key, tenant_key, username, full_name, role_name, merchant_id in specs:

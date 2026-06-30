@@ -12,9 +12,7 @@ from src.api.schemas.common import FORBIDDEN, UNAUTHORIZED
 from src.auth.jwt import ExpiredSignatureError, InvalidTokenError, decode_access_token
 from src.db.models import User
 from src.db.session import get_session
-
-MERCHANT_BOUND_ROLES = {"support", "manager", "merchant"}
-PLATFORM_ADMIN_ROLES = {"admin"}
+from src.platform.trusted_context import MERCHANT_BOUND_ROLES, PLATFORM_ADMIN_ROLES
 
 
 oauth2_scheme = OAuth2PasswordBearer(
