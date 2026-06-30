@@ -10,8 +10,8 @@ progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 6
-  completed_plans: 2
-  percent: 33
+  completed_plans: 3
+  percent: 50
 ---
 
 # Project State: MOCA
@@ -27,11 +27,11 @@ See: `.planning/PROJECT.md` (updated 2026-06-30)
 
 Phase: 36 (merchant-scope-db-hardening-role-cleanup) — EXECUTING
 Next roadmap item: execute Phase 36
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Executing Phase 36
 Last activity: 2026-06-30 -- Phase 36 execution started
 
-Progress: [███░░░░░░░] 33%
+Progress: [█████░░░░░] 50%
 
 Planning files:
 
@@ -58,7 +58,7 @@ Planning files:
 
 | Phase | Plans | Status |
 |-------|-------|--------|
-| 36. Merchant-scope DB Hardening / Role Cleanup | 2/6 plans | In progress |
+| 36. Merchant-scope DB Hardening / Role Cleanup | 3/6 plans | In progress |
 
 ## Last Milestone Context
 
