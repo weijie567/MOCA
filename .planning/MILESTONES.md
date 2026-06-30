@@ -1,5 +1,46 @@
 # Milestones
 
+## v1.9 Agent Platform Foundation (Shipped: 2026-06-30)
+
+**Delivered:** Microservice-ready modular-monolith platform foundation for MOCA's agent runtime: trusted context, decision events, tool policy, business facts, memory boundaries, target graph contracts, deterministic RAG context build, claim verification, approval/action safety, replay/eval gates, and formal audit closure.
+
+**Phases completed:** 26-35.1 (12 phases, 51 plans, 105 tasks)
+
+**Key accomplishments:**
+
+- Aligned `docs/contract-spec.md`, target architecture, and eval plan around stable platform contracts and module ownership.
+- Established canonical trusted context projections and a minimal decision-event foundation for later platform services.
+- Replaced scattered tool allowlists with `ToolView`, `ToolPolicyDecision`, ToolPlatform runtime authorization, and safe result projection.
+- Locked merchant-bound runtime scope and BusinessFactService authority while preserving database hardening and same-merchant trace/replay expansion as named future scope.
+- Split memory, target graph, RAG context build, and claim verification into explicit service/node boundaries with fail-closed authority gates.
+- Hardened approval/action draft bindings plus replay/eval coverage, then closed all formal milestone audit gaps in Phase 35.1.
+
+**Stats:**
+
+- 12 completed phases, 51 plans, 105 task markers
+- v1.9 audit status: `ready_to_archive`
+- 19/19 v1 requirements formally verified
+- 11/11 implementation phases have formal `*-VERIFICATION.md` artifacts
+- 11/11 implementation phases have compliant validation artifacts
+
+**Known deferred items at close:**
+
+- Known deferred items at close: 1 (see `STATE.md` Deferred Items)
+- `2026-06-22-archive-old-phase-directories.md` acknowledged as planning cleanup; use `$gsd-cleanup` or a dedicated cleanup pass later.
+- MER-01 database hardening / role cleanup remains Phase 36+ or future milestone scope.
+- Same-merchant trace/replay authorization expansion remains future scope after v1.9 proof projection.
+- Release-scale statistical readiness, production telemetry, and arbitrary free-text PII detection remain release/monitoring follow-ups.
+
+**Archived:**
+
+- `.planning/milestones/v1.9-ROADMAP.md`
+- `.planning/milestones/v1.9-REQUIREMENTS.md`
+- `.planning/milestones/v1.9-MILESTONE-AUDIT.md`
+
+**What's next:** Start the next milestone with fresh requirements via `$gsd-new-milestone`.
+
+---
+
 ## v1.8 Intent Routing Safety Hardening (Shipped: 2026-06-21)
 
 **Delivered:** Production-style hardening for ordinary-chat intent routing, focused on auditable raw-to-effective classification, deterministic risk tiering, workflow-state-first clarification handling, trusted slot provenance, and fail-closed handling for unsafe short approval/action replies.

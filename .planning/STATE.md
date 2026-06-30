@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: Agent Platform Foundation
-status: ready_to_archive
-stopped_at: Phase 35.1 complete; v1.9 ready to archive
-last_updated: "2026-06-30T01:12:00Z"
+status: between_milestones
+stopped_at: v1.9 archived; ready to start next milestone
+last_updated: "2026-06-30T01:45:00Z"
 last_activity: 2026-06-30
 progress:
   total_phases: 12
@@ -18,17 +18,17 @@ progress:
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-06-29)
+See: `.planning/PROJECT.md` (updated 2026-06-30)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v1.9 ready to archive
+**Current focus:** Planning next milestone
 
 ## Current Position
 
-Phase: 35.1 (v1.9-milestone-readiness-closure) — COMPLETE
-Next roadmap item: archive v1.9 Agent Platform Foundation
-Plan: 1 plan (`35.1-01-PLAN.md`)
-Status: Phase 35.1 complete; strict milestone audit gates closed
+Phase: between milestones
+Next roadmap item: start next milestone discovery and requirements
+Plan: none active
+Status: v1.9 Agent Platform Foundation shipped and archived
 Last activity: 2026-06-30
 
 Progress: [██████████] 100%
@@ -38,15 +38,17 @@ Planning files:
 - `.planning/PROJECT.md`
 - `.planning/ROADMAP.md`
 - `.planning/STATE.md`
-- `.planning/REQUIREMENTS.md`
 - `.planning/MILESTONES.md`
+- `.planning/milestones/v1.9-ROADMAP.md`
+- `.planning/milestones/v1.9-REQUIREMENTS.md`
+- `.planning/milestones/v1.9-MILESTONE-AUDIT.md`
 - `.planning/milestones/v1.6-ROADMAP.md`
 - `.planning/milestones/v1.6-REQUIREMENTS.md`
 - `.planning/milestones/v1.6-phases/23-rag-reranker-query-rewrite/`
 
-## Active Milestone Context
+## Last Milestone Context
 
-- v1.9 targets the platform foundation for MOCA's agent architecture, not a new user-facing workflow and not full real external execution.
+- v1.9 shipped the platform foundation for MOCA's agent architecture, not a new user-facing workflow and not full real external execution.
 - The target is a microservice-ready modular monolith: service boundaries should be clear enough to split later, while deployment remains a single app for now.
 - `docs/contract-spec.md` is the normative source. `docs/target-agent-platform-architecture-plan.md` records target architecture and Phase 26 spec-delta baseline decisions.
 - The milestone should land foundations in dependency order: architecture contract baseline, TrustedContextFactory/projections, decision events, tool platform, business facts, memory platform, graph migration, RAG context build/claim verification, approval/action boundary hardening, replay/eval hardening, and audit-readiness closure.
@@ -54,7 +56,7 @@ Planning files:
 
 ## Performance Metrics
 
-**v1.9 current planned scope:** 12 phases, 19 v1 requirements, 51/51 phase plans complete. Milestone audit status: ready to archive.
+**v1.9 shipped scope:** 12 phases, 19 v1 requirements, 51/51 phase plans complete. Milestone audit status: ready to archive before archive, now archived.
 
 | Phase | Plans | Status |
 |-------|-------|--------|
@@ -71,8 +73,8 @@ Planning files:
 | 35. Replay and Eval Hardening | 6/6 | Complete |
 | 35.1. v1.9 Milestone Readiness Closure | 1/1 | Complete |
 
-Historical execution metrics are archived in prior milestone files and `.planning/MILESTONES.md`.
-Latest planning metric: Phase 35.1 completed with 1 artifact-only gap-closure plan. Formal verification artifacts, validation metadata refresh, requirements ledger reconciliation, and refreshed milestone audit all passed. Next command is `$gsd-complete-milestone v1.9`.
+Historical execution metrics are archived in milestone files and `.planning/MILESTONES.md`.
+Latest planning metric: v1.9 archived on 2026-06-30 after Phase 35.1 completed formal verification artifacts, validation metadata refresh, requirements ledger reconciliation, and refreshed milestone audit.
 | Phase 29.5 P01 | 35min | 2 tasks | 5 files |
 | Phase 29.5 P02 | 5min | 2 tasks | 5 files |
 | Phase 29.5 P03 | 34min | 2 tasks | 13 files |
@@ -237,19 +239,25 @@ Items acknowledged and deferred at milestone close on 2026-06-20:
 | future milestone | Policy Source Operations | deferred |
 | future scope | post-Phase 17 Policy Scope | deferred |
 
+Items acknowledged and deferred at milestone close on 2026-06-30:
+
+| Category | Item | Status |
+|----------|------|--------|
+| planning todo | `2026-06-22-archive-old-phase-directories.md` | acknowledged; defer old phase directory archival to `$gsd-cleanup` or a dedicated cleanup pass |
+
 ## Last Archived Milestone Context
 
-- v1.6 owned exactly one roadmap phase: Phase 23 RAG Reranker + Query Rewrite.
-- All 26 v1.6 requirements are complete and archived in `.planning/milestones/v1.6-REQUIREMENTS.md`.
-- Phase 23 follows v1.3 hybrid retrieval, v1.4 parser/OCR provenance, and v1.5 ContextBuilder/hallucination-control work.
-- 17-prep AgentState cleanup is preserved as a deferred record for possible future Phase 17 work, not a pending todo or blocker.
+- v1.9 owned Phase 26 through Phase 35.1.
+- All 19 v1.9 requirements are complete and archived in `.planning/milestones/v1.9-REQUIREMENTS.md`.
+- Phase 35.1 closed readiness gaps without runtime source changes.
+- MER-01 database hardening and same-merchant trace/replay authorization expansion remain future scope, not v1.9 blockers.
 
 ## Session Continuity
 
-Last session: 2026-06-30T00:51:51Z
-Stopped at: Phase 35.1 planned and ready to execute
+Last session: 2026-06-30T01:45:00Z
+Stopped at: v1.9 archived
 Resume file: None
-Next: Run `$gsd-execute-phase 35.1`. Old phase directory archive remains a separate cleanup todo.
+Next: Run `$gsd-new-milestone`. Old phase directory archive remains a separate cleanup todo.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
 

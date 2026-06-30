@@ -298,6 +298,57 @@
 
 ---
 
+## Milestone: v1.9 — Agent Platform Foundation
+
+**Shipped:** 2026-06-30
+**Phases:** 12 | **Plans:** 51 | **Tasks:** 105
+
+### What Was Built
+
+- Architecture/spec/eval contract baseline for a microservice-ready modular monolith.
+- Canonical trusted context and service projections used by tool, knowledge, memory, approval, replay, and intent paths.
+- Minimal decision event envelope and replay-owned emitter foundation.
+- ToolPlatform, BusinessFactService, MemoryContextService, target graph vocabulary, RAG context build, and claim verification boundaries.
+- Merchant-bound runtime scope, approval/action draft binding hardening, and replay/eval coverage for platform decisions.
+- Formal milestone readiness closure with missing verification artifacts, stale validation metadata repair, and requirements ledger reconciliation.
+
+### What Worked
+
+- Dependency-ordered foundation phases kept ownership clear: context before events, events before tool/business/memory, graph before RAG/claim, approval/action before replay/eval.
+- Formal `*-VERIFICATION.md` artifacts made archive readiness auditable instead of relying on summary memory.
+- Phase 35.1 as a decimal closure phase let the milestone close strict audit gaps without stealing the future meaning of Phase 36+.
+- Keeping MER-01 runtime closure separate from database hardening avoided scope creep while preserving a named future owner.
+- Focused test gates plus static architecture guards were effective for platform-boundary work where broad full-suite reruns would be expensive.
+
+### What Was Inefficient
+
+- Several early v1.9 phases shipped before the formal verification convention was consistent, requiring Phase 35.1 backfill.
+- GSD tooling still miscounts or misroutes some decimal/closure cases: `roadmap.analyze` misses Phase 35.1, and `milestone.complete` routed to a phases-archive error.
+- `$gsd-audit-milestone` integration checker could not be spawned under current Codex subagent authorization rules, so the final audit had to be inline.
+- `PROJECT.md` drifted during long milestone execution and required manual closeout repair.
+
+### Patterns Established
+
+- Use formal verification artifacts as milestone archive gates, not optional documentation.
+- Treat validation metadata as living evidence: frontmatter and task rows must be refreshed when later verification proves closure.
+- Close audit/readiness gaps in decimal phases when the work is metadata-only and should not consume the next integer phase.
+- Preserve future-scope language with named target phases or milestones when a requirement closes only for runtime/MVP scope.
+
+### Key Lessons
+
+1. Run a formal milestone audit earlier, before the final implementation phase, so verification/validation artifact drift is cheaper to repair.
+2. Decimal closure phases need extra manual checks because current GSD stats and state writers can omit or miscount them.
+3. Keep `PROJECT.md` update checkpoints closer to actual milestone completion; stale product-state docs become expensive to fix at archive time.
+4. Integration-checker unavailability should be treated as workflow evidence, not hidden. If a subagent is required, ask for explicit delegation authorization first.
+
+### Cost Observations
+
+- Model mix: quality profile across planning, execution, reviews, audit closure, and archive.
+- Sessions: long multi-session milestone from 2026-06-22 to 2026-06-30.
+- Notable: The highest leverage came from strict plan granularity plus late formal audit closure; the highest waste came from tooling drift around decimal phases and stale metadata.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution

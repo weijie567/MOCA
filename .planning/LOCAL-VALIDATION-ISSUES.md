@@ -8678,3 +8678,48 @@ gsd-sdk query init.milestone-op
 - `/Users/ming/.codex/get-shit-done/workflows/audit-milestone.md`
 - `gsd-sdk query init.phase-op 35.1`
 - `gsd-sdk query init.milestone-op`
+
+## 2026-06-30 09:45 CST - gsd-sdk milestone.complete 路由到 phases archive 错误
+
+### 问题现象
+
+执行 `$gsd-complete-milestone v1.9` 时，按 workflow 调用 `gsd-sdk query milestone.complete v1.9 --name "Agent Platform Foundation"`，命令没有创建 archive 文件或更新 milestone 状态，而是返回 `completed: false` 和 `version required for phases archive`。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+gsd-sdk query milestone.complete v1.9 --name "Agent Platform Foundation"
+```
+
+### 关键证据或命令
+
+命令输出：
+
+```json
+{
+  "completed": false,
+  "reason": "GSDError: version required for phases archive"
+}
+```
+
+运行后 `git status --short` 没有显示 archive 文件或 planning 文件变更，说明 milestone archive 未执行。
+
+### 当前判断 / 根因
+
+当前判断是 `gsd-sdk query` 的 dot-command 路由或参数解析把 `milestone.complete` 错误转到了 phases archive 路径。该问题和 MOCA 产品代码无关，但会阻断 complete-milestone workflow 中的自动 archive 委托步骤。
+
+### 已做处理
+
+本次改为手动执行 archive-before-delete 流程：复制并补头 `.planning/milestones/v1.9-ROADMAP.md` 和 `.planning/milestones/v1.9-REQUIREMENTS.md`，保留 `.planning/milestones/v1.9-MILESTONE-AUDIT.md`，手动更新 `ROADMAP.md`、`PROJECT.md`、`STATE.md`、`MILESTONES.md` 和 `RETROSPECTIVE.md`，再通过 `git rm .planning/REQUIREMENTS.md` 删除 live requirements。
+
+### 剩余问题
+
+无本次 milestone close 阻塞。后续如果要继续使用 GSD 自动归档，应先修复或绕开 `gsd-sdk query milestone.complete` 的路由问题；同时注意 `roadmap.analyze` 对 Phase 35.1 decimal closure phase 的统计仍可能遗漏。
+
+### 下次继续排查入口
+
+- `gsd-sdk query milestone.complete`
+- `/Users/ming/.codex/get-shit-done/bin/lib/milestone.cjs`
+- `/Users/ming/.codex/get-shit-done/workflows/complete-milestone.md`

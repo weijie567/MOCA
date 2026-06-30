@@ -10,21 +10,25 @@ Built as an open-source portfolio project demonstrating enterprise Agent enginee
 
 When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution — never silently executing something irreversible.
 
-## Current Milestone: v1.9 Agent Platform Foundation
+## Current State
 
-**Status:** Phase 33 complete; ready to plan Phase 34 Approval and ActionDraft Boundary Hardening.
+v1.9 Agent Platform Foundation shipped on 2026-06-30. The project is between milestones; start the next cycle with `$gsd-new-milestone`.
 
-**Goal:** Convert MOCA from feature-by-feature agent code into a microservice-ready modular monolith with clear platform/domain service boundaries, canonical trusted context, decision events, tool policy, memory context, target graph contracts, RAG context build, claim verification, business fact authority, and approval/action boundary hardening.
+## Last Shipped Milestone: v1.9 Agent Platform Foundation
 
-**Target features:**
-- `TrustedContextFactory` becomes the single source for canonical identity/scope/run context and safe projections.
-- Merchant-bound business roles are aligned before BusinessFactService planning: `support`, `manager`, and legacy `merchant` are merchant-scoped; `admin` is the only platform-wide business-data role; tenant public policy remains shared.
-- Decision event foundation makes intent, tool, memory, RAG, claim, risk, approval, and action decisions auditable from the start.
-- Tool, memory, knowledge, business fact, approval, and action boundaries move toward service public methods and stable schemas.
-- Target graph contracts introduce safety pre-route, session context loading, contextual intent, slot resolution, RAG context build, and claim verification without doing full real external execution.
-- Eval and replay gates prove each boundary remains deterministic, fail-closed where needed, and compatible with future service extraction.
+v1.9 shipped Phases 26-35.1 on 2026-06-30. It converted MOCA from feature-by-feature agent code into a microservice-ready modular monolith foundation with stable platform/domain service contracts.
 
-## Last Shipped Milestone: v1.8 Intent Routing Safety Hardening
+**Delivered:**
+- Architecture/spec/eval baseline alignment and explicit module ownership boundaries.
+- Canonical `TrustedContextFactory` plus prompt-safe and service-safe projections.
+- Minimal `DecisionEventEnvelopeV1` and replay-owned decision event emission.
+- Descriptor-driven `ToolView`, runtime `ToolPolicyDecision`, safe tool result projection, and ToolPlatform boundary.
+- Merchant-bound role semantics for v1.9 runtime scope, with database hardening and same-merchant trace/replay authorization kept as Phase 36+ / future scope.
+- `BusinessFactService`, `MemoryContextService`, target graph vocabulary, deterministic RAG context build, and post-generation claim verification.
+- Approval/action draft binding hardening and replay/eval coverage for platform decisions.
+- Formal milestone audit closure: all 19 APF/MER v1 requirements verified and v1.9 audit marked `ready_to_archive`.
+
+## Prior Shipped Milestone: v1.8 Intent Routing Safety Hardening
 
 v1.8 shipped Phase 25 on 2026-06-21. It hardens the ordinary-chat intent/routing layer for production-style multi-turn safety.
 
@@ -72,6 +76,7 @@ v1.6 shipped Phase 23 on 2026-06-20. It improves policy retrieval quality after 
 - **v1.6 RAG Reranker + Query Rewrite** — shipped 2026-06-20.
 - **v1.7 Short-term Memory Unification** — shipped 2026-06-20.
 - **v1.8 Intent Routing Safety Hardening** — shipped 2026-06-21.
+- **v1.9 Agent Platform Foundation** — shipped 2026-06-30.
 
 Full archive records for archived milestones live in `.planning/milestones/`.
 
@@ -176,28 +181,21 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - [x] Memory context is prompt-safe and cannot act as policy evidence, current business fact authority, approval/action authority, or replay/audit truth (validated in Phase 24)
 - [x] Completed, error, cancelled, interrupted, and stream-retry states have deterministic, idempotent memory persistence semantics (validated in Phase 24)
 - [x] v1.8 intent routing safety hardening records traceable raw/effective classification, deterministic risk tiering, workflow-state-first clarification handling, and trusted slot invalidation (validated in Phase 25)
+- [x] v1.9 architecture/spec/eval baseline and module ownership boundaries are aligned across contract, roadmap, and eval artifacts (validated in Phase 26 and Phase 35.1)
+- [x] v1.9 trusted context and service-safe projection contracts are canonical and cannot be widened by LLM/user payloads (validated in Phase 27)
+- [x] v1.9 decision event envelope and emitter foundation records stable reason/version/redaction/run identity for later platform services (validated in Phase 28)
+- [x] v1.9 ToolPlatform exposes prompt-safe `ToolView` projections and rechecks runtime `ToolPolicyDecision` authorization before invocation (validated in Phase 29)
+- [x] v1.9 merchant-bound role semantics are complete for runtime scope, with database hardening and same-merchant trace/replay authorization expansion explicitly future-scoped (validated in Phase 29.5 and Phase 35.1)
+- [x] v1.9 `BusinessFactService` exposes current business facts only through `BusinessFactResultV1` / `BusinessFactRefV1` authority contracts (validated in Phase 30)
+- [x] v1.9 memory platform APIs separate session, long-term, case, conversation, workflow, working-state, and write-candidate memory while keeping memory contextual-only (validated in Phase 31)
+- [x] v1.9 graph vocabulary, intent policy registry, and slot policy registry own deterministic target route/slot decisions (validated in Phase 32)
+- [x] v1.9 RAG context build and claim verification produce `VerifiedEvidencePackageV1`, `MaterialClaimV1`, and `ClaimVerificationBundleV1` with fail-closed authority gates (validated in Phase 33)
+- [x] v1.9 approval/action draft boundary binds payloads to business facts, verified evidence, claim verification, risk decisions, hashes, and safety snapshots without real external execution (validated in Phase 34)
+- [x] v1.9 replay/eval hardening records platform decision coverage and dev/release/monitoring gate artifacts for trusted context, intent/slot, memory, tool, RAG, claim, risk, approval, and action draft boundaries (validated in Phase 35)
 
 ### Active
 
-- [x] **APF-01:** The target architecture plan, `contract-spec.md`, and eval plan define the same target graph vocabulary, service boundaries, AgentState RAG/claim fields, tool policy decisions, business fact results, and decision event foundation (validated in Phase 26)
-- [x] **APF-02:** Each platform/domain module has explicit ownership over schemas, repositories/adapters, public methods, downstream dependencies, forbidden imports, and decision events (validated in Phase 26)
-- [x] **APF-03:** `TrustedContextFactory` produces canonical `TrustedContext` from trusted API/auth/run boundaries without accepting LLM or user-payload overrides (validated in Phase 27)
-- [x] **APF-04:** `TrustedContextFactory` derives prompt-safe and service-safe projections for tool calls, knowledge retrieval, memory loading, approval decisions, replay, and intent policy without widening canonical identity/scope fields (validated in Phase 27)
-- [x] **APF-05:** A minimal `DecisionEventEnvelopeV1` / event emitter foundation records stable reason codes, policy/model/tool versions, redaction policy, and run/tenant/trace identity for later platform service decisions (validated in Phase 28)
-- [x] **APF-06:** Tool planner visibility is generated from `ToolDescriptor` into prompt-safe `ToolView` rather than exposing raw descriptors, adapters, internal permission reasons, or side-effect capabilities (validated in Phase 29).
-- [x] **APF-07:** Runtime tool invocation emits `ToolPolicyDecision` and rechecks authorization, resource scope, side-effect class, and input/output schema even when the tool was visible to the planner (validated in Phase 29).
-- [ ] **MER-01:** Merchant-bound role semantics align the single-tenant MVP: `support` / `manager` / legacy `merchant` are scoped to their merchant for business data, `admin` is the only platform-wide business-data role, tenant public policy remains shared, and AgentRun / Approval / ActionDraft / Memory / Replay scope risks are routed to Phases 30-35 or Phase 36+.
-- [x] **APF-08:** Business fact reads expose `BusinessFactResultV1` / `BusinessFactRefV1` through domain service public methods, and graph/tool code cannot substitute memory, RAG, LLM inference, or raw repository rows for current business facts (validated in Phase 30).
-- [x] **APF-09:** Session context loading exposes agent-facing `SessionContextMemory` for same-thread continuity while keeping `SessionContinuityStore` as an internal storage concern (validated in Phase 31).
-- [x] **APF-10:** Memory context APIs separate session context, long-term memory, case memory, conversation log, workflow checkpoint, working state, and memory write candidates, with explicit authority tags that prevent memory from satisfying policy evidence, current business fact, approval, action, or replay truth (validated in Phase 31).
-- [x] **APF-11:** The graph can map legacy nodes/routers to target canonical vocabulary for `safety_pre_route`, `session_context_load`, `contextual_intent_resolve`, `slot_resolution_gate`, `memory_context_load`, `rag_context_build`, and `claim_verify` (validated in Phase 32).
-- [x] **APF-12:** Intent and slot policy registries drive contextual intent resolution and slot inheritance decisions, with LLM output limited to candidates and deterministic policy owning effective route/slot decisions (validated in Phase 32).
-- [x] **APF-13:** `rag_context_build` validates candidate policy evidence into `VerifiedEvidencePackageV1` with identity/scope/hash/version/effective-date checks, separated prompt/verifier/replay/debug projections, and deterministic `route_after_rag_context` (validated in Phase 33).
-- [x] **APF-14:** `claim_verify` consumes `MaterialClaimV1` outputs and produces `ClaimVerificationBundleV1` with rules-first support status, hard gates for unsupported user-visible/action claims, and fail-closed behavior for high-risk/action-bound verifier errors (validated in Phase 33).
-- [ ] **APF-15:** Action proposals, approval decisions, and action drafts bind structured payloads to business fact refs, verified evidence refs, claim verification refs, risk decisions, payload hashes, and safety snapshots.
-- [ ] **APF-16:** `risk_gate` owns blocked/approval-required/auto-draft decisions, while `approval_gate` only executes approval plans, trusted resume, interrupt, and revision state machine behavior.
-- [ ] **APF-17:** Replay/trace coverage records platform decisions for trusted context projection, intent/slot policy, memory load/write policy, tool visibility/auth, RAG validation, claim verification, risk/approval, and action draft boundaries.
-- [ ] **APF-18:** Contract tests and eval gates distinguish dev-contract, release, and monitoring gates for the new platform boundaries, including negative cases for scope leaks, unsupported claims, unsafe action paths, and raw payload exposure.
+- [ ] Define next milestone requirements with `$gsd-new-milestone`.
 
 ### Out of Scope
 
@@ -245,7 +243,7 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - Interrupt/resume: approval workflow is a first-class graph node, not an if/else hack
 - Auditable: every run is replayable from audit logs
 
-## Current State
+## Historical State Ledger
 
 - Phase 1 Foundation is complete: local infrastructure, schema, seed data, auth/scopes, repository layer, and CRUD/tool-call foundations are in place.
 - Phase 2 RAG Pipeline is complete: 15 Chinese policy documents are chunked and embedded, `/api/v1/search/` returns tenant-filtered evidence with citation metadata, and live DB-backed EVAL-02 passes at Hit@5 83.3% with fallback accuracy 100.0%.
@@ -272,15 +270,15 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - v1.5 RAG Context Builder + Hallucination Control is shipped and archived. Phase 22 owns ContextBuilder, canonical evidence validation, MaterialClaim authority verification, deterministic route control, action-boundary blocking, safe final-response wording, and hallucination-control evals while preserving v1.3/v1.4 evidence and provenance boundaries.
 - v1.6 RAG Reranker + Query Rewrite is shipped and archived on 2026-06-20. Full milestone history lives in `.planning/milestones/v1.6-ROADMAP.md`, `.planning/milestones/v1.6-REQUIREMENTS.md`, and `.planning/milestones/v1.6-phases/`.
 - v1.7 Short-term Memory Unification is complete on 2026-06-20. Phase 24 owns Agent Console `/agent-runs + SSE` conversation persistence, rolling summaries, prompt-safe tool summaries, PostgreSQL-backed session slot continuity, failure/idempotency safeguards, authority-boundary regressions, and three-turn smoke verification.
-- v1.9 Agent Platform Foundation has completed Phase 26 Architecture Contract Baseline, Phase 27 TrustedContextFactory and Projections, Phase 28 Decision Event Foundation, Phase 29 Tool Platform Boundary, Phase 29.5 Merchant Scope / Role Model Alignment, and Phase 30 BusinessFactService Boundary. Phase 27 owns canonical `TrustedContextFactory`, no-widening service projections, read-only intent/slot registries, and current route/node/tool seam migrations for APF-03/APF-04. Phase 28 owns strict `DecisionEventEnvelopeV1` validation, replay-owned `emit_decision_event`, fail-closed trusted identity projection, reason/version normalization, resource reference leakage guards, and focused wrapper/key-path compatibility for APF-05. Phase 29 owns prompt-safe `ToolViewV1` planner visibility, `ToolPolicyDecision` runtime authorization, `ToolPlatform` / `ToolRuntime` / `ToolResultProjector` boundaries, and manager/investigate/conversation integration for APF-06/APF-07. Phase 30 owns strict `BusinessFactResultV1`, service-approved `BusinessFactRefV1` emission, BusinessFactService no-leak/stale/unavailable fail-closed behavior, ToolPlatform domain-scope marker enforcement, projection envelope-only business refs, and authority-boundary tests that prevent memory/RAG/LLM/raw rows from proving current business facts.
+- v1.9 Agent Platform Foundation is shipped and archived on 2026-06-30. It completes Phases 26-35.1: architecture contract baseline, TrustedContextFactory/projections, decision events, tool platform, merchant scope alignment, BusinessFactService, memory platform, intent graph migration, deterministic RAG context build, claim verification, approval/action draft hardening, replay/eval hardening, and audit readiness closure. Full milestone history lives in `.planning/milestones/v1.9-ROADMAP.md`, `.planning/milestones/v1.9-REQUIREMENTS.md`, and `.planning/milestones/v1.9-MILESTONE-AUDIT.md`.
 
 ## Next Milestone Setup
 
-- v1.9 Agent Platform Foundation is active. It should land the service-boundary foundation discussed in `docs/target-agent-platform-architecture-plan.md` and normalized in `docs/contract-spec.md`.
-- Phase numbering continues from Phase 25; do not restart at Phase 1 or use Phase 1.x numbering.
-- Keep owner-named deferrals explicit: 17-prep AgentState Surface Contracts + Authority Isolation, Phase 17 External Action Execution, post-Phase 17 Policy Scope, Phase RAG-5 external backend, and Policy Source Operations.
-- Preserve v1.1-v1.8 safety boundaries: policy evidence remains `EvidenceRefV1`; business facts remain BusinessFact/Tool System outputs; memory remains contextual assistance only; parser/OCR provenance remains internal unless verified through the maintainer provenance lookup; verifier failures and timeouts fail closed; rewrite/rerank diagnostics remain relevance/eval signals only; short-term memory remains contextual and never becomes evidence, action, approval, current business fact, or replay authority.
-- Keep 17-prep AgentState cleanup as a Phase 17 prerequisite, not a blocker for retrieval-quality milestones.
+- The next milestone is not defined yet. Start with `$gsd-new-milestone` to create fresh requirements before adding new phases.
+- Phase numbering should continue after Phase 35.1; do not restart at Phase 1 or use old v1.x phase numbers.
+- Preserve v1.9 service-boundary contracts from `docs/contract-spec.md` unless a future phase explicitly records a spec delta.
+- Keep owner-named deferrals explicit: Phase 36+ database hardening / role cleanup, same-merchant trace/replay authorization expansion, Phase 17 External Action Execution, post-Phase 17 Policy Scope, Phase RAG-5 external backend, and Policy Source Operations.
+- Preserve safety boundaries: policy evidence remains `EvidenceRefV1`; current business facts remain `BusinessFactResultV1` / `BusinessFactRefV1`; memory remains contextual assistance only; parser/OCR provenance remains internal unless verified through maintainer lookup; verifier failures and timeouts fail closed; replay/eval artifacts do not authorize new access by themselves.
 
 ## Constraints
 
@@ -315,6 +313,9 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 | Scope v1.6 to Phase 23 retrieval quality | Starts the owner-named RAG reranker/query rewrite phase while keeping 17-prep as a later Phase 17 prerequisite | Adopted 2026-06-20 |
 | Scope v1.7 to Agent Console short-term memory unification | The current frontend path uses `/agent-runs + SSE`; it needs parity with the existing conversation log and rolling summary infrastructure while preserving memory authority boundaries | Adopted 2026-06-20 |
 | Scope v1.9 to Agent Platform Foundation | The next architecture milestone should land modular-monolith service boundaries and platform contracts before graph/RAG/tool/memory rewrites, without restarting phase numbering or implementing full real execution | Adopted 2026-06-22 |
+| Keep Phase 36+ for future hardening, not audit closure | Phase 35.1 closed v1.9 readiness gaps while preserving Phase 36+ as database hardening / role cleanup / same-merchant trace-replay expansion scope | Adopted 2026-06-30 |
+| Close MER-01 as v1.9 runtime scope only | Runtime merchant boundaries are verified, but database/RLS/role cleanup and trace/replay authorization expansion remain named future scope | Adopted 2026-06-30 |
+| Archive v1.9 after formal audit closure | Phase 35.1 added missing formal verification artifacts, refreshed validation metadata, and produced a ready-to-archive milestone audit | Adopted 2026-06-30 |
 
 ## Evolution
 
@@ -334,4 +335,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-28 after completing Phase 31 Memory Platform Boundary*
+*Last updated: 2026-06-30 after shipping v1.9 Agent Platform Foundation*
