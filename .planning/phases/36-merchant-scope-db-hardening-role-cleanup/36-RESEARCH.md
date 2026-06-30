@@ -411,22 +411,25 @@ This guard is the regression baseline for Phase 36. [VERIFIED: src/api/routers/t
 |---|-------|---------|---------------|
 | - | None. | - | All implementation-scope claims are sourced from the phase artifacts, local code, local environment probes, or official docs. [VERIFIED: source audit] |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **What is the tenant selector for login/token/demo-token?**  
    - What we know: username identity should move toward `(tenant_id, username)`, but current auth payloads query username alone. [VERIFIED: .planning/phases/36-merchant-scope-db-hardening-role-cleanup/36-CONTEXT.md; src/api/routers/auth.py]  
    - What's unclear: whether the transitional selector should be request body field, header, tenant slug, demo-only default, or temporary "global unique until product selector" invariant. [VERIFIED: src/api/schemas/auth.py; src/api/routers/auth.py]  
    - Recommendation: make this Plan 1's explicit decision and test same-tenant duplicate prevention before relaxing the global unique constraint. [VERIFIED: .planning/phases/36-merchant-scope-db-hardening-role-cleanup/36-CONTEXT.md]
+   - **Resolved decision:** Plan 36-02 uses optional trusted `tenant_id` in JSON `/login` and `/demo-token` requests. Username-only JSON login/demo-token remains a transitional path and fails closed when more than one principal matches. OAuth2 form `/token` remains username-only because `OAuth2PasswordRequestForm` has no tenant field; it also fails closed on duplicate usernames. Same-tenant duplicate usernames remain forbidden by `uq_users_tenant_username`, and cross-tenant duplicate usernames require the explicit JSON `tenant_id` selector.
 
 2. **Where should AgentRun scope classification literals live?**  
    - What we know: CONTEXT leaves helper/module names and classification location to planner discretion. [VERIFIED: .planning/phases/36-merchant-scope-db-hardening-role-cleanup/36-CONTEXT.md]  
    - What's unclear: whether the codebase will prefer model-adjacent constants, a new `src/agent/run_scope.py`, or schema-level literals. [VERIFIED: source audit]  
    - Recommendation: choose one small domain helper and import it from ORM/tests/services to avoid string drift. [VERIFIED: tests/approvals/test_migration_contract.py pattern]
+   - **Resolved decision:** Plan 36-03 uses `src/agent/run_scope.py` as the small domain helper/module. It owns the exact scope literals, `AgentRunScopeFacts`, and `classify_agent_run_scope`; ORM and migration tests assert the corresponding DB constraint names to prevent string drift.
 
 3. **How much historical data can be backfilled to `business_merchant`?**  
    - What we know: allowed sources are orders, validated approval/action target merchant bindings, trusted Phase 34 binding material, or verified scoped `BusinessFactRefV1`. [VERIFIED: .planning/phases/36-merchant-scope-db-hardening-role-cleanup/36-CONTEXT.md]  
    - What's unclear: actual production/local DB row distribution is unknown from source research alone. [VERIFIED: source-only research scope]  
    - Recommendation: migration preflight should report counts and block or classify ambiguous legacy rows as `unknown_legacy` rather than guessing. [VERIFIED: .planning/phases/36-merchant-scope-db-hardening-role-cleanup/36-CONTEXT.md]
+   - **Resolved decision:** Plan 36-05 migration preflight/backfill uses only authoritative sources named in D-12. Ambiguous rows become `unknown_legacy` only when they do not already claim `business_merchant`; missing, malformed, contradictory, or unsafe business-scoped rows block migration. The migration must not guess from weak sources such as owner identity, requested_by/user merchant binding, thread id, prompt/final text, memory, RAG, LLM output, raw tool payload, `target_merchant_context`, or `replay_authorization_proof`.
 
 ## Environment Availability
 
