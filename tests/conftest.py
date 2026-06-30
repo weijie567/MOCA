@@ -21,13 +21,18 @@ from src.auth.jwt import hash_password
 from src.db.models import Base, Merchant, Order, PolicyChunk, PolicyDocument, RefundCase, Tenant, Ticket, User
 from src.db.session import get_session
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
-from src.knowledge.schemas import EvidenceRefV1
+from src.knowledge.schemas import ClaimVerificationBundleV1, ClaimVerificationResultV1, EvidenceRefV1
 from src.tools.catalog import ToolCatalog
 from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolResultV2
 from src.tools.platform import ToolPlatform
 
 
 TEST_DATABASE_URL = "postgresql+asyncpg://moca:moca_dev@localhost:5432/moca_test"
+
+
+def _fixed_millisecond_now() -> datetime:
+    now = datetime.now(UTC)
+    return now.replace(microsecond=(now.microsecond // 1000) * 1000)
 
 
 async def _ensure_test_database(database_url: str) -> None:
@@ -68,6 +73,7 @@ async def test_engine():
     engine = create_async_engine(TEST_DATABASE_URL, future=True, poolclass=NullPool)
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     yield engine
@@ -400,8 +406,6 @@ def mock_llm_responses() -> dict[str, dict[str, Any]]:
         },
         "slots": {
             "order_id": "ORD-TEST-001",
-            "refund_case_id": "RF-TEST-001",
-            "ticket_id": "TK-TEST-001",
             "issue_type": "compensation",
             "action_type": "issue_coupon",
         },
@@ -484,6 +488,7 @@ async def mock_graph(monkeypatch, mock_llm_responses, session: AsyncSession, see
     fake_llm = _FakeLLM(mock_llm_responses)
 
     import src.agent.nodes.assess_risk_and_approval as assess_node
+    import src.agent.nodes.claim_verify as claim_verify_node
     import src.agent.nodes.classify_intent as classify_node
     import src.agent.nodes.extract_slots as extract_node
     import src.agent.nodes.generate_recommendation as recommendation_node
@@ -492,8 +497,12 @@ async def mock_graph(monkeypatch, mock_llm_responses, session: AsyncSession, see
     monkeypatch.setattr(classify_node, "_get_llm", lambda: fake_llm)
     monkeypatch.setattr(extract_node, "_get_llm", lambda: fake_llm)
     monkeypatch.setattr(recommendation_node, "_get_llm", lambda: fake_llm)
-    monkeypatch.setattr(recommendation_node, "MaterialClaimVerifier", _ApprovalGraphMaterialClaimVerifier)
     monkeypatch.setattr(assess_node, "_get_llm", lambda: fake_llm)
+    monkeypatch.setattr(
+        claim_verify_node,
+        "_policy_knowledge_service",
+        lambda config: _ApprovalGraphClaimVerificationService(),
+    )
 
     monkeypatch.setattr(investigate_node, "ToolPlatform", _ApprovalGraphInvestigateToolPlatform)
     return build_graph(MemorySaver())
@@ -534,7 +543,12 @@ class _ApprovalGraphBusinessExecutor:
     def _order_result(self, order_no: str, ctx: ToolCallContext) -> ToolResultV2:
         return ToolResultV2(
             status="success",
-            data={"order_no": order_no, "status": "delivered", "amount": "199.00"},
+            data={
+                "order_no": order_no,
+                "status": "delivered",
+                "amount": "199.00",
+                "merchant_id": _tool_context_merchant_id(ctx),
+            },
             summary="order result",
             source_system="business_tool_service",
             data_freshness_at=None,
@@ -550,7 +564,12 @@ class _ApprovalGraphBusinessExecutor:
     def _refund_case_result(self, refund_case_no: str, ctx: ToolCallContext) -> ToolResultV2:
         return ToolResultV2(
             status="success",
-            data={"refund_case_no": refund_case_no, "status": "reviewing", "requested_amount": "199.00"},
+            data={
+                "refund_case_no": refund_case_no,
+                "status": "reviewing",
+                "requested_amount": "199.00",
+                "merchant_id": _tool_context_merchant_id(ctx),
+            },
             summary="refund case result",
             source_system="business_tool_service",
             data_freshness_at=None,
@@ -566,7 +585,12 @@ class _ApprovalGraphBusinessExecutor:
     def _ticket_result(self, ticket_id: str, ctx: ToolCallContext) -> ToolResultV2:
         return ToolResultV2(
             status="success",
-            data={"ticket_no": ticket_id, "status": "open", "summary": "用户咨询退款进度"},
+            data={
+                "ticket_no": ticket_id,
+                "status": "open",
+                "summary": "用户咨询退款进度",
+                "merchant_id": _tool_context_merchant_id(ctx),
+            },
             summary="ticket result",
             source_system="business_tool_service",
             data_freshness_at=None,
@@ -588,7 +612,7 @@ class _ApprovalGraphBusinessExecutor:
             resource_id=resource_id,
             resource_version=None,
             data_freshness_at=None,
-            retrieved_at=datetime.now(UTC),
+            retrieved_at=_fixed_millisecond_now(),
         )
 
 
@@ -629,28 +653,67 @@ class _ApprovalGraphKnowledgeExecutor:
         )
 
 
-class _ApprovalGraphMaterialClaimVerifier:
-    async def verify_recommendation(self, **kwargs: Any) -> dict[str, Any]:
-        return {
-            "overall_outcome": "supported",
-            "allows_recommendation": True,
-            "route": {
-                "route": "allow",
-                "selected_by": "backend",
-                "model_selected": False,
-                "decision_source": "phase22_test_fixture",
-            },
-            "material_claims": [
-                {
-                    "claim_id": "claim-policy-1",
-                    "authority_class": "policy_claim",
-                    "verifier_status": "supported",
-                }
-            ],
-            "reason_codes": [],
-            "safe_citation_refs": ["approval_refund_policy#001"],
-            "metrics": {"claim_count": 1, "supported_claim_count": 1},
-        }
+class _ApprovalGraphClaimVerificationService:
+    async def verify_claims(self, **kwargs: Any) -> ClaimVerificationBundleV1:
+        safe_refs = _safe_support_refs_from_package(kwargs.get("verified_evidence_package"))
+        claim_results = [
+            ClaimVerificationResultV1(
+                claim_id=str(_claim_value(claim, "claim_id", f"claim-{idx}")),
+                claim_type=_claim_value(claim, "claim_type", "policy"),
+                support_status="supported",
+                supporting_evidence_refs=safe_refs,
+                business_fact_refs=list(_claim_value(claim, "business_fact_refs", []) or []),
+                rule_checks=[{"rule": "approval_graph_claim_verifier", "passed": True}],
+                semantic_review_status="not_needed",
+                allows_user_visible_claim=True,
+                allows_action_recommendation=True,
+            )
+            for idx, claim in enumerate(kwargs.get("material_claims") or [], start=1)
+        ]
+        return ClaimVerificationBundleV1(
+            overall_status="verified",
+            route="continue",
+            claim_results=claim_results,
+            blocked_claims=[],
+            safe_support_refs=safe_refs,
+            reason_codes=[],
+            verifier_policy_version="material_claim_verifier.v1",
+        )
+
+
+def _safe_support_refs_from_package(package: Any) -> list[EvidenceRefV1]:
+    evidence_map = _claim_value(package, "evidence_map", {}) or {}
+    refs = list(evidence_map.values()) if isinstance(evidence_map, dict) else []
+    if refs:
+        return [ref if isinstance(ref, EvidenceRefV1) else EvidenceRefV1.model_validate(ref) for ref in refs]
+    return [
+        EvidenceRefV1.build(
+            tenant_id="00000000-0000-0000-0000-000000000000",
+            doc_key="approval_refund_policy",
+            chunk_id="approval_refund_policy#001",
+            policy_version="v1",
+            text="补偿超过500元需人工审批。",
+            retrieved_at=datetime.now(UTC).isoformat(),
+            retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+            score=0.93,
+            rank=1,
+        )
+    ]
+
+
+def _claim_value(value: Any, key: str, default: Any = None) -> Any:
+    if isinstance(value, dict):
+        return value.get(key, default)
+    return getattr(value, key, default)
+
+
+def _tool_context_merchant_id(ctx: ToolCallContext) -> str:
+    raw_scope = ctx.merchant_scope
+    if isinstance(raw_scope, dict):
+        merchant_ids = list(raw_scope.get("merchant_ids") or [])
+    else:
+        merchant_ids = list(raw_scope or [])
+    return str(merchant_ids[0]) if merchant_ids else "merchant-1"
 
 
 @pytest.fixture

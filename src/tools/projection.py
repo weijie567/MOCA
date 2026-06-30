@@ -25,6 +25,7 @@ _SAFE_SCALAR_KEYS: set[str] = {
     "order_no",
     "id",
     "status",
+    "merchant_id",
     "source_system",
     "summary",
     "best_score",

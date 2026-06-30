@@ -378,13 +378,13 @@ def _state_phase34_binding(state: AgentState) -> dict[str, Any]:
 def _phase34_tool_args(state: AgentState, auto_allowed_binding: dict[str, Any] | None) -> dict[str, Any]:
     args = {
         "target_merchant_id": state.get("target_merchant_id"),
-        "target_merchant_ref": _json_safe(state.get("target_merchant_ref")),
-        "business_fact_refs": _json_safe_list(state.get("business_fact_refs")),
-        "verified_evidence_refs": _json_safe_list(state.get("verified_evidence_refs")),
+        "target_merchant_ref": _contract_json_safe(state.get("target_merchant_ref")),
+        "business_fact_refs": _contract_json_safe_list(state.get("business_fact_refs")),
+        "verified_evidence_refs": _contract_json_safe_list(state.get("verified_evidence_refs")),
         "claim_verification_ref": state.get("claim_verification_ref"),
         "claim_verification_summary": _json_safe(state.get("claim_verification_summary")),
         "risk_decision_ref": state.get("risk_decision_ref"),
-        "risk_decision": _json_safe(state.get("risk_decision")),
+        "risk_decision": _contract_json_safe(state.get("risk_decision")),
     }
     if auto_allowed_binding is not None:
         args["auto_allowed_binding"] = auto_allowed_binding
@@ -394,21 +394,24 @@ def _phase34_tool_args(state: AgentState, auto_allowed_binding: dict[str, Any] |
 def _canonical_target_merchant_ref(value: Any) -> dict[str, Any] | None:
     if value is None:
         return None
-    return TargetMerchantBindingV1.model_validate(_json_safe(value)).model_dump(mode="json")
+    return TargetMerchantBindingV1.model_validate(_contract_json_safe(value)).model_dump(mode="json")
 
 
 def _canonical_business_fact_refs(value: Any) -> list[dict[str, Any]]:
-    return [BusinessFactRefV1.model_validate(_json_safe(ref)).model_dump(mode="json") for ref in _list_value(value)]
+    return [
+        BusinessFactRefV1.model_validate(_contract_json_safe(ref)).model_dump(mode="json")
+        for ref in _list_value(value)
+    ]
 
 
 def _canonical_evidence_refs(value: Any) -> list[dict[str, Any]]:
-    return [EvidenceRefV1.model_validate(_json_safe(ref)).model_dump(mode="json") for ref in _list_value(value)]
+    return [EvidenceRefV1.model_validate(_contract_json_safe(ref)).model_dump(mode="json") for ref in _list_value(value)]
 
 
 def _canonical_risk_decision(value: Any) -> dict[str, Any] | None:
     if value is None:
         return None
-    return RiskDecisionV1.model_validate(_json_safe(value)).model_dump(mode="json")
+    return RiskDecisionV1.model_validate(_contract_json_safe(value)).model_dump(mode="json")
 
 
 def _list_value(value: Any) -> list[Any]:
@@ -418,6 +421,23 @@ def _list_value(value: Any) -> list[Any]:
 def _json_safe_list(value: Any) -> list[Any]:
     safe = _json_safe(value)
     return safe if isinstance(safe, list) else []
+
+
+def _contract_json_safe_list(value: Any) -> list[Any]:
+    safe = _contract_json_safe(value)
+    return safe if isinstance(safe, list) else []
+
+
+def _contract_json_safe(value: Any) -> Any:
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    if isinstance(value, list):
+        return [_contract_json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _contract_json_safe(item) for key, item in value.items()}
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value
 
 
 def _json_safe(value: Any) -> Any:

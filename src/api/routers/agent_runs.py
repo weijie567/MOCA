@@ -25,6 +25,7 @@ from src.agent.graph_vocabulary import target_graph_name
 from src.agent.nodes.memory_write import memory_write
 from src.agent.nodes.final_response import final_response as build_final_response
 from src.agent.rag_claim_summary import build_rag_claim_summary
+from src.agent.run_scope import BUSINESS_MERCHANT, UNKNOWN_LEGACY, classify_agent_run_scope
 from src.agent.trace import append_agent_steps, build_trace_summary, update_agent_run_status, write_agent_run, write_agent_steps
 from src.api.services.agent_run_memory import finalize_completed_agent_run_memory
 from src.api.schemas.agent_runs import CreateRunRequest, RunStatusResponse
@@ -713,6 +714,8 @@ async def _handle_approval_required(
     interrupt_data = _extract_interrupt_data(exc_or_data)
     persisted_steps = _with_approval_gate_step(trace_steps, completed_at)
     try:
+        _apply_interrupt_run_scope(run, interrupt_data)
+        await session.flush()
         wait_payload = await _create_approval_wait_payload_from_interrupt(
             session=session,
             user=user,
@@ -761,6 +764,22 @@ async def _handle_approval_required(
         message="需要审批，等待人工决策",
         payload=wait_payload,
     )
+
+
+def _apply_interrupt_run_scope(run: AgentRun, interrupt_data: dict[str, Any]) -> None:
+    facts = classify_agent_run_scope(interrupt_data)
+    if (
+        facts.scope_classification == UNKNOWN_LEGACY
+        and run.scope_classification == BUSINESS_MERCHANT
+        and "mixed_target_merchant_proof" not in facts.scope_reason_codes
+    ):
+        return
+
+    run.scope_classification = facts.scope_classification
+    run.target_merchant_id = facts.target_merchant_id
+    run.target_merchant_ref = facts.target_merchant_ref
+    run.scope_source = facts.scope_source
+    run.scope_reason_codes = facts.scope_reason_codes
 
 
 class ApprovalInterruptValidationError(ValueError):

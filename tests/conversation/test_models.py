@@ -198,6 +198,7 @@ async def _reset_database(database_url: str) -> None:
         await conn.execute(text("DROP SCHEMA public CASCADE"))
         await conn.execute(text("CREATE SCHEMA public"))
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
     await engine.dispose()
 
 
@@ -223,7 +224,7 @@ async def _insert_active_thread_id_duplicates(database_url: str) -> None:
                 text(
                     """
                     INSERT INTO users (id, tenant_id, username, password_hash, role, is_active)
-                    VALUES (:id, :tenant_id, :username, 'hash', 'support', true)
+                    VALUES (:id, :tenant_id, :username, 'hash', 'admin', true)
                     """
                 ),
                 {"id": user_id, "tenant_id": tenant_id, "username": f"thread_scope_user_{index}"},
@@ -243,6 +244,7 @@ async def _insert_active_thread_id_duplicates(database_url: str) -> None:
 def _alembic_config(database_url: str) -> Config:
     cfg = Config("alembic.ini")
     cfg.set_main_option("sqlalchemy.url", database_url)
+    cfg.attributes["database_url"] = database_url
 
     import src.config as config_module
 

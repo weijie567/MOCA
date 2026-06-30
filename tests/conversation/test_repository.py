@@ -88,7 +88,7 @@ async def test_concurrent_first_message_append_reuses_single_thread(test_engine)
                 tenant_id=tenant_id,
                 username="concurrent_thread_user",
                 password_hash="hash",
-                role="support",
+                role="admin",
                 is_active=True,
             )
         )

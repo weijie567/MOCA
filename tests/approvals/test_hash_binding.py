@@ -15,6 +15,7 @@ from tests.approvals.test_service_transitions import (
     _create_run,
     _decision_command as _base_decision_command,
     _evidence_ref,
+    _phase34_binding_overrides,
 )
 
 
@@ -25,6 +26,7 @@ def _decision_command(*args, **kwargs):
 
 def _changed_snapshot_hash(*, tenant_id, run_id, field: str) -> str:
     evidence = [_evidence_ref(tenant_id=tenant_id)]
+    binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
     kwargs = {
         "tenant_id": str(tenant_id),
         "run_id": str(run_id),
@@ -34,7 +36,10 @@ def _changed_snapshot_hash(*, tenant_id, run_id, field: str) -> str:
         "risk_config_version": "risk-rules.v1",
         "retrieval_config_version": "retrieval.v1",
         "evidence": evidence,
-        "action_payload_hash": "sha256:508e649e1b169a9520f7eb76403b0e00c90c1b1c52e17a499fd7bcdce2473094",
+        "action_payload_hash": binding["risk_decision"]["action_payload_hash"],
+        "target_merchant_id": binding["target_merchant_id"],
+        "target_merchant_ref": binding["target_merchant_ref"],
+        "business_fact_refs": binding["business_fact_refs"],
         "created_at": "2026-06-15T00:00:00.000Z",
     }
     if field == "changed_evidence_hash":

@@ -15,7 +15,7 @@ from src.api.main import app
 from src.api.routers import approvals as approvals_router
 from src.auth.jwt import create_access_token
 from src.approvals.schemas import ApprovalDecisionCommand, ApprovalDecisionResult
-from src.approvals.service import ApprovalService
+from src.approvals.service import ApprovalService, ApprovalTransitionError
 from src.approvals.snapshot_service import persist_action_safety_snapshot
 from src.db.models import AgentRun, ApprovalAssignment, ApprovalDecision, ApprovalEvent, ApprovalLevel, ApprovalRequest, User
 from src.knowledge.schemas import EvidenceRefV1
@@ -64,6 +64,12 @@ class ReinterruptResumeGraph:
         evidence_refs = [EvidenceRefV1.model_validate(ref) for ref in edited_action["evidence_refs"]]
         created_at = datetime.now(UTC)
         created_at = created_at.replace(microsecond=(created_at.microsecond // 1000) * 1000)
+        run = await session.get(AgentRun, UUID(edited_action["run_id"]))
+        assert run is not None
+        assert run.target_merchant_id == self.target_merchant_id
+        assert run.target_merchant_ref is not None
+        target_merchant_ref = run.target_merchant_ref
+        business_fact_ref = target_merchant_ref["business_fact_ref"]
         snapshot = await persist_action_safety_snapshot(
             session,
             tenant_id=UUID(edited_action["tenant_id"]),
@@ -74,19 +80,12 @@ class ReinterruptResumeGraph:
             risk_config_version="risk-rules.v1",
             retrieval_config_version=evidence_refs[0].retrieval_config_version,
             evidence_refs=evidence_refs,
+            target_merchant_id=self.target_merchant_id,
+            target_merchant_ref=target_merchant_ref,
+            business_fact_refs=[business_fact_ref],
             created_at=created_at,
             created_by=UUID(resume["decided_by"]),
         )
-        business_fact_ref = {
-            "schema_version": "business_fact_ref.v1",
-            "tenant_id": edited_action["tenant_id"],
-            "source_system": "moca_demo",
-            "resource_type": edited_action["target_type"],
-            "resource_id": edited_action["target_id"],
-            "resource_version": "v1",
-            "data_freshness_at": "2026-06-29T00:00:00Z",
-            "retrieved_at": "2026-06-29T00:01:00Z",
-        }
         risk_decision_ref = f"risk_decision:{edited_action['run_id']}:{snapshot.action_payload_hash}"
         interrupt_payload = {
             "proposed_action": edited_action,
@@ -101,12 +100,7 @@ class ReinterruptResumeGraph:
             "risk_reason": "Edited compensation still requires approval.",
             "risk_rule_ref": "HR-EDIT",
             "target_merchant_id": self.target_merchant_id,
-            "target_merchant_ref": {
-                "schema_version": "target_merchant_binding.v1",
-                "target_merchant_id": self.target_merchant_id,
-                "source": "business_fact_ref",
-                "business_fact_ref": business_fact_ref,
-            },
+            "target_merchant_ref": target_merchant_ref,
             "business_fact_refs": [business_fact_ref],
             "verified_evidence_refs": [ref.model_dump(mode="json") for ref in evidence_refs],
             "claim_verification_ref": None,
@@ -196,6 +190,8 @@ async def _create_approval(
         if with_phase34_bindings
         else {}
     )
+    if binding_overrides:
+        await _mark_run_business_merchant(session, run_id, binding_overrides)
     created = await ApprovalService(session).create_request(
         _create_command(
             tenant_id=tenant.id,
@@ -218,6 +214,17 @@ async def _create_approval(
         approval.status = status
     await session.commit()
     return ApprovalBundle(approval=approval, level=level, assignment=assignment)
+
+
+async def _mark_run_business_merchant(session: AsyncSession, run_id: UUID, binding: dict) -> None:
+    run = await session.get(AgentRun, run_id)
+    assert run is not None
+    run.scope_classification = "business_merchant"
+    run.target_merchant_id = binding["target_merchant_id"]
+    run.target_merchant_ref = binding["target_merchant_ref"]
+    run.scope_source = "target_merchant_binding_v1"
+    run.scope_reason_codes = []
+    await session.flush()
 
 
 def _decision_body(bundle: ApprovalBundle, decision_type: str = "approve", **overrides) -> dict:
@@ -1244,29 +1251,13 @@ async def test_manager_approval_review_paths_deny_missing_target_merchant(
     seeded_session,
     monkeypatch,
 ):
-    bundle = await _create_approval(
-        session,
-        seeded_session,
-        thread_id="thread-manager-missing-target-deny",
-        with_phase34_bindings=False,
-    )
-    monkeypatch.setattr(app.state, "agent_graph", FakeResumeGraph(), raising=False)
-    manager_headers = await _manager_headers(client)
-
-    list_response = await client.get("/api/v1/approvals", headers=manager_headers)
-    get_response = await client.get(f"/api/v1/approvals/{bundle.approval.id}", headers=manager_headers)
-    decide_response = await client.post(
-        f"/api/v1/approvals/{bundle.approval.id}/decide",
-        json=_decision_body(bundle),
-        headers=manager_headers,
-    )
-
-    assert list_response.status_code == 200
-    assert list_response.json()["data"]["total"] == 0
-    assert get_response.status_code == 403
-    assert decide_response.status_code == 403
-    assert get_response.json()["error"]["code"] == "FORBIDDEN"
-    assert decide_response.json()["error"]["code"] == "FORBIDDEN"
+    with pytest.raises(ApprovalTransitionError, match="action-bound snapshot requires target merchant binding"):
+        await _create_approval(
+            session,
+            seeded_session,
+            thread_id="thread-manager-missing-target-deny",
+            with_phase34_bindings=False,
+        )
 
 
 @pytest.mark.asyncio

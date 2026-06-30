@@ -11,9 +11,7 @@ from src.tools.executors.action import ActionToolExecutor
 from src.tools.executors.business import BusinessToolExecutor
 from src.tools.executors.knowledge import KnowledgeToolExecutor
 from src.tools.executors.memory import MemoryToolExecutor
-from src.tools.manager_results import result
 from src.tools.platform import ToolPlatform
-from src.tools.validation import validate_json_value
 
 
 INVESTIGATE_TOOL_NAMES = {

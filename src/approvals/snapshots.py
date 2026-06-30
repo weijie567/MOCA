@@ -162,7 +162,13 @@ def build_action_safety_snapshot(
         projection,
         schema_version=ACTION_SAFETY_SNAPSHOT_SCHEMA_VERSION,
         allowed_fields=SNAPSHOT_HASH_FIELDS,
-        nullable_fields={"action_payload_hash", "target_merchant_id", "target_merchant_ref"},
+        nullable_fields={
+            "action_payload_hash",
+            "target_merchant_id",
+            "target_merchant_ref",
+            "resource_version",
+            "data_freshness_at",
+        },
     )
 
     return ActionSafetySnapshot(

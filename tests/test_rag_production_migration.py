@@ -44,6 +44,7 @@ def _phase20_migration_source() -> str:
 def _alembic_config(database_url: str) -> Config:
     cfg = Config("alembic.ini")
     cfg.set_main_option("sqlalchemy.url", database_url)
+    cfg.attributes["database_url"] = database_url
 
     import src.config as config_module
 

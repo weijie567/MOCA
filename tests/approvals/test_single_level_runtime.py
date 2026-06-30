@@ -15,6 +15,8 @@ from tests.approvals.test_service_transitions import (
     _create_command,
     _create_run,
     _decision_command as _base_decision_command,
+    _mark_run_business_scope,
+    _phase34_binding_overrides,
 )
 
 
@@ -94,6 +96,8 @@ async def test_create_request_persists_risk_level_and_nullable_risk_rule_ref(
         user_id=requested_by,
         thread_id="nullable-risk-rule-thread",
     )
+    binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    await _mark_run_business_scope(session, run_id, binding)
 
     result = await ApprovalService(session).create_request(
         _create_command(
@@ -103,6 +107,7 @@ async def test_create_request_persists_risk_level_and_nullable_risk_rule_ref(
             thread_id="nullable-risk-rule-thread",
             risk_level="medium",
             risk_rule_ref=None,
+            **binding,
         )
     )
     request = await session.get(ApprovalRequest, result.approval_id)
@@ -125,6 +130,8 @@ async def test_create_request_uses_max_existing_revision_plus_one_for_run(
         user_id=requested_by,
         thread_id="revision-backfill-thread",
     )
+    binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    await _mark_run_business_scope(session, run_id, binding)
     legacy = ApprovalRequest(
         run_id=run_id,
         tenant_id=tenant_id,
@@ -150,6 +157,7 @@ async def test_create_request_uses_max_existing_revision_plus_one_for_run(
             run_id=run_id,
             requested_by=requested_by,
             thread_id="revision-backfill-thread",
+            **binding,
         )
     )
     request = await session.get(ApprovalRequest, result.approval_id)
