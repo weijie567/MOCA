@@ -14,6 +14,8 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 **Goal:** Harden v1.9 merchant-bound business role semantics at the database, migration, and role cleanup boundary before opening any new run/trace/replay visibility.
 
+**Status:** Phase 36 completed on 2026-06-30 with `ready_with_agent_run_binding`; run `$gsd-secure-phase 36` before advancing if security-gate closure is required.
+
 **Target features:**
 - Deprecate legacy `merchant` role as compatibility-only while preserving existing merchant-bound access semantics.
 - Enforce active business-user merchant binding, tenant-scoped username identity, and fail-closed handling for invalid or ambiguous legacy data.
@@ -198,11 +200,12 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - [x] v1.9 RAG context build and claim verification produce `VerifiedEvidencePackageV1`, `MaterialClaimV1`, and `ClaimVerificationBundleV1` with fail-closed authority gates (validated in Phase 33)
 - [x] v1.9 approval/action draft boundary binds payloads to business facts, verified evidence, claim verification, risk decisions, hashes, and safety snapshots without real external execution (validated in Phase 34)
 - [x] v1.9 replay/eval hardening records platform decision coverage and dev/release/monitoring gate artifacts for trusted context, intent/slot, memory, tool, RAG, claim, risk, approval, and action draft boundaries (validated in Phase 35)
+- [x] v2.0 merchant-scope database and role semantics are hardened without opening new run/trace/replay visibility (validated in Phase 36)
+- [x] Phase 36 emits `ready_with_agent_run_binding` as the trace/replay authorization readiness conclusion for later same-merchant manager visibility expansion (validated in Phase 36)
 
 ### Active
 
-- [ ] v2.0 hardens merchant-scope database and role semantics without opening new run/trace/replay visibility.
-- [ ] Phase 36 produces a trace/replay authorization readiness conclusion for the later same-merchant manager visibility expansion.
+No active v2.0 requirements remain after Phase 36 verification. Next work should be explicitly planned from backlog or a new milestone phase.
 
 ### Out of Scope
 
@@ -344,4 +347,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-30 after shipping v1.9 Agent Platform Foundation*
+*Last updated: 2026-06-30 after completing Phase 36 Merchant Scope Hardening*
