@@ -13,6 +13,13 @@ TRUSTED_CONTEXT_SCHEMA_VERSION = "trusted_context.v1"
 MERCHANT_SCOPE_SCHEMA_VERSION = "merchant_scope.v1"
 MERCHANT_BOUND_ROLES = {"support", "manager", "merchant"}
 PLATFORM_ADMIN_ROLES = {"admin"}
+DEPRECATED_COMPATIBILITY_ROLES = {"merchant"}
+ROLE_SCOPE_POLICY = {
+    "support": "merchant_bound",
+    "manager": "merchant_bound",
+    "merchant": "deprecated_merchant_bound_compatibility",
+    "admin": "platform_admin",
+}
 
 SCOPE_TO_TOOL_PERMISSION = {
     "orders:read": "tool:get_order",
@@ -20,6 +27,10 @@ SCOPE_TO_TOOL_PERMISSION = {
     "tickets:read": "tool:get_ticket",
     "knowledge:read": "tool:search_policy",
 }
+
+
+def is_deprecated_compatibility_role(role: str) -> bool:
+    return role in DEPRECATED_COMPATIBILITY_ROLES
 
 
 class MerchantScopeV1(BaseModel):
