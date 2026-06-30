@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
 from src.db.models import Merchant, Order
 from src.integrations.demo_business.orders import get_order
@@ -180,17 +181,13 @@ async def test_get_order_allows_admin_other_same_tenant_merchant(session: AsyncS
 
 
 @pytest.mark.asyncio
-async def test_get_order_denies_merchant_bound_user_missing_merchant_id(session: AsyncSession, seeded_session):
-    tenant = seeded_session["tenant"]
+async def test_get_order_rejects_persisting_merchant_bound_user_missing_merchant_id(session: AsyncSession, seeded_session):
     support = seeded_session["users"]["cs_zhang"]
     support.merchant_id = None
-    await session.flush()
 
-    result = await get_order("ORD-TEST-001", str(tenant.id), str(support.id), support.role, session)
-
-    assert result["status"] == "error"
-    assert result["error"]["error_code"] == "FORBIDDEN"
-    assert result["error"]["should_stop"] is True
+    with pytest.raises(IntegrityError, match="ck_users_active_business_role_has_merchant"):
+        await session.flush()
+    await session.rollback()
 
 
 @pytest.mark.asyncio

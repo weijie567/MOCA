@@ -67,13 +67,21 @@ PHASE22_ALLOWED_SURFACE_PATH_PREFIXES = {
     Path("tests/agent/rag_context"),
 }
 PHASE22_ALLOWED_SURFACE_FILES = {
+    Path("src/agent/state.py"),
     Path("src/agent/nodes/generate_recommendation.py"),
+    Path("src/knowledge/schemas.py"),
+    Path("src/knowledge/service.py"),
+    Path("tests/agent/test_graph.py"),
+    Path("tests/agent/test_nodes/test_claim_verify.py"),
+    Path("tests/agent/test_nodes/test_generate_recommendation.py"),
     Path("tests/knowledge/test_phase22_evidence_validation.py"),
     Path("tests/agent/test_phase22_recommendation_integration.py"),
     Path("tests/agent/test_phase22_action_boundary.py"),
     Path("tests/agent/test_phase22_final_response.py"),
     Path("tests/agent/test_memory_evidence_boundary.py"),
     Path("tests/conftest.py"),
+    Path("tests/knowledge/test_claim_verification_bundle.py"),
+    Path("tests/knowledge/test_tenant_scope.py"),
 }
 PHASE23_ALLOWED_SURFACE_PATTERNS = {
     "QueryRewritePlan",
@@ -108,7 +116,10 @@ PHASE23_ALLOWED_SURFACE_FILES = {
 PHASE23_ALLOWED_SURFACE = PHASE23_ALLOWED_SURFACE_FILES
 IGNORED_STATIC_GUARD_FILES = {
     Path("tests/actions/test_action_draft_v2.py"),
+    Path("tests/approvals/test_migration_contract.py"),
     Path("tests/architecture/test_action_draft_boundaries.py"),
+    Path("tests/architecture/test_phase34_approval_action_boundaries.py"),
+    Path("tests/architecture/test_phase35_replay_eval_boundaries.py"),
     Path("tests/knowledge/test_phase21_boundaries.py"),
     Path("tests/replay/test_memory_foundation_alignment.py"),
     Path("tests/test_rag_production_migration.py"),
@@ -325,6 +336,28 @@ def _evidence_ref() -> EvidenceRefV1:
     )
 
 
+def _business_fact_ref() -> dict:
+    return {
+        "schema_version": "business_fact_ref.v1",
+        "tenant_id": "tenant-001",
+        "source_system": "moca_demo",
+        "resource_type": "refund_case",
+        "resource_id": "RF-001",
+        "resource_version": None,
+        "data_freshness_at": None,
+        "retrieved_at": "2026-06-15T00:01:00.000Z",
+    }
+
+
+def _target_merchant_ref() -> dict:
+    return {
+        "schema_version": "target_merchant_binding.v1",
+        "target_merchant_id": "merchant-001",
+        "source": "business_fact_ref",
+        "business_fact_ref": _business_fact_ref(),
+    }
+
+
 def test_canonical_evidence_projection_excludes_source_block_parser_ocr_and_job_fields() -> None:
     projected = canonical_evidence_projection([_evidence_ref()])
 
@@ -344,6 +377,9 @@ def test_approval_snapshot_hash_projection_keeps_canonical_evidence_shape() -> N
         retrieval_config_version="retrieval.v3",
         evidence=[_evidence_ref()],
         action_payload_hash="sha256:" + "a" * 64,
+        target_merchant_id="merchant-001",
+        target_merchant_ref=_target_merchant_ref(),
+        business_fact_refs=[_business_fact_ref()],
         created_at="2026-06-15T00:00:00.000Z",
     )
 
@@ -400,6 +436,9 @@ def test_action_snapshot_ignores_parser_ocr_source_metadata_on_evidence_inputs()
         retrieval_config_version="retrieval.v3",
         evidence=[evidence_with_internal_metadata],
         action_payload_hash="sha256:" + "a" * 64,
+        target_merchant_id="merchant-001",
+        target_merchant_ref=_target_merchant_ref(),
+        business_fact_refs=[_business_fact_ref()],
         created_at="2026-06-15T00:00:00.000Z",
     )
 

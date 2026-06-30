@@ -13,11 +13,11 @@ from src.actions.service import _build_idempotency_key, create_coupon_grant_draf
 from src.agent.trace import write_agent_run
 from src.approvals.snapshot_service import persist_action_safety_snapshot
 from src.approvals.service import ApprovalService
-from src.db.models import ActionDraft, AgentTraceEvent, ApprovalAssignment, ApprovalLevel, ApprovalRequest
+from src.db.models import ActionDraft, AgentRun, AgentTraceEvent, ApprovalAssignment, ApprovalLevel, ApprovalRequest
 from src.replay.service import ReplayService
 from src.tools.contracts import ToolCallContext
 from src.tools.executors.action import ActionToolExecutor
-from tests.approvals.test_service_transitions import _create_command, _decision_command
+from tests.approvals.test_service_transitions import _create_command, _decision_command, _phase34_binding_overrides
 
 
 async def _create_run(session: AsyncSession, *, tenant_id: str, user_id: str) -> UUID:
@@ -50,8 +50,17 @@ async def _approval_context(
     tenant_id = seeded_session[tenant_key].id
     user_id = seeded_session["users"][user_key].id
     run_id = await _create_run(session, tenant_id=str(tenant_id), user_id=str(user_id))
+    binding_overrides = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    run = await session.get(AgentRun, run_id)
+    assert run is not None
+    run.scope_classification = "business_merchant"
+    run.target_merchant_id = binding_overrides["target_merchant_id"]
+    run.target_merchant_ref = binding_overrides["target_merchant_ref"]
+    run.scope_source = "target_merchant_binding_v1"
+    run.scope_reason_codes = []
+    await session.flush()
     created = await ApprovalService(session).create_request(
-        _create_command(tenant_id=tenant_id, run_id=run_id, requested_by=user_id)
+        _create_command(tenant_id=tenant_id, run_id=run_id, requested_by=user_id, **binding_overrides)
     )
     request = await session.get(ApprovalRequest, created.approval_id)
     assert request is not None
@@ -85,6 +94,14 @@ def _binding_kwargs(request: ApprovalRequest, **overrides):
         "action_payload_hash": request.action_payload_hash,
         "safety_snapshot_ref": request.safety_snapshot_ref,
         "safety_snapshot_hash": request.safety_snapshot_hash,
+        "target_merchant_id": request.target_merchant_id,
+        "target_merchant_ref": request.target_merchant_ref,
+        "business_fact_refs": request.business_fact_refs,
+        "verified_evidence_refs": request.verified_evidence_refs,
+        "claim_verification_ref": request.claim_verification_ref,
+        "claim_verification_summary": request.claim_verification_summary,
+        "risk_decision_ref": request.risk_decision_ref,
+        "risk_decision": request.risk_decision,
     }
     payload.update(overrides)
     return payload
@@ -316,14 +333,11 @@ async def test_create_coupon_grant_draft_rejects_pending_high_risk_snapshot_when
         tenant_id=str(request.tenant_id),
         user_id=str(user_id),
         run_id=str(request.run_id),
-        approval_request_id=None,
         idempotency_key="unsafe-caller-key",
         action_type="issue_coupon",
         payload=_draft_payload(request),
         session=session,
-        action_payload_hash=request.action_payload_hash,
-        safety_snapshot_ref=request.safety_snapshot_ref,
-        safety_snapshot_hash=request.safety_snapshot_hash,
+        **_binding_kwargs(request, approval_request_id=None),
     )
 
     _assert_auto_allowed_binding_required(result)
@@ -408,7 +422,16 @@ async def test_create_coupon_grant_draft_rejects_bare_snapshot_without_auto_allo
     tenant_id = seeded_session["tenant"].id
     user_id = seeded_session["users"]["cs_zhang"].id
     run_id = await _create_run(session, tenant_id=str(tenant_id), user_id=str(user_id))
-    command = _create_command(tenant_id=tenant_id, run_id=run_id, requested_by=user_id)
+    binding_overrides = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    run = await session.get(AgentRun, run_id)
+    assert run is not None
+    run.scope_classification = "business_merchant"
+    run.target_merchant_id = binding_overrides["target_merchant_id"]
+    run.target_merchant_ref = binding_overrides["target_merchant_ref"]
+    run.scope_source = "target_merchant_binding_v1"
+    run.scope_reason_codes = []
+    await session.flush()
+    command = _create_command(tenant_id=tenant_id, run_id=run_id, requested_by=user_id, **binding_overrides)
     snapshot = await persist_action_safety_snapshot(
         session,
         tenant_id=tenant_id,
@@ -419,6 +442,9 @@ async def test_create_coupon_grant_draft_rejects_bare_snapshot_without_auto_allo
         risk_config_version=command.risk_config_version,
         retrieval_config_version=command.retrieval_config_version,
         evidence_refs=command.evidence_refs,
+        target_merchant_id=command.target_merchant_id,
+        target_merchant_ref=command.target_merchant_ref.model_dump(mode="json") if command.target_merchant_ref else None,
+        business_fact_refs=[ref.model_dump(mode="json") for ref in command.business_fact_refs],
         created_at=command.created_at,
         created_by=user_id,
     )
@@ -435,6 +461,14 @@ async def test_create_coupon_grant_draft_rejects_bare_snapshot_without_auto_allo
         action_payload_hash=snapshot.action_payload_hash,
         safety_snapshot_ref=snapshot.safety_snapshot_ref,
         safety_snapshot_hash=snapshot.safety_snapshot_hash,
+        target_merchant_id=command.target_merchant_id,
+        target_merchant_ref=command.target_merchant_ref.model_dump(mode="json") if command.target_merchant_ref else None,
+        business_fact_refs=[ref.model_dump(mode="json") for ref in command.business_fact_refs],
+        verified_evidence_refs=[ref.model_dump(mode="json") for ref in command.verified_evidence_refs],
+        claim_verification_ref=command.claim_verification_ref,
+        claim_verification_summary=command.claim_verification_summary,
+        risk_decision_ref=command.risk_decision_ref,
+        risk_decision=command.risk_decision.model_dump(mode="json") if command.risk_decision else None,
     )
 
     _assert_auto_allowed_binding_required(result)
@@ -570,12 +604,9 @@ async def test_action_executor_emits_safe_action_draft_created_event(
     result = await ActionToolExecutor(session).execute(
         "create_coupon_grant_draft",
         {
-            "approval_request_id": str(request.id),
             "action_type": "issue_coupon",
             "payload": _draft_payload(request),
-            "action_payload_hash": request.action_payload_hash,
-            "safety_snapshot_ref": request.safety_snapshot_ref,
-            "safety_snapshot_hash": request.safety_snapshot_hash,
+            **_binding_kwargs(request),
         },
         ctx,
     )

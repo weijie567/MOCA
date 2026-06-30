@@ -116,7 +116,7 @@ def _extract_compensation_amount(draft: dict[str, Any], context: dict[str, Any])
     if match:
         return _money_value(match.group(1))
 
-    refund_case = context.get("refund_case") or {}
+    refund_case = _business_context_resource(context, "refund_case")
     return _money_value(refund_case.get("approved_amount") or refund_case.get("requested_amount"))
 
 
@@ -131,7 +131,7 @@ def _deterministic_rule_match(
 ) -> dict[str, Any] | None:
     action = str(draft.get("recommended_action") or "")
     amount = _extract_compensation_amount(draft, context)
-    order = context.get("order") or {}
+    order = _business_context_resource(context, "order")
     merchant_risk_level = context.get("merchant_risk_level") or order.get("merchant_risk_level")
 
     for rule in rules.get("high_risk") or []:
@@ -308,8 +308,8 @@ def _build_proposed_action(
     assessment: dict[str, Any],
     evidence_refs: list[EvidenceRefV1],
 ) -> dict[str, Any]:
-    refund_case = context.get("refund_case") or {}
-    order = context.get("order") or {}
+    refund_case = _business_context_resource(context, "refund_case")
+    order = _business_context_resource(context, "order")
     amount = _extract_compensation_amount(draft, context)
     action_type = _canonical_action_type(draft.get("recommended_action"))
     target_type, target_id = _action_target(refund_case=refund_case, order=order)
@@ -525,8 +525,8 @@ def _target_merchant_binding(
 
     merchant_candidates: list[tuple[str, str]] = []
     for resource_type in ("refund_case", "order", "ticket"):
-        resource = context.get(resource_type)
-        if not isinstance(resource, dict):
+        resource = _business_context_resource(context, resource_type)
+        if not resource:
             continue
         resource_id = _business_resource_id(resource_type, resource)
         merchant_id = resource.get("merchant_id")
@@ -550,6 +550,18 @@ def _target_merchant_binding(
         source="business_fact_ref",
         business_fact_ref=supporting_ref.model_dump(mode="json"),
     )
+
+
+def _business_context_resource(context: dict[str, Any], resource_type: str) -> dict[str, Any]:
+    resource = context.get(resource_type)
+    if isinstance(resource, dict):
+        return resource
+    facts = context.get("facts")
+    if isinstance(facts, dict):
+        nested = facts.get(resource_type)
+        if isinstance(nested, dict):
+            return nested
+    return {}
 
 
 def _business_resource_id(resource_type: str, resource: dict[str, Any]) -> str | None:
@@ -927,14 +939,12 @@ async def _attach_snapshot_binding(
                 assessment,
                 reason=f"Business fact binding could not be verified: {exc}",
             )
-        if (
-            _target_merchant_binding(
-                context=context,
-                proposed_action=proposed_action,
-                business_fact_refs=business_fact_refs,
-            )
-            is None
-        ):
+        target_merchant_ref = _target_merchant_binding(
+            context=context,
+            proposed_action=proposed_action,
+            business_fact_refs=business_fact_refs,
+        )
+        if target_merchant_ref is None:
             return _phase34_fail_closed_result(
                 result,
                 assessment,
@@ -953,6 +963,9 @@ async def _attach_snapshot_binding(
                 retrieval_config_version=_retrieval_config_version(evidence_refs),
                 evidence=evidence_refs,
                 action_payload_hash=action_payload_hash,
+                target_merchant_id=target_merchant_ref.target_merchant_id,
+                target_merchant_ref=target_merchant_ref,
+                business_fact_refs=business_fact_refs,
                 created_at=_fixed_millisecond_now(),
             )
             snapshot_result = {
@@ -997,6 +1010,9 @@ async def _attach_snapshot_binding(
             risk_config_version=RISK_CONFIG_VERSION,
             retrieval_config_version=_retrieval_config_version(evidence_refs),
             evidence_refs=evidence_refs,
+            target_merchant_id=target_merchant_ref.target_merchant_id,
+            target_merchant_ref=target_merchant_ref.model_dump(mode="json"),
+            business_fact_refs=[ref.model_dump(mode="json") for ref in business_fact_refs],
             created_at=_fixed_millisecond_now(),
             created_by=user_id,
         )

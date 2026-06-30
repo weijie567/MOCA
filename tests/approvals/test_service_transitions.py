@@ -15,6 +15,7 @@ from src.approvals.schemas import ApprovalDecisionCommand, ApprovalRequestCreate
 from src.approvals.service import ApprovalService, ApprovalTransitionError
 from src.approvals.snapshot_service import compute_action_payload_hash
 from src.db.models import (
+    AgentRun,
     ApprovalAssignment,
     ApprovalDecision,
     ApprovalEvent,
@@ -138,6 +139,17 @@ def _phase34_binding_overrides(*, tenant_id: UUID, run_id: UUID, merchant_id: st
     }
 
 
+async def _mark_run_business_scope(session: AsyncSession, run_id: UUID, binding: dict[str, Any]) -> None:
+    run = await session.get(AgentRun, run_id)
+    assert run is not None
+    run.scope_classification = "business_merchant"
+    run.target_merchant_id = binding["target_merchant_id"]
+    run.target_merchant_ref = binding["target_merchant_ref"]
+    run.scope_source = "target_merchant_binding_v1"
+    run.scope_reason_codes = []
+    await session.flush()
+
+
 def _canonical_evidence_refs(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [EvidenceRefV1.model_validate(ref).model_dump(mode="json") for ref in refs]
 
@@ -207,6 +219,8 @@ async def _approval_bundle(
     tenant_id = seeded_session["tenant"].id
     requested_by = seeded_session["users"][requested_by_key].id
     run_id = await _create_run(session, tenant_id=tenant_id, user_id=requested_by, thread_id=thread_id)
+    binding_overrides = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    await _mark_run_business_scope(session, run_id, binding_overrides)
     service = ApprovalService(session)
 
     created = await service.create_request(
@@ -217,7 +231,7 @@ async def _approval_bundle(
             thread_id=thread_id,
             expires_at=expires_at,
             risk_rule_ref=risk_rule_ref,
-            **(command_overrides or {}),
+            **{**binding_overrides, **(command_overrides or {})},
         )
     )
 
@@ -358,6 +372,7 @@ async def test_create_request_persists_phase34_binding_fields(session: AsyncSess
     requested_by = seeded_session["users"]["cs_zhang"].id
     run_id = await _create_run(session, tenant_id=tenant_id, user_id=requested_by)
     binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    await _mark_run_business_scope(session, run_id, binding)
 
     created = await ApprovalService(session).create_request(
         _create_command(
@@ -397,13 +412,15 @@ async def test_accept_decision_returns_persisted_phase34_bindings_in_resume_payl
     tenant_id = seeded_session["tenant"].id
     requested_by = seeded_session["users"]["cs_zhang"].id
     run_id = await _create_run(session, tenant_id=tenant_id, user_id=requested_by)
+    binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    await _mark_run_business_scope(session, run_id, binding)
     created = await ApprovalService(session).create_request(
         _create_command(
             tenant_id=tenant_id,
             run_id=run_id,
             requested_by=requested_by,
             thread_id="phase34-binding-approval",
-            **_phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id),
+            **binding,
         )
     )
     request = await session.get(ApprovalRequest, created.approval_id)
@@ -444,13 +461,15 @@ async def test_edit_decision_reroutes_to_risk_without_approved_resume_authority(
     tenant_id = seeded_session["tenant"].id
     requested_by = seeded_session["users"]["cs_zhang"].id
     run_id = await _create_run(session, tenant_id=tenant_id, user_id=requested_by)
+    binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    await _mark_run_business_scope(session, run_id, binding)
     created = await ApprovalService(session).create_request(
         _create_command(
             tenant_id=tenant_id,
             run_id=run_id,
             requested_by=requested_by,
             thread_id="phase34-edit-reroute",
-            **_phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id),
+            **binding,
         )
     )
     request = await session.get(ApprovalRequest, created.approval_id)

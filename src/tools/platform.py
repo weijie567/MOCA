@@ -17,7 +17,6 @@ from src.tools.contracts import (
     ToolCallContext,
     ToolInvocationOutcome,
     ToolPolicyDecision,
-    ToolResultProjectionV1,
     ToolResultV2,
     ToolViewV1,
 )

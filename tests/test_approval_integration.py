@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.main import app
 from src.approvals.service import ApprovalService
 from src.db.models import ActionDraft, AgentRun, ApprovalAssignment, ApprovalLevel, ApprovalRequest
-from tests.approvals.test_service_transitions import _create_command, _create_run
+from tests.approvals.test_service_transitions import _create_command, _create_run, _phase34_binding_overrides
 
 
 pytestmark = pytest.mark.asyncio
@@ -28,9 +28,10 @@ async def test_high_risk_approve_flow_interrupts_resumes_executes_action(
 ):
     monkeypatch.setattr(app.state, "agent_graph", mock_graph, raising=False)
 
+    thread_id = f"approve-{uuid4()}"
     chat_response = await client.post(
         "/api/v1/agent/chat",
-        json={"query": "请给ORD-TEST-001补偿600元", "thread_id": f"approve-{uuid4()}"},
+        json={"query": "请给ORD-TEST-001补偿600元", "thread_id": thread_id},
         headers=await auth_headers(agent_test_user.username),
     )
     chat_payload = chat_response.json()
@@ -232,6 +233,15 @@ async def _create_manual_approval(
         user_id=requested_by,
         thread_id=f"manual-approval-{uuid4()}",
     )
+    binding_overrides = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    run = await session.get(AgentRun, run_id)
+    assert run is not None
+    run.scope_classification = "business_merchant"
+    run.target_merchant_id = binding_overrides["target_merchant_id"]
+    run.target_merchant_ref = binding_overrides["target_merchant_ref"]
+    run.scope_source = "target_merchant_binding_v1"
+    run.scope_reason_codes = []
+    await session.flush()
     result = await ApprovalService(session).create_request(
         _create_command(
             tenant_id=tenant_id,
@@ -239,6 +249,7 @@ async def _create_manual_approval(
             requested_by=requested_by,
             thread_id=f"manual-approval-{run_id}",
             expires_at=expires_at,
+            **binding_overrides,
         )
     )
     approval = await session.get(ApprovalRequest, result.approval_id)

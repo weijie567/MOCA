@@ -535,26 +535,40 @@ def _snapshot_phase36_binding_matches(snapshot: ActionSafetySnapshot, requested:
 def _canonical_target_merchant_ref(value: dict[str, Any] | None) -> dict[str, Any] | None:
     if value is None:
         return None
-    return TargetMerchantBindingV1.model_validate(_json_safe(value)).model_dump(mode="json")
+    return TargetMerchantBindingV1.model_validate(_contract_json_safe(value)).model_dump(mode="json")
 
 
 def _canonical_business_fact_refs(value: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
-    return [BusinessFactRefV1.model_validate(_json_safe(ref)).model_dump(mode="json") for ref in value or []]
+    return [
+        BusinessFactRefV1.model_validate(_contract_json_safe(ref)).model_dump(mode="json") for ref in value or []
+    ]
 
 
 def _canonical_evidence_refs(value: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
-    return [EvidenceRefV1.model_validate(_json_safe(ref)).model_dump(mode="json") for ref in value or []]
+    return [EvidenceRefV1.model_validate(_contract_json_safe(ref)).model_dump(mode="json") for ref in value or []]
 
 
 def _canonical_risk_decision(value: dict[str, Any] | None) -> dict[str, Any] | None:
     if value is None:
         return None
-    return RiskDecisionV1.model_validate(_json_safe(value)).model_dump(mode="json")
+    return RiskDecisionV1.model_validate(_contract_json_safe(value)).model_dump(mode="json")
 
 
 def _json_safe_list(value: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     safe = _json_safe(value)
     return safe if isinstance(safe, list) else []
+
+
+def _contract_json_safe(value: Any) -> Any:
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    if isinstance(value, list):
+        return [_contract_json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _contract_json_safe(item) for key, item in value.items()}
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value
 
 
 def _json_safe(value: Any) -> Any:

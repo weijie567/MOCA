@@ -565,6 +565,7 @@ def test_tool_result_projector_blocks_raw_data_from_prompt_and_graph_surfaces() 
         data={
             "order_no": "ORD-1",
             "status": "shipped",
+            "merchant_id": "merchant-1",
             "raw": "internal ledger blob",
             "raw_payload": {"secret": "sk-xxx"},
             "raw_tool_payload": "raw tool payload blob",
@@ -610,6 +611,7 @@ def test_tool_result_projector_blocks_raw_data_from_prompt_and_graph_surfaces() 
     assert not _has_sentinel(projection.text_for_prompt), "text_for_prompt must strip raw sentinels"
     assert not _has_sentinel(projection.debug_projection), "debug_projection must strip raw sentinels"
     assert projection.normalized_result.get("order_no") == "ORD-1"
+    assert projection.normalized_result.get("merchant_id") == "merchant-1"
 
 
 def test_tool_result_projector_strips_raw_sentinels_from_case_memory_ref_lists() -> None:

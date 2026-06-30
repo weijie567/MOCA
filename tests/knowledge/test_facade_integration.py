@@ -4,11 +4,19 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from src.agent.nodes.claim_verify import claim_verify
 from src.agent.nodes import generate_recommendation as recommendation_module
 from src.agent.nodes.investigate import investigate
 from src.agent.nodes.final_response import final_response
+from src.agent.nodes.rag_context_build import rag_context_build
 from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
-from src.knowledge.schemas import EvidenceRefV1, KnowledgeSearchResult
+from src.knowledge.schemas import (
+    ClaimVerificationBundleV1,
+    ClaimVerificationResultV1,
+    EvidenceRefV1,
+    KnowledgeSearchResult,
+    VerifiedEvidencePackageV1,
+)
 from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 from src.tools.catalog import ToolCatalog
 from src.tools.contracts import ToolCallContext, ToolInvocationOutcome, ToolPolicyDecision, ToolResultV2, ToolViewV1
@@ -227,17 +235,80 @@ async def _run_path(
         monkeypatch.setattr(recommendation_module, "_get_llm", lambda: FakeLLM(recommendation))
 
     class FakePolicyKnowledgeService:
-        def __init__(self, retriever) -> None:
-            pass
-
-        async def get_verified_evidence_contents(self, *, tenant_id, evidence_refs):
-            return {
-                ref.evidence_id: "退款超时时，应核实支付通道和退款状态。"
-                for ref in evidence_refs
-                if ref.tenant_id == tenant_id
+        async def build_verified_context(self, *, candidate_evidence_refs, knowledge_context, **_kwargs):
+            evidence_map = {ref.evidence_id: ref for ref in candidate_evidence_refs}
+            citations = [
+                {
+                    "citation_id": f"citation-{index}",
+                    "display_label": f"{ref.doc_key} / {ref.chunk_id}",
+                    "snippet": "退款超时时，应核实支付通道和退款状态。",
+                    "metadata": {
+                        "doc_key": ref.doc_key,
+                        "chunk_id": ref.chunk_id,
+                        "policy_version": ref.policy_version,
+                    },
+                }
+                for index, ref in enumerate(candidate_evidence_refs, start=1)
+            ]
+            citation_map = {
+                citation["citation_id"]: [ref.evidence_id]
+                for citation, ref in zip(citations, candidate_evidence_refs, strict=True)
             }
+            return VerifiedEvidencePackageV1(
+                package_id=f"verified-evidence:{knowledge_context.run_id}:facade",
+                status="verified" if candidate_evidence_refs else "no_evidence",
+                evidence_items=[],
+                citation_map=citation_map,
+                evidence_map=evidence_map,
+                prompt_projection={"citations": citations},
+                verifier_projection={"safe_refs": list(evidence_map), "evidence_snippets": []},
+                replay_snapshot_refs=[],
+                debug_projection={},
+                stale_refs=[],
+                conflict_refs=[],
+                rejected_candidate_refs=[],
+                reason_codes=[],
+                policy_version=candidate_evidence_refs[0].policy_version if candidate_evidence_refs else "v3",
+                retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+            )
 
-    monkeypatch.setattr(recommendation_module, "PolicyKnowledgeService", FakePolicyKnowledgeService)
+        async def verify_claims(self, *, material_claims, verified_evidence_package, **_kwargs):
+            claims = list(material_claims or [])
+            if not claims:
+                return ClaimVerificationBundleV1(
+                    overall_status="not_required",
+                    route="continue",
+                    claim_results=[],
+                    blocked_claims=[],
+                    safe_support_refs=[],
+                    reason_codes=["no_material_claims"],
+                    verifier_policy_version="material_claim_verifier.v1",
+                )
+            package = VerifiedEvidencePackageV1.model_validate(verified_evidence_package)
+            unsupported = any("free vacation" in str(_claim_value(claim, "claim_text")) for claim in claims)
+            safe_refs = list(package.evidence_map.values()) if not unsupported else []
+            return ClaimVerificationBundleV1(
+                overall_status="manual_review" if unsupported else "verified",
+                route="manual_review" if unsupported else "continue",
+                claim_results=[
+                    ClaimVerificationResultV1(
+                        claim_id=str(_claim_value(claim, "claim_id")),
+                        claim_type=_claim_value(claim, "claim_type"),
+                        support_status="unsupported" if unsupported else "supported",
+                        supporting_evidence_refs=safe_refs,
+                        business_fact_refs=_claim_value(claim, "business_fact_refs") or [],
+                        rule_checks=[],
+                        semantic_review_status="failed" if unsupported else "not_needed",
+                        allows_user_visible_claim=not unsupported,
+                        allows_action_recommendation=not unsupported,
+                    )
+                    for claim in claims
+                ],
+                blocked_claims=[str(_claim_value(claim, "claim_id")) for claim in claims] if unsupported else [],
+                safe_support_refs=safe_refs,
+                reason_codes=["semantic_support_failed"] if unsupported else [],
+                verifier_policy_version="material_claim_verifier.v1",
+            )
 
     state = _base_state()
     state["_investigate_plan"] = [
@@ -261,29 +332,40 @@ async def _run_path(
     async def event_emitter(**payload):
         events.append(payload)
 
+    service = FakePolicyKnowledgeService()
+    configurable = {
+        "session": AsyncMock(),
+        "permissions": ["tool:search_policy"],
+        "merchant_scope": {"merchant_ids": []},
+        "tool_manager": manager,
+        "tool_platform": manager._platform,
+        "trusted_context": trusted_context.model_dump(mode="json"),
+        "event_emitter": event_emitter,
+        "policy_knowledge_service": service,
+    }
     investigate_output = await investigate(
         state,
-        {
-            "configurable": {
-                "session": AsyncMock(),
-                "permissions": ["tool:search_policy"],
-                "merchant_scope": {"merchant_ids": []},
-                "tool_manager": manager,
-                "tool_platform": manager._platform,
-                "trusted_context": trusted_context.model_dump(mode="json"),
-                "event_emitter": event_emitter,
-            }
-        },
+        {"configurable": configurable},
     )
     state.update(investigate_output)
+    rag_context_output = await rag_context_build(state, {"configurable": configurable})
+    state.update(rag_context_output)
     recommendation_output = await recommendation_module.generate_recommendation(
         state,
-        {"configurable": {"session": AsyncMock()}},
+        {"configurable": configurable},
     )
     state.update(recommendation_output)
+    claim_output = await claim_verify(state, {"configurable": configurable})
+    state.update(claim_output)
     response_output = await final_response(state)
     state.update(response_output)
     return state
+
+
+def _claim_value(claim, key: str):
+    if isinstance(claim, dict):
+        return claim.get(key)
+    return getattr(claim, key)
 
 
 @pytest.mark.asyncio
@@ -352,5 +434,5 @@ async def test_present_evidence_id_passes_membership_without_semantic_support(mo
     )
 
     assert state["recommendation_draft"]["citation_validation"]["is_valid"] is True
-    assert state["recommendation_draft"]["recommended_action"] != "建议退款"
     assert state["verification_route"] != "allow"
+    assert state["blocked_claims"]

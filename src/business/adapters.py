@@ -85,6 +85,11 @@ def _latency_ms(started_at: float) -> int:
     return max(0, int((perf_counter() - started_at) * 1000))
 
 
+def _fixed_millisecond_now() -> datetime:
+    now = datetime.now(UTC)
+    return now.replace(microsecond=(now.microsecond // 1000) * 1000)
+
+
 def _error_result(
     *,
     status: Literal["not_found", "permission_denied", "timeout", "invalid_request", "invalid_response", "error"],
@@ -205,7 +210,7 @@ async def _adapt_read(
     except ValidationError:
         return _invalid_response(source_system, latency_ms)
 
-    retrieved_at = datetime.now(UTC)
+    retrieved_at = _fixed_millisecond_now()
     return ToolResultV2(
         status="success",
         data=projected.model_dump(mode="json"),

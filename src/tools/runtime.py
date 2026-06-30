@@ -3,18 +3,15 @@
 from __future__ import annotations
 
 from typing import Any
-from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.tools.catalog import ToolCatalog, ToolDescriptor
+from src.tools.catalog import ToolCatalog
 from src.tools.contracts import (
     ToolCallContext,
-    ToolInvocationOutcome,
     ToolPolicyDecision,
     ToolResultProjectionV1,
     ToolResultV2,
-    ToolError,
 )
 from src.tools.manager_results import result as safe_result
 from src.tools.policy import ToolPolicyEngine

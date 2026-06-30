@@ -187,6 +187,7 @@ async def chat(
             total_latency_ms=total_ms,
             total_tokens=total_tokens,
             trace_id=getattr(request.state, "trace_id", None),
+            final_state=final_state,
         )
         await write_agent_steps(session, run_id=run_id, trace_steps=trace_steps)
         await conversation_service.append_assistant_message(
@@ -297,6 +298,12 @@ async def _handle_interrupt(
                 "metrics_json": None,
             }
         )
+    scope_state = {
+        **snapshot_values,
+        **interrupt_data,
+        **_legacy_agent_state_identity(trusted_context),
+        "trace_steps": pre_interrupt_steps,
+    }
 
     await write_agent_run(
         session,
@@ -312,6 +319,7 @@ async def _handle_interrupt(
         total_latency_ms=total_ms,
         total_tokens=_count_tokens(pre_interrupt_steps),
         trace_id=getattr(request.state, "trace_id", None),
+        final_state=scope_state,
     )
     if pre_interrupt_steps:
         await write_agent_steps(session, run_id=run_id, trace_steps=pre_interrupt_steps)

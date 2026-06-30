@@ -327,6 +327,11 @@ class SpoofInterruptInvokeGraph:
             "evidence_refs": [evidence_ref.model_dump(mode="json", exclude_none=True)],
         }
         action_payload_hash = compute_action_payload_hash(proposed_action)
+        business_fact_ref = _phase34_business_fact_ref(input_state=input_state, proposed_action=proposed_action)
+        target_merchant_ref = _phase34_target_merchant_ref(
+            target_merchant_id=self.target_merchant_id,
+            business_fact_ref=business_fact_ref,
+        )
         snapshot = await persist_action_safety_snapshot(
             config["configurable"]["session"],
             tenant_id=UUID(input_state["tenant_id"]),
@@ -337,6 +342,9 @@ class SpoofInterruptInvokeGraph:
             risk_config_version="risk-rules.v1",
             retrieval_config_version=evidence_ref.retrieval_config_version,
             evidence_refs=[evidence_ref],
+            target_merchant_id=self.target_merchant_id,
+            target_merchant_ref=target_merchant_ref,
+            business_fact_refs=[business_fact_ref],
             created_at=_fixed_ms_now(),
             created_by=UUID(input_state["user_id"]),
         )
@@ -361,6 +369,7 @@ class SpoofInterruptInvokeGraph:
                 action_payload_hash=snapshot.action_payload_hash,
                 evidence_ref=evidence_ref.model_dump(mode="json", exclude_none=True),
                 target_merchant_id=self.target_merchant_id,
+                business_fact_ref=business_fact_ref,
             )
         )
         if self.interrupt_run_id is not None:
@@ -531,6 +540,11 @@ class StreamInterruptGraph:
             "evidence_refs": [evidence_ref.model_dump(mode="json", exclude_none=True)],
         }
         action_payload_hash = compute_action_payload_hash(proposed_action)
+        business_fact_ref = _phase34_business_fact_ref(input_state=input_state, proposed_action=proposed_action)
+        target_merchant_ref = _phase34_target_merchant_ref(
+            target_merchant_id=self.target_merchant_id,
+            business_fact_ref=business_fact_ref,
+        )
         snapshot = await persist_action_safety_snapshot(
             config["configurable"]["session"],
             tenant_id=UUID(input_state["tenant_id"]),
@@ -541,6 +555,9 @@ class StreamInterruptGraph:
             risk_config_version="risk-rules.v1",
             retrieval_config_version=evidence_ref.retrieval_config_version,
             evidence_refs=[evidence_ref],
+            target_merchant_id=self.target_merchant_id,
+            target_merchant_ref=target_merchant_ref,
+            business_fact_refs=[business_fact_ref],
             created_at=_fixed_ms_now(),
             created_by=UUID(input_state["user_id"]),
         )
@@ -595,6 +612,7 @@ class StreamInterruptGraph:
                             action_payload_hash=snapshot.action_payload_hash,
                             evidence_ref=evidence_ref.model_dump(mode="json", exclude_none=True),
                             target_merchant_id=self.target_merchant_id,
+                            business_fact_ref=business_fact_ref,
                         ),
                     }
                 ),
@@ -632,16 +650,12 @@ def _phase34_interrupt_bindings(
     action_payload_hash: str,
     evidence_ref: dict,
     target_merchant_id: str,
+    business_fact_ref: dict | None = None,
 ) -> dict:
-    business_fact_ref = BusinessFactRefV1(
-        tenant_id=input_state["tenant_id"],
-        source_system="business_fact_service",
-        resource_type="order",
-        resource_id=proposed_action["target_id"],
-        resource_version="order.v1",
-        data_freshness_at=_fixed_ms_now(),
-        retrieved_at=_fixed_ms_now(),
-    ).model_dump(mode="json")
+    business_fact_ref = business_fact_ref or _phase34_business_fact_ref(
+        input_state=input_state,
+        proposed_action=proposed_action,
+    )
     risk_decision = {
         "schema_version": "risk_decision.v1",
         "tenant_id": input_state["tenant_id"],
@@ -666,13 +680,20 @@ def _phase34_interrupt_bindings(
             "risk_level": "high",
             "reason_codes": ["approval_required", "amount_threshold"],
             "approval_idempotency_key": f"approval:{input_state['tenant_id']}:{input_state['current_run_id']}",
+            "target_merchant_id": target_merchant_id,
+            "target_merchant_ref": _phase34_target_merchant_ref(
+                target_merchant_id=target_merchant_id,
+                business_fact_ref=business_fact_ref,
+            ),
+            "business_fact_refs": [business_fact_ref],
+            "verified_evidence_refs": [evidence_ref],
         },
         "target_merchant_id": target_merchant_id,
         "target_merchant_ref": {
-            "schema_version": "target_merchant_binding.v1",
-            "target_merchant_id": target_merchant_id,
-            "source": "business_fact_ref",
-            "business_fact_ref": business_fact_ref,
+            **_phase34_target_merchant_ref(
+                target_merchant_id=target_merchant_id,
+                business_fact_ref=business_fact_ref,
+            ),
         },
         "business_fact_refs": [business_fact_ref],
         "verified_evidence_refs": [evidence_ref],
@@ -698,6 +719,27 @@ def _phase34_interrupt_bindings(
         "prompt_authority_body": "PROMPT_AUTHORITY_SHOULD_NOT_LEAK",
         "safety_snapshot": {"snapshot_json": "FULL_SAFETY_SNAPSHOT_SHOULD_NOT_LEAK"},
         "action_authority_body": {"args": {"internal": "ACTION_AUTHORITY_SHOULD_NOT_LEAK"}},
+    }
+
+
+def _phase34_business_fact_ref(*, input_state: dict, proposed_action: dict) -> dict:
+    return BusinessFactRefV1(
+        tenant_id=input_state["tenant_id"],
+        source_system="business_fact_service",
+        resource_type="order",
+        resource_id=proposed_action["target_id"],
+        resource_version="order.v1",
+        data_freshness_at=_fixed_ms_now(),
+        retrieved_at=_fixed_ms_now(),
+    ).model_dump(mode="json")
+
+
+def _phase34_target_merchant_ref(*, target_merchant_id: str, business_fact_ref: dict) -> dict:
+    return {
+        "schema_version": "target_merchant_binding.v1",
+        "target_merchant_id": target_merchant_id,
+        "source": "business_fact_ref",
+        "business_fact_ref": business_fact_ref,
     }
 
 

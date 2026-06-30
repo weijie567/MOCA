@@ -25,11 +25,24 @@ SNAPSHOT_ALLOWED_FIELDS = {
     "evidence",
     "evidence_ids",
     "action_payload_hash",
+    "target_merchant_id",
+    "target_merchant_ref",
+    "business_fact_refs",
     "created_at",
+}
+SNAPSHOT_NULLABLE_FIELDS = {
+    "action_payload_hash",
+    "target_merchant_id",
+    "target_merchant_ref",
+    "resource_version",
+    "data_freshness_at",
 }
 PROPOSED_ACTION_HASH = "sha256:508e649e1b169a9520f7eb76403b0e00c90c1b1c52e17a499fd7bcdce2473094"
 EXPECTED_SNAPSHOT_CANONICAL_JSON = (
     '{"action_payload_hash":"sha256:508e649e1b169a9520f7eb76403b0e00c90c1b1c52e17a499fd7bcdce2473094",'
+    '"business_fact_refs":[{"data_freshness_at":null,"resource_id":"RF-001","resource_type":"refund_case",'
+    '"resource_version":null,"retrieved_at":"2026-06-15T00:01:00.000Z",'
+    '"schema_version":"business_fact_ref.v1","source_system":"moca_demo","tenant_id":"tenant-001"}],'
     '"created_at":"2026-06-15T00:00:00.000Z","evidence":[{'
     '"chunk_id":"chunk-001","doc_key":"refund-policy",'
     '"evidence_id":"refund-policy/chunk-001@v3","policy_version":"v3","rank":1,'
@@ -41,9 +54,14 @@ EXPECTED_SNAPSHOT_CANONICAL_JSON = (
     '"policy_config_version":"approval-policy.v1",'
     '"retrieval_config_version":"retrieval.v1","risk_config_version":"risk-rules.v1",'
     '"run_id":"run-001","schema_version":"action_safety_snapshot.v1",'
-    '"snapshot_id":"snap-001","snapshot_ref":"snapshot:snap-001","tenant_id":"tenant-001"}'
+    '"snapshot_id":"snap-001","snapshot_ref":"snapshot:snap-001","target_merchant_id":"merchant-001",'
+    '"target_merchant_ref":{"business_fact_ref":{"data_freshness_at":null,"resource_id":"RF-001",'
+    '"resource_type":"refund_case","resource_version":null,"retrieved_at":"2026-06-15T00:01:00.000Z",'
+    '"schema_version":"business_fact_ref.v1","source_system":"moca_demo","tenant_id":"tenant-001"},'
+    '"schema_version":"target_merchant_binding.v1","source":"business_fact_ref",'
+    '"target_merchant_id":"merchant-001"},"tenant_id":"tenant-001"}'
 )
-EXPECTED_SNAPSHOT_DIGEST = "sha256:aafef5b8874e80241fce531bc6d3f73a7e713b6066586c50330ec9ee5e0ad144"
+EXPECTED_SNAPSHOT_DIGEST = "sha256:a102d45cc709ee2150da76e1999542182490f69ab5554032f0859dbaf010a07a"
 
 
 def _evidence_ref(
@@ -70,6 +88,28 @@ def _evidence_ref(
     )
 
 
+def _business_fact_ref() -> dict:
+    return {
+        "schema_version": "business_fact_ref.v1",
+        "tenant_id": "tenant-001",
+        "source_system": "moca_demo",
+        "resource_type": "refund_case",
+        "resource_id": "RF-001",
+        "resource_version": None,
+        "data_freshness_at": None,
+        "retrieved_at": "2026-06-15T00:01:00.000Z",
+    }
+
+
+def _target_merchant_ref() -> dict:
+    return {
+        "schema_version": "target_merchant_binding.v1",
+        "target_merchant_id": "merchant-001",
+        "source": "business_fact_ref",
+        "business_fact_ref": _business_fact_ref(),
+    }
+
+
 def _snapshot_kwargs(**overrides):
     kwargs = {
         "tenant_id": "tenant-001",
@@ -81,6 +121,9 @@ def _snapshot_kwargs(**overrides):
         "retrieval_config_version": "retrieval.v1",
         "evidence": [_evidence_ref()],
         "action_payload_hash": PROPOSED_ACTION_HASH,
+        "target_merchant_id": "merchant-001",
+        "target_merchant_ref": _target_merchant_ref(),
+        "business_fact_refs": [_business_fact_ref()],
         "created_at": "2026-06-15T00:00:00.000Z",
     }
     kwargs.update(overrides)
@@ -132,6 +175,7 @@ def test_action_safety_snapshot_v1_has_frozen_canonical_json_hash_input_and_dige
         projection,
         schema_version=SNAPSHOT_SCHEMA_VERSION,
         allowed_fields=SNAPSHOT_ALLOWED_FIELDS,
+        nullable_fields=SNAPSHOT_NULLABLE_FIELDS,
     )
     expected_snapshot_hash_input = (
         b"hash_profile.v1\naction_safety_snapshot.v1\n" + EXPECTED_SNAPSHOT_CANONICAL_JSON.encode("utf-8")
@@ -144,6 +188,7 @@ def test_action_safety_snapshot_v1_has_frozen_canonical_json_hash_input_and_dige
             projection,
             schema_version=SNAPSHOT_SCHEMA_VERSION,
             allowed_fields=SNAPSHOT_ALLOWED_FIELDS,
+            nullable_fields=SNAPSHOT_NULLABLE_FIELDS,
         )
         == EXPECTED_SNAPSHOT_DIGEST
     )

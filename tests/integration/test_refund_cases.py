@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from src.db.models import RefundCase
 
@@ -46,14 +47,11 @@ async def test_other_tenant_user_gets_404_before_merchant_check(client, auth_hea
 
 @pytest.mark.asyncio
 async def test_merchant_without_merchant_id_cannot_access_refund_case(client, auth_headers, seeded_session, session):
+    del client, auth_headers
     seeded_session["users"]["merchant_wang"].merchant_id = None
-    await session.commit()
-
-    response = await client.get("/api/v1/refund-cases/RF-TEST-001", headers=await auth_headers("merchant_wang"))
-    payload = response.json()
-
-    assert response.status_code == 403
-    assert payload["error"]["code"] == "FORBIDDEN"
+    with pytest.raises(IntegrityError):
+        await session.flush()
+    await session.rollback()
 
 
 @pytest.mark.asyncio

@@ -26,6 +26,13 @@ FORBIDDEN_AUTH_SHORTCUT_PATTERNS = (
     r"requested_by.*merchant",
     r"merchant_id.*requested_by",
 )
+PHASE36_FORBIDDEN_AUTH_GUARD_TOKENS = (
+    "target_merchant_id",
+    "scope_classification",
+    "phase36_readiness",
+    "project_replay_authorization_proof",
+    "target_merchant_context",
+)
 
 PHASE35_SURFACE_REGRESSION_SOURCES = {
     "run_listing": Path("tests/test_agent_runs_api.py"),
@@ -75,6 +82,33 @@ def test_agent_run_visibility_guards_are_owner_or_admin_only_and_proof_free() ->
     assert "run.user_id != user.id" in execute_source
     for source in (status_source, evidence_source, stream_source, claim_source, execute_source):
         _assert_no_phase35_auth_shortcut(source)
+
+
+def test_phase36_scope_and_readiness_fields_do_not_enter_authorization_guards() -> None:
+    guard_sources = {
+        "agent_runs._ensure_can_view_run": inspect.getsource(agent_runs_router._ensure_can_view_run),
+        "agent_runs._ensure_can_execute_run": inspect.getsource(agent_runs_router._ensure_can_execute_run),
+        "agent_runs._claim_pending_run_for_stream": _authorization_lines(
+            inspect.getsource(agent_runs_router._claim_pending_run_for_stream)
+        ),
+        "agent_runs.get_agent_run_status": _authorization_lines(inspect.getsource(agent_runs_router.get_agent_run_status)),
+        "agent_runs.get_agent_run_evidence": _authorization_lines(
+            inspect.getsource(agent_runs_router.get_agent_run_evidence)
+        ),
+        "agent_runs.stream_agent_run_events": _authorization_lines(
+            inspect.getsource(agent_runs_router.stream_agent_run_events)
+        ),
+        "traces.get_run_trace": _authorization_lines(inspect.getsource(traces_router.get_run_trace)),
+        "traces.get_run_replay": _authorization_lines(inspect.getsource(traces_router.get_run_replay)),
+    }
+
+    status_source = inspect.getsource(agent_runs_router.get_agent_run_status)
+    assert "target_merchant_id=run.target_merchant_id" in status_source
+    assert "scope_classification=run.scope_classification" in status_source
+
+    for name, source in guard_sources.items():
+        assert "run.user_id" in source or "_ensure_can_view_run(run, user=user)" in source, name
+        _assert_no_phase36_auth_shortcut(source, name=name)
 
 
 @pytest.mark.asyncio
@@ -235,6 +269,22 @@ def test_phase35_surface_regression_sources_exist_and_remain_non_widening() -> N
 def _assert_no_phase35_auth_shortcut(source: str) -> None:
     for pattern in FORBIDDEN_AUTH_SHORTCUT_PATTERNS:
         assert re.search(pattern, source) is None
+
+
+def _assert_no_phase36_auth_shortcut(source: str, *, name: str) -> None:
+    for token in PHASE36_FORBIDDEN_AUTH_GUARD_TOKENS:
+        assert token not in source, f"{name} authorization guard contains {token}"
+
+
+def _authorization_lines(source: str) -> str:
+    guard_markers = (
+        "run.user_id",
+        "ADMIN_RUN_VISIBILITY_ROLES",
+        "_ensure_can_view_run",
+        "_ensure_can_execute_run",
+        "_claim_pending_run_for_stream",
+    )
+    return "\n".join(line.strip() for line in source.splitlines() if any(marker in line for marker in guard_markers))
 
 
 async def _create_business_data_run(
