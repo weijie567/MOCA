@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.agent.trace import update_agent_run_status, write_agent_run
 from src.agent.run_scope import (
     AGENT_RUN_SCOPE_CLASSIFICATIONS,
     BUSINESS_MERCHANT,
@@ -229,3 +232,166 @@ def test_target_merchant_binding_schema_rejects_malformed_ref() -> None:
                 "target_merchant_id": "merchant-1",
             }
         )
+
+
+@pytest.mark.asyncio
+async def test_write_agent_run_persists_scope_facts_from_final_state(
+    session: AsyncSession,
+    seeded_session,
+) -> None:
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _write_phase36_run(
+        session,
+        tenant_id=str(user.tenant_id),
+        user_id=str(user.id),
+        final_state={
+            "tenant_id": str(user.tenant_id),
+            "current_intent": "refund_troubleshooting",
+            "target_merchant_id": "merchant-1",
+            "target_merchant_ref": _target_merchant_ref(merchant_id="merchant-1"),
+        },
+    )
+
+    assert run.scope_classification == BUSINESS_MERCHANT
+    assert run.target_merchant_id == "merchant-1"
+    assert run.target_merchant_ref == _target_merchant_ref(merchant_id="merchant-1")
+    assert run.scope_source == "target_merchant_binding_v1"
+    assert run.scope_reason_codes == []
+
+
+@pytest.mark.asyncio
+async def test_write_agent_run_defaults_to_unknown_legacy_without_final_state(
+    session: AsyncSession,
+    seeded_session,
+) -> None:
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _write_phase36_run(session, tenant_id=str(user.tenant_id), user_id=str(user.id), final_state=None)
+
+    assert run.scope_classification == UNKNOWN_LEGACY
+    assert run.target_merchant_id is None
+    assert run.target_merchant_ref is None
+    assert run.scope_source == "run_scope_classifier"
+    assert run.scope_reason_codes == ["no_authoritative_scope_proof"]
+
+
+@pytest.mark.asyncio
+async def test_update_agent_run_status_promotes_unknown_legacy_only_from_authoritative_state(
+    session: AsyncSession,
+    seeded_session,
+) -> None:
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _write_phase36_run(session, tenant_id=str(user.tenant_id), user_id=str(user.id), final_state=None)
+    await update_agent_run_status(
+        session,
+        run_id=str(run.id),
+        final_status="completed",
+        final_response="done",
+        completed_at=datetime.now(UTC),
+        total_latency_ms=1,
+        final_state={
+            "tenant_id": str(user.tenant_id),
+            "target_merchant_id": "merchant-1",
+            "target_merchant_ref": _target_merchant_ref(merchant_id="merchant-1"),
+        },
+    )
+
+    await session.refresh(run)
+    assert run.scope_classification == BUSINESS_MERCHANT
+    assert run.target_merchant_id == "merchant-1"
+    assert run.scope_source == "target_merchant_binding_v1"
+
+
+@pytest.mark.asyncio
+async def test_update_agent_run_status_preserves_existing_business_binding_on_weak_state(
+    session: AsyncSession,
+    seeded_session,
+) -> None:
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _write_phase36_run(
+        session,
+        tenant_id=str(user.tenant_id),
+        user_id=str(user.id),
+        final_state={
+            "tenant_id": str(user.tenant_id),
+            "target_merchant_id": "merchant-1",
+            "target_merchant_ref": _target_merchant_ref(merchant_id="merchant-1"),
+        },
+    )
+
+    await update_agent_run_status(
+        session,
+        run_id=str(run.id),
+        final_status="completed",
+        final_response="done",
+        completed_at=datetime.now(UTC),
+        total_latency_ms=1,
+        final_state={"current_intent": "refund_troubleshooting", "target_merchant_context": {"status": "resolved"}},
+    )
+
+    await session.refresh(run)
+    assert run.scope_classification == BUSINESS_MERCHANT
+    assert run.target_merchant_id == "merchant-1"
+    assert run.target_merchant_ref == _target_merchant_ref(merchant_id="merchant-1")
+
+
+@pytest.mark.asyncio
+async def test_update_agent_run_status_clears_existing_business_binding_on_contradiction(
+    session: AsyncSession,
+    seeded_session,
+) -> None:
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _write_phase36_run(
+        session,
+        tenant_id=str(user.tenant_id),
+        user_id=str(user.id),
+        final_state={
+            "tenant_id": str(user.tenant_id),
+            "target_merchant_id": "merchant-1",
+            "target_merchant_ref": _target_merchant_ref(merchant_id="merchant-1"),
+        },
+    )
+
+    await update_agent_run_status(
+        session,
+        run_id=str(run.id),
+        final_status="completed",
+        final_response="done",
+        completed_at=datetime.now(UTC),
+        total_latency_ms=1,
+        final_state={
+            "tenant_id": str(user.tenant_id),
+            "target_merchant_id": "merchant-1",
+            "target_merchant_ref": _target_merchant_ref(merchant_id="merchant-1"),
+            "business_fact_results": [_business_fact_result(merchant_id="merchant-2")],
+        },
+    )
+
+    await session.refresh(run)
+    assert run.scope_classification == UNKNOWN_LEGACY
+    assert run.target_merchant_id is None
+    assert run.target_merchant_ref is None
+    assert "mixed_target_merchant_proof" in (run.scope_reason_codes or [])
+
+
+async def _write_phase36_run(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    user_id: str,
+    final_state: dict[str, Any] | None,
+):
+    now = datetime.now(UTC)
+    return await write_agent_run(
+        session,
+        run_id=str(uuid4()),
+        thread_id=f"phase36-run-scope-{uuid4()}",
+        tenant_id=tenant_id,
+        user_id=user_id,
+        input_query="phase36 run scope persistence",
+        final_status="completed" if final_state else "pending",
+        final_response="done" if final_state else None,
+        started_at=now,
+        completed_at=now if final_state else None,
+        total_latency_ms=1 if final_state else None,
+        final_state=final_state,
+    )
