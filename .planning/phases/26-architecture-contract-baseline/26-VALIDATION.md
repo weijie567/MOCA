@@ -1,7 +1,7 @@
 ---
 phase: 26
 slug: architecture-contract-baseline
-status: draft
+status: verified
 nyquist_compliant: true
 wave_0_complete: true
 created: 2026-06-22
@@ -32,10 +32,10 @@ Per-phase validation contract for the architecture/spec/eval baseline.
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 26-01-01 | 01 | 1 | APF-01 | T26-01 | Normative contract names remain synchronized across spec, architecture plan, and eval plan | docs-contract | `rg -n "VerifiedEvidencePackageV1|ClaimVerificationBundleV1|ToolPolicyDecision|BusinessFactResultV1|DecisionEventEnvelopeV1|route_after_rag_context|route_after_claim_verify" docs/contract-spec.md docs/target-agent-platform-architecture-plan.md docs/eval-test-plan.md` | yes | pending |
-| 26-01-02 | 01 | 1 | APF-02 | T26-02 | Module ownership identifies owners, dependencies, forbidden imports, and decision events without enabling direct repository access | docs-contract | `rg -n "Module Ownership|Owns|forbidden imports|Decision Event|BusinessFactService|ToolPlatform|KnowledgeService|Observability" docs/target-agent-platform-architecture-plan.md docs/contract-spec.md` | yes | pending |
-| 26-01-03 | 01 | 1 | APF-01, APF-02 | T26-03 | GSD metadata still resolves v1.9 Phase 26 and does not require destructive phase cleanup | tooling | `gsd-sdk query init.plan-phase 26 && gsd-sdk query state.load && gsd-sdk query roadmap.analyze --pick next_phase` | yes | pending |
-| 26-01-04 | 01 | 1 | APF-01, APF-02 | T26-04 | Markdown/docs edits are parseable and no runtime code files are modified without explicit plan justification | docs-format | `git diff --check -- docs/contract-spec.md docs/target-agent-platform-architecture-plan.md docs/eval-test-plan.md .planning/phases/26-architecture-contract-baseline .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md` plus the target file fence check below | yes | pending |
+| 26-01-01 | 01 | 1 | APF-01 | T26-01 | Normative contract names remain synchronized across spec, architecture plan, and eval plan | docs-contract | `rg -n "VerifiedEvidencePackageV1|ClaimVerificationBundleV1|ToolPolicyDecision|BusinessFactResultV1|DecisionEventEnvelopeV1|route_after_rag_context|route_after_claim_verify" docs/contract-spec.md docs/target-agent-platform-architecture-plan.md docs/eval-test-plan.md` | yes | verified |
+| 26-01-02 | 01 | 1 | APF-02 | T26-02 | Module ownership identifies owners, dependencies, forbidden imports, and decision events without enabling direct repository access | docs-contract | `rg -n "Module Ownership|Owns|forbidden imports|Decision Event|BusinessFactService|ToolPlatform|KnowledgeService|Observability" docs/target-agent-platform-architecture-plan.md docs/contract-spec.md` | yes | verified |
+| 26-01-03 | 01 | 1 | APF-01, APF-02 | T26-03 | GSD metadata still resolves v1.9 Phase 26 and does not require destructive phase cleanup | tooling | `gsd-sdk query init.plan-phase 26 && gsd-sdk query state.load && gsd-sdk query roadmap.analyze --pick next_phase` | yes | verified |
+| 26-01-04 | 01 | 1 | APF-01, APF-02 | T26-04 | Markdown/docs edits are parseable and no runtime code files are modified without explicit plan justification | docs-format | `git diff --check -- docs/contract-spec.md docs/target-agent-platform-architecture-plan.md docs/eval-test-plan.md .planning/phases/26-architecture-contract-baseline .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md` plus the target file fence check below | yes | verified |
 
 ## Target File Fence Check
 
@@ -71,4 +71,4 @@ Existing infrastructure covers all Phase 26 requirements.
 - [x] Feedback latency target is under 30 seconds for command-based checks.
 - [x] `nyquist_compliant: true` set in frontmatter.
 
-Approval: pending Phase 26 plan execution.
+Approval: verified by Phase 26 summary and Phase 35.1 formal verification.

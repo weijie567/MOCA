@@ -1,9 +1,9 @@
 ---
 phase: 33
 slug: rag-context-build-and-claim-verification
-status: draft
+status: verified
 nyquist_compliant: true
-wave_0_complete: false
+wave_0_complete: true
 created: 2026-06-29
 ---
 
@@ -43,30 +43,30 @@ created: 2026-06-29
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 33-01-01 | 33-01 | 1 | APF-13/APF-14 | T-33-01 | New package/bundle/state schemas are strict, reset per turn, and writer ownership is testable. | unit/static | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/knowledge/test_verified_evidence_package.py tests/knowledge/test_claim_verification_bundle.py tests/agent/test_nodes/test_receive_request.py -q --tb=short` | ❌ W0 | ⬜ pending |
-| 33-02-01 | 33-02 | 2 | APF-13 | T-33-02 | Candidate refs are re-fetched and rejected on combined invalid scope/hash/version/effective-date inputs before prompt/action surfaces. | unit/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_rag_context_build.py tests/agent/rag_context/test_context_builder.py tests/knowledge/test_phase22_evidence_validation.py tests/knowledge/test_verified_evidence_package.py -q --tb=short` | ❌ W0 | ⬜ pending |
-| 33-02-02 | 33-02 | 2 | APF-13 | T-33-03 | `route_after_rag_context` is deterministic and total over all status values. | unit | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_rag_context_routing.py tests/agent/test_graph.py tests/agent/test_graph_vocabulary.py -q --tb=short` | ❌ W0 | ⬜ pending |
-| 33-03-01 | 33-03 | 3 | APF-14 | T-33-04 | `recommendation_generation` emits `MaterialClaimV1` and does not mark claims supported. | unit/static | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_generate_recommendation.py tests/agent/rag_context/test_material_claims.py -q --tb=short` | ✅ / W0 updates | ⬜ pending |
-| 33-04-01 | 33-04 | 4 | APF-14 | T-33-05 | Domain hard gates and bundle aggregation require current policy/business/action authority. | unit/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_verifier.py tests/agent/rag_context/test_authority_boundaries.py tests/agent/rag_context/test_semantic_verifier.py tests/knowledge/test_claim_verification_bundle.py -q --tb=short` | ❌ W0 | ⬜ pending |
-| 33-05-01 | 33-05 | 5 | APF-14 | T-33-06 | `claim_verify` writes bundle, blocked claims, and safe support refs without downgrading business/action authority failures to safe. | unit/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_claim_verify.py tests/agent/rag_context/test_routing.py tests/knowledge/test_claim_verification_bundle.py tests/agent/test_graph.py -q --tb=short` | ❌ W0 | ⬜ pending |
-| 33-06-01 | 33-06 | 6 | APF-13/APF-14 | T-33-07 | Unsupported action claims and candidate-only refs cannot reach risk, approval, action draft, or safety snapshots. | negative/security | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_action_boundary.py tests/agent/test_nodes/test_assess_risk_and_approval.py tests/architecture/test_action_draft_boundaries.py -q --tb=short` | ✅ / W0 updates | ⬜ pending |
-| 33-07-01 | 33-07 | 7 | APF-13/APF-14 | T-33-08 | Final response and working-state projections expose safe evidence/claim text only. | negative/security | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_final_response.py tests/agent/test_working_state.py tests/agent/rag_context/test_leakage.py -q --tb=short` | ✅ / W0 updates | ⬜ pending |
-| 33-08-01 | 33-08 | 8 | APF-13/APF-14 | T-33-09 | Trace/API/replay projections expose only safe statuses/counts/refs, preserve visibility guards, and do not fabricate summaries for legacy runs. | integration/static | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_trace.py tests/test_agent_runs_api.py tests/test_trace_api.py tests/replay/test_replay_api.py -q --tb=short` | ✅ / W0 updates | ⬜ pending |
-| 33-09-01 | 33-09 | 9 | APF-13/APF-14 | T-33-10 | Static/focused final gates prove runtime nodes, ownership, no raw leakage, and valid commands. | integration/static | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_phase32_static_contract.py tests/architecture/test_phase33_rag_claim_boundaries.py -q --tb=short` | ❌ W0 | ⬜ pending |
+| 33-01-01 | 33-01 | 1 | APF-13/APF-14 | T-33-01 | New package/bundle/state schemas are strict, reset per turn, and writer ownership is testable. | unit/static | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/knowledge/test_verified_evidence_package.py tests/knowledge/test_claim_verification_bundle.py tests/agent/test_nodes/test_receive_request.py -q --tb=short` | yes | verified |
+| 33-02-01 | 33-02 | 2 | APF-13 | T-33-02 | Candidate refs are re-fetched and rejected on combined invalid scope/hash/version/effective-date inputs before prompt/action surfaces. | unit/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_rag_context_build.py tests/agent/rag_context/test_context_builder.py tests/knowledge/test_phase22_evidence_validation.py tests/knowledge/test_verified_evidence_package.py -q --tb=short` | yes | verified |
+| 33-02-02 | 33-02 | 2 | APF-13 | T-33-03 | `route_after_rag_context` is deterministic and total over all status values. | unit | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_rag_context_routing.py tests/agent/test_graph.py tests/agent/test_graph_vocabulary.py -q --tb=short` | yes | verified |
+| 33-03-01 | 33-03 | 3 | APF-14 | T-33-04 | `recommendation_generation` emits `MaterialClaimV1` and does not mark claims supported. | unit/static | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_generate_recommendation.py tests/agent/rag_context/test_material_claims.py -q --tb=short` | yes | verified |
+| 33-04-01 | 33-04 | 4 | APF-14 | T-33-05 | Domain hard gates and bundle aggregation require current policy/business/action authority. | unit/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_verifier.py tests/agent/rag_context/test_authority_boundaries.py tests/agent/rag_context/test_semantic_verifier.py tests/knowledge/test_claim_verification_bundle.py -q --tb=short` | yes | verified |
+| 33-05-01 | 33-05 | 5 | APF-14 | T-33-06 | `claim_verify` writes bundle, blocked claims, and safe support refs without downgrading business/action authority failures to safe. | unit/integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_claim_verify.py tests/agent/rag_context/test_routing.py tests/knowledge/test_claim_verification_bundle.py tests/agent/test_graph.py -q --tb=short` | yes | verified |
+| 33-06-01 | 33-06 | 6 | APF-13/APF-14 | T-33-07 | Unsupported action claims and candidate-only refs cannot reach risk, approval, action draft, or safety snapshots. | negative/security | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_action_boundary.py tests/agent/test_nodes/test_assess_risk_and_approval.py tests/architecture/test_action_draft_boundaries.py -q --tb=short` | yes | verified |
+| 33-07-01 | 33-07 | 7 | APF-13/APF-14 | T-33-08 | Final response and working-state projections expose safe evidence/claim text only. | negative/security | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_final_response.py tests/agent/test_working_state.py tests/agent/rag_context/test_leakage.py -q --tb=short` | yes | verified |
+| 33-08-01 | 33-08 | 8 | APF-13/APF-14 | T-33-09 | Trace/API/replay projections expose only safe statuses/counts/refs, preserve visibility guards, and do not fabricate summaries for legacy runs. | integration/static | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_trace.py tests/test_agent_runs_api.py tests/test_trace_api.py tests/replay/test_replay_api.py -q --tb=short` | yes | verified |
+| 33-09-01 | 33-09 | 9 | APF-13/APF-14 | T-33-10 | Static/focused final gates prove runtime nodes, ownership, no raw leakage, and valid commands. | integration/static | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_phase32_static_contract.py tests/architecture/test_phase33_rag_claim_boundaries.py -q --tb=short` | yes | verified |
 
-*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+*Status values before closure: pending · green · red · flaky*
 
 ---
 
 ## Wave 0 Requirements
 
-- [ ] `tests/knowledge/test_verified_evidence_package.py` — package schema, status, citation/evidence maps, rejected/stale/conflict refs, and projection separation.
-- [ ] `tests/knowledge/test_claim_verification_bundle.py` — bundle schema, blocked claims, safe support refs, verifier policy/config version, and route semantics.
-- [ ] `tests/agent/test_nodes/test_rag_context_build.py` — node writer ownership, candidate-to-package output, combined invalid scope/hash/version fail-closed, and build-error status.
-- [ ] `tests/agent/test_nodes/test_claim_verify.py` — node writer ownership, malformed verifier output fail-closed, business fact authority, and unsupported action claim blocking.
-- [ ] `tests/agent/test_rag_context_routing.py` — `route_after_rag_context` totality and route semantics.
-- [ ] `tests/architecture/test_phase33_rag_claim_boundaries.py` — Phase 33 static ownership checks replacing Phase 32 non-runnable guards.
-- [ ] Update `tests/agent/test_graph.py`, `tests/agent/test_graph_vocabulary.py`, `tests/agent/test_trace.py`, trace/API projection tests, and replay fallback tests for runnable target nodes, safe RAG/claim projections, cross-tenant visibility, allowlist enforcement, and legacy no-summary degradation.
+- [x] `tests/knowledge/test_verified_evidence_package.py` — package schema, status, citation/evidence maps, rejected/stale/conflict refs, and projection separation.
+- [x] `tests/knowledge/test_claim_verification_bundle.py` — bundle schema, blocked claims, safe support refs, verifier policy/config version, and route semantics.
+- [x] `tests/agent/test_nodes/test_rag_context_build.py` — node writer ownership, candidate-to-package output, combined invalid scope/hash/version fail-closed, and build-error status.
+- [x] `tests/agent/test_nodes/test_claim_verify.py` — node writer ownership, malformed verifier output fail-closed, business fact authority, and unsupported action claim blocking.
+- [x] `tests/agent/test_rag_context_routing.py` — `route_after_rag_context` totality and route semantics.
+- [x] `tests/architecture/test_phase33_rag_claim_boundaries.py` — Phase 33 static ownership checks replacing Phase 32 non-runnable guards.
+- [x] Update `tests/agent/test_graph.py`, `tests/agent/test_graph_vocabulary.py`, `tests/agent/test_trace.py`, trace/API projection tests, and replay fallback tests for runnable target nodes, safe RAG/claim projections, cross-tenant visibility, allowlist enforcement, and legacy no-summary degradation.
 
 ---
 
@@ -87,7 +87,7 @@ created: 2026-06-29
 - [x] Feedback latency <30 seconds for plan-local smoke/static commands; full focused suite is phase-gate-only.
 - [x] `nyquist_compliant: true` set in frontmatter.
 
-**Approval:** pending execution
+**Approval:** verified by 33-VERIFICATION.md
 
 ---
 
