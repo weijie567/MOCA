@@ -511,6 +511,7 @@ async def test_with_default_registry_invokes_real_adapter_with_mocked_raw_get_or
             "status": "success",
             "data": {
                 "order_no": "ORD-09",
+                "merchant_id": "merchant-09",
                 "status": "paid",
                 "amount": "88.00",
                 "currency": "CNY",
@@ -541,6 +542,7 @@ async def test_with_default_registry_invokes_real_adapter_with_mocked_raw_get_or
     assert result.summary == "Business fact read succeeded"
     assert result.data is not None
     assert result.data["order_no"] == "ORD-09"
+    assert result.data["merchant_id"] == "merchant-09"
     assert len(result.business_fact_refs) == 1
     assert result.business_fact_refs[0].resource_id == "ORD-09"
     assert result.policy_evidence_refs == []
@@ -771,17 +773,18 @@ async def test_business_fact_service_allowed_reads_emit_domain_results(
     admin_cross_merchant = await service.get_order("ORD-TEST-002", admin_ctx)
 
     expected = [
-        (order_result, "order", "ORD-TEST-001", "order_no"),
-        (refund_result, "refund_case", "RF-TEST-001", "refund_case_no"),
-        (ticket_result, "ticket", "TK-TEST-001", "ticket_no"),
-        (admin_cross_merchant, "order", "ORD-TEST-002", "order_no"),
+        (order_result, "order", "ORD-TEST-001", "order_no", str(seeded_session["merchant"].id)),
+        (refund_result, "refund_case", "RF-TEST-001", "refund_case_no", str(seeded_session["merchant"].id)),
+        (ticket_result, "ticket", "TK-TEST-001", "ticket_no", str(seeded_session["merchant"].id)),
+        (admin_cross_merchant, "order", "ORD-TEST-002", "order_no", str(seeded_session["second_merchant"].id)),
     ]
-    for result, resource_type, resource_id, fact_key in expected:
+    for result, resource_type, resource_id, fact_key, merchant_id in expected:
         assert isinstance(result, BusinessFactResultV1)
         assert result.status == "ok"
         assert result.scope_check_result == "allowed"
         assert result.fact is not None
         assert result.fact[fact_key] == resource_id
+        assert result.fact["merchant_id"] == merchant_id
         assert result.resource_version is None
         assert result.data_freshness_at is None
         assert len(result.business_fact_refs) == 1

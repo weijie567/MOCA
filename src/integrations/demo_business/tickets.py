@@ -77,6 +77,7 @@ async def get_ticket(
         return _tool_success(
             {
                 "ticket_no": ticket.ticket_no,
+                "merchant_id": str(merchant_id),
                 "status": ticket.status,
                 "channel": ticket.channel,
                 "summary": ticket.summary,

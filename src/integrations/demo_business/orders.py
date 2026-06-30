@@ -70,6 +70,7 @@ async def get_order(
         return _tool_success(
             {
                 "order_no": order.order_no,
+                "merchant_id": str(order.merchant_id),
                 "status": order.status,
                 "amount": str(order.amount),
                 "currency": order.currency,

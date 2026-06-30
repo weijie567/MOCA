@@ -34,6 +34,7 @@ def _context() -> ToolCallContext:
 def _order_data(**overrides: object) -> dict[str, object]:
     data: dict[str, object] = {
         "order_no": "ORD-09",
+        "merchant_id": "merchant-09",
         "status": "paid",
         "amount": "88.00",
         "currency": "CNY",
@@ -135,6 +136,7 @@ async def test_refund_success_uses_refund_business_provenance(monkeypatch: pytes
             "status": "success",
             "data": {
                 "refund_case_no": "RF-09",
+                "merchant_id": "merchant-09",
                 "status": "open",
                 "reason_code": "DAMAGED",
                 "reason_text": "Item damaged",
@@ -160,7 +162,13 @@ async def test_ticket_success_uses_ticket_business_provenance(monkeypatch: pytes
     raw_tool = AsyncMock(
         return_value={
             "status": "success",
-            "data": {"ticket_no": "T-09", "status": "open", "channel": "chat", "summary": "Refund question"},
+            "data": {
+                "ticket_no": "T-09",
+                "merchant_id": "merchant-09",
+                "status": "open",
+                "channel": "chat",
+                "summary": "Refund question",
+            },
             "error": {},
         }
     )

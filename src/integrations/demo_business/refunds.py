@@ -72,6 +72,7 @@ async def get_refund_case(
         return _tool_success(
             {
                 "refund_case_no": refund_case.refund_case_no,
+                "merchant_id": str(merchant_id),
                 "status": refund_case.status,
                 "reason_code": refund_case.reason_code,
                 "reason_text": refund_case.reason_text,

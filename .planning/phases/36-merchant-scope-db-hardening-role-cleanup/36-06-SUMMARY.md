@@ -42,6 +42,12 @@ key-files:
     - tests/test_agent_runs_api.py
     - tests/test_approval_api.py
     - tests/conftest.py
+    - src/business/adapters.py
+    - src/integrations/demo_business/orders.py
+    - src/integrations/demo_business/refunds.py
+    - src/integrations/demo_business/tickets.py
+    - tests/business/test_adapters.py
+    - tests/business/test_service.py
 
 key-decisions:
   - "Phase 36 readiness is ready_with_agent_run_binding because AgentRun binding, consistency, migration, and no-widening evidence all passed."
@@ -105,6 +111,21 @@ completed: 2026-06-30
 - `UV_CACHE_DIR=/tmp/uv-cache uv run pytest` -> 2125 passed, 4 skipped, 44 warnings.
 - `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src tests` -> passed.
 - `rg -n "ROW LEVEL SECURITY|CREATE POLICY|ENABLE ROW LEVEL SECURITY|SET LOCAL|current_setting" src/db src/api src/auth src/platform src/agent src/replay` -> no matches.
+
+## Post-Code-Review Fixes
+
+The Phase 36 code-review gate found three true warnings after the initial 36-06 merge. All were fixed before final phase closure:
+
+- Real order/refund/ticket business reads now carry authorized `merchant_id` through the strict adapter projections so target merchant binding can be derived from the default business fact path.
+- Auto-allowed action draft creation now validates snapshot and auto-allowed binding material before promoting a newly created `unknown_legacy` run to `business_merchant`; mismatched existing run scope still fails closed.
+- Auto-allowed drafts now validate the submitted `risk_decision` payload against tenant id, run id, action payload hash, and no-approval semantics before persisting it.
+
+Additional verification:
+
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_service.py tests/actions/test_phase34_action_draft_bindings.py -q --tb=short` -> 49 passed, 1 warning.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_adapters.py tests/business/test_service.py tests/tools/test_tool_platform.py tests/agent/test_tools/test_get_order.py tests/agent/test_tools/test_get_refund_case.py tests/agent/test_tools/test_get_ticket.py tests/actions/test_phase34_action_draft_bindings.py -q --tb=short` -> 112 passed, 1 warning.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_service.py tests/actions/test_phase34_action_draft_bindings.py tests/agent/test_tools/test_create_coupon_grant_draft.py tests/agent/test_nodes/test_assess_risk_and_approval.py tests/test_graph_routing.py tests/approvals/test_phase36_scope_consistency.py tests/test_approval_api.py -q --tb=short` -> 175 passed, 1 warning.
+- Final Phase 36 focused gate was rerun after the fixes and passed: 287 passed, 3 warnings.
 
 ## Decisions Made
 

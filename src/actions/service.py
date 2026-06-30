@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.actions.drafts import ActionDraftStore
 from src.actions.schemas import ActionDraftV2Data, DraftOutcomeV1
 from src.agent.events import emit_event
-from src.agent.run_scope import BUSINESS_MERCHANT
+from src.agent.run_scope import BUSINESS_MERCHANT, UNKNOWN_LEGACY
 from src.approvals.schemas import AutoAllowedActionBindingV1, RiskDecisionV1, TargetMerchantBindingV1
 from src.approvals.snapshot_service import compute_action_payload_hash
 from src.common.canonical_hash import CanonicalHashError
@@ -266,13 +266,6 @@ class ActionService:
                 )
             )
         ).scalar_one_or_none()
-        run_matches, run_error = _run_scope_matches_target(run, requested_binding["target_merchant_id"])
-        if not run_matches:
-            return _tool_error(
-                run_error or "RUN_SCOPE_BINDING_MISMATCH",
-                "Action target merchant does not match run scope",
-                retryable=False,
-            )
         if not _snapshot_phase36_binding_matches(snapshot, requested_binding):
             return _tool_error(
                 "SNAPSHOT_BINDING_MISMATCH",
@@ -280,7 +273,7 @@ class ActionService:
                 retryable=False,
             )
         if approval_request_id is None:
-            return self._validate_auto_allowed_binding(
+            validated = self._validate_auto_allowed_binding(
                 tenant_id=tenant_id,
                 run_id=run_id,
                 action_payload_hash=action_payload_hash,
@@ -288,6 +281,28 @@ class ActionService:
                 safety_snapshot_hash=safety_snapshot_hash,
                 requested_binding=requested_binding,
                 auto_allowed_binding=auto_allowed_binding,
+            )
+            if isinstance(validated, dict):
+                return validated
+            run_matches, run_error = await _ensure_run_scope_matches_target(
+                self.session,
+                run,
+                requested_binding=requested_binding,
+            )
+            if not run_matches:
+                return _tool_error(
+                    run_error or "RUN_SCOPE_BINDING_MISMATCH",
+                    "Action target merchant does not match run scope",
+                    retryable=False,
+                )
+            return validated
+
+        run_matches, run_error = _run_scope_matches_target(run, requested_binding["target_merchant_id"])
+        if not run_matches:
+            return _tool_error(
+                run_error or "RUN_SCOPE_BINDING_MISMATCH",
+                "Action target merchant does not match run scope",
+                retryable=False,
             )
 
         approval = (
@@ -371,6 +386,20 @@ class ActionService:
                 "Auto-allowed action binding is invalid",
                 retryable=False,
             )
+        risk_decision = requested_binding.get("risk_decision")
+        if (
+            risk_decision is None
+            or risk_decision.get("tenant_id") != str(tenant_id)
+            or risk_decision.get("run_id") != str(run_id)
+            or risk_decision.get("action_payload_hash") != action_payload_hash
+            or risk_decision.get("approval_required") is not False
+            or risk_decision_ref != requested_binding.get("risk_decision_ref")
+        ):
+            return _tool_error(
+                "AUTO_ALLOWED_BINDING_MISMATCH",
+                "Auto-allowed action binding is invalid",
+                retryable=False,
+            )
         revision_marker = f"auto_allowed:{risk_decision_ref}"
         return _ValidatedActionBinding(
             revision_marker=revision_marker,
@@ -438,6 +467,34 @@ def _run_scope_matches_target(run: AgentRun | None, requested_target_merchant_id
     if requested_target_merchant_id:
         return False, "RUN_SCOPE_NOT_BUSINESS_MERCHANT"
     return False, "RUN_SCOPE_NOT_BUSINESS_MERCHANT"
+
+
+async def _ensure_run_scope_matches_target(
+    session: AsyncSession,
+    run: AgentRun | None,
+    *,
+    requested_binding: dict[str, Any],
+) -> tuple[bool, str | None]:
+    requested_target_merchant_id = requested_binding.get("target_merchant_id")
+    matches, error = _run_scope_matches_target(run, requested_target_merchant_id)
+    if matches or run is None:
+        return matches, error
+    if (
+        run.scope_classification != UNKNOWN_LEGACY
+        or run.target_merchant_id is not None
+        or run.target_merchant_ref is not None
+        or not requested_target_merchant_id
+        or requested_binding.get("target_merchant_ref") is None
+    ):
+        return False, error
+
+    run.scope_classification = BUSINESS_MERCHANT
+    run.target_merchant_id = requested_target_merchant_id
+    run.target_merchant_ref = requested_binding["target_merchant_ref"]
+    run.scope_source = "auto_allowed_action_binding_v1"
+    run.scope_reason_codes = []
+    await session.flush()
+    return True, None
 
 
 def _now_iso() -> str:

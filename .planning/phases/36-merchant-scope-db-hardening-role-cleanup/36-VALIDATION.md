@@ -48,6 +48,9 @@ All Wave 0 test files exist and were exercised by the final gates:
 | Gate | Command | Result |
 |------|---------|--------|
 | Phase 36 focused gate | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/platform/test_merchant_scope.py tests/tools/test_merchant_scope_static.py tests/integration/test_auth.py tests/agent/test_phase36_run_scope.py tests/approvals/test_phase36_scope_consistency.py tests/approvals/test_migration_contract.py tests/db/test_phase36_migration_preflight.py tests/replay/test_phase36_readiness.py tests/business/test_service.py tests/knowledge/test_service.py tests/knowledge/test_tenant_scope.py tests/knowledge/test_claim_verification_bundle.py tests/agent/test_memory_evidence_boundary.py tests/agent/rag_context/test_authority_boundaries.py tests/agent/rag_context/test_verifier.py tests/test_approval_api.py tests/test_trace_api.py tests/replay/test_phase35_trace_replay_permissions.py -q --tb=short` | 287 passed, 3 warnings |
+| Code-review business/action focused fix gate | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_service.py tests/actions/test_phase34_action_draft_bindings.py -q --tb=short` | 49 passed, 1 warning |
+| Code-review adapter/tool/action regression gate | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_adapters.py tests/business/test_service.py tests/tools/test_tool_platform.py tests/agent/test_tools/test_get_order.py tests/agent/test_tools/test_get_refund_case.py tests/agent/test_tools/test_get_ticket.py tests/actions/test_phase34_action_draft_bindings.py -q --tb=short` | 112 passed, 1 warning |
+| Code-review graph/API/action regression gate | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_service.py tests/actions/test_phase34_action_draft_bindings.py tests/agent/test_tools/test_create_coupon_grant_draft.py tests/agent/test_nodes/test_assess_risk_and_approval.py tests/test_graph_routing.py tests/approvals/test_phase36_scope_consistency.py tests/test_approval_api.py -q --tb=short` | 175 passed, 1 warning |
 | Approval/readiness/API regression subset | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_integration.py tests/test_approval_api.py tests/replay/test_phase35_trace_replay_permissions.py tests/replay/test_phase36_readiness.py tests/tools/test_tool_platform.py -q --tb=short` | 71 passed, 6 warnings |
 | Split aggregate A | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_phase34_approval_action_boundaries.py tests/conversation/test_models.py tests/conversation/test_repository.py tests/integration/test_refund_cases.py tests/integration/test_tickets.py tests/knowledge/test_facade_integration.py tests/knowledge/test_phase21_boundaries.py tests/replay/test_phase35_coverage_matrix.py -q --tb=short` | 86 passed, 2 skipped, 10 warnings |
 | Split aggregate B | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_agent_runs_api.py tests/test_interception_rate.py tests/test_search_integration.py -q --tb=short` | 64 passed, 1 warning |
@@ -95,6 +98,7 @@ All Wave 0 test files exist and were exercised by the final gates:
 - A split aggregate rerun initially collided with a likely still-running full-suite process from a previous truncated command. PostgreSQL DDL on shared `moca_test/public` produced `pg_type` duplicate/deadlock errors. After confirming no pytest process remained and resetting the test schema, the same split aggregate passed.
 - The first full-suite run found one static boundary failure: `tests/architecture/test_trusted_context_boundaries.py::test_route_current_run_id_fields_delegate_to_legacy_identity_projection`. The legacy `/api/v1/agent/chat` interrupt persistence path was writing `"current_run_id":` directly in route code. The fix now delegates legacy identity fields to `_legacy_agent_state_identity(trusted_context)`.
 - Full ruff initially found unused imports in `src/tools/manager.py`, `src/tools/platform.py`, and `src/tools/runtime.py`. These were mechanical stale imports; removing them made full ruff pass and the focused tool-platform tests stayed green.
+- Code review found three true warnings after the initial merge: real business reads omitted `merchant_id`, auto-allowed drafts could run before final `AgentRun` scope persistence, and auto-allowed draft creation did not validate the stored `risk_decision` payload. The final `36-REVIEW.md` records the adjudication, fixes, and green code-review gates.
 
 ## Validation Sign-Off
 
@@ -105,6 +109,7 @@ All Wave 0 test files exist and were exercised by the final gates:
 - [x] Focused Phase 36 gate passed.
 - [x] Full suite passed.
 - [x] Full ruff passed.
+- [x] Code-review warnings adjudicated and resolved.
 - [x] Phase 37/RLS deferred ideas remain unimplemented.
 
 **Approval:** complete on 2026-06-30.

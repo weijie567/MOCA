@@ -206,6 +206,16 @@ def _phase34_tool_kwargs(request: ApprovalRequest, **overrides) -> dict[str, obj
     return payload
 
 
+def _auto_allowed_risk_decision(binding: dict[str, object]) -> dict[str, object]:
+    risk_decision = dict(binding["risk_decision"])
+    risk_decision["risk_level"] = "low"
+    risk_decision["reason_codes"] = ["auto_allowed"]
+    risk_decision["approval_required"] = False
+    risk_decision["risk_rule_ref"] = "risk:auto-allowed"
+    risk_decision["risk_reason"] = "Low-risk action auto-allowed."
+    return risk_decision
+
+
 async def _assert_no_drafts(session: AsyncSession, run_id: UUID) -> None:
     rows = (await session.execute(select(ActionDraft).where(ActionDraft.run_id == run_id))).scalars().all()
     assert rows == []
@@ -282,14 +292,12 @@ async def test_create_coupon_grant_draft_accepts_exact_auto_allowed_binding(
     user_id = seeded_session["users"]["cs_zhang"].id
     run_id = await _create_run(session, tenant_id=tenant_id, user_id=user_id)
     binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    binding["risk_decision"] = _auto_allowed_risk_decision(binding)
     run = await session.get(AgentRun, run_id)
     assert run is not None
-    run.scope_classification = "business_merchant"
-    run.target_merchant_id = binding["target_merchant_id"]
-    run.target_merchant_ref = binding["target_merchant_ref"]
-    run.scope_source = "target_merchant_binding_v1"
-    run.scope_reason_codes = []
-    await session.flush()
+    assert run.scope_classification == "unknown_legacy"
+    assert run.target_merchant_id is None
+    assert run.target_merchant_ref is None
     command = _create_command(tenant_id=tenant_id, run_id=run_id, requested_by=user_id, **binding)
     action_payload_hash = compute_action_payload_hash(command.proposed_action)
     snapshot = await persist_action_safety_snapshot(
@@ -356,6 +364,11 @@ async def test_create_coupon_grant_draft_accepts_exact_auto_allowed_binding(
     assert len(draft.idempotency_key) <= 256
     assert draft.idempotency_key.startswith(f"{tenant_id}:{run_id}:auto_allowed_sha256:")
     assert "key_sha256:" in draft.idempotency_key
+    await session.refresh(run)
+    assert run.scope_classification == "business_merchant"
+    assert run.target_merchant_id == binding["target_merchant_id"]
+    assert run.target_merchant_ref == binding["target_merchant_ref"]
+    assert run.scope_source == "auto_allowed_action_binding_v1"
 
 
 @pytest.mark.asyncio
@@ -367,6 +380,7 @@ async def test_create_coupon_grant_draft_rejects_auto_allowed_binding_mismatch(
     user_id = seeded_session["users"]["cs_zhang"].id
     run_id = await _create_run(session, tenant_id=tenant_id, user_id=user_id)
     binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    binding["risk_decision"] = _auto_allowed_risk_decision(binding)
     run = await session.get(AgentRun, run_id)
     assert run is not None
     run.scope_classification = "business_merchant"
@@ -427,6 +441,88 @@ async def test_create_coupon_grant_draft_rejects_auto_allowed_binding_mismatch(
         claim_verification_summary=binding["claim_verification_summary"],
         risk_decision_ref=binding["risk_decision_ref"],
         risk_decision=binding["risk_decision"],
+        auto_allowed_binding=auto_allowed_binding,
+    )
+
+    assert result["status"] == "error"
+    assert result["error"]["error_code"] == "AUTO_ALLOWED_BINDING_MISMATCH"
+    await _assert_no_drafts(session, run_id)
+
+
+@pytest.mark.asyncio
+async def test_create_coupon_grant_draft_rejects_auto_allowed_risk_decision_tamper(
+    session: AsyncSession,
+    seeded_session,
+):
+    tenant_id = seeded_session["tenant"].id
+    user_id = seeded_session["users"]["cs_zhang"].id
+    run_id = await _create_run(session, tenant_id=tenant_id, user_id=user_id)
+    binding = _phase34_binding_overrides(tenant_id=tenant_id, run_id=run_id)
+    binding["risk_decision"] = _auto_allowed_risk_decision(binding)
+    run = await session.get(AgentRun, run_id)
+    assert run is not None
+    run.scope_classification = "business_merchant"
+    run.target_merchant_id = binding["target_merchant_id"]
+    run.target_merchant_ref = binding["target_merchant_ref"]
+    run.scope_source = "target_merchant_binding_v1"
+    run.scope_reason_codes = []
+    await session.flush()
+    command = _create_command(tenant_id=tenant_id, run_id=run_id, requested_by=user_id, **binding)
+    action_payload_hash = compute_action_payload_hash(command.proposed_action)
+    snapshot = await persist_action_safety_snapshot(
+        session,
+        tenant_id=tenant_id,
+        run_id=run_id,
+        proposed_action=command.proposed_action,
+        action_payload_hash=action_payload_hash,
+        policy_config_version=command.policy_config_version,
+        risk_config_version=command.risk_config_version,
+        retrieval_config_version=command.retrieval_config_version,
+        evidence_refs=command.evidence_refs,
+        target_merchant_id=binding["target_merchant_id"],
+        target_merchant_ref=binding["target_merchant_ref"],
+        business_fact_refs=binding["business_fact_refs"],
+        created_at=command.created_at,
+        created_by=user_id,
+    )
+    auto_allowed_binding = {
+        "schema_version": "auto_allowed_action_binding.v1",
+        "tenant_id": str(tenant_id),
+        "run_id": str(run_id),
+        "target_merchant_id": binding["target_merchant_id"],
+        "action_payload_hash": action_payload_hash,
+        "safety_snapshot_ref": snapshot.safety_snapshot_ref,
+        "safety_snapshot_hash": snapshot.safety_snapshot_hash,
+        "risk_decision_ref": binding["risk_decision_ref"],
+        "idempotency_key": f"auto:{tenant_id}:{run_id}",
+        "business_fact_refs": binding["business_fact_refs"],
+        "verified_evidence_refs": binding["verified_evidence_refs"],
+        "claim_verification_ref": binding["claim_verification_ref"],
+        "claim_verification_summary": binding["claim_verification_summary"],
+    }
+    tampered_risk_decision = dict(binding["risk_decision"])
+    tampered_risk_decision["approval_required"] = True
+
+    result = await create_coupon_grant_draft(
+        tenant_id=str(tenant_id),
+        user_id=str(user_id),
+        run_id=str(run_id),
+        approval_request_id=None,
+        idempotency_key="unsafe-caller-key",
+        action_type="issue_coupon",
+        payload=dict(command.proposed_action),
+        session=session,
+        action_payload_hash=action_payload_hash,
+        safety_snapshot_ref=snapshot.safety_snapshot_ref,
+        safety_snapshot_hash=snapshot.safety_snapshot_hash,
+        target_merchant_id=binding["target_merchant_id"],
+        target_merchant_ref=binding["target_merchant_ref"],
+        business_fact_refs=binding["business_fact_refs"],
+        verified_evidence_refs=binding["verified_evidence_refs"],
+        claim_verification_ref=binding["claim_verification_ref"],
+        claim_verification_summary=binding["claim_verification_summary"],
+        risk_decision_ref=binding["risk_decision_ref"],
+        risk_decision=tampered_risk_decision,
         auto_allowed_binding=auto_allowed_binding,
     )
 

@@ -42,6 +42,7 @@ class _OrderRelationHints(_StrictProjection):
 
 class _OrderData(_StrictProjection):
     order_no: str
+    merchant_id: str
     status: str
     amount: str
     currency: str
@@ -54,6 +55,7 @@ class _OrderData(_StrictProjection):
 
 class _RefundCaseData(_StrictProjection):
     refund_case_no: str
+    merchant_id: str
     status: str
     reason_code: str
     reason_text: str
@@ -63,6 +65,7 @@ class _RefundCaseData(_StrictProjection):
 
 class _TicketData(_StrictProjection):
     ticket_no: str
+    merchant_id: str
     status: str
     channel: str
     summary: str
