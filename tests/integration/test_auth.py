@@ -1,11 +1,14 @@
+import uuid
 from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 
 from src.api.routers import auth as auth_router
-from src.auth.jwt import create_access_token, decode_access_token
+from src.auth.jwt import create_access_token, decode_access_token, hash_password
 from src.config import settings
+from src.db.models import User
 
 
 @pytest.mark.asyncio
@@ -173,6 +176,104 @@ async def test_resolve_user_for_login_rejects_ambiguous_username_without_tenant_
 
     assert exc_info.value.status_code == 401
     assert exc_info.value.detail == {"code": "UNAUTHORIZED", "message": "Invalid username or password"}
+
+
+@pytest.mark.asyncio
+async def test_same_tenant_duplicate_username_creation_fails(session, seeded_session):
+    session.add(
+        User(
+            id=uuid.uuid4(),
+            tenant_id=seeded_session["tenant"].id,
+            merchant_id=seeded_session["second_merchant"].id,
+            username="cs_zhang",
+            password_hash=hash_password("moca2024"),
+            role="support",
+            is_active=True,
+        )
+    )
+
+    with pytest.raises(IntegrityError):
+        await session.flush()
+    await session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_duplicate_username_login_requires_explicit_tenant_id(client, session, seeded_session):
+    username = "shared_support"
+    password = "moca2024"
+    first_user = User(
+        id=uuid.uuid4(),
+        tenant_id=seeded_session["tenant"].id,
+        merchant_id=seeded_session["merchant"].id,
+        username=username,
+        password_hash=hash_password(password),
+        role="support",
+        is_active=True,
+    )
+    second_user = User(
+        id=uuid.uuid4(),
+        tenant_id=seeded_session["other_tenant"].id,
+        merchant_id=seeded_session["other_merchant"].id,
+        username=username,
+        password_hash=hash_password(password),
+        role="support",
+        is_active=True,
+    )
+    session.add_all([first_user, second_user])
+    await session.commit()
+
+    for user in (first_user, second_user):
+        response = await client.post(
+            "/api/v1/auth/login",
+            json={"username": username, "password": password, "tenant_id": str(user.tenant_id)},
+        )
+        payload = response.json()
+
+        assert response.status_code == 200
+        token_payload = decode_access_token(payload["data"]["access_token"])
+        assert token_payload["sub"] == str(user.id)
+        assert token_payload["tenant_id"] == str(user.tenant_id)
+
+        demo_response = await client.post(
+            "/api/v1/auth/demo-token",
+            json={"username": username, "tenant_id": str(user.tenant_id)},
+        )
+        demo_payload = demo_response.json()
+
+        assert demo_response.status_code == 200
+        assert decode_access_token(demo_payload["data"]["access_token"])["sub"] == str(user.id)
+
+    ambiguous_login = await client.post("/api/v1/auth/login", json={"username": username, "password": password})
+    assert ambiguous_login.status_code == 401
+    assert ambiguous_login.json()["error"]["code"] == "UNAUTHORIZED"
+
+    ambiguous_token = await client.post(
+        "/api/v1/auth/token",
+        data={"username": username, "password": password, "scope": "agent:chat"},
+    )
+    assert ambiguous_token.status_code == 401
+
+    ambiguous_demo_token = await client.post("/api/v1/auth/demo-token", json={"username": username})
+    assert ambiguous_demo_token.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_user_merchant_binding_rejects_cross_tenant_merchant(session, seeded_session):
+    session.add(
+        User(
+            id=uuid.uuid4(),
+            tenant_id=seeded_session["tenant"].id,
+            merchant_id=seeded_session["other_merchant"].id,
+            username="tenant_mismatch_support",
+            password_hash=hash_password("moca2024"),
+            role="support",
+            is_active=True,
+        )
+    )
+
+    with pytest.raises(IntegrityError):
+        await session.flush()
+    await session.rollback()
 
 
 @pytest.mark.asyncio

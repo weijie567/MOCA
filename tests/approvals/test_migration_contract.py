@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, Index, UniqueConstraint
+from sqlalchemy import CheckConstraint, ForeignKeyConstraint, Index, UniqueConstraint
 from sqlalchemy.schema import ColumnCollectionConstraint
 
 from src.db.models import Base
@@ -57,19 +57,23 @@ def _column_names(table_name: str) -> set[str]:
     return set(_table(table_name).c.keys())
 
 
-def _named_schema_items(table_name: str) -> dict[str, UniqueConstraint | CheckConstraint | Index]:
+def _named_schema_items(table_name: str) -> dict[str, UniqueConstraint | CheckConstraint | ForeignKeyConstraint | Index]:
     table = _table(table_name)
-    named_items: dict[str, UniqueConstraint | CheckConstraint | Index] = {}
+    named_items: dict[str, UniqueConstraint | CheckConstraint | ForeignKeyConstraint | Index] = {}
     for item in [*table.constraints, *table.indexes]:
         if item.name:
             named_items[item.name] = item
     return named_items
 
 
-def _item_columns(item: UniqueConstraint | CheckConstraint | Index) -> set[str]:
+def _item_columns(item: UniqueConstraint | CheckConstraint | ForeignKeyConstraint | Index) -> set[str]:
     if isinstance(item, ColumnCollectionConstraint | Index):
         return {column.name for column in item.columns}
     return set()
+
+
+def _fk_targets(item: ForeignKeyConstraint) -> set[str]:
+    return {f"{element.column.table.name}.{element.column.name}" for element in item.elements}
 
 
 def _migration_source() -> str:
@@ -166,6 +170,31 @@ def test_phase34_migration_does_not_create_external_execution_surfaces():
 
     for forbidden in PHASE17_EXTERNAL_SURFACES:
         assert forbidden not in source
+
+
+def test_phase36_user_username_identity_metadata_is_tenant_scoped():
+    user_table = _table("users")
+    items = _named_schema_items("users")
+
+    username_constraint = items["uq_users_tenant_username"]
+    assert isinstance(username_constraint, UniqueConstraint)
+    assert _item_columns(username_constraint) == {"tenant_id", "username"}
+    assert user_table.c["username"].unique is not True
+
+
+def test_phase36_user_merchant_binding_metadata_is_tenant_consistent():
+    merchant_constraint = _named_schema_items("merchants")["uq_merchants_id_tenant"]
+    assert isinstance(merchant_constraint, UniqueConstraint)
+    assert _item_columns(merchant_constraint) == {"id", "tenant_id"}
+
+    user_table = _table("users")
+    user_items = _named_schema_items("users")
+    merchant_fk = user_items["fk_users_merchant_tenant"]
+    assert isinstance(merchant_fk, ForeignKeyConstraint)
+    assert _item_columns(merchant_fk) == {"merchant_id", "tenant_id"}
+    assert _fk_targets(merchant_fk) == {"merchants.id", "merchants.tenant_id"}
+    assert user_table.c["merchant_id"].nullable
+    assert not user_table.c["merchant_id"].foreign_keys
 
 
 def test_level_assignment_decision_event_tables_and_constraints_are_declared():
