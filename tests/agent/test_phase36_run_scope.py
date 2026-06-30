@@ -130,6 +130,67 @@ def test_service_approved_business_fact_result_classifies_business_merchant() ->
     assert facts.target_merchant_ref["source"] == "business_fact_result"
 
 
+def test_runtime_business_context_fact_and_ref_classifies_business_merchant() -> None:
+    business_ref = _business_fact_ref()
+
+    facts = classify_agent_run_scope(
+        {
+            "tenant_id": "tenant-1",
+            "current_intent": "order_status_inquiry",
+            "business_context": {
+                "facts": {
+                    "order": {
+                        "id": "order-1",
+                        "order_no": "ORD-1",
+                        "merchant_id": "merchant-3",
+                    }
+                },
+                "business_fact_refs": [business_ref],
+                "tool_results": [
+                    {
+                        "tool_name": "get_order",
+                        "status": "success",
+                        "summary": "Order ORD-1 belongs to an authorized merchant.",
+                    }
+                ],
+            },
+            "last_business_context_refs": {
+                "business_fact_refs": [business_ref],
+                "loaded_at": datetime(2026, 6, 30, tzinfo=UTC),
+            },
+        }
+    )
+
+    assert facts.scope_classification == BUSINESS_MERCHANT
+    assert facts.target_merchant_id == "merchant-3"
+    assert facts.target_merchant_ref is not None
+    assert facts.target_merchant_ref["target_merchant_id"] == "merchant-3"
+    assert facts.target_merchant_ref["source"] == "business_fact_ref"
+    assert facts.target_merchant_ref["business_fact_ref"] == BusinessFactRefV1.model_validate(business_ref).model_dump(
+        mode="json"
+    )
+    assert facts.scope_source == "business_context_business_fact_ref_v1"
+    assert facts.scope_reason_codes == []
+
+
+def test_last_business_context_refs_without_current_fact_body_is_not_authoritative() -> None:
+    facts = classify_agent_run_scope(
+        {
+            "tenant_id": "tenant-1",
+            "current_intent": "order_status_inquiry",
+            "last_business_context_refs": {
+                "business_fact_refs": [_business_fact_ref()],
+                "loaded_at": datetime(2026, 6, 30, tzinfo=UTC),
+            },
+        }
+    )
+
+    assert facts.scope_classification == UNKNOWN_LEGACY
+    assert facts.target_merchant_id is None
+    assert facts.target_merchant_ref is None
+    assert "no_authoritative_scope_proof" in facts.scope_reason_codes
+
+
 def test_no_business_indicators_are_non_business_with_null_target() -> None:
     facts = classify_agent_run_scope({"current_intent": "small_talk"})
 

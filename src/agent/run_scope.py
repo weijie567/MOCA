@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from src.approvals.schemas import TargetMerchantBindingV1
 from src.business.schemas import BusinessFactResultV1
+from src.tools.contracts import BusinessFactRefV1
 
 
 BUSINESS_MERCHANT = "business_merchant"
@@ -81,6 +82,10 @@ def classify_agent_run_scope(state: Mapping[str, Any]) -> AgentRunScopeFacts:
     fact_candidates, fact_errors = _candidates_from_business_fact_results(state)
     candidates.extend(fact_candidates)
     reason_codes.extend(fact_errors)
+
+    context_candidates, context_errors = _candidates_from_business_context(state)
+    candidates.extend(context_candidates)
+    reason_codes.extend(context_errors)
 
     target_ids = {candidate.target_merchant_id for candidate in candidates}
     if len(target_ids) == 1 and not _has_hard_failure(reason_codes):
@@ -216,6 +221,59 @@ def _candidates_from_business_fact_results(state: Mapping[str, Any]) -> tuple[li
                     business_fact_ref=result.business_fact_refs[0].model_dump(mode="json"),
                 ).model_dump(mode="json"),
                 scope_source="business_fact_result_v1",
+            )
+        )
+    return candidates, reason_codes
+
+
+def _candidates_from_business_context(state: Mapping[str, Any]) -> tuple[list[_ScopeCandidate], list[str]]:
+    context = state.get("business_context")
+    if not isinstance(context, Mapping):
+        return [], []
+
+    facts = context.get("facts")
+    if not isinstance(facts, Mapping):
+        return [], []
+
+    tenant_id = _non_empty_str(state.get("tenant_id"))
+    refs_by_resource_type: dict[str, BusinessFactRefV1] = {}
+    for raw_ref in _list_items(context.get("business_fact_refs")):
+        try:
+            ref = BusinessFactRefV1.model_validate(raw_ref)
+        except ValidationError:
+            return [], ["malformed_business_fact_ref"]
+        if (
+            tenant_id is not None
+            and ref.tenant_id == tenant_id
+            and ref.source_system in _TRUSTED_FACT_SOURCES
+            and ref.resource_type not in refs_by_resource_type
+        ):
+            refs_by_resource_type[ref.resource_type] = ref
+
+    candidates: list[_ScopeCandidate] = []
+    reason_codes: list[str] = []
+    for resource_type, fact in facts.items():
+        if not isinstance(resource_type, str):
+            continue
+
+        merchant_id = _non_empty_str(fact.get("merchant_id") if isinstance(fact, Mapping) else None)
+        if merchant_id is None:
+            continue
+
+        ref = refs_by_resource_type.get(resource_type)
+        if ref is None:
+            reason_codes.append("missing_business_fact_ref")
+            continue
+
+        candidates.append(
+            _ScopeCandidate(
+                target_merchant_id=merchant_id,
+                target_merchant_ref=TargetMerchantBindingV1(
+                    target_merchant_id=merchant_id,
+                    source="business_fact_ref",
+                    business_fact_ref=ref.model_dump(mode="json"),
+                ).model_dump(mode="json"),
+                scope_source="business_context_business_fact_ref_v1",
             )
         )
     return candidates, reason_codes
