@@ -86,7 +86,7 @@ async def test_oauth_token_endpoint_rejects_ambiguous_username_without_tenant_co
     payload = response.json()
 
     assert response.status_code == 401
-    assert payload["detail"]["code"] == "UNAUTHORIZED"
+    assert payload["error"]["code"] == "UNAUTHORIZED"
 
 
 @pytest.mark.asyncio
@@ -152,7 +152,7 @@ async def test_demo_token_rejects_ambiguous_username_without_tenant_context(clie
     payload = response.json()
 
     assert response.status_code == 401
-    assert payload["detail"]["code"] == "UNAUTHORIZED"
+    assert payload["error"]["code"] == "UNAUTHORIZED"
 
 
 @pytest.mark.asyncio

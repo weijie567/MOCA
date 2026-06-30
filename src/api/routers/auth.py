@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Security, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
@@ -33,15 +35,37 @@ def _token_for_user(user: User) -> TokenResponse:
     return TokenResponse(access_token=token)
 
 
+def _invalid_credentials_error() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail={"code": UNAUTHORIZED, "message": "Invalid username or password"},
+    )
+
+
+async def _resolve_user_for_login(
+    session: AsyncSession,
+    *,
+    username: str,
+    tenant_id: uuid.UUID | None,
+) -> User | None:
+    if tenant_id is not None:
+        stmt = select(User).where(User.username == username, User.tenant_id == tenant_id)
+        return (await session.execute(stmt)).scalar_one_or_none()
+
+    stmt = select(User).where(User.username == username).limit(2)
+    users = list((await session.execute(stmt)).scalars().all())
+    if len(users) > 1:
+        raise _invalid_credentials_error()
+    if not users:
+        return None
+    return users[0]
+
+
 @router.post("/login", response_model=ApiResponse)
 async def login(payload: LoginRequest, request: Request, session: AsyncSession = Depends(get_session)) -> ApiResponse:
-    stmt = select(User).where(User.username == payload.username)
-    user = (await session.execute(stmt)).scalar_one_or_none()
+    user = await _resolve_user_for_login(session, username=payload.username, tenant_id=payload.tenant_id)
     if user is None or not verify_password(payload.password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": UNAUTHORIZED, "message": "Invalid username or password"},
-        )
+        raise _invalid_credentials_error()
 
     return _success(_token_for_user(user).model_dump(), request)
 
@@ -51,13 +75,9 @@ async def token(
     form: OAuth2PasswordRequestForm = Depends(),
     session: AsyncSession = Depends(get_session),
 ) -> TokenResponse:
-    stmt = select(User).where(User.username == form.username)
-    user = (await session.execute(stmt)).scalar_one_or_none()
+    user = await _resolve_user_for_login(session, username=form.username, tenant_id=None)
     if user is None or not verify_password(form.password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": UNAUTHORIZED, "message": "Invalid username or password"},
-        )
+        raise _invalid_credentials_error()
 
     return _token_for_user(user)
 
@@ -79,8 +99,7 @@ async def demo_token(
             detail=ErrorDetail(code="FORBIDDEN", message="Demo auth is disabled").model_dump(),
         )
 
-    stmt = select(User).where(User.username == payload.username)
-    user = (await session.execute(stmt)).scalar_one_or_none()
+    user = await _resolve_user_for_login(session, username=payload.username, tenant_id=payload.tenant_id)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
