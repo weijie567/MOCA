@@ -1,5 +1,9 @@
-import pytest
+from types import SimpleNamespace
 
+import pytest
+from fastapi import HTTPException
+
+from src.api.routers import auth as auth_router
 from src.auth.jwt import create_access_token, decode_access_token
 from src.config import settings
 
@@ -11,6 +15,36 @@ async def test_login_success(client):
     assert response.status_code == 200
     assert payload["success"] is True
     assert payload["data"]["token_type"] == "bearer"
+
+
+@pytest.mark.asyncio
+async def test_login_accepts_tenant_id_selector(client, seeded_session):
+    user = seeded_session["users"]["cs_zhang"]
+
+    response = await client.post(
+        "/api/v1/auth/login",
+        json={"username": user.username, "password": "moca2024", "tenant_id": str(user.tenant_id)},
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["success"] is True
+    assert decode_access_token(payload["data"]["access_token"])["tenant_id"] == str(user.tenant_id)
+
+
+@pytest.mark.asyncio
+async def test_login_rejects_wrong_tenant_id_selector(client, seeded_session):
+    user = seeded_session["users"]["cs_zhang"]
+
+    response = await client.post(
+        "/api/v1/auth/login",
+        json={"username": user.username, "password": "moca2024", "tenant_id": str(seeded_session["other_tenant"].id)},
+    )
+    payload = response.json()
+
+    assert response.status_code == 401
+    assert payload["success"] is False
+    assert payload["error"]["code"] == "UNAUTHORIZED"
 
 
 @pytest.mark.asyncio
@@ -36,6 +70,26 @@ async def test_oauth_token_endpoint_supports_swagger_password_flow(client):
 
 
 @pytest.mark.asyncio
+async def test_oauth_token_endpoint_rejects_ambiguous_username_without_tenant_context(client, monkeypatch):
+    async def ambiguous_user(*args, **kwargs):
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "UNAUTHORIZED", "message": "Invalid username or password"},
+        )
+
+    monkeypatch.setattr(auth_router, "_resolve_user_for_login", ambiguous_user)
+
+    response = await client.post(
+        "/api/v1/auth/token",
+        data={"username": "cs_zhang", "password": "moca2024", "scope": "agent:chat"},
+    )
+    payload = response.json()
+
+    assert response.status_code == 401
+    assert payload["detail"]["code"] == "UNAUTHORIZED"
+
+
+@pytest.mark.asyncio
 async def test_auth_me_success(client, auth_headers):
     response = await client.get("/api/v1/auth/me", headers=await auth_headers())
     payload = response.json()
@@ -52,6 +106,73 @@ async def test_demo_token_disabled(client, monkeypatch):
     assert response.status_code == 403
     assert payload["success"] is False
     monkeypatch.setattr(settings, "enable_demo_auth", True)
+
+
+@pytest.mark.asyncio
+async def test_demo_token_accepts_tenant_id_selector(client, seeded_session):
+    user = seeded_session["users"]["cs_zhang"]
+
+    response = await client.post(
+        "/api/v1/auth/demo-token",
+        json={"username": user.username, "tenant_id": str(user.tenant_id)},
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["success"] is True
+    assert decode_access_token(payload["data"]["access_token"])["tenant_id"] == str(user.tenant_id)
+
+
+@pytest.mark.asyncio
+async def test_demo_token_rejects_wrong_tenant_id_selector(client, seeded_session):
+    user = seeded_session["users"]["cs_zhang"]
+
+    response = await client.post(
+        "/api/v1/auth/demo-token",
+        json={"username": user.username, "tenant_id": str(seeded_session["other_tenant"].id)},
+    )
+    payload = response.json()
+
+    assert response.status_code == 404
+    assert payload["success"] is False
+    assert payload["error"]["code"] == "UNAUTHORIZED"
+
+
+@pytest.mark.asyncio
+async def test_demo_token_rejects_ambiguous_username_without_tenant_context(client, monkeypatch):
+    async def ambiguous_user(*args, **kwargs):
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "UNAUTHORIZED", "message": "Invalid username or password"},
+        )
+
+    monkeypatch.setattr(auth_router, "_resolve_user_for_login", ambiguous_user)
+
+    response = await client.post("/api/v1/auth/demo-token", json={"username": "cs_zhang"})
+    payload = response.json()
+
+    assert response.status_code == 401
+    assert payload["detail"]["code"] == "UNAUTHORIZED"
+
+
+@pytest.mark.asyncio
+async def test_resolve_user_for_login_rejects_ambiguous_username_without_tenant_context():
+    class Result:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return [SimpleNamespace(username="shared"), SimpleNamespace(username="shared")]
+
+    class Session:
+        async def execute(self, stmt):
+            return Result()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await auth_router._resolve_user_for_login(Session(), username="shared", tenant_id=None)
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == {"code": "UNAUTHORIZED", "message": "Invalid username or password"}
 
 
 @pytest.mark.asyncio
