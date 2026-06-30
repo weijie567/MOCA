@@ -25,8 +25,8 @@
 
 **Known deferred items at close:**
 
-- Known deferred items at close: 1 (see `STATE.md` Deferred Items)
-- `2026-06-22-archive-old-phase-directories.md` acknowledged as planning cleanup; use `$gsd-cleanup` or a dedicated cleanup pass later.
+- Known deferred items at close: 0 active planning cleanup items after `$gsd-cleanup`.
+- `2026-06-22-archive-old-phase-directories.md` completed on 2026-06-30; Phase 24/24.x, Phase 25, and Phase 26-35.1 artifacts are archived under milestone-specific `v*-phases/` folders.
 - MER-01 database hardening / role cleanup remains Phase 36+ or future milestone scope.
 - Same-merchant trace/replay authorization expansion remains future scope after v1.9 proof projection.
 - Release-scale statistical readiness, production telemetry, and arbitrary free-text PII detection remain release/monitoring follow-ups.
@@ -36,6 +36,7 @@
 - `.planning/milestones/v1.9-ROADMAP.md`
 - `.planning/milestones/v1.9-REQUIREMENTS.md`
 - `.planning/milestones/v1.9-MILESTONE-AUDIT.md`
+- `.planning/milestones/v1.9-phases/`
 
 **What's next:** Start the next milestone with fresh requirements via `$gsd-new-milestone`.
 
@@ -69,7 +70,7 @@
 
 **Archived:**
 
-- Phase artifacts currently remain in `.planning/phases/25-intent-routing-safety-hardening/` for continuity until a later GSD archive/cleanup pass.
+- `.planning/milestones/v1.8-phases/`
 
 **What's next:** v1.9 Agent Platform Foundation.
 
@@ -103,7 +104,7 @@
 
 **Archived:**
 
-- Phase artifacts currently remain in `.planning/phases/24-agent-runs-short-term-memory-parity/` and inserted Phase 24.x directories for continuity until a later GSD archive/cleanup pass.
+- `.planning/milestones/v1.7-phases/`
 
 **What's next:** v1.8 Intent Routing Safety Hardening.
 

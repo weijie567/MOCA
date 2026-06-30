@@ -218,14 +218,13 @@ Latest planning metric: v1.9 archived on 2026-06-30 after Phase 35.1 completed f
 
 ### Pending Todos
 
-- Plan Phase 32 Intent Graph Migration.
-- Archive completed old Phase 24/24.x/25 directories into milestone-specific phase archives after Phase 26 planning is stable.
-- Optional follow-up from v1.8 remains: pin active slot `confidence` projection before confidence becomes a meaningful provenance field.
+- No active pending todos remain in `.planning/todos/pending/` after `$gsd-cleanup`.
+- Optional follow-up from v1.8 remains deferred: pin active slot `confidence` projection before confidence becomes a meaningful provenance field.
 
 ### Blockers / Concerns
 
 - No active blockers.
-- Resolved local GSD metadata drift: `init.new-milestone` now reads v1.9 as the current milestone and v1.8 as the latest completed milestone after ROADMAP/MILESTONES format repair. `validate.health` still reports non-blocking warnings for old STATE phase references, future roadmap directories that are intentionally pending, and older Phase 24/25 summary/archive state.
+- Resolved local GSD metadata drift: `init.new-milestone` now reads v1.9 as the current milestone and v1.8 as the latest completed milestone after ROADMAP/MILESTONES format repair. Old Phase 24/24.x/25 and completed v1.9 phase directories have now been archived into milestone-specific phase folders.
 
 ## Deferred Items
 
@@ -243,7 +242,7 @@ Items acknowledged and deferred at milestone close on 2026-06-30:
 
 | Category | Item | Status |
 |----------|------|--------|
-| planning todo | `2026-06-22-archive-old-phase-directories.md` | acknowledged; defer old phase directory archival to `$gsd-cleanup` or a dedicated cleanup pass |
+| planning todo | `2026-06-22-archive-old-phase-directories.md` | completed by `$gsd-cleanup` on 2026-06-30; archived Phase 24/24.x to `v1.7-phases`, Phase 25 to `v1.8-phases`, and Phase 26-35.1 to `v1.9-phases` |
 
 ## Last Archived Milestone Context
 
@@ -257,7 +256,7 @@ Items acknowledged and deferred at milestone close on 2026-06-30:
 Last session: 2026-06-30T01:45:00Z
 Stopped at: v1.9 archived
 Resume file: None
-Next: Run `$gsd-new-milestone`. Old phase directory archive remains a separate cleanup todo.
+Next: Run `$gsd-new-milestone`; phase directory archive cleanup is complete.
 
 **Completed Phase:** 23 (RAG Reranker + Query Rewrite) — 6/6 plans complete; UAT 7/7 passed — 2026-06-20T10:33:42+08:00
 
@@ -293,6 +292,6 @@ Next: Run `$gsd-new-milestone`. Old phase directory archive remains a separate c
 
 **Completed Phase:** 35 (Replay and Eval Hardening) — 6/6 plans complete; code review clean after fixes; UAT 8/8 passed; security `threats_open: 0`; Nyquist validation compliant; aggregate Phase 35 suite `122 passed, 1 warning` — 2026-06-29
 
-**Planned Phase:** 35.1 (v1.9 Milestone Readiness Closure) — 1 plan; plan-checker passed — 2026-06-30T00:51:51Z
+**Completed Phase:** 35.1 (v1.9 Milestone Readiness Closure) — 1/1 plan complete; v1.9 archived and phase artifacts archived — 2026-06-30
 
-**Next Roadmap Item:** execute Phase 35.1 milestone readiness closure
+**Next Roadmap Item:** start next milestone discovery and requirements

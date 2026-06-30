@@ -16,3 +16,13 @@ After starting v1.9 Agent Platform Foundation, `.planning/phases/` still contain
 ## Solution
 
 Handle as a separate cleanup task after Phase 26 planning is stable. Archive old completed directories into milestone-specific folders such as `.planning/milestones/v1.7-phases/` and `.planning/milestones/v1.8-phases/`, then rerun GSD health checks. Do not use `phases.clear --confirm`; it deletes instead of archiving.
+
+## Completion
+
+Completed on 2026-06-30 via `$gsd-cleanup`.
+
+- Archived Phase 24 and Phase 24.x directories into `.planning/milestones/v1.7-phases/`.
+- Archived Phase 25 into `.planning/milestones/v1.8-phases/`.
+- Archived Phase 26 through Phase 35.1 into `.planning/milestones/v1.9-phases/`.
+- Left backlog item `999.1-evaluate-mem0-as-optional-backend-behind-memorycontextservic` in `.planning/phases/`.
+- Verification entry points: `find .planning/phases -maxdepth 1 -mindepth 1 -type d -print` and `gsd-tools.cjs audit-open`.
