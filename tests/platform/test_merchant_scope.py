@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID
 
 from fastapi import HTTPException
 from src.api.schemas.common import FORBIDDEN
 from src.auth.permissions import require_merchant_access
-from src.platform.trusted_context import MerchantScopeV1, merchant_scope_allows
+from src.platform import trusted_context
+from src.platform.trusted_context import MerchantScopeV1, TrustedContextFactory, merchant_scope_allows
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_merchant_scope_schema_matches_contract_spec() -> None:
@@ -75,6 +80,72 @@ def test_merchant_scope_rejects_invalid_values(payload: dict) -> None:
 
 def _user(*, role: str, merchant_id: object | None) -> SimpleNamespace:
     return SimpleNamespace(role=role, merchant_id=merchant_id)
+
+
+def _trusted_user(*, role: str, merchant_id: object | None = "merchant-primary") -> SimpleNamespace:
+    return SimpleNamespace(
+        id="user-primary",
+        tenant_id="tenant-primary",
+        role=role,
+        merchant_id=merchant_id,
+    )
+
+
+def test_role_scope_policy_marks_legacy_merchant_as_deprecated_compatibility() -> None:
+    assert trusted_context.MERCHANT_BOUND_ROLES == {"support", "manager", "merchant"}
+    assert trusted_context.PLATFORM_ADMIN_ROLES == {"admin"}
+    assert trusted_context.DEPRECATED_COMPATIBILITY_ROLES == {"merchant"}
+    assert trusted_context.ROLE_SCOPE_POLICY == {
+        "support": "merchant_bound",
+        "manager": "merchant_bound",
+        "merchant": "deprecated_merchant_bound_compatibility",
+        "admin": "platform_admin",
+    }
+    assert trusted_context.is_deprecated_compatibility_role("merchant") is True
+    assert trusted_context.is_deprecated_compatibility_role("support") is False
+
+
+@pytest.mark.parametrize("role", ["support", "manager", "merchant"])
+def test_human_business_roles_are_merchant_bound_and_never_wildcard(role: str) -> None:
+    context = TrustedContextFactory.create_from_request(
+        user=_trusted_user(role=role, merchant_id="merchant-primary"),
+        verified_token_scopes=[],
+        thread_id="thread-1",
+        run_id="run-1",
+        trace_id=None,
+    )
+
+    assert context.merchant_scope.merchant_ids == ["merchant-primary"]
+    assert "*" not in context.merchant_scope.merchant_ids
+
+
+def test_admin_is_only_human_role_with_wildcard_business_scope() -> None:
+    admin_context = TrustedContextFactory.create_from_request(
+        user=_trusted_user(role="admin", merchant_id=None),
+        verified_token_scopes=[],
+        thread_id="thread-1",
+        run_id="run-1",
+        trace_id=None,
+    )
+    unknown_context = TrustedContextFactory.create_from_request(
+        user=_trusted_user(role="approval_manager", merchant_id="merchant-primary"),
+        verified_token_scopes=[],
+        thread_id="thread-1",
+        run_id="run-2",
+        trace_id=None,
+    )
+
+    assert admin_context.merchant_scope.merchant_ids == ["*"]
+    assert unknown_context.merchant_scope.merchant_ids == []
+
+
+def test_seed_roles_mark_merchant_as_deprecated_compatibility() -> None:
+    seed_source = (PROJECT_ROOT / "scripts" / "seed_demo.py").read_text(encoding="utf-8")
+
+    assert "Deprecated compatibility role" in seed_source
+    assert "support-equivalent" in seed_source
+    assert "not a recommended new role" in seed_source
+    assert seed_source.count('"merchant", merchants[') == 1
 
 
 def test_require_merchant_access_allows_admin_cross_merchant() -> None:
