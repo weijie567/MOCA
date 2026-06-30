@@ -13,6 +13,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Numeric,
     String,
@@ -62,6 +63,7 @@ class Role(TimestampMixin, Base):
 
 class Merchant(TimestampMixin, Base):
     __tablename__ = "merchants"
+    __table_args__ = (UniqueConstraint("id", "tenant_id", name="uq_merchants_id_tenant"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -74,25 +76,41 @@ class Merchant(TimestampMixin, Base):
 
     tenant: Mapped["Tenant"] = relationship(back_populates="merchants")
     orders: Mapped[list["Order"]] = relationship(back_populates="merchant")
-    users: Mapped[list["User"]] = relationship(back_populates="merchant")
+    users: Mapped[list["User"]] = relationship(
+        back_populates="merchant",
+        primaryjoin="and_(Merchant.id == User.merchant_id, Merchant.tenant_id == User.tenant_id)",
+        foreign_keys="User.merchant_id",
+    )
 
 
 class User(TimestampMixin, Base):
     __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "username", name="uq_users_tenant_username"),
+        ForeignKeyConstraint(
+            ["merchant_id", "tenant_id"],
+            ["merchants.id", "merchants.tenant_id"],
+            name="fk_users_merchant_tenant",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True
     )
-    merchant_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("merchants.id"))
-    username: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    merchant_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    username: Mapped[str] = mapped_column(String(120), nullable=False)
     full_name: Mapped[str | None] = mapped_column(String(120))
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     tenant: Mapped["Tenant"] = relationship(back_populates="users")
-    merchant: Mapped["Merchant | None"] = relationship(back_populates="users")
+    merchant: Mapped["Merchant | None"] = relationship(
+        back_populates="users",
+        primaryjoin="and_(User.merchant_id == Merchant.id, User.tenant_id == Merchant.tenant_id)",
+        foreign_keys=[merchant_id],
+    )
     user_roles: Mapped[list["UserRole"]] = relationship(back_populates="user")
 
 

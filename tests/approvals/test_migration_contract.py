@@ -194,7 +194,12 @@ def test_phase36_user_merchant_binding_metadata_is_tenant_consistent():
     assert _item_columns(merchant_fk) == {"merchant_id", "tenant_id"}
     assert _fk_targets(merchant_fk) == {"merchants.id", "merchants.tenant_id"}
     assert user_table.c["merchant_id"].nullable
-    assert not user_table.c["merchant_id"].foreign_keys
+    merchant_fk_constraints = [
+        constraint
+        for constraint in user_table.foreign_key_constraints
+        if {element.parent.name for element in constraint.elements} & {"merchant_id"}
+    ]
+    assert [constraint.name for constraint in merchant_fk_constraints] == ["fk_users_merchant_tenant"]
 
 
 def test_level_assignment_decision_event_tables_and_constraints_are_declared():
