@@ -18,12 +18,12 @@
 
 ### Phase 36: Merchant-scope DB Hardening / Role Cleanup
 
-**Status:** In progress — 5/6 plans complete
+**Status:** Complete — 2026-06-30
 **Milestone:** v2.0 Merchant Scope Hardening
 **Goal:** Convert v1.9 runtime merchant-bound role semantics into database, migration, and readiness facts without opening new run/status/evidence/trace/replay visibility.
 **Requirements:** MSH-01, MSH-02, MSH-03, MSH-04, MSH-05, MSH-06, MSH-07, MSH-08
 **Depends on:** v1.9 MER-01 runtime-scope closure, Phase 34 approval/action binding, Phase 35 owner/admin-only trace/replay hardening
-**Plans:** 6 plans
+**Plans:** 6/6 plans complete
 
 **Success Criteria**:
 
@@ -42,7 +42,7 @@ Plans:
 - [x] 36-03-PLAN.md — AgentRun target merchant scope model and runtime persistence
 - [x] 36-04-PLAN.md — Approval/action/snapshot target merchant consistency
 - [x] 36-05-PLAN.md — Alembic migration, preflight, backfill, and downgrade gates
-- [ ] 36-06-PLAN.md — Readiness artifact and final no-widening validation
+- [x] 36-06-PLAN.md — Readiness artifact and final no-widening validation
 
 ## Requirement Coverage
 

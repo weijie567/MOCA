@@ -7,14 +7,14 @@
 
 ### Merchant Scope Hardening
 
-- [ ] **MSH-01**: Legacy `merchant` role is documented and enforced as deprecated compatibility-only, semantically equivalent to merchant-bound `support` for business-data access and never platform-wide.
-- [ ] **MSH-02**: Active business users with `support`, `manager`, or legacy `merchant` role have a valid merchant binding, while invalid or ambiguous legacy users fail closed instead of receiving guessed scope.
-- [ ] **MSH-03**: Username identity is tenant-scoped or guarded by an explicit transitional tenant-resolution contract, with tests preventing same-tenant duplicate principal ambiguity.
-- [ ] **MSH-04**: `AgentRun` records have an unambiguous target merchant binding model and explicit scope classification for `business_merchant`, `policy_only` / `merchant_not_required`, and `unknown_legacy` runs.
-- [ ] **MSH-05**: Authorization and audit root records with target merchant scope, including approval requests, action drafts, and safety snapshots, cannot contradict each other when linked to the same business-scoped run.
-- [ ] **MSH-06**: Migration and backfill gates only use authoritative sources for merchant scope, classify ambiguous legacy records as fail-closed, and reject unsafe data before applying hard constraints.
-- [ ] **MSH-07**: Existing runtime authorization behavior does not regress: merchant-bound users remain same-merchant-only for business facts, tenant public policy retrieval remains separate, and run/status/evidence/trace/replay visibility remains owner/admin-only.
-- [ ] **MSH-08**: Phase 36 emits a trace/replay authorization readiness conclusion for future Phase 37, using one of `ready_with_agent_run_binding`, `ready_with_derived_refs_only`, or `not_ready`.
+- [x] **MSH-01**: Legacy `merchant` role is documented and enforced as deprecated compatibility-only, semantically equivalent to merchant-bound `support` for business-data access and never platform-wide.
+- [x] **MSH-02**: Active business users with `support`, `manager`, or legacy `merchant` role have a valid merchant binding, while invalid or ambiguous legacy users fail closed instead of receiving guessed scope.
+- [x] **MSH-03**: Username identity is tenant-scoped or guarded by an explicit transitional tenant-resolution contract, with tests preventing same-tenant duplicate principal ambiguity.
+- [x] **MSH-04**: `AgentRun` records have an unambiguous target merchant binding model and explicit scope classification for `business_merchant`, `policy_only` / `merchant_not_required`, and `unknown_legacy` runs.
+- [x] **MSH-05**: Authorization and audit root records with target merchant scope, including approval requests, action drafts, and safety snapshots, cannot contradict each other when linked to the same business-scoped run.
+- [x] **MSH-06**: Migration and backfill gates only use authoritative sources for merchant scope, classify ambiguous legacy records as fail-closed, and reject unsafe data before applying hard constraints.
+- [x] **MSH-07**: Existing runtime authorization behavior does not regress: merchant-bound users remain same-merchant-only for business facts, tenant public policy retrieval remains separate, and run/status/evidence/trace/replay visibility remains owner/admin-only.
+- [x] **MSH-08**: Phase 36 emits a trace/replay authorization readiness conclusion for future Phase 37, using one of `ready_with_agent_run_binding`, `ready_with_derived_refs_only`, or `not_ready`.
 
 ## Future Requirements
 
@@ -44,14 +44,14 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| MSH-01 | Phase 36 | Pending |
-| MSH-02 | Phase 36 | Pending |
-| MSH-03 | Phase 36 | Pending |
-| MSH-04 | Phase 36 | Pending |
-| MSH-05 | Phase 36 | Pending |
-| MSH-06 | Phase 36 | Pending |
-| MSH-07 | Phase 36 | Pending |
-| MSH-08 | Phase 36 | Pending |
+| MSH-01 | Phase 36 | Complete |
+| MSH-02 | Phase 36 | Complete |
+| MSH-03 | Phase 36 | Complete |
+| MSH-04 | Phase 36 | Complete |
+| MSH-05 | Phase 36 | Complete |
+| MSH-06 | Phase 36 | Complete |
+| MSH-07 | Phase 36 | Complete |
+| MSH-08 | Phase 36 | Complete |
 
 **Coverage:**
 - v2.0 requirements: 8 total
