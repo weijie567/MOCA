@@ -434,7 +434,7 @@ Plans:
 
 ### Phase 35.1: v1.9 Milestone Readiness Closure
 
-**Status:** Planned
+**Status:** In Progress
 **Milestone:** v1.9 Agent Platform Foundation
 **Goal:** Close the strict milestone audit gates without runtime scope creep by adding missing formal verification artifacts, refreshing stale validation metadata, and reconciling MER-01's ledger/deferral status.
 **Requirements:** APF-01, APF-02, APF-06, APF-07, MER-01, APF-11, APF-12, APF-17, APF-18
