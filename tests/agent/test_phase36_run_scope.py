@@ -24,13 +24,13 @@ from src.business.schemas import BusinessFactResultV1
 from src.tools.contracts import BusinessFactRefV1
 
 
-def _business_fact_ref(*, merchant_id: str = "merchant-1") -> dict[str, Any]:
+def _business_fact_ref(*, merchant_id: str = "merchant-1", resource_id: str = "order-1") -> dict[str, Any]:
     return {
         "schema_version": "business_fact_ref.v1",
         "tenant_id": "tenant-1",
         "source_system": "business_fact_service",
         "resource_type": "order",
-        "resource_id": "order-1",
+        "resource_id": resource_id,
         "resource_version": None,
         "data_freshness_at": None,
         "retrieved_at": datetime(2026, 6, 30, tzinfo=UTC),
@@ -171,6 +171,30 @@ def test_runtime_business_context_fact_and_ref_classifies_business_merchant() ->
     )
     assert facts.scope_source == "business_context_business_fact_ref_v1"
     assert facts.scope_reason_codes == []
+
+
+def test_business_context_fact_requires_matching_business_fact_ref_resource_id() -> None:
+    facts = classify_agent_run_scope(
+        {
+            "tenant_id": "tenant-1",
+            "current_intent": "order_status_inquiry",
+            "business_context": {
+                "facts": {
+                    "order": {
+                        "id": "order-spoofed",
+                        "order_no": "ORD-SPOOFED",
+                        "merchant_id": "merchant-spoofed",
+                    }
+                },
+                "business_fact_refs": [_business_fact_ref(resource_id="order-authorized")],
+            },
+        }
+    )
+
+    assert facts.scope_classification == UNKNOWN_LEGACY
+    assert facts.target_merchant_id is None
+    assert facts.target_merchant_ref is None
+    assert "missing_business_fact_ref" in facts.scope_reason_codes
 
 
 def test_last_business_context_refs_without_current_fact_body_is_not_authoritative() -> None:

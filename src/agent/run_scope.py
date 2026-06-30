@@ -47,6 +47,11 @@ _TRUSTED_FACT_SOURCES = {
     "tool_platform",
     "tool_result_v2",
 }
+_RESOURCE_ID_KEYS = {
+    "order": ("id", "order_id", "order_no"),
+    "refund_case": ("id", "refund_case_id", "refund_case_no"),
+    "ticket": ("id", "ticket_id", "ticket_no"),
+}
 
 
 @dataclass(frozen=True)
@@ -236,7 +241,7 @@ def _candidates_from_business_context(state: Mapping[str, Any]) -> tuple[list[_S
         return [], []
 
     tenant_id = _non_empty_str(state.get("tenant_id"))
-    refs_by_resource_type: dict[str, BusinessFactRefV1] = {}
+    refs_by_key: dict[tuple[str, str], BusinessFactRefV1] = {}
     for raw_ref in _list_items(context.get("business_fact_refs")):
         try:
             ref = BusinessFactRefV1.model_validate(raw_ref)
@@ -246,9 +251,8 @@ def _candidates_from_business_context(state: Mapping[str, Any]) -> tuple[list[_S
             tenant_id is not None
             and ref.tenant_id == tenant_id
             and ref.source_system in _TRUSTED_FACT_SOURCES
-            and ref.resource_type not in refs_by_resource_type
         ):
-            refs_by_resource_type[ref.resource_type] = ref
+            refs_by_key.setdefault((ref.resource_type, ref.resource_id), ref)
 
     candidates: list[_ScopeCandidate] = []
     reason_codes: list[str] = []
@@ -256,11 +260,15 @@ def _candidates_from_business_context(state: Mapping[str, Any]) -> tuple[list[_S
         if not isinstance(resource_type, str):
             continue
 
-        merchant_id = _non_empty_str(fact.get("merchant_id") if isinstance(fact, Mapping) else None)
-        if merchant_id is None:
+        if not isinstance(fact, Mapping):
             continue
 
-        ref = refs_by_resource_type.get(resource_type)
+        merchant_id = _non_empty_str(fact.get("merchant_id"))
+        resource_id = _fact_resource_id(resource_type, fact)
+        if merchant_id is None or resource_id is None:
+            continue
+
+        ref = refs_by_key.get((resource_type, resource_id))
         if ref is None:
             reason_codes.append("missing_business_fact_ref")
             continue
@@ -277,6 +285,14 @@ def _candidates_from_business_context(state: Mapping[str, Any]) -> tuple[list[_S
             )
         )
     return candidates, reason_codes
+
+
+def _fact_resource_id(resource_type: str, fact: Mapping[str, Any]) -> str | None:
+    for key in _RESOURCE_ID_KEYS.get(resource_type, ("id",)):
+        value = _non_empty_str(fact.get(key))
+        if value is not None:
+            return value
+    return None
 
 
 def _candidate_result_payloads(state: Mapping[str, Any]) -> Iterable[Any]:
