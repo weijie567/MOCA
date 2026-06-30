@@ -15,7 +15,8 @@ from src.replay.phase36_readiness import (
 )
 
 
-APPROVED_COMMAND_PREFIX = "UV_CACHE_DIR=/tmp/uv-cache uv run pytest "
+APPROVED_FULL_SUITE_COMMAND = "UV_CACHE_DIR=/tmp/uv-cache uv run pytest"
+APPROVED_COMMAND_PREFIX = APPROVED_FULL_SUITE_COMMAND + " "
 READINESS_RESULTS = {
     "ready_with_agent_run_binding",
     "ready_with_derived_refs_only",
@@ -86,7 +87,7 @@ def test_required_commands_use_project_scoped_pytest_entrypoint_only():
 
     assert artifact.required_test_commands
     for command in artifact.required_test_commands:
-        assert command.startswith(APPROVED_COMMAND_PREFIX), command
+        assert command == APPROVED_FULL_SUITE_COMMAND or command.startswith(APPROVED_COMMAND_PREFIX), command
         assert " python -m pytest" not in command
         assert " pytest " not in command.removeprefix(APPROVED_COMMAND_PREFIX), command
         assert not command.startswith("pytest ")

@@ -1,0 +1,46 @@
+{
+  "schema_version": "phase36_trace_replay_readiness.v1",
+  "phase": "36-merchant-scope-db-hardening-role-cleanup",
+  "readiness_result": "ready_with_agent_run_binding",
+  "trusted_facts": [
+    "AgentRun.target_merchant_id and AgentRun.scope_classification are persisted from TargetMerchantBindingV1 or validated BusinessFactResultV1 proof; Plan 36-03 focused tests passed.",
+    "ApprovalRequest, ActionDraft, and ActionSafetySnapshot target merchant consistency is validated before persistence; Plan 36-04 focused tests passed.",
+    "Migration 019 preflights active business-user binding, tenant username duplicates, AgentRun scope, authorization-root consistency, and weak-source guards; Plan 36-05 focused tests passed.",
+    "BusinessFactService and Phase 34 approval/action proof remain the current authority for business facts and action boundary verification."
+  ],
+  "untrusted_facts": [
+    "requested_by -> user.merchant_id is not authorizing run-scope proof.",
+    "owner identity is not authorizing run-scope proof.",
+    "thread id is not authorizing run-scope proof.",
+    "prompt text is not authorizing run-scope proof.",
+    "memory is contextual only and is not business fact, approval/action, or replay truth.",
+    "RAG evidence and tenant public policy retrieval do not prove current business merchant scope.",
+    "LLM output is not authorizing run-scope proof.",
+    "raw tool payload is not authorizing run-scope proof without BusinessFactResultV1 or BusinessFactRefV1 validation.",
+    "target_merchant_context is safe projection metadata only and is not an authorization input.",
+    "replay_authorization_proof is projection-only evidence and is not wired into AgentRun, trace, replay, status, or evidence guards."
+  ],
+  "blockers": [],
+  "required_test_commands": [
+    "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/platform/test_merchant_scope.py tests/tools/test_merchant_scope_static.py -q --tb=short",
+    "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/integration/test_auth.py tests/approvals/test_migration_contract.py -q --tb=short",
+    "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase36_run_scope.py tests/approvals/test_migration_contract.py tests/test_agent_runs_api.py tests/replay/test_phase35_trace_replay_permissions.py -q --tb=short",
+    "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/approvals/test_phase36_scope_consistency.py tests/actions/test_phase34_action_draft_bindings.py -q --tb=short",
+    "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/approvals/test_migration_contract.py tests/db/test_phase36_migration_preflight.py -q --tb=short",
+    "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay/test_phase36_readiness.py -q --tb=short",
+    "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/business/test_service.py tests/knowledge/test_service.py tests/knowledge/test_tenant_scope.py tests/knowledge/test_claim_verification_bundle.py tests/agent/test_memory_evidence_boundary.py tests/agent/rag_context/test_authority_boundaries.py tests/agent/rag_context/test_verifier.py tests/test_approval_api.py tests/test_trace_api.py tests/replay/test_phase35_trace_replay_permissions.py -q --tb=short",
+    "UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/platform/test_merchant_scope.py tests/tools/test_merchant_scope_static.py tests/integration/test_auth.py tests/agent/test_phase36_run_scope.py tests/approvals/test_phase36_scope_consistency.py tests/approvals/test_migration_contract.py tests/db/test_phase36_migration_preflight.py tests/replay/test_phase36_readiness.py tests/business/test_service.py tests/knowledge/test_service.py tests/knowledge/test_tenant_scope.py tests/knowledge/test_claim_verification_bundle.py tests/agent/test_memory_evidence_boundary.py tests/agent/rag_context/test_authority_boundaries.py tests/agent/rag_context/test_verifier.py tests/test_approval_api.py tests/test_trace_api.py tests/replay/test_phase35_trace_replay_permissions.py -q --tb=short",
+    "UV_CACHE_DIR=/tmp/uv-cache uv run pytest"
+  ],
+  "phase37_allowed_next_steps": [
+    "Phase 37 may plan read-only same-merchant manager run/status/evidence/trace/replay visibility using persisted AgentRun target merchant binding as the primary authorization fact.",
+    "Phase 37 must keep policy_only, merchant_not_required, and unknown_legacy runs owner/admin-only unless it records a narrower explicit scope decision.",
+    "Phase 37 must not use target_merchant_context, replay_authorization_proof, requested_by, memory, RAG, LLM output, raw tool payload, owner identity, thread id, or prompt text as authorization proof."
+  ],
+  "generated_from": [
+    ".planning/phases/36-merchant-scope-db-hardening-role-cleanup/36-03-SUMMARY.md",
+    ".planning/phases/36-merchant-scope-db-hardening-role-cleanup/36-04-SUMMARY.md",
+    ".planning/phases/36-merchant-scope-db-hardening-role-cleanup/36-05-SUMMARY.md",
+    ".planning/phases/36-merchant-scope-db-hardening-role-cleanup/36-06-PLAN.md"
+  ]
+}
