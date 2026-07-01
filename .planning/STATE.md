@@ -1,37 +1,36 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.0
-milestone_name: Merchant Scope Hardening
-status: ready_to_plan
-stopped_at: Phase 36 complete; run $gsd-secure-phase 36 before advancing if security gate closure is required
-last_updated: "2026-06-30T13:35:00.000Z"
-last_activity: 2026-06-30 -- Phase 36 completed with verification
+milestone: v2.1
+milestone_name: Tool Platform Hardening
+status: defining_requirements
+stopped_at: Milestone v2.1 started; defining requirements before roadmap
+last_updated: "2026-07-01T00:00:00.000Z"
+last_activity: 2026-07-01 -- Milestone v2.1 Tool Platform Hardening started
 progress:
-  total_phases: 1
-  completed_phases: 1
-  total_plans: 6
-  completed_plans: 6
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State: MOCA
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-06-30)
+See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 36 complete — security review before advancing, then next planning item
+**Current focus:** Milestone v2.1 Tool Platform Hardening — defining requirements before roadmap
 
 ## Current Position
 
-Phase: 36 (merchant-scope-db-hardening-role-cleanup) — COMPLETE
-Next roadmap item: security review for Phase 36, then Phase 999.1 if promoted from backlog
-Plan: 6 of 6 complete
-Status: Ready for security review before advancing
-Last activity: 2026-06-30 -- Phase 36 completed with verification
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-07-01 -- Milestone v2.1 Tool Platform Hardening started
 
-Progress: [██████████] 100%
+Progress: [          ] 0%
 
 Planning files:
 

@@ -10,17 +10,26 @@ Built as an open-source portfolio project demonstrating enterprise Agent enginee
 
 When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution — never silently executing something irreversible.
 
-## Current Milestone: v2.0 Merchant Scope Hardening
+## Current Milestone: v2.1 Tool Platform Hardening
 
-**Goal:** Harden v1.9 merchant-bound business role semantics at the database, migration, and role cleanup boundary before opening any new run/trace/replay visibility.
+**Goal:** Clean up the tool-call platform's contract debt and implementation gaps so tool contracts are as sound as the codebase allows, and so `docs/contract-spec.md` and the implementation agree.
 
-**Status:** Phase 36 completed on 2026-06-30 with `ready_with_agent_run_binding`; run `$gsd-secure-phase 36` before advancing if security-gate closure is required.
+**Status:** Defining requirements (started 2026-07-01). Phase numbering continues from 37.
 
 **Target features:**
-- Deprecate legacy `merchant` role as compatibility-only while preserving existing merchant-bound access semantics.
-- Enforce active business-user merchant binding, tenant-scoped username identity, and fail-closed handling for invalid or ambiguous legacy data.
-- Persist unambiguous target merchant scope on authorization/audit root records, especially `AgentRun`, with explicit scope classification for business, policy-only, and unknown legacy runs.
-- Keep run/status/evidence/trace/replay visibility owner/admin-only during this milestone while producing readiness evidence for a later same-merchant manager trace/replay authorization phase.
+- Land real `output_schema` for all eight tools (`get_order`, `get_refund_case`, `get_ticket`, `get_logistics`, `get_merchant_risk`, `search_policy`, `search_sop`, `search_case_memory`) and enforce it in the `ToolRuntime` output-validation gate — the only spec-required-but-unenforced gap (currently a no-op `{"type":"object"}`).
+- Reconcile `docs/contract-spec.md` §12.5/§12.6 with the implemented contract fields that spec omits (`ToolDescriptor.executor/exposure/requires_approval/requires_safety_snapshot/requires_idempotency_key`, `event_family="action"`, `ToolPolicyDecision.runtime_available/availability_summary`, `ToolCallContext.effective_at/approval_ref/safety_snapshot_ref`) — spec catches up to code, via dual-AI review.
+- Consolidate the tool declaration source: collapse `catalog._default_descriptors` + `_IDENTIFIER_SCHEMAS` and `manager.INVESTIGATE_TOOL_NAMES` into one single-source registry (spec §12.6 already forbids multi-list drift).
+- Converge runtime/policy internals: extract a `_fail` helper for the ten repeated failure branches in `runtime.py`, and turn the `runtime_auth` if-chain in `policy.py` into a declarative gate pipeline.
+
+**Guardrails (binding on all downstream agents):**
+- `ToolCallContext` identity fields (`tenant_id/user_id/role/permissions/merchant_scope/session_id/thread_id/run_id/trace_id`) are locked by spec §8.0 as `TrustedContext` projections — MUST NOT redefine, widen, or rename. Off-limits.
+- Blast-radius tiering: `ToolResultV2` and `ToolCallContext` are HIGH (7 external consumers: `business/adapters`, `business/service`, `conversation/service`, `agent/rag_context/verifier`, `agent/nodes/action_draft`, `platform/context_projections`, `memory/search`); `ToolInvocationOutcome`/`ToolViewV1`/`ToolPolicyDecision` are effectively src/tools-internal (LOW). Refactor in waves; defer high-blast-radius contract field changes.
+- Domain-level ownership/scope enforcement already lives in BusinessFactService (`_merchant_scope_allows` + no-leak) — not a gap, do not rebuild.
+- Sole normative contract source: `docs/contract-spec.md` §12.5/§12.6 and §8.0.
+- `docs/contract-spec.md` was just touched by the prior memory-alignment work (commit `4dcb673`); phase planning must re-check whether §12.5/§12.6 were incidentally modified before editing.
+
+**Prior milestone note (v2.0 Merchant Scope Hardening):** delivered Phase 36 (merchant-scope DB hardening / role cleanup) on 2026-06-30; its remaining same-merchant trace/replay authorization scope stays future work and is not part of v2.1.
 
 ## Last Shipped Milestone: v1.9 Agent Platform Foundation
 
@@ -347,4 +356,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-30 after completing Phase 36 Merchant Scope Hardening*
+*Last updated: 2026-07-01 — started milestone v2.1 Tool Platform Hardening*
