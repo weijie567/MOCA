@@ -364,15 +364,15 @@ What goes wrong: descriptor fields such as `required_permission`, `caller_allowl
 
 How to avoid: continue using `ToolViewV1` projection and low-payload decision events. [VERIFIED: src/tools/policy.py:235-274] [VERIFIED: src/tools/runtime.py:300-308]
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. Should `INVESTIGATE_TOOL_NAMES` remain an exported constant for compatibility, or become a derived helper? [VERIFIED: src/tools/manager.py:17-26]
+1. RESOLVED: `INVESTIGATE_TOOL_NAMES` may remain as a compatibility constant only if it is derived from catalog descriptors, preferably via a helper such as `investigate_tool_names()`. It must not remain a hand-maintained literal set. [VERIFIED: src/tools/manager.py:17-26]
    - What we know: only `src/tools/manager.py` currently references `INVESTIGATE_TOOL_NAMES`. [VERIFIED: `rg -n "INVESTIGATE_TOOL_NAMES" .`]
-   - Recommendation: derive it in `manager.py` from `ToolCatalog().descriptors()` or keep the constant as derived data plus drift test. [VERIFIED: src/tools/manager.py:70-79]
+   - Final plan choice: derive the compatibility value from `ToolCatalog().descriptors()` / catalog helper, and make `UnifiedToolManager.descriptors("investigate")` filter by descriptor attributes (`caller_allowlist`, `kind != "write"`, `exposure == "planner_visible"`) rather than depending on a hardcoded name set. [VERIFIED: src/tools/manager.py:70-79]
 
-2. Should `_IDENTIFIER_SCHEMAS` remain as a private compatibility surface? [VERIFIED: src/tools/catalog.py:41-110]
+2. RESOLVED: `_IDENTIFIER_SCHEMAS` may remain as a private compatibility surface only if it is derived from the single `_TOOL_DECLARATIONS` registry rows. It must not remain a second hand-maintained map. [VERIFIED: src/tools/catalog.py:41-110]
    - What we know: only `catalog.py` references `_IDENTIFIER_SCHEMAS`. [VERIFIED: `rg -n "_IDENTIFIER_SCHEMAS" .`]
-   - Recommendation: replace it with registry-row `input_schema`, or derive `_IDENTIFIER_SCHEMAS` from registry rows if tests or future imports expect the private name. [VERIFIED: src/tools/catalog.py:132-133]
+   - Final plan choice: store `input_schema` on each registry row and derive `_IDENTIFIER_SCHEMAS = {declaration.name: declaration.input_schema for declaration in _TOOL_DECLARATIONS}` if the private name is kept. [VERIFIED: src/tools/catalog.py:132-133]
 
 ## Assumptions Log
 
