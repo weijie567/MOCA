@@ -194,6 +194,8 @@ def test_memory_write_decision_v2_records_contextual_write_boundary() -> None:
     assert decision.pii_classification == "none"
     assert decision.review_status == "needs_review"
     assert decision.reason_code == "temporary_chat"
+    assert decision.policy_version == "memory_write_policy.v1"
+    assert decision.blocked_by == []
     assert decision.fallback_reason is None
 
 

@@ -198,7 +198,7 @@ def project_profile_memory_for_prompt(
     for item in _sequence(snippets)[:_MEMORY_ITEM_LIMIT]:
         mapping = _prompt_mapping(item)
         memory_id = _safe_prompt_scalar(mapping.get("memory_id") or mapping.get("id"))
-        memory_kind = _safe_prompt_scalar(mapping.get("memory_kind") or mapping.get("kind"))
+        memory_kind = _safe_prompt_scalar(mapping.get("semantic_kind") or mapping.get("memory_kind") or mapping.get("kind"))
         content = _safe_prompt_scalar(mapping.get("content") or mapping.get("summary"))
         if not content:
             continue

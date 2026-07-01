@@ -357,6 +357,8 @@ def _legacy_session_memory_bundle_dump(context: SessionContextMemory) -> dict[st
         "recent_messages": [message.model_dump(mode="json") for message in context.recent_messages],
         "tool_summaries": [summary.model_dump(mode="json") for summary in context.tool_summaries],
         "slot_continuity": context.slot_continuity.model_dump(mode="json"),
+        "policy_topic_hints": list(context.policy_topic_hints),
+        "prior_policy_mention_refs": [dict(ref) for ref in context.prior_policy_mention_refs],
         "fallback_reasons": dict(context.fallback_reasons),
     }
 

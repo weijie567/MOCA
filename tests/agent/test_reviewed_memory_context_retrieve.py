@@ -181,3 +181,63 @@ async def test_reviewed_memory_context_retrieve_keeps_legacy_aliases_empty_on_fa
     _assert_empty_context_bundle(result, fallback_reason="missing_trusted_context")
     assert result["long_term_memory"] == []
     assert result["case_memory"] == []
+
+
+async def test_reviewed_memory_context_retrieve_emits_unified_bundle_when_session_context_exists() -> None:
+    from src.memory.context_refs import ReviewedMemoryContextBundle, ReviewedMemoryContextRetrieveStatusV1
+
+    class FakeMemoryContextService:
+        async def load_reviewed_memory_context(self, **kwargs: Any) -> ReviewedMemoryContextBundle:
+            return ReviewedMemoryContextBundle(
+                long_term_items=[
+                    {
+                        "memory_id": "ltm-1",
+                        "semantic_kind": "merchant_preference",
+                        "content": "Merchant prefers concise updates.",
+                    }
+                ],
+                case_items=[{"case_memory_id": "case-1", "excerpt": "Reviewed case excerpt."}],
+                status_ref=ReviewedMemoryContextRetrieveStatusV1(status="loaded"),
+            )
+
+    reviewed_memory_context_retrieve = _reviewed_memory_context_retrieve()
+    state = _state(
+        session_context_bundle={
+            "schema_version": "session_context_bundle.v1",
+            "authority_class": "contextual_only",
+            "session_context": {
+                "schema_version": "session_context_memory.v1",
+                "authority_class": "contextual_only",
+                "tenant_id": "tenant-1",
+                "user_id": "user-1",
+                "thread_id": "thread-1",
+                "run_id": "run-1",
+                "slot_continuity": {
+                    "source": "postgres_session_memory",
+                    "continuity_claimed": True,
+                    "active_slots": {"order_id": "ORD-UNIFIED-BUNDLE"},
+                },
+                "policy_topic_hints": ["refund_policy@v1"],
+            },
+        },
+        session_context_load_status={
+            "schema_version": "session_context_load_status.v1",
+            "status": "loaded",
+            "source": "session_memory_bundle_service",
+            "authority_class": "contextual_only",
+            "tenant_id": "tenant-1",
+            "user_id": "user-1",
+            "thread_id": "thread-1",
+            "run_id": "run-1",
+        },
+    )
+
+    result = await reviewed_memory_context_retrieve(
+        state,
+        {"configurable": {"memory_context_service": FakeMemoryContextService()}},
+    )
+
+    assert result["memory_context"]["schema_version"] == "reviewed_memory_context_bundle.v1"
+    assert result["memory_context_bundle"]["schema_version"] == "memory_context_bundle.v1"
+    assert result["memory_context_bundle"]["session_context"]["policy_topic_hints"] == ["refund_policy@v1"]
+    assert result["memory_context_bundle"]["long_term_items"][0]["semantic_kind"] == "merchant_preference"

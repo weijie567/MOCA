@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 import json
+from types import SimpleNamespace
 import uuid
 
 import pytest
@@ -195,6 +196,70 @@ async def test_session_memory_bundle_facade_loads_all_short_term_surfaces(
 
 def test_slot_continuity_view_alias_keeps_existing_session_memory_contract() -> None:
     assert SlotContinuityMemoryView is SessionMemoryView
+
+
+@pytest.mark.asyncio
+async def test_session_memory_bundle_derives_policy_hints_from_tool_summaries() -> None:
+    class FakeConversationService:
+        async def load_prompt_context(self, **kwargs):
+            return SimpleNamespace(
+                latest_thread_summary=None,
+                recent_messages=[],
+                tool_prompt_summaries=[
+                    SimpleNamespace(
+                        id="tool-record-1",
+                        tool_result_id="tool-result-1",
+                        tool_call_id="tool-call-1",
+                        status="success",
+                        prompt_summary="Prompt-safe policy lookup summary.",
+                        policy_evidence_refs_json=[
+                            {
+                                "schema_version": "evidence_ref.v1",
+                                "tenant_id": "tenant-should-not-copy",
+                                "evidence_id": "evidence-should-not-copy",
+                                "doc_key": "refund_policy",
+                                "chunk_id": "chunk-1",
+                                "policy_version": "v1",
+                                "text_hash": "hash-should-not-copy",
+                                "retrieved_at": "2026-01-01T00:00:00Z",
+                            }
+                        ],
+                    )
+                ],
+            )
+
+    class FakeMemoryService:
+        async def load_session_memory(self, *args, **kwargs):
+            return SessionMemoryView(
+                source="postgres_session_memory",
+                continuity_claimed=False,
+                active_slots={},
+                slot_metadata={},
+            )
+
+    bundle = await SessionMemoryBundleService(
+        conversation_service=FakeConversationService(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+    ).load_session_memory_bundle(
+        tenant_id="tenant-1",
+        user_id="user-1",
+        thread_id="thread-1",
+        run_id="run-1",
+        current_intent="policy_qa",
+    )
+
+    assert bundle.policy_topic_hints == ["refund_policy@v1"]
+    assert bundle.prior_policy_mention_refs == [
+        {
+            "doc_key": "refund_policy",
+            "chunk_id": "chunk-1",
+            "policy_version": "v1",
+            "tool_result_id": "tool-result-1",
+        }
+    ]
+    serialized_refs = json.dumps(bundle.prior_policy_mention_refs, ensure_ascii=False)
+    for forbidden in ("schema_version", "evidence_id", "tenant_id", "text_hash", "retrieved_at"):
+        assert forbidden not in serialized_refs
 
 
 def test_session_context_memory_projection_wraps_session_memory_bundle() -> None:

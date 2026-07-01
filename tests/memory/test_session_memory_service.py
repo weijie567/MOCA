@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 import uuid
 
 import pytest
@@ -10,6 +11,51 @@ from src.db.models import AgentRun
 from src.memory.repository import SessionMemoryRepository
 from src.memory.schemas import SessionMemoryWriteCandidate, SessionSlotV1
 from src.memory.service import MemoryService
+
+
+class _AsyncNullContext:
+    async def __aenter__(self):
+        return None
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        return False
+
+
+class _FakeSession:
+    def begin_nested(self):
+        return _AsyncNullContext()
+
+    async def rollback(self) -> None:
+        return None
+
+
+class _FakeSessionMemoryRepository:
+    def __init__(self) -> None:
+        self.session = _FakeSession()
+        self.active = None
+        self.insert_kwargs = None
+        self.events = []
+
+    async def get_active(self, *args, **kwargs):
+        return self.active
+
+    async def insert_active(self, **kwargs):
+        self.insert_kwargs = kwargs
+        self.active = SimpleNamespace(id=uuid.uuid4(), version=1)
+        return self.active
+
+    async def cas_update(self, *args, **kwargs):
+        if self.active is not None:
+            self.active.version += 1
+        return True
+
+    async def soft_delete(self, *args, **kwargs) -> None:
+        self.active = None
+
+    async def emit_write_event(self, **kwargs):
+        event = SimpleNamespace(id=uuid.uuid4(), memory_type="session_slot", **kwargs)
+        self.events.append(event)
+        return event
 
 
 def _slot(
@@ -84,6 +130,74 @@ def _candidate(
         decision=decision,
         reason_code=reason_code,
     )
+
+
+@pytest.mark.asyncio
+async def test_session_memory_write_emits_session_slot_write_event_without_database() -> None:
+    repository = _FakeSessionMemoryRepository()
+    service = MemoryService(repository)  # type: ignore[arg-type]
+    tenant_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+    candidate = SessionMemoryWriteCandidate(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id="thread-session-event",
+        run_id=run_id,
+        explicit_slots={"order_id": _slot("ORD-EVENT-1", run_id=str(run_id))},
+        last_intent="refund_troubleshooting",
+    )
+
+    result = await service.write_session_memory(candidate)
+
+    assert result.status == "written"
+    assert result.memory_id == repository.active.id
+    assert result.event_id == repository.events[0].id
+    assert result.candidate_hash is not None
+    assert result.candidate_hash.startswith("sha256:")
+    event = repository.events[0]
+    assert event.memory_type == "session_slot"
+    assert event.memory_id == result.memory_id
+    assert event.decision == "write"
+    assert event.reason_code == "eligible"
+    assert event.policy_version == "memory_write_policy.v1"
+    assert event.blocked_by == []
+    assert event.candidate_hash == result.candidate_hash
+    assert event.source_ref_json["source_type"] == "session_memory_write"
+    assert event.source_ref_json["agent_run_id"] == str(run_id)
+
+
+@pytest.mark.asyncio
+async def test_session_memory_pii_skip_emits_blocked_session_slot_write_event_without_database() -> None:
+    repository = _FakeSessionMemoryRepository()
+    service = MemoryService(repository)  # type: ignore[arg-type]
+    run_id = uuid.uuid4()
+    candidate = SessionMemoryWriteCandidate(
+        tenant_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        thread_id="thread-session-pii-event",
+        run_id=run_id,
+        explicit_slots={"order_id": _slot("13800138000", run_id=str(run_id))},
+        pii_classification="sensitive",
+        decision="write",
+        reason_code="eligible",
+    )
+
+    result = await service.write_session_memory(candidate)
+
+    assert result.status == "skipped"
+    assert result.memory_id is None
+    assert result.decision == "skip"
+    assert result.reason_code == "pii_blocked"
+    assert result.blocked_by == ["pii_classification"]
+    assert repository.insert_kwargs is None
+    event = repository.events[0]
+    assert event.memory_type == "session_slot"
+    assert event.memory_id is None
+    assert event.decision == "skip"
+    assert event.reason_code == "pii_blocked"
+    assert event.blocked_by == ["pii_classification"]
+    assert event.source_ref_json["agent_run_id"] == str(run_id)
 
 
 @pytest.mark.asyncio

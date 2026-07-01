@@ -9,6 +9,7 @@ from src.db.models import Base
 
 
 MIGRATION_PATH = Path("src/db/migrations/versions/013_long_term_case_memory.py")
+MEMORY_WRITE_AUDIT_MIGRATION_PATH = Path("src/db/migrations/versions/020_memory_write_event_policy_audit.py")
 PHASE16_TABLES = {
     "long_term_memories",
     "case_memories",
@@ -73,6 +74,17 @@ def test_phase16_memory_tables_exist() -> None:
     source = _migration_source()
     for table_name in PHASE16_TABLES:
         _migration_operation_position(source, "create_table", table_name)
+
+
+def test_memory_write_events_have_policy_audit_columns() -> None:
+    expected_columns = {"policy_version", "blocked_by_json", "authority_class"}
+
+    assert expected_columns.issubset(_table_columns("memory_write_events"))
+    source = MEMORY_WRITE_AUDIT_MIGRATION_PATH.read_text(encoding="utf-8")
+    for column_name in expected_columns:
+        assert f'"{column_name}"' in source
+    assert "memory_write_event.v3" in source
+    assert "memory_write_policy.v1" in source
 
 
 def test_case_memory_has_content_and_source_identity_columns() -> None:

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import LongTermMemory, MemoryTombstone
 from src.memory.identity import canonical_memory_content_hash, canonical_source_identity_hash
+from src.memory.long_term import LongTermMemoryService
 from src.memory.repository import LongTermMemoryRepository
 from src.memory.schemas import LongTermMemoryView
 
@@ -227,3 +228,53 @@ async def test_retrieve_profile_memory_returns_bounded_views(session: AsyncSessi
     assert not isinstance(rows[0], LongTermMemory)
     assert len(rows[0].content) <= 1000
     assert "[memory_truncated]" in rows[0].content
+
+
+@pytest.mark.asyncio
+async def test_long_term_service_lists_active_pending_review_rows(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    now = datetime.now(UTC)
+    tenant_id = seeded_session["tenant"].id
+    other_tenant_id = seeded_session["other_tenant"].id
+    scope_type = "merchant"
+    scope_id = str(seeded_session["merchant"].id)
+    pending = _memory(
+        tenant_id=tenant_id,
+        scope_type=scope_type,
+        scope_id=scope_id,
+        content="Pending long-term memory.",
+        review_status="needs_review",
+        is_current=False,
+    )
+    approved = _memory(
+        tenant_id=tenant_id,
+        scope_type=scope_type,
+        scope_id=scope_id,
+        content="Approved long-term memory.",
+        review_status="approved",
+    )
+    deleted_pending = _memory(
+        tenant_id=tenant_id,
+        scope_type=scope_type,
+        scope_id=scope_id,
+        content="Deleted pending long-term memory.",
+        review_status="needs_review",
+        is_current=False,
+        deleted_at=now,
+    )
+    cross_tenant_pending = _memory(
+        tenant_id=other_tenant_id,
+        scope_type=scope_type,
+        scope_id=scope_id,
+        content="Cross-tenant pending long-term memory.",
+        review_status="needs_review",
+        is_current=False,
+    )
+    session.add_all([pending, approved, deleted_pending, cross_tenant_pending])
+    await session.flush()
+
+    rows = await LongTermMemoryService(LongTermMemoryRepository(session)).list_pending_review(tenant_id=tenant_id)
+
+    assert [row.id for row in rows] == [pending.id]

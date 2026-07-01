@@ -8,10 +8,16 @@ from langchain_core.runnables import RunnableConfig
 
 from src.agent.state import AgentState
 from src.memory.case_memory import CaseMemoryRepository, CaseMemoryService
-from src.memory.context_refs import ReviewedMemoryContextBundle, ReviewedMemoryContextRetrieveStatusV1
+from src.memory.context_refs import (
+    MemoryContextBundle,
+    ReviewedMemoryContextBundle,
+    ReviewedMemoryContextRetrieveStatusV1,
+    SessionContextLoadStatusV1,
+)
 from src.memory.context_service import MemoryContextService
 from src.memory.long_term import LongTermMemoryService
 from src.memory.repository import LongTermMemoryRepository
+from src.memory.schemas import SessionContextMemory
 
 _SERVICE_ERROR_CODE = "REVIEWED_MEMORY_CONTEXT_UNAVAILABLE"
 _BUNDLE_SCHEMA_VERSION = "reviewed_memory_context_bundle.v1"
@@ -97,6 +103,7 @@ def _context_service(
 def _context_result(state: AgentState, started_at: str, *, bundle: ReviewedMemoryContextBundle) -> dict[str, Any]:
     memory_context = bundle.model_dump(mode="json")
     memory_context["schema_version"] = _BUNDLE_SCHEMA_VERSION
+    unified_memory_context = _unified_memory_context_bundle(state, bundle=bundle)
     long_term_items = list(memory_context["long_term_items"])
     case_items = list(memory_context["case_items"])
     status_ref = dict(memory_context["status_ref"])
@@ -112,7 +119,7 @@ def _context_result(state: AgentState, started_at: str, *, bundle: ReviewedMemor
     }
     return {
         "memory_context": memory_context,
-        "memory_context_bundle": memory_context,
+        "memory_context_bundle": unified_memory_context or memory_context,
         "reviewed_memory_context_retrieve_status": status_ref,
         "long_term_memory": long_term_items,
         "case_memory": case_items,
@@ -122,6 +129,32 @@ def _context_result(state: AgentState, started_at: str, *, bundle: ReviewedMemor
         },
         "trace_steps": (state.get("trace_steps") or []) + [step],
     }
+
+
+def _unified_memory_context_bundle(
+    state: AgentState,
+    *,
+    bundle: ReviewedMemoryContextBundle,
+) -> dict[str, Any] | None:
+    session_context_bundle = _mapping(state.get("session_context_bundle"))
+    session_context_raw = session_context_bundle.get("session_context")
+    if session_context_raw is None:
+        return None
+    try:
+        session_context = SessionContextMemory.model_validate(session_context_raw)
+        session_status_raw = _mapping(state.get("session_context_load_status"))
+        session_status_ref = (
+            SessionContextLoadStatusV1.model_validate(session_status_raw) if session_status_raw else None
+        )
+    except Exception:
+        return None
+    return MemoryContextBundle(
+        session_context=session_context,
+        long_term_items=list(bundle.long_term_items),
+        case_items=list(bundle.case_items),
+        session_status_ref=session_status_ref,
+        reviewed_status_ref=bundle.status_ref,
+    ).model_dump(mode="json")
 
 
 def _metrics(memory_context: Mapping[str, Any]) -> dict[str, Any]:
@@ -237,3 +270,10 @@ def _case_memory_query(state: AgentState) -> str | None:
         if isinstance(value, str) and value.strip():
             return value.strip()[:500]
     return None
+
+
+def _mapping(value: Any) -> Mapping[str, Any]:
+    if hasattr(value, "model_dump"):
+        dumped = value.model_dump(mode="json")
+        return dumped if isinstance(dumped, Mapping) else {}
+    return value if isinstance(value, Mapping) else {}

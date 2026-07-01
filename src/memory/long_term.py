@@ -11,32 +11,15 @@ from src.memory.identity import (
     canonical_memory_content_hash,
     canonical_source_identity_hash,
 )
-from src.memory.policy import is_blocked_memory_write_pii_classification
+from src.memory.policy import (
+    is_blocked_memory_write_pii_classification,
+    long_term_memory_policy_decision,
+    long_term_review_status_for_source,
+)
 from src.memory.repository import LONG_TERM_MEMORY_TYPE, PUBLISHED_LONG_TERM_REVIEW_STATUSES, LongTermMemoryRepository
 from src.memory.schemas import (
     LongTermMemoryWriteCandidate,
     LongTermMemoryWriteResult,
-)
-
-
-AUTO_APPROVED_LONG_TERM_SOURCE_TYPES = frozenset(
-    {
-        "explicit_user_preference",
-        "explicit_admin_preference",
-        "human_reviewed",
-        "deterministic_tool_result",
-        "confirmed_business_outcome",
-        "approved_approval_state",
-    }
-)
-REVIEW_REQUIRED_LONG_TERM_SOURCE_TYPES = frozenset(
-    {
-        "llm_candidate",
-        "semantic_episode_candidate",
-        "summary_candidate",
-        "cross_case_pattern_candidate",
-        "behavior_inference",
-    }
 )
 
 
@@ -63,6 +46,9 @@ class LongTermMemoryService:
             limit=limit,
         )
 
+    async def list_pending_review(self, *, tenant_id, limit: int = 50):
+        return await self.repository.list_pending_review(tenant_id=tenant_id, limit=limit)
+
     async def write_memory(
         self,
         candidate: LongTermMemoryWriteCandidate,
@@ -70,6 +56,7 @@ class LongTermMemoryService:
     ) -> LongTermMemoryWriteResult:
         now = _aware(now)
         identity = _candidate_identity(candidate)
+        policy_decision = _policy_decision_for_candidate(candidate)
         tombstone = await self.repository.check_tombstone_before_write(
             tenant_id=candidate.tenant_id,
             memory_type=LONG_TERM_MEMORY_TYPE,
@@ -90,6 +77,7 @@ class LongTermMemoryService:
                 pii_classification=candidate.pii_classification,
                 candidate_hash=identity["candidate_hash"],
                 source_ref_json=identity["source_ref_json"],
+                blocked_by=["tombstone_match"],
             )
             return LongTermMemoryWriteResult(
                 status="skipped",
@@ -115,6 +103,7 @@ class LongTermMemoryService:
                 pii_classification=candidate.pii_classification,
                 candidate_hash=identity["candidate_hash"],
                 source_ref_json=identity["source_ref_json"],
+                **_policy_event_kwargs(policy_decision),
             )
             return LongTermMemoryWriteResult(
                 status="skipped",
@@ -160,6 +149,7 @@ class LongTermMemoryService:
                 pii_classification=candidate.pii_classification,
                 candidate_hash=identity["candidate_hash"],
                 source_ref_json=identity["source_ref_json"],
+                blocked_by=["duplicate_active_identity"],
             )
             return LongTermMemoryWriteResult(
                 status="skipped",
@@ -174,9 +164,7 @@ class LongTermMemoryService:
                 event_id=event.id,
             )
 
-        review_status = _review_status_for_source(candidate.source_type)
-        decision = "write" if review_status == "auto_approved" else "needs_review"
-        reason_code = "auto_approved_source" if review_status == "auto_approved" else "requires_review"
+        review_status = policy_decision.review_status or "needs_review"
         memory = await self.repository.insert_memory(
             candidate,
             content_hash=identity["content_hash"],
@@ -191,18 +179,19 @@ class LongTermMemoryService:
             run_id=candidate.run_id,
             memory_type=LONG_TERM_MEMORY_TYPE,
             memory_id=memory.id,
-            decision=decision,
-            reason_code=reason_code,
+            decision=policy_decision.decision,
+            reason_code=policy_decision.reason_code,
             pii_classification=candidate.pii_classification,
             candidate_hash=identity["candidate_hash"],
             source_ref_json=identity["source_ref_json"],
+            **_policy_event_kwargs(policy_decision),
         )
         return LongTermMemoryWriteResult(
             status="written" if review_status == "auto_approved" else "needs_review",
             memory_id=memory.id,
             review_status=review_status,
-            decision=decision,
-            reason_code=reason_code,
+            decision=policy_decision.decision,
+            reason_code=policy_decision.reason_code,
             pii_classification=candidate.pii_classification,
             candidate_hash=identity["candidate_hash"],
             content_hash=identity["content_hash"],
@@ -363,6 +352,7 @@ class LongTermMemoryService:
             raise ValueError("long-term memory supersede requires current published row")
 
         identity = _candidate_identity(replacement_candidate)
+        policy_decision = _policy_decision_for_candidate(replacement_candidate)
         tombstone = await self.repository.check_tombstone_before_write(
             tenant_id=replacement_candidate.tenant_id,
             memory_type=LONG_TERM_MEMORY_TYPE,
@@ -383,6 +373,7 @@ class LongTermMemoryService:
                 pii_classification=replacement_candidate.pii_classification,
                 candidate_hash=identity["candidate_hash"],
                 source_ref_json=identity["source_ref_json"],
+                blocked_by=["tombstone_match"],
             )
             return LongTermMemoryWriteResult(
                 status="skipped",
@@ -408,6 +399,7 @@ class LongTermMemoryService:
                 pii_classification=replacement_candidate.pii_classification,
                 candidate_hash=identity["candidate_hash"],
                 source_ref_json=identity["source_ref_json"],
+                **_policy_event_kwargs(policy_decision),
             )
             return LongTermMemoryWriteResult(
                 status="skipped",
@@ -433,6 +425,7 @@ class LongTermMemoryService:
                 pii_classification=replacement_candidate.pii_classification,
                 candidate_hash=identity["candidate_hash"],
                 source_ref_json=identity["source_ref_json"],
+                blocked_by=["expired_candidate"],
             )
             return LongTermMemoryWriteResult(
                 status="skipped",
@@ -447,7 +440,7 @@ class LongTermMemoryService:
                 event_id=event.id,
             )
 
-        review_status = _review_status_for_source(replacement_candidate.source_type)
+        review_status = policy_decision.review_status or "needs_review"
         replacement_is_current = review_status == "auto_approved"
         if replacement_is_current:
             previous.is_current = False
@@ -466,7 +459,7 @@ class LongTermMemoryService:
         )
         if replacement_is_current:
             previous.superseded_by = replacement.id
-        decision = "supersede" if replacement_is_current else "needs_review"
+        decision = "supersede" if replacement_is_current else policy_decision.decision
         event = await self.repository.emit_write_event(
             tenant_id=replacement_candidate.tenant_id,
             run_id=run_id,
@@ -477,6 +470,7 @@ class LongTermMemoryService:
             pii_classification=replacement_candidate.pii_classification,
             candidate_hash=identity["candidate_hash"],
             source_ref_json=identity["source_ref_json"],
+            **_policy_event_kwargs(policy_decision),
         )
         return LongTermMemoryWriteResult(
             status="written" if review_status == "auto_approved" else "needs_review",
@@ -493,11 +487,27 @@ class LongTermMemoryService:
 
 
 def _review_status_for_source(source_type: str) -> str:
-    if source_type in AUTO_APPROVED_LONG_TERM_SOURCE_TYPES:
-        return "auto_approved"
-    if source_type in REVIEW_REQUIRED_LONG_TERM_SOURCE_TYPES:
-        return "needs_review"
-    return "needs_review"
+    return long_term_review_status_for_source(source_type)
+
+
+def _review_status_for_candidate(candidate: LongTermMemoryWriteCandidate) -> str:
+    return long_term_review_status_for_source(candidate.source_type, candidate.source_ref)
+
+
+def _policy_decision_for_candidate(candidate: LongTermMemoryWriteCandidate):
+    return long_term_memory_policy_decision(
+        candidate.source_type,
+        candidate.source_ref,
+        pii_classification=candidate.pii_classification,
+    )
+
+
+def _policy_event_kwargs(policy_decision) -> dict[str, Any]:
+    return {
+        "policy_version": policy_decision.policy_version,
+        "blocked_by": list(policy_decision.blocked_by),
+        "authority_class": policy_decision.authority_class,
+    }
 
 
 def _candidate_identity(candidate: LongTermMemoryWriteCandidate) -> dict[str, Any]:

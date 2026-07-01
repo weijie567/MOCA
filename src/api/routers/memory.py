@@ -35,32 +35,18 @@ async def list_pending_memory(
     items: list[MemoryPendingItem] = []
 
     if memory_type in {"all", "long_term"}:
-        result = await session.execute(
-            select(LongTermMemory)
-            .where(
-                LongTermMemory.tenant_id == user.tenant_id,
-                LongTermMemory.review_status == "needs_review",
-                LongTermMemory.deleted_at.is_(None),
-            )
-            .order_by(LongTermMemory.created_at.desc())
-            .limit(limit)
-            .execution_options(populate_existing=True)
+        memories = await LongTermMemoryService(LongTermMemoryRepository(session)).list_pending_review(
+            tenant_id=user.tenant_id,
+            limit=limit,
         )
-        items.extend(_long_term_pending_item(memory) for memory in result.scalars().all())
+        items.extend(_long_term_pending_item(memory) for memory in memories)
 
     if memory_type in {"all", "case"}:
-        result = await session.execute(
-            select(CaseMemory)
-            .where(
-                CaseMemory.tenant_id == user.tenant_id,
-                CaseMemory.review_status == "needs_review",
-                CaseMemory.deleted_at.is_(None),
-            )
-            .order_by(CaseMemory.created_at.desc())
-            .limit(limit)
-            .execution_options(populate_existing=True)
+        memories = await CaseMemoryService(CaseMemoryRepository(session)).list_pending_review(
+            tenant_id=user.tenant_id,
+            limit=limit,
         )
-        items.extend(_case_pending_item(memory) for memory in result.scalars().all())
+        items.extend(_case_pending_item(memory) for memory in memories)
 
     items.sort(key=lambda item: item.created_at.timestamp() if item.created_at else 0.0, reverse=True)
     payload = MemoryPendingListResponse(items=items[:limit], total=len(items))

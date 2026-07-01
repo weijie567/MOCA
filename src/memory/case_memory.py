@@ -16,7 +16,14 @@ from src.memory.identity import (
     canonical_memory_content_hash,
     canonical_source_identity_hash,
 )
-from src.memory.policy import PROMPT_SAFE_PII_CLASSIFICATIONS, is_blocked_memory_write_pii_classification
+from src.memory.policy import (
+    MEMORY_POLICY_AUTHORITY_CLASS,
+    MEMORY_POLICY_VERSION,
+    PROMPT_SAFE_PII_CLASSIFICATIONS,
+    case_memory_policy_decision,
+    case_memory_review_status_for_source,
+    is_blocked_memory_write_pii_classification,
+)
 from src.memory.schemas import (
     CaseMemoryReviewDecision,
     CaseMemorySearchItem,
@@ -31,24 +38,6 @@ from src.memory.tombstones import source_identity_hash_for_tombstone
 CASE_MEMORY_TYPE = "case_memory"
 PUBLISHED_CASE_REVIEW_STATUSES = ("auto_approved", "approved")
 ACTIVE_CASE_DUPLICATE_REVIEW_STATUSES = ("auto_approved", "needs_review", "approved")
-AUTO_APPROVED_CASE_SOURCE_TYPES = frozenset(
-    {
-        "explicit_admin_preference",
-        "human_reviewed",
-        "deterministic_tool_result",
-        "confirmed_business_outcome",
-        "approved_approval_state",
-    }
-)
-REVIEW_REQUIRED_CASE_SOURCE_TYPES = frozenset(
-    {
-        "llm_candidate",
-        "semantic_episode_candidate",
-        "summary_candidate",
-        "cross_case_pattern_candidate",
-        "behavior_inference",
-    }
-)
 _POLICY_REF_KEYS = frozenset({"doc_key", "chunk_id", "policy_version", "policy_family"})
 
 
@@ -109,6 +98,9 @@ class CaseMemoryRepository:
         pii_classification: str,
         candidate_hash: str,
         source_ref_json: dict[str, Any],
+        policy_version: str = MEMORY_POLICY_VERSION,
+        blocked_by: list[str] | None = None,
+        authority_class: str = MEMORY_POLICY_AUTHORITY_CLASS,
     ) -> MemoryWriteEvent:
         event = MemoryWriteEvent(
             id=uuid.uuid4(),
@@ -118,6 +110,9 @@ class CaseMemoryRepository:
             memory_id=memory_id,
             decision=decision,
             reason_code=reason_code,
+            policy_version=policy_version,
+            blocked_by_json=list(blocked_by or []),
+            authority_class=authority_class,
             pii_classification=pii_classification,
             candidate_hash=candidate_hash,
             source_ref_json=source_ref_json,
@@ -133,6 +128,20 @@ class CaseMemoryRepository:
             .execution_options(populate_existing=True)
         )
         return result.scalar_one_or_none()
+
+    async def list_pending_review(self, *, tenant_id: uuid.UUID, limit: int = 50) -> list[CaseMemory]:
+        result = await self.session.execute(
+            select(CaseMemory)
+            .where(
+                CaseMemory.tenant_id == tenant_id,
+                CaseMemory.review_status == "needs_review",
+                CaseMemory.deleted_at.is_(None),
+            )
+            .order_by(CaseMemory.created_at.desc())
+            .limit(max(1, min(limit, 100)))
+            .execution_options(populate_existing=True)
+        )
+        return list(result.scalars().all())
 
     async def approve_case_memory(
         self,
@@ -485,6 +494,7 @@ class CaseMemoryService:
     ) -> CaseMemoryWriteResult:
         now = _aware(now)
         identity = _candidate_identity(candidate)
+        policy_decision = _policy_decision_for_candidate(candidate)
         tombstone = await self.repository.check_tombstone_before_write(
             tenant_id=candidate.tenant_id,
             memory_type=CASE_MEMORY_TYPE,
@@ -505,6 +515,7 @@ class CaseMemoryService:
                 pii_classification=candidate.pii_classification,
                 candidate_hash=identity["candidate_hash"],
                 source_ref_json=identity["source_ref_json"],
+                blocked_by=["tombstone_match"],
             )
             return _write_result(
                 status="skipped",
@@ -528,6 +539,7 @@ class CaseMemoryService:
                 pii_classification=candidate.pii_classification,
                 candidate_hash=identity["candidate_hash"],
                 source_ref_json=identity["source_ref_json"],
+                **_policy_event_kwargs(policy_decision),
             )
             return _write_result(
                 status="skipped",
@@ -560,6 +572,7 @@ class CaseMemoryService:
                 pii_classification=candidate.pii_classification,
                 candidate_hash=identity["candidate_hash"],
                 source_ref_json=identity["source_ref_json"],
+                blocked_by=[reason_code],
             )
             return _write_result(
                 status="skipped",
@@ -572,9 +585,7 @@ class CaseMemoryService:
                 event_id=event.id,
             )
 
-        review_status = _review_status_for_source(candidate.source_type)
-        decision = "write" if review_status == "auto_approved" else "needs_review"
-        reason_code = "auto_approved_source" if review_status == "auto_approved" else "requires_review"
+        review_status = policy_decision.review_status or "needs_review"
         memory = await self.repository.insert_case_memory(
             candidate,
             content_hash=identity["content_hash"],
@@ -590,18 +601,19 @@ class CaseMemoryService:
             run_id=candidate.run_id,
             memory_type=CASE_MEMORY_TYPE,
             memory_id=memory.id,
-            decision=decision,
-            reason_code=reason_code,
+            decision=policy_decision.decision,
+            reason_code=policy_decision.reason_code,
             pii_classification=candidate.pii_classification,
             candidate_hash=identity["candidate_hash"],
             source_ref_json=identity["source_ref_json"],
+            **_policy_event_kwargs(policy_decision),
         )
         return _write_result(
             status="written" if review_status == "auto_approved" else "needs_review",
             memory_id=memory.id,
             review_status=review_status,
-            decision=decision,
-            reason_code=reason_code,
+            decision=policy_decision.decision,
+            reason_code=policy_decision.reason_code,
             candidate=candidate,
             identity=identity,
             event_id=event.id,
@@ -701,6 +713,9 @@ class CaseMemoryService:
     async def retrieve_reviewed(self, request: CaseMemorySearchRequest) -> CaseMemorySearchResult:
         return await self.repository.search_reviewed(request)
 
+    async def list_pending_review(self, *, tenant_id: uuid.UUID, limit: int = 50) -> list[CaseMemory]:
+        return await self.repository.list_pending_review(tenant_id=tenant_id, limit=limit)
+
     async def _delete_or_tombstone(
         self,
         *,
@@ -777,11 +792,27 @@ def _source_ref_json(candidate: CaseMemoryWriteCandidate) -> dict[str, Any]:
 
 
 def _review_status_for_source(source_type: str) -> str:
-    if source_type in AUTO_APPROVED_CASE_SOURCE_TYPES:
-        return "auto_approved"
-    if source_type in REVIEW_REQUIRED_CASE_SOURCE_TYPES:
-        return "needs_review"
-    return "needs_review"
+    return case_memory_review_status_for_source(source_type)
+
+
+def _review_status_for_candidate(candidate: CaseMemoryWriteCandidate) -> str:
+    return case_memory_review_status_for_source(candidate.source_type, candidate.source_ref)
+
+
+def _policy_decision_for_candidate(candidate: CaseMemoryWriteCandidate):
+    return case_memory_policy_decision(
+        candidate.source_type,
+        candidate.source_ref,
+        pii_classification=candidate.pii_classification,
+    )
+
+
+def _policy_event_kwargs(policy_decision) -> dict[str, Any]:
+    return {
+        "policy_version": policy_decision.policy_version,
+        "blocked_by": list(policy_decision.blocked_by),
+        "authority_class": policy_decision.authority_class,
+    }
 
 
 def _write_result(

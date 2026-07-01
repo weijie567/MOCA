@@ -148,6 +148,7 @@ async def _assemble_slot_prompt(state: AgentState, config: RunnableConfig | None
         case_memory_snippets=state.get("case_memory") or [],
         tool_result_summaries=prompt_context["tool_result_summaries"],
         business_context={},
+        memory_context_bundle=state.get("session_context_bundle"),
         node_hints=node_hints,
     )
 

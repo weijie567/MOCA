@@ -10,12 +10,13 @@ from sqlalchemy import Text, and_, cast, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import LongTermMemory, MemoryTombstone, MemoryWriteEvent, SessionMemory
-from src.memory.policy import PROMPT_SAFE_PII_CLASSIFICATIONS
+from src.memory.policy import MEMORY_POLICY_AUTHORITY_CLASS, MEMORY_POLICY_VERSION, PROMPT_SAFE_PII_CLASSIFICATIONS
 from src.memory.schemas import LongTermMemoryView, LongTermMemoryWriteCandidate
 from src.memory.tombstones import source_identity_hash_for_tombstone
 
 
 LONG_TERM_MEMORY_TYPE = "long_term_fact"
+SESSION_MEMORY_TYPE = "session_slot"
 PUBLISHED_LONG_TERM_REVIEW_STATUSES = ("auto_approved", "approved")
 _LONG_TERM_MEMORY_CONTENT_CAP = 1000
 
@@ -142,6 +143,40 @@ class SessionMemoryRepository:
             .values(deleted_at=datetime.now(UTC), updated_at=func.now())
         )
         await self.session.flush()
+
+    async def emit_write_event(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        run_id: uuid.UUID,
+        memory_id: uuid.UUID | None,
+        decision: str,
+        reason_code: str,
+        pii_classification: str,
+        candidate_hash: str,
+        source_ref_json: dict[str, Any],
+        policy_version: str = MEMORY_POLICY_VERSION,
+        blocked_by: list[str] | None = None,
+        authority_class: str = MEMORY_POLICY_AUTHORITY_CLASS,
+    ) -> MemoryWriteEvent:
+        event = MemoryWriteEvent(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            run_id=run_id,
+            memory_type=SESSION_MEMORY_TYPE,
+            memory_id=memory_id,
+            decision=decision,
+            reason_code=reason_code,
+            policy_version=policy_version,
+            blocked_by_json=list(blocked_by or []),
+            authority_class=authority_class,
+            pii_classification=pii_classification,
+            candidate_hash=candidate_hash,
+            source_ref_json=source_ref_json,
+        )
+        self.session.add(event)
+        await self.session.flush()
+        return event
 
 
 class LongTermMemoryRepository:
@@ -274,6 +309,9 @@ class LongTermMemoryRepository:
         pii_classification: str,
         candidate_hash: str,
         source_ref_json: dict[str, Any],
+        policy_version: str = MEMORY_POLICY_VERSION,
+        blocked_by: list[str] | None = None,
+        authority_class: str = MEMORY_POLICY_AUTHORITY_CLASS,
     ) -> MemoryWriteEvent:
         event = MemoryWriteEvent(
             id=uuid.uuid4(),
@@ -283,6 +321,9 @@ class LongTermMemoryRepository:
             memory_id=memory_id,
             decision=decision,
             reason_code=reason_code,
+            policy_version=policy_version,
+            blocked_by_json=list(blocked_by or []),
+            authority_class=authority_class,
             pii_classification=pii_classification,
             candidate_hash=candidate_hash,
             source_ref_json=source_ref_json,
@@ -457,6 +498,20 @@ class LongTermMemoryRepository:
             .execution_options(populate_existing=True)
         )
         return result.scalar_one_or_none()
+
+    async def list_pending_review(self, *, tenant_id: uuid.UUID, limit: int = 50) -> list[LongTermMemory]:
+        result = await self.session.execute(
+            select(LongTermMemory)
+            .where(
+                LongTermMemory.tenant_id == tenant_id,
+                LongTermMemory.review_status == "needs_review",
+                LongTermMemory.deleted_at.is_(None),
+            )
+            .order_by(LongTermMemory.created_at.desc())
+            .limit(max(1, min(limit, 100)))
+            .execution_options(populate_existing=True)
+        )
+        return list(result.scalars().all())
 
     async def update_review_status(
         self,
@@ -657,6 +712,7 @@ def _to_long_term_view(memory: LongTermMemory) -> LongTermMemoryView:
         scope_type=memory.scope_type,
         scope_id=memory.scope_id,
         memory_kind=memory.memory_kind,
+        semantic_kind=_long_term_semantic_kind(memory.memory_kind),
         content=_bounded_content(memory.content),
         source_type=memory.source_type,
         source_ref=dict(memory.source_ref_json or {}),
@@ -665,6 +721,15 @@ def _to_long_term_view(memory: LongTermMemory) -> LongTermMemoryView:
         valid_from=memory.valid_from,
         expires_at=memory.expires_at,
     )
+
+
+def _long_term_semantic_kind(memory_kind: str) -> str:
+    return {
+        "fact": "durable_profile_fact",
+        "preference": "merchant_preference",
+        "constraint": "operational_constraint",
+        "pattern": "merchant_pattern",
+    }.get(memory_kind, "durable_profile_fact")
 
 
 def _bounded_content(value: str) -> str:

@@ -2,17 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
 from src.agent.events import emit_event
-from src.agent.intent_policy import REQUIRED_SLOT_POLICY
 from src.agent.state import AgentState
 from src.config import settings
+from src.memory.case_memory import CaseMemoryRepository, CaseMemoryService
 from src.memory.context_service import MemoryContextService
 from src.memory.identity import (
     MemoryIdentityError,
@@ -20,24 +19,20 @@ from src.memory.identity import (
     canonical_memory_content_hash,
     canonical_source_identity_hash,
 )
-from src.memory.repository import SessionMemoryRepository
-from src.memory.schemas import SessionMemoryWriteCandidate, SessionMemoryWriteResult, SessionSlotV1
-from src.memory.service import BLOCKED_PII_CLASSIFICATIONS, MemoryService
+from src.memory.long_term import LongTermMemoryService
+from src.memory.repository import LongTermMemoryRepository, SessionMemoryRepository
+from src.memory.schemas import (
+    CaseMemoryWriteCandidate,
+    LongTermMemoryWriteCandidate,
+    SessionMemoryWriteCandidate,
+    SessionMemoryWriteResult,
+)
+from src.memory.service import MemoryService
+from src.memory.write_service import MemoryWriteCandidate, MemoryWriteResult, MemoryWriteService
 
 
-_PROHIBITED_PII_MARKERS = {"身份证", "手机号", "password", "secret"}
-_CROSS_INTENT_BUSINESS_ID_SLOTS = {"order_id", "refund_case_id", "ticket_id"}
 _MEMORY_WRITE_DECISION_SCHEMA_VERSION = "memory_write_decision.v2"
 _MEMORY_CONTEXT_SERVICE = MemoryContextService()
-_SENSITIVE_PII_PATTERNS = (
-    re.compile(r"(?<!\d)(?:\+?86[-\s]?)?1[3-9]\d{9}(?!\d)"),
-    re.compile(r"(?<!\d)\d{17}[\dXx](?!\w)"),
-    re.compile(
-        r"\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|credential|passwd|pwd)\b\s*[:=]\s*\S+",
-        re.IGNORECASE,
-    ),
-    re.compile(r"\bbearer\s+[A-Za-z0-9._~+/=-]{12,}", re.IGNORECASE),
-)
 
 
 def _now_iso() -> str:
@@ -72,6 +67,9 @@ async def memory_write(state: AgentState, config: RunnableConfig) -> dict:
             await rollback()
         return _skipped(state, started_at, "write_timeout", final_response=final_response)
     except Exception:
+        rollback = getattr(session, "rollback", None)
+        if callable(rollback):
+            await rollback()
         await _emit_memory_event(
             state,
             configurable,
@@ -91,16 +89,17 @@ async def _write_with_service(
     *,
     operation_id: uuid.UUID,
 ) -> dict:
-    candidate = _build_candidate(state)
+    write_service = MemoryWriteService(
+        MemoryService(SessionMemoryRepository(session), enabled=settings.session_memory_enabled),
+        long_term_memory_service=LongTermMemoryService(LongTermMemoryRepository(session)),
+        case_memory_service=CaseMemoryService(CaseMemoryRepository(session)),
+    )
+    candidates = write_service.propose_candidates(state)
+    candidate = _session_candidate(candidates)
     if candidate.decision == "skip":
-        result = SessionMemoryWriteResult(
-            status="skipped",
-            version=None,
-            decision="skip",
-            reason_code=candidate.reason_code,
-            pii_classification=candidate.pii_classification,
-        )
-        return _completed(state, started_at, result, candidate)
+        results = await write_service.apply_policy_and_write_all(candidates)
+        result = _session_result(candidates, results)
+        return _completed(state, started_at, result, candidate, candidates=candidates, results=results)
 
     await _emit_memory_event(
         state,
@@ -114,8 +113,8 @@ async def _write_with_service(
         },
         operation_id=operation_id,
     )
-    service = MemoryService(SessionMemoryRepository(session), enabled=settings.session_memory_enabled)
-    result = await service.write_session_memory(candidate)
+    results = await write_service.apply_policy_and_write_all(candidates)
+    result = _session_result(candidates, results)
     event_type = "memory_write_completed" if result.status not in {"error", "fallback"} else "memory_write_failed"
     await _emit_memory_event(
         state,
@@ -130,132 +129,24 @@ async def _write_with_service(
         },
         operation_id=operation_id,
     )
-    return _completed(state, started_at, result, candidate)
+    return _completed(state, started_at, result, candidate, candidates=candidates, results=results)
 
 
-def _build_candidate(state: AgentState) -> SessionMemoryWriteCandidate:
-    now = datetime.now(UTC)
-    run_id = uuid.UUID(str(state.get("current_run_id")))
-    intent = state.get("primary_intent") or state.get("current_intent")
-    explicit_slots = _explicit_slots(state, run_id, intent, now)
-    unresolved_questions = _unresolved_questions(state)
-    session_summary = _session_summary(intent, explicit_slots)
-    pii_classification = _classify_pii(
-        state,
-        explicit_slots,
-        unresolved_questions=unresolved_questions,
-        session_summary=session_summary,
-    )
-    decision = "skip" if pii_classification in BLOCKED_PII_CLASSIFICATIONS else "write"
-    reason_code = "pii_blocked" if decision == "skip" else "eligible"
-    session_memory = state.get("session_memory") if isinstance(state.get("session_memory"), dict) else {}
-    expected_version = session_memory.get("version") if isinstance(session_memory.get("version"), int) else None
-    return SessionMemoryWriteCandidate(
-        tenant_id=uuid.UUID(str(state["tenant_id"])),
-        user_id=uuid.UUID(str(state["user_id"])),
-        thread_id=str(state["thread_id"]),
-        run_id=run_id,
-        explicit_slots=explicit_slots,
-        unresolved_questions=unresolved_questions,
-        last_intent=str(intent) if intent else None,
-        session_summary=session_summary,
-        last_business_context_refs=_last_business_context_refs(state),
-        expected_version=expected_version,
-        pii_classification=pii_classification,
-        decision=decision,
-        reason_code=reason_code,
-    )
+def _session_candidate(candidates: list[MemoryWriteCandidate]) -> SessionMemoryWriteCandidate:
+    for candidate in candidates:
+        if isinstance(candidate, SessionMemoryWriteCandidate):
+            return candidate
+    raise RuntimeError("session memory candidate is required")
 
 
-def _explicit_slots(
-    state: AgentState,
-    run_id: uuid.UUID,
-    intent: str | None,
-    now: datetime,
-) -> dict[str, SessionSlotV1]:
-    extracted = state.get("extracted_slots") if isinstance(state.get("extracted_slots"), dict) else {}
-    expires_at = now + timedelta(seconds=settings.session_memory_ttl_seconds)
-    slots: dict[str, SessionSlotV1] = {}
-    for key, value in extracted.items():
-        if value in (None, ""):
-            continue
-        slots[key] = SessionSlotV1(
-            value=str(value),
-            source="explicit_user",
-            source_run_id=str(run_id),
-            updated_at=now,
-            expires_at=expires_at,
-            compatible_intents=_compatible_intents_for_slot(key, intent),
-        )
-    return slots
-
-
-def _compatible_intents_for_slot(slot_name: str, current_intent: str | None) -> list[str]:
-    if slot_name not in _CROSS_INTENT_BUSINESS_ID_SLOTS:
-        return [current_intent] if current_intent else []
-
-    compatible = [
-        intent
-        for intent, policy in REQUIRED_SLOT_POLICY.items()
-        if slot_name in _required_slot_names(policy.model_dump())
-    ]
-    if current_intent and current_intent not in compatible:
-        compatible.append(current_intent)
-    return compatible
-
-
-def _required_slot_names(policy: dict[str, Any]) -> set[str]:
-    names = set(str(slot) for slot in policy.get("all_of") or [])
-    names.update(str(slot) for slot in policy.get("optional") or [])
-    for group in policy.get("any_of") or []:
-        if isinstance(group, list):
-            names.update(str(slot) for slot in group)
-    return names
-
-
-def _unresolved_questions(state: AgentState) -> list[str]:
-    clarification = state.get("clarification_request")
-    if not isinstance(clarification, dict):
-        return []
-    questions = clarification.get("questions")
-    if not isinstance(questions, list):
-        return []
-    return [str(question) for question in questions if question]
-
-
-def _session_summary(intent: str | None, explicit_slots: dict[str, SessionSlotV1]) -> str | None:
-    if not intent and not explicit_slots:
-        return None
-    slot_names = ",".join(sorted(explicit_slots)) or "none"
-    summary = f"Session turn completed; intent={intent or 'unknown'}; explicit_slots={slot_names}."
-    return summary[: settings.session_memory_summary_max_chars]
-
-
-def _last_business_context_refs(state: AgentState) -> dict[str, Any]:
-    refs = state.get("last_business_context_refs")
-    return dict(refs) if isinstance(refs, dict) else {}
-
-
-def _classify_pii(
-    state: AgentState,
-    explicit_slots: dict[str, SessionSlotV1],
-    *,
-    unresolved_questions: list[str],
-    session_summary: str | None,
-) -> str:
-    values = [slot.value for slot in explicit_slots.values()]
-    values.extend(unresolved_questions)
-    if session_summary:
-        values.append(session_summary)
-    final_response = state.get("final_response")
-    if isinstance(final_response, str):
-        values.append(final_response)
-    text = " ".join(values).lower()
-    if any(marker.lower() in text for marker in _PROHIBITED_PII_MARKERS):
-        return "prohibited"
-    if any(pattern.search(text) for pattern in _SENSITIVE_PII_PATTERNS):
-        return "sensitive"
-    return "none"
+def _session_result(
+    candidates: list[MemoryWriteCandidate],
+    results: list[MemoryWriteResult],
+) -> SessionMemoryWriteResult:
+    for candidate, result in zip(candidates, results, strict=False):
+        if isinstance(candidate, SessionMemoryWriteCandidate) and isinstance(result, SessionMemoryWriteResult):
+            return result
+    raise RuntimeError("session memory write result is required")
 
 
 def _completed(
@@ -263,16 +154,22 @@ def _completed(
     started_at: str,
     result: SessionMemoryWriteResult,
     candidate: SessionMemoryWriteCandidate,
+    *,
+    candidates: list[MemoryWriteCandidate] | None = None,
+    results: list[MemoryWriteResult] | None = None,
 ) -> dict:
     result_dict = result.model_dump(mode="json")
     decision = _memory_write_decision(state, result_dict, candidate=candidate)
-    return {
+    output = {
         "final_response": state.get("final_response"),
-        "memory_write_candidates": [_candidate_projection(candidate)],
+        "memory_write_candidates": [_candidate_projection(item) for item in (candidates or [candidate])],
         "memory_write_result": result_dict,
         "memory_write_decision": decision,
         "trace_steps": (state.get("trace_steps") or []) + [_trace_step(started_at, result_dict, decision)],
     }
+    if results is not None and len(results) > 1:
+        output["memory_write_results"] = [item.model_dump(mode="json") for item in results]
+    return output
 
 
 def _skipped(
@@ -336,8 +233,27 @@ def _trace_step(started_at: str, result: dict[str, Any], decision: dict[str, Any
     }
 
 
-def _candidate_projection(candidate: SessionMemoryWriteCandidate) -> dict[str, Any]:
+def _candidate_projection(candidate: MemoryWriteCandidate) -> dict[str, Any]:
+    if isinstance(candidate, LongTermMemoryWriteCandidate):
+        return {
+            "memory_type": "long_term",
+            "scope_type": candidate.scope_type,
+            "scope_id": candidate.scope_id,
+            "source_type": candidate.source_type,
+            "memory_kind": candidate.memory_kind,
+            "pii_classification": candidate.pii_classification,
+        }
+    if isinstance(candidate, CaseMemoryWriteCandidate):
+        return {
+            "memory_type": "case",
+            "scope_type": candidate.scope_type,
+            "scope_id": candidate.scope_id,
+            "case_type": candidate.case_type,
+            "source_type": candidate.source_type,
+            "pii_classification": candidate.pii_classification,
+        }
     return {
+        "memory_type": "session",
         "slot_names": sorted(candidate.explicit_slots),
         "has_unresolved_questions": bool(candidate.unresolved_questions),
         "last_intent": candidate.last_intent,

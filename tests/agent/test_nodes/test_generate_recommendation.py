@@ -648,6 +648,53 @@ async def test_generation_fails_closed_when_required_verified_package_is_not_usa
     assert result["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
     assert result["recommendation_draft"]["evidence_refs"] == []
     assert result["material_claims"] == []
+
+
+@pytest.mark.asyncio
+async def test_policy_hints_in_memory_context_do_not_satisfy_policy_gate(monkeypatch, base_state):
+    class ExplodingLLM:
+        def with_structured_output(self, schema):
+            raise AssertionError("LLM should not run when only memory hints exist")
+
+    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: ExplodingLLM())
+
+    result = await generate_recommendation_module.generate_recommendation(
+        {
+            **base_state,
+            "routing_hints": {"policy_evidence_required": True},
+            "requested_operation": "draft_action",
+            "current_run_id": str(uuid4()),
+            "memory_context_bundle": {
+                "schema_version": "memory_context_bundle.v1",
+                "authority_class": "contextual_only",
+                "session_context": {
+                    "schema_version": "session_context_memory.v1",
+                    "authority_class": "contextual_only",
+                    "tenant_id": base_state["tenant_id"],
+                    "user_id": base_state["user_id"],
+                    "thread_id": base_state["thread_id"],
+                    "run_id": "run-hint-only",
+                    "slot_continuity": {
+                        "source": "postgres_session_memory",
+                        "continuity_claimed": True,
+                        "active_slots": {"order_id": "ORD-HINT-ONLY"},
+                    },
+                    "policy_topic_hints": ["refund_policy@v1"],
+                    "prior_policy_mention_refs": [{"doc_key": "refund_policy", "chunk_id": "chunk-1"}],
+                },
+                "long_term_items": [],
+                "case_items": [],
+            },
+        },
+        {},
+    )
+
+    assert result["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
+    assert result["recommendation_draft"]["missing_info"] == [
+        "Verified policy evidence is required before recommendation generation.",
+        "RAG context status blocked generation: verified_evidence_package_required",
+    ]
+    assert result["evidence_refs"] == []
     assert "proposed_action" not in result
     assert "claim_verification_bundle" not in result
     assert "safe_support_refs" not in result

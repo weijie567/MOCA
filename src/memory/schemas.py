@@ -139,6 +139,8 @@ class SessionMemoryBundle(BaseModel):
     recent_messages: list[SessionRecentMessageView] = Field(default_factory=list)
     tool_summaries: list[SessionToolSummaryView] = Field(default_factory=list)
     slot_continuity: SlotContinuityMemoryView
+    policy_topic_hints: list[str] = Field(default_factory=list)
+    prior_policy_mention_refs: list[dict[str, Any]] = Field(default_factory=list)
     fallback_reasons: dict[str, str] = Field(default_factory=dict)
 
 
@@ -155,6 +157,8 @@ class SessionContextMemory(BaseModel):
     recent_messages: list[SessionRecentMessageView] = Field(default_factory=list)
     tool_summaries: list[SessionToolSummaryView] = Field(default_factory=list)
     slot_continuity: SlotContinuityMemoryView
+    policy_topic_hints: list[str] = Field(default_factory=list)
+    prior_policy_mention_refs: list[dict[str, Any]] = Field(default_factory=list)
     fallback_reasons: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="before")
@@ -199,16 +203,27 @@ class SessionMemoryWriteResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: Literal["written", "merged_after_conflict", "conflict", "skipped", "disabled", "fallback", "error"]
+    memory_id: uuid.UUID | None = None
     version: int | None = None
     decision: Literal["write", "skip"] = "write"
     reason_code: str
+    policy_version: str = "memory_write_policy.v1"
+    blocked_by: list[str] = Field(default_factory=list)
     pii_classification: Literal["none", "low", "sensitive", "prohibited"] = "none"
+    candidate_hash: str | None = Field(default=None, pattern=_SHA256_PATTERN)
+    event_id: uuid.UUID | None = None
     conflict_reason: str | None = None
     fallback_reason: str | None = None
 
 
 LongTermScopeType = Literal["tenant", "merchant", "user", "thread", "case"]
 LongTermMemoryKind = Literal["fact", "preference", "constraint", "pattern"]
+LongTermSemanticKind = Literal[
+    "durable_profile_fact",
+    "merchant_preference",
+    "operational_constraint",
+    "merchant_pattern",
+]
 LongTermPiiClassification = Literal["none", "low", "sensitive", "prohibited"]
 LongTermReviewStatus = Literal[
     "auto_approved",
@@ -298,6 +313,7 @@ class LongTermMemoryView(BaseModel):
     scope_type: LongTermScopeType
     scope_id: str
     memory_kind: LongTermMemoryKind
+    semantic_kind: LongTermSemanticKind
     content: str
     source_type: str
     source_ref: dict[str, Any] = Field(default_factory=dict)

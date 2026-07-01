@@ -268,6 +268,53 @@ async def test_missing_claim_bundle_for_actionable_recommendation_withholds_acti
 
 
 @pytest.mark.asyncio
+async def test_high_risk_action_cannot_execute_from_inherited_slot_only(monkeypatch, base_state):
+    class ExplodingLLM:
+        def with_structured_output(self, schema):
+            raise AssertionError("inherited slot alone must block before risk LLM or action proposal")
+
+    monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: ExplodingLLM())
+    state = {
+        **base_state,
+        "recommendation_draft": {
+            "recommended_action": "full_refund",
+            "reasoning_summary": "Inherited refund case appears eligible for a full refund.",
+            "compensation_amount": 5000,
+        },
+        "active_slots": {"refund_case_id": "RF-INHERITED"},
+        "session_memory": {
+            "continuity_claimed": True,
+            "active_slots": {"refund_case_id": "RF-INHERITED"},
+            "slot_metadata": {
+                "refund_case_id": {
+                    "source": "trusted_session_memory",
+                    "tenant_id": base_state["tenant_id"],
+                    "user_id": base_state["user_id"],
+                    "thread_id": base_state["thread_id"],
+                    "compatible_intents": ["refund_troubleshooting"],
+                    "expires_at": "2026-06-28T12:05:00+00:00",
+                }
+            },
+        },
+        "business_context": {},
+    }
+
+    result = await assess_risk_module.assess_risk_and_approval(state)
+
+    assert result["proposed_action"] is None
+    assert result["approval_plan"] is None
+    assert result["approval_result"] is None
+    assert result["action_draft"] is None
+    assert result["action_result"] is None
+    assert result["action_payload_hash"] is None
+    assert result["safety_snapshot_ref"] is None
+    assert result["safety_snapshot_hash"] is None
+    assert result["safety_snapshot_verified"] is False
+    assert result["risk_assessment"]["rule_ref"] == "PHASE33-CLAIM-VERIFY"
+    assert result["trace_steps"][-1]["status"] == "blocked"
+
+
+@pytest.mark.asyncio
 async def test_chinese_full_refund_delivered_order_matches_high_risk(monkeypatch, base_state):
     monkeypatch.setattr(
         assess_risk_module,

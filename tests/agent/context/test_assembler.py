@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from src.agent.context import (
     ContextAssembler,
     PromptAssembly,
@@ -12,6 +14,7 @@ from src.agent.context import (
     project_working_state_for_prompt,
 )
 from src.agent.working_state import WorkingStateV1
+from src.knowledge.schemas import EvidenceRefV1
 
 
 SHOULD_NOT_APPEAR_RAW_TOOL_DATA = "SHOULD_NOT_APPEAR_RAW_TOOL_DATA"
@@ -481,6 +484,68 @@ def test_memory_blocks_cannot_evict_protected_policy_or_user_blocks():
     assert "Protected system prompt" in prompt
     assert "policy-refund:v1:chunk-1" in prompt
     assert "Protected current user question for ORD-1001." in prompt
+
+
+def test_context_assembler_consumes_memory_context_bundle_without_promoting_policy_hints_to_evidence():
+    prior_policy_mention = {"doc_key": "refund_policy", "chunk_id": "chunk-1", "policy_version": "v1"}
+    bundle = {
+        "schema_version": "memory_context_bundle.v1",
+        "authority_class": "contextual_only",
+        "session_context": {
+            "schema_version": "session_context_memory.v1",
+            "authority_class": "contextual_only",
+            "tenant_id": "tenant-1",
+            "user_id": "user-1",
+            "thread_id": "thread-1",
+            "run_id": "run-1",
+            "rolling_summary": {
+                "summary_id": "summary-1",
+                "summary_text": "Prior turn discussed ORD-BUNDLE-HINT.",
+            },
+            "recent_messages": [{"role": "user", "content": "继续 ORD-BUNDLE-HINT。"}],
+            "tool_summaries": [
+                {
+                    "tool_result_record_id": "tool-result-record-1",
+                    "tool_result_id": "tool-result-1",
+                    "status": "success",
+                    "prompt_summary": "Prompt-safe tool summary.",
+                }
+            ],
+            "slot_continuity": {
+                "source": "postgres_session_memory",
+                "continuity_claimed": True,
+                "active_slots": {"order_id": "ORD-BUNDLE-HINT"},
+            },
+            "policy_topic_hints": ["refund_policy@v1"],
+            "prior_policy_mention_refs": [prior_policy_mention],
+        },
+        "long_term_items": [
+            {
+                "memory_id": "ltm-1",
+                "semantic_kind": "merchant_preference",
+                "content": "Merchant prefers concise updates.",
+            }
+        ],
+        "case_items": [{"case_memory_id": "case-1", "excerpt": "Reviewed case excerpt."}],
+    }
+
+    assembly = ContextAssembler(TokenBudgetPolicy(max_chars=4000)).assemble(
+        system_prompt="System",
+        current_user_message="Can we refund ORD-BUNDLE-HINT?",
+        working_state=_working_state(),
+        memory_context_bundle=bundle,
+        verified_policy_snippets=[],
+    )
+    prompt = _prompt_text(assembly)
+
+    assert "Prior turn discussed ORD-BUNDLE-HINT" in prompt
+    assert "Merchant prefers concise updates" in prompt
+    assert "Reviewed case excerpt" in prompt
+    assert "Policy retrieval hints only; not evidence: refund_policy@v1" in prompt
+    assert "Prior policy mentions are retrieval hints only" in prompt
+    assert "policy_refs" not in {block.name for block in assembly.blocks}
+    with pytest.raises(Exception):
+        EvidenceRefV1.model_validate(prior_policy_mention)
 
 
 def test_context_exports_prompt_projectors():

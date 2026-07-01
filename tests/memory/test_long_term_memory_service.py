@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 import uuid
 
 import pytest
@@ -37,10 +38,19 @@ def _candidate(
     run_id: uuid.UUID,
     content: str = "Merchant prefers concise refund summaries.",
     source_type: str = "explicit_user_preference",
+    source_ref_business_object_type: str | None = None,
+    source_ref_business_object_id: str | None = None,
     pii_classification: str = "none",
     expires_at: datetime | None = None,
 ) -> LongTermMemoryWriteCandidate:
     merchant = seeded_session["merchant"]
+    source_ref = {
+        "source_type": source_type,
+        "run_id": str(run_id),
+        "business_object_id": source_ref_business_object_id or str(merchant.id),
+    }
+    if source_ref_business_object_type is not None:
+        source_ref["business_object_type"] = source_ref_business_object_type
     return LongTermMemoryWriteCandidate(
         tenant_id=merchant.tenant_id,
         run_id=run_id,
@@ -49,7 +59,7 @@ def _candidate(
         memory_kind="preference",
         content=content,
         source_type=source_type,
-        source_ref={"source_type": source_type, "run_id": str(run_id), "business_object_id": str(merchant.id)},
+        source_ref=source_ref,
         confidence=0.91,
         pii_classification=pii_classification,
         expires_at=expires_at,
@@ -61,6 +71,98 @@ async def _events(session: AsyncSession, run_id: uuid.UUID) -> list[MemoryWriteE
         select(MemoryWriteEvent).where(MemoryWriteEvent.run_id == run_id).order_by(MemoryWriteEvent.created_at)
     )
     return list(result.scalars().all())
+
+
+class _FakeLongTermRepository:
+    def __init__(self) -> None:
+        self.insert_kwargs = None
+        self.event_kwargs = None
+
+    async def check_tombstone_before_write(self, **kwargs):
+        return None
+
+    async def retire_expired_current_by_content_hash(self, **kwargs) -> None:
+        return None
+
+    async def retire_unpublished_current_by_content_hash(self, **kwargs) -> None:
+        return None
+
+    async def get_active_by_content_hash(self, **kwargs):
+        return None
+
+    async def insert_memory(self, candidate, **kwargs):
+        self.insert_kwargs = kwargs
+        return SimpleNamespace(id=uuid.uuid4(), review_status=kwargs["review_status"])
+
+    async def emit_write_event(self, **kwargs):
+        self.event_kwargs = kwargs
+        return SimpleNamespace(id=uuid.uuid4())
+
+
+@pytest.mark.asyncio
+async def test_current_business_object_write_policy_requires_review_without_database() -> None:
+    repository = _FakeLongTermRepository()
+    service = LongTermMemoryService(repository)  # type: ignore[arg-type]
+    tenant_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+    candidate = LongTermMemoryWriteCandidate(
+        tenant_id=tenant_id,
+        run_id=run_id,
+        scope_type="merchant",
+        scope_id="merchant-1",
+        memory_kind="fact",
+        content="Current order ORD-1001 status is delivered.",
+        source_type="deterministic_tool_result",
+        source_ref={
+            "source_type": "deterministic_tool_result",
+            "run_id": str(run_id),
+            "business_object_type": "order",
+            "business_object_id": "ORD-1001",
+        },
+        pii_classification="none",
+    )
+
+    result = await service.write_memory(candidate)
+
+    assert result.status == "needs_review"
+    assert result.review_status == "needs_review"
+    assert result.decision == "needs_review"
+    assert result.reason_code == "requires_review"
+    assert repository.insert_kwargs is not None
+    assert repository.insert_kwargs["review_status"] == "needs_review"
+    assert repository.insert_kwargs["is_current"] is False
+    assert repository.event_kwargs is not None
+    assert repository.event_kwargs["decision"] == "needs_review"
+    assert repository.event_kwargs["reason_code"] == "requires_review"
+    assert repository.event_kwargs["policy_version"] == "memory_write_policy.v1"
+    assert repository.event_kwargs["blocked_by"] == ["current_business_object_state"]
+    assert repository.event_kwargs["authority_class"] == "contextual_only"
+
+
+@pytest.mark.asyncio
+async def test_deterministic_source_without_business_object_metadata_requires_review_without_database() -> None:
+    repository = _FakeLongTermRepository()
+    service = LongTermMemoryService(repository)  # type: ignore[arg-type]
+    tenant_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+    candidate = LongTermMemoryWriteCandidate(
+        tenant_id=tenant_id,
+        run_id=run_id,
+        scope_type="merchant",
+        scope_id="merchant-1",
+        memory_kind="preference",
+        content="Merchant prefers concise refund summaries.",
+        source_type="deterministic_tool_result",
+        source_ref={"source_type": "deterministic_tool_result", "run_id": str(run_id)},
+        pii_classification="none",
+    )
+
+    result = await service.write_memory(candidate)
+
+    assert result.status == "needs_review"
+    assert result.review_status == "needs_review"
+    assert repository.insert_kwargs is not None
+    assert repository.insert_kwargs["is_current"] is False
 
 
 @pytest.mark.asyncio
@@ -193,6 +295,7 @@ async def test_deterministic_durable_source_auto_approves(session: AsyncSession,
             run_id=run_id,
             content="Confirmed merchant resolution SLA is two business days.",
             source_type="deterministic_tool_result",
+            source_ref_business_object_type="merchant",
         )
     )
 
@@ -201,6 +304,54 @@ async def test_deterministic_durable_source_auto_approves(session: AsyncSession,
     assert result.review_status == "auto_approved"
     assert row is not None
     assert row.review_status == "auto_approved"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("source_type", "business_object_type"),
+    [
+        ("deterministic_tool_result", "order"),
+        ("confirmed_business_outcome", "refund"),
+        ("approved_approval_state", "refund_case"),
+    ],
+)
+async def test_current_business_object_long_term_candidate_requires_review(
+    session: AsyncSession,
+    seeded_session: dict,
+    source_type: str,
+    business_object_type: str,
+) -> None:
+    run_id = await _insert_run(session, seeded_session)
+    service = LongTermMemoryService(LongTermMemoryRepository(session))
+    candidate = _candidate(
+        seeded_session,
+        run_id=run_id,
+        content=f"Current {business_object_type} ORD-1001 status is approved.",
+        source_type=source_type,
+        source_ref_business_object_type=business_object_type,
+        source_ref_business_object_id="ORD-1001",
+    )
+
+    result = await service.write_memory(candidate)
+    retrieved = await LongTermMemoryRepository(session).retrieve_profile_memory(
+        tenant_id=candidate.tenant_id,
+        scope_type=candidate.scope_type,
+        scope_id=candidate.scope_id,
+    )
+
+    row = await session.get(LongTermMemory, result.memory_id)
+    events = await _events(session, run_id)
+    assert result.status == "needs_review"
+    assert result.review_status == "needs_review"
+    assert result.decision == "needs_review"
+    assert result.reason_code == "requires_review"
+    assert row is not None
+    assert row.review_status == "needs_review"
+    assert row.is_current is False
+    assert row.source_ref_json["business_object_type"] == business_object_type
+    assert retrieved == []
+    assert events[-1].decision == "needs_review"
+    assert events[-1].reason_code == "requires_review"
 
 
 @pytest.mark.asyncio

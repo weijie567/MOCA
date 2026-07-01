@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from src.memory.schemas import SessionContextMemory
+
 
 class SessionContextRef(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -111,6 +113,18 @@ class ReviewedMemoryContextBundle(BaseModel):
         return self.status_ref
 
 
+class MemoryContextBundle(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["memory_context_bundle.v1"] = "memory_context_bundle.v1"
+    authority_class: Literal["contextual_only"] = "contextual_only"
+    session_context: SessionContextMemory
+    long_term_items: list[dict[str, Any]] = Field(default_factory=list)
+    case_items: list[dict[str, Any]] = Field(default_factory=list)
+    session_status_ref: SessionContextLoadStatusV1 | None = None
+    reviewed_status_ref: ReviewedMemoryContextRetrieveStatusV1 | None = None
+
+
 class MemoryWriteDecisionV2(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -126,4 +140,6 @@ class MemoryWriteDecisionV2(BaseModel):
     pii_classification: str
     review_status: str
     reason_code: str
+    policy_version: str = "memory_write_policy.v1"
+    blocked_by: list[str] = Field(default_factory=list)
     fallback_reason: str | None = None

@@ -15,6 +15,9 @@ from src.memory.schemas import (
 )
 from src.memory.service import MemoryService
 
+_POLICY_HINT_REF_KEYS = ("doc_key", "chunk_id", "policy_version", "policy_family", "title", "section")
+_POLICY_HINT_LIMIT = 8
+
 
 class SessionMemoryBundleService:
     def __init__(self, *, conversation_service: ConversationService, memory_service: MemoryService) -> None:
@@ -58,6 +61,7 @@ class SessionMemoryBundleService:
         if slot_continuity.fallback_reason:
             fallback_reasons.setdefault("slot_continuity", slot_continuity.fallback_reason)
 
+        tool_summaries = _tool_summary_views(prompt_context)
         return SessionMemoryBundle(
             tenant_id=str(tenant_id),
             user_id=str(user_id),
@@ -65,8 +69,10 @@ class SessionMemoryBundleService:
             run_id=str(run_id),
             rolling_summary=_rolling_summary_view(prompt_context),
             recent_messages=_recent_message_views(prompt_context),
-            tool_summaries=_tool_summary_views(prompt_context),
+            tool_summaries=tool_summaries,
             slot_continuity=slot_continuity,
+            policy_topic_hints=_policy_topic_hints(tool_summaries),
+            prior_policy_mention_refs=_prior_policy_mention_refs(tool_summaries),
             fallback_reasons=fallback_reasons,
         )
 
@@ -140,6 +146,69 @@ def _tool_summary_views(prompt_context: PromptContextWindow | None) -> list[Sess
 def _tool_name_for_record(record) -> str | None:
     tool_call = getattr(record, "tool_call", None)
     return getattr(tool_call, "tool_name", None) or getattr(record, "tool_name", None)
+
+
+def _policy_topic_hints(tool_summaries: list[SessionToolSummaryView]) -> list[str]:
+    hints: list[str] = []
+    for summary in tool_summaries:
+        for ref in summary.policy_evidence_refs:
+            hint = _policy_topic_hint(ref)
+            if hint and hint not in hints:
+                hints.append(hint)
+            if len(hints) >= _POLICY_HINT_LIMIT:
+                return hints
+    return hints
+
+
+def _policy_topic_hint(ref: dict[str, Any]) -> str | None:
+    policy_family = _safe_hint_value(ref.get("policy_family"))
+    if policy_family:
+        return policy_family
+    doc_key = _safe_hint_value(ref.get("doc_key"))
+    policy_version = _safe_hint_value(ref.get("policy_version"))
+    if doc_key and policy_version:
+        return f"{doc_key}@{policy_version}"
+    if doc_key:
+        return doc_key
+    title = _safe_hint_value(ref.get("title"))
+    if title:
+        return title[:80]
+    section = _safe_hint_value(ref.get("section"))
+    return section[:80] if section else None
+
+
+def _prior_policy_mention_refs(tool_summaries: list[SessionToolSummaryView]) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    seen: set[tuple[tuple[str, str], ...]] = set()
+    for summary in tool_summaries:
+        for ref in summary.policy_evidence_refs:
+            mention = {
+                key: value
+                for key in _POLICY_HINT_REF_KEYS
+                if (value := _safe_hint_value(ref.get(key))) is not None
+            }
+            tool_result_id = _safe_hint_value(summary.tool_result_id)
+            if tool_result_id is not None:
+                mention["tool_result_id"] = tool_result_id
+            if not mention:
+                continue
+            identity = tuple(sorted(mention.items()))
+            if identity in seen:
+                continue
+            seen.add(identity)
+            refs.append(mention)
+            if len(refs) >= _POLICY_HINT_LIMIT:
+                return refs
+    return refs
+
+
+def _safe_hint_value(value: Any) -> str | None:
+    if value is None or isinstance(value, bool | int | float):
+        return str(value) if value is not None else None
+    if not isinstance(value, str):
+        return None
+    text = " ".join(value.split())
+    return text[:120] if text else None
 
 
 def _empty_slot_continuity(reason: str) -> SessionMemoryView:

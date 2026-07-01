@@ -1275,6 +1275,7 @@ async def _assemble_risk_prompt(
             *(state.get("tool_results") or []),
         ],
         business_context=context,
+        memory_context_bundle=state.get("memory_context_bundle") or state.get("session_context_bundle"),
         node_hints=[
             _risk_rules_summary(rules),
             _recommendation_summary(draft),

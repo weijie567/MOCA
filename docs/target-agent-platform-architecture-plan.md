@@ -807,7 +807,7 @@ flowchart LR
 | `WorkingStateV1` | 当前 run 的 prompt-safe 状态投影 | 是，但不是 memory store | 否，运行态派生 | 否 |
 | `SessionContinuityStore` | 同 thread 短期连续性的存储层 | 否，内部存储 | 是，作为短期连续性来源 | 否 |
 | `SessionContextMemory` | 同 thread 的完整短期会话上下文投影 | 是 | 派生，受 policy 控制 | 否 |
-| `LongTermMemory` | 跨 thread 的 profile/preference/fact | 是，检索后少量进入 | 是，需 policy/review 约束 | 仅对 profile/preference/fact 记忆语义权威，不替代业务/RAG/approval evidence |
+| `LongTermMemory` | 跨 thread 的 durable profile/preference/pattern/operational constraint | 是，检索后少量进入 | 是，需 policy/review 约束 | 仅对 durable memory 语义权威，不替代当前业务事实、政策证据或 approval evidence |
 | `CaseMemory` | reviewed precedent/outcome memory | 是，检索后进入 | 是，通常需 review | 仅对 precedent/outcome 语义权威，不替代当前政策或业务事实 |
 
 ### 9.3 SessionContextMemory 内容
@@ -855,10 +855,19 @@ MemoryContextService.load_memory_bundle_after_slot_resolution(...)
 `load_for_agent(...)` 可以作为后阶段内部组合方法，但不应被 early graph node 一次性加载全部 memory。三类 memory 可以出现在同一个 `MemoryContextBundle`，但语义必须分开：
 
 - `SessionContextMemory`：same thread continuity。
-- `LongTermMemory`：cross-thread profile/preference/fact。
+- `LongTermMemory`：cross-thread durable profile/preference/pattern/operational constraint。
 - `CaseMemory`：reviewed precedent/outcome memory。
 
 不能把 long-term profile 或 case precedent 混进 session context 里，否则后续 eval、retention、review、隐私策略都会变得不可控。
+
+`LongTermMemory` 里的 durable memory 允许表达：
+
+- `durable_profile_fact`：稳定画像事实。
+- `merchant_preference`：商家明确偏好。
+- `merchant_pattern`：经 review 的稳定模式。
+- `operational_constraint`：稳定运营约束。
+
+明确禁止把当前订单状态、退款状态、工单状态、审批结论、政策规则、单次客服判断或单次工具调用的当前业务状态快照发布成 long-term memory authority。这些内容必须来自当前业务工具、RAG evidence、approval/action binding 或审计日志。
 
 ### 9.5 Memory 写入策略
 
@@ -880,7 +889,8 @@ flowchart TD
 写入规则：
 
 - `ConversationLog`、`ToolCallLog`、短期 thread summary 通常可以自动写入，因为它们是审计/运行事实或短期投影。
-- 明确用户偏好、确定性工具结果、确认后的业务 outcome 可以自动进入 long-term，但必须记录 source 和 policy version。
+- 明确用户偏好可以自动进入 long-term，但必须记录 source 和 policy version。
+- 确定性工具结果、确认后的业务 outcome、审批状态只有在语义是 durable 且不是当前业务对象状态时，才可以自动进入 long-term；缺失 `source_ref.business_object_type` 或指向 order/refund/refund_case/ticket/logistics/approval/action/coupon/payment 时必须进入 review。
 - LLM 推断出的偏好、语义 episode、跨 case pattern 不能直接 published，通常进入 review。
 - `CaseMemory` 作为 precedent/outcome memory，默认需要 review 后才能被检索为依据。
 - 敏感 PII、违反 retention policy、被 tombstone 覆盖的信息必须 skip/block。

@@ -42,9 +42,24 @@ class ContextAssembler:
         case_memory_snippets: Sequence[Any] | None = None,
         tool_result_summaries: Sequence[Any] | None = None,
         business_context: Mapping[str, Any] | None = None,
+        memory_context_bundle: Mapping[str, Any] | None = None,
         node_hints: str | Sequence[str] | None = None,
         safety_constraints: Sequence[str] | None = None,
     ) -> PromptAssembly:
+        bundle = _mapping_from_model(memory_context_bundle)
+        session_context = _mapping_from_model(bundle.get("session_context"))
+        if thread_rolling_summary is None:
+            thread_rolling_summary = _rolling_summary_from_session_context(session_context)
+        if recent_messages is None:
+            recent_messages = _sequence_from_mapping(session_context.get("recent_messages"))
+        if tool_result_summaries is None:
+            tool_result_summaries = _sequence_from_mapping(session_context.get("tool_summaries"))
+        if not profile_memory_snippets:
+            profile_memory_snippets = _sequence_from_mapping(bundle.get("long_term_items"))
+        if not case_memory_snippets:
+            case_memory_snippets = _sequence_from_mapping(bundle.get("case_items"))
+        node_hints = _merge_node_hints(_policy_hint_lines(session_context), node_hints)
+
         blocks: list[PromptBlock] = [
             PromptBlock("system_prompt", system_prompt, priority=100, protected=True),
         ]
@@ -123,6 +138,61 @@ def _project_node_hints(hints: str | Sequence[str] | None) -> str:
     if isinstance(hints, str):
         return hints.strip()
     return "\n".join(str(item).strip() for item in hints if str(item).strip())
+
+
+def _mapping_from_model(value: Any) -> Mapping[str, Any]:
+    if hasattr(value, "model_dump"):
+        dumped = value.model_dump(mode="json")
+        return dumped if isinstance(dumped, Mapping) else {}
+    return value if isinstance(value, Mapping) else {}
+
+
+def _sequence_from_mapping(value: Any) -> list[Any]:
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
+        return list(value)
+    return []
+
+
+def _rolling_summary_from_session_context(session_context: Mapping[str, Any]) -> str | None:
+    summary = _mapping_from_model(session_context.get("rolling_summary"))
+    text = summary.get("summary_text")
+    return str(text) if text else None
+
+
+def _policy_hint_lines(session_context: Mapping[str, Any]) -> list[str]:
+    lines: list[str] = []
+    topic_hints = [
+        str(item).strip()
+        for item in _sequence_from_mapping(session_context.get("policy_topic_hints"))
+        if str(item).strip()
+    ]
+    if topic_hints:
+        lines.append("Policy retrieval hints only; not evidence: " + ", ".join(topic_hints[:8]))
+    mention_refs = []
+    for ref in _sequence_from_mapping(session_context.get("prior_policy_mention_refs"))[:8]:
+        mapping = _mapping_from_model(ref)
+        parts = [
+            f"{key}={value}"
+            for key in ("doc_key", "chunk_id", "policy_version", "policy_family", "title", "section")
+            if (value := mapping.get(key))
+        ]
+        if parts:
+            mention_refs.append(", ".join(str(part) for part in parts))
+    if mention_refs:
+        lines.append("Prior policy mentions are retrieval hints only: " + " | ".join(mention_refs))
+    return lines
+
+
+def _merge_node_hints(bundle_hints: Sequence[str], node_hints: str | Sequence[str] | None) -> str | list[str] | None:
+    hints = [str(item).strip() for item in bundle_hints if str(item).strip()]
+    if isinstance(node_hints, str):
+        if node_hints.strip():
+            hints.append(node_hints.strip())
+    elif node_hints is not None:
+        hints.extend(str(item).strip() for item in node_hints if str(item).strip())
+    if not hints:
+        return None
+    return hints
 
 
 def _cap_memory_blocks(profile_memory: str, case_memory: str, *, max_chars: int = 1600) -> tuple[str, str]:

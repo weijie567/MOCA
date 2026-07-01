@@ -226,6 +226,44 @@ async def test_case_memory_candidate_event_is_observable(session: AsyncSession, 
 
 
 @pytest.mark.asyncio
+async def test_case_memory_service_lists_active_pending_review_rows(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    now = datetime.now(UTC)
+    tenant_id = seeded_session["tenant"].id
+    other_tenant_id = seeded_session["other_tenant"].id
+    pending = _case_row(
+        seeded_session,
+        review_status="needs_review",
+        summary="Pending case memory.",
+    )
+    approved = _case_row(
+        seeded_session,
+        review_status="approved",
+        summary="Approved case memory.",
+    )
+    deleted_pending = _case_row(
+        seeded_session,
+        review_status="needs_review",
+        summary="Deleted pending case memory.",
+        deleted_at=now,
+    )
+    cross_tenant_pending = _case_row(
+        seeded_session,
+        tenant_id=other_tenant_id,
+        review_status="needs_review",
+        summary="Cross-tenant pending case memory.",
+    )
+    session.add_all([pending, approved, deleted_pending, cross_tenant_pending])
+    await session.flush()
+
+    rows = await CaseMemoryService(CaseMemoryRepository(session)).list_pending_review(tenant_id=tenant_id)
+
+    assert [row.id for row in rows] == [pending.id]
+
+
+@pytest.mark.asyncio
 async def test_duplicate_active_case_memory_write_returns_skipped_existing_memory(
     session: AsyncSession,
     seeded_session: dict,

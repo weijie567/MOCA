@@ -445,6 +445,7 @@ async def _assemble_recommendation_prompt(
             *(state.get("tool_results") or []),
         ],
         business_context=state.get("business_context") or {},
+        memory_context_bundle=state.get("memory_context_bundle") or state.get("session_context_bundle"),
         node_hints=[
             f"Allowed citation objects: {allowed_citations}",
             "For evidence_refs, copy one or more complete objects from Allowed citation objects.",

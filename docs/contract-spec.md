@@ -2466,9 +2466,12 @@ memory_write_events
 - run_id uuid not null references agent_runs(id)
 - memory_type varchar not null
 - memory_id uuid null
-- schema_version varchar not null default 'memory_write_event.v2'
+- schema_version varchar not null default 'memory_write_event.v3'
 - decision varchar not null
 - reason_code varchar not null
+- policy_version varchar not null default 'memory_write_policy.v1'
+- blocked_by_json jsonb not null default []
+- authority_class varchar not null default 'contextual_only'
 - pii_classification varchar not null
 - candidate_hash varchar not null
 - audit_event_id uuid null

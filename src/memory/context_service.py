@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from src.memory.case_memory import CaseMemoryService
 from src.memory.context_refs import (
+    MemoryContextBundle,
     MemoryWriteDecisionV2,
     ReviewedMemoryContextBundle,
     ReviewedMemoryRef,
@@ -28,6 +29,7 @@ _LONG_TERM_ITEM_KEYS = (
     "scope_type",
     "scope_id",
     "memory_kind",
+    "semantic_kind",
     "content",
     "source_type",
     "source_ref",
@@ -243,6 +245,41 @@ class MemoryContextService:
             status_ref=status_ref,
         )
 
+    async def load_memory_bundle_after_slot_resolution(
+        self,
+        *,
+        session_context: SessionContextMemory,
+        session_status_ref: SessionContextLoadStatusV1 | None = None,
+        reviewed_memory_context: ReviewedMemoryContextBundle | None = None,
+        trusted_context: Any | None = None,
+        current_slots: Mapping[str, Any] | None = None,
+        trusted_business_context: Mapping[str, Any] | None = None,
+        requested_scopes: list[dict[str, Any]] | None = None,
+        query: str | None = None,
+        case_type: str | None = None,
+        now: datetime | None = None,
+        limit: int = 5,
+    ) -> MemoryContextBundle:
+        reviewed = reviewed_memory_context
+        if reviewed is None:
+            reviewed = await self.load_reviewed_memory_context(
+                trusted_context=trusted_context,
+                current_slots=current_slots,
+                trusted_business_context=trusted_business_context,
+                requested_scopes=requested_scopes,
+                query=query,
+                case_type=case_type,
+                now=now,
+                limit=limit,
+            )
+        return MemoryContextBundle(
+            session_context=session_context,
+            long_term_items=list(reviewed.long_term_items),
+            case_items=list(reviewed.case_items),
+            session_status_ref=session_status_ref,
+            reviewed_status_ref=reviewed.status_ref,
+        )
+
     def project_memory_write_decision(
         self,
         legacy_result: Mapping[str, Any] | Any,
@@ -271,6 +308,8 @@ class MemoryContextService:
             pii_classification=str(result.get("pii_classification") or "none"),
             review_status=str(result.get("review_status") or _review_status_for_status(status, decision)),
             reason_code=_memory_write_decision_reason_code(result),
+            policy_version=str(result.get("policy_version") or "memory_write_policy.v1"),
+            blocked_by=_string_list(result.get("blocked_by") or result.get("blocked_by_json")),
             fallback_reason=fallback_reason if fallback_reason is not None else _optional_str(result.get("fallback_reason")),
         )
 
@@ -691,6 +730,9 @@ def _mapping(value: Mapping[str, Any] | Any) -> dict[str, Any]:
             "pii_classification",
             "review_status",
             "reason_code",
+            "policy_version",
+            "blocked_by",
+            "blocked_by_json",
             "fallback_reason",
         )
         if hasattr(value, key)
@@ -713,6 +755,12 @@ def _optional_str(value: Any) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list | tuple | set):
+        return []
+    return [str(item) for item in value if item is not None]
 
 
 def _review_status_for_status(status: str, decision: str) -> str:

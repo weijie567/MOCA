@@ -665,9 +665,18 @@ class MemoryWriteEvent(Base):
     run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_runs.id"), nullable=False)
     memory_type: Mapped[str] = mapped_column(String(32), nullable=False)
     memory_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
-    schema_version: Mapped[str] = mapped_column(String(48), nullable=False, default="memory_write_event.v2")
+    schema_version: Mapped[str] = mapped_column(
+        String(48), nullable=False, default="memory_write_event.v3", server_default="memory_write_event.v3"
+    )
     decision: Mapped[str] = mapped_column(String(32), nullable=False)
     reason_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    policy_version: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="memory_write_policy.v1", server_default="memory_write_policy.v1"
+    )
+    blocked_by_json: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    authority_class: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="contextual_only", server_default="contextual_only"
+    )
     pii_classification: Mapped[str] = mapped_column(String(32), nullable=False)
     candidate_hash: Mapped[str] = mapped_column(String(80), nullable=False)
     source_ref_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)

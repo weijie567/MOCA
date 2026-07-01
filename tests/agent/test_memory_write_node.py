@@ -13,7 +13,7 @@ from src.agent.nodes import memory_write as memory_write_module
 from src.agent.nodes.memory_write import memory_write
 from src.agent.trace import write_agent_run
 from src.db.models import AgentTraceEvent, SessionMemory
-from src.memory.schemas import SessionMemoryWriteResult
+from src.memory.schemas import CaseMemoryWriteResult, LongTermMemoryWriteResult, SessionMemoryWriteResult
 
 
 def _state(**updates: object) -> dict:
@@ -100,6 +100,105 @@ async def test_memory_write_node_writes_explicit_slots_and_unresolved_questions(
         "business_fact_refs": [{"resource_type": "order", "resource_id": "ORD-1001"}]
     }
     assert candidate.expected_version == 3
+
+
+async def test_memory_write_node_applies_explicit_long_term_and_case_candidates_through_facade(monkeypatch):
+    session_candidates = []
+    long_term_candidates = []
+    case_candidates = []
+    digest = "sha256:" + "b" * 64
+
+    class FakeMemoryService:
+        def __init__(self, repository, *, enabled: bool = True) -> None:
+            pass
+
+        async def write_session_memory(self, candidate):
+            session_candidates.append(candidate)
+            return SessionMemoryWriteResult(
+                status="written",
+                version=4,
+                decision="write",
+                reason_code="eligible",
+                pii_classification="none",
+            )
+
+    class FakeLongTermMemoryService:
+        def __init__(self, repository) -> None:
+            pass
+
+        async def write_memory(self, candidate):
+            long_term_candidates.append(candidate)
+            return LongTermMemoryWriteResult(
+                status="needs_review",
+                memory_id=None,
+                review_status="needs_review",
+                decision="needs_review",
+                reason_code="requires_review",
+                pii_classification=candidate.pii_classification,
+                candidate_hash=digest,
+                content_hash=digest,
+                source_identity_hash=None,
+            )
+
+    class FakeCaseMemoryService:
+        def __init__(self, repository) -> None:
+            pass
+
+        async def submit_case_memory_candidate(self, candidate):
+            case_candidates.append(candidate)
+            return CaseMemoryWriteResult(
+                status="written",
+                memory_id=None,
+                review_status="auto_approved",
+                decision="write",
+                reason_code="auto_approved_source",
+                pii_classification=candidate.pii_classification,
+                candidate_hash=digest,
+                content_hash=digest,
+                source_identity_hash=None,
+            )
+
+    monkeypatch.setattr(memory_write_module, "MemoryService", FakeMemoryService)
+    monkeypatch.setattr(memory_write_module, "LongTermMemoryService", FakeLongTermMemoryService)
+    monkeypatch.setattr(memory_write_module, "CaseMemoryService", FakeCaseMemoryService)
+    tenant_id = str(uuid4())
+    run_id = str(uuid4())
+    state = _state(
+        tenant_id=tenant_id,
+        current_run_id=run_id,
+        memory_write_candidates=[
+            {
+                "memory_type": "long_term",
+                "tenant_id": tenant_id,
+                "run_id": run_id,
+                "scope_type": "merchant",
+                "scope_id": "merchant-1",
+                "memory_kind": "preference",
+                "content": "Merchant prefers concise refund updates.",
+                "source_type": "llm_candidate",
+            },
+            {
+                "memory_type": "case",
+                "tenant_id": tenant_id,
+                "run_id": run_id,
+                "scope_type": "case",
+                "scope_id": "case-1",
+                "case_type": "refund_dispute",
+                "summary": "Reviewed precedent summary.",
+                "excerpt": "Reviewed case excerpt.",
+                "source_type": "human_reviewed",
+            },
+        ]
+    )
+
+    result = await memory_write(state, {"configurable": {"session": object()}})
+
+    assert result["memory_write_result"]["status"] == "written"
+    assert [item["memory_type"] for item in result["memory_write_candidates"]] == ["session", "long_term", "case"]
+    assert [item["status"] for item in result["memory_write_results"]] == ["written", "needs_review", "written"]
+    assert len(session_candidates) == 1
+    assert len(long_term_candidates) == 1
+    assert len(case_candidates) == 1
 
 
 async def test_memory_write_failure_preserves_final_response(monkeypatch):
