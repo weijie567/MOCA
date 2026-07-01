@@ -25,7 +25,11 @@ v2.1 is a bounded, pre-scoped cleanup of the tool-call platform's contract debt 
   2. `ToolRuntime` failure paths produce their `(error result, projection, decision event, outcome tuple)` through one shared `_fail` helper instead of ten duplicated branches.
   3. `ToolPolicyEngine.runtime_auth` expresses its authorization checks as a declarative gate sequence rather than a hardcoded if-chain.
   4. Existing tool-platform, policy, and runtime tests remain green, and no external contract shape (`ToolResultV2`, `ToolCallContext`, `ToolPolicyDecision`, `ToolViewV1`, `ToolInvocationOutcome`) is added to, removed from, or renamed.
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 37-01-PLAN.md — registry single-source declaration rows and drift guards for catalog/manager tool lists.
+- [ ] 37-02-PLAN.md — `ToolRuntime._fail(...)` failure helper consolidation with safe projection/event regressions.
+- [ ] 37-03-PLAN.md — declarative `runtime_auth` gate sequence plus final Phase 37 contract/regression sweep.
 **UI hint**: no
 
 ### Phase 38: output_schema Declaration + Runtime Output-Validation Enforcement

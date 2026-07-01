@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Tool Platform Hardening
-status: roadmap_ready
-stopped_at: Roadmap created for v2.1; Phases 37-39 defined, awaiting phase planning
-last_updated: "2026-07-01T00:00:00.000Z"
-last_activity: 2026-07-01 -- v2.1 roadmap created (Phases 37-39)
+status: ready_to_execute
+stopped_at: Phase 37 planned; ready to execute 3 plans
+last_updated: "2026-07-01T16:03:45.356Z"
+last_activity: 2026-07-01 -- Phase 37 planned (3 plans)
 progress:
   total_phases: 3
   completed_phases: 0
-  total_plans: 0
+  total_plans: 3
   completed_plans: 0
   percent: 0
 ---
@@ -25,10 +25,10 @@ See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 ## Current Position
 
-Phase: Not started (roadmap created; next is Phase 37 planning)
-Plan: —
-Status: Roadmap ready
-Last activity: 2026-07-01 -- v2.1 roadmap created (Phases 37-39)
+Phase: 37 Tool Declaration + Runtime/Policy Internal Consolidation
+Plan: 3 plans ready
+Status: Ready to execute
+Last activity: 2026-07-01 -- Phase 37 planned (3 plans)
 
 Progress: [          ] 0%
 
@@ -58,7 +58,7 @@ Planning files:
 
 | Phase | Plans | Status |
 |-------|-------|--------|
-| 37. Tool Declaration + Runtime/Policy Internal Consolidation (TPH-03, TPH-04) | 0/TBD | Not started |
+| 37. Tool Declaration + Runtime/Policy Internal Consolidation (TPH-03, TPH-04) | 0/3 | Ready to execute |
 | 38. output_schema Declaration + Runtime Output-Validation Enforcement (TPH-01) | 0/TBD | Not started |
 | 39. contract-spec §12.5/§12.6 Reconciliation (TPH-02) | 0/TBD | Not started |
 
@@ -132,7 +132,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 Last session: 2026-07-01T00:00:00.000Z
 Stopped at: v2.1 roadmap created; Phases 37-39 defined
 Resume file: `.planning/ROADMAP.md`
-Next: Run `$gsd-plan-phase 37`.
+Next: Run `$gsd-execute-phase 37`.
 
 **Completed Phase:** 35 (Replay and Eval Hardening) — 6/6 plans complete; UAT 8/8 passed; security `threats_open: 0` — 2026-06-29
 
@@ -140,4 +140,6 @@ Next: Run `$gsd-plan-phase 37`.
 
 **Completed Phase:** 36 (Merchant-scope DB Hardening / Role Cleanup) — 6/6 plans complete — 2026-06-30
 
-**Next Roadmap Item:** plan Phase 37
+**Next Roadmap Item:** execute Phase 37
+
+**Planned Phase:** 37 (Tool Declaration + Runtime/Policy Internal Consolidation) — 3 plans — 2026-07-01T16:03:45.343Z
