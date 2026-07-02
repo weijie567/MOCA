@@ -72,7 +72,7 @@ Plans:
 | 38. output_schema Declaration + Runtime Output-Validation Enforcement | 3/3 | Complete    | 2026-07-02 |
 | 39. contract-spec §12.5/§12.6 Reconciliation | 1/1 | Complete | 2026-07-02 |
 | 40. Tool Contract Validation Hardening | 3/3 | Complete | 2026-07-02 |
-| 41. Tool Platform Legacy Manager Cleanup | 0/0 | Not planned | |
+| 41. Tool Platform Legacy Manager Cleanup | 0/4 | Planned | |
 
 ### Phase 40: Tool Contract Validation Hardening
 
@@ -103,7 +103,10 @@ Plans:
   3. Tests and fake platforms no longer depend on `UnifiedToolManager` private internals such as `_platform` or `_descriptors`; equivalent coverage is migrated to `ToolPlatform`/`ToolCatalog`.
   4. `src/tools/manager.py` and `src.tools.__all__/__getattr__` no longer expose `UnifiedToolManager`, unless planning discovers a hard external API blocker and records a stop decision.
   5. The phase receives an implementation code review before milestone archive because it changes public compatibility surface and crosses production, tests, and spec.
-**Plans:** 0 plans
+**Plans:** 4 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 41 to break down)
+- [ ] 41-01-PLAN.md — spec/API decision cleanup plus `_side_effect_allowed` relocation.
+- [ ] 41-02-PLAN.md — production injection seam and manager-shaped test fake migration to `ToolPlatform`.
+- [ ] 41-03-PLAN.md — delete `UnifiedToolManager`, public export, and compatibility tests after coverage migration.
+- [ ] 41-04-PLAN.md — implementation code review, final verification, and Phase 41 completion record.
