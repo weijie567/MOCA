@@ -16,7 +16,7 @@ tech-stack:
   added: []
   patterns:
     - frozen internal declaration rows feeding ToolDescriptor creation
-    - descriptor-attribute filtering for planner-visible investigate tools
+    - catalog helper feeding planner-visible investigate tool selection
 
 key-files:
   created:
@@ -30,11 +30,11 @@ key-files:
 key-decisions:
   - "Keep _IDENTIFIER_SCHEMAS as a private compatibility surface, but derive it from _TOOL_DECLARATIONS."
   - "Remove manager.INVESTIGATE_TOOL_NAMES after local review confirmed it was an unused internal compatibility value."
-  - "Filter UnifiedToolManager.descriptors(\"investigate\") directly by descriptor caller_allowlist, kind, and exposure so custom descriptors are not constrained by the default catalog constant."
+  - "Route UnifiedToolManager.descriptors(\"investigate\") through catalog.investigate_tool_names(...) so manager and tests share the same derived helper."
 
 patterns-established:
   - "Tool declaration edits should happen in _TOOL_DECLARATIONS, with descriptor construction and compatibility maps derived from that table."
-  - "Planner-visible investigate tools are identified by descriptor attributes, not by a second hand-maintained name list."
+  - "Planner-visible investigate tools are identified through catalog.investigate_tool_names(...), not by duplicated manager/test predicates."
 
 requirements-completed: [TPH-03]
 
@@ -59,7 +59,7 @@ completed: 2026-07-02
 - Added drift guards that compare `_IDENTIFIER_SCHEMAS` to `ToolCatalog().descriptors()` and preserve generic `{"type": "object"}` output schemas for Phase 37.
 - Replaced the test-only hand-maintained investigate tool set with a helper derived from `ToolCatalog().descriptors()`.
 - Introduced `_ToolDeclaration` and `_TOOL_DECLARATIONS` as the single internal declaration table for the nine current catalog entries.
-- Changed manager investigate filtering to use descriptor `caller_allowlist`, `kind`, and `exposure` instead of a hardcoded tool-name set.
+- Changed manager investigate filtering to call `catalog.investigate_tool_names(self._descriptors.values())` instead of keeping its own name set or inline predicate.
 
 ## Task Commits
 
@@ -68,28 +68,31 @@ Each task was committed atomically:
 1. **Task 1: Add registry and manager drift tests** - `dee1556` (test)
 2. **Task 2: Implement single-source declaration rows and catalog-derived investigate filtering** - `0030380` (refactor)
 3. **Post-review cleanup: Remove unused manager tool-name constant** - `38db83c` (refactor)
+4. **Post-review fix: Route manager investigate discovery through catalog helper** - `ff72c2d` (fix)
 
 ## Files Created/Modified
 
 - `src/tools/catalog.py` - Adds `_ToolDeclaration`, `_TOOL_DECLARATIONS`, derived `_IDENTIFIER_SCHEMAS`, derived descriptor construction, and `investigate_tool_names(...)`.
-- `src/tools/manager.py` - Removes the literal investigate tool set and filters investigate descriptors directly by descriptor attributes.
-- `tests/tools/test_catalog.py` - Adds schema/output drift coverage and derives investigate expectations from catalog descriptors.
-- `tests/agent/test_tools/test_unified_tool_manager.py` - Replaces the module-level literal investigate set with a catalog-derived helper.
+- `src/tools/manager.py` - Removes the literal investigate tool set and delegates investigate descriptor selection to `investigate_tool_names(...)`.
+- `tests/tools/test_catalog.py` - Adds schema/output drift coverage and uses the production `investigate_tool_names(...)` helper.
+- `tests/agent/test_tools/test_unified_tool_manager.py` - Replaces the module-level literal investigate set with the production helper and guards manager/helper wiring.
 
 ## Decisions Made
 
 - Kept `_IDENTIFIER_SCHEMAS` because tests and local compatibility surfaces still reference it, but made it derived only.
 - Removed `INVESTIGATE_TOOL_NAMES` from `manager.py` after local review found no references outside its own definition.
+- Fixed a post-review TPH-03 gap where manager and tests still duplicated the investigate-selection predicate instead of consuming `investigate_tool_names(...)`.
 - Did not change `ToolDescriptor`, `ToolResultV2`, `ToolCallContext`, `ToolPolicyDecision`, `ToolViewV1`, or `ToolInvocationOutcome` fields.
 - Did not implement real per-tool output schemas; all descriptors still use `_GENERIC_OBJECT_SCHEMA`.
 
 ## Deviations from Plan
 
-None - plan scope was executed as written.
+A post-review issue showed the first implementation did not fully meet the TPH-03 single-source intent: `investigate_tool_names(...)` existed but manager/tests were not all consuming it. This has been fixed in `ff72c2d`.
 
 ## Issues Encountered
 
 - The Task 1 TDD command passed before Task 2 because the pre-existing duplicated schema/name values were already data-consistent. The structural refactor was still required and completed because production still had duplicated declaration sources.
+- Post-review TPH-03 wiring gap: manager had no literal name set, but still kept an inline investigate predicate and tests had local helper copies. The fix routes manager/tests through `catalog.investigate_tool_names(...)` and adds a monkeypatch guard for the manager call.
 - The wave-level full relevant suite could not complete because local PostgreSQL was not accepting connections on `localhost:5432`; 61 tests passed before 14 DB-backed fixture setup errors. This was recorded in `.planning/LOCAL-VALIDATION-ISSUES.md`.
 
 ## Verification
@@ -97,6 +100,7 @@ None - plan scope was executed as written.
 - `uv run pytest tests/tools/test_catalog.py tests/agent/test_tools/test_unified_tool_manager.py -q` -> `41 passed, 1 warning`
 - `uv run ruff check src/tools/catalog.py src/tools/manager.py tests/tools/test_catalog.py tests/agent/test_tools/test_unified_tool_manager.py` -> passed
 - Post-review cleanup check: `uv run pytest tests/tools/test_catalog.py tests/agent/test_tools/test_unified_tool_manager.py -q` -> `41 passed, 1 warning`; `uv run ruff check src/tools/manager.py tests/agent/test_tools/test_unified_tool_manager.py` -> passed
+- Post-review TPH-03 helper wiring check: `uv run pytest tests/tools/test_catalog.py tests/agent/test_tools/test_unified_tool_manager.py -q` -> `42 passed, 1 warning`; `uv run ruff check src/tools/manager.py tests/tools/test_catalog.py tests/agent/test_tools/test_unified_tool_manager.py` -> passed
 - `rg -n '"get_order"|"search_sop"|INVESTIGATE_TOOL_NAMES = \{' src/tools/manager.py` -> no matches
 - `uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/agent/test_tools/test_unified_tool_manager.py tests/replay/test_tool_policy_events.py tests/architecture/test_trusted_context_boundaries.py -q` -> blocked by local PostgreSQL connection refusal; not a product-code failure signal
 
