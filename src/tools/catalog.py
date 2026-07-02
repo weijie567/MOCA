@@ -39,11 +39,146 @@ class RegisteredTool:
 
 
 _GENERIC_OBJECT_SCHEMA: dict[str, Any] = {"type": "object"}
+_NULLABLE_STRING_SCHEMA: dict[str, Any] = {"type": ["string", "null"]}
+_NO_DATA_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": False,
+}
+_ORDER_RELATION_HINTS_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "has_active_refund": {"type": "boolean"},
+        "latest_refund_case_id": _NULLABLE_STRING_SCHEMA,
+        "has_open_ticket": {"type": "boolean"},
+        "latest_ticket_id": _NULLABLE_STRING_SCHEMA,
+    },
+    "required": [
+        "has_active_refund",
+        "latest_refund_case_id",
+        "has_open_ticket",
+        "latest_ticket_id",
+    ],
+    "additionalProperties": False,
+}
+_ORDER_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "order_no": {"type": "string", "minLength": 1},
+        "merchant_id": {"type": "string", "minLength": 1},
+        "status": {"type": "string", "minLength": 1},
+        "amount": {"type": "string", "minLength": 1},
+        "currency": {"type": "string", "minLength": 1},
+        "buyer_name": {"type": "string", "minLength": 1},
+        "item_name": {"type": "string", "minLength": 1},
+        "paid_at": _NULLABLE_STRING_SCHEMA,
+        "delivered_at": _NULLABLE_STRING_SCHEMA,
+        "relation_hints": _ORDER_RELATION_HINTS_OUTPUT_SCHEMA,
+    },
+    "required": [
+        "order_no",
+        "merchant_id",
+        "status",
+        "amount",
+        "currency",
+        "buyer_name",
+        "item_name",
+        "paid_at",
+        "delivered_at",
+        "relation_hints",
+    ],
+    "additionalProperties": False,
+}
+_REFUND_CASE_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "refund_case_no": {"type": "string", "minLength": 1},
+        "merchant_id": {"type": "string", "minLength": 1},
+        "status": {"type": "string", "minLength": 1},
+        "reason_code": {"type": "string", "minLength": 1},
+        "reason_text": {"type": "string", "minLength": 1},
+        "requested_amount": {"type": "string", "minLength": 1},
+        "approved_amount": _NULLABLE_STRING_SCHEMA,
+    },
+    "required": [
+        "refund_case_no",
+        "merchant_id",
+        "status",
+        "reason_code",
+        "reason_text",
+        "requested_amount",
+        "approved_amount",
+    ],
+    "additionalProperties": False,
+}
+_TICKET_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "ticket_no": {"type": "string", "minLength": 1},
+        "merchant_id": {"type": "string", "minLength": 1},
+        "status": {"type": "string", "minLength": 1},
+        "channel": {"type": "string", "minLength": 1},
+        "summary": {"type": "string", "minLength": 1},
+    },
+    "required": ["ticket_no", "merchant_id", "status", "channel", "summary"],
+    "additionalProperties": False,
+}
+_SEARCH_POLICY_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "retrieval_status": {
+            "type": "string",
+            "enum": ["strong_evidence", "partial_evidence", "no_evidence", "error"],
+        },
+        "best_score": {"type": "number"},
+        "threshold": {"type": "number"},
+        "summary": _NULLABLE_STRING_SCHEMA,
+    },
+    "required": ["retrieval_status", "best_score", "threshold", "summary"],
+    "additionalProperties": False,
+}
+_CASE_MEMORY_REF_ARRAY_SCHEMA: dict[str, Any] = {"type": "array", "items": {"type": "object"}}
+_CASE_MEMORY_ITEM_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "case_memory_id": {"type": "string", "minLength": 1},
+        "excerpt": {"type": "string", "minLength": 1},
+        "applicability": _NULLABLE_STRING_SCHEMA,
+        "outcome": _NULLABLE_STRING_SCHEMA,
+        "caveats": _NULLABLE_STRING_SCHEMA,
+        "score": {"type": "number"},
+        "policy_refs": _CASE_MEMORY_REF_ARRAY_SCHEMA,
+        "source_refs": _CASE_MEMORY_REF_ARRAY_SCHEMA,
+    },
+    "required": [
+        "case_memory_id",
+        "excerpt",
+        "applicability",
+        "outcome",
+        "caveats",
+        "score",
+        "policy_refs",
+        "source_refs",
+    ],
+    "additionalProperties": False,
+}
+_SEARCH_CASE_MEMORY_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "items": {"type": "array", "items": _CASE_MEMORY_ITEM_OUTPUT_SCHEMA},
+    },
+    "required": ["items"],
+    "additionalProperties": False,
+}
+
+
 @dataclass(frozen=True)
 class _ToolDeclaration:
     name: str
     kind: Literal["read", "retrieval", "write"]
     input_schema: dict[str, Any]
+    output_schema: dict[str, Any]
     side_effect: Literal["read_only", "retrieval", "write"]
     caller_allowlist: tuple[str, ...]
     event_family: Literal["tool_call_*", "rag_retrieval_*", "action"] | None
@@ -65,6 +200,7 @@ _TOOL_DECLARATIONS: tuple[_ToolDeclaration, ...] = (
             "properties": {"order_no": {"type": "string", "minLength": 1}},
             "required": ["order_no"],
         },
+        output_schema=_ORDER_OUTPUT_SCHEMA,
         side_effect="read_only",
         caller_allowlist=("investigate",),
         event_family="tool_call_*",
@@ -79,6 +215,7 @@ _TOOL_DECLARATIONS: tuple[_ToolDeclaration, ...] = (
             "properties": {"refund_case_no": {"type": "string", "minLength": 1}},
             "required": ["refund_case_no"],
         },
+        output_schema=_REFUND_CASE_OUTPUT_SCHEMA,
         side_effect="read_only",
         caller_allowlist=("investigate",),
         event_family="tool_call_*",
@@ -93,6 +230,7 @@ _TOOL_DECLARATIONS: tuple[_ToolDeclaration, ...] = (
             "properties": {"ticket_id": {"type": "string", "minLength": 1}},
             "required": ["ticket_id"],
         },
+        output_schema=_TICKET_OUTPUT_SCHEMA,
         side_effect="read_only",
         caller_allowlist=("investigate",),
         event_family="tool_call_*",
@@ -107,6 +245,7 @@ _TOOL_DECLARATIONS: tuple[_ToolDeclaration, ...] = (
             "properties": {"tracking_no": {"type": "string", "minLength": 1}},
             "required": ["tracking_no"],
         },
+        output_schema=_NO_DATA_OUTPUT_SCHEMA,
         side_effect="read_only",
         caller_allowlist=("investigate",),
         event_family="tool_call_*",
@@ -121,6 +260,7 @@ _TOOL_DECLARATIONS: tuple[_ToolDeclaration, ...] = (
             "properties": {"merchant_id": {"type": "string", "minLength": 1}},
             "required": ["merchant_id"],
         },
+        output_schema=_NO_DATA_OUTPUT_SCHEMA,
         side_effect="read_only",
         caller_allowlist=("investigate",),
         event_family="tool_call_*",
@@ -141,6 +281,7 @@ _TOOL_DECLARATIONS: tuple[_ToolDeclaration, ...] = (
             },
             "required": ["query"],
         },
+        output_schema=_SEARCH_POLICY_OUTPUT_SCHEMA,
         side_effect="retrieval",
         caller_allowlist=("investigate",),
         event_family="rag_retrieval_*",
@@ -155,6 +296,7 @@ _TOOL_DECLARATIONS: tuple[_ToolDeclaration, ...] = (
             "properties": {"query": {"type": "string", "minLength": 1}},
             "required": ["query"],
         },
+        output_schema=_NO_DATA_OUTPUT_SCHEMA,
         side_effect="retrieval",
         caller_allowlist=("investigate",),
         event_family="rag_retrieval_*",
@@ -173,6 +315,7 @@ _TOOL_DECLARATIONS: tuple[_ToolDeclaration, ...] = (
             "properties": {"query": {"type": "string", "minLength": 1}},
             "required": ["query"],
         },
+        output_schema=_SEARCH_CASE_MEMORY_OUTPUT_SCHEMA,
         side_effect="retrieval",
         caller_allowlist=("investigate",),
         event_family="rag_retrieval_*",
@@ -209,6 +352,7 @@ _TOOL_DECLARATIONS: tuple[_ToolDeclaration, ...] = (
                 "safety_snapshot_hash",
             ],
         },
+        output_schema=_GENERIC_OBJECT_SCHEMA,
         side_effect="write",
         caller_allowlist=("action_draft",),
         event_family="action",
@@ -228,7 +372,7 @@ def _descriptor(declaration: _ToolDeclaration) -> ToolDescriptor:
         description=declaration.description,
         kind=declaration.kind,
         input_schema=declaration.input_schema,
-        output_schema=_GENERIC_OBJECT_SCHEMA,
+        output_schema=declaration.output_schema,
         risk_level=declaration.kind,
         side_effect=declaration.side_effect,
         required_permission=f"tool:{declaration.name}",
