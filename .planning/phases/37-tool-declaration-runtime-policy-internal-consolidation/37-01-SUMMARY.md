@@ -1,0 +1,111 @@
+---
+phase: 37-tool-declaration-runtime-policy-internal-consolidation
+plan: 01
+subsystem: tools
+tags: [tool-catalog, unified-tool-manager, drift-guard, pytest, ruff]
+
+requires: []
+provides:
+  - single-source tool declaration rows in src/tools/catalog.py
+  - derived identifier schema compatibility map
+  - catalog-derived investigate tool filtering in UnifiedToolManager
+  - registry/name/schema drift tests for catalog and manager
+affects: [phase-37, phase-38, tool-platform, tool-catalog, unified-tool-manager]
+
+tech-stack:
+  added: []
+  patterns:
+    - frozen internal declaration rows feeding ToolDescriptor creation
+    - descriptor-attribute filtering for planner-visible investigate tools
+
+key-files:
+  created:
+    - .planning/phases/37-tool-declaration-runtime-policy-internal-consolidation/37-01-SUMMARY.md
+  modified:
+    - src/tools/catalog.py
+    - src/tools/manager.py
+    - tests/tools/test_catalog.py
+    - tests/agent/test_tools/test_unified_tool_manager.py
+
+key-decisions:
+  - "Keep _IDENTIFIER_SCHEMAS as a private compatibility surface, but derive it from _TOOL_DECLARATIONS."
+  - "Keep manager.INVESTIGATE_TOOL_NAMES for compatibility, but derive it from catalog.investigate_tool_names()."
+  - "Filter UnifiedToolManager.descriptors(\"investigate\") directly by descriptor caller_allowlist, kind, and exposure so custom descriptors are not constrained by the default catalog constant."
+
+patterns-established:
+  - "Tool declaration edits should happen in _TOOL_DECLARATIONS, with descriptor construction and compatibility maps derived from that table."
+  - "Planner-visible investigate tools are identified by descriptor attributes, not by a second hand-maintained name list."
+
+requirements-completed: [TPH-03]
+
+duration: 6 min
+completed: 2026-07-02
+---
+
+# Phase 37 Plan 01: Registry Single-Source Summary
+
+**Tool declarations now flow from one catalog declaration table into descriptor schemas and manager investigate visibility.**
+
+## Performance
+
+- **Duration:** 6 min
+- **Started:** 2026-07-02T00:06:52Z
+- **Completed:** 2026-07-02T00:12:37Z
+- **Tasks:** 2
+- **Files modified:** 4
+
+## Accomplishments
+
+- Added drift guards that compare `_IDENTIFIER_SCHEMAS` to `ToolCatalog().descriptors()` and preserve generic `{"type": "object"}` output schemas for Phase 37.
+- Replaced the test-only hand-maintained investigate tool set with a helper derived from `ToolCatalog().descriptors()`.
+- Introduced `_ToolDeclaration` and `_TOOL_DECLARATIONS` as the single internal declaration table for the nine current catalog entries.
+- Changed manager investigate filtering to use descriptor `caller_allowlist`, `kind`, and `exposure` instead of a hardcoded tool-name set.
+
+## Task Commits
+
+Each task was committed atomically:
+
+1. **Task 1: Add registry and manager drift tests** - `dee1556` (test)
+2. **Task 2: Implement single-source declaration rows and catalog-derived investigate filtering** - `0030380` (refactor)
+
+## Files Created/Modified
+
+- `src/tools/catalog.py` - Adds `_ToolDeclaration`, `_TOOL_DECLARATIONS`, derived `_IDENTIFIER_SCHEMAS`, derived descriptor construction, and `investigate_tool_names(...)`.
+- `src/tools/manager.py` - Removes the literal investigate tool set and filters investigate descriptors directly by descriptor attributes.
+- `tests/tools/test_catalog.py` - Adds schema/output drift coverage and derives investigate expectations from catalog descriptors.
+- `tests/agent/test_tools/test_unified_tool_manager.py` - Replaces the module-level literal investigate set with a catalog-derived helper.
+
+## Decisions Made
+
+- Kept `_IDENTIFIER_SCHEMAS` because tests and local compatibility surfaces still reference it, but made it derived only.
+- Kept `INVESTIGATE_TOOL_NAMES` as an exported compatibility value, but made it derived from `investigate_tool_names()`.
+- Did not change `ToolDescriptor`, `ToolResultV2`, `ToolCallContext`, `ToolPolicyDecision`, `ToolViewV1`, or `ToolInvocationOutcome` fields.
+- Did not implement real per-tool output schemas; all descriptors still use `_GENERIC_OBJECT_SCHEMA`.
+
+## Deviations from Plan
+
+None - plan scope was executed as written.
+
+## Issues Encountered
+
+- The Task 1 TDD command passed before Task 2 because the pre-existing duplicated schema/name values were already data-consistent. The structural refactor was still required and completed because production still had duplicated declaration sources.
+- The wave-level full relevant suite could not complete because local PostgreSQL was not accepting connections on `localhost:5432`; 61 tests passed before 14 DB-backed fixture setup errors. This was recorded in `.planning/LOCAL-VALIDATION-ISSUES.md`.
+
+## Verification
+
+- `uv run pytest tests/tools/test_catalog.py tests/agent/test_tools/test_unified_tool_manager.py -q` -> `41 passed, 1 warning`
+- `uv run ruff check src/tools/catalog.py src/tools/manager.py tests/tools/test_catalog.py tests/agent/test_tools/test_unified_tool_manager.py` -> passed
+- `rg -n '"get_order"|"search_sop"|INVESTIGATE_TOOL_NAMES = \{' src/tools/manager.py` -> no matches
+- `uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/agent/test_tools/test_unified_tool_manager.py tests/replay/test_tool_policy_events.py tests/architecture/test_trusted_context_boundaries.py -q` -> blocked by local PostgreSQL connection refusal; not a product-code failure signal
+
+## User Setup Required
+
+None - no external service configuration required for 37-01 itself. Local PostgreSQL must be running before the Phase 37 full relevant suite can be marked fully green.
+
+## Next Phase Readiness
+
+Ready for `37-02-PLAN.md`. The consolidated catalog declaration table gives Phase 38 a stable place to replace generic output schemas later. Before final Phase 37 verification, rerun the full relevant suite with local PostgreSQL available.
+
+---
+*Phase: 37-tool-declaration-runtime-policy-internal-consolidation*
+*Completed: 2026-07-02*

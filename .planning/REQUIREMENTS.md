@@ -14,7 +14,7 @@
 
 ### Tool Declaration Consolidation
 
-- [ ] **TPH-03**: Tool declarations resolve from a single-source registry; duplicate hardcoded lists (`catalog._IDENTIFIER_SCHEMAS`, `manager.INVESTIGATE_TOOL_NAMES`) are either derived from that registry or consistency-checked against it, so adding or changing a tool does not require hand-editing multiple lists (satisfies spec §12.6 single-declaration / no-drift rule).
+- [x] **TPH-03**: Tool declarations resolve from a single-source registry; duplicate hardcoded lists (`catalog._IDENTIFIER_SCHEMAS`, `manager.INVESTIGATE_TOOL_NAMES`) are either derived from that registry or consistency-checked against it, so adding or changing a tool does not require hand-editing multiple lists (satisfies spec §12.6 single-declaration / no-drift rule).
 
 ### Runtime / Policy Internal Convergence
 
@@ -38,9 +38,9 @@ _None. This milestone is a bounded, pre-scoped cleanup._
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TPH-03 | Phase 37 | Pending |
+| TPH-03 | Phase 37 | Complete |
 | TPH-04 | Phase 37 | Pending |
 | TPH-01 | Phase 38 | Pending |
 | TPH-02 | Phase 39 | Pending |
 
-**Coverage:** 4/4 v2.1 requirements mapped, each to exactly one phase. No orphans, no duplicates.
+**Coverage:** 4/4 v2.1 requirements mapped, each to exactly one phase. 1 complete, 3 pending. No orphans, no duplicates.

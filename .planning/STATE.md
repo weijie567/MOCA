@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Tool Platform Hardening
 status: executing
-stopped_at: Phase 37 execution in progress
-last_updated: "2026-07-02T00:06:52.264Z"
-last_activity: 2026-07-02 -- Phase 37 execution started
+stopped_at: Completed Phase 37 plan 37-01; continuing to 37-02
+last_updated: "2026-07-02T00:12:37Z"
+last_activity: 2026-07-02 -- Phase 37 plan 37-01 completed
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 3
-  completed_plans: 0
-  percent: 0
+  completed_plans: 1
+  percent: 33
 ---
 
 # Project State: MOCA
@@ -21,16 +21,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 37 Tool Declaration + Runtime/Policy Internal Consolidation — execution in progress
+**Current focus:** Phase 37 Tool Declaration + Runtime/Policy Internal Consolidation — plan 37-02 next
 
 ## Current Position
 
 Phase: 37 Tool Declaration + Runtime/Policy Internal Consolidation — EXECUTING
-Plan: 1 of 3
-Status: Executing Phase 37
-Last activity: 2026-07-02 -- Phase 37 execution started
+Plan: 2 of 3
+Status: Executing Phase 37; 37-01 complete
+Last activity: 2026-07-02 -- Phase 37 plan 37-01 completed
 
-Progress: [          ] 0%
+Progress: [###       ] 33%
 
 Planning files:
 
@@ -58,7 +58,7 @@ Planning files:
 
 | Phase | Plans | Status |
 |-------|-------|--------|
-| 37. Tool Declaration + Runtime/Policy Internal Consolidation (TPH-03, TPH-04) | 0/3 | Ready to execute |
+| 37. Tool Declaration + Runtime/Policy Internal Consolidation (TPH-03, TPH-04) | 1/3 | In progress |
 | 38. output_schema Declaration + Runtime Output-Validation Enforcement (TPH-01) | 0/TBD | Not started |
 | 39. contract-spec §12.5/§12.6 Reconciliation (TPH-02) | 0/TBD | Not started |
 
@@ -93,6 +93,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - TPH-01 is `output_schema` (data-shape) enforcement only and MUST NOT alter the `ToolResultV2` envelope shape (HIGH blast radius, 7 external consumers).
 - TPH-02 is a spec-catches-up-to-code edit and MUST go through the dual-AI review workflow; planning must first re-check commit `4dcb673`'s effect on §12.5/§12.6.
 - `ToolCallContext` §8.0 identity fields are off-limits across all phases; domain ownership/scope enforcement in BusinessFactService is not rebuilt.
+- Phase 37 plan 37-01 completed TPH-03 by making `_IDENTIFIER_SCHEMAS` and `INVESTIGATE_TOOL_NAMES` derived from catalog declarations/descriptors while preserving external contract shapes.
 
 ### Roadmap Evolution
 
@@ -109,7 +110,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ### Blockers / Concerns
 
-- No active blockers.
+- Phase 37 wave full relevant suite currently needs local PostgreSQL on `localhost:5432`; without it, DB-backed tests fail during fixture setup. Focused 37-01 pytest and ruff gates passed.
 
 ## Deferred Items
 
@@ -129,10 +130,10 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ## Session Continuity
 
-Last session: 2026-07-01T00:00:00.000Z
-Stopped at: v2.1 roadmap created; Phases 37-39 defined
-Resume file: `.planning/ROADMAP.md`
-Next: Run `$gsd-execute-phase 37`.
+Last session: 2026-07-02T00:12:37Z
+Stopped at: Completed Phase 37 plan 37-01; continuing to 37-02
+Resume file: `.planning/phases/37-tool-declaration-runtime-policy-internal-consolidation/37-02-PLAN.md`
+Next: Continue `$gsd-execute-phase 37`.
 
 **Completed Phase:** 35 (Replay and Eval Hardening) — 6/6 plans complete; UAT 8/8 passed; security `threats_open: 0` — 2026-06-29
 

@@ -27,7 +27,7 @@ v2.1 is a bounded, pre-scoped cleanup of the tool-call platform's contract debt 
   4. Existing tool-platform, policy, and runtime tests remain green, and no external contract shape (`ToolResultV2`, `ToolCallContext`, `ToolPolicyDecision`, `ToolViewV1`, `ToolInvocationOutcome`) is added to, removed from, or renamed.
 **Plans**: 3 plans
 Plans:
-- [ ] 37-01-PLAN.md — registry single-source declaration rows and drift guards for catalog/manager tool lists.
+- [x] 37-01-PLAN.md — registry single-source declaration rows and drift guards for catalog/manager tool lists.
 - [ ] 37-02-PLAN.md — `ToolRuntime._fail(...)` failure helper consolidation with safe projection/event regressions.
 - [ ] 37-03-PLAN.md — declarative `runtime_auth` gate sequence plus final Phase 37 contract/regression sweep.
 **UI hint**: no
@@ -60,6 +60,6 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 37. Tool Declaration + Runtime/Policy Internal Consolidation | 0/TBD | Not started | - |
+| 37. Tool Declaration + Runtime/Policy Internal Consolidation | 1/3 | In Progress | - |
 | 38. output_schema Declaration + Runtime Output-Validation Enforcement | 0/TBD | Not started | - |
 | 39. contract-spec §12.5/§12.6 Reconciliation | 0/TBD | Not started | - |
