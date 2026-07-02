@@ -5,16 +5,13 @@ from typing import Any, Protocol
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.events import classify_event_family
-from src.tools.catalog import RegisteredTool, ToolCatalog, ToolDescriptor, investigate_tool_names
+from src.tools.catalog import RegisteredTool, ToolCatalog, ToolDescriptor
 from src.tools.contracts import ToolCallContext, ToolResultV2, ToolViewV1
 from src.tools.executors.action import ActionToolExecutor
 from src.tools.executors.business import BusinessToolExecutor
 from src.tools.executors.knowledge import KnowledgeToolExecutor
 from src.tools.executors.memory import MemoryToolExecutor
 from src.tools.platform import ToolPlatform
-
-
-INVESTIGATE_TOOL_NAMES = investigate_tool_names()
 
 
 class ToolExecutor(Protocol):
