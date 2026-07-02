@@ -10675,3 +10675,52 @@ PY
 - `src/memory/case_memory.py`
 - `tests/memory/test_long_term_memory_service.py`
 - `tests/memory/test_case_memory_retrieval.py`
+
+## 2026-07-02 23:22 CST - Phase 43 security artifact 检查使用 zsh 裸 glob 失败
+
+### 问题现象
+
+在 Phase 43 自检收尾检查是否存在 `*-SECURITY.md` 时，使用 zsh 裸 glob：
+
+```bash
+ls .planning/phases/43-intent-recognition-multi-intent-tier-a/*-SECURITY.md 2>/dev/null || true
+```
+
+由于目录下没有匹配文件，zsh 在执行 `ls` 前直接报 `no matches found`。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行上述命令，且 Phase 43 目录下不存在 `*-SECURITY.md`。
+
+### 关键证据或命令
+
+失败输出：
+
+```text
+zsh:1: no matches found: .planning/phases/43-intent-recognition-multi-intent-tier-a/*-SECURITY.md
+```
+
+随后改用不依赖 shell glob 展开的命令：
+
+```bash
+find .planning/phases/43-intent-recognition-multi-intent-tier-a -maxdepth 1 -name '*-SECURITY.md' -type f -print
+```
+
+该命令正常执行，输出为空，确认 Phase 43 当前没有 security artifact。
+
+### 当前判断 / 根因
+
+这是本地验证命令写法问题，不是 MOCA 源码问题。zsh 默认对未匹配 glob 报错；验证脚本/命令里检查可选文件时应使用 `find`，或显式处理 zsh glob 行为。
+
+### 已做处理
+
+已用 `find ... -name '*-SECURITY.md'` 重跑检查并完成判断：`workflow.security_enforcement=true`，Phase 43 目前没有 `*-SECURITY.md`。
+
+### 剩余问题
+
+无代码问题。流程层面仍需按 security gate 决定是否运行 `$gsd-secure-phase 43`。
+
+### 下次继续排查入口
+
+- `.planning/phases/43-intent-recognition-multi-intent-tier-a/`
+- `$HOME/.codex/get-shit-done/workflows/verify-work.md`
