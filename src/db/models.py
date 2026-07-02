@@ -579,6 +579,120 @@ Index(
 )
 
 
+class CaseWorkingContext(TimestampMixin, Base):
+    __tablename__ = "case_working_contexts"
+    __table_args__ = (
+        CheckConstraint(
+            "authority_class = 'contextual_only'",
+            name="ck_case_working_contexts_authority_class",
+        ),
+        CheckConstraint("version > 0", name="ck_case_working_contexts_version_positive"),
+        CheckConstraint(MEMORY_PII_CLASSIFICATION_CHECK, name="ck_case_working_contexts_pii_classification"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    case_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("refund_cases.id"), nullable=False)
+    schema_version: Mapped[str] = mapped_column(
+        String(48), nullable=False, default="case_working_context.v1", server_default="case_working_context.v1"
+    )
+    authority_class: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="contextual_only", server_default="contextual_only"
+    )
+    customer_request: Mapped[str | None] = mapped_column(Text)
+    issue_type: Mapped[str | None] = mapped_column(String(64))
+    claims_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    verified_facts_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    missing_info_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    evidence_refs_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    actions_taken_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    policy_refs_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    agent_recommendations_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    pending_tasks_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    commitments_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    next_action_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    source_ref_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    version: Mapped[int] = mapped_column(default=1, server_default="1", nullable=False)
+    updated_by_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_runs.id"))
+    pii_classification: Mapped[str] = mapped_column(String(32), nullable=False, default="none", server_default="none")
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+Index("ix_case_working_contexts_tenant_id", CaseWorkingContext.tenant_id)
+Index(
+    "uq_case_working_contexts_active_scope",
+    CaseWorkingContext.tenant_id,
+    CaseWorkingContext.case_id,
+    unique=True,
+    postgresql_where=CaseWorkingContext.deleted_at.is_(None),
+)
+
+
+class CaseWorkingContextRevision(Base):
+    __tablename__ = "case_working_context_revisions"
+    __table_args__ = (
+        CheckConstraint(
+            "edit_source IN ('run_auto', 'staff_manual')",
+            name="ck_cwc_revisions_edit_source",
+        ),
+        CheckConstraint("version > 0", name="ck_cwc_revisions_version_positive"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    case_working_context_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("case_working_contexts.id"), nullable=False
+    )
+    case_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("refund_cases.id"), nullable=False)
+    version: Mapped[int] = mapped_column(nullable=False)
+    snapshot_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    edit_source: Mapped[str] = mapped_column(String(32), nullable=False)
+    updated_by_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_runs.id"))
+    source_ref_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+Index(
+    "uq_cwc_revisions_context_version",
+    CaseWorkingContextRevision.tenant_id,
+    CaseWorkingContextRevision.case_working_context_id,
+    CaseWorkingContextRevision.version,
+    unique=True,
+)
+Index(
+    "ix_cwc_revisions_case",
+    CaseWorkingContextRevision.tenant_id,
+    CaseWorkingContextRevision.case_id,
+    CaseWorkingContextRevision.version,
+)
+
+
 class MemoryTombstone(TimestampMixin, Base):
     __tablename__ = "memory_tombstones"
     __table_args__ = (
