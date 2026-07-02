@@ -1381,7 +1381,7 @@ class ToolPlatform(Protocol):
     def visible_tools(self, caller: str, ctx: ToolCallContext) -> list[ToolView]: ...
     async def invoke(self, name: str, input_data: dict[str, Any], ctx: ToolCallContext) -> ToolInvocationOutcome: ...
     def descriptor(self, name: str) -> ToolDescriptor | None: ...
-    def event_family(self, name: str) -> str: ...
+    def event_family(self, name: str) -> str | None: ...
 
 class UnifiedToolManager(Protocol):
     def visible_tools(self, caller: str, ctx: ToolCallContext) -> list[ToolView]: ...
@@ -1400,8 +1400,8 @@ Catalog / platform / compatibility manager rules：
 - `ToolPolicyEngine` 必须为 planner visibility 和 runtime authorization 都产生 `ToolPolicyDecision` 或等价 decision event。Planner visible 不等于 runtime allowed；`invoke` 必须按 tool args、resource scope 和 current `ToolCallContext` 重新授权。
 - `caller_allowlist` 必须使用合并后的单一节点名 `investigate`；不得声明旧节点名 `load_business_context` 或 `retrieve_policy_evidence`。
 - `kind=read|retrieval` 的 descriptor 才可出现在 `investigate` allowlist，且 `side_effect` 必须为 `none|read_only|retrieval` 之一（非写副作用）；`kind=write` 不得通过 `BusinessToolService.invoke_tool` 或 `investigate` loop 执行。
-- `event_family` 必须与 §12.4 事件族规则一致；同一 operation 只发 descriptor 指定的一族事件。
-- catalog 是 read/retrieval/write 全量工具的声明来源，但「可被 LLM 在 `investigate` loop 内调用」仅限上一条的 read/retrieval 子集；write 工具在 catalog 中声明为 node-only，执行走 §13/§16 risk_gate → approval → `execute_action` → `ToolPlatform.invoke` → action executor 确定性安全链。write 工具的执行事件走 §17 `action_*` 事件族。
+- `event_family` 必须与 §12.4 事件族规则一致；同一 operation 只发 descriptor 指定的一族事件。`ToolPlatform.event_family(...)` 对未知工具或无事件族 descriptor 返回 `None`；调用方必须显式处理 `None`，不得编造 fallback 事件族。
+- catalog 是 read/retrieval/write 全量工具的声明来源，但「可被 LLM 在 `investigate` loop 内调用」仅限上一条的 read/retrieval 子集；write 工具在 catalog 中声明为 node-only，执行走 §13/§16 risk_gate → approval / auto-allow binding → `action_draft` → `ToolPlatform.invoke("create_coupon_grant_draft", ..., ctx.caller_node="action_draft")` → action executor / ActionDraftService 确定性安全链。write 工具的执行事件走 §17 `action_*` 事件族。
 - 产生 `BusinessFactRefV1` 的工具，其非空 `resource_type` 必须与返回 ref 的 `resource_type` 及 §12.5 枚举一致；不产生 business fact ref 的工具使用 `null`。
 
 `investigate` allowlist 的 descriptor 概要如下；各工具的 `input_schema` / `output_schema` 在 Phase 9 实现时按 registry 落地：
