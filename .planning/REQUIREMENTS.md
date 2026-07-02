@@ -40,7 +40,7 @@ _None. This milestone is a bounded, pre-scoped cleanup._
 |-------------|-------|--------|
 | TPH-03 | Phase 37 | Complete |
 | TPH-04 | Phase 37 | Complete; DB-backed pytest pending local PostgreSQL |
-| TPH-01 | Phase 38 | Complete; DB-backed pytest pending local PostgreSQL |
+| TPH-01 | Phase 38 | Complete; DB-backed pytest passed |
 | TPH-02 | Phase 39 | Pending |
 
 **Coverage:** 4/4 v2.1 requirements mapped, each to exactly one phase. 3 complete, 1 pending. No orphans, no duplicates.
