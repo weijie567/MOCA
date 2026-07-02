@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
 status: in_progress
-stopped_at: Phase 42 (intent three-layer decoupling) retroactively registered; multi-intent tier A next
-last_updated: "2026-07-02T11:51:35Z"
-last_activity: 2026-07-02 -- Rescoped v2.1 to Core Subsystem Hardening umbrella; registered Phase 42 intent three-layer decoupling retroactively
+stopped_at: Phase 43 (intent multi-intent tier A) planning
+last_updated: "2026-07-02T12:11:52Z"
+last_activity: 2026-07-02 -- Registered Phase 43 intent multi-intent tier A for full plan-phase
 progress:
-  total_phases: 6
+  total_phases: 7
   completed_phases: 6
   total_plans: 15
   completed_plans: 15
-  percent: 100
+  percent: 86
 ---
 
 # Project State: MOCA
@@ -21,7 +21,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v2.1 Core Subsystem Hardening — tool platform (Phase 37-41) done; intent recognition three-layer decoupling (Phase 42) registered; multi-intent tier A next.
+**Current focus:** v2.1 Core Subsystem Hardening — tool platform (Phase 37-41) done; intent recognition three-layer decoupling (Phase 42) registered; multi-intent tier A (Phase 43) planning.
 
 ## Rescope note (2026-07-02)
 
@@ -30,13 +30,13 @@ See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 ## Current Position
 
-Phase: 42 (Intent Recognition Three-Layer Decoupling) — COMPLETE (retroactively registered)
-Plan: three-layer decoupling implemented by Codex on the intent-layering brief; baseline committed at `a0a98e4`
-Status: complete
-Last activity: 2026-07-02 -- Retroactive Phase 42 registration; multi-intent tier A (Phase 43) is the next planned work
-Next: Phase 43 = multi-intent tier A, per `.planning/intent-multi-a-codex-brief.md`; run its plan-then-execute via the dual-AI workflow.
+Phase: 43 (Intent Recognition Multi-Intent Tier A) — PLANNING
+Plan: to be generated from `.planning/intent-multi-a-codex-brief.md`
+Status: planning
+Last activity: 2026-07-02 -- Phase 43 registered for full plan-phase
+Next: run Phase 43 plan-phase with plan-checker + Codex cross-review, then execute only after the plan is clean.
 
-Progress: [██████████] 100%
+Progress: [████████░░] 86%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -62,6 +62,7 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | 40. Tool Contract Validation Hardening (TPH-05) | 3/3 | Complete |
 | 41. Tool Platform Legacy Manager Cleanup (TPH-06) | 4/4 | Complete |
 | 42. Intent Recognition Three-Layer Decoupling (IR-01) | 1/1 | Complete (retroactively registered) |
+| 43. Intent Recognition Multi-Intent Tier A (IDR-02) | TBD | Planning |
 
 Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review. Phase 40 closes the source-confirmed validation/backstop gaps intentionally deferred or left advisory after Phase 38/39. Phase 41 then handles the explicit breaking cleanup/API decision to remove the `UnifiedToolManager` legacy compatibility adapter.
 

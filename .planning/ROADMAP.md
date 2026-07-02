@@ -21,6 +21,7 @@ Code implementation is delegated to Codex per the project workflow; Claude is pl
 - [x] **Phase 39: contract-spec §12.5/§12.6 Reconciliation** - Spec catches up to implemented contract fields via dual-AI review, without touching §8.0-locked identity fields (TPH-02). Plan progress: 1/1 complete.
 - [x] **Phase 40: Tool Contract Validation Hardening** - Close source-confirmed validation/backstop gaps left after TPH-01 without changing `ToolResultV2`, `ToolCallContext` §8.0 identity fields, BusinessFactService ownership runtime semantics, or the `UnifiedToolManager` compatibility API (TPH-05).
 - [x] **Phase 41: Tool Platform Legacy Manager Cleanup** - Make the API/spec decision to remove the `UnifiedToolManager` legacy compatibility adapter and converge production/tests to `ToolPlatform` as the single graph-facing entrypoint (TPH-06). Plan progress: 4/4 complete.
+- [ ] **Phase 43: Intent Recognition Multi-Intent Tier A** - Preserve multi-intent utterances as a bounded `TaskPlan`, execute only the safe read-only prefix in the current turn, and surface all later steps as deferred confirmations without changing the single-intent route contract (IDR-02).
 
 ## Phase Details
 
@@ -80,6 +81,7 @@ Plans:
 | 40. Tool Contract Validation Hardening | 3/3 | Complete | 2026-07-02 |
 | 41. Tool Platform Legacy Manager Cleanup | 4/4 | Complete | 2026-07-02 |
 | 42. Intent Recognition Three-Layer Decoupling | 1/1 | Complete (retroactively registered) | 2026-07-02 |
+| 43. Intent Recognition Multi-Intent Tier A | TBD | Planning | — |
 
 ### Phase 40: Tool Contract Validation Hardening
 
@@ -136,4 +138,19 @@ Plans:
 Plans:
 - [x] 42-01-SUMMARY.md — retroactive record of the three-layer decoupling refactor (design → Codex implementation → green verification), anchored to commit `a0a98e4`.
 
-**Deferred to a later phase (not this one):** ID-02 confidence calibration (still 🔴; only a `calibrated_confidence` parameter placeholder landed) and ID-04 multi-intent tier A (`.planning/intent-multi-a-codex-brief.md`), which becomes the next phase.
+**Deferred to a later phase (not this one):** ID-02 confidence calibration (still 🔴; only a `calibrated_confidence` parameter placeholder landed). ID-04 multi-intent tier A is handled by Phase 43.
+
+### Phase 43: Intent Recognition Multi-Intent Tier A
+
+**Goal:** Extend intent recognition from a single winner into a bounded tier-A task plan: preserve multiple user requests in `TaskPlan`, normalize only explicit modifier cases, execute only the current turn's safe read-only prefix, and surface all non-executed steps as deferred confirmations in trace and final response.
+**Requirements**: IDR-02
+**Depends on:** Phase 42 (three-layer intent contracts; `SemanticIntent` / `RiskDecision` / `ClarificationDecision` are the foundation for plan construction and read-only prefix decisions)
+**Success Criteria** (what must be TRUE):
+  1. `TaskStep` and `TaskPlan` frozen data contracts exist alongside the Phase 42 intent-layer contracts, with stable step IDs, per-step intent/operation/entities/dependencies/relation, and a terminal step ID.
+  2. N=1 plans are exact behavior-equivalent fallbacks to the existing single-intent route surface: `primary_intent`, `requested_operation`, `risk_tier`, `route_decision`, and current tests do not regress.
+  3. N>1 plans are derived deterministically from the existing single LLM result plus keyword signals; no new LLM call, no `IntentResultV3` schema change, no prompt change, no new risk-tier enum.
+  4. Modifier normalization is conservative: `small_talk` is dropped, secondary `complaint_escalation` is folded only as severity for the allowed main intents, and independent query/draft/action intents remain explicit steps.
+  5. Execution gating only permits the contiguous prefix whose per-step `resolve_risk_decision(...).tier` is `read_only`; every later step is recorded as `deferred_steps` and is not executed in the same turn.
+  6. `classification_trace` records the task plan, executable prefix, deferred steps, and normalization/fallback decisions; final responses visibly mention deferred steps and the complaint-folding safety note when applicable.
+  7. Invalid plans fail closed to the existing single-intent path and record `plan_invalid_fallback_single`, rather than throwing, silently dropping requests, or auto-running high-risk work.
+**Plans:** TBD by plan-phase
