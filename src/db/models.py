@@ -1117,6 +1117,47 @@ Index(
 Index("ix_conversation_threads_case_id", ConversationThread.case_id)
 
 
+class ThreadCaseLink(TimestampMixin, Base):
+    __tablename__ = "thread_case_links"
+    __table_args__ = (
+        CheckConstraint(
+            "link_source IN ('run_auto', 'staff_manual', 'import')",
+            name="ck_thread_case_links_link_source",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    conversation_thread_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("conversation_threads.id"), nullable=False
+    )
+    thread_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    case_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("refund_cases.id"), nullable=False)
+    link_source: Mapped[str] = mapped_column(String(32), nullable=False)
+    linked_by_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_runs.id"))
+    schema_version: Mapped[str] = mapped_column(
+        String(48), nullable=False, default="thread_case_link.v1", server_default="thread_case_link.v1"
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+Index("ix_thread_case_links_tenant_id", ThreadCaseLink.tenant_id)
+Index(
+    "ix_thread_case_links_tenant_case",
+    ThreadCaseLink.tenant_id,
+    ThreadCaseLink.case_id,
+    postgresql_where=ThreadCaseLink.deleted_at.is_(None),
+)
+Index(
+    "uq_thread_case_links_active",
+    ThreadCaseLink.tenant_id,
+    ThreadCaseLink.conversation_thread_id,
+    ThreadCaseLink.case_id,
+    unique=True,
+    postgresql_where=ThreadCaseLink.deleted_at.is_(None),
+)
+
+
 class ConversationMessage(TimestampMixin, Base):
     __tablename__ = "conversation_messages"
     __table_args__ = (
