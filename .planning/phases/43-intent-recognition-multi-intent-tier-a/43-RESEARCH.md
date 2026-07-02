@@ -395,22 +395,19 @@ response_text = _append_deferred_confirmations(
 |---|-------|---------|---------------|
 | A1 | ASVS and STRIDE category mapping labels are used as a security-review taxonomy, not as repo-owned implementation facts. | Security Domain | Security review may prefer different category labels; implementation controls remain repo-verified. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **How should valid `TaskPlan` handling neutralize existing `multi_target_request` clarification?**
+1. **RESOLVED — How should valid `TaskPlan` handling neutralize existing `multi_target_request` clarification?**
    - What we know: `detect_pre_route` flags "同时/以及/顺便" as clarification, and Phase 43 requires safe prefix execution plus deferred confirmations. [VERIFIED: src/agent/intent_policy.py:521; .planning/REQUIREMENTS.md:30]
-   - What's unclear: Exact helper shape is implementation discretion. [VERIFIED: .planning/phases/43-intent-recognition-multi-intent-tier-a/43-CONTEXT.md]
-   - Recommendation: Clear only the multi-target clarification path after a valid plan is built; never clear approval/safety-sensitive pre-route guards. [VERIFIED: src/agent/intent_policy.py:530; src/agent/intent_policy.py:540]
+   - Resolution: Clear only the current-turn clarification effect of `multi_target_request` after a valid `TaskPlan` is built: do not set `routing_hints["requires_clarification"]` or `routing_hints["clarification_reason"]` for this disposition, and pass a non-clarifying pre-route value into clarification decision code. Keep the original pre-route in `classification_trace`. Never clear `approval_chat_not_trusted` or `safety_sensitive`. [VERIFIED: src/agent/intent_policy.py:530; src/agent/intent_policy.py:540]
 
-2. **Should secondary-step operation inference expose a public helper?**
+2. **RESOLVED — Should secondary-step operation inference expose a public helper?**
    - What we know: `_operation_for_selected_intent` already maps selected intents to operation defaults, but it is private. [VERIFIED: src/agent/intent_policy.py:828]
-   - What's unclear: Whether tests should import a new public helper or validate behavior through `build_task_plan`. [VERIFIED: tests/agent/test_intent_routing.py:539]
-   - Recommendation: Keep the mapping in `intent_policy.py`; either reuse the private helper internally or promote a narrow public helper with tests. [VERIFIED: src/agent/intent_policy.py:828]
+   - Resolution: Keep operation inference inside `intent_policy.py` and validate it through the public TaskPlan builder behavior. Do not require tests to import `_operation_for_selected_intent`; the builder can reuse the private helper internally or expose a narrow helper only if implementation needs a non-private seam. [VERIFIED: src/agent/intent_policy.py:828]
 
-3. **How much same-intent multi-entity merging is safe with current entity shape?**
+3. **RESOLVED — How much same-intent multi-entity merging is safe with current entity shape?**
    - What we know: current slot models mostly use scalar fields, while `IntentResultV3.candidate_slots` is a free dict. [VERIFIED: src/agent/schemas.py:80; src/agent/schemas.py:87]
-   - What's unclear: Whether existing downstream nodes can consume list-valued IDs without changes. [VERIFIED: src/agent/routing.py:98]
-   - Recommendation: Merge only when the existing candidate-slot shape already contains non-lossy combined entities; otherwise preserve current single effective route and trace the limitation. [VERIFIED: .planning/phases/43-intent-recognition-multi-intent-tier-a/43-CONTEXT.md]
+   - Resolution: Merge duplicate same-intent candidates into one step only when the existing `candidate_slots` shape is already non-lossy, for example list-valued identifier fields already produced by the classifier. Do not invent list-valued IDs from separate scalar slots or change downstream slot consumption. When scalar shape prevents non-lossy entity merging, keep one same-intent step with the available entities and record `same_intent_entity_merge_limited` in plan normalization. [VERIFIED: .planning/phases/43-intent-recognition-multi-intent-tier-a/43-CONTEXT.md]
 
 ## Sources
 
