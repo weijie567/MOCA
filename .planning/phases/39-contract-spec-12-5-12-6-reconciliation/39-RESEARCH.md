@@ -415,17 +415,20 @@ decision = self._denied_decision(
 | A1 | A generated docs parser is unnecessary for this single doc-only phase. [ASSUMED] | Standard Stack / Don't Hand-Roll | If wrong, planner may need a Wave 0 doc-drift test before editing. |
 | A2 | Manually guessed field lists and new parsers are examples of what not to build. [ASSUMED] | Don't Hand-Roll | Low risk; recommendations are backed by verified runtime field inventory alternatives. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should §8.0 projection table local-field note be updated?**
+   - RESOLVED: Yes. The current plan allows and requires only a minimal §8.0 projection table local-field note update listing `effective_at`, `approval_ref`, and `safety_snapshot_ref`; it must not change protected identity/scope fields or §8.0 semantics.
    - What we know: §8.0 projection table currently lists `request_id` / `tool_call_id` / `caller_node` / `deadline_at` / `attempt` / `idempotency_key` / `policy_snapshot_ref` as tool-call-local fields and does not list `effective_at`, `approval_ref`, or `safety_snapshot_ref`. [CITED: docs/contract-spec.md:149-155]
    - What's unclear: Phase title/success criteria focus on §12.5/§12.6, but leaving the §8.0 note stale may confuse reviewers. [VERIFIED: .planning/ROADMAP.md]
    - Recommendation: Keep the main edit in §12.5/§12.6; allow a minimal §8.0 projection-note update only if it adds the local-field names without redefining §8.0 semantics. [CITED: docs/contract-spec.md:37-39] [VERIFIED: .planning/REQUIREMENTS.md]
 2. **Should `ToolDescriptor.description` be added to §12.6?**
+   - RESOLVED: Yes. Add `ToolDescriptor.description: str = ""` to §12.6 because the current plan intentionally chooses exact current model parity for `ToolDescriptor` while remaining docs-only.
    - What we know: implementation includes `description: str = ""`, but TPH-02 success criteria do not list it. [VERIFIED: src/tools/catalog.py:18] [VERIFIED: .planning/REQUIREMENTS.md]
    - What's unclear: Adding it would improve exact model parity, but it is outside the user-listed required field set. [VERIFIED: user prompt]
    - Recommendation: Keep Phase 39 narrow; add `description` only if the planner explicitly scopes "full current model parity" beyond the enumerated TPH-02 fields. [VERIFIED: .planning/ROADMAP.md]
 3. **Should §12.6 document `event_family: ... | None`?**
+   - RESOLVED: Yes. Document `event_family` as `Literal["tool_call_*", "rag_retrieval_*", "action"] | None` because the implementation allows `None`, while current default catalog descriptors set non-`None` values.
    - What we know: implementation type allows `None`, but all current default catalog descriptors set a non-`None` event family. [VERIFIED: src/tools/catalog.py:26] [VERIFIED: uv run python descriptor inventory]
    - What's unclear: The phase requirement explicitly names `event_family` value `action`, not `None`. [VERIFIED: .planning/REQUIREMENTS.md]
    - Recommendation: Add `"action"` as required; document `None` only if wording says it is an implementation optionality for non-emitting future descriptors, not current catalog behavior. [VERIFIED: src/tools/catalog.py:26] [VERIFIED: .planning/REQUIREMENTS.md]
