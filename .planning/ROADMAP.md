@@ -2,7 +2,7 @@
 
 ## Overview
 
-v2.1 is a bounded, pre-scoped cleanup of the tool-call platform's contract debt and implementation gaps. The journey runs in three dependency-ordered, blast-radius-aware waves: first consolidate the tool declaration source and converge the runtime/policy internals with no external contract change (Phase 37), then layer real `output_schema` declaration and `ToolRuntime` output-validation enforcement on top of the consolidated registry and shared failure helper (Phase 38), and finally reconcile `docs/contract-spec.md` §12.5/§12.6 with the implemented contract fields so spec catches up to code, via the dual-AI review workflow (Phase 39). Throughout, `ToolCallContext` §8.0 identity fields stay locked and HIGH-blast-radius `ToolResultV2`/`ToolCallContext` envelope shapes are not changed — this milestone hardens data-shape enforcement and declaration hygiene only. Code implementation is delegated to Codex per the project workflow; Claude is plan designer and adjudicator, and these are planning/spec phases, not "Claude writes all the code" phases.
+v2.1 is a bounded cleanup of the tool-call platform's contract debt, implementation gaps, and legacy compatibility surface. The journey runs in dependency-ordered, blast-radius-aware waves: first consolidate the tool declaration source and converge the runtime/policy internals with no external contract change (Phase 37), then layer real `output_schema` declaration and `ToolRuntime` output-validation enforcement on top of the consolidated registry and shared failure helper (Phase 38), reconcile `docs/contract-spec.md` §12.5/§12.6 with the implemented contract fields (Phase 39), close source-confirmed validation/backstop gaps (Phase 40), and finally decide/remove the `UnifiedToolManager` legacy compatibility adapter so `ToolPlatform` is the sole graph-facing tool entrypoint (Phase 41). Throughout, `ToolCallContext` §8.0 identity fields stay locked and HIGH-blast-radius `ToolResultV2`/`ToolCallContext` envelope shapes are not changed. Code implementation is delegated to Codex per the project workflow; Claude is plan designer and adjudicator, and these are planning/spec phases, not "Claude writes all the code" phases.
 
 ## Phases
 
@@ -14,6 +14,7 @@ v2.1 is a bounded, pre-scoped cleanup of the tool-call platform's contract debt 
 - [x] **Phase 38: output_schema Declaration + Runtime Output-Validation Enforcement** - Real `output_schema` for all eight tools, enforced in the `ToolRuntime` output-validation gate as `invalid_response` mapping (TPH-01). Plan progress: 3/3 complete; DB-backed pytest passed.
 - [x] **Phase 39: contract-spec §12.5/§12.6 Reconciliation** - Spec catches up to implemented contract fields via dual-AI review, without touching §8.0-locked identity fields (TPH-02). Plan progress: 1/1 complete.
 - [x] **Phase 40: Tool Contract Validation Hardening** - Close source-confirmed validation/backstop gaps left after TPH-01 without changing `ToolResultV2`, `ToolCallContext` §8.0 identity fields, BusinessFactService ownership runtime semantics, or the `UnifiedToolManager` compatibility API (TPH-05).
+- [ ] **Phase 41: Tool Platform Legacy Manager Cleanup** - Make the API/spec decision to remove the `UnifiedToolManager` legacy compatibility adapter and converge production/tests to `ToolPlatform` as the single graph-facing entrypoint (TPH-06).
 
 ## Phase Details
 
@@ -71,6 +72,7 @@ Plans:
 | 38. output_schema Declaration + Runtime Output-Validation Enforcement | 3/3 | Complete    | 2026-07-02 |
 | 39. contract-spec §12.5/§12.6 Reconciliation | 1/1 | Complete | 2026-07-02 |
 | 40. Tool Contract Validation Hardening | 3/3 | Complete | 2026-07-02 |
+| 41. Tool Platform Legacy Manager Cleanup | 0/0 | Not planned | |
 
 ### Phase 40: Tool Contract Validation Hardening
 
@@ -89,3 +91,19 @@ Plans:
 - [x] 40-01-PLAN.md — strict `create_coupon_grant_draft` output schema and action fake payload alignment.
 - [x] 40-02-PLAN.md — local JSON Schema subset keyword support plus descriptor schema meta guard.
 - [x] 40-03-PLAN.md — domain-scope marker business-boundary backstop tests and final protected no-diff verification.
+
+### Phase 41: Tool Platform Legacy Manager Cleanup
+
+**Goal:** Decide and implement removal of the `UnifiedToolManager` legacy compatibility adapter so `ToolPlatform` becomes the single graph-facing tool registry/dispatch entrypoint, with `docs/contract-spec.md`, production injection seams, tests, and public exports updated consistently.
+**Requirements**: TPH-06
+**Depends on:** Phase 40
+**Success Criteria** (what must be TRUE):
+  1. `docs/contract-spec.md` no longer defines `UnifiedToolManager` as a retained legacy compatibility adapter; the spec states `ToolPlatform` is the canonical graph-facing entrypoint.
+  2. Production code no longer imports, exports, constructs, or special-cases `UnifiedToolManager`; legacy `action_tool_manager` unwrapping is removed or explicitly migrated to `action_tool_platform`.
+  3. Tests and fake platforms no longer depend on `UnifiedToolManager` private internals such as `_platform` or `_descriptors`; equivalent coverage is migrated to `ToolPlatform`/`ToolCatalog`.
+  4. `src/tools/manager.py` and `src.tools.__all__/__getattr__` no longer expose `UnifiedToolManager`, unless planning discovers a hard external API blocker and records a stop decision.
+  5. The phase receives an implementation code review before milestone archive because it changes public compatibility surface and crosses production, tests, and spec.
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 41 to break down)

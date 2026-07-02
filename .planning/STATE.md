@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Tool Platform Hardening
 status: active
-stopped_at: Phase 40 complete; v2.1 ready for milestone review
+stopped_at: Phase 41 added; context/planning next
 last_updated: "2026-07-02T05:15:04.018Z"
-last_activity: 2026-07-02 -- Phase 40 complete with final tools/architecture verification passing
+last_activity: 2026-07-02 -- Phase 41 added for Tool Platform legacy manager cleanup
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 4
   total_plans: 10
   completed_plans: 10
-  percent: 100
+  percent: 80
 ---
 
 # Project State: MOCA
@@ -21,16 +21,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v2.1 milestone review/archive after Phase 40 completion
+**Current focus:** Phase 41 Tool Platform Legacy Manager Cleanup — context/planning
 
 ## Current Position
 
-Phase: 40 (Tool Contract Validation Hardening) — COMPLETE
-Plan: 3/3 complete
-Status: active; milestone ready for review/archive
-Last activity: 2026-07-02 -- Phase 40 complete with final tools/architecture verification passing
+Phase: 41 (Tool Platform Legacy Manager Cleanup) — CONTEXT / PLANNING
+Plan: not planned yet
+Status: active
+Last activity: 2026-07-02 -- Phase 41 added for Tool Platform legacy manager cleanup
 
-Progress: [██████████] 100%
+Progress: [████████░░] 80%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -54,8 +54,9 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | 38. output_schema Declaration + Runtime Output-Validation Enforcement (TPH-01) | 3/3 | Complete; DB-backed pytest passed |
 | 39. contract-spec §12.5/§12.6 Reconciliation (TPH-02) | 1/1 | Complete |
 | 40. Tool Contract Validation Hardening (TPH-05) | 3/3 | Complete |
+| 41. Tool Platform Legacy Manager Cleanup (TPH-06) | 0/0 | Not planned |
 
-Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review. Phase 40 closes the source-confirmed validation/backstop gaps intentionally deferred or left advisory after Phase 38/39.
+Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review. Phase 40 closes the source-confirmed validation/backstop gaps intentionally deferred or left advisory after Phase 38/39. Phase 41 then handles the explicit breaking cleanup/API decision to remove the `UnifiedToolManager` legacy compatibility adapter.
 
 ## Last Milestone Context
 
@@ -110,6 +111,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - Phase 39 documented ToolDescriptor.description: str = empty-string default because exact current model parity was required.
 - Phase 40 must keep `UnifiedToolManager` cleanup out of scope; that API compatibility decision is a separate breaking cleanup phase.
 - Phase 40 must keep `docs/contract-spec.md` unchanged unless implementation discovers the spec itself is wrong; if spec changes become necessary, stop and run the dual-AI spec review workflow.
+- Phase 41 owns the `UnifiedToolManager` breaking cleanup/API decision. It must update `docs/contract-spec.md`, production injection seams, tests, and public exports consistently, and it must receive implementation code review before v2.1 archive.
 
 ### Roadmap Evolution
 
@@ -119,6 +121,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - Phase 36 added and completed for v2.0 Merchant Scope Hardening.
 - Phase 37-39 added for v2.1 Tool Platform Hardening (2026-07-01).
 - Phase 40 added: Tool Contract Validation Hardening.
+- Phase 41 added: Tool Platform Legacy Manager Cleanup.
 
 ### Pending Todos
 
@@ -149,9 +152,9 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 ## Session Continuity
 
 Last session: --stopped-at
-Stopped at: Phase 40 complete; v2.1 ready for milestone review
+Stopped at: Phase 41 added; context/planning next
 Resume file: --resume-file
 Next: Run `$gsd-progress` or `$gsd-complete-milestone`.
 
-Recent completions: Phase 37 3/3 complete; Phase 38 3/3 complete with DB-backed pytest passed; Phase 39 1/1 complete with docs-only TPH-02 reconciliation and clean verification.
-Next roadmap item: complete or archive the v2.1 milestone.
+Recent completions: Phase 37 3/3 complete; Phase 38 3/3 complete with DB-backed pytest passed; Phase 39 1/1 complete with docs-only TPH-02 reconciliation and clean verification; Phase 40 3/3 complete with tools/architecture verification passing.
+Next roadmap item: plan Phase 41 Tool Platform Legacy Manager Cleanup.
