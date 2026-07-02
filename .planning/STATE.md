@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Tool Platform Hardening
 status: executing
-stopped_at: Phase 38 planned; ready to execute 3 plans
-last_updated: "2026-07-02T01:29:17.551Z"
-last_activity: 2026-07-02 -- Phase 38 execution started
+stopped_at: Completed 38-01-PLAN.md
+last_updated: "2026-07-02T01:34:57.993Z"
+last_activity: 2026-07-02 -- Phase 38 plan 38-01 completed
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 6
-  completed_plans: 3
-  percent: 50
+  completed_plans: 4
+  percent: 67
 ---
 
 # Project State: MOCA
@@ -26,22 +26,13 @@ See: `.planning/PROJECT.md` (updated 2026-07-01)
 ## Current Position
 
 Phase: 38 (output-schema-declaration-runtime-output-validation-enforcem) — EXECUTING
-Plan: 1 of 3
-Status: Executing Phase 38
-Last activity: 2026-07-02 -- Phase 38 execution started
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-07-02 -- Phase 38 plan 38-01 completed
 
-Progress: [#####     ] 50%
+Progress: [#######   ] 67%
 
-Planning files:
-
-- `.planning/PROJECT.md`
-- `.planning/REQUIREMENTS.md`
-- `.planning/ROADMAP.md`
-- `.planning/STATE.md`
-- `.planning/MILESTONES.md`
-- `.planning/milestones/v1.9-ROADMAP.md`
-- `.planning/milestones/v1.9-REQUIREMENTS.md`
-- `.planning/milestones/v1.9-MILESTONE-AUDIT.md`
+Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
 ## Current Milestone Context
 
@@ -59,7 +50,7 @@ Planning files:
 | Phase | Plans | Status |
 |-------|-------|--------|
 | 37. Tool Declaration + Runtime/Policy Internal Consolidation (TPH-03, TPH-04) | 3/3 | Complete; DB-backed pytest pending |
-| 38. output_schema Declaration + Runtime Output-Validation Enforcement (TPH-01) | 3/3 | Ready to execute |
+| 38. output_schema Declaration + Runtime Output-Validation Enforcement (TPH-01) | 1/3 | In Progress |
 | 39. contract-spec §12.5/§12.6 Reconciliation (TPH-02) | 0/TBD | Not started |
 
 Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review.
@@ -75,6 +66,7 @@ Sequencing rationale: Phase 37 consolidates the registry and converges runtime/p
 
 **v1.9 shipped scope:** 12 phases, 19 v1 requirements, 51/51 phase plans complete. Milestone audit status: archived.
 **v2.0 shipped scope:** Phase 36 (6/6 plans complete).
+**Phase 38 plan 38-01:** 3 min, 2 tasks, 2 files modified; nullable validator and scoped-set contract complete.
 
 Historical execution metrics are archived in milestone files and `.planning/MILESTONES.md`.
 
@@ -97,6 +89,9 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - Phase 37 plan 37-02 completed the runtime-helper portion of TPH-04 by routing all current `ToolRuntime.invoke` failure exits through `_fail(...)`; 37-03 completed policy gate sequencing and the final contract sweep.
 - Phase 37 plan 37-03 completed the policy-gate portion of TPH-04 with ordered `RuntimeAuthGate` declarations and preserved external contract field sets. Full DB-backed pytest awaits local PostgreSQL.
 - Phase 38 planning split TPH-01 into three dependency-ordered plans: validator support, catalog `output_schema` declarations, and runtime invalid-response enforcement/sweep. Strict no-data schemas are resolved for no-data tools, while action-tool output remains generic and out of scope until later action-output hardening.
+- Phase 38 plan 38-01 keeps nullable/type-list schema validation in the existing local `validate_json_value` helper instead of adding a new JSON Schema dependency.
+- Phase 38 plan 38-01 locks TPH-01 scope to the eight read/retrieval planner-visible tools and keeps `create_coupon_grant_draft` outside this plan.
+- Phase 38 plan 38-01 requires list-union validation to return immediately after the first successful candidate schema.
 
 ### Roadmap Evolution
 
@@ -134,10 +129,10 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ## Session Continuity
 
-Last session: 2026-07-02T01:19:48Z
-Stopped at: Phase 38 planned; ready to execute 3 plans
-Resume file: `.planning/phases/38-output-schema-declaration-runtime-output-validation-enforcem/38-01-PLAN.md`
-Next: Run `$gsd-execute-phase 38` after optionally reviewing the plan files.
+Last session: 2026-07-02T01:34:57Z
+Stopped at: Completed 38-01-PLAN.md
+Resume file: None
+Next: Execute `.planning/phases/38-output-schema-declaration-runtime-output-validation-enforcem/38-02-PLAN.md`.
 
 **Completed Phase:** 35 (Replay and Eval Hardening) — 6/6 plans complete; UAT 8/8 passed; security `threats_open: 0` — 2026-06-29
 
