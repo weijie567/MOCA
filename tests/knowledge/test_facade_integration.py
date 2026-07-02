@@ -74,55 +74,26 @@ def _search_result(
     )
 
 
-class FakePolicyManager:
+class FakePolicyPlatform:
     def __init__(self, search_result: KnowledgeSearchResult) -> None:
         self._descriptors = {descriptor.name: descriptor for descriptor in ToolCatalog().descriptors()}
         self.search_result = search_result
         self.calls: list[tuple[str, dict, ToolCallContext]] = []
-        self._platform = _FakePolicyPlatform(self)
-
-    def descriptors(self, caller_node: str = "investigate"):
-        return [
-            descriptor
-            for descriptor in self._descriptors.values()
-            if caller_node in descriptor.caller_allowlist and descriptor.kind != "write"
-        ]
+        self._projector = ToolResultProjector()
+        self.last_visibility_decisions = None
 
     def descriptor(self, name: str):
         return self._descriptors.get(name)
 
-    def event_family(self, name: str) -> str:
-        family = self._descriptors[name].event_family
-        return "rag_retrieval" if family == "rag_retrieval_*" else "tool_call"
-
-    async def invoke(self, name: str, args: dict, ctx: ToolCallContext) -> ToolResultV2:
-        self.calls.append((name, args, ctx))
-        return ToolResultV2(
-            status="not_found" if self.search_result.status == "no_evidence" else "success",
-            data={
-                "retrieval_status": self.search_result.status,
-                "best_score": self.search_result.best_score,
-                "threshold": self.search_result.threshold,
-                "summary": self.search_result.summary,
-            },
-            summary=self.search_result.summary or f"Policy search returned {self.search_result.status}",
-            source_system="policy_knowledge_service",
-            data_freshness_at=None,
-            policy_evidence_refs=self.search_result.evidence_refs,
-            business_fact_refs=[],
-            error=None,
-            retryable=False,
-            retry_after_ms=None,
-            latency_ms=1,
-            audit_ref=None,
-        )
-
-
-class _FakePolicyPlatform:
-    def __init__(self, manager: FakePolicyManager) -> None:
-        self._manager = manager
-        self._projector = ToolResultProjector()
-        self.last_visibility_decisions = None
+    def event_family(self, name: str) -> str | None:
+        descriptor = self._descriptors.get(name)
+        if descriptor is None:
+            return None
+        if descriptor.event_family == "rag_retrieval_*":
+            return "rag_retrieval"
+        if descriptor.event_family == "tool_call_*":
+            return "tool_call"
+        return None
 
     async def visible_tools(
         self,
@@ -140,7 +111,7 @@ class _FakePolicyPlatform:
         for decision in decisions:
             if decision.decision != "visible":
                 continue
-            descriptor = self._manager._descriptors.get(decision.tool_name)
+            descriptor = self._descriptors.get(decision.tool_name)
             if descriptor is None:
                 continue
             views.append(
@@ -162,7 +133,26 @@ class _FakePolicyPlatform:
         *,
         session=None,
     ) -> ToolInvocationOutcome:
-        result = await self._manager.invoke(tool_name, args, ctx)
+        self.calls.append((tool_name, args, ctx))
+        result = ToolResultV2(
+            status="not_found" if self.search_result.status == "no_evidence" else "success",
+            data={
+                "retrieval_status": self.search_result.status,
+                "best_score": self.search_result.best_score,
+                "threshold": self.search_result.threshold,
+                "summary": self.search_result.summary,
+            },
+            summary=self.search_result.summary or f"Policy search returned {self.search_result.status}",
+            source_system="policy_knowledge_service",
+            data_freshness_at=None,
+            policy_evidence_refs=self.search_result.evidence_refs,
+            business_fact_refs=[],
+            error=None,
+            retryable=False,
+            retry_after_ms=None,
+            latency_ms=1,
+            audit_ref=None,
+        )
         projection = self._projector.project(
             tool_name=tool_name,
             result=result,
@@ -186,19 +176,6 @@ class _FakePolicyPlatform:
             policy_decision=decision,
             policy_event_id=None,
         )
-
-    def descriptor(self, name: str):
-        return self._manager._descriptors.get(name)
-
-    def event_family(self, name: str) -> str | None:
-        descriptor = self._manager._descriptors.get(name)
-        if descriptor is None:
-            return None
-        if descriptor.event_family == "rag_retrieval_*":
-            return "rag_retrieval"
-        if descriptor.event_family == "tool_call_*":
-            return "tool_call"
-        return None
 
 
 def _recommendation(*, chunk_id: str = "chunk_001", reasoning: str = "根据规则应处理退款。") -> dict:
@@ -315,7 +292,7 @@ async def _run_path(
         {"next_tool": "search_policy", "args": {"query": state["user_query"]}, "reason": "policy"}
     ]
     events: list[dict] = []
-    manager = FakePolicyManager(search_result)
+    platform = FakePolicyPlatform(search_result)
     trusted_context = TrustedContext(
         tenant_id=TENANT_ID,
         user_id=state["user_id"],
@@ -337,8 +314,7 @@ async def _run_path(
         "session": AsyncMock(),
         "permissions": ["tool:search_policy"],
         "merchant_scope": {"merchant_ids": []},
-        "tool_manager": manager,
-        "tool_platform": manager._platform,
+        "tool_platform": platform,
         "trusted_context": trusted_context.model_dump(mode="json"),
         "event_emitter": event_emitter,
         "policy_knowledge_service": service,

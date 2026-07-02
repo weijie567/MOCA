@@ -52,13 +52,13 @@ def _default_trusted_context(permissions: list[str]) -> dict[str, Any]:
     ).model_dump(mode="json")
 
 
-def _config(manager, events: list[dict[str, Any]], **overrides):
+def _config(tool_platform, events: list[dict[str, Any]], **overrides):
     async def event_emitter(**payload):
         events.append(payload)
 
     permissions = [f"tool:{descriptor.name}" for descriptor in ToolCatalog().descriptors()]
     configurable = {
-        "tool_manager": manager,
+        "tool_platform": tool_platform,
         "event_emitter": event_emitter,
         "trusted_context": _default_trusted_context(permissions),
         "permissions": permissions,
@@ -71,39 +71,29 @@ def _config(manager, events: list[dict[str, Any]], **overrides):
     return {"configurable": configurable}
 
 
-class FakeManager:
+class FakePlatform:
     def __init__(self, results: dict[str, ToolResultV2]) -> None:
         self._descriptors = {descriptor.name: descriptor for descriptor in ToolCatalog().descriptors()}
         self.results = results
         self.calls: list[tuple[str, dict[str, Any], ToolCallContext]] = []
-        self._platform = _FakePlatform(self)
-
-    def descriptors(self, caller_node: str = "investigate"):
-        return [
-            descriptor
-            for descriptor in self._descriptors.values()
-            if caller_node in descriptor.caller_allowlist and descriptor.kind != "write"
-        ]
+        self._projector = ToolResultProjector()
+        self.last_visibility_decisions = None
 
     def descriptor(self, name: str):
         return self._descriptors.get(name)
 
-    def event_family(self, name: str) -> str:
-        family = self._descriptors[name].event_family
-        return "rag_retrieval" if family == "rag_retrieval_*" else "tool_call"
-
-    async def invoke(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
-        self.calls.append((name, args, ctx))
-        return self.results[name]
-
-
-class _FakePlatform:
-    """Minimal ToolPlatform facade wrapping FakeManager for tests."""
-
-    def __init__(self, manager: FakeManager) -> None:
-        self._manager = manager
-        self._projector = ToolResultProjector()
-        self.last_visibility_decisions = None
+    def event_family(self, name: str) -> str | None:
+        descriptor = self._descriptors.get(name)
+        if descriptor is None:
+            return None
+        family = descriptor.event_family
+        if family == "tool_call_*":
+            return "tool_call"
+        if family == "rag_retrieval_*":
+            return "rag_retrieval"
+        if family == "action":
+            return "action"
+        return None
 
     async def visible_tools(
         self, *, caller: str, ctx: ToolCallContext, session: Any = None,
@@ -117,7 +107,7 @@ class _FakePlatform:
         for decision in decisions:
             if decision.decision != "visible":
                 continue
-            descriptor = self._manager._descriptors.get(decision.tool_name)
+            descriptor = self._descriptors.get(decision.tool_name)
             if descriptor is None:
                 continue
             views.append(
@@ -134,7 +124,8 @@ class _FakePlatform:
     async def invoke(
         self, tool_name: str, args: dict[str, Any], ctx: ToolCallContext, *, session: Any = None,
     ) -> ToolInvocationOutcome:
-        result = await self._manager.invoke(tool_name, args, ctx)
+        self.calls.append((tool_name, args, ctx))
+        result = self.results[tool_name]
         projection = self._projector.project(
             tool_name=tool_name, result=result, tool_call_id=ctx.tool_call_id,
         )
@@ -163,22 +154,6 @@ class _FakePlatform:
             policy_decision=decision,
             policy_event_id=None,
         )
-
-    def descriptor(self, name: str):
-        return self._manager._descriptors.get(name)
-
-    def event_family(self, name: str) -> str | None:
-        descriptor = self._manager._descriptors.get(name)
-        if descriptor is None:
-            return None
-        family = descriptor.event_family
-        if family == "tool_call_*":
-            return "tool_call"
-        if family == "rag_retrieval_*":
-            return "rag_retrieval"
-        if family == "action":
-            return "action"
-        return None
 
 
 class _CaptureMissingContextPlatform:
@@ -408,7 +383,7 @@ def _error(status: str, code: str = "TOOL_UNAVAILABLE", message: str = "unavaila
         status=status,
         data=None,
         summary=message,
-        source_system="unified_tool_manager",
+        source_system="tool_platform",
         data_freshness_at=None,
         policy_evidence_refs=[],
         business_fact_refs=[],
@@ -446,7 +421,7 @@ def _business_error_with_data(
 @pytest.mark.asyncio
 async def test_max_iterations_reached_does_not_degrade_retrieval_status():
     events: list[dict[str, Any]] = []
-    manager = FakeManager({"search_policy": _policy_success("strong_evidence", 0.9)})
+    manager = FakePlatform({"search_policy": _policy_success("strong_evidence", 0.9)})
     plan = [{"next_tool": "search_policy", "args": {"query": f"q{i}"}, "reason": "test"} for i in range(5)]
 
     result = await investigate(_state(plan), _config(manager, events, max_iterations=2))
@@ -459,7 +434,7 @@ async def test_max_iterations_reached_does_not_degrade_retrieval_status():
 @pytest.mark.asyncio
 async def test_deadline_and_attempt_controls_map_to_unrecoverable_error():
     events: list[dict[str, Any]] = []
-    manager = FakeManager({"search_policy": _policy_success()})
+    manager = FakePlatform({"search_policy": _policy_success()})
     plan = [{"next_tool": "search_policy", "args": {"query": "refund"}, "reason": "test"}]
 
     deadline_result = await investigate(
@@ -485,7 +460,7 @@ async def test_deadline_and_attempt_controls_map_to_unrecoverable_error():
 )
 async def test_invalid_planner_output_rejected_before_manager_dispatch(plan):
     events: list[dict[str, Any]] = []
-    manager = FakeManager({"get_order": _business_success()})
+    manager = FakePlatform({"get_order": _business_success()})
 
     result = await investigate(_state(plan), _config(manager, events))
 
@@ -496,17 +471,15 @@ async def test_invalid_planner_output_rejected_before_manager_dispatch(plan):
 @pytest.mark.asyncio
 async def test_missing_trusted_context_uses_empty_visibility_scope_and_executes_no_tools():
     events: list[dict[str, Any]] = []
-    manager = FakeManager({"get_order": _business_success()})
     platform = _CaptureMissingContextPlatform()
     state = _state([{"next_tool": "get_order", "args": {"order_no": "ORD-001"}, "reason": "test"}])
 
     result = await investigate(
         state,
         _config(
-            manager,
+            platform,
             events,
             trusted_context=None,
-            tool_platform=platform,
         ),
     )
 
@@ -517,13 +490,12 @@ async def test_missing_trusted_context_uses_empty_visibility_scope_and_executes_
     assert visibility_ctx.merchant_scope == {"merchant_ids": []}
     assert result["termination_reason"] == "unrecoverable_error"
     assert result["business_context"]["errors"][0]["code"] == "MISSING_TRUSTED_CONTEXT"
-    assert manager.calls == []
 
 
 @pytest.mark.asyncio
-async def test_every_execution_uses_unified_tool_manager():
+async def test_every_execution_uses_tool_platform():
     events: list[dict[str, Any]] = []
-    manager = FakeManager({"get_order": _business_success()})
+    manager = FakePlatform({"get_order": _business_success()})
     plan = [{"next_tool": "get_order", "args": {"order_no": "ORD-001"}, "reason": "test"}]
 
     result = await investigate(_state(plan), _config(manager, events))
@@ -535,7 +507,7 @@ async def test_every_execution_uses_unified_tool_manager():
 @pytest.mark.asyncio
 async def test_partial_success_business_result_accumulates_facts_and_refs():
     events: list[dict[str, Any]] = []
-    manager = FakeManager({"get_order": _business_partial_success("order", "ORD-PARTIAL-001")})
+    manager = FakePlatform({"get_order": _business_partial_success("order", "ORD-PARTIAL-001")})
     plan = [{"next_tool": "get_order", "args": {"order_no": "ORD-PARTIAL-001"}, "reason": "partial"}]
 
     result = await investigate(_state(plan), _config(manager, events))
@@ -553,7 +525,7 @@ async def test_partial_success_business_result_accumulates_facts_and_refs():
 @pytest.mark.asyncio
 async def test_investigate_consumes_trusted_context_config_not_agentstate_permission_scope():
     events: list[dict[str, Any]] = []
-    manager = FakeManager({"get_order": _business_success()})
+    manager = FakePlatform({"get_order": _business_success()})
     state = _state([{"next_tool": "get_order", "args": {"order_no": "ORD-001"}, "reason": "test"}])
     state["permissions"] = ["tool:search_policy"]
     state["merchant_scope"] = {"merchant_ids": ["merchant-from-AgentState"]}
@@ -593,7 +565,7 @@ async def test_investigate_events_use_trusted_context_identity_not_agentstate(
     session: AsyncSession,
     seeded_session: dict,
 ):
-    manager = FakeManager({"get_order": _business_success()})
+    manager = FakePlatform({"get_order": _business_success()})
     thread_id = "thread-investigate-trusted-events"
     trusted_run_id = await _insert_run(session, seeded_session, thread_id)
     state = _state([{"next_tool": "get_order", "args": {"order_no": "ORD-001"}, "reason": "test"}])
@@ -646,7 +618,7 @@ async def test_investigate_events_use_trusted_context_identity_not_agentstate(
 @pytest.mark.asyncio
 async def test_action_intent_without_case_identifier_marks_missing_fact():
     events: list[dict[str, Any]] = []
-    manager = FakeManager({"search_policy": _policy_success()})
+    manager = FakePlatform({"search_policy": _policy_success()})
     state = _state([{"next_tool": "search_policy", "args": {"query": "refund"}, "reason": "policy"}])
     state["current_intent"] = "refund_troubleshooting"
 
@@ -658,7 +630,7 @@ async def test_action_intent_without_case_identifier_marks_missing_fact():
 @pytest.mark.asyncio
 async def test_requested_case_identifier_without_fact_marks_specific_missing_resource():
     events: list[dict[str, Any]] = []
-    manager = FakeManager({"get_order": _error("not_found", code="NOT_FOUND", message="not found")})
+    manager = FakePlatform({"get_order": _error("not_found", code="NOT_FOUND", message="not found")})
     state = _state([{"next_tool": "get_order", "args": {"order_no": "ORD-MISSING"}, "reason": "fact"}])
     state["current_intent"] = "refund_troubleshooting"
     state["extracted_slots"] = {"order_id": "ORD-MISSING"}
@@ -672,7 +644,7 @@ async def test_requested_case_identifier_without_fact_marks_specific_missing_res
 @pytest.mark.parametrize("tool_name", ["get_logistics", "search_sop", "search_case_memory"])
 async def test_unavailable_tools_recorded_through_manager_path(tool_name):
     events: list[dict[str, Any]] = []
-    manager = FakeManager({tool_name: _error("unavailable")})
+    manager = FakePlatform({tool_name: _error("unavailable")})
     args = {"query": "refund"} if tool_name.startswith("search_") else {"tracking_no": "T1"}
     plan = [{"next_tool": tool_name, "args": args, "reason": "test"}]
 
@@ -686,7 +658,7 @@ async def test_unavailable_tools_recorded_through_manager_path(tool_name):
 @pytest.mark.asyncio
 async def test_unavailable_tool_not_retried_with_same_args():
     events: list[dict[str, Any]] = []
-    manager = FakeManager({"search_sop": _error("unavailable")})
+    manager = FakePlatform({"search_sop": _error("unavailable")})
     plan = [
         {"next_tool": "search_sop", "args": {"query": "refund"}, "reason": "test"},
         {"next_tool": "search_sop", "args": {"query": "refund"}, "reason": "retry"},
@@ -701,7 +673,7 @@ async def test_unavailable_tool_not_retried_with_same_args():
 @pytest.mark.asyncio
 async def test_no_write_gate_fields_or_authoritative_citation_refs():
     events: list[dict[str, Any]] = []
-    manager = FakeManager({"get_order": _business_success()})
+    manager = FakePlatform({"get_order": _business_success()})
     plan = [{"next_tool": "get_order", "args": {"order_no": "ORD-001"}, "reason": "test"}]
 
     result = await investigate(_state(plan), _config(manager, events))
@@ -716,7 +688,7 @@ async def test_no_write_gate_fields_or_authoritative_citation_refs():
 @pytest.mark.asyncio
 async def test_permission_denied_preserves_successful_facts_without_denied_fact_leak():
     events: list[dict[str, Any]] = []
-    manager = FakeManager(
+    manager = FakePlatform(
         {
             "get_order": _business_success("order", "ORD-001"),
             "get_merchant_risk": _error("permission_denied", code="FORBIDDEN", message="Access denied"),
@@ -739,7 +711,7 @@ async def test_permission_denied_preserves_successful_facts_without_denied_fact_
 async def test_permission_denied_business_result_does_not_leak_identifier_or_dependency():
     events: list[dict[str, Any]] = []
     denied_id = "ORD-DENIED-30"
-    manager = FakeManager(
+    manager = FakePlatform(
         {
             "get_order": _business_error_with_data(
                 status="permission_denied",
@@ -767,7 +739,7 @@ async def test_permission_denied_business_result_does_not_leak_identifier_or_dep
 async def test_unavailable_business_result_has_no_facts_refs_or_dependencies():
     events: list[dict[str, Any]] = []
     unavailable_id = "ORD-UNAVAILABLE-30"
-    manager = FakeManager(
+    manager = FakePlatform(
         {
             "get_order": _business_error_with_data(
                 status="unavailable",
@@ -794,7 +766,7 @@ async def test_unavailable_business_result_has_no_facts_refs_or_dependencies():
 async def test_stale_business_result_fails_closed_without_facts_refs_or_dependencies():
     events: list[dict[str, Any]] = []
     stale_id = "ORD-STALE-30"
-    manager = FakeManager(
+    manager = FakePlatform(
         {
             "get_order": _business_error_with_data(
                 status="unavailable",
@@ -820,7 +792,7 @@ async def test_stale_business_result_fails_closed_without_facts_refs_or_dependen
 @pytest.mark.asyncio
 async def test_claim_dependency_map_uses_typed_refs_from_results():
     events: list[dict[str, Any]] = []
-    manager = FakeManager({"get_order": _business_success(), "search_policy": _policy_success()})
+    manager = FakePlatform({"get_order": _business_success(), "search_policy": _policy_success()})
     state = _state(
         [
             {"next_tool": "get_order", "args": {"order_no": "ORD-001"}, "reason": "fact"},
@@ -840,7 +812,7 @@ async def test_claim_dependency_map_uses_typed_refs_from_results():
 @pytest.mark.asyncio
 async def test_policy_retrieval_semantics_survive_tool_result_flattening():
     events: list[dict[str, Any]] = []
-    manager = FakeManager({"search_policy": _policy_success("partial_evidence", 0.61)})
+    manager = FakePlatform({"search_policy": _policy_success("partial_evidence", 0.61)})
     plan = [{"next_tool": "search_policy", "args": {"query": "refund"}, "reason": "policy"}]
 
     result = await investigate(_state(plan), _config(manager, events))
@@ -854,7 +826,7 @@ async def test_policy_retrieval_semantics_survive_tool_result_flattening():
 @pytest.mark.asyncio
 async def test_search_case_memory_tool_result_accumulates_contextual_case_memory():
     events: list[dict[str, Any]] = []
-    manager = FakeManager({"search_case_memory": _case_memory_success()})
+    manager = FakePlatform({"search_case_memory": _case_memory_success()})
     plan = [{"next_tool": "search_case_memory", "args": {"query": "refund timeout"}, "reason": "precedent"}]
 
     result = await investigate(_state(plan), _config(manager, events))
@@ -878,7 +850,7 @@ async def test_search_case_memory_tool_result_accumulates_contextual_case_memory
 @pytest.mark.asyncio
 async def test_investigate_state_tool_results_are_prompt_safe_refs(session: AsyncSession, seeded_session: dict):
     events: list[dict[str, Any]] = []
-    manager = FakeManager({"get_order": _business_success_with_raw_payload()})
+    manager = FakePlatform({"get_order": _business_success_with_raw_payload()})
     thread_id = "thread-investigate-tool-projection"
     state = _state([{"next_tool": "get_order", "args": {"order_no": "ORD-RAW-001"}, "reason": "test"}])
     state["tenant_id"] = str(seeded_session["tenant"].id)
@@ -910,7 +882,7 @@ async def test_investigate_state_tool_results_are_prompt_safe_refs(session: Asyn
 @pytest.mark.asyncio
 async def test_no_evidence_result_sets_insufficient_recommendation_draft():
     events: list[dict[str, Any]] = []
-    manager = FakeManager({"search_policy": _policy_not_found()})
+    manager = FakePlatform({"search_policy": _policy_not_found()})
     plan = [{"next_tool": "search_policy", "args": {"query": "refund"}, "reason": "policy"}]
 
     result = await investigate(_state(plan), _config(manager, events))
@@ -923,7 +895,7 @@ async def test_no_evidence_result_sets_insufficient_recommendation_draft():
 @pytest.mark.asyncio
 async def test_retrieval_error_result_sets_error_recommendation_draft():
     events: list[dict[str, Any]] = []
-    manager = FakeManager({"search_policy": _policy_retrieval_error()})
+    manager = FakePlatform({"search_policy": _policy_retrieval_error()})
     plan = [{"next_tool": "search_policy", "args": {"query": "refund"}, "reason": "policy"}]
 
     result = await investigate(_state(plan), _config(manager, events))
@@ -936,7 +908,7 @@ async def test_retrieval_error_result_sets_error_recommendation_draft():
 @pytest.mark.asyncio
 async def test_event_classification_iteration_and_redacted_payload():
     events: list[dict[str, Any]] = []
-    manager = FakeManager({"get_order": _business_success(), "search_policy": _policy_success()})
+    manager = FakePlatform({"get_order": _business_success(), "search_policy": _policy_success()})
     plan = [
         {"next_tool": "get_order", "args": {"order_no": "ORD-001"}, "reason": "fact"},
         {"next_tool": "search_policy", "args": {"query": "refund"}, "reason": "policy"},

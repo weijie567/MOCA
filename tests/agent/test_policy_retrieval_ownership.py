@@ -77,8 +77,9 @@ def _business_fact_ref(resource_type: str, resource_id: str) -> BusinessFactRefV
 
 
 class _FakePolicyToolPlatform:
-    def __init__(self, manager: Any) -> None:
-        self._manager = manager
+    def __init__(self) -> None:
+        self._descriptors = {descriptor.name: descriptor for descriptor in ToolCatalog().descriptors()}
+        self.calls: list[tuple[str, dict, ToolCallContext]] = []
         self._projector = ToolResultProjector()
         self.last_visibility_decisions = None
 
@@ -98,7 +99,7 @@ class _FakePolicyToolPlatform:
         for decision in decisions:
             if decision.decision != "visible":
                 continue
-            descriptor = self._manager._descriptors.get(decision.tool_name)
+            descriptor = self._descriptors.get(decision.tool_name)
             if descriptor is None:
                 continue
             views.append(
@@ -120,7 +121,25 @@ class _FakePolicyToolPlatform:
         *,
         session=None,
     ) -> ToolInvocationOutcome:
-        result = await self._manager.invoke(tool_name, args, ctx)
+        self.calls.append((tool_name, args, ctx))
+        result = ToolResultV2(
+            status="success",
+            data={
+                "retrieval_status": "strong_evidence",
+                "best_score": 0.85,
+                "threshold": 0.55,
+            },
+            summary="policy found",
+            source_system="policy_knowledge_service",
+            data_freshness_at=None,
+            policy_evidence_refs=[],
+            business_fact_refs=[],
+            error=None,
+            retryable=False,
+            retry_after_ms=None,
+            latency_ms=1,
+            audit_ref=None,
+        )
         projection = self._projector.project(
             tool_name=tool_name,
             result=result,
@@ -146,10 +165,10 @@ class _FakePolicyToolPlatform:
         )
 
     def descriptor(self, name: str):
-        return self._manager._descriptors.get(name)
+        return self._descriptors.get(name)
 
     def event_family(self, name: str) -> str | None:
-        descriptor = self._manager._descriptors.get(name)
+        descriptor = self._descriptors.get(name)
         if descriptor is None:
             return None
         if descriptor.event_family == "rag_retrieval_*":
@@ -169,51 +188,10 @@ class TestPolicyRetrievalOwnership:
     not through BusinessToolService or raw knowledge services."""
 
     @pytest.mark.asyncio
-    async def test_investigate_calls_search_policy_through_unified_tool_manager(self):
-        """The active investigate node invokes search_policy through manager."""
+    async def test_investigate_calls_search_policy_through_tool_platform(self):
+        """The active investigate node invokes search_policy through ToolPlatform."""
 
-        class FakeManager:
-            def __init__(self) -> None:
-                self._descriptors = {descriptor.name: descriptor for descriptor in ToolCatalog().descriptors()}
-                self.calls: list[tuple[str, dict, ToolCallContext]] = []
-                self._platform = _FakePolicyToolPlatform(self)
-
-            def descriptors(self, caller_node: str = "investigate"):
-                return [
-                    descriptor
-                    for descriptor in self._descriptors.values()
-                    if caller_node in descriptor.caller_allowlist and descriptor.kind != "write"
-                ]
-
-            def descriptor(self, name: str):
-                return self._descriptors.get(name)
-
-            def event_family(self, name: str) -> str:
-                family = self._descriptors[name].event_family
-                return "rag_retrieval" if family == "rag_retrieval_*" else "tool_call"
-
-            async def invoke(self, name: str, args: dict, ctx: ToolCallContext) -> ToolResultV2:
-                self.calls.append((name, args, ctx))
-                return ToolResultV2(
-                    status="success",
-                    data={
-                        "retrieval_status": "strong_evidence",
-                        "best_score": 0.85,
-                        "threshold": 0.55,
-                    },
-                    summary="policy found",
-                    source_system="policy_knowledge_service",
-                    data_freshness_at=None,
-                    policy_evidence_refs=[],
-                    business_fact_refs=[],
-                    error=None,
-                    retryable=False,
-                    retry_after_ms=None,
-                    latency_ms=1,
-                    audit_ref=None,
-                )
-
-        manager = FakeManager()
+        platform = _FakePolicyToolPlatform()
         trusted_context = TrustedContext(
             tenant_id="t-1",
             user_id="u-1",
@@ -237,15 +215,14 @@ class TestPolicyRetrievalOwnership:
             {
                 "configurable": {
                     "permissions": ["tool:search_policy"],
-                    "tool_manager": manager,
-                    "tool_platform": manager._platform,
+                    "tool_platform": platform,
                     "trusted_context": trusted_context.model_dump(mode="json"),
                 }
             },
         )
 
-        assert len(manager.calls) == 1
-        name, args, context = manager.calls[0]
+        assert len(platform.calls) == 1
+        name, args, context = platform.calls[0]
         assert name == "search_policy"
         assert args == {"query": "退款规则"}
         assert context.caller_node == "investigate"
@@ -415,7 +392,7 @@ class TestPolicyRetrievalOwnership:
 class TestRetrievalDescriptorsDeclarationOnly:
     """search_policy, search_sop, search_case_memory descriptors exist in the
     tool catalog as declaration/validation catalog entries. ToolCatalog is
-    declaration-only; UnifiedToolManager owns graph-facing execution."""
+    declaration-only; ToolPlatform owns graph-facing execution."""
 
     @pytest.fixture()
     def registry(self) -> ToolCatalog:
