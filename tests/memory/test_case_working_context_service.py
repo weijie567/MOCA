@@ -11,7 +11,17 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 import src.memory.case_working_context_service as service_module
-from src.db.models import AgentRun, Base, CaseWorkingContext, MemoryWriteEvent, Merchant, Order, RefundCase, Tenant
+from src.db.models import (
+    AgentRun,
+    Base,
+    CaseWorkingContext,
+    CaseWorkingContextRevision,
+    MemoryWriteEvent,
+    Merchant,
+    Order,
+    RefundCase,
+    Tenant,
+)
 from src.memory.case_working_context import CaseWorkingContextRepository, dehydrate_content, hydrate_content
 from src.memory.case_working_context_schemas import (
     CaseWorkingContextActionTakenV1,
@@ -24,6 +34,7 @@ from src.memory.case_working_context_schemas import (
     CaseWorkingContextRecommendationV1,
     CaseWorkingContextVerifiedFactV1,
     CaseWorkingContextWriteCandidate,
+    normalize_case_working_context_content_sources,
 )
 from src.memory.schemas import MemorySourceRefV1
 from tests.conftest import TEST_DATABASE_URL, _ensure_test_database
@@ -290,6 +301,41 @@ async def test_service_writes_cwc_and_emits_case_working_context_event(phase44_s
 
 
 @pytest.mark.asyncio
+async def test_service_normalizes_cwc_source_refs_to_trusted_run_and_case(phase44_session_factory) -> None:
+    async with phase44_session_factory() as session:
+        async with session.begin():
+            scope = await _seed_case_scope(session)
+
+    async with phase44_session_factory() as session:
+        source_ref = _source_ref(
+            run_id=str(uuid.uuid4()),
+            agent_run_id=str(uuid.uuid4()),
+            business_object_type="order",
+            business_object_id=str(uuid.uuid4()),
+        )
+        candidate = _candidate(scope, content=_content(source_ref), source_ref=source_ref, updated_by_run_id=None)
+
+        result = await service_module.CaseWorkingContextService().write_case_working_context(
+            session,
+            candidate,
+            run_id=scope["run"].id,
+        )
+        row = await session.get(CaseWorkingContext, result.memory_id)
+        events = await _events(session, scope["run"].id)
+
+    assert row is not None
+    assert row.source_ref_json["run_id"] == str(scope["run"].id)
+    assert row.source_ref_json["agent_run_id"] == str(scope["run"].id)
+    assert row.source_ref_json["business_object_type"] == "refund_case"
+    assert row.source_ref_json["business_object_id"] == str(scope["refund_case"].id)
+    assert events[-1].source_ref_json == row.source_ref_json
+    assert row.claims_json[0]["source_ref"]["agent_run_id"] == str(scope["run"].id)
+    assert row.verified_facts_json[0]["source_ref"]["business_object_id"] == str(scope["refund_case"].id)
+    assert row.actions_taken_json[0]["source_ref"]["business_object_type"] == "refund_case"
+    assert row.commitments_json[0]["source_ref"]["run_id"] == str(scope["run"].id)
+
+
+@pytest.mark.asyncio
 async def test_staff_manual_candidate_succeeds_with_real_run_id_and_sets_row_run(phase44_session_factory) -> None:
     async with phase44_session_factory() as session:
         async with session.begin():
@@ -313,6 +359,52 @@ async def test_staff_manual_candidate_succeeds_with_real_run_id_and_sets_row_run
     assert result.status == "written"
     assert row is not None
     assert row.updated_by_run_id == scope["run"].id
+
+
+@pytest.mark.asyncio
+async def test_staff_manual_revision_preserves_manual_edit_source(phase44_session_factory) -> None:
+    async with phase44_session_factory() as session:
+        async with session.begin():
+            scope = await _seed_case_scope(session)
+
+    async with phase44_session_factory() as session:
+        source_ref = _source_ref(
+            source_type="staff_manual",
+            agent_run_id=str(uuid.uuid4()),
+            business_object_id=str(uuid.uuid4()),
+        )
+        service = service_module.CaseWorkingContextService()
+        first = await service.write_case_working_context(
+            session,
+            _candidate(
+                scope,
+                content=_content(source_ref, customer_request="人工修正前"),
+                source_ref=source_ref,
+                updated_by_run_id=None,
+            ),
+            run_id=scope["run"].id,
+        )
+        second = await service.write_case_working_context(
+            session,
+            _candidate(
+                scope,
+                content=_content(source_ref, customer_request="人工修正后"),
+                source_ref=source_ref,
+                expected_version=first.version,
+                updated_by_run_id=None,
+            ),
+            run_id=scope["run"].id,
+        )
+        revision = (
+            await session.execute(select(CaseWorkingContextRevision).order_by(CaseWorkingContextRevision.version))
+        ).scalar_one()
+
+    assert second.status == "written"
+    assert revision.version == 1
+    assert revision.edit_source == "staff_manual"
+    assert revision.updated_by_run_id == scope["run"].id
+    assert revision.source_ref_json["source_type"] == "staff_manual"
+    assert revision.source_ref_json["agent_run_id"] == str(scope["run"].id)
 
 
 @pytest.mark.asyncio
@@ -447,6 +539,11 @@ async def test_service_persists_high_consequence_content_as_contextual_and_staff
     async with phase44_session_factory() as session:
         source_ref = _source_ref(agent_run_id=str(scope["run"].id), business_object_id=str(scope["refund_case"].id))
         content = _content(source_ref)
+        expected_content = normalize_case_working_context_content_sources(
+            content,
+            run_id=scope["run"].id,
+            case_id=scope["refund_case"].id,
+        )
         result = await service_module.CaseWorkingContextService().write_case_working_context(
             session,
             _candidate(scope, content=content, source_ref=source_ref),
@@ -456,15 +553,15 @@ async def test_service_persists_high_consequence_content_as_contextual_and_staff
 
     assert row is not None
     assert row.authority_class == "contextual_only"
-    assert row.claims_json == dehydrate_content(content)["claims"]
-    assert row.verified_facts_json == dehydrate_content(content)["verified_facts"]
+    assert row.claims_json == dehydrate_content(expected_content)["claims"]
+    assert row.verified_facts_json == dehydrate_content(expected_content)["verified_facts"]
     assert row.missing_info_json == dehydrate_content(content)["missing_info"]
     assert row.evidence_refs_json == dehydrate_content(content)["evidence_refs"]
-    assert row.actions_taken_json == dehydrate_content(content)["actions_taken"]
+    assert row.actions_taken_json == dehydrate_content(expected_content)["actions_taken"]
     assert row.policy_refs_json == dehydrate_content(content)["policy_refs"]
     assert row.agent_recommendations_json == dehydrate_content(content)["agent_recommendations"]
     assert row.pending_tasks_json == dehydrate_content(content)["pending_tasks"]
-    assert row.commitments_json == dehydrate_content(content)["commitments"]
+    assert row.commitments_json == dehydrate_content(expected_content)["commitments"]
     assert row.next_action_json == dehydrate_content(content)["next_action"]
 
     hydrated = hydrate_content(row)

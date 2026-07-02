@@ -10,7 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import AgentRun, MemoryWriteEvent, RefundCase
 from src.memory.case_working_context import CaseWorkingContextRepository
-from src.memory.case_working_context_schemas import CaseWorkingContextWriteCandidate
+from src.memory.case_working_context_schemas import (
+    CaseWorkingContextWriteCandidate,
+    normalize_case_working_context_content_sources,
+    normalize_case_working_context_source_ref,
+)
 from src.memory.identity import (
     canonical_memory_candidate_hash,
     canonical_memory_content_hash,
@@ -49,38 +53,35 @@ class CaseWorkingContextService:
         run_id: uuid.UUID,
     ) -> CaseWorkingContextServiceWriteResult:
         _validate_write_inputs(candidate=candidate, run_id=run_id)
+        trusted_candidate = _trusted_write_candidate(candidate=candidate, run_id=run_id)
 
         async def operation(child_session: AsyncSession) -> CaseWorkingContextServiceWriteResult:
-            write_candidate = candidate
-            if write_candidate.updated_by_run_id is None:
-                write_candidate = write_candidate.model_copy(update={"updated_by_run_id": run_id})
-
             await _assert_run_belongs_to_tenant(
                 child_session,
-                tenant_id=write_candidate.tenant_id,
+                tenant_id=trusted_candidate.tenant_id,
                 run_id=run_id,
             )
             await _assert_case_belongs_to_tenant(
                 child_session,
-                tenant_id=write_candidate.tenant_id,
-                case_id=write_candidate.case_id,
+                tenant_id=trusted_candidate.tenant_id,
+                case_id=trusted_candidate.case_id,
             )
-            source_ref_json = write_candidate.source_ref.model_dump(mode="json", exclude_none=True)
+            source_ref_json = trusted_candidate.source_ref.model_dump(mode="json", exclude_none=True)
             source_identity_hash = canonical_source_identity_hash(source_ref_json)
             candidate_hash = _candidate_hash(
-                candidate=write_candidate,
+                candidate=trusted_candidate,
                 source_identity_hash=source_identity_hash,
             )
 
-            if write_candidate.pii_classification in BLOCKED_MEMORY_WRITE_PII_CLASSIFICATIONS:
+            if trusted_candidate.pii_classification in BLOCKED_MEMORY_WRITE_PII_CLASSIFICATIONS:
                 event = await _emit_write_event(
                     child_session,
-                    tenant_id=write_candidate.tenant_id,
+                    tenant_id=trusted_candidate.tenant_id,
                     run_id=run_id,
                     memory_id=None,
                     decision="write_blocked",
                     reason_code="pii_blocked",
-                    pii_classification=write_candidate.pii_classification,
+                    pii_classification=trusted_candidate.pii_classification,
                     candidate_hash=candidate_hash,
                     source_ref_json=source_ref_json,
                     blocked_by=["pii_classification"],
@@ -91,21 +92,21 @@ class CaseWorkingContextService:
                     version=None,
                     decision="write_blocked",
                     reason_code="pii_blocked",
-                    pii_classification=write_candidate.pii_classification,
+                    pii_classification=trusted_candidate.pii_classification,
                     candidate_hash=candidate_hash,
                     event_id=event.id,
                 )
 
-            repository_result = await CaseWorkingContextRepository(child_session).write_working_context(write_candidate)
+            repository_result = await CaseWorkingContextRepository(child_session).write_working_context(trusted_candidate)
             if repository_result.status == "conflict":
                 event = await _emit_write_event(
                     child_session,
-                    tenant_id=write_candidate.tenant_id,
+                    tenant_id=trusted_candidate.tenant_id,
                     run_id=run_id,
                     memory_id=None,
                     decision="skip",
                     reason_code="version_conflict",
-                    pii_classification=write_candidate.pii_classification,
+                    pii_classification=trusted_candidate.pii_classification,
                     candidate_hash=candidate_hash,
                     source_ref_json=source_ref_json,
                 )
@@ -115,19 +116,19 @@ class CaseWorkingContextService:
                     version=repository_result.version,
                     decision="skip",
                     reason_code="version_conflict",
-                    pii_classification=write_candidate.pii_classification,
+                    pii_classification=trusted_candidate.pii_classification,
                     candidate_hash=candidate_hash,
                     event_id=event.id,
                 )
 
             event = await _emit_write_event(
                 child_session,
-                tenant_id=write_candidate.tenant_id,
+                tenant_id=trusted_candidate.tenant_id,
                 run_id=run_id,
                 memory_id=repository_result.case_working_context_id,
                 decision="write",
                 reason_code="eligible",
-                pii_classification=write_candidate.pii_classification,
+                pii_classification=trusted_candidate.pii_classification,
                 candidate_hash=candidate_hash,
                 source_ref_json=source_ref_json,
             )
@@ -137,7 +138,7 @@ class CaseWorkingContextService:
                 version=repository_result.version,
                 decision="write",
                 reason_code="eligible",
-                pii_classification=write_candidate.pii_classification,
+                pii_classification=trusted_candidate.pii_classification,
                 candidate_hash=candidate_hash,
                 event_id=event.id,
             )
@@ -160,6 +161,28 @@ def _validate_write_inputs(
         raise ValueError("run_id is required")
     if candidate.updated_by_run_id is not None and candidate.updated_by_run_id != run_id:
         raise ValueError("candidate.updated_by_run_id must match run_id")
+
+
+def _trusted_write_candidate(
+    *,
+    candidate: CaseWorkingContextWriteCandidate,
+    run_id: uuid.UUID,
+) -> CaseWorkingContextWriteCandidate:
+    return candidate.model_copy(
+        update={
+            "updated_by_run_id": run_id,
+            "source_ref": normalize_case_working_context_source_ref(
+                candidate.source_ref,
+                run_id=run_id,
+                case_id=candidate.case_id,
+            ),
+            "content": normalize_case_working_context_content_sources(
+                candidate.content,
+                run_id=run_id,
+                case_id=candidate.case_id,
+            ),
+        }
+    )
 
 
 async def _assert_run_belongs_to_tenant(

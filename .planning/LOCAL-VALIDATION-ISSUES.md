@@ -10960,3 +10960,48 @@ find .planning/phases/43-intent-recognition-multi-intent-tier-a -maxdepth 1 -nam
 
 - `.planning/phases/43-intent-recognition-multi-intent-tier-a/`
 - `$HOME/.codex/get-shit-done/workflows/verify-work.md`
+
+## 2026-07-03 03:05 CST - Phase 44 CWC provenance 规范化后旧断言失败
+
+### 问题现象
+
+修复 post-review provenance 警告后，运行 CWC repo/service focused tests 时出现 2 个失败：旧测试仍断言 CWC 内容 JSON 中的 nested `source_ref` 会按 candidate 原样落表，但新实现会在写入前把 CWC top-level 与 nested source refs 规范化到可信 `run_id` + `case_id`。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_case_working_context_repo.py tests/memory/test_case_working_context_service.py -q
+```
+
+### 关键证据或命令
+
+失败测试：
+
+```text
+tests/memory/test_case_working_context_repo.py::test_repo_maps_every_content_field_to_json_columns_and_hydrates
+tests/memory/test_case_working_context_service.py::test_service_persists_high_consequence_content_as_contextual_and_staff_correctable
+```
+
+核心差异：实际 row JSON 中 `source_ref.run_id` / `agent_run_id` / `business_object_type` / `business_object_id` 已被改写为可信 run/case，而旧预期仍使用原始测试 helper 生成的随机 run/case 值。
+
+### 当前判断 / 根因
+
+这是测试预期未跟随 Phase 44 review 修复后的 provenance 规范化策略，不是 schema 或服务写入失败。新策略要求 CWC 写入路径不能持久化调用方伪造的 source_ref discriminators。
+
+### 已做处理
+
+已将相关断言改为先通过 `normalize_case_working_context_content_sources(...)` 计算规范化后的预期，再比较落表 JSON。
+
+### 剩余问题
+
+需要重跑 focused tests、Phase 44 full surface、ruff 与 alembic gate，确认修复后无剩余回归。
+
+### 下次继续排查入口
+
+- `src/memory/case_working_context_schemas.py`
+- `src/memory/case_working_context.py`
+- `src/memory/case_working_context_service.py`
+- `tests/memory/test_case_working_context_repo.py`
+- `tests/memory/test_case_working_context_service.py`

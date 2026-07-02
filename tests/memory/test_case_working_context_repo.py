@@ -29,6 +29,7 @@ from src.memory.case_working_context_schemas import (
     CaseWorkingContextRecommendationV1,
     CaseWorkingContextVerifiedFactV1,
     CaseWorkingContextWriteCandidate,
+    normalize_case_working_context_content_sources,
 )
 from src.memory.schemas import MemorySourceRefV1
 from tests.conftest import TEST_DATABASE_URL, _ensure_test_database
@@ -371,12 +372,38 @@ async def test_repo_write_expected_version_conflict_does_not_clobber(phase44_ses
 
 
 @pytest.mark.asyncio
+async def test_repo_rejects_updated_by_run_id_from_another_tenant(phase44_session_factory) -> None:
+    async with phase44_session_factory() as session:
+        async with session.begin():
+            scope = await _seed_case_scope(session)
+            other_scope = await _seed_case_scope(session)
+            source_ref = _source_ref(agent_run_id=str(other_scope["run"].id))
+            candidate = _candidate(scope, content=_content(source_ref), source_ref=source_ref).model_copy(
+                update={"updated_by_run_id": other_scope["run"].id}
+            )
+
+            with pytest.raises(ValueError, match="updated_by_run_id does not belong to tenant"):
+                await CaseWorkingContextRepository(session).write_working_context(candidate)
+
+            cwc_count = await session.scalar(select(func.count()).select_from(CaseWorkingContext))
+            revision_count = await session.scalar(select(func.count()).select_from(CaseWorkingContextRevision))
+
+    assert cwc_count == 0
+    assert revision_count == 0
+
+
+@pytest.mark.asyncio
 async def test_repo_maps_every_content_field_to_json_columns_and_hydrates(phase44_session_factory) -> None:
     async with phase44_session_factory() as session:
         async with session.begin():
             scope = await _seed_case_scope(session)
             source_ref = _source_ref(agent_run_id=str(scope["run"].id))
             content = _content(source_ref)
+            expected_content = normalize_case_working_context_content_sources(
+                content,
+                run_id=scope["run"].id,
+                case_id=scope["refund_case"].id,
+            )
             result = await CaseWorkingContextRepository(session).write_working_context(
                 _candidate(scope, content=content, source_ref=source_ref)
             )
@@ -385,15 +412,15 @@ async def test_repo_maps_every_content_field_to_json_columns_and_hydrates(phase4
     assert row is not None
     assert row.customer_request == content.customer_request
     assert row.issue_type == content.issue_type
-    assert row.claims_json == dehydrate_content(content)["claims"]
-    assert row.verified_facts_json == dehydrate_content(content)["verified_facts"]
+    assert row.claims_json == dehydrate_content(expected_content)["claims"]
+    assert row.verified_facts_json == dehydrate_content(expected_content)["verified_facts"]
     assert row.missing_info_json == dehydrate_content(content)["missing_info"]
     assert row.evidence_refs_json == dehydrate_content(content)["evidence_refs"]
-    assert row.actions_taken_json == dehydrate_content(content)["actions_taken"]
+    assert row.actions_taken_json == dehydrate_content(expected_content)["actions_taken"]
     assert row.policy_refs_json == dehydrate_content(content)["policy_refs"]
     assert row.agent_recommendations_json == dehydrate_content(content)["agent_recommendations"]
     assert row.pending_tasks_json == dehydrate_content(content)["pending_tasks"]
-    assert row.commitments_json == dehydrate_content(content)["commitments"]
+    assert row.commitments_json == dehydrate_content(expected_content)["commitments"]
     assert row.next_action_json == dehydrate_content(content)["next_action"]
     hydrated = hydrate_content(row)
     assert hydrated.claims[0].text == content.claims[0].text

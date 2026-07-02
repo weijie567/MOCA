@@ -99,3 +99,57 @@ class CaseWorkingContextWriteCandidate(BaseModel):
     expected_version: int | None = None
     content: CaseWorkingContextContentV1
     pii_classification: Literal["none", "low", "sensitive", "prohibited"] = "none"
+
+
+def normalize_case_working_context_source_ref(
+    source_ref: MemorySourceRefV1,
+    *,
+    run_id: uuid.UUID | None,
+    case_id: uuid.UUID,
+) -> MemorySourceRefV1:
+    payload = source_ref.model_dump(mode="json", exclude_none=True)
+    if run_id is not None:
+        payload["run_id"] = str(run_id)
+        payload["agent_run_id"] = str(run_id)
+    payload["business_object_type"] = "refund_case"
+    payload["business_object_id"] = str(case_id)
+    return MemorySourceRefV1.model_validate(payload)
+
+
+def normalize_case_working_context_content_sources(
+    content: CaseWorkingContextContentV1,
+    *,
+    run_id: uuid.UUID | None,
+    case_id: uuid.UUID,
+) -> CaseWorkingContextContentV1:
+    return content.model_copy(
+        update={
+            "claims": [_with_normalized_source_ref(item, run_id=run_id, case_id=case_id) for item in content.claims],
+            "verified_facts": [
+                _with_normalized_source_ref(item, run_id=run_id, case_id=case_id) for item in content.verified_facts
+            ],
+            "actions_taken": [
+                _with_normalized_source_ref(item, run_id=run_id, case_id=case_id) for item in content.actions_taken
+            ],
+            "commitments": [
+                _with_normalized_source_ref(item, run_id=run_id, case_id=case_id) for item in content.commitments
+            ],
+        }
+    )
+
+
+def _with_normalized_source_ref(
+    item: BaseModel,
+    *,
+    run_id: uuid.UUID | None,
+    case_id: uuid.UUID,
+) -> BaseModel:
+    return item.model_copy(
+        update={
+            "source_ref": normalize_case_working_context_source_ref(
+                item.source_ref,
+                run_id=run_id,
+                case_id=case_id,
+            )
+        }
+    )

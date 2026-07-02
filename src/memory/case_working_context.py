@@ -8,10 +8,12 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import CaseWorkingContext, CaseWorkingContextRevision, RefundCase
+from src.db.models import AgentRun, CaseWorkingContext, CaseWorkingContextRevision, RefundCase
 from src.memory.case_working_context_schemas import (
     CaseWorkingContextContentV1,
     CaseWorkingContextWriteCandidate,
+    normalize_case_working_context_content_sources,
+    normalize_case_working_context_source_ref,
 )
 
 
@@ -63,9 +65,19 @@ class CaseWorkingContextRepository:
         candidate: CaseWorkingContextWriteCandidate,
     ) -> CaseWorkingContextWriteResult:
         await self._assert_case_belongs_to_tenant(tenant_id=candidate.tenant_id, case_id=candidate.case_id)
+        if candidate.updated_by_run_id is not None:
+            await self._assert_run_belongs_to_tenant(
+                tenant_id=candidate.tenant_id,
+                run_id=candidate.updated_by_run_id,
+            )
         await self._lock_case_scope(tenant_id=candidate.tenant_id, case_id=candidate.case_id)
         row = await self._read_active_for_update(tenant_id=candidate.tenant_id, case_id=candidate.case_id)
         source_ref_json = _source_ref_json(candidate)
+        content = normalize_case_working_context_content_sources(
+            candidate.content,
+            run_id=candidate.updated_by_run_id,
+            case_id=candidate.case_id,
+        )
 
         if row is None:
             row = CaseWorkingContext(
@@ -78,7 +90,7 @@ class CaseWorkingContextRepository:
                 source_ref_json=source_ref_json,
                 pii_classification=candidate.pii_classification,
             )
-            _apply_content(row, candidate.content)
+            _apply_content(row, content)
             self.session.add(row)
             await self.session.flush()
             return CaseWorkingContextWriteResult(
@@ -101,13 +113,13 @@ class CaseWorkingContextRepository:
             case_id=row.case_id,
             version=row.version,
             snapshot_json=dehydrate_content(hydrate_content(row)),
-            edit_source="run_auto" if row.updated_by_run_id is not None else "staff_manual",
+            edit_source=_revision_edit_source(row.source_ref_json),
             updated_by_run_id=row.updated_by_run_id,
             source_ref_json=dict(row.source_ref_json or {}),
         )
         self.session.add(revision)
 
-        _apply_content(row, candidate.content)
+        _apply_content(row, content)
         row.authority_class = "contextual_only"
         row.version = row.version + 1
         row.updated_by_run_id = candidate.updated_by_run_id
@@ -152,6 +164,16 @@ class CaseWorkingContextRepository:
         if result.scalar_one_or_none() is None:
             raise ValueError("case_id does not belong to tenant")
 
+    async def _assert_run_belongs_to_tenant(self, *, tenant_id: uuid.UUID, run_id: uuid.UUID) -> None:
+        result = await self.session.execute(
+            select(AgentRun.id).where(
+                AgentRun.id == run_id,
+                AgentRun.tenant_id == tenant_id,
+            )
+        )
+        if result.scalar_one_or_none() is None:
+            raise ValueError("updated_by_run_id does not belong to tenant")
+
 
 def dehydrate_content(content: CaseWorkingContextContentV1) -> dict[str, Any]:
     dumped = content.model_dump(mode="json")
@@ -173,7 +195,17 @@ def _apply_content(row: CaseWorkingContext, content: CaseWorkingContextContentV1
 
 
 def _source_ref_json(candidate: CaseWorkingContextWriteCandidate) -> dict[str, Any]:
-    return candidate.source_ref.model_dump(mode="json", exclude_none=True)
+    return normalize_case_working_context_source_ref(
+        candidate.source_ref,
+        run_id=candidate.updated_by_run_id,
+        case_id=candidate.case_id,
+    ).model_dump(mode="json", exclude_none=True)
+
+
+def _revision_edit_source(source_ref_json: dict[str, Any] | None) -> Literal["run_auto", "staff_manual"]:
+    if (source_ref_json or {}).get("source_type") == "staff_manual":
+        return "staff_manual"
+    return "run_auto"
 
 
 def _case_scope_lock_key(*, tenant_id: uuid.UUID, case_id: uuid.UUID) -> int:
