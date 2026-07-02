@@ -7,6 +7,7 @@ from tests.agent.conftest import FakeLLM
 
 from src.agent.nodes import classify_intent as classify_intent_module
 from src.agent.nodes.classify_intent import intent_result_to_state
+from src.agent.intent_policy import RiskDecision
 from src.agent.schemas import IntentResultV3, RequiredSlotExpression
 
 
@@ -45,6 +46,10 @@ async def test_classify_intent_success(monkeypatch, base_state, fake_llm_intent)
     assert result["classification_trace"]["policy_owner"] == "IntentPolicyRegistry"
     assert result["classification_trace"]["effective_classification"]["primary_intent"] == "refund_troubleshooting"
     assert result["classification_trace"]["route_decision"] == "session_memory_load"
+    assert result["classification_trace"]["semantic_intent"]["intent"] == "refund_troubleshooting"
+    assert result["classification_trace"]["semantic_intent"]["operation"] == "read_status"
+    assert result["classification_trace"]["risk_decision"]["tier"] == "read_only"
+    assert result["classification_trace"]["clarification_decision"]["threshold_applied"] == 0.65
     assert result["required_slots"]["any_of"] == [["order_id", "refund_case_id"]]
 
 
@@ -105,18 +110,26 @@ def test_intent_result_to_state_uses_intent_policy_registry_for_precedence_and_r
             requested_operation: str,
             *,
             query: str = "",
+            raw_confidence: float | None = None,
         ) -> tuple[str, str, list[str]]:
+            del raw_confidence
             return "small_talk", "advise", ["fake_registry_precedence"]
 
-        def resolve_risk_tier(
+        def resolve_risk_decision(
             self,
             primary_intent: str,
             requested_operation: str,
             role: str | None = None,
             channel: str | None = None,
             routing_hints: dict | None = None,
-        ) -> str:
-            return "draft_only"
+        ) -> RiskDecision:
+            del primary_intent, requested_operation, role, channel, routing_hints
+            return RiskDecision(
+                tier="draft_only",
+                evidence_required=True,
+                approval_required=False,
+                reason_codes=("fake_registry_risk",),
+            )
 
     monkeypatch.setattr(classify_intent_module, "INTENT_POLICY_REGISTRY", FakeIntentRegistry(), raising=False)
     result = IntentResultV3.model_validate(_intent_v3(primary_intent="refund_troubleshooting"))

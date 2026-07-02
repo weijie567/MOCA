@@ -15,11 +15,16 @@ from src.agent.intent_policy import (
     INTENT_ROUTE_POLICY,
     ORDINARY_INTENTS,
     PRECEDENCE_INTENTS,
+    RISK_POLICY_TABLE,
     REQUESTED_OPERATIONS,
     REQUIRED_SLOT_POLICY,
+    arbitrate_intent,
     confidence_requires_clarification,
+    decide_clarification,
+    derive_keyword_signals,
     detect_pre_route,
     resolve_intent_precedence,
+    resolve_risk_decision,
     resolve_risk_tier,
 )
 from src.agent.nodes import classify_intent as classify_intent_module
@@ -66,6 +71,70 @@ def test_detect_pre_route_approval_chat_and_hard_negatives():
     assert detect_pre_route("通过订单号 ORD-1 查询退款状态").disposition == "none"
     assert detect_pre_route("通过规则判断是否要补偿").disposition == "none"
     assert detect_pre_route("accept language preference").disposition == "none"
+
+
+def test_derive_keyword_signals_only_emits_candidates_without_selecting_winner():
+    signals = derive_keyword_signals("这个订单投诉升级，补偿方案给多少？")
+
+    assert signals == ("complaint_escalation", "compensation_suggestion")
+    assert "policy_qa" not in signals
+
+
+def test_arbitrate_intent_allows_keyword_when_llm_lists_same_intent():
+    primary, operation, reason_codes = arbitrate_intent(
+        "policy_qa",
+        ["complaint_escalation"],
+        ("complaint_escalation",),
+        0.95,
+        "advise",
+    )
+
+    assert primary == "complaint_escalation"
+    assert operation == "escalate"
+    assert "intent_precedence_applied" in reason_codes
+
+
+def test_arbitrate_intent_does_not_let_keywords_override_high_confidence_llm_primary():
+    text = "这个不算投诉吧，我就是问下退款进度"
+    primary, operation, reason_codes = arbitrate_intent(
+        "refund_troubleshooting",
+        [],
+        derive_keyword_signals(text),
+        0.95,
+        "read_status",
+        query=text,
+    )
+
+    assert primary == "refund_troubleshooting"
+    assert operation == "read_status"
+    assert reason_codes == []
+
+
+def test_arbitrate_intent_allows_keyword_override_when_confidence_is_low():
+    primary, operation, reason_codes = arbitrate_intent(
+        "refund_troubleshooting",
+        [],
+        ("complaint_escalation",),
+        0.4,
+        "read_status",
+    )
+
+    assert primary == "complaint_escalation"
+    assert operation == "escalate"
+    assert "intent_precedence_applied" in reason_codes
+
+
+def test_resolve_intent_precedence_exempts_registered_high_confidence_not_complaint_case():
+    primary, operation, reason_codes = resolve_intent_precedence(
+        "refund_troubleshooting",
+        "read_status",
+        "这个不算投诉吧，我就是问下退款进度",
+        raw_confidence=0.95,
+    )
+
+    assert primary == "refund_troubleshooting"
+    assert operation == "read_status"
+    assert reason_codes == []
 
 
 @pytest.mark.parametrize(
@@ -170,6 +239,135 @@ def test_confidence_defaults_for_low_and_safety_sensitive_routes():
 )
 def test_resolve_risk_tier(primary_intent, requested_operation, routing_hints, expected):
     assert resolve_risk_tier(primary_intent, requested_operation, channel="ordinary_chat", routing_hints=routing_hints) == expected
+
+
+def _legacy_resolve_risk_tier(
+    primary_intent: str,
+    requested_operation: str,
+    channel: str | None,
+    routing_hints: dict | None,
+) -> str:
+    hints = routing_hints or {}
+    if (
+        requested_operation == "approval_decision"
+        or hints.get("pre_route_disposition") == "approval_chat_not_trusted"
+        or hints.get("clarification_reason") == "approval_chat_not_trusted"
+    ):
+        return "forbidden_in_chat"
+    if requested_operation == "read_status":
+        return "read_only"
+    if requested_operation == "draft_reply":
+        return "draft_only"
+    if requested_operation == "draft_action" or primary_intent == "compensation_suggestion":
+        return "suggest_action"
+    if requested_operation in {"execute_action", "escalate"}:
+        return "approval_required"
+    if primary_intent in HIGH_RISK_INTENTS or primary_intent == "action_request":
+        return "approval_required"
+    return "read_only"
+
+
+@pytest.mark.parametrize("primary_intent", [*ORDINARY_INTENTS, "not_a_real_intent"])
+@pytest.mark.parametrize("requested_operation", [*REQUESTED_OPERATIONS, "approval_decision", "not_a_real_operation"])
+@pytest.mark.parametrize("channel", ["ordinary_chat", "external_workflow", None])
+@pytest.mark.parametrize(
+    "routing_hints",
+    [
+        {},
+        {"pre_route_disposition": "approval_chat_not_trusted"},
+        {"clarification_reason": "approval_chat_not_trusted"},
+        {"channel": "agent_runs"},
+    ],
+)
+def test_risk_policy_table_preserves_legacy_tier_for_all_intent_operation_channel_combinations(
+    primary_intent,
+    requested_operation,
+    channel,
+    routing_hints,
+):
+    assert resolve_risk_tier(primary_intent, requested_operation, channel=channel, routing_hints=routing_hints) == (
+        _legacy_resolve_risk_tier(primary_intent, requested_operation, channel, routing_hints)
+    )
+
+
+RISK_POLICY_ROW_CASES = {
+    ("approval_decision", "*", "*"): ("unsupported", "approval_decision", "ordinary_chat", {}),
+    ("read_status", "*", "*"): ("complaint_escalation", "read_status", "ordinary_chat", {}),
+    ("draft_reply", "*", "*"): ("policy_qa", "draft_reply", "ordinary_chat", {}),
+    ("draft_action", "*", "*"): ("policy_qa", "draft_action", "ordinary_chat", {}),
+    ("execute_action", "*", "ordinary_chat"): ("policy_qa", "execute_action", "ordinary_chat", {}),
+    ("execute_action", "*", "non_chat"): ("policy_qa", "execute_action", "external_workflow", {}),
+    ("escalate", "*", "ordinary_chat"): ("policy_qa", "escalate", "ordinary_chat", {}),
+    ("escalate", "*", "non_chat"): ("policy_qa", "escalate", "external_workflow", {}),
+    ("*", "compensation_suggestion", "*"): ("compensation_suggestion", "advise", "ordinary_chat", {}),
+    ("*", "action_request", "*"): ("action_request", "advise", "ordinary_chat", {}),
+    ("*", "high_risk", "*"): ("appeal_or_unban", "advise", "ordinary_chat", {}),
+    ("*", "direct_response", "*"): ("small_talk", "advise", "ordinary_chat", {}),
+    ("*", "*", "*"): ("policy_qa", "advise", "ordinary_chat", {}),
+}
+
+
+def test_risk_policy_table_rows_are_reachable_and_dead_branch_is_removed():
+    assert set(RISK_POLICY_TABLE) == set(RISK_POLICY_ROW_CASES)
+
+    for key, (primary_intent, requested_operation, channel, routing_hints) in RISK_POLICY_ROW_CASES.items():
+        decision = resolve_risk_decision(
+            primary_intent,
+            requested_operation,
+            channel=channel,
+            routing_hints=routing_hints,
+        )
+        assert decision.tier == RISK_POLICY_TABLE[key].tier
+        assert decision.reason_codes == RISK_POLICY_TABLE[key].reason_codes
+
+    source = inspect.getsource(resolve_risk_decision) + inspect.getsource(resolve_risk_tier)
+    assert 'if effective_channel in ORDINARY_CHAT_CHANNELS else "approval_required"' not in source
+    assert resolve_risk_tier("policy_qa", "execute_action", channel="ordinary_chat") == "approval_required"
+    assert resolve_risk_tier("policy_qa", "execute_action", channel="external_workflow") == "approval_required"
+
+
+@pytest.mark.parametrize(
+    ("primary_intent", "requested_operation", "confidence", "expected", "threshold"),
+    [
+        ("policy_qa", "advise", 0.64, True, 0.65),
+        ("policy_qa", "advise", 0.65, False, 0.65),
+        ("compensation_suggestion", "draft_action", 0.84, True, 0.85),
+        ("compensation_suggestion", "draft_action", 0.85, False, 0.85),
+    ],
+)
+def test_clarification_layer_preserves_threshold_boundaries(
+    primary_intent,
+    requested_operation,
+    confidence,
+    expected,
+    threshold,
+):
+    decision = decide_clarification(
+        primary_intent,
+        requested_operation,
+        confidence,
+        calibrated_confidence=0.0,
+    )
+
+    assert decision.requires_clarification is expected
+    assert decision.threshold_applied == threshold
+    assert confidence_requires_clarification(primary_intent, requested_operation, confidence) is expected
+
+
+def test_clarification_layer_exposes_pre_route_decision_without_threshold():
+    pre_route = detect_pre_route("approve APR-1")
+    decision = decide_clarification("policy_qa", "advise", 0.99, pre_route)
+
+    assert decision.requires_clarification is True
+    assert decision.reason == "approval_chat_not_trusted"
+    assert decision.threshold_applied is None
+
+
+def test_intent_layers_keep_risk_and_clarification_signatures_downstream_only():
+    for func in (resolve_risk_decision, decide_clarification):
+        params = set(inspect.signature(func).parameters)
+        assert "query" not in params
+        assert "keyword_signals" not in params
 
 
 @pytest.mark.asyncio

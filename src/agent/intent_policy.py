@@ -44,6 +44,31 @@ class SlotInheritanceDecision:
     source: str | None = None
 
 
+@dataclass(frozen=True)
+class SemanticIntent:
+    intent: IntentLiteral
+    operation: RequestedOperationLiteral
+    entities: Mapping[str, Any]
+    raw_confidence: float | None
+    keyword_signals: tuple[IntentLiteral, ...]
+    arbitration: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class RiskDecision:
+    tier: RiskTierLiteral
+    evidence_required: bool
+    approval_required: bool
+    reason_codes: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ClarificationDecision:
+    requires_clarification: bool
+    reason: str | None
+    threshold_applied: float | None
+
+
 REQUESTED_OPERATIONS: tuple[str, ...] = (
     "read_status",
     "advise",
@@ -147,6 +172,8 @@ CRITICAL_ROUTE_CLASSES = {
     "approval_decision",
     *(name for name, definition in INTENT_DEFINITIONS.items() if definition.critical_route_class),
 }
+ORDINARY_CONFIDENCE_THRESHOLD = 0.65
+SAFETY_CONFIDENCE_THRESHOLD = 0.85
 
 
 class IntentPolicyRegistry:
@@ -227,6 +254,22 @@ class IntentPolicyRegistry:
             routing_hints=routing_hints,
         )
 
+    def resolve_risk_decision(
+        self,
+        primary_intent: str,
+        requested_operation: str,
+        role: str | None = None,
+        channel: str | None = None,
+        routing_hints: dict[str, Any] | None = None,
+    ) -> RiskDecision:
+        return resolve_risk_decision(
+            primary_intent,
+            requested_operation,
+            role=role,
+            channel=channel,
+            routing_hints=routing_hints,
+        )
+
     def resolve_precedence(
         self,
         primary_intent: str,
@@ -234,12 +277,14 @@ class IntentPolicyRegistry:
         requested_operation: str,
         *,
         query: str = "",
+        raw_confidence: float | None = None,
     ) -> tuple[IntentLiteral, RequestedOperationLiteral, list[str]]:
         resolved_intent, resolved_operation, reason_codes = resolve_intent_precedence(
             primary_intent,
             requested_operation,
             query,
             secondary_intents,
+            raw_confidence=raw_confidence,
         )
         if resolved_intent not in INTENT_DEFINITIONS:
             resolved_intent = "unsupported"
@@ -361,6 +406,88 @@ INTENT_POLICY_REGISTRY = IntentPolicyRegistry()
 SLOT_POLICY_REGISTRY = SlotPolicyRegistry()
 
 ORDINARY_CHAT_CHANNELS = {"ordinary_chat", "chat", "agent_chat", "agent_runs"}
+RISK_POLICY_TABLE: Mapping[tuple[str, str, str], RiskDecision] = MappingProxyType(
+    {
+        ("approval_decision", "*", "*"): RiskDecision(
+            tier="forbidden_in_chat",
+            evidence_required=False,
+            approval_required=False,
+            reason_codes=("approval_chat_not_trusted",),
+        ),
+        ("read_status", "*", "*"): RiskDecision(
+            tier="read_only",
+            evidence_required=True,
+            approval_required=False,
+            reason_codes=("operation_read_status",),
+        ),
+        ("draft_reply", "*", "*"): RiskDecision(
+            tier="draft_only",
+            evidence_required=True,
+            approval_required=False,
+            reason_codes=("operation_draft_reply",),
+        ),
+        ("draft_action", "*", "*"): RiskDecision(
+            tier="suggest_action",
+            evidence_required=True,
+            approval_required=False,
+            reason_codes=("operation_draft_action",),
+        ),
+        ("execute_action", "*", "ordinary_chat"): RiskDecision(
+            tier="approval_required",
+            evidence_required=True,
+            approval_required=True,
+            reason_codes=("operation_execute_action", "ordinary_chat"),
+        ),
+        ("execute_action", "*", "non_chat"): RiskDecision(
+            tier="approval_required",
+            evidence_required=True,
+            approval_required=True,
+            reason_codes=("operation_execute_action", "non_chat"),
+        ),
+        ("escalate", "*", "ordinary_chat"): RiskDecision(
+            tier="approval_required",
+            evidence_required=True,
+            approval_required=True,
+            reason_codes=("operation_escalate", "ordinary_chat"),
+        ),
+        ("escalate", "*", "non_chat"): RiskDecision(
+            tier="approval_required",
+            evidence_required=True,
+            approval_required=True,
+            reason_codes=("operation_escalate", "non_chat"),
+        ),
+        ("*", "compensation_suggestion", "*"): RiskDecision(
+            tier="suggest_action",
+            evidence_required=True,
+            approval_required=False,
+            reason_codes=("intent_compensation_suggestion",),
+        ),
+        ("*", "action_request", "*"): RiskDecision(
+            tier="approval_required",
+            evidence_required=True,
+            approval_required=True,
+            reason_codes=("intent_action_request",),
+        ),
+        ("*", "high_risk", "*"): RiskDecision(
+            tier="approval_required",
+            evidence_required=True,
+            approval_required=True,
+            reason_codes=("intent_high_risk",),
+        ),
+        ("*", "direct_response", "*"): RiskDecision(
+            tier="read_only",
+            evidence_required=False,
+            approval_required=False,
+            reason_codes=("intent_direct_response",),
+        ),
+        ("*", "*", "*"): RiskDecision(
+            tier="read_only",
+            evidence_required=True,
+            approval_required=False,
+            reason_codes=("default_read_only",),
+        ),
+    }
+)
 
 
 class PreRouteDecision(BaseModel):
@@ -427,22 +554,63 @@ def resolve_intent_precedence(
     requested_operation: str,
     query: str,
     secondary_intents: list[str] | None = None,
+    *,
+    raw_confidence: float | None = None,
 ) -> tuple[str, str, list[str]]:
-    candidates = [primary_intent, *(secondary_intents or [])]
+    keyword_signals = derive_keyword_signals(query)
+    return arbitrate_intent(
+        primary_intent,
+        secondary_intents or [],
+        keyword_signals,
+        raw_confidence,
+        requested_operation,
+        query=query,
+    )
+
+
+def derive_keyword_signals(query: str) -> tuple[IntentLiteral, ...]:
     text = query or ""
     lowered = text.lower()
-    compensation_action_requested = primary_intent == "compensation_suggestion" or _has_compensation_action_cue(
-        text,
-        lowered,
-    )
+    signals: list[IntentLiteral] = []
     if any(token in lowered for token in ("appeal", "unban")) or any(token in text for token in ("申诉", "解封")):
-        candidates.append("appeal_or_unban")
+        _append_signal(signals, "appeal_or_unban")
     if any(token in lowered for token in ("complaint", "escalate")) or any(token in text for token in ("投诉", "升级", "主管")):
-        candidates.append("complaint_escalation")
-    if compensation_action_requested:
-        candidates.append("compensation_suggestion")
+        _append_signal(signals, "complaint_escalation")
+    if _has_compensation_action_cue(text, lowered):
+        _append_signal(signals, "compensation_suggestion")
     if any(token in lowered for token in ("reply", "draft")) or any(token in text for token in ("回复", "话术")):
-        candidates.append("ticket_reply_draft")
+        _append_signal(signals, "ticket_reply_draft")
+    return tuple(signals)
+
+
+def arbitrate_intent(
+    llm_primary: str,
+    llm_secondary: list[str] | tuple[str, ...],
+    keyword_signals: tuple[str, ...],
+    raw_confidence: float | None,
+    requested_operation: str = "advise",
+    *,
+    query: str = "",
+) -> tuple[IntentLiteral, RequestedOperationLiteral, list[str]]:
+    primary_was_valid = llm_primary in ORDINARY_INTENTS
+    primary_intent = llm_primary if primary_was_valid else "unsupported"
+    secondary_intents = [intent for intent in llm_secondary if intent in ORDINARY_INTENTS]
+    text = query or ""
+    lowered = text.lower()
+    operation = _valid_operation(requested_operation)
+    compensation_action_requested = primary_intent == "compensation_suggestion" or "compensation_suggestion" in keyword_signals
+
+    if primary_intent == "action_request" and operation == "advise" and _is_next_step_advice_query(text, lowered):
+        return "refund_troubleshooting", "read_status", ["next_step_advice_normalized"]
+
+    llm_candidates = {primary_intent, *secondary_intents}
+    confidence_allows_keyword_override = raw_confidence is None or raw_confidence < ORDINARY_CONFIDENCE_THRESHOLD
+    eligible_keyword_signals = [
+        signal
+        for signal in keyword_signals
+        if signal in ORDINARY_INTENTS and (signal in llm_candidates or confidence_allows_keyword_override)
+    ]
+    candidates = [primary_intent, *secondary_intents, *eligible_keyword_signals]
 
     valid_candidates = [candidate for candidate in candidates if candidate in ORDINARY_INTENTS]
     if not compensation_action_requested:
@@ -454,17 +622,47 @@ def resolve_intent_precedence(
         and (any(token in lowered for token in ("policy", "rule")) or any(token in text for token in ("政策", "规则")))
     ):
         return "policy_qa", "advise", []
-    if (
-        primary_intent == "action_request"
-        and requested_operation == "advise"
-        and _is_next_step_advice_query(text, lowered)
-    ):
-        return "refund_troubleshooting", "read_status", ["next_step_advice_normalized"]
     for intent in PRECEDENCE_INTENTS:
         if intent in valid_candidates:
-            reason_codes = [] if intent == primary_intent else ["intent_precedence_applied"]
+            if not primary_was_valid and intent == "unsupported":
+                reason_codes = ["unsupported_intent"]
+            else:
+                reason_codes = [] if intent == primary_intent else ["intent_precedence_applied"]
             return intent, _operation_for_selected_intent(intent, requested_operation), reason_codes
     return "unsupported", "advise", ["unsupported_intent"]
+
+
+def _append_signal(signals: list[IntentLiteral], intent: IntentLiteral) -> None:
+    if intent not in signals:
+        signals.append(intent)
+
+
+def resolve_semantic_intent(
+    primary_intent: str,
+    requested_operation: str,
+    query: str,
+    secondary_intents: list[str] | None = None,
+    *,
+    candidate_slots: Mapping[str, Any] | None = None,
+    raw_confidence: float | None = None,
+) -> SemanticIntent:
+    keyword_signals = derive_keyword_signals(query)
+    intent, operation, arbitration = arbitrate_intent(
+        primary_intent,
+        secondary_intents or [],
+        keyword_signals,
+        raw_confidence,
+        requested_operation,
+        query=query,
+    )
+    return SemanticIntent(
+        intent=intent,
+        operation=operation,
+        entities=dict(candidate_slots or {}),
+        raw_confidence=raw_confidence,
+        keyword_signals=keyword_signals,
+        arbitration=tuple(arbitration),
+    )
 
 
 def confidence_requires_clarification(
@@ -472,11 +670,33 @@ def confidence_requires_clarification(
     requested_operation: str,
     confidence: float | None,
     pre_route: PreRouteDecision | None = None,
+    *,
+    calibrated_confidence: float | None = None,
 ) -> bool:
+    return decide_clarification(
+        primary_intent,
+        requested_operation,
+        confidence,
+        pre_route,
+        calibrated_confidence=calibrated_confidence,
+    ).requires_clarification
+
+
+def decide_clarification(
+    primary_intent: str,
+    requested_operation: str,
+    confidence: float | None,
+    pre_route: PreRouteDecision | None = None,
+    *,
+    calibrated_confidence: float | None = None,
+) -> ClarificationDecision:
+    del calibrated_confidence
     if pre_route and pre_route.requires_clarification:
-        return True
-    if confidence is None or confidence < 0.65:
-        return True
+        return ClarificationDecision(
+            requires_clarification=True,
+            reason=pre_route.disposition,
+            threshold_applied=None,
+        )
     safety_sensitive = (
         primary_intent in HIGH_RISK_INTENTS
         or requested_operation in {"draft_action", "execute_action", "escalate"}
@@ -485,9 +705,44 @@ def confidence_requires_clarification(
             and requested_operation != "read_status"
         )
     )
-    if safety_sensitive and confidence < 0.85:
-        return True
-    return False
+    threshold = SAFETY_CONFIDENCE_THRESHOLD if safety_sensitive else ORDINARY_CONFIDENCE_THRESHOLD
+    if confidence is None or confidence < threshold:
+        return ClarificationDecision(
+            requires_clarification=True,
+            reason="low_confidence",
+            threshold_applied=threshold,
+        )
+    return ClarificationDecision(
+        requires_clarification=False,
+        reason=None,
+        threshold_applied=threshold,
+    )
+
+
+def resolve_risk_decision(
+    primary_intent: str,
+    requested_operation: str,
+    role: str | None = None,
+    channel: str | None = None,
+    routing_hints: dict[str, Any] | None = None,
+) -> RiskDecision:
+    """Resolve ordinary-chat safety tier from effective policy state.
+
+    The role is accepted for policy expansion but does not grant chat approval
+    authority in this phase.
+    """
+    del role
+    hints = routing_hints or {}
+    if (
+        requested_operation == "approval_decision"
+        or hints.get("pre_route_disposition") == "approval_chat_not_trusted"
+        or hints.get("clarification_reason") == "approval_chat_not_trusted"
+    ):
+        return _risk_decision_from_template(RISK_POLICY_TABLE[("approval_decision", "*", "*")], primary_intent)
+
+    channel_class = _channel_class(channel or str(hints.get("channel") or "ordinary_chat"))
+    template = _lookup_risk_policy(primary_intent, requested_operation, channel_class)
+    return _risk_decision_from_template(template, primary_intent)
 
 
 def resolve_risk_tier(
@@ -497,31 +752,71 @@ def resolve_risk_tier(
     channel: str | None = None,
     routing_hints: dict[str, Any] | None = None,
 ) -> RiskTierLiteral:
-    """Resolve ordinary-chat safety tier from effective policy state.
+    return resolve_risk_decision(
+        primary_intent,
+        requested_operation,
+        role=role,
+        channel=channel,
+        routing_hints=routing_hints,
+    ).tier
 
-    The role is accepted for policy expansion but does not grant chat approval
-    authority in this phase.
-    """
-    del role
-    hints = routing_hints or {}
-    effective_channel = channel or str(hints.get("channel") or "ordinary_chat")
-    if (
-        requested_operation == "approval_decision"
-        or hints.get("pre_route_disposition") == "approval_chat_not_trusted"
-        or hints.get("clarification_reason") == "approval_chat_not_trusted"
-    ):
-        return "forbidden_in_chat"
-    if requested_operation == "read_status":
-        return "read_only"
-    if requested_operation == "draft_reply":
-        return "draft_only"
-    if requested_operation == "draft_action" or primary_intent == "compensation_suggestion":
-        return "suggest_action"
-    if requested_operation in {"execute_action", "escalate"}:
-        return "approval_required" if effective_channel in ORDINARY_CHAT_CHANNELS else "approval_required"
-    if primary_intent in HIGH_RISK_INTENTS or primary_intent == "action_request":
-        return "approval_required"
-    return "read_only"
+
+def _channel_class(channel: str) -> str:
+    return "ordinary_chat" if channel in ORDINARY_CHAT_CHANNELS else "non_chat"
+
+
+def _lookup_risk_policy(primary_intent: str, requested_operation: str, channel_class: str) -> RiskDecision:
+    operation = requested_operation if requested_operation in REQUESTED_OPERATIONS else "*"
+    intent_classes = _risk_intent_classes(primary_intent)
+    for key in _risk_policy_keys(operation, intent_classes, channel_class):
+        template = RISK_POLICY_TABLE.get(key)
+        if template is not None:
+            return template
+    return RISK_POLICY_TABLE[("*", "*", "*")]
+
+
+def _risk_policy_keys(
+    operation: str,
+    intent_classes: tuple[str, ...],
+    channel_class: str,
+) -> tuple[tuple[str, str, str], ...]:
+    keys: list[tuple[str, str, str]] = []
+    if operation in {"read_status", "draft_reply", "draft_action"}:
+        for channel_candidate in (channel_class, "*"):
+            keys.append((operation, "*", channel_candidate))
+    if "compensation_suggestion" in intent_classes:
+        for channel_candidate in (channel_class, "*"):
+            keys.append(("*", "compensation_suggestion", channel_candidate))
+    if operation in {"execute_action", "escalate"}:
+        for channel_candidate in (channel_class, "*"):
+            keys.append((operation, "*", channel_candidate))
+    for intent_class in (item for item in intent_classes if item != "compensation_suggestion"):
+        for channel_candidate in (channel_class, "*"):
+            keys.append(("*", intent_class, channel_candidate))
+    keys.append(("*", "*", "*"))
+    return tuple(dict.fromkeys(keys))
+
+
+def _risk_intent_classes(primary_intent: str) -> tuple[str, ...]:
+    classes: list[str] = []
+    if primary_intent in INTENT_DEFINITIONS:
+        classes.append(primary_intent)
+    if primary_intent in HIGH_RISK_INTENTS:
+        classes.append("high_risk")
+    if primary_intent in DIRECT_RESPONSE_INTENTS:
+        classes.append("direct_response")
+    return tuple(dict.fromkeys(classes))
+
+
+def _risk_decision_from_template(template: RiskDecision, primary_intent: str) -> RiskDecision:
+    definition = INTENT_DEFINITIONS.get(primary_intent)
+    evidence_required = definition.evidence_required if definition is not None else template.evidence_required
+    return RiskDecision(
+        tier=template.tier,
+        evidence_required=evidence_required,
+        approval_required=template.approval_required,
+        reason_codes=template.reason_codes,
+    )
 
 
 def _valid_operation(value: str) -> RequestedOperationLiteral:

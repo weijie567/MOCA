@@ -9,9 +9,14 @@ from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
 from src.agent.intent_policy import (
+    ClarificationDecision,
     INTENT_POLICY_REGISTRY,
+    RiskDecision,
     SLOT_POLICY_REGISTRY,
+    SemanticIntent,
     PreRouteDecision,
+    decide_clarification,
+    derive_keyword_signals,
     detect_pre_route,
 )
 from src.agent.prompts import CLASSIFY_INTENT_SYSTEM
@@ -121,38 +126,95 @@ _SHORT_APPROVAL_OR_ACTION_REPLIES = {
 }
 
 
-def intent_result_to_state(
-    result: IntentResultV3,
-    prior_llm_outputs: dict[str, Any] | None = None,
-    pre_route: PreRouteDecision | None = None,
-    user_query: str = "",
-    role: str | None = None,
-    channel: str | None = None,
-) -> dict[str, Any]:
-    raw_primary_intent = result.primary_intent
-    raw_requested_operation = result.requested_operation
-    primary_intent, requested_operation, precedence_reasons = INTENT_POLICY_REGISTRY.resolve_precedence(
+def _semantic_payload(semantic: SemanticIntent) -> dict[str, Any]:
+    return {
+        "intent": semantic.intent,
+        "operation": semantic.operation,
+        "entities": dict(semantic.entities),
+        "raw_confidence": semantic.raw_confidence,
+        "keyword_signals": list(semantic.keyword_signals),
+        "arbitration": list(semantic.arbitration),
+    }
+
+
+def _risk_payload(risk: RiskDecision) -> dict[str, Any]:
+    return {
+        "tier": risk.tier,
+        "evidence_required": risk.evidence_required,
+        "approval_required": risk.approval_required,
+        "reason_codes": list(risk.reason_codes),
+    }
+
+
+def _clarification_payload(decision: ClarificationDecision) -> dict[str, Any]:
+    return {
+        "requires_clarification": decision.requires_clarification,
+        "reason": decision.reason,
+        "threshold_applied": decision.threshold_applied,
+    }
+
+
+def _registry_resolve_precedence(
+    primary_intent: str,
+    secondary_intents: list[str],
+    requested_operation: str,
+    *,
+    query: str,
+    raw_confidence: float | None,
+) -> tuple[str, str, list[str]]:
+    return INTENT_POLICY_REGISTRY.resolve_precedence(
+        primary_intent,
+        secondary_intents,
+        requested_operation,
+        query=query,
+        raw_confidence=raw_confidence,
+    )
+
+
+def _semantic_from_llm_result(result: IntentResultV3, user_query: str) -> SemanticIntent:
+    primary_intent, requested_operation, arbitration = _registry_resolve_precedence(
         result.primary_intent,
         [str(intent) for intent in result.secondary_intents],
         result.requested_operation,
         query=user_query,
+        raw_confidence=result.confidence,
     )
+    return SemanticIntent(
+        intent=primary_intent,
+        operation=requested_operation,
+        entities=dict(result.candidate_slots),
+        raw_confidence=result.confidence,
+        keyword_signals=derive_keyword_signals(user_query),
+        arbitration=tuple(arbitration),
+    )
+
+
+def _semantic_from_effective_values(
+    *,
+    primary_intent: str,
+    requested_operation: str,
+    raw_confidence: float | None,
+    candidate_slots: dict[str, Any],
+    user_query: str,
+    arbitration: list[str],
+) -> SemanticIntent:
+    return SemanticIntent(
+        intent=primary_intent,  # type: ignore[arg-type]
+        operation=requested_operation,  # type: ignore[arg-type]
+        entities=dict(candidate_slots),
+        raw_confidence=raw_confidence,
+        keyword_signals=derive_keyword_signals(user_query),
+        arbitration=tuple(arbitration),
+    )
+
+
+def _apply_pre_route_to_semantic(
+    semantic: SemanticIntent,
+    pre_route: PreRouteDecision | None,
+) -> tuple[SemanticIntent, list[dict[str, Any]]]:
     policy_overrides: list[dict[str, Any]] = []
-    if (primary_intent, requested_operation) != (raw_primary_intent, raw_requested_operation):
-        policy_overrides.append(
-            {
-                "source": "intent_precedence",
-                "from": {
-                    "primary_intent": raw_primary_intent,
-                    "requested_operation": raw_requested_operation,
-                },
-                "to": {
-                    "primary_intent": primary_intent,
-                    "requested_operation": requested_operation,
-                },
-                "reason_codes": precedence_reasons,
-            }
-        )
+    primary_intent = semantic.intent
+    requested_operation = semantic.operation
     if pre_route and pre_route.requested_operation:
         if requested_operation != pre_route.requested_operation:
             policy_overrides.append(
@@ -196,11 +258,97 @@ def intent_result_to_state(
         )
         primary_intent = "unsupported"
         requested_operation = "advise"
+    return (
+        SemanticIntent(
+            intent=primary_intent,  # type: ignore[arg-type]
+            operation=requested_operation,  # type: ignore[arg-type]
+            entities=semantic.entities,
+            raw_confidence=semantic.raw_confidence,
+            keyword_signals=semantic.keyword_signals,
+            arbitration=semantic.arbitration,
+        ),
+        policy_overrides,
+    )
+
+
+def _risk_decision_for(
+    semantic: SemanticIntent,
+    *,
+    role: str | None,
+    channel: str | None,
+    routing_hints: dict[str, Any],
+) -> RiskDecision:
+    return INTENT_POLICY_REGISTRY.resolve_risk_decision(
+        semantic.intent,
+        semantic.operation,
+        role=role,
+        channel=channel,
+        routing_hints=routing_hints,
+    )
+
+
+def _classify_layers(
+    semantic: SemanticIntent,
+    *,
+    role: str | None,
+    channel: str | None,
+    routing_hints: dict[str, Any],
+    pre_route: PreRouteDecision | None,
+    calibrated_confidence: float | None,
+) -> tuple[SemanticIntent, RiskDecision, ClarificationDecision]:
+    risk_decision = _risk_decision_for(
+        semantic,
+        role=role,
+        channel=channel,
+        routing_hints=routing_hints,
+    )
+    clarification_decision = decide_clarification(
+        semantic.intent,
+        semantic.operation,
+        semantic.raw_confidence,
+        pre_route,
+        calibrated_confidence=calibrated_confidence,
+    )
+    return semantic, risk_decision, clarification_decision
+
+
+def intent_result_to_state(
+    result: IntentResultV3,
+    prior_llm_outputs: dict[str, Any] | None = None,
+    pre_route: PreRouteDecision | None = None,
+    user_query: str = "",
+    role: str | None = None,
+    channel: str | None = None,
+) -> dict[str, Any]:
+    semantic_before_pre_route = _semantic_from_llm_result(result, user_query)
+    semantic, pre_route_overrides = _apply_pre_route_to_semantic(semantic_before_pre_route, pre_route)
+    primary_intent = semantic.intent
+    requested_operation = semantic.operation
+    policy_overrides: list[dict[str, Any]] = []
+    if (semantic_before_pre_route.intent, semantic_before_pre_route.operation) != (
+        result.primary_intent,
+        result.requested_operation,
+    ):
+        policy_overrides.append(
+            {
+                "source": "intent_precedence",
+                "from": {
+                    "primary_intent": result.primary_intent,
+                    "requested_operation": result.requested_operation,
+                },
+                "to": {
+                    "primary_intent": semantic_before_pre_route.intent,
+                    "requested_operation": semantic_before_pre_route.operation,
+                },
+                "reason_codes": list(semantic_before_pre_route.arbitration),
+            }
+        )
+    policy_overrides.extend(pre_route_overrides)
 
     policy_required_slots = SLOT_POLICY_REGISTRY.required_slots_for(primary_intent).model_dump()
     raw = result.model_dump()
     routing_hints = dict(result.routing_hints)
-    reason_codes = list(result.reason_codes) + precedence_reasons
+    reason_codes = list(result.reason_codes) + list(semantic.arbitration)
     if pre_route and pre_route.disposition != "none":
         routing_hints["pre_route_disposition"] = pre_route.disposition
         routing_hints["requires_clarification"] = pre_route.requires_clarification
@@ -208,18 +356,19 @@ def intent_result_to_state(
             routing_hints["clarification_reason"] = pre_route.disposition
         reason_codes.extend(pre_route.reason_codes)
 
-    risk_tier = INTENT_POLICY_REGISTRY.resolve_risk_tier(
-        primary_intent,
-        requested_operation,
-        role,
-        channel,
-        routing_hints,
+    semantic, risk_decision, clarification_decision = _classify_layers(
+        semantic,
+        role=role,
+        channel=channel,
+        routing_hints=routing_hints,
+        pre_route=pre_route,
+        calibrated_confidence=result.calibrated_confidence,
     )
     update = {
         "primary_intent": primary_intent,
         "requested_operation": requested_operation,
         "intent_confidence": result.confidence,
-        "risk_tier": risk_tier,
+        "risk_tier": risk_decision.tier,
         "secondary_intents": [str(intent) for intent in result.secondary_intents],
         "required_slots": policy_required_slots,
         "candidate_slots": dict(result.candidate_slots),
@@ -234,12 +383,15 @@ def intent_result_to_state(
         "policy_owner": "IntentPolicyRegistry",
         "pre_route_decision": pre_route.model_dump() if pre_route else None,
         "policy_overrides": policy_overrides,
+        "semantic_intent": _semantic_payload(semantic),
+        "risk_decision": _risk_payload(risk_decision),
+        "clarification_decision": _clarification_payload(clarification_decision),
         "effective_classification": {
             "primary_intent": primary_intent,
             "requested_operation": requested_operation,
             "required_slots": policy_required_slots,
         },
-        "risk_tier": risk_tier,
+        "risk_tier": risk_decision.tier,
         "route_decision": route_decision,
         "reason_codes": reason_codes,
     }
@@ -326,18 +478,27 @@ def _deterministic_classification_update(
     reason_codes: list[str],
     source: str,
 ) -> dict[str, Any]:
-    risk_tier = INTENT_POLICY_REGISTRY.resolve_risk_tier(
-        primary_intent,
-        requested_operation,
-        state.get("role"),
-        "ordinary_chat",
-        routing_hints,
+    semantic = _semantic_from_effective_values(
+        primary_intent=primary_intent,
+        requested_operation=requested_operation,
+        raw_confidence=intent_confidence,
+        candidate_slots=candidate_slots,
+        user_query=str(state.get("user_query") or ""),
+        arbitration=reason_codes,
+    )
+    semantic, risk_decision, clarification_decision = _classify_layers(
+        semantic,
+        role=state.get("role"),
+        channel="ordinary_chat",
+        routing_hints=routing_hints,
+        pre_route=pre_route,
+        calibrated_confidence=intent_confidence,
     )
     update = {
         "primary_intent": primary_intent,
         "requested_operation": requested_operation,
         "intent_confidence": intent_confidence,
-        "risk_tier": risk_tier,
+        "risk_tier": risk_decision.tier,
         "secondary_intents": [],
         "required_slots": required_slots,
         "candidate_slots": candidate_slots,
@@ -352,12 +513,15 @@ def _deterministic_classification_update(
         "policy_owner": "IntentPolicyRegistry",
         "pre_route_decision": pre_route.model_dump(),
         "policy_overrides": policy_overrides,
+        "semantic_intent": _semantic_payload(semantic),
+        "risk_decision": _risk_payload(risk_decision),
+        "clarification_decision": _clarification_payload(clarification_decision),
         "effective_classification": {
             "primary_intent": primary_intent,
             "requested_operation": requested_operation,
             "required_slots": required_slots,
         },
-        "risk_tier": risk_tier,
+        "risk_tier": risk_decision.tier,
         "route_decision": route_decision,
         "reason_codes": reason_codes,
     }
@@ -554,12 +718,21 @@ async def classify_intent(state: AgentState) -> dict:
             "requires_clarification": pre_route.requires_clarification,
             "clarification_reason": pre_route.disposition if pre_route.requires_clarification else None,
         }
-    risk_tier = INTENT_POLICY_REGISTRY.resolve_risk_tier(
-        "unsupported",
-        "advise",
-        state.get("role"),
-        "ordinary_chat",
-        routing_hints,
+    fallback_semantic = _semantic_from_effective_values(
+        primary_intent="unsupported",
+        requested_operation="advise",
+        raw_confidence=0.0,
+        candidate_slots={},
+        user_query=user_text,
+        arbitration=["classifier_validation_failed"],
+    )
+    fallback_semantic, risk_decision, clarification_decision = _classify_layers(
+        fallback_semantic,
+        role=state.get("role"),
+        channel="ordinary_chat",
+        routing_hints=routing_hints,
+        pre_route=pre_route,
+        calibrated_confidence=0.0,
     )
     fallback_state = {
         "primary_intent": "unsupported",
@@ -573,12 +746,15 @@ async def classify_intent(state: AgentState) -> dict:
         "policy_owner": "IntentPolicyRegistry",
         "pre_route_decision": pre_route.model_dump(),
         "policy_overrides": [{"source": "classifier_validation_failed", "reason_codes": [*pre_route.reason_codes]}],
+        "semantic_intent": _semantic_payload(fallback_semantic),
+        "risk_decision": _risk_payload(risk_decision),
+        "clarification_decision": _clarification_payload(clarification_decision),
         "effective_classification": {
             "primary_intent": "unsupported",
             "requested_operation": "advise",
             "required_slots": fallback_required,
         },
-        "risk_tier": risk_tier,
+        "risk_tier": risk_decision.tier,
         "route_decision": route_after_intent(fallback_state),
         "reason_codes": ["classifier_validation_failed", *pre_route.reason_codes],
     }
@@ -586,7 +762,7 @@ async def classify_intent(state: AgentState) -> dict:
         "primary_intent": "unsupported",
         "requested_operation": "advise",
         "intent_confidence": 0.0,
-        "risk_tier": risk_tier,
+        "risk_tier": risk_decision.tier,
         "classification_trace": classification_trace,
         "secondary_intents": [],
         "required_slots": fallback_required,
