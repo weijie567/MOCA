@@ -276,6 +276,28 @@ async def test_output_schema_success_passes_tool_result_unchanged() -> None:
 
 
 @pytest.mark.asyncio
+async def test_output_schema_success_with_missing_data_returns_invalid_response() -> None:
+    from src.tools.platform import ToolPlatform
+
+    invalid = _success_result().model_copy(update={"data": None})
+    executor = _RecordingExecutor({"get_order"}, invalid)
+    platform = ToolPlatform(executors={"business": executor})
+
+    outcome = await platform.invoke(
+        "get_order",
+        {"order_no": "ORD-1"},
+        _ctx(permissions=["tool:get_order"]),
+        session=None,
+    )
+
+    assert executor.dispatched is True
+    assert outcome.tool_result.status == "invalid_response"
+    assert outcome.tool_result.data is None
+    assert outcome.tool_result.error is not None
+    assert outcome.tool_result.error.code == "INVALID_EXECUTOR_RESPONSE"
+
+
+@pytest.mark.asyncio
 async def test_output_schema_failure_returns_invalid_response_without_raw_data() -> None:
     from src.tools.platform import ToolPlatform
 

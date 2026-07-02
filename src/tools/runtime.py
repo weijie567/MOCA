@@ -175,7 +175,8 @@ class ToolRuntime:
 
         # Step 7: Output schema validation
         try:
-            if tool_result.data is not None:
+            should_validate_output = tool_result.status in {"success", "partial_success"} or tool_result.data is not None
+            if should_validate_output:
                 validate_json_value(tool_result.data, descriptor.output_schema)
         except (TypeError, ValueError):
             return await self._fail(
