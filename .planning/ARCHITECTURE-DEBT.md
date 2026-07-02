@@ -228,4 +228,27 @@
 **已 ship**：v1.1 Memory Foundation V2、v1.7 短期记忆统一。
 **在册探索**：Phase 999.1「评估 mem0 作为 MemoryContextService 背后可选 backend」。
 
-> 待后续修改记忆时按「写入规则」补充检出的缺陷与修复。当前无本轮新检出条目。
+## Phase 44 Wave 2 — Case Working Context 身份解析与版本化仓库 ✅⚠️
+
+**问题 / 根因**
+- 现有记忆层缺少「当前退款 case 的工作上下文」服务边界；业务 / tool 层传入的是 `refund_case_no` 字符串，`conversation_threads.case_id` 又是无 FK 的自由字符串，如果直接作为 CWC scope key 会把上下文绑定到不稳定身份。
+- Wave 1 已建 `case_working_contexts` / `case_working_context_revisions` 表；若没有 resolver + repository，版本化表仍只是空机器：无法稳定按 `(tenant_id, refund_cases.id)` 读取当前上下文，也无法在更新时保留旧版本快照。
+
+**修复**
+- 新增 `resolve_case_id(...)`：空输入不查库、UUID 字符串按 `refund_cases.id + tenant_id` 查、普通字符串复用 `RefundRepository.get_by_case_no(...)`，跨租户 case_no 返回 `not_found`，永不把原始字符串当 scope key。
+- 新增 CWC Pydantic schema：`claims[]` 与 `verified_facts[]` 是不同类型，claim 必带 `verified + source_ref`，verified fact 必带 `source_ref + observed_at`；policy 只存 `doc_id/chunk_id/version` 引用。
+- 新增 `CaseWorkingContextRepository`：按 `(tenant_id, case_id)` 读 active row；写入前拿 PostgreSQL advisory lock；`expected_version` 不匹配返回 `conflict`；更新前把当前内容写入 `case_working_context_revisions`，再 bump active row `version` 并固定 `authority_class='contextual_only'`。
+
+**证据**
+- Phase / plan：`44-02`
+- Commits：`bfa4a5b`（resolver）、`31fccbc`（schema）、`52dd19e`（repository），TDD red commits `6d1954e` / `94c05f0` / `9c7bab0`
+- 文件：`src/memory/case_identity.py`、`src/memory/case_working_context_schemas.py`、`src/memory/case_working_context.py`、`tests/memory/test_case_identity.py`、`tests/memory/test_case_working_context_repo.py`
+
+**验证**
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_case_identity.py -x -q` → `6 passed`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_case_working_context_repo.py -x -q -k schema` → `4 passed`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_case_working_context_repo.py -x -q` → `10 passed`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_case_identity.py tests/memory/test_case_working_context_repo.py -q` → `16 passed`
+
+**剩余风险**
+- ⚠️ Wave 2 只完成 resolver / schema / repository。thread↔case link 生命周期、CWC write service + audit event + isolated session 属于 Wave 3；contract-spec §13 对齐与最终 sweep 属于 Wave 4，当前不越界实现。
