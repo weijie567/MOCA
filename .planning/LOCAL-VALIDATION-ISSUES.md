@@ -10740,6 +10740,72 @@ PY
 - `tests/memory/test_long_term_memory_service.py`
 - `tests/memory/test_case_memory_retrieval.py`
 
+## 2026-07-03 02:32 CST - Phase 44 Wave 3 并行 DB 验证与新增 import cycle
+
+### 问题现象
+
+执行 Wave 3 Task 2 验证时，先出现 `src.conversation.repository` 与 `src.memory.__init__` 间的循环 import；修复后又把两个 DB-backed pytest 命令并行跑在同一个 `moca_test` 数据库上，导致其中一个测试在 `Base.metadata.create_all` 阶段报 PostgreSQL `pg_type_typname_nsp_index` 唯一约束冲突。
+
+### 如何检测 / 复现
+
+在新增 `ConversationRepository.link_case` 且模块顶层 import `ThreadCaseLinkRepository` 时运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_thread_case_links.py -x -q
+```
+
+修复 import cycle 后，同时并行运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_thread_case_links.py -x -q
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/conversation/test_repository.py -q
+```
+
+### 关键证据或命令
+
+循环 import 失败关键栈：
+
+```text
+ImportError: cannot import name 'ConversationRepository' from partially initialized module 'src.conversation.repository'
+```
+
+并行 DB 验证失败关键栈：
+
+```text
+asyncpg.exceptions.UniqueViolationError: duplicate key value violates unique constraint "pg_type_typname_nsp_index"
+DETAIL: Key (typname, typnamespace)=(tenants, ...) already exists.
+```
+
+串行重跑后验证通过：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/conversation/test_repository.py -q
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_thread_case_links.py -x -q
+```
+
+结果分别为 `5 passed, 1 warning` 与 `4 passed, 1 warning`。
+
+### 当前判断 / 根因
+
+- import cycle 根因：`src/conversation/repository.py` 顶层 import `src.memory.thread_case_links` 时，会先执行 `src.memory.__init__`，再经 memory context/session bundle 路径反向 import conversation service/repository。
+- DB 冲突根因：两个 DB-backed 测试进程共享 `moca_test`，且 fixture 都执行 `Base.metadata.drop_all/create_all`；并行重建同一 schema 会竞争 PostgreSQL catalog type 创建。
+
+### 已做处理
+
+- 将 `ThreadCaseLinkRepository` import 移入 `ConversationRepository.link_case(...)` 方法体，避免 conversation repository 初始化期间触发 memory package 的反向 import。
+- 后续 Phase 44 DB-backed pytest gate 改为串行执行；Task 2 与 plan-level Wave 3 验证均已用项目入口重跑通过。
+
+### 剩余问题
+
+测试 fixture 仍共享 `moca_test`，不支持同一时间并行 drop/create schema。Phase 44 这类 DB-backed gate 应串行跑，或后续另行改造为 per-worker database/schema。
+
+### 下次继续排查入口
+
+- `src/conversation/repository.py::ConversationRepository.link_case`
+- `src/memory/thread_case_links.py`
+- `tests/memory/test_thread_case_links.py`
+- `tests/conftest.py::_ensure_test_database`
+
 ## 2026-07-02 23:22 CST - Phase 43 security artifact 检查使用 zsh 裸 glob 失败
 
 ### 问题现象

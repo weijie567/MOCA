@@ -252,3 +252,29 @@
 
 **剩余风险**
 - ⚠️ Wave 2 只完成 resolver / schema / repository。thread↔case link 生命周期、CWC write service + audit event + isolated session 属于 Wave 3；contract-spec §13 对齐与最终 sweep 属于 Wave 4，当前不越界实现。
+
+## Phase 44 Wave 3 — thread↔case 写生命周期与 CWC audited write service ✅⚠️
+
+**问题 / 根因**
+- Wave 1 已建 `thread_case_links`，但历史 `append_message()` 不携带已解析 case identity，若没有显式写入口，关联表会继续保持空机器。
+- Wave 2 已有 `CaseWorkingContextRepository`，但还没有统一服务层负责 provenance、PII gate、`memory_write_events(memory_type='case_working_context')` 审计与 isolated child session；直接从业务事务写 CWC 会放大 caller transaction poisoning 风险。
+
+**修复**
+- 新增 `ThreadCaseLinkRepository`：写入前校验 `link_source in {'run_auto','staff_manual','import'}`；按 `(tenant_id, conversation_thread_id, case_id, deleted_at IS NULL)` 先查 active row 并幂等返回；提供 thread→cases 与 case→threads 双向 active 读取。
+- 新增 `ConversationRepository.link_case(...)` 作为显式 B3 linkage point；`append_message()` 不自动写 link，避免未解析 case 时静默写 null / 错 identity。为避免 conversation ↔ memory package 初始化循环，`ThreadCaseLinkRepository` 在方法体内延迟 import。
+- 新增 `CaseWorkingContextService.write_case_working_context(...)`：在打开 isolated child session 前校验 tenant/case/source_ref/run_id；PII `sensitive/prohibited` 写入只发 `write_blocked/pii_blocked` audit event、不写 CWC row；成功/版本冲突分别发 `write/eligible` 与 `skip/version_conflict` event；candidate_hash 绑定 tenant/case/content/source identity；服务通过 `run_memory_side_effect_in_isolated_session` 写入，child failure 不污染 caller transaction。
+
+**证据**
+- Phase / plan：`44-03`
+- Commits：`83820ea`（thread-case repository）、`53efe92`（explicit link_case）、`db3bbcc`（CWC service），TDD red commits `5d93324` / `994cadd`
+- 文件：`src/memory/thread_case_links.py`、`src/conversation/repository.py`、`src/memory/case_working_context_service.py`、`tests/memory/test_thread_case_links.py`、`tests/memory/test_case_working_context_service.py`
+
+**验证**
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_thread_case_links.py -x -q` → `4 passed`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/conversation/test_repository.py -q` → `5 passed`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_case_working_context_service.py -x -q` → `9 passed`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_thread_case_links.py tests/memory/test_case_working_context_service.py -q` → `13 passed`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/memory/thread_case_links.py src/conversation/repository.py src/memory/case_working_context_service.py tests/memory/test_thread_case_links.py tests/memory/test_case_working_context_service.py` → pass
+
+**剩余风险**
+- ⚠️ 本 phase 只交付 callable write surfaces：真实 run/staff call site wiring 明确 defer 到 `Phase 45 memory lifecycle wiring`（`DEFER-LINK-CASE-CALLER`、`DEFER-CWC-READ-ACTIVE-CALLER`）。Wave 4 仍需做 contract-spec §13 对齐和最终 no-redline sweep；本轮未改 DDL、未迁移 26 个 legacy `case_id` readers。
