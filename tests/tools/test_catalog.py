@@ -22,6 +22,36 @@ TPH01_OUTPUT_SCHEMA_TOOL_NAMES = frozenset(
     }
 )
 
+NO_DATA_OUTPUT_SCHEMA = {"type": "object", "properties": {}, "required": [], "additionalProperties": False}
+GENERIC_OBJECT_SCHEMA = {"type": "object"}
+
+EXPECTED_OUTPUT_PROPERTY_KEYS = {
+    "get_order": {
+        "order_no",
+        "merchant_id",
+        "status",
+        "amount",
+        "currency",
+        "buyer_name",
+        "item_name",
+        "paid_at",
+        "delivered_at",
+        "relation_hints",
+    },
+    "get_refund_case": {
+        "refund_case_no",
+        "merchant_id",
+        "status",
+        "reason_code",
+        "reason_text",
+        "requested_amount",
+        "approved_amount",
+    },
+    "get_ticket": {"ticket_no", "merchant_id", "status", "channel", "summary"},
+    "search_policy": {"retrieval_status", "best_score", "threshold", "summary"},
+}
+NO_DATA_OUTPUT_SCHEMA_TOOL_NAMES = frozenset({"get_logistics", "get_merchant_risk", "search_sop"})
+
 
 def _context() -> ToolCallContext:
     return ToolCallContext(
@@ -47,7 +77,61 @@ def test_catalog_registry_derives_identifier_schemas_without_drift() -> None:
     descriptors = ToolCatalog().descriptors()
 
     assert _IDENTIFIER_SCHEMAS == {descriptor.name: descriptor.input_schema for descriptor in descriptors}
-    assert all(descriptor.output_schema == {"type": "object"} for descriptor in descriptors)
+
+
+def test_scoped_tools_declare_real_output_schemas() -> None:
+    scoped_schemas = {
+        descriptor.name: descriptor.output_schema
+        for descriptor in ToolCatalog().descriptors()
+        if descriptor.name in TPH01_OUTPUT_SCHEMA_TOOL_NAMES
+    }
+
+    assert set(scoped_schemas) == TPH01_OUTPUT_SCHEMA_TOOL_NAMES
+    for name, schema in scoped_schemas.items():
+        assert schema != GENERIC_OBJECT_SCHEMA, name
+        assert schema.get("type") == "object", name
+        assert schema.get("additionalProperties") is False, name
+
+    for name in sorted(NO_DATA_OUTPUT_SCHEMA_TOOL_NAMES):
+        assert scoped_schemas[name] == NO_DATA_OUTPUT_SCHEMA
+
+    for name, property_keys in EXPECTED_OUTPUT_PROPERTY_KEYS.items():
+        schema = scoped_schemas[name]
+        assert set(schema["properties"]) == property_keys
+        assert set(schema["required"]) == property_keys
+
+    order_relation_hints = scoped_schemas["get_order"]["properties"]["relation_hints"]
+    assert order_relation_hints["additionalProperties"] is False
+    assert set(order_relation_hints["properties"]) == {
+        "has_active_refund",
+        "latest_refund_case_id",
+        "has_open_ticket",
+        "latest_ticket_id",
+    }
+    assert set(order_relation_hints["required"]) == set(order_relation_hints["properties"])
+
+    memory_item_schema = scoped_schemas["search_case_memory"]["properties"]["items"]["items"]
+    assert scoped_schemas["search_case_memory"]["required"] == ["items"]
+    assert memory_item_schema["additionalProperties"] is False
+    assert set(memory_item_schema["properties"]) == {
+        "case_memory_id",
+        "excerpt",
+        "applicability",
+        "outcome",
+        "caveats",
+        "score",
+        "policy_refs",
+        "source_refs",
+    }
+    assert set(memory_item_schema["required"]) == set(memory_item_schema["properties"])
+
+
+def test_action_output_schema_remains_generic_until_action_output_hardening() -> None:
+    descriptor = _descriptor("create_coupon_grant_draft")
+
+    assert descriptor.output_schema == GENERIC_OBJECT_SCHEMA
+    assert descriptor.kind == "write"
+    assert descriptor.exposure == "node_only"
 
 
 def test_descriptor_table_is_single_source_for_investigate_names_and_resource_types() -> None:
