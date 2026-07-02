@@ -206,7 +206,23 @@ class _RecordingExecutor:
 def _success_result() -> ToolResultV2:
     return ToolResultV2(
         status="success",
-        data={"order_no": "ORD-1", "status": "shipped"},
+        data={
+            "order_no": "ORD-1",
+            "merchant_id": "merchant-1",
+            "status": "shipped",
+            "amount": "100.00",
+            "currency": "CNY",
+            "buyer_name": "Buyer A",
+            "item_name": "Item A",
+            "paid_at": "2026-07-02T00:00:00Z",
+            "delivered_at": None,
+            "relation_hints": {
+                "has_active_refund": False,
+                "latest_refund_case_id": None,
+                "has_open_ticket": False,
+                "latest_ticket_id": None,
+            },
+        },
         summary="order shipped",
         source_system="business_tool_service",
         data_freshness_at=None,
@@ -218,6 +234,128 @@ def _success_result() -> ToolResultV2:
         latency_ms=1,
         audit_ref="audit-1",
     )
+
+
+def _no_data_success_result() -> ToolResultV2:
+    return ToolResultV2(
+        status="success",
+        data={},
+        summary="no data payload",
+        source_system="fake_tool_service",
+        data_freshness_at=None,
+        policy_evidence_refs=[],
+        business_fact_refs=[],
+        error=None,
+        retryable=False,
+        retry_after_ms=None,
+        latency_ms=1,
+        audit_ref=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_output_schema_success_passes_tool_result_unchanged() -> None:
+    from src.tools.platform import ToolPlatform
+
+    result = _success_result()
+    executor = _RecordingExecutor({"get_order"}, result)
+    platform = ToolPlatform(executors={"business": executor})
+
+    outcome = await platform.invoke(
+        "get_order",
+        {"order_no": "ORD-1"},
+        _ctx(permissions=["tool:get_order"]),
+        session=None,
+    )
+
+    assert executor.dispatched is True
+    assert outcome.tool_result.status == "success"
+    assert outcome.tool_result.data == result.data
+    assert outcome.tool_result.summary == result.summary
+    assert outcome.projection.normalized_result["order_no"] == "ORD-1"
+
+
+@pytest.mark.asyncio
+async def test_output_schema_failure_returns_invalid_response_without_raw_data() -> None:
+    from src.tools.platform import ToolPlatform
+
+    raw_sentinel = "RAW-OUTPUT-SCHEMA-SENTINEL"
+    invalid = _success_result()
+    assert invalid.data is not None
+    invalid.data["raw_payload"] = raw_sentinel
+    executor = _RecordingExecutor({"get_order"}, invalid)
+    platform = ToolPlatform(executors={"business": executor})
+
+    outcome = await platform.invoke(
+        "get_order",
+        {"order_no": "ORD-1"},
+        _ctx(permissions=["tool:get_order"]),
+        session=None,
+    )
+
+    assert executor.dispatched is True
+    assert outcome.tool_result.status == "invalid_response"
+    assert outcome.tool_result.data is None
+    assert outcome.tool_result.error is not None
+    assert outcome.tool_result.error.code == "INVALID_EXECUTOR_RESPONSE"
+    assert raw_sentinel not in outcome.model_dump_json()
+    assert raw_sentinel not in outcome.projection.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_no_data_output_schema_rejects_accidental_unavailable_tool_payload() -> None:
+    from src.tools.platform import ToolPlatform
+
+    invalid = ToolResultV2(
+        status="success",
+        data={"raw_payload": "unexpected SOP payload"},
+        summary="sop data should not exist yet",
+        source_system="fake_knowledge_executor",
+        data_freshness_at=None,
+        policy_evidence_refs=[],
+        business_fact_refs=[],
+        error=None,
+        retryable=False,
+        retry_after_ms=None,
+        latency_ms=1,
+        audit_ref=None,
+    )
+    executor = _RecordingExecutor({"search_sop"}, invalid)
+    platform = ToolPlatform(executors={"knowledge": executor})
+
+    outcome = await platform.invoke(
+        "search_sop",
+        {"query": "refund SOP"},
+        _ctx(permissions=["tool:search_sop"]),
+        session=None,
+    )
+
+    assert executor.has_tool("search_sop") is True
+    assert executor.dispatched is True
+    assert outcome.policy_decision.runtime_available is True
+    assert outcome.tool_result.status == "invalid_response"
+    assert outcome.tool_result.data is None
+    assert outcome.tool_result.error is not None
+    assert outcome.tool_result.error.code == "INVALID_EXECUTOR_RESPONSE"
+    assert "unexpected SOP payload" not in outcome.model_dump_json()
+
+
+def test_tool_result_v2_envelope_fields_are_unchanged() -> None:
+    assert set(ToolResultV2.model_fields) == {
+        "schema_version",
+        "status",
+        "data",
+        "summary",
+        "source_system",
+        "data_freshness_at",
+        "policy_evidence_refs",
+        "business_fact_refs",
+        "error",
+        "retryable",
+        "retry_after_ms",
+        "latency_ms",
+        "audit_ref",
+    }
 
 
 def test_tool_view_exposes_only_prompt_safe_fields() -> None:
@@ -507,7 +645,7 @@ async def test_runtime_auth_handles_legacy_list_merchant_scope(
 ) -> None:
     from src.tools.platform import ToolPlatform
 
-    executor = _RecordingExecutor({"get_merchant_risk"}, _success_result())
+    executor = _RecordingExecutor({"get_merchant_risk"}, _no_data_success_result())
     platform = ToolPlatform(executors={"business": executor})
 
     outcome = await platform.invoke(
