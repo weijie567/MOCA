@@ -41,7 +41,11 @@ Plans:
   2. An executor result whose `data` violates the declared `output_schema` is mapped to an `invalid_response` `ToolResultV2` instead of passing through the gate.
   3. A conforming executor result passes through unchanged, and the `ToolResultV2` envelope shape gains, loses, and renames no field (data-shape enforcement only).
   4. Enforcement failures flow through the shared failure path from Phase 37, and none of the 7 HIGH-blast-radius envelope consumers (`business/adapters`, `business/service`, `conversation/service`, `agent/rag_context/verifier`, `agent/nodes/action_draft`, `platform/context_projections`, `memory/search`) observe a contract change.
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 38-01-PLAN.md — validator nullable/type-union support plus TPH-01 scoped tool-set contract.
+- [ ] 38-02-PLAN.md — catalog real output_schema declarations and current payload acceptance/rejection tests.
+- [ ] 38-03-PLAN.md — runtime invalid_response enforcement tests plus high-blast consumer/contract sweep.
 **UI hint**: no
 
 ### Phase 39: contract-spec §12.5/§12.6 Reconciliation

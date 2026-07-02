@@ -399,17 +399,17 @@ def test_tool_result_v2_envelope_fields_are_unchanged() -> None:
 | A1 | Strict empty-object `output_schema` with `additionalProperties: false` is acceptable as a "real" schema for `get_logistics`, `get_merchant_risk`, and `search_sop`, because current production paths have no success `data` shape. | Summary, Current Output Shape Inventory, Common Pitfalls | If reviewers require future semantic success payloads for all eight tools, Phase 38 needs user/product decisions or executor implementation scope. |
 | A2 | Extending the local validator for null/type-unions is lower risk than adding `jsonschema`. | Standard Stack, Architecture Patterns | If Phase 38 schemas require broader JSON Schema behavior, the local helper could become underpowered and a vetted dependency decision may be needed. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Should unavailable tools get future semantic schemas now?**
+1. **RESOLVED: unavailable tools do not get future semantic schemas in Phase 38.**
    - What we know: `get_logistics`, `get_merchant_risk`, and `search_sop` have no current success `data` payload through default execution. [VERIFIED: src/business/service.py] [VERIFIED: src/tools/executors/knowledge.py]
-   - What's unclear: Product may intend specific future logistics/risk/SOP payloads, but they are not implemented in this phase's current code. [ASSUMED]
-   - Recommendation: Use strict no-data schemas for Phase 38 and defer semantic payload schemas to the future executor phase. [ASSUMED]
+   - Decision: Phase 38 uses strict no-data schemas for these tools: `{"type": "object", "properties": {}, "required": [], "additionalProperties": false}`. [RESOLVED]
+   - Deferred scope: Future semantic logistics/risk/SOP payloads require a later executor/product phase, not Phase 38 output-schema hardening. [RESOLVED]
 
-2. **Should `create_coupon_grant_draft` output schema change too?**
+2. **RESOLVED: `create_coupon_grant_draft` remains generic and out of TPH-01 scope.**
    - What we know: The catalog has nine entries, but TPH-01 names eight read/retrieval tools. [VERIFIED: src/tools/catalog.py] [VERIFIED: .planning/REQUIREMENTS.md]
-   - What's unclear: A future phase may want action-tool output schema hardening. [ASSUMED]
-   - Recommendation: Leave action output schema unchanged unless Phase 38 scope is explicitly broadened. [VERIFIED: .planning/REQUIREMENTS.md] [ASSUMED]
+   - Decision: Phase 38 leaves the action tool's output schema as `_GENERIC_OBJECT_SCHEMA` and does not invent action result semantics. [RESOLVED]
+   - Deferred scope: A future action-output hardening phase may define a real `create_coupon_grant_draft` output schema after separate review. [RESOLVED]
 
 ## Environment Availability
 
