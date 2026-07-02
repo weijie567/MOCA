@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from types import MappingProxyType
 import re
 from collections.abc import Mapping
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict
 
@@ -13,6 +13,7 @@ from src.agent.schemas import IntentLiteral, RequiredSlotExpression, RequestedOp
 
 
 IntentRouteLiteral = Literal["investigate", "session_memory_load", "final_response"]
+TaskStepRelationLiteral = Literal["root", "dependency", "modifier", "parallel"]
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,58 @@ class ClarificationDecision:
     requires_clarification: bool
     reason: str | None
     threshold_applied: float | None
+
+
+@dataclass(frozen=True)
+class TaskStep:
+    step_id: str
+    intent: IntentLiteral
+    operation: RequestedOperationLiteral
+    entities: Mapping[str, Any]
+    depends_on: tuple[str, ...]
+    relation: TaskStepRelationLiteral
+
+    def __post_init__(self) -> None:
+        if not self.step_id:
+            raise ValueError("task step requires step_id")
+        if self.intent not in INTENT_DEFINITIONS:
+            raise ValueError(f"unknown task step intent: {self.intent}")
+        if self.operation not in REQUESTED_OPERATIONS:
+            raise ValueError(f"unknown task step operation: {self.operation}")
+        if self.relation not in {"root", "dependency", "modifier", "parallel"}:
+            raise ValueError(f"unknown task step relation: {self.relation}")
+        if not isinstance(self.entities, Mapping):
+            raise ValueError("task step entities must be a mapping")
+        object.__setattr__(self, "depends_on", tuple(self.depends_on))
+
+
+@dataclass(frozen=True)
+class TaskPlan:
+    steps: tuple[TaskStep, ...]
+    terminal_step_id: str
+
+    def __post_init__(self) -> None:
+        steps = tuple(self.steps)
+        object.__setattr__(self, "steps", steps)
+        if not steps:
+            raise ValueError("task plan requires at least one step")
+        if len(steps) > TASK_PLAN_MAX_STEPS:
+            raise ValueError("task plan exceeds maximum step count")
+        if steps[0].relation != "root":
+            raise ValueError("task plan first step must be root")
+        if any(step.relation == "modifier" for step in steps):
+            raise ValueError("modifier steps must be normalized before final task plan")
+        step_ids = [step.step_id for step in steps]
+        if len(set(step_ids)) != len(step_ids):
+            raise ValueError("task plan step ids must be unique")
+        if self.terminal_step_id not in step_ids:
+            raise ValueError("task plan terminal_step_id must reference a step")
+        step_id_set = set(step_ids)
+        for step in steps:
+            if any(dependency not in step_id_set for dependency in step.depends_on):
+                raise ValueError("task step dependency must reference a known step")
+            if step.step_id in step.depends_on:
+                raise ValueError("task step cannot depend on itself")
 
 
 REQUESTED_OPERATIONS: tuple[str, ...] = (
@@ -174,6 +227,26 @@ CRITICAL_ROUTE_CLASSES = {
 }
 ORDINARY_CONFIDENCE_THRESHOLD = 0.65
 SAFETY_CONFIDENCE_THRESHOLD = 0.85
+TASK_PLAN_MAX_STEPS = 3
+COMPLAINT_MODIFIER_ROOT_INTENTS = frozenset(
+    {
+        "compensation_suggestion",
+        "refund_troubleshooting",
+        "ticket_reply_draft",
+        "order_status_inquiry",
+        "policy_qa",
+    }
+)
+TASK_PLAN_ENTITY_IDENTIFIER_KEYS = frozenset(
+    {
+        "order_id",
+        "refund_case_id",
+        "ticket_id",
+        "merchant_id",
+        "customer_id",
+        "action_type",
+    }
+)
 
 
 class IntentPolicyRegistry:
@@ -663,6 +736,163 @@ def resolve_semantic_intent(
         keyword_signals=keyword_signals,
         arbitration=tuple(arbitration),
     )
+
+
+def build_task_plan(
+    semantic: SemanticIntent,
+    secondary_intents: list[str] | tuple[str, ...] | None = None,
+    requested_operation: str | None = None,
+    candidate_slots: Mapping[str, Any] | None = None,
+) -> tuple[TaskPlan, tuple[str, ...]]:
+    entities = dict(candidate_slots or semantic.entities)
+    normalization: list[str] = []
+    operation = semantic.operation if semantic.operation in REQUESTED_OPERATIONS else "advise"
+    root_intent = semantic.intent if semantic.intent in INTENT_DEFINITIONS else "unsupported"
+    if root_intent != semantic.intent or operation != semantic.operation:
+        normalization.append("plan_invalid_fallback_single")
+    root = TaskStep(
+        step_id="s1",
+        intent=cast(IntentLiteral, root_intent),
+        operation=cast(RequestedOperationLiteral, operation),
+        entities=entities,
+        depends_on=(),
+        relation="root",
+    )
+    if "plan_invalid_fallback_single" in normalization:
+        return TaskPlan(steps=(root,), terminal_step_id=root.step_id), tuple(normalization)
+
+    steps: list[TaskStep] = [root]
+    planned_intents: dict[str, TaskStep] = {root.intent: root}
+    terminal_step_id = root.step_id
+
+    for raw_intent in secondary_intents or ():
+        if raw_intent not in INTENT_DEFINITIONS:
+            return _fallback_task_plan(semantic, entities, normalization)
+        if raw_intent == "small_talk":
+            normalization.append("modifier_dropped:small_talk")
+            continue
+        if raw_intent == "complaint_escalation" and root.intent in COMPLAINT_MODIFIER_ROOT_INTENTS:
+            normalization.append("modifier_folded:complaint_as_severity")
+            continue
+        if raw_intent in planned_intents:
+            normalization.append(_same_intent_merge_record(entities))
+            continue
+        if len(steps) >= TASK_PLAN_MAX_STEPS:
+            return _fallback_task_plan(semantic, entities, normalization)
+
+        step_operation = _operation_for_selected_intent(raw_intent, requested_operation or semantic.operation)
+        relation = _relation_for_task_step(root.operation, step_operation)
+        step = TaskStep(
+            step_id=f"s{len(steps) + 1}",
+            intent=cast(IntentLiteral, raw_intent),
+            operation=step_operation,
+            entities=entities,
+            depends_on=(root.step_id,) if relation == "dependency" else (),
+            relation=relation,
+        )
+        steps.append(step)
+        planned_intents[step.intent] = step
+        if relation == "dependency":
+            terminal_step_id = step.step_id
+
+    try:
+        return TaskPlan(steps=tuple(steps), terminal_step_id=terminal_step_id), tuple(normalization)
+    except ValueError:
+        return _fallback_task_plan(semantic, entities, normalization)
+
+
+def select_executable_prefix(
+    plan: TaskPlan,
+    *,
+    role: str | None = None,
+    channel: str | None = None,
+    routing_hints: dict[str, Any] | None = None,
+) -> tuple[tuple[TaskStep, ...], tuple[TaskStep, ...]]:
+    root = plan.steps[0]
+    root_risk = resolve_risk_decision(
+        root.intent,
+        root.operation,
+        role=role,
+        channel=channel,
+        routing_hints=routing_hints,
+    )
+    executable_prefix = (root,) if root_risk.tier == "read_only" else ()
+    return executable_prefix, plan.steps[1:]
+
+
+def task_step_payload(step: TaskStep) -> dict[str, Any]:
+    return {
+        "step_id": step.step_id,
+        "intent": step.intent,
+        "operation": step.operation,
+        "entities": _plain_policy_payload(dict(step.entities)),
+        "depends_on": list(step.depends_on),
+        "relation": step.relation,
+    }
+
+
+def task_steps_payload(steps: tuple[TaskStep, ...] | list[TaskStep]) -> list[dict[str, Any]]:
+    return [task_step_payload(step) for step in steps]
+
+
+def task_plan_payload(plan: TaskPlan | None) -> dict[str, Any] | None:
+    if plan is None:
+        return None
+    return {
+        "steps": task_steps_payload(plan.steps),
+        "terminal_step_id": plan.terminal_step_id,
+    }
+
+
+def _fallback_task_plan(
+    semantic: SemanticIntent,
+    entities: Mapping[str, Any],
+    normalization: list[str],
+) -> tuple[TaskPlan, tuple[str, ...]]:
+    if "plan_invalid_fallback_single" not in normalization:
+        normalization.append("plan_invalid_fallback_single")
+    root_intent = semantic.intent if semantic.intent in INTENT_DEFINITIONS else "unsupported"
+    root_operation = semantic.operation if semantic.operation in REQUESTED_OPERATIONS else "advise"
+    root = TaskStep(
+        step_id="s1",
+        intent=cast(IntentLiteral, root_intent),
+        operation=cast(RequestedOperationLiteral, root_operation),
+        entities=dict(entities),
+        depends_on=(),
+        relation="root",
+    )
+    return TaskPlan(steps=(root,), terminal_step_id=root.step_id), tuple(normalization)
+
+
+def _same_intent_merge_record(entities: Mapping[str, Any]) -> str:
+    if any(
+        key in TASK_PLAN_ENTITY_IDENTIFIER_KEYS and isinstance(value, list) and len(value) > 1
+        for key, value in entities.items()
+    ):
+        return "same_intent_entities_merged"
+    return "same_intent_entity_merge_limited"
+
+
+def _relation_for_task_step(
+    root_operation: RequestedOperationLiteral,
+    step_operation: RequestedOperationLiteral,
+) -> TaskStepRelationLiteral:
+    if root_operation == "read_status" and step_operation in {
+        "draft_reply",
+        "draft_action",
+        "execute_action",
+        "escalate",
+    }:
+        return "dependency"
+    return "parallel"
+
+
+def _plain_policy_payload(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _plain_policy_payload(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain_policy_payload(item) for item in value]
+    return value
 
 
 def confidence_requires_clarification(
