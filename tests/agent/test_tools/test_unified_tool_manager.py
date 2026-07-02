@@ -15,7 +15,7 @@ from src.tools.executors import (
     KnowledgeToolExecutor,
     MemoryToolExecutor,
 )
-from src.tools.catalog import ToolCatalog
+from src.tools.catalog import ToolCatalog, investigate_tool_names
 from src.tools.contracts import ToolCallContext, ToolResultV2
 from src.tools.manager import UnifiedToolManager
 from src.knowledge.config import RERANK_CONFIG_VERSION, RETRIEVAL_CONFIG_VERSION
@@ -23,16 +23,6 @@ from src.knowledge.schemas import EvidenceRefV1, KnowledgeSearchResult
 from src.memory.schemas import CaseMemorySearchItem, CaseMemorySearchResult
 from src.platform.context_projections import project_to_tool_context
 from src.platform.trusted_context import MerchantScopeV1, TrustedContext
-
-
-def _catalog_investigate_tool_names() -> frozenset[str]:
-    return frozenset(
-        descriptor.name
-        for descriptor in ToolCatalog().descriptors()
-        if "investigate" in descriptor.caller_allowlist
-        and descriptor.kind != "write"
-        and descriptor.exposure == "planner_visible"
-    )
 
 
 def _ctx(
@@ -48,7 +38,7 @@ def _ctx(
         tenant_id=str(uuid4()),
         user_id=str(uuid4()),
         role="support",
-        permissions=[f"tool:{name}" for name in _catalog_investigate_tool_names()]
+        permissions=[f"tool:{name}" for name in investigate_tool_names()]
         if permissions is None
         else permissions,
         merchant_scope={"merchant_ids": ["merchant-primary"]} if merchant_scope is None else merchant_scope,
@@ -109,9 +99,25 @@ def test_descriptor_discovery_returns_investigate_allowlist_only():
 
     descriptors = manager.descriptors("investigate")
 
-    assert {descriptor.name for descriptor in descriptors} == _catalog_investigate_tool_names()
+    assert {descriptor.name for descriptor in descriptors} == investigate_tool_names()
     assert all(descriptor.kind != "write" for descriptor in descriptors)
     assert "create_coupon_grant_draft" not in {descriptor.name for descriptor in descriptors}
+
+
+def test_descriptor_discovery_uses_catalog_investigate_helper(monkeypatch):
+    calls: dict[str, list[str]] = {}
+
+    def fake_investigate_tool_names(descriptors):
+        descriptor_list = list(descriptors)
+        calls["names"] = [descriptor.name for descriptor in descriptor_list]
+        return frozenset({"get_order"})
+
+    monkeypatch.setattr("src.tools.manager.investigate_tool_names", fake_investigate_tool_names)
+
+    descriptors = UnifiedToolManager().descriptors("investigate")
+
+    assert calls["names"]
+    assert {descriptor.name for descriptor in descriptors} == {"get_order"}
 
 
 def test_descriptor_discovery_uses_business_registry_catalog():

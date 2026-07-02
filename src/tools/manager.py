@@ -5,7 +5,7 @@ from typing import Any, Protocol
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.events import classify_event_family
-from src.tools.catalog import RegisteredTool, ToolCatalog, ToolDescriptor
+from src.tools.catalog import RegisteredTool, ToolCatalog, ToolDescriptor, investigate_tool_names
 from src.tools.contracts import ToolCallContext, ToolResultV2, ToolViewV1
 from src.tools.executors.action import ActionToolExecutor
 from src.tools.executors.business import BusinessToolExecutor
@@ -57,12 +57,11 @@ class UnifiedToolManager:
 
     def descriptors(self, caller_node: str = "investigate") -> list[ToolDescriptor]:
         if caller_node == "investigate":
+            investigate_names = investigate_tool_names(self._descriptors.values())
             return [
                 descriptor
                 for descriptor in self._descriptors.values()
-                if caller_node in descriptor.caller_allowlist
-                and descriptor.kind != "write"
-                and descriptor.exposure == "planner_visible"
+                if descriptor.name in investigate_names
             ]
         return [descriptor for descriptor in self._descriptors.values() if caller_node in descriptor.caller_allowlist]
 

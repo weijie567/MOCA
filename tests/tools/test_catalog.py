@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.tools.catalog import _IDENTIFIER_SCHEMAS, RegisteredTool, ToolCatalog, ToolDescriptor
+from src.tools.catalog import _IDENTIFIER_SCHEMAS, RegisteredTool, ToolCatalog, ToolDescriptor, investigate_tool_names
 from src.tools.contracts import ToolCallContext
 from src.tools.validation import _validate_json_value
 
@@ -29,16 +29,6 @@ def _descriptor(name: str) -> ToolDescriptor:
     return next(descriptor for descriptor in ToolCatalog().descriptors() if descriptor.name == name)
 
 
-def _catalog_investigate_tool_names() -> frozenset[str]:
-    return frozenset(
-        descriptor.name
-        for descriptor in ToolCatalog().descriptors()
-        if "investigate" in descriptor.caller_allowlist
-        and descriptor.kind != "write"
-        and descriptor.exposure == "planner_visible"
-    )
-
-
 def test_catalog_registry_derives_identifier_schemas_without_drift() -> None:
     descriptors = ToolCatalog().descriptors()
 
@@ -48,17 +38,11 @@ def test_catalog_registry_derives_identifier_schemas_without_drift() -> None:
 
 def test_descriptor_table_is_single_source_for_investigate_names_and_resource_types() -> None:
     descriptors = ToolCatalog().descriptors()
-    investigate_names = _catalog_investigate_tool_names()
+    investigate_names = investigate_tool_names(descriptors)
 
     assert investigate_names
     assert "create_coupon_grant_draft" not in investigate_names
-    assert investigate_names == {
-        descriptor.name
-        for descriptor in descriptors
-        if "investigate" in descriptor.caller_allowlist
-        and descriptor.kind != "write"
-        and descriptor.exposure == "planner_visible"
-    }
+    assert investigate_names == investigate_tool_names()
     assert {descriptor.resource_type for descriptor in descriptors} <= {
         "order",
         "refund_case",
