@@ -7,17 +7,17 @@
 
 ## 0. 目标与非目标
 
-**背景**：当前意图识别把多意图坍缩成单赢家、静默丢弃次诉求（ID-04）。档位 A 是 ID-04 的最小安全修复：**识别出用户一句话里的多个诉求并保留下来，但本 turn 只推进安全的 read 前缀，其余步（尤其 draft/action/审批）记为"待确认的后续步骤"呈现给用户，不自动执行。**
+**背景**：当前意图识别把多意图坍缩成单赢家、静默丢弃次诉求（ID-04）。档位 A 是 ID-04 的最小安全修复：**识别出用户一句话里的多个诉求并保留下来，但本 turn 只处理 s1，其余步（尤其 draft/action/审批）记为"待确认的后续步骤"呈现给用户，不自动执行。**
 
 **目标**：
 - 语义层能产出一个**有序意图计划**（TaskPlan，1~N 步），N=1 时完全退化为现状。
 - 规范化：修饰型折进主步骤、并列同意图合并、非法计划 fail-closed。
-- 本 turn 只执行"计划里从头开始、连续的 read 类安全前缀"；第一个非 read 步及其之后，全部记为 `deferred_steps`。
+- 本 turn 只处理 s1（根步），行为与现状单意图对 s1 逐字节等价；s2 及其之后所有步，无论 read 与否，一律记为 `deferred_steps`。`executable_prefix` 最多为 `[s1]`（当 s1 判为 read_only 时），仅作可回放 / 多意图占比数据采集用，不再决定本 turn 的 effective 步。
 - 最终回复向用户显式呈现 deferred_steps（"我还注意到你想 X / Y，要我接着做吗"），不静默丢。
 - 全程可回放：TaskPlan、被执行前缀、deferred_steps 写进 classification_trace。
 
 **非目标（做了算越界，一票 blocker）**：
-- **不做自动依赖执行链**（read→draft 自动跑属档位 B，禁止）。本 turn 除 read 前缀外不执行任何 step。
+- **不做自动依赖执行链**（read→draft 自动跑属档位 B，禁止）。本 turn 不执行任何 s2+ step。
 - 不改现有单意图路由语义：N=1 时 `primary_intent`/`requested_operation`/`risk_tier`/`route_decision` 必须与现状逐字节等价。
 - 不引入 DAG/环、不引入并行执行、不引入 resume/中断（属档位 C）。
 - 不改 `IntentResultV3` wire schema、不改 `docs/contract-spec.md`、不改 `src/agent/prompts.py` few-shot（除非发现冲突，停下报告）。
@@ -89,17 +89,18 @@ class TaskPlan:
 
 关键：**规范化后若只剩 1 步，等价现状，后续全部走老路径。**
 
-## 4. 执行语义（A 阶段：只跑 read 前缀）
+## 4. 执行语义（A 阶段：只处理 s1）
 
 在 `classify_intent` 产出后、进入现有路由前，计算：
-- `executable_prefix` = 从 s1 起、连续的、operation ∈ {read_status} 的最长前缀（advise 视情况归入只读——**以现有 `resolve_risk_decision` 判 tier == "read_only" 为准**，不自己硬编码 operation 列表）。
-- `deferred_steps` = executable_prefix 之后的所有步。
-- **本 turn 的 effective 单意图 = executable_prefix 的最后一步**（若前缀为空则 = s1），写进 `primary_intent`/`requested_operation`/`risk_tier`，**使现有路由/investigate/clarification 链原样工作**。
+- `executable_prefix` = 若 `resolve_risk_decision(s1.intent, s1.operation, ...).tier == "read_only"` 则为 `[s1]`，否则为 `[]`。硬上限：一个 step。不再是"从 s1 起最长连续 read 前缀"。
+- `deferred_steps` = `plan.steps[1:]` —— s1 之后所有步，无论 tier。
+- **本 turn 的 effective 单意图 = 始终为 s1**，写进 `primary_intent`/`requested_operation`/`risk_tier`，**使现有路由/investigate/clarification 链原样工作**，并保持 s1 行为与现状单意图等价。
 - `deferred_steps` 非空时：写入 `AgentState` 新增字段 `deferred_steps`（list[dict]），并在最终回复阶段呈现。**A 阶段不改路由目标去自动执行它们。**
 
 硬约束（资损）：
 - deferred_steps 里任何 draft_action/execute_action/escalate 步，**本 turn 绝不执行**，只呈现。
-- executable_prefix 只允许 `resolve_risk_decision().tier == "read_only"` 的步；任何非 read_only 步都进 deferred，即使它排在最前（即前缀可能为空，此时退回：本 turn 就处理 s1 一步，其余 deferred）。
+- 任何 s2+ 步（即使是纯 read 查询）**本 turn 也不得执行**；Tier A 只处理 s1。多个 read 连续执行属于 Tier B，禁止在本阶段引入。
+- Plan A 没有执行分支：s1 始终是 effective 步。
 
 ## 5. 状态与呈现
 
@@ -119,6 +120,7 @@ class TaskPlan:
 6. **fail-closed**：造 >3 步或非法计划 → 退回单意图路径 + trace 记 plan_invalid_fallback_single。
 7. **deferred 不静默丢**：断言 deferred_steps 非空时最终回复文本包含被推迟意图的可见提示。
 8. **small_talk 次意图丢弃**：主步 + small_talk 次意图 → small_talk 不成步、trace 记 `modifier_dropped:small_talk`，不影响主步。
+9. **多 read 步不静默丢**：查订单状态 + 查退款政策（order_status_inquiry read + policy_qa read/advise，均 read_only、policy_qa 属禁折叠白名单）→ 2 步计划，s1=order_status effective，s2=policy_qa 进 deferred_steps（不被静默丢弃），executable_prefix=[s1]。这条专门锁 B1：证明非 s1 的 read 步进 deferred 而非消失。
 
 ## 7. 验证命令（遵守 MOCA 禁裸 pytest 硬规则）
 
@@ -133,7 +135,7 @@ uv run ruff check src/agent tests/agent
 1. N=1 路径逐字段等价现状（拿现有 6 个测试文件全绿 + 抽查 trace）。
 2. 无新增 LLM 调用（grep 计划构建路径，确认只用既有 result 派生）。
 3. deferred_steps 里的 draft/action/escalate 本 turn 确未执行（看执行/路由代码路径，不只看测试）。
-4. executable_prefix 的"只读"判定走 `resolve_risk_decision().tier=="read_only"`，未自己硬编码 operation 白名单绕过风险层。
+4. executable_prefix 对 s1 的"只读"判定走 `resolve_risk_decision().tier=="read_only"`，未自己硬编码 operation 白名单绕过风险层。
 5. 修饰折叠是保守白名单，拿不准朝"多一个受控步"（不朝少一步）。
 6. fail-closed 分支真的退回单意图，不是抛异常或吞掉。
 7. 无越界：无自动依赖执行、无 DAG/并行/resume、未改 IntentResultV3/spec/prompts。
