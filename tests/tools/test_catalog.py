@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from unittest.mock import AsyncMock
 
 import pytest
@@ -106,6 +107,67 @@ def _valid_case_memory_item() -> dict[str, object]:
     }
 
 
+def _valid_action_output_payload() -> dict[str, object]:
+    draft_outcome = {
+        "schema_version": "draft_outcome.v1",
+        "status": "not_executed_demo",
+        "external_side_effect": False,
+        "tenant_id": "tenant-1",
+        "run_id": "run-1",
+        "draft_id": "draft-1",
+        "created_at": "2026-07-02T00:00:00Z",
+    }
+    return {
+        "draft_id": "draft-1",
+        "idempotency_key": "idem-1",
+        "status": "draft_created",
+        "created": True,
+        "idempotent_reused": False,
+        "action_draft": {
+            "schema_version": "action_draft.v2",
+            "tenant_id": "tenant-1",
+            "run_id": "run-1",
+            "draft_id": "draft-1",
+            "proposed_action": {
+                "action_type": "issue_coupon",
+                "target_id": "refund-1",
+                "amount": "50",
+            },
+            "action_payload_hash": "sha256:" + "1" * 64,
+            "approval_ref": "approval-1",
+            "approval_revision_ref": "approval_request/approval-1@rev1",
+            "safety_snapshot_ref": "snapshot:test",
+            "safety_snapshot_hash": "sha256:" + "2" * 64,
+            "target_id": "refund-1",
+            "target_merchant_id": "merchant-1",
+            "target_merchant_ref": {"target_merchant_id": "merchant-1"},
+            "business_fact_refs": [{"resource_type": "refund_case", "resource_id": "refund-1"}],
+            "verified_evidence_refs": [{"doc_key": "refund_policy", "chunk_id": "chunk-1"}],
+            "claim_verification_ref": "claim-verification-1",
+            "claim_verification_summary": {"overall_status": "verified"},
+            "risk_decision_ref": "risk-decision-1",
+            "risk_decision": {"risk_level": "high"},
+            "auto_allowed_binding_ref": None,
+            "idempotency_key": "idem-1",
+            "status": "draft_created",
+            "execution_mode": "demo",
+            "draft_version": 1,
+            "lifecycle_status": "active",
+            "retention_policy": "phase14_demo_draft",
+            "draft_outcome": draft_outcome,
+            "created_at": "2026-07-02T00:00:00Z",
+        },
+        "draft_outcome": draft_outcome,
+        "execution_mode": "demo",
+        "action_result": {
+            "status": "draft_created",
+            "data": {"draft_id": "draft-1", "draft_outcome": draft_outcome},
+            "error": {},
+            "compatibility": "Phase 14 deprecated compatibility output",
+        },
+    }
+
+
 def test_catalog_registry_derives_identifier_schemas_without_drift() -> None:
     descriptors = ToolCatalog().descriptors()
 
@@ -159,12 +221,43 @@ def test_scoped_tools_declare_real_output_schemas() -> None:
     assert set(memory_item_schema["required"]) == set(memory_item_schema["properties"])
 
 
-def test_action_output_schema_remains_generic_until_action_output_hardening() -> None:
+def test_action_output_schema_is_strict_after_action_output_hardening() -> None:
     descriptor = _descriptor("create_coupon_grant_draft")
 
-    assert descriptor.output_schema == GENERIC_OBJECT_SCHEMA
+    assert descriptor.output_schema != GENERIC_OBJECT_SCHEMA
+    assert descriptor.output_schema["additionalProperties"] is False
+    assert set(descriptor.output_schema["properties"]) == {
+        "draft_id",
+        "idempotency_key",
+        "status",
+        "created",
+        "idempotent_reused",
+        "action_draft",
+        "draft_outcome",
+        "execution_mode",
+        "action_result",
+    }
+    assert set(descriptor.output_schema["required"]) == set(descriptor.output_schema["properties"])
     assert descriptor.kind == "write"
     assert descriptor.exposure == "node_only"
+
+
+def test_action_output_schema_accepts_current_action_draft_payload() -> None:
+    _validate_json_value(_valid_action_output_payload(), _descriptor("create_coupon_grant_draft").output_schema)
+
+
+def test_action_output_schema_rejects_invalid_action_draft_payloads() -> None:
+    unexpected_raw = {**_valid_action_output_payload(), "raw_tool_output": {"secret": "must-not-pass"}}
+
+    missing_required = deepcopy(_valid_action_output_payload())
+    del missing_required["action_draft"]["draft_outcome"]  # type: ignore[index]
+
+    nested_raw = deepcopy(_valid_action_output_payload())
+    nested_raw["action_result"]["data"]["raw_payload"] = "must-not-pass"  # type: ignore[index]
+
+    for payload in (unexpected_raw, missing_required, nested_raw):
+        with pytest.raises((TypeError, ValueError)):
+            _validate_json_value(payload, _descriptor("create_coupon_grant_draft").output_schema)
 
 
 def test_descriptor_table_is_single_source_for_investigate_names_and_resource_types() -> None:

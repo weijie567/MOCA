@@ -70,7 +70,7 @@ Plans:
 | 37. Tool Declaration + Runtime/Policy Internal Consolidation | 3/3 | Complete; DB pytest pending | 2026-07-02 |
 | 38. output_schema Declaration + Runtime Output-Validation Enforcement | 3/3 | Complete    | 2026-07-02 |
 | 39. contract-spec §12.5/§12.6 Reconciliation | 1/1 | Complete | 2026-07-02 |
-| 40. Tool Contract Validation Hardening | 0/3 | Planned | |
+| 40. Tool Contract Validation Hardening | 1/3 | In Progress | |
 
 ### Phase 40: Tool Contract Validation Hardening
 
@@ -86,6 +86,6 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 40-01-PLAN.md — strict `create_coupon_grant_draft` output schema and action fake payload alignment.
+- [x] 40-01-PLAN.md — strict `create_coupon_grant_draft` output schema and action fake payload alignment.
 - [ ] 40-02-PLAN.md — local JSON Schema subset keyword support plus descriptor schema meta guard.
 - [ ] 40-03-PLAN.md — domain-scope marker business-boundary backstop tests and final protected no-diff verification.

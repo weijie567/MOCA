@@ -154,6 +154,17 @@ def _auto_allowed_binding(state: dict[str, Any]) -> dict[str, Any]:
 
 def _success_result() -> dict:
     draft_id = str(uuid4())
+    tenant_id = str(uuid4())
+    run_id = str(uuid4())
+    draft_outcome = {
+        "schema_version": "draft_outcome.v1",
+        "status": "not_executed_demo",
+        "external_side_effect": False,
+        "tenant_id": tenant_id,
+        "run_id": run_id,
+        "draft_id": draft_id,
+        "created_at": "2026-07-02T00:00:00Z",
+    }
     return {
         "status": "success",
         "data": {
@@ -164,22 +175,47 @@ def _success_result() -> dict:
             "idempotent_reused": False,
             "action_draft": {
                 "schema_version": "action_draft.v2",
+                "tenant_id": tenant_id,
+                "run_id": run_id,
                 "draft_id": draft_id,
-                "action_type": "issue_coupon",
+                "proposed_action": {
+                    "action_type": "issue_coupon",
+                    "target_id": "refund-001",
+                    "amount": "50",
+                    "currency": "CNY",
+                    "reasoning_summary": "Compensation within approved policy.",
+                },
+                "action_payload_hash": ACTION_HASH,
+                "approval_ref": str(uuid4()),
+                "approval_revision_ref": "approval_request/rev1",
+                "safety_snapshot_ref": "snapshot:test",
+                "safety_snapshot_hash": SNAPSHOT_HASH,
                 "target_id": "refund-001",
+                "target_merchant_id": "merchant-1",
+                "target_merchant_ref": {"target_merchant_id": "merchant-1"},
+                "business_fact_refs": [{"resource_type": "refund_case", "resource_id": "RF-1001"}],
+                "verified_evidence_refs": [{"doc_key": "refund-policy", "chunk_id": "chunk-001"}],
+                "claim_verification_ref": "claim_verification_bundle/bundle-1",
+                "claim_verification_summary": {"overall_status": "verified"},
+                "risk_decision_ref": f"risk_decision:{run_id}:{ACTION_HASH}",
+                "risk_decision": {"risk_level": "high"},
+                "auto_allowed_binding_ref": None,
+                "idempotency_key": "idem",
                 "status": "draft_created",
+                "execution_mode": "demo",
+                "draft_version": 1,
+                "lifecycle_status": "active",
+                "retention_policy": "phase14_demo_draft",
+                "draft_outcome": draft_outcome,
+                "created_at": "2026-07-02T00:00:00Z",
             },
-            "draft_outcome": {
-                "schema_version": "draft_outcome.v1",
-                "draft_id": draft_id,
-                "status": "not_executed_demo",
-                "external_side_effect": False,
-            },
+            "draft_outcome": draft_outcome,
             "execution_mode": "demo",
             "action_result": {
                 "status": "draft_created",
-                "data": {"draft_id": draft_id},
+                "data": {"draft_id": draft_id, "draft_outcome": draft_outcome},
                 "error": {},
+                "compatibility": "Phase 14 deprecated compatibility output",
             },
         },
         "error": {},
@@ -273,7 +309,7 @@ async def test_action_draft_tool_success_missing_draft_outcome_fails_closed(monk
     result = await action_draft_module.action_draft(state, _trusted_config(state))
 
     assert result["action_result"]["status"] == "error"
-    assert result["action_result"]["error"]["error_code"] == "INVALID_DRAFT_OUTCOME"
+    assert result["action_result"]["error"]["error_code"] == "INVALID_EXECUTOR_RESPONSE"
     assert "action_draft" not in result
     assert "draft_outcome" not in result
     assert result["trace_steps"][-1]["status"] == "error"
@@ -295,7 +331,7 @@ async def test_action_draft_tool_success_invalid_draft_outcome_fails_closed(monk
     result = await action_draft_module.action_draft(state, _trusted_config(state))
 
     assert result["action_result"]["status"] == "error"
-    assert result["action_result"]["error"]["error_code"] == "INVALID_DRAFT_OUTCOME"
+    assert result["action_result"]["error"]["error_code"] == "INVALID_EXECUTOR_RESPONSE"
     assert "action_draft" not in result
     assert "draft_outcome" not in result
     assert result["trace_steps"][-1]["status"] == "error"

@@ -110,6 +110,65 @@ def _success_result(source_system: str = "fake") -> ToolResultV2:
     )
 
 
+def _action_success_data(draft_id: str) -> dict[str, Any]:
+    tenant_id = str(uuid4())
+    run_id = str(uuid4())
+    draft_outcome = {
+        "schema_version": "draft_outcome.v1",
+        "status": "not_executed_demo",
+        "external_side_effect": False,
+        "tenant_id": tenant_id,
+        "run_id": run_id,
+        "draft_id": draft_id,
+        "created_at": "2026-07-02T00:00:00Z",
+    }
+    return {
+        "draft_id": draft_id,
+        "idempotency_key": "idem-1",
+        "status": "draft_created",
+        "created": True,
+        "idempotent_reused": False,
+        "action_draft": {
+            "schema_version": "action_draft.v2",
+            "tenant_id": tenant_id,
+            "run_id": run_id,
+            "draft_id": draft_id,
+            "proposed_action": {"action_type": "issue_coupon", "target_id": "refund-1"},
+            "action_payload_hash": "sha256:" + "1" * 64,
+            "approval_ref": str(uuid4()),
+            "approval_revision_ref": "approval_request/rev1",
+            "safety_snapshot_ref": "snapshot:test",
+            "safety_snapshot_hash": "sha256:" + "2" * 64,
+            "target_id": "refund-1",
+            "target_merchant_id": None,
+            "target_merchant_ref": None,
+            "business_fact_refs": [],
+            "verified_evidence_refs": [],
+            "claim_verification_ref": None,
+            "claim_verification_summary": None,
+            "risk_decision_ref": None,
+            "risk_decision": None,
+            "auto_allowed_binding_ref": None,
+            "idempotency_key": "idem-1",
+            "status": "draft_created",
+            "execution_mode": "demo",
+            "draft_version": 1,
+            "lifecycle_status": "active",
+            "retention_policy": "phase14_demo_draft",
+            "draft_outcome": draft_outcome,
+            "created_at": "2026-07-02T00:00:00Z",
+        },
+        "draft_outcome": draft_outcome,
+        "execution_mode": "demo",
+        "action_result": {
+            "status": "draft_created",
+            "data": {"draft_id": draft_id, "draft_outcome": draft_outcome},
+            "error": {},
+            "compatibility": "Phase 14 deprecated compatibility output",
+        },
+    }
+
+
 def test_descriptor_discovery_returns_investigate_allowlist_only():
     manager = UnifiedToolManager()
 
@@ -446,13 +505,7 @@ async def test_action_draft_caller_can_dispatch_action_tool(monkeypatch):
     create_draft = AsyncMock(
         return_value={
             "status": "success",
-            "data": {
-                "draft_id": draft_id,
-                "idempotency_key": "idem-1",
-                "status": "draft_created",
-                "created": True,
-                "idempotent_reused": False,
-            },
+            "data": _action_success_data(draft_id),
             "error": {},
         }
     )
