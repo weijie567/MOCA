@@ -758,7 +758,7 @@ class MemoryWriteEvent(Base):
     __tablename__ = "memory_write_events"
     __table_args__ = (
         CheckConstraint(
-            "memory_type IN ('session_slot', 'long_term_fact', 'case_memory', 'none')",
+            "memory_type IN ('session_slot', 'long_term_fact', 'case_memory', 'case_working_context', 'none')",
             name="ck_memory_write_events_memory_type",
         ),
         CheckConstraint(

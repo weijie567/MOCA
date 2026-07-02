@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 MEMORY_POLICY_VERSION = "memory_write_policy.v1"
 MEMORY_POLICY_AUTHORITY_CLASS = "contextual_only"
 
-MemoryPolicyMemoryType = Literal["session", "long_term", "case"]
+MemoryPolicyMemoryType = Literal["session", "long_term", "case", "case_working_context"]
 
 
 class MemoryPolicyDecision(BaseModel):
