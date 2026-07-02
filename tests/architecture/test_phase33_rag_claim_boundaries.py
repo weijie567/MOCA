@@ -48,7 +48,6 @@ ROUTER_FORBIDDEN_SNIPPETS = (
     "PolicyRetrievalEngine",
     "BusinessToolService",
     "ToolPlatform",
-    "UnifiedToolManager",
     "Repository",
     "requests.",
     "httpx",

@@ -82,7 +82,7 @@ def test_execute_action_is_phase14_compatibility_shim_only() -> None:
     assert "2026-07-16" in source
     assert "execute_action" in _function_names(SHIM_PATH)
     assert "return await action_draft(state, config)" in source
-    for forbidden in ("UnifiedToolManager", "ActionToolExecutor", "ActionService", "ActionDraftRepository"):
+    for forbidden in ("ActionToolExecutor", "ActionService", "ActionDraftRepository"):
         assert forbidden not in source
 
 

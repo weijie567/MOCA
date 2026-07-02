@@ -131,12 +131,31 @@ def test_legacy_load_business_context_node_is_deleted() -> None:
     assert violations == []
 
 
-def test_domain_packages_do_not_import_graph_nodes_or_tool_manager() -> None:
+def test_no_code_imports_legacy_tool_manager_module_or_symbol() -> None:
+    legacy_module = "src.tools." + "manager"
+    legacy_symbol = "Unified" + "ToolManager"
     violations: list[tuple[str, str]] = []
+
+    for base in (ROOT / "src", ROOT / "tests"):
+        for path in sorted(base.glob("**/*.py")):
+            if path == Path(__file__):
+                continue
+            for module in _import_targets(path):
+                if module == legacy_module or module.startswith(f"{legacy_module}."):
+                    violations.append((str(path.relative_to(ROOT)), module))
+                if module == f"src.tools.{legacy_symbol}" or module.endswith(f".{legacy_symbol}"):
+                    violations.append((str(path.relative_to(ROOT)), module))
+
+    assert violations == []
+
+
+def test_domain_packages_do_not_import_graph_nodes_or_tool_platform_internals() -> None:
+    violations: list[tuple[str, str]] = []
+    legacy_module = "src.tools." + "manager"
     for package in ("actions", "business", "knowledge", "memory"):
         for path in sorted((ROOT / "src" / package).glob("**/*.py")):
             for module in _imports(path):
-                if module.startswith(("src.agent.nodes", "src.tools.manager")):
+                if module.startswith("src.agent.nodes") or module == legacy_module or module.startswith(f"{legacy_module}."):
                     violations.append((str(path.relative_to(ROOT)), module))
 
     assert violations == []
