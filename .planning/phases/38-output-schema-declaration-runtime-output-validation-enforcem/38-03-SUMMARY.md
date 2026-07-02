@@ -11,7 +11,7 @@ provides:
   - runtime fake-executor coverage for valid output pass-through and invalid_response mapping
   - ToolResultV2 envelope field-set guard
   - no-data output schema dispatch coverage for search_sop through the knowledge executor bucket
-  - focused high-blast consumer regression evidence with DB-backed paths explicitly gated
+  - focused high-blast consumer regression evidence with DB-backed paths verified after compose PostgreSQL startup
 affects: [phase-38, phase-39, tool-runtime, tool-platform, unified-tool-manager, output-schema-validation]
 
 tech-stack:
@@ -19,7 +19,7 @@ tech-stack:
   patterns:
     - fake-executor ToolPlatform tests for runtime output-schema enforcement
     - exact ToolResultV2.model_fields guard for high-blast envelope stability
-    - DB-gated final suite reporting with non-DB proxy coverage separated
+    - DB-backed final suite reporting with non-DB proxy coverage separated
 
 key-files:
   created:
@@ -33,7 +33,7 @@ key-files:
 key-decisions:
   - "Runtime output validation now validates success and partial_success results even when data is None, so non-null output schemas cannot be bypassed."
   - "Use fake executors for runtime output validation so TPH-01 behavior is covered independently of local PostgreSQL."
-  - "Leave the appended local PostgreSQL blocker log unstaged because the file had large unrelated pre-existing dirty hunks."
+  - "Leave local validation log updates unstaged because the file had large unrelated pre-existing dirty hunks."
 
 patterns-established:
   - "No-data tools can be tested through their real executor bucket with has_tool(...) returning true, forcing the request to reach output validation."
@@ -79,14 +79,14 @@ Each task was committed atomically:
 - `src/tools/runtime.py` - Validates success and partial_success outputs through descriptor output_schema even when `data` is `None`.
 - `tests/tools/test_tool_platform.py` - Adds runtime output-schema success/failure/no-data tests, success-with-missing-data regression coverage, and the exact envelope field-set guard.
 - `tests/agent/test_tools/test_unified_tool_manager.py` - Aligns the fake `get_order` success payload with the strict output schema so manager regressions still test manager behavior.
-- `.planning/LOCAL-VALIDATION-ISSUES.md` - Appended one Chinese PostgreSQL blocker record; intentionally left unstaged because the file had unrelated pre-existing dirty local logs.
+- `.planning/LOCAL-VALIDATION-ISSUES.md` - Appended Chinese PostgreSQL/Docker validation records; intentionally left unstaged because the file had unrelated pre-existing dirty local logs.
 - `.planning/phases/38-output-schema-declaration-runtime-output-validation-enforcem/38-03-SUMMARY.md` - Records execution, verification, and DB-gated coverage caveats.
 
 ## Decisions Made
 
 - `ToolRuntime.invoke` now treats `success` and `partial_success` results as schema-bearing even when `data` is `None`, while preserving validation of non-empty data on other statuses.
 - Kept `ToolResultV2` and `ToolCallContext` untouched.
-- Treated business/service and memory/search real-path coverage as DB-gated where it depends on `tests/conftest.py::test_engine`; proxy coverage used fake-executor runtime tests, `UnifiedToolManager` non-DB tests, investigate case-memory projection, RAG verifier authority checks, and action-draft fail-closed coverage.
+- Treated business/service and memory/search real-path coverage as DB-backed where it depends on `tests/conftest.py::test_engine`; after Docker Desktop was started, compose PostgreSQL made the full relevant suite pass.
 
 ## Deviations from Plan
 
@@ -118,7 +118,7 @@ Each task was committed atomically:
 ## Issues Encountered
 
 - Task 1 tests passed immediately after being added because the runtime enforcement path already existed after Phase 37 and Phase 38 plan 38-02. This plan therefore produced a test-only coverage commit rather than a RED/GREEN production change.
-- DB-backed quick/full relevant pytest commands are blocked by local PostgreSQL unavailability on `localhost:5432`, not by product-code failures. The blocker was appended to `.planning/LOCAL-VALIDATION-ISSUES.md` and left unstaged to avoid committing unrelated pre-existing local logs.
+- Earlier DB-backed quick/full relevant pytest commands were blocked by local PostgreSQL unavailability on `localhost:5432`, not by product-code failures. After Docker Desktop was started and `docker compose up -d postgres` made PostgreSQL healthy, the full relevant suite passed.
 
 ## TDD Gate Compliance
 
@@ -137,6 +137,7 @@ Each task was committed atomically:
 - `uv run ruff check tests/agent/test_tools/test_unified_tool_manager.py` -> passed
 - `git diff -- docs/contract-spec.md src/tools/contracts.py` -> no diff
 - `uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/agent/test_tools/test_unified_tool_manager.py tests/agent/test_nodes/test_investigate.py tests/agent/rag_context/test_verifier.py tests/conversation/test_service.py tests/test_execute_action.py tests/architecture/test_trusted_context_boundaries.py -q` -> `166 passed, 1 warning, 17 errors`; all errors are PostgreSQL fixture setup connection refusals in `tests/conftest.py::test_engine`
+- After `docker compose up -d postgres`: `uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/agent/test_tools/test_unified_tool_manager.py tests/agent/test_nodes/test_investigate.py tests/agent/rag_context/test_verifier.py tests/conversation/test_service.py tests/test_execute_action.py tests/architecture/test_trusted_context_boundaries.py -q` -> `184 passed, 1 warning`
 
 ## Known Stubs
 
@@ -144,15 +145,15 @@ None. The scan found only intentional test fixture empty lists, `None` fields, a
 
 ## Threat Flags
 
-None. This plan added tests and fixture data only; it introduced no new network endpoint, auth path, file access pattern, schema migration, or trust-boundary surface.
+None. The only production change tightens the existing runtime output-validation condition; it introduced no new network endpoint, auth path, file access pattern, schema migration, or trust-boundary surface.
 
 ## User Setup Required
 
-Local PostgreSQL must be installed/running and reachable at `moca:moca_dev@localhost:5432` before the DB-backed quick/full relevant pytest gates can be marked fully green.
+None. Compose PostgreSQL is running and the DB-backed full relevant pytest gate passed.
 
 ## Next Phase Readiness
 
-Phase 38 implementation is complete for TPH-01 with DB-backed verification still environment-gated. Phase 39 can reconcile `docs/contract-spec.md` against the final implemented output-schema behavior, while preserving the protected `ToolResultV2` envelope and `ToolCallContext` identity fields.
+Phase 38 implementation is complete for TPH-01 with DB-backed verification passing. Phase 39 can reconcile `docs/contract-spec.md` against the final implemented output-schema behavior, while preserving the protected `ToolResultV2` envelope and `ToolCallContext` identity fields.
 
 ## Self-Check: PASSED
 
