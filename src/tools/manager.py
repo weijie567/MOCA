@@ -93,11 +93,6 @@ class UnifiedToolManager:
             return "action"
         return classify_event_family(name)
 
-    def _executor_for(self, descriptor: ToolDescriptor) -> ToolExecutor | None:
-        if descriptor.executor is None:
-            return None
-        return self._executors.get(descriptor.executor)
-
     def _executor_registry(
         self,
         executors: dict[str, ToolExecutor] | list[ToolExecutor],
