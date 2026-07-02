@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from math import isfinite
 from typing import Any
 
 
@@ -55,6 +56,8 @@ def validate_json_value(value: Any, schema: dict[str, Any]) -> None:
     elif expected_type == "number":
         if not isinstance(value, (int, float)) or isinstance(value, bool):
             raise TypeError("Expected number")
+        if not isfinite(value):
+            raise ValueError("Expected finite number")
         if "exclusiveMinimum" in schema and value <= schema["exclusiveMinimum"]:
             raise ValueError("Number is below exclusive minimum")
     elif expected_type == "boolean" and not isinstance(value, bool):

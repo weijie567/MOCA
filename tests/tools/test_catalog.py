@@ -263,6 +263,12 @@ def test_json_schema_helper_rejects_nullable_union_mismatches() -> None:
         _validate_json_value("", {"type": ["string", "null"], "minLength": 1})
 
 
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_json_schema_helper_rejects_non_finite_numbers(value: float) -> None:
+    with pytest.raises(ValueError, match="Expected finite number"):
+        _validate_json_value(value, {"type": "number"})
+
+
 @pytest.mark.parametrize(
     ("name", "payload"),
     [
@@ -342,6 +348,19 @@ def test_output_schema_helper_accepts_current_tool_payloads(name: str, payload: 
 def test_output_schema_helper_rejects_invalid_tool_payloads(name: str, payload: dict[str, object]) -> None:
     with pytest.raises((TypeError, ValueError)):
         _validate_json_value(payload, _descriptor(name).output_schema)
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_output_schema_helper_rejects_non_finite_search_policy_best_score(value: float) -> None:
+    payload = {
+        "retrieval_status": "partial_evidence",
+        "best_score": value,
+        "threshold": 0.65,
+        "summary": None,
+    }
+
+    with pytest.raises(ValueError, match="Expected finite number"):
+        _validate_json_value(payload, _descriptor("search_policy").output_schema)
 
 
 @pytest.mark.asyncio
