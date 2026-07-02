@@ -13,6 +13,7 @@ v2.1 is a bounded, pre-scoped cleanup of the tool-call platform's contract debt 
 - [x] **Phase 37: Tool Declaration + Runtime/Policy Internal Consolidation** - Single-source tool registry plus runtime `_fail` helper and declarative policy gate pipeline, with no external contract change (TPH-03, TPH-04).
 - [x] **Phase 38: output_schema Declaration + Runtime Output-Validation Enforcement** - Real `output_schema` for all eight tools, enforced in the `ToolRuntime` output-validation gate as `invalid_response` mapping (TPH-01). Plan progress: 3/3 complete; DB-backed pytest passed.
 - [x] **Phase 39: contract-spec §12.5/§12.6 Reconciliation** - Spec catches up to implemented contract fields via dual-AI review, without touching §8.0-locked identity fields (TPH-02). Plan progress: 1/1 complete.
+- [ ] **Phase 40: Tool Contract Validation Hardening** - Close source-confirmed validation/backstop gaps left after TPH-01 without changing `ToolResultV2`, `ToolCallContext` §8.0 identity fields, BusinessFactService ownership runtime semantics, or the `UnifiedToolManager` compatibility API (TPH-05).
 
 ## Phase Details
 
@@ -69,3 +70,20 @@ Plans:
 | 37. Tool Declaration + Runtime/Policy Internal Consolidation | 3/3 | Complete; DB pytest pending | 2026-07-02 |
 | 38. output_schema Declaration + Runtime Output-Validation Enforcement | 3/3 | Complete    | 2026-07-02 |
 | 39. contract-spec §12.5/§12.6 Reconciliation | 1/1 | Complete | 2026-07-02 |
+| 40. Tool Contract Validation Hardening | 0/0 | Not planned | |
+
+### Phase 40: Tool Contract Validation Hardening
+
+**Goal:** Close the source-confirmed tool contract validation gaps left after TPH-01 by hardening `create_coupon_grant_draft` output validation, adding a backstop test for domain-scope ownership handoff markers, and aligning the local JSON Schema subset with the descriptor keywords it advertises, without changing the `ToolResultV2` envelope, `ToolCallContext` §8.0 identity fields, BusinessFactService ownership runtime semantics, `docs/contract-spec.md`, or the `UnifiedToolManager` compatibility API.
+**Requirements**: TPH-05
+**Depends on:** Phase 39
+**Success Criteria** (what must be TRUE):
+  1. `create_coupon_grant_draft` declares a strict `output_schema` for its real `ToolResultV2.data` payload, and conforming action-draft outputs pass runtime validation while missing required fields or unexpected raw fields fail closed as `invalid_response`.
+  2. `get_logistics`, `get_merchant_risk`, and `search_sop` remain on strict no-data schemas until their executors produce real payloads; this phase does not invent future payload semantics.
+  3. The `requires_domain_scope_check` resource binding marker is protected by an architecture/backstop test that fails if domain-lookup business read tools can drift away from BusinessFactService merchant-scope/no-leak ownership enforcement.
+  4. `validate_json_value` supports the schema keywords retained by prompt-safe projection for current descriptor use (`maxLength`, `minimum`, `maximum`, `exclusiveMaximum` in addition to existing support), and descriptor schema meta tests fail if unsupported JSON Schema keywords enter `input_schema` or `output_schema`.
+  5. `ToolResultV2` envelope fields, `ToolCallContext` §8.0 identity fields, BusinessFactService runtime ownership split, `docs/contract-spec.md`, and `UnifiedToolManager` compatibility behavior have no diff.
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 40 to break down)

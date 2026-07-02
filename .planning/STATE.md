@@ -1,13 +1,13 @@
 ---
 gsd_state_version: 1.0
 milestone: v2.1
-milestone_name: Tool Platform Hardening
-status: milestone_complete
-stopped_at: Phase 39 verified; v2.1 milestone complete
-last_updated: "2026-07-02T03:42:00Z"
-last_activity: 2026-07-02 -- Phase 39 verified and v2.1 milestone complete
+milestone_name: milestone
+status: active
+stopped_at: Phase 40 context gathered
+last_updated: "2026-07-02T05:15:04.018Z"
+last_activity: 2026-07-02 -- Phase 40 added for tool contract validation hardening
 progress:
-  total_phases: 3
+  total_phases: 4
   completed_phases: 3
   total_plans: 7
   completed_plans: 7
@@ -21,16 +21,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 39 contract-spec §12.5/§12.6 Reconciliation — complete
+**Current focus:** Phase 40 Tool Contract Validation Hardening — context/planning
 
 ## Current Position
 
-Phase: 39 (contract-spec §12.5/§12.6 Reconciliation) — COMPLETE
-Plan: 39-01 of 1
-Status: v2.1 milestone complete
-Last activity: 2026-07-02 -- Phase 39 verified and v2.1 milestone complete
+Phase: 40 (Tool Contract Validation Hardening) — CONTEXT / PLANNING
+Plan: not planned yet
+Status: active
+Last activity: 2026-07-02 -- Phase 40 added for tool contract validation hardening
 
-Progress: [██████████] 100%
+Progress: [███████░░░] 75%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -44,6 +44,7 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 - `docs/contract-spec.md` was just touched by prior memory-alignment work (commit `4dcb673`); Phase 39 planning must re-check whether §12.5/§12.6 were incidentally modified before editing.
 - Code implementation is delegated to Codex per the dual-AI workflow; Claude is plan designer and adjudicator. These are planning/spec phases.
 - TPH-02 (spec edit) must go through the dual-AI review workflow (`gsd-plan-checker` + Codex cross-review + Claude adjudication).
+- Phase 40 closes source-confirmed validation/backstop gaps left after TPH-01: action output schema hardening, domain-scope marker backstop tests, and JSON Schema subset/meta guard alignment. It must not change `ToolResultV2`, `ToolCallContext` §8.0 identity fields, BusinessFactService ownership runtime semantics, `docs/contract-spec.md`, or `UnifiedToolManager` compatibility behavior.
 
 ## Current Roadmap
 
@@ -52,8 +53,9 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | 37. Tool Declaration + Runtime/Policy Internal Consolidation (TPH-03, TPH-04) | 3/3 | Complete; DB-backed pytest pending |
 | 38. output_schema Declaration + Runtime Output-Validation Enforcement (TPH-01) | 3/3 | Complete; DB-backed pytest passed |
 | 39. contract-spec §12.5/§12.6 Reconciliation (TPH-02) | 1/1 | Complete |
+| 40. Tool Contract Validation Hardening (TPH-05) | 0/0 | Not planned |
 
-Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review.
+Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review. Phase 40 closes the source-confirmed validation/backstop gaps intentionally deferred or left advisory after Phase 38/39.
 
 ## Last Milestone Context
 
@@ -103,6 +105,8 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - Phase 39 preserved §8.0 as the owner of ToolCallContext identity/scope/permission semantics.
 - Phase 39 documented ToolCallContext.effective_at as str | None because the implemented Pydantic model uses str | None.
 - Phase 39 documented ToolDescriptor.description: str = empty-string default because exact current model parity was required.
+- Phase 40 must keep `UnifiedToolManager` cleanup out of scope; that API compatibility decision is a separate breaking cleanup phase.
+- Phase 40 must keep `docs/contract-spec.md` unchanged unless implementation discovers the spec itself is wrong; if spec changes become necessary, stop and run the dual-AI spec review workflow.
 
 ### Roadmap Evolution
 
@@ -111,6 +115,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - Phase 35.1 added to close v1.9 milestone audit gates.
 - Phase 36 added and completed for v2.0 Merchant Scope Hardening.
 - Phase 37-39 added for v2.1 Tool Platform Hardening (2026-07-01).
+- Phase 40 added: Tool Contract Validation Hardening.
 
 ### Pending Todos
 
@@ -140,9 +145,9 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ## Session Continuity
 
-Last session: 2026-07-02T03:42:00Z
-Stopped at: Phase 39 verified; v2.1 milestone complete
-Resume file: None
+Last session: --stopped-at
+Stopped at: Phase 40 context gathered
+Resume file: --resume-file
 Next: Run `$gsd-progress` or `$gsd-complete-milestone`.
 
 Recent completions: Phase 37 3/3 complete; Phase 38 3/3 complete with DB-backed pytest passed; Phase 39 1/1 complete with docs-only TPH-02 reconciliation and clean verification.
