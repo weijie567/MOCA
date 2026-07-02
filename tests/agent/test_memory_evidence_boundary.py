@@ -268,7 +268,7 @@ async def test_session_memory_cannot_satisfy_policy_evidence_or_action_authority
             "user_id": str(user.id),
             "role": user.role,
         },
-        _config(deps["tool_manager"], deps["events"], thread_id, session=session),
+        _config(deps["tool_platform"], deps["events"], thread_id, session=session),
     )
 
     assert final_state["active_slots"]["order_id"] == "ORD-1001"
@@ -331,7 +331,7 @@ async def test_reviewed_memory_cannot_satisfy_policy_evidence_or_action_authorit
             "user_id": str(uuid4()),
             "role": "support_agent",
         },
-        _config(deps["tool_manager"], deps["events"], "reviewed-memory-boundary", session=object()),
+        _config(deps["tool_platform"], deps["events"], "reviewed-memory-boundary", session=object()),
     )
 
     assert final_state["long_term_memory"]

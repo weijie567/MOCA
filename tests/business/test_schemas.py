@@ -189,5 +189,5 @@ def test_tool_call_context_rejects_untrusted_extra_fields():
 
 
 @pytest.mark.parametrize("module_name", ["src.business", "src.business.schemas", "src.business.service"])
-def test_public_business_imports_do_not_trigger_tool_manager_cycle(module_name: str) -> None:
+def test_public_business_imports_do_not_trigger_tool_platform_cycle(module_name: str) -> None:
     subprocess.run([sys.executable, "-c", f"import {module_name}"], check=True)

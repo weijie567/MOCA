@@ -131,7 +131,7 @@ def test_legacy_load_business_context_node_is_deleted() -> None:
     assert violations == []
 
 
-def test_no_code_imports_legacy_tool_manager_module_or_symbol() -> None:
+def test_no_code_imports_removed_tool_dispatch_module_or_symbol() -> None:
     legacy_module = "src.tools." + "manager"
     legacy_symbol = "Unified" + "ToolManager"
     violations: list[tuple[str, str]] = []

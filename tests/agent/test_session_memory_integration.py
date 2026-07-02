@@ -140,14 +140,14 @@ async def test_same_thread_vague_turn_inherits_session_order_and_reruns_investig
 
     final_state = await graph.ainvoke(
         _state(user, "what about that refund?", thread_id),
-        _config(deps["tool_manager"], deps["events"], thread_id, session=session),
+        _config(deps["tool_platform"], deps["events"], thread_id, session=session),
     )
 
     assert final_state["active_slots"]["order_id"] == "ORD-1001"
     assert final_state["active_slot_metadata"]["order_id"]["source"] == "trusted_session_memory"
     assert final_state["active_slot_metadata"]["order_id"]["explicit_current_turn"] is False
     assert final_state["business_context"]["facts"]["order"]["order_no"] == "ORD-1001"
-    assert [call[0] for call in deps["tool_manager"].calls] == ["get_order", "search_policy"]
+    assert [call[0] for call in deps["tool_platform"].calls] == ["get_order", "search_policy"]
 
 
 @pytest.mark.asyncio
@@ -165,7 +165,7 @@ async def test_agent_runs_session_slots_explicit_current_turn_overrides_inherite
 
     final_state = await graph.ainvoke(
         _state(user, "订单是 ORD-CURRENT-001，继续查这笔退款", thread_id, run_id=current_run_id),
-        _config(deps["tool_manager"], deps["events"], thread_id, session=session),
+        _config(deps["tool_platform"], deps["events"], thread_id, session=session),
     )
 
     assert final_state["session_memory"]["active_slots"]["order_id"] == "ORD-INHERITED-001"
@@ -285,7 +285,7 @@ async def test_next_step_followup_reuses_prior_order_status_memory_instead_of_ac
 
     final_state = await graph.ainvoke(
         _state(user, "那这个订单下一步应该怎么处理？", thread_id),
-        _config(deps["tool_manager"], deps["events"], thread_id, session=session),
+        _config(deps["tool_platform"], deps["events"], thread_id, session=session),
     )
 
     assert final_state["current_intent"] == "refund_troubleshooting"
@@ -295,7 +295,7 @@ async def test_next_step_followup_reuses_prior_order_status_memory_instead_of_ac
     assert final_state.get("clarification_request") is None
     assert "请提供操作类型" not in final_state["final_response"]
     assert final_state["business_context"]["facts"]["order"]["order_no"] == "ORD-2024-001"
-    assert [call[0] for call in deps["tool_manager"].calls] == ["get_order", "search_policy"]
+    assert [call[0] for call in deps["tool_platform"].calls] == ["get_order", "search_policy"]
 
 
 @pytest.mark.asyncio
@@ -311,10 +311,10 @@ async def test_different_thread_vague_turn_does_not_reuse_session_order(
 
     final_state = await graph.ainvoke(
         _state(user, "what about that refund?", "integration-other-thread"),
-        _config(deps["tool_manager"], deps["events"], "integration-other-thread", session=session),
+        _config(deps["tool_platform"], deps["events"], "integration-other-thread", session=session),
     )
 
-    assert deps["tool_manager"].calls == []
+    assert deps["tool_platform"].calls == []
     assert final_state["active_slots"] == {}
     assert final_state["clarification_request"]["reason"] == "missing_required_slots"
 
@@ -331,7 +331,7 @@ async def test_unresolved_question_carryover_keeps_current_turn_slot_authoritati
     graph = build_graph(MemorySaver())
     first_state = await graph.ainvoke(
         _state(user, "帮我看看这笔退款为什么没到账", thread_id),
-        _config(deps["tool_manager"], deps["events"], thread_id, session=session),
+        _config(deps["tool_platform"], deps["events"], thread_id, session=session),
     )
     run_id = await _persist_run(session, user, thread_id, "missing slot turn")
     await memory_write(
@@ -350,13 +350,13 @@ async def test_unresolved_question_carryover_keeps_current_turn_slot_authoritati
     second_deps = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id="ORD-1001")
     second_state = await graph.ainvoke(
         _state(user, "订单是 ORD-1001", thread_id),
-        _config(second_deps["tool_manager"], second_deps["events"], thread_id, session=session),
+        _config(second_deps["tool_platform"], second_deps["events"], thread_id, session=session),
     )
 
     assert second_state["active_slots"]["order_id"] == "ORD-1001"
     assert second_state["active_slot_metadata"]["order_id"]["source"] == "current_turn"
     assert second_state["business_context"]["facts"]["order"]["order_no"] == "ORD-1001"
-    assert [call[0] for call in second_deps["tool_manager"].calls] == ["get_order", "search_policy"]
+    assert [call[0] for call in second_deps["tool_platform"].calls] == ["get_order", "search_policy"]
 
 
 @pytest.mark.asyncio
@@ -372,9 +372,9 @@ async def test_disabled_and_unavailable_session_memory_fall_back_to_clarificatio
     disabled_deps = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id=None)
     disabled_state = await graph.ainvoke(
         _state(user, "that refund?", "integration-disabled-memory"),
-        _config(disabled_deps["tool_manager"], disabled_deps["events"], "integration-disabled-memory", session=session),
+        _config(disabled_deps["tool_platform"], disabled_deps["events"], "integration-disabled-memory", session=session),
     )
-    assert disabled_deps["tool_manager"].calls == []
+    assert disabled_deps["tool_platform"].calls == []
     assert disabled_state["session_memory"]["fallback_reason"] == "disabled"
     assert disabled_state["clarification_request"]["reason"] == "missing_required_slots"
 
@@ -392,13 +392,13 @@ async def test_disabled_and_unavailable_session_memory_fall_back_to_clarificatio
     unavailable_state = await graph.ainvoke(
         _state(user, "that refund?", "integration-unavailable-memory"),
         _config(
-            unavailable_deps["tool_manager"],
+            unavailable_deps["tool_platform"],
             unavailable_deps["events"],
             "integration-unavailable-memory",
             session=session,
         ),
     )
-    assert unavailable_deps["tool_manager"].calls == []
+    assert unavailable_deps["tool_platform"].calls == []
     assert unavailable_state["session_memory"]["fallback_reason"] == "unavailable"
     assert unavailable_state["clarification_request"]["reason"] == "missing_required_slots"
 

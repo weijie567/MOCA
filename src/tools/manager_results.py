@@ -11,7 +11,7 @@ def result(
     *,
     code: str,
     source: Literal["caller", "tool", "adapter", "policy"] = "caller",
-    source_system: str = "unified_tool_manager",
+    source_system: str = "tool_platform",
 ) -> ToolResultV2:
     return ToolResultV2(
         status=status,
