@@ -13,6 +13,7 @@
 **Agent code:**
 - Graph nodes live in `src/agent/nodes/` and are named by workflow step, such as `classify_intent`, `retrieve_policy_evidence`, and `assess_risk_and_approval`.
 - Tool code lives in `src/agent/tools/` and separates contracts, adapters, registry, authorization, and concrete tool behavior.
+- Current tool-platform code also lives under `src/tools/`; catalog declaration rows in `src/tools/catalog.py` are the single source for both `input_schema` and `output_schema`, and descriptor construction should pass through declaration-owned schemas.
 
 **Frontend source:**
 - React components use PascalCase.
@@ -80,6 +81,7 @@
 **Agent:**
 - Keep each graph node focused on one workflow responsibility.
 - Tool invocations should go through registry/adapter paths rather than direct ad hoc calls.
+- Tool catalog changes should update `_TOOL_DECLARATIONS`; unavailable tools should use strict no-data output schemas rather than invented payload contracts, and write/action output schemas should stay generic unless a scoped hardening phase defines them.
 - Write/approval-capable tools must carry explicit risk and side-effect metadata.
 
 **Frontend:**

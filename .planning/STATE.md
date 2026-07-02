@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Tool Platform Hardening
 status: executing
-stopped_at: Completed 38-01-PLAN.md
-last_updated: "2026-07-02T01:34:57.993Z"
-last_activity: 2026-07-02 -- Phase 38 plan 38-01 completed
+stopped_at: Completed 38-02-PLAN.md
+last_updated: "2026-07-02T01:42:59.289Z"
+last_activity: 2026-07-02 -- Phase 38 plan 38-02 completed
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 6
-  completed_plans: 4
-  percent: 67
+  completed_plans: 5
+  percent: 83
 ---
 
 # Project State: MOCA
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-07-01)
 ## Current Position
 
 Phase: 38 (output-schema-declaration-runtime-output-validation-enforcem) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
-Last activity: 2026-07-02 -- Phase 38 plan 38-01 completed
+Last activity: 2026-07-02 -- Phase 38 plan 38-02 completed
 
-Progress: [#######   ] 67%
+Progress: [########  ] 83%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -50,7 +50,7 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | Phase | Plans | Status |
 |-------|-------|--------|
 | 37. Tool Declaration + Runtime/Policy Internal Consolidation (TPH-03, TPH-04) | 3/3 | Complete; DB-backed pytest pending |
-| 38. output_schema Declaration + Runtime Output-Validation Enforcement (TPH-01) | 1/3 | In Progress |
+| 38. output_schema Declaration + Runtime Output-Validation Enforcement (TPH-01) | 2/3 | In Progress |
 | 39. contract-spec §12.5/§12.6 Reconciliation (TPH-02) | 0/TBD | Not started |
 
 Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review.
@@ -67,6 +67,7 @@ Sequencing rationale: Phase 37 consolidates the registry and converges runtime/p
 **v1.9 shipped scope:** 12 phases, 19 v1 requirements, 51/51 phase plans complete. Milestone audit status: archived.
 **v2.0 shipped scope:** Phase 36 (6/6 plans complete).
 **Phase 38 plan 38-01:** 3 min, 2 tasks, 2 files modified; nullable validator and scoped-set contract complete.
+**Phase 38 plan 38-02:** 3 min, 2 tasks, 2 files modified; catalog real output schemas and payload validation complete.
 
 Historical execution metrics are archived in milestone files and `.planning/MILESTONES.md`.
 
@@ -92,6 +93,9 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - Phase 38 plan 38-01 keeps nullable/type-list schema validation in the existing local `validate_json_value` helper instead of adding a new JSON Schema dependency.
 - Phase 38 plan 38-01 locks TPH-01 scope to the eight read/retrieval planner-visible tools and keeps `create_coupon_grant_draft` outside this plan.
 - Phase 38 plan 38-01 requires list-union validation to return immediately after the first successful candidate schema.
+- Phase 38 plan 38-02 makes _ToolDeclaration.output_schema the single catalog source for ToolDescriptor.output_schema.
+- Phase 38 plan 38-02 keeps create_coupon_grant_draft on the generic action output schema because action output hardening is outside TPH-01.
+- Phase 38 plan 38-02 uses strict no-data output schemas for get_logistics, get_merchant_risk, and search_sop until future executor/product scope defines real payloads.
 
 ### Roadmap Evolution
 
@@ -129,10 +133,10 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ## Session Continuity
 
-Last session: 2026-07-02T01:34:57Z
-Stopped at: Completed 38-01-PLAN.md
+Last session: 2026-07-02T01:42:59Z
+Stopped at: Completed 38-02-PLAN.md
 Resume file: None
-Next: Execute `.planning/phases/38-output-schema-declaration-runtime-output-validation-enforcem/38-02-PLAN.md`.
+Next: Execute `.planning/phases/38-output-schema-declaration-runtime-output-validation-enforcem/38-03-PLAN.md`.
 
 **Completed Phase:** 35 (Replay and Eval Hardening) — 6/6 plans complete; UAT 8/8 passed; security `threats_open: 0` — 2026-06-29
 
