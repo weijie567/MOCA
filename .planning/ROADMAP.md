@@ -10,7 +10,7 @@ v2.1 is a bounded, pre-scoped cleanup of the tool-call platform's contract debt 
 - Integer phases continue from the prior milestone (v2.0 ended at Phase 36); v2.1 starts at Phase 37.
 - Decimal phases (37.1, 37.2): urgent insertions (marked INSERTED).
 
-- [ ] **Phase 37: Tool Declaration + Runtime/Policy Internal Consolidation** - Single-source tool registry plus runtime `_fail` helper and declarative policy gate pipeline, with no external contract change (TPH-03, TPH-04).
+- [x] **Phase 37: Tool Declaration + Runtime/Policy Internal Consolidation** - Single-source tool registry plus runtime `_fail` helper and declarative policy gate pipeline, with no external contract change (TPH-03, TPH-04).
 - [ ] **Phase 38: output_schema Declaration + Runtime Output-Validation Enforcement** - Real `output_schema` for all eight tools, enforced in the `ToolRuntime` output-validation gate as `invalid_response` mapping (TPH-01).
 - [ ] **Phase 39: contract-spec §12.5/§12.6 Reconciliation** - Spec catches up to implemented contract fields via dual-AI review, without touching §8.0-locked identity fields (TPH-02).
 
@@ -29,7 +29,7 @@ v2.1 is a bounded, pre-scoped cleanup of the tool-call platform's contract debt 
 Plans:
 - [x] 37-01-PLAN.md — registry single-source declaration rows and drift guards for catalog/manager tool lists.
 - [x] 37-02-PLAN.md — `ToolRuntime._fail(...)` failure helper consolidation with safe projection/event regressions.
-- [ ] 37-03-PLAN.md — declarative `runtime_auth` gate sequence plus final Phase 37 contract/regression sweep.
+- [x] 37-03-PLAN.md — declarative `runtime_auth` gate sequence plus final Phase 37 contract/regression sweep.
 **UI hint**: no
 
 ### Phase 38: output_schema Declaration + Runtime Output-Validation Enforcement
@@ -60,6 +60,6 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 37. Tool Declaration + Runtime/Policy Internal Consolidation | 2/3 | In Progress | - |
+| 37. Tool Declaration + Runtime/Policy Internal Consolidation | 3/3 | Complete; DB pytest pending | 2026-07-02 |
 | 38. output_schema Declaration + Runtime Output-Validation Enforcement | 0/TBD | Not started | - |
 | 39. contract-spec §12.5/§12.6 Reconciliation | 0/TBD | Not started | - |

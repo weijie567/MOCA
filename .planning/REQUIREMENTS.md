@@ -18,7 +18,7 @@
 
 ### Runtime / Policy Internal Convergence
 
-- [ ] **TPH-04**: `ToolRuntime` failure paths produce their `(error result, projection, decision event, outcome tuple)` through one shared helper rather than ten duplicated branches, and `ToolPolicyEngine.runtime_auth` expresses its authorization checks as a declarative gate sequence — with existing tool-platform, policy, and runtime tests remaining green and no change to any external contract shape.
+- [x] **TPH-04**: `ToolRuntime` failure paths produce their `(error result, projection, decision event, outcome tuple)` through one shared helper rather than ten duplicated branches, and `ToolPolicyEngine.runtime_auth` expresses its authorization checks as a declarative gate sequence — with existing tool-platform, policy, and runtime tests remaining green and no change to any external contract shape.
 
 ## Future Requirements
 
@@ -39,8 +39,8 @@ _None. This milestone is a bounded, pre-scoped cleanup._
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | TPH-03 | Phase 37 | Complete |
-| TPH-04 | Phase 37 | Pending |
+| TPH-04 | Phase 37 | Complete; DB-backed pytest pending local PostgreSQL |
 | TPH-01 | Phase 38 | Pending |
 | TPH-02 | Phase 39 | Pending |
 
-**Coverage:** 4/4 v2.1 requirements mapped, each to exactly one phase. 1 complete, 3 pending. No orphans, no duplicates.
+**Coverage:** 4/4 v2.1 requirements mapped, each to exactly one phase. 2 complete, 2 pending. No orphans, no duplicates.
