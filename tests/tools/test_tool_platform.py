@@ -276,10 +276,11 @@ async def test_output_schema_success_passes_tool_result_unchanged() -> None:
 
 
 @pytest.mark.asyncio
-async def test_output_schema_success_with_missing_data_returns_invalid_response() -> None:
+@pytest.mark.parametrize("status", ["success", "partial_success"])
+async def test_output_schema_success_with_missing_data_returns_invalid_response(status: str) -> None:
     from src.tools.platform import ToolPlatform
 
-    invalid = _success_result().model_copy(update={"data": None})
+    invalid = _success_result().model_copy(update={"status": status, "data": None})
     executor = _RecordingExecutor({"get_order"}, invalid)
     platform = ToolPlatform(executors={"business": executor})
 
