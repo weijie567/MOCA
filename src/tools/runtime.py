@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +17,10 @@ from src.tools.manager_results import result as safe_result
 from src.tools.policy import ToolPolicyEngine
 from src.tools.projection import ToolResultProjector
 from src.tools.validation import validate_json_value
+
+
+_FailStatus = Literal["not_found", "permission_denied", "unavailable", "invalid_request", "invalid_response", "error"]
+_FailSource = Literal["caller", "tool", "adapter", "policy"]
 
 
 class ToolRuntime:
@@ -77,17 +81,15 @@ class ToolRuntime:
                 tool_name=tool_name, args=args, ctx=ctx,
                 availability_map=self._build_availability_map(),
             )
-            error_result = safe_result(
-                "not_found", "Requested tool is not registered",
+            return await self._fail(
+                tool_name=tool_name,
+                ctx=ctx,
+                decision=decision,
+                session=session,
+                status="not_found",
+                summary="Requested tool is not registered",
                 code="TOOL_NOT_FOUND", source="caller",
             )
-            projection = self._projector.project(
-                tool_name=tool_name, result=error_result, tool_call_id=ctx.tool_call_id,
-            )
-            event_id = await self._emit_decision_event(
-                decision=decision, ctx=ctx, session=session,
-            )
-            return error_result, decision, event_id, projection
 
         # Step 2: Input schema validation (BEFORE runtime_auth so unvalidated
         # args never enter resource_scope_binding or decision event resource_refs)
@@ -99,17 +101,15 @@ class ToolRuntime:
                 reason_codes=["schema_invalid"],
                 required_scopes=[descriptor.required_permission],
             )
-            error_result = safe_result(
-                "invalid_request", "Tool input failed validation",
+            return await self._fail(
+                tool_name=tool_name,
+                ctx=ctx,
+                decision=decision,
+                session=session,
+                status="invalid_request",
+                summary="Tool input failed validation",
                 code="INVALID_TOOL_INPUT", source="caller",
             )
-            projection = self._projector.project(
-                tool_name=tool_name, result=error_result, tool_call_id=ctx.tool_call_id,
-            )
-            event_id = await self._emit_decision_event(
-                decision=decision, ctx=ctx, session=session,
-            )
-            return error_result, decision, event_id, projection
 
         # Step 3: Runtime auth decision (after schema validation so only
         # validated args enter resource_scope_binding)
@@ -121,14 +121,13 @@ class ToolRuntime:
 
         # Step 4-5: Side-effect, approval, safety, idempotency (already in runtime_auth)
         if decision.decision == "denied":
-            error_result = self._safe_denial_result(decision)
-            projection = self._projector.project(
-                tool_name=tool_name, result=error_result, tool_call_id=ctx.tool_call_id,
+            return await self._fail(
+                tool_name=tool_name,
+                ctx=ctx,
+                decision=decision,
+                session=session,
+                result=self._safe_denial_result(decision),
             )
-            event_id = await self._emit_decision_event(
-                decision=decision, ctx=ctx, session=session,
-            )
-            return error_result, decision, event_id, projection
 
         # Step 6: Executor dispatch
         executor = self._executors.get(descriptor.executor) if descriptor.executor else None
@@ -140,62 +139,54 @@ class ToolRuntime:
                 runtime_available=False,
                 availability_summary=f"Tool {tool_name!r} executor is unavailable",
             )
-            error_result = safe_result(
-                "unavailable", "Tool is declared but unavailable",
+            return await self._fail(
+                tool_name=tool_name,
+                ctx=ctx,
+                decision=decision,
+                session=session,
+                status="unavailable",
+                summary="Tool is declared but unavailable",
                 code="TOOL_UNAVAILABLE", source="tool",
             )
-            projection = self._projector.project(
-                tool_name=tool_name, result=error_result, tool_call_id=ctx.tool_call_id,
-            )
-            event_id = await self._emit_decision_event(
-                decision=decision, ctx=ctx, session=session,
-            )
-            return error_result, decision, event_id, projection
 
         try:
             tool_result = await executor.execute(tool_name, args, ctx)
         except Exception:
-            error_result = safe_result(
-                "error", "Tool executor failed",
+            return await self._fail(
+                tool_name=tool_name,
+                ctx=ctx,
+                decision=decision,
+                session=session,
+                status="error",
+                summary="Tool executor failed",
                 code="EXECUTOR_ERROR", source="adapter",
             )
-            projection = self._projector.project(
-                tool_name=tool_name, result=error_result, tool_call_id=ctx.tool_call_id,
-            )
-            event_id = await self._emit_decision_event(
-                decision=decision, ctx=ctx, session=session,
-            )
-            return error_result, decision, event_id, projection
 
         if not isinstance(tool_result, ToolResultV2):
-            error_result = safe_result(
-                "invalid_response", "Tool executor returned an invalid response",
+            return await self._fail(
+                tool_name=tool_name,
+                ctx=ctx,
+                decision=decision,
+                session=session,
+                status="invalid_response",
+                summary="Tool executor returned an invalid response",
                 code="INVALID_EXECUTOR_RESPONSE", source="adapter",
             )
-            projection = self._projector.project(
-                tool_name=tool_name, result=error_result, tool_call_id=ctx.tool_call_id,
-            )
-            event_id = await self._emit_decision_event(
-                decision=decision, ctx=ctx, session=session,
-            )
-            return error_result, decision, event_id, projection
 
         # Step 7: Output schema validation
         try:
             if tool_result.data is not None:
                 validate_json_value(tool_result.data, descriptor.output_schema)
         except (TypeError, ValueError):
-            error_result = safe_result(
-                "invalid_response", "Tool executor returned an invalid response",
+            return await self._fail(
+                tool_name=tool_name,
+                ctx=ctx,
+                decision=decision,
+                session=session,
+                status="invalid_response",
+                summary="Tool executor returned an invalid response",
                 code="INVALID_EXECUTOR_RESPONSE", source="adapter",
             )
-            projection = self._projector.project(
-                tool_name=tool_name, result=error_result, tool_call_id=ctx.tool_call_id,
-            )
-            event_id = await self._emit_decision_event(
-                decision=decision, ctx=ctx, session=session,
-            )
-            return error_result, decision, event_id, projection
 
         # Step 8: Result projection
         projection = self._projector.project(
@@ -270,6 +261,38 @@ class ToolRuntime:
         message = f"Tool invocation denied: {primary_reason}"
         status = status_map.get(primary_reason, "permission_denied")
         return safe_result(status, message, code=code, source="policy")
+
+    async def _fail(
+        self,
+        *,
+        tool_name: str,
+        ctx: ToolCallContext,
+        decision: ToolPolicyDecision,
+        session: AsyncSession | None,
+        result: ToolResultV2 | None = None,
+        status: _FailStatus | None = None,
+        summary: str | None = None,
+        code: str | None = None,
+        source: _FailSource = "caller",
+    ) -> tuple[ToolResultV2, ToolPolicyDecision, str | None, ToolResultProjectionV1]:
+        if result is None:
+            if status is None or summary is None or code is None:
+                raise ValueError("_fail requires either result or status, summary, and code")
+            error_result = safe_result(status, summary, code=code, source=source)
+        else:
+            error_result = result
+
+        projection = self._projector.project(
+            tool_name=tool_name,
+            result=error_result,
+            tool_call_id=ctx.tool_call_id,
+        )
+        event_id = await self._emit_decision_event(
+            decision=decision,
+            ctx=ctx,
+            session=session,
+        )
+        return error_result, decision, event_id, projection
 
     async def _emit_decision_event(
         self,
