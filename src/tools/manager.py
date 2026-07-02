@@ -5,7 +5,7 @@ from typing import Any, Protocol
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.events import classify_event_family
-from src.tools.catalog import RegisteredTool, ToolCatalog, ToolDescriptor
+from src.tools.catalog import RegisteredTool, ToolCatalog, ToolDescriptor, investigate_tool_names
 from src.tools.contracts import ToolCallContext, ToolResultV2, ToolViewV1
 from src.tools.executors.action import ActionToolExecutor
 from src.tools.executors.business import BusinessToolExecutor
@@ -14,16 +14,7 @@ from src.tools.executors.memory import MemoryToolExecutor
 from src.tools.platform import ToolPlatform
 
 
-INVESTIGATE_TOOL_NAMES = {
-    "get_order",
-    "get_refund_case",
-    "get_ticket",
-    "get_logistics",
-    "get_merchant_risk",
-    "search_policy",
-    "search_sop",
-    "search_case_memory",
-}
+INVESTIGATE_TOOL_NAMES = investigate_tool_names()
 
 
 class ToolExecutor(Protocol):
@@ -73,7 +64,6 @@ class UnifiedToolManager:
                 descriptor
                 for descriptor in self._descriptors.values()
                 if caller_node in descriptor.caller_allowlist
-                and descriptor.name in INVESTIGATE_TOOL_NAMES
                 and descriptor.kind != "write"
                 and descriptor.exposure == "planner_visible"
             ]

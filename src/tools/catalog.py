@@ -39,203 +39,223 @@ class RegisteredTool:
 
 
 _GENERIC_OBJECT_SCHEMA: dict[str, Any] = {"type": "object"}
-_IDENTIFIER_SCHEMAS: dict[str, dict[str, Any]] = {
-    "get_order": {
-        "type": "object",
-        "properties": {"order_no": {"type": "string", "minLength": 1}},
-        "required": ["order_no"],
-    },
-    "get_refund_case": {
-        "type": "object",
-        "properties": {"refund_case_no": {"type": "string", "minLength": 1}},
-        "required": ["refund_case_no"],
-    },
-    "get_ticket": {
-        "type": "object",
-        "properties": {"ticket_id": {"type": "string", "minLength": 1}},
-        "required": ["ticket_id"],
-    },
-    "get_logistics": {
-        "type": "object",
-        "properties": {"tracking_no": {"type": "string", "minLength": 1}},
-        "required": ["tracking_no"],
-    },
-    "get_merchant_risk": {
-        "type": "object",
-        "properties": {"merchant_id": {"type": "string", "minLength": 1}},
-        "required": ["merchant_id"],
-    },
-    "search_policy": {
-        "type": "object",
-        "properties": {
-            "query": {"type": "string", "minLength": 1},
-            "primary_intent": {"type": "string", "minLength": 1},
-            "merchant_id": {"type": "string", "minLength": 1},
-            "max_results": {"type": "integer"},
-            "allow_partial_evidence": {"type": "boolean"},
-        },
-        "required": ["query"],
-    },
-    "search_sop": {
-        "type": "object",
-        "properties": {"query": {"type": "string", "minLength": 1}},
-        "required": ["query"],
-    },
-    "search_case_memory": {
-        "type": "object",
-        "properties": {"query": {"type": "string", "minLength": 1}},
-        "required": ["query"],
-    },
-    "create_coupon_grant_draft": {
-        "type": "object",
-        "properties": {
-            "approval_request_id": {"type": "string", "minLength": 1},
-            "action_type": {"type": "string", "minLength": 1},
-            "payload": {"type": "object"},
-            "action_payload_hash": {"type": "string", "minLength": 1},
-            "safety_snapshot_ref": {"type": "string", "minLength": 1},
-            "safety_snapshot_hash": {"type": "string", "minLength": 1},
-            "target_merchant_id": {"type": "string", "minLength": 1},
-            "target_merchant_ref": {"type": "object"},
-            "business_fact_refs": {"type": "array", "items": {"type": "object"}},
-            "verified_evidence_refs": {"type": "array", "items": {"type": "object"}},
-            "claim_verification_ref": {"type": "string", "minLength": 1},
-            "claim_verification_summary": {"type": "object"},
-            "risk_decision_ref": {"type": "string", "minLength": 1},
-            "risk_decision": {"type": "object"},
-            "auto_allowed_binding": {"type": "object"},
-        },
-        "required": ["action_type", "payload", "action_payload_hash", "safety_snapshot_ref", "safety_snapshot_hash"],
-    },
-}
+@dataclass(frozen=True)
+class _ToolDeclaration:
+    name: str
+    kind: Literal["read", "retrieval", "write"]
+    input_schema: dict[str, Any]
+    side_effect: Literal["read_only", "retrieval", "write"]
+    caller_allowlist: tuple[str, ...]
+    event_family: Literal["tool_call_*", "rag_retrieval_*", "action"] | None
+    resource_type: str | None
+    executor: Literal["business", "knowledge", "memory", "action"] | None = None
+    description: str = ""
+    exposure: Literal["planner_visible", "node_only", "internal"] = "planner_visible"
+    requires_approval: bool = False
+    requires_safety_snapshot: bool = False
+    requires_idempotency_key: bool = False
 
 
-def _descriptor(
-    name: str,
-    *,
-    description: str = "",
-    kind: Literal["read", "retrieval", "write"],
-    side_effect: Literal["read_only", "retrieval", "write"],
-    caller_allowlist: list[str],
-    event_family: Literal["tool_call_*", "rag_retrieval_*", "action"] | None,
-    resource_type: str | None,
-    executor: Literal["business", "knowledge", "memory", "action"] | None = None,
-    exposure: Literal["planner_visible", "node_only", "internal"] = "planner_visible",
-    requires_approval: bool = False,
-    requires_safety_snapshot: bool = False,
-    requires_idempotency_key: bool = False,
-) -> ToolDescriptor:
+_TOOL_DECLARATIONS: tuple[_ToolDeclaration, ...] = (
+    _ToolDeclaration(
+        name="get_order",
+        kind="read",
+        input_schema={
+            "type": "object",
+            "properties": {"order_no": {"type": "string", "minLength": 1}},
+            "required": ["order_no"],
+        },
+        side_effect="read_only",
+        caller_allowlist=("investigate",),
+        event_family="tool_call_*",
+        resource_type="order",
+        executor="business",
+    ),
+    _ToolDeclaration(
+        name="get_refund_case",
+        kind="read",
+        input_schema={
+            "type": "object",
+            "properties": {"refund_case_no": {"type": "string", "minLength": 1}},
+            "required": ["refund_case_no"],
+        },
+        side_effect="read_only",
+        caller_allowlist=("investigate",),
+        event_family="tool_call_*",
+        resource_type="refund_case",
+        executor="business",
+    ),
+    _ToolDeclaration(
+        name="get_ticket",
+        kind="read",
+        input_schema={
+            "type": "object",
+            "properties": {"ticket_id": {"type": "string", "minLength": 1}},
+            "required": ["ticket_id"],
+        },
+        side_effect="read_only",
+        caller_allowlist=("investigate",),
+        event_family="tool_call_*",
+        resource_type="ticket",
+        executor="business",
+    ),
+    _ToolDeclaration(
+        name="get_logistics",
+        kind="read",
+        input_schema={
+            "type": "object",
+            "properties": {"tracking_no": {"type": "string", "minLength": 1}},
+            "required": ["tracking_no"],
+        },
+        side_effect="read_only",
+        caller_allowlist=("investigate",),
+        event_family="tool_call_*",
+        resource_type="logistics",
+        executor="business",
+    ),
+    _ToolDeclaration(
+        name="get_merchant_risk",
+        kind="read",
+        input_schema={
+            "type": "object",
+            "properties": {"merchant_id": {"type": "string", "minLength": 1}},
+            "required": ["merchant_id"],
+        },
+        side_effect="read_only",
+        caller_allowlist=("investigate",),
+        event_family="tool_call_*",
+        resource_type="merchant_risk",
+        executor="business",
+    ),
+    _ToolDeclaration(
+        name="search_policy",
+        kind="retrieval",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "minLength": 1},
+                "primary_intent": {"type": "string", "minLength": 1},
+                "merchant_id": {"type": "string", "minLength": 1},
+                "max_results": {"type": "integer"},
+                "allow_partial_evidence": {"type": "boolean"},
+            },
+            "required": ["query"],
+        },
+        side_effect="retrieval",
+        caller_allowlist=("investigate",),
+        event_family="rag_retrieval_*",
+        resource_type=None,
+        executor="knowledge",
+    ),
+    _ToolDeclaration(
+        name="search_sop",
+        kind="retrieval",
+        input_schema={
+            "type": "object",
+            "properties": {"query": {"type": "string", "minLength": 1}},
+            "required": ["query"],
+        },
+        side_effect="retrieval",
+        caller_allowlist=("investigate",),
+        event_family="rag_retrieval_*",
+        resource_type=None,
+        executor="knowledge",
+    ),
+    _ToolDeclaration(
+        name="search_case_memory",
+        description=(
+            "Retrieve reviewed case memory precedents from the reviewed case store. "
+            "Returned snippets are contextual only, not policy evidence or action authority."
+        ),
+        kind="retrieval",
+        input_schema={
+            "type": "object",
+            "properties": {"query": {"type": "string", "minLength": 1}},
+            "required": ["query"],
+        },
+        side_effect="retrieval",
+        caller_allowlist=("investigate",),
+        event_family="rag_retrieval_*",
+        resource_type=None,
+        executor="memory",
+    ),
+    _ToolDeclaration(
+        name="create_coupon_grant_draft",
+        kind="write",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "approval_request_id": {"type": "string", "minLength": 1},
+                "action_type": {"type": "string", "minLength": 1},
+                "payload": {"type": "object"},
+                "action_payload_hash": {"type": "string", "minLength": 1},
+                "safety_snapshot_ref": {"type": "string", "minLength": 1},
+                "safety_snapshot_hash": {"type": "string", "minLength": 1},
+                "target_merchant_id": {"type": "string", "minLength": 1},
+                "target_merchant_ref": {"type": "object"},
+                "business_fact_refs": {"type": "array", "items": {"type": "object"}},
+                "verified_evidence_refs": {"type": "array", "items": {"type": "object"}},
+                "claim_verification_ref": {"type": "string", "minLength": 1},
+                "claim_verification_summary": {"type": "object"},
+                "risk_decision_ref": {"type": "string", "minLength": 1},
+                "risk_decision": {"type": "object"},
+                "auto_allowed_binding": {"type": "object"},
+            },
+            "required": [
+                "action_type",
+                "payload",
+                "action_payload_hash",
+                "safety_snapshot_ref",
+                "safety_snapshot_hash",
+            ],
+        },
+        side_effect="write",
+        caller_allowlist=("action_draft",),
+        event_family="action",
+        resource_type=None,
+        executor="action",
+        exposure="node_only",
+        requires_safety_snapshot=True,
+        requires_idempotency_key=True,
+    ),
+)
+_IDENTIFIER_SCHEMAS = {declaration.name: declaration.input_schema for declaration in _TOOL_DECLARATIONS}
+
+
+def _descriptor(declaration: _ToolDeclaration) -> ToolDescriptor:
     return ToolDescriptor(
-        name=name,
-        description=description,
-        kind=kind,
-        input_schema=_IDENTIFIER_SCHEMAS[name],
+        name=declaration.name,
+        description=declaration.description,
+        kind=declaration.kind,
+        input_schema=declaration.input_schema,
         output_schema=_GENERIC_OBJECT_SCHEMA,
-        risk_level=kind,
-        side_effect=side_effect,
-        required_permission=f"tool:{name}",
-        caller_allowlist=caller_allowlist,
-        event_family=event_family,
-        resource_type=resource_type,
-        executor=executor,
-        exposure=exposure,
-        requires_approval=requires_approval,
-        requires_safety_snapshot=requires_safety_snapshot,
-        requires_idempotency_key=requires_idempotency_key,
+        risk_level=declaration.kind,
+        side_effect=declaration.side_effect,
+        required_permission=f"tool:{declaration.name}",
+        caller_allowlist=list(declaration.caller_allowlist),
+        event_family=declaration.event_family,
+        resource_type=declaration.resource_type,
+        executor=declaration.executor,
+        exposure=declaration.exposure,
+        requires_approval=declaration.requires_approval,
+        requires_safety_snapshot=declaration.requires_safety_snapshot,
+        requires_idempotency_key=declaration.requires_idempotency_key,
     )
 
 
 def _default_descriptors() -> list[ToolDescriptor]:
-    return [
-        _descriptor(
-            "get_order",
-            kind="read",
-            side_effect="read_only",
-            caller_allowlist=["investigate"],
-            event_family="tool_call_*",
-            resource_type="order",
-            executor="business",
-        ),
-        _descriptor(
-            "get_refund_case",
-            kind="read",
-            side_effect="read_only",
-            caller_allowlist=["investigate"],
-            event_family="tool_call_*",
-            resource_type="refund_case",
-            executor="business",
-        ),
-        _descriptor(
-            "get_ticket",
-            kind="read",
-            side_effect="read_only",
-            caller_allowlist=["investigate"],
-            event_family="tool_call_*",
-            resource_type="ticket",
-            executor="business",
-        ),
-        _descriptor(
-            "get_logistics",
-            kind="read",
-            side_effect="read_only",
-            caller_allowlist=["investigate"],
-            event_family="tool_call_*",
-            resource_type="logistics",
-            executor="business",
-        ),
-        _descriptor(
-            "get_merchant_risk",
-            kind="read",
-            side_effect="read_only",
-            caller_allowlist=["investigate"],
-            event_family="tool_call_*",
-            resource_type="merchant_risk",
-            executor="business",
-        ),
-        _descriptor(
-            "search_policy",
-            kind="retrieval",
-            side_effect="retrieval",
-            caller_allowlist=["investigate"],
-            event_family="rag_retrieval_*",
-            resource_type=None,
-            executor="knowledge",
-        ),
-        _descriptor(
-            "search_sop",
-            kind="retrieval",
-            side_effect="retrieval",
-            caller_allowlist=["investigate"],
-            event_family="rag_retrieval_*",
-            resource_type=None,
-            executor="knowledge",
-        ),
-        _descriptor(
-            "search_case_memory",
-            description=(
-                "Retrieve reviewed case memory precedents from the reviewed case store. "
-                "Returned snippets are contextual only, not policy evidence or action authority."
-            ),
-            kind="retrieval",
-            side_effect="retrieval",
-            caller_allowlist=["investigate"],
-            event_family="rag_retrieval_*",
-            resource_type=None,
-            executor="memory",
-        ),
-        _descriptor(
-            "create_coupon_grant_draft",
-            kind="write",
-            side_effect="write",
-            caller_allowlist=["action_draft"],
-            event_family="action",
-            resource_type=None,
-            executor="action",
-            exposure="node_only",
-            requires_safety_snapshot=True,
-            requires_idempotency_key=True,
-        ),
-    ]
+    return [_descriptor(declaration) for declaration in _TOOL_DECLARATIONS]
+
+
+def investigate_tool_names(descriptors: Iterable[ToolDescriptor] | None = None) -> frozenset[str]:
+    source = descriptors if descriptors is not None else _default_descriptors()
+    return frozenset(
+        descriptor.name
+        for descriptor in source
+        if "investigate" in descriptor.caller_allowlist
+        and descriptor.kind != "write"
+        and descriptor.exposure == "planner_visible"
+    )
 
 
 class ToolCatalog:
