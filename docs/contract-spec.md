@@ -151,7 +151,7 @@ Projection 规则（消费者只取子集，字段语义与本表一致，不得
 | Projection | Section | Subset fields | Notes |
 | --- | --- | --- | --- |
 | `KnowledgeContext` | §8.3 | `tenant_id`, `user_id`, `role`, `merchant_scope`, `run_id`, `trace_id`, `locale`, `effective_at` | `effective_at` 不是 TrustedContext 字段，而是 run-derived 检索时间（默认 run start，见 §8.3）；其余字段是 TrustedContext 投影。`merchant_scope` 必填，使 KnowledgeService 能校验 request 的 `merchant_id` filter 是否在授权范围内 |
-| `ToolCallContext` | §12.5 | `tenant_id`, `user_id`, `role`, `permissions`, `merchant_scope`, `session_id`, `thread_id`, `run_id`, `trace_id` + tool-call-local fields | tool-call-local fields（`request_id`/`tool_call_id`/`caller_node`/`deadline_at`/`attempt`/`idempotency_key`/`policy_snapshot_ref`）由调用方注入，不属于 TrustedContext |
+| `ToolCallContext` | §12.5 | `tenant_id`, `user_id`, `role`, `permissions`, `merchant_scope`, `session_id`, `thread_id`, `run_id`, `trace_id` + tool-call-local fields | tool-call-local fields（`request_id`/`tool_call_id`/`caller_node`/`deadline_at`/`effective_at`/`attempt`/`idempotency_key`/`approval_ref`/`safety_snapshot_ref`/`policy_snapshot_ref`）由调用方注入，不属于 TrustedContext |
 | `AgentState` identity | §10 | `tenant_id`, `user_id`, `role`, `session_id`, `thread_id`, `run_id`, `trace_id` | §10.1 lifecycle matrix 的 Identity context 行；`replace from trusted config only` |
 
 AgentState identity 投影不携带 `permissions` / `merchant_scope`；需要它们的 service context（ToolCallContext / KnowledgeContext）必须在 node 内从 trusted graph/run config 构造，不从持久化的 AgentState 读取，避免过期权限随 checkpoint 泄漏。
@@ -1236,9 +1236,12 @@ class ToolCallContext(BaseModel):
     tool_call_id: str
     caller_node: str
     deadline_at: datetime | None = None
+    effective_at: str | None = None
     attempt: int = 1
     max_attempts: int = 1  # per-tool maximum attempts, injected by caller
     idempotency_key: str | None = None
+    approval_ref: str | None = None
+    safety_snapshot_ref: str | None = None
     policy_snapshot_ref: str | None = None
 
 class ToolRequest(BaseModel):
@@ -1316,6 +1319,7 @@ Contract rules：
 ```python
 class ToolDescriptor(BaseModel):
     name: str
+    description: str = ""
     kind: Literal["read", "retrieval", "write"]
     input_schema: dict[str, Any]
     output_schema: dict[str, Any]  # schema for ToolResultV2.data; envelope is always ToolResultV2
@@ -1323,8 +1327,13 @@ class ToolDescriptor(BaseModel):
     side_effect: Literal["none", "read_only", "retrieval", "write"]
     required_permission: str  # namespaced token, for example "tool:get_order"
     caller_allowlist: list[str]
-    event_family: Literal["tool_call_*", "rag_retrieval_*"]
+    event_family: Literal["tool_call_*", "rag_retrieval_*", "action"] | None
     resource_type: str | None
+    executor: Literal["business", "knowledge", "memory", "action"] | None = None
+    exposure: Literal["planner_visible", "node_only", "internal"] = "planner_visible"
+    requires_approval: bool = False
+    requires_safety_snapshot: bool = False
+    requires_idempotency_key: bool = False
 
 class ToolView(BaseModel):
     name: str
@@ -1345,6 +1354,8 @@ class ToolPolicyDecision(BaseModel):
     policy_version: str
     data_classification: Literal["public", "internal", "sensitive", "restricted"]
     resource_scope_binding: dict[str, Any] | None = None
+    runtime_available: bool | None = None
+    availability_summary: str | None = None
 
 class ToolResultProjectionV1(BaseModel):
     normalized_result: dict[str, Any]
