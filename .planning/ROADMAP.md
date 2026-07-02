@@ -12,7 +12,7 @@ v2.1 is a bounded, pre-scoped cleanup of the tool-call platform's contract debt 
 
 - [x] **Phase 37: Tool Declaration + Runtime/Policy Internal Consolidation** - Single-source tool registry plus runtime `_fail` helper and declarative policy gate pipeline, with no external contract change (TPH-03, TPH-04).
 - [x] **Phase 38: output_schema Declaration + Runtime Output-Validation Enforcement** - Real `output_schema` for all eight tools, enforced in the `ToolRuntime` output-validation gate as `invalid_response` mapping (TPH-01). Plan progress: 3/3 complete; DB-backed pytest passed.
-- [ ] **Phase 39: contract-spec §12.5/§12.6 Reconciliation** - Spec catches up to implemented contract fields via dual-AI review, without touching §8.0-locked identity fields (TPH-02).
+- [x] **Phase 39: contract-spec §12.5/§12.6 Reconciliation** - Spec catches up to implemented contract fields via dual-AI review, without touching §8.0-locked identity fields (TPH-02). Plan progress: 1/1 complete.
 
 ## Phase Details
 
@@ -59,7 +59,7 @@ Plans:
   4. The spec change passed the dual-AI review workflow (`gsd-plan-checker` + Codex cross-review + Claude adjudication) before it is treated as final.
 **Plans**: 1 plan
 Plans:
-- [ ] 39-01-PLAN.md — docs-only §12.5/§12.6 contract-spec reconciliation with pre-edit commit evidence and dual-AI review gate.
+- [x] 39-01-PLAN.md — docs-only §12.5/§12.6 contract-spec reconciliation with pre-edit commit evidence and dual-AI review gate.
 **UI hint**: no
 
 ## Progress
@@ -68,4 +68,4 @@ Plans:
 |-------|----------------|--------|-----------|
 | 37. Tool Declaration + Runtime/Policy Internal Consolidation | 3/3 | Complete; DB pytest pending | 2026-07-02 |
 | 38. output_schema Declaration + Runtime Output-Validation Enforcement | 3/3 | Complete    | 2026-07-02 |
-| 39. contract-spec §12.5/§12.6 Reconciliation | 0/TBD | Not started | - |
+| 39. contract-spec §12.5/§12.6 Reconciliation | 1/1 | Complete | 2026-07-02 |

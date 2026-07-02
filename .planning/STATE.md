@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Tool Platform Hardening
-status: executing
-stopped_at: Phase 39 execution in progress
-last_updated: "2026-07-02T03:19:00Z"
-last_activity: 2026-07-02 -- Phase 39 execution started
+status: completed
+stopped_at: Completed 39-01-PLAN.md
+last_updated: "2026-07-02T03:26:40.593Z"
+last_activity: 2026-07-02 -- Phase 39 plan 39-01 completed
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 7
-  completed_plans: 6
-  percent: 86
+  completed_plans: 7
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -21,16 +21,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 39 contract-spec §12.5/§12.6 Reconciliation — executing
+**Current focus:** Phase 39 contract-spec §12.5/§12.6 Reconciliation — complete
 
 ## Current Position
 
-Phase: 39 (contract-spec §12.5/§12.6 Reconciliation) — EXECUTING
+Phase: 39 (contract-spec §12.5/§12.6 Reconciliation) — COMPLETE
 Plan: 39-01 of 1
-Status: Executing Phase 39
-Last activity: 2026-07-02 -- Phase 39 execution started
+Status: Phase complete
+Last activity: 2026-07-02 -- Phase 39 plan 39-01 completed
 
-Progress: [█████████░] 86%
+Progress: [██████████] 100%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -51,7 +51,7 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 |-------|-------|--------|
 | 37. Tool Declaration + Runtime/Policy Internal Consolidation (TPH-03, TPH-04) | 3/3 | Complete; DB-backed pytest pending |
 | 38. output_schema Declaration + Runtime Output-Validation Enforcement (TPH-01) | 3/3 | Complete; DB-backed pytest passed |
-| 39. contract-spec §12.5/§12.6 Reconciliation (TPH-02) | 0/1 | Ready to execute |
+| 39. contract-spec §12.5/§12.6 Reconciliation (TPH-02) | 1/1 | Complete |
 
 Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review.
 
@@ -69,6 +69,7 @@ Sequencing rationale: Phase 37 consolidates the registry and converges runtime/p
 **Phase 38 plan 38-01:** 3 min, 2 tasks, 2 files modified; nullable validator and scoped-set contract complete.
 **Phase 38 plan 38-02:** 3 min, 2 tasks, 2 files modified; catalog real output schemas and payload validation complete.
 **Phase 38 plan 38-03:** 4 min, 2 tasks, 3 files modified; runtime invalid-response enforcement and high-blast consumer sweep complete, with DB-backed pytest passing after compose PostgreSQL startup.
+**Phase 39 plan 39-01:** 4 min, 3 tasks, 2 files modified; docs-only contract-spec reconciliation for TPH-02 complete.
 
 Historical execution metrics are archived in milestone files and `.planning/MILESTONES.md`.
 
@@ -99,6 +100,9 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - Phase 38 plan 38-02 uses strict no-data output schemas for get_logistics, get_merchant_risk, and search_sop until future executor/product scope defines real payloads.
 - Phase 38 plan 38-03 confirms runtime output_schema failures map to safe invalid_response results through ToolPlatform, with ToolResultV2 envelope fields unchanged.
 - Phase 38 plan 38-03 verifies DB-backed business/service and memory/search real-path coverage under compose PostgreSQL; fake-executor runtime tests and focused non-DB high-blast regressions remain fast proxy coverage.
+- Phase 39 preserved §8.0 as the owner of ToolCallContext identity/scope/permission semantics.
+- Phase 39 documented ToolCallContext.effective_at as str | None because the implemented Pydantic model uses str | None.
+- Phase 39 documented ToolDescriptor.description: str = empty-string default because exact current model parity was required.
 
 ### Roadmap Evolution
 
@@ -136,21 +140,10 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ## Session Continuity
 
-Last session: 2026-07-02T03:19:00Z
-Stopped at: Phase 39 execution in progress
-Resume file: `.planning/phases/39-contract-spec-12-5-12-6-reconciliation/39-01-PLAN.md`
-Next: Continue `$gsd-execute-phase 39`.
+Last session: 2026-07-02T03:26:40.577Z
+Stopped at: Completed 39-01-PLAN.md
+Resume file: None
+Next: Run `$gsd-verify-work 39` or complete the v2.1 milestone.
 
-**Completed Phase:** 35 (Replay and Eval Hardening) — 6/6 plans complete; UAT 8/8 passed; security `threats_open: 0` — 2026-06-29
-
-**Completed Phase:** 35.1 (v1.9 Milestone Readiness Closure) — 1/1 plan complete; v1.9 archived — 2026-06-30
-
-**Completed Phase:** 36 (Merchant-scope DB Hardening / Role Cleanup) — 6/6 plans complete — 2026-06-30
-
-**Completed Phase:** 37 (Tool Declaration + Runtime/Policy Internal Consolidation) — 3/3 plans complete; final DB-backed pytest pending local PostgreSQL — 2026-07-02
-
-**Completed Phase:** 38 (output_schema Declaration + Runtime Output-Validation Enforcement) — 3/3 plans complete; DB-backed full relevant pytest passed — 2026-07-02
-
-**Next Roadmap Item:** execute Phase 39
-
-**Planned Phase:** 39 (contract-spec §12.5/§12.6 Reconciliation) — 1 plans — 2026-07-02T03:15:46.835Z
+Recent completions: Phase 37 3/3 complete; Phase 38 3/3 complete with DB-backed pytest passed; Phase 39 1/1 complete with docs-only TPH-02 reconciliation and dual-AI review.
+Next roadmap item: verify Phase 39 or complete v2.1 milestone.
