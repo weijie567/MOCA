@@ -13,7 +13,7 @@ v2.1 is a bounded, pre-scoped cleanup of the tool-call platform's contract debt 
 - [x] **Phase 37: Tool Declaration + Runtime/Policy Internal Consolidation** - Single-source tool registry plus runtime `_fail` helper and declarative policy gate pipeline, with no external contract change (TPH-03, TPH-04).
 - [x] **Phase 38: output_schema Declaration + Runtime Output-Validation Enforcement** - Real `output_schema` for all eight tools, enforced in the `ToolRuntime` output-validation gate as `invalid_response` mapping (TPH-01). Plan progress: 3/3 complete; DB-backed pytest passed.
 - [x] **Phase 39: contract-spec §12.5/§12.6 Reconciliation** - Spec catches up to implemented contract fields via dual-AI review, without touching §8.0-locked identity fields (TPH-02). Plan progress: 1/1 complete.
-- [ ] **Phase 40: Tool Contract Validation Hardening** - Close source-confirmed validation/backstop gaps left after TPH-01 without changing `ToolResultV2`, `ToolCallContext` §8.0 identity fields, BusinessFactService ownership runtime semantics, or the `UnifiedToolManager` compatibility API (TPH-05).
+- [x] **Phase 40: Tool Contract Validation Hardening** - Close source-confirmed validation/backstop gaps left after TPH-01 without changing `ToolResultV2`, `ToolCallContext` §8.0 identity fields, BusinessFactService ownership runtime semantics, or the `UnifiedToolManager` compatibility API (TPH-05).
 
 ## Phase Details
 
@@ -70,7 +70,7 @@ Plans:
 | 37. Tool Declaration + Runtime/Policy Internal Consolidation | 3/3 | Complete; DB pytest pending | 2026-07-02 |
 | 38. output_schema Declaration + Runtime Output-Validation Enforcement | 3/3 | Complete    | 2026-07-02 |
 | 39. contract-spec §12.5/§12.6 Reconciliation | 1/1 | Complete | 2026-07-02 |
-| 40. Tool Contract Validation Hardening | 2/3 | In Progress | |
+| 40. Tool Contract Validation Hardening | 3/3 | Complete | 2026-07-02 |
 
 ### Phase 40: Tool Contract Validation Hardening
 
@@ -88,4 +88,4 @@ Plans:
 Plans:
 - [x] 40-01-PLAN.md — strict `create_coupon_grant_draft` output schema and action fake payload alignment.
 - [x] 40-02-PLAN.md — local JSON Schema subset keyword support plus descriptor schema meta guard.
-- [ ] 40-03-PLAN.md — domain-scope marker business-boundary backstop tests and final protected no-diff verification.
+- [x] 40-03-PLAN.md — domain-scope marker business-boundary backstop tests and final protected no-diff verification.

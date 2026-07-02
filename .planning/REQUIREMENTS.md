@@ -11,7 +11,7 @@
 
 - [x] **TPH-01**: Each of the eight registered tools (`get_order`, `get_refund_case`, `get_ticket`, `get_logistics`, `get_merchant_risk`, `search_policy`, `search_sop`, `search_case_memory`) declares a real `output_schema` for `ToolResultV2.data`, and the `ToolRuntime` output-validation gate enforces it — an executor result whose `data` fails the declared schema is mapped to an `invalid_response` `ToolResultV2` instead of passing through, replacing the current no-op `{"type":"object"}`.
 - [x] **TPH-02**: `docs/contract-spec.md` §12.5/§12.6 normative type definitions match the implemented contract fields — adding the implemented-but-unspecified fields (`ToolDescriptor.executor` / `exposure` / `requires_approval` / `requires_safety_snapshot` / `requires_idempotency_key`, `event_family` value `action`, `ToolPolicyDecision.runtime_available` / `availability_summary`, `ToolCallContext.effective_at` / `approval_ref` / `safety_snapshot_ref`) — without redefining, widening, or renaming any §8.0-locked `TrustedContext`-projected identity field. Spec change goes through the dual-AI review workflow.
-- [ ] **TPH-05**: Close post-TPH-01 validation gaps confirmed from source review: `create_coupon_grant_draft` must use a strict action-draft output schema, domain-scope handoff markers must have an architecture/backstop test tied to BusinessFactService merchant-scope/no-leak enforcement, and the local `validate_json_value` subset must implement or meta-block every descriptor schema keyword it advertises. This must not change the `ToolResultV2` envelope, `ToolCallContext` §8.0 identity fields, BusinessFactService ownership runtime split, `docs/contract-spec.md`, or `UnifiedToolManager` compatibility behavior.
+- [x] **TPH-05**: Close post-TPH-01 validation gaps confirmed from source review: `create_coupon_grant_draft` must use a strict action-draft output schema, domain-scope handoff markers must have an architecture/backstop test tied to BusinessFactService merchant-scope/no-leak enforcement, and the local `validate_json_value` subset must implement or meta-block every descriptor schema keyword it advertises. This must not change the `ToolResultV2` envelope, `ToolCallContext` §8.0 identity fields, BusinessFactService ownership runtime split, `docs/contract-spec.md`, or `UnifiedToolManager` compatibility behavior.
 
 ### Tool Declaration Consolidation
 
@@ -43,6 +43,6 @@ _None. This milestone remains a bounded, pre-scoped cleanup._
 | TPH-04 | Phase 37 | Complete; DB-backed pytest pending local PostgreSQL |
 | TPH-01 | Phase 38 | Complete; DB-backed pytest passed |
 | TPH-02 | Phase 39 | Complete |
-| TPH-05 | Phase 40 | Planned |
+| TPH-05 | Phase 40 | Complete |
 
-**Coverage:** 5/5 v2.1 requirements mapped, each to exactly one phase. 4 complete, 1 pending. No orphans, no duplicates.
+**Coverage:** 5/5 v2.1 requirements mapped, each to exactly one phase. 5 complete, 0 pending. No orphans, no duplicates.

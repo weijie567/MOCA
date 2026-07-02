@@ -14,11 +14,11 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 **Goal:** Clean up the tool-call platform's contract debt and implementation gaps so tool contracts are as sound as the codebase allows, and so `docs/contract-spec.md` and the implementation agree.
 
-**Status:** Phase 37, Phase 38, and Phase 39 complete; Phase 40 added for source-confirmed post-TPH-01 validation hardening.
+**Status:** Phase 37, Phase 38, Phase 39, and Phase 40 complete; v2.1 requirements are implemented and ready for milestone review/archive.
 
 **Target features:**
 - Land real `output_schema` for all eight tools (`get_order`, `get_refund_case`, `get_ticket`, `get_logistics`, `get_merchant_risk`, `search_policy`, `search_sop`, `search_case_memory`) and enforce it in the `ToolRuntime` output-validation gate — completed in Phase 38.
-- Harden the remaining source-confirmed validation gaps: strict `create_coupon_grant_draft` output schema, domain-scope handoff backstop testing, and local JSON Schema keyword/meta guards — Phase 40.
+- Harden the remaining source-confirmed validation gaps: strict `create_coupon_grant_draft` output schema, domain-scope handoff backstop testing, and local JSON Schema keyword/meta guards — completed in Phase 40.
 - Reconcile `docs/contract-spec.md` §12.5/§12.6 with the implemented contract fields that spec omits (`ToolDescriptor.executor/exposure/requires_approval/requires_safety_snapshot/requires_idempotency_key`, `event_family="action"`, `ToolPolicyDecision.runtime_available/availability_summary`, `ToolCallContext.effective_at/approval_ref/safety_snapshot_ref`) — completed in Phase 39 with dual-AI review and clean verification.
 - Consolidate the tool declaration source: collapse `catalog._default_descriptors` + `_IDENTIFIER_SCHEMAS` and `manager.INVESTIGATE_TOOL_NAMES` into one single-source registry (spec §12.6 already forbids multi-list drift).
 - Converge runtime/policy internals: extract a `_fail` helper for the ten repeated failure branches in `runtime.py`, and turn the `runtime_auth` if-chain in `policy.py` into a declarative gate pipeline.
