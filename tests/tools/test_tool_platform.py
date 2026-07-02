@@ -416,6 +416,44 @@ async def test_runtime_auth_rechecks_visible_tool_before_dispatch() -> None:
     assert outcome.policy_decision.decision == "denied"
 
 
+def test_tool_runtime_failure_paths_use_shared_fail_helper() -> None:
+    from src.tools.runtime import ToolRuntime
+
+    runtime_source = inspect.getsource(ToolRuntime)
+    invoke_source = inspect.getsource(ToolRuntime.invoke)
+
+    assert "async def _fail(" in runtime_source
+    assert invoke_source.count("await self._fail(") >= 7
+
+
+@pytest.mark.asyncio
+async def test_tool_runtime_failure_projection_redacts_raw_sentinel_inputs() -> None:
+    from src.tools.platform import ToolPlatform
+
+    raw_sentinel = "RAW-RUNTIME-SENTINEL"
+    platform = ToolPlatform.with_defaults(None)
+
+    invalid_input_outcome = await platform.invoke(
+        "get_order",
+        {"order_no": "", "raw_args": raw_sentinel},
+        _ctx(permissions=["tool:get_order"]),
+        session=None,
+    )
+    missing_tool_outcome = await platform.invoke(
+        "missing_tool",
+        {"raw_args": raw_sentinel},
+        _ctx(),
+        session=None,
+    )
+
+    assert invalid_input_outcome.tool_result.status == "invalid_request"
+    assert missing_tool_outcome.tool_result.status == "not_found"
+    assert isinstance(invalid_input_outcome.projection, ToolResultProjectionV1)
+    assert isinstance(missing_tool_outcome.projection, ToolResultProjectionV1)
+    assert raw_sentinel not in invalid_input_outcome.model_dump_json()
+    assert raw_sentinel not in missing_tool_outcome.model_dump_json()
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("merchant_scope", "expected_status", "expected_decision", "expected_dispatched"),

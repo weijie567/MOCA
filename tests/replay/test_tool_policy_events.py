@@ -21,6 +21,7 @@ from src.replay.validators import (
     REPLAY_EVENT_TYPES,
     validate_event_type,
 )
+from src.tools.contracts import ToolCallContext
 
 
 TOOL_POLICY_VISIBILITY_EVENT = "tool_policy_visibility_recorded"
@@ -75,6 +76,26 @@ def _has_forbidden_key(value: object) -> str | None:
             if nested is not None:
                 return nested
     return None
+
+
+def _runtime_event_context() -> ToolCallContext:
+    return ToolCallContext(
+        tenant_id=str(uuid.uuid4()),
+        user_id=str(uuid.uuid4()),
+        role="support",
+        permissions=[],
+        merchant_scope={"merchant_ids": ["*"]},
+        session_id=None,
+        thread_id="tool-policy-thread",
+        run_id=str(uuid.uuid4()),
+        trace_id="trace-tool-policy",
+        request_id=str(uuid.uuid4()),
+        tool_call_id=str(uuid.uuid4()),
+        caller_node="investigate",
+        attempt=1,
+        max_attempts=1,
+        policy_snapshot_ref=None,
+    )
 
 
 def test_tool_policy_event_types_are_registered() -> None:
@@ -157,6 +178,34 @@ async def test_tool_policy_runtime_auth_recorded_emits_per_invocation_event(sess
     assert _has_forbidden_key(payload) is None
     for forbidden in ("raw_args", "raw_payload", "raw_tool_output", "input_schema", "required_permission", "caller_allowlist"):
         assert forbidden not in payload
+
+
+@pytest.mark.asyncio
+async def test_tool_runtime_event_payload_source_omits_raw_descriptor_and_args(monkeypatch) -> None:
+    from src.tools.platform import ToolPlatform
+
+    captured: dict[str, object] = {}
+
+    async def fake_emit_decision_event(session: object, **kwargs: object) -> dict[str, str]:
+        del session
+        captured["redacted_payload"] = kwargs["redacted_payload"]
+        return {"event_id": "runtime-auth-event-1"}
+
+    monkeypatch.setattr("src.replay.decision_events.emit_decision_event", fake_emit_decision_event)
+
+    outcome = await ToolPlatform.with_defaults(None).invoke(
+        "get_order",
+        {"order_no": "ORD-1", "raw_args": {"secret": "RAW-RUNTIME-SENTINEL"}},
+        _runtime_event_context(),
+        session=object(),
+    )
+
+    payload = captured["redacted_payload"]
+    assert isinstance(payload, dict)
+    assert outcome.policy_event_id == "runtime-auth-event-1"
+    assert payload["decision_stage"] == "runtime_auth"
+    assert payload["data_classification"] == "internal"
+    assert _has_forbidden_key(payload) is None
 
 
 @pytest.mark.asyncio
