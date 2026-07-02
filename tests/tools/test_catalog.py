@@ -100,6 +100,19 @@ def test_json_schema_helper_rejects_invalid_input(value: object, schema: dict) -
         _validate_json_value(value, schema)
 
 
+def test_json_schema_helper_accepts_nullable_union_and_null() -> None:
+    _validate_json_value(None, {"type": "null"})
+    _validate_json_value(None, {"type": ["string", "null"]})
+    _validate_json_value("x", {"type": ["string", "null"], "minLength": 1})
+
+
+def test_json_schema_helper_rejects_nullable_union_mismatches() -> None:
+    with pytest.raises((TypeError, ValueError)):
+        _validate_json_value(123, {"type": ["string", "null"]})
+    with pytest.raises((TypeError, ValueError)):
+        _validate_json_value("", {"type": ["string", "null"], "minLength": 1})
+
+
 @pytest.mark.asyncio
 async def test_declaration_only_invoke_fails_closed_without_adapter_execution() -> None:
     adapter = AsyncMock()
