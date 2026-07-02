@@ -348,6 +348,43 @@ def test_runtime_denial_matrix_covers_all_required_reason_codes() -> None:
     assert _RUNTIME_DENIAL_REASONS <= TOOL_POLICY_CORE_REASON_CODES
 
 
+def test_runtime_auth_gate_sequence_is_declarative_and_ordered() -> None:
+    gates = ToolPolicyEngine()._runtime_auth_gates
+
+    assert [gate.name for gate in gates] == [
+        "caller_allowlist",
+        "permission",
+        "side_effect",
+        "resource_scope",
+        "approval",
+        "safety_snapshot",
+        "idempotency",
+    ]
+
+
+def test_runtime_auth_declarative_gates_preserve_multi_denial_reason_order() -> None:
+    decision = ToolPolicyEngine().runtime_auth(
+        tool_name="create_coupon_grant_draft",
+        args={"merchant_id": "M-DENIED"},
+        ctx=_ctx(
+            caller_node="investigate",
+            permissions=[],
+            merchant_scope=MerchantScopeV1(merchant_ids=["M-ALLOWED"]),
+        ),
+        availability_map={"create_coupon_grant_draft": True},
+    )
+
+    assert decision.decision == "denied"
+    assert decision.reason_codes == [
+        "caller_not_allowed",
+        "missing_permission",
+        "side_effect_blocked",
+        "scope_denied",
+        "safety_snapshot_required",
+        "idempotency_required",
+    ]
+
+
 @pytest.mark.asyncio
 async def test_visible_tools_records_hidden_and_unavailable_decisions_outside_prompt() -> None:
     from src.tools.platform import ToolPlatform
