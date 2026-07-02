@@ -67,10 +67,7 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
     session = configurable.get("session")
     tool_platform = configurable.get("tool_platform")
     if tool_platform is None:
-        tool_manager = configurable.get("tool_manager")
-        if tool_manager is not None and hasattr(tool_manager, "_platform"):
-            tool_platform = tool_manager._platform
-        elif session is not None:
+        if session is not None:
             tool_platform = ToolPlatform.with_defaults(session)
         else:
             tool_platform = ToolPlatform(executors={})

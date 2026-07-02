@@ -583,9 +583,6 @@ async def _invoke_action_tool(
     tool_ctx: ToolCallContext,
 ) -> ToolResultV2:
     tool_platform = configurable.get("action_tool_platform")
-    legacy_manager = configurable.get("action_tool_manager")
-    if tool_platform is None and legacy_manager is not None and hasattr(legacy_manager, "_platform"):
-        tool_platform = legacy_manager._platform
     if tool_platform is None:
         tool_platform = configurable.get("tool_platform")
     if tool_platform is None:
