@@ -1428,6 +1428,7 @@ Memory is layered by semantics, not by storage engine:
 | Working memory | Current run's working copy | current input, temporary plan, tool results, candidate answer, per-node state | LangGraph `AgentState` and checkpoint snapshot; not a separate MemoryService store |
 | Workflow checkpoint | Resume a graph execution after crash/interrupt/approval wait | current node, pending interrupt, idempotency state, side-effect boundary snapshot | PostgreSQL checkpointer/source of truth; Redis may only cache active-run hot state |
 | Session memory | Same-thread continuity across turns | active slots, last intent, lightweight summary, unresolved questions | PostgreSQL `session_memories` with CAS; optional Redis hot cache with TTL and Postgres fallback |
+| Case Working Context | Current case working state across threads and handoffs | customer request, separated claims and verified facts, missing info, refs, actions taken, pending tasks, next action | PostgreSQL `case_working_contexts` scoped by tenant + `refund_cases.id`, versioned by append-only revisions |
 | Long-term profile memory | Reviewed durable scoped facts/preferences/patterns | user/merchant preferences, stable merchant patterns, durable constraints | PostgreSQL structured rows, optional pgvector retrieval; deferred to Phase 16 |
 | Case memory | Reviewed precedent retrieval | similar historical cases, resolution, approval outcome, final outcome | PostgreSQL + optional pgvector; deferred to Phase 16 |
 | Audit/replay log | Explain what happened and why | inputs, evidence refs, tool calls, approvals, model/config versions, memory write events | PostgreSQL append-only events/tables; not memory and not replaceable by Redis |
@@ -1510,6 +1511,20 @@ Long-term memory stores durable, reviewed, scoped facts that may improve future 
 
 Case memory is precedent retrieval for analyst assistance and recommendation context. It never substitutes current business facts, current policy evidence, approval policy, or action safety snapshots. Case memory must not be used as citation, automatic compensation amount authority, approval authorization, current order fact source, or policy evidence.
 
+Semantic lock: `case_memories` / `case_memory` are reviewed precedent, NOT active case state. Active current-case state belongs to Case Working Context.
+
+### 13.4a Case Working Context
+
+Case Working Context is a durable working-state memory layer for one active refund case. It is stored in `case_working_contexts`, scoped by `(tenant_id, case_id)`, where `case_id` is bound to `refund_cases.id` (UUID), and every row has `authority_class = contextual_only`.
+
+Case Working Context is NOT an `EvidenceRefV1`. It cannot authorize policy/risk/approval/action, cannot satisfy policy or approval evidence requirements, and cannot replace current business facts, authoritative policy evidence, approval policy, action safety snapshots, audit logs, or replay truth.
+
+Case Working Context is distinct from `case_memory`: CWC is the current case's working state, while `case_memories` remains reviewed cross-case precedent. CWC stores user claims and verified facts separately; a claim must never silently become a verified fact. Tool-derived facts may store only a reference/summary plus `observed_at`; policy body text and sensitive raw PII must never be stored.
+
+CWC is human-correctable and versioned. Updates increment the active `case_working_contexts.version` and retain prior state in append-only `case_working_context_revisions` rows with provenance such as run/source reference.
+
+Thread-to-case membership is additive many-to-many: `thread_case_links` records tenant + thread + `refund_cases.id` associations and does not drop, rename, retype, or replace the legacy single `conversation_threads.case_id` column.
+
 ### 13.5 Memory write policy
 
 写入长期/案例记忆必须满足：
@@ -1526,7 +1541,7 @@ Memory write decision contract：
 {
   "schema_version": "memory_write_decision.v2",
   "candidate": {
-    "type": "session_slot | long_term_fact | case_memory",
+    "type": "session_slot | long_term_fact | case_memory | case_working_context",
     "content": "商家 A 偏好先补发券再升级人工。",
     "scope": {"type": "merchant", "id": "merchant_id"},
     "source_ref": {"run_id": "uuid", "event_id": "uuid"},
@@ -1553,6 +1568,7 @@ Memory lifecycle rules：
 - Same merchant but different user visibility must be controlled by scope and role; user-scoped memories are not visible to other users by default.
 - Long-term/case memory candidates can be delayed/asynchronous, but write failures must emit audit/replay events and must not block final response.
 - Long-term memory review owner is product/admin/human-review role, not the LLM.
+- `case_working_context` memory-write events are audit records for CWC working-state updates only; they do not create evidence, approval, policy, or action authority.
 
 Memory canonical identity profile：
 
@@ -1577,6 +1593,8 @@ PostgreSQL is the authoritative store for durable memory, workflow checkpoint so
 Authoritative memory storage uses PostgreSQL:
 
 - `session_memories`
+- `case_working_contexts`
+- `case_working_context_revisions`
 - `long_term_memories`
 - `case_memories`
 - `memory_tombstones`
