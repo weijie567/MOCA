@@ -159,3 +159,26 @@ Plans:
 - [x] 43-01-PLAN.md — intent-policy `TaskStep` / `TaskPlan` contracts, deterministic normalization, s1-only prefix selection, fail-closed behavior, and policy tests.
 - [x] 43-02-PLAN.md — `AgentState` / `receive_request` reset and `classify_intent` task-plan wiring while preserving current single-intent route fields and guards.
 - [x] 43-03-PLAN.md — final-response deferred-step presentation, complaint-folding safety note, architecture-debt ledger update, and full regression/no-go verification.
+
+### Phase 44: Memory Layering — Case Working Context + thread↔case Many-to-Many
+
+**Goal:** Introduce a case-scoped durable working-context layer (new table `case_working_contexts`) plus a thread↔case association table, so a refund case's working state (customer request, claims, verified facts, missing info, actions taken, policy refs, agent recommendations + staff decisions, pending tasks, commitments, next action) survives across conversation threads and agent/staff handoffs through a durable read/write surface. Case Working Context is non-authoritative (`authority_class = contextual_only`), human-correctable, versioned, and bound to trusted `run_id` / `source_ref`; claims and verified facts are stored separately; tool-derived facts store only references/summaries with `observed_at` and never replace the business system; policy body and sensitive raw text are never stored. Phase 44 provides the callable audited write service; graph run-completion auto-update hook wiring is deferred to Phase 45 memory lifecycle wiring. This phase does NOT rename `case_memories` / `long_term_memories` and does NOT change the session-memory layer.
+**Requirements**: MEM-01, MEM-02
+**Depends on:** Phase 43
+**Design input:** `.planning/MEMORY-REDESIGN-DECISIONS.md` (D1–D5; P1 = many-to-many, P2 = standalone table, P3 = long_term kept narrow). Red line D5: do not rename `case_memories` / `long_term_memories`.
+**Success Criteria** (what must be TRUE):
+  1. A new `case_working_contexts` table exists, scoped by `(tenant_id, case_id)`, holding the structured working-state fields above, with `version`, `updated_by_run_id`, and `source_ref` columns; it is distinct from `session_memories`, `case_memories`, and `long_term_memories`.
+  2. Every persisted Case Working Context is marked `authority_class = contextual_only` and carries claim/fact separation (claims store `verified` flag + source; tool-derived facts store reference/summary + `observed_at`), never storing policy body or sensitive raw text.
+  3. Case Working Context is human-correctable and versioned: manual edits are supported and each write bumps `version` and records `updated_by_run_id`, preserving prior version history.
+  4. A thread↔case association table supports many-to-many (a thread may touch multiple cases; a case may span multiple threads/handoffs), providing an additive working-context join surface without dropping or rewriting existing single-case linkage behavior.
+  5. `case_memories` and `long_term_memories` table names are unchanged; the session-memory layer (`session_memories`) behavior is unchanged.
+  6. Reading a case's working context is possible across threads/handoffs (keyed by `case_id`, not `thread_id`), enabling continuity when a staff member reopens a ticket or a case is handed off.
+  7. Deferred items (① session-memory changes, ③ case_memories repositioning / precedent extraction, long_term narrow explicit-preference extraction, and graph run-completion auto-update hook wiring) are NOT implemented in this phase and remain recorded in `.planning/MEMORY-REDESIGN-DECISIONS.md`.
+**Plans:** 4 plans
+**Completed:** 2026-07-03
+
+Plans:
+- [x] 44-01-PLAN.md — DDL layer: thread_case_links + case_working_contexts + case_working_context_revisions tables, memory_write_events enum extension (B4), ORM models (wave 1).
+- [x] 44-02-PLAN.md — case-identity resolver refund_case_no→refund_cases.id (B2), CWC content schemas with claim/fact separation, versioned read/write repository with append-only revisions (B5) (wave 2).
+- [x] 44-03-PLAN.md — thread↔case link write lifecycle + dedup at explicit linkage point (B3), CWC write service with audit event + isolated session (wave 3).
+- [x] 44-04-PLAN.md — contract-spec §13 CWC + additive M:N normative note (B6), alignment test, DEFER trace, phase verification sweep + dual-AI review checkpoint (wave 4).
