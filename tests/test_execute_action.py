@@ -10,7 +10,7 @@ from src.agent.nodes import action_draft as action_draft_module
 from src.agent.nodes import execute_action as execute_action_module
 from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 from src.tools.contracts import ToolCallContext, ToolResultV2
-from src.tools.manager import UnifiedToolManager
+from src.tools.platform import ToolPlatform
 
 
 ACTION_HASH = "sha256:" + "1" * 64
@@ -340,7 +340,7 @@ async def test_action_draft_tool_success_invalid_draft_outcome_fails_closed(monk
 @pytest.mark.asyncio
 async def test_action_draft_without_write_tool_permission_returns_permission_required_without_draft():
     fake_action_executor = _RecordingActionExecutor()
-    manager = UnifiedToolManager(executors=[fake_action_executor])
+    tool_platform = ToolPlatform(executors={"action": fake_action_executor})
     state = _approved_state()
 
     result = await action_draft_module.action_draft(
@@ -350,7 +350,7 @@ async def test_action_draft_without_write_tool_permission_returns_permission_req
                 "session": object(),
                 "trusted_context": _trusted_context_for_state(state, permissions=[]),
                 "permissions": [],
-                "action_tool_manager": manager,
+                "action_tool_platform": tool_platform,
             }
         },
     )

@@ -40,7 +40,6 @@ from src.memory.schemas import SessionMemoryBundle, SessionMemoryView
 from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 from src.tools.catalog import ToolCatalog
 from src.tools.contracts import BusinessFactRefV1, ToolCallContext, ToolInvocationOutcome, ToolPolicyDecision, ToolResultV2, ToolViewV1
-from src.tools.manager import UnifiedToolManager
 from src.tools.projection import ToolResultProjector
 
 
@@ -79,7 +78,7 @@ def _state(query: str, thread_id: str = "graph-test-thread") -> dict:
     }
 
 
-def _config(manager, events: list[dict[str, Any]], thread_id: str = "graph-test-thread", session: Any = None) -> dict:
+def _config(tool_platform, events: list[dict[str, Any]], thread_id: str = "graph-test-thread", session: Any = None) -> dict:
     async def event_emitter(**payload):
         events.append(payload)
 
@@ -100,7 +99,7 @@ def _config(manager, events: list[dict[str, Any]], thread_id: str = "graph-test-
     configurable = {
         "thread_id": thread_id,
         "session": session,
-        "tool_manager": manager,
+        "tool_platform": tool_platform,
         "event_emitter": event_emitter,
         "trusted_context": trusted_context.model_dump(mode="json"),
         "policy_knowledge_service": FakeGraphPolicyKnowledgeService(),
@@ -108,8 +107,6 @@ def _config(manager, events: list[dict[str, Any]], thread_id: str = "graph-test-
         "merchant_scope": {"merchant_ids": ["merchant-primary"]},
         "trace_id": "graph-trace",
     }
-    if hasattr(manager, "_platform"):
-        configurable["tool_platform"] = manager._platform
     return {"configurable": configurable}
 
 
@@ -170,29 +167,31 @@ def _risk() -> dict:
     return {"risk_level": "low", "risk_reason": "standard refund", "approval_required": False, "rule_ref": "LR-01"}
 
 
-class FakeGraphToolManager:
+class FakeGraphToolPlatform:
     def __init__(self, *, order_id: str | None = None, policy_status: str = "strong_evidence") -> None:
         self._descriptors = {descriptor.name: descriptor for descriptor in ToolCatalog().descriptors()}
         self.order_id = order_id
         self.policy_status = policy_status
         self.calls: list[tuple[str, dict[str, Any], ToolCallContext]] = []
-        self._platform = _FakeGraphToolPlatform(self)
-
-    def descriptors(self, caller_node: str = "investigate"):
-        return [
-            descriptor
-            for descriptor in self._descriptors.values()
-            if caller_node in descriptor.caller_allowlist and descriptor.kind != "write"
-        ]
+        self._projector = ToolResultProjector()
+        self.last_visibility_decisions = None
 
     def descriptor(self, name: str):
         return self._descriptors.get(name)
 
-    def event_family(self, name: str) -> str:
-        family = self._descriptors[name].event_family
-        return "rag_retrieval" if family == "rag_retrieval_*" else "tool_call"
+    def event_family(self, name: str) -> str | None:
+        descriptor = self._descriptors.get(name)
+        if descriptor is None:
+            return None
+        if descriptor.event_family == "tool_call_*":
+            return "tool_call"
+        if descriptor.event_family == "rag_retrieval_*":
+            return "rag_retrieval"
+        if descriptor.event_family == "action":
+            return "action"
+        return None
 
-    async def invoke(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
+    async def _execute(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
         self.calls.append((name, args, ctx))
         if name == "get_order":
             return self._order_result(args.get("order_no") or self.order_id or "ORD-001")
@@ -254,6 +253,72 @@ class FakeGraphToolManager:
             retry_after_ms=None,
             latency_ms=1,
             audit_ref=None,
+        )
+
+    async def visible_tools(
+        self,
+        *,
+        caller: str,
+        ctx: ToolCallContext,
+        session: Any = None,
+    ) -> list[ToolViewV1]:
+        from src.tools.policy import ToolPolicyEngine, project_prompt_safe_input_schema
+
+        engine = ToolPolicyEngine()
+        decisions = engine.visibility_decisions(caller=caller, ctx=ctx)
+        self.last_visibility_decisions = decisions
+        views = []
+        for decision in decisions:
+            if decision.decision != "visible":
+                continue
+            descriptor = self._descriptors.get(decision.tool_name)
+            if descriptor is None:
+                continue
+            views.append(
+                ToolViewV1(
+                    name=descriptor.name,
+                    description=descriptor.description,
+                    input_schema=project_prompt_safe_input_schema(descriptor.input_schema),
+                    safe_usage_notes=[],
+                    result_contract_version="tool_result.v2",
+                )
+            )
+        return views
+
+    async def invoke(
+        self,
+        tool_name: str,
+        args: dict[str, Any],
+        ctx: ToolCallContext,
+        *,
+        session: Any = None,
+    ) -> ToolInvocationOutcome:
+        result = await self._execute(tool_name, args, ctx)
+        projection = self._projector.project(
+            tool_name=tool_name,
+            result=result,
+            tool_call_id=ctx.tool_call_id,
+        )
+        denied = result.status in {"permission_denied", "unavailable"}
+        decision = ToolPolicyDecision(
+            tool_name=tool_name,
+            caller=ctx.caller_node,
+            decision_stage="runtime_auth",
+            decision="denied" if denied else "allowed",
+            reason_codes=["missing_permission" if result.status == "permission_denied" else "tool_unavailable"]
+            if denied
+            else ["visible"],
+            required_scopes=[],
+            matched_scope=None,
+            policy_version="tool_policy.v1",
+            data_classification="internal",
+            runtime_available=result.status != "unavailable",
+        )
+        return ToolInvocationOutcome(
+            tool_result=result,
+            projection=projection,
+            policy_decision=decision,
+            policy_event_id=None,
         )
 
 
@@ -351,95 +416,6 @@ class FakeGraphPolicyKnowledgeService:
             verifier_policy_version="material_claim_verifier.v1",
         )
 
-
-class _FakeGraphToolPlatform:
-    def __init__(self, manager: FakeGraphToolManager) -> None:
-        self._manager = manager
-        self._projector = ToolResultProjector()
-        self.last_visibility_decisions = None
-
-    async def visible_tools(
-        self,
-        *,
-        caller: str,
-        ctx: ToolCallContext,
-        session: Any = None,
-    ) -> list[ToolViewV1]:
-        from src.tools.policy import ToolPolicyEngine, project_prompt_safe_input_schema
-
-        engine = ToolPolicyEngine()
-        decisions = engine.visibility_decisions(caller=caller, ctx=ctx)
-        self.last_visibility_decisions = decisions
-        views = []
-        for decision in decisions:
-            if decision.decision != "visible":
-                continue
-            descriptor = self._manager._descriptors.get(decision.tool_name)
-            if descriptor is None:
-                continue
-            views.append(
-                ToolViewV1(
-                    name=descriptor.name,
-                    description=descriptor.description,
-                    input_schema=project_prompt_safe_input_schema(descriptor.input_schema),
-                    safe_usage_notes=[],
-                    result_contract_version="tool_result.v2",
-                )
-            )
-        return views
-
-    async def invoke(
-        self,
-        tool_name: str,
-        args: dict[str, Any],
-        ctx: ToolCallContext,
-        *,
-        session: Any = None,
-    ) -> ToolInvocationOutcome:
-        result = await self._manager.invoke(tool_name, args, ctx)
-        projection = self._projector.project(
-            tool_name=tool_name,
-            result=result,
-            tool_call_id=ctx.tool_call_id,
-        )
-        denied = result.status in {"permission_denied", "unavailable"}
-        decision = ToolPolicyDecision(
-            tool_name=tool_name,
-            caller=ctx.caller_node,
-            decision_stage="runtime_auth",
-            decision="denied" if denied else "allowed",
-            reason_codes=["missing_permission" if result.status == "permission_denied" else "tool_unavailable"]
-            if denied
-            else ["visible"],
-            required_scopes=[],
-            matched_scope=None,
-            policy_version="tool_policy.v1",
-            data_classification="internal",
-            runtime_available=result.status != "unavailable",
-        )
-        return ToolInvocationOutcome(
-            tool_result=result,
-            projection=projection,
-            policy_decision=decision,
-            policy_event_id=None,
-        )
-
-    def descriptor(self, name: str):
-        return self._manager._descriptors.get(name)
-
-    def event_family(self, name: str) -> str | None:
-        descriptor = self._manager._descriptors.get(name)
-        if descriptor is None:
-            return None
-        if descriptor.event_family == "tool_call_*":
-            return "tool_call"
-        if descriptor.event_family == "rag_retrieval_*":
-            return "rag_retrieval"
-        if descriptor.event_family == "action":
-            return "action"
-        return None
-
-
 def _patch_graph_dependencies(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -464,9 +440,9 @@ def _patch_graph_dependencies(
             }
 
     monkeypatch.setattr(generate_recommendation_module, "PolicyKnowledgeService", FakePolicyKnowledgeService, raising=False)
-    manager = FakeGraphToolManager(order_id=order_id, policy_status=policy_status)
+    tool_platform = FakeGraphToolPlatform(order_id=order_id, policy_status=policy_status)
     events: list[dict[str, Any]] = []
-    return {"tool_manager": manager, "events": events}
+    return {"tool_platform": tool_platform, "events": events}
 
 
 def _session_memory_service(
@@ -576,7 +552,7 @@ async def test_happy_path_policy_qa_uses_investigate_manager(monkeypatch):
 
     final_state = await graph.ainvoke(
         _state("退款超时规则是什么？"),
-        _config(deps["tool_manager"], deps["events"], session=object()),
+        _config(deps["tool_platform"], deps["events"], session=object()),
     )
 
     assert final_state["final_response"]
@@ -588,7 +564,7 @@ async def test_happy_path_policy_qa_uses_investigate_manager(monkeypatch):
     assert "investigate" in nodes
     assert "claim_verify" in nodes
     assert all(final_state[field] is None for field in INVESTIGATION_STATE_FIELDS)
-    assert [call[0] for call in deps["tool_manager"].calls] == ["search_policy"]
+    assert [call[0] for call in deps["tool_platform"].calls] == ["search_policy"]
     assert [event["event_type"] for event in deps["events"]] == ["rag_retrieval_started", "rag_retrieval_completed"]
 
 
@@ -599,12 +575,12 @@ async def test_refund_path_preserves_business_context_facts(monkeypatch):
 
     final_state = await graph.ainvoke(
         _state("订单ORD-001退款为什么没到账？"),
-        _config(deps["tool_manager"], deps["events"]),
+        _config(deps["tool_platform"], deps["events"]),
     )
 
     assert final_state["current_intent"] == "refund_troubleshooting"
     assert final_state["business_context"]["facts"]["order"]["order_no"] == "ORD-001"
-    assert [call[0] for call in deps["tool_manager"].calls] == ["get_order", "search_policy"]
+    assert [call[0] for call in deps["tool_platform"].calls] == ["get_order", "search_policy"]
     assert final_state["final_response"]
 
 
@@ -615,10 +591,10 @@ async def test_refund_path_without_case_identifier_routes_to_clarification(monke
 
     final_state = await graph.ainvoke(
         _state("退款为什么没到账？"),
-        _config(deps["tool_manager"], deps["events"]),
+        _config(deps["tool_platform"], deps["events"]),
     )
 
-    assert deps["tool_manager"].calls == []
+    assert deps["tool_platform"].calls == []
     assert final_state["clarification_request"]["reason"] == "missing_required_slots"
     assert "investigate" in final_state["clarification_request"]["blocked_nodes"]
     assert final_state["recommendation_draft"] is None
@@ -636,7 +612,7 @@ async def test_same_thread_session_memory_active_slots_feed_investigate(monkeypa
 
     final_state = await graph.ainvoke(
         _state("那这个退款呢？"),
-        _config(deps["tool_manager"], deps["events"], session=_FakeSession()),
+        _config(deps["tool_platform"], deps["events"], session=_FakeSession()),
     )
 
     assert final_state["active_slots"]["order_id"] == "ORD-SESSION-001"
@@ -645,8 +621,8 @@ async def test_same_thread_session_memory_active_slots_feed_investigate(monkeypa
     assert final_state["extracted_slots"]["order_id"] is None
     assert final_state["business_context"]["facts"]["order"]["order_no"] == "ORD-SESSION-001"
     assert "session_memory_load" in [step["node"] for step in final_state["trace_steps"]]
-    assert [call[0] for call in deps["tool_manager"].calls] == ["get_order", "search_policy"]
-    assert deps["tool_manager"].calls[0][1]["order_no"] == "ORD-SESSION-001"
+    assert [call[0] for call in deps["tool_platform"].calls] == ["get_order", "search_policy"]
+    assert deps["tool_platform"].calls[0][1]["order_no"] == "ORD-SESSION-001"
     assert final_state["final_response"]
 
 
@@ -665,10 +641,10 @@ async def test_wrong_thread_or_stale_session_memory_routes_to_clarification(monk
 
     final_state = await graph.ainvoke(
         _state("那这个退款呢？"),
-        _config(deps["tool_manager"], deps["events"], session=_FakeSession()),
+        _config(deps["tool_platform"], deps["events"], session=_FakeSession()),
     )
 
-    assert deps["tool_manager"].calls == []
+    assert deps["tool_platform"].calls == []
     assert final_state["clarification_request"]["reason"] == "missing_required_slots"
     assert final_state["active_slots"] == {}
     assert final_state["extracted_slots"]["order_id"] is None
@@ -682,10 +658,10 @@ async def test_policy_qa_no_evidence_returns_insufficient_response(monkeypatch):
 
     final_state = await graph.ainvoke(
         _state("退款超时规则是什么？"),
-        _config(deps["tool_manager"], deps["events"]),
+        _config(deps["tool_platform"], deps["events"]),
     )
 
-    assert [call[0] for call in deps["tool_manager"].calls] == ["search_policy"]
+    assert [call[0] for call in deps["tool_platform"].calls] == ["search_policy"]
     assert final_state["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
     assert "没有找到足够证据" in final_state["final_response"]
     assert final_state["llm_outputs"]["final_response"]["final_status"] == "insufficient_evidence"
@@ -698,10 +674,10 @@ async def test_policy_qa_direct_investigate_ignores_stale_active_slots(monkeypat
 
     final_state = await graph.ainvoke(
         _state("退款超时规则是什么？") | {"active_slots": {"order_id": "ORD-STALE"}},
-        _config(deps["tool_manager"], deps["events"]),
+        _config(deps["tool_platform"], deps["events"]),
     )
 
-    assert [call[0] for call in deps["tool_manager"].calls] == ["search_policy"]
+    assert [call[0] for call in deps["tool_platform"].calls] == ["search_policy"]
     assert "ORD-STALE" not in str(final_state["business_context"])
 
 
@@ -712,7 +688,7 @@ async def test_order_status_inquiry_fact_only_path_renders_business_fact_respons
 
     final_state = await graph.ainvoke(
         _state("订单ORD-001的退款进度如何？"),
-        _config(deps["tool_manager"], deps["events"]),
+        _config(deps["tool_platform"], deps["events"]),
     )
 
     nodes = [step["node"] for step in final_state["trace_steps"]]
@@ -722,7 +698,7 @@ async def test_order_status_inquiry_fact_only_path_renders_business_fact_respons
     assert "ORD-001" in final_state["final_response"]
     assert "建议按已检索到的政策依据处理" not in final_state["final_response"]
     assert final_state["llm_outputs"]["final_response"]["final_status"] == "completed"
-    assert [call[0] for call in deps["tool_manager"].calls] == ["get_order", "search_policy"]
+    assert [call[0] for call in deps["tool_platform"].calls] == ["get_order", "search_policy"]
 
 
 @pytest.mark.asyncio
@@ -733,13 +709,13 @@ async def test_cross_turn_context_isolation_on_investigate_facts(monkeypatch):
     first = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id="ORD-001")
     await graph.ainvoke(
         _state("订单ORD-001退款为什么没到账？", thread_id),
-        _config(first["tool_manager"], first["events"], thread_id),
+        _config(first["tool_platform"], first["events"], thread_id),
     )
 
     second = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id="ORD-002")
     second_state = await graph.ainvoke(
         _state("订单ORD-002退款为什么没到账？", thread_id),
-        _config(second["tool_manager"], second["events"], thread_id),
+        _config(second["tool_platform"], second["events"], thread_id),
     )
 
     assert second_state["business_context"]["facts"]["order"]["order_no"] == "ORD-002"
@@ -759,12 +735,12 @@ async def test_same_thread_stale_investigation_state_is_reset_on_next_turn(monke
         "investigation_path": "investigation",
     }
 
-    await graph.ainvoke(stale_state, _config(deps["tool_manager"], deps["events"], thread_id))
+    await graph.ainvoke(stale_state, _config(deps["tool_platform"], deps["events"], thread_id))
 
     next_deps = _patch_graph_dependencies(monkeypatch, intent="policy_qa")
     final_state = await graph.ainvoke(
         _state("退款超时规则是什么？", thread_id),
-        _config(next_deps["tool_manager"], next_deps["events"], thread_id),
+        _config(next_deps["tool_platform"], next_deps["events"], thread_id),
     )
 
     assert final_state["investigation_result"] is None
@@ -777,7 +753,7 @@ async def test_same_thread_stale_investigation_state_is_reset_on_next_turn(monke
 async def test_trace_summary_shape_uses_merged_investigate_tool_name(monkeypatch):
     deps = _patch_graph_dependencies(monkeypatch, intent="policy_qa")
     graph = build_graph(MemorySaver())
-    final_state = await graph.ainvoke(_state("退款超时规则是什么？"), _config(deps["tool_manager"], deps["events"]))
+    final_state = await graph.ainvoke(_state("退款超时规则是什么？"), _config(deps["tool_platform"], deps["events"]))
 
     summary = trace_module.build_trace_summary(final_state["current_run_id"], final_state, 1000)
 
@@ -951,8 +927,13 @@ def test_requested_operation_execute_action_remains_intent_taxonomy_value():
     assert payload["requested_operation"] == "execute_action"
 
 
-def test_post_merge_graph_uses_tool_manager_seam():
-    assert UnifiedToolManager is not None
+def test_post_merge_graph_uses_tool_platform_seam():
+    platform = FakeGraphToolPlatform()
+
+    assert callable(platform.visible_tools)
+    assert callable(platform.invoke)
+    assert callable(platform.descriptor)
+    assert callable(platform.event_family)
 
 
 @pytest.mark.asyncio
@@ -960,9 +941,9 @@ async def test_approval_chat_routes_to_clarification_without_tools(monkeypatch):
     deps = _patch_graph_dependencies(monkeypatch, intent="policy_qa")
     graph = build_graph(MemorySaver())
 
-    final_state = await graph.ainvoke(_state("approve APR-1"), _config(deps["tool_manager"], deps["events"]))
+    final_state = await graph.ainvoke(_state("approve APR-1"), _config(deps["tool_platform"], deps["events"]))
 
-    assert deps["tool_manager"].calls == []
+    assert deps["tool_platform"].calls == []
     assert final_state["clarification_request"]["reason"] == "approval_chat_not_trusted"
     assert "审批操作需要通过审批入口处理" in final_state["final_response"]
 
@@ -976,7 +957,7 @@ async def test_long_term_memory_reviewed_retrieval_safe_empty_when_no_reviewed_r
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
     monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: FakeLLM(_risk()))
     _patch_reviewed_memory_services(monkeypatch, profile_items=[], case_items=[])
-    manager = FakeGraphToolManager(order_id="ORD-001")
+    manager = FakeGraphToolPlatform(order_id="ORD-001")
     events: list[dict[str, Any]] = []
     graph = build_graph(MemorySaver())
 
@@ -1029,7 +1010,7 @@ async def test_long_term_memory_reviewed_retrieval_safe_empty_when_unavailable(m
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
     monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: FakeLLM(_risk()))
     _patch_reviewed_memory_services(monkeypatch, fail=True)
-    manager = FakeGraphToolManager(order_id="ORD-001")
+    manager = FakeGraphToolPlatform(order_id="ORD-001")
     events: list[dict[str, Any]] = []
     graph = build_graph(MemorySaver())
 
@@ -1078,7 +1059,7 @@ async def test_long_term_memory_reviewed_snippets_flow_into_graph_state(monkeypa
             }
         ],
     )
-    manager = FakeGraphToolManager(order_id="ORD-001")
+    manager = FakeGraphToolPlatform(order_id="ORD-001")
     events: list[dict[str, Any]] = []
     graph = build_graph(MemorySaver())
 

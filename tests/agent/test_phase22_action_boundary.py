@@ -146,7 +146,7 @@ class _AllowingRiskLLM:
         return _Wrapper()
 
 
-class ExplodingActionToolManager:
+class ExplodingActionToolPlatform:
     async def invoke(self, *args: Any, **kwargs: Any) -> Any:
         raise AssertionError("non-allow verifier outcomes must block action draft creation")
 
@@ -382,7 +382,7 @@ async def test_action_draft_node_refuses_even_trusted_approval_when_verifier_rou
 
     result = await action_draft(
         state,
-        {"configurable": {"session": object(), "action_tool_manager": ExplodingActionToolManager()}},
+        {"configurable": {"session": object(), "action_tool_platform": ExplodingActionToolPlatform()}},
     )
 
     assert result.get("action_draft") is None
@@ -413,7 +413,7 @@ async def test_action_draft_node_refuses_when_claim_bundle_route_blocks_action(
 
     result = await action_draft(
         state,
-        {"configurable": {"session": object(), "action_tool_manager": ExplodingActionToolManager()}},
+        {"configurable": {"session": object(), "action_tool_platform": ExplodingActionToolPlatform()}},
     )
 
     assert result.get("action_draft") is None
