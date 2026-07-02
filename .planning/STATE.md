@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Tool Platform Hardening
 status: executing
-stopped_at: Completed Phase 37 plan 37-01; continuing to 37-02
-last_updated: "2026-07-02T00:12:37Z"
-last_activity: 2026-07-02 -- Phase 37 plan 37-01 completed
+stopped_at: Completed Phase 37 plan 37-02; continuing to 37-03
+last_updated: "2026-07-02T00:18:09Z"
+last_activity: 2026-07-02 -- Phase 37 plan 37-02 completed
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
-  percent: 33
+  completed_plans: 2
+  percent: 67
 ---
 
 # Project State: MOCA
@@ -21,16 +21,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 37 Tool Declaration + Runtime/Policy Internal Consolidation — plan 37-02 next
+**Current focus:** Phase 37 Tool Declaration + Runtime/Policy Internal Consolidation — plan 37-03 next
 
 ## Current Position
 
 Phase: 37 Tool Declaration + Runtime/Policy Internal Consolidation — EXECUTING
-Plan: 2 of 3
-Status: Executing Phase 37; 37-01 complete
-Last activity: 2026-07-02 -- Phase 37 plan 37-01 completed
+Plan: 3 of 3
+Status: Executing Phase 37; 37-01 and 37-02 complete
+Last activity: 2026-07-02 -- Phase 37 plan 37-02 completed
 
-Progress: [###       ] 33%
+Progress: [#######   ] 67%
 
 Planning files:
 
@@ -58,7 +58,7 @@ Planning files:
 
 | Phase | Plans | Status |
 |-------|-------|--------|
-| 37. Tool Declaration + Runtime/Policy Internal Consolidation (TPH-03, TPH-04) | 1/3 | In progress |
+| 37. Tool Declaration + Runtime/Policy Internal Consolidation (TPH-03, TPH-04) | 2/3 | In progress |
 | 38. output_schema Declaration + Runtime Output-Validation Enforcement (TPH-01) | 0/TBD | Not started |
 | 39. contract-spec §12.5/§12.6 Reconciliation (TPH-02) | 0/TBD | Not started |
 
@@ -94,6 +94,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - TPH-02 is a spec-catches-up-to-code edit and MUST go through the dual-AI review workflow; planning must first re-check commit `4dcb673`'s effect on §12.5/§12.6.
 - `ToolCallContext` §8.0 identity fields are off-limits across all phases; domain ownership/scope enforcement in BusinessFactService is not rebuilt.
 - Phase 37 plan 37-01 completed TPH-03 by making `_IDENTIFIER_SCHEMAS` and `INVESTIGATE_TOOL_NAMES` derived from catalog declarations/descriptors while preserving external contract shapes.
+- Phase 37 plan 37-02 completed the runtime-helper portion of TPH-04 by routing all current `ToolRuntime.invoke` failure exits through `_fail(...)`; TPH-04 remains pending for 37-03 policy gate sequencing and final sweep.
 
 ### Roadmap Evolution
 
@@ -110,7 +111,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ### Blockers / Concerns
 
-- Phase 37 wave full relevant suite currently needs local PostgreSQL on `localhost:5432`; without it, DB-backed tests fail during fixture setup. Focused 37-01 pytest and ruff gates passed.
+- Phase 37 wave/focused suites currently need local PostgreSQL on `localhost:5432`; without it, DB-backed tests fail during fixture setup. Non-DB 37-01/37-02 pytest, structural checks, and ruff gates passed.
 
 ## Deferred Items
 
@@ -130,9 +131,9 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ## Session Continuity
 
-Last session: 2026-07-02T00:12:37Z
-Stopped at: Completed Phase 37 plan 37-01; continuing to 37-02
-Resume file: `.planning/phases/37-tool-declaration-runtime-policy-internal-consolidation/37-02-PLAN.md`
+Last session: 2026-07-02T00:18:09Z
+Stopped at: Completed Phase 37 plan 37-02; continuing to 37-03
+Resume file: `.planning/phases/37-tool-declaration-runtime-policy-internal-consolidation/37-03-PLAN.md`
 Next: Continue `$gsd-execute-phase 37`.
 
 **Completed Phase:** 35 (Replay and Eval Hardening) — 6/6 plans complete; UAT 8/8 passed; security `threats_open: 0` — 2026-06-29
