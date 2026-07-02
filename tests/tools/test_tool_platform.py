@@ -21,7 +21,7 @@ from uuid import uuid4
 
 import pytest
 
-from src.tools.catalog import ToolCatalog
+from src.tools.catalog import RegisteredTool, ToolCatalog, investigate_tool_names
 from src.tools.contracts import (
     ToolViewV1,
     ToolPolicyDecision,
@@ -201,6 +201,54 @@ class _RecordingExecutor:
     async def execute(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
         self.dispatched = True
         return self.result
+
+
+@pytest.mark.asyncio
+async def test_visible_tools_matches_catalog_investigate_allowlist() -> None:
+    from src.tools.platform import ToolPlatform
+
+    expected_names = investigate_tool_names()
+    platform = ToolPlatform.with_defaults(session=None)
+
+    views = await platform.visible_tools(
+        caller="investigate",
+        ctx=_ctx(permissions=[f"tool:{name}" for name in expected_names]),
+        session=None,
+    )
+
+    assert {view.name for view in views} == expected_names
+    assert "create_coupon_grant_draft" not in {view.name for view in views}
+
+
+@pytest.mark.asyncio
+async def test_tool_platform_uses_custom_descriptor_catalog_directly() -> None:
+    from src.tools.platform import ToolPlatform
+
+    custom_descriptor = _descriptor("get_order").model_copy(
+        update={
+            "name": "custom_get_order",
+            "required_permission": "tool:custom_get_order",
+        }
+    )
+    catalog = ToolCatalog([RegisteredTool(descriptor=custom_descriptor)])
+    executor = _RecordingExecutor({"custom_get_order"}, _success_result())
+    platform = ToolPlatform(catalog=catalog, executors={"business": executor})
+
+    views = await platform.visible_tools(
+        caller="investigate",
+        ctx=_ctx(permissions=["tool:custom_get_order"]),
+        session=None,
+    )
+    outcome = await platform.invoke(
+        "custom_get_order",
+        {"order_no": "ORD-1"},
+        _ctx(permissions=["tool:custom_get_order"]),
+        session=None,
+    )
+
+    assert [view.name for view in views] == ["custom_get_order"]
+    assert executor.dispatched is True
+    assert outcome.tool_result.status == "success"
 
 
 def _success_result() -> ToolResultV2:
