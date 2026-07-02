@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Tool Platform Hardening
-status: executing
-stopped_at: Completed 38-02-PLAN.md
-last_updated: "2026-07-02T01:42:59.289Z"
-last_activity: 2026-07-02 -- Phase 38 plan 38-02 completed
+status: verifying
+stopped_at: Completed 38-03-PLAN.md
+last_updated: "2026-07-02T01:52:29.818Z"
+last_activity: 2026-07-02 -- Phase 38 plan 38-03 completed
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 6
-  completed_plans: 5
-  percent: 83
+  completed_plans: 6
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -27,10 +27,10 @@ See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 Phase: 38 (output-schema-declaration-runtime-output-validation-enforcem) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
-Last activity: 2026-07-02 -- Phase 38 plan 38-02 completed
+Status: Phase complete — ready for verification
+Last activity: 2026-07-02 -- Phase 38 plan 38-03 completed
 
-Progress: [########  ] 83%
+Progress: [██████████] 100%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -50,7 +50,7 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | Phase | Plans | Status |
 |-------|-------|--------|
 | 37. Tool Declaration + Runtime/Policy Internal Consolidation (TPH-03, TPH-04) | 3/3 | Complete; DB-backed pytest pending |
-| 38. output_schema Declaration + Runtime Output-Validation Enforcement (TPH-01) | 2/3 | In Progress |
+| 38. output_schema Declaration + Runtime Output-Validation Enforcement (TPH-01) | 3/3 | Complete; DB-backed pytest pending |
 | 39. contract-spec §12.5/§12.6 Reconciliation (TPH-02) | 0/TBD | Not started |
 
 Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review.
@@ -68,6 +68,7 @@ Sequencing rationale: Phase 37 consolidates the registry and converges runtime/p
 **v2.0 shipped scope:** Phase 36 (6/6 plans complete).
 **Phase 38 plan 38-01:** 3 min, 2 tasks, 2 files modified; nullable validator and scoped-set contract complete.
 **Phase 38 plan 38-02:** 3 min, 2 tasks, 2 files modified; catalog real output schemas and payload validation complete.
+**Phase 38 plan 38-03:** 4 min, 2 tasks, 3 files modified; runtime invalid-response enforcement and high-blast consumer sweep complete, with DB-backed pytest pending local PostgreSQL.
 
 Historical execution metrics are archived in milestone files and `.planning/MILESTONES.md`.
 
@@ -96,6 +97,8 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - Phase 38 plan 38-02 makes _ToolDeclaration.output_schema the single catalog source for ToolDescriptor.output_schema.
 - Phase 38 plan 38-02 keeps create_coupon_grant_draft on the generic action output schema because action output hardening is outside TPH-01.
 - Phase 38 plan 38-02 uses strict no-data output schemas for get_logistics, get_merchant_risk, and search_sop until future executor/product scope defines real payloads.
+- Phase 38 plan 38-03 confirms runtime output_schema failures map to safe invalid_response results through ToolPlatform, with ToolResultV2 envelope fields unchanged.
+- Phase 38 plan 38-03 keeps DB-backed business/service and memory/search real-path coverage gated on local PostgreSQL; fake-executor runtime tests and focused non-DB high-blast regressions are the proxy coverage.
 
 ### Roadmap Evolution
 
@@ -113,7 +116,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 ### Blockers / Concerns
 
 - Phase 37 final full relevant pytest currently needs local PostgreSQL on `localhost:5432`; without it, DB-backed tests fail during fixture setup. Non-DB focused pytest, contract-shape checks, generic output schema check, spec/contracts empty diff, and ruff passed.
-- Phase 38 final DB-backed sweep will also need local PostgreSQL on `localhost:5432`; non-DB planning gates and plan-checker verification passed.
+- Phase 38 final DB-backed sweep needs local PostgreSQL on `localhost:5432`; runtime fake-executor tests, focused high-blast non-DB subset, ruff, and protected-file no-diff guards passed.
 
 ## Deferred Items
 
@@ -133,10 +136,10 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ## Session Continuity
 
-Last session: 2026-07-02T01:42:59Z
-Stopped at: Completed 38-02-PLAN.md
+Last session: 2026-07-02T01:50:58Z
+Stopped at: Completed 38-03-PLAN.md
 Resume file: None
-Next: Execute `.planning/phases/38-output-schema-declaration-runtime-output-validation-enforcem/38-03-PLAN.md`.
+Next: Verify Phase 38 with local PostgreSQL when available, then plan Phase 39.
 
 **Completed Phase:** 35 (Replay and Eval Hardening) — 6/6 plans complete; UAT 8/8 passed; security `threats_open: 0` — 2026-06-29
 
@@ -146,6 +149,6 @@ Next: Execute `.planning/phases/38-output-schema-declaration-runtime-output-vali
 
 **Completed Phase:** 37 (Tool Declaration + Runtime/Policy Internal Consolidation) — 3/3 plans complete; final DB-backed pytest pending local PostgreSQL — 2026-07-02
 
-**Next Roadmap Item:** execute Phase 38
+**Next Roadmap Item:** verify Phase 38 / plan Phase 39
 
 **Planned Phase:** 38 (output_schema Declaration + Runtime Output-Validation Enforcement) — 3 plans — 2026-07-02T01:19:48.447Z

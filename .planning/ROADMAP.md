@@ -11,7 +11,7 @@ v2.1 is a bounded, pre-scoped cleanup of the tool-call platform's contract debt 
 - Decimal phases (37.1, 37.2): urgent insertions (marked INSERTED).
 
 - [x] **Phase 37: Tool Declaration + Runtime/Policy Internal Consolidation** - Single-source tool registry plus runtime `_fail` helper and declarative policy gate pipeline, with no external contract change (TPH-03, TPH-04).
-- [ ] **Phase 38: output_schema Declaration + Runtime Output-Validation Enforcement** - Real `output_schema` for all eight tools, enforced in the `ToolRuntime` output-validation gate as `invalid_response` mapping (TPH-01). Plan progress: 2/3 complete.
+- [x] **Phase 38: output_schema Declaration + Runtime Output-Validation Enforcement** - Real `output_schema` for all eight tools, enforced in the `ToolRuntime` output-validation gate as `invalid_response` mapping (TPH-01). Plan progress: 3/3 complete; DB-backed pytest pending local PostgreSQL.
 - [ ] **Phase 39: contract-spec §12.5/§12.6 Reconciliation** - Spec catches up to implemented contract fields via dual-AI review, without touching §8.0-locked identity fields (TPH-02).
 
 ## Phase Details
@@ -45,7 +45,7 @@ Plans:
 Plans:
 - [x] 38-01-PLAN.md — validator nullable/type-union support plus TPH-01 scoped tool-set contract.
 - [x] 38-02-PLAN.md — catalog real output_schema declarations and current payload acceptance/rejection tests.
-- [ ] 38-03-PLAN.md — runtime invalid_response enforcement tests plus high-blast consumer/contract sweep.
+- [x] 38-03-PLAN.md — runtime invalid_response enforcement tests plus high-blast consumer/contract sweep.
 **UI hint**: no
 
 ### Phase 39: contract-spec §12.5/§12.6 Reconciliation
@@ -65,5 +65,5 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 37. Tool Declaration + Runtime/Policy Internal Consolidation | 3/3 | Complete; DB pytest pending | 2026-07-02 |
-| 38. output_schema Declaration + Runtime Output-Validation Enforcement | 2/3 | In Progress | - |
+| 38. output_schema Declaration + Runtime Output-Validation Enforcement | 3/3 | Complete; DB pytest pending | 2026-07-02 |
 | 39. contract-spec §12.5/§12.6 Reconciliation | 0/TBD | Not started | - |
