@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Tool Platform Hardening
 status: active
-stopped_at: Phase 41 41-01 complete; ready to execute 41-02
-last_updated: "2026-07-02T05:53:06Z"
-last_activity: 2026-07-02 -- Phase 41 41-01 spec/helper cleanup complete
+stopped_at: Phase 41 41-02 complete; ready to execute 41-03
+last_updated: "2026-07-02T06:15:00Z"
+last_activity: 2026-07-02 -- Phase 41 41-02 production seam and fake migration complete
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 14
-  completed_plans: 11
-  percent: 78
+  completed_plans: 12
+  percent: 85
 ---
 
 # Project State: MOCA
@@ -21,16 +21,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 41 Tool Platform Legacy Manager Cleanup — execute 41-02 production seam and fake migration
+**Current focus:** Phase 41 Tool Platform Legacy Manager Cleanup — execute 41-03 legacy adapter deletion
 
 ## Current Position
 
 Phase: 41 (Tool Platform Legacy Manager Cleanup) — EXECUTION
-Plan: 41-02 production injection seam and manager-shaped test fake migration
+Plan: 41-03 delete `UnifiedToolManager`, public export, and compatibility tests
 Status: active
-Last activity: 2026-07-02 -- Phase 41 41-01 spec/helper cleanup complete
+Last activity: 2026-07-02 -- Phase 41 41-02 production seam and fake migration complete
 
-Progress: [████████░░] 78%
+Progress: [█████████░] 85%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -54,7 +54,7 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | 38. output_schema Declaration + Runtime Output-Validation Enforcement (TPH-01) | 3/3 | Complete; DB-backed pytest passed |
 | 39. contract-spec §12.5/§12.6 Reconciliation (TPH-02) | 1/1 | Complete |
 | 40. Tool Contract Validation Hardening (TPH-05) | 3/3 | Complete |
-| 41. Tool Platform Legacy Manager Cleanup (TPH-06) | 1/4 | In Progress |
+| 41. Tool Platform Legacy Manager Cleanup (TPH-06) | 2/4 | In Progress |
 
 Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review. Phase 40 closes the source-confirmed validation/backstop gaps intentionally deferred or left advisory after Phase 38/39. Phase 41 then handles the explicit breaking cleanup/API decision to remove the `UnifiedToolManager` legacy compatibility adapter.
 
@@ -77,6 +77,7 @@ Sequencing rationale: Phase 37 consolidates the registry and converges runtime/p
 **Phase 40 plan 40-02:** validator `maxLength` and numeric bounds plus descriptor schema meta guard complete; catalog tests passed.
 **Phase 40 plan 40-03:** ownership marker business-boundary backstop and final protected no-diff verification complete; `tests/tools/ tests/architecture/` passed with 147 passed, 1 skipped.
 **Phase 41 plan 41-01:** contract-spec/catalog legacy manager wording removed, `_side_effect_allowed` moved to policy, and focused architecture tests passed.
+**Phase 41 plan 41-02:** production legacy manager unwrapping removed and focused tests migrated to platform-native fakes; focused pytest and ruff passed.
 
 Historical execution metrics are archived in milestone files and `.planning/MILESTONES.md`.
 
@@ -114,6 +115,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - Phase 40 must keep `docs/contract-spec.md` unchanged unless implementation discovers the spec itself is wrong; if spec changes become necessary, stop and run the dual-AI spec review workflow.
 - Phase 41 owns the `UnifiedToolManager` breaking cleanup/API decision. It must update `docs/contract-spec.md`, production injection seams, tests, and public exports consistently, and it must receive implementation code review before v2.1 archive.
 - Phase 41 plan 41-01 completed the spec/API cleanup and helper relocation; 41-03 remains responsible for deleting `src/tools/manager.py` and final no-manager reference cleanup.
+- Phase 41 plan 41-02 completed production seam and targeted fake migration; production graph nodes now use `tool_platform` / `action_tool_platform` injection without legacy manager unwrapping.
 
 ### Roadmap Evolution
 
@@ -154,9 +156,9 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 ## Session Continuity
 
 Last session: --stopped-at
-Stopped at: Phase 41 41-01 complete; ready to execute 41-02
+Stopped at: Phase 41 41-02 complete; ready to execute 41-03
 Resume file: --resume-file
 Next: Run `$gsd-progress` or `$gsd-complete-milestone`.
 
 Recent completions: Phase 37 3/3 complete; Phase 38 3/3 complete with DB-backed pytest passed; Phase 39 1/1 complete with docs-only TPH-02 reconciliation and clean verification; Phase 40 3/3 complete with tools/architecture verification passing.
-Next roadmap item: execute Phase 41 plan 41-02.
+Next roadmap item: execute Phase 41 plan 41-03.
