@@ -68,6 +68,26 @@ _SAFE_EVIDENCE_REF_KEYS = frozenset(
         "retrieved_at",
     }
 )
+_INTENT_DISPLAY_LABELS = {
+    "policy_qa": "政策问题查询",
+    "order_status_inquiry": "订单状态查询",
+    "refund_troubleshooting": "退款问题排查",
+    "compensation_suggestion": "补偿方案建议",
+    "ticket_reply_draft": "工单回复草稿",
+    "appeal_or_unban": "申诉/解封处理",
+    "complaint_escalation": "投诉升级",
+    "action_request": "执行动作请求",
+    "small_talk": "闲聊",
+    "unsupported": "未支持请求",
+}
+_OPERATION_DISPLAY_LABELS = {
+    "read_status": "查询",
+    "advise": "建议",
+    "draft_reply": "拟回复",
+    "draft_action": "拟动作",
+    "execute_action": "执行动作",
+    "escalate": "升级处理",
+}
 
 
 def _now_iso() -> str:
@@ -298,6 +318,58 @@ def _business_fact_llm_output(response_text: str) -> dict[str, Any]:
         "mode": "deterministic-template",
         "approval_context": None,
     }
+
+
+def _decorate_deferred_response(response_text: str, state: AgentState) -> str:
+    additions: list[str] = []
+    deferred_labels = _deferred_step_labels(state.get("deferred_steps"))
+    if deferred_labels:
+        listed = "\n".join(f"{index}. {label}" for index, label in enumerate(deferred_labels, start=1))
+        additions.append(f"我还注意到你想继续处理：\n{listed}\n要我接着做哪一项吗？")
+    if _has_plan_normalization(state, "modifier_folded:complaint_as_severity"):
+        additions.append("已按「投诉情绪」处理本次诉求；如果你需要正式升级投诉，请告诉我。")
+    if not additions:
+        return response_text
+    return "\n\n".join([response_text, *additions])
+
+
+def _deferred_step_labels(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    labels: list[str] = []
+    for step in value:
+        if not isinstance(step, dict):
+            continue
+        intent = str(step.get("intent") or "").strip()
+        operation = str(step.get("operation") or "").strip()
+        if not intent and not operation:
+            continue
+        intent_label = _INTENT_DISPLAY_LABELS.get(intent, intent or "后续请求")
+        operation_label = _OPERATION_DISPLAY_LABELS.get(operation, operation)
+        labels.append(f"{intent_label}（{operation_label}）" if operation_label else intent_label)
+    return labels
+
+
+def _has_plan_normalization(state: AgentState, expected: str) -> bool:
+    trace = _classification_trace(state)
+    records = trace.get("plan_normalization")
+    if not isinstance(records, list):
+        return False
+    for record in records:
+        if record == expected:
+            return True
+        if isinstance(record, dict) and expected in {str(value) for value in record.values()}:
+            return True
+    return False
+
+
+def _classification_trace(state: AgentState) -> dict[str, Any]:
+    trace = _mapping(state.get("classification_trace"))
+    if trace:
+        return trace
+    llm_outputs = _mapping(state.get("llm_outputs"))
+    intent_output = _mapping(llm_outputs.get("intent_classification"))
+    return _mapping(intent_output.get("classification_trace"))
 
 
 def _citation_summary(evidence_refs: list[dict[str, Any]]) -> str:
@@ -654,12 +726,13 @@ async def final_response(state: AgentState) -> dict:
     clarification_request = state.get("clarification_request")
     blocked_response = state.get("final_response")
     if blocked_response and state.get("safety_snapshot_verified") is False:
+        response_text = _decorate_deferred_response(str(blocked_response), state)
         return {
-            "final_response": blocked_response,
+            "final_response": response_text,
             "llm_outputs": {
                 **(state.get("llm_outputs") or {}),
                 "final_response": {
-                    "response_text": blocked_response,
+                    "response_text": response_text,
                     "evidence_citations": [],
                     "final_status": "error",
                     "mode": "deterministic-template",
@@ -672,6 +745,7 @@ async def final_response(state: AgentState) -> dict:
         questions = clarification_request.get("questions")
         fallback = questions[0] if isinstance(questions, list) and questions else "请补充必要信息后我再继续处理。"
         response_text = state.get("final_response") or fallback
+        response_text = _decorate_deferred_response(response_text, state)
         return {
             "final_response": response_text,
             "llm_outputs": {
@@ -690,6 +764,7 @@ async def final_response(state: AgentState) -> dict:
     if verification is not None:
         if _can_render_policy_qa_partial_overlap(state, draft, verification):
             response_text = _policy_qa_partial_overlap_response(draft)
+            response_text = _decorate_deferred_response(response_text, state)
             return {
                 "final_response": response_text,
                 "llm_outputs": {
@@ -709,6 +784,7 @@ async def final_response(state: AgentState) -> dict:
             )
         else:
             response_text = _safe_verification_response(verification)
+        response_text = _decorate_deferred_response(response_text, state)
         return {
             "final_response": response_text,
             "llm_outputs": {
@@ -718,12 +794,14 @@ async def final_response(state: AgentState) -> dict:
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
         }
     if draft.get("recommended_action") == "retrieval_error":
+        response_text = _decorate_deferred_response(_retrieval_error_response(draft), state)
         return {
-            "final_response": _retrieval_error_response(draft),
+            "final_response": response_text,
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("error", started_at)],
         }
     if draft.get("recommended_action") in {"insufficient_evidence", "citation_invalid"}:
         response_text = _insufficient_response_with_context(draft, state.get("business_context") or {})
+        response_text = _decorate_deferred_response(response_text, state)
         return {
             "final_response": response_text,
             "llm_outputs": {
@@ -740,6 +818,7 @@ async def final_response(state: AgentState) -> dict:
         }
     if _can_render_business_fact_response(state, draft):
         response_text = _business_fact_response(state.get("business_context") or {})
+        response_text = _decorate_deferred_response(response_text, state)
         return {
             "final_response": response_text,
             "llm_outputs": {
@@ -752,6 +831,7 @@ async def final_response(state: AgentState) -> dict:
     approval_context = _approval_outcome_text(approval_result, action_result, action_draft, draft_outcome)
     if approval_context:
         response_text = f"{response_text}\n{approval_context}"
+    response_text = _decorate_deferred_response(response_text, state)
     return {
         "final_response": response_text,
         "llm_outputs": {

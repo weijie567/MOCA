@@ -43,6 +43,41 @@ def _assert_draft_created_not_executed(text: str, draft_id: str) -> None:
     assert not any(phrase in text for phrase in FORBIDDEN_DEMO_SUCCESS_PHRASES)
 
 
+def _state_with_deferred(state: dict) -> dict:
+    return {
+        **state,
+        "deferred_steps": [
+            {
+                "step_id": "s2",
+                "intent": "policy_qa",
+                "operation": "read_status",
+                "entities": {"raw": "must-not-render"},
+                "depends_on": [],
+                "relation": "parallel",
+            },
+            {
+                "step_id": "s3",
+                "intent": "ticket_reply_draft",
+                "operation": "draft_reply",
+                "entities": {"ticket_id": "TKT-SECRET"},
+                "depends_on": ["s1"],
+                "relation": "dependency",
+            },
+        ],
+    }
+
+
+def _assert_deferred_visible(result: dict) -> None:
+    assert "我还注意到你想继续处理" in result["final_response"]
+    assert "政策问题查询（查询）" in result["final_response"]
+    assert "工单回复草稿（拟回复）" in result["final_response"]
+    assert "要我接着做哪一项吗" in result["final_response"]
+    assert "TKT-SECRET" not in result["final_response"]
+    final_output = (result.get("llm_outputs") or {}).get("final_response")
+    if final_output is not None:
+        assert result["final_response"] == final_output["response_text"]
+
+
 @pytest.mark.asyncio
 async def test_final_response_uses_deterministic_citation_template(base_state):
     state = {
@@ -404,3 +439,164 @@ async def test_final_response_builds_safe_clarification_from_request(base_state)
     assert "permission_denied" not in result["final_response"]
     assert "FORBIDDEN" not in result["final_response"]
     assert "审批结果" not in result["final_response"]
+
+
+@pytest.mark.asyncio
+async def test_final_response_decorates_clarification_branch(base_state):
+    result = await final_response(
+        _state_with_deferred(
+            {
+                **base_state,
+                "clarification_request": {
+                    "reason": "missing_required_slots",
+                    "questions": ["请提供订单号或退款单号。"],
+                },
+            }
+        )
+    )
+
+    assert result["final_response"].startswith("请提供订单号或退款单号。")
+    assert result["llm_outputs"]["final_response"]["final_status"] == "insufficient_evidence"
+    _assert_deferred_visible(result)
+
+
+@pytest.mark.asyncio
+async def test_final_response_decorates_manual_review_branch(base_state):
+    result = await final_response(
+        _state_with_deferred(
+            {
+                **base_state,
+                "recommendation_draft": {
+                    "recommended_action": "issue_coupon",
+                    "reasoning_summary": "需要补偿。",
+                    "missing_info": ["缺少政策证据"],
+                    "evidence_refs": [],
+                },
+                "rag_verification": {
+                    "overall_outcome": "blocked",
+                    "route": {"route": "manual_review", "selected_by": "backend", "model_selected": False},
+                    "reason_codes": ["missing_citation"],
+                },
+            }
+        )
+    )
+
+    assert "人工复核" in result["final_response"]
+    assert result["llm_outputs"]["final_response"]["final_status"] == "manual_review"
+    _assert_deferred_visible(result)
+
+
+@pytest.mark.asyncio
+async def test_final_response_decorates_retrieval_error_branch_without_llm_output(base_state):
+    result = await final_response(
+        _state_with_deferred(
+            {
+                **base_state,
+                "recommendation_draft": {
+                    "recommended_action": "retrieval_error",
+                    "missing_info": ["vector store timeout"],
+                },
+            }
+        )
+    )
+
+    assert "系统暂时无法检索政策依据" in result["final_response"]
+    assert "final_response" not in (result.get("llm_outputs") or {})
+    _assert_deferred_visible(result)
+
+
+@pytest.mark.asyncio
+async def test_final_response_decorates_safety_snapshot_blocked_branch(base_state):
+    result = await final_response(
+        _state_with_deferred(
+            {
+                **base_state,
+                "final_response": "操作需要人工复核，当前未创建可执行审批或动作草稿。",
+                "safety_snapshot_verified": False,
+                "recommendation_draft": {
+                    "recommended_action": "issue_coupon",
+                    "reasoning_summary": "符合补偿规则。",
+                    "evidence_refs": [],
+                },
+                "risk_assessment": {"risk_level": "manual_review", "approval_required": False},
+            }
+        )
+    )
+
+    assert result["final_response"].startswith("操作需要人工复核")
+    assert result["llm_outputs"]["final_response"]["final_status"] == "error"
+    _assert_deferred_visible(result)
+
+
+@pytest.mark.asyncio
+async def test_final_response_decorates_business_fact_branch(base_state):
+    result = await final_response(
+        _state_with_deferred(
+            {
+                **base_state,
+                "primary_intent": "order_status_inquiry",
+                "requested_operation": "read_status",
+                "business_context": {
+                    "facts": {
+                        "order": {
+                            "order_no": "ORD-2024-001",
+                            "status": "pending",
+                            "item_name": "蓝牙降噪耳机 Pro",
+                        }
+                    }
+                },
+                "recommendation_draft": None,
+            }
+        )
+    )
+
+    assert "当前查询结果" in result["final_response"]
+    assert result["llm_outputs"]["final_response"]["final_status"] == "completed"
+    _assert_deferred_visible(result)
+
+
+@pytest.mark.asyncio
+async def test_final_response_decorates_completed_response_branch(base_state):
+    result = await final_response(
+        _state_with_deferred(
+            {
+                **base_state,
+                "recommendation_draft": {
+                    "recommended_action": "解释退款规则",
+                    "reasoning_summary": "商家需要在规定时效内处理退款。",
+                    "evidence_refs": [],
+                },
+                "risk_assessment": {"approval_required": False},
+            }
+        )
+    )
+
+    assert "建议：解释退款规则" in result["final_response"]
+    assert result["llm_outputs"]["final_response"]["final_status"] == "completed"
+    _assert_deferred_visible(result)
+
+
+@pytest.mark.asyncio
+async def test_final_response_complaint_folded_note_visible_without_deferred_steps(base_state):
+    result = await final_response(
+        {
+            **base_state,
+            "recommendation_draft": {
+                "recommended_action": "解释补偿规则",
+                "reasoning_summary": "按当前证据给出建议。",
+                "evidence_refs": [],
+            },
+            "risk_assessment": {"approval_required": False},
+            "deferred_steps": [],
+            "llm_outputs": {
+                "intent_classification": {
+                    "classification_trace": {
+                        "plan_normalization": ["modifier_folded:complaint_as_severity"]
+                    }
+                }
+            },
+        }
+    )
+
+    assert "投诉情绪" in result["final_response"]
+    assert result["llm_outputs"]["final_response"]["response_text"] == result["final_response"]

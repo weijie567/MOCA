@@ -99,12 +99,12 @@
 
 ---
 
-# 2. 意图识别（Intent Recognition）✅🔴
+# 2. 意图识别（Intent Recognition）✅🔴🟡
 
 **范围**：`src/agent/nodes/classify_intent.py`、`src/agent/intent_policy.py`、`src/agent/prompts.py`、`src/agent/routing.py`、`src/agent/intent_manifest.py`、`src/agent/schemas.py`。
 **已 ship 的相关 milestone**：v1.8 Intent Routing Safety Hardening（Phase 25，IRS-01~IRS-12）。
 
-> 以下为 2026-07-02 代码走查中发现的**设计层面缺陷**与后续处理状态。ID-01/ID-03 已通过本次三层契约拆分落地；ID-02/ID-04 仍未修复。
+> 以下为 2026-07-02 代码走查中发现的**设计层面缺陷**与后续处理状态。ID-01/ID-03 已通过三层契约拆分落地；ID-04 的档位 A 已通过 Phase 43 落地；ID-02 仍未修复。
 
 ## ID-01 关键词候选覆盖 LLM 语义判断 ✅
 
@@ -132,7 +132,7 @@
 **验证**：同 ID-01 的 §6 pytest / ruff 命令均通过。
 **状态**：✅ 已修复并验证。
 
-## ID-04 意图识别是"分类"而非"任务规划"——多意图被单赢家坍缩、次诉求被静默丢弃 🔴
+## ID-04 意图识别是"分类"而非"任务规划"——多意图被单赢家坍缩、次诉求被静默丢弃 ✅（档位 A）
 
 **现象/根因**：`resolve_intent_precedence`（`intent_policy.py:463-466`）把「LLM 主意图 + 次意图 + 关键词扫出的候选」揉成一个候选池，`for intent in PRECEDENCE_INTENTS: if intent in valid_candidates: return intent` —— 遍历到第一个命中即 return **单个** effective intent。`secondary_intents` 只是参与竞选单一赢家的陪跑候选，选完即丢，从不存在「主意图做完接着做次意图」。系统把"用户一句话里有两件事"建模成了"用户到底指哪一件"的**消歧问题**，而非"用户要两件事、按序做"的**组合/规划问题**——这是范畴错误：用分类器解规划问题。
 
@@ -149,11 +149,17 @@
 
 **先决问题（未确认，需数据）**：实际流量里"带真依赖的多意图查询"占比多高，未知。若绝大多数是单意图，改成轻量 planner 可能不划算，中间方案（识别到次诉求 → 记为"待确认后续"、先不自动执行）即够；若高频，才值得把输出类型整体改成计划。此项应由 eval 集/流量数据定，不拍脑袋。
 
-**状态**：🔴 未修复，待立项。与 ID-01 部分同源（修饰型误抬），但更根本：ID-01 是"关键词覆盖 LLM"，ID-04 是"输出类型本身只能承载单意图"。
+**Phase 43 修复（档位 A）**：新增 bounded `TaskPlan` / `TaskStep` 契约，N=1 退化为现状；`classify_intent` 记录 `task_plan`、`executable_prefix`、`deferred_steps`、`plan_normalization`，但本 turn 的 effective route fields 始终只来自 s1；`receive_request` 每 turn 重置 `task_plan` / `deferred_steps`；`final_response` 对所有可见回复分支追加 deferred confirmation，并对 `modifier_folded:complaint_as_severity` 追加含「投诉情绪」的安全网。档位 A 修复的是「次诉求静默丢弃」：s2+ 不执行、但以待确认后续呈现给用户。
+
+**证据**：Phase 43（`.planning/phases/43-intent-recognition-multi-intent-tier-a/`）；`src/agent/intent_policy.py`（`TaskPlan` / `build_task_plan` / `select_executable_prefix`）；`src/agent/nodes/classify_intent.py`（state/trace wiring）；`src/agent/nodes/final_response.py`（deferred/complaint decorator）；`src/agent/nodes/receive_request.py`（per-turn reset）；测试覆盖 `tests/agent/test_intent_task_plan.py`、`tests/agent/test_nodes/test_classify_intent.py`、`tests/agent/test_nodes/test_final_response.py`、`tests/agent/test_nodes/test_receive_request.py`。
+
+**验证**：`uv run pytest tests/agent/test_intent_task_plan.py tests/agent/test_nodes/test_classify_intent.py tests/agent/test_nodes/test_final_response.py tests/agent/test_nodes/test_receive_request.py -q` → `66 passed`；`uv run pytest tests/agent/test_intent_adapter.py tests/agent/test_intent_policy_registry.py tests/agent/test_intent_golden_contract.py tests/agent/test_intent_routing.py tests/agent/test_nodes/test_classify_intent.py tests/agent/test_graph.py tests/architecture/test_phase32_static_contract.py -q` → `1236 passed, 1 skipped`；`uv run ruff check src/agent tests/agent` → pass；`git diff --exit-code -- docs/contract-spec.md src/agent/prompts.py src/agent/schemas.py` → no diff。
+
+**状态**：✅ 档位 A 已修复并验证。与 ID-01 部分同源（修饰型误抬），但更根本：ID-01 是"关键词覆盖 LLM"，ID-04 是"输出类型本身只能承载单意图"。本次只实现识别计划 + deferred 呈现，不实现自动依赖执行链。
 
 **分档决策（2026-07-02 定）**：多意图落地拆成三档递进，逐档一一对应「先识别→自动依赖链→完整门控」。**当前只做档位 A**，B/C 已设计、待数据触发，不现在做。
 
-- **档位 A（当前做，最小安全版）**：第一层输出从「单意图」扩成「意图计划」（N=1 退化为现状，不破坏既有行为）+ 规范化（modifier 折叠 / 校验 / 超步数澄清）+ 执行器**只跑安全 read 前缀，其余步一律记为"待确认后续"呈现给用户**。收益：消除"次诉求被静默吞掉"（ID-04 核心痛点）；几乎不碰资损安全模型；**同时采集"多意图占比"数据**。执行规格见 `.planning/intent-multi-a-codex-brief.md`。
+- **档位 A（已通过 Phase 43 落地，最小安全版）**：第一层输出从「单意图」扩成 bounded `TaskPlan`（N=1 退化为现状，不破坏既有行为）+ 规范化（modifier 折叠 / fail-closed / 同意图受控合并）+ 本 turn 只处理 s1，其余步一律记为 `deferred_steps` 并在最终回复呈现。收益：消除"次诉求被静默吞掉"（ID-04 核心痛点）；不碰资损自动执行模型；**同时采集"多意图占比"数据**。执行规格见 `.planning/intent-multi-a-codex-brief.md`。
 - **档位 B（待触发）**：在 A 之上打通 `read→read` / `read→draft` 的自动依赖链（依赖型且每步都在确认边界以下者一个 turn 内自动跑完；触到 `suggest_action` 及以上即停）。**触发条件**：A 上线后采到的数据显示"带依赖的多意图查询"占比达到值得投入的水平（阈值由届时 eval/流量定），或业务侧明确"查完接着拟回复/建议补偿"为高频刚需。落地要求拆成独立 plan、A 验收后再做，中间过一次 Claude 复核。
 - **档位 C（待触发，暂不做）**：完整门控执行器 + resume + 终点交付追踪，任意步可中断续跑。**触发条件**：B 已稳定且出现"多步、跨 turn、需断点续跑"的真实需求。现在不碰，因需动 LangGraph interrupt/resume 泛化，风险最大。
 
@@ -163,7 +169,7 @@
 
 ## ID-DESIGN 从 0 的目标态设计草案（三层解耦）🟡
 
-> 这是针对 ID-01/02/03/04 的**重设计方向草案**。截至 2026-07-02，本次已落地「单意图路径」的三层契约拆分（语义理解 / 风险授权 / 置信度澄清），但未落地多意图 TaskPlan / DAG / 计划执行器，也未实现置信度校准。
+> 这是针对 ID-01/02/03/04 的**重设计方向草案**。截至 2026-07-02，已落地「单意图路径」的三层契约拆分（语义理解 / 风险授权 / 置信度澄清），并通过 Phase 43 落地多意图档位 A（bounded TaskPlan + deferred 呈现）；仍未落地档位 B/C 的自动依赖执行链、DAG/resume/parallel 计划执行器，也未实现置信度校准。
 >
 > **2026-07-02 修正（因 ID-04）**：本草案原把第一层输出定为"单个意图"，保留了"意图识别产物是一个标签"这一错误假设。经 ID-04 讨论修正为——第一层输出应是**一个 1~N 步的有序意图计划**，多数普通查询 N=1 退化为现状。下文第一层已按此更新。
 
@@ -196,11 +202,14 @@
 - `classification_trace` 已记录三层输出，支持回放「语义仲裁 / 风险决策 / 澄清阈值」。
 - 执行规格：`.planning/intent-layering-codex-brief.md`。
 
+**已新增落地部分（2026-07-02，Phase 43）**
+- ID-04 档位 A：`TaskPlan` / `TaskStep`、s1-only effective route、s2+ `deferred_steps`、`classification_trace.plan_normalization`、final_response deferred confirmation 与 complaint safety note。
+
 **仍未落地部分**
 - ID-02：`calibrated_confidence` 只有入参占位，未做真实 calibration。
-- ID-04：多意图 / TaskPlan / DAG / 计划执行器仍未做，本次明确禁止越界。
+- ID-04 后续档位：自动 `read→read` / `read→draft` 依赖链、DAG/resume/parallel 计划执行器仍未做，本次明确禁止越界。
 
-**状态**：🟡 三层契约拆分部分已落地；目标态中的校准与多意图计划化仍待独立立项。
+**状态**：🟡 三层契约拆分与多意图档位 A 已落地；目标态中的校准与档位 B/C 计划执行能力仍待独立立项。
 
 ---
 
