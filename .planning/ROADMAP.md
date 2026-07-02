@@ -21,7 +21,7 @@ Code implementation is delegated to Codex per the project workflow; Claude is pl
 - [x] **Phase 39: contract-spec §12.5/§12.6 Reconciliation** - Spec catches up to implemented contract fields via dual-AI review, without touching §8.0-locked identity fields (TPH-02). Plan progress: 1/1 complete.
 - [x] **Phase 40: Tool Contract Validation Hardening** - Close source-confirmed validation/backstop gaps left after TPH-01 without changing `ToolResultV2`, `ToolCallContext` §8.0 identity fields, BusinessFactService ownership runtime semantics, or the `UnifiedToolManager` compatibility API (TPH-05).
 - [x] **Phase 41: Tool Platform Legacy Manager Cleanup** - Make the API/spec decision to remove the `UnifiedToolManager` legacy compatibility adapter and converge production/tests to `ToolPlatform` as the single graph-facing entrypoint (TPH-06). Plan progress: 4/4 complete.
-- [ ] **Phase 43: Intent Recognition Multi-Intent Tier A** - Preserve multi-intent utterances as a bounded `TaskPlan`, execute only the safe read-only prefix in the current turn, and surface all later steps as deferred confirmations without changing the single-intent route contract (IDR-02).
+- [ ] **Phase 43: Intent Recognition Multi-Intent Tier A** - Preserve multi-intent utterances as a bounded `TaskPlan`, execute only the safe read-only prefix in the current turn, and surface all later steps as deferred confirmations without changing the single-intent route contract (IDR-02). Plan progress: 3 plans ready to execute.
 
 ## Phase Details
 
@@ -81,7 +81,7 @@ Plans:
 | 40. Tool Contract Validation Hardening | 3/3 | Complete | 2026-07-02 |
 | 41. Tool Platform Legacy Manager Cleanup | 4/4 | Complete | 2026-07-02 |
 | 42. Intent Recognition Three-Layer Decoupling | 1/1 | Complete (retroactively registered) | 2026-07-02 |
-| 43. Intent Recognition Multi-Intent Tier A | TBD | Planning | — |
+| 43. Intent Recognition Multi-Intent Tier A | 0/3 complete; 3/3 planned | Ready to execute | — |
 
 ### Phase 40: Tool Contract Validation Hardening
 
@@ -153,4 +153,9 @@ Plans:
   5. Execution gating only permits the contiguous prefix whose per-step `resolve_risk_decision(...).tier` is `read_only`; every later step is recorded as `deferred_steps` and is not executed in the same turn.
   6. `classification_trace` records the task plan, executable prefix, deferred steps, and normalization/fallback decisions; final responses visibly mention deferred steps and the complaint-folding safety note when applicable.
   7. Invalid plans fail closed to the existing single-intent path and record `plan_invalid_fallback_single`, rather than throwing, silently dropping requests, or auto-running high-risk work.
-**Plans:** TBD by plan-phase
+**Plans:** 3 plans
+
+Plans:
+- [ ] 43-01-PLAN.md — intent-policy `TaskStep` / `TaskPlan` contracts, deterministic normalization, read-only prefix selection, fail-closed behavior, and policy tests.
+- [ ] 43-02-PLAN.md — `AgentState` / `receive_request` reset and `classify_intent` task-plan wiring while preserving current single-intent route fields and guards.
+- [ ] 43-03-PLAN.md — final-response deferred-step presentation, complaint-folding safety note, architecture-debt ledger update, and full regression/no-go verification.
