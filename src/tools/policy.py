@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 import re
 from typing import Any
 
@@ -87,6 +89,88 @@ _DOMAIN_SCOPE_CHECK_IDENTIFIERS: set[str] = {
 }
 
 
+RuntimeAuthPredicate = Callable[[ToolDescriptor, dict[str, Any], ToolCallContext, dict[str, Any]], bool]
+
+
+@dataclass(frozen=True)
+class RuntimeAuthGate:
+    name: str
+    reason_code: str
+    denies: RuntimeAuthPredicate
+
+
+def _denies_caller_allowlist(
+    descriptor: ToolDescriptor,
+    args: dict[str, Any],
+    ctx: ToolCallContext,
+    resource_scope_binding: dict[str, Any],
+) -> bool:
+    del args, resource_scope_binding
+    return ctx.caller_node not in descriptor.caller_allowlist
+
+
+def _denies_permission(
+    descriptor: ToolDescriptor,
+    args: dict[str, Any],
+    ctx: ToolCallContext,
+    resource_scope_binding: dict[str, Any],
+) -> bool:
+    del args, resource_scope_binding
+    return descriptor.required_permission not in ctx.permissions
+
+
+def _denies_side_effect(
+    descriptor: ToolDescriptor,
+    args: dict[str, Any],
+    ctx: ToolCallContext,
+    resource_scope_binding: dict[str, Any],
+) -> bool:
+    del args, resource_scope_binding
+    return descriptor.side_effect == "write" and not (
+        ctx.caller_node == "action_draft" and descriptor.kind == "write"
+    )
+
+
+def _denies_resource_scope(
+    descriptor: ToolDescriptor,
+    args: dict[str, Any],
+    ctx: ToolCallContext,
+    resource_scope_binding: dict[str, Any],
+) -> bool:
+    del descriptor, args, ctx
+    return bool(resource_scope_binding.get("_scope_denied"))
+
+
+def _denies_approval(
+    descriptor: ToolDescriptor,
+    args: dict[str, Any],
+    ctx: ToolCallContext,
+    resource_scope_binding: dict[str, Any],
+) -> bool:
+    del args, resource_scope_binding
+    return descriptor.requires_approval and not ctx.approval_ref
+
+
+def _denies_safety_snapshot(
+    descriptor: ToolDescriptor,
+    args: dict[str, Any],
+    ctx: ToolCallContext,
+    resource_scope_binding: dict[str, Any],
+) -> bool:
+    del args, resource_scope_binding
+    return descriptor.requires_safety_snapshot and not ctx.safety_snapshot_ref
+
+
+def _denies_idempotency(
+    descriptor: ToolDescriptor,
+    args: dict[str, Any],
+    ctx: ToolCallContext,
+    resource_scope_binding: dict[str, Any],
+) -> bool:
+    del args, resource_scope_binding
+    return descriptor.requires_idempotency_key and not ctx.idempotency_key
+
+
 def validate_tool_policy_reason_codes(codes: list[str]) -> None:
     """Validate that reason codes are either core or namespaced extension codes.
 
@@ -148,6 +232,16 @@ class ToolPolicyEngine:
     Does NOT call executors, write graph state, write conversation records,
     or construct prompts.
     """
+
+    _runtime_auth_gates: tuple[RuntimeAuthGate, ...] = (
+        RuntimeAuthGate("caller_allowlist", "caller_not_allowed", _denies_caller_allowlist),
+        RuntimeAuthGate("permission", "missing_permission", _denies_permission),
+        RuntimeAuthGate("side_effect", "side_effect_blocked", _denies_side_effect),
+        RuntimeAuthGate("resource_scope", "scope_denied", _denies_resource_scope),
+        RuntimeAuthGate("approval", "approval_required", _denies_approval),
+        RuntimeAuthGate("safety_snapshot", "safety_snapshot_required", _denies_safety_snapshot),
+        RuntimeAuthGate("idempotency", "idempotency_required", _denies_idempotency),
+    )
 
     def __init__(
         self,
@@ -311,34 +405,12 @@ class ToolPolicyEngine:
                 availability_summary=f"Tool {tool_name!r} is currently unavailable",
             )
 
-        reason_codes: list[str] = []
-
-        # Caller allowlist
-        if ctx.caller_node not in descriptor.caller_allowlist:
-            reason_codes.append("caller_not_allowed")
-
-        # Permission
-        if descriptor.required_permission not in ctx.permissions:
-            reason_codes.append("missing_permission")
-
-        # Side-effect gate for write tools.
-        # action_draft callers are allowed to execute write tools (their purpose).
-        if descriptor.side_effect == "write":
-            if not (ctx.caller_node == "action_draft" and descriptor.kind == "write"):
-                reason_codes.append("side_effect_blocked")
-
-        # Merchant scope binding
         resource_scope_binding = self._build_resource_binding(args, ctx)
-        if resource_scope_binding.get("_scope_denied"):
-            reason_codes.append("scope_denied")
-
-        # Required fields
-        if descriptor.requires_approval and not ctx.approval_ref:
-            reason_codes.append("approval_required")
-        if descriptor.requires_safety_snapshot and not ctx.safety_snapshot_ref:
-            reason_codes.append("safety_snapshot_required")
-        if descriptor.requires_idempotency_key and not ctx.idempotency_key:
-            reason_codes.append("idempotency_required")
+        reason_codes = [
+            gate.reason_code
+            for gate in self._runtime_auth_gates
+            if gate.denies(descriptor, args, ctx, resource_scope_binding)
+        ]
 
         if reason_codes:
             return self._denied_decision(
