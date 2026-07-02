@@ -1,6 +1,6 @@
 ---
 phase: 38-output-schema-declaration-runtime-output-validation-enforcem
-reviewed: 2026-07-02T02:38:18Z
+reviewed: 2026-07-02T02:46:55Z
 depth: deep
 files_reviewed: 6
 files_reviewed_list:
@@ -13,54 +13,53 @@ files_reviewed_list:
 findings:
   critical: 0
   warning: 0
-  info: 1
-  total: 1
-status: issues_found
+  info: 0
+  total: 0
+status: clean
 ---
 
 # Phase 38: Code Review Report
 
-**Reviewed:** 2026-07-02T02:38:18Z
+**Reviewed:** 2026-07-02T02:46:55Z
 **Depth:** deep
 **Files Reviewed:** 6
-**Status:** issues_found
+**Status:** clean
 
 ## Summary
 
-Reviewed the Phase 38 output schema declarations, JSON-schema subset validator, runtime enforcement path, and regression tests after the code-review-fix commits. Deep tracing covered `ToolCatalog` descriptors through `UnifiedToolManager.invoke` -> `ToolPlatform.invoke` -> `ToolRuntime.invoke`, plus the business, knowledge, memory, and action executor payload shapes consumed by the declared schemas.
+Reviewed the Phase 38 output schema declarations, JSON Schema subset validator, runtime output-schema enforcement, and manager/platform regression tests after the code-review-fix commits, including `b3daa88` (`test(38): IN-01 cover partial success missing data validation`).
 
-The previous WR-01 is fixed: `src/tools/validation.py` rejects non-finite `number` values with `math.isfinite`, and `tests/tools/test_catalog.py` covers both direct `{"type": "number"}` validation and a real scoped `search_policy.best_score` payload. The earlier successful-output `data=None` bypass is also fixed in implementation: `src/tools/runtime.py` validates both `success` and `partial_success` outputs even when `data is None`.
+Deep tracing covered `ToolCatalog` descriptors through `UnifiedToolManager.invoke` -> `ToolPlatform.invoke` -> `ToolRuntime.invoke`, plus the business, knowledge, memory, and action executor payload shapes consumed by the declared schemas. All reviewed files meet quality standards. No issues found.
 
-Protected files `src/tools/contracts.py` and `docs/contract-spec.md` were not changed by the Phase 38 diff from `41372a4^..HEAD`.
+Specific checks completed:
 
-## Info
-
-### IN-01: Missing Partial-Success Data-None Regression
-
-**File:** `tests/tools/test_tool_platform.py:279`
-**Issue:** The runtime implementation now validates both `success` and `partial_success` outputs when `data is None`, but the regression test only covers the `success` status by copying `_success_result()` with `data=None`. A future refactor could preserve the success case while accidentally dropping the `partial_success` branch.
-**Fix:** Parameterize `test_output_schema_success_with_missing_data_returns_invalid_response` over `status in ("success", "partial_success")`, or add a sibling test that sets `status="partial_success"` and asserts `invalid_response`.
+- Previous WR-01 remains fixed: `src/tools/validation.py` rejects `NaN`, `Infinity`, and `-Infinity` for JSON Schema `number` via `math.isfinite`.
+- WR-01 tests cover direct validator behavior and the real scoped `search_policy.best_score` output payload in `tests/tools/test_catalog.py`.
+- The success / partial-success `data=None` bypass remains fixed: `src/tools/runtime.py` validates output when status is `success` or `partial_success`, even if `data is None`.
+- IN-01 is fixed: `tests/tools/test_tool_platform.py` parameterizes missing-data runtime coverage over both `success` and `partial_success`, asserting `invalid_response`.
+- Protected files `src/tools/contracts.py` and `docs/contract-spec.md` are absent from the Phase 38 diff.
 
 ## Verification
 
 Targeted review suite passed with the project-approved entrypoint:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/agent/test_tools/test_unified_tool_manager.py
+uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/agent/test_tools/test_unified_tool_manager.py
 ```
 
-Result: `97 passed, 1 warning`.
+Result: `98 passed, 1 warning`.
 
-Diff scope check:
+Additional checks:
 
 ```bash
-git diff --name-only 41372a4^..HEAD -- src/tools/catalog.py src/tools/runtime.py src/tools/validation.py tests/agent/test_tools/test_unified_tool_manager.py tests/tools/test_catalog.py tests/tools/test_tool_platform.py src/tools/contracts.py docs/contract-spec.md
+git diff --check 41372a4^..HEAD -- src/tools/catalog.py src/tools/runtime.py src/tools/validation.py tests/agent/test_tools/test_unified_tool_manager.py tests/tools/test_catalog.py tests/tools/test_tool_platform.py
+git diff --name-status 41372a4^..HEAD -- src/tools/contracts.py docs/contract-spec.md
 ```
 
-Result: only the six reviewed files were listed; the protected files were absent.
+Results: no whitespace errors; protected-file diff returned no entries.
 
 ---
 
-_Reviewed: 2026-07-02T02:38:18Z_
+_Reviewed: 2026-07-02T02:46:55Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
