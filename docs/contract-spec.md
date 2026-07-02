@@ -362,7 +362,7 @@ BusinessToolService facade signature:
 
 边界：
 
-- `invoke_tool` 是 business domain read dispatch 接口。Agent-facing descriptor lookup、`ctx.caller_node` allowlist、required permission、input schema、side-effect 和 output schema 校验由 §12.6 `ToolPlatform` / `ToolCatalog` 统一负责；`UnifiedToolManager` 仅作为 legacy compatibility adapter 委托 `ToolPlatform`；`BusinessToolService` 只保留 merchant scope/ownership、retry、business fact projection、fetch_context aggregation 和 adapter 调用。
+- `invoke_tool` 是 business domain read dispatch 接口。Agent-facing descriptor lookup、`ctx.caller_node` allowlist、required permission、input schema、side-effect 和 output schema 校验由 §12.6 `ToolPlatform` / `ToolCatalog` 统一负责；`ToolPlatform` 是唯一 graph-facing dispatch 与契约校验入口；`BusinessToolService` 只保留 merchant scope/ownership、retry、business fact projection、fetch_context aggregation 和 adapter 调用。
 - `fetch_context` 保留用于非-loop 的一次性聚合场景；`investigate` bounded loop 必须通过 `invoke_tool` 逐个调用只读工具，并遵守 §9.4 loop 契约。
 - 只读工具可以自动调用。
 - 写工具不能由 business tool read node 执行。
@@ -654,7 +654,7 @@ Phase 0 target graph delta 将目标节点定义为“contract nodes”。MVP / 
 
 `investigate` bounded-loop 契约：
 
-1. planner 每轮必须产生结构化单步输出，且只能是 `{next_tool, args, reason}` 或 `{stop, stop_reason}`。`next_tool` 每轮只能选择 §12.4 / §12.6 为 `investigate` 声明的 allowlist 内一个工具，不得输出批量计划；选定后通过 `ToolPlatform.invoke(...)` 执行单次调用并返回 projected `ToolInvocationOutcome`。`ToolPlatform` 是 `investigate` 的 graph-facing tool registry/dispatch path；`UnifiedToolManager` 仅作为 legacy compatibility adapter 委托 `ToolPlatform`；business、knowledge、memory executor 在 platform 后方分别委托给 `BusinessToolService.invoke_tool(...)`、`KnowledgeService` / RAG、future `MemoryService`。
+1. planner 每轮必须产生结构化单步输出，且只能是 `{next_tool, args, reason}` 或 `{stop, stop_reason}`。`next_tool` 每轮只能选择 §12.4 / §12.6 为 `investigate` 声明的 allowlist 内一个工具，不得输出批量计划；选定后通过 `ToolPlatform.invoke(...)` 执行单次调用并返回 projected `ToolInvocationOutcome`。`ToolPlatform` 是 `investigate` 的唯一 graph-facing tool registry/dispatch path；business、knowledge、memory executor 在 platform 后方分别委托给 `BusinessToolService.invoke_tool(...)`、`KnowledgeService` / RAG、future `MemoryService`。
 2. 合法 `stop_reason` / state `termination_reason` 只有 `enough_evidence | no_more_useful_tools | max_iterations_reached | unrecoverable_error`。planner 主动停止或资源上限/不可恢复错误强制停止时，必须把对应值写入 state 的 `termination_reason`。
 3. loop 必须同时执行三重资源上限：全局 `max_iterations`、复用 §12.5 `ToolCallContext.deadline_at` 的总 deadline、以 §12.5 `ToolCallContext.max_attempts` 为每工具 retry 上限；`attempt` 达到 `max_attempts` 即终止该工具重试，任一资源上限命中即终止 loop。达到 `max_iterations` 时 lifecycle status 仍为 `completed`，但必须在 state / `redacted_payload` 写独立 `termination_reason=max_iterations_reached`。`retrieval_status` 仍只表达 `strong_evidence | partial_evidence | no_evidence | error`，并按真实累积证据计算，不因截断强标 insufficient。
 4. loop 内仅允许调用 §12.4 为 `investigate` 定义的只读 allowlist；每次 tool / RAG call 必须按 §17.2 发出独立 trace 事件。
@@ -1312,9 +1312,9 @@ Contract rules：
 - Write/action tools are not called through this read-tool contract; they go through `ActionExecutor` after approval/action policy checks.
 - `policy_evidence_refs` 只能承载 KnowledgeService 产出的 policy `EvidenceRefV1`；business read tools 必须留空。业务事实出处使用 typed `BusinessFactRefV1` 的 `business_fact_refs`，不得把订单/退款/工单事实伪造成带 `policy_version`/`chunk_id`/`retrieval_config_version` 的 `EvidenceRefV1`。
 
-### 12.6 Tool platform catalog and compatibility manager contract
+### 12.6 Tool platform catalog and dispatch contract
 
-`ToolCatalog` 是工具声明的 normative 单一来源，`ToolPlatform` 是 graph-facing dispatch 与契约校验入口。`UnifiedToolManager` 是 legacy compatibility adapter，必须委托 `ToolPlatform`，不得承载新的 policy/runtime/projection 逻辑。每个工具必须以一个 `ToolDescriptor` 单点声明；§12.1 / §12.2 工具列表、§12.4 node-level allowlist 和 §12.5 `BusinessFactRefV1.resource_type` 枚举必须由 catalog 派生或对 catalog 做一致性校验，新增工具不得通过分别手改多张清单形成漂移。
+`ToolCatalog` 是工具声明的 normative 单一来源，`ToolPlatform` 是唯一 graph-facing dispatch 与契约校验入口。每个工具必须以一个 `ToolDescriptor` 单点声明；§12.1 / §12.2 工具列表、§12.4 node-level allowlist 和 §12.5 `BusinessFactRefV1.resource_type` 枚举必须由 catalog 派生或对 catalog 做一致性校验，新增工具不得通过分别手改多张清单形成漂移。
 
 ```python
 class ToolDescriptor(BaseModel):
@@ -1382,21 +1382,16 @@ class ToolPlatform(Protocol):
     async def invoke(self, name: str, input_data: dict[str, Any], ctx: ToolCallContext) -> ToolInvocationOutcome: ...
     def descriptor(self, name: str) -> ToolDescriptor | None: ...
     def event_family(self, name: str) -> str | None: ...
-
-class UnifiedToolManager(Protocol):
-    def visible_tools(self, caller: str, ctx: ToolCallContext) -> list[ToolView]: ...
-    async def invoke(self, name: str, input_data: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2: ...
 ```
 
 Phase 29 locks `ToolView` as a prompt-safe planner capability view with exactly the fields shown above. Unlike durable service/event schemas in this section, `ToolView` intentionally does not expose a prompt-visible `schema_version`; the view contract version is represented by the producer model name (`ToolViewV1`) and `result_contract_version` for the returned tool result envelope.
 
 Phase 29 also locks `ToolResultProjectionV1.audit_refs` as a list of safe audit reference strings or typed refs, not a dict. Graph state, prompts, and conversation storage consume projected surfaces from `ToolInvocationOutcome`, not raw `ToolResultV2.data`.
 
-Catalog / platform / compatibility manager rules：
+Catalog / platform rules：
 
 - `ToolPlatform.invoke` 必须先从 `ToolCatalog` 解析 descriptor，再校验 `ctx.caller_node`、`required_permission`、`input_schema`、`side_effect`、`exposure` 和 action safety fields，全部通过后才可调 domain executor；executor 输出必须按 descriptor `output_schema` 校验，封装或适配为 `ToolResultV2`，并通过 `ToolResultProjector` 生成 `ToolInvocationOutcome.projection`。
 - `ToolPlatform.visible_tools` 输出给 planner 的只能是 `ToolView`，不能暴露 raw adapter、hidden side-effect capability、internal permission reason、raw exception shape 或 prompt-unsafe fields。
-- `UnifiedToolManager` 可保留 legacy `invoke(...) -> ToolResultV2` / `visible_tools(...)` 兼容接口，但必须委托 `ToolPlatform`；新 graph/tool-platform integration 不得把它作为 policy/runtime owner。
 - `ToolPolicyEngine` 必须为 planner visibility 和 runtime authorization 都产生 `ToolPolicyDecision` 或等价 decision event。Planner visible 不等于 runtime allowed；`invoke` 必须按 tool args、resource scope 和 current `ToolCallContext` 重新授权。
 - `caller_allowlist` 必须使用合并后的单一节点名 `investigate`；不得声明旧节点名 `load_business_context` 或 `retrieve_policy_evidence`。
 - `kind=read|retrieval` 的 descriptor 才可出现在 `investigate` allowlist，且 `side_effect` 必须为 `none|read_only|retrieval` 之一（非写副作用）；`kind=write` 不得通过 `BusinessToolService.invoke_tool` 或 `investigate` loop 执行。

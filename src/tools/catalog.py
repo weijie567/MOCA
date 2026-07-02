@@ -575,7 +575,7 @@ class ToolCatalog:
             )
         return self._result(
             "unavailable",
-            "ToolCatalog is declaration-only; use UnifiedToolManager",
+            "ToolCatalog is declaration-only; use ToolPlatform",
             code="TOOL_REGISTRY_DECLARATION_ONLY",
             source="tool",
         )
