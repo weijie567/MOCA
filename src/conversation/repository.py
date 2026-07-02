@@ -14,6 +14,7 @@ from src.db.models import (
     ConversationMessage,
     ConversationSummary,
     ConversationThread,
+    ThreadCaseLink,
     ToolCallRecord,
     ToolResultRecord,
 )
@@ -92,6 +93,32 @@ class ConversationRepository:
         self.session.add(row)
         await self.session.flush()
         return row
+
+    async def link_case(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        thread_id: str,
+        case_id: uuid.UUID,
+        link_source: str,
+        linked_by_run_id: uuid.UUID | None = None,
+    ) -> ThreadCaseLink:
+        from src.memory.thread_case_links import ThreadCaseLinkRepository
+
+        thread = await self.get_or_create_thread(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            thread_id=thread_id,
+        )
+        return await ThreadCaseLinkRepository(self.session).link_thread_to_case(
+            tenant_id=tenant_id,
+            conversation_thread_id=thread.id,
+            thread_id=thread.thread_id,
+            case_id=case_id,
+            link_source=link_source,
+            linked_by_run_id=linked_by_run_id,
+        )
 
     async def list_messages(
         self,

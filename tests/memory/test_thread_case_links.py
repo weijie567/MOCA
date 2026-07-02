@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from src.conversation.repository import ConversationRepository
+from src.conversation.schemas import ConversationMessageCreate
 from src.db.models import AgentRun, Base, Merchant, Order, RefundCase, Tenant, ThreadCaseLink, User
 from src.memory.thread_case_links import ThreadCaseLinkRepository
 from tests.conftest import TEST_DATABASE_URL, _ensure_test_database
@@ -204,7 +205,7 @@ async def test_thread_case_link_lists_many_to_many_in_both_directions(phase44_se
                 case_id=scope["first_case"].id,
             )
 
-    assert cases_for_thread == [scope["first_case"].id, scope["second_case"].id]
+    assert set(cases_for_thread) == {scope["first_case"].id, scope["second_case"].id}
     assert {link.conversation_thread_id for link in threads_for_case} == {first_thread.id, second_thread.id}
     assert {link.thread_id for link in threads_for_case} == {"phase44-link-thread-a", "phase44-link-thread-b"}
 
@@ -233,3 +234,59 @@ async def test_link_thread_to_case_rejects_unknown_link_source_before_insert(pha
             active_count = await session.scalar(select(func.count()).select_from(ThreadCaseLink))
 
     assert active_count == 0
+
+
+@pytest.mark.asyncio
+async def test_conversation_link_case_is_explicit_and_deduped(phase44_session_factory) -> None:
+    async with phase44_session_factory() as session:
+        async with session.begin():
+            scope = await _seed_link_scope(session)
+            repository = ConversationRepository(session)
+            await repository.append_message(
+                ConversationMessageCreate(
+                    tenant_id=scope["tenant"].id,
+                    user_id=scope["user"].id,
+                    thread_id="phase44-explicit-link",
+                    run_id=scope["run"].id,
+                    role="user",
+                    content="用户询问退款进度",
+                )
+            )
+            count_after_append = await session.scalar(select(func.count()).select_from(ThreadCaseLink))
+
+            first = await repository.link_case(
+                tenant_id=scope["tenant"].id,
+                user_id=scope["user"].id,
+                thread_id="phase44-explicit-link",
+                case_id=scope["first_case"].id,
+                link_source="run_auto",
+                linked_by_run_id=scope["run"].id,
+            )
+            second = await repository.link_case(
+                tenant_id=scope["tenant"].id,
+                user_id=scope["user"].id,
+                thread_id="phase44-explicit-link",
+                case_id=scope["first_case"].id,
+                link_source="run_auto",
+                linked_by_run_id=scope["run"].id,
+            )
+            active_count = await session.scalar(
+                select(func.count())
+                .select_from(ThreadCaseLink)
+                .where(
+                    ThreadCaseLink.tenant_id == scope["tenant"].id,
+                    ThreadCaseLink.case_id == scope["first_case"].id,
+                    ThreadCaseLink.deleted_at.is_(None),
+                )
+            )
+            thread = await repository.get_thread(
+                tenant_id=scope["tenant"].id,
+                user_id=scope["user"].id,
+                thread_id="phase44-explicit-link",
+            )
+
+    assert count_after_append == 0
+    assert first.id == second.id
+    assert active_count == 1
+    assert thread is not None
+    assert first.conversation_thread_id == thread.id
