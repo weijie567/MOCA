@@ -9,6 +9,20 @@ from src.tools.contracts import ToolCallContext
 from src.tools.validation import _validate_json_value
 
 
+TPH01_OUTPUT_SCHEMA_TOOL_NAMES = frozenset(
+    {
+        "get_order",
+        "get_refund_case",
+        "get_ticket",
+        "get_logistics",
+        "get_merchant_risk",
+        "search_policy",
+        "search_sop",
+        "search_case_memory",
+    }
+)
+
+
 def _context() -> ToolCallContext:
     return ToolCallContext(
         tenant_id="tenant-1",
@@ -51,6 +65,24 @@ def test_descriptor_table_is_single_source_for_investigate_names_and_resource_ty
         "merchant_risk",
         None,
     }
+
+
+def test_tph01_scoped_output_schema_tool_names_match_registered_tools() -> None:
+    descriptors = ToolCatalog().descriptors()
+    registered_scoped_names = {
+        descriptor.name
+        for descriptor in descriptors
+        if descriptor.kind in {"read", "retrieval"} and descriptor.exposure == "planner_visible"
+    }
+    scoped_descriptors = [_descriptor(name) for name in sorted(TPH01_OUTPUT_SCHEMA_TOOL_NAMES)]
+    action_descriptor = _descriptor("create_coupon_grant_draft")
+
+    assert registered_scoped_names == TPH01_OUTPUT_SCHEMA_TOOL_NAMES
+    assert {descriptor.kind for descriptor in scoped_descriptors} <= {"read", "retrieval"}
+    assert all(descriptor.exposure == "planner_visible" for descriptor in scoped_descriptors)
+    assert action_descriptor.name not in TPH01_OUTPUT_SCHEMA_TOOL_NAMES
+    assert action_descriptor.kind == "write"
+    assert action_descriptor.exposure == "node_only"
 
 
 def test_default_catalog_does_not_register_executable_adapters() -> None:
@@ -104,6 +136,7 @@ def test_json_schema_helper_accepts_nullable_union_and_null() -> None:
     _validate_json_value(None, {"type": "null"})
     _validate_json_value(None, {"type": ["string", "null"]})
     _validate_json_value("x", {"type": ["string", "null"], "minLength": 1})
+    _validate_json_value("x", {"type": ["string", "integer"], "minLength": 1})
 
 
 def test_json_schema_helper_rejects_nullable_union_mismatches() -> None:
