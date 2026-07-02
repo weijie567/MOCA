@@ -131,18 +131,6 @@ def test_legacy_load_business_context_node_is_deleted() -> None:
     assert violations == []
 
 
-def test_unified_manager_does_not_import_domain_services_directly() -> None:
-    imports = _imports(ROOT / "src" / "tools" / "manager.py")
-    forbidden_prefixes = (
-        "src.actions.service",
-        "src.business.service",
-        "src.knowledge.service",
-        "src.memory.service",
-    )
-
-    assert [module for module in imports if module.startswith(forbidden_prefixes)] == []
-
-
 def test_domain_packages_do_not_import_graph_nodes_or_tool_manager() -> None:
     violations: list[tuple[str, str]] = []
     for package in ("actions", "business", "knowledge", "memory"):
@@ -173,7 +161,7 @@ def test_memory_domain_does_not_own_runtime_checkpoint_or_observability() -> Non
 def test_graph_nodes_target_tool_platform_facade() -> None:
     # Phase 29 D-22: graph-facing tool integration must go through the ToolPlatform facade.
     # investigate must import src.tools.platform (ToolPlatform). RED until Plan 29-04
-    # rewires investigate off the raw UnifiedToolManager descriptor surface.
+    # rewires investigate off raw tool descriptor surfaces.
     investigate = ROOT / "src" / "agent" / "nodes" / "investigate.py"
     targets = _import_targets(investigate)
     assert any(

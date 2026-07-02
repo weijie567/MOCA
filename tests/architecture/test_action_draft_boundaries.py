@@ -6,7 +6,7 @@ from pathlib import Path
 
 from src.agent.working_state import project_working_state
 from src.tools.catalog import ToolCatalog
-from src.tools.manager import _side_effect_allowed
+from src.tools.policy import _side_effect_allowed
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -14,7 +14,7 @@ NODE_PATH = ROOT / "src" / "agent" / "nodes" / "action_draft.py"
 SHIM_PATH = ROOT / "src" / "agent" / "nodes" / "execute_action.py"
 CATALOG_PATH = ROOT / "src" / "tools" / "catalog.py"
 GRAPH_PATH = ROOT / "src" / "agent" / "graph.py"
-MANAGER_PATH = ROOT / "src" / "tools" / "manager.py"
+POLICY_PATH = ROOT / "src" / "tools" / "policy.py"
 SOURCE_ROOTS = (
     ROOT / "src" / "actions",
     ROOT / "src" / "agent",
@@ -106,7 +106,7 @@ def test_create_coupon_grant_draft_is_node_only_for_action_draft() -> None:
     assert _side_effect_allowed("action_draft", descriptor) is True
     assert _side_effect_allowed("execute_action", descriptor) is False
     assert 'caller_allowlist=("action_draft",)' in _source(CATALOG_PATH)
-    assert 'caller_node == "action_draft"' in _source(MANAGER_PATH)
+    assert 'caller_node == "action_draft"' in _source(POLICY_PATH)
 
 
 def test_graph_registers_canonical_action_draft_node_only() -> None:

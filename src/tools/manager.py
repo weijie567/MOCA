@@ -112,11 +112,3 @@ class UnifiedToolManager:
                     if isinstance(descriptor, ToolDescriptor) and descriptor.executor:
                         registry[descriptor.executor] = executor
         return registry
-
-
-def _side_effect_allowed(caller_node: str, descriptor: ToolDescriptor) -> bool:
-    if caller_node == "investigate":
-        return descriptor.kind != "write" and descriptor.side_effect in {"read_only", "retrieval"}
-    if caller_node == "action_draft":
-        return descriptor.kind == "write" and descriptor.side_effect == "write"
-    return descriptor.side_effect in {"none", "read_only", "retrieval"}
