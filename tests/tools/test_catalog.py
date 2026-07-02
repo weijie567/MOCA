@@ -73,6 +73,39 @@ def _descriptor(name: str) -> ToolDescriptor:
     return next(descriptor for descriptor in ToolCatalog().descriptors() if descriptor.name == name)
 
 
+def _valid_order_payload() -> dict[str, object]:
+    return {
+        "order_no": "ORD-1",
+        "merchant_id": "merchant-1",
+        "status": "paid",
+        "amount": "88.00",
+        "currency": "CNY",
+        "buyer_name": "buyer-1",
+        "item_name": "Refund protection package",
+        "paid_at": None,
+        "delivered_at": None,
+        "relation_hints": {
+            "has_active_refund": False,
+            "latest_refund_case_id": None,
+            "has_open_ticket": True,
+            "latest_ticket_id": "TICKET-1",
+        },
+    }
+
+
+def _valid_case_memory_item() -> dict[str, object]:
+    return {
+        "case_memory_id": "case-memory-1",
+        "excerpt": "Reviewed refund timeout precedent.",
+        "applicability": None,
+        "outcome": None,
+        "caveats": None,
+        "score": 0.91,
+        "policy_refs": [{"doc_key": "refund_policy", "chunk_id": "chunk-1"}],
+        "source_refs": [{"source_system": "demo_refunds_db", "resource_id": "REF-1"}],
+    }
+
+
 def test_catalog_registry_derives_identifier_schemas_without_drift() -> None:
     descriptors = ToolCatalog().descriptors()
 
@@ -228,6 +261,87 @@ def test_json_schema_helper_rejects_nullable_union_mismatches() -> None:
         _validate_json_value(123, {"type": ["string", "null"]})
     with pytest.raises((TypeError, ValueError)):
         _validate_json_value("", {"type": ["string", "null"], "minLength": 1})
+
+
+@pytest.mark.parametrize(
+    ("name", "payload"),
+    [
+        ("get_order", _valid_order_payload()),
+        (
+            "get_refund_case",
+            {
+                "refund_case_no": "REF-1",
+                "merchant_id": "merchant-1",
+                "status": "requested",
+                "reason_code": "late_delivery",
+                "reason_text": "Delivery was late",
+                "requested_amount": "20.00",
+                "approved_amount": None,
+            },
+        ),
+        (
+            "get_ticket",
+            {
+                "ticket_no": "TICKET-1",
+                "merchant_id": "merchant-1",
+                "status": "open",
+                "channel": "chat",
+                "summary": "Buyer asks for refund help",
+            },
+        ),
+        (
+            "search_policy",
+            {
+                "retrieval_status": "partial_evidence",
+                "best_score": 0.77,
+                "threshold": 0.65,
+                "summary": None,
+            },
+        ),
+        ("search_case_memory", {"items": [_valid_case_memory_item()]}),
+        ("get_logistics", {}),
+        ("get_merchant_risk", {}),
+        ("search_sop", {}),
+    ],
+)
+def test_output_schema_helper_accepts_current_tool_payloads(name: str, payload: dict[str, object]) -> None:
+    _validate_json_value(payload, _descriptor(name).output_schema)
+
+
+@pytest.mark.parametrize(
+    ("name", "payload"),
+    [
+        ("get_order", {**_valid_order_payload(), "raw_payload": {"secret": "must-not-pass"}}),
+        (
+            "get_ticket",
+            {
+                "ticket_no": "TICKET-1",
+                "merchant_id": "merchant-1",
+                "status": "open",
+                "channel": "chat",
+            },
+        ),
+        (
+            "search_policy",
+            {
+                "retrieval_status": "unsupported_status",
+                "best_score": 0.77,
+                "threshold": 0.65,
+                "summary": None,
+            },
+        ),
+        (
+            "search_case_memory",
+            {"items": [{**_valid_case_memory_item(), "raw_tool_payload": "must-not-pass"}]},
+        ),
+        ("get_logistics", {"tracking_no": "TRACK-1"}),
+        ("get_merchant_risk", {"merchant_id": "merchant-1"}),
+        ("search_sop", {"query": "refund sop"}),
+    ],
+)
+def test_output_schema_helper_rejects_invalid_tool_payloads(name: str, payload: dict[str, object]) -> None:
+    with pytest.raises((TypeError, ValueError)):
+        _validate_json_value(payload, _descriptor(name).output_schema)
 
 
 @pytest.mark.asyncio
