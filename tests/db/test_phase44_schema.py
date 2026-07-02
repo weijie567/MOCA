@@ -223,12 +223,23 @@ def _check_constraint_text(table_name: str) -> str:
     )
 
 
+def _constraint_names(table_name: str) -> set[str | None]:
+    return {constraint.name for constraint in Base.metadata.tables[table_name].constraints}
+
+
 def test_phase44_schema_metadata_declares_tables_and_audit_type() -> None:
     assert PHASE44_TABLES.issubset(Base.metadata.tables)
 
     assert "case_working_context" in _check_constraint_text("memory_write_events")
     assert "authority_class = 'contextual_only'" in _check_constraint_text("case_working_contexts")
     assert "version > 0" in _check_constraint_text("case_working_context_revisions")
+    assert "uq_refund_cases_id_tenant" in _constraint_names("refund_cases")
+    assert "uq_conversation_threads_id_tenant" in _constraint_names("conversation_threads")
+    assert "fk_thread_case_links_thread_tenant" in _constraint_names("thread_case_links")
+    assert "fk_thread_case_links_case_tenant" in _constraint_names("thread_case_links")
+    assert "fk_case_working_contexts_case_tenant" in _constraint_names("case_working_contexts")
+    assert "fk_cwc_revisions_context_tenant" in _constraint_names("case_working_context_revisions")
+    assert "fk_cwc_revisions_case_tenant" in _constraint_names("case_working_context_revisions")
     assert (
         MemoryPolicyDecision(
             memory_type="case_working_context",

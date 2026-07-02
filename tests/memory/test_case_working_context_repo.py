@@ -23,6 +23,7 @@ from src.memory.case_working_context_schemas import (
     CaseWorkingContextClaimV1,
     CaseWorkingContextCommitmentV1,
     CaseWorkingContextContentV1,
+    CaseWorkingContextEvidencePointerV1,
     CaseWorkingContextNextActionV1,
     CaseWorkingContextPolicyRefV1,
     CaseWorkingContextRecommendationV1,
@@ -125,7 +126,7 @@ def _content(source_ref: MemorySourceRefV1, *, customer_request: str = "用户�
             ),
         ],
         missing_info=["需要补充破损照片"],
-        evidence_refs=[{"ref_type": "tool_result", "tool_result_id": "tool-result-1"}],
+        evidence_refs=[CaseWorkingContextEvidencePointerV1(ref_type="tool_result", ref_id="tool-result-1")],
         actions_taken=[CaseWorkingContextActionTakenV1(action="查询退款单状态", source_ref=source_ref)],
         policy_refs=[CaseWorkingContextPolicyRefV1(doc_id="refund-policy", chunk_id="refund-policy#001", version="v1")],
         agent_recommendations=[
@@ -221,6 +222,36 @@ def test_schema_content_forbids_extra_keys_and_defaults_lists() -> None:
 
     with pytest.raises(ValidationError):
         CaseWorkingContextContentV1.model_validate({"unexpected": "forbidden"})
+
+
+def test_schema_evidence_refs_are_contextual_pointers_not_evidence_refs() -> None:
+    pointer = CaseWorkingContextEvidencePointerV1(
+        ref_type="tool_result",
+        ref_id="tool-result-1",
+        summary="退款单状态为 reviewing",
+        observed_at=datetime.now(UTC),
+    )
+
+    content = CaseWorkingContextContentV1(evidence_refs=[pointer])
+
+    assert content.evidence_refs[0].ref_type == "tool_result"
+    assert content.evidence_refs[0].ref_id == "tool-result-1"
+
+    for invalid_ref in (
+        {
+            "schema_version": "evidence_ref.v1",
+            "doc_id": "refund-policy",
+            "chunk_id": "refund-policy#001",
+            "quote": "policy body text",
+        },
+        {
+            "ref_type": "tool_result",
+            "ref_id": "tool-result-2",
+            "policy_body": "raw policy body must not be stored",
+        },
+    ):
+        with pytest.raises(ValidationError):
+            CaseWorkingContextContentV1.model_validate({"evidence_refs": [invalid_ref]})
 
 
 def test_schema_write_candidate_requires_scope_source_ref_and_content() -> None:

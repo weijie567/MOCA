@@ -36,6 +36,16 @@ def _timestamps() -> tuple[sa.Column, sa.Column]:
 
 
 def upgrade() -> None:
+    op.create_unique_constraint(
+        "uq_refund_cases_id_tenant",
+        "refund_cases",
+        ["id", "tenant_id"],
+    )
+    op.create_unique_constraint(
+        "uq_conversation_threads_id_tenant",
+        "conversation_threads",
+        ["id", "tenant_id"],
+    )
     op.create_table(
         "thread_case_links",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
@@ -56,6 +66,16 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "link_source IN ('run_auto', 'staff_manual', 'import')",
             name="ck_thread_case_links_link_source",
+        ),
+        sa.ForeignKeyConstraint(
+            ["conversation_thread_id", "tenant_id"],
+            ["conversation_threads.id", "conversation_threads.tenant_id"],
+            name="fk_thread_case_links_thread_tenant",
+        ),
+        sa.ForeignKeyConstraint(
+            ["case_id", "tenant_id"],
+            ["refund_cases.id", "refund_cases.tenant_id"],
+            name="fk_thread_case_links_case_tenant",
         ),
     )
     op.create_index("ix_thread_case_links_tenant_id", "thread_case_links", ["tenant_id"])
@@ -79,3 +99,5 @@ def downgrade() -> None:
     op.drop_index("ix_thread_case_links_tenant_case", table_name="thread_case_links")
     op.drop_index("ix_thread_case_links_tenant_id", table_name="thread_case_links")
     op.drop_table("thread_case_links")
+    op.drop_constraint("uq_conversation_threads_id_tenant", "conversation_threads", type_="unique")
+    op.drop_constraint("uq_refund_cases_id_tenant", "refund_cases", type_="unique")

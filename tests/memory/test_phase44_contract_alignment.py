@@ -64,6 +64,10 @@ def test_contract_spec_retains_red_line_table_names_and_cwc_audit_type() -> None
     assert "long_term_memories" in source
     assert "case_working_context" in section
     assert "memory_write_events" in section
+    assert (
+        "memory_write_events.memory_type in ('session_slot', 'long_term_fact', "
+        "'case_memory', 'case_working_context', 'none')"
+    ) in source
 
 
 def test_memory_redesign_decisions_preserve_defer_trace() -> None:

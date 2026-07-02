@@ -63,6 +63,22 @@ async def test_resolve_case_id_unknown_case_no_returns_not_found(
 
 
 @pytest.mark.asyncio
+async def test_resolve_case_id_unknown_uuid_returns_not_found_as_uuid(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    result = await resolve_case_id(
+        session,
+        tenant_id=seeded_session["tenant"].id,
+        raw_case_ref=str(uuid.uuid4()),
+    )
+
+    assert result.status == "not_found"
+    assert result.case_id is None
+    assert result.input_form == "uuid"
+
+
+@pytest.mark.asyncio
 async def test_resolve_case_id_blank_input_is_invalid_without_query(
     seeded_session: dict,
 ) -> None:

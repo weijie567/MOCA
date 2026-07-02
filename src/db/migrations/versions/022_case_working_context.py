@@ -125,6 +125,12 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint("version > 0", name="ck_case_working_contexts_version_positive"),
         sa.CheckConstraint(MEMORY_PII_CLASSIFICATION_CHECK, name="ck_case_working_contexts_pii_classification"),
+        sa.ForeignKeyConstraint(
+            ["case_id", "tenant_id"],
+            ["refund_cases.id", "refund_cases.tenant_id"],
+            name="fk_case_working_contexts_case_tenant",
+        ),
+        sa.UniqueConstraint("id", "tenant_id", name="uq_case_working_contexts_id_tenant"),
     )
     op.create_index("ix_case_working_contexts_tenant_id", "case_working_contexts", ["tenant_id"])
     op.create_index(
@@ -167,6 +173,16 @@ def upgrade() -> None:
             name="ck_cwc_revisions_edit_source",
         ),
         sa.CheckConstraint("version > 0", name="ck_cwc_revisions_version_positive"),
+        sa.ForeignKeyConstraint(
+            ["case_working_context_id", "tenant_id"],
+            ["case_working_contexts.id", "case_working_contexts.tenant_id"],
+            name="fk_cwc_revisions_context_tenant",
+        ),
+        sa.ForeignKeyConstraint(
+            ["case_id", "tenant_id"],
+            ["refund_cases.id", "refund_cases.tenant_id"],
+            name="fk_cwc_revisions_case_tenant",
+        ),
     )
     op.create_index(
         "uq_cwc_revisions_context_version",

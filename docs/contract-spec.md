@@ -2514,7 +2514,7 @@ Memory constraints / indexes：
 - check `confidence >= 0 and confidence <= 1`.
 - check `pii_classification in ('none', 'low', 'sensitive', 'prohibited')`; `prohibited` memories must not be inserted.
 - check `review_status in ('auto_approved', 'needs_review', 'approved', 'rejected', 'superseded', 'tombstoned', 'deleted')`.
-- check `memory_write_events.memory_type in ('session_slot', 'long_term_fact', 'case_memory', 'none')`；`memory_id` 是 application-level polymorphic reference，`memory_type=none` 时必须为空，其余类型由 MemoryService tests 验证 ID 指向同 tenant 的合法目标对象。
+- check `memory_write_events.memory_type in ('session_slot', 'long_term_fact', 'case_memory', 'case_working_context', 'none')`；`memory_id` 是 application-level polymorphic reference，`memory_type=none` 时必须为空，其余类型由 MemoryService tests 验证 ID 指向同 tenant 的合法目标对象。
 - long-term retrieval 使用 `deleted_at is null`、`is_current=true`、approved、not tombstoned/rejected/superseded/prohibited/expired；case retrieval 不使用 `is_current`，使用 append-only + approved、not deleted/tombstoned/rejected/prohibited/expired。Service contract tests 必须分别覆盖每种 exclusion。
 - long-term/case retrieval 与 candidate insert 前必须按第 13.5 节 tombstone identity 查询；命中则从 retrieval 排除或 skip/write_blocked，并写 `memory_write_event(reason_code=tombstone_match)`，异步 writer 不得重建已删除内容。
 - Long-term memory tombstone 按 `(tenant_id, memory_type='long_term_fact', scope_type, scope_id, content_hash)` 精确匹配；`content_hash is null` 时按 validated `source_ref_json` 匹配来源对象/事件并阻止其派生候选。

@@ -18,6 +18,7 @@ from src.memory.case_working_context_schemas import (
     CaseWorkingContextClaimV1,
     CaseWorkingContextCommitmentV1,
     CaseWorkingContextContentV1,
+    CaseWorkingContextEvidencePointerV1,
     CaseWorkingContextNextActionV1,
     CaseWorkingContextPolicyRefV1,
     CaseWorkingContextRecommendationV1,
@@ -119,7 +120,7 @@ def _content(source_ref: MemorySourceRefV1, *, customer_request: str = "用户�
             )
         ],
         missing_info=["需要补充破损照片"],
-        evidence_refs=[{"ref_type": "tool_result", "tool_result_id": "tool-result-1"}],
+        evidence_refs=[CaseWorkingContextEvidencePointerV1(ref_type="tool_result", ref_id="tool-result-1")],
         actions_taken=[CaseWorkingContextActionTakenV1(action="查询退款单状态", source_ref=source_ref)],
         policy_refs=[CaseWorkingContextPolicyRefV1(doc_id="refund-policy", chunk_id="refund-policy#001", version="v1")],
         agent_recommendations=[
@@ -185,6 +186,7 @@ async def test_service_rejects_missing_scope_source_ref_and_run_id_before_db_wri
             (candidate.model_copy(update={"tenant_id": None}), uuid.uuid4()),
             (candidate.model_copy(update={"case_id": None}), uuid.uuid4()),
             (candidate.model_copy(update={"source_ref": None}), uuid.uuid4()),
+            (candidate.model_copy(update={"updated_by_run_id": uuid.uuid4()}), uuid.uuid4()),
             (candidate, None),
         ):
             with pytest.raises(ValueError):
@@ -194,6 +196,56 @@ async def test_service_rejects_missing_scope_source_ref_and_run_id_before_db_wri
                     run_id=run_id,  # type: ignore[arg-type]
                 )
 
+        event_count = await session.scalar(select(func.count()).select_from(MemoryWriteEvent))
+        cwc_count = await session.scalar(select(func.count()).select_from(CaseWorkingContext))
+
+    assert event_count == 0
+    assert cwc_count == 0
+
+
+@pytest.mark.asyncio
+async def test_service_rejects_cross_tenant_case_without_event_or_row(phase44_session_factory) -> None:
+    async with phase44_session_factory() as session:
+        async with session.begin():
+            scope = await _seed_case_scope(session)
+            other_scope = await _seed_case_scope(session)
+
+    async with phase44_session_factory() as session:
+        source_ref = _source_ref(agent_run_id=str(scope["run"].id), business_object_id=str(other_scope["refund_case"].id))
+        candidate = _candidate(scope, content=_content(source_ref), source_ref=source_ref).model_copy(
+            update={"case_id": other_scope["refund_case"].id}
+        )
+
+        with pytest.raises(ValueError, match="case_id does not belong to tenant"):
+            await service_module.CaseWorkingContextService().write_case_working_context(
+                session,
+                candidate,
+                run_id=scope["run"].id,
+            )
+        event_count = await session.scalar(select(func.count()).select_from(MemoryWriteEvent))
+        cwc_count = await session.scalar(select(func.count()).select_from(CaseWorkingContext))
+
+    assert event_count == 0
+    assert cwc_count == 0
+
+
+@pytest.mark.asyncio
+async def test_service_rejects_cross_tenant_run_without_event_or_row(phase44_session_factory) -> None:
+    async with phase44_session_factory() as session:
+        async with session.begin():
+            scope = await _seed_case_scope(session)
+            other_scope = await _seed_case_scope(session)
+
+    async with phase44_session_factory() as session:
+        source_ref = _source_ref(agent_run_id=str(other_scope["run"].id), business_object_id=str(scope["refund_case"].id))
+        candidate = _candidate(scope, content=_content(source_ref), source_ref=source_ref, updated_by_run_id=None)
+
+        with pytest.raises(ValueError, match="run_id does not belong to tenant"):
+            await service_module.CaseWorkingContextService().write_case_working_context(
+                session,
+                candidate,
+                run_id=other_scope["run"].id,
+            )
         event_count = await session.scalar(select(func.count()).select_from(MemoryWriteEvent))
         cwc_count = await session.scalar(select(func.count()).select_from(CaseWorkingContext))
 

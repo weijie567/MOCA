@@ -5,9 +5,10 @@ import uuid
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import MemoryWriteEvent
+from src.db.models import AgentRun, MemoryWriteEvent, RefundCase
 from src.memory.case_working_context import CaseWorkingContextRepository
 from src.memory.case_working_context_schemas import CaseWorkingContextWriteCandidate
 from src.memory.identity import (
@@ -54,6 +55,16 @@ class CaseWorkingContextService:
             if write_candidate.updated_by_run_id is None:
                 write_candidate = write_candidate.model_copy(update={"updated_by_run_id": run_id})
 
+            await _assert_run_belongs_to_tenant(
+                child_session,
+                tenant_id=write_candidate.tenant_id,
+                run_id=run_id,
+            )
+            await _assert_case_belongs_to_tenant(
+                child_session,
+                tenant_id=write_candidate.tenant_id,
+                case_id=write_candidate.case_id,
+            )
             source_ref_json = write_candidate.source_ref.model_dump(mode="json", exclude_none=True)
             source_identity_hash = canonical_source_identity_hash(source_ref_json)
             candidate_hash = _candidate_hash(
@@ -147,6 +158,40 @@ def _validate_write_inputs(
         raise ValueError("candidate.source_ref is required")
     if run_id is None:
         raise ValueError("run_id is required")
+    if candidate.updated_by_run_id is not None and candidate.updated_by_run_id != run_id:
+        raise ValueError("candidate.updated_by_run_id must match run_id")
+
+
+async def _assert_run_belongs_to_tenant(
+    session: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    run_id: uuid.UUID,
+) -> None:
+    result = await session.execute(
+        select(AgentRun.id).where(
+            AgentRun.id == run_id,
+            AgentRun.tenant_id == tenant_id,
+        )
+    )
+    if result.scalar_one_or_none() is None:
+        raise ValueError("run_id does not belong to tenant")
+
+
+async def _assert_case_belongs_to_tenant(
+    session: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    case_id: uuid.UUID,
+) -> None:
+    result = await session.execute(
+        select(RefundCase.id).where(
+            RefundCase.id == case_id,
+            RefundCase.tenant_id == tenant_id,
+        )
+    )
+    if result.scalar_one_or_none() is None:
+        raise ValueError("case_id does not belong to tenant")
 
 
 def _candidate_hash(

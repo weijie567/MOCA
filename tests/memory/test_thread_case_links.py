@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal
 import uuid
@@ -237,6 +238,109 @@ async def test_link_thread_to_case_rejects_unknown_link_source_before_insert(pha
 
 
 @pytest.mark.asyncio
+async def test_link_thread_to_case_rejects_cross_tenant_case(phase44_session_factory) -> None:
+    async with phase44_session_factory() as session:
+        async with session.begin():
+            scope = await _seed_link_scope(session)
+            other_scope = await _seed_link_scope(session)
+            thread = await ConversationRepository(session).get_or_create_thread(
+                tenant_id=scope["tenant"].id,
+                user_id=scope["user"].id,
+                thread_id="phase44-link-cross-tenant-case",
+            )
+            repository = ThreadCaseLinkRepository(session)
+
+            with pytest.raises(ValueError, match="case_id does not belong to tenant"):
+                await repository.link_thread_to_case(
+                    tenant_id=scope["tenant"].id,
+                    conversation_thread_id=thread.id,
+                    thread_id=thread.thread_id,
+                    case_id=other_scope["first_case"].id,
+                    link_source="run_auto",
+                    linked_by_run_id=scope["run"].id,
+                )
+            active_count = await session.scalar(select(func.count()).select_from(ThreadCaseLink))
+
+    assert active_count == 0
+
+
+@pytest.mark.asyncio
+async def test_link_thread_to_case_rejects_cross_tenant_thread(phase44_session_factory) -> None:
+    async with phase44_session_factory() as session:
+        async with session.begin():
+            scope = await _seed_link_scope(session)
+            other_scope = await _seed_link_scope(session)
+            other_thread = await ConversationRepository(session).get_or_create_thread(
+                tenant_id=other_scope["tenant"].id,
+                user_id=other_scope["user"].id,
+                thread_id="phase44-link-cross-tenant-thread",
+            )
+            repository = ThreadCaseLinkRepository(session)
+
+            with pytest.raises(ValueError, match="conversation_thread_id does not belong to tenant"):
+                await repository.link_thread_to_case(
+                    tenant_id=scope["tenant"].id,
+                    conversation_thread_id=other_thread.id,
+                    thread_id=other_thread.thread_id,
+                    case_id=scope["first_case"].id,
+                    link_source="run_auto",
+                    linked_by_run_id=scope["run"].id,
+                )
+            active_count = await session.scalar(select(func.count()).select_from(ThreadCaseLink))
+
+    assert active_count == 0
+
+
+@pytest.mark.asyncio
+async def test_link_thread_to_case_concurrent_first_writes_are_idempotent(phase44_session_factory) -> None:
+    async with phase44_session_factory() as session:
+        async with session.begin():
+            scope = await _seed_link_scope(session)
+            thread = await ConversationRepository(session).get_or_create_thread(
+                tenant_id=scope["tenant"].id,
+                user_id=scope["user"].id,
+                thread_id="phase44-link-concurrent",
+            )
+
+    async def write_once() -> uuid.UUID:
+        async with phase44_session_factory() as session:
+            async with session.begin():
+                link = await ThreadCaseLinkRepository(session).link_thread_to_case(
+                    tenant_id=scope["tenant"].id,
+                    conversation_thread_id=thread.id,
+                    thread_id="spoofed-thread-id-is-ignored",
+                    case_id=scope["first_case"].id,
+                    link_source="run_auto",
+                    linked_by_run_id=scope["run"].id,
+                )
+                return link.id
+
+    first_id, second_id = await asyncio.gather(write_once(), write_once())
+
+    async with phase44_session_factory() as session:
+        active_count = await session.scalar(
+            select(func.count())
+            .select_from(ThreadCaseLink)
+            .where(
+                ThreadCaseLink.tenant_id == scope["tenant"].id,
+                ThreadCaseLink.conversation_thread_id == thread.id,
+                ThreadCaseLink.case_id == scope["first_case"].id,
+                ThreadCaseLink.deleted_at.is_(None),
+            )
+        )
+        link = await ThreadCaseLinkRepository(session)._get_active_link(
+            tenant_id=scope["tenant"].id,
+            conversation_thread_id=thread.id,
+            case_id=scope["first_case"].id,
+        )
+
+    assert first_id == second_id
+    assert active_count == 1
+    assert link is not None
+    assert link.thread_id == thread.thread_id
+
+
+@pytest.mark.asyncio
 async def test_conversation_link_case_is_explicit_and_deduped(phase44_session_factory) -> None:
     async with phase44_session_factory() as session:
         async with session.begin():
@@ -290,3 +394,25 @@ async def test_conversation_link_case_is_explicit_and_deduped(phase44_session_fa
     assert active_count == 1
     assert thread is not None
     assert first.conversation_thread_id == thread.id
+
+
+@pytest.mark.asyncio
+async def test_conversation_link_case_rejects_cross_tenant_case(phase44_session_factory) -> None:
+    async with phase44_session_factory() as session:
+        async with session.begin():
+            scope = await _seed_link_scope(session)
+            other_scope = await _seed_link_scope(session)
+            repository = ConversationRepository(session)
+
+            with pytest.raises(ValueError, match="case_id does not belong to tenant"):
+                await repository.link_case(
+                    tenant_id=scope["tenant"].id,
+                    user_id=scope["user"].id,
+                    thread_id="phase44-explicit-link-cross-tenant",
+                    case_id=other_scope["first_case"].id,
+                    link_source="run_auto",
+                    linked_by_run_id=scope["run"].id,
+                )
+            active_count = await session.scalar(select(func.count()).select_from(ThreadCaseLink))
+
+    assert active_count == 0

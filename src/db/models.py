@@ -157,6 +157,7 @@ class Order(TimestampMixin, Base):
 
 class RefundCase(TimestampMixin, Base):
     __tablename__ = "refund_cases"
+    __table_args__ = (UniqueConstraint("id", "tenant_id", name="uq_refund_cases_id_tenant"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -582,6 +583,12 @@ Index(
 class CaseWorkingContext(TimestampMixin, Base):
     __tablename__ = "case_working_contexts"
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["case_id", "tenant_id"],
+            ["refund_cases.id", "refund_cases.tenant_id"],
+            name="fk_case_working_contexts_case_tenant",
+        ),
+        UniqueConstraint("id", "tenant_id", name="uq_case_working_contexts_id_tenant"),
         CheckConstraint(
             "authority_class = 'contextual_only'",
             name="ck_case_working_contexts_authority_class",
@@ -653,6 +660,16 @@ Index(
 class CaseWorkingContextRevision(Base):
     __tablename__ = "case_working_context_revisions"
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["case_working_context_id", "tenant_id"],
+            ["case_working_contexts.id", "case_working_contexts.tenant_id"],
+            name="fk_cwc_revisions_context_tenant",
+        ),
+        ForeignKeyConstraint(
+            ["case_id", "tenant_id"],
+            ["refund_cases.id", "refund_cases.tenant_id"],
+            name="fk_cwc_revisions_case_tenant",
+        ),
         CheckConstraint(
             "edit_source IN ('run_auto', 'staff_manual')",
             name="ck_cwc_revisions_edit_source",
@@ -1194,7 +1211,10 @@ class AgentStep(TimestampMixin, Base):
 
 class ConversationThread(TimestampMixin, Base):
     __tablename__ = "conversation_threads"
-    __table_args__ = (CheckConstraint("status IN ('active', 'archived')", name="ck_conversation_threads_status"),)
+    __table_args__ = (
+        CheckConstraint("status IN ('active', 'archived')", name="ck_conversation_threads_status"),
+        UniqueConstraint("id", "tenant_id", name="uq_conversation_threads_id_tenant"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -1237,6 +1257,16 @@ class ThreadCaseLink(TimestampMixin, Base):
         CheckConstraint(
             "link_source IN ('run_auto', 'staff_manual', 'import')",
             name="ck_thread_case_links_link_source",
+        ),
+        ForeignKeyConstraint(
+            ["conversation_thread_id", "tenant_id"],
+            ["conversation_threads.id", "conversation_threads.tenant_id"],
+            name="fk_thread_case_links_thread_tenant",
+        ),
+        ForeignKeyConstraint(
+            ["case_id", "tenant_id"],
+            ["refund_cases.id", "refund_cases.tenant_id"],
+            name="fk_thread_case_links_case_tenant",
         ),
     )
 

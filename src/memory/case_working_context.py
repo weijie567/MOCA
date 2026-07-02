@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import CaseWorkingContext, CaseWorkingContextRevision
+from src.db.models import CaseWorkingContext, CaseWorkingContextRevision, RefundCase
 from src.memory.case_working_context_schemas import (
     CaseWorkingContextContentV1,
     CaseWorkingContextWriteCandidate,
@@ -62,6 +62,7 @@ class CaseWorkingContextRepository:
         self,
         candidate: CaseWorkingContextWriteCandidate,
     ) -> CaseWorkingContextWriteResult:
+        await self._assert_case_belongs_to_tenant(tenant_id=candidate.tenant_id, case_id=candidate.case_id)
         await self._lock_case_scope(tenant_id=candidate.tenant_id, case_id=candidate.case_id)
         row = await self._read_active_for_update(tenant_id=candidate.tenant_id, case_id=candidate.case_id)
         source_ref_json = _source_ref_json(candidate)
@@ -140,6 +141,16 @@ class CaseWorkingContextRepository:
     async def _lock_case_scope(self, *, tenant_id: uuid.UUID, case_id: uuid.UUID) -> None:
         lock_key = _case_scope_lock_key(tenant_id=tenant_id, case_id=case_id)
         await self.session.execute(select(func.pg_advisory_xact_lock(lock_key)))
+
+    async def _assert_case_belongs_to_tenant(self, *, tenant_id: uuid.UUID, case_id: uuid.UUID) -> None:
+        result = await self.session.execute(
+            select(RefundCase.id).where(
+                RefundCase.id == case_id,
+                RefundCase.tenant_id == tenant_id,
+            )
+        )
+        if result.scalar_one_or_none() is None:
+            raise ValueError("case_id does not belong to tenant")
 
 
 def dehydrate_content(content: CaseWorkingContextContentV1) -> dict[str, Any]:

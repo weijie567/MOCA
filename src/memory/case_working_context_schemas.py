@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Literal
 import uuid
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -48,6 +48,15 @@ class CaseWorkingContextPolicyRefV1(BaseModel):
     version: str
 
 
+class CaseWorkingContextEvidencePointerV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ref_type: Literal["tool_result", "conversation_message", "business_fact_summary"]
+    ref_id: str
+    summary: str | None = None
+    observed_at: datetime | None = None
+
+
 class CaseWorkingContextRecommendationV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -71,7 +80,7 @@ class CaseWorkingContextContentV1(BaseModel):
     claims: list[CaseWorkingContextClaimV1] = Field(default_factory=list)
     verified_facts: list[CaseWorkingContextVerifiedFactV1] = Field(default_factory=list)
     missing_info: list[str] = Field(default_factory=list)
-    evidence_refs: list[dict[str, Any]] = Field(default_factory=list)
+    evidence_refs: list[CaseWorkingContextEvidencePointerV1] = Field(default_factory=list)
     actions_taken: list[CaseWorkingContextActionTakenV1] = Field(default_factory=list)
     policy_refs: list[CaseWorkingContextPolicyRefV1] = Field(default_factory=list)
     agent_recommendations: list[CaseWorkingContextRecommendationV1] = Field(default_factory=list)

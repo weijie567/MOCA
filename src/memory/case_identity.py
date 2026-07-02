@@ -41,6 +41,7 @@ async def resolve_case_id(
         refund_case = result.scalar_one_or_none()
         if refund_case is not None:
             return CaseIdentityResult(status="resolved", case_id=refund_case.id, input_form="uuid")
+        return CaseIdentityResult(status="not_found", case_id=None, input_form="uuid")
 
     refund_case = await RefundRepository(session).get_by_case_no(stripped, tenant_id)
     if refund_case is not None:

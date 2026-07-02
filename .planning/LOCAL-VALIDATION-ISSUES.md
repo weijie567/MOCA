@@ -1,5 +1,62 @@
 # 本地验证问题记录
 
+## 17. Phase 44 post-review 修复验证并行跑 DB pytest 导致 schema 互撞
+
+日期：2026-07-03
+
+### 问题现象
+
+修复 Phase 44 code review 问题后，为节省时间同时启动多个 DB-backed pytest：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_case_identity.py -q
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_case_working_context_repo.py -q
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_case_working_context_service.py -q
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_thread_case_links.py -q
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/db/test_phase44_schema.py tests/memory/test_phase44_contract_alignment.py -q
+```
+
+多进程同时重建同一个 `moca_test` schema，导致测试 setup 阶段出现 `tenants` type 已存在、`agent_runs` 不存在、drop table deadlock 等错误。
+
+### 如何检测 / 复现
+
+并行运行上述多个 DB-backed pytest 命令即可复现。错误不稳定，取决于哪个测试进程先执行 `Base.metadata.drop_all/create_all` 或 migration reset。
+
+### 关键证据或命令
+
+失败输出核心包括：
+
+```text
+asyncpg.exceptions.UniqueViolationError: duplicate key value violates unique constraint "pg_type_typname_nsp_index"
+DETAIL: Key (typname, typnamespace)=(tenants, ...) already exists.
+
+asyncpg.exceptions.UndefinedTableError: relation "agent_runs" does not exist
+
+asyncpg.exceptions.DeadlockDetectedError: deadlock detected
+```
+
+### 当前判断 / 根因
+
+这是本地验证入口编排错误，不是 Phase 44 实现失败。相关测试 fixture 都会重建同一个 PostgreSQL 测试库 schema；多个 DB-backed pytest 进程并发执行会互相删除/创建表。
+
+### 已做处理
+
+改为串行运行完整 Phase 44 surface：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_case_identity.py tests/memory/test_case_working_context_repo.py tests/memory/test_case_working_context_service.py tests/memory/test_thread_case_links.py tests/db/test_phase44_schema.py tests/memory/test_phase44_contract_alignment.py -x -q
+```
+
+结果：`45 passed, 5 warnings`。
+
+### 剩余问题
+
+Phase 44 DB-backed pytest 不能在同一个 `moca_test` schema 上跨进程并行跑。若未来需要并行，需要为每个进程分配独立 test database/schema，或把这类测试统一串行。
+
+### 下次继续排查入口
+
+优先检查各测试文件中的 `phase44_session_factory` 和 `tests/conftest.py` 的 test database reset 逻辑；本地验证命令应保持单进程串行。
+
 ## 16. Phase 44 execute-phase 复现 `state.begin-phase` flag 解析写坏 STATE
 
 日期：2026-07-03
