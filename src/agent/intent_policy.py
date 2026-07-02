@@ -780,7 +780,7 @@ def build_task_plan(
         if len(steps) >= TASK_PLAN_MAX_STEPS:
             return _fallback_task_plan(semantic, entities, normalization)
 
-        step_operation = _operation_for_selected_intent(raw_intent, requested_operation or semantic.operation)
+        step_operation = _operation_for_task_step(raw_intent, requested_operation or semantic.operation)
         relation = _relation_for_task_step(root.operation, step_operation)
         step = TaskStep(
             step_id=f"s{len(steps) + 1}",
@@ -885,6 +885,13 @@ def _relation_for_task_step(
     }:
         return "dependency"
     return "parallel"
+
+
+def _operation_for_task_step(intent: str, requested_operation: str) -> RequestedOperationLiteral:
+    operation = _valid_operation(requested_operation)
+    if intent == "action_request" and operation in {"read_status", "advise"}:
+        return "execute_action"
+    return _operation_for_selected_intent(intent, requested_operation)
 
 
 def _plain_policy_payload(value: Any) -> Any:

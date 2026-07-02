@@ -16,6 +16,8 @@ async def test_receive_request_resets_ephemeral(base_state):
         "intent_confidence": 0.99,
         "risk_tier": "read_only",
         "classification_trace": {"old": "trace"},
+        "task_plan": {"steps": [{"step_id": "s1"}], "terminal_step_id": "s1"},
+        "deferred_steps": [{"step_id": "s2", "intent": "ticket_reply_draft"}],
         "target_merchant_context": {"status": "resolved", "source": "spoofed"},
         "active_flow_state": {"old": "flow"},
         "secondary_intents": ["policy_qa"],
@@ -38,6 +40,8 @@ async def test_receive_request_resets_ephemeral(base_state):
     assert result["intent_confidence"] is None
     assert result["risk_tier"] is None
     assert result["classification_trace"] is None
+    assert result["task_plan"] is None
+    assert result["deferred_steps"] == []
     assert result["target_merchant_context"] is None
     assert result["active_flow_state"] is None
     assert result["secondary_intents"] == []
@@ -166,6 +170,13 @@ def test_agent_state_declares_session_context_target_fields():
 
 def test_agent_state_declares_target_merchant_context_field():
     assert "target_merchant_context" in AgentState.__annotations__
+
+
+def test_agent_state_declares_task_plan_fields():
+    annotations = AgentState.__annotations__
+
+    assert "task_plan" in annotations
+    assert "deferred_steps" in annotations
 
 
 def test_agent_state_declares_rag_verifier_fields():

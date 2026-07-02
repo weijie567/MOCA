@@ -7,7 +7,7 @@ from tests.agent.conftest import FakeLLM
 
 from src.agent.nodes import classify_intent as classify_intent_module
 from src.agent.nodes.classify_intent import intent_result_to_state
-from src.agent.intent_policy import RiskDecision
+from src.agent.intent_policy import PreRouteDecision, RiskDecision
 from src.agent.schemas import IntentResultV3, RequiredSlotExpression
 
 
@@ -51,6 +51,17 @@ async def test_classify_intent_success(monkeypatch, base_state, fake_llm_intent)
     assert result["classification_trace"]["risk_decision"]["tier"] == "read_only"
     assert result["classification_trace"]["clarification_decision"]["threshold_applied"] == 0.65
     assert result["required_slots"]["any_of"] == [["order_id", "refund_case_id"]]
+    assert result["task_plan"] == result["classification_trace"]["task_plan"]
+    assert result["task_plan"]["steps"][0]["step_id"] == "s1"
+    assert result["task_plan"]["steps"][0]["intent"] == "refund_troubleshooting"
+    assert result["classification_trace"]["executable_prefix"] == ["s1"]
+    assert result["classification_trace"]["deferred_steps"] == []
+    assert result["classification_trace"]["plan_normalization"] == []
+    assert result["deferred_steps"] == []
+    assert (
+        result["llm_outputs"]["intent_classification"]["classification_trace"]
+        == result["classification_trace"]
+    )
 
 
 @pytest.mark.asyncio
@@ -142,6 +153,127 @@ def test_intent_result_to_state_uses_intent_policy_registry_for_precedence_and_r
     assert "fake_registry_precedence" in update["classification_trace"]["reason_codes"]
 
 
+def test_intent_result_to_state_serializes_task_plan_trace_and_state():
+    result = IntentResultV3.model_validate(
+        _intent_v3(
+            primary_intent="order_status_inquiry",
+            requested_operation="read_status",
+            secondary_intents=["policy_qa"],
+            candidate_slots={"order_id": "ORD-001"},
+        )
+    )
+
+    update = intent_result_to_state(result, user_query="查订单状态，同时看政策")
+    trace = update["classification_trace"]
+
+    assert update["primary_intent"] == "order_status_inquiry"
+    assert update["requested_operation"] == "read_status"
+    assert trace["task_plan"] == update["task_plan"]
+    assert [step["step_id"] for step in update["task_plan"]["steps"]] == ["s1", "s2"]
+    assert update["task_plan"]["steps"][0]["intent"] == "order_status_inquiry"
+    assert update["task_plan"]["steps"][1]["intent"] == "policy_qa"
+    assert trace["executable_prefix"] == ["s1"]
+    assert trace["deferred_steps"] == [update["task_plan"]["steps"][1]]
+    assert update["deferred_steps"] == trace["deferred_steps"]
+    assert trace["plan_normalization"] == []
+    assert update["llm_outputs"]["intent_classification"]["classification_trace"] == trace
+
+
+def test_multi_target_request_is_neutralized_only_after_valid_task_plan():
+    result = IntentResultV3.model_validate(
+        _intent_v3(
+            primary_intent="order_status_inquiry",
+            requested_operation="read_status",
+            secondary_intents=["policy_qa"],
+            candidate_slots={"order_id": "ORD-001"},
+        )
+    )
+    pre_route = PreRouteDecision(
+        disposition="multi_target_request",
+        reason_codes=["multi_target_request"],
+        requires_clarification=True,
+    )
+
+    update = intent_result_to_state(result, pre_route=pre_route, user_query="查订单状态，同时看政策")
+    trace = update["classification_trace"]
+
+    assert update["primary_intent"] == "order_status_inquiry"
+    assert trace["pre_route_decision"]["disposition"] == "multi_target_request"
+    assert trace["pre_route_decision"]["requires_clarification"] is True
+    assert update["routing_hints"]["pre_route_disposition"] == "multi_target_request"
+    assert "requires_clarification" not in update["routing_hints"]
+    assert "clarification_reason" not in update["routing_hints"]
+    assert trace["clarification_decision"]["requires_clarification"] is False
+    assert trace["route_decision"] == "session_memory_load"
+    assert trace["executable_prefix"] == ["s1"]
+    assert [step["intent"] for step in update["deferred_steps"]] == ["policy_qa"]
+
+
+def test_high_risk_secondary_step_is_deferred_not_executed():
+    result = IntentResultV3.model_validate(
+        _intent_v3(
+            primary_intent="order_status_inquiry",
+            requested_operation="read_status",
+            secondary_intents=["action_request"],
+            candidate_slots={"order_id": "ORD-001", "action_type": "refund"},
+        )
+    )
+
+    update = intent_result_to_state(result, user_query="查订单状态，再处理退款")
+    trace = update["classification_trace"]
+
+    assert update["primary_intent"] == "order_status_inquiry"
+    assert update["requested_operation"] == "read_status"
+    assert trace["executable_prefix"] == ["s1"]
+    assert update["deferred_steps"][0]["intent"] == "action_request"
+    assert update["deferred_steps"][0]["operation"] == "execute_action"
+    for forbidden_key in ("proposed_action", "action_draft", "approval_result", "action_result"):
+        assert forbidden_key not in update
+
+
+def test_non_read_only_s1_remains_effective_without_action_state():
+    result = IntentResultV3.model_validate(
+        _intent_v3(
+            primary_intent="compensation_suggestion",
+            requested_operation="draft_action",
+            secondary_intents=["policy_qa"],
+            candidate_slots={"order_id": "ORD-001", "action_type": "coupon"},
+        )
+    )
+
+    update = intent_result_to_state(result, user_query="给补偿券，同时看政策")
+    trace = update["classification_trace"]
+
+    assert update["primary_intent"] == "compensation_suggestion"
+    assert update["requested_operation"] == "draft_action"
+    assert update["risk_tier"] == "suggest_action"
+    assert trace["executable_prefix"] == []
+    assert trace["deferred_steps"][0]["intent"] == "policy_qa"
+    assert trace["effective_classification"]["primary_intent"] == "compensation_suggestion"
+    for forbidden_key in ("proposed_action", "action_draft", "approval_result", "action_result"):
+        assert forbidden_key not in update
+
+
+def test_two_read_step_plan_keeps_second_read_deferred():
+    result = IntentResultV3.model_validate(
+        _intent_v3(
+            primary_intent="order_status_inquiry",
+            requested_operation="read_status",
+            secondary_intents=["policy_qa"],
+            candidate_slots={"order_id": "ORD-001"},
+        )
+    )
+
+    update = intent_result_to_state(result, user_query="查订单状态，也看退款政策")
+    trace = update["classification_trace"]
+
+    assert update["primary_intent"] == "order_status_inquiry"
+    assert trace["executable_prefix"] == ["s1"]
+    assert trace["task_plan"]["steps"][1]["intent"] == "policy_qa"
+    assert trace["task_plan"]["steps"][1]["operation"] == "read_status"
+    assert update["deferred_steps"] == [trace["task_plan"]["steps"][1]]
+
+
 @pytest.mark.asyncio
 async def test_approval_chat_pre_route_overrides_llm(monkeypatch, base_state):
     monkeypatch.setattr(classify_intent_module, "_get_llm", lambda: FakeLLM(_intent_v3(primary_intent="policy_qa")))
@@ -157,6 +289,33 @@ async def test_approval_chat_pre_route_overrides_llm(monkeypatch, base_state):
     assert result["routing_hints"]["clarification_reason"] == "approval_chat_not_trusted"
     assert "approval_result" not in result
     assert "resume" not in result
+
+
+@pytest.mark.asyncio
+async def test_safety_sensitive_pre_route_still_applies_existing_risk(monkeypatch, base_state):
+    monkeypatch.setattr(
+        classify_intent_module,
+        "_get_llm",
+        lambda: FakeLLM(
+            _intent_v3(
+                primary_intent="order_status_inquiry",
+                requested_operation="read_status",
+                candidate_slots={"order_id": "ORD-001", "action_type": "refund"},
+            )
+        ),
+    )
+
+    result = await classify_intent_module.classify_intent({**base_state, "user_query": "直接退款 ORD-001"})
+
+    assert result["primary_intent"] == "action_request"
+    assert result["requested_operation"] == "execute_action"
+    assert result["risk_tier"] == "approval_required"
+    assert result["routing_hints"]["pre_route_disposition"] == "safety_sensitive"
+    assert result["classification_trace"]["pre_route_decision"]["disposition"] == "safety_sensitive"
+    assert result["classification_trace"]["executable_prefix"] == []
+    assert result["deferred_steps"] == []
+    for forbidden_key in ("proposed_action", "action_draft", "approval_result", "action_result"):
+        assert forbidden_key not in result
 
 
 @pytest.mark.asyncio

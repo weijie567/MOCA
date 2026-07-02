@@ -15,9 +15,13 @@ from src.agent.intent_policy import (
     SLOT_POLICY_REGISTRY,
     SemanticIntent,
     PreRouteDecision,
+    build_task_plan,
     decide_clarification,
     derive_keyword_signals,
     detect_pre_route,
+    select_executable_prefix,
+    task_plan_payload,
+    task_steps_payload,
 )
 from src.agent.prompts import CLASSIFY_INTENT_SYSTEM
 from src.agent.schemas import IntentResultV3, RequiredSlotExpression
@@ -312,6 +316,26 @@ def _classify_layers(
     return semantic, risk_decision, clarification_decision
 
 
+def _pre_route_for_task_plan(
+    pre_route: PreRouteDecision | None,
+    *,
+    step_count: int,
+    normalization: tuple[str, ...],
+) -> PreRouteDecision | None:
+    if pre_route is None or pre_route.disposition != "multi_target_request":
+        return pre_route
+    plan_valid = "plan_invalid_fallback_single" not in normalization
+    plan_handled_multiple_requests = step_count > 1 or bool(normalization)
+    if not plan_valid or not plan_handled_multiple_requests:
+        return pre_route
+    return PreRouteDecision(
+        disposition=pre_route.disposition,
+        requested_operation=pre_route.requested_operation,
+        reason_codes=list(pre_route.reason_codes),
+        requires_clarification=False,
+    )
+
+
 def intent_result_to_state(
     result: IntentResultV3,
     prior_llm_outputs: dict[str, Any] | None = None,
@@ -322,8 +346,28 @@ def intent_result_to_state(
 ) -> dict[str, Any]:
     semantic_before_pre_route = _semantic_from_llm_result(result, user_query)
     semantic, pre_route_overrides = _apply_pre_route_to_semantic(semantic_before_pre_route, pre_route)
-    primary_intent = semantic.intent
-    requested_operation = semantic.operation
+    task_plan, plan_normalization = build_task_plan(
+        semantic,
+        secondary_intents=[str(intent) for intent in result.secondary_intents],
+        requested_operation=result.requested_operation,
+        candidate_slots=result.candidate_slots,
+    )
+    task_pre_route = _pre_route_for_task_plan(
+        pre_route,
+        step_count=len(task_plan.steps),
+        normalization=plan_normalization,
+    )
+    root_step = task_plan.steps[0]
+    primary_intent = root_step.intent
+    requested_operation = root_step.operation
+    semantic = SemanticIntent(
+        intent=primary_intent,
+        operation=requested_operation,
+        entities=root_step.entities,
+        raw_confidence=semantic.raw_confidence,
+        keyword_signals=semantic.keyword_signals,
+        arbitration=semantic.arbitration,
+    )
     policy_overrides: list[dict[str, Any]] = []
     if (semantic_before_pre_route.intent, semantic_before_pre_route.operation) != (
         result.primary_intent,
@@ -351,8 +395,8 @@ def intent_result_to_state(
     reason_codes = list(result.reason_codes) + list(semantic.arbitration)
     if pre_route and pre_route.disposition != "none":
         routing_hints["pre_route_disposition"] = pre_route.disposition
-        routing_hints["requires_clarification"] = pre_route.requires_clarification
-        if pre_route.requires_clarification:
+        if task_pre_route and task_pre_route.requires_clarification:
+            routing_hints["requires_clarification"] = True
             routing_hints["clarification_reason"] = pre_route.disposition
         reason_codes.extend(pre_route.reason_codes)
 
@@ -361,14 +405,25 @@ def intent_result_to_state(
         role=role,
         channel=channel,
         routing_hints=routing_hints,
-        pre_route=pre_route,
+        pre_route=task_pre_route,
         calibrated_confidence=result.calibrated_confidence,
     )
+    executable_prefix, deferred_steps = select_executable_prefix(
+        task_plan,
+        role=role,
+        channel=channel,
+        routing_hints=routing_hints,
+    )
+    task_plan_state = task_plan_payload(task_plan)
+    deferred_step_payloads = task_steps_payload(deferred_steps)
+    executable_prefix_ids = [step.step_id for step in executable_prefix]
     update = {
         "primary_intent": primary_intent,
         "requested_operation": requested_operation,
         "intent_confidence": result.confidence,
         "risk_tier": risk_decision.tier,
+        "task_plan": task_plan_state,
+        "deferred_steps": deferred_step_payloads,
         "secondary_intents": [str(intent) for intent in result.secondary_intents],
         "required_slots": policy_required_slots,
         "candidate_slots": dict(result.candidate_slots),
@@ -386,6 +441,10 @@ def intent_result_to_state(
         "semantic_intent": _semantic_payload(semantic),
         "risk_decision": _risk_payload(risk_decision),
         "clarification_decision": _clarification_payload(clarification_decision),
+        "task_plan": task_plan_state,
+        "executable_prefix": executable_prefix_ids,
+        "deferred_steps": deferred_step_payloads,
+        "plan_normalization": list(plan_normalization),
         "effective_classification": {
             "primary_intent": primary_intent,
             "requested_operation": requested_operation,
@@ -494,11 +553,27 @@ def _deterministic_classification_update(
         pre_route=pre_route,
         calibrated_confidence=intent_confidence,
     )
+    task_plan, plan_normalization = build_task_plan(
+        semantic,
+        secondary_intents=[],
+        requested_operation=requested_operation,
+        candidate_slots=candidate_slots,
+    )
+    executable_prefix, deferred_steps = select_executable_prefix(
+        task_plan,
+        role=state.get("role"),
+        channel="ordinary_chat",
+        routing_hints=routing_hints,
+    )
+    task_plan_state = task_plan_payload(task_plan)
+    deferred_step_payloads = task_steps_payload(deferred_steps)
     update = {
         "primary_intent": primary_intent,
         "requested_operation": requested_operation,
         "intent_confidence": intent_confidence,
         "risk_tier": risk_decision.tier,
+        "task_plan": task_plan_state,
+        "deferred_steps": deferred_step_payloads,
         "secondary_intents": [],
         "required_slots": required_slots,
         "candidate_slots": candidate_slots,
@@ -516,6 +591,10 @@ def _deterministic_classification_update(
         "semantic_intent": _semantic_payload(semantic),
         "risk_decision": _risk_payload(risk_decision),
         "clarification_decision": _clarification_payload(clarification_decision),
+        "task_plan": task_plan_state,
+        "executable_prefix": [step.step_id for step in executable_prefix],
+        "deferred_steps": deferred_step_payloads,
+        "plan_normalization": list(plan_normalization),
         "effective_classification": {
             "primary_intent": primary_intent,
             "requested_operation": requested_operation,
@@ -734,11 +813,26 @@ async def classify_intent(state: AgentState) -> dict:
         pre_route=pre_route,
         calibrated_confidence=0.0,
     )
+    fallback_routing_hints = {key: value for key, value in routing_hints.items() if value is not None}
+    task_plan, plan_normalization = build_task_plan(
+        fallback_semantic,
+        secondary_intents=[],
+        requested_operation="advise",
+        candidate_slots={},
+    )
+    executable_prefix, deferred_steps = select_executable_prefix(
+        task_plan,
+        role=state.get("role"),
+        channel="ordinary_chat",
+        routing_hints=fallback_routing_hints,
+    )
+    task_plan_state = task_plan_payload(task_plan)
+    deferred_step_payloads = task_steps_payload(deferred_steps)
     fallback_state = {
         "primary_intent": "unsupported",
         "requested_operation": "advise",
         "intent_confidence": 0.0,
-        "routing_hints": {key: value for key, value in routing_hints.items() if value is not None},
+        "routing_hints": fallback_routing_hints,
     }
     classification_trace = {
         "raw_llm_classification": None,
@@ -749,6 +843,10 @@ async def classify_intent(state: AgentState) -> dict:
         "semantic_intent": _semantic_payload(fallback_semantic),
         "risk_decision": _risk_payload(risk_decision),
         "clarification_decision": _clarification_payload(clarification_decision),
+        "task_plan": task_plan_state,
+        "executable_prefix": [step.step_id for step in executable_prefix],
+        "deferred_steps": deferred_step_payloads,
+        "plan_normalization": list(plan_normalization),
         "effective_classification": {
             "primary_intent": "unsupported",
             "requested_operation": "advise",
@@ -763,6 +861,8 @@ async def classify_intent(state: AgentState) -> dict:
         "requested_operation": "advise",
         "intent_confidence": 0.0,
         "risk_tier": risk_decision.tier,
+        "task_plan": task_plan_state,
+        "deferred_steps": deferred_step_payloads,
         "classification_trace": classification_trace,
         "secondary_intents": [],
         "required_slots": fallback_required,
