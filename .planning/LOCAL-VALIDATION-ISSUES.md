@@ -1,5 +1,54 @@
 # 本地验证问题记录
 
+## 16. Phase 44 execute-phase 复现 `state.begin-phase` flag 解析写坏 STATE
+
+日期：2026-07-03
+
+### 问题现象
+
+执行 Phase 44 `$gsd-execute-phase` 初始化时，按 workflow 示例运行：
+
+```bash
+gsd-sdk query state.begin-phase --phase 44 --name memory-layering-case-working-context-thread-case-many-to-man --plans 4
+```
+
+命令返回 JSON 把 flag 本身当作实参解析，并把 `.planning/STATE.md` 写成错误的 phase/name/plan 计数。
+
+### 如何检测 / 复现
+
+运行上述命令后检查输出和状态文件：
+
+```bash
+git diff -- .planning/STATE.md
+sed -n '1,80p' .planning/STATE.md
+```
+
+### 关键证据或命令
+
+命令输出为：
+
+```json
+{"phase":"--phase","name":"44","plan_count":"--name"}
+```
+
+状态文件被写入类似 `Phase: --phase`、`Plan: 1 of --name` 的内容，且 frontmatter 的 milestone/progress 字段被错误覆盖。
+
+### 当前判断 / 根因
+
+这是既有 `state.begin-phase` 参数解析问题在 Phase 44 的再次复现：workflow 使用 named flags，但当前 SDK handler 仍按位置参数消费 argv，导致 `--phase` / `--name` 进入业务字段。
+
+### 已做处理
+
+手工恢复 `.planning/STATE.md` 到 Phase 44 正确执行位置，并在 Wave 1、Wave 2 验收后分别推进到 `44-02` / `44-03`。后续本轮执行不再信任 `state.begin-phase` 自动写入结果。
+
+### 剩余问题
+
+SDK handler / workflow 文档仍未修复，后续 phase execute 初始化仍可能写坏 STATE。每次运行后需要立即检查 `.planning/STATE.md` diff。
+
+### 下次继续排查入口
+
+查看 `/Users/ming/.codex/get-shit-done/bin/lib/state.cjs::cmdStateBeginPhase` 和 `/Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs` 中参数解析逻辑。
+
 ## 15. Phase 44 本地默认库升级被 Phase 36 商家绑定预检阻断
 
 日期：2026-07-03

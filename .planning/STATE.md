@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
-status: in_progress
-stopped_at: Phase 43 (intent multi-intent tier A) complete; ready for Claude closure review
-last_updated: "2026-07-02T14:36:00Z"
-last_activity: 2026-07-02 -- Phase 43 implemented, verified, code-reviewed clean, and IDR-02 marked complete
+status: executing
+stopped_at: Phase 44 Wave 3 complete; Wave 4 contract alignment and phase verification next
+last_updated: "2026-07-02T17:43:48Z"
+last_activity: 2026-07-03 -- Phase 44 Wave 3 thread-case lifecycle and CWC write service complete; proceeding to 44-04
 progress:
-  total_phases: 7
+  total_phases: 8
   completed_phases: 7
-  total_plans: 18
-  completed_plans: 18
-  percent: 100
+  total_plans: 22
+  completed_plans: 21
+  percent: 95
 ---
 
 # Project State: MOCA
@@ -21,7 +21,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v2.1 Core Subsystem Hardening — tool platform (Phase 37-41) done; intent recognition three-layer decoupling (Phase 42) registered; multi-intent tier A (Phase 43) implemented and verified.
+**Current focus:** v2.1 Core Subsystem Hardening — memory layering Phase 44 executing; Wave 3 lifecycle/service wiring complete and Wave 4 contract alignment/verification next.
 
 ## Rescope note (2026-07-02)
 
@@ -30,11 +30,11 @@ See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 ## Current Position
 
-Phase: 43 (Intent Recognition Multi-Intent Tier A) — COMPLETE
-Plan: 43-01 / 43-02 / 43-03 implemented from `.planning/intent-multi-a-codex-brief.md`
-Status: complete
-Last activity: 2026-07-02 -- Phase 43 implementation completed; focused/full pytest and ruff passed; GSD code review clean
-Next: Claude stage-B light closure review for plan conformance, then decide next architecture-debt phase if needed.
+Phase: 44 (Memory Layering — Case Working Context + thread-case Many-to-Many) — EXECUTING
+Plan: 44-04 of 4
+Status: Wave 3 complete; executing Wave 4 next
+Last activity: 2026-07-03 -- Phase 44 Wave 3 thread-case write lifecycle and CWC write service implemented and verified
+Next: Execute 44-04 contract-spec alignment, DEFER trace, and full phase verification.
 
 Progress: [██████████] 100%
 
@@ -63,6 +63,7 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | 41. Tool Platform Legacy Manager Cleanup (TPH-06) | 4/4 | Complete |
 | 42. Intent Recognition Three-Layer Decoupling (IR-01) | 1/1 | Complete (retroactively registered) |
 | 43. Intent Recognition Multi-Intent Tier A (IDR-02) | 3/3 | Complete |
+| 44. Memory Layering — Case Working Context + thread-case Many-to-Many (MEM-01, MEM-02) | 3/4 | Executing |
 
 Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review. Phase 40 closes the source-confirmed validation/backstop gaps intentionally deferred or left advisory after Phase 38/39. Phase 41 then handles the explicit breaking cleanup/API decision to remove the `UnifiedToolManager` legacy compatibility adapter.
 
