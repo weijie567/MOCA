@@ -70,7 +70,7 @@ Plans:
 | 37. Tool Declaration + Runtime/Policy Internal Consolidation | 3/3 | Complete; DB pytest pending | 2026-07-02 |
 | 38. output_schema Declaration + Runtime Output-Validation Enforcement | 3/3 | Complete    | 2026-07-02 |
 | 39. contract-spec §12.5/§12.6 Reconciliation | 1/1 | Complete | 2026-07-02 |
-| 40. Tool Contract Validation Hardening | 0/0 | Not planned | |
+| 40. Tool Contract Validation Hardening | 0/3 | Planned | |
 
 ### Phase 40: Tool Contract Validation Hardening
 
@@ -83,7 +83,9 @@ Plans:
   3. The `requires_domain_scope_check` resource binding marker is protected by an architecture/backstop test that fails if domain-lookup business read tools can drift away from BusinessFactService merchant-scope/no-leak ownership enforcement.
   4. `validate_json_value` supports the schema keywords retained by prompt-safe projection for current descriptor use (`maxLength`, `minimum`, `maximum`, `exclusiveMaximum` in addition to existing support), and descriptor schema meta tests fail if unsupported JSON Schema keywords enter `input_schema` or `output_schema`.
   5. `ToolResultV2` envelope fields, `ToolCallContext` §8.0 identity fields, BusinessFactService runtime ownership split, `docs/contract-spec.md`, and `UnifiedToolManager` compatibility behavior have no diff.
-**Plans:** 0 plans
+**Plans:** 3 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 40 to break down)
+- [ ] 40-01-PLAN.md — strict `create_coupon_grant_draft` output schema and action fake payload alignment.
+- [ ] 40-02-PLAN.md — local JSON Schema subset keyword support plus descriptor schema meta guard.
+- [ ] 40-03-PLAN.md — domain-scope marker business-boundary backstop tests and final protected no-diff verification.

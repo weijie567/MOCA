@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
 milestone: v2.1
-milestone_name: milestone
+milestone_name: Tool Platform Hardening
 status: active
-stopped_at: Phase 40 context gathered
+stopped_at: Phase 40 planned; ready to execute 40-01
 last_updated: "2026-07-02T05:15:04.018Z"
-last_activity: 2026-07-02 -- Phase 40 added for tool contract validation hardening
+last_activity: 2026-07-02 -- Phase 40 split into 3 executable plans
 progress:
   total_phases: 4
   completed_phases: 3
-  total_plans: 7
+  total_plans: 10
   completed_plans: 7
-  percent: 100
+  percent: 70
 ---
 
 # Project State: MOCA
@@ -21,16 +21,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 40 Tool Contract Validation Hardening — context/planning
+**Current focus:** Phase 40 Tool Contract Validation Hardening — execute 40-01 strict action output schema
 
 ## Current Position
 
-Phase: 40 (Tool Contract Validation Hardening) — CONTEXT / PLANNING
-Plan: not planned yet
+Phase: 40 (Tool Contract Validation Hardening) — EXECUTION
+Plan: 40-01 strict `create_coupon_grant_draft` output schema
 Status: active
-Last activity: 2026-07-02 -- Phase 40 added for tool contract validation hardening
+Last activity: 2026-07-02 -- Phase 40 split into 3 executable plans
 
-Progress: [███████░░░] 75%
+Progress: [███████░░░] 70%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -53,7 +53,7 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | 37. Tool Declaration + Runtime/Policy Internal Consolidation (TPH-03, TPH-04) | 3/3 | Complete; DB-backed pytest pending |
 | 38. output_schema Declaration + Runtime Output-Validation Enforcement (TPH-01) | 3/3 | Complete; DB-backed pytest passed |
 | 39. contract-spec §12.5/§12.6 Reconciliation (TPH-02) | 1/1 | Complete |
-| 40. Tool Contract Validation Hardening (TPH-05) | 0/0 | Not planned |
+| 40. Tool Contract Validation Hardening (TPH-05) | 0/3 | Planned |
 
 Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review. Phase 40 closes the source-confirmed validation/backstop gaps intentionally deferred or left advisory after Phase 38/39.
 
@@ -146,7 +146,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 ## Session Continuity
 
 Last session: --stopped-at
-Stopped at: Phase 40 context gathered
+Stopped at: Phase 40 planned; ready to execute 40-01
 Resume file: --resume-file
 Next: Run `$gsd-progress` or `$gsd-complete-milestone`.
 
