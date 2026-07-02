@@ -14,11 +14,11 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 **Goal:** Clean up the tool-call platform's contract debt and implementation gaps so tool contracts are as sound as the codebase allows, and so `docs/contract-spec.md` and the implementation agree.
 
-**Status:** Phase 37 and Phase 38 complete; Phase 39 contract-spec reconciliation is ready to plan.
+**Status:** Phase 37, Phase 38, and Phase 39 complete; v2.1 is ready for milestone wrap-up / archive.
 
 **Target features:**
 - Land real `output_schema` for all eight tools (`get_order`, `get_refund_case`, `get_ticket`, `get_logistics`, `get_merchant_risk`, `search_policy`, `search_sop`, `search_case_memory`) and enforce it in the `ToolRuntime` output-validation gate — completed in Phase 38.
-- Reconcile `docs/contract-spec.md` §12.5/§12.6 with the implemented contract fields that spec omits (`ToolDescriptor.executor/exposure/requires_approval/requires_safety_snapshot/requires_idempotency_key`, `event_family="action"`, `ToolPolicyDecision.runtime_available/availability_summary`, `ToolCallContext.effective_at/approval_ref/safety_snapshot_ref`) — spec catches up to code, via dual-AI review.
+- Reconcile `docs/contract-spec.md` §12.5/§12.6 with the implemented contract fields that spec omits (`ToolDescriptor.executor/exposure/requires_approval/requires_safety_snapshot/requires_idempotency_key`, `event_family="action"`, `ToolPolicyDecision.runtime_available/availability_summary`, `ToolCallContext.effective_at/approval_ref/safety_snapshot_ref`) — completed in Phase 39 with dual-AI review and clean verification.
 - Consolidate the tool declaration source: collapse `catalog._default_descriptors` + `_IDENTIFIER_SCHEMAS` and `manager.INVESTIGATE_TOOL_NAMES` into one single-source registry (spec §12.6 already forbids multi-list drift).
 - Converge runtime/policy internals: extract a `_fail` helper for the ten repeated failure branches in `runtime.py`, and turn the `runtime_auth` if-chain in `policy.py` into a declarative gate pipeline.
 
@@ -213,10 +213,11 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - [x] Phase 36 emits `ready_with_agent_run_binding` as the trace/replay authorization readiness conclusion for later same-merchant manager visibility expansion (validated in Phase 36)
 - [x] v2.1 tool declarations resolve from a single-source registry, and runtime/policy internals use shared/declarative structures without external contract shape changes (validated in Phase 37)
 - [x] v2.1 real output schemas are declared for the eight scoped tools and enforced by runtime output validation as safe `invalid_response` failures, with DB-backed full relevant pytest passing (validated in Phase 38)
+- [x] v2.1 contract spec §12.5/§12.6 matches the implemented tool contract fields while preserving §8.0 TrustedContext identity ownership (validated in Phase 39)
 
 ### Active
 
-- [ ] v2.1 TPH-02 remains active: reconcile `docs/contract-spec.md` §12.5/§12.6 with the implemented contract fields via the dual-AI review workflow in Phase 39.
+_None. v2.1 requirements are complete._
 
 ### Out of Scope
 
@@ -358,4 +359,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-01 — started milestone v2.1 Tool Platform Hardening*
+*Last updated: 2026-07-02 — completed milestone v2.1 Tool Platform Hardening*

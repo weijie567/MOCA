@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Tool Platform Hardening
-status: completed
-stopped_at: Completed 39-01-PLAN.md
-last_updated: "2026-07-02T03:26:40.593Z"
-last_activity: 2026-07-02 -- Phase 39 plan 39-01 completed
+status: milestone_complete
+stopped_at: Phase 39 verified; v2.1 milestone complete
+last_updated: "2026-07-02T03:42:00Z"
+last_activity: 2026-07-02 -- Phase 39 verified and v2.1 milestone complete
 progress:
   total_phases: 3
   completed_phases: 3
@@ -27,8 +27,8 @@ See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 Phase: 39 (contract-spec §12.5/§12.6 Reconciliation) — COMPLETE
 Plan: 39-01 of 1
-Status: Phase complete
-Last activity: 2026-07-02 -- Phase 39 plan 39-01 completed
+Status: v2.1 milestone complete
+Last activity: 2026-07-02 -- Phase 39 verified and v2.1 milestone complete
 
 Progress: [██████████] 100%
 
@@ -140,10 +140,10 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ## Session Continuity
 
-Last session: 2026-07-02T03:26:40.577Z
-Stopped at: Completed 39-01-PLAN.md
+Last session: 2026-07-02T03:42:00Z
+Stopped at: Phase 39 verified; v2.1 milestone complete
 Resume file: None
-Next: Run `$gsd-verify-work 39` or complete the v2.1 milestone.
+Next: Run `$gsd-progress` or `$gsd-complete-milestone`.
 
-Recent completions: Phase 37 3/3 complete; Phase 38 3/3 complete with DB-backed pytest passed; Phase 39 1/1 complete with docs-only TPH-02 reconciliation and dual-AI review.
-Next roadmap item: verify Phase 39 or complete v2.1 milestone.
+Recent completions: Phase 37 3/3 complete; Phase 38 3/3 complete with DB-backed pytest passed; Phase 39 1/1 complete with docs-only TPH-02 reconciliation and clean verification.
+Next roadmap item: complete or archive the v2.1 milestone.
