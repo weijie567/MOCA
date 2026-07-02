@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
 milestone: v2.1
-milestone_name: Tool Platform Hardening
-status: complete
-stopped_at: Phase 41 complete; v2.1 ready for milestone archive
-last_updated: "2026-07-02T06:32:00Z"
-last_activity: 2026-07-02 -- Phase 41 review, verification, and closure handoff complete
+milestone_name: Core Subsystem Hardening
+status: in_progress
+stopped_at: Phase 42 (intent three-layer decoupling) retroactively registered; multi-intent tier A next
+last_updated: "2026-07-02T11:51:35Z"
+last_activity: 2026-07-02 -- Rescoped v2.1 to Core Subsystem Hardening umbrella; registered Phase 42 intent three-layer decoupling retroactively
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 14
-  completed_plans: 14
+  total_phases: 6
+  completed_phases: 6
+  total_plans: 15
+  completed_plans: 15
   percent: 100
 ---
 
@@ -21,14 +21,20 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v2.1 Tool Platform Hardening complete — ready for milestone review/archive
+**Current focus:** v2.1 Core Subsystem Hardening — tool platform (Phase 37-41) done; intent recognition three-layer decoupling (Phase 42) registered; multi-intent tier A next.
+
+## Rescope note (2026-07-02)
+
+- v2.1 was originally scoped/named "Tool Platform Hardening" (Phase 37-41). It is rescoped to **Core Subsystem Hardening**: a long-lived umbrella for cleaning up architecture debt across the four core subsystems tracked in `.planning/ARCHITECTURE-DEBT.md` (tool call / intent recognition / RAG / memory).
+- **Standing rule (avoids re-asking each time):** work that *fixes existing-subsystem defects or clears architecture debt* is appended as the next integer phase inside v2.1 (42, 43, …) — no new milestone. A **new milestone** is opened only for a genuinely new user-facing product capability (not a defect fix). Tool platform is the first subsystem cleared; intent recognition is the second.
 
 ## Current Position
 
-Phase: 41 (Tool Platform Legacy Manager Cleanup) — COMPLETE
-Plan: 41-04 implementation code review, final verification, and closure review complete
+Phase: 42 (Intent Recognition Three-Layer Decoupling) — COMPLETE (retroactively registered)
+Plan: three-layer decoupling implemented by Codex on the intent-layering brief; baseline committed at `a0a98e4`
 Status: complete
-Last activity: 2026-07-02 -- Phase 41 review, verification, and closure handoff complete
+Last activity: 2026-07-02 -- Retroactive Phase 42 registration; multi-intent tier A (Phase 43) is the next planned work
+Next: Phase 43 = multi-intent tier A, per `.planning/intent-multi-a-codex-brief.md`; run its plan-then-execute via the dual-AI workflow.
 
 Progress: [██████████] 100%
 
@@ -55,8 +61,11 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | 39. contract-spec §12.5/§12.6 Reconciliation (TPH-02) | 1/1 | Complete |
 | 40. Tool Contract Validation Hardening (TPH-05) | 3/3 | Complete |
 | 41. Tool Platform Legacy Manager Cleanup (TPH-06) | 4/4 | Complete |
+| 42. Intent Recognition Three-Layer Decoupling (IR-01) | 1/1 | Complete (retroactively registered) |
 
 Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review. Phase 40 closes the source-confirmed validation/backstop gaps intentionally deferred or left advisory after Phase 38/39. Phase 41 then handles the explicit breaking cleanup/API decision to remove the `UnifiedToolManager` legacy compatibility adapter.
+
+Phase 42 moves to the second subsystem (intent recognition): it splits intent classification into three explicit single-direction layers (semantic / risk-authorization / clarification), fixing ID-01 (keyword override of LLM) and ID-03 (three-dimension coupling) per `.planning/ARCHITECTURE-DEBT.md`. The code was implemented + verified before formal registration, so Phase 42 is **retroactively registered**: it has CONTEXT / VERIFICATION / SUMMARY anchored to commit `a0a98e4`, but no PLAN / PLAN-REVIEW (it did not go through plan-then-execute). Multi-intent tier A (ID-04) is the next intent phase and WILL go through the full plan-phase + plan-checker + Codex review flow.
 
 ## Last Milestone Context
 
@@ -160,9 +169,9 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 ## Session Continuity
 
 Last session: --stopped-at
-Stopped at: Phase 41 complete; v2.1 ready for milestone archive
+Stopped at: Phase 42 (intent three-layer decoupling) retroactively registered; multi-intent tier A (ID-04) next
 Resume file: --resume-file
-Next: Run `$gsd-progress` or `$gsd-complete-milestone`.
+Next: Plan multi-intent tier A as the next intent phase via the full plan-phase + plan-checker + Codex review flow (spec input: `.planning/intent-multi-a-codex-brief.md`).
 
-Recent completions: Phase 37 3/3 complete; Phase 38 3/3 complete with DB-backed pytest passed; Phase 39 1/1 complete with docs-only TPH-02 reconciliation and clean verification; Phase 40 3/3 complete with tools/architecture verification passing.
-Next roadmap item: run milestone archive/completion flow for v2.1.
+Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean).
+Next roadmap item: multi-intent tier A (ID-04) — future intent phase inside v2.1.

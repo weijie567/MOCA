@@ -4793,6 +4793,97 @@ rg: src/models: No such file or directory (os error 2)
 - `tests/memory/test_long_term_memory_service.py`
 - `tests/memory/test_case_memory_retrieval.py`
 
+## 2026-07-02 18:33 CST - 意图风险层查表优先级首次验证不等价
+
+### 问题现象
+
+执行意图识别三层解耦后，新增风险层逐组合等价测试首次失败。失败集中在 `compensation_suggestion + execute_action/escalate/not_a_real_operation` 以及高风险 intent + 非法 operation 组合，新表返回值与旧 `resolve_risk_tier` if-elif 逻辑不一致。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+uv run pytest tests/agent/test_intent_routing.py tests/agent/test_nodes/test_classify_intent.py -q
+```
+
+### 关键证据或命令
+
+首次失败示例：
+
+```text
+assert 'approval_required' == 'suggest_action'
+tests/agent/test_intent_routing.py::test_risk_policy_table_preserves_legacy_tier_for_all_intent_operation_channel_combinations[...-execute_action-compensation_suggestion]
+```
+
+同一命令在修复后通过：
+
+```text
+1111 passed, 1 warning
+```
+
+### 当前判断 / 根因
+
+新 `RISK_POLICY_TABLE` 的候选 key 查找顺序没有完全复刻旧 if-elif 顺序。旧逻辑中 `primary_intent == "compensation_suggestion"` 早于 `execute_action/escalate` 命中；非法 operation 时，高风险 intent / `action_request` 也应在默认 fallback 前命中。首次实现把 operation row 或 fallback 放得过早，导致行为不等价。
+
+### 已做处理
+
+调整 `src/agent/intent_policy.py` 的风险策略 key 生成顺序：`read_status/draft_reply/draft_action` 先命中；`compensation_suggestion` intent 早于 `execute_action/escalate`；高风险 intent / `action_request` 在 fallback 前命中；最后才使用默认 `read_only`。
+
+### 剩余问题
+
+无。后续仍需跑完整 §6 验证命令确认全量回归。
+
+### 下次继续排查入口
+
+- `src/agent/intent_policy.py`
+- `tests/agent/test_intent_routing.py`
+
+## 2026-07-02 18:37 CST - 意图 facade 非法 primary reason code 兼容失败
+
+### 问题现象
+
+执行完整 §6 pytest 回归时，`test_intent_policy_registry_resolves_precedence_and_risk_through_effective_api` 失败。非法 `primary_intent` 仍正确落到 `unsupported/advise`，但返回的 reason codes 从旧行为 `["unsupported_intent"]` 变成了空列表。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+uv run pytest tests/agent/test_intent_adapter.py tests/agent/test_intent_policy_registry.py tests/agent/test_intent_golden_contract.py tests/agent/test_intent_routing.py tests/agent/test_nodes/test_classify_intent.py tests/architecture/test_phase32_static_contract.py -q
+```
+
+### 关键证据或命令
+
+首次失败断言：
+
+```text
+assert ('unsupported', 'advise', []) == ('unsupported', 'advise', ['unsupported_intent'])
+```
+
+修复后同一命令通过：
+
+```text
+1205 passed, 1 skipped, 1 warning
+```
+
+### 当前判断 / 根因
+
+新增 `arbitrate_intent` 会先把非法 primary 规范化为 `unsupported`，随后因为赢家等于规范化后的 primary，按普通路径返回空 reason codes，丢失了旧 facade 的 `unsupported_intent` 兼容信号。
+
+### 已做处理
+
+在 `src/agent/intent_policy.py` 的语义仲裁层保留 `primary_was_valid`，当原始 primary 非法且最终赢家是 `unsupported` 时返回 `["unsupported_intent"]`。
+
+### 剩余问题
+
+无。
+
+### 下次继续排查入口
+
+- `src/agent/intent_policy.py`
+- `tests/agent/test_intent_policy_registry.py`
+
 ## 2026-06-28 10:52 CST - Phase 31 plan-phase artifact scan hit zsh no-match glob
 
 ### 问题现象
@@ -8723,3 +8814,1864 @@ gsd-sdk query milestone.complete v1.9 --name "Agent Platform Foundation"
 - `gsd-sdk query milestone.complete`
 - `/Users/ming/.codex/get-shit-done/bin/lib/milestone.cjs`
 - `/Users/ming/.codex/get-shit-done/workflows/complete-milestone.md`
+
+## 2026-06-30 11:42 CST - Claude/Codex 完成通知未出现排查
+
+### 问题现象
+
+用户反馈 Claude 和 Codex 完成任务后没有桌面通知，怀疑是 macOS 电脑权限问题，并询问在 iTerm2 工作是否需要开启 iTerm2 通知。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录检查当前终端宿主、Codex/Claude 通知配置、macOS 通知偏好记录，并手动触发三类通知路径：
+
+```bash
+sw_vers
+ps -o pid,ppid,comm,args -p $$
+sed -n '1,35p;235,270p' "$HOME/.codex/config.toml"
+sed -n '1,220p' "$HOME/.claude/settings.json"
+plutil -p "$HOME/Library/Preferences/com.apple.ncprefs.plist" | rg -n -i -C 6 'iterm2|terminal-notifier|ScriptEditor2|com.openai.codex|com.openai.sky'
+/usr/bin/osascript -e 'display notification "如果你看到这条，osascript 通知路径正常" with title "Claude/Codex 测试" sound name "default"'
+/opt/homebrew/bin/terminal-notifier -title 'Claude/Codex 测试' -subtitle 'terminal-notifier' -message '如果你看到这条，terminal-notifier 通知路径正常' -sound default -group codex-test
+"$HOME/.codex/computer-use/Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient" turn-ended '{"type":"manual-test","message":"codex notification permission test"}'
+```
+
+### 关键证据或命令
+
+- 当前会话运行在 iTerm2：`TERM_PROGRAM=iTerm.app`，bundle id 为 `com.googlecode.iterm2`。
+- `~/.codex/config.toml` 第 6 行当前 `notify` 指向 `SkyComputerUseClient turn-ended`；第 247-262 行仍有 `PermissionRequest` 和 `Stop` hooks 调用 `node /Users/ming/.codex/codex-notify.mjs`。
+- `~/.claude/settings.json` 只有 `hooks.Notification`，命令为 `osascript -e 'display notification ...'`，没有 `hooks.Stop`，因此 Claude 当前没有“完成任务即通知”的 hook。
+- `com.apple.ncprefs.plist` 可查到 `com.googlecode.iterm2`、`com.openai.codex`、`fr.julienxx.oss.terminal-notifier` 的通知记录，未查到 `com.openai.sky.CUAService.cli` / `SkyComputerUseClient` 对应记录。
+- 手动运行 `osascript`、`terminal-notifier`、`SkyComputerUseClient turn-ended <payload>` 均返回 exit 0；`SkyComputerUseClient turn-ended` 不带 payload 会返回 `Missing expected argument '<payload>'`，符合其 CLI help。
+
+### 当前判断 / 根因
+
+iTerm2 通知权限需要开启，但只影响“由 iTerm2 身份发出的通知”。当前 Codex 至少存在两条通知路径：TUI `notify` 使用 `SkyComputerUseClient`，hooks 使用旧的 `codex-notify.mjs`。因此单独开启 iTerm2 不能覆盖全部路径。
+
+Claude 完成任务不通知的直接原因更像配置缺口：当前只有 `Notification` hook，没有 `Stop` hook；这不是 iTerm2 权限能解决的问题。
+
+Codex 完成任务不通知的剩余可疑点是 `SkyComputerUseClient` 对应的 macOS 通知来源未在通知偏好中出现，或 Codex 当前内建 `notify` 与旧 hooks 双路径行为不一致，需要继续确认实际完成事件走哪条路径。
+
+### 已做处理
+
+已完成只读诊断和三条手动通知路径测试，未修改用户级 Claude/Codex 配置。已向用户说明：iTerm2 通知应开启，但当前更需要同时检查 Codex.app / SkyComputerUseClient / terminal-notifier / Script Editor 或 osascript 对应来源；Claude completion 还需要配置 `Stop` hook。
+
+2026-06-30 14:34 CST 更新：用户确认 Codex/部分通知可见，但 Claude 结束任务后仍没有横幅通知。已备份 `/Users/ming/.claude/settings.json` 到 `/Users/ming/.claude/settings.json.bak-20260630-143404`，并在 `hooks` 中新增 `Stop` hook：
+
+```json
+"Stop": [
+  {
+    "hooks": [
+      {
+        "command": "osascript -e 'display notification \"Claude Code 回合已完成\" with title \"Claude Code\" subtitle \"任务完成\" sound name \"default\"'",
+        "type": "command"
+      }
+    ],
+    "matcher": "*"
+  }
+]
+```
+
+新增后用 `jq '.hooks | keys' "$HOME/.claude/settings.json"` 验证 JSON 可解析且包含 `Stop`，并手动执行同一条 `osascript` 命令返回 `manual_stop_notify_status=0`。
+
+### 剩余问题
+
+用户后续确认当前已经可以看到部分通知；但 Claude 结束任务仍漏横幅的问题已通过新增 `Stop` hook 处理。剩余需要在真实 Claude Code 会话中验证：若当前已运行的 Claude 进程未热加载设置，需要重启 Claude Code 后再测试一次任务结束通知。若重启后仍没有横幅，再检查 Claude hook 是否执行、macOS Focus/勿扰、通知样式和 `Script Editor`/`osascript` 来源授权。
+
+### 下次继续排查入口
+
+- `/Users/ming/.codex/config.toml`
+- `/Users/ming/.codex/codex-notify.mjs`
+- `/Users/ming/.claude/settings.json`
+- `/Users/ming/Library/Preferences/com.apple.ncprefs.plist`
+
+## 2026-06-30 12:02 CST - gsd-sdk state.record-session 错误重写 STATE frontmatter
+
+### 问题现象
+
+执行 `$gsd-discuss-phase 36` 收尾时，按 workflow 调用 `gsd-sdk query state.record-session --stopped-at "Phase 36 context gathered" --resume-file ".planning/phases/36-merchant-scope-db-hardening-role-cleanup/36-CONTEXT.md"` 后，`.planning/STATE.md` 的 frontmatter 被错误重写：`milestone` 从 `v2.0` 变成 `v1.0`，`milestone_name` 变成 `milestone`，`status` 变成正文里的 `Ready for $gsd-spec-phase 36`，`progress.total_phases` 从 1 变成 2。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+gsd-sdk query state.record-session --stopped-at "Phase 36 context gathered" --resume-file ".planning/phases/36-merchant-scope-db-hardening-role-cleanup/36-CONTEXT.md"
+git diff -- .planning/STATE.md
+```
+
+### 关键证据或命令
+
+- `git diff -- .planning/STATE.md` 显示 frontmatter 被错误改成 `milestone: v1.0`、`milestone_name: milestone`、`status: Ready for $gsd-spec-phase 36`。
+- `rg -n "cmdStateRecordSession|function cmdStateSnapshot" "$HOME/.codex/get-shit-done/bin/lib/state.cjs"` 显示 `record-session` 只应更新 `Last session` / `Stopped at` / `Resume file`，但其底层 `readModifyWriteStateMd` 会重新生成 frontmatter，并从正文错误解析 milestone/status/progress。
+
+### 当前判断 / 根因
+
+当前判断是 GSD state 写入工具对新版 `.planning/STATE.md` 的正文结构解析不稳，`record-session` 的原意是只改 session continuity，但实际触发了 frontmatter 归一化并误读旧正文内容。该问题与 MOCA 产品代码无关。
+
+### 已做处理
+
+未提交错误 STATE。已最小化修复 `.planning/STATE.md`：恢复 `v2.0 Merchant Scope Hardening` frontmatter，更新 stopped/resume 指向 Phase 36 context，并把下一步改为 `$gsd-plan-phase 36`。
+
+### 剩余问题
+
+后续如果继续使用 `gsd-sdk query state.record-session`，仍可能再次错误重写 STATE frontmatter。建议在 GSD 工具修复前，调用后必须检查 `git diff -- .planning/STATE.md`，确认 milestone/status/progress 未被误改。
+
+### 下次继续排查入口
+
+- `/Users/ming/.codex/get-shit-done/bin/lib/state.cjs`
+- `cmdStateRecordSession`
+- `readModifyWriteStateMd`
+- `cmdStateSnapshot`
+
+## 2026-06-30 14:04 CST - gsd-sdk state.planned-phase 再次错误重写 STATE frontmatter
+
+### 问题现象
+
+执行 `$gsd-plan-phase 36` 收尾时，调用 `gsd-sdk query state.planned-phase --phase 36 --name "Merchant-scope DB Hardening / Role Cleanup" --plans 6` 后，`.planning/STATE.md` 的 frontmatter 再次被错误重写：`milestone` 从 `v2.0` 变成 `v1.0`，`milestone_name` 变成 `milestone`，`status` 变回正文旧值 `Ready for $gsd-plan-phase 36`，`progress.total_phases` 从 1 变成 2。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+gsd-sdk query state.planned-phase --phase 36 --name "Merchant-scope DB Hardening / Role Cleanup" --plans 6
+git diff -- .planning/STATE.md
+```
+
+### 关键证据或命令
+
+- `git diff -- .planning/STATE.md` 显示 frontmatter 被错误改成 `milestone: v1.0`、`milestone_name: milestone`、`status: Ready for $gsd-plan-phase 36`、`progress.total_phases: 2`。
+- 这与前一条 `state.record-session` 问题表现一致，说明不只是 `record-session`，`state.planned-phase` 也会触发同一类 `STATE.md` 解析/重写缺陷。
+
+### 当前判断 / 根因
+
+当前判断是 GSD state 写入工具的 shared STATE 读改写逻辑会从正文旧内容错误推导 frontmatter，而不是保留现有 v2.0 milestone metadata。该问题与 MOCA 产品代码无关。
+
+### 已做处理
+
+已手工修复 `.planning/STATE.md`：恢复 `v2.0 Merchant Scope Hardening` frontmatter，保持 `total_plans: 6`，把当前状态改为 Phase 36 planned / ready for `$gsd-execute-phase 36`，并同步 Current Position、Current Roadmap 和 Session Continuity。
+
+### 剩余问题
+
+后续任何 `gsd-sdk query state.*` 写入命令都需要调用后立即检查 `git diff -- .planning/STATE.md`。在 GSD 工具修复前，不应盲目提交 state 命令输出。
+
+### 下次继续排查入口
+
+- `/Users/ming/.codex/get-shit-done/bin/lib/state.cjs`
+- `cmdStatePlannedPhase`
+- `readModifyWriteStateMd`
+- `cmdStateSnapshot`
+
+## 2026-06-30 16:40 CST - gsd-sdk state.begin-phase flag 写入再次错误重写 STATE frontmatter
+
+### 问题现象
+
+执行 `$gsd-execute-phase 36` 初始化阶段时，`gsd-sdk query state.begin-phase ...` 的参数调用/解析不稳定，曾把 `.planning/STATE.md` 的 milestone metadata 从 `v2.0 Merchant Scope Hardening` 错误退回 `v1.0 / milestone`，并影响 progress/phase 计数显示。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录或 Phase 36 worktree 中执行 GSD execute 初始化后立即检查：
+
+```bash
+gsd-sdk query init.execute-phase 36
+gsd-sdk query state.begin-phase --phase 36 --name "merchant-scope-db-hardening-role-cleanup" --plans 6
+git diff -- .planning/STATE.md
+sed -n '1,40p' .planning/STATE.md
+```
+
+### 关键证据或命令
+
+- `gsd-sdk query init.execute-phase 36` 一度返回 `milestone_version: "v1.0"`、`milestone_name: "milestone"`，但 `.planning/STATE.md` 正确 frontmatter 应为 `milestone: v2.0`、`milestone_name: Merchant Scope Hardening`。
+- 与 12:02、14:04 两条 `state.record-session` / `state.planned-phase` 问题表现同源。
+
+### 当前判断 / 根因
+
+GSD state 写入工具的 shared STATE 读改写逻辑仍会从正文旧内容或默认值错误推导 milestone metadata。该问题与 MOCA 产品代码无关。
+
+### 已做处理
+
+未提交错误 STATE。保留/恢复了 `v2.0 Merchant Scope Hardening` frontmatter，并在后续 tracking 更新前持续检查 `.planning/STATE.md`。
+
+### 剩余问题
+
+后续任何 `gsd-sdk query state.*` 写命令后都需要立即 `git diff -- .planning/STATE.md`，不能盲信工具输出。
+
+### 下次继续排查入口
+
+- `/Users/ming/.codex/get-shit-done/bin/lib/state.cjs`
+- `cmdStateBeginPhase`
+- `readModifyWriteStateMd`
+- `cmdStateSnapshot`
+
+## 2026-06-30 18:10 CST - Phase 36-06 full-suite 回归集群暴露旧 fixture 和契约漂移
+
+### 问题现象
+
+执行 36-06 readiness/full-suite 验证时，最初的大范围 pytest 曾出现大量失败，集中在 approval readiness、Phase34 action/snapshot binding、migration test DB、conversation/refund/ticket no-merchant business role、Phase33 claim verifier facade、Phase21/34/35 archived planning static tests、interception rate state shape 和 agent_runs interrupt scope 这些区域。
+
+### 如何检测 / 复现
+
+在 36-06 worktree 中运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest
+```
+
+或运行拆分后的 focused clusters：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_integration.py tests/test_approval_api.py tests/replay/test_phase35_trace_replay_permissions.py tests/replay/test_phase36_readiness.py tests/tools/test_tool_platform.py -q --tb=short
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/approvals -q --tb=short
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_agent_runs_api.py tests/test_interception_rate.py tests/test_search_integration.py -q --tb=short
+```
+
+### 关键证据或命令
+
+- 初始 full-suite 失败规模达到百级，后续按 cluster 修复并复跑。
+- 最终证据：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest` 通过，结果为 `2125 passed, 4 skipped, 44 warnings`。
+- Post-merge focused gate：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/platform/test_merchant_scope.py tests/tools/test_merchant_scope_static.py tests/integration/test_auth.py tests/agent/test_phase36_run_scope.py tests/approvals/test_phase36_scope_consistency.py tests/approvals/test_migration_contract.py tests/db/test_phase36_migration_preflight.py tests/replay/test_phase36_readiness.py tests/business/test_service.py tests/knowledge/test_service.py tests/knowledge/test_tenant_scope.py tests/knowledge/test_claim_verification_bundle.py tests/agent/test_memory_evidence_boundary.py tests/agent/rag_context/test_authority_boundaries.py tests/agent/rag_context/test_verifier.py tests/test_approval_api.py tests/test_trace_api.py tests/replay/test_phase35_trace_replay_permissions.py -q --tb=short` 通过，结果为 `287 passed, 3 warnings`。
+
+### 当前判断 / 根因
+
+这些不是单一产品缺陷，而是 Phase 36 schema/contract hardening 让旧测试假设暴露出来：旧 fixture 缺少 Phase34/36 binding 字段，旧 business-role no-merchant 测试期望 API deny 而现在 DB check 先失败，旧 facade mock 没有走 Phase33 claim verification service，archived `.planning` 文档仍被 active static test 扫描，AgentRun interrupt path 没有把 trusted interrupt scope 同步到 run persistence。
+
+### 已做处理
+
+已修复相关生产代码和测试 fixture：补齐 Phase34/36 binding、让 interrupt run scope 与 trusted payload 同步、保留 canonical nullable binding fields、修正 migration/env test DB 设置、更新旧 no-merchant 测试为 DB check 断言、让 facade test 走当前 claim verification path、跳过已归档 planning 文档扫描。最终 full suite 和 post-merge focused gate 均通过。
+
+### 剩余问题
+
+仍有非阻塞 warning：LangGraph serializer pending deprecation、`src/agent/graph.py` 的 `RunnableConfig` typing warning、Alembic `path_separator` deprecation、`tests/knowledge/test_facade_integration.py` 中 AsyncMock coroutine warning。当前不阻塞 Phase 36，但后续可单独清理。
+
+### 下次继续排查入口
+
+- `tests/conftest.py`
+- `src/api/routers/agent.py`
+- `src/api/routers/agent_runs.py`
+- `src/agent/nodes/assess_risk_and_approval.py`
+- `src/db/migrations/env.py`
+- `tests/test_agent_runs_api.py`
+- `tests/knowledge/test_facade_integration.py`
+
+## 2026-06-30 19:05 CST - 共享 moca_test schema 并发 pytest 导致 PostgreSQL DDL 死锁和 pg_type 重复
+
+### 问题现象
+
+一次被截断且无 session handle 的聚合 pytest 可能仍在后台运行时，又启动了 split aggregate。两个 pytest 进程共用 `moca_test/public` schema，导致 `Base.metadata.create_all` / Alembic DDL 并发执行，出现 `pg_type_typname_nsp_index` duplicate key、`relation "tenants" does not exist` 和 `DeadlockDetectedError`。
+
+### 如何检测 / 复现
+
+并发运行两个使用同一个 `TEST_DATABASE_URL = postgresql+asyncpg://moca:moca_dev@localhost:5432/moca_test` 的 pytest 命令，尤其一个跑 Alembic migration round-trip，另一个跑 `test_engine` fixture 建表：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/conversation/test_models.py ...
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/conversation/test_repository.py tests/integration/test_refund_cases.py ...
+```
+
+### 关键证据或命令
+
+- 失败摘要中出现 `asyncpg.exceptions.UniqueViolationError: duplicate key value violates unique constraint "pg_type_typname_nsp_index"`，key 为 `(typname, typnamespace)=(tenants, ...)`。
+- 同一轮还出现 `asyncpg.exceptions.DeadlockDetectedError`，DDL 正在创建 `conversation_threads`。
+- `ps -axo pid,command | rg 'pytest|uv run pytest'` 后续确认无残留 pytest，再重置 schema 后同一 split aggregate 通过：`86 passed, 2 skipped, 10 warnings`。
+
+### 当前判断 / 根因
+
+本地测试库是单一共享 schema，不支持多个 pytest 进程并发执行建表/删表/Alembic DDL。此次是验证环境并发坑，不是 MOCA 产品逻辑失败。
+
+### 已做处理
+
+确认无残留 pytest 进程后，用项目虚拟环境里的 `asyncpg` 重置测试库 schema：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python - <<'PY'
+import asyncio
+import asyncpg
+
+async def main():
+    conn = await asyncpg.connect(user='moca', password='moca_dev', host='localhost', port=5432, database='moca_test')
+    try:
+        await conn.execute('DROP SCHEMA IF EXISTS public CASCADE')
+        await conn.execute('CREATE SCHEMA public')
+        await conn.execute('CREATE EXTENSION IF NOT EXISTS vector')
+        await conn.execute('CREATE EXTENSION IF NOT EXISTS pg_trgm')
+    finally:
+        await conn.close()
+
+asyncio.run(main())
+PY
+```
+
+随后单进程重跑 split aggregate 和 full suite，均通过。
+
+### 剩余问题
+
+不要并发运行会重建 `moca_test/public` schema 的 pytest。若必须并行，需要按 worker 隔离数据库或 schema。
+
+### 下次继续排查入口
+
+- `tests/conftest.py::test_engine`
+- `tests/conversation/test_models.py::_reset_database`
+- `TEST_DATABASE_URL`
+- PostgreSQL `moca_test/public` schema
+
+## 2026-06-30 20:20 CST - full suite 静态 seam 和 ruff gate 失败后修复
+
+### 问题现象
+
+第一次 36-06 full suite 在接近中段时只有一个失败：`tests/architecture/test_trusted_context_boundaries.py::test_route_current_run_id_fields_delegate_to_legacy_identity_projection`。此外，全量 `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src tests` 初次失败，报 `src/tools/manager.py`、`src/tools/platform.py`、`src/tools/runtime.py` 中 7 个 unused import。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src tests
+```
+
+### 关键证据或命令
+
+- pytest failure 断言：route seam 文件中不允许出现直接的 `"current_run_id":` literal，必须通过 `project_to_legacy_agent_state_identity`。
+- ruff 报 `F401` unused imports：`result`、`validate_json_value`、`ToolResultProjectionV1`、`uuid4`、`ToolDescriptor`、`ToolInvocationOutcome`、`ToolError`。
+- 修复后：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest` 通过，结果为 `2125 passed, 4 skipped, 44 warnings`；`UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src tests` 通过。
+
+### 当前判断 / 根因
+
+`src/api/routers/agent.py` 的 interrupt persistence 修复初版直接写入 legacy `current_run_id`，破坏了 Phase 27 trusted-context seam 约束。ruff 失败是旧工具平台文件中的 stale imports，与本轮业务逻辑无关，但全量 gate 需要清理。
+
+### 已做处理
+
+`src/api/routers/agent.py` 改为通过 `_legacy_agent_state_identity(trusted_context)` 注入 legacy identity 字段；删除 3 个工具平台文件中的 unused imports。补跑静态 seam test、interrupt/API focused tests、tool platform tests、full suite 和 full ruff，均通过。
+
+### 剩余问题
+
+无阻塞问题。后续如果 route 代码需要 legacy AgentState identity，继续使用 `project_to_legacy_agent_state_identity` / `_legacy_agent_state_identity`，不要在 route 中手写 `"current_run_id":`。
+
+### 下次继续排查入口
+
+- `tests/architecture/test_trusted_context_boundaries.py`
+- `src/platform/context_projections.py::project_to_legacy_agent_state_identity`
+- `src/api/routers/agent.py::_legacy_agent_state_identity`
+- `src/tools/manager.py`
+- `src/tools/platform.py`
+- `src/tools/runtime.py`
+
+## 2026-06-30 22:25 CST - Phase 36 code review warning 复现脚本首次参数错误
+
+### 问题现象
+
+重跑 `$gsd-code-review 36` 后，为核对 `WR-01` 是否成立，我用临时 `uv run python` 片段调用 `tests.agent.test_phase36_run_scope._business_fact_ref` 构造复现状态。第一次命令失败，报 `_business_fact_ref() got an unexpected keyword argument 'tenant_id'`。
+
+### 如何检测 / 复现
+
+运行以下临时复现命令会触发：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python - <<'PY'
+from src.agent.run_scope import classify_agent_run_scope
+from tests.agent.test_phase36_run_scope import _business_fact_ref
+
+state = {
+    "tenant_id": "tenant-1",
+    "current_intent": "refund_troubleshooting",
+    "business_context": {
+        "facts": {"order": {"id": "ORD-1", "merchant_id": "merchant-1"}},
+        "business_fact_refs": [_business_fact_ref(tenant_id="tenant-1", merchant_id="merchant-1")],
+        "tool_results": [],
+    },
+}
+print(classify_agent_run_scope(state))
+PY
+```
+
+### 关键证据或命令
+
+失败输出：
+
+```text
+TypeError: _business_fact_ref() got an unexpected keyword argument 'tenant_id'
+```
+
+查看 `tests/agent/test_phase36_run_scope.py` 后确认 `_business_fact_ref` 只接受 `merchant_id`，`tenant_id` 固定为 `tenant-1`。
+
+### 当前判断 / 根因
+
+这是临时验证脚本的 helper 参数使用错误，不是 MOCA 产品代码失败，也不是 pytest 环境入口错误。命令入口已按项目要求使用 `UV_CACHE_DIR=/tmp/uv-cache uv run python`。
+
+### 已做处理
+
+去掉错误的 `tenant_id` 参数后重跑复现命令，得到：
+
+```text
+AgentRunScopeFacts(scope_classification='unknown_legacy', target_merchant_id=None, target_merchant_ref=None, scope_source='run_scope_classifier', scope_reason_codes=['no_authoritative_scope_proof'])
+```
+
+该结果支持本次 `36-REVIEW.md` 中的 `WR-01`：真实 runtime `business_context.facts + business_fact_refs` 形态没有被 `classify_agent_run_scope` 消费为 `business_merchant`。
+
+### 剩余问题
+
+需要后续修复 `WR-01`，让 Phase 36 run scope classifier 消费当前 turn 的可信 business context 事实，或让 `investigate` 产出可验证的 `BusinessFactResultV1` 形态。
+
+### 下次继续排查入口
+
+- `.planning/phases/36-merchant-scope-db-hardening-role-cleanup/36-REVIEW.md`
+- `src/agent/run_scope.py::classify_agent_run_scope`
+- `src/agent/nodes/investigate.py`
+- `tests/agent/test_phase36_run_scope.py`
+
+## 2026-06-30 22:43 CST - Phase 36 code-review-fix broader pytest 被本地 PostgreSQL 不可达阻塞
+
+### 问题现象
+
+执行 `$gsd-code-review-fix 36` 修复 `WR-01` 后，fixer 的轻量验证通过，但 broader review pytest 命令 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase36_run_scope.py tests/test_agent_runs_api.py -q --tb=short` 未能完整通过。结果为 `30 passed, 44 setup errors, 1 warning`，错误集中在测试数据库 fixture 连接本地 PostgreSQL。
+
+### 如何检测 / 复现
+
+fixer 报告中的 broader command：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase36_run_scope.py tests/test_agent_runs_api.py -q --tb=short
+```
+
+我随后用项目环境里的 `asyncpg` 直接检测本地测试库连接：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python - <<'PY'
+import asyncio
+import asyncpg
+
+async def main():
+    try:
+        conn = await asyncpg.connect(user='moca', password='moca_dev', host='localhost', port=5432, database='moca_test', timeout=2)
+    except Exception as exc:
+        print(type(exc).__name__)
+        print(exc)
+        return
+    else:
+        await conn.close()
+        print('connected')
+
+asyncio.run(main())
+PY
+```
+
+### 关键证据或命令
+
+`asyncpg` 连接检测输出：
+
+```text
+OSError
+Multiple exceptions: [Errno 61] Connect call failed ('127.0.0.1', 5432), [Errno 61] Connect call failed ('::1', 5432, 0, 0)
+```
+
+尝试使用 `pg_isready -h localhost -p 5432` 时，本机 shell 返回 `command not found`，因此改用项目虚拟环境里的 `asyncpg` 作为证据。
+
+### 当前判断 / 根因
+
+这是本地 PostgreSQL 测试服务未启动或不可达导致的环境阻塞，不是 `WR-01` 修复代码的功能失败。`tests/test_agent_runs_api.py` 需要数据库 fixture；`tests/agent/test_phase36_run_scope.py` 中新增的纯分类回归不依赖数据库。
+
+### 已做处理
+
+已补跑不依赖 PostgreSQL 的 focused verification：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase36_run_scope.py::test_runtime_business_context_fact_and_ref_classifies_business_merchant tests/agent/test_phase36_run_scope.py::test_last_business_context_refs_without_current_fact_body_is_not_authoritative -q --tb=short
+```
+
+结果：`2 passed, 1 warning`。
+
+已补跑 touched-file ruff：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/run_scope.py tests/agent/test_phase36_run_scope.py
+```
+
+结果：`All checks passed!`。
+
+### 剩余问题
+
+如果要完整关闭 broader review pytest，需要先启动或修复本地 PostgreSQL `moca_test` 测试库连接，然后重跑：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase36_run_scope.py tests/test_agent_runs_api.py -q --tb=short
+```
+
+### 下次继续排查入口
+
+- `tests/conftest.py::_ensure_test_database`
+- `tests/test_agent_runs_api.py`
+- `TEST_DATABASE_URL`
+- 本地 PostgreSQL `localhost:5432` / `moca_test`
+
+## 2026-07-01：Memory contract focused pytest 因本地 PostgreSQL 未启动失败
+
+### 问题现象
+
+本轮补充 memory contract 文档、long-term 写入策略和 contract tests 后，focused pytest 使用项目规定入口执行，但所有依赖数据库 fixture 的测试在 setup 阶段连接本地 PostgreSQL 失败。非数据库测试已正常执行。
+
+### 如何检测 / 复现
+
+执行命令：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_long_term_memory_service.py tests/agent/test_nodes/test_assess_risk_and_approval.py tests/architecture/test_memory_contract_delta.py tests/agent/test_memory_evidence_boundary.py tests/agent/test_required_slots.py tests/memory/test_case_memory_retrieval.py tests/memory/test_memory_tombstones.py -q --tb=short
+```
+
+### 关键证据或命令
+
+pytest 结果：`39 passed, 42 errors, 2 warnings`。
+
+错误集中在 `tests/conftest.py::_ensure_test_database`：
+
+```text
+OSError: Multiple exceptions: [Errno 61] Connect call failed ('127.0.0.1', 5432), [Errno 61] Connect call failed ('::1', 5432, 0, 0)
+```
+
+受影响的是需要 `session` / `seeded_session` / `test_engine` 的 DB 测试，例如 `tests/memory/test_long_term_memory_service.py`、`tests/memory/test_case_memory_retrieval.py`、`tests/memory/test_memory_tombstones.py` 以及部分 memory evidence boundary 测试。
+
+### 当前判断 / 根因
+
+这是本地 PostgreSQL `localhost:5432` 上的 `moca_test` 测试库不可达导致的环境阻塞，不是本轮 memory contract 代码行为失败。测试入口使用的是有效的 `uv run pytest`，未使用裸 `pytest`。
+
+### 已做处理
+
+已先完成不依赖数据库服务的静态和单元验证：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/memory/long_term.py tests/memory/test_long_term_memory_service.py tests/agent/test_nodes/test_assess_risk_and_approval.py tests/architecture/test_memory_contract_delta.py
+```
+
+结果：`All checks passed!`。
+
+上面的 focused pytest 中不依赖 PostgreSQL 的测试已通过，结果中显示 `39 passed`。
+
+随后补跑新增的非 DB contract 子集：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_long_term_memory_service.py::test_current_business_object_write_policy_requires_review_without_database tests/memory/test_long_term_memory_service.py::test_deterministic_source_without_business_object_metadata_requires_review_without_database tests/architecture/test_memory_contract_delta.py tests/agent/test_required_slots.py tests/agent/test_nodes/test_assess_risk_and_approval.py::test_high_risk_action_cannot_execute_from_inherited_slot_only -q --tb=short
+```
+
+结果：`23 passed, 1 warning`。
+
+### 剩余问题
+
+需要启动或修复本地 PostgreSQL，并确保 `postgresql+asyncpg://moca:moca_dev@localhost:5432/moca_test` 可连接后，重跑本轮 focused pytest。
+
+### 下次继续排查入口
+
+- `tests/conftest.py::_ensure_test_database`
+- `TEST_DATABASE_URL`
+- 本地 PostgreSQL `localhost:5432` / `moca_test`
+- 本轮 focused pytest 命令
+
+## 2026-07-01：memory policy hints 新增测试 fixture 字段假设错误
+
+### 问题现象
+
+本轮为验证 `policy_topic_hints` / `prior_policy_mention_refs` 不能满足 recommendation policy gate 新增测试后，第一次聚焦 pytest 失败。
+
+### 如何检测 / 复现
+
+命令：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_memory_policy.py tests/memory/test_memory_write_service.py tests/memory/test_memory_context_bundle.py tests/memory/test_session_memory_bundle.py::test_session_memory_bundle_derives_policy_hints_from_tool_summaries tests/agent/context/test_assembler.py::test_context_assembler_consumes_memory_context_bundle_without_promoting_policy_hints_to_evidence tests/agent/test_nodes/test_generate_recommendation.py::test_policy_hints_in_memory_context_do_not_satisfy_policy_gate tests/agent/test_reviewed_memory_context_retrieve.py::test_reviewed_memory_context_retrieve_emits_unified_bundle_when_session_context_exists tests/architecture/test_memory_contract_delta.py -q --tb=short
+```
+
+失败：`tests/agent/test_nodes/test_generate_recommendation.py::test_policy_hints_in_memory_context_do_not_satisfy_policy_gate`。
+
+### 关键证据
+
+```text
+KeyError: 'current_run_id'
+```
+
+测试里的 `base_state` fixture 只有 `thread_id`、`tenant_id`、`user_id`、`role`、`user_query`，没有 `current_run_id`。
+
+### 当前判断 / 根因
+
+这是新增测试对 fixture 结构的错误假设，不是 memory policy hints 或 recommendation gate 的实现问题。
+
+### 已做处理
+
+已在测试 state 内显式补 `current_run_id=str(uuid4())`，并把 memory bundle 内部 `run_id` 改为测试常量。
+
+### 验证结果
+
+重跑同一命令通过：`24 passed, 1 warning`。
+
+### 剩余问题
+
+无。该问题已修复。
+
+### 下次继续排查入口
+
+- `tests/agent/conftest.py::base_state`
+- `tests/agent/test_nodes/test_generate_recommendation.py::test_policy_hints_in_memory_context_do_not_satisfy_policy_gate`
+
+## 2026-07-01：memory review queue 聚焦 DB 测试因本地 PostgreSQL 不可达失败
+
+### 问题现象
+
+本轮把 memory pending review 查询下沉到 long-term/case repository/service 后，运行包含 API 与 repository DB fixture 的聚焦 pytest 时，4 个测试在 fixture setup 阶段报错，未进入业务断言。
+
+### 如何检测 / 复现
+
+命令：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_memory_review_api.py tests/memory/test_long_term_memory_repository.py::test_long_term_service_lists_active_pending_review_rows tests/memory/test_case_memory_retrieval.py::test_case_memory_service_lists_active_pending_review_rows tests/architecture/test_memory_contract_delta.py -q --tb=short
+```
+
+### 关键证据或命令
+
+错误来自 `tests/conftest.py::_ensure_test_database` 连接测试库：
+
+```text
+OSError: Multiple exceptions: [Errno 61] Connect call failed ('127.0.0.1', 5432), [Errno 61] Connect call failed ('::1', 5432, 0, 0)
+```
+
+该命令结果中不依赖数据库的架构契约测试已通过，整体显示 `6 passed, 1 warning, 4 errors`。
+
+### 当前判断 / 根因
+
+本地 PostgreSQL `localhost:5432` 不可达，导致 `moca_test` 测试库无法创建或连接。这是本地验证环境问题，不是 memory review queue 代码断言失败。测试入口使用了有效的 `uv run pytest`，未使用裸 `pytest`。
+
+### 已做处理
+
+已先运行 ruff，结果通过：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/memory/repository.py src/memory/long_term.py src/memory/case_memory.py src/api/routers/memory.py tests/memory/test_long_term_memory_repository.py tests/memory/test_case_memory_retrieval.py tests/architecture/test_memory_contract_delta.py
+```
+
+结果：`All checks passed!`。
+
+### 剩余问题
+
+需要启动或修复本地 PostgreSQL，并确保 `postgresql+asyncpg://moca:moca_dev@localhost:5432/moca_test` 可连接后，重跑本轮 focused pytest。
+
+### 下次继续排查入口
+
+- `tests/conftest.py::_ensure_test_database`
+- `TEST_DATABASE_URL`
+- 本地 PostgreSQL `localhost:5432` / `moca_test`
+- `tests/test_memory_review_api.py`
+- `tests/memory/test_long_term_memory_repository.py::test_long_term_service_lists_active_pending_review_rows`
+- `tests/memory/test_case_memory_retrieval.py::test_case_memory_service_lists_active_pending_review_rows`
+
+## 2026-07-01：session write event 真实 DB 聚焦测试因本地 PostgreSQL 不可达失败
+
+### 问题现象
+
+本轮为 session memory write 补 `MemoryWriteEvent(memory_type="session_slot")` 后，尝试运行真实 DB session write 聚焦测试，测试在 fixture setup 阶段失败，未进入业务断言。
+
+### 如何检测 / 复现
+
+命令：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_session_memory_service.py::test_service_merge_current_explicit_overrides_existing -q --tb=short
+```
+
+### 关键证据或命令
+
+错误来自 `tests/conftest.py::_ensure_test_database` 连接测试库：
+
+```text
+OSError: Multiple exceptions: [Errno 61] Connect call failed ('127.0.0.1', 5432), [Errno 61] Connect call failed ('::1', 5432, 0, 0)
+```
+
+### 当前判断 / 根因
+
+本地 PostgreSQL `localhost:5432` 不可达，导致 `moca_test` 测试库无法创建或连接。这是本地验证环境问题，不是 session write event 代码断言失败。测试入口使用了有效的 `uv run pytest`，未使用裸 `pytest`。
+
+### 已做处理
+
+已完成不依赖数据库的新增行为验证：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_session_memory_service.py::test_session_memory_write_emits_session_slot_write_event_without_database tests/memory/test_session_memory_service.py::test_session_memory_pii_skip_emits_blocked_session_slot_write_event_without_database tests/architecture/test_memory_contract_delta.py -q --tb=short
+```
+
+结果：`8 passed, 1 warning`。
+
+同时完成 memory contract 非 DB 子集验证：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_memory_write_service.py tests/memory/test_context_refs.py tests/memory/test_memory_schema.py tests/memory/test_memory_policy.py tests/memory/test_memory_context_bundle.py tests/architecture/test_memory_contract_delta.py -q --tb=short
+```
+
+结果：`42 passed, 1 warning`。
+
+### 剩余问题
+
+需要启动或修复本地 PostgreSQL，并确保 `postgresql+asyncpg://moca:moca_dev@localhost:5432/moca_test` 可连接后，重跑真实 DB session memory service 测试。
+
+### 下次继续排查入口
+
+- `tests/conftest.py::_ensure_test_database`
+- `TEST_DATABASE_URL`
+- 本地 PostgreSQL `localhost:5432` / `moca_test`
+- `tests/memory/test_session_memory_service.py::test_service_merge_current_explicit_overrides_existing`
+
+## 2026-07-02 00:11 CST - Phase 37 plan-phase state.planned-phase 再次误改 STATE frontmatter
+
+### 问题现象
+
+Phase 37 plan-checker 通过后，按 `$gsd-plan-phase` workflow 调用 `gsd-sdk query state.planned-phase --phase 37 --name "Tool Declaration + Runtime/Policy Internal Consolidation" --plans 3`，命令返回 success，但 `.planning/STATE.md` frontmatter 被错误改写：`milestone_name` 从 `Tool Platform Hardening` 变成 `milestone`，`status` 从 `ready_to_execute` 变成 `executing`，`stopped_at` 回退到 roadmap-created 状态。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+gsd-sdk query state.planned-phase --phase 37 --name "Tool Declaration + Runtime/Policy Internal Consolidation" --plans 3
+git diff -- .planning/STATE.md
+sed -n '1,30p' .planning/STATE.md
+```
+
+### 关键证据或命令
+
+- `gsd-sdk query state.planned-phase ...` 返回 `{ "updated": true, "phase": "37", "plans": "3" }`。
+- 随后 `git diff -- .planning/STATE.md` 显示 frontmatter 被改成 `milestone_name: milestone`、`status: executing`、`stopped_at: v2.1 roadmap created; Phases 37-39 defined`。
+- 该表现与 2026-06-30 已记录的 `state.planned-phase` / `state.record-session` STATE 读改写问题同源。
+
+### 当前判断 / 根因
+
+当前判断仍是 GSD state 写入工具的 shared STATE 读改写逻辑会错误推导 milestone metadata，并覆盖已正确提交的 Phase 37 planned 状态。该问题与 MOCA 产品代码无关。
+
+### 已做处理
+
+已手工恢复 `.planning/STATE.md` 到已提交的正确 Phase 37 planned / ready-to-execute 状态：`milestone_name: Tool Platform Hardening`、`status: ready_to_execute`、`stopped_at: Phase 37 planned; ready to execute 3 plans`。
+
+### 剩余问题
+
+后续继续使用任何 `gsd-sdk query state.*` 写命令后，必须立即检查 `git diff -- .planning/STATE.md`。在 GSD 工具修复前，不应盲目提交 state 命令输出。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `/Users/ming/.codex/get-shit-done/bin/lib/state.cjs`
+- `cmdStatePlannedPhase`
+- `readModifyWriteStateMd`
+
+## 2026-07-02 08:07 CST - Phase 37 execute-phase state.begin-phase flag 解析错误并误改 STATE
+
+### 问题现象
+
+执行 `$gsd-execute-phase 37` 初始化时，按 workflow 调用 `gsd-sdk query state.begin-phase --phase 37 --name "Tool Declaration + Runtime/Policy Internal Consolidation" --plans 3`。命令返回 success-like JSON，但把参数错误解析为 `phase="--phase"`、`name="37"`、`plan_count="--name"`，并把 `.planning/STATE.md` 改成 `Phase --phase` / `Plan: 1 of --name`。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+gsd-sdk query state.begin-phase --phase 37 --name "Tool Declaration + Runtime/Policy Internal Consolidation" --plans 3
+git diff -- .planning/STATE.md
+sed -n '1,45p' .planning/STATE.md
+```
+
+### 关键证据或命令
+
+- 命令输出为 `{ "phase": "--phase", "name": "37", "plan_count": "--name" }`。
+- `git diff -- .planning/STATE.md` 显示 `milestone_name` 被改成 `milestone`，`Current focus` 被改成 `Phase --phase — 37`，`Current Position` 被改成 `Phase: --phase (37) — EXECUTING` 和 `Plan: 1 of --name`。
+
+### 当前判断 / 根因
+
+这是 GSD `state.begin-phase` 的参数解析/STATE 写入问题，不是 MOCA 产品代码问题。它与此前 `state.record-session`、`state.planned-phase` 误改 STATE frontmatter 的问题同类，但这次额外表现为 flag 参数被当作 positional 值写入正文。
+
+### 已做处理
+
+已手工修复 `.planning/STATE.md` 为正确执行中状态：`milestone_name: Tool Platform Hardening`、`status: executing`、`stopped_at: Phase 37 execution in progress`、`Phase: 37 Tool Declaration + Runtime/Policy Internal Consolidation — EXECUTING`、`Plan: 1 of 3`。
+
+### 剩余问题
+
+后续继续避免盲信 `gsd-sdk query state.*` 写命令。每次调用后必须立即检查 `.planning/STATE.md` diff；如出现错误写入，先修复再提交。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `/Users/ming/.codex/get-shit-done/bin/lib/state.cjs`
+- `cmdStateBeginPhase`
+- `readModifyWriteStateMd`
+
+## 2026-07-02 08:24 CST - Phase 37 wave 1 full relevant suite 因本地 Postgres 未启动失败
+
+### 问题现象
+
+执行 Phase 37 wave 1 后的 full relevant suite 时，测试收集和非 DB 用例通过，但 14 个依赖 `test_engine` fixture 的用例在 setup 阶段报错，无法连接本地 PostgreSQL `localhost:5432`。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/agent/test_tools/test_unified_tool_manager.py tests/replay/test_tool_policy_events.py tests/architecture/test_trusted_context_boundaries.py -q
+```
+
+### 关键证据或命令
+
+- 命令结果：`61 passed, 1 warning, 14 errors`。
+- 失败均发生在 fixture setup：`tests/conftest.py:72 in test_engine` -> `_ensure_test_database(TEST_DATABASE_URL)` -> `asyncpg.connect(...)`。
+- 关键错误：`OSError: Multiple exceptions: [Errno 61] Connect call failed ('127.0.0.1', 5432), [Errno 61] Connect call failed ('::1', 5432, 0, 0)`。
+- 37-01 不依赖 DB 的 focused gate 已通过：`uv run pytest tests/tools/test_catalog.py tests/agent/test_tools/test_unified_tool_manager.py -q` -> `41 passed, 1 warning`。
+
+### 当前判断 / 根因
+
+当前判断是本地 PostgreSQL 服务未启动或未监听 `localhost:5432`，导致 DB-backed tests 的 test database setup 失败。错误发生在测试 fixture 连接阶段，尚未进入被测产品逻辑；目前没有证据指向 Phase 37 wave 1 的 catalog/manager 代码变更。
+
+### 已做处理
+
+已记录环境失败，并保留 focused gate、ruff、结构性 grep 作为 37-01 当前提交依据。未把 full suite 失败误判为产品代码回归。
+
+### 剩余问题
+
+后续需要启动本地 PostgreSQL / test database 后重跑 full relevant suite，才能把 wave gate 标记为完整绿色。
+
+### 下次继续排查入口
+
+- `tests/conftest.py`
+- `TEST_DATABASE_URL`
+- 本地 PostgreSQL `localhost:5432`
+- Phase 37 full relevant suite 命令
+
+## 2026-07-02 08:43 CST - Phase 37 plan 37-02 focused suite 因本地 Postgres 缺失无法完整执行
+
+### 问题现象
+
+执行 37-02 plan 要求的 focused verification 时，非 DB 用例通过，DB-backed 用例仍在 `test_engine` fixture setup 阶段失败，无法连接本地 PostgreSQL `localhost:5432`。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+uv run pytest tests/tools/test_tool_platform.py tests/agent/test_tools/test_unified_tool_manager.py tests/replay/test_tool_policy_events.py -q
+```
+
+### 关键证据或命令
+
+- 命令结果：`48 passed, 1 warning, 14 errors`。
+- 所有 error 均指向 `tests/conftest.py:72 in test_engine` -> `_ensure_test_database(TEST_DATABASE_URL)` -> `asyncpg.connect(...)`。
+- 关键错误仍是：`OSError: Multiple exceptions: [Errno 61] Connect call failed ('127.0.0.1', 5432), [Errno 61] Connect call failed ('::1', 5432, 0, 0)`。
+- 本机检查结果：`postgres` / `pg_ctl` / `pg_isready` 不在 PATH；`brew list --formula | rg '^postgresql(@[0-9]+)?$|^libpq$'` 无结果；`brew services list` 只有表头；`lsof -nP -iTCP:5432 -sTCP:LISTEN` 无监听进程。
+- 37-02 新增的非 DB 回归测试已通过：`uv run pytest tests/tools/test_tool_platform.py::test_tool_runtime_failure_paths_use_shared_fail_helper tests/tools/test_tool_platform.py::test_tool_runtime_failure_projection_redacts_raw_sentinel_inputs tests/replay/test_tool_policy_events.py::test_tool_runtime_event_payload_source_omits_raw_descriptor_and_args -q` -> `3 passed, 1 warning`。
+
+### 当前判断 / 根因
+
+当前判断与 08:24 记录相同：本地没有可用 PostgreSQL 服务或客户端工具，导致 DB-backed tests 无法完成 fixture 初始化。该问题不是 Phase 37 plan 37-02 的 `ToolRuntime._fail` 代码回归。
+
+### 已做处理
+
+已运行不依赖 DB 的新增回归测试、ruff，并继续用结构性断言验证 `_fail` helper、失败出口数量和 event payload redaction。未把 DB fixture setup 失败误判为产品逻辑失败。
+
+### 剩余问题
+
+需要安装/启动本地 PostgreSQL，并确保 `moca:moca_dev@localhost:5432` 可连接后，重跑 37-02 focused suite 和 Phase 37 full relevant suite。
+
+### 下次继续排查入口
+
+- `tests/conftest.py`
+- `TEST_DATABASE_URL`
+- 本地 PostgreSQL 安装与服务状态
+- 37-02 focused verification 命令
+
+## 2026-07-02 08:55 CST - Phase 37 plan 37-03 Task 2 focused suite 仍因本地 Postgres 缺失失败
+
+### 问题现象
+
+执行 37-03 Task 2 要求的 focused verification 时，非 DB 的 tool platform / unified manager 测试通过，6 个 DB-backed tool platform 用例仍在 `test_engine` fixture setup 阶段失败。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+uv run pytest tests/tools/test_tool_platform.py tests/agent/test_tools/test_unified_tool_manager.py -q
+```
+
+### 关键证据或命令
+
+- 命令结果：`47 passed, 1 warning, 6 errors`。
+- 6 个 error 均为 `tests/conftest.py:72 in test_engine` 初始化测试数据库时连接 `localhost:5432` 失败。
+- 关键错误仍为：`OSError: Multiple exceptions: [Errno 61] Connect call failed ('127.0.0.1', 5432), [Errno 61] Connect call failed ('::1', 5432, 0, 0)`。
+- 不依赖 DB 的 37-03 gate 覆盖已通过：`uv run pytest tests/tools/test_tool_platform.py::test_runtime_auth_gate_sequence_is_declarative_and_ordered tests/tools/test_tool_platform.py::test_runtime_auth_declarative_gates_preserve_multi_denial_reason_order tests/tools/test_tool_platform.py::test_runtime_auth_rechecks_visible_tool_before_dispatch tests/tools/test_tool_platform.py::test_runtime_auth_handles_legacy_list_merchant_scope tests/tools/test_tool_platform.py::test_tool_runtime_failure_paths_use_shared_fail_helper tests/agent/test_tools/test_unified_tool_manager.py -q` -> `35 passed, 1 warning`。
+
+### 当前判断 / 根因
+
+与 08:24 / 08:43 记录同源：本地缺少可用 PostgreSQL 服务，DB-backed tests 无法完成 fixture 初始化。当前没有证据显示 37-03 `RuntimeAuthGate` 改动破坏了非 DB 授权语义。
+
+### 已做处理
+
+已用非 DB 子集覆盖 runtime_auth gate 顺序、多重拒绝 reason order、runtime dispatch re-auth、legacy merchant scope、runtime failure helper 和 unified manager 回归；ruff 通过。
+
+### 剩余问题
+
+启动/安装本地 PostgreSQL 后重跑 37-03 focused suite 和 Phase 37 full suite。
+
+### 下次继续排查入口
+
+- `tests/conftest.py`
+- `TEST_DATABASE_URL`
+- 37-03 focused verification 命令
+
+## 2026-07-02 09:01 CST - Phase 37 final full relevant pytest 仍因本地 Postgres 缺失无法完整绿灯
+
+### 问题现象
+
+Phase 37 plan 37-03 final sweep 中，contract-shape、spec/contracts 空 diff、generic output schema 检查和 full ruff 均通过，但 full relevant pytest 无法完整通过，14 个 DB-backed tests 在 fixture setup 阶段连接 PostgreSQL 失败。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/agent/test_tools/test_unified_tool_manager.py tests/replay/test_tool_policy_events.py tests/architecture/test_trusted_context_boundaries.py -q
+```
+
+### 关键证据或命令
+
+- 命令结果：`66 passed, 1 warning, 14 errors`。
+- 14 个 error 均发生在 `tests/conftest.py:72 in test_engine` -> `_ensure_test_database(TEST_DATABASE_URL)` -> `asyncpg.connect(...)`。
+- 关键错误仍为：`OSError: Multiple exceptions: [Errno 61] Connect call failed ('127.0.0.1', 5432), [Errno 61] Connect call failed ('::1', 5432, 0, 0)`。
+- 同一 final sweep 中已通过：
+  - `git diff -- docs/contract-spec.md src/tools/contracts.py` -> 空 diff
+  - contract-shape `uv run python -c ...` -> `contract shape checks passed`
+  - generic output schema `uv run python -c ...` -> `generic output schemas preserved`
+  - `uv run ruff check src/tools tests/tools tests/agent/test_tools tests/replay/test_tool_policy_events.py tests/architecture/test_trusted_context_boundaries.py` -> `All checks passed!`
+
+### 当前判断 / 根因
+
+根因仍是本地没有可用 PostgreSQL 服务监听 `localhost:5432`，导致 DB-backed tests 不能初始化 test database。该失败不指向 Phase 37 的 catalog/runtime/policy 代码改动。
+
+### 已做处理
+
+已保留 full pytest 失败结论为环境阻塞，并用非 DB focused tests、contract-shape、generic output schema、ruff、spec/contracts 空 diff覆盖 Phase 37 的可本地验证部分。
+
+### 剩余问题
+
+需要安装/启动本地 PostgreSQL，并确保 `moca:moca_dev@localhost:5432` 可连接后重跑 full relevant pytest，才能把 Phase 37 final pytest gate 标记为完整绿色。
+
+### 下次继续排查入口
+
+- `tests/conftest.py`
+- `TEST_DATABASE_URL`
+- 本地 PostgreSQL 服务
+- Phase 37 full relevant pytest 命令
+
+## 2026-07-02 08:47 CST - Phase 37 plan 37-02 runtime_auth 顺序结构检查首次写得过宽导致误报
+
+### 问题现象
+
+为验证 37-02 acceptance criteria，我临时运行 `uv run python -c ...` 检查 `validate_json_value(args, descriptor.input_schema)` 是否在 `self._policy_engine.runtime_auth(` 之前。首次脚本直接取源码中第一个 `runtime_auth` 出现位置，断言失败。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行过宽版本的结构检查：
+
+```bash
+uv run python -c "import inspect; from src.tools.runtime import ToolRuntime; source=inspect.getsource(ToolRuntime.invoke); assert source.index('validate_json_value(args, descriptor.input_schema)') < source.index('self._policy_engine.runtime_auth(')"
+```
+
+### 关键证据或命令
+
+- 命令输出：`AssertionError`。
+- `rg -n "runtime_auth|validate_json_value\\(args, descriptor\\.input_schema\\)" src/tools/runtime.py` 显示第一个 `runtime_auth` 在 descriptor missing 分支；该分支没有 descriptor/input schema，属于 not_found decision 构造路径，不是已知工具调用路径。
+- 修正后的检查从 `availability_map = self._build_availability_map()` 后查找 descriptor-present 路径的 runtime_auth，结果通过：`runtime structural checks passed`。
+
+### 当前判断 / 根因
+
+根因是临时结构检查脚本断言范围过宽，把 descriptor missing 分支也纳入了 “input validation before runtime_auth” 规则。真实约束应针对 descriptor lookup 成功后的路径：已知工具必须先做 input schema validation，再进入 runtime_auth。
+
+### 已做处理
+
+已用修正后的结构检查重跑并通过：
+
+```bash
+uv run python -c "import inspect; from src.tools.runtime import ToolRuntime; source=inspect.getsource(ToolRuntime.invoke); validate_pos=source.index('validate_json_value(args, descriptor.input_schema)'); auth_pos=source.index('self._policy_engine.runtime_auth(', source.index('availability_map = self._build_availability_map()')); assert validate_pos < auth_pos; print('runtime structural checks passed')"
+```
+
+### 剩余问题
+
+无代码问题。后续如果要固化这类结构检查，应明确排除 descriptor missing 分支，或用 AST/控制流语义检查而不是简单第一个子串位置。
+
+### 下次继续排查入口
+
+- `src/tools/runtime.py`
+- `ToolRuntime.invoke`
+- 37-02 acceptance criteria 中的 input-validation-before-runtime-auth 条款
+
+## 2026-07-02 08:28 CST - gsd-code-review 37 文件范围提取命令的 zsh quoting 包装误报
+
+### 问题现象
+
+执行 `$gsd-code-review 37` 时，我用一段嵌套 `bash -lc` + `node -e` 命令复刻 workflow 的 SUMMARY 文件范围提取逻辑，zsh 在解析 Node 代码中的 `for (const line of ...)` 处报语法错误，导致该临时提取命令失败。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行当次失败的嵌套 shell/node 提取命令，会在 shell 解析阶段失败，而不是进入 Node 运行阶段。
+
+### 关键证据或命令
+
+- 失败输出：`zsh:15: parse error near '(const line of yaml....'`
+- 后续改用单个 heredoc Node 脚本读取 `.planning/phases/37-tool-declaration-runtime-policy-internal-consolidation/*-SUMMARY.md`，成功解析出 review 文件范围：
+  - `src/tools/catalog.py`
+  - `src/tools/manager.py`
+  - `src/tools/policy.py`
+  - `src/tools/runtime.py`
+  - `tests/agent/test_tools/test_unified_tool_manager.py`
+  - `tests/replay/test_tool_policy_events.py`
+  - `tests/tools/test_catalog.py`
+  - `tests/tools/test_tool_platform.py`
+
+### 当前判断 / 根因
+
+根因是临时命令包装中的引号嵌套不当，外层 zsh 提前解释了本应交给 Node 的 JavaScript 片段。该问题不指向 MOCA 代码、测试或 GSD summary 内容。
+
+### 已做处理
+
+已改用单个 heredoc Node 脚本完成同一文件范围提取，避免嵌套 `node -e` 引号冲突；`gsd-code-reviewer` 已按解析出的 8 个源码/测试文件继续审核。
+
+### 剩余问题
+
+无项目代码问题。若后续需要复刻 GSD workflow 中较长的 Node 片段，优先使用 heredoc 或独立脚本，避免多层 shell 引号。
+
+### 下次继续排查入口
+
+- `/Users/ming/.codex/get-shit-done/workflows/code-review.md`
+- Phase 37 `*-SUMMARY.md`
+- 本轮 `$gsd-code-review 37` 文件范围解析步骤
+
+## 2026-07-02 08:42 CST - Phase 37 TPH-03 manager investigate 过滤未接入 catalog helper
+
+### 问题现象
+
+Phase 37 完成后复核 TPH-03 single-edit-point registry 时发现，`src/tools/catalog.py` 已新增 `investigate_tool_names(...)` 派生函数，但生产消费点 `UnifiedToolManager.descriptors("investigate")` 仍然在 `src/tools/manager.py` 内联 `caller_allowlist` / `kind != "write"` / `exposure == "planner_visible"` 三条件过滤；两个测试文件也各自保留了 `_catalog_investigate_tool_names()` 本地副本。行为正确但收敛不彻底，仍存在谓词漂移风险。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+rg "investigate_tool_names|_catalog_investigate_tool_names|def descriptors" src/tools/catalog.py src/tools/manager.py tests/tools/test_catalog.py tests/agent/test_tools/test_unified_tool_manager.py -n
+```
+
+### 关键证据或命令
+
+- 复核时 `src/tools/catalog.py` 定义了 `investigate_tool_names(...)`，但 `src/tools/manager.py` 没有调用它。
+- `tests/tools/test_catalog.py` 和 `tests/agent/test_tools/test_unified_tool_manager.py` 均有本地 `_catalog_investigate_tool_names()` 副本。
+- 加入回归测试后，修复前 focused suite 红态：`1 failed, 41 passed, 1 warning`，失败点为 `test_descriptor_discovery_uses_catalog_investigate_helper`。
+
+### 当前判断 / 根因
+
+根因是 Phase 37 最初只删除了 manager 的 literal tool-name set，并把 manager 改成按 descriptor 属性内联过滤；这消除了硬编码名称漂移，但没有把唯一生产消费点接到 catalog helper，因此 TPH-03 的“单个派生来源”目标没有完全达成。
+
+### 已做处理
+
+- `src/tools/manager.py` 重新导入并调用 `investigate_tool_names(self._descriptors.values())`。
+- `tests/tools/test_catalog.py` 删除本地 `_catalog_investigate_tool_names()`，改用生产 `investigate_tool_names(...)`。
+- `tests/agent/test_tools/test_unified_tool_manager.py` 删除本地 `_catalog_investigate_tool_names()`，并用 monkeypatch 测试证明 `UnifiedToolManager.descriptors("investigate")` 调用 manager 模块的 `investigate_tool_names`。
+- 修复后验证：`uv run pytest tests/tools/test_catalog.py tests/agent/test_tools/test_unified_tool_manager.py -q` -> `42 passed, 1 warning`。
+- 修复后 ruff：`uv run ruff check src/tools/manager.py tests/tools/test_catalog.py tests/agent/test_tools/test_unified_tool_manager.py` -> passed。
+
+### 剩余问题
+
+Phase 37 final full relevant pytest 仍受本地 PostgreSQL 未运行影响；该环境阻塞已由前序记录覆盖。TPH-03 manager/helper 接线本身已完成。
+
+### 下次继续排查入口
+
+- `src/tools/catalog.py::investigate_tool_names`
+- `src/tools/manager.py::UnifiedToolManager.descriptors`
+- `tests/agent/test_tools/test_unified_tool_manager.py::test_descriptor_discovery_uses_catalog_investigate_helper`
+
+## 2026-07-02 09:20 CST - Phase 38 research 环境审计确认本地 PostgreSQL gate 不可直接运行
+
+### 问题现象
+
+Phase 38 research 做 validation architecture / environment availability 审计时，确认当前本机缺少 `pg_isready`，且 `localhost:5432` 未开放；因此涉及 `tests/conftest.py::test_engine` 的 DB-backed pytest gate 不能在当前环境直接作为通过/失败结论使用。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行环境探测命令：
+
+```bash
+pg_isready
+nc -z localhost 5432
+```
+
+### 关键证据或命令
+
+- `pg_isready` 输出：`zsh:1: command not found: pg_isready`
+- `nc -z localhost 5432` 退出码为 `1`，无成功输出。
+- `tests/conftest.py` 的 `TEST_DATABASE_URL` 指向 `postgresql+asyncpg://moca:moca_dev@localhost:5432/moca_test`，并在 `test_engine` fixture 中创建 DB extension / metadata。
+
+### 当前判断 / 根因
+
+当前问题是本地验证环境缺少 PostgreSQL tooling / service，而不是 Phase 38 代码问题。Phase 38 核心 catalog/runtime schema gate 可以用 non-DB fake-executor tests 覆盖；广义 DB-backed consumer suite 需要等本地 PostgreSQL 可用后再跑。
+
+### 已做处理
+
+- 已在 `.planning/phases/38-output-schema-declaration-runtime-output-validation-enforcem/38-RESEARCH.md` 的 Environment Availability 和 Validation Architecture 中标注 PostgreSQL 缺失与 DB-backed gate caveat。
+- Phase 38 research 推荐 planner 将 fast non-DB tests 与 DB-backed phase gate 分开记录，避免把环境缺失误判为代码失败。
+
+### 剩余问题
+
+本机仍需安装/启动 PostgreSQL，并保证 `moca:moca_dev@localhost:5432` 可连接后，才能完成包含 DB fixture 的 full relevant pytest gate。
+
+### 下次继续排查入口
+
+- `tests/conftest.py::TEST_DATABASE_URL`
+- `tests/conftest.py::test_engine`
+- `.planning/phases/38-output-schema-declaration-runtime-output-validation-enforcem/38-RESEARCH.md`
+
+## 2026-07-02 08:56 CST - Phase 38 plan-phase 本地门禁命令出现 zsh glob 与 UI 关键词误报
+
+### 问题现象
+
+执行 `$gsd-plan-phase 38` 的本地 workflow gate 复刻时，出现两类非产品代码问题：
+
+1. 用 `ls .planning/phases/38-output-schema-declaration-runtime-output-validation-enforcem/*-PLAN.md 2>/dev/null || true` 检查现有 plan 时，zsh 在 shell 展开阶段报 `no matches found`，没有进入 `ls`。
+2. UI phase detector 使用宽泛 `grep -iE "UI|interface|frontend|component|layout|page|screen|view|form|dashboard|widget"` 扫 Phase 38 roadmap section，因 `Enforcement` 含有 `form` 子串而误判 `HAS_UI=1`，但 Phase 38 的 roadmap 明确 `UI hint: no`，实际是 backend tool-runtime/schema phase。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+ls .planning/phases/38-output-schema-declaration-runtime-output-validation-enforcem/*-PLAN.md 2>/dev/null || true
+gsd-sdk query roadmap.get-phase 38 --pick section | grep -iE "UI|interface|frontend|component|layout|page|screen|view|form|dashboard|widget" >/dev/null && echo HAS_UI=1 || echo HAS_UI=0
+```
+
+### 关键证据或命令
+
+- zsh 输出：`zsh:1: no matches found: .planning/phases/38-output-schema-declaration-runtime-output-validation-enforcem/*-PLAN.md`
+- 改用 `find .planning/phases/38-output-schema-declaration-runtime-output-validation-enforcem -name '*-PLAN.md' -type f -maxdepth 1` 后正确返回空结果。
+- UI detector 输出 `HAS_UI=1`，但 `rg -i ...` 显示整段 roadmap 命中来自普通文本；Phase 38 section 末尾明确 `UI hint: no`。
+
+### 当前判断 / 根因
+
+这两项都是 workflow 复刻/门禁启发式问题，不是 MOCA 产品代码问题。zsh 默认 no-match glob 会在命令执行前失败；UI detector 的 `form` 子串过宽，会把 `Enforcement` 误认为 frontend `form`。
+
+### 已做处理
+
+- 现有 plan 检查改用 `find`，确认 Phase 38 当前无既有 `*-PLAN.md`。
+- UI-SPEC gate 按 roadmap 的 `UI hint: no` 和实际 backend phase scope 跳过，未阻断 planning。
+
+### 剩余问题
+
+无项目代码问题。若要修 GSD workflow 本身，建议对 glob 使用 `find` 或 `nullglob`，UI detector 使用词边界或优先读取 `UI hint`。
+
+### 下次继续排查入口
+
+- `/Users/ming/.codex/get-shit-done/workflows/plan-phase.md`
+- `.planning/ROADMAP.md` Phase 38 section
+- Phase 38 plan-phase Step 5.6 / Step 6 gate logic
+
+## 2026-07-02 09:19 CST - Phase 38 planned-phase 状态写入后 STATE.md 元数据/正文不一致
+
+### 问题现象
+
+Phase 38 plans 通过 `gsd-plan-checker` 后，执行 `gsd-sdk query state.planned-phase --phase "38" --name "output_schema Declaration + Runtime Output-Validation Enforcement" --plans "3"`，命令返回更新成功，但 `.planning/STATE.md` 被写成不一致状态：frontmatter 的 `milestone_name` 变成 `milestone`，`status` 变成 `completed`，正文仍停留在 Phase 37 completed / Phase 38 not started。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+gsd-sdk query state.planned-phase --phase "38" --name "output_schema Declaration + Runtime Output-Validation Enforcement" --plans "3"
+sed -n '1,220p' .planning/STATE.md
+```
+
+### 关键证据或命令
+
+- `STATE.md` frontmatter 曾出现：`milestone_name: milestone`、`status: completed`。
+- 同一文件正文曾同时出现：`Phase: 37 ... COMPLETE`、Phase 38 roadmap `0/TBD | Not started`，以及末尾 `Planned Phase: 38 ... 3 plans`。
+- 这说明 planned-phase 自动状态写入只追加了部分 Phase 38 信息，没有同步维护 frontmatter 和正文状态。
+
+### 当前判断 / 根因
+
+当前判断是 GSD state update 命令在该仓库状态模板上存在元数据默认值/正文同步问题，不是 Phase 38 plan 内容问题。
+
+### 已做处理
+
+- 已手动修正 `.planning/STATE.md`：恢复 `milestone_name: Tool Platform Hardening`，设置 `status: ready_to_execute`，并把 Current Position、roadmap 表、decisions、blockers、session continuity 和 next item 统一到 Phase 38 ready-to-execute。
+- 未提交 `.planning/LOCAL-VALIDATION-ISSUES.md` 的既有本地日志；只准备单独提交 `.planning/STATE.md`。
+
+### 剩余问题
+
+GSD `state.planned-phase` 命令本身未修复。后续 phase planning 若再次调用该命令，仍需人工检查 `.planning/STATE.md` 是否出现同类不一致。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `gsd-sdk query state.planned-phase`
+- `/Users/ming/.codex/get-shit-done/workflows/plan-phase.md`
+
+## 2026-07-02 09:50 CST - Phase 38 plan 38-03 full relevant suite 仍因本地 PostgreSQL 缺失失败
+
+### 问题现象
+
+执行 Phase 38 plan 38-03 最终验证时，runtime output-schema 新增 fake-executor 测试、focused high-blast consumer subset、ruff 和 `docs/contract-spec.md` / `src/tools/contracts.py` no-diff guard 均已通过，但包含 DB-backed 用例的 quick/full relevant pytest 仍无法完整绿灯。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py -q
+uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/agent/test_tools/test_unified_tool_manager.py tests/agent/test_nodes/test_investigate.py tests/agent/rag_context/test_verifier.py tests/conversation/test_service.py tests/test_execute_action.py tests/architecture/test_trusted_context_boundaries.py -q
+```
+
+### 关键证据或命令
+
+- quick suite 结果：`54 passed, 1 warning, 6 errors`。
+- full relevant suite 结果：`166 passed, 1 warning, 17 errors`。
+- 所有 error 均发生在 `tests/conftest.py:72 in test_engine` -> `_ensure_test_database(TEST_DATABASE_URL)` -> `asyncpg.connect(...)` 初始化测试数据库阶段。
+- 关键错误为：`OSError: Multiple exceptions: [Errno 61] Connect call failed ('127.0.0.1', 5432), [Errno 61] Connect call failed ('::1', 5432, 0, 0)`。
+- 同一轮已通过：`uv run pytest` 的四个 runtime output-schema 新增 node IDs、focused high-blast subset `33 passed, 1 warning`、`uv run ruff check ...` 和 `git diff -- docs/contract-spec.md src/tools/contracts.py` 空 diff。
+
+### 当前判断 / 根因
+
+当前判断仍是本地没有可用 PostgreSQL 服务监听 `localhost:5432`，导致 DB-backed pytest fixture 无法创建测试数据库连接。失败不指向 Phase 38 runtime output-schema gate、ToolResultV2 envelope、spec/contracts 文件或 focused high-blast non-DB regression 的产品代码回归。
+
+### 已做处理
+
+已将 DB-backed gate 标记为本地环境阻塞，未把 PostgreSQL connection refused 误判为产品逻辑失败。已用 fake-executor runtime tests、focused high-blast subset、ruff、protected-file no-diff guard 覆盖当前可本地验证的 Phase 38 行为。
+
+### 剩余问题
+
+需要安装/启动本地 PostgreSQL，并确保 `moca:moca_dev@localhost:5432` 可连接后，重跑 Phase 38 quick/full relevant pytest，才能把 DB-backed gate 标记为完整绿色。
+
+### 下次继续排查入口
+
+- `tests/conftest.py::test_engine`
+- `TEST_DATABASE_URL`
+- 本地 PostgreSQL 服务
+- Phase 38 plan 38-03 quick/full relevant pytest 命令
+
+## 2026-07-02 10:11 CST - Phase 38 verification 尝试用 docker compose 启动 PostgreSQL 时 Docker daemon 不可用
+
+### 问题现象
+
+Phase 38 verification 进入 `human_needed` 后，尝试使用仓库现有 `docker-compose.yml` 的 `postgres` 服务闭合 DB-backed full relevant pytest gate，但本机 Docker CLI 无法连接 Docker daemon。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+docker compose ps
+```
+
+### 关键证据或命令
+
+- `docker-compose.yml` 存在，`postgres` 服务使用 `pgvector/pgvector:pg16`，映射 `5432:5432`，并配置 `POSTGRES_USER=moca`、`POSTGRES_PASSWORD=moca_dev`、`POSTGRES_DB=moca`。
+- `command -v docker` 返回 `/usr/local/bin/docker`。
+- `docker compose ps` 输出：`Cannot connect to the Docker daemon at unix:///Users/ming/.docker/run/docker.sock. Is the docker daemon running?`
+
+### 当前判断 / 根因
+
+当前判断是本机 Docker Desktop / Docker daemon 未运行，导致无法用 compose 自动启动 PostgreSQL；这仍是本地验证环境阻塞，不是 Phase 38 产品代码失败。
+
+### 已做处理
+
+- 已将 Phase 38 DB-backed verification 持久化到 `38-HUMAN-UAT.md`，状态为 pending。
+- 未把 Docker daemon 失败误判为产品代码失败。
+
+### 剩余问题
+
+需要启动 Docker daemon 后运行 `docker compose up -d postgres`，或手动提供 `moca:moca_dev@localhost:5432` PostgreSQL，再重跑 Phase 38 full relevant pytest。
+
+### 下次继续排查入口
+
+- Docker Desktop / Docker daemon 状态
+- `docker compose up -d postgres`
+- `tests/conftest.py::TEST_DATABASE_URL`
+- `.planning/phases/38-output-schema-declaration-runtime-output-validation-enforcem/38-HUMAN-UAT.md`
+
+## 2026-07-02 10:49 CST - Phase 38 DB-backed full relevant suite 已在 compose PostgreSQL 下通过
+
+### 问题现象
+
+此前 Phase 38 full relevant pytest 因本地 PostgreSQL / Docker daemon 不可用而停在环境阻塞。用户启动 Docker Desktop 后，重新启动仓库 compose PostgreSQL 并重跑 full relevant suite，DB-backed gate 已闭合。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+docker compose up -d postgres
+uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/agent/test_tools/test_unified_tool_manager.py tests/agent/test_nodes/test_investigate.py tests/agent/rag_context/test_verifier.py tests/conversation/test_service.py tests/test_execute_action.py tests/architecture/test_trusted_context_boundaries.py -q
+```
+
+### 关键证据或命令
+
+- `docker inspect --format='{{.State.Health.Status}}' moca-postgres-1` 返回 `healthy`。
+- full relevant suite 结果：`184 passed, 1 warning in 37.98s`。
+- warning 仍是第三方 LangChain pending deprecation warning：`.venv/lib/python3.12/site-packages/langgraph/checkpoint/serde/encrypted.py:5`。
+
+### 当前判断 / 根因
+
+此前失败根因是本地验证环境没有可用 PostgreSQL；Docker Desktop 启动后，通过仓库现有 `docker-compose.yml` 的 `postgres` 服务即可满足 `tests/conftest.py::TEST_DATABASE_URL`。
+
+### 已做处理
+
+- 已运行 `docker compose up -d postgres`，确认 `moca-postgres-1` healthy。
+- 已重跑 Phase 38 full relevant pytest，结果通过。
+- 已更新 `38-HUMAN-UAT.md`、`38-VERIFICATION.md` 和 `38-03-SUMMARY.md`，把 DB-backed gate 从 pending 改为 passed。
+
+### 剩余问题
+
+无 Phase 38 产品代码或验证阻塞。若后续本机重启 Docker，可能需要重新运行 `docker compose up -d postgres`。
+
+### 下次继续排查入口
+
+- `docker compose ps postgres`
+- `tests/conftest.py::TEST_DATABASE_URL`
+- `.planning/phases/38-output-schema-declaration-runtime-output-validation-enforcem/38-VERIFICATION.md`
+
+## 2026-07-02 10:51 CST - Phase 38 security gate 文件探测再次触发 zsh no-match glob
+
+### 问题现象
+
+Phase 38 收尾检查 security gate 时，用 `ls .planning/phases/38-output-schema-declaration-runtime-output-validation-enforcem/*-SECURITY.md 2>/dev/null || true` 探测安全报告文件；由于 zsh 默认在命令执行前处理未命中 glob，命令报 `no matches found`。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+ls .planning/phases/38-output-schema-declaration-runtime-output-validation-enforcem/*-SECURITY.md 2>/dev/null || true
+```
+
+### 关键证据或命令
+
+- zsh 输出：`zsh:1: no matches found: .planning/phases/38-output-schema-declaration-runtime-output-validation-enforcem/*-SECURITY.md`
+- 改用 `find .planning/phases/38-output-schema-declaration-runtime-output-validation-enforcem -maxdepth 1 -type f -name '*-SECURITY.md' -print` 后无输出，确认 Phase 38 当前没有 security report artifact。
+
+### 当前判断 / 根因
+
+这是 GSD workflow shell 片段与 zsh no-match glob 语义不兼容，不是 MOCA 产品代码问题。此前 plan-phase 已出现同类 glob 问题。
+
+### 已做处理
+
+已用 `find` 复核 security artifact 不存在，并在最终回复中将 security gate 作为后续命令提示，而不是误判为产品失败。
+
+### 剩余问题
+
+无 Phase 38 产品代码阻塞。若要修 GSD workflow，应将文件探测从裸 glob `ls` 改为 `find` 或启用 nullglob。
+
+### 下次继续排查入口
+
+- `/Users/ming/.codex/get-shit-done/workflows/execute-phase.md`
+- `.planning/phases/38-output-schema-declaration-runtime-output-validation-enforcem/`
+
+## 2026-07-02 10:56 CST - Phase 38 code-review-fix 额外 Python sanity check 命令换行转义错误
+
+### 问题现象
+
+执行 `$gsd-code-review-fix 38` 后，为复核 `WR-01` 的 non-finite number 修复，我额外运行了一条 `uv run python -c "..."` sanity check。命令字符串里包含字面 `\n`，在 shell / Python `-c` 解析时变成非法续行字符，导致 `SyntaxError`。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行该类单行命令：
+
+```bash
+uv run python -c "from src.tools.validation import validate_json_value; import math; schema={'type':'number'};\nfor value in (...): ..."
+```
+
+### 关键证据或命令
+
+- 失败输出：`SyntaxError: unexpected character after line continuation character`
+- 同一轮关键验证已通过：`uv run pytest tests/tools/test_catalog.py -q` -> `38 passed, 1 warning`；`uv run ruff check src/tools/validation.py tests/tools/test_catalog.py` -> `All checks passed!`。
+- 改用 here-doc 后通过：
+
+```bash
+uv run python - <<'PY'
+from src.tools.validation import validate_json_value
+
+schema = {"type": "number"}
+for value in (float("nan"), float("inf"), float("-inf")):
+    try:
+        validate_json_value(value, schema)
+    except ValueError:
+        pass
+    else:
+        raise SystemExit(f"accepted non-finite {value!r}")
+validate_json_value(1.25, schema)
+print("finite-number check passed")
+PY
+```
+
+### 当前判断 / 根因
+
+这是临时验证命令的 shell quoting / newline 转义错误，不是 Phase 38 产品代码或测试失败。MOCA 入口规则仍满足：使用的是 `uv run python`，不是裸 Python。
+
+### 已做处理
+
+已用 here-doc 方式重跑同一 sanity check，输出 `finite-number check passed`。
+
+### 剩余问题
+
+无产品代码问题。后续多行 Python sanity check 优先使用 here-doc 或临时脚本，避免复杂 `python -c` 换行转义。
+
+### 下次继续排查入口
+
+- `src/tools/validation.py`
+- `tests/tools/test_catalog.py`
+- `.planning/phases/38-output-schema-declaration-runtime-output-validation-enforcem/38-REVIEW-FIX.md`
+
+## 2026-07-02 11:17 CST - Phase 39 plan cross-review 临时 zsh PIPESTATUS 写法错误
+
+### 问题现象
+
+Phase 39 plan 交叉复核时，我额外写了一条 shell sanity check，用 `git show ... | rg ...; test ${PIPESTATUS[1]} -eq 1` 判断 `4dcb673` diff 中是否没有 §12.5/§12.6 / tool contract 相关命中。该写法在当前 zsh 环境下解析失败，输出 `zsh:test:1: unknown condition: -eq`。
+
+### 如何检测 / 复现
+
+在仓库根目录运行类似命令：
+
+```bash
+git show --unified=80 4dcb673 -- docs/contract-spec.md | rg -n "ToolCallContext|ToolDescriptor|ToolPolicyDecision|### 12\\.5|### 12\\.6"; test ${PIPESTATUS[1]} -eq 1
+```
+
+### 关键证据或命令
+
+- 失败输出：`zsh:test:1: unknown condition: -eq`
+- 改用 plan 中已经写入的 `bash -lc` 版本后通过：
+
+```bash
+bash -lc 'if git show --unified=80 4dcb673 -- docs/contract-spec.md | rg -n "ToolCallContext|ToolDescriptor|ToolPolicyDecision|### 12\\.5|### 12\\.6"; then exit 1; else exit 0; fi'
+```
+
+### 当前判断 / 根因
+
+这是我临时复核命令的 zsh / pipeline status 写法错误，不是 Phase 39 plan 或 MOCA 产品代码问题。计划文件中实际要求执行的 `bash -lc` 检查可正常运行。
+
+### 已做处理
+
+已用 `bash -lc` 版本重跑同一检查并通过；Phase 39 plan checker 此前也已通过。
+
+### 剩余问题
+
+无产品或 plan 阻塞。后续需要检查 pipeline 某段退出码时，优先用显式 `bash -lc 'if ...; then ...; fi'` 包装，避免 zsh `PIPESTATUS` 差异。
+
+### 下次继续排查入口
+
+- `.planning/phases/39-contract-spec-12-5-12-6-reconciliation/39-01-PLAN.md`
+- `docs/contract-spec.md`
+
+## 2026-07-02 11:19 CST - Phase 39 execute 初始化 state.begin-phase 参数错位误写 STATE
+
+### 问题现象
+
+执行 `$gsd-execute-phase 39` 初始化时，按 workflow 调用 `gsd-sdk query state.begin-phase --phase 39 --name contract-spec-12-5-12-6-reconciliation --plans 1` 后，命令返回 JSON 但参数被错位解析，并把 `.planning/STATE.md` 写成错误状态：`milestone_name` 变成 `milestone`，Phase 被写成 `--phase`，Plan 被写成 `1 of --name`。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+gsd-sdk query state.begin-phase --phase 39 --name contract-spec-12-5-12-6-reconciliation --plans 1
+git diff -- .planning/STATE.md
+sed -n '1,40p' .planning/STATE.md
+```
+
+### 关键证据或命令
+
+- 命令输出为：
+
+```json
+{
+  "phase": "--phase",
+  "name": "39",
+  "plan_count": "--name"
+}
+```
+
+- `git diff -- .planning/STATE.md` 显示正文出现 `Phase --phase`、`Plan: 1 of --name`、`Status: Executing Phase --phase`。
+
+### 当前判断 / 根因
+
+当前判断是 GSD `state.begin-phase` query handler 仍不兼容 workflow 文档里的 flag 调用形式，触发了与此前 Phase 36/38 同源的 STATE 写入缺陷。该问题与 MOCA 产品代码和 Phase 39 spec 内容无关。
+
+### 已做处理
+
+已手工修正 `.planning/STATE.md`：恢复 `milestone_name: Tool Platform Hardening`，设置 Phase 39 executing，Current Position 改为 `39-01 of 1`，Session Continuity 指向 Phase 39 plan 文件。
+
+### 剩余问题
+
+GSD state 工具本身未修复。后续任何 `gsd-sdk query state.*` 写命令后仍需立即检查 `.planning/STATE.md` diff，不能盲目提交自动写入结果。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `gsd-sdk query state.begin-phase`
+- `/Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs`
+- `/Users/ming/.codex/get-shit-done/bin/lib/state.cjs`
+
+## 2026-07-02 11:27 CST - Phase 39 execute 收尾 state/roadmap/requirements 自动更新仍需人工修正
+
+### 问题现象
+
+Phase 39 plan 39-01 执行完成后，按 execute-plan 收尾流程运行 GSD state / roadmap / requirements 更新命令时，自动写入结果仍出现元数据和格式问题：`.planning/STATE.md` 的 `milestone_name` 被重置为 `milestone`，Phase 39 roadmap 行仍停留在 `0/1 | Ready to execute`，`state.record-metric` 把 Phase 39 metric 插入 Quick Tasks 表，`requirements.mark-complete TPH-02` 把 `**TPH-02**` 拆成两行。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录执行 Phase 39 收尾命令后检查 diff：
+
+```bash
+gsd-sdk query state.update-progress
+gsd-sdk query state.record-metric 39 01 "4 min" 3 2
+gsd-sdk query state.record-session "" "Completed 39-01-PLAN.md" "None"
+gsd-sdk query roadmap.update-plan-progress 39
+gsd-sdk query requirements.mark-complete TPH-02
+git diff -- .planning/STATE.md .planning/ROADMAP.md .planning/REQUIREMENTS.md
+```
+
+### 关键证据或命令
+
+- `state.update-progress` 返回 100% / 7 of 7，但 `.planning/STATE.md` frontmatter 中 `milestone_name` 变成 `milestone`。
+- `state.record-metric 39 01 "4 min" 3 2` 返回 `recorded: true`，但新行被插入 `## Quick Tasks Completed` 表，而不是 Performance Metrics 叙述区。
+- `roadmap.update-plan-progress 39` 返回 `updated: false`，`reason: "no matching checkbox found"`。
+- `requirements.mark-complete TPH-02` 返回 `changed: 1`，但把 `- [x] **TPH-02**:` 拆成 `**TPH-02` 与 `**:` 两行。
+
+### 当前判断 / 根因
+
+这是 GSD metadata writer 对当前 MOCA `.planning/STATE.md` / `.planning/ROADMAP.md` / `.planning/REQUIREMENTS.md` 格式的兼容问题，不是 Phase 39 contract-spec 内容或产品代码问题。该问题与此前 state writer flag/metadata 误写属于同一类工具链缺陷。
+
+### 已做处理
+
+已用手工补丁修正生成结果：恢复 `milestone_name: Tool Platform Hardening`，把 Phase 39 标为 complete，移动 Phase 39 metric 到 Performance Metrics，更新 roadmap Phase 39 checkbox / plan row / progress table，并修复 REQUIREMENTS.md 的 `TPH-02` 行与 traceability / coverage 统计。本记录文件保持 unstaged，不纳入 Phase 39 commit。
+
+### 剩余问题
+
+GSD state / roadmap / requirements writer 本身未修复。后续 phase 收尾继续使用这些命令时，仍需要立即检查 metadata diff，不能直接盲目提交。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `.planning/ROADMAP.md`
+- `.planning/REQUIREMENTS.md`
+- `gsd-sdk query state.record-metric`
+- `gsd-sdk query roadmap.update-plan-progress`
+- `gsd-sdk query requirements.mark-complete`
+
+## 2026-07-02 — Phase 39 verification key-link 校验误报
+
+### 问题现象
+
+Phase 39 verification 期间，`gsd-sdk query verify.key-links` 对 `39-01-PLAN.md` 的 3 条 key links 全部返回失败，错误详情为 `Source file not found`。人工核对后发现目标文档和实现字段都存在，属于 key-link 校验工具无法解析带章节标注的 `from` 字段，不是 Phase 39 spec/code 问题。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录执行：
+
+```bash
+gsd-sdk query verify.key-links .planning/phases/39-contract-spec-12-5-12-6-reconciliation/39-01-PLAN.md
+```
+
+### 关键证据或命令
+
+- 返回 JSON 中 `all_verified: false`，3 条 link 的 `detail` 均为 `Source file not found`。
+- 这些 link 的 `from` 值是 `docs/contract-spec.md §12.5` / `docs/contract-spec.md §12.6`，不是纯文件路径。
+- 人工核对通过：`docs/contract-spec.md:1239/1243/1244` 对应 `src/tools/contracts.py:30/34/35`，`docs/contract-spec.md:1322/1330/1332-1336` 对应 `src/tools/catalog.py:18/26/28-32`，`docs/contract-spec.md:1357-1358` 对应 `src/tools/contracts.py:183-184`。
+
+### 当前判断 / 根因
+
+`verify.key-links` 当前似乎把 `from` 字段当作直接文件路径解析，无法处理计划中常用的 `文件路径 + 章节标注` 写法，导致存在且已连通的 docs-to-code key link 被误判为源文件不存在。
+
+### 已做处理
+
+Phase 39 verification 已将该结果记录为工具误报，并改用人工 `rg` / line-level 对照验证 key links。`39-VERIFICATION.md` 已在 residual warnings 中说明这个工具限制。
+
+### 剩余问题
+
+`verify.key-links` 工具本身未修复。后续 plan 如果使用 `docs/foo.md §x.y` 作为 key-link `from`，仍可能出现同类误报。
+
+### 下次继续排查入口
+
+- `gsd-sdk query verify.key-links`
+- `.planning/phases/*/*-PLAN.md` frontmatter `must_haves.key_links`
+- `docs/contract-spec.md §12.5 / §12.6`
+
+## 2026-07-02 11:42 CST - Phase 39 phase.complete 误算 STATE 进度为 133%
+
+### 问题现象
+
+Phase 39 verification 通过后，按 execute-phase workflow 调用 `gsd-sdk query phase.complete 39`。命令返回 `roadmap_updated/state_updated/requirements_updated: true` 且无 warnings，但实际把 `.planning/STATE.md` 写成不一致状态：`progress.completed_phases` 从 3 变成 4，`percent` 从 100 变成 133，Current Position 变成 `Phase: 39 / Plan: Not started`。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+gsd-sdk query phase.complete 39
+git diff -- .planning/STATE.md .planning/ROADMAP.md .planning/REQUIREMENTS.md
+sed -n '1,40p' .planning/STATE.md
+```
+
+### 关键证据或命令
+
+- `phase.complete` 输出 `has_warnings: false`，但 `.planning/STATE.md` frontmatter 出现 `completed_phases: 4`、`total_phases: 3`、`percent: 133`。
+- 同一 diff 还把 Current Position 改成 `Plan: Not started`，与 Phase 39 已完成/已验证事实冲突。
+- `.planning/ROADMAP.md` 只有 Phase 39 progress table 的空格变化；`.planning/REQUIREMENTS.md` 无实质 diff。
+
+### 当前判断 / 根因
+
+这是 GSD `phase.complete` 对当前 v2.1 roadmap/state 结构的进度统计 bug，可能把已完成 phase 计数重复累计。该问题与 Phase 39 contract-spec 文档内容、测试或 verification 结果无关。
+
+### 已做处理
+
+已手工修正 `.planning/STATE.md`：恢复 `completed_phases: 3`、`percent: 100`，Current Position 改回 Phase 39 complete / v2.1 milestone complete；同时还原 `.planning/ROADMAP.md` 的无意义空格 diff。
+
+### 剩余问题
+
+GSD `phase.complete` 工具本身未修复。后续 milestone/phase 收尾仍需检查 `STATE.md` 的 phase/plan/progress 计数，不能仅凭命令返回 `has_warnings: false` 判定安全。
+
+### 下次继续排查入口
+
+- `gsd-sdk query phase.complete`
+- `.planning/STATE.md`
+- `.planning/ROADMAP.md`
+
+## 2026-07-02 13:53 CST - Phase 41 plan 文本验证 rg 命令反引号被 zsh 误执行
+
+### 问题现象
+
+验证 Phase 41 plan 文本是否包含采纳点时，`rg` 命令输出 `zsh:1: command not found: UnifiedToolManager`。这不是产品代码问题，而是 shell 把双引号 pattern 内的反引号片段当作命令替换执行。
+
+### 如何检测 / 复现
+
+在仓库根目录运行包含反引号的双引号 `rg` pattern，例如：
+
+```bash
+rg -n "all current `UnifiedToolManager` reference" .planning/phases/41-tool-platform-legacy-manager-cleanup/41-01-PLAN.md
+```
+
+### 关键证据或命令
+
+失败命令返回 `zsh:1: command not found: UnifiedToolManager`；同一 pattern 改为单引号后正常匹配计划文本。
+
+### 当前判断 / 根因
+
+zsh 在双引号内仍会执行反引号命令替换。验证命令写法错误，非 Phase 41 plan 或源码错误。
+
+### 已做处理
+
+已改用单引号重跑：
+
+```bash
+rg -n 'descriptor filtering|descriptors\("investigate"\)|test_unified_manager_does_not_import_domain_services_directly|Claude light closure|CLOSURE-REVIEW|all current `UnifiedToolManager` reference|Do not attempt final no-manager cleanup' .planning/phases/41-tool-platform-legacy-manager-cleanup/41-01-PLAN.md .planning/phases/41-tool-platform-legacy-manager-cleanup/41-03-PLAN.md .planning/phases/41-tool-platform-legacy-manager-cleanup/41-04-PLAN.md
+```
+
+重跑后命中 41-01/41-03/41-04 的预期采纳点。
+
+### 剩余问题
+
+无。后续含反引号的 `rg` pattern 使用单引号或转义。
+
+### 下次继续排查入口
+
+- `.planning/phases/41-tool-platform-legacy-manager-cleanup/41-01-PLAN.md`
+- `.planning/phases/41-tool-platform-legacy-manager-cleanup/41-03-PLAN.md`
+- `.planning/phases/41-tool-platform-legacy-manager-cleanup/41-04-PLAN.md`
+
+## 2026-07-02 14:35 CST - Phase 41 机械替换时 Perl locale warning
+
+### 问题现象
+
+Phase 41-04 清理残留 `tool_manager` 测试 key 时，机械替换命令成功执行，但 Perl 输出 locale warning。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+perl -0pi -e 's/\["tool_manager"\]/["tool_platform"]/g' tests/agent/test_session_memory_integration.py tests/agent/test_memory_evidence_boundary.py
+```
+
+### 关键证据或命令
+
+命令输出：
+
+```text
+perl: warning: Setting locale failed.
+perl: warning: Falling back to a fallback locale ("zh_CN.UTF-8").
+```
+
+### 当前判断 / 根因
+
+本机 shell 环境里 `LC_ALL=C.UTF-8` / `LC_CTYPE=C.UTF-8` 与 macOS 可用 locale 不匹配。命令退出码为 0，文件替换生效；这是环境 warning，不是源码或测试失败。
+
+### 已做处理
+
+已用精准 `rg` 验证 legacy manager pattern 清零，并用 `uv run pytest tests/agent/test_session_memory_integration.py tests/agent/test_memory_evidence_boundary.py tests/business/test_schemas.py tests/architecture/test_tool_boundaries.py -q` 验证相关测试通过。
+
+### 剩余问题
+
+Perl locale warning 未在环境层修复。后续如果继续用 Perl，可临时设置 macOS 可用 locale 或改用 `apply_patch`。
+
+### 下次继续排查入口
+
+- shell locale：`locale`
+- 相关测试文件：`tests/agent/test_session_memory_integration.py`、`tests/agent/test_memory_evidence_boundary.py`
+
+## 2026-07-02 14:26 CST - Phase 41 GSD code-reviewer agent capacity failure
+
+### 问题现象
+
+Phase 41-04 按计划优先调用 GSD `gsd-code-reviewer` 做实现 review 时，子 agent 未开始产出报告即失败。
+
+### 如何检测 / 复现
+
+在 Phase 41-04 review 阶段调用 multi-agent `gsd-code-reviewer`，让其 review Phase 41 diff。
+
+### 关键证据或命令
+
+子 agent 返回：
+
+```text
+Selected model is at capacity. Please try a different model.
+```
+
+### 当前判断 / 根因
+
+这是模型容量/服务可用性问题，不是 MOCA 源码、测试或本地环境问题。该失败只影响自动 reviewer agent，未影响本地 `uv run pytest`、`uv run ruff` 或源码 grep 验证。
+
+### 已做处理
+
+按 `41-04-PLAN.md` 的 fallback 要求，改为 Codex source-based review，并在 `.planning/phases/41-tool-platform-legacy-manager-cleanup/41-REVIEW.md` 记录 GSD reviewer 未完成的事实。
+
+### 剩余问题
+
+GSD reviewer agent 这次没有独立产出。Phase 41 仍完成了本地 source-based review 和最终验证；如需外部第二意见，可在容量恢复后重跑 code review。
+
+### 下次继续排查入口
+
+- `.planning/phases/41-tool-platform-legacy-manager-cleanup/41-REVIEW.md`
+- multi-agent `gsd-code-reviewer`
+
+## 2026-07-02 15:08 CST - Phase 41 closure check 误用裸 python
+
+### 问题现象
+
+Phase 41 轻量 closure review 做 `src.tools.__all__` 断言时误用了裸 `python`，命令命中系统环境而不是项目 uv 虚拟环境，导致 `ModuleNotFoundError: No module named 'pydantic'`。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+python - <<'PY'
+from src.tools import __all__
+assert 'UnifiedToolManager' not in __all__, __all__
+print('ok')
+PY
+```
+
+### 关键证据或命令
+
+命令失败：
+
+```text
+ModuleNotFoundError: No module named 'pydantic'
+```
+
+### 当前判断 / 根因
+
+这是验证入口错误，违反 MOCA 本地验证命令硬规则；裸 `python` 绕过了项目虚拟环境。不是源码缺依赖或 Phase 41 改动问题。
+
+### 已做处理
+
+用项目入口重跑：
+
+```bash
+uv run python - <<'PY'
+from src.tools import __all__
+assert 'UnifiedToolManager' not in __all__, __all__
+print('ok')
+PY
+```
+
+### 剩余问题
+
+无。后续临时 Python 验证必须使用 `uv run python` 或 `.venv/bin/python`。
+
+### 下次继续排查入口
+
+- `src/tools/__init__.py`
+- `.planning/AGENTS.md` / 项目测试入口规则
+
+## 2026-07-02 16:14 CST - memory write 本地计数验证缺少 psql
+
+### 问题现象
+
+验证 `memory_write_events` / `long_term_memories` / `case_memories` 本地计数时，尝试使用 `psql` 查询本地 PostgreSQL，但当前 shell 环境没有安装或没有暴露 `psql` 命令。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行：
+
+```bash
+PGPASSWORD=moca_dev psql -h localhost -U moca -d moca -At -F ' ' -c "SELECT 'memory_write_events', count(*) FROM memory_write_events UNION ALL SELECT 'long_term_memories', count(*) FROM long_term_memories UNION ALL SELECT 'case_memories', count(*) FROM case_memories;"
+```
+
+### 关键证据或命令
+
+命令失败：
+
+```text
+zsh:1: command not found: psql
+```
+
+同一轮改用项目入口查询并完成验证：
+
+```bash
+uv run python - <<'PY'
+import asyncio
+import asyncpg
+
+async def count_db(name: str):
+    conn = await asyncpg.connect(user='moca', password='moca_dev', host='localhost', port=5432, database=name)
+    rows = await conn.fetch("""
+        SELECT 'memory_write_events' AS table_name, count(*) AS count FROM memory_write_events
+        UNION ALL SELECT 'long_term_memories', count(*) FROM long_term_memories
+        UNION ALL SELECT 'case_memories', count(*) FROM case_memories
+        ORDER BY table_name
+    """)
+    print(name, [(row['table_name'], row['count']) for row in rows])
+    await conn.close()
+
+asyncio.run(count_db('moca'))
+PY
+```
+
+本轮 memory write 验证结果：
+
+- `moca` 基线和验证后均为 `case_memories=0`、`long_term_memories=0`、`memory_write_events=0`。
+- `moca_test` 初始无 schema；临时 harness 建 schema 后，同一个 terminal `memory_write` 调用显式传入 session / long_term / case 候选，结果为 `memory_write_events=3`、`long_term_memories=1`、`case_memories=1`。
+- 事件类型为 `session_slot/write/eligible`、`long_term_fact/needs_review/requires_review`、`case_memory/needs_review/requires_review`。
+
+### 当前判断 / 根因
+
+这是本机命令行工具缺失，不是 MOCA 源码或数据库写路径问题。项目依赖里的 `asyncpg` 可正常连接本地 PostgreSQL 并查询/验证。
+
+### 已做处理
+
+改用 `uv run python` + `asyncpg` 查询本地库；用 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...` 跑过 long-term service、case service、`memory_write` trace event 真实落库测试；再用临时 harness 在 `moca_test` 里验证同一个 `memory_write` 调用会为 long_term/case 候选写入 review rows 和 `memory_write_events`。
+
+### 剩余问题
+
+`psql` 仍不可用。后续本地 DB 快速查询继续使用 `uv run python` / `.venv/bin/python` + `asyncpg`，或单独安装 PostgreSQL client。
+
+### 下次继续排查入口
+
+- `src/agent/nodes/memory_write.py`
+- `src/memory/write_service.py`
+- `src/memory/long_term.py`
+- `src/memory/case_memory.py`
+- `tests/memory/test_long_term_memory_service.py`
+- `tests/memory/test_case_memory_retrieval.py`

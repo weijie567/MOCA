@@ -1,8 +1,14 @@
-# Roadmap: MOCA v2.1 Tool Platform Hardening
+# Roadmap: MOCA v2.1 Core Subsystem Hardening
 
 ## Overview
 
-v2.1 is a bounded cleanup of the tool-call platform's contract debt, implementation gaps, and legacy compatibility surface. The journey runs in dependency-ordered, blast-radius-aware waves: first consolidate the tool declaration source and converge the runtime/policy internals with no external contract change (Phase 37), then layer real `output_schema` declaration and `ToolRuntime` output-validation enforcement on top of the consolidated registry and shared failure helper (Phase 38), reconcile `docs/contract-spec.md` §12.5/§12.6 with the implemented contract fields (Phase 39), close source-confirmed validation/backstop gaps (Phase 40), and finally decide/remove the `UnifiedToolManager` legacy compatibility adapter so `ToolPlatform` is the sole graph-facing tool entrypoint (Phase 41). Throughout, `ToolCallContext` §8.0 identity fields stay locked and HIGH-blast-radius `ToolResultV2`/`ToolCallContext` envelope shapes are not changed. Code implementation is delegated to Codex per the project workflow; Claude is plan designer and adjudicator, and these are planning/spec phases, not "Claude writes all the code" phases.
+v2.1 is a long-lived umbrella for cleaning up architecture debt across MOCA's four core subsystems tracked in `.planning/ARCHITECTURE-DEBT.md` (tool call / intent recognition / RAG / memory). It began as a bounded cleanup of the tool-call platform (Phase 37-41) and is rescoped to hold subsequent subsystem-hardening phases as they arrive; defect-fix / debt-clearing work is appended as the next integer phase rather than opening a new milestone.
+
+**Tool platform (Phase 37-41)** ran in dependency-ordered, blast-radius-aware waves: first consolidate the tool declaration source and converge the runtime/policy internals with no external contract change (Phase 37), then layer real `output_schema` declaration and `ToolRuntime` output-validation enforcement on top of the consolidated registry and shared failure helper (Phase 38), reconcile `docs/contract-spec.md` §12.5/§12.6 with the implemented contract fields (Phase 39), close source-confirmed validation/backstop gaps (Phase 40), and finally decide/remove the `UnifiedToolManager` legacy compatibility adapter so `ToolPlatform` is the sole graph-facing tool entrypoint (Phase 41). Throughout, `ToolCallContext` §8.0 identity fields stay locked and HIGH-blast-radius `ToolResultV2`/`ToolCallContext` envelope shapes are not changed.
+
+**Intent recognition (Phase 42+)** clears the intent-subsystem debt tracked as ID-01..04 in `.planning/ARCHITECTURE-DEBT.md`. Phase 42 decoupled intent recognition into three explicit layers (semantic / risk-authorization / confidence-clarification), fixing ID-01 (keyword override of LLM) and ID-03 (three-dimension coupling); it is registered retroactively because the code was implemented and verified before formal phase registration. Multi-intent tier A (ID-04) is the next intent phase.
+
+Code implementation is delegated to Codex per the project workflow; Claude is plan designer and adjudicator.
 
 ## Phases
 
@@ -73,6 +79,7 @@ Plans:
 | 39. contract-spec §12.5/§12.6 Reconciliation | 1/1 | Complete | 2026-07-02 |
 | 40. Tool Contract Validation Hardening | 3/3 | Complete | 2026-07-02 |
 | 41. Tool Platform Legacy Manager Cleanup | 4/4 | Complete | 2026-07-02 |
+| 42. Intent Recognition Three-Layer Decoupling | 1/1 | Complete (retroactively registered) | 2026-07-02 |
 
 ### Phase 40: Tool Contract Validation Hardening
 
@@ -110,3 +117,23 @@ Plans:
 - [x] 41-02-PLAN.md — production injection seam and manager-shaped test fake migration to `ToolPlatform`.
 - [x] 41-03-PLAN.md — delete `UnifiedToolManager`, public export, and compatibility tests after coverage migration.
 - [x] 41-04-PLAN.md — implementation code review, final verification, and Phase 41 completion record.
+
+### Phase 42: Intent Recognition Three-Layer Decoupling (RETROACTIVE RECORD)
+
+> **Retroactive registration.** The code for this phase was designed by Claude (spec: `.planning/intent-layering-codex-brief.md`), implemented by Codex, and verified green **before** it was formalized as a GSD phase. It did **not** run the `gsd-plan-phase` → `gsd-plan-checker` → `execute` flow; there is intentionally no `42-PLAN.md` / `42-PLAN-REVIEW.md`. The artifacts are `42-CONTEXT.md`, `42-01-SUMMARY.md`, and `42-VERIFICATION.md`, anchored to commit `a0a98e4`. This is a truthful record of a completed refactor, not a re-enacted plan.
+
+**Goal:** Decouple intent recognition's three tangled responsibilities — semantic understanding, risk authorization, and confidence/clarification — into three explicit, single-direction, independently testable layers that communicate only through frozen data contracts (`SemanticIntent` / `RiskDecision` / `ClarificationDecision`), turning implicit "who wins" arbitration into explicit, test-locked code. Behavior-equivalent refactor except one intended ID-01 fix.
+**Requirements**: IDR-01
+**Depends on:** Phase 25 (v1.8 intent routing safety hardening; the classification trace / risk-tier / clarification surfaces this phase refactors)
+**Success Criteria** (what is TRUE, verified against commit `a0a98e4`):
+  1. Three frozen-dataclass layer contracts exist in `src/agent/intent_policy.py`: `SemanticIntent` (semantic), `RiskDecision` (risk/authorization), `ClarificationDecision` (confidence/clarification).
+  2. Keyword scanning (`derive_keyword_signals`) and winner selection (`arbitrate_intent`) are split into separate functions; keyword candidates may override the LLM primary only when the LLM itself listed the intent or raw confidence is below the ordinary threshold (ID-01 fix), locked by tests in `tests/agent/test_intent_routing.py`.
+  3. Risk resolution is a declarative `RISK_POLICY_TABLE` + `resolve_risk_decision(...)`, behavior-equivalent to the old `resolve_risk_tier` if-elif (per-combination equivalence tests), with the old dead branch removed (ID-03).
+  4. `classification_trace` records all three layer outputs (`semantic_intent` / `risk_decision` / `clarification_decision`) for replay.
+  5. `IntentResultV3` wire schema, `docs/contract-spec.md`, and `src/agent/prompts.py` few-shot are unchanged; N=1 single-intent behavior is byte-equivalent except the one registered ID-01 exemption (`"这个不算投诉吧，我就是问下退款进度"`).
+**Plans:** 1 plan (retroactive SUMMARY only; no PLAN authored)
+
+Plans:
+- [x] 42-01-SUMMARY.md — retroactive record of the three-layer decoupling refactor (design → Codex implementation → green verification), anchored to commit `a0a98e4`.
+
+**Deferred to a later phase (not this one):** ID-02 confidence calibration (still 🔴; only a `calibrated_confidence` parameter placeholder landed) and ID-04 multi-intent tier A (`.planning/intent-multi-a-codex-brief.md`), which becomes the next phase.

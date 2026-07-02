@@ -1,11 +1,11 @@
-# Requirements: MOCA v2.1 Tool Platform Hardening
+# Requirements: MOCA v2.1 Core Subsystem Hardening
 
-**Defined:** 2026-07-01
+**Defined:** 2026-07-01 (rescoped 2026-07-02 from "Tool Platform Hardening" to "Core Subsystem Hardening")
 **Core Value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
 
-**Milestone goal:** Clean up the tool-call platform's contract debt and implementation gaps so tool contracts are as sound as the codebase allows, and so `docs/contract-spec.md` and the implementation agree.
+**Milestone goal:** Clear architecture debt across MOCA's core subsystems (tool call / intent recognition / RAG / memory, tracked in `.planning/ARCHITECTURE-DEBT.md`) so each subsystem's contracts are as sound as the codebase allows and `docs/contract-spec.md` agrees with the implementation. This is an umbrella hardening milestone: defect-fix / debt-clearing work is appended as the next integer phase; new user-facing capability opens a new milestone.
 
-## v2.1 Requirements
+## Tool Platform Requirements (Phase 37-41)
 
 ### Tool Contract Integrity
 
@@ -21,6 +21,12 @@
 ### Runtime / Policy Internal Convergence
 
 - [x] **TPH-04**: `ToolRuntime` failure paths produce their `(error result, projection, decision event, outcome tuple)` through one shared helper rather than ten duplicated branches, and `ToolPolicyEngine.runtime_auth` expresses its authorization checks as a declarative gate sequence — with existing tool-platform, policy, and runtime tests remaining green and no change to any external contract shape.
+
+## Intent Recognition Requirements (Phase 42+)
+
+> Subsystem debt is tracked in `.planning/ARCHITECTURE-DEBT.md` §2 (ID-01..ID-04, ID-DESIGN). Requirement IDs use the `IDR-` prefix.
+
+- [x] **IDR-01**: Intent recognition's three coupled responsibilities are decoupled into three explicit, single-direction, independently-testable layers communicating only through frozen data contracts: semantic layer (`SemanticIntent`), risk-authorization layer (`RiskDecision` + declarative `RISK_POLICY_TABLE`), and confidence-clarification layer (`ClarificationDecision`). Keyword arbitration (`derive_keyword_signals` + `arbitrate_intent`) is explicit — a keyword candidate may override the LLM primary only when the LLM itself listed the intent or raw confidence is below the ordinary threshold (fixes ID-01). Risk resolution is table-driven with the dead if-elif branch removed (fixes ID-03). Behavior-equivalent refactor: the sole registered behavior change is that `"这个不算投诉吧，我就是问下退款进度"` no longer mis-escalates to `complaint_escalation`. `calibrated_confidence` is a placeholder parameter only — real calibration (ID-02) remains unaddressed. Multi-intent / TaskPlan (ID-04) is out of scope for this requirement.
 
 ## Future Requirements
 
@@ -46,5 +52,6 @@ _None. This milestone remains a bounded, pre-scoped cleanup._
 | TPH-02 | Phase 39 | Complete |
 | TPH-05 | Phase 40 | Complete |
 | TPH-06 | Phase 41 | Complete |
+| IDR-01 | Phase 42 | Complete (retroactively registered; code committed at `a0a98e4`) |
 
-**Coverage:** 6/6 v2.1 requirements mapped, each to exactly one phase. 6 complete, 0 pending. No orphans, no duplicates.
+**Coverage:** 7/7 v2.1 requirements mapped, each to exactly one phase. 7 complete, 0 pending. No orphans, no duplicates. (Tool platform: TPH-01..06 / Phase 37-41. Intent recognition: IDR-01 / Phase 42.)
