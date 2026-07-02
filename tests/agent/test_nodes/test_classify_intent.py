@@ -209,6 +209,33 @@ def test_multi_target_request_is_neutralized_only_after_valid_task_plan():
     assert [step["intent"] for step in update["deferred_steps"]] == ["policy_qa"]
 
 
+def test_lossy_same_intent_merge_keeps_multi_target_clarification():
+    result = IntentResultV3.model_validate(
+        _intent_v3(
+            primary_intent="order_status_inquiry",
+            requested_operation="read_status",
+            secondary_intents=["order_status_inquiry"],
+            candidate_slots={"order_id": "ORD-001"},
+        )
+    )
+    pre_route = PreRouteDecision(
+        disposition="multi_target_request",
+        reason_codes=["multi_target_request"],
+        requires_clarification=True,
+    )
+
+    update = intent_result_to_state(result, pre_route=pre_route, user_query="查这两个订单")
+    trace = update["classification_trace"]
+
+    assert trace["plan_normalization"] == ["same_intent_entity_merge_limited"]
+    assert [step["step_id"] for step in trace["task_plan"]["steps"]] == ["s1"]
+    assert trace["deferred_steps"] == []
+    assert update["routing_hints"]["requires_clarification"] is True
+    assert update["routing_hints"]["clarification_reason"] == "multi_target_request"
+    assert trace["clarification_decision"]["requires_clarification"] is True
+    assert trace["route_decision"] == "clarification_gate"
+
+
 def test_high_risk_secondary_step_is_deferred_not_executed():
     result = IntentResultV3.model_validate(
         _intent_v3(

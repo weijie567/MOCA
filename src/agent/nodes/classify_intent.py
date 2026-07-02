@@ -324,9 +324,16 @@ def _pre_route_for_task_plan(
 ) -> PreRouteDecision | None:
     if pre_route is None or pre_route.disposition != "multi_target_request":
         return pre_route
-    plan_valid = "plan_invalid_fallback_single" not in normalization
-    plan_handled_multiple_requests = step_count > 1 or bool(normalization)
-    if not plan_valid or not plan_handled_multiple_requests:
+    lossless_single_step_normalizations = {
+        "same_intent_entities_merged",
+        "modifier_dropped:small_talk",
+        "modifier_folded:complaint_as_severity",
+    }
+    plan_handled_multiple_requests = step_count > 1 or (
+        bool(normalization)
+        and all(record in lossless_single_step_normalizations for record in normalization)
+    )
+    if not plan_handled_multiple_requests:
         return pre_route
     return PreRouteDecision(
         disposition=pre_route.disposition,
