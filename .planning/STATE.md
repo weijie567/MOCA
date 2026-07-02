@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Tool Platform Hardening
-status: ready_to_execute
-stopped_at: Phase 39 planned; ready to execute Phase 39
-last_updated: "2026-07-02T03:15:46.850Z"
-last_activity: 2026-07-02 -- Phase 39 planned
+status: executing
+stopped_at: Phase 39 execution in progress
+last_updated: "2026-07-02T03:19:00Z"
+last_activity: 2026-07-02 -- Phase 39 execution started
 progress:
   total_phases: 3
   completed_phases: 2
@@ -21,14 +21,14 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 39 contract-spec §12.5/§12.6 Reconciliation — ready to execute
+**Current focus:** Phase 39 contract-spec §12.5/§12.6 Reconciliation — executing
 
 ## Current Position
 
-Phase: 39
-Plan: 39-01 ready
-Status: Ready to execute
-Last activity: 2026-07-02 -- Phase 39 planned
+Phase: 39 (contract-spec §12.5/§12.6 Reconciliation) — EXECUTING
+Plan: 39-01 of 1
+Status: Executing Phase 39
+Last activity: 2026-07-02 -- Phase 39 execution started
 
 Progress: [█████████░] 86%
 
@@ -136,10 +136,10 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ## Session Continuity
 
-Last session: 2026-07-02T03:15:46Z
-Stopped at: Phase 39 planned; ready to execute Phase 39
-Resume file: `.planning/ROADMAP.md`
-Next: Run `$gsd-execute-phase 39`.
+Last session: 2026-07-02T03:19:00Z
+Stopped at: Phase 39 execution in progress
+Resume file: `.planning/phases/39-contract-spec-12-5-12-6-reconciliation/39-01-PLAN.md`
+Next: Continue `$gsd-execute-phase 39`.
 
 **Completed Phase:** 35 (Replay and Eval Hardening) — 6/6 plans complete; UAT 8/8 passed; security `threats_open: 0` — 2026-06-29
 
