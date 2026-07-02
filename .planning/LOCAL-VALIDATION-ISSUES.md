@@ -1,5 +1,69 @@
 # 本地验证问题记录
 
+## 15. Phase 44 本地默认库升级被 Phase 36 商家绑定预检阻断
+
+日期：2026-07-03
+
+### 问题现象
+
+执行 Phase 44 Wave 1 计划级验证时，默认本地库 `moca` 仍停在 `016_agent_run_memory_idempotency`，运行强制 gate：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run alembic upgrade head
+```
+
+在既有迁移 `019_phase36_merchant_scope_hardening` 失败，未进入 Phase 44 新迁移。
+
+### 如何检测 / 复现
+
+先查看当前版本：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run alembic current
+```
+
+输出为 `016_agent_run_memory_idempotency`。随后运行 `UV_CACHE_DIR=/tmp/uv-cache uv run alembic upgrade head` 复现失败。
+
+### 关键证据或命令
+
+失败栈核心信息：
+
+```text
+RuntimeError: Cannot create ck_users_active_business_role_has_merchant/fk_users_merchant_tenant: active business users without tenant-consistent merchant binding.
+user_id=4b84a9e5-3dfd-5880-bd52-f882dd2393e3 tenant_id=f078f8b4-01cc-5d39-b90c-fd0eea01bad7 role=support reason=missing merchant binding.
+```
+
+排查本地数据发现 6 个 active business users 的 `merchant_id` 为 `NULL`：`cs_zhang`、`cs_liu`、`cs_sun`、`mgr_li`、`mgr_zhou`、`other_support`。
+
+### 当前判断 / 根因
+
+这是默认本地开发库的旧 seed 数据问题，不是 Phase 44 schema 代码问题。Phase 36 的迁移预检要求 active `support` / `manager` / `merchant` 用户必须有同租户 merchant binding；旧库数据未按当前 `scripts/seed_demo.py` 的用户→商家关系回填。
+
+### 已做处理
+
+使用 `UV_CACHE_DIR=/tmp/uv-cache uv run python ...` 连接默认本地库，将上述 6 个用户按 `scripts/seed_demo.py` 的映射绑定到同租户商家：
+
+- `cs_zhang`、`mgr_li` → `星河数码旗舰店`
+- `cs_liu`、`mgr_zhou` → `知味零食铺`
+- `cs_sun` → `青木家居生活馆`
+- `other_support` → `远航生活集合店`
+
+随后重跑：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run alembic upgrade head
+```
+
+结果：通过，并升级到 `022_case_working_context (head)`。
+
+### 剩余问题
+
+本次只修复当前默认本地库的数据。若其他开发机或重建前的旧库仍停在 Phase 36 之前，仍可能遇到同类 preflight 阻断，需要先按当前 seed 映射补齐 active business user 的 `merchant_id`。
+
+### 下次继续排查入口
+
+优先检查 `src/db/migrations/versions/019_phase36_merchant_scope_hardening.py::_ensure_active_business_users_have_merchant_binding()` 的报错行，以及 `scripts/seed_demo.py` 中 demo users 的 merchant 映射。
+
 ## 14. Phase 35 matrix pytest entrypoint scan 误判 PLAN 说明文字
 
 日期：2026-06-29
