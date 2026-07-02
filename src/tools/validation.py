@@ -9,6 +9,23 @@ def validate_json_value(value: Any, schema: dict[str, Any]) -> None:
     """Validate the JSON Schema subset used by tool descriptors."""
 
     expected_type = schema.get("type")
+    if isinstance(expected_type, list):
+        first_error: TypeError | ValueError | None = None
+        for candidate_type in expected_type:
+            try:
+                validate_json_value(value, {**schema, "type": candidate_type})
+            except (TypeError, ValueError) as exc:
+                if first_error is None:
+                    first_error = exc
+                continue
+            return
+        if first_error is not None:
+            raise first_error
+        raise ValueError("No allowed types declared")
+    if expected_type == "null":
+        if value is not None:
+            raise TypeError("Expected null")
+        return
     if expected_type == "object":
         if not isinstance(value, dict):
             raise TypeError("Expected object")
