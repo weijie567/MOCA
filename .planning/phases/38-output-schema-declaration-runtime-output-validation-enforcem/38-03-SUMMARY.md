@@ -25,12 +25,13 @@ key-files:
   created:
     - .planning/phases/38-output-schema-declaration-runtime-output-validation-enforcem/38-03-SUMMARY.md
   modified:
+    - src/tools/runtime.py
     - tests/tools/test_tool_platform.py
     - tests/agent/test_tools/test_unified_tool_manager.py
     - .planning/LOCAL-VALIDATION-ISSUES.md
 
 key-decisions:
-  - "Keep runtime enforcement in the existing ToolRuntime output-validation gate; no production runtime change was needed."
+  - "Runtime output validation now validates success and partial_success results even when data is None, so non-null output schemas cannot be bypassed."
   - "Use fake executors for runtime output validation so TPH-01 behavior is covered independently of local PostgreSQL."
   - "Leave the appended local PostgreSQL blocker log unstaged because the file had large unrelated pre-existing dirty hunks."
 
@@ -60,6 +61,7 @@ completed: 2026-07-02
 
 - Added `ToolPlatform.invoke(...)` tests proving schema-valid `get_order` executor data passes through unchanged.
 - Added invalid-output tests proving schema-invalid executor data maps to `invalid_response`, clears `data`, returns `INVALID_EXECUTOR_RESPONSE`, and does not serialize the raw sentinel.
+- Fixed the post-review enforcement gap where `status="success"` with `data=None` bypassed non-null object output schemas.
 - Added `search_sop` no-data schema coverage with a fake `knowledge` executor whose `has_tool("search_sop")` returns true, so availability/dispatch pass and output validation performs the rejection.
 - Added an exact `ToolResultV2.model_fields` guard covering the high-blast envelope.
 - Updated a `UnifiedToolManager` regression fixture from a generic fake payload to a schema-conforming `get_order` payload.
@@ -70,17 +72,19 @@ Each task was committed atomically:
 
 1. **Task 1: Add runtime output-validation behavior tests** - `5f748c7` (test)
 2. **Task 2: Run final contract and high-blast consumer regression sweep** - `4de704a` (test)
+3. **Post-review fix: Validate successful empty tool outputs** - `16a5d8f` (fix)
 
 ## Files Created/Modified
 
-- `tests/tools/test_tool_platform.py` - Adds runtime output-schema success/failure/no-data tests and the exact envelope field-set guard.
+- `src/tools/runtime.py` - Validates success and partial_success outputs through descriptor output_schema even when `data` is `None`.
+- `tests/tools/test_tool_platform.py` - Adds runtime output-schema success/failure/no-data tests, success-with-missing-data regression coverage, and the exact envelope field-set guard.
 - `tests/agent/test_tools/test_unified_tool_manager.py` - Aligns the fake `get_order` success payload with the strict output schema so manager regressions still test manager behavior.
 - `.planning/LOCAL-VALIDATION-ISSUES.md` - Appended one Chinese PostgreSQL blocker record; intentionally left unstaged because the file had unrelated pre-existing dirty local logs.
 - `.planning/phases/38-output-schema-declaration-runtime-output-validation-enforcem/38-03-SUMMARY.md` - Records execution, verification, and DB-gated coverage caveats.
 
 ## Decisions Made
 
-- No production runtime edit was made; `ToolRuntime.invoke` already enforced `validate_json_value(tool_result.data, descriptor.output_schema)` and routed failures through `_fail(... status="invalid_response" ...)`.
+- `ToolRuntime.invoke` now treats `success` and `partial_success` results as schema-bearing even when `data` is `None`, while preserving validation of non-empty data on other statuses.
 - Kept `ToolResultV2` and `ToolCallContext` untouched.
 - Treated business/service and memory/search real-path coverage as DB-gated where it depends on `tests/conftest.py::test_engine`; proxy coverage used fake-executor runtime tests, `UnifiedToolManager` non-DB tests, investigate case-memory projection, RAG verifier authority checks, and action-draft fail-closed coverage.
 
@@ -98,8 +102,18 @@ Each task was committed atomically:
 
 ---
 
-**Total deviations:** 1 auto-fixed (Rule 1).
-**Impact on plan:** The fix keeps high-blast regression intent intact under strict output validation. No production scope was expanded.
+**2. [Post-review Warning] Closed success-with-missing-data schema bypass**
+- **Found during:** Phase 38 code review gate
+- **Issue:** `ToolRuntime.invoke` only validated output schemas when `tool_result.data is not None`, so a `get_order` executor could return `status="success", data=None` and bypass the non-null object schema.
+- **Fix:** Validate output schemas whenever status is `success` or `partial_success`, even when `data` is `None`; added a facade-level regression test proving the result maps to `invalid_response`.
+- **Files modified:** `src/tools/runtime.py`, `tests/tools/test_tool_platform.py`
+- **Verification:** New regression node plus existing runtime output-schema nodes pass.
+- **Committed in:** `16a5d8f`
+
+---
+
+**Total deviations:** 2 auto-fixed (Rule 1 / post-review warning).
+**Impact on plan:** The fixes keep high-blast regression intent intact and strengthen Phase 38 runtime enforcement without changing external contract fields.
 
 ## Issues Encountered
 
@@ -114,6 +128,7 @@ Each task was committed atomically:
 ## Verification
 
 - `uv run pytest tests/tools/test_tool_platform.py::test_output_schema_success_passes_tool_result_unchanged tests/tools/test_tool_platform.py::test_output_schema_failure_returns_invalid_response_without_raw_data tests/tools/test_tool_platform.py::test_no_data_output_schema_rejects_accidental_unavailable_tool_payload tests/tools/test_tool_platform.py::test_tool_result_v2_envelope_fields_are_unchanged -q` -> `4 passed, 1 warning`
+- `uv run pytest tests/tools/test_tool_platform.py::test_output_schema_success_with_missing_data_returns_invalid_response tests/tools/test_tool_platform.py::test_output_schema_success_passes_tool_result_unchanged tests/tools/test_tool_platform.py::test_output_schema_failure_returns_invalid_response_without_raw_data tests/tools/test_tool_platform.py::test_no_data_output_schema_rejects_accidental_unavailable_tool_payload tests/tools/test_tool_platform.py::test_tool_result_v2_envelope_fields_are_unchanged -q` -> `5 passed, 1 warning`
 - `uv run pytest tests/tools/test_tool_platform.py::test_runtime_auth_handles_legacy_list_merchant_scope -q` -> `2 passed, 1 warning`
 - `uv run ruff check tests/tools/test_tool_platform.py` -> passed
 - `uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py -q` -> `54 passed, 1 warning, 6 errors`; all errors are PostgreSQL fixture setup connection refusals in `tests/conftest.py::test_engine`
@@ -141,8 +156,8 @@ Phase 38 implementation is complete for TPH-01 with DB-backed verification still
 
 ## Self-Check: PASSED
 
-- Created/modified files exist: `tests/tools/test_tool_platform.py`, `tests/agent/test_tools/test_unified_tool_manager.py`, and this summary.
-- Task commits found in git history: `5f748c7`, `4de704a`.
+- Created/modified files exist: `src/tools/runtime.py`, `tests/tools/test_tool_platform.py`, `tests/agent/test_tools/test_unified_tool_manager.py`, and this summary.
+- Task/review-fix commits found in git history: `5f748c7`, `4de704a`, `16a5d8f`.
 - Protected files remain untouched: `docs/contract-spec.md` and `src/tools/contracts.py`.
 - Summary validation commands use project-approved `uv run pytest` / `uv run ruff` entrypoints.
 - `.planning/LOCAL-VALIDATION-ISSUES.md` remains unstaged by design because it had pre-existing unrelated dirty hunks.
