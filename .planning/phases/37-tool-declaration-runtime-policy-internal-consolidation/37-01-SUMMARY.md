@@ -29,7 +29,7 @@ key-files:
 
 key-decisions:
   - "Keep _IDENTIFIER_SCHEMAS as a private compatibility surface, but derive it from _TOOL_DECLARATIONS."
-  - "Keep manager.INVESTIGATE_TOOL_NAMES for compatibility, but derive it from catalog.investigate_tool_names()."
+  - "Remove manager.INVESTIGATE_TOOL_NAMES after local review confirmed it was an unused internal compatibility value."
   - "Filter UnifiedToolManager.descriptors(\"investigate\") directly by descriptor caller_allowlist, kind, and exposure so custom descriptors are not constrained by the default catalog constant."
 
 patterns-established:
@@ -67,6 +67,7 @@ Each task was committed atomically:
 
 1. **Task 1: Add registry and manager drift tests** - `dee1556` (test)
 2. **Task 2: Implement single-source declaration rows and catalog-derived investigate filtering** - `0030380` (refactor)
+3. **Post-review cleanup: Remove unused manager tool-name constant** - `38db83c` (refactor)
 
 ## Files Created/Modified
 
@@ -78,7 +79,7 @@ Each task was committed atomically:
 ## Decisions Made
 
 - Kept `_IDENTIFIER_SCHEMAS` because tests and local compatibility surfaces still reference it, but made it derived only.
-- Kept `INVESTIGATE_TOOL_NAMES` as an exported compatibility value, but made it derived from `investigate_tool_names()`.
+- Removed `INVESTIGATE_TOOL_NAMES` from `manager.py` after local review found no references outside its own definition.
 - Did not change `ToolDescriptor`, `ToolResultV2`, `ToolCallContext`, `ToolPolicyDecision`, `ToolViewV1`, or `ToolInvocationOutcome` fields.
 - Did not implement real per-tool output schemas; all descriptors still use `_GENERIC_OBJECT_SCHEMA`.
 
@@ -95,6 +96,7 @@ None - plan scope was executed as written.
 
 - `uv run pytest tests/tools/test_catalog.py tests/agent/test_tools/test_unified_tool_manager.py -q` -> `41 passed, 1 warning`
 - `uv run ruff check src/tools/catalog.py src/tools/manager.py tests/tools/test_catalog.py tests/agent/test_tools/test_unified_tool_manager.py` -> passed
+- Post-review cleanup check: `uv run pytest tests/tools/test_catalog.py tests/agent/test_tools/test_unified_tool_manager.py -q` -> `41 passed, 1 warning`; `uv run ruff check src/tools/manager.py tests/agent/test_tools/test_unified_tool_manager.py` -> passed
 - `rg -n '"get_order"|"search_sop"|INVESTIGATE_TOOL_NAMES = \{' src/tools/manager.py` -> no matches
 - `uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/agent/test_tools/test_unified_tool_manager.py tests/replay/test_tool_policy_events.py tests/architecture/test_trusted_context_boundaries.py -q` -> blocked by local PostgreSQL connection refusal; not a product-code failure signal
 
