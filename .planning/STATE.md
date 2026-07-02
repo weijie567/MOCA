@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Tool Platform Hardening
-status: ready_to_execute
-stopped_at: Phase 37 planned; ready to execute 3 plans
-last_updated: "2026-07-01T16:03:45.356Z"
-last_activity: 2026-07-01 -- Phase 37 planned (3 plans)
+status: executing
+stopped_at: Phase 37 execution in progress
+last_updated: "2026-07-02T00:06:52.264Z"
+last_activity: 2026-07-02 -- Phase 37 execution started
 progress:
   total_phases: 3
   completed_phases: 0
@@ -21,14 +21,14 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Milestone v2.1 Tool Platform Hardening — roadmap created (Phases 37-39), ready for phase planning
+**Current focus:** Phase 37 Tool Declaration + Runtime/Policy Internal Consolidation — execution in progress
 
 ## Current Position
 
-Phase: 37 Tool Declaration + Runtime/Policy Internal Consolidation
-Plan: 3 plans ready
-Status: Ready to execute
-Last activity: 2026-07-01 -- Phase 37 planned (3 plans)
+Phase: 37 Tool Declaration + Runtime/Policy Internal Consolidation — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 37
+Last activity: 2026-07-02 -- Phase 37 execution started
 
 Progress: [          ] 0%
 
