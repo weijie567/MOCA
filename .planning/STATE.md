@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
 status: in_progress
-stopped_at: Phase 43 (intent multi-intent tier A) planned; ready to execute
-last_updated: "2026-07-02T12:51:35Z"
-last_activity: 2026-07-02 -- Phase 43 planned with 3 plan-checker-verified plans; ready to execute
+stopped_at: Phase 43 (intent multi-intent tier A) complete; ready for Claude closure review
+last_updated: "2026-07-02T14:36:00Z"
+last_activity: 2026-07-02 -- Phase 43 implemented, verified, code-reviewed clean, and IDR-02 marked complete
 progress:
   total_phases: 7
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 18
-  completed_plans: 15
-  percent: 83
+  completed_plans: 18
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -21,7 +21,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v2.1 Core Subsystem Hardening — tool platform (Phase 37-41) done; intent recognition three-layer decoupling (Phase 42) registered; multi-intent tier A (Phase 43) planned and ready to execute.
+**Current focus:** v2.1 Core Subsystem Hardening — tool platform (Phase 37-41) done; intent recognition three-layer decoupling (Phase 42) registered; multi-intent tier A (Phase 43) implemented and verified.
 
 ## Rescope note (2026-07-02)
 
@@ -30,13 +30,13 @@ See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 ## Current Position
 
-Phase: 43 (Intent Recognition Multi-Intent Tier A) — PLANNED
-Plan: 43-01 / 43-02 / 43-03 generated from `.planning/intent-multi-a-codex-brief.md`
-Status: ready_to_execute
-Last activity: 2026-07-02 -- Phase 43 plan-phase completed; plan-checker passed after one revision loop
-Next: execute Phase 43 plans in order: policy contracts -> classify/state wiring -> final-response presentation and verification.
+Phase: 43 (Intent Recognition Multi-Intent Tier A) — COMPLETE
+Plan: 43-01 / 43-02 / 43-03 implemented from `.planning/intent-multi-a-codex-brief.md`
+Status: complete
+Last activity: 2026-07-02 -- Phase 43 implementation completed; focused/full pytest and ruff passed; GSD code review clean
+Next: Claude stage-B light closure review for plan conformance, then decide next architecture-debt phase if needed.
 
-Progress: [████████░░] 83%
+Progress: [██████████] 100%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -62,7 +62,7 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | 40. Tool Contract Validation Hardening (TPH-05) | 3/3 | Complete |
 | 41. Tool Platform Legacy Manager Cleanup (TPH-06) | 4/4 | Complete |
 | 42. Intent Recognition Three-Layer Decoupling (IR-01) | 1/1 | Complete (retroactively registered) |
-| 43. Intent Recognition Multi-Intent Tier A (IDR-02) | 3 planned | Ready to execute |
+| 43. Intent Recognition Multi-Intent Tier A (IDR-02) | 3/3 | Complete |
 
 Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review. Phase 40 closes the source-confirmed validation/backstop gaps intentionally deferred or left advisory after Phase 38/39. Phase 41 then handles the explicit breaking cleanup/API decision to remove the `UnifiedToolManager` legacy compatibility adapter.
 
@@ -170,11 +170,11 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 ## Session Continuity
 
 Last session: --stopped-at
-Stopped at: Phase 43 (intent multi-intent tier A) planned; ready to execute
+Stopped at: Phase 43 (intent multi-intent tier A) complete; ready for Claude closure review
 Resume file: --resume-file
-Next: Execute Phase 43 plans in dependency order: 43-01, 43-02, 43-03.
+Next: Claude closure review for Phase 43, then select the next subsystem-hardening item.
 
 Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean).
-Next roadmap item: execute multi-intent tier A (IDR-02 / ID-04) inside v2.1.
+Next roadmap item: post-Phase 43 closure review or next architecture-debt item inside v2.1.
 
-**Planned Phase:** 43 (Intent Recognition Multi-Intent Tier A) — 3 plans — 2026-07-02T12:51:35.904Z
+**Completed Phase:** 43 (Intent Recognition Multi-Intent Tier A) — 3/3 plans — 2026-07-02

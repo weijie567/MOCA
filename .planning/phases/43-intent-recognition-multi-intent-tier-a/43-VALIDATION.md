@@ -1,10 +1,11 @@
 ---
 phase: 43
 slug: intent-recognition-multi-intent-tier-a
-status: draft
+status: complete
 nyquist_compliant: true
-wave_0_complete: false
+wave_0_complete: true
 created: 2026-07-02
+completed: 2026-07-02
 ---
 
 # Phase 43 — Validation Strategy
@@ -39,12 +40,12 @@ created: 2026-07-02
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 43-01-01 | 01 | 1 | IDR-02 | T-43-01 / T-43-02 | Plan contracts serialize to state-safe dict/list values; invalid plans fail closed | unit | `uv run pytest tests/agent/test_intent_task_plan.py -q` | ❌ W0 | ⬜ pending |
-| 43-01-02 | 01 | 1 | IDR-02 | T-43-02 | Non-read-only secondary steps are deferred, not executed | unit | `uv run pytest tests/agent/test_intent_task_plan.py::test_high_risk_second_step_deferred -q` | ❌ W0 | ⬜ pending |
-| 43-02-01 | 02 | 2 | IDR-02 | T-43-02 / T-43-03 | N=1 route fields remain equivalent; valid multi-target plans do not get blocked by legacy clarification | node | `uv run pytest tests/agent/test_nodes/test_classify_intent.py -q` | ✅ | ⬜ pending |
-| 43-02-02 | 02 | 2 | IDR-02 | T-43-03 | `receive_request` resets `task_plan` and `deferred_steps` each turn | node | `uv run pytest tests/agent/test_nodes/test_receive_request.py -q` | ✅ | ⬜ pending |
-| 43-03-01 | 03 | 3 | IDR-02 | T-43-02 / T-43-04 | Deferred confirmations and complaint-folding safety notes are visible in final response branches | node | `uv run pytest tests/agent/test_nodes/test_final_response.py -q` | ✅ | ⬜ pending |
-| 43-03-02 | 03 | 3 | IDR-02 | T-43-02 | Existing graph routes and static architecture contracts do not regress | integration/static | `uv run pytest tests/agent/test_graph.py tests/architecture/test_phase32_static_contract.py -q` | ✅ | ⬜ pending |
+| 43-01-01 | 01 | 1 | IDR-02 | T-43-01 / T-43-02 | Plan contracts serialize to state-safe dict/list values; invalid plans fail closed | unit | `uv run pytest tests/agent/test_intent_task_plan.py -q` | ✅ | ✅ green |
+| 43-01-02 | 01 | 1 | IDR-02 | T-43-02 | Non-read-only secondary steps are deferred, not executed | unit | `uv run pytest tests/agent/test_intent_task_plan.py::test_high_risk_second_step_deferred -q` | ✅ | ✅ green |
+| 43-02-01 | 02 | 2 | IDR-02 | T-43-02 / T-43-03 | N=1 route fields remain equivalent; valid multi-target plans do not get blocked by legacy clarification | node | `uv run pytest tests/agent/test_nodes/test_classify_intent.py -q` | ✅ | ✅ green |
+| 43-02-02 | 02 | 2 | IDR-02 | T-43-03 | `receive_request` resets `task_plan` and `deferred_steps` each turn | node | `uv run pytest tests/agent/test_nodes/test_receive_request.py -q` | ✅ | ✅ green |
+| 43-03-01 | 03 | 3 | IDR-02 | T-43-02 / T-43-04 | Deferred confirmations and complaint-folding safety notes are visible in final response branches | node | `uv run pytest tests/agent/test_nodes/test_final_response.py -q` | ✅ | ✅ green |
+| 43-03-02 | 03 | 3 | IDR-02 | T-43-02 | Existing graph routes and static architecture contracts do not regress | integration/static | `uv run pytest tests/agent/test_graph.py tests/architecture/test_phase32_static_contract.py -q` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -52,10 +53,10 @@ created: 2026-07-02
 
 ## Wave 0 Requirements
 
-- [ ] `tests/agent/test_intent_task_plan.py` — new policy/normalization/read-prefix/fail-closed tests for IDR-02.
-- [ ] `tests/agent/test_nodes/test_classify_intent.py` — extend existing node tests for N=1 equivalence, task-plan trace/state serialization, multi-target guard handling, and high-risk deferral.
-- [ ] `tests/agent/test_nodes/test_final_response.py` — extend deferred confirmation and complaint safety-note coverage across representative response branches.
-- [ ] `tests/agent/test_nodes/test_receive_request.py` — extend per-turn reset coverage for `task_plan` and `deferred_steps`.
+- [x] `tests/agent/test_intent_task_plan.py` — new policy/normalization/read-prefix/fail-closed tests for IDR-02.
+- [x] `tests/agent/test_nodes/test_classify_intent.py` — extend existing node tests for N=1 equivalence, task-plan trace/state serialization, multi-target guard handling, and high-risk deferral.
+- [x] `tests/agent/test_nodes/test_final_response.py` — extend deferred confirmation and complaint safety-note coverage across representative response branches.
+- [x] `tests/agent/test_nodes/test_receive_request.py` — extend per-turn reset coverage for `task_plan` and `deferred_steps`.
 
 ---
 
@@ -86,4 +87,4 @@ All Phase 43 behaviors have automated verification. Manual review is still requi
 - [x] Feedback latency < 2 minutes.
 - [x] `nyquist_compliant: true` set in frontmatter.
 
-**Approval:** approved 2026-07-02 for planning; execution must update task statuses as tests land.
+**Execution result:** complete 2026-07-02. Focused quick command passed with `66 passed`; full required command passed with `1236 passed, 1 skipped`; `uv run ruff check src/agent tests/agent` passed.

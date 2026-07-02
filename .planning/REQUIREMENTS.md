@@ -27,7 +27,7 @@
 > Subsystem debt is tracked in `.planning/ARCHITECTURE-DEBT.md` §2 (ID-01..ID-04, ID-DESIGN). Requirement IDs use the `IDR-` prefix.
 
 - [x] **IDR-01**: Intent recognition's three coupled responsibilities are decoupled into three explicit, single-direction, independently-testable layers communicating only through frozen data contracts: semantic layer (`SemanticIntent`), risk-authorization layer (`RiskDecision` + declarative `RISK_POLICY_TABLE`), and confidence-clarification layer (`ClarificationDecision`). Keyword arbitration (`derive_keyword_signals` + `arbitrate_intent`) is explicit — a keyword candidate may override the LLM primary only when the LLM itself listed the intent or raw confidence is below the ordinary threshold (fixes ID-01). Risk resolution is table-driven with the dead if-elif branch removed (fixes ID-03). Behavior-equivalent refactor: the sole registered behavior change is that `"这个不算投诉吧，我就是问下退款进度"` no longer mis-escalates to `complaint_escalation`. `calibrated_confidence` is a placeholder parameter only — real calibration (ID-02) remains unaddressed. Multi-intent / TaskPlan (ID-04) is out of scope for this requirement.
-- [ ] **IDR-02**: Intent recognition preserves multi-intent utterances as a bounded tier-A `TaskPlan` while keeping the existing single-intent route contract intact: N=1 must remain behavior-equivalent, N>1 records ordered `TaskStep`s, normalizes only explicit modifier cases, executes only the safe read-only prefix in the current turn, and exposes all later steps as `deferred_steps` in trace and final response. This fixes the ID-04 failure mode where secondary user requests are silently dropped, without adding automatic dependency execution, DAG/resume behavior, new LLM calls, `IntentResultV3` schema changes, prompt changes, confidence calibration, or new risk-tier enums.
+- [x] **IDR-02**: Intent recognition preserves multi-intent utterances as a bounded tier-A `TaskPlan` while keeping the existing single-intent route contract intact: N=1 remains behavior-equivalent, N>1 records ordered `TaskStep`s, normalizes only explicit modifier cases, processes only s1 in the current turn, and exposes all later steps as `deferred_steps` in trace and final response. This fixes the ID-04 failure mode where secondary user requests are silently dropped, without adding automatic dependency execution, DAG/resume behavior, new LLM calls, `IntentResultV3` schema changes, prompt changes, confidence calibration, or new risk-tier enums.
 
 ## Future Requirements
 
@@ -54,6 +54,6 @@ _None. This milestone remains a bounded, pre-scoped cleanup._
 | TPH-05 | Phase 40 | Complete |
 | TPH-06 | Phase 41 | Complete |
 | IDR-01 | Phase 42 | Complete (retroactively registered; code committed at `a0a98e4`) |
-| IDR-02 | Phase 43 | Pending |
+| IDR-02 | Phase 43 | Complete |
 
-**Coverage:** 8/8 v2.1 requirements mapped, each to exactly one phase. 7 complete, 1 pending. No orphans, no duplicates. (Tool platform: TPH-01..06 / Phase 37-41. Intent recognition: IDR-01 / Phase 42, IDR-02 / Phase 43.)
+**Coverage:** 8/8 v2.1 requirements mapped, each to exactly one phase. 8 complete, 0 pending. No orphans, no duplicates. (Tool platform: TPH-01..06 / Phase 37-41. Intent recognition: IDR-01 / Phase 42, IDR-02 / Phase 43.)
