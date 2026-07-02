@@ -7,7 +7,7 @@ import pytest
 
 from src.tools.catalog import _IDENTIFIER_SCHEMAS, RegisteredTool, ToolCatalog, ToolDescriptor, investigate_tool_names
 from src.tools.contracts import ToolCallContext
-from src.tools.validation import _validate_json_value
+from src.tools.validation import SUPPORTED_JSON_SCHEMA_KEYS, _validate_json_value
 
 
 TPH01_OUTPUT_SCHEMA_TOOL_NAMES = frozenset(
@@ -72,6 +72,24 @@ def _context() -> ToolCallContext:
 
 def _descriptor(name: str) -> ToolDescriptor:
     return next(descriptor for descriptor in ToolCatalog().descriptors() if descriptor.name == name)
+
+
+def _unsupported_schema_keywords(schema: dict[str, object], *, path: str = "$") -> list[str]:
+    unsupported = [f"{path}.{key}" for key in schema if key not in SUPPORTED_JSON_SCHEMA_KEYS]
+
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        for property_name, property_schema in properties.items():
+            if isinstance(property_schema, dict):
+                unsupported.extend(
+                    _unsupported_schema_keywords(property_schema, path=f"{path}.properties.{property_name}")
+                )
+
+    items = schema.get("items")
+    if isinstance(items, dict):
+        unsupported.extend(_unsupported_schema_keywords(items, path=f"{path}.items"))
+
+    return unsupported
 
 
 def _valid_order_payload() -> dict[str, object]:
@@ -325,6 +343,21 @@ def test_search_case_memory_descriptor_names_reviewed_case_memory_store() -> Non
     assert "session-derived" not in descriptor.description.lower()
 
 
+def test_all_descriptor_schemas_use_only_supported_validation_keywords() -> None:
+    failures = []
+    for descriptor in ToolCatalog().descriptors():
+        for schema_name, schema in (
+            ("input_schema", descriptor.input_schema),
+            ("output_schema", descriptor.output_schema),
+        ):
+            failures.extend(
+                f"{descriptor.name}.{schema_name}:{path}"
+                for path in _unsupported_schema_keywords(schema)
+            )
+
+    assert failures == []
+
+
 def test_json_schema_helper_accepts_valid_input() -> None:
     _validate_json_value({"order_no": "ORD-1"}, _descriptor("get_order").input_schema)
 
@@ -354,6 +387,37 @@ def test_json_schema_helper_rejects_nullable_union_mismatches() -> None:
         _validate_json_value(123, {"type": ["string", "null"]})
     with pytest.raises((TypeError, ValueError)):
         _validate_json_value("", {"type": ["string", "null"], "minLength": 1})
+
+
+def test_json_schema_helper_enforces_string_max_length() -> None:
+    _validate_json_value("abc", {"type": "string", "maxLength": 3})
+
+    with pytest.raises(ValueError, match="String is too long"):
+        _validate_json_value("abcd", {"type": "string", "maxLength": 3})
+
+
+def test_json_schema_helper_enforces_numeric_bounds() -> None:
+    valid_cases = [
+        (1, {"type": "integer", "minimum": 1}),
+        (10, {"type": "integer", "maximum": 10}),
+        (4, {"type": "integer", "exclusiveMaximum": 5}),
+        (1.1, {"type": "number", "exclusiveMinimum": 1}),
+        (1.5, {"type": "number", "minimum": 1, "maximum": 2}),
+    ]
+    invalid_cases = [
+        (0, {"type": "integer", "minimum": 1}),
+        (11, {"type": "integer", "maximum": 10}),
+        (5, {"type": "integer", "exclusiveMaximum": 5}),
+        (1.0, {"type": "number", "exclusiveMinimum": 1}),
+        (2.0, {"type": "number", "exclusiveMaximum": 2}),
+    ]
+
+    for value, schema in valid_cases:
+        _validate_json_value(value, schema)
+
+    for value, schema in invalid_cases:
+        with pytest.raises(ValueError):
+            _validate_json_value(value, schema)
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
