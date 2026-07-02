@@ -80,7 +80,23 @@ class _FakeExecutor:
 def _success_result(source_system: str = "fake") -> ToolResultV2:
     return ToolResultV2(
         status="success",
-        data={"ok": True},
+        data={
+            "order_no": "ORD-TEST-001",
+            "merchant_id": "merchant-primary",
+            "status": "shipped",
+            "amount": "100.00",
+            "currency": "CNY",
+            "buyer_name": "Buyer A",
+            "item_name": "Item A",
+            "paid_at": "2026-07-02T00:00:00Z",
+            "delivered_at": None,
+            "relation_hints": {
+                "has_active_refund": False,
+                "latest_refund_case_id": None,
+                "has_open_ticket": False,
+                "latest_ticket_id": None,
+            },
+        },
         summary="ok",
         source_system=source_system,
         data_freshness_at=None,
