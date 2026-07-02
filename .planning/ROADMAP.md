@@ -14,7 +14,7 @@ v2.1 is a bounded cleanup of the tool-call platform's contract debt, implementat
 - [x] **Phase 38: output_schema Declaration + Runtime Output-Validation Enforcement** - Real `output_schema` for all eight tools, enforced in the `ToolRuntime` output-validation gate as `invalid_response` mapping (TPH-01). Plan progress: 3/3 complete; DB-backed pytest passed.
 - [x] **Phase 39: contract-spec §12.5/§12.6 Reconciliation** - Spec catches up to implemented contract fields via dual-AI review, without touching §8.0-locked identity fields (TPH-02). Plan progress: 1/1 complete.
 - [x] **Phase 40: Tool Contract Validation Hardening** - Close source-confirmed validation/backstop gaps left after TPH-01 without changing `ToolResultV2`, `ToolCallContext` §8.0 identity fields, BusinessFactService ownership runtime semantics, or the `UnifiedToolManager` compatibility API (TPH-05).
-- [ ] **Phase 41: Tool Platform Legacy Manager Cleanup** - Make the API/spec decision to remove the `UnifiedToolManager` legacy compatibility adapter and converge production/tests to `ToolPlatform` as the single graph-facing entrypoint (TPH-06). Plan progress: 3/4 complete.
+- [x] **Phase 41: Tool Platform Legacy Manager Cleanup** - Make the API/spec decision to remove the `UnifiedToolManager` legacy compatibility adapter and converge production/tests to `ToolPlatform` as the single graph-facing entrypoint (TPH-06). Plan progress: 4/4 complete.
 
 ## Phase Details
 
@@ -72,7 +72,7 @@ Plans:
 | 38. output_schema Declaration + Runtime Output-Validation Enforcement | 3/3 | Complete    | 2026-07-02 |
 | 39. contract-spec §12.5/§12.6 Reconciliation | 1/1 | Complete | 2026-07-02 |
 | 40. Tool Contract Validation Hardening | 3/3 | Complete | 2026-07-02 |
-| 41. Tool Platform Legacy Manager Cleanup | 3/4 | In Progress | |
+| 41. Tool Platform Legacy Manager Cleanup | 4/4 | Complete | 2026-07-02 |
 
 ### Phase 40: Tool Contract Validation Hardening
 
@@ -109,4 +109,4 @@ Plans:
 - [x] 41-01-PLAN.md — spec/API decision cleanup plus `_side_effect_allowed` relocation.
 - [x] 41-02-PLAN.md — production injection seam and manager-shaped test fake migration to `ToolPlatform`.
 - [x] 41-03-PLAN.md — delete `UnifiedToolManager`, public export, and compatibility tests after coverage migration.
-- [ ] 41-04-PLAN.md — implementation code review, final verification, and Phase 41 completion record.
+- [x] 41-04-PLAN.md — implementation code review, final verification, and Phase 41 completion record.
