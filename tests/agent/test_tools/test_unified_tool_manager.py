@@ -25,16 +25,14 @@ from src.platform.context_projections import project_to_tool_context
 from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 
 
-INVESTIGATE_TOOLS = {
-    "get_order",
-    "get_refund_case",
-    "get_ticket",
-    "get_logistics",
-    "get_merchant_risk",
-    "search_policy",
-    "search_sop",
-    "search_case_memory",
-}
+def _catalog_investigate_tool_names() -> frozenset[str]:
+    return frozenset(
+        descriptor.name
+        for descriptor in ToolCatalog().descriptors()
+        if "investigate" in descriptor.caller_allowlist
+        and descriptor.kind != "write"
+        and descriptor.exposure == "planner_visible"
+    )
 
 
 def _ctx(
@@ -50,7 +48,9 @@ def _ctx(
         tenant_id=str(uuid4()),
         user_id=str(uuid4()),
         role="support",
-        permissions=[f"tool:{name}" for name in INVESTIGATE_TOOLS] if permissions is None else permissions,
+        permissions=[f"tool:{name}" for name in _catalog_investigate_tool_names()]
+        if permissions is None
+        else permissions,
         merchant_scope={"merchant_ids": ["merchant-primary"]} if merchant_scope is None else merchant_scope,
         session_id=None,
         thread_id="thread-1",
@@ -109,7 +109,7 @@ def test_descriptor_discovery_returns_investigate_allowlist_only():
 
     descriptors = manager.descriptors("investigate")
 
-    assert {descriptor.name for descriptor in descriptors} == INVESTIGATE_TOOLS
+    assert {descriptor.name for descriptor in descriptors} == _catalog_investigate_tool_names()
     assert all(descriptor.kind != "write" for descriptor in descriptors)
     assert "create_coupon_grant_draft" not in {descriptor.name for descriptor in descriptors}
 
