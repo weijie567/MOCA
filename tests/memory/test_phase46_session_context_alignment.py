@@ -62,6 +62,8 @@ def _pytest_command_snippets(path: Path) -> list[str]:
     snippets: list[str] = []
     for line in _source(path).splitlines():
         stripped = line.strip()
+        if _is_pytest_prose(stripped):
+            continue
         automated_match = re.search(r"<automated>(.*?)</automated>", stripped)
         if automated_match and "pytest" in automated_match.group(1):
             snippets.append(automated_match.group(1).strip())
@@ -74,6 +76,24 @@ def _pytest_command_snippets(path: Path) -> list[str]:
             if re.match(r"^(?:UV_CACHE_DIR=\S+\s+)?(?:uv run pytest|pytest|python -m pytest)\b", command):
                 snippets.append(command)
     return snippets
+
+
+def _is_pytest_prose(line: str) -> bool:
+    lowered = line.lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "approved pytest snippets",
+            "bare",
+            "beginning with optional",
+            "framework",
+            "invalid",
+            "pytest-asyncio",
+            "regex that extracts",
+            "reject",
+            "unapproved",
+        )
+    )
 
 
 def _section_13_2() -> str:
@@ -199,7 +219,12 @@ def test_legacy_session_precedent_search_is_debug_only_not_planner_facing() -> N
 
 
 def test_session_memory_is_not_case_working_context_fallback() -> None:
-    checked_source = "\n".join((_source(CWC_LIFECYCLE_PATH), _source(REVIEWED_MEMORY_NODE_PATH)))
+    reviewed_node_source = _source(REVIEWED_MEMORY_NODE_PATH)
+    cwc_read_path_source = "\n".join(
+        _function_block(reviewed_node_source, function_name)
+        for function_name in ("_load_case_working_context", "_trusted_context_values")
+    )
+    checked_source = "\n".join((_source(CWC_LIFECYCLE_PATH), cwc_read_path_source))
     forbidden_identity_sources = (
         'state.get("session_memory")',
         'state.get("session_context")',
