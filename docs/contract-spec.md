@@ -1518,7 +1518,11 @@ Long-term memory stores durable, reviewed, scoped facts that may improve future 
 
 Case memory is precedent retrieval for analyst assistance and recommendation context. It never substitutes current business facts, current policy evidence, approval policy, or action safety snapshots. Case memory must not be used as citation, automatic compensation amount authority, approval authorization, current order fact source, or policy evidence.
 
-Semantic lock: `case_memories` / `case_memory` are reviewed precedent, NOT active case state. Active current-case state belongs to Case Working Context.
+Semantic lock: `case_memories` / `case_memory` are reviewed closed-case precedent, NOT active case state. Active current-case state belongs to Case Working Context.
+
+Phase 47 closed-case projection rule: a finalized Case Working Context may be projected only into a `CaseMemoryWriteCandidate` submitted through `CaseMemoryService.submit_case_memory_candidate(...)`. Generated closed-case CWC candidates must default to `needs_review` and remain invisible to `retrieve_reviewed(...)`, `reviewed_memory_context`, and planner-facing `search_case_memory` until approved. The source CWC remains `authority_class = contextual_only`; generated case-memory candidates are not policy evidence, current business fact authority, approval authorization, action authorization, action outcome truth, audit truth, or replay truth. They must not contain policy body text, raw tool payloads, authority bodies, replay/debug blobs, or sensitive raw PII.
+
+Case-memory retrieval is metadata/text retrieval first. Tenant, scope, case type, policy family/version, and query text filters must remain sufficient for reviewed precedent lookup; vector retrieval is optional only when `query_embedding` is supplied.
 
 ### 13.4a Case Working Context
 

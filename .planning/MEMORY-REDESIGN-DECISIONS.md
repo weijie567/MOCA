@@ -104,6 +104,8 @@ Remaining out-of-scope items are unchanged and now mapped to exact roadmap phase
 
 Phase 46 planning trace (2026-07-03): DEFER-1 is being locked as session context repositioning. `session_memories` is same-thread temporary conversational context only, not CWC fallback, reviewed precedent, long-term preference memory, policy/business/approval/action/replay authority, or cross-case durable working state. `DEFER-2 -> Phase 47` and `DEFER-3 -> Phase 48` remain named, unimplemented, and outside Phase 46 scope.
 
+Phase 47 planning trace (2026-07-03): DEFER-2 is now planned as reviewed case precedent generation. `case_memories` / `case_memory` keep their table/model identity and are locked as reviewed closed-case precedent, not active case state; finalized CWC may enter only the existing case-memory review workflow as `needs_review`. Metadata/text retrieval remains first-class and vector retrieval stays optional. `DEFER-3 -> Phase 48` remains named and unimplemented.
+
 > 三个 DEFER 项在进入本次 phase 的 PLAN.md 时,须在 plan 的 "out of scope / follow-up" 段落原样带上,确保 plan-checker 和 Codex 评审都能看到边界。
 
 ---

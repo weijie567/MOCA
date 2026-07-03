@@ -484,7 +484,7 @@ graph TD
 - Workflow checkpoint：图执行恢复层，回答“当前 run 从哪里恢复”，包含当前节点、interrupt/approval wait、幂等状态和副作用边界快照；Postgres 是事实源，Redis 只能作为 active-run 热缓存。
 - Session memory：同一 tenant/user/thread 的连续对话，包含 active slots、last intent、轻量 same-thread summary、unresolved questions、prompt-safe refs/hints；Postgres `session_memories` + CAS 是事实源，Redis 可选做带 TTL 的 hot cache。它只是 same-thread continuity，不是 CWC fallback、reviewed precedent、业务事实、政策证据、审批/动作或 replay truth。
 - Long-term profile memory：跨会话稳定偏好/商家模式，带 scope/source/confidence/TTL/review；Phase 16。
-- Case memory：历史类似 case、处理结果、审批结果、outcome；只能作为 reviewed precedent；planner-facing `search_case_memory` 使用 reviewed case memory。`LegacySessionPrecedentSearchService` 的 session-derived projection 仅是 legacy/debug-only，不等于 reviewed case memory。
+- Case memory：历史类似 case、处理结果、审批结果、outcome；只能作为 reviewed closed-case precedent；planner-facing `search_case_memory` 使用 `MemoryToolExecutor -> CaseMemoryService.retrieve_reviewed(...)` 读取 reviewed case memory，不使用 active Case Working Context，也不使用 legacy session-derived precedent。`LegacySessionPrecedentSearchService` 的 session-derived projection 仅是 legacy/debug-only，不等于 reviewed case memory。
 - Audit / replay log：输入、证据、工具调用、审批链、模型版本和 memory write events 的 append-only 解释层；不是 memory，不可由 Redis 替代。
 
 边界：
@@ -492,8 +492,8 @@ graph TD
 - Memory 是辅助上下文，不是政策依据。
 - Session memory 只负责同 thread 连续性，不等于 workflow checkpoint；workflow checkpoint 只负责 run 恢复，不等于下一轮对话记忆。
 - Long-term memory 不应每轮写入。
-- Case memory 只能作为 precedent，不能覆盖当前 policy evidence。
-- 当前实现状态：`src/agent/graph.py` 已用 `AsyncPostgresSaver` 编译 graph；`session_memory_load` 通过 `MemoryService` 读取 `session_memories`，`memory_write` 写入同一权威表；planner-facing `search_case_memory` 通过 `MemoryToolExecutor -> CaseMemoryService.retrieve_reviewed(...)` 检索 reviewed case memory；legacy session-derived projection 仅保留为 debug-only；`long_term_memory_retrieve` 仍是 empty adapter；Redis hot cache 和长期 profile memory 窄版写入尚未实现。
+- Case memory 只能作为 precedent，不能覆盖当前 policy evidence，也不能替代当前 case 的 Case Working Context。
+- 当前实现状态：`src/agent/graph.py` 已用 `AsyncPostgresSaver` 编译 graph；`session_memory_load` 通过 `MemoryService` 读取 `session_memories`，`memory_write` 写入同一权威表；planner-facing `search_case_memory` 通过 `MemoryToolExecutor -> CaseMemoryService.retrieve_reviewed(...)` 检索 reviewed case memory；metadata/text retrieval 是一等路径，embedding 仅在提供 `query_embedding` 时作为可选排序信号；legacy session-derived projection 仅保留为 debug-only；`long_term_memory_retrieve` 仍是 empty adapter；Redis hot cache 和长期 profile memory 窄版写入尚未实现。
 
 ### 8.6 Approvals / SLA / Policy
 
