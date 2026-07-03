@@ -113,6 +113,8 @@ async def receive_request(state: AgentState) -> dict:
         "memory_context": None,
         "memory_context_bundle": None,
         "reviewed_memory_context_retrieve_status": None,
+        "case_working_context": None,
+        "case_working_context_lifecycle_status": None,
         "memory_write_candidates": None,
         "memory_write_result": None,
         "memory_write_decision": None,

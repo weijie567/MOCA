@@ -121,6 +121,8 @@ class AgentState(TypedDict, total=False):
     memory_context: dict[str, Any] | None
     memory_context_bundle: dict[str, Any] | None
     reviewed_memory_context_retrieve_status: dict[str, Any] | None
+    case_working_context: dict[str, Any] | None
+    case_working_context_lifecycle_status: dict[str, Any] | None
     memory_write_candidates: list[dict[str, Any]] | None
     memory_write_result: dict[str, Any] | None
     memory_write_decision: dict[str, Any] | None
