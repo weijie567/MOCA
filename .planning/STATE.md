@@ -4,7 +4,7 @@ milestone: v2.1
 milestone_name: Core Subsystem Hardening
 status: executing
 stopped_at: Phase 46 context gathered; ready for planning
-last_updated: "2026-07-03T08:35:29.078Z"
+last_updated: "2026-07-03T08:44:22.977Z"
 last_activity: 2026-07-03 -- Phase 46 discussion/context gathered; ready for planning
 progress:
   total_phases: 12
@@ -209,4 +209,4 @@ Next roadmap item: Phase 46 session context repositioning.
 
 **Completed Phase:** 44 (Memory Layering — Case Working Context + thread-case Many-to-Many) — 4/4 plans — 2026-07-03
 
-**Planned Phase:** 46 (Session Context Repositioning) — 3 plans — 2026-07-03T08:35:29.068Z
+**Planned Phase:** 46 (Session Context Repositioning) — 3 plans — 2026-07-03T08:44:22.968Z
