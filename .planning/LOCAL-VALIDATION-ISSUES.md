@@ -11344,3 +11344,68 @@ Phase 45 verifier 通过后运行 `gsd-sdk query phase.complete 45`，命令返�
 - `tests/memory/test_session_memory_bundle.py`
 - `tests/agent/test_memory_evidence_boundary.py`
 - `.planning/ARCHITECTURE-DEBT.md` 的 Phase 46 Plan 03 memory 条目
+
+## 2026-07-03 — Phase 46 verification 使用 GNU find `-printf` 在 macOS 失败
+
+### 问题现象
+
+Phase 46 verification 过程中，为核对 migration 文件列表，执行 `find src/db/migrations/versions -maxdepth 1 -type f -name '*.py' -printf '%f\n' | sort | tail -15` 失败，输出 `find: -printf: unknown primary or operator`。
+
+### 如何检测 / 复现
+
+在 macOS / BSD `find` 环境运行上述命令即可复现；GNU `find` 支持 `-printf`，BSD `find` 不支持。
+
+### 关键证据或命令
+
+- 失败命令：`find src/db/migrations/versions -maxdepth 1 -type f -name '*.py' -printf '%f\n' | sort | tail -15`
+- 失败输出：`find: -printf: unknown primary or operator`
+- 替代命令：`ls -1 src/db/migrations/versions | sort | tail -15`
+
+### 当前判断 / 根因
+
+这是本地验证命令的跨平台写法问题，不是仓库代码或 Phase 46 实现问题。macOS 默认 BSD `find` 不支持 GNU `find -printf`。
+
+### 已做处理
+
+改用 portable `ls -1 src/db/migrations/versions | sort | tail -15` 核对 migration 文件列表；结果显示最新 migration 仍为 `022_case_working_context.py`，未发现 Phase 46 新增 migration 文件。
+
+### 剩余问题
+
+无当前阻塞。后续 verification 报告不引用失败的 `find -printf` 命令作为有效证据。
+
+### 下次继续排查入口
+
+- `src/db/migrations/versions`
+- Phase 46 verification report
+
+## 2026-07-03 — Phase 46 gap fix 后 ripgrep pattern 中 `\n` 被当作换行 regex
+
+### 问题现象
+
+修复 `docs/architecture-overview.md` diagram label 后，为确认旧 `MemoryToolExecutor\nSessionPrecedentSearchService` 不再存在，运行的 `rg` pattern 包含 `\n`，ripgrep 报错：`rg: the literal "\\n" is not allowed in a regex`。
+
+### 如何检测 / 复现
+
+运行包含 `\n` 的普通 regex 搜索，例如 `rg -n "MemoryToolExecutor\\nSessionPrecedentSearchService|SessionPrecedentSearchService" docs/architecture-overview.md`。
+
+### 关键证据或命令
+
+- 失败输出：`rg: the literal "\\n" is not allowed in a regex`
+- 修正命令：`rg -n "MemoryExec\\[MemoryToolExecutor|SessionPrecedentSearchService|CaseMemoryService\\.retrieve_reviewed" docs/architecture-overview.md`
+
+### 当前判断 / 根因
+
+这是本地校验命令写法问题，不是代码或文档问题。Mermaid label 中的 `\n` 是文件里的两个字符，但 ripgrep 默认 regex 对 `\n` 有特殊限制；应避免在普通 regex 中直接写 `\n`，或使用固定字符串/拆 token 搜索。
+
+### 已做处理
+
+改为搜索稳定 token：`MemoryExec[MemoryToolExecutor`、`SessionPrecedentSearchService`、`CaseMemoryService.retrieve_reviewed`。结果确认 diagram 已改为 `MemoryToolExecutor\nCaseMemoryService.retrieve_reviewed`，旧 `SessionPrecedentSearchService` 只存在于 legacy/debug-only 说明中。
+
+### 剩余问题
+
+无当前阻塞。
+
+### 下次继续排查入口
+
+- `docs/architecture-overview.md`
+- ripgrep regex / fixed-string search usage

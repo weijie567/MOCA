@@ -356,7 +356,7 @@ graph TD
         Plan --> Manager[UnifiedToolManager\nplanner-visible view + invoke checks]
         Manager -->|business executor| BizExec[BusinessToolExecutor\nBusinessToolService]
         Manager -->|knowledge executor| KnowledgeExec[KnowledgeToolExecutor\nPolicyKnowledgeService]
-        Manager -->|memory executor| MemoryExec[MemoryToolExecutor\nSessionPrecedentSearchService]
+        Manager -->|memory executor| MemoryExec[MemoryToolExecutor\nCaseMemoryService.retrieve_reviewed]
         BizExec --> Accumulate[accumulate state + trace event]
         KnowledgeExec --> Accumulate
         MemoryExec --> Accumulate
