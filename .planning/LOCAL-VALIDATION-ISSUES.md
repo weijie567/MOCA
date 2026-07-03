@@ -11863,3 +11863,39 @@ Task 2 RED 测试提交后，首次 GREEN 只做了最小代码 patch，但 `UV_
 - `gsd-sdk query roadmap.update-plan-progress 47`
 - `.planning/STATE.md`
 - `.planning/ROADMAP.md`
+
+## 2026-07-03 — Phase 47-03 Task 3 新增 pending-row 断言顺序导致误失败
+
+### 问题现象
+
+47-03 Task 3 新增「closed-case generated candidate pending review -> approve -> retrieve」集成测试后，首次执行 focused pytest 失败：`pending[0].review_status` 实际变成 `approved`，而测试期望 `needs_review`。
+
+### 如何检测 / 复现
+
+执行：
+
+`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_case_precedent_generation.py tests/memory/test_case_memory_retrieval.py tests/test_memory_review_api.py -x -q`
+
+### 关键证据或命令
+
+失败用例：`tests/memory/test_case_precedent_generation.py::test_generated_candidate_pending_review_hidden_until_approval_with_policy_refs`。
+
+关键断言差异：`AssertionError: assert 'approved' == 'needs_review'`。
+
+### 当前判断 / 根因
+
+这是测试断言顺序问题，不是生产逻辑问题。`list_pending_review(...)` 返回的 ORM row 仍挂在同一个 SQLAlchemy session 里，后续 `approve_case_memory(...)` 会把同一对象状态刷新为 `approved`；测试在 approval 之后才断言 pending row 的旧状态，导致误失败。
+
+### 已做处理
+
+将 `pending` 与 `hidden` 的断言移动到 `approve_case_memory(...)` 之前，然后重跑同一 focused pytest 命令，通过：`33 passed, 1 warning`。
+
+### 剩余问题
+
+无当前阻塞。该问题只影响测试写法，不影响 case-memory review lifecycle。
+
+### 下次继续排查入口
+
+- `tests/memory/test_case_precedent_generation.py`
+- `CaseMemoryService.list_pending_review(...)`
+- `CaseMemoryService.approve_case_memory(...)`

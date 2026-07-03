@@ -21,6 +21,7 @@ from src.memory.case_precedent import (
     _resolve_precedent_scope,
 )
 from src.memory.identity import ALLOWED_SOURCE_REF_KEYS
+from src.memory.case_memory import CaseMemoryRepository, CaseMemoryService
 from src.memory.case_working_context_schemas import (
     CaseWorkingContextActionTakenV1,
     CaseWorkingContextClaimV1,
@@ -30,7 +31,7 @@ from src.memory.case_working_context_schemas import (
     CaseWorkingContextRecommendationV1,
     CaseWorkingContextVerifiedFactV1,
 )
-from src.memory.schemas import CaseMemoryWriteCandidate
+from src.memory.schemas import CaseMemoryReviewDecision, CaseMemorySearchRequest, CaseMemoryWriteCandidate
 
 
 def _request(
@@ -436,6 +437,67 @@ async def test_pii_blocked_closed_case_generation_uses_existing_service_skip_eve
     assert events[-1].pii_classification == pii_classification
     assert events[-1].source_ref_json["event_id"] == f"refund-case-close:{refund_case.id}:{close_event_id}"
     assert events[-1].source_ref_json["outcome_id"] == f"cwc:{cwc_row.id}:v{cwc_row.version}"
+
+
+@pytest.mark.asyncio
+async def test_generated_candidate_pending_review_hidden_until_approval_with_policy_refs(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session)
+    await _insert_active_cwc(session, seeded_session)
+    case_memory_service = CaseMemoryService(CaseMemoryRepository(session))
+    precedent_service = ClosedCasePrecedentService(
+        session=session,
+        case_memory_service=case_memory_service,
+    )
+
+    generated = await precedent_service.generate_closed_case_precedent_candidate(
+        _request(seeded_session, run_id=run_id, close_event_id="approval-gate")
+    )
+    assert generated.memory_id is not None
+    assert generated.scope_type is not None
+    assert generated.scope_id is not None
+    pending = await case_memory_service.list_pending_review(tenant_id=seeded_session["tenant"].id)
+    hidden = await case_memory_service.retrieve_reviewed(
+        CaseMemorySearchRequest(
+            tenant_id=seeded_session["tenant"].id,
+            scope_type=generated.scope_type,
+            scope_id=generated.scope_id,
+            case_type="refund_dispute",
+            query="破损商品",
+            limit=10,
+        )
+    )
+    assert generated.status == "needs_review"
+    assert [row.id for row in pending] == [generated.memory_id]
+    assert pending[0].review_status == "needs_review"
+    assert hidden.items == []
+
+    approve_event = await case_memory_service.approve_case_memory(
+        CaseMemoryReviewDecision(
+            tenant_id=seeded_session["tenant"].id,
+            run_id=run_id,
+            case_memory_id=generated.memory_id,
+            reviewer_user_id=seeded_session["users"]["approval_manager"].id,
+            reason_code="approved",
+            review_reason="closed-case precedent approved",
+        )
+    )
+    visible = await case_memory_service.retrieve_reviewed(
+        CaseMemorySearchRequest(
+            tenant_id=seeded_session["tenant"].id,
+            scope_type=generated.scope_type,
+            scope_id=generated.scope_id,
+            case_type="refund_dispute",
+            query="破损商品",
+            limit=10,
+        )
+    )
+
+    assert approve_event.decision == "write"
+    assert [item.case_memory_id for item in visible.items] == [str(generated.memory_id)]
+    assert visible.items[0].policy_refs == [{"doc_key": "refund_policy", "chunk_id": "c-1", "policy_version": "2026-01"}]
 
 
 def test_unresolved_merchant_falls_back_to_exact_case_scope(seeded_session: dict) -> None:

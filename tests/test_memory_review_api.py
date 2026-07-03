@@ -71,12 +71,15 @@ def _case_candidate(seeded_session: dict, *, run_id: UUID) -> CaseMemoryWriteCan
         applicability="Applies to refund disputes with comparable evidence.",
         outcome="Support resolved the refund dispute.",
         caveats="Precedent only; not execution authority.",
-        source_type="summary_candidate",
+        source_type="closed_case_cwc_candidate",
         source_ref={
-            "source_type": "summary_candidate",
+            "source_type": "closed_case_cwc_candidate",
             "run_id": str(run_id),
+            "agent_run_id": str(run_id),
+            "event_id": f"refund-case-close:{refund_case.id}:api-review",
             "business_object_type": "refund_case",
             "business_object_id": str(refund_case.id),
+            "outcome_id": f"cwc:{refund_case.id}:v1",
         },
     )
 
@@ -115,6 +118,8 @@ async def test_memory_review_api_lists_pending_and_applies_review_actions(
         ("long_term", str(long_result.memory_id)),
         ("case", str(case_result.memory_id)),
     }
+    case_pending = next(item for item in payload["items"] if item["memory_type"] == "case")
+    assert case_pending["source_type"] == "closed_case_cwc_candidate"
 
     approve_response = await client.post(
         f"/api/v1/memory/long-term/{long_result.memory_id}/approve",
