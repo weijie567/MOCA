@@ -11932,3 +11932,35 @@ Task 2 将 PII-blocked projection 从返回 `ClosedCasePrecedentGenerationResult
 
 - `tests/memory/test_case_precedent_generation.py`
 - `src/memory/case_precedent.py`
+
+## 2026-07-03 — Phase 47 orchestrator key-link 辅助命令参数误用
+
+### 问题现象
+
+47-03 完成后的主流程抽查中，执行 key-link 辅助验证时传入 `47-04`，命令返回 `{"error": "File not found", "path": "47-04"}`。
+
+### 如何检测 / 复现
+
+执行：
+
+`UV_CACHE_DIR=/tmp/uv-cache uv run gsd-sdk query verify.key-links 47-04`
+
+### 关键证据或命令
+
+命令输出显示工具按文件路径解析参数，而不是按 plan id 解析：`File not found`。
+
+### 当前判断 / 根因
+
+这是 orchestrator 侧命令参数误用，不是 Phase 47 实现或 plan 产物问题。`verify.key-links` 需要传入具体 PLAN 文件路径。
+
+### 已做处理
+
+改用 `.planning/phases/47-case-precedent-repositioning-and-closed-case-candidate-gener/47-04-PLAN.md` 作为参数重跑，通过：`all_verified: true`，`2/2` key links verified。
+
+### 剩余问题
+
+无当前阻塞。后续主流程抽查 key links 时直接传 plan 文件路径。
+
+### 下次继续排查入口
+
+- `UV_CACHE_DIR=/tmp/uv-cache uv run gsd-sdk query verify.key-links .planning/phases/47-case-precedent-repositioning-and-closed-case-candidate-gener/47-04-PLAN.md`
