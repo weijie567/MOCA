@@ -11899,3 +11899,36 @@ Task 2 RED 测试提交后，首次 GREEN 只做了最小代码 patch，但 `UV_
 - `tests/memory/test_case_precedent_generation.py`
 - `CaseMemoryService.list_pending_review(...)`
 - `CaseMemoryService.approve_case_memory(...)`
+
+## 2026-07-03 — Phase 47-03 Ruff 检出 Task 2 遗留未使用 import
+
+### 问题现象
+
+47-03 三个任务完成后运行 touched-file Ruff 检查，`tests/memory/test_case_precedent_generation.py` 存在未使用 import：`ClosedCasePrecedentGenerationResult`。
+
+### 如何检测 / 复现
+
+执行：
+
+`UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/memory/case_precedent.py tests/memory/test_case_precedent_generation.py tests/test_memory_review_api.py`
+
+### 关键证据或命令
+
+Ruff 输出：`F401 [*] src.memory.case_precedent.ClosedCasePrecedentGenerationResult imported but unused`。
+
+### 当前判断 / 根因
+
+Task 2 将 PII-blocked projection 从返回 `ClosedCasePrecedentGenerationResult` 改为返回固定文本的 `CaseMemoryWriteCandidate`，对应测试断言已更新，但旧 import 未同步删除。
+
+### 已做处理
+
+删除未使用 import，重跑 Ruff 通过：`All checks passed!`。随后重跑 47-03 plan-level pytest，通过：`33 passed, 1 warning`。
+
+### 剩余问题
+
+无当前阻塞。
+
+### 下次继续排查入口
+
+- `tests/memory/test_case_precedent_generation.py`
+- `src/memory/case_precedent.py`

@@ -15,7 +15,6 @@ from src.memory.case_precedent import (
     PII_BLOCKED_PRECEDENT_TEXT,
     PRECEDENT_CAVEAT_TEXT,
     ClosedCasePrecedentGenerationInput,
-    ClosedCasePrecedentGenerationResult,
     ClosedCasePrecedentService,
     _project_closed_case_candidate,
     _resolve_precedent_scope,
