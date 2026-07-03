@@ -1,23 +1,34 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.db.models import CaseMemory
 from src.memory.case_working_context_lifecycle import CaseWorkingContextLifecycleResult, lifecycle_status
 from src.memory.context_refs import ReviewedMemoryContextBundle, ReviewedMemoryContextRetrieveStatusV1
+from src.memory.identity import canonical_memory_content_hash
 from src.platform.trusted_context import MerchantScopeV1, TrustedContext
 
 
-def _trusted_context(*, merchant_ids: list[str]) -> TrustedContext:
+def _trusted_context(
+    *,
+    merchant_ids: list[str],
+    tenant_id: str | None = None,
+    user_id: str | None = None,
+    run_id: str | None = None,
+) -> TrustedContext:
     return TrustedContext(
-        tenant_id=str(uuid4()),
-        user_id=str(uuid4()),
+        tenant_id=tenant_id or str(uuid4()),
+        user_id=user_id or str(uuid4()),
         role="support",
         permissions=["tool:get_order", "tool:get_refund_case"],
         merchant_scope=MerchantScopeV1(merchant_ids=merchant_ids),
         thread_id="thread-reviewed-memory-context",
-        run_id=str(uuid4()),
+        run_id=run_id or str(uuid4()),
         trace_id="trace-reviewed-memory-context",
     )
 
@@ -432,6 +443,69 @@ async def test_reviewed_memory_context_retrieve_keeps_generated_precedent_separa
     assert result["case_working_context"] == {"content": {"customer_request": "当前案件仍按 CWC 单独读取"}}
     assert result["memory_context_bundle"]["case_items"] == result["case_memory"]
     assert result["memory_context_bundle"]["case_working_context"] == result["case_working_context"]
+
+
+async def test_reviewed_memory_context_retrieve_real_service_uses_issue_type_not_primary_intent(
+    session: AsyncSession,
+    seeded_session: dict[str, Any],
+) -> None:
+    reviewed_memory_context_retrieve = _reviewed_memory_context_retrieve()
+    tenant_id = seeded_session["tenant"].id
+    user_id = seeded_session["users"]["cs_zhang"].id
+    merchant_id = str(seeded_session["merchant"].id)
+    trusted_context = _trusted_context(
+        tenant_id=str(tenant_id),
+        user_id=str(user_id),
+        run_id=str(uuid4()),
+        merchant_ids=[merchant_id],
+    )
+    summary = "Closed refund case precedent: refund_dispute."
+    precedent = CaseMemory(
+        id=uuid4(),
+        tenant_id=tenant_id,
+        scope_type="merchant",
+        scope_id=merchant_id,
+        case_type="refund_dispute",
+        summary=summary,
+        excerpt="Approved closed_case_cwc_candidate refund_dispute precedent for damaged goods.",
+        applicability="Use only as reviewed precedent for similar refund disputes within merchant scope.",
+        outcome="Refund approved after staff review.",
+        caveats="Contextual precedent only.",
+        content_hash=canonical_memory_content_hash(memory_type="case_memory", content=summary),
+        policy_family="refund",
+        policy_version="2026-01",
+        policy_refs_json=[{"doc_key": "refund_policy", "chunk_id": "c-1", "policy_version": "2026-01"}],
+        source_ref_json={
+            "source_type": "closed_case_cwc_candidate",
+            "business_object_type": "refund_case",
+            "business_object_id": str(seeded_session["refund_case"].id),
+        },
+        source_identity_hash=None,
+        embedding=None,
+        review_status="approved",
+        reviewed_by_user_id=user_id,
+        reviewed_at=datetime.now(UTC),
+        pii_classification="none",
+    )
+    session.add(precedent)
+    await session.flush()
+
+    result = await reviewed_memory_context_retrieve(
+        _state(
+            tenant_id=str(tenant_id),
+            user_id=str(user_id),
+            primary_intent="refund_troubleshooting",
+            active_slots={"issue_type": "refund_dispute"},
+            extracted_slots={"merchant_id": merchant_id},
+            user_query="refund_dispute precedent",
+        ),
+        {"configurable": {"session": session, "trusted_context": trusted_context}},
+    )
+
+    assert result["case_memory"][0]["case_memory_id"] == str(precedent.id)
+    assert "closed_case_cwc_candidate" in result["case_memory"][0]["source_refs"][0]["source_type"]
+    assert result["reviewed_memory_context_retrieve_status"]["status"] == "loaded"
+    assert result["case_working_context_lifecycle_status"]["reason_code"] == "skipped_no_case"
 
 
 async def test_reviewed_memory_context_retrieve_does_not_use_session_context_as_cwc_identity() -> None:

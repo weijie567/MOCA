@@ -416,10 +416,13 @@ def _requested_scopes(state: AgentState, configurable: Mapping[str, Any]) -> lis
 
 
 def _case_type(state: AgentState) -> str | None:
-    value = state.get("primary_intent") or state.get("current_intent")
-    if not value:
-        return None
-    return str(value)[:64]
+    for slot_source in (state.get("active_slots"), state.get("extracted_slots")):
+        if not isinstance(slot_source, Mapping):
+            continue
+        issue_type = slot_source.get("issue_type")
+        if isinstance(issue_type, str) and issue_type.strip():
+            return issue_type.strip()[:64]
+    return None
 
 
 def _case_memory_query(state: AgentState) -> str | None:

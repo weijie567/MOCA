@@ -527,3 +527,23 @@
 
 **剩余风险**
 - ✅ 本修复只改变 generated closed-case precedent 的 content identity；未扩大到普通 `llm_candidate` / `human_reviewed` case memory。
+
+## Phase 47 Code Review Fix WR-02 — reviewed-memory case_type 来源改为 issue_type ✅已修复验证
+
+**问题 / 根因**
+- Phase 47 code review 确认：`reviewed_memory_context_retrieve` 用 `primary_intent/current_intent` 作为 `CaseMemorySearchRequest.case_type`。但 generated closed-case precedent 写入时使用 CWC `issue_type` 作为 `CaseMemory.case_type`，例如 `refund_dispute`；正常退款流程的 `primary_intent` 可能是 `refund_troubleshooting`，导致真实 approved generated precedent 被 metadata filter 隐藏。
+
+**影响**
+- 已审核的 `closed_case_cwc_candidate` merchant-scope precedent 可能无法进入 reviewed memory context，削弱 Phase 47 对历史 closed case 的复用价值。
+
+**修复**
+- `reviewed_memory_context_retrieve._case_type(...)` 改为只从 `active_slots/extracted_slots.issue_type` 派生 case-memory metadata filter；没有 issue_type 时不再把 intent label 当 case_type。
+- 新增真实 node→`MemoryContextService`→repository integration coverage：approved `closed_case_cwc_candidate` 行 `case_type='refund_dispute'`，state `primary_intent='refund_troubleshooting'`，merchant scope 匹配且无 case id，仍能返回 reviewed case memory item。
+
+**证据**
+- Phase / review：`47-REVIEW.md` WR-02
+- 文件：`src/agent/nodes/reviewed_memory_context_retrieve.py`、`tests/agent/test_reviewed_memory_context_retrieve.py`
+- 验证：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_reviewed_memory_context_retrieve.py -q` → `15 passed, 1 warning`
+
+**剩余风险**
+- ✅ 本修复不扩展 `ToolCallContext` 或 case-id contract；retrieval scope 仍由 trusted merchant scope / current slots 控制。
