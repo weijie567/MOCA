@@ -4,14 +4,14 @@ milestone: v2.1
 milestone_name: Core Subsystem Hardening
 status: planning
 stopped_at: Phase 44 complete; ready to plan Phase 45 memory lifecycle wiring
-last_updated: "2026-07-03T01:48:07.861Z"
+last_updated: "2026-07-03T04:03:48.386Z"
 last_activity: "2026-07-03 -- Phase 44 delivered CWC schema/repository/service, thread-case M:N, contract alignment, clean review, and 15/15 verification pass"
 progress:
-  total_phases: 8
+  total_phases: 9
   completed_phases: 8
-  total_plans: 22
+  total_plans: 26
   completed_plans: 22
-  percent: 100
+  percent: 85
 ---
 
 # Project State: MOCA
@@ -186,3 +186,5 @@ Recent completions: Phase 37-41 tool platform hardening complete and archived-re
 Next roadmap item: Phase 45 memory lifecycle wiring for graph run-completion CWC auto-update/read-active hooks, or another architecture-debt item inside v2.1.
 
 **Completed Phase:** 44 (Memory Layering — Case Working Context + thread-case Many-to-Many) — 4/4 plans — 2026-07-03
+
+**Planned Phase:** 45 (Memory Lifecycle Wiring for Case Working Context) — 4 plans — 2026-07-03T04:03:48.372Z
