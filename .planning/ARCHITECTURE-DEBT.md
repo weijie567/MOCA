@@ -451,3 +451,31 @@
 
 **剩余风险**
 - ✅ 已用 focused session bundle 测试覆盖 risky input 字段。该修复只保证 bundle 边界 prompt-safe marker scrub，不把 session hints 提升为 `EvidenceRefV1`、`BusinessFactRefV1`、approval/action authority 或 replay truth。
+
+## Phase 47 Plan 02 — closed-case CWC→case-memory candidate projection seam ✅⚠️
+
+**问题 / 根因**
+- Phase 46 之后 `case_memories` 已被定位为 reviewed precedent，但还没有可信 closed-case 触发 seam；如果直接从 `AgentRun.final_status == "completed"` 推断结案，普通完成对话会被误发布为历史 precedent。
+- CWC 是 `contextual_only` 工作上下文，若投影时直接序列化 rich objects 或 raw/debug/tool/policy payload，会把 claims、verified facts、policy evidence、approval/action/replay authority 混成同一种 case-memory 文本。
+- `CaseMemory.scope_type/scope_id` 是检索 scope，source case identity 属于 `source_ref_json`；如果生成候选只用 source case id 做 scope，后续 merchant-scope reviewed retrieval 会漏掉可复用 precedent。
+
+**修复**
+- 新增内部 `ClosedCasePrecedentService.generate_closed_case_precedent_candidate(...)` seam，只接受显式 trusted close 输入；`TERMINAL_REFUND_CASE_STATUSES = {"closed", "refunded", "rejected"}`，`open` / `reviewing` / unknown 先返回 `non_terminal_status`，不查 case/CWC，不提交 case-memory。
+- 新增 `RefundRepository.get_by_id_with_order(...)`，通过 tenant-bound `RefundCase.id + tenant_id` 查询并 `selectinload(RefundCase.order)`；merchant 可解析时生成 merchant scope，无法解析时只 fallback 到 exact case scope，绝不 fallback 到 tenant-wide scope。
+- 新增 `_project_closed_case_candidate(...)`：只从 allowlisted CWC summaries/refs 构造 `CaseMemoryWriteCandidate(source_type="closed_case_cwc_candidate", embedding=None)`；claims 与 verified facts 分别标注 `Customer claim:` / `Verified fact:`；policy refs 只映射为 `doc_key/chunk_id/policy_version`；固定 caveat 声明该 precedent 不是 policy/business/approval/action/audit/replay authority；`sensitive/prohibited` CWC PII 返回 `pii_blocked` skip。
+- 扩展 Phase 47 static guard，禁止 case-precedent projection 模块引入 Evidence / BusinessFact / Approval / Action / Replay authority DTO。
+
+**证据**
+- Phase / plan：`47-02`
+- Commits：`c9757b1`（trusted close seam + tenant-bound scope lookup）、`f412b1d`（deterministic projection），TDD red commits `5d28154` / `6a31dcb`
+- 文件：`src/memory/case_precedent.py:18`（terminal allowlist）、`src/memory/case_precedent.py:71`（service seam）、`src/memory/case_precedent.py:130`（merchant/case scope fallback）、`src/memory/case_precedent.py:138`（projection helper）、`src/repositories/refund_repo.py:23`（tenant-bound lookup）、`tests/memory/test_case_precedent_generation.py:163` / `tests/memory/test_case_precedent_generation.py:243`（behavior coverage）
+
+**验证**
+- RED 1：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_case_precedent_generation.py -x -q` → expected fail, missing `src.memory.case_precedent`
+- GREEN 1：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_case_precedent_generation.py -x -q` → `8 passed, 1 warning`
+- RED 2：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_case_precedent_generation.py tests/memory/test_phase47_case_precedent_alignment.py -x -q` → expected fail, missing `PRECEDENT_CAVEAT_TEXT`
+- GREEN 2 / plan gate：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_case_precedent_generation.py tests/memory/test_phase47_case_precedent_alignment.py -q` → `21 passed, 1 warning`
+- Ruff：`UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/memory/case_precedent.py src/repositories/refund_repo.py tests/memory/test_case_precedent_generation.py tests/memory/test_phase47_case_precedent_alignment.py` → pass
+
+**剩余风险**
+- ⚠️ 本 plan 只完成 trusted seam 与 pure projection；尚未调用 `CaseMemoryService.submit_case_memory_candidate(...)` 写入 `case_memories` / `memory_write_events`。候选提交、dedupe、tombstone、pending review visibility 属于 `47-03`；metadata/text reviewed retrieval 与 tool/reviewed-context stability 属于 `47-04`。

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
 status: executing
-stopped_at: Completed 47-01-PLAN.md
-last_updated: "2026-07-03T13:47:24.888Z"
+stopped_at: Completed 47-02-PLAN.md
+last_updated: "2026-07-03T14:04:03.534Z"
 last_activity: 2026-07-03
 progress:
   total_phases: 12
   completed_phases: 10
   total_plans: 33
-  completed_plans: 30
-  percent: 91
+  completed_plans: 31
+  percent: 94
 ---
 
 # Project State: MOCA
@@ -31,12 +31,12 @@ See: `.planning/PROJECT.md` (updated 2026-07-03)
 ## Current Position
 
 Phase: 47 — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-07-03
-Next: Execute Phase 47 plan 47-02.
+Next: Execute Phase 47 plan 47-03.
 
-Progress: [█████████░] 91%
+Progress: [█████████░] 94%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -66,7 +66,7 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | 44. Memory Layering — Case Working Context + thread-case Many-to-Many (MEM-01, MEM-02) | 4/4 | Complete |
 | 45. Memory Lifecycle Wiring for Case Working Context (MEM-01, MEM-02) | 4/4 | Complete |
 | 46. Session Context Repositioning (MEM-03) | 3/3 | Complete |
-| 47. Case Precedent Repositioning and Closed-Case Candidate Generation (MEM-04) | 1/4 | In Progress |
+| 47. Case Precedent Repositioning and Closed-Case Candidate Generation (MEM-04) | 2/4 | In Progress |
 | 48. Narrow Long-Term Explicit Preference Memory (MEM-05) | 0/0 | Not planned |
 
 Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review. Phase 40 closes the source-confirmed validation/backstop gaps intentionally deferred or left advisory after Phase 38/39. Phase 41 then handles the explicit breaking cleanup/API decision to remove the `UnifiedToolManager` legacy compatibility adapter.
@@ -115,6 +115,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 | Phase 46 P02 | 5 min | 2 tasks | 2 files |
 | Phase 46 P03 | 8 min | 2 tasks | 8 files |
 | Phase 47 P01 | 6 min | 2 tasks | 9 files |
+| Phase 47 P02 | 11 min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -170,6 +171,10 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - Phase 47 Plan 01: closed_case_cwc_candidate is a CaseMemorySourceType and is review-required only.
 - Phase 47 Plan 01: MemorySourceRefV1 and ALLOWED_SOURCE_REF_KEYS stay fixed; close/CWC identity uses existing event_id and outcome_id.
 - Phase 47 Plan 01: static migration checks use src/db/migrations/versions, the repository's actual Alembic revision directory.
+- Phase 47 Plan 02: terminal refund-case statuses are exactly closed, refunded, and rejected for closed-case precedent generation.
+- Phase 47 Plan 02: merchant scope is used only when RefundCase -> Order.merchant_id resolves; unresolved merchant falls back to exact case scope, never tenant scope.
+- Phase 47 Plan 02: closed-case CWC projection builds a prompt-safe CaseMemoryWriteCandidate but does not submit it; governed write lifecycle remains 47-03.
+- Phase 47 Plan 02: CWC policy refs map to existing case-memory policy ref keys doc_key, chunk_id, and policy_version.
 
 ### Roadmap Evolution
 
@@ -215,13 +220,13 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ## Session Continuity
 
-Last session: 2026-07-03T13:47:24.878Z
-Stopped at: Completed 47-01-PLAN.md
+Last session: 2026-07-03T14:04:03.534Z
+Stopped at: Completed 47-02-PLAN.md
 Resume file: None
-Next: Execute Phase 47 plan 47-02.
+Next: Execute Phase 47 plan 47-03.
 
-Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with security, UAT, validation, and clean review complete; Phase 46 session context repositioning complete with MEM-03 validated; Phase 47 plan 47-01 contract/source-policy foundation complete.
-Next roadmap item: Execute Phase 47 plan 47-02 trusted closed-case projection service.
+Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with security, UAT, validation, and clean review complete; Phase 46 session context repositioning complete with MEM-03 validated; Phase 47 plan 47-01 contract/source-policy foundation complete; Phase 47 plan 47-02 trusted closed-case projection seam complete.
+Next roadmap item: Execute Phase 47 plan 47-03 governed case-memory write lifecycle.
 
 **Completed Phase:** 44 (Memory Layering — Case Working Context + thread-case Many-to-Many) — 4/4 plans — 2026-07-03
 

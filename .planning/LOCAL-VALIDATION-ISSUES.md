@@ -11824,3 +11824,42 @@ Task 2 RED 测试提交后，首次 GREEN 只做了最小代码 patch，但 `UV_
 - `gsd-sdk query roadmap.update-plan-progress "47"`
 - `.planning/ROADMAP.md`
 - `.planning/STATE.md`
+
+## 2026-07-03 — Phase 47-02 state.record-metric / record-session named 参数被误当成值
+
+### 问题现象
+
+47-02 SUMMARY 后执行 GSD state 更新时，`state.record-metric --phase ... --plan ...` 与 `state.record-session --stopped-at ... --resume-file ...` 命令返回 success，但 `.planning/STATE.md` 被写入了错误文本：Performance Metrics 出现 `Phase --phase ...` 行，Session Continuity 出现 `Last session: --stopped-at` / `Resume file: --resume-file`。
+
+同一轮 `roadmap.update-plan-progress 47` 仍返回 `updated: false` / `no matching checkbox found`，与 47-01 已记录的 ROADMAP 格式匹配问题一致。
+
+### 如何检测 / 复现
+
+执行 named-args 形式的 state handler 后读取 `.planning/STATE.md` diff；执行 `gsd-sdk query roadmap.update-plan-progress 47` 后读取 `.planning/ROADMAP.md` 的 Phase 47 overview、Progress 表和 plan checklist。
+
+### 关键证据或命令
+
+- `git diff -- .planning/STATE.md .planning/ROADMAP.md`
+- 错误行：`| Phase --phase P47-case-precedent-repositioning-and-closed-case-candidate-gener | --plan | 02 tasks | --duration files |`
+- 错误行：`Last session: --stopped-at`
+- roadmap 命令返回：`{"updated": false, "phase": "47", "reason": "no matching checkbox found"}`
+
+### 当前判断 / 根因
+
+当前安装的 `gsd-sdk query state.record-metric` / `state.record-session` handler 与 execute-plan 文档里的 named-args 示例不兼容，named flag 被当作 positional value 写入。ROADMAP updater 仍不支持当前 MOCA ROADMAP 的 Phase 47 行模板。
+
+### 已做处理
+
+手动修正 `.planning/STATE.md`：Plan 3/4、progress 94%、Phase 47 P02 metric、Session Continuity、Next/Next roadmap item 均指向 47-03。手动修正 `.planning/ROADMAP.md`：Phase 47 progress 改为 2/4，并勾选 `47-02-PLAN.md`。
+
+### 剩余问题
+
+无当前 47-02 阻塞。后续使用 GSD state handlers 时应优先使用 positional 参数或先用小范围 diff 核对；ROADMAP Phase 47 仍需手动维护，直到 updater 支持当前格式。
+
+### 下次继续排查入口
+
+- `gsd-sdk query state.record-metric`
+- `gsd-sdk query state.record-session`
+- `gsd-sdk query roadmap.update-plan-progress 47`
+- `.planning/STATE.md`
+- `.planning/ROADMAP.md`
