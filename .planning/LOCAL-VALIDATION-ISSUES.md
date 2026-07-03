@@ -11102,3 +11102,36 @@ Phase 45 plan-phase 的 pattern mapper 在做文本验证时因 shell quoting �
 - `/Users/ming/.codex/get-shit-done/workflows/execute-plan.md`
 - `gsd-sdk query state.record-metric`
 - `gsd-sdk query state.record-session`
+
+## 2026-07-03 — Phase 45-04 红线静态测试误扫历史 migration downgrade
+
+### 问题现象
+
+执行 Phase 45-04 Task 2 时，新加的 `test_legacy_memory_tables_and_conversation_case_id_are_retained` 首次运行失败，报历史 migration 中存在 `drop_table("case_memories")`。这不是 Phase 45 代码删除 legacy table，而是 Alembic downgrade 的正常回滚语句被测试误判。
+
+### 如何检测 / 复现
+
+运行 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase45_contract_alignment.py -x -q`，测试在扫描 `src/db/migrations/versions/*.py` 时命中历史 downgrade 片段。
+
+### 关键证据或命令
+
+- 失败命令：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase45_contract_alignment.py -x -q`
+- 失败证据：`drop_table("case_memories")` 来自既有 migration downgrade，而非 Phase 45 修改文件。
+
+### 当前判断 / 根因
+
+根因是测试范围过宽：计划要求证明 Phase 45 没有 destructive legacy schema change，但测试扫描了所有历史迁移的 downgrade 回滚路径。
+
+### 已做处理
+
+将静态红线测试改为两层：`src/db/models.py` 继续证明 `case_memories`、`long_term_memories` 和 `conversation_threads.case_id` 仍保留；destructive pattern 只扫描 Phase 45 修改代码和 Phase 45 PLAN 文件。重跑 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase45_contract_alignment.py -x -q` 后通过：`11 passed, 1 warning`。
+
+### 剩余问题
+
+无。该问题是测试设计误报，不是 Phase 45 实现或 schema 问题。
+
+### 下次继续排查入口
+
+- `tests/memory/test_phase45_contract_alignment.py`
+- `src/db/migrations/versions/013_long_term_case_memory.py`
+- `src/db/models.py`
