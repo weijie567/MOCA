@@ -187,10 +187,13 @@ Plans:
 
 ### Phase 45: Memory Lifecycle Wiring for Case Working Context
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Wire the Phase 44 Case Working Context foundation into the real agent-run lifecycle through a stable lifecycle adapter: resolve canonical `refund_cases.id`, link the current thread with `link_source="run_auto"`, load active CWC as contextual-only memory input before investigation/recommendation, and write deterministic CWC updates after successful completed terminal runs without making memory authority for policy/risk/approval/action/replay.
+**Requirements**: MEM-01, MEM-02 (deferred lifecycle hooks from Phase 44)
 **Depends on:** Phase 44
-**Plans:** 0 plans
+**Plans:** 4 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 45 to break down)
+- [ ] 45-01-PLAN.md — lifecycle contextual refs, status contracts, and graph/API-neutral adapter foundation.
+- [ ] 45-02-PLAN.md — active CWC read and `run_auto` thread-case link wiring at the memory-context seam.
+- [ ] 45-03-PLAN.md — terminal finalizer CWC writeback, deterministic projection, and failure/conflict semantics.
+- [ ] 45-04-PLAN.md — contract/spec alignment, red-line sweeps, planning ledgers, and final targeted verification.
