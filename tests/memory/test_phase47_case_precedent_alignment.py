@@ -3,6 +3,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from src.memory.identity import ALLOWED_SOURCE_REF_KEYS
+from src.memory.schemas import MemorySourceRefV1
+
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT_SPEC_PATH = ROOT / "docs" / "contract-spec.md"
@@ -126,6 +129,28 @@ def test_defer_3_remains_phase48_scope() -> None:
     decisions = _source(MEMORY_DECISIONS_PATH)
 
     assert "DEFER-3 -> Phase 48" in decisions
+
+
+def test_source_ref_schema_and_identity_keys_remain_stable() -> None:
+    expected_keys = {
+        "source_type",
+        "run_id",
+        "event_id",
+        "conversation_message_id",
+        "tool_result_id",
+        "agent_run_id",
+        "business_object_type",
+        "business_object_id",
+        "policy_version",
+        "outcome_id",
+    }
+
+    assert set(MemorySourceRefV1.model_fields) == expected_keys
+    assert set(ALLOWED_SOURCE_REF_KEYS) == expected_keys
+    assert "cwc_version" not in MemorySourceRefV1.model_fields
+    assert "closed_at" not in MemorySourceRefV1.model_fields
+    assert "cwc_version" not in ALLOWED_SOURCE_REF_KEYS
+    assert "closed_at" not in ALLOWED_SOURCE_REF_KEYS
 
 
 def _phase47_migration_paths() -> list[Path]:

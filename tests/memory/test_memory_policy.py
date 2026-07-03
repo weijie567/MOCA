@@ -7,7 +7,9 @@ import pytest
 
 from src.memory.case_memory import CaseMemoryService
 from src.memory.policy import (
+    AUTO_APPROVED_CASE_SOURCE_TYPES,
     MEMORY_POLICY_VERSION,
+    REVIEW_REQUIRED_CASE_SOURCE_TYPES,
     case_memory_policy_decision,
     case_memory_review_status_for_source,
     long_term_memory_policy_decision,
@@ -83,9 +85,42 @@ def test_case_memory_only_explicit_review_sources_auto_publish() -> None:
     assert case_memory_review_status_for_source("confirmed_business_outcome") == "needs_review"
     assert case_memory_review_status_for_source("approved_approval_state") == "needs_review"
     assert case_memory_review_status_for_source("llm_candidate") == "needs_review"
+    assert case_memory_review_status_for_source("closed_case_cwc_candidate") == "needs_review"
     assert case_memory_policy_decision("human_reviewed").decision == "write"
     assert case_memory_policy_decision("human_reviewed").review_status == "auto_approved"
     assert case_memory_policy_decision("deterministic_tool_result").decision == "needs_review"
+    closed_case_decision = case_memory_policy_decision("closed_case_cwc_candidate")
+    assert closed_case_decision.decision == "needs_review"
+    assert closed_case_decision.review_status == "needs_review"
+    assert closed_case_decision.blocked_by == ["source_requires_review"]
+    assert "closed_case_cwc_candidate" in REVIEW_REQUIRED_CASE_SOURCE_TYPES
+    assert "closed_case_cwc_candidate" not in AUTO_APPROVED_CASE_SOURCE_TYPES
+
+
+def test_closed_case_cwc_candidate_validates_as_case_memory_write_candidate() -> None:
+    tenant_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+
+    candidate = CaseMemoryWriteCandidate(
+        tenant_id=tenant_id,
+        run_id=run_id,
+        scope_type="case",
+        scope_id="case-closed",
+        case_type="refund_dispute",
+        summary="Closed case CWC projection enters review.",
+        excerpt="Closed case generated a candidate precedent.",
+        source_type="closed_case_cwc_candidate",
+        source_ref={
+            "source_type": "closed_case_cwc_candidate",
+            "run_id": str(run_id),
+            "event_id": "close-event-1",
+            "business_object_type": "refund_case",
+            "business_object_id": "case-closed",
+            "outcome_id": "cwc-row-1:v3",
+        },
+    )
+
+    assert candidate.source_type == "closed_case_cwc_candidate"
 
 
 class _FakeCaseMemoryRepository:
@@ -109,7 +144,8 @@ class _FakeCaseMemoryRepository:
 
 
 @pytest.mark.asyncio
-async def test_case_memory_service_requires_review_for_deterministic_candidate_without_database() -> None:
+@pytest.mark.parametrize("source_type", ["deterministic_tool_result", "closed_case_cwc_candidate"])
+async def test_case_memory_service_requires_review_for_candidates_without_database(source_type: str) -> None:
     repository = _FakeCaseMemoryRepository()
     service = CaseMemoryService(repository)  # type: ignore[arg-type]
     tenant_id = uuid.uuid4()
@@ -122,12 +158,14 @@ async def test_case_memory_service_requires_review_for_deterministic_candidate_w
         case_type="refund_dispute",
         summary="Deterministic case extraction still needs review.",
         excerpt="Tool result summarized a case precedent.",
-        source_type="deterministic_tool_result",
+        source_type=source_type,
         source_ref={
-            "source_type": "deterministic_tool_result",
+            "source_type": source_type,
             "run_id": str(run_id),
+            "event_id": "close-event-1" if source_type == "closed_case_cwc_candidate" else None,
             "business_object_type": "refund_case",
             "business_object_id": "case-1",
+            "outcome_id": "cwc-row-1:v3" if source_type == "closed_case_cwc_candidate" else None,
         },
     )
 
