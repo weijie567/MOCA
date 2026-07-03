@@ -11964,3 +11964,37 @@ Task 2 将 PII-blocked projection 从返回 `ClosedCasePrecedentGenerationResult
 ### 下次继续排查入口
 
 - `UV_CACHE_DIR=/tmp/uv-cache uv run gsd-sdk query verify.key-links .planning/phases/47-case-precedent-repositioning-and-closed-case-candidate-gener/47-04-PLAN.md`
+
+## 2026-07-03 — Phase 47 post-execution 回归 gate 检出 Phase 44 contract wording 锁丢失
+
+### 问题现象
+
+Phase 47 计划执行和 final gate 通过后，主流程补跑 Phase 44 memory alignment 回归时，`tests/memory/test_phase44_contract_alignment.py::test_contract_spec_keeps_case_memory_as_precedent_not_active_case_state` 失败。
+
+### 如何检测 / 复现
+
+执行：
+
+`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase44_contract_alignment.py tests/memory/test_case_working_context_repo.py tests/memory/test_case_working_context_service.py -q`
+
+### 关键证据或命令
+
+失败断言要求 `docs/contract-spec.md` §13 保留精确短语：`` `case_memories` / `case_memory` are reviewed precedent, NOT active case state ``。Phase 47 文档收尾把该行改写为 reviewed closed-case precedent，语义仍正确，但丢失了 Phase 44 的精确 wording lock。
+
+### 当前判断 / 根因
+
+这是跨 phase 文档契约锁回归，不是运行时代码问题。Phase 47 对 case memory 语义做了收窄，但没有兼容 Phase 44 alignment test 的精确短语。
+
+### 已做处理
+
+在 `docs/contract-spec.md` 的 Semantic lock 行恢复精确短语，并保留 Phase 47 的 reviewed closed-case precedent 收窄说明。
+
+### 剩余问题
+
+需重跑 Phase 44 alignment/repo/service 回归和 Phase 47 alignment，确认旧锁与新锁同时通过。
+
+### 下次继续排查入口
+
+- `docs/contract-spec.md`
+- `tests/memory/test_phase44_contract_alignment.py`
+- `tests/memory/test_phase47_case_precedent_alignment.py`
