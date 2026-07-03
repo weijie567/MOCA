@@ -41,7 +41,7 @@
 | Recommendation node | `src/agent/nodes/generate_recommendation.py:154` | 重新校验 policy evidence 内容，组装 prompt 生成 recommendation | prompt context assembly 局部实现 | 仍有节点内局部摘要和裁剪；统一 `ContextAssembler` 已存在但 adoption 取决于各 agent path |
 | Risk / approval assessment | `src/agent/nodes/assess_risk_and_approval.py:434` | 以 recommendation 和 business context 生成风险判断；必要时创建 approval request | working memory / business state transition | 业务关键节点；prompt context 仍是节点内散装生成 |
 | Final response | `src/agent/nodes/final_response.py:184` | 根据 state、business context、approval/action outcome 生成最终响应 | assistant final response | final response 会写入 `AgentRun`，但没有独立 message row |
-| Tool contract | `src/tools/contracts.py:71` | `ToolResultV2` 包含 `data`、`summary`、`business_fact_refs`、`policy_evidence_refs`、`audit_ref` | tool result projection | 有 normalized result / summary 概念；缺少 raw result ref 的正式落库路径 |
+| Tool contract | `src/tools/contracts.py:71`, `src/tools/contracts.py:111` | `ToolResultV2` 是 prompt-safe result envelope；`ToolResultStorageV1` / `tool_results` 持有 normalized result、prompt summary、`raw_result_ref` / `raw_result_hash` | tool result projection / storage contract | raw result ref/hash 已有 schema 与落库路径；raw payload 对象存储、访问策略和生命周期仍未确认 |
 | Tool manager | `src/tools/manager.py:73` | 工具权限、schema、approval、安全、幂等控制 | business tool runtime | 是业务 Agent 核心能力，不是 memory |
 | Tool catalog | `src/tools/catalog.py:14` | 定义工具描述、风险级别、planner visibility、approval requirement | business tool policy | 可作为 tool call 审计和 ContextAssembler 的元数据来源 |
 | Business adapters | `src/business/adapters.py:175` | 从业务 integration 读取 raw response 后投影为受控 `_OrderData/_RefundCaseData/_TicketData` | business state projection | 已避免上游 raw response 直接进入 Agent，但 raw result 未独立保存 |
