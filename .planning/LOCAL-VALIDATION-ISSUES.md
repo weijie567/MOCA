@@ -11035,3 +11035,35 @@ Phase 42 是 retroactive registration，正文说明没有 pre-execution PLAN；
 ### 下次继续排查入口
 
 如果后续 `$gsd-next` 或 `state.json` 再出现状态漂移，先检查是否有 retroactive phase、无 PLAN/SUMMARY phase、或 ROADMAP heading 格式不被 `getMilestoneInfo` 支持。
+
+## 2026-07-03 — Phase 45 pattern mapper 误触裸 `pytest` 导致无效 host-Python 失败
+
+### 问题现象
+
+Phase 45 plan-phase 的 pattern mapper 在做文本验证时因 shell quoting 误触裸 `pytest`，命中了本机旧 Python 路径，出现已知的 `datetime.UTC` collection 阶段假失败。
+
+### 如何检测 / 复现
+
+该问题由 `gsd-pattern-mapper` 子代理在完成 `45-PATTERNS.md` 时报告。复现条件是绕过 MOCA 规定入口、直接运行裸 `pytest` 或裸 `python -m pytest`。
+
+### 关键证据或命令
+
+子代理完成消息明确记录：误触裸 `pytest` 后出现 known invalid host-Python `datetime.UTC` error；该结果未被作为验证结论采信。
+
+### 当前判断 / 根因
+
+根因是命令入口错误，不是 Phase 45 代码或测试失败。MOCA 项目要求所有 pytest 验证必须走 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...` 或仓库 `.venv` 入口。
+
+### 已做处理
+
+裸 `pytest` 结果已判定为无效验证；pattern mapper 只产出 `45-PATTERNS.md`，未把该失败作为 Phase 45 质量结论。后续 plan/checker 提示必须继续显式写 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...`。
+
+### 剩余问题
+
+无代码问题待修；仅需在 Phase 45 PLAN 的 `<verify>` 和最终验证命令中继续避免裸 pytest。
+
+### 下次继续排查入口
+
+- `.planning/phases/45-memory-lifecycle-wiring-for-case-working-context/45-PATTERNS.md`
+- `.planning/phases/45-memory-lifecycle-wiring-for-case-working-context/45-CONTEXT.md`
+- `AGENTS.md`
