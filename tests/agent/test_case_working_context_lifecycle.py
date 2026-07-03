@@ -11,6 +11,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
+import src.memory.case_working_context_lifecycle as lifecycle_module
 from src.db.models import AgentRun, Base, CaseWorkingContext, Merchant, Order, RefundCase, Tenant, ThreadCaseLink, User
 from src.memory.case_identity import CaseIdentityResult
 from src.memory.case_working_context_lifecycle import (
@@ -470,6 +471,281 @@ def test_project_terminal_write_candidate_classifies_pii_deterministically(text:
 
     assert projection.candidate is not None
     assert projection.candidate.pii_classification == expected
+
+
+def _terminal_state(scope: dict[str, object], **overrides: object) -> dict[str, object]:
+    state: dict[str, object] = {
+        "user_query": "请帮我更新这个退款单的处理上下文",
+        "active_slots": {
+            "refund_case_id": scope["refund_case"].refund_case_no,
+            "issue_type": "refund_status",
+        },
+        "tool_results": [{"tool_result_id": "terminal-tool-1", "summary": "退款单状态为 reviewing"}],
+    }
+    state.update(overrides)
+    return state
+
+
+class _CapturingCwcService:
+    calls: list[dict[str, object]] = []
+    result = SimpleNamespace(status="written", reason_code="eligible", memory_id=uuid.uuid4(), version=1)
+
+    async def write_case_working_context(
+        self,
+        session: AsyncSession,
+        candidate: CaseWorkingContextWriteCandidate,
+        *,
+        run_id: uuid.UUID,
+    ) -> SimpleNamespace:
+        type(self).calls.append({"session": session, "candidate": candidate, "run_id": run_id})
+        return type(self).result
+
+
+def _reset_capturing_service(
+    *,
+    status: str = "written",
+    reason_code: str = "eligible",
+    memory_id: uuid.UUID | None = None,
+    version: int | None = 1,
+) -> None:
+    _CapturingCwcService.calls = []
+    _CapturingCwcService.result = SimpleNamespace(
+        status=status,
+        reason_code=reason_code,
+        memory_id=memory_id if memory_id is not None else uuid.uuid4(),
+        version=version,
+    )
+
+
+@pytest.mark.asyncio
+async def test_write_after_terminal_success_links_run_auto_and_calls_cwc_service(
+    phase45_session_factory,
+) -> None:
+    _reset_capturing_service(memory_id=uuid.uuid4(), version=1)
+    async with phase45_session_factory() as session:
+        async with session.begin():
+            scope = await _seed_lifecycle_scope(session)
+
+            result = await CaseWorkingContextLifecycleAdapter(
+                case_working_context_service_cls=_CapturingCwcService,
+            ).write_after_terminal_success(
+                session=session,
+                tenant_id=scope["tenant"].id,
+                user_id=scope["user"].id,
+                thread_id=scope["run"].thread_id,
+                run_id=scope["run"].id,
+                final_state=_terminal_state(scope),
+                final_response="退款单还在审核中。",
+            )
+            link = (
+                await session.execute(
+                    select(ThreadCaseLink).where(
+                        ThreadCaseLink.tenant_id == scope["tenant"].id,
+                        ThreadCaseLink.case_id == scope["refund_case"].id,
+                    )
+                )
+            ).scalar_one()
+
+    assert result.case_id == scope["refund_case"].id
+    assert result.status_ref.resolve_status == "resolved"
+    assert result.status_ref.link_status == "linked"
+    assert result.status_ref.write_status == "written"
+    assert result.status_ref.reason_code == "eligible"
+    assert link.link_source == "run_auto"
+    assert link.linked_by_run_id == scope["run"].id
+    assert len(_CapturingCwcService.calls) == 1
+    captured = _CapturingCwcService.calls[0]
+    assert captured["run_id"] == scope["run"].id
+    assert captured["candidate"].updated_by_run_id == scope["run"].id
+    assert captured["candidate"].expected_version is None
+
+
+@pytest.mark.asyncio
+async def test_write_after_terminal_success_passes_active_expected_version(
+    phase45_session_factory,
+) -> None:
+    _reset_capturing_service(memory_id=uuid.uuid4(), version=2)
+    async with phase45_session_factory() as session:
+        async with session.begin():
+            scope = await _seed_lifecycle_scope(session)
+            await _insert_active_cwc(session, scope)
+
+            result = await CaseWorkingContextLifecycleAdapter(
+                case_working_context_service_cls=_CapturingCwcService,
+            ).write_after_terminal_success(
+                session=session,
+                tenant_id=scope["tenant"].id,
+                user_id=scope["user"].id,
+                thread_id=scope["run"].thread_id,
+                run_id=scope["run"].id,
+                final_state=_terminal_state(scope),
+                final_response="退款单还在审核中。",
+            )
+
+    assert result.status_ref.write_status == "written"
+    assert _CapturingCwcService.calls[0]["candidate"].expected_version == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("service_status", "service_reason", "expected_write_status", "expected_reason"),
+    [
+        ("blocked", "pii_blocked", "blocked", "pii_blocked"),
+        ("conflict", "version_conflict", "conflict", "version_conflict"),
+    ],
+)
+async def test_write_after_terminal_success_maps_blocked_and_conflict_without_memory_payload(
+    phase45_session_factory,
+    service_status: str,
+    service_reason: str,
+    expected_write_status: str,
+    expected_reason: str,
+) -> None:
+    _reset_capturing_service(status=service_status, reason_code=service_reason, memory_id=None, version=None)
+    async with phase45_session_factory() as session:
+        async with session.begin():
+            scope = await _seed_lifecycle_scope(session)
+            row = await _insert_active_cwc(session, scope)
+
+            result = await CaseWorkingContextLifecycleAdapter(
+                case_working_context_service_cls=_CapturingCwcService,
+            ).write_after_terminal_success(
+                session=session,
+                tenant_id=scope["tenant"].id,
+                user_id=scope["user"].id,
+                thread_id=scope["run"].thread_id,
+                run_id=scope["run"].id,
+                final_state=_terminal_state(scope, user_query="merchant password=abc123"),
+                final_response="退款单还在审核中。",
+            )
+            persisted = await session.get(CaseWorkingContext, row.id)
+
+    assert result.case_working_context is None
+    assert result.status_ref.write_status == expected_write_status
+    assert result.status_ref.reason_code == expected_reason
+    assert persisted is not None
+    assert persisted.customer_request == "用户询问退款进度"
+
+
+@pytest.mark.asyncio
+async def test_write_after_terminal_success_link_failure_skips_write_service() -> None:
+    class LinkFailureConversationRepository:
+        def __init__(self, session: object) -> None:
+            self.session = session
+
+        async def get_thread(self, **_: object) -> None:
+            return None
+
+        async def link_case(self, **_: object) -> None:
+            raise RuntimeError("link failed")
+
+    class FailService:
+        async def write_case_working_context(self, *args: object, **kwargs: object) -> None:
+            raise AssertionError("CWC service must not be called after link failure")
+
+    async def resolved_resolver(*_: object, **__: object) -> CaseIdentityResult:
+        return CaseIdentityResult(status="resolved", case_id=uuid.uuid4(), input_form="uuid")
+
+    result = await CaseWorkingContextLifecycleAdapter(
+        case_resolver=resolved_resolver,
+        conversation_repository_cls=LinkFailureConversationRepository,
+        case_working_context_service_cls=FailService,
+    ).write_after_terminal_success(
+        session=object(),
+        tenant_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        thread_id="thread-link-failure",
+        run_id=uuid.uuid4(),
+        final_state={"active_slots": {"refund_case_id": "RF-LINK-FAIL"}},
+        final_response="退款单还在审核中。",
+    )
+
+    assert result.case_id is not None
+    assert result.case_working_context is None
+    assert result.status_ref.status == "skipped"
+    assert result.status_ref.link_status == "error"
+    assert result.status_ref.write_status == "skipped"
+    assert result.status_ref.reason_code == "link_failed"
+
+
+@pytest.mark.asyncio
+async def test_write_after_terminal_success_skips_missing_and_unresolved_case_before_projection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_projection(**_: object) -> TerminalProjectionResult:
+        raise AssertionError("projection must not run before a resolved canonical case id")
+
+    async def not_found_resolver(*_: object, **__: object) -> CaseIdentityResult:
+        return CaseIdentityResult(status="not_found", case_id=None, input_form="refund_case_no")
+
+    monkeypatch.setattr(lifecycle_module, "project_terminal_write_candidate", fail_projection)
+    no_case = await CaseWorkingContextLifecycleAdapter().write_after_terminal_success(
+        session=object(),
+        tenant_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        thread_id="thread-no-case",
+        run_id=uuid.uuid4(),
+        final_state={"candidate_slots": {"refund_case_id": "RF-CANDIDATE"}},
+        final_response="退款单还在审核中。",
+    )
+    unresolved = await CaseWorkingContextLifecycleAdapter(case_resolver=not_found_resolver).write_after_terminal_success(
+        session=object(),
+        tenant_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        thread_id="thread-unresolved",
+        run_id=uuid.uuid4(),
+        final_state={"active_slots": {"refund_case_id": "RF-MISSING"}},
+        final_response="退款单还在审核中。",
+    )
+
+    assert no_case.status_ref.reason_code == "skipped_no_case"
+    assert no_case.status_ref.write_status == "skipped"
+    assert unresolved.status_ref.reason_code == "skipped_unresolved_case"
+    assert unresolved.status_ref.resolve_status == "not_found"
+    assert unresolved.status_ref.write_status == "skipped"
+
+
+@pytest.mark.asyncio
+async def test_write_after_terminal_success_dedupes_read_seam_run_auto_link(
+    phase45_session_factory,
+) -> None:
+    _reset_capturing_service(memory_id=uuid.uuid4(), version=1)
+    async with phase45_session_factory() as session:
+        async with session.begin():
+            scope = await _seed_lifecycle_scope(session)
+            adapter = CaseWorkingContextLifecycleAdapter(case_working_context_service_cls=_CapturingCwcService)
+            read_result = await adapter.link_and_load_active(
+                session=session,
+                tenant_id=scope["tenant"].id,
+                user_id=scope["user"].id,
+                thread_id=scope["run"].thread_id,
+                run_id=scope["run"].id,
+                state={"active_slots": {"refund_case_id": scope["refund_case"].refund_case_no}},
+            )
+
+            write_result = await adapter.write_after_terminal_success(
+                session=session,
+                tenant_id=scope["tenant"].id,
+                user_id=scope["user"].id,
+                thread_id=scope["run"].thread_id,
+                run_id=scope["run"].id,
+                final_state=_terminal_state(scope),
+                final_response="退款单还在审核中。",
+            )
+            active_count = await session.scalar(
+                select(func.count())
+                .select_from(ThreadCaseLink)
+                .where(
+                    ThreadCaseLink.tenant_id == scope["tenant"].id,
+                    ThreadCaseLink.case_id == scope["refund_case"].id,
+                    ThreadCaseLink.deleted_at.is_(None),
+                )
+            )
+
+    assert read_result.status_ref.link_status == "linked"
+    assert write_result.status_ref.link_status == "deduped"
+    assert write_result.status_ref.write_status == "written"
+    assert active_count == 1
 
 
 @pytest.mark.asyncio
