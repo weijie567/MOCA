@@ -94,7 +94,7 @@ Plans:
 | 44. Memory Layering — Case Working Context + thread-case Many-to-Many | 4/4 | Complete | 2026-07-03 |
 | 45. Memory Lifecycle Wiring for Case Working Context | 4/4 | Complete | 2026-07-03 |
 | 46. Session Context Repositioning | 3/3 | Complete | 2026-07-03 |
-| 47. Case Precedent Repositioning and Closed-Case Candidate Generation | 4/4 | Complete | 2026-07-03 |
+| 47. Case Precedent Repositioning and Closed-Case Candidate Generation | 4/4 | Complete    | 2026-07-03 |
 | 48. Narrow Long-Term Explicit Preference Memory | 0 plans | Not planned | - |
 
 ### Phase 40: Tool Contract Validation Hardening
@@ -234,7 +234,7 @@ Plans:
 **Goal:** Reposition `case_memories` as reviewed closed-case precedent, not active case state, and introduce a governed candidate-generation path from finalized Case Working Context into the existing reviewed memory workflow when a case closes.
 **Requirements**: MEM-04
 **Depends on:** Phase 46
-**Plans:** 4 plans
+**Plans:** 4/4 plans complete
 **Design input:** `.planning/MEMORY-REDESIGN-DECISIONS.md` DEFER-2.
 **Success Criteria** (what must be TRUE):
   1. `case_memories` semantics are documented and test-locked as reviewed case precedent, not active working state and not a replacement for `case_working_contexts`.
