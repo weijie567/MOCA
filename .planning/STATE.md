@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
-status: executing
-stopped_at: Completed 46-02-PLAN.md
-last_updated: "2026-07-03T09:20:54.697Z"
+status: verifying
+stopped_at: Completed 46-03-PLAN.md
+last_updated: "2026-07-03T09:33:01.069Z"
 last_activity: 2026-07-03
 progress:
   total_phases: 12
-  completed_phases: 9
+  completed_phases: 10
   total_plans: 29
-  completed_plans: 28
-  percent: 97
+  completed_plans: 29
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -30,13 +30,13 @@ See: `.planning/PROJECT.md` (updated 2026-07-03)
 
 ## Current Position
 
-Phase: 46 (session-context-repositioning) — EXECUTING
+Phase: 46 (session-context-repositioning) — COMPLETE
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for Phase 47 planning
 Last activity: 2026-07-03
-Next: Execute `46-03-PLAN.md`.
+Next: Plan Phase 47.
 
-Progress: [██████████] 97%
+Progress: [██████████] 100%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -65,7 +65,7 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | 43. Intent Recognition Multi-Intent Tier A (IDR-02) | 3/3 | Complete |
 | 44. Memory Layering — Case Working Context + thread-case Many-to-Many (MEM-01, MEM-02) | 4/4 | Complete |
 | 45. Memory Lifecycle Wiring for Case Working Context (MEM-01, MEM-02) | 4/4 | Complete |
-| 46. Session Context Repositioning (MEM-03) | 2/3 | In Progress |
+| 46. Session Context Repositioning (MEM-03) | 3/3 | Complete |
 | 47. Case Precedent Repositioning and Closed-Case Candidate Generation (MEM-04) | 0/0 | Not planned |
 | 48. Narrow Long-Term Explicit Preference Memory (MEM-05) | 0/0 | Not planned |
 
@@ -113,6 +113,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 | Phase 45 P04 | 10min | 3 tasks | 6 files |
 | Phase 46 P01 | 3 min | 2 tasks | 4 files |
 | Phase 46 P02 | 5 min | 2 tasks | 2 files |
+| Phase 46 P03 | 8 min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -161,7 +162,10 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - Phase 46 Plan 01 carries DEFER-2 -> Phase 47 and DEFER-3 -> Phase 48 by name without implementing either scope.
 - Phase 46 Plan 02 scopes CWC fallback scans to lifecycle/read helper paths and does not ban legitimate CaseMemoryService usage in the reviewed-memory retrieval path.
 - Phase 46 Plan 02 requires runnable Phase 46 pytest snippets to use the approved uv entrypoint while treating prose examples as non-command text.
-- MEM-03 remains pending until Phase 46 Plan 03 completes behavioral validation.
+- MEM-03 completed when Phase 46 Plan 03 behavioral validation passed.
+- Phase 46 Plan 03 strips raw authority ref fields from session bundle tool summaries through prompt-safe allowlists.
+- MEM-03 validation flags are set only after approved uv pytest commands passed.
+- Phase 46 completed without migrations, Phase 47 precedent generation, Phase 48 preference memory, CWC fallback, or ReAct/global active_slots writer.
 
 ### Roadmap Evolution
 
@@ -207,13 +211,13 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ## Session Continuity
 
-Last session: 2026-07-03T09:19:22Z
-Stopped at: Completed 46-02-PLAN.md
+Last session: 2026-07-03T09:33:01.059Z
+Stopped at: Completed 46-03-PLAN.md
 Resume file: None
-Next: Execute `46-03-PLAN.md`.
+Next: Plan Phase 47.
 
-Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with security, UAT, validation, and clean review complete.
-Next roadmap item: Phase 46 session context repositioning.
+Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with security, UAT, validation, and clean review complete; Phase 46 session context repositioning complete with MEM-03 validated.
+Next roadmap item: Phase 47 case precedent repositioning.
 
 **Completed Phase:** 44 (Memory Layering — Case Working Context + thread-case Many-to-Many) — 4/4 plans — 2026-07-03
 
