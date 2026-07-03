@@ -130,6 +130,10 @@ async def test_receive_request_resets_session_context_target_fields(base_state):
         "reviewed_memory_context_retrieve_status": {
             "schema_version": "reviewed_memory_context_retrieve_status.v1"
         },
+        "case_working_context": {"schema_version": "case_working_context_active_payload.v1"},
+        "case_working_context_lifecycle_status": {
+            "schema_version": "case_working_context_lifecycle_status.v1"
+        },
         "memory_write_result": {"status": "written"},
         "memory_write_decision": {"schema_version": "memory_write_decision.v2"},
     }
@@ -147,6 +151,8 @@ async def test_receive_request_resets_session_context_target_fields(base_state):
         "memory_context",
         "memory_context_bundle",
         "reviewed_memory_context_retrieve_status",
+        "case_working_context",
+        "case_working_context_lifecycle_status",
         "memory_write_result",
         "memory_write_decision",
     ):
@@ -163,6 +169,8 @@ def test_agent_state_declares_session_context_target_fields():
         "memory_context",
         "memory_context_bundle",
         "reviewed_memory_context_retrieve_status",
+        "case_working_context",
+        "case_working_context_lifecycle_status",
         "memory_write_decision",
     ):
         assert field in annotations
