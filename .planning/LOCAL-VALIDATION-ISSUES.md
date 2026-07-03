@@ -11005,3 +11005,33 @@ tests/memory/test_case_working_context_service.py::test_service_persists_high_co
 - `src/memory/case_working_context_service.py`
 - `tests/memory/test_case_working_context_repo.py`
 - `tests/memory/test_case_working_context_service.py`
+
+## 2026-07-03 — Phase 42 retroactive registration caused `gsd-sdk state.json` undercount
+
+### 问题现象
+
+Phase 44 已完成并准备进入 Phase 45，但 `gsd-sdk query state.json` 仍输出 `status: verifying`，且进度为 `completed_phases: 7`、`total_plans: 21`、`completed_plans: 21`；同时 `.planning/STATE.md` 人工记录为 Phase 44 complete / ready to plan Phase 45，进度为 8/8 phases、22/22 plans。
+
+### 如何检测 / 复现
+
+运行 `gsd-sdk query state.json`，再对照 `.planning/STATE.md` frontmatter 和 `.planning/phases/42-intent-recognition-three-layer-decoupling/` 目录内容。
+
+### 关键证据或命令
+
+`find .planning/phases/42-intent-recognition-three-layer-decoupling -maxdepth 1 -type f -print` 最初只显示 `42-CONTEXT.md` 和 `42-VERIFICATION.md`。GSD 的 state frontmatter builder 会按磁盘上的 `*-PLAN.md` / `*-SUMMARY.md` 文件统计 phase/plan 完成度。
+
+### 当前判断 / 根因
+
+Phase 42 是 retroactive registration，正文说明没有 pre-execution PLAN；但 GSD SDK 的状态统计不理解这种例外，只按 plan/summary 文件计数，导致 Phase 42 不被计为完整 phase，Phase 44 后的自动状态仍少算 1 phase / 1 plan。
+
+### 已做处理
+
+新增 record-only `42-01-PLAN.md` 和 `42-01-SUMMARY.md`，明确它们只是 GSD 统计兼容 artifact，不代表 Phase 42 走过正常 plan-review 流程；同步修正 `42-CONTEXT.md`、`ROADMAP.md` 和 `STATE.md` 表述，并把 Phase 44 测试数更新为 `51 passed, 5 warnings`。
+
+### 剩余问题
+
+无。为避免 `gsd-sdk` 把 v2.1 名称降级为通用 `milestone`，已在 `ROADMAP.md` 顶部增加明确的 `## Current Milestone: v2.1 Core Subsystem Hardening` heading，供 SDK 解析。
+
+### 下次继续排查入口
+
+如果后续 `$gsd-next` 或 `state.json` 再出现状态漂移，先检查是否有 retroactive phase、无 PLAN/SUMMARY phase、或 ROADMAP heading 格式不被 `getMilestoneInfo` 支持。

@@ -1,5 +1,7 @@
 # Roadmap: MOCA v2.1 Core Subsystem Hardening
 
+## Current Milestone: v2.1 Core Subsystem Hardening
+
 ## Overview
 
 v2.1 is a long-lived umbrella for cleaning up architecture debt across MOCA's four core subsystems tracked in `.planning/ARCHITECTURE-DEBT.md` (tool call / intent recognition / RAG / memory). It began as a bounded cleanup of the tool-call platform (Phase 37-41) and is rescoped to hold subsequent subsystem-hardening phases as they arrive; defect-fix / debt-clearing work is appended as the next integer phase rather than opening a new milestone.
@@ -122,7 +124,7 @@ Plans:
 
 ### Phase 42: Intent Recognition Three-Layer Decoupling (RETROACTIVE RECORD)
 
-> **Retroactive registration.** The code for this phase was designed by Claude (spec: `.planning/intent-layering-codex-brief.md`), implemented by Codex, and verified green **before** it was formalized as a GSD phase. It did **not** run the `gsd-plan-phase` → `gsd-plan-checker` → `execute` flow; there is intentionally no `42-PLAN.md` / `42-PLAN-REVIEW.md`. The artifacts are `42-CONTEXT.md`, `42-01-SUMMARY.md`, and `42-VERIFICATION.md`, anchored to commit `a0a98e4`. This is a truthful record of a completed refactor, not a re-enacted plan.
+> **Retroactive registration.** The code for this phase was designed by Claude (spec: `.planning/intent-layering-codex-brief.md`), implemented by Codex, and verified green **before** it was formalized as a GSD phase. It did **not** run the `gsd-plan-phase` → `gsd-plan-checker` → `execute` flow. `42-01-PLAN.md` and `42-01-SUMMARY.md` are record-only compatibility artifacts for GSD plan/summary counting; there is intentionally no `42-PLAN-REVIEW.md`. The authority artifacts are `42-CONTEXT.md`, `42-01-SUMMARY.md`, and `42-VERIFICATION.md`, anchored to commit `a0a98e4`. This is a truthful record of a completed refactor, not a re-enacted plan.
 
 **Goal:** Decouple intent recognition's three tangled responsibilities — semantic understanding, risk authorization, and confidence/clarification — into three explicit, single-direction, independently testable layers that communicate only through frozen data contracts (`SemanticIntent` / `RiskDecision` / `ClarificationDecision`), turning implicit "who wins" arbitration into explicit, test-locked code. Behavior-equivalent refactor except one intended ID-01 fix.
 **Requirements**: IDR-01
@@ -133,10 +135,10 @@ Plans:
   3. Risk resolution is a declarative `RISK_POLICY_TABLE` + `resolve_risk_decision(...)`, behavior-equivalent to the old `resolve_risk_tier` if-elif (per-combination equivalence tests), with the old dead branch removed (ID-03).
   4. `classification_trace` records all three layer outputs (`semantic_intent` / `risk_decision` / `clarification_decision`) for replay.
   5. `IntentResultV3` wire schema, `docs/contract-spec.md`, and `src/agent/prompts.py` few-shot are unchanged; N=1 single-intent behavior is byte-equivalent except the one registered ID-01 exemption (`"这个不算投诉吧，我就是问下退款进度"`).
-**Plans:** 1 plan (retroactive SUMMARY only; no PLAN authored)
+**Plans:** 1 record-only plan/summary pair (retroactive accounting artifact; no pre-execution plan review)
 
 Plans:
-- [x] 42-01-SUMMARY.md — retroactive record of the three-layer decoupling refactor (design → Codex implementation → green verification), anchored to commit `a0a98e4`.
+- [x] 42-01-PLAN.md / 42-01-SUMMARY.md — record-only retroactive accounting artifacts for the three-layer decoupling refactor (design → Codex implementation → green verification), anchored to commit `a0a98e4`.
 
 **Deferred to a later phase (not this one):** ID-02 confidence calibration (still 🔴; only a `calibrated_confidence` parameter placeholder landed). ID-04 multi-intent tier A was handled by Phase 43.
 

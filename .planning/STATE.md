@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
-status: ready_to_plan
+status: planning
 stopped_at: Phase 44 complete; ready to plan Phase 45 memory lifecycle wiring
-last_updated: "2026-07-02T19:08:12Z"
-last_activity: 2026-07-03 -- Phase 44 complete; CWC durable layer and thread-case M:N delivered with Phase 45 lifecycle hook deferred
+last_updated: "2026-07-03T01:48:07.861Z"
+last_activity: "2026-07-03 -- Phase 44 delivered CWC schema/repository/service, thread-case M:N, contract alignment, clean review, and 15/15 verification pass"
 progress:
   total_phases: 8
   completed_phases: 8
@@ -32,7 +32,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 Phase: 44 (Memory Layering — Case Working Context + thread-case Many-to-Many) — COMPLETE
 Plan: 44-01 through 44-04 complete
-Status: Verification passed; code review clean; Phase 45 lifecycle hook remains a named defer
+Status: Ready to plan Phase 45 memory lifecycle wiring
 Last activity: 2026-07-03 -- Phase 44 delivered CWC schema/repository/service, thread-case M:N, contract alignment, clean review, and 15/15 verification pass
 Next: Plan Phase 45 memory lifecycle wiring if continuing the memory subsystem: graph run-completion auto-update, read-active consumer wiring, and real run/staff caller integration.
 
@@ -67,7 +67,7 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 
 Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review. Phase 40 closes the source-confirmed validation/backstop gaps intentionally deferred or left advisory after Phase 38/39. Phase 41 then handles the explicit breaking cleanup/API decision to remove the `UnifiedToolManager` legacy compatibility adapter.
 
-Phase 42 moves to the second subsystem (intent recognition): it splits intent classification into three explicit single-direction layers (semantic / risk-authorization / clarification), fixing ID-01 (keyword override of LLM) and ID-03 (three-dimension coupling) per `.planning/ARCHITECTURE-DEBT.md`. The code was implemented + verified before formal registration, so Phase 42 is **retroactively registered**: it has CONTEXT / VERIFICATION / SUMMARY anchored to commit `a0a98e4`, but no PLAN / PLAN-REVIEW (it did not go through plan-then-execute). Multi-intent tier A (ID-04) is the next intent phase and WILL go through the full plan-phase + plan-checker + Codex review flow.
+Phase 42 moves to the second subsystem (intent recognition): it splits intent classification into three explicit single-direction layers (semantic / risk-authorization / clarification), fixing ID-01 (keyword override of LLM) and ID-03 (three-dimension coupling) per `.planning/ARCHITECTURE-DEBT.md`. The code was implemented + verified before formal registration, so Phase 42 is **retroactively registered**: it has CONTEXT / VERIFICATION plus a record-only `42-01-PLAN.md` / `42-01-SUMMARY.md` pair anchored to commit `a0a98e4`, but no PLAN-REVIEW (it did not go through plan-then-execute). Multi-intent tier A (ID-04) is the next intent phase and WILL go through the full plan-phase + plan-checker + Codex review flow.
 
 Phase 44 moves to the memory subsystem: it adds the durable Case Working Context layer and additive thread-case many-to-many association while preserving `case_memories`, `long_term_memories`, and `conversation_threads.case_id`. Graph lifecycle auto-update/read-active wiring is explicitly deferred to Phase 45.
 
@@ -93,7 +93,7 @@ Phase 44 moves to the memory subsystem: it adds the durable Case Working Context
 **Phase 41 plan 41-02:** production legacy manager unwrapping removed and focused tests migrated to platform-native fakes; focused pytest and ruff passed.
 **Phase 41 plan 41-03:** `UnifiedToolManager` adapter/public export deleted, compatibility tests removed after ToolPlatform coverage migration, and architecture guard tests passed.
 **Phase 41 plan 41-04:** implementation review, final verification, and Claude light closure handoff complete; final tests and no-legacy grep passed.
-**Phase 44:** 4/4 plans complete; migrations 021/022, CWC repository/service, thread-case M:N lifecycle, contract alignment, clean code review, and verification passed. Final Phase 44 surface: `48 passed, 5 warnings`; `alembic heads` = `022_case_working_context (head)`.
+**Phase 44:** 4/4 plans complete; migrations 021/022, CWC repository/service, thread-case M:N lifecycle, contract alignment, clean code review, and verification passed. Final Phase 44 surface: `51 passed, 5 warnings`; `alembic heads` = `022_case_working_context (head)`.
 
 Historical execution metrics are archived in milestone files and `.planning/MILESTONES.md`.
 
@@ -102,6 +102,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 | Date | Quick ID | Task | Status |
 |------|----------|------|--------|
 | 2026-06-21 | 260621-lgq | MOCA memory long-term/case hardening | Complete |
+| 2026-07-03 | fast | Refresh Phase 44 state metrics and reconcile GSD state accounting | Complete |
 
 ## Accumulated Context
 

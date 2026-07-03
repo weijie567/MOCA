@@ -7,11 +7,13 @@ designed by Claude, implemented by Codex, and verified — but landed *before* i
 recorded as a GSD phase. This CONTEXT exists to keep the planning record honest about how
 the work actually happened.
 
-**This is a retroactive registration, not a plan-then-execute phase.** There is deliberately
-no `42-01-PLAN.md` / `42-PLAN-REVIEW.md`: the code was already complete and green when this
-phase directory was created, so a "plan" written now would be fiction. The authority artifacts
-for this phase are `42-01-SUMMARY.md` (what was done) and `42-VERIFICATION.md` (evidence it is
-correct), anchored to a real commit.
+**This is a retroactive registration, not a plan-then-execute phase.** The code was already
+complete and green when this phase directory was created, so Phase 42 did not go through a
+normal pre-execution `gsd-plan-phase` / plan-checker cycle. A later record-only
+`42-01-PLAN.md` / `42-01-SUMMARY.md` pair exists only so GSD's disk-based plan/summary
+accounting counts the retroactive phase correctly. There is still no `42-PLAN-REVIEW.md`.
+The authority artifacts for this phase are `42-01-SUMMARY.md` (what was done) and
+`42-VERIFICATION.md` (evidence it is correct), anchored to a real commit.
 
 ## Why it lives in v2.1
 
