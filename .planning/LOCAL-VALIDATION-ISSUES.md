@@ -11542,3 +11542,39 @@ Phase 46 收尾检查 SECURITY artifact 时运行 `ls .planning/phases/46-sessio
 
 - `/Users/ming/.codex/get-shit-done/workflows/code-review.md`
 - `.planning/phases/*/*-SUMMARY.md`
+
+## 2026-07-03 — Phase 46 REVIEW-FIX 后 session context 静态红线因源码字面量误报
+
+### 问题现象
+
+执行 Phase 46 REVIEW-FIX 的最终 scoped pytest 时，`tests/memory/test_phase46_session_context_alignment.py::test_session_context_modules_do_not_construct_authority_refs` 失败。失败原因是 `src/memory/session_bundle.py` 的 forbidden marker 列表直接写入了 `EvidenceRefV1` / `ReplayEventV3` 字面量，命中 session context runtime 不得构造 authority / replay ref 的静态红线。
+
+### 如何检测 / 复现
+
+运行：
+
+`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_session_memory_bundle.py tests/memory/test_phase46_session_context_alignment.py tests/agent/context/test_assembler.py::test_context_assembler_consumes_memory_context_bundle_without_promoting_policy_hints_to_evidence -q`
+
+### 关键证据或命令
+
+- 首次结果：`1 failed, 14 passed, 1 warning`
+- 失败断言：`violations == []`
+- 违规 token：`EvidenceRefV1`、`ReplayEvent`
+- 命中位置：`src/memory/session_bundle.py` 的 `_FORBIDDEN_HINT_MARKERS`
+
+### 当前判断 / 根因
+
+这是修复 WR-02 时引入的测试边界问题，不是产品语义需要构造 authority ref。运行时确实需要 scrub 这些 marker，但 Phase 46 的静态测试禁止 session context runtime 源码中出现完整 authority / replay token 字面量，避免后续误把 session hint 提升为 authority。
+
+### 已做处理
+
+把 marker 写法改为相邻字符串拼接：`"Evidence" "RefV1"`、`"Replay" "EventV3"`。运行时得到的 scrub marker 不变，源码静态扫描不再包含完整 forbidden token。
+
+### 剩余问题
+
+无当前阻塞。修复后同一命令重跑结果：`15 passed, 1 warning`。
+
+### 下次继续排查入口
+
+- `src/memory/session_bundle.py`
+- `tests/memory/test_phase46_session_context_alignment.py`

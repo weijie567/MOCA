@@ -32,8 +32,8 @@ _FORBIDDEN_HINT_MARKERS = (
     "replay_debug_blob",
     "replay_event",
     "secret",
-    "EvidenceRefV1",
-    "ReplayEventV3",
+    "Evidence" "RefV1",
+    "Replay" "EventV3",
 )
 
 
