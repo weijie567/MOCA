@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
 status: executing
-stopped_at: Completed 45-01-PLAN.md
-last_updated: "2026-07-03T05:11:32.018Z"
-last_activity: 2026-07-03 -- Phase 45 plan 45-01 completed
+stopped_at: Completed 45-02-PLAN.md
+last_updated: "2026-07-03T05:27:34.243Z"
+last_activity: 2026-07-03
 progress:
   total_phases: 9
   completed_phases: 8
   total_plans: 26
-  completed_plans: 23
-  percent: 88
+  completed_plans: 24
+  percent: 92
 ---
 
 # Project State: MOCA
@@ -31,12 +31,12 @@ See: `.planning/PROJECT.md` (updated 2026-07-01)
 ## Current Position
 
 Phase: 45 (memory-lifecycle-wiring-for-case-working-context) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
-Last activity: 2026-07-03 -- Phase 45 plan 45-01 completed
-Next: Execute Phase 45 plan 45-02 for active CWC read and run_auto thread-case link wiring.
+Last activity: 2026-07-03 -- Phase 45 plan 45-02 completed
+Next: Execute Phase 45 plan 45-03 for terminal finalizer CWC writeback, deterministic projection, and failure/conflict semantics.
 
-Progress: [█████████░] 88%
+Progress: [█████████░] 92%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -104,6 +104,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 |------|----------|------|--------|
 | 2026-06-21 | 260621-lgq | MOCA memory long-term/case hardening | Complete |
 | 2026-07-03 | fast | Refresh Phase 44 state metrics and reconcile GSD state accounting | Complete |
+| Phase 45 P02 | 10min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -139,6 +140,9 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - Phase 45 Plan 01 trusted case-ref extraction accepts active_slots, extracted_slots, and explicitly enabled business_context only; candidate_slots and memory surfaces are ignored.
 - Phase 45 Plan 01 keeps CWC lifecycle contracts contextual-only and separates them from evidence/business/action/replay authority DTOs.
 - Phase 45 Plan 01 active CWC payloads derive refs only from persisted row fields and hydrate content through the Phase 44 helper.
+- Phase 45 Plan 02: Read-seam thread-case linking uses session.begin_nested() and never rolls back the shared graph session directly.
+- Phase 45 Plan 02: CWC identity for memory_context_load comes only from trusted_context plus trusted case refs in state; missing identity yields explicit skipped status.
+- Phase 45 Plan 02: Active CWC remains separate from reviewed case_memory and is exposed through additive state and memory_context_bundle fields.
 
 ### Roadmap Evolution
 
@@ -181,10 +185,10 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ## Session Continuity
 
-Last session: 2026-07-03
-Stopped at: Completed 45-01-PLAN.md
+Last session: 2026-07-03T05:27:34.233Z
+Stopped at: Completed 45-02-PLAN.md
 Resume file: None
-Next: Execute Phase 45 plan 45-02 for active CWC read and run_auto thread-case link wiring.
+Next: Execute Phase 45 plan 45-03 for terminal finalizer CWC writeback, deterministic projection, and failure/conflict semantics.
 
 Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification.
 Next roadmap item: Phase 45 memory lifecycle wiring for graph run-completion CWC auto-update/read-active hooks, or another architecture-debt item inside v2.1.

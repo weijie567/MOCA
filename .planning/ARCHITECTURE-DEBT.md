@@ -301,3 +301,27 @@
 
 **剩余风险**
 - ⚠️ 本 plan 只交付 graph/API-neutral adapter foundation；active CWC read + `run_auto` thread-case link wiring 属于 `45-02`，terminal finalizer writeback / conflict semantics 属于 `45-03`，contract/spec/red-line final sweep 属于 `45-04`。
+
+## Phase 45 Plan 02 — memory_context_load active CWC 读取与 run_auto link wiring ✅⚠️
+
+**问题 / 根因**
+- Phase 45 Plan 01 只有 CWC lifecycle adapter foundation；真实 graph read seam 仍不会调用 CWC active read，也不会把当前 thread 与已解析 `refund_cases.id` 写入 `thread_case_links`。
+- 如果 read seam 直接在共享 graph session 内调用 link writer 且失败后手动 `rollback()`，会污染 / 回滚同一个 graph session；如果从 `case_memories` 或 untrusted state 猜 case，则会把 reviewed precedent 误当 active case state。
+
+**修复**
+- 在 `AgentState` 和 `receive_request` 增加并 reset 两个 additive 字段：`case_working_context`、`case_working_context_lifecycle_status`，不改 `case_memory` / `long_term_memory`。
+- 新增 `CaseWorkingContextLifecycleAdapter.link_and_load_active(...)`：只从 trusted case ref 解析 canonical case；无 case / unresolved case 显式 skip；resolved case 用 `ConversationRepository.link_case(..., link_source="run_auto", linked_by_run_id=run_id)` 写 link；link 调用包在 `async with session.begin_nested():` 中，失败返回 `link_failed` 且不对共享 session 调 `rollback()`；随后通过 keyword-only `read_active(tenant_id=..., case_id=...)` 读取 active CWC。
+- 在 `reviewed_memory_context_retrieve` / `memory_context_load` seam 调用 CWC adapter：tenant/user/thread/run 只从 `configurable["trusted_context"]` 解析；缺失 trusted context 返回 `missing_trusted_context`；adapter error 追加 `CASE_WORKING_CONTEXT_LOAD_FAILED` node error，但保留 reviewed memory fallback / available result。
+
+**证据**
+- Phase / plan：`45-02`
+- Commits：`82b623f`（state/reset fields）、`c442591`（link_and_load_active）、`a944a04`（memory seam wiring），TDD red commits `0c41b84` / `a19076d` / `4d26bb8`
+- 文件：`src/agent/state.py`、`src/agent/nodes/receive_request.py`、`src/memory/case_working_context_lifecycle.py`、`src/agent/nodes/reviewed_memory_context_retrieve.py`、`tests/agent/test_nodes/test_receive_request.py`、`tests/agent/test_case_working_context_lifecycle.py`、`tests/agent/test_reviewed_memory_context_retrieve.py`
+
+**验证**
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_receive_request.py tests/agent/test_reviewed_memory_context_retrieve.py tests/agent/test_case_working_context_lifecycle.py -q` → `38 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_case_working_context_lifecycle.py tests/memory/test_thread_case_links.py -x -q` → `20 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/memory/case_working_context_lifecycle.py src/agent/state.py src/agent/nodes/receive_request.py src/agent/nodes/reviewed_memory_context_retrieve.py tests/agent/test_nodes/test_receive_request.py tests/agent/test_reviewed_memory_context_retrieve.py tests/agent/test_case_working_context_lifecycle.py` → pass
+
+**剩余风险**
+- ⚠️ 本 plan 只完成 active read + link wiring。terminal finalizer CWC writeback、expected_version conflict / PII block / finalizer failure preservation 属于 `45-03`；contract-spec / red-line final sweep 属于 `45-04`。
