@@ -2456,10 +2456,9 @@ long_term_memories
 case_memories
 - id uuid primary key
 - tenant_id uuid not null references tenants(id)
+- schema_version varchar not null default 'case_memory.v2'
 - scope_type varchar not null
 - scope_id varchar not null
-- merchant_id uuid null references merchants(id)
-- schema_version varchar not null default 'case_memory.v2'
 - case_type varchar not null
 - summary text not null
 - excerpt text not null
@@ -2472,17 +2471,13 @@ case_memories
 - policy_refs_json jsonb not null default '[]'
 - source_ref_json jsonb not null default '{}'
 - source_identity_hash varchar null
-- action_taken_json jsonb not null default '{}'
-- approval_outcome_json jsonb not null default '{}'
-- outcome_label varchar not null
+- embedding vector null
 - review_status varchar not null
 - reviewed_by_user_id uuid null references users(id)
 - reviewed_at timestamptz null
 - review_reason text null
 - pii_classification varchar not null
-- source_run_id uuid null references agent_runs(id)
 - created_by_run_id uuid null references agent_runs(id)
-- embedding vector null
 - expires_at timestamptz null
 - created_at timestamptz not null
 - updated_at timestamptz not null
@@ -2577,7 +2572,7 @@ Memory constraints / indexes：
 - `session_memories`: unique `(tenant_id, user_id, thread_id)` where `deleted_at is null`; add `version int not null default 1` and update with lock/CAS on `(id, version)` so concurrent runs cannot silently lose `active_slots_json`, `session_summary`, `unresolved_questions_json`, `last_intent`, or `last_business_context_refs_json`. Merge precedence is current-turn explicit slots > compatible non-expired existing session slots > no inherited value; CAS miss reloads and retries deterministic merge or returns conflict, never last-write-wins. `active_slots_json` must use `session_slots.v1`; inherited slots must retain source/freshness metadata and cannot be treated as current-turn explicit input. `session_summary` must not store policy conclusions, risk decisions, approval decisions, action authorization, durable preferences, or case precedent.
 - Optional Redis hot cache for session memory or active-run checkpoint state has no schema ownership. It must be treated as a derived view of PostgreSQL-backed state, carry a mandatory TTL, fall back to PostgreSQL on miss/error, and never be the only copy of approval waits, side-effect boundaries, audit/replay facts, or CAS-controlled session-memory writes.
 - `long_term_memories`: unique `(tenant_id, scope_type, scope_id, content_hash)` where `deleted_at is null and is_current = true`；不得使用 `supersedes is null` 作为 active predicate。
-- `case_memories`: index `(tenant_id, merchant_id, case_type, created_at)`；case memory 目标采用 append-only + `review_status` 过滤，不复用 long-term memory 的 same-content active unique version model。
+- `case_memories`: metadata filter index `(tenant_id, scope_type, scope_id, case_type, policy_family, policy_version, review_status, expires_at)` where `deleted_at is null`; active content identity index `(tenant_id, scope_type, scope_id, content_hash)` where `deleted_at is null`; source identity index `(tenant_id, scope_type, scope_id, source_identity_hash)` where `source_identity_hash is not null and deleted_at is null`; optional HNSW embedding index remains a ranking accelerator, not the only retrieval path. Case memory 目标采用 append-only + `review_status` 过滤，不复用 long-term memory 的 same-content active unique version model。
 - `thread_case_links`: composite tenant FKs `(conversation_thread_id, tenant_id)` -> `(conversation_threads.id, conversation_threads.tenant_id)` and `(case_id, tenant_id)` -> `(refund_cases.id, refund_cases.tenant_id)`；active unique `(tenant_id, conversation_thread_id, case_id)` where `deleted_at is null`；check `link_source in ('run_auto', 'staff_manual', 'import')`；legacy `conversation_threads.case_id` 不被删除、重命名或重解释。
 - `case_working_contexts`: composite tenant FK `(case_id, tenant_id)` -> `(refund_cases.id, refund_cases.tenant_id)`；unique `(id, tenant_id)` for revision tenant FK；active unique `(tenant_id, case_id)` where `deleted_at is null`；check `authority_class = 'contextual_only'`、`version > 0`、`pii_classification in ('none', 'low', 'sensitive', 'prohibited')`。Claims / verified facts / actions / commitments 的 `source_ref_json` 必须由 write service/repository 事务校验 run provenance；CWC 不能作为 `EvidenceRefV1` 或 policy/risk/approval/action authority。
 - `case_working_context_revisions`: composite tenant FKs `(case_working_context_id, tenant_id)` -> `(case_working_contexts.id, case_working_contexts.tenant_id)` and `(case_id, tenant_id)` -> `(refund_cases.id, refund_cases.tenant_id)`；unique `(tenant_id, case_working_context_id, version)`；check `edit_source in ('run_auto', 'staff_manual')` and `version > 0`；revision rows are append-only snapshots of the prior active CWC version.

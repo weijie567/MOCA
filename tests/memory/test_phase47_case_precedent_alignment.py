@@ -35,6 +35,11 @@ def _contract_case_memory_section() -> str:
     return _between(_source(CONTRACT_SPEC_PATH), "### 13.4 Case memory", "### 13.5 Memory write policy")
 
 
+def _case_memory_storage_model() -> str:
+    source = _source(CONTRACT_SPEC_PATH)
+    return _between(source, "\ncase_memories\n", "\nthread_case_links\n")
+
+
 def test_contract_documents_reviewed_closed_case_precedent_boundary() -> None:
     section = _contract_case_memory_section()
 
@@ -47,6 +52,34 @@ def test_contract_documents_reviewed_closed_case_precedent_boundary() -> None:
         "query_embedding",
     ):
         assert term in section
+
+
+def test_contract_case_memory_storage_model_matches_scope_based_orm() -> None:
+    block = _case_memory_storage_model()
+
+    for expected in (
+        "scope_type varchar not null",
+        "scope_id varchar not null",
+        "source_identity_hash varchar null",
+        "created_by_run_id uuid null references agent_runs(id)",
+        "embedding vector null",
+    ):
+        assert expected in block
+
+    for stale_field in (
+        "merchant_id uuid null references merchants(id)",
+        "action_taken_json jsonb",
+        "approval_outcome_json jsonb",
+        "outcome_label varchar",
+        "source_run_id uuid",
+    ):
+        assert stale_field not in block
+
+    source = _source(CONTRACT_SPEC_PATH)
+    assert "metadata filter index `(tenant_id, scope_type, scope_id, case_type" in source
+    assert "active content identity index `(tenant_id, scope_type, scope_id, content_hash)`" in source
+    assert "source identity index `(tenant_id, scope_type, scope_id, source_identity_hash)`" in source
+    assert "index `(tenant_id, merchant_id, case_type, created_at)`" not in source
 
 
 def test_protected_memory_tables_and_conversation_case_link_are_retained() -> None:
