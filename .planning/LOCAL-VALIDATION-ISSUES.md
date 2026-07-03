@@ -11791,3 +11791,36 @@ Task 2 RED 测试提交后，首次 GREEN 只做了最小代码 patch，但 `UV_
 - `src/memory/policy.py`
 - `tests/memory/test_memory_policy.py`
 - `tests/memory/test_phase47_case_precedent_alignment.py`
+
+## 2026-07-03 — Phase 47-01 roadmap.update-plan-progress 未匹配 Phase 47 行
+
+### 问题现象
+
+47-01 SUMMARY 创建后，执行 `gsd-sdk query roadmap.update-plan-progress "47"` 返回 `updated: false`，ROADMAP 中 Phase 47 仍显示 `0/4 | Planned`，未自动更新到 1/4。
+
+### 如何检测 / 复现
+
+在 `.planning/phases/47-case-precedent-repositioning-and-closed-case-candidate-gener/47-01-SUMMARY.md` 存在后执行上述命令，然后读取 `.planning/ROADMAP.md` 的 Phase 47 overview 行、Progress 表和 plan checklist。
+
+### 关键证据或命令
+
+- 命令返回：`{"updated": false, "phase": "47", "reason": "no matching checkbox found"}`
+- `rg -n "Phase 47|47-01-PLAN|Plan progress: 0/4|47\\. Case" .planning/ROADMAP.md` 显示 Phase 47 仍为 `Plan progress: 0/4 plans`、Progress 表仍为 `0/4 | Planned`、`47-01-PLAN.md` 仍未勾选。
+
+### 当前判断 / 根因
+
+当前 roadmap updater 对此 ROADMAP 格式的 Phase 47 行匹配失败；它似乎依赖特定 checkbox/row 模板，未覆盖本文件中的 overview + progress table + detailed plans 三处结构。
+
+### 已做处理
+
+手动将 `.planning/ROADMAP.md` 的 Phase 47 progress 更新为 1/4、状态更新为 In Progress，并勾选 `47-01-PLAN.md`；同步将 `.planning/STATE.md` 的 Current Roadmap 和 Session Continuity 下一步改为 47-02。
+
+### 剩余问题
+
+无当前 47-01 阻塞。后续 47-02/47-03/47-04 若 SDK 仍无法匹配，需要继续手动维护 ROADMAP 对应三处。
+
+### 下次继续排查入口
+
+- `gsd-sdk query roadmap.update-plan-progress "47"`
+- `.planning/ROADMAP.md`
+- `.planning/STATE.md`
