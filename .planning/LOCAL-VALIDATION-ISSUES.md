@@ -11409,3 +11409,35 @@ Phase 46 verification 过程中，为核对 migration 文件列表，执行 `fin
 
 - `docs/architecture-overview.md`
 - ripgrep regex / fixed-string search usage
+
+## 2026-07-03 — Phase 46 re-verification 中 `rg` 复合正则引号未闭合
+
+### 问题现象
+
+Phase 46 gap fix re-verification 过程中，为核对 Phase 46 文档中的 pytest 命令入口，执行的临时 `rg` 复合正则在 zsh 中报错：`zsh:1: unmatched "`。
+
+### 如何检测 / 复现
+
+在 zsh 中运行带多层双引号、反引号和转义括号的复合 `rg` pattern，且外层引号未正确闭合时即可复现。
+
+### 关键证据或命令
+
+- 失败输出：`zsh:1: unmatched "`
+- 修正命令改用单引号包裹完整 pattern，避免 zsh 解释内部反引号与转义字符；核心检查对象仍是 Phase 46 文档中的 `python -m pytest`、裸 `pytest`、`uv run pytest`、`UV_CACHE_DIR=/tmp/uv-cache uv run pytest` 命中。
+
+### 当前判断 / 根因
+
+这是本地验证命令的 shell quoting 写法问题，不是 MOCA 代码、测试或 Phase 46 实现问题。包含反引号和复杂转义的 `rg` pattern 应优先使用单引号，避免 zsh 提前解释。
+
+### 已做处理
+
+改用单引号 pattern 重跑命令；结果正常输出 Phase 46 文档中的 pytest 相关命中。有效验证结论仍以 `tests/memory/test_phase46_session_context_alignment.py::test_phase46_plan_pytest_entrypoints_use_moca_runner` 和 approved-entrypoint pytest spot-check 为准。
+
+### 剩余问题
+
+无当前阻塞。
+
+### 下次继续排查入口
+
+- `.planning/phases/46-session-context-repositioning/46-*.md`
+- zsh shell quoting / ripgrep pattern 写法
