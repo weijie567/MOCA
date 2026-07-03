@@ -98,6 +98,10 @@
 
 Phase 44 delivered: CWC layer + thread↔case M:N; auto-update hook wiring deferred to Phase 45 memory lifecycle wiring.
 
+Phase 45 delivered: lifecycle wiring for the Phase 44 defer is complete. Closed defers are: active CWC read at the `memory_context_load` compatibility seam; thread-case `run_auto` link caller through `ConversationRepository.link_case(..., link_source="run_auto", linked_by_run_id=current_run_id)`; terminal CWC writeback from the completed-run finalizer through `CaseWorkingContextService.write_case_working_context(...)`. Phase 45 also locked the red lines in `tests/memory/test_phase45_contract_alignment.py`: no graph-global `active_slots` writer from `investigate`, no CWC backfill from `case_memories`, no LLM summarizer for CWC projection, no destructive `case_memories` / `long_term_memories` / `conversation_threads.case_id` changes, and no bare pytest verification commands.
+
+Remaining out-of-scope items are unchanged: DEFER-1 session context repositioning, DEFER-2 case precedent / closed-case candidate generation, and DEFER-3 narrow long-term explicit-preference memory remain separate named future phases. Phase 45 does not relabel them as implemented.
+
 > 三个 DEFER 项在进入本次 phase 的 PLAN.md 时,须在 plan 的 "out of scope / follow-up" 段落原样带上,确保 plan-checker 和 Codex 评审都能看到边界。
 
 ---

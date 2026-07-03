@@ -350,3 +350,29 @@
 
 **剩余风险**
 - ⚠️ 本 plan 完成 terminal writeback / skip / blocked / conflict / error preservation，但 `docs/contract-spec.md` 对 Phase 45 最终状态、红线 no-diff sweep、跨计划验收汇总仍属于 `45-04`。
+
+## Phase 45 Plan 04 — CWC lifecycle contract / red-line / validation closure ✅已修复验证
+
+**问题 / 根因**
+- Phase 44 把 active CWC read、thread-case `run_auto` caller、terminal CWC writeback 明确 defer 到 Phase 45；45-01/02/03 已完成代码 wiring，但若 `docs/contract-spec.md`、验证计划和记忆重设计台账不对齐，后续 phase 可能继续把目标态 spec 当成未实现事实，或把 CWC 误提升为 reviewed case memory / long-term memory / policy evidence / approval/action authority。
+- Phase 45 横跨 graph seam、finalizer、CWC service 与 planning artifacts，必须用静态红线锁住：不引入 ReAct loop，不让 `investigate` 写 graph-global `active_slots`，不从 `case_memories` 回填 active CWC，不使用 LLM summarizer，不改 `case_memories` / `long_term_memories` / `conversation_threads.case_id`。
+
+**修复**
+- `docs/contract-spec.md` 对齐 Phase 45 实现：`memory_context_load` 写入 `case_working_context` / `case_working_context_lifecycle_status`；AgentState registry 记录 writer 为 `memory_context_load / CaseWorkingContextLifecycleAdapter`；§13.4a 记录 active CWC read、`link_source="run_auto"`、terminal deterministic writeback、PII/ref-only projection、`expected_version` conflict skip 和 finalizer failure isolation；§13.5 记录 `case_working_context` `memory_write_events` 只是 audit records。
+- 新增 `tests/memory/test_phase45_contract_alignment.py`，覆盖 contract text、CWC contextual-only authority、no LLM/summarizer projection、no `case_memories` fallback、AST 检查 `investigate` 不返回或赋值 `active_slots`、graph 不添加 ReAct / `memory_write` edge、legacy table/column retention、Phase 45 PLAN/VALIDATION 不含未批准 pytest 命令。
+- `.planning/MEMORY-REDESIGN-DECISIONS.md` 增加 Phase 45 completion trace，明确 closed defers：active CWC read、thread-case `run_auto` link caller、terminal CWC writeback；DEFER-1/2/3 仍保持 future phase，不被标成已实现。
+- `45-VALIDATION.md` 在最终 pytest / ruff / alembic 全部通过后才设置 `nyquist_compliant: true` 和 `wave_0_complete: true`。
+
+**证据**
+- Phase / plan：`45-04`
+- Commits：`75d8367`（contract RED tests）、`dea1ec2`（contract-spec alignment）、`2eae073`（red-line static sweeps）
+- 文件：`docs/contract-spec.md`、`tests/memory/test_phase45_contract_alignment.py`、`.planning/MEMORY-REDESIGN-DECISIONS.md`、`.planning/phases/45-memory-lifecycle-wiring-for-case-working-context/45-VALIDATION.md`
+
+**验证**
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase45_contract_alignment.py -x -q` → `11 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_context_refs.py tests/agent/test_case_working_context_lifecycle.py tests/agent/test_nodes/test_receive_request.py tests/agent/test_reviewed_memory_context_retrieve.py tests/memory/test_case_identity.py tests/memory/test_thread_case_links.py tests/memory/test_case_working_context_service.py tests/test_agent_runs_api.py tests/memory/test_phase44_contract_alignment.py tests/memory/test_phase45_contract_alignment.py -q` → `172 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/memory/context_refs.py src/memory/case_working_context_lifecycle.py src/agent/state.py src/agent/nodes/receive_request.py src/agent/nodes/reviewed_memory_context_retrieve.py src/api/services/agent_run_memory.py tests/memory/test_context_refs.py tests/agent/test_case_working_context_lifecycle.py tests/agent/test_nodes/test_receive_request.py tests/agent/test_reviewed_memory_context_retrieve.py tests/test_agent_runs_api.py tests/memory/test_phase45_contract_alignment.py` → pass
+- `UV_CACHE_DIR=/tmp/uv-cache uv run alembic heads` → `022_case_working_context (head)`
+
+**剩余风险**
+- ✅ Phase 45 lifecycle wiring 已完成并验证。剩余 memory redesign ideas 不属于本 phase：DEFER-1 session context repositioning、DEFER-2 case precedent / closed-case candidate generation、DEFER-3 narrow long-term explicit-preference memory。它们继续作为 future phases，不构成 Phase 45 未完成项。
