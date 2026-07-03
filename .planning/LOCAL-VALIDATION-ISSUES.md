@@ -1086,6 +1086,43 @@ gsd-sdk query state.record-session --stopped-at "Phase 24 context gathered" --re
 
 - `/Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs`
 - `/Users/ming/.codex/get-shit-done/bin/lib/state.cjs`
+
+## 2026-07-03 — `gsd-tools state record-session` 将 v2.1 进度重算为 100%
+
+### 问题现象
+
+Phase 47 discuss 后使用 `node /Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs state record-session ...` 更新 session continuity 时，`.planning/STATE.md` frontmatter 被同步重建，`progress.percent` 从真实的 83 改成了 100。
+
+### 如何检测 / 复现
+
+在 Phase 47 尚未规划、Phase 48 尚未规划时运行：
+
+`node /Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs state record-session --stopped-at "Phase 47 discuss complete; ready for Phase 47 planning" --resume-file ".planning/phases/47-case-precedent-repositioning-and-closed-case-candidate-gener/47-CONTEXT.md" --raw`
+
+然后查看 `.planning/STATE.md` frontmatter。
+
+### 关键证据或命令
+
+- `node /Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs state validate --raw` 仍返回 valid。
+- `git diff -- .planning/STATE.md` 显示 `percent: 83` 被改成 `percent: 100`。
+- 当前路线图事实是 v2.1 共 12 个 phase，完成 10 个，Phase 47/48 未完成；真实 milestone 百分比仍应是 83。
+
+### 当前判断 / 根因
+
+GSD state frontmatter 同步逻辑按磁盘上的 `*-SUMMARY.md / *-PLAN.md` 计数计算 `completedPlans / totalPlans`。Phase 47/48 目前还没有 PLAN，因此已存在 plan 全部完成时会被重算为 100%，没有计入 roadmap 中未规划但仍 pending 的 phase。
+
+### 已做处理
+
+手动将 `.planning/STATE.md` frontmatter 修回 `status: ready_to_plan`、`percent: 83`、`last_activity: 2026-07-03 -- Phase 47 discuss complete; ready for Phase 47 planning`。保留 session continuity 的新 `Stopped at` 和 `Resume file`。
+
+### 剩余问题
+
+后续再次运行 `state record-session` / `state patch` 可能重复触发 frontmatter sync 并把百分比改回 100。提交前需要再次检查 `.planning/STATE.md` frontmatter。
+
+### 下次继续排查入口
+
+- `/Users/ming/.codex/get-shit-done/bin/lib/state.cjs`
+- `.planning/STATE.md` frontmatter `progress.percent`
 - `gsd-sdk query state.record-session`
 
 ### 验证结果
@@ -11578,3 +11615,37 @@ Phase 46 收尾检查 SECURITY artifact 时运行 `ls .planning/phases/46-sessio
 
 - `src/memory/session_bundle.py`
 - `tests/memory/test_phase46_session_context_alignment.py`
+
+## 2026-07-03 — Phase 47 discuss 中误用不存在的 `gsd-sdk query state.*` 子命令
+
+### 问题现象
+
+执行 Phase 47 discuss 的状态核对时，尝试运行 `UV_CACHE_DIR=/tmp/uv-cache uv run gsd-sdk query state.current` 和 `UV_CACHE_DIR=/tmp/uv-cache uv run gsd-sdk query state.validate`，两者均返回 unknown command，不能作为状态验证入口。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行上述两个命令。
+
+### 关键证据或命令
+
+- `UV_CACHE_DIR=/tmp/uv-cache uv run gsd-sdk query state.current`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run gsd-sdk query state.validate`
+- 返回：`Error: Unknown command: "state.current"` / `Error: Unknown command: "state.validate"`。
+- 同时检查到 `node /Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs state validate --raw` 可用，返回 `{"valid":true,"warnings":[],"drift":{}}`。
+
+### 当前判断 / 根因
+
+当前安装的 GSD SDK query handler 不暴露 `state.current` / `state.validate` 这两个子命令；状态操作应走 CJS 工具 `gsd-tools.cjs state ...`。错误信息中提示的 `sdk/src/query/QUERY-HANDLERS.md` 路径在本机安装目录中不存在，属于工具提示与安装布局不一致。
+
+### 已做处理
+
+停止使用不存在的 `gsd-sdk query state.*` 入口；Phase 47 后续状态验证和 session continuity 更新改用 `node /Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs state validate --raw` 和 `state record-session`。
+
+### 剩余问题
+
+无当前 Phase 47 阻塞。后续如维护 GSD 工具，可补齐 SDK query handler 或修正错误提示中的文档路径。
+
+### 下次继续排查入口
+
+- `/Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs`
+- `/Users/ming/.codex/get-shit-done/bin/lib/state.cjs`
