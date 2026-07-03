@@ -102,6 +102,8 @@ Phase 45 delivered: lifecycle wiring for the Phase 44 defer is complete. Closed 
 
 Remaining out-of-scope items are unchanged and now mapped to exact roadmap phases: DEFER-1 session context repositioning → Phase 46, DEFER-2 case precedent / closed-case candidate generation → Phase 47, and DEFER-3 narrow long-term explicit-preference memory → Phase 48. Phase 45 does not relabel them as implemented.
 
+Phase 46 planning trace (2026-07-03): DEFER-1 is being locked as session context repositioning. `session_memories` is same-thread temporary conversational context only, not CWC fallback, reviewed precedent, long-term preference memory, policy/business/approval/action/replay authority, or cross-case durable working state. `DEFER-2 -> Phase 47` and `DEFER-3 -> Phase 48` remain named, unimplemented, and outside Phase 46 scope.
+
 > 三个 DEFER 项在进入本次 phase 的 PLAN.md 时,须在 plan 的 "out of scope / follow-up" 段落原样带上,确保 plan-checker 和 Codex 评审都能看到边界。
 
 ---

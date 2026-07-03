@@ -34,8 +34,8 @@
 | Session memory schema | `src/memory/schemas.py:10` | `SessionSlotV1`、`SessionMemoryView`、`SessionMemoryWriteCandidate` 等 | short-term memory schema | 结构偏 slot continuity，不是 general assistant rolling summary |
 | Session memory repository | `src/memory/repository.py:17` | 读写 `session_memories`，支持 active record、search、CAS update、soft delete | short-term memory persistence | Postgres 是当前 session memory 权威存储 |
 | Session memory service | `src/memory/service.py:29` | TTL、intent compatibility、slot merge、CAS 冲突处理、summary cap | short-term memory logic | 没有 LLM rolling summary；summary 是轻量字符串 |
-| Session precedent search | `src/memory/search.py:15` | 基于 `session_memories` 做 transitional search projection | short-term memory projection | 不是严格 case memory；命名上容易和业务 case precedent 混淆 |
-| Case memory tool | `src/tools/executors/memory.py:32` | `search_case_memory` 包装 session precedent search，返回 `ToolResultV2` | tool / short-term projection | 当前只是 session memory 搜索，不是真正长期 case memory |
+| Session precedent search | `src/memory/search.py:15` | `LegacySessionPrecedentSearchService` 基于 `session_memories` 做 legacy/debug-only read-only projection | legacy short-term projection | 不是 planner-facing case memory；不得支撑生产 `search_case_memory` |
+| Case memory tool | `src/tools/executors/memory.py:32` | `search_case_memory` 由 `MemoryToolExecutor -> CaseMemoryService.retrieve_reviewed(...)` 服务，返回 reviewed case memory `ToolResultV2` | tool / reviewed case memory | planner-facing 工具使用 reviewed case memory；不使用 legacy session precedent search |
 | Long-term memory retrieve | `src/agent/nodes/long_term_memory_retrieve.py:14` | 返回空 `long_term_memory` 和 `case_memory` | long-term memory placeholder | 长期记忆实际未实现 |
 | Investigation node | `src/agent/nodes/investigate.py:141` | 调用业务工具和 policy retrieval，聚合 `business_context`、`policy_evidence`、`tool_results`、refs | working memory / business context | 当前 tool results 进入 AgentState；需要区分 raw result、normalized result、summary |
 | Recommendation node | `src/agent/nodes/generate_recommendation.py:154` | 重新校验 policy evidence 内容，组装 prompt 生成 recommendation | prompt context assembly 局部实现 | 有局部摘要和裁剪，但没有统一 ContextAssembler |
@@ -155,7 +155,7 @@
 2. **缺少 tool raw log**：没有 `tool_calls/tool_results` 权威记录，也没有 raw result ref/hash。
 3. **缺少 rolling thread summary**：`session_memories.session_summary` 太轻，不适合作为完整短期摘要。
 4. **缺少 ContextAssembler**：prompt context 分散在节点里，token budget 和 raw/summary 分工不统一。
-5. **`search_case_memory` 命名容易误导**：当前实现基于 session memories，不是真正 case memory。
+5. **`search_case_memory` 命名历史上容易误导**：当前 planner-facing 实现已由 `CaseMemoryService.retrieve_reviewed(...)` 服务 reviewed case memory；`LegacySessionPrecedentSearchService` 仅是 legacy/debug-only 的 session-derived projection，不是真正 case memory，也不得作为生产工具后端。
 6. **`AgentState` 边界偏宽**：working memory、business runtime copy、trace/debug、approval/action copy 混在同一个 TypedDict。
 7. **audit/log 体系职责需对齐**：`agent_trace_events`、`agent_steps`、`audit_logs`、approval/action events 的权责边界需要明确。
 
@@ -177,4 +177,3 @@ MVP 阶段优先补齐：
 - policy KB 继续作为 versioned knowledge source。
 - approval/action/safety snapshot 继续作为业务状态和审计依据。
 - `agent_trace_events` 继续作为 redacted replay timeline。
-

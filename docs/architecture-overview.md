@@ -63,7 +63,7 @@ MOCA 的目标架构是：面向商家运营与售后协同的企业级 Agent �
 | LangGraph workflow | `src/agent/graph.py` 已有主 workflow：`receive_request`、`classify_intent`、`session_memory_load`、`extract_slots`、`long_term_memory_retrieve`、`investigate`、`generate_recommendation`、`assess_risk_and_approval`、`clarification_gate`、`approval_gate`、`execute_action`、`final_response`。 | `memory-agent/src/memory_agent/graph.py` 展示 tool call 条件分支；`agents-from-scratch-ts/src/email_assistant.ts` 展示 triage -> subgraph；`Human-in-the-Loop-Workflow-LangGraph/src/graph.py` 展示 Command 路由。 | 采用 | 保留 deterministic LangGraph shell；只读调查统一由 `investigate` bounded loop 承担，后续再补 memory_write/trace_close。 | 不采用完全自由循环 agent，也不把参考仓库 email/news workflow 搬入 MOCA。 |
 | Intent classification | `src/agent/intent_policy.py` 使用 `INTENT_DEFINITIONS` 统一声明 ordinary intent taxonomy、required slots、initial route、precedence 和 risk/evidence flags；`src/agent/schemas.py` 定义 `IntentResultV3`；`src/agent/nodes/classify_intent.py` 用 structured output。 | `agents-from-scratch-ts/src/email_assistant.ts` triage 把 email 分成 ignore/respond/notify，用于路由。 | 部分采用 | 继续校准 intent precedence、confidence threshold 和 clarification path。 | 不采用 email 领域的 ignore/respond/notify 作为业务 intent。 |
 | Tool calling | `src/agent/nodes/investigate.py` 通过 `UnifiedToolManager` 调用 business read、policy retrieval、case memory search；`ToolCatalog` 是 descriptor/permission/schema/caller allowlist 的单一入口。 | `memory-agent/src/memory_agent/tools.py` 使用 InjectedToolArg；`agents-from-scratch-ts/src/tools/base.ts` 有中央 tool registry；`agent-inbox` 和 HITL examples 在工具执行前中断。 | 采用 | 采用 graph-controlled bounded tool loop + manager-level allowlist + service facade。 | 不采用模型自由选择任意工具并直接写业务系统。 |
-| Memory read/write | `session_memory_load` 已通过 `src/memory/service.py` + `SessionMemoryRepository` 读取 PostgreSQL-authoritative session memory；`memory_write` 写 session memory；`search_case_memory` 通过 `MemoryToolExecutor -> SessionPrecedentSearchService` 检索 session-derived precedent；`long_term_memory_retrieve` 仍是 empty adapter。 | `memory-agent/src/memory_agent/graph.py` 读取最近 memory 注入 prompt；`langgraph-memory/memory_service/graph.py` 有 delayed extraction、patch/insert 双路径、schema fan-out；`agents-from-scratch-ts/src/email_assistant_hitl_memory.ts` 根据 HITL feedback 更新 memory。 | 采用 | 区分 working memory、workflow checkpoint、session memory、long-term profile memory、case memory、audit/replay；已先实现 Postgres-authoritative session memory，Redis 只可作为可选热缓存。 | 不采用自由 ReAct 写长期记忆；不采用 Pinecone/Fireworks 默认栈；不把历史 case 当政策；不让 Redis 成为权威记忆或 checkpoint。 |
+| Memory read/write | `session_memory_load` 已通过 `src/memory/service.py` + `SessionMemoryRepository` 读取 PostgreSQL-authoritative session memory；`memory_write` 写 session memory；planner-facing `search_case_memory` 通过 `MemoryToolExecutor -> CaseMemoryService.retrieve_reviewed(...)` 检索 reviewed case memory；`LegacySessionPrecedentSearchService` 仅是 legacy/debug-only session-derived projection；`long_term_memory_retrieve` 仍是 empty adapter。 | `memory-agent/src/memory_agent/graph.py` 读取最近 memory 注入 prompt；`langgraph-memory/memory_service/graph.py` 有 delayed extraction、patch/insert 双路径、schema fan-out；`agents-from-scratch-ts/src/email_assistant_hitl_memory.ts` 根据 HITL feedback 更新 memory。 | 采用 | 区分 working memory、workflow checkpoint、session memory、long-term profile memory、case memory、audit/replay；已先实现 Postgres-authoritative session memory，Redis 只可作为可选热缓存。 | 不采用自由 ReAct 写长期记忆；不采用 Pinecone/Fireworks 默认栈；不把历史 case 当政策；不让 Redis 成为权威记忆或 checkpoint。 |
 | Human-in-the-loop approval | `src/agent/nodes/approval_gate.py` 已有 LangGraph `interrupt`；`src/api/routers/approvals.py` 支持 approve/reject resume；`ApprovalRequest`、`ApprovalStep` 已持久化。 | `agent-inbox/README.md` 定义 HumanInterrupt/HumanResponse schema，支持 accept/edit/respond/ignore；`agent-inbox-langgraph-example/src/agent/graph.py` 有 Python 最小示例；`Human-in-the-Loop-Workflow-LangGraph/src/nodes/human_review_node.py` 支持编辑内容后 approve。 | 采用 | 把 MOCA 审批从 approve/reject 扩展到 accept/edit/reject/respond/ignore，并支持多级审批和 SLA。 | 不采用通用 inbox UI 的全部部署假设；不采用布鲁斯天空发布业务。 |
 | Action execution | `src/agent/nodes/execute_action.py` 通过 `UnifiedToolManager` 调用 node-only `create_coupon_grant_draft`；`src/actions/service.py` / `drafts.py` 创建 durable `ActionDraft`，有 idempotency key；README 明确无真实支付/退款/券执行。 | `Human-in-the-Loop-Workflow-LangGraph/src/tools.py` 在 publish 前再次 interrupt；`agent-inbox` 支持 edit/accept action args。 | 采用 | demo action 仍只创建 draft；后续真实外部动作需补 execution/compensation metadata。 | 不采用在 tool 内直接发布/执行外部动作；真实动作前双确认只作为未来高风险场景。 |
 | RAG / Knowledge | `src/knowledge/retrieval.py` 使用 DashScope embedding、pgvector、hybrid rerank、threshold/no-evidence；`src/rag` 只保留 embed/chunk/ingest 等底层 infra。 | `docs/agent-architecture-reference-draft.md` 要求 Knowledge / RAG 是独立能力层。 | 采用 | KnowledgeService facade 管理 evidence contract；Agent 节点不直接接触 embedding/repo/pgvector。 | 不采用把 RAG 当 Agent 内部普通 tool 的长期形态。 |
@@ -95,7 +95,7 @@ MOCA 的目标架构是：面向商家运营与售后协同的企业级 Agent �
 当前 MOCA 部分实现但边界仍不完整：
 
 - Tool contract：`src/tools/{contracts,catalog,manager,validation}.py` 是当前 agent-facing 工具契约和统一分发层；`investigate` 与 `execute_action` 已通过 manager 调用 read/retrieval/action capability。
-- Memory：`src/memory/service.py`、`repository.py`、`schemas.py` 已实现 PostgreSQL-authoritative session memory load/write；`src/memory/search.py` 已实现基于历史 session memory 的 session-derived precedent search，供 `search_case_memory` 过渡使用。`long_term_memory_retrieve` 仍是 empty adapter；Redis hot cache、长期 profile memory、reviewed case memory 独立表仍未实现。
+- Memory：`src/memory/service.py`、`repository.py`、`schemas.py` 已实现 PostgreSQL-authoritative session memory load/write；planner-facing `search_case_memory` 当前通过 `MemoryToolExecutor -> CaseMemoryService.retrieve_reviewed(...)` 读取 reviewed case memory；`src/memory/search.py` 的 `LegacySessionPrecedentSearchService` 仅保留为 legacy/debug-only session-derived projection。`long_term_memory_retrieve` 仍是 empty adapter；Redis hot cache 和长期 profile memory 窄版写入尚未实现。
 - Approval：已有 approve/reject、过期处理、自审批限制、resume、审批 step 记录；尚未有 policy-driven multi-level approval、SLA escalation、accept/edit/respond/ignore。
 - Observability：已有 DB trace 和 API request trace_id；尚未有 OpenTelemetry spans、Prometheus metrics、LLM token/cost 完整记录、RAG/tool/action 细粒度 metrics。
 - Actions：已有 `src/actions/service.py`、`src/actions/drafts.py`、`ActionToolExecutor` 和 node-only action descriptor；尚未有真实 external adapter、compensation/rollback metadata。
@@ -266,7 +266,7 @@ graph TD
 
 - `investigate` 通过 `UnifiedToolManager.descriptors("investigate")` 获取 planner-visible read/retrieval capability view，并通过 `UnifiedToolManager.invoke(...)` 调用工具。
 - `execute_action` 通过 node-only `create_coupon_grant_draft` capability 创建 durable action draft；当前 demo path 不执行真实外部退款、发券或封禁动作。
-- `long_term_memory_retrieve` 是 empty adapter；`search_case_memory` 当前是 session-derived precedent 过渡实现，不等于 reviewed case memory。
+- `long_term_memory_retrieve` 是 empty adapter；planner-facing `search_case_memory` 当前读取 reviewed case memory，不再是 session-derived precedent 过渡实现；legacy session-derived projection 仅保留为 debug-only。
 - `memory_write` 不是当前主 graph 的 registered node；session memory write 属于 response 后续/运行时边界。
 
 当前工具调用边界如下。`UnifiedToolManager` 不是 LangGraph registered node，但它必须在架构图中显式出现，因为它是 agent-facing descriptor、caller allowlist、permission、schema 和 side-effect 检查入口。
@@ -279,7 +279,7 @@ graph LR
     PlannerView --> MemoryExec[MemoryToolExecutor]
     BusinessExec --> BusinessSvc[BusinessToolService]
     KnowledgeExec --> KnowledgeSvc[PolicyKnowledgeService]
-    MemoryExec --> MemorySvc[SessionPrecedentSearchService]
+    MemoryExec --> MemorySvc[CaseMemoryService.retrieve_reviewed]
 
     Execute[execute_action node] --> NodeOnly[UnifiedToolManager\nnode-only view]
     NodeOnly --> ActionExec[ActionToolExecutor]
@@ -295,7 +295,7 @@ graph LR
 | `session_memory_load` | 读取同 thread active slots、summary、unresolved questions | MemoryService session read |
 | `extract_slots` | 提取订单、退款、工单、金额、商家等 slots | LLM structured output / SlotPrompt |
 | `long_term_memory_retrieve` | 预留读取稳定偏好或商家长期模式 | Empty adapter until long-term memory lands |
-| `investigate` | 在 bounded loop 内通过统一工具层只读拉取 business context / policy evidence / session-derived precedent | `UnifiedToolManager` planner-visible view -> business / knowledge / memory executors |
+| `investigate` | 在 bounded loop 内通过统一工具层只读拉取 business context / policy evidence / reviewed case memory precedent | `UnifiedToolManager` planner-visible view -> business / knowledge / memory executors |
 | `generate_recommendation` | 生成处理建议和 proposed_action candidate | LLM structured output / RecommendationPrompt + KnowledgeService citation verification |
 | `assess_risk_and_approval` | 评估风险、审批需求、动作是否可自动草稿 | RiskPolicy / ApprovalPolicy semantics |
 | `clarification_gate` | 生成澄清问题或缺失信息说明 | Clarification policy / Final response template |
@@ -482,9 +482,9 @@ graph TD
 
 - Working memory：当前 run 的工作副本，包含当前输入、临时计划、工具结果、候选答案和节点状态；由 `AgentState`/checkpoint 承载，不是独立 MemoryService 存储。
 - Workflow checkpoint：图执行恢复层，回答“当前 run 从哪里恢复”，包含当前节点、interrupt/approval wait、幂等状态和副作用边界快照；Postgres 是事实源，Redis 只能作为 active-run 热缓存。
-- Session memory：同一 tenant/user/thread 的连续对话，包含 active slots、last intent、轻量 summary、unresolved questions；Postgres `session_memories` + CAS 是事实源，Redis 可选做带 TTL 的 hot cache。
+- Session memory：同一 tenant/user/thread 的连续对话，包含 active slots、last intent、轻量 same-thread summary、unresolved questions、prompt-safe refs/hints；Postgres `session_memories` + CAS 是事实源，Redis 可选做带 TTL 的 hot cache。它只是 same-thread continuity，不是 CWC fallback、reviewed precedent、业务事实、政策证据、审批/动作或 replay truth。
 - Long-term profile memory：跨会话稳定偏好/商家模式，带 scope/source/confidence/TTL/review；Phase 16。
-- Case memory：历史类似 case、处理结果、审批结果、outcome；只能作为 precedent；Phase 16。当前 `search_case_memory` 仅使用 session-derived precedent 过渡实现，不等于 reviewed case memory。
+- Case memory：历史类似 case、处理结果、审批结果、outcome；只能作为 reviewed precedent；planner-facing `search_case_memory` 使用 reviewed case memory。`LegacySessionPrecedentSearchService` 的 session-derived projection 仅是 legacy/debug-only，不等于 reviewed case memory。
 - Audit / replay log：输入、证据、工具调用、审批链、模型版本和 memory write events 的 append-only 解释层；不是 memory，不可由 Redis 替代。
 
 边界：
@@ -493,7 +493,7 @@ graph TD
 - Session memory 只负责同 thread 连续性，不等于 workflow checkpoint；workflow checkpoint 只负责 run 恢复，不等于下一轮对话记忆。
 - Long-term memory 不应每轮写入。
 - Case memory 只能作为 precedent，不能覆盖当前 policy evidence。
-- 当前实现状态：`src/agent/graph.py` 已用 `AsyncPostgresSaver` 编译 graph；`session_memory_load` 通过 `MemoryService` 读取 `session_memories`，`memory_write` 写入同一权威表，`search_case_memory` 可从历史 session memory 检索 session-derived precedent；`long_term_memory_retrieve` 仍是 empty adapter；Redis hot cache、长期 profile memory、reviewed case memory 独立表均尚未实现。
+- 当前实现状态：`src/agent/graph.py` 已用 `AsyncPostgresSaver` 编译 graph；`session_memory_load` 通过 `MemoryService` 读取 `session_memories`，`memory_write` 写入同一权威表；planner-facing `search_case_memory` 通过 `MemoryToolExecutor -> CaseMemoryService.retrieve_reviewed(...)` 检索 reviewed case memory；legacy session-derived projection 仅保留为 debug-only；`long_term_memory_retrieve` 仍是 empty adapter；Redis hot cache 和长期 profile memory 窄版写入尚未实现。
 
 ### 8.6 Approvals / SLA / Policy
 
