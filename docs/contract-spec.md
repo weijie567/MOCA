@@ -1428,7 +1428,7 @@ Memory is layered by semantics, not by storage engine:
 | --- | --- | --- | --- |
 | Working memory | Current run's working copy | current input, temporary plan, tool results, candidate answer, per-node state | LangGraph `AgentState` and checkpoint snapshot; not a separate MemoryService store |
 | Workflow checkpoint | Resume a graph execution after crash/interrupt/approval wait | current node, pending interrupt, idempotency state, side-effect boundary snapshot | PostgreSQL checkpointer/source of truth; Redis may only cache active-run hot state |
-| Session memory | Same-thread continuity across turns | active slots, last intent, lightweight summary, unresolved questions | PostgreSQL `session_memories` with CAS; optional Redis hot cache with TTL and Postgres fallback |
+| Session memory | Same-thread temporary conversational context across turns | slot continuity, last intent, lightweight same-thread summary, unresolved questions, prompt-safe same-thread context refs/hints | PostgreSQL `session_memories` with CAS; optional Redis hot cache with TTL and Postgres fallback |
 | Case Working Context | Current case working state across threads and handoffs | customer request, separated claims and verified facts, missing info, refs, actions taken, pending tasks, next action | PostgreSQL `case_working_contexts` scoped by tenant + `refund_cases.id`, versioned by append-only revisions |
 | Long-term profile memory | Reviewed durable scoped facts/preferences/patterns | user/merchant preferences, stable merchant patterns, durable constraints | PostgreSQL structured rows, optional pgvector retrieval; deferred to Phase 16 |
 | Case memory | Reviewed precedent retrieval | similar historical cases, resolution, approval outcome, final outcome | PostgreSQL + optional pgvector; deferred to Phase 16 |
@@ -1448,9 +1448,15 @@ Workflow checkpoint is a durable execution-recovery contract, not conversation m
 
 ### 13.2 Session memory
 
-同一 tenant + user + thread 内保留短期上下文，用于回答“继续刚才那个退款单”“这个订单呢”等 same-thread continuity。Phase 12 session memory scope is intentionally narrow: slot continuity with safety constraints, unresolved questions, and lightweight session summary.
+同一 tenant + user + thread 内保留短期上下文，用于回答“继续刚才那个退款单”“这个订单呢”等 same-thread continuity。After Case Working Context exists, `session_memories` remains same-thread temporary conversational context only. It is scoped by tenant/user/thread, has no `case_id`, and must not be treated as cross-case state.
 
-Phase 12 session memory MUST NOT implement long-term memory, case memory, memory embeddings, `memory_identity.v1`, tombstones, asynchronous memory extraction, or review workflow. Those belong to Phase 16.
+Allowed session contents are slot continuity, last intent, lightweight same-thread summary, unresolved questions, same-thread recent-message or rolling-summary prompt context, prompt-safe tool summaries, and prompt-safe refs/hints.
+
+Disallowed session contents are cross-case durable working state, CWC fallback, reviewed precedent, durable tenant/user/merchant preference memory, policy body text, policy evidence authority, business fact authority, risk decisions, approval decisions, action authorization, action outcome truth, replay truth, and sensitive raw PII.
+
+`policy_topic_hints`, `prior_policy_mention_refs`, `last_business_context_refs`, and tool summary refs are contextual hints only. They must not create an `EvidenceRefV1`, must not satisfy policy or approval evidence requirements, must not replace fresh business tool reads, and must not be cited as current business facts.
+
+Session memory MUST NOT implement long-term memory, case memory, memory embeddings, `memory_identity.v1`, tombstones, asynchronous memory extraction, or review workflow. Reviewed precedent generation remains Phase 47 scope, and explicit durable preference memory remains Phase 48 scope.
 
 同一 thread/session 内保留：
 
