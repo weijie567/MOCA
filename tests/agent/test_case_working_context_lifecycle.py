@@ -15,10 +15,14 @@ from src.db.models import AgentRun, Base, CaseWorkingContext, Merchant, Order, R
 from src.memory.case_identity import CaseIdentityResult
 from src.memory.case_working_context_lifecycle import (
     CaseWorkingContextLifecycleAdapter,
+    TerminalProjectionResult,
     build_active_cwc_payload,
+    project_terminal_write_candidate,
     skipped_status,
     trusted_case_ref_from_state,
 )
+from src.memory.case_working_context_schemas import CaseWorkingContextWriteCandidate
+from src.memory.context_refs import CaseWorkingContextLifecycleStatusV1
 from tests.conftest import TEST_DATABASE_URL, _ensure_test_database
 
 
@@ -257,6 +261,215 @@ def test_skipped_status_returns_contextual_status_without_implicit_read_or_write
     assert status.reason_code == "skipped_no_case"
     assert status.read_status is None
     assert status.write_status is None
+
+
+def test_terminal_projection_result_contract() -> None:
+    status_ref = skipped_status(reason_code="clarification_only")
+    result = TerminalProjectionResult(candidate=None, status_ref=status_ref)
+
+    assert set(TerminalProjectionResult.__annotations__) == {"candidate", "status_ref"}
+    assert result.candidate is None
+    assert isinstance(result.status_ref, CaseWorkingContextLifecycleStatusV1)
+
+
+def test_project_terminal_write_candidate_returns_eligible_candidate_with_terminal_source_ref() -> None:
+    tenant_id = uuid.uuid4()
+    case_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+
+    projection = project_terminal_write_candidate(
+        state={
+            "user_query": "请帮我看一下这个退款单为什么还没处理",
+            "active_slots": {"issue_type": "refund_status"},
+            "tool_results": [{"tool_result_id": "tool-result-1", "summary": "退款单状态为 reviewing"}],
+        },
+        tenant_id=tenant_id,
+        case_id=case_id,
+        run_id=run_id,
+        expected_version=7,
+        final_response="退款单还在审核中。",
+    )
+
+    assert isinstance(projection, TerminalProjectionResult)
+    assert isinstance(projection.candidate, CaseWorkingContextWriteCandidate)
+    assert projection.status_ref.status == "eligible"
+    assert projection.status_ref.write_status == "candidate_projected"
+    assert projection.status_ref.reason_code == "eligible"
+    assert projection.candidate.tenant_id == tenant_id
+    assert projection.candidate.case_id == case_id
+    assert projection.candidate.updated_by_run_id == run_id
+    assert projection.candidate.expected_version == 7
+    assert projection.candidate.source_ref.source_type == "run_auto_terminal"
+    assert projection.candidate.source_ref.run_id == str(run_id)
+    assert projection.candidate.source_ref.agent_run_id == str(run_id)
+    assert projection.candidate.source_ref.business_object_type == "refund_case"
+    assert projection.candidate.source_ref.business_object_id == str(case_id)
+
+
+def test_project_terminal_write_candidate_skips_clarification_only_state() -> None:
+    projection = project_terminal_write_candidate(
+        state={
+            "user_query": "这个怎么处理？",
+            "clarification_request": {"question": "请提供退款单号"},
+        },
+        tenant_id=uuid.uuid4(),
+        case_id=uuid.uuid4(),
+        run_id=uuid.uuid4(),
+        expected_version=None,
+        final_response="请先提供退款单号。",
+    )
+
+    assert projection.candidate is None
+    assert projection.status_ref.status == "skipped"
+    assert projection.status_ref.write_status == "skipped"
+    assert projection.status_ref.reason_code == "clarification_only"
+
+
+def test_project_terminal_write_candidate_caps_customer_request_and_issue_type() -> None:
+    issue_type = "refund_status_" + ("x" * 80)
+    query = "用户描述" * 120
+
+    projection = project_terminal_write_candidate(
+        state={
+            "user_query": query,
+            "active_slots": {"issue_type": issue_type},
+            "tool_results": [{"summary": "退款单状态为 reviewing"}],
+        },
+        tenant_id=uuid.uuid4(),
+        case_id=uuid.uuid4(),
+        run_id=uuid.uuid4(),
+        expected_version=None,
+        final_response="退款单还在审核中。",
+    )
+
+    assert projection.candidate is not None
+    assert projection.candidate.content.customer_request == query[:500]
+    assert projection.candidate.content.issue_type == issue_type[:64]
+
+    fallback = project_terminal_write_candidate(
+        state={
+            "user_query": "查询退款进度",
+            "primary_intent": "refund_status_from_primary_intent",
+            "tool_results": [{"summary": "退款单状态为 reviewing"}],
+        },
+        tenant_id=uuid.uuid4(),
+        case_id=uuid.uuid4(),
+        run_id=uuid.uuid4(),
+        expected_version=None,
+        final_response="退款单还在审核中。",
+    )
+
+    assert fallback.candidate is not None
+    assert fallback.candidate.content.issue_type == "refund_status_from_primary_intent"
+
+
+def test_project_terminal_write_candidate_uses_only_prompt_safe_tool_summaries() -> None:
+    projection = project_terminal_write_candidate(
+        state={
+            "user_query": "查询退款进度",
+            "tool_results": [
+                {
+                    "tool_result_id": "summary-tool",
+                    "summary": "退款单状态为 reviewing",
+                    "data": {"unsafe": "raw data should not leak"},
+                    "raw_payload": "raw_payload should not leak",
+                },
+                {
+                    "tool_call_id": "prompt-tool",
+                    "prompt_summary": "订单已签收",
+                    "raw_result": "raw_result should not leak",
+                },
+                {
+                    "tool_result_id": "tool-summary",
+                    "tool_summary": "商家风险等级低",
+                    "raw_payload": "policy raw body should not leak",
+                },
+            ],
+        },
+        tenant_id=uuid.uuid4(),
+        case_id=uuid.uuid4(),
+        run_id=uuid.uuid4(),
+        expected_version=None,
+        final_response="退款单还在审核中。",
+    )
+
+    assert projection.candidate is not None
+    assert [fact.text for fact in projection.candidate.content.verified_facts] == [
+        "退款单状态为 reviewing",
+        "订单已签收",
+        "商家风险等级低",
+    ]
+    projected = repr(projection.candidate.content.model_dump(mode="json"))
+    assert "raw data should not leak" not in projected
+    assert "raw_payload should not leak" not in projected
+    assert "raw_result should not leak" not in projected
+    assert "policy raw body should not leak" not in projected
+
+
+def test_project_terminal_write_candidate_policy_refs_use_identifiers_only() -> None:
+    projection = project_terminal_write_candidate(
+        state={
+            "user_query": "查询退款政策",
+            "tool_results": [{"summary": "退款单状态为 reviewing"}],
+            "rag_context_bundle": {
+                "evidence_refs": [
+                    {
+                        "doc_key": "refund-policy",
+                        "chunk_id": "chunk-001",
+                        "policy_version": "2026-07",
+                        "text": "full policy evidence text should not leak",
+                    },
+                    {
+                        "doc_id": "refund-sop",
+                        "chunk_id": "chunk-002",
+                        "version": "v3",
+                        "evidence_text": "SOP evidence body should not leak",
+                    },
+                ]
+            },
+        },
+        tenant_id=uuid.uuid4(),
+        case_id=uuid.uuid4(),
+        run_id=uuid.uuid4(),
+        expected_version=None,
+        final_response="按政策继续审核。",
+    )
+
+    assert projection.candidate is not None
+    assert [item.model_dump() for item in projection.candidate.content.policy_refs] == [
+        {"doc_id": "refund-policy", "chunk_id": "chunk-001", "version": "2026-07"},
+        {"doc_id": "refund-sop", "chunk_id": "chunk-002", "version": "v3"},
+    ]
+    projected = repr(projection.candidate.content.model_dump(mode="json"))
+    assert "full policy evidence text should not leak" not in projected
+    assert "SOP evidence body should not leak" not in projected
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("用户留下手机号请联系", "prohibited"),
+        ("merchant password=abc123", "prohibited"),
+        ("请联系 13800138000", "sensitive"),
+        ("access_token: abc123", "sensitive"),
+        ("普通退款咨询", "none"),
+    ],
+)
+def test_project_terminal_write_candidate_classifies_pii_deterministically(text: str, expected: str) -> None:
+    projection = project_terminal_write_candidate(
+        state={
+            "user_query": text,
+            "tool_results": [{"summary": "退款单状态为 reviewing"}],
+        },
+        tenant_id=uuid.uuid4(),
+        case_id=uuid.uuid4(),
+        run_id=uuid.uuid4(),
+        expected_version=None,
+        final_response="退款单还在审核中。",
+    )
+
+    assert projection.candidate is not None
+    assert projection.candidate.pii_classification == expected
 
 
 @pytest.mark.asyncio
