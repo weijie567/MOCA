@@ -28,7 +28,7 @@ Code implementation is delegated to Codex per the project workflow; Claude is pl
 - [x] **Phase 43: Intent Recognition Multi-Intent Tier A** - Preserve multi-intent utterances as a bounded `TaskPlan`, process only s1 in the current turn, and surface all later steps as deferred confirmations without changing the single-intent route contract (IDR-02). Plan progress: 3/3 complete.
 - [x] **Phase 44: Memory Layering — Case Working Context + thread-case Many-to-Many** - Add durable CWC storage and explicit thread-case M:N association without renaming existing memory tables (MEM-01, MEM-02). Plan progress: 4/4 complete.
 - [x] **Phase 45: Memory Lifecycle Wiring for Case Working Context** - Wire CWC active read/link/writeback into real agent lifecycle while preserving contextual-only authority (MEM-01, MEM-02). Plan progress: 4/4 complete.
-- [ ] **Phase 46: Session Context Repositioning** - Re-scope thread-level session memory after CWC so it remains short-lived conversational context, not cross-case state (MEM-03). Plan progress: 0/3 planned.
+- [ ] **Phase 46: Session Context Repositioning** - Re-scope thread-level session memory after CWC so it remains short-lived conversational context, not cross-case state (MEM-03). Plan progress: 3/3 planned.
 - [ ] **Phase 47: Case Precedent Repositioning and Closed-Case Candidate Generation** - Re-scope `case_memories` as reviewed precedent and add closed-case candidate generation from CWC into governed review flow (MEM-04). Plan progress: 0 plans.
 - [ ] **Phase 48: Narrow Long-Term Explicit Preference Memory** - Re-scope `long_term_memories` to explicit tenant preference memory only, without generic automatic run summarization (MEM-05). Plan progress: 0 plans.
 
