@@ -11649,3 +11649,41 @@ Phase 46 收尾检查 SECURITY artifact 时运行 `ls .planning/phases/46-sessio
 
 - `/Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs`
 - `/Users/ming/.codex/get-shit-done/bin/lib/state.cjs`
+
+## 2026-07-03 — Phase 47 plan-phase 可选 AI/UI spec 检查误用未匹配 glob
+
+### 问题现象
+
+执行 Phase 47 plan-phase 前置检查时，尝试用 `ls .planning/phases/47-case-precedent-repositioning-and-closed-case-candidate-gener/*-AI-SPEC.md` 和同目录 `*-UI-SPEC.md` 判断可选 spec 是否存在。由于当前 zsh 开启 `nomatch` 行为，glob 无匹配时命令在 shell 层直接报错 `zsh: no matches found`，不能当成“文件不存在”的干净判断。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录运行未加保护的可选 glob：
+
+`ls .planning/phases/47-case-precedent-repositioning-and-closed-case-candidate-gener/*-AI-SPEC.md`
+
+或：
+
+`ls .planning/phases/47-case-precedent-repositioning-and-closed-case-candidate-gener/*-UI-SPEC.md`
+
+### 关键证据或命令
+
+- 报错：`zsh: no matches found: .planning/phases/47-case-precedent-repositioning-and-closed-case-candidate-gener/*-AI-SPEC.md`
+- 报错：`zsh: no matches found: .planning/phases/47-case-precedent-repositioning-and-closed-case-candidate-gener/*-UI-SPEC.md`
+
+### 当前判断 / 根因
+
+这是 shell glob 行为问题，不是 Phase 47 artifact 缺失导致的阻塞。GSD workflow 文档里的 `ls "${PHASE_DIR}"/*-AI-SPEC.md 2>/dev/null` 在 zsh 交互语义下不会走到 `2>/dev/null`，因为 glob expansion 已先失败。
+
+### 已做处理
+
+后续可选文件检查改用 `find ... -name '*-AI-SPEC.md' -print -quit` / `find ... -name '*-UI-SPEC.md' -print -quit` 或显式启用兼容 glob 行为，不再把未匹配 glob 错误当成 Phase 47 阻塞。
+
+### 剩余问题
+
+无当前 Phase 47 阻塞。Phase 47 无 UI 指标；AI-SPEC 未提供，按 plan-phase gate 作为非阻塞提醒继续。
+
+### 下次继续排查入口
+
+- `/Users/ming/.codex/get-shit-done/workflows/plan-phase.md`
+- `.planning/phases/47-case-precedent-repositioning-and-closed-case-candidate-gener/`
