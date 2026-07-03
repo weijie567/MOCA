@@ -11721,3 +11721,37 @@ Phase 47 plan-checker 通过后，执行 `UV_CACHE_DIR=/tmp/uv-cache uv run gsd-
 - `/Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs`
 - `UV_CACHE_DIR=/tmp/uv-cache uv run gsd-sdk query state.planned-phase ...`
 - `.planning/STATE.md`
+
+## 2026-07-03 — Phase 47 `state.begin-phase` named args 解析错位并写坏 STATE
+
+### 问题现象
+
+Phase 47 execute-phase 初始化时，执行 `UV_CACHE_DIR=/tmp/uv-cache uv run gsd-sdk query state.begin-phase --phase 47 --name "Case Precedent Repositioning and Closed-Case Candidate Generation" --plans 4` 返回成功样式 JSON，但把 named args 当作 positional args 解析，随后将 `.planning/STATE.md` 写成 `Phase --phase` / `Plan: 1 of --name`。
+
+### 如何检测 / 复现
+
+在 MOCA 仓库根目录执行上述 `state.begin-phase` 命令，然后读取 `.planning/STATE.md` 的 frontmatter 和 `## Current Position`。
+
+### 关键证据或命令
+
+- 命令返回：`{"phase": "--phase", "name": "47", "plan_count": "--name"}`
+- `git diff -- .planning/STATE.md` 显示主状态被改为 `Current focus: Phase --phase — 47`、`Phase: --phase (47) — EXECUTING`、`Plan: 1 of --name`。
+- `node /Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs state validate --raw` 仍返回 valid，说明 schema 校验未捕获该语义错位。
+
+### 当前判断 / 根因
+
+当前 `state.begin-phase` query handler 与 workflow 文档的 named-args 调用格式不兼容；它按 positional args 读取参数并将 flag 名写进 STATE。
+
+### 已做处理
+
+手动把 `.planning/STATE.md` 修正为 `Phase: 47 — EXECUTING`、`Plan: 1 of 4`、`Status: Executing Phase 47`，并保留 frontmatter `status: executing`。
+
+### 剩余问题
+
+无当前 Phase 47 阻塞。后续执行中避免再次使用 named-args 形式调用 `state.begin-phase`。
+
+### 下次继续排查入口
+
+- `UV_CACHE_DIR=/tmp/uv-cache uv run gsd-sdk query state.begin-phase ...`
+- `/Users/ming/.codex/get-shit-done/workflows/execute-phase.md`
+- `.planning/STATE.md`

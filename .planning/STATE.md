@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
-status: planning
+status: executing
 stopped_at: Phase 47 planned; ready to execute
-last_updated: "2026-07-03T12:58:08.230Z"
-last_activity: 2026-07-03
+last_updated: "2026-07-03T13:36:58.199Z"
+last_activity: 2026-07-03 -- Phase 47 execution started
 progress:
   total_phases: 12
   completed_phases: 10
@@ -21,7 +21,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-03)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v2.1 Core Subsystem Hardening — Phase 47 planned and checker-passed; ready to execute case precedent repositioning.
+**Current focus:** v2.1 Core Subsystem Hardening — executing Phase 47 case precedent repositioning.
 
 ## Rescope note (2026-07-02)
 
@@ -30,10 +30,10 @@ See: `.planning/PROJECT.md` (updated 2026-07-03)
 
 ## Current Position
 
-Phase: 47
-Plan: 47-01 next
-Status: Ready to execute
-Last activity: 2026-07-03
+Phase: 47 — EXECUTING
+Plan: 1 of 4
+Status: Executing Phase 47
+Last activity: 2026-07-03 -- Phase 47 execution started
 Next: Execute Phase 47.
 
 Progress: [█████████░] 88%
