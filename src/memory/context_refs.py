@@ -37,6 +37,20 @@ class ReviewedMemoryRef(BaseModel):
     prompt_safe: bool = True
 
 
+class CaseWorkingContextRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["case_working_context_ref.v1"] = "case_working_context_ref.v1"
+    authority_class: Literal["contextual_only"] = "contextual_only"
+    tenant_id: str
+    case_id: str
+    memory_id: str
+    version: int = Field(gt=0)
+    source_ref: dict[str, Any] = Field(default_factory=dict)
+    updated_by_run_id: str | None = None
+    prompt_safe: bool = True
+
+
 class SessionContextLoadStatusV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -69,6 +83,26 @@ class ReviewedMemoryContextRetrieveStatusV1(BaseModel):
     filter_reasons: list[str] = Field(default_factory=list)
     retrieved_refs: list[ReviewedMemoryRef] = Field(default_factory=list)
     fallback_reason: str | None = None
+
+
+class CaseWorkingContextLifecycleStatusV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["case_working_context_lifecycle_status.v1"] = (
+        "case_working_context_lifecycle_status.v1"
+    )
+    authority_class: Literal["contextual_only"] = "contextual_only"
+    status: str
+    resolve_status: str | None = None
+    link_status: str | None = None
+    read_status: str | None = None
+    write_status: str | None = None
+    reason_code: str | None = None
+    filter_reasons: list[str] = Field(default_factory=list)
+    tenant_id: str | None = None
+    case_id: str | None = None
+    run_id: str | None = None
+    raw_case_ref: str | None = None
 
 
 class ReviewedMemoryContextBundle(BaseModel):
@@ -123,6 +157,8 @@ class MemoryContextBundle(BaseModel):
     case_items: list[dict[str, Any]] = Field(default_factory=list)
     session_status_ref: SessionContextLoadStatusV1 | None = None
     reviewed_status_ref: ReviewedMemoryContextRetrieveStatusV1 | None = None
+    case_working_context: dict[str, Any] | None = None
+    case_working_context_status_ref: CaseWorkingContextLifecycleStatusV1 | None = None
 
 
 class MemoryWriteDecisionV2(BaseModel):
