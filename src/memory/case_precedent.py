@@ -20,6 +20,7 @@ PRECEDENT_CAVEAT_TEXT = (
     "Contextual precedent only; not policy evidence, current business fact authority, approval authorization, "
     "action authorization, action outcome truth, audit truth, or replay truth."
 )
+PII_BLOCKED_PRECEDENT_TEXT = "Closed refund case precedent candidate blocked by PII classification."
 _FORBIDDEN_OUTPUT_MARKERS = (
     "raw_payload",
     "raw_tool",
@@ -161,17 +162,30 @@ def _project_closed_case_candidate(
     scope_id: str,
 ) -> CaseMemoryWriteCandidate | ClosedCasePrecedentGenerationResult:
     pii_classification = str(getattr(cwc_row, "pii_classification", "none") or "none")
-    if pii_classification in _PII_BLOCKING_CLASSIFICATIONS:
-        return ClosedCasePrecedentGenerationResult(
-            status="skipped",
-            reason_code="pii_blocked",
-            scope_type=scope_type,
-            scope_id=scope_id,
-        )
-
     policy_refs = _project_policy_refs(content)
     policy_family = policy_refs[0]["doc_key"] if policy_refs else None
     policy_version = policy_refs[0]["policy_version"] if policy_refs else None
+    if pii_classification in _PII_BLOCKING_CLASSIFICATIONS:
+        return CaseMemoryWriteCandidate(
+            tenant_id=request.tenant_id,
+            run_id=request.run_id,
+            scope_type=scope_type,  # type: ignore[arg-type]
+            scope_id=scope_id,
+            case_type=_bounded_text(content.issue_type, 64) or "refund",
+            summary=PII_BLOCKED_PRECEDENT_TEXT,
+            excerpt=PII_BLOCKED_PRECEDENT_TEXT,
+            applicability="Blocked before persistence because source CWC PII classification is not prompt-safe.",
+            outcome=None,
+            caveats=PRECEDENT_CAVEAT_TEXT,
+            source_type="closed_case_cwc_candidate",
+            source_ref=_closed_case_source_ref(request=request, cwc_row=cwc_row, policy_version=policy_version),
+            policy_family=policy_family,
+            policy_version=policy_version,
+            policy_refs=policy_refs,
+            embedding=None,
+            pii_classification=pii_classification,  # type: ignore[arg-type]
+        )
+
     case_type = _bounded_text(content.issue_type, 64) or "refund"
     summary = _bounded_text(f"Closed refund case precedent: {case_type}.", 4000)
     excerpt = _bounded_text("\n".join(_projection_excerpt_lines(content)), 1500)

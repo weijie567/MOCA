@@ -12,6 +12,7 @@ from src.db.models import AgentRun, CaseMemory, CaseWorkingContext, MemoryWriteE
 from src.memory.case_working_context import dehydrate_content
 from src.memory.case_precedent import (
     TERMINAL_REFUND_CASE_STATUSES,
+    PII_BLOCKED_PRECEDENT_TEXT,
     PRECEDENT_CAVEAT_TEXT,
     ClosedCasePrecedentGenerationInput,
     ClosedCasePrecedentGenerationResult,
@@ -506,7 +507,7 @@ def test_projection_uses_fixed_caveat_and_excludes_raw_payload_markers(seeded_se
 @pytest.mark.parametrize("pii_classification", ["sensitive", "prohibited"])
 def test_projection_blocks_sensitive_or_prohibited_cwc_pii(seeded_session: dict, pii_classification: str) -> None:
     request = _request(seeded_session)
-    result = _project_closed_case_candidate(
+    candidate = _project_closed_case_candidate(
         request=request,
         content=_content_with_projection_fields(request.case_id),
         cwc_row=_cwc_projection_row(pii_classification=pii_classification),
@@ -514,6 +515,7 @@ def test_projection_blocks_sensitive_or_prohibited_cwc_pii(seeded_session: dict,
         scope_id=str(seeded_session["merchant"].id),
     )
 
-    assert isinstance(result, ClosedCasePrecedentGenerationResult)
-    assert result.status == "skipped"
-    assert result.reason_code == "pii_blocked"
+    assert isinstance(candidate, CaseMemoryWriteCandidate)
+    assert candidate.summary == PII_BLOCKED_PRECEDENT_TEXT
+    assert candidate.excerpt == PII_BLOCKED_PRECEDENT_TEXT
+    assert candidate.pii_classification == pii_classification
