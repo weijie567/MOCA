@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
-status: planning
+status: executing
 stopped_at: Phase 44 complete; ready to plan Phase 45 memory lifecycle wiring
-last_updated: "2026-07-03T04:03:48.386Z"
-last_activity: "2026-07-03 -- Phase 44 delivered CWC schema/repository/service, thread-case M:N, contract alignment, clean review, and 15/15 verification pass"
+last_updated: "2026-07-03T05:03:44.240Z"
+last_activity: 2026-07-03 -- Phase 45 execution started
 progress:
   total_phases: 9
   completed_phases: 8
@@ -21,7 +21,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v2.1 Core Subsystem Hardening — Phase 44 memory layering complete; next likely item is Phase 45 memory lifecycle wiring for graph run-completion auto-update/read-active hooks.
+**Current focus:** Phase 45 — memory-lifecycle-wiring-for-case-working-context
 
 ## Rescope note (2026-07-02)
 
@@ -30,10 +30,10 @@ See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 ## Current Position
 
-Phase: 44 (Memory Layering — Case Working Context + thread-case Many-to-Many) — COMPLETE
-Plan: 44-01 through 44-04 complete
-Status: Ready to plan Phase 45 memory lifecycle wiring
-Last activity: 2026-07-03 -- Phase 44 delivered CWC schema/repository/service, thread-case M:N, contract alignment, clean review, and 15/15 verification pass
+Phase: 45 (memory-lifecycle-wiring-for-case-working-context) — EXECUTING
+Plan: 1 of 4
+Status: Executing Phase 45
+Last activity: 2026-07-03 -- Phase 45 execution started
 Next: Plan Phase 45 memory lifecycle wiring if continuing the memory subsystem: graph run-completion auto-update, read-active consumer wiring, and real run/staff caller integration.
 
 Progress: [██████████] 100%
