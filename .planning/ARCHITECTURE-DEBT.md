@@ -479,3 +479,31 @@
 
 **剩余风险**
 - ⚠️ 本 plan 只完成 trusted seam 与 pure projection；尚未调用 `CaseMemoryService.submit_case_memory_candidate(...)` 写入 `case_memories` / `memory_write_events`。候选提交、dedupe、tombstone、pending review visibility 属于 `47-03`；metadata/text reviewed retrieval 与 tool/reviewed-context stability 属于 `47-04`。
+
+## Phase 47 Plan 03 — closed-case CWC candidate governed write lifecycle ✅⚠️
+
+**问题 / 根因**
+- 47-02 已能从 trusted terminal CWC 生成 `CaseMemoryWriteCandidate`，但还未提交到 `CaseMemoryService.submit_case_memory_candidate(...)`；如果后续实现直接插入 `case_memories` 或自建事件，会绕过已有 review-required、PII block、duplicate/tombstone、`memory_write_events` 与 pending review API 语义。
+- 47-02 对 `sensitive/prohibited` CWC PII 是本地 skip，缺少现有 case-memory service 的 skip event，可观测性与普通 memory write policy 不一致。
+
+**影响**
+- 生成的 closed-case precedent candidate 可能绕过 reviewer governance 或缺少 audit trail；重复 close/CWC source identity 可能产生重复候选；PII block 路径如果没有 service event，后续排查无法和其他 memory write skip 行为对齐。
+
+**修复**
+- `ClosedCasePrecedentService.generate_closed_case_precedent_candidate(...)` 对 accepted terminal projection 只通过 `self.case_memory_service.submit_case_memory_candidate(candidate)` 持久化，不直接构造 `CaseMemory`，不调用 repository insert，不创建第二套 audit/review queue。
+- `source_ref_json` 使用既有 allowed keys：`source_type/run_id/agent_run_id/event_id/business_object_type/business_object_id/outcome_id/policy_version`；`event_id` 固定为 `refund-case-close:{case_id}:{close_event_id}`，`outcome_id` 固定为 `cwc:{cwc_row.id}:v{cwc_row.version}`。policy refs 保持 `doc_key/chunk_id/policy_version`，不持久化 CWC 的 `doc_id/version` key。
+- `sensitive/prohibited` CWC PII 改为构造固定非敏感文本 `CaseMemoryWriteCandidate`，携带原 PII classification 提交给 `CaseMemoryService`，由既有 service 返回 `skipped/pii_blocked` 并写入 skip event，不插入 `case_memories` row。
+- 新增 integration coverage：terminal close writes one `needs_review` row + event；duplicate same source/content skip；不同 close event 但相同内容按 `duplicate_active_identity` skip；CWC version/content 改变可生成新候选；pending-review visible、reviewed retrieval invisible until approval、approval 后 retrieval 返回并保留 mapped policy refs；memory review API 可处理 `closed_case_cwc_candidate` rows。
+
+**证据**
+- Phase / plan：`47-03`
+- Commits：`dde8fe9`（submit through service）、`7cc0179`（PII skip / dedupe lifecycle）、`1837f81`（approval-gated review lifecycle tests）、`9c6a319`（Ruff cleanup），TDD red commits `b534821` / `14def65`
+- 文件：`src/memory/case_precedent.py`、`tests/memory/test_case_precedent_generation.py`、`tests/test_memory_review_api.py`
+
+**验证**
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_case_precedent_generation.py -x -q` → `18 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_case_precedent_generation.py tests/memory/test_case_memory_retrieval.py tests/test_memory_review_api.py -q` → `33 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/memory/case_precedent.py tests/memory/test_case_precedent_generation.py tests/test_memory_review_api.py` → pass
+
+**剩余风险**
+- ⚠️ 47-03 已关闭 governed write/review/audit/dedupe/PII skip lifecycle；metadata/text reviewed retrieval breadth、planner-facing `search_case_memory` / reviewed-context stability、docs/DEFER-3/final validation 仍属于 `47-04`，不要提前标记 MEM-04 phase-complete。
