@@ -388,16 +388,18 @@ Source pattern and authority-boundary claim: [VERIFIED: tests/agent/test_memory_
 |---|-------|---------|---------------|
 | — | No `[ASSUMED]` claims were used. | — | — |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should stale non-normative docs be fully corrected in Phase 46 or merely annotated as historical?** [VERIFIED: docs/current-implementation-map.md] [VERIFIED: docs/architecture-overview.md]
    - What we know: Both stale docs still describe `search_case_memory` as session-derived, while current code uses `CaseMemoryService`. [VERIFIED: docs/current-implementation-map.md] [VERIFIED: docs/architecture-overview.md] [VERIFIED: src/tools/executors/memory.py]
    - What's unclear: Whether those docs are actively maintained planning inputs or historical references. [VERIFIED: docs/current-implementation-map.md] [VERIFIED: docs/architecture-overview.md]
    - Recommendation: Update or annotate them in `46-01` because leaving contradictory docs increases planner risk. [VERIFIED: AGENTS.md]
+   - RESOLVED: Accepted outcome is that stale non-normative docs will be updated or annotated in `46-01`; leaving contradictory production wording is not accepted.
 2. **Should Phase 46 inspect live `session_memories` rows for disallowed historical content?** [VERIFIED: .planning/phases/46-session-context-repositioning/46-CONTEXT.md]
    - What we know: The schema and write path do not require migration by default. [VERIFIED: src/db/models.py] [VERIFIED: src/memory/write_service.py]
    - What's unclear: This research did not sample a running production/staging database. [VERIFIED: environment audit]
    - Recommendation: Do not block planning on row sampling; add a compatibility note that migration requires separate proof and review. [VERIFIED: .planning/phases/46-session-context-repositioning/46-CONTEXT.md]
+   - RESOLVED: Accepted outcome is that Phase 46 planning does not block on live `session_memories` row sampling; any migration or cleanup from live row content requires separate proof/review outside this phase unless execution uncovers a concrete local violation.
 
 ## Environment Availability
 
