@@ -49,6 +49,7 @@ class CaseWorkingContextLifecycleResult:
     case_id: uuid.UUID | None
     case_working_context: dict[str, Any] | None
     status_ref: CaseWorkingContextLifecycleStatusV1
+    write_result: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -322,9 +323,11 @@ class CaseWorkingContextLifecycleAdapter:
             )
 
         write_status = str(service_result.status)
+        write_result = _service_write_result_dict(service_result)
         return CaseWorkingContextLifecycleResult(
             case_id=case_id,
             case_working_context=None,
+            write_result=write_result,
             status_ref=lifecycle_status(
                 status="completed" if write_status == "written" else "skipped",
                 resolve_status=case_identity.status,
@@ -837,6 +840,18 @@ def _terminal_status_with_context(
         run_id=run_id,
         raw_case_ref=raw_case_ref,
     )
+
+
+def _service_write_result_dict(service_result: Any) -> dict[str, Any]:
+    memory_id = getattr(service_result, "memory_id", None)
+    event_id = getattr(service_result, "event_id", None)
+    return {
+        "status": str(getattr(service_result, "status", "")),
+        "reason_code": str(getattr(service_result, "reason_code", "")),
+        "memory_id": str(memory_id) if memory_id is not None else None,
+        "version": getattr(service_result, "version", None),
+        "event_id": str(event_id) if event_id is not None else None,
+    }
 
 
 def lifecycle_status(

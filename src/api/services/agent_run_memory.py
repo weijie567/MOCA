@@ -11,6 +11,10 @@ from src.agent.nodes.memory_write import memory_write
 from src.conversation.repository import ConversationRepository
 from src.conversation.service import ConversationService
 from src.db.models import AgentRun, User
+from src.memory.case_working_context_lifecycle import (
+    CaseWorkingContextLifecycleAdapter,
+    CaseWorkingContextLifecycleResult,
+)
 from src.memory.write_isolation import run_memory_side_effect_in_isolated_session
 from src.memory.thread_summary import ThreadRollingSummaryService
 
@@ -29,11 +33,19 @@ class AgentRunMemoryFinalizeResult:
     thread_summary_id: str | None
     memory_write_status: str
     memory_write_result: dict[str, Any]
+    case_working_context_status: str
+    case_working_context_result: dict[str, Any]
     trace_steps: list[dict[str, Any]]
 
 
 @dataclass(frozen=True)
 class TerminalMemoryWriteExecution:
+    result: dict[str, Any]
+    duration_ms: int
+
+
+@dataclass(frozen=True)
+class TerminalCaseWorkingContextWriteExecution:
     result: dict[str, Any]
     duration_ms: int
 
@@ -59,6 +71,8 @@ async def finalize_completed_agent_run_memory(
             thread_summary_id=None,
             memory_write_status="skipped",
             memory_write_result={"status": "skipped", "reason_code": "not_completed_path"},
+            case_working_context_status="skipped",
+            case_working_context_result={"status": "skipped", "reason_code": "not_completed_path"},
             trace_steps=[],
         )
 
@@ -92,6 +106,15 @@ async def finalize_completed_agent_run_memory(
     )
     memory_write_result = memory_write_execution.result
     memory_write_status = _canonical_memory_write_status(memory_write_result)
+    case_working_context_execution = await _run_terminal_case_working_context_write(
+        session=session,
+        run=run,
+        user=user,
+        final_state=final_state,
+        final_response=str(final_response),
+    )
+    case_working_context_result = case_working_context_execution.result
+    case_working_context_status = _canonical_case_working_context_status(case_working_context_result)
     trace_step = _trace_step(
         started_at=started_at,
         assistant_message_id=str(assistant_message.message_id),
@@ -99,6 +122,9 @@ async def finalize_completed_agent_run_memory(
         memory_write_status=memory_write_status,
         memory_write_result=memory_write_result,
         memory_write_duration_ms=memory_write_execution.duration_ms,
+        case_working_context_status=case_working_context_status,
+        case_working_context_result=case_working_context_result,
+        case_working_context_duration_ms=case_working_context_execution.duration_ms,
     )
     return AgentRunMemoryFinalizeResult(
         status="completed" if memory_write_status == "completed" else memory_write_status,
@@ -106,6 +132,8 @@ async def finalize_completed_agent_run_memory(
         thread_summary_id=str(thread_summary.id) if thread_summary is not None else None,
         memory_write_status=memory_write_status,
         memory_write_result=memory_write_result,
+        case_working_context_status=case_working_context_status,
+        case_working_context_result=case_working_context_result,
         trace_steps=[trace_step],
     )
 
@@ -168,6 +196,62 @@ async def _run_terminal_memory_write(
     )
 
 
+async def _run_terminal_case_working_context_write(
+    *,
+    session: AsyncSession,
+    run: AgentRun,
+    user: User,
+    final_state: dict[str, Any],
+    final_response: str,
+) -> TerminalCaseWorkingContextWriteExecution:
+    started = perf_counter()
+    try:
+        lifecycle_result = await CaseWorkingContextLifecycleAdapter().write_after_terminal_success(
+            session=session,
+            tenant_id=run.tenant_id,
+            user_id=user.id,
+            thread_id=run.thread_id,
+            run_id=run.id,
+            final_state=final_state,
+            final_response=final_response,
+        )
+    except TimeoutError:
+        return TerminalCaseWorkingContextWriteExecution(
+            result={
+                "status": "error",
+                "reason_code": "case_working_context_write_timeout",
+                "error_type": "TimeoutError",
+            },
+            duration_ms=_duration_ms(started),
+        )
+    except Exception as exc:
+        return TerminalCaseWorkingContextWriteExecution(
+            result={
+                "status": "error",
+                "reason_code": "case_working_context_write_failed",
+                "error_type": type(exc).__name__,
+            },
+            duration_ms=_duration_ms(started),
+        )
+
+    return TerminalCaseWorkingContextWriteExecution(
+        result=_case_working_context_result_dict(lifecycle_result),
+        duration_ms=_duration_ms(started),
+    )
+
+
+def _case_working_context_result_dict(result: CaseWorkingContextLifecycleResult) -> dict[str, Any]:
+    if result.write_result is not None:
+        return dict(result.write_result)
+    status_ref = result.status_ref
+    return {
+        "status": status_ref.write_status or status_ref.status,
+        "reason_code": status_ref.reason_code,
+        "memory_id": None,
+        "version": None,
+    }
+
+
 def _memory_state(
     *,
     run: AgentRun,
@@ -205,6 +289,13 @@ def _canonical_memory_write_status(memory_write_result: dict[str, Any]) -> str:
     return "failed"
 
 
+def _canonical_case_working_context_status(case_working_context_result: dict[str, Any]) -> str:
+    status = str(case_working_context_result.get("status") or "")
+    if status in {"written", "blocked", "conflict", "skipped", "error"}:
+        return status
+    return "error"
+
+
 def _trace_step(
     *,
     started_at: str,
@@ -213,6 +304,9 @@ def _trace_step(
     memory_write_status: str,
     memory_write_result: dict[str, Any],
     memory_write_duration_ms: int,
+    case_working_context_status: str,
+    case_working_context_result: dict[str, Any],
+    case_working_context_duration_ms: int,
 ) -> dict[str, Any]:
     return {
         "node": FINALIZER_NODE,
@@ -231,6 +325,11 @@ def _trace_step(
             "fallback_reason": memory_write_result.get("fallback_reason"),
             "pii_decision": memory_write_result.get("decision"),
             "pii_classification": memory_write_result.get("pii_classification"),
+            "case_working_context_status": case_working_context_status,
+            "case_working_context_reason_code": case_working_context_result.get("reason_code"),
+            "case_working_context_memory_id": case_working_context_result.get("memory_id"),
+            "case_working_context_version": case_working_context_result.get("version"),
+            "case_working_context_duration_ms": case_working_context_duration_ms,
         },
     }
 
