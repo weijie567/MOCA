@@ -61,12 +61,12 @@ def _section_13_4a() -> str:
     return _between(_source(CONTRACT_SPEC_PATH), "### 13.4a Case Working Context", "### 13.5 Memory write policy")
 
 
-def _session_storage_rows() -> str:
-    return _between(_source(CONTRACT_SPEC_PATH), "session_memories\n", "long_term_memories\n")
+def _memory_storage_rows() -> str:
+    return _between(_source(CONTRACT_SPEC_PATH), "session_memories\n", "memory_write_events\n")
 
 
 def test_contract_documents_post_cwc_session_context_boundary() -> None:
-    section = "\n".join((_section_13_2(), _section_13_4(), _section_13_4a(), _session_storage_rows()))
+    section = "\n".join((_section_13_2(), _section_13_4(), _section_13_4a(), _memory_storage_rows()))
 
     for term in (
         "same-thread temporary conversational context",
@@ -118,10 +118,13 @@ def test_phase46_plans_do_not_destructively_change_memory_schema() -> None:
         r"rename_table\([\"']session_memories[\"']",
     )
 
-    violations: list[tuple[str, str]] = []
+    violations: list[tuple[str, str, str]] = []
     for path, source in checked_sources:
-        for pattern in destructive_patterns:
-            if re.search(pattern, source):
-                violations.append((path.name, pattern))
+        for line in source.splitlines():
+            if "Reject exact patterns such as" in line:
+                continue
+            for pattern in destructive_patterns:
+                if re.search(pattern, line):
+                    violations.append((path.name, pattern, line.strip()))
 
     assert violations == []
