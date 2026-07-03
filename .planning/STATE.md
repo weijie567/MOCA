@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
-status: ready_to_plan
-stopped_at: Completed 47-04-PLAN.md
-last_updated: "2026-07-03T14:56:48.690Z"
+status: planning
+stopped_at: Phase 48 context gathered
+last_updated: "2026-07-03T16:56:38.082Z"
 last_activity: 2026-07-03
 progress:
   total_phases: 12
-  completed_phases: 12
+  completed_phases: 11
   total_plans: 33
   completed_plans: 33
   percent: 100
@@ -228,9 +228,9 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ## Session Continuity
 
-Last session: 2026-07-03T14:56:48.677Z
-Stopped at: Completed 47-04-PLAN.md
-Resume file: None
+Last session: --stopped-at
+Stopped at: Phase 48 context gathered
+Resume file: --resume-file
 Next: Verify/archive Phase 47 or plan Phase 48 if continuing memory hardening.
 
 Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with security, UAT, validation, and clean review complete; Phase 46 session context repositioning complete with MEM-03 validated; Phase 47 complete with 47-01 contract/source-policy foundation, 47-02 trusted closed-case projection seam, 47-03 governed case-memory write lifecycle, and 47-04 retrieval/docs/validation closeout.
