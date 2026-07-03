@@ -18,6 +18,23 @@ from src.memory.service import MemoryService
 _BUSINESS_HINT_REF_KEYS = ("source_system", "resource_type", "resource_id", "resource_version")
 _POLICY_HINT_REF_KEYS = ("doc_key", "chunk_id", "policy_version", "policy_family", "title", "section")
 _POLICY_HINT_LIMIT = 8
+_PROMPT_SUMMARY_LIMIT = 1200
+_HINT_VALUE_LIMIT = 120
+_FORBIDDEN_HINT_MARKERS = (
+    "raw_payload",
+    "raw_tool_output",
+    "private_reasoning",
+    "approval_authority_body",
+    "action_authority_body",
+    "action_authorization",
+    "debug_blob",
+    "debug_trace",
+    "replay_debug_blob",
+    "replay_event",
+    "secret",
+    "EvidenceRefV1",
+    "ReplayEventV3",
+)
 
 
 class SessionMemoryBundleService:
@@ -117,9 +134,10 @@ def _tool_summary_views(prompt_context: PromptContextWindow | None) -> list[Sess
         return []
     views: list[SessionToolSummaryView] = []
     for record in prompt_context.tool_prompt_summaries:
-        prompt_summary = getattr(record, "prompt_summary", None)
-        if not prompt_summary:
+        raw_prompt_summary = getattr(record, "prompt_summary", None)
+        if not raw_prompt_summary:
             continue
+        prompt_summary = _safe_prompt_summary(raw_prompt_summary) or "Tool result summary unavailable."
         record_id = (
             getattr(record, "id", None)
             or getattr(record, "tool_result_id", None)
@@ -223,12 +241,26 @@ def _prompt_safe_refs(value: Any, *, allowed_keys: tuple[str, ...]) -> list[dict
 
 
 def _safe_hint_value(value: Any) -> str | None:
-    if value is None or isinstance(value, bool | int | float):
-        return str(value) if value is not None else None
-    if not isinstance(value, str):
+    return _safe_bundle_text(value, max_chars=_HINT_VALUE_LIMIT)
+
+
+def _safe_prompt_summary(value: Any) -> str | None:
+    return _safe_bundle_text(value, max_chars=_PROMPT_SUMMARY_LIMIT)
+
+
+def _safe_bundle_text(value: Any, *, max_chars: int) -> str | None:
+    if value is None:
         return None
-    text = " ".join(value.split())
-    return text[:120] if text else None
+    if isinstance(value, bool | int | float):
+        text = str(value)
+    elif isinstance(value, str):
+        text = " ".join(value.split())
+    else:
+        return None
+    for marker in _FORBIDDEN_HINT_MARKERS:
+        text = text.replace(marker, "")
+    text = " ".join(text.split())
+    return text[:max_chars] if text else None
 
 
 def _empty_slot_continuity(reason: str) -> SessionMemoryView:

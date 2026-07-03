@@ -428,3 +428,26 @@
 
 **剩余风险**
 - ✅ 已修复验证。Session bundle 仍保留 prompt-safe tool summary text 与 allowlisted refs；这些仍是 contextual hints，不是 `EvidenceRefV1`、`BusinessFactRefV1`、approval/action authority 或 replay truth。
+
+## Phase 46 Code Review Fix — SessionMemoryBundle prompt summary / hint text 边界净化 ✅已修复验证
+
+**问题 / 根因**
+- Phase 46 code review WR-02 确认：`SessionMemoryBundleService._tool_summary_views(...)` 会把 `ToolResultRecord.prompt_summary` 直接放入 `SessionToolSummaryView.prompt_summary`，而 `_safe_hint_value(...)` 只做 trim/truncate。
+- 因此 same-thread session bundle / context bundle 在最终 prompt assembler 之前，仍可能携带 `raw_payload`、`private_reasoning`、`approval_authority_body`、`debug_trace`、`secret` 等 marker；原测试误改 `summary` 字段，没有命中实际 bundle 输入 `prompt_summary`。
+
+**影响**
+- 这些字符串仍是 contextual-only session context，不能直接成为 policy/business/action authority；但 bundle 边界的数据面不够 prompt-safe，会增加后续 assembler 或调用方误用风险。
+
+**修复**
+- 在 `src/memory/session_bundle.py` 增加 bundle-boundary marker scrubber：`prompt_summary` 使用同一禁用 marker 列表清洗，allowed policy/business hint 值也先清洗再截断；清洗后为空的 prompt summary 降级为固定安全占位。
+- 更新 `tests/memory/test_session_memory_bundle.py`：直接污染 `prompt_summary`，并在 policy `title` / `section` hint 字段中放入 forbidden marker，断言序列化 bundle 不再携带这些 marker。
+
+**证据**
+- Phase / review：`46-REVIEW.md` WR-02
+- 文件：`src/memory/session_bundle.py`、`tests/memory/test_session_memory_bundle.py`
+
+**验证**
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_session_memory_bundle.py -q` → `5 passed, 1 warning`
+
+**剩余风险**
+- ✅ 已用 focused session bundle 测试覆盖 risky input 字段。该修复只保证 bundle 边界 prompt-safe marker scrub，不把 session hints 提升为 `EvidenceRefV1`、`BusinessFactRefV1`、approval/action authority 或 replay truth。

@@ -152,7 +152,10 @@ async def test_session_memory_bundle_facade_loads_all_short_term_surfaces(
     stored_tool_result = (
         await session.execute(select(ToolResultRecord).where(ToolResultRecord.tool_result_id == "tool-result-session-memory-bundle"))
     ).scalar_one()
-    stored_tool_result.summary = "raw_payload private_reasoning approval_authority_body debug_trace secret"
+    stored_tool_result.prompt_summary = (
+        "Prompt-safe get_order summary for ORD-BUNDLE-CURRENT. "
+        "raw_payload private_reasoning approval_authority_body debug_trace secret"
+    )
     await memory_service.write_session_memory(
         SessionMemoryWriteCandidate(
             tenant_id=tenant_id,
@@ -220,6 +223,8 @@ async def test_session_memory_bundle_derives_policy_hints_from_tool_summaries() 
                                 "doc_key": "refund_policy",
                                 "chunk_id": "chunk-1",
                                 "policy_version": "v1",
+                                "title": "Refund Policy raw_payload private_reasoning",
+                                "section": "Eligibility approval_authority_body debug_trace secret",
                                 "text_hash": "hash-should-not-copy",
                                 "retrieved_at": "2026-01-01T00:00:00Z",
                             }
@@ -254,11 +259,24 @@ async def test_session_memory_bundle_derives_policy_hints_from_tool_summaries() 
             "doc_key": "refund_policy",
             "chunk_id": "chunk-1",
             "policy_version": "v1",
+            "title": "Refund Policy",
+            "section": "Eligibility",
             "tool_result_id": "tool-result-1",
         }
     ]
     serialized_refs = json.dumps(bundle.prior_policy_mention_refs, ensure_ascii=False)
-    for forbidden in ("schema_version", "evidence_id", "tenant_id", "text_hash", "retrieved_at"):
+    for forbidden in (
+        "schema_version",
+        "evidence_id",
+        "tenant_id",
+        "text_hash",
+        "retrieved_at",
+        "raw_payload",
+        "private_reasoning",
+        "approval_authority_body",
+        "debug_trace",
+        "secret",
+    ):
         assert forbidden not in serialized_refs
 
 
@@ -287,6 +305,8 @@ async def test_session_memory_bundle_serializes_policy_refs_as_hints_only() -> N
                                 "text_hash": "hash-must-not-copy",
                                 "retrieved_at": "2026-01-01T00:00:00Z",
                                 "body_text": "raw policy body must not enter session memory",
+                                "title": "Refund Conditions raw_payload private_reasoning",
+                                "section": "Exceptions approval_authority_body debug_trace secret",
                             }
                         ],
                     )
@@ -319,6 +339,8 @@ async def test_session_memory_bundle_serializes_policy_refs_as_hints_only() -> N
             "doc_key": "refund_policy",
             "chunk_id": "chunk-1",
             "policy_version": "v1",
+            "title": "Refund Conditions",
+            "section": "Exceptions",
             "tool_result_id": "tool-result-policy-hint",
         }
     ]
@@ -330,7 +352,11 @@ async def test_session_memory_bundle_serializes_policy_refs_as_hints_only() -> N
         "tenant-must-not-copy",
         "text_hash",
         "retrieved_at",
+        "raw_payload",
+        "private_reasoning",
         "approval_authority_body",
+        "debug_trace",
+        "secret",
         "action_authorization",
         "replay_event",
         "raw policy body must not enter session memory",
