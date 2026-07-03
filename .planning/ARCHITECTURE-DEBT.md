@@ -325,3 +325,28 @@
 
 **剩余风险**
 - ⚠️ 本 plan 只完成 active read + link wiring。terminal finalizer CWC writeback、expected_version conflict / PII block / finalizer failure preservation 属于 `45-03`；contract-spec / red-line final sweep 属于 `45-04`。
+
+## Phase 45 Plan 03 — terminal finalizer CWC writeback 与失败隔离 ✅⚠️
+
+**问题 / 根因**
+- Phase 45 Plan 02 已把 active CWC 读取和 `run_auto` thread-case link 接到 `memory_context_load` seam，但 completed terminal run 仍不会把新的 prompt-safe run state 写回 CWC，MEM-01 的「run-completion auto-update」defer 尚未关闭。
+- 如果把 CWC 写入混进 assistant message / thread summary 事务，PII block、version conflict 或 CWC service failure 可能回滚用户可见的 final response artifact，破坏 Phase 24/44 的 memory side-effect isolation 边界。
+
+**修复**
+- 新增 deterministic terminal projection：`TerminalProjectionResult` + `project_terminal_write_candidate(...)`。projection 只使用 `user_query`、`active_slots.issue_type` / `primary_intent`、prompt-safe tool summaries、policy ref identifiers、recommendation/proposed action identifier字段；显式排除 raw tool data / raw payload / policy body text / replay/debug blob；source_ref 固定为 `source_type="run_auto_terminal"` 并绑定 `run_id/agent_run_id/refund_case`。
+- `CaseWorkingContextLifecycleAdapter.write_after_terminal_success(...)` 在 terminal writeback 前重新用 trusted case ref 解析 canonical `refund_cases.id`，对 `skipped_no_case` / `skipped_unresolved_case` fail closed；对同一 thread/case/run 的 read-seam `run_auto` link 返回 `deduped`，读取 active row `version` 作为 `expected_version`，再通过 `CaseWorkingContextService.write_case_working_context(...)` 写入，保留 audited service 的 PII block / conflict / isolated session 语义。
+- `finalize_completed_agent_run_memory(...)` 在 assistant message + thread summary commit 和原有 `memory_write` side effect 之后调用 CWC lifecycle adapter；`AgentRunMemoryFinalizeResult` 新增 `case_working_context_status/result`，trace metrics 新增 `case_working_context_status/reason_code/memory_id/version`，且 `finalizer.status` 仍只由原 `memory_write_status` 推导。
+
+**证据**
+- Phase / plan：`45-03`
+- Commits：`afc6565`（terminal projection）、`274614b`（lifecycle write_after_terminal_success）、`9ec3415`（finalizer integration），TDD red commits `661a357` / `d4feed2` / `aeafdcf`
+- 文件：`src/memory/case_working_context_lifecycle.py`、`src/api/services/agent_run_memory.py`、`tests/agent/test_case_working_context_lifecycle.py`、`tests/test_agent_runs_api.py`
+
+**验证**
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_case_working_context_lifecycle.py tests/test_agent_runs_api.py::test_completed_agent_run_finalizer_writes_case_working_context tests/test_agent_runs_api.py::test_agent_run_finalizer_cwc_failure_preserves_terminal_rows tests/test_agent_runs_api.py::test_completed_agent_run_finalizer_memory_write_rollback_does_not_remove_terminal_rows tests/test_agent_runs_api.py::test_completed_agent_run_finalizer_skips_non_completed_status -q` → `34 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_agent_runs_api.py::test_agent_run_finalizer_cwc_blocked_preserves_terminal_rows tests/test_agent_runs_api.py::test_agent_run_finalizer_cwc_conflict_preserves_terminal_rows -q` → `2 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_case_working_context_lifecycle.py tests/memory/test_case_working_context_service.py -x -q` → `43 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/memory/case_working_context_lifecycle.py src/api/services/agent_run_memory.py tests/agent/test_case_working_context_lifecycle.py tests/test_agent_runs_api.py` → pass
+
+**剩余风险**
+- ⚠️ 本 plan 完成 terminal writeback / skip / blocked / conflict / error preservation，但 `docs/contract-spec.md` 对 Phase 45 最终状态、红线 no-diff sweep、跨计划验收汇总仍属于 `45-04`。
