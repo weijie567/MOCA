@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
 status: executing
-stopped_at: Completed 46-01-PLAN.md
-last_updated: "2026-07-03T09:10:41.128Z"
+stopped_at: Completed 46-02-PLAN.md
+last_updated: "2026-07-03T09:20:54.697Z"
 last_activity: 2026-07-03
 progress:
   total_phases: 12
   completed_phases: 9
   total_plans: 29
-  completed_plans: 27
-  percent: 93
+  completed_plans: 28
+  percent: 97
 ---
 
 # Project State: MOCA
@@ -31,12 +31,12 @@ See: `.planning/PROJECT.md` (updated 2026-07-03)
 ## Current Position
 
 Phase: 46 (session-context-repositioning) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-03
-Next: Execute `46-02-PLAN.md`.
+Next: Execute `46-03-PLAN.md`.
 
-Progress: [█████████░] 93%
+Progress: [██████████] 97%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -65,7 +65,7 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | 43. Intent Recognition Multi-Intent Tier A (IDR-02) | 3/3 | Complete |
 | 44. Memory Layering — Case Working Context + thread-case Many-to-Many (MEM-01, MEM-02) | 4/4 | Complete |
 | 45. Memory Lifecycle Wiring for Case Working Context (MEM-01, MEM-02) | 4/4 | Complete |
-| 46. Session Context Repositioning (MEM-03) | 1/3 | In Progress |
+| 46. Session Context Repositioning (MEM-03) | 2/3 | In Progress |
 | 47. Case Precedent Repositioning and Closed-Case Candidate Generation (MEM-04) | 0/0 | Not planned |
 | 48. Narrow Long-Term Explicit Preference Memory (MEM-05) | 0/0 | Not planned |
 
@@ -112,6 +112,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 | Phase 45 P03 | 13min | 3 tasks | 6 files |
 | Phase 45 P04 | 10min | 3 tasks | 6 files |
 | Phase 46 P01 | 3 min | 2 tasks | 4 files |
+| Phase 46 P02 | 5 min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -158,6 +159,9 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - Phase 46 Plan 01 documents session_memories as same-thread temporary conversational context only after CWC; prompt hints remain contextual pointers, not evidence/business/approval/action/replay authority.
 - Phase 46 Plan 01 documents planner-facing search_case_memory as CaseMemoryService.retrieve_reviewed over reviewed case memory; LegacySessionPrecedentSearchService remains legacy/debug-only.
 - Phase 46 Plan 01 carries DEFER-2 -> Phase 47 and DEFER-3 -> Phase 48 by name without implementing either scope.
+- Phase 46 Plan 02 scopes CWC fallback scans to lifecycle/read helper paths and does not ban legitimate CaseMemoryService usage in the reviewed-memory retrieval path.
+- Phase 46 Plan 02 requires runnable Phase 46 pytest snippets to use the approved uv entrypoint while treating prose examples as non-command text.
+- MEM-03 remains pending until Phase 46 Plan 03 completes behavioral validation.
 
 ### Roadmap Evolution
 
@@ -203,10 +207,10 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ## Session Continuity
 
-Last session: 2026-07-03T09:10:41.118Z
-Stopped at: Completed 46-01-PLAN.md
+Last session: 2026-07-03T09:19:22Z
+Stopped at: Completed 46-02-PLAN.md
 Resume file: None
-Next: Execute `46-02-PLAN.md`.
+Next: Execute `46-03-PLAN.md`.
 
 Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with security, UAT, validation, and clean review complete.
 Next roadmap item: Phase 46 session context repositioning.

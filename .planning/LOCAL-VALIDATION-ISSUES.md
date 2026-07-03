@@ -11238,3 +11238,72 @@ Phase 45 verifier 通过后运行 `gsd-sdk query phase.complete 45`，命令返�
 - `.planning/STATE.md`
 - `/Users/ming/.codex/get-shit-done/workflows/execute-phase.md`
 - `gsd-sdk query state.begin-phase`
+
+## 2026-07-03 — Phase 46-02 metadata 校验再次触发 zsh 反引号命令替换
+
+### 问题现象
+
+执行 46-02 metadata 校验时，`rg` pattern 用双引号包住包含 Markdown 反引号的文本，zsh 将 `` `46-03-PLAN.md` `` 当作命令替换，输出 `zsh:1: command not found: 46-03-PLAN.md`。
+
+### 如何检测 / 复现
+
+运行包含双引号与反引号的命令，例如：`rg -n "Next: Execute `46-03-PLAN.md`" .planning/STATE.md`。
+
+### 关键证据或命令
+
+- 异常输出：`zsh:1: command not found: 46-03-PLAN.md`
+- 修正命令：`rg -n -- '--phase|--plan|--duration|--stopped-at|--resume-file|46-02-PLAN.md — static|Plan progress: 2/3|46\. Session Context Repositioning.*2/3|Next: Execute `46-03-PLAN.md`' .planning/STATE.md .planning/ROADMAP.md`
+
+### 当前判断 / 根因
+
+根因仍是 zsh shell quoting，而不是 MOCA 代码、STATE 或 ROADMAP 内容错误。包含 Markdown backtick 的搜索 pattern 必须使用单引号或转义反引号。
+
+### 已做处理
+
+改用单引号 pattern 重新运行校验，正确命中 STATE/ROADMAP 中 Phase 46-02 完成后应有的 2/3 进度与 `46-03-PLAN.md` 下一步。
+
+### 剩余问题
+
+无。该问题只影响本地校验命令写法。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `.planning/ROADMAP.md`
+- zsh shell quoting / Markdown backtick search patterns
+
+## 2026-07-03 — Phase 46-02 state handler flag 写法污染 metrics / decisions / session
+
+### 问题现象
+
+执行 46-02 元数据更新时，按 execute-plan workflow 的 flag 形式运行 `gsd-sdk query state.record-metric --phase 46 --plan 02 ...`、`state.add-decision --phase ...`、`state.record-session --stopped-at ...` 均返回成功，但 `.planning/STATE.md` 被写入占位 flag 值：`Phase --phase P46 | --plan | 02 tasks | --duration files`、三条 `- --phase` decision、以及 `Last session: --stopped-at` / `Resume file: --resume-file`。
+
+### 如何检测 / 复现
+
+运行上述 flag 形式命令后读取 `.planning/STATE.md` 的 Quick Tasks、Decisions、Session Continuity 段落，或执行 `rg -n -- '--phase|--plan|--duration|--stopped-at|--resume-file' .planning/STATE.md`。
+
+### 关键证据或命令
+
+- 异常行：`| Phase --phase P46 | --plan | 02 tasks | --duration files |`
+- 异常 decision：`- --phase`
+- 异常 session：`Last session: --stopped-at`、`Resume file: --resume-file`
+
+### 当前判断 / 根因
+
+当前 `gsd-sdk query` 对部分 state handler 的 flag 参数传递和 workflow 文档不一致；命令返回成功但 handler 实际消费了 flag 名称本身。该问题与 46 execute-phase `state.begin-phase` flag 误写同类。
+
+### 已做处理
+
+手工修复 `.planning/STATE.md`：替换为 `Phase 46 P02 | 5 min | 2 tasks | 2 files`，移除三条 `- --phase`，补入 46-02 三条真实决策，并恢复 Session Continuity 为 `Last session: 2026-07-03T09:19:22Z`、`Resume file: None`、`Next: Execute 46-03-PLAN.md`。随后用安全单引号 `rg` 校验无残留 flag 污染。
+
+### 剩余问题
+
+无当前阻塞。后续使用 `gsd-sdk query state.*` flag 写法后必须立即检查 diff；必要时优先用已验证的位置参数或手工 scoped patch。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `/Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs`
+- `gsd-sdk query state.record-metric`
+- `gsd-sdk query state.add-decision`
+- `gsd-sdk query state.record-session`
