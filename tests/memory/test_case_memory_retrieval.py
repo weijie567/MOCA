@@ -40,6 +40,9 @@ def _embedding(first: float = 1.0) -> list[float]:
     return [first, *([0.0] * 1023)]
 
 
+_EMBEDDING_UNSET = object()
+
+
 def _source_ref(
     *,
     source_type: str,
@@ -107,15 +110,21 @@ def _case_row(
     deleted_at: datetime | None = None,
     expires_at: datetime | None = None,
     pii_classification: str = "none",
+    source_type: str = "human_reviewed",
+    source_ref_json: dict[str, str] | None = None,
     policy_family: str | None = "refund",
     policy_version: str | None = "v1",
     source_identity_hash: str | None = None,
-    embedding: list[float] | None = None,
+    embedding: list[float] | None | object = _EMBEDDING_UNSET,
 ) -> CaseMemory:
     refund_case = seeded_session["refund_case"]
     resolved_tenant_id = tenant_id or refund_case.tenant_id
     resolved_scope_id = scope_id or str(refund_case.id)
-    source_ref = {"source_type": "human_reviewed", "business_object_id": resolved_scope_id}
+    source_ref = source_ref_json or {
+        "source_type": source_type,
+        "business_object_type": "refund_case",
+        "business_object_id": str(refund_case.id),
+    }
     return CaseMemory(
         id=uuid.uuid4(),
         tenant_id=resolved_tenant_id,
@@ -133,7 +142,7 @@ def _case_row(
         policy_refs_json=[{"doc_key": "refund_policy", "chunk_id": "chunk-1", "policy_version": "v1"}],
         source_ref_json=source_ref,
         source_identity_hash=source_identity_hash,
-        embedding=embedding or _embedding(),
+        embedding=_embedding() if embedding is _EMBEDDING_UNSET else embedding,
         review_status=review_status,
         pii_classification=pii_classification,
         expires_at=expires_at,

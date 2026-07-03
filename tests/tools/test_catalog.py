@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from uuid import uuid4
 from unittest.mock import AsyncMock
+from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError
@@ -365,7 +365,7 @@ def test_search_case_memory_context_scopes_do_not_require_case_id() -> None:
     request = _case_memory_request(query=" reviewed precedent ", context=context)
 
     assert request is not None
-    assert request.tenant_id == uuid4().__class__(tenant_id)
+    assert request.tenant_id == UUID(tenant_id)
     assert request.query == "reviewed precedent"
     assert request.query_embedding is None
     assert request.scopes == [
