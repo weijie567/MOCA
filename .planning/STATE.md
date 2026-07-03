@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
-status: ready_to_plan
+status: planning
 stopped_at: Phase 47 discuss complete; ready for Phase 47 planning
-last_updated: "2026-07-03T11:45:33.479Z"
-last_activity: 2026-07-03 -- Phase 47 discuss complete; ready for Phase 47 planning
+last_updated: "2026-07-03T12:32:29.994Z"
+last_activity: 2026-07-03
 progress:
   total_phases: 12
   completed_phases: 10
-  total_plans: 29
+  total_plans: 33
   completed_plans: 29
-  percent: 83
+  percent: 88
 ---
 
 # Project State: MOCA
@@ -221,4 +221,4 @@ Next roadmap item: Phase 47 case precedent repositioning.
 
 **Completed Phase:** 44 (Memory Layering — Case Working Context + thread-case Many-to-Many) — 4/4 plans — 2026-07-03
 
-**Planned Phase:** 46 (Session Context Repositioning) — 3 plans — 2026-07-03T08:44:22.968Z
+**Planned Phase:** 47 (Case Precedent Repositioning and Closed-Case Candidate Generation) — 4 plans — 2026-07-03T12:32:29.975Z

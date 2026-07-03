@@ -29,7 +29,7 @@ Code implementation is delegated to Codex per the project workflow; Claude is pl
 - [x] **Phase 44: Memory Layering — Case Working Context + thread-case Many-to-Many** - Add durable CWC storage and explicit thread-case M:N association without renaming existing memory tables (MEM-01, MEM-02). Plan progress: 4/4 complete.
 - [x] **Phase 45: Memory Lifecycle Wiring for Case Working Context** - Wire CWC active read/link/writeback into real agent lifecycle while preserving contextual-only authority (MEM-01, MEM-02). Plan progress: 4/4 complete.
 - [x] **Phase 46: Session Context Repositioning** - Re-scope thread-level session memory after CWC so it remains short-lived conversational context, not cross-case state (MEM-03). Plan progress: 3/3 complete.
-- [ ] **Phase 47: Case Precedent Repositioning and Closed-Case Candidate Generation** - Re-scope `case_memories` as reviewed precedent and add closed-case candidate generation from CWC into governed review flow (MEM-04). Plan progress: 0 plans.
+- [ ] **Phase 47: Case Precedent Repositioning and Closed-Case Candidate Generation** - Re-scope `case_memories` as reviewed precedent and add closed-case candidate generation from CWC into governed review flow (MEM-04). Plan progress: 0/4 plans.
 - [ ] **Phase 48: Narrow Long-Term Explicit Preference Memory** - Re-scope `long_term_memories` to explicit tenant preference memory only, without generic automatic run summarization (MEM-05). Plan progress: 0 plans.
 
 ## Phase Details
@@ -94,7 +94,7 @@ Plans:
 | 44. Memory Layering — Case Working Context + thread-case Many-to-Many | 4/4 | Complete | 2026-07-03 |
 | 45. Memory Lifecycle Wiring for Case Working Context | 4/4 | Complete | 2026-07-03 |
 | 46. Session Context Repositioning | 3/3 | Complete | 2026-07-03 |
-| 47. Case Precedent Repositioning and Closed-Case Candidate Generation | 0 plans | Not planned | - |
+| 47. Case Precedent Repositioning and Closed-Case Candidate Generation | 0/4 | Planned | - |
 | 48. Narrow Long-Term Explicit Preference Memory | 0 plans | Not planned | - |
 
 ### Phase 40: Tool Contract Validation Hardening
@@ -234,7 +234,7 @@ Plans:
 **Goal:** Reposition `case_memories` as reviewed closed-case precedent, not active case state, and introduce a governed candidate-generation path from finalized Case Working Context into the existing reviewed memory workflow when a case closes.
 **Requirements**: MEM-04
 **Depends on:** Phase 46
-**Plans:** 0 plans
+**Plans:** 4 plans
 **Design input:** `.planning/MEMORY-REDESIGN-DECISIONS.md` DEFER-2.
 **Success Criteria** (what must be TRUE):
   1. `case_memories` semantics are documented and test-locked as reviewed case precedent, not active working state and not a replacement for `case_working_contexts`.
@@ -245,7 +245,10 @@ Plans:
   6. DEFER-3 remains out of scope and is carried forward by name.
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 47 to break down)
+- [ ] 47-01-PLAN.md — contract/static alignment and `closed_case_cwc_candidate` review-required source-type foundation.
+- [ ] 47-02-PLAN.md — trusted closed-case CWC projection service seam with terminal status, scope, and prompt-safe projection tests.
+- [ ] 47-03-PLAN.md — governed write lifecycle through existing case-memory review/audit/dedupe path.
+- [ ] 47-04-PLAN.md — metadata/text retrieval, tool/reviewed-context stability, docs, DEFER-3, and final validation.
 
 ### Phase 48: Narrow Long-Term Explicit Preference Memory
 
