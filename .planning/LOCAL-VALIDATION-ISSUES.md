@@ -11509,3 +11509,36 @@ Phase 46 收尾检查 SECURITY artifact 时运行 `ls .planning/phases/46-sessio
 
 - `.planning/phases/46-session-context-repositioning`
 - zsh glob / optional artifact checks
+
+## 2026-07-03 — Phase 46 code review scope 解析遇到 `key_files` / `key-files` 命名不一致
+
+### 问题现象
+
+重新执行 `$gsd-code-review 46` 时，按 GSD workflow 示例脚本解析 SUMMARY frontmatter 的 `key_files.created/modified`，初次得到 `count: 0`，会导致 review scope 为空并错误跳过本轮 code review。
+
+### 如何检测 / 复现
+
+读取 `.planning/phases/46-session-context-repositioning/46-*-SUMMARY.md`，用 workflow 示例中的 `key_files` 解析逻辑提取文件列表。
+
+### 关键证据或命令
+
+- SUMMARY 实际字段：`key-files:`，下面包含 `created:` / `modified:`
+- 初次解析结果：`count: 0`
+- 修正后按 `key-files` 解析得到 9 个 review 文件：`docs/architecture-overview.md`、`docs/contract-spec.md`、`docs/current-implementation-map.md`、`src/memory/session_bundle.py` 和 5 个测试文件。
+
+### 当前判断 / 根因
+
+这是 GSD workflow 示例解析逻辑与当前 SUMMARY artifact 字段命名不一致的问题，不是 Phase 46 源码或测试问题。实际 artifact 使用 kebab-case `key-files`，而 workflow 文档示例使用 snake_case `key_files`。
+
+### 已做处理
+
+本轮手动按实际 `key-files.created/modified` 字段重新解析 scope，并继续执行 deep code review。reviewer 成功刷新 `.planning/phases/46-session-context-repositioning/46-REVIEW.md`。
+
+### 剩余问题
+
+无当前 Phase 46 阻塞。后续如修 GSD workflow，应让 scope parser 同时兼容 `key-files` 与 `key_files`，避免误判空 scope。
+
+### 下次继续排查入口
+
+- `/Users/ming/.codex/get-shit-done/workflows/code-review.md`
+- `.planning/phases/*/*-SUMMARY.md`
