@@ -14,7 +14,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 **Goal:** Clean up architecture debt across MOCA's core subsystems so tool contracts, intent routing, and memory lifecycle behavior are explicit, tested, and aligned with `docs/contract-spec.md`.
 
-**Status:** Phase 37 through Phase 46 complete; Phase 47 case precedent repositioning is next.
+**Status:** Phase 37 through Phase 47 complete; Phase 48 narrow long-term explicit preference memory is next.
 
 **Delivered:**
 - Land real `output_schema` for all eight tools (`get_order`, `get_refund_case`, `get_ticket`, `get_logistics`, `get_merchant_risk`, `search_policy`, `search_sop`, `search_case_memory`) and enforce it in the `ToolRuntime` output-validation gate — completed in Phase 38.
@@ -27,6 +27,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - Add durable Case Working Context plus thread-case many-to-many memory foundations without renaming existing `case_memories` / `long_term_memories` tables — completed in Phase 44.
 - Wire Case Working Context into the real agent-run lifecycle: active CWC read at the memory-context seam, `run_auto` thread-case linking, deterministic terminal CWC writeback, and contract/red-line validation — completed in Phase 45.
 - Reposition `session_memories` as same-thread temporary conversational context only, with prompt-safe hint allowlists and tests preventing CWC fallback, reviewed precedent, long-term sedimentation, or authority use — completed in Phase 46.
+- Reposition `case_memories` as reviewed closed-case precedent and add governed closed-case CWC candidate generation into the existing case-memory review flow, with metadata/text retrieval and approval-gated publication — completed in Phase 47.
 
 **Guardrails (binding on all downstream agents):**
 - `ToolCallContext` identity fields (`tenant_id/user_id/role/permissions/merchant_scope/session_id/thread_id/run_id/trace_id`) are locked by spec §8.0 as `TrustedContext` projections — MUST NOT redefine, widen, or rename. Off-limits.
