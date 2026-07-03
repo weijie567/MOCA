@@ -376,3 +376,27 @@
 
 **剩余风险**
 - ✅ Phase 45 lifecycle wiring 已完成并验证。剩余 memory redesign ideas 不属于本 phase：DEFER-1 session context repositioning、DEFER-2 case precedent / closed-case candidate generation、DEFER-3 narrow long-term explicit-preference memory。它们继续作为 future phases，不构成 Phase 45 未完成项。
+
+## Phase 45 Code Review Fix — terminal thread-case link 状态准确性 ✅已修复验证
+
+**问题 / 根因**
+- Phase 45 code review WR-01 确认：terminal CWC writeback 在写 `run_auto` link 前只用 `link_source="run_auto"` 和 `linked_by_run_id=run_id` 检测既有 link；但真实幂等边界是 active `(tenant_id, conversation_thread_id, case_id)`，staff/import 或同线程其他 run 已经建立 active link 时，状态可能误报为 `linked`。
+
+**影响**
+- 不会产生重复 row，但 lifecycle status / trace metrics 会把 repository dedupe 或既有 active link 误记为新建 link。
+
+**修复**
+- `CaseWorkingContextLifecycleAdapter._link_terminal_thread_case(...)` 改为先检测任意 active thread-case link；命中时直接返回 `deduped`，不再尝试 terminal `link_case`。
+- 新增 focused regression：预置 `staff_manual` active link，并用会在 `link_case` 被调用时抛错的 repository subclass 验证 terminal writeback 在既有 active link 场景返回 `deduped` 且不会发起新 link attempt。
+
+**证据**
+- Phase / review：`45-REVIEW.md` WR-01
+- 文件：`src/memory/case_working_context_lifecycle.py`、`tests/agent/test_case_working_context_lifecycle.py`
+
+**验证**
+- `UV_CACHE_DIR=/tmp/uv-cache uv run python -c "import ast, pathlib; [ast.parse(pathlib.Path(p).read_text()) for p in ['src/memory/case_working_context_lifecycle.py', 'tests/agent/test_case_working_context_lifecycle.py']]"` → pass
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_case_working_context_lifecycle.py::test_write_after_terminal_success_dedupes_read_seam_run_auto_link tests/agent/test_case_working_context_lifecycle.py::test_write_after_terminal_success_dedupes_any_existing_active_link_before_terminal_attempt -q` → `2 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/memory/case_working_context_lifecycle.py tests/agent/test_case_working_context_lifecycle.py` → pass
+
+**剩余风险**
+- ✅ 已用 focused integration test 覆盖 active link pre-check 与 status 输出；未运行全量测试，留给后续 verifier。

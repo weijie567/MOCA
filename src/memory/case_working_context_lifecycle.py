@@ -361,8 +361,6 @@ class CaseWorkingContextLifecycleAdapter:
                 user_id=user_id,
                 thread_id=thread_id,
                 case_id=case_id,
-                link_source="run_auto",
-                linked_by_run_id=run_id,
             )
             if was_already_linked:
                 return "deduped"

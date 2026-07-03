@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 import src.memory.case_working_context_lifecycle as lifecycle_module
+from src.conversation.repository import ConversationRepository
 from src.db.models import AgentRun, Base, CaseWorkingContext, Merchant, Order, RefundCase, Tenant, ThreadCaseLink, User
 from src.memory.case_identity import CaseIdentityResult
 from src.memory.case_working_context_lifecycle import (
@@ -746,6 +747,61 @@ async def test_write_after_terminal_success_dedupes_read_seam_run_auto_link(
     assert write_result.status_ref.link_status == "deduped"
     assert write_result.status_ref.write_status == "written"
     assert active_count == 1
+
+
+@pytest.mark.asyncio
+async def test_write_after_terminal_success_dedupes_any_existing_active_link_before_terminal_attempt(
+    phase45_session_factory,
+) -> None:
+    class NoTerminalLinkAttemptRepository(ConversationRepository):
+        async def link_case(self, **_: object) -> None:
+            raise AssertionError("terminal writeback must not attempt link_case for an active link")
+
+    _reset_capturing_service(memory_id=uuid.uuid4(), version=1)
+    async with phase45_session_factory() as session:
+        async with session.begin():
+            scope = await _seed_lifecycle_scope(session)
+            staff_link = await ConversationRepository(session).link_case(
+                tenant_id=scope["tenant"].id,
+                user_id=scope["user"].id,
+                thread_id=scope["run"].thread_id,
+                case_id=scope["refund_case"].id,
+                link_source="staff_manual",
+            )
+
+            write_result = await CaseWorkingContextLifecycleAdapter(
+                conversation_repository_cls=NoTerminalLinkAttemptRepository,
+                case_working_context_service_cls=_CapturingCwcService,
+            ).write_after_terminal_success(
+                session=session,
+                tenant_id=scope["tenant"].id,
+                user_id=scope["user"].id,
+                thread_id=scope["run"].thread_id,
+                run_id=scope["run"].id,
+                final_state=_terminal_state(scope),
+                final_response="退款单还在审核中。",
+            )
+            active_links = list(
+                (
+                    await session.execute(
+                        select(ThreadCaseLink).where(
+                            ThreadCaseLink.tenant_id == scope["tenant"].id,
+                            ThreadCaseLink.case_id == scope["refund_case"].id,
+                            ThreadCaseLink.deleted_at.is_(None),
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+    assert write_result.status_ref.link_status == "deduped"
+    assert write_result.status_ref.write_status == "written"
+    assert len(active_links) == 1
+    assert active_links[0].id == staff_link.id
+    assert active_links[0].link_source == "staff_manual"
+    assert active_links[0].linked_by_run_id is None
+    assert len(_CapturingCwcService.calls) == 1
 
 
 @pytest.mark.asyncio
