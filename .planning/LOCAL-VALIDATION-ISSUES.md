@@ -11476,3 +11476,36 @@ Phase 46 首次 `gsd-sdk query phase.complete 46` 后，为确认 warning 是否
 - `.planning/STATE.md`
 - `.planning/ROADMAP.md`
 - `gsd-sdk query phase.complete`
+
+## 2026-07-03 — Phase 46 security file 检查时 zsh glob 无匹配报错
+
+### 问题现象
+
+Phase 46 收尾检查 SECURITY artifact 时运行 `ls .planning/phases/46-session-context-repositioning/*-SECURITY.md 2>/dev/null || true`，zsh 在 glob 无匹配时先报错 `zsh:1: no matches found: .planning/phases/46-session-context-repositioning/*-SECURITY.md`，没有进入预期的 `ls` 空结果分支。
+
+### 如何检测 / 复现
+
+在 zsh 默认 `nomatch` 行为下，对不存在的文件模式运行未转义 glob 即可复现。
+
+### 关键证据或命令
+
+- 失败命令：`ls .planning/phases/46-session-context-repositioning/*-SECURITY.md 2>/dev/null || true`
+- 失败输出：`zsh:1: no matches found: .planning/phases/46-session-context-repositioning/*-SECURITY.md`
+- 修正命令：`find .planning/phases/46-session-context-repositioning -maxdepth 1 -name '*-SECURITY.md' -print`
+
+### 当前判断 / 根因
+
+这是本地 shell glob 行为问题，不是仓库代码或 Phase 46 artifact 问题。zsh 会在无匹配时阻止命令执行；检查可选文件时应使用 `find`、引号、或禁用 nomatch。
+
+### 已做处理
+
+改用 `find` 重新检查，返回空，确认 Phase 46 当前没有 `*-SECURITY.md`。因此 security enforcement 的下一步仍是运行 `$gsd-secure-phase 46`。
+
+### 剩余问题
+
+无当前阻塞。
+
+### 下次继续排查入口
+
+- `.planning/phases/46-session-context-repositioning`
+- zsh glob / optional artifact checks
