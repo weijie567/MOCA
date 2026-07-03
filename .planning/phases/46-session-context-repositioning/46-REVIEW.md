@@ -1,6 +1,6 @@
 ---
 phase: 46-session-context-repositioning
-reviewed: 2026-07-03T09:40:10Z
+reviewed: 2026-07-03T10:09:26Z
 depth: deep
 files_reviewed: 9
 files_reviewed_list:
@@ -15,22 +15,24 @@ files_reviewed_list:
   - tests/memory/test_session_memory_bundle.py
 findings:
   critical: 0
-  warning: 3
+  warning: 2
   info: 0
-  total: 3
+  total: 2
 status: issues_found
 ---
 
 # Phase 46: Code Review Report
 
-**Reviewed:** 2026-07-03T09:40:10Z
+**Reviewed:** 2026-07-03T10:09:26Z
 **Depth:** deep
 **Files Reviewed:** 9
 **Status:** issues_found
 
 ## Summary
 
-Deep review covered the Phase 46 session-context bundle code, boundary tests, and docs. The core `src/memory/session_bundle.py` allowlist projection correctly strips full policy evidence identities (`tenant_id`, `evidence_id`, `text_hash`, `retrieved_at`, etc.) and full business fact authority fields (`tenant_id`, freshness/retrieval timestamps), so the serialized session hints are not directly valid `EvidenceRefV1` or `BusinessFactRefV1` authority DTOs. Cross-file tracing also found no Phase 47/48 implementation, no destructive session schema change, no session memory CWC fallback path, and no reviewed precedent path backed by session memory in runtime code.
+Deep review covered the Phase 46 docs, session context bundle implementation, authority-boundary tests, reviewed-memory retrieval tests, and memory write tests. The previous WR-02 is resolved in current HEAD: `docs/architecture-overview.md` now routes the memory executor to `CaseMemoryService.retrieve_reviewed`, and the reviewed-memory tests keep session-derived precedent out of the planner-facing path.
+
+The MEM-03 authority boundary is mostly intact: session context and reviewed memory surfaces are `contextual_only`, strict authority DTO parsing rejects contextual refs, reviewed memory fails closed without trusted scope, session context is not used as CWC identity, and memory-supported claims do not authorize policy, business fact, approval, action, or replay truth. Two warnings remain: the implementation map is stale, and the bundle layer still trusts stored prompt summary/hint strings more than the Phase 46 prompt-safe contract and tests imply.
 
 Scoped verification passed:
 
@@ -42,46 +44,57 @@ Result: 45 passed, 3 warnings.
 
 ## Warnings
 
-### WR-01: Current Implementation Map Contradicts Implemented Conversation And Tool Context Storage
+### WR-01: Current Implementation Map Still Marks Implemented Context Storage As Missing
 
 **File:** `docs/current-implementation-map.md:68`
-**Issue:** The map still says conversation threads/messages, tool calls/results, and thread summaries are "currently not found" or missing. The current code has `ConversationThread`, `ConversationMessage`, `ToolCallRecord`, `ToolResultRecord`, and `ConversationSummary` models plus repository/service methods that Phase 46 now depends on for `SessionMemoryBundleService` prompt context. This makes the "current implementation" doc materially stale and can mislead future memory/context work into planning already-implemented foundations as absent.
-**Fix:** Update rows 68-71 and the gap list to distinguish "implemented prompt-safe/redacted conversation context" from still-missing raw prompt/raw tool-output replay:
+**Issue:** The map still says conversation threads/messages, thread summaries, `ContextAssembler`, and parts of tool call/result storage are "currently not found" or missing. Current HEAD has `ConversationThread`, `ConversationMessage`, `ToolCallRecord`, `ToolResultRecord`, and `ConversationSummary` models, plus `ConversationService.load_prompt_context(...)` and `ContextAssembler`. Phase 46 now depends on these surfaces through `SessionMemoryBundleService`, so the current-state doc can mislead follow-up memory/context phases into planning already-implemented foundations as absent.
+**Fix:** Update rows 68-71 and the gap list to distinguish implemented prompt-safe/redacted conversation context from still-missing raw prompt/raw payload reconstruction. For example:
 
 ```markdown
-| Conversation threads/messages | `src/db/models.py:1212`, `src/conversation/*` | Stores thread-scoped user/assistant/tool messages and prompt-safe context metadata | conversation log projection | Implemented as redacted/prompt-safe conversation context, not raw prompt/tool transcript |
-| Tool calls/results tables | `src/db/models.py:1357`, `src/db/models.py:1401`, `src/conversation/repository.py:436` | Stores tool call argument summaries, normalized result JSON, prompt summaries, raw result refs/hashes | tool log projection | Implemented for prompt-safe context; still not a raw payload store |
-| Thread summaries | `src/db/models.py:1448`, `src/conversation/repository.py:398` | Stores rolling thread summaries with source message/tool result ids | short-term conversation context | Implemented; session memory remains slot continuity |
+| Conversation threads/messages | `src/db/models.py:1212`, `src/db/models.py:1305`, `src/conversation/*` | Stores thread-scoped user/assistant/tool messages and prompt context metadata | conversation log projection | Implemented as redacted/prompt-safe conversation context, not a raw prompt/tool transcript |
+| Tool calls/results tables | `src/db/models.py:1357`, `src/db/models.py:1401`, `src/conversation/repository.py:436` | Stores tool call summaries, normalized result JSON, prompt summaries, raw result refs/hashes | tool log projection | Implemented for prompt-safe context; still not a raw payload store |
+| Thread summaries | `src/db/models.py:1448`, `src/conversation/repository.py:398` | Stores rolling thread summaries with source message/tool result ids | short-term conversation context | Implemented; `session_memories` remains slot continuity |
+| ContextAssembler | `src/agent/context/assembler.py:28` | Assembles system, working state, summary, recent messages, policy refs, tool summaries, and memory context under budget | prompt context assembly | Implemented, with remaining node adoption depending on each agent path |
 ```
 
-Then revise the "关键缺口" bullets to say raw prompt/raw tool payload reconstruction is still missing, rather than all conversation/tool/summary primitives.
+### WR-02: Session Bundle Can Carry Unsanitized Prompt Summary And Hint Text
 
-### WR-02: Target Workflow Diagram Still Names The Old Session Precedent Service
-
-**File:** `docs/architecture-overview.md:359`
-**Issue:** The controlled workflow diagram still labels the memory executor as `SessionPrecedentSearchService`, while the same file now says planner-facing `search_case_memory` uses `CaseMemoryService.retrieve_reviewed(...)` and `LegacySessionPrecedentSearchService` is debug-only. This contradicts the Phase 46 red line that reviewed precedent must not come from session memory.
-**Fix:** Change the diagram label to match the implemented and documented boundary:
-
-```markdown
-Manager -->|memory executor| MemoryExec[MemoryToolExecutor\nCaseMemoryService.retrieve_reviewed]
-```
-
-or use `Reviewed case memory service` if the diagram should remain implementation-agnostic.
-
-### WR-03: Prompt-Safety Test Mutates An Unused Column
-
-**File:** `tests/memory/test_session_memory_bundle.py:155`
-**Issue:** The test writes forbidden marker text to `stored_tool_result.summary`, then asserts those markers are absent from the serialized session bundle. The bundle code reads `record.prompt_summary` and skips `record.summary`, so this assertion would still pass even if `prompt_summary` itself leaked `raw_payload`, `private_reasoning`, or `secret` into session context. That leaves the MEM-03 prompt-safety guard weaker than it looks.
-**Fix:** Either test the actual bundle input, or make the ownership explicit. A defensive version would sanitize/read `prompt_summary` and mutate that field in the test:
+**File:** `src/memory/session_bundle.py:120`
+**Issue:** `_tool_summary_views` copies `record.prompt_summary` directly into `SessionToolSummaryView`, and `_safe_hint_value` only trims/truncates allowed policy hint values. The final prompt assembler strips several forbidden markers later, but the serialized `SessionMemoryBundle` / `SessionContextBundle` can still contain `raw_payload`, `private_reasoning`, `approval_authority_body`, `debug_trace`, `secret`, or similar strings if they appear in `prompt_summary`, `title`, `section`, or another allowed hint field. This is the same underlying gap as the prior WR-03: `tests/memory/test_session_memory_bundle.py:155` mutates `stored_tool_result.summary`, but the bundle reads `prompt_summary`, so the test does not exercise the risky bundle input.
+**Fix:** Sanitize prompt summary and hint values at the bundle boundary, then change the test to mutate `prompt_summary` and add a policy title/section marker case. One local implementation shape:
 
 ```python
-stored_tool_result.prompt_summary = "raw_payload private_reasoning approval_authority_body debug_trace secret"
+_FORBIDDEN_HINT_MARKERS = (
+    "raw_payload",
+    "raw_tool_output",
+    "private_reasoning",
+    "approval_authority_body",
+    "action_authority_body",
+    "debug_trace",
+    "secret",
+    "EvidenceRefV1",
+    "ReplayEventV3",
+)
+
+def _safe_hint_value(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, bool | int | float):
+        text = str(value)
+    elif isinstance(value, str):
+        text = " ".join(value.split())
+    else:
+        return None
+    for marker in _FORBIDDEN_HINT_MARKERS:
+        text = text.replace(marker, "")
+    text = " ".join(text.split())
+    return text[:120] if text else None
 ```
 
-If `prompt_summary` is intentionally guaranteed safe only by the upstream projector, replace the current assertion with an upstream projector test and remove the misleading mutation of `summary` from this bundle test.
+Use the sanitized value for `prompt_summary` before constructing `SessionToolSummaryView`; if it becomes empty, skip that summary or fall back to a known-safe status line.
 
 ---
 
-_Reviewed: 2026-07-03T09:40:10Z_
+_Reviewed: 2026-07-03T10:09:26Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
