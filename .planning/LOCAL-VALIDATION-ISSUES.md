@@ -12031,3 +12031,81 @@ Phase 47 计划执行和 final gate 通过后，主流程补跑 Phase 44 memory 
 
 - `.planning/phases/48-narrow-long-term-explicit-preference-memory/`
 - GSD discuss-phase 本地文件存在性检查命令
+
+## 2026-07-04 — Phase 48 plan-phase `state.validate` query 不存在
+
+### 问题现象
+
+Phase 48 plan 文件、ROADMAP、STATE 同步后，尝试用 `gsd-sdk query state.validate` 做最终状态校验时，SDK 返回 unknown command。
+
+### 如何检测 / 复现
+
+在仓库根目录执行：
+
+`gsd-sdk query state.validate`
+
+### 关键证据或命令
+
+命令退出码为 10，输出：
+
+```text
+Error: Unknown command: "state.validate". Use a registered `gsd-sdk query` subcommand (see sdk/src/query/QUERY-HANDLERS.md) or invoke `node .../gsd-tools.cjs` for CJS-only operations.
+```
+
+### 当前判断 / 根因
+
+这是 GSD SDK query handler 可用性问题，不是 Phase 48 planning artifact 内容错误。当前可用的 `frontmatter.validate` 和 `verify.plan-structure` 已覆盖 PLAN 文件结构校验；`state.validate` 在当前 SDK 注册表中不存在。
+
+### 已做处理
+
+未继续依赖 `state.validate`。已分别运行并通过四个 Phase 48 PLAN 的 `frontmatter.validate` / `verify.plan-structure`，并用 grep 核对 PLAN 数量、依赖顺序、`requirements_addressed: [MEM-05]` 与 ROADMAP/STATE 可见状态。
+
+### 剩余问题
+
+无 Phase 48 阻塞。若后续需要机器校验 STATE，需要确认当前 GSD 版本支持的状态校验入口，或补注册对应 query handler。
+
+### 下次继续排查入口
+
+- `gsd-sdk query --help`
+- `sdk/src/query/QUERY-HANDLERS.md`
+- `.planning/STATE.md`
+
+## 2026-07-04 — Phase 48 plan-phase `rg` 模式以 `--` 开头被误解析为 flag
+
+### 问题现象
+
+Phase 48 收尾检查 STATE/ROADMAP 是否残留 `--stopped-at`、`--resume-file` 等占位符时，直接执行 `rg -n "--stopped-at|--resume-file|not planned|TBD|0/0" ...`，`rg` 将模式误解析为 flag 并报错。
+
+### 如何检测 / 复现
+
+执行：
+
+`rg -n "--stopped-at|--resume-file|not planned|TBD|0/0" .planning/STATE.md .planning/ROADMAP.md .planning/phases/48-narrow-long-term-explicit-preference-memory`
+
+### 关键证据或命令
+
+命令退出码为 2，输出：
+
+```text
+rg: unrecognized flag --stopped-at|--resume-file|not planned|TBD|0/0
+```
+
+### 当前判断 / 根因
+
+这是 ripgrep CLI 参数分隔问题，不是 Phase 48 artifact 内容问题。搜索模式以 `--` 开头时需要用 `--` 结束选项解析。
+
+### 已做处理
+
+改用以下命令重跑，退出码为 1 且无输出，表示没有残留匹配：
+
+`rg -n -- "--stopped-at|--resume-file|not planned|TBD|0/0" .planning/STATE.md .planning/ROADMAP.md .planning/phases/48-narrow-long-term-explicit-preference-memory`
+
+### 剩余问题
+
+无阻塞。后续搜索以连字符开头的模式时，显式加 `--`。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `.planning/ROADMAP.md`
+- `.planning/phases/48-narrow-long-term-explicit-preference-memory/`
