@@ -3,12 +3,20 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
+import uuid
 
 from langchain_core.runnables import RunnableConfig
 
 from src.agent.state import AgentState
 from src.memory.case_memory import CaseMemoryRepository, CaseMemoryService
+from src.memory.case_working_context_lifecycle import (
+    CaseWorkingContextLifecycleAdapter,
+    CaseWorkingContextLifecycleResult,
+    error_status,
+    skipped_status,
+)
 from src.memory.context_refs import (
+    CaseWorkingContextLifecycleStatusV1,
     MemoryContextBundle,
     ReviewedMemoryContextBundle,
     ReviewedMemoryContextRetrieveStatusV1,
@@ -20,6 +28,7 @@ from src.memory.repository import LongTermMemoryRepository
 from src.memory.schemas import SessionContextMemory
 
 _SERVICE_ERROR_CODE = "REVIEWED_MEMORY_CONTEXT_UNAVAILABLE"
+_CWC_LOAD_ERROR_CODE = "CASE_WORKING_CONTEXT_LOAD_FAILED"
 _BUNDLE_SCHEMA_VERSION = "reviewed_memory_context_bundle.v1"
 
 
@@ -36,10 +45,12 @@ async def reviewed_memory_context_retrieve(
     case_memory_repository_cls: Any | None = None,
     long_term_memory_service_cls: Any | None = None,
     case_memory_service_cls: Any | None = None,
+    case_working_context_lifecycle_adapter_cls: Any | None = None,
 ) -> dict:
     """Load reviewed long-term/case memory through the trusted-scope memory boundary."""
     started_at = _now_iso()
     configurable = (config.get("configurable") or {}) if config else {}
+    node_errors: list[dict[str, Any]] | None = None
     try:
         context_service = _context_service(
             configurable,
@@ -65,13 +76,122 @@ async def reviewed_memory_context_retrieve(
             trusted_context=configurable.get("trusted_context"),
             current_slots=_current_turn_slots(state),
         )
-        result = _context_result(state, started_at, bundle=bundle)
-        result["node_errors"] = (state.get("node_errors") or []) + [
+        node_errors = (state.get("node_errors") or []) + [
             {"node": "reviewed_memory_context_retrieve", "error_code": _SERVICE_ERROR_CODE}
         ]
-        return result
 
-    return _context_result(state, started_at, bundle=bundle)
+    cwc_result, cwc_failed = await _load_case_working_context(
+        state,
+        configurable,
+        case_working_context_lifecycle_adapter_cls=(
+            case_working_context_lifecycle_adapter_cls or CaseWorkingContextLifecycleAdapter
+        ),
+    )
+    if cwc_failed:
+        node_errors = list(node_errors if node_errors is not None else (state.get("node_errors") or []))
+        node_errors.append({"node": "reviewed_memory_context_retrieve", "error_code": _CWC_LOAD_ERROR_CODE})
+
+    result = _context_result(
+        state,
+        started_at,
+        bundle=bundle,
+        case_working_context=cwc_result.case_working_context,
+        case_working_context_status_ref=cwc_result.status_ref,
+    )
+    if node_errors:
+        result["node_errors"] = node_errors
+    return result
+
+
+async def _load_case_working_context(
+    state: AgentState,
+    configurable: Mapping[str, Any],
+    *,
+    case_working_context_lifecycle_adapter_cls: Any,
+) -> tuple[CaseWorkingContextLifecycleResult, bool]:
+    trusted_values = _trusted_context_values(
+        trusted_context=configurable.get("trusted_context"),
+        session=configurable.get("session"),
+    )
+    if trusted_values is None:
+        return (
+            CaseWorkingContextLifecycleResult(
+                case_id=None,
+                case_working_context=None,
+                status_ref=skipped_status(reason_code="missing_trusted_context"),
+            ),
+            False,
+        )
+
+    session, tenant_id, user_id, thread_id, run_id = trusted_values
+    adapter = _case_working_context_lifecycle_adapter(
+        configurable,
+        case_working_context_lifecycle_adapter_cls=case_working_context_lifecycle_adapter_cls,
+    )
+    try:
+        return (
+            await adapter.link_and_load_active(
+                session=session,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                thread_id=thread_id,
+                run_id=run_id,
+                state=state,
+            ),
+            False,
+        )
+    except Exception:
+        return (
+            CaseWorkingContextLifecycleResult(
+                case_id=None,
+                case_working_context=None,
+                status_ref=error_status(
+                    reason_code="load_failed",
+                    read_status="error",
+                    tenant_id=tenant_id,
+                    run_id=run_id,
+                ),
+            ),
+            True,
+        )
+
+
+def _case_working_context_lifecycle_adapter(
+    configurable: Mapping[str, Any],
+    *,
+    case_working_context_lifecycle_adapter_cls: Any,
+) -> Any:
+    existing = configurable.get("case_working_context_lifecycle_adapter")
+    if existing is not None:
+        return existing() if isinstance(existing, type) else existing
+    return case_working_context_lifecycle_adapter_cls()
+
+
+def _trusted_context_values(
+    *,
+    trusted_context: Any | None,
+    session: Any | None,
+) -> tuple[Any, uuid.UUID, uuid.UUID, str, uuid.UUID] | None:
+    if session is None:
+        return None
+    trusted = _mapping(trusted_context)
+    tenant_id = _uuid_value(trusted.get("tenant_id"))
+    user_id = _uuid_value(trusted.get("user_id"))
+    run_id = _uuid_value(trusted.get("run_id"))
+    thread_id_value = trusted.get("thread_id")
+    thread_id = str(thread_id_value).strip() if thread_id_value is not None else ""
+    if tenant_id is None or user_id is None or run_id is None or not thread_id:
+        return None
+    return session, tenant_id, user_id, thread_id, run_id
+
+
+def _uuid_value(value: Any) -> uuid.UUID | None:
+    if value in (None, ""):
+        return None
+    try:
+        return uuid.UUID(str(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def _context_service(
@@ -100,10 +220,30 @@ def _context_service(
     )
 
 
-def _context_result(state: AgentState, started_at: str, *, bundle: ReviewedMemoryContextBundle) -> dict[str, Any]:
+def _context_result(
+    state: AgentState,
+    started_at: str,
+    *,
+    bundle: ReviewedMemoryContextBundle,
+    case_working_context: dict[str, Any] | None,
+    case_working_context_status_ref: CaseWorkingContextLifecycleStatusV1 | None,
+) -> dict[str, Any]:
     memory_context = bundle.model_dump(mode="json")
     memory_context["schema_version"] = _BUNDLE_SCHEMA_VERSION
-    unified_memory_context = _unified_memory_context_bundle(state, bundle=bundle)
+    case_working_context_status = (
+        case_working_context_status_ref.model_dump(mode="json") if case_working_context_status_ref is not None else None
+    )
+    unified_memory_context = _unified_memory_context_bundle(
+        state,
+        bundle=bundle,
+        case_working_context=case_working_context,
+        case_working_context_status_ref=case_working_context_status_ref,
+    )
+    memory_context_bundle = unified_memory_context or _reviewed_bundle_with_cwc(
+        memory_context,
+        case_working_context=case_working_context,
+        case_working_context_status=case_working_context_status,
+    )
     long_term_items = list(memory_context["long_term_items"])
     case_items = list(memory_context["case_items"])
     status_ref = dict(memory_context["status_ref"])
@@ -119,7 +259,9 @@ def _context_result(state: AgentState, started_at: str, *, bundle: ReviewedMemor
     }
     return {
         "memory_context": memory_context,
-        "memory_context_bundle": unified_memory_context or memory_context,
+        "memory_context_bundle": memory_context_bundle,
+        "case_working_context": case_working_context,
+        "case_working_context_lifecycle_status": case_working_context_status,
         "reviewed_memory_context_retrieve_status": status_ref,
         "long_term_memory": long_term_items,
         "case_memory": case_items,
@@ -135,6 +277,8 @@ def _unified_memory_context_bundle(
     state: AgentState,
     *,
     bundle: ReviewedMemoryContextBundle,
+    case_working_context: dict[str, Any] | None,
+    case_working_context_status_ref: CaseWorkingContextLifecycleStatusV1 | None,
 ) -> dict[str, Any] | None:
     session_context_bundle = _mapping(state.get("session_context_bundle"))
     session_context_raw = session_context_bundle.get("session_context")
@@ -154,7 +298,21 @@ def _unified_memory_context_bundle(
         case_items=list(bundle.case_items),
         session_status_ref=session_status_ref,
         reviewed_status_ref=bundle.status_ref,
+        case_working_context=case_working_context,
+        case_working_context_status_ref=case_working_context_status_ref,
     ).model_dump(mode="json")
+
+
+def _reviewed_bundle_with_cwc(
+    memory_context: Mapping[str, Any],
+    *,
+    case_working_context: dict[str, Any] | None,
+    case_working_context_status: dict[str, Any] | None,
+) -> dict[str, Any]:
+    bundle = dict(memory_context)
+    bundle["case_working_context"] = case_working_context
+    bundle["case_working_context_status_ref"] = case_working_context_status
+    return bundle
 
 
 def _metrics(memory_context: Mapping[str, Any]) -> dict[str, Any]:
