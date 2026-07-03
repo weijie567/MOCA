@@ -35,6 +35,7 @@ from src.db.models import (
     AgentStep,
     AgentTraceEvent,
     ApprovalRequest,
+    CaseWorkingContext,
     ConversationMessage,
     ConversationSummary,
     MemoryWriteEvent,
@@ -43,6 +44,7 @@ from src.db.models import (
     User,
 )
 from src.knowledge.schemas import EvidenceRefV1
+from src.memory.case_working_context_lifecycle import CaseWorkingContextLifecycleResult, lifecycle_status
 from src.platform.context_projections import project_to_legacy_agent_state_identity
 from src.platform.trusted_context import TrustedContext
 from src.tools.contracts import BusinessFactRefV1, ToolResultV2
@@ -836,6 +838,42 @@ def _stream_input(run: AgentRun, user: User) -> dict[str, str]:
         "role": user.role,
         "current_run_id": str(run.id),
     }
+
+
+def _cwc_terminal_state(seeded_session: dict, *, user_query: str = "请帮我看看退款进度") -> dict:
+    refund_case = seeded_session["refund_case"]
+    return {
+        "user_query": user_query,
+        "primary_intent": "refund_status",
+        "active_slots": {
+            "refund_case_id": refund_case.refund_case_no,
+            "issue_type": "refund_status",
+        },
+        "tool_results": [
+            {
+                "tool_result_id": "terminal-refund-case-summary",
+                "summary": "退款单状态为 reviewing",
+            }
+        ],
+        "final_response": "退款单还在审核中。",
+    }
+
+
+def _patch_completed_memory_write(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_memory_write(final_state, config):
+        return {
+            **final_state,
+            "memory_write_result": {
+                "status": "completed",
+                "reason_code": "memory_persisted",
+                "slot_count": 1,
+                "decision": "write",
+                "pii_classification": "none",
+            },
+            "trace_steps": [],
+        }
+
+    monkeypatch.setattr("src.api.services.agent_run_memory.memory_write", fake_memory_write)
 
 
 async def _create_run(
@@ -2317,10 +2355,255 @@ async def test_completed_agent_run_finalizer_skips_non_completed_status(
     )
 
     assert result.status == "skipped"
+    assert result.case_working_context_status == "skipped"
+    assert result.case_working_context_result == {"status": "skipped", "reason_code": "not_completed_path"}
     assert result.trace_steps == []
     assert await _count_rows(session, ConversationMessage, ConversationMessage.run_id == run.id, ConversationMessage.role == "assistant") == 0
     assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 0
     assert await _count_rows(session, MemoryWriteEvent, MemoryWriteEvent.run_id == run.id) == 0
+
+    missing_response_run = await _create_run(
+        session,
+        tenant_id=user.tenant_id,
+        user_id=user.id,
+        final_status="running",
+    )
+    await session.flush()
+    missing_response = await finalize_completed_agent_run_memory(
+        session=session,
+        run=missing_response_run,
+        user=user,
+        input_state=_stream_input(missing_response_run, user),
+        final_state={"final_response": None},
+        final_status="completed",
+        final_response=None,
+        trace_steps=[],
+        trace_id=None,
+    )
+
+    assert missing_response.status == "skipped"
+    assert missing_response.case_working_context_status == "skipped"
+    assert missing_response.case_working_context_result == {"status": "skipped", "reason_code": "not_completed_path"}
+    assert await _count_rows(
+        session,
+        ConversationMessage,
+        ConversationMessage.run_id == missing_response_run.id,
+        ConversationMessage.role == "assistant",
+    ) == 0
+
+
+@pytest.mark.asyncio
+async def test_completed_agent_run_finalizer_writes_case_working_context(
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _patch_completed_memory_write(monkeypatch)
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.commit()
+
+    result = await finalize_completed_agent_run_memory(
+        session=session,
+        run=run,
+        user=user,
+        input_state=_stream_input(run, user),
+        final_state=_cwc_terminal_state(seeded_session),
+        final_status="completed",
+        final_response="退款单还在审核中。",
+        trace_steps=[],
+        trace_id=None,
+    )
+    await session.commit()
+    cwc = (
+        await session.execute(
+            select(CaseWorkingContext).where(
+                CaseWorkingContext.tenant_id == user.tenant_id,
+                CaseWorkingContext.case_id == seeded_session["refund_case"].id,
+                CaseWorkingContext.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one()
+    metrics = result.trace_steps[0]["metrics_json"]
+
+    assert result.status == "completed"
+    assert result.memory_write_status == "completed"
+    assert result.case_working_context_status == "written"
+    assert result.case_working_context_result["status"] == "written"
+    assert result.case_working_context_result["memory_id"] == str(cwc.id)
+    assert cwc.updated_by_run_id == run.id
+    assert cwc.source_ref_json["source_type"] == "run_auto_terminal"
+    assert cwc.source_ref_json["run_id"] == str(run.id)
+    assert cwc.source_ref_json["agent_run_id"] == str(run.id)
+    assert cwc.source_ref_json["business_object_id"] == str(seeded_session["refund_case"].id)
+    assert cwc.customer_request == "请帮我看看退款进度"
+    assert metrics["case_working_context_status"] == "written"
+    assert metrics["case_working_context_reason_code"] == "eligible"
+    assert metrics["case_working_context_memory_id"] == str(cwc.id)
+    assert metrics["case_working_context_version"] == cwc.version
+
+
+@pytest.mark.asyncio
+async def test_agent_run_finalizer_cwc_failure_preserves_terminal_rows(
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _patch_completed_memory_write(monkeypatch)
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.commit()
+
+    class FailingCwcAdapter:
+        async def write_after_terminal_success(self, **kwargs):
+            raise RuntimeError("cwc service unavailable")
+
+    monkeypatch.setattr("src.api.services.agent_run_memory.CaseWorkingContextLifecycleAdapter", FailingCwcAdapter)
+
+    result = await finalize_completed_agent_run_memory(
+        session=session,
+        run=run,
+        user=user,
+        input_state=_stream_input(run, user),
+        final_state=_cwc_terminal_state(seeded_session),
+        final_status="completed",
+        final_response="退款单还在审核中。",
+        trace_steps=[],
+        trace_id=None,
+    )
+    await session.commit()
+
+    assert result.memory_write_status == "completed"
+    assert result.case_working_context_status == "error"
+    assert result.case_working_context_result["reason_code"] == "case_working_context_write_failed"
+    assert result.case_working_context_result["error_type"] == "RuntimeError"
+    assert await _count_rows(
+        session,
+        ConversationMessage,
+        ConversationMessage.run_id == run.id,
+        ConversationMessage.role == "assistant",
+    ) == 1
+    assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 1
+
+
+@pytest.mark.asyncio
+async def test_agent_run_finalizer_cwc_blocked_preserves_terminal_rows(
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _patch_completed_memory_write(monkeypatch)
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    await session.commit()
+
+    result = await finalize_completed_agent_run_memory(
+        session=session,
+        run=run,
+        user=user,
+        input_state=_stream_input(run, user),
+        final_state=_cwc_terminal_state(seeded_session, user_query="merchant password=abc123"),
+        final_status="completed",
+        final_response="退款单还在审核中。",
+        trace_steps=[],
+        trace_id=None,
+    )
+    await session.commit()
+
+    assert result.case_working_context_status == "blocked"
+    assert result.case_working_context_result["reason_code"] == "pii_blocked"
+    assert result.case_working_context_result.get("memory_id") is None
+    assert await _count_rows(
+        session,
+        ConversationMessage,
+        ConversationMessage.run_id == run.id,
+        ConversationMessage.role == "assistant",
+    ) == 1
+    assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 1
+    assert await _count_rows(
+        session,
+        CaseWorkingContext,
+        CaseWorkingContext.tenant_id == user.tenant_id,
+        CaseWorkingContext.case_id == seeded_session["refund_case"].id,
+        CaseWorkingContext.deleted_at.is_(None),
+    ) == 0
+
+
+@pytest.mark.asyncio
+async def test_agent_run_finalizer_cwc_conflict_preserves_terminal_rows(
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _patch_completed_memory_write(monkeypatch)
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="running")
+    existing_cwc = CaseWorkingContext(
+        id=uuid4(),
+        tenant_id=user.tenant_id,
+        case_id=seeded_session["refund_case"].id,
+        customer_request="初始请求",
+        issue_type="refund_status",
+        source_ref_json={
+            "source_type": "run_auto_terminal",
+            "run_id": str(run.id),
+            "agent_run_id": str(run.id),
+            "business_object_type": "refund_case",
+            "business_object_id": str(seeded_session["refund_case"].id),
+        },
+        version=1,
+        updated_by_run_id=run.id,
+        pii_classification="none",
+    )
+    session.add(existing_cwc)
+    await session.commit()
+
+    class ConflictCwcAdapter:
+        async def write_after_terminal_success(self, **kwargs):
+            return CaseWorkingContextLifecycleResult(
+                case_id=seeded_session["refund_case"].id,
+                case_working_context=None,
+                status_ref=lifecycle_status(
+                    status="skipped",
+                    resolve_status="resolved",
+                    link_status="deduped",
+                    read_status="loaded",
+                    write_status="conflict",
+                    reason_code="version_conflict",
+                    tenant_id=user.tenant_id,
+                    case_id=seeded_session["refund_case"].id,
+                    run_id=run.id,
+                    raw_case_ref=seeded_session["refund_case"].refund_case_no,
+                ),
+            )
+
+    monkeypatch.setattr("src.api.services.agent_run_memory.CaseWorkingContextLifecycleAdapter", ConflictCwcAdapter)
+
+    result = await finalize_completed_agent_run_memory(
+        session=session,
+        run=run,
+        user=user,
+        input_state=_stream_input(run, user),
+        final_state=_cwc_terminal_state(seeded_session),
+        final_status="completed",
+        final_response="退款单还在审核中。",
+        trace_steps=[],
+        trace_id=None,
+    )
+    await session.commit()
+    await session.refresh(existing_cwc)
+
+    assert result.case_working_context_status == "conflict"
+    assert result.case_working_context_result["reason_code"] == "version_conflict"
+    assert result.case_working_context_result.get("memory_id") is None
+    assert existing_cwc.customer_request == "初始请求"
+    assert await _count_rows(
+        session,
+        ConversationMessage,
+        ConversationMessage.run_id == run.id,
+        ConversationMessage.role == "assistant",
+    ) == 1
+    assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 1
 
 
 @pytest.mark.asyncio
