@@ -64,6 +64,8 @@ def _source_ref(**overrides: str) -> MemorySourceRefV1:
         "business_object_id": str(uuid.uuid4()),
     }
     payload.update(overrides)
+    if "agent_run_id" in overrides and "run_id" not in overrides:
+        payload["run_id"] = overrides["agent_run_id"]
     return MemorySourceRefV1.model_validate(payload)
 
 
@@ -372,6 +374,32 @@ async def test_repo_write_expected_version_conflict_does_not_clobber(phase44_ses
 
 
 @pytest.mark.asyncio
+async def test_repo_write_expected_version_without_active_row_returns_conflict(phase44_session_factory) -> None:
+    async with phase44_session_factory() as session:
+        async with session.begin():
+            scope = await _seed_case_scope(session)
+            source_ref = _source_ref(agent_run_id=str(scope["run"].id))
+            repository = CaseWorkingContextRepository(session)
+
+            result = await repository.write_working_context(
+                _candidate(
+                    scope,
+                    content=_content(source_ref, customer_request="stale create"),
+                    source_ref=source_ref,
+                    expected_version=1,
+                )
+            )
+            cwc_count = await session.scalar(select(func.count()).select_from(CaseWorkingContext))
+            revision_count = await session.scalar(select(func.count()).select_from(CaseWorkingContextRevision))
+
+    assert result.status == "conflict"
+    assert result.case_working_context_id is None
+    assert result.version is None
+    assert cwc_count == 0
+    assert revision_count == 0
+
+
+@pytest.mark.asyncio
 async def test_repo_rejects_updated_by_run_id_from_another_tenant(phase44_session_factory) -> None:
     async with phase44_session_factory() as session:
         async with session.begin():
@@ -383,6 +411,32 @@ async def test_repo_rejects_updated_by_run_id_from_another_tenant(phase44_sessio
             )
 
             with pytest.raises(ValueError, match="updated_by_run_id does not belong to tenant"):
+                await CaseWorkingContextRepository(session).write_working_context(candidate)
+
+            cwc_count = await session.scalar(select(func.count()).select_from(CaseWorkingContext))
+            revision_count = await session.scalar(select(func.count()).select_from(CaseWorkingContextRevision))
+
+    assert cwc_count == 0
+    assert revision_count == 0
+
+
+@pytest.mark.asyncio
+async def test_repo_rejects_source_ref_run_ids_from_another_tenant_when_updater_missing(
+    phase44_session_factory,
+) -> None:
+    async with phase44_session_factory() as session:
+        async with session.begin():
+            scope = await _seed_case_scope(session)
+            other_scope = await _seed_case_scope(session)
+            source_ref = _source_ref(
+                run_id=str(other_scope["run"].id),
+                agent_run_id=str(other_scope["run"].id),
+            )
+            candidate = _candidate(scope, content=_content(source_ref), source_ref=source_ref).model_copy(
+                update={"updated_by_run_id": None}
+            )
+
+            with pytest.raises(ValueError, match="source_ref run_id/agent_run_id does not belong to tenant"):
                 await CaseWorkingContextRepository(session).write_working_context(candidate)
 
             cwc_count = await session.scalar(select(func.count()).select_from(CaseWorkingContext))

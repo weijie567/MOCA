@@ -78,8 +78,19 @@ class CaseWorkingContextRepository:
             run_id=candidate.updated_by_run_id,
             case_id=candidate.case_id,
         )
+        await self._assert_source_ref_runs_belong_to_tenant(
+            tenant_id=candidate.tenant_id,
+            source_ref_json=source_ref_json,
+            content=content,
+        )
 
         if row is None:
+            if candidate.expected_version is not None:
+                return CaseWorkingContextWriteResult(
+                    status="conflict",
+                    case_working_context_id=None,
+                    version=None,
+                )
             row = CaseWorkingContext(
                 id=uuid.uuid4(),
                 tenant_id=candidate.tenant_id,
@@ -174,6 +185,30 @@ class CaseWorkingContextRepository:
         if result.scalar_one_or_none() is None:
             raise ValueError("updated_by_run_id does not belong to tenant")
 
+    async def _assert_source_ref_runs_belong_to_tenant(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        source_ref_json: dict[str, Any],
+        content: CaseWorkingContextContentV1,
+    ) -> None:
+        run_ids: set[uuid.UUID] = set()
+        for source_ref in _iter_cwc_source_refs(source_ref_json=source_ref_json, content=content):
+            run_ids.update(_source_ref_run_ids(source_ref))
+
+        if not run_ids:
+            return
+
+        result = await self.session.execute(
+            select(AgentRun.id).where(
+                AgentRun.tenant_id == tenant_id,
+                AgentRun.id.in_(run_ids),
+            )
+        )
+        tenant_run_ids = set(result.scalars().all())
+        if tenant_run_ids != run_ids:
+            raise ValueError("source_ref run_id/agent_run_id does not belong to tenant")
+
 
 def dehydrate_content(content: CaseWorkingContextContentV1) -> dict[str, Any]:
     dumped = content.model_dump(mode="json")
@@ -206,6 +241,34 @@ def _revision_edit_source(source_ref_json: dict[str, Any] | None) -> Literal["ru
     if (source_ref_json or {}).get("source_type") == "staff_manual":
         return "staff_manual"
     return "run_auto"
+
+
+def _iter_cwc_source_refs(
+    *,
+    source_ref_json: dict[str, Any],
+    content: CaseWorkingContextContentV1,
+) -> list[dict[str, Any]]:
+    source_refs = [source_ref_json]
+    dehydrated = dehydrate_content(content)
+    for content_field in ("claims", "verified_facts", "actions_taken", "commitments"):
+        for item in dehydrated[content_field]:
+            nested_source_ref = item.get("source_ref")
+            if isinstance(nested_source_ref, dict):
+                source_refs.append(nested_source_ref)
+    return source_refs
+
+
+def _source_ref_run_ids(source_ref_json: dict[str, Any]) -> set[uuid.UUID]:
+    run_ids: set[uuid.UUID] = set()
+    for field_name in ("run_id", "agent_run_id"):
+        value = source_ref_json.get(field_name)
+        if value is None:
+            continue
+        try:
+            run_ids.add(uuid.UUID(str(value)))
+        except ValueError as exc:
+            raise ValueError(f"{field_name} in source_ref must be a UUID") from exc
+    return run_ids
 
 
 def _case_scope_lock_key(*, tenant_id: uuid.UUID, case_id: uuid.UUID) -> int:

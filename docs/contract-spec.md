@@ -2469,6 +2469,57 @@ case_memories
 - updated_at timestamptz not null
 - deleted_at timestamptz null
 
+thread_case_links
+- id uuid primary key
+- tenant_id uuid not null references tenants(id)
+- conversation_thread_id uuid not null references conversation_threads(id)
+- thread_id varchar(128) not null
+- case_id uuid not null references refund_cases(id)
+- link_source varchar(32) not null
+- linked_by_run_id uuid null references agent_runs(id)
+- schema_version varchar(48) not null default 'thread_case_link.v1'
+- created_at timestamptz not null
+- updated_at timestamptz not null
+- deleted_at timestamptz null
+
+case_working_contexts
+- id uuid primary key
+- tenant_id uuid not null references tenants(id)
+- case_id uuid not null references refund_cases(id)
+- schema_version varchar(48) not null default 'case_working_context.v1'
+- authority_class varchar(32) not null default 'contextual_only'
+- customer_request text null
+- issue_type varchar(64) null
+- claims_json jsonb not null default '[]'
+- verified_facts_json jsonb not null default '[]'
+- missing_info_json jsonb not null default '[]'
+- evidence_refs_json jsonb not null default '[]'
+- actions_taken_json jsonb not null default '[]'
+- policy_refs_json jsonb not null default '[]'
+- agent_recommendations_json jsonb not null default '[]'
+- pending_tasks_json jsonb not null default '[]'
+- commitments_json jsonb not null default '[]'
+- next_action_json jsonb not null default '{}'
+- source_ref_json jsonb not null default '{}'
+- version int not null default 1
+- updated_by_run_id uuid null references agent_runs(id)
+- pii_classification varchar(32) not null default 'none'
+- created_at timestamptz not null
+- updated_at timestamptz not null
+- deleted_at timestamptz null
+
+case_working_context_revisions
+- id uuid primary key
+- tenant_id uuid not null references tenants(id)
+- case_working_context_id uuid not null references case_working_contexts(id)
+- case_id uuid not null references refund_cases(id)
+- version int not null
+- snapshot_json jsonb not null default '{}'
+- edit_source varchar(32) not null
+- updated_by_run_id uuid null references agent_runs(id)
+- source_ref_json jsonb not null default '{}'
+- created_at timestamptz not null
+
 memory_tombstones
 - id uuid primary key
 - tenant_id uuid not null references tenants(id)
@@ -2508,6 +2559,9 @@ Memory constraints / indexes：
 - Optional Redis hot cache for session memory or active-run checkpoint state has no schema ownership. It must be treated as a derived view of PostgreSQL-backed state, carry a mandatory TTL, fall back to PostgreSQL on miss/error, and never be the only copy of approval waits, side-effect boundaries, audit/replay facts, or CAS-controlled session-memory writes.
 - `long_term_memories`: unique `(tenant_id, scope_type, scope_id, content_hash)` where `deleted_at is null and is_current = true`；不得使用 `supersedes is null` 作为 active predicate。
 - `case_memories`: index `(tenant_id, merchant_id, case_type, created_at)`；case memory 目标采用 append-only + `review_status` 过滤，不复用 long-term memory 的 same-content active unique version model。
+- `thread_case_links`: composite tenant FKs `(conversation_thread_id, tenant_id)` -> `(conversation_threads.id, conversation_threads.tenant_id)` and `(case_id, tenant_id)` -> `(refund_cases.id, refund_cases.tenant_id)`；active unique `(tenant_id, conversation_thread_id, case_id)` where `deleted_at is null`；check `link_source in ('run_auto', 'staff_manual', 'import')`；legacy `conversation_threads.case_id` 不被删除、重命名或重解释。
+- `case_working_contexts`: composite tenant FK `(case_id, tenant_id)` -> `(refund_cases.id, refund_cases.tenant_id)`；unique `(id, tenant_id)` for revision tenant FK；active unique `(tenant_id, case_id)` where `deleted_at is null`；check `authority_class = 'contextual_only'`、`version > 0`、`pii_classification in ('none', 'low', 'sensitive', 'prohibited')`。Claims / verified facts / actions / commitments 的 `source_ref_json` 必须由 write service/repository 事务校验 run provenance；CWC 不能作为 `EvidenceRefV1` 或 policy/risk/approval/action authority。
+- `case_working_context_revisions`: composite tenant FKs `(case_working_context_id, tenant_id)` -> `(case_working_contexts.id, case_working_contexts.tenant_id)` and `(case_id, tenant_id)` -> `(refund_cases.id, refund_cases.tenant_id)`；unique `(tenant_id, case_working_context_id, version)`；check `edit_source in ('run_auto', 'staff_manual')` and `version > 0`；revision rows are append-only snapshots of the prior active CWC version.
 - `memory_tombstones`: partial unique/index active tombstone `(tenant_id, memory_type, scope_type, scope_id, content_hash)` where `content_hash is not null and deleted_at is null`；另建 `(tenant_id, memory_type, scope_type, scope_id)` active lookup index。`source_ref_json` 的 target identity/tenant matching 不能靠 JSONB FK，必须由 MemoryService transaction validation 保证。
 - check `scope_type in ('tenant', 'merchant', 'user', 'thread', 'case')`; MVP excludes `global`.
 - `scope_type` / `scope_id` 保持 polymorphic varchar；DB check 只能保证 `scope_type` 枚举，tenant ownership 必须由 MemoryService 在同一事务内验证，并以 cross-tenant/scope mismatch service tests 保证。

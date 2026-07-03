@@ -19,6 +19,13 @@ def _section_13() -> str:
     return source[section_start:section_end]
 
 
+def _section_18_1() -> str:
+    source = _source(CONTRACT_SPEC_PATH)
+    section_start = source.index("### 18.1 Memory")
+    section_end = source.index("### 18.2 Approval")
+    return source[section_start:section_end]
+
+
 def test_contract_spec_defines_case_working_context_as_contextual_only_layer() -> None:
     section = _section_13()
 
@@ -68,6 +75,22 @@ def test_contract_spec_retains_red_line_table_names_and_cwc_audit_type() -> None
         "memory_write_events.memory_type in ('session_slot', 'long_term_fact', "
         "'case_memory', 'case_working_context', 'none')"
     ) in source
+
+
+def test_contract_spec_appendix_documents_phase44_memory_tables() -> None:
+    section = _section_18_1()
+
+    for term in (
+        "thread_case_links",
+        "case_working_contexts",
+        "case_working_context_revisions",
+        "active unique `(tenant_id, conversation_thread_id, case_id)`",
+        "active unique `(tenant_id, case_id)`",
+        "unique `(tenant_id, case_working_context_id, version)`",
+        "authority_class = 'contextual_only'",
+        "revision rows are append-only snapshots",
+    ):
+        assert term in section
 
 
 def test_memory_redesign_decisions_preserve_defer_trace() -> None:
