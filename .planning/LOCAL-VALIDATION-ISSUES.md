@@ -11067,3 +11067,38 @@ Phase 45 plan-phase 的 pattern mapper 在做文本验证时因 shell quoting �
 - `.planning/phases/45-memory-lifecycle-wiring-for-case-working-context/45-PATTERNS.md`
 - `.planning/phases/45-memory-lifecycle-wiring-for-case-working-context/45-CONTEXT.md`
 - `AGENTS.md`
+
+## 2026-07-03 — Phase 45-01 metadata update 使用 flag 形式调用 state handler 产生畸形 STATE 行
+
+### 问题现象
+
+执行 Phase 45-01 收尾时，`gsd-sdk query state.record-metric --phase 45 --plan 01 --duration "5min" --tasks 2 --files 6` 返回 `{"recorded": true}`，但实际把 flag 名称当作普通参数写进 `.planning/STATE.md`，在 Quick Tasks 表里新增畸形行：`| Phase --phase P45 | --plan | 01 tasks | --duration files |`。随后 `gsd-sdk query state.record-session --stopped-at ... --resume-file ...` 也把 `Last session` 写成 `--stopped-at`、`Resume file` 写成 `--resume-file`。
+
+### 如何检测 / 复现
+
+收尾后运行 `git diff -- .planning/STATE.md`，可以看到上述畸形行和 session 字段错误。复现条件是对当前 `gsd-sdk` state handler 使用 flag 形式参数。
+
+### 关键证据或命令
+
+- `gsd-sdk query state.record-metric --phase 45 --plan 01 --duration "5min" --tasks 2 --files 6` → 返回 recorded，但写入了 flag 字面值。
+- `gsd-sdk query state.record-session --stopped-at "Completed 45-01-PLAN.md" --resume-file "None"` → 返回 recorded，但 session 字段使用了 flag 名。
+- `git diff -- .planning/STATE.md` 暴露畸形 Quick Tasks 行和 `Last session: --stopped-at`。
+
+### 当前判断 / 根因
+
+当前 `gsd-sdk` state handler 实际仍按位置参数解析，和部分 workflow 文档中的 flag 写法不一致；命令返回成功不能代表写入内容语义正确。
+
+### 已做处理
+
+已手动修复 `.planning/STATE.md`：删除畸形 Quick Tasks 行，补入正常 Phase 45-01 performance metric，恢复 `Last session: 2026-07-03`、`Resume file: None`，并把 next 指向 45-02。
+
+### 剩余问题
+
+无代码问题。后续执行 state handler 时优先使用位置参数，或在调用后立即 diff 校验 `STATE.md` 内容。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `/Users/ming/.codex/get-shit-done/workflows/execute-plan.md`
+- `gsd-sdk query state.record-metric`
+- `gsd-sdk query state.record-session`

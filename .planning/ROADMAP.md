@@ -84,6 +84,7 @@ Plans:
 | 41. Tool Platform Legacy Manager Cleanup | 4/4 | Complete | 2026-07-02 |
 | 42. Intent Recognition Three-Layer Decoupling | 1/1 | Complete (retroactively registered) | 2026-07-02 |
 | 43. Intent Recognition Multi-Intent Tier A | 3/3 complete | Complete | 2026-07-02 |
+| 45. Memory Lifecycle Wiring for Case Working Context | 1/4 | In Progress | |
 
 ### Phase 40: Tool Contract Validation Hardening
 
@@ -193,7 +194,7 @@ Plans:
 **Plans:** 4 plans
 
 Plans:
-- [ ] 45-01-PLAN.md — lifecycle contextual refs, status contracts, and graph/API-neutral adapter foundation.
+- [x] 45-01-PLAN.md — lifecycle contextual refs, status contracts, and graph/API-neutral adapter foundation.
 - [ ] 45-02-PLAN.md — active CWC read and `run_auto` thread-case link wiring at the memory-context seam.
 - [ ] 45-03-PLAN.md — terminal finalizer CWC writeback, deterministic projection, and failure/conflict semantics.
 - [ ] 45-04-PLAN.md — contract/spec alignment, red-line sweeps, planning ledgers, and final targeted verification.

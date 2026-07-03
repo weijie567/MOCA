@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
 status: executing
-stopped_at: Phase 44 complete; ready to plan Phase 45 memory lifecycle wiring
-last_updated: "2026-07-03T05:03:44.240Z"
-last_activity: 2026-07-03 -- Phase 45 execution started
+stopped_at: Completed 45-01-PLAN.md
+last_updated: "2026-07-03T05:11:32.018Z"
+last_activity: 2026-07-03 -- Phase 45 plan 45-01 completed
 progress:
   total_phases: 9
   completed_phases: 8
   total_plans: 26
-  completed_plans: 22
-  percent: 85
+  completed_plans: 23
+  percent: 88
 ---
 
 # Project State: MOCA
@@ -31,12 +31,12 @@ See: `.planning/PROJECT.md` (updated 2026-07-01)
 ## Current Position
 
 Phase: 45 (memory-lifecycle-wiring-for-case-working-context) — EXECUTING
-Plan: 1 of 4
-Status: Executing Phase 45
-Last activity: 2026-07-03 -- Phase 45 execution started
-Next: Plan Phase 45 memory lifecycle wiring if continuing the memory subsystem: graph run-completion auto-update, read-active consumer wiring, and real run/staff caller integration.
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-07-03 -- Phase 45 plan 45-01 completed
+Next: Execute Phase 45 plan 45-02 for active CWC read and run_auto thread-case link wiring.
 
-Progress: [██████████] 100%
+Progress: [█████████░] 88%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -94,6 +94,7 @@ Phase 44 moves to the memory subsystem: it adds the durable Case Working Context
 **Phase 41 plan 41-03:** `UnifiedToolManager` adapter/public export deleted, compatibility tests removed after ToolPlatform coverage migration, and architecture guard tests passed.
 **Phase 41 plan 41-04:** implementation review, final verification, and Claude light closure handoff complete; final tests and no-legacy grep passed.
 **Phase 44:** 4/4 plans complete; migrations 021/022, CWC repository/service, thread-case M:N lifecycle, contract alignment, clean code review, and verification passed. Final Phase 44 surface: `51 passed, 5 warnings`; `alembic heads` = `022_case_working_context (head)`.
+**Phase 45 plan 45-01:** 5 min, 2 tasks, 6 files modified; contextual CWC lifecycle refs and graph/API-neutral adapter foundation complete.
 
 Historical execution metrics are archived in milestone files and `.planning/MILESTONES.md`.
 
@@ -135,6 +136,9 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - Phase 41 plan 41-02 completed production seam and targeted fake migration; production graph nodes now use `tool_platform` / `action_tool_platform` injection without legacy manager unwrapping.
 - Phase 41 plan 41-03 deleted the legacy adapter and public export; `src.tools.manager_results` remains an allowed helper and is not the removed manager API.
 - Phase 41 plan 41-04 completed the code-review/verification gate for TPH-06 and left a bounded Claude light closure review handoff.
+- Phase 45 Plan 01 trusted case-ref extraction accepts active_slots, extracted_slots, and explicitly enabled business_context only; candidate_slots and memory surfaces are ignored.
+- Phase 45 Plan 01 keeps CWC lifecycle contracts contextual-only and separates them from evidence/business/action/replay authority DTOs.
+- Phase 45 Plan 01 active CWC payloads derive refs only from persisted row fields and hydrate content through the Phase 44 helper.
 
 ### Roadmap Evolution
 
@@ -178,9 +182,9 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 ## Session Continuity
 
 Last session: 2026-07-03
-Stopped at: Phase 44 complete; ready to plan Phase 45 memory lifecycle wiring
-Resume file: .planning/phases/44-memory-layering-case-working-context-thread-case-many-to-man/44-VERIFICATION.md
-Next: Plan Phase 45 memory lifecycle wiring if continuing the memory subsystem.
+Stopped at: Completed 45-01-PLAN.md
+Resume file: None
+Next: Execute Phase 45 plan 45-02 for active CWC read and run_auto thread-case link wiring.
 
 Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification.
 Next roadmap item: Phase 45 memory lifecycle wiring for graph run-completion CWC auto-update/read-active hooks, or another architecture-debt item inside v2.1.

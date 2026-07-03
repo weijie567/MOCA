@@ -278,3 +278,26 @@
 
 **剩余风险**
 - ⚠️ 本 phase 只交付 callable write surfaces：真实 run/staff call site wiring 明确 defer 到 `Phase 45 memory lifecycle wiring`（`DEFER-LINK-CASE-CALLER`、`DEFER-CWC-READ-ACTIVE-CALLER`）。Wave 4 仍需做 contract-spec §13 对齐和最终 no-redline sweep；本轮未改 DDL、未迁移 26 个 legacy `case_id` readers。
+
+## Phase 45 Plan 01 — CWC lifecycle contextual refs 与 adapter foundation ✅⚠️
+
+**问题 / 根因**
+- Phase 44 已提供 CWC resolver / repository / audited write service，但 graph/API/finalizer caller 若直接拼状态，容易把 CWC 与 reviewed `case_memory`、候选槽位、session memory 或业务事实 authority 混在一起。
+- 现有 `MemoryContextBundle` 没有显式 CWC lifecycle status/ref 字段；后续 active read / link / terminal write 无法稳定表达 `skipped/error/resolve/link/read/write` 原因。
+
+**修复**
+- 新增 `CaseWorkingContextRef` 与 `CaseWorkingContextLifecycleStatusV1`，固定 `authority_class='contextual_only'`，并把 `case_working_context` / `case_working_context_status_ref` 作为 `MemoryContextBundle` 的 additive optional fields。
+- 新增 `CaseWorkingContextLifecycleAdapter` foundation：trusted case ref 只从 `active_slots.refund_case_id`、`extracted_slots.refund_case_id`，以及显式启用时的 `business_context.refund_case` 三个字段序列提取；忽略 `candidate_slots`、`session_memory`、`case_memory`、`memory_context`。
+- `build_active_cwc_payload(...)` 只从 persisted CWC row 字段构造 prompt-safe payload：内容经 `hydrate_content(row)`，ref 来自 `tenant_id/case_id/id/version/updated_by_run_id/source_ref_json`。
+
+**证据**
+- Phase / plan：`45-01`
+- Commits：`b5794a8`（context refs）、`7e5c757`（adapter foundation），TDD red commits `9fa41d2` / `571b5f3`
+- 文件：`src/memory/context_refs.py`、`src/memory/case_working_context_lifecycle.py`、`tests/memory/test_context_refs.py`、`tests/agent/test_case_working_context_lifecycle.py`
+
+**验证**
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_context_refs.py tests/agent/test_case_working_context_lifecycle.py -q` → `24 passed`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/memory/context_refs.py src/memory/case_working_context_lifecycle.py tests/memory/test_context_refs.py tests/agent/test_case_working_context_lifecycle.py` → pass
+
+**剩余风险**
+- ⚠️ 本 plan 只交付 graph/API-neutral adapter foundation；active CWC read + `run_auto` thread-case link wiring 属于 `45-02`，terminal finalizer writeback / conflict semantics 属于 `45-03`，contract/spec/red-line final sweep 属于 `45-04`。

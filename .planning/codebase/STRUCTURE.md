@@ -15,7 +15,7 @@ MOCA/
 │   ├── conversation/        # Conversation log and safe tool call/result persistence services
 │   ├── db/                  # SQLAlchemy models, session, Alembic migrations
 │   ├── knowledge/           # Canonical policy evidence contracts and KnowledgeService facade
-│   ├── memory/              # Session, long-term/case memory schemas, repositories, services, identity, and tombstone helpers
+│   ├── memory/              # Session, long-term/case/CWC memory schemas, lifecycle adapters, repositories, services, identity, and tombstone helpers
 │   ├── platform/            # TrustedContextFactory, canonical trusted context, and service-safe projection helpers
 │   ├── rag/                 # Chunking, embedding, retrieval, citation validation
 │   ├── replay/              # ReplayEventV3 schemas, validators, and replay event service boundary
@@ -58,7 +58,7 @@ MOCA/
 - `src/approvals/schemas.py` centralizes approval-domain schema version literals
 
 **`src/knowledge/`, `src/business/`, `src/memory/`, and `src/tools/`:**
-- Phase 8-16 domain facades and contracts for policy evidence, business reads, session memory, reviewed long-term/case memory schema/lifecycle, tombstone no-rewrite behavior, and tool invocation
+- Phase 8-16 domain facades and contracts for policy evidence, business reads, session memory, reviewed long-term/case memory schema/lifecycle, Case Working Context lifecycle boundaries, tombstone no-rewrite behavior, and tool invocation
 - `src/knowledge/schemas.py` owns EvidenceRefV1 and canonical evidence projection reused by approval snapshots
 - `src/business/schemas.py` owns BusinessContextV1 and BusinessFactResultV1; `src/business/service.py` now contains BusinessFactService as the current-business-fact domain boundary beside the BusinessToolService compatibility facade
 
@@ -149,6 +149,7 @@ MOCA/
 - New replay contract/service behavior: `src/replay/`
 - New conversation/tool-result persistence behavior: `src/conversation/`
 - New trusted identity/scope or service projection behavior: `src/platform/`
+- New memory lifecycle adapter or CWC boundary behavior: `src/memory/`
 - New shared canonical/hash helper: `src/common/`
 - New agent node: `src/agent/nodes/` and graph wiring in `src/agent/graph.py`
 - New post-retrieval reasoning context behavior: `src/agent/rag_context/`
