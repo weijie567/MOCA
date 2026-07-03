@@ -533,27 +533,19 @@ The projection helper names above are recommended implementation seams; each out
 |---|-------|---------|---------------|
 | — | No `[ASSUMED]` factual claims are used in this research. Recommended names and helper shapes are explicitly marked as recommendations and are backed by existing code patterns. | All | Planner can proceed from verified surfaces; exact names still require plan-level design. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **What exact inputs count as trusted enough to resolve canonical CWC case identity?**
-   - What we know: Phase 45 requires canonical `refund_cases.id`, no guessing, and skip-on-untrusted identity. [VERIFIED: .planning/phases/45-memory-lifecycle-wiring-for-case-working-context/45-CONTEXT.md]
-   - What's unclear: whether current `active_slots["refund_case_id"]` is always trusted after `extract_slots`, or whether it must be confirmed by current `business_context` / tool result. [VERIFIED: src/agent/nodes/extract_slots.py] [VERIFIED: src/agent/nodes/investigate.py]
-   - Recommendation: make resolver trust levels explicit in Plan 1 and add tests that candidate/stale/memory-only refs do not link or write CWC. [VERIFIED: tests/agent/test_reviewed_memory_context_retrieve.py]
+   - RESOLVED: Plan 45-01 defines the trusted case-ref order as `active_slots["refund_case_id"]`, then `extracted_slots["refund_case_id"]`, then, only for terminal writeback with `include_business_context=True`, `business_context["refund_case"]["refund_case_no"]`, `business_context["refund_case"]["refund_case_id"]`, and `business_context["refund_case"]["id"]`. Every raw ref must still resolve through tenant-scoped `resolve_case_id(...)` to canonical `refund_cases.id`. Candidate slots, session memory, reviewed `case_memory`, `case_memories`, and `memory_context` are explicitly untrusted and must not link/read/write CWC.
 
 2. **Should CWC read output extend `MemoryContextBundle` or use separate AgentState fields plus a status ref?**
-   - What we know: `MemoryContextBundle` currently has session, long-term, and reviewed case items, and AgentState has no CWC fields. [VERIFIED: src/memory/context_refs.py] [VERIFIED: src/agent/state.py]
-   - What's unclear: whether changing `memory_context_bundle.v1` with optional fields is preferred over a separate CWC state/status pair. [VERIFIED: docs/contract-spec.md]
-   - Recommendation: choose one state contract in the first plan and update `receive_request` reset, AgentState registry, contract spec, and tests together. [VERIFIED: src/agent/nodes/receive_request.py] [VERIFIED: docs/contract-spec.md]
+   - RESOLVED: Use both additive AgentState fields and a bundle extension. Plan 45-01 extends `MemoryContextBundle` with optional `case_working_context` and `case_working_context_status_ref`. Plan 45-02 adds/reset-tests AgentState fields `case_working_context` and `case_working_context_lifecycle_status`. Plan 45-04 aligns `docs/contract-spec.md` to those exact field names.
 
 3. **Is legacy `/api/v1/agent` chat in scope for CWC writeback?**
-   - What we know: Phase 45 prefers the `/agent-runs` terminal finalizer first, and the legacy chat router has a separate background memory-write path. [VERIFIED: .planning/phases/45-memory-lifecycle-wiring-for-case-working-context/45-CONTEXT.md] [VERIFIED: src/api/routers/agent.py]
-   - What's unclear: whether Phase 45 must support CWC writeback for the legacy chat route or only the production `/agent-runs` route. [VERIFIED: src/api/routers/agent_runs.py]
-   - Recommendation: scope Phase 45 implementation to `/agent-runs` unless the planner identifies an explicit product requirement for legacy chat parity. [VERIFIED: .planning/phases/45-memory-lifecycle-wiring-for-case-working-context/45-CONTEXT.md]
+   - RESOLVED: Phase 45 scopes production CWC writeback to the `/agent-runs` completed-run finalizer in `src/api/services/agent_run_memory.py`, per D-45-04. The legacy `/api/v1/agent` chat background memory-write path is not a Phase 45 CWC writeback target unless a later phase records an explicit parity requirement.
 
 4. **How should clarification-only completed turns be represented?**
-   - What we know: clarification-only turns may link if canonical case id is resolved but should skip CWC content update unless planner proves a safe deterministic update rule. [VERIFIED: .planning/phases/45-memory-lifecycle-wiring-for-case-working-context/45-CONTEXT.md]
-   - What's unclear: whether the existing final state has a stable clarification-only marker that should be used by the lifecycle adapter. [VERIFIED: src/agent/graph.py] [VERIFIED: src/agent/nodes/final_response.py]
-   - Recommendation: include a skip test for clarification/missing-evidence paths before adding any content projection for them. [VERIFIED: .planning/phases/45-memory-lifecycle-wiring-for-case-working-context/45-CONTEXT.md]
+   - RESOLVED: Clarification-only completed turns may still perform `run_auto` thread-case linking if a canonical case id resolves, but they skip CWC content writes with explicit lifecycle status `status="skipped"`, `write_status="skipped"`, and `reason_code="clarification_only"`. They must not create a `CaseWorkingContextWriteCandidate` unless a later phase defines and tests a deterministic safe update rule.
 
 ## Environment Availability
 
