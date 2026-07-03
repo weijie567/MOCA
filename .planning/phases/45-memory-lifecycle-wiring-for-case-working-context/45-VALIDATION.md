@@ -82,8 +82,18 @@ Recorded after Phase 45-04 final gates passed:
 1. `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase45_contract_alignment.py -x -q`
    - Result: `11 passed, 1 warning in 0.03s`
 2. `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_context_refs.py tests/agent/test_case_working_context_lifecycle.py tests/agent/test_nodes/test_receive_request.py tests/agent/test_reviewed_memory_context_retrieve.py tests/memory/test_case_identity.py tests/memory/test_thread_case_links.py tests/memory/test_case_working_context_service.py tests/test_agent_runs_api.py tests/memory/test_phase44_contract_alignment.py tests/memory/test_phase45_contract_alignment.py -q`
-   - Result: `172 passed, 1 warning in 138.06s (0:02:18)`
+   - Result: `173 passed, 1 warning in 146.50s (0:02:26)`
 3. `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/memory/context_refs.py src/memory/case_working_context_lifecycle.py src/agent/state.py src/agent/nodes/receive_request.py src/agent/nodes/reviewed_memory_context_retrieve.py src/api/services/agent_run_memory.py tests/memory/test_context_refs.py tests/agent/test_case_working_context_lifecycle.py tests/agent/test_nodes/test_receive_request.py tests/agent/test_reviewed_memory_context_retrieve.py tests/test_agent_runs_api.py tests/memory/test_phase45_contract_alignment.py`
    - Result: `All checks passed!`
 4. `UV_CACHE_DIR=/tmp/uv-cache uv run alembic heads`
    - Result: `022_case_working_context (head)`
+
+## Validation Audit 2026-07-03
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+
+Audit result: Phase 45 remains Nyquist-compliant. The final targeted suite count increased from 172 to 173 after the Phase 45 code-review fix added a terminal CWC link-dedupe regression test; the refreshed suite passed with the approved MOCA entrypoint.
