@@ -10,6 +10,8 @@ v2.1 is a long-lived umbrella for cleaning up architecture debt across MOCA's fo
 
 **Intent recognition (Phase 42+)** clears the intent-subsystem debt tracked as ID-01..04 in `.planning/ARCHITECTURE-DEBT.md`. Phase 42 decoupled intent recognition into three explicit layers (semantic / risk-authorization / confidence-clarification), fixing ID-01 (keyword override of LLM) and ID-03 (three-dimension coupling); it is registered retroactively because the code was implemented and verified before formal phase registration. Phase 43 implemented multi-intent tier A for ID-04 / IDR-02.
 
+**Memory (Phase 44+)** clears the memory-subsystem redesign debt tracked in `.planning/MEMORY-REDESIGN-DECISIONS.md`. Phase 44 delivered Case Working Context and thread-case M:N storage, Phase 45 wired it into the agent lifecycle, and Phases 46-48 carry the remaining deferred memory layering items: session context repositioning, reviewed case precedent generation, and narrow explicit long-term preference memory.
+
 Code implementation is delegated to Codex per the project workflow; Claude is plan designer and adjudicator.
 
 ## Phases
@@ -24,6 +26,11 @@ Code implementation is delegated to Codex per the project workflow; Claude is pl
 - [x] **Phase 40: Tool Contract Validation Hardening** - Close source-confirmed validation/backstop gaps left after TPH-01 without changing `ToolResultV2`, `ToolCallContext` §8.0 identity fields, BusinessFactService ownership runtime semantics, or the `UnifiedToolManager` compatibility API (TPH-05).
 - [x] **Phase 41: Tool Platform Legacy Manager Cleanup** - Make the API/spec decision to remove the `UnifiedToolManager` legacy compatibility adapter and converge production/tests to `ToolPlatform` as the single graph-facing entrypoint (TPH-06). Plan progress: 4/4 complete.
 - [x] **Phase 43: Intent Recognition Multi-Intent Tier A** - Preserve multi-intent utterances as a bounded `TaskPlan`, process only s1 in the current turn, and surface all later steps as deferred confirmations without changing the single-intent route contract (IDR-02). Plan progress: 3/3 complete.
+- [x] **Phase 44: Memory Layering — Case Working Context + thread-case Many-to-Many** - Add durable CWC storage and explicit thread-case M:N association without renaming existing memory tables (MEM-01, MEM-02). Plan progress: 4/4 complete.
+- [x] **Phase 45: Memory Lifecycle Wiring for Case Working Context** - Wire CWC active read/link/writeback into real agent lifecycle while preserving contextual-only authority (MEM-01, MEM-02). Plan progress: 4/4 complete.
+- [ ] **Phase 46: Session Context Repositioning** - Re-scope thread-level session memory after CWC so it remains short-lived conversational context, not cross-case state (MEM-03). Plan progress: 0 plans.
+- [ ] **Phase 47: Case Precedent Repositioning and Closed-Case Candidate Generation** - Re-scope `case_memories` as reviewed precedent and add closed-case candidate generation from CWC into governed review flow (MEM-04). Plan progress: 0 plans.
+- [ ] **Phase 48: Narrow Long-Term Explicit Preference Memory** - Re-scope `long_term_memories` to explicit tenant preference memory only, without generic automatic run summarization (MEM-05). Plan progress: 0 plans.
 
 ## Phase Details
 
@@ -86,6 +93,9 @@ Plans:
 | 43. Intent Recognition Multi-Intent Tier A | 3/3 complete | Complete | 2026-07-02 |
 | 44. Memory Layering — Case Working Context + thread-case Many-to-Many | 4/4 | Complete | 2026-07-03 |
 | 45. Memory Lifecycle Wiring for Case Working Context | 4/4 | Complete | 2026-07-03 |
+| 46. Session Context Repositioning | 0 plans | Not planned | - |
+| 47. Case Precedent Repositioning and Closed-Case Candidate Generation | 0 plans | Not planned | - |
+| 48. Narrow Long-Term Explicit Preference Memory | 0 plans | Not planned | - |
 
 ### Phase 40: Tool Contract Validation Hardening
 
@@ -199,3 +209,55 @@ Plans:
 - [x] 45-02-PLAN.md — active CWC read and `run_auto` thread-case link wiring at the memory-context seam.
 - [x] 45-03-PLAN.md — terminal finalizer CWC writeback, deterministic projection, and failure/conflict semantics.
 - [x] 45-04-PLAN.md — contract/spec alignment, red-line sweeps, planning ledgers, and final targeted verification.
+
+### Phase 46: Session Context Repositioning
+
+**Goal:** Reposition `session_memories` after Case Working Context has landed: keep session context as thread-scoped, short-lived conversational memory only, make its boundary explicit in contract/docs/tests, and prevent it from carrying cross-case durable working state, reviewed precedent, long-term preference memory, policy evidence, business facts, approval/action authority, or replay truth.
+**Requirements**: MEM-03
+**Depends on:** Phase 45
+**Plans:** 0 plans
+**Design input:** `.planning/MEMORY-REDESIGN-DECISIONS.md` DEFER-1.
+**Success Criteria** (what must be TRUE):
+  1. The intended role of `session_memories` is documented as thread-scoped temporary conversational context, distinct from `case_working_contexts`, `case_memories`, and `long_term_memories`.
+  2. Existing session-memory read/write behavior is audited and either left unchanged with explicit contract tests or narrowed with migration-safe compatibility notes.
+  3. Static/contract tests prevent session memory from becoming cross-case durable state, reviewed precedent, tenant preference memory, policy evidence, business fact authority, approval/action authority, or replay truth.
+  4. No destructive rename/drop of `session_memories`, `case_memories`, `long_term_memories`, `case_working_contexts`, or `conversation_threads.case_id` occurs unless a later plan explicitly proves and reviews a migration need.
+  5. DEFER-2 and DEFER-3 remain out of scope and are carried forward by name.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 46 to break down)
+
+### Phase 47: Case Precedent Repositioning and Closed-Case Candidate Generation
+
+**Goal:** Reposition `case_memories` as reviewed closed-case precedent, not active case state, and introduce a governed candidate-generation path from finalized Case Working Context into the existing reviewed memory workflow when a case closes.
+**Requirements**: MEM-04
+**Depends on:** Phase 46
+**Plans:** 0 plans
+**Design input:** `.planning/MEMORY-REDESIGN-DECISIONS.md` DEFER-2.
+**Success Criteria** (what must be TRUE):
+  1. `case_memories` semantics are documented and test-locked as reviewed case precedent, not active working state and not a replacement for `case_working_contexts`.
+  2. A closed-case candidate generation boundary is designed from finalized CWC content into the governed memory candidate/review flow, preserving `needs_review`, audit event, PII, tenant, source-ref, and reviewer semantics.
+  3. Retrieval is metadata-first where applicable; vector search remains optional and does not become the only route for exact tenant/case/merchant scoped precedent retrieval.
+  4. Candidate generation keeps claims/facts/policy refs separated and never stores policy body text, raw tool payloads, approval/action authority bodies, replay/debug blobs, or sensitive raw PII.
+  5. No destructive rename/drop of `case_memories`, `long_term_memories`, `case_working_contexts`, or `conversation_threads.case_id` occurs.
+  6. DEFER-3 remains out of scope and is carried forward by name.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 47 to break down)
+
+### Phase 48: Narrow Long-Term Explicit Preference Memory
+
+**Goal:** Narrow `long_term_memories` to explicit tenant preference memory only, with writes coming from explicit user/admin/reviewed preference intent rather than ordinary automatic run summarization.
+**Requirements**: MEM-05
+**Depends on:** Phase 47
+**Plans:** 0 plans
+**Design input:** `.planning/MEMORY-REDESIGN-DECISIONS.md` DEFER-3 and P3.
+**Success Criteria** (what must be TRUE):
+  1. `long_term_memories` is documented and test-locked as narrow explicit preference memory, not operational business state, policy authority, approval/action authority, or generic run summary storage.
+  2. Ordinary completed runs do not automatically write long-term memory unless they contain an explicit remember/preference path accepted by the phase plan.
+  3. Writes are tenant-scoped, audited, governed by PII/review policy, and carry source/run provenance.
+  4. The phase preserves `long_term_memories` table identity and replay/eval contracts unless a reviewed plan proves a migration is necessary.
+  5. Interaction with Phase 46 session memory and Phase 47 case precedent is documented so the three memory layers do not compete for the same content.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 48 to break down)

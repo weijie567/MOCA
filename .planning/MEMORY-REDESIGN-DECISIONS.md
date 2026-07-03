@@ -92,15 +92,15 @@
 
 **后续 phase(必须留痕,不能忘 — 按你们"defer 须命名目标 phase"规则):**
 
-- **DEFER-1 →(② 之后的下一个整数 phase):① Session Context 重新定位。** 现 session_memories 是 thread-scoped,② 落地后要厘清 ① 与 ② 的职责边界(① 只管单通对话临时上下文,不再承担跨 case 状态),避免二者内容重叠。本次 phase 不动 ①。
-- **DEFER-2 →(③ 相关的下一个整数 phase):③ Case Precedent 改定位 + case 关闭自动生成候选。** 含 D5 的文档/注释锁语义(`case_memories = reviewed precedent, NOT active case state`)、D3 的 metadata-first 检索、D4 的"case 关闭 → 从 ② 生成候选进 needs_review"链路。本次 phase 不动 ③。
-- **DEFER-3 →(long_term 收窄 phase):long_term 窄版落地。** 按 D1 收窄为"租户显式偏好",接"记住我的偏好"这类显式请求;非核心,优先级最低。本次 phase 不动 long_term。
+- **DEFER-1 → Phase 46:① Session Context 重新定位。** 现 session_memories 是 thread-scoped,② 落地后要厘清 ① 与 ② 的职责边界(① 只管单通对话临时上下文,不再承担跨 case 状态),避免二者内容重叠。本次 phase 不动 ①。
+- **DEFER-2 → Phase 47:③ Case Precedent 改定位 + case 关闭自动生成候选。** 含 D5 的文档/注释锁语义(`case_memories = reviewed precedent, NOT active case state`)、D3 的 metadata-first 检索、D4 的"case 关闭 → 从 ② 生成候选进 needs_review"链路。本次 phase 不动 ③。
+- **DEFER-3 → Phase 48:long_term 窄版落地。** 按 D1 收窄为"租户显式偏好",接"记住我的偏好"这类显式请求;非核心,优先级最低。本次 phase 不动 long_term。
 
 Phase 44 delivered: CWC layer + thread↔case M:N; auto-update hook wiring deferred to Phase 45 memory lifecycle wiring.
 
 Phase 45 delivered: lifecycle wiring for the Phase 44 defer is complete. Closed defers are: active CWC read at the `memory_context_load` compatibility seam; thread-case `run_auto` link caller through `ConversationRepository.link_case(..., link_source="run_auto", linked_by_run_id=current_run_id)`; terminal CWC writeback from the completed-run finalizer through `CaseWorkingContextService.write_case_working_context(...)`. Phase 45 also locked the red lines in `tests/memory/test_phase45_contract_alignment.py`: no graph-global `active_slots` writer from `investigate`, no CWC backfill from `case_memories`, no LLM summarizer for CWC projection, no destructive `case_memories` / `long_term_memories` / `conversation_threads.case_id` changes, and no bare pytest verification commands.
 
-Remaining out-of-scope items are unchanged: DEFER-1 session context repositioning, DEFER-2 case precedent / closed-case candidate generation, and DEFER-3 narrow long-term explicit-preference memory remain separate named future phases. Phase 45 does not relabel them as implemented.
+Remaining out-of-scope items are unchanged and now mapped to exact roadmap phases: DEFER-1 session context repositioning → Phase 46, DEFER-2 case precedent / closed-case candidate generation → Phase 47, and DEFER-3 narrow long-term explicit-preference memory → Phase 48. Phase 45 does not relabel them as implemented.
 
 > 三个 DEFER 项在进入本次 phase 的 PLAN.md 时,须在 plan 的 "out of scope / follow-up" 段落原样带上,确保 plan-checker 和 Codex 评审都能看到边界。
 

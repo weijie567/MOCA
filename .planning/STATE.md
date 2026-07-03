@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
-status: milestone_complete
-stopped_at: Phase 45 complete; v2.1 ready for milestone closure/security review
-last_updated: "2026-07-03T06:13:22Z"
-last_activity: "2026-07-03 -- Phase 45 completed with verification passed (15/15); v2.1 ready for milestone closure/security review"
+status: in_progress
+stopped_at: Phase 46 added; ready for discussion/planning
+last_updated: "2026-07-03T07:58:31Z"
+last_activity: "2026-07-03 -- Added deferred memory phases 46-48 to v2.1; Phase 46 ready for discussion/planning"
 progress:
-  total_phases: 9
+  total_phases: 12
   completed_phases: 9
   total_plans: 26
   completed_plans: 26
-  percent: 100
+  percent: 75
 ---
 
 # Project State: MOCA
@@ -21,7 +21,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-03)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v2.1 Core Subsystem Hardening — Phase 45 memory lifecycle wiring complete; milestone ready for closure/security review.
+**Current focus:** v2.1 Core Subsystem Hardening — deferred memory layering phases 46-48 are now in scope; Phase 46 session context repositioning is next.
 
 ## Rescope note (2026-07-02)
 
@@ -30,13 +30,13 @@ See: `.planning/PROJECT.md` (updated 2026-07-03)
 
 ## Current Position
 
-Phase: 45 (Memory Lifecycle Wiring for Case Working Context) — COMPLETE
-Plan: 45-01 through 45-04 complete
-Status: Milestone complete
-Last activity: 2026-07-03 -- Phase 45 completed with verification passed (15/15); v2.1 ready for milestone closure/security review
-Next: Run `$gsd-secure-phase 45` if enforcing the security gate, then `$gsd-complete-milestone` for v2.1 closure.
+Phase: 46 (Session Context Repositioning) — NOT PLANNED
+Plan: no Phase 46 plans yet
+Status: In progress
+Last activity: 2026-07-03 -- Added deferred memory phases 46-48 to v2.1; Phase 46 ready for discussion/planning
+Next: Run `$gsd-discuss-phase 46`, then `$gsd-plan-phase 46`.
 
-Progress: [██████████] 100%
+Progress: [███████░░░] 75%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -64,6 +64,10 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | 42. Intent Recognition Three-Layer Decoupling (IR-01) | 1/1 | Complete (retroactively registered) |
 | 43. Intent Recognition Multi-Intent Tier A (IDR-02) | 3/3 | Complete |
 | 44. Memory Layering — Case Working Context + thread-case Many-to-Many (MEM-01, MEM-02) | 4/4 | Complete |
+| 45. Memory Lifecycle Wiring for Case Working Context (MEM-01, MEM-02) | 4/4 | Complete |
+| 46. Session Context Repositioning (MEM-03) | 0/0 | Not planned |
+| 47. Case Precedent Repositioning and Closed-Case Candidate Generation (MEM-04) | 0/0 | Not planned |
+| 48. Narrow Long-Term Explicit Preference Memory (MEM-05) | 0/0 | Not planned |
 
 Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review. Phase 40 closes the source-confirmed validation/backstop gaps intentionally deferred or left advisory after Phase 38/39. Phase 41 then handles the explicit breaking cleanup/API decision to remove the `UnifiedToolManager` legacy compatibility adapter.
 
@@ -163,6 +167,9 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - Phase 42 and 43 added/completed for intent recognition hardening.
 - Phase 44 added/completed for memory layering: Case Working Context plus additive thread-case M:N.
 - Phase 45 added: Memory Lifecycle Wiring for Case Working Context.
+- Phase 46 added: Session Context Repositioning.
+- Phase 47 added: Case Precedent Repositioning and Closed-Case Candidate Generation.
+- Phase 48 added: Narrow Long-Term Explicit Preference Memory.
 
 ### Pending Todos
 
@@ -193,12 +200,12 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 ## Session Continuity
 
 Last session: 2026-07-03T06:13:22Z
-Stopped at: Phase 45 complete; v2.1 ready for milestone closure/security review
-Resume file: .planning/phases/45-memory-lifecycle-wiring-for-case-working-context/45-VERIFICATION.md
-Next: Run `$gsd-secure-phase 45` if enforcing the security gate, then `$gsd-complete-milestone` for v2.1 closure.
+Stopped at: Phase 46 added; ready for discussion/planning
+Resume file: .planning/ROADMAP.md
+Next: Run `$gsd-discuss-phase 46`, then `$gsd-plan-phase 46`.
 
-Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with 15/15 verification.
-Next roadmap item: v2.1 milestone closure/security review, or a new explicitly scoped core-subsystem hardening phase.
+Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with security, UAT, validation, and clean review complete.
+Next roadmap item: Phase 46 session context repositioning.
 
 **Completed Phase:** 44 (Memory Layering — Case Working Context + thread-case Many-to-Many) — 4/4 plans — 2026-07-03
 
