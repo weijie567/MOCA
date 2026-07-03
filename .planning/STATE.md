@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
-status: executing
-stopped_at: Completed 45-03-PLAN.md
-last_updated: "2026-07-03T05:44:50.368Z"
+status: verifying
+stopped_at: Completed 45-04-PLAN.md
+last_updated: "2026-07-03T05:58:14.860Z"
 last_activity: 2026-07-03
 progress:
   total_phases: 9
-  completed_phases: 8
+  completed_phases: 9
   total_plans: 26
-  completed_plans: 25
-  percent: 96
+  completed_plans: 26
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -30,13 +30,13 @@ See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 ## Current Position
 
-Phase: 45 (memory-lifecycle-wiring-for-case-working-context) — EXECUTING
+Phase: 45 (memory-lifecycle-wiring-for-case-working-context) — VERIFYING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-03
-Next: Execute Phase 45 plan 45-04 for contract/spec alignment, red-line sweeps, planning ledgers, and final targeted verification.
+Next: Run Phase 45 review/verification or proceed to v2.1 milestone closure.
 
-Progress: [██████████] 96%
+Progress: [██████████] 100%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -106,6 +106,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 | 2026-07-03 | fast | Refresh Phase 44 state metrics and reconcile GSD state accounting | Complete |
 | Phase 45 P02 | 10min | 3 tasks | 8 files |
 | Phase 45 P03 | 13min | 3 tasks | 6 files |
+| Phase 45 P04 | 10min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -147,6 +148,8 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - Terminal CWC projection uses only deterministic prompt-safe summaries and refs; no LLM summarizer or raw tool/policy payload enters CWC.
 - Completed-run CWC writeback runs after assistant message/thread summary commit and existing memory_write side effect, then reports CWC status separately.
 - Lifecycle writeback dedupes read-seam run_auto thread-case links before writing CWC.
+- Phase 45 Plan 04 closes active CWC read, run_auto thread-case link caller, and terminal CWC writeback while keeping DEFER-1/2/3 as future memory redesign phases.
+- 45-VALIDATION.md compliance flags were set true only after targeted pytest, ruff, and alembic heads passed.
 
 ### Roadmap Evolution
 
@@ -189,10 +192,10 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ## Session Continuity
 
-Last session: 2026-07-03T05:44:50.358Z
-Stopped at: Completed 45-03-PLAN.md
+Last session: 2026-07-03T05:58:14.851Z
+Stopped at: Completed 45-04-PLAN.md
 Resume file: None
-Next: Execute Phase 45 plan 45-04 for contract/spec alignment, red-line sweeps, planning ledgers, and final targeted verification.
+Next: Run Phase 45 review/verification or proceed to v2.1 milestone closure.
 
 Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification.
 Next roadmap item: Phase 45 memory lifecycle wiring for graph run-completion CWC auto-update/read-active hooks, or another architecture-debt item inside v2.1.
