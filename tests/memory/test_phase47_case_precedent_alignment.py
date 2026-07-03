@@ -15,6 +15,7 @@ PHASE47_DIR = ROOT / ".planning" / "phases" / "47-case-precedent-repositioning-a
 MIGRATIONS_DIR = ROOT / "src" / "db" / "migrations" / "versions"
 AGENT_RUN_MEMORY_PATH = ROOT / "src" / "api" / "services" / "agent_run_memory.py"
 CWC_LIFECYCLE_PATH = ROOT / "src" / "memory" / "case_working_context_lifecycle.py"
+CASE_PRECEDENT_PATH = ROOT / "src" / "memory" / "case_precedent.py"
 
 
 def _source(path: Path) -> str:
@@ -151,6 +152,23 @@ def test_source_ref_schema_and_identity_keys_remain_stable() -> None:
     assert "closed_at" not in MemorySourceRefV1.model_fields
     assert "cwc_version" not in ALLOWED_SOURCE_REF_KEYS
     assert "closed_at" not in ALLOWED_SOURCE_REF_KEYS
+
+
+def test_case_precedent_projection_has_no_authority_or_replay_imports() -> None:
+    source = _source(CASE_PRECEDENT_PATH)
+
+    for forbidden in (
+        "EvidenceRefV1",
+        "BusinessFactRefV1",
+        "ApprovalRequest",
+        "ApprovalDecision",
+        "ActionDraft",
+        "ReplayEvent",
+        "ReplayTruth",
+    ):
+        assert forbidden not in source
+    for allowed in ("CaseMemoryWriteCandidate", "MemorySourceRefV1", "CaseWorkingContextContentV1"):
+        assert allowed in source
 
 
 def _phase47_migration_paths() -> list[Path]:
