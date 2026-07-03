@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
 status: in_progress
-stopped_at: Phase 46 added; ready for discussion/planning
-last_updated: "2026-07-03T07:58:31Z"
-last_activity: "2026-07-03 -- Added deferred memory phases 46-48 to v2.1; Phase 46 ready for discussion/planning"
+stopped_at: Phase 46 context gathered; ready for planning
+last_updated: "2026-07-03T08:04:05Z"
+last_activity: "2026-07-03 -- Phase 46 discussion/context gathered; ready for planning"
 progress:
   total_phases: 12
   completed_phases: 9
@@ -21,7 +21,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-03)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v2.1 Core Subsystem Hardening — deferred memory layering phases 46-48 are now in scope; Phase 46 session context repositioning is next.
+**Current focus:** v2.1 Core Subsystem Hardening — Phase 46 session context repositioning has context gathered and is ready for planning.
 
 ## Rescope note (2026-07-02)
 
@@ -30,11 +30,11 @@ See: `.planning/PROJECT.md` (updated 2026-07-03)
 
 ## Current Position
 
-Phase: 46 (Session Context Repositioning) — NOT PLANNED
+Phase: 46 (Session Context Repositioning) — CONTEXT GATHERED
 Plan: no Phase 46 plans yet
 Status: In progress
-Last activity: 2026-07-03 -- Added deferred memory phases 46-48 to v2.1; Phase 46 ready for discussion/planning
-Next: Run `$gsd-discuss-phase 46`, then `$gsd-plan-phase 46`.
+Last activity: 2026-07-03 -- Phase 46 discussion/context gathered; ready for planning
+Next: Run `$gsd-plan-phase 46`.
 
 Progress: [███████░░░] 75%
 
@@ -199,10 +199,10 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ## Session Continuity
 
-Last session: 2026-07-03T06:13:22Z
-Stopped at: Phase 46 added; ready for discussion/planning
-Resume file: .planning/ROADMAP.md
-Next: Run `$gsd-discuss-phase 46`, then `$gsd-plan-phase 46`.
+Last session: 2026-07-03T08:04:05Z
+Stopped at: Phase 46 context gathered; ready for planning
+Resume file: .planning/phases/46-session-context-repositioning/46-CONTEXT.md
+Next: Run `$gsd-plan-phase 46`.
 
 Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with security, UAT, validation, and clean review complete.
 Next roadmap item: Phase 46 session context repositioning.
