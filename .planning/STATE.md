@@ -147,6 +147,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - Phase 41 added: Tool Platform Legacy Manager Cleanup.
 - Phase 42 and 43 added/completed for intent recognition hardening.
 - Phase 44 added/completed for memory layering: Case Working Context plus additive thread-case M:N.
+- Phase 45 added: Memory Lifecycle Wiring for Case Working Context.
 
 ### Pending Todos
 

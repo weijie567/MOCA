@@ -184,3 +184,13 @@ Plans:
 - [x] 44-02-PLAN.md — case-identity resolver refund_case_no→refund_cases.id (B2), CWC content schemas with claim/fact separation, versioned read/write repository with append-only revisions (B5) (wave 2).
 - [x] 44-03-PLAN.md — thread↔case link write lifecycle + dedup at explicit linkage point (B3), CWC write service with audit event + isolated session (wave 3).
 - [x] 44-04-PLAN.md — contract-spec §13 CWC + additive M:N normative note (B6), alignment test, DEFER trace, phase verification sweep + dual-AI review checkpoint (wave 4).
+
+### Phase 45: Memory Lifecycle Wiring for Case Working Context
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 44
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 45 to break down)
