@@ -508,6 +508,46 @@ def test_contextual_only_memory_refs_reject_strict_authority_dto_parsing() -> No
         )
 
 
+def test_session_hint_surfaces_reject_strict_authority_dto_parsing() -> None:
+    from src.actions.schemas import ActionDraftV2Data
+    from src.approvals.schemas import ApprovalDecisionCommand, ApprovalRequestCreateCommand
+    from src.knowledge.schemas import EvidenceRefV1
+    from src.replay.schemas import ReplayEventV3
+    from src.tools.contracts import BusinessFactRefV1
+
+    session_hint_surface = {
+        "schema_version": "session_context_memory.v1",
+        "authority_class": "contextual_only",
+        "tenant_id": "11111111-1111-1111-1111-111111111111",
+        "thread_id": "thread-session-hints",
+        "policy_topic_hints": ["refund_policy@v1"],
+        "prior_policy_mention_refs": [
+            {
+                "doc_key": "refund_policy",
+                "chunk_id": "chunk-1",
+                "policy_version": "v1",
+                "tool_result_id": "tool-result-1",
+            }
+        ],
+        "last_business_context_refs": {
+            "business_fact_refs": [{"resource_type": "order", "resource_id": "ORD-HINT"}]
+        },
+    }
+
+    with pytest.raises(ValidationError):
+        EvidenceRefV1.model_validate(session_hint_surface)
+    with pytest.raises(ValidationError):
+        BusinessFactRefV1.model_validate(session_hint_surface)
+    with pytest.raises(ValidationError):
+        ApprovalRequestCreateCommand.model_validate(session_hint_surface)
+    with pytest.raises(ValidationError):
+        ApprovalDecisionCommand.model_validate(session_hint_surface)
+    with pytest.raises(ValidationError):
+        ActionDraftV2Data.model_validate(session_hint_surface)
+    with pytest.raises(ValidationError):
+        ReplayEventV3.model_validate(session_hint_surface)
+
+
 def test_structured_memory_context_projection_sanitizes_non_authority_markers() -> None:
     from src.agent.context.projectors import project_memory_context_for_prompt
 

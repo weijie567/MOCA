@@ -101,6 +101,17 @@ def test_memory_write_service_proposes_session_candidate() -> None:
     assert candidate.decision == "write"
 
 
+def test_memory_write_service_defaults_to_session_memory_write_candidate_only() -> None:
+    service = MemoryWriteService(FakeSessionMemoryService())
+
+    candidates = service.propose_candidates(_state())
+
+    assert len(candidates) == 1
+    assert isinstance(candidates[0], SessionMemoryWriteCandidate)
+    assert not any(isinstance(candidate, LongTermMemoryWriteCandidate) for candidate in candidates)
+    assert not any(isinstance(candidate, CaseMemoryWriteCandidate) for candidate in candidates)
+
+
 @pytest.mark.asyncio
 async def test_memory_write_service_apply_policy_and_write_uses_session_service() -> None:
     session_service = FakeSessionMemoryService()

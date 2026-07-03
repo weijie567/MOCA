@@ -262,6 +262,82 @@ async def test_session_memory_bundle_derives_policy_hints_from_tool_summaries() 
         assert forbidden not in serialized_refs
 
 
+@pytest.mark.asyncio
+async def test_session_memory_bundle_serializes_policy_refs_as_hints_only() -> None:
+    class FakeConversationService:
+        async def load_prompt_context(self, **kwargs):
+            return SimpleNamespace(
+                latest_thread_summary=None,
+                recent_messages=[],
+                tool_prompt_summaries=[
+                    SimpleNamespace(
+                        id="tool-record-policy-hint",
+                        tool_result_id="tool-result-policy-hint",
+                        tool_call_id="tool-call-policy-hint",
+                        status="success",
+                        prompt_summary="Prompt-safe policy lookup summary.",
+                        policy_evidence_refs_json=[
+                            {
+                                "schema_version": "evidence_ref.v1",
+                                "tenant_id": "tenant-must-not-copy",
+                                "evidence_id": "policy/refund_policy/chunk-1@v1",
+                                "doc_key": "refund_policy",
+                                "chunk_id": "chunk-1",
+                                "policy_version": "v1",
+                                "text_hash": "hash-must-not-copy",
+                                "retrieved_at": "2026-01-01T00:00:00Z",
+                                "body_text": "raw policy body must not enter session memory",
+                            }
+                        ],
+                    )
+                ],
+            )
+
+    class FakeMemoryService:
+        async def load_session_memory(self, *args, **kwargs):
+            return SessionMemoryView(
+                source="postgres_session_memory",
+                continuity_claimed=False,
+                active_slots={},
+                slot_metadata={},
+            )
+
+    bundle = await SessionMemoryBundleService(
+        conversation_service=FakeConversationService(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+    ).load_session_memory_bundle(
+        tenant_id="tenant-1",
+        user_id="user-1",
+        thread_id="thread-1",
+        run_id="run-1",
+        current_intent="policy_qa",
+    )
+
+    assert bundle.policy_topic_hints == ["refund_policy@v1"]
+    assert bundle.prior_policy_mention_refs == [
+        {
+            "doc_key": "refund_policy",
+            "chunk_id": "chunk-1",
+            "policy_version": "v1",
+            "tool_result_id": "tool-result-policy-hint",
+        }
+    ]
+    serialized = json.dumps(bundle.model_dump(mode="json"), ensure_ascii=False)
+    assert "policy_topic_hints" in serialized
+    assert "prior_policy_mention_refs" in serialized
+    for forbidden in (
+        "evidence_id",
+        "tenant-must-not-copy",
+        "text_hash",
+        "retrieved_at",
+        "approval_authority_body",
+        "action_authorization",
+        "replay_event",
+        "raw policy body must not enter session memory",
+    ):
+        assert forbidden not in serialized
+
+
 def test_session_context_memory_projection_wraps_session_memory_bundle() -> None:
     from src.memory.schemas import SessionContextBundle, SessionContextMemory
 

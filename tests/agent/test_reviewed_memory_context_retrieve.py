@@ -371,6 +371,40 @@ async def test_reviewed_memory_context_retrieve_skipped_cwc_status_does_not_chan
     assert result["case_working_context_lifecycle_status"]["reason_code"] == "skipped_no_case"
 
 
+async def test_reviewed_memory_context_retrieve_does_not_use_session_context_as_cwc_identity() -> None:
+    reviewed_memory_context_retrieve = _reviewed_memory_context_retrieve()
+    trusted_context = _trusted_context(merchant_ids=["merchant-a"])
+    tempting_session_context = _session_context_state()
+    tempting_session_context["session_context_bundle"]["session_context"]["slot_continuity"]["active_slots"] = {
+        "refund_case_id": "RF-FROM-SESSION-CONTEXT"
+    }
+
+    result = await reviewed_memory_context_retrieve(
+        _state(
+            tenant_id=trusted_context.tenant_id,
+            user_id=trusted_context.user_id,
+            session_memory={"active_slots": {"refund_case_id": "RF-FROM-SESSION-MEMORY"}},
+            session_context={"active_slots": {"refund_case_id": "RF-FROM-RAW-SESSION-CONTEXT"}},
+            **tempting_session_context,
+        ),
+        {
+            "configurable": {
+                "session": object(),
+                "trusted_context": trusted_context,
+                "memory_context_service": FakeMemoryContextService(),
+            }
+        },
+    )
+
+    assert result["long_term_memory"][0]["semantic_kind"] == "merchant_preference"
+    assert result["case_memory"][0]["excerpt"] == "Reviewed case excerpt."
+    assert result["case_working_context"] is None
+    assert result["memory_context_bundle"]["case_working_context"] is None
+    assert result["case_working_context_lifecycle_status"]["status"] == "skipped"
+    assert result["case_working_context_lifecycle_status"]["reason_code"] == "skipped_no_case"
+    assert result.get("node_errors") is None
+
+
 async def test_reviewed_memory_context_retrieve_missing_trusted_context_skips_cwc_without_adapter_call() -> None:
     reviewed_memory_context_retrieve = _reviewed_memory_context_retrieve()
 
