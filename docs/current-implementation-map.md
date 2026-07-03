@@ -6,13 +6,13 @@
 
 ## 总体判断
 
-当前 MOCA 更接近业务型 Agent，而不是通用个人助手。仓库里已经有较完整的业务流程状态、审批、安全快照、动作草稿、policy KB、redacted replay trace，以及窄版 session memory；但尚未实现完整 raw conversation log / conversation log。
+当前 MOCA 更接近业务型 Agent，而不是通用个人助手。仓库里已经有较完整的业务流程状态、审批、安全快照、动作草稿、policy KB、redacted replay trace、窄版 session memory，以及 prompt-safe conversation context；但尚未实现可完整重建 raw prompt / raw tool payload 的原始 transcript 存储。
 
 当前实现可以粗略分为：
 
 - **Working memory**：主要是 `AgentState` + LangGraph checkpoint + 节点间传递的 runtime fields。
 - **Short-term memory**：主要是 `session_memories` 表与 `MemoryService`，用于同 thread 的 slot / intent / unresolved questions 延续。
-- **Raw conversation log**：当前缺失。`agent_runs.input_query` 与 `agent_runs.final_response` 只能覆盖单轮输入和最终输出，不是完整 messages log。
+- **Conversation context log**：已实现 thread/message/tool/summary 的 prompt-safe 投影；raw prompt、raw tool payload 与完整 run transcript reconstruction 仍缺失。
 - **Trace / replay / audit**：已有 `agent_runs`、`agent_steps`、`agent_trace_events`、approval/action events，但这些是 redacted trace，不保存 raw prompt / raw tool output。
 - **Business state**：orders、refund cases、tickets、policy docs/chunks、approval requests、safety snapshots、action drafts 是业务事实或业务动作状态。
 
@@ -38,7 +38,7 @@
 | Case memory tool | `src/tools/executors/memory.py:32` | `search_case_memory` 由 `MemoryToolExecutor -> CaseMemoryService.retrieve_reviewed(...)` 服务，返回 reviewed case memory `ToolResultV2` | tool / reviewed case memory | planner-facing 工具使用 reviewed case memory；不使用 legacy session precedent search |
 | Long-term memory retrieve | `src/agent/nodes/long_term_memory_retrieve.py:14` | 返回空 `long_term_memory` 和 `case_memory` | long-term memory placeholder | 长期记忆实际未实现 |
 | Investigation node | `src/agent/nodes/investigate.py:141` | 调用业务工具和 policy retrieval，聚合 `business_context`、`policy_evidence`、`tool_results`、refs | working memory / business context | 当前 tool results 进入 AgentState；需要区分 raw result、normalized result、summary |
-| Recommendation node | `src/agent/nodes/generate_recommendation.py:154` | 重新校验 policy evidence 内容，组装 prompt 生成 recommendation | prompt context assembly 局部实现 | 有局部摘要和裁剪，但没有统一 ContextAssembler |
+| Recommendation node | `src/agent/nodes/generate_recommendation.py:154` | 重新校验 policy evidence 内容，组装 prompt 生成 recommendation | prompt context assembly 局部实现 | 仍有节点内局部摘要和裁剪；统一 `ContextAssembler` 已存在但 adoption 取决于各 agent path |
 | Risk / approval assessment | `src/agent/nodes/assess_risk_and_approval.py:434` | 以 recommendation 和 business context 生成风险判断；必要时创建 approval request | working memory / business state transition | 业务关键节点；prompt context 仍是节点内散装生成 |
 | Final response | `src/agent/nodes/final_response.py:184` | 根据 state、business context、approval/action outcome 生成最终响应 | assistant final response | final response 会写入 `AgentRun`，但没有独立 message row |
 | Tool contract | `src/tools/contracts.py:71` | `ToolResultV2` 包含 `data`、`summary`、`business_fact_refs`、`policy_evidence_refs`、`audit_ref` | tool result projection | 有 normalized result / summary 概念；缺少 raw result ref 的正式落库路径 |
@@ -65,10 +65,10 @@
 | AuditLog model | `src/db/models.py:199` | `audit_logs` 表，字段包括 action、resource、metadata | audit | 表存在，但当前未看到它作为 tool manager 主审计链路稳定接入 |
 | Audit repository | `src/repositories/audit_repo.py:14` | `record_tool_call` 写 `AuditLog` | audit | 当前使用范围有限，需要和 replay/action/approval 职责重新对齐 |
 | Redis 配置 | `src/config.py:14`, `docker-compose.yml:18` | 配置 Redis URL 与服务 | cache candidate | 当前仓库中没有找到实际 Redis client 使用依据 |
-| Conversation threads/messages | 当前未找到 | 预期应保存 thread、message、role、content、tool message 等 | raw conversation log | 当前缺失 |
-| Tool calls/results tables | 当前未找到 | 预期应保存 tool call args/ref、normalized result、raw result ref、hash | raw tool log / audit basis | 当前缺失；只有 trace summary 和 runtime `ToolResultV2` |
-| Thread summaries | 当前未找到 | 预期保存 rolling summary、open questions、key decisions | short-term memory | 当前只有 `session_memories.session_summary`，不是完整 thread summary |
-| ContextAssembler | 当前未找到 | 预期统一组装 system、working state、summary、recent messages、knowledge、tool summaries | prompt context assembly | 当前 prompt 组装分散在各节点 |
+| Conversation threads/messages | `src/db/models.py:1212`, `src/db/models.py:1305`, `src/conversation/*` | 保存 thread-scoped user / assistant / tool messages 与 prompt context metadata | conversation log projection | 已实现 redacted / prompt-safe conversation context；不是 raw prompt 或完整 raw transcript |
+| Tool calls/results tables | `src/db/models.py:1357`, `src/db/models.py:1401`, `src/conversation/repository.py:436` | 保存 tool call summaries、normalized result JSON、prompt summaries、raw result refs / hashes | tool log projection | 已实现 prompt-safe tool context 与 raw result 引用字段；仍不保存 raw payload 本体 |
+| Thread summaries | `src/db/models.py:1448`, `src/conversation/repository.py:398` | 保存 rolling thread summaries、source message ids、source tool result ids | short-term conversation context | 已实现 thread_rolling summary；`session_memories` 仍只承担 slot continuity |
+| ContextAssembler | `src/agent/context/assembler.py:28` | 统一组装 system、working state、summary、recent messages、policy refs、tool summaries、memory context 并应用预算 | prompt context assembly | 已实现；剩余差异是各 agent path 的接入范围 |
 
 ## 当前边界梳理
 
@@ -107,21 +107,25 @@
 - case summary。
 - 长期用户记忆。
 
-### Raw conversation log
+### Conversation context log
 
-当前缺失完整 raw conversation log。现有数据只能覆盖部分需求：
+当前已有 prompt-safe conversation context log，可覆盖部分上下文需求：
 
 - `agent_runs.input_query`：保存本轮用户输入。
 - `agent_runs.final_response`：保存本轮最终回复。
+- `conversation_threads` / `conversation_messages`：保存 thread、role、content、prompt context metadata。
+- `tool_calls` / `tool_results`：保存工具摘要、normalized result JSON、prompt summary、raw result ref/hash。
+- `summaries`：保存 `thread_rolling` summary 与来源 message / tool result ids。
+- `ContextAssembler`：把 summary、recent messages、tool summaries、policy refs 与 memory context 组装成 prompt-safe context。
 - `agent_steps`：保存节点摘要和工具摘要。
 - `agent_trace_events`：保存 redacted replay events。
 
-当前无法完整回答：
+当前仍无法仅凭这些 prompt-safe 投影完整回答：
 
 - 本轮完整 prompt 是什么。
-- 工具完整入参和 raw result 是什么。
+- 工具完整 raw 入参和 raw result payload 是什么。
 - assistant intermediate message 是什么。
-- 是否能从 raw log 完整重建一次 Agent run。
+- 是否能从 raw prompt / raw payload 级别完整重建一次 Agent run。
 
 ### Trace / audit
 
@@ -151,24 +155,22 @@
 
 ## 关键缺口
 
-1. **缺少完整 conversation log**：没有 `threads/messages`。
-2. **缺少 tool raw log**：没有 `tool_calls/tool_results` 权威记录，也没有 raw result ref/hash。
-3. **缺少 rolling thread summary**：`session_memories.session_summary` 太轻，不适合作为完整短期摘要。
-4. **缺少 ContextAssembler**：prompt context 分散在节点里，token budget 和 raw/summary 分工不统一。
+1. **缺少 raw prompt / raw payload transcript**：已有 `conversation_threads` / `conversation_messages` / `tool_calls` / `tool_results` prompt-safe 投影，但不能恢复完整 raw prompt、raw tool args 或 raw tool output。
+2. **raw result ref/hash 的后端契约仍需落地**：`tool_results.raw_result_ref` / `raw_result_hash` 字段已存在，但 raw payload 对象存储、访问策略和生命周期不是本文确认的已实现事实。
+3. **ContextAssembler adoption 仍不完整**：`ContextAssembler` 已实现，仍需逐条 agent path 确认是否统一使用预算、redaction 和 raw/summary 分层。
+4. **thread summary 与 session memory 边界需继续保持清晰**：`summaries.thread_rolling` 已实现；`session_memories.session_summary` 仍是 slot continuity 的轻量摘要，不替代 rolling conversation summary。
 5. **`search_case_memory` 命名历史上容易误导**：当前 planner-facing 实现已由 `CaseMemoryService.retrieve_reviewed(...)` 服务 reviewed case memory；`LegacySessionPrecedentSearchService` 仅是 legacy/debug-only 的 session-derived projection，不是真正 case memory，也不得作为生产工具后端。
 6. **`AgentState` 边界偏宽**：working memory、business runtime copy、trace/debug、approval/action copy 混在同一个 TypedDict。
 7. **audit/log 体系职责需对齐**：`agent_trace_events`、`agent_steps`、`audit_logs`、approval/action events 的权责边界需要明确。
 
 ## 推荐后续整理方向
 
-MVP 阶段优先补齐：
+MVP 阶段优先补齐或收敛：
 
-- `conversation_threads`
-- `conversation_messages`
-- `tool_calls`
-- `tool_results`
-- `thread_summaries`
-- `ContextAssembler`
+- raw prompt / raw tool payload 的对象存储、访问控制与 retention 策略。
+- `tool_results.raw_result_ref` / `raw_result_hash` 与对象存储的端到端契约。
+- 各 agent path 对 `ContextAssembler` 的统一接入。
+- prompt-safe conversation context 与 raw reconstruction 边界的测试覆盖。
 
 同时保留当前已有体系：
 
