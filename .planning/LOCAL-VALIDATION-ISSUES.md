@@ -11204,3 +11204,37 @@ Phase 45 verifier 通过后运行 `gsd-sdk query phase.complete 45`，命令返�
 - `.planning/ROADMAP.md`
 - `.planning/phases/46-session-context-repositioning/46-01-SUMMARY.md`
 - zsh shell quoting / Markdown backtick search patterns
+
+## 2026-07-03 — Phase 46 execute-phase state.begin-phase flag 写法误写 STATE
+
+### 问题现象
+
+执行 Phase 46 时按 workflow 文档运行 `gsd-sdk query state.begin-phase --phase "46" --name "session-context-repositioning" --plans "3"`，命令返回成功，但 `.planning/STATE.md` 被写成 `Phase: --phase (46)`、`Plan: 1 of --name`、`Phase --phase execution started`。
+
+### 如何检测 / 复现
+
+运行命令后立即查看 `git diff -- .planning/STATE.md` 或读取 `.planning/STATE.md` 顶部 Current Position。
+
+### 关键证据或命令
+
+- 误写命令：`gsd-sdk query state.begin-phase --phase "46" --name "session-context-repositioning" --plans "3"`
+- 异常 diff：`Phase: --phase (46) — EXECUTING`、`Plan: 1 of --name`
+- 修正命令：`gsd-sdk query state.begin-phase 46 session-context-repositioning 3`
+
+### 当前判断 / 根因
+
+当前 `gsd-sdk` 的 `state.begin-phase` handler 实际按位置参数解析，和 execute-phase workflow 文档中的 flag 写法不一致；返回成功不代表写入语义正确。
+
+### 已做处理
+
+立即用位置参数形式重跑并检查 diff，`.planning/STATE.md` 恢复为 `Phase: 46 (session-context-repositioning) — EXECUTING`、`Plan: 1 of 3`。随后单独提交 `docs(phase-46): begin execution`，避免错误状态进入后续 executor 提交。
+
+### 剩余问题
+
+无当前阻塞。后续调用 `state.begin-phase` 时使用位置参数，并在写入后立即 diff 检查 STATE。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `/Users/ming/.codex/get-shit-done/workflows/execute-phase.md`
+- `gsd-sdk query state.begin-phase`
