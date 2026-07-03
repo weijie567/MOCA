@@ -11998,3 +11998,36 @@ Phase 47 计划执行和 final gate 通过后，主流程补跑 Phase 44 memory 
 - `docs/contract-spec.md`
 - `tests/memory/test_phase44_contract_alignment.py`
 - `tests/memory/test_phase47_case_precedent_alignment.py`
+
+## 2026-07-04 — Phase 48 discuss-phase 文件存在性检查被 zsh glob no-match 打断
+
+### 问题现象
+
+执行 Phase 48 context 初始化检查时，用 `ls .planning/phases/48-narrow-long-term-explicit-preference-memory/*-SPEC.md`、`*-CONTEXT.md`、`*-PLAN.md` 等 glob 检查文件存在性，在 `zsh` 下未匹配时直接输出 `zsh:1: no matches found`。
+
+### 如何检测 / 复现
+
+在 Phase 48 目录尚无对应文件时执行：
+
+`ls .planning/phases/48-narrow-long-term-explicit-preference-memory/*-SPEC.md 2>/dev/null | grep -v AI-SPEC | head -1 || true`
+
+### 关键证据或命令
+
+命令输出包含 `zsh:1: no matches found: .planning/phases/48-narrow-long-term-explicit-preference-memory/*-SPEC.md`，说明错误发生在 shell glob 展开阶段，`2>/dev/null` 没有屏蔽到该诊断。
+
+### 当前判断 / 根因
+
+这是 orchestrator 检查命令与 `zsh` 默认 no-match 行为不兼容，不是 Phase 48 planning artifact 或项目代码问题。
+
+### 已做处理
+
+改用 `find .planning/phases/48-narrow-long-term-explicit-preference-memory -maxdepth 1 -name '*-SPEC.md' ...` 重新检查，确认 Phase 48 目录当时没有 SPEC、CONTEXT、checkpoint 或 PLAN 文件。
+
+### 剩余问题
+
+无阻塞。后续在 MOCA/GSD shell 检查中，优先用 `find` 或加 shell-safe no-match 处理，避免 `zsh` glob 未匹配造成误报。
+
+### 下次继续排查入口
+
+- `.planning/phases/48-narrow-long-term-explicit-preference-memory/`
+- GSD discuss-phase 本地文件存在性检查命令
