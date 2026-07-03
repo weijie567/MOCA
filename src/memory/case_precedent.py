@@ -8,7 +8,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import RefundCase
-from src.memory.case_memory import CaseMemoryService
+from src.memory.case_memory import CaseMemoryRepository, CaseMemoryService
 from src.memory.case_working_context import CaseWorkingContextRepository, hydrate_content
 from src.memory.case_working_context_schemas import CaseWorkingContextContentV1
 from src.memory.schemas import CaseMemoryWriteCandidate, MemorySourceRefV1
@@ -109,9 +109,20 @@ class ClosedCasePrecedentService:
         if isinstance(projected, ClosedCasePrecedentGenerationResult):
             return projected
 
+        write_result = await self._case_memory_service().submit_case_memory_candidate(projected)
+        status: Literal["needs_review", "skipped", "error"]
+        if write_result.status == "needs_review":
+            status = "needs_review"
+        elif write_result.status == "skipped":
+            status = "skipped"
+        else:
+            status = "error"
         return ClosedCasePrecedentGenerationResult(
-            status="needs_review",
-            reason_code="projection_ready",
+            status=status,
+            reason_code=write_result.reason_code,
+            memory_id=write_result.memory_id,
+            review_status=write_result.review_status,
+            event_id=write_result.event_id,
             scope_type=scope_type,
             scope_id=scope_id,
         )
@@ -125,6 +136,12 @@ class ClosedCasePrecedentService:
         if self.cwc_repository is None:
             self.cwc_repository = _require_session_repository(self.session, CaseWorkingContextRepository)
         return self.cwc_repository
+
+    def _case_memory_service(self) -> CaseMemoryService:
+        if self.case_memory_service is None:
+            repository = _require_session_repository(self.session, CaseMemoryRepository)
+            self.case_memory_service = CaseMemoryService(repository)
+        return self.case_memory_service
 
 
 def _resolve_precedent_scope(refund_case: RefundCase | None, *, case_id: uuid.UUID) -> tuple[str, str]:
@@ -259,7 +276,7 @@ def _closed_case_source_ref(
     return MemorySourceRefV1(
         source_type="closed_case_cwc_candidate",
         run_id=str(request.run_id),
-        event_id=f"refund-case-close:{request.close_event_id}",
+        event_id=f"refund-case-close:{request.case_id}:{request.close_event_id}",
         agent_run_id=str(request.run_id),
         business_object_type="refund_case",
         business_object_id=str(request.case_id),
