@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
-status: in_progress
+status: executing
 stopped_at: Phase 46 context gathered; ready for planning
-last_updated: "2026-07-03T08:04:05Z"
-last_activity: "2026-07-03 -- Phase 46 discussion/context gathered; ready for planning"
+last_updated: "2026-07-03T08:35:29.078Z"
+last_activity: 2026-07-03 -- Phase 46 discussion/context gathered; ready for planning
 progress:
   total_phases: 12
   completed_phases: 9
-  total_plans: 26
+  total_plans: 29
   completed_plans: 26
-  percent: 75
+  percent: 90
 ---
 
 # Project State: MOCA
@@ -209,4 +209,4 @@ Next roadmap item: Phase 46 session context repositioning.
 
 **Completed Phase:** 44 (Memory Layering — Case Working Context + thread-case Many-to-Many) — 4/4 plans — 2026-07-03
 
-**Planned Phase:** 45 (Memory Lifecycle Wiring for Case Working Context) — 4 plans — 2026-07-03T04:03:48.372Z
+**Planned Phase:** 46 (Session Context Repositioning) — 3 plans — 2026-07-03T08:35:29.068Z

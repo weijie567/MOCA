@@ -28,7 +28,7 @@ Code implementation is delegated to Codex per the project workflow; Claude is pl
 - [x] **Phase 43: Intent Recognition Multi-Intent Tier A** - Preserve multi-intent utterances as a bounded `TaskPlan`, process only s1 in the current turn, and surface all later steps as deferred confirmations without changing the single-intent route contract (IDR-02). Plan progress: 3/3 complete.
 - [x] **Phase 44: Memory Layering — Case Working Context + thread-case Many-to-Many** - Add durable CWC storage and explicit thread-case M:N association without renaming existing memory tables (MEM-01, MEM-02). Plan progress: 4/4 complete.
 - [x] **Phase 45: Memory Lifecycle Wiring for Case Working Context** - Wire CWC active read/link/writeback into real agent lifecycle while preserving contextual-only authority (MEM-01, MEM-02). Plan progress: 4/4 complete.
-- [ ] **Phase 46: Session Context Repositioning** - Re-scope thread-level session memory after CWC so it remains short-lived conversational context, not cross-case state (MEM-03). Plan progress: 0 plans.
+- [ ] **Phase 46: Session Context Repositioning** - Re-scope thread-level session memory after CWC so it remains short-lived conversational context, not cross-case state (MEM-03). Plan progress: 0/3 planned.
 - [ ] **Phase 47: Case Precedent Repositioning and Closed-Case Candidate Generation** - Re-scope `case_memories` as reviewed precedent and add closed-case candidate generation from CWC into governed review flow (MEM-04). Plan progress: 0 plans.
 - [ ] **Phase 48: Narrow Long-Term Explicit Preference Memory** - Re-scope `long_term_memories` to explicit tenant preference memory only, without generic automatic run summarization (MEM-05). Plan progress: 0 plans.
 
@@ -93,7 +93,7 @@ Plans:
 | 43. Intent Recognition Multi-Intent Tier A | 3/3 complete | Complete | 2026-07-02 |
 | 44. Memory Layering — Case Working Context + thread-case Many-to-Many | 4/4 | Complete | 2026-07-03 |
 | 45. Memory Lifecycle Wiring for Case Working Context | 4/4 | Complete | 2026-07-03 |
-| 46. Session Context Repositioning | 0 plans | Not planned | - |
+| 46. Session Context Repositioning | 0/3 planned | Planned | - |
 | 47. Case Precedent Repositioning and Closed-Case Candidate Generation | 0 plans | Not planned | - |
 | 48. Narrow Long-Term Explicit Preference Memory | 0 plans | Not planned | - |
 
@@ -215,7 +215,7 @@ Plans:
 **Goal:** Reposition `session_memories` after Case Working Context has landed: keep session context as thread-scoped, short-lived conversational memory only, make its boundary explicit in contract/docs/tests, and prevent it from carrying cross-case durable working state, reviewed precedent, long-term preference memory, policy evidence, business facts, approval/action authority, or replay truth.
 **Requirements**: MEM-03
 **Depends on:** Phase 45
-**Plans:** 0 plans
+**Plans:** 3 plans
 **Design input:** `.planning/MEMORY-REDESIGN-DECISIONS.md` DEFER-1.
 **Success Criteria** (what must be TRUE):
   1. The intended role of `session_memories` is documented as thread-scoped temporary conversational context, distinct from `case_working_contexts`, `case_memories`, and `long_term_memories`.
@@ -225,7 +225,9 @@ Plans:
   5. DEFER-2 and DEFER-3 remain out of scope and are carried forward by name.
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 46 to break down)
+- [ ] 46-01-PLAN.md — docs/contract/audit reconciliation for the post-CWC session context boundary.
+- [ ] 46-02-PLAN.md — static contract tests locking MEM-03 red lines and approved pytest entrypoints.
+- [ ] 46-03-PLAN.md — behavioral validation and migration-safe code narrowing only if tests expose real drift.
 
 ### Phase 47: Case Precedent Repositioning and Closed-Case Candidate Generation
 
