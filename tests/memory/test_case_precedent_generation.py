@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import AgentRun, CaseMemory, CaseWorkingContext, MemoryWriteEvent
+from src.db.models import AgentRun, CaseMemory, CaseWorkingContext, MemoryWriteEvent, RefundCase
 from src.memory.case_working_context import dehydrate_content
 from src.memory.case_precedent import (
     TERMINAL_REFUND_CASE_STATUSES,
@@ -40,6 +40,7 @@ def _request(
     case_id: uuid.UUID | None = None,
     run_id: uuid.UUID | None = None,
     close_event_id: str | None = None,
+    closed_at: datetime | None = None,
 ) -> ClosedCasePrecedentGenerationInput:
     refund_case = seeded_session["refund_case"]
     return ClosedCasePrecedentGenerationInput(
@@ -48,7 +49,7 @@ def _request(
         run_id=run_id or uuid.uuid4(),
         closed_status=closed_status,
         close_event_id=close_event_id or f"close-{uuid.uuid4()}",
-        closed_at=datetime.now(UTC),
+        closed_at=closed_at or datetime.now(UTC),
     )
 
 
@@ -129,12 +130,14 @@ async def _insert_active_cwc(
     session: AsyncSession,
     seeded_session: dict,
     *,
+    refund_case: RefundCase | None = None,
     issue_type: str = "refund_dispute",
+    content: CaseWorkingContextContentV1 | None = None,
     pii_classification: str = "none",
     version: int = 1,
 ) -> CaseWorkingContext:
-    refund_case = seeded_session["refund_case"]
-    content = _content_with_projection_fields(refund_case.id, issue_type=issue_type)
+    refund_case = refund_case or seeded_session["refund_case"]
+    content = content or _content_with_projection_fields(refund_case.id, issue_type=issue_type)
     dehydrated = dehydrate_content(content)
     row = CaseWorkingContext(
         id=uuid.uuid4(),
@@ -366,18 +369,91 @@ async def test_different_close_event_with_same_content_dedupes_by_content_hash_r
     run_id = await _insert_run(session, seeded_session)
     await _insert_active_cwc(session, seeded_session)
     service = ClosedCasePrecedentService(session=session)
+    closed_at = datetime(2026, 7, 3, 10, 0, tzinfo=UTC)
 
     first = await service.generate_closed_case_precedent_candidate(
-        _request(seeded_session, run_id=run_id, close_event_id="same-content-a")
+        _request(seeded_session, run_id=run_id, close_event_id="same-content-a", closed_at=closed_at)
     )
     duplicate = await service.generate_closed_case_precedent_candidate(
-        _request(seeded_session, run_id=run_id, close_event_id="same-content-b")
+        _request(seeded_session, run_id=run_id, close_event_id="same-content-b", closed_at=closed_at)
     )
 
     assert first.status == "needs_review"
     assert duplicate.status == "skipped"
     assert duplicate.memory_id == first.memory_id
     assert duplicate.reason_code == "duplicate_active_identity"
+
+
+@pytest.mark.asyncio
+async def test_same_merchant_closed_cases_with_distinct_projected_content_create_separate_candidates(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session)
+    base_case = seeded_session["refund_case"]
+    same_merchant_case = RefundCase(
+        id=uuid.uuid4(),
+        tenant_id=base_case.tenant_id,
+        order_id=seeded_session["order"].id,
+        refund_case_no=f"RF-SAME-MERCHANT-{uuid.uuid4().hex[:8]}",
+        reason_code="damaged",
+        reason_text="同商家另一笔破损退款",
+        status="closed",
+        requested_amount=base_case.requested_amount,
+    )
+    session.add(same_merchant_case)
+    await session.flush()
+    first_content = _content_with_projection_fields(base_case.id, issue_type="refund_dispute")
+    second_content = _content_with_projection_fields(same_merchant_case.id, issue_type="refund_dispute").model_copy(
+        update={
+            "customer_request": "用户要求处理另一笔同商家退款",
+            "verified_facts": [
+                CaseWorkingContextVerifiedFactV1(
+                    text="另一笔订单的开箱照片确认配件缺失",
+                    source_ref={
+                        "source_type": "run_auto_terminal",
+                        "agent_run_id": str(uuid.uuid4()),
+                        "business_object_type": "refund_case",
+                        "business_object_id": str(same_merchant_case.id),
+                    },
+                    observed_at=datetime(2026, 7, 3, 11, 0, tzinfo=UTC),
+                )
+            ],
+        }
+    )
+    await _insert_active_cwc(session, seeded_session, refund_case=base_case, content=first_content)
+    await _insert_active_cwc(session, seeded_session, refund_case=same_merchant_case, content=second_content)
+    service = ClosedCasePrecedentService(session=session)
+    closed_at = datetime(2026, 7, 3, 12, 0, tzinfo=UTC)
+
+    first = await service.generate_closed_case_precedent_candidate(
+        _request(
+            seeded_session,
+            run_id=run_id,
+            case_id=base_case.id,
+            close_event_id="same-merchant-a",
+            closed_at=closed_at,
+        )
+    )
+    second = await service.generate_closed_case_precedent_candidate(
+        _request(
+            seeded_session,
+            run_id=run_id,
+            case_id=same_merchant_case.id,
+            close_event_id="same-merchant-b",
+            closed_at=closed_at,
+        )
+    )
+    rows = await _case_memory_rows(session)
+
+    assert first.status == "needs_review"
+    assert second.status == "needs_review"
+    assert first.memory_id != second.memory_id
+    assert [row.id for row in rows] == [first.memory_id, second.memory_id]
+    assert {row.scope_id for row in rows} == {str(seeded_session["merchant"].id)}
+    assert [row.case_type for row in rows] == ["refund_dispute", "refund_dispute"]
+    assert rows[0].summary == rows[1].summary == "Closed refund case precedent: refund_dispute."
+    assert rows[0].content_hash != rows[1].content_hash
 
 
 @pytest.mark.asyncio

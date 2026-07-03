@@ -507,3 +507,23 @@
 
 **剩余风险**
 - ⚠️ 47-03 已关闭 governed write/review/audit/dedupe/PII skip lifecycle；metadata/text reviewed retrieval breadth、planner-facing `search_case_memory` / reviewed-context stability、docs/DEFER-3/final validation 仍属于 `47-04`，不要提前标记 MEM-04 phase-complete。
+
+## Phase 47 Code Review Fix WR-01 — closed-case precedent 内容身份去泛化 ✅已修复验证
+
+**问题 / 根因**
+- Phase 47 code review 确认：`CaseMemoryService` 对 `closed_case_cwc_candidate` 生成的 case memory 只用通用 `summary` 计算 `content_hash`；同一商家、同一 `issue_type/case_type` 的不同历史退款 case 会因为 summary 均为 `Closed refund case precedent: refund_dispute.` 被误判为 `duplicate_active_identity`。
+
+**影响**
+- 不同 source case / CWC row / excerpt / outcome 的 reviewed precedent 候选可能只保留第一条，后续真实商家历史样本进入不了 `needs_review` 队列。
+
+**修复**
+- `closed_case_cwc_candidate` 的内容身份改为绑定 `summary/excerpt/applicability/outcome/caveats` 的完整投影文本；非 generated closed-case 的 case-memory writer 仍保持原 summary-only 内容身份，避免扩大既有 duplicate 行为变更面。
+- 新增回归覆盖：同一 merchant、同一 `refund_dispute` case type、两条不同 closed refund case / CWC 投影都生成独立 `needs_review` row；真正相同投影内容仍按 content hash dedupe。
+
+**证据**
+- Phase / review：`47-REVIEW.md` WR-01
+- 文件：`src/memory/case_memory.py`、`tests/memory/test_case_precedent_generation.py`
+- 验证：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_case_precedent_generation.py -q` → `20 passed, 1 warning`
+
+**剩余风险**
+- ✅ 本修复只改变 generated closed-case precedent 的 content identity；未扩大到普通 `llm_candidate` / `human_reviewed` case memory。

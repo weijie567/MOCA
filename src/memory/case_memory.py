@@ -764,7 +764,7 @@ def _candidate_identity(candidate: CaseMemoryWriteCandidate) -> dict[str, Any]:
     source_ref_json = _source_ref_json(candidate)
     content_hash = canonical_memory_content_hash(
         memory_type=CASE_MEMORY_TYPE,
-        content=candidate.summary,
+        content=_candidate_content_identity_text(candidate),
     )
     source_identity_hash = canonical_source_identity_hash(source_ref_json)
     candidate_hash = canonical_memory_candidate_hash(
@@ -781,6 +781,22 @@ def _candidate_identity(candidate: CaseMemoryWriteCandidate) -> dict[str, Any]:
         "source_identity_hash": source_identity_hash,
         "candidate_hash": candidate_hash,
     }
+
+
+def _candidate_content_identity_text(candidate: CaseMemoryWriteCandidate) -> str:
+    if candidate.source_type != "closed_case_cwc_candidate":
+        return candidate.summary
+    return "\n".join(
+        part
+        for part in (
+            candidate.summary,
+            candidate.excerpt,
+            candidate.applicability,
+            candidate.outcome,
+            candidate.caveats,
+        )
+        if part
+    )
 
 
 def _source_ref_json(candidate: CaseMemoryWriteCandidate) -> dict[str, Any]:
