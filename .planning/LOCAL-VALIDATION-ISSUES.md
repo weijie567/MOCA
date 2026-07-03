@@ -11307,3 +11307,40 @@ Phase 45 verifier 通过后运行 `gsd-sdk query phase.complete 45`，命令返�
 - `gsd-sdk query state.record-metric`
 - `gsd-sdk query state.add-decision`
 - `gsd-sdk query state.record-session`
+
+## 2026-07-03 — Phase 46-03 行为验证发现 session bundle 携带 raw policy evidence ref 字段
+
+### 问题现象
+
+执行 Phase 46-03 新增行为测试后，`test_session_memory_bundle_serializes_policy_refs_as_hints_only` 失败：`SessionMemoryBundle` 序列化结果里仍包含 `evidence_id`、`tenant_id`、`text_hash`、`retrieved_at` 以及 raw policy body 测试字段。该结果不符合 MEM-03 对 session hints 的边界要求。
+
+### 如何检测 / 复现
+
+运行：
+
+`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_session_memory_bundle.py tests/agent/test_memory_evidence_boundary.py tests/memory/test_memory_write_service.py tests/agent/test_reviewed_memory_context_retrieve.py tests/tools/test_catalog.py tests/memory/test_phase46_session_context_alignment.py -q`
+
+### 关键证据或命令
+
+- 初始结果：`1 failed, 86 passed, 3 warnings`
+- 失败断言：`assert 'evidence_id' not in serialized`
+- 失败文件：`tests/memory/test_session_memory_bundle.py::test_session_memory_bundle_serializes_policy_refs_as_hints_only`
+
+### 当前判断 / 根因
+
+根因是 `src/memory/session_bundle.py` 的 `_tool_summary_views(...)` 直接复制 conversation tool result 中的 `policy_evidence_refs_json` / `business_fact_refs_json` 到 session bundle 的 `SessionToolSummaryView`。它不是直接构造权威 DTO，但会把完整 authority ref 字段带入 same-thread session context，扩大了 session memory 的语义数据面。
+
+### 已做处理
+
+在 `src/memory/session_bundle.py` 增加 prompt-safe allowlist projection：policy refs 仅保留 `doc_key` / `chunk_id` / `policy_version` / `policy_family` / `title` / `section`；business refs 仅保留 `source_system` / `resource_type` / `resource_id` / `resource_version`。修复后重跑同一行为命令通过：`87 passed, 3 warnings`。随后重跑 Phase 46 static smoke 通过：`9 passed, 1 warning`；重跑最终 targeted suite 通过：`133 passed, 9 warnings`。
+
+### 剩余问题
+
+无当前阻塞。保留的 prompt-safe refs 仍只是 contextual hints，不能替代 `EvidenceRefV1`、`BusinessFactRefV1`、approval/action authority 或 replay truth。
+
+### 下次继续排查入口
+
+- `src/memory/session_bundle.py`
+- `tests/memory/test_session_memory_bundle.py`
+- `tests/agent/test_memory_evidence_boundary.py`
+- `.planning/ARCHITECTURE-DEBT.md` 的 Phase 46 Plan 03 memory 条目

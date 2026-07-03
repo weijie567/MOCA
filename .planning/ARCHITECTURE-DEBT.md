@@ -400,3 +400,31 @@
 
 **剩余风险**
 - ✅ 已用 focused integration test 覆盖 active link pre-check 与 status 输出；未运行全量测试，留给后续 verifier。
+
+## Phase 46 Plan 03 — SessionMemoryBundle policy/business ref 提示字段收窄 ✅已修复验证
+
+**问题 / 根因**
+- Phase 46 行为测试新增 `test_session_memory_bundle_serializes_policy_refs_as_hints_only` 后发现：`SessionMemoryBundleService._tool_summary_views(...)` 会把 conversation tool result 里保存的 `policy_evidence_refs_json` 原样放进 `SessionToolSummaryView.policy_evidence_refs`。
+- 这导致 same-thread session bundle 序列化里出现 `evidence_id`、`tenant_id`、`text_hash`、`retrieved_at` 等权威 evidence ref 字段。它不是直接构造 `EvidenceRefV1`，但会让 session context 携带过完整的政策证据身份，和 MEM-03「session hints 只能是 contextual pointer」边界不一致。
+
+**影响**
+- Session memory prompt context 可能把完整 policy evidence ref 字段作为历史工具摘要的一部分继续传递。它仍不能通过现有 verifier 成为 policy/business/action authority，但语义上扩大了 session context 的数据面，增加后续误用风险。
+
+**修复**
+- 在 `src/memory/session_bundle.py` 增加 allowlist projection：policy refs 只保留 `doc_key` / `chunk_id` / `policy_version` / `policy_family` / `title` / `section`；business refs 只保留 `source_system` / `resource_type` / `resource_id` / `resource_version`。
+- `SessionMemoryBundle` 继续生成 `policy_topic_hints` 和 `prior_policy_mention_refs`，但不再序列化 raw `evidence_id`、tenant、hash、retrieved timestamp、policy body 或 authority/debug 字段。
+- 同步新增行为测试覆盖：session hint DTO 严格解析失败、默认 memory write 只产生 `SessionMemoryWriteCandidate`、raw session context 不作为 CWC identity。
+
+**证据**
+- Phase / plan：`46-03`
+- Commits：`26cbb2b`（行为测试）、`5fd68c5`（session bundle ref 收窄）
+- 文件：`src/memory/session_bundle.py`、`tests/memory/test_session_memory_bundle.py`、`tests/agent/test_memory_evidence_boundary.py`、`tests/memory/test_memory_write_service.py`、`tests/agent/test_reviewed_memory_context_retrieve.py`
+
+**验证**
+- 初始行为命令：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_session_memory_bundle.py tests/agent/test_memory_evidence_boundary.py tests/memory/test_memory_write_service.py tests/agent/test_reviewed_memory_context_retrieve.py tests/tools/test_catalog.py tests/memory/test_phase46_session_context_alignment.py -q` → `1 failed, 86 passed, 3 warnings`
+- 修复后同命令 → `87 passed, 3 warnings`
+- Phase 46 static smoke：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase46_session_context_alignment.py -x -q` → `9 passed, 1 warning`
+- Phase 46 targeted final：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase46_session_context_alignment.py tests/memory/test_session_memory_schema.py tests/memory/test_session_memory_service.py tests/memory/test_session_memory_repository.py tests/memory/test_session_memory_bundle.py tests/memory/test_memory_context_bundle.py tests/agent/test_session_memory_load.py tests/agent/test_session_memory_integration.py tests/agent/test_reviewed_memory_context_retrieve.py tests/agent/test_memory_evidence_boundary.py tests/tools/test_catalog.py tests/memory/test_phase45_contract_alignment.py tests/memory/test_memory_write_service.py -q` → `133 passed, 9 warnings`
+
+**剩余风险**
+- ✅ 已修复验证。Session bundle 仍保留 prompt-safe tool summary text 与 allowlisted refs；这些仍是 contextual hints，不是 `EvidenceRefV1`、`BusinessFactRefV1`、approval/action authority 或 replay truth。

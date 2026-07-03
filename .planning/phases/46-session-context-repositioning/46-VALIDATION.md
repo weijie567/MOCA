@@ -1,10 +1,11 @@
 ---
 phase: 46
 slug: session-context-repositioning
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: complete
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-07-03
+completed: 2026-07-03
 ---
 
 # Phase 46 - Validation Strategy
@@ -21,7 +22,7 @@ created: 2026-07-03
 | **Config file** | `pyproject.toml` |
 | **Quick run command** | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase46_session_context_alignment.py -x -q` |
 | **Existing smoke command** | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase45_contract_alignment.py -x -q` |
-| **Full suite command** | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase46_session_context_alignment.py tests/memory/test_session_memory_schema.py tests/memory/test_session_memory_service.py tests/memory/test_session_memory_repository.py tests/memory/test_session_memory_bundle.py tests/memory/test_memory_context_bundle.py tests/agent/test_session_memory_load.py tests/agent/test_session_memory_integration.py tests/agent/test_reviewed_memory_context_retrieve.py tests/agent/test_memory_evidence_boundary.py tests/tools/test_catalog.py tests/memory/test_phase45_contract_alignment.py -q` |
+| **Full suite command** | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase46_session_context_alignment.py tests/memory/test_session_memory_schema.py tests/memory/test_session_memory_service.py tests/memory/test_session_memory_repository.py tests/memory/test_session_memory_bundle.py tests/memory/test_memory_context_bundle.py tests/agent/test_session_memory_load.py tests/agent/test_session_memory_integration.py tests/agent/test_reviewed_memory_context_retrieve.py tests/agent/test_memory_evidence_boundary.py tests/tools/test_catalog.py tests/memory/test_phase45_contract_alignment.py tests/memory/test_memory_write_service.py -q` |
 | **Estimated runtime** | Fast static smoke target <30 seconds where possible; full targeted suite ~60-180 seconds with local PostgreSQL available |
 
 ---
@@ -39,11 +40,11 @@ created: 2026-07-03
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 46-W0-01 | 46-02 | 0 | MEM-03 | T-46-01 | `session_memories` remains tenant/user/thread scoped and has no `case_id` ownership drift | static contract | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase46_session_context_alignment.py::test_session_memories_remains_thread_scoped_without_case_id -q` | no; Wave 0 creates it | pending |
-| 46-W0-02 | 46-02 | 0 | MEM-03 | T-46-02 / T-46-03 | Session hints do not produce evidence/current-fact/approval/action/replay authority | static + behavioral | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_memory_evidence_boundary.py tests/memory/test_phase46_session_context_alignment.py -q` | partial; Wave 0 adds static file | pending |
-| 46-W0-03 | 46-02 | 0 | MEM-03 | T-46-04 | `search_case_memory` stays reviewed case memory, not session-derived precedent | static + unit | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py::test_search_case_memory_descriptor_names_reviewed_case_memory_store tests/memory/test_phase46_session_context_alignment.py::test_search_case_memory_uses_reviewed_case_memory_service -q` | partial; Wave 0 adds executor assertion | pending |
-| 46-W0-04 | 46-02 | 0 | MEM-03 | T-46-05 | Session memory is not CWC fallback | static + integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase45_contract_alignment.py tests/agent/test_reviewed_memory_context_retrieve.py tests/memory/test_phase46_session_context_alignment.py -q` | partial; Phase 45 exists, Wave 0 adds Phase 46 references | pending |
-| 46-W0-05 | 46-01 / 46-03 | 0 | MEM-03 | T-46-06 | Phase 47 and Phase 48 remain named defers and are not implemented by Phase 46 | static docs | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase46_session_context_alignment.py::test_phase47_and_phase48_defers_remain_named -q` | no; Wave 0 creates it | pending |
+| 46-W0-01 | 46-02 | 0 | MEM-03 | T-46-01 | `session_memories` remains tenant/user/thread scoped and has no `case_id` ownership drift | static contract | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase46_session_context_alignment.py::test_session_memories_remains_thread_scoped_without_case_id -q` | yes | green |
+| 46-W0-02 | 46-02 / 46-03 | 0 | MEM-03 | T-46-02 / T-46-03 | Session hints do not produce evidence/current-fact/approval/action/replay authority | static + behavioral | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_memory_evidence_boundary.py tests/memory/test_phase46_session_context_alignment.py -q` | yes | green |
+| 46-W0-03 | 46-02 / 46-03 | 0 | MEM-03 | T-46-04 | `search_case_memory` stays reviewed case memory, not session-derived precedent | static + unit | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py::test_search_case_memory_descriptor_names_reviewed_case_memory_store tests/memory/test_phase46_session_context_alignment.py::test_search_case_memory_uses_reviewed_case_memory_service -q` | yes | green |
+| 46-W0-04 | 46-02 / 46-03 | 0 | MEM-03 | T-46-05 | Session memory is not CWC fallback | static + integration | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase45_contract_alignment.py tests/agent/test_reviewed_memory_context_retrieve.py tests/memory/test_phase46_session_context_alignment.py -q` | yes | green |
+| 46-W0-05 | 46-01 / 46-03 | 0 | MEM-03 | T-46-06 | Phase 47 and Phase 48 remain named defers and are not implemented by Phase 46 | static docs | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase46_session_context_alignment.py::test_phase47_and_phase48_defers_remain_named -q` | yes | green |
 
 *Status: pending / green / red / flaky*
 
@@ -51,8 +52,8 @@ created: 2026-07-03
 
 ## Wave 0 Requirements
 
-- [ ] `tests/memory/test_phase46_session_context_alignment.py` - static MEM-03 boundary checks for schema identity, authority separation, reviewed precedent separation, CWC fallback prevention, doc wording, and defer carry-forward.
-- [ ] Optional doc wording assertions inside the new file - cover stale `search_case_memory` wording in `docs/current-implementation-map.md` and `docs/architecture-overview.md` only if Phase 46 edits those non-normative docs.
+- [x] `tests/memory/test_phase46_session_context_alignment.py` - static MEM-03 boundary checks for schema identity, authority separation, reviewed precedent separation, CWC fallback prevention, doc wording, and defer carry-forward.
+- [x] Optional doc wording assertions inside the new file - cover stale `search_case_memory` wording in `docs/current-implementation-map.md` and `docs/architecture-overview.md` only if Phase 46 edits those non-normative docs.
 - [x] Existing infrastructure covers pytest, pytest-asyncio, async DB fixtures, and local PostgreSQL through compose.
 
 ---
@@ -63,13 +64,24 @@ All planned Phase 46 behaviors should have automated verification. Manual review
 
 ---
 
+## Execution Results
+
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_session_memory_bundle.py tests/agent/test_memory_evidence_boundary.py tests/memory/test_memory_write_service.py tests/agent/test_reviewed_memory_context_retrieve.py tests/tools/test_catalog.py tests/memory/test_phase46_session_context_alignment.py -q` → initial RED: `1 failed, 86 passed, 3 warnings`; failure proved raw policy evidence ref fields were entering `SessionMemoryBundle` serialization.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_session_memory_bundle.py tests/agent/test_memory_evidence_boundary.py tests/memory/test_memory_write_service.py tests/agent/test_reviewed_memory_context_retrieve.py tests/tools/test_catalog.py tests/memory/test_phase46_session_context_alignment.py -q` → after narrowing: `87 passed, 3 warnings`.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase46_session_context_alignment.py -x -q` → `9 passed, 1 warning`.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase46_session_context_alignment.py tests/memory/test_session_memory_schema.py tests/memory/test_session_memory_service.py tests/memory/test_session_memory_repository.py tests/memory/test_session_memory_bundle.py tests/memory/test_memory_context_bundle.py tests/agent/test_session_memory_load.py tests/agent/test_session_memory_integration.py tests/agent/test_reviewed_memory_context_retrieve.py tests/agent/test_memory_evidence_boundary.py tests/tools/test_catalog.py tests/memory/test_phase45_contract_alignment.py tests/memory/test_memory_write_service.py -q` → `133 passed, 9 warnings`.
+
+The warnings were pre-existing LangGraph/LangChain deprecation/config typing warnings and did not change the pass/fail result.
+
+---
+
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies.
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify.
-- [ ] Wave 0 covers all missing references.
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies.
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify.
+- [x] Wave 0 covers all missing references.
 - [x] No watch-mode flags.
-- [ ] Fast smoke feedback latency target < 30s where possible; final DB-backed gate may take 60-180s.
-- [ ] `nyquist_compliant: true` set in frontmatter after execution proves coverage.
+- [x] Fast smoke feedback latency target < 30s where possible; final DB-backed gate may take 60-180s.
+- [x] `nyquist_compliant: true` set in frontmatter after execution proves coverage.
 
-**Approval:** pending
+**Approval:** automated validation complete
