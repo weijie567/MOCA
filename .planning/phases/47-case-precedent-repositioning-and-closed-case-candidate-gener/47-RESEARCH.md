@@ -544,24 +544,21 @@ Existing tests already prove unreviewed case-memory rows are pending-review visi
 |---|-------|---------|---------------|
 | A1 | Production database contents were not inspected; local `moca` had no case-memory/CWC rows during research, but deployed environments may have rows. [ASSUMED] | Runtime State Inventory | Planner could under-plan data-preservation validation if production has existing reviewed precedents. |
 | A2 | Phase 47 should not introduce new secrets or env vars for candidate generation. [ASSUMED] | Runtime State Inventory | If a future close-event service requires signed event verification, security and env planning would need expansion. |
-| A3 | The exact terminal status allowlist is not fully defined by product requirements; current code only implies `closed`, `refunded`, and `rejected` are inactive in one order-repository filter. [ASSUMED; VERIFIED: src/repositories/order_repo.py] | Open Questions / Patterns | Wrong allowlist values could generate candidates too early or skip valid closed cases. |
+| A3 | Phase 47 fixes the MVP terminal status allowlist to `closed`, `refunded`, and `rejected`; expansion beyond those values requires future product confirmation. [RESOLVED; VERIFIED: src/repositories/order_repo.py; VERIFIED: .planning/phases/47-case-precedent-repositioning-and-closed-case-candidate-gener/47-02-PLAN.md] | Open Questions / Patterns | Wrong future allowlist expansion could generate candidates too early or skip valid closed cases. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **What exact refund-case statuses count as terminal for Phase 47?**
    - What we know: `RefundCase.status` is a free string, the phase context names `open` and `reviewing` as non-terminal, and one repository treats statuses outside `refunded`, `rejected`, and `closed` as active. [VERIFIED: src/db/models.py; VERIFIED: .planning/phases/47-case-precedent-repositioning-and-closed-case-candidate-gener/47-CONTEXT.md; VERIFIED: src/repositories/order_repo.py]
-   - What's unclear: Product has not provided a complete terminal allowlist. [ASSUMED]
-   - Recommendation: Plan a small explicit constant and tests, starting with the currently implied terminal values, and require user/product confirmation before expanding it. [ASSUMED; VERIFIED: src/repositories/order_repo.py]
+   - RESOLVED: Phase 47 MVP uses `TERMINAL_REFUND_CASE_STATUSES = frozenset({"closed", "refunded", "rejected"})`. `open`, `reviewing`, and unknown statuses skip with `reason_code="non_terminal_status"`. Expansion beyond these three statuses requires future product confirmation before changing the plan or implementation. [VERIFIED: .planning/phases/47-case-precedent-repositioning-and-closed-case-candidate-gener/47-02-PLAN.md]
 
 2. **Should source-ref schema be extended for CWC version and closed-at?**
    - What we know: `MemorySourceRefV1` and `ALLOWED_SOURCE_REF_KEYS` do not include `cwc_version` or `closed_at`, and source identity hashing uses selected allowed discriminator fields. [VERIFIED: src/memory/schemas.py; VERIFIED: src/memory/identity.py]
-   - What's unclear: Whether encoded `event_id`/`outcome_id` is enough for audit clarity. [ASSUMED]
-   - Recommendation: Prefer existing keys for the MVP; extend schema and identity allowlist only if planner needs queryable CWC/close metadata beyond source identity. [VERIFIED: src/memory/identity.py; ASSUMED]
+   - RESOLVED: Phase 47 does not extend `MemorySourceRefV1` or `ALLOWED_SOURCE_REF_KEYS`. Close/CWC identity is encoded with existing keys: `event_id` for close-event identity, `outcome_id` for CWC row/version identity, and `business_object_type` / `business_object_id` for the source refund case identity. [VERIFIED: .planning/phases/47-case-precedent-repositioning-and-closed-case-candidate-gener/47-01-PLAN.md; VERIFIED: .planning/phases/47-case-precedent-repositioning-and-closed-case-candidate-gener/47-03-PLAN.md]
 
 3. **How should generation behave if merchant scope cannot be resolved?**
    - What we know: `RefundCase` links to `Order`, and `Order` carries `merchant_id`; Phase 47 prefers merchant-scope storage when resolvable and conservative fallback otherwise. [VERIFIED: src/db/models.py; VERIFIED: .planning/phases/47-case-precedent-repositioning-and-closed-case-candidate-gener/47-CONTEXT.md]
-   - What's unclear: The desired fallback scope for unresolved merchant identity is not locked. [ASSUMED]
-   - Recommendation: Skip with explicit reason for the first implementation unless a tested case-scope fallback is needed for audit-only paths. [ASSUMED]
+   - RESOLVED: Phase 47 resolves reusable retrieval scope through `RefundCase -> Order.merchant_id`. If merchant identity cannot be resolved, generation falls back only to exact `case` scope for audit/debug retrieval. It must never use a tenant-wide reusable fallback. [VERIFIED: .planning/phases/47-case-precedent-repositioning-and-closed-case-candidate-gener/47-02-PLAN.md; VERIFIED: .planning/phases/47-case-precedent-repositioning-and-closed-case-candidate-gener/47-04-PLAN.md]
 
 ## Environment Availability
 
