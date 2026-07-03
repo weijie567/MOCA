@@ -12109,3 +12109,48 @@ rg: unrecognized flag --stopped-at|--resume-file|not planned|TBD|0/0
 - `.planning/STATE.md`
 - `.planning/ROADMAP.md`
 - `.planning/phases/48-narrow-long-term-explicit-preference-memory/`
+
+## 2026-07-04 — Phase 48 plan-review grep 核对命令触发 zsh 反引号命令替换
+
+### 问题现象
+
+补 Phase 48 plan-review 验收后，用 `rg` 核对新增短语时，搜索模式放在双引号中且包含 Markdown 反引号，zsh 将 `` `explicit_user_preference` `` 当成命令替换执行，输出 `zsh:1: command not found: explicit_user_preference`。
+
+### 如何检测 / 复现
+
+执行包含反引号且使用双引号包裹 pattern 的命令，例如：
+
+```bash
+rg -n "tenant-scoped `explicit_user_preference`" .planning/phases/48-narrow-long-term-explicit-preference-memory/48-03-PLAN.md
+```
+
+### 关键证据或命令
+
+命令输出包含：
+
+```text
+zsh:1: command not found: explicit_user_preference
+```
+
+### 当前判断 / 根因
+
+这是 shell quoting 问题，不是 Phase 48 plan 内容问题。双引号不会阻止 zsh 对反引号做命令替换；搜索 Markdown inline code 时应使用单引号或转义反引号。
+
+### 已做处理
+
+改用单引号 pattern 重跑：
+
+```bash
+rg -n -- 'legacy storage/table identity|does_not_semantically_infer|Chinese explicit phrase|tenant-scoped `explicit_user_preference`|controlled 409|test_review_api_rejects' .planning/phases/48-narrow-long-term-explicit-preference-memory/48-01-PLAN.md .planning/phases/48-narrow-long-term-explicit-preference-memory/48-03-PLAN.md .planning/phases/48-narrow-long-term-explicit-preference-memory/48-04-PLAN.md
+```
+
+重跑成功，确认新增验收短语存在。
+
+### 剩余问题
+
+无阻塞。后续 grep/rg 搜索 Markdown inline code 时用单引号或转义。
+
+### 下次继续排查入口
+
+- `.planning/phases/48-narrow-long-term-explicit-preference-memory/48-03-PLAN.md`
+- shell quoting for `rg` patterns containing Markdown backticks
