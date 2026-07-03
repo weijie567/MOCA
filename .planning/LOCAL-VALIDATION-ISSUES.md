@@ -11687,3 +11687,37 @@ Phase 46 收尾检查 SECURITY artifact 时运行 `ls .planning/phases/46-sessio
 
 - `/Users/ming/.codex/get-shit-done/workflows/plan-phase.md`
 - `.planning/phases/47-case-precedent-repositioning-and-closed-case-candidate-gener/`
+
+## 2026-07-03 — Phase 47 `state.planned-phase` 返回成功但主状态字段未同步
+
+### 问题现象
+
+Phase 47 plan-checker 通过后，执行 `UV_CACHE_DIR=/tmp/uv-cache uv run gsd-sdk query state.planned-phase --phase 47 --name "Case Precedent Repositioning and Closed-Case Candidate Generation" --plans 4` 返回 `{"updated": true}`，但 `.planning/STATE.md` 的主状态仍显示 `Status: Ready to plan`、`Next: Plan Phase 47`、Current Roadmap 中 Phase 47 仍是 `0/0 | Not planned`。
+
+### 如何检测 / 复现
+
+在 Phase 47 已有 4 个 PLAN 且 plan-checker 通过后运行上述命令，然后读取 `.planning/STATE.md` 的 frontmatter、`## Current Position`、`## Current Roadmap` 和 `## Session Continuity`。
+
+### 关键证据或命令
+
+- 命令返回：`{"updated": true, "phase": "47", "name": "Case Precedent Repositioning and Closed-Case Candidate Generation", "plans": "4"}`
+- `git diff -- .planning/STATE.md` 显示工具只更新了 `last_updated` 和底部 `**Planned Phase:** ...` timestamp。
+- 主状态仍为旧值：`Status: Ready to plan` / `Next: Plan Phase 47` / `| 47 ... | 0/0 | Not planned |`。
+
+### 当前判断 / 根因
+
+当前 `state.planned-phase` query handler 的实际写入面不完整；它记录了 planned phase 事件，但没有同步 STATE 的用户可见 Current Position 和 Current Roadmap 表。`state validate` 仍返回 valid，因此这是状态内容陈旧问题，不是 schema 校验错误。
+
+### 已做处理
+
+手动把 `.planning/STATE.md` 的 Current Position、Current Roadmap、Session Continuity 更新为 Phase 47 planned / ready to execute，并将 progress 文案从 83% 对齐到 frontmatter 的 88%。
+
+### 剩余问题
+
+无当前 Phase 47 阻塞。后续如维护 GSD 工具，应让 `state.planned-phase` 同步主状态字段，或在 workflow 中明确需要手动 patch。
+
+### 下次继续排查入口
+
+- `/Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run gsd-sdk query state.planned-phase ...`
+- `.planning/STATE.md`
