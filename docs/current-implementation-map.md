@@ -36,6 +36,7 @@
 | Session memory service | `src/memory/service.py:29` | TTL、intent compatibility、slot merge、CAS 冲突处理、summary cap | short-term memory logic | 没有 LLM rolling summary；summary 是轻量字符串 |
 | Session precedent search | `src/memory/search.py:15` | `LegacySessionPrecedentSearchService` 基于 `session_memories` 做 legacy/debug-only read-only projection | legacy short-term projection | 不是 planner-facing case memory；不得支撑生产 `search_case_memory` |
 | Case memory tool | `src/tools/executors/memory.py:32` | `search_case_memory` 由 `MemoryToolExecutor -> CaseMemoryService.retrieve_reviewed(...)` 服务，返回 reviewed case memory `ToolResultV2` | tool / reviewed case memory | planner-facing 工具使用 reviewed case memory；`case_memories` 是 reviewed closed-case precedent，不使用 active CWC 或 legacy session-derived precedent |
+| Closed-case precedent generation | `src/memory/case_precedent.py:47` | `ClosedCasePrecedentService -> CaseMemoryService.submit_case_memory_candidate(...)` 将 finalized CWC 投影为 `closed_case_cwc_candidate`，进入现有 case-memory review flow | memory / case precedent candidate | 只提供 trusted internal seam；生成项默认 `needs_review`，source case identity 在 `source_ref_json`，retrieval scope 在 `CaseMemory.scope_type/scope_id` |
 | Long-term memory retrieve | `src/agent/nodes/long_term_memory_retrieve.py:14` | 返回空 `long_term_memory` 和 `case_memory` | long-term memory placeholder | 长期记忆实际未实现 |
 | Investigation node | `src/agent/nodes/investigate.py:141` | 调用业务工具和 policy retrieval，聚合 `business_context`、`policy_evidence`、`tool_results`、refs | working memory / business context | 当前 tool results 进入 AgentState；需要区分 raw result、normalized result、summary |
 | Recommendation node | `src/agent/nodes/generate_recommendation.py:154` | 重新校验 policy evidence 内容，组装 prompt 生成 recommendation | prompt context assembly 局部实现 | 仍有节点内局部摘要和裁剪；统一 `ContextAssembler` 已存在但 adoption 取决于各 agent path |
@@ -159,7 +160,7 @@
 2. **raw result ref/hash 的后端契约仍需落地**：`tool_results.raw_result_ref` / `raw_result_hash` 字段已存在，但 raw payload 对象存储、访问策略和生命周期不是本文确认的已实现事实。
 3. **ContextAssembler adoption 仍不完整**：`ContextAssembler` 已实现，仍需逐条 agent path 确认是否统一使用预算、redaction 和 raw/summary 分层。
 4. **thread summary 与 session memory 边界需继续保持清晰**：`summaries.thread_rolling` 已实现；`session_memories.session_summary` 仍是 slot continuity 的轻量摘要，不替代 rolling conversation summary。
-5. **`search_case_memory` 命名历史上容易误导**：当前 planner-facing 实现已由 `MemoryToolExecutor -> CaseMemoryService.retrieve_reviewed(...)` 服务 reviewed case memory；`case_memories` 是 reviewed closed-case precedent，不是 active CWC；`LegacySessionPrecedentSearchService` 仅是 legacy/debug-only 的 session-derived projection，不是真正 case memory，也不得作为生产工具后端。
+5. **`search_case_memory` 命名历史上容易误导**：当前 planner-facing 实现已由 `MemoryToolExecutor -> CaseMemoryService.retrieve_reviewed(...)` 服务 reviewed case memory；`case_memories` 是 reviewed closed-case precedent，不是 active CWC；`ClosedCasePrecedentService -> CaseMemoryService.submit_case_memory_candidate(...)` 只生成 `closed_case_cwc_candidate` review candidate；`LegacySessionPrecedentSearchService` 仅是 legacy/debug-only 的 session-derived projection，不是真正 case memory，也不得作为生产工具后端。
 6. **`AgentState` 边界偏宽**：working memory、business runtime copy、trace/debug、approval/action copy 混在同一个 TypedDict。
 7. **audit/log 体系职责需对齐**：`agent_trace_events`、`agent_steps`、`audit_logs`、approval/action events 的权责边界需要明确。
 

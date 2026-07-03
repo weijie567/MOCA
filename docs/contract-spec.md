@@ -1522,6 +1522,8 @@ Semantic lock: `case_memories` / `case_memory` are reviewed closed-case preceden
 
 Phase 47 closed-case projection rule: a finalized Case Working Context may be projected only into a `CaseMemoryWriteCandidate` submitted through `CaseMemoryService.submit_case_memory_candidate(...)`. Generated closed-case CWC candidates must default to `needs_review` and remain invisible to `retrieve_reviewed(...)`, `reviewed_memory_context`, and planner-facing `search_case_memory` until approved. The source CWC remains `authority_class = contextual_only`; generated case-memory candidates are not policy evidence, current business fact authority, approval authorization, action authorization, action outcome truth, audit truth, or replay truth. They must not contain policy body text, raw tool payloads, authority bodies, replay/debug blobs, or sensitive raw PII.
 
+`closed_case_cwc_candidate` is the dedicated reviewed-case precedent candidate source for this path. It is review-required, not auto-approved. Source case identity is stored in `source_ref_json.business_object_type/business_object_id`; reusable retrieval scope is stored separately in `CaseMemory.scope_type/scope_id` (merchant scope when `RefundCase -> Order.merchant_id` resolves, exact case scope as conservative fallback).
+
 Case-memory retrieval is metadata/text retrieval first. Tenant, scope, case type, policy family/version, and query text filters must remain sufficient for reviewed precedent lookup; vector retrieval is optional only when `query_embedding` is supplied.
 
 ### 13.4a Case Working Context
