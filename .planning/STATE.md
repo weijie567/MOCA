@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
-status: verifying
-stopped_at: Completed 45-04-PLAN.md
-last_updated: "2026-07-03T05:58:14.860Z"
-last_activity: 2026-07-03
+status: milestone_complete
+stopped_at: Phase 45 complete; v2.1 ready for milestone closure/security review
+last_updated: "2026-07-03T06:13:22Z"
+last_activity: "2026-07-03 -- Phase 45 completed with verification passed (15/15); v2.1 ready for milestone closure/security review"
 progress:
   total_phases: 9
   completed_phases: 9
@@ -18,10 +18,10 @@ progress:
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-07-01)
+See: `.planning/PROJECT.md` (updated 2026-07-03)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 45 — memory-lifecycle-wiring-for-case-working-context
+**Current focus:** v2.1 Core Subsystem Hardening — Phase 45 memory lifecycle wiring complete; milestone ready for closure/security review.
 
 ## Rescope note (2026-07-02)
 
@@ -30,11 +30,11 @@ See: `.planning/PROJECT.md` (updated 2026-07-01)
 
 ## Current Position
 
-Phase: 45 (memory-lifecycle-wiring-for-case-working-context) — VERIFYING
-Plan: 4 of 4
-Status: Phase complete — ready for verification
-Last activity: 2026-07-03
-Next: Run Phase 45 review/verification or proceed to v2.1 milestone closure.
+Phase: 45 (Memory Lifecycle Wiring for Case Working Context) — COMPLETE
+Plan: 45-01 through 45-04 complete
+Status: Milestone complete
+Last activity: 2026-07-03 -- Phase 45 completed with verification passed (15/15); v2.1 ready for milestone closure/security review
+Next: Run `$gsd-secure-phase 45` if enforcing the security gate, then `$gsd-complete-milestone` for v2.1 closure.
 
 Progress: [██████████] 100%
 
@@ -192,13 +192,13 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ## Session Continuity
 
-Last session: 2026-07-03T05:58:14.851Z
-Stopped at: Completed 45-04-PLAN.md
-Resume file: None
-Next: Run Phase 45 review/verification or proceed to v2.1 milestone closure.
+Last session: 2026-07-03T06:13:22Z
+Stopped at: Phase 45 complete; v2.1 ready for milestone closure/security review
+Resume file: .planning/phases/45-memory-lifecycle-wiring-for-case-working-context/45-VERIFICATION.md
+Next: Run `$gsd-secure-phase 45` if enforcing the security gate, then `$gsd-complete-milestone` for v2.1 closure.
 
-Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification.
-Next roadmap item: Phase 45 memory lifecycle wiring for graph run-completion CWC auto-update/read-active hooks, or another architecture-debt item inside v2.1.
+Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with 15/15 verification.
+Next roadmap item: v2.1 milestone closure/security review, or a new explicitly scoped core-subsystem hardening phase.
 
 **Completed Phase:** 44 (Memory Layering — Case Working Context + thread-case Many-to-Many) — 4/4 plans — 2026-07-03
 

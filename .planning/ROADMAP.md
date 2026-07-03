@@ -78,12 +78,13 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 37. Tool Declaration + Runtime/Policy Internal Consolidation | 3/3 | Complete; DB pytest pending | 2026-07-02 |
-| 38. output_schema Declaration + Runtime Output-Validation Enforcement | 3/3 | Complete    | 2026-07-02 |
+| 38. output_schema Declaration + Runtime Output-Validation Enforcement | 3/3 | Complete | 2026-07-02 |
 | 39. contract-spec §12.5/§12.6 Reconciliation | 1/1 | Complete | 2026-07-02 |
 | 40. Tool Contract Validation Hardening | 3/3 | Complete | 2026-07-02 |
 | 41. Tool Platform Legacy Manager Cleanup | 4/4 | Complete | 2026-07-02 |
 | 42. Intent Recognition Three-Layer Decoupling | 1/1 | Complete (retroactively registered) | 2026-07-02 |
 | 43. Intent Recognition Multi-Intent Tier A | 3/3 complete | Complete | 2026-07-02 |
+| 44. Memory Layering — Case Working Context + thread-case Many-to-Many | 4/4 | Complete | 2026-07-03 |
 | 45. Memory Lifecycle Wiring for Case Working Context | 4/4 | Complete | 2026-07-03 |
 
 ### Phase 40: Tool Contract Validation Hardening
@@ -191,10 +192,10 @@ Plans:
 **Goal:** Wire the Phase 44 Case Working Context foundation into the real agent-run lifecycle through a stable lifecycle adapter: resolve canonical `refund_cases.id`, link the current thread with `link_source="run_auto"`, load active CWC as contextual-only memory input before investigation/recommendation, and write deterministic CWC updates after successful completed terminal runs without making memory authority for policy/risk/approval/action/replay.
 **Requirements**: MEM-01, MEM-02 (deferred lifecycle hooks from Phase 44)
 **Depends on:** Phase 44
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 
 Plans:
 - [x] 45-01-PLAN.md — lifecycle contextual refs, status contracts, and graph/API-neutral adapter foundation.
 - [x] 45-02-PLAN.md — active CWC read and `run_auto` thread-case link wiring at the memory-context seam.
 - [x] 45-03-PLAN.md — terminal finalizer CWC writeback, deterministic projection, and failure/conflict semantics.
-- [ ] 45-04-PLAN.md — contract/spec alignment, red-line sweeps, planning ledgers, and final targeted verification.
+- [x] 45-04-PLAN.md — contract/spec alignment, red-line sweeps, planning ledgers, and final targeted verification.

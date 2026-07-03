@@ -10,26 +10,29 @@ Built as an open-source portfolio project demonstrating enterprise Agent enginee
 
 When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution — never silently executing something irreversible.
 
-## Current Milestone: v2.1 Tool Platform Hardening
+## Current Milestone: v2.1 Core Subsystem Hardening
 
-**Goal:** Clean up the tool-call platform's contract debt and implementation gaps so tool contracts are as sound as the codebase allows, and so `docs/contract-spec.md` and the implementation agree.
+**Goal:** Clean up architecture debt across MOCA's core subsystems so tool contracts, intent routing, and memory lifecycle behavior are explicit, tested, and aligned with `docs/contract-spec.md`.
 
-**Status:** Phase 37 through Phase 41 complete; v2.1 is ready for milestone review/archive.
+**Status:** Phase 37 through Phase 45 complete; v2.1 is ready for security review and milestone closure.
 
-**Target features:**
+**Delivered:**
 - Land real `output_schema` for all eight tools (`get_order`, `get_refund_case`, `get_ticket`, `get_logistics`, `get_merchant_risk`, `search_policy`, `search_sop`, `search_case_memory`) and enforce it in the `ToolRuntime` output-validation gate — completed in Phase 38.
 - Harden the remaining source-confirmed validation gaps: strict `create_coupon_grant_draft` output schema, domain-scope handoff backstop testing, and local JSON Schema keyword/meta guards — completed in Phase 40.
 - Remove the `UnifiedToolManager` legacy compatibility adapter and converge graph-facing dispatch/tests/spec on `ToolPlatform` as the single canonical entrypoint — completed in Phase 41.
 - Reconcile `docs/contract-spec.md` §12.5/§12.6 with the implemented contract fields that spec omits (`ToolDescriptor.executor/exposure/requires_approval/requires_safety_snapshot/requires_idempotency_key`, `event_family="action"`, `ToolPolicyDecision.runtime_available/availability_summary`, `ToolCallContext.effective_at/approval_ref/safety_snapshot_ref`) — completed in Phase 39 with dual-AI review and clean verification.
-- Consolidate the tool declaration source: collapse `catalog._default_descriptors` + `_IDENTIFIER_SCHEMAS` and `manager.INVESTIGATE_TOOL_NAMES` into one single-source registry (spec §12.6 already forbids multi-list drift).
-- Converge runtime/policy internals: extract a `_fail` helper for the ten repeated failure branches in `runtime.py`, and turn the `runtime_auth` if-chain in `policy.py` into a declarative gate pipeline.
+- Consolidate the tool declaration source and converge runtime/policy internals — completed in Phase 37.
+- Decouple intent recognition into semantic, risk-authorization, and confidence/clarification layers — completed in Phase 42.
+- Preserve multi-intent utterances as bounded task plans while only executing the current turn's safe read-only prefix — completed in Phase 43.
+- Add durable Case Working Context plus thread-case many-to-many memory foundations without renaming existing `case_memories` / `long_term_memories` tables — completed in Phase 44.
+- Wire Case Working Context into the real agent-run lifecycle: active CWC read at the memory-context seam, `run_auto` thread-case linking, deterministic terminal CWC writeback, and contract/red-line validation — completed in Phase 45.
 
 **Guardrails (binding on all downstream agents):**
 - `ToolCallContext` identity fields (`tenant_id/user_id/role/permissions/merchant_scope/session_id/thread_id/run_id/trace_id`) are locked by spec §8.0 as `TrustedContext` projections — MUST NOT redefine, widen, or rename. Off-limits.
 - Blast-radius tiering: `ToolResultV2` and `ToolCallContext` are HIGH (7 external consumers: `business/adapters`, `business/service`, `conversation/service`, `agent/rag_context/verifier`, `agent/nodes/action_draft`, `platform/context_projections`, `memory/search`); `ToolInvocationOutcome`/`ToolViewV1`/`ToolPolicyDecision` are effectively src/tools-internal (LOW). Refactor in waves; defer high-blast-radius contract field changes.
 - Domain-level ownership/scope enforcement already lives in BusinessFactService (`_merchant_scope_allows` + no-leak) — not a gap, do not rebuild.
-- Sole normative contract source: `docs/contract-spec.md` §12.5/§12.6 and §8.0.
-- `docs/contract-spec.md` was just touched by the prior memory-alignment work (commit `4dcb673`); phase planning must re-check whether §12.5/§12.6 were incidentally modified before editing.
+- Sole normative contract source: `docs/contract-spec.md`. Phase implementation may update the spec only with explicit review/traceability.
+- Memory remains contextual-only unless a future phase explicitly designs a new authority boundary; Case Working Context must stay distinct from reviewed case memory, long-term memory, evidence, business facts, approval/action authority, and replay truth.
 
 **Prior milestone note (v2.0 Merchant Scope Hardening):** delivered Phase 36 (merchant-scope DB hardening / role cleanup) on 2026-06-30; its remaining same-merchant trace/replay authorization scope stays future work and is not part of v2.1.
 

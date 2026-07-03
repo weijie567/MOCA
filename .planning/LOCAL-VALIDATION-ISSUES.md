@@ -11135,3 +11135,38 @@ Phase 45 plan-phase 的 pattern mapper 在做文本验证时因 shell quoting �
 - `tests/memory/test_phase45_contract_alignment.py`
 - `src/db/migrations/versions/013_long_term_case_memory.py`
 - `src/db/models.py`
+
+## 2026-07-03 — Phase 45 phase.complete 后 STATE 进度计数超过 100%
+
+### 问题现象
+
+Phase 45 verifier 通过后运行 `gsd-sdk query phase.complete 45`，命令返回成功，但 `.planning/STATE.md` frontmatter 被写成 `total_phases: 9`、`completed_phases: 10`、`percent: 111`。这会让 `$gsd-progress` 或后续 milestone closure 读到不可信的进度账本。
+
+### 如何检测 / 复现
+
+运行 `git diff -- .planning/STATE.md` 或直接读取 `.planning/STATE.md` frontmatter，可看到 completed phases 超过 total phases。
+
+### 关键证据或命令
+
+- 命令：`gsd-sdk query phase.complete 45`
+- 返回：`roadmap_updated: true`、`state_updated: true`、`warnings: []`
+- 异常写入：`completed_phases: 10`、`total_phases: 9`、`percent: 111`
+
+### 当前判断 / 根因
+
+当前判断是 GSD SDK 的 phase completion 计数逻辑与本仓库 Phase 42 retroactive registration / roadmap progress 表结构存在不一致，导致完成计数重复加一。命令返回 warnings 为空，但状态语义错误。
+
+### 已做处理
+
+手动修正 `.planning/STATE.md` 为 `completed_phases: 9`、`percent: 100`，并把 current focus / next 文案改为 Phase 45 已完成、v2.1 待 security review / milestone closure。同步补齐 `.planning/ROADMAP.md` Progress 表缺失的 Phase 44 行，并更新 `.planning/PROJECT.md` 当前里程碑说明。
+
+### 剩余问题
+
+无当前阻塞。后续运行 `phase.complete` 后仍需 diff 检查 `.planning/STATE.md` 的 progress 计数。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `.planning/ROADMAP.md`
+- `.planning/PROJECT.md`
+- `gsd-sdk query phase.complete`
