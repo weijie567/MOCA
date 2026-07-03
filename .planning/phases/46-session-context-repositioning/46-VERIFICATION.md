@@ -5,11 +5,11 @@ status: passed
 score: "10/10 must-haves verified"
 overrides_applied: 0
 re_verification:
-  previous_status: gaps_found
+  previous_result: verification_failed_before_gap_fix
   previous_score: "9/10 must-haves verified"
-  gaps_closed:
+  closed_items:
     - "Architecture overview no longer describes planner-visible memory executor as session-derived precedent"
-  gaps_remaining: []
+  remaining_items: []
   regressions: []
 ---
 

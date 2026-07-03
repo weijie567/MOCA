@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
-status: verifying
-stopped_at: Completed 46-03-PLAN.md
-last_updated: "2026-07-03T09:33:01.069Z"
-last_activity: 2026-07-03
+status: ready_to_plan
+stopped_at: Phase 46 complete; ready for Phase 47 planning
+last_updated: "2026-07-03T09:54:54Z"
+last_activity: 2026-07-03 -- Phase 46 complete; ready for Phase 47 planning
 progress:
   total_phases: 12
   completed_phases: 10
   total_plans: 29
   completed_plans: 29
-  percent: 100
+  percent: 83
 ---
 
 # Project State: MOCA
@@ -21,7 +21,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-03)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** Phase 46 — session-context-repositioning
+**Current focus:** v2.1 Core Subsystem Hardening — Phase 46 complete; ready to plan Phase 47 case precedent repositioning.
 
 ## Rescope note (2026-07-02)
 
@@ -30,13 +30,13 @@ See: `.planning/PROJECT.md` (updated 2026-07-03)
 
 ## Current Position
 
-Phase: 46 (session-context-repositioning) — COMPLETE
-Plan: 3 of 3
-Status: Phase complete — ready for Phase 47 planning
+Phase: 47
+Plan: Not started
+Status: Ready to plan
 Last activity: 2026-07-03
 Next: Plan Phase 47.
 
-Progress: [██████████] 100%
+Progress: [████████░░] 83%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 

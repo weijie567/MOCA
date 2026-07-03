@@ -11441,3 +11441,38 @@ Phase 46 gap fix re-verification 过程中，为核对 Phase 46 文档中的 pyt
 
 - `.planning/phases/46-session-context-repositioning/46-*.md`
 - zsh shell quoting / ripgrep pattern 写法
+
+## 2026-07-03 — Phase 46 `phase.complete` 重复运行导致 completed_phases 非幂等递增
+
+### 问题现象
+
+Phase 46 首次 `gsd-sdk query phase.complete 46` 后，为确认 warning 是否已消失，又重跑了一次同一命令。第二次命令返回成功且 `warnings: []`，但 `.planning/STATE.md` 被写成 `completed_phases: 12`、`percent: 100`，等于把仍未完成的 Phase 47/48 也计入完成态。
+
+### 如何检测 / 复现
+
+在 Phase 46 已完成后重复运行 `gsd-sdk query phase.complete 46`，再查看 `git diff -- .planning/STATE.md` 或读取 frontmatter。
+
+### 关键证据或命令
+
+- 命令：`gsd-sdk query phase.complete 46`
+- 第二次返回：`warnings: []`、`has_warnings: false`
+- 异常写入：`completed_phases: 12`、`percent: 100`
+- ROADMAP 事实：Phase 47 / Phase 48 仍为 `Not planned`
+
+### 当前判断 / 根因
+
+当前判断是 `phase.complete` 对已完成 phase 的状态更新不是幂等操作，会在重复运行时再次推进完成计数。命令返回成功不代表 STATE 计数语义正确。
+
+### 已做处理
+
+手动修正 `.planning/STATE.md`：`completed_phases: 10`（Phase 37-46 完成，Phase 47/48 未完成）、`percent: 83`，并把正文进度条同步为 `83%`。保留 `completed_plans: 29/29`，因为当前已规划的 29 个 plan 均完成，Phase 47/48 还没有 plan。
+
+### 剩余问题
+
+无当前阻塞。后续不要为了确认 warning 消失而重复运行 `phase.complete`；如必须重跑，之后必须 diff 检查 STATE 计数。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `.planning/ROADMAP.md`
+- `gsd-sdk query phase.complete`

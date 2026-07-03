@@ -93,7 +93,7 @@ Plans:
 | 43. Intent Recognition Multi-Intent Tier A | 3/3 complete | Complete | 2026-07-02 |
 | 44. Memory Layering — Case Working Context + thread-case Many-to-Many | 4/4 | Complete | 2026-07-03 |
 | 45. Memory Lifecycle Wiring for Case Working Context | 4/4 | Complete | 2026-07-03 |
-| 46. Session Context Repositioning | 3/3 complete | Complete | 2026-07-03 |
+| 46. Session Context Repositioning | 3/3 | Complete | 2026-07-03 |
 | 47. Case Precedent Repositioning and Closed-Case Candidate Generation | 0 plans | Not planned | - |
 | 48. Narrow Long-Term Explicit Preference Memory | 0 plans | Not planned | - |
 
@@ -215,7 +215,7 @@ Plans:
 **Goal:** Reposition `session_memories` after Case Working Context has landed: keep session context as thread-scoped, short-lived conversational memory only, make its boundary explicit in contract/docs/tests, and prevent it from carrying cross-case durable working state, reviewed precedent, long-term preference memory, policy evidence, business facts, approval/action authority, or replay truth.
 **Requirements**: MEM-03
 **Depends on:** Phase 45
-**Plans:** 3 plans
+**Plans:** 3/3 plans complete
 **Design input:** `.planning/MEMORY-REDESIGN-DECISIONS.md` DEFER-1.
 **Success Criteria** (what must be TRUE):
   1. The intended role of `session_memories` is documented as thread-scoped temporary conversational context, distinct from `case_working_contexts`, `case_memories`, and `long_term_memories`.

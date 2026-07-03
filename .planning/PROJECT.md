@@ -14,7 +14,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 **Goal:** Clean up architecture debt across MOCA's core subsystems so tool contracts, intent routing, and memory lifecycle behavior are explicit, tested, and aligned with `docs/contract-spec.md`.
 
-**Status:** Phase 37 through Phase 45 complete; v2.1 is ready for security review and milestone closure.
+**Status:** Phase 37 through Phase 46 complete; Phase 47 case precedent repositioning is next.
 
 **Delivered:**
 - Land real `output_schema` for all eight tools (`get_order`, `get_refund_case`, `get_ticket`, `get_logistics`, `get_merchant_risk`, `search_policy`, `search_sop`, `search_case_memory`) and enforce it in the `ToolRuntime` output-validation gate — completed in Phase 38.
@@ -26,6 +26,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - Preserve multi-intent utterances as bounded task plans while only executing the current turn's safe read-only prefix — completed in Phase 43.
 - Add durable Case Working Context plus thread-case many-to-many memory foundations without renaming existing `case_memories` / `long_term_memories` tables — completed in Phase 44.
 - Wire Case Working Context into the real agent-run lifecycle: active CWC read at the memory-context seam, `run_auto` thread-case linking, deterministic terminal CWC writeback, and contract/red-line validation — completed in Phase 45.
+- Reposition `session_memories` as same-thread temporary conversational context only, with prompt-safe hint allowlists and tests preventing CWC fallback, reviewed precedent, long-term sedimentation, or authority use — completed in Phase 46.
 
 **Guardrails (binding on all downstream agents):**
 - `ToolCallContext` identity fields (`tenant_id/user_id/role/permissions/merchant_scope/session_id/thread_id/run_id/trace_id`) are locked by spec §8.0 as `TrustedContext` projections — MUST NOT redefine, widen, or rename. Off-limits.
@@ -219,10 +220,12 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - [x] v2.1 tool declarations resolve from a single-source registry, and runtime/policy internals use shared/declarative structures without external contract shape changes (validated in Phase 37)
 - [x] v2.1 real output schemas are declared for the eight scoped tools and enforced by runtime output validation as safe `invalid_response` failures, with DB-backed full relevant pytest passing (validated in Phase 38)
 - [x] v2.1 contract spec §12.5/§12.6 matches the implemented tool contract fields while preserving §8.0 TrustedContext identity ownership (validated in Phase 39)
+- [x] v2.1 session memory is repositioned after Case Working Context as thread-scoped, short-lived conversational context only, with contract/static/behavioral tests preventing cross-case state, reviewed precedent, long-term sedimentation, and authority use (validated in Phase 46)
 
 ### Active
 
-_None. v2.1 requirements are complete._
+- [ ] MEM-04 / Phase 47: Re-scope `case_memories` as reviewed precedent and add closed-case candidate generation from CWC into governed review flow.
+- [ ] MEM-05 / Phase 48: Re-scope `long_term_memories` to explicit tenant preference memory only, without generic automatic run summarization.
 
 ### Out of Scope
 
@@ -364,4 +367,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-02 — completed Phase 41 Tool Platform Legacy Manager Cleanup; v2.1 ready for milestone review/archive*
+*Last updated: 2026-07-03 — completed Phase 46 Session Context Repositioning; v2.1 ready for Phase 47 planning*
