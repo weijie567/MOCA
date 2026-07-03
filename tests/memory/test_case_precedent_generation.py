@@ -51,7 +51,11 @@ def _request(
     )
 
 
-def _content_with_projection_fields(case_id: uuid.UUID) -> CaseWorkingContextContentV1:
+def _content_with_projection_fields(
+    case_id: uuid.UUID,
+    *,
+    issue_type: str = "refund_dispute",
+) -> CaseWorkingContextContentV1:
     source_ref = {
         "source_type": "run_auto_terminal",
         "agent_run_id": str(uuid.uuid4()),
@@ -60,7 +64,7 @@ def _content_with_projection_fields(case_id: uuid.UUID) -> CaseWorkingContextCon
     }
     return CaseWorkingContextContentV1(
         customer_request="用户要求处理破损商品退款 raw_payload",
-        issue_type="refund_dispute",
+        issue_type=issue_type,
         claims=[
             CaseWorkingContextClaimV1(
                 text="用户称商品破损 raw_tool",
@@ -120,9 +124,16 @@ async def _insert_run(session: AsyncSession, seeded_session: dict, thread_id: st
     return run_id
 
 
-async def _insert_active_cwc(session: AsyncSession, seeded_session: dict) -> CaseWorkingContext:
+async def _insert_active_cwc(
+    session: AsyncSession,
+    seeded_session: dict,
+    *,
+    issue_type: str = "refund_dispute",
+    pii_classification: str = "none",
+    version: int = 1,
+) -> CaseWorkingContext:
     refund_case = seeded_session["refund_case"]
-    content = _content_with_projection_fields(refund_case.id)
+    content = _content_with_projection_fields(refund_case.id, issue_type=issue_type)
     dehydrated = dehydrate_content(content)
     row = CaseWorkingContext(
         id=uuid.uuid4(),
@@ -145,12 +156,28 @@ async def _insert_active_cwc(session: AsyncSession, seeded_session: dict) -> Cas
             "business_object_type": "refund_case",
             "business_object_id": str(refund_case.id),
         },
-        version=1,
-        pii_classification="none",
+        version=version,
+        pii_classification=pii_classification,
     )
     session.add(row)
     await session.flush()
     return row
+
+
+async def _case_memory_rows(session: AsyncSession) -> list[CaseMemory]:
+    return list((await session.execute(select(CaseMemory).order_by(CaseMemory.created_at))).scalars().all())
+
+
+async def _write_events(session: AsyncSession, run_id: uuid.UUID) -> list[MemoryWriteEvent]:
+    return list(
+        (
+            await session.execute(
+                select(MemoryWriteEvent).where(MemoryWriteEvent.run_id == run_id).order_by(MemoryWriteEvent.created_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
 
 
 class _NoopCaseMemoryService:
@@ -237,6 +264,28 @@ async def test_terminal_status_with_missing_active_cwc_skips(seeded_session: dic
 
 
 @pytest.mark.asyncio
+async def test_missing_case_and_missing_active_cwc_skip_without_case_memory_rows(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session)
+    service = ClosedCasePrecedentService(session=session)
+
+    missing_case = await service.generate_closed_case_precedent_candidate(
+        _request(seeded_session, run_id=run_id, case_id=uuid.uuid4(), close_event_id="missing-case")
+    )
+    missing_cwc = await service.generate_closed_case_precedent_candidate(
+        _request(seeded_session, run_id=run_id, close_event_id="missing-cwc")
+    )
+
+    assert missing_case.status == "skipped"
+    assert missing_case.reason_code == "case_not_found"
+    assert missing_cwc.status == "skipped"
+    assert missing_cwc.reason_code == "missing_active_cwc"
+    assert await _case_memory_rows(session) == []
+
+
+@pytest.mark.asyncio
 async def test_terminal_status_uses_refund_case_order_merchant_scope(
     session: AsyncSession,
     seeded_session: dict,
@@ -282,6 +331,110 @@ async def test_terminal_status_uses_refund_case_order_merchant_scope(
     assert event.memory_id == result.memory_id
     assert event.source_ref_json == row.source_ref_json
     assert refund_case.order.merchant_id == seeded_session["merchant"].id
+
+
+@pytest.mark.asyncio
+async def test_duplicate_closed_case_generation_uses_existing_duplicate_handling(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session)
+    await _insert_active_cwc(session, seeded_session)
+    service = ClosedCasePrecedentService(session=session)
+    request = _request(seeded_session, run_id=run_id, close_event_id="duplicate-active")
+
+    first = await service.generate_closed_case_precedent_candidate(request)
+    duplicate = await service.generate_closed_case_precedent_candidate(request)
+    rows = await _case_memory_rows(session)
+    events = await _write_events(session, run_id)
+
+    assert first.status == "needs_review"
+    assert duplicate.status == "skipped"
+    assert duplicate.memory_id == first.memory_id
+    assert duplicate.reason_code.startswith("duplicate_active")
+    assert [row.id for row in rows] == [first.memory_id]
+    assert events[-1].decision == "skip"
+    assert events[-1].reason_code == duplicate.reason_code
+
+
+@pytest.mark.asyncio
+async def test_different_close_event_with_same_content_dedupes_by_content_hash_reason(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session)
+    await _insert_active_cwc(session, seeded_session)
+    service = ClosedCasePrecedentService(session=session)
+
+    first = await service.generate_closed_case_precedent_candidate(
+        _request(seeded_session, run_id=run_id, close_event_id="same-content-a")
+    )
+    duplicate = await service.generate_closed_case_precedent_candidate(
+        _request(seeded_session, run_id=run_id, close_event_id="same-content-b")
+    )
+
+    assert first.status == "needs_review"
+    assert duplicate.status == "skipped"
+    assert duplicate.memory_id == first.memory_id
+    assert duplicate.reason_code == "duplicate_active_identity"
+
+
+@pytest.mark.asyncio
+async def test_different_cwc_version_with_changed_content_creates_new_candidate(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session)
+    cwc_row = await _insert_active_cwc(session, seeded_session)
+    service = ClosedCasePrecedentService(session=session)
+
+    first = await service.generate_closed_case_precedent_candidate(
+        _request(seeded_session, run_id=run_id, close_event_id="changed-cwc-a")
+    )
+    cwc_row.issue_type = "refund_followup_dispute"
+    cwc_row.version = 2
+    await session.flush()
+    second = await service.generate_closed_case_precedent_candidate(
+        _request(seeded_session, run_id=run_id, close_event_id="changed-cwc-b")
+    )
+    rows = await _case_memory_rows(session)
+
+    assert first.status == "needs_review"
+    assert second.status == "needs_review"
+    assert first.memory_id != second.memory_id
+    assert [row.id for row in rows] == [first.memory_id, second.memory_id]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pii_classification", ["sensitive", "prohibited"])
+async def test_pii_blocked_closed_case_generation_uses_existing_service_skip_event(
+    session: AsyncSession,
+    seeded_session: dict,
+    pii_classification: str,
+) -> None:
+    run_id = await _insert_run(session, seeded_session)
+    cwc_row = await _insert_active_cwc(session, seeded_session, pii_classification=pii_classification)
+    refund_case = seeded_session["refund_case"]
+    service = ClosedCasePrecedentService(session=session)
+    close_event_id = f"pii-blocked-{pii_classification}"
+
+    result = await service.generate_closed_case_precedent_candidate(
+        _request(seeded_session, run_id=run_id, close_event_id=close_event_id)
+    )
+    rows = await _case_memory_rows(session)
+    events = await _write_events(session, run_id)
+
+    assert result.status == "skipped"
+    assert result.reason_code == "pii_blocked"
+    assert result.memory_id is None
+    assert result.event_id is not None
+    assert rows == []
+    assert events[-1].id == result.event_id
+    assert events[-1].decision == "skip"
+    assert events[-1].reason_code == "pii_blocked"
+    assert events[-1].pii_classification == pii_classification
+    assert events[-1].source_ref_json["event_id"] == f"refund-case-close:{refund_case.id}:{close_event_id}"
+    assert events[-1].source_ref_json["outcome_id"] == f"cwc:{cwc_row.id}:v{cwc_row.version}"
 
 
 def test_unresolved_merchant_falls_back_to_exact_case_scope(seeded_session: dict) -> None:
