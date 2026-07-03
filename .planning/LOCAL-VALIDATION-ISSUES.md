@@ -11755,3 +11755,39 @@ Phase 47 execute-phase 初始化时，执行 `UV_CACHE_DIR=/tmp/uv-cache uv run 
 - `UV_CACHE_DIR=/tmp/uv-cache uv run gsd-sdk query state.begin-phase ...`
 - `/Users/ming/.codex/get-shit-done/workflows/execute-phase.md`
 - `.planning/STATE.md`
+
+## 2026-07-03 — Phase 47-01 GREEN 首次验证把 closed_case_cwc_candidate 加到错误 source 集合
+
+### 问题现象
+
+Task 2 RED 测试提交后，首次 GREEN 只做了最小代码 patch，但 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase47_case_precedent_alignment.py tests/memory/test_memory_policy.py -x -q` 仍失败。`closed_case_cwc_candidate` 被 `case_memory_policy_decision(...)` 判为 `unknown_source_type`，不是计划要求的 `source_requires_review`。
+
+### 如何检测 / 复现
+
+在 47-01 Task 2 GREEN 初次实现后运行上述 focused pytest 命令。
+
+### 关键证据或命令
+
+- 失败断言：`assert closed_case_decision.blocked_by == ["source_requires_review"]`
+- 实际值：`["unknown_source_type"]`
+- `grep -n "REVIEW_REQUIRED_LONG_TERM_SOURCE_TYPES\\|REVIEW_REQUIRED_CASE_SOURCE_TYPES\\|closed_case_cwc_candidate" -A12 -B2 src/memory/policy.py` 显示该字符串被加入了 `REVIEW_REQUIRED_LONG_TERM_SOURCE_TYPES`，而没有加入 `REVIEW_REQUIRED_CASE_SOURCE_TYPES`。
+- `grep -n "CaseMemorySourceType\\|closed_case_cwc_candidate" -A14 -B2 src/memory/schemas.py` 显示该字符串同样落在 `LongTermSourceType`，未落在 `CaseMemorySourceType`。
+
+### 当前判断 / 根因
+
+手工 patch 按相同的候选 source 字符串块匹配，命中了 long-term source type / policy set，而不是 case-memory source type / policy set。属于本次 Task 2 实现过程中的最小补丁定位错误，不是既有架构缺陷。
+
+### 已做处理
+
+已从 `LongTermSourceType` 与 `REVIEW_REQUIRED_LONG_TERM_SOURCE_TYPES` 移除 `closed_case_cwc_candidate`，并加入 `CaseMemorySourceType` 与 `REVIEW_REQUIRED_CASE_SOURCE_TYPES`。`MemorySourceRefV1` 与 `ALLOWED_SOURCE_REF_KEYS` 未扩展，继续保留 `policy_version`。
+
+### 剩余问题
+
+无当前阻塞；需要重跑同一 focused pytest 命令确认 GREEN 通过。
+
+### 下次继续排查入口
+
+- `src/memory/schemas.py`
+- `src/memory/policy.py`
+- `tests/memory/test_memory_policy.py`
+- `tests/memory/test_phase47_case_precedent_alignment.py`

@@ -84,6 +84,7 @@ REVIEW_REQUIRED_CASE_SOURCE_TYPES = frozenset(
         "summary_candidate",
         "cross_case_pattern_candidate",
         "behavior_inference",
+        "closed_case_cwc_candidate",
     }
 )
 

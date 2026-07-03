@@ -271,6 +271,7 @@ CaseMemorySourceType = Literal[
     "summary_candidate",
     "cross_case_pattern_candidate",
     "behavior_inference",
+    "closed_case_cwc_candidate",
 ]
 
 
