@@ -5,9 +5,11 @@ from types import SimpleNamespace
 import uuid
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import CaseWorkingContext
+from src.db.models import AgentRun, CaseMemory, CaseWorkingContext, MemoryWriteEvent
+from src.memory.case_working_context import dehydrate_content
 from src.memory.case_precedent import (
     TERMINAL_REFUND_CASE_STATUSES,
     PRECEDENT_CAVEAT_TEXT,
@@ -17,6 +19,7 @@ from src.memory.case_precedent import (
     _project_closed_case_candidate,
     _resolve_precedent_scope,
 )
+from src.memory.identity import ALLOWED_SOURCE_REF_KEYS
 from src.memory.case_working_context_schemas import (
     CaseWorkingContextActionTakenV1,
     CaseWorkingContextClaimV1,
@@ -34,14 +37,16 @@ def _request(
     *,
     closed_status: str = "closed",
     case_id: uuid.UUID | None = None,
+    run_id: uuid.UUID | None = None,
+    close_event_id: str | None = None,
 ) -> ClosedCasePrecedentGenerationInput:
     refund_case = seeded_session["refund_case"]
     return ClosedCasePrecedentGenerationInput(
         tenant_id=refund_case.tenant_id,
         case_id=case_id or refund_case.id,
-        run_id=uuid.uuid4(),
+        run_id=run_id or uuid.uuid4(),
         closed_status=closed_status,
-        close_event_id=f"close-{uuid.uuid4()}",
+        close_event_id=close_event_id or f"close-{uuid.uuid4()}",
         closed_at=datetime.now(UTC),
     )
 
@@ -97,24 +102,44 @@ def _cwc_projection_row(*, pii_classification: str = "none") -> SimpleNamespace:
     return SimpleNamespace(id=uuid.uuid4(), version=3, pii_classification=pii_classification)
 
 
+async def _insert_run(session: AsyncSession, seeded_session: dict, thread_id: str = "case-precedent") -> uuid.UUID:
+    run_id = uuid.uuid4()
+    user = seeded_session["users"]["cs_zhang"]
+    session.add(
+        AgentRun(
+            id=run_id,
+            tenant_id=user.tenant_id,
+            user_id=user.id,
+            thread_id=thread_id,
+            input_query="generate closed-case precedent",
+            final_status="completed",
+            started_at=datetime.now(UTC),
+        )
+    )
+    await session.flush()
+    return run_id
+
+
 async def _insert_active_cwc(session: AsyncSession, seeded_session: dict) -> CaseWorkingContext:
     refund_case = seeded_session["refund_case"]
+    content = _content_with_projection_fields(refund_case.id)
+    dehydrated = dehydrate_content(content)
     row = CaseWorkingContext(
         id=uuid.uuid4(),
         tenant_id=refund_case.tenant_id,
         case_id=refund_case.id,
-        customer_request="用户要求退款",
-        issue_type="refund_dispute",
-        claims_json=[],
-        verified_facts_json=[],
-        missing_info_json=[],
-        evidence_refs_json=[],
-        actions_taken_json=[],
-        policy_refs_json=[],
-        agent_recommendations_json=[],
-        pending_tasks_json=[],
-        commitments_json=[],
-        next_action_json={},
+        customer_request=dehydrated["customer_request"],
+        issue_type=dehydrated["issue_type"],
+        claims_json=dehydrated["claims"],
+        verified_facts_json=dehydrated["verified_facts"],
+        missing_info_json=dehydrated["missing_info"],
+        evidence_refs_json=dehydrated["evidence_refs"],
+        actions_taken_json=dehydrated["actions_taken"],
+        policy_refs_json=dehydrated["policy_refs"],
+        agent_recommendations_json=dehydrated["agent_recommendations"],
+        pending_tasks_json=dehydrated["pending_tasks"],
+        commitments_json=dehydrated["commitments"],
+        next_action_json=dehydrated["next_action"],
         source_ref_json={
             "source_type": "run_auto_terminal",
             "business_object_type": "refund_case",
@@ -216,17 +241,46 @@ async def test_terminal_status_uses_refund_case_order_merchant_scope(
     session: AsyncSession,
     seeded_session: dict,
 ) -> None:
-    await _insert_active_cwc(session, seeded_session)
+    run_id = await _insert_run(session, seeded_session)
+    cwc_row = await _insert_active_cwc(session, seeded_session)
     refund_case = seeded_session["refund_case"]
     service = ClosedCasePrecedentService(session=session)
+    close_event_id = "close-event-task1"
 
-    result = await service.generate_closed_case_precedent_candidate(_request(seeded_session))
+    result = await service.generate_closed_case_precedent_candidate(
+        _request(seeded_session, run_id=run_id, close_event_id=close_event_id)
+    )
+    rows = list((await session.execute(select(CaseMemory))).scalars().all())
 
     assert result.status == "needs_review"
+    assert result.reason_code == "requires_review"
+    assert result.memory_id is not None
+    assert result.review_status == "needs_review"
+    assert result.event_id is not None
     assert result.scope_type == "merchant"
     assert result.scope_id == str(seeded_session["merchant"].id)
-    assert result.memory_id is None
-    assert result.review_status is None
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.id == result.memory_id
+    assert row.review_status == "needs_review"
+    assert row.embedding is None
+    assert set(row.source_ref_json) <= ALLOWED_SOURCE_REF_KEYS
+    assert row.source_ref_json["source_type"] == "closed_case_cwc_candidate"
+    assert row.source_ref_json == {
+        "source_type": "closed_case_cwc_candidate",
+        "run_id": str(run_id),
+        "agent_run_id": str(run_id),
+        "event_id": f"refund-case-close:{refund_case.id}:{close_event_id}",
+        "business_object_type": "refund_case",
+        "business_object_id": str(refund_case.id),
+        "outcome_id": f"cwc:{cwc_row.id}:v{cwc_row.version}",
+        "policy_version": "2026-01",
+    }
+    assert row.policy_refs_json == [{"doc_key": "refund_policy", "chunk_id": "c-1", "policy_version": "2026-01"}]
+    event = await session.get(MemoryWriteEvent, result.event_id)
+    assert event is not None
+    assert event.memory_id == result.memory_id
+    assert event.source_ref_json == row.source_ref_json
     assert refund_case.order.merchant_id == seeded_session["merchant"].id
 
 
