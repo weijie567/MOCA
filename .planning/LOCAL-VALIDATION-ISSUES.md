@@ -11170,3 +11170,37 @@ Phase 45 verifier 通过后运行 `gsd-sdk query phase.complete 45`，命令返�
 - `.planning/ROADMAP.md`
 - `.planning/PROJECT.md`
 - `gsd-sdk query phase.complete`
+
+## 2026-07-03 — Phase 46-01 metadata grep 中 backtick 触发 zsh 命令替换
+
+### 问题现象
+
+执行 Phase 46-01 元数据校验时，一个 `rg` 命令把包含反引号的 pattern 放在双引号里，zsh 先尝试执行 ``46-02-PLAN.md``，输出 `zsh:1: command not found: 46-02-PLAN.md`。后续 `rg` 仍输出了其他匹配结果，但该命令的校验入口本身不干净。
+
+### 如何检测 / 复现
+
+在 zsh 中运行包含反引号的双引号 pattern，例如 `rg -n "Execute `46-02-PLAN.md`" ...`，shell 会先做命令替换。
+
+### 关键证据或命令
+
+- 异常输出：`zsh:1: command not found: 46-02-PLAN.md`
+- 触发场景：Phase 46-01 metadata diff 后的 `rg` 校验命令。
+
+### 当前判断 / 根因
+
+根因是 shell quoting 错误，不是 MOCA 代码或 GSD state/roadmap 内容错误。包含 Markdown backtick 的搜索 pattern 需要单引号包裹，或转义反引号。
+
+### 已做处理
+
+改用单引号 pattern 重新运行校验：`rg -n '46-02-PLAN\.md|46-01-PLAN|Plan progress: 1/3|Phase 46 P01' .planning/STATE.md .planning/ROADMAP.md .planning/phases/46-session-context-repositioning/46-01-SUMMARY.md`，结果正确命中 STATE/ROADMAP/SUMMARY 里的 Phase 46-01/46-02 状态。
+
+### 剩余问题
+
+无。该问题是本地校验命令写法问题，不影响已提交代码或文档内容。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `.planning/ROADMAP.md`
+- `.planning/phases/46-session-context-repositioning/46-01-SUMMARY.md`
+- zsh shell quoting / Markdown backtick search patterns
