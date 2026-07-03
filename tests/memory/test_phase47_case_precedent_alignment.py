@@ -5,6 +5,7 @@ from pathlib import Path
 
 from src.memory.identity import ALLOWED_SOURCE_REF_KEYS
 from src.memory.schemas import MemorySourceRefV1
+from src.tools.contracts import ToolCallContext
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -16,6 +17,8 @@ MIGRATIONS_DIR = ROOT / "src" / "db" / "migrations" / "versions"
 AGENT_RUN_MEMORY_PATH = ROOT / "src" / "api" / "services" / "agent_run_memory.py"
 CWC_LIFECYCLE_PATH = ROOT / "src" / "memory" / "case_working_context_lifecycle.py"
 CASE_PRECEDENT_PATH = ROOT / "src" / "memory" / "case_precedent.py"
+TOOLS_CONTRACTS_PATH = ROOT / "src" / "tools" / "contracts.py"
+MEMORY_TOOL_EXECUTOR_PATH = ROOT / "src" / "tools" / "executors" / "memory.py"
 
 
 def _source(path: Path) -> str:
@@ -169,6 +172,18 @@ def test_case_precedent_projection_has_no_authority_or_replay_imports() -> None:
         assert forbidden not in source
     for allowed in ("CaseMemoryWriteCandidate", "MemorySourceRefV1", "CaseWorkingContextContentV1"):
         assert allowed in source
+
+
+def test_tool_context_and_memory_executor_do_not_take_case_id() -> None:
+    contracts_source = _source(TOOLS_CONTRACTS_PATH)
+    executor_source = _source(MEMORY_TOOL_EXECUTOR_PATH)
+    tool_context_block = _between(contracts_source, "class ToolCallContext", "class ToolRequest")
+
+    assert "case_id" not in ToolCallContext.model_fields
+    assert "case_id" not in tool_context_block
+    assert "context.case_id" not in executor_source
+    for expected in ("context.tenant_id", "context.user_id", "context.thread_id", "_merchant_ids"):
+        assert expected in executor_source
 
 
 def _phase47_migration_paths() -> list[Path]:

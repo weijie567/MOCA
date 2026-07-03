@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from uuid import uuid4
 from unittest.mock import AsyncMock
 
 import pytest
+from pydantic import ValidationError
 
 from src.tools.catalog import _IDENTIFIER_SCHEMAS, RegisteredTool, ToolCatalog, ToolDescriptor, investigate_tool_names
 from src.tools.contracts import ToolCallContext
+from src.tools.executors.memory import _case_memory_request
 from src.tools.validation import SUPPORTED_JSON_SCHEMA_KEYS, _validate_json_value
 
 
@@ -341,6 +344,36 @@ def test_search_case_memory_descriptor_names_reviewed_case_memory_store() -> Non
     assert "reviewed case memory" in descriptor.description
     assert "reviewed case store" in descriptor.description
     assert "session-derived" not in descriptor.description.lower()
+
+
+def test_search_case_memory_context_scopes_do_not_require_case_id() -> None:
+    assert "case_id" not in ToolCallContext.model_fields
+    with pytest.raises(ValidationError):
+        ToolCallContext(
+            **_context().model_dump(),
+            case_id="refund-case-must-not-be-tool-context",
+        )
+
+    tenant_id = str(uuid4())
+    context = _context().model_copy(
+        update={
+            "tenant_id": tenant_id,
+            "merchant_scope": {"merchant_ids": ["merchant-a", "*"]},
+        }
+    )
+
+    request = _case_memory_request(query=" reviewed precedent ", context=context)
+
+    assert request is not None
+    assert request.tenant_id == uuid4().__class__(tenant_id)
+    assert request.query == "reviewed precedent"
+    assert request.query_embedding is None
+    assert request.scopes == [
+        ("tenant", tenant_id),
+        ("user", context.user_id),
+        ("thread", context.thread_id),
+        ("merchant", "merchant-a"),
+    ]
 
 
 def test_all_descriptor_schemas_use_only_supported_validation_keywords() -> None:

@@ -504,6 +504,183 @@ async def test_case_memory_text_query_filters_without_embedding(
 
 
 @pytest.mark.asyncio
+async def test_approved_closed_case_candidate_merchant_retrieval_without_embedding_keeps_filters(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    now = datetime.now(UTC)
+    tenant_id = seeded_session["tenant"].id
+    merchant_id = str(seeded_session["merchant"].id)
+    wrong_merchant_id = str(seeded_session["second_merchant"].id)
+    other_tenant_id = seeded_session["other_tenant"].id
+    visible = _case_row(
+        seeded_session,
+        scope_type="merchant",
+        scope_id=merchant_id,
+        summary="Closed-case CWC candidate precedent for timeout refund.",
+        excerpt="closed-case generated timeout refund precedent after gateway verification.",
+        source_type="closed_case_cwc_candidate",
+        embedding=None,
+    )
+    filtered_rows = [
+        _case_row(
+            seeded_session,
+            scope_type="merchant",
+            scope_id=wrong_merchant_id,
+            summary="Wrong merchant closed-case timeout precedent must not surface.",
+            source_type="closed_case_cwc_candidate",
+            embedding=None,
+        ),
+        _case_row(
+            seeded_session,
+            scope_type="merchant",
+            scope_id=merchant_id,
+            summary="Needs-review closed-case timeout precedent must not surface.",
+            review_status="needs_review",
+            source_type="closed_case_cwc_candidate",
+            embedding=None,
+        ),
+        _case_row(
+            seeded_session,
+            scope_type="merchant",
+            scope_id=merchant_id,
+            summary="Rejected closed-case timeout precedent must not surface.",
+            review_status="rejected",
+            source_type="closed_case_cwc_candidate",
+            embedding=None,
+        ),
+        _case_row(
+            seeded_session,
+            scope_type="merchant",
+            scope_id=merchant_id,
+            summary="Deleted closed-case timeout precedent must not surface.",
+            deleted_at=now,
+            source_type="closed_case_cwc_candidate",
+            embedding=None,
+        ),
+        _case_row(
+            seeded_session,
+            scope_type="merchant",
+            scope_id=merchant_id,
+            summary="Expired closed-case timeout precedent must not surface.",
+            expires_at=now - timedelta(seconds=1),
+            source_type="closed_case_cwc_candidate",
+            embedding=None,
+        ),
+        _case_row(
+            seeded_session,
+            scope_type="merchant",
+            scope_id=merchant_id,
+            summary="Sensitive closed-case timeout precedent must not surface.",
+            pii_classification="sensitive",
+            source_type="closed_case_cwc_candidate",
+            embedding=None,
+        ),
+        _case_row(
+            seeded_session,
+            scope_type="merchant",
+            scope_id=merchant_id,
+            summary="Prohibited closed-case timeout precedent must not surface.",
+            pii_classification="prohibited",
+            source_type="closed_case_cwc_candidate",
+            embedding=None,
+        ),
+        _case_row(
+            seeded_session,
+            tenant_id=other_tenant_id,
+            scope_type="merchant",
+            scope_id=merchant_id,
+            summary="Cross-tenant closed-case timeout precedent must not surface.",
+            source_type="closed_case_cwc_candidate",
+            embedding=None,
+        ),
+    ]
+    tombstoned = _case_row(
+        seeded_session,
+        scope_type="merchant",
+        scope_id=merchant_id,
+        summary="Tombstoned closed-case timeout precedent must not surface.",
+        source_type="closed_case_cwc_candidate",
+        embedding=None,
+    )
+    session.add_all([visible, *filtered_rows, tombstoned])
+    await session.flush()
+    session.add(
+        MemoryTombstone(
+            tenant_id=tenant_id,
+            memory_type=CASE_MEMORY_TYPE,
+            scope_type="merchant",
+            scope_id=merchant_id,
+            content_hash=tombstoned.content_hash,
+            source_ref_json={"source_type": "closed_case_cwc_candidate"},
+            reason_code="closed_case_deleted",
+        )
+    )
+    await session.flush()
+
+    result = await CaseMemoryService(CaseMemoryRepository(session)).retrieve_reviewed(
+        CaseMemorySearchRequest(
+            tenant_id=tenant_id,
+            scope_type="merchant",
+            scope_id=merchant_id,
+            case_type="refund_dispute",
+            policy_family="refund",
+            policy_version="v1",
+            query="closed-case timeout",
+            query_embedding=None,
+            limit=10,
+            now=now,
+        )
+    )
+
+    assert [item.case_memory_id for item in result.items] == [str(visible.id)]
+    assert result.items[0].source_refs[0]["source_type"] == "closed_case_cwc_candidate"
+    assert result.items[0].source_refs[0]["business_object_type"] == "refund_case"
+
+
+@pytest.mark.asyncio
+async def test_approved_closed_case_candidate_exact_case_retrieval_without_embedding(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    tenant_id = seeded_session["tenant"].id
+    case_id = str(seeded_session["refund_case"].id)
+    visible = _case_row(
+        seeded_session,
+        scope_type="case",
+        scope_id=case_id,
+        summary="Closed-case CWC candidate exact audit precedent.",
+        excerpt="exact case-scope closed-case generated audit precedent for refund review.",
+        source_type="closed_case_cwc_candidate",
+        embedding=None,
+    )
+    wrong_case = _case_row(
+        seeded_session,
+        scope_type="case",
+        scope_id=str(seeded_session["second_refund_case"].id),
+        summary="Wrong exact case-scope closed-case generated audit precedent.",
+        source_type="closed_case_cwc_candidate",
+        embedding=None,
+    )
+    session.add_all([visible, wrong_case])
+    await session.flush()
+
+    result = await CaseMemoryRepository(session).search_reviewed(
+        CaseMemorySearchRequest(
+            tenant_id=tenant_id,
+            scope_type="case",
+            scope_id=case_id,
+            case_type="refund_dispute",
+            query="exact audit precedent",
+            query_embedding=None,
+            limit=10,
+        )
+    )
+
+    assert [item.case_memory_id for item in result.items] == [str(visible.id)]
+
+
+@pytest.mark.asyncio
 async def test_case_memory_is_separate_from_session_memory(session: AsyncSession, seeded_session: dict) -> None:
     tenant_id = seeded_session["tenant"].id
     user_id = seeded_session["users"]["cs_zhang"].id

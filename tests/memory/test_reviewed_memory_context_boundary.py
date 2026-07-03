@@ -515,6 +515,47 @@ async def test_memory_write_decision_projection_marks_needs_review_and_excludes_
 
 
 @pytest.mark.asyncio
+async def test_reviewed_memory_context_returns_approved_closed_case_candidate_without_embedding(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    merchant_a = str(seeded_session["merchant"].id)
+    run_id = await _insert_run(session, seeded_session, thread_id="approved-generated-case-context")
+    case_service = CaseMemoryService(CaseMemoryRepository(session))
+    write_result = await case_service.submit_case_memory_candidate(
+        _case_candidate(
+            seeded_session,
+            run_id=run_id,
+            merchant_id=merchant_a,
+            summary="Approved closed-case generated precedent for payment timeout.",
+            source_type="closed_case_cwc_candidate",
+        )
+    )
+    await case_service.approve_case_memory(
+        CaseMemoryReviewDecision(
+            tenant_id=seeded_session["tenant"].id,
+            run_id=run_id,
+            case_memory_id=write_result.memory_id,
+            reviewer_user_id=seeded_session["users"]["approval_manager"].id,
+            reason_code="approved",
+            review_reason="approved generated precedent",
+        )
+    )
+
+    bundle = await _context_service(session).load_reviewed_memory_context(
+        trusted_context=_trusted_context(seeded_session, merchant_ids=[merchant_a]),
+        current_slots={"merchant_id": merchant_a},
+        trusted_business_context={"merchant_id": merchant_a},
+        query="payment timeout",
+        case_type="refund_dispute",
+    )
+
+    memory_context = _bundle_dict(bundle)
+    assert [item["case_memory_id"] for item in memory_context["case_items"]] == [str(write_result.memory_id)]
+    assert memory_context["case_items"][0]["excerpt"].startswith("Approved closed-case generated precedent")
+
+
+@pytest.mark.asyncio
 async def test_memory_write_decision_projection_tombstone_blocks_same_content_and_source_identity(
     session: AsyncSession,
     seeded_session: dict,

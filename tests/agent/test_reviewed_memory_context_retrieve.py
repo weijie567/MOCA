@@ -371,6 +371,69 @@ async def test_reviewed_memory_context_retrieve_skipped_cwc_status_does_not_chan
     assert result["case_working_context_lifecycle_status"]["reason_code"] == "skipped_no_case"
 
 
+async def test_reviewed_memory_context_retrieve_keeps_generated_precedent_separate_from_active_cwc() -> None:
+    reviewed_memory_context_retrieve = _reviewed_memory_context_retrieve()
+    trusted_context = _trusted_context(merchant_ids=["merchant-a"])
+    case_id = uuid4()
+
+    class GeneratedPrecedentMemoryContextService:
+        async def load_reviewed_memory_context(self, **kwargs: Any) -> ReviewedMemoryContextBundle:
+            return ReviewedMemoryContextBundle(
+                long_term_items=[],
+                case_items=[
+                    {
+                        "case_memory_id": "generated-precedent-1",
+                        "excerpt": "Approved closed_case_cwc_candidate precedent.",
+                    }
+                ],
+                status_ref=ReviewedMemoryContextRetrieveStatusV1(status="loaded"),
+            )
+
+    class ActiveCwcAdapter:
+        async def link_and_load_active(self, **kwargs: Any) -> CaseWorkingContextLifecycleResult:
+            return CaseWorkingContextLifecycleResult(
+                case_id=case_id,
+                case_working_context={"content": {"customer_request": "当前案件仍按 CWC 单独读取"}},
+                status_ref=lifecycle_status(
+                    status="completed",
+                    resolve_status="resolved",
+                    link_status="linked",
+                    read_status="loaded",
+                    tenant_id=kwargs["tenant_id"],
+                    case_id=case_id,
+                    run_id=kwargs["run_id"],
+                    raw_case_ref="RF-CWC-SEPARATE",
+                ),
+            )
+
+    result = await reviewed_memory_context_retrieve(
+        _state(
+            tenant_id=trusted_context.tenant_id,
+            user_id=trusted_context.user_id,
+            active_slots={"refund_case_id": "RF-CWC-SEPARATE"},
+            **_session_context_state(),
+        ),
+        {
+            "configurable": {
+                "session": object(),
+                "trusted_context": trusted_context,
+                "memory_context_service": GeneratedPrecedentMemoryContextService(),
+                "case_working_context_lifecycle_adapter": ActiveCwcAdapter(),
+            }
+        },
+    )
+
+    assert result["case_memory"] == [
+        {
+            "case_memory_id": "generated-precedent-1",
+            "excerpt": "Approved closed_case_cwc_candidate precedent.",
+        }
+    ]
+    assert result["case_working_context"] == {"content": {"customer_request": "当前案件仍按 CWC 单独读取"}}
+    assert result["memory_context_bundle"]["case_items"] == result["case_memory"]
+    assert result["memory_context_bundle"]["case_working_context"] == result["case_working_context"]
+
+
 async def test_reviewed_memory_context_retrieve_does_not_use_session_context_as_cwc_identity() -> None:
     reviewed_memory_context_retrieve = _reviewed_memory_context_retrieve()
     trusted_context = _trusted_context(merchant_ids=["merchant-a"])
