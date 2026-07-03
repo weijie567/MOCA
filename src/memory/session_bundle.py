@@ -15,6 +15,7 @@ from src.memory.schemas import (
 )
 from src.memory.service import MemoryService
 
+_BUSINESS_HINT_REF_KEYS = ("source_system", "resource_type", "resource_id", "resource_version")
 _POLICY_HINT_REF_KEYS = ("doc_key", "chunk_id", "policy_version", "policy_family", "title", "section")
 _POLICY_HINT_LIMIT = 8
 
@@ -134,8 +135,14 @@ def _tool_summary_views(prompt_context: PromptContextWindow | None) -> list[Sess
                 tool_name=_tool_name_for_record(record),
                 status=getattr(record, "status", "success"),
                 prompt_summary=prompt_summary,
-                business_fact_refs=list(getattr(record, "business_fact_refs_json", None) or []),
-                policy_evidence_refs=list(getattr(record, "policy_evidence_refs_json", None) or []),
+                business_fact_refs=_prompt_safe_refs(
+                    getattr(record, "business_fact_refs_json", None),
+                    allowed_keys=_BUSINESS_HINT_REF_KEYS,
+                ),
+                policy_evidence_refs=_prompt_safe_refs(
+                    getattr(record, "policy_evidence_refs_json", None),
+                    allowed_keys=_POLICY_HINT_REF_KEYS,
+                ),
                 audit_ref=getattr(record, "audit_ref", None),
                 created_at=getattr(record, "created_at", None),
             )
@@ -199,6 +206,19 @@ def _prior_policy_mention_refs(tool_summaries: list[SessionToolSummaryView]) -> 
             refs.append(mention)
             if len(refs) >= _POLICY_HINT_LIMIT:
                 return refs
+    return refs
+
+
+def _prompt_safe_refs(value: Any, *, allowed_keys: tuple[str, ...]) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    refs: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        ref = {key: safe_value for key in allowed_keys if (safe_value := _safe_hint_value(item.get(key))) is not None}
+        if ref:
+            refs.append(ref)
     return refs
 
 
