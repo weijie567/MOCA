@@ -285,6 +285,40 @@
 **剩余风险**
 - ⚠️ 48-03 不完成 retrieval filter、review approval source_type 转 `human_reviewed`、API 非 preference approval 受控错误映射、supersede/tombstone lifecycle 完整验证；这些仍属于 `48-04`。
 
+## Phase 48 Plan 04 — published long-term memory narrowed to explicit preferences ✅已修复验证
+
+**问题 / 根因**
+- Phase 48 的目标契约是 published long-term memory narrowed to explicit preferences，但在 48-04 前，prompt-facing retrieval 仍主要依赖 `review_status` / current / PII / tombstone 等通用过滤，没有把 `memory_kind="preference"` 与允许发布 source types 作为最终 retrieval predicate。
+- Review approval path 会把 `semantic_episode_candidate` 候选发布为 approved row，但没有把 published source 明确转换为 `human_reviewed`；如果保留自动抽取 source，会让 prompt context 看起来仍在消费自动长期记忆。
+- 旧 architecture/static tests 还保留了 pre-Phase-48 假设：current business object / `llm_candidate` long-term rows 进入 `needs_review`，而新目标是 broad durable source auto-publish removed，普通 LLM/current business source 不插入 long-term 候选。
+
+**影响**
+- 非 preference 的 fact/pattern/constraint row 或 disallowed source row 即使处于 approved/current 状态，也可能被误取进 prompt context。
+- `semantic_episode_candidate` 若作为 published source 暴露，会模糊「自动抽取最多 candidate-only，人工审批后才是 human_reviewed preference」的治理边界。
+- 非 preference long-term approval 如果只靠 service 抛异常而 API 不控错，review endpoint 可能退化成 500 或半发布状态。
+
+**修复**
+- `LongTermMemoryRepository.retrieve_profile_memory(...)` 现在额外要求 `LongTermMemory.memory_kind == "preference"` 且 `LongTermMemory.source_type.in_(PUBLISHED_LONG_TERM_SOURCE_TYPES)`；context service 继续依赖 repository-filtered rows，不重复实现过滤。
+- `LongTermMemoryService.approve_memory(...)` 在状态更新前拒绝 `memory_kind != "preference"`，审批成功时将 `source_type` / `source_ref_json["source_type"]` / `source_identity_hash` 同步转换为 `human_reviewed`。
+- Review API 对非 preference approval 返回受控 409/422（当前为 409 conflict），row 保持 `needs_review`、不转 `human_reviewed`、不进入 retrieval。
+- Supersede/tombstone/no-auto-merge 行为通过回归测试锁定：相似 same-scope preference 不自动合并，删除/forget tombstone 阻止同内容/同 source identity 重写。
+- 静态 Phase 48 guard 和 architecture guard 已同步到新目标：semantic episode is candidate-only，retrieval is preference-source filtered，`llm_candidate` / current business object long-term source 被 skip。
+
+**证据**
+- Phase / plan：`48-04`
+- 文件：`src/memory/repository.py`、`src/memory/long_term.py`、`tests/memory/test_long_term_memory_repository.py`、`tests/memory/test_reviewed_memory_context_boundary.py`、`tests/memory/test_long_term_memory_service.py`、`tests/test_memory_review_api.py`、`tests/memory/test_phase48_long_term_preference_alignment.py`、`tests/architecture/test_memory_contract_delta.py`
+- 计划依据：`.planning/phases/48-narrow-long-term-explicit-preference-memory/48-04-PLAN.md`
+
+**验证**
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_long_term_memory_repository.py tests/memory/test_reviewed_memory_context_boundary.py tests/agent/test_reviewed_memory_context_retrieve.py tests/memory/test_phase48_long_term_preference_alignment.py -x -q` → `32 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_long_term_memory_service.py tests/test_memory_review_api.py tests/agent/test_memory_evidence_boundary.py -x -q` → `44 passed, 3 warnings`
+- Full Phase 48 gate：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase48_long_term_preference_alignment.py tests/architecture/test_memory_contract_delta.py tests/memory/test_memory_policy.py tests/memory/test_long_term_memory_service.py tests/memory/test_long_term_memory_repository.py tests/memory/test_memory_write_service.py tests/memory/test_semantic_episode_projection.py tests/memory/test_reviewed_memory_context_boundary.py tests/agent/test_memory_write_node.py tests/agent/test_reviewed_memory_context_retrieve.py tests/agent/test_memory_evidence_boundary.py tests/test_memory_review_api.py -q` → `135 passed, 3 warnings`
+- Focused ruff：`UV_CACHE_DIR=/tmp/uv-cache uv run ruff check ...` → pass
+
+**剩余风险**
+- 🟡 `memory_type='long_term_fact'` 仍是 legacy storage/table identity；它不表示 fact/pattern/constraint 可作为 published long-term memory 语义。该命名妥协已在 `docs/contract-spec.md` 与 Phase 48 static guards 中锁定。
+- 🟡 User-specific preference scope 仍为 post-Phase 48 defer；当前实现主路径是 merchant/team default + admin tenant explicit。
+
 ## Phase 44 Wave 2 — Case Working Context 身份解析与版本化仓库 ✅⚠️
 
 **问题 / 根因**

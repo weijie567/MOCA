@@ -12282,3 +12282,103 @@ tests/agent/test_memory_write_node.py:320
 
 - `tests/agent/test_memory_write_node.py::test_memory_write_node_never_creates_tenant_scope_from_chat_preference`
 - `src/agent/nodes/memory_write.py::_candidate_projection`
+
+## 2026-07-04 — Phase 48-04 reviewed memory boundary 旧 `llm_candidate` 断言与新 source policy 冲突
+
+### 问题现象
+
+执行 48-04 Task 1 focused tests 时，`test_memory_write_decision_projection_marks_needs_review_and_excludes_from_prompt_context` 失败。测试期望 long-term `llm_candidate` 写入返回 `needs_review`，实际返回 `skipped`。
+
+### 如何检测 / 复现
+
+在仓库根目录执行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_long_term_memory_repository.py tests/memory/test_reviewed_memory_context_boundary.py tests/agent/test_reviewed_memory_context_retrieve.py tests/memory/test_phase48_long_term_preference_alignment.py -x -q
+```
+
+### 关键证据或命令
+
+pytest 输出显示：
+
+```text
+AssertionError: assert 'skipped' == 'needs_review'
+tests/memory/test_reviewed_memory_context_boundary.py:542
+```
+
+失败发生在 long-term 写入 source_type=`llm_candidate` 后检查 write decision status。Phase 48-02 已收窄 source policy，`llm_candidate` 不再是 long-term needs-review 入口。
+
+### 当前判断 / 根因
+
+这是测试契约漂移。Phase 48 的新目标是 semantic episode 最多生成 `semantic_episode_candidate` preference candidate，普通 LLM candidate 不能成为长期记忆候选。
+
+### 已做处理
+
+已将该测试中的 long-term source_type 从 `llm_candidate` 改为 `semantic_episode_candidate`，保留 case memory `llm_candidate` 行为不变。重跑 48-04 Task 1 focused tests 通过：
+
+```text
+32 passed, 1 warning in 33.95s
+```
+
+### 剩余问题
+
+无阻塞。后续如果还有旧测试期望 `llm_candidate` long-term needs-review，应按 Phase 48 source policy 改为 `semantic_episode_candidate` 或改为 skipped 断言。
+
+### 下次继续排查入口
+
+- `tests/memory/test_reviewed_memory_context_boundary.py::test_memory_write_decision_projection_marks_needs_review_and_excludes_from_prompt_context`
+- `src/memory/policy.py`
+
+## 2026-07-04 — Phase 48 full gate 静态 architecture guard 仍查找旧 long-term requires_review 测试名
+
+### 问题现象
+
+运行 Phase 48 Full Phase Gate 时，`tests/architecture/test_memory_contract_delta.py::test_memory_contract_boundary_tests_are_present` 失败。失败原因是静态 guard 仍要求 `test_current_business_object_long_term_candidate_requires_review` 存在，但 Phase 48 已将 current business object / LLM candidate long-term source 收窄为 skipped。
+
+### 如何检测 / 复现
+
+在仓库根目录执行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase48_long_term_preference_alignment.py tests/architecture/test_memory_contract_delta.py tests/memory/test_memory_policy.py tests/memory/test_long_term_memory_service.py tests/memory/test_long_term_memory_repository.py tests/memory/test_memory_write_service.py tests/memory/test_semantic_episode_projection.py tests/memory/test_reviewed_memory_context_boundary.py tests/agent/test_memory_write_node.py tests/agent/test_reviewed_memory_context_retrieve.py tests/agent/test_memory_evidence_boundary.py tests/test_memory_review_api.py -q
+```
+
+### 关键证据或命令
+
+pytest 输出显示：
+
+```text
+FAILED tests/architecture/test_memory_contract_delta.py::test_memory_contract_boundary_tests_are_present
+AssertionError: assert 'test_current_business_object_long_term_candidate_requires_review' in ...
+1 failed, 134 passed, 3 warnings in 156.60s
+```
+
+### 当前判断 / 根因
+
+这是静态测试索引没有跟随 Phase 48 source policy 迁移。旧目标是 current business object / llm candidate 长期候选进入 `needs_review`；新目标是这两类 source 不再作为 long-term candidate 插入，直接 `source_type_not_allowed` skipped。
+
+### 已做处理
+
+已将 architecture guard 改为查找：
+
+- `test_current_business_object_long_term_candidate_is_skipped`
+- `test_llm_candidate_is_skipped`
+
+重跑验证通过：
+
+```text
+tests/architecture/test_memory_contract_delta.py::test_memory_contract_boundary_tests_are_present + tests/memory/test_phase48_long_term_preference_alignment.py
+7 passed, 1 warning in 0.05s
+
+Phase 48 Full Phase Gate
+135 passed, 3 warnings in 160.86s
+```
+
+### 剩余问题
+
+无阻塞。
+
+### 下次继续排查入口
+
+- `tests/architecture/test_memory_contract_delta.py::test_memory_contract_boundary_tests_are_present`
+- `tests/memory/test_long_term_memory_service.py`
