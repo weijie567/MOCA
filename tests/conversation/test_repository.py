@@ -11,6 +11,21 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from src.db.models import AgentRun, Tenant, User
 
 
+def _summary_payload(thread_id: str) -> dict:
+    return {
+        "thread_id": thread_id,
+        "source_start_message_id": uuid.uuid4(),
+        "source_end_message_id": uuid.uuid4(),
+        "source_message_ids_json": [str(uuid.uuid4())],
+        "source_tool_result_ids_json": [],
+        "summary_text": "rolling summary",
+        "summary_json": {"summary": "rolling summary"},
+        "summary_model": "test-model",
+        "summary_prompt_version": "test-v1",
+        "summary_hash": uuid.uuid4().hex,
+    }
+
+
 async def _insert_run(session: AsyncSession, seeded_session: dict, thread_id: str) -> uuid.UUID:
     run_id = uuid.uuid4()
     session.add(
@@ -218,3 +233,109 @@ async def test_thread_lookup_is_user_scoped_within_tenant(session: AsyncSession,
         await repository.get_thread(tenant_id=tenant_id, user_id=merchant_user_id, thread_id=thread_id)
         == merchant_thread
     )
+
+
+@pytest.mark.asyncio
+async def test_thread_summary_case_id_uses_single_canonical_thread_case_link(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    from src.conversation.repository import ConversationRepository
+
+    repository = ConversationRepository(session)
+    tenant_id = seeded_session["tenant"].id
+    user_id = seeded_session["users"]["cs_zhang"].id
+    thread_id = "thread-summary-single-link"
+    canonical_case_id = seeded_session["refund_case"].id
+
+    await repository.get_or_create_thread(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        case_id="LEGACY-CASE-ONLY",
+    )
+    await repository.link_case(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        case_id=canonical_case_id,
+        link_source="staff_manual",
+    )
+
+    summary = await repository.insert_thread_summary(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        **_summary_payload(thread_id),
+    )
+
+    assert summary.case_id == str(canonical_case_id)
+
+
+@pytest.mark.asyncio
+async def test_thread_summary_case_id_is_none_for_multiple_canonical_thread_case_links(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    from src.conversation.repository import ConversationRepository
+
+    repository = ConversationRepository(session)
+    tenant_id = seeded_session["tenant"].id
+    user_id = seeded_session["users"]["cs_zhang"].id
+    thread_id = "thread-summary-multiple-links"
+
+    await repository.get_or_create_thread(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        case_id="LEGACY-CASE-ONLY",
+    )
+    await repository.link_case(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        case_id=seeded_session["refund_case"].id,
+        link_source="staff_manual",
+    )
+    await repository.link_case(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        case_id=seeded_session["second_refund_case"].id,
+        link_source="staff_manual",
+    )
+
+    summary = await repository.insert_thread_summary(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        **_summary_payload(thread_id),
+    )
+
+    assert summary.case_id is None
+
+
+@pytest.mark.asyncio
+async def test_thread_summary_case_id_is_none_without_canonical_thread_case_links(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    from src.conversation.repository import ConversationRepository
+
+    repository = ConversationRepository(session)
+    tenant_id = seeded_session["tenant"].id
+    user_id = seeded_session["users"]["cs_zhang"].id
+    thread_id = "thread-summary-no-links"
+
+    await repository.get_or_create_thread(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        case_id="LEGACY-CASE-ONLY",
+    )
+
+    summary = await repository.insert_thread_summary(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        **_summary_payload(thread_id),
+    )
+
+    assert summary.case_id is None
