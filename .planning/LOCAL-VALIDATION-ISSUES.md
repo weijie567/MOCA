@@ -12534,3 +12534,94 @@ rg -n 'Do not edit `docs/contract-spec.md`|Do not modify:|docs/contract-spec.md'
 
 - `.planning/phases/49-investigate-bounded-react-loop-migration/49-04-PLAN.md`
 - `.planning/phases/49-investigate-bounded-react-loop-migration/49-CONTEXT.md`
+
+## 2026-07-04 — Phase 49 执行启动命令参数误用导致 STATE 短暂写错
+
+### 问题现象
+
+启动 Phase 49 执行状态时，第一次调用 `gsd-sdk query state.begin-phase` 误把 flag 形式参数传给了位置参数接口，导致 `.planning/STATE.md` 短暂出现 `Phase --phase` 这类错误状态文本。
+
+### 如何检测 / 复现
+
+在仓库根目录执行了错误命令：
+
+```bash
+gsd-sdk query state.begin-phase --phase 49 --name investigate-bounded-react-loop-migration --plans 4
+```
+
+随后查看 `git diff -- .planning/STATE.md`，能看到 phase/name/plan 被错位解析。
+
+### 关键证据或命令
+
+修正命令为：
+
+```bash
+gsd-sdk query state.begin-phase 49 investigate-bounded-react-loop-migration 4
+```
+
+修正后 `.planning/STATE.md` 回到 `Phase 49 (investigate-bounded-react-loop-migration) — EXECUTING`。
+
+### 当前判断 / 根因
+
+这是 GSD SDK query 的位置参数接口误用，不是 Phase 49 计划或代码问题。
+
+### 已做处理
+
+已用正确的位置参数形式重跑 `state.begin-phase`，STATE 中 phase/name/plan 已恢复到 Phase 49 执行中语义。
+
+### 剩余问题
+
+`stopped_at` 仍保留旧文本 `Phase 48.1 complete`，属于 GSD STATE 展示字段不完全同步；不影响当前 49-01 执行，但后续完成 phase 时需要核对。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `gsd-sdk query state.begin-phase 49 investigate-bounded-react-loop-migration 4`
+
+## 2026-07-04 — Phase 49-01 新增 fallback 测试第二轮命中未配置 fake tool 结果
+
+### 问题现象
+
+49-01 局部测试第一次运行时，新增的 invalid planner fallback 参数化测试失败 7 例。第一轮已正确 fallback 到 `get_order`，但 fake planner 第二轮继续返回非法输出，deterministic fallback 选择 `search_policy`，而 `FakePlatform.results` 没有配置 `search_policy`，触发 `KeyError`。
+
+### 如何检测 / 复现
+
+执行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_investigate.py -q
+```
+
+失败集中在 `test_invalid_planner_output_falls_back_before_dispatching_invalid_tool`。
+
+### 关键证据或命令
+
+失败栈显示：
+
+```text
+tool_name = 'search_policy', args = {'query': '订单退款为什么超时？'}
+KeyError: 'search_policy'
+```
+
+### 当前判断 / 根因
+
+这是测试夹具范围问题，不是 runtime fallback 行为错误。该测试目标只是验证非法 planner 输出不会 dispatch 原非法工具，并会进入 deterministic fallback；不需要覆盖多轮 fallback 行为。
+
+### 已做处理
+
+将该测试的 config 收敛为 `max_iterations=1`，固定验证第一轮 fallback。重跑后通过：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_investigate.py -q
+```
+
+结果：`46 passed, 1 warning`。
+
+### 剩余问题
+
+无阻塞。多轮 fallback、duplicate guard 和 bounded loop 行为留给 49-02 覆盖。
+
+### 下次继续排查入口
+
+- `tests/agent/test_nodes/test_investigate.py::test_invalid_planner_output_falls_back_before_dispatching_invalid_tool`
+- `src/agent/nodes/investigate.py::_plan_next_step_with_fallback`

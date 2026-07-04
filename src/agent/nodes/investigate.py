@@ -1,21 +1,33 @@
 from __future__ import annotations
 
+import inspect
+import json
+import time
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+from langchain_openai import ChatOpenAI
 from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
 from src.agent.events import emit_event
-from src.agent.prompts import INSUFFICIENT_EVIDENCE_RESPONSE
+from src.agent.nodes.investigate_planner import (
+    INVESTIGATE_ALLOWED_TOOL_NAMES,
+    INVESTIGATE_STOP_REASONS,
+    InvestigatePlannerDecision,
+    parse_investigate_planner_decision,
+)
+from src.agent.prompts import INSUFFICIENT_EVIDENCE_RESPONSE, INVESTIGATE_PLANNER_SYSTEM
 from src.agent.state import AgentState
+from src.config import settings
 from src.conversation.repository import ConversationRepository
 from src.conversation.service import ConversationService
 from src.platform.context_projections import project_missing_trusted_visibility_context, project_to_tool_context
 from src.platform.trusted_context import TrustedContext
 from src.tools.contracts import ToolCallContext, ToolResultProjectionV1, ToolResultPromptSummary, ToolResultV2, ToolViewV1
 from src.tools.platform import ToolPlatform
+from src.tools.validation import validate_json_value
 
 
 DEFAULT_MAX_ITERATIONS = 3
@@ -31,6 +43,17 @@ _CASE_SLOT_RESOURCES = {
 }
 
 
+def _get_llm() -> ChatOpenAI:
+    return ChatOpenAI(
+        model=settings.llm_model,
+        openai_api_key=settings.dashscope_api_key,
+        openai_api_base=settings.embedding_base_url,
+        temperature=settings.llm_temperature,
+        max_tokens=settings.llm_max_tokens,
+        timeout=settings.llm_timeout_seconds,
+    )
+
+
 def plan_next_step(
     state: AgentState,
     accumulated_context: dict[str, Any],
@@ -44,6 +67,14 @@ def plan_next_step(
             return scripted[index]
         return {"stop": True, "stop_reason": "no_more_useful_tools"}
 
+    return _deterministic_fallback_plan_next_step(state, accumulated_context, available_descriptors)
+
+
+def _deterministic_fallback_plan_next_step(
+    state: AgentState,
+    accumulated_context: dict[str, Any],
+    available_descriptors: list[Any],
+) -> dict[str, Any]:
     attempted = accumulated_context.get("attempted") or set()
     unusable = accumulated_context.get("unusable") or set()
     slots = _case_slots(state)
@@ -88,6 +119,8 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
         "claim_dependency_map": [],
         "retrieval_status": state.get("retrieval_status"),
         "best_score": state.get("best_score"),
+        "planner_errors": [],
+        "planner_fallback_count": 0,
     }
     termination_reason = "no_more_useful_tools"
     calls_executed = 0
@@ -115,8 +148,14 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
             termination_reason = "unrecoverable_error"
             break
 
-        step = plan_next_step(state, context, tool_views)
-        validation_error = _validate_planner_step(step, tool_views)
+        step, validation_error = await _plan_next_step_with_fallback(
+            state,
+            context,
+            tool_views,
+            tool_platform,
+            configurable,
+            iteration,
+        )
         if validation_error is not None:
             termination_reason = "unrecoverable_error"
             context["errors"].append(validation_error)
@@ -217,7 +256,11 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
             "tools_called": [item["tool_name"] for item in context["tool_results"]],
             "provider_latency_ms": None,
             "retry_count": 0,
-            "metrics_json": {"termination_reason": termination_reason, "calls_executed": calls_executed},
+            "metrics_json": {
+                "termination_reason": termination_reason,
+                "calls_executed": calls_executed,
+                "planner_fallback_count": context["planner_fallback_count"],
+            },
         }
     ]
     return {
@@ -241,8 +284,152 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
     }
 
 
-def _validate_planner_step(step: Any, tool_views: list[ToolViewV1]) -> dict[str, Any] | None:
-    view_names = {view.name for view in tool_views}
+async def _plan_next_step_with_fallback(
+    state: AgentState,
+    context: dict[str, Any],
+    tool_views: list[ToolViewV1],
+    tool_platform: Any,
+    configurable: dict[str, Any],
+    iteration: int,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    try:
+        step = await _planner_next_step(state, context, tool_views, configurable, iteration)
+        validation_error = _validate_planner_step(step, tool_views, tool_platform)
+        if validation_error is None:
+            return step, None
+        _record_planner_fallback(context, validation_error)
+    except Exception as exc:
+        _record_planner_fallback(
+            context,
+            _safe_error("INVALID_PLANNER_OUTPUT", "Planner output failed validation", "planner")
+            | {"detail": exc.__class__.__name__},
+        )
+
+    fallback_step = _deterministic_fallback_plan_next_step(state, context, tool_views)
+    fallback_error = _validate_planner_step(fallback_step, tool_views, tool_platform)
+    if fallback_error is not None:
+        return {"stop": True, "stop_reason": "unrecoverable_error"}, fallback_error
+    return fallback_step, None
+
+
+async def _planner_next_step(
+    state: AgentState,
+    context: dict[str, Any],
+    tool_views: list[ToolViewV1],
+    configurable: dict[str, Any],
+    iteration: int,
+) -> dict[str, Any]:
+    scripted = _scripted_planner_step(state, context)
+    if scripted is not None:
+        return parse_investigate_planner_decision(scripted)
+
+    planner_input = _planner_input_payload(state, context, tool_views, iteration)
+    injected_planner = configurable.get("investigate_planner")
+    if injected_planner is not None:
+        raw = _invoke_injected_planner(injected_planner, planner_input)
+        if inspect.isawaitable(raw):
+            raw = await raw
+        return parse_investigate_planner_decision(raw)
+
+    messages = [
+        {"role": "system", "content": INVESTIGATE_PLANNER_SYSTEM},
+        {"role": "user", "content": _safe_jsonish(planner_input)},
+    ]
+    structured_llm = _get_llm().with_structured_output(InvestigatePlannerDecision)
+    t0 = time.perf_counter()
+    raw_decision = await structured_llm.ainvoke(messages)
+    context["planner_provider_latency_ms"] = round((time.perf_counter() - t0) * 1000)
+    return parse_investigate_planner_decision(raw_decision)
+
+
+def _scripted_planner_step(state: AgentState, context: dict[str, Any]) -> dict[str, Any] | None:
+    scripted = state.get("_investigate_plan")
+    if not isinstance(scripted, list) or not scripted:
+        return None
+    index = int(context.get("script_index") or 0)
+    if index < len(scripted) and isinstance(scripted[index], dict):
+        context["script_index"] = index + 1
+        return scripted[index]
+    return {"stop": True, "stop_reason": "no_more_useful_tools"}
+
+
+def _invoke_injected_planner(planner: Any, planner_input: dict[str, Any]) -> Any:
+    if callable(planner):
+        return planner(planner_input)
+    if hasattr(planner, "ainvoke"):
+        return planner.ainvoke(planner_input)
+    return planner
+
+
+def _planner_input_payload(
+    state: AgentState,
+    context: dict[str, Any],
+    tool_views: list[ToolViewV1],
+    iteration: int,
+) -> dict[str, Any]:
+    return {
+        "user_query": _safe_case_text(state.get("user_query")),
+        "normalized_query": _safe_case_text(state.get("normalized_query")),
+        "primary_intent": state.get("primary_intent") or state.get("current_intent"),
+        "requested_operation": state.get("requested_operation"),
+        "current_resolved_slots": _case_slots(state),
+        "loop_local_discovered_slots": dict(context.get("discovered_slots") or {}),
+        "projected_observations": _projected_observation_summaries(context),
+        "allowed_tools": [_tool_view_payload(view) for view in tool_views],
+        "iteration": iteration,
+        "previous_attempted_keys": _attempted_key_payload(context.get("attempted") or set()),
+    }
+
+
+def _tool_view_payload(view: ToolViewV1) -> dict[str, Any]:
+    return {
+        "name": view.name,
+        "description": view.description,
+        "input_schema": view.input_schema,
+        "safe_usage_notes": view.safe_usage_notes,
+        "result_contract_version": view.result_contract_version,
+    }
+
+
+def _projected_observation_summaries(context: dict[str, Any]) -> list[dict[str, Any]]:
+    observations: list[dict[str, Any]] = []
+    for item in context.get("tool_results") or []:
+        if not isinstance(item, dict):
+            continue
+        observations.append(
+            {
+                "tool_name": item.get("tool_name"),
+                "status": item.get("status"),
+                "prompt_summary": item.get("prompt_summary"),
+                "business_fact_refs": item.get("business_fact_refs") or [],
+                "policy_evidence_refs": item.get("policy_evidence_refs") or [],
+            }
+        )
+    return observations
+
+
+def _attempted_key_payload(attempted: set[Any]) -> list[dict[str, Any]]:
+    payload: list[dict[str, Any]] = []
+    for key in attempted:
+        if not isinstance(key, tuple) or len(key) != 2:
+            continue
+        args = key[1]
+        payload.append(
+            {
+                "tool_name": key[0],
+                "args": dict(args) if isinstance(args, tuple) else {},
+            }
+        )
+    return sorted(payload, key=lambda item: (str(item["tool_name"]), str(item["args"])))
+
+
+def _record_planner_fallback(context: dict[str, Any], error: dict[str, Any]) -> None:
+    context["planner_fallback_count"] = int(context.get("planner_fallback_count") or 0) + 1
+    context.setdefault("planner_errors", []).append(error)
+
+
+def _validate_planner_step(step: Any, tool_views: list[ToolViewV1], tool_platform: Any | None = None) -> dict[str, Any] | None:
+    views_by_name = {view.name: view for view in tool_views}
     if not isinstance(step, dict):
         return _safe_error("INVALID_PLANNER_OUTPUT", "Planner output failed validation", "planner")
     has_stop = step.get("stop") is True
@@ -250,13 +437,57 @@ def _validate_planner_step(step: Any, tool_views: list[ToolViewV1]) -> dict[str,
     if has_stop == has_tool:
         return _safe_error("INVALID_PLANNER_OUTPUT", "Planner output must choose one action", "planner")
     if has_stop:
+        if set(step) != {"stop", "stop_reason"} or step.get("stop_reason") not in INVESTIGATE_STOP_REASONS:
+            return _safe_error("INVALID_PLANNER_OUTPUT", "Planner stop reason failed validation", "planner")
         return None
     tool_name = step.get("next_tool")
-    if not isinstance(tool_name, str) or tool_name not in view_names:
+    if set(step) != {"next_tool", "args", "reason"}:
+        return _safe_error("INVALID_PLANNER_OUTPUT", "Planner tool output failed validation", "planner")
+    if not isinstance(tool_name, str):
+        return _safe_error("INVALID_PLANNER_TOOL", "Planner selected an invalid tool", "planner")
+    if tool_name not in INVESTIGATE_ALLOWED_TOOL_NAMES:
+        return _safe_error("INVALID_PLANNER_TOOL", "Planner selected a tool outside investigate allowlist", "planner")
+    if tool_name not in views_by_name:
         return _safe_error("INVALID_PLANNER_TOOL", "Planner selected an unavailable tool", "planner")
     if not isinstance(step.get("args"), dict):
         return _safe_error("INVALID_PLANNER_ARGS", "Planner tool arguments failed validation", "planner")
+    if not isinstance(step.get("reason"), str) or not step["reason"].strip():
+        return _safe_error("INVALID_PLANNER_OUTPUT", "Planner tool reason failed validation", "planner")
+    descriptor = tool_platform.descriptor(tool_name) if tool_platform is not None and hasattr(tool_platform, "descriptor") else None
+    descriptor_error = _validate_investigate_tool_descriptor(descriptor)
+    if descriptor_error is not None:
+        return descriptor_error
+    schema = descriptor.input_schema if descriptor is not None else views_by_name[tool_name].input_schema
+    try:
+        _validate_tool_args(step["args"], schema)
+    except (TypeError, ValueError):
+        return _safe_error("INVALID_PLANNER_ARGS", "Planner tool arguments failed validation", "planner")
     return None
+
+
+def _validate_investigate_tool_descriptor(descriptor: Any) -> dict[str, Any] | None:
+    if descriptor is None:
+        return None
+    if getattr(descriptor, "kind", None) == "write" or getattr(descriptor, "side_effect", None) == "write":
+        return _safe_error("INVALID_PLANNER_TOOL", "Planner selected a write tool", "planner")
+    if getattr(descriptor, "kind", None) not in {"read", "retrieval"}:
+        return _safe_error("INVALID_PLANNER_TOOL", "Planner selected a non-read tool", "planner")
+    if getattr(descriptor, "side_effect", None) not in {"read_only", "retrieval"}:
+        return _safe_error("INVALID_PLANNER_TOOL", "Planner selected a side-effecting tool", "planner")
+    if "investigate" not in (getattr(descriptor, "caller_allowlist", None) or []):
+        return _safe_error("INVALID_PLANNER_TOOL", "Planner selected a tool outside investigate caller scope", "planner")
+    if getattr(descriptor, "exposure", None) != "planner_visible":
+        return _safe_error("INVALID_PLANNER_TOOL", "Planner selected a non-visible tool", "planner")
+    return None
+
+
+def _validate_tool_args(args: dict[str, Any], schema: dict[str, Any]) -> None:
+    validate_json_value(args, schema)
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        unexpected = set(args) - set(properties)
+        if unexpected:
+            raise ValueError("Unexpected planner tool argument")
 
 
 def _build_tool_context(
@@ -695,6 +926,10 @@ def _safe_case_text(value: Any) -> str | None:
         return None
     normalized = " ".join(value.split())
     return normalized[:1500] or None
+
+
+def _safe_jsonish(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
 
 
 def _case_memory_items_from_projection(normalized: dict[str, Any]) -> list[dict[str, Any]]:

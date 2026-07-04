@@ -773,3 +773,29 @@
 
 **剩余风险**
 - ✅ 本修复不扩展 `ToolCallContext` 或 case-id contract；retrieval scope 仍由 trusted merchant scope / current slots 控制。
+
+## Phase 49 Plan 01 — investigate deterministic planner 主路径降级为 LLM planner fallback 壳 ⚠️阶段性修复
+
+**问题 / 根因**
+- Phase 49 baseline 确认：`src/agent/nodes/investigate.py` 的主控制仍由 legacy `plan_next_step(...)` deterministic 候选表驱动，LLM 没有真正拥有 ReAct loop 内“选择下一个只读工具或 stop”的主控权。
+- 旧 `_validate_planner_step(...)` 只检查 dict / tool 是否可见 / args 是否为 dict，未严格校验 `{next_tool,args,reason}` / `{stop,stop_reason}` schema、§12.4 investigate 8-tool allowlist、write tool、descriptor input schema 或 fallback 安全边界。
+
+**影响**
+- investigate 无法落地 contract-spec §9.4 的 bounded ReAct loop 主控语义；非法 planner/fallback 输出在进入 ToolPlatform.invoke 前的 fail-closed 边界不够强。
+
+**修复**
+- 新增 `src/agent/nodes/investigate_planner.py`，定义 `InvestigatePlannerDecision` structured output schema、8-tool allowlist 和 stop reason enum。
+- `investigate` 主路径改为 planner → strict validation → deterministic fallback → strict validation；默认生产路径调用 `_get_llm().with_structured_output(InvestigatePlannerDecision)`，旧 deterministic 逻辑保留为 `_deterministic_fallback_plan_next_step(...)`。
+- planner 输入只包含 user/query、intent、当前 slot、loop-local discovered slot 占位、projected observation summaries、ToolViewV1 allowlisted descriptors、iteration 和 attempted keys；raw tool payload 不进入 planner prompt。
+- validation 在 ToolPlatform.invoke 前拒绝 write/out-of-allowlist tool、不可见 tool、非法 stop reason、额外顶层字段、descriptor schema 不合法 args；fallback 本身也必须通过同一校验。
+
+**证据**
+- Phase / plan：`49-01`
+- 文件：`src/agent/nodes/investigate.py`、`src/agent/nodes/investigate_planner.py`、`src/agent/prompts.py`、`tests/agent/test_nodes/test_investigate.py`
+
+**验证**
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_investigate.py -q` → `46 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/nodes/investigate.py src/agent/nodes/investigate_planner.py src/agent/prompts.py tests/agent/test_nodes/test_investigate.py` → pass
+
+**剩余风险**
+- ⚠️ 49-01 只完成 planner schema / validation / fallback 壳；真正多轮 loop-local discovered slots、8-tool projection/trace/replay 完整语义、graph E2E safety regression 仍分别属于 49-02 / 49-03 / 49-04。当前不得把 GAD-01 标为 implemented。

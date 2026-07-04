@@ -71,6 +71,35 @@ def _config(tool_platform, events: list[dict[str, Any]], **overrides):
     return {"configurable": configurable}
 
 
+class _PlannerSequence:
+    def __init__(self, outputs: list[Any]) -> None:
+        self.outputs = outputs
+        self.inputs: list[dict[str, Any]] = []
+
+    async def __call__(self, planner_input: dict[str, Any]) -> Any:
+        self.inputs.append(planner_input)
+        index = min(len(self.inputs) - 1, len(self.outputs) - 1)
+        return self.outputs[index]
+
+
+class _FakeStructuredPlannerLLM:
+    def __init__(self, response: dict[str, Any]) -> None:
+        self.response = response
+        self.messages: list[list[dict[str, str]]] = []
+        self.schema = None
+
+    def with_structured_output(self, schema):
+        fake = self
+        fake.schema = schema
+
+        class _Wrapper:
+            async def ainvoke(self, messages):
+                fake.messages.append(messages)
+                return schema.model_validate(fake.response)
+
+        return _Wrapper()
+
+
 class FakePlatform:
     def __init__(self, results: dict[str, ToolResultV2]) -> None:
         self._descriptors = {descriptor.name: descriptor for descriptor in ToolCatalog().descriptors()}
@@ -419,6 +448,91 @@ def _business_error_with_data(
 
 
 @pytest.mark.asyncio
+async def test_llm_planner_main_path_uses_structured_output(monkeypatch):
+    import src.agent.nodes.investigate as investigate_node
+
+    events: list[dict[str, Any]] = []
+    fake_llm = _FakeStructuredPlannerLLM(
+        {"next_tool": "get_order", "args": {"order_no": "ORD-LLM-001"}, "reason": "load order"}
+    )
+    monkeypatch.setattr(investigate_node, "_get_llm", lambda: fake_llm)
+    manager = FakePlatform({"get_order": _business_success("order", "ORD-LLM-001")})
+
+    result = await investigate(_state([]), _config(manager, events))
+
+    assert fake_llm.schema is investigate_node.InvestigatePlannerDecision
+    assert fake_llm.messages
+    assert [call[0] for call in manager.calls] == ["get_order"]
+    assert result["trace_steps"][-1]["metrics_json"]["planner_fallback_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_planner_stop_decision_terminates_without_tool_call():
+    events: list[dict[str, Any]] = []
+    manager = FakePlatform({"get_order": _business_success()})
+    planner = _PlannerSequence([{"stop": True, "stop_reason": "enough_evidence"}])
+
+    result = await investigate(_state([]), _config(manager, events, investigate_planner=planner))
+
+    assert result["termination_reason"] == "enough_evidence"
+    assert manager.calls == []
+    assert planner.inputs[0]["allowed_tools"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "planner_output",
+    [
+        "{not-json",
+        {"bad": "shape"},
+        {"stop": True, "stop_reason": "route_after_investigate"},
+        {"next_tool": "get_order", "args": {"order_no": "ORD-001"}, "reason": "ok", "route_decision": "skip"},
+        {"next_tool": "get_order", "args": {}, "reason": "missing args"},
+        {"next_tool": "unknown_tool", "args": {}, "reason": "bad"},
+        {"next_tool": "create_coupon_grant_draft", "args": {"amount": 1}, "reason": "bad"},
+    ],
+)
+async def test_invalid_planner_output_falls_back_before_dispatching_invalid_tool(planner_output):
+    events: list[dict[str, Any]] = []
+    manager = FakePlatform({"get_order": _business_success("order", "ORD-001")})
+    state = _state([])
+    state["extracted_slots"] = {"order_id": "ORD-001"}
+    planner = _PlannerSequence([planner_output])
+
+    result = await investigate(state, _config(manager, events, investigate_planner=planner, max_iterations=1))
+
+    assert [call[0] for call in manager.calls] == ["get_order"]
+    assert all(call[0] != "create_coupon_grant_draft" for call in manager.calls)
+    assert result["trace_steps"][-1]["metrics_json"]["planner_fallback_count"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_invalid_deterministic_fallback_is_rejected_before_dispatch(monkeypatch):
+    import src.agent.nodes.investigate as investigate_node
+
+    events: list[dict[str, Any]] = []
+    manager = FakePlatform({"get_order": _business_success()})
+    state = _state([])
+    state["extracted_slots"] = {"order_id": "ORD-001"}
+    planner = _PlannerSequence(["{not-json"])
+
+    def _bad_fallback(*_args, **_kwargs):
+        return {
+            "next_tool": "create_coupon_grant_draft",
+            "args": {"amount": 1},
+            "reason": "bad fallback",
+        }
+
+    monkeypatch.setattr(investigate_node, "_deterministic_fallback_plan_next_step", _bad_fallback)
+
+    result = await investigate(state, _config(manager, events, investigate_planner=planner))
+
+    assert result["termination_reason"] == "unrecoverable_error"
+    assert result["business_context"]["errors"][0]["code"] == "INVALID_PLANNER_TOOL"
+    assert manager.calls == []
+
+
+@pytest.mark.asyncio
 async def test_max_iterations_reached_does_not_degrade_retrieval_status():
     events: list[dict[str, Any]] = []
     manager = FakePlatform({"search_policy": _policy_success("strong_evidence", 0.9)})
@@ -460,12 +574,14 @@ async def test_deadline_and_attempt_controls_map_to_unrecoverable_error():
 )
 async def test_invalid_planner_output_rejected_before_manager_dispatch(plan):
     events: list[dict[str, Any]] = []
-    manager = FakePlatform({"get_order": _business_success()})
+    manager = FakePlatform({"get_order": _business_success("order", "ORD-001")})
+    state = _state(plan)
+    state["extracted_slots"] = {"order_id": "ORD-001"}
 
-    result = await investigate(_state(plan), _config(manager, events))
+    result = await investigate(state, _config(manager, events))
 
-    assert result["termination_reason"] == "unrecoverable_error"
-    assert manager.calls == []
+    assert [call[0] for call in manager.calls] == ["get_order"]
+    assert result["trace_steps"][-1]["metrics_json"]["planner_fallback_count"] >= 1
 
 
 @pytest.mark.asyncio
