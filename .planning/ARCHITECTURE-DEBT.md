@@ -228,6 +228,34 @@
 **已 ship**：v1.1 Memory Foundation V2、v1.7 短期记忆统一。
 **在册探索**：Phase 999.1「评估 mem0 作为 MemoryContextService 背后可选 backend」。
 
+## Phase 48 Plan 02 — long-term 自动来源过宽与 semantic episode 投影过宽 ✅已修复验证
+
+**问题 / 根因**
+- `long_term_memory_policy_decision(...)` 曾允许 `deterministic_tool_result`、`confirmed_business_outcome`、`approved_approval_state` 在部分情况下作为 long-term auto-approved source；这与 Phase 48 目标「published long-term 只存显式 preference / human reviewed preference」冲突。
+- `LongTermMemoryWriteCandidate.memory_kind` 默认值是 `fact`，且 `LongTermMemoryService.write_memory(...)` 在 tombstone/PII 后没有在 insert 前统一拒绝非 `preference` 或 policy skip source，导致服务边界仍可写入 broad long-term rows。
+- `semantic_episode.py` 曾从 `cross_case_patterns`、`similar_cases`、`strategy_hints`、`preference_candidates` 四类 semantic summary 投影 long-term candidates，容易把案例模式/策略建议沉淀为长期记忆。
+
+**影响**
+- 自动观察、工具结果或业务状态可能进入 prompt 可用长期记忆，和 policy evidence / business fact / approval/action authority 的服务边界混淆。
+- 后续实现者可能把 `long_term_memories` 继续理解为 durable facts/patterns，而不是 preference-only contextual hints。
+
+**修复**
+- 新增 `PUBLISHED_LONG_TERM_SOURCE_TYPES = {"explicit_user_preference", "explicit_admin_preference", "human_reviewed"}`，`semantic_episode_candidate` 仅 `needs_review`，其他 long-term source 统一 `skip/source_type_not_allowed`。
+- `LongTermMemoryWriteCandidate.memory_kind` 默认改为 `preference`；`LongTermMemoryService.write_memory(...)` 与 `supersede_memory(...)` 在 insert 前对非 preference 返回 `skipped/not_preference_memory_kind`，对 policy skip source 返回 `skipped/source_type_not_allowed`，并写 `memory_write_events`。
+- `semantic_episode.py` 只投影 `preference_candidate`，`to_long_term_memory_candidate()` 固定 `memory_kind="preference"`；pattern/similar/strategy keys 不再生成 long-term candidates。
+
+**证据**
+- Phase / plan：`48-02`
+- 文件：`src/memory/policy.py`、`src/memory/schemas.py`、`src/memory/long_term.py`、`src/memory/semantic_episode.py`、`tests/memory/test_memory_policy.py`、`tests/memory/test_long_term_memory_service.py`、`tests/memory/test_semantic_episode_projection.py`、`tests/memory/test_phase48_long_term_preference_alignment.py`
+- 计划依据：`.planning/phases/48-narrow-long-term-explicit-preference-memory/48-02-PLAN.md`
+
+**验证**
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_memory_policy.py tests/memory/test_long_term_memory_service.py tests/memory/test_semantic_episode_projection.py tests/memory/test_phase48_long_term_preference_alignment.py -q` → `43 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/memory/policy.py src/memory/schemas.py src/memory/long_term.py src/memory/semantic_episode.py tests/memory/test_memory_policy.py tests/memory/test_long_term_memory_service.py tests/memory/test_semantic_episode_projection.py tests/memory/test_phase48_long_term_preference_alignment.py` → pass
+
+**剩余风险**
+- ⚠️ 48-02 只完成写入 policy/service guard 与 semantic episode candidate narrowing。retrieval 过滤、review approval 发布为 `human_reviewed`、supersede/tombstone 目标语义和 API 错误映射属于 `48-04`。
+
 ## Phase 44 Wave 2 — Case Working Context 身份解析与版本化仓库 ✅⚠️
 
 **问题 / 根因**

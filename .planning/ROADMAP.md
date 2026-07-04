@@ -30,7 +30,7 @@ Code implementation is delegated to Codex per the project workflow; Claude is pl
 - [x] **Phase 45: Memory Lifecycle Wiring for Case Working Context** - Wire CWC active read/link/writeback into real agent lifecycle while preserving contextual-only authority (MEM-01, MEM-02). Plan progress: 4/4 complete.
 - [x] **Phase 46: Session Context Repositioning** - Re-scope thread-level session memory after CWC so it remains short-lived conversational context, not cross-case state (MEM-03). Plan progress: 3/3 complete.
 - [x] **Phase 47: Case Precedent Repositioning and Closed-Case Candidate Generation** - Re-scope `case_memories` as reviewed precedent and add closed-case candidate generation from CWC into governed review flow (MEM-04). Plan progress: 4/4 complete.
-- [ ] **Phase 48: Narrow Long-Term Explicit Preference Memory** - Re-scope `long_term_memories` to explicit tenant preference memory only, without generic automatic run summarization (MEM-05). Plan progress: 1/4 plans.
+- [ ] **Phase 48: Narrow Long-Term Explicit Preference Memory** - Re-scope `long_term_memories` to explicit tenant preference memory only, without generic automatic run summarization (MEM-05). Plan progress: 2/4 plans.
 
 ## Phase Details
 
@@ -95,7 +95,7 @@ Plans:
 | 45. Memory Lifecycle Wiring for Case Working Context | 4/4 | Complete | 2026-07-03 |
 | 46. Session Context Repositioning | 3/3 | Complete | 2026-07-03 |
 | 47. Case Precedent Repositioning and Closed-Case Candidate Generation | 4/4 | Complete    | 2026-07-03 |
-| 48. Narrow Long-Term Explicit Preference Memory | 1/4 | Executing | - |
+| 48. Narrow Long-Term Explicit Preference Memory | 2/4 | Executing | - |
 
 ### Phase 40: Tool Contract Validation Hardening
 
@@ -266,6 +266,6 @@ Plans:
 
 Plans:
 - [x] 48-01-PLAN.md — contract/docs/static semantic locks for explicit preference-only long-term memory.
-- [ ] 48-02-PLAN.md — source policy/service guardrails and semantic episode preference-candidate narrowing.
+- [x] 48-02-PLAN.md — source policy/service guardrails and semantic episode preference-candidate narrowing.
 - [ ] 48-03-PLAN.md — deterministic chat preference capture and admin-only preference save API.
 - [ ] 48-04-PLAN.md — retrieval filtering, review publishing as `human_reviewed`, correction/tombstone lifecycle, and final validation.
