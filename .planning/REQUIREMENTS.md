@@ -38,11 +38,17 @@
 - [x] **MEM-03**: Session context is repositioned after Case Working Context lands: `session_memories` remains thread-scoped short-lived conversational context only, with clear read/write boundaries and contract tests preventing it from becoming cross-case durable state, reviewed precedent, long-term preference memory, policy evidence, business fact authority, approval/action authority, or replay truth. This phase must preserve existing `session_memories` table identity unless planning explicitly proves a migration is required.
 - [x] **MEM-04**: `case_memories` is locked as reviewed case precedent, not active case working state. Closed-case precedent generation is introduced only as a governed candidate path from finalized Case Working Context into `case_memories` review flow, with metadata-first retrieval semantics, `needs_review`/audit behavior, and no destructive table rename.
 - [x] **MEM-05**: `long_term_memories` is narrowed to explicit tenant preference memory. Writes happen only from explicit "remember this preference" / admin-save / reviewed candidate paths, not generic automatic run summarization, and must not store order/refund/ticket state, policy rules, approvals, action authorization, sensitive raw PII, or business system truth.
-- [ ] **MEM-COMPAT-01**: Active memory-context compatibility readers are migrated to canonical surfaces without destructive renames: thread↔case relationship reads use `thread_case_links` / `ThreadCaseLinkRepository` instead of `conversation_threads.case_id`; agent routing, working-state projection, and prompt/session context helpers read `session_context` / `session_context_bundle` before legacy `session_memory` / `session_memory_bundle`; reviewed-memory loading gains canonical `needs_reviewed_memory_context` while `needs_long_term_memory` remains an alias. This cleanup must not rename/drop memory tables, `conversation_threads.case_id`, public memory API routes, graph trace node names, `long_term_fact` storage identity, `session_memory_*` config names, or the debug-only legacy precedent service.
+- [x] **MEM-COMPAT-01**: Active memory-context compatibility readers are migrated to canonical surfaces without destructive renames: thread↔case relationship reads use `thread_case_links` / `ThreadCaseLinkRepository` instead of `conversation_threads.case_id`; agent routing, working-state projection, and prompt/session context helpers read `session_context` / `session_context_bundle` before legacy `session_memory` / `session_memory_bundle`; reviewed-memory loading gains canonical `needs_reviewed_memory_context` while `needs_long_term_memory` remains an alias. This cleanup must not rename/drop memory tables, `conversation_threads.case_id`, public memory API routes, graph trace node names, `long_term_fact` storage identity, `session_memory_*` config names, or the debug-only legacy precedent service.
+
+## Graph / ReAct Requirements (Phase 49)
+
+> Subsystem debt is tracked in `.planning/DEFERRED-DECISIONS.md` GAD-01 and `.planning/AGENTIC-INVESTIGATION-DISCUSSION.md`. Requirement IDs use the `GAD-` prefix when the requirement is the implementation of an accepted deferred architecture decision.
+
+- [ ] **GAD-01-IMPL**: `src/agent/nodes/investigate.py` is migrated from legacy deterministic `plan_next_step` as the main controller to the `docs/contract-spec.md` §9.4 bounded read-only ReAct loop contract. The main path uses an LLM structured planner that returns exactly `{next_tool, args, reason}` or `{stop, stop_reason}`; all planner output is schema-validated and constrained to the §12.4 investigate allowlist (`get_order`, `get_refund_case`, `get_ticket`, `get_logistics`, `get_merchant_risk`, `search_policy`, `search_sop`, `search_case_memory`). Every tool dispatch still goes only through `ToolPlatform.invoke(...)`, every planner-facing observation uses the projection layer rather than raw tool payloads, observation→slot回流 is loop-local only, deterministic `plan_next_step` remains as a fallback for planner timeout/invalid output/invalid args/unavailable planner, and tests prove no changes to intent contracts, memory Phase 44-48 writer/lifecycle contracts, `active_slots` ownership, risk/approval/action gates, or `evidence_refs` ownership.
 
 ## Future Requirements
 
-_None beyond active Phase 48.1 compatibility cleanup._
+_None beyond active Phase 49 Graph/ReAct implementation._
 
 ## Out of Scope
 
@@ -71,6 +77,7 @@ _None beyond active Phase 48.1 compatibility cleanup._
 | MEM-03 | Phase 46 | Complete |
 | MEM-04 | Phase 47 | Complete |
 | MEM-05 | Phase 48 | Complete |
-| MEM-COMPAT-01 | Phase 48.1 | Pending |
+| MEM-COMPAT-01 | Phase 48.1 | Complete |
+| GAD-01-IMPL | Phase 49 | Pending |
 
-**Coverage:** 14/14 v2.1 requirements mapped. 13 complete, 1 pending. No orphans, no duplicates. (Tool platform: TPH-01..06 / Phase 37-41. Intent recognition: IDR-01 / Phase 42, IDR-02 / Phase 43. Memory: MEM-01/02 / Phase 44-45, MEM-03 / Phase 46, MEM-04 / Phase 47, MEM-05 / Phase 48, MEM-COMPAT-01 / Phase 48.1.)
+**Coverage:** 15/15 v2.1 requirements mapped. 14 complete, 1 pending. No orphans, no duplicates. (Tool platform: TPH-01..06 / Phase 37-41. Intent recognition: IDR-01 / Phase 42, IDR-02 / Phase 43. Memory: MEM-01/02 / Phase 44-45, MEM-03 / Phase 46, MEM-04 / Phase 47, MEM-05 / Phase 48, MEM-COMPAT-01 / Phase 48.1. Graph/ReAct: GAD-01-IMPL / Phase 49.)

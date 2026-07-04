@@ -12486,3 +12486,51 @@ GSD SDK 的 `phase.complete` 幂等性仍未修复；后续对已完成 phase �
 
 - `gsd-sdk query phase.complete 48`
 - `.planning/STATE.md` frontmatter `progress.completed_phases` / `progress.percent`
+
+## 2026-07-04 — Phase 49 计划静态检查命令引用与正则写法错误
+
+### 问题现象
+
+为 Phase 49 计划文件做静态检查时，一条 `rg` 命令失败。失败包含两类问题：Rust regex 不支持 lookbehind；双引号里的 Markdown 反引号被 zsh 当作命令替换，触发 `permission denied: docs/contract-spec.md`。
+
+### 如何检测 / 复现
+
+在仓库根目录执行原始检查命令：
+
+```bash
+rg -n "(?<!uv run )pytest|python -m pytest|docs/contract-spec.md.*modify|modify `docs/contract-spec.md`|Do not edit `docs/contract-spec.md`|Do not modify:\n- `docs/contract-spec.md`" .planning/phases/49-investigate-bounded-react-loop-migration -g '*.md'
+```
+
+### 关键证据或命令
+
+失败输出包含：
+
+```text
+zsh:1: permission denied: docs/contract-spec.md
+rg: regex parse error:
+look-around, including look-ahead and look-behind, is not supported
+```
+
+### 当前判断 / 根因
+
+这是本地验证命令问题，不是 Phase 49 计划文件内容问题。根因是 shell quoting 不当和 `rg` 默认正则能力误用。
+
+### 已做处理
+
+已拆成安全的单引号命令并重跑：
+
+```bash
+rg -n 'python -m pytest|<automated>pytest|^pytest| bare pytest|裸 pytest' .planning/phases/49-investigate-bounded-react-loop-migration -g '*.md'
+rg -n 'Do not edit `docs/contract-spec.md`|Do not modify:|docs/contract-spec.md' .planning/phases/49-investigate-bounded-react-loop-migration -g '*.md'
+```
+
+结果：未发现裸 `pytest` / `python -m pytest` 测试入口；`bare pytest` 只出现在 49-04 的防错说明中；`contract-spec.md` 均为 read-first / no-modify / blocker 语境。
+
+### 剩余问题
+
+无阻塞。
+
+### 下次继续排查入口
+
+- `.planning/phases/49-investigate-bounded-react-loop-migration/49-04-PLAN.md`
+- `.planning/phases/49-investigate-bounded-react-loop-migration/49-CONTEXT.md`

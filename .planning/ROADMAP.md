@@ -12,6 +12,8 @@ v2.1 is a long-lived umbrella for cleaning up architecture debt across MOCA's fo
 
 **Memory (Phase 44+)** clears the memory-subsystem redesign debt tracked in `.planning/MEMORY-REDESIGN-DECISIONS.md`. Phase 44 delivered Case Working Context and thread-case M:N storage, Phase 45 wired it into the agent lifecycle, and Phases 46-48 carry the remaining deferred memory layering items: session context repositioning, reviewed case precedent generation, and narrow explicit long-term preference memory. Phase 48.1 is an inserted compatibility-debt cleanup discovered after Phase 48 source review; it narrows active reader debt without destructive table/API renames.
 
+**Graph/ReAct (Phase 49)** clears the accepted GAD-01 implementation debt: `investigate` already has the §9.4 bounded-loop contract in `docs/contract-spec.md`, but the implementation still uses legacy deterministic planning as the main control path. Phase 49 migrates only the `investigate` node internals to a bounded read-only ReAct loop, keeps observation→slot回流 loop-local, and preserves intent, memory, risk, approval, and action boundaries.
+
 Code implementation is delegated to Codex per the project workflow; Claude is plan designer and adjudicator.
 
 ## Phases
@@ -32,6 +34,7 @@ Code implementation is delegated to Codex per the project workflow; Claude is pl
 - [x] **Phase 47: Case Precedent Repositioning and Closed-Case Candidate Generation** - Re-scope `case_memories` as reviewed precedent and add closed-case candidate generation from CWC into governed review flow (MEM-04). Plan progress: 4/4 complete.
 - [x] **Phase 48: Narrow Long-Term Explicit Preference Memory** - Re-scope `long_term_memories` to explicit tenant preference memory only, without generic automatic run summarization (MEM-05). Plan progress: 4/4 complete.
 - [x] **Phase 48.1: Memory Context Compatibility Debt Cleanup (INSERTED)** - Migrate active memory-context readers and case-link reads to canonical surfaces while recording remaining legacy names as explicit deferred compatibility debt. Plan progress: 4/4 complete.
+- [ ] **Phase 49: Investigate Bounded ReAct Loop Migration** - Migrate `investigate` from legacy deterministic main planning to the bounded read-only ReAct loop defined in `contract-spec.md` §9.4, with ToolPlatform-only dispatch, 8-tool allowlist coverage, loop-local discovered slots, deterministic fallback, projection boundary, trace/replay iteration semantics, and no changes to intent/memory/risk/approval/action contracts (GAD-01-IMPL). Plan progress: 0/4 complete.
 
 ## Phase Details
 
@@ -98,6 +101,7 @@ Plans:
 | 47. Case Precedent Repositioning and Closed-Case Candidate Generation | 4/4 | Complete    | 2026-07-03 |
 | 48. Narrow Long-Term Explicit Preference Memory | 4/4 | Complete    | 2026-07-04 |
 | 48.1. Memory Context Compatibility Debt Cleanup | 4/4 | Complete | 2026-07-04 |
+| 49. Investigate Bounded ReAct Loop Migration | 0/4 | Planned; plans drafted | 2026-07-04 |
 
 ### Phase 40: Tool Contract Validation Hardening
 
@@ -290,3 +294,25 @@ Plans:
 - [x] 48.1-02-PLAN.md — make routing, working-state projection, and prompt/session helper reads canonical-first on `session_context` / `session_context_bundle`.
 - [x] 48.1-03-PLAN.md — add canonical `needs_reviewed_memory_context` routing hint while keeping `needs_long_term_memory` as an alias and preserving graph node names.
 - [x] 48.1-04-PLAN.md — add static guards, update architecture-debt status, and run the final Phase 48.1 validation gate.
+
+### Phase 49: Investigate Bounded ReAct Loop Migration
+
+**Goal:** Migrate `src/agent/nodes/investigate.py` from legacy deterministic `plan_next_step` as the main controller to a bounded read-only ReAct loop matching `docs/contract-spec.md` §9.4. The loop uses LLM structured planning, one planner-selected read/retrieval tool per iteration, `ToolPlatform.invoke(...)` as the only graph-facing dispatch path, projected observations only, loop-local discovered slots, deterministic fallback for invalid/unavailable planner paths, and §9.4 / §17.2 termination and trace semantics without changing intent, memory, risk, approval, action, or `contract-spec.md` contracts.
+**Requirements**: GAD-01-IMPL
+**Depends on:** Phase 48.1
+**Plans:** 4 plans
+**Success Criteria** (what must be TRUE):
+  1. The main investigate control path calls an LLM structured planner that validates exactly `{next_tool, args, reason}` or `{stop, stop_reason}`; invalid JSON/schema, invalid tool, write tool, invalid args, timeout, or unavailable planner falls back to the deterministic `plan_next_step` safety net or fails closed without dispatching unsafe tools.
+  2. The investigate planner allowlist covers all eight §12.4 read/retrieval tools: `get_order`, `get_refund_case`, `get_ticket`, `get_logistics`, `get_merchant_risk`, `search_policy`, `search_sop`, and `search_case_memory`. Write tools are never visible to or executable from `investigate`.
+  3. Tool dispatch remains exclusively through `ToolPlatform.invoke(...)`; no direct calls to business, knowledge, memory, repository, risk, approval, or action executor APIs are introduced in `investigate`.
+  4. observation→slot回流 is loop-local scratchpad only: discovered identifiers may inform later iterations in the same investigate loop but are never written to `state["active_slots"]`, `extracted_slots`, `candidate_slots`, memory state, field registry, or `contract-spec.md`.
+  5. `max_iterations`, `deadline_at`, and `max_attempts` are enforced; `termination_reason` is one of `enough_evidence`, `no_more_useful_tools`, `max_iterations_reached`, or `unrecoverable_error`; max-iteration truncation keeps lifecycle completed and does not force `retrieval_status` to insufficient.
+  6. Planner-visible observations use `ToolResultProjector` / equivalent projected summaries only. Raw tool payloads, prompt-injection text, secrets, debug blobs, PII, policy bodies, and raw adapter data do not enter planner context.
+  7. Each loop tool/RAG call emits a distinct trace event with `iteration`; replay can distinguish multiple tool operations under one investigate node operation without changing event schema.
+  8. The phase proves no regression to Phase 43 intent behavior, Phase 44-48 memory/CWC/reviewed/long-term lifecycle behavior, `active_slots` ownership, risk/approval/action fail-closed behavior, and `evidence_refs` writer ownership.
+
+Plans:
+- [ ] 49-01-PLAN.md — planner schema, validation, allowlist guard, and deterministic fallback shell.
+- [ ] 49-02-PLAN.md — bounded loop runtime and loop-local discovered slot scratchpad.
+- [ ] 49-03-PLAN.md — 8-tool coverage, projection boundary, and trace/replay metadata.
+- [ ] 49-04-PLAN.md — graph-level safety regression, docs/debt closeout, and final validation.
