@@ -174,8 +174,8 @@ def test_memory_contract_boundary_tests_are_present() -> None:
     assert "test_reviewed_memory_cannot_satisfy_policy_evidence_or_action_authority" in memory_authority_tests
     assert "test_contextual_only_memory_refs_do_not_become_evidence_ref_v1_or_business_authority" in memory_authority_tests
     assert "test_trusted_session_memory_rejects_wrong_tenant_user_thread_expired_and_incompatible" in required_slots_tests
-    assert "test_current_business_object_long_term_candidate_requires_review" in long_term_tests
-    assert "test_llm_candidate_requires_review" in long_term_tests
+    assert "test_current_business_object_long_term_candidate_is_skipped" in long_term_tests
+    assert "test_llm_candidate_is_skipped" in long_term_tests
     assert "test_case_memory_tombstone_blocks_writes_by_content_hash_and_source_identity" in case_memory_tests
     assert "test_delayed_rewrite_separate_session_blocks_by_source_identity" in tombstone_tests
     assert "test_case_memory_only_explicit_review_sources_auto_publish" in memory_policy_tests
