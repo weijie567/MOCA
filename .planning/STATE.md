@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
-status: planning
-stopped_at: Phase 48 planned; ready to execute
-last_updated: "2026-07-03T17:15:10.300Z"
-last_activity: 2026-07-03
+status: executing
+stopped_at: Phase 48 plan 48-01 complete; executing 48-02
+last_updated: "2026-07-04T08:06:09+08:00"
+last_activity: 2026-07-04
 progress:
   total_phases: 12
   completed_phases: 11
   total_plans: 37
-  completed_plans: 33
-  percent: 89
+  completed_plans: 34
+  percent: 91
 ---
 
 # Project State: MOCA
@@ -21,7 +21,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-03)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v2.1 Core Subsystem Hardening — Phase 47 case precedent repositioning complete; Phase 48 explicit preference memory planned and ready to execute.
+**Current focus:** v2.1 Core Subsystem Hardening — executing Phase 48 explicit preference long-term memory, continuing with 48-02 source policy and semantic episode narrowing.
 
 ## Rescope note (2026-07-02)
 
@@ -31,12 +31,12 @@ See: `.planning/PROJECT.md` (updated 2026-07-03)
 ## Current Position
 
 Phase: 48
-Plan: 48-01 next
-Status: Ready to execute
-Last activity: 2026-07-03
-Next: Execute Phase 48.
+Plan: 48-02 in progress
+Status: Executing
+Last activity: 2026-07-04
+Next: Complete 48-02, then continue 48-03.
 
-Progress: [█████████░] 89%
+Progress: [█████████░] 91%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -67,7 +67,7 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | 45. Memory Lifecycle Wiring for Case Working Context (MEM-01, MEM-02) | 4/4 | Complete |
 | 46. Session Context Repositioning (MEM-03) | 3/3 | Complete |
 | 47. Case Precedent Repositioning and Closed-Case Candidate Generation (MEM-04) | 4/4 | Complete |
-| 48. Narrow Long-Term Explicit Preference Memory (MEM-05) | 0/4 | Planned; ready to execute |
+| 48. Narrow Long-Term Explicit Preference Memory (MEM-05) | 1/4 | Executing |
 
 Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review. Phase 40 closes the source-confirmed validation/backstop gaps intentionally deferred or left advisory after Phase 38/39. Phase 41 then handles the explicit breaking cleanup/API decision to remove the `UnifiedToolManager` legacy compatibility adapter.
 
@@ -118,6 +118,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 | Phase 47 P02 | 11 min | 2 tasks | 6 files |
 | Phase 47 P03 | 21 min | 3 tasks | 5 files |
 | Phase 47 P04 | 19 min | 2 tasks | 11 files |
+| Phase 48 P01 | 20 min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -184,6 +185,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - Phase 47 Plan 04 keeps closed-case candidate source identity in source_ref_json.business_object_type/business_object_id while reusable retrieval uses CaseMemory.scope_type/scope_id.
 - Phase 47 Plan 04 records DEFER-2 delivered by Phase 47 and preserves DEFER-3 as Phase 48 explicit preference memory scope.
 - Phase 48 planning split MEM-05 into four serial plans: contract/docs/static locks, source policy and semantic-episode narrowing, explicit chat/admin preference writes, and retrieval/review/correction/final validation.
+- Phase 48 Plan 01 completed the target contract/static lock: published long-term memory is explicit preference-only, allowed published source types are `explicit_user_preference`, `explicit_admin_preference`, and `human_reviewed`, and `memory_type='long_term_fact'` is legacy storage identity only.
 
 ### Roadmap Evolution
 
@@ -230,12 +232,12 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 ## Session Continuity
 
 Last session: 2026-07-03T17:15:10.300Z
-Stopped at: Phase 48 planned; ready to execute
-Resume file: .planning/phases/48-narrow-long-term-explicit-preference-memory/48-01-PLAN.md
-Next: Execute Phase 48.
+Stopped at: Phase 48 plan 48-01 complete; executing 48-02
+Resume file: .planning/phases/48-narrow-long-term-explicit-preference-memory/48-02-PLAN.md
+Next: Complete 48-02, then continue 48-03.
 
-Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with security, UAT, validation, and clean review complete; Phase 46 session context repositioning complete with MEM-03 validated; Phase 47 complete with 47-01 contract/source-policy foundation, 47-02 trusted closed-case projection seam, 47-03 governed case-memory write lifecycle, and 47-04 retrieval/docs/validation closeout; Phase 48 planning complete with 4 serial plans and GSD structure validation passed.
-Next roadmap item: Execute Phase 48 narrow explicit preference memory.
+Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with security, UAT, validation, and clean review complete; Phase 46 session context repositioning complete with MEM-03 validated; Phase 47 complete with 47-01 contract/source-policy foundation, 47-02 trusted closed-case projection seam, 47-03 governed case-memory write lifecycle, and 47-04 retrieval/docs/validation closeout; Phase 48 plan 48-01 complete with explicit preference-only contract/static guards passing.
+Next roadmap item: Continue Phase 48 plan 48-02 source policy and semantic episode narrowing.
 
 **Completed Phase:** 47 (Case Precedent Repositioning and Closed-Case Candidate Generation) — 4/4 plans — 2026-07-03
 

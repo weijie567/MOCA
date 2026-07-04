@@ -12154,3 +12154,89 @@ rg -n -- 'legacy storage/table identity|does_not_semantically_infer|Chinese expl
 
 - `.planning/phases/48-narrow-long-term-explicit-preference-memory/48-03-PLAN.md`
 - shell quoting for `rg` patterns containing Markdown backticks
+
+## 2026-07-04 — Phase 48 execute-phase `state.begin-phase` named args 再次误写 STATE
+
+### 问题现象
+
+启动 Phase 48 执行时按 workflow 文档调用 `gsd-sdk query state.begin-phase --phase 48 --name "Narrow Long-Term Explicit Preference Memory" --plans 4`，SDK 返回成功样式 JSON，但将 flag token 当作 positional 参数解析，并把 `.planning/STATE.md` 正文字段写成 `Phase --phase`、`Plan: 1 of --name`、`Current focus: Phase --phase — 48`。
+
+### 如何检测 / 复现
+
+在仓库根目录执行：
+
+```bash
+gsd-sdk query state.begin-phase --phase 48 --name "Narrow Long-Term Explicit Preference Memory" --plans 4
+rg -n "Phase --phase|1 of --name|Current focus" .planning/STATE.md
+```
+
+### 关键证据或命令
+
+命令返回：
+
+```json
+{
+  "phase": "--phase",
+  "name": "48",
+  "plan_count": "--name"
+}
+```
+
+随后 `.planning/STATE.md` 出现 `Current focus: Phase --phase — 48`、`Phase: --phase (48) — EXECUTING`、`Plan: 1 of --name`。
+
+### 当前判断 / 根因
+
+这是已知 GSD SDK handler 与 execute-phase workflow 文档调用形式不兼容的再次复现，不是 Phase 48 产品代码或 plan 内容问题。当前 handler 仍按位置参数消费 argv，named args 会被写入业务字段。
+
+### 已做处理
+
+已手动修复 `.planning/STATE.md` 为 Phase 48 正确执行态：`Plan: 48-01 in progress`、`Status: Executing`、Phase 48 表格状态为 `Executing`。本轮后续不再信任 `state.begin-phase` named args 自动写入结果。
+
+### 剩余问题
+
+无 Phase 48 执行阻塞。GSD SDK / workflow 文档仍需后续修复或统一参数约定。
+
+### 下次继续排查入口
+
+- `gsd-sdk query state.begin-phase`
+- `$HOME/.codex/get-shit-done/workflows/execute-phase.md`
+- `.planning/STATE.md`
+
+## 2026-07-04 — Phase 48 静态表身份保护测试误报 plan 元描述
+
+### 问题现象
+
+新增 `tests/memory/test_phase48_long_term_preference_alignment.py` 后，首次运行 Phase 48 contract/static guard 测试时，`test_phase48_preserves_memory_storage_identity` 失败。失败不是发现真实 destructive migration，而是把 48-01 plan 中描述静态测试规则的元文本误判为风险语句。
+
+### 如何检测 / 复现
+
+在仓库根目录执行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase48_long_term_preference_alignment.py tests/architecture/test_memory_contract_delta.py -x -q
+```
+
+### 关键证据或命令
+
+失败点为 `test_phase48_preserves_memory_storage_identity`，误报行来自 `48-01-PLAN.md` 中 “Unsafe imperative matches should include `drop_table`, `rename_table`, `drop_column`, `rename_column`, `DROP TABLE`, `ALTER TABLE ... RENAME`.” 这类测试设计说明。
+
+### 当前判断 / 根因
+
+静态保护测试需要扫描 Phase 48 plan prose，避免计划中出现对 `long_term_memories`、`case_memories`、`session_memories` 等表的破坏性迁移指令。但第一版过滤规则只跳过 prohibition/保留语义，没有跳过测试规则本身对 unsafe pattern 的枚举说明，导致 meta text false positive。
+
+### 已做处理
+
+已在 `_planning_prose_lines` 的跳过 marker 中加入 `unsafe imperative matches`，让静态检查继续覆盖真实 plan 指令，同时不把测试规则说明当成执行指令。重跑通过：
+
+```text
+11 passed, 1 warning in 0.04s
+```
+
+### 剩余问题
+
+无阻塞。该静态测试后续如继续扩展 forbidden pattern，需要同步确认元描述不会被扫描成执行指令。
+
+### 下次继续排查入口
+
+- `tests/memory/test_phase48_long_term_preference_alignment.py`
+- `.planning/phases/48-narrow-long-term-explicit-preference-memory/48-01-PLAN.md`
