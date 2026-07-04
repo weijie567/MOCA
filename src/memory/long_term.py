@@ -118,6 +118,28 @@ class LongTermMemoryService:
                 event_id=event.id,
             )
 
+        if candidate.memory_kind != "preference":
+            return await _emit_skipped_candidate_result(
+                self.repository,
+                candidate=candidate,
+                run_id=candidate.run_id,
+                identity=identity,
+                policy_decision=policy_decision,
+                reason_code="not_preference_memory_kind",
+                blocked_by=["memory_kind"],
+            )
+
+        if policy_decision.decision == "skip":
+            return await _emit_skipped_candidate_result(
+                self.repository,
+                candidate=candidate,
+                run_id=candidate.run_id,
+                identity=identity,
+                policy_decision=policy_decision,
+                reason_code=policy_decision.reason_code,
+                blocked_by=list(policy_decision.blocked_by),
+            )
+
         await self.repository.retire_expired_current_by_content_hash(
             tenant_id=candidate.tenant_id,
             scope_type=candidate.scope_type,
@@ -414,6 +436,28 @@ class LongTermMemoryService:
                 event_id=event.id,
             )
 
+        if replacement_candidate.memory_kind != "preference":
+            return await _emit_skipped_candidate_result(
+                self.repository,
+                candidate=replacement_candidate,
+                run_id=run_id,
+                identity=identity,
+                policy_decision=policy_decision,
+                reason_code="not_preference_memory_kind",
+                blocked_by=["memory_kind"],
+            )
+
+        if policy_decision.decision == "skip":
+            return await _emit_skipped_candidate_result(
+                self.repository,
+                candidate=replacement_candidate,
+                run_id=run_id,
+                identity=identity,
+                policy_decision=policy_decision,
+                reason_code=policy_decision.reason_code,
+                blocked_by=list(policy_decision.blocked_by),
+            )
+
         if _is_expired(replacement_candidate.expires_at, now):
             event = await self.repository.emit_write_event(
                 tenant_id=replacement_candidate.tenant_id,
@@ -508,6 +552,44 @@ def _policy_event_kwargs(policy_decision) -> dict[str, Any]:
         "blocked_by": list(policy_decision.blocked_by),
         "authority_class": policy_decision.authority_class,
     }
+
+
+async def _emit_skipped_candidate_result(
+    repository: LongTermMemoryRepository,
+    *,
+    candidate: LongTermMemoryWriteCandidate,
+    run_id,
+    identity: dict[str, Any],
+    policy_decision,
+    reason_code: str,
+    blocked_by: list[str],
+) -> LongTermMemoryWriteResult:
+    event = await repository.emit_write_event(
+        tenant_id=candidate.tenant_id,
+        run_id=run_id,
+        memory_type=LONG_TERM_MEMORY_TYPE,
+        memory_id=None,
+        decision="skip",
+        reason_code=reason_code,
+        pii_classification=candidate.pii_classification,
+        candidate_hash=identity["candidate_hash"],
+        source_ref_json=identity["source_ref_json"],
+        policy_version=policy_decision.policy_version,
+        blocked_by=blocked_by,
+        authority_class=policy_decision.authority_class,
+    )
+    return LongTermMemoryWriteResult(
+        status="skipped",
+        memory_id=None,
+        review_status=None,
+        decision="skip",
+        reason_code=reason_code,
+        pii_classification=candidate.pii_classification,
+        candidate_hash=identity["candidate_hash"],
+        content_hash=identity["content_hash"],
+        source_identity_hash=identity["source_identity_hash"],
+        event_id=event.id,
+    )
 
 
 def _candidate_identity(candidate: LongTermMemoryWriteCandidate) -> dict[str, Any]:

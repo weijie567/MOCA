@@ -29,43 +29,26 @@ class MemoryPolicyDecision(BaseModel):
 
 PROMPT_SAFE_PII_CLASSIFICATIONS = frozenset({"none", "low"})
 BLOCKED_MEMORY_WRITE_PII_CLASSIFICATIONS = frozenset({"sensitive", "prohibited"})
-AUTO_APPROVED_LONG_TERM_SOURCE_TYPES = frozenset(
+PUBLISHED_LONG_TERM_SOURCE_TYPES = frozenset(
     {
         "explicit_user_preference",
         "explicit_admin_preference",
         "human_reviewed",
-        "deterministic_tool_result",
-        "confirmed_business_outcome",
-        "approved_approval_state",
     }
 )
-AUTO_APPROVED_DURABLE_LONG_TERM_SOURCE_TYPES = frozenset(
-    {
-        "deterministic_tool_result",
-        "confirmed_business_outcome",
-        "approved_approval_state",
-    }
-)
+AUTO_APPROVED_LONG_TERM_SOURCE_TYPES = PUBLISHED_LONG_TERM_SOURCE_TYPES
 REVIEW_REQUIRED_LONG_TERM_SOURCE_TYPES = frozenset(
+    {"semantic_episode_candidate"}
+)
+DISALLOWED_LONG_TERM_SOURCE_TYPES = frozenset(
     {
+        "deterministic_tool_result",
+        "confirmed_business_outcome",
+        "approved_approval_state",
         "llm_candidate",
-        "semantic_episode_candidate",
         "summary_candidate",
         "cross_case_pattern_candidate",
         "behavior_inference",
-    }
-)
-CURRENT_BUSINESS_OBJECT_TYPES = frozenset(
-    {
-        "order",
-        "refund",
-        "refund_case",
-        "ticket",
-        "logistics",
-        "approval",
-        "action",
-        "coupon",
-        "payment",
     }
 )
 AUTO_APPROVED_CASE_SOURCE_TYPES = frozenset(
@@ -120,6 +103,7 @@ def long_term_memory_policy_decision(
     *,
     pii_classification: str | None = None,
 ) -> MemoryPolicyDecision:
+    del source_ref
     if is_blocked_memory_write_pii_classification(pii_classification):
         return MemoryPolicyDecision(
             memory_type="long_term",
@@ -129,14 +113,7 @@ def long_term_memory_policy_decision(
             blocked_by=["pii_classification"],
         )
 
-    if source_type in AUTO_APPROVED_DURABLE_LONG_TERM_SOURCE_TYPES:
-        business_object_type = _source_ref_business_object_type(source_ref)
-        if business_object_type is None:
-            return _needs_review("long_term", blocked_by=["missing_business_object_metadata"])
-        if business_object_type in CURRENT_BUSINESS_OBJECT_TYPES:
-            return _needs_review("long_term", blocked_by=["current_business_object_state"])
-
-    if source_type in AUTO_APPROVED_LONG_TERM_SOURCE_TYPES:
+    if source_type in PUBLISHED_LONG_TERM_SOURCE_TYPES:
         return MemoryPolicyDecision(
             memory_type="long_term",
             decision="write",
@@ -145,7 +122,13 @@ def long_term_memory_policy_decision(
         )
     if source_type in REVIEW_REQUIRED_LONG_TERM_SOURCE_TYPES:
         return _needs_review("long_term", blocked_by=["source_requires_review"])
-    return _needs_review("long_term", blocked_by=["unknown_source_type"])
+    return MemoryPolicyDecision(
+        memory_type="long_term",
+        decision="skip",
+        review_status=None,
+        reason_code="source_type_not_allowed",
+        blocked_by=["source_type_not_allowed"],
+    )
 
 
 def case_memory_policy_decision(
@@ -191,13 +174,3 @@ def _needs_review(memory_type: MemoryPolicyMemoryType, *, blocked_by: list[str])
         reason_code="requires_review",
         blocked_by=blocked_by,
     )
-
-
-def _source_ref_business_object_type(source_ref: Any | None) -> str | None:
-    if source_ref is None:
-        return None
-    if isinstance(source_ref, dict):
-        value = source_ref.get("business_object_type")
-    else:
-        value = getattr(source_ref, "business_object_type", None)
-    return str(value) if value else None

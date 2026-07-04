@@ -8,7 +8,9 @@ import pytest
 from src.memory.case_memory import CaseMemoryService
 from src.memory.policy import (
     AUTO_APPROVED_CASE_SOURCE_TYPES,
+    DISALLOWED_LONG_TERM_SOURCE_TYPES,
     MEMORY_POLICY_VERSION,
+    PUBLISHED_LONG_TERM_SOURCE_TYPES,
     REVIEW_REQUIRED_CASE_SOURCE_TYPES,
     case_memory_policy_decision,
     case_memory_review_status_for_source,
@@ -16,50 +18,41 @@ from src.memory.policy import (
     long_term_review_status_for_source,
     session_memory_policy_decision,
 )
-from src.memory.schemas import CaseMemoryWriteCandidate, MemorySourceRefV1
+from src.memory.schemas import CaseMemoryWriteCandidate, LongTermMemoryWriteCandidate
 
 
-def test_long_term_durable_source_requires_business_object_metadata() -> None:
-    assert long_term_review_status_for_source("deterministic_tool_result") == "needs_review"
-    assert (
-        long_term_review_status_for_source(
-            "deterministic_tool_result",
-            MemorySourceRefV1(
-                source_type="deterministic_tool_result",
-                business_object_type="order",
-                business_object_id="ORD-1001",
-            ),
-        )
-        == "needs_review"
+def test_long_term_only_explicit_preference_sources_auto_publish() -> None:
+    assert PUBLISHED_LONG_TERM_SOURCE_TYPES == frozenset(
+        {"explicit_user_preference", "explicit_admin_preference", "human_reviewed"}
     )
-    assert (
-        long_term_review_status_for_source(
-            "deterministic_tool_result",
-            MemorySourceRefV1(
-                source_type="deterministic_tool_result",
-                business_object_type="merchant",
-                business_object_id="merchant-1",
-            ),
-        )
-        == "auto_approved"
-    )
+
+    for source_type in PUBLISHED_LONG_TERM_SOURCE_TYPES:
+        decision = long_term_memory_policy_decision(source_type)
+        assert decision.decision == "write"
+        assert decision.review_status == "auto_approved"
+        assert decision.reason_code == "auto_approved_source"
+
+    semantic_decision = long_term_memory_policy_decision("semantic_episode_candidate")
+    assert semantic_decision.decision == "needs_review"
+    assert semantic_decision.review_status == "needs_review"
+    assert semantic_decision.blocked_by == ["source_requires_review"]
+
+    for source_type in DISALLOWED_LONG_TERM_SOURCE_TYPES:
+        decision = long_term_memory_policy_decision(source_type)
+        assert decision.decision == "skip"
+        assert decision.review_status is None
+        assert decision.reason_code == "source_type_not_allowed"
+        assert decision.blocked_by == ["source_type_not_allowed"]
 
 
 def test_memory_policy_decision_is_auditable_for_long_term_sources() -> None:
-    decision = long_term_memory_policy_decision(
-        "deterministic_tool_result",
-        MemorySourceRefV1(
-            source_type="deterministic_tool_result",
-            business_object_type="order",
-            business_object_id="ORD-1001",
-        ),
-    )
+    decision = long_term_memory_policy_decision("semantic_episode_candidate")
 
     assert decision.decision == "needs_review"
     assert decision.review_status == "needs_review"
     assert decision.reason_code == "requires_review"
     assert decision.policy_version == MEMORY_POLICY_VERSION
-    assert decision.blocked_by == ["current_business_object_state"]
+    assert decision.blocked_by == ["source_requires_review"]
     assert decision.authority_class == "contextual_only"
 
 
@@ -73,9 +66,24 @@ def test_memory_policy_decision_blocks_sensitive_pii_before_write() -> None:
     assert decision.blocked_by == ["pii_classification"]
 
 
-def test_long_term_llm_candidate_requires_review() -> None:
-    assert long_term_review_status_for_source("llm_candidate") == "needs_review"
+def test_long_term_non_semantic_automatic_candidates_are_not_allowed() -> None:
+    assert long_term_memory_policy_decision("llm_candidate").decision == "skip"
+    assert long_term_memory_policy_decision("summary_candidate").reason_code == "source_type_not_allowed"
+    assert long_term_memory_policy_decision("deterministic_tool_result").decision == "skip"
     assert long_term_review_status_for_source("semantic_episode_candidate") == "needs_review"
+
+
+def test_long_term_write_candidate_defaults_to_preference_kind() -> None:
+    candidate = LongTermMemoryWriteCandidate(
+        tenant_id=uuid.uuid4(),
+        run_id=uuid.uuid4(),
+        scope_type="merchant",
+        scope_id="merchant-1",
+        content="Merchant prefers concise refund summaries.",
+        source_type="explicit_user_preference",
+    )
+
+    assert candidate.memory_kind == "preference"
 
 
 def test_case_memory_only_explicit_review_sources_auto_publish() -> None:

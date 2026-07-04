@@ -100,7 +100,7 @@ class _FakeLongTermRepository:
 
 
 @pytest.mark.asyncio
-async def test_current_business_object_write_policy_requires_review_without_database() -> None:
+async def test_non_preference_memory_kind_is_skipped_before_insert_without_database() -> None:
     repository = _FakeLongTermRepository()
     service = LongTermMemoryService(repository)  # type: ignore[arg-type]
     tenant_id = uuid.uuid4()
@@ -124,23 +124,21 @@ async def test_current_business_object_write_policy_requires_review_without_data
 
     result = await service.write_memory(candidate)
 
-    assert result.status == "needs_review"
-    assert result.review_status == "needs_review"
-    assert result.decision == "needs_review"
-    assert result.reason_code == "requires_review"
-    assert repository.insert_kwargs is not None
-    assert repository.insert_kwargs["review_status"] == "needs_review"
-    assert repository.insert_kwargs["is_current"] is False
+    assert result.status == "skipped"
+    assert result.review_status is None
+    assert result.decision == "skip"
+    assert result.reason_code == "not_preference_memory_kind"
+    assert repository.insert_kwargs is None
     assert repository.event_kwargs is not None
-    assert repository.event_kwargs["decision"] == "needs_review"
-    assert repository.event_kwargs["reason_code"] == "requires_review"
+    assert repository.event_kwargs["decision"] == "skip"
+    assert repository.event_kwargs["reason_code"] == "not_preference_memory_kind"
     assert repository.event_kwargs["policy_version"] == "memory_write_policy.v1"
-    assert repository.event_kwargs["blocked_by"] == ["current_business_object_state"]
+    assert repository.event_kwargs["blocked_by"] == ["memory_kind"]
     assert repository.event_kwargs["authority_class"] == "contextual_only"
 
 
 @pytest.mark.asyncio
-async def test_deterministic_source_without_business_object_metadata_requires_review_without_database() -> None:
+async def test_disallowed_source_type_is_skipped_before_insert_without_database() -> None:
     repository = _FakeLongTermRepository()
     service = LongTermMemoryService(repository)  # type: ignore[arg-type]
     tenant_id = uuid.uuid4()
@@ -159,10 +157,14 @@ async def test_deterministic_source_without_business_object_metadata_requires_re
 
     result = await service.write_memory(candidate)
 
-    assert result.status == "needs_review"
-    assert result.review_status == "needs_review"
-    assert repository.insert_kwargs is not None
-    assert repository.insert_kwargs["is_current"] is False
+    assert result.status == "skipped"
+    assert result.review_status is None
+    assert result.reason_code == "source_type_not_allowed"
+    assert repository.insert_kwargs is None
+    assert repository.event_kwargs is not None
+    assert repository.event_kwargs["decision"] == "skip"
+    assert repository.event_kwargs["reason_code"] == "source_type_not_allowed"
+    assert repository.event_kwargs["blocked_by"] == ["source_type_not_allowed"]
 
 
 @pytest.mark.asyncio
@@ -285,7 +287,7 @@ async def test_expired_current_long_term_memory_does_not_block_fresh_same_conten
 
 
 @pytest.mark.asyncio
-async def test_deterministic_durable_source_auto_approves(session: AsyncSession, seeded_session: dict) -> None:
+async def test_deterministic_durable_source_is_skipped(session: AsyncSession, seeded_session: dict) -> None:
     run_id = await _insert_run(session, seeded_session)
     service = LongTermMemoryService(LongTermMemoryRepository(session))
 
@@ -299,11 +301,26 @@ async def test_deterministic_durable_source_auto_approves(session: AsyncSession,
         )
     )
 
-    row = await session.get(LongTermMemory, result.memory_id)
-    assert result.status == "written"
-    assert result.review_status == "auto_approved"
-    assert row is not None
-    assert row.review_status == "auto_approved"
+    rows = (
+        (
+            await session.execute(
+                select(LongTermMemory).where(
+                    LongTermMemory.tenant_id == seeded_session["tenant"].id,
+                    LongTermMemory.source_type == "deterministic_tool_result",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    events = await _events(session, run_id)
+
+    assert result.status == "skipped"
+    assert result.review_status is None
+    assert result.reason_code == "source_type_not_allowed"
+    assert rows == []
+    assert events[-1].decision == "skip"
+    assert events[-1].reason_code == "source_type_not_allowed"
 
 
 @pytest.mark.asyncio
@@ -315,7 +332,7 @@ async def test_deterministic_durable_source_auto_approves(session: AsyncSession,
         ("approved_approval_state", "refund_case"),
     ],
 )
-async def test_current_business_object_long_term_candidate_requires_review(
+async def test_current_business_object_long_term_candidate_is_skipped(
     session: AsyncSession,
     seeded_session: dict,
     source_type: str,
@@ -339,23 +356,19 @@ async def test_current_business_object_long_term_candidate_requires_review(
         scope_id=candidate.scope_id,
     )
 
-    row = await session.get(LongTermMemory, result.memory_id)
     events = await _events(session, run_id)
-    assert result.status == "needs_review"
-    assert result.review_status == "needs_review"
-    assert result.decision == "needs_review"
-    assert result.reason_code == "requires_review"
-    assert row is not None
-    assert row.review_status == "needs_review"
-    assert row.is_current is False
-    assert row.source_ref_json["business_object_type"] == business_object_type
+    assert result.status == "skipped"
+    assert result.review_status is None
+    assert result.decision == "skip"
+    assert result.reason_code == "source_type_not_allowed"
+    assert result.memory_id is None
     assert retrieved == []
-    assert events[-1].decision == "needs_review"
-    assert events[-1].reason_code == "requires_review"
+    assert events[-1].decision == "skip"
+    assert events[-1].reason_code == "source_type_not_allowed"
 
 
 @pytest.mark.asyncio
-async def test_llm_candidate_requires_review(session: AsyncSession, seeded_session: dict) -> None:
+async def test_llm_candidate_is_skipped(session: AsyncSession, seeded_session: dict) -> None:
     run_id = await _insert_run(session, seeded_session)
     service = LongTermMemoryService(LongTermMemoryRepository(session))
     candidate = _candidate(
@@ -372,15 +385,14 @@ async def test_llm_candidate_requires_review(session: AsyncSession, seeded_sessi
         scope_id=candidate.scope_id,
     )
 
-    row = await session.get(LongTermMemory, result.memory_id)
     events = await _events(session, run_id)
-    assert result.status == "needs_review"
-    assert result.review_status == "needs_review"
-    assert row is not None
-    assert row.review_status == "needs_review"
-    assert row.is_current is False
+    assert result.status == "skipped"
+    assert result.review_status is None
+    assert result.reason_code == "source_type_not_allowed"
+    assert result.memory_id is None
     assert retrieved == []
-    assert events[-1].decision == "needs_review"
+    assert events[-1].decision == "skip"
+    assert events[-1].reason_code == "source_type_not_allowed"
 
 
 @pytest.mark.asyncio
@@ -395,7 +407,7 @@ async def test_pending_long_term_candidate_does_not_block_later_auto_approved_sa
         seeded_session,
         run_id=pending_run_id,
         content=content,
-        source_type="llm_candidate",
+        source_type="semantic_episode_candidate",
     )
     pending_result = await service.write_memory(pending_candidate)
 
@@ -478,7 +490,7 @@ async def test_review_and_delete_paths_are_evented(session: AsyncSession, seeded
             seeded_session,
             run_id=run_id,
             content="Model candidate waiting for approval.",
-            source_type="llm_candidate",
+            source_type="semantic_episode_candidate",
         )
     )
     second_result = await service.write_memory(
@@ -486,7 +498,7 @@ async def test_review_and_delete_paths_are_evented(session: AsyncSession, seeded
             seeded_session,
             run_id=run_id,
             content="Model candidate waiting for rejection.",
-            source_type="summary_candidate",
+            source_type="semantic_episode_candidate",
         )
     )
 
@@ -556,7 +568,7 @@ async def test_long_term_review_actions_require_needs_review_active_state(
             seeded_session,
             run_id=run_id,
             content="Model candidate that will be rejected.",
-            source_type="llm_candidate",
+            source_type="semantic_episode_candidate",
         )
     )
     await service.reject_memory(
@@ -719,7 +731,7 @@ async def test_review_required_supersede_keeps_previous_memory_current_until_app
         seeded_session,
         run_id=replacement_run_id,
         content="Model-suggested replacement pending review.",
-        source_type="llm_candidate",
+        source_type="semantic_episode_candidate",
     )
 
     result = await service.supersede_memory(
@@ -784,7 +796,7 @@ async def test_expired_pending_supersede_cannot_be_approved_and_keeps_previous_c
         seeded_session,
         run_id=replacement_run_id,
         content="Pending replacement that expires before approval.",
-        source_type="llm_candidate",
+        source_type="semantic_episode_candidate",
         expires_at=now + timedelta(seconds=1),
     )
 

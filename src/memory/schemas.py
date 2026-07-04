@@ -282,7 +282,7 @@ class LongTermMemoryWriteCandidate(BaseModel):
     run_id: uuid.UUID
     scope_type: LongTermScopeType
     scope_id: str = Field(min_length=1, max_length=128)
-    memory_kind: LongTermMemoryKind = "fact"
+    memory_kind: LongTermMemoryKind = "preference"
     content: str = Field(min_length=1, max_length=4000)
     source_type: LongTermSourceType
     source_ref: MemorySourceRefV1 | None = None
