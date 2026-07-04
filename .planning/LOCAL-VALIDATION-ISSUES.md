@@ -12240,3 +12240,45 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase48_long_term_pre
 
 - `tests/memory/test_phase48_long_term_preference_alignment.py`
 - `.planning/phases/48-narrow-long-term-explicit-preference-memory/48-01-PLAN.md`
+
+## 2026-07-04 — Phase 48-03 memory_write_node tenant-scope 测试断言误读 session projection
+
+### 问题现象
+
+执行 48-03 Task 1 focused tests 时，`test_memory_write_node_never_creates_tenant_scope_from_chat_preference` 失败。失败点不是产品代码生成了 tenant-scoped long-term preference，而是测试对 `result["memory_write_candidates"]` 中所有 projection 都直接读取 `scope_type`，但 session candidate projection 不包含该字段。
+
+### 如何检测 / 复现
+
+在仓库根目录执行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_memory_write_service.py tests/agent/test_memory_write_node.py -x -q
+```
+
+### 关键证据或命令
+
+pytest 输出显示：
+
+```text
+KeyError: 'scope_type'
+tests/agent/test_memory_write_node.py:320
+```
+
+该结果发生在断言 `all(item["scope_type"] != "tenant" for item in result["memory_write_candidates"])` 时；同一测试前面的断言已经确认实际写入的唯一 long-term candidate 是 `scope_type == "merchant"`、`scope_id == "merchant-1"`。
+
+### 当前判断 / 根因
+
+这是测试断言误配。`memory_write_candidates` projection 同时包含 session 与 long_term；session projection 只有 `memory_type`、slot/intent/decision 字段，不应该要求有 `scope_type`。
+
+### 已做处理
+
+已将断言改为先过滤 `memory_type == "long_term"` 的 projection，再检查没有 tenant scope。产品行为未因该失败调整。
+
+### 剩余问题
+
+无阻塞。需要重跑 48-03 Task 1 focused tests 确认通过。
+
+### 下次继续排查入口
+
+- `tests/agent/test_memory_write_node.py::test_memory_write_node_never_creates_tenant_scope_from_chat_preference`
+- `src/agent/nodes/memory_write.py::_candidate_projection`

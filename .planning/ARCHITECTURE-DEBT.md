@@ -256,6 +256,35 @@
 **剩余风险**
 - ⚠️ 48-02 只完成写入 policy/service guard 与 semantic episode candidate narrowing。retrieval 过滤、review approval 发布为 `human_reviewed`、supersede/tombstone 目标语义和 API 错误映射属于 `48-04`。
 
+## Phase 48 Plan 03 — explicit preference 写入口治理 ✅已修复验证
+
+**问题 / 根因**
+- Phase 48 目标允许 chat 中明确「记住偏好」和 admin save 两类显式写入口，但原 `MemoryWriteService.propose_candidates(...)` 只处理 session candidate 与显式 state candidates，没有 deterministic phrase gate、trusted merchant scope 解析或 chat path 的 tenant-scope 防线。
+- 记忆 review API 只有审批/拒绝/删除/forget 操作，没有 admin-only direct save path；tenant-scope long-term preference 若走普通 chat/state path，会扩大影响面且缺少 admin role/scope 边界。
+
+**影响**
+- 如果用 LLM/普通陈述推断偏好，ordinary chat 可能被误写成长期记忆。
+- 如果 tenant-scope preference 不限制 admin-only，商家/客服普通对话可能影响全租户 prompt context。
+- admin 运营调试缺少直接保存 explicit preference 的受控入口，会诱导绕过 service/audit path。
+
+**修复**
+- 新增 `src/memory/preference_capture.py`：只匹配 deterministic explicit phrases（含 `记住这个偏好` / `以后按这个` / `保存这个偏好`），拒绝 hard-rule markers，PII sensitive/prohibited 不创建 chat candidate。
+- `MemoryWriteService.propose_candidates(...)` 接收 `trusted_context`，仅从 trusted merchant scope 解析 merchant preference；chat captured preference 永不返回 tenant/user/thread/case scope；state explicit candidates 不能偷渡 `explicit_admin_preference` 或非 merchant `explicit_user_preference`。
+- `memory_write` node 把 `configurable["trusted_context"]` 传入 write service。
+- 新增 `POST /api/v1/memory/long-term/preferences`，要求 admin role + `memory:write` scope；admin 可保存 merchant scope 与匹配自身 tenant 的 tenant scope，候选仍经 `LongTermMemoryService.write_memory(...)` 的 PII/tombstone/source/audit gates。
+
+**证据**
+- Phase / plan：`48-03`
+- 文件：`src/memory/preference_capture.py`、`src/memory/write_service.py`、`src/agent/nodes/memory_write.py`、`src/api/routers/memory.py`、`src/api/schemas/memory.py`、`src/auth/jwt.py`、`src/auth/permissions.py`、`tests/memory/test_memory_write_service.py`、`tests/agent/test_memory_write_node.py`、`tests/test_memory_review_api.py`
+- 计划依据：`.planning/phases/48-narrow-long-term-explicit-preference-memory/48-03-PLAN.md`
+
+**验证**
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_memory_write_service.py tests/agent/test_memory_write_node.py tests/test_memory_review_api.py tests/memory/test_long_term_memory_service.py -q` → `65 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/memory/preference_capture.py src/memory/write_service.py src/agent/nodes/memory_write.py src/api/routers/memory.py src/api/schemas/memory.py src/auth/jwt.py src/auth/permissions.py tests/memory/test_memory_write_service.py tests/agent/test_memory_write_node.py tests/test_memory_review_api.py` → pass
+
+**剩余风险**
+- ⚠️ 48-03 不完成 retrieval filter、review approval source_type 转 `human_reviewed`、API 非 preference approval 受控错误映射、supersede/tombstone lifecycle 完整验证；这些仍属于 `48-04`。
+
 ## Phase 44 Wave 2 — Case Working Context 身份解析与版本化仓库 ✅⚠️
 
 **问题 / 根因**
