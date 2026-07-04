@@ -7,6 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT_SPEC_PATH = ROOT / "docs" / "contract-spec.md"
 DB_MODELS_PATH = ROOT / "src" / "db" / "models.py"
+SEMANTIC_EPISODE_PATH = ROOT / "src" / "memory" / "semantic_episode.py"
 PHASE48_DIR = ROOT / ".planning" / "phases" / "48-narrow-long-term-explicit-preference-memory"
 
 
@@ -115,6 +116,15 @@ def test_phase48_plans_use_project_pytest_entrypoint() -> None:
         assert snippet.startswith("UV_CACHE_DIR=/tmp/uv-cache uv run pytest"), (path.name, snippet)
 
 
+def test_phase48_semantic_episode_source_mentions_only_preference_candidate_projection() -> None:
+    source = _strip_python_comments(_source(SEMANTIC_EPISODE_PATH))
+    projection_section = _between(source, "_SUMMARY_KEYS", "class SemanticEpisodeCandidate")
+
+    assert "preference_candidate" in projection_section
+    for forbidden in ("cross_case_pattern", "similar_case_hint", "strategy_hint"):
+        assert forbidden not in projection_section
+
+
 def _planning_prose_lines(path: Path) -> list[tuple[int, str]]:
     source = _strip_fenced_code(_strip_excluded_plan_sections(_source(path)))
     lines: list[tuple[int, str]] = []
@@ -148,6 +158,10 @@ def _planning_prose_lines(path: Path) -> list[tuple[int, str]]:
 
 def _strip_fenced_code(source: str) -> str:
     return re.sub(r"```.*?```", "", source, flags=re.DOTALL)
+
+
+def _strip_python_comments(source: str) -> str:
+    return re.sub(r"(?m)^\s*#.*$", "", source)
 
 
 def _strip_excluded_plan_sections(source: str) -> str:

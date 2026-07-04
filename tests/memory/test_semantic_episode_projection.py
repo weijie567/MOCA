@@ -125,6 +125,18 @@ def _project_candidates(summary: ConversationSummary, seeded_session: dict, *, r
     )
 
 
+def _project_payload(payload: dict, seeded_session: dict, *, run_id: uuid.UUID):
+    module = _semantic_episode_module()
+    merchant = seeded_session["merchant"]
+    return module.project_semantic_episode_candidates(
+        tenant_id=merchant.tenant_id,
+        run_id=run_id,
+        scope_type="merchant",
+        scope_id=str(merchant.id),
+        summaries=[type("Summary", (), {"summary_json": {"semantic_episode": payload}, "summary_text": ""})()],
+    )
+
+
 @pytest.mark.asyncio
 async def test_semantic_episode_projection_creates_candidates_only(session: AsyncSession, seeded_session: dict) -> None:
     thread_id = "semantic-episode-candidates-only"
@@ -133,22 +145,37 @@ async def test_semantic_episode_projection_creates_candidates_only(session: Asyn
 
     candidates = _project_candidates(summary, seeded_session, run_id=run_id)
 
-    assert {candidate.kind for candidate in candidates} == {
-        "cross_case_pattern",
-        "similar_case_hint",
-        "strategy_hint",
-        "preference_candidate",
-    }
+    assert {candidate.kind for candidate in candidates} == {"preference_candidate"}
     assert {candidate.source_type for candidate in candidates} == {"semantic_episode_candidate"}
     assert all(candidate.review_status == "needs_review" for candidate in candidates)
     assert all(
         candidate.to_long_term_memory_candidate().source_type == "semantic_episode_candidate"
         for candidate in candidates
     )
+    assert all(candidate.to_long_term_memory_candidate().memory_kind == "preference" for candidate in candidates)
     persisted = await session.scalar(
         select(func.count()).select_from(LongTermMemory).where(LongTermMemory.tenant_id == seeded_session["tenant"].id)
     )
     assert persisted == 0
+
+
+@pytest.mark.asyncio
+async def test_semantic_episode_does_not_project_patterns_strategy_or_similar_cases_to_long_term(
+    session: AsyncSession, seeded_session: dict
+) -> None:
+    run_id = await _insert_run(session, seeded_session, "semantic-episode-no-patterns")
+
+    candidates = _project_payload(
+        {
+            "cross_case_patterns": [{"text": "Repeated refund disputes improve after proof collection."}],
+            "similar_cases": [{"summary": "Similar cases used carrier receipt proof."}],
+            "strategy_hints": [{"hint": "Ask for receipt before drafting compensation."}],
+        },
+        seeded_session,
+        run_id=run_id,
+    )
+
+    assert candidates == []
 
 
 @pytest.mark.asyncio

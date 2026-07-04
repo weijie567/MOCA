@@ -10,7 +10,6 @@ import uuid
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.memory.schemas import (
-    LongTermMemoryKind,
     LongTermMemoryWriteCandidate,
     LongTermPiiClassification,
     LongTermScopeType,
@@ -20,12 +19,7 @@ from src.memory.schemas import (
 
 SEMANTIC_EPISODE_SOURCE_TYPE = "semantic_episode_candidate"
 
-SemanticEpisodeKind = Literal[
-    "cross_case_pattern",
-    "similar_case_hint",
-    "strategy_hint",
-    "preference_candidate",
-]
+SemanticEpisodeKind = Literal["preference_candidate"]
 
 _SOURCE_SUMMARY_LIMIT = 3
 _SOURCE_SUMMARY_CHAR_LIMIT = 280
@@ -43,28 +37,13 @@ _FORBIDDEN_KEY_MARKERS = (
     "snapshot",
 )
 _KIND_FIELDS: dict[SemanticEpisodeKind, tuple[str, ...]] = {
-    "cross_case_pattern": ("text", "pattern", "summary", "content"),
-    "similar_case_hint": ("summary", "text", "case_summary", "content"),
-    "strategy_hint": ("hint", "strategy", "text", "content"),
     "preference_candidate": ("preference", "text", "content"),
 }
 _SUMMARY_KEYS: dict[SemanticEpisodeKind, tuple[str, ...]] = {
-    "cross_case_pattern": ("cross_case_patterns", "cross_case_pattern"),
-    "similar_case_hint": ("similar_cases", "similar_case_hints", "similar_case_hint"),
-    "strategy_hint": ("strategy_hints", "strategy_hint"),
     "preference_candidate": ("preference_candidates", "preferences", "user_behavior_patterns"),
 }
 _CONTENT_PREFIX: dict[SemanticEpisodeKind, str] = {
-    "cross_case_pattern": "Cross-case pattern",
-    "similar_case_hint": "Similar case hint",
-    "strategy_hint": "Strategy hint",
     "preference_candidate": "Preference candidate",
-}
-_MEMORY_KIND: dict[SemanticEpisodeKind, LongTermMemoryKind] = {
-    "cross_case_pattern": "pattern",
-    "similar_case_hint": "pattern",
-    "strategy_hint": "pattern",
-    "preference_candidate": "preference",
 }
 
 
@@ -90,7 +69,7 @@ class SemanticEpisodeCandidate(BaseModel):
             run_id=self.run_id,
             scope_type=self.scope_type,
             scope_id=self.scope_id,
-            memory_kind=_MEMORY_KIND[self.kind],
+            memory_kind="preference",
             content=self.content,
             source_type=self.source_type,
             source_ref=self.source_ref,
