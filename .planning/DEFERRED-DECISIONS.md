@@ -20,12 +20,12 @@
 | --- | --- |
 | ID | GAD-01 |
 | Source requirement | 用户提出"混合 ReAct"：外层确定性 graph，仅在低风险只读节点内允许受控 tool 循环；原则是"只读/调查阶段允许 bounded 自由，一旦触及写动作就强制切回确定性 + 人审" |
-| Conflicting evidence | `docs/contract-spec.md:840-851`（§12.4）当前把只读取证拆成 `business_context_fetch` / `policy_evidence_retrieve` / `case_memory_retrieve` 三个单一职责节点 + deterministic router，未定义节点内 loop；§9/§12 全文无 loop/iteration/bounded 语义（grep 零命中）。spec 既**未要求**也**未明文禁止**节点内 bounded loop。 |
-| Type | UNSUPPORTED_ASSUMPTION（spec 未覆盖的扩展选项；方向已采纳，待提升进 §9） |
-| Recommended handling | **方向已由用户采纳；活跃推进中，待提升进 `docs/contract-spec.md` §9 后实现，当前 spec 尚未改、代码尚未实现。** 范围严格限定在 read-only investigation：`business_context_fetch`、`policy_evidence_retrieve`、`case_memory_retrieve`，以及未来明确标记为 read-only investigation 的工具。**不覆盖**：refund / compensation / ban / unban / close_ticket 等 write tools、`risk_gate`、`approval_gate`、executor、以及 `policy_qa` / fact QA 路径（后者见 GAD-03，本次刻意不并入以免扩大 scope）。 |
-| Readiness impact | NON_BLOCKING（spec 提升前不阻塞其他 phase；Phase 10 plan 前必须先完成 §9 提升） |
-| Owner | Phase 10（routing/slot seam）+ Phase 11（intent），未来实现时为 owner；提升进 spec 时 owner 为 §9/§12 contract owner |
-| Status | PROMOTED @ ad17301 |
+| Conflicting evidence | **【2026-07 复核订正】此前记录的「§9/§12 全文无 loop/iteration/bounded 语义（grep 零命中）、spec 尚未改」已过时。当前 `docs/contract-spec.md` §9.4 已完成 agentic 提升：`investigate` 已定义为单一 registered node，其 bounded-loop 契约（8 条）明文写入——planner 每轮由 LLM 决策 `{next_tool, args, reason}` 或 `{stop, stop_reason}`、经 `ToolPlatform.invoke` 单步调用、三重资源上限（`max_iterations` / `deadline_at` / `max_attempts`）、只读 allowlist、每步独立 trace、不得触发写动作、不改对外 deterministic router 契约。§9.5 router 表全部 deterministic、side-effect-free。** 也就是说 GAD-01 的 bounded-loop 主目标契约已就位。**主线剩余冲突落在实现层**：`src/agent/nodes/investigate.py` 仍是 legacy 确定性实现——`plan_next_step` 扫固定候选表（`get_order`/`get_refund_case`/`get_ticket`/`search_policy`）+ `all(args.values())` 门，文件内**零 LLM 调用**（2026-07 grep 核对），产出 `reason="deterministic investigation fallback"`。spec 已定义的 LLM 决策 loop 从未落地。observation→slot 回流的 writer 边界作为新增子项在 Recommended handling 单独处理。 |
+| Type | IMPLEMENTATION_DEBT（bounded-loop 主契约已就位于 §9.4；实现迁移未发生；observation→slot 回流已定 loop-local（不入 spec））。前身为 UNSUPPORTED_ASSUMPTION（spec 未覆盖），随 §9 提升完成而收敛为纯实现迁移欠账（slot 回流决策已定 A/loop-local）。 |
+| Recommended handling | **方向已由用户采纳并于 2026-07 再次确认「直接实现真 agent」。spec §9.4/§9.5 提升已完成，剩余工作是把 `investigate` 从 legacy 确定性 `plan_next_step` 迁移到 §9.4 已定义的 bounded ReAct loop 契约。** 范围严格限定在 read-only investigation 工具（对应当前 §12.4 `investigate` 只读 allowlist：`get_order` / `get_refund_case` / `get_ticket` / `get_logistics` / `get_merchant_risk` / `search_policy` / `search_sop` / `search_case_memory`）。**不覆盖**：refund / compensation / ban / unban / close_ticket 等 write tools、`risk_gate`、`approval_gate`、executor、以及 `policy_qa` / fact QA 路径（后者见 GAD-03，本次刻意不并入以免扩大 scope）。**新增子项（此前遗漏）**：observation→slot 回流——工具结果里发现的标识符（如从 `get_order` 结果得到 `ticket_id`）经校验后须回流为后续 loop 轮次可用的 slot，否则 LLM 自由选工具也无法做「订单号→查出工单号→再查工单」的链式调查。slot 回流的 writer 边界已定为 **A：loop-local**（2026-07 用户决策）——回流值仅存活于 investigate 循环内的 planner 工作记忆，不写入 graph 全局 `active_slots`（其 writer 仍为 `slot_extraction`/`MemoryService`，spec :892-893 不变），因此不新增 state writer、不改 contract-spec §9.4、不改 field registry。被否方案 B（investigate 写 discovered slot surface）会新增 writer 并与 memory 模块的 `active_slots` 语义交叉，YAGNI，不采纳。该决策使 investigate ReAct 迁移与 memory Phase 44-48 解耦。当前 `_case_slots` 仅从 `extracted_slots`/`active_slots` 取值、`_accumulate_result` 只写 `facts` 不回流 slot（2026-07 代码核对）。当前 `investigate.py` 候选表仅 4 工具，迁移时须补齐 §12.4 全 8 工具（见 `contract-spec.md` :1210）。 |
+| Readiness impact | NON_BLOCKING（不阻塞其他 phase）。**前置依赖已满足**：spec §9.4/§9.5 已提升、§17.2 已定义 loop 内 tool/RAG 事件的 `iteration` 标注与回放规则。实现迁移可随时立为独立执行 phase。 |
+| Owner | **待新执行 phase（v2.1 编号体系）。** 旧记录的 Phase 10/11 属已归档的 v1.9 milestone 编号，当前 milestone 为 v2.1（现役 Phase 37–44）；旧编号不再作为 owner。实现 phase 尚未创建。 |
+| Status | SPEC_PROMOTED @ ad17301（§9.4/§9.5 契约就位）；IMPLEMENTATION_PENDING（investigate 迁移未开始，2026-07 核对）。 |
 
 **实现时必须同时满足（缺一不可）：**
 
@@ -39,7 +39,9 @@
 
 **结构决议（2026-06，方向确定后）：** 调查段采用「合并为单 `investigate` bounded-loop 节点」方案，而非「三节点各自内部 loop」。理由：GAD-01 的目标场景是「查完物流再决定要不要查政策」这类跨数据源动态调查，三节点固定串联在 router 层无法表达跨节点动态；合并后对外仍是确定性单节点（固定入边/出边 + 单一 `route_after_investigate`），内部 bounded loop 受三护栏约束。ReplayEventV3 已具备表达能力（node operation 下挂多个 tool operation，tool 事件 parent_operation_id 指向 node operation），提升时仅需显式声明「同一 node operation 下允许多个 tool operation」并加 iteration 标注，非 schema breaking change。
 
-**引入时机判据（避免过早复杂化）：** 仅当只读调查路径变得高度动态（例如"先查物流再决定要不要查政策"成为常见 case）时才评估引入。在路径仍相对固定时，现有 `business_context_fetch → policy_evidence_retrieve` 固定链更易回放、更可审计，优先保留。
+**引入时机判据（2026-07 更新，取代原保守判据）：** 原判据为「仅当只读调查路径变得高度动态时才评估引入，路径相对固定时优先保留固定链」。**该判据已被用户 2026-07 决策取代**——用户已明确「直接设计成 ReAct、真正实现一个 agent」，不再以「路径是否已变高度动态」作为触发条件。方向即为直接推进 `investigate` 的 ReAct loop 实现迁移；固定链仅作为 LLM 超时 / 输出非法时的**确定性 fallback 安全网**保留（即当前 `plan_next_step` 逻辑降级为 fallback，而非主决策路径），不再作为默认优先形态。
+
+**地基约束（2026-07 用户确认，三段信任边界）：** 与 `docs/target-agent-platform-architecture-plan.md` §6 的信任边界分组一致——① 入口确定性（身份/授权/安全 tier 为 a-priori 规则判断，LLM 不参与鉴权）；② 只读认知环自由（`investigate` bounded loop 内 LLM 自由选只读工具、可链式、可发现 slot）；③ 出口确定性（evidence 校验 / claim 校验 / risk / approval / 写动作全部 fail-closed、LLM 不可覆盖）。自由严格限定在 ② 只读环内；spec 落点为：① 入口：deterministic 节点（`safety_pre_route` / `slot_resolution_gate` 等）+ `contextual_intent_resolve` 的 LLM 候选 + deterministic IntentPolicyEngine 混合裁决（非纯 deterministic）；② 认知环：§9.4 investigate loop 契约；③ 出口：完整 fail-closed 硬约束需联合 §9.4/§9.5 + §11.2 + §12 + §15，§9 单独只是 partial coverage。
 
 ---
 

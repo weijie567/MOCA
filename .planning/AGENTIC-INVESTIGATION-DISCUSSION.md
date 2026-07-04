@@ -2,7 +2,7 @@
 
 > 用途：记录「把只读调查段从固定链升级为有界 agent（bounded tool loop）」这条路线的讨论结论与依据，供新会话接续。
 >
-> 状态：**方向已由用户确定 = 做 agentic**。ChatGPT 产品验证结论 = 不是伪需求。当务之急 = 架构（改 spec 上 agentic），不是先验 Phase 8 代码。本次会话（2026-06）已决：调查段合并为单 investigate 节点；落地走 gsd-discuss-phase 提案 → 提升 §9 → plan Phase 10。
+> 状态：**方向已由用户确定 = 做 agentic**。ChatGPT 产品验证结论 = 不是伪需求。**【2026-07 更新】§9 提升已完成**——`contract-spec.md` §9.4 已把 `investigate` 定义为单一 registered node 并写入完整 bounded-loop 契约（8 条），§9.5 router 全 deterministic。原「落地走 gsd-discuss-phase → 提升 §9 → plan Phase 10」路径中「提升 §9」一步已达成；Phase 10 属已归档 v1.9 编号，当前 milestone 为 v2.1。**唯一剩余工作 = 实现迁移**：`investigate.py` 仍是 legacy 确定性 `plan_next_step`（零 LLM），须迁移到 §9.4 已定义的 ReAct loop 契约。详见第八节 2026-07 复核。
 >
 > 边界：本文不是 normative spec。任何条目要落地，必须先提升进 `docs/contract-spec.md` / `docs/architecture-overview.md` 再进入对应 phase plan。
 
@@ -53,7 +53,7 @@
 
 ## 六、已记录的 deferred 决策（`.planning/DEFERRED-DECISIONS.md`,需随方向更新）
 
-- **GAD-01**：只读调查段 bounded tool loop。**已升级：GAD-01 状态 DEFERRED_WITH_OWNER → OPEN（合法枚举，非自创值），措辞改为「方向已采纳、活跃推进、待 spec 化、尚未实现」，见 DEFERRED-DECISIONS.md。** 范围仍严格限定 `business_context_fetch`/`policy_evidence_retrieve`/`case_memory_retrieve`,不含 write/risk/approval/executor。
+- **GAD-01**：只读调查段 bounded tool loop。**【2026-07 再更新】§9 提升已完成，GAD-01 状态收敛为 SPEC_PROMOTED + IMPLEMENTATION_PENDING（Type = IMPLEMENTATION_DEBT），见 DEFERRED-DECISIONS.md。** 范围对应 spec §12.4 `investigate` 只读 allowlist（`get_order`/`get_refund_case`/`get_ticket`/`get_logistics`/`get_merchant_risk`/`search_policy`/`search_sop`/`search_case_memory`），并新增 observation→slot 回流子项；仍不含 write/risk/approval/executor。旧的三节点词汇（`business_context_fetch`/`policy_evidence_retrieve`/`case_memory_retrieve`）已被 spec 合并为单 `investigate` 节点。
 - **GAD-02**：未来新增 intent 准入规则（risk_level/response_mode/tool_allowlist/bounded_loop_allowed/max_iterations/routing precedence/audit·replay）。
 - **GAD-03**：policy_qa / 事实问答 / advise 纯问答终态,spec 已覆盖。
 
@@ -69,3 +69,25 @@
    【已决】不整体重写 Phase 10。MOCA 外层已是相位骨架（§9.2），只需把 10b 调查段三节点固定串联换成单 investigate 节点 + bounded loop；10a（trusted context）/10c（minimal event foundation）不动，10c 反而是承载 loop 内多 tool 事件的前置依赖。注意：migration-plan.md:16 Phase 10 acceptance「不引入自由 ReAct」需在 discuss 阶段改写为「调查节点内允许 bounded loop，仍受三护栏约束、不引入自由 ReAct」。
 5. GAD-01 从 deferred 升级为正式变更后,owner 仍是 Phase 10/11,还是需要新 phase？
    【已决】不开新 phase，owner 维持 Phase 10（主，调查段编排）+ Phase 11（次，GAD-02 bounded_loop_allowed/max_iterations 准入字段）。Phase 10 尚未 plan，是提升 spec 的有利时机。
+
+> **注（2026-07）：本节第 3–5 条记录的是 2026-06 决策状态，其中「先走 gsd-discuss-phase 提升 §9」「owner 为 Phase 10/11」已被下方第八节更新——§9 提升已完成，Phase 10/11 属已归档的 v1.9 编号。第八节为准。**
+
+## 八、2026-07 复核（spec 已提升，实现仍欠账）
+
+本次会话（2026-07）用户要求「直接设计成 ReAct、真正实现一个 agent」，并拿仓库真实文件重新核对了这条线的进度，结论如下。
+
+**1. spec 层：§9 agentic 提升已完成（不再是「待提升」）。** `docs/contract-spec.md` §9.4 已把 `investigate` 定义为单一 registered node，并写入完整 bounded-loop 契约（8 条）：planner 每轮由 LLM 决策 `{next_tool, args, reason}` 或 `{stop, stop_reason}`、经 `ToolPlatform.invoke` 单步调用、三重资源上限（`max_iterations` / `deadline_at` / `max_attempts`）、只读 allowlist、每步独立 trace、不触发写动作、不改对外 deterministic router 契约；`termination_reason` 枚举为 `enough_evidence | no_more_useful_tools | max_iterations_reached | unrecoverable_error`。§9.5 router 表全部 deterministic、side-effect-free。§17.2 已定义 loop 内 tool/RAG 事件的 `iteration` 标注与回放规则。**因此本文顶部与第五节「改 spec 需同步对齐的契约清单」所列的提升工作，均已在 spec 中落成。**
+
+**2. 实现层：investigate 仍是 legacy 确定性，从未迁移。** `src/agent/nodes/investigate.py` 文件内**零 LLM 调用**（2026-07 grep 核对）；`plan_next_step` 扫固定候选表（`get_order`/`get_refund_case`/`get_ticket`/`search_policy`）+ `all(args.values())` 门，产出 `reason="deterministic investigation fallback"`。spec §9.4 已定义的 LLM 决策 loop 在代码里不存在。**GAD-01 主线已从「spec 未覆盖的假设」收敛为实现迁移欠账；observation→slot 回流的 writer 边界已定 loop-local（不入 spec），见下文第 4 点与 `DEFERRED-DECISIONS.md` GAD-01。**
+
+**3. 三段信任边界（用户 2026-07 地基约束）与 spec 的对应。** 用户明确的三条——① 入口确定性（身份/授权/安全 tier 为 a-priori 规则、LLM 不碰鉴权）、② 只读认知环自由（investigate loop 内 LLM 自由选只读工具、可链式、可发现 slot）、③ 出口确定性（evidence/claim/risk/approval/写动作全部 fail-closed、LLM 不可覆盖）——需按 §9 骨架契约 + §11/§12/§15 硬约束联合理解：
+
+| 用户三条 | spec 落点 |
+| --- | --- |
+| ① 入口确定性 | `safety_pre_route` / `slot_resolution_gate` 等节点是 deterministic；但 `contextual_intent_resolve` 是 LLM structured output + deterministic IntentPolicyEngine 混合裁决（§9.4 :638），不是纯 deterministic |
+| ② 只读环自由 | §9.4 investigate bounded-loop 契约 1（LLM 每轮决策 next tool）+ 契约 3（三重上限）+ 契约 4/5（只读、不写） |
+| ③ 出口确定性 | §9.5 router 表全 deterministic；§9.4 `claim_verify`（rules-first）/`risk_gate`/`approval_gate` fail-closed。完整的「LLM 不可覆盖」硬约束不仅在 §9.5/§9.4，更强表述分布在 §11.2（:1204，未校准 confidence 不能单独授权 `action_draft` / 跳过 `risk_gate` / approval）、§12、§15；§9 在此处只是 partial coverage |
+
+**4. 唯一新增待办子项（此前遗漏）：observation→slot 回流。** slot 回流的 normative writer 边界 spec 未定义——§9.4 investigate 的 State writes 未列任何 slot 字段（:643），field registry 里 `active_slots` 的 writer 是 `slot_extraction` / `MemoryService`，`investigate` 不在其列（:892-893）。该 writer 边界已定为 **A：loop-local**（2026-07 用户决策）——回流值仅活在 investigate 循环内的 planner 工作记忆，不写入 graph 全局 `active_slots`，因此不碰 contract-spec §9.4、不碰 field registry。被否方案 B（investigate 写 discovered slot surface）会新增 writer 与 memory 模块语义交叉，不采纳；该决策令 investigate ReAct 迁移与 memory Phase 44-48 解耦。当前 `_case_slots` 仅从 `extracted_slots`/`active_slots` 取值、`_accumulate_result` 只写 `facts` 不回流 slot；该缺口是「订单号→查出工单号→再查工单」链式调查的前置，已登记为 GAD-01 的实现子项。
+
+**5. 下一步（未启动）：** 立一个 v2.1 编号体系下的独立执行 phase，把 investigate 从 legacy 确定性 `plan_next_step` 迁移到 §9.4 bounded ReAct loop 契约 + 补 observation→slot 回流；固定链降级为 LLM 超时/输出非法时的确定性 fallback 安全网。本次会话仅留痕，不启动实现、不改代码。迁移 LLM planner 时须把候选工具从当前代码的 4 个（`get_order`/`get_refund_case`/`get_ticket`/`search_policy`）补齐到 §12.4 声明的全 8 个（还缺 `get_logistics`/`get_merchant_risk`/`search_sop`/`search_case_memory`，见 `contract-spec.md` :1210）。

@@ -215,6 +215,14 @@ flowchart TD
 
 目标 graph 的核心变化是：先安全预路由，再加载同 thread 的 session context，然后做上下文化意图识别。LongTermMemory 和 CaseMemory 不参与最早的 safety/intent 判断，避免历史偏好影响安全边界。
 
+> **信任边界分组（导读，非新契约）：** 下面这条节点链可按「信任边界」读成三段，帮助理解「哪里允许 LLM 自由、哪里必须规则说了算」。这只是对既有节点的分组视角，**normative 契约仍以 `docs/contract-spec.md` 为准；§9 定义 graph/node/router 骨架，完整 fail-closed 硬约束需联合 §9 + §11 + §12 + §15 解读，本节不定义额外语义**。
+>
+> - **① 入口确定性（a-priori 规则）**：`receive_request → safety_pre_route → contextual_intent_resolve → slot_extraction → slot_resolution_gate`。身份、授权、安全 tier、意图与 slot 判定先于任何调查循环；`safety_pre_route` / `slot_resolution_gate` 等是 deterministic 节点，`contextual_intent_resolve` 是 LLM structured output + deterministic IntentPolicyEngine 的混合裁决，LLM 不参与鉴权。
+> - **② 只读认知环自由（受控 ReAct）**：`investigate` 单节点内部的 bounded tool loop。LLM 在只读 allowlist 内自由决定下一步查什么、可依据上一步结果链式调查、可发现并回流 slot；受 §9.4 bounded-loop 契约的三重资源上限、只读约束、每步独立 trace 约束。这是「流程不受限」的唯一所在，且不改变 `investigate` 对外的 deterministic 单节点契约。
+> - **③ 出口确定性（fail-closed，LLM 不可覆盖）**：`rag_context_build → recommendation_generation → claim_verify → risk_gate → approval_gate → action_draft`。证据校验、claim 支持、风险、审批、写动作全部走 deterministic router 与 fail-closed 硬闸；完整硬约束联合 §9 + §11 + §12 + §15，§9 单独只是骨架与 partial coverage。②环内只能产出 `proposed_action` 候选，写动作永不在环内执行。
+>
+> 实现现状与欠账见 `.planning/DEFERRED-DECISIONS.md` GAD-01 与 `.planning/AGENTIC-INVESTIGATION-DISCUSSION.md`：§9 已定义骨架契约，但完整 fail-closed 硬约束需联合 §9 + §11 + §12 + §15；`src/agent/nodes/investigate.py` 仍是 legacy 确定性实现，② 只读环的 LLM 决策 loop 尚未落地，observation→slot 回流已定 loop-local（不入 spec、不改 field registry），待独立执行 phase 迁移。
+
 ```mermaid
 flowchart TD
   A[receive_request] --> B[safety_pre_route]
