@@ -14,7 +14,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 **Goal:** Clean up architecture debt across MOCA's core subsystems so tool contracts, intent routing, and memory lifecycle behavior are explicit, tested, and aligned with `docs/contract-spec.md`.
 
-**Status:** Phase 37 through Phase 47 complete; Phase 48 narrow long-term explicit preference memory is next.
+**Status:** Phase 37 through Phase 48 complete; v2.1 is ready for milestone audit/archive.
 
 **Delivered:**
 - Land real `output_schema` for all eight tools (`get_order`, `get_refund_case`, `get_ticket`, `get_logistics`, `get_merchant_risk`, `search_policy`, `search_sop`, `search_case_memory`) and enforce it in the `ToolRuntime` output-validation gate — completed in Phase 38.
@@ -28,6 +28,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - Wire Case Working Context into the real agent-run lifecycle: active CWC read at the memory-context seam, `run_auto` thread-case linking, deterministic terminal CWC writeback, and contract/red-line validation — completed in Phase 45.
 - Reposition `session_memories` as same-thread temporary conversational context only, with prompt-safe hint allowlists and tests preventing CWC fallback, reviewed precedent, long-term sedimentation, or authority use — completed in Phase 46.
 - Reposition `case_memories` as reviewed closed-case precedent and add governed closed-case CWC candidate generation into the existing case-memory review flow, with metadata/text retrieval and approval-gated publication — completed in Phase 47.
+- Narrow `long_term_memories` to explicit soft preference memory only, with deterministic chat capture, admin-only tenant preference saves, review publishing as `human_reviewed`, prompt-facing preference/source retrieval filters, and supersede/tombstone lifecycle guards — completed in Phase 48.
 
 **Guardrails (binding on all downstream agents):**
 - `ToolCallContext` identity fields (`tenant_id/user_id/role/permissions/merchant_scope/session_id/thread_id/run_id/trace_id`) are locked by spec §8.0 as `TrustedContext` projections — MUST NOT redefine, widen, or rename. Off-limits.
@@ -222,11 +223,12 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 - [x] v2.1 real output schemas are declared for the eight scoped tools and enforced by runtime output validation as safe `invalid_response` failures, with DB-backed full relevant pytest passing (validated in Phase 38)
 - [x] v2.1 contract spec §12.5/§12.6 matches the implemented tool contract fields while preserving §8.0 TrustedContext identity ownership (validated in Phase 39)
 - [x] v2.1 session memory is repositioned after Case Working Context as thread-scoped, short-lived conversational context only, with contract/static/behavioral tests preventing cross-case state, reviewed precedent, long-term sedimentation, and authority use (validated in Phase 46)
+- [x] v2.1 case memory is repositioned as reviewed closed-case precedent with governed closed-case CWC candidate generation and approval-gated publication (validated in Phase 47)
+- [x] v2.1 long-term memory is narrowed to explicit preference memory only, with chat/admin/reviewed write paths, published preference-only retrieval, and no generic automatic run summarization (validated in Phase 48)
 
 ### Active
 
-- [ ] MEM-04 / Phase 47: Re-scope `case_memories` as reviewed precedent and add closed-case candidate generation from CWC into governed review flow.
-- [ ] MEM-05 / Phase 48: Re-scope `long_term_memories` to explicit tenant preference memory only, without generic automatic run summarization.
+_No active v2.1 requirements remain._
 
 ### Out of Scope
 
@@ -308,7 +310,7 @@ v1.3 shipped Phase 20. It upgraded MOCA's policy retrieval from pgvector-only se
 ## Next Milestone Setup
 
 - The next milestone is not defined yet. Start with `$gsd-new-milestone` to create fresh requirements before adding new phases.
-- Phase numbering should continue after Phase 35.1; do not restart at Phase 1 or use old v1.x phase numbers.
+- Phase numbering should continue after Phase 48; do not restart at Phase 1 or use old v1.x phase numbers.
 - Preserve v1.9 service-boundary contracts from `docs/contract-spec.md` unless a future phase explicitly records a spec delta.
 - Keep owner-named deferrals explicit: Phase 36+ database hardening / role cleanup, same-merchant trace/replay authorization expansion, Phase 17 External Action Execution, post-Phase 17 Policy Scope, Phase RAG-5 external backend, and Policy Source Operations.
 - Preserve safety boundaries: policy evidence remains `EvidenceRefV1`; current business facts remain `BusinessFactResultV1` / `BusinessFactRefV1`; memory remains contextual assistance only; parser/OCR provenance remains internal unless verified through maintainer lookup; verifier failures and timeouts fail closed; replay/eval artifacts do not authorize new access by themselves.
@@ -368,4 +370,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-03 — completed Phase 46 Session Context Repositioning; v2.1 ready for Phase 47 planning*
+*Last updated: 2026-07-04 — completed Phase 48 Narrow Long-Term Explicit Preference Memory; v2.1 ready for milestone audit/archive*

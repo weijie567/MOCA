@@ -95,7 +95,7 @@ Plans:
 | 45. Memory Lifecycle Wiring for Case Working Context | 4/4 | Complete | 2026-07-03 |
 | 46. Session Context Repositioning | 3/3 | Complete | 2026-07-03 |
 | 47. Case Precedent Repositioning and Closed-Case Candidate Generation | 4/4 | Complete    | 2026-07-03 |
-| 48. Narrow Long-Term Explicit Preference Memory | 4/4 | Complete | 2026-07-04 |
+| 48. Narrow Long-Term Explicit Preference Memory | 4/4 | Complete    | 2026-07-04 |
 
 ### Phase 40: Tool Contract Validation Hardening
 
@@ -255,7 +255,7 @@ Plans:
 **Goal:** Narrow `long_term_memories` to explicit tenant preference memory only, with writes coming from explicit user/admin/reviewed preference intent rather than ordinary automatic run summarization.
 **Requirements**: MEM-05
 **Depends on:** Phase 47
-**Plans:** 4 plans
+**Plans:** 4/4 plans complete
 **Design input:** `.planning/MEMORY-REDESIGN-DECISIONS.md` DEFER-3 and P3.
 **Success Criteria** (what must be TRUE):
   1. `long_term_memories` is documented and test-locked as narrow explicit preference memory, not operational business state, policy authority, approval/action authority, or generic run summary storage.

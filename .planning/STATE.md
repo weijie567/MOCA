@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
-status: executing
+status: milestone_complete
 stopped_at: Phase 48 complete; v2.1 ready for milestone audit
-last_updated: "2026-07-04T08:47:39+08:00"
+last_updated: "2026-07-04T11:02:08+08:00"
 last_activity: 2026-07-04
 progress:
   total_phases: 12
@@ -18,7 +18,7 @@ progress:
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-07-03)
+See: `.planning/PROJECT.md` (updated 2026-07-04)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
 **Current focus:** v2.1 Core Subsystem Hardening — Phase 48 explicit preference long-term memory complete; v2.1 is ready for milestone audit/archive.
@@ -31,8 +31,8 @@ See: `.planning/PROJECT.md` (updated 2026-07-03)
 ## Current Position
 
 Phase: 48
-Plan: 48-04 complete
-Status: Complete
+Plan: all plans complete
+Status: Milestone complete
 Last activity: 2026-07-04
 Next: Run milestone audit/archive for v2.1.
 
@@ -237,12 +237,12 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ## Session Continuity
 
-Last session: 2026-07-03T17:15:10.300Z
+Last session: 2026-07-04T11:02:08+08:00
 Stopped at: Phase 48 complete; v2.1 ready for milestone audit
 Resume file: .planning/ROADMAP.md
 Next: Run milestone audit/archive for v2.1.
 
-Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with security, UAT, validation, and clean review complete; Phase 46 session context repositioning complete with MEM-03 validated; Phase 47 complete with 47-01 contract/source-policy foundation, 47-02 trusted closed-case projection seam, 47-03 governed case-memory write lifecycle, and 47-04 retrieval/docs/validation closeout; Phase 48 complete with explicit preference contract, source policy/service guards, chat/admin write paths, retrieval/review/correction closeout, `135 passed`, and ruff clean.
+Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with security, UAT, validation, and clean review complete; Phase 46 session context repositioning complete with MEM-03 validated; Phase 47 complete with 47-01 contract/source-policy foundation, 47-02 trusted closed-case projection seam, 47-03 governed case-memory write lifecycle, and 47-04 retrieval/docs/validation closeout; Phase 48 complete with explicit preference contract, source policy/service guards, chat/admin write paths, retrieval/review/correction closeout, clean code review, completed UAT, and security verification (`threats_open: 0`).
 Next roadmap item: Run v2.1 milestone audit/archive.
 
 **Completed Phase:** 48 (Narrow Long-Term Explicit Preference Memory) — 4/4 plans — 2026-07-04

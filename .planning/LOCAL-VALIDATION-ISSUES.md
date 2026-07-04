@@ -12428,3 +12428,61 @@ tests/memory/test_long_term_memory_service.py:701
 
 - `tests/memory/test_long_term_memory_service.py::test_hard_rule_semantic_episode_candidate_is_skipped_and_unretrievable`
 - `src/db/models.py::MemoryWriteEvent`
+
+## 2026-07-04 — Phase 48 verify-work rerun触发 phase.complete 重复计数
+
+### 问题现象
+
+Phase 48 已经在 `ROADMAP.md` / `STATE.md` 中处于完成状态后，重新运行 `$gsd-verify-work 48` 收口流程并调用 `gsd-sdk query phase.complete 48`，SDK 返回成功，但把 `.planning/STATE.md` frontmatter 中的 `completed_phases` 从 12 增到 13，`percent` 从 100 增到 108。
+
+### 如何检测 / 复现
+
+在 Phase 48 已完成、UAT complete、SECURITY verified 后执行：
+
+```bash
+gsd-sdk query phase.complete 48
+git diff -- .planning/STATE.md
+```
+
+### 关键证据或命令
+
+`phase.complete` 返回：
+
+```text
+completed_phase=48
+plans_executed=4/4
+is_last_phase=true
+roadmap_updated=true
+state_updated=true
+requirements_updated=true
+```
+
+随后 diff 显示：
+
+```text
+completed_phases: 12 -> 13
+percent: 100 -> 108
+```
+
+### 当前判断 / 根因
+
+这是 `phase.complete` 对已完成 phase 的重复调用不幂等导致的状态计数漂移。Phase 48 本身仍已完成，ROADMAP phase checkbox 和 plan count 没有阻塞；问题集中在 STATE 统计 frontmatter。
+
+### 已做处理
+
+已手动修正 `.planning/STATE.md`：
+
+- `completed_phases: 12`
+- `percent: 100`
+- `Plan: all plans complete`
+
+并同步更新 `.planning/PROJECT.md` / `.planning/REQUIREMENTS.md` 中 Phase 48 / MEM-05 的完成状态。
+
+### 剩余问题
+
+GSD SDK 的 `phase.complete` 幂等性仍未修复；后续对已完成 phase 重跑 transition 时需要先检查 STATE/ROADMAP 统计。
+
+### 下次继续排查入口
+
+- `gsd-sdk query phase.complete 48`
+- `.planning/STATE.md` frontmatter `progress.completed_phases` / `progress.percent`

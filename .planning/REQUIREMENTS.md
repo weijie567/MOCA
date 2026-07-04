@@ -37,11 +37,11 @@
 - [x] **MEM-02**: thread↔case is modeled as an explicit many-to-many association (a thread may touch multiple cases; a case may span multiple threads/handoffs), supplementing the single nullable `case_id` / `refund_case_id` foreign-key columns for working-context linkage. The association is the join surface used to resolve a case's working context regardless of which thread the current turn runs in. Existing single-FK columns are not dropped in this phase (no destructive migration); the new association table is additive.
 - [x] **MEM-03**: Session context is repositioned after Case Working Context lands: `session_memories` remains thread-scoped short-lived conversational context only, with clear read/write boundaries and contract tests preventing it from becoming cross-case durable state, reviewed precedent, long-term preference memory, policy evidence, business fact authority, approval/action authority, or replay truth. This phase must preserve existing `session_memories` table identity unless planning explicitly proves a migration is required.
 - [x] **MEM-04**: `case_memories` is locked as reviewed case precedent, not active case working state. Closed-case precedent generation is introduced only as a governed candidate path from finalized Case Working Context into `case_memories` review flow, with metadata-first retrieval semantics, `needs_review`/audit behavior, and no destructive table rename.
-- [ ] **MEM-05**: `long_term_memories` is narrowed to explicit tenant preference memory. Writes happen only from explicit "remember this preference" / admin-save / reviewed candidate paths, not generic automatic run summarization, and must not store order/refund/ticket state, policy rules, approvals, action authorization, sensitive raw PII, or business system truth.
+- [x] **MEM-05**: `long_term_memories` is narrowed to explicit tenant preference memory. Writes happen only from explicit "remember this preference" / admin-save / reviewed candidate paths, not generic automatic run summarization, and must not store order/refund/ticket state, policy rules, approvals, action authorization, sensitive raw PII, or business system truth.
 
 ## Future Requirements
 
-_None beyond active memory hardening phases MEM-03 through MEM-05._
+_None for v2.1; all defined requirements are complete._
 
 ## Out of Scope
 
@@ -69,6 +69,6 @@ _None beyond active memory hardening phases MEM-03 through MEM-05._
 | MEM-02 | Phase 44 | Complete |
 | MEM-03 | Phase 46 | Complete |
 | MEM-04 | Phase 47 | Complete |
-| MEM-05 | Phase 48 | Pending |
+| MEM-05 | Phase 48 | Complete |
 
-**Coverage:** 13/13 v2.1 requirements mapped. 12 complete, 1 pending. No orphans, no duplicates. (Tool platform: TPH-01..06 / Phase 37-41. Intent recognition: IDR-01 / Phase 42, IDR-02 / Phase 43. Memory: MEM-01/02 / Phase 44-45, MEM-03 / Phase 46, MEM-04 / Phase 47, MEM-05 / Phase 48.)
+**Coverage:** 13/13 v2.1 requirements mapped. 13 complete, 0 pending. No orphans, no duplicates. (Tool platform: TPH-01..06 / Phase 37-41. Intent recognition: IDR-01 / Phase 42, IDR-02 / Phase 43. Memory: MEM-01/02 / Phase 44-45, MEM-03 / Phase 46, MEM-04 / Phase 47, MEM-05 / Phase 48.)
