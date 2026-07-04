@@ -8,14 +8,21 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.schemas.common import ApiResponse
-from src.api.schemas.memory import MemoryPendingItem, MemoryPendingListResponse, MemoryReviewActionRequest
+from src.api.schemas.memory import (
+    LongTermPreferenceSaveRequest,
+    LongTermPreferenceSaveResponse,
+    MemoryPendingItem,
+    MemoryPendingListResponse,
+    MemoryReviewActionRequest,
+)
 from src.auth.permissions import get_current_user
-from src.db.models import AgentRun, CaseMemory, LongTermMemory, User
+from src.db.models import AgentRun, CaseMemory, LongTermMemory, Merchant, User
 from src.db.session import get_session
 from src.memory.case_memory import CaseMemoryRepository, CaseMemoryService
 from src.memory.long_term import LongTermMemoryService
+from src.memory.preference_capture import classify_preference_pii, validate_soft_preference_text
 from src.memory.repository import LongTermMemoryRepository
-from src.memory.schemas import CaseMemoryReviewDecision
+from src.memory.schemas import CaseMemoryReviewDecision, LongTermMemoryWriteCandidate, MemorySourceRefV1
 
 
 router = APIRouter(tags=["memory"])
@@ -50,6 +57,68 @@ async def list_pending_memory(
 
     items.sort(key=lambda item: item.created_at.timestamp() if item.created_at else 0.0, reverse=True)
     payload = MemoryPendingListResponse(items=items[:limit], total=len(items))
+    return ApiResponse(
+        success=True,
+        data=payload.model_dump(mode="json"),
+        trace_id=getattr(request.state, "trace_id", None),
+    )
+
+
+@router.post("/long-term/preferences", response_model=ApiResponse)
+async def save_long_term_preference(
+    body: LongTermPreferenceSaveRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    user: User = Security(get_current_user, scopes=["memory:write"]),
+) -> ApiResponse:
+    _assert_memory_admin(user)
+    await _ensure_run_in_tenant(session=session, tenant_id=user.tenant_id, run_id=body.run_id)
+    await _validate_preference_scope(session=session, tenant_id=user.tenant_id, body=body)
+    validation = validate_soft_preference_text(body.content)
+    if not validation.valid:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "INVALID_PREFERENCE",
+                "message": "Long-term preference content must be a soft preference, not a hard rule",
+                "details": {"reason_code": validation.reason_code},
+            },
+        )
+
+    candidate = LongTermMemoryWriteCandidate(
+        tenant_id=user.tenant_id,
+        run_id=body.run_id,
+        scope_type=body.scope_type,
+        scope_id=body.scope_id,
+        memory_kind="preference",
+        content=body.content,
+        source_type="explicit_admin_preference",
+        source_ref=MemorySourceRefV1(
+            source_type="explicit_admin_preference",
+            run_id=str(body.run_id),
+            agent_run_id=str(body.run_id),
+            business_object_type=body.scope_type,
+            business_object_id=body.scope_id,
+        ),
+        confidence=1.0,
+        pii_classification=classify_preference_pii(body.content),
+    )
+    try:
+        result = await LongTermMemoryService(LongTermMemoryRepository(session)).write_memory(candidate)
+        await session.commit()
+    except ValueError as exc:
+        await session.rollback()
+        raise _memory_action_error(exc) from exc
+
+    payload = LongTermPreferenceSaveResponse(
+        memory_type="long_term",
+        memory_id=str(result.memory_id) if result.memory_id is not None else None,
+        event_id=str(result.event_id) if result.event_id is not None else None,
+        decision=result.decision,
+        reason_code=result.reason_code,
+        review_status=result.review_status,
+        source_type="explicit_admin_preference",
+    )
     return ApiResponse(
         success=True,
         data=payload.model_dump(mode="json"),
@@ -382,6 +451,39 @@ def _assert_memory_reviewer(user: User) -> None:
             status_code=403,
             detail={"code": "FORBIDDEN", "message": "Insufficient role for memory review"},
         )
+
+
+def _assert_memory_admin(user: User) -> None:
+    if user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "FORBIDDEN", "message": "Insufficient role for admin memory write"},
+        )
+
+
+async def _validate_preference_scope(
+    *,
+    session: AsyncSession,
+    tenant_id: UUID,
+    body: LongTermPreferenceSaveRequest,
+) -> None:
+    if body.scope_type == "tenant":
+        if body.scope_id != str(tenant_id):
+            raise HTTPException(
+                status_code=403,
+                detail={"code": "FORBIDDEN", "message": "Tenant preference scope must match actor tenant"},
+            )
+        return
+
+    try:
+        merchant_id = UUID(body.scope_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Merchant not found"}) from exc
+    exists = (
+        await session.execute(select(Merchant.id).where(Merchant.id == merchant_id, Merchant.tenant_id == tenant_id))
+    ).scalar_one_or_none()
+    if exists is None:
+        raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Merchant not found"})
 
 
 def _parse_memory_id(memory_id: str) -> UUID:

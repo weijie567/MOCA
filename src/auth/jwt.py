@@ -21,6 +21,7 @@ ROLE_SCOPES: dict[str, list[str]] = {
         "knowledge:read",
         "agent:chat",
         "approvals:review",
+        "memory:write",
         "seed:write",
         "admin:debug",
     ],

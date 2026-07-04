@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.jwt import create_access_token
@@ -53,8 +54,12 @@ def _long_term_candidate(seeded_session: dict, *, run_id: UUID) -> LongTermMemor
         scope_id=str(merchant.id),
         memory_kind="preference",
         content="Model candidate awaiting memory review.",
-        source_type="llm_candidate",
-        source_ref={"source_type": "llm_candidate", "run_id": str(run_id), "business_object_id": str(merchant.id)},
+        source_type="semantic_episode_candidate",
+        source_ref={
+            "source_type": "semantic_episode_candidate",
+            "run_id": str(run_id),
+            "business_object_id": str(merchant.id),
+        },
     )
 
 
@@ -164,3 +169,206 @@ async def test_memory_review_api_requires_manager_or_admin_role(
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "FORBIDDEN"
+
+
+@pytest.mark.asyncio
+async def test_admin_can_save_long_term_preference_directly(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    admin = seeded_session["users"]["admin_user"]
+    support = seeded_session["users"]["cs_zhang"]
+    merchant = seeded_session["merchant"]
+    run_id = await _insert_run(
+        session,
+        tenant_id=seeded_session["tenant"].id,
+        user_id=support.id,
+        thread_id="admin-save-memory-preference",
+    )
+    await session.commit()
+
+    response = await client.post(
+        "/api/v1/memory/long-term/preferences",
+        json={
+            "run_id": str(run_id),
+            "scope_type": "merchant",
+            "scope_id": str(merchant.id),
+            "content": "Merchant prefers concise refund updates.",
+        },
+        headers=_auth_header(admin, ["memory:write"]),
+    )
+    data = response.json()["data"]
+
+    assert response.status_code == 200
+    assert data["decision"] == "write"
+    assert data["review_status"] == "auto_approved"
+    assert data["source_type"] == "explicit_admin_preference"
+
+    row = await session.get(LongTermMemory, UUID(data["memory_id"]))
+    assert row is not None
+    assert row.source_type == "explicit_admin_preference"
+    assert row.memory_kind == "preference"
+    assert row.scope_type == "merchant"
+    assert row.scope_id == str(merchant.id)
+    assert row.review_status == "auto_approved"
+    assert row.is_current is True
+
+
+@pytest.mark.asyncio
+async def test_admin_can_save_tenant_scoped_long_term_preference_directly(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    admin = seeded_session["users"]["admin_user"]
+    run_id = await _insert_run(
+        session,
+        tenant_id=seeded_session["tenant"].id,
+        user_id=admin.id,
+        thread_id="admin-save-tenant-memory-preference",
+    )
+    await session.commit()
+
+    response = await client.post(
+        "/api/v1/memory/long-term/preferences",
+        json={
+            "run_id": str(run_id),
+            "scope_type": "tenant",
+            "scope_id": str(seeded_session["tenant"].id),
+            "content": "Tenant prefers concise refund update language.",
+        },
+        headers=_auth_header(admin, ["memory:write"]),
+    )
+    data = response.json()["data"]
+
+    assert response.status_code == 200
+    assert data["decision"] == "write"
+    row = await session.get(LongTermMemory, UUID(data["memory_id"]))
+    assert row is not None
+    assert row.scope_type == "tenant"
+    assert row.scope_id == str(seeded_session["tenant"].id)
+    assert row.source_type == "explicit_admin_preference"
+
+
+@pytest.mark.asyncio
+async def test_admin_preference_save_requires_admin_role_and_memory_write_scope(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    admin = seeded_session["users"]["admin_user"]
+    manager = seeded_session["users"]["approval_manager"]
+    merchant = seeded_session["merchant"]
+    run_id = await _insert_run(
+        session,
+        tenant_id=seeded_session["tenant"].id,
+        user_id=admin.id,
+        thread_id="admin-save-memory-permission",
+    )
+    await session.commit()
+    body = {
+        "run_id": str(run_id),
+        "scope_type": "merchant",
+        "scope_id": str(merchant.id),
+        "content": "Merchant prefers concise refund updates.",
+    }
+
+    manager_response = await client.post(
+        "/api/v1/memory/long-term/preferences",
+        json=body,
+        headers=_auth_header(manager, ["approvals:review", "memory:write"]),
+    )
+    admin_without_scope_response = await client.post(
+        "/api/v1/memory/long-term/preferences",
+        json=body,
+        headers=_auth_header(admin, ["approvals:review"]),
+    )
+
+    assert manager_response.status_code == 403
+    assert manager_response.json()["error"]["code"] == "FORBIDDEN"
+    assert admin_without_scope_response.status_code == 403
+    assert admin_without_scope_response.json()["error"]["code"] == "FORBIDDEN"
+
+
+@pytest.mark.asyncio
+async def test_admin_preference_save_rejects_hard_rule_text_without_insert(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    admin = seeded_session["users"]["admin_user"]
+    merchant = seeded_session["merchant"]
+    run_id = await _insert_run(
+        session,
+        tenant_id=seeded_session["tenant"].id,
+        user_id=admin.id,
+        thread_id="admin-save-hard-rule",
+    )
+    await session.commit()
+
+    response = await client.post(
+        "/api/v1/memory/long-term/preferences",
+        json={
+            "run_id": str(run_id),
+            "scope_type": "merchant",
+            "scope_id": str(merchant.id),
+            "content": "低于10元必须退款。",
+        },
+        headers=_auth_header(admin, ["memory:write"]),
+    )
+    rows = (
+        await session.execute(
+            select(LongTermMemory).where(
+                LongTermMemory.tenant_id == seeded_session["tenant"].id,
+                LongTermMemory.content == "低于10元必须退款。",
+            )
+        )
+    ).scalars().all()
+
+    assert response.status_code == 422
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_admin_preference_save_skips_sensitive_pii_without_insert(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    admin = seeded_session["users"]["admin_user"]
+    merchant = seeded_session["merchant"]
+    run_id = await _insert_run(
+        session,
+        tenant_id=seeded_session["tenant"].id,
+        user_id=admin.id,
+        thread_id="admin-save-sensitive-pii",
+    )
+    await session.commit()
+    content = "Merchant prefers updates mentioning customer 手机号 13800138000."
+
+    response = await client.post(
+        "/api/v1/memory/long-term/preferences",
+        json={
+            "run_id": str(run_id),
+            "scope_type": "merchant",
+            "scope_id": str(merchant.id),
+            "content": content,
+        },
+        headers=_auth_header(admin, ["memory:write"]),
+    )
+    data = response.json()["data"]
+    rows = (
+        await session.execute(
+            select(LongTermMemory).where(
+                LongTermMemory.tenant_id == seeded_session["tenant"].id,
+                LongTermMemory.content == content,
+            )
+        )
+    ).scalars().all()
+
+    assert response.status_code == 200
+    assert data["decision"] == "skip"
+    assert data["reason_code"] == "pii_blocked"
+    assert data["memory_id"] is None
+    assert rows == []
