@@ -412,12 +412,16 @@ class ConversationRepository:
         summary_hash: str,
     ) -> ConversationSummary:
         thread = await self.get_or_create_thread(tenant_id=tenant_id, user_id=user_id, thread_id=thread_id)
+        summary_case_id = await self._legacy_summary_case_id_from_links(
+            tenant_id=tenant_id,
+            conversation_thread_id=thread.id,
+        )
         row = ConversationSummary(
             id=uuid.uuid4(),
             tenant_id=tenant_id,
             thread_id=thread_id,
             conversation_thread_id=thread.id,
-            case_id=thread.case_id,
+            case_id=summary_case_id,
             summary_type="thread_rolling",
             source_start_message_id=source_start_message_id,
             source_end_message_id=source_end_message_id,
@@ -432,6 +436,22 @@ class ConversationRepository:
         self.session.add(row)
         await self.session.flush()
         return row
+
+    async def _legacy_summary_case_id_from_links(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        conversation_thread_id: uuid.UUID,
+    ) -> str | None:
+        from src.memory.thread_case_links import ThreadCaseLinkRepository
+
+        case_ids = await ThreadCaseLinkRepository(self.session).list_cases_for_thread(
+            tenant_id=tenant_id,
+            conversation_thread_id=conversation_thread_id,
+        )
+        if len(case_ids) != 1:
+            return None
+        return str(case_ids[0])
 
     async def append_tool_call(
         self,
