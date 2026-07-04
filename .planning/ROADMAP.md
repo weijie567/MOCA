@@ -31,7 +31,7 @@ Code implementation is delegated to Codex per the project workflow; Claude is pl
 - [x] **Phase 46: Session Context Repositioning** - Re-scope thread-level session memory after CWC so it remains short-lived conversational context, not cross-case state (MEM-03). Plan progress: 3/3 complete.
 - [x] **Phase 47: Case Precedent Repositioning and Closed-Case Candidate Generation** - Re-scope `case_memories` as reviewed precedent and add closed-case candidate generation from CWC into governed review flow (MEM-04). Plan progress: 4/4 complete.
 - [x] **Phase 48: Narrow Long-Term Explicit Preference Memory** - Re-scope `long_term_memories` to explicit tenant preference memory only, without generic automatic run summarization (MEM-05). Plan progress: 4/4 complete.
-- [ ] **Phase 48.1: Memory Context Compatibility Debt Cleanup (INSERTED)** - Migrate active memory-context readers and case-link reads to canonical surfaces while recording remaining legacy names as explicit deferred compatibility debt. Plan progress: 3/4 executing.
+- [x] **Phase 48.1: Memory Context Compatibility Debt Cleanup (INSERTED)** - Migrate active memory-context readers and case-link reads to canonical surfaces while recording remaining legacy names as explicit deferred compatibility debt. Plan progress: 4/4 complete.
 
 ## Phase Details
 
@@ -97,7 +97,7 @@ Plans:
 | 46. Session Context Repositioning | 3/3 | Complete | 2026-07-03 |
 | 47. Case Precedent Repositioning and Closed-Case Candidate Generation | 4/4 | Complete    | 2026-07-03 |
 | 48. Narrow Long-Term Explicit Preference Memory | 4/4 | Complete    | 2026-07-04 |
-| 48.1. Memory Context Compatibility Debt Cleanup | 3/4 | Executing | TBD |
+| 48.1. Memory Context Compatibility Debt Cleanup | 4/4 | Complete | 2026-07-04 |
 
 ### Phase 40: Tool Contract Validation Hardening
 
@@ -289,4 +289,4 @@ Plans:
 - [x] 48.1-01-PLAN.md — migrate active conversation thread-case readers to `ThreadCaseLinkRepository` / `thread_case_links` while preserving legacy `case_id` metadata.
 - [x] 48.1-02-PLAN.md — make routing, working-state projection, and prompt/session helper reads canonical-first on `session_context` / `session_context_bundle`.
 - [x] 48.1-03-PLAN.md — add canonical `needs_reviewed_memory_context` routing hint while keeping `needs_long_term_memory` as an alias and preserving graph node names.
-- [ ] 48.1-04-PLAN.md — add static guards, update architecture-debt status, and run the final Phase 48.1 validation gate.
+- [x] 48.1-04-PLAN.md — add static guards, update architecture-debt status, and run the final Phase 48.1 validation gate.
