@@ -828,3 +828,34 @@
 
 **剩余风险**
 - ⚠️ 49-02 已完成 loop-local slot scratchpad 和 bounded attempt guard；8-tool exact coverage、projection raw-context audit、trace/replay parent/iteration semantics 仍属于 49-03。GAD-01 仍不得标为 implemented。
+
+## Phase 49 Plan 03 — investigate 8-tool surface / projection boundary / trace replay identity ⚠️阶段性修复
+
+**问题 / 根因**
+- Catalog 已声明 §12.4 的 8 个 investigate read/retrieval tools，但 real `KnowledgeToolExecutor.has_tool(...)` 只认 `search_policy`，导致 `search_sop` 在真实 executor availability 下会被静默隐藏。
+- 49-02 已有 projection-based observation，但还缺少测试证明 fake planner input 不含 raw payload sentinel，且 8-tool exact visible/invoke coverage 没有固定。
+- replay/event 底层已有 `parent_operation_id`、`attempt`、`tool_call_id` 字段，但 `src.agent.events.emit_event(...)` / `emit_decision_event(...)` 没有把这些字段从 investigate 透传到 `ReplayService.append_event(...)`。
+
+**影响**
+- Planner-visible tool surface 可能与 contract-spec §12.4 不一致；investigate ReAct loop 的每轮 tool/RAG call 可审计性不完整，多个 loop operation 难以按 parent/iteration/tool_call_id 做 replay 区分。
+
+**修复**
+- `KnowledgeToolExecutor.has_tool(...)` 接受 `search_sop`，执行仍保持 declared read-only unavailable/no-data 路径，不新增 SOP 业务语义。
+- 新增 ToolPlatform exact-set 与 8-tool invoke smoke 测试，证明 `get_order/get_refund_case/get_ticket/get_logistics/get_merchant_risk/search_policy/search_sop/search_case_memory` 均可经 `ToolPlatform.invoke(...)` dispatch，且 write tool 不可见。
+- planner input 测试捕获第二轮 fake planner input，断言 raw payload sentinel、PII、raw key 不进入 planner context；allowlist 不含 `create_coupon_grant_draft`。
+- `emit_event(...)` / `emit_decision_event(...)` 增加 existing replay fields 的参数透传：`parent_operation_id`、`attempt`、`tool_call_id`；`investigate` tool events 将 distinct operation_id、iteration、attempt、tool_call_id 和可选 `node_operation_id` parent 写入 event/emitter/DB row。
+
+**证据**
+- Phase / plan：`49-03`
+- 文件：`src/tools/executors/knowledge.py`、`src/agent/nodes/investigate.py`、`src/agent/events.py`、`src/replay/decision_events.py`、`tests/agent/test_nodes/test_investigate.py`、`tests/tools/test_tool_platform.py`、`tests/replay/test_operation_pairing.py`
+
+**验证**
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_investigate.py -q` → `52 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py -q` → `79 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay/test_operation_pairing.py tests/replay/test_replay_service.py -q` → `23 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_events.py tests/replay/test_decision_events.py -q` → `68 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/nodes/investigate.py src/agent/events.py src/replay/decision_events.py src/tools/executors/knowledge.py tests/agent/test_nodes/test_investigate.py tests/tools/test_tool_platform.py tests/replay/test_operation_pairing.py` → pass
+- `rg -n 'ToolPlatform\.invoke|tool_platform\.invoke|BusinessFactService|BusinessToolService|KnowledgeToolExecutor|PolicyKnowledgeService|MemoryService|CaseMemoryService|create_coupon_grant_draft|action_' src/agent/nodes/investigate.py` → only `tool_platform.invoke(...)` and redaction policy string
+
+**剩余风险**
+- ⚠️ Parent operation identity is emitted when `configurable["node_operation_id"]` / `investigate_operation_id` is available; graph-level node start/completion event emission is not introduced in 49-03. 49-04 closeout must decide whether this is sufficient for GAD-01 or record an IMPLEMENTED_WITH_LIMITATIONS replay parent-operation note.

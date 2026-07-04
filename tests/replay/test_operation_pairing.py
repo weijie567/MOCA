@@ -121,3 +121,50 @@ def test_bounded_investigate_loop_events_preserve_iteration_values():
 
     assert first.iteration == 1
     assert second.iteration == 2
+
+
+def test_bounded_investigate_loop_operations_share_parent_but_keep_distinct_identity_and_iteration():
+    node_operation_id = uuid.uuid4()
+    first_operation_id = uuid.uuid4()
+    second_operation_id = uuid.uuid4()
+    first_started = _event(
+        "tool_call_started",
+        operation_id=first_operation_id,
+        parent_operation_id=node_operation_id,
+        iteration=1,
+    )
+    first_completed = _event(
+        "tool_call_completed",
+        operation_id=first_operation_id,
+        parent_operation_id=node_operation_id,
+        iteration=1,
+    )
+    second_started = _event(
+        "rag_retrieval_started",
+        operation_id=second_operation_id,
+        parent_operation_id=node_operation_id,
+        iteration=2,
+    )
+    second_completed = _event(
+        "rag_retrieval_completed",
+        operation_id=second_operation_id,
+        parent_operation_id=node_operation_id,
+        iteration=2,
+    )
+
+    first_pair = validate_operation_pairing([first_started], first_completed)
+    second_start = validate_operation_pairing([first_started, first_completed], second_started)
+    second_pair = validate_operation_pairing(
+        [first_started, first_completed, second_started],
+        second_completed,
+    )
+
+    assert first_pair.operation_id == first_operation_id
+    assert second_start.operation_id == second_operation_id
+    assert second_pair.operation_id == second_operation_id
+    assert {first_pair.parent_operation_id, second_start.parent_operation_id, second_pair.parent_operation_id} == {
+        node_operation_id
+    }
+    assert first_pair.iteration == 1
+    assert second_start.iteration == 2
+    assert second_pair.iteration == 2

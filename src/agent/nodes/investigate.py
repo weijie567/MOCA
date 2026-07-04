@@ -176,7 +176,8 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
         if attempt_count >= max_attempts:
             termination_reason = "no_more_useful_tools"
             break
-        attempt_count_by_key[attempt_key] = attempt_count + 1
+        attempt_number = attempt_count + 1
+        attempt_count_by_key[attempt_key] = attempt_number
         context["attempted"].add(attempt_key)
         if trusted_context is None:
             termination_reason = "unrecoverable_error"
@@ -193,7 +194,7 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
             configurable,
             tool_name,
             operation_id,
-            iteration,
+            attempt_number,
             max_attempts,
             deadline_at,
             state.get("run_started_at") or _now_iso(),
@@ -764,12 +765,20 @@ async def _emit_tool_event(
         "tool_name": descriptor.name if descriptor is not None else "unknown",
         "status": result.status if result is not None else status,
         "latency_ms": result.latency_ms if result is not None else None,
+        "tool_call_id": tool_ctx.tool_call_id,
+        "attempt": tool_ctx.attempt,
     }
     if result is not None and result.status in {"error", "invalid_request", "invalid_response"}:
         redacted_payload["termination_reason"] = "unrecoverable_error"
     if event_emitter is not None:
         await event_emitter(
-            event_type=event_type, operation_id=operation_id, iteration=iteration, payload=redacted_payload
+            event_type=event_type,
+            operation_id=operation_id,
+            parent_operation_id=_parent_operation_id(configurable),
+            tool_call_id=tool_ctx.tool_call_id,
+            attempt=tool_ctx.attempt,
+            iteration=iteration,
+            payload=redacted_payload,
         )
         return
     if session is None:
@@ -785,8 +794,15 @@ async def _emit_tool_event(
         redacted_payload=redacted_payload,
         trace_id=tool_ctx.trace_id,
         operation_id=operation_id,
+        parent_operation_id=_parent_operation_id(configurable),
+        tool_call_id=tool_ctx.tool_call_id,
+        attempt=tool_ctx.attempt,
         iteration=iteration,
     )
+
+
+def _parent_operation_id(configurable: dict[str, Any]) -> Any | None:
+    return configurable.get("node_operation_id") or configurable.get("investigate_operation_id")
 
 
 def _accumulate_tool_result(

@@ -660,6 +660,30 @@ async def test_prompt_injection_text_in_tool_result_does_not_become_discovered_s
 
 
 @pytest.mark.asyncio
+async def test_planner_input_contains_projected_observations_not_raw_payload():
+    events: list[dict[str, Any]] = []
+    planner = _PlannerSequence(
+        [
+            {"next_tool": "get_order", "args": {"order_no": "ORD-RAW-001"}, "reason": "load order"},
+            {"stop": True, "stop_reason": "enough_evidence"},
+        ]
+    )
+    manager = FakePlatform({"get_order": _business_success_with_raw_payload()})
+
+    result = await investigate(_state([]), _config(manager, events, investigate_planner=planner))
+
+    second_input = planner.inputs[1]
+    serialized = str(second_input)
+    assert "raw_payload" not in serialized
+    assert "13800000000" not in serialized
+    assert "SHOULD_NOT_APPEAR" not in serialized
+    assert "create_coupon_grant_draft" not in {tool["name"] for tool in second_input["allowed_tools"]}
+    assert "route_decision" not in serialized
+    assert "approval_result" not in result
+    assert "action_result" not in result
+
+
+@pytest.mark.asyncio
 async def test_max_attempts_caps_repeated_planner_same_tool_args():
     events: list[dict[str, Any]] = []
     planner = _PlannerSequence(
@@ -865,6 +889,7 @@ async def test_investigate_events_use_trusted_context_identity_not_agentstate(
     state["user_id"] = str(uuid4())
     state["thread_id"] = "legacy-thread-from-state"
     state["current_run_id"] = str(uuid4())
+    node_operation_id = uuid4()
     trusted_context = TrustedContext(
         tenant_id=str(seeded_session["tenant"].id),
         user_id=str(seeded_session["users"]["cs_zhang"].id),
@@ -886,6 +911,7 @@ async def test_investigate_events_use_trusted_context_identity_not_agentstate(
             session=session,
             event_emitter=None,
             trusted_context=trusted_context.model_dump(mode="json"),
+            node_operation_id=node_operation_id,
         ),
     )
 
@@ -905,6 +931,10 @@ async def test_investigate_events_use_trusted_context_identity_not_agentstate(
     assert {str(row.tenant_id) for row in rows} == {trusted_context.tenant_id}
     assert {row.thread_id for row in rows} == {trusted_context.thread_id}
     assert {row.trace_id for row in rows} == {trusted_context.trace_id}
+    assert {row.parent_operation_id for row in rows} == {node_operation_id}
+    assert {row.operation_id for row in rows} and len({row.operation_id for row in rows}) == 1
+    assert {row.attempt for row in rows} == {1}
+    assert {row.tool_call_id for row in rows} == {str(rows[0].operation_id)}
 
 
 @pytest.mark.asyncio
@@ -1200,13 +1230,14 @@ async def test_retrieval_error_result_sets_error_recommendation_draft():
 @pytest.mark.asyncio
 async def test_event_classification_iteration_and_redacted_payload():
     events: list[dict[str, Any]] = []
+    node_operation_id = uuid4()
     manager = FakePlatform({"get_order": _business_success(), "search_policy": _policy_success()})
     plan = [
         {"next_tool": "get_order", "args": {"order_no": "ORD-001"}, "reason": "fact"},
         {"next_tool": "search_policy", "args": {"query": "refund"}, "reason": "policy"},
     ]
 
-    await investigate(_state(plan), _config(manager, events))
+    await investigate(_state(plan), _config(manager, events, node_operation_id=node_operation_id))
 
     assert [event["event_type"] for event in events] == [
         "tool_call_started",
@@ -1215,8 +1246,19 @@ async def test_event_classification_iteration_and_redacted_payload():
         "rag_retrieval_completed",
     ]
     assert [event["iteration"] for event in events] == [1, 1, 2, 2]
+    tool_operation_ids = [event["operation_id"] for event in events]
+    assert tool_operation_ids[0] == tool_operation_ids[1]
+    assert tool_operation_ids[2] == tool_operation_ids[3]
+    assert tool_operation_ids[0] != tool_operation_ids[2]
+    assert {event["parent_operation_id"] for event in events} == {node_operation_id}
+    assert [event["attempt"] for event in events] == [1, 1, 1, 1]
+    assert all(event["tool_call_id"] for event in events)
+    assert {event["tool_call_id"] for event in events[:2]} == {str(tool_operation_ids[0])}
+    assert {event["tool_call_id"] for event in events[2:]} == {str(tool_operation_ids[2])}
     assert all("raw" not in str(event["payload"]).lower() for event in events)
     assert all("arguments" not in event["payload"] for event in events)
+    assert all(event["payload"]["attempt"] == 1 for event in events)
+    assert all(event["payload"]["tool_call_id"] for event in events)
 
 
 # --- Phase 29: investigate ToolPlatform integration (APF-06/APF-07) ---

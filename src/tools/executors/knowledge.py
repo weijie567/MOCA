@@ -25,7 +25,7 @@ class KnowledgeToolExecutor:
         self.service = service or PolicyKnowledgeService(PolicyRetrievalEngine(session))
 
     def has_tool(self, name: str) -> bool:
-        return name == "search_policy"
+        return name in {"search_policy", "search_sop"}
 
     async def execute(self, name: str, args: dict[str, Any], ctx: ToolCallContext) -> ToolResultV2:
         if name != "search_policy":

@@ -12683,3 +12683,62 @@ rg -n 'active_slots\s*=|active_slots\]|active_slots\.' src/agent/nodes/investiga
 
 - `tests/agent/test_nodes/test_investigate.py::test_prompt_injection_text_in_tool_result_does_not_become_discovered_slot`
 - `src/agent/nodes/investigate.py::_discover_loop_slots_from_projection`
+
+## 2026-07-04 — Phase 49-03 并行运行多个 DB-backed pytest 命令导致 Postgres schema 冲突
+
+### 问题现象
+
+49-03 验证时，我把 `tests/agent/test_nodes/test_investigate.py`、`tests/tools/test_catalog.py tests/tools/test_tool_platform.py`、`tests/replay/test_operation_pairing.py tests/replay/test_replay_service.py` 三组 pytest 通过 `multi_tool_use.parallel` 同时启动。多个 pytest 进程同时创建/清理测试 schema，导致 Postgres 出现 `pg_type_typname_nsp_index` unique violation、deadlock，以及后续 `agent_runs` relation missing。
+
+### 如何检测 / 复现
+
+并行启动多个 DB-backed pytest 进程：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_investigate.py -q
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py -q
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay/test_operation_pairing.py tests/replay/test_replay_service.py -q
+```
+
+### 关键证据或命令
+
+并行失败输出包含：
+
+```text
+duplicate key value violates unique constraint "pg_type_typname_nsp_index"
+deadlock detected
+relation "agent_runs" does not exist
+```
+
+### 当前判断 / 根因
+
+这是本地验证执行方式问题，不是 49-03 代码失败。MOCA 的 DB-backed pytest fixture 会创建/清理共享测试 schema；多个独立 pytest 进程并行跑会互相踩 schema DDL。
+
+### 已做处理
+
+改为顺序重跑全部相关命令：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_investigate.py -q
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py -q
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay/test_operation_pairing.py tests/replay/test_replay_service.py -q
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_events.py tests/replay/test_decision_events.py -q
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/nodes/investigate.py src/agent/events.py src/replay/decision_events.py src/tools/executors/knowledge.py tests/agent/test_nodes/test_investigate.py tests/tools/test_tool_platform.py tests/replay/test_operation_pairing.py
+```
+
+结果：
+
+- investigate：`52 passed, 1 warning`
+- tool catalog/platform：`79 passed, 1 warning`
+- replay operation/replay service：`23 passed, 1 warning`
+- event/decision events：`68 passed, 1 warning`
+- ruff：pass
+
+### 剩余问题
+
+无代码阻塞。后续自动流中不要并行启动多个 DB-backed pytest 进程；可以并行 ruff/rg 等无 DB 命令。
+
+### 下次继续排查入口
+
+- `tests/conftest.py` DB fixture
+- Phase 49 minimal test commands，必须顺序跑 DB-backed pytest
