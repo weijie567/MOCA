@@ -10,7 +10,12 @@ from sqlalchemy import Text, and_, cast, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import LongTermMemory, MemoryTombstone, MemoryWriteEvent, SessionMemory
-from src.memory.policy import MEMORY_POLICY_AUTHORITY_CLASS, MEMORY_POLICY_VERSION, PROMPT_SAFE_PII_CLASSIFICATIONS
+from src.memory.policy import (
+    MEMORY_POLICY_AUTHORITY_CLASS,
+    MEMORY_POLICY_VERSION,
+    PROMPT_SAFE_PII_CLASSIFICATIONS,
+    PUBLISHED_LONG_TERM_SOURCE_TYPES,
+)
 from src.memory.schemas import LongTermMemoryView, LongTermMemoryWriteCandidate
 from src.memory.tombstones import source_identity_hash_for_tombstone
 
@@ -655,6 +660,8 @@ class LongTermMemoryRepository:
             .where(
                 LongTermMemory.tenant_id == tenant_id,
                 scope_filter,
+                LongTermMemory.memory_kind == "preference",
+                LongTermMemory.source_type.in_(tuple(PUBLISHED_LONG_TERM_SOURCE_TYPES)),
                 LongTermMemory.review_status.in_(PUBLISHED_LONG_TERM_REVIEW_STATUSES),
                 LongTermMemory.deleted_at.is_(None),
                 LongTermMemory.is_current.is_(True),

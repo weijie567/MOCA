@@ -162,6 +162,8 @@ def _long_term_row(
     tenant_id: uuid.UUID,
     merchant_id: str,
     content: str,
+    memory_kind: str = "preference",
+    source_type: str = "human_reviewed",
     review_status: str = "approved",
     is_current: bool = True,
     deleted_at: datetime | None = None,
@@ -173,11 +175,11 @@ def _long_term_row(
         tenant_id=tenant_id,
         scope_type="merchant",
         scope_id=merchant_id,
-        memory_kind="preference",
+        memory_kind=memory_kind,
         content=content,
         content_hash=canonical_memory_content_hash(memory_type=LONG_TERM_MEMORY_TYPE, content=content),
-        source_type="human_reviewed",
-        source_ref_json={"source_type": "human_reviewed", "business_object_id": merchant_id},
+        source_type=source_type,
+        source_ref_json={"source_type": source_type, "business_object_id": merchant_id},
         source_identity_hash=None,
         confidence=Decimal("0.9000"),
         pii_classification=pii_classification,
@@ -357,6 +359,30 @@ async def test_reviewed_memory_context_excludes_deleted_expired_rejected_superse
                 content="Prohibited long-term memory must not surface.",
                 pii_classification="prohibited",
             ),
+            _long_term_row(
+                tenant_id=tenant_id,
+                merchant_id=merchant_a,
+                content="deterministic_tool_result long-term preference must not surface.",
+                source_type="deterministic_tool_result",
+            ),
+            _long_term_row(
+                tenant_id=tenant_id,
+                merchant_id=merchant_a,
+                content="semantic_episode_candidate long-term preference must not surface.",
+                source_type="semantic_episode_candidate",
+            ),
+            _long_term_row(
+                tenant_id=tenant_id,
+                merchant_id=merchant_a,
+                content="Reviewed long-term fact must not surface.",
+                memory_kind="fact",
+            ),
+            _long_term_row(
+                tenant_id=tenant_id,
+                merchant_id=merchant_a,
+                content="Reviewed long-term pattern must not surface.",
+                memory_kind="pattern",
+            ),
             tombstoned_long_term,
             visible_case,
             _case_row(
@@ -446,6 +472,10 @@ async def test_reviewed_memory_context_excludes_deleted_expired_rejected_superse
         "Sensitive",
         "Prohibited",
         "Tombstoned",
+        "deterministic_tool_result",
+        "semantic_episode_candidate",
+        "Reviewed long-term fact",
+        "Reviewed long-term pattern",
     ):
         assert forbidden not in serialized
 
@@ -467,7 +497,7 @@ async def test_memory_write_decision_projection_marks_needs_review_and_excludes_
             run_id=run_id,
             merchant_id=merchant_a,
             content="Needs-review long-term memory must stay out of reviewed prompt context.",
-            source_type="llm_candidate",
+            source_type="semantic_episode_candidate",
         )
     )
     case_result = await case_service.submit_case_memory_candidate(

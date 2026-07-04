@@ -20,6 +20,8 @@ def _memory(
     scope_type: str,
     scope_id: str,
     content: str,
+    memory_kind: str = "preference",
+    source_type: str = "human_reviewed",
     review_status: str = "auto_approved",
     is_current: bool = True,
     deleted_at: datetime | None = None,
@@ -32,11 +34,11 @@ def _memory(
         tenant_id=tenant_id,
         scope_type=scope_type,
         scope_id=scope_id,
-        memory_kind="preference",
+        memory_kind=memory_kind,
         content=content,
         content_hash=canonical_memory_content_hash(memory_type="long_term_fact", content=content),
-        source_type="human_reviewed",
-        source_ref_json={"source_type": "human_reviewed"},
+        source_type=source_type,
+        source_ref_json={"source_type": source_type},
         source_identity_hash=source_identity_hash,
         confidence=Decimal("0.9000"),
         pii_classification=pii_classification,
@@ -199,6 +201,105 @@ async def test_retrieve_profile_memory_excludes_unpublished_states(
     assert all(row.review_status in {"auto_approved", "approved"} for row in rows)
     assert all(row.tenant_id == str(tenant_id) for row in rows)
     assert all(row.scope_type == scope_type and row.scope_id == scope_id for row in rows)
+
+
+@pytest.mark.asyncio
+async def test_retrieve_profile_memory_returns_only_published_preference_sources(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    tenant_id = seeded_session["tenant"].id
+    scope_type = "merchant"
+    scope_id = str(seeded_session["merchant"].id)
+    session.add_all(
+        [
+            _memory(
+                tenant_id=tenant_id,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                content="Explicit user preference should surface.",
+                source_type="explicit_user_preference",
+            ),
+            _memory(
+                tenant_id=tenant_id,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                content="Explicit admin preference should surface.",
+                source_type="explicit_admin_preference",
+            ),
+            _memory(
+                tenant_id=tenant_id,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                content="Human reviewed preference should surface.",
+                source_type="human_reviewed",
+                review_status="approved",
+            ),
+            _memory(
+                tenant_id=tenant_id,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                content="Approved fact must not surface.",
+                memory_kind="fact",
+                source_type="human_reviewed",
+                review_status="approved",
+            ),
+            _memory(
+                tenant_id=tenant_id,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                content="Approved pattern must not surface.",
+                memory_kind="pattern",
+                source_type="human_reviewed",
+                review_status="approved",
+            ),
+            _memory(
+                tenant_id=tenant_id,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                content="Approved constraint must not surface.",
+                memory_kind="constraint",
+                source_type="human_reviewed",
+                review_status="approved",
+            ),
+            _memory(
+                tenant_id=tenant_id,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                content="Deterministic tool preference must not surface.",
+                source_type="deterministic_tool_result",
+                review_status="approved",
+            ),
+            _memory(
+                tenant_id=tenant_id,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                content="Semantic episode candidate preference must not surface.",
+                source_type="semantic_episode_candidate",
+                review_status="approved",
+            ),
+        ]
+    )
+    await session.flush()
+
+    rows = await LongTermMemoryRepository(session).retrieve_profile_memory(
+        tenant_id=tenant_id,
+        scope_type=scope_type,
+        scope_id=scope_id,
+    )
+
+    assert {row.content for row in rows} == {
+        "Explicit user preference should surface.",
+        "Explicit admin preference should surface.",
+        "Human reviewed preference should surface.",
+    }
+    assert {row.source_type for row in rows} == {
+        "explicit_user_preference",
+        "explicit_admin_preference",
+        "human_reviewed",
+    }
+    assert all(row.memory_kind == "preference" for row in rows)
+    assert all(row.semantic_kind == "merchant_preference" for row in rows)
 
 
 @pytest.mark.asyncio

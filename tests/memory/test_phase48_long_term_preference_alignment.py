@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CONTRACT_SPEC_PATH = ROOT / "docs" / "contract-spec.md"
 DB_MODELS_PATH = ROOT / "src" / "db" / "models.py"
 SEMANTIC_EPISODE_PATH = ROOT / "src" / "memory" / "semantic_episode.py"
+REPOSITORY_PATH = ROOT / "src" / "memory" / "repository.py"
 PHASE48_DIR = ROOT / ".planning" / "phases" / "48-narrow-long-term-explicit-preference-memory"
 
 
@@ -123,6 +124,15 @@ def test_phase48_semantic_episode_source_mentions_only_preference_candidate_proj
     assert "preference_candidate" in projection_section
     for forbidden in ("cross_case_pattern", "similar_case_hint", "strategy_hint"):
         assert forbidden not in projection_section
+
+
+def test_phase48_retrieval_filters_published_preference_sources() -> None:
+    source = _strip_python_comments(_source(REPOSITORY_PATH))
+    retrieve_section = _between(source, "async def retrieve_profile_memory", "def _search_terms")
+
+    assert "PUBLISHED_LONG_TERM_SOURCE_TYPES" in retrieve_section
+    assert 'LongTermMemory.memory_kind == "preference"' in retrieve_section
+    assert "LongTermMemory.source_type.in_" in retrieve_section
 
 
 def _planning_prose_lines(path: Path) -> list[tuple[int, str]]:
