@@ -333,6 +333,8 @@ def _state_case_candidate_allowed(
 ) -> bool:
     if candidate.source_type not in REVIEW_REQUIRED_CASE_SOURCE_TYPES:
         return False
+    if candidate.source_type == "closed_case_cwc_candidate" and not _closed_case_source_ref_allowed(candidate):
+        return False
     if candidate.scope_type == "merchant":
         if not _trusted_merchant_scope_allows(candidate.scope_id, trusted_context=trusted_context):
             return False
@@ -346,6 +348,13 @@ def _state_case_candidate_allowed(
 
 
 def _state_case_scope_source_ref_allowed(candidate: CaseMemoryWriteCandidate) -> bool:
+    if not _closed_case_source_ref_allowed(candidate):
+        return False
+    source_ref = candidate.source_ref
+    return source_ref is not None and source_ref.business_object_id == candidate.scope_id
+
+
+def _closed_case_source_ref_allowed(candidate: CaseMemoryWriteCandidate) -> bool:
     if candidate.source_type != "closed_case_cwc_candidate":
         return False
     source_ref = candidate.source_ref
@@ -353,7 +362,7 @@ def _state_case_scope_source_ref_allowed(candidate: CaseMemoryWriteCandidate) ->
         return False
     return (
         source_ref.business_object_type == "refund_case"
-        and source_ref.business_object_id == candidate.scope_id
+        and bool(source_ref.business_object_id)
         and bool(source_ref.event_id)
     )
 

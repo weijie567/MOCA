@@ -65,9 +65,11 @@ def _state_case_candidate(
     run_id,
     scope_type: str = "case",
     scope_id: str = "case-1",
+    source_case_id: str | None = None,
     source_type: str = "closed_case_cwc_candidate",
     include_source_ref: bool = True,
 ) -> dict[str, object]:
+    source_business_object_id = source_case_id or scope_id
     candidate: dict[str, object] = {
         "memory_type": "case",
         "tenant_id": tenant_id,
@@ -84,10 +86,10 @@ def _state_case_candidate(
             "source_type": source_type,
             "run_id": str(run_id),
             "agent_run_id": str(run_id),
-            "event_id": f"refund-case-close:{scope_id}:state-gate",
+            "event_id": f"refund-case-close:{source_business_object_id}:state-gate",
             "business_object_type": "refund_case",
-            "business_object_id": scope_id,
-            "outcome_id": f"cwc:{scope_id}:v1",
+            "business_object_id": source_business_object_id,
+            "outcome_id": f"cwc:{source_business_object_id}:v1",
         }
     return candidate
 
@@ -396,6 +398,89 @@ def test_memory_write_service_rejects_untrusted_case_state_candidates(case: str)
             memory_write_candidates=[raw_candidate],
         ),
         trusted_context=trusted_context,
+    )
+
+    assert len(candidates) == 1
+    assert isinstance(candidates[0], SessionMemoryWriteCandidate)
+
+
+def test_memory_write_service_accepts_trusted_merchant_closed_case_state_candidate_with_source_ref() -> None:
+    service = MemoryWriteService(FakeSessionMemoryService())
+    tenant_id = uuid4()
+    run_id = uuid4()
+
+    candidates = service.propose_candidates(
+        _state(
+            tenant_id=str(tenant_id),
+            current_run_id=str(run_id),
+            memory_write_candidates=[
+                _state_case_candidate(
+                    tenant_id=tenant_id,
+                    run_id=run_id,
+                    scope_type="merchant",
+                    scope_id="merchant-1",
+                    source_case_id="case-1",
+                )
+            ],
+        ),
+        trusted_context=_trusted_context("merchant-1"),
+    )
+
+    case_candidates = [candidate for candidate in candidates if isinstance(candidate, CaseMemoryWriteCandidate)]
+    assert len(case_candidates) == 1
+    candidate = case_candidates[0]
+    assert candidate.scope_type == "merchant"
+    assert candidate.scope_id == "merchant-1"
+    assert candidate.source_ref is not None
+    assert candidate.source_ref.business_object_type == "refund_case"
+    assert candidate.source_ref.business_object_id == "case-1"
+    assert candidate.source_ref.event_id is not None
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "missing_source_ref",
+        "missing_source_event_id",
+        "missing_source_business_object_id",
+        "wrong_source_business_object_type",
+    ],
+)
+def test_memory_write_service_rejects_merchant_case_state_candidate_without_closed_case_source_provenance(
+    case: str,
+) -> None:
+    service = MemoryWriteService(FakeSessionMemoryService())
+    tenant_id = uuid4()
+    run_id = uuid4()
+    raw_candidate = _state_case_candidate(
+        tenant_id=tenant_id,
+        run_id=run_id,
+        scope_type="merchant",
+        scope_id="merchant-1",
+        source_case_id="case-1",
+    )
+    if case == "missing_source_ref":
+        raw_candidate = _state_case_candidate(
+            tenant_id=tenant_id,
+            run_id=run_id,
+            scope_type="merchant",
+            scope_id="merchant-1",
+            include_source_ref=False,
+        )
+    elif case == "missing_source_event_id":
+        raw_candidate["source_ref"].pop("event_id")  # type: ignore[union-attr]
+    elif case == "missing_source_business_object_id":
+        raw_candidate["source_ref"].pop("business_object_id")  # type: ignore[union-attr]
+    elif case == "wrong_source_business_object_type":
+        raw_candidate["source_ref"]["business_object_type"] = "merchant"  # type: ignore[index]
+
+    candidates = service.propose_candidates(
+        _state(
+            tenant_id=str(tenant_id),
+            current_run_id=str(run_id),
+            memory_write_candidates=[raw_candidate],
+        ),
+        trusted_context=_trusted_context("merchant-1"),
     )
 
     assert len(candidates) == 1

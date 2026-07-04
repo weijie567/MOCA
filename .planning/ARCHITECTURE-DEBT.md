@@ -393,6 +393,29 @@
 
 **状态**：✅ 已修复并通过 focused verification；剩余风险是如果未来需要从 state 接受更多 case-scope generator sources，必须先补 resolved case identity 授权，而不是放宽到所有 case source。
 
+## Phase 48 Re-review WR-01 follow-up — merchant-scope closed-case source provenance fail-closed ✅已修复验证
+
+**问题 / 根因**
+- 上一轮 `MemoryWriteService.propose_candidates(...)` state-origin case gate 已收紧 case-scope `closed_case_cwc_candidate`，但 merchant-scope 分支只要求 `trusted_context.merchant_scope` 覆盖目标 merchant。
+- 因此 `scope_type="merchant"`、`source_type="closed_case_cwc_candidate"` 的 state candidate 即使缺失 `source_ref`，或缺少 `refund_case` source identity / close event，也会进入 pending review。
+
+**影响**
+- pending case-memory candidate 可能只留下 `source_type` 而没有 normalized closed-case provenance。虽然仍需 reviewer approval，但 review/audit boundary 失去源退款 case 与 close event 依据。
+
+**修复**
+- `closed_case_cwc_candidate` 现在无论 merchant scope 还是 case scope，都必须先通过完整 source identity 校验：`source_ref.business_object_type == "refund_case"`、`business_object_id` 非空、`event_id` 非空。
+- merchant-scope 仍保留 trusted merchant-scope 授权，但它只是 source identity 校验之后的追加条件；case-scope 继续要求 `source_ref.business_object_id == scope_id`。
+- 回归测试覆盖 merchant-scope 完整 source_ref 可接受，以及缺失 source_ref、缺 event_id、缺 business_object_id、错误 business_object_type 均被过滤。
+
+**证据**
+- Phase / review：`48-REVIEW.md` WR-01（2026-07-04 re-review follow-up）
+- 文件：`src/memory/write_service.py`、`tests/memory/test_memory_write_service.py`
+- 验证：`UV_CACHE_DIR=/tmp/uv-cache uv run python -c "import ast, pathlib; [ast.parse(pathlib.Path(p).read_text()) for p in ['src/memory/write_service.py', 'tests/memory/test_memory_write_service.py']]"` → pass
+- 验证：`UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/memory/write_service.py tests/memory/test_memory_write_service.py` → pass
+- 验证：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_memory_write_service.py -q` → `35 passed, 1 warning`
+
+**状态**：✅ 已修复并通过 focused verification；剩余风险是未来若要允许 state-origin 非 closed-case case-memory generator source，需要先定义独立 source identity / scope authorization 规则。
+
 ## Phase 44 Wave 2 — Case Working Context 身份解析与版本化仓库 ✅⚠️
 
 **问题 / 根因**
