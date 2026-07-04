@@ -9,6 +9,7 @@ from typing import Any
 from src.agent.intent_policy import REQUIRED_SLOT_POLICY
 from src.config import settings
 from src.memory.policy import (
+    REVIEW_REQUIRED_LONG_TERM_SOURCE_TYPES,
     case_memory_policy_decision,
     long_term_memory_policy_decision,
     session_memory_policy_decision,
@@ -23,6 +24,7 @@ from src.memory.schemas import (
     SessionMemoryWriteResult,
     SessionSlotV1,
 )
+from src.platform.trusted_context import MerchantScopeV1, merchant_scope_allows
 
 
 MemoryWriteCandidate = SessionMemoryWriteCandidate | LongTermMemoryWriteCandidate | CaseMemoryWriteCandidate
@@ -71,7 +73,14 @@ class MemoryWriteService:
             requested_types=requested_types,
         ):
             candidates.append(preference_candidate)
-        candidates.extend(_explicit_candidates(state.get("memory_write_candidates"), requested_types=requested_types))
+        candidates.extend(
+            _explicit_candidates(
+                state.get("memory_write_candidates"),
+                state=state,
+                requested_types=requested_types,
+                trusted_context=trusted_context,
+            )
+        )
         return candidates
 
     def evaluate_policy(self, candidate: MemoryWriteCandidate):
@@ -173,18 +182,41 @@ def _build_session_candidate(state: Mapping[str, Any]) -> SessionMemoryWriteCand
     )
 
 
-def _explicit_candidates(value: Any, *, requested_types: Sequence[str] | None) -> list[MemoryWriteCandidate]:
+def _explicit_candidates(
+    value: Any,
+    *,
+    state: Mapping[str, Any],
+    requested_types: Sequence[str] | None,
+    trusted_context: Any | None,
+) -> list[MemoryWriteCandidate]:
+    state_tenant_id = _state_uuid(state, "tenant_id")
+    state_run_id = _state_uuid(state, "current_run_id")
+    if state_tenant_id is None or state_run_id is None:
+        return []
+
     candidates: list[MemoryWriteCandidate] = []
     for item in _candidate_items(value):
         candidate = _coerce_explicit_candidate(item)
         if (
             candidate is None
             or not _candidate_type_allowed(candidate, requested_types=requested_types)
-            or not _state_explicit_candidate_allowed(candidate)
+            or not _state_candidate_identity_allowed(
+                candidate,
+                tenant_id=state_tenant_id,
+                run_id=state_run_id,
+                trusted_context=trusted_context,
+            )
         ):
             continue
         candidates.append(candidate)
     return candidates
+
+
+def _state_uuid(state: Mapping[str, Any], key: str) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(str(state[key]))
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def _candidate_items(value: Any) -> list[Any]:
@@ -245,14 +277,74 @@ def _candidate_type_allowed(candidate: MemoryWriteCandidate, *, requested_types:
     return False
 
 
-def _state_explicit_candidate_allowed(candidate: MemoryWriteCandidate) -> bool:
-    if not isinstance(candidate, LongTermMemoryWriteCandidate):
-        return True
-    if candidate.source_type == "explicit_admin_preference":
+def _state_candidate_identity_allowed(
+    candidate: MemoryWriteCandidate,
+    *,
+    tenant_id: uuid.UUID,
+    run_id: uuid.UUID,
+    trusted_context: Any | None,
+) -> bool:
+    if candidate.tenant_id != tenant_id or candidate.run_id != run_id:
         return False
-    if candidate.source_type == "explicit_user_preference":
-        return candidate.scope_type == "merchant"
+    if not _source_ref_identity_allowed(candidate, run_id=run_id):
+        return False
+    if isinstance(candidate, LongTermMemoryWriteCandidate):
+        return _state_long_term_candidate_allowed(candidate, trusted_context=trusted_context)
     return True
+
+
+def _source_ref_identity_allowed(candidate: MemoryWriteCandidate, *, run_id: uuid.UUID) -> bool:
+    source_ref = getattr(candidate, "source_ref", None)
+    if source_ref is None:
+        return True
+    if getattr(source_ref, "source_type", None) != getattr(candidate, "source_type", None):
+        return False
+    for field in ("run_id", "agent_run_id"):
+        value = getattr(source_ref, field, None)
+        if value is not None and value != str(run_id):
+            return False
+    return True
+
+
+def _state_long_term_candidate_allowed(
+    candidate: LongTermMemoryWriteCandidate,
+    *,
+    trusted_context: Any | None,
+) -> bool:
+    if candidate.source_type not in REVIEW_REQUIRED_LONG_TERM_SOURCE_TYPES:
+        return False
+    if candidate.scope_type != "merchant":
+        return False
+    if not _trusted_merchant_scope_allows(candidate.scope_id, trusted_context=trusted_context):
+        return False
+    source_ref = candidate.source_ref
+    if source_ref is not None and source_ref.business_object_type == "merchant":
+        return source_ref.business_object_id == candidate.scope_id
+    return True
+
+
+def _trusted_merchant_scope_allows(scope_id: str, *, trusted_context: Any | None) -> bool:
+    scope = _trusted_merchant_scope(trusted_context)
+    if scope is None:
+        return False
+    return merchant_scope_allows(scope, merchant_id=scope_id)
+
+
+def _trusted_merchant_scope(trusted_context: Any | None) -> MerchantScopeV1 | None:
+    if trusted_context is None:
+        return None
+    raw_scope = (
+        trusted_context.get("merchant_scope")
+        if isinstance(trusted_context, Mapping)
+        else getattr(trusted_context, "merchant_scope", None)
+    )
+    if raw_scope is None:
+        return None
+    if isinstance(raw_scope, MerchantScopeV1):
+        return raw_scope
+    if isinstance(raw_scope, Mapping):
+        return MerchantScopeV1.model_validate(raw_scope)
+    return None
 
 
 def _explicit_slots(

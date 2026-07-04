@@ -38,6 +38,26 @@ def _trusted_context(*merchant_ids: str) -> dict[str, object]:
     return {"merchant_scope": {"merchant_ids": list(merchant_ids)}}
 
 
+def _state_long_term_candidate(
+    *,
+    tenant_id,
+    run_id,
+    scope_type: str = "merchant",
+    scope_id: str = "merchant-1",
+    source_type: str = "semantic_episode_candidate",
+) -> dict[str, object]:
+    return {
+        "memory_type": "long_term",
+        "tenant_id": tenant_id,
+        "run_id": run_id,
+        "scope_type": scope_type,
+        "scope_id": scope_id,
+        "memory_kind": "preference",
+        "content": "Merchant prefers concise refund updates.",
+        "source_type": source_type,
+    }
+
+
 class FakeSessionMemoryService:
     def __init__(self) -> None:
         self.candidates = []
@@ -235,7 +255,55 @@ def test_memory_write_service_rejects_tenant_scope_explicit_user_preference_from
                     "source_type": "explicit_user_preference",
                 }
             ],
-        )
+        ),
+        trusted_context=_trusted_context("merchant-1"),
+    )
+
+    assert len(candidates) == 1
+    assert isinstance(candidates[0], SessionMemoryWriteCandidate)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "cross_tenant",
+        "wrong_run",
+        "tenant_scope",
+        "human_reviewed_source",
+        "admin_source",
+        "explicit_user_source",
+        "untrusted_merchant_scope",
+    ],
+)
+def test_memory_write_service_rejects_untrusted_long_term_state_candidates(case: str) -> None:
+    service = MemoryWriteService(FakeSessionMemoryService())
+    tenant_id = uuid4()
+    run_id = uuid4()
+    raw_candidate = _state_long_term_candidate(tenant_id=tenant_id, run_id=run_id)
+    trusted_context = _trusted_context("merchant-1")
+    if case == "cross_tenant":
+        raw_candidate["tenant_id"] = uuid4()
+    elif case == "wrong_run":
+        raw_candidate["run_id"] = uuid4()
+    elif case == "tenant_scope":
+        raw_candidate["scope_type"] = "tenant"
+        raw_candidate["scope_id"] = str(tenant_id)
+    elif case == "human_reviewed_source":
+        raw_candidate["source_type"] = "human_reviewed"
+    elif case == "admin_source":
+        raw_candidate["source_type"] = "explicit_admin_preference"
+    elif case == "explicit_user_source":
+        raw_candidate["source_type"] = "explicit_user_preference"
+    elif case == "untrusted_merchant_scope":
+        trusted_context = _trusted_context("merchant-2")
+
+    candidates = service.propose_candidates(
+        _state(
+            tenant_id=str(tenant_id),
+            current_run_id=str(run_id),
+            memory_write_candidates=[raw_candidate],
+        ),
+        trusted_context=trusted_context,
     )
 
     assert len(candidates) == 1
@@ -353,7 +421,8 @@ async def test_memory_write_service_proposes_explicit_long_term_and_case_candida
                     "source_type": "human_reviewed",
                 },
             ],
-        )
+        ),
+        trusted_context=_trusted_context("merchant-1"),
     )
 
     results = await service.apply_policy_and_write_all(candidates)

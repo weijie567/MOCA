@@ -319,6 +319,24 @@
 - 🟡 `memory_type='long_term_fact'` 仍是 legacy storage/table identity；它不表示 fact/pattern/constraint 可作为 published long-term memory 语义。该命名妥协已在 `docs/contract-spec.md` 与 Phase 48 static guards 中锁定。
 - 🟡 User-specific preference scope 仍为 post-Phase 48 defer；当前实现主路径是 merchant/team default + admin tenant explicit。
 
+## Phase 48 Review CR-01 — state-origin 记忆候选身份与发布边界加固 ✅已修复验证
+
+**问题 / 根因**
+- `MemoryWriteService.propose_candidates(...)` 曾对 `state["memory_write_candidates"]` 只做 Pydantic 形状校验和有限 source-type 过滤，没有绑定回当前 state 的 `tenant_id` / `current_run_id`，也没有要求 state-origin long-term candidate 只能是 review-required merchant scope。
+
+**影响**
+- 上游 state writer 可能把跨租户、错 run、tenant-scope、`human_reviewed` / `explicit_admin_preference` / `explicit_user_preference` 等已发布来源候选偷渡到写入 side effect，绕过显式 preference / review 路径治理。
+
+**修复**
+- state-origin candidate 现在必须匹配当前 tenant/run；source_ref 若声明 run/source type 也必须与 candidate/current run 一致。
+- state-origin long-term candidate fail-closed：只允许 `REVIEW_REQUIRED_LONG_TERM_SOURCE_TYPES` 中的 merchant-scope candidate，并要求 `trusted_context.merchant_scope` 覆盖该 merchant；显式 user/admin/human-reviewed 发布来源仍只能由 deterministic helper / admin API / review path 创建。
+
+**证据**
+- Phase / review：`48-REVIEW.md` CR-01
+- 文件：`src/memory/write_service.py`、`tests/memory/test_memory_write_service.py`
+
+**状态**：✅ 已修复并通过 focused verification；剩余风险是 case-memory state candidate 仍按既有 case policy 处理，本次 review finding 的 long-term explicit preference 边界已收紧。
+
 ## Phase 44 Wave 2 — Case Working Context 身份解析与版本化仓库 ✅⚠️
 
 **问题 / 根因**
