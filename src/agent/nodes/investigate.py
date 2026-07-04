@@ -1039,7 +1039,7 @@ def _bounded_iterations(value: Any) -> int:
 
 
 def _canonical_stop_reason(value: Any) -> str:
-    if value in {"enough_evidence", "no_more_useful_tools", "unrecoverable_error"}:
+    if value in {"enough_evidence", "no_more_useful_tools", "max_iterations_reached", "unrecoverable_error"}:
         return str(value)
     return "unrecoverable_error"
 

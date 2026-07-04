@@ -878,6 +878,7 @@
 - Planner input 只使用 `ToolResultProjector` 后的 projected observation summary；raw payload、PII sentinel、policy/body/debug/private 字段不进入 planner prompt。
 - 每轮 tool/RAG event 已有 distinct `operation_id`、`iteration`、`attempt`、`tool_call_id`；当 graph/configurable 提供 `node_operation_id` 或 `investigate_operation_id` 时写入 `parent_operation_id`。
 - 49-04 增加 graph-level fake structured planner seam 和回归：order→ticket 链式调查成立、policy-only 不强制 business context、planner 试图输出 write/action/routing/approval bypass 时只能 fallback/被拒，不能越过 router / approval / action gate。
+- 收尾复核补修 planner stop reason 映射：`stop_reason="max_iterations_reached"` 已由 schema 允许，termination canonicalization 必须原样保留，避免被误降级为 `unrecoverable_error`。
 
 **证据**
 - Phase / plans：`49-01`、`49-02`、`49-03`、`49-04`
@@ -885,7 +886,7 @@
 - 测试文件：`tests/agent/test_nodes/test_investigate.py`、`tests/agent/test_graph.py`、`tests/tools/test_tool_platform.py`、`tests/replay/test_operation_pairing.py`
 
 **验证**
-- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py tests/agent/test_nodes/test_investigate.py -q` → `80 passed, 25 warnings`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py tests/agent/test_nodes/test_investigate.py -q` → `81 passed, 25 warnings`
 - `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_classify_intent.py tests/agent/test_intent_task_plan.py tests/agent/test_nodes/test_receive_request.py -q` → `47 passed, 1 warning`
 - `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_memory_evidence_boundary.py tests/agent/test_reviewed_memory_context_retrieve.py tests/memory/test_phase48_1_memory_compat_alignment.py tests/memory/test_phase48_long_term_preference_alignment.py -q` → `41 passed, 4 warnings`
 - `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_gate.py tests/agent/test_phase22_action_boundary.py tests/test_interception_rate.py -q` → `31 passed, 1 warning`

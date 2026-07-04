@@ -534,6 +534,18 @@ async def test_planner_stop_decision_terminates_without_tool_call():
 
 
 @pytest.mark.asyncio
+async def test_planner_stop_reason_max_iterations_reached_is_preserved():
+    events: list[dict[str, Any]] = []
+    manager = FakePlatform({"get_order": _business_success()})
+    planner = _PlannerSequence([{"stop": True, "stop_reason": "max_iterations_reached"}])
+
+    result = await investigate(_state([]), _config(manager, events, investigate_planner=planner))
+
+    assert result["termination_reason"] == "max_iterations_reached"
+    assert manager.calls == []
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "planner_output",
     [

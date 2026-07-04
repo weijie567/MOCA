@@ -21,6 +21,8 @@ key-files:
   created:
     - .planning/phases/49-investigate-bounded-react-loop-migration/49-04-SUMMARY.md
   modified:
+    - src/agent/nodes/investigate.py
+    - tests/agent/test_nodes/test_investigate.py
     - tests/agent/test_graph.py
     - .planning/DEFERRED-DECISIONS.md
     - .planning/ARCHITECTURE-DEBT.md
@@ -44,7 +46,7 @@ completed: 2026-07-04
 - **Duration:** 1 closeout plan
 - **Completed:** 2026-07-04
 - **Tasks:** 3
-- **Files modified:** 4
+- **Files modified:** 6
 
 ## Accomplishments
 
@@ -54,13 +56,17 @@ completed: 2026-07-04
 - Strengthened policy-only graph coverage to assert business context is not required.
 - Ran intent, memory, approval/action, graph, and investigate regression commands using the approved `uv run pytest` entrypoint.
 - Updated GAD-01 and architecture debt ledgers with an `IMPLEMENTED_WITH_LIMITATIONS` closeout.
+- Post-closeout review fixed canonical preservation of planner `stop_reason="max_iterations_reached"`.
 
 ## Task Commits
 
-1. **49-04 closeout changes** - pending current commit (`test/docs: close phase 49 graph react migration`)
+1. **49-04 closeout changes** - `7827a3b` (`test: close phase 49 graph react migration`)
+2. **Post-closeout review fix** - current review-fix commit (`fix: preserve investigate max-iteration stop reason`)
 
 ## Files Created/Modified
 
+- `src/agent/nodes/investigate.py` - preserves the full validated stop reason enum, including `max_iterations_reached`.
+- `tests/agent/test_nodes/test_investigate.py` - regression for planner stop reason preservation.
 - `tests/agent/test_graph.py` - fake structured planner harness plus graph-level chain and safety regressions.
 - `.planning/DEFERRED-DECISIONS.md` - GAD-01 status updated from pending implementation debt to implemented with replay parent limitation.
 - `.planning/ARCHITECTURE-DEBT.md` - Phase 49 closeout entry for investigate deterministic planner debt.
@@ -73,7 +79,7 @@ completed: 2026-07-04
 
 ## Deviations from Plan
 
-None. The replay parent-operation limitation was already anticipated by the Phase 49 plan review warnings and is recorded in both GAD-01 and architecture debt.
+One post-closeout review fix was added: planner validation allowed `stop_reason="max_iterations_reached"`, but canonical termination mapping previously downgraded that explicit planner stop to `unrecoverable_error`. The fix stays inside investigate semantics and adds a focused regression test.
 
 ## Issues Encountered
 
@@ -82,7 +88,7 @@ No new local validation issue. A graph-test harness gap was fixed before it beca
 ## Verification
 
 - `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check tests/agent/test_graph.py` -> pass
-- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py tests/agent/test_nodes/test_investigate.py -q` -> `80 passed, 25 warnings`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py tests/agent/test_nodes/test_investigate.py -q` -> `81 passed, 25 warnings`
 - `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_classify_intent.py tests/agent/test_intent_task_plan.py tests/agent/test_nodes/test_receive_request.py -q` -> `47 passed, 1 warning`
 - `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_memory_evidence_boundary.py tests/agent/test_reviewed_memory_context_retrieve.py tests/memory/test_phase48_1_memory_compat_alignment.py tests/memory/test_phase48_long_term_preference_alignment.py -q` -> `41 passed, 4 warnings`
 - `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_gate.py tests/agent/test_phase22_action_boundary.py tests/test_interception_rate.py -q` -> `31 passed, 1 warning`
