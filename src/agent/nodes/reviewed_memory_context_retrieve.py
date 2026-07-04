@@ -360,13 +360,13 @@ def _empty_bundle(
 
 def _trusted_scope_inputs(*, trusted_context: Any | None, current_slots: Mapping[str, Any] | None) -> dict[str, Any]:
     inputs: dict[str, Any] = {}
-    trusted = trusted_context if isinstance(trusted_context, Mapping) else {}
+    trusted = _mapping(trusted_context)
     for key in ("tenant_id", "user_id", "thread_id", "run_id", "trace_id", "role"):
         value = trusted.get(key)
         if value is not None:
             inputs[key] = value
-    merchant_scope = trusted.get("merchant_scope")
-    if isinstance(merchant_scope, Mapping):
+    merchant_scope = _mapping(trusted.get("merchant_scope"))
+    if merchant_scope:
         inputs["merchant_scope"] = list(merchant_scope.get("merchant_ids") or [])
     if current_slots:
         inputs["current_slots"] = dict(current_slots)
@@ -384,22 +384,25 @@ def _trusted_business_context(state: AgentState, configurable: Mapping[str, Any]
     context = state.get("business_context")
     if isinstance(context, Mapping) and context:
         return dict(context)
-    if _uses_legacy_actor_merchant_scope(state):
+    if _uses_reviewed_memory_actor_merchant_scope_hint(state):
         merchant_id = _single_actor_merchant_id(configurable.get("trusted_context"))
         if merchant_id is not None:
             return {"merchant_id": merchant_id, "source": "trusted_context_actor_scope"}
     return None
 
 
-def _uses_legacy_actor_merchant_scope(state: AgentState) -> bool:
+def _uses_reviewed_memory_actor_merchant_scope_hint(state: AgentState) -> bool:
     routing_hints = state.get("routing_hints")
-    return isinstance(routing_hints, Mapping) and routing_hints.get("needs_long_term_memory") is True
+    return isinstance(routing_hints, Mapping) and (
+        routing_hints.get("needs_reviewed_memory_context") is True
+        or routing_hints.get("needs_long_term_memory") is True
+    )
 
 
 def _single_actor_merchant_id(trusted_context: Any | None) -> str | None:
-    trusted = trusted_context if isinstance(trusted_context, Mapping) else {}
-    merchant_scope = trusted.get("merchant_scope")
-    if not isinstance(merchant_scope, Mapping):
+    trusted = _mapping(trusted_context)
+    merchant_scope = _mapping(trusted.get("merchant_scope"))
+    if not merchant_scope:
         return None
     merchant_ids = [str(value) for value in merchant_scope.get("merchant_ids") or [] if str(value) != "*"]
     return merchant_ids[0] if len(merchant_ids) == 1 else None

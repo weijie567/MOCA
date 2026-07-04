@@ -279,10 +279,17 @@ def _route_after_slots(state: AgentState) -> str:
     missing = missing_required_slots(policy, resolve_slots_for_completeness(state))
     if missing:
         return "clarification_gate"
-    routing_hints = state.get("routing_hints") if isinstance(state.get("routing_hints"), dict) else {}
-    if routing_hints.get("needs_long_term_memory") is True:
+    if _needs_reviewed_memory_context(state):
         return "long_term_memory_retrieve"
     return "investigate"
+
+
+def _needs_reviewed_memory_context(state: AgentState) -> bool:
+    routing_hints = state.get("routing_hints")
+    return isinstance(routing_hints, dict) and (
+        routing_hints.get("needs_reviewed_memory_context") is True
+        or routing_hints.get("needs_long_term_memory") is True
+    )
 
 
 def route_after_investigate(state: AgentState) -> str:
