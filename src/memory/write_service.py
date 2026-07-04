@@ -9,6 +9,7 @@ from typing import Any
 from src.agent.intent_policy import REQUIRED_SLOT_POLICY
 from src.config import settings
 from src.memory.policy import (
+    REVIEW_REQUIRED_CASE_SOURCE_TYPES,
     REVIEW_REQUIRED_LONG_TERM_SOURCE_TYPES,
     case_memory_policy_decision,
     long_term_memory_policy_decision,
@@ -290,6 +291,8 @@ def _state_candidate_identity_allowed(
         return False
     if isinstance(candidate, LongTermMemoryWriteCandidate):
         return _state_long_term_candidate_allowed(candidate, trusted_context=trusted_context)
+    if isinstance(candidate, CaseMemoryWriteCandidate):
+        return _state_case_candidate_allowed(candidate, trusted_context=trusted_context)
     return True
 
 
@@ -321,6 +324,38 @@ def _state_long_term_candidate_allowed(
     if source_ref is not None and source_ref.business_object_type == "merchant":
         return source_ref.business_object_id == candidate.scope_id
     return True
+
+
+def _state_case_candidate_allowed(
+    candidate: CaseMemoryWriteCandidate,
+    *,
+    trusted_context: Any | None,
+) -> bool:
+    if candidate.source_type not in REVIEW_REQUIRED_CASE_SOURCE_TYPES:
+        return False
+    if candidate.scope_type == "merchant":
+        if not _trusted_merchant_scope_allows(candidate.scope_id, trusted_context=trusted_context):
+            return False
+        source_ref = candidate.source_ref
+        if source_ref is not None and source_ref.business_object_type == "merchant":
+            return source_ref.business_object_id == candidate.scope_id
+        return True
+    if candidate.scope_type == "case":
+        return _state_case_scope_source_ref_allowed(candidate)
+    return False
+
+
+def _state_case_scope_source_ref_allowed(candidate: CaseMemoryWriteCandidate) -> bool:
+    if candidate.source_type != "closed_case_cwc_candidate":
+        return False
+    source_ref = candidate.source_ref
+    if source_ref is None:
+        return False
+    return (
+        source_ref.business_object_type == "refund_case"
+        and source_ref.business_object_id == candidate.scope_id
+        and bool(source_ref.event_id)
+    )
 
 
 def _trusted_merchant_scope_allows(scope_id: str, *, trusted_context: Any | None) -> bool:

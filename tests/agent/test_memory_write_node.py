@@ -13,6 +13,7 @@ from src.agent.nodes import memory_write as memory_write_module
 from src.agent.nodes.memory_write import memory_write
 from src.agent.trace import write_agent_run
 from src.db.models import AgentTraceEvent, SessionMemory
+from src.memory.policy import case_memory_policy_decision
 from src.memory.schemas import CaseMemoryWriteResult, LongTermMemoryWriteResult, SessionMemoryWriteResult
 
 
@@ -146,12 +147,22 @@ async def test_memory_write_node_applies_explicit_long_term_and_case_candidates_
 
         async def submit_case_memory_candidate(self, candidate):
             case_candidates.append(candidate)
+            policy_decision = case_memory_policy_decision(
+                candidate.source_type,
+                candidate.source_ref,
+                pii_classification=candidate.pii_classification,
+            )
+            status = {
+                "write": "written",
+                "needs_review": "needs_review",
+                "skip": "skipped",
+            }[policy_decision.decision]
             return CaseMemoryWriteResult(
-                status="written",
+                status=status,
                 memory_id=None,
-                review_status="auto_approved",
-                decision="write",
-                reason_code="auto_approved_source",
+                review_status=policy_decision.review_status,
+                decision=policy_decision.decision,
+                reason_code=policy_decision.reason_code,
                 pii_classification=candidate.pii_classification,
                 candidate_hash=digest,
                 content_hash=digest,
@@ -184,9 +195,18 @@ async def test_memory_write_node_applies_explicit_long_term_and_case_candidates_
                 "scope_type": "case",
                 "scope_id": "case-1",
                 "case_type": "refund_dispute",
-                "summary": "Reviewed precedent summary.",
-                "excerpt": "Reviewed case excerpt.",
-                "source_type": "human_reviewed",
+                "summary": "Generated precedent summary.",
+                "excerpt": "Generated case excerpt.",
+                "source_type": "closed_case_cwc_candidate",
+                "source_ref": {
+                    "source_type": "closed_case_cwc_candidate",
+                    "run_id": run_id,
+                    "agent_run_id": run_id,
+                    "event_id": "refund-case-close:case-1:memory-write-node",
+                    "business_object_type": "refund_case",
+                    "business_object_id": "case-1",
+                    "outcome_id": "cwc:case-1:v1",
+                },
             },
         ]
     )
@@ -203,7 +223,7 @@ async def test_memory_write_node_applies_explicit_long_term_and_case_candidates_
 
     assert result["memory_write_result"]["status"] == "written"
     assert [item["memory_type"] for item in result["memory_write_candidates"]] == ["session", "long_term", "case"]
-    assert [item["status"] for item in result["memory_write_results"]] == ["written", "needs_review", "written"]
+    assert [item["status"] for item in result["memory_write_results"]] == ["written", "needs_review", "needs_review"]
     assert len(session_candidates) == 1
     assert len(long_term_candidates) == 1
     assert len(case_candidates) == 1

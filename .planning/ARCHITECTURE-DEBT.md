@@ -374,6 +374,25 @@
 
 **状态**：✅ 已修复并通过 focused verification；剩余风险是未来若要恢复 merchant-scoped manager review，需要独立实现逐 row merchant/case identity 授权。
 
+## Phase 48 Re-review WR-01 — state-origin case memory provenance fail-closed ✅已修复验证
+
+**问题 / 根因**
+- `MemoryWriteService.propose_candidates(...)` 已对 state-origin long-term candidate 做 trusted source/scope gate，但 case-memory candidate 只校验 tenant/run/source_ref identity；因此 state payload 可自称 `human_reviewed` 或 `explicit_admin_preference`，触发 case policy auto-publish。
+
+**影响**
+- 普通 state-origin case candidate 可能绕过 review-required generator path，把未审核 case precedent 写成已审核 / admin provenance，污染 reviewed case-memory store。
+
+**修复**
+- 新增 case-specific state gate：state-origin case candidate 只能使用 `REVIEW_REQUIRED_CASE_SOURCE_TYPES`。`human_reviewed` / `explicit_admin_preference` 仍保留给 explicit review/admin service path，但不再接受来自 graph state。
+- merchant scope candidate 必须落在 trusted merchant scope 内；case scope candidate 当前只接受带 matching refund_case source_ref 的 `closed_case_cwc_candidate`。
+- 回归测试覆盖 human-reviewed/admin 自声明、缺失或不匹配 case source_ref、跨 merchant scope 均被过滤，同时保留 direct service path 对 reviewed/admin provenance 的支持。
+
+**证据**
+- Phase / review：`48-REVIEW.md` WR-01（2026-07-04 re-review）
+- 文件：`src/memory/write_service.py`、`tests/memory/test_memory_write_service.py`、`tests/agent/test_memory_write_node.py`
+
+**状态**：✅ 已修复并通过 focused verification；剩余风险是如果未来需要从 state 接受更多 case-scope generator sources，必须先补 resolved case identity 授权，而不是放宽到所有 case source。
+
 ## Phase 44 Wave 2 — Case Working Context 身份解析与版本化仓库 ✅⚠️
 
 **问题 / 根因**

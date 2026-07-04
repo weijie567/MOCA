@@ -12,6 +12,7 @@ from src.memory.schemas import (
     SessionMemoryWriteCandidate,
     SessionMemoryWriteResult,
 )
+from src.memory.policy import case_memory_policy_decision
 from src.memory.write_service import MemoryWriteService
 
 _SHA = "sha256:" + "a" * 64
@@ -58,6 +59,39 @@ def _state_long_term_candidate(
     }
 
 
+def _state_case_candidate(
+    *,
+    tenant_id,
+    run_id,
+    scope_type: str = "case",
+    scope_id: str = "case-1",
+    source_type: str = "closed_case_cwc_candidate",
+    include_source_ref: bool = True,
+) -> dict[str, object]:
+    candidate: dict[str, object] = {
+        "memory_type": "case",
+        "tenant_id": tenant_id,
+        "run_id": run_id,
+        "scope_type": scope_type,
+        "scope_id": scope_id,
+        "case_type": "refund_dispute",
+        "summary": "Generated case precedent summary.",
+        "excerpt": "Generated case precedent excerpt.",
+        "source_type": source_type,
+    }
+    if include_source_ref:
+        candidate["source_ref"] = {
+            "source_type": source_type,
+            "run_id": str(run_id),
+            "agent_run_id": str(run_id),
+            "event_id": f"refund-case-close:{scope_id}:state-gate",
+            "business_object_type": "refund_case",
+            "business_object_id": scope_id,
+            "outcome_id": f"cwc:{scope_id}:v1",
+        }
+    return candidate
+
+
 class FakeSessionMemoryService:
     def __init__(self) -> None:
         self.candidates = []
@@ -98,12 +132,22 @@ class FakeCaseMemoryService:
 
     async def submit_case_memory_candidate(self, candidate):
         self.candidates.append(candidate)
+        policy_decision = case_memory_policy_decision(
+            candidate.source_type,
+            candidate.source_ref,
+            pii_classification=candidate.pii_classification,
+        )
+        status = {
+            "write": "written",
+            "needs_review": "needs_review",
+            "skip": "skipped",
+        }[policy_decision.decision]
         return CaseMemoryWriteResult(
-            status="written",
+            status=status,
             memory_id=None,
-            review_status="auto_approved",
-            decision="write",
-            reason_code="auto_approved_source",
+            review_status=policy_decision.review_status,
+            decision=policy_decision.decision,
+            reason_code=policy_decision.reason_code,
             pii_classification=candidate.pii_classification,
             candidate_hash=_SHA,
             content_hash=_SHA,
@@ -310,6 +354,54 @@ def test_memory_write_service_rejects_untrusted_long_term_state_candidates(case:
     assert isinstance(candidates[0], SessionMemoryWriteCandidate)
 
 
+@pytest.mark.parametrize(
+    "case",
+    [
+        "human_reviewed_source",
+        "admin_source",
+        "missing_case_source_ref",
+        "mismatched_case_source_ref",
+        "untrusted_merchant_scope",
+    ],
+)
+def test_memory_write_service_rejects_untrusted_case_state_candidates(case: str) -> None:
+    service = MemoryWriteService(FakeSessionMemoryService())
+    tenant_id = uuid4()
+    run_id = uuid4()
+    raw_candidate = _state_case_candidate(tenant_id=tenant_id, run_id=run_id)
+    trusted_context = _trusted_context("merchant-1")
+    if case == "human_reviewed_source":
+        raw_candidate["source_type"] = "human_reviewed"
+        raw_candidate["source_ref"]["source_type"] = "human_reviewed"  # type: ignore[index]
+    elif case == "admin_source":
+        raw_candidate["source_type"] = "explicit_admin_preference"
+        raw_candidate["source_ref"]["source_type"] = "explicit_admin_preference"  # type: ignore[index]
+    elif case == "missing_case_source_ref":
+        raw_candidate = _state_case_candidate(tenant_id=tenant_id, run_id=run_id, include_source_ref=False)
+    elif case == "mismatched_case_source_ref":
+        raw_candidate["source_ref"]["business_object_id"] = "case-2"  # type: ignore[index]
+    elif case == "untrusted_merchant_scope":
+        raw_candidate = _state_case_candidate(
+            tenant_id=tenant_id,
+            run_id=run_id,
+            scope_type="merchant",
+            scope_id="merchant-1",
+        )
+        trusted_context = _trusted_context("merchant-2")
+
+    candidates = service.propose_candidates(
+        _state(
+            tenant_id=str(tenant_id),
+            current_run_id=str(run_id),
+            memory_write_candidates=[raw_candidate],
+        ),
+        trusted_context=trusted_context,
+    )
+
+    assert len(candidates) == 1
+    assert isinstance(candidates[0], SessionMemoryWriteCandidate)
+
+
 @pytest.mark.asyncio
 async def test_memory_write_service_apply_policy_and_write_uses_session_service() -> None:
     session_service = FakeSessionMemoryService()
@@ -410,15 +502,7 @@ async def test_memory_write_service_proposes_explicit_long_term_and_case_candida
                     "source_type": "semantic_episode_candidate",
                 },
                 {
-                    "memory_type": "case",
-                    "tenant_id": tenant_id,
-                    "run_id": run_id,
-                    "scope_type": "case",
-                    "scope_id": "case-1",
-                    "case_type": "refund_dispute",
-                    "summary": "Reviewed precedent summary.",
-                    "excerpt": "Reviewed case excerpt.",
-                    "source_type": "human_reviewed",
+                    **_state_case_candidate(tenant_id=tenant_id, run_id=run_id),
                 },
             ],
         ),
@@ -433,4 +517,4 @@ async def test_memory_write_service_proposes_explicit_long_term_and_case_candida
     assert len(session_service.candidates) == 1
     assert len(long_term_service.candidates) == 1
     assert len(case_service.candidates) == 1
-    assert [result.status for result in results] == ["written", "needs_review", "written"]
+    assert [result.status for result in results] == ["written", "needs_review", "needs_review"]
