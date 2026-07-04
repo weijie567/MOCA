@@ -12382,3 +12382,49 @@ Phase 48 Full Phase Gate
 
 - `tests/architecture/test_memory_contract_delta.py::test_memory_contract_boundary_tests_are_present`
 - `tests/memory/test_long_term_memory_service.py`
+
+## 2026-07-04 — Phase 48 review fix WR-01 新增测试误读 MemoryWriteEvent 字段
+
+### 问题现象
+
+修复 WR-01 后运行 focused long-term service tests，新增测试 `test_hard_rule_semantic_episode_candidate_is_skipped_and_unretrievable` 失败。产品逻辑已返回 `skipped/hard_rule_not_preference`，失败点是测试访问了不存在的 ORM 属性。
+
+### 如何检测 / 复现
+
+在仓库根目录执行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_long_term_memory_service.py -q
+```
+
+### 关键证据或命令
+
+pytest 输出显示：
+
+```text
+AttributeError: 'MemoryWriteEvent' object has no attribute 'blocked_by'
+tests/memory/test_long_term_memory_service.py:701
+```
+
+`MemoryWriteEvent` 实际字段是 `blocked_by_json`，repository 写入参数名才是 `blocked_by`。
+
+### 当前判断 / 根因
+
+这是新增测试断言误配，不是产品代码失败。测试把 fake repository event kwargs 的参数名误用于真实 DB-backed ORM event。
+
+### 已做处理
+
+已将断言改为 `events[-1].blocked_by_json == ["preference_text"]`。重跑 focused tests 通过：
+
+```text
+29 passed, 1 warning in 83.22s
+```
+
+### 剩余问题
+
+无阻塞。
+
+### 下次继续排查入口
+
+- `tests/memory/test_long_term_memory_service.py::test_hard_rule_semantic_episode_candidate_is_skipped_and_unretrievable`
+- `src/db/models.py::MemoryWriteEvent`

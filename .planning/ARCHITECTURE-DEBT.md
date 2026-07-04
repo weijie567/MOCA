@@ -337,6 +337,25 @@
 
 **状态**：✅ 已修复并通过 focused verification；剩余风险是 case-memory state candidate 仍按既有 case policy 处理，本次 review finding 的 long-term explicit preference 边界已收紧。
 
+## Phase 48 Review WR-01 — hard-rule 文本禁止发布为长期偏好 ✅已修复验证
+
+**问题 / 根因**
+- explicit user/admin 入口会调用 `validate_soft_preference_text(...)`，但 `LongTermMemoryService.write_memory(...)` 与 review approval 边界此前没有复用该校验。
+- 结果是 `semantic_episode_candidate` 或 service-level direct write 可以携带「must refund below 10 yuan」这类硬规则文本进入 `needs_review` 或直接 `human_reviewed` 发布。
+
+**影响**
+- prompt-facing long-term preference memory 可能混入政策规则、阈值或必须执行行为，破坏「长期记忆只承载软偏好/contextual hints，不提供 authority」的 Phase 48 边界。
+
+**修复**
+- long-term write / supersede 在 insert 前对 preference content 调用 `validate_soft_preference_text(...)`；hard-rule text 统一 skip 并写 `reason_code="hard_rule_not_preference"` / `blocked_by=["preference_text"]`。
+- review approval 在 source 转 `human_reviewed` 前拒绝 hard-rule pending row，旧数据保持 `needs_review` 且不可进入 retrieval。
+
+**证据**
+- Phase / review：`48-REVIEW.md` WR-01
+- 文件：`src/memory/long_term.py`、`tests/memory/test_long_term_memory_service.py`
+
+**状态**：✅ 已修复并通过 focused verification；剩余风险是 hard-rule marker 集合仍是 deterministic denylist，未来若扩展政策规则表达需要独立更新 preference capture 校验。
+
 ## Phase 44 Wave 2 — Case Working Context 身份解析与版本化仓库 ✅⚠️
 
 **问题 / 根因**

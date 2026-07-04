@@ -16,6 +16,7 @@ from src.memory.policy import (
     long_term_memory_policy_decision,
     long_term_review_status_for_source,
 )
+from src.memory.preference_capture import validate_soft_preference_text
 from src.memory.repository import LONG_TERM_MEMORY_TYPE, PUBLISHED_LONG_TERM_REVIEW_STATUSES, LongTermMemoryRepository
 from src.memory.schemas import (
     LongTermMemoryWriteCandidate,
@@ -129,6 +130,18 @@ class LongTermMemoryService:
                 blocked_by=["memory_kind"],
             )
 
+        hard_rule_reason = _hard_rule_preference_reason(candidate.content)
+        if hard_rule_reason is not None:
+            return await _emit_skipped_candidate_result(
+                self.repository,
+                candidate=candidate,
+                run_id=candidate.run_id,
+                identity=identity,
+                policy_decision=policy_decision,
+                reason_code=hard_rule_reason,
+                blocked_by=["preference_text"],
+            )
+
         if policy_decision.decision == "skip":
             return await _emit_skipped_candidate_result(
                 self.repository,
@@ -235,6 +248,8 @@ class LongTermMemoryService:
             raise ValueError("long-term memory not found")
         if pending.memory_kind != "preference":
             raise ValueError("long-term approval requires preference memory")
+        if _hard_rule_preference_reason(pending.content) is not None:
+            raise ValueError("long-term approval requires soft preference content")
         reviewed_source_ref = {**dict(pending.source_ref_json or {}), "source_type": "human_reviewed"}
         memory = await self.repository.update_review_status(
             tenant_id=tenant_id,
@@ -456,6 +471,18 @@ class LongTermMemoryService:
                 blocked_by=["memory_kind"],
             )
 
+        hard_rule_reason = _hard_rule_preference_reason(replacement_candidate.content)
+        if hard_rule_reason is not None:
+            return await _emit_skipped_candidate_result(
+                self.repository,
+                candidate=replacement_candidate,
+                run_id=run_id,
+                identity=identity,
+                policy_decision=policy_decision,
+                reason_code=hard_rule_reason,
+                blocked_by=["preference_text"],
+            )
+
         if policy_decision.decision == "skip":
             return await _emit_skipped_candidate_result(
                 self.repository,
@@ -553,6 +580,13 @@ def _policy_decision_for_candidate(candidate: LongTermMemoryWriteCandidate):
         candidate.source_ref,
         pii_classification=candidate.pii_classification,
     )
+
+
+def _hard_rule_preference_reason(content: str) -> str | None:
+    validation = validate_soft_preference_text(content)
+    if validation.valid:
+        return None
+    return validation.reason_code
 
 
 def _policy_event_kwargs(policy_decision) -> dict[str, Any]:

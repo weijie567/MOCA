@@ -203,6 +203,36 @@ async def test_disallowed_source_type_is_skipped_before_insert_without_database(
 
 
 @pytest.mark.asyncio
+async def test_hard_rule_human_reviewed_preference_is_skipped_before_insert_without_database() -> None:
+    repository = _FakeLongTermRepository()
+    service = LongTermMemoryService(repository)  # type: ignore[arg-type]
+    tenant_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+    candidate = LongTermMemoryWriteCandidate(
+        tenant_id=tenant_id,
+        run_id=run_id,
+        scope_type="merchant",
+        scope_id="merchant-1",
+        memory_kind="preference",
+        content="Merchant rule says must refund below 10 yuan.",
+        source_type="human_reviewed",
+        source_ref={"source_type": "human_reviewed", "run_id": str(run_id)},
+        pii_classification="none",
+    )
+
+    result = await service.write_memory(candidate)
+
+    assert result.status == "skipped"
+    assert result.review_status is None
+    assert result.reason_code == "hard_rule_not_preference"
+    assert repository.insert_kwargs is None
+    assert repository.event_kwargs is not None
+    assert repository.event_kwargs["decision"] == "skip"
+    assert repository.event_kwargs["reason_code"] == "hard_rule_not_preference"
+    assert repository.event_kwargs["blocked_by"] == ["preference_text"]
+
+
+@pytest.mark.asyncio
 async def test_explicit_user_remember_request_auto_approves(session: AsyncSession, seeded_session: dict) -> None:
     run_id = await _insert_run(session, seeded_session)
     service = LongTermMemoryService(LongTermMemoryRepository(session))
@@ -623,6 +653,88 @@ async def test_approve_semantic_episode_preference_candidate_publishes_as_human_
     assert event.candidate_hash != result.candidate_hash
     assert [item.memory_id for item in retrieved] == [str(row.id)]
     assert retrieved[0].source_type == "human_reviewed"
+
+
+@pytest.mark.asyncio
+async def test_hard_rule_semantic_episode_candidate_is_skipped_and_unretrievable(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session, thread_id="hard-rule-semantic-preference")
+    service = LongTermMemoryService(LongTermMemoryRepository(session))
+
+    result = await service.write_memory(
+        _candidate(
+            seeded_session,
+            run_id=run_id,
+            content="Merchant says must refund below 10 yuan.",
+            source_type="semantic_episode_candidate",
+        )
+    )
+    rows = (
+        (
+            await session.execute(
+                select(LongTermMemory).where(
+                    LongTermMemory.tenant_id == seeded_session["tenant"].id,
+                    LongTermMemory.content == "Merchant says must refund below 10 yuan.",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    retrieved = await LongTermMemoryRepository(session).retrieve_profile_memory(
+        tenant_id=seeded_session["tenant"].id,
+        scope_type="merchant",
+        scope_id=str(seeded_session["merchant"].id),
+    )
+    events = await _events(session, run_id)
+
+    assert result.status == "skipped"
+    assert result.memory_id is None
+    assert result.review_status is None
+    assert result.reason_code == "hard_rule_not_preference"
+    assert rows == []
+    assert retrieved == []
+    assert events[-1].decision == "skip"
+    assert events[-1].reason_code == "hard_rule_not_preference"
+    assert events[-1].blocked_by_json == ["preference_text"]
+
+
+@pytest.mark.asyncio
+async def test_approve_hard_rule_pending_preference_candidate_raises_soft_preference_required(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session, thread_id="approve-hard-rule-preference")
+    row = _pending_long_term_row(
+        seeded_session,
+        run_id=run_id,
+        content="Merchant says must refund below 10 yuan.",
+        memory_kind="preference",
+    )
+    session.add(row)
+    await session.flush()
+    service = LongTermMemoryService(LongTermMemoryRepository(session))
+
+    with pytest.raises(ValueError, match="long-term approval requires soft preference content"):
+        await service.approve_memory(
+            tenant_id=seeded_session["tenant"].id,
+            memory_id=row.id,
+            run_id=run_id,
+        )
+
+    await session.refresh(row)
+    retrieved = await LongTermMemoryRepository(session).retrieve_profile_memory(
+        tenant_id=row.tenant_id,
+        scope_type=row.scope_type,
+        scope_id=row.scope_id,
+    )
+    assert row.review_status == "needs_review"
+    assert row.is_current is False
+    assert row.source_type == "semantic_episode_candidate"
+    assert row.source_ref_json["source_type"] == "semantic_episode_candidate"
+    assert retrieved == []
 
 
 @pytest.mark.asyncio
