@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.jwt import create_access_token
 from src.db.models import AgentRun, CaseMemory, LongTermMemory, User
 from src.memory.case_memory import CaseMemoryRepository, CaseMemoryService
+from src.memory.identity import canonical_memory_content_hash, canonical_source_identity_hash
 from src.memory.long_term import LongTermMemoryService
 from src.memory.repository import LongTermMemoryRepository
 from src.memory.schemas import CaseMemoryWriteCandidate, LongTermMemoryWriteCandidate
@@ -60,6 +62,39 @@ def _long_term_candidate(seeded_session: dict, *, run_id: UUID) -> LongTermMemor
             "run_id": str(run_id),
             "business_object_id": str(merchant.id),
         },
+    )
+
+
+def _pending_long_term_row(
+    seeded_session: dict,
+    *,
+    run_id: UUID,
+    memory_kind: str,
+    content: str,
+    source_type: str = "semantic_episode_candidate",
+) -> LongTermMemory:
+    merchant = seeded_session["merchant"]
+    source_ref = {
+        "source_type": source_type,
+        "run_id": str(run_id),
+        "business_object_id": str(merchant.id),
+    }
+    return LongTermMemory(
+        id=uuid4(),
+        tenant_id=merchant.tenant_id,
+        scope_type="merchant",
+        scope_id=str(merchant.id),
+        memory_kind=memory_kind,
+        content=content,
+        content_hash=canonical_memory_content_hash(memory_type="long_term_fact", content=content),
+        source_type=source_type,
+        source_ref_json=source_ref,
+        source_identity_hash=canonical_source_identity_hash(source_ref),
+        confidence=Decimal("0.9100"),
+        pii_classification="none",
+        review_status="needs_review",
+        is_current=False,
+        created_by_run_id=run_id,
     )
 
 
@@ -150,9 +185,55 @@ async def test_memory_review_api_lists_pending_and_applies_review_actions(
     await session.refresh(case_row)
     assert long_row.review_status == "approved"
     assert long_row.is_current is True
+    assert long_row.source_type == "human_reviewed"
+    assert long_row.source_ref_json["source_type"] == "human_reviewed"
     assert case_row.review_status == "rejected"
     assert case_row.reviewed_by_user_id == manager.id
     assert case_row.review_reason == "not durable enough"
+
+
+@pytest.mark.asyncio
+async def test_review_api_rejects_non_preference_long_term_approval_with_controlled_error(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    manager = seeded_session["users"]["approval_manager"]
+    support = seeded_session["users"]["cs_zhang"]
+    run_id = await _insert_run(
+        session,
+        tenant_id=seeded_session["tenant"].id,
+        user_id=support.id,
+        thread_id="review-api-non-preference-long-term",
+    )
+    row = _pending_long_term_row(
+        seeded_session,
+        run_id=run_id,
+        memory_kind="fact",
+        content="Pending long-term fact must not be approved.",
+    )
+    session.add(row)
+    await session.commit()
+
+    response = await client.post(
+        f"/api/v1/memory/long-term/{row.id}/approve",
+        json={"run_id": str(run_id)},
+        headers=_auth_header(manager, ["approvals:review"]),
+    )
+    await session.refresh(row)
+    retrieved = await LongTermMemoryRepository(session).retrieve_profile_memory(
+        tenant_id=row.tenant_id,
+        scope_type=row.scope_type,
+        scope_id=row.scope_id,
+    )
+
+    assert response.status_code in {409, 422}
+    assert response.json()["error"]["message"] == "long-term approval requires preference memory"
+    assert row.review_status == "needs_review"
+    assert row.is_current is False
+    assert row.source_type == "semantic_episode_candidate"
+    assert row.source_ref_json["source_type"] == "semantic_episode_candidate"
+    assert retrieved == []
 
 
 @pytest.mark.asyncio

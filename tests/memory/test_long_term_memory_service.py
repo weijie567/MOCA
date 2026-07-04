@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 import uuid
 
@@ -9,7 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import AgentRun, LongTermMemory, MemoryWriteEvent
-from src.memory.long_term import LongTermMemoryService
+from src.memory.identity import canonical_memory_content_hash, canonical_source_identity_hash
+from src.memory.long_term import LongTermMemoryService, _candidate_hash_for_memory
 from src.memory.repository import LongTermMemoryRepository
 from src.memory.schemas import LongTermMemoryWriteCandidate
 
@@ -63,6 +65,39 @@ def _candidate(
         confidence=0.91,
         pii_classification=pii_classification,
         expires_at=expires_at,
+    )
+
+
+def _pending_long_term_row(
+    seeded_session: dict,
+    *,
+    run_id: uuid.UUID,
+    content: str,
+    memory_kind: str,
+    source_type: str = "semantic_episode_candidate",
+) -> LongTermMemory:
+    merchant = seeded_session["merchant"]
+    source_ref = {
+        "source_type": source_type,
+        "run_id": str(run_id),
+        "business_object_id": str(merchant.id),
+    }
+    return LongTermMemory(
+        id=uuid.uuid4(),
+        tenant_id=merchant.tenant_id,
+        scope_type="merchant",
+        scope_id=str(merchant.id),
+        memory_kind=memory_kind,
+        content=content,
+        content_hash=canonical_memory_content_hash(memory_type="long_term_fact", content=content),
+        source_type=source_type,
+        source_ref_json=source_ref,
+        source_identity_hash=canonical_source_identity_hash(source_ref),
+        confidence=Decimal("0.9100"),
+        pii_classification="none",
+        review_status="needs_review",
+        is_current=False,
+        created_by_run_id=run_id,
     )
 
 
@@ -536,9 +571,94 @@ async def test_review_and_delete_paths_are_evented(session: AsyncSession, seeded
     assert deleted_event.decision == "delete"
     assert deleted_event.reason_code == "deleted"
     assert deleted_event.memory_type == "long_term_fact"
-    assert approved_event.candidate_hash == first_result.candidate_hash
+    assert first_row.source_type == "human_reviewed"
+    assert first_row.source_ref_json["source_type"] == "human_reviewed"
+    assert approved_event.source_ref_json["source_type"] == "human_reviewed"
+    assert approved_event.candidate_hash == _candidate_hash_for_memory(first_row)
     assert rejected_event.candidate_hash == second_result.candidate_hash
-    assert deleted_event.candidate_hash == first_result.candidate_hash
+    assert deleted_event.candidate_hash == _candidate_hash_for_memory(first_row)
+
+
+@pytest.mark.asyncio
+async def test_approve_semantic_episode_preference_candidate_publishes_as_human_reviewed(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session, thread_id="approve-semantic-preference")
+    service = LongTermMemoryService(LongTermMemoryRepository(session))
+    result = await service.write_memory(
+        _candidate(
+            seeded_session,
+            run_id=run_id,
+            content="Semantic candidate preference waiting for review.",
+            source_type="semantic_episode_candidate",
+        )
+    )
+    row = await session.get(LongTermMemory, result.memory_id)
+    assert row is not None
+    assert row.source_type == "semantic_episode_candidate"
+    assert row.source_ref_json["source_type"] == "semantic_episode_candidate"
+
+    event = await service.approve_memory(
+        tenant_id=seeded_session["tenant"].id,
+        memory_id=result.memory_id,
+        run_id=run_id,
+    )
+    await session.refresh(row)
+    retrieved = await LongTermMemoryRepository(session).retrieve_profile_memory(
+        tenant_id=row.tenant_id,
+        scope_type=row.scope_type,
+        scope_id=row.scope_id,
+    )
+
+    assert row.review_status == "approved"
+    assert row.is_current is True
+    assert row.source_type == "human_reviewed"
+    assert row.source_ref_json["source_type"] == "human_reviewed"
+    assert row.source_ref_json["run_id"] == str(run_id)
+    assert row.source_identity_hash == canonical_source_identity_hash(row.source_ref_json)
+    assert event.decision == "write"
+    assert event.source_ref_json["source_type"] == "human_reviewed"
+    assert event.candidate_hash == _candidate_hash_for_memory(row)
+    assert event.candidate_hash != result.candidate_hash
+    assert [item.memory_id for item in retrieved] == [str(row.id)]
+    assert retrieved[0].source_type == "human_reviewed"
+
+
+@pytest.mark.asyncio
+async def test_approve_non_preference_long_term_candidate_raises_preference_required(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session, thread_id="approve-non-preference")
+    row = _pending_long_term_row(
+        seeded_session,
+        run_id=run_id,
+        content="Non-preference pending long-term row must not be approved.",
+        memory_kind="fact",
+    )
+    session.add(row)
+    await session.flush()
+    service = LongTermMemoryService(LongTermMemoryRepository(session))
+
+    with pytest.raises(ValueError, match="long-term approval requires preference memory"):
+        await service.approve_memory(
+            tenant_id=seeded_session["tenant"].id,
+            memory_id=row.id,
+            run_id=run_id,
+        )
+
+    await session.refresh(row)
+    retrieved = await LongTermMemoryRepository(session).retrieve_profile_memory(
+        tenant_id=row.tenant_id,
+        scope_type=row.scope_type,
+        scope_id=row.scope_id,
+    )
+    assert row.review_status == "needs_review"
+    assert row.is_current is False
+    assert row.source_type == "semantic_episode_candidate"
+    assert row.source_ref_json["source_type"] == "semantic_episode_candidate"
+    assert retrieved == []
 
 
 @pytest.mark.asyncio
@@ -673,6 +793,99 @@ async def test_supersede_memory_updates_chain_and_emits_event(
 
 
 @pytest.mark.asyncio
+async def test_similar_long_term_preferences_do_not_auto_merge_without_supersede(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    first_run_id = await _insert_run(session, seeded_session, thread_id="similar-preference-first")
+    second_run_id = await _insert_run(session, seeded_session, thread_id="similar-preference-second")
+    service = LongTermMemoryService(LongTermMemoryRepository(session))
+    first = await service.write_memory(
+        _candidate(
+            seeded_session,
+            run_id=first_run_id,
+            content="Merchant prefers concise refund explanations.",
+            source_type="explicit_user_preference",
+        )
+    )
+    second = await service.write_memory(
+        _candidate(
+            seeded_session,
+            run_id=second_run_id,
+            content="Merchant prefers concise refund explanations with evidence first.",
+            source_type="explicit_user_preference",
+        )
+    )
+
+    rows = (
+        (
+            await session.execute(
+                select(LongTermMemory)
+                .where(
+                    LongTermMemory.tenant_id == seeded_session["tenant"].id,
+                    LongTermMemory.scope_type == "merchant",
+                    LongTermMemory.scope_id == str(seeded_session["merchant"].id),
+                    LongTermMemory.is_current.is_(True),
+                    LongTermMemory.deleted_at.is_(None),
+                )
+                .order_by(LongTermMemory.created_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    retrieved = await LongTermMemoryRepository(session).retrieve_profile_memory(
+        tenant_id=seeded_session["tenant"].id,
+        scope_type="merchant",
+        scope_id=str(seeded_session["merchant"].id),
+    )
+
+    assert first.status == "written"
+    assert second.status == "written"
+    assert {row.id for row in rows} == {first.memory_id, second.memory_id}
+    assert {row.content for row in rows} == {
+        "Merchant prefers concise refund explanations.",
+        "Merchant prefers concise refund explanations with evidence first.",
+    }
+    assert {row.memory_id for row in retrieved} == {str(first.memory_id), str(second.memory_id)}
+
+
+@pytest.mark.asyncio
+async def test_forget_tombstone_blocks_same_content_and_source_identity_rewrite(
+    session: AsyncSession,
+    seeded_session: dict,
+) -> None:
+    run_id = await _insert_run(session, seeded_session, thread_id="long-term-forget-tombstone")
+    service = LongTermMemoryService(LongTermMemoryRepository(session))
+    candidate = _candidate(
+        seeded_session,
+        run_id=run_id,
+        content="Merchant prefers concise follow-up language.",
+        source_type="explicit_user_preference",
+    )
+    first = await service.write_memory(candidate)
+    tombstone_event = await service.forget_long_term_memory(
+        tenant_id=seeded_session["tenant"].id,
+        memory_id=first.memory_id,
+        run_id=run_id,
+        reason_code="user_deleted",
+    )
+
+    rewrite = await service.write_memory(candidate)
+    retrieved = await LongTermMemoryRepository(session).retrieve_profile_memory(
+        tenant_id=candidate.tenant_id,
+        scope_type=candidate.scope_type,
+        scope_id=candidate.scope_id,
+    )
+
+    assert tombstone_event.decision == "tombstone"
+    assert rewrite.status == "skipped"
+    assert rewrite.reason_code == "tombstone_match"
+    assert rewrite.memory_id is None
+    assert retrieved == []
+
+
+@pytest.mark.asyncio
 async def test_supersede_memory_requires_current_published_previous(
     session: AsyncSession,
     seeded_session: dict,
@@ -779,7 +992,10 @@ async def test_review_required_supersede_keeps_previous_memory_current_until_app
     assert previous.superseded_by == pending.id
     assert pending.review_status == "approved"
     assert pending.is_current is True
+    assert pending.source_type == "human_reviewed"
+    assert pending.source_ref_json["source_type"] == "human_reviewed"
     assert [row.memory_id for row in after_approval] == [str(pending.id)]
+    assert after_approval[0].source_type == "human_reviewed"
 
 
 @pytest.mark.asyncio
@@ -835,6 +1051,7 @@ async def test_expired_pending_supersede_cannot_be_approved_and_keeps_previous_c
     assert previous.superseded_by is None
     assert pending.review_status == "needs_review"
     assert pending.is_current is False
+    assert pending.source_type == "semantic_episode_candidate"
     assert [row.memory_id for row in retrieved] == [str(previous.id)]
 
 

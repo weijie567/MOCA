@@ -230,11 +230,20 @@ class LongTermMemoryService:
         reason_code: str = "approved",
         now: datetime | None = None,
     ):
+        pending = await self.repository.get_memory(tenant_id=tenant_id, memory_id=memory_id)
+        if pending is None:
+            raise ValueError("long-term memory not found")
+        if pending.memory_kind != "preference":
+            raise ValueError("long-term approval requires preference memory")
+        reviewed_source_ref = {**dict(pending.source_ref_json or {}), "source_type": "human_reviewed"}
         memory = await self.repository.update_review_status(
             tenant_id=tenant_id,
             memory_id=memory_id,
             review_status="approved",
             is_current=True,
+            source_type="human_reviewed",
+            source_ref_json=reviewed_source_ref,
+            source_identity_hash=canonical_source_identity_hash(reviewed_source_ref),
             expected_review_status="needs_review",
             now=now,
         )

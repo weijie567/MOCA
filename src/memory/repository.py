@@ -525,6 +525,9 @@ class LongTermMemoryRepository:
         memory_id: uuid.UUID,
         review_status: str,
         is_current: bool | None = None,
+        source_type: str | None = None,
+        source_ref_json: dict[str, Any] | None = None,
+        source_identity_hash: str | None = None,
         expected_review_status: str | None = None,
         now: datetime | None = None,
     ) -> LongTermMemory | None:
@@ -569,6 +572,12 @@ class LongTermMemoryRepository:
             )
             if existing is not None and existing.id != memory.id:
                 raise ValueError("active long-term memory already exists for content")
+        if source_type is not None:
+            memory.source_type = source_type
+        if source_ref_json is not None:
+            memory.source_ref_json = source_ref_json
+        if source_identity_hash is not None:
+            memory.source_identity_hash = source_identity_hash
         memory.review_status = review_status
         if is_current is not None:
             memory.is_current = is_current
