@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
 status: executing
-stopped_at: Phase 48.1 plan 01 complete; executing plan 02 next
-last_updated: "2026-07-04T18:28:00+08:00"
-last_activity: 2026-07-04 -- Phase 48.1 plan 01 complete
+stopped_at: Phase 48.1 plan 02 complete; executing plan 03 next
+last_updated: "2026-07-04T18:43:00+08:00"
+last_activity: 2026-07-04 -- Phase 48.1 plan 02 complete
 progress:
   total_phases: 13
   completed_phases: 12
   total_plans: 41
-  completed_plans: 38
-  percent: 93
+  completed_plans: 39
+  percent: 95
 ---
 
 # Project State: MOCA
@@ -31,12 +31,12 @@ See: `.planning/PROJECT.md` (updated 2026-07-04)
 ## Current Position
 
 Phase: 48.1 — EXECUTING
-Plan: 1 of 4 complete
+Plan: 2 of 4 complete
 Status: Executing Phase 48.1
-Last activity: 2026-07-04 -- Phase 48.1 plan 01 complete
-Next: Execute Phase 48.1 plan 02.
+Last activity: 2026-07-04 -- Phase 48.1 plan 02 complete
+Next: Execute Phase 48.1 plan 03.
 
-Progress: [█████████░] 93%
+Progress: [██████████] 95%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -68,7 +68,7 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | 46. Session Context Repositioning (MEM-03) | 3/3 | Complete |
 | 47. Case Precedent Repositioning and Closed-Case Candidate Generation (MEM-04) | 4/4 | Complete |
 | 48. Narrow Long-Term Explicit Preference Memory (MEM-05) | 4/4 | Complete |
-| 48.1. Memory Context Compatibility Debt Cleanup (MEM-COMPAT-01) | 1/4 | Executing |
+| 48.1. Memory Context Compatibility Debt Cleanup (MEM-COMPAT-01) | 2/4 | Executing |
 
 Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review. Phase 40 closes the source-confirmed validation/backstop gaps intentionally deferred or left advisory after Phase 38/39. Phase 41 then handles the explicit breaking cleanup/API decision to remove the `UnifiedToolManager` legacy compatibility adapter.
 
@@ -240,9 +240,9 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 ## Session Continuity
 
 Last session: 2026-07-04T17:12:28+08:00
-Stopped at: Phase 48.1 plan 01 complete; executing plan 02 next
+Stopped at: Phase 48.1 plan 02 complete; executing plan 03 next
 Resume file: .planning/ROADMAP.md
-Next: Execute Phase 48.1 plan 02.
+Next: Execute Phase 48.1 plan 03.
 
 Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with security, UAT, validation, and clean review complete; Phase 46 session context repositioning complete with MEM-03 validated; Phase 47 complete with 47-01 contract/source-policy foundation, 47-02 trusted closed-case projection seam, 47-03 governed case-memory write lifecycle, and 47-04 retrieval/docs/validation closeout; Phase 48 complete with explicit preference contract, source policy/service guards, chat/admin write paths, retrieval/review/correction closeout, clean code review, completed UAT, and security verification (`threats_open: 0`).
 Next roadmap item: Phase 48.1 Memory Context Compatibility Debt Cleanup.
