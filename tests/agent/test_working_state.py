@@ -170,6 +170,49 @@ def test_working_state_v1_projects_allowlisted_current_run_fields() -> None:
     }
 
 
+def test_working_state_prefers_canonical_session_context_over_legacy_session_memory() -> None:
+    working_state = project_working_state(
+        _base_state(
+            open_questions=[],
+            business_context_refs=[],
+            last_business_context_refs=None,
+            session_context={
+                "schema_version": "session_context_memory.v1",
+                "authority_class": "contextual_only",
+                "continuity_claimed": True,
+                "active_slots": {},
+                "slot_metadata": {},
+                "unresolved_questions": ["canonical session context question"],
+                "last_business_context_refs": {"business_fact_refs": [{"resource_id": "ORD-CANONICAL"}]},
+            },
+            session_memory={
+                "unresolved_questions": ["legacy session memory question"],
+                "last_business_context_refs": {"business_fact_refs": [{"resource_id": "ORD-LEGACY"}]},
+            },
+        )
+    )
+
+    assert working_state.open_questions == ["canonical session context question"]
+    assert working_state.business_context_refs == [{"resource_id": "ORD-CANONICAL"}]
+
+
+def test_working_state_keeps_legacy_session_memory_fallback_when_canonical_context_absent() -> None:
+    working_state = project_working_state(
+        _base_state(
+            open_questions=[],
+            business_context_refs=[],
+            last_business_context_refs=None,
+            session_memory={
+                "unresolved_questions": ["legacy session memory question"],
+                "last_business_context_refs": {"business_fact_refs": [{"resource_id": "ORD-LEGACY"}]},
+            },
+        )
+    )
+
+    assert working_state.open_questions == ["legacy session memory question"]
+    assert working_state.business_context_refs == [{"resource_id": "ORD-LEGACY"}]
+
+
 def test_working_state_v1_excludes_raw_tool_business_policy_trace_and_llm_fields() -> None:
     state = _base_state(
         business_context={

@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from src.agent.nodes import session_memory_load as session_memory_load_module
+from src.agent.context.session_memory_bundle import load_session_memory_bundle_for_state
 from src.agent.nodes.session_memory_load import session_memory_load
 from src.memory.context_refs import SessionContextLoadStatusV1
 from src.memory.schemas import SessionMemoryBundle, SessionMemoryView
@@ -16,6 +17,111 @@ def _state() -> dict:
         "primary_intent": "refund_troubleshooting",
         "trace_steps": [],
     }
+
+
+def _session_memory_bundle_payload(*, run_id: str, summary_text: str, thread_id: str = "thread-1") -> dict:
+    return {
+        "schema_version": "session_memory_bundle.v1",
+        "source": "session_memory_bundle",
+        "tenant_id": "tenant-1",
+        "user_id": "user-1",
+        "thread_id": thread_id,
+        "run_id": run_id,
+        "rolling_summary": {
+            "summary_id": f"summary-{summary_text}",
+            "summary_text": summary_text,
+        },
+        "recent_messages": [],
+        "tool_summaries": [],
+        "slot_continuity": {
+            "source": "postgres_session_memory",
+            "continuity_claimed": False,
+            "active_slots": {},
+            "slot_metadata": {},
+        },
+        "fallback_reasons": {},
+    }
+
+
+def _session_context_bundle_payload(*, run_id: str, summary_text: str, thread_id: str = "thread-1") -> dict:
+    return {
+        "schema_version": "session_context_bundle.v1",
+        "authority_class": "contextual_only",
+        "session_context": {
+            "schema_version": "session_context_memory.v1",
+            "authority_class": "contextual_only",
+            "tenant_id": "tenant-1",
+            "user_id": "user-1",
+            "thread_id": thread_id,
+            "run_id": run_id,
+            "rolling_summary": {
+                "summary_id": f"summary-{summary_text}",
+                "summary_text": summary_text,
+            },
+            "recent_messages": [],
+            "tool_summaries": [],
+            "slot_continuity": {
+                "source": "postgres_session_memory",
+                "continuity_claimed": False,
+                "active_slots": {},
+                "slot_metadata": {},
+            },
+            "fallback_reasons": {},
+        },
+    }
+
+
+async def test_load_session_memory_bundle_prefers_canonical_session_context_bundle_over_legacy_bundle():
+    run_id = str(uuid.uuid4())
+
+    class ExplodingConversationService:
+        async def load_prompt_context(self, **kwargs):
+            raise AssertionError("matching session_context_bundle should avoid service fallback")
+
+    bundle = await load_session_memory_bundle_for_state(
+        {
+            **_state(),
+            "current_run_id": run_id,
+            "session_context_bundle": _session_context_bundle_payload(
+                run_id=run_id,
+                summary_text="canonical session context bundle summary",
+            ),
+            "session_memory_bundle": _session_memory_bundle_payload(
+                run_id=run_id,
+                summary_text="legacy session memory bundle summary",
+            ),
+        },
+        {"configurable": {"session": object(), "conversation_service": ExplodingConversationService()}},
+    )
+
+    assert bundle is not None
+    assert bundle.rolling_summary is not None
+    assert bundle.rolling_summary.summary_text == "canonical session context bundle summary"
+
+
+async def test_load_session_memory_bundle_rejects_mismatched_canonical_bundle_before_legacy_fallback():
+    run_id = str(uuid.uuid4())
+
+    bundle = await load_session_memory_bundle_for_state(
+        {
+            **_state(),
+            "current_run_id": run_id,
+            "session_context_bundle": _session_context_bundle_payload(
+                run_id=run_id,
+                thread_id="other-thread",
+                summary_text="mismatched canonical session context bundle summary",
+            ),
+            "session_memory_bundle": _session_memory_bundle_payload(
+                run_id=run_id,
+                summary_text="legacy fallback session memory bundle summary",
+            ),
+        },
+        {"configurable": {}},
+    )
+
+    assert bundle is not None
+    assert bundle.rolling_summary is not None
+    assert bundle.rolling_summary.summary_text == "legacy fallback session memory bundle summary"
 
 
 async def test_session_memory_load_disabled_returns_empty_fallback(monkeypatch):

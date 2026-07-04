@@ -29,7 +29,7 @@ from src.agent.intent_policy import (
 )
 from src.agent.nodes import classify_intent as classify_intent_module
 from src.agent.nodes.classify_intent import intent_result_to_state
-from src.agent.routing import INTENT_ROUTES, SLOT_ROUTES, route_after_intent, route_after_slots
+from src.agent.routing import INTENT_ROUTES, SLOT_ROUTES, resolve_slots_with_metadata, route_after_intent, route_after_slots
 from src.agent.schemas import IntentResultV3, RequiredSlotExpression
 
 
@@ -559,3 +559,60 @@ def test_route_after_slots_totality_and_long_term_memory_route():
         )
         == "long_term_memory_retrieve"
     )
+
+
+def _trusted_slot_metadata() -> dict:
+    return {
+        "source": "trusted_session_memory",
+        "tenant_id": "tenant-1",
+        "user_id": "user-1",
+        "thread_id": "thread-1",
+        "fresh": True,
+        "intent_compatible": True,
+    }
+
+
+def test_resolve_slots_prefers_canonical_session_context_over_legacy_session_memory():
+    resolved, metadata = resolve_slots_with_metadata(
+        {
+            "tenant_id": "tenant-1",
+            "user_id": "user-1",
+            "thread_id": "thread-1",
+            "primary_intent": "refund_troubleshooting",
+            "extracted_slots": {},
+            "session_context": {
+                "schema_version": "session_context_memory.v1",
+                "authority_class": "contextual_only",
+                "continuity_claimed": True,
+                "active_slots": {"order_id": "ORD-CANONICAL"},
+                "slot_metadata": {"order_id": _trusted_slot_metadata()},
+            },
+            "session_memory": {
+                "continuity_claimed": True,
+                "active_slots": {"order_id": "ORD-LEGACY"},
+                "slot_metadata": {"order_id": _trusted_slot_metadata()},
+            },
+        }
+    )
+
+    assert resolved["order_id"] == "ORD-CANONICAL"
+    assert metadata["order_id"]["source"] == "trusted_session_memory"
+
+
+def test_resolve_slots_keeps_legacy_session_memory_fallback_when_canonical_context_absent():
+    resolved, _metadata = resolve_slots_with_metadata(
+        {
+            "tenant_id": "tenant-1",
+            "user_id": "user-1",
+            "thread_id": "thread-1",
+            "primary_intent": "refund_troubleshooting",
+            "extracted_slots": {},
+            "session_memory": {
+                "continuity_claimed": True,
+                "active_slots": {"order_id": "ORD-LEGACY"},
+                "slot_metadata": {"order_id": _trusted_slot_metadata()},
+            },
+        }
+    )
+
+    assert resolved["order_id"] == "ORD-LEGACY"
