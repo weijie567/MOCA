@@ -1497,20 +1497,34 @@ The `summary` column has session-summary semantics only. It may describe convers
 
 ### 13.3 Long-term memory
 
-跨会话稳定事实：商家偏好、长期风险模式、运营约束。
+Long-term memory stores explicit preference memory only. It is a contextual preference/hint layer for stable tenant or merchant/team preferences, not operational business state, not policy authority, not approval/action authority, not audit truth, not replay truth, and not generic run summary storage.
 
-必须包含：
+Published long-term memory rows must be `memory_kind="preference"` and may use only these published source types:
 
-- `scope_type`: tenant/user/merchant/thread/case; `global` is not supported because it risks cross-tenant leakage
+- `explicit_user_preference`
+- `explicit_admin_preference`
+- `human_reviewed`
+
+`semantic_episode_candidate` may exist only as a `needs_review` preference candidate source. When a reviewed candidate is approved, the published row's `source_type` must become `human_reviewed`; `semantic_episode_candidate` must not remain a published prompt-usable long-term source type.
+
+The following sources and concepts must not become published prompt-usable long-term memory: `deterministic_tool_result`, `confirmed_business_outcome`, `approved_approval_state`, `llm_candidate`, `summary_candidate`, `cross_case_pattern_candidate`, `behavior_inference`, ordinary completed-run summaries, strategy hints, similar-case hints, and cross-case pattern candidates. Current order/refund/ticket/logistics/payment facts, policy thresholds, approval decisions, action authorization, and action outcomes belong to their authoritative systems rather than memory.
+
+Soft operational preferences are allowed as hints, for example `Prefer calming explanatory wording in low-amount refund scenarios`. Hard rules such as `must refund`, `must reject`, `must approve`, policy thresholds, or required execution behavior belong to policy/config/rule systems, not memory.
+
+Default non-admin scope is merchant/team preference. Tenant-scope preference requires explicit admin save because its blast radius is wider. User-specific preference is deferred to post-Phase 48.
+
+The legacy table name `long_term_memories` and identity label `memory_type='long_term_fact'` are preserved for compatibility. `memory_type='long_term_fact'` is legacy storage/table identity only; it does not mean that facts, patterns, constraints, deterministic tool results, or run summaries are publishable long-term memory semantics.
+
+Required fields remain:
+
+- `scope_type`: tenant/merchant/user/thread/case; `global` is not supported because it risks cross-tenant leakage. Phase 48 write paths use merchant/team by default, and tenant only through explicit admin save.
 - `scope_id`
 - `content`
-- `source_type`: user/tool/human_review/admin_label
+- `source_type`
 - `source_ref`
 - `confidence`
 - `expires_at`
 - `review_status`
-
-Long-term memory stores durable, reviewed, scoped facts that may improve future assistance but cannot authorize policy, risk, approval, or action decisions. It must not store policy rules, single-order facts, single-refund outcomes, unreviewed model guesses, sensitive PII, or approval/action state. Initial Phase 16 write paths should prefer explicit user preference, admin label, human-review approval, or deterministic tool facts marked durable; automatic extraction from model guesses is not allowed.
 
 ### 13.4 Case memory
 
@@ -1548,11 +1562,13 @@ Terminal projection is deterministic terminal writeback through `CaseWorkingCont
 
 写入长期/案例记忆必须满足：
 
-- 来自明确用户陈述、工具事实、审批反馈或最终 outcome。
+- long-term write paths come only from explicit user preference, explicit admin preference, or human-reviewed preference; case memory follows the reviewed precedent contract in §13.4.
 - 对未来任务有跨会话价值。
 - 不包含未脱敏敏感信息。
 - 有 source/ref/confidence/scope。
-- 不把临时聊天、模型猜测、过期政策写入长期记忆。
+- 不把普通临时聊天、模型猜测、过期政策、deterministic tool facts、approved business outcomes、approval/action state、run summaries、patterns、strategy hints 或 similar-case hints 写入 published long-term memory。
+
+Long-term preference writes must remain soft preferences/hints. Policy rules, threshold rules, current business facts, approval decisions, action authorization, and action outcomes must stay in their own authoritative systems. `explicit_user_preference`, `explicit_admin_preference`, and `human_reviewed` are the only publishable long-term source types. `semantic_episode_candidate` is review-only and must publish as `human_reviewed` after approval.
 
 Memory write decision contract：
 

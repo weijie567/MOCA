@@ -106,6 +106,8 @@ Phase 46 planning trace (2026-07-03): DEFER-1 is being locked as session context
 
 Phase 47 delivery trace (2026-07-03): DEFER-2 is implemented by Phase 47. `case_memories` / `case_memory` keep their table/model identity and are locked as reviewed closed-case precedent, not active case state; finalized CWC enters only the existing case-memory review workflow as `closed_case_cwc_candidate` with `needs_review` via `ClosedCasePrecedentService -> CaseMemoryService.submit_case_memory_candidate(...)`. Metadata/text retrieval is test-locked as first-class with `query_embedding=None`, and vector retrieval stays optional. `DEFER-3 -> Phase 48` remains named, unimplemented, and out of scope.
 
+Phase 48 planning trace (2026-07-04): DEFER-3 is planned as explicit preference-only long-term memory. Published long-term source types are only `explicit_user_preference`, `explicit_admin_preference`, and `human_reviewed`. Semantic episode output may generate needs-review preference candidates only, and approval must publish them as `human_reviewed` rather than `semantic_episode_candidate`. `long_term_memories` table identity and legacy `memory_type='long_term_fact'` remain unchanged; the storage identity does not mean durable facts, patterns, constraints, tool results, or run summaries are publishable long-term semantics.
+
 > 三个 DEFER 项在进入本次 phase 的 PLAN.md 时,须在 plan 的 "out of scope / follow-up" 段落原样带上,确保 plan-checker 和 Codex 评审都能看到边界。
 
 ---

@@ -65,16 +65,32 @@ def test_memory_contract_delta_locks_authority_and_policy_boundaries() -> None:
         "当前退款状态",
         "审批结论",
         "政策规则",
-        "durable_profile_fact",
-        "merchant_preference",
-        "merchant_pattern",
-        "operational_constraint",
-        "deterministic_tool_result",
+        "explicit preference memory only",
+        "explicit_user_preference",
+        "explicit_admin_preference",
+        "human_reviewed",
+        "semantic_episode_candidate",
         "llm_candidate",
         "tombstone match",
         "needs_review",
     ):
         assert term in source
+
+
+def test_memory_contract_delta_rejects_broad_long_term_target_semantics() -> None:
+    source = _source(DOC_PATH)
+
+    for rejected in (
+        "durable_profile_fact",
+        "merchant_pattern",
+        "operational_constraint",
+        "deterministic durable tool results can auto-publish",
+        "只有 durable 且不是当前业务对象状态时可 auto publish",
+    ):
+        assert rejected not in source
+
+    assert "explicit preference memory only" in source
+    assert "`memory_type='long_term_fact'` 只是 legacy storage/table identity" in source
 
 
 def test_memory_contract_delta_matches_landed_facades_and_rules() -> None:
@@ -114,16 +130,17 @@ def test_memory_contract_delta_matches_landed_facades_and_rules() -> None:
     assert "list_pending_review" in review_api_source
 
 
-def test_target_memory_design_uses_durable_long_term_semantics() -> None:
-    source = _source(TARGET_ARCHITECTURE_PATH)
+def test_memory_contract_delta_uses_explicit_preference_long_term_semantics() -> None:
+    source = _source(DOC_PATH)
 
-    assert "durable profile/preference/pattern/operational constraint" in source
-    assert "durable_profile_fact" in source
-    assert "merchant_preference" in source
-    assert "merchant_pattern" in source
-    assert "operational_constraint" in source
-    assert "当前订单状态、退款状态、工单状态、审批结论、政策规则" in source
-    assert "profile/preference/fact | 是" not in source
+    for expected in (
+        "explicit preference memory only",
+        "explicit_user_preference",
+        "explicit_admin_preference",
+        "human_reviewed",
+        "published long-term source types",
+    ):
+        assert expected in source
 
 
 def test_memory_graph_aliases_remain_compatibility_aliases() -> None:
