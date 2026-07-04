@@ -245,7 +245,7 @@ Resume file: .planning/ROADMAP.md
 Next: Run post-phase review/ship workflow or choose the next roadmap item.
 
 Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with security, UAT, validation, and clean review complete; Phase 46 session context repositioning complete with MEM-03 validated; Phase 47 complete with 47-01 contract/source-policy foundation, 47-02 trusted closed-case projection seam, 47-03 governed case-memory write lifecycle, and 47-04 retrieval/docs/validation closeout; Phase 48 complete with explicit preference contract, source policy/service guards, chat/admin write paths, retrieval/review/correction closeout, clean code review, completed UAT, and security verification (`threats_open: 0`).
-Next roadmap item: Phase 48.1 Memory Context Compatibility Debt Cleanup.
+Next roadmap item: none selected; Phase 48.1 is complete.
 
 **Completed Phase:** 48 (Narrow Long-Term Explicit Preference Memory) — 4/4 plans — 2026-07-04
 
