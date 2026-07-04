@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from src.conversation.repository import ConversationRepository
 from src.conversation.service import ConversationService
 from src.memory.repository import SessionMemoryRepository
-from src.memory.schemas import SessionMemoryBundle, SessionMemoryView, SessionToolSummaryView
+from src.memory.schemas import SessionContextBundle, SessionMemoryBundle, SessionMemoryView, SessionToolSummaryView
 from src.memory.service import MemoryService
 from src.memory.session_bundle import SessionMemoryBundleService
 from src.tools.contracts import ToolResultPromptSummary
@@ -35,6 +35,10 @@ async def load_session_memory_bundle_for_state(
     *,
     max_recent_messages: int = 8,
 ) -> SessionMemoryBundle | None:
+    existing = session_context_bundle_from_state(state)
+    if existing is not None:
+        return existing
+
     existing = session_memory_bundle_from_state(state)
     if existing is not None:
         return existing
@@ -72,6 +76,34 @@ async def load_session_memory_bundle_for_state(
         )
     except Exception:
         return None
+
+
+def session_context_bundle_from_state(state: Mapping[str, Any]) -> SessionMemoryBundle | None:
+    raw = state.get("session_context_bundle")
+    if isinstance(raw, SessionContextBundle):
+        context = raw.session_context
+    elif isinstance(raw, dict):
+        try:
+            context = SessionContextBundle.model_validate(raw).session_context
+        except ValidationError:
+            return None
+    else:
+        return None
+
+    bundle = SessionMemoryBundle(
+        tenant_id=context.tenant_id,
+        user_id=context.user_id,
+        thread_id=context.thread_id,
+        run_id=context.run_id,
+        rolling_summary=context.rolling_summary,
+        recent_messages=list(context.recent_messages),
+        tool_summaries=list(context.tool_summaries),
+        slot_continuity=context.slot_continuity,
+        policy_topic_hints=list(context.policy_topic_hints),
+        prior_policy_mention_refs=[dict(ref) for ref in context.prior_policy_mention_refs],
+        fallback_reasons=dict(context.fallback_reasons),
+    )
+    return bundle if _bundle_matches_state(bundle, state) else None
 
 
 def session_memory_bundle_from_state(state: Mapping[str, Any]) -> SessionMemoryBundle | None:

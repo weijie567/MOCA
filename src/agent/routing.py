@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
@@ -99,7 +100,7 @@ def resolve_slots_with_metadata(state: AgentState) -> tuple[dict[str, Any], dict
     extracted = state.get("extracted_slots")
     current_slots = {key: value for key, value in (extracted or {}).items() if value not in (None, "")}
     invalidations = detect_slot_invalidations(str(state.get("user_query") or ""))
-    session_memory = state.get("session_memory")
+    session_memory = _session_slot_continuity(state)
     active_slots: dict[str, Any] = {}
     slot_metadata: dict[str, Any] = {}
     if isinstance(session_memory, dict) and session_memory.get("continuity_claimed") is True:
@@ -147,6 +148,19 @@ def resolve_slots_with_metadata(state: AgentState) -> tuple[dict[str, Any], dict
         elif decision.reason_code == "slot_invalidated":
             resolved_metadata[slot] = _invalidated_slot_metadata(metadata, invalidations[slot])
     return resolved, resolved_metadata
+
+
+def _session_slot_continuity(state: AgentState) -> dict[str, Any]:
+    session_context = state.get("session_context")
+    if isinstance(session_context, Mapping):
+        slot_continuity = session_context.get("slot_continuity")
+        if isinstance(slot_continuity, Mapping):
+            return dict(slot_continuity)
+        if "continuity_claimed" in session_context:
+            return dict(session_context)
+
+    session_memory = state.get("session_memory")
+    return dict(session_memory) if isinstance(session_memory, Mapping) else {}
 
 
 def detect_slot_invalidations(user_query: str) -> dict[str, dict[str, Any]]:

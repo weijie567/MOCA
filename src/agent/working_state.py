@@ -173,8 +173,7 @@ def _open_questions(state: AgentState) -> list[str]:
     explicit = _string_list(state.get("open_questions"))
     if explicit:
         return explicit
-    session_memory = _mapping(state.get("session_memory"))
-    return _string_list(session_memory.get("unresolved_questions"))
+    return _string_list(_session_context_memory(state).get("unresolved_questions"))
 
 
 def _constraints(state: AgentState) -> list[str]:
@@ -189,7 +188,7 @@ def _business_context_refs(state: AgentState) -> list[dict[str, Any]]:
 
     for value in (
         state.get("last_business_context_refs"),
-        _mapping(state.get("session_memory")).get("last_business_context_refs"),
+        _session_context_memory(state).get("last_business_context_refs"),
     ):
         refs = _business_ref_payload(value)
         if refs:
@@ -197,6 +196,21 @@ def _business_context_refs(state: AgentState) -> list[dict[str, Any]]:
 
     context = _mapping(state.get("business_context"))
     return _dict_list(context.get("business_fact_refs"))
+
+
+def _session_context_memory(state: AgentState) -> Mapping[str, Any]:
+    session_context = _mapping(state.get("session_context"))
+    if session_context:
+        slot_continuity = _mapping(session_context.get("slot_continuity"))
+        if slot_continuity:
+            return slot_continuity
+        if (
+            "continuity_claimed" in session_context
+            or "unresolved_questions" in session_context
+            or "last_business_context_refs" in session_context
+        ):
+            return session_context
+    return _mapping(state.get("session_memory"))
 
 
 def _business_ref_payload(value: Any) -> list[dict[str, Any]]:
