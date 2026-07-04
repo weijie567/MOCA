@@ -77,7 +77,7 @@ def _deterministic_fallback_plan_next_step(
 ) -> dict[str, Any]:
     attempted = accumulated_context.get("attempted") or set()
     unusable = accumulated_context.get("unusable") or set()
-    slots = _case_slots(state)
+    slots = _case_slots_for_loop(state, accumulated_context.get("discovered_slots"))
     candidates = [
         ("get_order", {"order_no": slots.get("order_id")}),
         ("get_refund_case", {"refund_case_no": slots.get("refund_case_id")}),
@@ -108,8 +108,12 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
     deadline_at = configurable.get("deadline_at")
 
     context: dict[str, Any] = {
+        "base_slots": _case_slots(state),
+        "discovered_slots": {},
         "attempted": set(),
+        "attempt_count_by_key": {},
         "unusable": set(),
+        "observations": [],
         "facts": {},
         "business_fact_refs": [],
         "policy_refs": [],
@@ -167,9 +171,12 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
         tool_name = step["next_tool"]
         args = step.get("args") or {}
         attempt_key = _attempt_key(tool_name, args)
-        if attempt_key in context["attempted"]:
+        attempt_count_by_key = context["attempt_count_by_key"]
+        attempt_count = int(attempt_count_by_key.get(attempt_key, 0))
+        if attempt_count >= max_attempts:
             termination_reason = "no_more_useful_tools"
             break
+        attempt_count_by_key[attempt_key] = attempt_count + 1
         context["attempted"].add(attempt_key)
         if trusted_context is None:
             termination_reason = "unrecoverable_error"
@@ -200,7 +207,24 @@ async def investigate(state: AgentState, config: RunnableConfig) -> dict:
             tool_ctx,
             operation_id,
         )
-        outcome = await tool_platform.invoke(tool_name, args, tool_ctx, session=session)
+        try:
+            outcome = await tool_platform.invoke(tool_name, args, tool_ctx, session=session)
+        except Exception:
+            termination_reason = "unrecoverable_error"
+            context["errors"].append(
+                _safe_error("TOOL_PLATFORM_ERROR", "Tool platform invocation failed", "tool_platform")
+            )
+            await _emit_tool_event(
+                configurable,
+                session,
+                tool_ctx,
+                descriptor,
+                family,
+                operation_id,
+                iteration,
+                "failed",
+            )
+            break
         result = outcome.tool_result
         calls_executed += 1
         terminal = (
@@ -372,7 +396,7 @@ def _planner_input_payload(
         "normalized_query": _safe_case_text(state.get("normalized_query")),
         "primary_intent": state.get("primary_intent") or state.get("current_intent"),
         "requested_operation": state.get("requested_operation"),
-        "current_resolved_slots": _case_slots(state),
+        "current_resolved_slots": _case_slots_for_loop(state, context.get("discovered_slots")),
         "loop_local_discovered_slots": dict(context.get("discovered_slots") or {}),
         "projected_observations": _projected_observation_summaries(context),
         "allowed_tools": [_tool_view_payload(view) for view in tool_views],
@@ -393,7 +417,7 @@ def _tool_view_payload(view: ToolViewV1) -> dict[str, Any]:
 
 def _projected_observation_summaries(context: dict[str, Any]) -> list[dict[str, Any]]:
     observations: list[dict[str, Any]] = []
-    for item in context.get("tool_results") or []:
+    for item in context.get("observations") or context.get("tool_results") or []:
         if not isinstance(item, dict):
             continue
         observations.append(
@@ -773,9 +797,12 @@ def _accumulate_tool_result(
     prompt_summary: ToolResultPromptSummary,
     full_projection: ToolResultProjectionV1,
 ) -> None:
-    context["tool_results"].append(prompt_summary.model_dump(mode="json"))
+    prompt_summary_payload = prompt_summary.model_dump(mode="json")
+    context["tool_results"].append(prompt_summary_payload)
+    context.setdefault("observations", []).append(prompt_summary_payload)
     normalized = full_projection.normalized_result
     if result.status in FACT_STATUSES:
+        _discover_loop_slots_from_projection(context, tool_name, full_projection)
         if tool_name == "search_case_memory":
             context.setdefault("case_memory", []).extend(
                 _case_memory_items_from_projection(normalized)
@@ -830,7 +857,7 @@ def _business_status(context: dict[str, Any]) -> str:
 
 def _missing_required_facts(state: AgentState, context: dict[str, Any]) -> list[str]:
     facts = context["facts"]
-    slots = _case_slots(state)
+    slots = _case_slots_for_loop(state, context.get("discovered_slots"))
     failed_tools = {
         result.get("tool_name")
         for result in context["tool_results"]
@@ -893,6 +920,98 @@ def _case_slots(state: AgentState) -> dict[str, Any]:
     extracted = state.get("extracted_slots") if isinstance(state.get("extracted_slots"), dict) else {}
     active = state.get("active_slots") if isinstance(state.get("active_slots"), dict) else {}
     return {slot_name: extracted.get(slot_name) or active.get(slot_name) for slot_name in _CASE_SLOT_RESOURCES}
+
+
+def _case_slots_for_loop(state: AgentState, discovered_slots: Any | None = None) -> dict[str, Any]:
+    base_slots = _case_slots(state)
+    discovered = discovered_slots if isinstance(discovered_slots, dict) else {}
+    merged = dict(base_slots)
+    aliases = {
+        "order_id": ("order_id", "order_no"),
+        "refund_case_id": ("refund_case_id", "refund_case_no"),
+        "ticket_id": ("ticket_id",),
+    }
+    for target_key, source_keys in aliases.items():
+        if merged.get(target_key):
+            continue
+        for source_key in source_keys:
+            value = _safe_slot_value(discovered.get(source_key))
+            if value:
+                merged[target_key] = value
+                break
+    return merged
+
+
+def _discover_loop_slots_from_projection(
+    context: dict[str, Any],
+    tool_name: str,
+    projection: ToolResultProjectionV1,
+) -> None:
+    discovered = context.setdefault("discovered_slots", {})
+    normalized = projection.normalized_result if isinstance(projection.normalized_result, dict) else {}
+    prompt_projection = projection.prompt_projection if isinstance(projection.prompt_projection, dict) else {}
+
+    if tool_name == "get_order":
+        _merge_discovered_slot(discovered, "order_no", normalized.get("order_no"))
+        _merge_discovered_slot(discovered, "order_id", normalized.get("order_no") or normalized.get("id"))
+        _merge_discovered_slot(discovered, "merchant_id", normalized.get("merchant_id"))
+    elif tool_name == "get_refund_case":
+        _merge_discovered_slot(discovered, "refund_case_no", normalized.get("refund_case_no"))
+        _merge_discovered_slot(discovered, "refund_case_id", normalized.get("refund_case_no") or normalized.get("id"))
+        _merge_discovered_slot(discovered, "merchant_id", normalized.get("merchant_id"))
+    elif tool_name == "get_ticket":
+        _merge_discovered_slot(
+            discovered,
+            "ticket_id",
+            normalized.get("ticket_id") or normalized.get("ticket_no") or normalized.get("id"),
+        )
+        _merge_discovered_slot(discovered, "merchant_id", normalized.get("merchant_id"))
+    elif tool_name == "get_logistics":
+        _merge_discovered_slot(discovered, "tracking_no", normalized.get("tracking_no") or normalized.get("id"))
+    elif tool_name == "get_merchant_risk":
+        _merge_discovered_slot(discovered, "merchant_id", normalized.get("merchant_id") or normalized.get("id"))
+
+    for ref in _structured_ref_list(prompt_projection.get("business_fact_refs")):
+        resource_type = ref.get("resource_type")
+        resource_id = ref.get("resource_id")
+        if resource_type == "order":
+            _merge_discovered_slot(discovered, "order_id", resource_id)
+        elif resource_type == "refund_case":
+            _merge_discovered_slot(discovered, "refund_case_id", resource_id)
+        elif resource_type == "ticket":
+            _merge_discovered_slot(discovered, "ticket_id", resource_id)
+        elif resource_type == "logistics":
+            _merge_discovered_slot(discovered, "tracking_no", resource_id)
+        elif resource_type == "merchant_risk":
+            _merge_discovered_slot(discovered, "merchant_risk_ref", resource_id)
+
+    relation_hints = prompt_projection.get("relation_hints")
+    if not isinstance(relation_hints, dict):
+        relation_hints = normalized.get("relation_hints")
+    if isinstance(relation_hints, dict):
+        _merge_discovered_slot(discovered, "refund_case_id", relation_hints.get("latest_refund_case_id"))
+        _merge_discovered_slot(discovered, "ticket_id", relation_hints.get("latest_ticket_id"))
+        _merge_discovered_slot(discovered, "tracking_no", relation_hints.get("tracking_no"))
+        _merge_discovered_slot(discovered, "merchant_id", relation_hints.get("merchant_id"))
+
+
+def _structured_ref_list(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _merge_discovered_slot(discovered: dict[str, Any], key: str, value: Any) -> None:
+    safe_value = _safe_slot_value(value)
+    if safe_value and key not in discovered:
+        discovered[key] = safe_value
+
+
+def _safe_slot_value(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = " ".join(value.split())
+    return normalized[:128] if normalized else None
 
 
 def _bounded_iterations(value: Any) -> int:

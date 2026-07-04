@@ -12625,3 +12625,61 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_investigate
 
 - `tests/agent/test_nodes/test_investigate.py::test_invalid_planner_output_falls_back_before_dispatching_invalid_tool`
 - `src/agent/nodes/investigate.py::_plan_next_step_with_fallback`
+
+## 2026-07-04 — Phase 49-02 slot discovery 测试断言与变量收敛问题
+
+### 问题现象
+
+49-02 focused 测试第一次运行时出现两个测试层问题：
+
+1. prompt-injection 测试断言 `RAW-TICKET-SHOULD-NOT-BE-DISCOVERED` 不应出现在 `business_context`，但工具 result 的 safe summary 本来会进入 normalized business context；
+2. 修正时误删了链式 slot 测试中的 `result` 变量，同时在另一个测试保留了未使用 `result`，导致 `NameError` / ruff `F841`。
+
+### 如何检测 / 复现
+
+执行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_investigate.py -q
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/nodes/investigate.py src/tools/projection.py tests/agent/test_nodes/test_investigate.py
+```
+
+### 关键证据或命令
+
+失败点包括：
+
+```text
+AssertionError: 'RAW-TICKET-SHOULD-NOT-BE-DISCOVERED' is contained here...
+F821 Undefined name `result`
+F841 Local variable `result` is assigned to but never used
+```
+
+### 当前判断 / 根因
+
+这是测试断言边界和局部变量调整问题，不是 49-02 runtime 行为错误。49-02 要验证的是 prompt/raw/text 不会被 slot discovery 当成 `ticket_id`，不是禁止 safe summary 进入 business context。
+
+### 已做处理
+
+- 将断言改为检查 `loop_local_discovered_slots` 和 `current_resolved_slots` 中没有 `ticket_id`，并断言实际调用链没有 `get_ticket`。
+- 恢复链式 slot 测试需要的 `result` 变量，移除注入文本测试中未使用的 `result`。
+- 追加 top-level `data["ticket_id"]` 不会被 get_order discovery 使用的覆盖，确保 direct identifier discovery 按 tool 类型限定。
+
+重跑结果：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_investigate.py -q
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_receive_request.py tests/agent/test_nodes/test_classify_intent.py tests/agent/test_intent_task_plan.py -q
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/nodes/investigate.py src/tools/projection.py tests/agent/test_nodes/test_investigate.py
+rg -n 'active_slots\s*=|active_slots\]|active_slots\.' src/agent/nodes/investigate.py || true
+```
+
+结果：investigate `51 passed, 1 warning`；intent 回归 `47 passed, 1 warning`；ruff pass；active_slots writer grep 无输出。
+
+### 剩余问题
+
+无阻塞。49-03 仍需继续验证 projection boundary 不把 raw payload 放入 planner context。
+
+### 下次继续排查入口
+
+- `tests/agent/test_nodes/test_investigate.py::test_prompt_injection_text_in_tool_result_does_not_become_discovered_slot`
+- `src/agent/nodes/investigate.py::_discover_loop_slots_from_projection`

@@ -33,12 +33,25 @@ _SAFE_SCALAR_KEYS: set[str] = {
     "draft_id",
     "created",
     "idempotent_reused",
+    "refund_case_no",
+    "ticket_id",
+    "ticket_no",
+    "tracking_no",
 }
 
 _POLICY_EVIDENCE_REF_KEYS: set[str] = {
     "policy_id",
     "policy_version",
     "evidence_type",
+}
+
+_RELATION_HINT_KEYS: set[str] = {
+    "has_active_refund",
+    "latest_refund_case_id",
+    "has_open_ticket",
+    "latest_ticket_id",
+    "tracking_no",
+    "merchant_id",
 }
 
 _MAX_TEXT_FOR_PROMPT = 500
@@ -118,6 +131,10 @@ class ToolResultProjector:
         if policy_refs:
             normalized["policy_evidence_refs"] = policy_refs
 
+        relation_hints = self._extract_relation_hints(data)
+        if relation_hints:
+            normalized["relation_hints"] = relation_hints
+
         # Refs from the ToolResultV2 envelope (not from data).
         if result.business_fact_refs:
             normalized["business_fact_refs"] = self._business_fact_refs_from_envelope(result)
@@ -160,6 +177,19 @@ class ToolResultProjector:
             if isinstance(value, str) and value:
                 refs.append({"ref_type": key, "ref_id": value})
         return refs
+
+    def _extract_relation_hints(self, data: dict[str, Any]) -> dict[str, Any]:
+        hints = data.get("relation_hints")
+        if not isinstance(hints, dict):
+            return {}
+        safe_hints: dict[str, Any] = {}
+        for key in _RELATION_HINT_KEYS:
+            if key not in hints:
+                continue
+            value = hints.get(key)
+            if value is None or isinstance(value, (str, int, float, bool)):
+                safe_hints[key] = value
+        return safe_hints
 
     def _sanitize_case_memory(self, items: list[Any]) -> list[dict[str, Any]]:
         sanitized: list[dict[str, Any]] = []
@@ -232,6 +262,7 @@ class ToolResultProjector:
             "business_fact_refs": normalized.get("business_fact_refs", []),
             "policy_candidate_refs": normalized.get("policy_evidence_refs", []),
             "resource_refs": normalized.get("business_fact_refs", []),
+            "relation_hints": normalized.get("relation_hints", {}),
             "warnings": warnings,
             "safe_error": safe_error,
             "redaction_applied": redaction_applied,

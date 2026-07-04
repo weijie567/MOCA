@@ -799,3 +799,32 @@
 
 **剩余风险**
 - ⚠️ 49-01 只完成 planner schema / validation / fallback 壳；真正多轮 loop-local discovered slots、8-tool projection/trace/replay 完整语义、graph E2E safety regression 仍分别属于 49-02 / 49-03 / 49-04。当前不得把 GAD-01 标为 implemented。
+
+## Phase 49 Plan 02 — investigate loop-local discovered slots 与 bounded attempt guard ⚠️阶段性修复
+
+**问题 / 根因**
+- 49-01 后 planner 已成为主路径，但 observation→slot 回流仍只是占位；`get_order` 返回的安全 relation hints 无法喂给下一轮 planner/fallback，order→ticket 等链式调查不成立。
+- `ToolResultProjector` 没有 prompt-safe structured `relation_hints` surface，若后续从 summary/text/raw payload 抽取 identifier，会扩大 prompt-injection 与 raw-data 污染风险。
+- runtime 只有全局 max iteration/deadline 与 duplicate set，缺少按 tool+args 的 `max_attempts` 计数；ToolPlatform.invoke 抛异常时也会直接冒泡而不是 fail-closed。
+
+**影响**
+- investigate 还不像真正 ReAct loop：observation 不能安全影响后续 action，且异常/重复调用的 boundedness 不完整。
+
+**修复**
+- `investigate` loop context 增加 `base_slots`、`discovered_slots`、`observations`、`attempt_count_by_key`；`_case_slots_for_loop(...)` 只在本次 loop 内合并 discovered slots，不写 `active_slots` / `extracted_slots` / `candidate_slots`。
+- `ToolResultProjector` 增加窄的 prompt-safe `relation_hints`，并只保留 allowlisted scalar hints；raw/secret nested keys 不进入 relation_hints。
+- `_discover_loop_slots_from_projection(...)` 只从 projection structured fields、business fact envelope refs、relation_hints 抽取；direct identifier discovery 按 tool 类型限定，get_order 不会因任意 top-level `data["ticket_id"]` 生成 `ticket_id`。
+- runtime 增加 per tool+args `max_attempts` 计数，并将 ToolPlatform.invoke 异常转换为 `termination_reason="unrecoverable_error"` 和 safe error，不让异常逃出 node。
+
+**证据**
+- Phase / plan：`49-02`
+- 文件：`src/agent/nodes/investigate.py`、`src/tools/projection.py`、`tests/agent/test_nodes/test_investigate.py`
+
+**验证**
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_investigate.py -q` → `51 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_receive_request.py tests/agent/test_nodes/test_classify_intent.py tests/agent/test_intent_task_plan.py -q` → `47 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/nodes/investigate.py src/tools/projection.py tests/agent/test_nodes/test_investigate.py` → pass
+- `rg -n 'active_slots\s*=|active_slots\]|active_slots\.' src/agent/nodes/investigate.py || true` → no output
+
+**剩余风险**
+- ⚠️ 49-02 已完成 loop-local slot scratchpad 和 bounded attempt guard；8-tool exact coverage、projection raw-context audit、trace/replay parent/iteration semantics 仍属于 49-03。GAD-01 仍不得标为 implemented。
