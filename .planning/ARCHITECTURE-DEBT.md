@@ -319,7 +319,7 @@
 - 🟡 `memory_type='long_term_fact'` 仍是 legacy storage/table identity；它不表示 fact/pattern/constraint 可作为 published long-term memory 语义。该命名妥协已在 `docs/contract-spec.md` 与 Phase 48 static guards 中锁定。
 - 🟡 User-specific preference scope 仍为 post-Phase 48 defer；当前实现主路径是 merchant/team default + admin tenant explicit。
 
-## Phase 48.1 — Memory context compatibility debt cleanup 🟡已规划待执行
+## Phase 48.1 — Memory context compatibility debt cleanup ⚠️已实现，待最终验证
 
 **问题 / 根因**
 - Phase 44-48 已引入新的 memory 语义层：`session_context`、`reviewed_memory_context`、`case_working_context`、`thread_case_links`、`memory_context_bundle`。但源码中仍有旧字段/旧入口作为 active reader 使用，不只是纯 projection。
@@ -332,33 +332,30 @@
 - 新旧 state 字段并存会让后续 memory prompt 注入、slot inheritance、working-state 投影修改出现「改一边漏一边」。
 - `needs_long_term_memory` 名称会继续误导实现者，以为只加载 long-term preference，而不是 reviewed memory context + case memory + active CWC。
 
-**拟处理范围（Phase 48.1）**
-- 将 active thread↔case reader 迁到 `thread_case_links` / `ThreadCaseLinkRepository`；`conversation_threads.case_id` 只保留 legacy storage/write compatibility 或历史显示。
-- 将 routing、working-state、prompt/session context helper 的 canonical read path 迁到 `session_context` / `session_context_bundle`；`session_memory` / `session_memory_bundle` 降级为旧 trace/test projection。
-- 新增 canonical routing hint（建议名：`needs_reviewed_memory_context`），同时保留 `needs_long_term_memory` 作为 backward-compatible alias。
+**已实现，待最终验证**
+- ⚠️ active thread↔case reader 已迁到 `thread_case_links` / `ThreadCaseLinkRepository`：`ConversationRepository.insert_thread_summary(...)` 只在 canonical links 恰好一个时写 legacy `ConversationSummary.case_id` metadata；无 link 或多 link 不再 fallback 到 `ConversationThread.case_id`。
+- ⚠️ routing、working-state、prompt/session helper 已改为 canonical-first：`src/agent/routing.py` 先读 `session_context`；`src/agent/working_state.py` 先读 `session_context`；`src/agent/context/session_memory_bundle.py` 先读 `session_context_bundle`，再 fallback 到 `session_memory_bundle` / service。
+- ⚠️ reviewed-memory canonical routing hint 已新增：`needs_reviewed_memory_context` 是 canonical hint，`needs_long_term_memory` 作为 backward-compatible alias 继续可用；route 返回的 runtime node key 仍是 `long_term_memory_retrieve`。
+- ⚠️ Phase 48.1 static guard 已新增：`tests/memory/test_phase48_1_memory_compat_alignment.py` 锁定 active reader 迁移、graph compatibility names、deferred compatibility names、no destructive rename/drop、approved pytest entrypoint。
 
-**不纳入 Phase 48.1 的 defer 项（防遗忘）**
+**保留 / defer 项（防遗忘）**
 - 🟡 graph 节点旧名 wrapper：`session_memory_load`、`long_term_memory_retrieve` 仍作为 runtime/trace compatibility wrapper 保留；清理需单独评估 replay/trace/eval 影响。
 - 🟡 `long_term_fact` 存储/审计 identity：`MemoryTombstone`、`MemoryWriteEvent`、repository 常量仍使用该名字；当前视为 legacy storage identity，不代表 published long-term fact 语义。
 - 🟡 `session_memory_enabled` / TTL / timeout 等配置名仍保留；它们属于 env/config compatibility surface，改名会影响部署配置。
 - 🟡 API 路由里的 `/long-term/...` 与 schema `memory_type="long_term"` 仍保留；它们是 public/admin API surface，不能跟内部语义清理一起破坏。
 - 🟡 `LegacySessionPrecedentSearchService` 仍保留为 debug-only legacy session-derived precedent 搜索；源码已注明不得支撑 planner-facing `search_case_memory`，未来可单独删除。
 
-**证据（源码核对）**
-- `src/agent/graph.py:282` / `src/agent/nodes/session_memory_load.py:16`：runtime 仍挂旧 `session_memory_load`，实现转发到 `session_context_load`。
-- `src/agent/graph.py:284` / `src/agent/nodes/long_term_memory_retrieve.py:15`：runtime 仍挂旧 `long_term_memory_retrieve`，实现转发到 reviewed memory context。
-- `src/agent/state.py:116`：`session_context` / `session_memory`、`memory_context_bundle` / `long_term_memory` / `case_memory` 并存。
-- `src/agent/routing.py:102`、`src/agent/working_state.py:176`、`src/agent/context/session_memory_bundle.py:77`：旧 session memory 字段仍被 active reader 使用。
-- `src/agent/routing.py:269`、`src/agent/nodes/reviewed_memory_context_retrieve.py:394`：reviewed memory context 仍受 `needs_long_term_memory` 旧 hint 影响。
-- `src/db/models.py:1225`、`src/db/models.py:1254`、`src/conversation/repository.py:420`：`conversation_threads.case_id` 与 `thread_case_links` 并存，summary 仍读旧字段。
-- `src/memory/repository.py:23`、`src/db/models.py:718`、`src/db/models.py:778`：`long_term_fact` 仍是 tombstone / write-event 存储身份。
-- `src/config.py:31`：session memory 配置名仍是旧 naming surface。
-- `src/api/routers/memory.py:67`、`src/api/schemas/memory.py:58`：admin/review API 仍暴露 long-term 命名。
-- `src/memory/search.py:15`：legacy session-derived precedent search service 仍存在，标注 debug-only/read-only。
+**证据（源码 / 测试 / planning）**
+- Plan summaries：`.planning/phases/48.1-memory-context-compatibility-debt-cleanup/48.1-01-SUMMARY.md`、`48.1-02-SUMMARY.md`、`48.1-03-SUMMARY.md`。
+- ThreadCaseLinkRepository active reader：`src/conversation/repository.py`、`tests/conversation/test_repository.py`、`tests/memory/test_thread_case_links.py`。
+- Session context active readers：`src/agent/routing.py`、`src/agent/working_state.py`、`src/agent/context/session_memory_bundle.py`、`tests/agent/test_intent_routing.py`、`tests/agent/test_working_state.py`、`tests/agent/test_session_memory_load.py`。
+- Reviewed memory hint alias：`src/agent/routing.py`、`src/agent/nodes/reviewed_memory_context_retrieve.py`、`tests/agent/test_graph.py`、`tests/agent/test_memory_evidence_boundary.py`、`tests/agent/test_reviewed_memory_context_retrieve.py`。
+- Static guard：`tests/memory/test_phase48_1_memory_compat_alignment.py`。
+- 保留 defer surfaces：`src/agent/graph.py` / `src/agent/graph_vocabulary.py`（graph compatibility names）、`src/memory/repository.py`（`long_term_fact` storage identity）、`src/config.py`（`session_memory_enabled`）、`src/api/routers/memory.py` / `src/api/schemas/memory.py`（public long-term route/schema naming）、`src/memory/search.py`（`LegacySessionPrecedentSearchService`）。
 
 **状态**
-- 🟡 Phase 48.1 已插入 roadmap，4 个 plan 已通过 plan-checker；尚未实现。
-- 🟡 defer 项已记录，除非后续 phase 明确评估迁移影响，否则不作为 Phase 48.1 必须交付。
+- ⚠️ 已完成代码与静态 guard 实现；等待 Phase 48.1 final pytest + Ruff gate 通过后改为「✅ 已修复并验证」。
+- 🟡 defer 项已记录，除非后续 phase 明确评估 replay/trace/API/config 迁移影响，否则不作为 Phase 48.1 必须交付。
 
 ## Phase 48 Review CR-01 — state-origin 记忆候选身份与发布边界加固 ✅已修复验证
 
