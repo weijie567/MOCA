@@ -34,6 +34,10 @@ def _state(**updates: object) -> dict[str, object]:
     return values
 
 
+def _trusted_context(*merchant_ids: str) -> dict[str, object]:
+    return {"merchant_scope": {"merchant_ids": list(merchant_ids)}}
+
+
 class FakeSessionMemoryService:
     def __init__(self) -> None:
         self.candidates = []
@@ -112,6 +116,132 @@ def test_memory_write_service_defaults_to_session_memory_write_candidate_only() 
     assert not any(isinstance(candidate, CaseMemoryWriteCandidate) for candidate in candidates)
 
 
+def test_memory_write_service_does_not_infer_ordinary_chat_as_long_term_preference() -> None:
+    service = MemoryWriteService(FakeSessionMemoryService())
+
+    candidates = service.propose_candidates(
+        _state(user_query="Merchant prefers concise updates."),
+        trusted_context=_trusted_context("merchant-1"),
+    )
+
+    assert len(candidates) == 1
+    assert isinstance(candidates[0], SessionMemoryWriteCandidate)
+    assert not any(isinstance(candidate, LongTermMemoryWriteCandidate) for candidate in candidates)
+
+
+def test_memory_write_service_does_not_semantically_infer_preference_like_chat() -> None:
+    service = MemoryWriteService(FakeSessionMemoryService())
+
+    candidates = service.propose_candidates(
+        _state(user_query="我们一般喜欢简短回复退款问题。"),
+        trusted_context=_trusted_context("merchant-1"),
+    )
+
+    assert len(candidates) == 1
+    assert isinstance(candidates[0], SessionMemoryWriteCandidate)
+    assert not any(isinstance(candidate, LongTermMemoryWriteCandidate) for candidate in candidates)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "Remember this preference: merchant prefers concise refund updates.",
+        "记住这个偏好：低金额退款场景优先使用安抚性解释。",
+        "记住这个偏好：商家偏好简短退款说明。",
+        "以后按这个：退款回复先给证据再给结论。",
+        "保存这个偏好：低金额售后优先使用安抚话术。",
+    ],
+)
+def test_memory_write_service_adds_explicit_user_preference_candidate_for_deterministic_phrase(query: str) -> None:
+    service = MemoryWriteService(FakeSessionMemoryService())
+
+    candidates = service.propose_candidates(
+        _state(user_query=query),
+        trusted_context=_trusted_context("merchant-1"),
+    )
+    long_term_candidates = [candidate for candidate in candidates if isinstance(candidate, LongTermMemoryWriteCandidate)]
+
+    assert len(long_term_candidates) == 1
+    candidate = long_term_candidates[0]
+    assert candidate.source_type == "explicit_user_preference"
+    assert candidate.memory_kind == "preference"
+    assert candidate.scope_type == "merchant"
+    assert candidate.scope_id == "merchant-1"
+    assert candidate.source_ref is not None
+    assert candidate.source_ref.business_object_type == "merchant"
+    assert candidate.source_ref.business_object_id == "merchant-1"
+
+
+def test_memory_write_service_rejects_hard_rule_text_as_preference() -> None:
+    service = MemoryWriteService(FakeSessionMemoryService())
+
+    candidates = service.propose_candidates(
+        _state(user_query="记住这个偏好：低于10元必须退款。"),
+        trusted_context=_trusted_context("merchant-1"),
+    )
+
+    assert len(candidates) == 1
+    assert isinstance(candidates[0], SessionMemoryWriteCandidate)
+    assert not any(isinstance(candidate, LongTermMemoryWriteCandidate) for candidate in candidates)
+
+
+def test_memory_write_service_explicit_chat_preference_requires_single_trusted_merchant_scope() -> None:
+    service = MemoryWriteService(FakeSessionMemoryService())
+
+    candidates = service.propose_candidates(
+        _state(user_query="保存这个偏好：低金额售后优先使用安抚话术。"),
+        trusted_context=_trusted_context("merchant-1", "merchant-2"),
+    )
+
+    assert len(candidates) == 1
+    assert isinstance(candidates[0], SessionMemoryWriteCandidate)
+
+
+def test_memory_write_service_uses_current_merchant_slot_when_trusted_scope_allows() -> None:
+    service = MemoryWriteService(FakeSessionMemoryService())
+
+    candidates = service.propose_candidates(
+        _state(
+            user_query="保存这个偏好：低金额售后优先使用安抚话术。",
+            active_slots={"merchant_id": "merchant-2"},
+        ),
+        trusted_context=_trusted_context("merchant-1", "merchant-2"),
+    )
+    long_term_candidates = [candidate for candidate in candidates if isinstance(candidate, LongTermMemoryWriteCandidate)]
+
+    assert len(long_term_candidates) == 1
+    assert long_term_candidates[0].scope_type == "merchant"
+    assert long_term_candidates[0].scope_id == "merchant-2"
+
+
+def test_memory_write_service_rejects_tenant_scope_explicit_user_preference_from_state() -> None:
+    service = MemoryWriteService(FakeSessionMemoryService())
+    tenant_id = uuid4()
+    run_id = uuid4()
+
+    candidates = service.propose_candidates(
+        _state(
+            tenant_id=str(tenant_id),
+            current_run_id=str(run_id),
+            memory_write_candidates=[
+                {
+                    "memory_type": "long_term",
+                    "tenant_id": tenant_id,
+                    "run_id": run_id,
+                    "scope_type": "tenant",
+                    "scope_id": str(tenant_id),
+                    "memory_kind": "preference",
+                    "content": "Tenant-wide preference must not come from chat state.",
+                    "source_type": "explicit_user_preference",
+                }
+            ],
+        )
+    )
+
+    assert len(candidates) == 1
+    assert isinstance(candidates[0], SessionMemoryWriteCandidate)
+
+
 @pytest.mark.asyncio
 async def test_memory_write_service_apply_policy_and_write_uses_session_service() -> None:
     session_service = FakeSessionMemoryService()
@@ -149,7 +279,7 @@ async def test_memory_write_service_routes_long_term_candidate_through_facade() 
         scope_id="merchant-1",
         memory_kind="preference",
         content="Merchant prefers concise refund updates.",
-        source_type="llm_candidate",
+        source_type="semantic_episode_candidate",
     )
 
     policy_decision = service.evaluate_policy(candidate)
@@ -209,7 +339,7 @@ async def test_memory_write_service_proposes_explicit_long_term_and_case_candida
                     "scope_id": "merchant-1",
                     "memory_kind": "preference",
                     "content": "Merchant prefers concise refund updates.",
-                    "source_type": "llm_candidate",
+                    "source_type": "semantic_episode_candidate",
                 },
                 {
                     "memory_type": "case",

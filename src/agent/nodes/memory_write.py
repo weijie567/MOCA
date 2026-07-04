@@ -94,7 +94,7 @@ async def _write_with_service(
         long_term_memory_service=LongTermMemoryService(LongTermMemoryRepository(session)),
         case_memory_service=CaseMemoryService(CaseMemoryRepository(session)),
     )
-    candidates = write_service.propose_candidates(state)
+    candidates = write_service.propose_candidates(state, trusted_context=configurable.get("trusted_context"))
     candidate = _session_candidate(candidates)
     if candidate.decision == "skip":
         results = await write_service.apply_policy_and_write_all(candidates)

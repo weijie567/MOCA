@@ -175,7 +175,7 @@ async def test_memory_write_node_applies_explicit_long_term_and_case_candidates_
                 "scope_id": "merchant-1",
                 "memory_kind": "preference",
                 "content": "Merchant prefers concise refund updates.",
-                "source_type": "llm_candidate",
+                "source_type": "semantic_episode_candidate",
             },
             {
                 "memory_type": "case",
@@ -199,6 +199,128 @@ async def test_memory_write_node_applies_explicit_long_term_and_case_candidates_
     assert len(session_candidates) == 1
     assert len(long_term_candidates) == 1
     assert len(case_candidates) == 1
+
+
+async def test_memory_write_node_passes_trusted_context_to_service(monkeypatch):
+    captured = {}
+
+    class RealisticWriteService:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def propose_candidates(self, state, *, trusted_context=None):
+            captured["trusted_context"] = trusted_context
+            return [
+                memory_write_module.SessionMemoryWriteCandidate(
+                    tenant_id=UUID(str(state["tenant_id"])),
+                    user_id=UUID(str(state["user_id"])),
+                    thread_id=str(state["thread_id"]),
+                    run_id=UUID(str(state["current_run_id"])),
+                    reason_code="eligible",
+                )
+            ]
+
+        async def apply_policy_and_write_all(self, candidates):
+            return [
+                SessionMemoryWriteResult(
+                    status="written",
+                    version=4,
+                    decision="write",
+                    reason_code="eligible",
+                    pii_classification="none",
+                )
+            ]
+
+    monkeypatch.setattr(memory_write_module, "MemoryWriteService", RealisticWriteService)
+    trusted_context = {"merchant_scope": {"merchant_ids": ["merchant-1"]}}
+
+    result = await memory_write(
+        _state(),
+        {"configurable": {"session": object(), "trusted_context": trusted_context}},
+    )
+
+    assert result["memory_write_result"]["status"] == "written"
+    assert captured["trusted_context"] == trusted_context
+
+
+async def test_memory_write_node_never_creates_tenant_scope_from_chat_preference(monkeypatch):
+    session_candidates = []
+    long_term_candidates = []
+    digest = "sha256:" + "b" * 64
+
+    class FakeMemoryService:
+        def __init__(self, repository, *, enabled: bool = True) -> None:
+            pass
+
+        async def write_session_memory(self, candidate):
+            session_candidates.append(candidate)
+            return SessionMemoryWriteResult(
+                status="written",
+                version=4,
+                decision="write",
+                reason_code="eligible",
+                pii_classification="none",
+            )
+
+    class FakeLongTermMemoryService:
+        def __init__(self, repository) -> None:
+            pass
+
+        async def write_memory(self, candidate):
+            long_term_candidates.append(candidate)
+            return LongTermMemoryWriteResult(
+                status="written",
+                memory_id=uuid4(),
+                review_status="auto_approved",
+                decision="write",
+                reason_code="auto_approved_source",
+                pii_classification=candidate.pii_classification,
+                candidate_hash=digest,
+                content_hash=digest,
+                source_identity_hash=None,
+            )
+
+    monkeypatch.setattr(memory_write_module, "MemoryService", FakeMemoryService)
+    monkeypatch.setattr(memory_write_module, "LongTermMemoryService", FakeLongTermMemoryService)
+    tenant_id = str(uuid4())
+    run_id = str(uuid4())
+    state = _state(
+        tenant_id=tenant_id,
+        current_run_id=run_id,
+        user_query="记住这个偏好：商家偏好简短退款说明。",
+        memory_write_candidates=[
+            {
+                "memory_type": "long_term",
+                "tenant_id": tenant_id,
+                "run_id": run_id,
+                "scope_type": "tenant",
+                "scope_id": tenant_id,
+                "memory_kind": "preference",
+                "content": "Tenant scope should not be accepted from chat state.",
+                "source_type": "explicit_user_preference",
+            }
+        ],
+    )
+
+    result = await memory_write(
+        state,
+        {
+            "configurable": {
+                "session": object(),
+                "trusted_context": {"merchant_scope": {"merchant_ids": ["merchant-1"]}},
+            }
+        },
+    )
+
+    assert result["memory_write_result"]["status"] == "written"
+    assert len(session_candidates) == 1
+    assert len(long_term_candidates) == 1
+    assert long_term_candidates[0].scope_type == "merchant"
+    assert long_term_candidates[0].scope_id == "merchant-1"
+    long_term_projections = [
+        item for item in result["memory_write_candidates"] if item["memory_type"] == "long_term"
+    ]
+    assert all(item["scope_type"] != "tenant" for item in long_term_projections)
 
 
 async def test_memory_write_failure_preserves_final_response(monkeypatch):

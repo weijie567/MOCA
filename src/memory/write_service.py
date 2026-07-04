@@ -13,6 +13,7 @@ from src.memory.policy import (
     long_term_memory_policy_decision,
     session_memory_policy_decision,
 )
+from src.memory.preference_capture import build_explicit_user_preference_candidate
 from src.memory.schemas import (
     CaseMemoryWriteCandidate,
     CaseMemoryWriteResult,
@@ -58,11 +59,18 @@ class MemoryWriteService:
         state: Mapping[str, Any],
         *,
         requested_types: Sequence[str] | None = None,
+        trusted_context: Any | None = None,
     ) -> list[MemoryWriteCandidate]:
         requested = {str(item) for item in requested_types} if requested_types is not None else {"session"}
         candidates: list[MemoryWriteCandidate] = []
         if "session" in requested:
             candidates.append(_build_session_candidate(state))
+        preference_candidate = build_explicit_user_preference_candidate(state, trusted_context=trusted_context)
+        if preference_candidate is not None and _candidate_type_allowed(
+            preference_candidate,
+            requested_types=requested_types,
+        ):
+            candidates.append(preference_candidate)
         candidates.extend(_explicit_candidates(state.get("memory_write_candidates"), requested_types=requested_types))
         return candidates
 
@@ -169,7 +177,11 @@ def _explicit_candidates(value: Any, *, requested_types: Sequence[str] | None) -
     candidates: list[MemoryWriteCandidate] = []
     for item in _candidate_items(value):
         candidate = _coerce_explicit_candidate(item)
-        if candidate is None or not _candidate_type_allowed(candidate, requested_types=requested_types):
+        if (
+            candidate is None
+            or not _candidate_type_allowed(candidate, requested_types=requested_types)
+            or not _state_explicit_candidate_allowed(candidate)
+        ):
             continue
         candidates.append(candidate)
     return candidates
@@ -231,6 +243,16 @@ def _candidate_type_allowed(candidate: MemoryWriteCandidate, *, requested_types:
     if isinstance(candidate, CaseMemoryWriteCandidate):
         return "case" in requested
     return False
+
+
+def _state_explicit_candidate_allowed(candidate: MemoryWriteCandidate) -> bool:
+    if not isinstance(candidate, LongTermMemoryWriteCandidate):
+        return True
+    if candidate.source_type == "explicit_admin_preference":
+        return False
+    if candidate.source_type == "explicit_user_preference":
+        return candidate.scope_type == "merchant"
+    return True
 
 
 def _explicit_slots(
