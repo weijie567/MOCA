@@ -10,7 +10,7 @@ v2.1 is a long-lived umbrella for cleaning up architecture debt across MOCA's fo
 
 **Intent recognition (Phase 42+)** clears the intent-subsystem debt tracked as ID-01..04 in `.planning/ARCHITECTURE-DEBT.md`. Phase 42 decoupled intent recognition into three explicit layers (semantic / risk-authorization / confidence-clarification), fixing ID-01 (keyword override of LLM) and ID-03 (three-dimension coupling); it is registered retroactively because the code was implemented and verified before formal phase registration. Phase 43 implemented multi-intent tier A for ID-04 / IDR-02.
 
-**Memory (Phase 44+)** clears the memory-subsystem redesign debt tracked in `.planning/MEMORY-REDESIGN-DECISIONS.md`. Phase 44 delivered Case Working Context and thread-case M:N storage, Phase 45 wired it into the agent lifecycle, and Phases 46-48 carry the remaining deferred memory layering items: session context repositioning, reviewed case precedent generation, and narrow explicit long-term preference memory.
+**Memory (Phase 44+)** clears the memory-subsystem redesign debt tracked in `.planning/MEMORY-REDESIGN-DECISIONS.md`. Phase 44 delivered Case Working Context and thread-case M:N storage, Phase 45 wired it into the agent lifecycle, and Phases 46-48 carry the remaining deferred memory layering items: session context repositioning, reviewed case precedent generation, and narrow explicit long-term preference memory. Phase 48.1 is an inserted compatibility-debt cleanup discovered after Phase 48 source review; it narrows active reader debt without destructive table/API renames.
 
 Code implementation is delegated to Codex per the project workflow; Claude is plan designer and adjudicator.
 
@@ -31,6 +31,7 @@ Code implementation is delegated to Codex per the project workflow; Claude is pl
 - [x] **Phase 46: Session Context Repositioning** - Re-scope thread-level session memory after CWC so it remains short-lived conversational context, not cross-case state (MEM-03). Plan progress: 3/3 complete.
 - [x] **Phase 47: Case Precedent Repositioning and Closed-Case Candidate Generation** - Re-scope `case_memories` as reviewed precedent and add closed-case candidate generation from CWC into governed review flow (MEM-04). Plan progress: 4/4 complete.
 - [x] **Phase 48: Narrow Long-Term Explicit Preference Memory** - Re-scope `long_term_memories` to explicit tenant preference memory only, without generic automatic run summarization (MEM-05). Plan progress: 4/4 complete.
+- [ ] **Phase 48.1: Memory Context Compatibility Debt Cleanup (INSERTED)** - Migrate active memory-context readers and case-link reads to canonical surfaces while recording remaining legacy names as explicit deferred compatibility debt. Plan progress: 0/4 ready to execute.
 
 ## Phase Details
 
@@ -96,6 +97,7 @@ Plans:
 | 46. Session Context Repositioning | 3/3 | Complete | 2026-07-03 |
 | 47. Case Precedent Repositioning and Closed-Case Candidate Generation | 4/4 | Complete    | 2026-07-03 |
 | 48. Narrow Long-Term Explicit Preference Memory | 4/4 | Complete    | 2026-07-04 |
+| 48.1. Memory Context Compatibility Debt Cleanup | 0/4 | Ready to execute | TBD |
 
 ### Phase 40: Tool Contract Validation Hardening
 
@@ -269,3 +271,22 @@ Plans:
 - [x] 48-02-PLAN.md — source policy/service guardrails and semantic episode preference-candidate narrowing.
 - [x] 48-03-PLAN.md — deterministic chat preference capture and admin-only preference save API.
 - [x] 48-04-PLAN.md — retrieval filtering, review publishing as `human_reviewed`, correction/tombstone lifecycle, and final validation.
+
+### Phase 48.1: Memory Context Compatibility Debt Cleanup (INSERTED)
+
+**Goal:** Clean up the source-confirmed memory compatibility debt that still affects active readers after Phase 48: migrate `conversation_threads.case_id` readers to `thread_case_links`, migrate session-context consumers away from direct `session_memory/session_memory_bundle` dependencies, and introduce a canonical reviewed-memory routing hint while retaining old names as compatibility aliases.
+**Requirements**: MEM-COMPAT-01
+**Depends on:** Phase 48
+**Plans:** 4 plans
+**Success Criteria** (what must be TRUE):
+  1. Active code paths that need thread↔case relationships read from `thread_case_links` / `ThreadCaseLinkRepository`; `conversation_threads.case_id` remains only legacy storage/write compatibility or historical display, not the canonical reader source.
+  2. Agent routing, working-state projection, and prompt/session context helpers read `session_context` / `session_context_bundle` as canonical; `session_memory` / `session_memory_bundle` remain only compatibility projection for old traces/tests.
+  3. A canonical routing hint such as `needs_reviewed_memory_context` is introduced for reviewed memory context loading; `needs_long_term_memory` remains as a backward-compatible alias only.
+  4. The phase does not rename/drop `session_memories`, `long_term_memories`, `case_memories`, `case_working_contexts`, `conversation_threads.case_id`, public memory API routes, or graph trace names unless a later plan separately proves and reviews a migration.
+  5. Deferred compatibility names are recorded in `.planning/ARCHITECTURE-DEBT.md` with explicit status so future cleanup does not lose them.
+
+Plans:
+- [ ] 48.1-01-PLAN.md — migrate active conversation thread-case readers to `ThreadCaseLinkRepository` / `thread_case_links` while preserving legacy `case_id` metadata.
+- [ ] 48.1-02-PLAN.md — make routing, working-state projection, and prompt/session helper reads canonical-first on `session_context` / `session_context_bundle`.
+- [ ] 48.1-03-PLAN.md — add canonical `needs_reviewed_memory_context` routing hint while keeping `needs_long_term_memory` as an alias and preserving graph node names.
+- [ ] 48.1-04-PLAN.md — add static guards, update architecture-debt status, and run the final Phase 48.1 validation gate.

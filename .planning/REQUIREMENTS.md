@@ -31,17 +31,18 @@
 
 ## Memory Requirements (Phase 44+)
 
-> Subsystem debt is tracked in `.planning/ARCHITECTURE-DEBT.md` (memory subsystem, the fourth core subsystem). Requirement IDs use the `MEM-` prefix. Design input: `.planning/MEMORY-REDESIGN-DECISIONS.md` (D1–D5, P1=many-to-many, P2=standalone table, P3=long_term kept narrow). Red line D5: MUST NOT rename `case_memories` / `long_term_memories` tables.
+> Subsystem debt is tracked in `.planning/ARCHITECTURE-DEBT.md` (memory subsystem, the fourth core subsystem). Core redesign requirement IDs use the `MEM-` prefix; urgent inserted compatibility cleanups use the `MEM-COMPAT-` prefix. Design input: `.planning/MEMORY-REDESIGN-DECISIONS.md` (D1–D5, P1=many-to-many, P2=standalone table, P3=long_term kept narrow). Red line D5: MUST NOT rename `case_memories` / `long_term_memories` tables.
 
 - [x] **MEM-01**: A case-scoped durable working-context layer exists as a new standalone `case_working_contexts` table, keyed by `(tenant_id, case_id)`, holding the current case's working state (customer request, claims, verified facts, missing info, actions taken, policy refs, agent recommendations + staff decisions, pending tasks, commitments, next action). It is non-authoritative (`authority_class = contextual_only`), human-correctable, versioned, and every write is bound to trusted `run_id` + `source_ref`. Claims and verified facts are stored as separate structures; tool-derived facts store only a reference/summary plus `observed_at` and never replace the business system of record; policy body text and sensitive raw PII are never stored. Phase 44 provides the callable audited write service and durable read/write surface; graph run-completion auto-update hook wiring is deferred to Phase 45 memory lifecycle wiring. This does NOT change the session-memory layer, does NOT extract precedents, and does NOT rename existing memory tables.
 - [x] **MEM-02**: thread↔case is modeled as an explicit many-to-many association (a thread may touch multiple cases; a case may span multiple threads/handoffs), supplementing the single nullable `case_id` / `refund_case_id` foreign-key columns for working-context linkage. The association is the join surface used to resolve a case's working context regardless of which thread the current turn runs in. Existing single-FK columns are not dropped in this phase (no destructive migration); the new association table is additive.
 - [x] **MEM-03**: Session context is repositioned after Case Working Context lands: `session_memories` remains thread-scoped short-lived conversational context only, with clear read/write boundaries and contract tests preventing it from becoming cross-case durable state, reviewed precedent, long-term preference memory, policy evidence, business fact authority, approval/action authority, or replay truth. This phase must preserve existing `session_memories` table identity unless planning explicitly proves a migration is required.
 - [x] **MEM-04**: `case_memories` is locked as reviewed case precedent, not active case working state. Closed-case precedent generation is introduced only as a governed candidate path from finalized Case Working Context into `case_memories` review flow, with metadata-first retrieval semantics, `needs_review`/audit behavior, and no destructive table rename.
 - [x] **MEM-05**: `long_term_memories` is narrowed to explicit tenant preference memory. Writes happen only from explicit "remember this preference" / admin-save / reviewed candidate paths, not generic automatic run summarization, and must not store order/refund/ticket state, policy rules, approvals, action authorization, sensitive raw PII, or business system truth.
+- [ ] **MEM-COMPAT-01**: Active memory-context compatibility readers are migrated to canonical surfaces without destructive renames: thread↔case relationship reads use `thread_case_links` / `ThreadCaseLinkRepository` instead of `conversation_threads.case_id`; agent routing, working-state projection, and prompt/session context helpers read `session_context` / `session_context_bundle` before legacy `session_memory` / `session_memory_bundle`; reviewed-memory loading gains canonical `needs_reviewed_memory_context` while `needs_long_term_memory` remains an alias. This cleanup must not rename/drop memory tables, `conversation_threads.case_id`, public memory API routes, graph trace node names, `long_term_fact` storage identity, `session_memory_*` config names, or the debug-only legacy precedent service.
 
 ## Future Requirements
 
-_None for v2.1; all defined requirements are complete._
+_None beyond active Phase 48.1 compatibility cleanup._
 
 ## Out of Scope
 
@@ -70,5 +71,6 @@ _None for v2.1; all defined requirements are complete._
 | MEM-03 | Phase 46 | Complete |
 | MEM-04 | Phase 47 | Complete |
 | MEM-05 | Phase 48 | Complete |
+| MEM-COMPAT-01 | Phase 48.1 | Pending |
 
-**Coverage:** 13/13 v2.1 requirements mapped. 13 complete, 0 pending. No orphans, no duplicates. (Tool platform: TPH-01..06 / Phase 37-41. Intent recognition: IDR-01 / Phase 42, IDR-02 / Phase 43. Memory: MEM-01/02 / Phase 44-45, MEM-03 / Phase 46, MEM-04 / Phase 47, MEM-05 / Phase 48.)
+**Coverage:** 14/14 v2.1 requirements mapped. 13 complete, 1 pending. No orphans, no duplicates. (Tool platform: TPH-01..06 / Phase 37-41. Intent recognition: IDR-01 / Phase 42, IDR-02 / Phase 43. Memory: MEM-01/02 / Phase 44-45, MEM-03 / Phase 46, MEM-04 / Phase 47, MEM-05 / Phase 48, MEM-COMPAT-01 / Phase 48.1.)
