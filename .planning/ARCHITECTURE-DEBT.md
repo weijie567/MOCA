@@ -319,7 +319,7 @@
 - 🟡 `memory_type='long_term_fact'` 仍是 legacy storage/table identity；它不表示 fact/pattern/constraint 可作为 published long-term memory 语义。该命名妥协已在 `docs/contract-spec.md` 与 Phase 48 static guards 中锁定。
 - 🟡 User-specific preference scope 仍为 post-Phase 48 defer；当前实现主路径是 merchant/team default + admin tenant explicit。
 
-## Phase 48.1 — Memory context compatibility debt cleanup ⚠️已实现，待最终验证
+## Phase 48.1 — Memory context compatibility debt cleanup ✅已修复验证
 
 **问题 / 根因**
 - Phase 44-48 已引入新的 memory 语义层：`session_context`、`reviewed_memory_context`、`case_working_context`、`thread_case_links`、`memory_context_bundle`。但源码中仍有旧字段/旧入口作为 active reader 使用，不只是纯 projection。
@@ -332,11 +332,11 @@
 - 新旧 state 字段并存会让后续 memory prompt 注入、slot inheritance、working-state 投影修改出现「改一边漏一边」。
 - `needs_long_term_memory` 名称会继续误导实现者，以为只加载 long-term preference，而不是 reviewed memory context + case memory + active CWC。
 
-**已实现，待最终验证**
-- ⚠️ active thread↔case reader 已迁到 `thread_case_links` / `ThreadCaseLinkRepository`：`ConversationRepository.insert_thread_summary(...)` 只在 canonical links 恰好一个时写 legacy `ConversationSummary.case_id` metadata；无 link 或多 link 不再 fallback 到 `ConversationThread.case_id`。
-- ⚠️ routing、working-state、prompt/session helper 已改为 canonical-first：`src/agent/routing.py` 先读 `session_context`；`src/agent/working_state.py` 先读 `session_context`；`src/agent/context/session_memory_bundle.py` 先读 `session_context_bundle`，再 fallback 到 `session_memory_bundle` / service。
-- ⚠️ reviewed-memory canonical routing hint 已新增：`needs_reviewed_memory_context` 是 canonical hint，`needs_long_term_memory` 作为 backward-compatible alias 继续可用；route 返回的 runtime node key 仍是 `long_term_memory_retrieve`。
-- ⚠️ Phase 48.1 static guard 已新增：`tests/memory/test_phase48_1_memory_compat_alignment.py` 锁定 active reader 迁移、graph compatibility names、deferred compatibility names、no destructive rename/drop、approved pytest entrypoint。
+**已修复验证**
+- ✅ active thread↔case reader 已迁到 `thread_case_links` / `ThreadCaseLinkRepository`：`ConversationRepository.insert_thread_summary(...)` 只在 canonical links 恰好一个时写 legacy `ConversationSummary.case_id` metadata；无 link 或多 link 不再 fallback 到 `ConversationThread.case_id`。
+- ✅ routing、working-state、prompt/session helper 已改为 canonical-first：`src/agent/routing.py` 先读 `session_context`；`src/agent/working_state.py` 先读 `session_context`；`src/agent/context/session_memory_bundle.py` 先读 `session_context_bundle`，再 fallback 到 `session_memory_bundle` / service。
+- ✅ reviewed-memory canonical routing hint 已新增：`needs_reviewed_memory_context` 是 canonical hint，`needs_long_term_memory` 作为 backward-compatible alias 继续可用；route 返回的 runtime node key 仍是 `long_term_memory_retrieve`。
+- ✅ Phase 48.1 static guard 已新增：`tests/memory/test_phase48_1_memory_compat_alignment.py` 锁定 active reader 迁移、graph compatibility names、deferred compatibility names、no destructive rename/drop、approved pytest entrypoint。
 
 **保留 / defer 项（防遗忘）**
 - 🟡 graph 节点旧名 wrapper：`session_memory_load`、`long_term_memory_retrieve` 仍作为 runtime/trace compatibility wrapper 保留；清理需单独评估 replay/trace/eval 影响。
@@ -354,7 +354,7 @@
 - 保留 defer surfaces：`src/agent/graph.py` / `src/agent/graph_vocabulary.py`（graph compatibility names）、`src/memory/repository.py`（`long_term_fact` storage identity）、`src/config.py`（`session_memory_enabled`）、`src/api/routers/memory.py` / `src/api/schemas/memory.py`（public long-term route/schema naming）、`src/memory/search.py`（`LegacySessionPrecedentSearchService`）。
 
 **状态**
-- ⚠️ 已完成代码与静态 guard 实现；等待 Phase 48.1 final pytest + Ruff gate 通过后改为「✅ 已修复并验证」。
+- ✅ 已完成代码、静态 guard、final pytest 和 Ruff 验证。最终验证：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase48_1_memory_compat_alignment.py tests/memory/test_thread_case_links.py tests/conversation/test_repository.py tests/agent/test_intent_routing.py tests/agent/test_working_state.py tests/agent/test_session_memory_load.py tests/agent/test_nodes/test_generate_recommendation.py tests/agent/context/test_assembler.py tests/agent/test_graph.py tests/agent/test_memory_evidence_boundary.py tests/agent/test_reviewed_memory_context_retrieve.py tests/memory/test_phase46_session_context_alignment.py tests/memory/test_phase48_long_term_preference_alignment.py -q` → `1249 passed, 26 warnings`；focused Ruff → pass。
 - 🟡 defer 项已记录，除非后续 phase 明确评估 replay/trace/API/config 迁移影响，否则不作为 Phase 48.1 必须交付。
 
 ## Phase 48 Review CR-01 — state-origin 记忆候选身份与发布边界加固 ✅已修复验证
