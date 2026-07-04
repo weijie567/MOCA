@@ -34,7 +34,7 @@ Code implementation is delegated to Codex per the project workflow; Claude is pl
 - [x] **Phase 47: Case Precedent Repositioning and Closed-Case Candidate Generation** - Re-scope `case_memories` as reviewed precedent and add closed-case candidate generation from CWC into governed review flow (MEM-04). Plan progress: 4/4 complete.
 - [x] **Phase 48: Narrow Long-Term Explicit Preference Memory** - Re-scope `long_term_memories` to explicit tenant preference memory only, without generic automatic run summarization (MEM-05). Plan progress: 4/4 complete.
 - [x] **Phase 48.1: Memory Context Compatibility Debt Cleanup (INSERTED)** - Migrate active memory-context readers and case-link reads to canonical surfaces while recording remaining legacy names as explicit deferred compatibility debt. Plan progress: 4/4 complete.
-- [ ] **Phase 49: Investigate Bounded ReAct Loop Migration** - Migrate `investigate` from legacy deterministic main planning to the bounded read-only ReAct loop defined in `contract-spec.md` §9.4, with ToolPlatform-only dispatch, 8-tool allowlist coverage, loop-local discovered slots, deterministic fallback, projection boundary, trace/replay iteration semantics, and no changes to intent/memory/risk/approval/action contracts (GAD-01-IMPL). Plan progress: 0/4 complete.
+- [x] **Phase 49: Investigate Bounded ReAct Loop Migration** - Migrate `investigate` from legacy deterministic main planning to the bounded read-only ReAct loop defined in `contract-spec.md` §9.4, with ToolPlatform-only dispatch, 8-tool allowlist coverage, loop-local discovered slots, deterministic fallback, projection boundary, trace/replay iteration semantics, and no changes to intent/memory/risk/approval/action contracts (GAD-01-IMPL). Plan progress: 4/4 complete; closed as IMPLEMENTED_WITH_LIMITATIONS for replay parent-operation identity.
 
 ## Phase Details
 
@@ -101,7 +101,7 @@ Plans:
 | 47. Case Precedent Repositioning and Closed-Case Candidate Generation | 4/4 | Complete    | 2026-07-03 |
 | 48. Narrow Long-Term Explicit Preference Memory | 4/4 | Complete    | 2026-07-04 |
 | 48.1. Memory Context Compatibility Debt Cleanup | 4/4 | Complete | 2026-07-04 |
-| 49. Investigate Bounded ReAct Loop Migration | 0/4 | Planned; plans drafted | 2026-07-04 |
+| 49. Investigate Bounded ReAct Loop Migration | 4/4 | Complete with replay parent-operation limitation | 2026-07-04 |
 
 ### Phase 40: Tool Contract Validation Hardening
 
@@ -312,7 +312,7 @@ Plans:
   8. The phase proves no regression to Phase 43 intent behavior, Phase 44-48 memory/CWC/reviewed/long-term lifecycle behavior, `active_slots` ownership, risk/approval/action fail-closed behavior, and `evidence_refs` writer ownership.
 
 Plans:
-- [ ] 49-01-PLAN.md — planner schema, validation, allowlist guard, and deterministic fallback shell.
-- [ ] 49-02-PLAN.md — bounded loop runtime and loop-local discovered slot scratchpad.
-- [ ] 49-03-PLAN.md — 8-tool coverage, projection boundary, and trace/replay metadata.
-- [ ] 49-04-PLAN.md — graph-level safety regression, docs/debt closeout, and final validation.
+- [x] 49-01-PLAN.md — planner schema, validation, allowlist guard, and deterministic fallback shell.
+- [x] 49-02-PLAN.md — bounded loop runtime and loop-local discovered slot scratchpad.
+- [x] 49-03-PLAN.md — 8-tool coverage, projection boundary, and trace/replay metadata.
+- [x] 49-04-PLAN.md — graph-level safety regression, docs/debt closeout, and final validation.

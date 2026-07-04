@@ -859,3 +859,41 @@
 
 **剩余风险**
 - ⚠️ Parent operation identity is emitted when `configurable["node_operation_id"]` / `investigate_operation_id` is available; graph-level node start/completion event emission is not introduced in 49-03. 49-04 closeout must decide whether this is sufficient for GAD-01 or record an IMPLEMENTED_WITH_LIMITATIONS replay parent-operation note.
+
+## Phase 49 Closeout — investigate legacy deterministic planner debt ⚠️已实现但有 replay parent 限制
+
+**问题 / 根因**
+- GAD-01 的目标契约要求 `investigate` 内部是 bounded read-only ReAct loop，但 Phase 49 前生产实现仍由 legacy deterministic `plan_next_step(...)` 候选表主控，LLM 不参与每轮 tool/stop 决策。
+- 该 legacy 实现还缺 8-tool exact allowlist 覆盖、loop-local observation→slot 回流、planner raw-payload boundary 测试，以及 loop 内 tool/RAG operation 的 replay-distinguishable metadata 覆盖。
+
+**影响**
+- 调查路径无法表达「订单→发现工单→再查工单→查政策」这类跨数据源动态调查，只能按固定候选表退化执行。
+- 若不修 projection / trace / no-go 边界，ReAct 迁移可能污染 memory/intent/active_slots，或让 LLM 间接触达 write/action/routing/approval 权限。
+
+**修复**
+- `src/agent/nodes/investigate.py` 默认主路径改为 structured LLM planner，每轮只允许 `{next_tool,args,reason}` 或 `{stop,stop_reason}`；输出经 schema、8-tool allowlist、descriptor input schema、read/retrieval descriptor 边界严格验证后才进入 `ToolPlatform.invoke(...)`。
+- legacy deterministic `plan_next_step` 未删除，降级为 planner timeout / invalid output / invalid tool / invalid args / planner unavailable 的 fallback；fallback 也必须通过同一只读校验。
+- loop-local `discovered_slots` scratchpad 支持从 projected structured observation / relation hints / typed refs 发现 `ticket_id` 等标识符并喂给后续 planner iteration；不写 `active_slots` / `extracted_slots` / `candidate_slots`，不改 memory writer。
+- §12.4 八个 read/retrieval tools 已 exact-set 覆盖：`get_order`、`get_refund_case`、`get_ticket`、`get_logistics`、`get_merchant_risk`、`search_policy`、`search_sop`、`search_case_memory`。`search_sop` 在 real knowledge executor 中可见，但在无 SOP backend 时保持 read-only unavailable/no-data。
+- Planner input 只使用 `ToolResultProjector` 后的 projected observation summary；raw payload、PII sentinel、policy/body/debug/private 字段不进入 planner prompt。
+- 每轮 tool/RAG event 已有 distinct `operation_id`、`iteration`、`attempt`、`tool_call_id`；当 graph/configurable 提供 `node_operation_id` 或 `investigate_operation_id` 时写入 `parent_operation_id`。
+- 49-04 增加 graph-level fake structured planner seam 和回归：order→ticket 链式调查成立、policy-only 不强制 business context、planner 试图输出 write/action/routing/approval bypass 时只能 fallback/被拒，不能越过 router / approval / action gate。
+
+**证据**
+- Phase / plans：`49-01`、`49-02`、`49-03`、`49-04`
+- 实现文件：`src/agent/nodes/investigate.py`、`src/agent/nodes/investigate_planner.py`、`src/tools/projection.py`、`src/tools/executors/knowledge.py`、`src/agent/events.py`、`src/replay/decision_events.py`
+- 测试文件：`tests/agent/test_nodes/test_investigate.py`、`tests/agent/test_graph.py`、`tests/tools/test_tool_platform.py`、`tests/replay/test_operation_pairing.py`
+
+**验证**
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py tests/agent/test_nodes/test_investigate.py -q` → `80 passed, 25 warnings`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_classify_intent.py tests/agent/test_intent_task_plan.py tests/agent/test_nodes/test_receive_request.py -q` → `47 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_memory_evidence_boundary.py tests/agent/test_reviewed_memory_context_retrieve.py tests/memory/test_phase48_1_memory_compat_alignment.py tests/memory/test_phase48_long_term_preference_alignment.py -q` → `41 passed, 4 warnings`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_gate.py tests/agent/test_phase22_action_boundary.py tests/test_interception_rate.py -q` → `31 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check tests/agent/test_graph.py` → pass
+- `rg -n 'active_slots\s*=|active_slots\]|active_slots\.' src/agent/nodes/investigate.py || true` → no output
+- `rg -n 'BusinessFactService|PolicyKnowledgeService|CaseMemoryService|RefundRepository|OrderRepository' src/agent/nodes/investigate.py || true` → no output
+- `rg -n 'create_coupon_grant_draft|issue_coupon|partial_refund|full_refund|close_ticket|escalate_ticket|manual_review' src/agent/nodes/investigate.py || true` → no output
+
+**剩余风险**
+- ⚠️ GAD-01 closeout 为 `IMPLEMENTED_WITH_LIMITATIONS`，不是完全 `IMPLEMENTED`：investigate 已能在 event helper / DB row 中接收并写入 parent operation identity，但 Phase 49 没有新增 graph-level node operation start/completion emission，也没有强制 graph 自动传 `node_operation_id`。当前 replay 可通过 distinct tool operation + iteration + optional parent 区分 loop；完整“node operation 下挂多个 tool operation”的强 parent 语义留作后续 replay/trace graph-lifecycle phase。
+- ✅ 本 phase 未修改 `docs/contract-spec.md`、intent contract、memory writer/CWC schema、`active_slots` writer、risk/approval/action executor。

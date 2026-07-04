@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
-status: planned
-stopped_at: Phase 49 planned
-last_updated: "2026-07-04T22:20:45+08:00"
-last_activity: 2026-07-04 -- Phase 49 Investigate Bounded ReAct Loop Migration planned
+status: complete
+stopped_at: Phase 49 complete
+last_updated: "2026-07-04T16:20:00Z"
+last_activity: 2026-07-04 -- Phase 49 complete
 progress:
   total_phases: 14
-  completed_phases: 13
+  completed_phases: 14
   total_plans: 45
-  completed_plans: 41
-  percent: 91
+  completed_plans: 45
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -21,7 +21,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-04)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v2.1 Core Subsystem Hardening — Phase 49 investigate bounded ReAct loop migration planned.
+**Current focus:** v2.1 Core Subsystem Hardening — Phase 49 investigate bounded ReAct loop migration complete.
 
 ## Rescope note (2026-07-02)
 
@@ -30,13 +30,13 @@ See: `.planning/PROJECT.md` (updated 2026-07-04)
 
 ## Current Position
 
-Phase: 49 — PLANNED
-Plan: 0 of 4 complete
-Status: Planned; ready for GSD plan-checker and dual review before execution
-Last activity: 2026-07-04 -- Phase 49 planned
-Next: Run Phase 49 plan review, then execute 49-01 through 49-04 in order.
+Phase: 49 — COMPLETE
+Plan: 4 of 4 complete
+Status: Complete
+Last activity: 2026-07-04 -- Phase 49 complete
+Next: Run post-phase review/ship workflow or choose the next roadmap item.
 
-Progress: [█████████░] 91%
+Progress: [██████████] 100%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -69,7 +69,7 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | 47. Case Precedent Repositioning and Closed-Case Candidate Generation (MEM-04) | 4/4 | Complete |
 | 48. Narrow Long-Term Explicit Preference Memory (MEM-05) | 4/4 | Complete |
 | 48.1. Memory Context Compatibility Debt Cleanup (MEM-COMPAT-01) | 4/4 | Complete |
-| 49. Investigate Bounded ReAct Loop Migration (GAD-01-IMPL) | 0/4 | Planned |
+| 49. Investigate Bounded ReAct Loop Migration (GAD-01-IMPL) | 4/4 | Complete with replay parent-operation limitation |
 
 Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review. Phase 40 closes the source-confirmed validation/backstop gaps intentionally deferred or left advisory after Phase 38/39. Phase 41 then handles the explicit breaking cleanup/API decision to remove the `UnifiedToolManager` legacy compatibility adapter.
 
