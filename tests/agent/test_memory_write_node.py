@@ -191,7 +191,15 @@ async def test_memory_write_node_applies_explicit_long_term_and_case_candidates_
         ]
     )
 
-    result = await memory_write(state, {"configurable": {"session": object()}})
+    result = await memory_write(
+        state,
+        {
+            "configurable": {
+                "session": object(),
+                "trusted_context": {"merchant_scope": {"merchant_ids": ["merchant-1"]}},
+            }
+        },
+    )
 
     assert result["memory_write_result"]["status"] == "written"
     assert [item["memory_type"] for item in result["memory_write_candidates"]] == ["session", "long_term", "case"]
