@@ -561,6 +561,30 @@ def test_route_after_slots_totality_and_long_term_memory_route():
     )
 
 
+def test_route_after_slots_accepts_canonical_reviewed_memory_hint_and_preserves_slot_gate():
+    assert (
+        route_after_slots(
+            {
+                "primary_intent": "policy_qa",
+                "required_slots": {"all_of": [], "any_of": [], "optional": []},
+                "extracted_slots": {},
+                "routing_hints": {"needs_reviewed_memory_context": True},
+            }
+        )
+        == "long_term_memory_retrieve"
+    )
+    assert (
+        route_after_slots(
+            {
+                "primary_intent": "refund_troubleshooting",
+                "extracted_slots": {},
+                "routing_hints": {"needs_reviewed_memory_context": True},
+            }
+        )
+        == "clarification_gate"
+    )
+
+
 def _trusted_slot_metadata() -> dict:
     return {
         "source": "trusted_session_memory",

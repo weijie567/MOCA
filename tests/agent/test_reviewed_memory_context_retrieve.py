@@ -234,6 +234,64 @@ async def test_reviewed_memory_context_retrieve_does_not_use_candidate_slots_to_
     assert result.get("node_errors") is None
 
 
+async def test_reviewed_memory_context_retrieve_uses_actor_scope_for_canonical_reviewed_memory_hint() -> None:
+    reviewed_memory_context_retrieve = _reviewed_memory_context_retrieve()
+    trusted_context = _trusted_context(merchant_ids=["merchant-c"])
+
+    class CapturingMemoryContextService:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        async def load_reviewed_memory_context(self, **kwargs: Any) -> ReviewedMemoryContextBundle:
+            self.calls.append(kwargs)
+            return ReviewedMemoryContextBundle(status_ref=ReviewedMemoryContextRetrieveStatusV1(status="loaded"))
+
+    service = CapturingMemoryContextService()
+
+    await reviewed_memory_context_retrieve(
+        _state(
+            tenant_id=trusted_context.tenant_id,
+            user_id=trusted_context.user_id,
+            routing_hints={"needs_reviewed_memory_context": True},
+        ),
+        {"configurable": {"trusted_context": trusted_context, "memory_context_service": service}},
+    )
+
+    assert service.calls[0]["trusted_business_context"] == {
+        "merchant_id": "merchant-c",
+        "source": "trusted_context_actor_scope",
+    }
+
+
+async def test_reviewed_memory_context_retrieve_keeps_actor_scope_for_legacy_long_term_hint() -> None:
+    reviewed_memory_context_retrieve = _reviewed_memory_context_retrieve()
+    trusted_context = _trusted_context(merchant_ids=["merchant-c"])
+
+    class CapturingMemoryContextService:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        async def load_reviewed_memory_context(self, **kwargs: Any) -> ReviewedMemoryContextBundle:
+            self.calls.append(kwargs)
+            return ReviewedMemoryContextBundle(status_ref=ReviewedMemoryContextRetrieveStatusV1(status="loaded"))
+
+    service = CapturingMemoryContextService()
+
+    await reviewed_memory_context_retrieve(
+        _state(
+            tenant_id=trusted_context.tenant_id,
+            user_id=trusted_context.user_id,
+            routing_hints={"needs_long_term_memory": True},
+        ),
+        {"configurable": {"trusted_context": trusted_context, "memory_context_service": service}},
+    )
+
+    assert service.calls[0]["trusted_business_context"] == {
+        "merchant_id": "merchant-c",
+        "source": "trusted_context_actor_scope",
+    }
+
+
 async def test_reviewed_memory_context_retrieve_keeps_legacy_aliases_empty_on_fail_closed() -> None:
     reviewed_memory_context_retrieve = _reviewed_memory_context_retrieve()
 

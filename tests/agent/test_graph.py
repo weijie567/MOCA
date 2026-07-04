@@ -973,6 +973,30 @@ async def test_long_term_memory_reviewed_retrieval_safe_empty_when_no_reviewed_r
 
 
 @pytest.mark.asyncio
+async def test_canonical_reviewed_memory_hint_reaches_existing_long_term_memory_node(monkeypatch):
+    payload = _intent("refund_troubleshooting")
+    payload["routing_hints"] = {"needs_reviewed_memory_context": True}
+    monkeypatch.setattr(classify_intent_module, "_get_llm", lambda: FakeLLM(payload))
+    monkeypatch.setattr(extract_slots_module, "_get_llm", lambda: FakeLLM(_slots("ORD-001")))
+    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
+    monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: FakeLLM(_risk()))
+    _patch_reviewed_memory_services(monkeypatch, profile_items=[], case_items=[])
+    manager = FakeGraphToolPlatform(order_id="ORD-001")
+    events: list[dict[str, Any]] = []
+    graph = build_graph(MemorySaver())
+
+    final_state = await graph.ainvoke(
+        _state("订单ORD-001退款为什么没到账？"),
+        _config(manager, events, session=object()),
+    )
+
+    assert final_state["long_term_memory"] == []
+    assert final_state["case_memory"] == []
+    assert final_state["llm_outputs"]["long_term_memory_retrieve"]["source"] == "no_reviewed_memory"
+    assert final_state["llm_outputs"]["long_term_memory_retrieve"]["continuity_claimed"] is False
+
+
+@pytest.mark.asyncio
 async def test_long_term_memory_retrieve_skips_case_memory_without_query() -> None:
     case_called = False
 

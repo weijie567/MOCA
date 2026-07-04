@@ -282,12 +282,14 @@ async def test_session_memory_cannot_satisfy_policy_evidence_or_action_authority
     assert "EvidenceRefV1" not in json.dumps(final_state["session_memory"], ensure_ascii=False)
 
 
+@pytest.mark.parametrize("reviewed_memory_hint", ["needs_long_term_memory", "needs_reviewed_memory_context"])
 @pytest.mark.asyncio
 async def test_reviewed_memory_cannot_satisfy_policy_evidence_or_action_authority(
     monkeypatch: pytest.MonkeyPatch,
+    reviewed_memory_hint: str,
 ) -> None:
     payload = _intent("refund_troubleshooting")
-    payload["routing_hints"] = {"needs_long_term_memory": True}
+    payload["routing_hints"] = {reviewed_memory_hint: True}
     monkeypatch.setattr(classify_intent_module, "_get_llm", lambda: FakeLLM(payload))
     _patch_reviewed_memory_services(
         monkeypatch,
