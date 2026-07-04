@@ -356,6 +356,24 @@
 
 **状态**：✅ 已修复并通过 focused verification；剩余风险是 hard-rule marker 集合仍是 deterministic denylist，未来若扩展政策规则表达需要独立更新 preference capture 校验。
 
+## Phase 48 Re-review CR-01 — memory review API fail-closed 到 admin-only ✅已修复验证
+
+**问题 / 根因**
+- `src/api/routers/memory.py` 的 memory review endpoints 原本允许 `manager` 角色；这些 endpoint 按 tenant 列出和审批 / 拒绝 / 删除 / forget pending long-term 与 case memory，没有 merchant-scope 授权检查。
+
+**影响**
+- merchant-bound manager 若持有 `approvals:review` scope，可能在同一 tenant 内操作其他 merchant 的 pending memory，破坏 reviewed memory 的可信发布边界。
+
+**修复**
+- Phase 48 先 fail-closed：memory review router 的 reviewer role allowlist 收窄为 `admin`。manager 的通用 approval scope 不改，避免影响非 memory 的 approvals API。
+- API 回归测试改为 admin happy path，并显式覆盖同商家 manager、跨商家 manager、support 即使带 `approvals:review` 也被 memory review API 拒绝。
+
+**证据**
+- Phase / review：`48-REVIEW.md` CR-01（2026-07-04 re-review）
+- 文件：`src/api/routers/memory.py`、`tests/test_memory_review_api.py`
+
+**状态**：✅ 已修复并通过 focused verification；剩余风险是未来若要恢复 merchant-scoped manager review，需要独立实现逐 row merchant/case identity 授权。
+
 ## Phase 44 Wave 2 — Case Working Context 身份解析与版本化仓库 ✅⚠️
 
 **问题 / 根因**

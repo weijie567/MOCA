@@ -130,7 +130,7 @@ async def test_memory_review_api_lists_pending_and_applies_review_actions(
     session: AsyncSession,
     seeded_session: dict,
 ) -> None:
-    manager = seeded_session["users"]["approval_manager"]
+    admin = seeded_session["users"]["admin_user"]
     support = seeded_session["users"]["cs_zhang"]
     run_id = await _insert_run(
         session,
@@ -148,7 +148,7 @@ async def test_memory_review_api_lists_pending_and_applies_review_actions(
 
     response = await client.get(
         "/api/v1/memory/review/pending",
-        headers=_auth_header(manager, ["approvals:review"]),
+        headers=_auth_header(admin, ["approvals:review"]),
     )
     payload = response.json()["data"]
 
@@ -164,12 +164,12 @@ async def test_memory_review_api_lists_pending_and_applies_review_actions(
     approve_response = await client.post(
         f"/api/v1/memory/long-term/{long_result.memory_id}/approve",
         json={"run_id": str(run_id)},
-        headers=_auth_header(manager, ["approvals:review"]),
+        headers=_auth_header(admin, ["approvals:review"]),
     )
     reject_response = await client.post(
         f"/api/v1/memory/case/{case_result.memory_id}/reject",
         json={"run_id": str(run_id), "review_reason": "not durable enough"},
-        headers=_auth_header(manager, ["approvals:review"]),
+        headers=_auth_header(admin, ["approvals:review"]),
     )
 
     assert approve_response.status_code == 200
@@ -188,7 +188,7 @@ async def test_memory_review_api_lists_pending_and_applies_review_actions(
     assert long_row.source_type == "human_reviewed"
     assert long_row.source_ref_json["source_type"] == "human_reviewed"
     assert case_row.review_status == "rejected"
-    assert case_row.reviewed_by_user_id == manager.id
+    assert case_row.reviewed_by_user_id == admin.id
     assert case_row.review_reason == "not durable enough"
 
 
@@ -198,7 +198,7 @@ async def test_review_api_rejects_non_preference_long_term_approval_with_control
     session: AsyncSession,
     seeded_session: dict,
 ) -> None:
-    manager = seeded_session["users"]["approval_manager"]
+    admin = seeded_session["users"]["admin_user"]
     support = seeded_session["users"]["cs_zhang"]
     run_id = await _insert_run(
         session,
@@ -218,7 +218,7 @@ async def test_review_api_rejects_non_preference_long_term_approval_with_control
     response = await client.post(
         f"/api/v1/memory/long-term/{row.id}/approve",
         json={"run_id": str(run_id)},
-        headers=_auth_header(manager, ["approvals:review"]),
+        headers=_auth_header(admin, ["approvals:review"]),
     )
     await session.refresh(row)
     retrieved = await LongTermMemoryRepository(session).retrieve_profile_memory(
@@ -237,19 +237,22 @@ async def test_review_api_rejects_non_preference_long_term_approval_with_control
 
 
 @pytest.mark.asyncio
-async def test_memory_review_api_requires_manager_or_admin_role(
+async def test_memory_review_api_requires_admin_role(
     client: AsyncClient,
     seeded_session: dict,
 ) -> None:
     support = seeded_session["users"]["cs_zhang"]
+    manager = seeded_session["users"]["approval_manager"]
+    manager_other_merchant = seeded_session["users"]["manager_other_merchant"]
 
-    response = await client.get(
-        "/api/v1/memory/review/pending",
-        headers=_auth_header(support, ["approvals:review"]),
-    )
+    for actor in (support, manager, manager_other_merchant):
+        response = await client.get(
+            "/api/v1/memory/review/pending",
+            headers=_auth_header(actor, ["approvals:review"]),
+        )
 
-    assert response.status_code == 403
-    assert response.json()["error"]["code"] == "FORBIDDEN"
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "FORBIDDEN"
 
 
 @pytest.mark.asyncio

@@ -27,7 +27,7 @@ from src.memory.schemas import CaseMemoryReviewDecision, LongTermMemoryWriteCand
 
 router = APIRouter(tags=["memory"])
 
-MEMORY_REVIEW_ROLES = {"admin", "manager"}
+MEMORY_REVIEW_ROLES = {"admin"}
 
 
 @router.get("/review/pending", response_model=ApiResponse)
