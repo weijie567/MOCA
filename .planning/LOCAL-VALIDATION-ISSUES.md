@@ -13404,3 +13404,83 @@ node /Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs verify plan-structure .p
 
 - `/Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs`
 - `.planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/53-01-PLAN.md`
+
+## 2026-07-06 — Phase 53 execute-phase 的 `state.begin-phase` flag 形式污染 STATE
+
+### 问题现象
+
+执行 Phase 53 时按 `execute-phase.md` 文档调用：
+
+```bash
+gsd-sdk query state.begin-phase --phase 53 --name session-context-before-intent-and-contextual-intent-resolve --plans 3
+```
+
+命令返回把 flag 当成位置参数解析：
+
+```json
+{
+  "phase": "--phase",
+  "name": "53",
+  "plan_count": "--name"
+}
+```
+
+并污染 `.planning/STATE.md`，例如 `Phase: --phase (53) — EXECUTING`、`Plan: 1 of --name`、`last_activity: Phase --phase execution started`，同时把 progress 中 `completed_phases`、`completed_plans`、`percent` 改成错误值。
+
+### 如何检测 / 复现
+
+在当前仓库执行上述 `gsd-sdk query state.begin-phase --phase ...` 命令，再查看：
+
+```bash
+git diff -- .planning/STATE.md
+```
+
+即可看到 STATE 被错误参数污染。
+
+### 关键证据或命令
+
+错误返回：
+
+```json
+{
+  "phase": "--phase",
+  "name": "53",
+  "plan_count": "--name"
+}
+```
+
+污染 diff 里出现：
+
+```text
+Phase: --phase (53) — EXECUTING
+Plan: 1 of --name
+Status: Executing Phase --phase
+```
+
+### 当前判断 / 根因
+
+这是 GSD `state.begin-phase` handler 的参数解析问题：workflow 文档使用 flag 形式，但当前 `gsd-sdk query` 实现按位置参数读取，导致 `--phase`、`--name` 被当成值写入 STATE。该问题与 MOCA 源码无关，但会污染项目 planning 状态。
+
+### 已做处理
+
+已用定向 `apply_patch` 修复 `.planning/STATE.md` 到正确 Phase 53 执行态：
+
+- `Phase: 53 — EXECUTING`
+- `Plan: 1 of 3`
+- `Status: Executing Phase 53`
+- `completed_phases: 17`
+- `total_plans: 54`
+- `completed_plans: 51`
+- `percent: 74`
+
+错误命令结果未作为有效状态依据。
+
+### 剩余问题
+
+后续不要再用 flag 形式调用 `gsd-sdk query state.begin-phase`，除非先确认 handler 已修复。执行阶段共享状态更新优先用手工定向 patch 或已验证的 positional/专用命令，并在提交前检查 `.planning/STATE.md` diff。
+
+### 下次继续排查入口
+
+- `/Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs`
+- `/Users/ming/.codex/get-shit-done/bin/lib/state.cjs`
+- `.planning/STATE.md`
