@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
+from src.agent.intent_policy import slot_intent_compatible
 from src.db.models import SessionMemory
 from src.memory.identity import (
     canonical_memory_candidate_hash,
@@ -26,29 +27,6 @@ from src.memory.schemas import (
 _SUMMARY_CAP = 2000
 _SUMMARY_TRUNCATION_MARKER = "\n\n[summary_truncated]"
 BLOCKED_PII_CLASSIFICATIONS = BLOCKED_MEMORY_WRITE_PII_CLASSIFICATIONS
-_CROSS_INTENT_SLOT_GROUPS = {
-    "order_id": {
-        "order_status_inquiry",
-        "refund_troubleshooting",
-        "compensation_suggestion",
-        "action_request",
-        "appeal_or_unban",
-        "complaint_escalation",
-    },
-    "refund_case_id": {
-        "order_status_inquiry",
-        "refund_troubleshooting",
-        "compensation_suggestion",
-        "action_request",
-    },
-    "ticket_id": {
-        "order_status_inquiry",
-        "ticket_reply_draft",
-        "appeal_or_unban",
-        "complaint_escalation",
-        "compensation_suggestion",
-    },
-}
 
 
 class MemoryService:
@@ -83,10 +61,16 @@ class MemoryService:
 
         active_slots: dict[str, str] = {}
         slot_metadata: dict[str, dict[str, Any]] = {}
+        intent_filter_applied = current_intent is not None
         for slot_name, slot in envelope.slots.items():
             if _is_expired(slot.expires_at, now):
                 continue
-            if not _slot_intent_compatible(slot_name, slot.compatible_intents, current_intent):
+            intent_compatible = (
+                slot_intent_compatible(slot_name, slot.compatible_intents, current_intent)
+                if intent_filter_applied
+                else False
+            )
+            if intent_filter_applied and not intent_compatible:
                 continue
             active_slots[slot_name] = slot.value
             slot_metadata[slot_name] = {
@@ -99,7 +83,8 @@ class MemoryService:
                 "updated_at": slot.updated_at.isoformat(),
                 "source_run_id": slot.source_run_id,
                 "compatible_intents": list(slot.compatible_intents),
-                "intent_compatible": True,
+                "intent_compatible": intent_compatible,
+                "intent_filter_applied": intent_filter_applied,
             }
 
         return SessionMemoryView(
@@ -429,17 +414,6 @@ def _merge_memory(
         "expires_at": _max_expiry(merged_slots, now),
     }
     return _MergeResult(values, reason_code=summary_reason)
-
-
-def _slot_intent_compatible(slot_name: str, compatible_intents: list[str], current_intent: str | None) -> bool:
-    if current_intent is None:
-        return True
-    if current_intent in compatible_intents:
-        return True
-    intent_group = _CROSS_INTENT_SLOT_GROUPS.get(slot_name)
-    if intent_group is None:
-        return False
-    return current_intent in intent_group and any(intent in intent_group for intent in compatible_intents)
 
 
 def _fallback_view(reason: str) -> SessionMemoryView:

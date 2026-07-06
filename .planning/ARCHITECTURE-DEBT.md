@@ -1048,3 +1048,29 @@
 **剩余风险**
 - 🟡 `intent_classification` mirror 仍是 Phase 58 cleanup surface，不应新增 active graph/route authority。
 - 🟡 Phase 53 final validation suite 需要在 review-fix closeout 追加 `tests/agent/test_intent_adapter.py` 覆盖，避免 retained mirror 再次漏测。
+
+## Phase 53 code review fix WR-01 — pre-intent session slot 兼容性改为 post-intent 复核 ✅已修复验证
+
+**问题 / 根因**
+- Phase 53 将 active graph 切到 `session_context_load -> contextual_intent_resolve` 后，`MemoryService.load_session_memory(..., current_intent=None)` 会在意图未知时保留同线程 session slots，但旧 metadata 仍写 `intent_compatible=True`。
+- 后续 slot resolution 已拿到真实 `primary_intent` 时，`SlotPolicyRegistry.accepts_inherited_slot()` 先信任该布尔值，再看 `compatible_intents`。这会让 pre-intent 加载进来的非业务 ID 槽位（如 `action_type`）绕过真实意图兼容性过滤。
+
+**影响**
+- `action_request` 这类需要 `action_type` 的高风险路径，可能接受只对 `compensation_suggestion` 兼容的 inherited `action_type`，从而跳过 clarification gate。
+- 该问题只影响同线程 trusted session slot 继承裁决；current-turn extracted slots 仍优先，业务 ID 跨意图兼容是有意保留行为。
+
+**修复**
+- 将业务 ID 跨意图兼容规则提升到 `src/agent/intent_policy.py::slot_intent_compatible()`，供 memory load 与 slot policy 共用。
+- `MemoryService.load_session_memory()` 在 `current_intent=None` 时继续保留未过期槽位，但写入 `intent_compatible=False` 与 `intent_filter_applied=False`，避免把“未过滤”误标为“已兼容”。
+- `SlotPolicyRegistry` 在存在真实 intent 和 `compatible_intents` 时重新计算兼容性，不再先信任 pre-intent 布尔值；同时保留 `order_id` / `refund_case_id` / `ticket_id` 的有意跨意图兼容。
+
+**证据 / 验证**
+- 文件：`src/memory/service.py`、`src/agent/intent_policy.py`、`tests/memory/test_session_memory_service.py`、`tests/agent/test_required_slots.py`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run python -c "import ast, pathlib; [ast.parse(pathlib.Path(p).read_text()) for p in ['src/agent/intent_policy.py','src/memory/service.py','tests/agent/test_required_slots.py','tests/memory/test_session_memory_service.py']]"` → pass
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_required_slots.py tests/memory/test_session_memory_service.py -q --tb=short` → `33 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_intent_routing.py tests/agent/test_session_memory_load.py tests/agent/test_session_memory_integration.py -q --tb=short` → `1125 passed, 8 warnings`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/intent_policy.py src/memory/service.py tests/agent/test_required_slots.py tests/memory/test_session_memory_service.py` → pass
+
+**剩余风险**
+- ✅ WR-01 已在 resolver / router 层用回归测试覆盖：pre-intent inherited `action_type` 对不兼容 actual intent 被拒绝并路由到 `clarification_gate`。
+- ✅ 业务 ID 跨意图兼容已覆盖：`order_id` 从 `refund_troubleshooting` 继承到 `action_request` 仍可满足 slot gate。

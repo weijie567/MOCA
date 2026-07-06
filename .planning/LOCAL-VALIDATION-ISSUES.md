@@ -13808,3 +13808,52 @@ find .planning/phases/53-session-context-before-intent-and-contextual-intent-res
 
 - `/Users/ming/.codex/get-shit-done/workflows/secure-phase.md`
 - `.planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/53-SECURITY.md`
+
+## 2026-07-07 — Phase 53 WR-01 回归测试初跑暴露业务 ID 兼容 fixture 过时
+
+### 问题现象
+
+执行 WR-01 修复后的 focused pytest 首次失败：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_required_slots.py tests/memory/test_session_memory_service.py -q --tb=short
+```
+
+输出包含：
+
+```text
+FAILED tests/agent/test_required_slots.py::test_slot_policy_registry_rejects_untrusted_scope_stale_and_incompatible_slots
+FAILED tests/agent/test_required_slots.py::test_trusted_session_memory_rejects_wrong_tenant_user_thread_expired_and_incompatible
+```
+
+### 如何检测 / 复现
+
+在将 `order_id` 跨意图兼容 helper 移到 `SlotPolicyRegistry` 后运行上述 focused pytest 即可复现。
+
+### 关键证据或命令
+
+两个失败都来自测试把 `order_id` + `compatible_intents=["order_status_inquiry"]` 当作对 `refund_troubleshooting` 不兼容；新策略下二者同属业务 ID 跨意图组，因此 policy 正确接受。
+
+### 当前判断 / 根因
+
+这是测试 fixture 与已确认的业务 ID 跨意图兼容规则不一致，不是产品代码失败。旧 policy 没复用 `MemoryService` 的跨意图 helper，测试误把这个实现缺口固化为“不兼容”。
+
+### 已做处理
+
+已将“不兼容”fixture 改为 `compatible_intents=["small_talk"]`，并新增两条 WR-01 回归：pre-intent inherited `action_type` 对 `action_request` 被拒绝并进入 clarification；pre-intent inherited `order_id` 从 `refund_troubleshooting` 到 `action_request` 仍可被接受。
+
+复跑通过：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_required_slots.py tests/memory/test_session_memory_service.py -q --tb=short -> 33 passed, 1 warning
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/intent_policy.py src/memory/service.py tests/agent/test_required_slots.py tests/memory/test_session_memory_service.py -> All checks passed!
+```
+
+### 剩余问题
+
+无当前阻塞。后续如继续扩展 session slot 兼容规则，测试中的“不兼容”示例应优先选不参与业务 ID 共享组的 intent，避免把有意兼容误判为回归。
+
+### 下次继续排查入口
+
+- `src/agent/intent_policy.py::slot_intent_compatible`
+- `tests/agent/test_required_slots.py`

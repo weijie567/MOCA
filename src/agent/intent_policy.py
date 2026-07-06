@@ -247,6 +247,37 @@ TASK_PLAN_ENTITY_IDENTIFIER_KEYS = frozenset(
         "action_type",
     }
 )
+CROSS_INTENT_SLOT_GROUPS: Mapping[str, frozenset[str]] = MappingProxyType(
+    {
+        "order_id": frozenset(
+            {
+                "order_status_inquiry",
+                "refund_troubleshooting",
+                "compensation_suggestion",
+                "action_request",
+                "appeal_or_unban",
+                "complaint_escalation",
+            }
+        ),
+        "refund_case_id": frozenset(
+            {
+                "order_status_inquiry",
+                "refund_troubleshooting",
+                "compensation_suggestion",
+                "action_request",
+            }
+        ),
+        "ticket_id": frozenset(
+            {
+                "order_status_inquiry",
+                "ticket_reply_draft",
+                "appeal_or_unban",
+                "complaint_escalation",
+                "compensation_suggestion",
+            }
+        ),
+    }
+)
 
 
 class IntentPolicyRegistry:
@@ -397,7 +428,6 @@ class SlotPolicyRegistry:
         *,
         invalidation: Mapping[str, Any] | None = None,
     ) -> SlotInheritanceDecision:
-        del slot
         if not isinstance(metadata, Mapping):
             return SlotInheritanceDecision(False, "missing_metadata")
         source = metadata.get("source") if isinstance(metadata.get("source"), str) else None
@@ -419,7 +449,7 @@ class SlotPolicyRegistry:
             return SlotInheritanceDecision(False, "slot_invalidated", source)
         if not _slot_metadata_is_fresh(metadata, context):
             return SlotInheritanceDecision(False, "stale_slot", source)
-        if _slot_metadata_is_intent_compatible(metadata, context.intent):
+        if _slot_metadata_is_intent_compatible(slot, metadata, context.intent):
             return SlotInheritanceDecision(True, "accepted", source)
         return SlotInheritanceDecision(False, "intent_incompatible", source)
 
@@ -468,11 +498,28 @@ def _parse_policy_datetime(value: str) -> datetime | None:
     return parsed
 
 
-def _slot_metadata_is_intent_compatible(metadata: Mapping[str, Any], intent: str | None) -> bool:
-    if metadata.get("intent_compatible") is True:
+def slot_intent_compatible(slot_name: str, compatible_intents: list[str], current_intent: str | None) -> bool:
+    if current_intent is None:
         return True
+    if current_intent in compatible_intents:
+        return True
+    intent_group = CROSS_INTENT_SLOT_GROUPS.get(slot_name)
+    if intent_group is None:
+        return False
+    return current_intent in intent_group and any(intent in intent_group for intent in compatible_intents)
+
+
+def _slot_metadata_is_intent_compatible(
+    slot_name: str,
+    metadata: Mapping[str, Any],
+    intent: str | None,
+) -> bool:
     compatible_intents = metadata.get("compatible_intents")
-    return bool(intent and isinstance(compatible_intents, list) and intent in compatible_intents)
+    if intent and isinstance(compatible_intents, list):
+        return slot_intent_compatible(slot_name, compatible_intents, intent)
+    if metadata.get("intent_filter_applied") is False:
+        return False
+    return metadata.get("intent_compatible") is True
 
 
 INTENT_POLICY_REGISTRY = IntentPolicyRegistry()

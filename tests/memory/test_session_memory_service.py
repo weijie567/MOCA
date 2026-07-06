@@ -122,7 +122,51 @@ async def test_load_session_memory_keeps_slots_when_current_intent_unknown_witho
     )
 
     assert view.active_slots == {"order_id": "ORD-PRE-INTENT"}
+    assert view.slot_metadata["order_id"]["intent_compatible"] is False
+    assert view.slot_metadata["order_id"]["intent_filter_applied"] is False
+
+
+@pytest.mark.asyncio
+async def test_load_session_memory_preserves_cross_intent_business_id_compatibility_without_database() -> None:
+    repository = _FakeSessionMemoryRepository()
+    tenant_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    thread_id = "thread-cross-intent-business-id"
+    now = datetime.now(UTC)
+    repository.active = SimpleNamespace(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        expires_at=now + timedelta(minutes=30),
+        active_slots_json={
+            "schema_version": "session_slots.v1",
+            "slots": {
+                "order_id": _slot(
+                    "ORD-CROSS-INTENT",
+                    expires_at=now + timedelta(minutes=30),
+                    intents=["refund_troubleshooting"],
+                ).model_dump(mode="json")
+            },
+        },
+        session_summary=None,
+        unresolved_questions_json=[],
+        last_intent=None,
+        last_business_context_refs_json={},
+        version=1,
+    )
+    service = MemoryService(repository)  # type: ignore[arg-type]
+
+    view = await service.load_session_memory(
+        tenant_id,
+        user_id,
+        thread_id,
+        current_intent="action_request",
+        now=now,
+    )
+
+    assert view.active_slots == {"order_id": "ORD-CROSS-INTENT"}
     assert view.slot_metadata["order_id"]["intent_compatible"] is True
+    assert view.slot_metadata["order_id"]["intent_filter_applied"] is True
 
 
 async def _insert_run(session: AsyncSession, seeded_session: dict, thread_id: str) -> uuid.UUID:

@@ -102,7 +102,7 @@ def test_slot_policy_registry_rejects_untrusted_scope_stale_and_incompatible_slo
         ({**base, "thread_id": "wrong-thread"}, "thread_mismatch", "trusted_session_memory"),
         ({**base, "expires_at": "2026-06-28T11:59:00+00:00"}, "stale_slot", "trusted_session_memory"),
         ({**base, "expires_at": "not-a-date"}, "stale_slot", "trusted_session_memory"),
-        ({**base, "compatible_intents": ["order_status_inquiry"]}, "intent_incompatible", "trusted_session_memory"),
+        ({**base, "compatible_intents": ["small_talk"]}, "intent_incompatible", "trusted_session_memory"),
     ]
 
     for metadata, reason_code, source in cases:
@@ -198,13 +198,31 @@ def _trusted_state(metadata_updates: dict | None = None, *, value: str = "ORD-SE
     }
 
 
+def _pre_intent_slot_metadata(
+    *,
+    compatible_intents: list[str],
+    intent_compatible: bool = False,
+) -> dict:
+    return {
+        "source": "trusted_session_memory",
+        "tenant_id": "tenant-1",
+        "user_id": "user-1",
+        "thread_id": "thread-1",
+        "fresh": True,
+        "expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        "compatible_intents": compatible_intents,
+        "intent_compatible": intent_compatible,
+        "intent_filter_applied": False,
+    }
+
+
 def test_trusted_session_memory_rejects_wrong_tenant_user_thread_expired_and_incompatible():
     cases = [
         {"tenant_id": "wrong-tenant"},
         {"user_id": "wrong-user"},
         {"thread_id": "wrong-thread"},
         {"fresh": False, "expires_at": (datetime.now(UTC) - timedelta(minutes=1)).isoformat()},
-        {"compatible_intents": ["order_status_inquiry"], "intent_compatible": False},
+        {"compatible_intents": ["small_talk"], "intent_compatible": False},
         {"expires_at": "not-a-date"},
         {"compatible_intents": [], "intent_compatible": False},
     ]
@@ -213,6 +231,63 @@ def test_trusted_session_memory_rejects_wrong_tenant_user_thread_expired_and_inc
         state = _trusted_state(metadata_update)
         assert resolve_slots_for_completeness(state) == {}
         assert route_after_slots(state) == "clarification_gate"
+
+
+def test_pre_intent_session_context_rejects_incompatible_non_business_slot():
+    state = {
+        "tenant_id": "tenant-1",
+        "user_id": "user-1",
+        "thread_id": "thread-1",
+        "primary_intent": "action_request",
+        "required_slots": {"all_of": ["action_type"], "any_of": [["order_id", "refund_case_id"]], "optional": []},
+        "extracted_slots": {"order_id": "ORD-CURRENT"},
+        "session_context": {
+            "slot_continuity": {
+                "continuity_claimed": True,
+                "active_slots": {"action_type": "issue_coupon"},
+                "slot_metadata": {
+                    "action_type": _pre_intent_slot_metadata(
+                        compatible_intents=["compensation_suggestion"],
+                        intent_compatible=True,
+                    )
+                },
+            }
+        },
+    }
+
+    resolved, metadata = resolve_slots_with_metadata(state)
+
+    assert resolved == {"order_id": "ORD-CURRENT"}
+    assert "action_type" not in metadata
+    assert route_after_slots(state) == "clarification_gate"
+
+
+def test_pre_intent_session_context_preserves_cross_intent_business_id_slot():
+    state = {
+        "tenant_id": "tenant-1",
+        "user_id": "user-1",
+        "thread_id": "thread-1",
+        "primary_intent": "action_request",
+        "required_slots": {"all_of": ["action_type"], "any_of": [["order_id", "refund_case_id"]], "optional": []},
+        "extracted_slots": {"action_type": "issue_coupon"},
+        "session_context": {
+            "slot_continuity": {
+                "continuity_claimed": True,
+                "active_slots": {"order_id": "ORD-PRE-INTENT"},
+                "slot_metadata": {
+                    "order_id": _pre_intent_slot_metadata(
+                        compatible_intents=["refund_troubleshooting"],
+                    )
+                },
+            }
+        },
+    }
+
+    resolved, metadata = resolve_slots_with_metadata(state)
+
+    assert resolved == {"action_type": "issue_coupon", "order_id": "ORD-PRE-INTENT"}
+    assert metadata["order_id"]["source"] == "trusted_session_memory"
+    assert route_after_slots(state) == "investigate"
 
 
 def test_trusted_session_memory_explicit_override_wins():
