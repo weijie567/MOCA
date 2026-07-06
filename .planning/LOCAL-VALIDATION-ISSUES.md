@@ -12844,3 +12844,57 @@ zsh:1: unmatched "
 
 - `.planning/phases/52-safety-pre-route-node/52-PATTERNS.md`
 - Phase plan artifact 存在性检查命令，优先使用 `find .planning/phases/52-safety-pre-route-node -name '*-PLAN.md'`
+
+## 2026-07-06 — Phase 52 planner 扫描命令误触发 shell backtick substitution 与无效 pytest 入口
+
+### 问题现象
+
+Phase 52 `gsd-planner` 子代理生成 plan 后报告：一次临时本地扫描命令把包含反引号的 bare pytest 文本交给 shell 解析，触发 command substitution，并产生了无效的 Python 3.9 / pytest 错误。子代理随后改正扫描方式，并重跑 plan-only 校验通过。
+
+### 如何检测 / 复现
+
+当前没有保留完整原始命令；从子代理最终报告看，触发条件是 shell 命令中把带反引号的 `pytest` / `python -m pytest` 文本放在会被 zsh 解释的位置。类似模式容易复现：
+
+```bash
+rg -n "`pytest`|`python -m pytest`" .planning/phases/52-safety-pre-route-node/*.md
+```
+
+### 关键证据或命令
+
+子代理最终报告原文包含：
+
+```text
+One transient local scan command accidentally triggered shell backtick substitution around bare pytest text and produced invalid Python 3.9/pytest errors; I corrected the scan and reran plan-only checks.
+```
+
+后续由主流程复核通过：
+
+```bash
+gsd-sdk query frontmatter.validate .planning/phases/52-safety-pre-route-node/52-01-PLAN.md --schema plan
+gsd-sdk query frontmatter.validate .planning/phases/52-safety-pre-route-node/52-02-PLAN.md --schema plan
+gsd-sdk query frontmatter.validate .planning/phases/52-safety-pre-route-node/52-03-PLAN.md --schema plan
+gsd-sdk query verify.plan-structure .planning/phases/52-safety-pre-route-node/52-01-PLAN.md
+gsd-sdk query verify.plan-structure .planning/phases/52-safety-pre-route-node/52-02-PLAN.md
+gsd-sdk query verify.plan-structure .planning/phases/52-safety-pre-route-node/52-03-PLAN.md
+git diff --check -- .planning/phases/52-safety-pre-route-node/52-01-PLAN.md .planning/phases/52-safety-pre-route-node/52-02-PLAN.md .planning/phases/52-safety-pre-route-node/52-03-PLAN.md
+```
+
+### 当前判断 / 根因
+
+这是本地扫描命令 quoting 问题，不是 Phase 52 plan artifact 或测试结果问题。MOCA 中 bare `pytest` / bare `python -m pytest` 结果本来就不能作为有效验证；本次错误输出仅来自扫描命令误触发，不作为 phase 验证结论。
+
+### 已做处理
+
+- 子代理已改用安全扫描方式并重跑 plan-only 校验。
+- 主流程已重新运行 frontmatter、plan-structure 和 `git diff --check`，均通过。
+- 后续搜索带反引号、`pytest` 字样的内容时使用单引号 pattern，避免 shell 解释。
+
+### 剩余问题
+
+无 plan 阻塞。若后续看到 Python 3.9 / bare pytest 相关失败，需要先核对是否来自有效的 `uv run pytest ...` 入口。
+
+### 下次继续排查入口
+
+- `.planning/phases/52-safety-pre-route-node/52-01-PLAN.md`
+- `.planning/phases/52-safety-pre-route-node/52-02-PLAN.md`
+- `.planning/phases/52-safety-pre-route-node/52-03-PLAN.md`
