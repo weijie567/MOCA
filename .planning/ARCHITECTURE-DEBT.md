@@ -979,3 +979,48 @@
 - ✅ CAGM-04 active graph cutover 已完成并验证。
 - 🟡 `extract_slots` 仍是 active compatibility node，删除 phase 为 Phase 54 / CAGM-05。
 - 🟡 `long_term_memory_retrieve`、`generate_recommendation`、`assess_risk_and_approval` 等 legacy active names 仍分别属于 Phase 55 / 56 / 57；Phase 53-02 未提前清理。
+
+## Phase 53 Plan 03 — graph vocabulary / docs / validation closeout ✅已修复验证
+
+**问题 / 根因**
+- Phase 53-02 已完成 active graph cutover，但 trace vocabulary、SSE label、current-source architecture snapshot 和 compatibility ledger 仍可能把 `classify_intent` / `session_memory_load` 误读成 active runtime surface。
+- 执行 scan 后确认剩余旧名命中来自 wrapper/import/test/historical display/output mirror，而不是 active graph registration、active route destination 或 active policy route value。
+
+**影响**
+- 如果不收口，operator-facing trace、replay/eval projection 和后续 Phase 54-58 plan 可能继续把历史名称当作当前 runtime authority。
+- `llm_outputs["intent_classification"]` reader 若不登记，可能绕过 Phase 58 no-debt cleanup 变成永久 output mirror。
+
+**修复**
+- `src/agent/graph_vocabulary.py` 将 `contextual_intent_resolve` 和 `route_after_contextual_intent` 标为 `runtime`；将 `classify_intent`、`intent_classification`、`session_memory_load`、`route_after_intent` 标为 Phase 53 compatibility alias，并加 `PHASE_53_COMPATIBILITY_ALIAS` / `DELETE_BY_PHASE_58` reason code。
+- `src/api/routers/agent_runs.py` 增加 `session_context_load` 和 `contextual_intent_resolve` SSE label；旧 `classify_intent` label 只保留给历史 trace display。
+- `docs/current-langgraph-architecture.md` 已更新为 Phase 53 current-source snapshot：`receive_request -> safety_pre_route -> session_context_load -> contextual_intent_resolve`，并明确 `classify_intent` / `session_memory_load` 不再是 active registered graph node。
+- `llm_outputs["intent_classification"]` reader / adapter mirror、`classify_intent.py` wrapper、`session_memory_load.py` wrapper、`route_after_intent` helper 均登记为非 authoritative compatibility surface，删除 phase 不晚于 Phase 58。
+- 未修改 `docs/contract-spec.md`：§9 已包含 Phase 53 target semantics，本 plan 只同步当前源码事实。
+
+**兼容面台账**
+
+| Legacy surface | Canonical owner | Reason | Trace projection / validation | Delete phase |
+|----------------|-----------------|--------|-------------------------------|--------------|
+| active `classify_intent` graph node / `safety_pre_route -> classify_intent` continuation | `contextual_intent_resolve` | Phase 52 compatibility path, Phase 53 已关闭 active runtime | `! rg 'add_node\("classify_intent"' src/agent/graph.py tests/architecture/graph_baseline.py` 无命中；historical trace projects to `contextual_intent_resolve` | ✅ closed in Phase 53 |
+| active `session_memory_load` graph node / route destination | `session_context_load` | same-thread context before intent, Phase 53 已关闭 active runtime | `! rg 'add_node\("session_memory_load"' src/agent/graph.py tests/architecture/graph_baseline.py` 无命中；historical trace projects to `session_context_load` | ✅ closed in Phase 53 |
+| `src/agent/nodes/classify_intent.py` wrapper and import/test surface | `contextual_intent_resolve` | backward-compatible imports and legacy tests | `tests/agent/test_nodes/test_classify_intent.py` and vocabulary tests pass; not registered in active graph | Phase 58 |
+| `llm_outputs["intent_classification"]` reader / adapter mirror | `contextual_intent_resolve` | historical final-response / adapter compatibility | scan hit only in `src/agent/nodes/final_response.py` and tests; active contextual node writes canonical `llm_outputs["contextual_intent_resolve"]` | Phase 58 |
+| `src/agent/nodes/session_memory_load.py` wrapper | `session_context_load` | backward-compatible import and historical trace node name | scan hit only in wrapper/tests; active graph uses `session_context_load` | Phase 58 |
+| `route_after_intent` helper | `route_after_contextual_intent` | backward-compatible imports/tests after active router cutover | helper delegates to contextual router; active graph uses `route_after_contextual_intent` | Phase 58 |
+
+**证据**
+- Phase / plan：`53-03`
+- 文件：`src/agent/graph_vocabulary.py`、`src/api/routers/agent_runs.py`、`tests/agent/test_graph_vocabulary.py`、`tests/agent/test_trace.py`、`docs/current-langgraph-architecture.md`、`.planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/53-VALIDATION.md`
+
+**验证**
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph_vocabulary.py tests/agent/test_trace.py -q --tb=short` → `65 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture tests/agent/test_graph.py tests/test_graph_routing.py tests/agent/test_intent_routing.py tests/agent/test_graph_vocabulary.py tests/memory/test_session_memory_service.py tests/agent/test_session_memory_load.py tests/agent/test_session_memory_integration.py tests/agent/test_nodes/test_safety_pre_route.py tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_classify_intent.py -q --tb=short` → `1399 passed, 2 skipped, 35 warnings`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent tests/agent tests/architecture` → pass
+- `! rg -n 'add_node\("classify_intent"|add_node\("session_memory_load"|"classify_intent": "classify_intent"|"session_memory_load": "session_memory_load"' src/agent/graph.py tests/architecture/graph_baseline.py` → no active-runtime hits
+- `! rg -n 'classification_trace.*pre_route_decision|pre_route_decision": pre_route|pre_route_decision": pre_route\.model_dump' src/agent/nodes/contextual_intent_resolve.py` → no duplicate pre-route ownership hits
+- `rg -n '"session_memory_load"|route_after_intent|classify_intent|intent_classification' src/agent/graph.py src/agent/routing.py src/agent/intent_policy.py src/agent/nodes src/api tests/architecture/graph_baseline.py tests/agent || true` → reviewed hits are limited to wrapper/import/test/historical label/output mirror surfaces listed above.
+
+**剩余风险**
+- ✅ Phase 52 active `classify_intent` / `session_memory_load` compatibility is closed in the active graph and route maps.
+- 🟡 `classify_intent.py`、`session_memory_load.py`、`route_after_intent` and `llm_outputs["intent_classification"]` remain compatibility surfaces until Phase 58 cleanup.
+- 🟡 `extract_slots` remains the intentional Phase 54 active compatibility destination; Phase 53 did not promote `slot_resolution_gate`.
