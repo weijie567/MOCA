@@ -29,7 +29,14 @@ from src.agent.intent_policy import (
 )
 from src.agent.nodes import classify_intent as classify_intent_module
 from src.agent.nodes.classify_intent import intent_result_to_state
-from src.agent.routing import INTENT_ROUTES, SLOT_ROUTES, resolve_slots_with_metadata, route_after_intent, route_after_slots
+from src.agent.routing import (
+    CONTEXTUAL_INTENT_ROUTES,
+    SLOT_ROUTES,
+    resolve_slots_with_metadata,
+    route_after_contextual_intent,
+    route_after_intent,
+    route_after_slots,
+)
 from src.agent.schemas import IntentResultV3, RequiredSlotExpression
 
 
@@ -210,10 +217,10 @@ def test_next_step_advice_is_not_forced_into_action_type_clarification():
     assert update["primary_intent"] == "refund_troubleshooting"
     assert update["requested_operation"] == "read_status"
     assert update["required_slots"] == {"all_of": [], "any_of": [["order_id", "refund_case_id"]], "optional": []}
-    assert (
-        "next_step_advice_normalized" in update["llm_outputs"]["intent_classification"]["eval_metadata"]["reason_codes"]
-    )
-    assert route_after_intent(update) == "session_memory_load"
+    eval_metadata = update["llm_outputs"]["contextual_intent_resolve"]["eval_metadata"]
+    assert "next_step_advice_normalized" in eval_metadata["reason_codes"]
+    assert route_after_contextual_intent(update) == "extract_slots"
+    assert route_after_intent(update) == route_after_contextual_intent(update)
 
 
 def test_confidence_defaults_for_low_and_safety_sensitive_routes():
@@ -456,7 +463,8 @@ def test_safety_sensitive_escalation_pre_route_forces_complaint_escalation_polic
     assert update["requested_operation"] == "escalate"
     assert update["risk_tier"] == "approval_required"
     assert update["required_slots"]["any_of"] == [["ticket_id", "order_id", "merchant_id"]]
-    assert route_after_intent(update) == "session_memory_load"
+    assert route_after_contextual_intent(update) == "extract_slots"
+    assert route_after_intent(update) == route_after_contextual_intent(update)
 
 
 @pytest.mark.parametrize(
@@ -470,8 +478,9 @@ def test_safety_sensitive_escalation_pre_route_forces_complaint_escalation_polic
         {"routing_hints": {"pre_route_disposition": "approval_chat_not_trusted"}},
     ],
 )
-def test_route_after_intent_totality(state):
-    assert route_after_intent(state) in INTENT_ROUTES
+def test_route_after_contextual_intent_totality(state):
+    assert route_after_contextual_intent(state) in CONTEXTUAL_INTENT_ROUTES
+    assert route_after_intent(state) == route_after_contextual_intent(state)
 
 
 def test_route_after_intent_consumes_registry_route_policy(monkeypatch):

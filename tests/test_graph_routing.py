@@ -11,6 +11,7 @@ from src.agent.graph import route_after_approval, route_after_risk
 from src.agent.nodes import assess_risk_and_approval as risk_module
 from src.agent import routing as routing_module
 from src.agent.routing import (
+    route_after_intent,
     route_after_contextual_intent,
     route_after_investigate,
     route_after_recommendation,
@@ -277,8 +278,8 @@ def test_route_after_recommendation_prefers_backend_nested_verifier_route():
         },
     ],
 )
-def test_route_after_safety_continues_safe_phase52_compatibility_to_classify_intent(state):
-    assert route_after_safety(state) == "classify_intent"
+def test_route_after_safety_continues_safe_phase53_path_to_session_context(state):
+    assert route_after_safety(state) == "session_context_load"
 
 
 @pytest.mark.parametrize(
@@ -311,7 +312,7 @@ def test_route_after_safety_fails_closed_for_unsafe_or_clarifying_dispositions(s
 
 
 def test_route_after_safety_fails_closed_for_exceptions_or_unregistered_route(monkeypatch):
-    monkeypatch.setattr(routing_module, "_route_after_safety", lambda _state: "session_context_load")
+    monkeypatch.setattr(routing_module, "_route_after_safety", lambda _state: "classify_intent")
     assert route_after_safety({}) == "clarification_gate"
 
     def raise_error(_state):
@@ -390,6 +391,16 @@ def test_route_after_contextual_intent_fails_closed_for_exceptions_or_unregister
 
     monkeypatch.setattr(routing_module, "_route_after_contextual_intent", raise_error)
     assert route_after_contextual_intent({}) == "clarification_gate"
+
+
+def test_route_after_intent_is_compatibility_delegate_to_contextual_intent():
+    state = {
+        "primary_intent": "refund_troubleshooting",
+        "requested_operation": "read_status",
+        "intent_confidence": 0.95,
+    }
+
+    assert route_after_intent(state) == route_after_contextual_intent(state) == "extract_slots"
 
 
 def test_route_after_risk_returns_final_response_for_auto_allowed_snapshot_verified_action():

@@ -16,17 +16,23 @@ from tests.architecture.graph_baseline import (
 )
 
 
-def test_current_active_graph_node_set_matches_phase52_baseline() -> None:
+def test_current_active_graph_node_set_matches_phase53_baseline() -> None:
     assert "safety_pre_route" in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
+    assert "session_context_load" in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
+    assert "contextual_intent_resolve" in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
+    assert "classify_intent" not in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
+    assert "session_memory_load" not in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
     assert graph_add_node_names() == CURRENT_ACTIVE_GRAPH_NODES_BASELINE
 
 
-def test_phase52_entry_edge_routes_receive_request_to_safety_pre_route() -> None:
+def test_phase53_entry_edges_route_session_context_before_contextual_intent() -> None:
     direct_edges = graph_direct_edge_pairs()
 
     assert ("START", "receive_request") in direct_edges
     assert ("receive_request", "safety_pre_route") in direct_edges
+    assert ("session_context_load", "contextual_intent_resolve") in direct_edges
     assert ("receive_request", "classify_intent") not in direct_edges
+    assert ("classify_intent", "session_memory_load") not in direct_edges
 
 
 def test_target_canonical_graph_node_set_is_exact_phase50_contract() -> None:
@@ -57,16 +63,6 @@ def test_migration_mode_maps_every_active_legacy_node_to_target() -> None:
 
     assert active_legacy_nodes == frozenset(MIGRATION_MODE_LEGACY_NODE_MAP)
     assert MIGRATION_MODE_LEGACY_NODE_MAP == {
-        "classify_intent": {
-            "target": "contextual_intent_resolve",
-            "delete_phase": "Phase 53",
-            "owner_requirement": "CAGM-04",
-        },
-        "session_memory_load": {
-            "target": "session_context_load",
-            "delete_phase": "Phase 53",
-            "owner_requirement": "CAGM-04",
-        },
         "extract_slots": {
             "target": "slot_resolution_gate",
             "delete_phase": "Phase 54",
@@ -115,6 +111,9 @@ def test_router_return_values_are_covered_by_registered_path_maps() -> None:
     assert router_routes["route_after_safety"] == frozenset(
         CURRENT_CONDITIONAL_EDGE_BASELINE[("safety_pre_route", "route_after_safety")]
     )
+    assert router_routes["route_after_contextual_intent"] == frozenset(
+        CURRENT_CONDITIONAL_EDGE_BASELINE[("contextual_intent_resolve", "route_after_contextual_intent")]
+    )
     for source, router in route_maps:
         path_map = route_maps[(source, router)]
         assert source in registered_nodes, (source, router)
@@ -126,6 +125,10 @@ def test_router_return_values_are_covered_by_registered_path_maps() -> None:
 
 def test_current_router_mappings_account_for_legacy_destinations() -> None:
     route_maps = graph_conditional_edge_mappings()
+
+    for route_map in route_maps.values():
+        assert "classify_intent" not in route_map.values()
+        assert "session_memory_load" not in route_map.values()
 
     assert route_maps[("investigate", "route_after_investigate")]["recommendation_generation"] == (
         "generate_recommendation"
@@ -147,7 +150,6 @@ def test_current_router_mappings_account_for_legacy_destinations() -> None:
         if destination in MIGRATION_MODE_LEGACY_NODE_MAP
     }
     assert {
-        "session_memory_load",
         "long_term_memory_retrieve",
         "generate_recommendation",
         "assess_risk_and_approval",

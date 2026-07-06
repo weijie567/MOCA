@@ -32,8 +32,8 @@ CURRENT_ACTIVE_GRAPH_NODES_BASELINE = frozenset(
     {
         "receive_request",
         "safety_pre_route",
-        "classify_intent",
-        "session_memory_load",
+        "session_context_load",
+        "contextual_intent_resolve",
         "extract_slots",
         "long_term_memory_retrieve",
         "investigate",
@@ -49,16 +49,6 @@ CURRENT_ACTIVE_GRAPH_NODES_BASELINE = frozenset(
 )
 
 MIGRATION_MODE_LEGACY_NODE_MAP = {
-    "classify_intent": {
-        "target": "contextual_intent_resolve",
-        "delete_phase": "Phase 53",
-        "owner_requirement": "CAGM-04",
-    },
-    "session_memory_load": {
-        "target": "session_context_load",
-        "delete_phase": "Phase 53",
-        "owner_requirement": "CAGM-04",
-    },
     "extract_slots": {
         "target": "slot_resolution_gate",
         "delete_phase": "Phase 54",
@@ -87,15 +77,15 @@ FORBIDDEN_MAIN_CHAIN_REGISTERED_NODES = frozenset(
 
 CURRENT_CONDITIONAL_EDGE_BASELINE = {
     ("safety_pre_route", "route_after_safety"): {
-        "classify_intent": "classify_intent",
+        "session_context_load": "session_context_load",
         "clarification_gate": "clarification_gate",
         "final_response": "final_response",
     },
-    ("classify_intent", "route_after_intent"): {
+    ("contextual_intent_resolve", "route_after_contextual_intent"): {
         "clarification_gate": "clarification_gate",
         "final_response": "final_response",
         "investigate": "investigate",
-        "session_memory_load": "session_memory_load",
+        "extract_slots": "extract_slots",
     },
     ("extract_slots", "route_after_slots"): {
         "clarification_gate": "clarification_gate",
@@ -408,7 +398,7 @@ def _router_route_values(path: Path, router_names: set[str]) -> dict[str, frozen
 def graph_router_route_values() -> dict[str, frozenset[str]]:
     routing_router_names = {
         "route_after_safety",
-        "route_after_intent",
+        "route_after_contextual_intent",
         "route_after_slots",
         "route_after_investigate",
         "route_after_rag_context",

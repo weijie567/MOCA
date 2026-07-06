@@ -22,7 +22,7 @@ from src.agent.nodes import generate_recommendation as generate_recommendation_m
 from src.agent.nodes import long_term_memory_retrieve as memory_retrieve_module
 from src.agent.routing import (
     route_after_claim_verify,
-    route_after_intent,
+    route_after_contextual_intent,
     route_after_investigate,
     route_after_rag_context,
     route_after_recommendation,
@@ -51,8 +51,8 @@ INVESTIGATION_STATE_FIELDS = {
     "investigation_path",
 }
 ROUTER_EDGE_KEYS = {
-    "route_after_safety": {"classify_intent", "clarification_gate", "final_response"},
-    "route_after_intent": {"clarification_gate", "final_response", "investigate", "session_memory_load"},
+    "route_after_safety": {"session_context_load", "clarification_gate", "final_response"},
+    "route_after_contextual_intent": {"clarification_gate", "final_response", "investigate", "extract_slots"},
     "route_after_slots": {"clarification_gate", "investigate", "long_term_memory_retrieve"},
     "route_after_risk": {"approval_gate", "final_response"},
     "route_after_approval": {"assess_risk_and_approval", "action_draft", "final_response"},
@@ -927,14 +927,17 @@ def test_graph_compiles_with_investigate():
 
     assert {
         "safety_pre_route",
-        "classify_intent",
+        "session_context_load",
+        "contextual_intent_resolve",
         "investigate",
         "rag_context_build",
         "claim_verify",
         "clarification_gate",
-        "session_memory_load",
+        "extract_slots",
         "long_term_memory_retrieve",
     } <= nodes
+    assert "classify_intent" not in nodes
+    assert "session_memory_load" not in nodes
     assert "action_draft" in nodes
     assert "execute_action" not in nodes
     assert "load_business_context" not in nodes
@@ -946,8 +949,6 @@ def test_legacy_graph_runtime_names_project_to_target_vocabulary():
     nodes = set(graph.get_graph().nodes)
 
     legacy_node_targets = {
-        "classify_intent": "contextual_intent_resolve",
-        "session_memory_load": "session_context_load",
         "extract_slots": "slot_resolution_gate",
         "long_term_memory_retrieve": "memory_context_load",
     }
@@ -956,7 +957,6 @@ def test_legacy_graph_runtime_names_project_to_target_vocabulary():
         assert target_graph_name(legacy_node, kind="node") == target_node
 
     legacy_router_targets = {
-        "route_after_intent": "route_after_contextual_intent",
         "route_after_slots": "route_after_slot_resolution",
     }
     for legacy_router, target_router in legacy_router_targets.items():
@@ -1021,8 +1021,16 @@ def test_all_router_return_keys_have_edges():
         in ROUTER_EDGE_KEYS["route_after_safety"]
     )
     assert (
-        route_after_intent({"primary_intent": "policy_qa", "requested_operation": "advise", "intent_confidence": 0.9})
-        in ROUTER_EDGE_KEYS["route_after_intent"]
+        route_after_contextual_intent(
+            {"primary_intent": "policy_qa", "requested_operation": "advise", "intent_confidence": 0.9}
+        )
+        in ROUTER_EDGE_KEYS["route_after_contextual_intent"]
+    )
+    assert (
+        route_after_contextual_intent(
+            {"primary_intent": "refund_troubleshooting", "requested_operation": "read_status", "intent_confidence": 0.9}
+        )
+        in ROUTER_EDGE_KEYS["route_after_contextual_intent"]
     )
     assert (
         route_after_slots(
