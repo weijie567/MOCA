@@ -19,6 +19,8 @@ async def test_receive_request_resets_ephemeral(base_state):
         "task_plan": {"steps": [{"step_id": "s1"}], "terminal_step_id": "s1"},
         "deferred_steps": [{"step_id": "s2", "intent": "ticket_reply_draft"}],
         "target_merchant_context": {"status": "resolved", "source": "spoofed"},
+        "pre_route_decision": {"disposition": "approval_chat_not_trusted"},
+        "safety_flags": {"requires_clarification": True},
         "active_flow_state": {"old": "flow"},
         "secondary_intents": ["policy_qa"],
         "required_slots": {"all_of": ["order_id"], "any_of": [], "optional": []},
@@ -43,6 +45,8 @@ async def test_receive_request_resets_ephemeral(base_state):
     assert result["task_plan"] is None
     assert result["deferred_steps"] == []
     assert result["target_merchant_context"] is None
+    assert result["pre_route_decision"] is None
+    assert result["safety_flags"] == {}
     assert result["active_flow_state"] is None
     assert result["secondary_intents"] == []
     assert result["required_slots"] == {"all_of": [], "any_of": [], "optional": []}
@@ -178,6 +182,13 @@ def test_agent_state_declares_session_context_target_fields():
 
 def test_agent_state_declares_target_merchant_context_field():
     assert "target_merchant_context" in AgentState.__annotations__
+
+
+def test_agent_state_declares_safety_pre_route_fields():
+    annotations = AgentState.__annotations__
+
+    assert "pre_route_decision" in annotations
+    assert "safety_flags" in annotations
 
 
 def test_agent_state_declares_task_plan_fields():
