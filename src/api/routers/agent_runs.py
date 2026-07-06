@@ -55,6 +55,8 @@ _TARGET_CONTEXT_KEY = "target" + "_merchant_context"
 
 NODE_MESSAGES: dict[str, str] = {
     "receive_request": "正在接收请求",
+    "session_context_load": "正在加载会话上下文",
+    "contextual_intent_resolve": "正在识别上下文意图",
     "classify_intent": "正在识别意图",
     "extract_slots": "正在提取关键信息",
     "investigate": "正在调查订单和规则",

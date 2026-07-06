@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.merchant_context import project_target_merchant_context
 from src.agent.trace import build_trace_summary, write_agent_run, write_agent_steps
+from src.api.routers.agent_runs import NODE_MESSAGES
 from src.db.models import AgentStep
 from src.replay.proof_projection import project_replay_authorization_proof
 
@@ -160,6 +161,48 @@ def test_trace_summary_projects_target_graph_names_without_rewriting_legacy_node
             "target_graph_runnable": True,
         },
     ]
+
+
+def test_trace_summary_projects_phase53_contextual_intent_as_runtime():
+    summary = build_trace_summary(
+        "run-phase53-graph-projection",
+        {
+            "current_intent": "refund_troubleshooting",
+            "trace_steps": [
+                {"node": "session_context_load", "status": "completed"},
+                {"node": "contextual_intent_resolve", "status": "completed"},
+            ],
+            "final_response": "done",
+        },
+        18,
+    )
+
+    assert summary["target_nodes_executed"] == [
+        "session_context_load",
+        "contextual_intent_resolve",
+    ]
+    assert summary["graph_projection"]["steps"] == [
+        {
+            "implementation_node": "session_context_load",
+            "target_node": "session_context_load",
+            "target_graph_status": "runtime",
+            "target_graph_runnable": True,
+        },
+        {
+            "implementation_node": "contextual_intent_resolve",
+            "target_node": "contextual_intent_resolve",
+            "target_graph_status": "runtime",
+            "target_graph_runnable": True,
+        },
+    ]
+
+
+def test_phase53_sse_labels_cover_canonical_runtime_nodes():
+    assert "session_context_load" in NODE_MESSAGES
+    assert "contextual_intent_resolve" in NODE_MESSAGES
+
+    assert NODE_MESSAGES["session_context_load"]
+    assert NODE_MESSAGES["contextual_intent_resolve"]
 
 
 def test_target_merchant_context_resolves_only_from_service_approved_business_fact_refs():

@@ -23,6 +23,7 @@ from src.agent.graph_vocabulary import (
         ("extract_slots", "node", "slot_resolution_gate", "compatibility_alias", True),
         ("slot_resolution_gate", "node", "slot_resolution_gate", "compatibility_alias", True),
         ("route_after_intent", "router", "route_after_contextual_intent", "compatibility_alias", True),
+        ("route_after_contextual_intent", "router", "route_after_contextual_intent", "runtime", True),
         ("route_after_slots", "router", "route_after_slot_resolution", "compatibility_alias", True),
     ],
 )
@@ -72,6 +73,8 @@ def test_target_graph_names_are_identity_mapped(name: str, kind: str) -> None:
         "action_draft",
         "final_response",
         "memory_write",
+        "session_context_load",
+        "contextual_intent_resolve",
         "rag_context_build",
         "claim_verify",
     ],
@@ -88,6 +91,34 @@ def test_canonical_runtime_nodes_project_as_runtime(name: str) -> None:
     assert projected["target_node"] == name
     assert projected["target_graph_status"] == "runtime"
     assert projected["target_graph_runnable"] is True
+
+
+def test_phase53_contextual_intent_router_projects_as_runtime() -> None:
+    entry = graph_vocabulary_entry("route_after_contextual_intent", kind="router")
+
+    assert entry is not None
+    assert entry.target_name == "route_after_contextual_intent"
+    assert entry.status == "runtime"
+    assert entry.runnable is True
+
+
+@pytest.mark.parametrize(
+    ("name", "kind"),
+    [
+        ("classify_intent", "node"),
+        ("intent_classification", "node"),
+        ("session_memory_load", "node"),
+        ("route_after_intent", "router"),
+    ],
+)
+def test_phase53_retained_compatibility_aliases_are_not_runtime(name: str, kind: str) -> None:
+    entry = graph_vocabulary_entry(name, kind=kind)  # type: ignore[arg-type]
+
+    assert entry is not None
+    assert entry.status == "compatibility_alias"
+    assert entry.runnable is True
+    assert "PHASE_53_COMPATIBILITY_ALIAS" in entry.reason_codes
+    assert "DELETE_BY_PHASE_58" in entry.reason_codes
 
 
 def test_phase_33_claim_verify_is_runtime_runnable() -> None:
