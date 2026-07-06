@@ -630,11 +630,24 @@ def detect_pre_route(query: str) -> PreRouteDecision:
         )
 
     approval_command = any(token in lowered for token in ("approval", "apr-")) or "审批" in text
-    broad_approval = any(token in lowered for token in ("accept", "reject")) or any(
-        token in text for token in ("通过", "拒绝")
-    )
+    approval_action = any(
+        token in lowered
+        for token in (
+            "approve",
+            "approved",
+            "accept",
+            "accepted",
+            "reject",
+            "rejected",
+            "yes",
+            "goahead",
+            "go ahead",
+            "doit",
+            "do it",
+        )
+    ) or any(token in text for token in ("同意", "批准", "确认", "通过", "拒绝"))
     approval_context = bool(_APPROVAL_ID_RE.search(text)) or "approval" in lowered or "审批" in text
-    if approval_command or (broad_approval and approval_context):
+    if approval_command or (approval_action and approval_context):
         return PreRouteDecision(
             disposition="approval_chat_not_trusted",
             requested_operation="advise",

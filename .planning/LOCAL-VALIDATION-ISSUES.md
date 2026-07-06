@@ -13050,3 +13050,93 @@ Plan: 1 of --name
 
 - `gsd-sdk query state.begin-phase --help`
 - `.planning/STATE.md` frontmatter、Current Position、Current Roadmap 三处状态同步。
+
+## 2026-07-06 — Phase 52 code-review scope 临时 Node 命令误把 stdin 标记当文件
+
+### 问题现象
+
+Phase 52 进入 code review gate 时，主流程为了按 `*-SUMMARY.md` 计算 review scope，运行了一段临时 Node 脚本。首次命令把 `node -` 的 stdin 标记 `-` 误纳入 `process.argv.slice(1)`，导致 Node 尝试读取路径 `-` 并报错。
+
+### 如何检测 / 复现
+
+运行首版命令会出现：
+
+```text
+Error: ENOENT: no such file or directory, open '-'
+```
+
+### 关键证据或命令
+
+失败点来自临时命令中的：
+
+```javascript
+const summaries = process.argv.slice(1);
+```
+
+在 `node - file1 file2` 形态下，`process.argv[1]` 是 `-`。
+
+### 当前判断 / 根因
+
+这是主流程临时验证脚本的参数处理错误，不是 MOCA 源码、Phase 52 plan、测试入口或 GSD artifact 的问题。
+
+### 已做处理
+
+已改为：
+
+```javascript
+const summaries = process.argv.slice(2);
+```
+
+修正后成功从三份 Phase 52 summary 提取 16 个 review scope 文件，未产生源码或 planning artifact 错误修改。
+
+### 剩余问题
+
+无。该事故仅影响一次临时 scope 计算命令，后续 code review 使用修正后的文件列表。
+
+### 下次继续排查入口
+
+- `.planning/phases/52-safety-pre-route-node/*-SUMMARY.md`
+- Phase 52 code review artifact：`.planning/phases/52-safety-pre-route-node/52-REVIEW.md`
+
+## 2026-07-06 — Phase 52 code review 后补 approval ID 变体红测失败并修复
+
+### 问题现象
+
+Phase 52 code review 指出 `approve APR1` / `approve APR_1` / `同意 APR1` 等 approval-like 短回复带 approval ID 变体时，可能漏过 `safety_pre_route` 的 `approval_chat_not_trusted` 判定。按 reviewer 建议补测试后，focused pytest 出现 5 个失败，其中 graph smoke 显示 `approve APR1` 已进入 `classify_intent`。
+
+### 如何检测 / 复现
+
+补充回归测试后运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_safety_pre_route.py tests/agent/test_graph.py -q --tb=short
+```
+
+### 关键证据或命令
+
+失败摘要：
+
+```text
+5 failed, 45 passed, 28 warnings
+AssertionError: assert 'none' == 'approval_chat_not_trusted'
+AssertionError: assert 'classify_intent' not in [...]
+```
+
+### 当前判断 / 根因
+
+`src/agent/intent_policy.py` 中 `_APPROVAL_ID_RE` 已能识别 `APR1` / `APR_1`，但 `detect_pre_route()` 原本只把 `approval`、`apr-` 或 `accept/reject` 等作为 approval command/action 信号，没覆盖 `approve/approved/同意` 加 approval ID context 的组合。
+
+### 已做处理
+
+已修复 `detect_pre_route()`：approval-like action verb 加 explicit approval context 时 fail closed 为 `approval_chat_not_trusted`。已新增 node 测试覆盖 `approve APR1`、`approve APR_1`、`approved APR1`、`同意 APR1`，并新增 graph smoke 覆盖 `approve APR1` 不进入 `classify_intent`、memory、tools、approval 或 action paths。
+
+### 剩余问题
+
+无本地阻塞。safe-path 继续进入 `classify_intent` 是 Phase 52 记录过的兼容面，删除属于 Phase 53。
+
+### 下次继续排查入口
+
+- `src/agent/intent_policy.py::detect_pre_route`
+- `tests/agent/test_nodes/test_safety_pre_route.py::test_approval_like_replies_with_id_variants_fail_closed`
+- `tests/agent/test_graph.py::test_unsafe_pre_route_inputs_stop_before_classifier_memory_tools_or_action`
+- `.planning/phases/52-safety-pre-route-node/52-REVIEW-FIX.md`

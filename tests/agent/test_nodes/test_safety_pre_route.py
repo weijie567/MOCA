@@ -120,6 +120,26 @@ async def test_standalone_approval_like_short_replies_fail_closed(base_state, qu
 @pytest.mark.parametrize(
     "query",
     [
+        "approve APR1",
+        "approve APR_1",
+        "approved APR1",
+        "同意 APR1",
+    ],
+)
+async def test_approval_like_replies_with_id_variants_fail_closed(base_state, query):
+    result = await _run_safety_pre_route(base_state, query)
+
+    assert result["pre_route_decision"]["disposition"] == "approval_chat_not_trusted"
+    assert result["pre_route_decision"]["requires_clarification"] is True
+    assert result["pre_route_decision"]["reason_codes"] == ["approval_chat_not_trusted"]
+    assert result["routing_hints"]["pre_route_disposition"] == "approval_chat_not_trusted"
+    assert not (_AUTHORITY_OR_SIDE_EFFECT_FIELDS & set(result))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "query",
+    [
         "查询 ORD-12345 状态",
         "OD-12345",
         "继续吧",

@@ -1098,7 +1098,7 @@ async def test_approval_chat_routes_to_clarification_without_tools(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("query", ["approve APR-1", "同意"])
+@pytest.mark.parametrize("query", ["approve APR-1", "approve APR1", "同意"])
 async def test_unsafe_pre_route_inputs_stop_before_classifier_memory_tools_or_action(monkeypatch, query):
     deps = _patch_graph_dependencies(monkeypatch, intent="policy_qa")
     graph = build_graph(MemorySaver())
