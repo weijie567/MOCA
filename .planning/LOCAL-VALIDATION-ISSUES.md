@@ -12742,3 +12742,57 @@ UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/nodes/investigate.py src/
 
 - `tests/conftest.py` DB fixture
 - Phase 49 minimal test commands，必须顺序跑 DB-backed pytest
+
+## 2026-07-06 — `gsd-sdk query state.record-session` 参数解析错误导致 STATE 进度字段漂移
+
+### 问题现象
+
+Phase 52 轻量 discuss 后运行：
+
+```bash
+gsd-sdk query state.record-session --stopped-at "Phase 52 context gathered" --resume-file ".planning/phases/52-safety-pre-route-node/52-CONTEXT.md"
+```
+
+命令返回 `recorded: true`，但 `.planning/STATE.md` 被错误更新：`Last session` 写成 `--stopped-at`，`Resume file` 写成 `--resume-file`，同时把顶部 `completed_phases` 从 16 改为 15、`completed_plans` 从 48 改为 49、`percent` 从 70 改为 100。
+
+### 如何检测 / 复现
+
+运行上述 `gsd-sdk query state.record-session ...` 后检查：
+
+```bash
+git diff -- .planning/STATE.md
+```
+
+### 关键证据或命令
+
+异常 diff 里出现：
+
+```text
+Last session: --stopped-at
+Resume file: --resume-file
+completed_phases: 15
+completed_plans: 49
+percent: 100
+```
+
+### 当前判断 / 根因
+
+当前判断是 `gsd-sdk query state.record-session` 在本调用方式下把 flag 名当成了参数值，并触发了不符合当前 ROADMAP/STATE 的进度重算。这是本地 GSD 工具调用/参数解析问题，不是 Phase 52 context 内容问题。
+
+### 已做处理
+
+未提交错误 STATE。已手动修正 `.planning/STATE.md`：
+
+- 保持 Phase 52 `ready_to_plan`。
+- `stopped_at` / Session Continuity 指向 `Phase 52 context gathered`。
+- `Resume file` 指向 `.planning/phases/52-safety-pre-route-node/52-CONTEXT.md`。
+- 恢复进度字段为 `completed_phases: 16`、`completed_plans: 48`、`percent: 70`。
+
+### 剩余问题
+
+`gsd-sdk query state.record-session` 的正确参数形态未确认。后续在 MOCA 中使用前应先 dry-run 或小心检查 diff；不要盲目提交该命令产生的 STATE 改动。
+
+### 下次继续排查入口
+
+- `gsd-sdk query state.record-session --help` 或对应 GSD state command 实现。
+- `.planning/STATE.md` 顶部 progress 字段与 Session Continuity 字段。
