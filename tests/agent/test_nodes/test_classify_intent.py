@@ -45,7 +45,7 @@ async def test_classify_intent_success(monkeypatch, base_state, fake_llm_intent)
     assert result["classification_trace"]["candidate_classification"]["primary_intent"] == "refund_troubleshooting"
     assert result["classification_trace"]["policy_owner"] == "IntentPolicyRegistry"
     assert result["classification_trace"]["effective_classification"]["primary_intent"] == "refund_troubleshooting"
-    assert result["classification_trace"]["route_decision"] == "session_memory_load"
+    assert result["classification_trace"]["route_decision"] == "extract_slots"
     assert result["classification_trace"]["semantic_intent"]["intent"] == "refund_troubleshooting"
     assert result["classification_trace"]["semantic_intent"]["operation"] == "read_status"
     assert result["classification_trace"]["risk_decision"]["tier"] == "read_only"
@@ -59,7 +59,7 @@ async def test_classify_intent_success(monkeypatch, base_state, fake_llm_intent)
     assert result["classification_trace"]["plan_normalization"] == []
     assert result["deferred_steps"] == []
     assert (
-        result["llm_outputs"]["intent_classification"]["classification_trace"]
+        result["llm_outputs"]["contextual_intent_resolve"]["classification_trace"]
         == result["classification_trace"]
     )
 
@@ -176,7 +176,7 @@ def test_intent_result_to_state_serializes_task_plan_trace_and_state():
     assert trace["deferred_steps"] == [update["task_plan"]["steps"][1]]
     assert update["deferred_steps"] == trace["deferred_steps"]
     assert trace["plan_normalization"] == []
-    assert update["llm_outputs"]["intent_classification"]["classification_trace"] == trace
+    assert update["llm_outputs"]["contextual_intent_resolve"]["classification_trace"] == trace
 
 
 def test_multi_target_request_is_neutralized_only_after_valid_task_plan():
@@ -198,13 +198,13 @@ def test_multi_target_request_is_neutralized_only_after_valid_task_plan():
     trace = update["classification_trace"]
 
     assert update["primary_intent"] == "order_status_inquiry"
-    assert trace["pre_route_decision"]["disposition"] == "multi_target_request"
-    assert trace["pre_route_decision"]["requires_clarification"] is True
     assert update["routing_hints"]["pre_route_disposition"] == "multi_target_request"
     assert "requires_clarification" not in update["routing_hints"]
     assert "clarification_reason" not in update["routing_hints"]
     assert trace["clarification_decision"]["requires_clarification"] is False
-    assert trace["route_decision"] == "session_memory_load"
+    legacy_pre_route_key = "pre_" + "route_decision"
+    assert legacy_pre_route_key not in trace
+    assert trace["route_decision"] == "extract_slots"
     assert trace["executable_prefix"] == ["s1"]
     assert [step["intent"] for step in update["deferred_steps"]] == ["policy_qa"]
 
@@ -338,7 +338,8 @@ async def test_safety_sensitive_pre_route_still_applies_existing_risk(monkeypatc
     assert result["requested_operation"] == "execute_action"
     assert result["risk_tier"] == "approval_required"
     assert result["routing_hints"]["pre_route_disposition"] == "safety_sensitive"
-    assert result["classification_trace"]["pre_route_decision"]["disposition"] == "safety_sensitive"
+    legacy_pre_route_key = "pre_" + "route_decision"
+    assert legacy_pre_route_key not in result["classification_trace"]
     assert result["classification_trace"]["executable_prefix"] == []
     assert result["deferred_steps"] == []
     for forbidden_key in ("proposed_action", "action_draft", "approval_result", "action_result"):
@@ -372,7 +373,7 @@ async def test_pending_required_slot_identifier_reply_uses_active_flow_state(mon
     assert result["risk_tier"] == "read_only"
     assert result["routing_hints"]["workflow_state_resolution"] == "answered_pending_required_slot"
     assert result["classification_trace"]["raw_llm_classification"] is None
-    assert result["classification_trace"]["route_decision"] == "session_memory_load"
+    assert result["classification_trace"]["route_decision"] == "extract_slots"
     assert result["classification_trace"]["policy_overrides"][0]["source"] == "active_flow_state"
 
 

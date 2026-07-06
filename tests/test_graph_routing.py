@@ -10,7 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.agent.graph import route_after_approval, route_after_risk
 from src.agent.nodes import assess_risk_and_approval as risk_module
 from src.agent import routing as routing_module
-from src.agent.routing import route_after_investigate, route_after_recommendation, route_after_safety
+from src.agent.routing import (
+    route_after_contextual_intent,
+    route_after_investigate,
+    route_after_recommendation,
+    route_after_safety,
+)
 from src.agent.schemas import IntentResultV3, RiskAssessment
 from src.approvals.snapshot_service import compute_action_payload_hash
 from src.approvals.schemas import AutoAllowedActionBindingV1
@@ -314,6 +319,77 @@ def test_route_after_safety_fails_closed_for_exceptions_or_unregistered_route(mo
 
     monkeypatch.setattr(routing_module, "_route_after_safety", raise_error)
     assert route_after_safety({}) == "clarification_gate"
+
+
+@pytest.mark.parametrize(
+    ("state", "expected"),
+    [
+        (
+            {
+                "primary_intent": "refund_troubleshooting",
+                "requested_operation": "read_status",
+                "intent_confidence": 0.95,
+            },
+            "extract_slots",
+        ),
+        (
+            {
+                "primary_intent": "order_status_inquiry",
+                "requested_operation": "read_status",
+                "intent_confidence": 0.95,
+            },
+            "extract_slots",
+        ),
+        (
+            {
+                "primary_intent": "policy_qa",
+                "requested_operation": "advise",
+                "intent_confidence": 0.95,
+            },
+            "investigate",
+        ),
+        (
+            {
+                "primary_intent": "small_talk",
+                "requested_operation": "advise",
+                "intent_confidence": 0.95,
+            },
+            "final_response",
+        ),
+        (
+            {
+                "primary_intent": "small_talk",
+                "requested_operation": "approval_decision",
+                "intent_confidence": 0.95,
+            },
+            "clarification_gate",
+        ),
+        (
+            {
+                "primary_intent": "refund_troubleshooting",
+                "requested_operation": "read_status",
+                "intent_confidence": 0.1,
+            },
+            "clarification_gate",
+        ),
+    ],
+)
+def test_route_after_contextual_intent_totality_and_phase54_slot_destination(state, expected):
+    route = route_after_contextual_intent(state)
+
+    assert route in {"clarification_gate", "final_response", "investigate", "extract_slots"}
+    assert route == expected
+
+
+def test_route_after_contextual_intent_fails_closed_for_exceptions_or_unregistered_route(monkeypatch):
+    monkeypatch.setattr(routing_module, "_route_after_contextual_intent", lambda _state: "session_memory_load")
+    assert route_after_contextual_intent({}) == "clarification_gate"
+
+    def raise_error(_state):
+        raise RuntimeError("bad contextual intent state")
+
+    monkeypatch.setattr(routing_module, "_route_after_contextual_intent", raise_error)
+    assert route_after_contextual_intent({}) == "clarification_gate"
 
 
 def test_route_after_risk_returns_final_response_for_auto_allowed_snapshot_verified_action():
