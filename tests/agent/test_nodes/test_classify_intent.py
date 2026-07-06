@@ -62,6 +62,7 @@ async def test_classify_intent_success(monkeypatch, base_state, fake_llm_intent)
         result["llm_outputs"]["contextual_intent_resolve"]["classification_trace"]
         == result["classification_trace"]
     )
+    assert result["llm_outputs"]["intent_classification"] == result["llm_outputs"]["contextual_intent_resolve"]
 
 
 @pytest.mark.asyncio

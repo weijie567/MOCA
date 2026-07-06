@@ -13701,3 +13701,63 @@ src/memory/service.py:120: in load_session_memory
 
 - `tests/memory/test_session_memory_service.py`
 - `src/memory/service.py`
+
+## 2026-07-06 — Phase 53 code review 暴露 legacy intent output mirror 测试漏跑
+
+### 问题现象
+
+Phase 53 code review deep suite 额外覆盖 `tests/agent/test_intent_adapter.py` 后出现 1 个失败：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_intent_adapter.py -q --tb=short
+```
+
+失败为：
+
+```text
+KeyError: 'intent_classification'
+```
+
+### 如何检测 / 复现
+
+在 Phase 53-03 完成后，单独运行上述命令即可复现。失败点是 `tests/agent/test_intent_adapter.py` 仍从 `src.agent.nodes.classify_intent.intent_result_to_state` 兼容入口读取 `update["llm_outputs"]["intent_classification"]`。
+
+### 关键证据或命令
+
+本地复现命令：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_intent_adapter.py -q --tb=short
+```
+
+输出：
+
+```text
+FAILED tests/agent/test_intent_adapter.py::test_intent_result_to_state_uses_policy_required_slots_and_forbidden_writes
+E   KeyError: 'intent_classification'
+```
+
+### 当前判断 / 根因
+
+Phase 53 将 canonical owner 切到 `llm_outputs["contextual_intent_resolve"]`，但 `classify_intent.py` 兼容 wrapper 直接委托 canonical adapter，没有恢复 legacy `llm_outputs["intent_classification"]` mirror。53-03 validation focused suite 没包含 `tests/agent/test_intent_adapter.py`，因此该兼容回归被 code review suite 捕获。
+
+### 已做处理
+
+已在 `src/agent/nodes/classify_intent.py` 兼容 wrapper 层恢复非 authoritative legacy mirror，不改变 canonical `contextual_intent_resolve` active node 的主输出契约；并在 `tests/agent/test_nodes/test_classify_intent.py` 增加 mirror 断言。
+
+已通过：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_intent_adapter.py tests/agent/test_nodes/test_classify_intent.py tests/agent/test_nodes/test_contextual_intent_resolve.py -q --tb=short -> 21 passed, 1 warning
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_classify_intent.py tests/agent/test_intent_routing.py tests/test_graph_routing.py tests/agent/test_graph_vocabulary.py tests/architecture/test_canonical_graph_baseline.py tests/agent/test_session_memory_load.py tests/memory/test_session_memory_service.py tests/agent/test_trace.py tests/agent/test_intent_adapter.py -q --tb=short -> 1298 passed, 1 skipped, 1 warning
+```
+
+### 剩余问题
+
+Phase 53 final validation suite 应追加 `tests/agent/test_intent_adapter.py` 或在 review-fix closeout 中显式记录该额外兼容测试，避免未来只跑原 focused suite 时漏掉 retained output mirror。
+
+### 下次继续排查入口
+
+- `src/agent/nodes/classify_intent.py`
+- `src/agent/nodes/contextual_intent_resolve.py`
+- `tests/agent/test_intent_adapter.py`

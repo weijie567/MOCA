@@ -1024,3 +1024,27 @@
 - ✅ Phase 52 active `classify_intent` / `session_memory_load` compatibility is closed in the active graph and route maps.
 - 🟡 `classify_intent.py`、`session_memory_load.py`、`route_after_intent` and `llm_outputs["intent_classification"]` remain compatibility surfaces until Phase 58 cleanup.
 - 🟡 `extract_slots` remains the intentional Phase 54 active compatibility destination; Phase 53 did not promote `slot_resolution_gate`.
+
+## Phase 53 code review fix — `intent_classification` output mirror 兼容回归 ✅已修复验证
+
+**问题 / 根因**
+- Phase 53-03 将 graph vocabulary 和 docs 正确登记了 `llm_outputs["intent_classification"]` 为 retained compatibility mirror，但 implementation 里 `classify_intent.py` 兼容 wrapper 直接委托 canonical `contextual_intent_resolve.intent_result_to_state()`，没有恢复 legacy mirror。
+- `tests/agent/test_intent_adapter.py` 不在 Phase 53 final focused command 中，导致这个兼容测试直到 code review deep suite 才失败。
+
+**影响**
+- 仍通过 `src.agent.nodes.classify_intent.intent_result_to_state` 读取 legacy `llm_outputs["intent_classification"]` 的兼容调用方会收到 `KeyError`。
+- 该问题不影响 active graph route authority：active graph 已使用 `contextual_intent_resolve` 和 canonical `llm_outputs["contextual_intent_resolve"]`。
+
+**修复**
+- 在 `src/agent/nodes/classify_intent.py` wrapper 层新增 `_with_legacy_intent_output_mirror()`，只对 legacy compatibility entrypoint 补 `llm_outputs["intent_classification"] = llm_outputs["contextual_intent_resolve"]`。
+- canonical `src/agent/nodes/contextual_intent_resolve.py` 不写 legacy mirror，继续保持 active owner 为 `contextual_intent_resolve`。
+- `tests/agent/test_nodes/test_classify_intent.py` 增加 wrapper mirror 断言；`tests/agent/test_intent_adapter.py` 重新通过。
+
+**证据 / 验证**
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_intent_adapter.py tests/agent/test_nodes/test_classify_intent.py tests/agent/test_nodes/test_contextual_intent_resolve.py -q --tb=short` → `21 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_classify_intent.py tests/agent/test_intent_routing.py tests/test_graph_routing.py tests/agent/test_graph_vocabulary.py tests/architecture/test_canonical_graph_baseline.py tests/agent/test_session_memory_load.py tests/memory/test_session_memory_service.py tests/agent/test_trace.py tests/agent/test_intent_adapter.py -q --tb=short` → `1298 passed, 1 skipped, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/nodes/classify_intent.py tests/agent/test_nodes/test_classify_intent.py` → pass
+
+**剩余风险**
+- 🟡 `intent_classification` mirror 仍是 Phase 58 cleanup surface，不应新增 active graph/route authority。
+- 🟡 Phase 53 final validation suite 需要在 review-fix closeout 追加 `tests/agent/test_intent_adapter.py` 覆盖，避免 retained mirror 再次漏测。
