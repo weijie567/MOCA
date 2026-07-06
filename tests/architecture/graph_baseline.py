@@ -31,6 +31,7 @@ TARGET_CANONICAL_GRAPH_NODES = frozenset(
 CURRENT_ACTIVE_GRAPH_NODES_BASELINE = frozenset(
     {
         "receive_request",
+        "safety_pre_route",
         "classify_intent",
         "session_memory_load",
         "extract_slots",
@@ -85,6 +86,11 @@ FORBIDDEN_MAIN_CHAIN_REGISTERED_NODES = frozenset(
 )
 
 CURRENT_CONDITIONAL_EDGE_BASELINE = {
+    ("safety_pre_route", "route_after_safety"): {
+        "classify_intent": "classify_intent",
+        "clarification_gate": "clarification_gate",
+        "final_response": "final_response",
+    },
     ("classify_intent", "route_after_intent"): {
         "clarification_gate": "clarification_gate",
         "final_response": "final_response",
@@ -146,6 +152,14 @@ def _name(node: ast.AST, *, context: str) -> str:
     raise AssertionError(f"Unsupported graph baseline shape: {context}")
 
 
+def _edge_endpoint(node: ast.AST, *, context: str) -> str:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.Name):
+        return node.id
+    raise AssertionError(f"Unsupported graph baseline shape: {context}")
+
+
 def graph_add_node_names(path: Path = GRAPH_PATH) -> frozenset[str]:
     tree = ast.parse(_source(path))
     names: set[str] = set()
@@ -156,6 +170,23 @@ def graph_add_node_names(path: Path = GRAPH_PATH) -> frozenset[str]:
             raise AssertionError("Unsupported graph baseline shape: add_node without positional node name")
         names.add(_string_literal(node.args[0], context="add_node node name"))
     return frozenset(names)
+
+
+def graph_direct_edge_pairs(path: Path = GRAPH_PATH) -> frozenset[tuple[str, str]]:
+    tree = ast.parse(_source(path))
+    pairs: set[tuple[str, str]] = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "add_edge"):
+            continue
+        if node.keywords or len(node.args) != 2:
+            raise AssertionError("Unsupported graph baseline shape: add_edge must use exactly source and destination")
+        pairs.add(
+            (
+                _edge_endpoint(node.args[0], context="add_edge source"),
+                _edge_endpoint(node.args[1], context="add_edge destination"),
+            )
+        )
+    return frozenset(pairs)
 
 
 def graph_conditional_edge_mappings(path: Path = GRAPH_PATH) -> dict[tuple[str, str], dict[str, str]]:
@@ -376,6 +407,7 @@ def _router_route_values(path: Path, router_names: set[str]) -> dict[str, frozen
 
 def graph_router_route_values() -> dict[str, frozenset[str]]:
     routing_router_names = {
+        "route_after_safety",
         "route_after_intent",
         "route_after_slots",
         "route_after_investigate",

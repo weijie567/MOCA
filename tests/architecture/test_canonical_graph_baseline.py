@@ -16,7 +16,7 @@ from tests.architecture.graph_baseline import (
 )
 
 
-def test_current_active_graph_node_set_matches_phase51_baseline() -> None:
+def test_current_active_graph_node_set_matches_phase52_baseline() -> None:
     assert "safety_pre_route" in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
     assert graph_add_node_names() == CURRENT_ACTIVE_GRAPH_NODES_BASELINE
 
