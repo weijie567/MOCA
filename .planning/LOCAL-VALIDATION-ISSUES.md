@@ -12796,3 +12796,51 @@ percent: 100
 
 - `gsd-sdk query state.record-session --help` 或对应 GSD state command 实现。
 - `.planning/STATE.md` 顶部 progress 字段与 Session Continuity 字段。
+
+## 2026-07-06 — Phase 52 plan-phase 本地复查命令触发 zsh glob / quoting 错误
+
+### 问题现象
+
+Phase 52 plan-phase 复查既有 plan artifact 和 pattern artifact 时，两个本地 shell 命令失败：
+
+- 使用 `ls .planning/phases/52-safety-pre-route-node/*-PLAN.md` 检查 plan 文件时，zsh 在没有匹配文件前直接报 `no matches found`。
+- 使用双引号包裹含反引号的 `rg` pattern 时，zsh 解析出错并报 `unmatched "`。
+
+### 如何检测 / 复现
+
+在当前 zsh 环境下运行未防护的 glob 或含反引号的双引号 pattern：
+
+```bash
+ls .planning/phases/52-safety-pre-route-node/*-PLAN.md
+rg -n "^(#|##|###|```)|STATUS|COMPLETE|PASSED|FAILED" .planning/phases/52-safety-pre-route-node/52-PATTERNS.md
+```
+
+### 关键证据或命令
+
+命令输出分别包含：
+
+```text
+zsh:1: no matches found: .planning/phases/52-safety-pre-route-node/*-PLAN.md
+zsh:1: unmatched "
+```
+
+### 当前判断 / 根因
+
+这是本地命令写法问题，不是 Phase 52 artifact 内容问题。zsh 默认 `nomatch` 会在 glob 未命中时让命令进入执行前失败；双引号内的反引号仍会触发 shell command substitution 解析。
+
+### 已做处理
+
+后续改用更稳妥的检查方式：
+
+- 用 `find`、`rg --files`、显式文件路径或已确认存在的 glob 代替未防护的 `ls *-PLAN.md`。
+- 对包含反引号的搜索 pattern 使用单引号。
+- 已重新运行安全命令确认 `52-PATTERNS.md` 存在、`diff --check` 通过，且已提交 pattern artifact。
+
+### 剩余问题
+
+无代码阻塞。后续 plan-phase 本地复查命令应避免 zsh 未防护 glob 和反引号双引号组合。
+
+### 下次继续排查入口
+
+- `.planning/phases/52-safety-pre-route-node/52-PATTERNS.md`
+- Phase plan artifact 存在性检查命令，优先使用 `find .planning/phases/52-safety-pre-route-node -name '*-PLAN.md'`
