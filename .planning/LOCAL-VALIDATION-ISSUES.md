@@ -13857,3 +13857,55 @@ UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/intent_policy.py src/memo
 
 - `src/agent/intent_policy.py::slot_intent_compatible`
 - `tests/agent/test_required_slots.py`
+
+## 2026-07-07 — `state.record-session` 参数解析再次污染 STATE 进度字段
+
+### 问题现象
+
+Phase 54 autopilot discuss 收口后执行：
+
+```bash
+gsd-sdk query state.record-session --stopped-at "Phase 54 context gathered" --resume-file ".planning/phases/54-slot-resolution-gate-cutover/54-CONTEXT.md"
+```
+
+命令返回 `recorded: true`，但 `.planning/STATE.md` 被错误改写：
+
+- `completed_phases` 从 `18` 变成 `17`
+- `completed_plans` 从 `52` 变成 `55`
+- `percent` 从 `78` 变成 `100`
+- `Last session` 写成 `--stopped-at`
+- `Resume file` 写成 `--resume-file`
+
+### 如何检测 / 复现
+
+在 Phase 54 context 已生成后运行上述命令，并查看：
+
+```bash
+git diff -- .planning/STATE.md
+```
+
+### 关键证据或命令
+
+`git diff -- .planning/STATE.md` 显示 GSD state 工具把 flag 名当成 session/resume 值，并错误重算 progress。
+
+### 当前判断 / 根因
+
+这是 GSD `state.record-session` 的参数解析 / progress accounting 问题，不是 MOCA phase 状态真实变化。Phase 54 只完成 context gathering，尚未新增/完成任何 plan，不应改变 completed phase 或 plan 计数。
+
+### 已做处理
+
+手动修正 `.planning/STATE.md`：
+
+- 保留 `status: planning`、`stopped_at: Phase 54 context gathered`
+- 恢复 progress 为 `18/23 phases`、`52/54 plans`、`78%`
+- 修正 session continuity 为 `Last session: 2026-07-07T07:31:00+08:00`
+- 修正 resume file 为 `.planning/phases/54-slot-resolution-gate-cutover/54-CONTEXT.md`
+
+### 剩余问题
+
+后续继续避免盲信 `state.record-session` 输出；每次运行后必须检查 `.planning/STATE.md` diff。若再污染，应手动修正并记录。
+
+### 下次继续排查入口
+
+- `/Users/ming/.codex/get-shit-done/bin/gsd-sdk`
+- `.planning/STATE.md`
