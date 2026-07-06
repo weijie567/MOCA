@@ -104,6 +104,34 @@ def test_phase_33_claim_verify_is_runtime_runnable() -> None:
     assert projected["target_graph_runnable"] is True
 
 
+def test_phase_52_safety_pre_route_projects_as_runtime_node() -> None:
+    entry = graph_vocabulary_entry("safety_pre_route", kind="node")
+    projected = project_trace_step_for_contract({"node": "safety_pre_route", "status": "completed"})
+
+    assert entry is not None
+    assert entry.target_name == "safety_pre_route"
+    assert entry.status == "runtime"
+    assert entry.runnable is True
+    assert projected["implementation_node"] == "safety_pre_route"
+    assert projected["target_node"] == "safety_pre_route"
+    assert projected["target_graph_status"] == "runtime"
+    assert projected["target_graph_runnable"] is True
+
+
+def test_phase_52_classifier_pre_route_alias_remains_temporary_compatibility() -> None:
+    entry = graph_vocabulary_entry("classify_intent:pre_route", kind="node")
+    projected = project_trace_step_for_contract({"node": "classify_intent:pre_route", "status": "completed"})
+
+    assert entry is not None
+    assert entry.target_name == "safety_pre_route"
+    assert entry.status == "compatibility_alias"
+    assert entry.runnable is True
+    assert projected["implementation_node"] == "classify_intent:pre_route"
+    assert projected["target_node"] == "safety_pre_route"
+    assert projected["target_graph_status"] == "compatibility_alias"
+    assert projected["target_graph_runnable"] is True
+
+
 def test_unknown_graph_name_is_safe_passthrough() -> None:
     assert graph_vocabulary_entry("custom_debug_node", kind="node") is None
     assert target_graph_name("custom_debug_node", kind="node") == "custom_debug_node"
