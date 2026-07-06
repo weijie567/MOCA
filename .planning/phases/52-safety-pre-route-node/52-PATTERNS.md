@@ -1,8 +1,8 @@
 # Phase 52: safety-pre-route-node - Pattern Map
 
 **Mapped:** 2026-07-06
-**Files analyzed:** 15
-**Analogs found:** 15 / 15
+**Files analyzed:** 17
+**Analogs found:** 17 / 17
 
 ## File Classification
 
@@ -22,7 +22,9 @@
 | `tests/architecture/graph_baseline.py` | test | transform | `tests/architecture/graph_baseline.py` | exact |
 | `tests/architecture/test_canonical_graph_baseline.py` | test | transform | `tests/architecture/test_canonical_graph_baseline.py` | exact |
 | `tests/agent/test_graph_vocabulary.py` | test | transform | `tests/agent/test_graph_vocabulary.py` | exact |
+| `docs/current-langgraph-architecture.md` | documentation | batch/static verification | `docs/current-langgraph-architecture.md` + Phase 50 documentation sync checklist | role-match |
 | `.planning/ARCHITECTURE-DEBT.md` | config | batch | `.planning/ARCHITECTURE-DEBT.md` | exact |
+| `.planning/phases/52-safety-pre-route-node/52-VALIDATION.md` | validation artifact | batch/static verification | `.planning/phases/51-canonical-graph-baseline-guardrails-and-migration-matrix/51-VALIDATION.md` + current `52-VALIDATION.md` | role-match |
 
 ## Pattern Assignments
 
@@ -1069,6 +1071,42 @@ Append a Phase 52 update in Chinese by default. It should distinguish implemente
 
 Use only `uv run pytest ...` / `UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...` commands in ledger validation.
 
+### `docs/current-langgraph-architecture.md` (documentation, batch/static verification)
+
+**Analog:** current `docs/current-langgraph-architecture.md` source-snapshot style plus Phase 50 SPEC documentation sync checklist.
+
+**Current-source boundary pattern** (`docs/current-langgraph-architecture.md` lines 1-5):
+```markdown
+# 当前 LangGraph Graph/Node 架构图
+
+> 本图只根据当前仓库源码绘制，主要依据 `src/agent/graph.py` 的 `build_graph()` 节点/边定义，以及 `src/agent/routing.py` 和 `src/agent/graph.py` 中的条件路由函数。未把 planning 文档、README 描述或测试断言当作已实现事实。
+```
+
+**Phase 50 documentation sync checklist** (`50-SPEC.md` lines 253-266):
+```markdown
+Any downstream phase that changes graph semantics must check whether each file below needs an update:
+
+- `docs/current-langgraph-architecture.md`
+- `.planning/ARCHITECTURE-DEBT.md`
+- Current phase `PLAN.md`, `SUMMARY.md`, `VALIDATION.md`, and review artifacts
+```
+
+Apply this by updating `docs/current-langgraph-architecture.md` only as a current-source snapshot after graph wiring changes. It should show `receive_request -> safety_pre_route -> classify_intent` as Phase 52 transitional current behavior, and keep target/final canonical claims out of this file unless they are clearly labeled as target references.
+
+### `.planning/phases/52-safety-pre-route-node/52-VALIDATION.md` (validation artifact, batch/static verification)
+
+**Analog:** Phase 51 `51-VALIDATION.md` closeout pattern plus the current Phase 52 validation map.
+
+**Closeout pattern** (`51-03-PLAN.md` lines 144-170):
+```markdown
+Update `51-VALIDATION.md` after Plan 51-02 tests pass.
+
+Set `wave_0_complete: true` ... only after ... tests exist.
+Add a Validation Sign-Off section recording exact command results ...
+```
+
+Apply this to Phase 52 by changing `52-VALIDATION.md` from draft to complete only after the focused pytest suite, Ruff, bare-pytest scan, and `git diff --check` pass through approved MOCA entrypoints. The artifact must preserve per-task rows for pre/post parity, negative controls, static graph guardrails, fail-closed router behavior, no authority fields, and no memory/tool/approval/action side effects.
+
 ## Shared Patterns
 
 ### Deterministic Node Trace
@@ -1168,5 +1206,5 @@ None. The new `safety_pre_route` node has no exact existing file, but strong loc
 ## Metadata
 
 **Analog search scope:** `src/agent`, `src/agent/nodes`, `tests/agent`, `tests/agent/test_nodes`, `tests/architecture`, `tests/test_graph_routing.py`, `.planning/ARCHITECTURE-DEBT.md`
-**Files scanned:** 18 targeted files plus `rg` searches over source/test planning references
+**Files scanned:** 20 targeted files plus `rg` searches over source/test planning references
 **Pattern extraction date:** 2026-07-06

@@ -37,7 +37,7 @@ Code implementation is delegated to Codex per the project workflow; Claude is pl
 - [x] **Phase 49: Investigate Bounded ReAct Loop Migration** - Migrate `investigate` from legacy deterministic main planning to the bounded read-only ReAct loop defined in `contract-spec.md` §9.4, with ToolPlatform-only dispatch, 8-tool allowlist coverage, loop-local discovered slots, deterministic fallback, projection boundary, trace/replay iteration semantics, and no changes to intent/memory/risk/approval/action contracts (GAD-01-IMPL). Plan progress: 4/4 complete; closed as IMPLEMENTED_WITH_LIMITATIONS for replay parent-operation identity.
 - [x] **Phase 50: Canonical Agent Graph Migration Spec and Guardrails** - Lock the migration charter for the remaining canonical graph migration, including the exact 15-node final graph, no `slot_extraction` graph node, Phase 49 baseline treatment, temporary compatibility policy, validation matrix, and final no-debt gates (CAGM-01). SPEC-only phase complete; downstream implementation phases pending.
 - [x] **Phase 51: Canonical Graph Baseline Guardrails and Migration Matrix** - Add source-verified graph guardrails and migration matrix checks before runtime rewiring starts (CAGM-02). Plan progress: 3/3 complete; verified 2026-07-06.
-- [ ] **Phase 52: Safety Pre-route Node** - Extract request-risk pre-route into explicit `safety_pre_route` node before memory/context enrichment (CAGM-03). Not planned yet.
+- [ ] **Phase 52: Safety Pre-route Node** - Extract request-risk pre-route into explicit `safety_pre_route` node before memory/context enrichment (CAGM-03). Planned with 3 plans; ready to execute.
 - [ ] **Phase 53: Session Context Before Intent and Contextual Intent Resolve** - Move session context before intent resolution and replace active `classify_intent` with `contextual_intent_resolve` (CAGM-04). Not planned yet.
 - [ ] **Phase 54: Slot Resolution Gate Cutover** - Replace active `extract_slots` / `route_after_slots` graph boundary with canonical `slot_resolution_gate` and slot provenance (CAGM-05). Not planned yet.
 - [ ] **Phase 55: Memory Context Load Cutover** - Replace active `long_term_memory_retrieve` graph naming with canonical `memory_context_load` and contextual-only memory authority labels (CAGM-06). Not planned yet.
@@ -113,7 +113,7 @@ Plans:
 | 49. Investigate Bounded ReAct Loop Migration | 4/4 | Complete with replay parent-operation limitation | 2026-07-04 |
 | 50. Canonical Agent Graph Migration Spec and Guardrails | 0/0 | Complete (spec-only); implementation phases pending | 2026-07-06 |
 | 51. Canonical Graph Baseline Guardrails and Migration Matrix | 3/3 | Complete    | 2026-07-06 |
-| 52. Safety Pre-route Node | 0/TBD | Not planned | - |
+| 52. Safety Pre-route Node | 0/3 | Planned | 2026-07-06 |
 | 53. Session Context Before Intent and Contextual Intent Resolve | 0/TBD | Not planned | - |
 | 54. Slot Resolution Gate Cutover | 0/TBD | Not planned | - |
 | 55. Memory Context Load Cutover | 0/TBD | Not planned | - |
@@ -377,7 +377,7 @@ Plans:
 **Requirements**: CAGM-03
 **Depends on:** Phase 51
 **Must read:** `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`
-**Plans:** 0 plans (not planned yet)
+**Plans:** 3 plans
 **Success Criteria** (what must be TRUE):
   1. `receive_request -> safety_pre_route` is the active graph entry path for ordinary runs.
   2. Unsafe, unsupported, untrusted approval chat, or approval-bypass attempts do not enter memory, investigate, approval, or action paths.
@@ -385,7 +385,9 @@ Plans:
   4. Any temporary compatibility left inside `classify_intent` is recorded with owner, deletion phase, trace projection, and validation coverage per Phase 50 policy.
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 52 to break down)
+- [ ] 52-01-PLAN.md — Deterministic `safety_pre_route` node and unit/Nyquist coverage.
+- [ ] 52-02-PLAN.md — Graph/router wiring plus architecture guardrails.
+- [ ] 52-03-PLAN.md — Trace compatibility, docs/architecture-debt ledger, and final validation closeout.
 
 ### Phase 53: Session Context Before Intent and Contextual Intent Resolve
 

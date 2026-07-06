@@ -385,17 +385,17 @@ builder.add_conditional_edges(
 
 All claims in this research were verified against local source/planning artifacts, Context7/local LangGraph introspection, or official OWASP/ASVS pages; no `[ASSUMED]` claims are intentionally used. [VERIFIED: source inspection and commands listed in Sources]
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Exact top-level state field names for the safety decision**
    - What we know: Phase 52 requires a trace-visible safety decision and allows the planner to choose the smallest compatible state shape. [VERIFIED: .planning/phases/52-safety-pre-route-node/52-CONTEXT.md]
-   - What's unclear: Whether to add `pre_route_decision`, `safety_pre_route_decision`, `safety_flags`, or only a structured trace plus `routing_hints`. [VERIFIED: .planning/phases/52-safety-pre-route-node/52-CONTEXT.md]
-   - Recommendation: Use `pre_route_decision` plus existing `routing_hints` for minimal compatibility, and update `AgentState` if the field is accessed outside trace-only tests. [VERIFIED: src/agent/state.py:70-175; VERIFIED: docs/contract-spec.md:628-629]
+   - Resolution: Plans 52-01 and 52-02 use `pre_route_decision` plus routing metadata / existing `routing_hints` for minimal compatibility, and update `AgentState` if the field is accessed outside trace-only tests. [VERIFIED: .planning/phases/52-safety-pre-route-node/52-01-PLAN.md; VERIFIED: .planning/phases/52-safety-pre-route-node/52-02-PLAN.md; VERIFIED: src/agent/state.py:70-175; VERIFIED: docs/contract-spec.md:628-629]
+   - Status: RESOLVED for Phase 52 planning on 2026-07-06.
 
 2. **Direct refusal versus clarification for bypass cases**
    - What we know: Phase 52 allows `clarification_gate` by default and permits `final_response` only when deterministic reason and tests are explicit. [VERIFIED: .planning/phases/52-safety-pre-route-node/52-CONTEXT.md]
-   - What's unclear: Which bypass strings, if any, deserve direct refusal instead of the existing trusted-approval-channel clarification. [VERIFIED: .planning/phases/52-safety-pre-route-node/52-CONTEXT.md]
-   - Recommendation: Use `clarification_gate` for Phase 52 unless a plan adds a deterministic direct-refusal case with dedicated tests. [VERIFIED: tests/agent/test_graph.py:1076-1085; VERIFIED: src/agent/nodes/clarification_gate.py:54-97]
+   - Resolution: Plans 52-01 and 52-02 use `clarification_gate` as the default bypass handling. `final_response` is allowed only for a separately justified deterministic refusal branch with dedicated tests. [VERIFIED: .planning/phases/52-safety-pre-route-node/52-01-PLAN.md; VERIFIED: .planning/phases/52-safety-pre-route-node/52-02-PLAN.md; VERIFIED: tests/agent/test_graph.py:1076-1085; VERIFIED: src/agent/nodes/clarification_gate.py:54-97]
+   - Status: RESOLVED for Phase 52 planning on 2026-07-06.
 
 ## Environment Availability
 
@@ -507,4 +507,3 @@ OWASP ASVS is a security verification standard for web applications and services
 
 **Research date:** 2026-07-06 [VERIFIED: environment current_date]
 **Valid until:** 2026-07-13 for graph-migration planning, because Phase 52-58 are active and source facts may change quickly. [VERIFIED: .planning/STATE.md; VERIFIED: .planning/ROADMAP.md]
-
