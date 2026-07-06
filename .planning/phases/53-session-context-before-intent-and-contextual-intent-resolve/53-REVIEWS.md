@@ -1,7 +1,7 @@
 ---
 phase: 53
-reviewers: [claude]
-reviewed_at: 2026-07-06T11:08:33Z
+reviewers: [claude, claude-rereview]
+reviewed_at: 2026-07-06T11:24:40Z
 plans_reviewed:
   - 53-01-PLAN.md
   - 53-02-PLAN.md
@@ -112,3 +112,44 @@ Only Claude was run for this autopilot Stage 3 review.
 ### Divergent Views
 
 - None yet; Codex adjudication will determine whether Claude's blocker is accepted, partially accepted, or rejected against repository evidence and GSD execution semantics.
+
+---
+
+## Claude Re-Review After Repair
+
+### Summary
+
+Claude re-reviewed the repaired plans and returned **VERIFICATION PASSED**. It found no blockers and explicitly confirmed that the original HIGH atomicity blocker is closed.
+
+Confirmed repair:
+
+- 53-01 no longer cuts active router, policy, or graph path-map values.
+- 53-01 only creates the canonical `contextual_intent_resolve` node and a non-active `route_after_contextual_intent` helper.
+- 53-02 performs the active cutover across `src/agent/routing.py`, `src/agent/intent_policy.py`, and `src/agent/graph.py` in one task.
+- 53-02 verification covers router/policy tests, architecture baseline, graph tests, Ruff, and artifact scans.
+- Phase 54/55/58 boundaries remain preserved.
+- Validation commands use `UV_CACHE_DIR=/tmp/uv-cache uv run ...`; no bare `pytest` / bare `python -m pytest` validation command was found.
+
+### Blockers
+
+None.
+
+### Warnings
+
+#### MEDIUM - 53-01 non-active helper could confuse execution if the intermediate state is not explicit
+
+Claude noted that 53-01's canonical node can write a trace `route_decision == "extract_slots"` through the non-active helper, while active graph route values remain legacy-compatible until 53-02. This is not a blocker because the node is not active yet, but the executor must not make active `route_after_intent` delegate early or make active `classify_intent` emit `extract_slots` before graph path maps change.
+
+Codex accepted the warning and updated `53-01-PLAN.md` so `53-01-SUMMARY.md` must explicitly state that active graph route values remain legacy-compatible until 53-02 and `route_after_contextual_intent` remains non-active.
+
+#### LOW - Broad compatibility scan requires ledger review
+
+Claude agreed the 53-03 broad scan is intentionally reviewed against the compatibility ledger rather than treated as a zero-output blocker. Active graph registrations, active path-map destinations, active policy route values, and canonical duplicate `pre_route_decision` hits remain the true blocking surfaces.
+
+#### LOW - SSE label map is closeout, not runtime blocker
+
+Claude agreed keeping `src/api/routers/agent_runs.py` label updates in 53-03 is appropriate because label omissions affect trace readability, not CAGM-04 runtime route authority.
+
+### Verdict
+
+**VERIFICATION PASSED**. Repaired Phase 53 plans are safe to execute, with the execution constraint that 53-01 must remain pre-cutover preparation and 53-02 must keep routing, policy, and graph path-map changes atomic.
