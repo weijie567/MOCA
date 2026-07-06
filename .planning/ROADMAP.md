@@ -114,7 +114,7 @@ Plans:
 | 50. Canonical Agent Graph Migration Spec and Guardrails | 0/0 | Complete (spec-only); implementation phases pending | 2026-07-06 |
 | 51. Canonical Graph Baseline Guardrails and Migration Matrix | 3/3 | Complete    | 2026-07-06 |
 | 52. Safety Pre-route Node | 3/3 | Complete | 2026-07-06 |
-| 53. Session Context Before Intent and Contextual Intent Resolve | 1/3 | In Progress | - |
+| 53. Session Context Before Intent and Contextual Intent Resolve | 2/3 | In Progress | - |
 | 54. Slot Resolution Gate Cutover | 0/TBD | Not planned | - |
 | 55. Memory Context Load Cutover | 0/TBD | Not planned | - |
 | 56. Recommendation Generation and RAG Claim Status Alignment | 0/TBD | Not planned | - |
@@ -395,7 +395,7 @@ Plans:
 **Requirements**: CAGM-04
 **Depends on:** Phase 52
 **Must read:** `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 **Success Criteria** (what must be TRUE):
   1. Active graph order is `safety_pre_route -> session_context_load -> contextual_intent_resolve`.
   2. `contextual_intent_resolve` may use LLM structured output for candidate intent/operation/slots but cannot choose graph routes, satisfy slots, load long-term memory, or evaluate action risk.
@@ -404,7 +404,7 @@ Plans:
 
 Plans:
 - [x] 53-01-PLAN.md — canonical `contextual_intent_resolve` node contract and deterministic `route_after_contextual_intent` routing.
-- [ ] 53-02-PLAN.md — active graph cutover to `safety_pre_route -> session_context_load -> contextual_intent_resolve`.
+- [x] 53-02-PLAN.md — active graph cutover to `safety_pre_route -> session_context_load -> contextual_intent_resolve`.
 - [ ] 53-03-PLAN.md — graph vocabulary, current architecture docs, architecture debt ledger, and final validation closeout.
 
 ### Phase 54: Slot Resolution Gate Cutover
