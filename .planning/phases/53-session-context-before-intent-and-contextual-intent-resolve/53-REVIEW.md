@@ -1,8 +1,8 @@
 ---
 phase: 53-session-context-before-intent-and-contextual-intent-resolve
-reviewed: 2026-07-06T22:56:35Z
+reviewed: 2026-07-06T23:12:36Z
 depth: deep
-files_reviewed: 21
+files_reviewed: 22
 files_reviewed_list:
   - docs/current-langgraph-architecture.md
   - src/agent/graph.py
@@ -25,78 +25,56 @@ files_reviewed_list:
   - tests/architecture/test_canonical_graph_baseline.py
   - tests/memory/test_session_memory_service.py
   - tests/test_graph_routing.py
+  - tests/agent/test_required_slots.py
 findings:
   critical: 0
-  warning: 1
+  warning: 0
   info: 0
-  total: 1
-status: issues_found
+  total: 0
+status: clean
 ---
 
 # Phase 53: Code Review Report
 
-**Reviewed:** 2026-07-06T22:56:35Z
+**Reviewed:** 2026-07-06T23:12:36Z
 **Depth:** deep
-**Files Reviewed:** 21
-**Status:** issues_found
+**Files Reviewed:** 22
+**Status:** clean
 
 ## Summary
 
-Deep review covered the Phase 53 active graph cutover, fail-closed router allowlists, canonical `contextual_intent_resolve` output ownership, candidate-only LLM authority, same-thread session context before intent, retained compatibility aliases, architecture baselines, and the listed tests.
+Deep re-review covered the Phase 53 code-review-fix iteration 1 patch (`ad37034`) and the configured source/test scope. WR-01 is fixed.
 
-The active graph cutover itself is coherent: `classify_intent` and `session_memory_load` are no longer active graph nodes or active route destinations, `route_after_contextual_intent` is the active intent router, and the focused suites pass. One behavioral regression remains in the new pre-intent session context path: session slots loaded before intent can be marked as intent-compatible before the actual intent is known, allowing later slot resolution to accept incompatible inherited slots instead of clarifying.
+The pre-intent session slot path now preserves unknown-intent slots without pre-authorizing them: `MemoryService.load_session_memory(..., current_intent=None)` keeps active slots but emits `intent_compatible: false` and `intent_filter_applied: false`. After `contextual_intent_resolve` determines the actual intent, inherited-slot acceptance recomputes compatibility from `compatible_intents` through the shared `slot_intent_compatible()` policy helper. Incompatible non-business slots such as pre-intent `action_type` are rejected, while intentional cross-intent business-ID compatibility for `order_id`, `refund_case_id`, and `ticket_id` remains preserved.
 
-## Warnings
+No regressions found in the reviewed focus areas:
 
-### WR-01: Pre-intent session slots can bypass later intent compatibility filtering
+- Active graph cutover remains coherent: `session_context_load -> contextual_intent_resolve` is the active path, and `classify_intent` / `session_memory_load` are compatibility surfaces rather than registered active graph nodes.
+- Routing remains fail-closed: safety, contextual-intent, and slot routers reject unregistered route values and exceptions to clarification/final-response safe targets.
+- `contextual_intent_resolve` remains candidate-only: it can write `candidate_slots`, intent, operation, routing hints, and trace data, while forbidden authority fields such as `extracted_slots`, `active_slots`, approval/action state, tools, and final response remain blocked.
+- Canonical `session_context` is preferred over legacy `session_memory` for slot continuity, with legacy fallback retained only when canonical context is absent.
+- Architecture baselines, graph vocabulary, trace projection, and regression tests match the Phase 53 cutover state.
 
-**File:** `/Users/ming/projects/MOCA/src/memory/service.py:89`, `/Users/ming/projects/MOCA/src/memory/service.py:101`, and `/Users/ming/projects/MOCA/src/agent/intent_policy.py:471`
-
-**Issue:** Phase 53 changed `MemoryService.load_session_memory(..., current_intent=None)` to keep slots before intent is known, but each kept slot is still emitted with `slot_metadata["intent_compatible"] = True`. Later, after `contextual_intent_resolve` sets the actual intent, `SlotPolicyRegistry.accepts_inherited_slot()` trusts that boolean before checking the slot's `compatible_intents` (`src/agent/intent_policy.py:471`). That makes the new `session_context_load -> contextual_intent_resolve -> extract_slots` path fail open: a slot loaded only because the intent was unknown can satisfy required slots for an incompatible actual intent.
-
-I reproduced the failure with an `action_request` state whose current turn provided `order_id`, while pre-intent session context contributed `action_type=issue_coupon` with `compatible_intents=["compensation_suggestion"]`. `resolve_slots_with_metadata()` accepted the inherited `action_type`, and `route_after_slots()` returned `investigate`; with `intent_compatible=False`, the same state correctly returned `clarification_gate`.
-
-**Fix:**
-Do not mark unknown-intent loads as already intent-compatible. Preserve the slot and its `compatible_intents`, but make final acceptance re-evaluate against the actual post-intent context.
-
-```python
-# src/memory/service.py
-intent_filter_applied = current_intent is not None
-intent_compatible = (
-    _slot_intent_compatible(slot_name, slot.compatible_intents, current_intent)
-    if intent_filter_applied
-    else False
-)
-slot_metadata[slot_name] = {
-    ...
-    "compatible_intents": list(slot.compatible_intents),
-    "intent_compatible": intent_compatible,
-    "intent_filter_applied": intent_filter_applied,
-}
-```
-
-Then update the inherited-slot policy so a non-null actual intent recomputes compatibility from `compatible_intents` rather than blindly accepting a pre-intent boolean. If cross-intent business ID compatibility is intentional here, move the shared compatibility helper into policy code and use it from both services.
-
-Add a regression test that builds a `session_context.slot_continuity` loaded with `current_intent=None`, includes an incompatible non-business slot such as `action_type`, then asserts `resolve_slots_with_metadata()` excludes it and `route_after_slots()` returns `clarification_gate`.
+All reviewed files meet quality standards. No issues found.
 
 ## Verification
 
 Commands run:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_classify_intent.py tests/test_graph_routing.py tests/agent/test_intent_routing.py tests/memory/test_session_memory_service.py tests/agent/test_session_memory_load.py tests/agent/test_session_memory_integration.py -q --tb=short
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_required_slots.py tests/memory/test_session_memory_service.py tests/agent/test_session_memory_load.py tests/agent/test_session_memory_integration.py tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_classify_intent.py tests/test_graph_routing.py tests/agent/test_intent_routing.py tests/agent/test_graph.py tests/agent/test_graph_vocabulary.py tests/architecture/test_canonical_graph_baseline.py -q --tb=short
 ```
 
-Result: `1231 passed, 8 warnings`.
+Result: `1328 passed, 1 skipped, 35 warnings`.
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/graph.py src/agent/graph_vocabulary.py src/agent/intent_policy.py src/agent/nodes/classify_intent.py src/agent/nodes/contextual_intent_resolve.py src/agent/routing.py src/api/routers/agent_runs.py src/memory/service.py tests/agent/test_graph.py tests/agent/test_graph_vocabulary.py tests/agent/test_intent_routing.py tests/agent/test_nodes/test_classify_intent.py tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_session_memory_integration.py tests/agent/test_session_memory_load.py tests/agent/test_trace.py tests/architecture/graph_baseline.py tests/architecture/test_canonical_graph_baseline.py tests/memory/test_session_memory_service.py tests/test_graph_routing.py
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff check docs/current-langgraph-architecture.md src/agent/graph.py src/agent/graph_vocabulary.py src/agent/intent_policy.py src/agent/nodes/classify_intent.py src/agent/nodes/contextual_intent_resolve.py src/agent/routing.py src/api/routers/agent_runs.py src/memory/service.py tests/agent/test_graph.py tests/agent/test_graph_vocabulary.py tests/agent/test_intent_routing.py tests/agent/test_nodes/test_classify_intent.py tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_session_memory_integration.py tests/agent/test_session_memory_load.py tests/agent/test_trace.py tests/architecture/graph_baseline.py tests/architecture/test_canonical_graph_baseline.py tests/memory/test_session_memory_service.py tests/test_graph_routing.py tests/agent/test_required_slots.py
 ```
 
 Result: `All checks passed!`
 
 ---
 
-_Reviewed: 2026-07-06T22:56:35Z_
+_Reviewed: 2026-07-06T23:12:36Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_

@@ -1,6 +1,6 @@
 ---
 phase: 53-session-context-before-intent-and-contextual-intent-resolve
-fixed_at: 2026-07-06T13:45:00Z
+fixed_at: 2026-07-06T23:08:21Z
 review_path: .planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/53-REVIEW.md
 iteration: 1
 fix_scope: critical_warning
@@ -12,7 +12,7 @@ status: all_fixed
 
 # Phase 53: Code Review Fix Report
 
-**Fixed at:** 2026-07-06T13:45:00Z
+**Fixed at:** 2026-07-06T23:08:21Z
 **Source review:** `.planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/53-REVIEW.md`
 **Iteration:** 1
 
@@ -23,31 +23,32 @@ status: all_fixed
 
 ## Fixed Issues
 
-### WR-01: Legacy intent output mirror is no longer emitted
+### WR-01: Pre-intent session slots can bypass later intent compatibility filtering
 
-**Files modified:** `src/agent/nodes/classify_intent.py`, `tests/agent/test_nodes/test_classify_intent.py`, `.planning/ARCHITECTURE-DEBT.md`, `.planning/LOCAL-VALIDATION-ISSUES.md`, `.planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/53-VALIDATION.md`
+**Status:** fixed; clean auto re-review passed
 
-**Applied fix:** Restored the retained non-authoritative `llm_outputs["intent_classification"]` mirror only inside the `classify_intent.py` compatibility wrapper. The canonical active node still owns `llm_outputs["contextual_intent_resolve"]`; active graph routing and route authority remain unchanged.
+**Files modified:** `src/agent/intent_policy.py`, `src/memory/service.py`, `tests/agent/test_required_slots.py`, `tests/memory/test_session_memory_service.py`, `.planning/ARCHITECTURE-DEBT.md`, `.planning/LOCAL-VALIDATION-ISSUES.md`
 
-**Regression tests:** Added wrapper coverage asserting `classify_intent` mirrors `llm_outputs["intent_classification"]` to the canonical contextual intent output. Re-ran the previously failing `tests/agent/test_intent_adapter.py` compatibility test.
+**Commit:** `ad37034`
+
+**Applied fix:** Moved the business-ID cross-intent slot compatibility rule into `src.agent.intent_policy.slot_intent_compatible()` and reused it from `MemoryService`. Unknown-intent session memory loads now preserve slots but mark them with `intent_compatible=False` and `intent_filter_applied=False`. Inherited-slot policy now recomputes compatibility from `compatible_intents` once the actual intent is known, while preserving intentional cross-intent compatibility for `order_id`, `refund_case_id`, and `ticket_id`.
+
+**Regression tests:** Added resolver/router coverage proving an incompatible pre-intent inherited `action_type` is excluded and routes to `clarification_gate`, plus coverage proving cross-intent inherited `order_id` remains accepted. Updated session-memory service tests to assert pre-intent metadata is not pre-authorized.
 
 ## Verification
 
-- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_intent_adapter.py tests/agent/test_nodes/test_classify_intent.py tests/agent/test_nodes/test_contextual_intent_resolve.py -q --tb=short` -> `21 passed, 1 warning`
-- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_classify_intent.py tests/agent/test_intent_routing.py tests/test_graph_routing.py tests/agent/test_graph_vocabulary.py tests/architecture/test_canonical_graph_baseline.py tests/agent/test_session_memory_load.py tests/memory/test_session_memory_service.py tests/agent/test_trace.py tests/agent/test_intent_adapter.py -q --tb=short` -> `1298 passed, 1 skipped, 1 warning`
-- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture tests/agent/test_graph.py tests/test_graph_routing.py tests/agent/test_intent_routing.py tests/agent/test_graph_vocabulary.py tests/memory/test_session_memory_service.py tests/agent/test_session_memory_load.py tests/agent/test_session_memory_integration.py tests/agent/test_nodes/test_safety_pre_route.py tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_classify_intent.py tests/agent/test_intent_adapter.py -q --tb=short` -> `1400 passed, 2 skipped, 35 warnings`
-- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent tests/agent tests/architecture` -> pass
-- Active graph/baseline scan for active `classify_intent` / `session_memory_load` registration or route destination -> no output / pass
-- Duplicate `classification_trace.pre_route_decision` scan in `contextual_intent_resolve.py` -> no output / pass
-- Phase 53 artifact bare-command scan -> no output / pass
+- `UV_CACHE_DIR=/tmp/uv-cache uv run python -c "import ast, pathlib; [ast.parse(pathlib.Path(p).read_text()) for p in ['src/agent/intent_policy.py','src/memory/service.py','tests/agent/test_required_slots.py','tests/memory/test_session_memory_service.py']]"` -> pass
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_required_slots.py tests/memory/test_session_memory_service.py -q --tb=short` -> `33 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_intent_routing.py tests/agent/test_session_memory_load.py tests/agent/test_session_memory_integration.py -q --tb=short` -> `1125 passed, 8 warnings`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/intent_policy.py src/memory/service.py tests/agent/test_required_slots.py tests/memory/test_session_memory_service.py` -> pass
+- Auto re-review after the fix updated `53-REVIEW.md` to `status: clean`, `files_reviewed: 22`, and `0` findings. Re-review verification: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_required_slots.py tests/memory/test_session_memory_service.py tests/agent/test_session_memory_load.py tests/agent/test_session_memory_integration.py tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_classify_intent.py tests/test_graph_routing.py tests/agent/test_intent_routing.py tests/agent/test_graph.py tests/agent/test_graph_vocabulary.py tests/architecture/test_canonical_graph_baseline.py -q --tb=short` -> `1328 passed, 1 skipped, 35 warnings`; Ruff -> pass.
 
 ## Residual Risk
 
-- `llm_outputs["intent_classification"]` remains a Phase 58 cleanup surface. It is restored only for compatibility callers and must not become active graph authority.
-- `extract_slots` remains intentionally Phase 54-owned compatibility.
+- The compatibility helper is now shared by memory load and slot inheritance policy; future additions to business-ID slot groups should update the single policy helper and corresponding tests.
 
 ---
 
-_Fixed: 2026-07-06T13:45:00Z_
-_Fixer: Codex_
+_Fixed: 2026-07-06T23:08:21Z_
+_Fixer: Claude (gsd-code-fixer)_
 _Iteration: 1_
