@@ -34,6 +34,7 @@ RAG_CONTEXT_STATUSES = {
 }
 _RAG_CONTEXT_ROUTES = {"recommendation_generation", "clarification_gate", "final_response"}
 _CLAIM_VERIFY_ROUTES = {"assess_risk_and_approval", "final_response"}
+SAFETY_ROUTES = {"classify_intent", "clarification_gate", "final_response"}
 INTENT_ROUTES = {"clarification_gate", "final_response", "investigate", "session_memory_load"}
 SLOT_ROUTES = {"clarification_gate", "investigate", "long_term_memory_retrieve"}
 BUSINESS_ID_SLOTS = ("order_id", "refund_case_id", "ticket_id")
@@ -74,6 +75,14 @@ def route_after_intent(state: AgentState) -> str:
     except Exception:
         return "clarification_gate"
     return route if route in INTENT_ROUTES else "clarification_gate"
+
+
+def route_after_safety(state: AgentState) -> str:
+    try:
+        route = _route_after_safety(state)
+    except Exception:
+        return "clarification_gate"
+    return route if route in SAFETY_ROUTES else "clarification_gate"
 
 
 def route_after_slots(state: AgentState) -> str:
@@ -178,6 +187,30 @@ def detect_slot_invalidations(user_query: str) -> dict[str, dict[str, Any]]:
     if any(marker in lowered or marker in user_query for marker in _BROAD_INVALIDATION_MARKERS):
         return {slot: _slot_invalidation(slot) for slot in BUSINESS_ID_SLOTS}
     return {}
+
+
+def _route_after_safety(state: AgentState) -> str:
+    routing_hints = state.get("routing_hints") if isinstance(state.get("routing_hints"), dict) else {}
+    raw_pre_route = state.get("pre_route_decision")
+    if hasattr(raw_pre_route, "model_dump"):
+        raw_pre_route = raw_pre_route.model_dump(mode="python")
+    pre_route = raw_pre_route if isinstance(raw_pre_route, dict) else {}
+    disposition = pre_route.get("disposition") or routing_hints.get("pre_route_disposition") or "none"
+    requires_clarification = bool(pre_route.get("requires_clarification")) or (
+        routing_hints.get("requires_clarification") is True
+    )
+
+    if state.get("requested_operation") == "approval_decision":
+        return "clarification_gate"
+    if disposition in {"approval_chat_not_trusted", "multi_target_request"}:
+        return "clarification_gate"
+    if routing_hints.get("clarification_reason") == "approval_chat_not_trusted":
+        return "clarification_gate"
+    if requires_clarification:
+        return "clarification_gate"
+    if disposition in {"none", "safety_sensitive"}:
+        return "classify_intent"
+    return "clarification_gate"
 
 
 def _slot_invalidation(slot: str) -> dict[str, Any]:

@@ -33,6 +33,7 @@ from src.agent.nodes.investigate import investigate
 from src.agent.nodes.long_term_memory_retrieve import long_term_memory_retrieve
 from src.agent.nodes.rag_context_build import rag_context_build
 from src.agent.nodes.receive_request import receive_request
+from src.agent.nodes.safety_pre_route import safety_pre_route
 from src.agent.nodes.session_memory_load import session_memory_load
 from src.agent.routing import (
     route_after_claim_verify,
@@ -40,6 +41,7 @@ from src.agent.routing import (
     route_after_investigate,
     route_after_rag_context,
     route_after_recommendation,
+    route_after_safety,
     route_after_slots,
 )
 from src.agent.state import AgentState
@@ -278,6 +280,7 @@ def build_graph(checkpointer: AsyncPostgresSaver):
     builder = StateGraph(AgentState)
 
     builder.add_node("receive_request", receive_request)
+    builder.add_node("safety_pre_route", safety_pre_route)
     builder.add_node("classify_intent", classify_intent, retry_policy=_llm_retry)
     builder.add_node("session_memory_load", session_memory_load)
     builder.add_node("extract_slots", extract_slots, retry_policy=_llm_retry)
@@ -293,7 +296,16 @@ def build_graph(checkpointer: AsyncPostgresSaver):
     builder.add_node("final_response", final_response, retry_policy=_llm_retry)
 
     builder.add_edge(START, "receive_request")
-    builder.add_edge("receive_request", "classify_intent")
+    builder.add_edge("receive_request", "safety_pre_route")
+    builder.add_conditional_edges(
+        "safety_pre_route",
+        route_after_safety,
+        {
+            "classify_intent": "classify_intent",
+            "clarification_gate": "clarification_gate",
+            "final_response": "final_response",
+        },
+    )
     builder.add_conditional_edges(
         "classify_intent",
         route_after_intent,
