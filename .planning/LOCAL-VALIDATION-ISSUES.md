@@ -12979,3 +12979,74 @@ ROADMAP 仍保留：
 - `.planning/STATE.md` frontmatter progress 字段。
 - `.planning/ROADMAP.md` Phase 52 summary/table/detail三处 plan 状态。
 - `gsd-sdk query state.planned-phase` 实现或帮助输出。
+
+## 2026-07-06 — `gsd-sdk query state.begin-phase` flag 解析错误导致 Phase 52 执行状态写坏
+
+### 问题现象
+
+Phase 52 execute-phase 初始化后运行：
+
+```bash
+gsd-sdk query state.begin-phase --phase "52" --name "safety-pre-route-node" --plans "3"
+```
+
+命令返回中把 flag 名和值错位：
+
+```json
+{
+  "phase": "--phase",
+  "name": "52",
+  "plan_count": "--name"
+}
+```
+
+随后 `.planning/STATE.md` 被错误更新为 `Phase --phase`，并再次出现进度字段漂移。
+
+### 如何检测 / 复现
+
+运行上述命令后检查：
+
+```bash
+git diff -- .planning/STATE.md
+```
+
+### 关键证据或命令
+
+异常 diff 包含：
+
+```text
+last_activity: 2026-07-06 -- Phase --phase execution started
+completed_phases: 15
+completed_plans: 49
+percent: 96
+**Current focus:** Phase --phase — 52
+Phase: --phase (52) — EXECUTING
+Plan: 1 of --name
+```
+
+### 当前判断 / 根因
+
+这是与 `state.record-session`、`state.planned-phase` 同类的 GSD state command flag 解析/进度重算问题，不是 Phase 52 plan 或代码问题。
+
+### 已做处理
+
+未提交错误 STATE。已手工修正：
+
+- `status: executing`
+- `last_activity: 2026-07-06 -- Phase 52 execution started`
+- `completed_phases: 16`
+- `completed_plans: 48`
+- `percent: 70`
+- Current Position 指向 `52-01 in progress`
+- STATE Current Roadmap 中 Phase 52 改为 `0/3 | Executing`
+
+执行阶段后续不再让 executor 子代理调用 GSD state/roadmap 更新命令；由主流程检查 diff 后集中维护状态。
+
+### 剩余问题
+
+`state.begin-phase` 的正确调用形态仍未确认。后续使用前必须先查帮助或在临时环境验证，不能盲目提交其输出。
+
+### 下次继续排查入口
+
+- `gsd-sdk query state.begin-phase --help`
+- `.planning/STATE.md` frontmatter、Current Position、Current Roadmap 三处状态同步。
