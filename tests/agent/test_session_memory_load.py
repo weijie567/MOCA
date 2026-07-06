@@ -277,6 +277,59 @@ async def test_session_context_load_direct_node_returns_target_and_legacy_fields
     assert result["trace_steps"][-1]["node"] == "session_context_load"
 
 
+async def test_session_context_load_pre_intent_passes_current_intent_none(monkeypatch):
+    from src.agent.nodes import session_context_load as session_context_load_module
+    from src.agent.nodes.session_context_load import session_context_load
+
+    monkeypatch.setattr(session_context_load_module.settings, "session_memory_enabled", True)
+    run_id = str(uuid.uuid4())
+    observed_current_intents: list[str | None] = []
+
+    class FakeSession:
+        async def execute(self, *args, **kwargs):
+            raise AssertionError("context service fake should avoid repository reads")
+
+    class FakeMemoryContextService:
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        async def load_session_context_for_intent(self, **kwargs):
+            observed_current_intents.append(kwargs.get("current_intent"))
+            slot_continuity = SessionMemoryView(
+                source="postgres_session_memory",
+                continuity_claimed=True,
+                active_slots={"order_id": "ORD-PRE-INTENT"},
+                slot_metadata={"order_id": {"source": "trusted_session_memory"}},
+                version=12,
+            )
+            bundle = SessionMemoryBundle(
+                tenant_id=str(kwargs["tenant_id"]),
+                user_id=str(kwargs["user_id"]),
+                thread_id=kwargs["thread_id"],
+                run_id=str(kwargs["run_id"]),
+                slot_continuity=slot_continuity,
+            )
+            from src.memory.context_service import _session_context_status
+            from src.memory.schemas import SessionContextMemory
+
+            context = SessionContextMemory.model_validate(bundle)
+            return context, _session_context_status(context, status="loaded", source="session_memory_bundle_service")
+
+    state = {**_state(), "current_run_id": run_id}
+    state.pop("primary_intent", None)
+    state.pop("current_intent", None)
+
+    result = await session_context_load(
+        state,
+        {"configurable": {"session": FakeSession()}},
+        memory_context_service_cls=FakeMemoryContextService,
+    )
+
+    assert observed_current_intents == [None]
+    assert result["session_context"]["active_slots"] == {"order_id": "ORD-PRE-INTENT"}
+    assert result["session_memory"]["active_slots"] == {"order_id": "ORD-PRE-INTENT"}
+
+
 async def test_session_context_load_status_dto_accepts_fallback_node_output(monkeypatch):
     from src.agent.nodes import session_context_load as session_context_load_module
     from src.agent.nodes.session_context_load import session_context_load

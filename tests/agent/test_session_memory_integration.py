@@ -8,8 +8,8 @@ from langgraph.checkpoint.memory import MemorySaver
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.graph import build_graph
-from src.agent.nodes import classify_intent as classify_intent_module
-from src.agent.nodes import session_memory_load as session_memory_load_module
+from src.agent.nodes import contextual_intent_resolve as contextual_intent_module
+from src.agent.nodes import session_context_load as session_context_load_module
 from src.agent.nodes.memory_write import memory_write
 from src.agent.trace import write_agent_run
 from src.db.models import User
@@ -148,6 +148,8 @@ async def test_same_thread_vague_turn_inherits_session_order_and_reruns_investig
     assert final_state["active_slot_metadata"]["order_id"]["explicit_current_turn"] is False
     assert final_state["business_context"]["facts"]["order"]["order_no"] == "ORD-1001"
     assert [call[0] for call in deps["tool_platform"].calls] == ["get_order", "search_policy"]
+    nodes = [step["node"] for step in final_state["trace_steps"]]
+    assert nodes.index("session_context_load") < nodes.index("contextual_intent_resolve")
 
 
 @pytest.mark.asyncio
@@ -262,7 +264,7 @@ async def test_next_step_followup_reuses_prior_order_status_memory_instead_of_ac
     await _write_order_status_memory(session, user, thread_id, order_id="ORD-2024-001")
     deps = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id=None)
     monkeypatch.setattr(
-        classify_intent_module,
+        contextual_intent_module,
         "_get_llm",
         lambda: FakeLLM(
             {
@@ -295,6 +297,44 @@ async def test_next_step_followup_reuses_prior_order_status_memory_instead_of_ac
     assert final_state.get("clarification_request") is None
     assert "请提供操作类型" not in final_state["final_response"]
     assert final_state["business_context"]["facts"]["order"]["order_no"] == "ORD-2024-001"
+    assert [call[0] for call in deps["tool_platform"].calls] == ["get_order", "search_policy"]
+
+
+@pytest.mark.asyncio
+async def test_pending_slot_short_reply_uses_pre_intent_same_thread_session_context(
+    session: AsyncSession,
+    seeded_session: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = seeded_session["users"]["cs_zhang"]
+    thread_id = "integration-pending-slot-short-reply"
+    await _write_order_memory(session, user, thread_id, order_id="ORD-1001")
+    deps = _patch_graph_dependencies(monkeypatch, intent="policy_qa", order_id=None)
+    graph = build_graph(MemorySaver())
+
+    final_state = await graph.ainvoke(
+        {
+            **_state(user, "ORD-1001", thread_id),
+            "last_intent": "refund_troubleshooting",
+            "requested_operation": "read_status",
+            "required_slots": {"all_of": [], "any_of": [["order_id", "refund_case_id"]], "optional": []},
+            "clarification_request": {
+                "reason": "missing_required_slots",
+                "blocked_nodes": ["investigate"],
+                "clarification_request_id": "clarify-short-reply",
+            },
+        },
+        _config(deps["tool_platform"], deps["events"], thread_id, session=session),
+    )
+
+    nodes = [step["node"] for step in final_state["trace_steps"]]
+    assert nodes[:4] == ["receive_request", "safety_pre_route", "session_context_load", "contextual_intent_resolve"]
+    assert nodes.index("contextual_intent_resolve") < nodes.index("extract_slots")
+    assert "long_term_memory_retrieve" not in nodes
+    assert final_state["session_context"]["active_slots"]["order_id"] == "ORD-1001"
+    assert final_state["session_memory"]["active_slots"]["order_id"] == "ORD-1001"
+    assert final_state["active_slots"]["order_id"] == "ORD-1001"
+    assert final_state.get("clarification_request") is None
     assert [call[0] for call in deps["tool_platform"].calls] == ["get_order", "search_policy"]
 
 
@@ -368,7 +408,7 @@ async def test_disabled_and_unavailable_session_memory_fall_back_to_clarificatio
     user = seeded_session["users"]["cs_zhang"]
     graph = build_graph(MemorySaver())
 
-    monkeypatch.setattr(session_memory_load_module.settings, "session_memory_enabled", False)
+    monkeypatch.setattr(session_context_load_module.settings, "session_memory_enabled", False)
     disabled_deps = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id=None)
     disabled_state = await graph.ainvoke(
         _state(user, "that refund?", "integration-disabled-memory"),
@@ -378,7 +418,7 @@ async def test_disabled_and_unavailable_session_memory_fall_back_to_clarificatio
     assert disabled_state["session_memory"]["fallback_reason"] == "disabled"
     assert disabled_state["clarification_request"]["reason"] == "missing_required_slots"
 
-    monkeypatch.setattr(session_memory_load_module.settings, "session_memory_enabled", True)
+    monkeypatch.setattr(session_context_load_module.settings, "session_memory_enabled", True)
 
     class FailingMemoryService:
         def __init__(self, repository, *, enabled: bool = True) -> None:
@@ -387,7 +427,7 @@ async def test_disabled_and_unavailable_session_memory_fall_back_to_clarificatio
         async def load_session_memory(self, tenant_id, user_id, thread_id, current_intent):
             raise RuntimeError("database unavailable")
 
-    monkeypatch.setattr(session_memory_load_module, "MemoryService", FailingMemoryService)
+    monkeypatch.setattr(session_context_load_module, "MemoryService", FailingMemoryService)
     unavailable_deps = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id=None)
     unavailable_state = await graph.ainvoke(
         _state(user, "that refund?", "integration-unavailable-memory"),
