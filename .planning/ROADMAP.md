@@ -395,7 +395,7 @@ Plans:
 **Requirements**: CAGM-04
 **Depends on:** Phase 52
 **Must read:** `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`
-**Plans:** 0 plans (not planned yet)
+**Plans:** 3 plans
 **Success Criteria** (what must be TRUE):
   1. Active graph order is `safety_pre_route -> session_context_load -> contextual_intent_resolve`.
   2. `contextual_intent_resolve` may use LLM structured output for candidate intent/operation/slots but cannot choose graph routes, satisfy slots, load long-term memory, or evaluate action risk.
@@ -403,7 +403,9 @@ Plans:
   4. Active runtime no longer depends on `classify_intent` as the registered graph node after cutover, except for explicitly recorded temporary implementation reuse slated for deletion.
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 53 to break down)
+- [ ] 53-01-PLAN.md — canonical `contextual_intent_resolve` node contract and deterministic `route_after_contextual_intent` routing.
+- [ ] 53-02-PLAN.md — active graph cutover to `safety_pre_route -> session_context_load -> contextual_intent_resolve`.
+- [ ] 53-03-PLAN.md — graph vocabulary, current architecture docs, architecture debt ledger, and final validation closeout.
 
 ### Phase 54: Slot Resolution Gate Cutover
 
