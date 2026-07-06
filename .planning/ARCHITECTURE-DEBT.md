@@ -945,3 +945,35 @@
 **剩余风险**
 - ⚠️ GAD-01 closeout 为 `IMPLEMENTED_WITH_LIMITATIONS`，不是完全 `IMPLEMENTED`：investigate 已能在 event helper / DB row 中接收并写入 parent operation identity，但 Phase 49 没有新增 graph-level node operation start/completion emission，也没有强制 graph 自动传 `node_operation_id`。当前 replay 可通过 distinct tool operation + iteration + optional parent 区分 loop；完整“node operation 下挂多个 tool operation”的强 parent 语义留作后续 replay/trace graph-lifecycle phase。
 - ✅ 本 phase 未修改 `docs/contract-spec.md`、intent contract、memory writer/CWC schema、`active_slots` writer、risk/approval/action executor。
+
+## Phase 53 Plan 02 — active graph 切到 session_context_load -> contextual_intent_resolve ✅已修复验证
+
+**问题 / 根因**
+- Phase 52 之后 runtime graph 已有独立 `safety_pre_route`，但 safe / `safety_sensitive` continuation 仍进入旧 `classify_intent` active node，随后进入旧 `session_memory_load` active node。
+- Phase 53-01 已新增 canonical `contextual_intent_resolve` 与非 active `route_after_contextual_intent`，但 active graph / router / policy route values 尚未同步切换；如果只改其中一层会产生 route-map drift。
+
+**影响**
+- CAGM-04 未满足：same-thread session context 不能在 intent LLM 之前加载，active graph 仍依赖 `classify_intent` / `session_memory_load` 作为注册节点。
+- slot-required intents 仍把 policy route 指向 `session_memory_load`，会阻塞后续 Phase 54 slot gate cutover。
+
+**修复**
+- `route_after_safety` safe / `safety_sensitive` continuation 改为 `session_context_load`；`SAFETY_ROUTES` 同步更新。
+- `route_after_contextual_intent` 成为 active graph router；保留的 `route_after_intent` 仅直接委托给 contextual router，不再有独立 allowlist / 行为分叉。
+- slot-required `IntentDefinition.initial_route` 从 `session_memory_load` 改为 Phase 54 兼容目的地 `extract_slots`。
+- `src/agent/graph.py` active graph 删除 `classify_intent` / `session_memory_load` 注册和 path-map destination，新增 `session_context_load`、`contextual_intent_resolve` 注册以及固定边 `session_context_load -> contextual_intent_resolve`。
+- `extract_slots` 仍保留为 Phase 54 兼容 active node；未引入 `slot_resolution_gate`、`memory_context_load`、`recommendation_generation`、`risk_gate` 或 Phase 58 no-debt cleanup。
+
+**证据**
+- Phase / plan：`53-02`
+- 文件：`src/agent/routing.py`、`src/agent/intent_policy.py`、`src/agent/graph.py`、`tests/architecture/graph_baseline.py`、`tests/architecture/test_canonical_graph_baseline.py`、`tests/test_graph_routing.py`、`tests/agent/test_intent_routing.py`、`tests/agent/test_graph.py`
+
+**验证**
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_graph_routing.py tests/agent/test_intent_routing.py tests/architecture/test_canonical_graph_baseline.py tests/agent/test_graph.py -q --tb=short` → `1217 passed, 1 skipped`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/routing.py src/agent/intent_policy.py src/agent/graph.py tests/test_graph_routing.py tests/agent/test_intent_routing.py tests/architecture/graph_baseline.py tests/architecture/test_canonical_graph_baseline.py tests/agent/test_graph.py` → pass
+- `rg -n 'add_node\("session_context_load"|add_node\("contextual_intent_resolve"|add_edge\("session_context_load", "contextual_intent_resolve"\)' src/agent/graph.py` → 找到 active registration / fixed edge
+- `! rg -n 'add_node\("classify_intent"|add_node\("session_memory_load"|"classify_intent": "classify_intent"|"session_memory_load": "session_memory_load"' src/agent/graph.py tests/architecture/graph_baseline.py` → no active-runtime hits
+
+**剩余风险**
+- ✅ CAGM-04 active graph cutover 已完成并验证。
+- 🟡 `extract_slots` 仍是 active compatibility node，删除 phase 为 Phase 54 / CAGM-05。
+- 🟡 `long_term_memory_retrieve`、`generate_recommendation`、`assess_risk_and_approval` 等 legacy active names 仍分别属于 Phase 55 / 56 / 57；Phase 53-02 未提前清理。

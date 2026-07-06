@@ -16,7 +16,7 @@ from src.agent import trace as trace_module
 from src.agent.graph import build_graph, route_after_approval, route_after_risk
 from src.agent.graph_vocabulary import target_graph_name
 from src.agent.nodes import assess_risk_and_approval as assess_risk_module
-from src.agent.nodes import classify_intent as classify_intent_module
+from src.agent.nodes import contextual_intent_resolve as contextual_intent_module
 from src.agent.nodes import extract_slots as extract_slots_module
 from src.agent.nodes import generate_recommendation as generate_recommendation_module
 from src.agent.nodes import long_term_memory_retrieve as memory_retrieve_module
@@ -515,7 +515,7 @@ def _patch_graph_dependencies(
     policy_status: str = "strong_evidence",
     ticket_id: str | None = None,
 ):
-    monkeypatch.setattr(classify_intent_module, "_get_llm", lambda: FakeLLM(_intent(intent)))
+    monkeypatch.setattr(contextual_intent_module, "_get_llm", lambda: FakeLLM(_intent(intent)))
     monkeypatch.setattr(extract_slots_module, "_get_llm", lambda: FakeLLM(_slots(order_id)))
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
     monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: FakeLLM(_risk()))
@@ -557,7 +557,7 @@ def _session_memory_service(
                 "expires_at": (
                     datetime.now(UTC) - timedelta(minutes=1) if stale else datetime.now(UTC) + timedelta(minutes=5)
                 ).isoformat(),
-                "compatible_intents": [current_intent],
+                "compatible_intents": [current_intent or "refund_troubleshooting"],
             }
             return SessionMemoryView(
                 source="postgres_session_memory",
@@ -744,9 +744,9 @@ async def test_refund_path_without_case_identifier_routes_to_clarification(monke
 @pytest.mark.asyncio
 async def test_same_thread_session_memory_active_slots_feed_investigate(monkeypatch):
     deps = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id=None)
-    from src.agent.nodes import session_memory_load as session_memory_load_module
+    from src.agent.nodes import session_context_load as session_context_load_module
 
-    monkeypatch.setattr(session_memory_load_module, "SessionMemoryBundleService", _session_memory_bundle_service())
+    monkeypatch.setattr(session_context_load_module, "SessionMemoryBundleService", _session_memory_bundle_service())
     graph = build_graph(MemorySaver())
 
     final_state = await graph.ainvoke(
@@ -759,7 +759,7 @@ async def test_same_thread_session_memory_active_slots_feed_investigate(monkeypa
     assert final_state["active_slot_metadata"]["order_id"]["explicit_current_turn"] is False
     assert final_state["extracted_slots"]["order_id"] is None
     assert final_state["business_context"]["facts"]["order"]["order_no"] == "ORD-SESSION-001"
-    assert "session_memory_load" in [step["node"] for step in final_state["trace_steps"]]
+    assert "session_context_load" in [step["node"] for step in final_state["trace_steps"]]
     assert [call[0] for call in deps["tool_platform"].calls] == ["get_order", "search_policy"]
     assert deps["tool_platform"].calls[0][1]["order_no"] == "ORD-SESSION-001"
     assert final_state["final_response"]
@@ -769,10 +769,10 @@ async def test_same_thread_session_memory_active_slots_feed_investigate(monkeypa
 @pytest.mark.parametrize("memory_kwargs", [{"wrong_thread": True}, {"stale": True}])
 async def test_wrong_thread_or_stale_session_memory_routes_to_clarification(monkeypatch, memory_kwargs):
     deps = _patch_graph_dependencies(monkeypatch, intent="refund_troubleshooting", order_id=None)
-    from src.agent.nodes import session_memory_load as session_memory_load_module
+    from src.agent.nodes import session_context_load as session_context_load_module
 
     monkeypatch.setattr(
-        session_memory_load_module,
+        session_context_load_module,
         "SessionMemoryBundleService",
         _session_memory_bundle_service(**memory_kwargs),
     )
@@ -1133,7 +1133,7 @@ async def test_unsafe_pre_route_inputs_stop_before_classifier_memory_tools_or_ac
 async def test_long_term_memory_reviewed_retrieval_safe_empty_when_no_reviewed_rows(monkeypatch):
     payload = _intent("refund_troubleshooting")
     payload["routing_hints"] = {"needs_long_term_memory": True}
-    monkeypatch.setattr(classify_intent_module, "_get_llm", lambda: FakeLLM(payload))
+    monkeypatch.setattr(contextual_intent_module, "_get_llm", lambda: FakeLLM(payload))
     monkeypatch.setattr(extract_slots_module, "_get_llm", lambda: FakeLLM(_slots("ORD-001")))
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
     monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: FakeLLM(_risk()))
@@ -1157,7 +1157,7 @@ async def test_long_term_memory_reviewed_retrieval_safe_empty_when_no_reviewed_r
 async def test_canonical_reviewed_memory_hint_reaches_existing_long_term_memory_node(monkeypatch):
     payload = _intent("refund_troubleshooting")
     payload["routing_hints"] = {"needs_reviewed_memory_context": True}
-    monkeypatch.setattr(classify_intent_module, "_get_llm", lambda: FakeLLM(payload))
+    monkeypatch.setattr(contextual_intent_module, "_get_llm", lambda: FakeLLM(payload))
     monkeypatch.setattr(extract_slots_module, "_get_llm", lambda: FakeLLM(_slots("ORD-001")))
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
     monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: FakeLLM(_risk()))
@@ -1210,7 +1210,7 @@ async def test_long_term_memory_retrieve_skips_case_memory_without_query() -> No
 async def test_long_term_memory_reviewed_retrieval_safe_empty_when_unavailable(monkeypatch):
     payload = _intent("refund_troubleshooting")
     payload["routing_hints"] = {"needs_long_term_memory": True}
-    monkeypatch.setattr(classify_intent_module, "_get_llm", lambda: FakeLLM(payload))
+    monkeypatch.setattr(contextual_intent_module, "_get_llm", lambda: FakeLLM(payload))
     monkeypatch.setattr(extract_slots_module, "_get_llm", lambda: FakeLLM(_slots("ORD-001")))
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
     monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: FakeLLM(_risk()))
@@ -1234,7 +1234,7 @@ async def test_long_term_memory_reviewed_retrieval_safe_empty_when_unavailable(m
 async def test_long_term_memory_reviewed_snippets_flow_into_graph_state(monkeypatch):
     payload = _intent("refund_troubleshooting")
     payload["routing_hints"] = {"needs_long_term_memory": True}
-    monkeypatch.setattr(classify_intent_module, "_get_llm", lambda: FakeLLM(payload))
+    monkeypatch.setattr(contextual_intent_module, "_get_llm", lambda: FakeLLM(payload))
     monkeypatch.setattr(extract_slots_module, "_get_llm", lambda: FakeLLM(_slots("ORD-001")))
     monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
     monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: FakeLLM(_risk()))

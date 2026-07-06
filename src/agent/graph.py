@@ -23,9 +23,9 @@ from pydantic import ValidationError
 from src.agent.nodes.assess_risk_and_approval import assess_risk_and_approval
 from src.agent.nodes.approval_gate import approval_gate
 from src.agent.nodes.action_draft import action_draft
-from src.agent.nodes.classify_intent import classify_intent
 from src.agent.nodes.clarification_gate import clarification_gate
 from src.agent.nodes.claim_verify import claim_verify
+from src.agent.nodes.contextual_intent_resolve import contextual_intent_resolve
 from src.agent.nodes.extract_slots import extract_slots
 from src.agent.nodes.final_response import final_response
 from src.agent.nodes.generate_recommendation import generate_recommendation
@@ -34,10 +34,10 @@ from src.agent.nodes.long_term_memory_retrieve import long_term_memory_retrieve
 from src.agent.nodes.rag_context_build import rag_context_build
 from src.agent.nodes.receive_request import receive_request
 from src.agent.nodes.safety_pre_route import safety_pre_route
-from src.agent.nodes.session_memory_load import session_memory_load
+from src.agent.nodes.session_context_load import session_context_load
 from src.agent.routing import (
     route_after_claim_verify,
-    route_after_intent,
+    route_after_contextual_intent,
     route_after_investigate,
     route_after_rag_context,
     route_after_recommendation,
@@ -281,8 +281,8 @@ def build_graph(checkpointer: AsyncPostgresSaver):
 
     builder.add_node("receive_request", receive_request)
     builder.add_node("safety_pre_route", safety_pre_route)
-    builder.add_node("classify_intent", classify_intent, retry_policy=_llm_retry)
-    builder.add_node("session_memory_load", session_memory_load)
+    builder.add_node("session_context_load", session_context_load)
+    builder.add_node("contextual_intent_resolve", contextual_intent_resolve, retry_policy=_llm_retry)
     builder.add_node("extract_slots", extract_slots, retry_policy=_llm_retry)
     builder.add_node("long_term_memory_retrieve", long_term_memory_retrieve)
     builder.add_node("investigate", investigate)
@@ -301,22 +301,22 @@ def build_graph(checkpointer: AsyncPostgresSaver):
         "safety_pre_route",
         route_after_safety,
         {
-            "classify_intent": "classify_intent",
+            "session_context_load": "session_context_load",
             "clarification_gate": "clarification_gate",
             "final_response": "final_response",
         },
     )
+    builder.add_edge("session_context_load", "contextual_intent_resolve")
     builder.add_conditional_edges(
-        "classify_intent",
-        route_after_intent,
+        "contextual_intent_resolve",
+        route_after_contextual_intent,
         {
             "clarification_gate": "clarification_gate",
             "final_response": "final_response",
             "investigate": "investigate",
-            "session_memory_load": "session_memory_load",
+            "extract_slots": "extract_slots",
         },
     )
-    builder.add_edge("session_memory_load", "extract_slots")
     builder.add_conditional_edges(
         "extract_slots",
         route_after_slots,

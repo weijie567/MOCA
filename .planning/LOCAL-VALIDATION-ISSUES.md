@@ -13549,3 +13549,43 @@ handler 返回 `no matching checkbox found`，没有写入 progress/detail secti
 
 - `/Users/ming/.codex/get-shit-done/bin/lib/roadmap.cjs`
 - `.planning/ROADMAP.md`
+
+## 2026-07-06 — Phase 53-02 图测试切到 `contextual_intent_resolve` 后触发本机 SOCKS 依赖错误
+
+### 问题现象
+
+执行 53-02 Task 1 GREEN 验证时，`tests/agent/test_graph.py` 多个图集成测试在 `contextual_intent_resolve` 节点尝试构造真实 `ChatOpenAI` 客户端，并报错：
+
+```text
+ImportError: Using SOCKS proxy, but the 'socksio' package is not installed.
+```
+
+### 如何检测 / 复现
+
+在只完成运行时图切换、但测试 fake 仍 patch 旧 `classify_intent_module._get_llm` 时运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_graph_routing.py tests/agent/test_intent_routing.py tests/architecture/test_canonical_graph_baseline.py tests/agent/test_graph.py -q --tb=short
+```
+
+### 关键证据或命令
+
+报错栈显示失败发生在 `src/agent/nodes/contextual_intent_resolve.py::_get_llm()` 构造 `ChatOpenAI`，不是业务断言失败。此前 `build_graph()` 已改为注册 `contextual_intent_resolve`，但测试 helper 仍只 patch `classify_intent_module._get_llm`。
+
+### 当前判断 / 根因
+
+根因是测试 fake 跟随图节点切换不完整：active graph 已进入 `contextual_intent_resolve`，测试仍 patch 旧 classifier 模块，导致本地环境代理配置暴露出缺失 `socksio` 的依赖错误。不是 Phase 53 需要新增 `httpx[socks]` 依赖。
+
+### 已做处理
+
+已将 `tests/agent/test_graph.py` 的图测试 fake 改为 patch `src.agent.nodes.contextual_intent_resolve._get_llm`，并把 session 上下文 fake 从旧 `session_memory_load` wrapper 切到 `session_context_load` 模块。重跑同一命令后通过：`1217 passed, 1 skipped`。
+
+### 剩余问题
+
+无。若后续测试再次出现 `socksio` 错误，优先检查是否仍有图路径测试未 patch 当前 active LLM 节点，不要先把它判断为依赖缺失。
+
+### 下次继续排查入口
+
+- `tests/agent/test_graph.py`
+- `src/agent/nodes/contextual_intent_resolve.py`
+- `src/agent/graph.py`
