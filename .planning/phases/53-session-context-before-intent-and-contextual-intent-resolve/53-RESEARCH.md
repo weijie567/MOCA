@@ -444,17 +444,15 @@ All implementation-relevant current-state claims in this research were verified 
 |---|-------|---------|---------------|
 | None | None | None | None |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should `llm_outputs["intent_classification"]` remain as a compatibility mirror?**
    - What we know: active owner must become `contextual_intent_resolve`; mirrors are allowed only with explicit owner/reason/validation/delete phase. [VERIFIED: .planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/53-CONTEXT.md:29-33]
-   - What's unclear: whether external eval/reporting code still reads `llm_outputs["intent_classification"]`. [VERIFIED: src/agent/nodes/classify_intent.py:427-440]
-   - Recommendation: prefer canonical `llm_outputs["contextual_intent_resolve"]`; retain a mirror only if artifact scans find a reader, and ledger it with Phase 58 or earlier deletion. [VERIFIED: .planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/53-CONTEXT.md:32-33]
+   - Decision: `llm_outputs["contextual_intent_resolve"]` is the Phase 53 canonical owner. `llm_outputs["intent_classification"]` is not an active routing or eval authority after Phase 53. Plan 53-01 must update `tests/agent/test_nodes/test_classify_intent.py` so legacy classifier tests no longer require `session_memory_load` routes or classifier-owned `pre_route_decision`. Plan 53-03 must scan for `intent_classification` readers; retain a mirror only if a non-test or historical-reader compatibility need remains, and ledger it with owner, reason, validation, trace projection, and delete phase no later than Phase 58. [VERIFIED: .planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/53-CONTEXT.md:32-33]
 
 2. **Should helper extraction happen in Phase 53 or stay as imports from `classify_intent.py`?**
    - What we know: Phase context allows either new module imports or helper extraction if active graph ownership is canonical. [VERIFIED: .planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/53-CONTEXT.md:59-61]
-   - What's unclear: exact blast radius of extracting all helper code before implementation starts. [VERIFIED: src/agent/nodes/classify_intent.py:309-855]
-   - Recommendation: choose smallest safe implementation in 53-01; if importing helpers leaves confusing active traces or output owners, extract only the adapter/helper pieces needed for canonical ownership. [VERIFIED: .planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/53-CONTEXT.md:29-33]
+   - Decision: use the smallest safe implementation that makes the active owner unambiguous. Plan 53-01 should put the canonical active behavior in `src/agent/nodes/contextual_intent_resolve.py`; `src/agent/nodes/classify_intent.py` may remain only as import/test compatibility or a delegating wrapper and must not be required by active graph registration, canonical trace ownership, or primary `llm_outputs` ownership. Broad helper extraction beyond what is needed for canonical ownership is out of scope for Phase 53. [VERIFIED: .planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/53-CONTEXT.md:29-33; .planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/53-PATTERNS.md]
 
 ## Sources
 
