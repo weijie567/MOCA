@@ -19,6 +19,8 @@ from src.agent.intent_policy import (
     decide_clarification,
     derive_keyword_signals,
     detect_pre_route,
+    is_ambiguous_short_reply,
+    is_short_approval_or_action_reply,
     select_executable_prefix,
     task_plan_payload,
     task_steps_payload,
@@ -91,45 +93,6 @@ _ID_ANSWER_RE = re.compile(
     r"\b(?:OD|ORD|ORDER|RF|REFUND|TKT|TK|APR|MER|CUST)[-_]?[A-Z0-9]{2,}\b",
     re.IGNORECASE,
 )
-_AMBIGUOUS_SHORT_REPLIES = {
-    "继续",
-    "继续吧",
-    "就按上面",
-    "就按上面的处理",
-    "按上面处理",
-    "好的",
-    "好",
-    "可以",
-    "行",
-    "嗯",
-    "同意",
-    "批准",
-    "确认",
-    "执行",
-    "approve",
-    "approved",
-    "accept",
-    "accepted",
-    "yes",
-    "ok",
-    "goahead",
-    "doit",
-}
-_SHORT_APPROVAL_OR_ACTION_REPLIES = {
-    "同意",
-    "批准",
-    "确认",
-    "执行",
-    "approve",
-    "approved",
-    "accept",
-    "accepted",
-    "yes",
-    "goahead",
-    "doit",
-}
-
-
 def _semantic_payload(semantic: SemanticIntent) -> dict[str, Any]:
     return {
         "intent": semantic.intent,
@@ -480,10 +443,6 @@ def intent_result_to_state(
     return {key: value for key, value in update.items() if key not in FORBIDDEN_STATE_WRITES}
 
 
-def _short_text_key(text: str) -> str:
-    return re.sub(r"[\s。！!,.，、；;：:]+", "", text.strip()).lower()
-
-
 def _is_identifier_like_answer(text: str) -> bool:
     if _ID_ANSWER_RE.search(text):
         return True
@@ -493,16 +452,6 @@ def _is_identifier_like_answer(text: str) -> bool:
         and any(char.isdigit() for char in stripped)
         and re.fullmatch(r"[\w\s\-_:：#号单]+", stripped, flags=re.IGNORECASE) is not None
     )
-
-
-def _is_ambiguous_short_reply(text: str) -> bool:
-    return _short_text_key(text) in _AMBIGUOUS_SHORT_REPLIES
-
-
-def _is_short_approval_or_action(text: str) -> bool:
-    return _short_text_key(text) in _SHORT_APPROVAL_OR_ACTION_REPLIES
-
-
 def _trace_step_without_llm(started_at: str, context_chars: int, source: str, reason_codes: list[str]) -> dict[str, Any]:
     return {
         "node": "classify_intent",
@@ -669,8 +618,8 @@ def _deterministic_context_update(
                 reason_codes=reason_codes,
                 source="active_flow_state",
             )
-        if _is_ambiguous_short_reply(user_text):
-            if _is_short_approval_or_action(user_text):
+        if is_ambiguous_short_reply(user_text):
+            if is_short_approval_or_action_reply(user_text):
                 return _short_reply_clarification_update(state, user_text, pre_route, started_at, True)
             reason_codes = ["active_flow_pending_slot_not_answered"]
             return _deterministic_classification_update(
@@ -698,13 +647,13 @@ def _deterministic_context_update(
                 reason_codes=reason_codes,
                 source="active_flow_state",
             )
-    if _is_ambiguous_short_reply(user_text):
+    if is_ambiguous_short_reply(user_text):
         return _short_reply_clarification_update(
             state,
             user_text,
             pre_route,
             started_at,
-            _is_short_approval_or_action(user_text),
+            is_short_approval_or_action_reply(user_text),
         )
     return None
 

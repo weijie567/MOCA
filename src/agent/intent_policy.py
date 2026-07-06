@@ -572,12 +572,63 @@ class PreRouteDecision(BaseModel):
     requires_clarification: bool = False
 
 
+APPROVAL_OR_ACTION_SHORT_REPLY_KEYS = frozenset(
+    {
+        "同意",
+        "批准",
+        "确认",
+        "执行",
+        "approve",
+        "approved",
+        "accept",
+        "accepted",
+        "yes",
+        "goahead",
+        "doit",
+    }
+)
+AMBIGUOUS_SHORT_REPLY_KEYS = frozenset(
+    {
+        "继续",
+        "继续吧",
+        "就按上面",
+        "就按上面的处理",
+        "按上面处理",
+        "好的",
+        "好",
+        "可以",
+        "行",
+        "嗯",
+        "ok",
+        *APPROVAL_OR_ACTION_SHORT_REPLY_KEYS,
+    }
+)
 _APPROVAL_ID_RE = re.compile(r"\b(?:APR|APPROVAL|审批)[-_]?\d+\b", re.IGNORECASE)
+
+
+def short_text_key(text: str) -> str:
+    return re.sub(r"[\s。！!,.，、；;：:]+", "", text.strip()).lower()
+
+
+def is_short_approval_or_action_reply(text: str) -> bool:
+    return short_text_key(text) in APPROVAL_OR_ACTION_SHORT_REPLY_KEYS
+
+
+def is_ambiguous_short_reply(text: str) -> bool:
+    return short_text_key(text) in AMBIGUOUS_SHORT_REPLY_KEYS
 
 
 def detect_pre_route(query: str) -> PreRouteDecision:
     text = query or ""
     lowered = text.lower()
+    if is_short_approval_or_action_reply(text):
+        return PreRouteDecision(
+            disposition="approval_chat_not_trusted",
+            requested_operation="advise",
+            reason_codes=["approval_chat_not_trusted"],
+            requires_clarification=True,
+        )
+
     approval_command = any(token in lowered for token in ("approval", "apr-")) or "审批" in text
     broad_approval = any(token in lowered for token in ("accept", "reject")) or any(
         token in text for token in ("通过", "拒绝")

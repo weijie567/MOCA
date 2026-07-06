@@ -77,6 +77,8 @@ class AgentState(TypedDict, total=False):
     task_plan: dict[str, Any] | None
     deferred_steps: list[dict[str, Any]]
     target_merchant_context: dict[str, Any] | None
+    pre_route_decision: dict[str, Any] | None
+    safety_flags: dict[str, Any]
     active_flow_state: dict[str, Any] | None
     secondary_intents: list[str]
     required_slots: dict[str, Any]

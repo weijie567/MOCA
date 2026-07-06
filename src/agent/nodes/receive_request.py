@@ -68,6 +68,8 @@ async def receive_request(state: AgentState) -> dict:
         "task_plan": None,
         "deferred_steps": [],
         "target_merchant_context": None,
+        "pre_route_decision": None,
+        "safety_flags": {},
         "active_flow_state": active_flow_state,
         "secondary_intents": [],
         "required_slots": {"all_of": [], "any_of": [], "optional": []},
