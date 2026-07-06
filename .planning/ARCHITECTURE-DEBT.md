@@ -55,6 +55,15 @@
 - **证据**：Phase 52 `52-01-SUMMARY.md`（node extraction）、`52-02-SUMMARY.md`（graph wiring）、`52-03-PLAN.md`（compatibility closeout）、`52-REVIEW-FIX.md`（approval ID 变体漏判修复）；`src/agent/graph.py` 中 `receive_request -> safety_pre_route` entry edge；`src/agent/routing.py` 中 `route_after_safety` allowlist/fail-closed；`src/agent/intent_policy.py` 中 `detect_pre_route()` approval action/context 判定；`src/agent/graph_vocabulary.py` 中 `safety_pre_route` runtime projection 与 `classify_intent:pre_route` compatibility alias；`tests/agent/test_nodes/test_safety_pre_route.py`、`tests/agent/test_graph.py`、`tests/architecture/test_canonical_graph_baseline.py`、`tests/agent/test_graph_vocabulary.py`。
 - **剩余风险**：Phase 52 只完成 safety pre-route extraction；Phase 53 必须删除 active `classify_intent` graph-node compatibility，把 safe path 切到 `session_context_load -> contextual_intent_resolve`，并清理 classifier-owned duplicate `classification_trace.pre_route_decision`。
 
+## 2026-07-06 — Phase 53-01 canonical contextual intent 合约已落地，active graph cutover 留给 53-02 ⚠️
+
+- **子系统**：Agent Graph / 意图识别
+- **问题现象/根因**：Phase 52 后 safe path 仍通过 active graph 的 `classify_intent` / `route_after_intent` / `session_memory_load` 兼容链路；同时 canonical `contextual_intent_resolve` 节点、`llm_outputs["contextual_intent_resolve"]` owner 和 `route_after_contextual_intent` 边界尚未作为独立可测合约存在。
+- **影响**：如果直接在后续 plan 改 graph path map，容易把 intent LLM candidate 输出、slot-required route、trace owner 和 legacy classifier 兼容面混在一个提交里，导致中间状态不可验证或提前改动 active route/policy 值。
+- **处理状态**：⚠️已在 53-01 建立 canonical intent node 与非 active router helper，并验证 canonical trace/LLM owner、candidate-only state write、pending-slot short reply、invalid structured output fail-closed，以及 `classification_trace.pre_route_decision` 不再出现在 canonical contextual intent trace 中。`classify_intent.py` 只保留为兼容 wrapper/import 面；但 **active graph route/policy cutover 尚未完成**，`route_after_safety`、`route_after_intent`、`SAFETY_ROUTES`、`INTENT_ROUTES`、`IntentRouteLiteral` 和 `IntentDefinition.initial_route` 仍保持 pre-53-02 兼容值。
+- **证据**：Phase 53 Plan 53-01；`src/agent/nodes/contextual_intent_resolve.py`；`src/agent/nodes/classify_intent.py`；`src/agent/routing.py` 的 `route_after_contextual_intent`；`tests/agent/test_nodes/test_contextual_intent_resolve.py`；`tests/agent/test_nodes/test_classify_intent.py`；`tests/test_graph_routing.py`；`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_classify_intent.py tests/test_graph_routing.py -q --tb=short` = 90 passed。
+- **剩余风险**：53-02 必须原子切换 `safety_pre_route -> session_context_load -> contextual_intent_resolve` active graph wiring、active router/policy route values和 path maps；53-03 仍需完成 graph vocabulary、current architecture docs、最终兼容面 ledger 与更广 artifact scan。Phase 54 前 `extract_slots` 仍是有意保留的 slot-required compatibility destination。
+
 ---
 
 # 1. 工具调用（Tool Platform）

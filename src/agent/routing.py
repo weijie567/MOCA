@@ -36,6 +36,7 @@ _RAG_CONTEXT_ROUTES = {"recommendation_generation", "clarification_gate", "final
 _CLAIM_VERIFY_ROUTES = {"assess_risk_and_approval", "final_response"}
 SAFETY_ROUTES = {"classify_intent", "clarification_gate", "final_response"}
 INTENT_ROUTES = {"clarification_gate", "final_response", "investigate", "session_memory_load"}
+CONTEXTUAL_INTENT_ROUTES = {"clarification_gate", "final_response", "investigate", "extract_slots"}
 SLOT_ROUTES = {"clarification_gate", "investigate", "long_term_memory_retrieve"}
 BUSINESS_ID_SLOTS = ("order_id", "refund_case_id", "ticket_id")
 _SLOT_INVALIDATION_TERMS = {
@@ -75,6 +76,14 @@ def route_after_intent(state: AgentState) -> str:
     except Exception:
         return "clarification_gate"
     return route if route in INTENT_ROUTES else "clarification_gate"
+
+
+def route_after_contextual_intent(state: AgentState) -> str:
+    try:
+        route = _route_after_contextual_intent(state)
+    except Exception:
+        return "clarification_gate"
+    return route if route in CONTEXTUAL_INTENT_ROUTES else "clarification_gate"
 
 
 def route_after_safety(state: AgentState) -> str:
@@ -294,6 +303,40 @@ def _route_after_intent(state: AgentState) -> str:
     policy = SLOT_POLICY_REGISTRY.required_slots_for(intent)
     if not policy.all_of and not policy.any_of:
         return route
+    return route
+
+
+def _route_after_contextual_intent(state: AgentState) -> str:
+    intent = _intent(state)
+    requested_operation = state.get("requested_operation") or "advise"
+    routing_hints = state.get("routing_hints") if isinstance(state.get("routing_hints"), dict) else {}
+    if requested_operation == "approval_decision":
+        return "clarification_gate"
+    if routing_hints.get("pre_route_disposition") == "approval_chat_not_trusted":
+        return "clarification_gate"
+    if routing_hints.get("clarification_reason") == "approval_chat_not_trusted":
+        return "clarification_gate"
+    pre_route = PreRouteDecision(
+        disposition=routing_hints.get("pre_route_disposition", "none")
+        if routing_hints.get("pre_route_disposition")
+        in {"none", "approval_chat_not_trusted", "safety_sensitive", "multi_target_request"}
+        else "none",
+        requested_operation=requested_operation
+        if requested_operation in {"read_status", "advise", "draft_reply", "draft_action", "execute_action", "escalate"}
+        else None,
+        reason_codes=[],
+        requires_clarification=bool(routing_hints.get("requires_clarification")),
+    )
+    if confidence_requires_clarification(intent, requested_operation, state.get("intent_confidence"), pre_route):
+        return "clarification_gate"
+    if INTENT_POLICY_REGISTRY.is_direct_response_intent(intent):
+        return "final_response"
+    route = INTENT_POLICY_REGISTRY.route_for_intent(intent)
+    if route is None:
+        return "clarification_gate"
+    policy = SLOT_POLICY_REGISTRY.required_slots_for(intent)
+    if policy.all_of or policy.any_of:
+        return "extract_slots"
     return route
 
 
