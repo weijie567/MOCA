@@ -13230,3 +13230,45 @@ ls .planning/phases/53-session-context-before-intent-and-contextual-intent-resol
 
 - `.planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/`
 - `.planning/autopilot/phase-53.md`
+
+## 2026-07-06 — Phase 53 research sanity scan 中反引号触发裸 `pytest` 命令替换
+
+### 问题现象
+
+Phase 53 research 文件写完后的 sanity scan 本意是用 `rg` 检查文档中是否出现无效测试命令，但 shell 命令把 ``bare `pytest``` 放在双引号内，zsh 执行反引号命令替换，意外运行了裸 `pytest`。该裸命令命中系统 Python 3.9，并在 collection 阶段报：
+
+```text
+ImportError while loading conftest '/Users/ming/projects/MOCA/tests/conftest.py'.
+tests/conftest.py:3: in <module>
+    from datetime import UTC, datetime, timedelta
+E   ImportError: cannot import name 'UTC' from 'datetime' (/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/datetime.py)
+```
+
+### 如何检测 / 复现
+
+在 zsh 中运行包含反引号的双引号字符串会先执行反引号里的命令；本次触发形态类似：
+
+```bash
+rg -n "python -m pytest|bare `pytest`|..." .planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/53-RESEARCH.md
+```
+
+### 关键证据或命令
+
+命令输出显示 `tests/conftest.py` 通过系统 Python 3.9 加载，失败点是 `datetime.UTC`，与 MOCA 既有“禁止裸 pytest / 裸 python -m pytest”规则一致。
+
+### 当前判断 / 根因
+
+这是本地验证命令写法错误，不是 Phase 53 research 文件内容或 MOCA 源码问题。根因是 shell 反引号命令替换叠加裸测试入口，绕过了项目 `uv` 虚拟环境。
+
+### 已做处理
+
+未把该失败当作测试结论；Phase 53 research 中的验证命令仍全部使用 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...` 入口。后续包含反引号字面量的搜索命令应使用单引号或转义反引号。
+
+### 剩余问题
+
+无 Phase 53 阻塞。该错误只说明本次 sanity scan 命令写法不合规，需要避免重复。
+
+### 下次继续排查入口
+
+- `.planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/53-RESEARCH.md`
+- `AGENTS.md` 的 MOCA 本地验证命令环境硬规则
