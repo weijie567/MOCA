@@ -1,8 +1,8 @@
 ---
 phase: 53-session-context-before-intent-and-contextual-intent-resolve
-reviewed: 2026-07-06T13:28:43Z
+reviewed: 2026-07-06T13:39:24Z
 depth: deep
-files_reviewed: 21
+files_reviewed: 22
 files_reviewed_list:
   - docs/current-langgraph-architecture.md
   - src/agent/graph.py
@@ -15,6 +15,7 @@ files_reviewed_list:
   - src/memory/service.py
   - tests/agent/test_graph.py
   - tests/agent/test_graph_vocabulary.py
+  - tests/agent/test_intent_adapter.py
   - tests/agent/test_intent_routing.py
   - tests/agent/test_nodes/test_classify_intent.py
   - tests/agent/test_nodes/test_contextual_intent_resolve.py
@@ -27,82 +28,49 @@ files_reviewed_list:
   - tests/test_graph_routing.py
 findings:
   critical: 0
-  warning: 1
+  warning: 0
   info: 0
-  total: 1
-status: issues_found
+  total: 0
+status: clean
 ---
 
 # Phase 53: Code Review Report
 
-**Reviewed:** 2026-07-06T13:28:43Z
+**Reviewed:** 2026-07-06T13:39:24Z
 **Depth:** deep
-**Files Reviewed:** 21
-**Status:** issues_found
+**Files Reviewed:** 22
+**Status:** clean
 
 ## Summary
 
-Deep review covered the Phase 53 graph cutover from `session_memory_load` / `classify_intent` to `session_context_load` / `contextual_intent_resolve`, the routing and policy contracts, session memory filtering, API node labels, architecture baselines, and the related tests.
+Deep re-review covered the Phase 53 active graph cutover to `session_context_load -> contextual_intent_resolve`, route and policy alignment, graph vocabulary projection, session-memory pre-intent filtering, API SSE target labels, architecture baselines, and the related tests.
 
-The active graph registration and route maps are consistent with the Phase 53 intent: `session_context_load` and `contextual_intent_resolve` are active, while `classify_intent`, `session_memory_load`, and `route_after_intent` remain compatibility surfaces rather than active graph or policy authorities. `extract_slots` remains active as Phase 54-owned compatibility and is not flagged here.
+The previous WR-01 is closed. `src/agent/nodes/classify_intent.py` now restores the legacy `llm_outputs["intent_classification"]` mirror only through the compatibility wrapper/adapter path, while `src/agent/nodes/contextual_intent_resolve.py` remains the canonical active owner and writes `llm_outputs["contextual_intent_resolve"]`.
 
-One retained compatibility contract regressed: the legacy `llm_outputs["intent_classification"]` mirror is no longer emitted by the intent adapter path, and an existing test outside the supplied file list now fails with `KeyError`.
+`classify_intent.py`, `session_memory_load.py`, `route_after_intent`, and `llm_outputs["intent_classification"]` are retained compatibility surfaces and are ledgered in `.planning/ARCHITECTURE-DEBT.md`. Active graph registration and route maps do not use `classify_intent` or `session_memory_load`; `extract_slots` remains the intentional Phase 54-owned compatibility destination.
 
-## Warnings
-
-### WR-01: Legacy intent output mirror is no longer emitted
-
-**File:** `src/agent/nodes/contextual_intent_resolve.py:428`; related wrapper at `src/agent/nodes/classify_intent.py:53`
-
-**Issue:** `intent_result_to_state()` now writes only `llm_outputs["contextual_intent_resolve"]`. The retained compatibility wrapper in `classify_intent.py` delegates directly to the canonical node without adding the legacy `llm_outputs["intent_classification"]` mirror. That breaks existing compatibility callers/tests that still read the retained key. Evidence: `tests/agent/test_intent_adapter.py:36` fails with `KeyError: 'intent_classification'`.
-
-**Fix:** Preserve the canonical key, but add a non-authoritative compatibility mirror for the retained legacy surface. If the legacy key should exist only through the compatibility wrapper, apply the same post-processing there instead.
-
-```python
-canonical_output = {
-    "raw": raw,
-    "classification_trace": classification_trace,
-    "eval_metadata": {
-        "calibrated_confidence": result.calibrated_confidence,
-        "classifier_version": result.classifier_version,
-        "calibration_version": result.calibration_version,
-        "reason_codes": reason_codes,
-        "llm_required_slots": raw.get("required_slots"),
-    },
-}
-llm_outputs = {
-    **(prior_llm_outputs or {}),
-    "contextual_intent_resolve": canonical_output,
-    "intent_classification": canonical_output,
-}
-```
-
-After fixing, run:
-
-```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_intent_adapter.py tests/agent/test_nodes/test_classify_intent.py tests/agent/test_nodes/test_contextual_intent_resolve.py
-```
+All reviewed files meet quality standards. No issues found.
 
 ## Verification
 
-Reviewed and cross-checked imports, active graph wiring, route maps, policy registry routes, legacy graph vocabulary aliases, session-memory filtering behavior, and related tests.
+Reviewed and cross-checked imports, active graph node registration, conditional edge path maps, router return allowlists, intent policy route values, graph vocabulary aliases, session-memory `current_intent=None` behavior, the compatibility ledger, and the adapter/wrapper tests for the legacy intent output mirror.
 
 Commands run:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_classify_intent.py tests/agent/test_intent_routing.py tests/test_graph_routing.py tests/agent/test_graph_vocabulary.py tests/architecture/test_canonical_graph_baseline.py tests/agent/test_session_memory_load.py tests/memory/test_session_memory_service.py tests/agent/test_trace.py tests/agent/test_intent_adapter.py
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_intent_adapter.py tests/agent/test_nodes/test_classify_intent.py tests/agent/test_nodes/test_contextual_intent_resolve.py -q --tb=short
 ```
 
-Result: `1 failed, 1297 passed, 1 skipped`. The failure is `tests/agent/test_intent_adapter.py::test_intent_result_to_state_uses_policy_required_slots_and_forbidden_writes`, matching WR-01.
+Result: `21 passed, 1 warning`.
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py tests/agent/test_session_memory_integration.py tests/agent/test_session_memory_load.py tests/memory/test_session_memory_service.py
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py tests/agent/test_graph_vocabulary.py tests/agent/test_intent_adapter.py tests/agent/test_intent_routing.py tests/agent/test_nodes/test_classify_intent.py tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_session_memory_integration.py tests/agent/test_session_memory_load.py tests/agent/test_trace.py tests/architecture/test_canonical_graph_baseline.py tests/memory/test_session_memory_service.py tests/test_graph_routing.py -q --tb=short
 ```
 
-Result: `66 passed`.
+Result: `1338 passed, 1 skipped, 35 warnings`.
 
 ---
 
-_Reviewed: 2026-07-06T13:28:43Z_
+_Reviewed: 2026-07-06T13:39:24Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
