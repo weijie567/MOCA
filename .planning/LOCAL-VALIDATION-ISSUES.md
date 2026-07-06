@@ -13307,3 +13307,44 @@ A shell sanity-check pattern with unescaped Markdown backticks accidentally trig
 
 - `.planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/53-PATTERNS.md`
 - `AGENTS.md` 的 MOCA 本地验证命令环境硬规则
+
+## 2026-07-06 — Phase 53 Claude review 调用外层 zsh 变量名 `status` 只读导致命令尾部报错
+
+### 问题现象
+
+Phase 53 外部 Claude plan review 调用完成后，外层 shell 脚本想用 `status=$?` 记录退出码，但 zsh 中 `status` 是只读特殊变量，导致命令尾部报：
+
+```text
+zsh:1: read-only variable: status
+```
+
+### 如何检测 / 复现
+
+在 zsh 中执行：
+
+```bash
+status=$?
+```
+
+会触发同类只读变量报错。
+
+### 关键证据或命令
+
+`/tmp/gsd-review-claude-53.md` 已生成且非空，`/tmp/gsd-review-claude-53.err` 为空；错误来自外层状态变量赋值，不是 Claude review 失败。
+
+### 当前判断 / 根因
+
+这是本地 shell 包装脚本错误，不是 Phase 53 plan review 内容或 MOCA 源码问题。根因是误用 zsh 只读变量名 `status`，应使用 `cmd_status` 等普通变量。
+
+### 已做处理
+
+确认 Claude review 文件完整后，将 review 内容落到 `53-REVIEWS.md`；没有把外层 shell 报错当作 review 失败。
+
+### 剩余问题
+
+无 Phase 53 阻塞。后续 shell 包装命令避免使用 zsh 特殊变量名。
+
+### 下次继续排查入口
+
+- `/tmp/gsd-review-claude-53.md`
+- `.planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/53-REVIEWS.md`
