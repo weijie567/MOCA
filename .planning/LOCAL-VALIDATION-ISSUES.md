@@ -13191,3 +13191,42 @@ Phase 52 verification report 中按源码手工复核 key links，并把 generic
 - `src/agent/nodes/safety_pre_route.py`
 - `src/agent/graph.py`
 - `tests/agent/test_nodes/test_safety_pre_route.py`
+
+## 2026-07-06 — Phase 53 autopilot preflight 中 zsh glob 缺失匹配导致检查命令报错
+
+### 问题现象
+
+Phase 53 autopilot preflight 检查 phase 目录是否已有 `*-SPEC.md` / `*-CONTEXT.md` / `*-DISCUSS-CHECKPOINT.json` 时，首版命令直接在 zsh 中使用未引用 glob。因为 Phase 53 目录尚无这些文件，zsh 报：
+
+```text
+zsh: no matches found: .planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/*-SPEC.md
+```
+
+### 如何检测 / 复现
+
+在 zsh 下运行未引用且无匹配文件的 glob：
+
+```bash
+ls .planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/*-SPEC.md
+```
+
+### 关键证据或命令
+
+报错发生在 Phase 53 preflight 的本地存在性检查阶段；随后用显式 `rg` / `ls` 读取 phase 目录并确认 Phase 53 无 context/spec/plans。
+
+### 当前判断 / 根因
+
+这是 shell 行为问题，不是 MOCA 代码或 GSD artifact 问题。zsh 默认对无匹配 glob 报错，而不是把 pattern 原样传给 `ls`。
+
+### 已做处理
+
+未产生文件修改或错误结论。后续检查改用 `find`、引用路径、或在命令中避免裸 glob 触发 zsh no-match。
+
+### 剩余问题
+
+无 Phase 53 阻塞。
+
+### 下次继续排查入口
+
+- `.planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/`
+- `.planning/autopilot/phase-53.md`
