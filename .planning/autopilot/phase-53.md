@@ -1,10 +1,10 @@
 ---
 phase: "53"
 status: running
-current_step: codex_plan_adjudication
+current_step: claude_plan_rereview
 plan_review_loop: 1
 quota_waits: 0
-updated_at: "2026-07-06T11:08:33Z"
+updated_at: "2026-07-06T11:18:57Z"
 next_command: "$gsd-phase-autopilot --resume 53"
 ---
 
@@ -23,6 +23,9 @@ next_command: "$gsd-phase-autopilot --resume 53"
 - Created and plan-checked three Phase 53 plans; first checker pass found two blockers, now under repair.
 - Repaired plan-checker blockers and re-ran `gsd-plan-checker`; verification passed for all three plans.
 - Ran external Claude plan review and created `53-REVIEWS.md`.
+- Adjudicated Claude findings in `53-PLAN-REVIEW-DECISIONS.md`; accepted the active router/policy versus graph path-map atomicity blocker.
+- Repaired 53-01/53-02 plan boundaries so 53-01 creates only the canonical node and non-active helper, while 53-02 owns active router/policy/graph cutover.
+- Re-ran `gsd-plan-checker`; verification passed with no blockers or warnings.
 
 ## Evidence
 
@@ -38,6 +41,8 @@ next_command: "$gsd-phase-autopilot --resume 53"
 - Plan checker pass: `CAGM-04` covered by 53-01, 53-02, and 53-03; no bare `pytest` / bare `python -m pytest` commands found in Phase 53 planning artifacts.
 - Claude review found one HIGH blocker candidate: 53-01 router/policy route-value changes may not be atomic with 53-02 graph path-map changes.
 - Local validation issue recorded: Claude review wrapper used zsh read-only variable `status`; review output was complete and used.
+- Local validation issue recorded: plan-structure check first used an invalid `gsd-sdk query` handler/path and then a missing `gsd-tools` PATH shim; explicit `node /Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs ...` passed for all three plans.
+- Repaired plan-checker pass: `53-01` does not change active `route_after_safety`, `route_after_intent`, `SAFETY_ROUTES`, `INTENT_ROUTES`, `IntentRouteLiteral`, or `IntentDefinition.initial_route`; `53-02` atomically changes `src/agent/routing.py`, `src/agent/intent_policy.py`, and `src/agent/graph.py`.
 
 ## Last Failure
 

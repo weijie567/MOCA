@@ -13348,3 +13348,59 @@ status=$?
 
 - `/tmp/gsd-review-claude-53.md`
 - `.planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/53-REVIEWS.md`
+
+## 2026-07-06 — Phase 53 plan-structure 复核先后命中错误工具入口和 PATH 缺失
+
+### 问题现象
+
+Phase 53 Claude plan review 修复后，主流程想复核三份 plan 结构，先运行了错误入口：
+
+```bash
+gsd-sdk query verify.plan-structure .planning/phases/53-session-context-before-intent-and-contextual-intent-resolve
+```
+
+命令返回 `File not found`。随后尝试运行 `gsd-tools verify plan-structure ...`，但当前 zsh 环境没有暴露 `gsd-tools`，返回 `command not found`。
+
+### 如何检测 / 复现
+
+在当前仓库 shell 中直接执行上述两个命令即可复现。目录本身存在，`ls .planning/phases | rg '^53-'` 能看到 `53-session-context-before-intent-and-contextual-intent-resolve`。
+
+### 关键证据或命令
+
+错误入口返回：
+
+```json
+{
+  "error": "File not found",
+  "path": ".planning/phases/53-session-context-before-intent-and-contextual-intent-resolve"
+}
+```
+
+PATH 缺失返回：
+
+```text
+zsh:1: command not found: gsd-tools
+```
+
+正确入口为显式调用工具脚本：
+
+```bash
+node /Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs verify plan-structure .planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/53-01-PLAN.md
+```
+
+### 当前判断 / 根因
+
+这是本地验证工具入口用法问题，不是 Phase 53 plan 内容问题。`verify plan-structure` 属于 `gsd-tools.cjs` 子命令，不能通过 `gsd-sdk query verify.plan-structure <dir>` 调用；同时当前 shell 的 PATH 没有包含 `gsd-tools` shim。
+
+### 已做处理
+
+用显式脚本路径逐个检查 `53-01-PLAN.md`、`53-02-PLAN.md`、`53-03-PLAN.md`，三份 plan 均返回 `valid: true`，无 errors/warnings。错误命令输出未作为验证结论。
+
+### 剩余问题
+
+无 Phase 53 阻塞。后续结构检查优先使用显式 `node /Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs ...`，避免 PATH 或 handler 名称混淆。
+
+### 下次继续排查入口
+
+- `/Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs`
+- `.planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/53-01-PLAN.md`
