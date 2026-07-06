@@ -38,7 +38,7 @@ Code implementation is delegated to Codex per the project workflow; Claude is pl
 - [x] **Phase 50: Canonical Agent Graph Migration Spec and Guardrails** - Lock the migration charter for the remaining canonical graph migration, including the exact 15-node final graph, no `slot_extraction` graph node, Phase 49 baseline treatment, temporary compatibility policy, validation matrix, and final no-debt gates (CAGM-01). SPEC-only phase complete; downstream implementation phases pending.
 - [x] **Phase 51: Canonical Graph Baseline Guardrails and Migration Matrix** - Add source-verified graph guardrails and migration matrix checks before runtime rewiring starts (CAGM-02). Plan progress: 3/3 complete; verified 2026-07-06.
 - [x] **Phase 52: Safety Pre-route Node** - Extract request-risk pre-route into explicit `safety_pre_route` node before memory/context enrichment (CAGM-03). Plan progress: 3/3 complete; verified 2026-07-06.
-- [ ] **Phase 53: Session Context Before Intent and Contextual Intent Resolve** - Move session context before intent resolution and replace active `classify_intent` with `contextual_intent_resolve` (CAGM-04). Plan progress: 3/3 planned.
+- [x] **Phase 53: Session Context Before Intent and Contextual Intent Resolve** - Move session context before intent resolution and replace active `classify_intent` with `contextual_intent_resolve` (CAGM-04). Plan progress: 3/3 complete; verified 2026-07-06.
 - [ ] **Phase 54: Slot Resolution Gate Cutover** - Replace active `extract_slots` / `route_after_slots` graph boundary with canonical `slot_resolution_gate` and slot provenance (CAGM-05). Not planned yet.
 - [ ] **Phase 55: Memory Context Load Cutover** - Replace active `long_term_memory_retrieve` graph naming with canonical `memory_context_load` and contextual-only memory authority labels (CAGM-06). Not planned yet.
 - [ ] **Phase 56: Recommendation Generation and RAG Claim Status Alignment** - Canonicalize `recommendation_generation` and align RAG/claim fail-closed status semantics (CAGM-07). Not planned yet.
@@ -114,7 +114,7 @@ Plans:
 | 50. Canonical Agent Graph Migration Spec and Guardrails | 0/0 | Complete (spec-only); implementation phases pending | 2026-07-06 |
 | 51. Canonical Graph Baseline Guardrails and Migration Matrix | 3/3 | Complete    | 2026-07-06 |
 | 52. Safety Pre-route Node | 3/3 | Complete | 2026-07-06 |
-| 53. Session Context Before Intent and Contextual Intent Resolve | 3/3 | In Progress | - |
+| 53. Session Context Before Intent and Contextual Intent Resolve | 3/3 | Complete    | 2026-07-06 |
 | 54. Slot Resolution Gate Cutover | 0/TBD | Not planned | - |
 | 55. Memory Context Load Cutover | 0/TBD | Not planned | - |
 | 56. Recommendation Generation and RAG Claim Status Alignment | 0/TBD | Not planned | - |
@@ -395,7 +395,7 @@ Plans:
 **Requirements**: CAGM-04
 **Depends on:** Phase 52
 **Must read:** `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`
-**Plans:** 3/3 plans executed
+**Plans:** 3/3 plans complete
 **Success Criteria** (what must be TRUE):
   1. Active graph order is `safety_pre_route -> session_context_load -> contextual_intent_resolve`.
   2. `contextual_intent_resolve` may use LLM structured output for candidate intent/operation/slots but cannot choose graph routes, satisfy slots, load long-term memory, or evaluate action risk.
