@@ -39,6 +39,22 @@
 - **证据**：`.planning/phases/51-canonical-graph-baseline-guardrails-and-migration-matrix/51-01-SUMMARY.md`；`.planning/phases/51-canonical-graph-baseline-guardrails-and-migration-matrix/51-02-SUMMARY.md`；`tests/architecture/graph_baseline.py`；`tests/architecture/test_canonical_graph_baseline.py`；`uv run pytest tests/architecture/test_canonical_graph_baseline.py -q` = 8 passed / 1 skipped；`uv run pytest tests/architecture -q` = 78 passed / 2 skipped。
 - **剩余风险**：Phase 51 只证明 baseline 和 migration matrix 可验证；Phase 52-58 仍需逐步切换 runtime graph，并在 Phase 58 删除 active legacy graph node names / dual route destinations / compatibility allowances。
 
+## 2026-07-06 — Phase 52 safety_pre_route runtime pre-route 已落地，intent 兼容面留给 Phase 53 ⚠️
+
+- **子系统**：Agent Graph / 意图识别
+- **问题现象/根因**：Phase 51 之前的 runtime graph 把 request-risk / untrusted approval pre-route 行为藏在厚 `classify_intent` 节点与 `classification_trace.pre_route_decision` 中。这样 trace vocabulary 只能靠 `classify_intent:pre_route` synthetic alias 投影到 `safety_pre_route`，真实 graph entry path 没有显式 pre-route ownership。
+- **影响**：安全前置判断在 replay/eval/API trace 中容易被误读成 classifier 内部实现细节；如果不记录剩余兼容面，`classify_intent` safe-path continuation 和 classifier-owned `pre_route_decision` 可能变成永久迁移债务。
+- **处理状态**：⚠️Phase 52 已把 `safety_pre_route` 注册为 `receive_request` 之后的 runtime graph node，并通过 `route_after_safety` 在 untrusted approval chat、multi-target、requires-clarification、异常或未知 route 时 fail closed 到 `clarification_gate`；`src/agent/graph_vocabulary.py` 已把真实 `safety_pre_route` trace projection 标为 `runtime`。但 safe-path continuation 仍临时进入 `classify_intent`，`classification_trace.pre_route_decision` 也仍保留为 classifier parity artifact；两者删除目标均为 Phase 53 / CAGM-04，不在 Phase 52 删除。
+- **兼容面台账**：
+
+| Legacy surface | Canonical owner | Reason | Trace projection | Validation | Delete phase |
+|----------------|-----------------|--------|------------------|------------|--------------|
+| Safe-route continuation `safety_pre_route -> classify_intent` and `classify_intent` active graph node | `contextual_intent_resolve` / Phase 53 CAGM-04 | Phase 52 only extracts pre-route safety; session context before intent and contextual intent cutover are Phase 53 | `classify_intent` continues to project to `contextual_intent_resolve`; new `safety_pre_route` projects as runtime canonical | Architecture graph baseline + graph tests prove unsafe pre-route cases stop before `classify_intent` and safe cases use compatibility only | Phase 53 |
+| `classification_trace.pre_route_decision` inside `classify_intent` | `safety_pre_route` for runtime pre-route ownership; Phase 53 removes classifier-owned duplicate | Safe-path compatibility may still need classifier trace parity until contextual intent cutover | `classify_intent:pre_route` remains a compatibility alias to `safety_pre_route`; `safety_pre_route` itself is runtime | `test_graph_vocabulary.py`, `test_safety_pre_route.py`, and classifier parity tests | Phase 53 |
+
+- **证据**：Phase 52 `52-01-SUMMARY.md`（node extraction）、`52-02-SUMMARY.md`（graph wiring）、`52-03-PLAN.md`（compatibility closeout）；`src/agent/graph.py` 中 `receive_request -> safety_pre_route` entry edge；`src/agent/routing.py` 中 `route_after_safety` allowlist/fail-closed；`src/agent/graph_vocabulary.py` 中 `safety_pre_route` runtime projection 与 `classify_intent:pre_route` compatibility alias；`tests/agent/test_nodes/test_safety_pre_route.py`、`tests/agent/test_graph.py`、`tests/architecture/test_canonical_graph_baseline.py`、`tests/agent/test_graph_vocabulary.py`。
+- **剩余风险**：Phase 52 只完成 safety pre-route extraction；Phase 53 必须删除 active `classify_intent` graph-node compatibility，把 safe path 切到 `session_context_load -> contextual_intent_resolve`，并清理 classifier-owned duplicate `classification_trace.pre_route_decision`。
+
 ---
 
 # 1. 工具调用（Tool Platform）

@@ -50,7 +50,7 @@ _ENTRIES: tuple[GraphVocabularyEntry, ...] = (
     _entry("intent_classification", "contextual_intent_resolve", "node", "compatibility_alias", True),
     _entry("contextual_intent_resolve", "contextual_intent_resolve", "node", "compatibility_alias", True),
     _entry("classify_intent:pre_route", "safety_pre_route", "node", "compatibility_alias", True),
-    _entry("safety_pre_route", "safety_pre_route", "node", "compatibility_alias", True),
+    _entry("safety_pre_route", "safety_pre_route", "node", "runtime", True),
     _entry("session_memory_load", "session_context_load", "node", "compatibility_alias", True),
     _entry("session_context_load", "session_context_load", "node", "runtime", True),
     _entry("long_term_memory_retrieve", "memory_context_load", "node", "compatibility_alias", True),
