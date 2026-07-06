@@ -44,11 +44,25 @@
 
 > Subsystem debt is tracked in `.planning/DEFERRED-DECISIONS.md` GAD-01 and `.planning/AGENTIC-INVESTIGATION-DISCUSSION.md`. Requirement IDs use the `GAD-` prefix when the requirement is the implementation of an accepted deferred architecture decision.
 
-- [ ] **GAD-01-IMPL**: `src/agent/nodes/investigate.py` is migrated from legacy deterministic `plan_next_step` as the main controller to the `docs/contract-spec.md` §9.4 bounded read-only ReAct loop contract. The main path uses an LLM structured planner that returns exactly `{next_tool, args, reason}` or `{stop, stop_reason}`; all planner output is schema-validated and constrained to the §12.4 investigate allowlist (`get_order`, `get_refund_case`, `get_ticket`, `get_logistics`, `get_merchant_risk`, `search_policy`, `search_sop`, `search_case_memory`). Every tool dispatch still goes only through `ToolPlatform.invoke(...)`, every planner-facing observation uses the projection layer rather than raw tool payloads, observation→slot回流 is loop-local only, deterministic `plan_next_step` remains as a fallback for planner timeout/invalid output/invalid args/unavailable planner, and tests prove no changes to intent contracts, memory Phase 44-48 writer/lifecycle contracts, `active_slots` ownership, risk/approval/action gates, or `evidence_refs` ownership.
+- [x] **GAD-01-IMPL**: `src/agent/nodes/investigate.py` is migrated from legacy deterministic `plan_next_step` as the main controller to the `docs/contract-spec.md` §9.4 bounded read-only ReAct loop contract. The main path uses an LLM structured planner that returns exactly `{next_tool, args, reason}` or `{stop, stop_reason}`; all planner output is schema-validated and constrained to the §12.4 investigate allowlist (`get_order`, `get_refund_case`, `get_ticket`, `get_logistics`, `get_merchant_risk`, `search_policy`, `search_sop`, `search_case_memory`). Every tool dispatch still goes only through `ToolPlatform.invoke(...)`, every planner-facing observation uses the projection layer rather than raw tool payloads, observation→slot回流 is loop-local only, deterministic `plan_next_step` remains as a fallback for planner timeout/invalid output/invalid args/unavailable planner, and tests prove no changes to intent contracts, memory Phase 44-48 writer/lifecycle contracts, `active_slots` ownership, risk/approval/action gates, or `evidence_refs` ownership. Closed by Phase 49 as implemented with replay parent-operation limitation.
+
+## Canonical Agent Graph Migration Requirements (Phase 50+)
+
+> Subsystem debt is tracked in `.planning/ARCHITECTURE-DEBT.md` §0. Requirement IDs use the `CAGM-` prefix for the canonical Agent Graph migration.
+
+- [x] **CAGM-01**: A binding migration charter exists before runtime graph rewiring starts, locking the accepted 15-node canonical runtime graph, explicitly excluding `slot_extraction` / `normalize_input` / `memory_write` / `trace_close` / `action_execution` from the current main-chain graph node set, treating Phase 49 `investigate` ReAct as implemented-with-limitations, and defining source hierarchy, current-to-target matrix, temporary compatibility policy, LLM authority boundaries, validation matrix, required downstream phase order, and final no-debt gates.
+- [x] **CAGM-02**: Baseline graph guardrails and migration matrix checks exist before runtime rewiring starts, proving the current active graph node set, router route values, legacy-to-target mapping, and no-`slot_extraction` graph-node rule are source-verified and testable.
+- [ ] **CAGM-03**: `safety_pre_route` exists as an explicit registered graph node immediately after `receive_request`, owning request-risk / unsafe / unsupported / untrusted approval pre-route decisions before memory, investigation, approval, or action paths.
+- [ ] **CAGM-04**: `session_context_load` runs before contextual intent resolution, and `contextual_intent_resolve` replaces active `classify_intent` graph routing while keeping LLM output as candidate-only and deterministic policy/route boundaries authoritative.
+- [ ] **CAGM-05**: `slot_resolution_gate` replaces active `extract_slots` / `route_after_slots` as the registered graph boundary for required-slot satisfaction, slot inheritance, invalidation, stale/conflict handling, and clarification routing; `slot_extraction` remains internal, not a graph node.
+- [ ] **CAGM-06**: `memory_context_load` replaces active `long_term_memory_retrieve` graph naming and keeps all loaded memory contextual-only, after slot resolution and before `investigate`.
+- [ ] **CAGM-07**: `recommendation_generation` replaces active `generate_recommendation` graph naming, and RAG/claim fail-closed statuses are aligned so unsafe evidence or unsupported material/action claims cannot enter action paths.
+- [ ] **CAGM-08**: `risk_gate` replaces active `assess_risk_and_approval` graph naming and preserves the separation between deterministic risk/action policy decisions and `approval_gate` pending/trusted-resume state machine.
+- [ ] **CAGM-09**: The active runtime graph is cut over to the final 15 canonical registered nodes, with active legacy node names, dual routes, and runtime compatibility aliases removed or internalized so no migration debt remains.
 
 ## Future Requirements
 
-_None beyond active Phase 49 Graph/ReAct implementation._
+_None beyond registered canonical Agent Graph migration phases 51-58._
 
 ## Out of Scope
 
@@ -78,6 +92,15 @@ _None beyond active Phase 49 Graph/ReAct implementation._
 | MEM-04 | Phase 47 | Complete |
 | MEM-05 | Phase 48 | Complete |
 | MEM-COMPAT-01 | Phase 48.1 | Complete |
-| GAD-01-IMPL | Phase 49 | Pending |
+| GAD-01-IMPL | Phase 49 | Complete with replay parent-operation limitation |
+| CAGM-01 | Phase 50 | Complete (spec-only; downstream implementation phases pending) |
+| CAGM-02 | Phase 51 | Complete |
+| CAGM-03 | Phase 52 | Pending |
+| CAGM-04 | Phase 53 | Pending |
+| CAGM-05 | Phase 54 | Pending |
+| CAGM-06 | Phase 55 | Pending |
+| CAGM-07 | Phase 56 | Pending |
+| CAGM-08 | Phase 57 | Pending |
+| CAGM-09 | Phase 58 | Pending |
 
-**Coverage:** 15/15 v2.1 requirements mapped. 14 complete, 1 pending. No orphans, no duplicates. (Tool platform: TPH-01..06 / Phase 37-41. Intent recognition: IDR-01 / Phase 42, IDR-02 / Phase 43. Memory: MEM-01/02 / Phase 44-45, MEM-03 / Phase 46, MEM-04 / Phase 47, MEM-05 / Phase 48, MEM-COMPAT-01 / Phase 48.1. Graph/ReAct: GAD-01-IMPL / Phase 49.)
+**Coverage:** 24/24 v2.1 requirements mapped. 17 complete, 7 pending. No orphans, no duplicates. (Tool platform: TPH-01..06 / Phase 37-41. Intent recognition: IDR-01 / Phase 42, IDR-02 / Phase 43. Memory: MEM-01/02 / Phase 44-45, MEM-03 / Phase 46, MEM-04 / Phase 47, MEM-05 / Phase 48, MEM-COMPAT-01 / Phase 48.1. Graph/ReAct: GAD-01-IMPL / Phase 49. Canonical Agent Graph migration charter: CAGM-01 / Phase 50. Runtime canonical graph migration: CAGM-02 complete / Phase 51; CAGM-03..CAGM-09 pending / Phase 52-58.)

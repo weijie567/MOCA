@@ -239,7 +239,7 @@ Recommended tests: [VERIFIED: src/agent/graph.py:280-377; CITED: .planning/phase
 - `test_current_router_mappings_match_source_baseline`: parse `builder.add_conditional_edges(...)` and assert router names plus route key/destination maps exactly. [VERIFIED: src/agent/graph.py:297-372]
 - `test_forbidden_internal_or_lifecycle_names_are_not_registered_graph_nodes`: assert `slot_extraction`, `normalize_input`, `memory_write`, `trace_close`, and `action_execution` are absent from parsed `add_node(...)` names. [CITED: .planning/phases/51-canonical-graph-baseline-guardrails-and-migration-matrix/51-CONTEXT.md:65-69; VERIFIED: src/agent/graph.py:280-293]
 - `test_slot_extraction_drift_is_explicitly_rejected`: assert `slot_extraction` is absent and include a failure message telling future phases to update `docs/contract-spec.md`, `docs/target-agent-platform-architecture-plan.md`, and Phase 50 SPEC before promotion. [CITED: .planning/phases/51-canonical-graph-baseline-guardrails-and-migration-matrix/51-CONTEXT.md:67-69]
-- `test_final_no_debt_gate_is_marked_future_until_phase58`: include a skipped or xfailed check that documents the final 15-node equality gate without failing the current mixed graph. [CITED: .planning/phases/51-canonical-graph-baseline-guardrails-and-migration-matrix/51-CONTEXT.md:63; CITED: .planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md:229-250]
+- `test_final_no_debt_gate_is_marked_phase58_scope`: include a skipped or xfailed check that documents the final 15-node equality gate without failing the current mixed graph. [CITED: .planning/phases/51-canonical-graph-baseline-guardrails-and-migration-matrix/51-CONTEXT.md:63; CITED: .planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md:229-250]
 
 ### 51-03: Documentation and Ledger Closeout
 
@@ -360,7 +360,7 @@ How to avoid: make the final equality test skipped or xfailed with a Phase 58 de
 | CAGM-02 | Router route values and destinations are source-verified. [CITED: .planning/REQUIREMENTS.md:54] | architecture/static | `uv run pytest tests/architecture/test_canonical_graph_baseline.py::test_current_router_mappings_match_source_baseline -q` | No, Wave 0 create. [VERIFIED: rg --files tests/architecture] |
 | CAGM-02 | Legacy-to-target migration-mode matrix covers every active legacy registered node. [CITED: .planning/REQUIREMENTS.md:54] | architecture/static | `uv run pytest tests/architecture/test_canonical_graph_baseline.py::test_migration_mode_maps_every_active_legacy_node_to_target -q` | No, Wave 0 create. [VERIFIED: rg --files tests/architecture] |
 | CAGM-02 | `slot_extraction` cannot drift into registered graph nodes. [CITED: .planning/ROADMAP.md:363-367] | architecture/static | `uv run pytest tests/architecture/test_canonical_graph_baseline.py::test_slot_extraction_drift_is_explicitly_rejected -q` | No, Wave 0 create. [VERIFIED: rg --files tests/architecture] |
-| CAGM-02 | Final exact 15-node no-debt gate is documented but not enforced before Phase 58. [CITED: .planning/phases/51-canonical-graph-baseline-guardrails-and-migration-matrix/51-CONTEXT.md:63] | architecture/static skipped or xfail | `uv run pytest tests/architecture/test_canonical_graph_baseline.py::test_final_no_debt_gate_is_marked_future_until_phase58 -q` | No, Wave 0 create. [VERIFIED: rg --files tests/architecture] |
+| CAGM-02 | Final exact 15-node no-debt gate is documented but not enforced before Phase 58. [CITED: .planning/phases/51-canonical-graph-baseline-guardrails-and-migration-matrix/51-CONTEXT.md:63] | architecture/static skipped or xfail | `uv run pytest tests/architecture/test_canonical_graph_baseline.py::test_final_no_debt_gate_is_marked_phase58_scope -q` | No, Wave 0 create. [VERIFIED: rg --files tests/architecture] |
 
 ### Sampling Rate
 
@@ -494,12 +494,12 @@ Source target: `src/agent/graph.py` currently defines all conditional edge maps 
 |---|-------|---------|---------------|
 | A1 | No assumptions were needed for source facts; the only MEDIUM-confidence point is the recommendation to keep Phase 51 migration constants test-local rather than editing runtime vocabulary. [VERIFIED: src/agent/graph.py:280-377; VERIFIED: src/agent/graph_vocabulary.py:41-103; CITED: .planning/phases/51-canonical-graph-baseline-guardrails-and-migration-matrix/51-CONTEXT.md:27-30] | Summary / Recommended Plan Split | If the planner chooses to edit `src/agent/graph_vocabulary.py`, it must explicitly scope that as non-rewiring and verify trace projection impact. [VERIFIED: src/agent/graph_vocabulary.py:129-139] |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. Should Phase 51 add `generate_recommendation -> recommendation_generation` to `src/agent/graph_vocabulary.py`, or should it keep that mapping test-local until the Phase 56 runtime cutover? [VERIFIED: src/agent/graph.py:287; VERIFIED: src/agent/graph_vocabulary.py:41-103; CITED: .planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md:152]
    - What we know: Phase 50 requires the mapping, and current `graph_vocabulary.py` lacks it. [CITED: .planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md:152; VERIFIED: src/agent/graph_vocabulary.py:41-103]
    - What's unclear: whether the planner should treat `graph_vocabulary.py` as a runtime source file out of scope for Phase 51. [CITED: .planning/phases/51-canonical-graph-baseline-guardrails-and-migration-matrix/51-CONTEXT.md:27-30]
-   - Recommendation: keep the mapping in the Phase 51 test helper unless the plan explicitly scopes a no-behavior vocabulary projection update and validates trace projection. [VERIFIED: src/agent/graph_vocabulary.py:129-139; CITED: .planning/phases/51-canonical-graph-baseline-guardrails-and-migration-matrix/51-CONTEXT.md:27-30]
+   - RESOLVED: Phase 51 keeps the mapping test-local in `tests/architecture/graph_baseline.py`; it does not update `src/agent/graph_vocabulary.py`. Phase 56 owns the runtime/canonical recommendation node cutover. [CITED: .planning/phases/51-canonical-graph-baseline-guardrails-and-migration-matrix/51-01-PLAN.md; CITED: .planning/phases/51-canonical-graph-baseline-guardrails-and-migration-matrix/51-02-PLAN.md]
 
 ## Sources
 

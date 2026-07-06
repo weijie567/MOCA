@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
-status: complete
-stopped_at: Phase 49 complete
-last_updated: "2026-07-04T16:20:00Z"
-last_activity: 2026-07-04 -- Phase 49 complete
+status: ready_to_plan
+stopped_at: Phase 58 registered
+last_updated: "2026-07-06T07:09:19Z"
+last_activity: 2026-07-06 -- Phase 51 complete; Phase 52 ready to plan
 progress:
-  total_phases: 14
-  completed_phases: 14
-  total_plans: 45
-  completed_plans: 45
-  percent: 100
+  total_phases: 23
+  completed_phases: 16
+  total_plans: 48
+  completed_plans: 48
+  percent: 70
 ---
 
 # Project State: MOCA
@@ -21,7 +21,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-07-04)
 
 **Core value:** Retrieve relevant business facts and policy evidence, provide evidence-backed guidance, and ensure risky actions pass explicit approval and execution safety contracts.
-**Current focus:** v2.1 Core Subsystem Hardening — Phase 49 investigate bounded ReAct loop migration complete.
+**Current focus:** Phase 52 — safety-pre-route-node
 
 ## Rescope note (2026-07-02)
 
@@ -30,13 +30,13 @@ See: `.planning/PROJECT.md` (updated 2026-07-04)
 
 ## Current Position
 
-Phase: 49 — COMPLETE
-Plan: 4 of 4 complete
-Status: Complete
-Last activity: 2026-07-04 -- Phase 49 complete
-Next: Run post-phase review/ship workflow or choose the next roadmap item.
+Phase: 52
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-07-06 -- Phase 51 complete
+Next: Run `$gsd-plan-phase 52`.
 
-Progress: [██████████] 100%
+Progress: [███████░░░] 70%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -70,6 +70,15 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | 48. Narrow Long-Term Explicit Preference Memory (MEM-05) | 4/4 | Complete |
 | 48.1. Memory Context Compatibility Debt Cleanup (MEM-COMPAT-01) | 4/4 | Complete |
 | 49. Investigate Bounded ReAct Loop Migration (GAD-01-IMPL) | 4/4 | Complete with replay parent-operation limitation |
+| 50. Canonical Agent Graph Migration Spec and Guardrails (CAGM-01) | 0/0 | Complete (spec-only); implementation phases pending |
+| 51. Canonical Graph Baseline Guardrails and Migration Matrix (CAGM-02) | 3/3 | Complete |
+| 52. Safety Pre-route Node (CAGM-03) | 0/TBD | Not planned |
+| 53. Session Context Before Intent and Contextual Intent Resolve (CAGM-04) | 0/TBD | Not planned |
+| 54. Slot Resolution Gate Cutover (CAGM-05) | 0/TBD | Not planned |
+| 55. Memory Context Load Cutover (CAGM-06) | 0/TBD | Not planned |
+| 56. Recommendation Generation and RAG Claim Status Alignment (CAGM-07) | 0/TBD | Not planned |
+| 57. Risk Gate and Approval Gate Canonicalization (CAGM-08) | 0/TBD | Not planned |
+| 58. Canonical Graph Cutover and No-Debt Cleanup (CAGM-09) | 0/TBD | Not planned |
 
 Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review. Phase 40 closes the source-confirmed validation/backstop gaps intentionally deferred or left advisory after Phase 38/39. Phase 41 then handles the explicit breaking cleanup/API decision to remove the `UnifiedToolManager` legacy compatibility adapter.
 
@@ -77,7 +86,11 @@ Phase 42 moves to the second subsystem (intent recognition): it splits intent cl
 
 Phase 44 moves to the memory subsystem: it adds the durable Case Working Context layer and additive thread-case many-to-many association while preserving `case_memories`, `long_term_memories`, and `conversation_threads.case_id`. Graph lifecycle auto-update/read-active wiring is explicitly deferred to Phase 45.
 
-Phase 49 moves to the graph/ReAct debt accepted as GAD-01: only `src/agent/nodes/investigate.py` migrates from deterministic main planning to a bounded read-only ReAct loop. Outer graph routers remain deterministic, observation→slot回流 is loop-local only, ToolPlatform remains the sole dispatch path, and intent/memory/risk/approval/action contracts stay out of scope.
+Phase 49 moved the `investigate` node internals from deterministic main planning to a bounded read-only ReAct loop. Outer graph routers remained deterministic, observation→slot回流 stayed loop-local only, ToolPlatform remained the sole dispatch path, and intent/memory/risk/approval/action contracts stayed out of scope.
+
+Phase 50 completed the remaining canonical Agent Graph migration charter by locking a migration SPEC and guardrails before runtime rewiring. It treats `docs/contract-spec.md` §9 as the primary accepted contract reference, `docs/target-agent-platform-architecture-plan.md` §6.1 as the readable target graph view, and `50-SPEC.md` as the execution charter for future migration phases.
+
+Phases 51-58 are registered as macro implementation phases for the canonical Agent Graph migration. They must each read Phase 50 SPEC before planning, and each detailed PLAN must be generated against the then-current source state rather than prewritten now.
 
 ## Last Milestone Context
 
@@ -214,6 +227,8 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - Phase 48 added: Narrow Long-Term Explicit Preference Memory.
 - Phase 48.1 inserted after Phase 48: Memory Context Compatibility Debt Cleanup (URGENT).
 - Phase 49 added: Investigate Bounded ReAct Loop Migration.
+- Phase 50 added: Canonical Agent Graph Migration Spec and Guardrails.
+- Phase 51-58 added: Canonical Agent Graph runtime migration macro phases from Phase 50 SPEC.
 
 ### Pending Todos
 
@@ -243,14 +258,14 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ## Session Continuity
 
-Last session: 2026-07-04T17:12:28+08:00
-Stopped at: Phase 48.1 complete
+Last session: 2026-07-06T12:14:28+08:00
+Stopped at: Phase 58 registered
 Resume file: .planning/ROADMAP.md
-Next: Run post-phase review/ship workflow or choose the next roadmap item.
+Next: Run phase planning for Phase 52 from `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`.
 
-Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with security, UAT, validation, and clean review complete; Phase 46 session context repositioning complete with MEM-03 validated; Phase 47 complete with 47-01 contract/source-policy foundation, 47-02 trusted closed-case projection seam, 47-03 governed case-memory write lifecycle, and 47-04 retrieval/docs/validation closeout; Phase 48 complete with explicit preference contract, source policy/service guards, chat/admin write paths, retrieval/review/correction closeout, clean code review, completed UAT, and security verification (`threats_open: 0`).
-Next roadmap item: none selected; Phase 48.1 is complete.
+Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with security, UAT, validation, and clean review complete; Phase 46 session context repositioning complete with MEM-03 validated; Phase 47 complete with 47-01 contract/source-policy foundation, 47-02 trusted closed-case projection seam, 47-03 governed case-memory write lifecycle, and 47-04 retrieval/docs/validation closeout; Phase 48 complete with explicit preference contract, source policy/service guards, chat/admin write paths, retrieval/review/correction closeout, clean code review, completed UAT, and security verification (`threats_open: 0`); Phase 49 completed investigate bounded read-only ReAct main path with replay parent-operation limitation; Phase 50 completed canonical Agent Graph migration guardrail SPEC; Phase 51 completed canonical graph baseline guardrails and migration matrix verification.
+Next roadmap item: Phase 52 Safety Pre-route Node.
 
-**Completed Phase:** 48 (Narrow Long-Term Explicit Preference Memory) — 4/4 plans — 2026-07-04
+**Completed Phase:** 51 (Canonical Graph Baseline Guardrails and Migration Matrix) — 3/3 plans — 2026-07-06
 
-**Planned Phase:** 48.1 (Memory Context Compatibility Debt Cleanup) — 4 plans — 2026-07-04T17:12:28+08:00
+**Planned Phase:** none; next phase to plan is 52 (safety-pre-route-node)

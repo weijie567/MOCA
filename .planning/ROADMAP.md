@@ -12,7 +12,7 @@ v2.1 is a long-lived umbrella for cleaning up architecture debt across MOCA's fo
 
 **Memory (Phase 44+)** clears the memory-subsystem redesign debt tracked in `.planning/MEMORY-REDESIGN-DECISIONS.md`. Phase 44 delivered Case Working Context and thread-case M:N storage, Phase 45 wired it into the agent lifecycle, and Phases 46-48 carry the remaining deferred memory layering items: session context repositioning, reviewed case precedent generation, and narrow explicit long-term preference memory. Phase 48.1 is an inserted compatibility-debt cleanup discovered after Phase 48 source review; it narrows active reader debt without destructive table/API renames.
 
-**Graph/ReAct (Phase 49)** clears the accepted GAD-01 implementation debt: `investigate` already has the §9.4 bounded-loop contract in `docs/contract-spec.md`, but the implementation still uses legacy deterministic planning as the main control path. Phase 49 migrates only the `investigate` node internals to a bounded read-only ReAct loop, keeps observation→slot回流 loop-local, and preserves intent, memory, risk, approval, and action boundaries.
+**Graph/ReAct and Canonical Agent Graph Migration (Phase 49+)** clears the accepted GAD-01 implementation debt and then migrates the outer LangGraph runtime to the canonical 15-node target architecture. Phase 49 completed the `investigate` bounded read-only ReAct main path with deterministic fallback while preserving outer graph routers and downstream gates. Phase 50 locks the no-debt migration charter for the remaining canonical graph work. Phases 51-58 are registered as macro implementation phases for baseline guardrails, `safety_pre_route`, `contextual_intent_resolve`, `slot_resolution_gate`, `memory_context_load`, `recommendation_generation`, `risk_gate`/`approval_gate`, and final no-debt cleanup.
 
 Code implementation is delegated to Codex per the project workflow; Claude is plan designer and adjudicator.
 
@@ -35,6 +35,15 @@ Code implementation is delegated to Codex per the project workflow; Claude is pl
 - [x] **Phase 48: Narrow Long-Term Explicit Preference Memory** - Re-scope `long_term_memories` to explicit tenant preference memory only, without generic automatic run summarization (MEM-05). Plan progress: 4/4 complete.
 - [x] **Phase 48.1: Memory Context Compatibility Debt Cleanup (INSERTED)** - Migrate active memory-context readers and case-link reads to canonical surfaces while recording remaining legacy names as explicit deferred compatibility debt. Plan progress: 4/4 complete.
 - [x] **Phase 49: Investigate Bounded ReAct Loop Migration** - Migrate `investigate` from legacy deterministic main planning to the bounded read-only ReAct loop defined in `contract-spec.md` §9.4, with ToolPlatform-only dispatch, 8-tool allowlist coverage, loop-local discovered slots, deterministic fallback, projection boundary, trace/replay iteration semantics, and no changes to intent/memory/risk/approval/action contracts (GAD-01-IMPL). Plan progress: 4/4 complete; closed as IMPLEMENTED_WITH_LIMITATIONS for replay parent-operation identity.
+- [x] **Phase 50: Canonical Agent Graph Migration Spec and Guardrails** - Lock the migration charter for the remaining canonical graph migration, including the exact 15-node final graph, no `slot_extraction` graph node, Phase 49 baseline treatment, temporary compatibility policy, validation matrix, and final no-debt gates (CAGM-01). SPEC-only phase complete; downstream implementation phases pending.
+- [x] **Phase 51: Canonical Graph Baseline Guardrails and Migration Matrix** - Add source-verified graph guardrails and migration matrix checks before runtime rewiring starts (CAGM-02). Plan progress: 3/3 complete; verified 2026-07-06.
+- [ ] **Phase 52: Safety Pre-route Node** - Extract request-risk pre-route into explicit `safety_pre_route` node before memory/context enrichment (CAGM-03). Not planned yet.
+- [ ] **Phase 53: Session Context Before Intent and Contextual Intent Resolve** - Move session context before intent resolution and replace active `classify_intent` with `contextual_intent_resolve` (CAGM-04). Not planned yet.
+- [ ] **Phase 54: Slot Resolution Gate Cutover** - Replace active `extract_slots` / `route_after_slots` graph boundary with canonical `slot_resolution_gate` and slot provenance (CAGM-05). Not planned yet.
+- [ ] **Phase 55: Memory Context Load Cutover** - Replace active `long_term_memory_retrieve` graph naming with canonical `memory_context_load` and contextual-only memory authority labels (CAGM-06). Not planned yet.
+- [ ] **Phase 56: Recommendation Generation and RAG Claim Status Alignment** - Canonicalize `recommendation_generation` and align RAG/claim fail-closed status semantics (CAGM-07). Not planned yet.
+- [ ] **Phase 57: Risk Gate and Approval Gate Canonicalization** - Replace active `assess_risk_and_approval` with canonical `risk_gate` while preserving approval pending/trusted resume semantics (CAGM-08). Not planned yet.
+- [ ] **Phase 58: Canonical Graph Cutover and No-Debt Cleanup** - Cut over the active graph to the final 15-node set and remove legacy node names, dual routes, and active compatibility aliases (CAGM-09). Not planned yet.
 
 ## Phase Details
 
@@ -102,6 +111,15 @@ Plans:
 | 48. Narrow Long-Term Explicit Preference Memory | 4/4 | Complete    | 2026-07-04 |
 | 48.1. Memory Context Compatibility Debt Cleanup | 4/4 | Complete | 2026-07-04 |
 | 49. Investigate Bounded ReAct Loop Migration | 4/4 | Complete with replay parent-operation limitation | 2026-07-04 |
+| 50. Canonical Agent Graph Migration Spec and Guardrails | 0/0 | Complete (spec-only); implementation phases pending | 2026-07-06 |
+| 51. Canonical Graph Baseline Guardrails and Migration Matrix | 3/3 | Complete    | 2026-07-06 |
+| 52. Safety Pre-route Node | 0/TBD | Not planned | - |
+| 53. Session Context Before Intent and Contextual Intent Resolve | 0/TBD | Not planned | - |
+| 54. Slot Resolution Gate Cutover | 0/TBD | Not planned | - |
+| 55. Memory Context Load Cutover | 0/TBD | Not planned | - |
+| 56. Recommendation Generation and RAG Claim Status Alignment | 0/TBD | Not planned | - |
+| 57. Risk Gate and Approval Gate Canonicalization | 0/TBD | Not planned | - |
+| 58. Canonical Graph Cutover and No-Debt Cleanup | 0/TBD | Not planned | - |
 
 ### Phase 40: Tool Contract Validation Hardening
 
@@ -316,3 +334,151 @@ Plans:
 - [x] 49-02-PLAN.md — bounded loop runtime and loop-local discovered slot scratchpad.
 - [x] 49-03-PLAN.md — 8-tool coverage, projection boundary, and trace/replay metadata.
 - [x] 49-04-PLAN.md — graph-level safety regression, docs/debt closeout, and final validation.
+
+### Phase 50: Canonical Agent Graph Migration Spec and Guardrails
+
+**Goal:** Create the binding migration charter for moving the outer Agent Graph from the current legacy/canonical mixed runtime to the accepted 15-node canonical graph without leaving final migration debt, duplicate active paths, or conflicting document authorities.
+**Requirements**: CAGM-01
+**Depends on:** Phase 49
+**Plans:** 0 implementation plans (spec-only phase)
+**Spec:** `50-SPEC.md`
+**Success Criteria** (what must be TRUE):
+  1. The final runtime graph is locked to exactly 15 registered canonical nodes: `receive_request`, `safety_pre_route`, `session_context_load`, `contextual_intent_resolve`, `slot_resolution_gate`, `memory_context_load`, `investigate`, `rag_context_build`, `recommendation_generation`, `claim_verify`, `risk_gate`, `approval_gate`, `action_draft`, `clarification_gate`, and `final_response`.
+  2. `slot_extraction`, `normalize_input`, `memory_write`, `trace_close`, and `action_execution` are explicitly excluded from the current main-chain registered node set, with their internal/lifecycle/future-extension ownership stated.
+  3. Phase 49 `investigate` ReAct is treated as implemented-with-limitations, not pending; future graph phases preserve its bounded read-only planner constraints.
+  4. The SPEC includes source hierarchy, current-to-target matrix, temporary compatibility policy, LLM authority matrix, validation matrix, required downstream phase order, and final no-debt gates.
+  5. The phase registers the migration charter in ROADMAP/STATE/REQUIREMENTS/ARCHITECTURE-DEBT so later implementation phases do not rely on competing architecture stories.
+
+Plans:
+- [x] 50-SPEC.md — canonical graph migration charter and guardrails.
+- [x] 50-SUMMARY.md — spec-only closeout and downstream implementation pointer.
+
+### Phase 51: Canonical Graph Baseline Guardrails and Migration Matrix
+
+**Goal:** Add baseline graph guardrails and source-verified current-to-target migration matrix checks before any runtime rewiring starts, so later phases cannot drift from Phase 50's canonical graph charter.
+**Requirements**: CAGM-02
+**Depends on:** Phase 50
+**Must read:** `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`
+**Plans:** 3/3 plans complete
+**Success Criteria** (what must be TRUE):
+  1. Static tests or equivalent architecture checks can identify the current active graph node set, router route values, and legacy-to-target vocabulary mappings.
+  2. The migration matrix from Phase 50 is represented in a machine-checkable or test-asserted form, including all target nodes and legacy active nodes.
+  3. Guardrails explicitly fail on accidental introduction of `slot_extraction` as a registered main-chain graph node.
+  4. No runtime graph behavior is changed unless the phase plan explicitly scopes a harmless test-only seam.
+
+Plans:
+- [x] 51-01-PLAN.md — Static graph baseline helper and migration matrix constants.
+- [x] 51-02-PLAN.md — Architecture tests for graph baseline, migration mapping, router maps, forbidden drift, and Phase 58 no-debt marker.
+- [x] 51-03-PLAN.md — Architecture debt and validation closeout.
+
+### Phase 52: Safety Pre-route Node
+
+**Goal:** Extract current request-risk / pre-route logic from the thick intent entry into an explicit `safety_pre_route` registered node that runs immediately after `receive_request`.
+**Requirements**: CAGM-03
+**Depends on:** Phase 51
+**Must read:** `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`
+**Plans:** 0 plans (not planned yet)
+**Success Criteria** (what must be TRUE):
+  1. `receive_request -> safety_pre_route` is the active graph entry path for ordinary runs.
+  2. Unsafe, unsupported, untrusted approval chat, or approval-bypass attempts do not enter memory, investigate, approval, or action paths.
+  3. `safety_pre_route` does not load long-term/case memory, query business facts, verify evidence, evaluate proposed-action risk, or execute tools.
+  4. Any temporary compatibility left inside `classify_intent` is recorded with owner, deletion phase, trace projection, and validation coverage per Phase 50 policy.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 52 to break down)
+
+### Phase 53: Session Context Before Intent and Contextual Intent Resolve
+
+**Goal:** Move same-thread `session_context_load` before intent resolution and cut over the active graph intent node from thick `classify_intent` to canonical `contextual_intent_resolve`.
+**Requirements**: CAGM-04
+**Depends on:** Phase 52
+**Must read:** `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`
+**Plans:** 0 plans (not planned yet)
+**Success Criteria** (what must be TRUE):
+  1. Active graph order is `safety_pre_route -> session_context_load -> contextual_intent_resolve`.
+  2. `contextual_intent_resolve` may use LLM structured output for candidate intent/operation/slots but cannot choose graph routes, satisfy slots, load long-term memory, or evaluate action risk.
+  3. Same-thread pending-slot short replies such as an order/refund identifier are resolved through session context without relying on long-term/case memory.
+  4. Active runtime no longer depends on `classify_intent` as the registered graph node after cutover, except for explicitly recorded temporary implementation reuse slated for deletion.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 53 to break down)
+
+### Phase 54: Slot Resolution Gate Cutover
+
+**Goal:** Replace the active `extract_slots` / `route_after_slots` graph boundary with canonical `slot_resolution_gate`, including explicit slot provenance, inheritance, invalidation, stale, conflict, and missing-slot outputs.
+**Requirements**: CAGM-05
+**Depends on:** Phase 53
+**Must read:** `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`
+**Plans:** 0 plans (not planned yet)
+**Success Criteria** (what must be TRUE):
+  1. `slot_resolution_gate` is the active registered graph node for required-slot satisfaction and clarification routing.
+  2. Slot candidate extraction remains internal to `contextual_intent_resolve` / `slot_resolution_gate`; no final `slot_extraction` graph node is introduced.
+  3. Slot resolution trace distinguishes explicit current-turn slots, inherited session slots, invalidated slots, conflicting slots, stale slots, resolved slots, missing required slots, and reason codes.
+  4. Active runtime no longer uses `extract_slots` as the registered graph node after cutover, except for explicitly recorded temporary implementation reuse slated for deletion.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 54 to break down)
+
+### Phase 55: Memory Context Load Cutover
+
+**Goal:** Replace active `long_term_memory_retrieve` graph naming with canonical `memory_context_load`, positioned after slot resolution and constrained to contextual-only memory authority.
+**Requirements**: CAGM-06
+**Depends on:** Phase 54
+**Must read:** `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`
+**Plans:** 0 plans (not planned yet)
+**Success Criteria** (what must be TRUE):
+  1. Active graph order routes resolved slot state into `memory_context_load` before `investigate`.
+  2. Memory outputs carry usage/authority labels and cannot satisfy policy evidence, current business facts, approval/action authority, or replay truth.
+  3. Long-term preference memory, reviewed case memory, and session/context surfaces remain distinct according to Phases 46-48.1.
+  4. Active runtime no longer uses `long_term_memory_retrieve` as the registered graph node after cutover, except for explicitly recorded temporary implementation reuse slated for deletion.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 55 to break down)
+
+### Phase 56: Recommendation Generation and RAG Claim Status Alignment
+
+**Goal:** Canonicalize `recommendation_generation` as the active generation node and align `rag_context_build` / `claim_verify` fail-closed statuses so unsafe evidence or unsupported claims cannot pass into action paths.
+**Requirements**: CAGM-07
+**Depends on:** Phase 55
+**Must read:** `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`
+**Plans:** 0 plans (not planned yet)
+**Success Criteria** (what must be TRUE):
+  1. Active graph uses `recommendation_generation` as the registered node name, not `generate_recommendation`.
+  2. Material claims and candidate proposed actions cannot bypass `claim_verify`.
+  3. RAG status and claim verification status semantics are explicit enough for deterministic routers to fail closed on missing, stale, conflicting, unauthorized, or unsupported evidence.
+  4. Active runtime no longer uses `generate_recommendation` as the registered graph node after cutover, except for explicitly recorded temporary implementation reuse slated for deletion.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 56 to break down)
+
+### Phase 57: Risk Gate and Approval Gate Canonicalization
+
+**Goal:** Replace active `assess_risk_and_approval` with canonical `risk_gate` while preserving the separation between action-risk policy and `approval_gate` pending/trusted-resume state machine.
+**Requirements**: CAGM-08
+**Depends on:** Phase 56
+**Must read:** `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`
+**Plans:** 0 plans (not planned yet)
+**Success Criteria** (what must be TRUE):
+  1. `risk_gate` is the active registered graph node for blocked/manual-review/approval-required/auto-draft decisions.
+  2. `approval_gate` only handles approval request creation/resume, pending self-loop, edit/superseded reroute, approved draft path, and rejected/expired/invalid finalization.
+  3. Ordinary chat approval text cannot become trusted approval.
+  4. Active runtime no longer uses `assess_risk_and_approval` as the registered graph node after cutover, except for explicitly recorded temporary implementation reuse slated for deletion.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 57 to break down)
+
+### Phase 58: Canonical Graph Cutover and No-Debt Cleanup
+
+**Goal:** Cut over the active main graph to the final 15-node canonical runtime set and remove all active legacy node names, dual runtime routes, and migration compatibility aliases.
+**Requirements**: CAGM-09
+**Depends on:** Phase 57
+**Must read:** `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`
+**Plans:** 0 plans (not planned yet)
+**Success Criteria** (what must be TRUE):
+  1. Active `StateGraph.add_node(...)` registrations equal the 15 canonical node names from Phase 50 exactly.
+  2. Active route values no longer point to `classify_intent`, `session_memory_load`, `extract_slots`, `long_term_memory_retrieve`, `generate_recommendation`, or `assess_risk_and_approval`.
+  3. `graph_vocabulary.py` no longer needs active runtime compatibility aliases for the main graph.
+  4. Docs, tests, trace/replay/eval projection, and architecture debt are synchronized so no final migration debt remains.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 58 to break down)
