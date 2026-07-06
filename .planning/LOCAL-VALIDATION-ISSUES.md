@@ -12898,3 +12898,84 @@ git diff --check -- .planning/phases/52-safety-pre-route-node/52-01-PLAN.md .pla
 - `.planning/phases/52-safety-pre-route-node/52-01-PLAN.md`
 - `.planning/phases/52-safety-pre-route-node/52-02-PLAN.md`
 - `.planning/phases/52-safety-pre-route-node/52-03-PLAN.md`
+
+## 2026-07-06 — `gsd-sdk query state.planned-phase` 更新 Phase 52 后 STATE 进度字段漂移
+
+### 问题现象
+
+Phase 52 plan-checker 通过后运行：
+
+```bash
+gsd-sdk query state.planned-phase --phase "52" --name "Safety Pre-route Node" --plans "3"
+```
+
+命令返回 `updated: true`，但只改了 `.planning/STATE.md`，没有同步 `.planning/ROADMAP.md` 的 Phase 52 plan 清单；同时 STATE frontmatter 中的进度字段被错误重算：
+
+- `completed_phases` 从 16 改成 15。
+- `completed_plans` 从 48 改成 49。
+- `percent` 从 70 改成 96。
+- `last_activity` 回退成 `Phase 51 complete`。
+
+同一轮排查中还出现两个本地命令写法坑：一次含反引号的 `rg` 搜索被 zsh 解析成 `unmatched "`；一次 macOS `date -u +%Y-%m-%dT%H:%M:%S.%3NZ` 输出了无效的 `%N` 字面量。
+
+### 如何检测 / 复现
+
+运行上述 `state.planned-phase` 命令后检查：
+
+```bash
+git diff -- .planning/STATE.md .planning/ROADMAP.md
+```
+
+本地命令坑可由以下模式触发：
+
+```bash
+rg -n "带反引号的 pattern" ...
+date -u +%Y-%m-%dT%H:%M:%S.%3NZ
+```
+
+### 关键证据或命令
+
+异常 STATE diff 包含：
+
+```text
+completed_phases: 15
+completed_plans: 49
+percent: 96
+last_activity: 2026-07-06 -- Phase 51 complete
+```
+
+ROADMAP 仍保留：
+
+```text
+**Plans:** 0 plans (not planned yet)
+- [ ] TBD (run /gsd-plan-phase 52 to break down)
+```
+
+无效 macOS date 输出：
+
+```text
+2026-07-06T08:28:54.3NZ
+```
+
+### 当前判断 / 根因
+
+当前判断是 GSD `state.planned-phase` 在 MOCA 当前 STATE/ROADMAP 结构上只做了局部 STATE 更新，并触发了不符合真实 roadmap 的进度重算。zsh / macOS date 问题是本地命令写法与平台差异，不是 Phase 52 artifact 问题。
+
+### 已做处理
+
+未提交错误 STATE。已手工修正：
+
+- STATE：`status: ready_to_execute`，`stopped_at: Phase 52 planned`，`completed_phases: 16`，`total_plans: 51`，`completed_plans: 48`，`percent: 70`。
+- STATE Current Position：Phase 52 `52-01 ready`，下一步为 `$gsd-execute-phase 52`。
+- ROADMAP：Phase 52 标记为 0/3 planned，列出 `52-01-PLAN.md`、`52-02-PLAN.md`、`52-03-PLAN.md`。
+- 时间戳改用 macOS 支持的 `date -u +%Y-%m-%dT%H:%M:%SZ`。
+
+### 剩余问题
+
+`gsd-sdk query state.planned-phase` 的正确行为仍未确认。后续在 MOCA 中使用该命令后必须检查 `.planning/STATE.md` 和 `.planning/ROADMAP.md` diff，不能盲目提交。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md` frontmatter progress 字段。
+- `.planning/ROADMAP.md` Phase 52 summary/table/detail三处 plan 状态。
+- `gsd-sdk query state.planned-phase` 实现或帮助输出。
