@@ -13589,3 +13589,115 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_graph_routing.py tests/agent
 - `tests/agent/test_graph.py`
 - `src/agent/nodes/contextual_intent_resolve.py`
 - `src/agent/graph.py`
+
+## 2026-07-06 — Phase 53-02 并行运行两组 DB-backed pytest 导致 test schema 竞争
+
+### 问题现象
+
+主流程在核对 53-02 部分提交时，同时启动了两组包含 DB-backed graph tests 的 pytest：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_session_memory_load.py tests/agent/test_session_memory_integration.py tests/agent/test_graph.py tests/test_graph_routing.py -q --tb=short
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_graph_routing.py tests/agent/test_intent_routing.py tests/architecture/test_canonical_graph_baseline.py tests/agent/test_graph.py -q --tb=short
+```
+
+两组测试并发访问同一本地 PostgreSQL test database / schema setup，出现 schema 创建竞争、表不存在和死锁错误。
+
+### 如何检测 / 复现
+
+在同一工作树里并发运行上述两组命令，可看到其中一组或两组在 `tests/conftest.py` 的 `Base.metadata.create_all` / seeded fixture 阶段失败。
+
+### 关键证据或命令
+
+错误包括：
+
+```text
+asyncpg.exceptions.UniqueViolationError: duplicate key value violates unique constraint "pg_type_typname_nsp_index"
+DETAIL: Key (typname, typnamespace)=(tenants, ...) already exists.
+```
+
+以及：
+
+```text
+asyncpg.exceptions.DeadlockDetectedError: deadlock detected
+```
+
+还有后续 cascade：
+
+```text
+asyncpg.exceptions.UndefinedTableError: relation "tenants" does not exist
+```
+
+### 当前判断 / 根因
+
+这是本地验证调度错误，不是 53-02 代码结论。两组 pytest 都通过项目 `UV_CACHE_DIR=/tmp/uv-cache uv run ...` 入口启动，但它们共享同一个测试数据库初始化路径，并发执行时 DDL / seed fixture 互相竞争。
+
+### 已做处理
+
+停止并发验证；确认没有残留 pytest 进程后，改为串行重跑 53-02 验证命令。并发失败结果不作为代码失败结论。
+
+### 剩余问题
+
+后续包含 `tests/agent/test_graph.py`、`tests/test_graph_routing.py`、DB seeded fixtures 的 pytest 命令不要并行启动；需要并行时必须先证明 fixture 隔离支持。
+
+### 下次继续排查入口
+
+- `tests/conftest.py`
+- `tests/agent/test_graph.py`
+- `tests/test_graph_routing.py`
+
+## 2026-07-06 — Phase 53-02 新增 MemoryService 非 DB 测试 fake row 缺少 version 字段
+
+### 问题现象
+
+为覆盖 `MemoryService.load_session_memory(..., current_intent=None)` 新增非 DB 单测后，首次运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_session_memory_service.py -q --tb=short
+```
+
+出现 1 个失败：
+
+```text
+AttributeError: 'types.SimpleNamespace' object has no attribute 'version'
+```
+
+### 如何检测 / 复现
+
+使用缺少 `version` 字段的 fake active session-memory row 运行上述测试即可复现。
+
+### 关键证据或命令
+
+失败位置：
+
+```text
+src/memory/service.py:120: in load_session_memory
+    version=memory.version,
+```
+
+### 当前判断 / 根因
+
+这是新增测试 fake 数据结构不完整，不是 production code bug。`MemoryService.load_session_memory` 生产路径依赖 repository row 的 `version` 字段；fake row 应模拟该字段。
+
+### 已做处理
+
+已给 fake active row 增加 `version=1`，重跑通过：
+
+```text
+15 passed, 1 warning
+```
+
+并在 53-02 组合验证中通过：
+
+```text
+137 passed, 35 warnings
+```
+
+### 剩余问题
+
+无。后续添加 memory service fake row 时，需要覆盖 production row 访问到的字段，而不是只填当前断言字段。
+
+### 下次继续排查入口
+
+- `tests/memory/test_session_memory_service.py`
+- `src/memory/service.py`

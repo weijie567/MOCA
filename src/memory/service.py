@@ -433,7 +433,7 @@ def _merge_memory(
 
 def _slot_intent_compatible(slot_name: str, compatible_intents: list[str], current_intent: str | None) -> bool:
     if current_intent is None:
-        return False
+        return True
     if current_intent in compatible_intents:
         return True
     intent_group = _CROSS_INTENT_SLOT_GROUPS.get(slot_name)

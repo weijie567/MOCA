@@ -313,7 +313,12 @@ async def test_session_context_load_pre_intent_passes_current_intent_none(monkey
             from src.memory.schemas import SessionContextMemory
 
             context = SessionContextMemory.model_validate(bundle)
-            return context, _session_context_status(context, status="loaded", source="session_memory_bundle_service")
+            return context, _session_context_status(
+                context,
+                status="loaded",
+                source="session_memory_bundle_service",
+                fallback_reason=None,
+            )
 
     state = {**_state(), "current_run_id": run_id}
     state.pop("primary_intent", None)

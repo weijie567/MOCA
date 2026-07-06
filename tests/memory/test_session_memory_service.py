@@ -83,6 +83,48 @@ def _envelope(value: str, *, run_id: str | None = None, expires_at: datetime | N
     }
 
 
+@pytest.mark.asyncio
+async def test_load_session_memory_keeps_slots_when_current_intent_unknown_without_database() -> None:
+    repository = _FakeSessionMemoryRepository()
+    tenant_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    thread_id = "thread-pre-intent-service"
+    now = datetime.now(UTC)
+    repository.active = SimpleNamespace(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        expires_at=now + timedelta(minutes=30),
+        active_slots_json={
+            "schema_version": "session_slots.v1",
+            "slots": {
+                "order_id": _slot(
+                    "ORD-PRE-INTENT",
+                    expires_at=now + timedelta(minutes=30),
+                    intents=["refund_troubleshooting"],
+                ).model_dump(mode="json")
+            },
+        },
+        session_summary=None,
+        unresolved_questions_json=[],
+        last_intent=None,
+        last_business_context_refs_json={},
+        version=1,
+    )
+    service = MemoryService(repository)  # type: ignore[arg-type]
+
+    view = await service.load_session_memory(
+        tenant_id,
+        user_id,
+        thread_id,
+        current_intent=None,
+        now=now,
+    )
+
+    assert view.active_slots == {"order_id": "ORD-PRE-INTENT"}
+    assert view.slot_metadata["order_id"]["intent_compatible"] is True
+
+
 async def _insert_run(session: AsyncSession, seeded_session: dict, thread_id: str) -> uuid.UUID:
     run_id = uuid.uuid4()
     session.add(

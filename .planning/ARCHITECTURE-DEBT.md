@@ -961,15 +961,17 @@
 - `route_after_contextual_intent` 成为 active graph router；保留的 `route_after_intent` 仅直接委托给 contextual router，不再有独立 allowlist / 行为分叉。
 - slot-required `IntentDefinition.initial_route` 从 `session_memory_load` 改为 Phase 54 兼容目的地 `extract_slots`。
 - `src/agent/graph.py` active graph 删除 `classify_intent` / `session_memory_load` 注册和 path-map destination，新增 `session_context_load`、`contextual_intent_resolve` 注册以及固定边 `session_context_load -> contextual_intent_resolve`。
+- `MemoryService.load_session_memory(..., current_intent=None)` 不再把 pre-intent unknown 误判为 intent-incompatible；同线程 trusted slots 可以在 intent LLM 之前进入 `session_context_load` 的 contextual surface。
 - `extract_slots` 仍保留为 Phase 54 兼容 active node；未引入 `slot_resolution_gate`、`memory_context_load`、`recommendation_generation`、`risk_gate` 或 Phase 58 no-debt cleanup。
 
 **证据**
 - Phase / plan：`53-02`
-- 文件：`src/agent/routing.py`、`src/agent/intent_policy.py`、`src/agent/graph.py`、`tests/architecture/graph_baseline.py`、`tests/architecture/test_canonical_graph_baseline.py`、`tests/test_graph_routing.py`、`tests/agent/test_intent_routing.py`、`tests/agent/test_graph.py`
+- 文件：`src/agent/routing.py`、`src/agent/intent_policy.py`、`src/agent/graph.py`、`src/memory/service.py`、`tests/architecture/graph_baseline.py`、`tests/architecture/test_canonical_graph_baseline.py`、`tests/test_graph_routing.py`、`tests/agent/test_intent_routing.py`、`tests/agent/test_graph.py`、`tests/memory/test_session_memory_service.py`
 
 **验证**
 - `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_graph_routing.py tests/agent/test_intent_routing.py tests/architecture/test_canonical_graph_baseline.py tests/agent/test_graph.py -q --tb=short` → `1217 passed, 1 skipped`
-- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/routing.py src/agent/intent_policy.py src/agent/graph.py tests/test_graph_routing.py tests/agent/test_intent_routing.py tests/architecture/graph_baseline.py tests/architecture/test_canonical_graph_baseline.py tests/agent/test_graph.py` → pass
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_session_memory_service.py tests/agent/test_session_memory_load.py tests/agent/test_session_memory_integration.py tests/agent/test_graph.py tests/test_graph_routing.py -q --tb=short` → `137 passed`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/memory/service.py tests/memory/test_session_memory_service.py tests/agent/test_session_memory_load.py tests/agent/test_session_memory_integration.py tests/agent/test_graph.py tests/test_graph_routing.py src/agent/routing.py src/agent/intent_policy.py src/agent/graph.py tests/agent/test_intent_routing.py tests/architecture/graph_baseline.py tests/architecture/test_canonical_graph_baseline.py` → pass
 - `rg -n 'add_node\("session_context_load"|add_node\("contextual_intent_resolve"|add_edge\("session_context_load", "contextual_intent_resolve"\)' src/agent/graph.py` → 找到 active registration / fixed edge
 - `! rg -n 'add_node\("classify_intent"|add_node\("session_memory_load"|"classify_intent": "classify_intent"|"session_memory_load": "session_memory_load"' src/agent/graph.py tests/architecture/graph_baseline.py` → no active-runtime hits
 
