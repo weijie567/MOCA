@@ -19,11 +19,33 @@
 
 ---
 
+# 0. 跨子系统目标架构收敛（Agent Graph / Intent / RAG / Memory / Risk）
+
+## 2026-07-06 — 目标 Agent Graph 架构落 phase 前仍需收敛的 10 项边界 🟡
+
+- **子系统**：意图识别 / 工具调用 / RAG / 记忆 / 审批风险主链
+- **问题现象/根因**：`docs/target-agent-platform-architecture-plan.md` 的目标 graph 方向合理，但若直接落 phase，仍存在若干实现级 contract 未硬化：`contextual_intent_resolve` 输入输出、`safety_pre_route` vs `risk_gate` 分工、slot provenance、memory 可信度用途、RAG/claim fail-closed 状态、LLM authority、approval pending 状态机、memory write graph 化触发条件、current-to-target migration matrix 等。
+- **影响**：后续 phase plan 可能把当前厚 `classify_intent` 改名但不瘦身，或把入口 risk/action risk、slot 抽取/slot 裁决、memory hint/evidence 混在一起，导致 eval/replay/trace 边界继续不清。
+- **处理状态**：⚠️已完成文档/spec 收敛但 runtime 迁移未开始。已在 `docs/target-agent-platform-architecture-plan.md` 新增“后续 Phase 改进队列（按优先级）”，修正 Phase 49 后 `investigate` 已接入 bounded read-only ReAct 主路径的过时描述，并将当前目标 runtime graph 收敛为 15 个主链 registered nodes；`slot_extraction`、`normalize_input`、`memory_write`、`trace_close`、`action_execution` 不再属于当前主链 node set。2026-07-06 已追加同步 README、`docs/current-langgraph-architecture.md`、`docs/architecture-overview.md`、`docs/rag-architecture-spec.md`、`docs/agent-architecture-routing-explanation.md`、`docs/tool-system-unification-plan.md`、`docs/agent-architecture-spec-review.md`、`AGENTS.md`、`.planning/DEFERRED-DECISIONS.md` 和旧 §9 草稿/review 的读法边界，避免“当前源码图 / 目标 graph / 历史草稿”混用。同日新增 Phase 50 `Canonical Agent Graph Migration Spec and Guardrails`，把 15-node target、no `slot_extraction` graph node、临时兼容策略、LLM authority matrix、验证矩阵和最终 no-debt gate 固化为后续 implementation phase 的约束；随后注册 Phase 51-58 作为后续 macro implementation phases，分别覆盖 baseline guardrails、`safety_pre_route`、`contextual_intent_resolve`、`slot_resolution_gate`、`memory_context_load`、`recommendation_generation`、`risk_gate`/`approval_gate`、final no-debt cutover。
+- **证据**：`docs/target-agent-platform-architecture-plan.md` §6.1 / §19；`docs/contract-spec.md` §9；`.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`；`.planning/phases/49-investigate-bounded-react-loop-migration/49-04-SUMMARY.md`；`src/agent/nodes/investigate.py`；`src/agent/nodes/investigate_planner.py`。
+- **剩余风险**：Phase 50 只是迁移总规约，runtime graph 仍未切到 canonical 15-node final state；后续仍需按 SPEC 逐步转成 implementation plans，并在最终 no-debt phase 删除 active legacy node names / dual routes / compatibility aliases。
+
+## 2026-07-06 — Phase 51 canonical graph baseline guardrails 已落地 ⚠️
+
+- **子系统**：Agent Graph / 意图识别 / RAG / 记忆 / 风险审批主链
+- **问题现象/根因**：Phase 52-58 开始 rewiring 前，需要先把当前源码 graph、目标 15-node graph、迁移期 legacy alias、router route map 和 forbidden registered-node drift 变成机器可验证 guardrails。否则后续 phase 可能把目标态当已实现，或误把 `slot_extraction` / `memory_write` 等 helper/lifecycle concern 注册进主链 graph。
+- **影响**：没有 baseline guardrails 时，后续 runtime migration 容易漏掉 active legacy node（尤其是 `generate_recommendation -> recommendation_generation` 这条当前不在 `graph_vocabulary.py` 的映射），也容易让最终 no-debt gate 提前失败或被静默跳过。
+- **处理状态**：⚠️已完成 Phase 51 guardrail/matrix 覆盖，但 runtime 迁移未完成。新增 `tests/architecture/graph_baseline.py` 和 `tests/architecture/test_canonical_graph_baseline.py`，用 AST/source inspection 验证当前 14 个 active registered graph nodes、目标 15-node set、6 个 active legacy-to-target migration rows、当前 conditional edge route map、forbidden main-chain registered-node set，以及 Phase 58-scoped final exact no-debt marker。`src/agent/graph.py` 当前仍是 legacy/canonical mixed；Phase 51 没有创建 `safety_pre_route`、`contextual_intent_resolve`、`slot_resolution_gate`、`memory_context_load`、`recommendation_generation` 或 `risk_gate` runtime nodes。
+- **证据**：`.planning/phases/51-canonical-graph-baseline-guardrails-and-migration-matrix/51-01-SUMMARY.md`；`.planning/phases/51-canonical-graph-baseline-guardrails-and-migration-matrix/51-02-SUMMARY.md`；`tests/architecture/graph_baseline.py`；`tests/architecture/test_canonical_graph_baseline.py`；`uv run pytest tests/architecture/test_canonical_graph_baseline.py -q` = 8 passed / 1 skipped；`uv run pytest tests/architecture -q` = 78 passed / 2 skipped。
+- **剩余风险**：Phase 51 只证明 baseline 和 migration matrix 可验证；Phase 52-58 仍需逐步切换 runtime graph，并在 Phase 58 删除 active legacy graph node names / dual route destinations / compatibility allowances。
+
+---
+
 # 1. 工具调用（Tool Platform）
 
 **范围**：`src/tools/`（catalog / contracts / runtime / policy / platform / projection / validation / executors）。
 **这一轮 = milestone v2.1「Tool Platform Hardening」，Phase 37–41，5 phase / 14 plan，全部标记 complete（`.planning/STATE.md`）。**
-**唯一 normative 契约源**：`docs/contract-spec.md` §8.0 / §12.5 / §12.6。
+**主要契约参考**：`docs/contract-spec.md` §8.0 / §12.5 / §12.6；phase plan 若发现冲突，应先提出 spec delta。
 
 ## Phase 37 — 声明单源 + runtime/policy 内部收敛（TPH-03, TPH-04）✅⚠️
 
