@@ -26,6 +26,7 @@ from src.agent.routing import (
     route_after_investigate,
     route_after_rag_context,
     route_after_recommendation,
+    route_after_safety,
     route_after_slots,
 )
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
@@ -50,6 +51,7 @@ INVESTIGATION_STATE_FIELDS = {
     "investigation_path",
 }
 ROUTER_EDGE_KEYS = {
+    "route_after_safety": {"classify_intent", "clarification_gate", "final_response"},
     "route_after_intent": {"clarification_gate", "final_response", "investigate", "session_memory_load"},
     "route_after_slots": {"clarification_gate", "investigate", "long_term_memory_retrieve"},
     "route_after_risk": {"approval_gate", "final_response"},
@@ -924,6 +926,7 @@ def test_graph_compiles_with_investigate():
     nodes = set(graph.get_graph().nodes)
 
     assert {
+        "safety_pre_route",
         "classify_intent",
         "investigate",
         "rag_context_build",
@@ -1008,6 +1011,15 @@ def test_route_after_investigate_keys_are_edge_targets():
 
 
 def test_all_router_return_keys_have_edges():
+    assert route_after_safety({}) in ROUTER_EDGE_KEYS["route_after_safety"]
+    assert (
+        route_after_safety({"routing_hints": {"pre_route_disposition": "approval_chat_not_trusted"}})
+        in ROUTER_EDGE_KEYS["route_after_safety"]
+    )
+    assert (
+        route_after_safety({"pre_route_decision": {"disposition": "safety_sensitive"}})
+        in ROUTER_EDGE_KEYS["route_after_safety"]
+    )
     assert (
         route_after_intent({"primary_intent": "policy_qa", "requested_operation": "advise", "intent_confidence": 0.9})
         in ROUTER_EDGE_KEYS["route_after_intent"]
@@ -1083,6 +1095,30 @@ async def test_approval_chat_routes_to_clarification_without_tools(monkeypatch):
     assert deps["tool_platform"].calls == []
     assert final_state["clarification_request"]["reason"] == "approval_chat_not_trusted"
     assert "审批操作需要通过审批入口处理" in final_state["final_response"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("query", ["approve APR-1", "同意"])
+async def test_unsafe_pre_route_inputs_stop_before_classifier_memory_tools_or_action(monkeypatch, query):
+    deps = _patch_graph_dependencies(monkeypatch, intent="policy_qa")
+    graph = build_graph(MemorySaver())
+
+    final_state = await graph.ainvoke(_state(query), _config(deps["tool_platform"], deps["events"]))
+
+    nodes = [step["node"] for step in final_state["trace_steps"]]
+    assert nodes[:2] == ["receive_request", "safety_pre_route"]
+    assert "classify_intent" not in nodes
+    assert "session_memory_load" not in nodes
+    assert "long_term_memory_retrieve" not in nodes
+    assert "investigate" not in nodes
+    assert "approval_gate" not in nodes
+    assert "action_draft" not in nodes
+    assert deps["tool_platform"].calls == []
+    assert deps["events"] == []
+    assert final_state["clarification_request"]["reason"] == "approval_chat_not_trusted"
+    assert final_state.get("proposed_action") is None
+    assert final_state.get("approval_result") is None
+    assert final_state.get("action_draft") is None
 
 
 @pytest.mark.asyncio

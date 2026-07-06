@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.graph import route_after_approval, route_after_risk
 from src.agent.nodes import assess_risk_and_approval as risk_module
-from src.agent.routing import route_after_investigate, route_after_recommendation
+from src.agent import routing as routing_module
+from src.agent.routing import route_after_investigate, route_after_recommendation, route_after_safety
 from src.agent.schemas import IntentResultV3, RiskAssessment
 from src.approvals.snapshot_service import compute_action_payload_hash
 from src.approvals.schemas import AutoAllowedActionBindingV1
@@ -254,6 +255,65 @@ def test_route_after_recommendation_prefers_backend_nested_verifier_route():
     }
 
     assert route_after_recommendation(state) == "final_response"
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        {"pre_route_decision": {"disposition": "none"}, "routing_hints": {}},
+        {
+            "pre_route_decision": {
+                "disposition": "safety_sensitive",
+                "requested_operation": "execute_action",
+                "reason_codes": ["critical_write"],
+                "requires_clarification": False,
+            },
+            "routing_hints": {"pre_route_disposition": "safety_sensitive"},
+        },
+    ],
+)
+def test_route_after_safety_continues_safe_phase52_compatibility_to_classify_intent(state):
+    assert route_after_safety(state) == "classify_intent"
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        {
+            "pre_route_decision": {
+                "disposition": "approval_chat_not_trusted",
+                "requested_operation": "advise",
+                "reason_codes": ["approval_chat_not_trusted"],
+                "requires_clarification": True,
+            }
+        },
+        {
+            "pre_route_decision": {
+                "disposition": "multi_target_request",
+                "requested_operation": None,
+                "reason_codes": ["multi_target_request"],
+                "requires_clarification": True,
+            }
+        },
+        {"routing_hints": {"pre_route_disposition": "approval_chat_not_trusted"}},
+        {"routing_hints": {"clarification_reason": "approval_chat_not_trusted"}},
+        {"routing_hints": {"requires_clarification": True}},
+        {"requested_operation": "approval_decision"},
+    ],
+)
+def test_route_after_safety_fails_closed_for_unsafe_or_clarifying_dispositions(state):
+    assert route_after_safety(state) == "clarification_gate"
+
+
+def test_route_after_safety_fails_closed_for_exceptions_or_unregistered_route(monkeypatch):
+    monkeypatch.setattr(routing_module, "_route_after_safety", lambda _state: "session_context_load")
+    assert route_after_safety({}) == "clarification_gate"
+
+    def raise_error(_state):
+        raise RuntimeError("bad safety state")
+
+    monkeypatch.setattr(routing_module, "_route_after_safety", raise_error)
+    assert route_after_safety({}) == "clarification_gate"
 
 
 def test_route_after_risk_returns_final_response_for_auto_allowed_snapshot_verified_action():
