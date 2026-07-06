@@ -362,12 +362,15 @@ def _router_route_values(path: Path, router_names: set[str]) -> dict[str, frozen
     values: dict[str, frozenset[str]] = {}
     for router_name in router_names:
         function = _function_def(tree, router_name)
-        values[router_name] = _collect_router_routes_from_statements(
+        routes = _collect_router_routes_from_statements(
             function.body,
             string_sets=string_sets,
             guarded_names={},
             context=router_name,
         )
+        if not routes:
+            raise AssertionError(f"Router function has no discoverable route returns: {router_name}")
+        values[router_name] = routes
     return values
 
 

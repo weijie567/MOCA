@@ -99,9 +99,15 @@ def test_current_router_mappings_match_source_baseline() -> None:
 def test_router_return_values_are_covered_by_registered_path_maps() -> None:
     route_maps = graph_conditional_edge_mappings()
     router_routes = graph_router_route_values()
+    registered_nodes = graph_add_node_names()
 
     assert set(router_routes) == {router for _source, router in route_maps}
-    for (_source, router), path_map in route_maps.items():
+    for source, router in route_maps:
+        path_map = route_maps[(source, router)]
+        assert source in registered_nodes, (source, router)
+        assert path_map, (source, router)
+        assert set(path_map.values()) <= registered_nodes, (source, router)
+        assert router_routes[router], router
         assert router_routes[router] <= frozenset(path_map), router
 
 
