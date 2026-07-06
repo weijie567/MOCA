@@ -3,6 +3,8 @@
 > 用途：解释 `docs/agent-architecture-spec.md` 中 V2 细粒度流程路由图和 V2 严格 LangGraph 节点图。
 >
 > 重点：这不是当前 MOCA 已实现流程的复述，而是目标分层架构下的 LangGraph 设计说明。当前 MOCA 仍是较线性的 10 节点主链；本文讲的是未来目标版如何从线性 demo 升级为 intent-driven、evidence-gated、risk-controlled 的状态机。
+>
+> SUPERSEDED NOTE（2026-07-06）：本文解释的是旧 V2 目标路由图，不是当前目标 runtime graph 的依据。当前 canonical runtime graph 以 `docs/target-agent-platform-architecture-plan.md` §6.1 和 `docs/contract-spec.md` §9 为主要参考；本文后续正文中的 `normalize_input`、`slot_extraction`、`memory_write`、`trace_close`、`route_after_action_draft`、`action_execution` 等旧目标节点/路由只保留为历史上下文，不能覆盖当前 15-node 目标主链。
 
 ---
 
@@ -34,33 +36,44 @@
 
 它只包含真正的 LangGraph 节点。
 
-旧图曾拆成 18 个节点；现行目标版严格收敛为 **16 个 canonical LangGraph nodes**：
+旧图曾拆成 18 个节点，本文旧版随后收敛为 16 个节点。当前 2026-07-06 目标 runtime graph 已进一步收敛为 **15 个主链 registered nodes**：
 
 ```text
 1. receive_request
-2. normalize_input
-3. intent_classification
-4. clarification_gate
-5. slot_extraction
-6. session_memory_load
-7. long_term_memory_retrieve
-8. investigate
+2. safety_pre_route
+3. session_context_load
+4. contextual_intent_resolve
+5. slot_resolution_gate
+6. memory_context_load
+7. investigate
+8. rag_context_build
 9. recommendation_generation
-10. risk_gate
-11. approval_gate
-12. action_draft
-13. action_execution
-14. final_response
-15. memory_write
-16. trace_close
+10. claim_verify
+11. risk_gate
+12. approval_gate
+13. action_draft
+14. clarification_gate
+15. final_response
 ```
 
-这些才是未来可以写成：
+不属于当前目标主链 registered node set：
+
+```text
+normalize_input         -> receive_request 内部能力
+slot_extraction         -> contextual_intent_resolve / slot_resolution_gate 内部 candidate extraction 能力
+memory_write            -> post-response lifecycle concern
+trace_close             -> RunLifecycleService / observability lifecycle concern
+action_execution        -> future external execution extension
+route_after_action_draft -> 当前主链不需要；action_draft -> final_response
+```
+
+当前目标 graph 未来可以写成：
 
 ```python
 builder.add_node("receive_request", receive_request)
-builder.add_node("normalize_input", normalize_input)
-builder.add_node("intent_classification", intent_classification)
+builder.add_node("safety_pre_route", safety_pre_route)
+builder.add_node("session_context_load", session_context_load)
+builder.add_node("contextual_intent_resolve", contextual_intent_resolve)
 # ...
 ```
 

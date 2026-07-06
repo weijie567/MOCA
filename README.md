@@ -40,6 +40,8 @@ graph TB
 
 ### Agent Workflow
 
+下图是当前源码 runtime 快照，反映 `src/agent/graph.py` 仍在使用的 legacy/canonical 混合节点名；它不是目标态架构图。目标 runtime graph 以 [docs/target-agent-platform-architecture-plan.md](docs/target-agent-platform-architecture-plan.md) §6.1 和 [docs/contract-spec.md](docs/contract-spec.md) §9 为当前主要契约参考。
+
 ```mermaid
 graph LR
     A[receive_request] --> B[classify_intent]
@@ -49,12 +51,19 @@ graph LR
     D -->|slots ok| E
     D -->|needs long-term hints| L[long_term_memory_retrieve]
     L --> E
-    E -->|sufficient context| F[generate_recommendation]
+    E -->|needs verified evidence| R[rag_context_build]
+    R -->|verified / allowed partial| F[generate_recommendation]
+    R -->|fail closed| H[final_response]
+    E -->|sufficient context| F
     E -->|missing / insufficient| H[final_response]
-    F --> G[assess_risk_and_approval]
+    F -->|claims / action| V[claim_verify]
+    F -->|no claims / action| H
+    V -->|verified action path| G[assess_risk_and_approval]
+    V -->|blocked / no action| H
     G -->|low risk| H[final_response]
     G -->|high risk| I[approval_gate]
-    I -->|approved| J[execute_action]
+    G -->|auto draft allowed| J[action_draft]
+    I -->|approved| J
     I -->|rejected| H
     J --> H
 ```

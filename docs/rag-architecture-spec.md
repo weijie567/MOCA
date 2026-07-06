@@ -2,7 +2,7 @@
 
 > 状态：目标架构 spec。本文基于当前 MOCA 仓库代码、既有 contract 文档和前期 RAG 参考仓库调研整理。
 >
-> 权威边界：`docs/contract-spec.md` 仍是 MOCA 唯一 normative 契约源。本文用于定义 RAG 子系统的目标设计、分层责任、演进路线和 hallucination control 要求；当本文与 `docs/contract-spec.md` 冲突时，以 `docs/contract-spec.md` 为准。
+> 契约边界：`docs/contract-spec.md` 是 MOCA 当前已接受契约的主要参考源。本文用于定义 RAG 子系统的目标设计、分层责任、演进路线和 hallucination control 要求；当本文与 `docs/contract-spec.md` 冲突时，后续 phase plan 必须显式提出 spec delta、MVP scope 或 defer 决策，不能静默偏离。
 >
 > 当前结论：MOCA 当前阶段采用 PostgreSQL + pgvector + PostgreSQL full-text + pg_trgm 构建生产形态的小型 RAG 后端；Vespa/OpenSearch 只保留为未来可替换 search backend，不进入当前实现主线。
 

@@ -3,7 +3,7 @@
 > 状态：目标架构计划 + Phase 26 spec delta baseline 决策记录，不表示当前已全部实现；核心 graph/RAG/tool/business/event delta 已同步到 `docs/contract-spec.md`，后续实现必须按对应 phase 和 contract tests 落地。
 > 日期：2026-06-22
 > 语言：中文为主，保留必要英文术语。
-> 权威边界：`docs/contract-spec.md` 仍是 MOCA 唯一 normative 契约源。本文用于沉淀本轮讨论形成的目标架构、模块边界和实施顺序；后续进入 phase 实现前，需要把会影响跨模块契约的内容同步到 `docs/contract-spec.md` 或对应 phase 文档。若本文与 `contract-spec.md` 冲突，实施时以 `contract-spec.md` 为准，本文相应内容视为 proposed delta。
+> 契约边界：`docs/contract-spec.md` 是 MOCA 当前已接受契约的主要参考源，但不是不可挑战的最终权威。本文用于沉淀本轮讨论形成的目标架构、模块边界和实施顺序；后续进入 phase 实现前，需要把会影响跨模块契约的内容同步到 `docs/contract-spec.md` 或对应 phase 文档。若本文、`contract-spec.md`、当前源码、测试和产品判断发生冲突，phase plan 必须显式提出 spec delta / MVP scope / defer 决策，再进入实现。
 
 ## 1. 目标结论
 
@@ -57,9 +57,11 @@ router / graph node
 
 本文包含若干目标态的新命名、新节点和新 schema。Phase 26 spec-delta baseline 已将核心 delta 接纳进 `docs/contract-spec.md`；后续实现仍必须按对应 phase 落地，不得跳过 contract tests。
 
+> 2026-07-06 owner 更新：本节中出现的 Phase 32 / Phase 33 是 v1.9 时代的历史 owner 标签。当前 canonical Agent Graph migration 的执行 owner 是 Phase 51-58，执行顺序以 Phase 50 SPEC、`.planning/ROADMAP.md` 和 `.planning/STATE.md` 为准；旧 owner 只用于追溯，不再作为新 phase planning 的依据。
+
 仍适用的规则：
 
-- 已进入 `contract-spec.md` 的内容以 spec 为准。
+- 已进入 `contract-spec.md` 的内容默认以 spec 为主要参考；若 phase plan 发现不合理或与源码/测试/产品目标冲突，必须先提出并记录 spec delta。
 - phase 实现可以保留 legacy alias，但必须映射到 target canonical contract。
 - 未进入 `contract-spec.md` 的新增字段、节点或状态不得静默引入。
 
@@ -67,10 +69,10 @@ Phase 26 delta 状态：
 
 | 目标内容 | Phase 26 状态 | 后续要求 |
 | --- | --- | --- |
-| runtime graph 中的 `safety_pre_route`、`session_context_load`、`contextual_intent_resolve`、`slot_resolution_gate`、`rag_context_build`、`claim_verify` 等节点 | 已进入 `contract-spec.md` §9 target canonical vocabulary | Phase 32 graph migration 落地；legacy alias 过渡期必须可映射 |
-| `route_after_safety`、`route_after_rag_context`、`route_after_claim_verify` 等 router | 已进入 `contract-spec.md` §9 router contract | Phase 32/33 实现 router totality tests |
+| runtime graph 中的 `safety_pre_route`、`session_context_load`、`contextual_intent_resolve`、`slot_resolution_gate`、`rag_context_build`、`claim_verify` 等节点 | 已进入 `contract-spec.md` §9 target canonical vocabulary | 当前 owner：Phase 51-58；legacy alias 过渡期必须可映射，Phase 58 前必须清零 |
+| `route_after_safety`、`route_after_rag_context`、`route_after_claim_verify` 等 router | 已进入 `contract-spec.md` §9 router contract | 当前 owner：Phase 52-57 分阶段迁移，Phase 58 做 final no-debt / totality guard |
 | `TrustedContext` 相关字段 | canonical fields 继续完全遵守 `contract-spec.md` §8.0 | 不得把 request/run/projection-local metadata 加进 canonical `TrustedContext` |
-| RAG/claim 输出状态，例如 `verified_evidence_package`、`rag_context_status`、`ClaimVerificationBundle` | 已进入 `contract-spec.md` §8.3 和 §10 AgentState registry | Phase 33 实现 writer/readers/reset/persist tests |
+| RAG/claim 输出状态，例如 `verified_evidence_package`、`rag_context_status`、`ClaimVerificationBundle` | 已进入 `contract-spec.md` §8.3 和 §10 AgentState registry | 当前 owner：Phase 56 统一 recommendation / RAG / claim fail-closed 状态与验证 |
 | `SessionContextMemory` policy topic hints | 只能是上下文提示，不是 evidence | 不得 assignable to `EvidenceRefV1`，不得满足 approval/action/evidence gate |
 | `ToolPolicyDecision`、`BusinessFactResult`、`DecisionEventEnvelopeV1` | 已进入 `contract-spec.md` §12.6 / §8.4 / §17.2 | Phase 28/29/30 实现 schema、reason codes 和 event envelope |
 
@@ -78,12 +80,12 @@ Phase 26 delta 状态：
 
 | 目标名 | 当前可映射位置 | 备注 |
 | --- | --- | --- |
-| `safety_pre_route` | `normalize_input` / legacy `intent_classification` 内的安全预处理 | 已进入 spec；Phase 32 可注册为独立 node |
+| `safety_pre_route` | legacy `intent_classification` 内的安全预处理 / routing hints | 已进入 spec；当前 owner：Phase 52 注册为独立 node |
 | `session_context_load` | `session_memory_load` | 目标上语义扩展为 agent-facing session context projection |
 | `contextual_intent_resolve` | `intent_classification` | 目标上拆分为 candidate + policy resolved intent |
-| `slot_resolution_gate` | `slot_extraction` + legacy `route_after_slots` | 已进入 spec；Phase 32 可注册为独立 node |
+| `slot_resolution_gate` | legacy `extract_slots` + `route_after_slots` + slot helper | 已进入 spec；当前 owner：Phase 54 注册/切换为 canonical gate；slot candidate extraction 是内部能力，不作为最终 graph node |
 | `memory_context_load` | `long_term_memory_retrieve` | 目标上加载 long-term/case，不参与最早 safety 判断 |
-| `rag_context_build` | recommendation 前的受控 evidence validation 子流程 | 已进入 spec；Phase 33 可注册为独立 node |
+| `rag_context_build` | recommendation 前的受控 evidence validation 子流程 | 已进入 spec；当前源码已注册，Phase 56 继续统一 evidence / claim 状态 |
 | `claim_verify` | recommendation 后的 citation/claim validator | 已进入 spec；输入为 `MaterialClaimV1` |
 | `assess_risk_and_approval` | `risk_gate` | 目标语义是 risk + approval plan，不替代 `approval_gate` |
 | `memory_write_pipeline` | `memory_write` / post-response runtime concern | 若需要 checkpoint/retry/eval，再注册 node |
@@ -196,7 +198,7 @@ flowchart TD
 
 ### 5.2 Module Ownership Matrix
 
-服务边界必须能落到 ownership，而不只是图上的方框。`docs/contract-spec.md` §0.2 是 normative ownership source；本表是目标架构镜像，用来解释后续实现为什么要禁止 graph/router/service 直接跨边界 import repository 或绕过 public methods。若本表与 spec 冲突，以 `contract-spec.md` §0.2 为准。
+服务边界必须能落到 ownership，而不只是图上的方框。`docs/contract-spec.md` §0.2 是当前已接受 ownership 契约的主要参考；本表是目标架构镜像，用来解释后续实现为什么要禁止 graph/router/service 直接跨边界 import repository 或绕过 public methods。若本表与 spec 冲突，后续 phase plan 必须显式提出 spec delta、MVP scope 或 defer 决策，不能静默偏离。
 
 | 模块 | Owned schemas/tables/events | Public methods | Allowed downstream dependencies | Forbidden imports/access | Decision events |
 | --- | --- | --- | --- | --- | --- |
@@ -215,50 +217,21 @@ flowchart TD
 
 目标 graph 的核心变化是：先安全预路由，再加载同 thread 的 session context，然后做上下文化意图识别。LongTermMemory 和 CaseMemory 不参与最早的 safety/intent 判断，避免历史偏好影响安全边界。
 
-> **信任边界分组（导读，非新契约）：** 下面这条节点链可按「信任边界」读成三段，帮助理解「哪里允许 LLM 自由、哪里必须规则说了算」。这只是对既有节点的分组视角，**normative 契约仍以 `docs/contract-spec.md` 为准；§9 定义 graph/node/router 骨架，完整 fail-closed 硬约束需联合 §9 + §11 + §12 + §15 解读，本节不定义额外语义**。
+> **信任边界分组（导读，非新契约）：** 下面这条节点链可按「信任边界」读成三段，帮助理解「哪里允许 LLM 自由、哪里必须规则说了算」。这只是对既有节点的分组视角，**已接受契约主要参考 `docs/contract-spec.md`；§9 定义 graph/node/router 骨架，完整 fail-closed 硬约束需联合 §9 + §11 + §12 + §15 解读。本节不定义额外语义；若 phase plan 发现冲突，先提出 spec delta 再实现**。
 >
-> - **① 入口确定性（a-priori 规则）**：`receive_request → safety_pre_route → contextual_intent_resolve → slot_extraction → slot_resolution_gate`。身份、授权、安全 tier、意图与 slot 判定先于任何调查循环；`safety_pre_route` / `slot_resolution_gate` 等是 deterministic 节点，`contextual_intent_resolve` 是 LLM structured output + deterministic IntentPolicyEngine 的混合裁决，LLM 不参与鉴权。
+> - **① 入口确定性（a-priori 规则）**：`receive_request → safety_pre_route → session_context_load → contextual_intent_resolve → slot_resolution_gate`。身份、授权、安全 tier、同 thread 短期上下文、意图与 slot 判定先于任何调查循环；`safety_pre_route` / `slot_resolution_gate` 等是 deterministic 节点，`contextual_intent_resolve` 是 LLM structured output + deterministic IntentPolicyEngine 的混合裁决，LLM 不参与鉴权。
 > - **② 只读认知环自由（受控 ReAct）**：`investigate` 单节点内部的 bounded tool loop。LLM 在只读 allowlist 内自由决定下一步查什么、可依据上一步结果链式调查、可发现并回流 slot；受 §9.4 bounded-loop 契约的三重资源上限、只读约束、每步独立 trace 约束。这是「流程不受限」的唯一所在，且不改变 `investigate` 对外的 deterministic 单节点契约。
 > - **③ 出口确定性（fail-closed，LLM 不可覆盖）**：`rag_context_build → recommendation_generation → claim_verify → risk_gate → approval_gate → action_draft`。证据校验、claim 支持、风险、审批、写动作全部走 deterministic router 与 fail-closed 硬闸；完整硬约束联合 §9 + §11 + §12 + §15，§9 单独只是骨架与 partial coverage。②环内只能产出 `proposed_action` 候选，写动作永不在环内执行。
 >
-> 实现现状与欠账见 `.planning/DEFERRED-DECISIONS.md` GAD-01 与 `.planning/AGENTIC-INVESTIGATION-DISCUSSION.md`：§9 已定义骨架契约，但完整 fail-closed 硬约束需联合 §9 + §11 + §12 + §15；`src/agent/nodes/investigate.py` 仍是 legacy 确定性实现，② 只读环的 LLM 决策 loop 尚未落地，observation→slot 回流已定 loop-local（不入 spec、不改 field registry），待独立执行 phase 迁移。
+> 实现现状与欠账见 `.planning/DEFERRED-DECISIONS.md` GAD-01、`.planning/AGENTIC-INVESTIGATION-DISCUSSION.md` 与 `.planning/phases/49-investigate-bounded-react-loop-migration/49-04-SUMMARY.md`：§9 已定义骨架契约，但完整 fail-closed 硬约束需联合 §9 + §11 + §12 + §15；当前源码已通过 Phase 49 将 `src/agent/nodes/investigate.py` 迁移为 bounded read-only ReAct planner 主路径，legacy deterministic planner 仅作为 planner failure / invalid step 的安全 fallback；observation→slot 回流已定 loop-local（不入 spec、不改 field registry）。剩余限制包括 graph-level node operation emission 仍有缺口，需在后续 phase 中按 node/service 边界补齐。
 
-```mermaid
-flowchart TD
-  A[receive_request] --> B[safety_pre_route]
-  B --> C[session_context_load]
-  C --> D[contextual_intent_resolve]
-  D --> E[slot_extraction]
-  E --> F[slot_resolution_gate]
-  F --> G[memory_context_load]
-  G --> H[investigate]
-  H -->|policy evidence needed| I[rag_context_build]
-  H -->|fact-only / no policy claim| K[recommendation_generation]
-  I -->|verified evidence| K
-  K --> J[claim_verify]
-  J -->|verified / no material claims| L[risk_gate]
-  L -->|blocked / no action| O[final_response]
-  L -->|approval required| M[approval_gate]
-  L -->|draft allowed| N[action_draft]
-  M -->|approved| N
-  M -->|reject / expired| O
-  N --> O[final_response]
-  O -. optional post-response .-> P[memory_write_pipeline]
+### 6.1 Canonical Runtime Graph
 
-  B -->|unsafe / unsupported| R[refuse_or_clarify]
-  F -->|missing / stale / incompatible slots| Q[ask_clarifying_question]
-  I -->|no verified evidence when required| S[fail_closed_or_manual_review]
-  J -->|unsupported / stale / conflict / timeout| S[fail_closed_or_manual_review]
-  M -->|needs human| T[manual_review_queue]
-  R --> O
-  Q --> O
-  S --> O
-  T --> O
-```
+本小节是目标 runtime graph 的主图，registered node / router 名称以 `docs/contract-spec.md` §9 的当前已接受契约为主要参考；若本文图或说明与 spec 冲突，后续 phase plan 必须显式提出 spec delta、MVP scope 或 defer 决策，不能静默偏离。`extract_slots`、`generate_recommendation`、`assess_risk_and_approval` 等旧实现名只作为迁移期 legacy alias 或当前 runtime 说明出现，不能作为目标完成后的 registered node key。
 
-### 6.1 目标 Runtime Graph（proposed implementation shape）
+本图保留 `investigate` 展开视图，方便理解 bounded read-only ReAct loop；展开框内部 step / service / capability 不是主链 graph node。slot candidate extraction 作为 `contextual_intent_resolve` / `slot_resolution_gate` 的内部能力，不作为独立 registered graph node；真正改变 route、trace/eval/replay 边界的是 `slot_resolution_gate`。
 
-上面的图只表达目标语义顺序，不足以直接指导 `src/agent/graph.py` 改造。本小节是目标 runtime shape 的说明图，registered node / router 名称必须以 `docs/contract-spec.md` §9 为准；若本文图或说明与 spec 冲突，以 spec 为准。`extract_slots`、`generate_recommendation`、`assess_risk_and_approval` 等旧实现名只作为 legacy alias 或当前 runtime 说明出现，不能作为新 registered node key。
+本图当前主链 registered runtime node 共 15 个：`receive_request`、`safety_pre_route`、`session_context_load`、`contextual_intent_resolve`、`slot_resolution_gate`、`memory_context_load`、`investigate`、`rag_context_build`、`recommendation_generation`、`claim_verify`、`risk_gate`、`approval_gate`、`action_draft`、`clarification_gate`、`final_response`。不计入该数量的有：`START` / `END`、`route_after_*` router、`investigate` 展开框内的内部 step / service、以及当前作为 post-response/runtime concern 的 `memory_write_pipeline` / `trace_close`。
 
 本图约定：
 
@@ -266,7 +239,7 @@ flowchart TD
 - 大框表示展开查看的 registered graph node 边界，例如 `investigate`。
 - 圆角矩形表示 node 内部 step / service / capability，不是 graph node。
 - 菱形表示 deterministic router function。
-- 颜色只用于阅读分组，不改变语义：蓝色是 graph node，橙色是 router，绿色是 `investigate` 内部 read capability，紫色是 RAG verification，红色是 risk/action，灰色是终止/最终回复。
+- 颜色只用于阅读分组，不改变语义：蓝色是普通 graph node，紫色是 RAG / claim verification graph node，红色是 risk/action graph node，灰色是终止/最终回复节点，橙色是 router，绿色是 `investigate` 内部 read capability。不能用“蓝色节点数”代表 registered node 总数。
 - `memory_write_pipeline`、`trace_close` 暂按 post-response/runtime concern 处理，不在本图中画成主链节点；如果未来注册成 graph node，再补进 runtime graph。
 
 ```mermaid
@@ -284,9 +257,7 @@ flowchart TD
   IntentRoute -->|low confidence / needs disambiguation| Clarify
   IntentRoute -->|small talk / direct answer / unsupported| Final
   IntentRoute -->|no slot required| MemoryCtx[memory_context_load]
-  IntentRoute -->|slots required| SlotExtract[slot_extraction]
-
-  SlotExtract --> SlotGate[slot_resolution_gate]
+  IntentRoute -->|slots required| SlotGate[slot_resolution_gate]
   SlotGate --> SlotRoute{route_after_slot_resolution}
   SlotRoute -->|missing / stale / incompatible| Clarify
   SlotRoute -->|resolved| MemoryCtx
@@ -330,6 +301,7 @@ flowchart TD
   RiskRoute -->|draft allowed| Draft[action_draft]
 
   Approval --> ApprovalRoute{route_after_approval}
+  ApprovalRoute -->|pending / waiting human| Approval
   ApprovalRoute -->|approved| Draft
   ApprovalRoute -->|edit / re-assess| Risk
   ApprovalRoute -->|reject / ignore / expired| Final
@@ -347,7 +319,7 @@ flowchart TD
 
   style InvestigateNode fill:#dbeafe,stroke:#1d4ed8,stroke-width:3px,color:#0f172a;
 
-  class Receive,Safety,SessionCtx,Intent,MemoryCtx,SlotExtract,SlotGate,Generate,Clarify graphNode;
+  class Receive,Safety,SessionCtx,Intent,MemoryCtx,SlotGate,Generate,Clarify graphNode;
   class SafetyRoute,IntentRoute,SlotRoute,Continue,InvestigateRoute,RagRoute,VerifyRoute,RiskRoute,ApprovalRoute router;
   class InvestigateStart,Plan,ToolPlatform,Business,Knowledge,MemorySearch,Accumulate,InvestigationResult internal;
   class RagBuild,ClaimVerify rag;
@@ -360,7 +332,7 @@ flowchart TD
 - `route_after_*` 是 deterministic router，不是 LLM node。
 - `ToolPlatform`、`BusinessFactService`、`KnowledgeService`、`MemoryContextService` 是 service，不是主链 registered node。
 - RAG 在 runtime 上拆成两段：RAG retrieval / policy search 是 `ToolPlatform` 的 planner-visible read capability，应该和 business facts、memory retrieval 一起进入 `investigate` 的受控 ReAct read loop；`rag_context_build` 在 loop 外把候选升级为 verified evidence package，供生成和 replay 使用。
-- `slot_resolution_gate`、`rag_context_build`、`claim_verify` 建议成为显式 registered node，因为它们会改变 route、影响 fail-closed、并且需要 trace/eval/replay。
+- `slot_resolution_gate`、`rag_context_build`、`claim_verify` 是显式 registered node，因为它们会改变 route、影响 fail-closed、并且需要 trace/eval/replay。
 - `risk_gate` 是 canonical node；当前 runtime baseline 中的 `assess_risk_and_approval` 只能作为 legacy alias 映射到该语义，不表示它会替代后续 `approval_gate`。
 - `claim_verify` 验证的是 `recommendation_generation` 产出的 material claims / proposed action claim，因此应在生成之后；如果只是 generation 前的证据充足性检查，应归入 `rag_context_build` 或 `route_after_rag_context`。
 - `memory_write_pipeline` 和 `trace_close` 可以先做 post-response/runtime concern；如果后续需要 checkpoint、retry 或 eval，再注册为 graph node。
@@ -396,8 +368,7 @@ tool_trace_refs
 - `safety_pre_route`：在任何 memory 增强前做安全、越权、高风险请求的初筛。
 - `session_context_load`：加载同 thread 的短期连续性，用于理解“刚才那个订单”“继续”等上下文追问。
 - `contextual_intent_resolve`：结合当前 user message 和 `SessionContextMemory` 解析真实意图。
-- `slot_extraction`：抽取当前 turn slots，不直接信任 LLM 的 required slot 判断；legacy `extract_slots` 必须映射到这个 canonical node。
-- `slot_resolution_gate`：使用 `SlotPolicyRegistry` 决定哪些 slot 可以继承、哪些必须重问、哪些已过期或和当前 intent 不兼容。
+- `slot_resolution_gate`：消费 `contextual_intent_resolve` 产出的 current-turn candidate slots 和 `session_context_load` 产出的同 thread slot continuity，使用 `SlotPolicyRegistry` 决定哪些 slot 可以继承、哪些必须重问、哪些已过期或和当前 intent 不兼容；legacy `extract_slots` 只能作为该 gate 的迁移期实现细节，不能成为最终 graph node。
 - `memory_context_load`：在 intent/slot 初步稳定后，按策略加载 `LongTermMemory` 和 `CaseMemory`。
 - `investigate`：通过 `ToolPlatform` 调用 business facts、RAG retrieval / policy search、memory retrieval 等 planner-visible read capabilities，收集业务事实、政策候选证据和记忆检索结果；这里的 RAG 只到 candidate retrieval，不直接产出 prompt evidence。
 - `rag_context_build`：将候选检索结果变成经过验证的 evidence context；如果某条路径必须有 verified evidence 但没有拿到，应 fail-closed 或进入人工审核。
@@ -722,7 +693,6 @@ ResolvedIntent
 safety_pre_route
 session_context_load
 contextual_intent_resolve
-slot_extraction
 slot_resolution_gate
 ```
 
@@ -960,7 +930,6 @@ Graph node
 safety_pre_route
   -> session_context_load
   -> contextual_intent_resolve
-  -> slot_extraction
   -> slot_resolution_gate
   -> memory_context_load
 ```
@@ -1782,9 +1751,9 @@ Eval 需要被当作架构的一部分，而不是事后脚本：
 
 没有 eval 的能力只能作为 MVP guarded path，不能宣称生产级。
 
-## 15. 推荐实施顺序
+## 15. 历史实施顺序（v1.9 Phase 26-35）
 
-下面顺序对应当前 v1.9 GSD roadmap 的 Phase 26-35。本文不再使用早期讨论中的 Phase 0/1b/3/7 等逻辑编号作为执行依据；若旧编号仍出现在历史讨论中，必须映射到本节和 `.planning/ROADMAP.md` 的当前编号。
+下面顺序对应 v1.9 GSD roadmap 的 Phase 26-35，保留用于追溯当时 Agent Platform Foundation 的设计意图。2026-07-06 之后，canonical Agent Graph migration 的当前执行顺序是 Phase 51-58；phase planning 必须以 Phase 50 SPEC、`.planning/ROADMAP.md` 和 `.planning/STATE.md` 为准。本文不再使用早期讨论中的 Phase 0/1b/3/7 等逻辑编号作为执行依据；若旧编号仍出现在历史讨论中，必须映射到当前 roadmap / state 中的 owner。
 
 ### Phase 26：Architecture Contract Baseline
 
@@ -1800,7 +1769,7 @@ Eval 需要被当作架构的一部分，而不是事后脚本：
 - 从它派生 `ToolCallContext`、`KnowledgeContext`、`MemoryContext`、`ApprovalContext`、`ReplayContext`。
 - 先不大改业务逻辑，只让后续模块有共同身份来源。
 - 冻结 `IntentPolicyRegistry` / `SlotPolicyRegistry` 的 read-only catalog contract，避免 Tool/Memory/RAG 先各做一套临时 policy。
-- `RunOrchestrator` 边界已经在 `contract-spec.md` §0.2 定义；若 Phase 27 或 Phase 32 需要触碰 run lifecycle/router thinning，必须显式写入对应 phase plan，不能静默扩张范围。
+- `RunOrchestrator` 边界已经在 `contract-spec.md` §0.2 定义；若历史 Phase 27/32 或当前 Phase 52-58 需要触碰 run lifecycle/router thinning，必须显式写入对应 phase plan，不能静默扩张范围。
 
 ### Phase 28：Decision Event Foundation
 
@@ -1847,7 +1816,6 @@ receive_request
   -> safety_pre_route
   -> session_context_load
   -> contextual_intent_resolve
-  -> slot_extraction
   -> slot_resolution_gate
   -> memory_context_load
   -> investigate
@@ -1915,7 +1883,7 @@ receive_request
 3. 先收敛 `ToolPlatform`，因为 investigate 是 graph 中最容易越界的节点，也是后续 business/RAG/action 的共同入口。
 4. `BusinessFactService` 先于 RAG 和 action 深度加固，避免 RAG/approval 先依赖临时业务事实投影。
 5. 再做 `Memory Platform`，为 intent graph 改造提供 `SessionContextMemory`。
-6. 然后重构 intent graph，否则 contextual intent 没有可靠 session context 可用；若需要 router thinning 或 `RunOrchestrator` 接入，必须在 Phase 32 plan 中显式约束范围。
+6. 然后重构 intent graph，否则 contextual intent 没有可靠 session context 可用；若需要 router thinning 或 `RunOrchestrator` 接入，必须在当前 Phase 52-54 plan 中显式约束范围。
 7. RAG 平台化放在 tool/business/memory/intent 之后做，可以使用更稳定的 trusted context、query planner 和 business facts。
 8. Action/Approval 最后加固，因为它依赖 intent、tools、business facts、RAG verifier 的输出。
 9. Replay/Eval 最后横切加固，但每个 phase 都必须同步输出基本事件，不能最后一次性补。
@@ -1943,3 +1911,35 @@ receive_request
 - `ActionDraft` 绑定 evidence/business/risk/approval/safety snapshot 的 contract。
 - `ActionProposal` / `ApprovalDecision` / payload hash contract。
 - `DecisionEventEnvelopeV1` 与每个 service 的 decision event payload schema。
+
+## 19. 后续 Phase 改进队列（按优先级）
+
+本节记录目标态落到 phase plan 前需要优先收敛的架构改进点。它不是当前已实现事实，也不替代 `docs/contract-spec.md` 的当前已接受契约；进入具体 phase 时，应把对应项拆成 RESEARCH / PLAN / VALIDATION，并按源码、测试和 planning artifact 重新核对。
+
+### P0 — 先修正目标基线，避免后续 plan 基于过期事实
+
+1. **同步 `investigate` 的 Phase 49 后现状。** 当前源码已将 `investigate` 迁移为 bounded read-only ReAct planner 主路径，legacy deterministic planner 仅作为 fallback。后续 phase 计划不得再以“只读环尚未落地”为前提；剩余限制应聚焦 graph-level node operation emission、trace/replay 边界和服务化收敛。
+
+### P1 — 先固定 graph 主链的关键信任边界
+
+2. **硬化 `contextual_intent_resolve` 的输入/输出/禁止事项。** 目标 node 应只负责基于 `user_message`、`session_context`、`active_flow_summary`、`safety_pre_route` 结果和 intent/slot contract 解析当前 turn 的可执行语义；输出 `resolved_intent`、`requested_operation`、`required_slot_policy`、`candidate_slots`、ambiguity/direct-response hints 和 trace。明确禁止它最终裁决 slot 是否满足、加载 long-term/case memory、执行 tool、做 action-level risk/approval 或直接选择 graph route。
+
+3. **明确 `safety_pre_route` 与 `risk_gate` 的职责分界。** `safety_pre_route` 只判断 user turn/request risk（越权、unsafe、unsupported、untrusted approval chat、绕过审批等），发生在 memory/context 增强前；`risk_gate` 只判断已经有 facts/evidence/claim bundle/proposed_action 后的 action risk（blocked、manual review、approval required、draft allowed）。入口 risk 和 action risk 不得混用字段或互相覆盖。
+
+4. **定义 `slot_resolution_gate` 的 provenance contract。** `slot_resolution_gate` 输出至少区分 `explicit_current_turn_slots`、`inherited_session_slots`、`invalidated_slots`、`conflicting_slots`、`stale_slots`、`resolved_slots`、`missing_required_slots` 和 reason codes。目标是让“用户显式替换/否定 slot”“继承上一轮 slot”“slot 过期/不兼容”在 trace、eval、replay 中可见；slot candidate extraction 只作为 `contextual_intent_resolve` / `slot_resolution_gate` 内部能力。
+
+5. **硬化 `approval_gate` 的 pending / interrupt / trusted resume 状态机。** §6.1 已显式表达 `approval_gate -> approval_gate` 的 pending/waiting-human 自环；后续 phase 仍需把 trusted resume、edit/re-assess、reject/expired/invalid、payload hash / safety snapshot 校验落成 contract、router 和 graph regression tests，避免把审批误解成一次同步判断。
+
+### P2 — 统一证据、记忆、失败状态和 LLM 权限边界
+
+6. **为 `memory_context_load` 增加 memory 用途/可信度标记。** 输出应区分 `session_continuity`、`user_preference`、`case_memory_summary`、`similar_case_hint`、`reviewed_memory`、`unreviewed_memory` 等用途，并规定 memory 只能作为上下文或 investigate hint，不能替代 current business fact、policy evidence、approval/action authority 或 replay truth。
+
+7. **统一 `rag_context_build` 与 `claim_verify` 的 fail-closed 状态枚举。** 建议收敛为有限状态，例如 `verified`、`not_required`、`partial_allowed`、`missing_validation_input`、`no_evidence`、`stale`、`conflict`、`unauthorized`、`timeout`、`build_error`、`manual_review_required`。每个状态必须声明是否允许 generate response、material claim、proposed action、action draft、clarification 或 manual review。
+
+8. **补一张 LLM authority matrix。** 明确只有 `investigate` 内部 bounded read loop 允许 planner LLM 在只读 allowlist 内选择 next tool；所有 graph-level route 决策必须 deterministic。禁止 `contextual_intent_resolve` 直接选择下一个 graph node、`recommendation_generation` 跳过 `claim_verify`、`claim_verify` 覆盖 evidence/risk hard gate、`risk_gate` 接受 LLM 自报 low risk、`approval_gate` 接受普通聊天 approval。
+
+9. **明确 `memory_write_pipeline` 升级为 registered graph node 的触发条件。** 若 memory write 会影响当前 turn final response、需要 checkpoint/retry、需要用户确认或 review queue、失败会改变最终回复、必须纳入 replay correctness，或产生重要 decision event，则不能继续只作为 post-response runtime concern。
+
+### P3 — 为后续 phase 规划补齐迁移视图
+
+10. **新增 current-to-target migration matrix。** 表格应列出每个 target node/service 的 current runtime equivalent、status、migration needed 和 validation entry，例如 `safety_pre_route` 当前部分藏在 `classify_intent` / routing 中、`session_context_load` 当前位置在 intent 后、`contextual_intent_resolve` 对应厚 `classify_intent`、`slot_resolution_gate` 对应 helpers + `route_after_slots`、`memory_context_load` 对应 `long_term_memory_retrieve`、`risk_gate` 对应 `assess_risk_and_approval` semantic alias、`investigate` 已由 Phase 49 落地 ReAct 但仍有 trace/operation limitation。

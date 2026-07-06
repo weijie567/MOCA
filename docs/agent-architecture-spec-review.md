@@ -1,6 +1,8 @@
 # Review: docs/agent-architecture-spec.md
 
 > Historical review note: this file records findings from an earlier architecture-spec review. It is not the current source of truth. The memory/checkpoint/session concerns called out below are resolved in `docs/contract-spec.md` Section 13 and `docs/agent-architecture-phase-decomposition.md` Phase 12, where workflow checkpoint, session memory, Redis hot cache, and long-term/case memory now have separate ownership.
+>
+> Current reading note（2026-07-06）：本文中的旧节点名（例如 `execute_action`）属于当时 review 上下文；当前源码 graph 已使用 `action_draft`，目标 runtime graph 以 `docs/target-agent-platform-architecture-plan.md` §6.1 和 `docs/contract-spec.md` §9 为主要参考。
 
 ## Executive Summary
 
@@ -174,7 +176,7 @@
 
 - **代码依据**
 
-  当前 `execute_action` 实际只创建 durable action draft，并不执行真实动作：`src/agent/nodes/execute_action.py`。
+  当时旧 `execute_action` 节点实际只创建 durable action draft，并不执行真实动作；当前源码 graph 已使用 `action_draft`，此处仅保留历史 review 语境。
 
 - **为什么重要**
 

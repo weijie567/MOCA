@@ -1,3 +1,5 @@
+> HISTORICAL REVIEW NOTE（2026-07-06）：本文是对早期 §9 agentic 草案的评审记录，不是当前目标 graph 或契约依据。当前应以 `docs/contract-spec.md` §9、`docs/target-agent-platform-architecture-plan.md` §6.1 和 Phase 49 summary 为主要参考；本文中的 blocker/warning 只在追溯当时草案演进时使用。
+
 ## BLOCKERS
 
 1. **`investigate` 不应直接写 `evidence_refs`，否则会绕过 canonical citation-consumption 边界。** 草案把 `evidence_refs` 列为 `investigate` 的 state writes（draft:252），但现行 canonical registry 明确规定 `evidence_refs` 的 writer 是 `recommendation_generation / citation validator`，并将其定义为 recommendation/response/action 实际消费且通过 citation validation 的引用子集（contract-spec.md:585,605）。这是安全相关 contract 冲突：`risk_gate` 和 action snapshot 会消费已验证 evidence，草案必须区分 `investigate` 写入的 `retrieved_evidence` 与 citation validator 后才可写入的 `evidence_refs`（contract-spec.md:584-585；draft:253-254）。

@@ -1,4 +1,4 @@
-NOTE: This file is ILLUSTRATIVE. The normative contract source is docs/contract-spec.md.
+NOTE: This file is ILLUSTRATIVE. For the current target runtime graph, use `docs/target-agent-platform-architecture-plan.md` §6.1 and `docs/contract-spec.md` §9 as the primary contract references. For the current source-code graph snapshot, use `docs/current-langgraph-architecture.md` and `src/agent/graph.py`.
 
 ## 1. Title 和目标说明
 
@@ -60,12 +60,12 @@ MOCA 的目标架构是：面向商家运营与售后协同的企业级 Agent �
 
 | 设计主题 | 当前 MOCA 依据 | 参考仓库依据 | 是否采用 | 采用方式 | 不采用内容 |
 | --- | --- | --- | --- | --- | --- |
-| LangGraph workflow | `src/agent/graph.py` 已有主 workflow：`receive_request`、`classify_intent`、`session_memory_load`、`extract_slots`、`long_term_memory_retrieve`、`investigate`、`generate_recommendation`、`assess_risk_and_approval`、`clarification_gate`、`approval_gate`、`execute_action`、`final_response`。 | `memory-agent/src/memory_agent/graph.py` 展示 tool call 条件分支；`agents-from-scratch-ts/src/email_assistant.ts` 展示 triage -> subgraph；`Human-in-the-Loop-Workflow-LangGraph/src/graph.py` 展示 Command 路由。 | 采用 | 保留 deterministic LangGraph shell；只读调查统一由 `investigate` bounded loop 承担，后续再补 memory_write/trace_close。 | 不采用完全自由循环 agent，也不把参考仓库 email/news workflow 搬入 MOCA。 |
+| LangGraph workflow | `src/agent/graph.py` 当前主 workflow 是 legacy/canonical 混合形态：`receive_request`、`classify_intent`、`session_memory_load`、`extract_slots`、`long_term_memory_retrieve`、`investigate`、`rag_context_build`、`generate_recommendation`、`claim_verify`、`assess_risk_and_approval`、`clarification_gate`、`approval_gate`、`action_draft`、`final_response`。 | `memory-agent/src/memory_agent/graph.py` 展示 tool call 条件分支；`agents-from-scratch-ts/src/email_assistant.ts` 展示 triage -> subgraph；`Human-in-the-Loop-Workflow-LangGraph/src/graph.py` 展示 Command 路由。 | 采用 | 保留 deterministic LangGraph shell；只读调查统一由 `investigate` bounded loop 承担；目标 graph 继续向 `safety_pre_route`、`contextual_intent_resolve`、`slot_resolution_gate`、`memory_context_load`、`risk_gate` 收敛。 | 不采用完全自由循环 agent，也不把参考仓库 email/news workflow 搬入 MOCA。 |
 | Intent classification | `src/agent/intent_policy.py` 使用 `INTENT_DEFINITIONS` 统一声明 ordinary intent taxonomy、required slots、initial route、precedence 和 risk/evidence flags；`src/agent/schemas.py` 定义 `IntentResultV3`；`src/agent/nodes/classify_intent.py` 用 structured output。 | `agents-from-scratch-ts/src/email_assistant.ts` triage 把 email 分成 ignore/respond/notify，用于路由。 | 部分采用 | 继续校准 intent precedence、confidence threshold 和 clarification path。 | 不采用 email 领域的 ignore/respond/notify 作为业务 intent。 |
 | Tool calling | `src/agent/nodes/investigate.py` 通过 `UnifiedToolManager` 调用 business read、policy retrieval、case memory search；`ToolCatalog` 是 descriptor/permission/schema/caller allowlist 的单一入口。 | `memory-agent/src/memory_agent/tools.py` 使用 InjectedToolArg；`agents-from-scratch-ts/src/tools/base.ts` 有中央 tool registry；`agent-inbox` 和 HITL examples 在工具执行前中断。 | 采用 | 采用 graph-controlled bounded tool loop + manager-level allowlist + service facade。 | 不采用模型自由选择任意工具并直接写业务系统。 |
 | Memory read/write | `session_memory_load` 已通过 `src/memory/service.py` + `SessionMemoryRepository` 读取 PostgreSQL-authoritative session memory；`memory_write` 写 session memory；planner-facing `search_case_memory` 通过 `MemoryToolExecutor -> CaseMemoryService.retrieve_reviewed(...)` 检索 reviewed case memory；`ClosedCasePrecedentService -> CaseMemoryService.submit_case_memory_candidate(...)` 生成 `closed_case_cwc_candidate` review candidate；`LegacySessionPrecedentSearchService` 仅是 legacy/debug-only session-derived projection；`long_term_memory_retrieve` / `memory_context_load` 是 reviewed explicit preference retrieval seam。 | `memory-agent/src/memory_agent/graph.py` 读取最近 memory 注入 prompt；`langgraph-memory/memory_service/graph.py` 有 delayed extraction、patch/insert 双路径、schema fan-out；`agents-from-scratch-ts/src/email_assistant_hitl_memory.ts` 根据 HITL feedback 更新 memory。 | 采用 | 区分 working memory、workflow checkpoint、session memory、Case Working Context、long-term explicit preference memory、case memory、audit/replay；已先实现 Postgres-authoritative session memory，Redis 只可作为可选热缓存。 | 不采用自由 ReAct 写长期记忆；不采用 Pinecone/Fireworks 默认栈；不把历史 case 当政策；不让 Redis 成为权威记忆或 checkpoint。 |
 | Human-in-the-loop approval | `src/agent/nodes/approval_gate.py` 已有 LangGraph `interrupt`；`src/api/routers/approvals.py` 支持 approve/reject resume；`ApprovalRequest`、`ApprovalStep` 已持久化。 | `agent-inbox/README.md` 定义 HumanInterrupt/HumanResponse schema，支持 accept/edit/respond/ignore；`agent-inbox-langgraph-example/src/agent/graph.py` 有 Python 最小示例；`Human-in-the-Loop-Workflow-LangGraph/src/nodes/human_review_node.py` 支持编辑内容后 approve。 | 采用 | 把 MOCA 审批从 approve/reject 扩展到 accept/edit/reject/respond/ignore，并支持多级审批和 SLA。 | 不采用通用 inbox UI 的全部部署假设；不采用布鲁斯天空发布业务。 |
-| Action execution | `src/agent/nodes/execute_action.py` 通过 `UnifiedToolManager` 调用 node-only `create_coupon_grant_draft`；`src/actions/service.py` / `drafts.py` 创建 durable `ActionDraft`，有 idempotency key；README 明确无真实支付/退款/券执行。 | `Human-in-the-Loop-Workflow-LangGraph/src/tools.py` 在 publish 前再次 interrupt；`agent-inbox` 支持 edit/accept action args。 | 采用 | demo action 仍只创建 draft；后续真实外部动作需补 execution/compensation metadata。 | 不采用在 tool 内直接发布/执行外部动作；真实动作前双确认只作为未来高风险场景。 |
+| Action execution | `src/agent/nodes/action_draft.py` 通过 `UnifiedToolManager` 调用 node-only `create_coupon_grant_draft`；`src/actions/service.py` / `drafts.py` 创建 durable `ActionDraft`，有 idempotency key；README 明确无真实支付/退款/券执行。 | `Human-in-the-Loop-Workflow-LangGraph/src/tools.py` 在 publish 前再次 interrupt；`agent-inbox` 支持 edit/accept action args。 | 采用 | demo action 仍只创建 draft；后续真实外部动作需补 execution/compensation metadata。 | 不采用在 tool 内直接发布/执行外部动作；真实动作前双确认只作为未来高风险场景。 |
 | RAG / Knowledge | `src/knowledge/retrieval.py` 使用 DashScope embedding、pgvector、hybrid rerank、threshold/no-evidence；`src/rag` 只保留 embed/chunk/ingest 等底层 infra。 | `docs/agent-architecture-reference-draft.md` 要求 Knowledge / RAG 是独立能力层。 | 采用 | KnowledgeService facade 管理 evidence contract；Agent 节点不直接接触 embedding/repo/pgvector。 | 不采用把 RAG 当 Agent 内部普通 tool 的长期形态。 |
 | Observability / Replay | `src/agent/trace.py`、`src/repositories/trace_repo.py`、`src/api/routers/traces.py` 已有 AgentRun/AgentStep、approval/action timeline；`src/api/main.py` 有 request trace_id。 | `fastapi-observability/fastapi_app/main.py`、`utils.py`、`docker-compose.yaml` 展示 FastAPI metrics、OTLP、Tempo、Loki、Prometheus、Grafana 和日志 trace 关联。 | 采用 | 先做 in-process spans/metrics/log correlation，再考虑完整 Grafana stack。 | 不直接搬三 app compose 和 Loki logging driver 到 MOCA。 |
 | Prompt organization | 当前 `src/agent/prompts.py` 单文件存 intent、slots、recommendation、risk、final prompts。 | `agents-from-scratch-ts/src/prompts.ts` 按 triage/agent/HITL/memory prompt 拆分；参考草稿要求按节点拆。 | 采用 | 拆成 `src/agent/prompts/intent.py`、`slots.py`、`recommendation.py`、`final_response.py`，memory prompt 放 `src/memory/prompts.py`。 | 不采用超长单 system prompt；不让 prompt 替代 policy/approval/tool 控制。 |
@@ -86,15 +86,15 @@ MOCA 的目标架构是：面向商家运营与售后协同的企业级 Agent �
 - RAG / Knowledge：`src/knowledge/retrieval.py` 使用 DashScope embedding、pgvector 检索、hybrid rerank、threshold gate；`src/rag` 只保留 embed/chunk/ingest 等底层 infra，legacy HTTP search DTO 位于 `src/api/schemas/search.py`。
 - Business read tools：`src/business/service.py` 通过 `src/business/adapters.py` 调用 demo business integrations；`get_order`、`get_refund_case`、`get_ticket` 读取 tenant-scoped 本地 demo DB，并保留 merchant ownership 防护。
 - Approval interrupt/resume：`approval_gate` 使用 LangGraph `interrupt`；审批 API 用 `Command(resume=...)` 恢复 graph。
-- Action draft：`execute_action` 创建 action draft，`ActionDraftRepository.create_or_get` 用 idempotency key 防重复。
+- Action draft：`action_draft` 创建 action draft，`ActionDraftRepository.create_or_get` 用 idempotency key 防重复。
 - Trace / replay：`AgentRun`、`AgentStep`、`ApprovalRequest`、`ApprovalStep`、`ActionDraft` 持久化；`TraceRepository.build_timeline` 组合 agent step、approval、action draft timeline。
-- 测试覆盖：graph happy path/no-evidence/cross-turn reset、routing、approval gate、approval integration、execute_action、trace persistence、tool contract、RAG/eval 等测试已存在。
+- 测试覆盖：graph happy path/no-evidence/cross-turn reset、routing、approval gate、approval integration、action draft、trace persistence、tool contract、RAG/eval 等测试已存在。
 
 ### 4.2 部分实现
 
 当前 MOCA 部分实现但边界仍不完整：
 
-- Tool contract：`src/tools/{contracts,catalog,manager,validation}.py` 是当前 agent-facing 工具契约和统一分发层；`investigate` 与 `execute_action` 已通过 manager 调用 read/retrieval/action capability。
+- Tool contract：`src/tools/{contracts,catalog,manager,validation}.py` 是当前 agent-facing 工具契约和统一分发层；`investigate` 与 `action_draft` 已通过 manager 调用 read/retrieval/action capability。
 - Memory：`src/memory/service.py`、`repository.py`、`schemas.py` 已实现 PostgreSQL-authoritative session memory load/write；`case_working_contexts` 承担 active case working state；planner-facing `search_case_memory` 当前通过 `MemoryToolExecutor -> CaseMemoryService.retrieve_reviewed(...)` 读取 reviewed case memory；`src/memory/case_precedent.py` 通过 `ClosedCasePrecedentService -> CaseMemoryService.submit_case_memory_candidate(...)` 生成 `closed_case_cwc_candidate` review candidate；`src/memory/search.py` 的 `LegacySessionPrecedentSearchService` 仅保留为 legacy/debug-only session-derived projection。`long_term_memory_retrieve` 已是 `reviewed_memory_context_retrieve` / `memory_context_load` 的 compatibility wrapper，用于读取 published reviewed explicit preference rows；Phase 48 explicit preference memory 窄版写入已接入 deterministic explicit user preference capture、管理员保存 API 和人审发布，但仍只支持显式软偏好，不是完整 profile / rule / run-summary memory-write pipeline；Redis hot cache 尚未实现。
 - Approval：已有 approve/reject、过期处理、自审批限制、resume、审批 step 记录；尚未有 policy-driven multi-level approval、SLA escalation、accept/edit/respond/ignore。
 - Observability：已有 DB trace 和 API request trace_id；尚未有 OpenTelemetry spans、Prometheus metrics、LLM token/cost 完整记录、RAG/tool/action 细粒度 metrics。
@@ -118,7 +118,7 @@ MOCA 的目标架构是：面向商家运营与售后协同的企业级 Agent �
 | Capability | Current evidence | Current limitation | Target contract | Migration phase |
 | --- | --- | --- | --- | --- |
 | AgentState lifecycle | `src/agent/state.py` 定义字段约定；`receive_request` 主动 reset 部分 ephemeral 字段。 | 当前不是 schema-level enforcement；writer、scope、reset/merge 规则未被统一验证。 | 第 10.1 节 lifecycle matrix；trusted fields 不可被 LLM 覆盖；router/state property tests。 | Phase 10 |
-| Slot routing | 当前 graph 已有 `classify_intent -> session_memory_load -> extract_slots -> route_after_slots`，并使用 `RequiredSlotExpression` 表达 all-of / any-of slots；`long_term_memory_retrieve` 已作为 reviewed explicit preference retrieval compatibility seam 接入。 | long-term memory 仅支持 Phase 48 narrow explicit preference retrieval；slot freshness / inheritance eval 仍需随真实案例校准。 | `classify_intent -> session_memory_load -> extract_slots -> resolve_slots -> route_after_slots`；session slots 必须满足 scope、freshness 和 intent compatibility。 | Phase 10, Phase 12 |
+| Slot routing | 当前 graph 已有 `classify_intent -> session_memory_load -> extract_slots -> route_after_slots`，并使用 `RequiredSlotExpression` 表达 all-of / any-of slots；`long_term_memory_retrieve` 已作为 reviewed explicit preference retrieval compatibility seam 接入。 | long-term memory 仅支持 Phase 48 narrow explicit preference retrieval；slot freshness / inheritance eval 仍需随真实案例校准；当前 slot 抽取和 slot resolution 仍耦合在 legacy node/helper 中。 | 目标收敛到 `contextual_intent_resolve -> slot_resolution_gate -> memory_context_load`；slot candidate extraction 是内部能力，`slot_resolution_gate` 承担 provenance、invalidation、inheritance、missing-required 裁决。 | Future target graph migration phase |
 | Approval | 已有 interrupt/resume、approve/reject、审批持久化。 | 无 request/level/assignment version CAS、multi-level 聚合和 exact revision execution guard。 | 第 15 节 versioned approval state machine 和 optimistic locking。 | Phase 13 |
 | Action | 已有 durable `ActionDraft` 和 idempotency key。 | demo/external outcome contract 未完全分离；无 external executor/reconciliation。 | demo 只写 draft + `draft_outcome`；external 原子校验后执行。 | Phase 14, Phase 17 |
 | Replay | 已有 AgentRun/AgentStep 和组合 timeline。 | 事件枚举和 lifecycle coverage 不完整；不是统一 V3 event store。 | ReplayEventV3、稳定 sequence、完整 lifecycle enum 和 retention。 | Phase 15 |
@@ -173,7 +173,7 @@ Canonical `TrustedContext` 至少包含 `tenant_id`、`user_id`、`role`、`merc
 
 ### Module Responsibility & Non-Overlap Matrix
 
-> ILLUSTRATIVE mirror of the layer responsibilities; the normative service/schema contracts are in `docs/contract-spec.md` §8-§18. Use this as a non-overlap reading aid, not an independent normative source.
+> ILLUSTRATIVE mirror of the layer responsibilities; the current accepted service/schema contracts are in `docs/contract-spec.md` §8-§18. Use this as a non-overlap reading aid, not an independent contract source.
 
 | Layer | Owns | Does NOT own | Exposes | Forbidden |
 | --- | --- | --- | --- | --- |
@@ -223,7 +223,7 @@ graph TB
 
 ### 7.2 当前实现图
 
-这张图按当前 `src/agent/graph.py` 的 registered nodes 和 conditional edges 表达真实运行链路。它不是完整目标架构；`normalize_input`、`memory_write`、`trace_close`、独立 `action_draft` / `action_execution` 还没有作为 registered graph node 出现在主链中。
+这张图按当前 `src/agent/graph.py` 的 registered nodes 和 conditional edges 表达真实运行链路。它不是目标架构；目标 canonical runtime graph 见 `docs/target-agent-platform-architecture-plan.md` §6.1 与 `docs/contract-spec.md` §9。当前实现仍是 legacy/canonical 混合形态：入口侧仍使用 `classify_intent` / `extract_slots` / `long_term_memory_retrieve`，出口侧已经有 `rag_context_build` / `claim_verify` / `action_draft` 等目标形态节点。
 
 ```mermaid
 graph TD
@@ -246,26 +246,41 @@ graph TD
     Investigate --> InvestigateRoute{route_after_investigate}
     InvestigateRoute -->|missing facts| Clarify
     InvestigateRoute -->|final/insufficient| Final
+    InvestigateRoute -->|needs verified evidence| RagBuild[rag_context_build]
     InvestigateRoute -->|sufficient context| Reco[generate_recommendation]
 
     Clarify --> Final
-    Reco --> Risk[assess_risk_and_approval]
+    RagBuild --> RagRoute{route_after_rag_context}
+    RagRoute -->|missing validation input| Clarify
+    RagRoute -->|verified / allowed partial| Reco
+    RagRoute -->|fail closed| Final
+
+    Reco --> RecoRoute{route_after_recommendation}
+    RecoRoute -->|no material claims/action| Final
+    RecoRoute -->|verify claims/action| ClaimVerify[claim_verify]
+    ClaimVerify --> VerifyRoute{route_after_claim_verify}
+    VerifyRoute -->|blocked / unsupported| Final
+    VerifyRoute -->|risk/action path| Risk[assess_risk_and_approval]
+    VerifyRoute -->|verified no action| Final
+
     Risk --> RiskRoute{route_after_risk}
     RiskRoute -->|approval required| Approval[approval_gate]
-    RiskRoute -->|draft action| Execute[execute_action]
+    RiskRoute -->|draft action| Draft[action_draft]
     RiskRoute -->|no action| Final
 
     Approval --> ApprovalRoute{route_after_approval}
-    ApprovalRoute -->|approved| Execute
+    ApprovalRoute -->|approved| Draft
+    ApprovalRoute -->|pending| Approval
+    ApprovalRoute -->|edit / re-assess| Risk
     ApprovalRoute -->|rejected / not approved| Final
-    Execute --> Final
+    Draft --> Final
     Final --> END([END])
 ```
 
 当前实现的关键约束：
 
 - `investigate` 通过 `UnifiedToolManager.descriptors("investigate")` 获取 planner-visible read/retrieval capability view，并通过 `UnifiedToolManager.invoke(...)` 调用工具。
-- `execute_action` 通过 node-only `create_coupon_grant_draft` capability 创建 durable action draft；当前 demo path 不执行真实外部退款、发券或封禁动作。
+- `action_draft` 通过 node-only `create_coupon_grant_draft` capability 创建 durable action draft；当前 demo path 不执行真实外部退款、发券或封禁动作。
 - `long_term_memory_retrieve` 是 `reviewed_memory_context_retrieve` / `memory_context_load` 的 compatibility wrapper，已接入 published reviewed explicit preference retrieval；planner-facing `search_case_memory` 当前读取 reviewed case memory，不再是 session-derived precedent 过渡实现；legacy session-derived projection 仅保留为 debug-only。
 - `memory_write` 不是当前主 graph 的 registered node；session memory write 属于 response 后续/运行时边界。
 
@@ -281,7 +296,7 @@ graph LR
     KnowledgeExec --> KnowledgeSvc[PolicyKnowledgeService]
     MemoryExec --> MemorySvc[CaseMemoryService.retrieve_reviewed]
 
-    Execute[execute_action node] --> NodeOnly[UnifiedToolManager\nnode-only view]
+    Draft[action_draft node] --> NodeOnly[UnifiedToolManager\nnode-only view]
     NodeOnly --> ActionExec[ActionToolExecutor]
     ActionExec --> ActionSvc[ActionDraftService]
 ```
@@ -296,11 +311,13 @@ graph LR
 | `extract_slots` | 提取订单、退款、工单、金额、商家等 slots | LLM structured output / SlotPrompt |
 | `long_term_memory_retrieve` | 通过 `memory_context_load` seam 读取 published reviewed explicit preference rows | Explicit preference retrieval only; not profile facts, patterns, rules, or run summaries |
 | `investigate` | 在 bounded loop 内通过统一工具层只读拉取 business context / policy evidence / reviewed case memory precedent | `UnifiedToolManager` planner-visible view -> business / knowledge / memory executors |
+| `rag_context_build` | 将候选 evidence refs 升级为 verified evidence package，并执行 fail-closed 证据上下文构建 | RAG ContextBuilder / evidence package contract |
 | `generate_recommendation` | 生成处理建议和 proposed_action candidate | LLM structured output / RecommendationPrompt + KnowledgeService citation verification |
+| `claim_verify` | 校验 material claims / proposed action claim 是否被 verified evidence 支持 | Claim verification bundle / verifier policy |
 | `assess_risk_and_approval` | 评估风险、审批需求、动作是否可自动草稿 | RiskPolicy / ApprovalPolicy semantics |
 | `clarification_gate` | 生成澄清问题或缺失信息说明 | Clarification policy / Final response template |
 | `approval_gate` | 创建 interrupt，等待 approve/reject resume | ApprovalService / LangGraph interrupt |
-| `execute_action` | 在审批/风险路由后创建 durable action draft | `UnifiedToolManager` node-only view -> ActionToolExecutor |
+| `action_draft` | 在审批/风险路由后创建 durable action draft | `UnifiedToolManager` node-only view -> ActionToolExecutor |
 | `final_response` | 生成面向用户的最终回复 | Deterministic template or FinalResponsePrompt |
 
 当前 router 函数包括：
@@ -308,6 +325,9 @@ graph LR
 - `route_after_intent`
 - `route_after_slots`
 - `route_after_investigate`
+- `route_after_rag_context`
+- `route_after_recommendation`
+- `route_after_claim_verify`
 - `route_after_risk`
 - `route_after_approval`
 
@@ -315,41 +335,39 @@ graph LR
 
 ### 7.3 目标受控工作流图
 
-这张图表达目标 graph 的核心控制模型：外层是 deterministic LangGraph shell，只有 `investigate` registered node 内部允许 bounded read-only tool loop。LLM 在该 loop 内只能从 `UnifiedToolManager` 的 planner-visible capability view 选择下一次只读调查调用；写动作、风险判断、审批、动作草稿和未来真实外部执行都在 loop 外，由 deterministic router 和 service contract 控制。
+这张图是目标 graph 的 compact overview。彩色主图和 `investigate` 展开视图见 `docs/target-agent-platform-architecture-plan.md` §6.1；registered node / router contract 见 `docs/contract-spec.md` §9。这里不再重复旧草稿里的 `slot_extraction`、`normalize_input`、`memory_write`、`trace_close` 或 `action_execution` 作为主链 node。
 
-目标迁移不是追求更多节点，而是把“可自由推理的调查”和“必须代码控制的动作路径”分开：
+目标迁移不是追求更多节点，而是把“可自由推理的只读调查”和“必须代码控制的动作路径”分开：
 
-- ReAct 只存在于 `investigate` 内部。
-- `investigate` 只允许通过 `UnifiedToolManager` 调用 planner-visible read/retrieval tools。
-- `UnifiedToolManager` 是 agent-facing descriptor、caller allowlist、permission、schema、side-effect 检查入口。
-- `investigate` 不产生外部路由决策；它只写累积调查 state 和 `termination_reason`。
-- 所有外部路由均由 deterministic router 完成。
-- `assess_risk_and_approval -> approval_gate -> execute_action/create_draft` 永远不在 ReAct loop 内。
-- 真实外部 `action_execution` 是 future branch；demo/current path 只创建 action draft。
-- `long_term_memory_retrieve` 是可选 read seam；只有 intent/routing hints 需要 published explicit preference hints 时才进入，不能成为所有 slot-complete 路径的默认必经节点，也不能读取 broad profile facts、patterns、rules 或 run summaries。
-- `memory_write` 和 `trace_close` 可以是 post-response/runtime concern，不必强制成为主 graph registered nodes。
+- 目标主链 registered runtime node 是 15 个：`receive_request`、`safety_pre_route`、`session_context_load`、`contextual_intent_resolve`、`slot_resolution_gate`、`memory_context_load`、`investigate`、`rag_context_build`、`recommendation_generation`、`claim_verify`、`risk_gate`、`approval_gate`、`action_draft`、`clarification_gate`、`final_response`。
+- `slot_extraction` 不作为最终 registered node；slot candidate extraction 是 `contextual_intent_resolve` / `slot_resolution_gate` 的内部能力。
+- ReAct 只存在于 `investigate` 内部；`investigate` 只能通过 `ToolPlatform` / `UnifiedToolManager` 调用 planner-visible read/retrieval tools。
+- 所有 graph-level route 都由 deterministic router 完成；LLM 不输出 next graph node。
+- `risk_gate -> approval_gate -> action_draft` 永远不在 ReAct loop 内；当前目标 runtime 到 durable draft 为止，future `action_execution` 是外部执行扩展。
+- `memory_write_pipeline` 和 `trace_close` 是 post-response / lifecycle concern；除非后续需要 checkpoint、retry 或 eval，不注册为主链 graph node。
 
-第 7 节图仅是 illustrative view。第 9.4 节 node contract table 和第 9.5 节 router contract table 是 normative source；图中不得引入与其冲突的 edge。
-
-图中的 `security_context` 是 trusted context injection / API-auth boundary，不建议注册为 LangGraph node；`normalize_input` 可作为 `receive_request` 内 helper，除非后续需要独立 trace/eval；`resolve_slots` 是 deterministic helper；多个 `final_response` 入边表示同一个 registered node 的不同 response mode。
+本图是 overview，不替代 target plan §6.1 和 contract-spec §9；若后续 phase 发现冲突，必须显式提出 spec delta、MVP scope 或 defer 决策，不能静默偏离。
 
 ```mermaid
 graph TD
     START([START]) --> Receive[receive_request]
-    Receive --> Intent[classify_intent]
+    Receive --> Safety[safety_pre_route]
+    Safety --> SafetyRoute{route_after_safety}
+    SafetyRoute -->|blocked / unsafe| Final[final_response]
+    SafetyRoute -->|needs clarification| Clarify[clarification_gate]
+    SafetyRoute -->|safe| SessionCtx[session_context_load]
 
-    Intent --> IntentRoute{route_after_intent}
-    IntentRoute -->|low confidence / untrusted approval chat| Clarify[clarification_gate]
-    IntentRoute -->|small_talk / unsupported| Final[final_response]
-    IntentRoute -->|policy-only| Investigate
-    IntentRoute -->|needs slots| SessionLoad[session_memory_load]
+    SessionCtx --> Intent[contextual_intent_resolve]
+    Intent --> IntentRoute{route_after_contextual_intent}
+    IntentRoute -->|direct response| Final
+    IntentRoute -->|ambiguous / low confidence| Clarify
+    IntentRoute -->|no slots required| MemoryCtx[memory_context_load]
+    IntentRoute -->|slots required| SlotGate[slot_resolution_gate]
 
-    SessionLoad --> SlotExtract[extract_slots]
-    SlotExtract --> SlotRoute{route_after_slots}
-    SlotRoute -->|missing after merge| Clarify
-    SlotRoute -->|slots ok + needs long-term memory| LongMem[long_term_memory_retrieve]
-    SlotRoute -->|slots ok + skip long-term memory| Investigate
-    LongMem --> Investigate
+    SlotGate --> SlotRoute{route_after_slot_resolution}
+    SlotRoute -->|missing / stale / incompatible| Clarify
+    SlotRoute -->|resolved| MemoryCtx
+    MemoryCtx --> Investigate
 
     subgraph ControlledReadLoop["investigate registered node: controlled read loop"]
         Investigate[enter investigate] --> Plan[bounded planner\nsingle next read step]
@@ -368,33 +386,40 @@ graph TD
     InvestigateDone --> InvestigateRoute{route_after_investigate}
     InvestigateRoute -->|missing facts| Clarify
     InvestigateRoute -->|permission denied / fact-only / insufficient evidence| Final
-    InvestigateRoute -->|sufficient context| Reco[generate_recommendation]
+    InvestigateRoute -->|fact-only / recommendation| Reco[recommendation_generation]
+    InvestigateRoute -->|policy evidence needed| RagBuild[rag_context_build]
 
-    Reco --> Risk[assess_risk_and_approval]
+    RagBuild --> RagRoute{route_after_rag_context}
+    RagRoute -->|missing validation input| Clarify
+    RagRoute -->|fail closed| Final
+    RagRoute -->|verified / allowed partial| Reco
+
+    Reco --> Claim[claim_verify]
+    Claim --> ClaimRoute{route_after_claim_verify}
+    ClaimRoute -->|unsupported / blocked| Final
+    ClaimRoute -->|verified| Risk[risk_gate]
+
     Risk --> RiskRoute{route_after_risk}
     RiskRoute -->|blocked / no action| Final
     RiskRoute -->|approval required| Approval[approval_gate]
-    RiskRoute -->|draft allowed| Draft[execute_action\ncreate action draft]
+    RiskRoute -->|draft allowed| Draft[action_draft]
 
     Approval --> ApprovalRoute{route_after_approval}
     ApprovalRoute -->|approved| Draft
+    ApprovalRoute -->|pending| Approval
+    ApprovalRoute -->|edit / re-assess| Risk
     ApprovalRoute -->|reject / ignore / expired| Final
     Draft --> Final
-    Draft -. future external adapter .-> ExternalExecute[action_execution]
-    ExternalExecute --> Final
     Clarify --> Final
-    Final -. optional post-response .-> MemoryWrite[memory_write]
-    Final -. runtime close .-> TraceClose[trace_close]
-    TraceClose --> END([END])
-    MemoryWrite --> TraceClose
-    Final --> END
+    Final --> END([END])
 ```
 
 目标-only / optional concepts：
 
 - `normalize_input`：可以保持为 `receive_request` 内 helper；只有需要独立 trace/eval 时才注册成节点。
-- `route_after_recommendation`：可在 recommendation/risk path 变复杂后拆出；当前由 `generate_recommendation -> assess_risk_and_approval` 直接承接。
-- `action_draft` / `action_execution`：当前 demo path 折叠在 `execute_action` 创建 draft；真实外部执行前再拆 explicit draft/execution branch。
+- `slot_extraction`：不作为最终 registered node；slot candidate extraction 是 intent/slot gate 内部能力。
+- `route_after_recommendation`：可在 recommendation/risk path 变复杂后拆出，但必须保持 deterministic。
+- `action_execution`：真实外部执行前再作为 external execution extension 规划；当前目标 runtime 到 `action_draft` 为止。
 - `memory_write`：可以作为 post-response async side effect，不应阻塞用户最终回复。
 - `trace_close`：更像 API/runtime/observability 收尾，不一定属于 LangGraph 主链。
 
@@ -403,8 +428,8 @@ graph TD
 - 能力边界图用于说明模块边界。
 - 当前实现图用于说明 `src/agent/graph.py` 已注册的真实节点和 edge。
 - 目标受控工作流图用于说明一个 Agent run 如何按 intent、只读调查、风险和审批条件流转。
-- 第 7 节图是 illustrative；第 9.4/9.5 节 contract table 是 normative source，任何实现和 review 冲突均以第 9 节为准。
-- 所有 Mermaid 图均为 illustrative；第 9-18 节 contract tables 是 normative source。
+- 第 7 节图是 illustrative；第 9.4/9.5 节 contract table 是当前主要契约参考，任何实现和 review 冲突都必须显式提出 spec delta、MVP scope 或 defer 决策。
+- 所有 Mermaid 图均为 illustrative；第 9-18 节 contract tables 是当前已接受契约参考。
 - 目标设计不要求一次性实现全部节点；节点数不是验收标准，节点输入/输出、状态写入、side effect 和路由确定性才是验收标准。
 - 文档中的 target-only 节点不表示当前已经实现；当前实现以 `src/agent/graph.py` 和本节 7.2 为准。
 
@@ -509,7 +534,7 @@ graph TD
 
 ### 8.7 Actions / Executor / Compensation
 
-当前依据：`src/agent/nodes/execute_action.py`、`src/tools/executors/action.py`、`src/actions/service.py`、`src/actions/drafts.py`、`ActionDraftRepository`、`ActionDraft`。
+当前依据：`src/agent/nodes/action_draft.py`、`src/tools/executors/action.py`、`src/actions/service.py`、`src/actions/drafts.py`、`ActionDraftRepository`、`ActionDraft`。
 
 目标职责：
 

@@ -2,6 +2,8 @@
 
 > 草稿用途：这是后续让 Claude / Claude Code 基于参考仓库和本轮讨论继续设计 MOCA 架构、spec、phase plan 时使用的参考文件。它不是当前实现状态的最终文档，也不是直接执行计划。
 >
+> 当前读法（2026-07-06）：本文保留为历史参考草稿。目标 runtime graph、registered node set 和 legacy alias 以 `docs/target-agent-platform-architecture-plan.md` §6.1 与 `docs/contract-spec.md` §9 为当前主要参考；本文后续章节中出现的旧 node list（如 `normalize_input`、`slot_extraction`、`action_execution`、`memory_write`、`trace_close`）不得覆盖当前目标 graph。
+>
 > 重要约束：参考仓库只能用于提炼架构模式、接口边界、数据模型和实现思路，不能照抄目录、代码或业务假设。MOCA 必须保持自己的业务主线：商家运营与售后协同 Agent，围绕订单/工单问题、规则证据、处理建议、高风险审批、追踪回放和可回滚/可补偿动作展开。
 
 ---

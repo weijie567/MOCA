@@ -93,7 +93,7 @@ MOCA 采用 Codex 与 Codex 的「双 AI 交叉评审」模式：**Codex 是 pla
 
 ## spec 与 phase 实现的关系
 
-- `docs/contract-spec.md` 是 MOCA 唯一 normative 契约源，但它只定**契约语义**，不定实现细节与范围；具体落地由各 phase 决定，不把 spec 奉为金科玉律。
+- `docs/contract-spec.md` 是 MOCA 当前已接受契约的主要参考源，但它只定**契约语义**，不定实现细节与范围；具体落地由各 phase 决定，不把 spec 奉为金科玉律。
 - spec 描述的是「目标契约」，不是「已实现事实」。不要把目标态 normative 描述当成已经实现，也不要反向把实现妥协误当成 spec 漏洞反复返工。
 - phase 实现与 spec 不一致时**禁止静默偏离**，必须留痕，二选一：
   - 判定是 spec 错 → 回 spec 修，走双 AI 复审流程；

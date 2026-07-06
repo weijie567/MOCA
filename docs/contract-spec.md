@@ -1,6 +1,6 @@
-NOTE: This file is the ONLY normative contract source for MOCA agent architecture. Other docs (architecture-overview / migration-plan / eval-test-plan) are illustrative or process docs; when they conflict with this file, this file wins.
+NOTE: This file is the primary accepted contract reference for MOCA agent architecture. Other docs (architecture-overview / migration-plan / eval-test-plan) are illustrative or process docs until their deltas are accepted here or in a named phase decision.
 
-This file is also a living contract. Older sections may describe target contracts that were not fully implemented yet, or semantics that a later phase intentionally replaces. A phase must not treat historical text here as proof that the current code already behaves that way. When a new phase discovers conflict between this contract, the codebase, tests, and the accepted product model, the phase must amend this file or record an explicit MVP scope/deferral before implementation proceeds.
+This file is also a living contract, not an immutable authority. Older sections may describe target contracts that were not fully implemented yet, or semantics that a later phase intentionally replaces. A phase must not treat historical text here as proof that the current code already behaves that way. When a new phase discovers conflict between this contract, the codebase, tests, and the accepted product model, the phase must surface the conflict, then amend this file or record an explicit MVP scope/deferral before implementation proceeds.
 
 ## 0.1 Target architecture delta sync rule
 
@@ -427,13 +427,14 @@ class BusinessContextV1(BaseModel):
 > Producer phase + schema_version annotation: Phase 7/10 — Minimal Event Envelope foundation (schema_version `minimal_event_envelope.v1`)
 
 
-第 9.4 节 node contract table 和第 9.5 节 router contract table 是目标 workflow 的 normative source。第 7 节图只用于说明，不能定义额外或冲突 edge。
+第 9.4 节 node contract table 和第 9.5 节 router contract table 是目标 workflow 的当前已接受契约参考。第 7 节图只用于说明，不能定义额外或冲突 edge；若 phase plan 发现冲突，必须显式提出 spec delta、MVP scope 或 defer 决策。
 
 ### 9.0 Canonical workflow vocabulary / 规范词汇
 
-- **registered LangGraph node**：通过 `StateGraph.add_node(...)` 注册、可独立产生 node lifecycle event 的执行单元。Target canonical node set 包含：`receive_request`、`normalize_input`、`safety_pre_route`、`session_context_load`、`contextual_intent_resolve`、`clarification_gate`、`slot_extraction`、`slot_resolution_gate`、`memory_context_load`、`investigate`、`rag_context_build`、`recommendation_generation`、`claim_verify`、`risk_gate`、`approval_gate`、`action_draft`、`action_execution`、`final_response`、`memory_write`、`trace_close`。
-- **router**：由 `add_conditional_edges(...)` 使用的 deterministic、side-effect-free 函数，只返回下一 registered node key。Target canonical router set 包含：`route_after_safety`、`route_after_contextual_intent`、`route_after_slot_resolution`、`route_after_investigate`、`route_after_rag_context`、`route_after_recommendation`、`route_after_claim_verify`、`route_after_risk`、`route_after_approval`、`route_after_action_draft`。`investigate` node 内部允许 bounded tool loop；这是 node-internal 行为，不改变 router 的确定性和 side-effect-free 契约。
-- **legacy graph alias**：Phase 5 Intent Graph migration 完成前，当前实现名可作为 legacy alias 存在：`intent_classification -> contextual_intent_resolve`、`session_memory_load -> session_context_load`、`long_term_memory_retrieve -> memory_context_load`、`route_after_intent -> route_after_contextual_intent`、`route_after_slots -> route_after_slot_resolution`。legacy alias 不得引入不同语义；trace/replay/eval 可记录 legacy implementation name，但 contract/event projection 必须能映射到 target canonical name。
+- **registered LangGraph node**：通过 `StateGraph.add_node(...)` 注册、可独立产生 node lifecycle event 的执行单元。Current target runtime canonical node set 包含：`receive_request`、`safety_pre_route`、`session_context_load`、`contextual_intent_resolve`、`clarification_gate`、`slot_resolution_gate`、`memory_context_load`、`investigate`、`rag_context_build`、`recommendation_generation`、`claim_verify`、`risk_gate`、`approval_gate`、`action_draft`、`final_response`。
+- **router**：由 `add_conditional_edges(...)` 使用的 deterministic、side-effect-free 函数，只返回下一 registered node key。Current target runtime canonical router set 包含：`route_after_safety`、`route_after_contextual_intent`、`route_after_slot_resolution`、`route_after_investigate`、`route_after_rag_context`、`route_after_recommendation`、`route_after_claim_verify`、`route_after_risk`、`route_after_approval`。`investigate` node 内部允许 bounded tool loop；这是 node-internal 行为，不改变 router 的确定性和 side-effect-free 契约。
+- **node-internal capability / lifecycle concern**：`normalize_input`、slot candidate extraction、`memory_write`、`trace_close` 不属于当前目标主链 registered node set；它们分别是 `receive_request` / `contextual_intent_resolve` / `slot_resolution_gate` / RunLifecycleService 内部能力或 post-response lifecycle concern。`action_execution` 是 future external execution extension，不属于当前只到 `action_draft` 的 runtime graph。
+- **legacy graph alias**：Phase 5 Intent Graph migration 完成前，当前实现名可作为 legacy alias 存在：`intent_classification -> contextual_intent_resolve`、`session_memory_load -> session_context_load`、`extract_slots -> slot_resolution_gate`、`long_term_memory_retrieve -> memory_context_load`、`route_after_intent -> route_after_contextual_intent`、`route_after_slots -> route_after_slot_resolution`。legacy alias 不得引入不同语义；trace/replay/eval 可记录 legacy implementation name，但 contract/event projection 必须能映射到 target canonical name。
 - **bounded tool loop**：`investigate` registered node 内部的受控 tool 循环，由 LLM 在只读 allowlist 范围内决定下一次调查 tool / RAG call，并受 `max_iterations` 约束。该 loop 对外仍为 side-effect-free，不是 router，也不产生对外路由决策；loop 内每次 tool / RAG call 必须按 §17.2 发出独立 trace 事件。
 - **path label**：图和路由表中的分支语义标签，例如 `policy_qa_path`、`action_request_path`、`direct_response`；它不执行、不注册，也不产生 node lifecycle event。
 - **response mode**：`final_response.response_type` 的枚举值，用于选择安全模板或回复策略。`small_talk_response`、`unsupported_or_manual_review`、`business_fact_response`、`insufficient_evidence_response`、`direct_response` 均不是注册 node；它们只能作为 path label 或 response mode，并最终由 `final_response` 写出。
@@ -445,27 +446,22 @@ class BusinessContextV1(BaseModel):
 Target canonical node list：
 
 1. `receive_request`
-2. `normalize_input`
-3. `safety_pre_route`
-4. `session_context_load`
-5. `contextual_intent_resolve`
-6. `clarification_gate`
-7. `slot_extraction`
-8. `slot_resolution_gate`
-9. `memory_context_load`
-10. `investigate`（合并 business_context / policy candidate retrieval / case memory retrieval 三个概念子能力）
-11. `rag_context_build`
-12. `recommendation_generation`
-13. `claim_verify`
-14. `risk_gate`
-15. `approval_gate`
-16. `action_draft`
-17. `action_execution`
-18. `final_response`
-19. `memory_write`
-20. `trace_close`
+2. `safety_pre_route`
+3. `session_context_load`
+4. `contextual_intent_resolve`
+5. `clarification_gate`
+6. `slot_resolution_gate`
+7. `memory_context_load`
+8. `investigate`（合并 business_context / policy candidate retrieval / case memory retrieval 三个概念子能力）
+9. `rag_context_build`
+10. `recommendation_generation`
+11. `claim_verify`
+12. `risk_gate`
+13. `approval_gate`
+14. `action_draft`
+15. `final_response`
 
-这份 node list 是概念能力清单，不表示执行顺序；实际执行顺序由 conditional routing 和 state contract 决定。
+这份 node list 是当前目标 runtime 主链清单，不表示所有平台能力都必须注册成 graph node。`normalize_input` 是 `receive_request` 内部 normalization 能力；slot candidate extraction 是 `contextual_intent_resolve` / `slot_resolution_gate` 内部能力；`memory_write` 与 `trace_close` 是 post-response / lifecycle concern；`action_execution` 是 future external execution extension。实际执行顺序由 conditional routing 和 state contract 决定。
 
 ### 9.2 State transition
 
@@ -479,19 +475,18 @@ Phase 5 目标 runtime order 必须先做安全预路由，再加载同 thread s
 
 ```text
 receive_request
-  -> normalize_input
   -> safety_pre_route
   -> session_context_load
   -> contextual_intent_resolve
 ```
 
-`security_context` 表示 trusted context injection / API-auth boundary，不是默认注册 node。之后由 intent、confidence、slots、调查目标、是否需要业务事实、是否需要政策证据、是否需要案例记忆、是否产生 proposed action 共同决定后续路径。需要 slots 的路径必须经过 slot extraction 和 slot resolution gate：
+`security_context` 表示 trusted context injection / API-auth boundary，不是默认注册 node。`normalize_input` 是 `receive_request` 内部能力，不作为当前目标 runtime graph node。之后由 intent、confidence、slots、调查目标、是否需要业务事实、是否需要政策证据、是否需要案例记忆、是否产生 proposed action 共同决定后续路径。需要 slots 的路径必须经过 slot resolution gate：
 
 ```text
-contextual_intent_resolve -> slot_extraction -> slot_resolution_gate -> route_after_slot_resolution
+contextual_intent_resolve -> slot_resolution_gate -> route_after_slot_resolution
 ```
 
-`slot_resolution_gate` 是 registered node。它把当前 turn 显式 slots 与允许继承的 session context slots 合并，并应用 freshness、scope、intent compatibility 规则。Phase 5 迁移前，当前实现可以继续把该语义合并在 legacy `slot_extraction` + `route_after_slots` 中，但不得绕过本节规则。
+`slot_resolution_gate` 是 registered node。它消费 `contextual_intent_resolve` 产出的 current-turn candidate slots 与允许继承的 session context slots，并应用 freshness、scope、intent compatibility 规则。Phase 5 迁移前，当前实现可以继续把该语义合并在 legacy `extract_slots` + `route_after_slots` 中，但不得绕过本节规则；`extract_slots` 不得成为最终 target graph node。
 
 RAG 目标运行时拆为三段：
 
@@ -504,7 +499,7 @@ investigate bounded read loop
 
 `KnowledgeService.search` / `search_policy` / `search_sop` 属于 `investigate` 内部 read capability；`rag_context_build` 是 deterministic evidence validation/context projection node；`claim_verify` 是 post-generation material claim verifier。
 
-下图是 legacy compatibility diagram，用于解释当前实现如何映射到 target canonical contract；Phase 5 目标图以 target node/router table 为准。图没有单独画出 `appeal_or_unban` / `complaint_escalation` 分支；它们仍按 `primary_intent + requested_operation` 进入对应 domain route，并且任何需要 slots 的路径都必须先经过 `session_context_load` 与 slot resolution 语义。
+下图是 legacy compatibility diagram，用于解释当前实现如何映射到 target canonical contract；Phase 5 目标图以 target node/router table 为准。图中 `normalize_input`、legacy `extract_slots`、post-response `memory_write` / `trace_close` 和 future `action_execution` 只是 internal/future/lifecycle labels，不属于当前 target runtime registered node set。图没有单独画出 `appeal_or_unban` / `complaint_escalation` 分支；它们仍按 `primary_intent + requested_operation` 进入对应 domain route，并且任何需要 slots 的路径都必须先经过 `session_context_load` 与 slot resolution 语义。
 
 图中的 `policy investigation`、`business fact investigation`、`business + policy + case memory investigation`、`business + required policy evidence investigation` 是 intent-specific path label，均统一进入 registered `investigate` node；它们不是注册 node。`confidence ok?`、`intent router`、`slots complete after merge?`、`proposed action?`、`approval/action route`、`human response`、`execution mode` 是 router decision 的图示标签，不新增 canonical router。
 
@@ -515,7 +510,7 @@ investigate bounded read loop
 ```mermaid
 graph LR
     A[receive_request] --> B[security_context injection / API-auth boundary]
-    B --> C[normalize_input]
+    B --> C[normalize_input<br/>receive_request internal]
     C --> D[intent_classification]
     D --> E{confidence ok?}
     E -->|no| F[clarification_gate]
@@ -523,9 +518,9 @@ graph LR
 
     G -->|small_talk / unsupported| H[final_response: response_type=direct_response]
     G -->|policy_qa / policy investigation| I[investigate]
-    G -->|needs slots| S[session_memory_load]
-    S --> T[slot_extraction]
-    T --> U{slots complete after merge?}
+    G -->|needs slots| S[session_context_load]
+    S --> T[legacy extract_slots<br/>implementation detail]
+    T --> U{slot_resolution_gate semantics<br/>complete after merge?}
     U -->|no| F
     U -->|order_status_inquiry / business fact investigation| I
     U -->|refund / compensation / ticket draft / business + policy + case memory investigation| I
@@ -555,7 +550,7 @@ graph LR
 
     T2 --> V{execution mode}
     V -->|demo| P
-    V -->|external| W2[action_execution]
+    V -->|external future extension| W2[action_execution]
     W2 --> P
     H --> X[memory_write]
     N0 --> X
@@ -572,13 +567,13 @@ graph LR
 
 | Intent / condition | 目标路径 | 必须节点 | 可跳过节点 |
 | --- | --- | --- | --- |
-| `small_talk` | 直接回复 | `final_response`, `trace_close` | slots、investigation、risk、approval、action |
-| `unsupported` | 不支持说明或转人工 | `final_response`, `trace_close` | investigation、risk、approval、action |
+| `small_talk` | 直接回复 | `final_response` | slots、investigation、risk、approval、action；post-response lifecycle 可异步处理 trace/memory |
+| `unsupported` | 不支持说明或转人工 | `final_response` | investigation、risk、approval、action；post-response lifecycle 可异步处理 trace/memory |
 | `policy_qa` | 政策调查 + 引用回复 | `investigate`, `recommendation_generation`, `final_response` | business context、case memory、approval、action；无 proposed action 时可跳过 `risk_gate` |
-| `order_status_inquiry` | 读取订单/退款/工单事实并回复 | `session_context_load`, `slot_extraction`, `slot_resolution_gate`, `investigate`, `final_response` | policy evidence、case memory、risk、approval、action，除非用户追问规则或动作 |
+| `order_status_inquiry` | 读取订单/退款/工单事实并回复 | `session_context_load`, `slot_resolution_gate`, `investigate`, `final_response` | policy evidence、case memory、risk、approval、action，除非用户追问规则或动作 |
 | `refund_troubleshooting` | 事实 + 政策证据 + 建议 | slots、`investigate`（business context + policy evidence）、recommendation | approval/action 取决于是否有 proposed action；case memory 按需调查 |
 | `compensation_suggestion` | 事实 + 政策证据 + 风险判断 | slots、`investigate`（business context + policy evidence）、recommendation、risk | approval/action 取决于 risk 和 policy；case memory 按需调查 |
-| `ticket_reply_draft` | 事实 + 政策证据 + 回复草稿 | slots、`investigate`（business context + policy evidence）、recommendation | action execution，除非要关闭/升级工单；case memory 按需调查 |
+| `ticket_reply_draft` | 事实 + 政策证据 + 回复草稿 | slots、`investigate`（business context + policy evidence）、recommendation | current runtime 不执行 external action；case memory 按需调查 |
 | `appeal_or_unban` | 申诉/解封事实、商家风险、政策证据与建议 | slots、`investigate`（business/merchant risk context + policy evidence）、recommendation、risk/approval | 仅 `advise` 且无 proposed action 时可跳过 action；`draft_action` / `execute_action` 必须经过完整 action safety path |
 | `complaint_escalation` | 投诉/工单上下文、升级政策证据与建议/回复草稿 | slots、`investigate`（business/ticket context + escalation policy evidence）、recommendation 或 draft_reply | 仅回复草稿且无 escalation action 时可跳过 risk/approval；任何 escalation action 必须经过 risk/approval |
 | `action_request` | 强制证据 + 风险 + 审批/动作 | slots、`investigate`（business context + required policy evidence）、recommendation、risk | 不能跳过 `risk_gate` |
@@ -587,8 +582,7 @@ graph LR
 
 - `safety_pre_route -> session_context_load`：safe ordinary request 才进入 session context 加载；unsafe / unsupported / untrusted approval chat 必须先拒绝或澄清。
 - `session_context_load -> contextual_intent_resolve`：上下文化意图解析可以读取 same-thread `SessionContextMemory`，但不能读取 LongTerm/Case memory。
-- `contextual_intent_resolve -> slot_extraction`：当 intent 需要订单、退款、工单、金额或商家上下文时，必须进入 slot extraction。
-- `slot_extraction -> slot_resolution_gate`：slot extraction 只产出 current-turn candidate slots，不自行决定继承是否可信。
+- `contextual_intent_resolve -> slot_resolution_gate`：当 intent 需要订单、退款、工单、金额或商家上下文时，必须进入 slot resolution gate。`contextual_intent_resolve` 可产出 current-turn candidate slots，但不自行决定 slot 是否满足 required policy。
 - `slot_resolution_gate -> clarification_gate`：当 current slots + allowed session slots 后仍缺 required slots，或继承 slot 不满足 freshness/scope/intent compatibility。
 - `investigate -> route_after_investigate`：`investigate` 完成 bounded tool loop 或命中终止条件后，必须将累积的 business context、policy evidence、case memory、tool errors 和 retrieval status 交给单一 deterministic router。
 - `route_after_investigate -> final_response`：permission denied 仅阻断依赖被拒资源的回答，保留同一 `investigate` loop 已合法取得的其他事实；被拒资源不得出现在回复、不得经推断泄露，TrustedContext scope 检查保持（contract-spec.md:935-937）。当 intent 为 fact-only 且所需事实已取得时，使用 `business_fact_response`；当 retrieval error、`no_evidence` 或 best_score 低于阈值时，使用 `insufficient_evidence_response`。
@@ -603,9 +597,9 @@ graph LR
 - `approval_gate -> action_draft`：仅当 accept/approve 后 request status 为 `approved`、所有 required levels 均完成时可进入草稿，并且只授权审批记录绑定的精确 action payload hash。`next_level_pending` / request status `pending` 不得进入 `action_draft`。
 - `approval_gate -> approval_gate`：accept/approve 只完成当前 level、下一 required level 仍 pending 时，保持审批流程并为下一 level interrupt；也可由 lifecycle finalizer 以 `interrupted` 收束本次 invocation。
 - `approval_gate -> risk_gate`：edit 后必须写入 edited action revision，并重新校验 risk/policy/evidence binding，不能直接执行。
-- `approval_gate -> trace_close`：respond 表示审批人要求补充信息；ApprovalService 写入 `needs_info`、`clarification_request_id` 和可展示的 clarification message 后，原 interrupted run 由 lifecycle finalizer 保持 `interrupted`，不进入普通 `clarification_gate -> final_response -> memory_write` completed path。
+- `approval_gate -> lifecycle finalizer`：respond 表示审批人要求补充信息；ApprovalService 写入 `needs_info`、`clarification_request_id` 和可展示的 clarification message 后，原 interrupted run 由 lifecycle finalizer 保持 `interrupted`，不进入普通 `clarification_gate -> final_response` completed path。
 - `approval_gate -> final_response`：reject/cancelled/expired。
-- `action_draft -> action_execution`：仅 external mode 且 adapter 允许执行时进入；demo mode 创建 durable draft 后直接进入 final_response。
+- `action_draft -> final_response`：当前 runtime 到 durable draft 为止，不执行真实外部副作用；future external execution extension 才可在 adapter 允许时进入 `action_execution`。
 
 #### Evidence sufficiency decision table
 
@@ -631,14 +625,12 @@ Phase 0 target graph delta 将目标节点定义为“contract nodes”。MVP / 
 
 | Node | Required inputs | State writes | Service / LLM | Side effects | Error / fallback | Next router |
 | --- | --- | --- | --- | --- | --- | --- |
-| `receive_request` | `user_query`, trusted config: tenant/user/role/thread/run | reset ephemeral fields, initialize target `run_id`, `trace_steps` | Run context helper | create in-memory run context only | invalid input -> error response | fixed -> `normalize_input` |
-| `normalize_input` | `user_query` | `normalized_query`, `locale`, optional parse hints | deterministic helper | none | fallback to raw query | fixed -> `safety_pre_route` |
+| `receive_request` | `user_query`, trusted config: tenant/user/role/thread/run | reset ephemeral fields, initialize target `run_id`, `trace_steps`, `normalized_query`, locale/parse hints when available | Run context + normalization helpers | create in-memory run context only | invalid input -> error response | fixed -> `safety_pre_route` |
 | `safety_pre_route` | `normalized_query`, trusted context, channel/UI context if available | `pre_route_decision`, `safety_flags`, safe refusal/clarification hints | deterministic policy first; optional small classifier only for unsupported/safety classification | none | malformed/unsafe -> safe final or clarification | `route_after_safety` |
 | `session_context_load` | tenant/user/thread, normalized query, safety pre-route decision | `session_context`, legacy-compatible `session_memory`, inheritable `active_slots` view | MemoryContextService session context read | none | unavailable -> continue with empty session context and event | fixed -> `contextual_intent_resolve` |
-| `contextual_intent_resolve` | `normalized_query`, trusted context, `session_context` | `primary_intent`, `requested_operation`, `intent_confidence`, `secondary_intents`, `required_slots: RequiredSlotExpression`, `routing_hints`, `candidate_slots`; calibrated confidence only to eval metadata / `llm_outputs` | LLM structured output + deterministic IntentPolicyEngine | none | low confidence -> clarification | `route_after_contextual_intent` |
+| `contextual_intent_resolve` | `normalized_query`, trusted context, `session_context` | `primary_intent`, `requested_operation`, `intent_confidence`, `secondary_intents`, `required_slots: RequiredSlotExpression`, `routing_hints`, current-turn `candidate_slots`; calibrated confidence only to eval metadata / `llm_outputs` | LLM structured output + deterministic IntentPolicyEngine；slot candidate extraction is internal candidate output only | none | low confidence -> clarification | `route_after_contextual_intent` |
 | `clarification_gate` | ordinary chat `missing_info` or low confidence reason | `clarification_request`, `final_response` candidate | deterministic template or small LLM | none | fallback generic clarification | fixed -> `final_response`；不处理 approval `respond` lifecycle |
-| `slot_extraction` | `normalized_query`, `session_context`, `required_slots` | `candidate_slots`, `extracted_slots` | LLM structured output + schema validation | none | validation failure -> empty current slots, route may clarify | fixed -> `slot_resolution_gate` |
-| `slot_resolution_gate` | `required_slots`, `extracted_slots`, `session_context.active_slots` | resolved `active_slots`, `missing_info`, slot source/freshness/incompatibility reason | deterministic SlotPolicyRegistry | none | missing/stale/incompatible -> clarification | `route_after_slot_resolution` |
+| `slot_resolution_gate` | `required_slots`, current-turn `candidate_slots`, `session_context.active_slots` | resolved `active_slots`, optional legacy-compatible `extracted_slots`, `missing_info`, slot source/freshness/incompatibility reason | deterministic SlotPolicyRegistry + schema/format validation | none | missing/stale/incompatible -> clarification | `route_after_slot_resolution` |
 | `memory_context_load` | tenant/user/merchant scope, resolved intent/slots, trusted case identity candidates | `memory_context_bundle`, `long_term_memory`, `case_memory`, `case_working_context`, `case_working_context_lifecycle_status` as contextual-only run state | MemoryContextService post-slot retrieval + CaseWorkingContextLifecycleAdapter active read before `investigate` consumes memory | may create/dedupe `thread_case_links` with `link_source="run_auto"` when canonical case identity resolves | unavailable -> continue without long-term/case memory/CWC and event; missing or unresolved case -> explicit CWC skipped status | fixed -> `investigate` |
 | `investigate` | resolved slots, query, intent, tenant/trusted tool context | `business_context`, `policy_evidence` / `retrieved_evidence`, `case_memory`, `tool_results`, `last_business_context_refs`, `retrieval_status`, `best_score`, `termination_reason`, `claim_dependency_map` | ToolPlatform read/retrieval dispatch + LLM 决策 next tool；platform executors delegate to BusinessToolService / KnowledgeService / future MemoryService；bounded tool loop with `max_iterations` | read-only DB/API/vector/memory calls（无写） | not_found/permission/timeout -> fallback/clarification；no evidence -> insufficient evidence response | `route_after_investigate` |
 | `rag_context_build` | `policy_evidence` / candidate refs, `retrieved_evidence`, intent, risk/evidence policy, `KnowledgeContext` | `rag_context_status`, `verified_evidence_package`, `citation_map`, `evidence_map`, rejected/stale/conflict refs | deterministic KnowledgeService validation/context projection | none | invalid/no evidence/conflict -> fail-closed or manual review route | `route_after_rag_context` |
@@ -646,11 +638,8 @@ Phase 0 target graph delta 将目标节点定义为“contract nodes”。MVP / 
 | `claim_verify` | `material_claims`, `verified_evidence_package`, `business_context`, `proposed_action` | `claim_verification_bundle`, `blocked_claims`, `safe_support_refs` | rules-first ClaimVerifier; LLM semantic review only for ambiguous low-risk support | none | verifier timeout/malformed/high-risk unsupported -> fail-closed | `route_after_claim_verify` |
 | `risk_gate` | proposed_action, evidence refs, business context | `risk_assessment`, `approval_plan`, `safety_snapshot_ref`, `safety_snapshot_hash` | RiskPolicy + ApprovalPolicy | none | policy evaluation failure -> manual review / approval required；snapshot 构建失败（evidence 缺失 / hash 无法计算 / policy/risk/retrieval config version 缺失）-> manual review | `route_after_risk` |
 | `approval_gate` | approval_plan, exact action payload, `ActionSafetySnapshot` | `approval_result`, approval revision refs | ApprovalService + LangGraph interrupt | creates approval records; interrupts graph | expired/rejected/cancelled -> final response；respond -> interrupted lifecycle finalizer | `route_after_approval` |
-| `action_draft` | approved or auto-allowed proposed action, matching `ActionSafetySnapshot` | `action_draft`; demo mode also writes `draft_outcome={status:not_executed_demo, external_side_effect:false}` | ActionDraftService / ActionExecutor.prepare | writes durable draft; never writes external execution record | conflict/invalid hash -> final error/manual review | `route_after_action_draft` |
-| `action_execution` | action_draft, execution_mode=external, adapter allowlist | `action_result`, compensation metadata | ActionExecutor.execute | external write side effect only in external mode | unknown/timeout -> reconciling/manual review | fixed -> `final_response` |
-| `final_response` | current state, recommendation/action/approval results | `final_response` | deterministic template first; optional final prompt | none | fallback safe error response | fixed -> `memory_write` |
-| `memory_write` | final state, outcome, memory candidates | `memory_write_result`, session summary | MemoryService write policy | writes session memory; may enqueue long-term/case candidates | write failure logged; does not block user response | fixed -> lifecycle finalizer |
-| `trace_close` | run status, trace events | persisted run/step/timeline refs | Observability service | writes audit trace on normal path | API/lifecycle finalizer must cover skipped cases | graph invocation terminal；run status may remain `interrupted` |
+| `action_draft` | approved or auto-allowed proposed action, matching `ActionSafetySnapshot` | `action_draft`; demo mode also writes `draft_outcome={status:not_executed_demo, external_side_effect:false}` | ActionDraftService / ActionExecutor.prepare | writes durable draft; never writes external execution record in current runtime | conflict/invalid hash -> final error/manual review | fixed -> `final_response` |
+| `final_response` | current state, recommendation/action/approval results | `final_response` | deterministic template first; optional final prompt | none | fallback safe error response | graph terminal；post-response memory/trace lifecycle may run outside main graph |
 
 `investigate` bounded-loop 契约：
 
@@ -658,7 +647,7 @@ Phase 0 target graph delta 将目标节点定义为“contract nodes”。MVP / 
 2. 合法 `stop_reason` / state `termination_reason` 只有 `enough_evidence | no_more_useful_tools | max_iterations_reached | unrecoverable_error`。planner 主动停止或资源上限/不可恢复错误强制停止时，必须把对应值写入 state 的 `termination_reason`。
 3. loop 必须同时执行三重资源上限：全局 `max_iterations`、复用 §12.5 `ToolCallContext.deadline_at` 的总 deadline、以 §12.5 `ToolCallContext.max_attempts` 为每工具 retry 上限；`attempt` 达到 `max_attempts` 即终止该工具重试，任一资源上限命中即终止 loop。达到 `max_iterations` 时 lifecycle status 仍为 `completed`，但必须在 state / `redacted_payload` 写独立 `termination_reason=max_iterations_reached`。`retrieval_status` 仍只表达 `strong_evidence | partial_evidence | no_evidence | error`，并按真实累积证据计算，不因截断强标 insufficient。
 4. loop 内仅允许调用 §12.4 为 `investigate` 定义的只读 allowlist；每次 tool / RAG call 必须按 §17.2 发出独立 trace 事件。
-5. loop 不得触发任何写动作，不得调用 write tool，不得绕过 `risk_gate`、`approval_gate`、`action_draft` 或 `action_execution`。Write tool 不由 LLM 直接调用；需要 approval 时不可绕过人审，但低风险且 action policy 允许时，仍可由 deterministic `risk_gate -> action_draft` 走 auto-allowed 路径。
+5. loop 不得触发任何写动作，不得调用 write tool，不得绕过 `risk_gate`、`approval_gate` 或 `action_draft`。Write tool 不由 LLM 直接调用；需要 approval 时不可绕过人审，但低风险且 action policy 允许时，仍可由 deterministic `risk_gate -> action_draft` 走 auto-allowed 路径。Future `action_execution` extension 若启用，也必须在 `action_draft` 后由 deterministic execution boundary 触发，不能由 planner LLM 调用。
 6. `investigate` 对外仅提交累积 state 和终止状态给 `route_after_investigate`；它不得产生对外路由决策，且不得改变 router 的 deterministic、side-effect-free 契约。
 7. `evidence_refs` 仍由 `recommendation_generation` / citation validator 写入；`investigate` 不得写 `evidence_refs`，避免未经 citation validation 的引用进入 `risk_gate` / snapshot builder。
 8. `business_context` / `policy_evidence` / `case_memory` 是 `investigate` 的产出，按 intent 与调查计划条件性获取；`policy_qa` 等 policy-only 入口不要求先有 business context。
@@ -670,15 +659,14 @@ Router functions are deterministic and side-effect free. They must return a vali
 | Router | Reads | Decision precedence | Possible routes | Invalid state behavior |
 | --- | --- | --- | --- | --- |
 | `route_after_safety` | `pre_route_decision`, `safety_flags`, trusted context | direct refusal -> final; unsupported/needs clarification -> clarification; safe -> session context | `final_response`, `clarification_gate`, `session_context_load` | route to safe final response |
-| `route_after_contextual_intent` | ordinary-chat `primary_intent`, `requested_operation`, `intent_confidence`, `required_slots`, `routing_hints` | low confidence -> clarification; small_talk/unsupported/direct response -> final; slots required -> slot extraction; no slots -> memory context / investigate path | `clarification_gate`, `final_response`, `slot_extraction`, `memory_context_load`, `investigate` | route to `clarification_gate`；任何 `approval_decision` 值均视为 untrusted invalid state |
-| `route_after_slot_resolution` | `required_slots: RequiredSlotExpression`, `extracted_slots`, `session_context.active_slots`, slot source/freshness/incompatibility reason | explicit current slots first; inherit session slots only if fresh/scope-compatible; every `all_of` member and at least one member of each `any_of` group must be present | `clarification_gate`, `memory_context_load`, `investigate` | route to `clarification_gate` |
+| `route_after_contextual_intent` | ordinary-chat `primary_intent`, `requested_operation`, `intent_confidence`, `required_slots`, `routing_hints` | low confidence -> clarification; small_talk/unsupported/direct response -> final; slots required -> slot resolution; no slots -> memory context / investigate path | `clarification_gate`, `final_response`, `slot_resolution_gate`, `memory_context_load`, `investigate` | route to `clarification_gate`；任何 `approval_decision` 值均视为 untrusted invalid state |
+| `route_after_slot_resolution` | `required_slots: RequiredSlotExpression`, current-turn `candidate_slots`, `session_context.active_slots`, slot source/freshness/incompatibility reason | explicit current slots first; inherit session slots only if fresh/scope-compatible; every `all_of` member and at least one member of each `any_of` group must be present | `clarification_gate`, `memory_context_load`, `investigate` | route to `clarification_gate` |
 | `route_after_investigate` | `business_context`, `policy_evidence`, `case_memory`, tool errors, `retrieval_status`, `termination_reason`, `best_score`, `claim_dependency_map`, intent, evidence policy | permission denied -> 依据 `claim_dependency_map` 仅阻断依赖被拒资源的回答，保留同一 `investigate` loop 已合法取得的其他事实；missing required facts -> `clarification_gate`；fact-only/no-policy-required context -> `recommendation_generation` or final business fact response；policy evidence required -> `rag_context_build`；retrieval hard error with no candidates -> final insufficient | `final_response`, `clarification_gate`, `rag_context_build`, `recommendation_generation` | safe final response；证据不足/检索失败时落 insufficient_evidence_response 或 `rag_context_build` fail-closed，不得直接进入 action path |
 | `route_after_rag_context` | `rag_context_status`, `verified_evidence_package`, rejected/stale/conflict refs, intent/risk/evidence policy | `verified`/`not_required` -> recommendation; `partial` low-risk -> conservative recommendation; `partial` action-bound -> manual/final; `no_evidence`/`invalid_scope`/`invalid_hash`/`conflict` high-risk -> fail-closed final | `recommendation_generation`, `clarification_gate`, `final_response` | final insufficient/fail-closed response |
 | `route_after_recommendation` | `material_claims`, `proposed_action`, `risk_signals`, `missing_info` | missing required evidence -> final; material claims/proposed action -> claim_verify; no claims and no action -> final | `claim_verify`, `final_response` | final safe response |
 | `route_after_claim_verify` | `claim_verification_bundle`, `blocked_claims`, `proposed_action`, `risk_signals` | blocked unsupported user-visible/action claim -> final/manual review; verified/no material claims + proposed action/risk signal -> risk; verified answer-only -> final | `risk_gate`, `final_response` | final safe response; high-risk verifier error is fail-closed |
 | `route_after_risk` | `risk_assessment`, `approval_plan`, action policy | blocked -> final; approval required -> approval; auto allowed -> draft | `final_response`, `approval_gate`, `action_draft` | approval required/manual review |
-| `route_after_approval` | trusted `approval_result.type`, approval request status, next-level status, revision | accept/approve + request `approved` -> draft；accept/approve + next level pending / request `pending` -> approval gate or interrupted lifecycle finalizer；edit -> risk；respond/needs_info -> lifecycle finalizer；reject/ignore/expired/cancelled -> final | `action_draft`, `approval_gate`, `risk_gate`, `trace_close`, `final_response` | final safe response without action |
-| `route_after_action_draft` | `execution_mode`, adapter allowlist, draft status | demo -> final; external allowed -> execution; draft failed -> final | `final_response`, `action_execution` | final safe response |
+| `route_after_approval` | trusted `approval_result.type`, approval request status, next-level status, revision | accept/approve + request `approved` -> draft；accept/approve + next level pending / request `pending` -> approval gate or interrupted lifecycle finalizer；edit -> risk；respond/needs_info -> lifecycle finalizer；reject/ignore/expired/cancelled -> final | `action_draft`, `approval_gate`, `risk_gate`, `final_response` | final safe response without action |
 
 
 ### 9.6 Interrupt / resume
@@ -860,16 +848,16 @@ AgentState 字段必须按生命周期分层。身份和权限上下文来自 AP
 | Identity context | `tenant_id`, `user_id`, `role`, `session_id`, `thread_id`, `run_id`, `trace_id` | request/run/thread | API auth + run service | API/receive_request | never overwritten by LLM; new run gets new `run_id` | replace from trusted config only | run metadata / checkpoint |
 | Raw input | `user_query`, `normalized_query`, `locale` | turn | user request + normalizer | receive/normalize | reset each turn | replace | AgentRun input |
 | Intent state | `primary_intent`, `requested_operation`, `intent_confidence`, `secondary_intents`, `routing_hints`, `required_slots`, `candidate_slots` | turn | intent node | contextual_intent_resolve | reset each turn | replace；`candidate_slots` 仅供 slot node 提示 | AgentStep / optional eval record |
-| Slots | `extracted_slots`, `active_slots` | current turn + session | slot node + session memory | slot_extraction / MemoryService | `extracted_slots` reset each turn; `active_slots` may persist in session | explicit current slots override inherited slots; stale/incompatible slots dropped | session memory/checkpoint |
+| Slots | `candidate_slots`, `extracted_slots`, `active_slots` | current turn + session | intent/slot gate + session memory | contextual_intent_resolve / slot_resolution_gate / MemoryService | `candidate_slots` and legacy-compatible `extracted_slots` reset each turn; `active_slots` may persist in session | explicit current slots override inherited slots; stale/incompatible slots dropped | session memory/checkpoint |
 | Business context | `business_context`, `last_business_context_refs` | turn + session refs | BusinessToolService | investigate | full context reset each turn; refs may persist | replace context; merge refs by type/id | AgentStep / session refs |
 | Evidence context | `policy_evidence`, `retrieved_evidence`, `evidence_refs`, `retrieval_status`, `best_score`, `rag_context_status`, `verified_evidence_package`, `citation_map`, `evidence_map` | turn + audit | KnowledgeService | investigate / rag_context_build / recommendation_generation | retrieval result and verified package reset each turn; audit refs persist per run; `best_score` is eval/routing-only and never snapshot-hashed | merge/dedupe refs by `evidence_id`（`evidence_id = {doc_key}/{chunk_id}@{policy_version}`，policy_version 变化即视为不同 identity）; replace retrieval status/score/package | AgentStep evidence refs / eval / replay |
 | Claim verification | `material_claims`, `claim_verification_bundle`, `blocked_claims`, `safe_support_refs` | turn + audit | recommendation_generation / ClaimVerifier | recommendation_generation / claim_verify | reset each turn; high-risk verifier error fail-closed | replace by verified bundle; blocked claims cannot be merged away by LLM | AgentStep / replay / approval snapshot refs |
 | Memory context | `session_context`, `session_memory`, `memory_context_bundle`, `long_term_memory`, `case_memory`, `case_working_context`, `case_working_context_lifecycle_status` | turn read context | MemoryService / CaseWorkingContextLifecycleAdapter | session_context_load / memory_context_load | reset loaded context each turn | replace loaded context; memory store owns persistence | memory tables |
 | Recommendation | `recommendation`, `proposed_action`, `missing_info` | turn | recommendation node | recommendation_generation | reset each turn | replace | AgentStep / approval snapshot |
 | Risk / approval | `risk_assessment`, `risk_signals`, `approval_plan`, `approval_result`, `approval_revision_refs`, `safety_snapshot_ref`, `safety_snapshot_hash` | run/revision | RiskPolicy / ApprovalService | risk_gate / approval_gate | reset each new turn unless resuming same interrupted run | replace by revision; stale revision invalid | approval/snapshot tables |
-| Action | `action_draft`, `draft_outcome`, `action_result`, `compensation_metadata`, `execution_mode` | run/revision | Action service + trusted config | action_draft / action_execution | reset each new run; never inherited across unrelated turns | demo canonical output is `draft_outcome`; any temporary `action_result` compatibility output must be draft-only/not-executed and cannot mean external success；external execution writes `action_result`；idempotency handles duplicates | action tables |
+| Action | `action_draft`, `draft_outcome`, `action_result`, `compensation_metadata`, `execution_mode` | run/revision | Action service + trusted config | action_draft / future action_execution extension | reset each new run; never inherited across unrelated turns | current runtime stops at durable draft; demo canonical output is `draft_outcome`; any temporary `action_result` compatibility output must be draft-only/not-executed and cannot mean external success；future external execution writes `action_result`；idempotency handles duplicates | action tables |
 | Response | `final_response`, `clarification_request` | turn/run | final/clarification nodes | final_response / clarification_gate | reset each turn | replace | AgentRun final response |
-| Memory write | `memory_write_candidates`, `memory_write_result` | run | memory_write node / MemoryService | memory_write | reset each new run | candidates replace; result replace | memory write events |
+| Memory write | `memory_write_candidates`, `memory_write_result` | run | post-response lifecycle / MemoryService | memory_write lifecycle concern | reset each new run | candidates replace; result replace | memory write events |
 | Observability | `tool_results`, `llm_outputs`, `node_errors`, `trace_steps`, `run_status` | run | nodes/services | all nodes via trace helper / RunLifecycleService | reset at run start; interrupted run persists snapshot | append-only with sequence numbers；run status uses CAS | AgentStep / trace events / AgentRun |
 
 #### AgentState canonical field registry
@@ -882,25 +870,25 @@ AgentState 字段必须按生命周期分层。身份和权限上下文来自 AP
 | `session_id` | string or null | trusted API/session/run config | all nodes/services; routers needing scope | trusted replace only; never LLM-merged; background/no-session case may remain null | AgentRun / checkpoint |
 | `run_id` | string | RunService / receive_request | all nodes/services, API, replay | new run trusted replace only | AgentRun / trace events |
 | `trace_id` | string or null | RunService / receive_request / finalizer | all nodes/services, API, replay | new run trusted replace only; background finalizer may leave null | AgentRun / trace events |
-| `user_query` | string | receive_request | normalize_input, contextual_intent_resolve, slot_extraction | reset each turn; replace | AgentRun input |
-| `normalized_query`, `locale` | string or null | normalize_input / trusted request locale | intent, slots, retrieval, recommendation, response | reset each turn; replace | AgentRun / AgentStep |
+| `user_query` | string | receive_request | receive_request normalization, contextual_intent_resolve | reset each turn; replace | AgentRun input |
+| `normalized_query`, `locale` | string or null | receive_request normalization / trusted request locale | intent, slots, retrieval, recommendation, response | reset each turn; replace | AgentRun / AgentStep |
 | `primary_intent`, `requested_operation` | string or null | contextual_intent_resolve adapter | intent/slot/business/evidence/recommendation routers and nodes | reset each turn; replace | AgentStep / eval |
 | `intent_confidence` | float or null | contextual_intent_resolve adapter | `route_after_contextual_intent`, eval | reset each turn; replace | AgentStep / eval |
 | `secondary_intents` | `list[str]` | contextual_intent_resolve adapter | recommendation, routing, eval | reset each turn; replace | AgentStep / eval |
 | `routing_hints` | `dict[str, Any]` | contextual_intent_resolve adapter | routers, slot/business/evidence nodes | reset each turn; validated replace | AgentStep |
-| `required_slots` | `RequiredSlotExpression` | contextual_intent_resolve adapter | slot_extraction, `route_after_slot_resolution`, clarification | reset each turn; replace | AgentStep |
-| `candidate_slots`, `extracted_slots` | `dict[str, Any]` | contextual_intent_resolve adapter / slot_extraction | slot_extraction, `route_after_slot_resolution`, memory_write | reset each turn; validated replace | AgentStep |
-| `active_slots` | `dict[str, Any]` | slot_extraction / MemoryService | slot/business/evidence/recommendation nodes and routers | current explicit slots override compatible session slots | session memory / checkpoint |
+| `required_slots` | `RequiredSlotExpression` | contextual_intent_resolve adapter | slot_resolution_gate, `route_after_slot_resolution`, clarification | reset each turn; replace | AgentStep |
+| `candidate_slots`, `extracted_slots` | `dict[str, Any]` | contextual_intent_resolve adapter / slot_resolution_gate compatibility adapter | `route_after_slot_resolution`, post-response memory lifecycle | reset each turn; validated replace | AgentStep |
+| `active_slots` | `dict[str, Any]` | slot_resolution_gate / MemoryService | slot/business/evidence/recommendation nodes and routers | current explicit slots override compatible session slots | session memory / checkpoint |
 | `clarification_request` | dict or null | clarification_gate / ApprovalService respond adapter | final/clarification delivery, replay | reset each turn; replace; preserve for same interrupted run | AgentRun / approval event |
 | `missing_info` | `list[MissingInfo]` | recommendation / clarification adapter | `route_after_recommendation`, clarification | reset each turn; replace by validated groups | checkpoint / AgentStep |
-| `session_context`, `session_memory` | `dict[str, Any]` | session_context_load / MemoryService | contextual_intent_resolve, slot_extraction, recommendation, memory_write | reset loaded view each turn; replace; `session_memory` is legacy-compatible projection | session memory table |
+| `session_context`, `session_memory` | `dict[str, Any]` | session_context_load / MemoryService | contextual_intent_resolve, slot_resolution_gate, recommendation, post-response memory lifecycle | reset loaded view each turn; replace; `session_memory` is legacy-compatible projection | session memory table |
 | `memory_context_bundle`, `long_term_memory`, `case_memory` | dict/list | memory_context_load / MemoryService | recommendation_generation, investigate planning | reset loaded view each turn; replace | memory tables / AgentStep refs |
 | `case_working_context`, `case_working_context_lifecycle_status` | dict or null | memory_context_load / CaseWorkingContextLifecycleAdapter | recommendation_generation, investigate planning, terminal finalizer diagnostics | contextual-only loaded view; reset loaded view each turn; replace | memory tables / AgentStep refs |
 | `business_context` | `dict[str, Any]` | investigate / BusinessToolService | `route_after_investigate`, evidence, recommendation, risk | reset each turn; replace | AgentStep |
 | `last_business_context_refs` | `list[dict[str, Any]]` | investigate / MemoryService | session_context_load, replay | merge by trusted type/id; may persist across same session | session memory / checkpoint |
 | `policy_evidence` | `list[dict[str, Any]]` | investigate / KnowledgeService | recommendation_generation, citation validator | reset each turn; replace raw/structured retrieval payload | AgentStep / replay |
 | `retrieved_evidence` | `list[EvidenceRefV1]` | KnowledgeService adapter | recommendation, risk, snapshot builder | reset each turn; canonical sort/replace; may retain score outside hash | AgentStep / eval |
-| `evidence_refs` | `list[EvidenceRefV1]` | recommendation_generation / citation validator | final_response, memory_write, replay, snapshot builder | merge/dedupe by `evidence_id`; score removed by hash projection | AgentStep evidence refs / checkpoint |
+| `evidence_refs` | `list[EvidenceRefV1]` | recommendation_generation / citation validator | final_response, post-response memory lifecycle, replay, snapshot builder | merge/dedupe by `evidence_id`; score removed by hash projection | AgentStep evidence refs / checkpoint |
 | `retrieval_status` | enum or null | investigate | `route_after_investigate` | reset each turn; replace；只表达 `strong_evidence | partial_evidence | no_evidence | error`，与 `termination_reason` 分离 | AgentStep / replay |
 | `termination_reason` | null or `enough_evidence \| no_more_useful_tools \| max_iterations_reached \| unrecoverable_error` | investigate | `route_after_investigate` | reset each turn; replace；撞 `max_iterations` 时写 `max_iterations_reached` | AgentStep / replay |
 | `best_score` | float or null | investigate | `route_after_investigate`, eval | reset each turn; replace; never snapshot-hashed | AgentStep / eval |
@@ -916,14 +904,14 @@ AgentState 字段必须按生命周期分层。身份和权限上下文来自 AP
 | `approval_result` | dict or null | trusted ApprovalService resume adapter | `route_after_approval`, action guard, response | preserve only on same interrupted run; replace by revision | approval tables / checkpoint |
 | `approval_revision_refs` | list of trusted revision refs | ApprovalService | `route_after_approval`, action guard, replay | append revision; never inherit to unrelated run | approval tables / checkpoint |
 | `safety_snapshot_ref`, `safety_snapshot_hash` | string or null | risk_gate (snapshot builder) / ApprovalService | risk, approval, draft, execution guard | immutable per revision; replace only with new validated revision | snapshot/approval/action tables |
-| `action_draft`, `draft_outcome`, `action_result`, `compensation_metadata` | dict or null | ActionDraftService / ActionExecutor | `route_after_action_draft`, response, replay | reset each new run; replace by idempotent service result | action tables / AgentRun |
-| `execution_mode` | `demo \| external` or null | trusted config / ActionDraftService | `route_after_action_draft`, executor | new run trusted replace only | AgentRun / action draft |
-| `final_response` | dict or null | final_response | API, memory_write, trace_close | reset each turn; replace | AgentRun final response |
+| `action_draft`, `draft_outcome`, `action_result`, `compensation_metadata` | dict or null | ActionDraftService / future ActionExecutor | response, replay, future execution boundary | reset each new run; replace by idempotent service result | action tables / AgentRun |
+| `execution_mode` | `demo \| external` or null | trusted config / ActionDraftService | future execution boundary | new run trusted replace only | AgentRun / action draft |
+| `final_response` | dict or null | final_response | API, post-response memory/trace lifecycle | reset each turn; replace | AgentRun final response |
 | `memory_write_candidates` | `list[dict[str, Any]]` | memory_write candidate adapter | MemoryService | reset each run; validated replace | memory write events |
-| `memory_write_result` | dict or null | MemoryService | trace_close, replay | reset each run; replace | memory write events / AgentStep |
-| `tool_results` | `list[dict[str, Any]]` | tool service adapters | downstream nodes, trace_close, replay | reset run; append by operation id | AgentStep / trace events |
+| `memory_write_result` | dict or null | MemoryService | post-response trace lifecycle, replay | reset each run; replace | memory write events / AgentStep |
+| `tool_results` | `list[dict[str, Any]]` | tool service adapters | downstream nodes, post-response trace lifecycle, replay | reset run; append by operation id | AgentStep / trace events |
 | `llm_outputs` | `dict[str, Any]` | LLM adapters | downstream validated adapters, replay | reset run; merge by node/operation id | AgentStep / redacted trace |
-| `node_errors`, `trace_steps` | `list[dict[str, Any]]` | all nodes via trace helper | routers only where specified, trace_close, replay | reset run; append-only with sequence | AgentStep / trace events |
+| `node_errors`, `trace_steps` | `list[dict[str, Any]]` | all nodes via trace helper | routers only where specified, post-response trace lifecycle, replay | reset run; append-only with sequence | AgentStep / trace events |
 | `run_status` | run lifecycle enum | RunLifecycleService / finalizer | routers, API, replay | CAS lifecycle transition; same run only | AgentRun / replay event |
 
 `policy_evidence`、`retrieved_evidence` 和 `evidence_refs` 不得作为同义字段分叉：`policy_evidence` 是 KnowledgeService 的完整 retrieval/citation payload，允许包含 query-level metadata；`retrieved_evidence` 是该 payload 经 adapter 规范化后的本轮 canonical `EvidenceRefV1[]`，允许保留 retrieval/eval-only `score`；`evidence_refs` 是 recommendation/response/action 实际消费并通过 citation validation 的引用子集。Snapshot builder 只能从已验证的 `evidence_refs` 构建 evidence，并按第 8.3 节剔除 `score`、保留可选 `rank` 后参与 hash。
@@ -965,9 +953,9 @@ If any required slot remains missing after `resolve_slots`, route to `clarificat
 | `confidence` | `intent_confidence` | 保存 model-reported confidence；不得被 calibrated value 覆盖。 |
 | `calibrated_confidence` | `llm_outputs.contextual_intent_resolve.eval_metadata.calibrated_confidence` | 可为空；同时记录 classifier/calibration version。它用于 eval/calibrated routing evidence，不覆盖 `intent_confidence`。Legacy implementation may additionally mirror to `llm_outputs.intent_classification` until Phase 5 migration. |
 | `secondary_intents` / `required_slots` / `routing_hints` | 同名字段 | schema validation 后 replace。 |
-| `candidate_slots` | `candidate_slots` | 仅作为 `slot_extraction` hint；不参与 required-slot completeness，不得写入或覆盖 `extracted_slots` / `active_slots`。 |
+| `candidate_slots` | `candidate_slots` | 仅作为 `slot_resolution_gate` 的 current-turn candidate 输入；不参与 required-slot completeness，不得直接覆盖 `active_slots`。 |
 
-Intent node 不写最终 `extracted_slots` 或 `active_slots`。只有 `slot_extraction` 与 `resolve_slots` 可以写这两个字段；即使 candidate 与 slot node 输出冲突，也以当前显式 slot node 输出及合法 session inheritance 为准。
+Intent node 不写最终 `active_slots`。只有 `slot_resolution_gate` 与 legacy-compatible `resolve_slots` adapter 可以写最终 resolved slot fields；即使 candidate 与 slot gate 输出冲突，也以当前显式 slot gate 输出及合法 session inheritance 为准。
 
 
 ---
@@ -1042,7 +1030,7 @@ Multi-intent handling：
 | `unsupported` | `{"all_of":[],"any_of":[],"optional":[]}` | (none) | n/a |
 Approval command required fields 不属于 intent slots；`ApprovalDecisionCommand` 必须由 trusted endpoint 校验 `approval_id`、`decision_type`、`expected_request_version`、`expected_level_version`、`expected_assignment_version`，以及 decision-specific `response_text` 或 `edited_action`。
 
-Slot completeness is evaluated in `slot_resolution_gate` after `session_context_load` and `slot_extraction`. Inherited slots must record source, age, and compatibility; current explicit slots override inherited slots.
+Slot completeness is evaluated in `slot_resolution_gate` after `session_context_load` and `contextual_intent_resolve` produce session continuity and current-turn candidate slots. Inherited slots must record source, age, and compatibility; current explicit slots override inherited slots.
 
 ### 11.4 Confidence threshold and calibration
 
@@ -1132,7 +1120,7 @@ Gate status precedence 固定且逐 class 应用：1) coverage manifest missing/
 }
 ```
 
-约束：intent node 不生成最终答案，不决定审批，不执行工具，也不写最终 `extracted_slots` / `active_slots`。`candidate_slots` 只作为后续 `slot_extraction` 的 hint，不参与 completeness，不能覆盖 slot node 输出。`risk_signals` 不由 intent node 写，由 deterministic risk helpers / recommendation 产出。
+约束：intent node 不生成最终答案，不决定审批，不执行工具，也不写最终 `active_slots`。`candidate_slots` 只作为后续 `slot_resolution_gate` 的 current-turn candidate 输入，不参与 completeness，不能覆盖 slot gate 输出。`risk_signals` 不由 intent node 写，由 deterministic risk helpers / recommendation 产出。
 
 ### 11.7 Intent consistency manifest
 
@@ -2014,7 +2002,7 @@ Demo final response 应说“草稿已创建”，不能说“已发券/已退�
 
 若 Phase 14 为了迁移现有 graph/final_response contract 临时保留名为 `action_result`
 的输出字段，该字段只能是 action draft compatibility output：owner 必须是
-ActionDraftService/`execute_action` adapter，禁止新调用方依赖它，contract tests 必须证明
+ActionDraftService / `action_draft` compatibility adapter，禁止新调用方依赖它，contract tests 必须证明
 它表示 `not_executed_demo` / draft-created 而非 external success，并且 Phase 14 plan 必须写明
 删除或完全替换为 `draft_outcome.v1` 的 gate。
 

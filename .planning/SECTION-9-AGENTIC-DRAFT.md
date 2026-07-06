@@ -1,5 +1,7 @@
 # contract-spec.md §9 Agentic 改造草案（第二版）
 
+> SUPERSEDED DRAFT（2026-07-06）：本文是 Phase 49 之前的 §9 agentic 草案，不是当前目标 graph 或契约依据。当前应以 `docs/contract-spec.md` §9 和 `docs/target-agent-platform-architecture-plan.md` §6.1 作为主要参考；本文中的 `normalize_input`、`slot_extraction`、`action_execution`、`memory_write`、`trace_close` 等 node list 属历史草案上下文，不能直接作为后续 phase 的目标 runtime graph。
+>
 本文是 Phase 10 `gsd-discuss-phase` 的输入草案，仅用于讨论 `investigate` agentic 调查能力对 §8.4、§9.0-9.5、§10.1、§11.5、§12.4、§17.2、§17.3 的影响。本文 **非 normative**，尚未提升进 `docs/contract-spec.md`；任何规范变更均须经过后续讨论、裁决和正式 spec 更新。
 
 ## §8.4 BusinessContextV1

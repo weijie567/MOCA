@@ -9,15 +9,16 @@
 ## Reading order & authority
 
 1. `docs/architecture-overview.md` for orientation.
-2. `docs/contract-spec.md` is normative and wins on contract conflicts.
-3. `docs/agent-architecture-phase-decomposition.md` is canonical for phase/owner.
-4. `docs/migration-plan.md` defines rollout/process.
-5. `docs/eval-test-plan.md` defines tests/golden cases.
-6. `.planning/` artifacts record phase state and are not normative.
+2. `docs/target-agent-platform-architecture-plan.md` §6.1 for the readable target canonical runtime graph.
+3. `docs/contract-spec.md` is the primary accepted contract reference; if it conflicts with source code, tests, product judgment, or target-plan deltas, the next phase must record a spec delta / MVP scope / deferral before implementation.
+4. `docs/agent-architecture-phase-decomposition.md` is the historical phase/owner decomposition.
+5. `docs/migration-plan.md` defines rollout/process.
+6. `docs/eval-test-plan.md` defines tests/golden cases.
+7. `.planning/` artifacts record phase state and may supersede older planning text when they explicitly name the conflict and owner.
 
 ---
 
-This file has been split. Use the table below to locate old section-number references in the new files. The normative source is docs/contract-spec.md.
+This file has been split. Use the table below to locate old section-number references in the new files. For current Agent Graph target shape, use `docs/target-agent-platform-architecture-plan.md` §6.1 plus `docs/contract-spec.md` §9 as the primary accepted contract references.
 
 | Old section | New home |
 | --- | --- |

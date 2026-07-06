@@ -1,7 +1,6 @@
 # MOCA System Architecture
 
-> **Design Contract** — This document is the single source of truth for implementation decisions.
-> All other planning docs defer to this file when there's a conflict.
+> Current reading note（2026-07-06）：本文是早期 MVP architecture baseline，不是当前 canonical Agent Graph migration 的 source of truth。当前 graph 迁移以 `.planning/STATE.md`、`.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`、`docs/target-agent-platform-architecture-plan.md` §6.1 和 `docs/contract-spec.md` §9 的已接受契约参考为准；若这些材料与本文旧图冲突，phase plan 必须显式记录 spec delta / MVP scope / deferral，而不是让本文覆盖新决策。
 
 ## MVP Scope Contract
 

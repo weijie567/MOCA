@@ -2,6 +2,8 @@
 
 本文件是执行前审核稿，不包含实现代码。目标是不再按“最小改动”迁就旧结构，而是把 MOCA 的工具系统重构成清晰、单一入口、边界稳定的架构。
 
+> Current reading note（2026-07-06）：本文保留为工具系统重构计划记录。文中旧 `execute_action` 节点名属于当时迁移语境；当前源码 graph 使用 `action_draft`，目标 runtime graph 到 durable draft 为止，future `action_execution` 仅作为外部执行扩展。
+
 ## 目标判断
 
 当前代码已经朝统一工具系统收敛，主要兼容债务已清理：
@@ -43,7 +45,7 @@ Graph node
 - `BUSINESS_READ_TOOLS` 只作为 business domain 内部 implementation map，统一维护 input model、adapter、slot/resource/argument 映射；它不是旧 `ToolRegistry`，也不是 agent-facing capability catalog。
 - catalog descriptor 必须表达可见性和安全边界：`exposure`、`caller_allowlist`、`required_permission`、`side_effect`、`requires_approval`、`requires_safety_snapshot`、`requires_idempotency_key`。
 - planner-visible、node-only、internal capability 可以同处一个 catalog，但 planner view 只能看到 planner-visible read/retrieval tools；`create_coupon_grant_draft` 这类 action 只能走 node-only caller。
-- 迁移顺序先保证 `execute_action` 通过 manager 调 action，再逐步禁止 graph node 直连 raw adapter；否则静态边界测试会先卡住现有代码。
+- 迁移顺序先保证 action draft 节点通过 manager 调 action，再逐步禁止 graph node 直连 raw adapter；否则静态边界测试会先卡住现有代码。
 - `ToolResult` / trace / user-visible state 不得包含 raw exception、raw args、prompt 或未脱敏 payload；原始异常只允许进内部日志或 audit reference。
 - Knowledge/RAG 也应纳入统一工具入口：`search_policy` 走 manager -> knowledge executor -> `PolicyKnowledgeService` -> retrieval engine，而不是保留多条 graph-facing retrieval path。
 - Memory 拆成两类：session memory lifecycle 保持 deterministic node + `MemoryService`；case/long-term memory search 作为 planner-visible retrieval tool 接入 manager。
@@ -314,7 +316,7 @@ reviewed case memory search = future planner-visible retrieval implementation
 
 Current:
 
-- `src/agent/nodes/execute_action.py`
+- `src/agent/nodes/action_draft.py`
 - `src/actions/service.py`
 - `src/tools/executors/action.py`
 - `src/repositories/action_draft_repo.py`
@@ -329,7 +331,7 @@ Target:
   - draft persistence adapter around `ActionDraftRepository`
 - `src/tools/executors/action.py`
   - maps `ToolCallContext + args` to `ActionService`
-- `execute_action.py`
+- `action_draft.py`
   - deterministic graph node
   - builds tool context
   - calls `UnifiedToolManager.invoke("create_coupon_grant_draft", ...)`
@@ -339,7 +341,7 @@ Catalog stance:
 
 - `create_coupon_grant_draft`
   - `exposure`: node_only
-  - `caller_allowlist`: `["execute_action"]`
+  - `caller_allowlist`: `["action_draft"]`
   - `requires_idempotency_key`: true
   - approval/safety snapshot flags should be true once approval path consistently provides them
 
@@ -570,7 +572,7 @@ Add tests:
   - domain services may not import graph nodes or manager
 - `tests/tools/test_catalog_views.py`
   - investigate planner view excludes action write tools
-  - execute_action node-only view excludes planner-visible read/search tools
+  - action_draft node-only view excludes planner-visible read/search tools
   - memory_write, if added, is node-only
 - `tests/tools/test_safe_errors.py`
   - invalid input/missing permission/caller blocked never includes raw args
