@@ -13484,3 +13484,68 @@ Status: Executing Phase --phase
 - `/Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs`
 - `/Users/ming/.codex/get-shit-done/bin/lib/state.cjs`
 - `.planning/STATE.md`
+
+## 2026-07-06 — Phase 53 `roadmap.update-plan-progress` 未匹配当前 ROADMAP 行
+
+### 问题现象
+
+Plan 53-01 完成后尝试按 execute-phase tracking 规则更新 ROADMAP：
+
+```bash
+gsd-sdk query roadmap.update-plan-progress 53
+```
+
+命令返回：
+
+```json
+{
+  "updated": false,
+  "phase": "53",
+  "reason": "no matching checkbox found"
+}
+```
+
+且 `.planning/ROADMAP.md` 没有 diff。Phase 53 progress table 仍停在 `0/TBD | Not planned`，detail plan checkbox 也未勾选。
+
+### 如何检测 / 复现
+
+在 Plan 53-01 summary 已存在时执行：
+
+```bash
+gsd-sdk query roadmap.update-plan-progress 53
+git diff -- .planning/ROADMAP.md
+```
+
+可复现 handler 返回 false 且无文件更新。
+
+### 关键证据或命令
+
+ROADMAP 当前 row 是：
+
+```text
+| 53. Session Context Before Intent and Contextual Intent Resolve | 0/TBD | Not planned | - |
+```
+
+handler 返回 `no matching checkbox found`，没有写入 progress/detail section。
+
+### 当前判断 / 根因
+
+这是 GSD ROADMAP updater 与当前 ROADMAP 格式/Phase 53 状态的匹配问题，不是 MOCA 源码问题。handler 依赖当前 milestone 区块和 checkbox/row 正则，未能匹配 Phase 53 的 progress row/detail checkbox，因此没有更新。
+
+### 已做处理
+
+已用定向 patch 更新 `.planning/ROADMAP.md` 和 `.planning/STATE.md`：
+
+- ROADMAP progress row：`1/3 | In Progress`
+- ROADMAP Phase 53 detail：`**Plans:** 1/3 plans executed`
+- ROADMAP 53-01 checkbox：`[x]`
+- STATE 当前 plan：`2 of 3`
+
+### 剩余问题
+
+后续 Phase 53 plan progress 仍需在每个 wave 后检查 handler 是否可用；如果继续返回 no-op，就继续用定向 patch 并在提交前核对 diff。
+
+### 下次继续排查入口
+
+- `/Users/ming/.codex/get-shit-done/bin/lib/roadmap.cjs`
+- `.planning/ROADMAP.md`
