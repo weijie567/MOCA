@@ -57,6 +57,7 @@ completed: 2026-07-06
 - Added target 15-node graph set checks that keep helper/lifecycle names out of the final canonical graph.
 - Added migration-mode checks that require all active legacy nodes to have explicit target mappings and owner phases.
 - Added exact conditional-edge map tests, including canonical route labels that currently map to legacy destinations.
+- Added router return-value coverage checks so route labels returned by deterministic routers must be covered by registered path maps.
 - Added forbidden registered-node drift checks and a skipped Phase 58 final no-debt marker.
 
 ## Task Commits
@@ -71,6 +72,7 @@ completed: 2026-07-06
 
 - The vocabulary gap for `generate_recommendation` is treated as a current landmine, not as a permanent requirement that vocabulary must remain missing.
 - `memory_write` is forbidden only as a registered main-chain graph node; its vocabulary/runtime concept status does not fail these tests.
+- Code review warnings were accepted as valid and closed by making AST parsing fail closed for unsupported graph/route shapes and by exact-asserting migration ownership metadata.
 
 ## Deviations from Plan
 
@@ -78,7 +80,7 @@ None - plan executed as written.
 
 ## Issues Encountered
 
-None.
+Initial code review found warning-level guardrail false-negative risks in router return parsing, conditional-edge parser fail-open behavior, and loose migration metadata assertions. These were fixed during Phase 51 execution and re-reviewed clean.
 
 ## User Setup Required
 
@@ -86,8 +88,10 @@ None - no external service configuration required.
 
 ## Verification
 
-- `uv run pytest tests/architecture/test_canonical_graph_baseline.py -q` passed: `8 passed, 1 skipped, 1 warning`.
+- `uv run pytest tests/architecture/test_canonical_graph_baseline.py -q` passed: `9 passed, 1 skipped, 1 warning`.
 - `uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/architecture/test_phase32_static_contract.py tests/architecture/test_phase34_approval_action_boundaries.py -q` passed: `23 passed, 2 skipped, 1 warning`.
+- `uv run pytest tests/architecture -q` passed: `79 passed, 2 skipped, 1 warning`.
+- `uv run ruff check tests/architecture/graph_baseline.py tests/architecture/test_canonical_graph_baseline.py` passed.
 - `git diff --check` passed.
 
 ## Next Phase Readiness

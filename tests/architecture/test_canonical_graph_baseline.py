@@ -11,6 +11,7 @@ from tests.architecture.graph_baseline import (
     TARGET_CANONICAL_GRAPH_NODES,
     graph_add_node_names,
     graph_conditional_edge_mappings,
+    graph_router_route_values,
 )
 
 
@@ -45,6 +46,38 @@ def test_migration_mode_maps_every_active_legacy_node_to_target() -> None:
     active_legacy_nodes = CURRENT_ACTIVE_GRAPH_NODES_BASELINE - TARGET_CANONICAL_GRAPH_NODES
 
     assert active_legacy_nodes == frozenset(MIGRATION_MODE_LEGACY_NODE_MAP)
+    assert MIGRATION_MODE_LEGACY_NODE_MAP == {
+        "classify_intent": {
+            "target": "contextual_intent_resolve",
+            "delete_phase": "Phase 53",
+            "owner_requirement": "CAGM-04",
+        },
+        "session_memory_load": {
+            "target": "session_context_load",
+            "delete_phase": "Phase 53",
+            "owner_requirement": "CAGM-04",
+        },
+        "extract_slots": {
+            "target": "slot_resolution_gate",
+            "delete_phase": "Phase 54",
+            "owner_requirement": "CAGM-05",
+        },
+        "long_term_memory_retrieve": {
+            "target": "memory_context_load",
+            "delete_phase": "Phase 55",
+            "owner_requirement": "CAGM-06",
+        },
+        "generate_recommendation": {
+            "target": "recommendation_generation",
+            "delete_phase": "Phase 56",
+            "owner_requirement": "CAGM-07",
+        },
+        "assess_risk_and_approval": {
+            "target": "risk_gate",
+            "delete_phase": "Phase 57",
+            "owner_requirement": "CAGM-08",
+        },
+    }
     for legacy_node, mapping in MIGRATION_MODE_LEGACY_NODE_MAP.items():
         assert mapping["target"] in TARGET_CANONICAL_GRAPH_NODES, legacy_node
         assert mapping["delete_phase"] in {"Phase 53", "Phase 54", "Phase 55", "Phase 56", "Phase 57"}
@@ -61,6 +94,15 @@ def test_migration_mode_matrix_does_not_depend_on_graph_vocabulary_only() -> Non
 
 def test_current_router_mappings_match_source_baseline() -> None:
     assert graph_conditional_edge_mappings() == CURRENT_CONDITIONAL_EDGE_BASELINE
+
+
+def test_router_return_values_are_covered_by_registered_path_maps() -> None:
+    route_maps = graph_conditional_edge_mappings()
+    router_routes = graph_router_route_values()
+
+    assert set(router_routes) == {router for _source, router in route_maps}
+    for (_source, router), path_map in route_maps.items():
+        assert router_routes[router] <= frozenset(path_map), router
 
 
 def test_current_router_mappings_account_for_legacy_destinations() -> None:
