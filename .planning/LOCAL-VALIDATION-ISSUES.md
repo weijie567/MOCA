@@ -13272,3 +13272,38 @@ rg -n "python -m pytest|bare `pytest`|..." .planning/phases/53-session-context-b
 
 - `.planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/53-RESEARCH.md`
 - `AGENTS.md` 的 MOCA 本地验证命令环境硬规则
+
+## 2026-07-06 — Phase 53 pattern mapping sanity scan 再次因 Markdown 反引号误触裸 `pytest`
+
+### 问题现象
+
+Phase 53 pattern mapper 写完 `53-PATTERNS.md` 后报告：一个用于 sanity-check 的 shell 搜索 pattern 包含未转义 Markdown 反引号，触发 zsh 命令替换并意外运行裸 `pytest`。该结果已被丢弃，未作为验证结论。
+
+### 如何检测 / 复现
+
+与 Phase 53 research sanity scan 同类：在双引号字符串中包含 `` `pytest` `` 会先执行反引号内的 `pytest`，而不是把它作为搜索字面量。
+
+### 关键证据或命令
+
+子代理返回中明确记录：
+
+```text
+A shell sanity-check pattern with unescaped Markdown backticks accidentally triggered an invalid bare-`pytest` command substitution. I discarded that result, reran the check safely, and did not use it as validation.
+```
+
+### 当前判断 / 根因
+
+这是本地辅助扫描命令写法错误，不是 `53-PATTERNS.md` 或 MOCA 源码问题。根因仍是 shell 反引号命令替换绕过项目 `uv` 环境。
+
+### 已做处理
+
+未采用该裸命令输出；后续由主流程用安全的单引号 `rg` 扫描 pattern 文档，并继续要求所有 plan/test 命令使用 `UV_CACHE_DIR=/tmp/uv-cache uv run ...`。
+
+### 剩余问题
+
+无 Phase 53 阻塞。需要避免在后续 planner/checker prompt 或 artifact scan 中写未转义反引号搜索字面量。
+
+### 下次继续排查入口
+
+- `.planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/53-PATTERNS.md`
+- `AGENTS.md` 的 MOCA 本地验证命令环境硬规则
