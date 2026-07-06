@@ -11,12 +11,22 @@ from tests.architecture.graph_baseline import (
     TARGET_CANONICAL_GRAPH_NODES,
     graph_add_node_names,
     graph_conditional_edge_mappings,
+    graph_direct_edge_pairs,
     graph_router_route_values,
 )
 
 
 def test_current_active_graph_node_set_matches_phase51_baseline() -> None:
+    assert "safety_pre_route" in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
     assert graph_add_node_names() == CURRENT_ACTIVE_GRAPH_NODES_BASELINE
+
+
+def test_phase52_entry_edge_routes_receive_request_to_safety_pre_route() -> None:
+    direct_edges = graph_direct_edge_pairs()
+
+    assert ("START", "receive_request") in direct_edges
+    assert ("receive_request", "safety_pre_route") in direct_edges
+    assert ("receive_request", "classify_intent") not in direct_edges
 
 
 def test_target_canonical_graph_node_set_is_exact_phase50_contract() -> None:
@@ -102,6 +112,9 @@ def test_router_return_values_are_covered_by_registered_path_maps() -> None:
     registered_nodes = graph_add_node_names()
 
     assert set(router_routes) == {router for _source, router in route_maps}
+    assert router_routes["route_after_safety"] == frozenset(
+        CURRENT_CONDITIONAL_EDGE_BASELINE[("safety_pre_route", "route_after_safety")]
+    )
     for source, router in route_maps:
         path_map = route_maps[(source, router)]
         assert source in registered_nodes, (source, router)
