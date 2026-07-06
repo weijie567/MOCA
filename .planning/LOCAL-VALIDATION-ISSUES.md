@@ -13140,3 +13140,54 @@ AssertionError: assert 'classify_intent' not in [...]
 - `tests/agent/test_nodes/test_safety_pre_route.py::test_approval_like_replies_with_id_variants_fail_closed`
 - `tests/agent/test_graph.py::test_unsafe_pre_route_inputs_stop_before_classifier_memory_tools_or_action`
 - `.planning/phases/52-safety-pre-route-node/52-REVIEW-FIX.md`
+
+## 2026-07-06 — Phase 52 verification 中 `gsd-sdk verify.key-links` 对合法 wiring 误报
+
+### 问题现象
+
+Phase 52 goal verification 期间，`gsd-sdk query verify.key-links` 对 52-01 / 52-02 plan 返回 false negatives：报告 `safety_pre_route.py -> intent_policy.py`、`test_safety_pre_route.py -> safety_pre_route.py`、`graph.py -> safety_pre_route.py`、`graph.py -> routing.py` 若干 key link 未验证。
+
+### 如何检测 / 复现
+
+运行：
+
+```bash
+gsd-sdk query verify.key-links .planning/phases/52-safety-pre-route-node/52-01-PLAN.md
+gsd-sdk query verify.key-links .planning/phases/52-safety-pre-route-node/52-02-PLAN.md
+```
+
+### 关键证据或命令
+
+误报细节包括：
+
+```text
+Pattern "from src\\.agent\\.intent_policy import .*detect_pre_route" not found
+Pattern "await safety_pre_route" not found
+Target not referenced in source
+```
+
+但源码实际存在：
+
+- `src/agent/nodes/safety_pre_route.py:6`：`from src.agent.intent_policy import PreRouteDecision, detect_pre_route`
+- `src/agent/nodes/safety_pre_route.py:65`：调用 `detect_pre_route(...)`
+- `tests/agent/test_nodes/test_safety_pre_route.py:61`：`await module.safety_pre_route(state)`
+- `src/agent/graph.py:36,283,299-307`：导入、注册 `safety_pre_route`，并通过 `route_after_safety` 接条件边
+
+### 当前判断 / 根因
+
+这是验证工具 pattern 粒度偏窄导致的 false negative，不是 Phase 52 wiring 缺失。具体原因：plan pattern 假设单行 import / 直接 `await safety_pre_route`，而源码使用模块限定调用；graph key-link verifier 也未识别从函数 import + `add_node(...)` / `add_conditional_edges(...)` 的组合。
+
+### 已做处理
+
+Phase 52 verification report 中按源码手工复核 key links，并把 generic checker 的 false negative 解释为工具局限；最终 scoped pytest、ruff、bare-pytest scan、`git diff --check` 均通过。
+
+### 剩余问题
+
+无 Phase 52 阻塞。后续若继续使用 `gsd-sdk verify.key-links`，需要对 multiline import、模块限定调用和 LangGraph registration wiring 保持人工复核。
+
+### 下次继续排查入口
+
+- `.planning/phases/52-safety-pre-route-node/52-VERIFICATION.md`
+- `src/agent/nodes/safety_pre_route.py`
+- `src/agent/graph.py`
+- `tests/agent/test_nodes/test_safety_pre_route.py`
