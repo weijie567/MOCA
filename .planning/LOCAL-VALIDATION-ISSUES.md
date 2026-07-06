@@ -13761,3 +13761,50 @@ Phase 53 final validation suite 应追加 `tests/agent/test_intent_adapter.py` �
 - `src/agent/nodes/classify_intent.py`
 - `src/agent/nodes/contextual_intent_resolve.py`
 - `tests/agent/test_intent_adapter.py`
+
+## 2026-07-06 — Phase 53 security artifact existence check 使用 zsh glob 触发 no-match
+
+### 问题现象
+
+运行安全 gate 前检查是否已有 `*-SECURITY.md` 时使用：
+
+```bash
+ls .planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/*-SECURITY.md 2>/dev/null || true
+```
+
+在 zsh 下 glob 无匹配会先由 shell 报错：
+
+```text
+zsh:1: no matches found: .planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/*-SECURITY.md
+```
+
+### 如何检测 / 复现
+
+在没有 security artifact 的 phase 目录里直接运行上述命令即可复现。
+
+### 关键证据或命令
+
+原命令输出了 zsh `no matches found`，没有影响后续 `find` 检查和 security auditor 运行。
+
+### 当前判断 / 根因
+
+这是 zsh glob 行为导致的本地检查噪声，不是项目代码或 phase artifact 问题。`2>/dev/null` 只重定向 `ls`，不能拦截 shell glob expansion 错误。
+
+### 已做处理
+
+改用：
+
+```bash
+find .planning/phases/53-session-context-before-intent-and-contextual-intent-resolve -maxdepth 1 -name '*-SECURITY.md' -print
+```
+
+后续 security gate 正常完成，`53-SECURITY.md` 已生成并验证。
+
+### 剩余问题
+
+以后检查可选 glob 文件时优先用 `find` 或 `noglob`，避免把不存在文件的正常状态变成 shell 错误噪声。
+
+### 下次继续排查入口
+
+- `/Users/ming/.codex/get-shit-done/workflows/secure-phase.md`
+- `.planning/phases/53-session-context-before-intent-and-contextual-intent-resolve/53-SECURITY.md`
