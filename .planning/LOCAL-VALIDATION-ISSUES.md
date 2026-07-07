@@ -18163,3 +18163,67 @@ score: "19/19 must-haves verified"
 ### 剩余问题和下次入口
 
 后续若需要稳定检查 verification artifact，应解析 frontmatter YAML，或用宽松正则匹配 `score:.*19/19`，不要写死裸值格式。
+
+## 2026-07-08 Phase 57 secure-phase：可选 SECURITY artifact 检查触发 zsh no matches
+
+### 问题现象
+
+Phase 57 security gate 检查是否已有 `*-SECURITY.md` 时运行：
+
+```bash
+ls .planning/phases/57-risk-gate-and-approval-gate-canonicalization/*-SECURITY.md 2>/dev/null || true
+```
+
+由于当前目录还没有 security artifact，zsh 在执行 `ls` 前触发：
+
+```text
+zsh:1: no matches found: .planning/phases/57-risk-gate-and-approval-gate-canonicalization/*-SECURITY.md
+```
+
+### 如何检测 / 复现
+
+在 zsh 下对不存在的 glob 运行上述命令即可复现；错误发生在 shell glob 展开阶段，`2>/dev/null || true` 不能吞掉。
+
+### 当前判断 / 根因
+
+这是本地可选文件检查命令的 shell 兼容问题，不代表 Phase 57 缺少应有 security report；security gate 尚未运行到创建 artifact 阶段。
+
+### 已做处理
+
+后续改用 `find .planning/phases/57-risk-gate-and-approval-gate-canonicalization -maxdepth 1 -name '*-SECURITY.md' -print` 检查可选文件。
+
+### 剩余问题和下次入口
+
+GSD workflow 中所有可选 glob 检查在 zsh 环境下都应改成 `find` 或启用 `NULL_GLOB` 局部保护。
+
+## 2026-07-08 Phase 57 secure-phase：Node one-liner 模板字符串反引号被 zsh 解释
+
+### 问题现象
+
+核验 `57-SECURITY.md` frontmatter 时，本地命令在 `node -e` 字符串里使用 JavaScript 模板字符串：
+
+```bash
+node -e "... console.log(`security-frontmatter: pass (${rows} threats)`);"
+```
+
+zsh 先解释反引号，导致命令失败：
+
+```text
+zsh:1: unknown file attribute:
+```
+
+### 如何检测 / 复现
+
+在 zsh 下把含反引号模板字符串的 JavaScript 放进双引号 shell 参数即可复现；shell 会在 Node 执行前处理反引号。
+
+### 当前判断 / 根因
+
+这是本地验证命令的 shell quoting 错误，不是 `57-SECURITY.md` 内容问题。此前 Phase 57 已出现过同类反引号触发错误。
+
+### 已做处理
+
+改用普通字符串拼接或单引号包裹整段 JavaScript，避免 shell 解释反引号。
+
+### 剩余问题和下次入口
+
+后续在 zsh 中运行 `node -e` 时避免在双引号内写 JavaScript 模板字符串；必要时使用 heredoc 或单引号。
