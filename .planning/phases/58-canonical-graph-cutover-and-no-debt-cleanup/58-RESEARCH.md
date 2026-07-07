@@ -433,10 +433,11 @@ Phase 58 may keep this pattern only as bounded historical data-read compatibilit
 | Plan | Ownership Boundary | Goal | Key Files | Focused Verification |
 |------|--------------------|------|-----------|----------------------|
 | 58-01 | Active graph and vocabulary final gate | Turn skipped final gate into active assertions; remove/reclassify active `compatibility_alias` rows from main graph vocabulary; decide `memory_write` non-main/lifecycle classification. [VERIFIED: `tests/architecture/test_canonical_graph_baseline.py`; `src/agent/graph_vocabulary.py`; `50-SPEC.md`] | `tests/architecture/graph_baseline.py`, `tests/architecture/test_canonical_graph_baseline.py`, `src/agent/graph_vocabulary.py`, `tests/agent/test_graph_vocabulary.py` | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/agent/test_graph_vocabulary.py -q --tb=short` |
-| 58-02 | Legacy wrapper/import-test deletion | Move shared implementation out of legacy modules, update tests/eval patch paths, delete or internalize old wrappers and router delegates. [VERIFIED: import scan; `src/agent/nodes/*`; `src/agent/routing.py`] | `src/agent/nodes/recommendation_generation.py`, `src/agent/nodes/risk_gate.py`, `src/agent/nodes/slot_resolution_gate.py`, legacy node modules, `src/agent/routing.py`, impacted tests | Canonical node and routing suites; exact files may change after test renames. |
-| 58-03 | Trace/API/frontend/eval projection cleanup | Current-run trace/API/SSE/frontend/eval surfaces present canonical names; historical projection remains bounded and explicit. [VERIFIED: `src/api/routers/agent_runs.py`; `frontend/src/components/timeline/TimelineStep.tsx`; `scripts/eval_agent.py`; `eval/replay/dev-contract-manifest.v1.json`] | `src/agent/trace.py`, `src/repositories/trace_repo.py`, `src/api/routers/traces.py`, `src/api/routers/agent_runs.py`, frontend timeline, eval manifest/scripts, trace/API tests | Trace/API/eval tests plus `npm --prefix frontend run build`. |
-| 58-04 | Approval retry historical read compatibility and security | Ensure old persisted retry metadata cannot authorize legacy graph resume; if mapping remains, it is data-read only and emits `risk_gate`. [VERIFIED: `src/api/routers/approvals.py`; `src/approvals/service.py`; `tests/test_approval_api.py`; `tests/test_graph_routing.py`] | `src/api/routers/approvals.py`, approval service tests, graph routing tests | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py tests/test_approval_gate.py tests/test_graph_routing.py tests/approvals/test_needs_info_resume.py tests/approvals/test_service_transitions.py -q --tb=short` |
-| 58-05 | Docs/debt/final validation closeout | Remove current-doc active legacy wording, update architecture debt in Chinese, run static classifier with zero active legacy/unclassified, broad pytest/ruff/frontend/diff gates. [VERIFIED: `AGENTS.md`; `57-VALIDATION.md`; `58-CONTEXT.md`] | `docs/current-langgraph-architecture.md`, `docs/architecture-overview.md`, `README.md`, `docs/target-agent-platform-architecture-plan.md`, `.planning/ARCHITECTURE-DEBT.md`, validation artifact | Broad closeout suite, static classifier, ruff, frontend build, `git diff --check`. |
+| 58-02 | Canonical recommendation/risk implementation ownership | Move concrete recommendation and risk implementation ownership into canonical modules with focused node-test coverage only. [VERIFIED: import scan; `src/agent/nodes/*`] | `src/agent/nodes/recommendation_generation.py`, `src/agent/nodes/generate_recommendation.py`, `src/agent/nodes/risk_gate.py`, `src/agent/nodes/assess_risk_and_approval.py`, focused node tests | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_generate_recommendation.py tests/agent/test_nodes/test_risk_gate.py tests/agent/test_nodes/test_assess_risk_and_approval.py -q --tb=short` |
+| 58-03 | Wrapper deletion, import/test cleanup, static guards | Delete wrapper modules after canonical ownership exists, migrate graph/routing/integration tests to canonical imports, and add static guards against wrapper resurrection. [VERIFIED: import scan; `tests/agent/*`; `tests/architecture/*`] | legacy wrapper files, graph/routing tests, Phase 22 recommendation/action tests, knowledge/architecture import guards | Canonical node, graph/routing, integration, knowledge, architecture import-guard suites. |
+| 58-04 | Trace/API/frontend/eval projection cleanup | Current-run trace/API/SSE/frontend/eval surfaces present canonical names; historical projection remains bounded and explicit. [VERIFIED: `src/api/routers/agent_runs.py`; `frontend/src/components/timeline/TimelineStep.tsx`; `scripts/eval_agent.py`; `eval/replay/dev-contract-manifest.v1.json`] | `src/agent/trace.py`, `src/repositories/trace_repo.py`, `src/api/routers/traces.py`, `src/api/routers/agent_runs.py`, frontend timeline, eval manifest/scripts, trace/API tests | Trace/API/eval tests plus `npm --prefix frontend run build`. |
+| 58-05 | Approval retry historical read compatibility and security | Ensure old persisted retry metadata cannot authorize legacy graph resume; if mapping remains, it is data-read only and emits `risk_gate`. [VERIFIED: `src/api/routers/approvals.py`; `src/approvals/service.py`; `tests/test_approval_api.py`; `tests/test_graph_routing.py`] | `src/api/routers/approvals.py`, approval service tests, graph routing tests | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py tests/test_approval_gate.py tests/test_graph_routing.py tests/approvals/test_needs_info_resume.py tests/approvals/test_service_transitions.py -q --tb=short` |
+| 58-06 | Docs/debt/final validation closeout | Remove current-doc active legacy wording, update architecture debt in Chinese, run static classifier with zero active legacy/unclassified, broad pytest/ruff/frontend/diff gates. [VERIFIED: `AGENTS.md`; `57-VALIDATION.md`; `58-CONTEXT.md`] | `docs/current-langgraph-architecture.md`, `docs/architecture-overview.md`, `README.md`, `docs/target-agent-platform-architecture-plan.md`, `.planning/ARCHITECTURE-DEBT.md`, validation artifact | Broad closeout suite, static classifier, ruff, frontend build, `git diff --check`. |
 
 This split is prescriptive because Phase 58 spans several ownership boundaries and MOCA explicitly treats one oversized plan as a planning blocker. [VERIFIED: `AGENTS.md`; `58-CONTEXT.md`]
 
@@ -462,22 +463,25 @@ This split is prescriptive because Phase 58 spans several ownership boundaries a
 | A2 | No production-only live service config or OS-registered state embeds graph node names. | Runtime State Inventory | If dashboards/workflows/process managers key off old node names, release docs may need an external config update task. |
 | A3 | `memory_write` in graph vocabulary is a non-main/lifecycle concept rather than an active main-chain registered node. | Current Evidence Inventory / Plan 58-01 | If it is treated as active runtime vocabulary, final no-debt gate may conflict with Phase 50's excluded-node list; planner must inspect and decide explicitly. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should Phase 58 include a production/sample DB audit for historical node-name counts?**
    - What we know: schema fields can store old names, and the locked decision forbids bulk rewrite. [VERIFIED: `src/db/models.py`; `58-CONTEXT.md`]
    - What's unclear: this research did not connect to production/live DB rows. [VERIFIED: environment audit]
    - Recommendation: do not block code planning on this; add an optional manual verification note if release requires production inventory. [ASSUMED]
+   - **RESOLVED outcome:** Production/sample DB inventory is an optional release checklist item only, not an implementation blocker. Phase 58 must not bulk-rewrite historical rows; it proves current writes/projections are canonical and historical rows are read-only compatibility data. [VERIFIED: `58-CONTEXT.md` D-58-03]
 
 2. **How should `memory_write` be represented in `graph_vocabulary.py` after the final gate?**
    - What we know: Phase 50 excludes `memory_write` from current main-chain registered graph nodes, while `graph_vocabulary.py` currently includes it with runtime status. [VERIFIED: `50-SPEC.md`; `src/agent/graph_vocabulary.py`]
    - What's unclear: whether current vocabulary status means "main graph runtime" or broader lifecycle/internal vocabulary. [VERIFIED: local code review]
    - Recommendation: Plan 58-01 must explicitly classify it as non-main/internal if retained, or remove it from main graph vocabulary. [VERIFIED: `50-SPEC.md` final gate intent]
+   - **RESOLVED outcome:** `memory_write` is not a current main graph node. If retained anywhere, it must be classified as excluded/lifecycle or internal/historical support, not an active runtime alias and not evidence that the main graph has more than the final 15 canonical nodes. [VERIFIED: `50-SPEC.md`; `58-CONTEXT.md` D-58-01/D-58-02]
 
 3. **What exact UI behavior is desired for old historical rows?**
    - What we know: current-run surfaces should show canonical names and old rows may remain readable. [VERIFIED: `58-CONTEXT.md` D-58-03/D-58-07]
    - What's unclear: whether the UI should display the old raw implementation name anywhere in expanded details, or only canonical target labels. [ASSUMED]
    - Recommendation: preserve raw `implementation_node` in backend payloads where already available, but render canonical current labels by default. [VERIFIED: `src/agent/graph_vocabulary.py`; `src/api/routers/agent_runs.py`; `frontend/src/components/timeline/TimelineStep.tsx`]
+   - **RESOLVED outcome:** Current-run UI must use canonical labels. Raw old names may appear only as historical/raw implementation metadata when explicitly labeled as such; they must not drive current-run display labels, route semantics, or graph vocabulary. [VERIFIED: `58-CONTEXT.md` D-58-03/D-58-07]
 
 ## Environment Availability
 
@@ -567,7 +571,9 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest \
   tests/agent/test_nodes/test_contextual_intent_resolve.py \
   tests/agent/test_nodes/test_slot_resolution_gate.py \
   tests/agent/test_memory_context_load.py \
+  tests/agent/test_nodes/test_generate_recommendation.py \
   tests/agent/test_nodes/test_risk_gate.py \
+  tests/agent/test_phase22_recommendation_integration.py \
   tests/agent/test_phase22_action_boundary.py \
   tests/actions/test_phase34_action_draft_bindings.py \
   tests/eval/test_phase35_replay_eval_gates.py \
@@ -583,7 +589,7 @@ npm --prefix frontend run build
 UV_CACHE_DIR=/tmp/uv-cache uv run git diff --check
 ```
 
-The final suite should be adjusted to include renamed canonical test files after wrapper deletion. [VERIFIED: current static scan and existing file names]
+The final suite must preserve recommendation wrapper-migration coverage by including `tests/agent/test_nodes/test_generate_recommendation.py` and `tests/agent/test_phase22_recommendation_integration.py`, or their canonical replacement paths if Plan 58-03 records a rename. [VERIFIED: current static scan and existing file names]
 
 ### Static Legacy-Hit Classifier Requirements
 

@@ -38,11 +38,12 @@ created: 2026-07-08
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 58-01-01 | 01 | TBD | CAGM-09 | T-58-01 / T-58-05 | Active graph nodes/routes stay canonical and main graph vocabulary stops advertising active runtime compatibility aliases. | architecture/static/unit | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/agent/test_graph_vocabulary.py -q --tb=short` | yes | pending |
-| 58-02-01 | 02 | TBD | CAGM-09 | T-58-05 | Legacy wrapper/import-test surfaces are deleted or moved behind canonical/private implementation modules without resurrecting old graph names. | unit/import/static | Planner must set final command after test/file rename; current candidates include `tests/agent/test_nodes/test_risk_gate.py`, `tests/agent/test_nodes/test_generate_recommendation.py`, and `tests/agent/test_phase22_action_boundary.py`. | partial | pending |
-| 58-03-01 | 03 | TBD | CAGM-09 | T-58-02 / T-58-03 | Current-run trace/API/SSE/frontend/eval surfaces use canonical names; historical rows remain readable only through bounded historical projection. | API/integration/frontend/eval | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_trace.py tests/test_trace_api.py tests/test_agent_runs_api.py tests/eval/test_phase35_replay_eval_gates.py tests/eval/test_phase35_release_monitoring_manifests.py -q --tb=short` and `npm --prefix frontend run build` | yes | pending |
-| 58-04-01 | 04 | TBD | CAGM-09 | T-58-01 / T-58-04 | Historical approval retry metadata never authorizes a legacy graph resume; graph/API output emits canonical `risk_gate` only. | API/security/routing | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py tests/test_approval_gate.py tests/test_graph_routing.py tests/approvals/test_needs_info_resume.py tests/approvals/test_service_transitions.py -q --tb=short` | yes | pending |
-| 58-05-01 | 05 | TBD | CAGM-09 | T-58-02 / T-58-06 | Docs, architecture debt, and final classifier prove zero active-runtime legacy debt and zero unclassified rows. | docs/static | `UV_CACHE_DIR=/tmp/uv-cache uv run python <phase58_static_classifier>` and `UV_CACHE_DIR=/tmp/uv-cache uv run git diff --check` | classifier TBD | pending |
+| 58-01-01 | 01 | 1 | CAGM-09 | T-58-01 / T-58-05 | Active graph nodes/routes stay canonical and main graph vocabulary stops advertising active runtime compatibility aliases. | architecture/static/unit | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/agent/test_graph_vocabulary.py -q --tb=short` | yes | pending |
+| 58-02-01 | 02 | 2 | CAGM-09 | T-58-05 | Recommendation and risk implementation ownership moves into canonical modules with current-run canonical identity. | unit/import/static | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_generate_recommendation.py tests/agent/test_nodes/test_risk_gate.py tests/agent/test_nodes/test_assess_risk_and_approval.py -q --tb=short` | yes | pending |
+| 58-03-01 | 03 | 3 | CAGM-09 | T-58-05 | Legacy wrapper modules are deleted and import/test/static guards use canonical modules only. | unit/import/static | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_generate_recommendation.py tests/agent/test_nodes/test_risk_gate.py tests/agent/test_graph.py tests/test_graph_routing.py tests/agent/test_phase22_recommendation_integration.py tests/agent/test_phase22_action_boundary.py tests/test_interception_rate.py tests/knowledge/test_facade_integration.py tests/architecture/test_phase33_rag_claim_boundaries.py -q --tb=short` | yes | pending |
+| 58-04-01 | 04 | 4 | CAGM-09 | T-58-02 / T-58-03 | Current-run trace/API/SSE/frontend/eval surfaces use canonical names; historical rows remain readable only through bounded historical projection. | API/integration/frontend/eval | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_trace.py tests/test_trace_api.py tests/test_agent_runs_api.py tests/eval/test_phase35_replay_eval_gates.py tests/eval/test_phase35_release_monitoring_manifests.py -q --tb=short` and `npm --prefix frontend run build` | yes | pending |
+| 58-05-01 | 05 | 4 | CAGM-09 | T-58-01 / T-58-04 | Historical approval retry metadata never authorizes a legacy graph resume; graph/API output emits canonical `risk_gate` only. | API/security/routing | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py tests/test_approval_gate.py tests/test_graph_routing.py tests/approvals/test_needs_info_resume.py tests/approvals/test_service_transitions.py -q --tb=short` | yes | pending |
+| 58-06-01 | 06 | 5 | CAGM-09 | T-58-02 / T-58-06 | Docs, architecture debt, and final classifier prove zero active-runtime legacy debt and zero unclassified rows. | docs/static | `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict` and `UV_CACHE_DIR=/tmp/uv-cache uv run git diff --check` | after 58-01 | pending |
 
 *Status: pending · green · red · flaky*
 
@@ -79,7 +80,9 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest \
   tests/agent/test_nodes/test_contextual_intent_resolve.py \
   tests/agent/test_nodes/test_slot_resolution_gate.py \
   tests/agent/test_memory_context_load.py \
+  tests/agent/test_nodes/test_generate_recommendation.py \
   tests/agent/test_nodes/test_risk_gate.py \
+  tests/agent/test_phase22_recommendation_integration.py \
   tests/agent/test_phase22_action_boundary.py \
   tests/actions/test_phase34_action_draft_bindings.py \
   tests/eval/test_phase35_replay_eval_gates.py \
@@ -95,7 +98,7 @@ npm --prefix frontend run build
 UV_CACHE_DIR=/tmp/uv-cache uv run git diff --check
 ```
 
-Planner/executor must update these commands if wrapper deletion renames or removes legacy test files.
+The closeout suite intentionally includes `tests/agent/test_nodes/test_generate_recommendation.py` and `tests/agent/test_phase22_recommendation_integration.py` as recommendation wrapper-migration coverage. If Plan 58-03 records canonical replacement paths, update the final closeout command before executing Plan 58-06.
 
 ---
 
