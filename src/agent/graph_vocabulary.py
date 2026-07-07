@@ -38,6 +38,13 @@ def _entry(
     )
 
 
+_PHASE54_SLOT_ALIAS_REASON_CODES = (
+    "PHASE_54_COMPATIBILITY_ALIAS",
+    "HISTORICAL_TRACE_PROJECTION",
+    "IMPORT_TEST_COMPATIBILITY",
+    "DELETE_BY_PHASE_58",
+)
+
 _ENTRIES: tuple[GraphVocabularyEntry, ...] = (
     _entry("receive_request", "receive_request", "node", "runtime", True),
     _entry("investigate", "investigate", "node", "runtime", True),
@@ -84,22 +91,20 @@ _ENTRIES: tuple[GraphVocabularyEntry, ...] = (
     _entry("long_term_memory_retrieve", "memory_context_load", "node", "compatibility_alias", True),
     _entry("reviewed_memory_context_retrieve", "memory_context_load", "node", "runtime", True),
     _entry("memory_context_load", "memory_context_load", "node", "compatibility_alias", True),
-    # alias: extract_slots -> slot_resolution_gate
     _entry(
         "extract_slots",
         "slot_resolution_gate",
         "node",
         "compatibility_alias",
         True,
-        ("SLOT_RESOLUTION_GATE_PROJECTED_FROM_EXTRACT_SLOTS",),
+        _PHASE54_SLOT_ALIAS_REASON_CODES,
     ),
     _entry(
         "slot_resolution_gate",
         "slot_resolution_gate",
         "node",
-        "compatibility_alias",
+        "runtime",
         True,
-        ("SLOT_RESOLUTION_GATE_PROJECTED_FROM_EXTRACT_SLOTS",),
     ),
     _entry(
         "rag_context_build",
@@ -132,8 +137,15 @@ _ENTRIES: tuple[GraphVocabularyEntry, ...] = (
         ("PHASE_53_COMPATIBILITY_ALIAS", "DELETE_BY_PHASE_58"),
     ),
     _entry("route_after_contextual_intent", "route_after_contextual_intent", "router", "runtime", True),
-    _entry("route_after_slots", "route_after_slot_resolution", "router", "compatibility_alias", True),
-    _entry("route_after_slot_resolution", "route_after_slot_resolution", "router", "compatibility_alias", True),
+    _entry(
+        "route_after_slots",
+        "route_after_slot_resolution",
+        "router",
+        "compatibility_alias",
+        True,
+        _PHASE54_SLOT_ALIAS_REASON_CODES,
+    ),
+    _entry("route_after_slot_resolution", "route_after_slot_resolution", "router", "runtime", True),
     _entry("route_after_risk", "route_after_risk", "router", "runtime", True),
 )
 

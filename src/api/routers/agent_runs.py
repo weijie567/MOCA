@@ -58,6 +58,7 @@ NODE_MESSAGES: dict[str, str] = {
     "session_context_load": "正在加载会话上下文",
     "contextual_intent_resolve": "正在识别上下文意图",
     "classify_intent": "正在识别意图",
+    "slot_resolution_gate": "正在确认关键信息",
     "extract_slots": "正在提取关键信息",
     "investigate": "正在调查订单和规则",
     "generate_recommendation": "正在生成处理建议",
