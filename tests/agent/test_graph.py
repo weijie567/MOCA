@@ -55,7 +55,7 @@ ROUTER_EDGE_KEYS = {
     "route_after_safety": {"session_context_load", "clarification_gate", "final_response"},
     "route_after_contextual_intent": {"clarification_gate", "final_response", "investigate", "slot_resolution_gate"},
     "route_after_slot_resolution": {"clarification_gate", "investigate", "memory_context_load"},
-    "route_after_risk": {"approval_gate", "final_response"},
+    "route_after_risk": {"approval_gate", "action_draft", "final_response"},
     "route_after_approval": {"risk_gate", "action_draft", "final_response"},
     "route_after_investigate": {
         "final_response",
@@ -175,6 +175,73 @@ def _recommendation() -> dict:
 
 def _risk() -> dict:
     return {"risk_level": "low", "risk_reason": "standard refund", "approval_required": False, "rule_ref": "LR-01"}
+
+
+def _auto_allowed_route_state() -> dict[str, Any]:
+    business_fact_ref = BusinessFactRefV1(
+        tenant_id=GRAPH_TEST_TENANT_ID,
+        source_system="moca_demo",
+        resource_type="refund_case",
+        resource_id="RF-1001",
+        resource_version="v1",
+        data_freshness_at=datetime(2026, 6, 29, 0, 0, tzinfo=UTC),
+        retrieved_at=datetime(2026, 6, 29, 0, 1, tzinfo=UTC),
+    ).model_dump(mode="json")
+    evidence_ref = EvidenceRefV1.build(
+        tenant_id=GRAPH_TEST_TENANT_ID,
+        doc_key="refund-policy",
+        chunk_id="chunk-001",
+        policy_version="v3",
+        text="Small coupon policy.",
+        retrieved_at="2026-06-29T00:00:00.000Z",
+        retrieval_config_version=RETRIEVAL_CONFIG_VERSION,
+        score=0.91,
+        rank=1,
+    ).model_dump(mode="json")
+    run_id = "33333333-3333-3333-3333-333333333333"
+    action_payload_hash = "sha256:" + "b" * 64
+    safety_snapshot_hash = "sha256:" + "c" * 64
+    safety_snapshot_ref = "action_safety_snapshot:test"
+    risk_decision_ref = "risk_decision:test"
+    target_merchant_id = "merchant-1"
+    return {
+        "tenant_id": GRAPH_TEST_TENANT_ID,
+        "current_run_id": run_id,
+        "target_merchant_id": target_merchant_id,
+        "risk_assessment": {"approval_required": False},
+        "proposed_action": {"schema_version": "proposed_action.v1", "action_type": "issue_coupon"},
+        "action_payload_hash": action_payload_hash,
+        "safety_snapshot_ref": safety_snapshot_ref,
+        "safety_snapshot_hash": safety_snapshot_hash,
+        "safety_snapshot_verified": True,
+        "risk_decision_ref": risk_decision_ref,
+        "business_fact_refs": [business_fact_ref],
+        "verified_evidence_refs": [evidence_ref],
+        "claim_verification_bundle": {
+            "overall_status": "verified",
+            "route": "continue",
+            "claim_results": [
+                {
+                    "claim_type": "action_recommendation",
+                    "allows_action_recommendation": True,
+                }
+            ],
+            "blocked_claims": [],
+        },
+        "auto_allowed_binding": {
+            "schema_version": "auto_allowed_action_binding.v1",
+            "tenant_id": GRAPH_TEST_TENANT_ID,
+            "run_id": run_id,
+            "target_merchant_id": target_merchant_id,
+            "action_payload_hash": action_payload_hash,
+            "safety_snapshot_ref": safety_snapshot_ref,
+            "safety_snapshot_hash": safety_snapshot_hash,
+            "risk_decision_ref": risk_decision_ref,
+            "idempotency_key": "auto:test",
+            "business_fact_refs": [business_fact_ref],
+            "verified_evidence_refs": [evidence_ref],
+        },
+    }
 
 
 class FakeGraphToolPlatform:
@@ -1068,6 +1135,7 @@ def test_all_router_return_keys_have_edges():
     assert (
         route_after_risk({"proposed_action": {"action_type": "issue_coupon"}}) in ROUTER_EDGE_KEYS["route_after_risk"]
     )
+    assert route_after_risk(_auto_allowed_route_state()) == "action_draft"
     assert route_after_risk({}) in ROUTER_EDGE_KEYS["route_after_risk"]
     assert (
         route_after_approval({"approval_result": {"decision": "approve"}}) in ROUTER_EDGE_KEYS["route_after_approval"]
