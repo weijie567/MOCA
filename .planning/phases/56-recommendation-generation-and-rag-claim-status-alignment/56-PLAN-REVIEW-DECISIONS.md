@@ -60,3 +60,15 @@ Initial independent review after repair found no remaining blocker in plan struc
 - Accepted Claude findings are reflected in plan text or recorded above as execution notes with rationale.
 
 Because the repair changes safety-critical plan semantics for `route_after_claim_verify` and `final_response`, autopilot must rerun Claude plan review before execution.
+
+## Loop 2 Decisions
+
+Claude review loop 2 found no HIGH blocker and assessed the revised phase plan risk as MEDIUM-LOW. One remaining MEDIUM warning was accepted:
+
+| Finding | Outcome | Evidence / Rationale | Repair |
+|---|---|---|---|
+| 56-04 still did not define how executor distinguishes historical compatibility fallback from current-run authority when canonical projections are absent. | accepted | The existing `src/agent/nodes/final_response.py` fallback reads `rag_verification`, `verification_route`, `verifier_status`, and `verifier_reason_codes`; without a concrete historical marker rule, a current run missing canonical projections could still get a verifier-derived route payload. | `56-04-PLAN.md` now says historical fallback may be used only with an existing persisted-trace or compatibility-projection signal, such as graph vocabulary projection metadata or a historical implementation node. If no reliable historical marker exists, final response must stop constructing authoritative route payloads from legacy verifier fields and leave legacy display compatibility to API/trace projection tests. |
+
+Loop 2 LOW suggestions about exhaustive 56-01 return-path identity tests, mixed `partial` test states, checklist summary table format, and graph grep evidence are accepted as execution notes because the repaired plan already contains the relevant test/summary requirements. No additional plan structure change is needed for those LOW items.
+
+Because the accepted Loop 2 repair is a narrow clarification of the already-added `final_response` authority rule, autopilot should rerun Claude review once more to confirm no remaining actionable warning before execution.

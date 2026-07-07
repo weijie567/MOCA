@@ -299,3 +299,119 @@ Single external reviewer run requested by autopilot Stage 3 (Claude). No multi-r
 
 ### Divergent Views
 - Not applicable for single-reviewer run. Codex adjudication records accepted, false-positive, disagreed, and deferred outcomes in 56-PLAN-REVIEW-DECISIONS.md.
+
+---
+
+## Claude Review Loop 2
+
+## 1. Summary
+
+整体看，第二轮修订后的 4 个 Phase 56 plan 已经覆盖 CAGM-07 的核心目标：先建立 canonical `recommendation_generation` callable，再切 active graph/path-map/baseline，随后收紧 RAG status 与 claim verification 的 fail-closed routing，最后同步 projection/API/frontend/docs/debt/validation。上一轮已接受的问题大多已经被具体化为测试、决策表或验收条件。当前没有看到会阻止执行的 HIGH blocker。剩余主要风险集中在 56-04：`final_response` 对“历史兼容 fallback”和“当前运行 authority”的区分仍偏抽象，执行时需要一个明确、可测试的判别条件，避免 legacy verifier 字段在 canonical bundle 缺失时重新变成事实上的当前权威来源。
+
+## 2. Strengths
+
+- **Plan split 合理且顺序清晰**
+  - 56-01 只处理 callable/identity，不碰 graph。
+  - 56-02 只处理 active graph/path-map/baseline。
+  - 56-03 只处理 deterministic routing safety。
+  - 56-04 处理 projection、final response、docs/debt/validation closeout。
+  - 这符合 D-56-14，也降低了并行执行时的冲突面。
+
+- **Phase 57 / Phase 58 边界反复锁定**
+  - 多处明确“不注册 `risk_gate`”“保留 `assess_risk_and_approval` 为 Phase 57 active legacy row”。
+  - `generate_recommendation` alias 删除明确留给 Phase 58。
+  - 这能防止 Phase 56 顺手扩大成最终 no-debt cleanup。
+
+- **56-02 修复了上一轮最关键的 graph path-map 风险**
+  - 不只检查 router 返回值，还要求检查 active graph `add_conditional_edges` path map 和 conditional edge source。
+  - 明确要求 `"recommendation_generation": "recommendation_generation"`，并拒绝 active `generate_recommendation` source。
+
+- **56-03 的 action-claim gate 已足够具体**
+  - 四行 decision table 消除了“有 proposed_action 但无 allowed action claim 是否能进 risk”的歧义。
+  - 明确 legacy `verification_route` / `verifier_status` / `verifier_reason_codes` 不能覆盖 canonical bundle。
+  - 保留非 action material/user-visible claims 进入 `claim_verify` 的覆盖，避免只修 action path 时误伤 ordinary policy/business answer path。
+
+- **RAG status 计划倾向 fail-closed**
+  - status vocabulary 绑定 `src.knowledge.schemas.RAG_CONTEXT_STATUSES`。
+  - missing / unknown / malformed / unsafe statuses 均要求 `final_response`。
+  - `partial` 只能基于已有 state fields 做低风险 predicate，避免新增隐形 authority 字段。
+
+- **验证命令符合 MOCA 规则**
+  - 所有 pytest / ruff / artifact scan / diff check 都使用 `UV_CACHE_DIR=/tmp/uv-cache uv run ...`。
+  - 没有看到 bare `pytest` 或 bare `python -m pytest`。
+
+## 3. Concerns
+
+- **MEDIUM — 56-04 中“历史兼容 fallback”与“当前运行 authority”判别条件仍不够具体**
+  - 计划要求 current-run priority 为：
+    1. `claim_verification_bundle`
+    2. `verified_evidence_package`
+    3. historical compatibility fallback only if explicitly labelled non-authoritative
+  - 这是正确方向，但 plan 没有指定 executor 应通过什么现有信号判断“historical”还是“current-run canonical projections absent”。
+  - 当前仓库中 `src/agent/nodes/final_response.py:403-427` 的 `_verification_route_payload` 会在 canonical checks 后继续读取 `rag_verification`、`verification_route`、`verifier_status`、`verifier_reason_codes`。如果执行时只是给 fallback 加标签，但没有明确 gating 条件，legacy 字段仍可能在 current-run canonical projection 缺失时产生用户可见 route payload。
+  - 这是 warning，不是 blocker，因为 56-04 已经要求测试“legacy fields cannot create current-run authority”，但建议把判别条件写进 plan，减少执行歧义。
+
+- **LOW — 56-01 identity-only refactor 涉及多个硬编码点，执行复杂度略高**
+  - 当前 `src/agent/nodes/generate_recommendation.py` 中 trace helper hardcode `node: "generate_recommendation"`，insufficient-evidence path 也 hardcode `llm_outputs["generate_recommendation"]`。
+  - Plan 已要求引入 `output_key` 和 `trace_node`，但 executor 需要覆盖所有 early-return / fallback / success path。
+  - 计划已有相关测试要求，因此不是 blocker。
+
+- **LOW — 56-03 对 `partial` low-risk predicate 的字段清单正确，但实际组合测试可能遗漏**
+  - Plan 列出可用字段：`primary_intent/current_intent`、`requested_operation`、`risk_tier/risk_level`、`risk_signals`、`proposed_action`、`evidence_policy`、`verified_evidence_package`。
+  - 风险是 executor 只测单字段，而没测组合优先级，例如 low-risk intent + `proposed_action`、policy-QA + approval-required risk。
+  - Plan 已说 action-bound/high-risk/approval-required must fail closed；建议执行时至少覆盖几个混合状态。
+
+- **LOW — 56-04 docs surface 很大，有轻微 scope creep 风险**
+  - `files_modified` 包含多份 architecture docs、README、deferred decisions、API/frontend/eval/final response tests。
+  - Task 3 已要求“inspect checklist; update stale files; skipped files 写 no update needed reason”，这能控制风险。
+  - 执行时应避免为追求同步而重写大段文档，只做 Phase 56 语义相关的小范围更新。
+
+## 4. Suggestions
+
+- **建议补强 56-04 Task 2 的 legacy fallback 判别条件**
+  - 在 action 或 acceptance criteria 中加一句类似：
+    - “Historical fallback may be used only when the state/trace payload is explicitly marked as historical or compatibility-projected, e.g. via graph vocabulary projection metadata, historical trace implementation node, or another existing persisted-trace signal; absence of canonical `claim_verification_bundle` / `verified_evidence_package` in a current run must produce no authoritative verification payload.”
+  - 如果当前 state 没有可靠 historical marker，则更安全的执行策略是：
+    - `final_response` 不再从 legacy verifier fields 构造 authoritative payload；
+    - legacy fields 只允许出现在 API/trace projection 层的 non-authoritative display metadata。
+
+- **建议 56-01 明确测试所有 return paths 的 identity**
+  - 已要求 completed path 和 insufficient-evidence path。
+  - 执行时再确认 LLM provider error / malformed LLM output / citation validation failure 等 fallback path，如果它们写 `llm_outputs` 或 trace，也必须使用 injected canonical identity。
+
+- **建议 56-03 的 `partial` tests 至少覆盖混合状态**
+  - 例如：
+    - `rag_context_status="partial"` + policy-QA intent + `proposed_action` present → `final_response`
+    - `partial` + low-risk intent + `risk_tier="approval_required"` → `final_response`
+    - `partial` + `evidence_policy` unsafe / action-bound → `final_response`
+    - `partial` + clean answer-only/policy-QA state → `recommendation_generation`
+
+- **建议 56-04 Summary 对 checklist skipped files 使用表格**
+  - 格式建议：
+    - file
+    - inspected evidence
+    - update needed? yes/no
+    - reason
+  - 这样后续 Phase 57/58 更容易复核，不会把“未改”误读成“漏看”。
+
+- **建议 closeout 验证中保留 graph grep 检查**
+  - 56-02 已有局部 `rg` acceptance。
+  - 56-04 closeout 可保留一个摘要检查：active graph/baseline 中不再出现 `"recommendation_generation": "generate_recommendation"` 或 active `add_node("generate_recommendation"`。
+  - 这不是必须新增命令，但能作为 summary evidence。
+
+## 5. Risk Assessment
+
+**Overall risk: MEDIUM-LOW**
+
+理由：
+
+- **目标覆盖度高**：4 个 plan 合起来覆盖 active node rename、route map cutover、RAG status fail-closed、claim hard gate、projection/docs/debt/validation，能达成 Phase 56 成功标准。
+- **安全边界较清楚**：claim verification authority、RAG evidence authority、Phase 57 risk boundary、Phase 58 alias deletion边界都写得比较明确。
+- **剩余风险不是结构性缺口，而是执行歧义**：主要在 56-04 的 legacy fallback 如何判断 historical vs current-run。如果执行时没有明确 marker，容易把 legacy verifier fields 继续当成 current-run safe payload 来源。
+- **没有发现新的 HIGH blocker**。在补强 56-04 fallback 判别条件后，可以进入执行。
+
+---
+
+## Loop 2 Consensus Summary
+
+Single external reviewer loop 2. Claude found no HIGH blocker and one MEDIUM warning about historical fallback gating in final_response. Codex accepted and repaired that warning in 56-04-PLAN.md and recorded the decision in 56-PLAN-REVIEW-DECISIONS.md.
