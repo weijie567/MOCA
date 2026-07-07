@@ -50,6 +50,22 @@ ACTIONABLE_ACTIONS = {
     "manual_review",
 }
 NO_ACTION_RECOMMENDATIONS = {"insufficient_evidence", "citation_invalid", "retrieval_error"}
+_LEGACY_NODE = "assess_risk_and_approval"
+_CANONICAL_NODE = "risk_gate"
+HISTORICAL_TRACE_PROJECTION = "HISTORICAL_TRACE_PROJECTION"
+IMPORT_TEST_COMPATIBILITY = "IMPORT_TEST_COMPATIBILITY"
+DELETE_BY_PHASE_58 = "DELETE_BY_PHASE_58"
+PHASE_57_COMPATIBILITY_ALIAS = {
+    "legacy_surface": _LEGACY_NODE,
+    "canonical_owner": _CANONICAL_NODE,
+    "reason": IMPORT_TEST_COMPATIBILITY,
+    "trace_projection": HISTORICAL_TRACE_PROJECTION,
+    "validation_tests": (
+        "tests/agent/test_nodes/test_risk_gate.py",
+        "tests/agent/test_nodes/test_assess_risk_and_approval.py",
+    ),
+    "delete_phase": DELETE_BY_PHASE_58,
+}
 
 
 def _now_iso() -> str:
@@ -73,9 +89,11 @@ def _trace_step(
     provider_latency_ms: int | None = None,
     retry_count: int = 0,
     context_chars: int = 0,
+    *,
+    trace_node: str = _LEGACY_NODE,
 ) -> dict[str, Any]:
     return {
-        "node": "assess_risk_and_approval",
+        "node": trace_node,
         "status": status,
         "started_at": started_at,
         "completed_at": _now_iso(),
@@ -247,7 +265,13 @@ def _blocked_verifier_risk(state: AgentState, reason_code: str | None = None) ->
     }
 
 
-def _blocked_action_gate_state(state: AgentState, started_at: str, reason_code: str) -> dict[str, Any]:
+def _blocked_action_gate_state(
+    state: AgentState,
+    started_at: str,
+    reason_code: str,
+    *,
+    trace_node: str = _LEGACY_NODE,
+) -> dict[str, Any]:
     bundle = _claim_verification_bundle(state)
     return {
         "risk_assessment": _blocked_verifier_risk(state, reason_code),
@@ -266,7 +290,7 @@ def _blocked_action_gate_state(state: AgentState, started_at: str, reason_code: 
         "claim_verification_bundle": state.get("claim_verification_bundle"),
         "blocked_claims": list(state.get("blocked_claims") or (bundle or {}).get("blocked_claims") or []),
         "safe_support_refs": list(state.get("safe_support_refs") or (bundle or {}).get("safe_support_refs") or []),
-        "trace_steps": (state.get("trace_steps") or []) + [_trace_step("blocked", started_at)],
+        "trace_steps": (state.get("trace_steps") or []) + [_trace_step("blocked", started_at, trace_node=trace_node)],
     }
 
 
@@ -323,7 +347,11 @@ def _build_proposed_action(
     }
 
 
-def _trusted_edit_resume(state: AgentState) -> TrustedApprovalResultV1 | None:
+def _trusted_edit_resume(
+    state: AgentState,
+    *,
+    expected_resume_route: str = _LEGACY_NODE,
+) -> TrustedApprovalResultV1 | None:
     raw_result = state.get("approval_result") or {}
     try:
         result = TrustedApprovalResultV1.model_validate(raw_result)
@@ -332,7 +360,7 @@ def _trusted_edit_resume(state: AgentState) -> TrustedApprovalResultV1 | None:
     if (
         result.decision_type != "edit"
         or result.status != "superseded"
-        or result.resume_route != "assess_risk_and_approval"
+        or result.resume_route != expected_resume_route
         or not result.edited_action
         or not result.new_action_payload_hash
     ):
@@ -895,6 +923,7 @@ async def _attach_snapshot_binding(
     context: dict[str, Any],
     config: RunnableConfig | None,
     trusted_edit: TrustedApprovalResultV1 | None = None,
+    trace_node: str = _LEGACY_NODE,
 ) -> dict[str, Any]:
     if not result.get("proposed_action"):
         return result
@@ -1031,7 +1060,7 @@ async def _attach_snapshot_binding(
             "auto_allowed": False,
             "safety_snapshot_verified": False,
             "final_response": SAFE_MANUAL_REVIEW_RESPONSE,
-            "node_errors": (state.get("node_errors") or []) + [{"node": "assess_risk_and_approval", "error": str(exc)}],
+            "node_errors": (state.get("node_errors") or []) + [{"node": trace_node, "error": str(exc)}],
         }
 
     snapshot_result = {
@@ -1095,9 +1124,25 @@ def _fallback_risk(draft: dict[str, Any], context: dict[str, Any], rules: dict[s
 
 
 async def assess_risk_and_approval(state: AgentState, config: RunnableConfig = None) -> dict:
+    """Compatibility wrapper for historical imports/tests until Phase 58."""
+    return await _assess_risk_and_approval_with_identity(
+        state,
+        config,
+        output_key=_LEGACY_NODE,
+        trace_node=_LEGACY_NODE,
+    )
+
+
+async def _assess_risk_and_approval_with_identity(
+    state: AgentState,
+    config: RunnableConfig = None,
+    *,
+    output_key: str,
+    trace_node: str,
+) -> dict:
     started_at = _now_iso()
     rules = _load_risk_rules()
-    trusted_edit = _trusted_edit_resume(state)
+    trusted_edit = _trusted_edit_resume(state, expected_resume_route=trace_node)
     draft = (
         _draft_from_trusted_edit(trusted_edit.edited_action)
         if trusted_edit is not None
@@ -1107,14 +1152,15 @@ async def assess_risk_and_approval(state: AgentState, config: RunnableConfig = N
 
     block_reason = _action_gate_block_reason(state, draft)
     if block_reason is not None:
-        return _blocked_action_gate_state(state, started_at, block_reason)
+        return _blocked_action_gate_state(state, started_at, block_reason, trace_node=trace_node)
 
     if draft.get("recommended_action") in NO_ACTION_RECOMMENDATIONS:
         assessment = _fallback_risk(draft, context, rules)
         return {
             "risk_assessment": assessment,
             "proposed_action": None,
-            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
+            "trace_steps": (state.get("trace_steps") or [])
+            + [_trace_step("completed", started_at, trace_node=trace_node)],
         }
     if state.get("current_intent") == "policy_qa":
         low_rule = (rules.get("low_risk") or [{}])[0]
@@ -1126,7 +1172,8 @@ async def assess_risk_and_approval(state: AgentState, config: RunnableConfig = N
                 "rule_ref": low_rule.get("id"),
             },
             "proposed_action": None,
-            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
+            "trace_steps": (state.get("trace_steps") or [])
+            + [_trace_step("completed", started_at, trace_node=trace_node)],
         }
 
     prompt_assembly = await _assemble_risk_prompt(
@@ -1169,7 +1216,7 @@ async def assess_risk_and_approval(state: AgentState, config: RunnableConfig = N
                 )
                 else None
             )
-            outputs = {**(state.get("llm_outputs") or {}), "assess_risk_and_approval": assessment}
+            outputs = {**(state.get("llm_outputs") or {}), output_key: assessment}
             result = {
                 "risk_assessment": assessment,
                 "proposed_action": proposed_action,
@@ -1182,6 +1229,7 @@ async def assess_risk_and_approval(state: AgentState, config: RunnableConfig = N
                         provider_latency_ms,
                         retry_count,
                         _messages_chars(messages),
+                        trace_node=trace_node,
                     )
                 ],
             }
@@ -1193,6 +1241,7 @@ async def assess_risk_and_approval(state: AgentState, config: RunnableConfig = N
                 context=context,
                 config=config,
                 trusted_edit=trusted_edit,
+                trace_node=trace_node,
             )
         except (ValidationError, ValueError, TimeoutError) as exc:
             provider_latency_ms = round((time.perf_counter() - t0) * 1000)
@@ -1219,7 +1268,7 @@ async def assess_risk_and_approval(state: AgentState, config: RunnableConfig = N
         "risk_assessment": fallback_assessment,
         "proposed_action": proposed_action,
         "node_errors": (state.get("node_errors") or [])
-        + [{"node": "assess_risk_and_approval", "error": last_error, "retry_count": 2}],
+        + [{"node": trace_node, "error": last_error, "retry_count": 2}],
         "trace_steps": (state.get("trace_steps") or [])
         + [
             _trace_step(
@@ -1228,6 +1277,7 @@ async def assess_risk_and_approval(state: AgentState, config: RunnableConfig = N
                 provider_latency_ms,
                 retry_count,
                 _messages_chars(messages),
+                trace_node=trace_node,
             )
         ],
     }
@@ -1239,6 +1289,7 @@ async def assess_risk_and_approval(state: AgentState, config: RunnableConfig = N
         context=context,
         config=config,
         trusted_edit=trusted_edit,
+        trace_node=trace_node,
     )
 
 

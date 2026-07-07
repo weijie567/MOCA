@@ -17381,3 +17381,38 @@ Task 2 GREEN 前该验证仍会失败；这不是环境入口问题，命令已�
 
 - `src/agent/nodes/risk_gate.py`
 - `src/agent/nodes/assess_risk_and_approval.py` 中 `_trace_step`、`llm_outputs`、`node_errors` 的 identity 参数化
+
+## 2026-07-07 Phase 57 Plan 57-01 Task 2：GREEN 验证发现 fail-closed 测试断言过强
+
+### 问题现象
+
+Task 2 首次 GREEN 验证时，`test_canonical_risk_gate_binding_failure_keeps_fail_closed_metadata_canonical` 失败；实现已产出 canonical `risk_gate` identity，但测试错误地要求 `llm_outputs["risk_gate"]` 与最终 `risk_assessment` 完全相等。
+
+### 如何检测 / 复现
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_risk_gate.py tests/agent/test_nodes/test_assess_risk_and_approval.py tests/agent/test_phase22_action_boundary.py -q --tb=short
+```
+
+### 关键证据或命令
+
+```text
+AssertionError: {'risk_level': 'high', ...} != {'risk_level': 'manual_review', 'blocked': True, ...}
+```
+
+### 当前判断 / 根因
+
+这是新增测试断言不符合既有 Phase 34 fail-closed 合约，不是产品逻辑 bug。当前实现会保留原始 LLM structured output 供审计，同时在绑定失败后将最终 `risk_assessment` 安全改写为 `manual_review` / blocked；两者本来不应完全相等。
+
+### 已做处理
+
+已修正测试：只要求 `llm_outputs["risk_gate"]` 记录原始 high-risk 输出、最终 `risk_assessment` 为 `manual_review`，并继续断言 trace/node_errors/fallback metadata 不出现 current-run legacy identity。
+
+### 剩余问题
+
+无。修正后同一命令通过：`40 passed, 1 warning`。
+
+### 下次继续排查入口
+
+- `tests/agent/test_nodes/test_risk_gate.py::test_canonical_risk_gate_binding_failure_keeps_fail_closed_metadata_canonical`
+- `src/agent/nodes/assess_risk_and_approval.py::_phase34_fail_closed_result`

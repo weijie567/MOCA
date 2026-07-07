@@ -119,7 +119,8 @@ async def test_canonical_risk_gate_binding_failure_keeps_fail_closed_metadata_ca
     assert result["proposed_action"] is None
     assert result["approval_plan"] is None
     assert result["final_response"] == assess_risk_module.SAFE_MANUAL_REVIEW_RESPONSE
-    assert result["llm_outputs"][_CANONICAL_NODE] == result["risk_assessment"]
+    assert result["llm_outputs"][_CANONICAL_NODE]["risk_level"] == "high"
+    assert result["risk_assessment"]["risk_level"] == "manual_review"
     assert result["trace_steps"][-1]["node"] == _CANONICAL_NODE
     _assert_no_current_run_legacy_identity(result)
 
