@@ -325,6 +325,56 @@ def _edited_action(bundle: ApprovalBundle) -> dict:
     }
 
 
+def _edit_decision_result_for_resume_route(resume_route: str) -> ApprovalDecisionResult:
+    approval_id = uuid4()
+    tenant_id = uuid4()
+    run_id = uuid4()
+    decided_by = uuid4()
+    decided_at = datetime.now(UTC)
+    resume_payload = {
+        "schema_version": "approval_result.v1",
+        "approval_id": str(approval_id),
+        "tenant_id": str(tenant_id),
+        "run_id": str(run_id),
+        "status": "superseded",
+        "decision_type": "edit",
+        "revision": 2,
+        "request_version": 2,
+        "level_version": 2,
+        "assignment_version": 2,
+        "action_payload_hash": "sha256:" + "1" * 64,
+        "safety_snapshot_ref": "snapshot:test",
+        "safety_snapshot_hash": "sha256:" + "2" * 64,
+        "decided_by": str(decided_by),
+        "decided_at": decided_at.isoformat(),
+        "edited_action": {"action_type": "issue_coupon", "target_id": "RF-1001"},
+        "new_action_payload_hash": "sha256:" + "3" * 64,
+        "resume_route": resume_route,
+    }
+    return ApprovalDecisionResult(
+        approval_id=approval_id,
+        tenant_id=tenant_id,
+        run_id=run_id,
+        status="superseded",
+        decision_type="edit",
+        revision=2,
+        request_version=2,
+        level_version=2,
+        assignment_version=2,
+        action_payload_hash=resume_payload["action_payload_hash"],
+        safety_snapshot_ref=resume_payload["safety_snapshot_ref"],
+        safety_snapshot_hash=resume_payload["safety_snapshot_hash"],
+        decided_by=decided_by,
+        decided_at=decided_at,
+        decision_id=uuid4(),
+        event_id=uuid4(),
+        new_action_payload_hash=resume_payload["new_action_payload_hash"],
+        edited_action=resume_payload["edited_action"],
+        resume_payload=resume_payload,
+        graph_thread_id=f"{tenant_id}:{decided_by}:thread-edit-route",
+    )
+
+
 @pytest.mark.parametrize("decision_type", ["respond", "edit"])
 def test_decide_request_covers_approval_02_decision_type_cases(decision_type: str):
     assert decision_type in {"respond", "edit"}
@@ -1060,6 +1110,132 @@ async def test_decide_edit_resume_failure_can_retry_and_rebind_without_new_decis
     assert replacement.risk_decision_ref == f"risk_decision:{bundle.approval.run_id}:{replacement.action_payload_hash}"
     assert replacement.risk_decision["action_payload_hash"] == replacement.action_payload_hash
     assert replacement.approval_idempotency_key
+
+
+@pytest.mark.asyncio
+async def test_decide_edit_retry_normalizes_persisted_legacy_route_before_graph_resume(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(session, seeded_session, thread_id="thread-edit-legacy-resume-retry")
+    graph = ReinterruptResumeGraph(target_merchant_id=str(seeded_session["merchant"].id))
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+    headers = await _admin_headers(client)
+    edited_action = _edited_action(bundle)
+    decision_body = _decision_body(bundle, "edit", edited_action=edited_action)
+    original_commit = session.commit
+    commit_count = 0
+
+    async def fail_final_resume_commit():
+        nonlocal commit_count
+        commit_count += 1
+        if commit_count == 3:
+            raise RuntimeError("simulated historical retry commit failure")
+        await original_commit()
+
+    monkeypatch.setattr(session, "commit", fail_final_resume_commit)
+    first_response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=decision_body,
+        headers=headers,
+    )
+    assert first_response.status_code == 500
+    assert len(graph.calls) == 1
+
+    monkeypatch.setattr(session, "commit", original_commit)
+    decided_event = (
+        (
+            await session.execute(
+                select(ApprovalEvent).where(
+                    ApprovalEvent.approval_request_id == bundle.approval.id,
+                    ApprovalEvent.event_type == "approval_decided",
+                )
+            )
+        )
+        .scalars()
+        .one()
+    )
+    decided_event.metadata_json = {
+        **(decided_event.metadata_json or {}),
+        "resume_route": "assess_risk_and_approval",
+    }
+    await session.commit()
+
+    retry_response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=decision_body,
+        headers=headers,
+    )
+    payload = retry_response.json()
+
+    assert retry_response.status_code == 200, payload
+    assert payload["data"]["resume_route"] == "risk_gate"
+    assert len(graph.calls) == 2
+    retry_resume = graph.calls[1][0].resume
+    assert retry_resume["resume_route"] == "risk_gate"
+    assert retry_resume["edited_action"] == edited_action
+    assert retry_resume["new_action_payload_hash"] == graph.calls[0][0].resume["new_action_payload_hash"]
+
+
+@pytest.mark.asyncio
+async def test_decide_edit_retry_rejects_mismatched_hash_and_version(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(session, seeded_session, thread_id="thread-edit-retry-mismatch")
+    graph = ReinterruptResumeGraph(target_merchant_id=str(seeded_session["merchant"].id))
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+    headers = await _admin_headers(client)
+    edited_action = _edited_action(bundle)
+    decision_body = _decision_body(bundle, "edit", edited_action=edited_action)
+    original_commit = session.commit
+    commit_count = 0
+
+    async def fail_final_resume_commit():
+        nonlocal commit_count
+        commit_count += 1
+        if commit_count == 3:
+            raise RuntimeError("simulated retry mismatch failure")
+        await original_commit()
+
+    monkeypatch.setattr(session, "commit", fail_final_resume_commit)
+    first_response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=decision_body,
+        headers=headers,
+    )
+    assert first_response.status_code == 500
+    assert len(graph.calls) == 1
+
+    monkeypatch.setattr(session, "commit", original_commit)
+    mismatched_hash = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json={**decision_body, "action_payload_hash": "sha256:" + "9" * 64},
+        headers=headers,
+    )
+    mismatched_version = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json={**decision_body, "expected_request_version": decision_body["expected_request_version"] + 2},
+        headers=headers,
+    )
+
+    assert mismatched_hash.status_code == 409
+    assert mismatched_hash.json()["error"]["code"] == "CONFLICT"
+    assert mismatched_version.status_code == 409
+    assert mismatched_version.json()["error"]["code"] == "CONFLICT"
+    assert len(graph.calls) == 1
+
+
+def test_should_resume_graph_accepts_only_current_canonical_edit_route() -> None:
+    canonical = _edit_decision_result_for_resume_route("risk_gate")
+    legacy = _edit_decision_result_for_resume_route("assess_risk_and_approval")
+
+    assert approvals_router._should_resume_graph(canonical) is True
+    assert approvals_router._should_resume_graph(legacy) is False
 
 
 @pytest.mark.asyncio

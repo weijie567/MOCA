@@ -604,6 +604,19 @@ def test_route_after_approval_sends_edit_to_risk_reroute_not_action_draft():
     assert route_after_approval(state) == "risk_gate"
 
 
+def test_route_after_approval_rejects_current_legacy_edit_route():
+    state = _approval_route_state(
+        approval_overrides={
+            "decision_type": "edit",
+            "status": "superseded",
+            "new_action_payload_hash": "sha256:" + "3" * 64,
+            "resume_route": "assess_risk_and_approval",
+        }
+    )
+
+    assert route_after_approval(state) == "final_response"
+
+
 def test_route_after_approval_fails_closed_on_hash_mismatch():
     state = _approval_route_state(approval_overrides={"action_payload_hash": "sha256:" + "9" * 64})
 
