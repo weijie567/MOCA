@@ -431,7 +431,7 @@ Plans:
 **Requirements**: CAGM-06
 **Depends on:** Phase 54
 **Must read:** `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`
-**Plans:** 0 plans (not planned yet)
+**Plans:** 3 plans
 **Success Criteria** (what must be TRUE):
   1. Active graph order routes resolved slot state into `memory_context_load` before `investigate`.
   2. Memory outputs carry usage/authority labels and cannot satisfy policy evidence, current business facts, approval/action authority, or replay truth.
@@ -439,7 +439,9 @@ Plans:
   4. Active runtime no longer uses `long_term_memory_retrieve` as the registered graph node after cutover, except for explicitly recorded temporary implementation reuse slated for deletion.
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 55 to break down)
+- [ ] 55-01-PLAN.md — canonical `memory_context_load` node contract, output labels, and focused memory-authority tests.
+- [ ] 55-02-PLAN.md — active graph/router/baseline cutover from `long_term_memory_retrieve` to `memory_context_load`.
+- [ ] 55-03-PLAN.md — vocabulary/API/docs/architecture-debt compatibility ledger and final validation closeout.
 
 ### Phase 56: Recommendation Generation and RAG Claim Status Alignment
 
