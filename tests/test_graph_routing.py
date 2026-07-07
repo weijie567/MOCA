@@ -25,6 +25,7 @@ from src.approvals.schemas import AutoAllowedActionBindingV1
 from src.db.models import ActionSafetySnapshot
 from src.tools.contracts import BusinessFactRefV1
 from tests.approvals.test_service_transitions import _create_run, _evidence_ref
+from tests.architecture.graph_baseline import graph_conditional_edge_mappings
 
 
 VALID_INVESTIGATE_KEYS = {"final_response", "clarification_gate", "recommendation_generation"}
@@ -418,6 +419,25 @@ def test_route_after_slot_resolution_memory_hints_use_canonical_destination():
     )
     assert route_after_slot_resolution({**base_state, "routing_hints": {"needs_long_term_memory": True}}) == (
         "memory_context_load"
+    )
+
+
+def test_phase56_recommendation_route_maps_target_canonical_graph_node():
+    route_maps = graph_conditional_edge_mappings()
+
+    assert route_maps[("investigate", "route_after_investigate")]["recommendation_generation"] == (
+        "recommendation_generation"
+    )
+    assert route_maps[("rag_context_build", "route_after_rag_context")]["recommendation_generation"] == (
+        "recommendation_generation"
+    )
+    assert route_maps[("recommendation_generation", "route_after_recommendation")] == {
+        "claim_verify": "claim_verify",
+        "final_response": "final_response",
+    }
+    assert ("generate_recommendation", "route_after_recommendation") not in route_maps
+    assert route_maps[("claim_verify", "route_after_claim_verify")]["assess_risk_and_approval"] == (
+        "assess_risk_and_approval"
     )
 
 

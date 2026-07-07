@@ -1,5 +1,49 @@
 # 本地验证问题记录
 
+## 19. Phase 56-02 Task 2 TDD RED 验证确认 graph integration 测试仍有 legacy expectation
+
+日期：2026-07-07
+
+### 问题现象
+
+执行 Phase 56-02 Task 2 的 RED 聚焦套件后，新增 route-map 覆盖通过，但 `tests/agent/test_graph.py` 仍有 2 个旧断言失败：一个仍期待 `("generate_recommendation", "claim_verify")` 条件边，另一个仍把 `route_after_investigate` 的 `recommendation_generation` route key 映射到 `generate_recommendation` 节点。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/agent/test_graph.py tests/test_graph_routing.py -q --tb=short
+```
+
+### 关键证据或命令
+
+失败摘要显示：
+
+```text
+FAILED tests/agent/test_graph.py::test_phase_33_claim_verify_is_registered_as_runnable_graph_node
+assert ('generate_recommendation', 'claim_verify') in conditional_edges
+
+FAILED tests/agent/test_graph.py::test_route_after_investigate_keys_are_edge_targets
+assert 'generate_recommendation' in nodes
+```
+
+### 当前判断 / 根因
+
+这是预期的 TDD RED 失败。`src/agent/graph.py` 已在 Task 1 切到 canonical 节点，但 Task 2 的 graph integration 断言尚未同步到 Phase 56 目标态。
+
+### 已做处理
+
+已新增 `tests/test_graph_routing.py::test_phase56_recommendation_route_maps_target_canonical_graph_node`，直接检查 active graph path-map destination 和 `route_after_recommendation` source，同时确认 `claim_verify -> assess_risk_and_approval` 仍为 Phase 57 边界。
+
+### 剩余问题
+
+需要在 GREEN 阶段更新 `tests/agent/test_graph.py` 的 legacy edge/source/destination 断言，并保留 Phase 57 `assess_risk_and_approval` 断言。
+
+### 下次继续排查入口
+
+优先查看 `tests/agent/test_graph.py::test_phase_33_claim_verify_is_registered_as_runnable_graph_node` 和 `tests/agent/test_graph.py::test_route_after_investigate_keys_are_edge_targets`。
+
 ## 18. Phase 56-02 Task 1 TDD RED 验证确认 active graph 尚未切到 recommendation_generation
 
 日期：2026-07-07
