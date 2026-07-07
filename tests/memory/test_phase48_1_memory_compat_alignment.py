@@ -154,23 +154,31 @@ def test_reviewed_memory_hint_aliases_are_explicit() -> None:
     for source in (routing_source, reviewed_node_source):
         assert "needs_reviewed_memory_context" in source
         assert "needs_long_term_memory" in source
-    assert 'return "long_term_memory_retrieve"' in routing_source
+    assert '"long_term_memory_retrieve"' in routing_source or '"memory_context_load"' in routing_source
 
 
 def test_runtime_graph_compatibility_node_names_remain() -> None:
     graph_source = _source(GRAPH_PATH)
     vocabulary_source = _source(GRAPH_VOCABULARY_PATH)
 
+    assert 'builder.add_node("session_context_load", session_context_load)' in graph_source
+    assert 'builder.add_node("session_memory_load", session_memory_load)' not in graph_source
+    assert (
+        'builder.add_node("long_term_memory_retrieve", long_term_memory_retrieve)' in graph_source
+        or 'builder.add_node("memory_context_load", memory_context_load)' in graph_source
+    )
+    assert (
+        '"long_term_memory_retrieve": "long_term_memory_retrieve"' in graph_source
+        or '"memory_context_load": "memory_context_load"' in graph_source
+    )
     for token in (
-        'builder.add_node("session_memory_load", session_memory_load)',
-        'builder.add_node("long_term_memory_retrieve", long_term_memory_retrieve)',
-        '"session_memory_load": "session_memory_load"',
-        '"long_term_memory_retrieve": "long_term_memory_retrieve"',
-    ):
-        assert token in graph_source
-    for token in (
-        '_entry("session_memory_load", "session_context_load", "node", "compatibility_alias", True)',
-        '_entry("long_term_memory_retrieve", "memory_context_load", "node", "compatibility_alias", True)',
+        '"session_memory_load"',
+        '"session_context_load"',
+        '"PHASE_53_COMPATIBILITY_ALIAS"',
+        '"long_term_memory_retrieve"',
+        '"memory_context_load"',
+        '"compatibility_alias"',
+        '"DELETE_BY_PHASE_58"',
     ):
         assert token in vocabulary_source
 

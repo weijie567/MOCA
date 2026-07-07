@@ -15295,3 +15295,94 @@ AttributeError: <module 'src.agent.nodes.long_term_memory_retrieve' ...> has no 
 - `src/agent/nodes/memory_context_load.py`
 - `src/agent/nodes/long_term_memory_retrieve.py`
 - `tests/agent/test_memory_context_load.py`
+
+## 2026-07-07 — Phase 55-01 boundary selector 发现 reviewed-memory 测试 seam 仍 patch 旧 classifier
+
+### 问题现象
+
+Task 2 增补 canonical `memory_context_load` authority boundary 测试后，运行 `tests/agent/test_memory_evidence_boundary.py` 时，两个既有 reviewed-memory graph boundary 用例失败，`final_state["long_term_memory"]` 为 `None`，说明 graph 没有进入 reviewed-memory load 路径。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_memory_evidence_boundary.py -q --tb=short
+```
+
+或单独运行：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest 'tests/agent/test_memory_evidence_boundary.py::test_reviewed_memory_cannot_satisfy_policy_evidence_or_action_authority[needs_long_term_memory]' -q --tb=short
+```
+
+### 关键证据或命令
+
+失败输出包含：
+
+```text
+assert final_state["long_term_memory"]
+E   assert None
+```
+
+### 当前判断 / 根因
+
+这是测试 seam 随 Phase 53 graph cutover 后的漂移：该边界测试仍只 patch `classify_intent_module._get_llm`，但当前 active graph 已由 `contextual_intent_resolve` 负责语义/route hint 输出，导致 `needs_long_term_memory` / `needs_reviewed_memory_context` hint 没有进入当前 graph 节点。
+
+### 已做处理
+
+已在 `tests/agent/test_memory_evidence_boundary.py` 同时 patch `contextual_intent_resolve._get_llm`，保留 legacy classifier patch 作为兼容 seam。重跑 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_memory_evidence_boundary.py -q --tb=short` 后结果为 `12 passed`。
+
+### 剩余问题
+
+无 Task 2 阻塞。该修复只调整测试 seam，未改变生产 graph 路由。
+
+### 下次继续排查入口
+
+- `tests/agent/test_memory_evidence_boundary.py`
+- `tests/agent/test_graph.py::_patch_graph_dependencies`
+- `src/agent/nodes/contextual_intent_resolve.py`
+
+## 2026-07-07 — Phase 55-01 alignment gate 发现 Phase 48.1 static guard 仍要求旧 active graph 节点
+
+### 问题现象
+
+Task 2 运行 Phase 46/47/48/48.1 memory-layer alignment gate 时，`tests/memory/test_phase48_1_memory_compat_alignment.py` 两个静态用例失败：一个仍要求 routing source 包含精确 `return "long_term_memory_retrieve"`，另一个仍要求 active graph 注册 `session_memory_load`。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase46_session_context_alignment.py tests/memory/test_phase47_case_precedent_alignment.py tests/memory/test_phase48_long_term_preference_alignment.py tests/memory/test_phase48_1_memory_compat_alignment.py -q --tb=short
+```
+
+### 关键证据或命令
+
+失败输出包含：
+
+```text
+assert 'return "long_term_memory_retrieve"' in routing_source
+assert 'builder.add_node("session_memory_load", session_memory_load)' in graph_source
+```
+
+第一次修复后又发现 vocabulary assertion 过度依赖单行 `_entry(...)` 源码格式，失败在 `session_memory_load -> session_context_load` alias 已改为多行并带 Phase 53 reason metadata。
+
+### 当前判断 / 根因
+
+这是 Phase 48.1 compatibility static guard 随 Phase 53/55 迁移序列后的测试漂移。Phase 53 已正确删除 active `session_memory_load` graph node；Phase 55-01 建立 canonical `memory_context_load` contract，但 active graph/router 切换属于 55-02。因此 guard 应保护 storage/API/config/import/vocabulary compatibility，而不应继续强制旧 active graph 注册。
+
+### 已做处理
+
+已更新 `tests/memory/test_phase48_1_memory_compat_alignment.py`：session path 要求 active `session_context_load` 且禁止 active `session_memory_load`；reviewed-memory path 允许 55-01 的 active `long_term_memory_retrieve` 或 55-02 后的 active `memory_context_load`；vocabulary 检查改为语义 token，保留 `compatibility_alias` 与 `DELETE_BY_PHASE_58` 约束。重跑 alignment gate 后结果为 `33 passed`。
+
+### 剩余问题
+
+无 Task 2 阻塞。Active graph/router 正式切到 `memory_context_load` 仍属于 Plan 55-02，不在本次修复中提前完成。
+
+### 下次继续排查入口
+
+- `tests/memory/test_phase48_1_memory_compat_alignment.py`
+- `src/agent/graph.py`
+- `src/agent/routing.py`
+- `src/agent/graph_vocabulary.py`

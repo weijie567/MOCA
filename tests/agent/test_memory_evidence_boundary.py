@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.graph import build_graph
 from src.agent.nodes import classify_intent as classify_intent_module
+from src.agent.nodes import contextual_intent_resolve as contextual_intent_module
 from src.agent.nodes import memory_write as memory_write_module
 from src.agent.nodes.memory_write import memory_write
 from src.agent.trace import write_agent_run
@@ -123,6 +124,23 @@ def _planned_contextual_only_memory_surfaces(tenant_id: str) -> dict[str, dict]:
             "reason_code": "temporary_chat",
             "fallback_reason": None,
         },
+    }
+
+
+def _canonical_memory_context_load_metrics() -> dict:
+    return {
+        "source": "reviewed_memory",
+        "authority_class": "contextual_only",
+        "usage_labels": [
+            "session_continuity",
+            "explicit_preference_memory",
+            "reviewed_case_precedent",
+            "case_working_context_status",
+        ],
+        "long_term_count": 1,
+        "case_count": 1,
+        "fallback_reason": None,
+        "filter_reasons": ["reviewed_prompt_safe"],
     }
 
 
@@ -291,6 +309,7 @@ async def test_reviewed_memory_cannot_satisfy_policy_evidence_or_action_authorit
     payload = _intent("refund_troubleshooting")
     payload["routing_hints"] = {reviewed_memory_hint: True}
     monkeypatch.setattr(classify_intent_module, "_get_llm", lambda: FakeLLM(payload))
+    monkeypatch.setattr(contextual_intent_module, "_get_llm", lambda: FakeLLM(payload))
     _patch_reviewed_memory_services(
         monkeypatch,
         profile_items=[
@@ -323,6 +342,7 @@ async def test_reviewed_memory_cannot_satisfy_policy_evidence_or_action_authorit
         policy_status="no_evidence",
     )
     monkeypatch.setattr(classify_intent_module, "_get_llm", lambda: FakeLLM(payload))
+    monkeypatch.setattr(contextual_intent_module, "_get_llm", lambda: FakeLLM(payload))
     graph = build_graph(MemorySaver())
 
     final_state = await graph.ainvoke(
@@ -508,6 +528,44 @@ def test_contextual_only_memory_refs_reject_strict_authority_dto_parsing() -> No
                 "business_fact_refs": [surfaces["ReviewedMemoryRef"]],
             }
         )
+
+
+def test_memory_context_load_metrics_reject_authority_dto_parsing() -> None:
+    from src.actions.schemas import ActionDraftV2Data
+    from src.agent.rag_context.claims import MaterialClaim
+    from src.approvals.schemas import ApprovalDecisionCommand, ApprovalRequestCreateCommand
+    from src.knowledge.schemas import EvidenceRefV1
+    from src.replay.schemas import ReplayEventV3
+    from src.tools.contracts import BusinessFactRefV1
+
+    metrics = _canonical_memory_context_load_metrics()
+
+    assert metrics["authority_class"] == "contextual_only"
+    assert "explicit_preference_memory" in metrics["usage_labels"]
+    assert "reviewed_case_precedent" in metrics["usage_labels"]
+
+    with pytest.raises(ValidationError):
+        EvidenceRefV1.model_validate(metrics)
+    with pytest.raises(ValidationError):
+        BusinessFactRefV1.model_validate(metrics)
+    with pytest.raises(ValidationError):
+        MaterialClaim.model_validate(
+            {
+                "claim_id": "claim-memory-context-load-metrics-not-business-fact",
+                "claim_text": "Canonical memory metrics cannot satisfy a business fact claim.",
+                "authority_class": "business_fact_claim",
+                "source_node": "memory_context_load",
+                "business_fact_refs": [metrics],
+            }
+        )
+    with pytest.raises(ValidationError):
+        ApprovalRequestCreateCommand.model_validate(metrics)
+    with pytest.raises(ValidationError):
+        ApprovalDecisionCommand.model_validate(metrics)
+    with pytest.raises(ValidationError):
+        ActionDraftV2Data.model_validate(metrics)
+    with pytest.raises(ValidationError):
+        ReplayEventV3.model_validate(metrics)
 
 
 def test_session_hint_surfaces_reject_strict_authority_dto_parsing() -> None:

@@ -404,6 +404,32 @@
 - ✅ 已完成代码、静态 guard、final pytest 和 Ruff 验证。最终验证：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/memory/test_phase48_1_memory_compat_alignment.py tests/memory/test_thread_case_links.py tests/conversation/test_repository.py tests/agent/test_intent_routing.py tests/agent/test_working_state.py tests/agent/test_session_memory_load.py tests/agent/test_nodes/test_generate_recommendation.py tests/agent/context/test_assembler.py tests/agent/test_graph.py tests/agent/test_memory_evidence_boundary.py tests/agent/test_reviewed_memory_context_retrieve.py tests/memory/test_phase46_session_context_alignment.py tests/memory/test_phase48_long_term_preference_alignment.py -q` → `1249 passed, 26 warnings`；focused Ruff → pass。
 - 🟡 defer 项已记录，除非后续 phase 明确评估 replay/trace/API/config 迁移影响，否则不作为 Phase 48.1 必须交付。
 
+## Phase 55 Plan 01 — canonical `memory_context_load` node contract 已建立，active graph 切换留给 55-02 ⚠️
+
+**问题 / 根因**
+- Phase 48.1 后 reviewed memory context 的真实语义已经是 explicit preference long-term memory + reviewed case precedent + active CWC，但 active node/import compatibility 仍以 `long_term_memory_retrieve` 命名承载。
+- 旧名容易让后续实现误以为该节点只加载 long-term preference，或误把 memory/CWC 用作 policy evidence、current business fact、approval/action authority、replay truth。
+
+**影响**
+- 在 active graph 切到 canonical name 前，trace/LLM output 指标若继续只看旧 key，Phase 55/56/57 后续 cutover 容易发生节点 ownership 与 authority label 漂移。
+- memory usage labels 若不显式 finite + `contextual_only`，后续 recommendation/RAG/risk 阶段可能误读 memory 为证据或事实来源。
+
+**已修复验证**
+- ✅ 新增 `src/agent/nodes/memory_context_load.py`：canonical node 委托 `reviewed_memory_context_retrieve(...)`，保留既有 memory service / repository / CWC lifecycle 注入 seam，同时写 `llm_outputs["memory_context_load"]`。
+- ✅ canonical metrics 只包含 finite `usage_labels` 与 `authority_class == "contextual_only"`，并把 direct canonical trace/node_error identity 从 `reviewed_memory_context_retrieve` 映射为 `memory_context_load`。
+- ✅ `src/agent/nodes/long_term_memory_retrieve.py` 改为 compatibility wrapper：调用 canonical `memory_context_load(...)` 后只在 wrapper path 增补 legacy `llm_outputs["long_term_memory_retrieve"]` metrics。
+- ✅ `tests/agent/test_memory_context_load.py` 覆盖 direct canonical metrics、finite labels、trace identity、missing trusted context skip、service error unavailable、wrapper compatibility。
+- ✅ `tests/agent/test_memory_evidence_boundary.py` 新增 canonical `memory_context_load` metrics boundary，证明 metrics/labels 不能解析为 `EvidenceRefV1`、`BusinessFactRefV1`、approval/action DTO 或 `ReplayEventV3`。
+
+**证据**
+- Phase 55 Plan 01；commits `e7dd979`（RED tests）与 `87c6aa6`（canonical node implementation）。
+- 文件：`src/agent/nodes/memory_context_load.py`、`src/agent/nodes/long_term_memory_retrieve.py`、`tests/agent/test_memory_context_load.py`、`tests/agent/test_memory_evidence_boundary.py`。
+- 验证：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_memory_context_load.py tests/agent/test_reviewed_memory_context_retrieve.py -q --tb=short` → `22 passed`；`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_memory_evidence_boundary.py -q --tb=short` → `12 passed`；Task 2 full gate 以 `55-01-SUMMARY.md` 为准。
+
+**剩余风险**
+- ⚠️ active graph/router 仍由 Plan 55-02 切到 `memory_context_load`；本条只关闭 canonical node contract，不声称 active graph 已完成 cutover。
+- 🟡 `long_term_memory_retrieve` wrapper 与 legacy metric key 暂保留为 Phase 58 删除项，避免破坏历史 import/test/trace compatibility。
+
 ## Phase 48 Review CR-01 — state-origin 记忆候选身份与发布边界加固 ✅已修复验证
 
 **问题 / 根因**
