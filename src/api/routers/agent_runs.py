@@ -60,6 +60,7 @@ NODE_MESSAGES: dict[str, str] = {
     "classify_intent": "正在识别意图",
     "slot_resolution_gate": "正在确认关键信息",
     "extract_slots": "正在提取关键信息",
+    "memory_context_load": "正在加载记忆上下文",
     "investigate": "正在调查订单和规则",
     "generate_recommendation": "正在生成处理建议",
     "assess_risk_and_approval": "正在评估风险",
