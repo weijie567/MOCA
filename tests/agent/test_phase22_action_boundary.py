@@ -62,6 +62,21 @@ def _claim_result(*, allows_action_recommendation: bool, support_status: str = "
     }
 
 
+def _policy_claim_result() -> dict[str, Any]:
+    return {
+        "schema_version": "claim_verification_result.v1",
+        "claim_id": "claim-policy-1",
+        "claim_type": "policy",
+        "support_status": "supported",
+        "supporting_evidence_refs": [],
+        "business_fact_refs": [],
+        "rule_checks": [],
+        "semantic_review_status": "not_needed",
+        "allows_user_visible_claim": True,
+        "allows_action_recommendation": False,
+    }
+
+
 def _claim_bundle(
     *,
     route: str = "continue",
@@ -460,6 +475,40 @@ async def test_action_draft_node_refuses_when_claim_bundle_route_blocks_action(
         "current_run_id": run_id,
         "claim_verification_bundle": bundle,
         "blocked_claims": ["claim-action-1"],
+        "risk_assessment": {"approval_required": True, "risk_level": "high"},
+        "proposed_action": {"action_type": "issue_coupon", "target_type": "refund_case", "target_id": "RF-1001"},
+        "approval_result": _approved_result(base_state["tenant_id"], run_id),
+        "action_payload_hash": ACTION_HASH,
+        "safety_snapshot_ref": "snapshot:test",
+        "safety_snapshot_hash": SNAPSHOT_HASH,
+    }
+
+    result = await action_draft(
+        state,
+        {"configurable": {"session": object(), "action_tool_platform": ExplodingActionToolPlatform()}},
+    )
+
+    assert result.get("action_draft") is None
+    assert result.get("draft_outcome") is None
+    assert result["action_result"]["status"] == "error"
+    assert result["action_result"]["error"]["error_code"] == "VERIFIER_NOT_ALLOW"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("claim_results", [[], [_policy_claim_result()]])
+async def test_action_draft_node_requires_positive_action_claim_before_tool_call(
+    base_state: dict[str, Any],
+    claim_results: list[dict[str, Any]],
+) -> None:
+    """APF-14: final action-draft writes require an allowed action_recommendation claim."""
+    run_id = str(uuid4())
+    bundle = _claim_bundle(claim_results=claim_results)
+    state = {
+        **base_state,
+        "current_run_id": run_id,
+        "claim_verification_bundle": bundle,
+        "blocked_claims": [],
+        "verification_route": "allow",
         "risk_assessment": {"approval_required": True, "risk_level": "high"},
         "proposed_action": {"action_type": "issue_coupon", "target_type": "refund_case", "target_id": "RF-1001"},
         "approval_result": _approved_result(base_state["tenant_id"], run_id),

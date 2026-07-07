@@ -117,7 +117,20 @@ def _approved_state() -> dict:
             "schema_version": "claim_verification_bundle.v1",
             "overall_status": "verified",
             "route": "continue",
-            "claim_results": [],
+            "claim_results": [
+                {
+                    "schema_version": "claim_verification_result.v1",
+                    "claim_id": "claim-action-1",
+                    "claim_type": "action_recommendation",
+                    "support_status": "supported",
+                    "supporting_evidence_refs": phase34_bindings["verified_evidence_refs"],
+                    "business_fact_refs": phase34_bindings["business_fact_refs"],
+                    "rule_checks": [],
+                    "semantic_review_status": "not_needed",
+                    "allows_user_visible_claim": True,
+                    "allows_action_recommendation": True,
+                }
+            ],
             "blocked_claims": [],
             "safe_support_refs": phase34_bindings["verified_evidence_refs"],
             "reason_codes": [],
