@@ -298,6 +298,16 @@
 - **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/agent/test_graph.py tests/test_graph_routing.py tests/agent/test_rag_context_routing.py tests/agent/rag_context/test_routing.py tests/knowledge/test_verified_evidence_package.py tests/knowledge/test_claim_verification_bundle.py tests/agent/test_graph_vocabulary.py tests/agent/test_trace.py tests/test_trace_api.py tests/test_agent_runs_api.py tests/agent/test_nodes/test_generate_recommendation.py tests/agent/test_nodes/test_claim_verify.py tests/agent/test_nodes/test_final_response.py tests/agent/test_phase22_final_response.py tests/agent/test_phase22_recommendation_integration.py tests/knowledge/test_facade_integration.py -q --tb=short` → `474 passed, 1 skipped, 32 warnings`；focused Ruff → pass；Phase 56 artifact command scan → pass；`UV_CACHE_DIR=/tmp/uv-cache uv run git diff --check` → pass。
 - **剩余风险**：🟡 Phase 57 仍负责 `assess_risk_and_approval -> risk_gate` active rename 与 approval/risk boundary canonicalization；🟡 Phase 58 仍负责删除 retained `generate_recommendation` wrapper/import/test/historical display compatibility 和其他 Phase 53-56 alias surfaces。本条不启用 `risk_gate`，也不删除 recommendation compatibility alias/wrapper。
 
+## RAG-56-REVIEW-FIX-01：missing-info action draft 与 partial evidence direct-node guard 漏挡 ✅已修复验证
+
+- **子系统**：RAG / claim verification / recommendation_generation / action recommendation final rendering
+- **问题现象/根因**：Phase 56 review 发现两个同源边界漂移：一是带 `missing_info` 的 actionable `recommendation_draft` 会经 `route_after_recommendation -> final_response`，最终被 `_completed_response` 渲染成 `final_status=completed`；二是 direct `generate_recommendation` compatibility surface 对 partial evidence 的允许条件弱于 router，漏掉 `approval_decision`、action-bound intent、`risk_signals`、`evidence_policy` high risk 以及 stale/conflict/rejected refs 等阻断条件。
+- **影响**：缺少业务事实或证据不完整时，用户可见最终回复可能误显示动作建议已完成；直接调用历史 node surface 时，partial RAG context 可能绕过 graph router 的 fail-closed 策略进入生成。
+- **处理状态**：✅ 已修复验证。`final_response()` 在 completed branch 前对 `_displayable_missing_info(draft)` fail closed，转为 `insufficient_evidence`；`generate_recommendation._partial_package_can_generate()` 改为复用 router 的 `_partial_rag_context_can_generate()`，删除 direct node 的弱复制 guard。
+- **证据**：Phase 56 REVIEW WR-01/WR-02；commit `d9ee345`（WR-01）；本条所在提交（WR-02）；`src/agent/nodes/final_response.py`、`src/agent/nodes/generate_recommendation.py`、`tests/agent/test_phase22_final_response.py`、`tests/agent/test_nodes/test_generate_recommendation.py`。
+- **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_final_response.py::test_missing_info_action_draft_downgrades_before_completed_response -q --tb=short` → passed；`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_generate_recommendation.py::test_partial_package_direct_generation_uses_router_blockers -q --tb=short` → 7 passed。
+- **剩余风险**：🟡 本次只对当前 renderer 和 retained `generate_recommendation` compatibility surface 补 fail-closed guard；Phase 58 仍需删除 legacy direct import/wrapper 面，Phase 57 仍负责 risk/approval canonical boundary rename。
+
 ---
 
 # 4. 记忆（Memory）

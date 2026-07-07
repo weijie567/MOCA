@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from src.agent.context import ContextAssembler, PromptAssembly
 from src.agent.context.session_memory_bundle import load_session_prompt_context
 from src.agent.prompts import GENERATE_RECOMMENDATION_SYSTEM
+from src.agent.routing import _partial_rag_context_can_generate
 from src.agent.schemas import RecommendationDraft
 from src.agent.state import AgentState
 from src.agent.working_state import project_working_state
@@ -413,26 +414,8 @@ def _policy_evidence_required_for_generation(state: AgentState) -> bool:
 def _partial_package_can_generate(state: AgentState, package: VerifiedEvidencePackageV1) -> bool:
     if not package.evidence_map:
         return False
-    if _action_bound_or_high_risk(state):
-        return False
-    requested_operation = state.get("requested_operation")
-    intent = state.get("primary_intent") or state.get("current_intent")
-    return requested_operation == "advise" or intent == "policy_qa"
-
-
-def _action_bound_or_high_risk(state: AgentState) -> bool:
-    requested_operation = state.get("requested_operation")
-    if requested_operation in {"draft_action", "execute_action", "escalate"}:
-        return True
-    risk_tier = state.get("risk_tier") or state.get("risk_level")
-    if isinstance(risk_tier, str) and risk_tier.lower() in {"high", "critical", "approval_required"}:
-        return True
-    draft = state.get("recommendation_draft")
-    if isinstance(draft, dict):
-        draft_risk = draft.get("risk_level")
-        if isinstance(draft_risk, str) and draft_risk.lower() in {"high", "critical"}:
-            return True
-    return False
+    router_state = {**state, "verified_evidence_package": package.model_dump(mode="python")}
+    return _partial_rag_context_can_generate(router_state)
 
 
 def _insufficient_verified_package_result(

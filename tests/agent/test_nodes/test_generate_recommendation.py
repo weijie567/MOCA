@@ -575,6 +575,65 @@ async def test_evidence_ocr_low_confidence_label_routes_manual_review(monkeypatc
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "blocked_case",
+    [
+        "approval_decision",
+        "risk_signals",
+        "action_bound_intent",
+        "evidence_policy_high_risk",
+        "stale_refs",
+        "conflict_refs",
+        "rejected_candidate_refs",
+    ],
+)
+async def test_partial_package_direct_generation_uses_router_blockers(
+    monkeypatch,
+    base_state,
+    blocked_case: str,
+) -> None:
+    evidence = _evidence(tenant_id=base_state["tenant_id"])
+
+    class ExplodingLLM:
+        def with_structured_output(self, schema):
+            raise AssertionError("LLM should not run for router-blocked partial evidence packages")
+
+    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: ExplodingLLM())
+    state = {
+        **base_state,
+        **_verified_package_state(evidence=evidence, status="partial"),
+        "primary_intent": "policy_qa",
+        "current_intent": "policy_qa",
+        "requested_operation": "advise",
+        "risk_tier": "low",
+    }
+    package = state["verified_evidence_package"]
+    evidence_payload = evidence.model_dump(mode="json")
+    if blocked_case == "approval_decision":
+        state["requested_operation"] = "approval_decision"
+    elif blocked_case == "risk_signals":
+        state["risk_signals"] = ["approval_required"]
+    elif blocked_case == "action_bound_intent":
+        state["primary_intent"] = "compensation_suggestion"
+        state["current_intent"] = "compensation_suggestion"
+    elif blocked_case == "evidence_policy_high_risk":
+        state["evidence_policy"] = {"evidence_required": True, "risk_level": "approval_required"}
+    elif blocked_case == "stale_refs":
+        package["stale_refs"] = [evidence_payload]
+    elif blocked_case == "conflict_refs":
+        package["conflict_refs"] = [evidence_payload]
+    elif blocked_case == "rejected_candidate_refs":
+        package["rejected_candidate_refs"] = [evidence_payload]
+        package["reason_codes"] = ["invalid_hash"]
+
+    result = await generate_recommendation_module.generate_recommendation(state, _config())
+
+    assert result["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
+    assert result["material_claims"] == []
+    assert result["evidence_refs"] == []
+
+
+@pytest.mark.asyncio
 async def test_policy_text_never_persisted(monkeypatch, base_state):
     policy_text = "node local policy body SHOULD_NOT_PERSIST"
     safe_claim_text = "node local policy body"
