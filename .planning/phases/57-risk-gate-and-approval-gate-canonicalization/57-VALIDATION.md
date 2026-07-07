@@ -114,6 +114,25 @@ No remaining hit is classified as current active graph registration, current rou
 | T-57-04 | Tampering | Missing evidence, missing claim support, missing snapshot/hash, or invalid policy/risk/retrieval versions fail closed before approval/action. | green |
 | T-57-05 | Repudiation / Tampering | Legacy `assess_risk_and_approval` handling is historical compatibility only and marked `DELETE_BY_PHASE_58`; active runtime registration and routes use `risk_gate`. | green |
 
+## Validation Audit 2026-07-08
+
+| Metric | Result |
+|--------|--------|
+| State | A - existing validation report audited |
+| Requirement | CAGM-08 |
+| Plans covered | 57-01, 57-02, 57-03, 57-04, 57-05 |
+| gaps_found | 0 |
+| resolved | 0 |
+| escalated | 0 |
+| tests_created | 0 |
+| manual_only_blockers | 0 |
+| nyquist_compliant | true |
+
+Audit evidence:
+
+- `UV_CACHE_DIR=/tmp/uv-cache uv run python -c "from pathlib import Path; p=Path('.planning/phases/57-risk-gate-and-approval-gate-canonicalization/57-VALIDATION.md'); text=p.read_text(); required=['57-01-01','57-02-01','57-03-01','57-04-01','57-05-01','Static Legacy-Hit Classification','Total hits: 421','unclassified_rows: 0','nyquist_compliant: true']; missing=[s for s in required if s not in text]; assert not missing, 'missing validation markers: '+', '.join(missing); print('phase57-validation-artifact-guard: pass')"` - `phase57-validation-artifact-guard: pass`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/architecture/test_phase33_rag_claim_boundaries.py tests/architecture/test_phase34_approval_action_boundaries.py tests/architecture/test_approval_boundaries.py tests/agent/test_graph.py tests/test_graph_routing.py tests/agent/test_nodes/test_risk_gate.py tests/agent/test_nodes/test_assess_risk_and_approval.py tests/agent/test_phase22_action_boundary.py tests/test_approval_gate.py tests/test_approval_api.py tests/approvals/test_needs_info_resume.py tests/approvals/test_service_transitions.py tests/agent/test_graph_vocabulary.py tests/test_agent_runs_api.py tests/agent/test_trace.py tests/test_trace_api.py -q --tb=short` - `437 passed, 1 skipped, 29 warnings in 304.17s`
+
 ## Validation Sign-Off
 
 - [x] All tasks have automated verification or Wave 0 dependencies.

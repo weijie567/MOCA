@@ -18227,3 +18227,67 @@ zsh:1: unknown file attribute:
 ### 剩余问题和下次入口
 
 后续在 zsh 中运行 `node -e` 时避免在双引号内写 JavaScript 模板字符串；必要时使用 heredoc 或单引号。
+
+## 2026-07-08 Phase 57 Nyquist audit：验证报告自检命令递归匹配自身标记
+
+### 问题现象
+
+在给 `57-VALIDATION.md` 追加 Nyquist audit trail 后，重新运行自检命令失败：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python -c "... assert 'UNCLASSIFIED' not in text ..."
+```
+
+失败信息：
+
+```text
+AssertionError: unclassified legacy hits remain
+```
+
+### 如何检测 / 复现
+
+在 audit trail 中记录了包含 `UNCLASSIFIED` 字面量的自检命令后，再对整份 `57-VALIDATION.md` 执行同一全文扫描即可复现。`rg -n "UNCLASSIFIED|unclassified" .planning/phases/57-risk-gate-and-approval-gate-canonicalization/57-VALIDATION.md` 显示命中来自 audit evidence 命令文本本身，不是静态分类残留。
+
+### 当前判断 / 根因
+
+这是验证报告自检命令的递归文本匹配问题。报告正文的分类证据仍是 `unclassified_rows: 0`，Phase 57 源码/测试/文档静态分类没有新增未分类项。
+
+### 已做处理
+
+将 audit trail 中记录的 artifact guard 改为检查必需验证标记与 `unclassified_rows: 0`，不再把会污染报告正文的 `UNCLASSIFIED` 字面量写入验证报告。随后重新运行 self-safe guard。
+
+### 剩余问题和下次入口
+
+后续给验证 artifact 追加命令证据时，避免把会被全文扫描二次命中的 sentinel 字面量直接写进被扫描文件；必要时使用结构化字段或外部脚本输出。
+
+## 2026-07-08 Phase 57 Nyquist audit：本地 audit 表字段匹配大小写错误
+
+### 问题现象
+
+Nyquist audit trail 写入后，本地 frontmatter/audit 检查命令失败：
+
+```bash
+node -e '... if(!/nyquist_compliant:\\s*true/.test(m[1])||!/Gaps found \\| 0/.test(c)||!/437 passed, 1 skipped, 29 warnings/.test(c)) process.exit(2); ...'
+```
+
+### 如何检测 / 复现
+
+`57-VALIDATION.md` 的 audit 表实际字段是：
+
+```text
+| gaps_found | 0 |
+```
+
+不是命令中假设的 `Gaps found`。
+
+### 当前判断 / 根因
+
+这是本地核验命令对人工表格字段名的大小写/下划线假设错误，不是 Nyquist audit 失败。报告已经包含 `gaps_found | 0`、`nyquist_compliant | true` 和最终 pytest 证据。
+
+### 已做处理
+
+改用 `gaps_found` 字段匹配，继续核验 `nyquist_compliant: true` 与最终 pytest 证据。
+
+### 剩余问题和下次入口
+
+后续验证 planning artifact 时应尽量解析 frontmatter/table 数据，或使用与实际 artifact 一致的字段名。
