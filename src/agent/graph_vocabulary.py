@@ -45,6 +45,13 @@ _PHASE54_SLOT_ALIAS_REASON_CODES = (
     "DELETE_BY_PHASE_58",
 )
 
+_PHASE55_MEMORY_ALIAS_REASON_CODES = (
+    "PHASE_55_COMPATIBILITY_ALIAS",
+    "HISTORICAL_TRACE_PROJECTION",
+    "IMPORT_TEST_COMPATIBILITY",
+    "DELETE_BY_PHASE_58",
+)
+
 _ENTRIES: tuple[GraphVocabularyEntry, ...] = (
     _entry("receive_request", "receive_request", "node", "runtime", True),
     _entry("investigate", "investigate", "node", "runtime", True),
@@ -88,9 +95,23 @@ _ENTRIES: tuple[GraphVocabularyEntry, ...] = (
         ("PHASE_53_COMPATIBILITY_ALIAS", "DELETE_BY_PHASE_58"),
     ),
     _entry("session_context_load", "session_context_load", "node", "runtime", True),
-    _entry("long_term_memory_retrieve", "memory_context_load", "node", "compatibility_alias", True),
-    _entry("reviewed_memory_context_retrieve", "memory_context_load", "node", "runtime", True),
-    _entry("memory_context_load", "memory_context_load", "node", "compatibility_alias", True),
+    _entry(
+        "long_term_memory_retrieve",
+        "memory_context_load",
+        "node",
+        "compatibility_alias",
+        True,
+        _PHASE55_MEMORY_ALIAS_REASON_CODES,
+    ),
+    _entry(
+        "reviewed_memory_context_retrieve",
+        "memory_context_load",
+        "node",
+        "compatibility_alias",
+        True,
+        _PHASE55_MEMORY_ALIAS_REASON_CODES,
+    ),
+    _entry("memory_context_load", "memory_context_load", "node", "runtime", True),
     _entry(
         "extract_slots",
         "slot_resolution_gate",
