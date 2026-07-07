@@ -17571,3 +17571,42 @@ tests/test_approval_api.py:1337: assert run.final_status == "completed"  # actua
 - `src/api/routers/approvals.py::_approved_resume_claim_bundle`
 - `src/agent/nodes/action_draft.py::_claim_bundle_blocks_action`
 - `tests/test_approval_api.py` approved resume reconciliation tests
+
+## 2026-07-07 Phase 57 Plan 57-02：roadmap.update-plan-progress 仍无法匹配 Phase 57 checkbox
+
+### 问题现象
+
+完成 57-02 后执行 `gsd-sdk query roadmap.update-plan-progress "57"` 返回 `updated: false` / `no matching checkbox found`，未能把 ROADMAP 中 Phase 57 的进度从 1/5 改为 2/5。
+
+### 如何检测 / 复现
+
+```text
+gsd-sdk query roadmap.update-plan-progress "57"
+```
+
+### 关键证据或命令
+
+```text
+{
+  "updated": false,
+  "phase": "57",
+  "reason": "no matching checkbox found"
+}
+```
+
+### 当前判断 / 根因
+
+与 57-01 记录过的同类问题一致：SDK roadmap handler 的 checkbox/row 匹配规则不能识别当前 ROADMAP 的 Phase 57 Markdown 结构。
+
+### 已做处理
+
+已手动把 `.planning/ROADMAP.md` Phase 57 顶部进度、进度表和 57-02 checklist 更新为 2/5 / In Progress / checked。
+
+### 剩余问题
+
+后续 57-03 至 57-05 继续使用该 SDK handler 时可能再次需要人工核对 ROADMAP diff。
+
+### 下次继续排查入口
+
+- `.planning/ROADMAP.md` Phase 57 top row / progress table / plan checklist
+- GSD SDK `roadmap.update-plan-progress` handler 的 Phase checkbox 匹配规则
