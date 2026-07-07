@@ -40,8 +40,13 @@ def test_phase34_risk_gate_runtime_alias_is_declared() -> None:
     assert entry is not None
     assert entry.target_name == "risk_gate"
     assert entry.status == "compatibility_alias"
-    assert entry.runnable is True
-    assert entry.reason_codes == ("RISK_GATE_PROJECTED_FROM_ASSESS_RISK_AND_APPROVAL",)
+    assert entry.runnable is False
+    assert entry.reason_codes == (
+        "PHASE_57_COMPATIBILITY_ALIAS",
+        "HISTORICAL_TRACE_PROJECTION",
+        "IMPORT_TEST_COMPATIBILITY",
+        "DELETE_BY_PHASE_58",
+    )
     assert graph_vocabulary.target_graph_name("assess_risk_and_approval", kind="node") == "risk_gate"
 
 

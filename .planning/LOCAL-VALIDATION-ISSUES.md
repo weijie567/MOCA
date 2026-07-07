@@ -17773,6 +17773,53 @@ UV_CACHE_DIR=/tmp/uv-cache uv run python -c "...; assert not missing, ...; asser
 - `.planning/phases/57-risk-gate-and-approval-gate-canonicalization/57-05-PLAN.md`
 - `57-VALIDATION.md` 的实际 closeout command evidence
 
+## 2026-07-07 Phase 57 Plan 57-05：Phase 34 architecture guard 仍期待 legacy risk alias runnable
+
+### 问题现象
+
+57-05 closeout pytest 首次运行失败 1 项：
+
+```text
+FAILED tests/architecture/test_phase34_approval_action_boundaries.py::test_phase34_risk_gate_runtime_alias_is_declared
+AssertionError: assert False is True
+```
+
+### 如何检测 / 复现
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/architecture/test_phase33_rag_claim_boundaries.py tests/architecture/test_phase34_approval_action_boundaries.py tests/architecture/test_approval_boundaries.py tests/agent/test_graph.py tests/test_graph_routing.py tests/agent/test_nodes/test_risk_gate.py tests/agent/test_nodes/test_assess_risk_and_approval.py tests/agent/test_phase22_action_boundary.py tests/test_approval_gate.py tests/test_approval_api.py tests/approvals/test_needs_info_resume.py tests/approvals/test_service_transitions.py tests/agent/test_graph_vocabulary.py tests/test_agent_runs_api.py tests/agent/test_trace.py tests/test_trace_api.py -q --tb=short
+```
+
+### 关键证据或命令
+
+失败摘要显示当前 `graph_vocabulary_entry("assess_risk_and_approval", kind="node")` 是：
+
+```text
+status='compatibility_alias'
+runnable=False
+reason_codes=('PHASE_57_COMPATIBILITY_ALIAS', 'HISTORICAL_TRACE_PROJECTION', 'IMPORT_TEST_COMPATIBILITY', 'DELETE_BY_PHASE_58')
+```
+
+而旧 Phase 34 guard 仍断言 `entry.runnable is True` 和旧 reason code。
+
+### 当前判断 / 根因
+
+这是跨 phase 静态 guard 未随 Phase 57 projection closeout 更新导致的测试期望陈旧，不是 current runtime 回归。57-04 已有意把 legacy `assess_risk_and_approval` 标成 non-runnable historical compatibility alias。
+
+### 已做处理
+
+已更新 `tests/architecture/test_phase34_approval_action_boundaries.py::test_phase34_risk_gate_runtime_alias_is_declared`，改为断言 non-runnable Phase 57 compatibility alias 和 delete-by-Phase-58 reason codes。
+
+### 剩余问题
+
+需重跑 focused test 与 57-05 closeout pytest，确认没有其他遗留 guard 仍把 legacy risk alias 当 current runnable authority。
+
+### 下次继续排查入口
+
+- `tests/architecture/test_phase34_approval_action_boundaries.py`
+- `src/agent/graph_vocabulary.py`
+- `.planning/phases/57-risk-gate-and-approval-gate-canonicalization/57-04-SUMMARY.md`
+
 ## 2026-07-07 Phase 57 Plan 57-04：state.update-progress 将未完成的 57-05 误计为整体 100%
 
 ### 问题现象
