@@ -18336,3 +18336,53 @@ gsd-sdk query phase.complete "57"
 ### 剩余问题和下次入口
 
 后续完成 phase 后仍需人工核对 STATE 的 frontmatter、Current Position、Session Continuity 三处是否一致；GSD handler 可后续修复为覆盖所有同类段落。
+
+## 2026-07-08：Phase 58 autopilot 中 `$gsd-discuss-phase` 无 shell 入口
+
+### 问题现象
+
+执行 `$gsd-phase-autopilot 58` 时，autopilot Stage 1 按 workflow 尝试运行本地 discuss 入口：
+
+```bash
+gsd-discuss-phase 58 --auto
+```
+
+命令失败：
+
+```text
+zsh:1: command not found: gsd-discuss-phase
+```
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+gsd-discuss-phase 58 --auto
+```
+
+或检查 shell PATH：
+
+```bash
+which gsd-discuss-phase
+```
+
+当前环境只有 `gsd-sdk` shell 入口，GSD phase 命令以 Codex skill/workflow 形式存在，不是可直接执行的 shell 命令。
+
+### 关键证据或命令
+
+- `gsd-discuss-phase 58 --auto` -> `command not found`
+- `which gsd-sdk && gsd-sdk --help` -> `/opt/homebrew/bin/gsd-sdk` 存在
+- 已读取 `/Users/ming/.codex/skills/gsd-discuss-phase/SKILL.md` 与 `$HOME/.codex/get-shit-done/workflows/discuss-phase.md`
+
+### 当前判断 / 根因
+
+这是当前 Codex/GSD 集成入口差异：workflow 文档用 `$gsd-discuss-phase` 表示 skill 调用，但本地 shell 没有同名可执行文件。该问题不是 Phase 58 context 生成失败，也不是仓库业务代码失败。
+
+### 已做处理
+
+改为按已加载的 `gsd-discuss-phase` skill 和 `discuss-phase.md` workflow 手动等价执行 Stage 1：读取 Phase 50 SPEC、Phase 57 handoff、roadmap/requirements/state、当前 graph/routing/vocabulary 源码和测试基线，生成 `.planning/phases/58-canonical-graph-cutover-and-no-debt-cleanup/58-CONTEXT.md` 与 `58-DISCUSSION-LOG.md`。
+
+### 剩余问题和下次继续排查入口
+
+后续 autopilot 若继续调用 `$gsd-plan-phase` / `$gsd-execute-phase` 等 shell 命令，也可能遇到同类入口差异。下次入口是直接加载对应 skill 的 `SKILL.md` 和 workflow 文件，通过 `gsd-sdk query ...`、GSD sub-agent tools 和手动 artifact 更新执行等价流程；也可后续补一个 shell shim，把 `$gsd-*` 命令映射到 Codex skill 调用。
