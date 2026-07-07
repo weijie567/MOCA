@@ -580,7 +580,7 @@ async def _terminal_decision_result_for_retry(
             not edited_action
             or body.edited_action != edited_action
             or not new_action_payload_hash
-            or resume_route != "assess_risk_and_approval"
+            or resume_route != "risk_gate"
         ):
             raise ApprovalTransitionError("approval_conflict")
 
@@ -694,12 +694,25 @@ async def _reconcile_approved_action_draft(
 def _approved_resume_claim_bundle() -> dict[str, object]:
     return {
         "schema_version": "claim_verification_bundle.v1",
-        "overall_status": "not_required",
+        "overall_status": "verified",
         "route": "continue",
-        "claim_results": [],
+        "claim_results": [
+            {
+                "schema_version": "claim_verification_result.v1",
+                "claim_id": "approval-service-approved-action",
+                "claim_type": "action_recommendation",
+                "support_status": "supported",
+                "supporting_evidence_refs": [],
+                "business_fact_refs": [],
+                "rule_checks": [{"rule": "trusted_approval_resume", "passed": True}],
+                "semantic_review_status": "not_needed",
+                "allows_user_visible_claim": True,
+                "allows_action_recommendation": True,
+            }
+        ],
         "blocked_claims": [],
         "safe_support_refs": [],
-        "reason_codes": [],
+        "reason_codes": ["trusted_approval_resume"],
         "verifier_policy_version": "approval-service.v1",
     }
 
@@ -757,7 +770,7 @@ def _should_resume_graph(result) -> bool:
     if not result.resume_payload:
         return False
     if result.decision_type == "edit":
-        return result.resume_payload.get("resume_route") == "assess_risk_and_approval"
+        return result.resume_payload.get("resume_route") == "risk_gate"
     return result.decision_type in {"accept", "approve", "reject", "ignore"}
 
 

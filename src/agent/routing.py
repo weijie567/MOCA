@@ -25,7 +25,7 @@ _RECOMMENDATION_ROUTES = {"claim_verify", "final_response"}
 RAG_CONTEXT_STATUSES = set(SCHEMA_RAG_CONTEXT_STATUSES)
 _RAG_CONTEXT_UNSAFE_REASON_CODES = {"unauthorized", "stale", "conflict", "invalid_hash", "invalid_scope", "build_error"}
 _RAG_CONTEXT_ROUTES = {"recommendation_generation", "clarification_gate", "final_response"}
-_CLAIM_VERIFY_ROUTES = {"assess_risk_and_approval", "final_response"}
+_CLAIM_VERIFY_ROUTES = {"risk_gate", "final_response"}
 SAFETY_ROUTES = {"session_context_load", "clarification_gate", "final_response"}
 CONTEXTUAL_INTENT_ROUTES = {"clarification_gate", "final_response", "investigate", "slot_resolution_gate"}
 INTENT_ROUTES = CONTEXTUAL_INTENT_ROUTES
@@ -589,9 +589,9 @@ def _route_after_claim_verify(state: AgentState) -> str:
     if route != "continue" or overall_status not in {"verified", "not_required"}:
         return "final_response"
     if _has_proposed_action(state):
-        return "assess_risk_and_approval" if _has_verified_action_recommendation(state) else "final_response"
+        return "risk_gate" if _has_verified_action_recommendation(state) else "final_response"
     if _has_verified_action_recommendation(state) or _has_risk_signal(state):
-        return "assess_risk_and_approval"
+        return "risk_gate"
     return "final_response"
 
 

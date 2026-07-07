@@ -289,6 +289,16 @@
 - **证据**：Phase 56 REVIEW iteration 2 CR-01/WR-01；commit `cb3ec9a`；`src/agent/nodes/action_draft.py`、`src/agent/routing.py`、`tests/agent/test_phase22_action_boundary.py`、`tests/test_graph_routing.py`、`tests/agent/rag_context/test_routing.py`。
 - **剩余风险**：🟡 Phase 57 仍负责把当前 `assess_risk_and_approval` 收敛为 canonical `risk_gate`/approval boundary；本次只修复 Phase 56 claim authority 与最终 action draft write boundary，不删除历史 compatibility aliases。
 
+## RAG-57-02-01：approved resume reconciliation 缺少 explicit action claim allowance ✅已修复验证
+
+- **子系统**：RAG claim verification / approval resume / action draft boundary
+- **问题现象/根因**：Phase 56 将 `action_draft()` 收紧为存在 `proposed_action` 时必须有 explicit allowed `action_recommendation` claim result，但 approval API 的 approved resume reconciliation 仍用空 `claim_results` 的 `_approved_resume_claim_bundle()` 代表已审批动作。结果是 trusted approval approve/accept 路径在恢复后调用 `action_draft()` 时被 `VERIFIER_NOT_ALLOW` fail closed，`AgentRun.final_status` 变成 `error`。
+- **影响**：可信审批通过后的 demo action draft reconcile 可能无法创建草稿，用户/trace 看到 approval 已通过但 run 以 error 收尾；如果直接放宽 `action_draft` 又会破坏 Phase 56 的最终写边界。
+- **处理状态**：✅ 已修复验证。`_approved_resume_claim_bundle()` 现在显式产出 approval-service-owned `claim_type="action_recommendation"`、`support_status="supported"`、`allows_action_recommendation=True` 的 claim result，并保留 `action_draft()` 的 allowed action claim gate。
+- **证据**：Phase 57 Plan 57-02 Task 1；`src/api/routers/approvals.py::_approved_resume_claim_bundle`；`src/agent/nodes/action_draft.py::_claim_bundle_blocks_action`；`tests/test_approval_api.py::test_decide_records_recoverable_resume_failure_and_retries_terminal_approval`、`tests/test_approval_api.py::test_agent_run_status_updates_to_completed_after_service_resume`。
+- **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py::test_decide_records_recoverable_resume_failure_and_retries_terminal_approval tests/test_approval_api.py::test_agent_run_status_updates_to_completed_after_service_resume -q --tb=short` → `2 passed, 1 warning`；Task 1 full command → `231 passed, 1 skipped, 28 warnings`。
+- **剩余风险**：🟡 本条只修复 approved resume reconciliation 与 final action-draft boundary 的 claim allowance 对齐；Phase 57 后续计划仍负责 projection/docs/debt closeout，Phase 58 仍负责 legacy alias final cleanup。
+
 ## RAG-56-04-01：recommendation_generation active cutover、trace/API 投影与 final_response authority 收敛 ✅已修复验证
 
 - **问题现象/根因**：Phase 56 前后存在三类会混淆当前 authority 的残留面：active graph 已切向 `recommendation_generation`，但 graph vocabulary/API/frontend/eval/docs 仍可能把历史 `generate_recommendation` 读成当前 runtime owner；`final_response` 仍可能从 legacy `rag_verification` / `verification_route` / `verifier_status` / `verifier_reason_codes` 构造当前-run 权威 route payload；当前源码图和 validation artifact 仍可能保留旧节点名或旧测试入口。

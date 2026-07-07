@@ -20,7 +20,6 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import RetryPolicy
 from pydantic import ValidationError
 
-from src.agent.nodes.assess_risk_and_approval import assess_risk_and_approval
 from src.agent.nodes.approval_gate import approval_gate
 from src.agent.nodes.action_draft import action_draft
 from src.agent.nodes.clarification_gate import clarification_gate
@@ -32,6 +31,7 @@ from src.agent.nodes.memory_context_load import memory_context_load
 from src.agent.nodes.rag_context_build import rag_context_build
 from src.agent.nodes.recommendation_generation import recommendation_generation
 from src.agent.nodes.receive_request import receive_request
+from src.agent.nodes.risk_gate import risk_gate
 from src.agent.nodes.safety_pre_route import safety_pre_route
 from src.agent.nodes.session_context_load import session_context_load
 from src.agent.nodes.slot_resolution_gate import slot_resolution_gate
@@ -139,10 +139,10 @@ def route_after_approval(state: AgentState) -> str:
     if (
         decision_type == "edit"
         and status == "superseded"
-        and result.resume_route == "assess_risk_and_approval"
+        and result.resume_route == "risk_gate"
         and result.new_action_payload_hash
     ):
-        return "assess_risk_and_approval"
+        return "risk_gate"
     if decision_type in {"accept", "approve"} and status == "approved":
         return "action_draft"
     if decision_type in {"accept", "approve"} and status == "pending":
@@ -278,7 +278,7 @@ def build_graph(checkpointer: AsyncPostgresSaver):
     builder.add_node("rag_context_build", rag_context_build)
     builder.add_node("recommendation_generation", recommendation_generation, retry_policy=_llm_retry)
     builder.add_node("claim_verify", claim_verify)
-    builder.add_node("assess_risk_and_approval", assess_risk_and_approval, retry_policy=_llm_retry)
+    builder.add_node("risk_gate", risk_gate, retry_policy=_llm_retry)
     builder.add_node("clarification_gate", clarification_gate)
     builder.add_node("approval_gate", approval_gate)
     builder.add_node("action_draft", action_draft)
@@ -348,15 +348,14 @@ def build_graph(checkpointer: AsyncPostgresSaver):
         "claim_verify",
         route_after_claim_verify,
         {
-            "assess_risk_and_approval": "assess_risk_and_approval",
+            "risk_gate": "risk_gate",
             "final_response": "final_response",
         },
     )
     builder.add_conditional_edges(
-        "assess_risk_and_approval",
+        "risk_gate",
         route_after_risk,
         {
-            "assess_risk_and_approval": "assess_risk_and_approval",
             "approval_gate": "approval_gate",
             "action_draft": "action_draft",
             "final_response": "final_response",
@@ -367,7 +366,7 @@ def build_graph(checkpointer: AsyncPostgresSaver):
         route_after_approval,
         {
             "approval_gate": "approval_gate",
-            "assess_risk_and_approval": "assess_risk_and_approval",
+            "risk_gate": "risk_gate",
             "action_draft": "action_draft",
             "final_response": "final_response",
         },

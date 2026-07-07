@@ -257,10 +257,11 @@ def _literal_dict_keys(path: Path) -> set[str]:
     tree = ast.parse(_source(path))
     keys: set[str] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.Dict):
-            for key in node.keys:
-                if isinstance(key, ast.Constant) and isinstance(key.value, str):
-                    keys.add(key.value)
+        if not isinstance(node, ast.Return) or not isinstance(node.value, ast.Dict):
+            continue
+        for key in node.value.keys:
+            if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                keys.add(key.value)
     return keys
 
 

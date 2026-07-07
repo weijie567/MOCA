@@ -17533,3 +17533,41 @@ GREEN 后需要重跑同一条 approved pytest 命令，确认 canonical `risk_g
 - `src/approvals/service.py`
 - `src/api/routers/approvals.py`
 - `tests/architecture/test_phase33_rag_claim_boundaries.py`
+
+## 2026-07-07 Phase 57 Plan 57-02：Task 1 GREEN 初跑发现 approved resume reconciliation 缺少 action claim allowance
+
+### 问题现象
+
+Task 1 GREEN 首次实现 `risk_gate` active cutover 后，完整验证命令仍有 2 个失败：`test_decide_records_recoverable_resume_failure_and_retries_terminal_approval` 与 `test_agent_run_status_updates_to_completed_after_service_resume` 中 `AgentRun.final_status` 从期望的 `completed` 变为 `error`。
+
+### 如何检测 / 复现
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/architecture/test_phase33_rag_claim_boundaries.py tests/agent/test_graph.py tests/test_graph_routing.py tests/agent/rag_context/test_routing.py tests/test_approval_api.py tests/approvals/test_needs_info_resume.py tests/approvals/test_service_transitions.py -q --tb=short
+```
+
+### 关键证据或命令
+
+```text
+2 failed, 229 passed, 1 skipped, 28 warnings
+tests/test_approval_api.py:521: assert run.final_status == "completed"  # actual error
+tests/test_approval_api.py:1337: assert run.final_status == "completed"  # actual error
+```
+
+### 当前判断 / 根因
+
+`_reconcile_approved_action_draft(...)` 在 approved resume 后调用 `action_draft(...)`，但 `_approved_resume_claim_bundle()` 生成的是空 `claim_results` 的 `not_required` bundle。Phase 56 已把 `action_draft` 最终写边界收紧为：存在 `proposed_action` 时必须有 explicit allowed `action_recommendation` claim result。因此 approved resume reconciliation 被正确挡成 `VERIFIER_NOT_ALLOW`，最终 run 状态变成 `error`。
+
+### 已做处理
+
+已将 `_approved_resume_claim_bundle()` 改为 `overall_status="verified"`，并显式包含 `claim_type="action_recommendation"` 且 `allows_action_recommendation=True` 的 approval-service-owned claim result；没有放宽 `action_draft` 的最终写边界。
+
+### 剩余问题
+
+已用 focused command 验证 2 个失败测试通过，并用完整 Task 1 命令验证 `231 passed, 1 skipped, 28 warnings`。Phase 57 后续计划仍需继续收敛 projection/docs/final no-debt scope。
+
+### 下次继续排查入口
+
+- `src/api/routers/approvals.py::_approved_resume_claim_bundle`
+- `src/agent/nodes/action_draft.py::_claim_bundle_blocks_action`
+- `tests/test_approval_api.py` approved resume reconciliation tests
