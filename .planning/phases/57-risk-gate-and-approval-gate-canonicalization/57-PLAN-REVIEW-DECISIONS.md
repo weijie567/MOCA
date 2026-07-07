@@ -43,4 +43,9 @@ Codex adjudicated the Claude plan review against the Phase 57 plans and current 
 
 ## Follow-Up
 
-After these repairs, rerun GSD plan checker and a second Claude review loop. If the second review finds no material blockers, proceed to execution; otherwise repeat adjudication with repository evidence.
+GSD plan checker Loop 2 passed after the Loop 1 blocker repairs. Claude Review Loop 2 also returned PASS with only non-blocking execution reminders:
+
+- `57-05` execution summary must include actual static scan command evidence, total hit count, and classification results.
+- `57-03` should normalize persisted legacy retry to canonical `risk_gate` before graph resume and keep the legacy route only as metadata/historical marker.
+
+Proceed to execution.

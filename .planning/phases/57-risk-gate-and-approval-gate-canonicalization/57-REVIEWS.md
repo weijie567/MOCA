@@ -451,3 +451,26 @@ Only the Claude reviewer was requested for this autopilot pass, so there is no m
 
 ### Divergent Views
 - None; single reviewer only.
+
+---
+
+## Claude Review Loop 2
+
+Reviewed at: 2026-07-07T21:13:12+08:00
+
+Result: PASS
+
+Claude confirmed no remaining blockers after Codex repairs and GSD plan-checker Loop 2:
+
+- `57-02` / `57-03` ordering is now safe: minimal edit rerisk cutover moved into `57-02`, while `57-03` handles persisted legacy retry compatibility and trusted boundary hardening.
+- Legacy `assess_risk_and_approval` compatibility is constrained to historical trace projection, direct import/test compatibility, persisted legacy approval retry, or Phase 58 deletion candidates.
+- Impacted tests are in scope, including approval API/service tests, Phase 33 claim-boundary tests, RAG routing tests, and graph routing tests.
+- `TimelineStep.tsx` frontend verification includes `npm --prefix frontend run build`.
+- Docs/static validation is materially stronger and requires total hit counts, classification rows/summaries, and zero `UNCLASSIFIED`.
+- Python validation commands use approved MOCA entrypoints.
+- The five-plan split remains executable; `57-04` and `57-05` are broad but have clear closeout targets and gates.
+
+Non-blocking warnings for execution:
+
+- `57-05` doc checks are still string-pattern checks, so execution summaries must include the real scan command, total count, and classification results instead of only saying "checked".
+- `57-03` should normalize persisted legacy retry routes to canonical `risk_gate` before graph resume and preserve the legacy route only as metadata/historical marker.
