@@ -12,9 +12,9 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 ## Current Milestone: v2.1 Core Subsystem Hardening
 
-**Goal:** Clean up architecture debt across MOCA's core subsystems so tool contracts, intent routing, and memory lifecycle behavior are explicit, tested, and aligned with `docs/contract-spec.md`.
+**Goal:** Clean up architecture debt across MOCA's core subsystems so tool contracts, intent routing, memory lifecycle behavior, and the canonical Agent Graph migration are explicit, tested, and aligned with `docs/contract-spec.md`.
 
-**Status:** Phase 37 through Phase 48 complete; v2.1 is ready for milestone audit/archive.
+**Status:** Phase 37 through Phase 55 complete; Phase 56 Recommendation Generation and RAG Claim Status Alignment is next.
 
 **Delivered:**
 - Land real `output_schema` for all eight tools (`get_order`, `get_refund_case`, `get_ticket`, `get_logistics`, `get_merchant_risk`, `search_policy`, `search_sop`, `search_case_memory`) and enforce it in the `ToolRuntime` output-validation gate — completed in Phase 38.
@@ -29,6 +29,11 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - Reposition `session_memories` as same-thread temporary conversational context only, with prompt-safe hint allowlists and tests preventing CWC fallback, reviewed precedent, long-term sedimentation, or authority use — completed in Phase 46.
 - Reposition `case_memories` as reviewed closed-case precedent and add governed closed-case CWC candidate generation into the existing case-memory review flow, with metadata/text retrieval and approval-gated publication — completed in Phase 47.
 - Narrow `long_term_memories` to explicit soft preference memory only, with deterministic chat capture, admin-only tenant preference saves, review publishing as `human_reviewed`, prompt-facing preference/source retrieval filters, and supersede/tombstone lifecycle guards — completed in Phase 48.
+- Clean up memory-context compatibility debt so active memory readers use canonical surfaces while retained legacy names are documented and deferred explicitly — completed in Phase 48.1.
+- Migrate `investigate` onto the bounded read-only ReAct main path while preserving deterministic outer graph routing and downstream authority boundaries — completed in Phase 49.
+- Lock the canonical Agent Graph migration charter and guardrails before runtime rewiring — completed in Phase 50.
+- Add source-verified canonical graph baselines and migration matrix checks — completed in Phase 51.
+- Cut over active graph nodes through `safety_pre_route`, `contextual_intent_resolve`, `slot_resolution_gate`, and `memory_context_load`, with compatibility aliases documented for Phase 58 cleanup — completed in Phases 52-55.
 
 **Guardrails (binding on all downstream agents):**
 - `ToolCallContext` identity fields (`tenant_id/user_id/role/permissions/merchant_scope/session_id/thread_id/run_id/trace_id`) are locked by spec §8.0 as `TrustedContext` projections — MUST NOT redefine, widen, or rename. Off-limits.
@@ -370,4 +375,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-04 — completed Phase 48 Narrow Long-Term Explicit Preference Memory; v2.1 ready for milestone audit/archive*
+*Last updated: 2026-07-07 — completed Phase 55 Memory Context Load Cutover; next phase is Phase 56 Recommendation Generation and RAG Claim Status Alignment*

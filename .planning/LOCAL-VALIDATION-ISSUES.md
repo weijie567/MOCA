@@ -15938,3 +15938,67 @@ phase55_security_static_checks=passed checks=26 artifacts_scanned=7
 - `src/agent/routing.py`
 - `src/agent/graph_vocabulary.py`
 - `.planning/phases/55-memory-context-load-cutover/55-SECURITY.md`
+
+## 2026-07-07 — Phase 55 phase.complete 后 tracking 文案和计数残留 Phase 55 旧状态
+
+### 问题现象
+
+Phase 55 security verification 通过后运行 `gsd-sdk query phase.complete 55`，命令返回成功且 `roadmap_updated/state_updated/requirements_updated` 都为 `true`，但检查 diff 后发现 tracking artifacts 仍有多处旧状态残留。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+gsd-sdk query phase.complete 55
+git diff -- .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md
+rg -n 'Phase 55|Phase 56|CAGM-06|ready to plan Phase 56' .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md
+```
+
+### 关键证据或命令
+
+`phase.complete` 输出包含：
+
+```text
+"completed_phase": "55"
+"plans_executed": "3/3"
+"next_phase": "56"
+"roadmap_updated": true
+"state_updated": true
+"requirements_updated": true
+"warnings": []
+```
+
+但 diff/scan 发现：
+
+```text
+.planning/STATE.md 仍写 Current focus: Phase 55
+.planning/STATE.md Next 仍写 $gsd-phase-autopilot 55
+.planning/STATE.md Current Roadmap 中 Phase 55 仍是 0/TBD | Not planned
+.planning/ROADMAP.md 顶部 Phase 55 行同时出现完成日期和 Not planned yet
+.planning/REQUIREMENTS.md Coverage summary 仍写 CAGM-06..CAGM-09 pending
+```
+
+### 当前判断 / 根因
+
+这是 GSD tracking helper 对 Phase 55 completion 的局部更新不完整，不是 Phase 55 代码、测试、安全或验证失败。helper 更新了部分 checkbox / traceability / progress table，但没有同步所有 human-readable state summary 文案，也没有把 Phase 55 的 3 个 concrete plans 纳入 `STATE.md` plan counters。
+
+### 已做处理
+
+已手动收敛：
+
+- `STATE.md` frontmatter：`stopped_at`、`last_updated`、`last_activity`、`total_plans`、`completed_plans`。
+- `STATE.md` body：current focus / current position / next command / current roadmap row / session continuity / completed phase / next phase。
+- `ROADMAP.md` 顶部 Phase 55 行：改为 `Plan progress: 3/3 complete; verified 2026-07-07`。
+- `REQUIREMENTS.md` coverage summary：改为 20 complete / 4 pending，CAGM-02..CAGM-06 complete、CAGM-07..CAGM-09 pending。
+
+### 剩余问题
+
+无 Phase 55 阻塞。后续 phase completion 后仍需人工 diff-check `STATE.md` / `ROADMAP.md` / `REQUIREMENTS.md`，避免 helper 成功返回但 summary 文案残留旧 phase。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `.planning/ROADMAP.md`
+- `.planning/REQUIREMENTS.md`
+- `gsd-sdk query phase.complete`

@@ -55,7 +55,7 @@
 - [x] **CAGM-03**: `safety_pre_route` exists as an explicit registered graph node immediately after `receive_request`, owning request-risk / unsafe / unsupported / untrusted approval pre-route decisions before memory, investigation, approval, or action paths.
 - [x] **CAGM-04**: `session_context_load` runs before contextual intent resolution, and `contextual_intent_resolve` replaces active `classify_intent` graph routing while keeping LLM output as candidate-only and deterministic policy/route boundaries authoritative.
 - [x] **CAGM-05**: `slot_resolution_gate` replaces active `extract_slots` / `route_after_slots` as the registered graph boundary for required-slot satisfaction, slot inheritance, invalidation, stale/conflict handling, and clarification routing; `slot_extraction` remains internal, not a graph node.
-- [ ] **CAGM-06**: `memory_context_load` replaces active `long_term_memory_retrieve` graph naming and keeps all loaded memory contextual-only, after slot resolution and before `investigate`.
+- [x] **CAGM-06**: `memory_context_load` replaces active `long_term_memory_retrieve` graph naming and keeps all loaded memory contextual-only, after slot resolution and before `investigate`.
 - [ ] **CAGM-07**: `recommendation_generation` replaces active `generate_recommendation` graph naming, and RAG/claim fail-closed statuses are aligned so unsafe evidence or unsupported material/action claims cannot enter action paths.
 - [ ] **CAGM-08**: `risk_gate` replaces active `assess_risk_and_approval` graph naming and preserves the separation between deterministic risk/action policy decisions and `approval_gate` pending/trusted-resume state machine.
 - [ ] **CAGM-09**: The active runtime graph is cut over to the final 15 canonical registered nodes, with active legacy node names, dual routes, and runtime compatibility aliases removed or internalized so no migration debt remains.
@@ -98,9 +98,9 @@ _None beyond registered canonical Agent Graph migration phases 51-58._
 | CAGM-03 | Phase 52 | Complete |
 | CAGM-04 | Phase 53 | Complete |
 | CAGM-05 | Phase 54 | Complete |
-| CAGM-06 | Phase 55 | Pending |
+| CAGM-06 | Phase 55 | Complete |
 | CAGM-07 | Phase 56 | Pending |
 | CAGM-08 | Phase 57 | Pending |
 | CAGM-09 | Phase 58 | Pending |
 
-**Coverage:** 24/24 v2.1 requirements mapped. 19 complete, 5 pending. No orphans, no duplicates. (Tool platform: TPH-01..06 / Phase 37-41. Intent recognition: IDR-01 / Phase 42, IDR-02 / Phase 43. Memory: MEM-01/02 / Phase 44-45, MEM-03 / Phase 46, MEM-04 / Phase 47, MEM-05 / Phase 48, MEM-COMPAT-01 / Phase 48.1. Graph/ReAct: GAD-01-IMPL / Phase 49. Canonical Agent Graph migration charter: CAGM-01 / Phase 50. Runtime canonical graph migration: CAGM-02..CAGM-05 complete / Phase 51-54; CAGM-06..CAGM-09 pending / Phase 55-58.)
+**Coverage:** 24/24 v2.1 requirements mapped. 20 complete, 4 pending. No orphans, no duplicates. (Tool platform: TPH-01..06 / Phase 37-41. Intent recognition: IDR-01 / Phase 42, IDR-02 / Phase 43. Memory: MEM-01/02 / Phase 44-45, MEM-03 / Phase 46, MEM-04 / Phase 47, MEM-05 / Phase 48, MEM-COMPAT-01 / Phase 48.1. Graph/ReAct: GAD-01-IMPL / Phase 49. Canonical Agent Graph migration charter: CAGM-01 / Phase 50. Runtime canonical graph migration: CAGM-02..CAGM-06 complete / Phase 51-55; CAGM-07..CAGM-09 pending / Phase 56-58.)

@@ -40,7 +40,7 @@ Code implementation is delegated to Codex per the project workflow; Claude is pl
 - [x] **Phase 52: Safety Pre-route Node** - Extract request-risk pre-route into explicit `safety_pre_route` node before memory/context enrichment (CAGM-03). Plan progress: 3/3 complete; verified 2026-07-06.
 - [x] **Phase 53: Session Context Before Intent and Contextual Intent Resolve** - Move session context before intent resolution and replace active `classify_intent` with `contextual_intent_resolve` (CAGM-04). Plan progress: 3/3 complete; verified 2026-07-06.
 - [x] **Phase 54: Slot Resolution Gate Cutover** - Replace active `extract_slots` / `route_after_slots` graph boundary with canonical `slot_resolution_gate` and slot provenance (CAGM-05). Plan progress: 3/3 complete; verified 2026-07-07.
-- [ ] **Phase 55: Memory Context Load Cutover** - Replace active `long_term_memory_retrieve` graph naming with canonical `memory_context_load` and contextual-only memory authority labels (CAGM-06). Not planned yet.
+- [x] **Phase 55: Memory Context Load Cutover** - Replace active `long_term_memory_retrieve` graph naming with canonical `memory_context_load` and contextual-only memory authority labels (CAGM-06). Plan progress: 3/3 complete; verified 2026-07-07.
 - [ ] **Phase 56: Recommendation Generation and RAG Claim Status Alignment** - Canonicalize `recommendation_generation` and align RAG/claim fail-closed status semantics (CAGM-07). Not planned yet.
 - [ ] **Phase 57: Risk Gate and Approval Gate Canonicalization** - Replace active `assess_risk_and_approval` with canonical `risk_gate` while preserving approval pending/trusted resume semantics (CAGM-08). Not planned yet.
 - [ ] **Phase 58: Canonical Graph Cutover and No-Debt Cleanup** - Cut over the active graph to the final 15-node set and remove legacy node names, dual routes, and active compatibility aliases (CAGM-09). Not planned yet.
@@ -116,7 +116,7 @@ Plans:
 | 52. Safety Pre-route Node | 3/3 | Complete | 2026-07-06 |
 | 53. Session Context Before Intent and Contextual Intent Resolve | 3/3 | Complete    | 2026-07-06 |
 | 54. Slot Resolution Gate Cutover | 3/3 | Complete | 2026-07-07 |
-| 55. Memory Context Load Cutover | 0/TBD | Not planned | - |
+| 55. Memory Context Load Cutover | 3/3 | Complete    | 2026-07-07 |
 | 56. Recommendation Generation and RAG Claim Status Alignment | 0/TBD | Not planned | - |
 | 57. Risk Gate and Approval Gate Canonicalization | 0/TBD | Not planned | - |
 | 58. Canonical Graph Cutover and No-Debt Cleanup | 0/TBD | Not planned | - |
@@ -431,7 +431,7 @@ Plans:
 **Requirements**: CAGM-06
 **Depends on:** Phase 54
 **Must read:** `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`
-**Plans:** 3 plans
+**Plans:** 3/3 plans complete
 **Success Criteria** (what must be TRUE):
   1. Active graph order routes resolved slot state into `memory_context_load` before `investigate`.
   2. Memory outputs carry usage/authority labels and cannot satisfy policy evidence, current business facts, approval/action authority, or replay truth.
@@ -439,9 +439,9 @@ Plans:
   4. Active runtime no longer uses `long_term_memory_retrieve` as the registered graph node after cutover, except for explicitly recorded temporary implementation reuse slated for deletion.
 
 Plans:
-- [ ] 55-01-PLAN.md — canonical `memory_context_load` node contract, output labels, and focused memory-authority tests.
-- [ ] 55-02-PLAN.md — active graph/router/baseline cutover from `long_term_memory_retrieve` to `memory_context_load`.
-- [ ] 55-03-PLAN.md — vocabulary/API/docs/architecture-debt compatibility ledger and final validation closeout.
+- [x] 55-01-PLAN.md — canonical `memory_context_load` node contract, output labels, and focused memory-authority tests.
+- [x] 55-02-PLAN.md — active graph/router/baseline cutover from `long_term_memory_retrieve` to `memory_context_load`.
+- [x] 55-03-PLAN.md — vocabulary/API/docs/architecture-debt compatibility ledger and final validation closeout.
 
 ### Phase 56: Recommendation Generation and RAG Claim Status Alignment
 
