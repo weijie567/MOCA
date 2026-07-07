@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
 status: executing
-stopped_at: Completed 57-03-PLAN.md
-last_updated: "2026-07-07T14:28:38.909Z"
+stopped_at: Completed 57-04-PLAN.md
+last_updated: "2026-07-07T15:07:31.065Z"
 last_activity: 2026-07-07
 progress:
   total_phases: 23
@@ -31,7 +31,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-07)
 ## Current Position
 
 Phase: 57 (risk-gate-and-approval-gate-canonicalization) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-07-07
 Next: Start `$gsd-phase-autopilot 57`.
@@ -77,7 +77,7 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | 54. Slot Resolution Gate Cutover (CAGM-05) | 3/3 | Complete |
 | 55. Memory Context Load Cutover (CAGM-06) | 3/3 | Complete |
 | 56. Recommendation Generation and RAG Claim Status Alignment (CAGM-07) | 4/4 | Complete |
-| 57. Risk Gate and Approval Gate Canonicalization (CAGM-08) | 3/5 | In Progress |
+| 57. Risk Gate and Approval Gate Canonicalization (CAGM-08) | 4/5 | In Progress |
 | 58. Canonical Graph Cutover and No-Debt Cleanup (CAGM-09) | 0/TBD | Not planned |
 
 Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review. Phase 40 closes the source-confirmed validation/backstop gaps intentionally deferred or left advisory after Phase 38/39. Phase 41 then handles the explicit breaking cleanup/API decision to remove the `UnifiedToolManager` legacy compatibility adapter.
@@ -142,6 +142,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 | Phase 57 P01 | 7min | 2 tasks | 6 files |
 | Phase 57 P02 | 22min | 2 tasks | 15 files |
 | Phase 57 P03 | 21min | 2 tasks | 11 files |
+| Phase 57 P04 | 32m | 2 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -220,6 +221,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - 57-03: Persisted legacy approval edit retry metadata is normalized to canonical risk_gate before graph resume; fresh/current legacy resume_route is not accepted as authority.
 - 57-03: receive_request clears stale approval/risk/action authority fields at new-turn intake for approval-like chat safety.
 - 57-03: approval_gate validates TrustedApprovalResultV1 plus tenant/run/hash bindings before setting approval_result.
+- Phase 57 Plan 04 treats risk_gate as the only current runtime risk node while preserving assess_risk_and_approval only as labeled historical projection until Phase 58.
 
 ### Roadmap Evolution
 
@@ -269,8 +271,8 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ## Session Continuity
 
-Last session: 2026-07-07T14:28:38.886Z
-Stopped at: Completed 57-03-PLAN.md
+Last session: 2026-07-07T15:07:30.798Z
+Stopped at: Completed 57-04-PLAN.md
 Resume file: None
 Next: Start `$gsd-phase-autopilot 57` when ready.
 

@@ -17728,6 +17728,47 @@ gsd-sdk query roadmap.update-plan-progress "57"
 - `.planning/STATE.md` Phase Progress Snapshot
 - GSD SDK `roadmap.update-plan-progress` handler 的 Phase checkbox 匹配规则
 
+## 2026-07-07 Phase 57 Plan 57-04：state.update-progress 将未完成的 57-05 误计为整体 100%
+
+### 问题现象
+
+执行 `gsd-sdk query state.update-progress` 后，`.planning/STATE.md` frontmatter 和正文进度被更新为 `completed_plans: 69` / `total_plans: 69` / `100%`，但 Phase 57 仍是 4/5，`57-05-PLAN.md` 还没有 SUMMARY。
+
+### 如何检测 / 复现
+
+```text
+gsd-sdk query state.update-progress
+find .planning/phases -name '*-PLAN.md' | wc -l
+find .planning/phases -name '*-SUMMARY.md' | wc -l
+for s in $(find .planning/phases -name '*-SUMMARY.md' | sort); do p="${s%-SUMMARY.md}-PLAN.md"; [ -f "$p" ] || echo "SUMMARY_WITHOUT_PLAN $s"; done
+for p in $(find .planning/phases -name '*-PLAN.md' | sort); do s="${p%-PLAN.md}-SUMMARY.md"; [ -f "$s" ] || echo "PLAN_WITHOUT_SUMMARY $p"; done
+```
+
+### 关键证据或命令
+
+```text
+SUMMARY_WITHOUT_PLAN .planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SUMMARY.md
+PLAN_WITHOUT_SUMMARY .planning/phases/57-risk-gate-and-approval-gate-canonicalization/57-05-PLAN.md
+```
+
+### 当前判断 / 根因
+
+`state.update-progress` 似乎按 SUMMARY 数量直接计算完成数，未排除 Phase 50 spec-only summary，也未用 PLAN/SUMMARY matching pair 校验未完成计划。因此在 57-04 SUMMARY 创建后，planless `50-SUMMARY.md` 抵消了缺失的 `57-05-SUMMARY.md`，导致整体进度被误报为 100%。
+
+### 已做处理
+
+已手动把 `.planning/STATE.md` 改回 `completed_plans: 68` / `total_plans: 69` / `percent: 99`，同时保留 Phase 57 progress row 为 4/5、Current Position 为 Plan 5 of 5。
+
+### 剩余问题
+
+后续 57-05 完成时需要再次核对 `state.update-progress` 是否仍被 Phase 50 spec-only summary 干扰。
+
+### 下次继续排查入口
+
+- `gsd-sdk query state.update-progress`
+- `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SUMMARY.md`
+- `.planning/phases/57-risk-gate-and-approval-gate-canonicalization/57-05-PLAN.md`
+
 ## 2026-07-07 Phase 57 Plan 57-04：Task 1 RED 验证发现 risk_gate 投影面缺口
 
 ### 问题现象
@@ -17806,3 +17847,81 @@ Task 2 GREEN focused 验证已通过：`134 passed, 1 skipped, 1 warning`；风�
 - `scripts/diagnose_latency.py`
 - `tests/architecture/graph_baseline.py`
 - `tests/architecture/test_canonical_graph_baseline.py::test_phase57_eval_current_run_surfaces_use_risk_gate_not_legacy_risk_node`
+
+## 2026-07-07 Phase 57 Plan 57-04：static closeout scan 初版误读 diagnostic mock 结构
+
+### 问题现象
+
+Plan-level static closeout scan 初版失败，报 `AssertionError`，看起来像 `scripts/diagnose_latency.py` 的 `risk_gate` mock report 未被检测到。
+
+### 如何检测 / 复现
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run python -c '... d.mock_report().get("steps", []) ...'
+```
+
+### 关键证据或命令
+
+```text
+失败命令使用 `mock_report().get("steps", [])` 收集 node name；实际 `scripts.diagnose_latency.mock_report()` 返回结构的 key 是 `nodes`。
+
+诊断命令输出：
+dict_keys(['run_id', 'total_latency_ms', 'node_count', 'nodes', 'bottleneck', 'suspected_causes'])
+```
+
+### 当前判断 / 根因
+
+这是 closeout scan 脚本写错字段名导致的验证 false negative，不是实现回归。`mock_report()["nodes"]` 中实际已经包含 `risk_gate` 且不包含 `assess_risk_and_approval`。
+
+### 已做处理
+
+已将 closeout scan 改为读取 `mock_report().get("nodes", [])` 并重跑通过。
+
+### 剩余问题
+
+无实现剩余问题。最终通过命令：`phase57-risk-gate-static-closeout: pass`。
+
+### 下次继续排查入口
+
+- `scripts/diagnose_latency.py::mock_report`
+- Phase 57-04 SUMMARY 的 static closeout verification 记录
+
+## 2026-07-07 Phase 57 Plan 57-04：roadmap.update-plan-progress 仍无法匹配 Phase 57 checkbox
+
+### 问题现象
+
+完成 57-04 后执行 `gsd-sdk query roadmap.update-plan-progress "57"` 仍返回 `updated: false` / `no matching checkbox found`，未能把 ROADMAP 中 Phase 57 的进度从 3/5 改为 4/5。
+
+### 如何检测 / 复现
+
+```text
+gsd-sdk query roadmap.update-plan-progress "57"
+```
+
+### 关键证据或命令
+
+```text
+{
+  "updated": false,
+  "phase": "57",
+  "reason": "no matching checkbox found"
+}
+```
+
+### 当前判断 / 根因
+
+与 57-01、57-02、57-03 已记录的同类问题一致：SDK roadmap handler 的 checkbox/row 匹配规则不能识别当前 ROADMAP 的 Phase 57 Markdown 结构。
+
+### 已做处理
+
+已手动把 `.planning/ROADMAP.md` Phase 57 顶部进度和 57-04 checklist 更新为 4/5 / checked，并同步 `.planning/STATE.md` Phase progress table 为 4/5。
+
+### 剩余问题
+
+后续 57-05 继续使用该 SDK handler 时可能再次需要人工核对 ROADMAP diff。
+
+### 下次继续排查入口
+
+- `.planning/ROADMAP.md` Phase 57 top row / plan checklist
+- `.planning/STATE.md` Phase Progress Snapshot
+- GSD SDK `roadmap.update-plan-progress` handler 的 Phase checkbox 匹配规则
