@@ -16052,3 +16052,53 @@ Error: Key not found: workflow.max_discuss_passes
 - `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`
 - `.planning/phases/55-memory-context-load-cutover/55-VERIFICATION.md`
 - `.planning/config.json`
+
+## 2026-07-07 — Phase 56 state.record-session 再次错误改写 STATE 计数和 session 参数
+
+### 问题现象
+
+Phase 56 context 生成后按 discuss workflow 运行 `gsd-sdk query state.record-session --stopped-at "Phase 56 context gathered" --resume-file ".planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-CONTEXT.md"`，命令返回 `recorded: true`，但 diff 显示 `.planning/STATE.md` 被错误改写。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+gsd-sdk query state.record-session --stopped-at "Phase 56 context gathered" --resume-file ".planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-CONTEXT.md"
+git diff -- .planning/STATE.md
+rg -n "Last session|Stopped At|Resume File|Phase 56 context gathered" .planning/STATE.md
+```
+
+### 关键证据或命令
+
+错误 diff 包含：
+
+```text
+completed_phases: 20 -> 19
+completed_plans: 58 -> 61
+percent: 87 -> 100
+Last session: --stopped-at
+Resume file: --resume-file
+```
+
+### 当前判断 / 根因
+
+这是 GSD `state.record-session` helper 的参数解析 / tracking 聚合 bug。它不仅记录 session，还错误重算了 milestone 进度，并把 flag 名写进了 human-readable session continuity 字段。该问题与 Phase 56 context 内容无关。
+
+### 已做处理
+
+已手动收敛 `.planning/STATE.md`：
+
+- 保留 `status: planning`、`stopped_at: Phase 56 context gathered`。
+- 恢复 milestone 计数为 Phase 55 完成后的真实状态：`completed_phases: 20`、`completed_plans: 58`、`percent: 87`。
+- 修正 `Last session` 和 `Resume file` 为真实时间与 Phase 56 context 路径。
+
+### 剩余问题
+
+无 Phase 56 阻塞。后续应继续对所有 `state.*` / `phase.complete` 类 mutation helper 执行 diff 审核，不盲信成功返回。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `gsd-sdk query state.record-session`
+- `.planning/autopilot/phase-56.md`
