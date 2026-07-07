@@ -16206,3 +16206,51 @@ last_activity: 2026-07-07 -- Phase 55 complete; ready to plan Phase 56
 - `.planning/STATE.md`
 - `.planning/ROADMAP.md`
 - `gsd-sdk query state.planned-phase`
+
+## 2026-07-07 — Phase 56 gsd-review Claude 模型配置缺失但已回退默认模型
+
+### 问题现象
+
+Phase 56 autopilot 进入 Claude plan review 时，按 `gsd-review` workflow 查询 `review.models.claude`，命令返回非零退出码。该配置是可选项，缺失时 workflow 允许直接使用 Claude CLI 默认模型，因此没有阻塞 plan review。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+gsd-sdk query config-get review.models.claude
+```
+
+### 关键证据或命令
+
+命令输出：
+
+```text
+Error: Key not found: review.models.claude
+```
+
+随后直接运行：
+
+```text
+cat /tmp/gsd-review-prompt-56.md | claude -p -
+```
+
+Claude review 正常完成，生成 275 行输出，stderr 为空。
+
+### 当前判断 / 根因
+
+这是 `gsd-review` 的可选模型配置缺失，不是 Claude CLI、认证或 Phase 56 plan 本身失败。workflow 明确允许模型配置为 null/缺失时回退到 CLI 默认模型。
+
+### 已做处理
+
+已使用 Claude CLI 默认模型完成 Phase 56 plan review，并生成 `.planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-REVIEWS.md`。
+
+### 剩余问题
+
+无 Phase 56 阻塞。若后续希望固定 reviewer 模型，可在 planning config 中补 `review.models.claude`。
+
+### 下次继续排查入口
+
+- `.planning/config.json`
+- `/Users/ming/.codex/get-shit-done/workflows/review.md`
+- `.planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-REVIEWS.md`
