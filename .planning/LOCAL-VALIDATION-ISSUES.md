@@ -18386,3 +18386,55 @@ which gsd-discuss-phase
 ### 剩余问题和下次继续排查入口
 
 后续 autopilot 若继续调用 `$gsd-plan-phase` / `$gsd-execute-phase` 等 shell 命令，也可能遇到同类入口差异。下次入口是直接加载对应 skill 的 `SKILL.md` 和 workflow 文件，通过 `gsd-sdk query ...`、GSD sub-agent tools 和手动 artifact 更新执行等价流程；也可后续补一个 shell shim，把 `$gsd-*` 命令映射到 Codex skill 调用。
+
+## 2026-07-08：Phase 58 planning 后 ROADMAP/STATE 摘要区未完全同步
+
+### 问题现象
+
+Phase 58 已生成 6 个计划并通过 GSD plan-checker，但 planning metadata handler 只更新了部分位置：
+
+- `.planning/ROADMAP.md` 顶部 Phase 58 checkbox 行和详细 Phase 58 section 显示 `Planned: 6 plans` / `**Plans:** 6 plans`；
+- `.planning/ROADMAP.md` 汇总表仍显示 `0/TBD | Not planned`；
+- `.planning/STATE.md` 追加了 `Planned Phase: 58 ... 6 plans`，但 summary table 和 `Next Phase` 行仍残留 `Not planned` / `not planned`；
+- `gsd-sdk query roadmap.update-plan-progress 58` 返回 `updated: false` / `reason: no matching checkbox found`。
+
+### 如何检测 / 复现
+
+在 Phase 58 planning 后运行：
+
+```bash
+rg -n "58\\. Canonical|Canonical Graph Cutover.*CAGM-09|Next Phase.*58|Planned Phase.*58|not planned|Planned: 6 plans|Ready to execute" .planning/ROADMAP.md .planning/STATE.md
+gsd-sdk query roadmap.update-plan-progress 58
+```
+
+### 关键证据或命令
+
+```json
+{
+  "updated": false,
+  "phase": "58",
+  "reason": "no matching checkbox found"
+}
+```
+
+`gsd-sdk query init.plan-phase "58"` 同时正确返回 `has_plans: true` 和 `plan_count: 6`，说明计划文件识别本身正常。
+
+### 当前判断 / 根因
+
+这是 GSD roadmap/state markdown 多摘要区同步不完整问题，类似 Phase 57 complete 后 STATE 多正文块未同步的既有问题。Phase 58 plan 文件和 GSD plan-checker 结果是当前可信事实；汇总表 stale 不代表计划未生成。
+
+### 已做处理
+
+使用 GSD handler 而非手工直接改 STATE：
+
+```bash
+gsd-sdk query state.planned-phase --phase "58" --name "canonical-graph-cutover-and-no-debt-cleanup" --plans "6"
+gsd-sdk query state.update-progress
+gsd-sdk query state.record-session --stopped-at "Phase 58 planned and GSD plan-checker passed" --resume-file ".planning/phases/58-canonical-graph-cutover-and-no-debt-cleanup/58-01-PLAN.md"
+```
+
+ROADMAP 详细 section 已有 6 个计划清单，STATE 已记录 Planned Phase 和最新 resume file；没有直接手工改 ROADMAP/STATE 的 stale summary table。
+
+### 剩余问题和下次继续排查入口
+
+后续执行/closeout 时需要再次核对 ROADMAP/STATE 的 summary table、frontmatter、详细 phase section 是否一致。若 GSD handler 仍无法更新汇总表，可在 Phase 58 final closeout 中按计划 58-06 做一次受控 metadata reconcile，并保留本记录作为依据。

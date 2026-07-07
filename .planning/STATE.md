@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
 status: planning
-stopped_at: Phase 58 context gathered
-last_updated: "2026-07-07T22:42:53.200Z"
+stopped_at: Phase 58 planned and GSD plan-checker passed
+last_updated: "2026-07-07T23:47:09.276Z"
 last_activity: 2026-07-08
 progress:
   total_phases: 23
   completed_phases: 21
-  total_plans: 69
+  total_plans: 75
   completed_plans: 70
-  percent: 100
+  percent: 93
 ---
 
 # Project State: MOCA
@@ -36,7 +36,7 @@ Status: Ready to plan
 Last activity: 2026-07-08
 Next: Start `$gsd-phase-autopilot 58`.
 
-Progress: [██████████] 96%
+Progress: [█████████░] 93%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -276,7 +276,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 ## Session Continuity
 
 Last session: --stopped-at
-Stopped at: Phase 58 context gathered
+Stopped at: Phase 58 planned and GSD plan-checker passed
 Resume file: --resume-file
 Next: Start `$gsd-phase-autopilot 58`.
 
@@ -287,4 +287,4 @@ Next roadmap item: Phase 58 Canonical Graph Cutover and No-Debt Cleanup.
 
 **Next Phase:** 58 (canonical-graph-cutover-and-no-debt-cleanup) — not planned
 
-**Planned Phase:** None
+**Planned Phase:** 58 (canonical-graph-cutover-and-no-debt-cleanup) — 6 plans — 2026-07-07T23:46:36.030Z
