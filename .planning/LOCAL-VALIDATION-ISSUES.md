@@ -16641,6 +16641,49 @@ FAILED tests/agent/test_rag_context_routing.py::test_partial_rag_context_fails_c
 - `tests/agent/test_rag_context_routing.py`
 - `src/knowledge/schemas.py`
 
+## 2026-07-07 Phase 56 Plan 56-03 Task 2 TDD RED：claim_verify 路由仍允许 unsupported proposed_action 进入风险节点
+
+### 问题现象
+
+Task 2 按 TDD RED 加入 action-claim decision table 与 legacy verifier 非权威字段测试后，聚焦测试出现 3 个失败。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_routing.py tests/knowledge/test_claim_verification_bundle.py -q --tb=short
+```
+
+### 关键证据或命令
+
+pytest 输出：
+
+```text
+FAILED tests/agent/rag_context/test_routing.py::test_route_after_claim_verify_maps_bundle_routes_to_registered_graph_keys[state0-final_response]
+FAILED tests/agent/rag_context/test_routing.py::test_route_after_claim_verify_maps_bundle_routes_to_registered_graph_keys[state2-final_response]
+FAILED tests/agent/rag_context/test_routing.py::test_route_after_claim_verify_maps_bundle_routes_to_registered_graph_keys[state4-final_response]
+3 failed, 53 passed, 1 warning
+```
+
+### 当前判断 / 根因
+
+这是 Task 2 预期的 TDD RED 失败：当前 `_route_after_claim_verify` 只要 canonical bundle 是 `verified/continue`，遇到 `proposed_action`、任意 risk signal，或 `_has_verified_action_recommendation(state)` 为 true 就进入 `assess_risk_and_approval`。它还没有实现 repaired plan 的四行决策表：有 `proposed_action` 时必须存在显式 allowed `action_recommendation` 结果；allowed action claim 单独存在时不能自己创建风险路由。
+
+### 已做处理
+
+已确认失败来自新增测试覆盖的目标缺口，不是环境入口错误；下一步将在 GREEN 阶段收紧 `_route_after_claim_verify`。
+
+### 剩余问题
+
+需要实现：`proposed_action` + no allowed action claim => `final_response`；`proposed_action` + allowed action claim => `assess_risk_and_approval`；无 proposed action 但有独立 non-action risk signal => `assess_risk_and_approval`；无 proposed action 且无 non-action risk signal => `final_response`。
+
+### 下次继续排查入口
+
+- `src/agent/routing.py`
+- `tests/agent/rag_context/test_routing.py`
+- `src/knowledge/schemas.py`
+
 ## 2026-07-07 Phase 56 Plan 56-03 Task 1 GREEN：partial RAG approval_required risk_level 被 risk_tier=low 遮蔽
 
 ### 问题现象

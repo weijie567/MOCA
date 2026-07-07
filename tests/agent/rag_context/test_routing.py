@@ -15,6 +15,31 @@ def _value(value: Any) -> str:
     return value.value if hasattr(value, "value") else str(value)
 
 
+def _continue_bundle(*, claim_results: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    return {
+        "overall_status": "verified",
+        "route": "continue",
+        "claim_results": claim_results or [],
+        "blocked_claims": [],
+        "safe_support_refs": [],
+        "reason_codes": [],
+    }
+
+
+def _allowed_action_claim_result() -> dict[str, Any]:
+    return {
+        "claim_id": "claim-action-1",
+        "claim_type": "action_recommendation",
+        "support_status": "supported",
+        "supporting_evidence_refs": [],
+        "business_fact_refs": [],
+        "rule_checks": [{"rule": "policy_support_required", "passed": True}],
+        "semantic_review_status": "not_needed",
+        "allows_user_visible_claim": True,
+        "allows_action_recommendation": True,
+    }
+
+
 @pytest.mark.parametrize(
     ("state", "expected_route"),
     [
@@ -184,6 +209,18 @@ def test_route_after_recommendation_sends_claims_and_actions_to_claim_verify() -
     from src.agent.routing import route_after_recommendation
 
     assert route_after_recommendation({"material_claims": [{"claim_id": "claim-policy"}]}) == "claim_verify"
+    assert (
+        route_after_recommendation(
+            {"recommendation_draft": {"policy_claims": [{"claim_text": "Policy allows review."}]}}
+        )
+        == "claim_verify"
+    )
+    assert (
+        route_after_recommendation(
+            {"recommendation_draft": {"business_claims": [{"claim_text": "Refund case is eligible."}]}}
+        )
+        == "claim_verify"
+    )
     assert route_after_recommendation({"proposed_action": {"type": "create_compensation_review"}}) == "claim_verify"
     assert (
         route_after_recommendation(
@@ -207,14 +244,44 @@ def test_route_after_recommendation_sends_claims_and_actions_to_claim_verify() -
     [
         (
             {
-                "claim_verification_bundle": {"overall_status": "verified", "route": "continue"},
+                "claim_verification_bundle": _continue_bundle(),
+                "proposed_action": {"type": "create_compensation_review"},
+            },
+            "final_response",
+        ),
+        (
+            {
+                "claim_verification_bundle": _continue_bundle(
+                    claim_results=[_allowed_action_claim_result()]
+                ),
                 "proposed_action": {"type": "create_compensation_review"},
             },
             "assess_risk_and_approval",
         ),
         (
-            {"claim_verification_bundle": {"overall_status": "verified", "route": "continue"}},
+            {
+                "claim_verification_bundle": _continue_bundle(),
+                "proposed_action": {"type": "create_compensation_review"},
+                "risk_signals": ["approval_required"],
+            },
             "final_response",
+        ),
+        (
+            {"claim_verification_bundle": _continue_bundle()},
+            "final_response",
+        ),
+        (
+            {"claim_verification_bundle": _continue_bundle(claim_results=[_allowed_action_claim_result()])},
+            "final_response",
+        ),
+        (
+            {
+                "claim_verification_bundle": _continue_bundle(
+                    claim_results=[_allowed_action_claim_result()]
+                ),
+                "risk_signals": ["manual_review_required"],
+            },
+            "assess_risk_and_approval",
         ),
         (
             {
@@ -250,7 +317,7 @@ def test_route_after_recommendation_sends_claims_and_actions_to_claim_verify() -
             "final_response",
         ),
         ({}, "final_response"),
-        ({"claim_verification_bundle": {"overall_status": "verified", "route": "continue"}}, "final_response"),
+        ({"claim_verification_bundle": _continue_bundle()}, "final_response"),
     ],
 )
 def test_route_after_claim_verify_maps_bundle_routes_to_registered_graph_keys(
@@ -300,7 +367,7 @@ def test_route_after_claim_verify_blocks_business_fact_and_unsupported_action_cl
     )
 
 
-def test_route_after_claim_verify_sends_verified_action_recommendation_to_risk_gate() -> None:
+def test_route_after_claim_verify_sends_verified_action_recommendation_to_current_risk_node() -> None:
     """APF-14: verified actionable drafts must still bind action authority through risk/snapshot."""
     from src.agent.routing import route_after_claim_verify
 
@@ -311,27 +378,42 @@ def test_route_after_claim_verify_sends_verified_action_recommendation_to_risk_g
                 "risk_level": "low",
                 "evidence_refs": [{"doc_key": "policy_refund_timeout", "chunk_id": "chunk_001"}],
             },
-            "claim_verification_bundle": {
-                "overall_status": "verified",
-                "route": "continue",
-                "claim_results": [
-                    {
-                        "claim_id": "claim-action-1",
-                        "claim_type": "action_recommendation",
-                        "support_status": "supported",
-                        "supporting_evidence_refs": [],
-                        "business_fact_refs": [],
-                        "rule_checks": [{"rule": "policy_support_required", "passed": True}],
-                        "semantic_review_status": "not_needed",
-                        "allows_user_visible_claim": True,
-                        "allows_action_recommendation": True,
-                    }
-                ],
-                "blocked_claims": [],
-                "safe_support_refs": [],
-                "reason_codes": [],
-            },
+            "proposed_action": {"type": "create_compensation_review"},
+            "claim_verification_bundle": _continue_bundle(claim_results=[_allowed_action_claim_result()]),
         }
     )
 
     assert route == "assess_risk_and_approval"
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        {"verification_route": "allow"},
+        {"verification_route": "allow", "verifier_status": "verified", "verifier_reason_codes": []},
+        {
+            "verification_route": "allow",
+            "claim_verification_bundle": {
+                "overall_status": "blocked",
+                "route": "final_response",
+                "blocked_claims": ["claim-action-1"],
+            },
+        },
+        {
+            "verification_route": "allow",
+            "claim_verification_bundle": {
+                "overall_status": "verified",
+                "route": "final_response",
+                "blocked_claims": [],
+            },
+        },
+    ],
+)
+def test_legacy_verifier_fields_cannot_override_canonical_claim_bundle_gate(
+    state: dict[str, Any],
+) -> None:
+    from src.agent.routing import route_after_claim_verify
+
+    state = {"proposed_action": {"type": "create_compensation_review"}, **state}
+
+    assert route_after_claim_verify(state) == "final_response"
