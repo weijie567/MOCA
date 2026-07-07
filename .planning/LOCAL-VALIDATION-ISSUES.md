@@ -14639,3 +14639,57 @@ sed -n '1,220p' /Users/ming/.codex/skills/gsd-code-review-fix/SKILL.md && sed -n
 
 - `/Users/ming/.codex/skills/gsd-code-review-fix/SKILL.md`
 - `/Users/ming/.codex/get-shit-done/workflows/code-review-fix.md`
+
+## 2026-07-07 — Phase 54 review-fix Ruff format check 发现待格式化文件
+
+### 问题现象
+
+Phase 54 code-review-fix 末尾做聚焦验证时，`ruff check` 与 pytest 已通过，但额外执行的 Ruff formatter 检查失败，提示两个本次触达文件需要格式化。
+
+### 如何检测 / 复现
+
+在 MOCA 根目录运行：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff format --check src/agent/routing.py tests/agent/test_nodes/test_slot_resolution_gate.py tests/agent/test_required_slots.py
+```
+
+### 关键证据或命令
+
+失败输出：
+
+```text
+Would reformat: src/agent/routing.py
+Would reformat: tests/agent/test_required_slots.py
+2 files would be reformatted, 1 file already formatted
+```
+
+### 当前判断 / 根因
+
+这是 formatter 级别的机械格式漂移，不是语义失败；`ruff check` 与聚焦 pytest 均已通过。触发原因是对完整触达文件执行 `ruff format --check`，暴露了 `routing.py` 中既有长条件表达式以及本次新增测试附近断言/字典格式不符合 Ruff formatter 输出。
+
+### 已做处理
+
+已执行：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff format src/agent/routing.py tests/agent/test_required_slots.py
+```
+
+随后重跑通过：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_slot_resolution_gate.py tests/agent/test_required_slots.py tests/agent/test_graph.py -q --tb=short
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/routing.py tests/agent/test_nodes/test_slot_resolution_gate.py tests/agent/test_required_slots.py
+UV_CACHE_DIR=/tmp/uv-cache uv run ruff format --check src/agent/routing.py tests/agent/test_nodes/test_slot_resolution_gate.py tests/agent/test_required_slots.py
+```
+
+### 剩余问题
+
+无已知剩余阻塞；当前聚焦测试、Ruff lint、Ruff format check 均通过。
+
+### 下次继续排查入口
+
+- `src/agent/routing.py`
+- `tests/agent/test_required_slots.py`
+- `.planning/phases/54-slot-resolution-gate-cutover/54-REVIEW.md`
