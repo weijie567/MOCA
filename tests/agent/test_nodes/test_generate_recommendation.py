@@ -274,6 +274,26 @@ def test_recommendation_generation_canonical_import_is_callable():
     assert callable(recommendation_generation_module.recommendation_generation)
 
 
+def test_generate_recommendation_compatibility_metadata_is_phase58_scoped():
+    source = inspect.getsource(generate_recommendation_module)
+    for marker in (
+        "PHASE_56_COMPATIBILITY_ALIAS",
+        "HISTORICAL_TRACE_PROJECTION",
+        "IMPORT_TEST_COMPATIBILITY",
+        "DELETE_BY_PHASE_58",
+    ):
+        assert marker in source
+
+    metadata = generate_recommendation_module.PHASE_56_COMPATIBILITY_ALIAS
+    assert metadata["legacy_surface"] == "generate_recommendation"
+    assert metadata["canonical_owner"] == "recommendation_generation"
+    assert metadata["reason"] == generate_recommendation_module.IMPORT_TEST_COMPATIBILITY
+    assert metadata["trace_projection"] == generate_recommendation_module.HISTORICAL_TRACE_PROJECTION
+    assert metadata["delete_phase"] == generate_recommendation_module.DELETE_BY_PHASE_58
+    assert "tests/agent/test_nodes/test_generate_recommendation.py" in metadata["validation_tests"]
+    assert "tests/agent/test_phase22_recommendation_integration.py" in metadata["validation_tests"]
+
+
 @pytest.mark.asyncio
 async def test_canonical_recommendation_generation_writes_canonical_identity_only(monkeypatch, base_state):
     evidence = _evidence(tenant_id=base_state["tenant_id"])

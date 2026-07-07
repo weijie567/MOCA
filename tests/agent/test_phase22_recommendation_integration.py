@@ -12,6 +12,14 @@ from tests.agent.conftest import FakeLLM
 
 
 TENANT_ID = "11111111-1111-1111-1111-111111111111"
+GENERATION_VERIFIER_OWNED_STATE_KEYS = {
+    "claim_verification_bundle",
+    "blocked_claims",
+    "safe_support_refs",
+    "verifier_status",
+    "verification_route",
+    "verifier_reason_codes",
+}
 
 
 class AttrDict(dict[str, Any]):
@@ -253,6 +261,10 @@ def _claim_bundle(
     )
 
 
+def _assert_generation_result_has_no_verifier_owned_state(result: dict[str, Any]) -> None:
+    assert GENERATION_VERIFIER_OWNED_STATE_KEYS.isdisjoint(result)
+
+
 def _unsupported_action_draft_with_valid_citation() -> dict[str, Any]:
     return {
         "recommended_action": "issue_coupon",
@@ -314,6 +326,8 @@ async def test_generate_recommendation_consumes_verified_package_and_does_not_no
     assert result["recommendation_draft"]["citation_validation"]["is_valid"] is True
     assert result["recommendation_draft"]["material_claims"][0]["claim_type"] == "policy"
     assert result["recommendation_draft"]["material_claims"][0]["generated_from_step"] == "recommendation_generation"
+    assert all(claim["generated_from_step"] == "recommendation_generation" for claim in result["material_claims"])
+    _assert_generation_result_has_no_verifier_owned_state(result)
     assert "rag_context_bundle" not in result
     assert "rag_verification" not in result
     assert "claim_verification_bundle" not in result
@@ -350,6 +364,7 @@ async def test_model_selected_safety_route_is_ignored_until_backend_claim_verify
     )
 
     assert "verification_route" not in result["recommendation_draft"]
+    _assert_generation_result_has_no_verifier_owned_state(result)
     assert service.calls
     assert verify_result["claim_verification_bundle"]["route"] == "manual_review"
     assert verify_result["verification_route"] == "manual_review"
@@ -395,6 +410,7 @@ async def test_valid_citation_membership_does_not_allow_unsupported_action_recom
     )
 
     assert result["recommendation_draft"]["citation_validation"]["is_valid"] is True
+    _assert_generation_result_has_no_verifier_owned_state(result)
     claims = result["recommendation_draft"]["material_claims"]
     assert any(claim["claim_type"] == "policy" for claim in claims)
     assert any(claim["claim_type"] == "action_recommendation" for claim in claims)
@@ -449,6 +465,8 @@ async def test_supported_policy_claim_does_not_mask_failed_action_dependency(
 
     assert any(claim["claim_type"] == "policy" for claim in result["material_claims"])
     assert any(claim["claim_type"] == "action_recommendation" for claim in result["material_claims"])
+    assert all(claim["generated_from_step"] == "recommendation_generation" for claim in result["material_claims"])
+    _assert_generation_result_has_no_verifier_owned_state(result)
     assert verify_result["claim_verification_bundle"]["overall_status"] == "blocked"
     assert verify_result["verification_route"] == "refuse"
     assert "dependency_result_missing" in verify_result["verifier_reason_codes"]
@@ -479,4 +497,5 @@ async def test_missing_verified_package_fails_closed_instead_of_allowing_members
 
     assert result["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
     assert result["material_claims"] == []
+    _assert_generation_result_has_no_verifier_owned_state(result)
     assert "verified_evidence_package_required" in " ".join(result["recommendation_draft"]["missing_info"])

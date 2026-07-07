@@ -16429,3 +16429,44 @@ ImportError: cannot import name 'recommendation_generation' from 'src.agent.node
 - `tests/agent/test_nodes/test_generate_recommendation.py`
 - `src/agent/nodes/recommendation_generation.py`
 - `src/agent/nodes/generate_recommendation.py`
+
+## 2026-07-07 Phase 56 Plan 56-01 Task 2 TDD RED：legacy compatibility metadata 尚未声明
+
+### 问题现象
+
+Task 2 按 TDD RED 加入 compatibility metadata 与 verifier-owned state 边界测试后，聚焦测试出现 1 个失败。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_generate_recommendation.py tests/agent/test_phase22_recommendation_integration.py -q --tb=short
+```
+
+### 关键证据或命令
+
+pytest 输出：
+
+```text
+FAILED tests/agent/test_nodes/test_generate_recommendation.py::test_generate_recommendation_compatibility_metadata_is_phase58_scoped
+AssertionError: assert 'PHASE_56_COMPATIBILITY_ALIAS' in ...
+```
+
+### 当前判断 / 根因
+
+这是 Task 2 预期的 TDD RED 失败：测试已要求 legacy `generate_recommendation` compatibility surface 显式记录 Phase 56 alias、historical trace projection、import/test compatibility reason 与 Phase 58 删除标记，但生产代码尚未声明这些 metadata。
+
+### 已做处理
+
+已确认同一命令中其余 36 个测试通过，新增 verifier-owned state 边界断言没有暴露额外实现问题。下一步将在 GREEN 阶段补齐 compatibility constants/metadata。
+
+### 剩余问题
+
+需要在 `src/agent/nodes/generate_recommendation.py` 中声明 `PHASE_56_COMPATIBILITY_ALIAS`、`HISTORICAL_TRACE_PROJECTION`、`IMPORT_TEST_COMPATIBILITY`、`DELETE_BY_PHASE_58`，并保持 legacy wrapper 仅用于 import/test/historical compatibility。
+
+### 下次继续排查入口
+
+- `src/agent/nodes/generate_recommendation.py`
+- `tests/agent/test_nodes/test_generate_recommendation.py`
+- `tests/agent/test_phase22_recommendation_integration.py`
