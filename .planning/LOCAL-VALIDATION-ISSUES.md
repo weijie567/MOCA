@@ -16154,3 +16154,55 @@ find: ./.agents/skills: No such file or directory
 
 - `.planning/config.json`
 - `/Users/ming/.codex/get-shit-done/workflows/plan-phase.md`
+
+## 2026-07-07 — Phase 56 state.planned-phase 错误改写 milestone 计数
+
+### 问题现象
+
+Phase 56 计划和 plan-checker 通过后，按 plan workflow 运行 `gsd-sdk query state.planned-phase --phase "56" --name "recommendation-generation-and-rag-claim-status-alignment" --plans "4"`，命令返回 `updated: true`，但 `.planning/STATE.md` frontmatter 进度被错误改写。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+gsd-sdk query state.planned-phase --phase "56" --name "recommendation-generation-and-rag-claim-status-alignment" --plans "4"
+git diff -- .planning/STATE.md
+rg -n "completed_phases|completed_plans|percent|Planned Phase|Phase 56" .planning/STATE.md
+```
+
+### 关键证据或命令
+
+错误 diff 包含：
+
+```text
+completed_phases: 20 -> 19
+completed_plans: 58 -> 61
+percent: 87 -> 95
+last_activity: 2026-07-07 -- Phase 55 complete; ready to plan Phase 56
+```
+
+### 当前判断 / 根因
+
+这是 GSD `state.planned-phase` helper 的 milestone 计数/文案聚合 bug。Phase 56 只是完成 planning 和 plan-checker，尚未执行任何 plan；因此完成 phase 数不能减少或增加，completed plans 也不能提前加到 61。新增的 4 个 Phase 56 plan 只能让 total plans 从 60 变为 64，completed plans 仍为 58。
+
+### 已做处理
+
+已手动收敛 `.planning/STATE.md`：
+
+- `completed_phases: 20`
+- `total_plans: 64`
+- `completed_plans: 58`
+- `percent: 87`
+- Current position 改为 Phase 56 已规划、等待 autopilot plan review / execution。
+- Current roadmap row 改为 `0/4 | Planned; pending plan review/execution`。
+
+### 剩余问题
+
+无 Phase 56 阻塞。后续仍需对 `state.planned-phase`、`state.record-session`、`phase.complete` 这类 mutation helper 的 diff 做人工核对。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `.planning/ROADMAP.md`
+- `gsd-sdk query state.planned-phase`
