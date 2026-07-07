@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+import scripts.diagnose_latency as diagnose_latency
+import scripts.eval_agent as eval_agent
 from src.agent import graph_vocabulary
 from tests.architecture.graph_baseline import (
     CURRENT_ACTIVE_GRAPH_NODES_BASELINE,
@@ -155,6 +159,57 @@ def test_current_router_mappings_account_for_legacy_destinations() -> None:
     assert legacy_destinations == set()
 
 
+def test_phase57_frontend_timeline_labels_current_risk_gate_and_classifies_legacy_display() -> None:
+    source = Path("frontend/src/components/timeline/TimelineStep.tsx").read_text(encoding="utf-8")
+
+    assert "risk_gate:" in source
+    legacy_lines = [line for line in source.splitlines() if "assess_risk_and_approval" in line]
+    for line in legacy_lines:
+        assert "DELETE_BY_PHASE_58" in line
+        assert "historical" in line.lower()
+
+
+def test_phase57_eval_current_run_surfaces_use_risk_gate_not_legacy_risk_node() -> None:
+    case = _phase57_eval_case()
+    fake_llm_keys = set(eval_agent._ci_fake_llm_responses(case))
+    expected_node_sets = {
+        category: set(
+            eval_agent._expected_nodes_for_case(
+                {
+                    **case,
+                    "category": category,
+                    "expected_approval_required": category
+                    in {"approval_required", "approval_approved", "approval_rejected"},
+                }
+            )
+        )
+        for category in eval_agent.GRAPH_CONTRACT_CATEGORIES
+    }
+    source = Path("scripts/eval_agent.py").read_text(encoding="utf-8")
+
+    assert "risk_gate" in eval_agent.GRAPH_CONTRACT_PATCHED_NODES
+    assert "assess_risk_and_approval" not in eval_agent.GRAPH_CONTRACT_PATCHED_NODES
+    assert "risk_gate" in fake_llm_keys
+    assert "assess_risk_and_approval" not in fake_llm_keys
+    for nodes in expected_node_sets.values():
+        assert "assess_risk_and_approval" not in nodes
+    risk_relevant_categories = {"compensation_suggestion", "approval_approved"}
+    for category in risk_relevant_categories:
+        assert "risk_gate" in expected_node_sets[category]
+    assert "from src.agent.nodes import risk_gate as risk_gate_module" in source
+    assert "from src.agent.nodes import assess_risk_and_approval" not in source
+    assert 'fake_llms["risk_gate"]' in source
+    assert 'fake_llms["assess_risk_and_approval"]' not in source
+
+
+def test_phase57_diagnostic_mock_report_uses_current_risk_gate_name() -> None:
+    report = diagnose_latency.mock_report()
+    nodes = [node["node"] for node in report["nodes"]]
+
+    assert "risk_gate" in nodes
+    assert "assess_risk_and_approval" not in nodes
+
+
 def test_forbidden_internal_or_lifecycle_names_are_not_registered_graph_nodes() -> None:
     assert graph_add_node_names().isdisjoint(FORBIDDEN_MAIN_CHAIN_REGISTERED_NODES)
 
@@ -170,3 +225,18 @@ def test_slot_extraction_drift_is_explicitly_rejected() -> None:
 def test_final_no_debt_gate_is_marked_phase58_scope() -> None:
     pytest.skip("Phase 58 cutover enforces exact canonical graph node set; Phase 51 records the gate.")
     assert graph_add_node_names() == TARGET_CANONICAL_GRAPH_NODES
+
+
+def _phase57_eval_case() -> dict[str, object]:
+    return {
+        "id": "phase57-risk-gate",
+        "thread_id": "phase57-risk-gate",
+        "category": "approval_required",
+        "query": "订单 ORD-2024-001 需要补偿 600 元，帮我生成方案。",
+        "expected_intent": "compensation_suggestion",
+        "expected_evidence_doc_keys": ["refund_policy"],
+        "expected_approval_required": True,
+        "expected_status": "completed",
+        "expected_response_contains": ["补偿"],
+        "expected_tools_called": ["get_order", "search_policy"],
+    }
