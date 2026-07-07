@@ -16102,3 +16102,55 @@ Resume file: --resume-file
 - `.planning/STATE.md`
 - `gsd-sdk query state.record-session`
 - `.planning/autopilot/phase-56.md`
+
+## 2026-07-07 — Phase 56 plan 阶段可选配置和可选 skills 目录探测返回非零
+
+### 问题现象
+
+Phase 56 plan-phase 初始化时，若干可选配置 key 和项目本地 skills 目录不存在，直接探测命令返回非零退出码。工作流有默认 fallback，因此没有阻塞 planning，但这些返回不能误读成 Phase 56 代码或 artifact 失败。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+gsd-sdk query config-get context_window
+gsd-sdk query config-get workflow.security_enforcement --raw
+gsd-sdk query config-get workflow.pattern_mapper
+find ./.codex/skills ./.claude/skills ./.agents/skills -maxdepth 2 -name SKILL.md -print
+```
+
+### 关键证据或命令
+
+`config-get` 输出包含：
+
+```text
+Error: Key not found: context_window
+Error: Key not found: workflow.security_enforcement
+Error: Key not found: workflow.pattern_mapper
+```
+
+项目本地 skills 目录探测输出包含：
+
+```text
+find: ./.codex/skills: No such file or directory
+find: ./.claude/skills: No such file or directory
+find: ./.agents/skills: No such file or directory
+```
+
+### 当前判断 / 根因
+
+这是 plan workflow 的可选配置 / 可选目录探测 fallback，不是实现失败。`context_window` 缺失时按 workflow 使用默认 `200000`；`workflow.security_enforcement` 缺失时默认启用 threat model；`workflow.pattern_mapper` 缺失时默认启用 pattern mapper；项目内没有额外 skills 目录属于正常状态。
+
+### 已做处理
+
+已按 workflow 默认值继续：context window 使用 200000，security threat model gate 启用，pattern mapper gate 启用，项目内无额外 skills 目录。
+
+### 剩余问题
+
+无 Phase 56 阻塞。后续可以把此类可选探测改成 `2>/dev/null || true`，减少非阻塞错误噪音。
+
+### 下次继续排查入口
+
+- `.planning/config.json`
+- `/Users/ming/.codex/get-shit-done/workflows/plan-phase.md`
