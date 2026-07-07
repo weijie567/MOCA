@@ -38,7 +38,7 @@ CURRENT_ACTIVE_GRAPH_NODES_BASELINE = frozenset(
         "memory_context_load",
         "investigate",
         "rag_context_build",
-        "generate_recommendation",
+        "recommendation_generation",
         "claim_verify",
         "assess_risk_and_approval",
         "clarification_gate",
@@ -49,11 +49,6 @@ CURRENT_ACTIVE_GRAPH_NODES_BASELINE = frozenset(
 )
 
 MIGRATION_MODE_LEGACY_NODE_MAP = {
-    "generate_recommendation": {
-        "target": "recommendation_generation",
-        "delete_phase": "Phase 56",
-        "owner_requirement": "CAGM-07",
-    },
     "assess_risk_and_approval": {
         "target": "risk_gate",
         "delete_phase": "Phase 57",
@@ -86,14 +81,14 @@ CURRENT_CONDITIONAL_EDGE_BASELINE = {
         "final_response": "final_response",
         "clarification_gate": "clarification_gate",
         "rag_context_build": "rag_context_build",
-        "recommendation_generation": "generate_recommendation",
+        "recommendation_generation": "recommendation_generation",
     },
     ("rag_context_build", "route_after_rag_context"): {
-        "recommendation_generation": "generate_recommendation",
+        "recommendation_generation": "recommendation_generation",
         "clarification_gate": "clarification_gate",
         "final_response": "final_response",
     },
-    ("generate_recommendation", "route_after_recommendation"): {
+    ("recommendation_generation", "route_after_recommendation"): {
         "claim_verify": "claim_verify",
         "final_response": "final_response",
     },

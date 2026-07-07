@@ -16,14 +16,16 @@ from tests.architecture.graph_baseline import (
 )
 
 
-def test_current_active_graph_node_set_matches_phase53_baseline() -> None:
+def test_current_active_graph_node_set_matches_phase56_baseline() -> None:
     assert "safety_pre_route" in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
     assert "session_context_load" in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
     assert "contextual_intent_resolve" in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
     assert "memory_context_load" in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
+    assert "recommendation_generation" in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
     assert "classify_intent" not in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
     assert "session_memory_load" not in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
     assert "long_term_memory_retrieve" not in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
+    assert "generate_recommendation" not in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
     assert graph_add_node_names() == CURRENT_ACTIVE_GRAPH_NODES_BASELINE
 
 
@@ -65,11 +67,6 @@ def test_migration_mode_maps_every_active_legacy_node_to_target() -> None:
 
     assert active_legacy_nodes == frozenset(MIGRATION_MODE_LEGACY_NODE_MAP)
     assert MIGRATION_MODE_LEGACY_NODE_MAP == {
-        "generate_recommendation": {
-            "target": "recommendation_generation",
-            "delete_phase": "Phase 56",
-            "owner_requirement": "CAGM-07",
-        },
         "assess_risk_and_approval": {
             "target": "risk_gate",
             "delete_phase": "Phase 57",
@@ -82,8 +79,15 @@ def test_migration_mode_maps_every_active_legacy_node_to_target() -> None:
         assert mapping["owner_requirement"].startswith("CAGM-")
 
 
-def test_migration_mode_matrix_does_not_depend_on_graph_vocabulary_only() -> None:
-    assert MIGRATION_MODE_LEGACY_NODE_MAP["generate_recommendation"]["target"] == "recommendation_generation"
+def test_phase56_closes_recommendation_legacy_row_but_preserves_phase57_risk_row() -> None:
+    assert "generate_recommendation" not in MIGRATION_MODE_LEGACY_NODE_MAP
+    assert MIGRATION_MODE_LEGACY_NODE_MAP == {
+        "assess_risk_and_approval": {
+            "target": "risk_gate",
+            "delete_phase": "Phase 57",
+            "owner_requirement": "CAGM-08",
+        },
+    }
 
     entry = graph_vocabulary.graph_vocabulary_entry("generate_recommendation", kind="node")
     if entry is not None:
@@ -127,11 +131,16 @@ def test_current_router_mappings_account_for_legacy_destinations() -> None:
         "memory_context_load"
     )
     assert route_maps[("investigate", "route_after_investigate")]["recommendation_generation"] == (
-        "generate_recommendation"
+        "recommendation_generation"
     )
     assert route_maps[("rag_context_build", "route_after_rag_context")]["recommendation_generation"] == (
-        "generate_recommendation"
+        "recommendation_generation"
     )
+    assert ("generate_recommendation", "route_after_recommendation") not in route_maps
+    assert route_maps[("recommendation_generation", "route_after_recommendation")] == {
+        "claim_verify": "claim_verify",
+        "final_response": "final_response",
+    }
     assert route_maps[("claim_verify", "route_after_claim_verify")]["assess_risk_and_approval"] == (
         "assess_risk_and_approval"
     )
@@ -145,10 +154,7 @@ def test_current_router_mappings_account_for_legacy_destinations() -> None:
         for destination in route_map.values()
         if destination in MIGRATION_MODE_LEGACY_NODE_MAP
     }
-    assert {
-        "generate_recommendation",
-        "assess_risk_and_approval",
-    }.issubset(legacy_destinations)
+    assert legacy_destinations == {"assess_risk_and_approval"}
 
 
 def test_forbidden_internal_or_lifecycle_names_are_not_registered_graph_nodes() -> None:

@@ -1,5 +1,47 @@
 # 本地验证问题记录
 
+## 18. Phase 56-02 Task 1 TDD RED 验证确认 active graph 尚未切到 recommendation_generation
+
+日期：2026-07-07
+
+### 问题现象
+
+执行 Phase 56-02 Task 1 的 RED 架构测试后，`tests/architecture/test_canonical_graph_baseline.py` 出现 3 个失败：当前 active graph 仍注册 `generate_recommendation`，且 `investigate` / `rag_context_build` 的 `recommendation_generation` route value 仍映射到 `generate_recommendation`。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py -q --tb=short
+```
+
+### 关键证据或命令
+
+失败摘要显示：
+
+```text
+Extra items in the left set: 'generate_recommendation'
+Extra items in the right set: 'recommendation_generation'
+assert 'generate_recommendation' == 'recommendation_generation'
+```
+
+### 当前判断 / 根因
+
+这是预期的 TDD RED 失败，不是实现回归。测试基线已先改为 Phase 56 目标态，但 `src/agent/graph.py` 尚未完成 GREEN 阶段切换。
+
+### 已做处理
+
+已确认失败点正对应 56-02 计划要求：active node 注册、`investigate` path map、`rag_context_build` path map、`route_after_recommendation` source 仍待从 legacy 名称切到 canonical 名称。下一步在 GREEN 阶段修改 `src/agent/graph.py`。
+
+### 剩余问题
+
+在 GREEN 修改前，架构测试仍会失败；这正是当前 TDD gate 的预期状态。
+
+### 下次继续排查入口
+
+优先查看 `src/agent/graph.py` 的 `builder.add_node("generate_recommendation", ...)`、两个 `"recommendation_generation": "generate_recommendation"` path-map destination，以及 `builder.add_conditional_edges("generate_recommendation", route_after_recommendation, ...)`。
+
 ## 17. Phase 44 post-review 修复验证并行跑 DB pytest 导致 schema 互撞
 
 日期：2026-07-03
