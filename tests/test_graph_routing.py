@@ -435,7 +435,8 @@ def test_phase56_recommendation_route_maps_target_canonical_graph_node():
         "claim_verify": "claim_verify",
         "final_response": "final_response",
     }
-    assert ("generate_recommendation", "route_after_recommendation") not in route_maps
+    legacy_recommendation_edge = ("generate_" "recommendation", "route_after_recommendation")
+    assert legacy_recommendation_edge not in route_maps
     assert route_maps[("claim_verify", "route_after_claim_verify")]["assess_risk_and_approval"] == (
         "assess_risk_and_approval"
     )

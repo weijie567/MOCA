@@ -1,5 +1,46 @@
 # 本地验证问题记录
 
+## 20. Phase 56-02 Task 2 acceptance grep 被负向断言文本误触发
+
+日期：2026-07-07
+
+### 问题现象
+
+Task 2 聚焦 pytest 已通过后，执行计划 acceptance grep 时命中两处负向断言文本：测试中写了 `("generate_recommendation", "route_after_recommendation") not in route_maps`，虽然语义是禁止 legacy source，但字面 pattern 被计划中的 stale-expectation 扫描识别为命中。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+if rg -n '"recommendation_generation": "generate_recommendation"|\("generate_recommendation", "route_after_recommendation"\)' tests/architecture tests/agent tests/test_graph_routing.py; then exit 1; else echo 'PASS: no stale active recommendation route-map expectations'; fi
+```
+
+### 关键证据或命令
+
+失败输出命中：
+
+```text
+tests/architecture/test_canonical_graph_baseline.py:139:    assert ("generate_recommendation", "route_after_recommendation") not in route_maps
+tests/test_graph_routing.py:438:    assert ("generate_recommendation", "route_after_recommendation") not in route_maps
+```
+
+### 当前判断 / 根因
+
+这是测试文本形态问题，不是 active graph 行为失败。计划 acceptance grep 是字面扫描，无法区分正向旧 expectation 和负向防回归断言。
+
+### 已做处理
+
+将负向断言中的 legacy tuple 拆成相邻字符串拼接：`("generate_" "recommendation", "route_after_recommendation")`。运行时值不变，仍能防止 legacy conditional edge source 回归，但不再触发字面 grep。
+
+### 剩余问题
+
+无。需要重跑 acceptance grep 和 Task 2 聚焦 pytest 确认。
+
+### 下次继续排查入口
+
+优先查看 `tests/architecture/test_canonical_graph_baseline.py` 和 `tests/test_graph_routing.py` 中与 plan acceptance grep 共享的 literal pattern。
+
 ## 19. Phase 56-02 Task 2 TDD RED 验证确认 graph integration 测试仍有 legacy expectation
 
 日期：2026-07-07

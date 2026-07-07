@@ -936,6 +936,7 @@ def test_graph_compiles_with_investigate():
         "contextual_intent_resolve",
         "investigate",
         "rag_context_build",
+        "recommendation_generation",
         "claim_verify",
         "clarification_gate",
         "slot_resolution_gate",
@@ -945,6 +946,7 @@ def test_graph_compiles_with_investigate():
     assert "session_memory_load" not in nodes
     assert "extract_slots" not in nodes
     assert "long_term_memory_retrieve" not in nodes
+    assert "generate_recommendation" not in nodes
     assert "action_draft" in nodes
     assert "execute_action" not in nodes
     assert "load_business_context" not in nodes
@@ -971,21 +973,29 @@ def test_memory_context_graph_runtime_names_project_to_target_vocabulary():
     assert target_graph_name("route_after_slot_resolution", kind="router") == "route_after_slot_resolution"
 
 
-def test_phase_33_claim_verify_is_registered_as_runnable_graph_node():
+def test_phase56_recommendation_generation_and_claim_verify_are_registered_as_runnable_graph_nodes():
     graph = build_graph(MemorySaver())
     nodes = set(graph.get_graph().nodes)
     conditional_edges = {(edge.source, edge.target) for edge in graph.get_graph().edges if edge.conditional}
 
     assert "rag_context_build" in nodes
+    assert "recommendation_generation" in nodes
+    assert "generate_recommendation" not in nodes
     assert "claim_verify" in nodes
-    assert ("generate_recommendation", "claim_verify") in conditional_edges
+    assert ("recommendation_generation", "claim_verify") in conditional_edges
     assert ("claim_verify", "assess_risk_and_approval") in conditional_edges
     assert ("claim_verify", "final_response") in conditional_edges
 
     source = inspect.getsource(build_graph)
     assert 'builder.add_node("rag_context_build"' in source
+    assert 'builder.add_node("recommendation_generation"' in source
+    assert 'builder.add_node("generate_recommendation"' not in source
     assert 'builder.add_node("claim_verify"' in source
     assert "route_after_claim_verify" in source
+    single_line_source = " ".join(source.split())
+    assert 'builder.add_conditional_edges( "recommendation_generation", route_after_recommendation' in (
+        single_line_source
+    )
 
 
 def test_approval_gate_edit_branch_is_registered_in_compiled_graph():
@@ -1008,7 +1018,7 @@ def test_route_after_investigate_keys_are_edge_targets():
         "final_response": "final_response",
         "clarification_gate": "clarification_gate",
         "rag_context_build": "rag_context_build",
-        "recommendation_generation": "generate_recommendation",
+        "recommendation_generation": "recommendation_generation",
     }
 
     for state in states:

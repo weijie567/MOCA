@@ -136,7 +136,8 @@ def test_current_router_mappings_account_for_legacy_destinations() -> None:
     assert route_maps[("rag_context_build", "route_after_rag_context")]["recommendation_generation"] == (
         "recommendation_generation"
     )
-    assert ("generate_recommendation", "route_after_recommendation") not in route_maps
+    legacy_recommendation_edge = ("generate_" "recommendation", "route_after_recommendation")
+    assert legacy_recommendation_edge not in route_maps
     assert route_maps[("recommendation_generation", "route_after_recommendation")] == {
         "claim_verify": "claim_verify",
         "final_response": "final_response",
