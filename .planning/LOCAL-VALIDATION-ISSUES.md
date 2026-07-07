@@ -16750,6 +16750,94 @@ GSD workflow 本身仍可能在其他含 `review` 的非 UI phase 触发同类�
 
 - `$HOME/.codex/get-shit-done/workflows/plan-phase.md` 的 UI Design Contract Gate
 
+## 2026-07-07 Phase 57 Claude review：zsh CLI 检测 echo 写法误触变量修饰
+
+### 问题现象
+
+执行外部 AI CLI 可用性检测时，原命令使用 `echo "$c:available"`，在 zsh 中被解释为带冒号修饰的变量展开，输出变成类似 `/Users/ming/projects/MOCA/claudevailable`，不是预期的 `claude:available`。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+for c in gemini claude codex coderabbit opencode qwen cursor; do command -v "$c" >/dev/null 2>&1 && echo "$c:available" || echo "$c:missing"; done
+```
+
+### 关键证据或命令
+
+输出片段：
+
+```text
+/Users/ming/projects/MOCA/geminivailable
+/Users/ming/projects/MOCA/claudevailable
+/Users/ming/projects/MOCA/codexvailable
+```
+
+### 当前判断 / 根因
+
+zsh 对 `${name:...}` / `$name:...` 有变量修饰语义；`$c:available` 不是简单拼接。
+
+### 已做处理
+
+改用 `printf '%s:available\n' "$c"` / `printf '%s:missing\n' "$c"`，正确得到：
+
+```text
+gemini:available
+claude:available
+codex:available
+coderabbit:missing
+opencode:missing
+qwen:missing
+cursor:missing
+```
+
+### 剩余问题
+
+无。本轮实际 Claude CLI 可用，review 已继续。
+
+### 下次继续排查入口
+
+- `$HOME/.codex/get-shit-done/workflows/review.md` CLI detection shell snippet
+
+## 2026-07-07 Phase 57 Claude review：Node 模板字符串写 REVIEWS.md 被 Markdown 反引号截断
+
+### 问题现象
+
+将 Claude review 输出写入 `57-REVIEWS.md` 时，临时 Node 脚本使用 JS 模板字符串包裹整段 Markdown；Markdown 中的 inline code 反引号提前结束模板字符串，Node 抛出语法错误。
+
+### 如何检测 / 复现
+
+运行最初的 Node 写入脚本，脚本中包含：
+
+```text
+const content = `... `risk_gate` ...`;
+```
+
+### 关键证据或命令
+
+Node 输出：
+
+```text
+SyntaxError: Unexpected identifier 'risk_gate'
+```
+
+### 当前判断 / 根因
+
+这是 artifact 生成脚本的字符串转义问题，不是 review 内容问题。Markdown inline code 不能直接放进未转义的 JS 模板字符串。
+
+### 已做处理
+
+改为数组逐行 `push(...)` 后 `join('\\n')` 写入 `57-REVIEWS.md`，避免整段 Markdown 模板字符串转义问题。
+
+### 剩余问题
+
+无。后续生成含 Markdown 反引号的大文本时避免使用未转义模板字符串。
+
+### 下次继续排查入口
+
+- `.planning/phases/57-risk-gate-and-approval-gate-canonicalization/57-REVIEWS.md`
+
 ## 2026-07-07 Phase 56 REVIEW-FIX iteration 1：approval_approved graph contract 首次验证缺少草稿创建最终回复
 
 ### 问题现象
