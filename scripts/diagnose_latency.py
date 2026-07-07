@@ -89,7 +89,7 @@ def build_report(run_id: str, nodes: list[dict[str, Any]]) -> dict[str, Any]:
 def mock_report(run_id: str = "00000000-0000-0000-0000-000000000000") -> dict[str, Any]:
     nodes = [
         {
-            "node": "classify_intent",
+            "node": "contextual_intent_resolve",
             "step_index": 1,
             "latency_ms": 1200,
             "provider_latency_ms": 1100,
@@ -99,7 +99,7 @@ def mock_report(run_id: str = "00000000-0000-0000-0000-000000000000") -> dict[st
             "context_chars": 2100,
         },
         {
-            "node": "generate_recommendation",
+            "node": "recommendation_generation",
             "step_index": 4,
             "latency_ms": 3500,
             "provider_latency_ms": 3300,
