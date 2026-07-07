@@ -410,22 +410,22 @@ Planner should choose exact reason-code names, but it must preserve the distinct
 | A2 | Running app processes need restart/rebuild after graph cutover because `request.app.state.agent_graph` holds the active graph object. [ASSUMED] | Runtime State Inventory | Medium - if deployment hot-swaps app state differently, the plan should adapt the operational verification step. |
 | A3 | Refreshing `moca.egg-info/SOURCES.txt` through `uv sync` or editable reinstall is sufficient if package source metadata changes. [ASSUMED] | Runtime State Inventory | Low - if project packaging differs, the planner can replace this with the actual packaging refresh command. |
 
-## Open Questions
+## Open Questions - RESOLVED
 
-1. **Should Plan 57-01 create a new `risk_gate.py` file or keep a canonical export from the existing legacy module?**
+1. **RESOLVED: Plan 57-01 creates a new `risk_gate.py` canonical owner.**
    - What we know: User decisions leave exact module structure to planner discretion. [VERIFIED: .planning/phases/57-risk-gate-and-approval-gate-canonicalization/57-CONTEXT.md:45]
-   - What's unclear: Whether the planner prefers minimal diff or clearer Phase 58 deletion. [ASSUMED]
-   - Recommendation: Prefer a new `risk_gate.py` canonical owner and keep `assess_risk_and_approval.py` as a narrow import/compatibility shim if needed. [ASSUMED]
+   - Resolution: Plan 57-01 selects a new `src/agent/nodes/risk_gate.py` canonical owner and keeps `assess_risk_and_approval.py` only as a narrow import/test compatibility shim with `PHASE_57_COMPATIBILITY_ALIAS`, `HISTORICAL_TRACE_PROJECTION`, `IMPORT_TEST_COMPATIBILITY`, and `DELETE_BY_PHASE_58` metadata.
+   - Plan mapping: `57-01-PLAN.md` Task 2 implements the module split and compatibility metadata; `57-04-PLAN.md` projects historical legacy trace names through graph vocabulary.
 
-2. **Should historical DB rows be migrated?**
+2. **RESOLVED: Phase 57 does not migrate historical DB rows.**
    - What we know: Stored `AgentStep.node_name` and approval event metadata can contain legacy values, and context allows historical compatibility until Phase 58. [VERIFIED: src/db/models.py:1178] [VERIFIED: src/db/models.py:1077] [VERIFIED: .planning/phases/57-risk-gate-and-approval-gate-canonicalization/57-CONTEXT.md:33]
-   - What's unclear: Whether a production data cleanup is desired before Phase 58. [ASSUMED]
-   - Recommendation: Do not migrate historical rows in Phase 57; project old values through compatibility and delete remaining aliases in Phase 58. [VERIFIED: .planning/phases/57-risk-gate-and-approval-gate-canonicalization/57-CONTEXT.md:112]
+   - Resolution: No Phase 57 task rewrites historical `agent_steps.node_name` rows or `approval_events.metadata_json` resume routes. Old values are projected or retried through explicit compatibility handling and are classified for Phase 58 deletion.
+   - Plan mapping: `57-03-PLAN.md` handles stored edit retry compatibility; `57-04-PLAN.md` handles historical trace/API projection; `57-05-PLAN.md` records static legacy-hit classification and Phase 58 residuals.
 
-3. **How much doc/spec editing belongs in Phase 57 versus Phase 58?**
+3. **RESOLVED: Phase 57 updates current-source docs only; Phase 58 owns final no-debt cleanup.**
    - What we know: Phase 57 should update current-source docs and closeout artifacts for the new active identity, while Phase 58 owns final no-debt cleanup. [VERIFIED: .planning/phases/57-risk-gate-and-approval-gate-canonicalization/57-CONTEXT.md:40]
-   - What's unclear: The exact docs list may change if the planner finds additional `assess_risk_and_approval` hits. [ASSUMED]
-   - Recommendation: Include docs that describe current runtime identity in Phase 57; leave explicit compatibility deletion and no-debt ledger closure to Phase 58. [VERIFIED: .planning/ROADMAP.md:45]
+   - Resolution: Phase 57 updates docs that describe the current runtime graph and approval/risk boundary (`docs/current-langgraph-architecture.md`, `docs/architecture-overview.md`, `docs/target-agent-platform-architecture-plan.md`, `README.md`) and leaves `docs/contract-spec.md` unchanged unless execution proves the target contract is wrong.
+   - Plan mapping: `57-05-PLAN.md` owns current-source docs, `.planning/ARCHITECTURE-DEBT.md`, `57-VALIDATION.md`, and static legacy-hit classification; Phase 58 owns final alias deletion and no-debt closure.
 
 ## Environment Availability
 
