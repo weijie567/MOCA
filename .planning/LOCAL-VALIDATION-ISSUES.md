@@ -14592,3 +14592,50 @@ OK
 - `.planning/phases/54-slot-resolution-gate-cutover/54-VALIDATION.md`
 - `docs/current-langgraph-architecture.md`
 - `.planning/LOCAL-VALIDATION-ISSUES.md`
+
+## 2026-07-07 — 54 code-review-fix skill workflow 路径误读
+
+### 问题现象
+
+读取 `gsd-code-review-fix` skill 后，首次尝试继续读取同目录下的 `workflow.md` 失败：
+
+```text
+sed: /Users/ming/.codex/skills/gsd-code-review-fix/workflow.md: No such file or directory
+```
+
+### 如何检测 / 复现
+
+在 MOCA 根目录运行了错误路径读取命令，`sed` 退出码为 1。`SKILL.md` 实际引用的是共享 workflow：
+
+```text
+@$HOME/.codex/get-shit-done/workflows/code-review-fix.md
+```
+
+### 关键证据或命令
+
+失败命令形态：
+
+```text
+sed -n '1,220p' /Users/ming/.codex/skills/gsd-code-review-fix/SKILL.md && sed -n '1,260p' /Users/ming/.codex/skills/gsd-code-review-fix/workflow.md
+```
+
+### 当前判断 / 根因
+
+根因是把 skill 目录误当成 workflow 所在目录；这是操作路径错误，不是仓库代码或测试失败。
+
+### 已做处理
+
+已改读正确文件：
+
+```text
+/Users/ming/.codex/get-shit-done/workflows/code-review-fix.md
+```
+
+### 剩余问题
+
+无已知阻塞。
+
+### 下次继续排查入口
+
+- `/Users/ming/.codex/skills/gsd-code-review-fix/SKILL.md`
+- `/Users/ming/.codex/get-shit-done/workflows/code-review-fix.md`
