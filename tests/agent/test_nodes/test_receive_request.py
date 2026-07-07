@@ -16,6 +16,8 @@ async def test_receive_request_resets_ephemeral(base_state):
         "intent_confidence": 0.99,
         "risk_tier": "read_only",
         "classification_trace": {"old": "trace"},
+        "slot_resolution_trace": {"schema": "slot_resolution_trace.phase54"},
+        "missing_required_slots": [{"any_of": ["order_id", "refund_case_id"]}],
         "task_plan": {"steps": [{"step_id": "s1"}], "terminal_step_id": "s1"},
         "deferred_steps": [{"step_id": "s2", "intent": "ticket_reply_draft"}],
         "target_merchant_context": {"status": "resolved", "source": "spoofed"},
@@ -42,6 +44,8 @@ async def test_receive_request_resets_ephemeral(base_state):
     assert result["intent_confidence"] is None
     assert result["risk_tier"] is None
     assert result["classification_trace"] is None
+    assert result["slot_resolution_trace"] is None
+    assert result["missing_required_slots"] == []
     assert result["task_plan"] is None
     assert result["deferred_steps"] == []
     assert result["target_merchant_context"] is None
@@ -213,6 +217,13 @@ def test_agent_state_declares_rag_verifier_fields():
         assert field in annotations
 
 
+def test_agent_state_declares_slot_resolution_fields():
+    annotations = AgentState.__annotations__
+
+    assert "slot_resolution_trace" in annotations
+    assert "missing_required_slots" in annotations
+
+
 @pytest.mark.asyncio
 async def test_receive_request_resets_phase33_rag_claim_package_fields(base_state):
     state = {
@@ -289,6 +300,8 @@ async def test_receive_request_projects_pending_required_slot_flow(base_state):
 
     result = await receive_request({**state, "user_query": "ORD-12345"})
 
+    assert result["slot_resolution_trace"] is None
+    assert result["missing_required_slots"] == []
     assert result["active_flow_state"] == {
         "kind": "pending_required_slot",
         "reason": "missing_required_slots",
