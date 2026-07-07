@@ -17416,3 +17416,80 @@ AssertionError: {'risk_level': 'high', ...} != {'risk_level': 'manual_review', '
 
 - `tests/agent/test_nodes/test_risk_gate.py::test_canonical_risk_gate_binding_failure_keeps_fail_closed_metadata_canonical`
 - `src/agent/nodes/assess_risk_and_approval.py::_phase34_fail_closed_result`
+
+## 2026-07-07 Phase 57 Plan 57-01：roadmap.update-plan-progress 未匹配当前 ROADMAP checkbox 格式
+
+### 问题现象
+
+完成 57-01 summary 后执行 GSD roadmap 进度更新命令，SDK 返回未更新。
+
+### 如何检测 / 复现
+
+```text
+gsd-sdk query roadmap.update-plan-progress "57"
+```
+
+### 关键证据或命令
+
+```text
+{
+  "updated": false,
+  "phase": "57",
+  "reason": "no matching checkbox found"
+}
+```
+
+### 当前判断 / 根因
+
+这是 GSD SDK roadmap handler 与当前 `.planning/ROADMAP.md` Phase 57 文档格式不匹配：ROADMAP 使用顶层 phase checkbox + `Plans:` 子列表，但 handler 未能定位可更新 checkbox。不是 Phase 57 代码或测试失败。
+
+### 已做处理
+
+已手动更新 ROADMAP：顶层 Phase 57 plan progress 从 `0/5 planned` 改为 `1/5 complete`，并将 `57-01-PLAN.md` 子项勾选为完成。
+
+### 剩余问题
+
+后续 57-02 至 57-05 可能继续需要手动 ROADMAP patch，除非先修复或确认 `roadmap.update-plan-progress` 对该格式的支持。
+
+### 下次继续排查入口
+
+- `.planning/ROADMAP.md` Phase 57 section
+- GSD SDK `roadmap.update-plan-progress` handler 的 checkbox 匹配规则
+
+## 2026-07-07 Phase 57 Plan 57-01：requirements.mark-complete 对阶段级 requirement 产生不完整更新
+
+### 问题现象
+
+执行 `gsd-sdk query requirements.mark-complete CAGM-08` 后，SDK 将 CAGM-08 checkbox 改为完成，但插入了 Markdown 加粗标记换行；同时 traceability table 仍显示 `CAGM-08 | Phase 57 | Pending`，coverage 也仍显示 CAGM-08 pending。
+
+### 如何检测 / 复现
+
+```text
+gsd-sdk query requirements.mark-complete CAGM-08
+git diff -- .planning/REQUIREMENTS.md
+```
+
+### 关键证据或命令
+
+```text
+- [x] **CAGM-08
+**: `risk_gate` replaces active ...
+| CAGM-08 | Phase 57 | Pending |
+```
+
+### 当前判断 / 根因
+
+这是 GSD requirements handler 对当前 Markdown 行的格式处理不完整；同时 57-01 只是 CAGM-08 的 callable/compatibility foundation，尚未完成 active graph/router/API/docs closeout。把整个 CAGM-08 标成 complete 会与仓库真实状态冲突。
+
+### 已做处理
+
+已将 CAGM-08 checkbox 恢复为 pending，保持 REQUIREMENTS 与 Phase 57 当前 1/5 计划完成状态一致。`57-01-SUMMARY.md` 仍记录本计划 addressed/requirements ID，后续 57-05 或阶段 closeout 再完成 CAGM-08。
+
+### 剩余问题
+
+后续计划执行时若继续调用 `requirements.mark-complete CAGM-08`，需要再次核对是否应保持 pending 或在 Phase 57 完成后一次性标记 complete。
+
+### 下次继续排查入口
+
+- `.planning/REQUIREMENTS.md` CAGM-08 checkbox 与 traceability table
+- Phase 57 5/5 summary completion state

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
 status: executing
-stopped_at: Phase 57 context gathered
-last_updated: "2026-07-07T13:16:07.853Z"
-last_activity: 2026-07-07 -- Phase 57 execution started
+stopped_at: Completed 57-01-PLAN.md
+last_updated: "2026-07-07T13:27:53.657Z"
+last_activity: 2026-07-07
 progress:
   total_phases: 23
   completed_phases: 20
   total_plans: 69
-  completed_plans: 65
-  percent: 94
+  completed_plans: 66
+  percent: 96
 ---
 
 # Project State: MOCA
@@ -31,12 +31,12 @@ See: `.planning/PROJECT.md` (updated 2026-07-07)
 ## Current Position
 
 Phase: 57 (risk-gate-and-approval-gate-canonicalization) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 57
-Last activity: 2026-07-07 -- Phase 57 execution started
+Plan: 2 of 5
+Status: Ready to execute
+Last activity: 2026-07-07
 Next: Start `$gsd-phase-autopilot 57`.
 
-Progress: [█████████░] 91%
+Progress: [██████████] 96%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -139,6 +139,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 | Phase 48 P02 | 11 min | 2 tasks | 9 files |
 | Phase 48 P03 | 12 min | 2 tasks | 11 files |
 | Phase 48 P04 | 19 min | 3 tasks | 8 files |
+| Phase 57 P01 | 7min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -209,6 +210,9 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - Phase 48 Plan 02 completed source policy/service guards: only explicit user/admin/human-reviewed long-term sources auto-publish; `semantic_episode_candidate` remains needs-review preference candidate only; non-preference and disallowed source writes skip before insert with audit events.
 - Phase 48 Plan 03 completed explicit write paths: deterministic chat phrases create trusted merchant-scoped `explicit_user_preference` only, admin `memory:write` can directly save `explicit_admin_preference`, and tenant scope is admin-only.
 - Phase 48 Plan 04 completed retrieval/review/correction closeout: prompt-facing retrieval is preference/source filtered, reviewed candidates publish as `human_reviewed`, non-preference approval is a controlled error, supersede/tombstone/no-auto-merge lifecycle is locked, and the full Phase 48 gate passed.
+- Phase 57 Plan 01 created risk_gate as a canonical wrapper over the existing risk/action implementation rather than moving policy logic between modules.
+- Phase 57 Plan 01 kept assess_risk_and_approval importable only as Phase 58-scoped import/test compatibility with explicit alias metadata.
+- Phase 57 Plan 01 left active graph registration and router cutover untouched for Plan 57-02.
 
 ### Roadmap Evolution
 
@@ -258,9 +262,9 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ## Session Continuity
 
-Last session: --stopped-at
-Stopped at: Phase 57 context gathered
-Resume file: --resume-file
+Last session: 2026-07-07T13:27:53.649Z
+Stopped at: Completed 57-01-PLAN.md
+Resume file: None
 Next: Start `$gsd-phase-autopilot 57` when ready.
 
 Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with security, UAT, validation, and clean review complete; Phase 46 session context repositioning complete with MEM-03 validated; Phase 47 complete with 47-01 contract/source-policy foundation, 47-02 trusted closed-case projection seam, 47-03 governed case-memory write lifecycle, and 47-04 retrieval/docs/validation closeout; Phase 48 complete with explicit preference contract, source policy/service guards, chat/admin write paths, retrieval/review/correction closeout, clean code review, completed UAT, and security verification (`threats_open: 0`); Phase 49 completed investigate bounded read-only ReAct main path with replay parent-operation limitation; Phase 50 completed canonical Agent Graph migration guardrail SPEC; Phase 51 completed canonical graph baseline guardrails and migration matrix verification; Phase 52 completed explicit `safety_pre_route` runtime node extraction with clean review and 8/8 verification; Phase 53 completed `session_context_load -> contextual_intent_resolve` active graph cutover with clean review, security verification, validation, and 20/20 verification; Phase 54 completed `slot_resolution_gate` active graph cutover with clean review, security verification (`threats_open: 0`), Nyquist validation, and 8/8 verification; Phase 55 completed `memory_context_load` active graph cutover with clean review, review fix, verification, validation, and security verification (`threats_open: 0`); Phase 56 completed `recommendation_generation` active graph cutover, RAG/claim fail-closed alignment, action-boundary review fixes, clean code review, UAT, security verification (`threats_open: 0`), and Nyquist validation.
