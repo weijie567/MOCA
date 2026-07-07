@@ -142,6 +142,7 @@ def _state(base_state: dict[str, Any], *, outcome: str, route: str, reason_codes
     return {
         **base_state,
         "rag_verification": _verification_state(outcome=outcome, route=route, reason_codes=reason_codes),
+        "trace_steps": [{"node": "generate_recommendation", "status": "completed"}],
         "recommendation_draft": {
             "recommended_action": "issue_coupon",
             "reasoning_summary": "Model proposed compensation, but verifier did not allow it.",
@@ -203,6 +204,8 @@ async def test_final_response_renders_safe_non_allow_verifier_outcomes_without_i
     assert result["llm_outputs"]["final_response"]["verification_route"] == route
     assert result["llm_outputs"]["final_response"]["route_selected_by"] == "backend"
     assert result["llm_outputs"]["final_response"]["model_selected_route"] is False
+    assert result["llm_outputs"]["final_response"]["safe_projection_source"] == "historical_compatibility_projection"
+    assert result["llm_outputs"]["final_response"]["verification_authoritative"] is False
     for internal_code in INTERNAL_REASON_CODES:
         assert internal_code not in response_text
     for unsafe in (VERIFIER_TRACE, RAW_PROVENANCE, SOURCE_BLOCK_ID, PRIVATE_REASONING):
@@ -317,6 +320,137 @@ async def test_final_response_renders_safe_claim_bundle_block_without_raw_reason
 
 
 @pytest.mark.asyncio
+async def test_claim_verification_bundle_wins_over_legacy_verifier_fields(
+    base_state: dict[str, Any],
+) -> None:
+    ref = _evidence_ref()
+    state = {
+        **base_state,
+        "rag_context_status": "verified",
+        "verified_evidence_package": _verified_package(status="verified", ref=ref),
+        "claim_verification_bundle": _claim_bundle(
+            route="manual_review",
+            overall_status="blocked",
+            ref=ref,
+            reason_codes=["unsupported"],
+        ),
+        "blocked_claims": ["claim-action-1"],
+        "verification_route": "allow",
+        "verifier_status": "verified",
+        "verifier_reason_codes": ["legacy_allow_should_not_win"],
+        "rag_verification": _verification_state(outcome="verified", route="allow", reason_codes=[]),
+        "recommendation_draft": {
+            "recommended_action": "issue_coupon",
+            "reasoning_summary": "Legacy verifier said allow, canonical bundle blocks it.",
+            "evidence_refs": [ref],
+            "missing_info": [],
+        },
+        "proposed_action": {"action_type": "coupon_grant"},
+    }
+
+    result = await final_response(state)
+    output = result["llm_outputs"]["final_response"]
+
+    assert output["final_status"] == "manual_review"
+    assert output["verification_route"] == "manual_review"
+    assert output["safe_projection_source"] == "claim_verification_bundle"
+    assert output["verification_authoritative"] is True
+    assert "legacy_allow_should_not_win" not in result["final_response"]
+    assert "issue_coupon" not in result["final_response"]
+
+
+@pytest.mark.asyncio
+async def test_verified_evidence_package_wins_over_legacy_verifier_fields_when_claim_bundle_absent(
+    base_state: dict[str, Any],
+) -> None:
+    state = {
+        **base_state,
+        "rag_context_status": "no_evidence",
+        "verified_evidence_package": _verified_package(status="no_evidence", reason_codes=["no_evidence"]),
+        "verification_route": "allow",
+        "verifier_status": "verified",
+        "verifier_reason_codes": ["legacy_allow_should_not_win"],
+        "rag_verification": _verification_state(outcome="verified", route="allow", reason_codes=[]),
+        "recommendation_draft": {
+            "recommended_action": "issue_coupon",
+            "reasoning_summary": "Legacy verifier said allow, canonical RAG package has no evidence.",
+            "evidence_refs": [],
+            "missing_info": [DEBUG_PROJECTION],
+        },
+        "proposed_action": {"action_type": "coupon_grant"},
+    }
+
+    result = await final_response(state)
+    output = result["llm_outputs"]["final_response"]
+
+    assert output["final_status"] == "insufficient_evidence"
+    assert output["verification_route"] == "insufficient_evidence"
+    assert output["safe_projection_source"] == "verified_evidence_package"
+    assert output["verification_authoritative"] is True
+    assert "legacy_allow_should_not_win" not in result["final_response"]
+    assert DEBUG_PROJECTION not in result["final_response"]
+
+
+@pytest.mark.asyncio
+async def test_current_run_legacy_verifier_fields_without_canonical_projection_are_non_authoritative(
+    base_state: dict[str, Any],
+) -> None:
+    state = {
+        **base_state,
+        "verification_route": "allow",
+        "verifier_status": "verified",
+        "verifier_reason_codes": ["legacy_allow_should_not_win"],
+        "rag_verification": _verification_state(outcome="verified", route="allow", reason_codes=[]),
+        "recommendation_draft": {
+            "recommended_action": "issue_coupon",
+            "reasoning_summary": "Legacy verifier fields are not current-run authority.",
+            "evidence_refs": [],
+            "missing_info": [],
+        },
+        "proposed_action": {"action_type": "coupon_grant"},
+    }
+
+    result = await final_response(state)
+    output = result["llm_outputs"]["final_response"]
+
+    assert output["final_status"] == "manual_review"
+    assert output["verification_route"] == "manual_review"
+    assert output["safe_projection_source"] == "missing_canonical_projection"
+    assert output["verification_authoritative"] is False
+    assert "legacy_allow_should_not_win" not in result["final_response"]
+    assert "issue_coupon" not in result["final_response"]
+
+
+@pytest.mark.asyncio
+async def test_historical_legacy_verifier_fallback_requires_compatibility_trace_marker(
+    base_state: dict[str, Any],
+) -> None:
+    state = {
+        **base_state,
+        "rag_verification": _verification_state(
+            outcome="ambiguous",
+            route="manual_review",
+            reason_codes=["level2_partial_overlap_ambiguous"],
+        ),
+        "trace_steps": [{"node": "generate_recommendation", "status": "completed"}],
+        "recommendation_draft": {
+            "recommended_action": "manual_review",
+            "reasoning_summary": "Historical trace used legacy verifier projection.",
+            "evidence_refs": [],
+            "missing_info": [],
+        },
+    }
+
+    result = await final_response(state)
+    output = result["llm_outputs"]["final_response"]
+
+    assert output["final_status"] == "manual_review"
+    assert output["verification_route"] == "manual_review"
+    assert output["safe_projection_source"] == "historical_compatibility_projection"
+    assert output["verification_authoritative"] is False
+
+
+@pytest.mark.asyncio
 async def test_manual_review_response_keeps_business_facts_and_safe_missing_info(
     base_state: dict[str, Any],
 ) -> None:
@@ -391,6 +525,7 @@ async def test_policy_qa_partial_overlap_manual_review_renders_cited_policy_answ
             route="manual_review",
             reason_codes=["level2_partial_overlap_ambiguous"],
         ),
+        "trace_steps": [{"node": "generate_recommendation", "status": "completed"}],
         "retrieved_evidence": {
             "status": "strong_evidence",
             "evidence_refs": [
@@ -432,6 +567,8 @@ async def test_policy_qa_partial_overlap_manual_review_renders_cited_policy_answ
     assert "暂不能创建审批请求或动作草稿" not in result["final_response"]
     assert result["llm_outputs"]["final_response"]["final_status"] == "completed"
     assert result["llm_outputs"]["final_response"]["verification_route"] == "manual_review"
+    assert result["llm_outputs"]["final_response"]["safe_projection_source"] == "historical_compatibility_projection"
+    assert result["llm_outputs"]["final_response"]["verification_authoritative"] is False
     assert result["llm_outputs"]["final_response"]["model_selected_route"] is False
     assert result["trace_steps"][-1]["evidence_refs"] == [
         {
@@ -460,6 +597,7 @@ async def test_policy_qa_partial_overlap_with_action_state_still_fails_closed(
             route="manual_review",
             reason_codes=["level2_partial_overlap_ambiguous"],
         ),
+        "trace_steps": [{"node": "generate_recommendation", "status": "completed"}],
         "recommendation_draft": {
             "recommended_action": "manual_review",
             "reasoning_summary": "商家超时未处理时平台可自动退款。",

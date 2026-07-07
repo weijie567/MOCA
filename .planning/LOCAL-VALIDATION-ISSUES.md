@@ -16689,6 +16689,57 @@ FAILED tests/test_trace_api.py::test_build_timeline_projects_phase56_recommendat
 - `tests/agent/test_trace.py`
 - `tests/test_trace_api.py`
 
+## 2026-07-07 Phase 56 Plan 56-04 Task 2 TDD RED：API/current label 与 final_response authority source 语义缺失
+
+### 问题现象
+
+Task 2 按 TDD RED 增加 current `recommendation_generation` API/SSE payload 测试，以及 `final_response` canonical source priority / legacy non-authority 测试后，聚焦套件出现 17 个失败。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_trace.py tests/test_trace_api.py tests/test_agent_runs_api.py tests/agent/test_nodes/test_final_response.py tests/agent/test_phase22_final_response.py -q --tb=short
+```
+
+### 关键证据或命令
+
+pytest 输出显示：
+
+```text
+FAILED tests/test_agent_runs_api.py::test_sse_event_projects_phase56_recommendation_nodes_and_labels_current_runtime
+FAILED tests/test_agent_runs_api.py::test_extract_step_payload_reads_recommendation_draft_for_current_and_historical_nodes[recommendation_generation]
+FAILED tests/agent/test_phase22_final_response.py::test_final_response_renders_safe_non_allow_verifier_outcomes_without_internal_codes[...] 10 cases
+FAILED tests/agent/test_phase22_final_response.py::test_claim_verification_bundle_wins_over_legacy_verifier_fields
+FAILED tests/agent/test_phase22_final_response.py::test_verified_evidence_package_wins_over_legacy_verifier_fields_when_claim_bundle_absent
+FAILED tests/agent/test_phase22_final_response.py::test_current_run_legacy_verifier_fields_without_canonical_projection_are_non_authoritative
+FAILED tests/agent/test_phase22_final_response.py::test_historical_legacy_verifier_fallback_requires_compatibility_trace_marker
+FAILED tests/agent/test_phase22_final_response.py::test_policy_qa_partial_overlap_manual_review_renders_cited_policy_answer
+17 failed, 134 passed, 1 warning
+```
+
+### 当前判断 / 根因
+
+这是 Task 2 预期的 TDD RED 失败：`src/api/routers/agent_runs.py` 尚未声明 current `recommendation_generation` 文案，也没有让 `_extract_step_payload` 读取 current node 的 `recommendation_draft`。`src/agent/nodes/final_response.py` 仍从 legacy `rag_verification` / `verification_route` 构造 route payload，且 `llm_outputs.final_response` 尚未暴露 `safe_projection_source` / `verification_authoritative` 语义字段，因此无法证明 canonical bundle/package 优先、legacy verifier fields 非当前权威。
+
+### 已做处理
+
+已确认失败来自新增测试覆盖的目标缺口，不是环境入口错误；下一步将在 GREEN 阶段更新 API/SSE label/payload、frontend/eval label，并收紧 `final_response` authority source priority。
+
+### 剩余问题
+
+需要实现：current/historical recommendation node label 和 payload extraction；`claim_verification_bundle` 优先于 `verified_evidence_package`，二者优先于 legacy verifier fields；无 canonical projection 的 current run 不能从 legacy fields 得到权威 route payload；历史 fallback 必须由既有 compatibility trace marker 触发并标记 non-authoritative。
+
+### 下次继续排查入口
+
+- `src/api/routers/agent_runs.py`
+- `src/agent/nodes/final_response.py`
+- `frontend/src/components/timeline/TimelineStep.tsx`
+- `scripts/eval_agent.py`
+- `tests/test_agent_runs_api.py`
+- `tests/agent/test_phase22_final_response.py`
+
 ## 2026-07-07 Phase 56 Plan 56-03 Task 2 TDD RED：claim_verify 路由仍允许 unsupported proposed_action 进入风险节点
 
 ### 问题现象

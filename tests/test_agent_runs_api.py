@@ -1028,6 +1028,61 @@ def test_sse_event_projects_runtime_memory_context_load_node_identity_without_me
     assert "case_working_context" not in data["payload"]
 
 
+def test_sse_event_projects_phase56_recommendation_nodes_and_labels_current_runtime() -> None:
+    assert NODE_MESSAGES["recommendation_generation"] == "正在生成处理建议"
+    assert NODE_MESSAGES["generate_recommendation"] == "正在生成处理建议"
+
+    event = _sse_event(
+        event_type="step_completed",
+        run_id="run-phase56-current-recommendation",
+        step_index=4,
+        node_name="recommendation_generation",
+        status="completed",
+        message=NODE_MESSAGES["recommendation_generation"],
+        payload={"short_summary": "issue_coupon"},
+    )
+
+    data = json.loads(event["data"])
+
+    assert data["node_name"] == "recommendation_generation"
+    assert data["target_node_name"] == "recommendation_generation"
+    assert data["message"] == "正在生成处理建议"
+    assert data["payload"] == {"short_summary": "issue_coupon"}
+
+
+def test_sse_event_projects_historical_generate_recommendation_without_rewriting_node() -> None:
+    event = _sse_event(
+        event_type="step_completed",
+        run_id="run-phase56-historical-recommendation",
+        step_index=4,
+        node_name="generate_recommendation",
+        status="completed",
+        message=NODE_MESSAGES["generate_recommendation"],
+        payload={"short_summary": "manual_review"},
+    )
+
+    data = json.loads(event["data"])
+
+    assert data["node_name"] == "generate_recommendation"
+    assert data["target_node_name"] == "recommendation_generation"
+    assert data["payload"] == {"short_summary": "manual_review"}
+
+
+@pytest.mark.parametrize("node_name", ["recommendation_generation", "generate_recommendation"])
+def test_extract_step_payload_reads_recommendation_draft_for_current_and_historical_nodes(node_name: str) -> None:
+    payload = _extract_step_payload(
+        node_name,
+        {
+            "recommendation_draft": {
+                "recommended_action": "manual_review",
+                "short_summary": "should prefer action",
+            }
+        },
+    )
+
+    assert payload == {"short_summary": "manual_review"}
+
+
 @pytest.mark.asyncio
 async def test_event_generator_projects_allowlisted_rag_claim_summary_in_step_payload(
     session: AsyncSession,
