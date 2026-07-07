@@ -12,6 +12,7 @@ Exits non-zero if safety-critical thresholds fail.
 from __future__ import annotations
 
 import argparse
+import ast
 import asyncio
 import json
 import os
@@ -20,6 +21,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -54,6 +56,20 @@ GRAPH_CONTRACT_CATEGORIES = [
     "refund_troubleshooting",
     "compensation_suggestion",
 ]
+GRAPH_CONTRACT_PATCHED_NODES = {
+    "contextual_intent_resolve",
+    "slot_resolution_gate",
+    "recommendation_generation",
+    "assess_risk_and_approval",
+}
+GRAPH_CONTRACT_LEGACY_NODES = {
+    "classify_intent",
+    "session_memory_load",
+    "extract_slots",
+    "long_term_memory_retrieve",
+    "generate_recommendation",
+    "execute_action",
+}
 
 
 class FakeLLM:
@@ -102,62 +118,62 @@ def _ci_fake_llm_responses(case: dict[str, Any]) -> dict[str, FakeLLM]:
     risk_level = "high" if approval_required else "low"
     proposed_action = "issue_coupon" if "compensation" in expected_intent or approval_required else "answer_only"
     requested_operation = "draft_action" if proposed_action != "answer_only" else "advise"
+    intent_response = {
+        "schema_version": "intent_result.v3",
+        "primary_intent": expected_intent,
+        "requested_operation": requested_operation,
+        "confidence": 0.95,
+        "calibrated_confidence": 0.95,
+        "secondary_intents": [],
+        "required_slots": {"all_of": [], "any_of": [], "optional": []},
+        "candidate_slots": {},
+        "routing_hints": {},
+        "classifier_version": "ci",
+        "calibration_version": "ci",
+        "reason_codes": ["ci_deterministic"],
+    }
+    slot_response = {
+        "order_id": _extract_seed_id(case["query"], "ORD-"),
+        "refund_case_id": _extract_seed_id(case["query"], "RF-"),
+        "ticket_id": _extract_seed_id(case["query"], "TK-"),
+        "merchant_id": None,
+        "customer_id": None,
+        "issue_type": case["category"],
+        "action_type": proposed_action if proposed_action != "answer_only" else None,
+    }
+    recommendation_response = {
+        "recommended_action": proposed_action,
+        "reasoning_summary": "CI deterministic recommendation",
+        "evidence_refs": [
+            {"doc_key": doc_key, "chunk_id": f"{doc_key}_001", "title": doc_key, "section": "ci"}
+            for doc_key in case.get("expected_evidence_doc_keys", [])
+        ],
+        "confidence": 0.90,
+        "risk_level": risk_level,
+        "missing_info": [] if case.get("expected_evidence_doc_keys") else ["context"],
+    }
+    risk_response = {
+        "risk_level": risk_level,
+        "risk_reason": "CI deterministic risk",
+        "approval_required": approval_required,
+        "rule_ref": "HR-CI" if approval_required else "LR-CI",
+    }
+    final_response = {
+        "response_text": expected_response,
+        "evidence_citations": case.get("expected_evidence_doc_keys", []),
+        "final_status": case.get("expected_status", "completed"),
+    }
     return {
-        "classify_intent": FakeLLM(
-            {
-                "schema_version": "intent_result.v3",
-                "primary_intent": expected_intent,
-                "requested_operation": requested_operation,
-                "confidence": 0.95,
-                "calibrated_confidence": 0.95,
-                "secondary_intents": [],
-                "required_slots": {"all_of": [], "any_of": [], "optional": []},
-                "candidate_slots": {},
-                "routing_hints": {},
-                "classifier_version": "ci",
-                "calibration_version": "ci",
-                "reason_codes": ["ci_deterministic"],
-            }
-        ),
-        "extract_slots": FakeLLM(
-            {
-                "order_id": _extract_seed_id(case["query"], "ORD-"),
-                "refund_case_id": _extract_seed_id(case["query"], "RF-"),
-                "ticket_id": _extract_seed_id(case["query"], "TK-"),
-                "merchant_id": None,
-                "customer_id": None,
-                "issue_type": case["category"],
-                "action_type": proposed_action if proposed_action != "answer_only" else None,
-            }
-        ),
-        "recommendation_generation": FakeLLM(
-            {
-                "recommended_action": proposed_action,
-                "reasoning_summary": "CI deterministic recommendation",
-                "evidence_refs": [
-                    {"doc_key": doc_key, "chunk_id": f"{doc_key}_001", "title": doc_key, "section": "ci"}
-                    for doc_key in case.get("expected_evidence_doc_keys", [])
-                ],
-                "confidence": 0.90,
-                "risk_level": risk_level,
-                "missing_info": [] if case.get("expected_evidence_doc_keys") else ["context"],
-            }
-        ),
-        "assess_risk": FakeLLM(
-            {
-                "risk_level": risk_level,
-                "risk_reason": "CI deterministic risk",
-                "approval_required": approval_required,
-                "rule_ref": "HR-CI" if approval_required else "LR-CI",
-            }
-        ),
-        "final_response": FakeLLM(
-            {
-                "response_text": expected_response,
-                "evidence_citations": case.get("expected_evidence_doc_keys", []),
-                "final_status": case.get("expected_status", "completed"),
-            }
-        ),
+        "contextual_intent_resolve": FakeLLM(intent_response),
+        "slot_resolution_gate": FakeLLM(slot_response),
+        "recommendation_generation": FakeLLM(recommendation_response),
+        "assess_risk_and_approval": FakeLLM(risk_response),
+        "final_response": FakeLLM(final_response),
+        # Compatibility keys keep the synthetic summary path stable while the
+        # compiled graph harness patches the active Phase 56 node modules.
+        "classify_intent": FakeLLM(intent_response),
+        "extract_slots": FakeLLM(slot_response),
+        "assess_risk": FakeLLM(risk_response),
     }
 
 
@@ -187,6 +203,7 @@ def _ci_input_state(case: dict[str, Any]) -> dict[str, Any]:
         "tenant_id": str(deterministic_id("tenant", "demo")),
         "user_id": str(deterministic_id("user", "demo_support_1")),
         "role": "support_agent",
+        "current_run_id": str(deterministic_id("run", case["id"])),
     }
 
 
@@ -327,7 +344,12 @@ def _ci_business_tool_result(case: dict[str, Any], name: str):
     )
     return ToolResultV2(
         status="success",
-        data={"id": resource_id, "status": "delivered"},
+        data={
+            "id": resource_id,
+            f"{resource_type}_no": resource_id,
+            "status": "delivered",
+            "merchant_id": "merchant-ci",
+        },
         summary=f"CI {resource_type} loaded",
         source_system="business_tool_service",
         data_freshness_at=datetime.now(UTC),
@@ -360,18 +382,32 @@ def _ci_action_tool_result(case: dict[str, Any]):
     )
 
 
-class CiToolManager:
+class CiToolPlatform:
     def __init__(self, case: dict[str, Any]) -> None:
         from src.tools.catalog import ToolCatalog
+        from src.tools.projection import ToolResultProjector
 
         self.case = case
-        self._descriptors = {descriptor.name: descriptor for descriptor in ToolCatalog().descriptors()}
+        self._catalog = ToolCatalog()
+        self._descriptors = {descriptor.name: descriptor for descriptor in self._catalog.descriptors()}
+        self._projector = ToolResultProjector()
 
-    def descriptors(self, caller_node: str = "investigate"):
+    async def visible_tools(self, *, caller: str, ctx, session=None):
+        from src.tools.contracts import ToolViewV1
+        from src.tools.policy import project_prompt_safe_input_schema
+
         return [
-            descriptor
+            ToolViewV1(
+                name=descriptor.name,
+                description=descriptor.description,
+                input_schema=project_prompt_safe_input_schema(descriptor.input_schema),
+                safe_usage_notes=[],
+                result_contract_version="tool_result.v2",
+            )
             for descriptor in self._descriptors.values()
-            if caller_node in descriptor.caller_allowlist and descriptor.kind != "write"
+            if caller in descriptor.caller_allowlist
+            and descriptor.kind != "write"
+            and descriptor.required_permission in (ctx.permissions or [])
         ]
 
     def descriptor(self, name: str):
@@ -381,32 +417,253 @@ class CiToolManager:
         family = self._descriptors[name].event_family
         return "rag_retrieval" if family == "rag_retrieval_*" else "tool_call"
 
-    async def invoke(self, name: str, args: dict[str, Any], ctx):
+    async def invoke(self, name: str, args: dict[str, Any], ctx, *, session=None):
+        from src.tools.contracts import ToolInvocationOutcome, ToolPolicyDecision
+
         if name == "search_policy":
-            return _ci_policy_tool_result(self.case)
-        if name in {"get_order", "get_refund_case", "get_ticket"}:
-            return _ci_business_tool_result(self.case, name)
-        if name == "create_coupon_grant_draft":
-            return _ci_action_tool_result(self.case)
+            result = _ci_policy_tool_result(self.case)
+        elif name in {"get_order", "get_refund_case", "get_ticket"}:
+            result = _ci_business_tool_result(self.case, name)
+        elif name == "create_coupon_grant_draft":
+            result = _ci_action_tool_result(self.case)
+        else:
+            from src.tools.contracts import ToolError, ToolResultV2
 
-        from src.tools.contracts import ToolError, ToolResultV2
-
-        return ToolResultV2(
-            status="unavailable",
-            data=None,
-            summary=f"CI tool unavailable: {name}",
-            source_system="ci_tool_manager",
-            data_freshness_at=None,
-            policy_evidence_refs=[],
-            business_fact_refs=[],
-            error=ToolError(
-                code="TOOL_UNAVAILABLE", safe_message="CI tool unavailable", retryable=False, source="tool"
+            result = ToolResultV2(
+                status="unavailable",
+                data=None,
+                summary=f"CI tool unavailable: {name}",
+                source_system="ci_tool_platform",
+                data_freshness_at=None,
+                policy_evidence_refs=[],
+                business_fact_refs=[],
+                error=ToolError(
+                    code="TOOL_UNAVAILABLE", safe_message="CI tool unavailable", retryable=False, source="tool"
+                ),
+                retryable=False,
+                retry_after_ms=None,
+                latency_ms=0,
+                audit_ref=None,
+            )
+        projection = self._projector.project(name, result, getattr(ctx, "tool_call_id", f"ci:{name}"))
+        descriptor = self.descriptor(name)
+        return ToolInvocationOutcome(
+            tool_result=result,
+            projection=projection,
+            policy_decision=ToolPolicyDecision(
+                tool_name=name,
+                caller=getattr(ctx, "caller_node", "investigate"),
+                decision_stage="runtime_auth",
+                decision="allowed",
+                reason_codes=["visible"],
+                required_scopes=[descriptor.required_permission] if descriptor is not None else [],
+                matched_scope=descriptor.required_permission if descriptor is not None else None,
+                policy_version="ci",
+                data_classification="internal",
+                runtime_available=True,
             ),
-            retryable=False,
-            retry_after_ms=None,
-            latency_ms=0,
-            audit_ref=None,
+            policy_event_id=None,
         )
+
+
+class CiKnowledgeService:
+    def __init__(self, case: dict[str, Any]) -> None:
+        self.case = case
+
+    async def build_verified_context(self, *, candidate_evidence_refs, knowledge_context, evidence_policy, **_: Any):
+        from src.knowledge.schemas import VerifiedEvidencePackageV1
+
+        evidence_refs = list(candidate_evidence_refs or [])
+        evidence_map = {ref.evidence_id: ref for ref in evidence_refs}
+        citation_map = {f"ci-{index}": [ref.evidence_id] for index, ref in enumerate(evidence_refs, start=1)}
+        citations = [
+            {
+                "citation_id": citation_id,
+                "evidence_id": ref.evidence_id,
+                "display_label": ref.doc_key,
+                "snippet": _expected_response_text(self.case),
+                "metadata": {
+                    "doc_key": ref.doc_key,
+                    "chunk_id": ref.chunk_id,
+                    "policy_version": ref.policy_version,
+                },
+            }
+            for citation_id, ref in zip(citation_map, evidence_refs, strict=True)
+        ]
+        return VerifiedEvidencePackageV1(
+            package_id=f"verified-evidence:{knowledge_context.run_id}:ci",
+            status="verified" if evidence_refs else "no_evidence",
+            evidence_items=[],
+            citation_map=citation_map,
+            evidence_map=evidence_map,
+            prompt_projection={"citations": citations},
+            verifier_projection={
+                "safe_refs": [ref.evidence_id for ref in evidence_refs],
+                "evidence_snippets": citations,
+                "business_fact_refs": [],
+            },
+            replay_snapshot_refs=[],
+            debug_projection={"source": "ci_graph_contract"},
+            stale_refs=[],
+            conflict_refs=[],
+            rejected_candidate_refs=[],
+            reason_codes=[] if evidence_refs else ["no_evidence"],
+            policy_version=evidence_refs[0].policy_version if evidence_refs else "ci",
+            retrieval_config_version=evidence_refs[0].retrieval_config_version if evidence_refs else "ci",
+        )
+
+    async def verify_claims(self, *, material_claims, verified_evidence_package, proposed_action=None, **_: Any):
+        from src.knowledge.schemas import (
+            ClaimVerificationBundleV1,
+            ClaimVerificationResultV1,
+            EvidenceRefV1,
+            VerifiedEvidencePackageV1,
+        )
+        from src.tools.contracts import BusinessFactRefV1
+
+        package = VerifiedEvidencePackageV1.model_validate(verified_evidence_package)
+        safe_refs = list(package.evidence_map.values())
+        business_fact_refs: list[BusinessFactRefV1] = []
+        claim_results: list[ClaimVerificationResultV1] = []
+        for raw_claim in material_claims or []:
+            claim = raw_claim.model_dump(mode="python") if hasattr(raw_claim, "model_dump") else raw_claim
+            if not isinstance(claim, dict):
+                continue
+            claim_type = claim.get("claim_type")
+            cited_refs = [
+                ref
+                for ref in safe_refs
+                if ref.evidence_id in set(str(item) for item in claim.get("cited_evidence_ids") or [])
+            ] or safe_refs
+            raw_business_refs = claim.get("business_fact_refs") or []
+            business_fact_refs = [
+                ref if isinstance(ref, BusinessFactRefV1) else BusinessFactRefV1.model_validate(ref)
+                for ref in raw_business_refs
+            ]
+            claim_results.append(
+                ClaimVerificationResultV1(
+                    claim_id=str(claim.get("claim_id") or f"claim-{len(claim_results) + 1}"),
+                    claim_type=claim_type,
+                    support_status="supported",
+                    supporting_evidence_refs=[
+                        ref if isinstance(ref, EvidenceRefV1) else EvidenceRefV1.model_validate(ref) for ref in cited_refs
+                    ],
+                    business_fact_refs=business_fact_refs,
+                    rule_checks=[],
+                    semantic_review_status="not_needed",
+                    allows_user_visible_claim=True,
+                    allows_action_recommendation=claim_type == "action_recommendation",
+                )
+            )
+        if proposed_action and not any(result.claim_type == "action_recommendation" for result in claim_results):
+            claim_results.append(
+                ClaimVerificationResultV1(
+                    claim_id="claim-action-ci",
+                    claim_type="action_recommendation",
+                    support_status="supported",
+                    supporting_evidence_refs=safe_refs,
+                    business_fact_refs=business_fact_refs,
+                    rule_checks=[],
+                    semantic_review_status="not_needed",
+                    allows_user_visible_claim=True,
+                    allows_action_recommendation=True,
+                )
+            )
+        return ClaimVerificationBundleV1(
+            overall_status="verified" if claim_results else "not_required",
+            route="continue",
+            claim_results=claim_results,
+            blocked_claims=[],
+            safe_support_refs=safe_refs,
+            reason_codes=[],
+            verifier_policy_version="ci-claim-verifier.v1",
+        )
+
+
+def _ci_trusted_context(case: dict[str, Any]) -> dict[str, Any]:
+    from src.platform.trusted_context import MerchantScopeV1, TrustedContext
+
+    return TrustedContext(
+        tenant_id=str(deterministic_id("tenant", "demo")),
+        user_id=str(deterministic_id("user", "demo_support_1")),
+        role="support",
+        permissions=_ci_tool_permissions(),
+        merchant_scope=MerchantScopeV1(merchant_ids=["*"]),
+        session_id=None,
+        thread_id=f"eval-{case['thread_id']}",
+        run_id=str(deterministic_id("run", case["id"])),
+        trace_id=f"trace:{case['id']}",
+        locale="zh-CN",
+    ).model_dump(mode="json")
+
+
+def _ci_investigate_planner(case: dict[str, Any]):
+    planned_tools = [tool for tool in case.get("expected_tools_called") or [] if tool != "create_coupon_grant_draft"]
+    if case.get("expected_evidence_doc_keys") and "search_policy" not in planned_tools:
+        planned_tools.append("search_policy")
+    steps = [_ci_planner_tool_step(case, tool_name) for tool_name in planned_tools]
+    steps.append({"stop": True, "stop_reason": "no_more_useful_tools"})
+    index = 0
+
+    async def planner(_planner_input: dict[str, Any]) -> dict[str, Any]:
+        nonlocal index
+        step = steps[min(index, len(steps) - 1)]
+        index += 1
+        return step
+
+    return planner
+
+
+def _ci_planner_tool_step(case: dict[str, Any], tool_name: str) -> dict[str, Any]:
+    if tool_name == "get_order":
+        return {"next_tool": tool_name, "args": {"order_no": _extract_seed_id(case["query"], "ORD-") or "ORD-2024-001"}}
+    if tool_name == "get_refund_case":
+        return {"next_tool": tool_name, "args": {"refund_case_no": _extract_seed_id(case["query"], "RF-") or "RF-CI-001"}}
+    if tool_name == "get_ticket":
+        return {"next_tool": tool_name, "args": {"ticket_id": _extract_seed_id(case["query"], "TK-") or "TK-CI-001"}}
+    if tool_name == "search_policy":
+        return {"next_tool": tool_name, "args": {"query": case["query"]}}
+    return {"stop": True, "stop_reason": "no_more_useful_tools"}
+
+
+async def _ci_persist_action_safety_snapshot(
+    _session,
+    *,
+    action_payload_hash: str,
+    **_: Any,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        action_payload_hash=action_payload_hash,
+        safety_snapshot_ref=f"snapshot:ci:{action_payload_hash[-12:]}",
+        safety_snapshot_hash="sha256:" + "c" * 64,
+    )
+
+
+def _registered_graph_node_names() -> set[str]:
+    source = Path("src/agent/graph.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "add_node"):
+            continue
+        if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+            names.add(node.args[0].value)
+    return names
+
+
+def _assert_graph_contract_harness_current(cases: list[dict[str, Any]]) -> None:
+    registered_nodes = _registered_graph_node_names()
+    missing_patch_targets = GRAPH_CONTRACT_PATCHED_NODES - registered_nodes
+    if missing_patch_targets:
+        raise AssertionError(f"graph-contract patch targets are not active nodes: {sorted(missing_patch_targets)}")
+    expected_legacy_nodes = {
+        node
+        for case in cases
+        for node in _expected_nodes_for_case(case)
+        if node in GRAPH_CONTRACT_LEGACY_NODES
+    }
+    if expected_legacy_nodes:
+        raise AssertionError(f"graph-contract expected legacy nodes: {sorted(expected_legacy_nodes)}")
 
 
 async def _run_graph_contract_case(case: dict[str, Any]) -> list[str]:
@@ -414,17 +671,23 @@ async def _run_graph_contract_case(case: dict[str, Any]) -> list[str]:
 
     from src.agent.graph import build_graph
     from src.agent.nodes import assess_risk_and_approval as assess_risk_module
-    from src.agent.nodes import classify_intent as classify_intent_module
-    from src.agent.nodes import extract_slots as extract_slots_module
-    from src.agent.nodes import generate_recommendation as generate_recommendation_module
+    from src.agent.nodes import contextual_intent_resolve as contextual_intent_module
+    from src.agent.nodes import generate_recommendation as recommendation_impl_module
+    from src.agent.nodes import slot_resolution_gate as slot_resolution_module
 
     fake_llms = _ci_fake_llm_responses(case)
     expected_nodes = _expected_nodes_for_case(case)
     config = _ci_config(case)
     config["configurable"]["permissions"] = _ci_tool_permissions()
     config["configurable"]["merchant_scope"] = {"merchant_ids": ["*"]}
-    config["configurable"]["tool_manager"] = CiToolManager(case)
-    config["configurable"]["action_tool_manager"] = CiToolManager(case)
+    config["configurable"]["trusted_context"] = _ci_trusted_context(case)
+    config["configurable"]["session"] = object()
+    config["configurable"]["tool_platform"] = CiToolPlatform(case)
+    config["configurable"]["action_tool_platform"] = CiToolPlatform(case)
+    config["configurable"]["policy_knowledge_service"] = CiKnowledgeService(case)
+    config["configurable"]["investigate_planner"] = _ci_investigate_planner(case)
+    config["configurable"]["max_iterations"] = 3
+    config["configurable"]["max_attempts"] = 1
 
     async def event_emitter(**payload):
         return None
@@ -433,13 +696,14 @@ async def _run_graph_contract_case(case: dict[str, Any]) -> list[str]:
     failures: list[str] = []
 
     patches = [
-        patch.object(classify_intent_module, "_get_llm", lambda: fake_llms["classify_intent"]),
-        patch.object(extract_slots_module, "_get_llm", lambda: fake_llms["extract_slots"]),
-        patch.object(generate_recommendation_module, "_get_llm", lambda: fake_llms["recommendation_generation"]),
-        patch.object(assess_risk_module, "_get_llm", lambda: fake_llms["assess_risk"]),
+        patch.object(contextual_intent_module, "_get_llm", lambda: fake_llms["contextual_intent_resolve"]),
+        patch.object(slot_resolution_module, "_get_llm", lambda: fake_llms["slot_resolution_gate"]),
+        patch.object(recommendation_impl_module, "_get_llm", lambda: fake_llms["recommendation_generation"]),
+        patch.object(assess_risk_module, "_get_llm", lambda: fake_llms["assess_risk_and_approval"]),
+        patch.object(assess_risk_module, "persist_action_safety_snapshot", _ci_persist_action_safety_snapshot),
     ]
 
-    with patches[0], patches[1], patches[2], patches[3]:
+    with patches[0], patches[1], patches[2], patches[3], patches[4]:
         graph = build_graph(MemorySaver())
         result = await graph.ainvoke(_ci_input_state(case), config)
 
@@ -474,6 +738,10 @@ async def _run_graph_contract_case(case: dict[str, Any]) -> list[str]:
 
 
 async def _run_ci_graph_contracts(cases: list[dict[str, Any]]) -> list[str]:
+    try:
+        _assert_graph_contract_harness_current(cases)
+    except AssertionError as exc:
+        return [str(exc)]
     cases_by_category: dict[str, dict[str, Any]] = {}
     for case in cases:
         cases_by_category.setdefault(case["category"], case)
@@ -505,15 +773,20 @@ def _expected_nodes_for_case(case: dict[str, Any]) -> list[str]:
     category = case["category"]
     if category == "permission_denied":
         return []
-    nodes = ["receive_request", "classify_intent"]
+    nodes = ["receive_request", "safety_pre_route", "session_context_load", "contextual_intent_resolve"]
     if case.get("expected_intent") != "policy_qa":
-        nodes.extend(["session_memory_load", "extract_slots"])
-    nodes.extend(["investigate", "recommendation_generation", "assess_risk_and_approval"])
+        nodes.append("slot_resolution_gate")
+    nodes.extend(["investigate"])
     if category in {"low_confidence_no_evidence", "missing_context", "tool_failure_or_not_found"}:
         return [*nodes, "final_response"]
+    if case.get("expected_evidence_doc_keys"):
+        nodes.append("rag_context_build")
+    nodes.extend(["recommendation_generation", "claim_verify"])
+    if case.get("expected_approval_required") or category in {"approval_approved", "approval_rejected", "approval_required"}:
+        nodes.append("assess_risk_and_approval")
     if category == "approval_approved":
         _resume_command = Command(resume={"decision": "approve", "reason": "CI test"})
-        return [*nodes, "approval_gate", "execute_action", "final_response"]
+        return [*nodes, "approval_gate", "action_draft", "final_response"]
     if category == "approval_rejected":
         _resume_command = Command(resume={"decision": "reject", "reason": "CI test"})
         return [*nodes, "approval_gate", "final_response"]
@@ -539,9 +812,9 @@ def _build_ci_state(case: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any
         if evidence and "search_policy" not in non_write_tools:
             non_write_tools.append("search_policy")
         trace_steps[load_idx] = _trace_step("investigate", tools=non_write_tools, evidence=evidence)
-    if "execute_action" in nodes and "create_coupon_grant_draft" in expected_tools_called:
-        action_idx = nodes.index("execute_action")
-        trace_steps[action_idx] = _trace_step("execute_action", tools=["create_coupon_grant_draft"])
+    if "action_draft" in nodes and "create_coupon_grant_draft" in expected_tools_called:
+        action_idx = nodes.index("action_draft")
+        trace_steps[action_idx] = _trace_step("action_draft", tools=["create_coupon_grant_draft"])
 
     final_status = case.get("expected_status", "completed")
     state: dict[str, Any] = {
@@ -647,11 +920,11 @@ def _assert_ci_routing(case: dict[str, Any], summary: dict[str, Any]) -> list[st
             failures.append("approval_required did not reach approval_gate")
         if not summary.get("approval_interrupt_created"):
             failures.append("approval_required did not create approval interrupt")
-    if category == "approval_approved" and "execute_action" not in nodes_executed:
-        failures.append("approval_approved did not execute action after Command(resume=approve)")
+    if category == "approval_approved" and "action_draft" not in nodes_executed:
+        failures.append("approval_approved did not draft action after Command(resume=approve)")
     if category == "approval_rejected":
-        if "execute_action" in nodes_executed:
-            failures.append("approval_rejected unexpectedly executed action after Command(resume=reject)")
+        if "action_draft" in nodes_executed:
+            failures.append("approval_rejected unexpectedly drafted action after Command(resume=reject)")
         if "final_response" not in nodes_executed:
             failures.append("approval_rejected did not reach final_response")
     if category == "permission_denied" and summary.get("http_status_code") != 403:
