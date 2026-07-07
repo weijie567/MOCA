@@ -471,14 +471,16 @@ _PHASE56_RECOMMENDATION_ALIAS_REASON_CODES = (
 | A1 | Live/local/production DB may contain historical `generate_recommendation` trace rows, but no live DB was queried during research. [ASSUMED] | Runtime State Inventory | If false, compatibility projection is still harmless; if true and projection is omitted, historical traces/API views may regress. |
 | A2 | No external OS service registrations outside the repository embed `generate_recommendation`. [ASSUMED] | Runtime State Inventory | If false, an operator must update external service labels; code changes alone would not fully align runtime naming. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should frontend timeline display be included in Phase 56 or left as historical UI compatibility?** [VERIFIED: frontend/src/components/timeline/TimelineStep.tsx:5-15]
+   - RESOLVED: Include frontend/API label support in Plan `56-04`; current-run `recommendation_generation` labels must be supported while legacy `generate_recommendation` display remains readable until Phase 58.
    - What we know: Backend API/SSE currently has a `generate_recommendation` node message and target projection, and frontend has a local `generate_recommendation` message. [VERIFIED: src/api/routers/agent_runs.py:56-70; src/api/routers/agent_runs.py:1140-1152; frontend/src/components/timeline/TimelineStep.tsx:5-15]
    - What's unclear: Whether frontend currently receives `target_node_name` or uses only `node_name` for display in all views. [ASSUMED]
    - Recommendation: Include frontend/API label support in Plan `56-04` if current-run node names become canonical; retain legacy display fallback until Phase 58. [VERIFIED: .planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-CONTEXT.md:104-108]
 
 2. **Should `recommendation_generation` dual-write `llm_outputs["generate_recommendation"]` for compatibility?** [VERIFIED: src/agent/nodes/generate_recommendation.py:260-277; src/agent/nodes/generate_recommendation.py:415-423]
+   - RESOLVED: Plan `56-01` requires active canonical behavior to write `llm_outputs["recommendation_generation"]` and not add a new `llm_outputs["generate_recommendation"]`; any legacy surface is narrow import/test compatibility only.
    - What we know: Active legacy implementation writes `llm_outputs["generate_recommendation"]`. [VERIFIED: src/agent/nodes/generate_recommendation.py:260-277]
    - What's unclear: Which downstream consumers read that exact key outside tests and historical trace views. [VERIFIED: repository `rg -n "llm_outputs.*generate_recommendation|generate_recommendation" --glob '!uv.lock'`; ASSUMED: not all runtime consumers were dynamically exercised]
    - Recommendation: Prefer canonical `llm_outputs["recommendation_generation"]` for active runs and keep a documented legacy mirror only if tests/API readers prove it is needed. [VERIFIED: .planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md:179-192]
