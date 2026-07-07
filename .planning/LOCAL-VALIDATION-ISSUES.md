@@ -16305,3 +16305,87 @@ perl: warning: Setting locale failed.
 
 - `.planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-REVIEWS.md`
 - `UV_CACHE_DIR=/tmp/uv-cache uv run git diff --check`
+
+## 2026-07-07 — Phase 56 execute preflight 暴露 workflow 配置缺口和 state.begin-phase 参数解析错误
+
+### 问题现象
+
+Phase 56 进入 execute-phase preflight 时，三个非实现类问题同时出现：
+
+- `workflow.use_worktrees` 配置不存在，命令返回非零；workflow 默认可回退为 true。
+- 直接 `ls .planning/phases/.../.continue-here.md` 未带 `|| true`，在文件按预期不存在时返回非零。
+- `gsd-sdk query state.begin-phase --phase "56" --name "recommendation-generation-and-rag-claim-status-alignment" --plans "4"` 返回成功样式 JSON，但把 flag 名当作位置参数解析，随后错误改写 `.planning/STATE.md`。
+
+此外，`gsd-sdk query config-set workflow._auto_chain_active false` 后短暂留下 `.planning/config.json.lock` 和 `.planning/config.json.tmp.*` 未跟踪文件；已确认由本次命令产生并清理。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+gsd-sdk query config-get workflow.use_worktrees
+ls .planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/.continue-here.md
+gsd-sdk query state.begin-phase --phase "56" --name "recommendation-generation-and-rag-claim-status-alignment" --plans "4"
+git diff -- .planning/STATE.md
+git status --short
+```
+
+### 关键证据或命令
+
+`workflow.use_worktrees` 输出：
+
+```text
+Error: Key not found: workflow.use_worktrees
+```
+
+`.continue-here.md` 探测输出：
+
+```text
+ls: .planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/.continue-here.md: No such file or directory
+```
+
+`state.begin-phase` 返回：
+
+```json
+{
+  "phase": "--phase",
+  "name": "56",
+  "plan_count": "--name"
+}
+```
+
+错误 diff 包含：
+
+```text
+last_activity: 2026-07-07 -- Phase --phase execution started
+completed_phases: 20 -> 19
+completed_plans: 58 -> 61
+percent: 87 -> 95
+Current focus: Phase --phase — 56
+Plan: 1 of --name
+```
+
+### 当前判断 / 根因
+
+`workflow.use_worktrees` 是可选配置缺失，按 execute workflow 可回退默认 true。`.continue-here.md` 不存在是正常结果，问题是本次手动探测命令没有采用 workflow 的 `|| true` 形态。`state.begin-phase` 与前面 `state.record-session` / `state.planned-phase` 同类，存在参数解析和 milestone 计数聚合 bug，不能盲信成功返回。
+
+### 已做处理
+
+- 已删除本次产生的 `.planning/config.json.lock` 和 `.planning/config.json.tmp.*`。
+- 已手动收敛 `.planning/STATE.md` 为正确执行态：
+  - `status: executing`
+  - `completed_phases: 20`
+  - `completed_plans: 58`
+  - `percent: 87`
+  - Current focus / Current Position 指向 Phase 56 executing，0/4 complete。
+
+### 剩余问题
+
+无 Phase 56 阻塞。后续继续对 `state.*` mutation helper 做 diff 审核；执行阶段共享 tracking 文件应尽量由人工核对或在 helper 后立刻修正。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `.planning/config.json`
+- `gsd-sdk query state.begin-phase`
+- `/Users/ming/.codex/get-shit-done/workflows/execute-phase.md`
