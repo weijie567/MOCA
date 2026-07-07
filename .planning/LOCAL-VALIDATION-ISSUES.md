@@ -17297,3 +17297,52 @@ E   ImportError: cannot import name 'UTC' from 'datetime' (/Library/Developer/Co
 
 - Phase 57 artifact 自检命令
 - shell quoting：包含 Markdown 反引号的 `rg` / inline Python 命令统一使用单引号或改查无反引号稳定片段
+## 2026-07-07 Phase 57 execute-phase：state.begin-phase 误用 flag 参数写坏 STATE
+
+### 问题现象
+
+Phase 57 进入执行阶段时，orchestrator 按 workflow 示例运行 `gsd-sdk query state.begin-phase --phase "57" --name "risk-gate-and-approval-gate-canonicalization" --plans "5"`，但该 SDK query 实际按位置参数解析，导致 `.planning/STATE.md` 被临时写成 `Phase: --phase (57)`、`Plan: 1 of --name` 等错误文本。
+
+### 如何检测 / 复现
+
+运行带 flag 的命令后查看 diff：
+
+```text
+gsd-sdk query state.begin-phase --phase "57" --name "risk-gate-and-approval-gate-canonicalization" --plans "5"
+git diff -- .planning/STATE.md
+```
+
+### 关键证据或命令
+
+错误输出显示 SDK 将 flag 当成普通参数：
+
+```text
+{
+  "phase": "--phase",
+  "name": "57",
+  "plan_count": "--name"
+}
+```
+
+### 当前判断 / 根因
+
+这是本地 GSD SDK 命令接口误用，不是 Phase 57 planning 或代码问题。当前 `state.begin-phase` 使用位置参数形态，而 workflow 文档里的 flag 形态会被错误解析。
+
+### 已做处理
+
+已立即改用位置参数重跑并修复 STATE：
+
+```text
+gsd-sdk query state.begin-phase "57" "risk-gate-and-approval-gate-canonicalization" "5"
+```
+
+修正后 diff 显示 `Phase: 57 (risk-gate-and-approval-gate-canonicalization) — EXECUTING`、`Plan: 1 of 5`。
+
+### 剩余问题
+
+无 Phase 57 执行阻塞。后续本仓库调用 `state.begin-phase` 应使用位置参数，除非先确认 SDK 支持 flag 形态。
+
+### 下次继续排查入口
+
+- GSD workflow `execute-phase.md` 中 `state.begin-phase` 示例与实际 SDK 参数解析差异
+- `.planning/STATE.md` execution state diff
