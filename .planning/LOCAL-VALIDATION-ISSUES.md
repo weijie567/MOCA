@@ -17346,3 +17346,38 @@ gsd-sdk query state.begin-phase "57" "risk-gate-and-approval-gate-canonicalizati
 
 - GSD workflow `execute-phase.md` 中 `state.begin-phase` 示例与实际 SDK 参数解析差异
 - `.planning/STATE.md` execution state diff
+
+## 2026-07-07 Phase 57 Plan 57-01 Task 1：TDD RED 期望失败，缺少 canonical risk_gate 模块
+
+### 问题现象
+
+执行 Task 1 RED 验证时，新增的 canonical `risk_gate` 测试在 collection 阶段失败。
+
+### 如何检测 / 复现
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_risk_gate.py tests/agent/test_nodes/test_assess_risk_and_approval.py -q --tb=short
+```
+
+### 关键证据或命令
+
+```text
+ImportError: cannot import name 'risk_gate' from 'src.agent.nodes'
+```
+
+### 当前判断 / 根因
+
+这是 TDD RED 阶段的期望失败。`tests/agent/test_nodes/test_risk_gate.py` 已先行锁定 canonical `risk_gate` callable、`llm_outputs["risk_gate"]`、trace/node_errors canonical identity，以及 legacy `assess_risk_and_approval` 仅作为 import/test compatibility 的期望；实现文件 `src/agent/nodes/risk_gate.py` 尚未创建。
+
+### 已做处理
+
+已确认失败原因符合 RED gate；下一步 Task 2 会创建 canonical wrapper、参数化 shared implementation identity，并补齐 Phase 58-scoped compatibility metadata。
+
+### 剩余问题
+
+Task 2 GREEN 前该验证仍会失败；这不是环境入口问题，命令已使用 MOCA 认可的 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest`。
+
+### 下次继续排查入口
+
+- `src/agent/nodes/risk_gate.py`
+- `src/agent/nodes/assess_risk_and_approval.py` 中 `_trace_step`、`llm_outputs`、`node_errors` 的 identity 参数化

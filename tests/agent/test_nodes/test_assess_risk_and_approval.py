@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
@@ -238,6 +239,63 @@ async def test_actionable_recommendation_still_proposes_action(monkeypatch, base
     result = await assess_risk_module.assess_risk_and_approval(state)
 
     assert result["proposed_action"]["action_type"] == "issue_coupon"
+
+
+def test_assess_risk_and_approval_compatibility_metadata_is_phase58_scoped():
+    source = inspect.getsource(assess_risk_module)
+    for marker in (
+        "PHASE_57_COMPATIBILITY_ALIAS",
+        "HISTORICAL_TRACE_PROJECTION",
+        "IMPORT_TEST_COMPATIBILITY",
+        "DELETE_BY_PHASE_58",
+    ):
+        assert marker in source
+
+    metadata = assess_risk_module.PHASE_57_COMPATIBILITY_ALIAS
+    assert metadata["legacy_surface"] == "assess_risk_and_approval"
+    assert metadata["canonical_owner"] == "risk_gate"
+    assert metadata["reason"] == assess_risk_module.IMPORT_TEST_COMPATIBILITY
+    assert metadata["trace_projection"] == assess_risk_module.HISTORICAL_TRACE_PROJECTION
+    assert metadata["delete_phase"] == assess_risk_module.DELETE_BY_PHASE_58
+    assert "tests/agent/test_nodes/test_risk_gate.py" in metadata["validation_tests"]
+    assert "tests/agent/test_nodes/test_assess_risk_and_approval.py" in metadata["validation_tests"]
+
+
+@pytest.mark.asyncio
+async def test_legacy_assess_risk_and_approval_keeps_import_test_compatibility_identity(
+    monkeypatch, base_state
+):
+    """D-57-04: legacy callable is import/test compatibility only until Phase 58."""
+
+    monkeypatch.setattr(
+        assess_risk_module,
+        "_get_llm",
+        lambda: FakeLLM(
+            {
+                "risk_level": "low",
+                "risk_reason": "Small coupon is auto-allowed.",
+                "approval_required": False,
+                "rule_ref": "LR-01",
+            }
+        ),
+    )
+    tenant_id = base_state["tenant_id"]
+    state = {
+        **base_state,
+        "recommendation_draft": {
+            "recommended_action": "issue_coupon",
+            "reasoning_summary": "Issue a small service recovery coupon.",
+            "compensation_amount": 10,
+        },
+        "claim_verification_bundle": _claim_bundle_with_safe_refs(tenant_id),
+        "business_context": _phase34_business_context(tenant_id),
+    }
+
+    result = await assess_risk_module.assess_risk_and_approval(state)
+
+    assert "assess_risk_and_approval" in result["llm_outputs"]
+    assert "risk_gate" not in result["llm_outputs"]
+    assert result["trace_steps"][-1]["node"] == "assess_risk_and_approval"
 
 
 @pytest.mark.asyncio
