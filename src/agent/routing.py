@@ -641,8 +641,7 @@ def _has_proposed_action(state: AgentState) -> bool:
     return isinstance(proposed, dict) and bool(proposed)
 
 
-def _has_verified_action_recommendation(state: AgentState) -> bool:
-    bundle = _claim_verification_bundle(state)
+def _has_allowed_action_recommendation(bundle: Mapping[str, Any] | dict[str, Any]) -> bool:
     for raw_result in bundle.get("claim_results") or []:
         result = raw_result.model_dump(mode="python") if hasattr(raw_result, "model_dump") else raw_result
         if not isinstance(result, dict):
@@ -651,6 +650,10 @@ def _has_verified_action_recommendation(state: AgentState) -> bool:
         if claim_type == "action_recommendation" and result.get("allows_action_recommendation") is True:
             return True
     return False
+
+
+def _has_verified_action_recommendation(state: AgentState) -> bool:
+    return _has_allowed_action_recommendation(_claim_verification_bundle(state))
 
 
 def _has_user_visible_claims(state: AgentState) -> bool:

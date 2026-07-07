@@ -36,6 +36,7 @@ from src.agent.nodes.safety_pre_route import safety_pre_route
 from src.agent.nodes.session_context_load import session_context_load
 from src.agent.nodes.slot_resolution_gate import slot_resolution_gate
 from src.agent.routing import (
+    _has_allowed_action_recommendation,
     route_after_claim_verify,
     route_after_contextual_intent,
     route_after_investigate,
@@ -112,10 +113,7 @@ def _claim_bundle_blocks_action_path(state: AgentState) -> bool:
         return True
     if _non_empty_list(state.get("blocked_claims")) or _non_empty_list(bundle.get("blocked_claims")):
         return True
-    for result in bundle.get("claim_results") or []:
-        if _action_claim_disallows_action(result):
-            return True
-    return False
+    return not _has_allowed_action_recommendation(bundle)
 
 
 def _bundle_mapping(raw_bundle: Any) -> dict[str, Any] | None:
@@ -125,15 +123,6 @@ def _bundle_mapping(raw_bundle: Any) -> dict[str, Any] | None:
         dumped = raw_bundle.model_dump(mode="python")
         return dumped if isinstance(dumped, dict) else None
     return None
-
-
-def _action_claim_disallows_action(raw_result: Any) -> bool:
-    if hasattr(raw_result, "model_dump"):
-        raw_result = raw_result.model_dump(mode="python")
-    if not isinstance(raw_result, dict):
-        return False
-    claim_type = raw_result.get("claim_type") or raw_result.get("authority_class")
-    return claim_type == "action_recommendation" and raw_result.get("allows_action_recommendation") is False
 
 
 def _non_empty_list(value: Any) -> bool:

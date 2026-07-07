@@ -236,6 +236,39 @@ def test_route_after_risk_returns_approval_gate_when_required_snapshot_refs_are_
     assert route_after_risk(_risk_route_state()) == "approval_gate"
 
 
+@pytest.mark.parametrize(
+    "claim_results",
+    [
+        [],
+        [
+            {
+                "schema_version": "claim_verification_result.v1",
+                "claim_id": "claim-user-visible-1",
+                "claim_type": "user_visible_claim",
+                "support_status": "supported",
+                "supporting_evidence_refs": [],
+                "business_fact_refs": [],
+                "rule_checks": [],
+                "semantic_review_status": "not_needed",
+                "allows_user_visible_claim": True,
+                "allows_action_recommendation": None,
+            }
+        ],
+        [
+            {
+                **_claim_bundle_payload(str(uuid4()))["claim_results"][0],
+                "allows_action_recommendation": False,
+            }
+        ],
+    ],
+)
+def test_route_after_risk_requires_positive_allowed_action_claim(claim_results):
+    state = _risk_route_state()
+    state["claim_verification_bundle"]["claim_results"] = claim_results
+
+    assert route_after_risk(state) == "final_response"
+
+
 def test_route_after_recommendation_routes_actionable_draft_to_claim_verify():
     state = {
         "proposed_action": {"action_type": "issue_coupon"},

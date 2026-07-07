@@ -313,6 +313,63 @@ async def test_action_claim_result_disallowing_action_blocks_risk_and_snapshots(
 
 
 @pytest.mark.asyncio
+async def test_missing_positive_action_claim_blocks_approval_edit_risk_reentry(
+    monkeypatch: pytest.MonkeyPatch,
+    base_state: dict[str, Any],
+) -> None:
+    """APF-14: approval edit re-entry still requires a positive action claim allowance."""
+    monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: ExplodingRiskLLM())
+    run_id = str(uuid4())
+    edited_action = {
+        "schema_version": "proposed_action.v1",
+        "tenant_id": base_state["tenant_id"],
+        "run_id": run_id,
+        "action_id": f"act:{run_id}:issue_coupon:refund-1",
+        "action_type": "issue_coupon",
+        "target_type": "refund_case",
+        "target_id": "refund-1",
+        "amount": "88.00",
+        "currency": "CNY",
+        "args": {"risk_level": "high"},
+        "reason": "Reviewer edited the coupon amount.",
+        "evidence_refs": [_evidence_ref(base_state["tenant_id"])],
+    }
+    bundle = _claim_bundle(claim_results=[], safe_support_refs=[_evidence_ref(base_state["tenant_id"])])
+    state = {
+        **_claim_verified_actionable_state(base_state, bundle),
+        "current_run_id": run_id,
+        "proposed_action": {"action_type": "issue_coupon"},
+        "approval_result": {
+            **_approved_result(base_state["tenant_id"], run_id),
+            "decision_type": "edit",
+            "status": "superseded",
+            "edited_action": edited_action,
+            "new_action_payload_hash": "sha256:" + "3" * 64,
+            "resume_route": "assess_risk_and_approval",
+        },
+        "action_payload_hash": ACTION_HASH,
+        "safety_snapshot_ref": "snapshot:test",
+        "safety_snapshot_hash": SNAPSHOT_HASH,
+        "safety_snapshot_verified": True,
+    }
+
+    result = await assess_risk_module.assess_risk_and_approval(
+        state,
+        {"configurable": {"session": object()}},
+    )
+    merged_state = {**state, **result}
+
+    assert result["risk_assessment"]["rule_ref"] == "PHASE33-CLAIM-VERIFY"
+    assert merged_state["proposed_action"] is None
+    assert merged_state["approval_result"] is None
+    assert merged_state["action_payload_hash"] is None
+    assert merged_state["safety_snapshot_ref"] is None
+    assert merged_state["safety_snapshot_hash"] is None
+    assert merged_state["safety_snapshot_verified"] is False
+    assert route_after_risk(merged_state) == "final_response"
+
+
+@pytest.mark.asyncio
 async def test_candidate_only_retrieved_evidence_refs_do_not_bind_action_snapshot(
     monkeypatch: pytest.MonkeyPatch,
     base_state: dict[str, Any],

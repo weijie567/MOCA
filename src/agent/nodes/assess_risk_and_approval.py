@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from src.agent.context import ContextAssembler, PromptAssembly
 from src.agent.context.session_memory_bundle import load_session_prompt_context
 from src.agent.prompts import ASSESS_RISK_SYSTEM
+from src.agent.routing import _has_allowed_action_recommendation
 from src.agent.schemas import RiskAssessment
 from src.agent.state import AgentState
 from src.agent.working_state import project_working_state
@@ -215,18 +216,7 @@ def _claim_bundle_blocks_action(state: AgentState, draft: dict[str, Any]) -> boo
         return True
     if _non_empty_list(state.get("blocked_claims")) or _non_empty_list(bundle.get("blocked_claims")):
         return True
-    return _action_claim_result_disallows_action(bundle)
-
-
-def _action_claim_result_disallows_action(bundle: dict[str, Any]) -> bool:
-    for raw_result in bundle.get("claim_results") or []:
-        result = raw_result.model_dump(mode="python") if hasattr(raw_result, "model_dump") else raw_result
-        if not isinstance(result, dict):
-            continue
-        claim_type = result.get("claim_type") or result.get("authority_class")
-        if claim_type == "action_recommendation" and result.get("allows_action_recommendation") is False:
-            return True
-    return False
+    return not _has_allowed_action_recommendation(bundle)
 
 
 def _non_empty_list(value: Any) -> bool:
