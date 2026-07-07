@@ -43,7 +43,7 @@ Code implementation is delegated to Codex per the project workflow; Claude is pl
 - [x] **Phase 55: Memory Context Load Cutover** - Replace active `long_term_memory_retrieve` graph naming with canonical `memory_context_load` and contextual-only memory authority labels (CAGM-06). Plan progress: 3/3 complete; verified 2026-07-07.
 - [x] **Phase 56: Recommendation Generation and RAG Claim Status Alignment** - Canonicalize `recommendation_generation` and align RAG/claim fail-closed status semantics (CAGM-07). Plan progress: 4/4 complete; verified 2026-07-07.
 - [x] **Phase 57: Risk Gate and Approval Gate Canonicalization** - Replace active `assess_risk_and_approval` with canonical `risk_gate` while preserving approval pending/trusted resume semantics (CAGM-08). Plan progress: 5/5 complete; verified 2026-07-07.
-- [ ] **Phase 58: Canonical Graph Cutover and No-Debt Cleanup** - Cut over the active graph to the final 15-node set and remove legacy node names, dual routes, and active compatibility aliases (CAGM-09). Not planned yet.
+- [ ] **Phase 58: Canonical Graph Cutover and No-Debt Cleanup** - Cut over the active graph to the final 15-node set and remove legacy node names, dual routes, and active compatibility aliases (CAGM-09). Planned: 5 plans.
 
 ## Phase Details
 
@@ -488,7 +488,7 @@ Plans:
 **Requirements**: CAGM-09
 **Depends on:** Phase 57
 **Must read:** `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`
-**Plans:** 0 plans (not planned yet)
+**Plans:** 5 plans
 **Success Criteria** (what must be TRUE):
   1. Active `StateGraph.add_node(...)` registrations equal the 15 canonical node names from Phase 50 exactly.
   2. Active route values no longer point to `classify_intent`, `session_memory_load`, `extract_slots`, `long_term_memory_retrieve`, `generate_recommendation`, or `assess_risk_and_approval`.
@@ -496,4 +496,8 @@ Plans:
   4. Docs, tests, trace/replay/eval projection, and architecture debt are synchronized so no final migration debt remains.
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 58 to break down)
+- [ ] 58-01-PLAN.md — active graph/vocabulary final gate and static legacy-hit classifier foundation.
+- [ ] 58-02-PLAN.md — canonical implementation-host migration plus legacy wrapper/import-test deletion.
+- [ ] 58-03-PLAN.md — trace/API/SSE/frontend/eval/historical projection cleanup.
+- [ ] 58-04-PLAN.md — approval retry data-read compatibility and route authority hardening.
+- [ ] 58-05-PLAN.md — docs, architecture debt, validation artifact, roadmap/state/requirements closeout, and broad verification.
