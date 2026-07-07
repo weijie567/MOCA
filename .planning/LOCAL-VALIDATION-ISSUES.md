@@ -10214,6 +10214,66 @@ GSD `state.planned-phase` 命令本身未修复。后续 phase planning 若再�
 
 - `.planning/STATE.md`
 - `gsd-sdk query state.planned-phase`
+
+## 2026-07-07 — Claude review wrapper 使用 zsh 只读变量 status 导致命令退出 1
+
+### 问题现象
+
+Phase 54 Claude plan review 调用外部 CLI 时，wrapper 命令在 Claude 输出完成后执行：
+
+```text
+status=$?
+```
+
+zsh 报错：
+
+```text
+zsh:1: read-only variable: status
+```
+
+导致 wrapper 命令整体退出码为 1。
+
+### 如何检测 / 复现
+
+在 zsh 中使用变量名 `status` 保存上一条命令退出码即可复现，因为 `status` 是 zsh 的只读特殊参数。
+
+### 关键证据或命令
+
+原始 wrapper 意图：
+
+```text
+cat /tmp/gsd-review-prompt-54.md | claude -p - > /tmp/gsd-review-claude-54.md 2>/tmp/gsd-review-claude-54.err; status=$?; echo "claude_exit=$status"; wc -c ...
+```
+
+后续检查文件：
+
+```text
+wc -c /tmp/gsd-review-claude-54.md /tmp/gsd-review-claude-54.err
+```
+
+结果显示 Claude review 实际已成功产出，且 stderr 为空：
+
+```text
+23391 /tmp/gsd-review-claude-54.md
+0 /tmp/gsd-review-claude-54.err
+```
+
+### 当前判断 / 根因
+
+这是 wrapper shell 变量命名错误，不是 Claude review 失败。Claude 输出文件有效，可继续用于生成 Phase 54 `54-REVIEWS.md`。
+
+### 已做处理
+
+未重跑 Claude，避免重复外部 review 成本。已检查输出文件大小和 stderr，并继续使用 `/tmp/gsd-review-claude-54.md` 作为有效 review 证据。
+
+### 剩余问题
+
+无当前阻塞。后续 zsh wrapper 使用 `exit_code` 等普通变量名，不使用 `status`。
+
+### 下次继续排查入口
+
+- `/tmp/gsd-review-claude-54.md`
+- `/tmp/gsd-review-claude-54.err`
 - `/Users/ming/.codex/get-shit-done/workflows/plan-phase.md`
 
 ## 2026-07-02 09:50 CST - Phase 38 plan 38-03 full relevant suite 仍因本地 PostgreSQL 缺失失败
