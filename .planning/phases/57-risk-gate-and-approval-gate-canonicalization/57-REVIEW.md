@@ -1,6 +1,6 @@
 ---
 phase: 57-risk-gate-and-approval-gate-canonicalization
-reviewed: 2026-07-07T15:56:51Z
+reviewed: 2026-07-07T16:13:20Z
 depth: deep
 files_reviewed: 34
 files_reviewed_list:
@@ -41,68 +41,36 @@ files_reviewed_list:
 findings:
   critical: 0
   warning: 0
-  info: 2
-  total: 2
-status: issues_found
+  info: 0
+  total: 0
+status: clean
 ---
 
 # Phase 57: Code Review Report
 
-**Reviewed:** 2026-07-07T15:56:51Z
+**Reviewed:** 2026-07-07T16:13:20Z
 **Depth:** deep
 **Files Reviewed:** 34
-**Status:** issues_found
+**Status:** clean
 
 ## Summary
 
-Reviewed the Phase 57 canonicalization from `assess_risk_and_approval` to active `risk_gate`, including graph registration, routers, approval resume/retry normalization, action authorization bindings, trace vocabulary, API surfaces, frontend display compatibility, eval harnesses, docs, and tests.
+Re-reviewed the Phase 57 risk-gate and approval-gate canonicalization after review fixes. The prior stale `route_after_risk` oracle issue is resolved: the generic router oracle now includes the canonical `action_draft` route, and there is a bound auto-allowed assertion. The prior diagnostic mock issue is resolved: `scripts/diagnose_latency.py` now emits `contextual_intent_resolve`, `recommendation_generation`, and `risk_gate` for synthetic current-run nodes.
 
-No Critical or Warning issues were found in the runtime graph/routing path, approval authority checks, risk gate fail-closed behavior, or persisted legacy retry normalization. The remaining findings are Info-level stale verification/diagnostic assumptions that should be cleaned up before the Phase 58 compatibility removal.
+The runtime graph registers `risk_gate` as the active risk/action node and no longer registers `assess_risk_and_approval`. `route_after_risk` still fails closed unless claim verification, snapshot binding, safety snapshot verification, approval plan binding, or auto-allowed binding are exact. `approval_gate` continues to accept only strict `approval_result.v1` resume payloads bound to the current tenant, run, action hash, snapshot ref, and snapshot hash. The approval service/API path preserves reviewer role checks, self-approval rejection, merchant scope checks, request/version/hash conflict checks, canonical edit reroute to `risk_gate`, and server-side normalization of persisted legacy retry metadata only.
+
+All reviewed files meet quality standards. No Critical, Warning, or Info issues found.
 
 Targeted verification passed:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/test_graph_routing.py tests/agent/test_graph_vocabulary.py tests/agent/test_nodes/test_risk_gate.py tests/agent/test_nodes/test_assess_risk_and_approval.py tests/test_approval_gate.py tests/test_approval_api.py tests/approvals/test_service_transitions.py tests/test_agent_runs_api.py tests/test_trace_api.py -q --tb=short
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/test_graph_routing.py tests/agent/test_graph.py tests/agent/test_graph_vocabulary.py tests/agent/test_nodes/test_risk_gate.py tests/agent/test_nodes/test_assess_risk_and_approval.py tests/test_approval_gate.py tests/test_approval_api.py tests/approvals/test_service_transitions.py tests/approvals/test_needs_info_resume.py tests/test_agent_runs_api.py tests/test_trace_api.py -q --tb=short
 ```
 
-Result: `319 passed, 1 skipped, 1 warning in 275.26s`.
-
-## Info
-
-### IN-01: Stale router-edge oracle omits auto-allowed action route
-
-**File:** `tests/agent/test_graph.py:58`
-
-**Issue:** `ROUTER_EDGE_KEYS["route_after_risk"]` only lists `approval_gate` and `final_response`, but the active graph and architecture baseline now include `action_draft` as the valid auto-allowed route from `risk_gate`. The dedicated routing tests cover this branch, but this generic router oracle is stale and can mislead future edits or miss drift in this file.
-
-**Fix:** Include the canonical `action_draft` edge and add a bound auto-allowed assertion to this generic router test, or derive the expected keys from `tests/architecture/graph_baseline.py`.
-
-```python
-ROUTER_EDGE_KEYS = {
-    # ...
-    "route_after_risk": {"approval_gate", "action_draft", "final_response"},
-    # ...
-}
-```
-
-### IN-02: Latency mock report still emits retired current-run node names
-
-**File:** `scripts/diagnose_latency.py:92`
-
-**Issue:** `mock_report()` was updated for `risk_gate`, but it still emits `classify_intent` and `generate_recommendation` as synthetic current-run nodes. Phase 57 docs and graph baseline state that current runtime nodes are `contextual_intent_resolve` and `recommendation_generation`; leaving the mock partially legacy keeps diagnostic examples anchored to retired node names.
-
-**Fix:** Update the mock report to use current registered node names and keep legacy names only in explicit historical-trace fixtures.
-
-```python
-nodes = [
-    {"node": "contextual_intent_resolve", ...},
-    {"node": "recommendation_generation", ...},
-    {"node": "risk_gate", ...},
-]
-```
+Result: `364 passed, 1 skipped, 29 warnings in 305.53s`.
 
 ---
 
-_Reviewed: 2026-07-07T15:56:51Z_
+_Reviewed: 2026-07-07T16:13:20Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
