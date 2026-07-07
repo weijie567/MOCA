@@ -35,7 +35,7 @@ CURRENT_ACTIVE_GRAPH_NODES_BASELINE = frozenset(
         "session_context_load",
         "contextual_intent_resolve",
         "slot_resolution_gate",
-        "long_term_memory_retrieve",
+        "memory_context_load",
         "investigate",
         "rag_context_build",
         "generate_recommendation",
@@ -49,11 +49,6 @@ CURRENT_ACTIVE_GRAPH_NODES_BASELINE = frozenset(
 )
 
 MIGRATION_MODE_LEGACY_NODE_MAP = {
-    "long_term_memory_retrieve": {
-        "target": "memory_context_load",
-        "delete_phase": "Phase 55",
-        "owner_requirement": "CAGM-06",
-    },
     "generate_recommendation": {
         "target": "recommendation_generation",
         "delete_phase": "Phase 56",
@@ -85,7 +80,7 @@ CURRENT_CONDITIONAL_EDGE_BASELINE = {
     ("slot_resolution_gate", "route_after_slot_resolution"): {
         "clarification_gate": "clarification_gate",
         "investigate": "investigate",
-        "long_term_memory_retrieve": "long_term_memory_retrieve",
+        "memory_context_load": "memory_context_load",
     },
     ("investigate", "route_after_investigate"): {
         "final_response": "final_response",

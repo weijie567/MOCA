@@ -20,8 +20,10 @@ def test_current_active_graph_node_set_matches_phase53_baseline() -> None:
     assert "safety_pre_route" in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
     assert "session_context_load" in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
     assert "contextual_intent_resolve" in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
+    assert "memory_context_load" in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
     assert "classify_intent" not in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
     assert "session_memory_load" not in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
+    assert "long_term_memory_retrieve" not in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
     assert graph_add_node_names() == CURRENT_ACTIVE_GRAPH_NODES_BASELINE
 
 
@@ -63,11 +65,6 @@ def test_migration_mode_maps_every_active_legacy_node_to_target() -> None:
 
     assert active_legacy_nodes == frozenset(MIGRATION_MODE_LEGACY_NODE_MAP)
     assert MIGRATION_MODE_LEGACY_NODE_MAP == {
-        "long_term_memory_retrieve": {
-            "target": "memory_context_load",
-            "delete_phase": "Phase 55",
-            "owner_requirement": "CAGM-06",
-        },
         "generate_recommendation": {
             "target": "recommendation_generation",
             "delete_phase": "Phase 56",
@@ -124,7 +121,11 @@ def test_current_router_mappings_account_for_legacy_destinations() -> None:
     for route_map in route_maps.values():
         assert "classify_intent" not in route_map.values()
         assert "session_memory_load" not in route_map.values()
+        assert "long_term_memory_retrieve" not in route_map.values()
 
+    assert route_maps[("slot_resolution_gate", "route_after_slot_resolution")]["memory_context_load"] == (
+        "memory_context_load"
+    )
     assert route_maps[("investigate", "route_after_investigate")]["recommendation_generation"] == (
         "generate_recommendation"
     )
@@ -145,7 +146,6 @@ def test_current_router_mappings_account_for_legacy_destinations() -> None:
         if destination in MIGRATION_MODE_LEGACY_NODE_MAP
     }
     assert {
-        "long_term_memory_retrieve",
         "generate_recommendation",
         "assess_risk_and_approval",
     }.issubset(legacy_destinations)

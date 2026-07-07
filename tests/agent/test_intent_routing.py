@@ -555,7 +555,7 @@ def test_intent_consumers_do_not_read_policy_constants_directly():
         assert token not in classifier_source
 
 
-def test_route_after_slot_resolution_totality_and_long_term_memory_route():
+def test_route_after_slot_resolution_totality_and_legacy_memory_hint_route():
     assert route_after_slot_resolution({}) in SLOT_ROUTES
     assert (
         route_after_slot_resolution(
@@ -566,7 +566,7 @@ def test_route_after_slot_resolution_totality_and_long_term_memory_route():
                 "routing_hints": {"needs_long_term_memory": True},
             }
         )
-        == "long_term_memory_retrieve"
+        == "memory_context_load"
     )
 
 
@@ -580,7 +580,7 @@ def test_route_after_slot_resolution_accepts_canonical_reviewed_memory_hint_and_
                 "routing_hints": {"needs_reviewed_memory_context": True},
             }
         )
-        == "long_term_memory_retrieve"
+        == "memory_context_load"
     )
     assert (
         route_after_slot_resolution(

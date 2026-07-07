@@ -15434,3 +15434,47 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_memory_context_load.py
 - `tests/conftest.py::test_engine`
 - `tests/agent/test_reviewed_memory_context_retrieve.py`
 - 本地 PostgreSQL 测试 schema / 并发 pytest 调度
+
+## 2026-07-07 — Phase 55-02 Task 1 TDD RED 验证命中预期旧 active memory graph 路由
+
+### 问题现象
+
+Task 1 先把 architecture baseline、router tests 和 intent routing tests 改为期待 canonical `memory_context_load` 后，按 TDD RED 运行 focused pytest，测试失败。失败点显示当前生产代码仍注册/返回 `long_term_memory_retrieve`。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/test_graph_routing.py tests/agent/test_intent_routing.py -q --tb=short
+```
+
+### 关键证据或命令
+
+失败输出包含：
+
+```text
+Extra items in the left set: 'long_term_memory_retrieve'
+Extra items in the right set: 'memory_context_load'
+assert 'long_term_memory_retrieve' == 'memory_context_load'
+```
+
+### 当前判断 / 根因
+
+这是预期的 TDD RED：测试已表达 Phase 55-02 目标行为，但 `src/agent/graph.py` 和 `src/agent/routing.py` 尚未从 active `long_term_memory_retrieve` 切到 `memory_context_load`。
+
+### 已做处理
+
+继续执行 GREEN 步骤：准备同步修改 graph import/registration/path map/direct edge 和 slot-resolution router return value，再重跑同一 focused pytest、Ruff 和 AST static scan。
+
+### 剩余问题
+
+无额外环境问题。待 GREEN 实现和验证通过。
+
+### 下次继续排查入口
+
+- `src/agent/graph.py`
+- `src/agent/routing.py`
+- `tests/architecture/test_canonical_graph_baseline.py`
+- `tests/test_graph_routing.py`
+- `tests/agent/test_intent_routing.py`

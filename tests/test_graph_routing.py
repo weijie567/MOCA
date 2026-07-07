@@ -11,11 +11,13 @@ from src.agent.graph import route_after_approval, route_after_risk
 from src.agent.nodes import assess_risk_and_approval as risk_module
 from src.agent import routing as routing_module
 from src.agent.routing import (
+    SLOT_RESOLUTION_ROUTES,
     route_after_intent,
     route_after_contextual_intent,
     route_after_investigate,
     route_after_recommendation,
     route_after_safety,
+    route_after_slot_resolution,
 )
 from src.agent.schemas import IntentResultV3, RiskAssessment
 from src.approvals.snapshot_service import compute_action_payload_hash
@@ -401,6 +403,22 @@ def test_route_after_intent_is_compatibility_delegate_to_contextual_intent():
     }
 
     assert route_after_intent(state) == route_after_contextual_intent(state) == "slot_resolution_gate"
+
+
+def test_route_after_slot_resolution_memory_hints_use_canonical_destination():
+    base_state = {
+        "primary_intent": "policy_qa",
+        "required_slots": {"all_of": [], "any_of": [], "optional": []},
+        "extracted_slots": {},
+    }
+
+    assert SLOT_RESOLUTION_ROUTES == {"clarification_gate", "investigate", "memory_context_load"}
+    assert route_after_slot_resolution({**base_state, "routing_hints": {"needs_reviewed_memory_context": True}}) == (
+        "memory_context_load"
+    )
+    assert route_after_slot_resolution({**base_state, "routing_hints": {"needs_long_term_memory": True}}) == (
+        "memory_context_load"
+    )
 
 
 def test_route_after_risk_returns_final_response_for_auto_allowed_snapshot_verified_action():
