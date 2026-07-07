@@ -39,7 +39,7 @@ Code implementation is delegated to Codex per the project workflow; Claude is pl
 - [x] **Phase 51: Canonical Graph Baseline Guardrails and Migration Matrix** - Add source-verified graph guardrails and migration matrix checks before runtime rewiring starts (CAGM-02). Plan progress: 3/3 complete; verified 2026-07-06.
 - [x] **Phase 52: Safety Pre-route Node** - Extract request-risk pre-route into explicit `safety_pre_route` node before memory/context enrichment (CAGM-03). Plan progress: 3/3 complete; verified 2026-07-06.
 - [x] **Phase 53: Session Context Before Intent and Contextual Intent Resolve** - Move session context before intent resolution and replace active `classify_intent` with `contextual_intent_resolve` (CAGM-04). Plan progress: 3/3 complete; verified 2026-07-06.
-- [ ] **Phase 54: Slot Resolution Gate Cutover** - Replace active `extract_slots` / `route_after_slots` graph boundary with canonical `slot_resolution_gate` and slot provenance (CAGM-05). Not planned yet.
+- [ ] **Phase 54: Slot Resolution Gate Cutover** - Replace active `extract_slots` / `route_after_slots` graph boundary with canonical `slot_resolution_gate` and slot provenance (CAGM-05). Plan progress: 3/3 execution complete; code review pending.
 - [ ] **Phase 55: Memory Context Load Cutover** - Replace active `long_term_memory_retrieve` graph naming with canonical `memory_context_load` and contextual-only memory authority labels (CAGM-06). Not planned yet.
 - [ ] **Phase 56: Recommendation Generation and RAG Claim Status Alignment** - Canonicalize `recommendation_generation` and align RAG/claim fail-closed status semantics (CAGM-07). Not planned yet.
 - [ ] **Phase 57: Risk Gate and Approval Gate Canonicalization** - Replace active `assess_risk_and_approval` with canonical `risk_gate` while preserving approval pending/trusted resume semantics (CAGM-08). Not planned yet.
@@ -115,7 +115,7 @@ Plans:
 | 51. Canonical Graph Baseline Guardrails and Migration Matrix | 3/3 | Complete    | 2026-07-06 |
 | 52. Safety Pre-route Node | 3/3 | Complete | 2026-07-06 |
 | 53. Session Context Before Intent and Contextual Intent Resolve | 3/3 | Complete    | 2026-07-06 |
-| 54. Slot Resolution Gate Cutover | 0/TBD | Not planned | - |
+| 54. Slot Resolution Gate Cutover | 3/3 | Execution complete; code review pending | - |
 | 55. Memory Context Load Cutover | 0/TBD | Not planned | - |
 | 56. Recommendation Generation and RAG Claim Status Alignment | 0/TBD | Not planned | - |
 | 57. Risk Gate and Approval Gate Canonicalization | 0/TBD | Not planned | - |
@@ -413,7 +413,7 @@ Plans:
 **Requirements**: CAGM-05
 **Depends on:** Phase 53
 **Must read:** `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`
-**Plans:** 0 plans (not planned yet)
+**Plans:** 3 plans
 **Success Criteria** (what must be TRUE):
   1. `slot_resolution_gate` is the active registered graph node for required-slot satisfaction and clarification routing.
   2. Slot candidate extraction remains internal to `contextual_intent_resolve` / `slot_resolution_gate`; no final `slot_extraction` graph node is introduced.
@@ -421,7 +421,9 @@ Plans:
   4. Active runtime no longer uses `extract_slots` as the registered graph node after cutover, except for explicitly recorded temporary implementation reuse slated for deletion.
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 54 to break down)
+- [x] 54-01-PLAN.md — deterministic slot provenance, non-active `route_after_slot_resolution` contract, and canonical `slot_resolution_gate` node unit coverage.
+- [x] 54-02-PLAN.md — atomic active graph/router/policy/baseline cutover to `slot_resolution_gate` / `route_after_slot_resolution`.
+- [x] 54-03-PLAN.md — vocabulary/API projection, current architecture docs, architecture debt ledger, and final validation closeout.
 
 ### Phase 55: Memory Context Load Cutover
 
