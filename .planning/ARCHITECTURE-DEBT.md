@@ -273,6 +273,14 @@
 - **证据**：Phase 56 Plan 56-03 Task 1；`src/agent/routing.py`（`RAG_CONTEXT_STATUSES` schema 派生、`_route_after_rag_context`、`_partial_rag_context_can_generate`、`_action_bound_or_high_risk`、`_partial_rag_has_unsafe_evidence_indicator`）；`tests/agent/test_rag_context_routing.py`（schema equality、exact status set、unsafe statuses、missing/unknown/malformed status、partial action/risk/unsafe evidence matrix）；验证命令 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_rag_context_routing.py tests/knowledge/test_verified_evidence_package.py -q --tb=short` 通过，55 passed。
 - **剩余风险**：本条只证明 deterministic route gate 阻断 unsafe RAG status 进入 generation；stale candidate refs 不会成为 approval snapshots、risk lowering 或 action authority 的下游端到端证明仍按 Phase 56 final closeout / risk-action 测试边界处理，不在 56-03 Task 1 过度声称。
 
+## RAG-56-03-02：claim_verify 后 proposed_action 可绕过显式 action claim allowance ✅已修复验证
+
+- **问题现象/根因**：`route_after_claim_verify` 原本在 canonical bundle 为 `verified/continue` 后，只要 state 中存在 `proposed_action`、任意 risk signal，或任意 allowed `action_recommendation` claim result，就路由到 `assess_risk_and_approval`。这让 proposed action 在没有显式 allowed action-recommendation claim result 时也能进入风险/审批路径；反过来，allowed action claim result 即使没有 proposed action，也会自己打开风险路由。
+- **影响**：claim verification bundle 的 action authority 边界不够精确，legacy verifier projection 虽未直接被读取，但 action path 的进入条件仍过宽；unsupported action claims 可能在 Phase 56 CAGM-07 语义下过早进入 Phase 57 风险节点。
+- **处理状态**：✅ 已修复验证。`src/agent/routing.py` 现在按 repaired decision table 执行：有 `proposed_action` 时必须存在 `_has_verified_action_recommendation(state)` 才能进入 `assess_risk_and_approval`；没有 `proposed_action` 时，allowed action claim result 本身不创建风险路由，只有独立 non-action risk signal 才进入当前 Phase 57 风险节点；legacy `verification_route` / `verifier_status` / `verifier_reason_codes` 不能绕过 canonical bundle。
+- **证据**：Phase 56 Plan 56-03 Task 2；`src/agent/routing.py`（`_route_after_claim_verify` decision table）；`tests/agent/rag_context/test_routing.py`（unsupported proposed action negative、allowed action recommendation positive、allowed action without proposed action negative、non-action risk positive、legacy verifier non-authority cases、non-action material/user-visible policy/business claims route to `claim_verify`）；验证命令 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_routing.py tests/knowledge/test_claim_verification_bundle.py -q --tb=short` 通过，56 passed；acceptance script 覆盖 repaired decision table；`rg -n 'risk_gate' src/agent/routing.py tests/agent/rag_context/test_routing.py` 无命中。
+- **剩余风险**：本条保持 `assess_risk_and_approval` 为 Phase 57 当前节点，不处理 `risk_gate` rename；final_response 对 legacy verifier projection 的展示/历史兼容收敛仍属 56-04。
+
 ---
 
 # 4. 记忆（Memory）

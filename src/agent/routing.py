@@ -588,7 +588,9 @@ def _route_after_claim_verify(state: AgentState) -> str:
     overall_status = bundle.get("overall_status")
     if route != "continue" or overall_status not in {"verified", "not_required"}:
         return "final_response"
-    if _has_proposed_action(state) or _has_risk_signal(state) or _has_verified_action_recommendation(state):
+    if _has_proposed_action(state):
+        return "assess_risk_and_approval" if _has_verified_action_recommendation(state) else "final_response"
+    if _has_risk_signal(state):
         return "assess_risk_and_approval"
     return "final_response"
 
