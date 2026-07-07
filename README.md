@@ -40,7 +40,7 @@ graph TB
 
 ### Agent Workflow
 
-下图是当前源码 runtime 快照，反映 `src/agent/graph.py` 仍在使用的 legacy/canonical 混合节点名；它不是目标态架构图。目标 runtime graph 以 [docs/target-agent-platform-architecture-plan.md](docs/target-agent-platform-architecture-plan.md) §6.1 和 [docs/contract-spec.md](docs/contract-spec.md) §9 为当前主要契约参考。
+下图是当前源码 runtime 快照。当前 active graph 已使用 canonical `risk_gate`；历史 `assess_risk_and_approval` 只保留为 trace/import/test/persisted retry 兼容面，并由 Phase 58 负责最终删除。目标 runtime graph 以 [docs/target-agent-platform-architecture-plan.md](docs/target-agent-platform-architecture-plan.md) §6.1 和 [docs/contract-spec.md](docs/contract-spec.md) §9 为当前主要契约参考。
 
 ```mermaid
 graph LR
@@ -60,7 +60,7 @@ graph LR
     E -->|missing / insufficient| H[final_response]
     F -->|claims / action| V[claim_verify]
     F -->|no claims / action| H
-    V -->|verified action path| G[assess_risk_and_approval]
+    V -->|verified action path| G[risk_gate]
     V -->|blocked / no action| H
     G -->|low risk| H[final_response]
     G -->|high risk| I[approval_gate]

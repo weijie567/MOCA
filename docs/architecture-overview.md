@@ -60,7 +60,7 @@ MOCA 的目标架构是：面向商家运营与售后协同的企业级 Agent �
 
 | 设计主题 | 当前 MOCA 依据 | 参考仓库依据 | 是否采用 | 采用方式 | 不采用内容 |
 | --- | --- | --- | --- | --- | --- |
-| LangGraph workflow | `src/agent/graph.py` 当前主 workflow 是 legacy/canonical 混合形态：`receive_request`、`safety_pre_route`、`session_context_load`、`contextual_intent_resolve`、`slot_resolution_gate`、`memory_context_load`、`investigate`、`rag_context_build`、`recommendation_generation`、`claim_verify`、`assess_risk_and_approval`、`clarification_gate`、`approval_gate`、`action_draft`、`final_response`。 | `memory-agent/src/memory_agent/graph.py` 展示 tool call 条件分支；`agents-from-scratch-ts/src/email_assistant.ts` 展示 triage -> subgraph；`Human-in-the-Loop-Workflow-LangGraph/src/graph.py` 展示 Command 路由。 | 采用 | 保留 deterministic LangGraph shell；只读调查统一由 `investigate` bounded loop 承担；目标 graph 继续向 `risk_gate` 收敛。 | 不采用完全自由循环 agent，也不把参考仓库 email/news workflow 搬入 MOCA。 |
+| LangGraph workflow | `src/agent/graph.py` 当前主 workflow 已收敛到 canonical risk 命名：`receive_request`、`safety_pre_route`、`session_context_load`、`contextual_intent_resolve`、`slot_resolution_gate`、`memory_context_load`、`investigate`、`rag_context_build`、`recommendation_generation`、`claim_verify`、`risk_gate`、`clarification_gate`、`approval_gate`、`action_draft`、`final_response`。历史 `assess_risk_and_approval` 只保留为 trace/import/test/persisted retry 兼容面。 | `memory-agent/src/memory_agent/graph.py` 展示 tool call 条件分支；`agents-from-scratch-ts/src/email_assistant.ts` 展示 triage -> subgraph；`Human-in-the-Loop-Workflow-LangGraph/src/graph.py` 展示 Command 路由。 | 采用 | 保留 deterministic LangGraph shell；只读调查统一由 `investigate` bounded loop 承担；当前 graph 已使用 `risk_gate` 承担 action-risk gate。 | 不采用完全自由循环 agent，也不把参考仓库 email/news workflow 搬入 MOCA。 |
 | Intent classification | `src/agent/intent_policy.py` 使用 `INTENT_DEFINITIONS` 统一声明 ordinary intent taxonomy、required slots、initial route、precedence 和 risk/evidence flags；`src/agent/schemas.py` 定义 `IntentResultV3`；active graph 使用 `src/agent/nodes/contextual_intent_resolve.py` 做 structured output，`classify_intent` 仅保留为兼容 wrapper/import 面。 | `agents-from-scratch-ts/src/email_assistant.ts` triage 把 email 分成 ignore/respond/notify，用于路由。 | 部分采用 | 继续校准 intent precedence、confidence threshold 和 clarification path。 | 不采用 email 领域的 ignore/respond/notify 作为业务 intent。 |
 | Tool calling | `src/agent/nodes/investigate.py` 通过 `ToolPlatform` 调用 business read、policy retrieval、case memory search；`ToolCatalog` 是 descriptor/permission/schema/caller allowlist 的单一入口。 | `memory-agent/src/memory_agent/tools.py` 使用 InjectedToolArg；`agents-from-scratch-ts/src/tools/base.ts` 有中央 tool registry；`agent-inbox` 和 HITL examples 在工具执行前中断。 | 采用 | 采用 graph-controlled bounded tool loop + platform-level allowlist + service facade。 | 不采用模型自由选择任意工具并直接写业务系统。 |
 | Memory read/write | `session_context_load` 已通过 `src/memory/service.py` + `SessionMemoryRepository` 读取 PostgreSQL-authoritative same-thread session context；`memory_context_load` 是 active reviewed memory / long-term preference / case precedent / active CWC 读取节点；planner-facing `search_case_memory` 通过 `MemoryToolExecutor -> CaseMemoryService.retrieve_reviewed(...)` 检索 reviewed case memory；`ClosedCasePrecedentService -> CaseMemoryService.submit_case_memory_candidate(...)` 生成 `closed_case_cwc_candidate` review candidate；`LegacySessionPrecedentSearchService` 仅是 legacy/debug-only session-derived projection；`long_term_memory_retrieve` 只保留为 `memory_context_load` compatibility wrapper。 | `memory-agent/src/memory_agent/graph.py` 读取最近 memory 注入 prompt；`langgraph-memory/memory_service/graph.py` 有 delayed extraction、patch/insert 双路径、schema fan-out；`agents-from-scratch-ts/src/email_assistant_hitl_memory.ts` 根据 HITL feedback 更新 memory。 | 采用 | 区分 working memory、workflow checkpoint、session memory、Case Working Context、long-term explicit preference memory、case memory、audit/replay；已先实现 Postgres-authoritative session memory，Redis 只可作为可选热缓存。 | 不采用自由 ReAct 写长期记忆；不采用 Pinecone/Fireworks 默认栈；不把历史 case 当政策；不让 Redis 成为权威记忆或 checkpoint。 |
@@ -223,7 +223,7 @@ graph TB
 
 ### 7.2 当前实现图
 
-这张图按当前 `src/agent/graph.py` 的 registered nodes 和 conditional edges 表达真实运行链路。它不是目标架构；目标 canonical runtime graph 见 `docs/target-agent-platform-architecture-plan.md` §6.1 与 `docs/contract-spec.md` §9。当前实现已切到 `safety_pre_route`、`session_context_load`、`contextual_intent_resolve`、`slot_resolution_gate`、`memory_context_load` 和 `recommendation_generation`。`classify_intent`、`session_memory_load`、`extract_slots`、`long_term_memory_retrieve` 和 `generate_recommendation` 只保留为历史 trace / import / test compatibility surface；`assess_risk_and_approval` 仍是 Phase 57-owned active legacy node，目标 owner 是 `risk_gate`。
+这张图按当前 `src/agent/graph.py` 的 registered nodes 和 conditional edges 表达真实运行链路。它不是目标架构；目标 canonical runtime graph 见 `docs/target-agent-platform-architecture-plan.md` §6.1 与 `docs/contract-spec.md` §9。当前实现已切到 `safety_pre_route`、`session_context_load`、`contextual_intent_resolve`、`slot_resolution_gate`、`memory_context_load`、`recommendation_generation` 和 `risk_gate`。`classify_intent`、`session_memory_load`、`extract_slots`、`long_term_memory_retrieve`、`generate_recommendation` 和 `assess_risk_and_approval` 只保留为历史 trace / import / test / persisted metadata compatibility surface。
 
 ```mermaid
 graph TD
@@ -265,7 +265,7 @@ graph TD
     RecoRoute -->|verify claims/action| ClaimVerify[claim_verify]
     ClaimVerify --> VerifyRoute{route_after_claim_verify}
     VerifyRoute -->|blocked / unsupported| Final
-    VerifyRoute -->|risk/action path| Risk[assess_risk_and_approval]
+    VerifyRoute -->|risk/action path| Risk[risk_gate]
     VerifyRoute -->|verified no action| Final
 
     Risk --> RiskRoute{route_after_risk}
@@ -320,7 +320,7 @@ graph LR
 | `rag_context_build` | 将候选 evidence refs 升级为 verified evidence package，并执行 fail-closed 证据上下文构建 | RAG ContextBuilder / evidence package contract |
 | `recommendation_generation` | 生成处理建议和 proposed_action candidate | LLM structured output / RecommendationPrompt + KnowledgeService citation verification |
 | `claim_verify` | 校验 material claims / proposed action claim 是否被 verified evidence 支持 | Claim verification bundle / verifier policy |
-| `assess_risk_and_approval` | 评估风险、审批需求、动作是否可自动草稿 | RiskPolicy / ApprovalPolicy semantics |
+| `risk_gate` | 评估风险、审批需求、动作是否可自动草稿 | RiskPolicy / ApprovalPolicy semantics |
 | `clarification_gate` | 生成澄清问题或缺失信息说明 | Clarification policy / Final response template |
 | `approval_gate` | 创建 interrupt，等待 approve/reject resume | ApprovalService / LangGraph interrupt |
 | `action_draft` | 在审批/风险路由后创建 durable action draft | `ToolPlatform` node-only view -> ActionToolExecutor |

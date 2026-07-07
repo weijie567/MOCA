@@ -87,7 +87,7 @@ Phase 26 delta 状态：
 | `memory_context_load` | `long_term_memory_retrieve` | 目标上加载 long-term/case，不参与最早 safety 判断 |
 | `rag_context_build` | recommendation 前的受控 evidence validation 子流程 | 已进入 spec；当前源码已注册，Phase 56 继续统一 evidence / claim 状态 |
 | `claim_verify` | recommendation 后的 citation/claim validator | 已进入 spec；输入为 `MaterialClaimV1` |
-| `assess_risk_and_approval` | `risk_gate` | 目标语义是 risk + approval plan，不替代 `approval_gate` |
+| `risk_gate` | historical `assess_risk_and_approval` alias | 目标语义是 risk + approval plan，不替代 `approval_gate`；Phase 57 后 current runtime 已使用 `risk_gate`，旧名只作历史/兼容引用 |
 | `memory_write_pipeline` | `memory_write` / post-response runtime concern | 若需要 checkpoint/retry/eval，再注册 node |
 
 ## 4. 当前架构的简化图
@@ -227,7 +227,7 @@ flowchart TD
 
 ### 6.1 Canonical Runtime Graph
 
-本小节是目标 runtime graph 的主图，registered node / router 名称以 `docs/contract-spec.md` §9 的当前已接受契约为主要参考；若本文图或说明与 spec 冲突，后续 phase plan 必须显式提出 spec delta、MVP scope 或 defer 决策，不能静默偏离。`extract_slots`、`generate_recommendation`、`assess_risk_and_approval` 等旧实现名只作为迁移期 legacy alias 或当前 runtime 说明出现，不能作为目标完成后的 registered node key。
+本小节是目标 runtime graph 的主图，registered node / router 名称以 `docs/contract-spec.md` §9 的当前已接受契约为主要参考；若本文图或说明与 spec 冲突，后续 phase plan 必须显式提出 spec delta、MVP scope 或 defer 决策，不能静默偏离。`extract_slots`、`generate_recommendation`、`assess_risk_and_approval` 等旧实现名只作为迁移期 legacy alias、历史兼容或旧实现说明出现，不能作为 current registered node key。
 
 本图保留 `investigate` 展开视图，方便理解 bounded read-only ReAct loop；展开框内部 step / service / capability 不是主链 graph node。slot candidate extraction 作为 `contextual_intent_resolve` / `slot_resolution_gate` 的内部能力，不作为独立 registered graph node；真正改变 route、trace/eval/replay 边界的是 `slot_resolution_gate`。
 
@@ -333,7 +333,7 @@ flowchart TD
 - `ToolPlatform`、`BusinessFactService`、`KnowledgeService`、`MemoryContextService` 是 service，不是主链 registered node。
 - RAG 在 runtime 上拆成两段：RAG retrieval / policy search 是 `ToolPlatform` 的 planner-visible read capability，应该和 business facts、memory retrieval 一起进入 `investigate` 的受控 ReAct read loop；`rag_context_build` 在 loop 外把候选升级为 verified evidence package，供生成和 replay 使用。
 - `slot_resolution_gate`、`rag_context_build`、`claim_verify` 是显式 registered node，因为它们会改变 route、影响 fail-closed、并且需要 trace/eval/replay。
-- `risk_gate` 是 canonical node；当前 runtime baseline 中的 `assess_risk_and_approval` 只能作为 legacy alias 映射到该语义，不表示它会替代后续 `approval_gate`。
+- `risk_gate` 是 canonical node；Phase 57 后 current runtime 已使用 `risk_gate`，历史 `assess_risk_and_approval` 只能作为 legacy alias 映射到该语义，不表示它会替代 `approval_gate`。
 - `claim_verify` 验证的是 `recommendation_generation` 产出的 material claims / proposed action claim，因此应在生成之后；如果只是 generation 前的证据充足性检查，应归入 `rag_context_build` 或 `route_after_rag_context`。
 - `memory_write_pipeline` 和 `trace_close` 可以先做 post-response/runtime concern；如果后续需要 checkpoint、retry 或 eval，再注册为 graph node。
 - future `action_execution` 不进入当前目标 runtime graph；当前只到 `action_draft`。

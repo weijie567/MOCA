@@ -1326,3 +1326,27 @@
 
 **剩余风险**
 - 🟡 Phase 58 仍需删除 `assess_risk_and_approval` wrapper/import/test/historical display fallback 和 retained compatibility alias；57-04 只保留只读历史投影可读性，不再允许它作为 current runtime authority。
+
+## Phase 57 Plan 05 — `risk_gate` current-source 文档与静态 legacy hit 分类收口 ✅已修复验证
+
+**问题 / 根因**
+- 57-01 至 57-04 已把 active graph、route maps、approval edit resume、runtime/API/frontend/eval/diagnostic projection 收敛到 `risk_gate`，但 current-source docs 和 README 仍有多处把 `assess_risk_and_approval` 写成当前 active node / current route / current resume route。
+- `57-VALIDATION.md` 仍只要求未来扫描，没有落入实际 scan command、总命中数、分类结果和 Phase 58 删除候选清单。
+
+**影响**
+- 后续 Phase 58 planning 可能把历史兼容 alias 误读成 current authority，或反过来把仍需保留到 Phase 58 的 wrapper/import/test/historical projection 当作 Phase 57 遗漏。
+- CAGM-08 若在没有静态分类证据的情况下标记完成，会缺少“当前 `risk_gate` / 历史 compatibility / Phase 58 deletion candidate”的可审计交接。
+
+**处理状态**
+- ✅ 已更新 `docs/current-langgraph-architecture.md`、`docs/architecture-overview.md`、`docs/target-agent-platform-architecture-plan.md` 和 `README.md`：current runtime graph 使用 `risk_gate`；`approval_gate` 仅作为 request/resume state machine，edit rerisk 走 canonical `risk_gate`；旧 `assess_risk_and_approval` 只保留为历史 trace/import/test/persisted retry metadata compatibility 或 Phase 58 删除上下文。
+- ✅ `57-VALIDATION.md` 由 57-05 记录五个 plan wave、approved-entrypoint verification commands、静态 `assess_risk_and_approval` scan command、总命中数、分类计数和零 `UNCLASSIFIED` 结论。
+- ✅ 目标契约事实与实现事实分开：`docs/contract-spec.md` / target plan 已将 `risk_gate` 作为 canonical target；已实现事实来自 Phase 57 commits、source docs 和 tests；Phase 58 仍负责最终删除 retained compatibility surfaces。
+
+**证据 / 验证**
+- 文件：`docs/current-langgraph-architecture.md`、`docs/architecture-overview.md`、`docs/target-agent-platform-architecture-plan.md`、`README.md`、`.planning/phases/57-risk-gate-and-approval-gate-canonicalization/57-VALIDATION.md`
+- Phase：57-05 Task 1/2
+- Task 1 文档 guard：已用 57-05 计划指定的 approved `uv run python -c ...` 检查 current-source docs / README / 本台账均包含 `risk_gate` 且不含 active legacy diagram、current route 或 current resume-route marker；完整命令与输出记录在 `57-VALIDATION.md` / `57-05-SUMMARY.md`。
+- Phase closeout suites and static hit classification evidence are recorded in `57-VALIDATION.md` and `57-05-SUMMARY.md`.
+
+**剩余风险**
+- 🟡 Phase 58 仍需删除或重新分类 `src/agent/nodes/assess_risk_and_approval.py` wrapper、direct legacy tests、historical frontend/API fallback labels、persisted retry compatibility constants、old dev-contract manifest rows and historical docs. 57-05 不 bulk rewrite historical DB rows，不删除 compatibility aliases。

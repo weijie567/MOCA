@@ -2,7 +2,7 @@
 
 > 本图只根据当前仓库源码绘制，主要依据 `src/agent/graph.py` 的 `build_graph()` 节点/边定义，以及 `src/agent/routing.py` 和 `src/agent/graph.py` 中的条件路由函数。未把 planning 文档、README 描述或测试断言当作已实现事实。
 >
-> 读法边界：本文件是当前源码快照，不是目标架构。目标 canonical runtime graph 以 `docs/target-agent-platform-architecture-plan.md` §6.1、`docs/contract-spec.md` §9 和 Phase 50 SPEC 为当前主要契约参考；本图中的 `assess_risk_and_approval` 仍属于 Phase 57-owned active legacy node，不代表目标完成后的 registered node key。`extract_slots`、`long_term_memory_retrieve` 与 `generate_recommendation` 已不再是 active registered graph node；它们只保留为历史 trace / import / test 兼容面。
+> 读法边界：本文件是当前源码快照，不是目标架构。目标 canonical runtime graph 以 `docs/target-agent-platform-architecture-plan.md` §6.1、`docs/contract-spec.md` §9 和 Phase 50 SPEC 为当前主要契约参考；当前源码已经把风险/动作决策的 active registered node 和 current route value 切到 `risk_gate`。`extract_slots`、`long_term_memory_retrieve`、`generate_recommendation` 与 `assess_risk_and_approval` 已不再是 active registered graph node；它们只保留为历史 trace / import / test / persisted metadata 兼容面。
 
 ```mermaid
 flowchart TD
@@ -47,18 +47,18 @@ flowchart TD
     recommendation_generation -->|no claims/action needing verification| final_response
 
     claim_verify[claim_verify] -->|blocked claims or bundle not continue/verified| final_response
-    claim_verify -->|proposed action / risk signal / verified action recommendation| assess_risk_and_approval
+    claim_verify -->|proposed action / risk signal / verified action recommendation| risk_gate
     claim_verify -->|verified but no action/risk path| final_response
 
-    assess_risk_and_approval[assess_risk_and_approval<br/>LLM retry max_attempts=2] -->|verification/action bundle disallows action| final_response
-    assess_risk_and_approval -->|no proposed action| final_response
-    assess_risk_and_approval -->|snapshot binding missing or unverified| final_response
-    assess_risk_and_approval -->|blocked risk or blocked approval plan| final_response
-    assess_risk_and_approval -->|approval required and approval_plan ready| approval_gate
-    assess_risk_and_approval -->|approval not required and auto_allowed_binding ready| action_draft
-    assess_risk_and_approval -->|fallback / incomplete binding| final_response
+    risk_gate[risk_gate<br/>LLM retry max_attempts=2] -->|verification/action bundle disallows action| final_response
+    risk_gate -->|no proposed action| final_response
+    risk_gate -->|snapshot binding missing or unverified| final_response
+    risk_gate -->|blocked risk or blocked approval plan| final_response
+    risk_gate -->|approval required and approval_plan ready| approval_gate
+    risk_gate -->|approval not required and auto_allowed_binding ready| action_draft
+    risk_gate -->|fallback / incomplete binding| final_response
 
-    approval_gate[approval_gate] -->|edit + superseded + resume_route assess_risk_and_approval| assess_risk_and_approval
+    approval_gate[approval_gate] -->|edit + superseded + resume_route risk_gate| risk_gate
     approval_gate -->|approved accept/approve| action_draft
     approval_gate -->|pending accept/approve| approval_gate
     approval_gate -->|reject / invalid trusted result / fallback| final_response
@@ -70,9 +70,9 @@ flowchart TD
 ## 源码事实摘要
 
 - Graph 入口是 `START -> receive_request -> safety_pre_route`。
-- 当前运行路径是 `receive_request -> safety_pre_route -> session_context_load -> contextual_intent_resolve -> slot_resolution_gate -> route_after_slot_resolution -> memory_context_load -> investigate`（当 route 判断需要 reviewed / long-term memory context 时）。`classify_intent`、`session_memory_load`、`extract_slots` 和 `long_term_memory_retrieve` 不再是 active registered graph node，也不再是 active route-map destination。
-- 当前注册的 graph nodes 共 15 个：`receive_request`、`safety_pre_route`、`session_context_load`、`contextual_intent_resolve`、`slot_resolution_gate`、`memory_context_load`、`investigate`、`rag_context_build`、`recommendation_generation`、`claim_verify`、`assess_risk_and_approval`、`clarification_gate`、`approval_gate`、`action_draft`、`final_response`。
-- 带 `RetryPolicy(max_attempts=2)` 的 LLM 节点是：`contextual_intent_resolve`、`slot_resolution_gate`、`recommendation_generation`、`assess_risk_and_approval`、`final_response`。
+- 当前运行路径是 `receive_request -> safety_pre_route -> session_context_load -> contextual_intent_resolve -> slot_resolution_gate -> route_after_slot_resolution -> memory_context_load -> investigate`（当 route 判断需要 reviewed / long-term memory context 时）。`classify_intent`、`session_memory_load`、`extract_slots`、`long_term_memory_retrieve`、`generate_recommendation` 和 `assess_risk_and_approval` 不再是 active registered graph node，也不再是 active route-map destination。
+- 当前注册的 graph nodes 共 15 个：`receive_request`、`safety_pre_route`、`session_context_load`、`contextual_intent_resolve`、`slot_resolution_gate`、`memory_context_load`、`investigate`、`rag_context_build`、`recommendation_generation`、`claim_verify`、`risk_gate`、`clarification_gate`、`approval_gate`、`action_draft`、`final_response`。
+- 带 `RetryPolicy(max_attempts=2)` 的 LLM 节点是：`contextual_intent_resolve`、`slot_resolution_gate`、`recommendation_generation`、`risk_gate`、`final_response`。
 - `safety_pre_route` 当前不调用 LLM、不读取 memory、不执行 tools、不创建 approval/action authority；它写入 `pre_route_decision` / `safety_flags` / `routing_hints` 并追加 `safety_pre_route` trace step。
 - `route_after_safety()` 当前在 safe / `safety_sensitive` 时继续到 `session_context_load`，在 untrusted approval chat、multi-target、requires-clarification、异常或未知 route 时 fail closed 到 `clarification_gate`。Graph route map 仍注册 `final_response`，但当前 router source 没有返回该分支。
 - `session_context_load` 只读取 same-thread session context / trusted contextual slot view；它位于 intent LLM 之前，不读取 long-term/case memory，不做 RAG、approval、action 或 business fact authority。
@@ -82,12 +82,12 @@ flowchart TD
 - `clarification_gate` 当前只单向进入 `final_response`。
 - `approval_gate` 有两个回环/回退路径：
   - `pending accept/approve` 回到 `approval_gate`；
-  - `edit + superseded + resume_route == assess_risk_and_approval` 回到 `assess_risk_and_approval`。
-- `assess_risk_and_approval` 的 graph 映射里注册了自环目标，但当前 `route_after_risk()` 的源码分支没有返回 `assess_risk_and_approval`；实际会路由到 `approval_gate`、`action_draft` 或 `final_response`。
+  - `edit + superseded + resume_route == risk_gate` 回到 `risk_gate` 重新评估。
+- `risk_gate` 的 `route_after_risk()` 当前不会返回自环；实际会路由到 `approval_gate`、`action_draft` 或 `final_response`。
 
 ## 当前迁移兼容面
 
-历史 traces 或测试/import surface 中仍可能出现 `classify_intent`、`intent_classification`、`session_memory_load`、`route_after_intent`、`extract_slots`、`route_after_slots`、`long_term_memory_retrieve`、`reviewed_memory_context_retrieve`。这些名称只通过 `src/agent/graph_vocabulary.py` 投影到 canonical owner，不能作为 active graph registration、active route destination 或 active policy route value。
+历史 traces 或测试/import/persisted metadata surface 中仍可能出现 `classify_intent`、`intent_classification`、`session_memory_load`、`route_after_intent`、`extract_slots`、`route_after_slots`、`long_term_memory_retrieve`、`reviewed_memory_context_retrieve`、`generate_recommendation`、`assess_risk_and_approval`。这些名称只通过 `src/agent/graph_vocabulary.py`、narrow wrapper/import tests 或明确的历史 retry normalization 投影到 canonical owner，不能作为 active graph registration、active route destination 或 active policy route value。
 
 | Legacy surface | Canonical owner | Reason | Trace projection | Validation | Delete phase |
 |----------------|-----------------|--------|------------------|------------|--------------|
@@ -105,7 +105,7 @@ flowchart TD
 | `reviewed_memory_context_retrieve` helper trace/API name | `memory_context_load` / Phase 55 CAGM-06 | Helper remains implementation/service test surface after canonical node becomes runtime owner | `reviewed_memory_context_retrieve -> memory_context_load`, status `compatibility_alias`, reason codes include `DELETE_BY_PHASE_58`; not a second runtime owner | `tests/agent/test_graph_vocabulary.py`, `tests/architecture/test_memory_contract_delta.py`, `tests/agent/test_reviewed_memory_context_retrieve.py` | Phase 58 or internal-only helper reclassification in Phase 58 |
 | Former active `generate_recommendation` graph node and route destination | `recommendation_generation` / Phase 56 CAGM-07 | Phase 56 active graph cutover is complete; persisted traces and direct wrapper callers may still carry the old implementation name | `generate_recommendation -> recommendation_generation`, status `compatibility_alias`, reason codes include `PHASE_56_COMPATIBILITY_ALIAS`, `HISTORICAL_TRACE_PROJECTION`, `IMPORT_TEST_COMPATIBILITY`, `DELETE_BY_PHASE_58`; active graph registers `recommendation_generation`, not `generate_recommendation` | `tests/architecture/test_canonical_graph_baseline.py`, `tests/agent/test_graph.py`, `tests/test_graph_routing.py`, `tests/agent/test_graph_vocabulary.py`, `tests/agent/test_trace.py`, `tests/test_trace_api.py`, `tests/test_agent_runs_api.py` | Phase 58 |
 | `src/agent/nodes/generate_recommendation.py` wrapper and direct unit-test/import surface | `recommendation_generation` / Phase 56 CAGM-07 | Backward-compatible imports and legacy unit tests while internal callers migrate to canonical module | Wrapper/import surface is not registered in active graph; historical traces still project through vocabulary | `tests/agent/test_nodes/test_generate_recommendation.py`, `tests/agent/test_phase22_recommendation_integration.py`, `tests/agent/test_graph_vocabulary.py` | Phase 58 |
-| `assess_risk_and_approval` active node | `risk_gate` / Phase 57 CAGM-08 | Risk/approval canonicalization is Phase 57-owned | `assess_risk_and_approval -> risk_gate`, status `compatibility_alias` | Architecture baseline keeps this as active legacy migration row | Phase 57 |
+| Former active `assess_risk_and_approval` graph node, direct wrapper/import tests, historical trace rows, and persisted historical edit retry metadata | `risk_gate` / Phase 57 CAGM-08 | Phase 57 active graph/router/API/frontend/eval cutover is complete; old rows and import tests remain readable until Phase 58 cleanup | `assess_risk_and_approval -> risk_gate`, status `compatibility_alias`, reason codes include `PHASE_57_COMPATIBILITY_ALIAS`, `HISTORICAL_TRACE_PROJECTION`, `IMPORT_TEST_COMPATIBILITY`, `DELETE_BY_PHASE_58`; persisted retry metadata is normalized to `risk_gate` before graph resume | `tests/architecture/test_canonical_graph_baseline.py`, `tests/agent/test_graph.py`, `tests/test_graph_routing.py`, `tests/agent/test_graph_vocabulary.py`, `tests/agent/test_trace.py`, `tests/test_trace_api.py`, `tests/test_agent_runs_api.py`, `tests/test_approval_api.py`, `tests/agent/test_nodes/test_risk_gate.py`, `tests/agent/test_nodes/test_assess_risk_and_approval.py` | Phase 58 |
 
 ## 关键依据
 

@@ -17728,6 +17728,51 @@ gsd-sdk query roadmap.update-plan-progress "57"
 - `.planning/STATE.md` Phase Progress Snapshot
 - GSD SDK `roadmap.update-plan-progress` handler 的 Phase checkbox 匹配规则
 
+## 2026-07-07 Phase 57 Plan 57-05：计划内 Python guard 成功路径会 `raise None`
+
+### 问题现象
+
+执行 57-05 Task 1 计划内 `<verify><automated>` Python one-liner 时，当前文档已经满足条件，但命令仍失败：
+
+```text
+TypeError: exceptions must derive from BaseException
+```
+
+### 如何检测 / 复现
+
+运行 57-05-PLAN.md 中 Task 1 的原始命令即可复现。该命令使用三元表达式放在 `raise` 后面：
+
+```text
+raise SystemExit(...) if missing else (_ for _ in ()).throw(SystemExit(...)) if bad else None
+```
+
+### 关键证据或命令
+
+原始命令失败；等价修正版用 `assert not missing` / `assert not bad` 验证同一组文档和 active legacy marker，返回 0。
+
+### 当前判断 / 根因
+
+这是验证命令写法错误，不是文档实现失败。`missing == []` 且 `bad == []` 时，表达式结果为 `None`，但 `raise None` 在 Python 中会触发 `TypeError`。
+
+### 已做处理
+
+未改计划文件；执行阶段改用等价的 approved entrypoint：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run python -c "...; assert not missing, ...; assert not bad, ..."
+```
+
+该修正版已通过。后续 `57-VALIDATION.md` 和 `57-05-SUMMARY.md` 会记录实际运行的修正版命令和结果。
+
+### 剩余问题
+
+57-05 Task 2 计划内验证命令使用同类写法，成功路径也可能触发同一 `raise None` 问题；执行 Task 2 时需继续使用等价修正版，并在 Summary 的 deviation 中记录。
+
+### 下次继续排查入口
+
+- `.planning/phases/57-risk-gate-and-approval-gate-canonicalization/57-05-PLAN.md`
+- `57-VALIDATION.md` 的实际 closeout command evidence
+
 ## 2026-07-07 Phase 57 Plan 57-04：state.update-progress 将未完成的 57-05 误计为整体 100%
 
 ### 问题现象
