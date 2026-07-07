@@ -156,6 +156,7 @@ async def test_memory_context_load_writes_canonical_metrics_labels_and_trace() -
         "case_working_context_status",
     }
     assert "long_term_memory_retrieve" not in result["llm_outputs"]
+    assert "reviewed_memory_context_retrieve" not in result["llm_outputs"]
     assert result["trace_steps"][-1]["node"] == "memory_context_load"
     assert result["trace_steps"][-1]["metrics_json"] == metrics
 
@@ -177,7 +178,12 @@ async def test_memory_context_load_forwards_reviewed_memory_injection_seams(
             "long_term_memory": [],
             "case_memory": [],
             "reviewed_memory_context_retrieve_status": {"fallback_reason": None, "filter_reasons": []},
-            "llm_outputs": {},
+            "llm_outputs": {
+                **(state.get("llm_outputs") or {}),
+                "long_term_memory_retrieve": {"source": "legacy"},
+                "reviewed_memory_context_retrieve": {"source": "helper"},
+                "helper_passthrough": {"kept": True},
+            },
             "trace_steps": [{"node": "reviewed_memory_context_retrieve", "metrics_json": {}}],
         }
 
@@ -191,10 +197,24 @@ async def test_memory_context_load_forwards_reviewed_memory_injection_seams(
         "case_working_context_lifecycle_adapter_cls": object(),
     }
 
-    result = await module.memory_context_load(_state(), {"configurable": {}}, **injection_values)
+    result = await module.memory_context_load(
+        _state(
+            llm_outputs={
+                "long_term_memory_retrieve": {"source": "prior_legacy"},
+                "reviewed_memory_context_retrieve": {"source": "prior_helper"},
+                "prior_node": {"kept": True},
+            }
+        ),
+        {"configurable": {}},
+        **injection_values,
+    )
 
     assert captured == injection_values
     assert result["llm_outputs"]["memory_context_load"]["authority_class"] == "contextual_only"
+    assert result["llm_outputs"]["prior_node"] == {"kept": True}
+    assert result["llm_outputs"]["helper_passthrough"] == {"kept": True}
+    assert "long_term_memory_retrieve" not in result["llm_outputs"]
+    assert "reviewed_memory_context_retrieve" not in result["llm_outputs"]
     assert result["trace_steps"][-1]["node"] == "memory_context_load"
 
 

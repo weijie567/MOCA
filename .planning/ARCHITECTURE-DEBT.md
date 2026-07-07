@@ -463,6 +463,29 @@
 - 🟡 Phase 57 仍负责 `assess_risk_and_approval -> risk_gate` / approval boundary canonicalization；本条不声称已完成。
 - 🟡 Phase 58 仍负责删除 Phase 55 retained aliases/wrappers/historical display compatibility，并执行 final no-debt cleanup；本条只把 delete metadata 和验证入口固定下来。
 
+## Phase 55 Code Review WR-01 — canonical `memory_context_load` helper metrics 泄漏修复 ✅已修复验证
+
+**问题 / 根因**
+- `memory_context_load()` 委托 `reviewed_memory_context_retrieve()` 后只剔除了 `llm_outputs["long_term_memory_retrieve"]`，没有剔除 helper 写入的 `llm_outputs["reviewed_memory_context_retrieve"]`。
+- Phase 55 后 active canonical runtime owner 应只写 `llm_outputs["memory_context_load"]`；`reviewed_memory_context_retrieve` 只是 helper/compatibility surface，不应在 direct canonical run 的 active metrics 中继续出现。
+
+**影响**
+- active graph trace/API 可能同时暴露 canonical metrics key 与 helper metrics key，让后续 Phase 56/57/58 误判 runtime ownership。
+- direct canonical tests 只检查旧 wrapper key 缺失，无法防住 helper key 回流。
+
+**已修复验证**
+- ✅ `_without_legacy_metrics()` 同时剔除 `long_term_memory_retrieve` 与 `reviewed_memory_context_retrieve`，并保留其他上游 `llm_outputs`。
+- ✅ `tests/agent/test_memory_context_load.py` 覆盖 direct canonical call 会剔除 result-side 与 stale state-side helper/legacy metrics，同时保留 `memory_context_load` canonical metrics。
+- ✅ `tests/agent/test_graph.py` active graph smoke tests 增补 helper metrics key 不出现在 final `llm_outputs` 的断言。
+
+**证据**
+- Phase 55 code review WR-01；文件：`src/agent/nodes/memory_context_load.py`、`tests/agent/test_memory_context_load.py`、`tests/agent/test_graph.py`。
+- 验证：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_memory_context_load.py tests/agent/test_graph.py::test_memory_context_load_reviewed_retrieval_safe_empty_when_no_reviewed_rows tests/agent/test_graph.py::test_canonical_reviewed_memory_hint_reaches_memory_context_load tests/agent/test_graph.py::test_memory_context_load_reviewed_retrieval_safe_empty_when_unavailable tests/agent/test_graph.py::test_memory_context_load_reviewed_snippets_flow_into_graph_state -q --tb=short` → `9 passed, 5 warnings`。
+- 验证：`UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/nodes/memory_context_load.py tests/agent/test_memory_context_load.py tests/agent/test_graph.py` → pass。
+
+**剩余风险**
+- 🟡 `reviewed_memory_context_retrieve` helper 和 `long_term_memory_retrieve` wrapper 仍按 Phase 58 范围保留；本修复只限制 direct canonical / active graph metrics projection。
+
 ## Phase 48 Review CR-01 — state-origin 记忆候选身份与发布边界加固 ✅已修复验证
 
 **问题 / 根因**

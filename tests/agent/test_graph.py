@@ -1164,6 +1164,7 @@ async def test_memory_context_load_reviewed_retrieval_safe_empty_when_no_reviewe
     assert metrics["source"] == "no_reviewed_memory"
     assert metrics["authority_class"] == "contextual_only"
     assert "long_term_memory_retrieve" not in final_state["llm_outputs"]
+    assert "reviewed_memory_context_retrieve" not in final_state["llm_outputs"]
     nodes = [step["node"] for step in final_state["trace_steps"]]
     assert "slot_resolution_gate" in nodes
     assert "memory_context_load" in nodes
@@ -1193,6 +1194,7 @@ async def test_canonical_reviewed_memory_hint_reaches_memory_context_load(monkey
     assert metrics["source"] == "no_reviewed_memory"
     assert metrics["authority_class"] == "contextual_only"
     assert "long_term_memory_retrieve" not in final_state["llm_outputs"]
+    assert "reviewed_memory_context_retrieve" not in final_state["llm_outputs"]
     nodes = [step["node"] for step in final_state["trace_steps"]]
     assert "slot_resolution_gate" in nodes
     assert "memory_context_load" in nodes
@@ -1253,6 +1255,7 @@ async def test_memory_context_load_reviewed_retrieval_safe_empty_when_unavailabl
     assert metrics["source"] == "reviewed_memory_unavailable"
     assert metrics["authority_class"] == "contextual_only"
     assert "long_term_memory_retrieve" not in final_state["llm_outputs"]
+    assert "reviewed_memory_context_retrieve" not in final_state["llm_outputs"]
 
 
 @pytest.mark.asyncio
@@ -1308,6 +1311,7 @@ async def test_memory_context_load_reviewed_snippets_flow_into_graph_state(monke
     assert metrics["long_term_count"] == 1
     assert metrics["case_count"] == 1
     assert "long_term_memory_retrieve" not in final_state["llm_outputs"]
+    assert "reviewed_memory_context_retrieve" not in final_state["llm_outputs"]
     state_json = json.dumps(
         {"long_term_memory": final_state["long_term_memory"], "case_memory": final_state["case_memory"]},
         ensure_ascii=False,

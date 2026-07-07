@@ -134,7 +134,8 @@ def _canonical_node_errors(errors: Any) -> list[Any]:
 
 def _without_legacy_metrics(value: Any) -> dict[str, Any]:
     metrics = dict(value) if isinstance(value, Mapping) else {}
-    metrics.pop("long_term_memory_retrieve", None)
+    for key in ("long_term_memory_retrieve", "reviewed_memory_context_retrieve"):
+        metrics.pop(key, None)
     return metrics
 
 
