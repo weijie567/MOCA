@@ -7,6 +7,7 @@ from pydantic import BaseModel
 import pytest
 
 from src.agent.nodes import slot_resolution_gate as slot_resolution_gate_module
+from src.agent.routing import route_after_slot_resolution
 
 
 class CapturingLLM:
@@ -265,3 +266,6 @@ async def test_slot_resolution_gate_llm_validation_error_strictly_fails_closed(m
     assert result["slot_resolution_trace"]["resolved_slots"] == {}
     assert "llm_slot_extraction_error" in result["slot_resolution_trace"]["reason_codes"]
     assert "accepted_inherited_session_slot" not in result["slot_resolution_trace"]["reason_codes"]
+
+    merged_state = {**state, **result}
+    assert route_after_slot_resolution(merged_state) == "clarification_gate"

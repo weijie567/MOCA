@@ -460,6 +460,12 @@ def _route_after_contextual_intent(state: AgentState) -> str:
 
 
 def _route_after_slot_resolution(state: AgentState) -> str:
+    trace = state.get("slot_resolution_trace")
+    if isinstance(trace, Mapping):
+        reason_codes = trace.get("reason_codes")
+        if isinstance(reason_codes, list) and "llm_slot_extraction_error" in reason_codes:
+            return "clarification_gate"
+
     result = resolve_slots_with_provenance(state)
     route = result.get("route_decision")
     return route if isinstance(route, str) else "clarification_gate"
