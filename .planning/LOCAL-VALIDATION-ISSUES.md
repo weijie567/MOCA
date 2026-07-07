@@ -15522,3 +15522,46 @@ AttributeError: 'Name' object has no attribute 'value'
 - `.planning/phases/55-memory-context-load-cutover/55-02-PLAN.md`
 - `src/agent/graph.py`
 - `tests/architecture/graph_baseline.py`
+
+## 2026-07-07 — Phase 55-02 Task 2 RED 暴露 graph smoke 仍依赖 legacy active memory node
+
+### 问题现象
+
+Task 1 切换 active graph/router 后，先运行 Task 2 focused gate，`tests/agent/test_graph.py` 出现 6 个失败。失败集中在 compiled graph 仍期待 active `long_term_memory_retrieve`、active graph run 仍读取 `llm_outputs["long_term_memory_retrieve"]`，以及 fake reviewed-memory service seam 仍 patch legacy wrapper module。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/agent/test_graph.py tests/test_graph_routing.py tests/agent/test_intent_routing.py tests/memory/test_phase48_1_memory_compat_alignment.py -q --tb=short
+```
+
+### 关键证据或命令
+
+失败输出包含：
+
+```text
+Extra items in the left set: 'long_term_memory_retrieve'
+KeyError: 'long_term_memory_retrieve'
+IndexError: list index out of range
+```
+
+### 当前判断 / 根因
+
+这是预期的 Task 2 stale-test RED：active graph 已经改走 `memory_context_load`，但 graph smoke 测试仍把 legacy wrapper 当 active node/metrics owner。`IndexError` 的根因是 fake service patch 只作用于 `long_term_memory_retrieve` wrapper module，active `memory_context_load` 调用的 reviewed-memory helper没有收到 fake service 注入。
+
+### 已做处理
+
+已更新 `tests/agent/test_graph.py`：compiled graph 和 router edge keys 改为 `memory_context_load`；active graph run 读取 `llm_outputs["memory_context_load"]` 并断言不写 active legacy metrics；reviewed-memory fake service seam patch `reviewed_memory_context_retrieve` helper globals，同时保留 direct legacy wrapper compatibility test。已更新 Phase 48.1 compatibility guard，要求 active graph/router 使用 canonical destination，同时继续保护 storage/API/config/vocabulary compatibility tokens。
+
+### 剩余问题
+
+待重跑 Task 2 focused gate 和 Ruff 确认。
+
+### 下次继续排查入口
+
+- `tests/agent/test_graph.py`
+- `tests/memory/test_phase48_1_memory_compat_alignment.py`
+- `src/agent/nodes/memory_context_load.py`
+- `src/agent/nodes/long_term_memory_retrieve.py`

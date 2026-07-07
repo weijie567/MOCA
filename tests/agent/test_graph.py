@@ -18,7 +18,8 @@ from src.agent.graph_vocabulary import target_graph_name
 from src.agent.nodes import assess_risk_and_approval as assess_risk_module
 from src.agent.nodes import contextual_intent_resolve as contextual_intent_module
 from src.agent.nodes import generate_recommendation as generate_recommendation_module
-from src.agent.nodes import long_term_memory_retrieve as memory_retrieve_module
+from src.agent.nodes import long_term_memory_retrieve as legacy_memory_retrieve_module
+from src.agent.nodes import reviewed_memory_context_retrieve as reviewed_memory_context_module
 from src.agent.nodes import slot_resolution_gate as slot_resolution_gate_module
 from src.agent.routing import (
     route_after_claim_verify,
@@ -53,7 +54,7 @@ INVESTIGATION_STATE_FIELDS = {
 ROUTER_EDGE_KEYS = {
     "route_after_safety": {"session_context_load", "clarification_gate", "final_response"},
     "route_after_contextual_intent": {"clarification_gate", "final_response", "investigate", "slot_resolution_gate"},
-    "route_after_slot_resolution": {"clarification_gate", "investigate", "long_term_memory_retrieve"},
+    "route_after_slot_resolution": {"clarification_gate", "investigate", "memory_context_load"},
     "route_after_risk": {"approval_gate", "final_response"},
     "route_after_approval": {"assess_risk_and_approval", "action_draft", "final_response"},
     "route_after_investigate": {
@@ -631,10 +632,11 @@ def _patch_reviewed_memory_services(
             items = case_items or []
             return SimpleNamespace(status="success" if items else "empty", items=items)
 
-    monkeypatch.setattr(memory_retrieve_module, "LongTermMemoryRepository", lambda session: object(), raising=False)
-    monkeypatch.setattr(memory_retrieve_module, "CaseMemoryRepository", lambda session: object(), raising=False)
-    monkeypatch.setattr(memory_retrieve_module, "LongTermMemoryService", FakeLongTermMemoryService, raising=False)
-    monkeypatch.setattr(memory_retrieve_module, "CaseMemoryService", FakeCaseMemoryService, raising=False)
+    for module in (reviewed_memory_context_module, legacy_memory_retrieve_module):
+        monkeypatch.setattr(module, "LongTermMemoryRepository", lambda session: object(), raising=False)
+        monkeypatch.setattr(module, "CaseMemoryRepository", lambda session: object(), raising=False)
+        monkeypatch.setattr(module, "LongTermMemoryService", FakeLongTermMemoryService, raising=False)
+        monkeypatch.setattr(module, "CaseMemoryService", FakeCaseMemoryService, raising=False)
 
 
 @pytest.mark.asyncio
@@ -937,25 +939,26 @@ def test_graph_compiles_with_investigate():
         "claim_verify",
         "clarification_gate",
         "slot_resolution_gate",
-        "long_term_memory_retrieve",
+        "memory_context_load",
     } <= nodes
     assert "classify_intent" not in nodes
     assert "session_memory_load" not in nodes
     assert "extract_slots" not in nodes
+    assert "long_term_memory_retrieve" not in nodes
     assert "action_draft" in nodes
     assert "execute_action" not in nodes
     assert "load_business_context" not in nodes
     assert "retrieve_policy_evidence" not in nodes
 
 
-def test_legacy_graph_runtime_names_project_to_target_vocabulary():
+def test_memory_context_graph_runtime_names_project_to_target_vocabulary():
     graph = build_graph(MemorySaver())
     nodes = set(graph.get_graph().nodes)
 
-    legacy_node_targets = {"long_term_memory_retrieve": "memory_context_load"}
-    for legacy_node, target_node in legacy_node_targets.items():
-        assert legacy_node in nodes
-        assert target_graph_name(legacy_node, kind="node") == target_node
+    assert "memory_context_load" in nodes
+    assert "long_term_memory_retrieve" not in nodes
+    assert target_graph_name("memory_context_load", kind="node") == "memory_context_load"
+    assert target_graph_name("long_term_memory_retrieve", kind="node") == "memory_context_load"
     assert "slot_resolution_gate" in nodes
     assert target_graph_name("slot_resolution_gate", kind="node") == "slot_resolution_gate"
     assert target_graph_name("extract_slots", kind="node") == "slot_resolution_gate"
@@ -1045,7 +1048,7 @@ def test_all_router_return_keys_have_edges():
     assert ROUTER_EDGE_KEYS["route_after_slot_resolution"] == {
         "clarification_gate",
         "investigate",
-        "long_term_memory_retrieve",
+        "memory_context_load",
     }
     assert route_after_risk({"risk_assessment": {"approval_required": True}}) in ROUTER_EDGE_KEYS["route_after_risk"]
     assert (
@@ -1125,6 +1128,7 @@ async def test_unsafe_pre_route_inputs_stop_before_classifier_memory_tools_or_ac
     assert "classify_intent" not in nodes
     assert "session_memory_load" not in nodes
     assert "long_term_memory_retrieve" not in nodes
+    assert "memory_context_load" not in nodes
     assert "investigate" not in nodes
     assert "approval_gate" not in nodes
     assert "action_draft" not in nodes
@@ -1137,7 +1141,7 @@ async def test_unsafe_pre_route_inputs_stop_before_classifier_memory_tools_or_ac
 
 
 @pytest.mark.asyncio
-async def test_long_term_memory_reviewed_retrieval_safe_empty_when_no_reviewed_rows(monkeypatch):
+async def test_memory_context_load_reviewed_retrieval_safe_empty_when_no_reviewed_rows(monkeypatch):
     payload = _intent("refund_troubleshooting")
     payload["routing_hints"] = {"needs_long_term_memory": True}
     monkeypatch.setattr(contextual_intent_module, "_get_llm", lambda: FakeLLM(payload))
@@ -1156,13 +1160,17 @@ async def test_long_term_memory_reviewed_retrieval_safe_empty_when_no_reviewed_r
 
     assert final_state["long_term_memory"] == []
     assert final_state["case_memory"] == []
-    assert final_state["llm_outputs"]["long_term_memory_retrieve"]["source"] == "no_reviewed_memory"
-    assert final_state["llm_outputs"]["long_term_memory_retrieve"]["continuity_claimed"] is False
-    assert "slot_resolution_gate" in [step["node"] for step in final_state["trace_steps"]]
+    metrics = final_state["llm_outputs"]["memory_context_load"]
+    assert metrics["source"] == "no_reviewed_memory"
+    assert metrics["authority_class"] == "contextual_only"
+    assert "long_term_memory_retrieve" not in final_state["llm_outputs"]
+    nodes = [step["node"] for step in final_state["trace_steps"]]
+    assert "slot_resolution_gate" in nodes
+    assert "memory_context_load" in nodes
 
 
 @pytest.mark.asyncio
-async def test_canonical_reviewed_memory_hint_reaches_existing_long_term_memory_node(monkeypatch):
+async def test_canonical_reviewed_memory_hint_reaches_memory_context_load(monkeypatch):
     payload = _intent("refund_troubleshooting")
     payload["routing_hints"] = {"needs_reviewed_memory_context": True}
     monkeypatch.setattr(contextual_intent_module, "_get_llm", lambda: FakeLLM(payload))
@@ -1181,12 +1189,15 @@ async def test_canonical_reviewed_memory_hint_reaches_existing_long_term_memory_
 
     assert final_state["long_term_memory"] == []
     assert final_state["case_memory"] == []
-    assert final_state["llm_outputs"]["long_term_memory_retrieve"]["source"] == "no_reviewed_memory"
-    assert final_state["llm_outputs"]["long_term_memory_retrieve"]["continuity_claimed"] is False
+    metrics = final_state["llm_outputs"]["memory_context_load"]
+    assert metrics["source"] == "no_reviewed_memory"
+    assert metrics["authority_class"] == "contextual_only"
+    assert "long_term_memory_retrieve" not in final_state["llm_outputs"]
     nodes = [step["node"] for step in final_state["trace_steps"]]
     assert "slot_resolution_gate" in nodes
-    assert "reviewed_memory_context_retrieve" in nodes
-    assert nodes.index("slot_resolution_gate") < nodes.index("reviewed_memory_context_retrieve")
+    assert "memory_context_load" in nodes
+    assert "reviewed_memory_context_retrieve" not in nodes
+    assert nodes.index("slot_resolution_gate") < nodes.index("memory_context_load") < nodes.index("investigate")
 
 
 @pytest.mark.asyncio
@@ -1203,7 +1214,7 @@ async def test_long_term_memory_retrieve_skips_case_memory_without_query() -> No
             case_called = True
             return SimpleNamespace(status="success", items=[{"case_memory_id": "case-1", "excerpt": "must not load"}])
 
-    result = await memory_retrieve_module.long_term_memory_retrieve(
+    result = await legacy_memory_retrieve_module.long_term_memory_retrieve(
         {"tenant_id": str(uuid4()), "thread_id": "no-query-memory"},
         {
             "configurable": {
@@ -1219,7 +1230,7 @@ async def test_long_term_memory_retrieve_skips_case_memory_without_query() -> No
 
 
 @pytest.mark.asyncio
-async def test_long_term_memory_reviewed_retrieval_safe_empty_when_unavailable(monkeypatch):
+async def test_memory_context_load_reviewed_retrieval_safe_empty_when_unavailable(monkeypatch):
     payload = _intent("refund_troubleshooting")
     payload["routing_hints"] = {"needs_long_term_memory": True}
     monkeypatch.setattr(contextual_intent_module, "_get_llm", lambda: FakeLLM(payload))
@@ -1238,12 +1249,14 @@ async def test_long_term_memory_reviewed_retrieval_safe_empty_when_unavailable(m
 
     assert final_state["long_term_memory"] == []
     assert final_state["case_memory"] == []
-    assert final_state["llm_outputs"]["long_term_memory_retrieve"]["source"] == "reviewed_memory_unavailable"
-    assert final_state["llm_outputs"]["long_term_memory_retrieve"]["continuity_claimed"] is False
+    metrics = final_state["llm_outputs"]["memory_context_load"]
+    assert metrics["source"] == "reviewed_memory_unavailable"
+    assert metrics["authority_class"] == "contextual_only"
+    assert "long_term_memory_retrieve" not in final_state["llm_outputs"]
 
 
 @pytest.mark.asyncio
-async def test_long_term_memory_reviewed_snippets_flow_into_graph_state(monkeypatch):
+async def test_memory_context_load_reviewed_snippets_flow_into_graph_state(monkeypatch):
     payload = _intent("refund_troubleshooting")
     payload["routing_hints"] = {"needs_long_term_memory": True}
     monkeypatch.setattr(contextual_intent_module, "_get_llm", lambda: FakeLLM(payload))
@@ -1289,8 +1302,12 @@ async def test_long_term_memory_reviewed_snippets_flow_into_graph_state(monkeypa
     assert final_state["long_term_memory"][0]["content"] == "商家偏好先核实支付通道再给补偿建议。"
     assert final_state["case_memory"][0]["case_memory_id"] == "case-memory-1"
     assert final_state["case_memory"][0]["excerpt"] == "相似退款延迟案例先核实支付通道。"
-    assert final_state["llm_outputs"]["long_term_memory_retrieve"]["source"] == "reviewed_memory"
-    assert final_state["llm_outputs"]["long_term_memory_retrieve"]["continuity_claimed"] is True
+    metrics = final_state["llm_outputs"]["memory_context_load"]
+    assert metrics["source"] == "reviewed_memory"
+    assert metrics["authority_class"] == "contextual_only"
+    assert metrics["long_term_count"] == 1
+    assert metrics["case_count"] == 1
+    assert "long_term_memory_retrieve" not in final_state["llm_outputs"]
     state_json = json.dumps(
         {"long_term_memory": final_state["long_term_memory"], "case_memory": final_state["case_memory"]},
         ensure_ascii=False,

@@ -154,7 +154,8 @@ def test_reviewed_memory_hint_aliases_are_explicit() -> None:
     for source in (routing_source, reviewed_node_source):
         assert "needs_reviewed_memory_context" in source
         assert "needs_long_term_memory" in source
-    assert '"long_term_memory_retrieve"' in routing_source or '"memory_context_load"' in routing_source
+    assert 'return [], "memory_context_load", []' in routing_source
+    assert 'return [], "long_term_memory_retrieve", []' not in routing_source
 
 
 def test_runtime_graph_compatibility_node_names_remain() -> None:
@@ -163,14 +164,10 @@ def test_runtime_graph_compatibility_node_names_remain() -> None:
 
     assert 'builder.add_node("session_context_load", session_context_load)' in graph_source
     assert 'builder.add_node("session_memory_load", session_memory_load)' not in graph_source
-    assert (
-        'builder.add_node("long_term_memory_retrieve", long_term_memory_retrieve)' in graph_source
-        or 'builder.add_node("memory_context_load", memory_context_load)' in graph_source
-    )
-    assert (
-        '"long_term_memory_retrieve": "long_term_memory_retrieve"' in graph_source
-        or '"memory_context_load": "memory_context_load"' in graph_source
-    )
+    assert 'builder.add_node("memory_context_load", memory_context_load)' in graph_source
+    assert 'builder.add_node("long_term_memory_retrieve", long_term_memory_retrieve)' not in graph_source
+    assert '"memory_context_load": "memory_context_load"' in graph_source
+    assert '"long_term_memory_retrieve": "long_term_memory_retrieve"' not in graph_source
     for token in (
         '"session_memory_load"',
         '"session_context_load"',
