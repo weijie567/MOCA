@@ -18132,3 +18132,34 @@ Phase 57 verification 改用 ROADMAP success criteria、PLAN frontmatter 文本�
 ### 剩余问题和下次入口
 
 后续修 GSD workflow 时，应统一 `frontmatter.get` 的文档示例与实际 CLI 参数解析；在 MOCA 验证中不要把该错误输出作为 phase artifact 缺失证据。
+
+## 2026-07-08 Phase 57 verification：VERIFICATION score frontmatter 精确匹配过窄
+
+### 问题现象
+
+Phase 57 verifier 生成 `57-VERIFICATION.md` 后，本地 frontmatter 检查命令返回 `not-passed`：
+
+```bash
+node -e "const fs=require('fs');const p='.planning/phases/57-risk-gate-and-approval-gate-canonicalization/57-VERIFICATION.md';const c=fs.readFileSync(p,'utf8');const m=c.match(/^---\\n([\\s\\S]*?)\\n---/);if(!m) process.exit(1); const fm=m[1]; console.log((/status:\\s*passed/.test(fm)&&/score:\\s*19\\/19/.test(fm))?'passed':'not-passed')"
+```
+
+### 如何检测 / 复现
+
+读取报告 frontmatter 可见实际字段为：
+
+```yaml
+status: passed
+score: "19/19 must-haves verified"
+```
+
+### 当前判断 / 根因
+
+这是本地核验脚本的正则假设过窄：它没有考虑 `score` 值带引号和说明文字。Verifier 产物本身的 status 和 score 语义是正确的。
+
+### 已做处理
+
+改用 YAML frontmatter 文本的语义检查：确认包含 `status: passed`，且 score 行包含 `19/19`。该失败不计入 Phase 57 verification 失败。
+
+### 剩余问题和下次入口
+
+后续若需要稳定检查 verification artifact，应解析 frontmatter YAML，或用宽松正则匹配 `score:.*19/19`，不要写死裸值格式。
