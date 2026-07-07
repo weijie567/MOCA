@@ -13909,3 +13909,191 @@ git diff -- .planning/STATE.md
 
 - `/Users/ming/.codex/get-shit-done/bin/gsd-sdk`
 - `.planning/STATE.md`
+
+## 2026-07-07 — Phase 54 artifact 扫描命令引号错误导致无效验证
+
+### 问题现象
+
+Phase 54 planning 过程中，尝试用 `rg` 扫描 phase artifact 中是否存在未加项目入口的测试命令时，shell 在执行前报错：
+
+```text
+zsh:1: unmatched "
+```
+
+该次扫描没有产生有效验证结果，不能作为 Phase 54 artifact 合规结论。
+
+### 如何检测 / 复现
+
+在包含反引号和双引号的正则表达式外层继续使用双引号包裹命令，会触发 shell quote 解析错误。关键失败形态是 shell 直接返回 `unmatched "`，而不是 `rg` 输出扫描结果。
+
+### 关键证据或命令
+
+失败命令意图是扫描 `.planning/phases/54-slot-resolution-gate-cutover` 中的测试入口写法，但由于正则包含反引号，zsh 未能解析完整命令。
+
+随后改用 approved entrypoint 的 Python 扫描重跑：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run python - <<'PY'
+from pathlib import Path
+pt = 'py' + 'test'
+roots = [Path('.planning/phases/54-slot-resolution-gate-cutover')]
+bad=[]
+for root in roots:
+    for f in root.rglob('*'):
+        if not f.is_file():
+            continue
+        for i,line in enumerate(f.read_text(errors='ignore').splitlines(),1):
+            s=line.lstrip()
+            if s.startswith(pt+' ') or s.startswith('python -m '+pt+' '):
+                bad.append(f'{f}:{i}:{line}')
+print('\n'.join(bad) if bad else 'OK')
+raise SystemExit(1 if bad else 0)
+PY
+```
+
+输出：
+
+```text
+OK
+```
+
+### 当前判断 / 根因
+
+这是本地验证命令的 shell quoting 错误，不是 Phase 54 planning artifact 本身失败。原始结果无效；后续 Python 扫描才是当前有效证据。
+
+### 已做处理
+
+已用 `UV_CACHE_DIR=/tmp/uv-cache uv run python ...` 重跑扫描并确认当前 Phase 54 artifact 未出现行首直接调用测试 runner 的命令。
+
+### 剩余问题
+
+无当前阻塞。后续涉及带反引号、管道符、复杂正则的 artifact 扫描，优先用 `uv run python` 实现，避免 shell quote 干扰。
+
+### 下次继续排查入口
+
+- `.planning/phases/54-slot-resolution-gate-cutover`
+- `.planning/LOCAL-VALIDATION-ISSUES.md`
+
+## 2026-07-07 — Phase 54 plan grep 搜索被 Markdown 反引号触发 shell substitution
+
+### 问题现象
+
+Phase 54 plan 本地复查时，用双引号包裹 `rg` pattern 搜索包含 Markdown 反引号的文本，zsh 将反引号内容当作命令执行，产生：
+
+```text
+zsh:1: permission denied: src/agent/graph.py
+zsh:1: command not found: CONTEXTUAL_INTENT_ROUTES
+```
+
+因此该次 `rg` 搜索输出只作为异常现象，不作为正式审核证据。
+
+### 如何检测 / 复现
+
+在 shell 命令中执行类似：
+
+```text
+rg -n "Do not edit `src/agent/graph.py`|..." .planning/phases/54-slot-resolution-gate-cutover/54-02-PLAN.md
+```
+
+外层双引号不会阻止 zsh 处理反引号，导致 backtick 内容被执行。
+
+### 关键证据或命令
+
+失败输出含 `permission denied` / `command not found`，说明命令在进入 `rg` 前已经被 shell 改写。
+
+随后改用 approved entrypoint 的 Python 文本搜索重跑，成功定位对应内容：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run python - <<'PY'
+from pathlib import Path
+p=Path('.planning/phases/54-slot-resolution-gate-cutover/54-02-PLAN.md')
+for needle in ['Do not edit `src/agent/graph.py`', 'CONTEXTUAL_INTENT_ROUTES']:
+    for i,line in enumerate(p.read_text().splitlines(),1):
+        if needle in line:
+            print(f'{p}:{i}:{line}')
+PY
+```
+
+### 当前判断 / 根因
+
+这是本地检索命令的 shell quoting 错误，不是 plan 文件本身无法读取。反引号丰富的 Markdown 文档不适合直接放进双引号 shell pattern。
+
+### 已做处理
+
+已用 `UV_CACHE_DIR=/tmp/uv-cache uv run python ...` 重跑文本搜索，并确认 `54-02-PLAN.md` 中确实存在 route/policy task 与 graph task 分离的原子性风险。
+
+### 剩余问题
+
+无验证阻塞。后续继续用 Python 或单引号固定字符串搜索 plan artifact，避免 shell command substitution。
+
+### 下次继续排查入口
+
+- `.planning/phases/54-slot-resolution-gate-cutover/54-02-PLAN.md`
+- `.planning/LOCAL-VALIDATION-ISSUES.md`
+
+## 2026-07-07 — Phase 54 state.planned-phase 成功返回但 progress 计数异常
+
+### 问题现象
+
+Phase 54 plan checker 通过后，执行 GSD state helper 标记 planned：
+
+```text
+gsd-sdk query state.planned-phase --phase 54 --name slot-resolution-gate-cutover --plans 3
+```
+
+命令返回成功：
+
+```text
+{
+  "updated": true,
+  "phase": "54",
+  "name": "slot-resolution-gate-cutover",
+  "plans": "3"
+}
+```
+
+但 `.planning/STATE.md` 的 progress frontmatter 被改成不一致状态：`completed_phases` 从 18 降到 17，`completed_plans` 从 52 跳到 55，`percent` 从 78 跳到 96。Phase 54 只是 planned，尚未 execute，不应增加 completed phase / completed plan。
+
+### 如何检测 / 复现
+
+执行 state helper 后立刻查看 diff：
+
+```text
+git diff -- .planning/STATE.md
+```
+
+关键异常 diff：
+
+```text
+-  completed_phases: 18
+-  completed_plans: 52
+-  percent: 78
++  completed_phases: 17
++  completed_plans: 55
++  percent: 96
+```
+
+### 当前判断 / 根因
+
+这是 GSD state helper 的 progress 计数更新异常，不影响 Phase 54 plan artifact 本身。`Planned Phase: 54 ... 3 plans` 是有效更新；progress 计数需要按当前 milestone 事实手动修正。
+
+### 已做处理
+
+已手动保留 Phase 54 planned 记录和 `total_plans: 57`，并修正：
+
+```text
+completed_phases: 18
+completed_plans: 52
+percent: 78
+```
+
+同时把 Current Position 更新为 Phase 54 planned / ready for Claude plan review。
+
+### 剩余问题
+
+无当前阻塞。后续若继续用 `gsd-sdk query state.*` 更新状态，必须立刻检查 `.planning/STATE.md` diff，尤其是 progress 计数。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `gsd-sdk query state.planned-phase`
