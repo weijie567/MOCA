@@ -1068,6 +1068,45 @@ def test_sse_event_projects_historical_generate_recommendation_without_rewriting
     assert data["payload"] == {"short_summary": "manual_review"}
 
 
+def test_sse_event_projects_phase57_risk_gate_node_and_label_current_runtime() -> None:
+    assert NODE_MESSAGES["risk_gate"] == "正在评估风险"
+
+    event = _sse_event(
+        event_type="step_completed",
+        run_id="run-phase57-current-risk",
+        step_index=5,
+        node_name="risk_gate",
+        status="completed",
+        message=NODE_MESSAGES["risk_gate"],
+        payload={"risk_level": "high"},
+    )
+
+    data = json.loads(event["data"])
+
+    assert data["node_name"] == "risk_gate"
+    assert data["target_node_name"] == "risk_gate"
+    assert data["message"] == "正在评估风险"
+    assert data["payload"] == {"risk_level": "high"}
+
+
+def test_sse_event_projects_historical_assess_risk_without_rewriting_node() -> None:
+    event = _sse_event(
+        event_type="step_completed",
+        run_id="run-phase57-historical-risk",
+        step_index=5,
+        node_name="assess_risk_and_approval",
+        status="completed",
+        message=NODE_MESSAGES["assess_risk_and_approval"],
+        payload={"risk_level": "manual_review"},
+    )
+
+    data = json.loads(event["data"])
+
+    assert data["node_name"] == "assess_risk_and_approval"
+    assert data["target_node_name"] == "risk_gate"
+    assert data["payload"] == {"risk_level": "manual_review"}
+
+
 @pytest.mark.parametrize("node_name", ["recommendation_generation", "generate_recommendation"])
 def test_extract_step_payload_reads_recommendation_draft_for_current_and_historical_nodes(node_name: str) -> None:
     payload = _extract_step_payload(
@@ -1081,6 +1120,22 @@ def test_extract_step_payload_reads_recommendation_draft_for_current_and_histori
     )
 
     assert payload == {"short_summary": "manual_review"}
+
+
+@pytest.mark.parametrize("node_name", ["risk_gate", "assess_risk_and_approval"])
+def test_extract_step_payload_reads_risk_level_for_current_and_historical_nodes(node_name: str) -> None:
+    payload = _extract_step_payload(
+        node_name,
+        {
+            "risk_assessment": {
+                "risk_level": "manual_review",
+                "risk_reason": "Needs approval boundary check.",
+                "approval_required": False,
+            }
+        },
+    )
+
+    assert payload == {"risk_level": "manual_review"}
 
 
 @pytest.mark.asyncio

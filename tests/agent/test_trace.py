@@ -286,6 +286,44 @@ def test_trace_summary_projects_phase56_recommendation_runtime_and_historical_na
     ]
 
 
+def test_trace_summary_projects_phase57_risk_runtime_and_historical_names() -> None:
+    summary = build_trace_summary(
+        "run-phase57-risk-projection",
+        {
+            "current_intent": "refund_troubleshooting",
+            "trace_steps": [
+                {"node": "assess_risk_and_approval", "status": "completed"},
+                {"node": "risk_gate", "status": "completed"},
+            ],
+            "final_response": "done",
+        },
+        19,
+    )
+
+    assert summary["nodes_executed"] == [
+        "assess_risk_and_approval",
+        "risk_gate",
+    ]
+    assert summary["target_nodes_executed"] == [
+        "risk_gate",
+        "risk_gate",
+    ]
+    assert summary["graph_projection"]["steps"] == [
+        {
+            "implementation_node": "assess_risk_and_approval",
+            "target_node": "risk_gate",
+            "target_graph_status": "compatibility_alias",
+            "target_graph_runnable": False,
+        },
+        {
+            "implementation_node": "risk_gate",
+            "target_node": "risk_gate",
+            "target_graph_status": "runtime",
+            "target_graph_runnable": True,
+        },
+    ]
+
+
 def test_trace_summary_projects_phase53_contextual_intent_as_runtime():
     summary = build_trace_summary(
         "run-phase53-graph-projection",

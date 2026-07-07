@@ -28,6 +28,12 @@ PHASE56_RECOMMENDATION_ALIAS_REASON_CODES = {
     "IMPORT_TEST_COMPATIBILITY",
     "DELETE_BY_PHASE_58",
 }
+PHASE57_RISK_ALIAS_REASON_CODES = {
+    "PHASE_57_COMPATIBILITY_ALIAS",
+    "HISTORICAL_TRACE_PROJECTION",
+    "IMPORT_TEST_COMPATIBILITY",
+    "DELETE_BY_PHASE_58",
+}
 
 
 @pytest.mark.parametrize(
@@ -74,6 +80,7 @@ def test_legacy_graph_names_project_to_target_vocabulary(
         ("session_context_load", "node"),
         ("memory_context_load", "node"),
         ("recommendation_generation", "node"),
+        ("risk_gate", "node"),
         ("slot_resolution_gate", "node"),
         ("route_after_slot_resolution", "router"),
     ],
@@ -102,6 +109,7 @@ def test_target_graph_names_are_identity_mapped(name: str, kind: str) -> None:
         "recommendation_generation",
         "rag_context_build",
         "claim_verify",
+        "risk_gate",
     ],
 )
 def test_canonical_runtime_nodes_project_as_runtime(name: str) -> None:
@@ -254,6 +262,53 @@ def test_phase56_recommendation_vocabulary_entries_are_unique() -> None:
     expected_pairs = {
         ("node", "recommendation_generation"),
         ("node", "generate_recommendation"),
+    }
+
+    for pair in expected_pairs:
+        matches = [
+            entry
+            for entry in graph_vocabulary_module._ENTRIES
+            if (entry.kind, entry.legacy_name) == pair
+        ]
+        assert len(matches) == 1, pair
+
+
+def test_phase57_risk_gate_runtime_entry_is_identity_mapped() -> None:
+    entry = graph_vocabulary_entry("risk_gate", kind="node")
+    projected = project_trace_step_for_contract({"node": "risk_gate", "status": "completed"})
+
+    assert entry is not None
+    assert entry.target_name == "risk_gate"
+    assert entry.status == "runtime"
+    assert entry.runnable is True
+    assert target_graph_name("risk_gate", kind="node") == "risk_gate"
+    assert projected["implementation_node"] == "risk_gate"
+    assert projected["target_node"] == "risk_gate"
+    assert projected["target_graph_status"] == "runtime"
+    assert projected["target_graph_runnable"] is True
+
+
+def test_phase57_assess_risk_alias_projects_to_canonical_target_without_rewrite() -> None:
+    entry = graph_vocabulary_entry("assess_risk_and_approval", kind="node")
+    projected = project_trace_step_for_contract({"node": "assess_risk_and_approval", "status": "completed"})
+
+    assert entry is not None
+    assert entry.target_name == "risk_gate"
+    assert entry.status == "compatibility_alias"
+    assert entry.runnable is False
+    assert PHASE57_RISK_ALIAS_REASON_CODES <= set(entry.reason_codes)
+    assert target_graph_name("assess_risk_and_approval", kind="node") == "risk_gate"
+    assert projected["node"] == "assess_risk_and_approval"
+    assert projected["implementation_node"] == "assess_risk_and_approval"
+    assert projected["target_node"] == "risk_gate"
+    assert projected["target_graph_status"] == "compatibility_alias"
+    assert projected["target_graph_runnable"] is False
+
+
+def test_phase57_risk_vocabulary_entries_are_unique() -> None:
+    expected_pairs = {
+        ("node", "risk_gate"),
+        ("node", "assess_risk_and_approval"),
     }
 
     for pair in expected_pairs:

@@ -425,6 +425,37 @@ def test_build_timeline_projects_phase56_recommendation_node_identities(node_nam
     assert timeline[0]["detail"]["target_node"] == target_node
 
 
+@pytest.mark.parametrize(
+    ("node_name", "target_node"),
+    [
+        ("assess_risk_and_approval", "risk_gate"),
+        ("risk_gate", "risk_gate"),
+    ],
+)
+def test_build_timeline_projects_phase57_risk_node_identities(node_name: str, target_node: str):
+    now = datetime.now(UTC)
+    repo = TraceRepository(SimpleNamespace())
+
+    timeline = repo.build_timeline(
+        steps=[
+            SimpleNamespace(
+                started_at=now,
+                node_name=node_name,
+                status="completed",
+                tool_name=None,
+                latency_ms=5,
+                provider_latency_ms=None,
+            )
+        ],
+        approvals=[],
+        approval_steps=[],
+        drafts=[],
+    )
+
+    assert timeline[0]["detail"]["node_name"] == node_name
+    assert timeline[0]["detail"]["target_node"] == target_node
+
+
 def test_trace_action_draft_projection_excludes_raw_payload_even_when_present():
     idempotency_key = "tenant:run:approval_revision_1:issue_coupon:RF-SECRET:sha256-" + "a" * 64
     draft = SimpleNamespace(
