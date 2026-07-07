@@ -15727,3 +15727,118 @@ IndexError: list index out of range
 - `tests/memory/test_phase48_1_memory_compat_alignment.py`
 - `src/agent/nodes/memory_context_load.py`
 - `src/agent/nodes/long_term_memory_retrieve.py`
+
+## 2026-07-07 — Phase 55 verification 静态 scan 对 multiline vocabulary entry 使用脆弱字符串断言
+
+### 问题现象
+
+Phase 55 verification 期间运行自定义静态扫描时，graph / routing / baseline 断言已通过，但最后一个 vocabulary 字符串断言触发 `AssertionError`，命令退出 1。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run python - <<'PY'
+...
+assert '_entry("reviewed_memory_context_retrieve",' in vocab
+...
+PY
+```
+
+### 关键证据或命令
+
+失败输出：
+
+```text
+Traceback (most recent call last):
+  File "<stdin>", line 53, in <module>
+AssertionError
+```
+
+### 当前判断 / 根因
+
+这是 verifier 临时扫描脚本的问题，不是 Phase 55 代码缺陷。`src/agent/graph_vocabulary.py` 中 `_entry(...)` 调用是 multiline 结构，`reviewed_memory_context_retrieve` 作为下一行字符串参数出现；单行 substring 断言不适合验证该契约。
+
+### 已做处理
+
+已改用 AST 解析 `_entry(...)` 参数的结构化 scan，验证：
+
+- `memory_context_load` 是 `runtime` node；
+- `long_term_memory_retrieve` 和 `reviewed_memory_context_retrieve` 都投影到 `memory_context_load`，状态为 `compatibility_alias`；
+- Phase 55 reason codes 包含 `PHASE_55_COMPATIBILITY_ALIAS`、`HISTORICAL_TRACE_PROJECTION`、`IMPORT_TEST_COMPATIBILITY`、`DELETE_BY_PHASE_58`；
+- active graph 包含 `memory_context_load`，不包含 active `long_term_memory_retrieve`，并保留 Phase 56/57 active legacy nodes。
+
+重跑结果：
+
+```text
+phase55 static graph/vocabulary scan OK
+```
+
+### 剩余问题
+
+无代码阻塞；本次仅记录 verifier 临时验证命令修正。
+
+### 下次继续排查入口
+
+- `src/agent/graph_vocabulary.py`
+- `src/agent/graph.py`
+- `.planning/phases/55-memory-context-load-cutover/55-VERIFICATION.md`
+
+## 2026-07-07 — Phase 55 verification 命令入口扫描误把全局历史 issue ledger 纳入 phase artifact 范围
+
+### 问题现象
+
+Phase 55 verification 期间运行命令入口扫描时，把 `.planning/LOCAL-VALIDATION-ISSUES.md` 一起纳入检查，命令返回 exit code 1，输出多条历史 bare `pytest` 文本。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run python - <<'PY'
+...
+paths=list(sorted(phase.glob('55-*.md'))) + [Path('.planning/LOCAL-VALIDATION-ISSUES.md')]
+...
+PY
+```
+
+### 关键证据或命令
+
+失败输出包含：
+
+```text
+.planning/LOCAL-VALIDATION-ISSUES.md:502: pytest tests/memory/test_long_term_memory_service.py ...
+.planning/LOCAL-VALIDATION-ISSUES.md:3364: pytest tests/test_search_integration.py::...
+```
+
+### 当前判断 / 根因
+
+这是 verifier 扫描范围过宽，不是 Phase 55 artifact 违反 MOCA 命令入口规则。`.planning/LOCAL-VALIDATION-ISSUES.md` 是历史事故台账，其中会按原始现象记录错误命令或输出文本；Phase 55 artifact scan 的 contract 只要求 `.planning/phases/55-memory-context-load-cutover/55-*.md` 不含裸 `pytest` / 裸 `python -m pytest` 命令。
+
+### 已做处理
+
+已按 Phase 55 artifact 范围重跑扫描：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run python - <<'PY'
+from pathlib import Path
+phase=Path('.planning/phases/55-memory-context-load-cutover')
+...
+PY
+```
+
+结果：
+
+```text
+Phase 55 artifact command scan: OK
+```
+
+### 剩余问题
+
+无 Phase 55 阻塞。后续 verifier 若要扫描全局历史 issue ledger，需要区分“事故原文记录”与“当前建议执行命令”。
+
+### 下次继续排查入口
+
+- `.planning/phases/55-memory-context-load-cutover/55-*.md`
+- `.planning/LOCAL-VALIDATION-ISSUES.md`
