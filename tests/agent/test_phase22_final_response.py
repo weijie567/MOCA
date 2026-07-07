@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from src.agent.nodes.final_response import final_response
+from src.agent.routing import route_after_recommendation
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1
 
@@ -389,6 +390,33 @@ async def test_verified_evidence_package_wins_over_legacy_verifier_fields_when_c
     assert output["verification_authoritative"] is True
     assert "legacy_allow_should_not_win" not in result["final_response"]
     assert DEBUG_PROJECTION not in result["final_response"]
+
+
+@pytest.mark.asyncio
+async def test_missing_info_action_draft_downgrades_before_completed_response(
+    base_state: dict[str, Any],
+) -> None:
+    state = {
+        **base_state,
+        "current_intent": "compensation_suggestion",
+        "requested_operation": "draft_action",
+        "recommendation_draft": {
+            "recommended_action": "issue_coupon",
+            "reasoning_summary": "Needs compensation but customer/order context is missing.",
+            "evidence_refs": [],
+            "missing_info": ["refund_case_id"],
+            "risk_level": "low",
+        },
+    }
+
+    assert route_after_recommendation(state) == "final_response"
+
+    result = await final_response(state)
+
+    assert result["llm_outputs"]["final_response"]["final_status"] == "insufficient_evidence"
+    assert "缺少信息" in result["final_response"]
+    assert "refund_case_id" in result["final_response"]
+    assert "建议：issue_coupon" not in result["final_response"]
 
 
 @pytest.mark.asyncio

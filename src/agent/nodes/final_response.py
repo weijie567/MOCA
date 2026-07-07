@@ -889,6 +889,24 @@ async def final_response(state: AgentState) -> dict:
             },
             "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
         }
+    if _displayable_missing_info(draft):
+        safe_draft = {**draft, "recommended_action": "insufficient_evidence"}
+        response_text = _insufficient_response_with_context(safe_draft, state.get("business_context") or {})
+        response_text = _decorate_deferred_response(response_text, state)
+        return {
+            "final_response": response_text,
+            "llm_outputs": {
+                **(state.get("llm_outputs") or {}),
+                "final_response": {
+                    "response_text": response_text,
+                    "evidence_citations": [],
+                    "final_status": "insufficient_evidence",
+                    "mode": "deterministic-template",
+                    "approval_context": None,
+                },
+            },
+            "trace_steps": (state.get("trace_steps") or []) + [_trace_step("completed", started_at)],
+        }
     if _can_render_business_fact_response(state, draft):
         response_text = _business_fact_response(state.get("business_context") or {})
         response_text = _decorate_deferred_response(response_text, state)
