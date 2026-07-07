@@ -1,6 +1,6 @@
 ---
 phase: 57-risk-gate-and-approval-gate-canonicalization
-reviewed: 2026-07-07T16:13:20Z
+reviewed: 2026-07-07T22:36:11Z
 depth: deep
 files_reviewed: 34
 files_reviewed_list:
@@ -48,7 +48,7 @@ status: clean
 
 # Phase 57: Code Review Report
 
-**Reviewed:** 2026-07-07T16:13:20Z
+**Reviewed:** 2026-07-07T22:36:11Z
 **Depth:** deep
 **Files Reviewed:** 34
 **Status:** clean
@@ -67,10 +67,10 @@ Targeted verification passed:
 UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/test_graph_routing.py tests/agent/test_graph.py tests/agent/test_graph_vocabulary.py tests/agent/test_nodes/test_risk_gate.py tests/agent/test_nodes/test_assess_risk_and_approval.py tests/test_approval_gate.py tests/test_approval_api.py tests/approvals/test_service_transitions.py tests/approvals/test_needs_info_resume.py tests/test_agent_runs_api.py tests/test_trace_api.py -q --tb=short
 ```
 
-Result: `364 passed, 1 skipped, 29 warnings in 305.53s`.
+Result: `364 passed, 1 skipped, 29 warnings in 332.10s`.
 
 ---
 
-_Reviewed: 2026-07-07T16:13:20Z_
+_Reviewed: 2026-07-07T22:36:11Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
