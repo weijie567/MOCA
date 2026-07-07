@@ -14269,3 +14269,104 @@ percent: 78
 
 - `.planning/STATE.md`
 - `gsd-sdk query state.planned-phase`
+
+## 2026-07-07 — 54-02 Task 2 图烟测误断 long_term_memory_retrieve trace 节点
+
+### 问题现象
+
+Phase 54-02 Task 2 focused graph/regression 测试首次运行失败：
+
+```text
+tests/agent/test_graph.py::test_canonical_reviewed_memory_hint_reaches_existing_long_term_memory_node
+AssertionError: assert 'long_term_memory_retrieve' in [...]
+```
+
+失败 trace 中实际出现的是 `slot_resolution_gate` 后进入 `reviewed_memory_context_retrieve`，没有直接记录 `long_term_memory_retrieve` trace 节点。
+
+### 如何检测 / 复现
+
+执行计划要求的 Task 2 focused pytest：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_required_slots.py tests/agent/test_nodes/test_slot_resolution_gate.py tests/agent/test_graph.py tests/test_graph_routing.py tests/agent/test_intent_routing.py tests/agent/test_nodes/test_contextual_intent_resolve.py tests/architecture/test_canonical_graph_baseline.py -q --tb=short
+```
+
+结果为：
+
+```text
+1 failed, 1255 passed, 1 skipped
+```
+
+### 关键证据或命令
+
+失败样本的 trace 节点包含：
+
+```text
+receive_request -> safety_pre_route -> session_context_load -> contextual_intent_resolve -> slot_resolution_gate -> reviewed_memory_context_retrieve
+```
+
+同时 state 仍写入 `llm_outputs["long_term_memory_retrieve"]`，说明兼容包装路径存在，只是 trace 记录的是被委托的 reviewed-memory 节点。
+
+### 当前判断 / 根因
+
+这是 Task 2 新增烟测断言过严，不是图 cutover 实现失败。`long_term_memory_retrieve` 是 Phase 55 兼容目的地包装层；运行时 trace 会记录其委托的 `reviewed_memory_context_retrieve` 节点，而兼容包装结果体现在 `llm_outputs["long_term_memory_retrieve"]`。
+
+### 已做处理
+
+已将该断言改为检查 `slot_resolution_gate` 早于 `reviewed_memory_context_retrieve`，并保留 `llm_outputs["long_term_memory_retrieve"]` 断言来覆盖 Phase 55 兼容目的地。随后重跑 Task 2 focused pytest 与 ruff，均已通过。
+
+### 剩余问题
+
+无已知阻塞。
+
+### 下次继续排查入口
+
+- `tests/agent/test_graph.py::test_canonical_reviewed_memory_hint_reaches_existing_long_term_memory_node`
+- `src/agent/nodes/long_term_memory_retrieve.py`
+- `src/agent/nodes/reviewed_memory_context_retrieve.py`
+
+## 2026-07-07 — 54-02 日志定位 rg pattern 中反引号触发 state helper 空参数调用
+
+### 问题现象
+
+在确认 `.planning/LOCAL-VALIDATION-ISSUES.md` 新日志是否追加到文件末尾时，使用了带 Markdown 反引号的双引号 `rg` pattern。zsh 先执行了反引号内的 `gsd-sdk query state.planned-phase`，导致该 forbidden helper 被空参数调用并返回错误：
+
+```text
+rg: regex parse error:
+...
+{
+  "updated": false,
+  "reason": "--phase argument required"
+}
+```
+
+### 如何检测 / 复现
+
+问题命令形态是把反引号文本放进双引号 shell 参数中：
+
+```text
+rg -n "Phase 54 state\.planned-phase|`gsd-sdk query state\.planned-phase`" .planning/LOCAL-VALIDATION-ISSUES.md
+```
+
+zsh 会先做 command substitution，再把返回 JSON 拼进 `rg` regex，最终触发 regex parse error。
+
+### 关键证据或命令
+
+命令输出中出现 `{"updated": false, "reason": "--phase argument required"}`，说明 `gsd-sdk query state.planned-phase` 确实被 shell substitution 调起，但因为缺少 `--phase` 只返回参数错误。
+
+### 当前判断 / 根因
+
+根因是 shell quoting 错误，不是 GSD state 文件更新流程。该调用没有传入 phase/name/plans，也没有修改 `.planning/STATE.md` 或 `.planning/ROADMAP.md`。
+
+### 已做处理
+
+已改用不含反引号的定位方式和 `apply_patch` 修正日志位置；后续对含反引号文本的搜索只用单引号固定字符串、转义反引号，或 `UV_CACHE_DIR=/tmp/uv-cache uv run python ...` 读取文件。
+
+### 剩余问题
+
+无已知状态文件变更。提交前需用 `git status --short` 确认 `.planning/STATE.md` 与 `.planning/ROADMAP.md` 未被修改。
+
+### 下次继续排查入口
+
+- `.planning/LOCAL-VALIDATION-ISSUES.md`
+- `.planning/STATE.md`
