@@ -14693,3 +14693,54 @@ UV_CACHE_DIR=/tmp/uv-cache uv run ruff format --check src/agent/routing.py tests
 - `src/agent/routing.py`
 - `tests/agent/test_required_slots.py`
 - `.planning/phases/54-slot-resolution-gate-cutover/54-REVIEW.md`
+
+## 2026-07-07 — Phase 54 re-review 全量文件 pytest 目标包含非测试文件导致 collection 失败
+
+### 问题现象
+
+Phase 54 code re-review 试图按 review config 的完整文件列表直接执行 pytest，命令在 collection 阶段失败。失败不是代码行为回归，而是把文档和非测试源码文件作为 pytest 测试目标传入，`docs/current-langgraph-architecture.md` 无法被 pytest 当作测试文件收集。
+
+### 如何检测 / 复现
+
+在 MOCA 根目录运行：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest docs/current-langgraph-architecture.md src/agent/graph.py src/agent/graph_vocabulary.py src/agent/intent_policy.py src/agent/nodes/receive_request.py src/agent/nodes/slot_resolution_gate.py src/agent/routing.py src/agent/state.py src/api/routers/agent_runs.py tests/agent/test_graph.py tests/agent/test_graph_vocabulary.py tests/agent/test_intent_routing.py tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_receive_request.py tests/agent/test_nodes/test_slot_resolution_gate.py tests/agent/test_required_slots.py tests/agent/test_session_memory_integration.py tests/agent/test_trace.py tests/architecture/graph_baseline.py tests/architecture/test_canonical_graph_baseline.py tests/test_agent_runs_api.py tests/test_graph_routing.py tests/test_trace_api.py -q --tb=short
+```
+
+### 关键证据或命令
+
+失败输出：
+
+```text
+ERROR: not found: /Users/ming/projects/MOCA/docs/current-langgraph-architecture.md
+(no match in any of [<Dir docs>])
+```
+
+### 当前判断 / 根因
+
+根因是验证命令作用域错误：review scope 可以包含文档和生产源码，但 pytest 目标应只传测试文件或可收集测试的路径。该失败不代表 Phase 54 slot_resolution_gate cutover 代码失败。
+
+### 已做处理
+
+已改为 test-only scope 并重跑通过：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py tests/agent/test_graph_vocabulary.py tests/agent/test_intent_routing.py tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_receive_request.py tests/agent/test_nodes/test_slot_resolution_gate.py tests/agent/test_required_slots.py tests/agent/test_session_memory_integration.py tests/agent/test_trace.py tests/architecture/test_canonical_graph_baseline.py tests/test_agent_runs_api.py tests/test_graph_routing.py tests/test_trace_api.py -q --tb=short
+```
+
+通过结果：
+
+```text
+1423 passed, 1 skipped, 35 warnings in 168.89s
+```
+
+### 剩余问题
+
+无已知剩余阻塞；本次有效测试入口已通过。后续 review 若需要覆盖文档/源码文件，应通过人工阅读、静态检查或对应测试文件验证，不应把 Markdown / 非测试源码路径直接作为 pytest 收集目标。
+
+### 下次继续排查入口
+
+- `.planning/phases/54-slot-resolution-gate-cutover/54-REVIEW.md`
+- `tests/agent/test_nodes/test_slot_resolution_gate.py`
+- `tests/agent/test_required_slots.py`
