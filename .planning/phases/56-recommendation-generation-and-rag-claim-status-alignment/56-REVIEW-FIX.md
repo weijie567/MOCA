@@ -1,85 +1,61 @@
 ---
 phase: 56
-fixed_at: "2026-07-07T11:06:56Z"
-review_path: ".planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-REVIEW.md"
+fixed_at: 2026-07-07T11:28:33Z
+review_path: .planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-REVIEW.md
 iteration: 1
-findings_in_scope: 2
-fixed: 2
+findings_in_scope: 1
+fixed: 1
 skipped: 0
-out_of_scope: 1
-auto_re_review_status: in_scope_clean
+auto_re_review_status: clean
 remaining_critical: 0
 remaining_warning: 0
-remaining_info: 1
+remaining_info: 0
 status: all_fixed
-commits:
-  - "d9ee345"
-  - "c388b94"
 ---
 
 # Phase 56: Code Review Fix Report
 
-**Fixed at:** 2026-07-07T11:06:56Z
+**Fixed at:** 2026-07-07T11:28:33Z
 **Source review:** `.planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-REVIEW.md`
 **Iteration:** 1
 
 **Summary:**
-- Findings in scope: 2
-- Fixed: 2
+- Findings in scope: 1
+- Fixed: 1
 - Skipped: 0
-- Out of scope: 1
-- Auto re-review: 0 critical, 0 warning, 1 info out of scope
+- Auto re-review: clean, 0 findings
 
 ## Fixed Issues
 
-### WR-01: Missing-info drafts can render as completed action recommendations without claim verification
+### IN-01: CI graph contract still omits the approved action-draft path
 
 **Status:** fixed: requires human verification
-**Files modified:** `src/agent/nodes/final_response.py`, `tests/agent/test_phase22_final_response.py`
-**Commit:** `d9ee345`
-**Applied fix:** `final_response()` now fails closed before the completed response branch when a recommendation draft still contains user-displayable `missing_info`. The renderer returns `final_status=insufficient_evidence` and does not show the actionable completed recommendation. Added a regression that reproduces the review route to `final_response` and asserts the final output is downgraded.
+**Files modified:** `scripts/eval_agent.py`, `src/agent/nodes/final_response.py`, `tests/agent/test_nodes/test_final_response.py`, `.planning/LOCAL-VALIDATION-ISSUES.md`, `.planning/ARCHITECTURE-DEBT.md`
+**Commit:** `93cf61c`
+**Applied fix:** Added `approval_approved` to the CI graph-contract category set; upgraded the deterministic action stub to emit current `action_draft.v2` and `draft_outcome.v1` demo payloads; resumed approval interrupts with a trusted `approval_result.v1`; and asserted the approved path reaches `approval_gate`, `action_draft`, `final_response`, and user-visible demo-draft text with no external side effects.
 
-### WR-02: Recommendation node partial-evidence guard is weaker than the router guard
-
-**Status:** fixed: requires human verification
-**Files modified:** `src/agent/nodes/generate_recommendation.py`, `tests/agent/test_nodes/test_generate_recommendation.py`, `.planning/ARCHITECTURE-DEBT.md`
-**Commit:** `c388b94`
-**Applied fix:** The direct `generate_recommendation` partial package guard now reuses the router's `_partial_rag_context_can_generate()` decision instead of maintaining a weaker duplicate. Added direct-node regressions for router-blocked partial states: `approval_decision`, risk signals, action-bound intent, high-risk evidence policy, stale refs, conflict refs, and rejected refs. Updated the RAG architecture debt ledger with the fixed boundary defect and residual Phase 57/58 risk.
-
-## Skipped Issues
-
-None - all in-scope findings were fixed.
-
-## Out Of Scope
-
-### IN-01: CI graph contract does not cover the approved action-draft path after the action result contract changed
-
-**File:** `scripts/eval_agent.py:54`
-**Reason:** Out of scope for this invocation. The requested fix scope was Critical + Warning only, and the warning fixes did not require touching `scripts/eval_agent.py`.
-**Original issue:** `GRAPH_CONTRACT_CATEGORIES` omits the approved action-draft path, and the hidden helper for that path is stale after the action result contract changed.
+While verifying the new contract, the first focused graph-contract run exposed a production final-response guard bug: canonical `claim_verification_bundle(route=continue, overall_status=verified)` was allowed, but legacy compatibility fields `verification_route=allow` / `verifier_status=verified` still triggered `missing_canonical_projection`. The fix now trusts the allowed canonical claim bundle for final rendering, preserving fail-closed behavior for blocked/manual-review bundles. Added a unit regression and recorded the validation incident / architecture debt.
 
 ## Verification
 
-- `UV_CACHE_DIR=/tmp/uv-cache uv run python -c "import ast; ast.parse(open('src/agent/nodes/final_response.py').read()); ast.parse(open('tests/agent/test_phase22_final_response.py').read())"` - pass
-- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_final_response.py::test_missing_info_action_draft_downgrades_before_completed_response -q --tb=short` - 1 passed, 1 warning
-- `UV_CACHE_DIR=/tmp/uv-cache uv run python -c "import ast; ast.parse(open('src/agent/nodes/generate_recommendation.py').read()); ast.parse(open('tests/agent/test_nodes/test_generate_recommendation.py').read())"` - pass
-- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_generate_recommendation.py::test_partial_package_direct_generation_uses_router_blockers -q --tb=short` - 7 passed, 1 warning
-- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_final_response.py::test_missing_info_action_draft_downgrades_before_completed_response tests/agent/test_nodes/test_generate_recommendation.py::test_partial_package_direct_generation_uses_router_blockers -q --tb=short` - 8 passed, 1 warning
-- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_final_response.py tests/agent/test_nodes/test_generate_recommendation.py tests/agent/test_rag_context_routing.py tests/agent/rag_context/test_routing.py -q --tb=short` - 154 passed, 1 warning
-- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/nodes/final_response.py src/agent/nodes/generate_recommendation.py tests/agent/test_phase22_final_response.py tests/agent/test_nodes/test_generate_recommendation.py` - pass
+- `UV_CACHE_DIR=/tmp/uv-cache uv run python -c "import ast, pathlib; [ast.parse(pathlib.Path(path).read_text(encoding='utf-8')) for path in ('scripts/eval_agent.py', 'src/agent/nodes/final_response.py', 'tests/agent/test_nodes/test_final_response.py')]"` - pass
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_final_response.py::test_final_response_trusts_allowed_claim_bundle_over_legacy_allow_fields -q --tb=short` - 1 passed, 1 warning
+- `UV_CACHE_DIR=/tmp/uv-cache uv run python -c "import asyncio; from scripts.eval_agent import DEFAULT_GOLDEN_SET, _load_cases, _run_ci_graph_contracts; failures = asyncio.run(_run_ci_graph_contracts(_load_cases(DEFAULT_GOLDEN_SET))); print({'failures': failures}); raise SystemExit(1 if failures else 0)"` - `{'failures': []}`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_final_response.py -q --tb=short` - 21 passed, 1 warning
+- `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/eval_agent.py --mode ci --output /tmp/moca-agent-eval-review-fix-all.json` - PASS
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check scripts/eval_agent.py src/agent/nodes/final_response.py tests/agent/test_nodes/test_final_response.py` - pass
 - `UV_CACHE_DIR=/tmp/uv-cache uv run git diff --check` - pass
 
 ## Auto Re-review
 
 - Re-review iteration: 2
 - Review path: `.planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-REVIEW.md`
-- Result: no remaining Critical or Warning findings.
-- Remaining out-of-scope item: IN-01 (`scripts/eval_agent.py`) — CI graph contract still omits the approved action-draft path. This was not fixed because this invocation used the default Critical + Warning scope, not `--all`.
-
-No local validation failure or environment issue occurred, so `.planning/LOCAL-VALIDATION-ISSUES.md` was not updated.
+- Result: `status: clean`, 32 files reviewed, 0 Critical, 0 Warning, 0 Info.
+- Focused regressions: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_final_response.py::test_final_response_trusts_allowed_claim_bundle_over_legacy_allow_fields tests/agent/test_nodes/test_generate_recommendation.py::test_partial_package_direct_generation_uses_router_blockers tests/agent/test_phase22_final_response.py::test_missing_info_action_draft_downgrades_before_completed_response tests/test_execute_action.py::test_action_draft_with_service_approval_result_creates_draft -q --tb=short` - 10 passed, 1 warning.
+- Scoped regression suite: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_routing.py tests/agent/test_graph.py tests/agent/test_graph_vocabulary.py tests/agent/test_nodes/test_final_response.py tests/agent/test_nodes/test_generate_recommendation.py tests/agent/test_phase22_action_boundary.py tests/agent/test_phase22_final_response.py tests/agent/test_phase22_recommendation_integration.py tests/agent/test_rag_context_routing.py tests/agent/test_trace.py tests/architecture/test_canonical_graph_baseline.py tests/test_agent_runs_api.py tests/test_execute_action.py tests/test_graph_routing.py tests/test_trace_api.py -q --tb=short` - 512 passed, 1 skipped, 28 warnings.
 
 ---
 
-_Fixed: 2026-07-07T11:06:56Z_
+_Fixed: 2026-07-07T11:28:33Z_
 _Fixer: Codex (gsd-code-fixer)_
 _Iteration: 1_
