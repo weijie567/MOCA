@@ -924,6 +924,7 @@ async def _attach_snapshot_binding(
     config: RunnableConfig | None,
     trusted_edit: TrustedApprovalResultV1 | None = None,
     trace_node: str = _LEGACY_NODE,
+    persist_snapshot=None,
 ) -> dict[str, Any]:
     if not result.get("proposed_action"):
         return result
@@ -1019,7 +1020,8 @@ async def _attach_snapshot_binding(
         run_id = UUID(str(state.get("current_run_id")))
         tenant_id = UUID(str(state.get("tenant_id")))
         user_id = UUID(str(state.get("user_id")))
-        snapshot = await persist_action_safety_snapshot(
+        snapshot_writer = persist_snapshot or persist_action_safety_snapshot
+        snapshot = await snapshot_writer(
             session,
             tenant_id=tenant_id,
             run_id=run_id,
@@ -1139,6 +1141,8 @@ async def _assess_risk_and_approval_with_identity(
     *,
     output_key: str,
     trace_node: str,
+    get_llm=None,
+    persist_snapshot=None,
 ) -> dict:
     started_at = _now_iso()
     rules = _load_risk_rules()
@@ -1184,7 +1188,8 @@ async def _assess_risk_and_approval_with_identity(
         context=context,
     )
     messages = prompt_assembly.to_messages()
-    structured_llm = _get_llm().with_structured_output(RiskAssessment)
+    llm_factory = get_llm or _get_llm
+    structured_llm = llm_factory().with_structured_output(RiskAssessment)
     last_error: str | None = None
     provider_latency_ms: int | None = None
     retry_count = 0
@@ -1242,6 +1247,7 @@ async def _assess_risk_and_approval_with_identity(
                 config=config,
                 trusted_edit=trusted_edit,
                 trace_node=trace_node,
+                persist_snapshot=persist_snapshot,
             )
         except (ValidationError, ValueError, TimeoutError) as exc:
             provider_latency_ms = round((time.perf_counter() - t0) * 1000)

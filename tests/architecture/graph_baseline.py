@@ -203,6 +203,17 @@ def _string_set_literals(path: Path) -> dict[str, frozenset[str]]:
     return sets
 
 
+def _string_constant_literals(path: Path) -> dict[str, str]:
+    tree = ast.parse(_source(path))
+    constants: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
+            continue
+        if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+            constants[node.targets[0].id] = node.value.value
+    return constants
+
+
 def _function_def(tree: ast.AST, name: str) -> ast.FunctionDef:
     for node in tree.body if isinstance(tree, ast.Module) else []:
         if isinstance(node, ast.FunctionDef) and node.name == name:
@@ -228,28 +239,34 @@ def _return_literals(
     node: ast.AST,
     *,
     string_sets: dict[str, frozenset[str]],
+    string_constants: dict[str, str],
     guarded_names: dict[str, frozenset[str]],
     context: str,
 ) -> frozenset[str]:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return frozenset({node.value})
+    if isinstance(node, ast.Name) and node.id in string_constants:
+        return frozenset({string_constants[node.id]})
     if isinstance(node, ast.IfExp):
         guard = _guarded_name_routes(node.test, string_sets)
         if guard is not None and isinstance(node.body, ast.Name) and node.body.id == guard[0]:
             return guard[1] | _return_literals(
                 node.orelse,
                 string_sets=string_sets,
+                string_constants=string_constants,
                 guarded_names=guarded_names,
                 context=context,
             )
         return _return_literals(
             node.body,
             string_sets=string_sets,
+            string_constants=string_constants,
             guarded_names=guarded_names,
             context=context,
         ) | _return_literals(
             node.orelse,
             string_sets=string_sets,
+            string_constants=string_constants,
             guarded_names=guarded_names,
             context=context,
         )
@@ -262,6 +279,7 @@ def _collect_router_routes(
     node: ast.AST,
     *,
     string_sets: dict[str, frozenset[str]],
+    string_constants: dict[str, str],
     guarded_names: dict[str, frozenset[str]],
     context: str,
 ) -> frozenset[str]:
@@ -271,6 +289,7 @@ def _collect_router_routes(
         return _return_literals(
             node.value,
             string_sets=string_sets,
+            string_constants=string_constants,
             guarded_names=guarded_names,
             context=context,
         )
@@ -282,11 +301,13 @@ def _collect_router_routes(
         return _collect_router_routes_from_statements(
             node.body,
             string_sets=string_sets,
+            string_constants=string_constants,
             guarded_names=body_guarded_names,
             context=context,
         ) | _collect_router_routes_from_statements(
             node.orelse,
             string_sets=string_sets,
+            string_constants=string_constants,
             guarded_names=guarded_names,
             context=context,
         )
@@ -294,6 +315,7 @@ def _collect_router_routes(
         routes = _collect_router_routes_from_statements(
             node.body,
             string_sets=string_sets,
+            string_constants=string_constants,
             guarded_names=guarded_names,
             context=context,
         )
@@ -301,6 +323,7 @@ def _collect_router_routes(
             routes |= _collect_router_routes_from_statements(
                 handler.body,
                 string_sets=string_sets,
+                string_constants=string_constants,
                 guarded_names=guarded_names,
                 context=context,
             )
@@ -309,12 +332,14 @@ def _collect_router_routes(
             | _collect_router_routes_from_statements(
                 node.orelse,
                 string_sets=string_sets,
+                string_constants=string_constants,
                 guarded_names=guarded_names,
                 context=context,
             )
             | _collect_router_routes_from_statements(
                 node.finalbody,
                 string_sets=string_sets,
+                string_constants=string_constants,
                 guarded_names=guarded_names,
                 context=context,
             )
@@ -328,6 +353,7 @@ def _collect_router_routes(
             _collect_router_routes(
                 child,
                 string_sets=string_sets,
+                string_constants=string_constants,
                 guarded_names=guarded_names,
                 context=context,
             )
@@ -339,6 +365,7 @@ def _collect_router_routes_from_statements(
     statements: list[ast.stmt],
     *,
     string_sets: dict[str, frozenset[str]],
+    string_constants: dict[str, str],
     guarded_names: dict[str, frozenset[str]],
     context: str,
 ) -> frozenset[str]:
@@ -348,6 +375,7 @@ def _collect_router_routes_from_statements(
             _collect_router_routes(
                 statement,
                 string_sets=string_sets,
+                string_constants=string_constants,
                 guarded_names=guarded_names,
                 context=context,
             )
@@ -358,12 +386,14 @@ def _collect_router_routes_from_statements(
 def _router_route_values(path: Path, router_names: set[str]) -> dict[str, frozenset[str]]:
     tree = ast.parse(_source(path))
     string_sets = _string_set_literals(path)
+    string_constants = _string_constant_literals(path)
     values: dict[str, frozenset[str]] = {}
     for router_name in router_names:
         function = _function_def(tree, router_name)
         routes = _collect_router_routes_from_statements(
             function.body,
             string_sets=string_sets,
+            string_constants=string_constants,
             guarded_names={},
             context=router_name,
         )

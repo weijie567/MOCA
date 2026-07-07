@@ -1297,3 +1297,32 @@
 
 **剩余风险**
 - 🟡 Phase 58 仍需删除 `assess_risk_and_approval` retained compatibility surfaces；本条只关闭 approval_gate / receive_request 的 current trust-boundary 缺口。
+
+## Phase 57 Plan 04 — `risk_gate` runtime 投影 / eval / diagnostic / frontend 收口 ✅已修复验证
+
+**问题 / 根因**
+- 57-01 至 57-03 已完成 active graph、approval edit resume 和 persisted retry compatibility 的 `risk_gate` 切换，但 trace/API/frontend/eval/diagnostic 收尾面仍可能把 `assess_risk_and_approval` 误读成 current runtime surface。
+- eval graph contract harness 仍 patch 旧 `assess_risk_and_approval` module；若后续只改 graph 注册名，CI fake LLM 和 snapshot seam 可能绕过 canonical `risk_gate` wrapper，形成 active-node 名称与测试 patch target 漂移。
+- architecture route-value parser 不支持 `return CANONICAL_RISK_ROUTE` 这种 canonical route constant，导致当前 route authority 的静态验证出现 parser false negative。
+
+**影响**
+- 历史 trace payload 需要继续可读，但 current-run projection、SSE target、frontend label、eval current node list、diagnostic mock report 都必须使用 `risk_gate`；否则 Phase 58 no-debt cleanup 前会混淆“历史兼容投影”和“当前运行权威”。
+- eval harness patch 旧 module 会让 `risk_gate` wrapper 的可 patch 性缺口长期隐藏，后续风险/审批 graph contract 可能无法证明 current canonical node 的真实行为。
+
+**修复**
+- `src/agent/graph_vocabulary.py` 新增 `risk_gate` runtime identity entry，并把 `assess_risk_and_approval -> risk_gate` 标为 non-runnable Phase 57 compatibility alias，reason codes 含 `HISTORICAL_TRACE_PROJECTION`、`IMPORT_TEST_COMPATIBILITY`、`DELETE_BY_PHASE_58`。
+- `src/api/routers/agent_runs.py` 补齐 `risk_gate` SSE label 和 current/historical 风险 payload projection，保留历史 `assess_risk_and_approval` trace readability。
+- `frontend/src/components/timeline/TimelineStep.tsx`、`scripts/eval_agent.py`、`scripts/diagnose_latency.py` current-run surface 改用 `risk_gate`；frontend 旧 label 只作为 historical display fallback 并标记 Phase 58 删除。
+- `src/agent/nodes/risk_gate.py` 暴露 `_get_llm` 与 `persist_action_safety_snapshot` patch seam，并通过 lazy dependency injection 调用 shared risk implementation，兼容旧 import tests 和新 eval harness patch target。
+- `tests/architecture/graph_baseline.py` 支持 module-level string constant route returns，避免 canonical route constants 被静态验证误判。
+
+**证据 / 验证**
+- 文件：`src/agent/graph_vocabulary.py`、`src/api/routers/agent_runs.py`、`src/agent/nodes/risk_gate.py`、`src/agent/nodes/assess_risk_and_approval.py`、`frontend/src/components/timeline/TimelineStep.tsx`、`scripts/eval_agent.py`、`scripts/diagnose_latency.py`、`tests/architecture/graph_baseline.py`、`tests/architecture/test_canonical_graph_baseline.py`、`tests/agent/test_graph_vocabulary.py`、`tests/agent/test_trace.py`、`tests/test_trace_api.py`、`tests/test_agent_runs_api.py`
+- Phase / commit：57-04 Task 1 GREEN `b93ff43`；57-04 Task 2 GREEN（本条所在提交）
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph_vocabulary.py tests/agent/test_trace.py tests/test_trace_api.py tests/test_agent_runs_api.py -q --tb=short` → `175 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/agent/test_graph_vocabulary.py tests/test_agent_runs_api.py -q --tb=short` → `134 passed, 1 skipped, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_risk_gate.py tests/agent/test_nodes/test_assess_risk_and_approval.py -q --tb=short` → `20 passed, 1 warning`
+- `npm --prefix frontend run build` → pass
+
+**剩余风险**
+- 🟡 Phase 58 仍需删除 `assess_risk_and_approval` wrapper/import/test/historical display fallback 和 retained compatibility alias；57-04 只保留只读历史投影可读性，不再允许它作为 current runtime authority。

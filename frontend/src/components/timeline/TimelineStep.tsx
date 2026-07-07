@@ -9,7 +9,8 @@ const NODE_MESSAGES: Record<string, string> = {
   investigate: '正在调查订单和规则',
   recommendation_generation: '正在生成处理建议',
   generate_recommendation: '正在生成处理建议',
-  assess_risk_and_approval: '正在判断风险等级',
+  risk_gate: '正在判断风险等级',
+  assess_risk_and_approval: '正在判断风险等级', // historical trace display only; DELETE_BY_PHASE_58
   approval_gate: '需要审批，等待人工决策',
   execute_action: '正在执行操作',
   final_response: '已完成',

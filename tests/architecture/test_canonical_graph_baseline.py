@@ -193,8 +193,8 @@ def test_phase57_eval_current_run_surfaces_use_risk_gate_not_legacy_risk_node() 
     assert "assess_risk_and_approval" not in fake_llm_keys
     for nodes in expected_node_sets.values():
         assert "assess_risk_and_approval" not in nodes
-    risk_relevant_categories = {"compensation_suggestion", "approval_approved"}
-    for category in risk_relevant_categories:
+    assert "risk_gate" in set(eval_agent._expected_nodes_for_case(case))
+    for category in {"approval_approved"}:
         assert "risk_gate" in expected_node_sets[category]
     assert "from src.agent.nodes import risk_gate as risk_gate_module" in source
     assert "from src.agent.nodes import assess_risk_and_approval" not in source

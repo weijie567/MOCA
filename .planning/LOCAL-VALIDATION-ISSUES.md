@@ -17765,3 +17765,44 @@ Task 1 GREEN focused 验证已通过：`175 passed, 1 warning`。Phase 58 仍负
 - `src/api/routers/agent_runs.py::_extract_step_payload`
 - `tests/agent/test_graph_vocabulary.py::test_phase57_risk_gate_runtime_entry_is_identity_mapped`
 - `tests/test_agent_runs_api.py::test_extract_step_payload_reads_risk_level_for_current_and_historical_nodes`
+
+## 2026-07-07 Phase 57 Plan 57-04：Task 2 RED 验证发现 eval/diagnostic 旧风险节点和静态 parser 缺口
+
+### 问题现象
+
+Task 2 RED 新增 frontend/eval/diagnostic/current-run vocabulary guardrails 后，focused 验证出现 4 个预期失败和 1 个阻塞性静态解析失败。
+
+### 如何检测 / 复现
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/agent/test_graph_vocabulary.py tests/test_agent_runs_api.py -q --tb=short
+```
+
+### 关键证据或命令
+
+```text
+RED：4 failed, 130 passed, 1 skipped, 1 warning
+失败点包括：frontend `TimelineStep.tsx` 缺少 `risk_gate` current label；`scripts/eval_agent.py` 的 patched nodes / fake LLM keys / imports / expected node sequence 仍使用 `assess_risk_and_approval`；`scripts/diagnose_latency.py` mock report 仍使用旧节点名。
+
+阻塞点：`tests/architecture/test_canonical_graph_baseline.py::test_router_return_values_are_covered_by_registered_path_maps` 无法解析 `route_after_approval` 中 `return CANONICAL_RISK_ROUTE` 这种 module-level string constant return shape。
+```
+
+### 当前判断 / 根因
+
+57-01 至 57-03 已把 active graph/approval resume 切到 `risk_gate`，但收尾投影面仍有 current-run artifact 使用旧风险节点名；同时 architecture route-value parser 只支持字面量和 guarded set，不支持 Phase 57 图路由中新增的字符串常量返回形态。
+
+### 已做处理
+
+已将 frontend current label、eval graph contract patch/fake/import/expected sequence、diagnostic mock report 改为 `risk_gate`。历史 `assess_risk_and_approval` 只保留在 frontend labeled historical display fallback，并标记 `DELETE_BY_PHASE_58`。同时补齐 architecture parser 对 module-level string constants 的解析，避免当前 canonical route constant 被误判为 unsupported shape。
+
+### 剩余问题
+
+Task 2 GREEN focused 验证已通过：`134 passed, 1 skipped, 1 warning`；风险节点 focused 回归 `20 passed, 1 warning`；frontend build 通过。Phase 58 仍负责最终删除历史兼容显示和旧 import/test surface。
+
+### 下次继续排查入口
+
+- `frontend/src/components/timeline/TimelineStep.tsx`
+- `scripts/eval_agent.py`
+- `scripts/diagnose_latency.py`
+- `tests/architecture/graph_baseline.py`
+- `tests/architecture/test_canonical_graph_baseline.py::test_phase57_eval_current_run_surfaces_use_risk_gate_not_legacy_risk_node`

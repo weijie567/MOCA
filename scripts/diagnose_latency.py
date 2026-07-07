@@ -109,7 +109,7 @@ def mock_report(run_id: str = "00000000-0000-0000-0000-000000000000") -> dict[st
             "context_chars": 7800,
         },
         {
-            "node": "assess_risk_and_approval",
+            "node": "risk_gate",
             "step_index": 5,
             "latency_ms": 2100,
             "provider_latency_ms": 1900,

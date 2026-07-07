@@ -61,7 +61,7 @@ GRAPH_CONTRACT_PATCHED_NODES = {
     "contextual_intent_resolve",
     "slot_resolution_gate",
     "recommendation_generation",
-    "assess_risk_and_approval",
+    "risk_gate",
 }
 GRAPH_CONTRACT_LEGACY_NODES = {
     "classify_intent",
@@ -168,7 +168,7 @@ def _ci_fake_llm_responses(case: dict[str, Any]) -> dict[str, FakeLLM]:
         "contextual_intent_resolve": FakeLLM(intent_response),
         "slot_resolution_gate": FakeLLM(slot_response),
         "recommendation_generation": FakeLLM(recommendation_response),
-        "assess_risk_and_approval": FakeLLM(risk_response),
+        "risk_gate": FakeLLM(risk_response),
         "final_response": FakeLLM(final_response),
         # Compatibility keys keep the synthetic summary path stable while the
         # compiled graph harness patches the active Phase 56 node modules.
@@ -777,9 +777,9 @@ async def _run_graph_contract_case(case: dict[str, Any]) -> list[str]:
     from langgraph.checkpoint.memory import MemorySaver
 
     from src.agent.graph import build_graph
-    from src.agent.nodes import assess_risk_and_approval as assess_risk_module
     from src.agent.nodes import contextual_intent_resolve as contextual_intent_module
     from src.agent.nodes import generate_recommendation as recommendation_impl_module
+    from src.agent.nodes import risk_gate as risk_gate_module
     from src.agent.nodes import slot_resolution_gate as slot_resolution_module
 
     fake_llms = _ci_fake_llm_responses(case)
@@ -806,8 +806,8 @@ async def _run_graph_contract_case(case: dict[str, Any]) -> list[str]:
         patch.object(contextual_intent_module, "_get_llm", lambda: fake_llms["contextual_intent_resolve"]),
         patch.object(slot_resolution_module, "_get_llm", lambda: fake_llms["slot_resolution_gate"]),
         patch.object(recommendation_impl_module, "_get_llm", lambda: fake_llms["recommendation_generation"]),
-        patch.object(assess_risk_module, "_get_llm", lambda: fake_llms["assess_risk_and_approval"]),
-        patch.object(assess_risk_module, "persist_action_safety_snapshot", _ci_persist_action_safety_snapshot),
+        patch.object(risk_gate_module, "_get_llm", lambda: fake_llms["risk_gate"]),
+        patch.object(risk_gate_module, "persist_action_safety_snapshot", _ci_persist_action_safety_snapshot),
     ]
 
     with patches[0], patches[1], patches[2], patches[3], patches[4]:
@@ -884,7 +884,7 @@ def _expected_nodes_for_case(case: dict[str, Any]) -> list[str]:
         nodes.append("rag_context_build")
     nodes.extend(["recommendation_generation", "claim_verify"])
     if case.get("expected_approval_required") or category in {"approval_approved", "approval_rejected", "approval_required"}:
-        nodes.append("assess_risk_and_approval")
+        nodes.append("risk_gate")
     if category == "approval_approved":
         _resume_command = Command(resume={"decision": "approve", "reason": "CI test"})
         return [*nodes, "approval_gate", "action_draft", "final_response"]
