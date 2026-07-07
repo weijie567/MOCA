@@ -20,9 +20,10 @@ REQUIRED_MAPPINGS = [
     ("classify_intent:pre_route", "node", "safety_pre_route", "compatibility_alias", True),
     ("session_memory_load", "node", "session_context_load", "compatibility_alias", True),
     ("long_term_memory_retrieve", "node", "memory_context_load", "compatibility_alias", True),
-    ("reviewed_memory_context_retrieve", "node", "memory_context_load", "runtime", True),
+    ("reviewed_memory_context_retrieve", "node", "memory_context_load", "compatibility_alias", True),
+    ("memory_context_load", "node", "memory_context_load", "runtime", True),
     ("extract_slots", "node", "slot_resolution_gate", "compatibility_alias", True),
-    ("slot_resolution_gate", "node", "slot_resolution_gate", "compatibility_alias", True),
+    ("slot_resolution_gate", "node", "slot_resolution_gate", "runtime", True),
     ("route_after_intent", "router", "route_after_contextual_intent", "compatibility_alias", True),
     ("route_after_slots", "router", "route_after_slot_resolution", "compatibility_alias", True),
 ]

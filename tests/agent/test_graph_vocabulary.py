@@ -16,6 +16,12 @@ PHASE54_ALIAS_REASON_CODES = {
     "IMPORT_TEST_COMPATIBILITY",
     "DELETE_BY_PHASE_58",
 }
+PHASE55_MEMORY_ALIAS_REASON_CODES = {
+    "PHASE_55_COMPATIBILITY_ALIAS",
+    "HISTORICAL_TRACE_PROJECTION",
+    "IMPORT_TEST_COMPATIBILITY",
+    "DELETE_BY_PHASE_58",
+}
 
 
 @pytest.mark.parametrize(
@@ -27,7 +33,8 @@ PHASE54_ALIAS_REASON_CODES = {
         ("session_memory_load", "node", "session_context_load", "compatibility_alias", True),
         ("session_context_load", "node", "session_context_load", "runtime", True),
         ("long_term_memory_retrieve", "node", "memory_context_load", "compatibility_alias", True),
-        ("reviewed_memory_context_retrieve", "node", "memory_context_load", "runtime", True),
+        ("reviewed_memory_context_retrieve", "node", "memory_context_load", "compatibility_alias", True),
+        ("memory_context_load", "node", "memory_context_load", "runtime", True),
         ("extract_slots", "node", "slot_resolution_gate", "compatibility_alias", True),
         ("slot_resolution_gate", "node", "slot_resolution_gate", "runtime", True),
         ("route_after_intent", "router", "route_after_contextual_intent", "compatibility_alias", True),
@@ -84,6 +91,7 @@ def test_target_graph_names_are_identity_mapped(name: str, kind: str) -> None:
         "memory_write",
         "session_context_load",
         "contextual_intent_resolve",
+        "memory_context_load",
         "rag_context_build",
         "claim_verify",
     ],
@@ -153,6 +161,44 @@ def test_phase54_slot_resolution_vocabulary_entries_are_unique() -> None:
         ("router", "route_after_slot_resolution"),
         ("node", "extract_slots"),
         ("router", "route_after_slots"),
+    }
+
+    for pair in expected_pairs:
+        matches = [
+            entry
+            for entry in graph_vocabulary_module._ENTRIES
+            if (entry.kind, entry.legacy_name) == pair
+        ]
+        assert len(matches) == 1, pair
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "long_term_memory_retrieve",
+        "reviewed_memory_context_retrieve",
+    ],
+)
+def test_phase55_retained_memory_aliases_are_compatibility_only_with_delete_phase(name: str) -> None:
+    entry = graph_vocabulary_entry(name, kind="node")
+    projected = project_trace_step_for_contract({"node": name, "status": "completed"})
+
+    assert entry is not None
+    assert entry.target_name == "memory_context_load"
+    assert entry.status == "compatibility_alias"
+    assert entry.runnable is True
+    assert PHASE55_MEMORY_ALIAS_REASON_CODES <= set(entry.reason_codes)
+    assert projected["implementation_node"] == name
+    assert projected["target_node"] == "memory_context_load"
+    assert projected["target_graph_status"] == "compatibility_alias"
+    assert projected["target_graph_runnable"] is True
+
+
+def test_phase55_memory_vocabulary_entries_are_unique() -> None:
+    expected_pairs = {
+        ("node", "memory_context_load"),
+        ("node", "long_term_memory_retrieve"),
+        ("node", "reviewed_memory_context_retrieve"),
     }
 
     for pair in expected_pairs:

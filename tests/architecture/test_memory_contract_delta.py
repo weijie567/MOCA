@@ -147,6 +147,7 @@ def test_memory_graph_aliases_remain_compatibility_aliases() -> None:
     aliases = {
         "session_memory_load": "session_context_load",
         "long_term_memory_retrieve": "memory_context_load",
+        "reviewed_memory_context_retrieve": "memory_context_load",
         "memory_context_load": "memory_context_load",
     }
 
@@ -156,7 +157,24 @@ def test_memory_graph_aliases_remain_compatibility_aliases() -> None:
         assert entry.target_name == target_name
         assert entry.runnable is True
 
-    assert graph_vocabulary_entry("long_term_memory_retrieve", kind="node").status == "compatibility_alias"
+    phase55_reasons = {
+        "PHASE_55_COMPATIBILITY_ALIAS",
+        "HISTORICAL_TRACE_PROJECTION",
+        "IMPORT_TEST_COMPATIBILITY",
+        "DELETE_BY_PHASE_58",
+    }
+    long_term_entry = graph_vocabulary_entry("long_term_memory_retrieve", kind="node")
+    reviewed_entry = graph_vocabulary_entry("reviewed_memory_context_retrieve", kind="node")
+    runtime_entry = graph_vocabulary_entry("memory_context_load", kind="node")
+
+    assert long_term_entry is not None
+    assert reviewed_entry is not None
+    assert runtime_entry is not None
+    assert long_term_entry.status == "compatibility_alias"
+    assert reviewed_entry.status == "compatibility_alias"
+    assert runtime_entry.status == "runtime"
+    assert phase55_reasons <= set(long_term_entry.reason_codes)
+    assert phase55_reasons <= set(reviewed_entry.reason_codes)
 
 
 def test_memory_contract_boundary_tests_are_present() -> None:
