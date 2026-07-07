@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
-status: executing
-stopped_at: Completed 57-04-PLAN.md
-last_updated: "2026-07-07T15:07:31.065Z"
+status: verifying
+stopped_at: Completed 57-05-PLAN.md
+last_updated: "2026-07-07T15:39:16.651Z"
 last_activity: 2026-07-07
 progress:
   total_phases: 23
-  completed_phases: 20
+  completed_phases: 21
   total_plans: 69
-  completed_plans: 68
-  percent: 99
+  completed_plans: 69
+  percent: 100
 ---
 
 # Project State: MOCA
@@ -30,13 +30,13 @@ See: `.planning/PROJECT.md` (updated 2026-07-07)
 
 ## Current Position
 
-Phase: 57 (risk-gate-and-approval-gate-canonicalization) — EXECUTING
+Phase: 57 (risk-gate-and-approval-gate-canonicalization) — VERIFYING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-07
-Next: Start `$gsd-phase-autopilot 57`.
+Next: Run `$gsd-verify-work 57` if human verification is required.
 
-Progress: [██████████] 99%
+Progress: [██████████] 100%
 
 Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/MILESTONES.md`, and archived milestone files.
 
@@ -77,7 +77,7 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | 54. Slot Resolution Gate Cutover (CAGM-05) | 3/3 | Complete |
 | 55. Memory Context Load Cutover (CAGM-06) | 3/3 | Complete |
 | 56. Recommendation Generation and RAG Claim Status Alignment (CAGM-07) | 4/4 | Complete |
-| 57. Risk Gate and Approval Gate Canonicalization (CAGM-08) | 4/5 | In Progress |
+| 57. Risk Gate and Approval Gate Canonicalization (CAGM-08) | 5/5 | Complete |
 | 58. Canonical Graph Cutover and No-Debt Cleanup (CAGM-09) | 0/TBD | Not planned |
 
 Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review. Phase 40 closes the source-confirmed validation/backstop gaps intentionally deferred or left advisory after Phase 38/39. Phase 41 then handles the explicit breaking cleanup/API decision to remove the `UnifiedToolManager` legacy compatibility adapter.
@@ -143,6 +143,7 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 | Phase 57 P02 | 22min | 2 tasks | 15 files |
 | Phase 57 P03 | 21min | 2 tasks | 11 files |
 | Phase 57 P04 | 32m | 2 tasks | 16 files |
+| Phase 57 P05 | 24m | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -222,6 +223,9 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 - 57-03: receive_request clears stale approval/risk/action authority fields at new-turn intake for approval-like chat safety.
 - 57-03: approval_gate validates TrustedApprovalResultV1 plus tenant/run/hash bindings before setting approval_result.
 - Phase 57 Plan 04 treats risk_gate as the only current runtime risk node while preserving assess_risk_and_approval only as labeled historical projection until Phase 58.
+- Phase 57 Plan 05: Current-source docs use risk_gate for active graph/current route/current resume authority; assess_risk_and_approval remains historical compatibility or Phase 58 cleanup context.
+- Phase 57 Plan 05: Static legacy-hit classification excludes 57-VALIDATION.md itself to avoid recursive self-counting while classifying all other assess_risk_and_approval hits.
+- Phase 57 Plan 05: Phase 34 architecture guard now treats assess_risk_and_approval as a non-runnable Phase 57 compatibility alias.
 
 ### Roadmap Evolution
 
@@ -271,13 +275,13 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ## Session Continuity
 
-Last session: 2026-07-07T15:07:30.798Z
-Stopped at: Completed 57-04-PLAN.md
+Last session: 2026-07-07T15:39:16.641Z
+Stopped at: Completed 57-05-PLAN.md
 Resume file: None
-Next: Start `$gsd-phase-autopilot 57` when ready.
+Next: Run `$gsd-verify-work 57` if human verification is required.
 
-Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with security, UAT, validation, and clean review complete; Phase 46 session context repositioning complete with MEM-03 validated; Phase 47 complete with 47-01 contract/source-policy foundation, 47-02 trusted closed-case projection seam, 47-03 governed case-memory write lifecycle, and 47-04 retrieval/docs/validation closeout; Phase 48 complete with explicit preference contract, source policy/service guards, chat/admin write paths, retrieval/review/correction closeout, clean code review, completed UAT, and security verification (`threats_open: 0`); Phase 49 completed investigate bounded read-only ReAct main path with replay parent-operation limitation; Phase 50 completed canonical Agent Graph migration guardrail SPEC; Phase 51 completed canonical graph baseline guardrails and migration matrix verification; Phase 52 completed explicit `safety_pre_route` runtime node extraction with clean review and 8/8 verification; Phase 53 completed `session_context_load -> contextual_intent_resolve` active graph cutover with clean review, security verification, validation, and 20/20 verification; Phase 54 completed `slot_resolution_gate` active graph cutover with clean review, security verification (`threats_open: 0`), Nyquist validation, and 8/8 verification; Phase 55 completed `memory_context_load` active graph cutover with clean review, review fix, verification, validation, and security verification (`threats_open: 0`); Phase 56 completed `recommendation_generation` active graph cutover, RAG/claim fail-closed alignment, action-boundary review fixes, clean code review, UAT, security verification (`threats_open: 0`), and Nyquist validation.
-Next roadmap item: Phase 57 Risk Gate and Approval Gate Canonicalization.
+Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with security, UAT, validation, and clean review complete; Phase 46 session context repositioning complete with MEM-03 validated; Phase 47 complete with 47-01 contract/source-policy foundation, 47-02 trusted closed-case projection seam, 47-03 governed case-memory write lifecycle, and 47-04 retrieval/docs/validation closeout; Phase 48 complete with explicit preference contract, source policy/service guards, chat/admin write paths, retrieval/review/correction closeout, clean code review, completed UAT, and security verification (`threats_open: 0`); Phase 49 completed investigate bounded read-only ReAct main path with replay parent-operation limitation; Phase 50 completed canonical Agent Graph migration guardrail SPEC; Phase 51 completed canonical graph baseline guardrails and migration matrix verification; Phase 52 completed explicit `safety_pre_route` runtime node extraction with clean review and 8/8 verification; Phase 53 completed `session_context_load -> contextual_intent_resolve` active graph cutover with clean review, security verification, validation, and 20/20 verification; Phase 54 completed `slot_resolution_gate` active graph cutover with clean review, security verification (`threats_open: 0`), Nyquist validation, and 8/8 verification; Phase 55 completed `memory_context_load` active graph cutover with clean review, review fix, verification, validation, and security verification (`threats_open: 0`); Phase 56 completed `recommendation_generation` active graph cutover, RAG/claim fail-closed alignment, action-boundary review fixes, clean code review, UAT, security verification (`threats_open: 0`), and Nyquist validation; Phase 57 completed `risk_gate` active runtime canonicalization, approval resume separation, projection/docs/validation closeout, and static legacy-hit classification for Phase 58 cleanup.
+Next roadmap item: Phase 58 Canonical Graph Cutover and No-Debt Cleanup.
 
 **Completed Phase:** 56 (Recommendation Generation and RAG Claim Status Alignment) — 4/4 plans — 2026-07-07
 

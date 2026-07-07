@@ -17773,6 +17773,46 @@ UV_CACHE_DIR=/tmp/uv-cache uv run python -c "...; assert not missing, ...; asser
 - `.planning/phases/57-risk-gate-and-approval-gate-canonicalization/57-05-PLAN.md`
 - `57-VALIDATION.md` 的实际 closeout command evidence
 
+## 2026-07-07 Phase 57 Plan 57-05：GSD state/roadmap handler 仍需手动纠正 Phase 57 closeout 进度
+
+### 问题现象
+
+57-05 final metadata 更新时，`state.update-progress` 将整体 plan 计数写成 `70/69`，`roadmap.update-plan-progress 57` 返回 `no matching checkbox found`，没有更新 ROADMAP Phase 57 状态。
+
+### 如何检测 / 复现
+
+```text
+gsd-sdk query state.update-progress
+gsd-sdk query roadmap.update-plan-progress 57
+git diff -- .planning/STATE.md .planning/ROADMAP.md .planning/REQUIREMENTS.md
+```
+
+### 关键证据或命令
+
+```text
+state.update-progress -> {"percent":100,"completed":70,"total":69}
+roadmap.update-plan-progress 57 -> {"updated":false,"phase":"57","reason":"no matching checkbox found"}
+```
+
+### 当前判断 / 根因
+
+这是 Phase 57 前序计划已暴露过的 GSD metadata handler 匹配/计数问题，不是 MOCA runtime 或测试失败。
+
+### 已做处理
+
+手动纠正 `.planning/STATE.md` 为 `69/69`、Phase 57 `5/5 Complete`，并手动更新 `.planning/ROADMAP.md` Phase 57 checkbox、progress table 与 57-05 plan checkbox。`CAGM-08` 在 closeout commands 和 validation evidence 记录后才标记为 Complete。
+
+### 剩余问题
+
+GSD handler 自身仍需后续工具侧修复；本次 Phase 57 closeout metadata 已手动校准。
+
+### 下次继续排查入口
+
+- `gsd-sdk query state.update-progress`
+- `gsd-sdk query roadmap.update-plan-progress 57`
+- `.planning/STATE.md`
+- `.planning/ROADMAP.md`
+
 ## 2026-07-07 Phase 57 Plan 57-05：Phase 34 architecture guard 仍期待 legacy risk alias runnable
 
 ### 问题现象

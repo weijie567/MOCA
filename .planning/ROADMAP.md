@@ -42,7 +42,7 @@ Code implementation is delegated to Codex per the project workflow; Claude is pl
 - [x] **Phase 54: Slot Resolution Gate Cutover** - Replace active `extract_slots` / `route_after_slots` graph boundary with canonical `slot_resolution_gate` and slot provenance (CAGM-05). Plan progress: 3/3 complete; verified 2026-07-07.
 - [x] **Phase 55: Memory Context Load Cutover** - Replace active `long_term_memory_retrieve` graph naming with canonical `memory_context_load` and contextual-only memory authority labels (CAGM-06). Plan progress: 3/3 complete; verified 2026-07-07.
 - [x] **Phase 56: Recommendation Generation and RAG Claim Status Alignment** - Canonicalize `recommendation_generation` and align RAG/claim fail-closed status semantics (CAGM-07). Plan progress: 4/4 complete; verified 2026-07-07.
-- [ ] **Phase 57: Risk Gate and Approval Gate Canonicalization** - Replace active `assess_risk_and_approval` with canonical `risk_gate` while preserving approval pending/trusted resume semantics (CAGM-08). Plan progress: 4/5 complete.
+- [x] **Phase 57: Risk Gate and Approval Gate Canonicalization** - Replace active `assess_risk_and_approval` with canonical `risk_gate` while preserving approval pending/trusted resume semantics (CAGM-08). Plan progress: 5/5 complete; verified 2026-07-07.
 - [ ] **Phase 58: Canonical Graph Cutover and No-Debt Cleanup** - Cut over the active graph to the final 15-node set and remove legacy node names, dual routes, and active compatibility aliases (CAGM-09). Not planned yet.
 
 ## Phase Details
@@ -118,7 +118,7 @@ Plans:
 | 54. Slot Resolution Gate Cutover | 3/3 | Complete | 2026-07-07 |
 | 55. Memory Context Load Cutover | 3/3 | Complete    | 2026-07-07 |
 | 56. Recommendation Generation and RAG Claim Status Alignment | 4/4 | Complete    | 2026-07-07 |
-| 57. Risk Gate and Approval Gate Canonicalization | 3/5 | In Progress | - |
+| 57. Risk Gate and Approval Gate Canonicalization | 5/5 | Complete | 2026-07-07 |
 | 58. Canonical Graph Cutover and No-Debt Cleanup | 0/TBD | Not planned | - |
 
 ### Phase 40: Tool Contract Validation Hardening
@@ -480,7 +480,7 @@ Plans:
 - [x] 57-02-PLAN.md — active graph/router/architecture baseline cutover to current-run `risk_gate` route values.
 - [x] 57-03-PLAN.md — trusted approval edit resume canonicalization and risk/approval separation hardening.
 - [x] 57-04-PLAN.md — runtime vocabulary/API/frontend/eval/diagnostic projection closeout.
-- [ ] 57-05-PLAN.md — docs, architecture debt, validation artifact, and static legacy-hit classification closeout.
+- [x] 57-05-PLAN.md — docs, architecture debt, validation artifact, and static legacy-hit classification closeout.
 
 ### Phase 58: Canonical Graph Cutover and No-Debt Cleanup
 
