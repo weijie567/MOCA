@@ -5,6 +5,7 @@ status: complete
 nyquist_compliant: true
 wave_0_complete: true
 created: 2026-07-07
+updated: 2026-07-07
 ---
 
 # Phase 56 — Validation Strategy
@@ -20,7 +21,7 @@ created: 2026-07-07
 | **Framework** | pytest 9.0.3 with pytest-asyncio 1.3.0 |
 | **Config file** | `pyproject.toml` |
 | **Quick run command** | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/agent/test_graph_vocabulary.py tests/agent/test_rag_context_routing.py tests/agent/rag_context/test_routing.py -q --tb=short` |
-| **Full suite command** | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/agent/test_graph.py tests/test_graph_routing.py tests/agent/test_rag_context_routing.py tests/agent/rag_context/test_routing.py tests/knowledge/test_verified_evidence_package.py tests/knowledge/test_claim_verification_bundle.py tests/agent/test_graph_vocabulary.py tests/agent/test_trace.py tests/test_trace_api.py tests/test_agent_runs_api.py tests/agent/test_nodes/test_generate_recommendation.py tests/agent/test_nodes/test_claim_verify.py tests/agent/test_nodes/test_final_response.py tests/agent/test_phase22_final_response.py tests/agent/test_phase22_recommendation_integration.py tests/knowledge/test_facade_integration.py -q --tb=short` |
+| **Full suite command** | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_routing.py tests/agent/test_graph.py tests/agent/test_graph_vocabulary.py tests/agent/test_nodes/test_generate_recommendation.py tests/agent/test_phase22_action_boundary.py tests/agent/test_phase22_final_response.py tests/agent/test_phase22_recommendation_integration.py tests/agent/test_rag_context_routing.py tests/agent/test_trace.py tests/architecture/test_canonical_graph_baseline.py tests/test_agent_runs_api.py tests/test_execute_action.py tests/test_graph_routing.py tests/test_trace_api.py` |
 | **Lint command** | `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent src/knowledge src/api tests/architecture tests/agent tests/knowledge tests/test_graph_routing.py tests/test_trace_api.py tests/test_agent_runs_api.py` |
 | **Estimated runtime** | ~60-180 seconds focused suite, depending on local DB/service state |
 
@@ -48,6 +49,10 @@ created: 2026-07-07
 | 56-04-01 | 04 | 3 | CAGM-07 | T-56-06 | Vocabulary/API/SSE projection exposes current-run `recommendation_generation` and historical `generate_recommendation -> recommendation_generation` compatibility. | trace/API/static | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph_vocabulary.py tests/agent/test_trace.py tests/test_trace_api.py tests/test_agent_runs_api.py -q --tb=short` | ✅ | ✅ green via task and full closeout: 474 passed, 1 skipped |
 | 56-04-02 | 04 | 3 | CAGM-07 | T-56-02 / T-56-04 | Final/API projection uses safe package/bundle fields and does not leak debug/verifier projections. | response/API | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_trace.py tests/test_trace_api.py tests/test_agent_runs_api.py tests/agent/test_nodes/test_final_response.py tests/agent/test_phase22_final_response.py -q --tb=short` | ✅ | ✅ green via task and full closeout: 474 passed, 1 skipped |
 | 56-04-03 | 04 | 3 | CAGM-07 | T-56-05 / T-56-06 | Docs/debt/phase artifacts record retained compatibility, Phase 50 documentation-sync checklist disposition, and approved command entrypoints. | docs/static | `UV_CACHE_DIR=/tmp/uv-cache uv run python -c 'from pathlib import Path; bad=[str(p) for p in Path(".planning/phases/56-recommendation-generation-and-rag-claim-status-alignment").glob("56-*.md") if any(line.strip().startswith(("pytest","python -m pytest")) for line in p.read_text().splitlines())]; assert not bad, bad'` | ✅ | ✅ green via artifact scan |
+| 56-RF-01 | review-fix | 4 | CAGM-07 | T-56-03 / T-56-04 | Final `action_draft` boundary blocks proposed actions unless canonical claim verification includes a positive allowed `action_recommendation`. | action-boundary/unit | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_action_boundary.py tests/test_execute_action.py -q --tb=short` | ✅ | ✅ green via iteration-2 validation: 51 passed |
+| 56-RF-02 | review-fix | 4 | CAGM-07 | T-56-03 / T-56-04 | Verified low-risk action recommendations without pre-existing `proposed_action` route to `assess_risk_and_approval` for risk/binding, while unsupported proposed actions fail closed. | router/unit | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_graph_routing.py tests/agent/rag_context/test_routing.py -q --tb=short` | ✅ | ✅ green via iteration-2 validation: 121 passed |
+| 56-RF-03 | review-fix | 4 | CAGM-07 | T-56-01 / T-56-06 | CI graph-contract eval harness patches active Phase 56 graph nodes rather than legacy generation nodes. | eval/contract | `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/eval_agent.py --mode ci --output /tmp/moca-agent-eval-review-fix-iter2.json` | ✅ | ✅ PASS |
+| 56-RF-04 | review-fix | 4 | CAGM-07 | T-56-05 / T-56-06 | Current architecture docs, UAT, SECURITY, and review artifacts reflect the active canonical graph and approved command entrypoints. | docs/static | `UV_CACHE_DIR=/tmp/uv-cache uv run python -c 'from pathlib import Path; bad=[f"{p}:{i}:{line.strip()}" for p in Path(".planning/phases/56-recommendation-generation-and-rag-claim-status-alignment").glob("56-*.md") for i,line in enumerate(p.read_text().splitlines(),1) if line.strip().startswith(("pytest", "python -m pytest"))]; assert not bad, bad'` | ✅ | ✅ green via secure/validate artifact scan |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -69,6 +74,25 @@ created: 2026-07-07
 - `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent src/knowledge src/api tests/architecture tests/agent tests/knowledge tests/test_graph_routing.py tests/test_trace_api.py tests/test_agent_runs_api.py` → pass
 - `UV_CACHE_DIR=/tmp/uv-cache uv run python -c 'from pathlib import Path; bad=[str(p) for p in Path(".planning/phases/56-recommendation-generation-and-rag-claim-status-alignment").glob("56-*.md") if any(line.strip().startswith(("pytest","python -m pytest")) for line in p.read_text().splitlines())]; assert not bad, bad'` → pass
 - `UV_CACHE_DIR=/tmp/uv-cache uv run git diff --check` → pass
+
+---
+
+## Post-Review Validation Audit 2026-07-07
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+| Added post-review verification rows | 4 |
+
+Additional post-code-review-fix evidence:
+
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_action_boundary.py tests/test_execute_action.py tests/test_graph_routing.py tests/agent/rag_context/test_routing.py -q --tb=short` → `172 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/eval_agent.py --mode ci --output /tmp/moca-agent-eval-review-fix-iter2.json` → `PASS`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/nodes/action_draft.py src/agent/routing.py tests/agent/test_phase22_action_boundary.py tests/test_execute_action.py tests/test_graph_routing.py tests/agent/rag_context/test_routing.py scripts/eval_agent.py` → pass
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/rag_context/test_routing.py tests/agent/test_graph.py tests/agent/test_graph_vocabulary.py tests/agent/test_nodes/test_generate_recommendation.py tests/agent/test_phase22_action_boundary.py tests/agent/test_phase22_final_response.py tests/agent/test_phase22_recommendation_integration.py tests/agent/test_rag_context_routing.py tests/agent/test_trace.py tests/architecture/test_canonical_graph_baseline.py tests/test_agent_runs_api.py tests/test_execute_action.py tests/test_graph_routing.py tests/test_trace_api.py` → `483 passed, 1 skipped, 28 warnings`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run python -c 'from pathlib import Path; bad=[f"{p}:{i}:{line.strip()}" for p in Path(".planning/phases/56-recommendation-generation-and-rag-claim-status-alignment").glob("56-*.md") for i,line in enumerate(p.read_text().splitlines(),1) if line.strip().startswith(("pytest", "python -m pytest"))]; assert not bad, bad'` → pass
 
 ---
 
