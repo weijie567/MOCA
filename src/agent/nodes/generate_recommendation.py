@@ -52,6 +52,20 @@ _SAFE_EVIDENCE_RISK_LABELS = frozenset(
 _ROUTING_RISK_LABELS = frozenset({"conflict", "manual_review_sensitive", "ocr_low_confidence", "stale_evidence"})
 _LEGACY_NODE = "generate_recommendation"
 _CANONICAL_NODE = "recommendation_generation"
+HISTORICAL_TRACE_PROJECTION = "HISTORICAL_TRACE_PROJECTION"
+IMPORT_TEST_COMPATIBILITY = "IMPORT_TEST_COMPATIBILITY"
+DELETE_BY_PHASE_58 = "DELETE_BY_PHASE_58"
+PHASE_56_COMPATIBILITY_ALIAS = {
+    "legacy_surface": _LEGACY_NODE,
+    "canonical_owner": _CANONICAL_NODE,
+    "reason": IMPORT_TEST_COMPATIBILITY,
+    "trace_projection": HISTORICAL_TRACE_PROJECTION,
+    "validation_tests": (
+        "tests/agent/test_nodes/test_generate_recommendation.py",
+        "tests/agent/test_phase22_recommendation_integration.py",
+    ),
+    "delete_phase": DELETE_BY_PHASE_58,
+}
 
 
 def _now_iso() -> str:
