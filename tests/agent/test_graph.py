@@ -56,7 +56,7 @@ ROUTER_EDGE_KEYS = {
     "route_after_contextual_intent": {"clarification_gate", "final_response", "investigate", "slot_resolution_gate"},
     "route_after_slot_resolution": {"clarification_gate", "investigate", "memory_context_load"},
     "route_after_risk": {"approval_gate", "final_response"},
-    "route_after_approval": {"assess_risk_and_approval", "action_draft", "final_response"},
+    "route_after_approval": {"risk_gate", "action_draft", "final_response"},
     "route_after_investigate": {
         "final_response",
         "clarification_gate",
@@ -65,7 +65,7 @@ ROUTER_EDGE_KEYS = {
     },
     "route_after_rag_context": {"recommendation_generation", "clarification_gate", "final_response"},
     "route_after_recommendation": {"claim_verify", "final_response"},
-    "route_after_claim_verify": {"assess_risk_and_approval", "final_response"},
+    "route_after_claim_verify": {"risk_gate", "final_response"},
 }
 GRAPH_TEST_TENANT_ID = "11111111-1111-1111-1111-111111111111"
 GRAPH_TEST_USER_ID = "22222222-2222-2222-2222-222222222222"
@@ -973,7 +973,7 @@ def test_memory_context_graph_runtime_names_project_to_target_vocabulary():
     assert target_graph_name("route_after_slot_resolution", kind="router") == "route_after_slot_resolution"
 
 
-def test_phase56_recommendation_generation_and_claim_verify_are_registered_as_runnable_graph_nodes():
+def test_phase57_recommendation_generation_claim_verify_and_risk_gate_are_registered_as_runnable_graph_nodes():
     graph = build_graph(MemorySaver())
     nodes = set(graph.get_graph().nodes)
     conditional_edges = {(edge.source, edge.target) for edge in graph.get_graph().edges if edge.conditional}
@@ -982,8 +982,10 @@ def test_phase56_recommendation_generation_and_claim_verify_are_registered_as_ru
     assert "recommendation_generation" in nodes
     assert "generate_recommendation" not in nodes
     assert "claim_verify" in nodes
+    assert "risk_gate" in nodes
+    assert "assess_risk_and_approval" not in nodes
     assert ("recommendation_generation", "claim_verify") in conditional_edges
-    assert ("claim_verify", "assess_risk_and_approval") in conditional_edges
+    assert ("claim_verify", "risk_gate") in conditional_edges
     assert ("claim_verify", "final_response") in conditional_edges
 
     source = inspect.getsource(build_graph)
@@ -991,6 +993,8 @@ def test_phase56_recommendation_generation_and_claim_verify_are_registered_as_ru
     assert 'builder.add_node("recommendation_generation"' in source
     assert 'builder.add_node("generate_recommendation"' not in source
     assert 'builder.add_node("claim_verify"' in source
+    assert 'builder.add_node("risk_gate"' in source
+    assert 'builder.add_node("assess_risk_and_approval"' not in source
     assert "route_after_claim_verify" in source
     single_line_source = " ".join(source.split())
     assert 'builder.add_conditional_edges( "recommendation_generation", route_after_recommendation' in (
@@ -1002,7 +1006,7 @@ def test_approval_gate_edit_branch_is_registered_in_compiled_graph():
     graph = build_graph(MemorySaver()).get_graph()
     conditional_edges = {(edge.source, edge.target) for edge in graph.edges if edge.conditional}
 
-    assert ("approval_gate", "assess_risk_and_approval") in conditional_edges
+    assert ("approval_gate", "risk_gate") in conditional_edges
     assert ("approval_gate", "action_draft") in conditional_edges
 
 

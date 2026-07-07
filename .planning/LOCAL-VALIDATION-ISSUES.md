@@ -17493,3 +17493,43 @@ git diff -- .planning/REQUIREMENTS.md
 
 - `.planning/REQUIREMENTS.md` CAGM-08 checkbox 与 traceability table
 - Phase 57 5/5 summary completion state
+
+## 2026-07-07 Phase 57 Plan 57-02：Task 1 RED 期望失败与 Phase 33 guard 同批暴露
+
+### 问题现象
+
+按 57-02 Task 1 先更新测试期望到 canonical `risk_gate` 后，计划验证命令失败：active graph 仍注册 / 路由到 `assess_risk_and_approval`，claim router 和 approval edit resume 仍返回旧 route。同期 `tests/architecture/test_phase33_rag_claim_boundaries.py::test_writer_ownership_is_limited_to_phase33_target_fields` 也失败，显示 recommendation node 的静态 dict key 扫描命中 RAG/claim writer keys。
+
+### 如何检测 / 复现
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/architecture/test_phase33_rag_claim_boundaries.py tests/agent/test_graph.py tests/test_graph_routing.py tests/agent/rag_context/test_routing.py tests/test_approval_api.py tests/approvals/test_needs_info_resume.py tests/approvals/test_service_transitions.py -q --tb=short
+```
+
+### 关键证据或命令
+
+```text
+20 failed, 211 passed, 1 skipped, 28 warnings
+主要期望失败：graph_add_node_names 仍包含 assess_risk_and_approval；claim_verify / approval_gate path map 没有 risk_gate；route_after_claim_verify 仍返回 assess_risk_and_approval；ApprovalService edit resume_payload 仍是 assess_risk_and_approval。
+额外失败：test_writer_ownership_is_limited_to_phase33_target_fields 的 recommendation_keys 与 RAG_WRITER_KEYS | CLAIM_WRITER_KEYS 不再 disjoint。
+```
+
+### 当前判断 / 根因
+
+前半部分是 TDD RED 的预期信号：source 尚未执行 57-02 active graph/router/API/service cutover。Phase 33 guard 失败不是本次测试改动直接引入的 route literal 问题，但它位于 57-02 必跑验证集内，后续 GREEN 必须在不削弱 side-effect-free / writer ownership 断言的前提下修正。
+
+### 已做处理
+
+已保留 RED 测试改动，准备提交 test commit；后续 GREEN 会切换 active graph、router、approval resume，并处理 Phase 33 guard 的静态扫描误报或真实边界漂移。
+
+### 剩余问题
+
+GREEN 后需要重跑同一条 approved pytest 命令，确认 canonical `risk_gate` cutover 与 Phase 33 claim/RAG 边界同时通过。
+
+### 下次继续排查入口
+
+- `src/agent/graph.py`
+- `src/agent/routing.py`
+- `src/approvals/service.py`
+- `src/api/routers/approvals.py`
+- `tests/architecture/test_phase33_rag_claim_boundaries.py`

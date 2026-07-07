@@ -40,7 +40,7 @@ CURRENT_ACTIVE_GRAPH_NODES_BASELINE = frozenset(
         "rag_context_build",
         "recommendation_generation",
         "claim_verify",
-        "assess_risk_and_approval",
+        "risk_gate",
         "clarification_gate",
         "approval_gate",
         "action_draft",
@@ -48,13 +48,7 @@ CURRENT_ACTIVE_GRAPH_NODES_BASELINE = frozenset(
     }
 )
 
-MIGRATION_MODE_LEGACY_NODE_MAP = {
-    "assess_risk_and_approval": {
-        "target": "risk_gate",
-        "delete_phase": "Phase 57",
-        "owner_requirement": "CAGM-08",
-    },
-}
+MIGRATION_MODE_LEGACY_NODE_MAP = {}
 
 FORBIDDEN_MAIN_CHAIN_REGISTERED_NODES = frozenset(
     {"slot_extraction", "normalize_input", "memory_write", "trace_close", "action_execution"}
@@ -93,18 +87,17 @@ CURRENT_CONDITIONAL_EDGE_BASELINE = {
         "final_response": "final_response",
     },
     ("claim_verify", "route_after_claim_verify"): {
-        "assess_risk_and_approval": "assess_risk_and_approval",
+        "risk_gate": "risk_gate",
         "final_response": "final_response",
     },
-    ("assess_risk_and_approval", "route_after_risk"): {
-        "assess_risk_and_approval": "assess_risk_and_approval",
+    ("risk_gate", "route_after_risk"): {
         "approval_gate": "approval_gate",
         "action_draft": "action_draft",
         "final_response": "final_response",
     },
     ("approval_gate", "route_after_approval"): {
         "approval_gate": "approval_gate",
-        "assess_risk_and_approval": "assess_risk_and_approval",
+        "risk_gate": "risk_gate",
         "action_draft": "action_draft",
         "final_response": "final_response",
     },

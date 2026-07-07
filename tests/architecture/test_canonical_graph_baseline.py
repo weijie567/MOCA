@@ -16,16 +16,18 @@ from tests.architecture.graph_baseline import (
 )
 
 
-def test_current_active_graph_node_set_matches_phase56_baseline() -> None:
+def test_current_active_graph_node_set_matches_phase57_baseline() -> None:
     assert "safety_pre_route" in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
     assert "session_context_load" in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
     assert "contextual_intent_resolve" in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
     assert "memory_context_load" in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
     assert "recommendation_generation" in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
+    assert "risk_gate" in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
     assert "classify_intent" not in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
     assert "session_memory_load" not in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
     assert "long_term_memory_retrieve" not in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
     assert "generate_recommendation" not in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
+    assert "assess_risk_and_approval" not in CURRENT_ACTIVE_GRAPH_NODES_BASELINE
     assert graph_add_node_names() == CURRENT_ACTIVE_GRAPH_NODES_BASELINE
 
 
@@ -65,33 +67,25 @@ def test_target_canonical_graph_node_set_is_exact_phase50_contract() -> None:
 def test_migration_mode_maps_every_active_legacy_node_to_target() -> None:
     active_legacy_nodes = CURRENT_ACTIVE_GRAPH_NODES_BASELINE - TARGET_CANONICAL_GRAPH_NODES
 
-    assert active_legacy_nodes == frozenset(MIGRATION_MODE_LEGACY_NODE_MAP)
-    assert MIGRATION_MODE_LEGACY_NODE_MAP == {
-        "assess_risk_and_approval": {
-            "target": "risk_gate",
-            "delete_phase": "Phase 57",
-            "owner_requirement": "CAGM-08",
-        },
-    }
+    assert active_legacy_nodes == frozenset()
+    assert MIGRATION_MODE_LEGACY_NODE_MAP == {}
     for legacy_node, mapping in MIGRATION_MODE_LEGACY_NODE_MAP.items():
         assert mapping["target"] in TARGET_CANONICAL_GRAPH_NODES, legacy_node
         assert mapping["delete_phase"] in {"Phase 53", "Phase 54", "Phase 55", "Phase 56", "Phase 57"}
         assert mapping["owner_requirement"].startswith("CAGM-")
 
 
-def test_phase56_closes_recommendation_legacy_row_but_preserves_phase57_risk_row() -> None:
+def test_phase57_closes_active_risk_legacy_row() -> None:
     assert "generate_recommendation" not in MIGRATION_MODE_LEGACY_NODE_MAP
-    assert MIGRATION_MODE_LEGACY_NODE_MAP == {
-        "assess_risk_and_approval": {
-            "target": "risk_gate",
-            "delete_phase": "Phase 57",
-            "owner_requirement": "CAGM-08",
-        },
-    }
+    assert "assess_risk_and_approval" not in MIGRATION_MODE_LEGACY_NODE_MAP
+    assert MIGRATION_MODE_LEGACY_NODE_MAP == {}
 
     entry = graph_vocabulary.graph_vocabulary_entry("generate_recommendation", kind="node")
     if entry is not None:
         assert entry.target_name == "recommendation_generation"
+    risk_entry = graph_vocabulary.graph_vocabulary_entry("assess_risk_and_approval", kind="node")
+    if risk_entry is not None:
+        assert risk_entry.target_name == "risk_gate"
 
 
 def test_current_router_mappings_match_source_baseline() -> None:
@@ -142,12 +136,15 @@ def test_current_router_mappings_account_for_legacy_destinations() -> None:
         "claim_verify": "claim_verify",
         "final_response": "final_response",
     }
-    assert route_maps[("claim_verify", "route_after_claim_verify")]["assess_risk_and_approval"] == (
-        "assess_risk_and_approval"
-    )
-    assert route_maps[("approval_gate", "route_after_approval")]["assess_risk_and_approval"] == (
-        "assess_risk_and_approval"
-    )
+    assert route_maps[("claim_verify", "route_after_claim_verify")]["risk_gate"] == "risk_gate"
+    assert ("assess_risk_and_approval", "route_after_risk") not in route_maps
+    assert route_maps[("risk_gate", "route_after_risk")] == {
+        "approval_gate": "approval_gate",
+        "action_draft": "action_draft",
+        "final_response": "final_response",
+    }
+    assert "risk_gate" not in route_maps[("risk_gate", "route_after_risk")]
+    assert route_maps[("approval_gate", "route_after_approval")]["risk_gate"] == "risk_gate"
 
     legacy_destinations = {
         destination
@@ -155,7 +152,7 @@ def test_current_router_mappings_account_for_legacy_destinations() -> None:
         for destination in route_map.values()
         if destination in MIGRATION_MODE_LEGACY_NODE_MAP
     }
-    assert legacy_destinations == {"assess_risk_and_approval"}
+    assert legacy_destinations == set()
 
 
 def test_forbidden_internal_or_lifecycle_names_are_not_registered_graph_nodes() -> None:

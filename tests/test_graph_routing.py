@@ -8,8 +8,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.graph import route_after_approval, route_after_risk
-from src.agent.nodes import assess_risk_and_approval as risk_module
 from src.agent import routing as routing_module
+from src.agent.nodes import assess_risk_and_approval as risk_module
+from src.agent.nodes import risk_gate as risk_gate_module
 from src.agent.routing import (
     SLOT_RESOLUTION_ROUTES,
     route_after_claim_verify,
@@ -281,7 +282,7 @@ def test_route_after_claim_verify_routes_low_risk_verified_action_without_preexi
         "claim_verification_bundle": _claim_bundle_payload(tenant_id),
     }
 
-    assert route_after_claim_verify(state) == "assess_risk_and_approval"
+    assert route_after_claim_verify(state) == "risk_gate"
 
 
 def test_route_after_recommendation_routes_actionable_draft_to_claim_verify():
@@ -485,9 +486,7 @@ def test_phase56_recommendation_route_maps_target_canonical_graph_node():
     }
     legacy_recommendation_edge = ("generate_" "recommendation", "route_after_recommendation")
     assert legacy_recommendation_edge not in route_maps
-    assert route_maps[("claim_verify", "route_after_claim_verify")]["assess_risk_and_approval"] == (
-        "assess_risk_and_approval"
-    )
+    assert route_maps[("claim_verify", "route_after_claim_verify")]["risk_gate"] == "risk_gate"
 
 
 def test_route_after_risk_returns_final_response_for_auto_allowed_snapshot_verified_action():
@@ -598,11 +597,11 @@ def test_route_after_approval_sends_edit_to_risk_reroute_not_action_draft():
             "decision_type": "edit",
             "status": "superseded",
             "new_action_payload_hash": "sha256:" + "3" * 64,
-            "resume_route": "assess_risk_and_approval",
+            "resume_route": "risk_gate",
         }
     )
 
-    assert route_after_approval(state) == "assess_risk_and_approval"
+    assert route_after_approval(state) == "risk_gate"
 
 
 def test_route_after_approval_fails_closed_on_hash_mismatch():
@@ -767,7 +766,7 @@ async def test_edit_resume_rerisk_uses_exact_trusted_edited_action(
             safety_snapshot_hash=old_snapshot_hash,
             edited_action=edited_action,
             new_action_payload_hash=edited_hash,
-            resume_route="assess_risk_and_approval",
+            resume_route="risk_gate",
         ),
         "trace_steps": [],
     }
@@ -784,7 +783,7 @@ async def test_edit_resume_rerisk_uses_exact_trusted_edited_action(
         ),
     )
 
-    result = await risk_module.assess_risk_and_approval(state, {"configurable": {"session": session}})
+    result = await risk_gate_module.risk_gate(state, {"configurable": {"session": session}})
 
     snapshot = (
         await session.execute(

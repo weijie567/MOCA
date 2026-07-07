@@ -498,7 +498,7 @@ async def test_edit_decision_reroutes_to_risk_without_approved_resume_authority(
     assert result.resume_payload is not None
     assert result.resume_payload["status"] == "superseded"
     assert result.resume_payload["decision_type"] == "edit"
-    assert result.resume_payload["resume_route"] == "assess_risk_and_approval"
+    assert result.resume_payload["resume_route"] == "risk_gate"
     assert result.resume_payload["new_action_payload_hash"]
     assert result.resume_payload["new_action_payload_hash"] != result.action_payload_hash
     assert result.superseded_by_request_id is None

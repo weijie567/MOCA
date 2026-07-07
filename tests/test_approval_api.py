@@ -846,7 +846,7 @@ async def test_decide_edit_supersedes_and_resumes_risk_reroute(
     assert command.resume["schema_version"] == "approval_result.v1"
     assert command.resume["decision_type"] == "edit"
     assert command.resume["status"] == "superseded"
-    assert command.resume["resume_route"] == "assess_risk_and_approval"
+    assert command.resume["resume_route"] == "risk_gate"
     assert command.resume["edited_action"] == edited_action
     assert command.resume["new_action_payload_hash"] == payload["data"]["new_action_payload_hash"]
     assert config["configurable"]["permissions"] == []
@@ -981,7 +981,7 @@ async def test_decide_edit_resume_failure_can_retry_and_rebind_without_new_decis
     first_resume = dict(graph.calls[0][0].resume)
     assert first_resume["decision_type"] == "edit"
     assert first_resume["status"] == "superseded"
-    assert first_resume["resume_route"] == "assess_risk_and_approval"
+    assert first_resume["resume_route"] == "risk_gate"
     assert first_resume["edited_action"] == edited_action
     assert first_resume["new_action_payload_hash"]
 

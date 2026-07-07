@@ -404,7 +404,7 @@ async def test_edit_generates_new_action_payload_hash_before_reroute(session: As
     assert result.resume_payload["decision_type"] == "edit"
     assert result.resume_payload["status"] == "superseded"
     assert result.resume_payload["new_action_payload_hash"] == result.new_action_payload_hash
-    assert result.resume_payload["resume_route"] == "assess_risk_and_approval"
+    assert result.resume_payload["resume_route"] == "risk_gate"
 
 
 @pytest.mark.asyncio
@@ -513,6 +513,6 @@ async def test_edit_supersedes_old_revision_and_reroutes_to_risk(session: AsyncS
     assert request.superseded_by_request_id is None
     assert result.superseded_by_request_id is None
     assert result.resume_payload is not None
-    assert result.resume_payload["resume_route"] == "assess_risk_and_approval"
+    assert result.resume_payload["resume_route"] == "risk_gate"
     assert await _active_revision_count(session, request) == 0
     await _assert_old_revision_cannot_execute(session, old_decision_command)

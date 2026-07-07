@@ -256,7 +256,7 @@ def test_route_after_recommendation_sends_claims_and_actions_to_claim_verify() -
                 ),
                 "proposed_action": {"type": "create_compensation_review"},
             },
-            "assess_risk_and_approval",
+            "risk_gate",
         ),
         (
             {
@@ -275,7 +275,7 @@ def test_route_after_recommendation_sends_claims_and_actions_to_claim_verify() -
                 "recommendation_draft": {"recommended_action": "issue_coupon", "risk_level": "low"},
                 "claim_verification_bundle": _continue_bundle(claim_results=[_allowed_action_claim_result()]),
             },
-            "assess_risk_and_approval",
+            "risk_gate",
         ),
         (
             {
@@ -284,7 +284,7 @@ def test_route_after_recommendation_sends_claims_and_actions_to_claim_verify() -
                 ),
                 "risk_signals": ["manual_review_required"],
             },
-            "assess_risk_and_approval",
+            "risk_gate",
         ),
         (
             {
@@ -332,7 +332,7 @@ def test_route_after_claim_verify_maps_bundle_routes_to_registered_graph_keys(
     route = route_after_claim_verify(state)
 
     assert route == expected_route
-    assert route in {"assess_risk_and_approval", "final_response"}
+    assert route in {"risk_gate", "final_response"}
     assert route != "continue"
 
 
@@ -386,7 +386,7 @@ def test_route_after_claim_verify_sends_verified_action_recommendation_to_curren
         }
     )
 
-    assert route == "assess_risk_and_approval"
+    assert route == "risk_gate"
 
 
 @pytest.mark.parametrize(

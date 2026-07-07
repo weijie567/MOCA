@@ -139,7 +139,7 @@ def test_rag_and_claim_routers_are_total_and_side_effect_free() -> None:
     }
 
     assert rag_routes <= {"recommendation_generation", "clarification_gate", "final_response"}
-    assert claim_routes <= {"assess_risk_and_approval", "final_response"}
+    assert claim_routes <= {"risk_gate", "final_response"}
 
     router_source = "\n".join(
         [
