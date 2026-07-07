@@ -4,8 +4,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from langgraph.types import interrupt
+from pydantic import ValidationError
 
 from src.agent.state import AgentState
+from src.approvals.schemas import TrustedApprovalResultV1
 
 APPROVAL_TIMEOUT_HOURS = 24
 
@@ -21,6 +23,26 @@ def _trace_step(status: str, started_at: str) -> dict[str, Any]:
         "started_at": started_at,
         "completed_at": _now_iso(),
     }
+
+
+def _is_trusted_decision_for_state(decision: Any, state: AgentState) -> bool:
+    if not isinstance(decision, dict) or decision.get("schema_version") != "approval_result.v1":
+        return False
+    try:
+        trusted = TrustedApprovalResultV1.model_validate(decision)
+    except ValidationError:
+        return False
+    if str(trusted.tenant_id) != str(state.get("tenant_id") or ""):
+        return False
+    if str(trusted.run_id) != str(state.get("current_run_id") or ""):
+        return False
+    if trusted.action_payload_hash != state.get("action_payload_hash"):
+        return False
+    if trusted.safety_snapshot_ref != state.get("safety_snapshot_ref"):
+        return False
+    if trusted.safety_snapshot_hash != state.get("safety_snapshot_hash"):
+        return False
+    return True
 
 
 async def approval_gate(state: AgentState) -> dict:
@@ -72,7 +94,7 @@ async def approval_gate(state: AgentState) -> dict:
     }
 
     decision = interrupt(interrupt_payload)
-    if not isinstance(decision, dict) or decision.get("schema_version") != "approval_result.v1":
+    if not _is_trusted_decision_for_state(decision, state):
         return {
             "approval_result": None,
             "final_response": "审批结果无效，已停止执行高风险操作。",

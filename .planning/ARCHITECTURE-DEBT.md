@@ -1273,3 +1273,27 @@
 
 **剩余风险**
 - 🟡 Phase 58 仍需删除 `assess_risk_and_approval` legacy route compatibility branch and related retained compatibility aliases after no-debt cleanup。
+
+## Phase 57 Plan 03 — approval_gate trusted result validation 与新回合 approval authority 清空 ✅已修复验证
+
+**问题 / 根因**
+- `src/agent/nodes/approval_gate.py` 原先只检查 interrupt resume payload 是 dict 且 `schema_version == "approval_result.v1"`，未在写入 `approval_result` 前执行完整 `TrustedApprovalResultV1` schema 校验与 tenant/run/hash 绑定校验。
+- `src/agent/nodes/receive_request.py` 已清空 `approval_result`、`proposed_action`、snapshot hash 等字段，但漏掉 `approval_plan`、`risk_decision`、target merchant refs、business/verified refs、`approval_idempotency_key`、`auto_allowed_binding` 等 approval/risk authority 字段。
+
+**影响**
+- schema-only 或带 `raw_text` 的非可信 resume payload 可能短暂进入 `approval_result` state，虽然后续 `route_after_approval` 仍会 fail closed，但 approval boundary 的 defense-in-depth 不完整。
+- 普通 approval-like chat 新回合不会进入 `approval_gate` / `action_draft`，但旧 approval authority 字段可能从 checkpoint state 残留，增加后续节点误用风险。
+
+**修复**
+- 在 `approval_gate` 中新增 `_is_trusted_decision_for_state(...)`，用 `TrustedApprovalResultV1.model_validate(...)` 校验完整 trusted resume schema，并校验 tenant、run、`action_payload_hash`、`safety_snapshot_ref`、`safety_snapshot_hash` 与当前 state 绑定一致。
+- 在 `receive_request` 新回合 reset 中补齐 approval/risk/action authority 字段：`approval_plan`、`risk_decision`、target merchant refs、business/verified refs、claim verification refs、`approval_idempotency_key`、`auto_allowed_binding` 等。
+- 新增 AST static test，防止 `approval_gate` 引入 risk/action/snapshot runtime coupling，同时避免 comments/docs/type-only false positives。
+
+**证据 / 验证**
+- 文件：`src/agent/nodes/approval_gate.py`、`src/agent/nodes/receive_request.py`、`tests/test_approval_gate.py`、`tests/agent/test_graph.py`
+- Phase / commit：57-03 Task 2 GREEN（本条所在提交）
+- RED evidence：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_gate.py tests/agent/test_graph.py tests/agent/test_nodes/test_safety_pre_route.py tests/agent/test_intent_routing.py tests/agent/test_clarification_gate.py -q --tb=short` → `3 failed, 1169 passed, 29 warnings`
+- GREEN evidence：同一 focused command → `1172 passed, 29 warnings`
+
+**剩余风险**
+- 🟡 Phase 58 仍需删除 `assess_risk_and_approval` retained compatibility surfaces；本条只关闭 approval_gate / receive_request 的 current trust-boundary 缺口。

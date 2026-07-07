@@ -17648,3 +17648,42 @@ Task 1 GREEN focused 验证已通过：`111 passed, 1 warning`。Phase 58 仍需
 - `src/api/routers/approvals.py::_terminal_decision_result_for_retry`
 - `src/api/routers/approvals.py::_canonical_retry_resume_route`
 - `tests/test_approval_api.py::test_decide_edit_retry_normalizes_persisted_legacy_route_before_graph_resume`
+
+## 2026-07-07 Phase 57 Plan 57-03：Task 2 RED 验证发现 approval_gate schema-only 接受与新回合 stale approval authority 残留
+
+### 问题现象
+
+Task 2 RED 新增 approval boundary 覆盖后，focused 验证出现 3 个预期失败：`approval_gate` 会接受仅带 `schema_version="approval_result.v1"` 的不完整 resume payload；普通 approval-like chat 新回合虽然没有进入 `approval_gate` / `action_draft`，但旧 `approval_plan` 等 approval authority 字段仍从 checkpoint state 残留。
+
+### 如何检测 / 复现
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_gate.py tests/agent/test_graph.py tests/agent/test_nodes/test_safety_pre_route.py tests/agent/test_intent_routing.py tests/agent/test_clarification_gate.py -q --tb=short
+```
+
+### 关键证据或命令
+
+```text
+RED：3 failed, 1169 passed, 29 warnings
+失败 1/2：test_approval_gate_rejects_invalid_or_incomplete_resume_payloads 接收到 schema-only / raw_text payload 时 result["approval_result"] 不是 None
+失败 3：test_approval_chat_clears_contaminated_approval_authority_state 中 final_state.get("approval_plan") 仍为旧 approval_plan
+```
+
+### 当前判断 / 根因
+
+`approval_gate` 只检查 dict 与 schema_version，未在写入 `approval_result` 前执行完整 `TrustedApprovalResultV1` 校验与 run/tenant/hash 绑定校验。`receive_request` 已重置 `approval_result`、`proposed_action`、snapshot hash 等字段，但漏掉 `approval_plan`、`risk_decision`、target merchant refs、business/verified refs、`approval_idempotency_key` 和 `auto_allowed_binding` 等同属 approval/risk authority 的新回合临时字段。
+
+### 已做处理
+
+GREEN 实现中 `approval_gate` 在接收 interrupt resume 后用 `TrustedApprovalResultV1.model_validate(...)` 校验完整 trusted schema，并校验 tenant/run/action hash/snapshot binding 后才写入 `approval_result`；`receive_request` 增补 approval/risk/action authority 字段的新回合清空。
+
+### 剩余问题
+
+Task 2 GREEN focused 验证已通过：`1172 passed, 29 warnings`。普通 chat approval spoofing 与 schema-only resume 接受问题在本地已关闭。
+
+### 下次继续排查入口
+
+- `src/agent/nodes/approval_gate.py::_is_trusted_decision_for_state`
+- `src/agent/nodes/receive_request.py::receive_request`
+- `tests/test_approval_gate.py::test_approval_gate_rejects_invalid_or_incomplete_resume_payloads`
+- `tests/agent/test_graph.py::test_approval_chat_clears_contaminated_approval_authority_state`
