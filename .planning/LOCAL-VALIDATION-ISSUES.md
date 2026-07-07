@@ -15255,6 +15255,79 @@ git diff --check -- .planning/phases/55-memory-context-load-cutover/55-RESEARCH.
 - `.planning/phases/55-memory-context-load-cutover/55-RESEARCH.md`
 - `git diff --check`
 
+## 2026-07-07 — Phase 55 Wave 2 spot-check 的 python -c 换行转义错误
+
+### 问题现象
+
+Phase 55 Wave 2 完成后，orchestrator 做 active graph/router spot-check 时运行了 `UV_CACHE_DIR=/tmp/uv-cache uv run python -c "..."`。命令字符串内手写了 `\nfor ...` 形式的换行转义，zsh/Python 组合下被解释成非法的 line continuation，导致 `SyntaxError`。
+
+### 如何检测 / 复现
+
+在仓库根目录运行该错误的一行 `python -c` AST 检查命令即可复现。
+
+### 关键证据或命令
+
+失败输出包含：
+
+```text
+SyntaxError: unexpected character after line continuation character
+```
+
+错误位置指向 `;\\nfor n in ast.walk(tree):` 附近。
+
+### 当前判断 / 根因
+
+这是临时本地验证脚本的 shell/Python quoting 写法错误，不是 Phase 55 Wave 2 的 graph/router 实现失败。命令入口使用了项目允许的 `UV_CACHE_DIR=/tmp/uv-cache uv run python`，但脚本正文不适合塞进单行 `python -c`。
+
+### 已做处理
+
+已改用 heredoc 形式通过 `UV_CACHE_DIR=/tmp/uv-cache uv run python <<'PY' ... PY` 重跑同一 AST/static 检查，避免手写 `\n` 转义。
+
+### 剩余问题
+
+无代码阻塞；以重跑结果为准。
+
+### 下次继续排查入口
+
+- `src/agent/graph.py`
+- `src/agent/routing.py`
+- `tests/architecture/graph_baseline.py`
+
+## 2026-07-07 — Phase 55 Wave 2 spot-check AST endpoint 假设过窄
+
+### 问题现象
+
+修复上一条 `python -c` 换行转义问题后，改用 heredoc 重跑 active graph/router AST spot-check。脚本仍失败，报 `AttributeError: 'Name' object has no attribute 'value'`。
+
+### 如何检测 / 复现
+
+在仓库根目录运行第一版 heredoc AST spot-check。脚本遍历 `builder.add_edge(...)` 时直接访问 `node.args[1].value`。
+
+### 关键证据或命令
+
+失败输出：
+
+```text
+AttributeError: 'Name' object has no attribute 'value'
+```
+
+### 当前判断 / 根因
+
+这是临时验证脚本对 `src/agent/graph.py` AST 形态的假设过窄：普通 node edge endpoint 是 string literal，但 `builder.add_edge("final_response", END)` 的目标是 `ast.Name`。实现代码和 Phase 55 Wave 2 cutover 不能由这个脚本错误判定失败。
+
+### 已做处理
+
+将 spot-check 脚本改为使用 endpoint helper：`ast.Constant` 取 `.value`，`ast.Name` 取 `.id`，其他形态显式报错。随后重跑同一 active graph/router 检查。
+
+### 剩余问题
+
+无代码阻塞；以重跑结果为准。
+
+### 下次继续排查入口
+
+- `src/agent/graph.py`
+- `tests/architecture/graph_baseline.py`
+
 ## 2026-07-07 — Phase 55-01 TDD RED 阶段 canonical memory_context_load 测试预期失败
 
 ### 问题现象
