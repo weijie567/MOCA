@@ -574,10 +574,47 @@ def test_slot_resolution_trace_preserves_wr01_non_business_rejection_and_busines
         "ticket_id": "TKT-PRE-INTENT",
     }
     for slot in ("order_id", "refund_case_id", "ticket_id"):
-        assert business_id["slot_resolution_trace"]["inherited_session_slots"][slot]["value"] == business_id[
-            "resolved_slots"
-        ][slot]
+        assert (
+            business_id["slot_resolution_trace"]["inherited_session_slots"][slot]["value"]
+            == business_id["resolved_slots"][slot]
+        )
     assert routing_module.route_after_slot_resolution(business_id_state) == "investigate"
+
+
+def test_current_turn_business_id_replacement_records_cross_intent_conflict_provenance():
+    state = {
+        "tenant_id": "tenant-1",
+        "user_id": "user-1",
+        "thread_id": "thread-1",
+        "primary_intent": "compensation_suggestion",
+        "required_slots": {
+            "all_of": ["action_type"],
+            "any_of": [["order_id", "refund_case_id", "ticket_id"]],
+            "optional": ["amount"],
+        },
+        "extracted_slots": {"action_type": "issue_coupon", "order_id": "ORD-CURRENT"},
+        "session_context": {
+            "slot_continuity": {
+                "continuity_claimed": True,
+                "active_slots": {"order_id": "ORD-INHERITED"},
+                "slot_metadata": {"order_id": _pre_intent_slot_metadata(compatible_intents=["refund_troubleshooting"])},
+            }
+        },
+    }
+
+    result = _slot_resolution(state)
+    trace = result["slot_resolution_trace"]
+
+    assert result["resolved_slots"]["order_id"] == "ORD-CURRENT"
+    assert result["slot_metadata"]["order_id"]["previous_trusted_session_value"] == "ORD-INHERITED"
+    assert trace["conflicting_slots"]["order_id"] == {
+        "current_value": "ORD-CURRENT",
+        "inherited_value": "ORD-INHERITED",
+        "source": "trusted_session_memory",
+        "resolution": "current_turn_replacement",
+    }
+    assert "conflicting_slot_replaced_by_current_turn" in trace["reason_codes"]
+    assert routing_module.route_after_slot_resolution(state) == "investigate"
 
 
 def test_route_after_slots_delegates_to_route_after_slot_resolution():

@@ -162,7 +162,7 @@ def resolve_slots_with_provenance(state: AgentState) -> dict[str, Any]:
         if (
             prior_value not in (None, "")
             and str(prior_value) != str(value)
-            and _trusted_session_slot(prior_metadata, state)
+            and _trusted_session_slot(slot, prior_metadata, state)
         ):
             conflicting_slots[slot] = {
                 "current_value": value,
@@ -401,7 +401,7 @@ def _current_turn_slot_metadata(
     if (
         prior_value not in (None, "")
         and str(prior_value) != str(value)
-        and _trusted_session_slot(prior_metadata, state)
+        and _trusted_session_slot(slot, prior_metadata, state)
     ):
         metadata["previous_trusted_session_value"] = prior_value
     if slot in invalidations:
@@ -688,7 +688,11 @@ def _claim_verify_has_blocked_claims(state: AgentState) -> bool:
 
 def _claim_verification_bundle(state: AgentState) -> dict[str, Any]:
     bundle = state.get("claim_verification_bundle")
-    if isinstance(bundle, dict) and isinstance(bundle.get("route"), str) and isinstance(bundle.get("overall_status"), str):
+    if (
+        isinstance(bundle, dict)
+        and isinstance(bundle.get("route"), str)
+        and isinstance(bundle.get("overall_status"), str)
+    ):
         return bundle
     return {}
 
@@ -759,9 +763,9 @@ def _required_expression(value: dict[str, Any] | RequiredSlotExpression | None) 
     return RequiredSlotExpression()
 
 
-def _trusted_session_slot(metadata: Any, state: AgentState) -> bool:
+def _trusted_session_slot(slot: str, metadata: Any, state: AgentState) -> bool:
     decision = SLOT_POLICY_REGISTRY.accepts_inherited_slot(
-        "",
+        slot,
         metadata if isinstance(metadata, dict) else None,
         _slot_inheritance_context(state),
     )
