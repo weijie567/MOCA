@@ -27,10 +27,10 @@ from src.agent.nodes.clarification_gate import clarification_gate
 from src.agent.nodes.claim_verify import claim_verify
 from src.agent.nodes.contextual_intent_resolve import contextual_intent_resolve
 from src.agent.nodes.final_response import final_response
-from src.agent.nodes.generate_recommendation import generate_recommendation
 from src.agent.nodes.investigate import investigate
 from src.agent.nodes.memory_context_load import memory_context_load
 from src.agent.nodes.rag_context_build import rag_context_build
+from src.agent.nodes.recommendation_generation import recommendation_generation
 from src.agent.nodes.receive_request import receive_request
 from src.agent.nodes.safety_pre_route import safety_pre_route
 from src.agent.nodes.session_context_load import session_context_load
@@ -287,7 +287,7 @@ def build_graph(checkpointer: AsyncPostgresSaver):
     builder.add_node("memory_context_load", memory_context_load)
     builder.add_node("investigate", investigate)
     builder.add_node("rag_context_build", rag_context_build)
-    builder.add_node("generate_recommendation", generate_recommendation, retry_policy=_llm_retry)
+    builder.add_node("recommendation_generation", recommendation_generation, retry_policy=_llm_retry)
     builder.add_node("claim_verify", claim_verify)
     builder.add_node("assess_risk_and_approval", assess_risk_and_approval, retry_policy=_llm_retry)
     builder.add_node("clarification_gate", clarification_gate)
@@ -334,21 +334,21 @@ def build_graph(checkpointer: AsyncPostgresSaver):
             "final_response": "final_response",
             "clarification_gate": "clarification_gate",
             "rag_context_build": "rag_context_build",
-            "recommendation_generation": "generate_recommendation",
+            "recommendation_generation": "recommendation_generation",
         },
     )
     builder.add_conditional_edges(
         "rag_context_build",
         route_after_rag_context,
         {
-            "recommendation_generation": "generate_recommendation",
+            "recommendation_generation": "recommendation_generation",
             "clarification_gate": "clarification_gate",
             "final_response": "final_response",
         },
     )
     builder.add_edge("clarification_gate", "final_response")
     builder.add_conditional_edges(
-        "generate_recommendation",
+        "recommendation_generation",
         route_after_recommendation,
         {
             "claim_verify": "claim_verify",
