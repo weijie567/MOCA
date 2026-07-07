@@ -52,6 +52,13 @@ _PHASE55_MEMORY_ALIAS_REASON_CODES = (
     "DELETE_BY_PHASE_58",
 )
 
+_PHASE56_RECOMMENDATION_ALIAS_REASON_CODES = (
+    "PHASE_56_COMPATIBILITY_ALIAS",
+    "HISTORICAL_TRACE_PROJECTION",
+    "IMPORT_TEST_COMPATIBILITY",
+    "DELETE_BY_PHASE_58",
+)
+
 _ENTRIES: tuple[GraphVocabularyEntry, ...] = (
     _entry("receive_request", "receive_request", "node", "runtime", True),
     _entry("investigate", "investigate", "node", "runtime", True),
@@ -130,6 +137,21 @@ _ENTRIES: tuple[GraphVocabularyEntry, ...] = (
     _entry(
         "rag_context_build",
         "rag_context_build",
+        "node",
+        "runtime",
+        True,
+    ),
+    _entry(
+        "generate_recommendation",
+        "recommendation_generation",
+        "node",
+        "compatibility_alias",
+        True,
+        _PHASE56_RECOMMENDATION_ALIAS_REASON_CODES,
+    ),
+    _entry(
+        "recommendation_generation",
+        "recommendation_generation",
         "node",
         "runtime",
         True,
