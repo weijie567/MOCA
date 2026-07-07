@@ -1,11 +1,11 @@
 ---
 phase: "56"
 status: running
-current_step: codex_plan_adjudication
-plan_review_loop: 1
+current_step: claude_plan_review
+plan_review_loop: 2
 quota_waits: 0
-updated_at: "2026-07-07T16:45:34+08:00"
-next_command: "adjudicate Claude findings in 56-REVIEWS.md"
+updated_at: "2026-07-07T16:49:10+08:00"
+next_command: "run gsd-review 56 --claude after material plan repair"
 ---
 
 # Phase 56 Autopilot Checkpoint
@@ -28,6 +28,9 @@ next_command: "adjudicate Claude findings in 56-REVIEWS.md"
 - Recorded `.planning/STATE.md` as Phase 56 planned after correcting `state.planned-phase` helper drift.
 - Stage 3 Claude plan review completed.
 - Created `56-REVIEWS.md` from Claude CLI output.
+- Stage 4 Codex adjudication completed for Claude review loop 1.
+- Repaired accepted plan review findings and created `56-PLAN-REVIEW-DECISIONS.md`.
+- Material safety-semantics plan repair requires Claude review loop 2 before execution.
 
 ## Evidence
 
@@ -46,6 +49,7 @@ next_command: "adjudicate Claude findings in 56-REVIEWS.md"
 - Planning state commit: `de210b4 docs(state): record phase 56 planning status`.
 - GSD plan-checker final result: `## VERIFICATION PASSED`.
 - Claude plan review commit: `c4f0335 docs: cross-AI review for phase 56`.
+- Plan adjudication/repair commit: `bbf1038 docs(56): adjudicate and repair plan review findings`.
 
 ## Last Failure
 
