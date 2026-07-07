@@ -18057,3 +18057,78 @@ gsd-sdk query roadmap.update-plan-progress "57"
 - `.planning/ROADMAP.md` Phase 57 top row / plan checklist
 - `.planning/STATE.md` Phase Progress Snapshot
 - GSD SDK `roadmap.update-plan-progress` handler 的 Phase checkbox 匹配规则
+
+## 2026-07-08 Phase 57 verify-work：静态 legacy guard 文本大小写假设错误
+
+### 问题现象
+
+Phase 57 autopilot verify 阶段补跑静态 legacy 分类 guard 时，一条本地 one-liner 失败：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python -c "from pathlib import Path; text=Path('.planning/phases/57-risk-gate-and-approval-gate-canonicalization/57-VALIDATION.md').read_text(); assert 'Total hits: 421' in text; assert 'Unclassified rows: 0' in text; assert 'UNCLASSIFIED' not in text; print('phase57-validation-static-classification: pass')"
+```
+
+输出为 `AssertionError`。
+
+### 如何检测 / 复现
+
+读取 `57-VALIDATION.md` 的静态分类段可见实际字段写法：
+
+```bash
+rg -n "Total hits|Unclassified|UNCLASSIFIED|421|49" .planning/phases/57-risk-gate-and-approval-gate-canonicalization/57-VALIDATION.md
+```
+
+关键输出：
+
+```text
+68:- Total hits: 421
+69:- Files: 49
+70:- unclassified_rows: 0
+```
+
+### 当前判断 / 根因
+
+这是本地 verify-work guard 的字符串匹配错误：命令假设 artifact 使用 `Unclassified rows: 0`，但实际验证 artifact 使用字段名 `unclassified_rows: 0`。`rg` 也没有发现 `UNCLASSIFIED` 分类残留。
+
+### 已做处理
+
+将 guard 改为同时接受并明确检查实际字段 `unclassified_rows: 0`，继续作为 Phase 57 验证证据。该失败不计入 Phase 57 功能或静态分类失败。
+
+### 剩余问题和下次入口
+
+如果后续需要固化此 guard，应使用结构化分类脚本或正则 `unclassified[_ ]rows:\s*0`，不要依赖人工文档标题大小写。
+
+## 2026-07-08 Phase 57 verification：frontmatter.get workflow 示例参数与当前 SDK 不匹配
+
+### 问题现象
+
+Phase 57 goal-backward verification 准备阶段按 `verify-phase.md` 示例执行：
+
+```bash
+gsd-sdk query frontmatter.get ".planning/phases/57-risk-gate-and-approval-gate-canonicalization/57-01-PLAN.md" --field must_haves
+```
+
+返回：
+
+```json
+{
+  "error": "Field not found",
+  "field": "--field"
+}
+```
+
+### 如何检测 / 复现
+
+对 57-01 至 57-05 任一 PLAN 运行同类命令都会把 `--field` 解析成字段名，而不是 flag。
+
+### 当前判断 / 根因
+
+这是 GSD workflow 示例与当前 `gsd-sdk query frontmatter.get` 参数接口不一致导致的本地验证命令问题，不代表 Phase 57 plan 缺少 frontmatter 或 must-haves。当前 SDK 似乎按位置参数解析字段。
+
+### 已做处理
+
+Phase 57 verification 改用 ROADMAP success criteria、PLAN frontmatter 文本和 SUMMARY evidence 交叉核对，不依赖该 handler 的 flag 形态。
+
+### 剩余问题和下次入口
+
+后续修 GSD workflow 时，应统一 `frontmatter.get` 的文档示例与实际 CLI 参数解析；在 MOCA 验证中不要把该错误输出作为 phase artifact 缺失证据。
