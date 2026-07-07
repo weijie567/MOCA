@@ -19,6 +19,7 @@ from src.agent.trace import write_agent_run
 from src.api.routers.agent_runs import (
     ADMIN_RUN_VISIBILITY_ROLES,
     APPROVAL_NOT_EXECUTABLE,
+    NODE_MESSAGES,
     _dedupe_evidence_refs,
     _ensure_can_execute_run,
     _ensure_can_view_run,
@@ -1002,6 +1003,29 @@ def test_sse_event_projects_runtime_slot_resolution_node_identity():
     assert data["node_name"] == "slot_resolution_gate"
     assert data["target_node_name"] == "slot_resolution_gate"
     assert data["payload"] == {"slot_resolution_status": "resolved"}
+
+
+def test_sse_event_projects_runtime_memory_context_load_node_identity_without_memory_payload():
+    assert NODE_MESSAGES["memory_context_load"] == "正在加载记忆上下文"
+    event = _sse_event(
+        event_type="step_completed",
+        run_id="run-phase55-runtime-memory-projection",
+        step_index=3,
+        node_name="memory_context_load",
+        status="completed",
+        message=NODE_MESSAGES["memory_context_load"],
+        payload={"memory_context_status": "loaded"},
+    )
+
+    data = json.loads(event["data"])
+
+    assert data["node_name"] == "memory_context_load"
+    assert data["target_node_name"] == "memory_context_load"
+    assert data["message"] == "正在加载记忆上下文"
+    assert data["payload"] == {"memory_context_status": "loaded"}
+    assert "long_term_items" not in data["payload"]
+    assert "case_items" not in data["payload"]
+    assert "case_working_context" not in data["payload"]
 
 
 @pytest.mark.asyncio

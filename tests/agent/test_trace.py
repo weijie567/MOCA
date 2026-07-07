@@ -201,6 +201,53 @@ def test_trace_summary_projects_phase54_runtime_slot_resolution_names() -> None:
     ]
 
 
+def test_trace_summary_projects_phase55_memory_runtime_and_compatibility_names() -> None:
+    summary = build_trace_summary(
+        "run-phase55-memory-projection",
+        {
+            "current_intent": "refund_troubleshooting",
+            "trace_steps": [
+                {"node": "long_term_memory_retrieve", "status": "completed"},
+                {"node": "reviewed_memory_context_retrieve", "status": "completed"},
+                {"node": "memory_context_load", "status": "completed"},
+            ],
+            "final_response": "done",
+        },
+        16,
+    )
+
+    assert summary["nodes_executed"] == [
+        "long_term_memory_retrieve",
+        "reviewed_memory_context_retrieve",
+        "memory_context_load",
+    ]
+    assert summary["target_nodes_executed"] == [
+        "memory_context_load",
+        "memory_context_load",
+        "memory_context_load",
+    ]
+    assert summary["graph_projection"]["steps"] == [
+        {
+            "implementation_node": "long_term_memory_retrieve",
+            "target_node": "memory_context_load",
+            "target_graph_status": "compatibility_alias",
+            "target_graph_runnable": True,
+        },
+        {
+            "implementation_node": "reviewed_memory_context_retrieve",
+            "target_node": "memory_context_load",
+            "target_graph_status": "compatibility_alias",
+            "target_graph_runnable": True,
+        },
+        {
+            "implementation_node": "memory_context_load",
+            "target_node": "memory_context_load",
+            "target_graph_status": "runtime",
+            "target_graph_runnable": True,
+        },
+    ]
+
+
 def test_trace_summary_projects_phase53_contextual_intent_as_runtime():
     summary = build_trace_summary(
         "run-phase53-graph-projection",
@@ -239,6 +286,7 @@ def test_phase53_sse_labels_cover_canonical_runtime_nodes():
     assert "session_context_load" in NODE_MESSAGES
     assert "contextual_intent_resolve" in NODE_MESSAGES
     assert "slot_resolution_gate" in NODE_MESSAGES
+    assert NODE_MESSAGES["memory_context_load"] == "正在加载记忆上下文"
 
     assert NODE_MESSAGES["session_context_load"]
     assert NODE_MESSAGES["contextual_intent_resolve"]
