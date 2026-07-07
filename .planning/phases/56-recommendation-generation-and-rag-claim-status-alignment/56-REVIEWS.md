@@ -34,26 +34,26 @@ plans_reviewed: [56-01-PLAN.md, 56-02-PLAN.md, 56-03-PLAN.md, 56-04-PLAN.md]
 
 ### Concerns
 
-- **MEDIUM — 对 `generate_recommendation.py` 的 helper 参数化可能引入过度重构。**  
+- **MEDIUM — 对 `generate_recommendation.py` 的 helper 参数化可能引入过度重构。**
   Plan 要求把实现改成可传 `output_key` / `trace_node`。这是合理的最小抽象，但现有 generation node 逻辑较大，执行时如果顺手重排结构、改数据流或改 LLM output 解析，会扩大回归面。Plan 应明确“只抽出 identity 参数，不改变 draft/claim/evidence_refs 生成逻辑”。
 
-- **MEDIUM — legacy wrapper 的输出身份需要更精确定义。**  
+- **MEDIUM — legacy wrapper 的输出身份需要更精确定义。**
   Plan 同时说 canonical 写 `recommendation_generation`，legacy `generate_recommendation` “may delegate with legacy identity”。这本身可以接受，但建议明确：
   - active runtime 永远不用 legacy wrapper；
   - legacy import 调用是否仍写 `llm_outputs["generate_recommendation"]` 只服务旧测试/历史兼容；
   - legacy wrapper 不得新增 canonical+legacy 双写，避免同一次调用出现两个 recommendation draft key。
 
-- **LOW — 兼容 metadata 可能和 56-04 的 graph vocabulary metadata 重复。**  
+- **LOW — 兼容 metadata 可能和 56-04 的 graph vocabulary metadata 重复。**
   56-01 要在 `generate_recommendation.py` 放 `PHASE_56_COMPATIBILITY_ALIAS` 等字符串，56-04 又要在 `graph_vocabulary.py` 放同类 reason codes。重复不是 blocker，但要防止两个地方语义漂移。
 
-- **LOW — `tests/agent/test_phase22_recommendation_integration.py` 放在 files_modified，但 Task 1 主要只改 node tests。**  
+- **LOW — `tests/agent/test_phase22_recommendation_integration.py` 放在 files_modified，但 Task 1 主要只改 node tests。**
   Task 2 才覆盖 integration test，问题不大，但执行者需要避免 Task 1 提前改太多 integration 预期。
 
 ### Suggestions
 
-- 在 Task 1 action 中补一句：  
+- 在 Task 1 action 中补一句：
   “Do not change recommendation draft schema, evidence ref validation, material claim construction, LLM provider call shape, or fallback wording except for output/trace identity.”
-- 明确 legacy wrapper 行为：  
+- 明确 legacy wrapper 行为：
   “Legacy `generate_recommendation(...)` may preserve legacy `llm_outputs["generate_recommendation"]` only when directly imported/called; canonical callable must not dual-write legacy key.”
 - 对 verifier-owned 字段测试建议覆盖 both paths：
   - canonical success path
@@ -63,7 +63,7 @@ plans_reviewed: [56-01-PLAN.md, 56-02-PLAN.md, 56-03-PLAN.md, 56-04-PLAN.md]
 
 ### Risk Assessment
 
-**Overall risk: MEDIUM.**  
+**Overall risk: MEDIUM.**
 风险主要来自 refactor 原大文件实现时的行为回归，而不是 plan 方向。只要执行时保持 identity-only refactor，并用现有 node tests 加 canonical/legacy identity tests，风险可控。
 
 ---
@@ -87,31 +87,31 @@ plans_reviewed: [56-01-PLAN.md, 56-02-PLAN.md, 56-03-PLAN.md, 56-04-PLAN.md]
 
 ### Concerns
 
-- **MEDIUM — `tests/test_graph_routing.py` 可能测试 router return value，而不是 graph path-map destination。**  
+- **MEDIUM — `tests/test_graph_routing.py` 可能测试 router return value，而不是 graph path-map destination。**
   当前 `route_after_rag_context` 已返回 `recommendation_generation`（见 `src/agent/routing.py:553-566`），真正的问题是 `src/agent/graph.py` 的 path map 把 route value 指向 legacy node。Plan 要求测试 exact pair `"recommendation_generation": "recommendation_generation"` 是对的，但执行时要确保测试检查的是 graph path-map，不只是 router function return。
 
-- **MEDIUM — baseline 更新必须同时验证 absence 和 remaining legacy row。**  
+- **MEDIUM — baseline 更新必须同时验证 absence 和 remaining legacy row。**
   当前 baseline 里 `generate_recommendation` 是 active node，且 legacy map 里还有 `generate_recommendation -> recommendation_generation`。Plan 已要求移除，但测试要同时断言：
   - active nodes 不含 `generate_recommendation`
   - `MIGRATION_MODE_LEGACY_NODE_MAP` 不含 `generate_recommendation`
   - 仍含 `assess_risk_and_approval -> risk_gate`
   否则后续 Phase 58/57 边界容易混乱。
 
-- **LOW — 56-02 不改 `src/agent/routing.py` 是合理的，但如果测试命名仍带旧 node，可能需要仅改测试描述。**  
+- **LOW — 56-02 不改 `src/agent/routing.py` 是合理的，但如果测试命名仍带旧 node，可能需要仅改测试描述。**
   Plan 已允许“unless a test import name must be adjusted without behavior change”，足够。
 
 ### Suggestions
 
-- 在 Task 2 acceptance 中补充一条：  
+- 在 Task 2 acceptance 中补充一条：
   “Tests inspect `add_conditional_edges` path maps or architecture baseline, not only router return values.”
-- 在 architecture test 中增加一条专门防回归：  
+- 在 architecture test 中增加一条专门防回归：
   “No conditional edge source is `generate_recommendation`.”
-- 在 graph tests 中保留 Phase 57 证明：  
+- 在 graph tests 中保留 Phase 57 证明：
   `claim_verify -> assess_risk_and_approval` 和 `approval_gate -> assess_risk_and_approval` 不变。
 
 ### Risk Assessment
 
-**Overall risk: LOW to MEDIUM.**  
+**Overall risk: LOW to MEDIUM.**
 改动点清晰、验证面明确。风险主要是测试没有真正检查 graph path-map destination，而只检查 router return value。补强 static AST/baseline 检查即可降到 LOW。
 
 ---
@@ -132,23 +132,23 @@ plans_reviewed: [56-01-PLAN.md, 56-02-PLAN.md, 56-03-PLAN.md, 56-04-PLAN.md]
 
 ### Concerns
 
-- **HIGH — action route 条件描述仍有歧义。**  
-  Task 2 action 写道：route to risk only when “a non-action risk signal requires risk assessment without a proposed action, or a proposed action/action-recommendation claim is present and `_has_verified_action_recommendation(state)` is true.”  
+- **HIGH — action route 条件描述仍有歧义。**
+  Task 2 action 写道：route to risk only when “a non-action risk signal requires risk assessment without a proposed action, or a proposed action/action-recommendation claim is present and `_has_verified_action_recommendation(state)` is true.”
   建议更明确地表达为：
   - `proposed_action` present ⇒ 必须 `_has_verified_action_recommendation(state) is True`
   - no `proposed_action` but risk signal present ⇒ 可进入 `assess_risk_and_approval`
   - `_has_verified_action_recommendation` alone without proposed action 是否需要进 risk，要明确；否则可能产生“只有 claim result 没有 proposed_action 也进入 risk”的边界不清。
 
-- **MEDIUM — “user-visible claims” gate 不应只靠 `_has_material_claims` / `_has_proposed_action`。**  
+- **MEDIUM — “user-visible claims” gate 不应只靠 `_has_material_claims` / `_has_proposed_action`。**
   `route_after_recommendation` 当前逻辑会在 `_has_material_claims`、`_has_proposed_action` 或 `_has_user_visible_claims` 时进 `claim_verify`（见 `src/agent/routing.py:569-577`）。Plan 覆盖了行为，但测试重点集中 action claim。建议也保留/补一组 non-action user-visible policy/business claim 的测试，防止未来只 action gate 强、普通 material claim 弱。
 
-- **MEDIUM — RAG route gate 不能单独证明“不 promotable to evidence_refs / approval snapshots / risk lowering”。**  
+- **MEDIUM — RAG route gate 不能单独证明“不 promotable to evidence_refs / approval snapshots / risk lowering”。**
   Task 1 action 写“this task proves the route gate blocks those paths”。路由 gate 能证明 unsafe status 不进入 generation/risk path，但不能完全证明已有 state 中的 `evidence_refs`、approval snapshot、risk lowering 不被下游消费。这个证明更适合 56-04 的 final/API projection 和 risk/action tests。当前 acceptance 可能有一点 overclaim。
 
-- **MEDIUM — `partial` 低风险谓词需要固定字段来源。**  
+- **MEDIUM — `partial` 低风险谓词需要固定字段来源。**
   Plan 提到 action intent/operation/high risk/approval-required/unsafe evidence indicators，但没有列出具体 state fields。执行者可能临时发明字段或过拟合测试。应要求使用现有 intent/risk state 字段，找不到字段则在 test 中标明“不适用/当前仓库没有该字段依据”。
 
-- **LOW — schema import direction需要保持轻量。**  
+- **LOW — schema import direction需要保持轻量。**
   `routing.py` 使用 `RAG_CONTEXT_STATUSES` 是可接受的，但不要把 knowledge service 或 Pydantic model construction 引入 router，避免 routing 层变重。
 
 ### Suggestions
@@ -166,7 +166,7 @@ plans_reviewed: [56-01-PLAN.md, 56-02-PLAN.md, 56-03-PLAN.md, 56-04-PLAN.md]
 
 ### Risk Assessment
 
-**Overall risk: MEDIUM to HIGH.**  
+**Overall risk: MEDIUM to HIGH.**
 这是 Phase 56 最重要的安全 hardening，且涉及 action path 权威边界。方向正确，但 action gate 条件必须无歧义，测试矩阵要覆盖 proposed_action + risk_signal 的组合，否则仍可能留下绕过路径。
 
 ---
@@ -193,14 +193,14 @@ plans_reviewed: [56-01-PLAN.md, 56-02-PLAN.md, 56-03-PLAN.md, 56-04-PLAN.md]
 
 ### Concerns
 
-- **HIGH — `final_response` 当前仍可能使用 legacy verifier fields 形成 route payload。**  
-  现有 `src/agent/nodes/final_response.py:403-470` 先消费 claim bundle / RAG context，但 `src/agent/nodes/final_response.py:410-426` 仍会从 `rag_verification`、`verification_route`、`verifier_status`、`verifier_reason_codes` 生成 payload。D-56-13 要求 final response consume only safe projections from `verified_evidence_package` and `claim_verification_bundle`; D-56-11 也说 legacy fields cannot override/bypass canonical bundle。  
+- **HIGH — `final_response` 当前仍可能使用 legacy verifier fields 形成 route payload。**
+  现有 `src/agent/nodes/final_response.py:403-470` 先消费 claim bundle / RAG context，但 `src/agent/nodes/final_response.py:410-426` 仍会从 `rag_verification`、`verification_route`、`verifier_status`、`verifier_reason_codes` 生成 payload。D-56-13 要求 final response consume only safe projections from `verified_evidence_package` and `claim_verification_bundle`; D-56-11 也说 legacy fields cannot override/bypass canonical bundle。
   56-04 只说“debug/verifier projection sentinels do not appear”，不够。需要明确：
   - legacy verifier fields 不能作为 current-run authoritative final payload；
   - 如果保留，必须限定为 historical compatibility，并且不能覆盖 canonical bundle/RAG package；
   - tests 应覆盖 canonical bundle missing + legacy allow/block 字段时的行为。
 
-- **MEDIUM — 56-04 scope 偏大，且 `files_modified` 与 action 不一致。**  
+- **MEDIUM — 56-04 scope 偏大，且 `files_modified` 与 action 不一致。**
   Task 3 action 要检查并可能更新：
   - `docs/contract-spec.md`
   - `docs/target-agent-platform-architecture-plan.md`
@@ -211,16 +211,16 @@ plans_reviewed: [56-01-PLAN.md, 56-02-PLAN.md, 56-03-PLAN.md, 56-04-PLAN.md]
   - `.planning/DEFERRED-DECISIONS.md`
   但 frontmatter `files_modified` 没有列这些。若 GSD/Codex 执行依赖 frontmatter，可能漏改或误以为不能改。
 
-- **MEDIUM — “safe final wording” 容易变成脆弱文案测试。**  
+- **MEDIUM — “safe final wording” 容易变成脆弱文案测试。**
   应测试 semantic route/payload/source/reason code，而不是过度断言中文全文。否则后续 copy 微调会频繁破测试。
 
-- **MEDIUM — API tests 对 historical/current projection要区分 implementation node 和 target node。**  
+- **MEDIUM — API tests 对 historical/current projection要区分 implementation node 和 target node。**
   Plan 已说 historical trace keeps `implementation_node == "generate_recommendation"` and target `recommendation_generation`，这是对的。测试要避免把历史 node_name 也重写成 canonical，否则会丢审计真实性。
 
-- **LOW — frontend label 更新可能需要同步 snapshot 或类型定义。**  
+- **LOW — frontend label 更新可能需要同步 snapshot 或类型定义。**
   Plan 只列 `TimelineStep.tsx`，如果 frontend 有 step union/type/snapshot，也要检查。当前计划可在执行时通过 `rg` 补查。
 
-- **LOW — `UV_CACHE_DIR=/tmp/uv-cache uv run git diff --check` 可能不如直接 `git diff --check` 常见，但符合项目“approved entrypoint”风格，不是 blocker。**  
+- **LOW — `UV_CACHE_DIR=/tmp/uv-cache uv run git diff --check` 可能不如直接 `git diff --check` 常见，但符合项目“approved entrypoint”风格，不是 blocker。**
   只要仓库里该命令能跑即可。
 
 ### Suggestions
@@ -240,7 +240,7 @@ plans_reviewed: [56-01-PLAN.md, 56-02-PLAN.md, 56-03-PLAN.md, 56-04-PLAN.md]
 
 ### Risk Assessment
 
-**Overall risk: MEDIUM.**  
+**Overall risk: MEDIUM.**
 作为 closeout，范围较宽但必要。最大风险是 final_response 仍把 legacy verifier fields 当成 current authority；这会削弱 56-03 的 hard gate。只要把 legacy fallback 权威性收紧并补测试，整体风险可控。
 
 ---
@@ -261,13 +261,13 @@ plans_reviewed: [56-01-PLAN.md, 56-02-PLAN.md, 56-03-PLAN.md, 56-04-PLAN.md]
 
 ### Main risks across all plans
 
-- **HIGH — final_response legacy verifier fallback 可能绕过 canonical bundle 语义。**  
+- **HIGH — final_response legacy verifier fallback 可能绕过 canonical bundle 语义。**
   56-03 负责 routing hard gate，但用户可见最终输出也必须只信 canonical safe projections。`final_response.py` 的 legacy fallback 需要被 56-04 明确处理。
 
-- **MEDIUM — action claim allowance 语义必须决策表化。**  
+- **MEDIUM — action claim allowance 语义必须决策表化。**
   “proposed action + verified bundle” 不够，必须有 explicit action-recommendation claim allow。当前 plan 已识别，但 wording 还应更硬。
 
-- **MEDIUM — 56-04 文档检查范围与 frontmatter 不一致。**  
+- **MEDIUM — 56-04 文档检查范围与 frontmatter 不一致。**
   可能导致执行者遗漏 stale docs 或 summary 没记录 skipped reason。
 
 - **LOW — compatibility metadata 分散在 wrapper 和 vocabulary，需防 drift。**
@@ -415,3 +415,56 @@ Single external reviewer run requested by autopilot Stage 3 (Claude). No multi-r
 ## Loop 2 Consensus Summary
 
 Single external reviewer loop 2. Claude found no HIGH blocker and one MEDIUM warning about historical fallback gating in final_response. Codex accepted and repaired that warning in 56-04-PLAN.md and recorded the decision in 56-PLAN-REVIEW-DECISIONS.md.
+
+---
+
+## Claude Review Loop 3
+
+## Summary
+
+本轮修订后，4 个 Phase 56 plans 已经覆盖 CAGM-07 的核心闭环：先建立 `recommendation_generation` canonical callable，再切 active graph / baseline，然后硬化 RAG status 与 claim verification fail-closed routing，最后收口 vocabulary、API/SSE/frontend/eval、`final_response`、docs/debt/validation。重点检查的 56-04 `final_response` historical fallback gating 问题已经被明确修复：计划现在要求 legacy verifier fields 只有在已有 persisted-trace / compatibility-projection / historical implementation node 等可靠历史标记存在时，才能作为非权威 historical fallback；否则当前运行不得用 `rag_verification`、`verification_route`、`verifier_status`、`verifier_reason_codes` 构造权威 route payload。该规则也被写入了测试 acceptance criteria。因此我没有看到剩余 actionable blocker 或 warning；剩下的是执行时需要严格按 plan 落实的提醒。
+
+## Concerns
+
+无剩余 actionable blocker / warning。
+
+已确认前两轮关注点在 plan 层面都已覆盖：
+
+- **56-04 historical fallback gating 已解决。**
+  Plan 明确要求 historical fallback 必须由已有历史/兼容标记触发，并且标记为 non-authoritative；没有可靠 marker 时，`final_response` 必须停止从 legacy verifier fields 构造当前运行权威 payload。
+
+- **当前运行 authority source priority 已明确。**
+  `final_response` 当前运行的权威来源顺序被限定为：
+  1. `claim_verification_bundle`
+  2. `verified_evidence_package`
+  3. historical compatibility fallback only when explicitly marked non-authoritative
+  这足以防止 legacy verifier fields 覆盖 canonical bundle/package。
+
+- **测试要求足够具体。**
+  56-04 Task 2 acceptance criteria 要求测试覆盖：
+  - legacy verifier fields 不能在 canonical projections 缺失时创建 current-run authority；
+  - canonical bundle/package 优先于 legacy fields；
+  - retained historical fallback 必须有 existing historical/compatibility marker；
+  - 无 marker 时 legacy verifier fields 不产生 authoritative current-run route payload；
+  - debug/verifier sentinels 不出现在 final/API output。
+
+- **Phase 57 / Phase 58 边界仍清楚。**
+  Plans 保留 `assess_risk_and_approval` 为 Phase 57 active legacy row，不提前启用 `risk_gate`；`generate_recommendation` alias / wrapper 删除明确留给 Phase 58。
+
+## Risk Assessment
+
+**Overall risk: MEDIUM-LOW.**
+
+理由：
+
+- **风险仍非 LOW**：Phase 56 涉及 active graph node identity、deterministic routing、RAG/claim safety semantics、API/SSE/trace projection、最终用户可见 wording，属于多边界安全改动；实现时容易出现遗漏测试面或 current/historical projection 混淆。
+- **但 blocker/warning 已解除**：计划已经把主要高风险点拆成可测试约束，尤其是 `final_response` legacy fallback 从“不够可判定”修订为“必须有已有 historical marker，否则禁用权威 fallback”。
+- **执行风险主要是实现细节**：后续需要确保代码真的删除当前 `final_response.py` 中无 marker 的 legacy fallback authority 行为，并让 tests 失败于旧行为。这个属于执行验证重点，不再是 plan 缺陷。
+
+结论：**可以进入执行阶段。当前只剩 execution reminders，没有需要再次修 plan 的 actionable blocker / warning。**
+
+---
+
+## Loop 3 Consensus Summary
+
+Single external reviewer loop 3. Claude reported no remaining actionable blocker or warning and confirmed that Phase 56 plans can enter execution.

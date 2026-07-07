@@ -16254,3 +16254,54 @@ Claude review 正常完成，生成 275 行输出，stderr 为空。
 - `.planning/config.json`
 - `/Users/ming/.codex/get-shit-done/workflows/review.md`
 - `.planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-REVIEWS.md`
+
+## 2026-07-07 — Phase 56 Claude review artifact 触发 git diff --check 尾随空格失败
+
+### 问题现象
+
+Phase 56 Claude review loop 3 结果追加到 `56-REVIEWS.md` 后，运行项目要求的 diff whitespace 检查失败，原因是 Claude 输出中的若干 Markdown 行保留了行尾双空格。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run git diff --check
+```
+
+### 关键证据或命令
+
+命令输出包含：
+
+```text
+.planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-REVIEWS.md:433: trailing whitespace.
+.planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-REVIEWS.md:436: trailing whitespace.
+.planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-REVIEWS.md:440: trailing whitespace.
+.planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-REVIEWS.md:443: trailing whitespace.
+.planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-REVIEWS.md:451: trailing whitespace.
+```
+
+清理命令执行时还输出了本机 locale warning：
+
+```text
+perl: warning: Setting locale failed.
+```
+
+但清理命令退出码为 0。
+
+### 当前判断 / 根因
+
+这是外部 Claude CLI 生成 Markdown review 文本时保留行尾双空格造成的 artifact 格式问题，不是 Phase 56 plan 内容问题。`perl` 的 locale warning 是本机环境变量与系统 locale 支持不一致导致的非阻塞警告。
+
+### 已做处理
+
+已用机械格式化清理 `56-REVIEWS.md` 行尾空格，并准备重跑 `UV_CACHE_DIR=/tmp/uv-cache uv run git diff --check` 确认通过。
+
+### 剩余问题
+
+无 Phase 56 阻塞。后续追加外部 AI review 原文后，应立即跑 diff check 或在落盘前清理行尾空格。
+
+### 下次继续排查入口
+
+- `.planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-REVIEWS.md`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run git diff --check`
