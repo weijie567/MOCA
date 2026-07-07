@@ -17610,3 +17610,41 @@ gsd-sdk query roadmap.update-plan-progress "57"
 
 - `.planning/ROADMAP.md` Phase 57 top row / progress table / plan checklist
 - GSD SDK `roadmap.update-plan-progress` handler 的 Phase checkbox 匹配规则
+
+## 2026-07-07 Phase 57 Plan 57-03：Task 1 RED 验证发现 legacy retry 未规范化及测试版本断言误设
+
+### 问题现象
+
+Task 1 RED 新增 approval edit retry 覆盖后，首次 focused 验证出现 2 个失败：预期的 persisted legacy `resume_route="assess_risk_and_approval"` retry 返回 409；另一个 retry version mismatch 负例错误地期望 `expected_request_version + 1` 必然冲突。
+
+### 如何检测 / 复现
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py tests/test_graph_routing.py -q --tb=short
+```
+
+### 关键证据或命令
+
+```text
+首次 RED：2 failed, 109 passed, 1 warning
+修正测试断言后 RED：1 failed, 110 passed, 1 warning
+剩余失败：test_decide_edit_retry_normalizes_persisted_legacy_route_before_graph_resume 期望 200，实际 409 approval_conflict
+```
+
+### 当前判断 / 根因
+
+API retry reconstruction 只接受当前 `risk_gate`，尚未把历史持久化事件中的 legacy route 作为只读兼容元数据规范化为 canonical `risk_gate`。version mismatch 测试的 `+1` 失败是假阳性：retry reconstruction 合理接受 decision-time version 与 current approval version 两种值。
+
+### 已做处理
+
+已将 version mismatch 负例改为 `expected_request_version + 2`，保留唯一 RED 失败指向 legacy retry 规范化缺口；GREEN 实现中新增 canonical/legacy route 常量、Phase 58 删除标记，并在 persisted retry reconstruction 中把 legacy route 规范化为 `risk_gate` 后再 resume graph。
+
+### 剩余问题
+
+Task 1 GREEN focused 验证已通过：`111 passed, 1 warning`。Phase 58 仍需最终删除 `assess_risk_and_approval` 兼容分支。
+
+### 下次继续排查入口
+
+- `src/api/routers/approvals.py::_terminal_decision_result_for_retry`
+- `src/api/routers/approvals.py::_canonical_retry_resume_route`
+- `tests/test_approval_api.py::test_decide_edit_retry_normalizes_persisted_legacy_route_before_graph_resume`

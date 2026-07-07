@@ -49,6 +49,9 @@ class ApprovalTransitionError(ValueError):
         self.code = code
 
 
+CANONICAL_RISK_ROUTE = "risk_gate"
+
+
 @dataclass(frozen=True)
 class ApprovalDecisionContext:
     request: ApprovalRequest
@@ -540,7 +543,7 @@ class ApprovalService:
             old_revision_ref=old_revision_ref,
             new_revision_ref=approval_revision_ref(request),
             metadata={
-                "resume_route": "risk_gate",
+                "resume_route": CANONICAL_RISK_ROUTE,
                 "pending_rebind": True,
             },
             resource_refs={
@@ -563,7 +566,7 @@ class ApprovalService:
             reason=command.reason,
             new_action_payload_hash=snapshot.action_payload_hash,
             edited_action=command.edited_action,
-            resume_route="risk_gate",
+            resume_route=CANONICAL_RISK_ROUTE,
         )
 
     async def _terminal_decision(

@@ -50,6 +50,8 @@ RESUMABLE_DECISIONS = {"accept", "approve", "reject", "ignore", "edit"}
 RESUME_RETRY_STATUSES = {"approved", "rejected", "cancelled", "superseded"}
 RESUME_INCOMPLETE_STATUSES = {"attempted", "failed"}
 ACTION_DRAFT_PERMISSION = "tool:create_coupon_grant_draft"
+CANONICAL_RISK_ROUTE = "risk_gate"
+LEGACY_RISK_ROUTE = "assess_risk_and_approval"  # DELETE_BY_PHASE_58: persisted historical retry metadata only.
 
 
 @router.post("/{approval_id}/decide", response_model=ApiResponse)
@@ -575,12 +577,12 @@ async def _terminal_decision_result_for_retry(
     if decision.decision_type == "edit":
         edited_action = decision.edited_action_json
         new_action_payload_hash = resource_refs.get("new_action_payload_hash")
-        resume_route = metadata.get("resume_route")
+        resume_route = _canonical_retry_resume_route(metadata.get("resume_route"))
         if (
             not edited_action
             or body.edited_action != edited_action
             or not new_action_payload_hash
-            or resume_route != "risk_gate"
+            or resume_route != CANONICAL_RISK_ROUTE
         ):
             raise ApprovalTransitionError("approval_conflict")
 
@@ -770,8 +772,17 @@ def _should_resume_graph(result) -> bool:
     if not result.resume_payload:
         return False
     if result.decision_type == "edit":
-        return result.resume_payload.get("resume_route") == "risk_gate"
+        return result.resume_payload.get("resume_route") == CANONICAL_RISK_ROUTE
     return result.decision_type in {"accept", "approve", "reject", "ignore"}
+
+
+def _canonical_retry_resume_route(route: object) -> str | None:
+    if route == CANONICAL_RISK_ROUTE:
+        return CANONICAL_RISK_ROUTE
+    if route == LEGACY_RISK_ROUTE:
+        # DELETE_BY_PHASE_58: server-side reconstruction of persisted pre-cutover edit retry metadata only.
+        return CANONICAL_RISK_ROUTE
+    return None
 
 
 def _resume_key(approval_id: UUID, revision: int) -> str:

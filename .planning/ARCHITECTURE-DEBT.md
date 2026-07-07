@@ -1251,3 +1251,25 @@
 **剩余风险**
 - ✅ WR-01 已在 resolver / router 层用回归测试覆盖：pre-intent inherited `action_type` 对不兼容 actual intent 被拒绝并路由到 `clarification_gate`。
 - ✅ 业务 ID 跨意图兼容已覆盖：`order_id` 从 `refund_troubleshooting` 继承到 `action_request` 仍可满足 slot gate。
+
+## Phase 57 Plan 03 — persisted legacy approval edit retry 规范化到 `risk_gate` ✅已修复验证
+
+**问题 / 根因**
+- Phase 57-02 已把 current approval edit `resume_route` 切到 `risk_gate`，但 API retry reconstruction 仍缺少对历史持久化 `resume_route="assess_risk_and_approval"` 的只读兼容规范化。
+- 如果直接接受 legacy route 作为 graph resume payload，会让旧 route 重新变成 current authority；如果完全拒绝，又会破坏已经持久化的 pre-cutover edit retry。
+
+**影响**
+- 历史 edit approval 在 graph resume 失败后可能无法重试，或在错误实现中把 legacy route 重新注入 current graph resume。
+
+**修复**
+- 在 `src/api/routers/approvals.py` 新增 `CANONICAL_RISK_ROUTE = "risk_gate"` 与 `LEGACY_RISK_ROUTE = "assess_risk_and_approval"`，legacy 常量和兼容分支均标记 `DELETE_BY_PHASE_58`。
+- `_terminal_decision_result_for_retry(...)` 只在读取 persisted approval event metadata 时接受 legacy route，并在构造 `TrustedApprovalResultV1` 前规范化为 canonical `risk_gate`。
+- `_should_resume_graph(...)` 与 `route_after_approval(...)` 仍只接受 current canonical `risk_gate`，fresh/current legacy edit payload fail closed。
+
+**证据 / 验证**
+- 文件：`src/api/routers/approvals.py`、`src/approvals/service.py`、`src/agent/graph.py`、`tests/test_approval_api.py`、`tests/test_graph_routing.py`
+- Phase / commit：57-03 Task 1 GREEN（本条所在提交）
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py tests/test_graph_routing.py -q --tb=short` → `111 passed, 1 warning`
+
+**剩余风险**
+- 🟡 Phase 58 仍需删除 `assess_risk_and_approval` legacy route compatibility branch and related retained compatibility aliases after no-debt cleanup。

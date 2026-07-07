@@ -65,6 +65,7 @@ APPROVAL_RESULT_REQUIRED_FIELDS = (
     "safety_snapshot_ref",
     "safety_snapshot_hash",
 )
+CANONICAL_RISK_ROUTE = "risk_gate"
 
 
 def route_after_risk(state: AgentState) -> str:
@@ -139,10 +140,10 @@ def route_after_approval(state: AgentState) -> str:
     if (
         decision_type == "edit"
         and status == "superseded"
-        and result.resume_route == "risk_gate"
+        and result.resume_route == CANONICAL_RISK_ROUTE
         and result.new_action_payload_hash
     ):
-        return "risk_gate"
+        return CANONICAL_RISK_ROUTE
     if decision_type in {"accept", "approve"} and status == "approved":
         return "action_draft"
     if decision_type in {"accept", "approve"} and status == "pending":
