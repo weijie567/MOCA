@@ -59,6 +59,13 @@ _PHASE56_RECOMMENDATION_ALIAS_REASON_CODES = (
     "DELETE_BY_PHASE_58",
 )
 
+_PHASE57_RISK_ALIAS_REASON_CODES = (
+    "PHASE_57_COMPATIBILITY_ALIAS",
+    "HISTORICAL_TRACE_PROJECTION",
+    "IMPORT_TEST_COMPATIBILITY",
+    "DELETE_BY_PHASE_58",
+)
+
 _ENTRIES: tuple[GraphVocabularyEntry, ...] = (
     _entry("receive_request", "receive_request", "node", "runtime", True),
     _entry("investigate", "investigate", "node", "runtime", True),
@@ -163,13 +170,14 @@ _ENTRIES: tuple[GraphVocabularyEntry, ...] = (
         "runtime",
         True,
     ),
+    _entry("risk_gate", "risk_gate", "node", "runtime", True),
     _entry(
         "assess_risk_and_approval",
         "risk_gate",
         "node",
         "compatibility_alias",
-        True,
-        ("RISK_GATE_PROJECTED_FROM_ASSESS_RISK_AND_APPROVAL",),
+        False,
+        _PHASE57_RISK_ALIAS_REASON_CODES,
     ),
     _entry(
         "route_after_intent",

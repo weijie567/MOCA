@@ -17727,3 +17727,41 @@ gsd-sdk query roadmap.update-plan-progress "57"
 - `.planning/ROADMAP.md` Phase 57 top row / plan checklist
 - `.planning/STATE.md` Phase Progress Snapshot
 - GSD SDK `roadmap.update-plan-progress` handler 的 Phase checkbox 匹配规则
+
+## 2026-07-07 Phase 57 Plan 57-04：Task 1 RED 验证发现 risk_gate 投影面缺口
+
+### 问题现象
+
+Task 1 RED 新增 `risk_gate` runtime vocabulary、历史 `assess_risk_and_approval -> risk_gate` 投影、SSE label 和风险 payload 提取覆盖后，focused 验证出现 8 个预期失败。
+
+### 如何检测 / 复现
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph_vocabulary.py tests/agent/test_trace.py tests/test_trace_api.py tests/test_agent_runs_api.py -q --tb=short
+```
+
+### 关键证据或命令
+
+```text
+RED：8 failed, 167 passed, 1 warning
+失败点包括：`risk_gate` 没有 runtime vocabulary entry；旧 `assess_risk_and_approval` alias 仍 runnable 且缺少 Phase 57 reason codes；`NODE_MESSAGES["risk_gate"]` 缺失；`_extract_step_payload("risk_gate", ...)` 未提取 risk_level。
+```
+
+### 当前判断 / 根因
+
+57-01 至 57-03 已切 active graph/approval resume 到 `risk_gate`，但投影层仍停留在旧风险节点名称：`graph_vocabulary.py` 只有 legacy alias，没有 current runtime entry；`agent_runs.py` 只给旧 node label 和风险 payload 提取分支。
+
+### 已做处理
+
+GREEN 实现新增 `risk_gate` runtime vocabulary entry，将 `assess_risk_and_approval` 标为 non-runnable Phase 57 compatibility alias（含 `HISTORICAL_TRACE_PROJECTION` / `IMPORT_TEST_COMPATIBILITY` / `DELETE_BY_PHASE_58`），并补齐 API/SSE `risk_gate` label 与 current/historical 风险 payload 提取。
+
+### 剩余问题
+
+Task 1 GREEN focused 验证已通过：`175 passed, 1 warning`。Phase 58 仍负责最终删除历史兼容 alias。
+
+### 下次继续排查入口
+
+- `src/agent/graph_vocabulary.py`
+- `src/api/routers/agent_runs.py::_extract_step_payload`
+- `tests/agent/test_graph_vocabulary.py::test_phase57_risk_gate_runtime_entry_is_identity_mapped`
+- `tests/test_agent_runs_api.py::test_extract_step_payload_reads_risk_level_for_current_and_historical_nodes`

@@ -64,6 +64,7 @@ NODE_MESSAGES: dict[str, str] = {
     "investigate": "正在调查订单和规则",
     "recommendation_generation": "正在生成处理建议",
     "generate_recommendation": "正在生成处理建议",
+    "risk_gate": "正在评估风险",
     "assess_risk_and_approval": "正在评估风险",
     "approval_gate": "需要审批，等待人工决策",
     "execute_action": "正在执行操作",
@@ -1184,7 +1185,8 @@ def _extract_step_payload(node_name: str, update: Any) -> dict[str, Any]:
             refs = legacy.get("evidence")
         payload["evidence_count"] = len(refs) if isinstance(refs, list) else 0
 
-    if node_name == "assess_risk_and_approval":
+    if node_name == "risk_gate" or node_name == "assess_risk_and_approval":
+        # `assess_risk_and_approval` is historical trace projection only; DELETE_BY_PHASE_58.
         risk = _as_mapping(update_mapping.get("risk_assessment"))
         if risk.get("risk_level"):
             payload["risk_level"] = risk["risk_level"]
