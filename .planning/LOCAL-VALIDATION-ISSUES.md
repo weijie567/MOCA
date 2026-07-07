@@ -15386,3 +15386,51 @@ assert 'builder.add_node("session_memory_load", session_memory_load)' in graph_s
 - `src/agent/graph.py`
 - `src/agent/routing.py`
 - `src/agent/graph_vocabulary.py`
+
+## 2026-07-07 — Phase 55-01 final verification 并发 pytest 触发 PostgreSQL create_all 竞态
+
+### 问题现象
+
+最终 plan verification sweep 中并行运行多个 `uv run pytest` 进程时，`tests/agent/test_reviewed_memory_context_retrieve.py` 的 DB-backed fixture 在 `Base.metadata.create_all` 阶段报 PostgreSQL `UniqueViolationError`，提示 `pg_type_typname_nsp_index` 中 `tenants` 类型重复。
+
+### 如何检测 / 复现
+
+在同一时间并行运行包含 DB-backed fixture 的 pytest 命令，例如：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_memory_context_load.py tests/agent/test_reviewed_memory_context_retrieve.py -q --tb=short
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_memory_context_load.py tests/agent/test_memory_evidence_boundary.py tests/memory/test_reviewed_memory_context_boundary.py -q --tb=short
+```
+
+### 关键证据或命令
+
+失败输出包含：
+
+```text
+asyncpg.exceptions.UniqueViolationError: duplicate key value violates unique constraint "pg_type_typname_nsp_index"
+Key (typname, typnamespace)=(tenants, ...) already exists.
+```
+
+### 当前判断 / 根因
+
+这是本地验证调度问题：多个 pytest 进程并行使用同一测试数据库 schema，并在 fixture setup 中同时执行 `Base.metadata.create_all`，触发 PostgreSQL 系统 catalog 类型创建竞态。不是 Phase 55-01 代码逻辑失败。
+
+### 已做处理
+
+停止并行 DB-backed pytest，改为顺序重跑失败命令：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_memory_context_load.py tests/agent/test_reviewed_memory_context_retrieve.py -q --tb=short
+```
+
+重跑结果为 `22 passed, 1 warning`。
+
+### 剩余问题
+
+无代码阻塞。后续执行含 DB-backed fixture 的 MOCA 验证时，应避免把多个 pytest 进程并行打到同一测试数据库。
+
+### 下次继续排查入口
+
+- `tests/conftest.py::test_engine`
+- `tests/agent/test_reviewed_memory_context_retrieve.py`
+- 本地 PostgreSQL 测试 schema / 并发 pytest 调度
