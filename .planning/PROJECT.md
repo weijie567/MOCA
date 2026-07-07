@@ -14,7 +14,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 
 **Goal:** Clean up architecture debt across MOCA's core subsystems so tool contracts, intent routing, memory lifecycle behavior, and the canonical Agent Graph migration are explicit, tested, and aligned with `docs/contract-spec.md`.
 
-**Status:** Phase 37 through Phase 55 complete; Phase 56 Recommendation Generation and RAG Claim Status Alignment is next.
+**Status:** Phase 37 through Phase 56 complete; Phase 57 Risk Gate and Approval Gate Canonicalization is next.
 
 **Delivered:**
 - Land real `output_schema` for all eight tools (`get_order`, `get_refund_case`, `get_ticket`, `get_logistics`, `get_merchant_risk`, `search_policy`, `search_sop`, `search_case_memory`) and enforce it in the `ToolRuntime` output-validation gate — completed in Phase 38.
@@ -34,6 +34,7 @@ When a merchant or support agent asks about a refund issue, the system must retr
 - Lock the canonical Agent Graph migration charter and guardrails before runtime rewiring — completed in Phase 50.
 - Add source-verified canonical graph baselines and migration matrix checks — completed in Phase 51.
 - Cut over active graph nodes through `safety_pre_route`, `contextual_intent_resolve`, `slot_resolution_gate`, and `memory_context_load`, with compatibility aliases documented for Phase 58 cleanup — completed in Phases 52-55.
+- Cut over active recommendation generation to `recommendation_generation`, align RAG/claim fail-closed routing, harden action-claim authority through the final action-draft boundary, and keep `generate_recommendation` as explicit Phase 58 compatibility only — completed in Phase 56.
 
 **Guardrails (binding on all downstream agents):**
 - `ToolCallContext` identity fields (`tenant_id/user_id/role/permissions/merchant_scope/session_id/thread_id/run_id/trace_id`) are locked by spec §8.0 as `TrustedContext` projections — MUST NOT redefine, widen, or rename. Off-limits.
@@ -375,4 +376,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-07 — completed Phase 55 Memory Context Load Cutover; next phase is Phase 56 Recommendation Generation and RAG Claim Status Alignment*
+*Last updated: 2026-07-07 — completed Phase 56 Recommendation Generation and RAG Claim Status Alignment; next phase is Phase 57 Risk Gate and Approval Gate Canonicalization*

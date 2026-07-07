@@ -16732,6 +16732,65 @@ UV_CACHE_DIR=/tmp/uv-cache uv run python -c 'from pathlib import Path; bad=[f"{p
 - `.planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-*.md`
 - `.planning/LOCAL-VALIDATION-ISSUES.md`
 
+## 2026-07-07 Phase 56 closeout tracking scan：rg 反引号命令替换与 Python -c 换行转义失败
+
+### 问题现象
+
+Phase 56 closeout 检查 ROADMAP / STATE / REQUIREMENTS / PROJECT 是否还有 stale Phase 56 next/progress 文案时，两条校验命令先后失败：`rg` pattern 使用双引号包裹含反引号的 `$gsd-phase-autopilot` 文本，zsh 执行了命令替换；Python tracking assertion 又重复使用了字面 `\n`，触发 `SyntaxError`。
+
+### 如何检测 / 复现
+
+失败的 `rg` 命令形态：
+
+```text
+rg -n "Phase 56.*next|...|Continue `\$gsd-phase-autopilot 56`|..." .planning/STATE.md .planning/ROADMAP.md .planning/REQUIREMENTS.md .planning/PROJECT.md
+```
+
+失败的 Python 命令形态：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run python -c 'from pathlib import Path; checks={...}; missing=[];\nfor path, needles in checks.items(): ...'
+```
+
+### 关键证据或命令
+
+`rg` 输出包含：
+
+```text
+zsh:1: command not found: -phase-autopilot
+```
+
+Python 输出包含：
+
+```text
+SyntaxError: unexpected character after line continuation character
+```
+
+### 当前判断 / 根因
+
+这两项都是 closeout 校验命令写法问题，不是 Phase 56 跟踪文件内容问题。`rg` 应使用单引号保护反引号；Python `-c` 应保持单行表达式，避免把字面 `\n` 交给解释器。
+
+### 已做处理
+
+已改用安全命令并通过：
+
+```text
+rg -n 'next phase is Phase 56|Not planned yet\. \(completed|0/4 \| Planned|Continue `\$gsd-phase-autopilot 56`|CAGM-07\.\.CAGM-09 pending|20 complete, 4 pending' .planning/STATE.md .planning/ROADMAP.md .planning/REQUIREMENTS.md .planning/PROJECT.md
+```
+
+结果无匹配。单行 Python tracking assertion 也通过。
+
+### 剩余问题
+
+无 Phase 56 tracking 文件问题。后续扫描包含 Markdown 反引号的文本时，默认用单引号包裹 shell pattern。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `.planning/ROADMAP.md`
+- `.planning/REQUIREMENTS.md`
+- `.planning/PROJECT.md`
+
 ## 2026-07-07 Phase 56 Plan 56-04 Task 3：Markdown 反引号 grep 扫描命令引号错误
 
 ### 问题现象

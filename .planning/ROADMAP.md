@@ -41,7 +41,7 @@ Code implementation is delegated to Codex per the project workflow; Claude is pl
 - [x] **Phase 53: Session Context Before Intent and Contextual Intent Resolve** - Move session context before intent resolution and replace active `classify_intent` with `contextual_intent_resolve` (CAGM-04). Plan progress: 3/3 complete; verified 2026-07-06.
 - [x] **Phase 54: Slot Resolution Gate Cutover** - Replace active `extract_slots` / `route_after_slots` graph boundary with canonical `slot_resolution_gate` and slot provenance (CAGM-05). Plan progress: 3/3 complete; verified 2026-07-07.
 - [x] **Phase 55: Memory Context Load Cutover** - Replace active `long_term_memory_retrieve` graph naming with canonical `memory_context_load` and contextual-only memory authority labels (CAGM-06). Plan progress: 3/3 complete; verified 2026-07-07.
-- [ ] **Phase 56: Recommendation Generation and RAG Claim Status Alignment** - Canonicalize `recommendation_generation` and align RAG/claim fail-closed status semantics (CAGM-07). Not planned yet.
+- [x] **Phase 56: Recommendation Generation and RAG Claim Status Alignment** - Canonicalize `recommendation_generation` and align RAG/claim fail-closed status semantics (CAGM-07). Plan progress: 4/4 complete; verified 2026-07-07.
 - [ ] **Phase 57: Risk Gate and Approval Gate Canonicalization** - Replace active `assess_risk_and_approval` with canonical `risk_gate` while preserving approval pending/trusted resume semantics (CAGM-08). Not planned yet.
 - [ ] **Phase 58: Canonical Graph Cutover and No-Debt Cleanup** - Cut over the active graph to the final 15-node set and remove legacy node names, dual routes, and active compatibility aliases (CAGM-09). Not planned yet.
 
@@ -117,7 +117,7 @@ Plans:
 | 53. Session Context Before Intent and Contextual Intent Resolve | 3/3 | Complete    | 2026-07-06 |
 | 54. Slot Resolution Gate Cutover | 3/3 | Complete | 2026-07-07 |
 | 55. Memory Context Load Cutover | 3/3 | Complete    | 2026-07-07 |
-| 56. Recommendation Generation and RAG Claim Status Alignment | 0/TBD | Not planned | - |
+| 56. Recommendation Generation and RAG Claim Status Alignment | 4/4 | Complete    | 2026-07-07 |
 | 57. Risk Gate and Approval Gate Canonicalization | 0/TBD | Not planned | - |
 | 58. Canonical Graph Cutover and No-Debt Cleanup | 0/TBD | Not planned | - |
 
@@ -449,7 +449,7 @@ Plans:
 **Requirements**: CAGM-07
 **Depends on:** Phase 55
 **Must read:** `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`
-**Plans:** 4 plans
+**Plans:** 4/4 plans complete
 **Success Criteria** (what must be TRUE):
   1. Active graph uses `recommendation_generation` as the registered node name, not `generate_recommendation`.
   2. Material claims and candidate proposed actions cannot bypass `claim_verify`.
@@ -457,10 +457,10 @@ Plans:
   4. Active runtime no longer uses `generate_recommendation` as the registered graph node after cutover, except for explicitly recorded temporary implementation reuse slated for deletion.
 
 Plans:
-- [ ] 56-01-PLAN.md — canonical `recommendation_generation` callable and narrow `generate_recommendation` compatibility contract.
-- [ ] 56-02-PLAN.md — active graph/router/baseline cutover to `recommendation_generation` while preserving the Phase 57 risk row.
-- [ ] 56-03-PLAN.md — RAG status and claim verification fail-closed route hardening.
-- [ ] 56-04-PLAN.md — vocabulary/API/frontend/eval labels, docs/debt, validation artifact, and closeout gates.
+- [x] 56-01-PLAN.md — canonical `recommendation_generation` callable and narrow `generate_recommendation` compatibility contract.
+- [x] 56-02-PLAN.md — active graph/router/baseline cutover to `recommendation_generation` while preserving the Phase 57 risk row.
+- [x] 56-03-PLAN.md — RAG status and claim verification fail-closed route hardening.
+- [x] 56-04-PLAN.md — vocabulary/API/frontend/eval labels, docs/debt, validation artifact, and closeout gates.
 
 ### Phase 57: Risk Gate and Approval Gate Canonicalization
 
