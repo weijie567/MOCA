@@ -15172,3 +15172,85 @@ E   ImportError: cannot import name 'UTC' from 'datetime' (/Library/Developer/Co
 
 - `.planning/phases/55-memory-context-load-cutover/55-RESEARCH.md`
 - `AGENTS.md` 本地验证命令环境硬规则
+
+## 2026-07-07 — Phase 55 research 修复自检 rg 单引号模式写错
+
+### 问题现象
+
+Phase 55 plan-checker 要求将 `55-RESEARCH.md` 的 Open Questions 明确标为已解决后，本地自检时运行了一个 `rg` 命令；搜索 pattern 用单引号包裹，但 pattern 内包含 `What's unclear` 的单引号，导致 zsh 报 `unmatched '`。
+
+### 如何检测 / 复现
+
+在仓库根目录运行以下错误命令：
+
+```text
+rg -n '^## Open Questions$|Recommendation:|What's unclear' .planning/phases/55-memory-context-load-cutover/55-RESEARCH.md
+```
+
+### 关键证据或命令
+
+失败输出：
+
+```text
+zsh:1: unmatched '
+```
+
+### 当前判断 / 根因
+
+这是临时本地扫描命令的 shell quoting 错误，不是 Phase 55 计划、源码或测试失败。pattern 内部的英文缩写单引号提前结束了 shell 字符串。
+
+### 已做处理
+
+已改用双引号包裹该 pattern 重跑扫描，并继续把 `55-RESEARCH.md` 中的 `What's unclear` 改为 `Prior uncertainty`，避免后续 plan-checker 按关键词误判为未决问题。
+
+### 剩余问题
+
+无代码阻塞。该失败命令没有产生验证结论。
+
+### 下次继续排查入口
+
+- `.planning/phases/55-memory-context-load-cutover/55-RESEARCH.md`
+- `.planning/phases/55-memory-context-load-cutover/55-01-PLAN.md`
+- `.planning/phases/55-memory-context-load-cutover/55-02-PLAN.md`
+- `.planning/phases/55-memory-context-load-cutover/55-03-PLAN.md`
+
+## 2026-07-07 — Phase 55 research RESOLVED 修复后 git diff --check 发现尾随空格
+
+### 问题现象
+
+修复 `55-RESEARCH.md` 的 Open Questions 后运行 `git diff --check`，发现三行新增的 `Prior uncertainty` bullet 末尾保留了 Markdown 两空格换行，触发 trailing whitespace。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```text
+git diff --check -- .planning/phases/55-memory-context-load-cutover/55-RESEARCH.md .planning/LOCAL-VALIDATION-ISSUES.md
+```
+
+### 关键证据或命令
+
+失败输出包含：
+
+```text
+.planning/phases/55-memory-context-load-cutover/55-RESEARCH.md:431: trailing whitespace.
+.planning/phases/55-memory-context-load-cutover/55-RESEARCH.md:436: trailing whitespace.
+.planning/phases/55-memory-context-load-cutover/55-RESEARCH.md:441: trailing whitespace.
+```
+
+### 当前判断 / 根因
+
+这是文档编辑格式问题，不影响 Phase 55 计划语义，但会阻塞干净提交。原因是原 Open Questions bullet 使用 Markdown 硬换行，我修改正文时保留了行尾两个空格。
+
+### 已做处理
+
+已删除三处改动行的尾随空格，并重跑 `git diff --check`。
+
+### 剩余问题
+
+无功能阻塞；以重跑结果为准。
+
+### 下次继续排查入口
+
+- `.planning/phases/55-memory-context-load-cutover/55-RESEARCH.md`
+- `git diff --check`

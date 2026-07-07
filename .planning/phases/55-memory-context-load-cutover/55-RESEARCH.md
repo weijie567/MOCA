@@ -424,22 +424,22 @@ graph = builder.compile()
 | A1 | Production or remote environments may contain historical `AgentStep` / `AgentTraceEvent` rows even though the local DB probe found zero matching rows. [ASSUMED] | Runtime State Inventory | A planner could incorrectly skip trace projection validation if they treat local empty tables as global proof. |
 | A2 | The exact canonical usage-label field name can be chosen by implementation as long as labels are finite and tests cover them. [ASSUMED] | Architecture Patterns / Open Questions | A hidden external consumer might already expect a specific field name; planner should search API consumers before locking the name. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should no-slot `route_after_contextual_intent` route directly to `memory_context_load` in Phase 55?**  
    - What we know: `docs/contract-spec.md` allows `route_after_contextual_intent` to return `memory_context_load`, while Phase 55 locked decisions only require `slot_resolution_gate -> route_after_slot_resolution -> memory_context_load`. [VERIFIED: docs/contract-spec.md; .planning/phases/55-memory-context-load-cutover/55-CONTEXT.md]  
-   - What's unclear: Whether broad no-slot memory loading is intended for this phase or a later implementation refinement. [VERIFIED: current source audit; docs/contract-spec.md]  
-   - Recommendation: Keep Phase 55 narrow to the locked slot-resolution path unless planning records an explicit spec/scope decision. [RECOMMENDED: Phase 55 research]
+   - Prior uncertainty: Whether broad no-slot memory loading is intended for this phase or a later implementation refinement. [VERIFIED: current source audit; docs/contract-spec.md]
+   - RESOLVED: Phase 55 keeps the cutover narrow to `slot_resolution_gate -> route_after_slot_resolution -> memory_context_load`. It does not add broad no-slot `route_after_contextual_intent -> memory_context_load` routing unless a later phase records that scope decision. [DECIDED: Phase 55 planning; VERIFIED: 55-02-PLAN.md]
 
 2. **Should `llm_outputs["long_term_memory_retrieve"]` be retained after canonical metrics land?**  
    - What we know: D-55-14 permits retaining it only as compatibility, and current tests/API readers may still assert it. [VERIFIED: .planning/phases/55-memory-context-load-cutover/55-CONTEXT.md; tests/agent/test_graph.py]  
-   - What's unclear: Whether all downstream readers can move to `llm_outputs["memory_context_load"]` in one phase. [VERIFIED: rg audit]  
-   - Recommendation: Dual-write canonical plus legacy only where tests/API readers prove the need, document it in vocabulary/docs/debt, and name Phase 58 as the cleanup phase. [RECOMMENDED: Phase 55 research]
+   - Prior uncertainty: Whether all downstream readers can move to `llm_outputs["memory_context_load"]` in one phase. [VERIFIED: rg audit]
+   - RESOLVED: Active canonical metrics are written under `llm_outputs["memory_context_load"]`. `llm_outputs["long_term_memory_retrieve"]` is retained only by the direct compatibility wrapper/API-reader surface when tests prove the need, documented as compatibility-only, and targeted for Phase 58 cleanup. [DECIDED: Phase 55 planning; VERIFIED: 55-01-PLAN.md; 55-03-PLAN.md]
 
 3. **What exact finite usage labels should be locked?**  
    - What we know: The phase requires at least session continuity, explicit preference memory, reviewed case precedent/case hint, and CWC status where present. [VERIFIED: .planning/phases/55-memory-context-load-cutover/55-CONTEXT.md]  
-   - What's unclear: Whether to include the architecture-plan examples `case_memory_summary`, `similar_case_hint`, `reviewed_memory`, and `unreviewed_memory` verbatim. [VERIFIED: docs/target-agent-platform-architecture-plan.md]  
-   - Recommendation: Use a finite enum/list such as `session_continuity`, `explicit_preference_memory`, `reviewed_case_precedent`, `reviewed_case_hint`, and `case_working_context_status`, and avoid `unreviewed_memory` unless implementation actually emits a reviewed/unreviewed distinction. [RECOMMENDED: Phase 55 research]
+   - Prior uncertainty: Whether to include the architecture-plan examples `case_memory_summary`, `similar_case_hint`, `reviewed_memory`, and `unreviewed_memory` verbatim. [VERIFIED: docs/target-agent-platform-architecture-plan.md]
+   - RESOLVED: Phase 55 locks the finite canonical usage label set to `session_continuity`, `explicit_preference_memory`, `reviewed_case_precedent`, `case_working_context_status`, `reviewed_memory_skipped`, and `reviewed_memory_unavailable`. It intentionally does not emit `unreviewed_memory` or a separate `reviewed_case_hint` label unless a later phase adds a tested semantic distinction. [DECIDED: Phase 55 planning; VERIFIED: 55-01-PLAN.md]
 
 ## Environment Availability
 
