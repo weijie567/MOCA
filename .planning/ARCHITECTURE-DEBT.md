@@ -1025,6 +1025,40 @@
 - 🟡 `classify_intent.py`、`session_memory_load.py`、`route_after_intent` and `llm_outputs["intent_classification"]` remain compatibility surfaces until Phase 58 cleanup.
 - 🟡 `extract_slots` remains the intentional Phase 54 active compatibility destination; Phase 53 did not promote `slot_resolution_gate`.
 
+## Phase 54 Plan 03 — active `extract_slots` slot boundary 关闭并登记兼容面 ✅⚠️
+
+**问题 / 根因**
+- Phase 54-02 已把 active graph / router / policy route values 切到 `slot_resolution_gate` / `route_after_slot_resolution`，但 vocabulary、SSE label、current-source docs 和架构债务台账如果继续把 `extract_slots` 写成 active surface，会让后续 replay / trace / Phase 55-58 planning 误读当前 runtime authority。
+- 旧 `extract_slots` 名称仍可能出现在 persisted trace rows、SSE display、`src/agent/nodes/extract_slots.py` import/test compatibility、`route_after_slots` helper 和历史测试中；这些需要显式标注 owner、reason、trace projection、validation 和 delete phase，而不能默认为当前 runtime。
+
+**影响**
+- 若 active `extract_slots` 债务不关闭，CAGM-05 会看似未完成；若直接删除所有旧名，又可能破坏历史 trace/API projection 和 legacy import tests。
+- 如果 `slot_extraction` 被注册成 graph node，会违反 Phase 50 SPEC 与 `docs/contract-spec.md` §9 的 no-`slot_extraction` graph-node 约束。
+
+**处理状态**
+- ✅ 已关闭 active runtime debt：`src/agent/graph.py` 当前注册 `slot_resolution_gate`，不注册 `extract_slots`；active conditional edge source/router 为 `("slot_resolution_gate", "route_after_slot_resolution")`，不再有 `("extract_slots", "route_after_slots")`。
+- ✅ `src/agent/graph_vocabulary.py` 已将 `slot_resolution_gate` node 与 `route_after_slot_resolution` router 标为 `runtime`；`extract_slots` node 与 `route_after_slots` router 保留为 `compatibility_alias`，reason codes 至少包含 `PHASE_54_COMPATIBILITY_ALIAS`、`HISTORICAL_TRACE_PROJECTION`、`IMPORT_TEST_COMPATIBILITY`、`DELETE_BY_PHASE_58`。
+- ✅ `src/api/routers/agent_runs.py` 已新增 `slot_resolution_gate` 中文 runtime label；旧 `extract_slots` label 仅用于历史 / persisted row display compatibility。
+- ⚠️ `54-VALIDATION.md` 的最终 green 状态和完整 command evidence 由 54-03 Task 3 写入；本条先登记已基于 source/test 关闭的 architecture debt 与仍保留的 compatibility surfaces。
+
+**保留兼容面**
+
+| Surface | Owner | Reason | Trace/API projection | Validation | Delete phase |
+|---------|-------|--------|----------------------|------------|--------------|
+| `src/agent/nodes/extract_slots.py` wrapper/import/test surface | `slot_resolution_gate` | 兼容旧 import 与 legacy unit tests；active graph 不再注册 | 历史 `extract_slots` trace/API rows project to `slot_resolution_gate`，status `compatibility_alias` | `tests/agent/test_nodes/test_extract_slots.py` + Phase 54 final active graph scan | No later than Phase 58 |
+| `route_after_slots` helper | `route_after_slot_resolution` | 兼容旧 router import/tests；active graph 不再使用 | `route_after_slots -> route_after_slot_resolution`，status `compatibility_alias` | graph source uses `route_after_slot_resolution`; vocabulary uniqueness / alias reason-code tests pass | No later than Phase 58 |
+| Historical `extract_slots` persisted trace/API/SSE display | `slot_resolution_gate` | 不重写历史存储；保持 operator/replay 可读 | `_sse_event` preserves `node_name="extract_slots"` and adds `target_node_name="slot_resolution_gate"` | `tests/agent/test_trace.py`、`tests/test_trace_api.py`、`tests/test_agent_runs_api.py` | No later than Phase 58 or earlier if historical display compatibility is retired |
+
+**证据**
+- Phase / commits：`54-02` active graph cutover (`e46d9d2`, `9765483`)；`54-03` vocabulary/API closeout (`e2a0837`, `70048fa`)。
+- Source facts：`src/agent/graph.py` registers `slot_resolution_gate`; `src/agent/routing.py` exposes `route_after_slot_resolution` and keeps `route_after_slots` as delegate-only; `tests/architecture/graph_baseline.py` active node baseline includes `slot_resolution_gate` and excludes `extract_slots`; `src/agent/graph_vocabulary.py` marks Phase 54 runtime/compatibility split.
+- Verification so far：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph_vocabulary.py tests/agent/test_trace.py tests/test_trace_api.py tests/test_agent_runs_api.py::test_sse_event_projects_target_node_name_without_rewriting_legacy_node_name tests/test_agent_runs_api.py::test_sse_event_projects_runtime_slot_resolution_node_identity -q --tb=short` → `89 passed, 1 warning`；`UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent/graph_vocabulary.py src/api/routers/agent_runs.py tests/agent/test_graph_vocabulary.py tests/agent/test_trace.py tests/test_trace_api.py tests/test_agent_runs_api.py` → pass。
+
+**剩余风险**
+- 🟡 Retained compatibility surfaces must be removed or reclassified no later than Phase 58.
+- 🟡 Phase 55 / 56 / 57 still own active `long_term_memory_retrieve`、`generate_recommendation`、`assess_risk_and_approval` cutovers; Phase 54 does not activate `memory_context_load`、`recommendation_generation` or `risk_gate` as active registered graph nodes.
+- ✅ `slot_extraction` remains unregistered in the main graph; Phase 54 does not introduce it as a node.
+
 ## Phase 53 code review fix — `intent_classification` output mirror 兼容回归 ✅已修复验证
 
 **问题 / 根因**

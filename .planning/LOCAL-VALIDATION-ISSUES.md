@@ -14370,3 +14370,114 @@ zsh 会先做 command substitution，再把返回 JSON 拼进 `rg` regex，最�
 
 - `.planning/LOCAL-VALIDATION-ISSUES.md`
 - `.planning/STATE.md`
+
+## 2026-07-07 — 54-03 Task 2 docs scan pattern 中反引号触发 `extract_slots` 命令替换
+
+### 问题现象
+
+Task 2 docs/debt 复核时，使用了含 Markdown 反引号的双引号 `rg` pattern。zsh 先把反引号内的 `extract_slots` 当作命令执行，输出：
+
+```text
+zsh:1: command not found: extract_slots
+```
+
+原 `rg` 仍因 `|| true` 返回了部分后续命中，但该结果不能作为有效扫描结论。
+
+### 如何检测 / 复现
+
+问题命令形态：
+
+```text
+rg -n "当前注册的 graph nodes.*extract_slots|Phase 54 compatibility destination|Architecture baseline keeps this as active legacy migration row|active `extract_slots` compatibility destination" docs/current-langgraph-architecture.md .planning/ARCHITECTURE-DEBT.md || true
+```
+
+在 zsh 中，双引号不会阻止反引号 command substitution。
+
+### 关键证据或命令
+
+关键输出：
+
+```text
+zsh:1: command not found: extract_slots
+```
+
+随后改用单引号安全 pattern 重跑：
+
+```text
+rg -n '当前注册的 graph nodes.*extract_slots|Phase 54 compatibility destination|active `extract_slots` compatibility destination|extract_slots`、`long_term_memory_retrieve' docs/current-langgraph-architecture.md .planning/ARCHITECTURE-DEBT.md || true
+```
+
+安全重跑无输出，说明没有残留的 active-`extract_slots` 当前运行态措辞命中。
+
+### 当前判断 / 根因
+
+根因是 shell quoting 错误，不是 docs/debt 内容错误，也不是 GSD state/roadmap helper 问题。本次没有调用 `gsd-sdk query state.*` 或 `gsd-sdk query roadmap.*`，也没有修改 `.planning/STATE.md` / `.planning/ROADMAP.md`。
+
+### 已做处理
+
+已用单引号重跑扫描并确认无 disallowed active-`extract_slots` docs/debt 命中；本条记录按项目规则追加。
+
+### 剩余问题
+
+无已知阻塞。提交前仍需确认 `.planning/STATE.md` 与 `.planning/ROADMAP.md` 没有工作区 diff。
+
+### 下次继续排查入口
+
+- `docs/current-langgraph-architecture.md`
+- `.planning/ARCHITECTURE-DEBT.md`
+- `.planning/LOCAL-VALIDATION-ISSUES.md`
+
+## 2026-07-07 — 54-03 Task 2 validation green 防误标检查误扫正文说明
+
+### 问题现象
+
+Task 2 提交前复核 `54-VALIDATION.md` 未被标绿时，使用了全文字符串断言：
+
+```text
+assert 'nyquist_compliant: true' not in validation
+```
+
+命令失败并抛出 `AssertionError`。
+
+### 如何检测 / 复现
+
+执行的失败命令形态：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run python -c "... assert 'nyquist_compliant: true' not in pathlib.Path('.planning/phases/54-slot-resolution-gate-cutover/54-VALIDATION.md').read_text(); ..."
+```
+
+### 关键证据或命令
+
+失败输出：
+
+```text
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+AssertionError
+```
+
+### 当前判断 / 根因
+
+这是检查脚本误报，不是 `54-VALIDATION.md` 被 Task 2 标绿。该文件正文的 sign-off 说明中原本就包含 ``nyquist_compliant: true`` 作为未来执行完成后的目标文本；Task 2 只需要确认 frontmatter 仍是 `status: draft` / `nyquist_compliant: false` / `wave_0_complete: false`。
+
+### 已做处理
+
+已改为只解析 frontmatter 区块并断言：
+
+```text
+status: draft
+nyquist_compliant: false
+wave_0_complete: false
+```
+
+未修改 `54-VALIDATION.md`。
+
+### 剩余问题
+
+无已知阻塞。Task 3 仍然是唯一可以更新 `54-VALIDATION.md` final status / green flags / command evidence 的任务。
+
+### 下次继续排查入口
+
+- `.planning/phases/54-slot-resolution-gate-cutover/54-VALIDATION.md`
+- `.planning/LOCAL-VALIDATION-ISSUES.md`
