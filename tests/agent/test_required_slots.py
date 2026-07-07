@@ -9,7 +9,7 @@ from src.agent.routing import (
     missing_required_slots,
     resolve_slots_for_completeness,
     resolve_slots_with_metadata,
-    route_after_slots,
+    route_after_slot_resolution,
 )
 
 
@@ -128,7 +128,7 @@ def test_candidate_slots_and_stale_active_slots_do_not_satisfy_policy():
         "session_memory": {"continuity_claimed": False, "active_slots": {"refund_case_id": "RF-SESSION-STALE"}},
     }
 
-    assert route_after_slots(state) == "clarification_gate"
+    assert route_after_slot_resolution(state) == "clarification_gate"
 
 
 def test_session_memory_continuity_claimed_without_metadata_fails_closed():
@@ -140,7 +140,7 @@ def test_session_memory_continuity_claimed_without_metadata_fails_closed():
     }
 
     assert resolve_slots_for_completeness(state) == {}
-    assert route_after_slots(state) == "clarification_gate"
+    assert route_after_slot_resolution(state) == "clarification_gate"
 
 
 def test_trusted_session_memory_synthetic_hook_and_current_turn_override():
@@ -170,7 +170,7 @@ def test_trusted_session_memory_synthetic_hook_and_current_turn_override():
     resolved = resolve_slots_for_completeness(state)
     assert resolved["order_id"] == "ORD-CURRENT"
     assert resolved["refund_case_id"] == "RF-SESSION"
-    assert route_after_slots(state) == "investigate"
+    assert route_after_slot_resolution(state) == "investigate"
 
 
 def _trusted_state(metadata_updates: dict | None = None, *, value: str = "ORD-SESSION") -> dict:
@@ -231,7 +231,7 @@ def test_trusted_session_memory_rejects_wrong_tenant_user_thread_expired_and_inc
     for metadata_update in cases:
         state = _trusted_state(metadata_update)
         assert resolve_slots_for_completeness(state) == {}
-        assert route_after_slots(state) == "clarification_gate"
+        assert route_after_slot_resolution(state) == "clarification_gate"
 
 
 def test_pre_intent_session_context_rejects_incompatible_non_business_slot():
@@ -260,7 +260,7 @@ def test_pre_intent_session_context_rejects_incompatible_non_business_slot():
 
     assert resolved == {"order_id": "ORD-CURRENT"}
     assert "action_type" not in metadata
-    assert route_after_slots(state) == "clarification_gate"
+    assert route_after_slot_resolution(state) == "clarification_gate"
 
 
 def test_pre_intent_session_context_preserves_cross_intent_business_id_slot():
@@ -288,7 +288,7 @@ def test_pre_intent_session_context_preserves_cross_intent_business_id_slot():
 
     assert resolved == {"action_type": "issue_coupon", "order_id": "ORD-PRE-INTENT"}
     assert metadata["order_id"]["source"] == "trusted_session_memory"
-    assert route_after_slots(state) == "investigate"
+    assert route_after_slot_resolution(state) == "investigate"
 
 
 def test_trusted_session_memory_explicit_override_wins():
@@ -298,7 +298,7 @@ def test_trusted_session_memory_explicit_override_wins():
     resolved = resolve_slots_for_completeness(state)
 
     assert resolved["order_id"] == "ORD-CURRENT"
-    assert route_after_slots(state) == "investigate"
+    assert route_after_slot_resolution(state) == "investigate"
 
 
 def test_slot_invalidation_prevents_trusted_session_inheritance():
@@ -310,7 +310,7 @@ def test_slot_invalidation_prevents_trusted_session_inheritance():
     assert "order_id" not in resolved
     assert metadata["order_id"]["source"] == "invalidated_trusted_session_memory"
     assert metadata["order_id"]["invalidated_by_current_query"] is True
-    assert route_after_slots(state) == "clarification_gate"
+    assert route_after_slot_resolution(state) == "clarification_gate"
 
 
 def test_rejected_stale_inherited_slot_resolution_is_idempotent_on_second_pass():
@@ -329,7 +329,7 @@ def test_rejected_stale_inherited_slot_resolution_is_idempotent_on_second_pass()
     assert second_resolved == {}
     assert "order_id" not in first_metadata
     assert "order_id" not in second_metadata
-    assert route_after_slots(state) == "clarification_gate"
+    assert route_after_slot_resolution(state) == "clarification_gate"
 
 
 def test_current_turn_slot_replaces_invalidated_session_slot_with_provenance():
@@ -346,7 +346,7 @@ def test_current_turn_slot_replaces_invalidated_session_slot_with_provenance():
     assert metadata["order_id"]["observed_at"] == "2026-06-21T10:00:00+00:00"
     assert metadata["order_id"]["previous_trusted_session_value"] == "ORD-SESSION"
     assert metadata["order_id"]["slot_invalidation"]["slot"] == "order_id"
-    assert route_after_slots(state) == "investigate"
+    assert route_after_slot_resolution(state) == "investigate"
 
 
 def test_detect_slot_invalidations_for_refund_and_broad_switches():
@@ -356,7 +356,7 @@ def test_detect_slot_invalidations_for_refund_and_broad_switches():
 
 def test_required_slots_mismatch_fails_closed():
     assert (
-        route_after_slots(
+        route_after_slot_resolution(
             {
                 "primary_intent": "refund_troubleshooting",
                 "required_slots": {"all_of": ["forged"], "any_of": [], "optional": []},

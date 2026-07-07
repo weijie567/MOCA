@@ -34,7 +34,7 @@ CURRENT_ACTIVE_GRAPH_NODES_BASELINE = frozenset(
         "safety_pre_route",
         "session_context_load",
         "contextual_intent_resolve",
-        "extract_slots",
+        "slot_resolution_gate",
         "long_term_memory_retrieve",
         "investigate",
         "rag_context_build",
@@ -49,11 +49,6 @@ CURRENT_ACTIVE_GRAPH_NODES_BASELINE = frozenset(
 )
 
 MIGRATION_MODE_LEGACY_NODE_MAP = {
-    "extract_slots": {
-        "target": "slot_resolution_gate",
-        "delete_phase": "Phase 54",
-        "owner_requirement": "CAGM-05",
-    },
     "long_term_memory_retrieve": {
         "target": "memory_context_load",
         "delete_phase": "Phase 55",
@@ -85,9 +80,9 @@ CURRENT_CONDITIONAL_EDGE_BASELINE = {
         "clarification_gate": "clarification_gate",
         "final_response": "final_response",
         "investigate": "investigate",
-        "extract_slots": "extract_slots",
+        "slot_resolution_gate": "slot_resolution_gate",
     },
-    ("extract_slots", "route_after_slots"): {
+    ("slot_resolution_gate", "route_after_slot_resolution"): {
         "clarification_gate": "clarification_gate",
         "investigate": "investigate",
         "long_term_memory_retrieve": "long_term_memory_retrieve",
@@ -399,7 +394,7 @@ def graph_router_route_values() -> dict[str, frozenset[str]]:
     routing_router_names = {
         "route_after_safety",
         "route_after_contextual_intent",
-        "route_after_slots",
+        "route_after_slot_resolution",
         "route_after_investigate",
         "route_after_rag_context",
         "route_after_recommendation",

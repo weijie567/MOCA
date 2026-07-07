@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict
 from src.agent.schemas import IntentLiteral, RequiredSlotExpression, RequestedOperationLiteral, RiskTierLiteral
 
 
-IntentRouteLiteral = Literal["investigate", "extract_slots", "final_response"]
+IntentRouteLiteral = Literal["investigate", "slot_resolution_gate", "final_response"]
 TaskStepRelationLiteral = Literal["root", "dependency", "modifier", "parallel"]
 
 
@@ -141,13 +141,13 @@ INTENT_DEFINITIONS: dict[str, IntentDefinition] = {
     "order_status_inquiry": IntentDefinition(
         name="order_status_inquiry",
         required_slots=RequiredSlotExpression(any_of=[["order_id", "refund_case_id", "ticket_id"]]),
-        initial_route="extract_slots",
+        initial_route="slot_resolution_gate",
         precedence=6,
     ),
     "refund_troubleshooting": IntentDefinition(
         name="refund_troubleshooting",
         required_slots=RequiredSlotExpression(any_of=[["order_id", "refund_case_id"]]),
-        initial_route="extract_slots",
+        initial_route="slot_resolution_gate",
         precedence=5,
     ),
     "compensation_suggestion": IntentDefinition(
@@ -157,19 +157,19 @@ INTENT_DEFINITIONS: dict[str, IntentDefinition] = {
             any_of=[["order_id", "refund_case_id", "ticket_id"]],
             optional=["amount"],
         ),
-        initial_route="extract_slots",
+        initial_route="slot_resolution_gate",
         precedence=3,
     ),
     "ticket_reply_draft": IntentDefinition(
         name="ticket_reply_draft",
         required_slots=RequiredSlotExpression(all_of=["ticket_id"]),
-        initial_route="extract_slots",
+        initial_route="slot_resolution_gate",
         precedence=4,
     ),
     "appeal_or_unban": IntentDefinition(
         name="appeal_or_unban",
         required_slots=RequiredSlotExpression(any_of=[["ticket_id", "order_id", "merchant_id"]]),
-        initial_route="extract_slots",
+        initial_route="slot_resolution_gate",
         precedence=1,
         high_risk=True,
         critical_route_class=True,
@@ -177,7 +177,7 @@ INTENT_DEFINITIONS: dict[str, IntentDefinition] = {
     "complaint_escalation": IntentDefinition(
         name="complaint_escalation",
         required_slots=RequiredSlotExpression(any_of=[["ticket_id", "order_id", "merchant_id"]]),
-        initial_route="extract_slots",
+        initial_route="slot_resolution_gate",
         precedence=2,
         high_risk=True,
         critical_route_class=True,
@@ -185,7 +185,7 @@ INTENT_DEFINITIONS: dict[str, IntentDefinition] = {
     "action_request": IntentDefinition(
         name="action_request",
         required_slots=RequiredSlotExpression(all_of=["action_type"], any_of=[["order_id", "refund_case_id"]]),
-        initial_route="extract_slots",
+        initial_route="slot_resolution_gate",
         precedence=8,
         high_risk=True,
     ),

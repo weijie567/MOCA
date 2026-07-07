@@ -35,7 +35,7 @@ from src.agent.routing import (
     resolve_slots_with_metadata,
     route_after_contextual_intent,
     route_after_intent,
-    route_after_slots,
+    route_after_slot_resolution,
 )
 from src.agent.schemas import IntentResultV3, RequiredSlotExpression
 
@@ -219,7 +219,7 @@ def test_next_step_advice_is_not_forced_into_action_type_clarification():
     assert update["required_slots"] == {"all_of": [], "any_of": [["order_id", "refund_case_id"]], "optional": []}
     eval_metadata = update["llm_outputs"]["contextual_intent_resolve"]["eval_metadata"]
     assert "next_step_advice_normalized" in eval_metadata["reason_codes"]
-    assert route_after_contextual_intent(update) == "extract_slots"
+    assert route_after_contextual_intent(update) == "slot_resolution_gate"
     assert route_after_intent(update) == route_after_contextual_intent(update)
 
 
@@ -435,7 +435,7 @@ def test_safety_sensitive_pre_route_forces_action_request_policy(llm_intent):
     assert update["risk_tier"] == "approval_required"
     assert update["classification_trace"]["effective_classification"]["primary_intent"] == "action_request"
     assert update["required_slots"]["all_of"] == ["action_type"]
-    assert route_after_slots({**update, "extracted_slots": {"order_id": "ORD-7001"}}) == "clarification_gate"
+    assert route_after_slot_resolution({**update, "extracted_slots": {"order_id": "ORD-7001"}}) == "clarification_gate"
 
 
 def test_safety_sensitive_escalation_pre_route_forces_complaint_escalation_policy():
@@ -463,7 +463,7 @@ def test_safety_sensitive_escalation_pre_route_forces_complaint_escalation_polic
     assert update["requested_operation"] == "escalate"
     assert update["risk_tier"] == "approval_required"
     assert update["required_slots"]["any_of"] == [["ticket_id", "order_id", "merchant_id"]]
-    assert route_after_contextual_intent(update) == "extract_slots"
+    assert route_after_contextual_intent(update) == "slot_resolution_gate"
     assert route_after_intent(update) == route_after_contextual_intent(update)
 
 
@@ -555,10 +555,10 @@ def test_intent_consumers_do_not_read_policy_constants_directly():
         assert token not in classifier_source
 
 
-def test_route_after_slots_totality_and_long_term_memory_route():
-    assert route_after_slots({}) in SLOT_ROUTES
+def test_route_after_slot_resolution_totality_and_long_term_memory_route():
+    assert route_after_slot_resolution({}) in SLOT_ROUTES
     assert (
-        route_after_slots(
+        route_after_slot_resolution(
             {
                 "primary_intent": "policy_qa",
                 "required_slots": {"all_of": [], "any_of": [], "optional": []},
@@ -570,9 +570,9 @@ def test_route_after_slots_totality_and_long_term_memory_route():
     )
 
 
-def test_route_after_slots_accepts_canonical_reviewed_memory_hint_and_preserves_slot_gate():
+def test_route_after_slot_resolution_accepts_canonical_reviewed_memory_hint_and_preserves_slot_gate():
     assert (
-        route_after_slots(
+        route_after_slot_resolution(
             {
                 "primary_intent": "policy_qa",
                 "required_slots": {"all_of": [], "any_of": [], "optional": []},
@@ -583,7 +583,7 @@ def test_route_after_slots_accepts_canonical_reviewed_memory_hint_and_preserves_
         == "long_term_memory_retrieve"
     )
     assert (
-        route_after_slots(
+        route_after_slot_resolution(
             {
                 "primary_intent": "refund_troubleshooting",
                 "extracted_slots": {},

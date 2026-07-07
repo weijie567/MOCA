@@ -331,7 +331,7 @@ def test_route_after_safety_fails_closed_for_exceptions_or_unregistered_route(mo
                 "requested_operation": "read_status",
                 "intent_confidence": 0.95,
             },
-            "extract_slots",
+            "slot_resolution_gate",
         ),
         (
             {
@@ -339,7 +339,7 @@ def test_route_after_safety_fails_closed_for_exceptions_or_unregistered_route(mo
                 "requested_operation": "read_status",
                 "intent_confidence": 0.95,
             },
-            "extract_slots",
+            "slot_resolution_gate",
         ),
         (
             {
@@ -378,7 +378,7 @@ def test_route_after_safety_fails_closed_for_exceptions_or_unregistered_route(mo
 def test_route_after_contextual_intent_totality_and_phase54_slot_destination(state, expected):
     route = route_after_contextual_intent(state)
 
-    assert route in {"clarification_gate", "final_response", "investigate", "extract_slots"}
+    assert route in {"clarification_gate", "final_response", "investigate", "slot_resolution_gate"}
     assert route == expected
 
 
@@ -400,7 +400,7 @@ def test_route_after_intent_is_compatibility_delegate_to_contextual_intent():
         "intent_confidence": 0.95,
     }
 
-    assert route_after_intent(state) == route_after_contextual_intent(state) == "extract_slots"
+    assert route_after_intent(state) == route_after_contextual_intent(state) == "slot_resolution_gate"
 
 
 def test_route_after_risk_returns_final_response_for_auto_allowed_snapshot_verified_action():

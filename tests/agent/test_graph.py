@@ -27,6 +27,7 @@ from src.agent.routing import (
     route_after_rag_context,
     route_after_recommendation,
     route_after_safety,
+    route_after_slot_resolution,
     route_after_slots,
 )
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
@@ -52,8 +53,8 @@ INVESTIGATION_STATE_FIELDS = {
 }
 ROUTER_EDGE_KEYS = {
     "route_after_safety": {"session_context_load", "clarification_gate", "final_response"},
-    "route_after_contextual_intent": {"clarification_gate", "final_response", "investigate", "extract_slots"},
-    "route_after_slots": {"clarification_gate", "investigate", "long_term_memory_retrieve"},
+    "route_after_contextual_intent": {"clarification_gate", "final_response", "investigate", "slot_resolution_gate"},
+    "route_after_slot_resolution": {"clarification_gate", "investigate", "long_term_memory_retrieve"},
     "route_after_risk": {"approval_gate", "final_response"},
     "route_after_approval": {"assess_risk_and_approval", "action_draft", "final_response"},
     "route_after_investigate": {
@@ -933,11 +934,12 @@ def test_graph_compiles_with_investigate():
         "rag_context_build",
         "claim_verify",
         "clarification_gate",
-        "extract_slots",
+        "slot_resolution_gate",
         "long_term_memory_retrieve",
     } <= nodes
     assert "classify_intent" not in nodes
     assert "session_memory_load" not in nodes
+    assert "extract_slots" not in nodes
     assert "action_draft" in nodes
     assert "execute_action" not in nodes
     assert "load_business_context" not in nodes
@@ -948,20 +950,20 @@ def test_legacy_graph_runtime_names_project_to_target_vocabulary():
     graph = build_graph(MemorySaver())
     nodes = set(graph.get_graph().nodes)
 
-    legacy_node_targets = {
-        "extract_slots": "slot_resolution_gate",
-        "long_term_memory_retrieve": "memory_context_load",
-    }
+    legacy_node_targets = {"long_term_memory_retrieve": "memory_context_load"}
     for legacy_node, target_node in legacy_node_targets.items():
         assert legacy_node in nodes
         assert target_graph_name(legacy_node, kind="node") == target_node
+    assert "slot_resolution_gate" in nodes
+    assert target_graph_name("slot_resolution_gate", kind="node") == "slot_resolution_gate"
+    assert target_graph_name("extract_slots", kind="node") == "slot_resolution_gate"
 
     legacy_router_targets = {
         "route_after_slots": "route_after_slot_resolution",
     }
     for legacy_router, target_router in legacy_router_targets.items():
-        assert legacy_router in ROUTER_EDGE_KEYS
         assert target_graph_name(legacy_router, kind="router") == target_router
+    assert target_graph_name("route_after_slot_resolution", kind="router") == "route_after_slot_resolution"
 
 
 def test_phase_33_claim_verify_is_registered_as_runnable_graph_node():
@@ -1033,13 +1035,21 @@ def test_all_router_return_keys_have_edges():
         in ROUTER_EDGE_KEYS["route_after_contextual_intent"]
     )
     assert (
-        route_after_slots(
+        route_after_slot_resolution(
             {"primary_intent": "policy_qa", "required_slots": {"all_of": [], "any_of": [], "optional": []}}
         )
-        in ROUTER_EDGE_KEYS["route_after_slots"]
+        in ROUTER_EDGE_KEYS["route_after_slot_resolution"]
     )
-    assert ROUTER_EDGE_KEYS["route_after_slots"] == {"clarification_gate", "investigate", "long_term_memory_retrieve"}
-    assert target_graph_name("route_after_slots", kind="router") == "route_after_slot_resolution"
+    assert ROUTER_EDGE_KEYS["route_after_slot_resolution"] == {
+        "clarification_gate",
+        "investigate",
+        "long_term_memory_retrieve",
+    }
+    assert route_after_slots(
+        {"primary_intent": "policy_qa", "required_slots": {"all_of": [], "any_of": [], "optional": []}}
+    ) == route_after_slot_resolution(
+        {"primary_intent": "policy_qa", "required_slots": {"all_of": [], "any_of": [], "optional": []}}
+    )
     assert route_after_risk({"risk_assessment": {"approval_required": True}}) in ROUTER_EDGE_KEYS["route_after_risk"]
     assert (
         route_after_risk({"proposed_action": {"action_type": "issue_coupon"}}) in ROUTER_EDGE_KEYS["route_after_risk"]

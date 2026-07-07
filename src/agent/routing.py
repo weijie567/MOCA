@@ -35,7 +35,7 @@ RAG_CONTEXT_STATUSES = {
 _RAG_CONTEXT_ROUTES = {"recommendation_generation", "clarification_gate", "final_response"}
 _CLAIM_VERIFY_ROUTES = {"assess_risk_and_approval", "final_response"}
 SAFETY_ROUTES = {"session_context_load", "clarification_gate", "final_response"}
-CONTEXTUAL_INTENT_ROUTES = {"clarification_gate", "final_response", "investigate", "extract_slots"}
+CONTEXTUAL_INTENT_ROUTES = {"clarification_gate", "final_response", "investigate", "slot_resolution_gate"}
 INTENT_ROUTES = CONTEXTUAL_INTENT_ROUTES
 SLOT_RESOLUTION_ROUTES = {"clarification_gate", "investigate", "long_term_memory_retrieve"}
 SLOT_ROUTES = SLOT_RESOLUTION_ROUTES
@@ -455,7 +455,7 @@ def _route_after_contextual_intent(state: AgentState) -> str:
         return "clarification_gate"
     policy = SLOT_POLICY_REGISTRY.required_slots_for(intent)
     if policy.all_of or policy.any_of:
-        return "extract_slots"
+        return "slot_resolution_gate"
     return route
 
 

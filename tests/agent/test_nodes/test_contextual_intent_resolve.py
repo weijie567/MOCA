@@ -59,11 +59,11 @@ async def test_contextual_intent_resolve_success_owns_canonical_trace_and_llm_ou
     assert trace["candidate_classification"]["primary_intent"] == "refund_troubleshooting"
     assert trace["policy_owner"] == "IntentPolicyRegistry"
     assert trace["effective_classification"]["primary_intent"] == "refund_troubleshooting"
-    assert trace["route_decision"] == "extract_slots"
+    assert trace["route_decision"] == "slot_resolution_gate"
     assert "pre_route_decision" not in trace
     assert result["trace_steps"][-1]["node"] == "contextual_intent_resolve"
     assert result["llm_outputs"]["contextual_intent_resolve"]["classification_trace"] == trace
-    assert route_after_contextual_intent(result) == "extract_slots"
+    assert route_after_contextual_intent(result) == "slot_resolution_gate"
 
 
 @pytest.mark.asyncio
@@ -112,11 +112,11 @@ async def test_contextual_intent_resolve_pending_slot_identifier_uses_same_threa
     assert result["intent_confidence"] == 1.0
     assert result["routing_hints"]["workflow_state_resolution"] == "answered_pending_required_slot"
     assert result["classification_trace"]["raw_llm_classification"] is None
-    assert result["classification_trace"]["route_decision"] == "extract_slots"
+    assert result["classification_trace"]["route_decision"] == "slot_resolution_gate"
     assert "pre_route_decision" not in result["classification_trace"]
     assert result["llm_outputs"]["contextual_intent_resolve"]["classification_trace"] == result["classification_trace"]
     assert result["trace_steps"][-1]["node"] == "contextual_intent_resolve"
-    assert route_after_contextual_intent(result) == "extract_slots"
+    assert route_after_contextual_intent(result) == "slot_resolution_gate"
     for forbidden in FORBIDDEN_DOWNSTREAM_FIELDS:
         assert forbidden not in result
 

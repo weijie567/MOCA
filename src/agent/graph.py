@@ -26,7 +26,6 @@ from src.agent.nodes.action_draft import action_draft
 from src.agent.nodes.clarification_gate import clarification_gate
 from src.agent.nodes.claim_verify import claim_verify
 from src.agent.nodes.contextual_intent_resolve import contextual_intent_resolve
-from src.agent.nodes.extract_slots import extract_slots
 from src.agent.nodes.final_response import final_response
 from src.agent.nodes.generate_recommendation import generate_recommendation
 from src.agent.nodes.investigate import investigate
@@ -35,6 +34,7 @@ from src.agent.nodes.rag_context_build import rag_context_build
 from src.agent.nodes.receive_request import receive_request
 from src.agent.nodes.safety_pre_route import safety_pre_route
 from src.agent.nodes.session_context_load import session_context_load
+from src.agent.nodes.slot_resolution_gate import slot_resolution_gate
 from src.agent.routing import (
     route_after_claim_verify,
     route_after_contextual_intent,
@@ -42,7 +42,7 @@ from src.agent.routing import (
     route_after_rag_context,
     route_after_recommendation,
     route_after_safety,
-    route_after_slots,
+    route_after_slot_resolution,
 )
 from src.agent.state import AgentState
 from src.approvals.schemas import AutoAllowedActionBindingV1
@@ -283,7 +283,7 @@ def build_graph(checkpointer: AsyncPostgresSaver):
     builder.add_node("safety_pre_route", safety_pre_route)
     builder.add_node("session_context_load", session_context_load)
     builder.add_node("contextual_intent_resolve", contextual_intent_resolve, retry_policy=_llm_retry)
-    builder.add_node("extract_slots", extract_slots, retry_policy=_llm_retry)
+    builder.add_node("slot_resolution_gate", slot_resolution_gate, retry_policy=_llm_retry)
     builder.add_node("long_term_memory_retrieve", long_term_memory_retrieve)
     builder.add_node("investigate", investigate)
     builder.add_node("rag_context_build", rag_context_build)
@@ -314,12 +314,12 @@ def build_graph(checkpointer: AsyncPostgresSaver):
             "clarification_gate": "clarification_gate",
             "final_response": "final_response",
             "investigate": "investigate",
-            "extract_slots": "extract_slots",
+            "slot_resolution_gate": "slot_resolution_gate",
         },
     )
     builder.add_conditional_edges(
-        "extract_slots",
-        route_after_slots,
+        "slot_resolution_gate",
+        route_after_slot_resolution,
         {
             "clarification_gate": "clarification_gate",
             "investigate": "investigate",

@@ -63,11 +63,6 @@ def test_migration_mode_maps_every_active_legacy_node_to_target() -> None:
 
     assert active_legacy_nodes == frozenset(MIGRATION_MODE_LEGACY_NODE_MAP)
     assert MIGRATION_MODE_LEGACY_NODE_MAP == {
-        "extract_slots": {
-            "target": "slot_resolution_gate",
-            "delete_phase": "Phase 54",
-            "owner_requirement": "CAGM-05",
-        },
         "long_term_memory_retrieve": {
             "target": "memory_context_load",
             "delete_phase": "Phase 55",
