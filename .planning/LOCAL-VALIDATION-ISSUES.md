@@ -16716,6 +16716,40 @@ Phase 56 使用的是按 plan 拆分的 `56-01-SUMMARY.md` 到 `56-04-SUMMARY.md
 
 - `.planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-*-SUMMARY.md`
 
+## 2026-07-07 Phase 57 plan-phase gate：UI keyword 检测把 manual-review 误判为 view
+
+### 问题现象
+
+Phase 57 plan-phase 预检查 UI gate 时，GSD 的关键词 grep 因为 phase 文本里有 `manual-review`，命中 `view` 子串，导致非前端 phase 被识别为可能需要 UI-SPEC。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+gsd-sdk query roadmap.get-phase "57" --pick section | grep -iE "UI|interface|frontend|component|layout|page|screen|view|form|dashboard|widget" || true
+```
+
+### 关键证据或命令
+
+命令输出了 Phase 57 整段 roadmap 文本；实际命中来自 `manual-review` 中的 `view` 子串，而 Phase 57 是 Agent Graph risk/approval 后端架构迁移，不是 UI / frontend phase。
+
+### 当前判断 / 根因
+
+UI gate 使用未加词边界的 `view` 关键词，容易把 `review` / `manual-review` 误判成 UI 视图需求。
+
+### 已做处理
+
+本轮 autopilot 将 Phase 57 按非 UI phase 继续规划，不生成 UI-SPEC。后续如果修 GSD workflow，可把该 grep 改成带词边界的 `\\bview\\b` 或更明确的 frontend 词表。
+
+### 剩余问题
+
+GSD workflow 本身仍可能在其他含 `review` 的非 UI phase 触发同类误报。
+
+### 下次继续排查入口
+
+- `$HOME/.codex/get-shit-done/workflows/plan-phase.md` 的 UI Design Contract Gate
+
 ## 2026-07-07 Phase 56 REVIEW-FIX iteration 1：approval_approved graph contract 首次验证缺少草稿创建最终回复
 
 ### 问题现象
