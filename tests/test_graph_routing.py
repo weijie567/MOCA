@@ -12,8 +12,9 @@ from src.agent.nodes import assess_risk_and_approval as risk_module
 from src.agent import routing as routing_module
 from src.agent.routing import (
     SLOT_RESOLUTION_ROUTES,
-    route_after_intent,
+    route_after_claim_verify,
     route_after_contextual_intent,
+    route_after_intent,
     route_after_investigate,
     route_after_recommendation,
     route_after_safety,
@@ -267,6 +268,20 @@ def test_route_after_risk_requires_positive_allowed_action_claim(claim_results):
     state["claim_verification_bundle"]["claim_results"] = claim_results
 
     assert route_after_risk(state) == "final_response"
+
+
+def test_route_after_claim_verify_routes_low_risk_verified_action_without_preexisting_proposed_action():
+    tenant_id = str(uuid4())
+    state = {
+        "recommendation_draft": {
+            "recommended_action": "issue_coupon",
+            "risk_level": "low",
+            "missing_info": [],
+        },
+        "claim_verification_bundle": _claim_bundle_payload(tenant_id),
+    }
+
+    assert route_after_claim_verify(state) == "assess_risk_and_approval"
 
 
 def test_route_after_recommendation_routes_actionable_draft_to_claim_verify():

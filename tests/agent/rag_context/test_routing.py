@@ -271,8 +271,11 @@ def test_route_after_recommendation_sends_claims_and_actions_to_claim_verify() -
             "final_response",
         ),
         (
-            {"claim_verification_bundle": _continue_bundle(claim_results=[_allowed_action_claim_result()])},
-            "final_response",
+            {
+                "recommendation_draft": {"recommended_action": "issue_coupon", "risk_level": "low"},
+                "claim_verification_bundle": _continue_bundle(claim_results=[_allowed_action_claim_result()]),
+            },
+            "assess_risk_and_approval",
         ),
         (
             {

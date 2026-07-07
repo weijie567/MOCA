@@ -590,7 +590,7 @@ def _route_after_claim_verify(state: AgentState) -> str:
         return "final_response"
     if _has_proposed_action(state):
         return "assess_risk_and_approval" if _has_verified_action_recommendation(state) else "final_response"
-    if _has_risk_signal(state):
+    if _has_verified_action_recommendation(state) or _has_risk_signal(state):
         return "assess_risk_and_approval"
     return "final_response"
 
