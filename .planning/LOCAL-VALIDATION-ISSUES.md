@@ -16641,6 +16641,54 @@ FAILED tests/agent/test_rag_context_routing.py::test_partial_rag_context_fails_c
 - `tests/agent/test_rag_context_routing.py`
 - `src/knowledge/schemas.py`
 
+## 2026-07-07 Phase 56 Plan 56-04 Task 1 TDD RED：缺少 recommendation_generation vocabulary / historical projection
+
+### 问题现象
+
+Task 1 按 TDD RED 增加 Phase 56 graph vocabulary、trace summary、Trace API timeline 投影测试后，聚焦测试出现 7 个失败。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph_vocabulary.py tests/agent/test_trace.py tests/test_trace_api.py -q --tb=short
+```
+
+### 关键证据或命令
+
+pytest 输出显示：
+
+```text
+FAILED tests/agent/test_graph_vocabulary.py::test_target_graph_names_are_identity_mapped[recommendation_generation-node]
+FAILED tests/agent/test_graph_vocabulary.py::test_canonical_runtime_nodes_project_as_runtime[recommendation_generation]
+FAILED tests/agent/test_graph_vocabulary.py::test_phase56_recommendation_generation_runtime_entry_is_identity_mapped
+FAILED tests/agent/test_graph_vocabulary.py::test_phase56_generate_recommendation_alias_projects_to_canonical_target_without_rewrite
+FAILED tests/agent/test_graph_vocabulary.py::test_phase56_recommendation_vocabulary_entries_are_unique
+FAILED tests/agent/test_trace.py::test_trace_summary_projects_phase56_recommendation_runtime_and_historical_names
+FAILED tests/test_trace_api.py::test_build_timeline_projects_phase56_recommendation_node_identities[generate_recommendation-recommendation_generation]
+7 failed, 97 passed, 1 warning
+```
+
+### 当前判断 / 根因
+
+这是 Task 1 预期的 TDD RED 失败：`src/agent/graph_vocabulary.py` 尚未声明 `recommendation_generation` runtime entry，也没有 `generate_recommendation -> recommendation_generation` 的 Phase 56 compatibility alias，因此历史 trace/API 投影仍把 legacy implementation node 当作 target。
+
+### 已做处理
+
+已确认失败来自新增测试覆盖的目标缺口，不是环境入口错误；下一步将在 GREEN 阶段补充 Phase 56 reason codes 和 vocabulary entries。
+
+### 剩余问题
+
+需要在 `src/agent/graph_vocabulary.py` 中添加 `PHASE_56_COMPATIBILITY_ALIAS`、`HISTORICAL_TRACE_PROJECTION`、`IMPORT_TEST_COMPATIBILITY`、`DELETE_BY_PHASE_58` reason codes，并让 current `recommendation_generation` identity-map、historical `generate_recommendation` 投影到 canonical target。
+
+### 下次继续排查入口
+
+- `src/agent/graph_vocabulary.py`
+- `tests/agent/test_graph_vocabulary.py`
+- `tests/agent/test_trace.py`
+- `tests/test_trace_api.py`
+
 ## 2026-07-07 Phase 56 Plan 56-03 Task 2 TDD RED：claim_verify 路由仍允许 unsupported proposed_action 进入风险节点
 
 ### 问题现象

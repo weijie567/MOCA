@@ -248,6 +248,44 @@ def test_trace_summary_projects_phase55_memory_runtime_and_compatibility_names()
     ]
 
 
+def test_trace_summary_projects_phase56_recommendation_runtime_and_historical_names() -> None:
+    summary = build_trace_summary(
+        "run-phase56-recommendation-projection",
+        {
+            "current_intent": "refund_troubleshooting",
+            "trace_steps": [
+                {"node": "generate_recommendation", "status": "completed"},
+                {"node": "recommendation_generation", "status": "completed"},
+            ],
+            "final_response": "done",
+        },
+        17,
+    )
+
+    assert summary["nodes_executed"] == [
+        "generate_recommendation",
+        "recommendation_generation",
+    ]
+    assert summary["target_nodes_executed"] == [
+        "recommendation_generation",
+        "recommendation_generation",
+    ]
+    assert summary["graph_projection"]["steps"] == [
+        {
+            "implementation_node": "generate_recommendation",
+            "target_node": "recommendation_generation",
+            "target_graph_status": "compatibility_alias",
+            "target_graph_runnable": True,
+        },
+        {
+            "implementation_node": "recommendation_generation",
+            "target_node": "recommendation_generation",
+            "target_graph_status": "runtime",
+            "target_graph_runnable": True,
+        },
+    ]
+
+
 def test_trace_summary_projects_phase53_contextual_intent_as_runtime():
     summary = build_trace_summary(
         "run-phase53-graph-projection",

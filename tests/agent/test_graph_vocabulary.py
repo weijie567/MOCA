@@ -22,6 +22,12 @@ PHASE55_MEMORY_ALIAS_REASON_CODES = {
     "IMPORT_TEST_COMPATIBILITY",
     "DELETE_BY_PHASE_58",
 }
+PHASE56_RECOMMENDATION_ALIAS_REASON_CODES = {
+    "PHASE_56_COMPATIBILITY_ALIAS",
+    "HISTORICAL_TRACE_PROJECTION",
+    "IMPORT_TEST_COMPATIBILITY",
+    "DELETE_BY_PHASE_58",
+}
 
 
 @pytest.mark.parametrize(
@@ -67,6 +73,7 @@ def test_legacy_graph_names_project_to_target_vocabulary(
         ("contextual_intent_resolve", "node"),
         ("session_context_load", "node"),
         ("memory_context_load", "node"),
+        ("recommendation_generation", "node"),
         ("slot_resolution_gate", "node"),
         ("route_after_slot_resolution", "router"),
     ],
@@ -92,6 +99,7 @@ def test_target_graph_names_are_identity_mapped(name: str, kind: str) -> None:
         "session_context_load",
         "contextual_intent_resolve",
         "memory_context_load",
+        "recommendation_generation",
         "rag_context_build",
         "claim_verify",
     ],
@@ -199,6 +207,53 @@ def test_phase55_memory_vocabulary_entries_are_unique() -> None:
         ("node", "memory_context_load"),
         ("node", "long_term_memory_retrieve"),
         ("node", "reviewed_memory_context_retrieve"),
+    }
+
+    for pair in expected_pairs:
+        matches = [
+            entry
+            for entry in graph_vocabulary_module._ENTRIES
+            if (entry.kind, entry.legacy_name) == pair
+        ]
+        assert len(matches) == 1, pair
+
+
+def test_phase56_recommendation_generation_runtime_entry_is_identity_mapped() -> None:
+    entry = graph_vocabulary_entry("recommendation_generation", kind="node")
+    projected = project_trace_step_for_contract({"node": "recommendation_generation", "status": "completed"})
+
+    assert entry is not None
+    assert entry.target_name == "recommendation_generation"
+    assert entry.status == "runtime"
+    assert entry.runnable is True
+    assert target_graph_name("recommendation_generation", kind="node") == "recommendation_generation"
+    assert projected["implementation_node"] == "recommendation_generation"
+    assert projected["target_node"] == "recommendation_generation"
+    assert projected["target_graph_status"] == "runtime"
+    assert projected["target_graph_runnable"] is True
+
+
+def test_phase56_generate_recommendation_alias_projects_to_canonical_target_without_rewrite() -> None:
+    entry = graph_vocabulary_entry("generate_recommendation", kind="node")
+    projected = project_trace_step_for_contract({"node": "generate_recommendation", "status": "completed"})
+
+    assert entry is not None
+    assert entry.target_name == "recommendation_generation"
+    assert entry.status == "compatibility_alias"
+    assert entry.runnable is True
+    assert PHASE56_RECOMMENDATION_ALIAS_REASON_CODES <= set(entry.reason_codes)
+    assert target_graph_name("generate_recommendation", kind="node") == "recommendation_generation"
+    assert projected["node"] == "generate_recommendation"
+    assert projected["implementation_node"] == "generate_recommendation"
+    assert projected["target_node"] == "recommendation_generation"
+    assert projected["target_graph_status"] == "compatibility_alias"
+    assert projected["target_graph_runnable"] is True
+
+
+def test_phase56_recommendation_vocabulary_entries_are_unique() -> None:
+    expected_pairs = {
+        ("node", "recommendation_generation"),
+        ("node", "generate_recommendation"),
     }
 
     for pair in expected_pairs:
