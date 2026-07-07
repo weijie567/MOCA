@@ -61,11 +61,11 @@ MOCA 的目标架构是：面向商家运营与售后协同的企业级 Agent �
 | 设计主题 | 当前 MOCA 依据 | 参考仓库依据 | 是否采用 | 采用方式 | 不采用内容 |
 | --- | --- | --- | --- | --- | --- |
 | LangGraph workflow | `src/agent/graph.py` 当前主 workflow 是 legacy/canonical 混合形态：`receive_request`、`safety_pre_route`、`session_context_load`、`contextual_intent_resolve`、`slot_resolution_gate`、`memory_context_load`、`investigate`、`rag_context_build`、`recommendation_generation`、`claim_verify`、`assess_risk_and_approval`、`clarification_gate`、`approval_gate`、`action_draft`、`final_response`。 | `memory-agent/src/memory_agent/graph.py` 展示 tool call 条件分支；`agents-from-scratch-ts/src/email_assistant.ts` 展示 triage -> subgraph；`Human-in-the-Loop-Workflow-LangGraph/src/graph.py` 展示 Command 路由。 | 采用 | 保留 deterministic LangGraph shell；只读调查统一由 `investigate` bounded loop 承担；目标 graph 继续向 `risk_gate` 收敛。 | 不采用完全自由循环 agent，也不把参考仓库 email/news workflow 搬入 MOCA。 |
-| Intent classification | `src/agent/intent_policy.py` 使用 `INTENT_DEFINITIONS` 统一声明 ordinary intent taxonomy、required slots、initial route、precedence 和 risk/evidence flags；`src/agent/schemas.py` 定义 `IntentResultV3`；`src/agent/nodes/classify_intent.py` 用 structured output。 | `agents-from-scratch-ts/src/email_assistant.ts` triage 把 email 分成 ignore/respond/notify，用于路由。 | 部分采用 | 继续校准 intent precedence、confidence threshold 和 clarification path。 | 不采用 email 领域的 ignore/respond/notify 作为业务 intent。 |
-| Tool calling | `src/agent/nodes/investigate.py` 通过 `UnifiedToolManager` 调用 business read、policy retrieval、case memory search；`ToolCatalog` 是 descriptor/permission/schema/caller allowlist 的单一入口。 | `memory-agent/src/memory_agent/tools.py` 使用 InjectedToolArg；`agents-from-scratch-ts/src/tools/base.ts` 有中央 tool registry；`agent-inbox` 和 HITL examples 在工具执行前中断。 | 采用 | 采用 graph-controlled bounded tool loop + manager-level allowlist + service facade。 | 不采用模型自由选择任意工具并直接写业务系统。 |
-| Memory read/write | `session_memory_load` 已通过 `src/memory/service.py` + `SessionMemoryRepository` 读取 PostgreSQL-authoritative session memory；`memory_write` 写 session memory；planner-facing `search_case_memory` 通过 `MemoryToolExecutor -> CaseMemoryService.retrieve_reviewed(...)` 检索 reviewed case memory；`ClosedCasePrecedentService -> CaseMemoryService.submit_case_memory_candidate(...)` 生成 `closed_case_cwc_candidate` review candidate；`LegacySessionPrecedentSearchService` 仅是 legacy/debug-only session-derived projection；`long_term_memory_retrieve` / `memory_context_load` 是 reviewed explicit preference retrieval seam。 | `memory-agent/src/memory_agent/graph.py` 读取最近 memory 注入 prompt；`langgraph-memory/memory_service/graph.py` 有 delayed extraction、patch/insert 双路径、schema fan-out；`agents-from-scratch-ts/src/email_assistant_hitl_memory.ts` 根据 HITL feedback 更新 memory。 | 采用 | 区分 working memory、workflow checkpoint、session memory、Case Working Context、long-term explicit preference memory、case memory、audit/replay；已先实现 Postgres-authoritative session memory，Redis 只可作为可选热缓存。 | 不采用自由 ReAct 写长期记忆；不采用 Pinecone/Fireworks 默认栈；不把历史 case 当政策；不让 Redis 成为权威记忆或 checkpoint。 |
+| Intent classification | `src/agent/intent_policy.py` 使用 `INTENT_DEFINITIONS` 统一声明 ordinary intent taxonomy、required slots、initial route、precedence 和 risk/evidence flags；`src/agent/schemas.py` 定义 `IntentResultV3`；active graph 使用 `src/agent/nodes/contextual_intent_resolve.py` 做 structured output，`classify_intent` 仅保留为兼容 wrapper/import 面。 | `agents-from-scratch-ts/src/email_assistant.ts` triage 把 email 分成 ignore/respond/notify，用于路由。 | 部分采用 | 继续校准 intent precedence、confidence threshold 和 clarification path。 | 不采用 email 领域的 ignore/respond/notify 作为业务 intent。 |
+| Tool calling | `src/agent/nodes/investigate.py` 通过 `ToolPlatform` 调用 business read、policy retrieval、case memory search；`ToolCatalog` 是 descriptor/permission/schema/caller allowlist 的单一入口。 | `memory-agent/src/memory_agent/tools.py` 使用 InjectedToolArg；`agents-from-scratch-ts/src/tools/base.ts` 有中央 tool registry；`agent-inbox` 和 HITL examples 在工具执行前中断。 | 采用 | 采用 graph-controlled bounded tool loop + platform-level allowlist + service facade。 | 不采用模型自由选择任意工具并直接写业务系统。 |
+| Memory read/write | `session_context_load` 已通过 `src/memory/service.py` + `SessionMemoryRepository` 读取 PostgreSQL-authoritative same-thread session context；`memory_context_load` 是 active reviewed memory / long-term preference / case precedent / active CWC 读取节点；planner-facing `search_case_memory` 通过 `MemoryToolExecutor -> CaseMemoryService.retrieve_reviewed(...)` 检索 reviewed case memory；`ClosedCasePrecedentService -> CaseMemoryService.submit_case_memory_candidate(...)` 生成 `closed_case_cwc_candidate` review candidate；`LegacySessionPrecedentSearchService` 仅是 legacy/debug-only session-derived projection；`long_term_memory_retrieve` 只保留为 `memory_context_load` compatibility wrapper。 | `memory-agent/src/memory_agent/graph.py` 读取最近 memory 注入 prompt；`langgraph-memory/memory_service/graph.py` 有 delayed extraction、patch/insert 双路径、schema fan-out；`agents-from-scratch-ts/src/email_assistant_hitl_memory.ts` 根据 HITL feedback 更新 memory。 | 采用 | 区分 working memory、workflow checkpoint、session memory、Case Working Context、long-term explicit preference memory、case memory、audit/replay；已先实现 Postgres-authoritative session memory，Redis 只可作为可选热缓存。 | 不采用自由 ReAct 写长期记忆；不采用 Pinecone/Fireworks 默认栈；不把历史 case 当政策；不让 Redis 成为权威记忆或 checkpoint。 |
 | Human-in-the-loop approval | `src/agent/nodes/approval_gate.py` 已有 LangGraph `interrupt`；`src/api/routers/approvals.py` 支持 approve/reject resume；`ApprovalRequest`、`ApprovalStep` 已持久化。 | `agent-inbox/README.md` 定义 HumanInterrupt/HumanResponse schema，支持 accept/edit/respond/ignore；`agent-inbox-langgraph-example/src/agent/graph.py` 有 Python 最小示例；`Human-in-the-Loop-Workflow-LangGraph/src/nodes/human_review_node.py` 支持编辑内容后 approve。 | 采用 | 把 MOCA 审批从 approve/reject 扩展到 accept/edit/reject/respond/ignore，并支持多级审批和 SLA。 | 不采用通用 inbox UI 的全部部署假设；不采用布鲁斯天空发布业务。 |
-| Action execution | `src/agent/nodes/action_draft.py` 通过 `UnifiedToolManager` 调用 node-only `create_coupon_grant_draft`；`src/actions/service.py` / `drafts.py` 创建 durable `ActionDraft`，有 idempotency key；README 明确无真实支付/退款/券执行。 | `Human-in-the-Loop-Workflow-LangGraph/src/tools.py` 在 publish 前再次 interrupt；`agent-inbox` 支持 edit/accept action args。 | 采用 | demo action 仍只创建 draft；后续真实外部动作需补 execution/compensation metadata。 | 不采用在 tool 内直接发布/执行外部动作；真实动作前双确认只作为未来高风险场景。 |
+| Action execution | `src/agent/nodes/action_draft.py` 通过 `ToolPlatform` 调用 node-only `create_coupon_grant_draft`；`src/actions/service.py` / `drafts.py` 创建 durable `ActionDraft`，有 idempotency key；README 明确无真实支付/退款/券执行。 | `Human-in-the-Loop-Workflow-LangGraph/src/tools.py` 在 publish 前再次 interrupt；`agent-inbox` 支持 edit/accept action args。 | 采用 | demo action 仍只创建 draft；后续真实外部动作需补 execution/compensation metadata。 | 不采用在 tool 内直接发布/执行外部动作；真实动作前双确认只作为未来高风险场景。 |
 | RAG / Knowledge | `src/knowledge/retrieval.py` 使用 DashScope embedding、pgvector、hybrid rerank、threshold/no-evidence；`src/rag` 只保留 embed/chunk/ingest 等底层 infra。 | `docs/agent-architecture-reference-draft.md` 要求 Knowledge / RAG 是独立能力层。 | 采用 | KnowledgeService facade 管理 evidence contract；Agent 节点不直接接触 embedding/repo/pgvector。 | 不采用把 RAG 当 Agent 内部普通 tool 的长期形态。 |
 | Observability / Replay | `src/agent/trace.py`、`src/repositories/trace_repo.py`、`src/api/routers/traces.py` 已有 AgentRun/AgentStep、approval/action timeline；`src/api/main.py` 有 request trace_id。 | `fastapi-observability/fastapi_app/main.py`、`utils.py`、`docker-compose.yaml` 展示 FastAPI metrics、OTLP、Tempo、Loki、Prometheus、Grafana 和日志 trace 关联。 | 采用 | 先做 in-process spans/metrics/log correlation，再考虑完整 Grafana stack。 | 不直接搬三 app compose 和 Loki logging driver 到 MOCA。 |
 | Prompt organization | 当前 `src/agent/prompts.py` 单文件存 intent、slots、recommendation、risk、final prompts。 | `agents-from-scratch-ts/src/prompts.ts` 按 triage/agent/HITL/memory prompt 拆分；参考草稿要求按节点拆。 | 采用 | 拆成 `src/agent/prompts/intent.py`、`slots.py`、`recommendation.py`、`final_response.py`，memory prompt 放 `src/memory/prompts.py`。 | 不采用超长单 system prompt；不让 prompt 替代 policy/approval/tool 控制。 |
@@ -80,7 +80,7 @@ MOCA 的目标架构是：面向商家运营与售后协同的企业级 Agent �
 当前 MOCA 已实现以下能力：
 
 - FastAPI API 层：`src/api/routers/agent.py` 提供同步 chat；`src/api/routers/agent_runs.py` 提供 run 创建、SSE streaming 和 evidence 查询；`src/api/routers/approvals.py` 提供审批决策；`src/api/routers/traces.py` 提供 run trace。
-- LangGraph workflow：`src/agent/graph.py` 定义 deterministic shell；只读调查统一在 `investigate` bounded loop 内执行，路由函数包括 `route_after_intent`、`route_after_slots`、`route_after_investigate`。
+- LangGraph workflow：`src/agent/graph.py` 定义 deterministic shell；当前 active 入口链路为 `receive_request -> safety_pre_route -> session_context_load -> contextual_intent_resolve`，slot/memory 路径使用 `slot_resolution_gate` 和 `memory_context_load`，只读调查统一在 `investigate` bounded loop 内执行；`route_after_intent` / `route_after_slots` 仅保留为兼容委托。
 - AgentState：`src/agent/state.py` 区分 persistent memory 与 ephemeral context，包含 thread/user/tenant/role、active slots、last intent、evidence refs、business context、risk、approval、action、trace 等字段。
 - Intent / slots / recommendation / risk structured output：`src/agent/schemas.py` 和 `src/agent/nodes/*.py` 使用 Pydantic schema 约束 LLM 输出。
 - RAG / Knowledge：`src/knowledge/retrieval.py` 使用 DashScope embedding、pgvector 检索、hybrid rerank、threshold gate；`src/rag` 只保留 embed/chunk/ingest 等底层 infra，legacy HTTP search DTO 位于 `src/api/schemas/search.py`。
@@ -94,8 +94,8 @@ MOCA 的目标架构是：面向商家运营与售后协同的企业级 Agent �
 
 当前 MOCA 部分实现但边界仍不完整：
 
-- Tool contract：`src/tools/{contracts,catalog,manager,validation}.py` 是当前 agent-facing 工具契约和统一分发层；`investigate` 与 `action_draft` 已通过 manager 调用 read/retrieval/action capability。
-- Memory：`src/memory/service.py`、`repository.py`、`schemas.py` 已实现 PostgreSQL-authoritative session memory load/write；`case_working_contexts` 承担 active case working state；planner-facing `search_case_memory` 当前通过 `MemoryToolExecutor -> CaseMemoryService.retrieve_reviewed(...)` 读取 reviewed case memory；`src/memory/case_precedent.py` 通过 `ClosedCasePrecedentService -> CaseMemoryService.submit_case_memory_candidate(...)` 生成 `closed_case_cwc_candidate` review candidate；`src/memory/search.py` 的 `LegacySessionPrecedentSearchService` 仅保留为 legacy/debug-only session-derived projection。`long_term_memory_retrieve` 已是 `reviewed_memory_context_retrieve` / `memory_context_load` 的 compatibility wrapper，用于读取 published reviewed explicit preference rows；Phase 48 explicit preference memory 窄版写入已接入 deterministic explicit user preference capture、管理员保存 API 和人审发布，但仍只支持显式软偏好，不是完整 profile / rule / run-summary memory-write pipeline；Redis hot cache 尚未实现。
+- Tool contract：`src/tools/{contracts,catalog,platform,policy,validation}.py` 是当前 agent-facing 工具契约和统一分发层；`investigate` 与 `action_draft` 已通过 `ToolPlatform` 调用 read/retrieval/action capability。
+- Memory：`src/memory/service.py`、`repository.py`、`schemas.py` 已实现 PostgreSQL-authoritative session memory load/write；`case_working_contexts` 承担 active case working state；active graph 使用 `session_context_load` 读取 same-thread session context，并使用 `memory_context_load` 读取 reviewed memory / long-term preference / case precedent / active CWC；planner-facing `search_case_memory` 当前通过 `MemoryToolExecutor -> CaseMemoryService.retrieve_reviewed(...)` 读取 reviewed case memory；`src/memory/case_precedent.py` 通过 `ClosedCasePrecedentService -> CaseMemoryService.submit_case_memory_candidate(...)` 生成 `closed_case_cwc_candidate` review candidate；`src/memory/search.py` 的 `LegacySessionPrecedentSearchService` 仅保留为 legacy/debug-only session-derived projection。`long_term_memory_retrieve` 只是 `memory_context_load` 的 compatibility wrapper；Phase 48 explicit preference memory 窄版写入已接入 deterministic explicit user preference capture、管理员保存 API 和人审发布，但仍只支持显式软偏好，不是完整 profile / rule / run-summary memory-write pipeline；Redis hot cache 尚未实现。
 - Approval：已有 approve/reject、过期处理、自审批限制、resume、审批 step 记录；尚未有 policy-driven multi-level approval、SLA escalation、accept/edit/respond/ignore。
 - Observability：已有 DB trace 和 API request trace_id；尚未有 OpenTelemetry spans、Prometheus metrics、LLM token/cost 完整记录、RAG/tool/action 细粒度 metrics。
 - Actions：已有 `src/actions/service.py`、`src/actions/drafts.py`、`ActionToolExecutor` 和 node-only action descriptor；尚未有真实 external adapter、compensation/rollback metadata。
@@ -118,7 +118,7 @@ MOCA 的目标架构是：面向商家运营与售后协同的企业级 Agent �
 | Capability | Current evidence | Current limitation | Target contract | Migration phase |
 | --- | --- | --- | --- | --- |
 | AgentState lifecycle | `src/agent/state.py` 定义字段约定；`receive_request` 主动 reset 部分 ephemeral 字段。 | 当前不是 schema-level enforcement；writer、scope、reset/merge 规则未被统一验证。 | 第 10.1 节 lifecycle matrix；trusted fields 不可被 LLM 覆盖；router/state property tests。 | Phase 10 |
-| Slot routing | 当前 graph 已有 `classify_intent -> session_memory_load -> extract_slots -> route_after_slots`，并使用 `RequiredSlotExpression` 表达 all-of / any-of slots；`long_term_memory_retrieve` 已作为 reviewed explicit preference retrieval compatibility seam 接入。 | long-term memory 仅支持 Phase 48 narrow explicit preference retrieval；slot freshness / inheritance eval 仍需随真实案例校准；当前 slot 抽取和 slot resolution 仍耦合在 legacy node/helper 中。 | 目标收敛到 `contextual_intent_resolve -> slot_resolution_gate -> memory_context_load`；slot candidate extraction 是内部能力，`slot_resolution_gate` 承担 provenance、invalidation、inheritance、missing-required 裁决。 | Future target graph migration phase |
+| Slot routing | 当前 graph 使用 `contextual_intent_resolve -> slot_resolution_gate -> memory_context_load`；`RequiredSlotExpression` 表达 all-of / any-of slots，`slot_resolution_gate` 承担 current-turn candidate slots 与 same-thread session slots 的 provenance、invalidation、inheritance、missing-required 裁决；`extract_slots` / `route_after_slots` 仅是兼容 wrapper/helper。 | long-term memory 仅支持 Phase 48 narrow explicit preference retrieval；slot freshness / inheritance eval 仍需随真实案例校准；完整 profile/rule/run-summary memory-write pipeline 尚未实现。 | 保持 canonical `contextual_intent_resolve -> slot_resolution_gate -> memory_context_load`，后续只删除 Phase 58 compatibility surfaces。 | Phase 54/55 已完成 active cutover；compat cleanup no later than Phase 58 |
 | Approval | 已有 interrupt/resume、approve/reject、审批持久化。 | 无 request/level/assignment version CAS、multi-level 聚合和 exact revision execution guard。 | 第 15 节 versioned approval state machine 和 optimistic locking。 | Phase 13 |
 | Action | 已有 durable `ActionDraft` 和 idempotency key。 | demo/external outcome contract 未完全分离；无 external executor/reconciliation。 | demo 只写 draft + `draft_outcome`；external 原子校验后执行。 | Phase 14, Phase 17 |
 | Replay | 已有 AgentRun/AgentStep 和组合 timeline。 | 事件枚举和 lifecycle coverage 不完整；不是统一 V3 event store。 | ReplayEventV3、稳定 sequence、完整 lifecycle enum 和 retention。 | Phase 15 |
@@ -223,25 +223,30 @@ graph TB
 
 ### 7.2 当前实现图
 
-这张图按当前 `src/agent/graph.py` 的 registered nodes 和 conditional edges 表达真实运行链路。它不是目标架构；目标 canonical runtime graph 见 `docs/target-agent-platform-architecture-plan.md` §6.1 与 `docs/contract-spec.md` §9。当前实现仍是 legacy/canonical 混合形态：入口侧仍使用 `classify_intent` / `extract_slots` / `long_term_memory_retrieve`，出口侧已经有 `rag_context_build` / `claim_verify` / `action_draft` 等目标形态节点。
+这张图按当前 `src/agent/graph.py` 的 registered nodes 和 conditional edges 表达真实运行链路。它不是目标架构；目标 canonical runtime graph 见 `docs/target-agent-platform-architecture-plan.md` §6.1 与 `docs/contract-spec.md` §9。当前实现已切到 `safety_pre_route`、`session_context_load`、`contextual_intent_resolve`、`slot_resolution_gate`、`memory_context_load` 和 `recommendation_generation`。`classify_intent`、`session_memory_load`、`extract_slots`、`long_term_memory_retrieve` 和 `generate_recommendation` 只保留为历史 trace / import / test compatibility surface；`assess_risk_and_approval` 仍是 Phase 57-owned active legacy node，目标 owner 是 `risk_gate`。
 
 ```mermaid
 graph TD
     START([START]) --> Receive[receive_request]
-    Receive --> Intent[classify_intent]
+    Receive --> Safety[safety_pre_route]
 
-    Intent --> IntentRoute{route_after_intent}
-    IntentRoute -->|clarify| Clarify[clarification_gate]
-    IntentRoute -->|direct response| Final[final_response]
+    Safety --> SafetyRoute{route_after_safety}
+    SafetyRoute -->|safe / safety-sensitive| SessionContext[session_context_load]
+    SafetyRoute -->|approval chat not trusted / clarify / fallback| Clarify[clarification_gate]
+    SafetyRoute -->|registered fallback target| Final[final_response]
+
+    SessionContext --> Intent[contextual_intent_resolve]
+    Intent --> IntentRoute{route_after_contextual_intent}
+    IntentRoute -->|clarify| Clarify
+    IntentRoute -->|direct response| Final
     IntentRoute -->|policy/read path| Investigate[investigate]
-    IntentRoute -->|needs slots| SessionLoad[session_memory_load]
+    IntentRoute -->|needs slots| SlotGate[slot_resolution_gate]
 
-    SessionLoad --> SlotExtract[extract_slots]
-    SlotExtract --> SlotRoute{route_after_slots}
+    SlotGate --> SlotRoute{route_after_slot_resolution}
     SlotRoute -->|missing| Clarify
     SlotRoute -->|slots ok| Investigate
-    SlotRoute -->|needs long-term memory| LongMem[long_term_memory_retrieve]
-    LongMem --> Investigate
+    SlotRoute -->|needs reviewed memory context| MemoryContext[memory_context_load]
+    MemoryContext --> Investigate
 
     Investigate --> InvestigateRoute{route_after_investigate}
     InvestigateRoute -->|missing facts| Clarify
@@ -279,16 +284,16 @@ graph TD
 
 当前实现的关键约束：
 
-- `investigate` 通过 `UnifiedToolManager.descriptors("investigate")` 获取 planner-visible read/retrieval capability view，并通过 `UnifiedToolManager.invoke(...)` 调用工具。
-- `action_draft` 通过 node-only `create_coupon_grant_draft` capability 创建 durable action draft；当前 demo path 不执行真实外部退款、发券或封禁动作。
-- `long_term_memory_retrieve` 是 `reviewed_memory_context_retrieve` / `memory_context_load` 的 compatibility wrapper，已接入 published reviewed explicit preference retrieval；planner-facing `search_case_memory` 当前读取 reviewed case memory，不再是 session-derived precedent 过渡实现；legacy session-derived projection 仅保留为 debug-only。
+- `investigate` 通过 `ToolPlatform` 获取 planner-visible read/retrieval capability view，并调用 business / knowledge / memory executors；bounded planner 不能触达 write/action/routing/approval 权限。
+- `action_draft` 通过 node-only `create_coupon_grant_draft` capability 创建 durable action draft；当前 demo path 不执行真实外部退款、发券或封禁动作；当存在 `proposed_action` 时，最终写边界还要求 canonical claim bundle 内有 positive `action_recommendation` claim。
+- `memory_context_load` 是当前 active reviewed memory / long-term preference / case precedent / active CWC 读取节点；`long_term_memory_retrieve` 是 compatibility wrapper。planner-facing `search_case_memory` 当前读取 reviewed case memory，不再是 session-derived precedent 过渡实现；legacy session-derived projection 仅保留为 debug-only。
 - `memory_write` 不是当前主 graph 的 registered node；session memory write 属于 response 后续/运行时边界。
 
-当前工具调用边界如下。`UnifiedToolManager` 不是 LangGraph registered node，但它必须在架构图中显式出现，因为它是 agent-facing descriptor、caller allowlist、permission、schema 和 side-effect 检查入口。
+当前工具调用边界如下。`ToolPlatform` 不是 LangGraph registered node，但它必须在架构图中显式出现，因为它是 agent-facing descriptor、caller allowlist、permission、schema 和 side-effect 检查入口。
 
 ```mermaid
 graph LR
-    Investigate[investigate node] --> PlannerView[UnifiedToolManager\nplanner-visible view]
+    Investigate[investigate node] --> PlannerView[ToolPlatform\nplanner-visible view]
     PlannerView --> BusinessExec[BusinessToolExecutor]
     PlannerView --> KnowledgeExec[KnowledgeToolExecutor]
     PlannerView --> MemoryExec[MemoryToolExecutor]
@@ -296,7 +301,7 @@ graph LR
     KnowledgeExec --> KnowledgeSvc[PolicyKnowledgeService]
     MemoryExec --> MemorySvc[CaseMemoryService.retrieve_reviewed]
 
-    Draft[action_draft node] --> NodeOnly[UnifiedToolManager\nnode-only view]
+    Draft[action_draft node] --> NodeOnly[ToolPlatform\nnode-only view]
     NodeOnly --> ActionExec[ActionToolExecutor]
     ActionExec --> ActionSvc[ActionDraftService]
 ```
@@ -306,30 +311,34 @@ graph LR
 | 当前 LangGraph 节点 | 节点职责 | 调用的 service / contract |
 | --- | --- | --- |
 | `receive_request` | 初始化 run、thread、ephemeral state、trace step | Run context / trace helper |
-| `classify_intent` | 输出 primary_intent、requested_operation、confidence、routing hints | LLM structured output / IntentPrompt + `INTENT_DEFINITIONS` policy |
-| `session_memory_load` | 读取同 thread active slots、summary、unresolved questions | MemoryService session read |
-| `extract_slots` | 提取订单、退款、工单、金额、商家等 slots | LLM structured output / SlotPrompt |
-| `long_term_memory_retrieve` | 通过 `memory_context_load` seam 读取 published reviewed explicit preference rows | Explicit preference retrieval only; not profile facts, patterns, rules, or run summaries |
-| `investigate` | 在 bounded loop 内通过统一工具层只读拉取 business context / policy evidence / reviewed case memory precedent | `UnifiedToolManager` planner-visible view -> business / knowledge / memory executors |
+| `safety_pre_route` | 在进入 intent 前处理 approval-like chat、多目标和安全敏感预路由 | Deterministic safety pre-route policy |
+| `session_context_load` | 在 intent 前读取同 thread active slots、summary、unresolved questions 的 prompt-safe context | MemoryService session read |
+| `contextual_intent_resolve` | 输出 primary_intent、requested_operation、confidence、routing hints 和 current-turn candidate slots | LLM structured output / IntentPrompt + `INTENT_DEFINITIONS` policy |
+| `slot_resolution_gate` | 裁决 current-turn candidate slots 与 inherited session slots，输出 active slots / missing slots / provenance | Slot policy / `RequiredSlotExpression` |
+| `memory_context_load` | 读取 reviewed memory、long-term explicit preference、reviewed case precedent 与 active CWC contextual state | Memory context service / CWC lifecycle |
+| `investigate` | 在 bounded loop 内通过统一工具层只读拉取 business context / policy evidence / reviewed case memory precedent | `ToolPlatform` planner-visible view -> business / knowledge / memory executors |
 | `rag_context_build` | 将候选 evidence refs 升级为 verified evidence package，并执行 fail-closed 证据上下文构建 | RAG ContextBuilder / evidence package contract |
 | `recommendation_generation` | 生成处理建议和 proposed_action candidate | LLM structured output / RecommendationPrompt + KnowledgeService citation verification |
 | `claim_verify` | 校验 material claims / proposed action claim 是否被 verified evidence 支持 | Claim verification bundle / verifier policy |
 | `assess_risk_and_approval` | 评估风险、审批需求、动作是否可自动草稿 | RiskPolicy / ApprovalPolicy semantics |
 | `clarification_gate` | 生成澄清问题或缺失信息说明 | Clarification policy / Final response template |
 | `approval_gate` | 创建 interrupt，等待 approve/reject resume | ApprovalService / LangGraph interrupt |
-| `action_draft` | 在审批/风险路由后创建 durable action draft | `UnifiedToolManager` node-only view -> ActionToolExecutor |
+| `action_draft` | 在审批/风险路由后创建 durable action draft | `ToolPlatform` node-only view -> ActionToolExecutor |
 | `final_response` | 生成面向用户的最终回复 | Deterministic template or FinalResponsePrompt |
 
 当前 router 函数包括：
 
-- `route_after_intent`
-- `route_after_slots`
+- `route_after_safety`
+- `route_after_contextual_intent`
+- `route_after_slot_resolution`
 - `route_after_investigate`
 - `route_after_rag_context`
 - `route_after_recommendation`
 - `route_after_claim_verify`
 - `route_after_risk`
 - `route_after_approval`
+
+其中 `route_after_intent` / `route_after_slots` 仅是 compatibility delegate；active graph 使用 `route_after_contextual_intent` / `route_after_slot_resolution`。
 
 这些函数只读取 `AgentState` 并返回下一个 node key，不应调用 LLM、tools、repositories 或外部 API。
 
@@ -341,7 +350,7 @@ graph LR
 
 - 目标主链 registered runtime node 是 15 个：`receive_request`、`safety_pre_route`、`session_context_load`、`contextual_intent_resolve`、`slot_resolution_gate`、`memory_context_load`、`investigate`、`rag_context_build`、`recommendation_generation`、`claim_verify`、`risk_gate`、`approval_gate`、`action_draft`、`clarification_gate`、`final_response`。
 - `slot_extraction` 不作为最终 registered node；slot candidate extraction 是 `contextual_intent_resolve` / `slot_resolution_gate` 的内部能力。
-- ReAct 只存在于 `investigate` 内部；`investigate` 只能通过 `ToolPlatform` / `UnifiedToolManager` 调用 planner-visible read/retrieval tools。
+- ReAct 只存在于 `investigate` 内部；`investigate` 只能通过 `ToolPlatform` 调用 planner-visible read/retrieval tools。
 - 所有 graph-level route 都由 deterministic router 完成；LLM 不输出 next graph node。
 - `risk_gate -> approval_gate -> action_draft` 永远不在 ReAct loop 内；当前目标 runtime 到 durable draft 为止，future `action_execution` 是外部执行扩展。
 - `memory_write_pipeline` 和 `trace_close` 是 post-response / lifecycle concern；除非后续需要 checkpoint、retry 或 eval，不注册为主链 graph node。
@@ -371,7 +380,7 @@ graph TD
 
     subgraph ControlledReadLoop["investigate registered node: controlled read loop"]
         Investigate[enter investigate] --> Plan[bounded planner\nsingle next read step]
-        Plan --> Manager[UnifiedToolManager\nplanner-visible view + invoke checks]
+        Plan --> Manager[ToolPlatform\nplanner-visible view + invoke checks]
         Manager -->|business executor| BizExec[BusinessToolExecutor\nBusinessToolService]
         Manager -->|knowledge executor| KnowledgeExec[KnowledgeToolExecutor\nPolicyKnowledgeService]
         Manager -->|memory executor| MemoryExec[MemoryToolExecutor\nCaseMemoryService.retrieve_reviewed]
@@ -494,14 +503,14 @@ graph TD
 
 - BusinessToolService 只保留 business scope、merchant ownership、retry、fact projection / `fetch_context` 聚合和 adapter 调用。
 - `BUSINESS_READ_TOOLS` 是 business domain 内部 implementation map，统一维护 input model、adapter、slot/resource/argument 映射；它不是 agent-facing registry。
-- agent-facing descriptor、caller allowlist、permission、input/output schema 由 `ToolCatalog` / `UnifiedToolManager` 统一负责。
+- agent-facing descriptor、caller allowlist、permission、input/output schema 由 `ToolCatalog` / `ToolPlatform` 统一负责。
 - tenant/user/role/idempotency/trace context 必须由系统注入，不由模型生成。
 
 > Normative 接口契约（`BusinessToolService.fetch_context` 签名、`ToolCallContext` / `ToolResultV2`）见 `docs/contract-spec.md` §8.4 与 §12.5。本小节仅为叙述性概览。
 
 ### 8.5 Memory
 
-当前依据：`AgentState`、PostgreSQL checkpointer、`src/memory/service.py`、`src/memory/repository.py`、`src/memory/search.py`、`src/memory/long_term.py`、`src/memory/preference_capture.py`、`session_memory_load`、`memory_write`、`reviewed_memory_context_retrieve` / `long_term_memory_retrieve` compatibility wrapper；参考 `memory-agent`、`langgraph-memory`。其中 `src/memory` 是语义记忆 domain；`AgentState`、checkpointer 和 trace/replay 不属于 `src/memory`。
+当前依据：`AgentState`、PostgreSQL checkpointer、`src/memory/service.py`、`src/memory/repository.py`、`src/memory/search.py`、`src/memory/long_term.py`、`src/memory/preference_capture.py`、active graph `session_context_load` / `memory_context_load`、`memory_write`、`reviewed_memory_context_retrieve` / `long_term_memory_retrieve` compatibility wrapper；参考 `memory-agent`、`langgraph-memory`。其中 `src/memory` 是语义记忆 domain；`AgentState`、checkpointer 和 trace/replay 不属于 `src/memory`。
 
 目标职责：
 
@@ -519,7 +528,7 @@ graph TD
 - Session memory 只负责同 thread 连续性，不等于 workflow checkpoint；workflow checkpoint 只负责 run 恢复，不等于下一轮对话记忆。
 - Long-term memory 不应每轮写入；Phase 48 已落地 explicit preference soft-memory 窄版写入/检索，但仍不覆盖一般 profile facts、policy rules、run summaries 或完整 memory-write pipeline。
 - Case memory 只能作为 precedent，不能覆盖当前 policy evidence，也不能替代当前 case 的 Case Working Context。
-- 当前实现状态：`src/agent/graph.py` 已用 `AsyncPostgresSaver` 编译 graph；`session_memory_load` 通过 `MemoryService` 读取 `session_memories`，`memory_write` 写入同一权威表；CWC read/write 已接入 active case working state；planner-facing `search_case_memory` 通过 `MemoryToolExecutor -> CaseMemoryService.retrieve_reviewed(...)` 检索 reviewed case memory；closed-case candidate generation 使用 `ClosedCasePrecedentService -> CaseMemoryService.submit_case_memory_candidate(...)`，`closed_case_cwc_candidate` 默认 `needs_review`；metadata/text retrieval 是一等路径，embedding 仅在提供 `query_embedding` 时作为可选排序信号；legacy session-derived projection 仅保留为 debug-only；`long_term_memory_retrieve` 当前是 `reviewed_memory_context_retrieve` / `memory_context_load` compatibility wrapper，检索 published reviewed explicit preference rows；Phase 48 explicit preference memory 窄版写入已接入 deterministic explicit user preference capture、管理员保存 API 和人审发布；Redis hot cache 与完整 profile/rule/run-summary memory-write pipeline 尚未实现。
+- 当前实现状态：`src/agent/graph.py` 已用 `AsyncPostgresSaver` 编译 graph；`session_context_load` 通过 `MemoryService` 读取 `session_memories` 的 same-thread prompt-safe context，`memory_context_load` 读取 reviewed memory / long-term preference / case precedent / active CWC contextual state，`memory_write` 写入同一权威 session memory 表；CWC read/write 已接入 active case working state；planner-facing `search_case_memory` 通过 `MemoryToolExecutor -> CaseMemoryService.retrieve_reviewed(...)` 检索 reviewed case memory；closed-case candidate generation 使用 `ClosedCasePrecedentService -> CaseMemoryService.submit_case_memory_candidate(...)`，`closed_case_cwc_candidate` 默认 `needs_review`；metadata/text retrieval 是一等路径，embedding 仅在提供 `query_embedding` 时作为可选排序信号；legacy session-derived projection 仅保留为 debug-only；`long_term_memory_retrieve` 当前是 `memory_context_load` 的 compatibility wrapper，检索 published reviewed explicit preference rows；Phase 48 explicit preference memory 窄版写入已接入 deterministic explicit user preference capture、管理员保存 API 和人审发布；Redis hot cache 与完整 profile/rule/run-summary memory-write pipeline 尚未实现。
 
 ### 8.6 Approvals / SLA / Policy
 
