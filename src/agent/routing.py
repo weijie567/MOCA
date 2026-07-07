@@ -13,25 +13,17 @@ from src.agent.intent_policy import (
 )
 from src.agent.schemas import RequiredSlotExpression
 from src.agent.state import AgentState
+from src.knowledge.schemas import RAG_CONTEXT_STATUSES as SCHEMA_RAG_CONTEXT_STATUSES
 
 
 MIN_EVIDENCE_SCORE = 0.55
 _FACT_ONLY_INTENTS = {"order_status_inquiry"}
+_ACTION_BOUND_INTENTS = {"action_request", "compensation_suggestion", "complaint_escalation"}
 _PERMISSION_CODES = {"FORBIDDEN", "permission_denied"}
 _INVESTIGATE_ROUTES = {"final_response", "clarification_gate", "rag_context_build", "recommendation_generation"}
 _RECOMMENDATION_ROUTES = {"claim_verify", "final_response"}
-RAG_CONTEXT_STATUSES = {
-    "not_required",
-    "verified",
-    "partial",
-    "no_evidence",
-    "unauthorized",
-    "stale",
-    "conflict",
-    "invalid_hash",
-    "invalid_scope",
-    "build_error",
-}
+RAG_CONTEXT_STATUSES = set(SCHEMA_RAG_CONTEXT_STATUSES)
+_RAG_CONTEXT_UNSAFE_REASON_CODES = {"unauthorized", "stale", "conflict", "invalid_hash", "invalid_scope", "build_error"}
 _RAG_CONTEXT_ROUTES = {"recommendation_generation", "clarification_gate", "final_response"}
 _CLAIM_VERIFY_ROUTES = {"assess_risk_and_approval", "final_response"}
 SAFETY_ROUTES = {"session_context_load", "clarification_gate", "final_response"}
@@ -551,12 +543,21 @@ def route_after_claim_verify(state: AgentState) -> str:
 
 
 def _route_after_rag_context(state: AgentState) -> str:
-    if _missing_required_validation_inputs(state):
-        return "clarification_gate"
-
     status = _rag_context_status(state)
     if status not in RAG_CONTEXT_STATUSES:
         return "final_response"
+    if status in {
+        "no_evidence",
+        "unauthorized",
+        "stale",
+        "conflict",
+        "invalid_hash",
+        "invalid_scope",
+        "build_error",
+    }:
+        return "final_response"
+    if _missing_required_validation_inputs(state):
+        return "clarification_gate"
     if status == "verified":
         return "recommendation_generation"
     if status == "not_required":
@@ -668,9 +669,9 @@ def _has_user_visible_claims(state: AgentState) -> bool:
 def _has_risk_signal(state: AgentState) -> bool:
     if _non_empty_sequence(state.get("risk_signals")):
         return True
-    risk_tier = state.get("risk_tier") or state.get("risk_level")
-    if isinstance(risk_tier, str) and risk_tier.lower() in {"high", "critical", "approval_required"}:
-        return True
+    for risk_value in (state.get("risk_tier"), state.get("risk_level")):
+        if isinstance(risk_value, str) and risk_value.lower() in {"high", "critical", "approval_required"}:
+            return True
     draft = state.get("recommendation_draft")
     if isinstance(draft, dict):
         draft_risk = draft.get("risk_level")
@@ -810,16 +811,11 @@ def _string_list(value: Any) -> list[str]:
     return [item for item in value if isinstance(item, str)]
 
 
-def _rag_context_status(state: AgentState) -> str:
+def _rag_context_status(state: AgentState) -> str | None:
     status = state.get("rag_context_status")
     if isinstance(status, str) and status:
         return status
-    package = state.get("verified_evidence_package")
-    if isinstance(package, dict):
-        package_status = package.get("status")
-        if isinstance(package_status, str) and package_status:
-            return package_status
-    return "build_error"
+    return None
 
 
 def _missing_required_validation_inputs(state: AgentState) -> bool:
@@ -888,23 +884,52 @@ def _partial_rag_context_can_generate(state: AgentState) -> bool:
         return False
     if _action_bound_or_high_risk(state):
         return False
+    if _partial_rag_has_unsafe_evidence_indicator(state):
+        return False
     requested_operation = state.get("requested_operation")
     intent = _intent(state)
-    return requested_operation == "advise" or intent == "policy_qa"
+    if intent == "policy_qa":
+        return requested_operation in {None, "advise", "draft_reply"}
+    if intent in _FACT_ONLY_INTENTS:
+        return requested_operation in {None, "advise", "read_status"}
+    return False
 
 
 def _action_bound_or_high_risk(state: AgentState) -> bool:
     requested_operation = state.get("requested_operation")
-    if requested_operation in {"draft_action", "execute_action", "escalate"}:
+    if requested_operation in {"approval_decision", "draft_action", "execute_action", "escalate"}:
         return True
-    risk_tier = state.get("risk_tier") or state.get("risk_level")
-    if isinstance(risk_tier, str) and risk_tier.lower() in {"high", "critical", "approval_required"}:
+    if _intent(state) in _ACTION_BOUND_INTENTS:
         return True
+    if _non_empty_sequence(state.get("risk_signals")):
+        return True
+    for risk_value in (state.get("risk_tier"), state.get("risk_level")):
+        if isinstance(risk_value, str) and risk_value.lower() in {"high", "critical", "approval_required"}:
+            return True
+    evidence_policy = state.get("evidence_policy")
+    if isinstance(evidence_policy, Mapping):
+        for policy_risk in (evidence_policy.get("risk_tier"), evidence_policy.get("risk_level")):
+            if isinstance(policy_risk, str) and policy_risk.lower() in {"high", "critical", "approval_required"}:
+                return True
     draft = state.get("recommendation_draft")
     if isinstance(draft, dict):
         draft_risk = draft.get("risk_level")
-        if isinstance(draft_risk, str) and draft_risk.lower() in {"high", "critical"}:
+        if isinstance(draft_risk, str) and draft_risk.lower() in {"high", "critical", "approval_required"}:
             return True
+    return False
+
+
+def _partial_rag_has_unsafe_evidence_indicator(state: AgentState) -> bool:
+    package = state.get("verified_evidence_package")
+    if not isinstance(package, Mapping):
+        return False
+    if _non_empty_sequence(package.get("stale_refs")) or _non_empty_sequence(package.get("conflict_refs")):
+        return True
+    if _non_empty_sequence(package.get("rejected_candidate_refs")):
+        reason_codes = package.get("reason_codes")
+        return not isinstance(reason_codes, list) or any(
+            isinstance(code, str) and code in _RAG_CONTEXT_UNSAFE_REASON_CODES for code in reason_codes
+        )
     return False
 
 

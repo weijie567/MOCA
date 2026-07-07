@@ -145,9 +145,21 @@ def test_unsafe_rag_context_statuses_fail_closed_to_final_response(status: str) 
         {"risk_tier": "high"},
         {"risk_level": "approval_required"},
         {"risk_signals": ["approval_required"]},
-        {"evidence_policy": {"evidence_required": True, "unsafe_evidence": True}},
-        {"verified_evidence_package": {"status": "partial", "evidence_map": {"policy#1": {}}, "stale_refs": ["policy#2"]}},
-        {"verified_evidence_package": {"status": "partial", "evidence_map": {"policy#1": {}}, "conflict_refs": ["policy#2"]}},
+        {"evidence_policy": {"evidence_required": True, "risk_level": "approval_required"}},
+        {
+            "verified_evidence_package": {
+                "status": "partial",
+                "evidence_map": {"policy#1": {}},
+                "stale_refs": ["policy#2"],
+            }
+        },
+        {
+            "verified_evidence_package": {
+                "status": "partial",
+                "evidence_map": {"policy#1": {}},
+                "conflict_refs": ["policy#2"],
+            }
+        },
         {
             "verified_evidence_package": {
                 "status": "partial",

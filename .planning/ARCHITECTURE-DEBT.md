@@ -265,7 +265,13 @@
 **范围**：检索、rerank、query rewrite、ContextBuilder、claim 验证、evidence 契约。
 **已 ship**：v1.3 混合检索、v1.4 生产 ingestion+OCR、v1.5 ContextBuilder+幻觉控制、v1.6 rerank+query rewrite。
 
-> 待后续修改 RAG 时按「写入规则」补充检出的缺陷与修复。当前无本轮新检出条目。
+## RAG-56-03-01：RAG context routing status drift 与 partial action/risk 漏挡 ✅已修复验证
+
+- **问题现象/根因**：`route_after_rag_context` 原本在 router 内维护一份手写 `RAG_CONTEXT_STATUSES`，虽然当时与 schema 一致，但存在后续 drift 风险；同时顶层 `rag_context_status` 缺失时会回退读取 `verified_evidence_package.status`，`no_evidence` 携带 missing business facts 时会先进入 `clarification_gate`，`partial` 允许谓词也没有覆盖 action intent、`risk_signals`、`evidence_policy.risk_level`、package stale/conflict/rejected evidence 指示，导致 unsafe evidence 或 action/risk-bound partial 可能进入 generation。
+- **影响**：RAG 证据包状态与路由状态不是单一词表来源，且 `partial` 的低风险边界不够可穷举；在 Phase 56 CAGM-07 目标下，这会让 unsafe evidence 或未充分验证的 partial context 进入 recommendation generation。
+- **处理状态**：✅ 已修复验证。`src/agent/routing.py` 改为从 `src.knowledge.schemas.RAG_CONTEXT_STATUSES` 派生 router 词表；缺失/未知/malformed 顶层 `rag_context_status` 和 unsafe statuses fail closed 到 `final_response`；`partial` 只允许低风险 `policy_qa` 或 answer-only fact intent，且 action/risk/unsafe evidence 指示一律 fail closed。
+- **证据**：Phase 56 Plan 56-03 Task 1；`src/agent/routing.py`（`RAG_CONTEXT_STATUSES` schema 派生、`_route_after_rag_context`、`_partial_rag_context_can_generate`、`_action_bound_or_high_risk`、`_partial_rag_has_unsafe_evidence_indicator`）；`tests/agent/test_rag_context_routing.py`（schema equality、exact status set、unsafe statuses、missing/unknown/malformed status、partial action/risk/unsafe evidence matrix）；验证命令 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_rag_context_routing.py tests/knowledge/test_verified_evidence_package.py -q --tb=short` 通过，55 passed。
+- **剩余风险**：本条只证明 deterministic route gate 阻断 unsafe RAG status 进入 generation；stale candidate refs 不会成为 approval snapshots、risk lowering 或 action authority 的下游端到端证明仍按 Phase 56 final closeout / risk-action 测试边界处理，不在 56-03 Task 1 过度声称。
 
 ---
 

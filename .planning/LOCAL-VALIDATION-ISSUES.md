@@ -16640,3 +16640,44 @@ FAILED tests/agent/test_rag_context_routing.py::test_partial_rag_context_fails_c
 - `src/agent/routing.py`
 - `tests/agent/test_rag_context_routing.py`
 - `src/knowledge/schemas.py`
+
+## 2026-07-07 Phase 56 Plan 56-03 Task 1 GREEN：partial RAG approval_required risk_level 被 risk_tier=low 遮蔽
+
+### 问题现象
+
+Task 1 GREEN 实现后重跑聚焦测试，仍有 1 个 `partial` fail-closed 用例失败：状态同时包含 `risk_tier="low"` 和 `risk_level="approval_required"` 时仍路由到 `recommendation_generation`。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_rag_context_routing.py tests/knowledge/test_verified_evidence_package.py -q --tb=short
+```
+
+### 关键证据或命令
+
+pytest 输出：
+
+```text
+FAILED tests/agent/test_rag_context_routing.py::test_partial_rag_context_fails_closed_for_action_risk_or_unsafe_evidence[state_update5]
+AssertionError: assert 'recommendation_generation' == 'final_response'
+1 failed, 54 passed, 1 warning
+```
+
+### 当前判断 / 根因
+
+实现中使用 `state.get("risk_tier") or state.get("risk_level")` 只检查第一个 truthy 字段；测试基态的 `risk_tier="low"` 遮蔽了更新用例中的 `risk_level="approval_required"`，导致 approval-required 风险没有 fail closed。
+
+### 已做处理
+
+已定位为当前 Task 1 实现直接引入/暴露的逻辑 bug，下一步改为分别检查 `risk_tier` 与 `risk_level`。
+
+### 剩余问题
+
+需要更新 `_action_bound_or_high_risk`，确保任一 risk 字段命中 high/critical/approval_required 都阻断 `partial` generation。
+
+### 下次继续排查入口
+
+- `src/agent/routing.py`
+- `tests/agent/test_rag_context_routing.py`
