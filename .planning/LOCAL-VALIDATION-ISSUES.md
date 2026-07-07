@@ -15367,7 +15367,96 @@ AttributeError: <module 'src.agent.nodes.long_term_memory_retrieve' ...> has no 
 
 - `src/agent/nodes/memory_context_load.py`
 - `src/agent/nodes/long_term_memory_retrieve.py`
-- `tests/agent/test_memory_context_load.py`
+
+## 2026-07-07 — Phase 55-03 final active graph scan 命令再次命中 `START` / `END` AST endpoint
+
+### 问题现象
+
+Plan 55-03 Task 3 的计划内 active graph / vocabulary inline scan 在进入断言前失败，未能产出 Phase 55 closeout 所需的 active graph 结论。
+
+### 如何检测 / 复现
+
+运行计划内命令：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run python -c "import ast,pathlib; ... if n.func.attr=='add_edge': edges.add((n.args[0].value, n.args[1].value)) ..."
+```
+
+### 关键证据或命令
+
+失败输出：
+
+```text
+AttributeError: 'Name' object has no attribute 'value'
+```
+
+### 当前判断 / 根因
+
+与 Phase 55-02 记录的问题相同：计划命令假设 `builder.add_edge(...)` 两端都是字符串 literal，但 `src/agent/graph.py` 合法使用 LangGraph 的 `START` / `END` name endpoint。该失败是验证脚本不兼容既有 graph 写法，不是 `memory_context_load` cutover 回归。
+
+### 已做处理
+
+改用 literal-aware inline AST scan，只收集字符串 literal edge endpoint，并对同一批事实做断言：active nodes 包含 `memory_context_load` 且不含 `long_term_memory_retrieve`，存在 `memory_context_load -> investigate`，`slot_resolution_gate` 条件边映射到 `memory_context_load`，router source 不返回 active `long_term_memory_retrieve`，Phase 56/57 的 `generate_recommendation` / `assess_risk_and_approval` 仍为 active nodes，vocabulary 包含 `PHASE_55_COMPATIBILITY_ALIAS` 和 `DELETE_BY_PHASE_58`。重跑结果：
+
+```text
+55-03 active graph/vocabulary scan OK
+```
+
+### 剩余问题
+
+无代码阻塞。`55-03-SUMMARY.md` 需要记录该验证命令修正偏差。
+
+### 下次继续排查入口
+
+- `.planning/phases/55-memory-context-load-cutover/55-03-PLAN.md`
+- `src/agent/graph.py`
+- `src/agent/routing.py`
+- `src/agent/graph_vocabulary.py`
+
+## 2026-07-07 — Phase 55-03 extra docs source-fact check inline Python 被 shell 反引号干扰
+
+### 问题现象
+
+Task 3 额外执行 current architecture source-fact check 时，命令输出出现 `zsh:1: command not found`，说明 shell 在 Python 代码执行前解析了 Markdown 反引号内容。该次输出不能作为干净验证依据。
+
+### 如何检测 / 复现
+
+运行包含 Markdown inline-code 反引号、且外层使用双引号包裹 `python -c` 的命令：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run python -c "from pathlib import Path; docs=...; assert '`memory_context_load`、`investigate`' in docs; ..."
+```
+
+### 关键证据或命令
+
+异常输出包含：
+
+```text
+zsh:1: command not found: memory_context_load
+zsh:1: command not found: investigate
+zsh:1: command not found: long_term_memory_retrieve
+```
+
+### 当前判断 / 根因
+
+zsh 对双引号内反引号执行 command substitution，导致 inline Python 字符串在进入 Python 前被 shell 改写。产品代码和文档内容没有失败；失败点是验证命令 quoting。
+
+### 已做处理
+
+改用外层单引号包裹 Python 代码，并避免在断言字符串中嵌入反引号作为必要匹配项。重跑结果：
+
+```text
+55-03 current architecture source-fact check OK
+```
+
+### 剩余问题
+
+无代码阻塞。后续 inline Python 验证若需要匹配 Markdown 反引号，应使用外层单引号、转义反引号，或改查无反引号的稳定片段。
+
+### 下次继续排查入口
+
+- `docs/current-langgraph-architecture.md`
+- `.planning/phases/55-memory-context-load-cutover/55-03-PLAN.md`
 
 ## 2026-07-07 — Phase 55-01 boundary selector 发现 reviewed-memory 测试 seam 仍 patch 旧 classifier
 

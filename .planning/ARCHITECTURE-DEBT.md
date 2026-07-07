@@ -430,6 +430,39 @@
 - ⚠️ active graph/router 仍由 Plan 55-02 切到 `memory_context_load`；本条只关闭 canonical node contract，不声称 active graph 已完成 cutover。
 - 🟡 `long_term_memory_retrieve` wrapper 与 legacy metric key 暂保留为 Phase 58 删除项，避免破坏历史 import/test/trace compatibility。
 
+## Phase 55 Plan 03 — `memory_context_load` runtime vocabulary/API/docs closeout ✅已修复验证
+
+**问题 / 根因**
+- Phase 55-02 已把 active graph/router 切到 `memory_context_load`，但 vocabulary、trace/API/SSE projection、当前源码架构图和债务台账如果继续把 `long_term_memory_retrieve` 或 `reviewed_memory_context_retrieve` 读成 runtime owner，会让历史 trace/import/test compatibility 与当前 runtime authority 混在一起。
+- `reviewed_memory_context_retrieve` 是 helper/service test surface，不应在 Phase 55 后成为第二个 runtime graph owner。
+
+**影响**
+- Agent run timeline、SSE event 和 current-source docs 可能误导后续 Phase 56/57/58，把 `long_term_memory_retrieve` 当作仍 active 的 registered node。
+- Phase 58 删除 compatibility alias 时若缺少 reason/delete metadata，容易漏删 wrapper/import/test/historical trace surface，或误删仍需保留的 memory storage/API/config 名称。
+
+**已修复验证**
+- ✅ `src/agent/graph_vocabulary.py` 将 `memory_context_load` 标为 runtime node；`long_term_memory_retrieve` 与 `reviewed_memory_context_retrieve` 标为 `compatibility_alias`，reason codes 包含 `PHASE_55_COMPATIBILITY_ALIAS`、`HISTORICAL_TRACE_PROJECTION`、`IMPORT_TEST_COMPATIBILITY`、`DELETE_BY_PHASE_58`。
+- ✅ `src/api/routers/agent_runs.py` 增加 `memory_context_load` SSE label；trace/API/SSE tests 覆盖当前 runtime `memory_context_load`、历史 `long_term_memory_retrieve -> memory_context_load`、helper `reviewed_memory_context_retrieve -> memory_context_load`，并保持 persisted implementation name 不被重写。
+- ✅ `docs/current-langgraph-architecture.md` 已更新为当前源码事实：active path 为 `slot_resolution_gate -> route_after_slot_resolution -> memory_context_load -> investigate`；active node set 不再包含 `long_term_memory_retrieve`。
+- ✅ Phase 56/57 scope 未提前实现：active graph 仍保留 `generate_recommendation` 与 `assess_risk_and_approval` legacy rows；Phase 58 final no-debt cleanup 未执行。
+- ✅ 本次没有破坏性 rename/drop memory storage/API/config：`long_term_fact` storage identity、public memory API/schema/config compatibility 不在 Phase 55-03 范围内改名或删除。
+
+**保留兼容面**
+- 🟡 `src/agent/nodes/long_term_memory_retrieve.py` wrapper、legacy `llm_outputs["long_term_memory_retrieve"]` direct wrapper metrics、historical trace/API rows 暂保留到 Phase 58。
+- 🟡 `reviewed_memory_context_retrieve` helper/direct test surface 暂保留为 implementation compatibility；Phase 58 可删除 alias 或重分类为 internal-only helper。
+
+**证据**
+- Phase 55 Plan 03；commits `92a760e`（vocabulary RED tests）、`2872047`（runtime vocabulary implementation）、`46d1400`（trace/API RED tests）、`5b57289`（SSE projection label）。
+- 文件：`src/agent/graph_vocabulary.py`、`src/api/routers/agent_runs.py`、`tests/agent/test_graph_vocabulary.py`、`tests/architecture/test_phase32_static_contract.py`、`tests/architecture/test_memory_contract_delta.py`、`tests/agent/test_trace.py`、`tests/test_trace_api.py`、`tests/test_agent_runs_api.py`、`docs/current-langgraph-architecture.md`。
+- 验证：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py tests/architecture/test_memory_contract_delta.py tests/architecture/test_phase32_static_contract.py tests/agent/test_graph.py tests/test_graph_routing.py tests/agent/test_intent_routing.py tests/agent/test_graph_vocabulary.py tests/agent/test_trace.py tests/test_trace_api.py tests/test_agent_runs_api.py tests/agent/test_memory_context_load.py tests/agent/test_reviewed_memory_context_retrieve.py tests/agent/test_memory_evidence_boundary.py tests/memory/test_reviewed_memory_context_boundary.py tests/memory/test_phase46_session_context_alignment.py tests/memory/test_phase47_case_precedent_alignment.py tests/memory/test_phase48_long_term_preference_alignment.py tests/memory/test_phase48_1_memory_compat_alignment.py -q --tb=short` → `1455 passed, 2 skipped, 31 warnings`。
+- 验证：`UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent src/memory tests/architecture tests/agent tests/memory` → pass。
+- 验证：literal-aware active graph/vocabulary scan → `55-03 active graph/vocabulary scan OK`。计划内原始 scan 因 `START` / `END` AST endpoint 形状失败，已记录到 `.planning/LOCAL-VALIDATION-ISSUES.md`。
+
+**剩余风险**
+- 🟡 Phase 56 仍负责 `generate_recommendation -> recommendation_generation` active cutover 和 evidence/claim 状态收敛；本条不声称已完成。
+- 🟡 Phase 57 仍负责 `assess_risk_and_approval -> risk_gate` / approval boundary canonicalization；本条不声称已完成。
+- 🟡 Phase 58 仍负责删除 Phase 55 retained aliases/wrappers/historical display compatibility，并执行 final no-debt cleanup；本条只把 delete metadata 和验证入口固定下来。
+
 ## Phase 48 Review CR-01 — state-origin 记忆候选身份与发布边界加固 ✅已修复验证
 
 **问题 / 根因**
