@@ -14744,3 +14744,52 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_graph.py tests/agent/t
 - `.planning/phases/54-slot-resolution-gate-cutover/54-REVIEW.md`
 - `tests/agent/test_nodes/test_slot_resolution_gate.py`
 - `tests/agent/test_required_slots.py`
+
+## 2026-07-07 — Phase 54 autopilot tracking / workflow 路径探测错误
+
+### 问题现象
+
+Phase 54 code review clean 后，检查 autopilot tracking 和 workflow 文件时有几次只读命令失败，原因是传入了不存在的路径。
+
+### 如何检测 / 复现
+
+在 MOCA 根目录运行包含以下路径的命令会失败：
+
+```text
+.planning/phases/54-slot-resolution-gate-cutover/AUTOPILOT.md
+.gsd
+/Users/ming/.codex/get-shit-done/workflows/phase-autopilot.md
+```
+
+### 关键证据或命令
+
+关键输出：
+
+```text
+rg: .planning/phases/54-slot-resolution-gate-cutover/AUTOPILOT.md: No such file or directory (os error 2)
+rg: .gsd: No such file or directory (os error 2)
+sed: /Users/ming/.codex/get-shit-done/workflows/phase-autopilot.md: No such file or directory
+```
+
+### 当前判断 / 根因
+
+根因是把 Phase 54 checkpoint 误猜成 phase 目录内 `AUTOPILOT.md`，以及把 `gsd-phase-autopilot` 误当成有 shared workflow 文件的普通 GSD skill。实际 checkpoint 是 `.planning/autopilot/phase-54.md`，实际 autopilot workflow 在 `/Users/ming/.codex/skills/gsd-phase-autopilot/references/workflow.md`。
+
+### 已做处理
+
+已改读正确文件：
+
+```text
+.planning/autopilot/phase-54.md
+/Users/ming/.codex/skills/gsd-phase-autopilot/references/workflow.md
+```
+
+### 剩余问题
+
+无已知阻塞。
+
+### 下次继续排查入口
+
+- `.planning/autopilot/phase-54.md`
+- `/Users/ming/.codex/skills/gsd-phase-autopilot/SKILL.md`
+- `/Users/ming/.codex/skills/gsd-phase-autopilot/references/workflow.md`
