@@ -357,6 +357,23 @@ def test_route_after_claim_verify_blocks_business_fact_and_unsupported_action_cl
     assert (
         route_after_claim_verify(
             {
+                "claim_verification_bundle": _continue_bundle(
+                    claim_results=[
+                        {
+                            **_allowed_action_claim_result(),
+                            "support_status": "unsupported",
+                            "allows_action_recommendation": False,
+                        }
+                    ]
+                ),
+                "proposed_action": {"type": "create_compensation_review"},
+            }
+        )
+        == "final_response"
+    )
+    assert (
+        route_after_claim_verify(
+            {
                 "claim_verification_bundle": {
                     "overall_status": "blocked",
                     "route": "final_response",
