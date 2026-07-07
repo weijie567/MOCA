@@ -14899,3 +14899,136 @@ PY
 - `.planning/phases/54-slot-resolution-gate-cutover/54-VALIDATION.md`
 - `.planning/phases/54-slot-resolution-gate-cutover/`
 - `docs/current-langgraph-architecture.md`
+
+## 2026-07-07 — Phase 55 discuss 配置查询缺省 key
+
+### 问题现象
+
+执行 Phase 55 autopilot 的 discuss 阶段时，按 GSD workflow 查询 `workflow.max_discuss_passes` 返回错误：`Error: Key not found: workflow.max_discuss_passes`，命令退出码为 10。
+
+### 如何检测 / 复现
+
+在 MOCA 根目录运行：
+
+```text
+gsd-sdk query config-get workflow.max_discuss_passes
+```
+
+### 关键证据或命令
+
+失败输出：
+
+```text
+Error: Key not found: workflow.max_discuss_passes
+```
+
+### 当前判断 / 根因
+
+该 key 在当前 `.planning/config.json` 中未配置；GSD discuss workflow 本身允许 fallback 到默认 pass cap。不是 Phase 55 代码或测试失败。
+
+### 已做处理
+
+按 workflow 默认值继续执行单 pass auto discuss，并没有把该失败作为 Phase 55 验证证据。
+
+### 剩余问题
+
+无阻塞。若后续希望消除噪音，可在 GSD 配置中显式设置该 key，或让查询命令在缺省时静默返回默认值。
+
+### 下次继续排查入口
+
+- `.planning/config.json`
+- `/Users/ming/.codex/get-shit-done/workflows/discuss-phase.md`
+
+## 2026-07-07 — Phase 55 discuss 误读不存在的 48.1-CONTEXT.md
+
+### 问题现象
+
+Phase 55 discuss 读取 prior memory context 时，尝试读取 `.planning/phases/48.1-memory-context-compatibility-debt-cleanup/48.1-CONTEXT.md`，但该 phase 没有 CONTEXT artifact，`sed` 报 no such file。
+
+### 如何检测 / 复现
+
+在 MOCA 根目录运行：
+
+```text
+sed -n '1,160p' .planning/phases/48.1-memory-context-compatibility-debt-cleanup/48.1-CONTEXT.md
+```
+
+### 关键证据或命令
+
+失败输出：
+
+```text
+sed: .planning/phases/48.1-memory-context-compatibility-debt-cleanup/48.1-CONTEXT.md: No such file or directory
+```
+
+### 当前判断 / 根因
+
+Phase 48.1 是插入的 compatibility cleanup phase，现有 artifact 是 `48.1-RESEARCH.md`、plan summaries 和 validation，而不是 `48.1-CONTEXT.md`。这是 prior-context 文件名假设错误，不是 Phase 55 runtime 或测试失败。
+
+### 已做处理
+
+改读 `.planning/phases/48.1-memory-context-compatibility-debt-cleanup/48.1-RESEARCH.md` 和 `48.1-04-SUMMARY.md`，并把这些作为 Phase 55 context 的 canonical refs。
+
+### 剩余问题
+
+无阻塞。后续读取小数 phase 的 prior context 时应先用 `rg --files` 枚举 artifact，再选择真实存在的 CONTEXT/RESEARCH/SUMMARY。
+
+### 下次继续排查入口
+
+- `.planning/phases/48.1-memory-context-compatibility-debt-cleanup/48.1-RESEARCH.md`
+- `.planning/phases/48.1-memory-context-compatibility-debt-cleanup/48.1-04-SUMMARY.md`
+
+## 2026-07-07 — Phase 55 artifact scan 双引号反引号触发裸 pytest 命令替换
+
+### 问题现象
+
+扫描 Phase 55 artifact 中是否出现裸 `pytest` / 裸 `python -m pytest` 时，第一次 `rg` 命令把包含 Markdown 反引号的 pattern 放在 shell 双引号中，导致 zsh 把反引号内容当作命令替换执行，实际触发了本机 Python 3.9 下的裸 `pytest` / `python -m pytest`。
+
+### 如何检测 / 复现
+
+在 zsh 中用双引号包裹包含反引号的 pattern 可复现。例如：
+
+```text
+rg -n "bare `pytest`|bare `python -m pytest`|UV_CACHE_DIR=/tmp/uv-cache uv run pytest" ...
+```
+
+### 关键证据或命令
+
+失败输出包含：
+
+```text
+ImportError while loading conftest '/Users/ming/projects/MOCA/tests/conftest.py'.
+tests/conftest.py:3: in <module>
+    from datetime import UTC, datetime, timedelta
+E   ImportError: cannot import name 'UTC' from 'datetime' (/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/datetime.py)
+/opt/homebrew/bin/python: No module named pytest
+```
+
+### 当前判断 / 根因
+
+根因是 shell quoting 错误，不是 Phase 55 artifact 内容错误，也不是项目测试失败。反引号触发了命令替换，正好命中了 MOCA 禁止的裸测试入口。
+
+### 已做处理
+
+改用单引号包裹同一 `rg` pattern 安全重跑：
+
+```text
+rg -n 'bare `pytest`|bare `python -m pytest`|UV_CACHE_DIR=/tmp/uv-cache uv run pytest' .planning/phases/55-memory-context-load-cutover/55-CONTEXT.md .planning/phases/55-memory-context-load-cutover/55-DISCUSSION-LOG.md
+```
+
+结果只命中 `55-CONTEXT.md` 中说明裸入口无效的文字；另用安全命令扫描行首裸入口：
+
+```text
+rg -n '^(pytest|python -m pytest)\b' .planning/phases/55-memory-context-load-cutover/55-CONTEXT.md .planning/phases/55-memory-context-load-cutover/55-DISCUSSION-LOG.md .planning/autopilot/phase-55.md
+```
+
+无匹配。
+
+### 剩余问题
+
+无 Phase 55 artifact 阻塞。后续扫描 Markdown 反引号内容必须使用单引号或转义反引号，避免 shell 命令替换。
+
+### 下次继续排查入口
+
+- `.planning/phases/55-memory-context-load-cutover/55-CONTEXT.md`
+- `.planning/phases/55-memory-context-load-cutover/55-DISCUSSION-LOG.md`
