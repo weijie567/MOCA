@@ -37,8 +37,10 @@ _CLAIM_VERIFY_ROUTES = {"assess_risk_and_approval", "final_response"}
 SAFETY_ROUTES = {"session_context_load", "clarification_gate", "final_response"}
 CONTEXTUAL_INTENT_ROUTES = {"clarification_gate", "final_response", "investigate", "extract_slots"}
 INTENT_ROUTES = CONTEXTUAL_INTENT_ROUTES
-SLOT_ROUTES = {"clarification_gate", "investigate", "long_term_memory_retrieve"}
+SLOT_RESOLUTION_ROUTES = {"clarification_gate", "investigate", "long_term_memory_retrieve"}
+SLOT_ROUTES = SLOT_RESOLUTION_ROUTES
 BUSINESS_ID_SLOTS = ("order_id", "refund_case_id", "ticket_id")
+SLOT_RESOLUTION_TRACE_SCHEMA = "slot_resolution_trace.phase54"
 _SLOT_INVALIDATION_TERMS = {
     "order_id": ("订单", "order"),
     "refund_case_id": ("退款单", "退款", "refund"),
@@ -90,12 +92,16 @@ def route_after_safety(state: AgentState) -> str:
     return route if route in SAFETY_ROUTES else "clarification_gate"
 
 
-def route_after_slots(state: AgentState) -> str:
+def route_after_slot_resolution(state: AgentState) -> str:
     try:
-        route = _route_after_slots(state)
+        route = _route_after_slot_resolution(state)
     except Exception:
         return "clarification_gate"
-    return route if route in SLOT_ROUTES else "clarification_gate"
+    return route if route in SLOT_RESOLUTION_ROUTES else "clarification_gate"
+
+
+def route_after_slots(state: AgentState) -> str:
+    return route_after_slot_resolution(state)
 
 
 def missing_required_slots(
@@ -111,8 +117,13 @@ def resolve_slots_for_completeness(state: AgentState) -> dict[str, Any]:
 
 
 def resolve_slots_with_metadata(state: AgentState) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    result = resolve_slots_with_provenance(state)
+    return result["resolved_slots"], result["slot_metadata"]
+
+
+def resolve_slots_with_provenance(state: AgentState) -> dict[str, Any]:
     extracted = state.get("extracted_slots")
-    current_slots = {key: value for key, value in (extracted or {}).items() if value not in (None, "")}
+    current_slots = _collect_current_turn_slots(extracted)
     invalidations = detect_slot_invalidations(str(state.get("user_query") or ""))
     session_memory = _session_slot_continuity(state)
     active_slots: dict[str, Any] = {}
@@ -126,9 +137,15 @@ def resolve_slots_with_metadata(state: AgentState) -> tuple[dict[str, Any], dict
 
     resolved: dict[str, Any] = {}
     resolved_metadata: dict[str, dict[str, Any]] = {}
+    explicit_current_turn_slots: dict[str, dict[str, Any]] = {}
+    inherited_session_slots: dict[str, dict[str, Any]] = {}
+    invalidated_slots: dict[str, dict[str, Any]] = {}
+    stale_slots: dict[str, dict[str, Any]] = {}
+    incompatible_slots: dict[str, dict[str, Any]] = {}
+    conflicting_slots: dict[str, dict[str, Any]] = {}
+    reason_codes: list[str] = []
     for slot, value in current_slots.items():
-        resolved[slot] = value
-        resolved_metadata[slot] = _current_turn_slot_metadata(
+        metadata = _current_turn_slot_metadata(
             slot,
             value,
             state,
@@ -136,32 +153,168 @@ def resolve_slots_with_metadata(state: AgentState) -> tuple[dict[str, Any], dict
             slot_metadata,
             invalidations,
         )
+        resolved[slot] = value
+        resolved_metadata[slot] = metadata
+        explicit_current_turn_slots[slot] = _slot_trace_entry(value, metadata, "explicit_current_turn")
+        _append_reason(reason_codes, "explicit_current_turn")
+        prior_value = active_slots.get(slot)
+        prior_metadata = slot_metadata.get(slot)
+        if (
+            prior_value not in (None, "")
+            and str(prior_value) != str(value)
+            and _trusted_session_slot(prior_metadata, state)
+        ):
+            conflicting_slots[slot] = {
+                "current_value": value,
+                "inherited_value": prior_value,
+                "source": "trusted_session_memory",
+                "resolution": "current_turn_replacement",
+            }
+            _append_reason(reason_codes, "conflicting_slot_replaced_by_current_turn")
 
     if not isinstance(session_memory, dict) or session_memory.get("continuity_claimed") is not True:
-        return resolved, resolved_metadata
-    if not isinstance(active_slots, dict) or not isinstance(slot_metadata, dict):
-        return resolved, resolved_metadata
-    inheritance_context = _slot_inheritance_context(state)
-    for slot, value in active_slots.items():
-        if slot in resolved or value in (None, ""):
-            continue
-        metadata = slot_metadata.get(slot)
-        decision = SLOT_POLICY_REGISTRY.accepts_inherited_slot(
-            slot,
-            metadata if isinstance(metadata, dict) else None,
-            inheritance_context,
-            invalidation=invalidations.get(slot),
-        )
-        if decision.accepted:
-            resolved[slot] = value
-            resolved_metadata[slot] = {
-                **metadata,
-                "source": "trusted_session_memory",
-                "explicit_current_turn": False,
-            }
-        elif decision.reason_code == "slot_invalidated":
-            resolved_metadata[slot] = _invalidated_slot_metadata(metadata, invalidations[slot])
-    return resolved, resolved_metadata
+        pass
+    elif isinstance(active_slots, dict) and isinstance(slot_metadata, dict):
+        inheritance_context = _slot_inheritance_context(state)
+        for slot, value in active_slots.items():
+            if slot in resolved or value in (None, ""):
+                continue
+            metadata = slot_metadata.get(slot)
+            conflict_marker = _trusted_session_conflict_marker(metadata)
+            if conflict_marker is not None:
+                conflicting_slots[slot] = {
+                    **conflict_marker,
+                    "value": value,
+                    "reason_code": "unresolved_inherited_slot_conflict",
+                }
+                _append_reason(reason_codes, "unresolved_inherited_slot_conflict")
+                continue
+            decision = SLOT_POLICY_REGISTRY.accepts_inherited_slot(
+                slot,
+                metadata if isinstance(metadata, dict) else None,
+                inheritance_context,
+                invalidation=invalidations.get(slot),
+            )
+            if decision.accepted:
+                resolved_metadata[slot] = {
+                    **metadata,
+                    "source": "trusted_session_memory",
+                    "explicit_current_turn": False,
+                }
+                resolved[slot] = value
+                inherited_session_slots[slot] = _slot_trace_entry(
+                    value,
+                    resolved_metadata[slot],
+                    "accepted_inherited_session_slot",
+                )
+                _append_reason(reason_codes, "accepted_inherited_session_slot")
+            elif decision.reason_code == "slot_invalidated":
+                rejected_metadata = _invalidated_slot_metadata(metadata, invalidations[slot])
+                resolved_metadata[slot] = rejected_metadata
+                invalidated_slots[slot] = _slot_trace_entry(value, rejected_metadata, "slot_invalidated")
+                _append_reason(reason_codes, "slot_invalidated")
+            elif decision.reason_code == "stale_slot":
+                stale_slots[slot] = _slot_trace_entry(value, metadata, "stale_slot")
+                _append_reason(reason_codes, "stale_slot")
+            elif decision.reason_code == "intent_incompatible":
+                incompatible_slots[slot] = _slot_trace_entry(value, metadata, "intent_incompatible")
+                _append_reason(reason_codes, "intent_incompatible")
+            else:
+                _append_reason(reason_codes, decision.reason_code)
+
+    missing, route_decision, route_reason_codes = _slot_resolution_route_decision(state, resolved)
+    for reason_code in route_reason_codes:
+        _append_reason(reason_codes, reason_code)
+    trace = _build_slot_resolution_trace(
+        state,
+        candidate_slots=_safe_mapping(state.get("candidate_slots")),
+        extracted_slots=_safe_mapping(extracted),
+        explicit_current_turn_slots=explicit_current_turn_slots,
+        inherited_session_slots=inherited_session_slots,
+        invalidated_slots=invalidated_slots,
+        stale_slots=stale_slots,
+        incompatible_slots=incompatible_slots,
+        conflicting_slots=conflicting_slots,
+        resolved_slots=resolved,
+        missing=missing,
+        route_decision=route_decision,
+        reason_codes=reason_codes,
+    )
+    return {
+        "resolved_slots": resolved,
+        "slot_metadata": resolved_metadata,
+        "missing_required_slots": missing,
+        "slot_resolution_trace": trace,
+        "route_decision": route_decision,
+    }
+
+
+def _collect_current_turn_slots(extracted: Any) -> dict[str, Any]:
+    return {key: value for key, value in (extracted or {}).items() if value not in (None, "")}
+
+
+def _safe_mapping(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _slot_trace_entry(value: Any, metadata: Any, reason_code: str) -> dict[str, Any]:
+    entry: dict[str, Any] = {"value": value, "reason_code": reason_code}
+    if isinstance(metadata, Mapping):
+        entry["metadata"] = dict(metadata)
+    return entry
+
+
+def _append_reason(reason_codes: list[str], reason_code: str) -> None:
+    if reason_code and reason_code not in reason_codes:
+        reason_codes.append(reason_code)
+
+
+def _trusted_session_conflict_marker(metadata: Any) -> dict[str, Any] | None:
+    if not isinstance(metadata, Mapping):
+        return None
+    marker = metadata.get("slot_resolution_conflict")
+    if not isinstance(marker, Mapping):
+        return None
+    values = marker.get("values")
+    source = marker.get("source")
+    if source != "trusted_session_memory" or not isinstance(values, list) or not values:
+        return None
+    return {"values": list(values), "source": source}
+
+
+def _build_slot_resolution_trace(
+    state: AgentState,
+    *,
+    candidate_slots: dict[str, Any],
+    extracted_slots: dict[str, Any],
+    explicit_current_turn_slots: dict[str, dict[str, Any]],
+    inherited_session_slots: dict[str, dict[str, Any]],
+    invalidated_slots: dict[str, dict[str, Any]],
+    stale_slots: dict[str, dict[str, Any]],
+    incompatible_slots: dict[str, dict[str, Any]],
+    conflicting_slots: dict[str, dict[str, Any]],
+    resolved_slots: dict[str, Any],
+    missing: list[dict[str, list[str]]],
+    route_decision: str,
+    reason_codes: list[str],
+) -> dict[str, Any]:
+    return {
+        "schema": SLOT_RESOLUTION_TRACE_SCHEMA,
+        "policy_owner": "SlotPolicyRegistry",
+        "intent": _intent(state),
+        "candidate_slots": candidate_slots,
+        "extracted_slots": extracted_slots,
+        "explicit_current_turn_slots": explicit_current_turn_slots,
+        "inherited_session_slots": inherited_session_slots,
+        "invalidated_slots": invalidated_slots,
+        "stale_slots": stale_slots,
+        "incompatible_slots": incompatible_slots,
+        "conflicting_slots": conflicting_slots,
+        "resolved_slots": dict(resolved_slots),
+        "missing_required_slots": missing,
+        "route_decision": route_decision,
+        "reason_codes": list(reason_codes),
+    }
 
 
 def _session_slot_continuity(state: AgentState) -> dict[str, Any]:
@@ -306,24 +459,37 @@ def _route_after_contextual_intent(state: AgentState) -> str:
     return route
 
 
+def _route_after_slot_resolution(state: AgentState) -> str:
+    result = resolve_slots_with_provenance(state)
+    route = result.get("route_decision")
+    return route if isinstance(route, str) else "clarification_gate"
+
+
 def _route_after_slots(state: AgentState) -> str:
+    return _route_after_slot_resolution(state)
+
+
+def _slot_resolution_route_decision(
+    state: AgentState,
+    resolved_slots: dict[str, Any],
+) -> tuple[list[dict[str, list[str]]], str, list[str]]:
     intent = _intent(state)
     if not INTENT_POLICY_REGISTRY.is_known_intent(intent):
-        return "clarification_gate"
+        return [], "clarification_gate", ["unknown_intent"]
     policy = SLOT_POLICY_REGISTRY.required_slots_for(intent)
     state_required = state.get("required_slots")
     if state_required not in (None, {}):
         try:
             if _required_expression(state_required).model_dump() != policy.model_dump():
-                return "clarification_gate"
+                return [], "clarification_gate", ["required_slot_policy_mismatch"]
         except Exception:
-            return "clarification_gate"
-    missing = missing_required_slots(policy, resolve_slots_for_completeness(state))
+            return [], "clarification_gate", ["malformed_required_slots"]
+    missing = missing_required_slots(policy, resolved_slots)
     if missing:
-        return "clarification_gate"
+        return missing, "clarification_gate", ["missing_required_slots"]
     if _needs_reviewed_memory_context(state):
-        return "long_term_memory_retrieve"
-    return "investigate"
+        return [], "long_term_memory_retrieve", []
+    return [], "investigate", []
 
 
 def _needs_reviewed_memory_context(state: AgentState) -> bool:

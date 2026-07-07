@@ -10215,6 +10215,48 @@ GSD `state.planned-phase` 命令本身未修复。后续 phase planning 若再�
 - `.planning/STATE.md`
 - `gsd-sdk query state.planned-phase`
 
+## 2026-07-07 — Phase 54-01 Task 1 GREEN 验证中 WR-01 测试期望写错
+
+### 问题现象
+
+执行 Task 1 GREEN 验证时，新增的 WR-01 provenance 测试失败：测试期望 `ticket_id` 能从 `ticket_reply_draft` 兼容到 `action_request`，但 resolver 只解析出 `action_type`、`order_id`、`refund_case_id`。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_required_slots.py tests/agent/test_nodes/test_receive_request.py -q --tb=short
+```
+
+关键失败：
+
+```text
+test_slot_resolution_trace_preserves_wr01_non_business_rejection_and_business_id_acceptance
+Right contains 1 more item: {'ticket_id': 'TKT-PRE-INTENT'}
+```
+
+### 关键证据或命令
+
+`src/agent/intent_policy.py` 的 `CROSS_INTENT_SLOT_GROUPS` 中，`ticket_id` 兼容组包含 `ticket_reply_draft` 和 `compensation_suggestion`，不包含 `action_request`；因此测试把 `ticket_id` 期待到 `action_request` 是错误期望。
+
+### 当前判断 / 根因
+
+这是新增测试用例的场景选择错误，不是 resolver 行为缺陷。Phase 53 WR-01 invariant 要保留业务 ID 的跨意图兼容，但兼容仍受每个 slot 的既有 intent group 约束。
+
+### 已做处理
+
+已将该测试中的 business-ID 接受场景改为 `compensation_suggestion`，并把 required slots 调整为 action_type + order/refund/ticket 任一，符合现有 `ticket_id` 兼容组。
+
+### 剩余问题
+
+无已知剩余阻塞；需重跑 Task 1 focused pytest 和 Ruff。
+
+### 下次继续排查入口
+
+- `tests/agent/test_required_slots.py::test_slot_resolution_trace_preserves_wr01_non_business_rejection_and_business_id_acceptance`
+- `src/agent/intent_policy.py::CROSS_INTENT_SLOT_GROUPS`
+
 ## 2026-07-07 — Claude review wrapper 使用 zsh 只读变量 status 导致命令退出 1
 
 ### 问题现象

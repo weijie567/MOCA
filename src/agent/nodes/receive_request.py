@@ -65,6 +65,8 @@ async def receive_request(state: AgentState) -> dict:
         "intent_confidence": None,
         "risk_tier": None,
         "classification_trace": None,
+        "slot_resolution_trace": None,
+        "missing_required_slots": [],
         "task_plan": None,
         "deferred_steps": [],
         "target_merchant_context": None,

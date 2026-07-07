@@ -536,8 +536,12 @@ def test_slot_resolution_trace_preserves_wr01_non_business_rejection_and_busines
         "tenant_id": "tenant-1",
         "user_id": "user-1",
         "thread_id": "thread-1",
-        "primary_intent": "action_request",
-        "required_slots": {"all_of": ["action_type"], "any_of": [["order_id", "refund_case_id"]], "optional": []},
+        "primary_intent": "compensation_suggestion",
+        "required_slots": {
+            "all_of": ["action_type"],
+            "any_of": [["order_id", "refund_case_id", "ticket_id"]],
+            "optional": ["amount"],
+        },
         "extracted_slots": {"action_type": "issue_coupon"},
         "session_context": {
             "slot_continuity": {
