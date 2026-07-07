@@ -329,7 +329,7 @@ async def test_pending_slot_short_reply_uses_pre_intent_same_thread_session_cont
 
     nodes = [step["node"] for step in final_state["trace_steps"]]
     assert nodes[:4] == ["receive_request", "safety_pre_route", "session_context_load", "contextual_intent_resolve"]
-    assert nodes.index("contextual_intent_resolve") < nodes.index("extract_slots")
+    assert nodes.index("contextual_intent_resolve") < nodes.index("slot_resolution_gate")
     assert "long_term_memory_retrieve" not in nodes
     assert final_state["session_context"]["active_slots"]["order_id"] == "ORD-1001"
     assert final_state["session_memory"]["active_slots"]["order_id"] == "ORD-1001"

@@ -14481,3 +14481,114 @@ wave_0_complete: false
 
 - `.planning/phases/54-slot-resolution-gate-cutover/54-VALIDATION.md`
 - `.planning/LOCAL-VALIDATION-ISSUES.md`
+
+## 2026-07-07 — 54-03 Task 3 focused suite 发现 session memory integration 仍断言 `extract_slots`
+
+### 问题现象
+
+Task 3 final focused pytest suite 首次运行失败：
+
+```text
+tests/agent/test_session_memory_integration.py::test_pending_slot_short_reply_uses_pre_intent_same_thread_session_context
+ValueError: 'extract_slots' is not in list
+```
+
+### 如何检测 / 复现
+
+执行 54-03 Task 3 要求的完整 focused suite：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_required_slots.py tests/agent/test_nodes/test_receive_request.py tests/agent/test_nodes/test_slot_resolution_gate.py tests/agent/test_nodes/test_extract_slots.py tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_graph.py tests/test_graph_routing.py tests/agent/test_intent_routing.py tests/agent/test_intent_golden_contract.py tests/agent/test_session_memory_integration.py tests/agent/test_graph_vocabulary.py tests/agent/test_trace.py tests/test_trace_api.py tests/architecture/test_canonical_graph_baseline.py -q --tb=short
+```
+
+结果：
+
+```text
+1 failed, 1451 passed, 1 skipped, 35 warnings
+```
+
+### 关键证据或命令
+
+失败断言仍检查：
+
+```text
+nodes.index("contextual_intent_resolve") < nodes.index("extract_slots")
+```
+
+但 Phase 54 active graph 已切到 `slot_resolution_gate`，`extract_slots` 只保留 wrapper/import/historical projection compatibility。
+
+### 当前判断 / 根因
+
+根因是 Phase 54 final validation suite 纳入的 integration test 仍保留 pre-cutover active node expectation。运行时未出现 `extract_slots` 是正确现象；测试应断言 `slot_resolution_gate` 位于 `contextual_intent_resolve` 之后。文件后面的 `extract_slots` wrapper/prompt-context 测试仍然是 retained compatibility coverage，不能删除。
+
+### 已做处理
+
+已将 active graph traversal assertion 改为：
+
+```text
+nodes.index("contextual_intent_resolve") < nodes.index("slot_resolution_gate")
+```
+
+随后需要重跑 Task 3 final focused suite。
+
+### 剩余问题
+
+等待 final focused suite 重跑结果；如果通过，本项无剩余阻塞。
+
+### 下次继续排查入口
+
+- `tests/agent/test_session_memory_integration.py::test_pending_slot_short_reply_uses_pre_intent_same_thread_session_context`
+- `src/agent/graph.py`
+- `src/agent/nodes/slot_resolution_gate.py`
+
+## 2026-07-07 — 54-03 Task 3 artifact scan inline Python 反引号 regex 触发 shell command substitution
+
+### 问题现象
+
+Task 3 final artifact scan 首次运行失败：
+
+```text
+zsh:1: parse error near `\n(.*?)'
+zsh:1: parse error in command substitution
+```
+
+### 如何检测 / 复现
+
+失败命令形态是把包含 Markdown fence 反引号 regex 的 Python `-c` 内容放在双引号 shell 字符串里：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run python -c "import pathlib,re; ... re.findall(r'```([A-Za-z0-9_-]*)\\n(.*?)```', text, flags=re.S) ..."
+```
+
+zsh 在 Python 解释器启动前先解析反引号，导致 command substitution parse error。
+
+### 关键证据或命令
+
+关键输出：
+
+```text
+zsh:1: parse error near `\n(.*?)'
+zsh:1: parse error in command substitution
+```
+
+### 当前判断 / 根因
+
+根因是 shell quoting 错误，不是 artifact scan 发现了裸 `pytest`。需要用 shell 单引号包住 Python `-c` 内容，或用 here-doc 运行 Python，确保 Markdown fence 反引号只被 Python regex 读取。
+
+### 已做处理
+
+已改用单引号包裹 Python `-c` 内容重跑同一 artifact scan 逻辑；未修改 artifact 内容。安全重跑结果：
+
+```text
+OK
+```
+
+### 剩余问题
+
+无已知阻塞。
+
+### 下次继续排查入口
+
+- `.planning/phases/54-slot-resolution-gate-cutover/54-VALIDATION.md`
+- `docs/current-langgraph-architecture.md`
+- `.planning/LOCAL-VALIDATION-ISSUES.md`
