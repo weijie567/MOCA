@@ -16640,6 +16640,98 @@ FAILED tests/agent/test_rag_context_routing.py::test_partial_rag_context_fails_c
 - `src/agent/routing.py`
 - `tests/agent/test_rag_context_routing.py`
 
+## 2026-07-07 Phase 56 secure discovery：zsh glob 在 SECURITY 文件不存在时返回 no matches
+
+### 问题现象
+
+Phase 56 secure 阶段检查是否已有 `*-SECURITY.md` 时，把多个 glob 直接交给 zsh 执行；由于当前 phase 还没有 SECURITY artifact，命令在 shell 展开阶段失败。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+ls .planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/*-PLAN.md .planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/*-SUMMARY.md .planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/*-SECURITY.md 2>/dev/null || true
+```
+
+### 关键证据或命令
+
+输出：
+
+```text
+zsh:1: no matches found: .planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/*-SECURITY.md
+```
+
+### 当前判断 / 根因
+
+这是本地 shell 命令形态问题，不是 Phase 56 安全状态失败。zsh 在默认 `nomatch` 行为下会在 glob 无匹配时直接报错；secure workflow 的实际语义是“SECURITY 文件为空则进入 State B，从 PLAN/SUMMARY 重建”。
+
+### 已做处理
+
+已把该失败作为本地验证问题记录；后续判断以 `ls ... 2>/dev/null | head -1` 或 `find` 的结果为准，将 SECURITY artifact 不存在视为 State B 正常路径。
+
+### 剩余问题
+
+无 Phase 56 实现问题。后续若固化 secure workflow，可避免把可能不存在的 glob 直接放进 zsh 命令行。
+
+### 下次继续排查入口
+
+- `.planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-SECURITY.md`
+- `$HOME/.codex/get-shit-done/workflows/secure-phase.md`
+
+## 2026-07-07 Phase 56 secure artifact scan：Python -c 换行转义失败与过宽历史日志扫描误报
+
+### 问题现象
+
+secure 阶段校验 SECURITY / local issue artifact 中是否新增裸 `pytest` / `python -m pytest` 时，第一次 Python `-c` 命令因字面 `\n` 转义触发 `SyntaxError`；改成单行表达式后又把全量历史 `.planning/LOCAL-VALIDATION-ISSUES.md` 纳入扫描，命中历史事故正文里的裸命令文本，造成与 Phase 56 artifact 无关的误报。
+
+### 如何检测 / 复现
+
+第一次失败命令形态：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run python -c 'from pathlib import Path; paths=[...]; bad=[];\nfor p in paths:\n    ...'
+```
+
+第二次过宽扫描命令形态：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run python -c 'from pathlib import Path; paths=[Path(".planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-SECURITY.md"), Path(".planning/LOCAL-VALIDATION-ISSUES.md")]; bad=[...]; assert not bad, bad'
+```
+
+### 关键证据或命令
+
+第一次输出：
+
+```text
+SyntaxError: unexpected character after line continuation character
+```
+
+第二次输出为 `AssertionError`，列出多个 `.planning/LOCAL-VALIDATION-ISSUES.md` 历史行，例如 `pytest tests/...`、`pytest 输出显示：` 等。
+
+### 当前判断 / 根因
+
+第一次是 `python -c` shell quoting 写法错误；第二次是扫描范围错误。`.planning/LOCAL-VALIDATION-ISSUES.md` 是历史事故台账，允许记录过去错误命令的原文，不应作为当前 Phase 56 artifact 裸命令 gate 的扫描对象。
+
+### 已做处理
+
+已改为只扫描 Phase 56 目录下 `56-*.md` artifacts：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run python -c 'from pathlib import Path; bad=[f"{p}:{i}:{line.strip()}" for p in Path(".planning/phases/56-recommendation-generation-and-rag-claim-status-alignment").glob("56-*.md") for i,line in enumerate(p.read_text().splitlines(),1) if line.strip().startswith(("pytest", "python -m pytest"))]; assert not bad, bad'
+```
+
+该命令通过。
+
+### 剩余问题
+
+无 Phase 56 artifact 问题。后续做 command-entry scan 时要区分当前 phase artifact 与历史事故台账。
+
+### 下次继续排查入口
+
+- `.planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-*.md`
+- `.planning/LOCAL-VALIDATION-ISSUES.md`
+
 ## 2026-07-07 Phase 56 Plan 56-04 Task 3：Markdown 反引号 grep 扫描命令引号错误
 
 ### 问题现象
