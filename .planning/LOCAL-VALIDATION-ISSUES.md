@@ -17256,3 +17256,44 @@ AssertionError: assert 'recommendation_generation' == 'final_response'
 
 - `src/agent/routing.py`
 - `tests/agent/test_rag_context_routing.py`
+## 2026-07-07 Phase 57 plan repair 自检：rg pattern 反引号触发裸 pytest 命令替换
+
+### 问题现象
+
+Phase 57 Claude plan review repair 后做本地 artifact 自检时，一条 `rg` 命令的搜索 pattern 放在双引号中，且包含 Markdown 反引号文本 `` `pytest` ``。zsh 在执行 `rg` 前先把反引号内容当作命令替换执行，误触发了项目禁止的裸 `pytest`，并命中系统 Python 3.9 的 `datetime.UTC` collection 假失败。
+
+### 如何检测 / 复现
+
+在 zsh 中运行包含未转义反引号的双引号搜索命令可复现，例如：
+
+```text
+rg -n "depends_on:|wave:|files_modified:|...|bare `pytest`|python -m pytest" .planning/phases/57-risk-gate-and-approval-gate-canonicalization/57-0[1-5]-PLAN.md
+```
+
+### 关键证据或命令
+
+命令输出先出现裸 `pytest` collection 失败：
+
+```text
+ImportError while loading conftest '/Users/ming/projects/MOCA/tests/conftest.py'.
+tests/conftest.py:3: in <module>
+    from datetime import UTC, datetime, timedelta
+E   ImportError: cannot import name 'UTC' from 'datetime' (/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/datetime.py)
+```
+
+### 当前判断 / 根因
+
+这是本地扫描命令的 shell quoting 错误，不是 Phase 57 plan 内容失败，也不是测试套件失败。双引号中的反引号会被 zsh 执行 command substitution，导致 `` `pytest` `` 被当成裸命令运行，绕过项目 `uv` 环境。
+
+### 已做处理
+
+已将该输出判定为无效验证结果；后续继续检查时改用单引号包裹 pattern，或避免在 shell pattern 中写 Markdown 反引号。
+
+### 剩余问题
+
+无 Phase 57 artifact 阻塞。该裸 `pytest` 输出不能作为任何验证结论。
+
+### 下次继续排查入口
+
+- Phase 57 artifact 自检命令
+- shell quoting：包含 Markdown 反引号的 `rg` / inline Python 命令统一使用单引号或改查无反引号稳定片段
