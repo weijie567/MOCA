@@ -46,6 +46,7 @@ next_command: "$gsd-execute-phase 54"
 - Post-repair checks passed: plan structure smoke, command-context artifact scan, stale wording scan, and `git diff --check`.
 - Second Claude review output: `/tmp/gsd-review-claude-54-r2.md` had 6,965 bytes, empty stderr, and no blockers. Remaining notes are LOW cautions only: static scan brittleness, docs/debt text-level checks, and strict LLM-error fail-closed UX tradeoff.
 - Codex independent review has no remaining accepted plan issues.
+- Execute init found 3 incomplete plans. `gsd-sdk query state.begin-phase` with documented flag syntax polluted `.planning/STATE.md`; state was manually repaired and the incident was recorded in `.planning/LOCAL-VALIDATION-ISSUES.md`.
 
 ## Last Failure
 

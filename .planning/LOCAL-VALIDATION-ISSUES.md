@@ -10274,6 +10274,76 @@ wc -c /tmp/gsd-review-claude-54.md /tmp/gsd-review-claude-54.err
 
 - `/tmp/gsd-review-claude-54.md`
 - `/tmp/gsd-review-claude-54.err`
+
+## 2026-07-07 — Phase 54 state.begin-phase flag 参数被解析成正文并污染 STATE
+
+### 问题现象
+
+Phase 54 进入执行阶段时，按 execute-phase workflow 示例执行：
+
+```text
+gsd-sdk query state.begin-phase --phase 54 --name slot-resolution-gate-cutover --plans 3
+```
+
+命令没有非零退出，而是返回异常 JSON：
+
+```text
+{
+  "phase": "--phase",
+  "name": "54",
+  "plan_count": "--name"
+}
+```
+
+同时 `.planning/STATE.md` 被污染为 `Phase --phase`，并再次把 progress 计数改错。
+
+### 如何检测 / 复现
+
+执行上述命令后检查：
+
+```text
+git diff -- .planning/STATE.md
+```
+
+关键异常包括：
+
+```text
+last_activity: 2026-07-07 -- Phase --phase execution started
+**Current focus:** Phase --phase — 54
+Phase: --phase (54) — EXECUTING
+Plan: 1 of --name
+completed_phases: 17
+completed_plans: 55
+percent: 96
+```
+
+### 当前判断 / 根因
+
+`gsd-sdk query state.begin-phase` 当前实现疑似使用位置参数，而 workflow 文档示例使用 flag 参数，导致 flag token 被当作 phase/name/plan_count 正文写入 STATE。该结果不能作为有效状态更新。
+
+### 已做处理
+
+已手动修正 `.planning/STATE.md`：
+
+```text
+status: executing
+stopped_at: Phase 54 execution started
+completed_phases: 18
+total_plans: 57
+completed_plans: 52
+percent: 78
+Phase: 54 — EXECUTING
+Plan: 1 of 3
+```
+
+### 剩余问题
+
+无当前执行阻塞。后续避免用 flag 形式调用 `state.begin-phase`；如必须调用，先确认位置参数格式并立即检查 STATE diff。
+
+### 下次继续排查入口
+
+- `.planning/STATE.md`
+- `gsd-sdk query state.begin-phase`
 - `/Users/ming/.codex/get-shit-done/workflows/plan-phase.md`
 
 ## 2026-07-02 09:50 CST - Phase 38 plan 38-03 full relevant suite 仍因本地 PostgreSQL 缺失失败
