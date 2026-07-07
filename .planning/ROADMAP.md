@@ -449,7 +449,7 @@ Plans:
 **Requirements**: CAGM-07
 **Depends on:** Phase 55
 **Must read:** `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`
-**Plans:** 0 plans (not planned yet)
+**Plans:** 4 plans
 **Success Criteria** (what must be TRUE):
   1. Active graph uses `recommendation_generation` as the registered node name, not `generate_recommendation`.
   2. Material claims and candidate proposed actions cannot bypass `claim_verify`.
@@ -457,7 +457,10 @@ Plans:
   4. Active runtime no longer uses `generate_recommendation` as the registered graph node after cutover, except for explicitly recorded temporary implementation reuse slated for deletion.
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 56 to break down)
+- [ ] 56-01-PLAN.md — canonical `recommendation_generation` callable and narrow `generate_recommendation` compatibility contract.
+- [ ] 56-02-PLAN.md — active graph/router/baseline cutover to `recommendation_generation` while preserving the Phase 57 risk row.
+- [ ] 56-03-PLAN.md — RAG status and claim verification fail-closed route hardening.
+- [ ] 56-04-PLAN.md — vocabulary/API/frontend/eval labels, docs/debt, validation artifact, and closeout gates.
 
 ### Phase 57: Risk Gate and Approval Gate Canonicalization
 
