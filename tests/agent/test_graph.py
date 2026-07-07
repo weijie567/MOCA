@@ -1155,6 +1155,95 @@ async def test_unsafe_pre_route_inputs_stop_before_classifier_memory_tools_or_ac
 
 
 @pytest.mark.asyncio
+async def test_approval_chat_clears_contaminated_approval_authority_state(monkeypatch):
+    deps = _patch_graph_dependencies(monkeypatch, intent="policy_qa")
+    graph = build_graph(MemorySaver())
+    initial_state = _state("approve APR-1")
+    run_id = str(uuid4())
+    action_hash = "sha256:" + "a" * 64
+    snapshot_hash = "sha256:" + "b" * 64
+    initial_state.update(
+        {
+            "current_run_id": run_id,
+            "approval_result": {
+                "schema_version": "approval_result.v1",
+                "approval_id": str(uuid4()),
+                "tenant_id": initial_state["tenant_id"],
+                "run_id": run_id,
+                "decision_type": "approve",
+                "status": "approved",
+                "revision": 1,
+                "request_version": 2,
+                "level_version": 2,
+                "assignment_version": 2,
+                "action_payload_hash": action_hash,
+                "safety_snapshot_ref": "snapshot:stale",
+                "safety_snapshot_hash": snapshot_hash,
+                "decided_by": initial_state["user_id"],
+                "decided_at": "2026-06-15T00:00:00.000Z",
+            },
+            "proposed_action": {"schema_version": "proposed_action.v1", "action_type": "issue_coupon"},
+            "approval_revision_refs": [{"approval_id": str(uuid4()), "revision": 1}],
+            "action_payload_hash": action_hash,
+            "safety_snapshot_ref": "snapshot:stale",
+            "safety_snapshot_hash": snapshot_hash,
+            "safety_snapshot_verified": True,
+            "approval_plan": {
+                "schema_version": "approval_plan.v1",
+                "approval_required": True,
+                "approval_idempotency_key": "approval:stale",
+                "action_payload_hash": action_hash,
+                "safety_snapshot_ref": "snapshot:stale",
+                "safety_snapshot_hash": snapshot_hash,
+            },
+            "risk_decision": {"schema_version": "risk_decision.v1", "approval_required": True},
+            "risk_decision_ref": "risk_decision:stale",
+            "target_merchant_id": "merchant-stale",
+            "target_merchant_ref": {"target_merchant_id": "merchant-stale"},
+            "business_fact_refs": [{"resource_type": "refund_case", "resource_id": "RF-stale"}],
+            "verified_evidence_refs": [{"evidence_id": "policy-stale/chunk-001"}],
+            "claim_verification_ref": "claim:stale",
+            "claim_verification_summary": {"overall_status": "verified"},
+            "approval_idempotency_key": "approval:stale",
+            "auto_allowed_binding": {"idempotency_key": "auto:stale"},
+            "action_draft": {"schema_version": "action_draft.v1"},
+            "draft_outcome": {"status": "drafted"},
+        }
+    )
+
+    final_state = await graph.ainvoke(initial_state, _config(deps["tool_platform"], deps["events"]))
+
+    nodes = [step["node"] for step in final_state["trace_steps"]]
+    assert "approval_gate" not in nodes
+    assert "action_draft" not in nodes
+    assert deps["tool_platform"].calls == []
+    assert final_state["clarification_request"]["reason"] == "approval_chat_not_trusted"
+    for field in (
+        "approval_result",
+        "proposed_action",
+        "approval_revision_refs",
+        "action_payload_hash",
+        "safety_snapshot_ref",
+        "safety_snapshot_hash",
+        "safety_snapshot_verified",
+        "approval_plan",
+        "risk_decision",
+        "risk_decision_ref",
+        "target_merchant_id",
+        "target_merchant_ref",
+        "claim_verification_ref",
+        "claim_verification_summary",
+        "approval_idempotency_key",
+        "auto_allowed_binding",
+        "action_draft",
+        "draft_outcome",
+    ):
+        assert final_state.get(field) is None, field
+    assert final_state.get("business_fact_refs") == []
+    assert final_state.get("verified_evidence_refs") == []
+
+
+@pytest.mark.asyncio
 async def test_memory_context_load_reviewed_retrieval_safe_empty_when_no_reviewed_rows(monkeypatch):
     payload = _intent("refund_troubleshooting")
     payload["routing_hints"] = {"needs_long_term_memory": True}

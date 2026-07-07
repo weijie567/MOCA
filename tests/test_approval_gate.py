@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ast
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -86,24 +88,33 @@ def _state() -> dict:
     }
 
 
-@pytest.mark.asyncio
-async def test_approval_gate_interrupt_payload_contains_display_refs_and_versions(monkeypatch):
-    captured_payload: dict = {}
-    decision = {
+def _trusted_decision(state: dict, **overrides) -> dict:
+    payload = {
         "schema_version": "approval_result.v1",
         "approval_id": str(uuid4()),
+        "tenant_id": state["tenant_id"],
+        "run_id": state["current_run_id"],
         "decision_type": "approve",
         "status": "approved",
         "revision": 1,
         "request_version": 2,
         "level_version": 2,
         "assignment_version": 2,
-        "action_payload_hash": "sha256:" + "1" * 64,
-        "safety_snapshot_ref": "snapshot:test",
-        "safety_snapshot_hash": "sha256:" + "2" * 64,
+        "action_payload_hash": state["action_payload_hash"],
+        "safety_snapshot_ref": state["safety_snapshot_ref"],
+        "safety_snapshot_hash": state["safety_snapshot_hash"],
         "decided_by": str(uuid4()),
         "decided_at": "2026-06-15T00:00:00.000Z",
     }
+    payload.update(overrides)
+    return payload
+
+
+@pytest.mark.asyncio
+async def test_approval_gate_interrupt_payload_contains_display_refs_and_versions(monkeypatch):
+    captured_payload: dict = {}
+    state = _state()
+    decision = _trusted_decision(state)
 
     def fake_interrupt(payload):
         captured_payload.update(payload)
@@ -111,7 +122,7 @@ async def test_approval_gate_interrupt_payload_contains_display_refs_and_version
 
     monkeypatch.setattr(approval_gate_module, "interrupt", fake_interrupt)
 
-    await approval_gate_module.approval_gate(_state())
+    await approval_gate_module.approval_gate(state)
 
     assert captured_payload["run_id"]
     assert captured_payload["tenant_id"]
@@ -163,24 +174,11 @@ async def test_approval_gate_fails_closed_when_required_plan_lacks_idempotency(m
 
 @pytest.mark.asyncio
 async def test_approval_gate_sets_approval_result_only_from_trusted_service_payload(monkeypatch):
-    decision = {
-        "schema_version": "approval_result.v1",
-        "approval_id": str(uuid4()),
-        "decision_type": "reject",
-        "status": "rejected",
-        "revision": 1,
-        "request_version": 2,
-        "level_version": 2,
-        "assignment_version": 2,
-        "action_payload_hash": "sha256:" + "1" * 64,
-        "safety_snapshot_ref": "snapshot:test",
-        "safety_snapshot_hash": "sha256:" + "2" * 64,
-        "decided_by": str(uuid4()),
-        "decided_at": "2026-06-15T00:00:00.000Z",
-    }
+    state = _state()
+    decision = _trusted_decision(state, decision_type="reject", status="rejected")
     monkeypatch.setattr(approval_gate_module, "interrupt", lambda payload: decision)
 
-    result = await approval_gate_module.approval_gate(_state())
+    result = await approval_gate_module.approval_gate(state)
 
     assert result["approval_result"] == decision
 
@@ -198,28 +196,77 @@ async def test_approval_gate_rejects_untrusted_raw_resume_payload(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_approval_gate_appends_trace_step(monkeypatch):
-    monkeypatch.setattr(
-        approval_gate_module,
-        "interrupt",
-        lambda payload: {
-            "schema_version": "approval_result.v1",
-            "approval_id": str(uuid4()),
-            "decision_type": "approve",
-            "status": "approved",
-            "revision": 1,
-            "request_version": 2,
-            "level_version": 2,
-            "assignment_version": 2,
-            "action_payload_hash": "sha256:" + "1" * 64,
-            "safety_snapshot_ref": "snapshot:test",
-            "safety_snapshot_hash": "sha256:" + "2" * 64,
-            "decided_by": str(uuid4()),
-            "decided_at": "2026-06-15T00:00:00.000Z",
-        },
-    )
+@pytest.mark.parametrize(
+    "resume_payload",
+    [
+        "approve APR-1",
+        ["approve", "APR-1"],
+        None,
+        {"schema_version": "approval_result.v0", "decision_type": "approve"},
+        {"schema_version": "approval_result.v1", "decision_type": "approve"},
+        {"schema_version": "approval_result.v1", "decision_type": "approve", "raw_text": "approve APR-1"},
+    ],
+)
+async def test_approval_gate_rejects_invalid_or_incomplete_resume_payloads(monkeypatch, resume_payload):
+    monkeypatch.setattr(approval_gate_module, "interrupt", lambda payload: resume_payload)
 
     result = await approval_gate_module.approval_gate(_state())
 
+    assert result["approval_result"] is None
+    assert result["final_response"] == "审批结果无效，已停止执行高风险操作。"
+    assert result["trace_steps"][-1]["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_approval_gate_appends_trace_step(monkeypatch):
+    state = _state()
+    monkeypatch.setattr(
+        approval_gate_module,
+        "interrupt",
+        lambda payload: _trusted_decision(state),
+    )
+
+    result = await approval_gate_module.approval_gate(state)
+
     assert result["trace_steps"][-1]["node"] == "approval_gate"
     assert result["trace_steps"][-1]["status"] == "completed"
+
+
+def _call_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return None
+
+
+def test_approval_gate_has_no_runtime_risk_action_or_snapshot_coupling():
+    source_path = Path("src/agent/nodes/approval_gate.py")
+    tree = ast.parse(source_path.read_text())
+    forbidden_modules = (
+        "src.agent.nodes.risk_gate",
+        "src.agent.nodes.assess_risk_and_approval",
+        "src.approvals.snapshot_service",
+        "src.approvals.service",
+        "src.agent.nodes.action_draft",
+    )
+    forbidden_calls = {
+        "RiskDecisionV1",
+        "AutoAllowedActionBindingV1",
+        "ApprovalRequestCreateCommand",
+        "ApprovalService",
+        "compute_action_payload_hash",
+        "persist_action_safety_snapshot",
+        "create_action_safety_snapshot",
+        "create_approval_plan",
+        "create_proposed_action",
+        "_deterministic_high_rule",
+    }
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            assert not any((node.module or "").startswith(module) for module in forbidden_modules)
+        if isinstance(node, ast.Import):
+            assert not any(alias.name.startswith(module) for alias in node.names for module in forbidden_modules)
+        if isinstance(node, ast.Call):
+            assert _call_name(node.func) not in forbidden_calls
