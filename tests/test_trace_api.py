@@ -338,6 +338,30 @@ def test_build_timeline_projects_router_step_target_node():
     assert timeline[0]["detail"]["target_node"] == "route_after_slot_resolution"
 
 
+def test_build_timeline_projects_runtime_slot_resolution_router_identity():
+    now = datetime.now(UTC)
+    repo = TraceRepository(SimpleNamespace())
+
+    timeline = repo.build_timeline(
+        steps=[
+            SimpleNamespace(
+                started_at=now,
+                node_name="route_after_slot_resolution",
+                status="completed",
+                tool_name=None,
+                latency_ms=5,
+                provider_latency_ms=None,
+            )
+        ],
+        approvals=[],
+        approval_steps=[],
+        drafts=[],
+    )
+
+    assert timeline[0]["detail"]["node_name"] == "route_after_slot_resolution"
+    assert timeline[0]["detail"]["target_node"] == "route_after_slot_resolution"
+
+
 def test_trace_action_draft_projection_excludes_raw_payload_even_when_present():
     idempotency_key = "tenant:run:approval_revision_1:issue_coupon:RF-SECRET:sha256-" + "a" * 64
     draft = SimpleNamespace(

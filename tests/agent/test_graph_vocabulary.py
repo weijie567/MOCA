@@ -2,12 +2,20 @@ from __future__ import annotations
 
 import pytest
 
+from src.agent import graph_vocabulary as graph_vocabulary_module
 from src.agent.graph_vocabulary import (
     graph_vocabulary_entry,
     is_deferred_non_runnable_target,
     project_trace_step_for_contract,
     target_graph_name,
 )
+
+PHASE54_ALIAS_REASON_CODES = {
+    "PHASE_54_COMPATIBILITY_ALIAS",
+    "HISTORICAL_TRACE_PROJECTION",
+    "IMPORT_TEST_COMPATIBILITY",
+    "DELETE_BY_PHASE_58",
+}
 
 
 @pytest.mark.parametrize(
@@ -21,10 +29,11 @@ from src.agent.graph_vocabulary import (
         ("long_term_memory_retrieve", "node", "memory_context_load", "compatibility_alias", True),
         ("reviewed_memory_context_retrieve", "node", "memory_context_load", "runtime", True),
         ("extract_slots", "node", "slot_resolution_gate", "compatibility_alias", True),
-        ("slot_resolution_gate", "node", "slot_resolution_gate", "compatibility_alias", True),
+        ("slot_resolution_gate", "node", "slot_resolution_gate", "runtime", True),
         ("route_after_intent", "router", "route_after_contextual_intent", "compatibility_alias", True),
         ("route_after_contextual_intent", "router", "route_after_contextual_intent", "runtime", True),
         ("route_after_slots", "router", "route_after_slot_resolution", "compatibility_alias", True),
+        ("route_after_slot_resolution", "router", "route_after_slot_resolution", "runtime", True),
     ],
 )
 def test_legacy_graph_names_project_to_target_vocabulary(
@@ -100,6 +109,59 @@ def test_phase53_contextual_intent_router_projects_as_runtime() -> None:
     assert entry.target_name == "route_after_contextual_intent"
     assert entry.status == "runtime"
     assert entry.runnable is True
+
+
+def test_phase54_slot_resolution_runtime_entries_are_runnable() -> None:
+    node_entry = graph_vocabulary_entry("slot_resolution_gate", kind="node")
+    router_entry = graph_vocabulary_entry("route_after_slot_resolution", kind="router")
+
+    assert node_entry is not None
+    assert node_entry.target_name == "slot_resolution_gate"
+    assert node_entry.status == "runtime"
+    assert node_entry.runnable is True
+
+    assert router_entry is not None
+    assert router_entry.target_name == "route_after_slot_resolution"
+    assert router_entry.status == "runtime"
+    assert router_entry.runnable is True
+
+
+@pytest.mark.parametrize(
+    ("name", "kind", "target_name"),
+    [
+        ("extract_slots", "node", "slot_resolution_gate"),
+        ("route_after_slots", "router", "route_after_slot_resolution"),
+    ],
+)
+def test_phase54_retained_aliases_are_compatibility_only_with_delete_phase(
+    name: str,
+    kind: str,
+    target_name: str,
+) -> None:
+    entry = graph_vocabulary_entry(name, kind=kind)  # type: ignore[arg-type]
+
+    assert entry is not None
+    assert entry.target_name == target_name
+    assert entry.status == "compatibility_alias"
+    assert entry.runnable is True
+    assert PHASE54_ALIAS_REASON_CODES <= set(entry.reason_codes)
+
+
+def test_phase54_slot_resolution_vocabulary_entries_are_unique() -> None:
+    expected_pairs = {
+        ("node", "slot_resolution_gate"),
+        ("router", "route_after_slot_resolution"),
+        ("node", "extract_slots"),
+        ("router", "route_after_slots"),
+    }
+
+    for pair in expected_pairs:
+        matches = [
+            entry
+            for entry in graph_vocabulary_module._ENTRIES
+            if (entry.kind, entry.legacy_name) == pair
+        ]
+        assert len(matches) == 1, pair
 
 
 @pytest.mark.parametrize(

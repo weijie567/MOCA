@@ -163,6 +163,44 @@ def test_trace_summary_projects_target_graph_names_without_rewriting_legacy_node
     ]
 
 
+def test_trace_summary_projects_phase54_runtime_slot_resolution_names() -> None:
+    summary = build_trace_summary(
+        "run-phase54-runtime-projection",
+        {
+            "current_intent": "refund_troubleshooting",
+            "trace_steps": [
+                {"node": "slot_resolution_gate", "status": "completed"},
+                {"node": "route_after_slot_resolution", "status": "completed"},
+            ],
+            "final_response": "done",
+        },
+        14,
+    )
+
+    assert summary["nodes_executed"] == [
+        "slot_resolution_gate",
+        "route_after_slot_resolution",
+    ]
+    assert summary["target_nodes_executed"] == [
+        "slot_resolution_gate",
+        "route_after_slot_resolution",
+    ]
+    assert summary["graph_projection"]["steps"] == [
+        {
+            "implementation_node": "slot_resolution_gate",
+            "target_node": "slot_resolution_gate",
+            "target_graph_status": "runtime",
+            "target_graph_runnable": True,
+        },
+        {
+            "implementation_node": "route_after_slot_resolution",
+            "target_node": "route_after_slot_resolution",
+            "target_graph_status": "runtime",
+            "target_graph_runnable": True,
+        },
+    ]
+
+
 def test_trace_summary_projects_phase53_contextual_intent_as_runtime():
     summary = build_trace_summary(
         "run-phase53-graph-projection",
@@ -200,9 +238,11 @@ def test_trace_summary_projects_phase53_contextual_intent_as_runtime():
 def test_phase53_sse_labels_cover_canonical_runtime_nodes():
     assert "session_context_load" in NODE_MESSAGES
     assert "contextual_intent_resolve" in NODE_MESSAGES
+    assert "slot_resolution_gate" in NODE_MESSAGES
 
     assert NODE_MESSAGES["session_context_load"]
     assert NODE_MESSAGES["contextual_intent_resolve"]
+    assert NODE_MESSAGES["slot_resolution_gate"]
 
 
 def test_target_merchant_context_resolves_only_from_service_approved_business_fact_refs():

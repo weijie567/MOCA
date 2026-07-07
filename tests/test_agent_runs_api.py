@@ -986,6 +986,24 @@ def test_sse_event_projects_target_node_name_without_rewriting_legacy_node_name(
     assert data["payload"] == {"tool_name": "slot_parser"}
 
 
+def test_sse_event_projects_runtime_slot_resolution_node_identity():
+    event = _sse_event(
+        event_type="step_completed",
+        run_id="run-phase54-runtime-projection",
+        step_index=2,
+        node_name="slot_resolution_gate",
+        status="completed",
+        message="done",
+        payload={"slot_resolution_status": "resolved"},
+    )
+
+    data = json.loads(event["data"])
+
+    assert data["node_name"] == "slot_resolution_gate"
+    assert data["target_node_name"] == "slot_resolution_gate"
+    assert data["payload"] == {"slot_resolution_status": "resolved"}
+
+
 @pytest.mark.asyncio
 async def test_event_generator_projects_allowlisted_rag_claim_summary_in_step_payload(
     session: AsyncSession,
