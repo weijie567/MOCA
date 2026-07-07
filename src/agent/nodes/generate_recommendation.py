@@ -50,6 +50,8 @@ _SAFE_EVIDENCE_RISK_LABELS = frozenset(
     }
 )
 _ROUTING_RISK_LABELS = frozenset({"conflict", "manual_review_sensitive", "ocr_low_confidence", "stale_evidence"})
+_LEGACY_NODE = "generate_recommendation"
+_CANONICAL_NODE = "recommendation_generation"
 
 
 def _now_iso() -> str:
@@ -74,9 +76,11 @@ def _trace_step(
     provider_latency_ms: int | None = None,
     retry_count: int = 0,
     context_chars: int = 0,
+    *,
+    trace_node: str = _LEGACY_NODE,
 ) -> dict[str, Any]:
     step = {
-        "node": "generate_recommendation",
+        "node": trace_node,
         "status": status,
         "started_at": started_at,
         "completed_at": _now_iso(),
@@ -171,10 +175,29 @@ def _merge_evidence_refs(
 
 
 async def generate_recommendation(state: AgentState, config: RunnableConfig = None) -> dict:
+    """Compatibility wrapper for historical imports/tests until Phase 58."""
+    return await _generate_recommendation_with_identity(
+        state,
+        config,
+        output_key=_LEGACY_NODE,
+        trace_node=_LEGACY_NODE,
+    )
+
+
+async def _generate_recommendation_with_identity(
+    state: AgentState,
+    config: RunnableConfig = None,
+    *,
+    output_key: str,
+    trace_node: str,
+) -> dict:
     started_at = _now_iso()
     existing_draft = state.get("recommendation_draft") or {}
     if existing_draft.get("recommended_action") in {"insufficient_evidence", "retrieval_error"}:
-        return {"trace_steps": (state.get("trace_steps") or []) + [_trace_step("skipped", started_at)]}
+        return {
+            "trace_steps": (state.get("trace_steps") or [])
+            + [_trace_step("skipped", started_at, trace_node=trace_node)]
+        }
 
     package = _verified_package_from_state(state)
     if not _package_allows_generation(state, package):
@@ -182,6 +205,8 @@ async def generate_recommendation(state: AgentState, config: RunnableConfig = No
             state,
             started_at,
             reason_codes=_verified_package_reason_codes(state, package),
+            output_key=output_key,
+            trace_node=trace_node,
         )
 
     evidence_by_id = _evidence_by_id_from_package(state, package)
@@ -257,7 +282,7 @@ async def generate_recommendation(state: AgentState, config: RunnableConfig = No
             draft["material_claims"] = material_claim_payloads
             validated_refs = _validated_evidence_refs(cited_evidence_ids, evidence_by_id)
             merged_refs = _merge_evidence_refs(None, validated_refs)
-            outputs = {**(state.get("llm_outputs") or {}), "generate_recommendation": draft}
+            outputs = {**(state.get("llm_outputs") or {}), output_key: draft}
             return {
                 "recommendation_draft": draft,
                 "material_claims": material_claim_payloads,
@@ -272,6 +297,7 @@ async def generate_recommendation(state: AgentState, config: RunnableConfig = No
                         provider_latency_ms,
                         retry_count,
                         _messages_chars(messages),
+                        trace_node=trace_node,
                     )
                 ],
             }
@@ -300,7 +326,7 @@ async def generate_recommendation(state: AgentState, config: RunnableConfig = No
         },
         "material_claims": [],
         "node_errors": (state.get("node_errors") or [])
-        + [{"node": "generate_recommendation", "error": last_error, "retry_count": 2}],
+        + [{"node": trace_node, "error": last_error, "retry_count": 2}],
         "trace_steps": (state.get("trace_steps") or [])
         + [
             _trace_step(
@@ -309,6 +335,7 @@ async def generate_recommendation(state: AgentState, config: RunnableConfig = No
                 provider_latency_ms=provider_latency_ms,
                 retry_count=retry_count,
                 context_chars=_messages_chars(messages),
+                trace_node=trace_node,
             )
         ],
     }
@@ -399,6 +426,8 @@ def _insufficient_verified_package_result(
     started_at: str,
     *,
     reason_codes: list[str],
+    output_key: str,
+    trace_node: str,
 ) -> dict[str, Any]:
     missing_info = ["Verified policy evidence is required before recommendation generation."]
     if reason_codes:
@@ -412,14 +441,14 @@ def _insufficient_verified_package_result(
         "missing_info": missing_info,
         "material_claims": [],
     }
-    outputs = {**(state.get("llm_outputs") or {}), "generate_recommendation": draft}
+    outputs = {**(state.get("llm_outputs") or {}), output_key: draft}
     return {
         "recommendation_draft": draft,
         "material_claims": [],
         "llm_outputs": outputs,
         "evidence_refs": [],
         "trace_steps": (state.get("trace_steps") or [])
-        + [_trace_step("insufficient_evidence", started_at, context_chars=0)],
+        + [_trace_step("insufficient_evidence", started_at, context_chars=0, trace_node=trace_node)],
     }
 
 
