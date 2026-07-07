@@ -407,6 +407,7 @@ def _verification_route_payload(state: AgentState) -> dict[str, Any] | None:
     claim_verification = _claim_verification_route_payload(state)
     if claim_verification is not None:
         return claim_verification
+    claim_verification_allows = _claim_verification_allows_response(state)
     rag_context = _rag_context_route_payload(state)
     if rag_context is not None:
         return rag_context
@@ -419,7 +420,11 @@ def _verification_route_payload(state: AgentState) -> dict[str, Any] | None:
                 "verification_authoritative": False,
             }
         return _missing_canonical_projection_payload()
-    if _legacy_verifier_fields_present(state) and not _has_historical_compatibility_marker(state):
+    if (
+        _legacy_verifier_fields_present(state)
+        and not claim_verification_allows
+        and not _has_historical_compatibility_marker(state)
+    ):
         return _missing_canonical_projection_payload()
     return None
 
@@ -516,6 +521,16 @@ def _claim_verification_route_payload(state: AgentState) -> dict[str, Any] | Non
         "safe_projection_source": "claim_verification_bundle",
         "verification_authoritative": True,
     }
+
+
+def _claim_verification_allows_response(state: AgentState) -> bool:
+    bundle = _mapping(state.get("claim_verification_bundle"))
+    if not bundle:
+        return False
+    blocked_claims = _string_values(state.get("blocked_claims")) or _string_values(bundle.get("blocked_claims"))
+    route = str(bundle.get("route") or "")
+    overall_status = str(bundle.get("overall_status") or "")
+    return route == "continue" and overall_status in {"verified", "not_required"} and not blocked_claims
 
 
 def _rag_context_route_payload(state: AgentState) -> dict[str, Any] | None:

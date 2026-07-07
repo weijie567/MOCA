@@ -55,6 +55,7 @@ GRAPH_CONTRACT_CATEGORIES = [
     "normal_policy_qa",
     "refund_troubleshooting",
     "compensation_suggestion",
+    "approval_approved",
 ]
 GRAPH_CONTRACT_PATCHED_NODES = {
     "contextual_intent_resolve",
@@ -266,12 +267,86 @@ def _ci_order_result(case: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _ci_action_result(case: dict[str, Any]) -> dict[str, Any]:
+def _ci_action_result(case: dict[str, Any], args: dict[str, Any] | None = None) -> dict[str, Any]:
+    args = args or {}
+    tenant_id = str(deterministic_id("tenant", "demo"))
+    run_id = str(deterministic_id("run", case["id"]))
+    draft_id = str(deterministic_id("action_draft", case["id"]))
+    created_at = datetime.now(UTC).isoformat()
+    proposed_action = args.get("payload") if isinstance(args.get("payload"), dict) else {}
+    target_id = (
+        proposed_action.get("target_id")
+        or _extract_seed_id(case["query"], "ORD-")
+        or _extract_seed_id(case["query"], "RF-")
+        or draft_id
+    )
+    action_payload_hash = str(args.get("action_payload_hash") or "sha256:" + "d" * 64)
+    safety_snapshot_ref = str(args.get("safety_snapshot_ref") or f"snapshot:ci:{case['id']}")
+    safety_snapshot_hash = str(args.get("safety_snapshot_hash") or "sha256:" + "c" * 64)
+    approval_ref = args.get("approval_request_id")
+    idempotency_key = f"action_draft_{run_id}_{approval_ref or 'ci'}"
+    draft_outcome = {
+        "schema_version": "draft_outcome.v1",
+        "status": "not_executed_demo",
+        "external_side_effect": False,
+        "tenant_id": tenant_id,
+        "run_id": run_id,
+        "draft_id": draft_id,
+        "created_at": created_at,
+    }
+    action_draft = {
+        "schema_version": "action_draft.v2",
+        "tenant_id": tenant_id,
+        "run_id": run_id,
+        "draft_id": draft_id,
+        "proposed_action": proposed_action or {"action_type": "issue_coupon", "target_id": str(target_id)},
+        "action_payload_hash": action_payload_hash,
+        "approval_ref": str(approval_ref) if approval_ref else None,
+        "approval_revision_ref": f"approval_request/{approval_ref}@rev1" if approval_ref else None,
+        "safety_snapshot_ref": safety_snapshot_ref,
+        "safety_snapshot_hash": safety_snapshot_hash,
+        "target_id": str(target_id),
+        "target_merchant_id": args.get("target_merchant_id") or "merchant-ci",
+        "target_merchant_ref": args.get("target_merchant_ref")
+        or {
+            "schema_version": "target_merchant_binding.v1",
+            "target_merchant_id": "merchant-ci",
+            "source": "business_fact_result",
+            "business_fact_ref": {"resource_type": "order", "resource_id": str(target_id)},
+        },
+        "business_fact_refs": args.get("business_fact_refs") or [],
+        "verified_evidence_refs": args.get("verified_evidence_refs") or [],
+        "claim_verification_ref": args.get("claim_verification_ref"),
+        "claim_verification_summary": args.get("claim_verification_summary"),
+        "risk_decision_ref": args.get("risk_decision_ref"),
+        "risk_decision": args.get("risk_decision"),
+        "auto_allowed_binding_ref": None,
+        "idempotency_key": idempotency_key,
+        "status": "draft_created",
+        "execution_mode": "demo",
+        "draft_version": 1,
+        "lifecycle_status": "active",
+        "retention_policy": "phase14_demo_draft",
+        "draft_outcome": draft_outcome,
+        "created_at": created_at,
+    }
     return {
         "status": "success",
         "data": {
-            "draft_id": str(deterministic_id("action_draft", case["id"])),
-            "status": "draft",
+            "draft_id": draft_id,
+            "idempotency_key": idempotency_key,
+            "status": "draft_created",
+            "created": True,
+            "idempotent_reused": False,
+            "action_draft": action_draft,
+            "draft_outcome": draft_outcome,
+            "execution_mode": "demo",
+            "action_result": {
+                "status": "draft_created",
+                "data": {"draft_id": draft_id, "draft_outcome": draft_outcome},
+                "error": {},
+                "compatibility": "Phase 14 action-draft-boundary-owned deprecated compatibility output",
+            },
         },
         "error": {},
     }
@@ -363,12 +438,12 @@ def _ci_business_tool_result(case: dict[str, Any], name: str):
     )
 
 
-def _ci_action_tool_result(case: dict[str, Any]):
+def _ci_action_tool_result(case: dict[str, Any], args: dict[str, Any]):
     from src.tools.contracts import ToolResultV2
 
     return ToolResultV2(
         status="success",
-        data=_ci_action_result(case)["data"],
+        data=_ci_action_result(case, args)["data"],
         summary="CI action draft created",
         source_system="action_service",
         data_freshness_at=None,
@@ -425,7 +500,7 @@ class CiToolPlatform:
         elif name in {"get_order", "get_refund_case", "get_ticket"}:
             result = _ci_business_tool_result(self.case, name)
         elif name == "create_coupon_grant_draft":
-            result = _ci_action_tool_result(self.case)
+            result = _ci_action_tool_result(self.case, args)
         else:
             from src.tools.contracts import ToolError, ToolResultV2
 
@@ -639,6 +714,38 @@ async def _ci_persist_action_safety_snapshot(
     )
 
 
+def _ci_approval_resume_payload(case: dict[str, Any], state: dict[str, Any], decision: str) -> dict[str, Any]:
+    decision_type = "approve" if decision == "approve" else "reject"
+    status = "approved" if decision_type == "approve" else "rejected"
+    return {
+        "schema_version": "approval_result.v1",
+        "approval_id": str(deterministic_id("approval", case["id"])),
+        "tenant_id": state.get("tenant_id"),
+        "run_id": state.get("current_run_id"),
+        "status": status,
+        "decision_type": decision_type,
+        "revision": 1,
+        "request_version": 1,
+        "level_version": 1,
+        "assignment_version": 1,
+        "action_payload_hash": state.get("action_payload_hash"),
+        "safety_snapshot_ref": state.get("safety_snapshot_ref"),
+        "safety_snapshot_hash": state.get("safety_snapshot_hash"),
+        "target_merchant_id": state.get("target_merchant_id"),
+        "target_merchant_ref": state.get("target_merchant_ref"),
+        "business_fact_refs": state.get("business_fact_refs") or [],
+        "verified_evidence_refs": state.get("verified_evidence_refs") or [],
+        "claim_verification_ref": state.get("claim_verification_ref"),
+        "claim_verification_summary": state.get("claim_verification_summary"),
+        "risk_decision_ref": state.get("risk_decision_ref"),
+        "risk_decision": state.get("risk_decision"),
+        "approval_idempotency_key": state.get("approval_idempotency_key"),
+        "decided_by": str(deterministic_id("user", "ci_approver")),
+        "decided_at": datetime.now(UTC).isoformat(),
+        "reason": "CI graph contract",
+    }
+
+
 def _registered_graph_node_names() -> set[str]:
     source = Path("src/agent/graph.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
@@ -720,20 +827,14 @@ async def _run_graph_contract_case(case: dict[str, Any]) -> list[str]:
 
             decision = "approve" if case["category"] == "approval_approved" else "reject"
             result = await graph.ainvoke(
-                Command(
-                    resume={
-                        "decision": decision,
-                        "reason": "CI graph contract",
-                        "run_id": state.get("current_run_id"),
-                        "approval_id": str(deterministic_id("approval", case["id"])),
-                    }
-                ),
+                Command(resume=_ci_approval_resume_payload(case, state, decision)),
                 config,
             )
 
         summary = build_trace_summary(result.get("current_run_id", str(deterministic_id("run", case["id"]))), result, 0)
         summary["approval_interrupt_created"] = "approval_gate" in summary["nodes_executed"]
         failures.extend(_assert_ci_routing(case, summary))
+        failures.extend(_assert_approved_action_draft_contract(case, result, summary))
         return [f"{case['id']}: {failure}" for failure in failures]
 
 
@@ -903,6 +1004,36 @@ async def _run_case_live(case: dict[str, Any], timeout: int) -> dict[str, Any]:
         routing_failures=assertions,
     )
     return {"case": case, "result": result, "trace_summary": summary, "scores": scores}
+
+
+def _assert_approved_action_draft_contract(
+    case: dict[str, Any],
+    result: dict[str, Any],
+    summary: dict[str, Any],
+) -> list[str]:
+    if case["category"] != "approval_approved":
+        return []
+
+    failures: list[str] = []
+    nodes_executed = summary.get("nodes_executed") or []
+    for node in ("approval_gate", "action_draft", "final_response"):
+        if node not in nodes_executed:
+            failures.append(f"approval_approved graph contract missing {node}")
+
+    draft_outcome = result.get("draft_outcome") if isinstance(result.get("draft_outcome"), dict) else {}
+    if draft_outcome.get("schema_version") != "draft_outcome.v1":
+        failures.append("approval_approved draft_outcome missing draft_outcome.v1 schema")
+    if draft_outcome.get("status") != "not_executed_demo":
+        failures.append("approval_approved draft_outcome did not use not_executed_demo status")
+    if draft_outcome.get("external_side_effect") is not False:
+        failures.append("approval_approved draft_outcome did not prove external_side_effect=false")
+
+    final_response = str(result.get("final_response") or "")
+    for expected_text in ("补偿草稿已创建", "演示模式未执行", "任何外部动作"):
+        if expected_text not in final_response:
+            failures.append(f"approval_approved final_response missing {expected_text}")
+
+    return failures
 
 
 def _assert_ci_routing(case: dict[str, Any], summary: dict[str, Any]) -> list[str]:

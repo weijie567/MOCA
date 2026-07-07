@@ -16640,6 +16640,48 @@ FAILED tests/agent/test_rag_context_routing.py::test_partial_rag_context_fails_c
 - `src/agent/routing.py`
 - `tests/agent/test_rag_context_routing.py`
 
+## 2026-07-07 Phase 56 REVIEW-FIX iteration 1：approval_approved graph contract 首次验证缺少草稿创建最终回复
+
+### 问题现象
+
+修复 IN-01 后首次运行聚焦 CI graph-contract harness，新增的 `approval_approved` 代表用例已经到达 `approval_gate -> action_draft -> final_response`，但最终回复没有包含「补偿草稿已创建 / 演示模式未执行 / 任何外部动作」文本，导致新增断言失败。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run python -c "import asyncio; from scripts.eval_agent import DEFAULT_GOLDEN_SET, _load_cases, _run_ci_graph_contracts; failures = asyncio.run(_run_ci_graph_contracts(_load_cases(DEFAULT_GOLDEN_SET))); print({'failures': failures}); raise SystemExit(1 if failures else 0)"
+```
+
+### 关键证据或命令
+
+首次输出：
+
+```text
+{'failures': ['GS-28: approval_approved final_response missing 补偿草稿已创建', 'GS-28: approval_approved final_response missing 演示模式未执行', 'GS-28: approval_approved final_response missing 任何外部动作']}
+```
+
+调试时确认 state 中已有合法 `draft_outcome.v1` 且 `external_side_effect=false`，但 `final_response` 进入 `missing_canonical_projection` manual-review 分支。
+
+### 当前判断 / 根因
+
+`claim_verify` 会同时写 canonical `claim_verification_bundle(route=continue, overall_status=verified)` 和兼容字段 `verification_route=allow` / `verifier_status=verified`。`final_response._verification_route_payload()` 在 canonical bundle 允许继续时返回 `None`，随后又把存在的兼容字段误判为「缺少 canonical projection」，覆盖了已成功创建 demo draft 的最终回复。
+
+### 已做处理
+
+已修复 `src/agent/nodes/final_response.py`：当 canonical claim bundle 明确允许继续时，不再因 legacy allow 字段触发 missing-canonical manual-review。新增 `tests/agent/test_nodes/test_final_response.py::test_final_response_trusts_allowed_claim_bundle_over_legacy_allow_fields`，并补强 `scripts/eval_agent.py` 的 approved action-draft graph-contract 覆盖。
+
+### 剩余问题
+
+本次聚焦验证已通过；LangGraph / LangChain 的 warning 属现有依赖提示，不影响本修复结论。
+
+### 下次继续排查入口
+
+- `src/agent/nodes/final_response.py`
+- `src/agent/nodes/claim_verify.py`
+- `scripts/eval_agent.py`
+
 ## 2026-07-07 Phase 56 secure discovery：zsh glob 在 SECURITY 文件不存在时返回 no matches
 
 ### 问题现象

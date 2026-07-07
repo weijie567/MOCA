@@ -308,6 +308,16 @@
 - **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_final_response.py::test_missing_info_action_draft_downgrades_before_completed_response -q --tb=short` → passed；`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_generate_recommendation.py::test_partial_package_direct_generation_uses_router_blockers -q --tb=short` → 7 passed。
 - **剩余风险**：🟡 本次只对当前 renderer 和 retained `generate_recommendation` compatibility surface 补 fail-closed guard；Phase 58 仍需删除 legacy direct import/wrapper 面，Phase 57 仍负责 risk/approval canonical boundary rename。
 
+## RAG-56-REVIEW-FIX-02：allowed claim bundle 被 legacy allow 字段误判为 missing canonical projection ✅已修复验证
+
+- **子系统**：RAG / claim verification / final_response authority / action draft final rendering
+- **问题现象/根因**：Phase 56 REVIEW IN-01 补齐 approved action-draft CI graph contract 后，`GS-28 approval_approved` 已成功经过 `approval_gate -> action_draft -> final_response`，并带有合法 `draft_outcome.v1(status=not_executed_demo, external_side_effect=false)`；但最终回复仍进入 `missing_canonical_projection` manual-review 分支，没有告知「补偿草稿已创建」和「演示模式未执行任何外部动作」。根因是 `claim_verify` 为兼容旧 surface 同时写 `verification_route=allow` / `verifier_status=verified`，`final_response._verification_route_payload()` 在 canonical `claim_verification_bundle(route=continue, overall_status=verified)` 允许继续后，又把这些 legacy allow 字段误判为缺少 canonical projection。
+- **影响**：已通过 canonical claim verification 且成功创建 demo action draft 的 approved path，用户可见回复会错误显示「需要人工复核，未创建审批请求或动作草稿」，与实际 trace/action outcome 不一致；同时 CI graph contract 无法覆盖 approved draft 的最终用户可见语义。
+- **处理状态**：✅ 已修复验证。`final_response` 新增 `_claim_verification_allows_response()`，当 canonical claim bundle 明确 `continue + verified/not_required + no blocked_claims` 时，legacy allow 字段不再触发 missing-canonical fail-closed；blocked/manual-review canonical bundle 仍优先 fail closed。`scripts/eval_agent.py` 已将 `approval_approved` 纳入 `GRAPH_CONTRACT_CATEGORIES`，CI action stub 输出完整 current `draft_outcome.v1` / `action_draft.v2` demo payload，并断言 approved graph summary 包含 `approval_gate`、`action_draft`、`final_response` 与无外部副作用的草稿创建回复。
+- **证据**：Phase 56 REVIEW IN-01；文件 `src/agent/nodes/final_response.py`、`scripts/eval_agent.py`、`tests/agent/test_nodes/test_final_response.py`；本地失败记录见 `.planning/LOCAL-VALIDATION-ISSUES.md` 同名条目。
+- **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_final_response.py -q --tb=short` → `21 passed, 1 warning`；`UV_CACHE_DIR=/tmp/uv-cache uv run python -c "import asyncio; from scripts.eval_agent import DEFAULT_GOLDEN_SET, _load_cases, _run_ci_graph_contracts; failures = asyncio.run(_run_ci_graph_contracts(_load_cases(DEFAULT_GOLDEN_SET))); print({'failures': failures}); raise SystemExit(1 if failures else 0)"` → `{'failures': []}`。
+- **剩余风险**：🟡 本条只修复 legacy allow 字段与 canonical claim bundle allowed 状态的 final rendering 冲突；Phase 58 仍需清理 retained legacy verifier fields / compatibility alias surfaces。
+
 ---
 
 # 4. 记忆（Memory）

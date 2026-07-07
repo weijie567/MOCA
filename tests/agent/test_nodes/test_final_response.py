@@ -155,6 +155,39 @@ async def test_final_response_mentions_approved_action_draft(base_state):
 
 
 @pytest.mark.asyncio
+async def test_final_response_trusts_allowed_claim_bundle_over_legacy_allow_fields(base_state):
+    state = {
+        **base_state,
+        "recommendation_draft": {
+            "recommended_action": "issue_coupon",
+            "reasoning_summary": "符合补偿规则。",
+            "evidence_refs": [],
+        },
+        "risk_assessment": {"approval_required": True, "risk_reason": "Compensation amount exceeds threshold"},
+        "claim_verification_bundle": {
+            "overall_status": "verified",
+            "route": "continue",
+            "blocked_claims": [],
+            "reason_codes": [],
+        },
+        "blocked_claims": [],
+        "verification_route": "allow",
+        "verifier_status": "verified",
+        "verifier_reason_codes": [],
+        "approval_result": {"decision": "approve"},
+        "action_draft": {"draft_id": "draft-compat-001", "status": "draft_created"},
+        "draft_outcome": _draft_outcome("draft-compat-001"),
+        "action_result": {"status": "draft_created", "data": {"draft_id": "draft-compat-001"}, "error": {}},
+    }
+
+    result = await final_response(state)
+
+    assert "人工复核" not in result["final_response"]
+    _assert_draft_created_not_executed(result["final_response"], "draft-compat-001")
+    assert result["llm_outputs"]["final_response"]["final_status"] == "completed"
+
+
+@pytest.mark.asyncio
 async def test_final_response_mentions_rejection_reason(base_state):
     state = {
         **base_state,
