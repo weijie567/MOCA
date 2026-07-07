@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from src.agent.context import PromptAssembly
 from src.agent.nodes import generate_recommendation as generate_recommendation_module
+from src.agent.nodes import recommendation_generation as recommendation_generation_module
 from src.knowledge.config import MAX_EVIDENCE_TEXT_CHARS, RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1
 from src.knowledge.text_hash import evidence_text_hash
@@ -38,6 +39,14 @@ SHOULD_NOT_APPEAR_RAW_TOOL_DATA = "SHOULD_NOT_APPEAR_RAW_TOOL_DATA"
 SHOULD_NOT_APPEAR_BUSINESS_CONTEXT = "SHOULD_NOT_APPEAR_BUSINESS_CONTEXT"
 SHOULD_NOT_APPEAR_APPROVAL_BODY = "SHOULD_NOT_APPEAR_APPROVAL_BODY"
 SHOULD_NOT_APPEAR_NESTED_REPR = "{'nested': ['RAW']}"
+VERIFIER_OWNED_STATE_KEYS = {
+    "claim_verification_bundle",
+    "blocked_claims",
+    "safe_support_refs",
+    "verifier_status",
+    "verification_route",
+    "verifier_reason_codes",
+}
 
 
 def _evidence(
@@ -255,6 +264,73 @@ def _draft(
         "risk_level": "low",
         "missing_info": [],
     }
+
+
+def _assert_no_verifier_owned_state(result: dict) -> None:
+    assert VERIFIER_OWNED_STATE_KEYS.isdisjoint(result)
+
+
+def test_recommendation_generation_canonical_import_is_callable():
+    assert callable(recommendation_generation_module.recommendation_generation)
+
+
+@pytest.mark.asyncio
+async def test_canonical_recommendation_generation_writes_canonical_identity_only(monkeypatch, base_state):
+    evidence = _evidence(tenant_id=base_state["tenant_id"])
+    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_draft()))
+
+    result = await recommendation_generation_module.recommendation_generation(
+        {**base_state, **_retrieval_state(evidence=[evidence])},
+        _config(),
+    )
+
+    assert "recommendation_generation" in result["llm_outputs"]
+    assert "generate_recommendation" not in result["llm_outputs"]
+    assert result["llm_outputs"]["recommendation_generation"] == result["recommendation_draft"]
+    assert result["trace_steps"][-1]["node"] == "recommendation_generation"
+    assert result["material_claims"][0]["generated_from_step"] == "recommendation_generation"
+    _assert_no_verifier_owned_state(result)
+
+
+@pytest.mark.asyncio
+async def test_canonical_recommendation_generation_insufficient_evidence_identity(monkeypatch, base_state):
+    class ExplodingLLM:
+        def with_structured_output(self, schema):
+            raise AssertionError("LLM should not run without a usable verified evidence package")
+
+    evidence = _evidence(tenant_id=base_state["tenant_id"])
+    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: ExplodingLLM())
+
+    result = await recommendation_generation_module.recommendation_generation(
+        {
+            **base_state,
+            **_verified_package_state(evidence=evidence, status="no_evidence"),
+            "routing_hints": {"policy_evidence_required": True},
+        },
+        _config(),
+    )
+
+    assert result["recommendation_draft"]["recommended_action"] == "insufficient_evidence"
+    assert "recommendation_generation" in result["llm_outputs"]
+    assert "generate_recommendation" not in result["llm_outputs"]
+    assert result["trace_steps"][-1]["node"] == "recommendation_generation"
+    _assert_no_verifier_owned_state(result)
+
+
+@pytest.mark.asyncio
+async def test_legacy_generate_recommendation_keeps_import_compatibility_identity(monkeypatch, base_state):
+    evidence = _evidence(tenant_id=base_state["tenant_id"])
+    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_draft()))
+
+    result = await generate_recommendation_module.generate_recommendation(
+        {**base_state, **_retrieval_state(evidence=[evidence])},
+        _config(),
+    )
+
+    assert "generate_recommendation" in result["llm_outputs"]
+    assert "recommendation_generation" not in result["llm_outputs"]
+    assert result["trace_steps"][-1]["node"] == "generate_recommendation"
+    _assert_no_verifier_owned_state(result)
 
 
 @pytest.mark.asyncio

@@ -16389,3 +16389,43 @@ Plan: 1 of --name
 - `.planning/config.json`
 - `gsd-sdk query state.begin-phase`
 - `/Users/ming/.codex/get-shit-done/workflows/execute-phase.md`
+
+## 2026-07-07 Phase 56 Plan 56-01 Task 1 TDD RED：canonical recommendation_generation 模块缺失
+
+### 问题现象
+
+Task 1 按 TDD RED 先加入 canonical `recommendation_generation` callable 身份测试后，节点测试在 collection 阶段失败。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_generate_recommendation.py -q --tb=short
+```
+
+### 关键证据或命令
+
+pytest 输出：
+
+```text
+ImportError: cannot import name 'recommendation_generation' from 'src.agent.nodes'
+```
+
+### 当前判断 / 根因
+
+这是 Task 1 预期的 TDD RED 失败：测试已要求 canonical `src.agent.nodes.recommendation_generation` 模块和 callable，但实现尚未创建。
+
+### 已做处理
+
+已确认失败来自新增测试覆盖的目标缺口，不是环境入口错误；下一步将在 GREEN 阶段创建 canonical 模块并改造 legacy wrapper。
+
+### 剩余问题
+
+需要实现 `src/agent/nodes/recommendation_generation.py`，并让 canonical callable 写入 `llm_outputs["recommendation_generation"]` 与 canonical trace node，同时保留 direct legacy import compatibility。
+
+### 下次继续排查入口
+
+- `tests/agent/test_nodes/test_generate_recommendation.py`
+- `src/agent/nodes/recommendation_generation.py`
+- `src/agent/nodes/generate_recommendation.py`
