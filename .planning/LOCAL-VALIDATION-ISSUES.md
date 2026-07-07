@@ -15842,3 +15842,99 @@ Phase 55 artifact command scan: OK
 
 - `.planning/phases/55-memory-context-load-cutover/55-*.md`
 - `.planning/LOCAL-VALIDATION-ISSUES.md`
+
+## 2026-07-07 — Phase 55 security gate 查询 SECURITY.md 时 zsh glob 无匹配失败
+
+### 问题现象
+
+Phase 55 verification 提交后检查 security gate 时，直接运行 `ls .planning/phases/55-memory-context-load-cutover/*-SECURITY.md 2>/dev/null || true`。在 zsh 下 glob 没有匹配文件时，shell 在执行 `ls` 前就报 `no matches found`。
+
+### 如何检测 / 复现
+
+在仓库根目录、且 Phase 55 目录没有 `*-SECURITY.md` 时运行：
+
+```text
+ls .planning/phases/55-memory-context-load-cutover/*-SECURITY.md 2>/dev/null || true
+```
+
+### 关键证据或命令
+
+失败输出：
+
+```text
+zsh:1: no matches found: .planning/phases/55-memory-context-load-cutover/*-SECURITY.md
+```
+
+### 当前判断 / 根因
+
+这是本地 gate 查询命令的 zsh glob 行为问题，不是 Phase 55 security artifact 或代码失败。zsh 默认未匹配 glob 会在命令执行前失败，`|| true` 无法捕获。
+
+### 已做处理
+
+改用 `find .planning/phases/55-memory-context-load-cutover -maxdepth 1 -name '*-SECURITY.md' -print` 重新检查 security artifact，避免 shell glob 展开。
+
+### 剩余问题
+
+需要继续执行 Phase 55 security audit，因为 `workflow.security_enforcement` 为 `true` 且当前尚无 Phase 55 SECURITY artifact。
+
+### 下次继续排查入口
+
+- `.planning/phases/55-memory-context-load-cutover`
+- `gsd-secure-phase 55`
+
+## 2026-07-07 — Phase 55 security static audit 脚本使用过窄字符串断言导致误失败
+
+### 问题现象
+
+执行 Phase 55 security audit 时，首次编写的静态校验脚本连续报错，提示兼容 wrapper、Phase 56/57 延后节点、router 返回值、graph vocabulary alias 等 mitigation pattern 缺失。
+
+### 如何检测 / 复现
+
+在仓库根目录运行 security audit 的本地静态检查命令：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run python - <<'PY'
+...
+PY
+```
+
+### 关键证据或命令
+
+失败输出分别包含：
+
+```text
+AssertionError: legacy wrapper compatibility symbol retained: missing 'return long_term_memory_retrieve'
+AssertionError: Phase 56 legacy active row remains deferred: missing 'builder.add_node("generate_recommendation", generate_recommendation)'
+AssertionError: router can route to canonical memory node: missing 'return "memory_context_load"'
+AssertionError: legacy memory alias registered: missing 'source="long_term_memory_retrieve"'
+```
+
+### 当前判断 / 根因
+
+这是 security audit 静态脚本的断言过窄，不是 Phase 55 mitigation 缺失。真实实现分别使用 `async def long_term_memory_retrieve` wrapper、带 `retry_policy=_llm_retry` 的 Phase 56/57 活跃节点注册、slot resolution tuple 返回、以及 `_entry(...)` tuple 形式的 vocabulary alias。
+
+### 已做处理
+
+已按真实代码形态修正静态校验，并重跑通过：
+
+```text
+phase55_security_static_checks=passed checks=26 artifacts_scanned=7
+```
+
+同时运行了聚焦测试切片：
+
+```text
+69 passed, 1 skipped, 3 warnings
+```
+
+### 剩余问题
+
+无 Phase 55 security 阻塞。该问题只影响本次 auditor 脚本，不影响实现代码或 Phase 55 artifact。
+
+### 下次继续排查入口
+
+- `src/agent/nodes/long_term_memory_retrieve.py`
+- `src/agent/graph.py`
+- `src/agent/routing.py`
+- `src/agent/graph_vocabulary.py`
+- `.planning/phases/55-memory-context-load-cutover/55-SECURITY.md`
