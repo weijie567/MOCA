@@ -14793,3 +14793,54 @@ sed: /Users/ming/.codex/get-shit-done/workflows/phase-autopilot.md: No such file
 - `.planning/autopilot/phase-54.md`
 - `/Users/ming/.codex/skills/gsd-phase-autopilot/SKILL.md`
 - `/Users/ming/.codex/skills/gsd-phase-autopilot/references/workflow.md`
+
+## 2026-07-07 — Phase 54 verifier targeted pytest selector 错误
+
+### 问题现象
+
+Phase 54 goal-backward verification 过程中，一条用于 spot-check CR-01 / WR-01 / architecture baseline 的 targeted pytest 命令失败，pytest 返回 exit code 4，原因是命令里引用了不存在的 `tests/architecture/test_canonical_graph_baseline.py` 测试函数名。
+
+### 如何检测 / 复现
+
+在 MOCA 根目录运行以下命令会复现：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_slot_resolution_gate.py::test_slot_resolution_gate_llm_validation_error_strictly_fails_closed tests/agent/test_required_slots.py::test_current_turn_business_id_replacement_records_cross_intent_conflict_provenance tests/architecture/test_canonical_graph_baseline.py::test_active_graph_nodes_match_baseline tests/architecture/test_canonical_graph_baseline.py::test_forbidden_main_chain_nodes_are_not_registered -q --tb=short
+```
+
+### 关键证据或命令
+
+失败输出包含：
+
+```text
+ERROR: not found: /Users/ming/projects/MOCA/tests/architecture/test_canonical_graph_baseline.py::test_active_graph_nodes_match_baseline
+ERROR: not found: /Users/ming/projects/MOCA/tests/architecture/test_canonical_graph_baseline.py::test_forbidden_main_chain_nodes_are_not_registered
+```
+
+### 当前判断 / 根因
+
+根因是 verifier 手写 targeted selector 时猜错了 architecture test 的实际函数名；这不是 Phase 54 runtime cutover 或 slot-resolution 行为失败。
+
+### 已做处理
+
+先用 `rg -n "^def test_" tests/architecture/test_canonical_graph_baseline.py` 找到真实测试名，然后改用有效 selectors 重跑通过：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_slot_resolution_gate.py::test_slot_resolution_gate_llm_validation_error_strictly_fails_closed tests/agent/test_required_slots.py::test_current_turn_business_id_replacement_records_cross_intent_conflict_provenance tests/architecture/test_canonical_graph_baseline.py::test_current_active_graph_node_set_matches_phase53_baseline tests/architecture/test_canonical_graph_baseline.py::test_forbidden_internal_or_lifecycle_names_are_not_registered_graph_nodes tests/architecture/test_canonical_graph_baseline.py::test_slot_extraction_drift_is_explicitly_rejected -q --tb=short
+```
+
+通过结果：
+
+```text
+5 passed, 1 warning in 0.04s
+```
+
+### 剩余问题
+
+无代码或验证阻塞；错误命令不作为 Phase 54 验证证据，已用有效 selectors 和更广 focused suite 补验。
+
+### 下次继续排查入口
+
+- `tests/architecture/test_canonical_graph_baseline.py`
+- `tests/agent/test_nodes/test_slot_resolution_gate.py`
+- `tests/agent/test_required_slots.py`
