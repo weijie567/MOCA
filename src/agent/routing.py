@@ -37,7 +37,7 @@ _CLAIM_VERIFY_ROUTES = {"assess_risk_and_approval", "final_response"}
 SAFETY_ROUTES = {"session_context_load", "clarification_gate", "final_response"}
 CONTEXTUAL_INTENT_ROUTES = {"clarification_gate", "final_response", "investigate", "slot_resolution_gate"}
 INTENT_ROUTES = CONTEXTUAL_INTENT_ROUTES
-SLOT_RESOLUTION_ROUTES = {"clarification_gate", "investigate", "long_term_memory_retrieve"}
+SLOT_RESOLUTION_ROUTES = {"clarification_gate", "investigate", "memory_context_load"}
 SLOT_ROUTES = SLOT_RESOLUTION_ROUTES
 BUSINESS_ID_SLOTS = ("order_id", "refund_case_id", "ticket_id")
 SLOT_RESOLUTION_TRACE_SCHEMA = "slot_resolution_trace.phase54"
@@ -494,7 +494,7 @@ def _slot_resolution_route_decision(
     if missing:
         return missing, "clarification_gate", ["missing_required_slots"]
     if _needs_reviewed_memory_context(state):
-        return [], "long_term_memory_retrieve", []
+        return [], "memory_context_load", []
     return [], "investigate", []
 
 

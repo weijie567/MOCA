@@ -29,7 +29,7 @@ from src.agent.nodes.contextual_intent_resolve import contextual_intent_resolve
 from src.agent.nodes.final_response import final_response
 from src.agent.nodes.generate_recommendation import generate_recommendation
 from src.agent.nodes.investigate import investigate
-from src.agent.nodes.long_term_memory_retrieve import long_term_memory_retrieve
+from src.agent.nodes.memory_context_load import memory_context_load
 from src.agent.nodes.rag_context_build import rag_context_build
 from src.agent.nodes.receive_request import receive_request
 from src.agent.nodes.safety_pre_route import safety_pre_route
@@ -284,7 +284,7 @@ def build_graph(checkpointer: AsyncPostgresSaver):
     builder.add_node("session_context_load", session_context_load)
     builder.add_node("contextual_intent_resolve", contextual_intent_resolve, retry_policy=_llm_retry)
     builder.add_node("slot_resolution_gate", slot_resolution_gate, retry_policy=_llm_retry)
-    builder.add_node("long_term_memory_retrieve", long_term_memory_retrieve)
+    builder.add_node("memory_context_load", memory_context_load)
     builder.add_node("investigate", investigate)
     builder.add_node("rag_context_build", rag_context_build)
     builder.add_node("generate_recommendation", generate_recommendation, retry_policy=_llm_retry)
@@ -323,10 +323,10 @@ def build_graph(checkpointer: AsyncPostgresSaver):
         {
             "clarification_gate": "clarification_gate",
             "investigate": "investigate",
-            "long_term_memory_retrieve": "long_term_memory_retrieve",
+            "memory_context_load": "memory_context_load",
         },
     )
-    builder.add_edge("long_term_memory_retrieve", "investigate")
+    builder.add_edge("memory_context_load", "investigate")
     builder.add_conditional_edges(
         "investigate",
         route_after_investigate,

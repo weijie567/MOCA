@@ -15478,3 +15478,47 @@ assert 'long_term_memory_retrieve' == 'memory_context_load'
 - `tests/architecture/test_canonical_graph_baseline.py`
 - `tests/test_graph_routing.py`
 - `tests/agent/test_intent_routing.py`
+
+## 2026-07-07 — Phase 55-02 Task 1 计划内 AST scan 命令不兼容 `START` / `END` edge endpoint
+
+### 问题现象
+
+Task 1 GREEN 后运行计划里的 inline AST scan，命令报 `AttributeError: 'Name' object has no attribute 'value'`。Ruff 和 focused pytest 已通过，失败只发生在该静态扫描命令自身。
+
+### 如何检测 / 复现
+
+运行计划内命令：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run python -c "import ast,pathlib; ... if n.func.attr=='add_edge': edges.add((n.args[0].value, n.args[1].value)) ..."
+```
+
+### 关键证据或命令
+
+失败输出：
+
+```text
+AttributeError: 'Name' object has no attribute 'value'
+```
+
+### 当前判断 / 根因
+
+计划命令假设 `builder.add_edge(...)` 两端都是字符串 literal，但 `src/agent/graph.py` 里合法使用了 LangGraph 的 `START` / `END` name endpoint。该问题是验证脚本形状不兼容既有 graph 写法，不是 Phase 55-02 graph/router cutover 逻辑失败。
+
+### 已做处理
+
+改用等价但兼容 `ast.Constant` 和 `ast.Name` endpoint 的 inline AST scan 验证同一组事实：active nodes 包含 `memory_context_load` 且不含 `long_term_memory_retrieve`，存在 `memory_context_load -> investigate`，slot-resolution path map 包含 `"memory_context_load": "memory_context_load"`，graph/routing 不含 active legacy registration/edge/return 字符串。重跑结果：
+
+```text
+55-02 active memory graph cutover OK
+```
+
+### 剩余问题
+
+无代码阻塞。SUMMARY 需要把这次验证命令替换记录为 Rule 3 计划命令修正偏差。
+
+### 下次继续排查入口
+
+- `.planning/phases/55-memory-context-load-cutover/55-02-PLAN.md`
+- `src/agent/graph.py`
+- `tests/architecture/graph_baseline.py`
