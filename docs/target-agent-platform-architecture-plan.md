@@ -103,7 +103,7 @@ flowchart TD
   Graph --> SlotNode[extract_slots node]
   Graph --> LongTermNode[long_term_memory_retrieve node]
   Graph --> InvestigateNode[investigate node]
-  Graph --> GenerateNode[generate_recommendation node]
+  Graph --> GenerateNode[recommendation_generation node]
   Graph --> ApprovalNode[approval_gate / action_draft nodes]
 
   InvestigateNode --> ToolManager[UnifiedToolManager]

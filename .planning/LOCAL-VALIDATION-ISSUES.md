@@ -16639,6 +16639,48 @@ FAILED tests/agent/test_rag_context_routing.py::test_partial_rag_context_fails_c
 
 - `src/agent/routing.py`
 - `tests/agent/test_rag_context_routing.py`
+
+## 2026-07-07 Phase 56 Plan 56-04 Task 3：Markdown 反引号 grep 扫描命令引号错误
+
+### 问题现象
+
+Task 3 文档收尾后执行 focused `rg` 扫描时，命令中的 Markdown 反引号没有被安全引用，zsh 把 pattern 片段当成命令执行，输出 `command not found: generate_recommendation` 等错误。
+
+### 如何检测 / 复现
+
+运行包含未转义反引号的扫描命令：
+
+```text
+rg -n "active `generate_recommendation`|generate_recommendation active|current .*generate_recommendation|GenerateNode\\[generate_recommendation|F\\[generate_recommendation|Reco\\[generate_recommendation|`generate_recommendation`、`claim_verify`|`rag_context_build`、`generate_recommendation`" docs README.md .planning/ARCHITECTURE-DEBT.md .planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-VALIDATION.md
+```
+
+### 关键证据或命令
+
+终端输出包含：
+
+```text
+zsh:1: command not found: generate_recommendation
+zsh:1: command not found: claim_verify
+zsh:1: command not found: rag_context_build
+```
+
+### 当前判断 / 根因
+
+这是本地扫描命令引用错误，不是产品代码或测试失败。双引号中的反引号仍会被 shell command substitution 处理。
+
+### 已做处理
+
+已记录本地验证事故。后续扫描改用单引号包裹 pattern 或拆成不含反引号的多个 `rg` 命令。
+
+### 剩余问题
+
+无产品代码剩余问题；需要重跑安全引用版本的扫描后再提交 docs closeout。
+
+### 下次继续排查入口
+
+- `docs/current-langgraph-architecture.md`
+- `docs/architecture-overview.md`
+- `README.md`
 - `src/knowledge/schemas.py`
 
 ## 2026-07-07 Phase 56 Plan 56-04 Task 1 TDD RED：缺少 recommendation_generation vocabulary / historical projection

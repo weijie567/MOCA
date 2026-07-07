@@ -34,7 +34,7 @@ RAG 的核心目标不是“让模型看更多资料”，而是为每个关键�
 | Knowledge facade | `src/knowledge/service.py` | `PolicyKnowledgeService.search`；merchant scope deny-all；partial/no evidence contract | 需要迁移到可插拔 `SearchBackend`，并扩展 hybrid tracing |
 | citation | `src/knowledge/schemas.py` + `src/knowledge/citation.py` | `EvidenceRefV1`、`text_hash`、membership-only citation validation | 缺语义支持校验、逐 claim 支持关系、page/bbox 引用、冲突/过期证据标记 |
 | Context assembly | `src/agent/context/assembler.py` | 已有 prompt block、priority、protected blocks；policy refs 可进入 protected context | 需要 RAG 专用 Context Builder，负责证据去重、token budget、citation map、冲突标记 |
-| 生成约束 | `src/agent/prompts.py` + `src/agent/nodes/generate_recommendation.py` | prompt 要求引用 evidence；生成后做 membership validation；失败时 `citation_invalid` 或 `insufficient_evidence` | 需要更强“只基于证据回答”、semantic verifier、高风险后置核查 |
+| 生成约束 | `src/agent/prompts.py` + `src/agent/nodes/recommendation_generation.py`（共享实现仍在 `generate_recommendation.py`） | prompt 要求引用 evidence；生成后做 membership validation；失败时 `citation_invalid` 或 `insufficient_evidence` | 需要更强“只基于证据回答”、semantic verifier、高风险后置核查 |
 | eval | `scripts/eval_rag_hit_at_5.py`、`eval/golden_rag_queries.jsonl`、`tests/test_rag_eval.py` | Hit@5、fallback accuracy、retrieval status 测试 | 需要 faithfulness、context recall、citation accuracy、permission safety、freshness correctness、hallucination rate |
 
 ## 3. 范围与非目标
@@ -884,7 +884,7 @@ Context Builder 是生产级 RAG 的关键组件，不应散落在各节点中�
 ]
 ```
 
-当前 `generate_recommendation.py` 已经做了 evidence re-fetch 和 hash 校验，这是正确方向。目标是把它下沉为可复用 `ContextBuilder`，供 recommendation、final response、verifier 共用。
+当前 `recommendation_generation.py` 通过共享实现已经做了 evidence re-fetch 和 hash 校验，这是正确方向。目标是把它下沉为可复用 `ContextBuilder`，供 recommendation、final response、verifier 共用。
 
 ## 12. Hallucination Control
 

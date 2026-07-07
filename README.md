@@ -44,15 +44,17 @@ graph TB
 
 ```mermaid
 graph LR
-    A[receive_request] --> B[classify_intent]
-    B -->|needs slots| C[session_memory_load]
-    B -->|policy / fact path| E[investigate]
-    C --> D[extract_slots]
-    D -->|slots ok| E
-    D -->|needs long-term hints| L[long_term_memory_retrieve]
-    L --> E
+    A[receive_request] --> S[safety_pre_route]
+    S -->|safe| C[session_context_load]
+    S -->|needs clarification| H[final_response]
+    C --> B[contextual_intent_resolve]
+    B -->|needs slots| D[slot_resolution_gate]
+    B -->|policy / fact path| M[memory_context_load]
+    D -->|slots ok| M
+    D -->|missing slots| H
+    M --> E[investigate]
     E -->|needs verified evidence| R[rag_context_build]
-    R -->|verified / allowed partial| F[generate_recommendation]
+    R -->|verified / allowed partial| F[recommendation_generation]
     R -->|fail closed| H[final_response]
     E -->|sufficient context| F
     E -->|missing / insufficient| H[final_response]
