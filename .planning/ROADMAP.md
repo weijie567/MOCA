@@ -118,7 +118,7 @@ Plans:
 | 54. Slot Resolution Gate Cutover | 3/3 | Complete | 2026-07-07 |
 | 55. Memory Context Load Cutover | 3/3 | Complete    | 2026-07-07 |
 | 56. Recommendation Generation and RAG Claim Status Alignment | 4/4 | Complete    | 2026-07-07 |
-| 57. Risk Gate and Approval Gate Canonicalization | 5/5 | Complete | 2026-07-07 |
+| 57. Risk Gate and Approval Gate Canonicalization | 5/5 | Complete    | 2026-07-07 |
 | 58. Canonical Graph Cutover and No-Debt Cleanup | 0/TBD | Not planned | - |
 
 ### Phase 40: Tool Contract Validation Hardening
@@ -468,7 +468,7 @@ Plans:
 **Requirements**: CAGM-08
 **Depends on:** Phase 56
 **Must read:** `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`
-**Plans:** 5 plans
+**Plans:** 5/5 plans complete
 **Success Criteria** (what must be TRUE):
   1. `risk_gate` is the active registered graph node for blocked/manual-review/approval-required/auto-draft decisions.
   2. `approval_gate` only handles approval request creation/resume, pending self-loop, edit/superseded reroute, approved draft path, and rejected/expired/invalid finalization.

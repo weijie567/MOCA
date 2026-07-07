@@ -18291,3 +18291,48 @@ node -e '... if(!/nyquist_compliant:\\s*true/.test(m[1])||!/Gaps found \\| 0/.te
 ### 剩余问题和下次入口
 
 后续验证 planning artifact 时应尽量解析 frontmatter/table 数据，或使用与实际 artifact 一致的字段名。
+
+## 2026-07-08 Phase 57 closeout：phase.complete 更新后 STATE 文本残留旧阶段
+
+### 问题现象
+
+Phase 57 所有 gates 通过后执行：
+
+```bash
+gsd-sdk query phase.complete "57"
+```
+
+命令返回成功：
+
+```json
+{
+  "completed_phase": "57",
+  "next_phase": "58",
+  "roadmap_updated": true,
+  "state_updated": true,
+  "requirements_updated": true,
+  "warnings": []
+}
+```
+
+但 `.planning/STATE.md` 中仍残留部分旧文本：
+
+- `Current focus` 仍指向 Phase 57；
+- `Next` 仍写 `$gsd-verify-work 57`；
+- `Session Continuity` 仍写 Completed Phase 56 / Next Phase 57 / Planned Phase 57。
+
+### 如何检测 / 复现
+
+运行 `rg -n "Phase 57|verify-work 57|Completed Phase|Next Phase|Planned Phase" .planning/STATE.md` 可发现 frontmatter 和 Current Position 已切到 Phase 58，但部分正文未同步。
+
+### 当前判断 / 根因
+
+这是 GSD `phase.complete` handler 对当前 STATE markdown 多处正文块更新不完整的问题；不是 Phase 57 验证失败。ROADMAP/REQUIREMENTS 的 Phase 57/CAGM-08 完成状态是正确的。
+
+### 已做处理
+
+手动校准 `.planning/STATE.md`：当前 focus / current position / session continuity 都改为 Phase 58 ready to plan，Completed Phase 改为 Phase 57，Next Phase 改为 Phase 58。
+
+### 剩余问题和下次入口
+
+后续完成 phase 后仍需人工核对 STATE 的 frontmatter、Current Position、Session Continuity 三处是否一致；GSD handler 可后续修复为覆盖所有同类段落。
