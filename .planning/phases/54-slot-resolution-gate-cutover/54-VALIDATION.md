@@ -133,3 +133,21 @@ OK
 - [x] `nyquist_compliant: true` set in frontmatter after execution evidence is green.
 
 **Approval:** complete
+
+## Validation Audit 2026-07-07
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+
+Audit rerun evidence:
+
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_required_slots.py tests/agent/test_nodes/test_receive_request.py tests/agent/test_nodes/test_slot_resolution_gate.py tests/agent/test_nodes/test_extract_slots.py tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_graph.py tests/test_graph_routing.py tests/agent/test_intent_routing.py tests/agent/test_intent_golden_contract.py tests/agent/test_session_memory_integration.py tests/agent/test_graph_vocabulary.py tests/agent/test_trace.py tests/test_trace_api.py tests/architecture/test_canonical_graph_baseline.py -q --tb=short` -> `1453 passed, 1 skipped, 35 warnings`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_agent_runs_api.py::test_sse_event_projects_target_node_name_without_rewriting_legacy_node_name -q --tb=short` -> `1 passed, 1 warning`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/agent src/api/routers/agent_runs.py tests/agent tests/architecture tests/test_graph_routing.py tests/test_trace_api.py tests/test_agent_runs_api.py` -> `All checks passed!`
+- Active graph scan -> `54 audit active graph scan OK`
+- Artifact command-entrypoint scan -> `54 audit artifact entrypoint scan OK`
+
+Audit conclusion: CAGM-05 planned behaviors across 54-01, 54-02, and 54-03 remain covered by automated tests/scans; `nyquist_compliant: true` remains justified. One audit-command quoting failure was logged in `.planning/LOCAL-VALIDATION-ISSUES.md`; it was rerun green and did not expose a coverage gap.

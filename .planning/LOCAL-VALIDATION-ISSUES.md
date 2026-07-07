@@ -14844,3 +14844,58 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_slot_resolu
 - `tests/architecture/test_canonical_graph_baseline.py`
 - `tests/agent/test_nodes/test_slot_resolution_gate.py`
 - `tests/agent/test_required_slots.py`
+
+## 2026-07-07 — Phase 54 Nyquist audit artifact scan quoting 错误
+
+### 问题现象
+
+Phase 54 Nyquist validation coverage audit 中，artifact command-entrypoint scan 第一次执行失败，zsh 报告 `parse error in command substitution`。该失败发生在审计用扫描命令本身，不是 Phase 54 runtime、测试或 validation coverage 失败。
+
+### 如何检测 / 复现
+
+在 MOCA 根目录用双引号包裹包含 Markdown fenced-code 正则的 inline Python 命令时可复现；命令中的三连反引号会被 zsh 当作命令替换语法处理。
+
+### 关键证据或命令
+
+失败命令入口：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run python -c "... re.findall(r'```([A-Za-z0-9_-]*)\\n(.*?)```', text, flags=re.S) ..."
+```
+
+失败输出：
+
+```text
+zsh:1: parse error near `\n(.*?)'
+zsh:1: parse error in command substitution
+```
+
+### 当前判断 / 根因
+
+根因是审计命令把含有 Markdown 反引号的 Python 源码放进双引号 shell 字符串，触发 zsh command substitution。不是项目代码缺陷，也不是验证入口环境错误；批准入口 `UV_CACHE_DIR=/tmp/uv-cache uv run ...` 使用正确。
+
+### 已做处理
+
+改用 shell-safe heredoc 重跑同一 artifact entrypoint scan，通过：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run python - <<'PY'
+...
+PY
+```
+
+通过结果：
+
+```text
+54 audit artifact entrypoint scan OK
+```
+
+### 剩余问题
+
+无代码或验证阻塞；失败命令不作为 Phase 54 coverage 证据，已用安全引用方式补验。
+
+### 下次继续排查入口
+
+- `.planning/phases/54-slot-resolution-gate-cutover/54-VALIDATION.md`
+- `.planning/phases/54-slot-resolution-gate-cutover/`
+- `docs/current-langgraph-architecture.md`
