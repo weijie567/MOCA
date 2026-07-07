@@ -15254,3 +15254,44 @@ git diff --check -- .planning/phases/55-memory-context-load-cutover/55-RESEARCH.
 
 - `.planning/phases/55-memory-context-load-cutover/55-RESEARCH.md`
 - `git diff --check`
+
+## 2026-07-07 — Phase 55-01 TDD RED 阶段 canonical memory_context_load 测试预期失败
+
+### 问题现象
+
+执行 Task 1 的 TDD RED 验证时，新增的 `tests/agent/test_memory_context_load.py` 5 个用例全部失败，原因是仓库尚未提供 canonical `src.agent.nodes.memory_context_load` 模块，且 legacy wrapper 尚未暴露 `memory_context_load` 委托点。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_memory_context_load.py -q --tb=short
+```
+
+### 关键证据或命令
+
+失败输出包含：
+
+```text
+ModuleNotFoundError: No module named 'src.agent.nodes.memory_context_load'
+AttributeError: <module 'src.agent.nodes.long_term_memory_retrieve' ...> has no attribute 'memory_context_load'
+```
+
+### 当前判断 / 根因
+
+这是 TDD RED 阶段的预期失败，证明测试先于实现捕获了 Phase 55-01 要求的 canonical node contract 缺口，不是环境入口错误。
+
+### 已做处理
+
+已提交 RED 测试 commit `e7dd979`，随后新增 `src/agent/nodes/memory_context_load.py` 并将 `long_term_memory_retrieve` 改为委托 canonical node。重跑 Task 1 聚焦验证后，`tests/agent/test_memory_context_load.py tests/agent/test_reviewed_memory_context_retrieve.py` 为 `22 passed`，Ruff 通过。
+
+### 剩余问题
+
+无 Task 1 代码阻塞。后续仍需 Task 2 增补 authority boundary 测试，并完成全计划验证。
+
+### 下次继续排查入口
+
+- `src/agent/nodes/memory_context_load.py`
+- `src/agent/nodes/long_term_memory_retrieve.py`
+- `tests/agent/test_memory_context_load.py`

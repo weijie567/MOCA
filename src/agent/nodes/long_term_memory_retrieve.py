@@ -5,7 +5,7 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
-from src.agent.nodes.reviewed_memory_context_retrieve import reviewed_memory_context_retrieve
+from src.agent.nodes.memory_context_load import memory_context_load
 from src.agent.state import AgentState
 from src.memory.case_memory import CaseMemoryRepository, CaseMemoryService
 from src.memory.long_term import LongTermMemoryService
@@ -14,7 +14,7 @@ from src.memory.repository import LongTermMemoryRepository
 
 async def long_term_memory_retrieve(state: AgentState, config: RunnableConfig) -> dict:
     """Compatibility wrapper for the reviewed memory context boundary."""
-    result = await reviewed_memory_context_retrieve(
+    result = await memory_context_load(
         state,
         config,
         long_term_memory_repository_cls=LongTermMemoryRepository,
