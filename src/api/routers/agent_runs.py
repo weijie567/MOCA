@@ -62,6 +62,7 @@ NODE_MESSAGES: dict[str, str] = {
     "extract_slots": "正在提取关键信息",
     "memory_context_load": "正在加载记忆上下文",
     "investigate": "正在调查订单和规则",
+    "recommendation_generation": "正在生成处理建议",
     "generate_recommendation": "正在生成处理建议",
     "assess_risk_and_approval": "正在评估风险",
     "approval_gate": "需要审批，等待人工决策",
@@ -1188,7 +1189,7 @@ def _extract_step_payload(node_name: str, update: Any) -> dict[str, Any]:
         if risk.get("risk_level"):
             payload["risk_level"] = risk["risk_level"]
 
-    if node_name == "generate_recommendation":
+    if node_name in {"recommendation_generation", "generate_recommendation"}:
         recommendation = _as_mapping(update_mapping.get("recommendation_draft"))
         summary = recommendation.get("recommended_action") or recommendation.get("short_summary")
         if summary:

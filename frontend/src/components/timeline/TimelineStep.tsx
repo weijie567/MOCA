@@ -7,6 +7,7 @@ const NODE_MESSAGES: Record<string, string> = {
   classify_intent: '正在识别意图',
   extract_slots: '正在提取关键信息',
   investigate: '正在调查订单和规则',
+  recommendation_generation: '正在生成处理建议',
   generate_recommendation: '正在生成处理建议',
   assess_risk_and_approval: '正在判断风险等级',
   approval_gate: '需要审批，等待人工决策',

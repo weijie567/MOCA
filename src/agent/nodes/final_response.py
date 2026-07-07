@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from src.agent.graph_vocabulary import graph_vocabulary_entry
 from src.agent.prompts import INSUFFICIENT_EVIDENCE_RESPONSE
 from src.agent.state import AgentState
 
@@ -44,6 +45,8 @@ _BLOCKING_RAG_CONTEXT_STATUSES = frozenset(
     }
 )
 _SAFE_PROJECTION_SOURCES = frozenset({"claim_verification_bundle", "verified_evidence_package"})
+_HISTORICAL_COMPATIBILITY_SOURCE = "historical_compatibility_projection"
+_MISSING_CANONICAL_PROJECTION_SOURCE = "missing_canonical_projection"
 _ACTION_BOUNDARY_FIELDS = (
     "approval_result",
     "action_result",
@@ -407,6 +410,21 @@ def _verification_route_payload(state: AgentState) -> dict[str, Any] | None:
     rag_context = _rag_context_route_payload(state)
     if rag_context is not None:
         return rag_context
+    legacy_payload = _legacy_verification_route_payload(state)
+    if legacy_payload is not None:
+        if _has_historical_compatibility_marker(state):
+            return {
+                **legacy_payload,
+                "safe_projection_source": _HISTORICAL_COMPATIBILITY_SOURCE,
+                "verification_authoritative": False,
+            }
+        return _missing_canonical_projection_payload()
+    if _legacy_verifier_fields_present(state) and not _has_historical_compatibility_marker(state):
+        return _missing_canonical_projection_payload()
+    return None
+
+
+def _legacy_verification_route_payload(state: AgentState) -> dict[str, Any] | None:
     rag_verification = state.get("rag_verification")
     if isinstance(rag_verification, dict):
         route = rag_verification.get("route")
@@ -425,6 +443,54 @@ def _verification_route_payload(state: AgentState) -> dict[str, Any] | None:
             "reason_codes": state.get("verifier_reason_codes") or [],
         }
     return None
+
+
+def _legacy_verifier_fields_present(state: AgentState) -> bool:
+    if isinstance(state.get("rag_verification"), dict):
+        return True
+    return any(
+        state.get(field) is not None
+        for field in ("verification_route", "verifier_status", "verifier_reason_codes")
+    )
+
+
+def _has_historical_compatibility_marker(state: AgentState) -> bool:
+    graph_projection = _mapping(state.get("graph_projection"))
+    steps = graph_projection.get("steps")
+    if _projection_steps_have_compatibility_marker(steps):
+        return True
+    return _projection_steps_have_compatibility_marker(state.get("trace_steps"))
+
+
+def _projection_steps_have_compatibility_marker(steps: Any) -> bool:
+    if not isinstance(steps, list):
+        return False
+    for raw_step in steps:
+        step = _mapping(raw_step)
+        target_status = str(step.get("target_graph_status") or "")
+        target_node = str(step.get("target_node") or "")
+        implementation_node = str(step.get("implementation_node") or step.get("node") or "")
+        if target_status == "compatibility_alias" and target_node == "recommendation_generation":
+            return True
+        entry = graph_vocabulary_entry(implementation_node, kind="node")
+        if entry and entry.status == "compatibility_alias" and entry.target_name == "recommendation_generation":
+            return True
+    return False
+
+
+def _missing_canonical_projection_payload() -> dict[str, Any]:
+    return {
+        "overall_outcome": "missing_canonical_projection",
+        "route": {
+            "route": "manual_review",
+            "selected_by": "backend",
+            "model_selected": False,
+            "decision_source": "final_response_guard",
+        },
+        "reason_codes": ["canonical_verification_projection_missing"],
+        "safe_projection_source": _MISSING_CANONICAL_PROJECTION_SOURCE,
+        "verification_authoritative": False,
+    }
 
 
 def _claim_verification_route_payload(state: AgentState) -> dict[str, Any] | None:
@@ -448,6 +514,7 @@ def _claim_verification_route_payload(state: AgentState) -> dict[str, Any] | Non
         "reason_codes": _string_values(bundle.get("reason_codes")) or ["claim_verification_blocked"],
         "blocked_claims": blocked_claims,
         "safe_projection_source": "claim_verification_bundle",
+        "verification_authoritative": True,
     }
 
 
@@ -467,6 +534,7 @@ def _rag_context_route_payload(state: AgentState) -> dict[str, Any] | None:
         },
         "reason_codes": _string_values(package.get("reason_codes")) or [status],
         "safe_projection_source": "verified_evidence_package",
+        "verification_authoritative": True,
     }
 
 
@@ -585,6 +653,7 @@ def _manual_review_response(
 def _verification_llm_output(response_text: str, verification: dict[str, Any]) -> dict[str, Any]:
     route = _verification_route_value(verification)
     route_payload = verification.get("route") if isinstance(verification.get("route"), dict) else {}
+    safe_projection_source = verification.get("safe_projection_source")
     return {
         "response_text": response_text,
         "evidence_citations": [],
@@ -594,6 +663,10 @@ def _verification_llm_output(response_text: str, verification: dict[str, Any]) -
         "verification_route": route,
         "route_selected_by": route_payload.get("selected_by") or "backend",
         "model_selected_route": bool(route_payload.get("model_selected")),
+        "safe_projection_source": safe_projection_source,
+        "verification_authoritative": bool(
+            verification.get("verification_authoritative", safe_projection_source in _SAFE_PROJECTION_SOURCES)
+        ),
     }
 
 

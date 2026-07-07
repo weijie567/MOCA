@@ -130,7 +130,7 @@ def _ci_fake_llm_responses(case: dict[str, Any]) -> dict[str, FakeLLM]:
                 "action_type": proposed_action if proposed_action != "answer_only" else None,
             }
         ),
-        "generate_recommendation": FakeLLM(
+        "recommendation_generation": FakeLLM(
             {
                 "recommended_action": proposed_action,
                 "reasoning_summary": "CI deterministic recommendation",
@@ -435,7 +435,7 @@ async def _run_graph_contract_case(case: dict[str, Any]) -> list[str]:
     patches = [
         patch.object(classify_intent_module, "_get_llm", lambda: fake_llms["classify_intent"]),
         patch.object(extract_slots_module, "_get_llm", lambda: fake_llms["extract_slots"]),
-        patch.object(generate_recommendation_module, "_get_llm", lambda: fake_llms["generate_recommendation"]),
+        patch.object(generate_recommendation_module, "_get_llm", lambda: fake_llms["recommendation_generation"]),
         patch.object(assess_risk_module, "_get_llm", lambda: fake_llms["assess_risk"]),
     ]
 
@@ -508,7 +508,7 @@ def _expected_nodes_for_case(case: dict[str, Any]) -> list[str]:
     nodes = ["receive_request", "classify_intent"]
     if case.get("expected_intent") != "policy_qa":
         nodes.extend(["session_memory_load", "extract_slots"])
-    nodes.extend(["investigate", "generate_recommendation", "assess_risk_and_approval"])
+    nodes.extend(["investigate", "recommendation_generation", "assess_risk_and_approval"])
     if category in {"low_confidence_no_evidence", "missing_context", "tool_failure_or_not_found"}:
         return [*nodes, "final_response"]
     if category == "approval_approved":
