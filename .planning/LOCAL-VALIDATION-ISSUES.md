@@ -16640,6 +16640,82 @@ FAILED tests/agent/test_rag_context_routing.py::test_partial_rag_context_fails_c
 - `src/agent/routing.py`
 - `tests/agent/test_rag_context_routing.py`
 
+## 2026-07-07 Phase 57 autopilot preflight：zsh glob 查找缺失 SPEC 时触发 no matches
+
+### 问题现象
+
+Phase 57 autopilot Stage 1 检查 `.continue-here.md` / `*-SPEC.md` 时，zsh 在没有匹配 `*-SPEC.md` 的情况下直接报错。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+ls .planning/phases/57-risk-gate-and-approval-gate-canonicalization/.continue-here.md .planning/phases/57-risk-gate-and-approval-gate-canonicalization/*-SPEC.md 2>/dev/null || true
+```
+
+### 关键证据或命令
+
+命令输出：
+
+```text
+zsh:1: no matches found: .planning/phases/57-risk-gate-and-approval-gate-canonicalization/*-SPEC.md
+```
+
+### 当前判断 / 根因
+
+这是 zsh 默认 glob no-match 行为导致的检查命令问题，不代表 Phase 57 存在 SPEC。对可选文件检查不应依赖未保护的 glob。
+
+### 已做处理
+
+改用 `find .planning/phases/57-risk-gate-and-approval-gate-canonicalization -maxdepth 1 \( -name '.continue-here.md' -o -name '*-SPEC.md' \) -print | sort`，确认没有 `.continue-here.md` 或 phase-level `SPEC.md`。
+
+### 剩余问题
+
+无。后续 optional artifact 检查优先用 `find` 或受保护 glob。
+
+### 下次继续排查入口
+
+- `.planning/phases/57-risk-gate-and-approval-gate-canonicalization`
+
+## 2026-07-07 Phase 57 autopilot context scout：误查不存在的 Phase 56 聚合 SUMMARY
+
+### 问题现象
+
+读取 Phase 56 handoff 时误以为存在聚合文件 `56-SUMMARY.md`，`sed` 报文件不存在。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+sed -n '1,220p' .planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-SUMMARY.md
+```
+
+### 关键证据或命令
+
+命令输出：
+
+```text
+sed: .planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-SUMMARY.md: No such file or directory
+```
+
+### 当前判断 / 根因
+
+Phase 56 使用的是按 plan 拆分的 `56-01-SUMMARY.md` 到 `56-04-SUMMARY.md`，没有聚合 `56-SUMMARY.md`。这是上下文读取路径假设错误，不是 phase artifact 缺失。
+
+### 已做处理
+
+改读 `56-*-SUMMARY.md`，并将 Phase 56 的 4 个 plan summary 作为 Phase 57 context 的 prior phase handoff 依据。
+
+### 剩余问题
+
+无。后续读取多 plan phase handoff 时先 `find` / `ls` 确认可用 artifact。
+
+### 下次继续排查入口
+
+- `.planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-*-SUMMARY.md`
+
 ## 2026-07-07 Phase 56 REVIEW-FIX iteration 1：approval_approved graph contract 首次验证缺少草稿创建最终回复
 
 ### 问题现象
