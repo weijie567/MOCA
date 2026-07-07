@@ -15032,3 +15032,143 @@ rg -n '^(pytest|python -m pytest)\b' .planning/phases/55-memory-context-load-cut
 
 - `.planning/phases/55-memory-context-load-cutover/55-CONTEXT.md`
 - `.planning/phases/55-memory-context-load-cutover/55-DISCUSSION-LOG.md`
+
+## 2026-07-07 — Phase 55 plan existing-plan check 使用 zsh 未匹配 glob
+
+### 问题现象
+
+Phase 55 plan-phase 检查现有 `*-PLAN.md` 时，直接执行 `ls .planning/phases/55-memory-context-load-cutover/*-PLAN.md 2>/dev/null || true`，在 zsh 下触发 no-match glob 错误：`zsh:1: no matches found`。
+
+### 如何检测 / 复现
+
+在 MOCA 根目录、zsh 默认 `nomatch` 行为下运行：
+
+```text
+ls .planning/phases/55-memory-context-load-cutover/*-PLAN.md 2>/dev/null || true
+```
+
+### 关键证据或命令
+
+失败输出：
+
+```text
+zsh:1: no matches found: .planning/phases/55-memory-context-load-cutover/*-PLAN.md
+```
+
+### 当前判断 / 根因
+
+这是 shell glob 展开层面的错误，不是 Phase 55 artifact 问题。zsh 在没有匹配文件时会先报错，不会把 pattern 交给 `ls`，所以 `2>/dev/null` 不能消除该错误。
+
+### 已做处理
+
+改用不依赖 shell glob 匹配的 `find` 方式重查：
+
+```text
+find .planning/phases/55-memory-context-load-cutover -maxdepth 1 -name '*-PLAN.md' -print
+```
+
+结果为空，符合 Phase 55 尚未规划的预期。
+
+### 剩余问题
+
+无阻塞。后续检查可选空 glob 时优先用 `find` 或 zsh-safe glob qualifier，避免 `nomatch` 噪音。
+
+### 下次继续排查入口
+
+- `.planning/phases/55-memory-context-load-cutover/`
+- `/Users/ming/.codex/get-shit-done/workflows/plan-phase.md`
+
+## 2026-07-07 — Phase 55 research DB runtime-state probe one-line async 语法错误
+
+### 问题现象
+
+Phase 55 research 做 runtime state inventory 时，第一次用 `UV_CACHE_DIR=/tmp/uv-cache uv run python -c ...` 探测本地 `agent_steps` / `agent_trace_events` 中是否已有 `long_term_memory_retrieve`、`memory_context_load`、`reviewed_memory_context_retrieve` 记录，命令在 collection 前就因 Python one-liner 语法错误失败。
+
+### 如何检测 / 复现
+
+在仓库根目录运行含 `async def main():` 的单行 `python -c` 命令，且把 `async def` 放在分号后：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run python -c "import asyncio; import asyncpg; from src.config import settings; import re; async def main(): ..."
+```
+
+### 关键证据或命令
+
+失败输出：
+
+```text
+SyntaxError: invalid syntax
+```
+
+错误位置指向分号后的 `async def main():`。
+
+### 当前判断 / 根因
+
+这是临时探测命令写法错误，不是 MOCA 代码、数据库 schema 或 Phase 55 研究结论错误。Python 复合语句不能这样塞进分号分隔的一行命令。
+
+### 已做处理
+
+改用项目入口和同步 `psycopg` 重新探测：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run python -c "from src.config import settings; import psycopg; url=settings.database_url.replace('postgresql+asyncpg://','postgresql://'); conn=psycopg.connect(url, connect_timeout=2); cur=conn.cursor(); print('agent_steps', cur.execute(\"select node_name, count(*) from agent_steps where node_name in ('long_term_memory_retrieve','memory_context_load','reviewed_memory_context_retrieve') group by node_name order by node_name\").fetchall()); print('agent_trace_events', cur.execute(\"select node_name, count(*) from agent_trace_events where node_name in ('long_term_memory_retrieve','memory_context_load','reviewed_memory_context_retrieve') group by node_name order by node_name\").fetchall()); conn.close()"
+```
+
+成功输出：
+
+```text
+agent_steps []
+agent_trace_events []
+```
+
+### 剩余问题
+
+无本地阻塞。本地数据库可连接，且当前本地 trace 表没有三类 memory graph node 名称记录；其他环境仍可能有历史 persisted trace rows，Phase 55 不能据此计划重写历史存储。
+
+### 下次继续排查入口
+
+- `.planning/phases/55-memory-context-load-cutover/55-RESEARCH.md`
+- `src/db/models.py` 的 `AgentStep.node_name` / `AgentTraceEvent.node_name`
+- `src/agent/graph_vocabulary.py`
+
+## 2026-07-07 — Phase 55 research 自检命令误触发裸 pytest
+
+### 问题现象
+
+Phase 55 research 写完后做 Markdown section / 命令格式自检时，一个 `rg` 命令的搜索 pattern 里包含未转义的 shell 反引号 `` `pytest` ``。zsh 先执行了反引号内的 `pytest`，导致误触发裸 `pytest`，并命中 MOCA 明确禁止的本机 Python 3.9 collection 假失败。
+
+### 如何检测 / 复现
+
+在仓库根目录运行未转义反引号的双引号命令：
+
+```text
+rg -n "^## User Constraints|^## Validation Architecture|^## Security Domain|^## Runtime State Inventory|^<phase_requirements>|UV_CACHE_DIR=/tmp/uv-cache uv run pytest|python -m pytest|bare `pytest`" .planning/phases/55-memory-context-load-cutover/55-RESEARCH.md
+```
+
+### 关键证据或命令
+
+输出先出现裸 `pytest` collection 失败，再输出 `rg` 命中的 Markdown 行：
+
+```text
+ImportError while loading conftest '/Users/ming/projects/MOCA/tests/conftest.py'.
+tests/conftest.py:3: in <module>
+    from datetime import UTC, datetime, timedelta
+E   ImportError: cannot import name 'UTC' from 'datetime' (/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/datetime.py)
+```
+
+### 当前判断 / 根因
+
+这是研究自检命令的 shell quoting 错误，不是 Phase 55 research 文件内容或测试套件失败。裸 `pytest` 被 zsh 反引号替换执行，绕过了项目 `uv` 虚拟环境，正好复现了 AGENTS.md 中说明的 Python 3.9 PATH 污染问题。
+
+### 已做处理
+
+已记录本问题。后续自检命令必须避免在双引号 shell 字符串中使用未转义反引号；需要搜索 Markdown 反引号时使用单引号包裹 pattern、转义反引号，或改成不含反引号的 pattern。
+
+### 剩余问题
+
+无代码阻塞。该裸 `pytest` 输出不能作为任何验证结论；Phase 55 research 的验证命令仍只记录 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest ...`、`uv run pytest ...` 或 verified `.venv/bin/pytest ...`。
+
+### 下次继续排查入口
+
+- `.planning/phases/55-memory-context-load-cutover/55-RESEARCH.md`
+- `AGENTS.md` 本地验证命令环境硬规则
