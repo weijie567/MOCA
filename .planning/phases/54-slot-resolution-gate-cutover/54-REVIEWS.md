@@ -1,6 +1,7 @@
 ---
 phase: 54
 reviewers: [claude]
+review_rounds: 2
 reviewed_at: 2026-07-07T02:20:53.869428Z
 plans_reviewed: [54-01-PLAN.md, 54-02-PLAN.md, 54-03-PLAN.md]
 ---
@@ -275,9 +276,69 @@ plans_reviewed: [54-01-PLAN.md, 54-02-PLAN.md, 54-03-PLAN.md]
 
 ---
 
+## Claude Review — Round 2
+
+VERIFICATION PASSED
+
+## 1. Summary
+
+The repaired Phase 54 plans are execution-ready. The first-round HIGH issue around LLM slot extraction failure is now resolved: `54-01` explicitly requires strict fail-closed behavior with empty `active_slots`, `route_decision == "clarification_gate"`, `llm_slot_extraction_error`, and no inherited-slot continuation on LLM validation/timeout/error (`54-01-PLAN.md:30`, `54-01-PLAN.md:208`, `54-01-PLAN.md:212`, `54-01-PLAN.md:225`). Conflict-slot semantics are now executable via an exact additive metadata marker (`slot_resolution_conflict={"values":[...],"source":"trusted_session_memory"}`) and normalization into `slot_resolution_trace.conflicting_slots` (`54-01-PLAN.md:160`, `54-01-PLAN.md:168`). D-19 atomic graph/router/policy/baseline cutover is preserved in `54-02` Task 1, while Task 2 is explicitly limited to focused test updates (`54-02-PLAN.md:173`, `54-02-PLAN.md:221`). Final validation covers the changed node, router, graph, trace/API, vocabulary, architecture baseline, session integration, and scope-creep scans without activating Phase 55/56/57/58 names (`54-03-PLAN.md:227`-`54-03-PLAN.md:240`). No remaining HIGH blockers found.
+
+## 2. Remaining Blockers
+
+None.
+
+## 3. Warnings
+
+### LOW — Static AST scans are useful guards but should remain secondary to tests
+
+The static scans in `54-02` and `54-03` are appropriate, but they assume specific AST shapes such as bare router function names in `add_conditional_edges` (`54-02-PLAN.md:178`, `54-03-PLAN.md:233`). If implementation changes graph construction style, these scans may need adjustment. This is not a blocker because the architecture baseline and focused pytest suites are the real authority.
+
+### LOW — Docs/debt verification remains mostly text-level
+
+`54-03` Task 2 verifies docs/debt by checking key substrings (`54-03-PLAN.md:202`). That is acceptable for a docs closeout task, but executor summaries should still tie claims to the final source/test evidence from Task 3, not only to substring presence.
+
+### LOW — Strict LLM-error fail-closed behavior may reduce continuity but is now intentional
+
+The repaired plan intentionally rejects even otherwise-valid inherited slots on LLM validation/timeout/error (`54-01-PLAN.md:212`). This is stricter than a possible future UX-friendly fallback, but it directly resolves the prior inconsistency and matches the repaired contract. Any later loosening should be a separate explicit contract change.
+
+## 4. Previously Raised Findings Check
+
+| Prior ID | Status after repair | Assessment |
+|---|---:|---|
+| C54-01 LLM failure semantics | Resolved | `54-01` now requires strict fail-closed behavior, empty `active_slots`, `llm_slot_extraction_error`, and no inherited-slot continuation on LLM error (`54-01-PLAN.md:212`, `54-01-PLAN.md:225`). |
+| C54-02 conflict input shape | Resolved | Exact additive marker is defined and normalized into trace, not copied into resolved metadata (`54-01-PLAN.md:160`, `54-01-PLAN.md:168`). |
+| C54-03 receive_request reset coverage | Resolved | Reset behavior and pending-required-slot `active_flow_state` preservation are explicitly required and tested (`54-01-PLAN.md:165`, `54-01-PLAN.md:181`). |
+| C54-04 resolver blob risk | Resolved enough | Plan now directs small private helpers such as `_collect_current_turn_slots`, `_evaluate_inherited_slots`, and `_build_slot_resolution_trace` (`54-01-PLAN.md:168`). |
+| C54-05 54-02 task overlap | Resolved | Task 2 is limited to test updates and cannot modify route constants, path maps, intent policy values, or baseline files (`54-02-PLAN.md:221`). |
+| C54-06 “one commit” wording | Resolved | Reworded to “one atomic logical patch within this task” (`54-02-PLAN.md:173`). |
+| C54-07 `IntentRouteLiteral` widening | Resolved | Plan explicitly says not to widen `IntentRouteLiteral` to `clarification_gate` just because contextual router allowlist contains fail-closed destinations (`54-02-PLAN.md:173`). |
+| C54-08 54-02 Task 1 node-test coverage | Resolved | Task 1 verify includes `tests/agent/test_nodes/test_slot_resolution_gate.py` (`54-02-PLAN.md:176`). |
+| C54-09 legacy migration map wording | Resolved | Plan removes only Phase 54-owned `extract_slots` row and preserves later-phase active legacy rows (`54-02-PLAN.md:167`, `54-02-PLAN.md:173`). |
+| C54-10 final validation suite gaps | Resolved | Final suite includes receive_request, extract_slots, contextual_intent_resolve, golden contract, session memory integration, graph vocabulary, trace/API, and architecture baseline (`54-03-PLAN.md:230`-`54-03-PLAN.md:231`). |
+| C54-11 vocabulary duplicate risk | Resolved | Plan requires modifying existing entries and testing uniqueness for `(legacy_name, kind)` (`54-03-PLAN.md:159`-`54-03-PLAN.md:169`). |
+| C54-12 reason-code overbreadth | Resolved | Minimum stable reason codes are now fixed and detail is moved to docs/debt (`54-03-PLAN.md:159`-`54-03-PLAN.md:179`). |
+| C54-13 API/SSE breadth | Still acceptable | Targeted SSE projection test plus trace/API projection tests are included (`54-03-PLAN.md:172`, `54-03-PLAN.md:231`). No new blocker. |
+| C54-14 docs/debt verification | Residual LOW risk | Still text-level for docs, but Task 3 records source/test/scans as final evidence (`54-03-PLAN.md:227`). |
+| C54-15 `nyquist_compliant` | No issue | Task 3 owns final status updates including `nyquist_compliant` (`54-03-PLAN.md:227`). |
+| C54-16 static AST brittleness | Acceptable caution | Scans are supplementary and paired with pytest/architecture baseline (`54-02-PLAN.md:176`-`54-02-PLAN.md:178`, `54-03-PLAN.md:230`-`54-03-PLAN.md:234`). |
+| C54-17 vocabulary link timing | Acceptable | `54-01` may refer to target graph names before `54-03` runtime promotion; `54-03` owns final promotion (`54-01-PLAN.md:212`, `54-03-PLAN.md:169`). |
+
+## 5. Risk Assessment
+
+Overall risk: **MEDIUM**.
+
+Reason: execution touches central graph routing, slot policy, runtime node wiring, trace/API projection, architecture baseline, and docs. That is inherently higher-risk than a narrow node-only change. The repaired plans reduce the main risks well: LLM authority is candidate-only, all slot failure cases fail closed, conflict semantics are explicit, route/path-map/baseline changes are atomic, and validation covers the affected runtime and compatibility surfaces. Remaining risk is mostly implementation discipline: keeping Task 2 of `54-02` test-only, preserving legacy compatibility fields, and ensuring final docs/debt claims are backed by actual Task 3 command evidence.
+
+## 6. Command Entry Point Check
+
+Passed. All executable verification commands shown in the repaired plans use approved `UV_CACHE_DIR=/tmp/uv-cache uv run ...` forms, including pytest, Ruff, and Python static scans (`54-01-PLAN.md:171`-`54-01-PLAN.md:173`, `54-02-PLAN.md:176`-`54-02-PLAN.md:178`, `54-03-PLAN.md:230`-`54-03-PLAN.md:234`). Textual mentions of pytest in prose are not used as runnable commands.
+
+---
+
 ## Consensus Summary
 
-Only the Claude reviewer was requested for this autopilot stage (`$gsd-review 54 --claude`). Treat the concerns below as external review input for Codex adjudication, not accepted changes.
+Only the Claude reviewer was requested for this autopilot stage (`$gsd-review 54 --claude`). Round 1 produced actionable findings; Codex adjudicated and repaired accepted items in `54-PLAN-REVIEW-DECISIONS.md`. Round 2 returned `VERIFICATION PASSED` with only LOW cautions.
 
 ### Agreed Strengths
 
