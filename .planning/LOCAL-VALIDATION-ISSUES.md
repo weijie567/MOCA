@@ -16597,3 +16597,46 @@ AssertionError: assert 'PHASE_56_COMPATIBILITY_ALIAS' in ...
 - `src/agent/nodes/generate_recommendation.py`
 - `tests/agent/test_nodes/test_generate_recommendation.py`
 - `tests/agent/test_phase22_recommendation_integration.py`
+
+## 2026-07-07 Phase 56 Plan 56-03 Task 1 TDD RED：RAG 路由尚未按 schema 状态与 partial 风险规则 fail closed
+
+### 问题现象
+
+Task 1 按 TDD RED 增加 RAG status totality、缺失状态、unsafe status、action/risk/unsafe partial 状态测试后，聚焦测试出现 9 个失败。
+
+### 如何检测 / 复现
+
+运行：
+
+```text
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_rag_context_routing.py tests/knowledge/test_verified_evidence_package.py -q --tb=short
+```
+
+### 关键证据或命令
+
+pytest 输出显示：
+
+```text
+FAILED tests/agent/test_rag_context_routing.py::test_route_after_rag_context_matrix[state5-final_response]
+FAILED tests/agent/test_rag_context_routing.py::test_route_after_rag_context_matrix[state13-final_response]
+FAILED tests/agent/test_rag_context_routing.py::test_partial_rag_context_fails_closed_for_action_risk_or_unsafe_evidence[...] 7 cases
+9 failed, 46 passed, 1 warning
+```
+
+### 当前判断 / 根因
+
+这是 Task 1 预期的 TDD RED 失败：当前 `route_after_rag_context` 仍会先把 `business_context.missing_required_facts` 转成 `clarification_gate`，缺失顶层 `rag_context_status` 时仍从 `verified_evidence_package.status` 回退为 `verified`，且 `partial` 低风险谓词尚未检查 action intent、`risk_signals`、unsafe `evidence_policy` 与 package 中的 stale/conflict/rejected evidence 指示。
+
+### 已做处理
+
+已确认失败来自新增测试覆盖的目标缺口，不是环境入口错误；下一步将在 GREEN 阶段改造 router，使状态词表从 schema 派生并按 Phase 56 repaired decision fail closed。
+
+### 剩余问题
+
+需要更新 `src/agent/routing.py`：顶层 `rag_context_status` 缺失/未知 fail closed；unsafe statuses 永远到 `final_response`；`partial` 只允许低风险 answer-only / policy-QA 且无 action/risk/unsafe evidence 指示。
+
+### 下次继续排查入口
+
+- `src/agent/routing.py`
+- `tests/agent/test_rag_context_routing.py`
+- `src/knowledge/schemas.py`
