@@ -16002,3 +16002,53 @@ rg -n 'Phase 55|Phase 56|CAGM-06|ready to plan Phase 56' .planning/ROADMAP.md .p
 - `.planning/ROADMAP.md`
 - `.planning/REQUIREMENTS.md`
 - `gsd-sdk query phase.complete`
+
+## 2026-07-07 — Phase 56 discuss 阶段本地上下文扫描命令路径/配置 fallback 误用
+
+### 问题现象
+
+Phase 56 autopilot 的 discuss/context 收集阶段，几条本地扫描命令返回非零退出码：先用错了 Phase 50/55 planning 目录名；随后一次 `rg` 扫描包含不存在的 `moca` 路径；最后直接读取未配置的 `workflow.max_discuss_passes` key 返回 key-not-found。
+
+### 如何检测 / 复现
+
+在仓库根目录运行下列命令可复现对应失败：
+
+```text
+find .planning/phases/50-contract-spec-hardening .planning/phases/55-approval-policy-enforcement-and-policy-gate-rename -maxdepth 1 -type f -print
+rg -n "recommendation_generation|generate_recommendation|rag_context_build|claim_verify" app src tests moca 2>/dev/null
+gsd-sdk query config-get workflow.max_discuss_passes
+```
+
+### 关键证据或命令
+
+失败输出包含：
+
+```text
+find: .planning/phases/50-contract-spec-hardening: No such file or directory
+find: .planning/phases/55-approval-policy-enforcement-and-policy-gate-rename: No such file or directory
+```
+
+`rg` 命令返回退出码 2，原因是扫描路径中包含当前仓库不存在的 `app` / `moca` 路径；`workflow.max_discuss_passes` 返回：
+
+```text
+Error: Key not found: workflow.max_discuss_passes
+```
+
+### 当前判断 / 根因
+
+这是 orchestrator 本地扫描命令形状问题，不是 Phase 56 代码或 planning artifact 失败。正确 Phase 目录名分别是 `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails` 和 `.planning/phases/55-memory-context-load-cutover`。`workflow.max_discuss_passes` 未配置时应按 discuss workflow 使用默认值，不应把 key-not-found 当作 workflow 阻塞。
+
+### 已做处理
+
+已改用真实目录名继续读取 Phase 50/55 artifact，并把代码扫描限定到当前仓库实际存在的 `src` / `tests` 等路径。Phase 56 auto discuss 按工作流约束只执行单 pass，直接生成 `56-CONTEXT.md` 与 `56-DISCUSSION-LOG.md`。
+
+### 剩余问题
+
+无 Phase 56 阻塞。后续本地扫描应优先用 `find .planning/phases -maxdepth 1 -name 'NN-*'` 定位真实 phase 目录，并在读取可选 config key 时使用 workflow 默认 fallback。
+
+### 下次继续排查入口
+
+- `.planning/phases/56-recommendation-generation-and-rag-claim-status-alignment/56-CONTEXT.md`
+- `.planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-SPEC.md`
+- `.planning/phases/55-memory-context-load-cutover/55-VERIFICATION.md`
+- `.planning/config.json`
