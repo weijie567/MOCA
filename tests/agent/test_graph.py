@@ -16,7 +16,7 @@ from src.agent import trace as trace_module
 from src.agent.graph import build_graph, route_after_approval, route_after_risk
 from src.agent.graph_vocabulary import target_graph_name
 from src.agent.nodes import contextual_intent_resolve as contextual_intent_module
-from src.agent.nodes import long_term_memory_retrieve as legacy_memory_retrieve_module
+from src.agent.nodes import memory_context_load as memory_context_load_module
 from src.agent.nodes import recommendation_generation as generate_recommendation_module
 from src.agent.nodes import reviewed_memory_context_retrieve as reviewed_memory_context_module
 from src.agent.nodes import risk_gate as assess_risk_module
@@ -699,7 +699,7 @@ def _patch_reviewed_memory_services(
             items = case_items or []
             return SimpleNamespace(status="success" if items else "empty", items=items)
 
-    for module in (reviewed_memory_context_module, legacy_memory_retrieve_module):
+    for module in (reviewed_memory_context_module, memory_context_load_module):
         monkeypatch.setattr(module, "LongTermMemoryRepository", lambda session: object(), raising=False)
         monkeypatch.setattr(module, "CaseMemoryRepository", lambda session: object(), raising=False)
         monkeypatch.setattr(module, "LongTermMemoryService", FakeLongTermMemoryService, raising=False)
@@ -1374,7 +1374,7 @@ async def test_canonical_reviewed_memory_hint_reaches_memory_context_load(monkey
 
 
 @pytest.mark.asyncio
-async def test_long_term_memory_retrieve_skips_case_memory_without_query() -> None:
+async def test_memory_context_load_skips_case_memory_without_query() -> None:
     case_called = False
 
     class FakeLongTermMemoryService:
@@ -1387,10 +1387,29 @@ async def test_long_term_memory_retrieve_skips_case_memory_without_query() -> No
             case_called = True
             return SimpleNamespace(status="success", items=[{"case_memory_id": "case-1", "excerpt": "must not load"}])
 
-    result = await legacy_memory_retrieve_module.long_term_memory_retrieve(
-        {"tenant_id": str(uuid4()), "thread_id": "no-query-memory"},
+    trusted_context = TrustedContext(
+        tenant_id=str(uuid4()),
+        user_id=str(uuid4()),
+        role="support",
+        permissions=["tool:get_order"],
+        merchant_scope=MerchantScopeV1(merchant_ids=["merchant-a"]),
+        thread_id="no-query-memory",
+        run_id=str(uuid4()),
+        trace_id="trace-no-query-memory",
+    )
+    result = await memory_context_load_module.memory_context_load(
+        {
+            "tenant_id": trusted_context.tenant_id,
+            "user_id": trusted_context.user_id,
+            "thread_id": "no-query-memory",
+            "extracted_slots": {"merchant_id": "merchant-a"},
+            "active_slots": {"merchant_id": "merchant-a"},
+            "user_query": "",
+            "normalized_query": "",
+        },
         {
             "configurable": {
+                "trusted_context": trusted_context,
                 "long_term_memory_service": FakeLongTermMemoryService(),
                 "case_memory_service": FakeCaseMemoryService(),
             }
@@ -1399,7 +1418,8 @@ async def test_long_term_memory_retrieve_skips_case_memory_without_query() -> No
 
     assert case_called is False
     assert result["case_memory"] == []
-    assert result["llm_outputs"]["long_term_memory_retrieve"]["source"] == "no_reviewed_memory"
+    assert result["llm_outputs"]["memory_context_load"]["source"] == "no_reviewed_memory"
+    assert "long_term_memory_retrieve" not in result["llm_outputs"]
 
 
 @pytest.mark.asyncio
