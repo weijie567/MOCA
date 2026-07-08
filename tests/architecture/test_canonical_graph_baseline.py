@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import importlib
+import json
 from pathlib import Path
+import subprocess
+import sys
 
 import scripts.diagnose_latency as diagnose_latency
 import scripts.eval_agent as eval_agent
@@ -32,6 +36,8 @@ LEGACY_GRAPH_NAMES = frozenset(
     }
 )
 LEGACY_ROUTER_NAMES = frozenset({"route_after_intent", "route_after_slots"})
+CLASSIFIER_SCRIPT = Path("scripts/classify_phase58_legacy_hits.py")
+PHASE58_DIR = Path(".planning/phases/58-canonical-graph-cutover-and-no-debt-cleanup")
 
 
 def test_current_active_graph_node_set_matches_phase57_baseline() -> None:
@@ -261,6 +267,91 @@ def test_final_no_debt_gate_is_marked_phase58_scope() -> None:
         if entry.kind == "node" and entry.status == "runtime"
     }
     assert current_node_entries == TARGET_CANONICAL_GRAPH_NODES
+
+
+def test_phase58_legacy_hit_classifier_exposes_main_and_strict_report_fields() -> None:
+    classifier = importlib.import_module("scripts.classify_phase58_legacy_hits")
+    result = _run_phase58_classifier("--strict")
+
+    assert callable(classifier.main)
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    for key in (
+        "total_hits",
+        "files",
+        "category_counts",
+        "active_runtime_legacy",
+        "current_docs_legacy_authority",
+        "unclassified_rows",
+    ):
+        assert key in payload
+    assert payload["active_runtime_legacy"] == 0
+    assert payload["current_docs_legacy_authority"] == 0
+    assert payload["unclassified_rows"] == 0
+    assert str(PHASE58_DIR / "58-VALIDATION.md") in payload["excluded_paths"]
+
+
+def test_phase58_legacy_hit_classifier_strict_fails_active_runtime_rows(tmp_path: Path) -> None:
+    graph_path = tmp_path / "src" / "agent" / "graph.py"
+    graph_path.parent.mkdir(parents=True)
+    graph_path.write_text('builder.add_node("classify_intent", classify_intent)\n', encoding="utf-8")
+
+    result = _run_phase58_classifier("--strict", "--root", str(tmp_path), "--roots", "src")
+
+    assert result.returncode != 0
+    payload = json.loads(result.stdout)
+    assert payload["active_runtime_legacy"] == 1
+    assert payload["unclassified_rows"] == 0
+
+
+def test_phase58_legacy_hit_classifier_strict_fails_unclassified_rows(tmp_path: Path) -> None:
+    unknown_path = tmp_path / "unknown.txt"
+    unknown_path.write_text("classify_intent\n", encoding="utf-8")
+
+    result = _run_phase58_classifier("--strict", "--root", str(tmp_path), "--roots", "unknown.txt")
+
+    assert result.returncode != 0
+    payload = json.loads(result.stdout)
+    assert payload["active_runtime_legacy"] == 0
+    assert payload["unclassified_rows"] == 1
+
+
+def test_phase58_legacy_hit_classifier_allows_classified_nonzero_totals(tmp_path: Path) -> None:
+    state_path = tmp_path / ".planning" / "STATE.md"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text("Previous state mentioned classify_intent as historical context.\n", encoding="utf-8")
+
+    result = _run_phase58_classifier("--strict", "--root", str(tmp_path), "--roots", ".planning/STATE.md")
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["total_hits"] == 1
+    assert payload["files"] == 1
+    assert payload["category_counts"]["previous_state_documentation"] == 1
+    assert payload["active_runtime_legacy"] == 0
+    assert payload["unclassified_rows"] == 0
+
+
+def test_phase58_legacy_hit_classifier_excludes_generated_validation_artifact(tmp_path: Path) -> None:
+    validation_path = tmp_path / PHASE58_DIR / "58-VALIDATION.md"
+    validation_path.parent.mkdir(parents=True)
+    validation_path.write_text("Generated report mentions classify_intent.\n", encoding="utf-8")
+
+    result = _run_phase58_classifier("--strict", "--root", str(tmp_path), "--roots", str(PHASE58_DIR))
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["total_hits"] == 0
+    assert str(PHASE58_DIR / "58-VALIDATION.md") in payload["excluded_paths"]
+
+
+def _run_phase58_classifier(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(CLASSIFIER_SCRIPT), *args],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
 
 
 def _phase57_eval_case() -> dict[str, object]:
