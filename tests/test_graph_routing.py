@@ -33,6 +33,13 @@ from tests.architecture.graph_baseline import graph_conditional_edge_mappings
 VALID_INVESTIGATE_KEYS = {"final_response", "clarification_gate", "recommendation_generation"}
 ACTION_HASH = "sha256:" + "1" * 64
 SNAPSHOT_HASH = "sha256:" + "2" * 64
+PHASE58_ROUTING_TEST_FILES = (
+    Path("tests/test_graph_routing.py"),
+    Path("tests/agent/test_intent_routing.py"),
+    Path("tests/agent/test_intent_golden_contract.py"),
+    Path("tests/agent/test_required_slots.py"),
+    Path("tests/agent/test_session_memory_integration.py"),
+)
 
 
 class _FakeRiskLLM:
@@ -222,6 +229,22 @@ def _approval_route_state(**overrides) -> dict:
         state["approval_result"].update(approval_overrides)
     state.update(overrides)
     return state
+
+
+def test_phase58_routing_tests_use_canonical_helpers_and_route_values_only():
+    forbidden_fragments = [
+        "route_after_" "intent",
+        "route_after_" "slots",
+        "needs_long_" "term_memory",
+        "classify_" "intent",
+        "session_" "memory_load",
+        "assess_" "risk_and_approval",
+    ]
+
+    for path in PHASE58_ROUTING_TEST_FILES:
+        source = path.read_text(encoding="utf-8")
+        for fragment in forbidden_fragments:
+            assert fragment not in source, f"{path} still references {fragment}"
 
 
 def test_route_after_risk_returns_final_response_for_policy_qa_no_action():
