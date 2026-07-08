@@ -15,11 +15,11 @@ from tests.agent.conftest import FakeLLM
 from src.agent import trace as trace_module
 from src.agent.graph import build_graph, route_after_approval, route_after_risk
 from src.agent.graph_vocabulary import target_graph_name
-from src.agent.nodes import assess_risk_and_approval as assess_risk_module
 from src.agent.nodes import contextual_intent_resolve as contextual_intent_module
-from src.agent.nodes import generate_recommendation as generate_recommendation_module
 from src.agent.nodes import long_term_memory_retrieve as legacy_memory_retrieve_module
+from src.agent.nodes import recommendation_generation as generate_recommendation_module
 from src.agent.nodes import reviewed_memory_context_retrieve as reviewed_memory_context_module
+from src.agent.nodes import risk_gate as assess_risk_module
 from src.agent.nodes import slot_resolution_gate as slot_resolution_gate_module
 from src.agent.routing import (
     route_after_claim_verify,

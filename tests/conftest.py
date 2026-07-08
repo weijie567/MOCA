@@ -487,12 +487,12 @@ async def mock_graph(monkeypatch, mock_llm_responses, session: AsyncSession, see
     await _seed_approval_policy(session, seeded_session["tenant"].id)
     fake_llm = _FakeLLM(mock_llm_responses)
 
-    import src.agent.nodes.assess_risk_and_approval as assess_node
     import src.agent.nodes.claim_verify as claim_verify_node
     import src.agent.nodes.classify_intent as classify_node
     import src.agent.nodes.extract_slots as extract_node
-    import src.agent.nodes.generate_recommendation as recommendation_node
     import src.agent.nodes.investigate as investigate_node
+    import src.agent.nodes.recommendation_generation as recommendation_node
+    import src.agent.nodes.risk_gate as assess_node
 
     monkeypatch.setattr(classify_node, "_get_llm", lambda: fake_llm)
     monkeypatch.setattr(extract_node, "_get_llm", lambda: fake_llm)

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.graph import route_after_approval, route_after_risk
 from src.agent import routing as routing_module
-from src.agent.nodes import assess_risk_and_approval as risk_module
+from src.agent.nodes import risk_gate as risk_module
 from src.agent.nodes import risk_gate as risk_gate_module
 from src.agent.routing import (
     SLOT_RESOLUTION_ROUTES,
@@ -712,7 +712,7 @@ async def test_auto_allowed_path_persists_durable_snapshot_row_before_action_dra
             },
             "trace_steps": [],
         }
-    result = await risk_module.assess_risk_and_approval(
+    result = await risk_module.risk_gate(
         input_state,
         {"configurable": {"session": session}},
     )

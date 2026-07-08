@@ -5,8 +5,8 @@ from datetime import UTC, datetime
 import pytest
 
 from src.agent.graph import route_after_risk
-from src.agent.nodes import assess_risk_and_approval as risk_node
-from src.agent.nodes.assess_risk_and_approval import assess_risk_and_approval
+from src.agent.nodes import risk_gate as risk_node
+from src.agent.nodes.risk_gate import risk_gate
 from src.agent.schemas import RiskAssessment
 from src.agent.state import AgentState
 
@@ -120,7 +120,7 @@ async def test_interception_rate_100_percent():
 
 
 async def _assess(state: AgentState) -> AgentState:
-    result = await assess_risk_and_approval(state)
+    result = await risk_gate(state)
     return {**state, **result}
 
 

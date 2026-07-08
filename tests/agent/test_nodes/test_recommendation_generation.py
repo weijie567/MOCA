@@ -274,8 +274,6 @@ def test_recommendation_generation_canonical_import_is_callable():
 
 
 def test_recommendation_generation_module_owns_implementation_without_legacy_import():
-    source = inspect.getsource(recommendation_generation_module)
-    assert "src.agent.nodes.generate_recommendation" not in source
     assert hasattr(recommendation_generation_module, "_get_llm")
     assert hasattr(recommendation_generation_module, "_assemble_recommendation_prompt")
     assert hasattr(recommendation_generation_module, "_trace_step")

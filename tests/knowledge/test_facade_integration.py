@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from src.agent.nodes.claim_verify import claim_verify
-from src.agent.nodes import generate_recommendation as recommendation_module
+from src.agent.nodes import recommendation_generation as recommendation_module
 from src.agent.nodes.investigate import investigate
 from src.agent.nodes.final_response import final_response
 from src.agent.nodes.rag_context_build import rag_context_build
@@ -326,7 +326,7 @@ async def _run_path(
     state.update(investigate_output)
     rag_context_output = await rag_context_build(state, {"configurable": configurable})
     state.update(rag_context_output)
-    recommendation_output = await recommendation_module.generate_recommendation(
+    recommendation_output = await recommendation_module.recommendation_generation(
         state,
         {"configurable": configurable},
     )

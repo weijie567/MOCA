@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from src.agent.nodes import generate_recommendation as generate_recommendation_module
+from src.agent.nodes import recommendation_generation as generate_recommendation_module
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import ClaimVerificationBundleV1, ClaimVerificationResultV1, EvidenceRefV1
 from tests.agent.conftest import FakeLLM
@@ -318,7 +318,7 @@ async def test_generate_recommendation_consumes_verified_package_and_does_not_no
         lambda: FakeLLM(_model_draft_with_model_selected_safety_route()),
     )
 
-    result = await generate_recommendation_module.generate_recommendation(
+    result = await generate_recommendation_module.recommendation_generation(
         {**base_state, **_retrieval_state(evidence), **_verified_package_state(evidence)},
         {"configurable": {"session": object()}},
     )
@@ -354,7 +354,7 @@ async def test_model_selected_safety_route_is_ignored_until_backend_claim_verify
         generate_recommendation_module, "_get_llm", lambda: FakeLLM(_model_draft_with_model_selected_safety_route())
     )
 
-    result = await generate_recommendation_module.generate_recommendation(
+    result = await generate_recommendation_module.recommendation_generation(
         {**base_state, **_retrieval_state(evidence), **_verified_package_state(evidence)},
         {"configurable": {"session": object()}},
     )
@@ -400,7 +400,7 @@ async def test_valid_citation_membership_does_not_allow_unsupported_action_recom
         lambda: FakeLLM(_unsupported_action_draft_with_valid_citation()),
     )
 
-    result = await generate_recommendation_module.generate_recommendation(
+    result = await generate_recommendation_module.recommendation_generation(
         {**base_state, **_retrieval_state(evidence), **_verified_package_state(evidence)},
         {"configurable": {"session": object()}},
     )
@@ -454,7 +454,7 @@ async def test_supported_policy_claim_does_not_mask_failed_action_dependency(
         lambda: FakeLLM(_supported_policy_action_draft_missing_business_support()),
     )
 
-    result = await generate_recommendation_module.generate_recommendation(
+    result = await generate_recommendation_module.recommendation_generation(
         {**base_state, **_retrieval_state(evidence), **_verified_package_state(evidence)},
         {"configurable": {"session": object()}},
     )
@@ -486,7 +486,7 @@ async def test_missing_verified_package_fails_closed_instead_of_allowing_members
         lambda: FakeLLM(_supported_policy_action_draft_missing_business_support()),
     )
 
-    result = await generate_recommendation_module.generate_recommendation(
+    result = await generate_recommendation_module.recommendation_generation(
         {
             **base_state,
             **_retrieval_state(evidence),

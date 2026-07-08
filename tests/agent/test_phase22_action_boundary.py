@@ -6,8 +6,8 @@ from uuid import uuid4
 import pytest
 
 from src.agent.graph import route_after_risk
-from src.agent.nodes import assess_risk_and_approval as assess_risk_module
 from src.agent.nodes.action_draft import action_draft
+from src.agent.nodes import risk_gate as assess_risk_module
 from src.approvals.snapshots import build_action_safety_snapshot
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1
@@ -209,7 +209,7 @@ async def test_non_allow_verifier_outcomes_block_proposed_actions_and_snapshot_e
     """RTE-04: non-allow status leaves proposed action, approval, and snapshot state absent."""
     monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: ExplodingRiskLLM())
 
-    result = await assess_risk_module.assess_risk_and_approval(
+    result = await assess_risk_module.risk_gate(
         _actionable_state(base_state, outcome=outcome, route=route),
         {"configurable": {"session": object()}},
     )
@@ -243,7 +243,7 @@ async def test_non_allow_risk_assessment_clears_same_turn_stale_snapshot_binding
         "safety_snapshot_verified": True,
     }
 
-    result = await assess_risk_module.assess_risk_and_approval(
+    result = await assess_risk_module.risk_gate(
         state,
         {"configurable": {"session": object()}},
     )
@@ -286,7 +286,7 @@ async def test_claim_bundle_blockers_clear_same_turn_action_capable_state(
         "safety_snapshot_verified": True,
     }
 
-    result = await assess_risk_module.assess_risk_and_approval(
+    result = await assess_risk_module.risk_gate(
         state,
         {"configurable": {"session": object()}},
     )
@@ -315,7 +315,7 @@ async def test_action_claim_result_disallowing_action_blocks_risk_and_snapshots(
         safe_support_refs=[_evidence_ref(base_state["tenant_id"])],
     )
 
-    result = await assess_risk_module.assess_risk_and_approval(
+    result = await assess_risk_module.risk_gate(
         _claim_verified_actionable_state(base_state, bundle),
         {"configurable": {"session": object()}},
     )
@@ -368,7 +368,7 @@ async def test_missing_positive_action_claim_blocks_approval_edit_risk_reentry(
         "safety_snapshot_verified": True,
     }
 
-    result = await assess_risk_module.assess_risk_and_approval(
+    result = await assess_risk_module.risk_gate(
         state,
         {"configurable": {"session": object()}},
     )
@@ -410,7 +410,7 @@ async def test_candidate_only_retrieved_evidence_refs_do_not_bind_action_snapsho
         "retrieved_evidence": {"evidence_refs": [candidate_ref]},
     }
 
-    result = await assess_risk_module.assess_risk_and_approval(state)
+    result = await assess_risk_module.risk_gate(state)
 
     proposed_refs = (result.get("proposed_action") or {}).get("evidence_refs") or []
     assert candidate_ref["evidence_id"] not in {ref.get("evidence_id") for ref in proposed_refs}

@@ -778,7 +778,7 @@ async def _run_graph_contract_case(case: dict[str, Any]) -> list[str]:
 
     from src.agent.graph import build_graph
     from src.agent.nodes import contextual_intent_resolve as contextual_intent_module
-    from src.agent.nodes import generate_recommendation as recommendation_impl_module
+    from src.agent.nodes import recommendation_generation as recommendation_impl_module
     from src.agent.nodes import risk_gate as risk_gate_module
     from src.agent.nodes import slot_resolution_gate as slot_resolution_module
 

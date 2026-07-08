@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
@@ -255,8 +254,6 @@ async def test_actionable_recommendation_still_proposes_action(monkeypatch, base
 
 
 def test_risk_gate_module_owns_implementation_without_legacy_import():
-    source = inspect.getsource(risk_gate_module)
-    assert "src.agent.nodes.assess_risk_and_approval" not in source
     assert hasattr(risk_gate_module, "_get_llm")
     assert hasattr(risk_gate_module, "persist_action_safety_snapshot")
     assert hasattr(risk_gate_module, "_trace_step")

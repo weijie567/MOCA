@@ -74,6 +74,16 @@
 - **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_recommendation_generation.py -q --tb=short` → `40 passed, 1 warning`；`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_risk_gate.py -q --tb=short` → `17 passed, 1 warning`。最终组合 pytest / ruff 以 `58-02-SUMMARY.md` 为准。
 - **剩余风险**：🟡 本 plan 按范围没有做跨测试 import cleanup；`generate_recommendation.py` 与 `assess_risk_and_approval.py` wrapper 文件仍存在，只是 non-owning。Wrapper 删除、scattered import cleanup、eval/script 调整和 final classifier 收敛留给 dependency-ordered Plan 58-03+。
 
+## 2026-07-08 — Phase 58-03 recommendation/risk legacy wrapper 文件已删除 ✅
+
+- **子系统**：Agent Graph / RAG recommendation / 风险审批主链
+- **问题现象/根因**：58-02 已把实现 owner 迁到 `recommendation_generation.py` 与 `risk_gate.py`，但 `generate_recommendation.py` / `assess_risk_and_approval.py` 仍作为 import compatibility wrapper 存在；直接测试、graph/eval/知识 facade 等若继续 import 旧模块，会让 CAGM-09 的 no-debt gate 保留 current-run 兼容面。
+- **影响**：旧 wrapper 文件一旦继续可 import，后续测试或脚本容易继续 patch legacy module path，造成 active canonical node 与测试 seam 漂移；同时 Phase 56/57 compatibility marker 可能被重新引入到 current node/test surface。
+- **处理状态**：✅ 已修复验证。删除 `src/agent/nodes/generate_recommendation.py` 与 `src/agent/nodes/assess_risk_and_approval.py`；直接测试只 import canonical modules；`tests/architecture/test_phase33_rag_claim_boundaries.py` 改为检查 canonical recommendation owner、deleted wrapper/direct-test 文件不存在、`src/agent/nodes` 与 `tests/agent/test_nodes` 不再 import deleted module 或携带 Phase 56/57 compatibility marker。为避免删除后 broader test collection 断裂，同步把 graph / Phase 22 / knowledge facade / eval script 的 patch/import seam 改到 canonical modules。
+- **证据**：Phase 58 Plan 58-03；RED commit `30ad924`；GREEN commit 为本条所在提交；文件 `src/agent/nodes/recommendation_generation.py`、`src/agent/nodes/risk_gate.py`、`tests/agent/test_nodes/test_recommendation_generation.py`、`tests/agent/test_nodes/test_risk_gate.py`、`tests/architecture/test_phase33_rag_claim_boundaries.py`。
+- **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_recommendation_generation.py tests/agent/test_nodes/test_risk_gate.py tests/architecture/test_phase33_rag_claim_boundaries.py -q --tb=short` → `61 passed, 1 warning`；`UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict` → `active_runtime_legacy=0`、`current_docs_legacy_authority=0`、`unclassified_rows=0`；wrapper/direct legacy test deletion checks passed。
+- **剩余风险**：🟡 历史 trace/docs/planning 中仍有 legacy name 文本，由 strict classifier 分类为 historical / previous-state / cleanup artifact，不再是 active runtime authority。本条不处理其他 Phase 58 cleanup surfaces（如 intent/slot/memory wrappers、approval retry historical compatibility、frontend/API fallback labels）。
+
 ---
 
 # 1. 工具调用（Tool Platform）
