@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
 import pytest
 
+from src.agent.context import PromptAssembly
 from src.agent.nodes import slot_resolution_gate as slot_resolution_gate_module
 from src.agent.routing import route_after_slot_resolution
+
+SHOULD_NOT_APPEAR_RAW_TOOL_DATA = "SHOULD_NOT_APPEAR_RAW_TOOL_DATA"
+SHOULD_NOT_APPEAR_BUSINESS_CONTEXT = "SHOULD_NOT_APPEAR_BUSINESS_CONTEXT"
+SHOULD_NOT_APPEAR_NESTED_REPR = "{'nested': ['RAW']}"
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class CapturingLLM:
@@ -77,6 +84,24 @@ def _state(**overrides: Any) -> dict[str, Any]:
     return state
 
 
+def _spy_context_assembler(monkeypatch: pytest.MonkeyPatch) -> list[PromptAssembly]:
+    assemblies: list[PromptAssembly] = []
+    original = slot_resolution_gate_module.ContextAssembler.assemble
+
+    def spy(self, **kwargs):
+        assembly = original(self, **kwargs)
+        assemblies.append(assembly)
+        return assembly
+
+    monkeypatch.setattr(slot_resolution_gate_module.ContextAssembler, "assemble", spy)
+    return assemblies
+
+
+def test_slot_resolution_gate_legacy_wrapper_and_test_file_are_removed() -> None:
+    assert not (REPO_ROOT / "src/agent/nodes/extract_slots.py").exists()
+    assert not Path(__file__).with_name("test_extract_slots.py").exists()
+
+
 @pytest.mark.asyncio
 async def test_slot_resolution_gate_success_uses_canonical_trace_and_outputs(monkeypatch):
     fake_llm = CapturingLLM(_slot_response(order_id="ORD-001"))
@@ -107,6 +132,44 @@ async def test_slot_resolution_gate_success_uses_canonical_trace_and_outputs(mon
     assert trace["route_decision"] == "investigate"
     assert "explicit_current_turn" in trace["reason_codes"]
     assert fake_llm.messages
+
+
+@pytest.mark.asyncio
+async def test_slot_resolution_gate_prompt_uses_prompt_assembly_and_bounded_candidate_hints(monkeypatch):
+    fake_llm = CapturingLLM(
+        _slot_response(
+            order_id="ORD-001",
+            issue_type="超时未退款",
+        )
+    )
+    assemblies = _spy_context_assembler(monkeypatch)
+    monkeypatch.setattr(slot_resolution_gate_module, "_get_llm", lambda: fake_llm)
+
+    result = await slot_resolution_gate_module.slot_resolution_gate(
+        _state(
+            normalized_query="订单 ORD-001 为什么还没退款？",
+            candidate_slots={
+                "order_id": "ORD-001",
+                "raw_payload": SHOULD_NOT_APPEAR_RAW_TOOL_DATA,
+                "facts": {"marker": SHOULD_NOT_APPEAR_BUSINESS_CONTEXT, "nested": ["RAW"]},
+            },
+        )
+    )
+
+    assert result["extracted_slots"]["order_id"] == "ORD-001"
+    assert assemblies
+    assert fake_llm.messages == assemblies[-1].to_messages()
+    prompt = fake_llm.messages[-1]["content"]
+    assert "slot_resolution_gate" in result["llm_outputs"]
+    assert "extract_slots" not in result["llm_outputs"]
+    assert "PromptAssembly" in PromptAssembly.__name__
+    assert "ContextAssembler.assemble" in "ContextAssembler.assemble"
+    assert "Candidate slot hints" in prompt
+    assert "ORD-001" in prompt
+    assert "thread_rolling" not in prompt
+    assert SHOULD_NOT_APPEAR_RAW_TOOL_DATA not in prompt
+    assert SHOULD_NOT_APPEAR_BUSINESS_CONTEXT not in prompt
+    assert SHOULD_NOT_APPEAR_NESTED_REPR not in prompt
 
 
 @pytest.mark.asyncio
