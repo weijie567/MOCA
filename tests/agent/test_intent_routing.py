@@ -34,7 +34,6 @@ from src.agent.routing import (
     SLOT_ROUTES,
     resolve_slots_with_metadata,
     route_after_contextual_intent,
-    route_after_intent,
     route_after_slot_resolution,
 )
 from src.agent.schemas import IntentResultV3, RequiredSlotExpression
@@ -220,7 +219,7 @@ def test_next_step_advice_is_not_forced_into_action_type_clarification():
     eval_metadata = update["llm_outputs"]["contextual_intent_resolve"]["eval_metadata"]
     assert "next_step_advice_normalized" in eval_metadata["reason_codes"]
     assert route_after_contextual_intent(update) == "slot_resolution_gate"
-    assert route_after_intent(update) == route_after_contextual_intent(update)
+    assert route_after_contextual_intent(update) == "slot_resolution_gate"
 
 
 def test_confidence_defaults_for_low_and_safety_sensitive_routes():
@@ -405,7 +404,7 @@ async def test_classifier_pre_route_wiring_for_approval_chat(monkeypatch, base_s
     assert update["classification_trace"]["effective_classification"]["primary_intent"] == "unsupported"
     assert update["classification_trace"]["route_decision"] == "clarification_gate"
     assert "approval_result" not in update
-    assert route_after_intent(update) == "clarification_gate"
+    assert route_after_contextual_intent(update) == "clarification_gate"
 
 
 @pytest.mark.parametrize("llm_intent", ["policy_qa", "refund_troubleshooting"])
@@ -464,7 +463,7 @@ def test_safety_sensitive_escalation_pre_route_forces_complaint_escalation_polic
     assert update["risk_tier"] == "approval_required"
     assert update["required_slots"]["any_of"] == [["ticket_id", "order_id", "merchant_id"]]
     assert route_after_contextual_intent(update) == "slot_resolution_gate"
-    assert route_after_intent(update) == route_after_contextual_intent(update)
+    assert route_after_contextual_intent(update) == "slot_resolution_gate"
 
 
 @pytest.mark.parametrize(
@@ -480,10 +479,9 @@ def test_safety_sensitive_escalation_pre_route_forces_complaint_escalation_polic
 )
 def test_route_after_contextual_intent_totality(state):
     assert route_after_contextual_intent(state) in CONTEXTUAL_INTENT_ROUTES
-    assert route_after_intent(state) == route_after_contextual_intent(state)
 
 
-def test_route_after_intent_consumes_registry_route_policy(monkeypatch):
+def test_route_after_contextual_intent_consumes_registry_route_policy(monkeypatch):
     class FakeIntentRegistry:
         def is_direct_response_intent(self, intent: str) -> bool:
             return False
@@ -499,7 +497,7 @@ def test_route_after_intent_consumes_registry_route_policy(monkeypatch):
     monkeypatch.setattr(routing_module, "SLOT_POLICY_REGISTRY", FakeSlotRegistry(), raising=False)
 
     assert (
-        routing_module.route_after_intent(
+        routing_module.route_after_contextual_intent(
             {"primary_intent": "refund_troubleshooting", "requested_operation": "read_status", "intent_confidence": 0.9}
         )
         == "investigate"
@@ -507,7 +505,7 @@ def test_route_after_intent_consumes_registry_route_policy(monkeypatch):
 
 
 @pytest.mark.parametrize("route_value", ["not_a_route", None])
-def test_route_after_intent_fails_closed_for_invalid_registry_route(monkeypatch, route_value):
+def test_route_after_contextual_intent_fails_closed_for_invalid_registry_route(monkeypatch, route_value):
     class FakeIntentRegistry:
         def is_direct_response_intent(self, intent: str) -> bool:
             return False
@@ -523,14 +521,14 @@ def test_route_after_intent_fails_closed_for_invalid_registry_route(monkeypatch,
     monkeypatch.setattr(routing_module, "SLOT_POLICY_REGISTRY", FakeSlotRegistry(), raising=False)
 
     assert (
-        routing_module.route_after_intent(
+        routing_module.route_after_contextual_intent(
             {"primary_intent": "refund_troubleshooting", "requested_operation": "read_status", "intent_confidence": 0.9}
         )
         == "clarification_gate"
     )
 
 
-def test_route_after_intent_fails_closed_for_registry_exception(monkeypatch):
+def test_route_after_contextual_intent_fails_closed_for_registry_exception(monkeypatch):
     class RaisingIntentRegistry:
         def is_direct_response_intent(self, intent: str) -> bool:
             raise RuntimeError("registry unavailable")
@@ -538,7 +536,7 @@ def test_route_after_intent_fails_closed_for_registry_exception(monkeypatch):
     monkeypatch.setattr(routing_module, "INTENT_POLICY_REGISTRY", RaisingIntentRegistry(), raising=False)
 
     assert (
-        routing_module.route_after_intent(
+        routing_module.route_after_contextual_intent(
             {"primary_intent": "refund_troubleshooting", "requested_operation": "read_status", "intent_confidence": 0.9}
         )
         == "clarification_gate"

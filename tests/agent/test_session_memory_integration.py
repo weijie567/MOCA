@@ -12,6 +12,7 @@ from src.agent.nodes import contextual_intent_resolve as contextual_intent_modul
 from src.agent.nodes import session_context_load as session_context_load_module
 from src.agent.nodes.memory_write import memory_write
 from src.agent.trace import write_agent_run
+from src.agent.graph_vocabulary import project_trace_step_for_contract
 from src.db.models import User
 from src.memory.repository import SessionMemoryRepository
 from src.memory.service import MemoryService
@@ -183,7 +184,7 @@ async def test_agent_runs_session_memory_wrong_scope_fails_closed(
     session: AsyncSession,
     seeded_session: dict,
 ) -> None:
-    from src.agent.routing import resolve_slots_for_completeness, route_after_slots
+    from src.agent.routing import resolve_slots_for_completeness, route_after_slot_resolution
 
     user = seeded_session["users"]["cs_zhang"]
     repository = SessionMemoryRepository(session)
@@ -250,7 +251,7 @@ async def test_agent_runs_session_memory_wrong_scope_fails_closed(
 
         assert view.continuity_claimed is False or view.active_slots == {}
         assert resolve_slots_for_completeness(state) == {}
-        assert route_after_slots(state) == "clarification_gate"
+        assert route_after_slot_resolution(state) == "clarification_gate"
 
 
 @pytest.mark.asyncio
@@ -531,8 +532,9 @@ async def test_extract_slots_loads_agent_runs_prompt_context_from_trusted_config
     ]
     assert result["active_slots"]["order_id"] == "ORD-CURRENT-001"
     assert result["trace_steps"][-1]["node"] == "extract_slots"
-    assert result["trace_steps"][-1]["metrics_json"]["target_node"] == "slot_resolution_gate"
-    assert result["trace_steps"][-1]["metrics_json"]["target_router"] == "route_after_slot_resolution"
+    projected_step = project_trace_step_for_contract(result["trace_steps"][-1])
+    assert projected_step["target_node"] == "slot_resolution_gate"
+    assert projected_step["target_graph_status"] == "historical_projection"
     assert assemblies
     assembly_kwargs = assemblies[0]
     assert assembly_kwargs["thread_rolling_summary"] == "Prior summary mentions ORD-PRIOR-001."

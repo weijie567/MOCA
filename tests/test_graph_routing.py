@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
@@ -15,7 +16,6 @@ from src.agent.routing import (
     SLOT_RESOLUTION_ROUTES,
     route_after_claim_verify,
     route_after_contextual_intent,
-    route_after_intent,
     route_after_investigate,
     route_after_recommendation,
     route_after_safety,
@@ -445,14 +445,28 @@ def test_route_after_contextual_intent_fails_closed_for_exceptions_or_unregister
     assert route_after_contextual_intent({}) == "clarification_gate"
 
 
-def test_route_after_intent_is_compatibility_delegate_to_contextual_intent():
+def test_legacy_intent_route_delegate_is_not_public_current_route_authority():
     state = {
         "primary_intent": "refund_troubleshooting",
         "requested_operation": "read_status",
         "intent_confidence": 0.95,
     }
 
-    assert route_after_intent(state) == route_after_contextual_intent(state) == "slot_resolution_gate"
+    assert route_after_contextual_intent(state) == "slot_resolution_gate"
+    assert not hasattr(routing_module, "route_after_intent")
+    assert "def route_after_intent(" not in Path("src/agent/routing.py").read_text(encoding="utf-8")
+
+
+def test_legacy_slot_route_delegate_is_not_public_current_route_authority():
+    state = {
+        "primary_intent": "refund_troubleshooting",
+        "required_slots": {"all_of": [], "any_of": [["order_id", "refund_case_id"]], "optional": []},
+        "extracted_slots": {},
+    }
+
+    assert route_after_slot_resolution(state) == "clarification_gate"
+    assert not hasattr(routing_module, "route_after_slots")
+    assert "def route_after_slots(" not in Path("src/agent/routing.py").read_text(encoding="utf-8")
 
 
 def test_route_after_slot_resolution_memory_hints_use_canonical_destination():

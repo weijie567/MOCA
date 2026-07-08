@@ -7,7 +7,7 @@ import pytest
 
 from src.agent.nodes.classify_intent import intent_result_to_state
 from src.agent.intent_policy import detect_pre_route
-from src.agent.routing import missing_required_slots, route_after_intent, route_after_slots
+from src.agent.routing import missing_required_slots, route_after_contextual_intent, route_after_slot_resolution
 from src.agent.schemas import IntentResultV3
 
 
@@ -58,7 +58,7 @@ def test_positive_golden_cases_exercise_deterministic_helpers(case):
             assert forbidden not in update
     if "route" in expected and expected["route"] == "clarification_gate":
         assert (
-            route_after_intent(
+            route_after_contextual_intent(
                 {
                     "primary_intent": expected.get("primary_intent", "unsupported"),
                     "requested_operation": expected.get("requested_operation", "advise"),
@@ -74,7 +74,7 @@ def test_positive_golden_cases_exercise_deterministic_helpers(case):
         missing = missing_required_slots({"all_of": [], "any_of": [["order_id", "refund_case_id"]], "optional": []}, {})
         assert missing == expected["missing_required_slots"]
         assert (
-            route_after_slots(
+            route_after_slot_resolution(
                 {
                     "primary_intent": "refund_troubleshooting",
                     "required_slots": {"all_of": [], "any_of": [["order_id", "refund_case_id"]], "optional": []},

@@ -243,6 +243,10 @@ def test_final_no_debt_gate_is_marked_phase58_scope() -> None:
     assert graph_add_node_names() == TARGET_CANONICAL_GRAPH_NODES
     assert graph_add_node_names().isdisjoint(FORBIDDEN_MAIN_CHAIN_REGISTERED_NODES)
 
+    routing_source = Path("src/agent/routing.py").read_text(encoding="utf-8")
+    assert "def route_after_intent(" not in routing_source
+    assert "def route_after_slots(" not in routing_source
+
     router_values = {
         route_value
         for route_values in graph_router_route_values().values()
