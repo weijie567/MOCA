@@ -19463,3 +19463,50 @@ rg -n -- "--phase|--name|Phase: 60|Plan:|Status:|Phase 60|v2.1 Archive Evidence 
 ### 剩余问题和下次继续排查入口
 
 无产品代码问题。后续 `rg` 搜索 literal/pattern 可能以 `-` 开头时统一加 `--`。
+
+## 2026-07-08：Phase 60-05 最终里程碑审计工作流缺少 gsd-integration-checker 工具
+
+### 问题现象
+
+执行 Phase 60-05 Task 3 时，计划要求按 `$gsd-audit-milestone v2.1` 语义运行最终 archive gate。但 `audit-milestone.md` 工作流在步骤 3 必须 spawn `gsd-integration-checker` 子代理；当前 Codex 执行环境没有暴露 spawn-agent 工具，且 GSD 初始化报告该 agent tooling 未安装。因此不能按工作流完整执行最终 milestone audit。
+
+### 如何检测 / 复现
+
+```bash
+gsd-sdk query init.milestone-op
+gsd-sdk query audit-milestone v2.1
+command -v gsd-audit-milestone
+```
+
+### 关键证据或命令
+
+`gsd-sdk query init.milestone-op` 返回：
+
+```json
+{
+  "agents_installed": false,
+  "missing_agents": [
+    "gsd-integration-checker",
+    "gsd-nyquist-auditor",
+    "gsd-ui-auditor",
+    "gsd-doc-verifier"
+  ]
+}
+```
+
+`gsd-sdk query audit-milestone v2.1` 返回 `Unknown command`；`command -v gsd-audit-milestone` 没有找到可执行文件。已读取 `/Users/ming/.codex/skills/gsd-audit-milestone/SKILL.md` 与 `/Users/ming/.codex/get-shit-done/workflows/audit-milestone.md`，确认工作流的 integration check 入口是 `Task(subagent_type="gsd-integration-checker", ...)`。
+
+### 当前判断 / 根因
+
+这是本地 GSD audit workflow tooling 不可用，不是 MOCA 产品代码或 Phase 60 evidence artifact 内容失败。Phase 60 的目标 verification / validation artifact inventory 已存在，但最终 archive-ready 判定不能在缺少 required integration-checker workflow 的情况下伪造。
+
+### 已做处理
+
+- `.planning/v2.1-MILESTONE-AUDIT.md` 记录 `workflow_status: blocked_tooling_unavailable`。
+- `.planning/phases/60-v2-1-archive-evidence-closure/60-VALIDATION.md` 记录 `status: blocked_tooling_unavailable`。
+- `.planning/ROADMAP.md` 与 `.planning/STATE.md` 保持 Phase 60 incomplete，不写 `5/5 complete`。
+- 未把该问题记录为 accepted post-v2.1 product debt。
+
+### 剩余问题和下次继续排查入口
+
+next entry point：安装或暴露 `/Users/ming/.codex/get-shit-done/workflows/audit-milestone.md` 要求的 GSD audit agent tooling，尤其是 `gsd-integration-checker`，然后从 Phase 60-05 Task 3 重新运行 `$gsd-audit-milestone v2.1` 语义；或者由 orchestrator 明确给出 workflow-supported fallback 决策。

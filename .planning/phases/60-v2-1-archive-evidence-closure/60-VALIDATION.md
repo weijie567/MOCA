@@ -1,7 +1,7 @@
 ---
 phase: 60
 slug: v2-1-archive-evidence-closure
-status: pending_final_audit
+status: blocked_tooling_unavailable
 nyquist_compliant: false
 wave_0_complete: true
 created: 2026-07-08
@@ -10,9 +10,9 @@ updated: 2026-07-08
 
 # Phase 60 - Archive Evidence Closure Validation
 
-This artifact records the final Phase 60 archive-evidence inventory before global ledger reconciliation and the follow-up `$gsd-audit-milestone v2.1` archive gate.
+This artifact records the final Phase 60 archive-evidence inventory and the blocked follow-up `$gsd-audit-milestone v2.1` archive gate.
 
-Current status is `pending_final_audit`: the target evidence artifacts exist, but Phase 60 is not archive-complete until the milestone audit result is recorded in `.planning/v2.1-MILESTONE-AUDIT.md` and the global ledgers are updated from that result.
+Current status is `blocked_tooling_unavailable`: the target evidence artifacts exist, but Phase 60 is incomplete because the required milestone audit workflow cannot run without `gsd-integration-checker` agent tooling or an explicit workflow-supported fallback.
 
 ## Artifact Inventory
 
@@ -68,20 +68,36 @@ test -f .planning/phases/49-investigate-bounded-react-loop-migration/49-VALIDATI
 test -f .planning/phases/50-canonical-agent-graph-migration-spec-and-guardrails/50-VALIDATION.md
 ```
 
-## Pending Final Audit Work
+## Blocked Final Audit Work
 
-- Reconcile `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, and `.planning/v2.1-MILESTONE-AUDIT.md` from the actual artifact state.
-- Execute `$gsd-audit-milestone v2.1` semantics.
-- Update this file to `status: complete` and `nyquist_compliant: true` only if the follow-up audit reaches archive-ready/passed status, or to `complete_with_accepted_debt` only if every remaining issue has an owner and target phase.
-- If audit tooling is unavailable and no workflow-supported fallback is accepted, update this file to `status: blocked_tooling_unavailable` and keep Phase 60 incomplete.
+- Attempted `$gsd-audit-milestone v2.1` semantics by reading `/Users/ming/.codex/skills/gsd-audit-milestone/SKILL.md` and `/Users/ming/.codex/get-shit-done/workflows/audit-milestone.md`.
+- The workflow requires spawning `Task(subagent_type="gsd-integration-checker", ...)`.
+- `gsd-sdk query init.milestone-op` reports `agents_installed: false` and missing `gsd-integration-checker`.
+- This Codex executor has no spawn-agent tool exposed, `gsd-sdk query audit-milestone v2.1` is not a registered query, and `command -v gsd-audit-milestone` finds no executable.
+- No workflow-supported fallback was accepted by the orchestrator in this execution context.
+
+Phase 60 incomplete: do not mark `5/5 complete`, do not archive v2.1, and do not treat this as accepted post-v2.1 debt.
+
+Next entry point: rerun Plan 60-05 Task 3 after installing/exposing the GSD audit agent tooling required by `audit-milestone.md`, especially `gsd-integration-checker`, or provide an explicit workflow-supported fallback decision.
+
+## Final Command Results
+
+| Check | Command | Result |
+|-------|---------|--------|
+| Audit workflow initialization | `gsd-sdk query init.milestone-op` | blocked: `agents_installed: false`, missing `gsd-integration-checker` |
+| Audit query fallback | `gsd-sdk query audit-milestone v2.1` | blocked: unknown registered query |
+| Audit CLI fallback | `command -v gsd-audit-milestone` | blocked: no executable on PATH |
+| Artifact command scan | `UV_CACHE_DIR=/tmp/uv-cache uv run python -c 'from pathlib import Path; ...'` | pass |
+| Allowed dirty-path check | `UV_CACHE_DIR=/tmp/uv-cache uv run python -c 'import subprocess; ...'` | pass |
+| Whitespace check | `UV_CACHE_DIR=/tmp/uv-cache uv run git diff --check` | pass |
 
 ## Validation Sign-Off
 
 - [x] All Phase 60 target evidence artifacts exist before tracking doc reconciliation.
 - [x] TPH-03, TPH-04, IDR-02, MEM-COMPAT-01, GAD-01-IMPL, CAGM-01, and CAGM-07 have explicit pre-audit coverage rows.
 - [x] Newly recorded command evidence avoids bare `pytest` and bare `python -m pytest`.
-- [ ] Final milestone audit result recorded.
-- [ ] Final artifact command scan passed.
-- [ ] `UV_CACHE_DIR=/tmp/uv-cache uv run git diff --check` passed.
+- [x] Final milestone audit result recorded as `blocked_tooling_unavailable`.
+- [x] Final artifact command scan passed.
+- [x] `UV_CACHE_DIR=/tmp/uv-cache uv run git diff --check` passed.
 
-**Approval:** pending final audit.
+**Approval:** blocked_tooling_unavailable; Phase 60 incomplete.
