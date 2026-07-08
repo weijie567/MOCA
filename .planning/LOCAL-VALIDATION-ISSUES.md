@@ -19054,3 +19054,39 @@ sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called; can't call a
 ### 剩余问题和下次继续排查入口
 
 无代码行为问题。后续编写 rollback/commit 行为测试时，先缓存主键或显式 `await session.refresh(...)`，避免在 rollback 后同步读取 expired ORM 属性。
+
+## 2026-07-08：Phase 59-03 Task 1 completed finalizer 回归测试误读 ConversationMessage 身份字段
+
+### 问题现象
+
+新增 `test_approval_resume_completed_runs_terminal_memory_finalizer` 后，聚焦验证失败。失败点不是 approval-resume terminal finalizer 行为，而是测试断言读取了不存在的 `ConversationMessage.user_id` 字段。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py::test_approval_resume_completed_runs_terminal_memory_finalizer tests/test_approval_api.py::test_decide_edit_rebinds_replacement_approval_from_resume_interrupt tests/test_approval_api.py::test_decide_records_recoverable_resume_failure_and_retries_terminal_approval -q
+```
+
+### 关键证据或命令
+
+失败输出核心为：
+
+```text
+AttributeError: 'ConversationMessage' object has no attribute 'user_id'
+```
+
+代码核对确认 `ConversationMessage` 模型只有 `conversation_thread_id` / `tenant_id` / `thread_id` / `run_id` 等字段；请求者身份由 `ConversationThread.user_id` 绑定。
+
+### 当前判断 / 根因
+
+测试缺陷。Plan 文案要求验证 assistant message 归属 requester，但当前 schema 不在 message row 上保存 `user_id`；`ConversationService.append_or_get_assistant_message_for_run(...)` 通过 conversation thread owner 维持用户身份约束。
+
+### 已做处理
+
+将断言改为：先通过 `assistant_message.conversation_thread_id` 加载 `ConversationThread`，再断言 `ConversationThread.user_id == AgentRun.user_id`，同时保留 `metadata_json["source"] == "agent_runs.finalizer"`、session-memory `MemoryWriteEvent`、summary 和 finalizer step 断言。重跑同一聚焦命令结果为 `3 passed, 1 warning`；随后完整 `tests/test_approval_api.py -q` 结果为 `35 passed, 1 warning`。
+
+### 剩余问题和下次继续排查入口
+
+无生产代码问题。后续写 conversation message 身份断言时，优先查看 `src/db/models.py::ConversationMessage` 与 `ConversationThread` 的字段关系，不要假设 message row 自带 `user_id`。
