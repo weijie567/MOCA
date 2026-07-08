@@ -18494,3 +18494,55 @@ rg -n "Phase --phase|--name|-- Phase --phase" .planning/STATE.md
 ### 剩余问题和下次继续排查入口
 
 后续 Phase 58 closeout 仍需检查 `.planning/STATE.md`、`.planning/ROADMAP.md`、`.planning/REQUIREMENTS.md` 是否被 GSD metadata handler 正确同步。若再次出现 `--phase` / `--name` 占位符，优先检查最近一次 `gsd-sdk query state.*` 调用参数样式。
+
+## 2026-07-08：Phase 58-01 classifier 首次 strict 验证误报生成产物与迁移文档
+
+### 问题现象
+
+执行 58-01 Task 3 的首次 strict classifier 验证时，命令返回非 0：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict
+```
+
+同时 `tests/architecture/test_canonical_graph_baseline.py::test_phase58_legacy_hit_classifier_exposes_main_and_strict_report_fields` 失败。报告中 `active_runtime_legacy` 为 0，但 `current_docs_legacy_authority` 为 3、`unclassified_rows` 为 2。
+
+### 如何检测 / 复现
+
+在提交 `scripts/classify_phase58_legacy_hits.py` 前运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py -q --tb=short
+```
+
+### 关键证据或命令
+
+strict JSON 报告显示：
+
+- `docs/target-agent-platform-architecture-plan.md` 的 migration / anti-pattern 文字被误判为 `current_docs_legacy_authority`。
+- `src/agent/rag_context/claims.py` 中把 persisted `generate_recommendation` 投影到 canonical `recommendation_generation` 的兼容读取逻辑被误判为 `unclassified`。
+- `frontend/dist/assets/*.js` 生成产物被扫描并命中旧名字，造成递归噪声。
+
+### 当前判断 / 根因
+
+这是 classifier 分类边界不完整，不是 active runtime legacy 回退。首次实现只覆盖了主图、routing、trace/API projection 和 tests，对 generated frontend output、target architecture migration prose、RAG claim historical projection 的分类不够细。
+
+### 已做处理
+
+已在 `scripts/classify_phase58_legacy_hits.py` 中：
+
+- 跳过 `dist` 目录，避免扫描 `frontend/dist` 生成产物。
+- 将 `src/agent/rag_context/claims.py` 归入 `historical_data_read_projection`。
+- 扩展 current-doc authority heuristic，让 `current-to-target`、`migration matrix`、`为什么当前`、`会变胖`、`容易膨胀` 等迁移/反模式说明不触发 strict failure。
+
+修复后验证通过：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py -q --tb=short
+```
+
+### 剩余问题和下次继续排查入口
+
+当前 strict classifier 允许已分类历史/测试/文档命中，不要求 `total_hits == 0`。后续 Phase 58 final closeout 若新增扫描 roots 或文档权威范围，应先检查 classifier category 是否仍能区分 current authority 与历史迁移记录，入口为 `scripts/classify_phase58_legacy_hits.py::_classify_row` 和 `_looks_like_current_docs_authority`。
