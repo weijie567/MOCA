@@ -19205,3 +19205,43 @@ PY
 ### 剩余问题和下次继续排查入口
 
 无产品代码问题。后续 MOCA DB-backed pytest 不要并行跑同一个固定 `moca_test` 库；如果需要并发，先设计 per-worker database/schema 隔离。
+
+## 2026-07-08：Phase 59 security artifact 空 glob 检查触发 zsh no matches found
+
+### 问题现象
+
+执行 execute-phase security gate 前置检查时，用 `ls .planning/phases/59-approval-resume-terminal-memory-finalization/*-SECURITY.md 2>/dev/null || true` 检查可选 SECURITY artifact。zsh 在默认 `nomatch` 行为下先展开 glob，未命中文件时直接报错，命令没有进入 `ls`。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+ls .planning/phases/59-approval-resume-terminal-memory-finalization/*-SECURITY.md 2>/dev/null || true
+```
+
+### 关键证据或命令
+
+输出为：
+
+```text
+zsh:1: no matches found: .planning/phases/59-approval-resume-terminal-memory-finalization/*-SECURITY.md
+```
+
+### 当前判断 / 根因
+
+本地 shell/glob 使用问题，不是 Phase 59 artifact 缺陷。Phase 59 当前没有 `*-SECURITY.md`，security enforcement 会在 next steps 提醒可选安全 gate；检查空可选文件时不应使用会触发 zsh `nomatch` 的裸 glob。
+
+### 已做处理
+
+改用 `find`：
+
+```bash
+find .planning/phases/59-approval-resume-terminal-memory-finalization -maxdepth 1 -name '*-SECURITY.md' -print
+```
+
+命令返回空输出，确认没有 SECURITY artifact。
+
+### 剩余问题和下次继续排查入口
+
+无产品代码问题。后续在 zsh 下检查可选 glob 文件，优先用 `find` 或显式关闭 `nomatch`，不要依赖 `ls ... || true` 捕获 glob 展开错误。
