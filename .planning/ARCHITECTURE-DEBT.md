@@ -1314,6 +1314,28 @@
 **剩余风险**
 - 🟡 Phase 58 仍需删除 `assess_risk_and_approval` legacy route compatibility branch and related retained compatibility aliases after no-debt cleanup。
 
+## Phase 58 Plan 09 — approval retry 历史兼容命名从 current route authority 中移除 ✅已修复验证
+
+**问题 / 根因**
+- Phase 57 为支持历史 persisted edit retry，临时保留 `LEGACY_RISK_ROUTE = "assess_risk_and_approval"` 与 `_canonical_retry_resume_route(...)`。虽然实际 graph resume 已规范化到 `risk_gate`，但命名仍像 active graph route vocabulary，Phase 58 no-debt gate 下容易被误解为 current route authority。
+
+**影响**
+- 历史数据读取兼容和 current graph route authority 的边界不够清晰；后续维护者可能把 legacy route 当作新请求 / service payload 可用值，削弱 canonical-only `risk_gate` 约束。
+
+**处理状态**
+- ✅ 已修复验证。`src/api/routers/approvals.py` 删除 `LEGACY_RISK_ROUTE` 常量，改为 `HISTORICAL_RETRY_ROUTE_TO_CANONICAL = {"assess_risk_and_approval": CANONICAL_RISK_ROUTE}`。
+- ✅ 映射只在 `_terminal_decision_result_for_retry(...)` 读取 persisted `approval_decided` event metadata 后使用，且保留 approval/run/hash/snapshot/request/level/assignment version 校验在 resume payload 构造前执行。
+- ✅ `_should_resume_graph(...)` 和 API response payload 继续只放行 / 输出 canonical `risk_gate`；fresh/current legacy `resume_route` fail closed。
+
+**证据 / 验证**
+- 文件：`src/api/routers/approvals.py`、`tests/test_approval_api.py`
+- Phase / commit：58-09 Task 1 GREEN（本条所在提交）
+- RED evidence：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py::test_phase58_retry_route_compatibility_is_historical_persisted_data_read_only -q --tb=short` → `1 failed, 1 warning`
+- GREEN evidence：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py tests/approvals/test_needs_info_resume.py tests/approvals/test_service_transitions.py -q --tb=short` → `66 passed, 1 warning`
+
+**剩余风险**
+- 🟡 Task 2 仍需完成 graph/test 层 canonical-only route authority 证明，并确认 approval gate fixtures / graph routing tests 不再保留 legacy patch target 或 legacy graph route authority。
+
 ## Phase 57 Plan 03 — approval_gate trusted result validation 与新回合 approval authority 清空 ✅已修复验证
 
 **问题 / 根因**

@@ -18763,3 +18763,31 @@ RED 结果为 `3 failed, 19 passed, 1 skipped, 1 warning`。失败包括：Phase
 ### 剩余问题和下次继续排查入口
 
 本计划范围内无剩余阻塞。若后续 Phase 58 继续收敛 legacy graph-name 文档/测试分类，可从 `tests/architecture/test_phase33_rag_claim_boundaries.py::test_phase58_deleted_wrapper_imports_and_legacy_direct_test_paths_are_absent_from_current_refs` 和 `scripts/classify_phase58_legacy_hits.py --strict` 入手。
+
+## 2026-07-08：Phase 58-09 Task 1 RED guard 检出 approval retry 兼容命名仍像 current authority
+
+### 问题现象
+
+按 TDD 执行 Task 1 RED 时，新增 guard `test_phase58_retry_route_compatibility_is_historical_persisted_data_read_only` 失败，指出 `src/api/routers/approvals.py` 仍存在 `LEGACY_RISK_ROUTE` 常量。
+
+### 如何检测 / 复现
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py::test_phase58_retry_route_compatibility_is_historical_persisted_data_read_only -q --tb=short
+```
+
+### 关键证据或命令
+
+RED 结果为 `1 failed, 1 warning`，失败断言为 `assert "LEGACY_RISK_ROUTE" not in source`；命中代码是 `LEGACY_RISK_ROUTE = "assess_risk_and_approval"`。
+
+### 当前判断 / 根因
+
+这是 Phase 57 留给 Phase 58 的预期 cleanup 面：历史 persisted retry metadata 需要继续可读，但常量名和 `DELETE_BY_PHASE_58` 分支看起来仍像 active legacy graph route vocabulary，容易被后续实现误用为 current route authority。
+
+### 已做处理
+
+将兼容入口改名为 `HISTORICAL_RETRY_ROUTE_TO_CANONICAL`，只在 `_terminal_decision_result_for_retry(...)` 读取 persisted `approval_decided` event metadata 时映射到 canonical `risk_gate`；Task 1 focused suite 通过：`66 passed, 1 warning`。
+
+### 剩余问题和下次继续排查入口
+
+本条无剩余阻塞。若后续 approval retry / graph route authority 再出现 legacy route 命中，优先从 `src/api/routers/approvals.py::_historical_retry_resume_route_to_canonical`、`src/api/routers/approvals.py::_should_resume_graph` 和 `src/agent/graph.py::route_after_approval` 入手。

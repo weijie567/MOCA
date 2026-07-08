@@ -51,7 +51,7 @@ RESUME_RETRY_STATUSES = {"approved", "rejected", "cancelled", "superseded"}
 RESUME_INCOMPLETE_STATUSES = {"attempted", "failed"}
 ACTION_DRAFT_PERMISSION = "tool:create_coupon_grant_draft"
 CANONICAL_RISK_ROUTE = "risk_gate"
-LEGACY_RISK_ROUTE = "assess_risk_and_approval"  # DELETE_BY_PHASE_58: persisted historical retry metadata only.
+HISTORICAL_RETRY_ROUTE_TO_CANONICAL = {"assess_risk_and_approval": CANONICAL_RISK_ROUTE}
 
 
 @router.post("/{approval_id}/decide", response_model=ApiResponse)
@@ -577,7 +577,7 @@ async def _terminal_decision_result_for_retry(
     if decision.decision_type == "edit":
         edited_action = decision.edited_action_json
         new_action_payload_hash = resource_refs.get("new_action_payload_hash")
-        resume_route = _canonical_retry_resume_route(metadata.get("resume_route"))
+        resume_route = _historical_retry_resume_route_to_canonical(metadata.get("resume_route"))
         if (
             not edited_action
             or body.edited_action != edited_action
@@ -776,12 +776,12 @@ def _should_resume_graph(result) -> bool:
     return result.decision_type in {"accept", "approve", "reject", "ignore"}
 
 
-def _canonical_retry_resume_route(route: object) -> str | None:
+def _historical_retry_resume_route_to_canonical(route: object) -> str | None:
+    """Map persisted approval_decided retry metadata to current graph route authority."""
     if route == CANONICAL_RISK_ROUTE:
         return CANONICAL_RISK_ROUTE
-    if route == LEGACY_RISK_ROUTE:
-        # DELETE_BY_PHASE_58: server-side reconstruction of persisted pre-cutover edit retry metadata only.
-        return CANONICAL_RISK_ROUTE
+    if isinstance(route, str):
+        return HISTORICAL_RETRY_ROUTE_TO_CANONICAL.get(route)
     return None
 
 
