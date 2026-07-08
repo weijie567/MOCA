@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from src.agent.nodes.classify_intent import intent_result_to_state
+from src.agent.nodes.contextual_intent_resolve import intent_result_to_state
 from src.agent.intent_policy import detect_pre_route
 from src.agent.routing import missing_required_slots, route_after_contextual_intent, route_after_slot_resolution
 from src.agent.schemas import IntentResultV3

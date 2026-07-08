@@ -27,8 +27,8 @@ from src.agent.intent_policy import (
     resolve_risk_decision,
     resolve_risk_tier,
 )
-from src.agent.nodes import classify_intent as classify_intent_module
-from src.agent.nodes.classify_intent import intent_result_to_state
+from src.agent.nodes import contextual_intent_resolve as contextual_intent_module
+from src.agent.nodes.contextual_intent_resolve import intent_result_to_state
 from src.agent.routing import (
     CONTEXTUAL_INTENT_ROUTES,
     SLOT_ROUTES,
@@ -392,9 +392,9 @@ async def test_classifier_pre_route_wiring_for_approval_chat(monkeypatch, base_s
         "calibration_version": "calibration.unverified",
         "reason_codes": ["llm_read_only"],
     }
-    monkeypatch.setattr(classify_intent_module, "_get_llm", lambda: FakeLLM(payload))
+    monkeypatch.setattr(contextual_intent_module, "_get_llm", lambda: FakeLLM(payload))
 
-    update = await classify_intent_module.classify_intent({**base_state, "user_query": "approve APR-1"})
+    update = await contextual_intent_module.contextual_intent_resolve({**base_state, "user_query": "approve APR-1"})
 
     assert update["routing_hints"]["pre_route_disposition"] == "approval_chat_not_trusted"
     assert update["routing_hints"]["clarification_reason"] == "approval_chat_not_trusted"
@@ -545,12 +545,12 @@ def test_route_after_contextual_intent_fails_closed_for_registry_exception(monke
 
 def test_intent_consumers_do_not_read_policy_constants_directly():
     routing_source = inspect.getsource(routing_module)
-    classifier_source = inspect.getsource(classify_intent_module)
+    contextual_intent_source = inspect.getsource(contextual_intent_module)
 
     forbidden = ("DIRECT_RESPONSE_INTENTS", "INTENT_ROUTE_POLICY", "REQUIRED_SLOT_POLICY")
     for token in forbidden:
         assert token not in routing_source
-        assert token not in classifier_source
+        assert token not in contextual_intent_source
 
 
 def test_route_after_slot_resolution_totality_and_legacy_memory_hint_route():

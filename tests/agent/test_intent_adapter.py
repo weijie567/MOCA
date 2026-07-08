@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.agent.nodes.classify_intent import intent_result_to_state
+from src.agent.nodes.contextual_intent_resolve import intent_result_to_state
 from src.agent.schemas import IntentResultV3
 
 
@@ -33,7 +33,7 @@ def test_intent_result_to_state_uses_policy_required_slots_and_forbidden_writes(
     assert update["intent_confidence"] == 0.86
     assert update["required_slots"] == {"all_of": [], "any_of": [["order_id", "refund_case_id"]], "optional": []}
     assert update["candidate_slots"] == {"order_id": "ORD-1001"}
-    metadata = update["llm_outputs"]["intent_classification"]["eval_metadata"]
+    metadata = update["llm_outputs"]["contextual_intent_resolve"]["eval_metadata"]
     assert metadata["calibrated_confidence"] == 0.81
     assert metadata["llm_required_slots"]["all_of"] == ["forged_slot"]
     forbidden = {

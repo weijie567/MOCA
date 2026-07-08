@@ -11,7 +11,6 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agent.graph import build_graph
-from src.agent.nodes import classify_intent as classify_intent_module
 from src.agent.nodes import contextual_intent_resolve as contextual_intent_module
 from src.agent.nodes import memory_write as memory_write_module
 from src.agent.nodes.memory_write import memory_write
@@ -308,7 +307,6 @@ async def test_reviewed_memory_cannot_satisfy_policy_evidence_or_action_authorit
 ) -> None:
     payload = _intent("refund_troubleshooting")
     payload["routing_hints"] = {reviewed_memory_hint: True}
-    monkeypatch.setattr(classify_intent_module, "_get_llm", lambda: FakeLLM(payload))
     monkeypatch.setattr(contextual_intent_module, "_get_llm", lambda: FakeLLM(payload))
     _patch_reviewed_memory_services(
         monkeypatch,
@@ -341,7 +339,6 @@ async def test_reviewed_memory_cannot_satisfy_policy_evidence_or_action_authorit
         order_id="ORD-BOUNDARY-1",
         policy_status="no_evidence",
     )
-    monkeypatch.setattr(classify_intent_module, "_get_llm", lambda: FakeLLM(payload))
     monkeypatch.setattr(contextual_intent_module, "_get_llm", lambda: FakeLLM(payload))
     graph = build_graph(MemorySaver())
 
