@@ -421,7 +421,7 @@ async def test_agent_runs_memory_context_is_not_policy_business_action_or_replay
             "claim_id": "claim-policy-memory-context",
             "claim_text": "Policy allows compensation for ORD-MEMORY-CONTEXT.",
             "authority_class": "policy_claim",
-            "source_node": "generate_recommendation",
+            "source_node": "recommendation_generation",
             "cited_evidence_ids": ["policy-memory-context"],
         }
     )
@@ -430,7 +430,7 @@ async def test_agent_runs_memory_context_is_not_policy_business_action_or_replay
             "claim_id": "claim-business-memory-context",
             "claim_text": "Order ORD-MEMORY-CONTEXT is delivered.",
             "authority_class": "business_fact_claim",
-            "source_node": "generate_recommendation",
+            "source_node": "recommendation_generation",
             "business_fact_refs": [business_ref.model_dump(mode="json")],
         }
     )
@@ -439,7 +439,7 @@ async def test_agent_runs_memory_context_is_not_policy_business_action_or_replay
             "claim_id": "claim-action-memory-context",
             "claim_text": "Issue compensation for ORD-MEMORY-CONTEXT.",
             "authority_class": "action_recommendation_claim",
-            "source_node": "generate_recommendation",
+            "source_node": "recommendation_generation",
             "cited_evidence_ids": ["policy-memory-context"],
             "business_fact_refs": [business_ref.model_dump(mode="json")],
             "dependency_claim_ids": ["claim-policy-memory-context", "claim-business-memory-context"],
@@ -528,7 +528,7 @@ def test_contextual_only_memory_refs_reject_strict_authority_dto_parsing() -> No
                 "claim_id": "claim-memory-ref-as-business-fact-ref",
                 "claim_text": "Memory ref cannot satisfy a business fact claim.",
                 "authority_class": "business_fact_claim",
-                "source_node": "generate_recommendation",
+                "source_node": "recommendation_generation",
                 "business_fact_refs": [surfaces["ReviewedMemoryRef"]],
             }
         )
@@ -706,7 +706,7 @@ async def test_contextual_only_memory_refs_do_not_become_evidence_ref_v1_or_busi
             "claim_id": "claim-contextual-memory-not-policy-evidence",
             "claim_text": "Memory context says compensation is allowed.",
             "authority_class": "policy_claim",
-            "source_node": "generate_recommendation",
+            "source_node": "recommendation_generation",
             "cited_evidence_ids": ["session-context-ref-authority-boundary"],
         }
     )
@@ -715,7 +715,7 @@ async def test_contextual_only_memory_refs_do_not_become_evidence_ref_v1_or_busi
             "claim_id": "claim-contextual-memory-not-business-fact",
             "claim_text": "Memory context says order ORD-MEMORY is delivered.",
             "authority_class": "business_fact_claim",
-            "source_node": "generate_recommendation",
+            "source_node": "recommendation_generation",
             "business_fact_refs": [],
         }
     )
@@ -724,7 +724,7 @@ async def test_contextual_only_memory_refs_do_not_become_evidence_ref_v1_or_busi
             "claim_id": "claim-contextual-memory-not-action-authority",
             "claim_text": "Issue compensation based on contextual memory.",
             "authority_class": "action_recommendation_claim",
-            "source_node": "generate_recommendation",
+            "source_node": "recommendation_generation",
             "cited_evidence_ids": ["session-context-ref-authority-boundary"],
             "business_fact_refs": [],
             "dependency_claim_ids": [

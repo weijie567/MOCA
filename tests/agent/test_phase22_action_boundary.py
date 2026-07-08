@@ -8,7 +8,7 @@ import pytest
 
 from src.agent.graph import route_after_risk
 from src.agent.nodes.action_draft import action_draft
-from src.agent.nodes import risk_gate as assess_risk_module
+from src.agent.nodes import risk_gate as risk_gate_module
 from src.approvals.snapshots import build_action_safety_snapshot
 from src.knowledge.config import RETRIEVAL_CONFIG_VERSION
 from src.knowledge.schemas import EvidenceRefV1
@@ -218,9 +218,9 @@ async def test_non_allow_verifier_outcomes_block_proposed_actions_and_snapshot_e
     route: str,
 ) -> None:
     """RTE-04: non-allow status leaves proposed action, approval, and snapshot state absent."""
-    monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: ExplodingRiskLLM())
+    monkeypatch.setattr(risk_gate_module, "_get_llm", lambda: ExplodingRiskLLM())
 
-    result = await assess_risk_module.risk_gate(
+    result = await risk_gate_module.risk_gate(
         _actionable_state(base_state, outcome=outcome, route=route),
         {"configurable": {"session": object()}},
     )
@@ -242,7 +242,7 @@ async def test_non_allow_risk_assessment_clears_same_turn_stale_snapshot_binding
     base_state: dict[str, Any],
 ) -> None:
     """RTE-04: non-allow verifier updates must clear any stale action binding in state merge."""
-    monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: ExplodingRiskLLM())
+    monkeypatch.setattr(risk_gate_module, "_get_llm", lambda: ExplodingRiskLLM())
     state = {
         **_actionable_state(base_state, outcome="latest_version_invalid", route="refuse"),
         "proposed_action": {"action_type": "issue_coupon"},
@@ -254,7 +254,7 @@ async def test_non_allow_risk_assessment_clears_same_turn_stale_snapshot_binding
         "safety_snapshot_verified": True,
     }
 
-    result = await assess_risk_module.risk_gate(
+    result = await risk_gate_module.risk_gate(
         state,
         {"configurable": {"session": object()}},
     )
@@ -284,7 +284,7 @@ async def test_claim_bundle_blockers_clear_same_turn_action_capable_state(
     bundle: dict[str, Any],
 ) -> None:
     """APF-14: claim bundle blockers are authoritative even when legacy route is allow."""
-    monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: ExplodingRiskLLM())
+    monkeypatch.setattr(risk_gate_module, "_get_llm", lambda: ExplodingRiskLLM())
     state = {
         **_claim_verified_actionable_state(base_state, bundle),
         "proposed_action": {"action_type": "issue_coupon"},
@@ -297,7 +297,7 @@ async def test_claim_bundle_blockers_clear_same_turn_action_capable_state(
         "safety_snapshot_verified": True,
     }
 
-    result = await assess_risk_module.risk_gate(
+    result = await risk_gate_module.risk_gate(
         state,
         {"configurable": {"session": object()}},
     )
@@ -320,13 +320,13 @@ async def test_action_claim_result_disallowing_action_blocks_risk_and_snapshots(
     base_state: dict[str, Any],
 ) -> None:
     """APF-14: action claim results with allows_action_recommendation=False fail closed."""
-    monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: ExplodingRiskLLM())
+    monkeypatch.setattr(risk_gate_module, "_get_llm", lambda: ExplodingRiskLLM())
     bundle = _claim_bundle(
         claim_results=[_claim_result(allows_action_recommendation=False)],
         safe_support_refs=[_evidence_ref(base_state["tenant_id"])],
     )
 
-    result = await assess_risk_module.risk_gate(
+    result = await risk_gate_module.risk_gate(
         _claim_verified_actionable_state(base_state, bundle),
         {"configurable": {"session": object()}},
     )
@@ -344,7 +344,7 @@ async def test_missing_positive_action_claim_blocks_approval_edit_risk_reentry(
     base_state: dict[str, Any],
 ) -> None:
     """APF-14: approval edit re-entry still requires a positive action claim allowance."""
-    monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: ExplodingRiskLLM())
+    monkeypatch.setattr(risk_gate_module, "_get_llm", lambda: ExplodingRiskLLM())
     run_id = str(uuid4())
     edited_action = {
         "schema_version": "proposed_action.v1",
@@ -371,7 +371,7 @@ async def test_missing_positive_action_claim_blocks_approval_edit_risk_reentry(
             "status": "superseded",
             "edited_action": edited_action,
             "new_action_payload_hash": "sha256:" + "3" * 64,
-            "resume_route": "assess_risk_and_approval",
+            "resume_route": "risk_gate",
         },
         "action_payload_hash": ACTION_HASH,
         "safety_snapshot_ref": "snapshot:test",
@@ -379,7 +379,7 @@ async def test_missing_positive_action_claim_blocks_approval_edit_risk_reentry(
         "safety_snapshot_verified": True,
     }
 
-    result = await assess_risk_module.risk_gate(
+    result = await risk_gate_module.risk_gate(
         state,
         {"configurable": {"session": object()}},
     )
@@ -402,7 +402,7 @@ async def test_candidate_only_retrieved_evidence_refs_do_not_bind_action_snapsho
 ) -> None:
     """APF-13/APF-14: candidate-only retrieved_evidence refs are not action snapshot evidence."""
     monkeypatch.setattr(
-        assess_risk_module,
+        risk_gate_module,
         "_get_llm",
         lambda: _AllowingRiskLLM(
             {
@@ -421,7 +421,7 @@ async def test_candidate_only_retrieved_evidence_refs_do_not_bind_action_snapsho
         "retrieved_evidence": {"evidence_refs": [candidate_ref]},
     }
 
-    result = await assess_risk_module.risk_gate(state)
+    result = await risk_gate_module.risk_gate(state)
 
     proposed_refs = (result.get("proposed_action") or {}).get("evidence_refs") or []
     assert candidate_ref["evidence_id"] not in {ref.get("evidence_id") for ref in proposed_refs}

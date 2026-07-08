@@ -18690,3 +18690,46 @@ perl -0pi -e 's/contextual_intent_module/contextual_intent_resolve_module/g; s/g
 ### 剩余问题和下次继续排查入口
 
 本计划范围内无剩余问题。若后续再次使用 Perl/系统工具出现相同警告，可先检查当前 shell 的 `LC_ALL`、`LC_CTYPE`、`LANG`，或改用 `apply_patch` 做小范围编辑。
+
+## 2026-07-08：Phase 58-07 Task 1 本地工具和验证警告
+
+### 问题现象
+
+执行 58-07 Task 1 GREEN 前的批量测试重命名时，`perl -0pi` 再次输出 locale 警告；随后 Task 1 focused pytest 通过，但仍有非阻塞 warnings：
+
+```text
+perl: warning: Setting locale failed.
+perl: warning: Falling back to a fallback locale ("zh_CN.UTF-8").
+56 passed, 8 warnings
+```
+
+### 如何检测 / 复现
+
+运行过的编辑命令包括：
+
+```bash
+perl -0pi -e 's/generate_recommendation_module/recommendation_generation_module/g' tests/agent/test_phase22_recommendation_integration.py
+perl -0pi -e 's/assess_risk_module/risk_gate_module/g; s/"assess_risk_and_approval"/"risk_gate"/g' tests/agent/test_phase22_action_boundary.py
+```
+
+验证命令：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_phase22_recommendation_integration.py tests/agent/test_phase22_action_boundary.py tests/test_interception_rate.py tests/knowledge/test_facade_integration.py tests/agent/test_memory_evidence_boundary.py -q --tb=short
+```
+
+### 关键证据或命令
+
+`perl` 命令退出码为 0，后续 `rg` 确认 Task 1 计划内 legacy patch alias 和 legacy `source_node` / `resume_route` 测试数据已清理。pytest 结果为 `56 passed, 8 warnings`；warnings 包括 LangGraph/LangChain deprecation、`src/memory/session_bundle.py:77` 的 `AsyncMock` coroutine 未 await runtime warning，以及 `src/agent/graph.py:276` 的 config typing warning。
+
+### 当前判断 / 根因
+
+`perl` 警告与 58-06 已记录的本机 locale 配置问题一致，不影响文件替换。pytest warnings 属于既有测试环境/依赖提示，本次测试 retargeting 没有修改对应生产代码路径；Task 1 验证已通过，不构成本计划阻塞。
+
+### 已做处理
+
+确认替换结果正确，并使用 MOCA 批准入口完成 Task 1 focused pytest。未修改全局 locale、LangGraph 配置或 memory session bundle 行为，避免把既有非阻塞警告混入 Plan 58-07 范围。
+
+### 剩余问题和下次继续排查入口
+
+本计划范围内无剩余阻塞。若后续要消除 warnings，可分别从本机 `LC_ALL` / `LC_CTYPE` 设置、`src/memory/session_bundle.py:77` 的 AsyncMock fixture 使用方式、以及 `src/agent/graph.py` 的 LangGraph node config typing 入手。

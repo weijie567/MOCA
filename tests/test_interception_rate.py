@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from src.agent.graph import route_after_risk
-from src.agent.nodes import risk_gate as risk_node
+from src.agent.nodes import risk_gate as risk_gate_module
 from src.agent.nodes.risk_gate import risk_gate
 from src.agent.schemas import RiskAssessment
 from src.agent.state import AgentState
@@ -15,7 +15,7 @@ from src.agent.state import AgentState
 pytestmark = pytest.mark.asyncio
 
 
-def test_phase58_interception_rate_patches_canonical_risk_gate_module() -> None:
+async def test_phase58_interception_rate_patches_canonical_risk_gate_module() -> None:
     source = Path(__file__).read_text(encoding="utf-8")
     legacy_alias = "risk_" "node"
 
@@ -41,7 +41,7 @@ class _LowRiskLLM:
 
 @pytest.fixture(autouse=True)
 def mock_risk_llm(monkeypatch):
-    monkeypatch.setattr(risk_node, "_get_llm", lambda: _LowRiskLLM())
+    monkeypatch.setattr(risk_gate_module, "_get_llm", lambda: _LowRiskLLM())
 
 
 async def test_hr01_compensation_over_500_requires_approval():

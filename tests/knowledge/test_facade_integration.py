@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from src.agent.nodes.claim_verify import claim_verify
-from src.agent.nodes import recommendation_generation as recommendation_module
+from src.agent.nodes import recommendation_generation as recommendation_generation_module
 from src.agent.nodes.investigate import investigate
 from src.agent.nodes.final_response import final_response
 from src.agent.nodes.rag_context_build import rag_context_build
@@ -28,7 +28,7 @@ from tests.agent.conftest import FakeLLM
 TENANT_ID = "11111111-1111-1111-1111-111111111111"
 
 
-def test_phase58_facade_integration_patches_canonical_recommendation_module() -> None:
+def test_phase58_facade_integration_patches_canonical_recommendation_generation_module() -> None:
     source = Path(__file__).read_text(encoding="utf-8")
     legacy_alias = "recommendation_" "module"
 
@@ -213,12 +213,12 @@ async def _run_path(
 ) -> dict:
     if recommendation is None:
         monkeypatch.setattr(
-            recommendation_module,
+            recommendation_generation_module,
             "_get_llm",
             lambda: pytest.fail("LLM must not run for a retrieval safety draft"),
         )
     else:
-        monkeypatch.setattr(recommendation_module, "_get_llm", lambda: FakeLLM(recommendation))
+        monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: FakeLLM(recommendation))
 
     class FakePolicyKnowledgeService:
         async def build_verified_context(self, *, candidate_evidence_refs, knowledge_context, **_kwargs):
@@ -335,7 +335,7 @@ async def _run_path(
     state.update(investigate_output)
     rag_context_output = await rag_context_build(state, {"configurable": configurable})
     state.update(rag_context_output)
-    recommendation_output = await recommendation_module.recommendation_generation(
+    recommendation_output = await recommendation_generation_module.recommendation_generation(
         state,
         {"configurable": configurable},
     )
