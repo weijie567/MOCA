@@ -28,6 +28,8 @@ from src.db.models import (
     ApprovalRequest,
     ConversationMessage,
     ConversationSummary,
+    ConversationThread,
+    MemoryWriteEvent,
     User,
 )
 from src.knowledge.schemas import EvidenceRefV1
@@ -244,6 +246,14 @@ async def _mark_run_business_merchant(session: AsyncSession, run_id: UUID, bindi
 async def _count_rows(session: AsyncSession, model, *filters) -> int:
     result = await session.execute(select(func.count()).select_from(model).where(*filters))
     return int(result.scalar_one())
+
+
+async def _messages_for_run(session: AsyncSession, *, run_id: UUID, role: str | None = None) -> list[ConversationMessage]:
+    filters = [ConversationMessage.run_id == run_id, ConversationMessage.deleted_at.is_(None)]
+    if role is not None:
+        filters.append(ConversationMessage.role == role)
+    result = await session.execute(select(ConversationMessage).where(*filters).order_by(ConversationMessage.message_index))
+    return list(result.scalars().all())
 
 
 async def _finalizer_steps(session: AsyncSession, *, run_id: UUID) -> list[AgentStep]:
@@ -550,10 +560,22 @@ async def test_decide_records_recoverable_resume_failure_and_retries_terminal_ap
     monkeypatch,
 ):
     bundle = await _create_approval(session, seeded_session, thread_id="thread-resume-retry")
-    graph = FakeResumeGraph("approved response")
+    refund_case = seeded_session["refund_case"]
+    graph = FakeResumeGraph(
+        "approved response",
+        extra_state={
+            "primary_intent": "refund_status",
+            "approval_result": {"status": "approved", "decision_type": "approve"},
+            "risk_assessment": {"approval_required": True, "risk_level": "high"},
+            "active_slots": {
+                "refund_case_id": refund_case.refund_case_no,
+                "issue_type": "refund_status",
+            },
+            "extracted_slots": {"refund_case_id": refund_case.refund_case_no},
+        },
+    )
     headers = await _admin_headers(client)
     decision_body = _decision_body(bundle, "approve")
-    captured_memory_states: list[dict] = []
     original_record_resume_event = approvals_router._record_resume_event
     fail_completed_event_once = True
 
@@ -564,7 +586,6 @@ async def test_decide_records_recoverable_resume_failure_and_retries_terminal_ap
             raise RuntimeError("simulated completed resume event failure")
         return await original_record_resume_event(**kwargs)
 
-    _patch_completed_memory_write(monkeypatch, captured_memory_states)
     monkeypatch.setattr(approvals_router, "_record_resume_event", fail_completed_resume_event_once)
     monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
 
@@ -596,7 +617,6 @@ async def test_decide_records_recoverable_resume_failure_and_retries_terminal_ap
     assert run.final_status == "completed"
     assert {"attempted", "failed"} <= resume_statuses
     assert "completed" not in resume_statuses
-    assert captured_memory_states
     assert len(await _finalizer_steps(session, run_id=bundle.approval.run_id)) == 1
     assert (
         await _count_rows(
@@ -604,6 +624,26 @@ async def test_decide_records_recoverable_resume_failure_and_retries_terminal_ap
             ConversationMessage,
             ConversationMessage.run_id == bundle.approval.run_id,
             ConversationMessage.role == "assistant",
+        )
+        == 1
+    )
+    assert (
+        await _count_rows(
+            session,
+            ConversationSummary,
+            ConversationSummary.thread_id == run.thread_id,
+            ConversationSummary.summary_type == "thread_rolling",
+            ConversationSummary.deleted_at.is_(None),
+        )
+        == 1
+    )
+    assert (
+        await _count_rows(
+            session,
+            MemoryWriteEvent,
+            MemoryWriteEvent.run_id == bundle.approval.run_id,
+            MemoryWriteEvent.memory_type == "session_slot",
+            MemoryWriteEvent.decision == "write",
         )
         == 1
     )
@@ -634,6 +674,36 @@ async def test_decide_records_recoverable_resume_failure_and_retries_terminal_ap
     assert completed_statuses.count("completed") == 1
     assert len(graph.calls) == 1
     assert len(await _finalizer_steps(session, run_id=bundle.approval.run_id)) == 1
+    assert (
+        await _count_rows(
+            session,
+            ConversationMessage,
+            ConversationMessage.run_id == bundle.approval.run_id,
+            ConversationMessage.role == "assistant",
+            ConversationMessage.deleted_at.is_(None),
+        )
+        == 1
+    )
+    assert (
+        await _count_rows(
+            session,
+            ConversationSummary,
+            ConversationSummary.thread_id == run.thread_id,
+            ConversationSummary.summary_type == "thread_rolling",
+            ConversationSummary.deleted_at.is_(None),
+        )
+        == 1
+    )
+    assert (
+        await _count_rows(
+            session,
+            MemoryWriteEvent,
+            MemoryWriteEvent.run_id == bundle.approval.run_id,
+            MemoryWriteEvent.memory_type == "session_slot",
+            MemoryWriteEvent.decision == "write",
+        )
+        == 1
+    )
     assert (
         await _count_rows(
             session,
@@ -1045,6 +1115,7 @@ async def test_decide_edit_rebinds_replacement_approval_from_resume_interrupt(
         == 0
     )
     assert await _count_rows(session, ConversationSummary, ConversationSummary.thread_id == run.thread_id) == 0
+    assert await _count_rows(session, MemoryWriteEvent, MemoryWriteEvent.run_id == bundle.approval.run_id) == 0
     assert len(await _finalizer_steps(session, run_id=bundle.approval.run_id)) == 0
 
 
@@ -1638,23 +1709,21 @@ async def test_list_pending_approvals_rejects_over_scoped_non_reviewer_token(
 
 
 @pytest.mark.asyncio
-async def test_agent_run_status_updates_to_completed_after_service_resume(
+async def test_approval_resume_completed_runs_terminal_memory_finalizer(
     client: AsyncClient,
     session: AsyncSession,
     seeded_session,
     monkeypatch,
 ):
     bundle = await _create_approval(session, seeded_session, thread_id="thread-completed-finalizer")
-    admin = seeded_session["users"]["admin_user"]
     refund_case = seeded_session["refund_case"]
-    captured_memory_states: list[dict] = []
-    _patch_completed_memory_write(monkeypatch, captured_memory_states)
     monkeypatch.setattr(
         app.state,
         "agent_graph",
         FakeResumeGraph(
             "approved final",
             extra_state={
+                "primary_intent": "refund_status",
                 "approval_result": {"status": "approved", "decision_type": "approve"},
                 "approval_required": True,
                 "risk_assessment": {
@@ -1666,6 +1735,7 @@ async def test_agent_run_status_updates_to_completed_after_service_resume(
                     "refund_case_id": refund_case.refund_case_no,
                     "issue_type": "refund_status",
                 },
+                "extracted_slots": {"refund_case_id": refund_case.refund_case_no},
             },
         ),
         raising=False,
@@ -1683,25 +1753,13 @@ async def test_agent_run_status_updates_to_completed_after_service_resume(
     assert run.final_status == "completed"
     assert run.final_response == "approved final"
     assert run.total_latency_ms >= 10
-    assert captured_memory_states
-    assert captured_memory_states[0]["user_id"] == str(bundle.approval.requested_by)
-    assert captured_memory_states[0]["user_id"] != str(admin.id)
-    assert "approval_result" not in captured_memory_states[0]
-    assert "approval_required" not in captured_memory_states[0]
-    assert captured_memory_states[0]["risk_assessment"] == {
-        "risk_level": "high",
-        "risk_reason": "manual approval completed",
-    }
-    assert (
-        await _count_rows(
-            session,
-            ConversationMessage,
-            ConversationMessage.run_id == bundle.approval.run_id,
-            ConversationMessage.role == "assistant",
-            ConversationMessage.deleted_at.is_(None),
-        )
-        == 1
-    )
+    assistant_messages = await _messages_for_run(session, run_id=bundle.approval.run_id, role="assistant")
+    assert len(assistant_messages) == 1
+    message_thread = await session.get(ConversationThread, assistant_messages[0].conversation_thread_id)
+    assert message_thread is not None
+    assert message_thread.user_id == run.user_id
+    assert assistant_messages[0].metadata_json["source"] == "agent_runs.finalizer"
+    assert assistant_messages[0].metadata_json["status"] == "completed"
     assert (
         await _count_rows(
             session,
@@ -1712,10 +1770,26 @@ async def test_agent_run_status_updates_to_completed_after_service_resume(
         )
         == 1
     )
+    memory_events = (
+        (
+            await session.execute(
+                select(MemoryWriteEvent).where(
+                    MemoryWriteEvent.run_id == bundle.approval.run_id,
+                    MemoryWriteEvent.memory_type == "session_slot",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(memory_events) == 1
+    assert memory_events[0].decision == "write"
     finalizer_steps = await _finalizer_steps(session, run_id=bundle.approval.run_id)
     assert len(finalizer_steps) == 1
     metrics = finalizer_steps[0].metrics_json or {}
     assert metrics["memory_write_status"] == "completed"
+    assert metrics["memory_write_reason_code"] != "not_completed_path"
+    assert "case_working_context_status" in metrics
     assert metrics["case_working_context_status"] in {"written", "skipped", "error", "conflict"}
 
 
