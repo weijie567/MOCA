@@ -489,13 +489,13 @@ async def mock_graph(monkeypatch, mock_llm_responses, session: AsyncSession, see
 
     import src.agent.nodes.claim_verify as claim_verify_node
     import src.agent.nodes.contextual_intent_resolve as contextual_intent_node
-    import src.agent.nodes.extract_slots as extract_node
     import src.agent.nodes.investigate as investigate_node
     import src.agent.nodes.recommendation_generation as recommendation_node
     import src.agent.nodes.risk_gate as assess_node
+    import src.agent.nodes.slot_resolution_gate as slot_resolution_node
 
     monkeypatch.setattr(contextual_intent_node, "_get_llm", lambda: fake_llm)
-    monkeypatch.setattr(extract_node, "_get_llm", lambda: fake_llm)
+    monkeypatch.setattr(slot_resolution_node, "_get_llm", lambda: fake_llm)
     monkeypatch.setattr(recommendation_node, "_get_llm", lambda: fake_llm)
     monkeypatch.setattr(assess_node, "_get_llm", lambda: fake_llm)
     monkeypatch.setattr(

@@ -8,11 +8,14 @@ from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
+from src.agent.context import ContextAssembler, PromptAssembly, project_candidate_slot_hints_for_prompt
+from src.agent.context.session_memory_bundle import load_session_prompt_context
 from src.agent.graph_vocabulary import target_graph_name
-from src.agent.nodes.extract_slots import _assemble_slot_prompt, _messages_chars
+from src.agent.prompts import EXTRACT_SLOTS_SYSTEM
 from src.agent.routing import resolve_slots_with_provenance
 from src.agent.schemas import SlotExtractionResult
 from src.agent.state import AgentState
+from src.agent.working_state import project_working_state
 from src.config import settings
 
 
@@ -190,3 +193,31 @@ def _llm_error_resolution(state: AgentState) -> dict[str, Any]:
     resolution["route_decision"] = "clarification_gate"
     resolution["slot_resolution_trace"] = trace
     return resolution
+
+
+async def _assemble_slot_prompt(state: AgentState, config: RunnableConfig | None) -> PromptAssembly:
+    candidate_slots = state.get("candidate_slots")
+    node_hints = (
+        project_candidate_slot_hints_for_prompt(candidate_slots)
+        if isinstance(candidate_slots, dict) and candidate_slots
+        else ""
+    )
+    prompt_context = await load_session_prompt_context(state, config)
+    return ContextAssembler().assemble(
+        system_prompt=EXTRACT_SLOTS_SYSTEM,
+        current_user_message=str(state.get("normalized_query") or state.get("user_query") or ""),
+        working_state=project_working_state(state),
+        thread_rolling_summary=prompt_context["thread_rolling_summary"],
+        recent_messages=prompt_context["recent_messages"],
+        verified_policy_snippets=[],
+        profile_memory_snippets=state.get("long_term_memory") or [],
+        case_memory_snippets=state.get("case_memory") or [],
+        tool_result_summaries=prompt_context["tool_result_summaries"],
+        business_context={},
+        memory_context_bundle=state.get("session_context_bundle"),
+        node_hints=node_hints,
+    )
+
+
+def _messages_chars(messages: list[dict[str, str]]) -> int:
+    return sum(len(message.get("content") or "") for message in messages)

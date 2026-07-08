@@ -445,13 +445,13 @@ async def test_disabled_and_unavailable_session_memory_fall_back_to_clarificatio
 
 
 @pytest.mark.asyncio
-async def test_extract_slots_loads_agent_runs_prompt_context_from_trusted_config(
+async def test_slot_resolution_gate_loads_agent_runs_prompt_context_from_trusted_config(
     seeded_session: dict,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from types import SimpleNamespace
 
-    from src.agent.nodes import extract_slots as extract_slots_module
+    from src.agent.nodes import slot_resolution_gate as slot_resolution_gate_module
     from tests.agent.conftest import FakeLLM
 
     user = seeded_session["users"]["cs_zhang"]
@@ -486,15 +486,15 @@ async def test_extract_slots_loads_agent_runs_prompt_context_from_trusted_config
                 ],
             )
 
-    original_assemble = extract_slots_module.ContextAssembler.assemble
+    original_assemble = slot_resolution_gate_module.ContextAssembler.assemble
 
     def spy_assemble(self, **kwargs):
         assemblies.append(kwargs)
         return original_assemble(self, **kwargs)
 
-    monkeypatch.setattr(extract_slots_module.ContextAssembler, "assemble", spy_assemble)
+    monkeypatch.setattr(slot_resolution_gate_module.ContextAssembler, "assemble", spy_assemble)
     monkeypatch.setattr(
-        extract_slots_module,
+        slot_resolution_gate_module,
         "_get_llm",
         lambda: FakeLLM(
             {
@@ -509,7 +509,7 @@ async def test_extract_slots_loads_agent_runs_prompt_context_from_trusted_config
         ),
     )
 
-    result = await extract_slots_module.extract_slots(
+    result = await slot_resolution_gate_module.slot_resolution_gate(
         _state(user, "当前订单是 ORD-CURRENT-001，继续处理这个退款", thread_id, run_id=run_id),
         {
             "configurable": {
@@ -531,10 +531,10 @@ async def test_extract_slots_loads_agent_runs_prompt_context_from_trusted_config
         }
     ]
     assert result["active_slots"]["order_id"] == "ORD-CURRENT-001"
-    assert result["trace_steps"][-1]["node"] == "extract_slots"
+    assert result["trace_steps"][-1]["node"] == "slot_resolution_gate"
     projected_step = project_trace_step_for_contract(result["trace_steps"][-1])
     assert projected_step["target_node"] == "slot_resolution_gate"
-    assert projected_step["target_graph_status"] == "historical_projection"
+    assert projected_step["target_graph_status"] == "runtime"
     assert assemblies
     assembly_kwargs = assemblies[0]
     assert assembly_kwargs["thread_rolling_summary"] == "Prior summary mentions ORD-PRIOR-001."
