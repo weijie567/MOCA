@@ -18969,3 +18969,55 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph
 ### 剩余问题和下次继续排查入口
 
 无代码问题。后续针对 agent 新增测试做 focused pytest 前，先用 `rg -n "关键词" tests/...` 确认真实 node id。
+
+## 2026-07-08：Phase 58 code-review-fix 后 phase.complete 再次写坏 STATE 进度
+
+### 问题现象
+
+code-review-fix 收尾后复跑 `gsd-sdk query phase.complete "58"` 验证 phase completion。命令返回 JSON 显示 Phase 58 `10/10` plans、无 warnings，但同时把 `.planning/STATE.md` 写成不一致状态：`completed_phases: 24`、`total_phases: 23`、`percent: 104`，并把 Current Position 改回 `Plan: Not started`。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run gsd-sdk query phase.complete "58"
+git diff -- .planning/STATE.md
+```
+
+### 关键证据或命令
+
+`phase.complete` 输出本身为成功：
+
+```json
+{
+  "completed_phase": "58",
+  "plans_executed": "10/10",
+  "is_last_phase": true,
+  "warnings": [],
+  "has_warnings": false
+}
+```
+
+但 STATE diff 显示：
+
+```diff
+-  completed_phases: 23
++  completed_phases: 24
+-  percent: 100
++  percent: 104
+-Plan: 10 of 10
++Plan: Not started
+```
+
+### 当前判断 / 根因
+
+这是 GSD `phase.complete` metadata handler 在 last-phase / milestone-complete 场景下的计数和 Current Position 同步 bug，不是 Phase 58 completion 失败。ROADMAP/REQUIREMENTS/phase.complete JSON 仍确认 Phase 58 已完成。
+
+### 已做处理
+
+手动把 `.planning/STATE.md` 修回已验证状态：`completed_phases: 23`、`percent: 100`、`Phase: 58 — COMPLETE`、`Plan: 10 of 10`、`Status: Milestone complete; Phase 58 / CAGM-09 verification passed`。
+
+### 剩余问题和下次继续排查入口
+
+后续在 milestone closeout 前，如果再次运行 `gsd-sdk query phase.complete "58"`，必须检查 `.planning/STATE.md` 是否又被改成 `24/23` 或 `Plan: Not started`。根因入口是 GSD `phase.complete` handler 的 milestone-complete state reconciliation。
