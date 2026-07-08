@@ -113,7 +113,7 @@ UV_CACHE_DIR=/tmp/uv-cache uv run ruff check \
 npm --prefix frontend run build
 npm --prefix frontend run test
 UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict
-git ls-files --error-unmatch moca.egg-info/SOURCES.txt >/dev/null 2>&1 && ! rg -n "src/agent/nodes/(generate_recommendation|assess_risk_and_approval|classify_intent|session_memory_load|extract_slots|long_term_memory_retrieve)\\.py|tests/agent/test_nodes/test_(generate_recommendation|assess_risk_and_approval|classify_intent|extract_slots)\\.py|tests/agent/test_session_memory_load\\.py" moca.egg-info/SOURCES.txt || ! git ls-files --error-unmatch moca.egg-info/SOURCES.txt >/dev/null 2>&1
+UV_CACHE_DIR=/tmp/uv-cache uv run python -c "from pathlib import Path; import re, subprocess; tracked=subprocess.run(['git','ls-files','--error-unmatch','moca.egg-info/SOURCES.txt'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0; path=Path('moca.egg-info/SOURCES.txt'); forbidden=re.compile(r'src/agent/nodes/(generate_recommendation|assess_risk_and_approval|classify_intent|session_memory_load|extract_slots|long_term_memory_retrieve)\\.py|tests/agent/test_nodes/test_(generate_recommendation|assess_risk_and_approval|classify_intent|extract_slots)\\.py|tests/agent/test_session_memory_load\\.py'); hits=[] if not tracked or not path.exists() else [(line_no, line) for line_no, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1) if forbidden.search(line)]; assert not hits, hits; print(f'phase58-metadata-proof: tracked={tracked} stale_hits={len(hits)}')"
 UV_CACHE_DIR=/tmp/uv-cache uv run git diff --check
 ```
 
