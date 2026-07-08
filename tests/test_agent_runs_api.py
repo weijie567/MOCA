@@ -1010,6 +1010,94 @@ async def test_terminal_memory_write_applies_approval_marker_sanitizer(monkeypat
     assert captured_state["final_response"] == "审批后已完成。"
 
 
+@pytest.mark.asyncio
+async def test_persist_agent_run_memory_finalize_trace_steps_is_idempotent(
+    session: AsyncSession,
+    seeded_session,
+) -> None:
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="completed")
+    await session.commit()
+    prior_trace_steps = [_trace("receive_request"), _trace("final_response")]
+    finalizer_trace_steps = [
+        {
+            "node": agent_run_memory_service.FINALIZER_NODE,
+            "status": "completed",
+            "started_at": datetime.now(UTC).isoformat(),
+            "completed_at": datetime.now(UTC).isoformat(),
+            "metrics_json": {"memory_write_status": "completed"},
+        }
+    ]
+
+    assert hasattr(agent_run_memory_service, "persist_agent_run_memory_finalize_trace_steps")
+    await agent_run_memory_service.persist_agent_run_memory_finalize_trace_steps(
+        session=session,
+        run=run,
+        prior_trace_steps=prior_trace_steps,
+        finalizer_trace_steps=finalizer_trace_steps,
+    )
+    await agent_run_memory_service.persist_agent_run_memory_finalize_trace_steps(
+        session=session,
+        run=run,
+        prior_trace_steps=prior_trace_steps,
+        finalizer_trace_steps=finalizer_trace_steps,
+    )
+
+    finalizer_steps = (
+        await session.execute(
+            select(AgentStep).where(
+                AgentStep.run_id == run.id,
+                AgentStep.node_name == agent_run_memory_service.FINALIZER_NODE,
+            )
+        )
+    ).scalars().all()
+    assert len(finalizer_steps) == 1
+    assert finalizer_steps[0].step_index == len(prior_trace_steps)
+    assert finalizer_steps[0].metrics_json == {"memory_write_status": "completed"}
+
+
+@pytest.mark.asyncio
+async def test_persist_agent_run_memory_finalize_trace_steps_rolls_back_and_suppresses_append_failure(
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+) -> None:
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="completed")
+    await session.commit()
+
+    async def fail_append_agent_steps(*args, **kwargs):
+        raise RuntimeError("simulated finalizer trace append failure")
+
+    monkeypatch.setattr(agent_run_memory_service, "append_agent_steps", fail_append_agent_steps, raising=False)
+
+    assert hasattr(agent_run_memory_service, "persist_agent_run_memory_finalize_trace_steps")
+    await agent_run_memory_service.persist_agent_run_memory_finalize_trace_steps(
+        session=session,
+        run=run,
+        prior_trace_steps=[_trace("final_response")],
+        finalizer_trace_steps=[
+            {
+                "node": agent_run_memory_service.FINALIZER_NODE,
+                "status": "completed",
+                "started_at": datetime.now(UTC).isoformat(),
+                "completed_at": datetime.now(UTC).isoformat(),
+            }
+        ],
+    )
+
+    assert await _count_rows(session, AgentRun, AgentRun.id == run.id) == 1
+    assert (
+        await _count_rows(
+            session,
+            AgentStep,
+            AgentStep.run_id == run.id,
+            AgentStep.node_name == agent_run_memory_service.FINALIZER_NODE,
+        )
+        == 0
+    )
+
+
 async def _create_run(
     session: AsyncSession,
     *,
