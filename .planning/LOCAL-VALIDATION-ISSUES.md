@@ -19691,3 +19691,46 @@ JSON 输出显示：
 ### 剩余问题和下次继续排查入口
 
 无产品代码剩余问题。继续 milestone close 前重跑 `audit-open`，确认 open artifact count 为 0。
+
+## 2026-07-08：v2.1 milestone complete 的 gsd-sdk query 路由失败并触发 STATE 字段警告
+
+### 问题现象
+
+运行 `$gsd-complete-milestone` 时，优先尝试的 SDK query 入口没有完成归档，返回 `version required for phases archive`。随后改用底层 `gsd-tools.cjs milestone complete` 可以完成归档，但输出 `STATE.md field "Last Activity Description" not found — update skipped` 警告。
+
+### 如何检测 / 复现
+
+```bash
+/Users/ming/.codex/get-shit-done/bin/gsd-sdk query milestone.complete v2.1 --name "Core Subsystem Hardening"
+node /Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs milestone complete v2.1 --name "Core Subsystem Hardening"
+```
+
+### 关键证据或命令
+
+SDK query 输出：
+
+```json
+{"completed": false, "reason": "GSDError: version required for phases archive"}
+```
+
+底层 CJS 命令输出包含：
+
+```text
+Warning: STATE.md field "Last Activity Description" not found — update skipped
+```
+
+并成功生成 `.planning/milestones/v2.1-ROADMAP.md`、`.planning/milestones/v2.1-REQUIREMENTS.md`、`.planning/milestones/v2.1-MILESTONE-AUDIT.md`。
+
+### 当前判断 / 根因
+
+这是 GSD milestone completion 的 query 路由/参数解析问题，以及 CJS 命令期望的 `STATE.md` legacy 字段与当前 STATE schema 不一致。它不是 MOCA 产品代码问题。
+
+### 已做处理
+
+- 使用底层命令 `node /Users/ming/.codex/get-shit-done/bin/gsd-tools.cjs milestone complete v2.1 --name "Core Subsystem Hardening"` 完成归档。
+- 手动收口 `.planning/ROADMAP.md`、`.planning/STATE.md`、`.planning/PROJECT.md`、`.planning/MILESTONES.md`、`.planning/RETROSPECTIVE.md`，确保当前状态明确为“无活动 milestone，下一步运行 `$gsd-new-milestone`”。
+- 归档文件生成后继续执行 `audit-open`、`git diff --check` 和最终 git/tag 检查。
+
+### 剩余问题和下次继续排查入口
+
+剩余问题是 GSD 工具链债务，不影响 v2.1 产品代码或归档文件真实性。后续若要修工具，从 `gsd-sdk query milestone.complete` 的参数转发和 `gsd-tools.cjs milestone complete` 的 `STATE.md` 字段写入逻辑开始排查。

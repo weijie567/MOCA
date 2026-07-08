@@ -10,45 +10,35 @@ Built as an open-source portfolio project demonstrating enterprise Agent enginee
 
 When a merchant or support agent asks about a refund issue, the system must retrieve relevant business data and rules, provide an evidence-backed answer, and ensure any risky action goes through approval before execution — never silently executing something irreversible.
 
-## Current Milestone: v2.1 Core Subsystem Hardening
+## Current State
 
-**Goal:** Clean up architecture debt across MOCA's core subsystems so tool contracts, intent routing, memory lifecycle behavior, and the canonical Agent Graph migration are explicit, tested, and aligned with `docs/contract-spec.md`.
+**Last shipped milestone:** v2.1 Core Subsystem Hardening (shipped 2026-07-08)
+**Current focus:** No active milestone. Start the next milestone with `$gsd-new-milestone`.
 
-**Status:** Phase 37 through Phase 59 complete; Phase 60 v2.1 Archive Evidence Closure is next.
+MOCA now has hardened core subsystem boundaries across ToolPlatform, intent recognition, memory, RAG/claim routing, approval, and canonical Agent Graph runtime. v2.1 closed all 24 tracked requirements and passed the milestone audit with no integration blockers.
+
+## Last Shipped Milestone: v2.1 Core Subsystem Hardening
+
+v2.1 shipped Phases 37-60 plus inserted Phase 48.1 on 2026-07-08. It cleaned up architecture debt across MOCA's core subsystems so tool contracts, intent routing, memory lifecycle behavior, and the canonical Agent Graph migration are explicit, tested, and aligned with `docs/contract-spec.md`.
 
 **Delivered:**
-- Land real `output_schema` for all eight tools (`get_order`, `get_refund_case`, `get_ticket`, `get_logistics`, `get_merchant_risk`, `search_policy`, `search_sop`, `search_case_memory`) and enforce it in the `ToolRuntime` output-validation gate — completed in Phase 38.
-- Harden the remaining source-confirmed validation gaps: strict `create_coupon_grant_draft` output schema, domain-scope handoff backstop testing, and local JSON Schema keyword/meta guards — completed in Phase 40.
-- Remove the `UnifiedToolManager` legacy compatibility adapter and converge graph-facing dispatch/tests/spec on `ToolPlatform` as the single canonical entrypoint — completed in Phase 41.
-- Reconcile `docs/contract-spec.md` §12.5/§12.6 with the implemented contract fields that spec omits (`ToolDescriptor.executor/exposure/requires_approval/requires_safety_snapshot/requires_idempotency_key`, `event_family="action"`, `ToolPolicyDecision.runtime_available/availability_summary`, `ToolCallContext.effective_at/approval_ref/safety_snapshot_ref`) — completed in Phase 39 with dual-AI review and clean verification.
-- Consolidate the tool declaration source and converge runtime/policy internals — completed in Phase 37.
-- Decouple intent recognition into semantic, risk-authorization, and confidence/clarification layers — completed in Phase 42.
-- Preserve multi-intent utterances as bounded task plans while only executing the current turn's safe read-only prefix — completed in Phase 43.
-- Add durable Case Working Context plus thread-case many-to-many memory foundations without renaming existing `case_memories` / `long_term_memories` tables — completed in Phase 44.
-- Wire Case Working Context into the real agent-run lifecycle: active CWC read at the memory-context seam, `run_auto` thread-case linking, deterministic terminal CWC writeback, and contract/red-line validation — completed in Phase 45.
-- Reposition `session_memories` as same-thread temporary conversational context only, with prompt-safe hint allowlists and tests preventing CWC fallback, reviewed precedent, long-term sedimentation, or authority use — completed in Phase 46.
-- Reposition `case_memories` as reviewed closed-case precedent and add governed closed-case CWC candidate generation into the existing case-memory review flow, with metadata/text retrieval and approval-gated publication — completed in Phase 47.
-- Narrow `long_term_memories` to explicit soft preference memory only, with deterministic chat capture, admin-only tenant preference saves, review publishing as `human_reviewed`, prompt-facing preference/source retrieval filters, and supersede/tombstone lifecycle guards — completed in Phase 48.
-- Clean up memory-context compatibility debt so active memory readers use canonical surfaces while retained legacy names are documented and deferred explicitly — completed in Phase 48.1.
-- Migrate `investigate` onto the bounded read-only ReAct main path while preserving deterministic outer graph routing and downstream authority boundaries — completed in Phase 49.
-- Lock the canonical Agent Graph migration charter and guardrails before runtime rewiring — completed in Phase 50.
-- Add source-verified canonical graph baselines and migration matrix checks — completed in Phase 51.
-- Cut over active graph nodes through `safety_pre_route`, `contextual_intent_resolve`, `slot_resolution_gate`, and `memory_context_load`, with compatibility aliases documented for Phase 58 cleanup — completed in Phases 52-55.
-- Cut over active recommendation generation to `recommendation_generation`, align RAG/claim fail-closed routing, harden action-claim authority through the final action-draft boundary, and keep `generate_recommendation` as explicit Phase 58 compatibility only — completed in Phase 56.
-- Canonicalize `risk_gate` / `approval_gate` runtime behavior, preserve trusted approval resume and action-draft boundaries, and prepare final canonical graph cleanup — completed in Phase 57.
-- Cut over the active runtime graph to the final 15 canonical nodes, remove active legacy node names/routes/aliases, and verify no-debt graph vocabulary cleanup — completed in Phase 58.
-- Repair approval-resume terminal memory finalization so completed approval resumes use the normal assistant-message/thread-summary/session-memory/CWC finalizer lifecycle with requester identity, finalizer evidence fail-closed behavior, retry idempotency, and canonical graph guard coverage — completed in Phase 59.
+- Consolidated ToolPlatform declaration/runtime/policy contracts: single-source tool registry, real output schemas, runtime output validation, shared failure handling, declarative policy gates, and removal of `UnifiedToolManager`.
+- Decoupled intent recognition and preserved multi-intent utterances through bounded `TaskPlan` semantics without weakening the single-intent route contract.
+- Rebuilt memory layering around Case Working Context, thread-case M:N linkage, session-context boundaries, reviewed case precedent generation, explicit preference-only long-term memory, and compatibility debt cleanup.
+- Migrated `investigate` to a bounded read-only ReAct loop and completed the canonical 15-node Agent Graph cutover with legacy runtime route/name cleanup.
+- Aligned recommendation/RAG claim fail-closed behavior, canonical `risk_gate`/`approval_gate` behavior, and approval-resume terminal memory finalization.
+- Closed archive evidence gaps with formal verification, Nyquist validation, UAT, security signoff, and a passed v2.1 milestone audit.
 
-**Guardrails (binding on all downstream agents):**
-- `ToolCallContext` identity fields (`tenant_id/user_id/role/permissions/merchant_scope/session_id/thread_id/run_id/trace_id`) are locked by spec §8.0 as `TrustedContext` projections — MUST NOT redefine, widen, or rename. Off-limits.
-- Blast-radius tiering: `ToolResultV2` and `ToolCallContext` are HIGH (7 external consumers: `business/adapters`, `business/service`, `conversation/service`, `agent/rag_context/verifier`, `agent/nodes/action_draft`, `platform/context_projections`, `memory/search`); `ToolInvocationOutcome`/`ToolViewV1`/`ToolPolicyDecision` are effectively src/tools-internal (LOW). Refactor in waves; defer high-blast-radius contract field changes.
-- Domain-level ownership/scope enforcement already lives in BusinessFactService (`_merchant_scope_allows` + no-leak) — not a gap, do not rebuild.
-- Sole normative contract source: `docs/contract-spec.md`. Phase implementation may update the spec only with explicit review/traceability.
-- Memory remains contextual-only unless a future phase explicitly designs a new authority boundary; Case Working Context must stay distinct from reviewed case memory, long-term memory, evidence, business facts, approval/action authority, and replay truth.
+**Guardrails carried forward:**
+- `ToolCallContext` identity fields (`tenant_id/user_id/role/permissions/merchant_scope/session_id/thread_id/run_id/trace_id`) remain locked by spec §8.0 as `TrustedContext` projections.
+- Domain-level ownership/scope enforcement remains owned by BusinessFactService.
+- `docs/contract-spec.md` remains the primary accepted contract source, with explicit review/traceability required for spec deltas.
+- Memory remains contextual-only unless a future phase explicitly designs a new authority boundary.
+- Canonical Agent Graph node names remain the active runtime vocabulary; historical legacy graph names are allowed only as historical/test/documentation references.
 
-**Prior milestone note (v2.0 Merchant Scope Hardening):** delivered Phase 36 (merchant-scope DB hardening / role cleanup) on 2026-06-30; its remaining same-merchant trace/replay authorization scope stays future work and is not part of v2.1.
+**Archived:** `.planning/milestones/v2.1-ROADMAP.md`, `.planning/milestones/v2.1-REQUIREMENTS.md`, and `.planning/milestones/v2.1-MILESTONE-AUDIT.md`.
 
-## Last Shipped Milestone: v1.9 Agent Platform Foundation
+## Prior Shipped Milestone: v1.9 Agent Platform Foundation
 
 v1.9 shipped Phases 26-35.1 on 2026-06-30. It converted MOCA from feature-by-feature agent code into a microservice-ready modular monolith foundation with stable platform/domain service contracts.
 
@@ -111,6 +101,8 @@ v1.6 shipped Phase 23 on 2026-06-20. It improves policy retrieval quality after 
 - **v1.7 Short-term Memory Unification** — shipped 2026-06-20.
 - **v1.8 Intent Routing Safety Hardening** — shipped 2026-06-21.
 - **v1.9 Agent Platform Foundation** — shipped 2026-06-30.
+- **v2.0 Merchant Scope Hardening** — shipped 2026-06-30.
+- **v2.1 Core Subsystem Hardening** — shipped 2026-07-08.
 
 Full archive records for archived milestones live in `.planning/milestones/`.
 
@@ -315,13 +307,14 @@ _No active v2.1 requirements remain._
 - v1.6 RAG Reranker + Query Rewrite is shipped and archived on 2026-06-20. Full milestone history lives in `.planning/milestones/v1.6-ROADMAP.md`, `.planning/milestones/v1.6-REQUIREMENTS.md`, and `.planning/milestones/v1.6-phases/`.
 - v1.7 Short-term Memory Unification is complete on 2026-06-20. Phase 24 owns Agent Console `/agent-runs + SSE` conversation persistence, rolling summaries, prompt-safe tool summaries, PostgreSQL-backed session slot continuity, failure/idempotency safeguards, authority-boundary regressions, and three-turn smoke verification.
 - v1.9 Agent Platform Foundation is shipped and archived on 2026-06-30. It completes Phases 26-35.1: architecture contract baseline, TrustedContextFactory/projections, decision events, tool platform, merchant scope alignment, BusinessFactService, memory platform, intent graph migration, deterministic RAG context build, claim verification, approval/action draft hardening, replay/eval hardening, and audit readiness closure. Full milestone history lives in `.planning/milestones/v1.9-ROADMAP.md`, `.planning/milestones/v1.9-REQUIREMENTS.md`, and `.planning/milestones/v1.9-MILESTONE-AUDIT.md`.
+- v2.1 Core Subsystem Hardening is shipped and archived on 2026-07-08. It completes Phases 37-60 plus inserted Phase 48.1: ToolPlatform contract hardening, intent decoupling, memory layering, bounded investigate ReAct migration, canonical Agent Graph cutover, approval-resume memory finalization, and archive evidence closure. Full milestone history lives in `.planning/milestones/v2.1-ROADMAP.md`, `.planning/milestones/v2.1-REQUIREMENTS.md`, and `.planning/milestones/v2.1-MILESTONE-AUDIT.md`.
 
 ## Next Milestone Setup
 
 - The next milestone is not defined yet. Start with `$gsd-new-milestone` to create fresh requirements before adding new phases.
-- Phase numbering should continue after Phase 48; do not restart at Phase 1 or use old v1.x phase numbers.
-- Preserve v1.9 service-boundary contracts from `docs/contract-spec.md` unless a future phase explicitly records a spec delta.
-- Keep owner-named deferrals explicit: Phase 36+ database hardening / role cleanup, same-merchant trace/replay authorization expansion, Phase 17 External Action Execution, post-Phase 17 Policy Scope, Phase RAG-5 external backend, and Policy Source Operations.
+- Phase numbering should continue after Phase 60; do not restart at Phase 1 or use old v1.x phase numbers.
+- Preserve v2.1 subsystem contracts from `docs/contract-spec.md` unless a future phase explicitly records a spec delta.
+- Keep owner-named deferrals explicit: Phase 49 replay parent-operation identity limitation, legacy `/api/v1/agent/chat` background memory-write compatibility, same-merchant trace/replay authorization expansion, Phase 17 External Action Execution, post-Phase 17 Policy Scope, Phase RAG-5 external backend, and Policy Source Operations.
 - Preserve safety boundaries: policy evidence remains `EvidenceRefV1`; current business facts remain `BusinessFactResultV1` / `BusinessFactRefV1`; memory remains contextual assistance only; parser/OCR provenance remains internal unless verified through maintainer lookup; verifier failures and timeouts fail closed; replay/eval artifacts do not authorize new access by themselves.
 
 ## Constraints
@@ -379,4 +372,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-08 — completed Phase 59 Approval Resume Terminal Memory Finalization; next phase is Phase 60 v2.1 Archive Evidence Closure*
+*Last updated: 2026-07-08 — shipped and archived v2.1 Core Subsystem Hardening; next milestone is not defined*

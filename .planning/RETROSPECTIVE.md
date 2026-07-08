@@ -349,6 +349,56 @@
 
 ---
 
+## Milestone: v2.1 — Core Subsystem Hardening
+
+**Shipped:** 2026-07-08
+**Phases:** 25 | **Plans:** 87 | **Tasks:** 178
+
+### What Was Built
+
+- ToolPlatform declaration/runtime/policy contracts were consolidated around a single catalog, strict output schemas, fail-closed runtime validation, shared failure handling, and removal of `UnifiedToolManager`.
+- Intent recognition was split into semantic, risk-authorization, and clarification/confidence layers, with multi-intent utterances preserved through bounded `TaskPlan` semantics.
+- Memory was re-layered around Case Working Context, thread-case M:N links, session context, reviewed closed-case precedent, explicit preference-only long-term memory, and compatibility cleanup.
+- `investigate` moved to a bounded read-only ReAct loop while preserving deterministic outer routing and downstream authority boundaries.
+- The canonical Agent Graph migration completed through the final 15-node runtime cutover, including `recommendation_generation`, `risk_gate`, and `approval_gate` canonicalization.
+- Approval-resume terminal memory finalization and archive evidence closure brought the milestone to 24/24 requirements complete with a passed audit.
+
+### What Worked
+
+- Strict phase-level planning and review kept a long hardening milestone executable despite crossing tool, intent, memory, RAG, approval, and graph boundaries.
+- Static architecture guards and legacy-name classifiers were effective for migration work where accidental compatibility drift is easy to miss.
+- Formal evidence closure in Phase 60 turned scattered historical verification, UAT, security, and validation gaps into auditable archive artifacts.
+- Keeping implementation boundaries aligned with `docs/contract-spec.md` prevented target-state contracts from being silently treated as already implemented facts.
+
+### What Was Inefficient
+
+- The milestone ran long enough for planning metadata, validation frontmatter, and summary conventions to drift, creating late archive cleanup work.
+- GSD state/milestone commands still had parser/tooling mismatches: `gsd-sdk query milestone.complete` failed, and the lower-level milestone command warned about a missing `STATE.md` field.
+- Some historical artifacts used non-template statuses or incomplete evidence labels even after the underlying work had passed, so audit closure required manual metadata normalization.
+- Subagent/tool visibility limitations created false workflow blockers around integration/audit helper execution.
+
+### Patterns Established
+
+- Treat audit gaps as explicit closure phases when they touch many historical artifacts but should not expand product scope.
+- Use active-vs-historical legacy classifiers during graph migrations so stored trace compatibility does not blur current runtime authority.
+- Keep UAT, security, and Nyquist validation artifacts even for evidence-only closure phases; archive readiness depends on the artifact layer, not only source tests.
+- Record accepted limitations with named future owners instead of reopening broad architecture work during closeout.
+
+### Key Lessons
+
+1. Long hardening milestones need a planned archive-evidence closure phase before milestone completion.
+2. Static vocabulary and route guards are high leverage for canonical graph migrations because they catch source drift that behavioral tests may miss.
+3. Memory-layer work must repeatedly restate authority boundaries; otherwise contextual memory can be mistaken for evidence, business fact, approval, or replay truth.
+4. GSD archive tooling should be validated as part of closeout when it edits state files or infers current milestone scope.
+
+### Cost Observations
+
+- Model mix: quality profile across planning, execution, review, UAT, security, validation, and archive closure.
+- Sessions: multi-session hardening milestone from 2026-07-01 to 2026-07-08.
+- Notable: The highest leverage came from static architecture guards and formal archive evidence closure; the highest waste came from stale planning metadata and GSD milestone tooling mismatch.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -361,6 +411,8 @@
 | v1.4 | multi-session | 1 | Established production parser/OCR ingestion with source-block provenance while preserving evidence, memory, action, and replay boundaries |
 | v1.5 | multi-session | 1 | Established canonical RAG context, authority-separated claim verification, deterministic safety routing, and hallucination-control evals |
 | v1.6 | single-day closeout | 1 | Established rewrite/rerank relevance improvements with diagnostics/evals while preserving evidence and action authority boundaries |
+| v1.9 | multi-session | 12 | Established modular-monolith platform foundation, service boundaries, formal verification artifacts, and audit readiness closure |
+| v2.1 | multi-session | 25 | Established subsystem hardening, memory relayering, canonical graph cutover, and explicit archive-evidence closure |
 
 ### Cumulative Quality
 
@@ -372,6 +424,8 @@
 | v1.4 | Full post-dependency regression gate passed with 1136 tests; live migration + OCR gate passed with 28 tests | Milestone audit passed 26/26 requirements, 8/8 integration contracts, 5/5 end-to-end flows | Native OCR and live pgvector migration gates are explicit runtime dependencies, not silent skips |
 | v1.5 | Phase 22 related suite 119 passed; full non-integration pytest 1228 passed, 1 skipped; hallucination eval 24 cases | Milestone audit passed 32/32 active requirements, 6/6 integration areas, 8/8 required flows | Deterministic local hallucination eval plus production-verifier case coverage avoid live provider dependency |
 | v1.6 | Phase 23 targeted tests passed; UAT 7/7; security verdict pass; deep code review clean after WR fixes | 26/26 requirements complete | Deterministic local reranker, query rewrite, diagnostics, and ablation dry-run avoid live provider dependency |
+| v1.9 | Focused platform suites plus integration checker evidence; formal closure in Phase 35.1 | 19/19 v1 requirements complete; audit ready to archive | Formal verification artifacts and service-boundary checks avoid provider dependency in archive readiness |
+| v2.1 | Phase 58 broad backend gate 1812 passed, Phase 59 focused gate 196 passed, Phase 60 archive/UAT/security/validation evidence closed | 24/24 requirements complete; audit `archive_ready` | Static legacy classifiers, architecture guards, and formal evidence artifacts avoid provider dependency in migration closure |
 
 ### Top Lessons (Verified Across Milestones)
 
@@ -383,3 +437,4 @@
 6. Parser/OCR ingestion needs metadata-value sanitization and identifier validation in addition to visible-text sanitization.
 7. RAG answer/action grounding needs canonical evidence validation, authority separation, backend-owned route control, and leakage-aware eval as one acceptance gate.
 8. RAG ranking improvements must remain relevance-only signals; authority still belongs to canonical evidence validation, claim support, Tool System facts, and action approvals.
+9. Long hardening milestones need explicit archive-evidence closure phases before milestone completion; otherwise stale artifact metadata becomes a late blocker.

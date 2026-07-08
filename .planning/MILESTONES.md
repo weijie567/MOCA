@@ -1,5 +1,47 @@
 # Milestones
 
+## v2.1 Core Subsystem Hardening (Shipped: 2026-07-08)
+
+**Delivered:** Tool, intent, memory, RAG/claim, approval, and canonical graph subsystems were hardened and brought into archive-ready alignment with `docs/contract-spec.md`, with final evidence closure and milestone audit passed.
+
+**Phases completed:** 37-60 plus 48.1 (25 phases, 87 plans, 178 tasks)
+
+**Key accomplishments:**
+
+- Consolidated ToolPlatform declarations/runtime/policy contracts: single-source tool registry, real output schemas, runtime output validation, shared failure handling, declarative policy gates, and removal of `UnifiedToolManager`.
+- Decoupled intent recognition and preserved multi-intent utterances through bounded `TaskPlan` semantics without weakening the single-intent route contract.
+- Rebuilt memory layering around Case Working Context, thread-case M:N linkage, session-context boundaries, reviewed case precedent generation, explicit preference-only long-term memory, and compatibility debt cleanup.
+- Migrated `investigate` to a bounded read-only ReAct loop and completed the canonical 15-node Agent Graph cutover with legacy runtime route/name cleanup.
+- Aligned recommendation/RAG claim fail-closed behavior, canonical `risk_gate`/`approval_gate` behavior, and approval-resume terminal memory finalization.
+- Closed archive evidence gaps with formal verification, Nyquist validation, UAT, security signoff, and a passed v2.1 milestone audit (`24/24` requirements, no integration blockers).
+
+**Stats:**
+
+- 175 source/test/docs files changed outside `.planning/`
+- 26,481 insertions / 4,005 deletions outside `.planning/`
+- 25 phases, 87 plans, 178 task markers
+- 8 calendar days from first v2.1 phase commit to archive close (2026-07-01 -> 2026-07-08)
+
+**Git range:** `451d097..c7e709b`
+
+**Archived:**
+
+- `.planning/milestones/v2.1-ROADMAP.md`
+- `.planning/milestones/v2.1-REQUIREMENTS.md`
+- `.planning/milestones/v2.1-MILESTONE-AUDIT.md`
+- Phase directories remain in `.planning/phases/` for now; use `$gsd-cleanup` later if desired.
+
+**Known deferred items at close:**
+
+- Phase 49 bounded ReAct replay parent-operation identity remains an accepted limitation for a future replay/event hardening milestone if needed.
+- Historical legacy graph-name references remain accepted only as historical/test/documentation refs after Phase 58 cleanup.
+- Legacy `/api/v1/agent/chat` background `memory_write` compatibility remains outside the current `agent-runs` frontend lifecycle.
+- GSD tooling/reporting debt: `gsd-sdk query init.milestone-op` can report missing legacy audit agents even when main orchestrator can run `gsd-integration-checker`.
+
+**What's next:** Start the next milestone with fresh requirements via `$gsd-new-milestone`.
+
+---
+
 ## v1.9 Agent Platform Foundation (Shipped: 2026-06-30)
 
 **Delivered:** Microservice-ready modular-monolith platform foundation for MOCA's agent runtime: trusted context, decision events, tool policy, business facts, memory boundaries, target graph contracts, deterministic RAG context build, claim verification, approval/action safety, replay/eval gates, and formal audit closure.
