@@ -31,6 +31,32 @@ DELETED_PHASE58_WRAPPER_MODULES = {
     "src.agent.nodes.generate_recommendation",
     "src.agent.nodes.assess_risk_and_approval",
 }
+PHASE58_LEGACY_NODE_IMPORT_NAMES = (
+    "classify_intent",
+    "session_memory_load",
+    "extract_slots",
+    "long_term_memory_retrieve",
+    "generate_recommendation",
+    "assess_risk_and_approval",
+)
+PHASE58_LEGACY_DIRECT_TEST_PATHS = tuple(
+    "/".join(parts)
+    for parts in (
+        ("tests", "agent", "test_nodes", "test_generate_recommendation.py"),
+        ("tests", "agent", "test_nodes", "test_assess_risk_and_approval.py"),
+        ("tests", "agent", "test_nodes", "test_classify_intent.py"),
+        ("tests", "agent", "test_session_memory_load.py"),
+        ("tests", "agent", "test_nodes", "test_extract_slots.py"),
+    )
+)
+PHASE58_CURRENT_REFERENCE_ROOTS = ("src", "tests", "scripts", "eval")
+PHASE58_DELETED_WRAPPER_IMPORT_RE = re.compile(
+    r"from src\.agent\.nodes import ("
+    + "|".join(re.escape(name) for name in PHASE58_LEGACY_NODE_IMPORT_NAMES)
+    + r")|src\.agent\.nodes\.("
+    + "|".join(re.escape(name) for name in PHASE58_LEGACY_NODE_IMPORT_NAMES)
+    + r")"
+)
 PHASE58_COMPATIBILITY_MARKERS = (
     "DELETE_BY_PHASE_58",
     "PHASE_56_COMPATIBILITY_ALIAS",
@@ -202,6 +228,35 @@ def test_phase58_recommendation_risk_wrappers_and_legacy_direct_tests_are_delete
     assert violations == []
 
 
+def test_phase58_deleted_wrapper_imports_and_legacy_direct_test_paths_are_absent_from_current_refs() -> None:
+    violations: list[str] = []
+    for path in _current_reference_files():
+        source = _source(path)
+        for match in PHASE58_DELETED_WRAPPER_IMPORT_RE.finditer(source):
+            violations.append(f"{path.relative_to(ROOT).as_posix()}: import {match.group(0)}")
+        for legacy_path in PHASE58_LEGACY_DIRECT_TEST_PATHS:
+            if legacy_path in source:
+                violations.append(f"{path.relative_to(ROOT).as_posix()}: path {legacy_path}")
+
+    assert violations == []
+
+
+def test_phase58_architecture_tests_do_not_preserve_phase52_57_compatibility_alias_markers() -> None:
+    markers = {f"PHASE_{phase}_COMPATIBILITY_ALIAS" for phase in range(52, 58)}
+    violations: list[str] = []
+    for path in (
+        ROOT / "tests" / "architecture" / "test_phase32_static_contract.py",
+        ROOT / "tests" / "architecture" / "test_memory_contract_delta.py",
+        ROOT / "tests" / "architecture" / "test_phase33_rag_claim_boundaries.py",
+    ):
+        source = _source(path)
+        for marker in markers:
+            if marker in source:
+                violations.append(f"{path.relative_to(ROOT).as_posix()}: {marker}")
+
+    assert violations == []
+
+
 def test_rag_claim_nodes_do_not_bypass_repositories_or_raw_database_access() -> None:
     violations: list[tuple[str, str]] = []
     for path in (RAG_NODE_PATH, CLAIM_NODE_PATH, RECOMMENDATION_NODE_PATH):
@@ -321,6 +376,22 @@ def _import_targets(path: Path) -> list[str]:
             imports.append(node.module)
             imports.extend(f"{node.module}.{alias.name}" for alias in node.names)
     return imports
+
+
+def _current_reference_files() -> list[Path]:
+    files: list[Path] = []
+    for root_name in PHASE58_CURRENT_REFERENCE_ROOTS:
+        root = ROOT / root_name
+        if not root.exists():
+            continue
+        for path in sorted(root.rglob("*")):
+            if path.is_file() and ".venv" not in path.parts and "__pycache__" not in path.parts:
+                try:
+                    path.read_text(encoding="utf-8")
+                except UnicodeDecodeError:
+                    continue
+                files.append(path)
+    return files
 
 
 def _phase33_artifacts() -> list[Path]:
