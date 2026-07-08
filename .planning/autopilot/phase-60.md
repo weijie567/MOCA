@@ -1,7 +1,7 @@
 ---
 phase: "60"
 status: running
-current_step: verify_work_complete_security_next
+current_step: security_complete_validate_next
 plan_review_loop: 2
 quota_waits: 0
 updated_at: "2026-07-08T13:01:28Z"
@@ -44,6 +44,7 @@ next_command: "$gsd-phase-autopilot --resume"
 - Stage 5 execution complete for all five Phase 60 plans; post-execution code review and verification stages remain.
 - Stage 6 code review workflow ran scope resolution and skipped review because Phase 60 changed no source files after workflow exclusions.
 - Stage 7 verify-work self-check completed; `60-UAT.md` created with 6/6 checks passed and 0 issues.
+- Stage 8 secure-phase completed; `60-SECURITY.md` created with 25/25 threats closed and `threats_open: 0`.
 
 ## Evidence
 
@@ -93,6 +94,10 @@ next_command: "$gsd-phase-autopilot --resume"
 - UAT result: 6 passed, 0 issues, 0 pending, 0 skipped, 0 blocked.
 - UAT self-check command: `UV_CACHE_DIR=/tmp/uv-cache uv run python - <<'PY' ...` verified 7 formal verification artifacts, 8 validation artifacts, 7 requirement links, archive-ready audit status, Roadmap/State consistency, and no stale blocked-state text in active Phase 60 ledgers.
 - UAT commit: `a1e5223` (`test(60): complete archive evidence UAT`).
+- Security artifact: `.planning/phases/60-v2-1-archive-evidence-closure/60-SECURITY.md`.
+- Security result: `status: verified`, `threats_open: 0`, 25 threat rows closed, 3 accepted risks documented.
+- Security self-checks passed: plan threat-register count, summary `Threat Flags` count, command hygiene scan, high-confidence secret scan, and `git diff --check`.
+- Security commit: `07376ba` (`docs(60): add archive evidence security signoff`).
 
 ## Last Failure
 
