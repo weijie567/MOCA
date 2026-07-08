@@ -73,7 +73,7 @@ Required repair:
 Decision: ACCEPTED
 
 Evidence:
-- `58-01-PLAN.md` correctly separates current runtime vocabulary from `project_trace_step_for_contract()`, but downstream trace/API call-site expectations are mostly deferred to `58-04`.
+- `58-01-PLAN.md` correctly separates current runtime vocabulary from `project_trace_step_for_contract()`, but downstream trace/API call-site expectations are mostly deferred to the trace/API/SSE/frontend/eval plan. After checker repair, that downstream plan is `58-08`.
 
 Required repair:
 - Expand `58-01` to define the current-runtime API versus historical projection API contract.
@@ -132,11 +132,11 @@ Decision: ACCEPTED
 
 Evidence:
 - `frontend/package.json` defines `test: vitest run --environment jsdom`.
-- `58-04-PLAN.md` only requires `npm --prefix frontend run build`.
+- The original trace/API/SSE/frontend/eval plan only required `npm --prefix frontend run build`; after checker repair, this plan is `58-08`.
 
 Required repair:
 - Add `npm --prefix frontend run test -- --run` only if this command is valid for the configured Vitest version, or use the exact available script form `npm --prefix frontend run test`.
-- If no relevant frontend test exists for timeline behavior, record build plus backend payload tests as the verification boundary in `58-04-SUMMARY.md`.
+- If no relevant frontend test exists for timeline behavior, record build plus backend payload tests as the verification boundary in `58-08-SUMMARY.md`.
 
 ## Repair Gate
 
