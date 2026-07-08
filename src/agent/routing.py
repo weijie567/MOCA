@@ -64,10 +64,6 @@ _BROAD_INVALIDATION_MARKERS = (
 )
 
 
-def route_after_intent(state: AgentState) -> str:
-    return route_after_contextual_intent(state)
-
-
 def route_after_contextual_intent(state: AgentState) -> str:
     try:
         route = _route_after_contextual_intent(state)
@@ -90,10 +86,6 @@ def route_after_slot_resolution(state: AgentState) -> str:
     except Exception:
         return "clarification_gate"
     return route if route in SLOT_RESOLUTION_ROUTES else "clarification_gate"
-
-
-def route_after_slots(state: AgentState) -> str:
-    return route_after_slot_resolution(state)
 
 
 def missing_required_slots(
