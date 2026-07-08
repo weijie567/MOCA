@@ -98,7 +98,7 @@ Phase 58 关闭后，当前主 graph 不再保留 migration-era wrapper/import/t
 ## 关键依据
 
 - `src/agent/graph.py`: `build_graph()` 定义节点、普通边和条件边。
-- `src/agent/routing.py`: `route_after_safety()`、`route_after_contextual_intent()`、`route_after_slot_resolution()`、`route_after_investigate()`、`route_after_rag_context()`、`route_after_recommendation()`、`route_after_claim_verify()` 定义主要条件路由；`route_after_slots()` 仅是兼容委托。
+- `src/agent/routing.py`: `route_after_safety()`、`route_after_contextual_intent()`、`route_after_slot_resolution()`、`route_after_investigate()`、`route_after_rag_context()`、`route_after_recommendation()`、`route_after_claim_verify()` 定义主要条件路由；旧 public `route_after_slots()` 已删除，剩余 `_route_after_slots()` 只是私有实现细节，不是 current public route authority。
 - `src/agent/graph.py`: `route_after_risk()`、`route_after_approval()` 定义风险和审批后的路由。
 - `src/agent/graph_vocabulary.py`: 当前 runtime/compat trace projection 词表。
 - `docs/contract-spec.md` §9：目标 graph contract；本文件只描述当前源码事实。

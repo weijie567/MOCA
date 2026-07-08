@@ -49,8 +49,9 @@ graph LR
     S -->|needs clarification| H[final_response]
     C --> B[contextual_intent_resolve]
     B -->|needs slots| D[slot_resolution_gate]
-    B -->|policy / fact path| M[memory_context_load]
-    D -->|slots ok| M
+    B -->|policy / fact path| E[investigate]
+    D -->|slots ok| E
+    D -->|needs reviewed / long-term memory| M[memory_context_load]
     D -->|missing slots| H
     M --> E[investigate]
     E -->|needs verified evidence| R[rag_context_build]
@@ -171,5 +172,5 @@ Implementation details worth scanning:
 - The demo runs as a single-tenant environment, although the data model and repositories are tenant-scoped.
 - Demo data and user queries are Chinese; repository documentation is English.
 - Streaming uses Server-Sent Events rather than WebSockets.
-- Current memory implementation has PostgreSQL-backed LangGraph checkpointing plus empty session/long-term memory adapters. Target session memory is PostgreSQL-authoritative same-thread continuity with optional Redis hot cache; cross-session long-term and case memory remain out of scope for the current phase.
+- Current memory implementation has PostgreSQL-backed LangGraph checkpointing plus PostgreSQL-backed same-thread session memory. Cross-session long-term preference memory and reviewed case memory remain bounded contextual inputs, not business fact, policy, approval, action, or replay authority.
 - CI runs lint and unit tests only; DB-backed integration tests and live LLM evaluation remain local commands.

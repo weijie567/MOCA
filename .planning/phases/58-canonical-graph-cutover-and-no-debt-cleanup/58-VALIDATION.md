@@ -73,14 +73,14 @@ Result:
   "active_runtime_legacy": 0,
   "current_docs_legacy_authority": 0,
   "unclassified_rows": 0,
-  "total_hits": 822,
-  "files": 76,
+  "total_hits": 882,
+  "files": 81,
   "category_counts": {
-    "classifier_implementation": 8,
-    "historical_data_read_projection": 20,
-    "legacy_wrapper_or_import_test": 211,
-    "phase58_cleanup_artifact": 316,
-    "previous_state_documentation": 267
+    "classifier_implementation": 9,
+    "historical_data_read_projection": 22,
+    "legacy_wrapper_or_import_test": 218,
+    "phase58_cleanup_artifact": 332,
+    "previous_state_documentation": 301
   },
   "excluded_paths": [
     ".planning/phases/58-canonical-graph-cutover-and-no-debt-cleanup/58-VALIDATION.md"
@@ -125,6 +125,10 @@ Result:
 ```
 
 Warnings were known non-blocking LangGraph/LangChain deprecation, graph config typing, and existing async mock warnings; no Phase 58 failure remained.
+
+## Code Review Follow-Up
+
+Post-execution deep code review found three no-debt closeout warnings. All were fixed before final closeout: the strict classifier now scans `intent_classification`, `docs/current-langgraph-architecture.md` no longer presents public `route_after_slots()` as current compatibility authority, and `README.md` now matches the current compiled graph/memory state.
 
 ## Broad Ruff Gate
 

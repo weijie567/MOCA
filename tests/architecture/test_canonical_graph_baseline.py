@@ -305,6 +305,21 @@ def test_phase58_legacy_hit_classifier_strict_fails_active_runtime_rows(tmp_path
     assert payload["unclassified_rows"] == 0
 
 
+def test_phase58_legacy_hit_classifier_strict_fails_intent_classification_runtime_alias(
+    tmp_path: Path,
+) -> None:
+    graph_path = tmp_path / "src" / "agent" / "graph.py"
+    graph_path.parent.mkdir(parents=True)
+    graph_path.write_text('builder.add_node("intent_classification", contextual_intent_resolve)\n', encoding="utf-8")
+
+    result = _run_phase58_classifier("--strict", "--root", str(tmp_path), "--roots", "src")
+
+    assert result.returncode != 0
+    payload = json.loads(result.stdout)
+    assert payload["active_runtime_legacy"] == 1
+    assert payload["unclassified_rows"] == 0
+
+
 def test_phase58_legacy_hit_classifier_strict_fails_unclassified_rows(tmp_path: Path) -> None:
     unknown_path = tmp_path / "unknown.txt"
     unknown_path.write_text("classify_intent\n", encoding="utf-8")

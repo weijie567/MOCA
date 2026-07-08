@@ -12,6 +12,7 @@ from typing import Literal
 
 LEGACY_TERMS = (
     "classify_intent",
+    "intent_classification",
     "session_memory_load",
     "extract_slots",
     "long_term_memory_retrieve",
