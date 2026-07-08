@@ -19554,3 +19554,93 @@ archive artifact blockers: none
 ### 剩余问题和下次继续排查入口
 
 无 MOCA 产品代码剩余问题。GSD `gsd-sdk query init.milestone-op` 仍可能继续报告 legacy audit agents missing，属于本地 GSD tooling/reporting debt；若后续 milestone audit 再出现同类矛盾，入口是对比 `init.milestone-op`、`agent-skills gsd-integration-checker` 和主 orchestrator 可用工具列表，并以实际 `gsd-integration-checker` 运行结果为准。
+
+## 2026-07-08：Phase 60 secure-phase 自检发现 60-02-SUMMARY 缺少 Threat Flags 且 rg 命令反引号写法错误
+
+### 问题现象
+
+执行 Phase 60 security verification 前的本地自检时，脚本要求 5 个 `60-*-SUMMARY.md` 都包含 `## Threat Flags` 段，但只检测到 4 个；同时用于扫描裸 pytest 命令的 `rg` 命令因为 pattern 字符串里包含反引号，在 zsh 中触发 command substitution，直接 parse error。
+
+### 如何检测 / 复现
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python - <<'PY'
+from pathlib import Path
+summaries = sorted(Path(".planning/phases/60-v2-1-archive-evidence-closure").glob("60-*-SUMMARY.md"))
+summary_text = "\n".join(s.read_text() for s in summaries)
+assert summary_text.count("## Threat Flags") == 5
+PY
+```
+
+错误的 `rg` 写法：
+
+```bash
+rg -n "^pytest | python -m pytest|`pytest|`python -m pytest" ...
+```
+
+### 关键证据或命令
+
+自检输出：
+
+```text
+AssertionError
+```
+
+`rg` 输出：
+
+```text
+zsh:1: parse error near `|'
+zsh:1: parse error in command substitution
+```
+
+随后 `rg -n "Threat Flags" .planning/phases/60-v2-1-archive-evidence-closure/60-*-SUMMARY.md` 只返回 60-01、60-03、60-04、60-05，缺少 60-02。
+
+### 当前判断 / 根因
+
+这是 Phase 60-02 summary 收尾字段缺漏和本地 shell quoting 错误，不是产品代码问题。`60-02` 本身只创建 verification planning artifacts，没有 runtime endpoint/auth/schema/trust-boundary 变更；缺失的是 summary 的显式 security signoff 段。`rg` parse error 是因为双引号内反引号被 zsh 当作命令替换。
+
+### 已做处理
+
+- 在 `.planning/phases/60-v2-1-archive-evidence-closure/60-02-SUMMARY.md` 追加 `## Threat Flags`，记录 no runtime endpoint/auth/file-access/schema/trust-boundary code surface。
+- 后续裸 pytest 扫描改用 Python 自检或对 shell pattern 使用安全 quoting，避免反引号进入双引号。
+
+### 剩余问题和下次继续排查入口
+
+无产品代码剩余问题。继续 Phase 60 secure-phase 时重跑 summary threat flag count、threat register row count、command hygiene scan 和 secret-pattern scan；若再失败，从对应 summary/plan artifact 补齐缺失的 evidence/security signoff。
+
+## 2026-07-08：Phase 60 secure-phase SECURITY 结构检查误把 Accepted Risks threat refs 算作 threat rows
+
+### 问题现象
+
+生成 `60-SECURITY.md` 后运行结构检查，断言 `sec.count("| T-60-") == 25` 失败。
+
+### 如何检测 / 复现
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python - <<'PY'
+from pathlib import Path
+sec = Path(".planning/phases/60-v2-1-archive-evidence-closure/60-SECURITY.md").read_text()
+assert sec.count("| T-60-") == 25
+PY
+```
+
+### 关键证据或命令
+
+诊断输出显示：
+
+```text
+T count 28
+AR count 3
+```
+
+### 当前判断 / 根因
+
+这是本地检查脚本错误，不是 `60-SECURITY.md` threat register 内容错误。`sec.count("| T-60-")` 会同时统计 Threat Register 表中的 25 行和 Accepted Risks Log 中 3 个 `Threat Ref`，因此得到 28。
+
+### 已做处理
+
+改用按行正则只统计 Threat Register 行：`^| T-60-..-.. | ... | closed`。同时把 `60-SECURITY.md` 中 command hygiene / secret scan 的文件计数更新为包含新 security artifact 后的实际 `20 files checked`。
+
+### 剩余问题和下次继续排查入口
+
+无产品代码剩余问题。后续统计 markdown 表行时避免直接用 substring count，改用行首锚定正则或限定表格区段。

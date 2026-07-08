@@ -103,6 +103,10 @@ None - plan executed exactly as written.
 
 None.
 
+## Threat Flags
+
+None. This plan only changed planning/evidence artifacts and introduced no runtime endpoint, auth, file-access, schema, or trust-boundary code surface.
+
 ## User Setup Required
 
 None.
