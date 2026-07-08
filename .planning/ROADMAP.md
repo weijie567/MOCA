@@ -496,9 +496,9 @@ Plans:
   4. Docs, tests, trace/replay/eval projection, and architecture debt are synchronized so no final migration debt remains.
 
 Plans:
-- [ ] 58-01-PLAN.md — active graph/vocabulary final gate and static legacy-hit classifier foundation.
-- [ ] 58-02-PLAN.md — canonical recommendation/risk implementation ownership.
-- [ ] 58-03-PLAN.md — wrapper deletion, import/test cleanup, and static guards.
-- [ ] 58-04-PLAN.md — trace/API/SSE/frontend/eval/historical projection cleanup.
+- [ ] 58-01-PLAN.md — active graph/vocabulary final gate, route delegate removal, projection API split, and static legacy-hit classifier foundation.
+- [ ] 58-02-PLAN.md — canonical recommendation/risk implementation ownership and direct test filename migration.
+- [ ] 58-03-PLAN.md — full legacy wrapper/helper deletion or internalization, import/test cleanup, and static guards.
+- [ ] 58-04-PLAN.md — trace/API/SSE/frontend/eval/historical projection cleanup with frontend build/test verification.
 - [ ] 58-05-PLAN.md — approval retry data-read compatibility and route authority hardening.
-- [ ] 58-06-PLAN.md — docs, architecture debt, validation artifact, roadmap/state/requirements closeout, and broad verification.
+- [ ] 58-06-PLAN.md — docs, architecture debt, validation artifact, metadata proof, roadmap/state/requirements closeout, and broad verification.
