@@ -73,13 +73,13 @@ Result:
   "active_runtime_legacy": 0,
   "current_docs_legacy_authority": 0,
   "unclassified_rows": 0,
-  "total_hits": 882,
-  "files": 81,
+  "total_hits": 877,
+  "files": 83,
   "category_counts": {
     "classifier_implementation": 9,
     "historical_data_read_projection": 22,
     "legacy_wrapper_or_import_test": 218,
-    "phase58_cleanup_artifact": 332,
+    "phase58_cleanup_artifact": 327,
     "previous_state_documentation": 301
   },
   "excluded_paths": [
@@ -212,6 +212,18 @@ The following compatibility/read paths remain intentionally bounded:
 ## Generated / Recursive Artifact Exclusions
 
 `58-VALIDATION.md` is excluded from classifier scanning to avoid recursively counting the validation report's own required evidence strings. Other Phase 58 planning and summary artifacts are classified as `phase58_cleanup_artifact`, not active runtime authority.
+
+## Validation Audit 2026-07-08
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Open | 0 |
+
+Audit result: no missing behavioral test gaps were found across Plans 58-01 through 58-10, CAGM-09, review/security follow-up artifacts, or the existing validation map. No new tests were required.
+
+The code-review follow-up closeout evidence recorded `total_hits=882`, `files=81`, and category counts `classifier_implementation=9`, `historical_data_read_projection=22`, `legacy_wrapper_or_import_test=218`, `phase58_cleanup_artifact=332`, `previous_state_documentation=301`. This audit reran the same approved strict classifier after later review/security/verification artifact edits and recorded the live output above: `total_hits=877`, `files=83`, with the only category-count change in `phase58_cleanup_artifact`. Strict counters remain `active_runtime_legacy=0`, `current_docs_legacy_authority=0`, and `unclassified_rows=0`; strict mode still does not require `total_hits == 0`.
 
 ## Validation Sign-Off
 

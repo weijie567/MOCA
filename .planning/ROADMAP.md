@@ -119,7 +119,7 @@ Plans:
 | 55. Memory Context Load Cutover | 3/3 | Complete    | 2026-07-07 |
 | 56. Recommendation Generation and RAG Claim Status Alignment | 4/4 | Complete    | 2026-07-07 |
 | 57. Risk Gate and Approval Gate Canonicalization | 5/5 | Complete    | 2026-07-07 |
-| 58. Canonical Graph Cutover and No-Debt Cleanup | 10/10 | Complete | 2026-07-08 |
+| 58. Canonical Graph Cutover and No-Debt Cleanup | 10/10 | Complete    | 2026-07-08 |
 
 ### Phase 40: Tool Contract Validation Hardening
 

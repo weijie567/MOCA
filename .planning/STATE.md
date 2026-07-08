@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
-status: phase_complete
+status: milestone_complete
 stopped_at: Phase 58 complete after final validation
-last_updated: "2026-07-08T12:20:54+08:00"
-last_activity: 2026-07-08 -- Phase 58 completed with 10/10 plans and broad closeout validation
+last_updated: "2026-07-08T13:10:05+08:00"
+last_activity: 2026-07-08 -- Phase 58 completed with 10/10 plans, clean review, security verification, Nyquist validation, and verifier sign-off
 progress:
   total_phases: 23
-  completed_phases: 22
+  completed_phases: 23
   total_plans: 80
   completed_plans: 80
   percent: 100
@@ -32,9 +32,9 @@ See: `.planning/PROJECT.md` (updated 2026-07-07)
 
 Phase: 58 — COMPLETE
 Plan: 10 of 10
-Status: Phase 58 complete; CAGM-09 validation passed
-Last activity: 2026-07-08 -- Phase 58 completed with 10/10 plans and broad closeout validation
-Next: Run final Phase 58 review/verification workflow if needed, then decide milestone closeout or next registered phase.
+Status: Milestone complete; Phase 58 / CAGM-09 verification passed
+Last activity: 2026-07-08 -- Phase 58 completed with clean review, security verification, Nyquist validation, and 37/37 verifier sign-off
+Next: Run `$gsd-audit-milestone` before milestone archival.
 
 Progress: [██████████] 100%
 
