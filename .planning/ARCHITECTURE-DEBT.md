@@ -64,6 +64,16 @@
 - **证据**：Phase 53 Plan 53-01；`src/agent/nodes/contextual_intent_resolve.py`；`src/agent/nodes/classify_intent.py`；`src/agent/routing.py` 的 `route_after_contextual_intent`；`tests/agent/test_nodes/test_contextual_intent_resolve.py`；`tests/agent/test_nodes/test_classify_intent.py`；`tests/test_graph_routing.py`；`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_classify_intent.py tests/test_graph_routing.py -q --tb=short` = 90 passed。
 - **剩余风险**：53-02 必须原子切换 `safety_pre_route -> session_context_load -> contextual_intent_resolve` active graph wiring、active router/policy route values和 path maps；53-03 仍需完成 graph vocabulary、current architecture docs、最终兼容面 ledger 与更广 artifact scan。Phase 54 前 `extract_slots` 仍是有意保留的 slot-required compatibility destination。
 
+## 2026-07-08 — Phase 58-02 recommendation/risk implementation ownership 已迁到 canonical modules ✅
+
+- **子系统**：Agent Graph / RAG recommendation / 风险审批主链
+- **问题现象/根因**：Phase 58 no-debt cleanup 前，active graph 已使用 `recommendation_generation` 与 `risk_gate`，但具体实现仍托管在 legacy wrapper 文件 `generate_recommendation.py` 与 `assess_risk_and_approval.py`；canonical modules 只是薄 wrapper。这会让当前-run patch seam、测试入口和实现 owner 继续依赖 legacy node name，阻碍 CAGM-09 删除 active compatibility aliases。
+- **影响**：若不先迁 ownership，58-03 删除 legacy wrapper 或清理跨测试 import 时会打断 current runtime；同时 direct node tests 会继续把 legacy filename 当成事实 owner，最终 no-debt classifier 需要永久例外。
+- **处理状态**：✅ 已修复验证。`src/agent/nodes/recommendation_generation.py` 现在直接承载 `_get_llm`、prompt assembly、RAG/verified-package/citation/fail-closed 逻辑和 public `recommendation_generation(...)`；`src/agent/nodes/risk_gate.py` 现在直接承载 `_get_llm`、risk rules、snapshot persistence seam、approval/action binding、fail-closed 逻辑和 public `risk_gate(...)`。Legacy files 仅保留非 owning import wrapper，当前调用也发出 canonical identity。Direct tests 已迁到 `tests/agent/test_nodes/test_recommendation_generation.py` 与 `tests/agent/test_nodes/test_risk_gate.py`；legacy-named direct tests 已删除。
+- **证据**：Phase 58 Plan 58-02；commits `211e36a`（recommendation ownership）与 `b90a830`（risk ownership）；RED commits `faff3fd`、`74045b6`；文件 `src/agent/nodes/recommendation_generation.py`、`src/agent/nodes/generate_recommendation.py`、`src/agent/nodes/risk_gate.py`、`src/agent/nodes/assess_risk_and_approval.py`、`tests/agent/test_nodes/test_recommendation_generation.py`、`tests/agent/test_nodes/test_risk_gate.py`。
+- **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_recommendation_generation.py -q --tb=short` → `40 passed, 1 warning`；`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_risk_gate.py -q --tb=short` → `17 passed, 1 warning`。最终组合 pytest / ruff 以 `58-02-SUMMARY.md` 为准。
+- **剩余风险**：🟡 本 plan 按范围没有做跨测试 import cleanup；`generate_recommendation.py` 与 `assess_risk_and_approval.py` wrapper 文件仍存在，只是 non-owning。Wrapper 删除、scattered import cleanup、eval/script 调整和 final classifier 收敛留给 dependency-ordered Plan 58-03+。
+
 ---
 
 # 1. 工具调用（Tool Platform）

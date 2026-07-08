@@ -18546,3 +18546,43 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph
 ### 剩余问题和下次继续排查入口
 
 当前 strict classifier 允许已分类历史/测试/文档命中，不要求 `total_hits == 0`。后续 Phase 58 final closeout 若新增扫描 roots 或文档权威范围，应先检查 classifier category 是否仍能区分 current authority 与历史迁移记录，入口为 `scripts/classify_phase58_legacy_hits.py::_classify_row` 和 `_looks_like_current_docs_authority`。
+
+## 2026-07-08：Phase 58-02 risk RED 测试触发 legacy 实现真实 LLM 初始化
+
+### 问题现象
+
+执行 58-02 Task 2 的 RED gate 时，新的 canonical `test_risk_gate.py` 中 legacy wrapper identity 测试调用了尚未迁移的 `assess_risk_and_approval(...)`。由于测试只 patch 了 canonical `risk_gate_module._get_llm`，旧 legacy 实现仍走自身 `_get_llm()` 并初始化真实 `ChatOpenAI`，本地环境随后报错：
+
+```text
+ImportError: Using SOCKS proxy, but the 'socksio' package is not installed.
+```
+
+### 如何检测 / 复现
+
+在 Task 2 RED commit 前运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_risk_gate.py -q --tb=short
+```
+
+### 关键证据或命令
+
+失败栈显示调用路径为 `tests/agent/test_nodes/test_risk_gate.py::test_legacy_assess_risk_and_approval_import_emits_canonical_identity` → `src/agent/nodes/assess_risk_and_approval.py::_get_llm` → `ChatOpenAI(...)` → `httpx` SOCKS transport 初始化失败。
+
+### 当前判断 / 根因
+
+这是预期 RED 失败的一部分：迁移前 legacy module 仍拥有实现和 LLM seam，canonical patch seam 不会影响 legacy `_get_llm()`。`socksio` 缺失是本地环境在真实 LLM 初始化路径上的暴露症状，不是产品代码最终状态的失败。
+
+### 已做处理
+
+按 58-02 计划将风险实现迁入 `src/agent/nodes/risk_gate.py`，并把 `src/agent/nodes/assess_risk_and_approval.py` 缩减为 non-owning wrapper。修复后同一命令通过：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_risk_gate.py -q --tb=short
+```
+
+结果：`17 passed, 1 warning`。
+
+### 剩余问题和下次继续排查入口
+
+本计划范围内无剩余验证问题。若后续 58-03 清理跨测试 import 时再次出现真实 LLM 初始化，优先检查测试 patch seam 是否已从 legacy module 迁到 canonical `src.agent.nodes.risk_gate` 或 `src.agent.nodes.recommendation_generation`。
