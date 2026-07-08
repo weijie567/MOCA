@@ -1238,6 +1238,17 @@ def test_should_resume_graph_accepts_only_current_canonical_edit_route() -> None
     assert approvals_router._should_resume_graph(legacy) is False
 
 
+def test_phase58_retry_route_compatibility_is_historical_persisted_data_read_only() -> None:
+    source = Path("src/api/routers/approvals.py").read_text(encoding="utf-8")
+
+    assert "LEGACY_RISK_ROUTE" not in source
+    assert "HISTORICAL_RETRY_ROUTE_TO_CANONICAL" in source
+    legacy_lines = [
+        line.strip() for line in source.splitlines() if "assess_risk_and_approval" in line and not line.strip().startswith("#")
+    ]
+    assert legacy_lines == ['HISTORICAL_RETRY_ROUTE_TO_CANONICAL = {"assess_risk_and_approval": CANONICAL_RISK_ROUTE}']
+
+
 @pytest.mark.asyncio
 async def test_decide_reject_resumes_graph_with_trusted_rejected_result(
     client: AsyncClient,
