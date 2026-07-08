@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from tests.agent.conftest import FakeLLM
@@ -33,6 +35,12 @@ FORBIDDEN_DOWNSTREAM_FIELDS = FORBIDDEN_AUTHORITY_FIELDS | {
     "retrieved_evidence",
     "evidence_refs",
 }
+
+
+def test_intent_legacy_wrapper_and_direct_test_are_removed():
+    assert not Path("src/agent/nodes/classify_intent.py").exists()
+    assert not Path("tests/agent/test_nodes/test_classify_intent.py").exists()
+    assert "src.agent.nodes.classify_intent" not in Path("tests/agent/test_intent_adapter.py").read_text()
 
 
 @pytest.mark.asyncio
