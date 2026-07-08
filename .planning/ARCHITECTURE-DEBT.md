@@ -84,6 +84,16 @@
 - **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_recommendation_generation.py tests/agent/test_nodes/test_risk_gate.py tests/architecture/test_phase33_rag_claim_boundaries.py -q --tb=short` → `61 passed, 1 warning`；`UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict` → `active_runtime_legacy=0`、`current_docs_legacy_authority=0`、`unclassified_rows=0`；wrapper/direct legacy test deletion checks passed。
 - **剩余风险**：🟡 历史 trace/docs/planning 中仍有 legacy name 文本，由 strict classifier 分类为 historical / previous-state / cleanup artifact，不再是 active runtime authority。本条不处理其他 Phase 58 cleanup surfaces（如 intent/slot/memory wrappers、approval retry historical compatibility、frontend/API fallback labels）。
 
+## 2026-07-08 — Phase 58-04 intent/session legacy wrapper 文件与直接测试已删除 ✅
+
+- **子系统**：Agent Graph / 意图识别 / 记忆上下文
+- **问题现象/根因**：Phase 53 已把 active graph 切到 `session_context_load -> contextual_intent_resolve`，但 `classify_intent.py`、`session_memory_load.py` 仍作为 import/test compatibility wrapper 存在；`test_classify_intent.py`、`test_session_memory_load.py` 也继续把旧 filename 当成直接测试入口。这会让 current-run patch seam 和直接测试继续依赖 legacy node name，阻碍 CAGM-09 no-debt 收敛。
+- **影响**：旧 wrapper 可 import 时，后续测试、fixture 或脚本容易重新 patch legacy module path；session wrapper 还会把 trace node 写成 `session_memory_load`，与当前 canonical runtime identity 不一致。
+- **处理状态**：✅ 已修复验证。删除 `src/agent/nodes/classify_intent.py`、`src/agent/nodes/session_memory_load.py`、`tests/agent/test_nodes/test_classify_intent.py`、`tests/agent/test_session_memory_load.py`；把非重复断言迁入 `tests/agent/test_nodes/test_contextual_intent_resolve.py` 与新建 `tests/agent/test_nodes/test_session_context_load.py`；`tests/agent/test_intent_adapter.py`、intent golden/routing/memory-boundary fixture 和 empty-session adapter 测试改到 canonical import/patch seam。
+- **证据**：Phase 58 Plan 58-04；commits `7a45cba`（intent RED guard）、`4029e9b`（intent wrapper deletion）、`ac6af9c`（session RED guard）、`0034a4e`（session wrapper deletion）；文件 `src/agent/nodes/contextual_intent_resolve.py`、`src/agent/nodes/session_context_load.py`、`tests/agent/test_nodes/test_contextual_intent_resolve.py`、`tests/agent/test_nodes/test_session_context_load.py`、`tests/agent/test_intent_adapter.py`。
+- **验证**：`UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_contextual_intent_resolve.py tests/agent/test_nodes/test_session_context_load.py tests/agent/test_intent_adapter.py -q --tb=short` → `31 passed, 1 warning`；`UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict` → `active_runtime_legacy=0`、`current_docs_legacy_authority=0`、`unclassified_rows=0`；legacy intent/session wrapper 与 legacy direct test deletion checks passed。
+- **剩余风险**：🟡 历史 docs/planning/test guard 中仍有 legacy name 文本，由 strict classifier 分类为 previous-state / cleanup artifact / legacy-wrapper-test，不再是 active runtime authority。本条不处理 slot、long-term-memory、approval retry historical compatibility、frontend/API fallback labels等后续 Phase 58 cleanup surfaces。
+
 ---
 
 # 1. 工具调用（Tool Platform）

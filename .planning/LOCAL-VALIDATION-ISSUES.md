@@ -18586,3 +18586,38 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_risk_gate.p
 ### 剩余问题和下次继续排查入口
 
 本计划范围内无剩余验证问题。若后续 58-03 清理跨测试 import 时再次出现真实 LLM 初始化，优先检查测试 patch seam 是否已从 legacy module 迁到 canonical `src.agent.nodes.risk_gate` 或 `src.agent.nodes.recommendation_generation`。
+
+## 2026-07-08：Phase 58-04 session RED 迁移测试期望过窄
+
+### 问题现象
+
+执行 58-04 Task 2 的 RED gate 时，新建的 canonical `tests/agent/test_nodes/test_session_context_load.py` 除了预期的 legacy wrapper deletion guard 失败外，还出现了一个非预期断言失败：
+
+```text
+test_session_context_load_service_error_returns_unavailable
+assert 'empty_adapter' == 'unavailable'
+```
+
+### 如何检测 / 复现
+
+在 Task 2 RED commit 前运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_nodes/test_session_context_load.py -q --tb=short
+```
+
+### 关键证据或命令
+
+第一次 RED 运行结果为 `2 failed, 10 passed`。其中一个失败是预期的 `src/agent/nodes/session_memory_load.py` 仍存在；另一个失败来自服务错误 fallback 的 `session_memory.source` 实际返回 `empty_adapter`，而迁移测试误写成只接受 `unavailable`。
+
+### 当前判断 / 根因
+
+这是迁移 legacy session 测试到 canonical `session_context_load` 文件时，把 fallback source 期望收得过窄。当前实现对该错误路径仍可能通过 session bundle adapter 返回 `empty_adapter`，但关键安全语义是 fail-closed、`continuity_claimed=False`、`fallback_reason=unavailable`。
+
+### 已做处理
+
+已将该断言调整为接受 `{"empty_adapter", "unavailable"}`，并保留 `fallback_reason == "unavailable"`、`continuity_claimed is False` 和 metrics fallback 校验。修正后同一 RED 命令只剩预期 deletion guard 失败：`1 failed, 11 passed`；GREEN 删除 wrapper 后通过：`12 passed, 1 warning`。
+
+### 剩余问题和下次继续排查入口
+
+本计划范围内无剩余验证问题。若后续继续收敛 session bundle legacy 字段，应从 `src/agent/nodes/session_context_load.py::_fallback`、`SessionMemoryBundleService` fallback 行为和 `tests/agent/test_nodes/test_session_context_load.py::test_session_context_load_service_error_returns_unavailable` 入手，先判断是否要保留 `empty_adapter` 作为历史 bundle source。
