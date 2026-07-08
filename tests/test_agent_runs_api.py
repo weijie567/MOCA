@@ -1100,6 +1100,38 @@ async def test_persist_agent_run_memory_finalize_trace_steps_rolls_back_and_supp
     )
 
 
+@pytest.mark.asyncio
+async def test_persist_agent_run_memory_finalize_trace_steps_can_fail_closed(
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+) -> None:
+    user = seeded_session["users"]["cs_zhang"]
+    run = await _create_run(session, tenant_id=user.tenant_id, user_id=user.id, final_status="completed")
+    await session.commit()
+
+    async def fail_append_agent_steps(*args, **kwargs):
+        raise RuntimeError("simulated finalizer trace append failure")
+
+    monkeypatch.setattr(agent_run_memory_service, "append_agent_steps", fail_append_agent_steps, raising=False)
+
+    with pytest.raises(RuntimeError, match="simulated finalizer trace append failure"):
+        await agent_run_memory_service.persist_agent_run_memory_finalize_trace_steps(
+            session=session,
+            run=run,
+            prior_trace_steps=[_trace("final_response")],
+            finalizer_trace_steps=[
+                {
+                    "node": agent_run_memory_service.FINALIZER_NODE,
+                    "status": "completed",
+                    "started_at": datetime.now(UTC).isoformat(),
+                    "completed_at": datetime.now(UTC).isoformat(),
+                }
+            ],
+            suppress_errors=False,
+        )
+
+
 async def _create_run(
     session: AsyncSession,
     *,

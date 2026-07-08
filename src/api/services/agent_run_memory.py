@@ -69,6 +69,7 @@ async def persist_agent_run_memory_finalize_trace_steps(
     run: AgentRun,
     prior_trace_steps: list[dict[str, Any]],
     finalizer_trace_steps: list[dict[str, Any]],
+    suppress_errors: bool = True,
 ) -> None:
     if not finalizer_trace_steps:
         return
@@ -96,6 +97,8 @@ async def persist_agent_run_memory_finalize_trace_steps(
         await session.commit()
     except Exception:
         await session.rollback()
+        if not suppress_errors:
+            raise
 
 
 async def finalize_completed_agent_run_memory(

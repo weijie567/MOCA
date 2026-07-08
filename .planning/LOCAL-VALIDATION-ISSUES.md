@@ -19090,3 +19090,118 @@ AttributeError: 'ConversationMessage' object has no attribute 'user_id'
 ### 剩余问题和下次继续排查入口
 
 无生产代码问题。后续写 conversation message 身份断言时，优先查看 `src/db/models.py::ConversationMessage` 与 `ConversationThread` 的字段关系，不要假设 message row 自带 `user_id`。
+
+## 2026-07-08：Phase 59 code-review fix 验证时误用不存在的 pytest node
+
+### 问题现象
+
+修复 Phase 59 code review WR-01/WR-02 后，第一次 approval focused 验证失败。失败不是产品代码或测试断言失败，而是命令里写了不存在的测试函数名 `test_approval_resume_commits_decision_before_graph_resume`。
+
+### 如何检测 / 复现
+
+在仓库根目录运行：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py::test_approval_resume_trace_persistence_failure_fails_closed_after_terminal_surfaces tests/test_approval_api.py::test_completed_resume_reconciliation_rechecks_status_under_lock tests/test_approval_api.py::test_decide_records_recoverable_resume_failure_and_retries_terminal_approval tests/test_approval_api.py::test_approval_resume_commits_decision_before_graph_resume -q
+```
+
+### 关键证据或命令
+
+pytest 输出：
+
+```text
+ERROR: not found: /Users/ming/projects/MOCA/tests/test_approval_api.py::test_approval_resume_commits_decision_before_graph_resume
+```
+
+`rg -n "commit.*graph|graph.*commit|commit_count|graph_commit_counts|commits_decision" tests/test_approval_api.py` 确认真正测试名是 `test_decide_commits_approval_decision_before_graph_resume`。
+
+### 当前判断 / 根因
+
+验证命令拼写错误。真实测试函数名在 Phase 59-02/59-03 后仍是 `test_decide_commits_approval_decision_before_graph_resume`。
+
+### 已做处理
+
+改用存在的 node 组合串行重跑：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py::test_decide_commits_approval_decision_before_graph_resume tests/test_approval_api.py::test_approval_resume_trace_persistence_failure_fails_closed_after_terminal_surfaces tests/test_approval_api.py::test_completed_resume_reconciliation_rechecks_status_under_lock tests/test_approval_api.py::test_decide_records_recoverable_resume_failure_and_retries_terminal_approval -q
+```
+
+结果为 `4 passed, 1 warning`。
+
+### 剩余问题和下次继续排查入口
+
+无产品代码问题。后续写 focused pytest 命令前先用 `rg -n "def test_name"` 或 `pytest --collect-only` 核对真实 test node。
+
+## 2026-07-08：Phase 59 code-review fix 并行运行 DB-backed pytest 导致测试 schema deadlock/半建表
+
+### 问题现象
+
+修复 Phase 59 code review 后，为了加速验证，同时启动了两个使用同一个 `moca_test` PostgreSQL 数据库的 pytest 命令。两个 pytest 都会通过 `tests/conftest.py::test_engine` 执行 `Base.metadata.drop_all/create_all`，并发 DDL/fixture setup 导致 PostgreSQL deadlock。随后仍在跑的全量 approval suite 继续使用被并发 DDL 破坏的 schema，出现 `duplicate key value violates unique constraint "pg_type_typname_nsp_index"` 和 `relation "tenants" does not exist`。
+
+### 如何检测 / 复现
+
+本轮同时启动了两个命令：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py::test_decide_commits_approval_decision_before_graph_resume -q
+```
+
+以及：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_api.py -q
+```
+
+### 关键证据或命令
+
+第一个 focused 命令 fixture setup 报：
+
+```text
+asyncpg.exceptions.DeadlockDetectedError: deadlock detected
+```
+
+后续全量 suite 报：
+
+```text
+asyncpg.exceptions.UniqueViolationError: duplicate key value violates unique constraint "pg_type_typname_nsp_index"
+asyncpg.exceptions.UndefinedTableError: relation "tenants" does not exist
+```
+
+`tests/conftest.py` 显示 `test_engine` 每次会对固定 `moca_test` 库执行 `Base.metadata.drop_all` 和 `Base.metadata.create_all`。
+
+### 当前判断 / 根因
+
+本地验证操作错误，不是产品代码失败。MOCA 的 DB-backed pytest 共享固定测试库 `moca_test`，不能在同一工作树里并行运行会创建/删除 schema 的 pytest 进程。
+
+### 已做处理
+
+用项目虚拟环境入口清理测试库 schema：
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python - <<'PY'
+import asyncio
+import asyncpg
+
+async def main():
+    conn = await asyncpg.connect(user='moca', password='moca_dev', host='localhost', port=5432, database='moca_test')
+    try:
+        await conn.execute('DROP SCHEMA IF EXISTS public CASCADE')
+        await conn.execute('CREATE SCHEMA public')
+        await conn.execute('GRANT ALL ON SCHEMA public TO moca')
+        await conn.execute('GRANT ALL ON SCHEMA public TO public')
+    finally:
+        await conn.close()
+
+asyncio.run(main())
+PY
+```
+
+随后所有 DB-backed 验证改为串行运行，结果：
+
+- `tests/test_approval_api.py` → `37 passed, 1 warning`
+- Phase 59 full selected suite → `196 passed, 1 warning`
+
+### 剩余问题和下次继续排查入口
+
+无产品代码问题。后续 MOCA DB-backed pytest 不要并行跑同一个固定 `moca_test` 库；如果需要并发，先设计 per-worker database/schema 隔离。

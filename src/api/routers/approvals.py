@@ -246,14 +246,12 @@ async def _run_resume_lifecycle(
     *, request: Request, session: AsyncSession, result: ApprovalDecisionResult, actor_id: UUID, actor_user: User
 ) -> None:
     try:
-        if await _completed_resume_finalizer_reconciliation_ready(session=session, result=result):
-            await _record_resume_event(
-                session=session,
-                result=result,
-                actor_id=actor_id,
-                resume_status="completed",
-            )
-            await session.commit()
+        if await _record_resume_completed_event_once(
+            session=session,
+            result=result,
+            actor_id=actor_id,
+            require_terminal_finalizer=True,
+        ):
             return
 
         await _record_resume_event(
@@ -270,13 +268,15 @@ async def _run_resume_lifecycle(
             result=result,
             actor_user=actor_user,
         )
-        await _record_resume_event(
+        run = await session.get(AgentRun, result.run_id)
+        require_terminal_finalizer = run is not None and run.final_status == "completed"
+        if not await _record_resume_completed_event_once(
             session=session,
             result=result,
             actor_id=actor_id,
-            resume_status="completed",
-        )
-        await session.commit()
+            require_terminal_finalizer=require_terminal_finalizer,
+        ):
+            raise RuntimeError("approval resume completed run missing terminal finalizer evidence")
     except Exception as exc:
         await session.rollback()
         await _record_resume_event(
@@ -392,11 +392,13 @@ async def _resume_graph_after_decision(
             trace_steps=trace_steps,
             trace_id=getattr(request.state, "trace_id", None),
         )
+        await session.commit()
         await persist_agent_run_memory_finalize_trace_steps(
             session=session,
             run=run,
             prior_trace_steps=trace_steps,
             finalizer_trace_steps=finalizer_result.trace_steps,
+            suppress_errors=False,
         )
 
 
@@ -529,6 +531,43 @@ async def _recoverable_resume_retry_result(
         raise ApprovalTransitionError("approval_conflict")
 
     return await _terminal_decision_result_for_retry(session, approval, body)
+
+
+async def _lock_approval_request_for_resume(session: AsyncSession, approval_id: UUID) -> ApprovalRequest:
+    approval = (
+        await session.execute(select(ApprovalRequest).where(ApprovalRequest.id == approval_id).with_for_update())
+    ).scalar_one_or_none()
+    if approval is None:
+        raise ApprovalTransitionError("approval_not_found")
+    return approval
+
+
+async def _record_resume_completed_event_once(
+    *,
+    session: AsyncSession,
+    result: ApprovalDecisionResult,
+    actor_id: UUID,
+    require_terminal_finalizer: bool,
+) -> bool:
+    approval = await _lock_approval_request_for_resume(session, result.approval_id)
+    latest_resume_status = await _latest_resume_status(session, approval)
+    if latest_resume_status == "completed":
+        return True
+    if latest_resume_status not in RESUME_INCOMPLETE_STATUSES:
+        return False
+    if require_terminal_finalizer and not await _completed_resume_finalizer_reconciliation_ready(
+        session=session,
+        result=result,
+    ):
+        return False
+    await _record_resume_event(
+        session=session,
+        result=result,
+        actor_id=actor_id,
+        resume_status="completed",
+    )
+    await session.commit()
+    return True
 
 
 async def _completed_resume_finalizer_reconciliation_ready(

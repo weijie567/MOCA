@@ -26,6 +26,7 @@ from src.db.models import (
     ApprovalEvent,
     ApprovalLevel,
     ApprovalRequest,
+    CaseWorkingContext,
     ConversationMessage,
     ConversationSummary,
     ConversationThread,
@@ -549,7 +550,7 @@ async def test_decide_commits_approval_decision_before_graph_resume(
 
     assert response.status_code == 200
     assert graph_commit_counts == [2]
-    assert commit_count == 5
+    assert commit_count == 6
 
 
 @pytest.mark.asyncio
@@ -713,6 +714,149 @@ async def test_decide_records_recoverable_resume_failure_and_retries_terminal_ap
         )
         == 1
     )
+
+
+@pytest.mark.asyncio
+async def test_approval_resume_trace_persistence_failure_fails_closed_after_terminal_surfaces(
+    client: AsyncClient,
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(session, seeded_session, thread_id="thread-resume-trace-failure")
+    refund_case = seeded_session["refund_case"]
+    graph = FakeResumeGraph(
+        "approved response",
+        extra_state={
+            "primary_intent": "refund_status",
+            "approval_result": {"status": "approved", "decision_type": "approve"},
+            "risk_assessment": {"approval_required": True, "risk_level": "high"},
+            "active_slots": {
+                "refund_case_id": refund_case.refund_case_no,
+                "issue_type": "refund_status",
+            },
+            "extracted_slots": {"refund_case_id": refund_case.refund_case_no},
+        },
+    )
+    headers = await _admin_headers(client)
+    decision_body = _decision_body(bundle, "approve")
+
+    async def fail_finalizer_trace_persistence(**kwargs):
+        raise RuntimeError("simulated finalizer trace append failure")
+
+    monkeypatch.setattr(
+        approvals_router,
+        "persist_agent_run_memory_finalize_trace_steps",
+        fail_finalizer_trace_persistence,
+    )
+    monkeypatch.setattr(app.state, "agent_graph", graph, raising=False)
+
+    response = await client.post(
+        f"/api/v1/approvals/{bundle.approval.id}/decide",
+        json=decision_body,
+        headers=headers,
+    )
+    await session.refresh(bundle.approval)
+    run = await session.get(AgentRun, bundle.approval.run_id)
+    resume_events = (
+        (
+            await session.execute(
+                select(ApprovalEvent).where(
+                    ApprovalEvent.approval_request_id == bundle.approval.id,
+                    ApprovalEvent.event_type == "approval_resumed",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    resume_statuses = {event.metadata_json["resume_status"] for event in resume_events}
+
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "APPROVAL_RESUME_FAILED"
+    assert run is not None
+    assert run.final_status == "completed"
+    assert {"attempted", "failed"} <= resume_statuses
+    assert "completed" not in resume_statuses
+    assert len(await _finalizer_steps(session, run_id=bundle.approval.run_id)) == 0
+    assert (
+        await _count_rows(
+            session,
+            ConversationMessage,
+            ConversationMessage.run_id == bundle.approval.run_id,
+            ConversationMessage.role == "assistant",
+            ConversationMessage.deleted_at.is_(None),
+        )
+        == 1
+    )
+    assert (
+        await _count_rows(
+            session,
+            ConversationSummary,
+            ConversationSummary.thread_id == run.thread_id,
+            ConversationSummary.summary_type == "thread_rolling",
+            ConversationSummary.deleted_at.is_(None),
+        )
+        == 1
+    )
+    assert (
+        await _count_rows(
+            session,
+            MemoryWriteEvent,
+            MemoryWriteEvent.run_id == bundle.approval.run_id,
+            MemoryWriteEvent.memory_type == "session_slot",
+            MemoryWriteEvent.decision == "write",
+        )
+        == 1
+    )
+    assert (
+        await _count_rows(
+            session,
+            CaseWorkingContext,
+            CaseWorkingContext.updated_by_run_id == bundle.approval.run_id,
+            CaseWorkingContext.deleted_at.is_(None),
+        )
+        == 1
+    )
+
+
+@pytest.mark.asyncio
+async def test_completed_resume_reconciliation_rechecks_status_under_lock(
+    session: AsyncSession,
+    seeded_session,
+    monkeypatch,
+):
+    bundle = await _create_approval(session, seeded_session, thread_id="thread-resume-lock-recheck")
+    admin = seeded_session["users"]["admin_user"]
+    result = _approved_decision_result(bundle, admin.id)
+    calls: list[str] = []
+
+    async def fake_lock(session: AsyncSession, approval_id: UUID) -> ApprovalRequest:
+        calls.append("lock")
+        assert approval_id == bundle.approval.id
+        return bundle.approval
+
+    async def fake_latest_status(session: AsyncSession, approval: ApprovalRequest) -> str:
+        calls.append("latest")
+        assert approval.id == bundle.approval.id
+        return "completed"
+
+    async def fail_record_resume_event(**kwargs):
+        raise AssertionError("duplicate completed resume event should not be recorded")
+
+    monkeypatch.setattr(approvals_router, "_lock_approval_request_for_resume", fake_lock)
+    monkeypatch.setattr(approvals_router, "_latest_resume_status", fake_latest_status)
+    monkeypatch.setattr(approvals_router, "_record_resume_event", fail_record_resume_event)
+
+    recorded = await approvals_router._record_resume_completed_event_once(
+        session=session,
+        result=result,
+        actor_id=admin.id,
+        require_terminal_finalizer=True,
+    )
+
+    assert recorded is True
+    assert calls == ["lock", "latest"]
 
 
 @pytest.mark.asyncio
