@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Core Subsystem Hardening
-status: verifying
-stopped_at: Phase 60 plan execution complete; post-execution review and verification pending
-last_updated: "2026-07-08T21:01:28+08:00"
-last_activity: 2026-07-08 -- Phase 60 archive evidence gate passed; post-execution review pending
+status: complete
+stopped_at: Phase 60 complete; v2.1 archive-ready
+last_updated: "2026-07-08T21:18:00+08:00"
+last_activity: 2026-07-08 -- Phase 60 complete with code-review scope skip, UAT, security, and validation gates closed
 progress:
   total_phases: 25
   completed_phases: 25
@@ -30,11 +30,11 @@ See: `.planning/PROJECT.md` (updated 2026-07-08)
 
 ## Current Position
 
-Phase: 60 (v2-1-archive-evidence-closure) — POST-EXECUTION REVIEW
+Phase: 60 (v2-1-archive-evidence-closure) — COMPLETE
 Plan: 5 of 5
-Status: archive evidence gate passed; post-execution review and verification pending
-Last activity: 2026-07-08 -- Phase 60 evidence artifacts created/refreshed and final archive gate passed through the main orchestrator `gsd-integration-checker` path
-Next: Run Phase 60 code review, self-verification, security verification, and Nyquist validation.
+Status: Phase 60 complete; v2.1 archive evidence gate passed and post-execution review/verification/security/validation gates are closed
+Last activity: 2026-07-08 -- Phase 60 evidence artifacts created/refreshed, final archive gate passed through the main orchestrator `gsd-integration-checker` path, UAT passed, security `threats_open: 0`, validation audit found 0 gaps
+Next: Run milestone completion/archive workflow for v2.1.
 
 Progress: [██████████] 100%
 
@@ -80,7 +80,7 @@ Planning files: `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/
 | 57. Risk Gate and Approval Gate Canonicalization (CAGM-08) | 5/5 | Complete |
 | 58. Canonical Graph Cutover and No-Debt Cleanup (CAGM-09) | 10/10 | Complete; broad validation, classifier, frontend build/test, metadata proof passed |
 | 59. Approval Resume Terminal Memory Finalization (MEM-01, MEM-02, MEM-03, CAGM-08, CAGM-09) | 3/3 | Complete; verification passed, review warnings fixed |
-| 60. v2.1 Archive Evidence Closure (TPH-03, TPH-04, IDR-02, MEM-COMPAT-01, GAD-01-IMPL, CAGM-01, CAGM-07) | 5/5 | Complete; archive evidence gate passed, post-execution review pending |
+| 60. v2.1 Archive Evidence Closure (TPH-03, TPH-04, IDR-02, MEM-COMPAT-01, GAD-01-IMPL, CAGM-01, CAGM-07) | 5/5 | Complete; archive evidence gate passed, UAT/security/validation closed |
 
 Sequencing rationale: Phase 37 consolidates the registry and converges runtime/policy internals with no external contract change (LOW blast radius). Phase 38 declares `output_schema` in that consolidated registry and enforces it through the shared failure path. Phase 39 reconciles the spec to the final implemented state via dual-AI review. Phase 40 closes the source-confirmed validation/backstop gaps intentionally deferred or left advisory after Phase 38/39. Phase 41 then handles the explicit breaking cleanup/API decision to remove the `UnifiedToolManager` legacy compatibility adapter.
 
@@ -292,18 +292,18 @@ Historical execution metrics are archived in milestone files and `.planning/MILE
 
 ## Session Continuity
 
-Last session: 2026-07-08T21:01:28+08:00
-Stopped at: Phase 60 plan execution complete; post-execution review and verification pending
+Last session: 2026-07-08T21:18:00+08:00
+Stopped at: Phase 60 complete; v2.1 archive-ready
 Resume file: `.planning/autopilot/phase-60.md`
-Next: Resume Phase 60 autopilot at code review, self-verification, security verification, and Nyquist validation.
+Next: Run milestone completion/archive workflow for v2.1.
 
 Recent completions: Phase 37-41 tool platform hardening complete and archived-ready; Phase 42 intent recognition three-layer decoupling retroactively registered (commit `a0a98e4`, `1230 passed, 1 skipped`, ruff clean); Phase 43 intent multi-intent tier A complete; Phase 44 memory layering complete with clean review and 15/15 verification; Phase 45 memory lifecycle wiring complete with security, UAT, validation, and clean review complete; Phase 46 session context repositioning complete with MEM-03 validated; Phase 47 complete with 47-01 contract/source-policy foundation, 47-02 trusted closed-case projection seam, 47-03 governed case-memory write lifecycle, and 47-04 retrieval/docs/validation closeout; Phase 48 complete with explicit preference contract, source policy/service guards, chat/admin write paths, retrieval/review/correction closeout, clean code review, completed UAT, and security verification (`threats_open: 0`); Phase 49 completed investigate bounded read-only ReAct main path with replay parent-operation limitation; Phase 50 completed canonical Agent Graph migration guardrail SPEC; Phase 51 completed canonical graph baseline guardrails and migration matrix verification; Phase 52 completed explicit `safety_pre_route` runtime node extraction with clean review and 8/8 verification; Phase 53 completed `session_context_load -> contextual_intent_resolve` active graph cutover with clean review, security verification, validation, and 20/20 verification; Phase 54 completed `slot_resolution_gate` active graph cutover with clean review, security verification (`threats_open: 0`), Nyquist validation, and 8/8 verification; Phase 55 completed `memory_context_load` active graph cutover with clean review, review fix, verification, validation, and security verification (`threats_open: 0`); Phase 56 completed `recommendation_generation` active graph cutover, RAG/claim fail-closed alignment, action-boundary review fixes, clean code review, UAT, security verification (`threats_open: 0`), and Nyquist validation; Phase 57 completed `risk_gate` active runtime canonicalization, approval resume separation, projection/docs/validation closeout, and static legacy-hit classification for Phase 58 cleanup; Phase 58 completed final 15-node canonical graph cutover/no-debt cleanup with 10/10 plans, strict classifier `active_runtime_legacy=0`, `current_docs_legacy_authority=0`, `unclassified_rows=0`, broad backend pytest `1812 passed, 1 skipped`, frontend build/test, metadata proof, and CAGM-09 closeout; Phase 59 completed approval-resume terminal memory finalization with 3/3 plans, code review warnings fixed, verification passed 18/18, final selected pytest `196 passed, 1 warning`, ruff clean, validation sign-off, and MEM-01/MEM-02/MEM-03/CAGM-08/CAGM-09 traceability closure.
-Next roadmap item: Complete Phase 60 post-execution review, self-verification, security verification, and Nyquist validation.
+Next roadmap item: Complete/archive the v2.1 milestone.
 
 **Completed Phase:** 59 (approval-resume-terminal-memory-finalization) — 3/3 plans — 2026-07-08
 
-**Next Phase:** 60 (`v2.1 Archive Evidence Closure`) — post-execution review and verification pending
+**Next Phase:** None in current v2.1 milestone; milestone completion/archive pending
 
-**Completed Requirements:** MEM-01, MEM-02, MEM-03, CAGM-08, CAGM-09 — Phase 59 final validation — 2026-07-08
+**Completed Requirements:** TPH-03, TPH-04, IDR-02, MEM-COMPAT-01, GAD-01-IMPL, CAGM-01, CAGM-07 — Phase 60 final validation — 2026-07-08
 
-**Planned Phase:** 60 (`v2.1 Archive Evidence Closure`) — Plans 60-01 through 60-05 complete; final archive gate passed, post-execution review pending
+**Completed Phase:** 60 (`v2.1 Archive Evidence Closure`) — Plans 60-01 through 60-05 complete; final archive gate passed; code-review scope empty; UAT/security/validation complete

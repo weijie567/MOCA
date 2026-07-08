@@ -1,7 +1,7 @@
 ---
 phase: "60"
-status: running
-current_step: security_complete_validate_next
+status: complete
+current_step: complete
 plan_review_loop: 2
 quota_waits: 0
 updated_at: "2026-07-08T13:01:28Z"
@@ -45,6 +45,8 @@ next_command: "$gsd-phase-autopilot --resume"
 - Stage 6 code review workflow ran scope resolution and skipped review because Phase 60 changed no source files after workflow exclusions.
 - Stage 7 verify-work self-check completed; `60-UAT.md` created with 6/6 checks passed and 0 issues.
 - Stage 8 secure-phase completed; `60-SECURITY.md` created with 25/25 threats closed and `threats_open: 0`.
+- Stage 9 validate-phase completed; `60-VALIDATION.md` audit trail records 0 gaps and `nyquist_compliant: true`.
+- Stage 10 closeout completed; Phase 60 is complete and v2.1 is archive-ready.
 
 ## Evidence
 
@@ -98,6 +100,10 @@ next_command: "$gsd-phase-autopilot --resume"
 - Security result: `status: verified`, `threats_open: 0`, 25 threat rows closed, 3 accepted risks documented.
 - Security self-checks passed: plan threat-register count, summary `Threat Flags` count, command hygiene scan, high-confidence secret scan, and `git diff --check`.
 - Security commit: `07376ba` (`docs(60): add archive evidence security signoff`).
+- Validation artifact: `.planning/phases/60-v2-1-archive-evidence-closure/60-VALIDATION.md`.
+- Validation result: `status: complete`, `nyquist_compliant: true`, validation audit `Gaps found: 0`.
+- Validation checks passed: UAT complete, security verified, archive audit ready, requirements archive-ready, active stale-status scan clean.
+- Validation commit: `045a1b3` (`docs(60): record validation audit`).
 
 ## Last Failure
 
