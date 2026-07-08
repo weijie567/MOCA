@@ -1,7 +1,7 @@
 ---
 phase: 37-tool-declaration-runtime-policy-internal-consolidation
-verified: 2026-07-08T12:04:08Z
-status: passed_with_followup
+verified: 2026-07-08T12:36:55Z
+status: passed
 score: source-backed
 overrides_applied: 0
 requirements:
@@ -11,7 +11,7 @@ requirements:
 
 # Phase 37 Verification: Tool Declaration / Runtime / Policy Internal Consolidation
 
-**Source-backed formal verification for TPH-03 and TPH-04, with the historical DB-backed pytest note preserved for Phase 60 Plan 04.**
+**Source-backed formal verification for TPH-03 and TPH-04. The historical DB-backed pytest note is resolved by Phase 60 Plan 04.**
 
 ## Goal Achievement
 
@@ -26,7 +26,7 @@ requirements:
 | 5 | Runtime auth uses a declarative ordered `RuntimeAuthGate` sequence without external contract-shape change. | VERIFIED | `RuntimeAuthGate` is defined at `src/tools/policy.py:104`; `_runtime_auth_gates` lists caller, permission, side-effect, resource scope, approval, safety snapshot, and idempotency gates at `src/tools/policy.py:244`; `runtime_auth(...)` iterates that sequence at `src/tools/policy.py:382` and `src/tools/policy.py:419`. |
 | 6 | Contract-sensitive field sets were preserved during Phase 37. | VERIFIED | Phase 37-01 says no `ToolDescriptor`, `ToolResultV2`, `ToolCallContext`, `ToolPolicyDecision`, `ToolViewV1`, or `ToolInvocationOutcome` fields changed at `.planning/phases/37-tool-declaration-runtime-policy-internal-consolidation/37-01-SUMMARY.md:85`; Phase 37-03 records empty `docs/contract-spec.md` / `src/tools/contracts.py` diff and contract-shape checks at `.planning/phases/37-tool-declaration-runtime-policy-internal-consolidation/37-03-SUMMARY.md:98`. |
 
-**Score:** 6/6 observable truths source-backed; DB-backed pytest follow-up remains open by design.
+**Score:** 6/6 observable truths source-backed; DB-backed pytest follow-up resolved by Phase 60 Plan 04.
 
 ### Required Artifacts
 
@@ -35,7 +35,7 @@ requirements:
 | `37-01-SUMMARY.md` | TPH-03 registry single-source implementation evidence. | VERIFIED | Provides declaration rows, derived identifier schema map, and catalog-derived investigate filtering at `.planning/phases/37-tool-declaration-runtime-policy-internal-consolidation/37-01-SUMMARY.md:57`. |
 | `37-02-SUMMARY.md` | Runtime `_fail(...)` consolidation evidence. | VERIFIED | Records seven runtime failure paths routed through `_fail(...)` at `.planning/phases/37-tool-declaration-runtime-policy-internal-consolidation/37-02-SUMMARY.md:59`. |
 | `37-03-SUMMARY.md` | Declarative `RuntimeAuthGate` sequence evidence and final sweep. | VERIFIED | Records gate order, multi-denial regression, and final contract checks at `.planning/phases/37-tool-declaration-runtime-policy-internal-consolidation/37-03-SUMMARY.md:58`. |
-| `37-VALIDATION.md` | Historical validation strategy. | FOLLOWUP | It is still draft / non-Nyquist-compliant at `.planning/phases/37-tool-declaration-runtime-policy-internal-consolidation/37-VALIDATION.md:4`; Phase 60 Plan 03 owns validation refresh. |
+| `37-VALIDATION.md` | Nyquist validation and DB-backed note disposition. | VERIFIED | It is complete and Nyquist-compliant; Phase 60 Plan 04 resolved the DB-backed pytest note with the current-equivalent archive command. |
 | `37-REVIEW.md` | Code review evidence. | VERIFIED | Clean review with 0 findings at `.planning/phases/37-tool-declaration-runtime-policy-internal-consolidation/37-REVIEW.md:15` and `.planning/phases/37-tool-declaration-runtime-policy-internal-consolidation/37-REVIEW.md:32`. |
 
 ## Key Link Verification
@@ -50,15 +50,15 @@ requirements:
 
 | Behavior | Command Evidence | Result | Status |
 |---|---|---|---|
-| Current-equivalent Phase 37 catalog/platform/replay/architecture gate. | No command rerun in 60-01; 60-04 owns the Phase 37 DB-backed pytest note. Recommended current entrypoint: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/replay/test_tool_policy_events.py tests/architecture/test_trusted_context_boundaries.py tests/architecture/test_tool_boundaries.py -q`. | Pending Plan 60-04. | FOLLOWUP |
-| Historical non-DB focused evidence. | Existing validation evidence in summaries: 37-01 focused catalog/manager, 37-02 `_fail(...)`, and 37-03 `RuntimeAuthGate` checks. | Source summaries record focused passes before DB fixture setup errors. | VERIFIED_WITH_FOLLOWUP |
+| Current-equivalent Phase 37 catalog/platform/replay/architecture gate. | Resolved by Phase 60 Plan 04: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/replay/test_tool_policy_events.py tests/architecture/test_trusted_context_boundaries.py tests/architecture/test_tool_boundaries.py -q`. | `108 passed, 1 warning in 30.42s`. | PASS |
+| Historical non-DB focused evidence. | Existing validation evidence in summaries: 37-01 focused catalog/manager, 37-02 `_fail(...)`, and 37-03 `RuntimeAuthGate` checks. | Source summaries record focused passes before the historical DB fixture setup error, and Phase 60 Plan 04 now resolves the current-equivalent gate. | VERIFIED |
 
 ## Requirements Coverage
 
 | Requirement | Source Plan | Description | Status | Evidence |
 |---|---|---|---|---|
 | TPH-03 | Phase 37-01 | Single-source tool declarations and derived compatibility helpers. | VERIFIED | `.planning/phases/37-tool-declaration-runtime-policy-internal-consolidation/37-01-SUMMARY.md:39`, `src/tools/catalog.py:326`, `tests/tools/test_catalog.py:192`. |
-| TPH-04 | Phase 37-02 / 37-03 | Shared runtime failure helper plus declarative runtime-auth gates. | PASSED_WITH_FOLLOWUP | `.planning/phases/37-tool-declaration-runtime-policy-internal-consolidation/37-02-SUMMARY.md:39`, `.planning/phases/37-tool-declaration-runtime-policy-internal-consolidation/37-03-SUMMARY.md:40`, `tests/tools/test_tool_platform.py:646`, `tests/tools/test_tool_platform.py:751`. |
+| TPH-04 | Phase 37-02 / 37-03 | Shared runtime failure helper plus declarative runtime-auth gates. | VERIFIED | `.planning/phases/37-tool-declaration-runtime-policy-internal-consolidation/37-02-SUMMARY.md:39`, `.planning/phases/37-tool-declaration-runtime-policy-internal-consolidation/37-03-SUMMARY.md:40`, `tests/tools/test_tool_platform.py:646`, `tests/tools/test_tool_platform.py:751`, and Phase 60 Plan 04 DB-backed gate result `108 passed, 1 warning in 30.42s`. |
 
 ## Evidence Anchors
 
@@ -82,8 +82,8 @@ None for this formal artifact. Phase 37 behavior is backend/tool-platform behavi
 
 ## Gaps Summary
 
-Phase 37 / TPH-04 DB-backed pytest note is unresolved in this artifact and is assigned to Phase 60 Plan 04 per D-05. This artifact therefore uses `passed_with_followup`, not a full archive-close status for the DB-backed validation note.
+None. Phase 37 / TPH-04 DB-backed pytest note is resolved by Phase 60 Plan 04 with the current-equivalent archive command.
 
 ## Final Status
 
-`37-VERIFICATION.md` now closes the formal verification artifact gap for TPH-03 and the source-backed portion of TPH-04. The DB-backed pytest note remains visible for Plan 60-04, and Phase 37 validation metadata remains in Plan 60-03 scope.
+`37-VERIFICATION.md` now closes the formal verification artifact gap for TPH-03 and TPH-04. The DB-backed pytest note is resolved by Phase 60 Plan 04 with `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/replay/test_tool_policy_events.py tests/architecture/test_trusted_context_boundaries.py tests/architecture/test_tool_boundaries.py -q` -> `108 passed, 1 warning in 30.42s`.

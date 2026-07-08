@@ -1,8 +1,8 @@
 ---
 phase: 37
 slug: tool-declaration-runtime-policy-internal-consolidation
-status: complete_pending_db_note
-nyquist_compliant: false
+status: complete
+nyquist_compliant: true
 wave_0_complete: true
 created: 2026-07-01
 updated: 2026-07-08
@@ -12,7 +12,7 @@ updated: 2026-07-08
 
 This artifact replaces the original draft validation strategy with archive-gate validation evidence for TPH-03 and TPH-04.
 
-Phase 37 implementation evidence is source-backed and formally verified by `37-VERIFICATION.md`, but the historical DB-backed pytest note is not closed here. DB-backed pytest note final disposition is owned by Phase 60 Plan 04 per D-05.
+Phase 37 implementation evidence is source-backed and formally verified by `37-VERIFICATION.md`. The historical DB-backed pytest note is resolved by Phase 60 Plan 04 with the current-equivalent archive command recorded below.
 
 ## Test Infrastructure
 
@@ -23,14 +23,14 @@ Phase 37 implementation evidence is source-backed and formally verified by `37-V
 | **Quick run command** | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py -q` |
 | **Current-equivalent archive command for 60 Plan 04** | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/replay/test_tool_policy_events.py tests/architecture/test_trusted_context_boundaries.py tests/architecture/test_tool_boundaries.py -q` |
 | **Lint command** | `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/tools tests/tools tests/replay/test_tool_policy_events.py tests/architecture/test_trusted_context_boundaries.py tests/architecture/test_tool_boundaries.py` |
-| **DB-backed note** | Pending final disposition in Phase 60 Plan 04; this file intentionally keeps `nyquist_compliant: false`. |
+| **DB-backed note** | Resolved by Phase 60 Plan 04: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/replay/test_tool_policy_events.py tests/architecture/test_trusted_context_boundaries.py tests/architecture/test_tool_boundaries.py -q` -> `108 passed, 1 warning in 30.42s`. |
 
 ## Sampling Rate
 
 - **After every task commit:** Phase 37 plans recorded focused tool-catalog, tool-platform, replay, architecture, and Ruff checks.
 - **After every plan wave:** Phase 37 attempted the full relevant gate; DB fixture setup was blocked by local PostgreSQL connection refusal.
 - **Archive refresh:** Phase 60 Plan 03 maps the validation surface to current files because the historical `tests/agent/test_tools/test_unified_tool_manager.py` compatibility file was removed by Phase 41.
-- **Before archive closure:** Phase 60 Plan 04 must either pass the current-equivalent archive command above or record named accepted debt with exact environment evidence.
+- **Before archive closure:** Phase 60 Plan 04 passed the current-equivalent archive command above, resolving the DB-backed pytest note.
 
 ## Requirement-To-Test Map
 
@@ -41,7 +41,7 @@ Phase 37 implementation evidence is source-backed and formally verified by `37-V
 | 37-02-01 | 02 | 2 | TPH-04 | T-37-02 | `ToolRuntime.invoke` failure exits share `_fail(...)` for safe result, projection, decision event, and outcome tuple construction. | unit / structural / behavior | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_tool_platform.py -q` | yes | source-backed; formal verification passed |
 | 37-02-02 | 02 | 2 | TPH-04 | T-37-03 | Runtime-auth event payloads remain low-payload and omit raw args/output/schema details. | replay regression | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/replay/test_tool_policy_events.py -q` | yes | source-backed; formal verification passed |
 | 37-03-01 | 03 | 3 | TPH-04 | T-37-04 | `ToolPolicyEngine.runtime_auth` evaluates ordered `RuntimeAuthGate` declarations for caller, permission, side-effect, scope, approval, safety snapshot, idempotency, and availability decisions. | unit / structural / behavior | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_tool_platform.py -q` | yes | source-backed; formal verification passed |
-| 37-03-02 | 03 | 3 | TPH-03, TPH-04 | T-37-01 / T-37-04 | External tool contract models keep their field names and reject unexpected fields; output-schema hardening stays Phase 38-owned. | regression | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/replay/test_tool_policy_events.py tests/architecture/test_trusted_context_boundaries.py tests/architecture/test_tool_boundaries.py -q` | yes | pending final DB-backed disposition in 60 Plan 04 |
+| 37-03-02 | 03 | 3 | TPH-03, TPH-04 | T-37-01 / T-37-04 | External tool contract models keep their field names and reject unexpected fields; output-schema hardening stays Phase 38-owned. | regression | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/replay/test_tool_policy_events.py tests/architecture/test_trusted_context_boundaries.py tests/architecture/test_tool_boundaries.py -q` | yes | resolved by Phase 60 Plan 04; `108 passed, 1 warning in 30.42s` |
 
 ## Evidence Links
 
@@ -56,14 +56,14 @@ Phase 37 implementation evidence is source-backed and formally verified by `37-V
 - [x] `tests/tools/test_catalog.py` covers registry/schema/name drift for TPH-03.
 - [x] `tests/tools/test_tool_platform.py` covers `_fail(...)` and declarative runtime-auth gates for TPH-04.
 - [x] Current archive validation does not rely on deleted legacy manager tests.
-- [ ] Phase 60 Plan 04 closes or explicitly carries the DB-backed pytest note.
+- [x] Phase 60 Plan 04 closes the DB-backed pytest note with the current-equivalent archive command.
 
 ## Manual-Only Verifications
 
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
 | None for source-backed TPH-03/TPH-04 behavior | TPH-03, TPH-04 | The required behavior has source-level, test, review, summary, and formal verification evidence. | N/A |
-| DB-backed environment disposition | TPH-04 | Historical Phase 37 final gate was blocked by local PostgreSQL availability; Phase 60 Plan 04 owns the rerun or accepted-debt decision. | Run the current-equivalent archive command with local PostgreSQL available, or record named debt with exact evidence. |
+| None for DB-backed environment disposition | TPH-04 | Historical Phase 37 final gate was blocked by local PostgreSQL availability, but Phase 60 Plan 04 reran the current-equivalent command successfully. | N/A |
 
 ## Validation Sign-Off
 
@@ -73,6 +73,12 @@ Phase 37 implementation evidence is source-backed and formally verified by `37-V
 - [x] No watch-mode flags.
 - [x] Feedback latency target is bounded to focused suites; DB-backed final disposition is explicitly separated.
 - [x] Newly recorded command evidence uses MOCA-approved entrypoints.
-- [ ] `nyquist_compliant: true` is intentionally not set until Phase 60 Plan 04 resolves or carries the DB-backed note.
+- [x] `nyquist_compliant: true` is set after Phase 60 Plan 04 resolved the DB-backed note.
 
-**Approval:** complete_pending_db_note.
+## Closeout Evidence
+
+- DB-backed pytest note resolved by Phase 60 Plan 04.
+- Command: `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/replay/test_tool_policy_events.py tests/architecture/test_trusted_context_boundaries.py tests/architecture/test_tool_boundaries.py -q`
+- Result: `108 passed, 1 warning in 30.42s`.
+
+**Approval:** complete.
