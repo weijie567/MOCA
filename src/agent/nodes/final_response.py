@@ -367,12 +367,7 @@ def _has_plan_normalization(state: AgentState, expected: str) -> bool:
 
 
 def _classification_trace(state: AgentState) -> dict[str, Any]:
-    trace = _mapping(state.get("classification_trace"))
-    if trace:
-        return trace
-    llm_outputs = _mapping(state.get("llm_outputs"))
-    intent_output = _mapping(llm_outputs.get("intent_classification"))
-    return _mapping(intent_output.get("classification_trace"))
+    return _mapping(state.get("classification_trace"))
 
 
 def _citation_summary(evidence_refs: list[dict[str, Any]]) -> str:

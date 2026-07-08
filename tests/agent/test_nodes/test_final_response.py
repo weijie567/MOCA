@@ -621,12 +621,8 @@ async def test_final_response_complaint_folded_note_visible_without_deferred_ste
             },
             "risk_assessment": {"approval_required": False},
             "deferred_steps": [],
-            "llm_outputs": {
-                "intent_classification": {
-                    "classification_trace": {
-                        "plan_normalization": ["modifier_folded:complaint_as_severity"]
-                    }
-                }
+            "classification_trace": {
+                "plan_normalization": ["modifier_folded:complaint_as_severity"]
             },
         }
     )

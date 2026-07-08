@@ -18858,3 +18858,32 @@ eval gate 测试中的连续 legacy direct test path 字符串会被 Phase 58 �
 ### 剩余问题和下次继续排查入口
 
 本条无剩余阻塞。若后续 Phase 58 closeout classifier 或宽 pytest 再失败，优先从 `tests/architecture/test_phase33_rag_claim_boundaries.py` 的 current reference scan、`scripts/classify_phase58_legacy_hits.py --strict` 输出，以及 `tests/agent/test_nodes/test_slot_resolution_gate.py::_trusted_metadata` 的时间语义入手。
+
+## 2026-07-08：Phase 58 code review fix 中 strict classifier 暴露 active node 兼容清理行
+
+### 问题现象
+
+修复 WR-01 时把 canonical active node implementation files 纳入 `active_runtime_legacy` 检测后，默认 strict classifier gate 从通过变为失败。
+
+### 如何检测 / 复现
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py::test_phase58_legacy_hit_classifier_exposes_main_and_strict_report_fields tests/architecture/test_canonical_graph_baseline.py::test_phase58_legacy_hit_classifier_strict_fails_active_node_runtime_alias tests/agent/test_nodes/test_final_response.py::test_final_response_complaint_folded_note_visible_without_deferred_steps -q --tb=short
+```
+
+### 关键证据或命令
+
+失败输出为 `active_runtime_legacy=1`，唯一 active row 是 `src/agent/nodes/memory_context_load.py:137` 的 `for key in ("long_term_memory_retrieve", "reviewed_memory_context_retrieve"):`。focused pytest 同步失败在 `test_phase58_legacy_hit_classifier_exposes_main_and_strict_report_fields`，断言 strict return code 应为 0。
+
+### 当前判断 / 根因
+
+新增 active node path 检测本身成立，但 `memory_context_load._without_legacy_metrics(...)` 这一行是在删除历史 `llm_outputs` metrics key，不是 current runtime authority。原来的 broad `src/agent/nodes/` bucket 把真实 active-node legacy hit 和这种兼容清理行一起隐藏了。
+
+### 已做处理
+
+为 classifier 增加 `ACTIVE_NODE_PATHS`，并只对 `memory_context_load.py` 的 legacy metrics 删除行增加显式 row-level compatibility allowlist；同时移除 `final_response.py` 对 `llm_outputs["intent_classification"]` 的 legacy fallback，测试改为使用 canonical `classification_trace` state field。复跑 strict classifier 和 focused pytest 已通过。
+
+### 剩余问题和下次继续排查入口
+
+本条无剩余阻塞。若后续 strict classifier 再出现 active node hit，优先检查 `scripts/classify_phase58_legacy_hits.py::ACTIVE_NODE_PATHS`、`_is_explicit_active_node_compatibility_row(...)` 和命中的 active node source line，区分 current runtime authority 与显式历史兼容清理。

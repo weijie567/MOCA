@@ -71,6 +71,28 @@ HISTORICAL_PROJECTION_PATHS = frozenset(
         "frontend/src/components/timeline/TimelineStep.tsx",
     }
 )
+ACTIVE_NODE_PATHS = frozenset(
+    {
+        f"src/agent/nodes/{node}.py"
+        for node in (
+            "receive_request",
+            "safety_pre_route",
+            "session_context_load",
+            "contextual_intent_resolve",
+            "slot_resolution_gate",
+            "memory_context_load",
+            "investigate",
+            "rag_context_build",
+            "recommendation_generation",
+            "claim_verify",
+            "risk_gate",
+            "approval_gate",
+            "action_draft",
+            "clarification_gate",
+            "final_response",
+        )
+    }
+)
 Category = Literal[
     "active_runtime_legacy",
     "current_docs_legacy_authority",
@@ -206,6 +228,8 @@ def _classify_row(path: str, line: str, terms: tuple[str, ...]) -> Category:
         return "phase58_cleanup_artifact"
     if normalized.startswith("moca.egg-info/") or normalized == "moca.egg-info/SOURCES.txt":
         return "tracked_build_metadata"
+    if _is_explicit_active_node_compatibility_row(normalized, stripped):
+        return "legacy_wrapper_or_import_test"
     if _is_active_runtime_row(normalized, stripped, terms):
         return "active_runtime_legacy"
     if normalized in CURRENT_DOC_PATHS and _looks_like_current_docs_authority(lowered):
@@ -233,12 +257,21 @@ def _is_active_runtime_row(path: str, line: str, terms: tuple[str, ...]) -> bool
     quoted_terms = [f'"{term}"' for term in terms] + [f"'{term}'" for term in terms]
     if path == "src/agent/graph.py" and any(token in line for token in quoted_terms):
         return True
+    if path in ACTIVE_NODE_PATHS and any(token in line for token in quoted_terms):
+        return True
     if path == "src/agent/routing.py":
         if re.match(r"def route_after_(intent|slots)\(", line):
             return True
         if any(token in line for token in quoted_terms) and not re.match(r"def _route_after_(intent|slots)\(", line):
             return True
     return False
+
+
+def _is_explicit_active_node_compatibility_row(path: str, line: str) -> bool:
+    return (
+        path == "src/agent/nodes/memory_context_load.py"
+        and line == 'for key in ("long_term_memory_retrieve", "reviewed_memory_context_retrieve"):'
+    )
 
 
 def _looks_like_current_docs_authority(lowered_line: str) -> bool:

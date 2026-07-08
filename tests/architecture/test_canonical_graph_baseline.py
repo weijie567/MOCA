@@ -320,6 +320,28 @@ def test_phase58_legacy_hit_classifier_strict_fails_intent_classification_runtim
     assert payload["unclassified_rows"] == 0
 
 
+def test_phase58_legacy_hit_classifier_strict_fails_active_node_runtime_alias(
+    tmp_path: Path,
+) -> None:
+    node_path = tmp_path / "src" / "agent" / "nodes" / "final_response.py"
+    node_path.parent.mkdir(parents=True)
+    node_path.write_text('trace = llm_outputs.get("intent_classification")\n', encoding="utf-8")
+
+    result = _run_phase58_classifier(
+        "--strict",
+        "--root",
+        str(tmp_path),
+        "--roots",
+        "src/agent/nodes/final_response.py",
+    )
+
+    assert result.returncode != 0
+    payload = json.loads(result.stdout)
+    assert payload["active_runtime_legacy"] == 1
+    assert payload["unclassified_rows"] == 0
+    assert payload["active_runtime_rows"][0]["path"] == "src/agent/nodes/final_response.py"
+
+
 def test_phase58_legacy_hit_classifier_strict_fails_unclassified_rows(tmp_path: Path) -> None:
     unknown_path = tmp_path / "unknown.txt"
     unknown_path.write_text("classify_intent\n", encoding="utf-8")

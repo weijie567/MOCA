@@ -1445,3 +1445,31 @@
 
 **剩余风险**
 - 🟡 Phase 58 仍需删除或重新分类 `src/agent/nodes/assess_risk_and_approval.py` wrapper、direct legacy tests、historical frontend/API fallback labels、persisted retry compatibility constants、old dev-contract manifest rows and historical docs. 57-05 不 bulk rewrite historical DB rows，不删除 compatibility aliases。
+
+## 2026-07-08 — Phase 58 code review WR-01 strict legacy classifier hardening ✅已修复验证
+
+**子系统**
+- Agent Graph / 意图识别 / 记忆上下文
+
+**问题 / 根因**
+- `scripts/classify_phase58_legacy_hits.py` 原先在 active runtime 判断之后，用 broad `src/agent/nodes/` bucket 把所有 node implementation 文件命中归为 `legacy_wrapper_or_import_test`。这会让 canonical active node file 中重新出现的 legacy graph/output name 不触发 `--strict`。
+- `src/agent/nodes/final_response.py` 仍从 `llm_outputs["intent_classification"]` 读取历史 intent classification trace mirror，和 Phase 58 final no-debt gate 的 canonical `classification_trace` state field 收敛目标不一致。
+
+**影响**
+- Phase 58 strict classifier 可能报告 `active_runtime_legacy=0`，但 active canonical node implementation 中已经重新出现 legacy graph/output name。
+- 后续维护者可能把历史 intent output mirror 当成 current runtime 可读来源，削弱 `contextual_intent_resolve` 的 canonical output owner 边界。
+
+**修复**
+- 新增 `ACTIVE_NODE_PATHS`，把 final 15 canonical node implementation files 中的 quoted legacy graph/output term 判为 `active_runtime_legacy`。
+- 删除 `final_response.py` 对 `llm_outputs["intent_classification"]` 的 fallback，只读取 canonical `classification_trace`。
+- 对 `memory_context_load.py` 中删除旧 `llm_outputs` metrics key 的单行兼容清理增加显式 row-level allowlist，避免把清理历史 key 的代码误判为 current authority。
+- 新增 regression test，证明临时 active node file 中的 `intent_classification` 会让 `--strict` 失败且计入 `active_runtime_legacy`。
+
+**证据 / 验证**
+- 文件：`scripts/classify_phase58_legacy_hits.py`、`src/agent/nodes/final_response.py`、`tests/architecture/test_canonical_graph_baseline.py`、`tests/agent/test_nodes/test_final_response.py`
+- Phase / commit：Phase 58 code review WR-01（本条所在提交）
+- `UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict` → `active_runtime_legacy=0`、`current_docs_legacy_authority=0`、`unclassified_rows=0`
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/architecture/test_canonical_graph_baseline.py::test_phase58_legacy_hit_classifier_exposes_main_and_strict_report_fields tests/architecture/test_canonical_graph_baseline.py::test_phase58_legacy_hit_classifier_strict_fails_active_node_runtime_alias tests/agent/test_nodes/test_final_response.py::test_final_response_complaint_folded_note_visible_without_deferred_steps -q --tb=short` → `3 passed, 1 warning`
+
+**剩余风险**
+- ✅ 本条已关闭 active canonical node file broadly masked by classifier 的回归风险。未来如果 active node file 需要保留历史兼容读取，必须在 classifier 中增加显式、逐行、可审计的 allowlist，而不是依赖 broad node-file bucket。
