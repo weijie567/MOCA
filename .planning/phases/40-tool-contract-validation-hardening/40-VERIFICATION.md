@@ -1,3 +1,12 @@
+---
+phase: 40-tool-contract-validation-hardening
+verified: 2026-07-02
+status: passed
+score: TPH-05 verified
+metadata_normalized_by: phase-60-plan-03
+metadata_normalized_at: 2026-07-08
+---
+
 # Phase 40 Verification: Tool Contract Validation Hardening
 
 Date: 2026-07-02

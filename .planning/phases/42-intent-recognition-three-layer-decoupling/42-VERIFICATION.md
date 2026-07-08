@@ -1,3 +1,13 @@
+---
+phase: 42-intent-recognition-three-layer-decoupling
+verified: 2026-07-02
+status: passed_retroactive
+score: IDR-01 verified only
+workflow: retroactive_record
+metadata_normalized_by: phase-60-plan-03
+metadata_normalized_at: 2026-07-08
+---
+
 # Phase 42 Verification — Intent Recognition Three-Layer Decoupling
 
 > 本 phase 是**回溯式登记**：代码在正式建立 phase 记录前已由 Codex 实现、Claude 审核、并跑绿。
