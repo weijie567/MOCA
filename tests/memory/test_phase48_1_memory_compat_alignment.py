@@ -4,6 +4,8 @@ import ast
 import re
 from pathlib import Path
 
+from src.agent.graph_vocabulary import graph_vocabulary_entry, project_trace_step_for_contract, target_graph_name
+
 
 ROOT = Path(__file__).resolve().parents[2]
 PHASE48_1_DIR = ROOT / ".planning" / "phases" / "48.1-memory-context-compatibility-debt-cleanup"
@@ -158,9 +160,8 @@ def test_reviewed_memory_hint_aliases_are_explicit() -> None:
     assert 'return [], "long_term_memory_retrieve", []' not in routing_source
 
 
-def test_runtime_graph_compatibility_node_names_remain() -> None:
+def test_runtime_graph_legacy_memory_names_are_historical_projection_only() -> None:
     graph_source = _source(GRAPH_PATH)
-    vocabulary_source = _source(GRAPH_VOCABULARY_PATH)
 
     assert 'builder.add_node("session_context_load", session_context_load)' in graph_source
     assert 'builder.add_node("session_memory_load", session_memory_load)' not in graph_source
@@ -168,16 +169,24 @@ def test_runtime_graph_compatibility_node_names_remain() -> None:
     assert 'builder.add_node("long_term_memory_retrieve", long_term_memory_retrieve)' not in graph_source
     assert '"memory_context_load": "memory_context_load"' in graph_source
     assert '"long_term_memory_retrieve": "long_term_memory_retrieve"' not in graph_source
-    for token in (
-        '"session_memory_load"',
-        '"session_context_load"',
-        '"PHASE_53_COMPATIBILITY_ALIAS"',
-        '"long_term_memory_retrieve"',
-        '"memory_context_load"',
-        '"compatibility_alias"',
-        '"DELETE_BY_PHASE_58"',
-    ):
-        assert token in vocabulary_source
+
+    for legacy_name, target_name in {
+        "session_memory_load": "session_context_load",
+        "long_term_memory_retrieve": "memory_context_load",
+    }.items():
+        assert graph_vocabulary_entry(legacy_name, kind="node") is None
+        assert target_graph_name(legacy_name, kind="node") == legacy_name
+        projected = project_trace_step_for_contract({"node": legacy_name})
+
+        assert projected["target_node"] == target_name
+        assert projected["target_graph_status"] == "historical_projection"
+        assert projected["target_graph_runnable"] is False
+
+    for canonical_name in ("session_context_load", "memory_context_load"):
+        entry = graph_vocabulary_entry(canonical_name, kind="node")
+        assert entry is not None
+        assert entry.status == "runtime"
+        assert entry.runnable is True
 
 
 def test_deferred_compatibility_names_remain_static_only() -> None:

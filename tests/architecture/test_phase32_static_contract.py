@@ -14,18 +14,44 @@ ROOT = Path(__file__).resolve().parents[2]
 PHASE_DIR = ROOT / ".planning" / "phases" / "32-intent-graph-migration"
 MAPPING_DOC = PHASE_DIR / "32-MVP-TARGET-MAPPING.md"
 
-REQUIRED_MAPPINGS = [
-    ("classify_intent", "node", "contextual_intent_resolve", "compatibility_alias", True),
-    ("intent_classification", "node", "contextual_intent_resolve", "compatibility_alias", True),
-    ("classify_intent:pre_route", "node", "safety_pre_route", "compatibility_alias", True),
-    ("session_memory_load", "node", "session_context_load", "compatibility_alias", True),
-    ("long_term_memory_retrieve", "node", "memory_context_load", "compatibility_alias", True),
-    ("reviewed_memory_context_retrieve", "node", "memory_context_load", "compatibility_alias", True),
-    ("memory_context_load", "node", "memory_context_load", "runtime", True),
-    ("extract_slots", "node", "slot_resolution_gate", "compatibility_alias", True),
-    ("slot_resolution_gate", "node", "slot_resolution_gate", "runtime", True),
-    ("route_after_intent", "router", "route_after_contextual_intent", "compatibility_alias", True),
-    ("route_after_slots", "router", "route_after_slot_resolution", "compatibility_alias", True),
+CANONICAL_RUNTIME_MAPPINGS = [
+    ("receive_request", "node"),
+    ("safety_pre_route", "node"),
+    ("session_context_load", "node"),
+    ("contextual_intent_resolve", "node"),
+    ("slot_resolution_gate", "node"),
+    ("memory_context_load", "node"),
+    ("investigate", "node"),
+    ("rag_context_build", "node"),
+    ("recommendation_generation", "node"),
+    ("claim_verify", "node"),
+    ("risk_gate", "node"),
+    ("approval_gate", "node"),
+    ("action_draft", "node"),
+    ("clarification_gate", "node"),
+    ("final_response", "node"),
+    ("route_after_safety", "router"),
+    ("route_after_contextual_intent", "router"),
+    ("route_after_slot_resolution", "router"),
+    ("route_after_investigate", "router"),
+    ("route_after_rag_context", "router"),
+    ("route_after_recommendation", "router"),
+    ("route_after_claim_verify", "router"),
+    ("route_after_risk", "router"),
+    ("route_after_approval", "router"),
+]
+LEGACY_ACTIVE_VOCABULARY_NAMES = [
+    ("classify_intent", "node"),
+    ("intent_classification", "node"),
+    ("classify_intent:pre_route", "node"),
+    ("session_memory_load", "node"),
+    ("long_term_memory_retrieve", "node"),
+    ("reviewed_memory_context_retrieve", "node"),
+    ("extract_slots", "node"),
+    ("generate_recommendation", "node"),
+    ("assess_risk_and_approval", "node"),
+    ("route_after_intent", "router"),
+    ("route_after_slots", "router"),
 ]
 
 POLICY_CONSTANTS = ("DIRECT_RESPONSE_INTENTS", "INTENT_ROUTE_POLICY", "REQUIRED_SLOT_POLICY")
@@ -33,28 +59,30 @@ PHASE32_ARTIFACT_GLOBS = ("32-*-PLAN.md", "32-*-SUMMARY.md", "32-MVP-TARGET-MAPP
 BULLET_INLINE_COMMAND_RE = re.compile(r"^-\s+`([^`]+)`")
 
 
-def test_phase32_required_mapping_entries_match_graph_vocabulary() -> None:
-    for legacy_name, kind, target_name, status, runnable in REQUIRED_MAPPINGS:
-        entry = graph_vocabulary.graph_vocabulary_entry(legacy_name, kind=kind)  # type: ignore[arg-type]
+def test_phase32_current_graph_vocabulary_is_canonical_only() -> None:
+    for name, kind in CANONICAL_RUNTIME_MAPPINGS:
+        entry = graph_vocabulary.graph_vocabulary_entry(name, kind=kind)  # type: ignore[arg-type]
 
-        assert entry is not None, legacy_name
-        assert entry.target_name == target_name
-        assert graph_vocabulary.target_graph_name(legacy_name, kind=kind) == target_name  # type: ignore[arg-type]
-        assert entry.status == status
-        assert entry.runnable is runnable
+        assert entry is not None, name
+        assert entry.target_name == name
+        assert graph_vocabulary.target_graph_name(name, kind=kind) == name  # type: ignore[arg-type]
+        assert entry.status == "runtime"
+        assert entry.runnable is True
+
+    for legacy_name, kind in LEGACY_ACTIVE_VOCABULARY_NAMES:
+        assert graph_vocabulary.graph_vocabulary_entry(legacy_name, kind=kind) is None  # type: ignore[arg-type]
+        assert graph_vocabulary.target_graph_name(legacy_name, kind=kind) == legacy_name  # type: ignore[arg-type]
 
 
-def test_phase32_mapping_document_matches_graph_vocabulary_when_present() -> None:
+def test_phase32_mapping_document_is_historical_when_present() -> None:
     if not MAPPING_DOC.exists():
         pytest.skip("32-MVP-TARGET-MAPPING.md is created by Phase 32 Plan 05 Task 2")
 
     rows = _mapping_doc_rows()
-    for legacy_name, kind, target_name, status, runnable in REQUIRED_MAPPINGS:
+    for legacy_name, kind in LEGACY_ACTIVE_VOCABULARY_NAMES:
         row = rows.get((legacy_name, kind))
-        assert row is not None, f"Missing mapping row for {legacy_name}/{kind}"
-        assert row["target"] == target_name
-        assert row["status"] == status
-        assert row["runnable"] == str(runnable).lower()
+        if row is not None:
+            assert graph_vocabulary.graph_vocabulary_entry(legacy_name, kind=kind) is None  # type: ignore[arg-type]
 
 
 def test_phase32_consumers_do_not_reference_direct_policy_constants() -> None:

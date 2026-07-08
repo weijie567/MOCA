@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.agent.graph_vocabulary import graph_vocabulary_entry
+from src.agent.graph_vocabulary import graph_vocabulary_entry, project_trace_step_for_contract, target_graph_name
 
 ROOT = Path(__file__).resolve().parents[2]
 DOC_PATH = ROOT / "docs" / "memory-contract-delta.md"
@@ -143,38 +143,30 @@ def test_memory_contract_delta_uses_explicit_preference_long_term_semantics() ->
         assert expected in source
 
 
-def test_memory_graph_aliases_remain_compatibility_aliases() -> None:
-    aliases = {
+def test_memory_graph_legacy_names_are_historical_projection_only() -> None:
+    historical_projections = {
         "session_memory_load": "session_context_load",
         "long_term_memory_retrieve": "memory_context_load",
         "reviewed_memory_context_retrieve": "memory_context_load",
-        "memory_context_load": "memory_context_load",
     }
 
-    for legacy_name, target_name in aliases.items():
-        entry = graph_vocabulary_entry(legacy_name, kind="node")
+    for legacy_name, target_name in historical_projections.items():
+        assert graph_vocabulary_entry(legacy_name, kind="node") is None
+        assert target_graph_name(legacy_name, kind="node") == legacy_name
+        projected = project_trace_step_for_contract({"node": legacy_name})
+
+        assert projected["implementation_node"] == legacy_name
+        assert projected["target_node"] == target_name
+        assert projected["target_graph_status"] == "historical_projection"
+        assert projected["target_graph_status"] != "compatibility_alias"
+        assert projected["target_graph_runnable"] is False
+
+    for name in ("session_context_load", "memory_context_load"):
+        entry = graph_vocabulary_entry(name, kind="node")
         assert entry is not None
-        assert entry.target_name == target_name
+        assert entry.target_name == name
+        assert entry.status == "runtime"
         assert entry.runnable is True
-
-    phase55_reasons = {
-        "PHASE_55_COMPATIBILITY_ALIAS",
-        "HISTORICAL_TRACE_PROJECTION",
-        "IMPORT_TEST_COMPATIBILITY",
-        "DELETE_BY_PHASE_58",
-    }
-    long_term_entry = graph_vocabulary_entry("long_term_memory_retrieve", kind="node")
-    reviewed_entry = graph_vocabulary_entry("reviewed_memory_context_retrieve", kind="node")
-    runtime_entry = graph_vocabulary_entry("memory_context_load", kind="node")
-
-    assert long_term_entry is not None
-    assert reviewed_entry is not None
-    assert runtime_entry is not None
-    assert long_term_entry.status == "compatibility_alias"
-    assert reviewed_entry.status == "compatibility_alias"
-    assert runtime_entry.status == "runtime"
-    assert phase55_reasons <= set(long_term_entry.reason_codes)
-    assert phase55_reasons <= set(reviewed_entry.reason_codes)
 
 
 def test_memory_contract_boundary_tests_are_present() -> None:

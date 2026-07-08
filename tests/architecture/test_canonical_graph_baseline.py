@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 import scripts.diagnose_latency as diagnose_latency
 import scripts.eval_agent as eval_agent
 from src.agent import graph_vocabulary
@@ -18,6 +16,22 @@ from tests.architecture.graph_baseline import (
     graph_direct_edge_pairs,
     graph_router_route_values,
 )
+
+
+LEGACY_GRAPH_NAMES = frozenset(
+    {
+        "classify_intent",
+        "intent_classification",
+        "classify_intent:pre_route",
+        "session_memory_load",
+        "extract_slots",
+        "long_term_memory_retrieve",
+        "reviewed_memory_context_retrieve",
+        "generate_recommendation",
+        "assess_risk_and_approval",
+    }
+)
+LEGACY_ROUTER_NAMES = frozenset({"route_after_intent", "route_after_slots"})
 
 
 def test_current_active_graph_node_set_matches_phase57_baseline() -> None:
@@ -79,17 +93,20 @@ def test_migration_mode_maps_every_active_legacy_node_to_target() -> None:
         assert mapping["owner_requirement"].startswith("CAGM-")
 
 
-def test_phase57_closes_active_risk_legacy_row() -> None:
+def test_phase58_current_vocabulary_excludes_legacy_runtime_aliases() -> None:
     assert "generate_recommendation" not in MIGRATION_MODE_LEGACY_NODE_MAP
     assert "assess_risk_and_approval" not in MIGRATION_MODE_LEGACY_NODE_MAP
     assert MIGRATION_MODE_LEGACY_NODE_MAP == {}
 
-    entry = graph_vocabulary.graph_vocabulary_entry("generate_recommendation", kind="node")
-    if entry is not None:
-        assert entry.target_name == "recommendation_generation"
-    risk_entry = graph_vocabulary.graph_vocabulary_entry("assess_risk_and_approval", kind="node")
-    if risk_entry is not None:
-        assert risk_entry.target_name == "risk_gate"
+    for name in LEGACY_GRAPH_NAMES:
+        assert graph_vocabulary.graph_vocabulary_entry(name, kind="node") is None, name
+        assert graph_vocabulary.target_graph_name(name, kind="node") == name
+    for name in LEGACY_ROUTER_NAMES:
+        assert graph_vocabulary.graph_vocabulary_entry(name, kind="router") is None, name
+        assert graph_vocabulary.target_graph_name(name, kind="router") == name
+
+    assert all(entry.status != "compatibility_alias" for entry in graph_vocabulary._ENTRIES)
+    assert all("DELETE_BY_PHASE_58" not in entry.reason_codes for entry in graph_vocabulary._ENTRIES)
 
 
 def test_current_router_mappings_match_source_baseline() -> None:
@@ -223,8 +240,23 @@ def test_slot_extraction_drift_is_explicitly_rejected() -> None:
 
 
 def test_final_no_debt_gate_is_marked_phase58_scope() -> None:
-    pytest.skip("Phase 58 cutover enforces exact canonical graph node set; Phase 51 records the gate.")
     assert graph_add_node_names() == TARGET_CANONICAL_GRAPH_NODES
+    assert graph_add_node_names().isdisjoint(FORBIDDEN_MAIN_CHAIN_REGISTERED_NODES)
+
+    router_values = {
+        route_value
+        for route_values in graph_router_route_values().values()
+        for route_value in route_values
+    }
+    assert router_values.isdisjoint(LEGACY_GRAPH_NAMES)
+    assert router_values <= TARGET_CANONICAL_GRAPH_NODES
+
+    current_node_entries = {
+        entry.legacy_name
+        for entry in graph_vocabulary._ENTRIES
+        if entry.kind == "node" and entry.status == "runtime"
+    }
+    assert current_node_entries == TARGET_CANONICAL_GRAPH_NODES
 
 
 def _phase57_eval_case() -> dict[str, object]:

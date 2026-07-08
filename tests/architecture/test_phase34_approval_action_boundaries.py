@@ -34,20 +34,17 @@ def _source(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def test_phase34_risk_gate_runtime_alias_is_declared() -> None:
+def test_phase34_risk_gate_legacy_name_is_historical_projection_only() -> None:
     entry = graph_vocabulary.graph_vocabulary_entry("assess_risk_and_approval", kind="node")
+    projected = graph_vocabulary.project_trace_step_for_contract({"node": "assess_risk_and_approval"})
 
-    assert entry is not None
-    assert entry.target_name == "risk_gate"
-    assert entry.status == "compatibility_alias"
-    assert entry.runnable is False
-    assert entry.reason_codes == (
-        "PHASE_57_COMPATIBILITY_ALIAS",
-        "HISTORICAL_TRACE_PROJECTION",
-        "IMPORT_TEST_COMPATIBILITY",
-        "DELETE_BY_PHASE_58",
-    )
-    assert graph_vocabulary.target_graph_name("assess_risk_and_approval", kind="node") == "risk_gate"
+    assert entry is None
+    assert graph_vocabulary.target_graph_name("assess_risk_and_approval", kind="node") == "assess_risk_and_approval"
+    assert projected["implementation_node"] == "assess_risk_and_approval"
+    assert projected["target_node"] == "risk_gate"
+    assert projected["target_graph_status"] == "historical_projection"
+    assert projected["target_graph_status"] != "compatibility_alias"
+    assert projected["target_graph_runnable"] is False
 
 
 def test_phase34_route_after_risk_is_runtime_router() -> None:
