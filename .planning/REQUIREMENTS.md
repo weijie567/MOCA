@@ -57,8 +57,8 @@
 - [x] **CAGM-05**: `slot_resolution_gate` replaces active `extract_slots` / `route_after_slots` as the registered graph boundary for required-slot satisfaction, slot inheritance, invalidation, stale/conflict handling, and clarification routing; `slot_extraction` remains internal, not a graph node.
 - [x] **CAGM-06**: `memory_context_load` replaces active `long_term_memory_retrieve` graph naming and keeps all loaded memory contextual-only, after slot resolution and before `investigate`.
 - [ ] **CAGM-07**: `recommendation_generation` replaces active `generate_recommendation` graph naming, and RAG/claim fail-closed statuses are aligned so unsafe evidence or unsupported material/action claims cannot enter action paths.
-- [ ] **CAGM-08**: `risk_gate` replaces active `assess_risk_and_approval` graph naming and preserves the separation between deterministic risk/action policy decisions and `approval_gate` pending/trusted-resume state machine.
-- [ ] **CAGM-09**: The active runtime graph is cut over to the final 15 canonical registered nodes, with active legacy node names, dual routes, and runtime compatibility aliases removed or internalized so no migration debt remains.
+- [x] **CAGM-08**: `risk_gate` replaces active `assess_risk_and_approval` graph naming and preserves the separation between deterministic risk/action policy decisions and `approval_gate` pending/trusted-resume state machine.
+- [x] **CAGM-09**: The active runtime graph is cut over to the final 15 canonical registered nodes, with active legacy node names, dual routes, and runtime compatibility aliases removed or internalized so no migration debt remains.
 
 ## Future Requirements
 
@@ -86,9 +86,9 @@ _None beyond registered v2.1 gap closure phases 59-60._
 | TPH-06 | Phase 41 | Complete |
 | IDR-01 | Phase 42 | Complete (retroactively registered; code committed at `a0a98e4`) |
 | IDR-02 | Phase 43 / Phase 60 | Pending formal verification gap closure |
-| MEM-01 | Phase 44 / Phase 45 / Phase 59 | Complete through Phase 59-01 shared terminal finalizer foundation |
-| MEM-02 | Phase 44 / Phase 59 | Complete through Phase 59-01 idempotent terminal finalizer trace seam |
-| MEM-03 | Phase 46 / Phase 59 | Complete through Phase 59-01 requester-scoped terminal memory state |
+| MEM-01 | Phase 44 / Phase 45 / Phase 59 | Complete through Phase 59-02 approval-resume terminal finalizer wiring; Phase 59-03 final validation pending |
+| MEM-02 | Phase 44 / Phase 59 | Complete through Phase 59-02 approval-resume finalizer trace persistence and retry reconciliation; Phase 59-03 final validation pending |
+| MEM-03 | Phase 46 / Phase 59 | Complete through Phase 59-02 requester-scoped approval-resume terminal memory finalization; Phase 59-03 final validation pending |
 | MEM-04 | Phase 47 | Complete |
 | MEM-05 | Phase 48 | Complete |
 | MEM-COMPAT-01 | Phase 48.1 / Phase 60 | Pending formal verification gap closure |
@@ -100,7 +100,7 @@ _None beyond registered v2.1 gap closure phases 59-60._
 | CAGM-05 | Phase 54 | Complete |
 | CAGM-06 | Phase 55 | Complete |
 | CAGM-07 | Phase 56 / Phase 60 | Pending formal verification gap closure |
-| CAGM-08 | Phase 57 / Phase 59 | Pending approval-resume terminal finalization gap closure |
-| CAGM-09 | Phase 58 / Phase 59 | Pending approval-resume terminal finalization gap closure |
+| CAGM-08 | Phase 57 / Phase 59 | Complete through Phase 59-02 approval trusted-resume/action separation preservation; Phase 59-03 final validation pending |
+| CAGM-09 | Phase 58 / Phase 59 | Complete through Phase 59-02 canonical graph vocabulary preservation; Phase 59-03 final validation pending |
 
-**Coverage:** 24/24 v2.1 requirements mapped. 15 complete, 9 pending gap closure. No orphans, no duplicates. Pending closure: Phase 59 for CAGM-08/CAGM-09 approval-resume terminal finalization wiring and verification; Phase 60 for TPH-03/TPH-04/IDR-02/MEM-COMPAT-01/GAD-01-IMPL/CAGM-01/CAGM-07 formal verification and validation evidence. Completed base implementation remains recorded in the original phase summaries and verification artifacts.
+**Coverage:** 24/24 v2.1 requirements mapped. 17 complete, 7 pending gap closure. No orphans, no duplicates. Pending closure: Phase 59-03 final validation/sign-off for approval-resume terminal memory finalization; Phase 60 for TPH-03/TPH-04/IDR-02/MEM-COMPAT-01/GAD-01-IMPL/CAGM-01/CAGM-07 formal verification and validation evidence. Completed base implementation remains recorded in the original phase summaries and verification artifacts.
