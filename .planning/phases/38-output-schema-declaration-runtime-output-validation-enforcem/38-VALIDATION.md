@@ -1,79 +1,73 @@
 ---
 phase: 38
 slug: output-schema-declaration-runtime-output-validation-enforcem
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: complete
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-07-02
+updated: 2026-07-08
 ---
 
-# Phase 38 - Validation Strategy
+# Phase 38 - Nyquist Validation Refresh
 
-> Per-phase validation contract for feedback sampling during execution.
+This artifact replaces the original draft validation strategy with archive-gate validation evidence for TPH-01.
 
----
+Phase 38 is Nyquist-compliant because the focused schema/runtime gates, high-blast consumer subset, Ruff check, protected-file checks, and DB-backed full relevant suite all have recorded passing evidence in `38-VERIFICATION.md` and `38-HUMAN-UAT.md`.
 
 ## Test Infrastructure
 
 | Property | Value |
 |----------|-------|
-| **Framework** | pytest 9.0.3 with pytest-asyncio (`asyncio_mode = "auto"`) |
+| **Framework** | pytest 9.0.3 with pytest-asyncio via `pyproject.toml` |
 | **Config file** | `pyproject.toml` |
-| **Quick run command** | `uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py -q` |
-| **Full suite command** | `uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/agent/test_tools/test_unified_tool_manager.py tests/agent/test_nodes/test_investigate.py tests/agent/rag_context/test_verifier.py tests/conversation/test_service.py tests/test_execute_action.py tests/architecture/test_trusted_context_boundaries.py -q` |
-| **Estimated runtime** | ~60 seconds for non-DB focused suite; DB-backed suite is environment-dependent and currently requires local PostgreSQL |
-
----
+| **Quick run command** | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py -q` |
+| **Full relevant suite command** | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/agent/test_tools/test_unified_tool_manager.py tests/agent/test_nodes/test_investigate.py tests/agent/rag_context/test_verifier.py tests/conversation/test_service.py tests/test_execute_action.py tests/architecture/test_trusted_context_boundaries.py -q` |
+| **Lint command** | `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src/tools/catalog.py src/tools/runtime.py src/tools/validation.py tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/agent/test_tools/test_unified_tool_manager.py` |
+| **DB-backed evidence** | `38-VERIFICATION.md` and `38-HUMAN-UAT.md` record the DB-backed suite passing with `184 passed, 1 warning`. |
 
 ## Sampling Rate
 
-- **After every task commit:** Run the narrow pytest command for the touched area plus `uv run ruff check` on changed Python files.
-- **After every plan wave:** Run the quick command and the relevant high-blast consumer subset listed in the task map.
-- **Before `$gsd-verify-work`:** Full relevant suite must be green when local PostgreSQL is available; if PostgreSQL remains unavailable, record the environment blocker in `.planning/LOCAL-VALIDATION-ISSUES.md` and report non-DB gates separately.
-- **Max feedback latency:** 90 seconds for focused non-DB validation, excluding local PostgreSQL startup or DB fixture setup.
+- **After every task commit:** Run focused catalog/runtime schema tests for touched areas.
+- **After every plan wave:** Run focused Phase 38 schema/runtime gates plus the high-blast consumer subset.
+- **Before archive evidence closure:** Confirm `38-VERIFICATION.md` and `38-HUMAN-UAT.md` preserve the DB-backed result and do not depend on invalid bare test command evidence.
 
----
-
-## Per-Task Verification Map
+## Requirement-To-Test Map
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 38-01-01 | 01 | 1 | TPH-01 | T-38-01 | `validate_json_value` accepts nullable/type-union schema forms needed by existing tool outputs and still rejects wrong scalar types. | unit | `uv run pytest tests/tools/test_catalog.py -q` | yes; update needed | pending |
-| 38-01-02 | 01 | 1 | TPH-01 | T-38-02 | The eight scoped read/retrieval tools expose non-generic `output_schema` declarations; `create_coupon_grant_draft` remains out of scope unless a later phase expands action output hardening. | unit / structural | `uv run pytest tests/tools/test_catalog.py -q` | yes; update needed | pending |
-| 38-02-01 | 02 | 2 | TPH-01 | T-38-03 | A conforming executor `ToolResultV2.data` payload passes through unchanged and keeps the `ToolResultV2` envelope field set unchanged. | runtime behavior | `uv run pytest tests/tools/test_tool_platform.py -q` | yes; update needed | pending |
-| 38-02-02 | 02 | 2 | TPH-01 | T-38-04 | A schema-invalid executor `data` payload maps to `invalid_response` through the shared Phase 37 `_fail(...)` path and does not leak raw invalid data through the outcome/projection JSON. | runtime behavior / security | `uv run pytest tests/tools/test_tool_platform.py -q` | yes; update needed | pending |
-| 38-03-01 | 03 | 3 | TPH-01 | T-38-05 | High-blast consumers continue to observe unchanged envelope/projection surfaces after output-schema enforcement. | regression | `uv run pytest tests/agent/test_tools/test_unified_tool_manager.py tests/agent/test_nodes/test_investigate.py::test_search_case_memory_tool_result_accumulates_contextual_case_memory tests/agent/rag_context/test_verifier.py::test_business_fact_claim_requires_current_tool_system_refs tests/test_execute_action.py::test_action_draft_tool_success_invalid_draft_outcome_fails_closed -q` | yes | pending |
-| 38-03-02 | 03 | 3 | TPH-01 | T-38-06 | `docs/contract-spec.md` and `src/tools/contracts.py` are not changed by Phase 38; spec reconciliation remains Phase 39. | structural / regression | `git diff -- docs/contract-spec.md src/tools/contracts.py` | yes | pending |
+| 38-01-01 | 01 | 1 | TPH-01 | T-38-01 | `validate_json_value` accepts nullable/type-union schema forms needed by existing tool outputs and rejects wrong scalar types. | unit | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py -q` | yes | passed |
+| 38-01-02 | 01 | 1 | TPH-01 | T-38-02 | The eight scoped read/retrieval tools expose non-generic `output_schema` declarations; `create_coupon_grant_draft` stays outside TPH-01. | unit / structural | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py -q` | yes | passed |
+| 38-02-01 | 02 | 2 | TPH-01 | T-38-03 | Conforming executor `ToolResultV2.data` payloads pass through unchanged and keep the `ToolResultV2` envelope field set unchanged. | runtime behavior | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_tool_platform.py -q` | yes | passed |
+| 38-02-02 | 02 | 2 | TPH-01 | T-38-04 | Schema-invalid executor `data` maps to `invalid_response` through the shared Phase 37 `_fail(...)` path and does not leak raw invalid data. | runtime behavior / security | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_tool_platform.py -q` | yes | passed |
+| 38-03-01 | 03 | 3 | TPH-01 | T-38-05 | High-blast consumers continue to observe unchanged envelope/projection surfaces after output-schema enforcement. | regression | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_tools/test_unified_tool_manager.py tests/agent/test_nodes/test_investigate.py::test_search_case_memory_tool_result_accumulates_contextual_case_memory tests/agent/rag_context/test_verifier.py::test_business_fact_claim_requires_current_tool_system_refs tests/test_execute_action.py::test_action_draft_tool_success_invalid_draft_outcome_fails_closed -q` | yes | passed |
+| 38-03-02 | 03 | 3 | TPH-01 | T-38-06 | `docs/contract-spec.md` and `src/tools/contracts.py` remain unchanged by Phase 38; spec reconciliation stays Phase 39-owned. | structural / regression | `git diff -- docs/contract-spec.md src/tools/contracts.py` | yes | passed |
+| 38-03-03 | 03 | 3 | TPH-01 | T-38-07 | DB-backed business/conversation/agent consumer paths pass under local PostgreSQL. | DB-backed regression | `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/tools/test_catalog.py tests/tools/test_tool_platform.py tests/agent/test_tools/test_unified_tool_manager.py tests/agent/test_nodes/test_investigate.py tests/agent/rag_context/test_verifier.py tests/conversation/test_service.py tests/test_execute_action.py tests/architecture/test_trusted_context_boundaries.py -q` | yes | passed: `184 passed, 1 warning` |
 
-*Status: pending / green / red / flaky*
+## Closeout Evidence
 
----
-
-## Wave 0 Requirements
-
-- [ ] `tests/tools/test_catalog.py` - replace the Phase 37 generic output-schema assertion with real schema assertions for the eight scoped tools.
-- [ ] `tests/tools/test_catalog.py` - add validation helper coverage for `"null"` and `["string", "null"]` / type-union schemas before strict output schemas rely on nullable fields.
-- [ ] `tests/tools/test_catalog.py` - add current-payload acceptance/rejection fixtures for `get_order`, `get_refund_case`, `get_ticket`, `search_policy`, and `search_case_memory`, plus strict no-data schema coverage for `get_logistics`, `get_merchant_risk`, and `search_sop`.
-- [ ] `tests/tools/test_tool_platform.py` - add fake-executor runtime tests for conforming output pass-through, invalid output mapping to `invalid_response`, raw invalid data redaction, and `ToolResultV2` envelope field-set preservation.
-
----
+- `38-VERIFICATION.md` records `12/12 must-haves verified`.
+- `38-VERIFICATION.md` records catalog schema tests passing with `32 passed, 1 warning`.
+- `38-VERIFICATION.md` records runtime output-schema focused tests passing with `5 passed, 1 warning`.
+- `38-VERIFICATION.md` records manager invalid-response regressions passing with `2 passed, 1 warning`.
+- `38-VERIFICATION.md` records the non-DB high-blast consumer subset passing with `33 passed, 1 warning`.
+- `38-VERIFICATION.md` records Ruff passing for Phase 38 touched Python files.
+- `38-VERIFICATION.md` records protected files unchanged.
+- `38-HUMAN-UAT.md` records DB-backed full relevant suite completion: `184 passed, 1 warning`.
 
 ## Manual-Only Verifications
 
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
-| Local PostgreSQL availability for DB-backed consumer suite | TPH-01 | Current environment does not have `pg_isready` and `localhost:5432` is closed. | Start PostgreSQL with `moca:moca_dev@localhost:5432`, then rerun the full suite command above. |
-
----
+| None | TPH-01 | Phase 38 behavior is backend tool/runtime validation behavior with automated and DB-backed evidence. | N/A |
 
 ## Validation Sign-Off
 
-- [ ] All tasks have automated verify commands or Wave 0 dependencies.
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify.
-- [ ] Wave 0 covers all missing references.
-- [ ] No watch-mode flags.
-- [ ] Feedback latency target documented.
-- [ ] PostgreSQL blocker recorded separately if DB-backed suite cannot run locally.
-- [ ] `nyquist_compliant: true` set in frontmatter after executor fills final task IDs and all available validation commands pass.
+- [x] All tasks have automated verify commands or Wave 0 dependencies.
+- [x] Sampling continuity is documented from Phase 38 verification evidence.
+- [x] Wave 0 covers nullable schema support, eight scoped tool schemas, runtime invalid-response enforcement, high-blast consumers, and protected contract files.
+- [x] No watch-mode flags.
+- [x] DB-backed evidence is recorded as passed.
+- [x] Newly recorded command evidence uses MOCA-approved entrypoints.
+- [x] `nyquist_compliant: true` set in frontmatter.
 
-**Approval:** pending
+**Approval:** complete.
