@@ -18791,3 +18791,31 @@ RED 结果为 `1 failed, 1 warning`，失败断言为 `assert "LEGACY_RISK_ROUTE
 ### 剩余问题和下次继续排查入口
 
 本条无剩余阻塞。若后续 approval retry / graph route authority 再出现 legacy route 命中，优先从 `src/api/routers/approvals.py::_historical_retry_resume_route_to_canonical`、`src/api/routers/approvals.py::_should_resume_graph` 和 `src/agent/graph.py::route_after_approval` 入手。
+
+## 2026-07-08：Phase 58-09 Task 2 RED guard 检出 approval gate 测试 fixture 仍引用 deleted legacy risk node
+
+### 问题现象
+
+按 TDD 执行 Task 2 RED 时，新增 guard `test_approval_gate_tests_do_not_reference_legacy_risk_node_name` 失败，说明 `tests/test_approval_gate.py` 仍有 `assess_risk_and_approval` 测试 fixture 文本。
+
+### 如何检测 / 复现
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_approval_gate.py::test_approval_gate_tests_do_not_reference_legacy_risk_node_name tests/test_graph_routing.py::test_route_after_approval_rejects_legacy_risk_resume_route_authority -q --tb=short
+```
+
+### 关键证据或命令
+
+RED 结果为 `1 failed, 1 passed, 1 warning`。失败断言为 `assert legacy_node_name not in source`，命中 `{"node": "assess_risk_and_approval", "status": "completed"}`。同一 RED 命令中的 graph route behavior test 已通过，证明 runtime route 已 fail closed。
+
+### 当前判断 / 根因
+
+这是 Phase 58 cleanup 后的测试 fixture 债务，不是 runtime 路由回归。测试状态仍用 deleted legacy risk node name 表示当前 approval/risk trace，容易让 fixture 被误读成 current graph authority。
+
+### 已做处理
+
+将 approval gate / approval API resume fake trace fixture 迁到 canonical `risk_gate`；保留并增强 `route_after_approval(...)` 对 legacy `resume_route` fail-closed 的显式测试。Task 2 pytest 为 `160 passed, 1 warning`，scoped ruff 通过。
+
+### 剩余问题和下次继续排查入口
+
+本条无剩余阻塞。若后续 approval graph route authority 再出现 legacy node/route 文本，优先从 `tests/test_approval_gate.py::test_approval_gate_tests_do_not_reference_legacy_risk_node_name`、`tests/test_graph_routing.py::test_route_after_approval_rejects_legacy_risk_resume_route_authority` 和 `scripts/classify_phase58_legacy_hits.py --strict` 入手。

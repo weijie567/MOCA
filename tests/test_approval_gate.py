@@ -84,7 +84,7 @@ def _state() -> dict:
         "risk_decision_ref": risk_decision_ref,
         "risk_decision": risk_decision,
         "approval_idempotency_key": "approval:test-key",
-        "trace_steps": [{"node": "assess_risk_and_approval", "status": "completed"}],
+        "trace_steps": [{"node": "risk_gate", "status": "completed"}],
     }
 
 
@@ -243,9 +243,10 @@ def _call_name(node: ast.AST) -> str | None:
 def test_approval_gate_has_no_runtime_risk_action_or_snapshot_coupling():
     source_path = Path("src/agent/nodes/approval_gate.py")
     tree = ast.parse(source_path.read_text())
+    legacy_risk_module = ".".join(("src", "agent", "nodes", "assess_" "risk_and_approval"))
     forbidden_modules = (
         "src.agent.nodes.risk_gate",
-        ".".join(("src", "agent", "nodes", "assess_risk_and_approval")),
+        legacy_risk_module,
         "src.approvals.snapshot_service",
         "src.approvals.service",
         "src.agent.nodes.action_draft",

@@ -130,7 +130,7 @@ class ReinterruptResumeGraph:
             "__interrupt__": [FakeInterrupt(interrupt_payload)],
             "trace_steps": [
                 {"node": "approval_gate", "status": "completed"},
-                {"node": "assess_risk_and_approval", "status": "completed"},
+                {"node": "risk_gate", "status": "completed"},
                 {"node": "approval_gate", "status": "interrupted"},
             ],
         }
