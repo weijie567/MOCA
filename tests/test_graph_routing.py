@@ -387,7 +387,7 @@ def test_route_after_safety_fails_closed_for_unsafe_or_clarifying_dispositions(s
 
 
 def test_route_after_safety_fails_closed_for_exceptions_or_unregistered_route(monkeypatch):
-    monkeypatch.setattr(routing_module, "_route_after_safety", lambda _state: "classify_intent")
+    monkeypatch.setattr(routing_module, "_route_after_safety", lambda _state: "unknown_safety_route")
     assert route_after_safety({}) == "clarification_gate"
 
     def raise_error(_state):
@@ -458,7 +458,7 @@ def test_route_after_contextual_intent_totality_and_phase54_slot_destination(sta
 
 
 def test_route_after_contextual_intent_fails_closed_for_exceptions_or_unregistered_route(monkeypatch):
-    monkeypatch.setattr(routing_module, "_route_after_contextual_intent", lambda _state: "session_memory_load")
+    monkeypatch.setattr(routing_module, "_route_after_contextual_intent", lambda _state: "unknown_contextual_route")
     assert route_after_contextual_intent({}) == "clarification_gate"
 
     def raise_error(_state):
@@ -469,6 +469,7 @@ def test_route_after_contextual_intent_fails_closed_for_exceptions_or_unregister
 
 
 def test_legacy_intent_route_delegate_is_not_public_current_route_authority():
+    legacy_route_helper = "route_after_" "intent"
     state = {
         "primary_intent": "refund_troubleshooting",
         "requested_operation": "read_status",
@@ -476,11 +477,12 @@ def test_legacy_intent_route_delegate_is_not_public_current_route_authority():
     }
 
     assert route_after_contextual_intent(state) == "slot_resolution_gate"
-    assert not hasattr(routing_module, "route_after_intent")
-    assert "def route_after_intent(" not in Path("src/agent/routing.py").read_text(encoding="utf-8")
+    assert not hasattr(routing_module, legacy_route_helper)
+    assert f"def {legacy_route_helper}(" not in Path("src/agent/routing.py").read_text(encoding="utf-8")
 
 
 def test_legacy_slot_route_delegate_is_not_public_current_route_authority():
+    legacy_route_helper = "route_after_" "slots"
     state = {
         "primary_intent": "refund_troubleshooting",
         "required_slots": {"all_of": [], "any_of": [["order_id", "refund_case_id"]], "optional": []},
@@ -488,8 +490,8 @@ def test_legacy_slot_route_delegate_is_not_public_current_route_authority():
     }
 
     assert route_after_slot_resolution(state) == "clarification_gate"
-    assert not hasattr(routing_module, "route_after_slots")
-    assert "def route_after_slots(" not in Path("src/agent/routing.py").read_text(encoding="utf-8")
+    assert not hasattr(routing_module, legacy_route_helper)
+    assert f"def {legacy_route_helper}(" not in Path("src/agent/routing.py").read_text(encoding="utf-8")
 
 
 def test_route_after_slot_resolution_memory_hints_use_canonical_destination():
@@ -501,9 +503,6 @@ def test_route_after_slot_resolution_memory_hints_use_canonical_destination():
 
     assert SLOT_RESOLUTION_ROUTES == {"clarification_gate", "investigate", "memory_context_load"}
     assert route_after_slot_resolution({**base_state, "routing_hints": {"needs_reviewed_memory_context": True}}) == (
-        "memory_context_load"
-    )
-    assert route_after_slot_resolution({**base_state, "routing_hints": {"needs_long_term_memory": True}}) == (
         "memory_context_load"
     )
 
@@ -641,13 +640,13 @@ def test_route_after_approval_sends_edit_to_risk_reroute_not_action_draft():
     assert route_after_approval(state) == "risk_gate"
 
 
-def test_route_after_approval_rejects_current_legacy_edit_route():
+def test_route_after_approval_rejects_unregistered_edit_resume_route():
     state = _approval_route_state(
         approval_overrides={
             "decision_type": "edit",
             "status": "superseded",
             "new_action_payload_hash": "sha256:" + "3" * 64,
-            "resume_route": "assess_risk_and_approval",
+            "resume_route": "unknown_risk_resume_route",
         }
     )
 

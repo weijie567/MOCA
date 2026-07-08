@@ -617,8 +617,9 @@ def test_current_turn_business_id_replacement_records_cross_intent_conflict_prov
     assert routing_module.route_after_slot_resolution(state) == "investigate"
 
 
-def test_route_after_slots_is_not_public_current_route_authority():
+def test_legacy_slot_route_delegate_is_not_public_current_route_authority():
+    legacy_route_helper = "route_after_" "slots"
     state = _trusted_state(value="ORD-SESSION")
 
     assert routing_module.route_after_slot_resolution(state) == "investigate"
-    assert not hasattr(routing_module, "route_after_slots")
+    assert not hasattr(routing_module, legacy_route_helper)

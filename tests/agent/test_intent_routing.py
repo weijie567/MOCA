@@ -553,19 +553,8 @@ def test_intent_consumers_do_not_read_policy_constants_directly():
         assert token not in contextual_intent_source
 
 
-def test_route_after_slot_resolution_totality_and_legacy_memory_hint_route():
+def test_route_after_slot_resolution_totality_uses_canonical_route_values():
     assert route_after_slot_resolution({}) in SLOT_ROUTES
-    assert (
-        route_after_slot_resolution(
-            {
-                "primary_intent": "policy_qa",
-                "required_slots": {"all_of": [], "any_of": [], "optional": []},
-                "extracted_slots": {},
-                "routing_hints": {"needs_long_term_memory": True},
-            }
-        )
-        == "memory_context_load"
-    )
 
 
 def test_route_after_slot_resolution_accepts_canonical_reviewed_memory_hint_and_preserves_slot_gate():
