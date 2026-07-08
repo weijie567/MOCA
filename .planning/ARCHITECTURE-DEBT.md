@@ -1340,6 +1340,35 @@
 **剩余风险**
 - ✅ 本计划范围内无剩余 route-authority 风险。历史 persisted row mapping 仍保留为只读数据兼容，不是 current graph route vocabulary。
 
+## 2026-07-08 — Phase 58 / CAGM-09 Agent Graph migration no-debt closeout ✅已修复验证
+
+**子系统**
+- Agent Graph / 意图识别 / RAG recommendation / 记忆上下文 / 风险审批主链
+
+**问题 / 根因**
+- Phase 50-57 逐步把 active graph 切到 canonical nodes，但历史 wrapper、route delegate、trace/API/frontend/eval fallback、approval retry metadata、current-source docs 和 planning ledger 中仍保留迁移期旧名。若不统一收口，后续维护者可能把历史兼容读法误当成 current runtime authority。
+
+**影响**
+- CAGM-09 不能只看 `src/agent/graph.py` 的 15-node 注册结果；还必须证明 active route values、current resume route、current eval node、docs authority 和 package metadata 都不再依赖 legacy graph names，否则 replay/eval/API 文档可能继续传播双轨语义。
+
+**处理状态**
+- ✅ 已修复验证。Phase 58 Plan 01-09 已删除或内化 public legacy route delegates、active graph vocabulary compatibility aliases、recommendation/risk/intent/session/slot/memory legacy wrapper 文件与 direct legacy tests，并把 trace/API/SSE/frontend/eval/approval retry route authority 收敛为 canonical-only current surface。
+- ✅ 本次 Plan 10 已同步 current-source docs 和 README：当前 active main graph 明确为 final 15 canonical registered nodes；旧 graph/node/router 名称只可作为历史 trace/read 投影、旧 planning 文档、测试防回归或 classifier artifact，不再作为 active graph registration、current route value、current resume route、current eval node 或 current docs authority。
+- ✅ `docs/contract-spec.md` §9 已核对：canonical node list、router contract、deterministic gate 和 risk/approval/action 边界与当前 final 15-node 实现一致；其中 legacy alias 段落是 migration policy / historical compatibility 说明，不要求修改为实现事实，因此本次未编辑 spec。
+
+**证据 / 验证**
+- Phase / requirement：Phase 58 Plan 10 / CAGM-09。
+- Docs evidence：`docs/current-langgraph-architecture.md`、`docs/architecture-overview.md`、`docs/target-agent-platform-architecture-plan.md`、`README.md`。
+- Strict classifier：`UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/classify_phase58_legacy_hits.py --strict` → pass；`total_hits=824`、`files=76`、`active_runtime_legacy=0`、`current_docs_legacy_authority=0`、`unclassified_rows=0`；category counts：`classifier_implementation=8`、`historical_data_read_projection=20`、`legacy_wrapper_or_import_test=213`、`phase58_cleanup_artifact=316`、`previous_state_documentation=267`。
+- Current-doc canonical concept assertion：`UV_CACHE_DIR=/tmp/uv-cache uv run python -c "...required final graph concepts..."` → `phase58-current-doc-canonical-concepts: pass`。
+
+**Residual historical-read caveats**
+- 🟡 不 bulk rewrite historical DB rows。历史 trace/API/SSE/approval retry metadata 中若仍有旧名，只允许在 bounded historical read/projection path 中映射到 canonical owner；fresh/current graph route、resume route、eval node 和 docs authority 不接受旧名。
+- 🟡 旧 planning 文档、历史架构草稿和测试防回归文本仍会被 strict classifier 统计为 classified historical/reference rows；这不是 runtime debt，后续只需维持 `active_runtime_legacy=0`、`current_docs_legacy_authority=0`、`unclassified_rows=0`。
+
+**剩余风险**
+- ✅ 当前 CAGM-09 no-debt scope 无剩余 active-runtime 风险。剩余风险仅是未来改动重新引入旧名 current authority；由 strict classifier、graph baseline tests、approval route tests 和 docs review 继续防回归。
+
 ## Phase 57 Plan 03 — approval_gate trusted result validation 与新回合 approval authority 清空 ✅已修复验证
 
 **问题 / 根因**

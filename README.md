@@ -40,7 +40,7 @@ graph TB
 
 ### Agent Workflow
 
-下图是当前源码 runtime 快照。当前 active graph 已使用 canonical `risk_gate`；历史 `assess_risk_and_approval` 只保留为 trace/import/test/persisted retry 兼容面，并由 Phase 58 负责最终删除。目标 runtime graph 以 [docs/target-agent-platform-architecture-plan.md](docs/target-agent-platform-architecture-plan.md) §6.1 和 [docs/contract-spec.md](docs/contract-spec.md) §9 为当前主要契约参考。
+下图是当前源码 runtime 快照。当前 active graph 是 final 15-node canonical runtime graph；旧 graph/node/router 名称只可能出现在历史 trace/read 投影、旧 planning 文档、测试防回归或 classifier artifact 中，不能作为 current registered node、current route value、current resume route 或 current eval node。目标 runtime graph 以 [docs/target-agent-platform-architecture-plan.md](docs/target-agent-platform-architecture-plan.md) §6.1 和 [docs/contract-spec.md](docs/contract-spec.md) §9 为当前主要契约参考。
 
 ```mermaid
 graph LR

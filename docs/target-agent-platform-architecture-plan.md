@@ -62,14 +62,14 @@ router / graph node
 仍适用的规则：
 
 - 已进入 `contract-spec.md` 的内容默认以 spec 为主要参考；若 phase plan 发现不合理或与源码/测试/产品目标冲突，必须先提出并记录 spec delta。
-- phase 实现可以保留 legacy alias，但必须映射到 target canonical contract。
+- 历史 phase 实现曾允许临时 legacy alias，但 Phase 58 closeout 后 current runtime 不再保留 active legacy alias；旧名只能作为历史资料、历史数据读取投影或防回归 artifact，并且必须映射到 target canonical contract。
 - 未进入 `contract-spec.md` 的新增字段、节点或状态不得静默引入。
 
 Phase 26 delta 状态：
 
 | 目标内容 | Phase 26 状态 | 后续要求 |
 | --- | --- | --- |
-| runtime graph 中的 `safety_pre_route`、`session_context_load`、`contextual_intent_resolve`、`slot_resolution_gate`、`rag_context_build`、`claim_verify` 等节点 | 已进入 `contract-spec.md` §9 target canonical vocabulary | 当前 owner：Phase 51-58；legacy alias 过渡期必须可映射，Phase 58 前必须清零 |
+| runtime graph 中的 `safety_pre_route`、`session_context_load`、`contextual_intent_resolve`、`slot_resolution_gate`、`rag_context_build`、`claim_verify` 等节点 | 已进入 `contract-spec.md` §9 target canonical vocabulary | 当前 owner：Phase 51-58；Phase 58 closeout 后 current runtime 已清零 active legacy alias |
 | `route_after_safety`、`route_after_rag_context`、`route_after_claim_verify` 等 router | 已进入 `contract-spec.md` §9 router contract | 当前 owner：Phase 52-57 分阶段迁移，Phase 58 做 final no-debt / totality guard |
 | `TrustedContext` 相关字段 | canonical fields 继续完全遵守 `contract-spec.md` §8.0 | 不得把 request/run/projection-local metadata 加进 canonical `TrustedContext` |
 | RAG/claim 输出状态，例如 `verified_evidence_package`、`rag_context_status`、`ClaimVerificationBundle` | 已进入 `contract-spec.md` §8.3 和 §10 AgentState registry | 当前 owner：Phase 56 统一 recommendation / RAG / claim fail-closed 状态与验证 |
@@ -227,7 +227,7 @@ flowchart TD
 
 ### 6.1 Canonical Runtime Graph
 
-本小节是目标 runtime graph 的主图，registered node / router 名称以 `docs/contract-spec.md` §9 的当前已接受契约为主要参考；若本文图或说明与 spec 冲突，后续 phase plan 必须显式提出 spec delta、MVP scope 或 defer 决策，不能静默偏离。`extract_slots`、`generate_recommendation`、`assess_risk_and_approval` 等旧实现名只作为迁移期 legacy alias、历史兼容或旧实现说明出现，不能作为 current registered node key。
+本小节是目标 runtime graph 的主图，registered node / router 名称以 `docs/contract-spec.md` §9 的当前已接受契约为主要参考；若本文图或说明与 spec 冲突，后续 phase plan 必须显式提出 spec delta、MVP scope 或 defer 决策，不能静默偏离。Phase 58 closeout 后，旧 graph/node/router 名称只作为历史兼容、历史数据读取投影或旧实现说明出现，不能作为 current registered node key、current route value、current resume route 或 current eval node。
 
 本图保留 `investigate` 展开视图，方便理解 bounded read-only ReAct loop；展开框内部 step / service / capability 不是主链 graph node。slot candidate extraction 作为 `contextual_intent_resolve` / `slot_resolution_gate` 的内部能力，不作为独立 registered graph node；真正改变 route、trace/eval/replay 边界的是 `slot_resolution_gate`。
 
@@ -333,7 +333,7 @@ flowchart TD
 - `ToolPlatform`、`BusinessFactService`、`KnowledgeService`、`MemoryContextService` 是 service，不是主链 registered node。
 - RAG 在 runtime 上拆成两段：RAG retrieval / policy search 是 `ToolPlatform` 的 planner-visible read capability，应该和 business facts、memory retrieval 一起进入 `investigate` 的受控 ReAct read loop；`rag_context_build` 在 loop 外把候选升级为 verified evidence package，供生成和 replay 使用。
 - `slot_resolution_gate`、`rag_context_build`、`claim_verify` 是显式 registered node，因为它们会改变 route、影响 fail-closed、并且需要 trace/eval/replay。
-- `risk_gate` 是 canonical node；Phase 57 后 current runtime 已使用 `risk_gate`，历史 `assess_risk_and_approval` 只能作为 legacy alias 映射到该语义，不表示它会替代 `approval_gate`。
+- `risk_gate` 是 canonical node；current runtime 使用 `risk_gate`，历史风险节点名只能作为 historical read/projection 文本映射到该语义，不表示它会替代 `approval_gate`。
 - `claim_verify` 验证的是 `recommendation_generation` 产出的 material claims / proposed action claim，因此应在生成之后；如果只是 generation 前的证据充足性检查，应归入 `rag_context_build` 或 `route_after_rag_context`。
 - `memory_write_pipeline` 和 `trace_close` 可以先做 post-response/runtime concern；如果后续需要 checkpoint、retry 或 eval，再注册为 graph node。
 - future `action_execution` 不进入当前目标 runtime graph；当前只到 `action_draft`。
