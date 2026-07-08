@@ -7,7 +7,12 @@ from typing import Any, Literal
 
 
 TargetGraphKind = Literal["node", "router"]
-TargetGraphStatus = Literal["runtime", "compatibility_alias", "deferred_non_runnable", "unknown_passthrough"]
+TargetGraphStatus = Literal[
+    "runtime",
+    "historical_projection",
+    "deferred_non_runnable",
+    "unknown_passthrough",
+]
 
 
 @dataclass(frozen=True)
@@ -38,169 +43,115 @@ def _entry(
     )
 
 
-_PHASE54_SLOT_ALIAS_REASON_CODES = (
-    "PHASE_54_COMPATIBILITY_ALIAS",
-    "HISTORICAL_TRACE_PROJECTION",
-    "IMPORT_TEST_COMPATIBILITY",
-    "DELETE_BY_PHASE_58",
-)
-
-_PHASE55_MEMORY_ALIAS_REASON_CODES = (
-    "PHASE_55_COMPATIBILITY_ALIAS",
-    "HISTORICAL_TRACE_PROJECTION",
-    "IMPORT_TEST_COMPATIBILITY",
-    "DELETE_BY_PHASE_58",
-)
-
-_PHASE56_RECOMMENDATION_ALIAS_REASON_CODES = (
-    "PHASE_56_COMPATIBILITY_ALIAS",
-    "HISTORICAL_TRACE_PROJECTION",
-    "IMPORT_TEST_COMPATIBILITY",
-    "DELETE_BY_PHASE_58",
-)
-
-_PHASE57_RISK_ALIAS_REASON_CODES = (
-    "PHASE_57_COMPATIBILITY_ALIAS",
-    "HISTORICAL_TRACE_PROJECTION",
-    "IMPORT_TEST_COMPATIBILITY",
-    "DELETE_BY_PHASE_58",
-)
-
 _ENTRIES: tuple[GraphVocabularyEntry, ...] = (
     _entry("receive_request", "receive_request", "node", "runtime", True),
+    _entry("safety_pre_route", "safety_pre_route", "node", "runtime", True),
+    _entry("session_context_load", "session_context_load", "node", "runtime", True),
+    _entry("contextual_intent_resolve", "contextual_intent_resolve", "node", "runtime", True),
+    _entry("slot_resolution_gate", "slot_resolution_gate", "node", "runtime", True),
+    _entry("memory_context_load", "memory_context_load", "node", "runtime", True),
     _entry("investigate", "investigate", "node", "runtime", True),
-    _entry("clarification_gate", "clarification_gate", "node", "runtime", True),
+    _entry("rag_context_build", "rag_context_build", "node", "runtime", True),
+    _entry("recommendation_generation", "recommendation_generation", "node", "runtime", True),
+    _entry("claim_verify", "claim_verify", "node", "runtime", True),
+    _entry("risk_gate", "risk_gate", "node", "runtime", True),
     _entry("approval_gate", "approval_gate", "node", "runtime", True),
     _entry("action_draft", "action_draft", "node", "runtime", True),
+    _entry("clarification_gate", "clarification_gate", "node", "runtime", True),
     _entry("final_response", "final_response", "node", "runtime", True),
-    _entry("memory_write", "memory_write", "node", "runtime", True),
-    _entry(
-        "classify_intent",
-        "contextual_intent_resolve",
-        "node",
-        "compatibility_alias",
-        True,
-        ("PHASE_53_COMPATIBILITY_ALIAS", "DELETE_BY_PHASE_58"),
-    ),
-    _entry(
-        "intent_classification",
-        "contextual_intent_resolve",
-        "node",
-        "compatibility_alias",
-        True,
-        ("PHASE_53_COMPATIBILITY_ALIAS", "DELETE_BY_PHASE_58"),
-    ),
-    _entry("contextual_intent_resolve", "contextual_intent_resolve", "node", "runtime", True),
-    _entry(
-        "classify_intent:pre_route",
-        "safety_pre_route",
-        "node",
-        "compatibility_alias",
-        True,
-        ("PHASE_52_HISTORICAL_TRACE_COMPATIBILITY", "DELETE_BY_PHASE_58"),
-    ),
-    _entry("safety_pre_route", "safety_pre_route", "node", "runtime", True),
-    _entry(
-        "session_memory_load",
-        "session_context_load",
-        "node",
-        "compatibility_alias",
-        True,
-        ("PHASE_53_COMPATIBILITY_ALIAS", "DELETE_BY_PHASE_58"),
-    ),
-    _entry("session_context_load", "session_context_load", "node", "runtime", True),
-    _entry(
-        "long_term_memory_retrieve",
-        "memory_context_load",
-        "node",
-        "compatibility_alias",
-        True,
-        _PHASE55_MEMORY_ALIAS_REASON_CODES,
-    ),
-    _entry(
-        "reviewed_memory_context_retrieve",
-        "memory_context_load",
-        "node",
-        "compatibility_alias",
-        True,
-        _PHASE55_MEMORY_ALIAS_REASON_CODES,
-    ),
-    _entry("memory_context_load", "memory_context_load", "node", "runtime", True),
-    _entry(
-        "extract_slots",
-        "slot_resolution_gate",
-        "node",
-        "compatibility_alias",
-        True,
-        _PHASE54_SLOT_ALIAS_REASON_CODES,
-    ),
-    _entry(
-        "slot_resolution_gate",
-        "slot_resolution_gate",
-        "node",
-        "runtime",
-        True,
-    ),
-    _entry(
-        "rag_context_build",
-        "rag_context_build",
-        "node",
-        "runtime",
-        True,
-    ),
-    _entry(
-        "generate_recommendation",
-        "recommendation_generation",
-        "node",
-        "compatibility_alias",
-        True,
-        _PHASE56_RECOMMENDATION_ALIAS_REASON_CODES,
-    ),
-    _entry(
-        "recommendation_generation",
-        "recommendation_generation",
-        "node",
-        "runtime",
-        True,
-    ),
-    _entry(
-        "claim_verify",
-        "claim_verify",
-        "node",
-        "runtime",
-        True,
-    ),
-    _entry("risk_gate", "risk_gate", "node", "runtime", True),
-    _entry(
-        "assess_risk_and_approval",
-        "risk_gate",
-        "node",
-        "compatibility_alias",
-        False,
-        _PHASE57_RISK_ALIAS_REASON_CODES,
-    ),
-    _entry(
-        "route_after_intent",
-        "route_after_contextual_intent",
-        "router",
-        "compatibility_alias",
-        True,
-        ("PHASE_53_COMPATIBILITY_ALIAS", "DELETE_BY_PHASE_58"),
-    ),
+    _entry("route_after_safety", "route_after_safety", "router", "runtime", True),
     _entry("route_after_contextual_intent", "route_after_contextual_intent", "router", "runtime", True),
-    _entry(
-        "route_after_slots",
-        "route_after_slot_resolution",
-        "router",
-        "compatibility_alias",
-        True,
-        _PHASE54_SLOT_ALIAS_REASON_CODES,
-    ),
     _entry("route_after_slot_resolution", "route_after_slot_resolution", "router", "runtime", True),
+    _entry("route_after_investigate", "route_after_investigate", "router", "runtime", True),
+    _entry("route_after_rag_context", "route_after_rag_context", "router", "runtime", True),
+    _entry("route_after_recommendation", "route_after_recommendation", "router", "runtime", True),
+    _entry("route_after_claim_verify", "route_after_claim_verify", "router", "runtime", True),
     _entry("route_after_risk", "route_after_risk", "router", "runtime", True),
+    _entry("route_after_approval", "route_after_approval", "router", "runtime", True),
 )
 
 _ENTRY_BY_KIND_AND_NAME = MappingProxyType({(entry.kind, entry.legacy_name): entry for entry in _ENTRIES})
+_HISTORICAL_STORED_NAME_PROJECTIONS = MappingProxyType(
+    {
+        ("node", "classify_intent"): _entry(
+            "classify_intent",
+            "contextual_intent_resolve",
+            "node",
+            "historical_projection",
+            False,
+        ),
+        ("node", "intent_classification"): _entry(
+            "intent_classification",
+            "contextual_intent_resolve",
+            "node",
+            "historical_projection",
+            False,
+        ),
+        ("node", "classify_intent:pre_route"): _entry(
+            "classify_intent:pre_route",
+            "safety_pre_route",
+            "node",
+            "historical_projection",
+            False,
+        ),
+        ("node", "session_memory_load"): _entry(
+            "session_memory_load",
+            "session_context_load",
+            "node",
+            "historical_projection",
+            False,
+        ),
+        ("node", "long_term_memory_retrieve"): _entry(
+            "long_term_memory_retrieve",
+            "memory_context_load",
+            "node",
+            "historical_projection",
+            False,
+        ),
+        ("node", "reviewed_memory_context_retrieve"): _entry(
+            "reviewed_memory_context_retrieve",
+            "memory_context_load",
+            "node",
+            "historical_projection",
+            False,
+        ),
+        ("node", "extract_slots"): _entry(
+            "extract_slots",
+            "slot_resolution_gate",
+            "node",
+            "historical_projection",
+            False,
+        ),
+        ("node", "generate_recommendation"): _entry(
+            "generate_recommendation",
+            "recommendation_generation",
+            "node",
+            "historical_projection",
+            False,
+        ),
+        ("node", "assess_risk_and_approval"): _entry(
+            "assess_risk_and_approval",
+            "risk_gate",
+            "node",
+            "historical_projection",
+            False,
+        ),
+        ("router", "route_after_intent"): _entry(
+            "route_after_intent",
+            "route_after_contextual_intent",
+            "router",
+            "historical_projection",
+            False,
+        ),
+        ("router", "route_after_slots"): _entry(
+            "route_after_slots",
+            "route_after_slot_resolution",
+            "router",
+            "historical_projection",
+            False,
+        ),
+    }
+)
 
 
 def graph_vocabulary_entry(name: str, *, kind: TargetGraphKind | None = None) -> GraphVocabularyEntry | None:
@@ -229,6 +180,10 @@ def project_trace_step_for_contract(step: Mapping[str, Any]) -> dict[str, Any]:
     entry = graph_vocabulary_entry(implementation_node, kind="node") or graph_vocabulary_entry(
         implementation_node, kind="router"
     )
+    if entry is None:
+        entry = _HISTORICAL_STORED_NAME_PROJECTIONS.get(
+            ("node", implementation_node)
+        ) or _HISTORICAL_STORED_NAME_PROJECTIONS.get(("router", implementation_node))
     projected = dict(step)
     projected["implementation_node"] = implementation_node
     projected["target_node"] = implementation_node if entry is None else entry.target_name
