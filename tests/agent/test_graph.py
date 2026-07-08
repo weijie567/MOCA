@@ -15,12 +15,11 @@ from tests.agent.conftest import FakeLLM
 
 from src.agent import trace as trace_module
 from src.agent.graph import build_graph, route_after_approval, route_after_risk
-from src.agent.graph_vocabulary import target_graph_name
-from src.agent.nodes import contextual_intent_resolve as contextual_intent_module
+from src.agent.nodes import contextual_intent_resolve as contextual_intent_resolve_module
 from src.agent.nodes import memory_context_load as memory_context_load_module
-from src.agent.nodes import recommendation_generation as generate_recommendation_module
+from src.agent.nodes import recommendation_generation as recommendation_generation_module
 from src.agent.nodes import reviewed_memory_context_retrieve as reviewed_memory_context_module
-from src.agent.nodes import risk_gate as assess_risk_module
+from src.agent.nodes import risk_gate as risk_gate_module
 from src.agent.nodes import slot_resolution_gate as slot_resolution_gate_module
 from src.agent.routing import (
     route_after_claim_verify,
@@ -584,10 +583,10 @@ def _patch_graph_dependencies(
     policy_status: str = "strong_evidence",
     ticket_id: str | None = None,
 ):
-    monkeypatch.setattr(contextual_intent_module, "_get_llm", lambda: FakeLLM(_intent(intent)))
+    monkeypatch.setattr(contextual_intent_resolve_module, "_get_llm", lambda: FakeLLM(_intent(intent)))
     monkeypatch.setattr(slot_resolution_gate_module, "_get_llm", lambda: FakeLLM(_slots(order_id)))
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
-    monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: FakeLLM(_risk()))
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
+    monkeypatch.setattr(risk_gate_module, "_get_llm", lambda: FakeLLM(_risk()))
 
     class FakePolicyKnowledgeService:
         def __init__(self, retriever) -> None:
@@ -600,7 +599,12 @@ def _patch_graph_dependencies(
                 if ref.tenant_id == tenant_id
             }
 
-    monkeypatch.setattr(generate_recommendation_module, "PolicyKnowledgeService", FakePolicyKnowledgeService, raising=False)
+    monkeypatch.setattr(
+        recommendation_generation_module,
+        "PolicyKnowledgeService",
+        FakePolicyKnowledgeService,
+        raising=False,
+    )
     tool_platform = FakeGraphToolPlatform(order_id=order_id, policy_status=policy_status, ticket_id=ticket_id)
     events: list[dict[str, Any]] = []
     return {"tool_platform": tool_platform, "events": events}
@@ -1029,8 +1033,8 @@ def test_phase58_graph_tests_and_fixtures_use_canonical_patch_seams_only():
         Path("tests/agent/test_graph.py"): [
             "as generate_" "recommendation_module",
             "as assess_" "risk_module",
-            'target_graph_name("long_term_' "memory_retrieve\"",
-            'target_graph_name("extract_' "slots\"",
+            'target_' 'graph_' 'name("long_term_' "memory_retrieve\"",
+            'target_' 'graph_' 'name("extract_' "slots\"",
             '"route_after_' 'slots": "route_after_slot_resolution"',
         ],
         Path("tests/agent/test_empty_session_adapter.py"): [
@@ -1044,24 +1048,14 @@ def test_phase58_graph_tests_and_fixtures_use_canonical_patch_seams_only():
             assert fragment not in source, f"{path} still references {fragment}"
 
 
-def test_memory_context_graph_runtime_names_project_to_target_vocabulary():
+def test_memory_context_graph_runtime_names_are_canonical_without_legacy_projection_assertions():
     graph = build_graph(MemorySaver())
     nodes = set(graph.get_graph().nodes)
 
     assert "memory_context_load" in nodes
     assert "long_term_memory_retrieve" not in nodes
-    assert target_graph_name("memory_context_load", kind="node") == "memory_context_load"
-    assert target_graph_name("long_term_memory_retrieve", kind="node") == "memory_context_load"
     assert "slot_resolution_gate" in nodes
-    assert target_graph_name("slot_resolution_gate", kind="node") == "slot_resolution_gate"
-    assert target_graph_name("extract_slots", kind="node") == "slot_resolution_gate"
-
-    legacy_router_targets = {
-        "route_after_slots": "route_after_slot_resolution",
-    }
-    for legacy_router, target_router in legacy_router_targets.items():
-        assert target_graph_name(legacy_router, kind="router") == target_router
-    assert target_graph_name("route_after_slot_resolution", kind="router") == "route_after_slot_resolution"
+    assert "extract_slots" not in nodes
 
 
 def test_phase57_recommendation_generation_claim_verify_and_risk_gate_are_registered_as_runnable_graph_nodes():
@@ -1339,10 +1333,10 @@ async def test_approval_chat_clears_contaminated_approval_authority_state(monkey
 async def test_memory_context_load_reviewed_retrieval_safe_empty_when_no_reviewed_rows(monkeypatch):
     payload = _intent("refund_troubleshooting")
     payload["routing_hints"] = {"needs_long_term_memory": True}
-    monkeypatch.setattr(contextual_intent_module, "_get_llm", lambda: FakeLLM(payload))
+    monkeypatch.setattr(contextual_intent_resolve_module, "_get_llm", lambda: FakeLLM(payload))
     monkeypatch.setattr(slot_resolution_gate_module, "_get_llm", lambda: FakeLLM(_slots("ORD-001")))
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
-    monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: FakeLLM(_risk()))
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
+    monkeypatch.setattr(risk_gate_module, "_get_llm", lambda: FakeLLM(_risk()))
     _patch_reviewed_memory_services(monkeypatch, profile_items=[], case_items=[])
     manager = FakeGraphToolPlatform(order_id="ORD-001")
     events: list[dict[str, Any]] = []
@@ -1369,10 +1363,10 @@ async def test_memory_context_load_reviewed_retrieval_safe_empty_when_no_reviewe
 async def test_canonical_reviewed_memory_hint_reaches_memory_context_load(monkeypatch):
     payload = _intent("refund_troubleshooting")
     payload["routing_hints"] = {"needs_reviewed_memory_context": True}
-    monkeypatch.setattr(contextual_intent_module, "_get_llm", lambda: FakeLLM(payload))
+    monkeypatch.setattr(contextual_intent_resolve_module, "_get_llm", lambda: FakeLLM(payload))
     monkeypatch.setattr(slot_resolution_gate_module, "_get_llm", lambda: FakeLLM(_slots("ORD-001")))
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
-    monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: FakeLLM(_risk()))
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
+    monkeypatch.setattr(risk_gate_module, "_get_llm", lambda: FakeLLM(_risk()))
     _patch_reviewed_memory_services(monkeypatch, profile_items=[], case_items=[])
     manager = FakeGraphToolPlatform(order_id="ORD-001")
     events: list[dict[str, Any]] = []
@@ -1450,10 +1444,10 @@ async def test_memory_context_load_skips_case_memory_without_query() -> None:
 async def test_memory_context_load_reviewed_retrieval_safe_empty_when_unavailable(monkeypatch):
     payload = _intent("refund_troubleshooting")
     payload["routing_hints"] = {"needs_long_term_memory": True}
-    monkeypatch.setattr(contextual_intent_module, "_get_llm", lambda: FakeLLM(payload))
+    monkeypatch.setattr(contextual_intent_resolve_module, "_get_llm", lambda: FakeLLM(payload))
     monkeypatch.setattr(slot_resolution_gate_module, "_get_llm", lambda: FakeLLM(_slots("ORD-001")))
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
-    monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: FakeLLM(_risk()))
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
+    monkeypatch.setattr(risk_gate_module, "_get_llm", lambda: FakeLLM(_risk()))
     _patch_reviewed_memory_services(monkeypatch, fail=True)
     manager = FakeGraphToolPlatform(order_id="ORD-001")
     events: list[dict[str, Any]] = []
@@ -1477,10 +1471,10 @@ async def test_memory_context_load_reviewed_retrieval_safe_empty_when_unavailabl
 async def test_memory_context_load_reviewed_snippets_flow_into_graph_state(monkeypatch):
     payload = _intent("refund_troubleshooting")
     payload["routing_hints"] = {"needs_long_term_memory": True}
-    monkeypatch.setattr(contextual_intent_module, "_get_llm", lambda: FakeLLM(payload))
+    monkeypatch.setattr(contextual_intent_resolve_module, "_get_llm", lambda: FakeLLM(payload))
     monkeypatch.setattr(slot_resolution_gate_module, "_get_llm", lambda: FakeLLM(_slots("ORD-001")))
-    monkeypatch.setattr(generate_recommendation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
-    monkeypatch.setattr(assess_risk_module, "_get_llm", lambda: FakeLLM(_risk()))
+    monkeypatch.setattr(recommendation_generation_module, "_get_llm", lambda: FakeLLM(_recommendation()))
+    monkeypatch.setattr(risk_gate_module, "_get_llm", lambda: FakeLLM(_risk()))
     _patch_reviewed_memory_services(
         monkeypatch,
         profile_items=[

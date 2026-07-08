@@ -18655,3 +18655,38 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/agent/test_memory_context_load.py
 ### 剩余问题和下次继续排查入口
 
 本计划范围内无剩余验证问题。若后续 reviewed memory scope 行为调整，应优先检查 `src/agent/nodes/reviewed_memory_context_retrieve.py::_current_turn_slots`、`src/memory/context_service.py::_reviewed_memory_scopes` 与 `tests/agent/test_memory_context_load.py::test_memory_context_load_skips_case_memory_without_query` 是否仍保持同一 authority 假设。
+
+## 2026-07-08：Phase 58-06 Perl 批量重命名出现 locale 警告
+
+### 问题现象
+
+执行 58-06 Task 1 的测试别名批量重命名时，`perl -0pi` 完成替换但输出 locale 警告：
+
+```text
+perl: warning: Setting locale failed.
+perl: warning: Falling back to a fallback locale ("zh_CN.UTF-8").
+```
+
+### 如何检测 / 复现
+
+运行过的命令：
+
+```bash
+perl -0pi -e 's/contextual_intent_module/contextual_intent_resolve_module/g; s/generate_recommendation_module/recommendation_generation_module/g; s/assess_risk_module/risk_gate_module/g' tests/agent/test_graph.py
+```
+
+### 关键证据或命令
+
+命令退出码为 0，文件替换已生效；后续 `rg` 检查显示 legacy patch alias 已被清理，仅剩测试中的负向 legacy 断言。
+
+### 当前判断 / 根因
+
+这是本机 shell 环境中 `LC_ALL=C.UTF-8` / `LC_CTYPE=C.UTF-8` 与可用 locale 不匹配导致的工具警告，不是代码行为或测试环境入口问题。
+
+### 已做处理
+
+确认替换结果正确，并继续使用项目批准入口运行测试验证。未修改全局 locale 配置，避免把环境配置变更混入本计划。
+
+### 剩余问题和下次继续排查入口
+
+本计划范围内无剩余问题。若后续再次使用 Perl/系统工具出现相同警告，可先检查当前 shell 的 `LC_ALL`、`LC_CTYPE`、`LANG`，或改用 `apply_patch` 做小范围编辑。
