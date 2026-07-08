@@ -519,7 +519,11 @@ Plans:
 **Requirements:** MEM-01, MEM-02, MEM-03, CAGM-08, CAGM-09
 **Depends on:** Phase 58
 **Gap Closure:** Closes the integration gap recorded in `.planning/v2.1-MILESTONE-AUDIT.md`.
-**Plans:** Pending; run `$gsd-plan-phase 59`.
+**Plans:** 3 plans
+Plans:
+- [ ] 59-01-PLAN.md — shared terminal finalizer utilities, terminal memory eligibility, and idempotent finalizer trace persistence.
+- [ ] 59-02-PLAN.md — approval-resume completed-path finalizer integration with interrupted/error skip boundaries.
+- [ ] 59-03-PLAN.md — approval/memory regression tests, conditional ledgers, and final Phase 59 validation.
 **Success Criteria** (what must be TRUE):
   1. Approval-resume completed runs call `finalize_completed_agent_run_memory(...)` or an equivalent shared terminal finalization service with idempotency-compatible behavior.
   2. The approval-resume completed path persists or reuses the assistant message, persists the thread summary, runs terminal memory write, and appends finalizer trace steps including Case Working Context writeback status.
